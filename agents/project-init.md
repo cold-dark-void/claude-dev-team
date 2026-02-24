@@ -328,9 +328,55 @@ _Seeded from AGENTS.md on [date]._
 
 If no AGENTS.md exists, write short placeholder lessons.md files with headers only.
 
-## Step 4: Report
+## Step 4: Bootstrap Claude Code's Project Memory
 
-After writing all 6 files, output a summary:
+Create `.claude/CLAUDE.md` (the project memory pointer) if it doesn't already exist:
+
+```bash
+if [ ! -f "$MROOT/.claude/CLAUDE.md" ]; then
+  mkdir -p "$MROOT/.claude"
+  cat > "$MROOT/.claude/CLAUDE.md" << 'EOF'
+# Project Memory
+
+Your memory for this project lives at `.claude/memory/claude/memory.md` (project-local, worktree-shared).
+
+At session start:
+1. Resolve project root: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
+2. Read `$MROOT/.claude/memory/claude/memory.md` if it exists
+3. Write new memories here — not to the global `~/.claude/projects/...` path
+
+This file is shared across all git worktrees since they share the same `.git` common directory.
+Fits the per-agent convention: each team agent uses `$MROOT/.claude/memory/<agent>/`; Claude Code uses `$MROOT/.claude/memory/claude/`.
+EOF
+fi
+```
+
+Seed `.claude/memory/claude/memory.md` with a project context header if it doesn't already exist:
+
+```bash
+mkdir -p "$MROOT/.claude/memory/claude"
+if [ ! -f "$MROOT/.claude/memory/claude/memory.md" ]; then
+  cat > "$MROOT/.claude/memory/claude/memory.md" << EOF
+# Claude Code Memory — [Project Name]
+_Seeded by project-init on [date]_
+
+## Project Overview
+[Brief 1-2 sentence description of what this project does]
+
+## Tech Stack
+[Key languages, frameworks, and tools]
+
+## Key Conventions
+[Important patterns, rules, or decisions to remember across sessions]
+EOF
+fi
+```
+
+Replace `[Project Name]`, `[date]`, and the placeholder sections with real content from the scan.
+
+## Step 5: Report
+
+After writing all files, output a summary:
 ```
 ✓ Initialized team memory for: [project name]
   Location: [MROOT]/.claude/memory/
@@ -341,6 +387,7 @@ After writing all 6 files, output a summary:
   ic4/cortex.md       — [1-line summary]
   devops/cortex.md    — [1-line summary]
   qa/cortex.md        — [1-line summary]
+  claude/memory.md    — [1-line summary of project context seeded]
 
 Run /init-team again any time the project changes significantly.
 ```
