@@ -19,11 +19,15 @@ This skill sets up a complete project structure for AI agent collaboration using
 ```
 project/
 ├── .claude/
+│   ├── CLAUDE.md             # Project memory pointer for Claude Code
 │   ├── plans.md              # Master plan index
 │   ├── plans/                # Individual plan files
 │   │   └── .gitkeep
-│   └── context/              # Task progress tracking
-│       └── .gitkeep
+│   ├── context/              # Task progress tracking
+│   │   └── .gitkeep
+│   └── memory/
+│       └── claude/           # Claude Code's project-local memory
+│           └── memory.md
 ├── specs/
 │   └── TDD.md                # Living behavioral specifications
 ├── AGENTS.md                 # Project-specific rules
@@ -42,11 +46,41 @@ Before creating files, check:
 ### Step 2: Create Directory Structure
 
 ```bash
-mkdir -p .claude/plans .claude/context specs
+mkdir -p .claude/plans .claude/context .claude/memory/claude specs
 touch .claude/plans/.gitkeep .claude/context/.gitkeep
 ```
 
-### Step 3: Create plans.md
+### Step 3: Create .claude/CLAUDE.md
+
+Create `.claude/CLAUDE.md` with the project memory pointer so Claude Code uses project-local memory:
+
+```markdown
+# Project Memory
+
+Your memory for this project lives at `.claude/memory/claude/memory.md` (project-local, worktree-shared).
+
+At session start:
+1. Resolve project root: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
+2. Read `$MROOT/.claude/memory/claude/memory.md` if it exists
+3. Write new memories here — not to the global `~/.claude/projects/...` path
+
+This file is shared across all git worktrees since they share the same `.git` common directory.
+Fits the per-agent convention: each team agent uses `$MROOT/.claude/memory/<agent>/`; Claude Code uses `$MROOT/.claude/memory/claude/`.
+```
+
+Also seed `.claude/memory/claude/memory.md` with a minimal header:
+
+```markdown
+# Claude Code Memory — <PROJECT NAME>
+_Initialized: <TODAY'S DATE>_
+
+## Project Context
+[Add project-specific notes here as you work]
+```
+
+Replace `<PROJECT NAME>` and `<TODAY'S DATE>` with actual values.
+
+### Step 4: Create plans.md
 
 Create `.claude/plans.md` with this content:
 
@@ -107,7 +141,8 @@ _Plans older than 2 weeks. See `plans/archive/` for detailed documentation._
 - Plans.md is committed to git (contains project history)
 ```
 
-### Step 4: Create TDD.md
+### Step 5: Create TDD.md
+
 
 Create `specs/TDD.md` with starter specifications:
 
@@ -315,7 +350,7 @@ specs/
 
 **IMPORTANT**: Replace `<PROJECT NAME>` with actual project name and `<TODAY'S DATE>` with today's date (YYYY-MM-DD format).
 
-### Step 5: Create AGENTS.md
+### Step 6: Create AGENTS.md
 
 Create `AGENTS.md` with this template:
 
@@ -430,7 +465,7 @@ project/
 
 **IMPORTANT**: Tell user to fill in the placeholder sections with actual project details.
 
-### Step 6: Update or Create .gitignore
+### Step 7: Update or Create .gitignore
 
 If `.gitignore` doesn't exist, create it with:
 
@@ -452,7 +487,7 @@ If `.gitignore` doesn't exist, create it with:
 
 If `.gitignore` already exists, ask user if they want to append these patterns.
 
-### Step 7: Summary and Next Steps
+### Step 8: Summary and Next Steps
 
 After creating all files, output:
 
@@ -462,6 +497,9 @@ After creating all files, output:
 Created:
   📁 .claude/plans/ - Plan files directory
   📁 .claude/context/ - Progress tracking directory
+  📁 .claude/memory/claude/ - Claude Code project-local memory
+  📄 .claude/CLAUDE.md - Project memory pointer
+  📄 .claude/memory/claude/memory.md - Claude Code's memory (project-local)
   📄 .claude/plans.md - Master plan index
   📄 specs/TDD.md - Behavioral specifications (3 starter specs)
   📄 AGENTS.md - Project-specific rules (NEEDS CUSTOMIZATION)
@@ -522,6 +560,9 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 Before completing, verify:
 - [ ] .claude/plans/ directory exists
 - [ ] .claude/context/ directory exists
+- [ ] .claude/memory/claude/ directory exists
+- [ ] .claude/CLAUDE.md created with project memory pointer
+- [ ] .claude/memory/claude/memory.md created with project header
 - [ ] .claude/plans.md created
 - [ ] specs/ directory exists
 - [ ] specs/TDD.md created with 3 starter specs
