@@ -19,16 +19,16 @@ Or if you haven't added this marketplace yet:
 
 ### Agents
 
-| Agent | Model | Role |
-|-------|-------|------|
-| `pm` | Sonnet | Requirements, user stories, acceptance criteria, prioritization |
-| `tech-lead` | Opus | Architecture, system design, cross-cutting concerns, unblocking ICs |
-| `ic5` | Opus | Complex implementation — ambiguous problems, hard bugs, new systems |
-| `ic4` | Sonnet | Well-defined tasks — extending patterns, tests, simple fixes |
-| `devops` | Sonnet | Deployments, CI/CD, infrastructure, monitoring, incident response |
-| `qa` | Sonnet | Test planning, validation, bug reports, **release gating** |
-| `ds` | Opus | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
-| `project-init` | Opus | One-time team memory bootstrap (invoked via `/init-team`) |
+| Agent | Model | Tools | Role |
+|-------|-------|-------|------|
+| `pm` | Sonnet | Read, Grep, Glob, Bash, Task | Requirements, user stories, acceptance criteria, prioritization |
+| `tech-lead` | Opus | Read, Grep, Glob, Bash, Task | Architecture, system design, cross-cutting concerns, unblocking ICs |
+| `ic5` | Opus | Read, Write, Edit, Bash, Grep, Glob, Task | Complex implementation — ambiguous problems, hard bugs, new systems |
+| `ic4` | Sonnet | Read, Write, Edit, Bash, Grep, Glob | Well-defined tasks — extending patterns, tests, simple fixes |
+| `devops` | Sonnet | Read, Write, Edit, Bash, Grep, Glob | Deployments, CI/CD, infrastructure, monitoring, incident response |
+| `qa` | Sonnet | Read, Grep, Glob, Bash, Task | Test planning, validation, bug reports, **release gating** |
+| `ds` | Opus | Read, Write, Edit, Bash, Grep, Glob | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
+| `project-init` | Opus | Read, Write, Edit, Bash, Grep, Glob | One-time team memory bootstrap (invoked via `/init-team`) |
 
 Each agent maintains **four persistent memory files per project**:
 
@@ -70,7 +70,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 /init-team                 # Run once — reads AGENTS.md, code, CI, infra, writes cortex.md for each agent
 ```
 
-> **Note**: Run `/init-team` in the foreground — the `project-init` agent needs tool permissions approved interactively.
+> **Note**: The bundled `.claude/settings.json` pre-approves common operations so agents run without permission prompts. See [Autonomy & Permissions](#autonomy--permissions) below.
 
 ### Starting a task
 
@@ -175,13 +175,58 @@ Specs live in `specs/` and are tracked in `specs/TDD.md`. The QA agent reads the
 
 ---
 
+## Autonomy & Permissions
+
+The plugin ships `.claude/settings.json` which pre-approves common operations so agents run without prompting for every tool call:
+
+```json
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": ["Bash(git:*)", "Bash(npm:*)", "Bash(bun:*)", "Bash(gh:*)", "..."]
+  }
+}
+```
+
+- **`defaultMode: "acceptEdits"`** — file reads, writes, and edits are auto-approved
+- **Bash allow list** — covers git, npm/bun/yarn/pnpm, python, cargo, go, make, gh, and common shell commands
+
+`/scaffold-project` emits the same `settings.json` into every new project.
+
+To extend the allow list for your stack, add entries directly to `.claude/settings.json`:
+
+```json
+"Bash(terraform:*)",
+"Bash(kubectl:*)",
+"Bash(docker:*)"
+```
+
+### Memory budgets
+
+All agents enforce file size limits to prevent context blowout:
+
+| File | Limit |
+|------|-------|
+| `cortex.md` | ≤ 100 lines |
+| `memory.md` | ≤ 50 lines |
+| `lessons.md` | ≤ 80 lines |
+| `context.md` | ≤ 60 lines |
+
+Agents trim stale content before writing and skip files that don't exist yet.
+
+---
+
 ## Adding to a Team
 
-Check the plugin into your project's settings so teammates get it automatically:
+Check the plugin into your project's settings so teammates get it automatically. The plugin already ships `.claude/settings.json` — merge the marketplace entry into it:
 
 **`.claude/settings.json`**:
 ```json
 {
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": ["Bash(git:*)", "Bash(npm:*)", "..."]
+  },
   "extraKnownMarketplaces": {
     "dev-team": {
       "source": {
@@ -199,6 +244,29 @@ Check the plugin into your project's settings so teammates get it automatically:
 
 - Claude Code 2.x+
 - Git (for worktree-aware memory path resolution)
+
+---
+
+## Changelog
+
+### v0.4.0
+- **Autonomy**: Added `.claude/settings.json` with `defaultMode: "acceptEdits"` and Bash allow list
+- **Orchestration**: `pm`, `qa`, `tech-lead` can now spawn subagents via `Task` tool
+- **project-init**: Added `Edit` tool for in-place file patching
+- **Context efficiency**: All agents enforce memory file size budgets; ic5 applies `max_turns` limits
+- **Scaffolding**: `/scaffold-project` now generates `.claude/settings.json` for new projects
+
+### v0.3.0
+- **Memory bootstrap**: `project-init` and `scaffold-project` now create `.claude/CLAUDE.md` and seed `.claude/memory/claude/memory.md` for project-local Claude Code memory
+
+### v0.2.0
+- **Backlog**: Added `/backlog` skill for `.claude/backlog/` management (add, close, list, init)
+
+### v0.1.0
+- Initial release: pm, tech-lead, ic5, ic4, devops, qa, ds, project-init agents
+- Four-file per-agent memory system (cortex, memory, lessons, context) — worktree-aware
+- Spec management: `/create-spec`, `/update-spec`, `/find-spec`, `/list-specs`, `/check-specs`
+- `/scaffold-project` and `/init-team` commands
 
 ---
 

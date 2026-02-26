@@ -50,6 +50,41 @@ mkdir -p .claude/plans .claude/context .claude/memory/claude specs
 touch .claude/plans/.gitkeep .claude/context/.gitkeep
 ```
 
+### Step 2b: Create .claude/settings.json
+
+Create `.claude/settings.json` to enable autonomous agent operation (no permission prompts for common operations):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(node:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(pnpm:*)",
+      "Bash(yarn:*)",
+      "Bash(bun:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pytest:*)",
+      "Bash(cargo:*)",
+      "Bash(go:*)",
+      "Bash(make:*)",
+      "Bash(gh:*)"
+    ],
+    "defaultMode": "acceptEdits"
+  }
+}
+```
+
+`defaultMode: "acceptEdits"` auto-approves all Read/Write/Edit operations. The Bash allow list covers common dev tools. Customize to add/remove commands for your stack.
+
 ### Step 3: Create .claude/CLAUDE.md
 
 Create `.claude/CLAUDE.md` with the project memory pointer so Claude Code uses project-local memory:
@@ -498,6 +533,7 @@ Created:
   📁 .claude/plans/ - Plan files directory
   📁 .claude/context/ - Progress tracking directory
   📁 .claude/memory/claude/ - Claude Code project-local memory
+  📄 .claude/settings.json - Agent autonomy settings (acceptEdits + Bash allow list)
   📄 .claude/CLAUDE.md - Project memory pointer
   📄 .claude/memory/claude/memory.md - Claude Code's memory (project-local)
   📄 .claude/plans.md - Master plan index
@@ -561,6 +597,7 @@ Before completing, verify:
 - [ ] .claude/plans/ directory exists
 - [ ] .claude/context/ directory exists
 - [ ] .claude/memory/claude/ directory exists
+- [ ] .claude/settings.json created with defaultMode and Bash allow list
 - [ ] .claude/CLAUDE.md created with project memory pointer
 - [ ] .claude/memory/claude/memory.md created with project header
 - [ ] .claude/plans.md created

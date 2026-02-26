@@ -92,3 +92,13 @@ mkdir -p "$AGENT_CTX"
 4. Read `$AGENT_MEM/cortex.md` — load codebase and project knowledge
 5. Read `$AGENT_CTX/context.md` — understand what's in flight in this worktree
 6. Then begin work
+
+### Memory File Size Budget
+Before adding new content, trim stale entries to stay within limits:
+- `cortex.md` ≤ 100 lines
+- `memory.md` ≤ 50 lines
+- `lessons.md` ≤ 80 lines
+- `context.md` ≤ 60 lines
+
+### Conditional Loading
+Skip reading a file if it doesn't exist. If any file exceeds its budget, summarize and overwrite it before loading new content.
