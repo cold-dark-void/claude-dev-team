@@ -1,7 +1,7 @@
 ---
 name: project-init
 description: Team initialization agent. Use ONLY via /init-team command. Scans the project comprehensively and bootstraps cortex.md for all 7 team agents (pm, tech-lead, ic5, ic4, devops, qa, ds) so they start with project knowledge instead of from scratch.
-tools: Read, Write, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob
 model: opus
 ---
 
@@ -397,3 +397,4 @@ Run /init-team again any time the project changes significantly.
 - If you can't find something, omit that section rather than guessing
 - Each file should be genuinely useful to that agent on day 1
 - Do not write the same content into all 6 files
+- Keep each cortex.md ≤ 100 lines, lessons.md ≤ 80 lines — summarize rather than dump everything
