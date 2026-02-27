@@ -1,7 +1,7 @@
 {
   "name": "dev-team",
   "description": "A FAANG-style AI dev team for Claude Code: PM, Tech Lead, IC5, IC4, DevOps, and QA agents with persistent per-project memory, plus spec management and project scaffolding skills.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": {
     "name": "cold-dark-void"
   },
