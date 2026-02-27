@@ -20,6 +20,31 @@ Based on the feature, suggest and confirm the appropriate category:
 - **compatibility** (COMPAT-XXX): Cross-platform, version compatibility
 - **architecture** (ARCH-XXX): System design and structural decisions
 
+### Step 2.5: Conflict Scan
+1. `Glob specs/**/*.md` — if no results, print "No existing specs — skipping conflict scan" and proceed to Step 3
+2. Read all existing spec files; for each, note its ID and extract its MUST requirements
+3. Compare the **proposed** MUST requirements (from Step 1 interview) against every existing spec semantically:
+   - **BLOCKER** = direct contradiction — both requirements cannot be satisfied simultaneously (e.g., proposed "MUST store tokens as plaintext" vs. SAFE-001 "MUST encrypt all credentials at rest")
+   - **WARNING** = scope overlap — same feature domain or shared resource, may create ambiguity or unintended coupling
+4. If any conflicts found, present a report before proceeding:
+   ```
+   ## Conflict Scan Results
+
+   ### BLOCKERS (must resolve before creating)
+   - Proposed: "MUST store tokens as plaintext"
+     Conflicts with SAFE-001: "MUST encrypt all credentials at rest"
+
+   ### WARNINGS (review recommended)
+   - Proposed spec overlaps with AUTH-003 (authentication domain)
+
+   **Decision:**
+   - [R] Revise proposed spec → return to Step 1 interview with revised requirements
+   - [U] Update conflicting existing spec after creation (use `/update-spec` once created)
+   - [P] Proceed anyway — conflict documented as known issue in new spec's Overview
+   ```
+   Wait for user decision before continuing.
+5. If no conflicts found, proceed silently to Step 3
+
 ### Step 3: Generate ID
 Find the next available ID by scanning existing specs in `specs/<category>/`:
 - For core: Find highest SPEC-XXX number, increment
