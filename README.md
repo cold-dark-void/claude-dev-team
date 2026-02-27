@@ -51,7 +51,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/update-spec` | Modify an existing spec with version history |
 | `/find-spec` | Search specs by keyword |
 | `/list-specs` | Quick status overview of all specs |
-| `/check-specs` | Audit spec format + validate implementation against a specific spec |
+| `/check-specs` | Audit spec format + code alignment (Phase 1: format/index, Phase 2: MATCH/MISSING/DIFFERS per requirement) |
 
 ---
 
@@ -158,9 +158,9 @@ Specs live in `specs/` and are tracked in `specs/TDD.md`. The QA agent reads the
 /create-spec          # Guided interview → new spec file + TDD.md entry
 /list-specs           # Quick status: what's passing, new, broken
 /find-spec thumbnail  # Search across all spec content
-/check-specs          # Audit format compliance + link integrity
-/check-specs SPEC-012 # Validate specific spec against codebase
-/update-spec          # Modify spec with version history
+/check-specs          # Audit all specs: format compliance + code alignment (samples 3–5 recent specs)
+/check-specs SPEC-012 # Validate spec: Grep source, classify each MUST as MATCH/MISSING/DIFFERS, flag drift
+/update-spec          # Modify spec: cross-spec conflict check + code alignment warning on changed requirements
 ```
 
 ### Spec categories
@@ -248,6 +248,12 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.5.0
+- **`/check-specs` audit**: adds Phase 2 code alignment — samples 3–5 recently-updated specs, Greps source files, classifies each MUST requirement as MATCH / MISSING / DIFFERS, flags undocumented behavior (drift)
+- **`/check-specs <ID>` validate**: fully rewritten — keyword extraction, language detection, source file discovery, per-requirement reasoning with `file:~line` evidence, drift detection, structured report with counts
+- **`/create-spec`**: new Step 2.5 conflict scan — before creating, reads all existing specs and flags BLOCKER (direct contradictions) and WARNING (scope overlap); pauses for user decision
+- **`/update-spec`**: new Step 3.5 cross-spec conflict check (same BLOCKER/WARNING logic, handles removed requirements); new Step 4.5 code alignment warning for added/modified requirements
 
 ### v0.4.0
 - **Autonomy**: Added `.claude/settings.json` with `defaultMode: "acceptEdits"` and Bash allow list
