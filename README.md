@@ -52,6 +52,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/find-spec` | Search specs by keyword |
 | `/list-specs` | Quick status overview of all specs |
 | `/check-specs` | Audit spec format + code alignment (Phase 1: format/index, Phase 2: MATCH/MISSING/DIFFERS per requirement) |
+| `/review-and-commit` | Review changes, update specs, append to review.md, commit |
 
 ---
 
@@ -248,6 +249,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.6.0
+- **`/review-and-commit` skill**: review staged/modified files for bugs and spec drift, update out-of-date specs, append findings to `review.md`, then commit
 
 ### v0.5.0
 - **`/check-specs` audit**: adds Phase 2 code alignment — samples 3–5 recently-updated specs, Greps source files, classifies each MUST requirement as MATCH / MISSING / DIFFERS, flags undocumented behavior (drift)
