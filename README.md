@@ -184,17 +184,23 @@ The plugin ships `.claude/settings.json` which pre-approves common operations so
 {
   "permissions": {
     "defaultMode": "acceptEdits",
-    "allow": ["Bash(git:*)", "Bash(npm:*)", "Bash(bun:*)", "Bash(gh:*)", "..."]
+    "allow": [
+      "Bash(git:*)", "Bash(npm:*)", "Bash(go:*)", "Bash(gh:*)",
+      "Bash(_gc=*)", "Bash(MROOT=*)", "Bash(AGENT_*)", "Bash({:*)",
+      "Bash(grep:*)", "Bash(sed -n:*)", "Bash(if :*)", "Bash(for :*)",
+      "..."
+    ]
   }
 }
 ```
 
 - **`defaultMode: "acceptEdits"`** — file reads, writes, and edits are auto-approved
-- **Bash allow list** — covers git, npm/bun/yarn/pnpm, python, cargo, go, make, gh, and common shell commands
+- **Bash allow list** — 41 entries covering dev tools, agent bootstrap patterns (variable assignments, compound commands, shell control flow), and common read-only utilities
+- **Intentionally excluded**: destructive commands (`rm`, `curl`, `wget`) still prompt for confirmation
 
-`/scaffold-project` emits the same `settings.json` into every new project.
+Both `/scaffold-project` (new projects) and `/init-team` (existing projects) emit/sync the full allowlist automatically.
 
-To extend the allow list for your stack, add entries directly to `.claude/settings.json`:
+To extend for your stack, add entries to `.claude/settings.json`:
 
 ```json
 "Bash(terraform:*)",
@@ -249,6 +255,11 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.7.0
+- **Permissions sync**: `/init-team` now auto-syncs `.claude/settings.json` — merges missing permissions into existing projects without overwriting user additions
+- **Expanded allowlist**: 41 entries covering agent bootstrap patterns (`_gc=*`, `MROOT=*`, `AGENT_*`), compound commands (`{:*`), shell control flow (`if`, `for`), and read-only `sed -n`
+- **`/scaffold-project`** updated to emit the full allowlist for new projects
 
 ### v0.6.0
 - **`/review-and-commit` skill**: review staged/modified files for bugs and spec drift, update out-of-date specs, append findings to `review.md`, then commit
