@@ -8,7 +8,7 @@
       "name": "dev-team",
       "source": "./",
       "description": "FAANG-style AI dev team: PM, Tech Lead, IC5, IC4, DevOps, QA, DS agents with persistent memory + spec management skills.",
-      "version": "0.6.0"
+      "version": "0.7.0"
     }
   ]
 }

@@ -76,14 +76,38 @@ Create `.claude/settings.json` to enable autonomous agent operation (no permissi
       "Bash(cargo:*)",
       "Bash(go:*)",
       "Bash(make:*)",
-      "Bash(gh:*)"
+      "Bash(gh:*)",
+      "Bash(_gc=*)",
+      "Bash(MROOT=*)",
+      "Bash(WTROOT=*)",
+      "Bash(AGENT_*)",
+      "Bash(cd:*)",
+      "Bash(test:*)",
+      "Bash([ :*)",
+      "Bash(if :*)",
+      "Bash(for :*)",
+      "Bash({:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(sed -n:*)",
+      "Bash(touch:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(tree:*)",
+      "Bash(stat:*)"
     ],
     "defaultMode": "acceptEdits"
   }
 }
 ```
 
-`defaultMode: "acceptEdits"` auto-approves all Read/Write/Edit operations. The Bash allow list covers common dev tools. Customize to add/remove commands for your stack.
+`defaultMode: "acceptEdits"` auto-approves all Read/Write/Edit operations. The Bash allow list covers common dev tools plus agent bootstrap patterns (variable assignments, compound commands, shell control flow). Customize to add/remove commands for your stack.
+
+> **Note**: Destructive commands (`rm`, `curl`, `wget`) are intentionally excluded. Agents will prompt before running those.
 
 ### Step 3: Create .claude/CLAUDE.md
 

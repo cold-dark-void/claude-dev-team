@@ -24,6 +24,69 @@ for agent in pm tech-lead ic5 ic4 devops qa ds; do
 done
 ```
 
+## Step 1b: Sync Agent Permissions
+
+Ensure `.claude/settings.json` exists and has the full agent allowlist. This prevents permission prompts from blocking background agents.
+
+Read the existing `$MROOT/.claude/settings.json` (if any). Merge/ensure the following permissions are present. **Do not remove** any existing user-added permissions — only add missing ones.
+
+Required permissions:
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(node:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(pnpm:*)",
+      "Bash(yarn:*)",
+      "Bash(bun:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pytest:*)",
+      "Bash(cargo:*)",
+      "Bash(go:*)",
+      "Bash(make:*)",
+      "Bash(gh:*)",
+      "Bash(_gc=*)",
+      "Bash(MROOT=*)",
+      "Bash(WTROOT=*)",
+      "Bash(AGENT_*)",
+      "Bash(cd:*)",
+      "Bash(test:*)",
+      "Bash([ :*)",
+      "Bash(if :*)",
+      "Bash(for :*)",
+      "Bash({:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(sed -n:*)",
+      "Bash(touch:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(tree:*)",
+      "Bash(stat:*)"
+    ],
+    "defaultMode": "acceptEdits"
+  }
+}
+```
+
+**Merge strategy**:
+1. If `$MROOT/.claude/settings.json` does not exist → create it with the full JSON above.
+2. If it exists → read it, add any missing entries from the `allow` list above, preserve any extra entries the user added, set `defaultMode` to `"acceptEdits"` if not already set. Write the updated file back.
+3. Report what was added (e.g., "Added 12 missing permissions to .claude/settings.json") or "Permissions already up to date".
+
 ## Step 2: Comprehensive Project Scan
 
 Read broadly. Do NOT skip files. You are reading for 6 different roles simultaneously.
@@ -381,13 +444,15 @@ After writing all files, output a summary:
 ✓ Initialized team memory for: [project name]
   Location: [MROOT]/.claude/memory/
 
-  pm/cortex.md        — [1-line summary of what was captured]
-  tech-lead/cortex.md — [1-line summary]
-  ic5/cortex.md       — [1-line summary]
-  ic4/cortex.md       — [1-line summary]
-  devops/cortex.md    — [1-line summary]
-  qa/cortex.md        — [1-line summary]
-  claude/memory.md    — [1-line summary of project context seeded]
+  .claude/settings.json — [permissions status: created / updated N entries / already up to date]
+  pm/cortex.md          — [1-line summary of what was captured]
+  tech-lead/cortex.md   — [1-line summary]
+  ic5/cortex.md         — [1-line summary]
+  ic4/cortex.md         — [1-line summary]
+  devops/cortex.md      — [1-line summary]
+  qa/cortex.md          — [1-line summary]
+  ds/cortex.md          — [1-line summary]
+  claude/memory.md      — [1-line summary of project context seeded]
 
 Run /init-team again any time the project changes significantly.
 ```
