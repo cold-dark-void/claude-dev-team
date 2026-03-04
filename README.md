@@ -53,6 +53,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/list-specs` | Quick status overview of all specs |
 | `/check-specs` | Audit spec format + code alignment (Phase 1: format/index, Phase 2: MATCH/MISSING/DIFFERS per requirement) |
 | `/review-and-commit` | Review changes, update specs, append to review.md, commit |
+| `/reflect-skills` | Full-system health check — ALL specs exhaustively, cross-spec conflicts, skill/command consistency, interactive confirmation |
 
 ---
 
@@ -162,6 +163,7 @@ Specs live in `specs/` and are tracked in `specs/TDD.md`. The QA agent reads the
 /check-specs          # Audit all specs: format compliance + code alignment (samples 3–5 recent specs)
 /check-specs SPEC-012 # Validate spec: Grep source, classify each MUST as MATCH/MISSING/DIFFERS, flag drift
 /update-spec          # Modify spec: cross-spec conflict check + code alignment warning on changed requirements
+/reflect-skills       # Full health check: ALL specs + cross-spec conflicts + skill consistency + interactive confirmation
 ```
 
 ### Spec categories
@@ -255,6 +257,10 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.8.0
+- **`/reflect-skills` skill**: full-system health check — exhaustive code alignment across ALL specs (not sampled), cross-spec BLOCKER/WARNING/terminology-drift detection, skill/command self-consistency audit, interactive Phase 6 confirmation loop
+- **Phase 5 independent code read**: reads every source file in full (not just keyword hits), summarizes each module's purpose, maps public surface (exported functions/types/routes/handlers) to specs, produces a module summary table with COVERED/UNCOVERED status — finds gaps that spec-driven grep would miss
 
 ### v0.7.0
 - **Permissions sync**: `/init-team` now auto-syncs `.claude/settings.json` — merges missing permissions into existing projects without overwriting user additions
