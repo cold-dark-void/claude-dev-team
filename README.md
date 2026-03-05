@@ -54,6 +54,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/check-specs` | Audit spec format + code alignment (Phase 1: format/index, Phase 2: MATCH/MISSING/DIFFERS per requirement) |
 | `/review-and-commit` | Review changes, update specs, append to review.md, commit |
 | `/reflect-skills` | Full-system health check — ALL specs exhaustively, cross-spec conflicts, skill/command consistency, interactive confirmation |
+| `/init-orchestration` | Enable Agent Teams for any project: adds env var, TaskCompleted hook, and AGENTS.md with team coordination rules |
 
 ---
 
@@ -64,6 +65,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 ```
 /scaffold-project          # Sets up AGENTS.md, specs/TDD.md, .claude/plans/
 /init-team                 # Bootstraps all agent memories from your codebase
+/init-orchestration        # Enable Agent Teams: env var + quality-gate hook + AGENTS.md
 ```
 
 ### Existing project
@@ -257,6 +259,10 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.9.0
+- **`/init-orchestration` skill**: bootstrap Agent Teams for any project — enables `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, adds a `TaskCompleted` quality-gate hook, and creates/updates `AGENTS.md` with team coordination rules; idempotent (safe to re-run)
+- **`AGENTS.md`**: added to this plugin repo for contributors
 
 ### v0.8.1
 - **`/review-and-commit` fix**: review output now written to `/tmp/review.md` instead of a project-local file, eliminating any risk of accidentally staging or committing it
