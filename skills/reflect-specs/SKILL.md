@@ -1,12 +1,12 @@
 ---
-name: reflect-skills
+name: reflect-specs
 description: Full-system health check — exhaustive code alignment across ALL specs (not sampled),
   cross-spec conflict detection, skill/command self-consistency, and coverage gaps. Presents
   each conflict class interactively and asks the user to confirm or resolve before proceeding.
   Use when you want a holistic audit of specs + skills + code with human sign-off.
 ---
 
-# Reflect Skills
+# Reflect Specs
 
 A deep, interactive health check of your spec/skill/code system. Goes beyond `/check-specs`
 by covering all specs (not a sample), detecting inter-spec contradictions, auditing skill
@@ -323,10 +323,10 @@ Act on user's response:
 ## Usage Examples
 
 ```
-/reflect-skills              # Full reflection — all phases, interactive
-/reflect-skills --report     # Report only — skip Phase 6 interactive loop
-/reflect-skills --phase 2    # Run only Phase 2 (cross-spec conflicts)
-/reflect-skills --phase 4    # Run only Phase 4 (full code alignment)
+/reflect-specs              # Full reflection — all phases, interactive
+/reflect-specs --report     # Report only — skip Phase 6 interactive loop
+/reflect-specs --phase 2    # Run only Phase 2 (cross-spec conflicts)
+/reflect-specs --phase 4    # Run only Phase 4 (full code alignment)
 ```
 
 ---
@@ -338,4 +338,4 @@ Act on user's response:
 | `/check-specs` | Format + alignment | 3–5 recent specs sampled | No |
 | `/check-specs SPEC-XXX` | Single spec validation | One spec | No |
 | `/review-and-commit` | Pre-commit review | Staged/modified files | No |
-| `/reflect-skills` | Full system health | ALL specs + skills | **Yes** |
+| `/reflect-specs` | Full system health | ALL specs + skills | **Yes** |
