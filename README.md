@@ -54,6 +54,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/check-specs` | Audit spec format + code alignment (Phase 1: format/index, Phase 2: MATCH/MISSING/DIFFERS per requirement) |
 | `/review-and-commit` | Review changes, update specs, append to review.md, commit |
 | `/reflect-specs` | Full-system health check — ALL specs exhaustively, cross-spec conflicts, skill/command consistency, interactive confirmation |
+| `/release` | Bump version in all required files (README, plugin.json, marketplace.json), commit, tag, and push |
 | `/init-orchestration` | Enable Agent Teams for any project: adds env var, TaskCompleted hook, and AGENTS.md with team coordination rules |
 
 ---
@@ -259,6 +260,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.9.2
+- **`/release` skill**: bumps version in all three required files (README.md, plugin.json, marketplace.json), commits, tags, and pushes — ensures they never get out of sync
 
 ### v0.9.1
 - **`/reflect-specs` rename**: `/reflect-skills` renamed to `/reflect-specs` — the skill audits specs (and code alignment), not just skills; the old name was misleading
