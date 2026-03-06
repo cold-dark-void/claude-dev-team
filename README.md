@@ -53,7 +53,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/list-specs` | Quick status overview of all specs |
 | `/check-specs` | Audit spec format + code alignment (Phase 1: format/index, Phase 2: MATCH/MISSING/DIFFERS per requirement) |
 | `/review-and-commit` | Review changes, update specs, append to review.md, commit |
-| `/reflect-skills` | Full-system health check — ALL specs exhaustively, cross-spec conflicts, skill/command consistency, interactive confirmation |
+| `/reflect-specs` | Full-system health check — ALL specs exhaustively, cross-spec conflicts, skill/command consistency, interactive confirmation |
 | `/init-orchestration` | Enable Agent Teams for any project: adds env var, TaskCompleted hook, and AGENTS.md with team coordination rules |
 
 ---
@@ -165,7 +165,7 @@ Specs live in `specs/` and are tracked in `specs/TDD.md`. The QA agent reads the
 /check-specs          # Audit all specs: format compliance + code alignment (samples 3–5 recent specs)
 /check-specs SPEC-012 # Validate spec: Grep source, classify each MUST as MATCH/MISSING/DIFFERS, flag drift
 /update-spec          # Modify spec: cross-spec conflict check + code alignment warning on changed requirements
-/reflect-skills       # Full health check: ALL specs + cross-spec conflicts + skill consistency + interactive confirmation
+/reflect-specs       # Full health check: ALL specs + cross-spec conflicts + skill consistency + interactive confirmation
 ```
 
 ### Spec categories
@@ -260,6 +260,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.9.1
+- **`/reflect-specs` rename**: `/reflect-skills` renamed to `/reflect-specs` — the skill audits specs (and code alignment), not just skills; the old name was misleading
+
 ### v0.9.0
 - **`/init-orchestration` skill**: bootstrap Agent Teams for any project — enables `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, adds a `TaskCompleted` quality-gate hook, and creates/updates `AGENTS.md` with team coordination rules; idempotent (safe to re-run)
 - **`AGENTS.md`**: added to this plugin repo for contributors
@@ -268,7 +271,7 @@ Check the plugin into your project's settings so teammates get it automatically.
 - **`/review-and-commit` fix**: review output now written to `/tmp/review.md` instead of a project-local file, eliminating any risk of accidentally staging or committing it
 
 ### v0.8.0
-- **`/reflect-skills` skill**: full-system health check — exhaustive code alignment across ALL specs (not sampled), cross-spec BLOCKER/WARNING/terminology-drift detection, skill/command self-consistency audit, interactive Phase 6 confirmation loop
+- **`/reflect-specs` skill**: full-system health check — exhaustive code alignment across ALL specs (not sampled), cross-spec BLOCKER/WARNING/terminology-drift detection, skill/command self-consistency audit, interactive Phase 6 confirmation loop
 - **Phase 5 independent code read**: reads every source file in full (not just keyword hits), summarizes each module's purpose, maps public surface (exported functions/types/routes/handlers) to specs, produces a module summary table with COVERED/UNCOVERED status — finds gaps that spec-driven grep would miss
 
 ### v0.7.0
