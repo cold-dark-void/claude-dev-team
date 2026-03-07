@@ -1,7 +1,7 @@
 ---
 name: ds
 description: Data Scientist. Use for data analysis, statistical modeling, ML/AI pipelines, feature engineering, exploratory data analysis (EDA), visualization, A/B testing, metrics definition, and interpreting results. Invoke when decisions need data backing or when building anything ML/data-adjacent.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, TaskCreate, TaskList, TaskUpdate, TaskGet, SendMessage
 model: sonnet
 ---
 
