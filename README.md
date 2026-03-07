@@ -56,6 +56,9 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/reflect-specs` | Full-system health check — ALL specs exhaustively, cross-spec conflicts, skill/command consistency, interactive confirmation |
 | `/release` | Bump version in all required files (README, plugin.json, marketplace.json), commit, tag, and push |
 | `/init-orchestration` | Enable Agent Teams for any project: adds env var, TaskCompleted hook, and AGENTS.md with team coordination rules |
+| `/kickoff` | Orchestrate full ticket intake + planning: parallel PM+TL kickoff, spec creation, implementation plan, TaskCreate task graph |
+| `/standup` | Status snapshot of active agent work: reads TaskList + agent context files, surfaces blockers and stale tasks |
+| `/wrap-ticket` | Close out a shipped ticket: verify tasks done, capture learnings to memory, update plans, remove worktree |
 
 ---
 
@@ -260,6 +263,12 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.9.6
+- **`/kickoff`**: new skill — orchestrates full ticket intake + planning phase; parallel PM+Tech Lead kickoff, spec creation, implementation plan, and TaskCreate task graph from a single command
+- **`/standup`**: new skill — status snapshot of active agent team work; reads TaskList + each agent's context.md, surfaces blockers and stale tasks
+- **`/wrap-ticket`**: new skill — close-out workflow; verifies all tasks completed, captures learnings to project memory, updates plans index, removes worktree, prints Linear checklist
+- **docs**: Linear-to-prod runbook with full agent team orchestration walkthrough (POC-123 example)
 
 ### v0.9.5
 - **Agent autonomy**: fix `Task` → `TaskCreate, TaskList, TaskUpdate, TaskGet` on all coordinating agents (pm, tech-lead, ic5, qa); add Task tools + `SendMessage` to all 8 agents so they can coordinate and communicate without human intervention
