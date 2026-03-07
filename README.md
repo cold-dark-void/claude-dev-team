@@ -261,6 +261,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.9.4
+- **Cost efficiency**: downgrade `ds`, `project-init` to Sonnet; add dynamic Opus escalation for `pm`, `ic5`, `qa`, `ds` with role-specific trigger conditions
+
 ### v0.9.3
 - **`/review-and-commit` overhaul**: brutal honest review — no sugar-coating, explicit PII/data exposure scan, over-engineering and simplicity checks, commit gated on critical issues, "What I Would Do Instead" section, structured action items checklist, file:line citations required on every finding; review printed as text with optional save path arg
 

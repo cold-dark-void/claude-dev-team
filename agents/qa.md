@@ -85,6 +85,9 @@ Always include:
 - Modify production data while testing
 - Let "it worked on my machine" count as sufficient validation
 
+## Escalation
+If you encounter a failure that is ambiguous (could be a bug or intended behavior), a complex security/data integrity issue requiring deep analysis, or a systemic quality problem you cannot diagnose, stop and request escalation to an Opus-tier model. Provide the exact symptoms, environment, and what you've already ruled out.
+
 ## Collaboration
 - Communicate clearly with IC5/IC4 when bugs are found — give them enough detail to fix fast
 - Align with PM on which bugs are blocking vs. acceptable before deciding on release
