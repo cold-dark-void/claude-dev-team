@@ -21,14 +21,14 @@ Or if you haven't added this marketplace yet:
 
 | Agent | Model | Tools | Role |
 |-------|-------|-------|------|
-| `pm` | Sonnet | Read, Grep, Glob, Bash, Task | Requirements, user stories, acceptance criteria, prioritization |
-| `tech-lead` | Opus | Read, Grep, Glob, Bash, Task | Architecture, system design, cross-cutting concerns, unblocking ICs |
-| `ic5` | Opus | Read, Write, Edit, Bash, Grep, Glob, Task | Complex implementation — ambiguous problems, hard bugs, new systems |
-| `ic4` | Sonnet | Read, Write, Edit, Bash, Grep, Glob | Well-defined tasks — extending patterns, tests, simple fixes |
-| `devops` | Sonnet | Read, Write, Edit, Bash, Grep, Glob | Deployments, CI/CD, infrastructure, monitoring, incident response |
-| `qa` | Sonnet | Read, Grep, Glob, Bash, Task | Test planning, validation, bug reports, **release gating** |
-| `ds` | Opus | Read, Write, Edit, Bash, Grep, Glob | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
-| `project-init` | Opus | Read, Write, Edit, Bash, Grep, Glob | One-time team memory bootstrap (invoked via `/init-team`) |
+| `pm` | Sonnet | Read, Grep, Glob, Bash, Task*, SendMessage | Requirements, user stories, acceptance criteria, prioritization |
+| `tech-lead` | Opus | Read, Grep, Glob, Bash, Task*, SendMessage | Architecture, system design, cross-cutting concerns, unblocking ICs |
+| `ic5` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Complex implementation — ambiguous problems, hard bugs, new systems |
+| `ic4` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Well-defined tasks — extending patterns, tests, simple fixes |
+| `devops` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Deployments, CI/CD, infrastructure, monitoring, incident response |
+| `qa` | Sonnet | Read, Grep, Glob, Bash, Task*, SendMessage | Test planning, validation, bug reports, **release gating** |
+| `ds` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
+| `project-init` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, SendMessage | One-time team memory bootstrap (invoked via `/init-team`) |
 
 Each agent maintains **four persistent memory files per project**:
 
@@ -260,6 +260,10 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.9.5
+- **Agent autonomy**: fix `Task` → `TaskCreate, TaskList, TaskUpdate, TaskGet` on all coordinating agents (pm, tech-lead, ic5, qa); add Task tools + `SendMessage` to all 8 agents so they can coordinate and communicate without human intervention
+- **Bash allow list**: expand init-orchestration permissions from 38 to 73 entries, covering shell builtins, text processing, and common dev tools; remove dangerous commands (rm, chmod, curl, wget, patch, source) to require human approval
 
 ### v0.9.4
 - **Cost efficiency**: downgrade `ds`, `project-init` to Sonnet; add dynamic Opus escalation for `pm`, `ic5`, `qa`, `ds` with role-specific trigger conditions

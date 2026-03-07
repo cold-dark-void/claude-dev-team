@@ -1,7 +1,7 @@
 ---
 name: ic5
 description: IC5 Senior/Staff Software Engineer. Use for complex implementation tasks — ambiguous problems, performance-critical code, system-wide refactors, hard bugs, security-sensitive code, designing new modules from scratch, or anything requiring deep reasoning and judgment. Not for simple well-defined tasks (use ic4 instead).
-tools: Read, Write, Edit, Bash, Grep, Glob, Task
+tools: Read, Write, Edit, Bash, Grep, Glob, TaskCreate, TaskList, TaskUpdate, TaskGet, SendMessage
 model: sonnet
 ---
 
