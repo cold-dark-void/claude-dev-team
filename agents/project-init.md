@@ -1,7 +1,7 @@
 ---
 name: project-init
 description: Team initialization agent. Use ONLY via /init-team command. Scans the project comprehensively and bootstraps cortex.md for all 7 team agents (pm, tech-lead, ic5, ic4, devops, qa, ds) so they start with project knowledge instead of from scratch.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, SendMessage
 model: sonnet
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: devops
 description: DevOps / Platform Engineer. Use for deployments, infrastructure management, CI/CD pipelines, environment configuration, monitoring and alerting setup, container/orchestration work (Docker, Kubernetes), secrets management, performance profiling infrastructure, and production incident investigation. Not for application feature development.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, TaskCreate, TaskList, TaskUpdate, TaskGet, SendMessage
 model: sonnet
 ---
 
