@@ -32,14 +32,14 @@ After commit: `git tag vX.Y.Z && git push && git push --tags`
 
 | Agent | Model | Role |
 |-------|-------|------|
-| `pm` | Sonnet | Requirements, user stories, acceptance criteria |
+| `pm` | Sonnet → Opus | Requirements, user stories, acceptance criteria |
 | `tech-lead` | Opus | Architecture, design, unblocking ICs |
-| `ic5` | Opus | Complex implementation, hard bugs, new systems |
+| `ic5` | Sonnet → Opus | Complex implementation, hard bugs, new systems |
 | `ic4` | Sonnet | Well-defined tasks, extending patterns, tests |
 | `devops` | Sonnet | CI/CD, infrastructure, deployments |
-| `qa` | Sonnet | Testing, validation, release gating |
-| `ds` | Opus | Data analysis, ML, metrics |
-| `project-init` | Opus | One-time memory bootstrap (via `/init-team`) |
+| `qa` | Sonnet → Opus | Testing, validation, release gating |
+| `ds` | Sonnet → Opus | Data analysis, ML, metrics |
+| `project-init` | Sonnet | One-time memory bootstrap (via `/init-team`) |
 
 ## Persistent Memory Protocol
 
