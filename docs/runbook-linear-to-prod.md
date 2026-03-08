@@ -15,6 +15,48 @@ End-to-end workflow for implementing and shipping a Linear ticket using the clau
 
 ---
 
+## Phase 0 — First Time Only: Establish Spec Baseline (Legacy Projects)
+
+Skip this phase if your project already has a `specs/` directory.
+
+If you're starting this workflow on a project with no specs — a 2-year-old codebase,
+an inherited repo, a project that grew without TDD — run this once before your first
+ticket to establish a baseline:
+
+```bash
+# 1. Bootstrap agents and orchestration (if not done)
+/init-team
+/init-orchestration
+
+# 2. Reverse-engineer specs from the existing codebase
+/generate-specs
+```
+
+`/generate-specs` will:
+- Read every source file and map the public surface by module
+- Ask Tech Lead to group modules into 8–15 domain-level feature areas
+- Write one `MUST/SHOULD/MUST NOT` spec per domain in `specs/core/`
+- Mark all output `Status: INFERRED — requires human review`
+- Flag open questions where intent is ambiguous
+- Write a `specs/TDD.md` index
+
+After it runs:
+1. Review each generated spec — correct misattributed MUSTs, resolve open questions
+2. Run `/reflect-specs` to verify the specs actually match the code
+3. Commit:
+   ```bash
+   git add specs/
+   git commit -m "spec: establish baseline specs from /generate-specs"
+   ```
+
+From this point on the normal per-ticket workflow applies. `/kickoff` will find and
+reference the generated specs automatically when planning new tickets.
+
+> **Note**: Generated specs describe *what the code does*, not necessarily *what it should
+> do*. Treat them as a hypothesis — review before treating any MUST as authoritative.
+
+---
+
 ## Phase 1 — Ticket Intake
 
 ### 1.1 Read the ticket
@@ -45,7 +87,8 @@ ls specs/
 
 Look for specs that cover the area this ticket touches. Read any relevant ones before planning — they constrain your design.
 
-If no `specs/` directory exists, this ticket may be a good time to introduce one (see Phase 2).
+If no `specs/` directory exists, run `/generate-specs` first (see Phase 0) to establish
+a baseline before planning this ticket.
 
 ### 1.4 Create a worktree for this ticket
 
@@ -443,6 +486,7 @@ echo "\n## ENG-123 learnings\n<insight>" >> .claude/memory/claude/memory.md
 
 | Phase | Key command |
 |-------|-------------|
+| Baseline specs (legacy, once) | `/generate-specs` → review → `/reflect-specs` → commit |
 | Bootstrap (once) | `/init-orchestration` |
 | Orient | `cat .claude/memory/claude/memory.md` |
 | Check specs | `ls specs/` + read relevant ones |
