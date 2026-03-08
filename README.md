@@ -56,6 +56,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/reflect-specs` | Full-system health check — ALL specs exhaustively, cross-spec conflicts, skill/command consistency, interactive confirmation |
 | `/release` | Bump version in all required files (README, plugin.json, marketplace.json), commit, tag, and push |
 | `/init-orchestration` | Enable Agent Teams for any project: adds env var, TaskCompleted hook, and AGENTS.md with team coordination rules |
+| `/generate-specs` | Reverse-engineer behavioral specs from existing code — establishes a spec baseline for legacy projects with no existing specs |
 | `/kickoff` | Orchestrate full ticket intake + planning: parallel PM+TL kickoff, spec creation, implementation plan, TaskCreate task graph |
 | `/standup` | Status snapshot of active agent work: reads TaskList + agent context files, surfaces blockers and stale tasks |
 | `/wrap-ticket` | Close out a shipped ticket: verify tasks done, capture learnings to memory, update plans, remove worktree |
@@ -263,6 +264,10 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.9.7
+- **`/generate-specs`**: new skill — reverse-engineers behavioral specs from existing source code; groups public surface into 8–15 domain-level specs with MUST/SHOULD/MUST NOT language; marks all output `INFERRED` for human review; designed for legacy project onboarding
+- **runbook**: adds Phase 0 (legacy baseline) referencing `/generate-specs`; Phase 1.3 now directs to `/generate-specs` when no specs exist; Quick Reference updated
 
 ### v0.9.6
 - **`/kickoff`**: new skill — orchestrates full ticket intake + planning phase; parallel PM+Tech Lead kickoff, spec creation, implementation plan, and TaskCreate task graph from a single command
