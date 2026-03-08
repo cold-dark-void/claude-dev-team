@@ -92,6 +92,9 @@ a baseline before planning this ticket.
 
 ### 1.4 Create a worktree for this ticket
 
+Create the worktree **before** planning — `/kickoff` writes the plan and task graph into
+the current working tree, so it needs to land in the feature worktree, not main.
+
 ```bash
 git worktree add ../project-ENG-123 -b feat/ENG-123-short-description
 cd ../project-ENG-123
@@ -100,6 +103,17 @@ cd ../project-ENG-123
 ---
 
 ## Phase 2 — Planning
+
+The fastest path is `/kickoff`, which collapses Steps 2.1–2.5 into a single command:
+
+```
+/kickoff ENG-123 "<paste ticket text>"
+```
+
+This fires PM and Tech Lead in parallel, writes/updates the spec, produces the plan,
+and creates the task graph via `TaskCreate`. Skip to Phase 3 after it finishes.
+
+If you prefer the manual path (or need to intervene mid-process), follow 2.1–2.5 below.
 
 ### 2.1 Parallel kickoff — PM and Tech Lead simultaneously
 
@@ -132,11 +146,6 @@ Output:
 1. Step-by-step plan saved to .claude/plans/YYYY-MM-DD-ENG-123.md
 2. Task graph: which steps can run in parallel, which have dependencies
 3. For each step: recommended agent (ic4 vs ic5) and estimated complexity
-```
-
-```bash
-mkdir -p .claude/plans
-# Tech Lead writes to .claude/plans/YYYY-MM-DD-ENG-123.md
 ```
 
 ### 2.3 Write or update specs (spec-first)
@@ -201,37 +210,40 @@ Tasks are now visible to all agents via `TaskList`. IC agents claim work by sett
 Independent steps run simultaneously. Agents self-assign by calling `TaskUpdate` to
 claim ownership before starting — this prevents two agents picking up the same task.
 
-**IC4** claims and works on Step 1 (well-defined, extending existing patterns):
+**IC4** claims well-defined tasks (extending existing patterns):
 ```
-@ic4 Check TaskList for ENG-123. Claim Step 1 (cache layer) via TaskUpdate.
-Implement GetAllForFolder in internal/cache/responses.go. TDD — tests first.
+@ic4 Check TaskList for ENG-123. Claim the first ready task via TaskUpdate.
+Follow existing patterns. TDD — tests first.
 When done: TaskUpdate status=completed, then SendMessage to @tech-lead.
 ```
 
-**IC5** claims and works on Step 2 (new system, novel design) simultaneously:
+**IC5** claims complex/novel tasks simultaneously:
 ```
-@ic5 Check TaskList for ENG-123. Claim Step 2 (export package) via TaskUpdate.
-Design Exporter interface and implement CSV/JSON/Markdown exporters. TDD.
-When the interface is defined (before full impl), SendMessage to @ic4 with the
-CachedAnalysis struct definition so IC4 can verify the cache layer matches.
+@ic5 Check TaskList for ENG-123. Claim your assigned task via TaskUpdate.
+Design the interface first. When the interface is defined (before full impl),
+SendMessage it to downstream agents so they can start without waiting for you.
 When done: TaskUpdate status=completed, SendMessage to @tech-lead.
 ```
 
-**QA** starts writing acceptance tests in parallel after the interface is defined:
+**QA** starts writing acceptance tests in parallel after shared interfaces are defined:
 ```
-@qa Check TaskList for ENG-123. Claim Step 4 (acceptance tests) via TaskUpdate.
-Read SPEC-026 and the Exporter interface from IC5's SendMessage.
-Write acceptance tests for all ACs now — don't wait for UI wiring to finish.
+@qa Check TaskList for ENG-123. Claim the acceptance-test task via TaskUpdate.
+Read the spec and any interface definitions from IC5's SendMessage.
+Write acceptance tests for all ACs now — don't wait for wiring to finish.
 When done: TaskUpdate status=completed.
 ```
 
-Steps 1, 2, and 4 all execute concurrently. Step 3 (UI wiring) starts only after
-Steps 1 and 2 are both marked completed.
+Independent steps execute concurrently. Dependent steps start only after their
+prerequisites are marked completed.
 
 ### 3.2 Tech Lead monitors and unblocks
 
-Tech Lead polls periodically and intervenes if agents get stuck:
+Use `/standup` to check progress at any time:
+```
+/standup ENG-123
+```
 
+Or ask Tech Lead directly:
 ```
 @tech-lead Check TaskList. Summarize status of all ENG-123 tasks.
 If any agent is blocked, read their context.md and unblock them.
@@ -239,20 +251,13 @@ If any agent is blocked, read their context.md and unblock them.
 
 Agents signal blockers by updating their task description or via `SendMessage` to Tech Lead.
 
-### 3.3 Step 3 unblocks after Steps 1+2 complete
+### 3.3 Dependent steps unblock as prerequisites complete
 
-Once IC4 and IC5 both mark their tasks completed, Tech Lead signals IC4 to continue:
-
-```
-@tech-lead Steps 1 and 2 are both done. Assign Step 3 (UI wiring) to IC4 via TaskUpdate.
-SendMessage to @ic4 with confirmation to start.
-```
+Once prerequisite tasks are marked completed, Tech Lead assigns the dependent step:
 
 ```
-@ic4 Check TaskList. Claim Step 3 (UI wiring) via TaskUpdate.
-Wire ExportDescriptions() handler using the cache layer and export package.
-File menu entry in components.go, handler in app.go.
-When done: TaskUpdate status=completed, SendMessage to @tech-lead.
+@tech-lead Prerequisites are done. Assign the next task to the appropriate IC via TaskUpdate.
+SendMessage to the IC with confirmation to start.
 ```
 
 ### 3.4 Track progress
@@ -448,6 +453,22 @@ Anything to worry about?
 
 ## Phase 8 — Wrap-up
 
+The fastest path is `/wrap-ticket`, which handles Steps 8.1–8.4 automatically:
+
+```
+/wrap-ticket ENG-123
+```
+
+This will:
+- Verify all tasks are completed (prompt to force-close if not)
+- Collect learnings from agent context files and append to project memory
+- Mark the plan `[COMPLETED]` in `.claude/plans.md`
+- Add any deferred items to the backlog
+- Remove the worktree (with confirmation)
+- Print a close-out checklist for Linear
+
+If you prefer the manual path, follow 8.1–8.4 below.
+
 ### 8.1 Clean up worktree
 
 ```bash
@@ -484,24 +505,20 @@ echo "\n## ENG-123 learnings\n<insight>" >> .claude/memory/claude/memory.md
 
 ## Quick Reference
 
-| Phase | Key command |
-|-------|-------------|
-| Baseline specs (legacy, once) | `/generate-specs` → review → `/reflect-specs` → commit |
-| Bootstrap (once) | `/init-orchestration` |
-| Orient | `cat .claude/memory/claude/memory.md` |
-| Check specs | `ls specs/` + read relevant ones |
-| Write/update spec | `@tech-lead Write spec for <area>` → commit before coding |
-| Parallel kickoff | `@pm` + `@tech-lead` simultaneously; PM SendMessage to Tech Lead |
-| Plan + task graph | `@tech-lead Plan + TaskCreate for each step` |
-| Implement (parallel) | IC4 + IC5 `TaskUpdate` to claim; IC5 `SendMessage` interface to IC4 |
-| Monitor | `@tech-lead Check TaskList — unblock agents` |
-| QA pre-write tests | `@qa Claim Step 4 via TaskUpdate; write tests from spec + interface` |
-| QA final validate | `@qa Run full validation, TaskUpdate completed` |
-| Spec alignment | `/reflect-specs --phase 4` |
-| Review | `/review-and-commit` |
-| PR | `gh pr create` |
-| Release | `/release patch` |
-| Full health check | `/reflect-specs` (periodic, before releases) |
+| Phase | Skill shortcut | Manual equivalent |
+|-------|----------------|-------------------|
+| Baseline specs (legacy, once) | `/generate-specs` | Read code → write specs manually |
+| Bootstrap (once) | `/init-orchestration` | — |
+| Intake + planning | **`/kickoff ENG-123 "..."`** | `@pm` + `@tech-lead` parallel → spec → plan → `TaskCreate` |
+| Monitor progress | **`/standup ENG-123`** | `TaskList` + read agent `context.md` files |
+| Implement (parallel) | — | IC4 + IC5 `TaskUpdate` to claim; IC5 `SendMessage` interface early |
+| QA final validate | — | `@qa Run full validation, TaskUpdate completed` |
+| Spec alignment | `/reflect-specs --phase 4` | — |
+| Review | `/review-and-commit` | — |
+| PR | — | `gh pr create` |
+| Release | `/release patch` | — |
+| Wrap-up | **`/wrap-ticket ENG-123`** | Verify tasks → memory → plans.md → worktree remove |
+| Full health check | `/reflect-specs` (periodic) | — |
 
 ---
 
@@ -832,24 +849,21 @@ Both agents start simultaneously. IC4 claims Task 1, IC5 claims Task 2.
 
   Reading SPEC-026 format specs, internal/cache/responses.go...
 
-  Designing interface first:
+  IC4's CachedAnalysis struct already exists in internal/cache/responses.go.
+  Importing it rather than redefining — single source of truth.
 
-  type CachedAnalysis struct {
-      FilePath    string
-      Model       string
-      Prompt      string
-      Description string
-      CachedAt    time.Time
-  }
+  Designing interface:
+
+  import "internal/cache"
 
   type Exporter interface {
-      Export(analyses []CachedAnalysis, w io.Writer) error
+      Export(analyses []cache.CachedAnalysis, w io.Writer) error
   }
 
-  SendMessage → @ic4: "CachedAnalysis struct defined. Matches what you need for GetAllForFolder.
-  FilePath/Model/Prompt/Description/CachedAt. Confirm your struct matches."
+  SendMessage → @ic4: "Export package imports cache.CachedAnalysis from your module.
+  No duplicate struct — single source of truth in internal/cache."
 
-  SendMessage → @qa: "Exporter interface defined. CachedAnalysis has 5 fields per SPEC-026.
+  SendMessage → @qa: "Exporter interface defined. Uses cache.CachedAnalysis (5 fields per SPEC-026).
   You can start writing acceptance tests now — don't need full impl."
 
   Writing tests:
@@ -1069,14 +1083,17 @@ All tasks are done. QA runs full validation including the pre-written acceptance
 
 ---
 
-### Step 13 — Review and commit
+### Step 13 — Final review (branch diff)
+
+ICs already committed per-task in Steps 8–11. Now review the full branch diff to catch
+cross-cutting issues before opening a PR.
 
 ```
 > /review-and-commit
 ```
 
 ```
-  Reviewing staged/modified files...
+  Reviewing branch diff (4 commits since spec commit)...
 
   internal/cache/responses.go
     ✅ GetAllForFolder — clean SQL, parameterized query, no injection risk
@@ -1101,27 +1118,9 @@ All tasks are done. QA runs full validation including the pre-written acceptance
     ✅ 6 export tests, 3 cache tests — good coverage
     ✅ Edge cases: empty folder, overwrite, comma escaping in CSV
 
-  VERDICT: No critical or high issues. Ready to commit.
+  VERDICT: No critical or high issues. All commits look clean.
   2 low findings noted for backlog.
-```
-
-```
-> Commit.
-```
-
-```
-  $ git add internal/cache/responses.go internal/export/ \
-      internal/ui/fyne/app.go internal/ui/fyne/components.go \
-      internal/cache/responses_test.go internal/export/export_test.go
-  $ git commit -m "feat: POC-123 — batch export descriptions (CSV/JSON/Markdown)
-
-  Adds File menu → Export descriptions... which reads all completed analyses
-  for the current folder from the response cache and writes them in the
-  user-chosen format. Includes overwrite confirmation and empty-folder guard.
-
-  Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
-
-  [feat/POC-123-batch-export f9a2c41] feat: POC-123 — batch export descriptions
+  Nothing to commit — all changes already committed by ICs.
 ```
 
 ---
@@ -1186,51 +1185,83 @@ All tasks are done. QA runs full validation including the pre-written acceptance
 
 ---
 
-### Step 16 — Wrap-up
+### Step 16 — Wrap-up with `/wrap-ticket`
 
 ```
-> Check TaskList one final time, then clean up.
+> /wrap-ticket POC-123
 ```
 
 ```
+  Resolving roots...
+  Worktree found: ../describer-POC-123
+
+  Step 1: Verifying tasks...
   TaskList:
   id:1 "POC-123 Task 1 — cache layer"      status:completed owner:ic4  ✓
   id:2 "POC-123 Task 2 — export package"   status:completed owner:ic5  ✓
   id:3 "POC-123 Task 3 — UI wiring"        status:completed owner:ic4  ✓
   id:4 "POC-123 Task 4 — QA acc. tests"    status:completed owner:qa   ✓
+  All 4 tasks completed.
 
-  All tasks completed. Team is idle.
-```
+  Step 2: Collecting learnings from agent context files...
+  Reading ic4/context.md, ic5/context.md, qa/context.md, tech-lead/context.md...
 
-```
-  $ cd ~/vibes/describer
-  $ git worktree remove ../describer-POC-123
-  ✓ Removed worktree
+  Step 3: Appending learnings to .claude/memory/claude/memory.md...
 
-  $ git pull
-  Already up to date.
-```
-
-```
-> Update memory with anything we learned.
-```
-
-```
-  Adding to .claude/memory/claude/memory.md:
-
-  ## POC-123 learnings
+  ## POC-123 learnings (2026-03-07)
   - Export/IO logic lives in internal/export/ — Exporter interface takes io.Writer for testability
   - responseCache.GetAllForFolder added for folder-scoped queries
   - fyne ShowFileSave does not block overwrite — always add explicit os.Stat + confirmation
   - Two-step dialog (format picker then file save) matches existing dialog_service.go patterns
   - IC5 should SendMessage interface definition early so IC4 and QA can start in parallel
   - TaskCreate task graph before implementation — Tech Lead owns orchestration
+
+  Step 4: Updating .claude/plans.md...
+  Marked 2026-03-07-POC-123-batch-export.md → [COMPLETED]
+
+  Step 5: Checking for deferred items...
+  Found 1 deferred item:
+    1. "No loading indicator during export — large folders feel frozen"
+  Add to backlog? (y/n)
 ```
 
 ```
-  POC-123 complete.
-  Linear ticket → Done.
-  v1.4.3 shipped.
+> y
+```
+
+```
+  Added to backlog: "No loading indicator during export — large folders feel frozen"
+
+  Step 6: Removing worktree...
+  About to remove worktree at ../describer-POC-123.
+  The branch feat/POC-123-batch-export has already been merged.
+  Proceed? (y/n)
+```
+
+```
+> y
+```
+
+```
+  $ git worktree remove ../describer-POC-123
+  ✓ Removed worktree
+
+  Wrap-up complete for POC-123
+
+  Automated:
+    ✅ All 4 tasks confirmed completed
+    ✅ Learnings appended to .claude/memory/claude/memory.md
+    ✅ Plan marked [COMPLETED] in .claude/plans.md
+    ✅ 1 backlog item added for deferred work
+    ✅ Worktree removed
+
+  Manual checklist (copy to Linear comment):
+    [ ] Linear ticket moved to Done / Released
+    [ ] PR link attached to Linear ticket
+    [ ] Release version noted: v1.4.3
+    [ ] Stakeholders notified (if required)
+
+  POC-123 complete. v1.4.3 shipped.
 
   Parallel execution saved ~40% wall time vs sequential:
   Sequential: PM → TL → spec → IC4 (cache) → IC5 (export) → IC4 (UI) → QA → fixes → done
