@@ -55,82 +55,16 @@ Note which files exist — they get merged, not overwritten.
       }
     ]
   },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "excludedCommands": ["docker", "docker-compose"]
+  },
   "permissions": {
     "allow": [
-      "Bash(git:*)",
-      "Bash(ls:*)",
-      "Bash(find:*)",
-      "Bash(cat:*)",
-      "Bash(echo:*)",
-      "Bash(printf:*)",
-      "Bash(mkdir:*)",
-      "Bash(node:*)",
-      "Bash(npm:*)",
-      "Bash(npx:*)",
-      "Bash(pnpm:*)",
-      "Bash(yarn:*)",
-      "Bash(bun:*)",
-      "Bash(python:*)",
-      "Bash(python3:*)",
-      "Bash(pip:*)",
-      "Bash(pip3:*)",
-      "Bash(pytest:*)",
-      "Bash(cargo:*)",
-      "Bash(go:*)",
-      "Bash(make:*)",
-      "Bash(gh:*)",
-      "Bash(docker:*)",
-      "Bash(docker-compose:*)",
-      "Bash(_gc=*)",
-      "Bash(MROOT=*)",
-      "Bash(WTROOT=*)",
-      "Bash(AGENT_*)",
-      "Bash(cd:*)",
-      "Bash(test:*)",
-      "Bash([ :*)",
-      "Bash([[ :*)",
-      "Bash(if :*)",
-      "Bash(for :*)",
-      "Bash(while :*)",
-      "Bash({:*)",
-      "Bash(head:*)",
-      "Bash(tail:*)",
-      "Bash(wc:*)",
-      "Bash(sort:*)",
-      "Bash(uniq:*)",
-      "Bash(grep:*)",
-      "Bash(rg:*)",
-      "Bash(sed:*)",
-      "Bash(awk:*)",
-      "Bash(cut:*)",
-      "Bash(tr:*)",
-      "Bash(touch:*)",
-      "Bash(cp:*)",
-      "Bash(mv:*)",
-      "Bash(tree:*)",
-      "Bash(stat:*)",
-      "Bash(readlink:*)",
-      "Bash(realpath:*)",
-      "Bash(basename:*)",
-      "Bash(dirname:*)",
-      "Bash(diff:*)",
-      "Bash(xargs:*)",
-      "Bash(tee:*)",
-      "Bash(true:*)",
-      "Bash(false:*)",
-      "Bash(exit:*)",
-      "Bash(export:*)",
-      "Bash(set:*)",
-      "Bash(read:*)",
-      "Bash(type:*)",
-      "Bash(which:*)",
-      "Bash(command:*)",
-      "Bash(env:*)",
-      "Bash(date:*)",
-      "Bash(sleep:*)",
-      "Bash(jq:*)"
+      "Bash(*)"
     ],
-    "defaultMode": "acceptEdits"
+    "defaultMode": "bypassPermissions"
   }
 }
 ```
@@ -140,7 +74,8 @@ Note which files exist — they get merged, not overwritten.
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
 - Add the `TaskCompleted` hooks entry if `hooks` key is absent
 - If `hooks` key exists but lacks `TaskCompleted`, add it
-- Leave all existing `permissions` and other keys untouched
+- Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`). If `sandbox` exists, ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true` — preserve any existing `filesystem` or `network` overrides
+- Ensure `permissions.allow` contains `"Bash(*)"` and `permissions.defaultMode` is `"bypassPermissions"` — add or update as needed, but preserve any other existing allow entries
 - Write the merged result back as valid JSON
 
 ---
