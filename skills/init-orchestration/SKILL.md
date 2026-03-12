@@ -1,6 +1,6 @@
 ---
 name: init-orchestration
-description: Bootstrap Agent Teams orchestration for any project. Enables CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, adds a TaskCompleted quality-gate hook, creates/updates AGENTS.md with team coordination and workflow rules, and creates CLAUDE.md as an AGENTS.md reference (migrates existing content). Run once per project. Safe to re-run — existing files are merged, not overwritten.
+description: Bootstrap Agent Teams orchestration for any project. Enables bubblewrap sandbox with auto-detected network allowlist, bypassPermissions for zero-prompt agents, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, and a TaskCompleted quality-gate hook. Creates/updates AGENTS.md with team coordination rules and CLAUDE.md as reference. Run once per project. Safe to re-run — existing files are merged, not overwritten.
 ---
 
 # Init Orchestration
@@ -34,7 +34,63 @@ Note which files exist — they get merged, not overwritten.
 
 ---
 
-### Step 2: Update .claude/settings.json
+### Step 2: Detect sandbox network needs
+
+The sandbox blocks all outbound network by default. Auto-detect what the project needs, then confirm with the user before writing settings.json.
+
+**Auto-detect** — check for these files and map to domains:
+
+| File | Domains to add |
+|------|---------------|
+| `package.json` or `pnpm-lock.yaml` or `yarn.lock` | `registry.npmjs.org`, `npmjs.com` |
+| `go.mod` | `proxy.golang.org`, `sum.golang.org` |
+| `requirements.txt` or `pyproject.toml` or `Pipfile` | `pypi.org`, `files.pythonhosted.org` |
+| `Cargo.toml` | `crates.io`, `static.crates.io` |
+| `Gemfile` | `rubygems.org` |
+| `.git/config` containing `github.com` | `github.com` |
+| `.git/config` containing `gitlab.com` | `gitlab.com` |
+| `.git/config` containing `bitbucket.org` | `bitbucket.org` |
+
+```bash
+# Example detection
+ls package.json pnpm-lock.yaml yarn.lock 2>/dev/null
+ls go.mod 2>/dev/null
+ls requirements.txt pyproject.toml Pipfile 2>/dev/null
+ls Cargo.toml 2>/dev/null
+ls Gemfile 2>/dev/null
+git remote get-url origin 2>/dev/null
+```
+
+**Present to user:**
+
+```
+Sandbox network configuration — the sandbox blocks all outbound network by default.
+
+Auto-detected from your project:
+  ✓ github.com          (git remote)
+  ✓ registry.npmjs.org  (package.json)
+  ✓ npmjs.com           (package.json)
+
+Other common domains you might need:
+  · pypi.org, files.pythonhosted.org    (Python)
+  · proxy.golang.org, sum.golang.org    (Go)
+  · crates.io, static.crates.io        (Rust)
+  · rubygems.org                        (Ruby)
+  · registry.hub.docker.com, ghcr.io   (Docker images)
+
+Add any of the above, or custom domains? (comma-separated, or "none" to use only auto-detected)
+```
+
+Collect the user's answer. Build the final `allowedDomains` list (auto-detected + user-specified). Hold this list for Step 3.
+
+If the user says "none" and auto-detection found domains, still use the auto-detected ones.
+If the user says "skip" or "no sandbox", note that sandbox should be disabled — Step 3 will set `sandbox.enabled` to `false`.
+
+---
+
+### Step 3: Write .claude/settings.json
+
+Using the `allowedDomains` list from Step 2, write the settings file.
 
 **If `settings.json` does not exist** — create it:
 
@@ -58,7 +114,10 @@ Note which files exist — they get merged, not overwritten.
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["docker", "docker-compose"]
+    "excludedCommands": ["docker", "docker-compose"],
+    "network": {
+      "allowedDomains": ["<domains from Step 2>"]
+    }
   },
   "permissions": {
     "allow": [
@@ -74,13 +133,13 @@ Note which files exist — they get merged, not overwritten.
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
 - Add the `TaskCompleted` hooks entry if `hooks` key is absent
 - If `hooks` key exists but lacks `TaskCompleted`, add it
-- Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`). If `sandbox` exists, ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true` — preserve any existing `filesystem` or `network` overrides
+- Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists, ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`, merge new domains into existing `allowedDomains` (no duplicates), and preserve any existing `filesystem` overrides
 - Ensure `permissions.allow` contains `"Bash(*)"` and `permissions.defaultMode` is `"bypassPermissions"` — add or update as needed, but preserve any other existing allow entries
 - Write the merged result back as valid JSON
 
 ---
 
-### Step 3: Create .claude/hooks/task-completed.sh
+### Step 4: Create .claude/hooks/task-completed.sh
 
 Create `.claude/hooks/` directory and write the hook script:
 
@@ -141,7 +200,7 @@ chmod +x .claude/hooks/task-completed.sh
 
 ---
 
-### Step 4: Create or update AGENTS.md
+### Step 5: Create or update AGENTS.md
 
 **If `AGENTS.md` does not exist** — create it with a full template (see below).
 
@@ -222,13 +281,13 @@ When working as a native Agent Team teammate:
 
 ---
 
-### Step 5: Create or update CLAUDE.md
+### Step 6: Create or update CLAUDE.md
 
 **If `CLAUDE.md` does not exist** — create it with just the reference line (see template below).
 
 **If `CLAUDE.md` already exists and has content beyond an AGENTS.md reference:**
 1. Read the existing `CLAUDE.md` content
-2. Migrate any rules, instructions, or project details into the appropriate sections of `AGENTS.md` (created/updated in Step 4):
+2. Migrate any rules, instructions, or project details into the appropriate sections of `AGENTS.md` (created/updated in Step 5):
    - Workflow rules → `## Critical Rules`
    - Build/test/tech stack info → `## Project Overview`
    - File conventions → `## Code Conventions` or `## Critical Rules`
@@ -248,7 +307,7 @@ All project rules live in AGENTS.md. CLAUDE.md just ensures Claude Code loads th
 
 ---
 
-### Step 6: Validate
+### Step 7: Validate
 
 Run the hook manually to confirm it passes:
 ```bash
@@ -263,7 +322,7 @@ python3 -c "import json; json.load(open('.claude/settings.json')); print('settin
 
 ---
 
-### Step 7: Summary
+### Step 8: Summary
 
 Print a summary of what was done:
 
@@ -271,7 +330,8 @@ Print a summary of what was done:
 ✅ Agent Teams orchestration initialized!
 
 Updated:
-  📄 .claude/settings.json   — CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 + TaskCompleted hook
+  📄 .claude/settings.json   — sandbox + bypassPermissions + TaskCompleted hook
+      Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
