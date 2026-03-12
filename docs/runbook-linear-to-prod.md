@@ -43,10 +43,17 @@ ticket to establish a baseline:
 After it runs:
 1. Review each generated spec — correct misattributed MUSTs, resolve open questions
 2. Run `/reflect-specs` to verify the specs actually match the code
-3. Commit:
+3. Optionally generate tests from the specs:
    ```bash
-   git add specs/
-   git commit -m "spec: establish baseline specs from /generate-specs"
+   /generate-tests
+   ```
+   This reads every MUST requirement and writes one test per requirement, tagged with
+   the source spec ID. Failing tests reveal spec requirements not yet implemented —
+   either fix the code or update the spec.
+4. Commit:
+   ```bash
+   git add specs/ tests/    # or *_test.go, *.test.ts — whatever was generated
+   git commit -m "spec: establish baseline specs and tests from /generate-specs + /generate-tests"
    ```
 
 From this point on the normal per-ticket workflow applies. `/kickoff` will find and
@@ -164,13 +171,20 @@ Does the ticket require any changes to the spec? If so, update it now.
 Save to specs/<name>.md. Use MUST/SHOULD/MUST NOT language for requirements.
 ```
 
-Commit the spec on its own before touching implementation:
+Optionally, generate tests from the spec so requirements are executable from the start:
+```
+/generate-tests SPEC-NNN
+```
+
+Commit the spec (and generated tests) before touching implementation:
 ```bash
 git add specs/
-git commit -m "spec: ENG-123 — add/update <feature area> spec"
+git add <generated test files>   # e.g. internal/cache/*_spec*_test.go, tests/test_spec*.py
+git commit -m "spec: ENG-123 — add/update <feature area> spec + tests"
 ```
 
 > Writing the spec first forces ambiguity out before you're deep in code.
+> Generating tests from the spec makes that ambiguity visible as failing tests.
 
 ### 2.4 Sanity-check the plan
 
@@ -508,6 +522,7 @@ echo "\n## ENG-123 learnings\n<insight>" >> .claude/memory/claude/memory.md
 | Phase | Skill shortcut | Manual equivalent |
 |-------|----------------|-------------------|
 | Baseline specs (legacy, once) | `/generate-specs` | Read code → write specs manually |
+| Tests from specs | `/generate-tests` | Write tests manually from MUST requirements |
 | Bootstrap (once) | `/init-orchestration` | — |
 | Intake + planning | **`/kickoff ENG-123 "..."`** | `@pm` + `@tech-lead` parallel → spec → plan → `TaskCreate` |
 | Monitor progress | **`/standup ENG-123`** | `TaskList` + read agent `context.md` files |
