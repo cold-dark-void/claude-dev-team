@@ -1,11 +1,11 @@
 ---
 name: init-orchestration
-description: Bootstrap Agent Teams orchestration for any project. Enables CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, adds a TaskCompleted quality-gate hook, and creates/updates AGENTS.md with team coordination rules. Run once per project. Safe to re-run — existing files are merged, not overwritten.
+description: Bootstrap Agent Teams orchestration for any project. Enables CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, adds a TaskCompleted quality-gate hook, creates/updates AGENTS.md with team coordination and workflow rules, and creates CLAUDE.md as an AGENTS.md reference (migrates existing content). Run once per project. Safe to re-run — existing files are merged, not overwritten.
 ---
 
 # Init Orchestration
 
-Bootstrap the three files needed for Claude Code Agent Teams in the current project.
+Bootstrap the files needed for Claude Code Agent Teams in the current project.
 
 ## What Gets Created / Updated
 
@@ -15,7 +15,8 @@ project/
 │   ├── settings.json          # + env var + hooks section (merged)
 │   └── hooks/
 │       └── task-completed.sh  # Quality-gate hook (created)
-└── AGENTS.md                  # Team coordination rules (created or appended)
+├── AGENTS.md                  # Team coordination rules (created or appended)
+└── CLAUDE.md                  # AGENTS.md reference (created, existing content migrated)
 ```
 
 ## Instructions
@@ -26,6 +27,7 @@ Check for existing files:
 ```bash
 ls .claude/settings.json 2>/dev/null && echo "settings exists"
 ls AGENTS.md 2>/dev/null && echo "agents exists"
+ls CLAUDE.md 2>/dev/null && echo "claude.md exists"
 ```
 
 Note which files exist — they get merged, not overwritten.
@@ -183,6 +185,17 @@ Write `.claude/hooks/task-completed.sh`:
 #   fi
 # done
 
+# --- Example: check for spec updates when source files change ---
+# CHANGED=$(git diff --cached --name-only 2>/dev/null || true)
+# if echo "$CHANGED" | grep -qE '\.(go|ts|py|rs|java)$'; then
+#   if ! echo "$CHANGED" | grep -q 'specs/'; then
+#     echo "WARNING: Source files changed but no spec files updated." >&2
+#     echo "Verify that related specs in specs/ are still accurate." >&2
+#     # Uncomment the next line to hard-block commits without spec updates:
+#     # exit 2
+#   fi
+# fi
+
 exit 0
 ```
 
@@ -217,12 +230,15 @@ Read this file at the start of every session before doing any work.
 ## Critical Rules
 
 **DO:**
-- [Project-specific rule 1]
-- [Project-specific rule 2]
+- Update spec files whenever behavioral changes are made
+- Use project-local paths for all plans, specs, and memory — never global `~/.claude/` paths
+- When releasing, bump ALL version references (code, config, changelog, tags)
+- When comparing or cross-checking documents, analyze differences first — never blindly merge
 
 **DO NOT:**
-- [Anti-pattern 1]
-- [Anti-pattern 2]
+- Over-plan: if asked for a fix or implementation, proceed quickly unless a plan is explicitly requested
+- Write to global paths (`~/.claude/`) when project-local paths exist
+- Commit implementation changes without checking if related specs need updating
 
 ## Project Structure
 
@@ -271,7 +287,33 @@ When working as a native Agent Team teammate:
 
 ---
 
-### Step 5: Validate
+### Step 5: Create or update CLAUDE.md
+
+**If `CLAUDE.md` does not exist** — create it with just the reference line (see template below).
+
+**If `CLAUDE.md` already exists and has content beyond an AGENTS.md reference:**
+1. Read the existing `CLAUDE.md` content
+2. Migrate any rules, instructions, or project details into the appropriate sections of `AGENTS.md` (created/updated in Step 4):
+   - Workflow rules → `## Critical Rules`
+   - Build/test/tech stack info → `## Project Overview`
+   - File conventions → `## Code Conventions` or `## Critical Rules`
+   - Any other project-specific instructions → appropriate AGENTS.md section
+3. Do NOT duplicate — if equivalent rules already exist in AGENTS.md, skip them
+4. Replace `CLAUDE.md` contents with just the reference line
+
+**If `CLAUDE.md` already exists and is only the reference line** — no changes needed, skip.
+
+#### CLAUDE.md template
+
+```markdown
+Read and follow [AGENTS.md](./AGENTS.md) before starting any work.
+```
+
+All project rules live in AGENTS.md. CLAUDE.md just ensures Claude Code loads them.
+
+---
+
+### Step 6: Validate
 
 Run the hook manually to confirm it passes:
 ```bash
@@ -286,7 +328,7 @@ python3 -c "import json; json.load(open('.claude/settings.json')); print('settin
 
 ---
 
-### Step 6: Summary
+### Step 7: Summary
 
 Print a summary of what was done:
 
@@ -297,10 +339,11 @@ Updated:
   📄 .claude/settings.json   — CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 + TaskCompleted hook
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 AGENTS.md               — team coordination rules [created/appended]
+  📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
 
 Next steps:
   1. Customize .claude/hooks/task-completed.sh with project-specific checks
-     (uncomment test runner, JSON validation, or add your own)
+     (uncomment test runner, JSON validation, spec-change check, or add your own)
   2. Fill in AGENTS.md placeholders with actual project details
   3. Restart Claude Code for the env var to take effect
 
@@ -315,6 +358,7 @@ To use Agent Teams:
 
 - If `settings.json` contains invalid JSON before we touch it: warn the user and stop — do not overwrite
 - If `AGENTS.md` is very large (>200 lines): append the team coordination section at the end and note it was appended
+- If `CLAUDE.md` already exists and references AGENTS.md: no changes needed, skip this step
 - If `.claude/hooks/` cannot be created (permissions): report the error with the manual command to run
 
 ## Important Notes
