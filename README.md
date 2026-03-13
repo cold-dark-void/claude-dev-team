@@ -61,6 +61,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/kickoff` | Orchestrate full ticket intake + planning: parallel PM+TL kickoff, spec creation, implementation plan, TaskCreate task graph |
 | `/standup` | Status snapshot of active agent work: reads TaskList + agent context files, surfaces blockers and stale tasks |
 | `/wrap-ticket` | Close out a shipped ticket: verify tasks done, capture learnings to memory, update plans, remove worktree |
+| `/orchestrate` | Full lifecycle orchestrator: fetch issue, create worktree, spawn agents end-to-end, tech-lead review loops, optional PR |
 
 ---
 
@@ -265,6 +266,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.10.0
+- **`/orchestrate`**: new skill — full lifecycle issue orchestrator; fetches issue context (Linear or prompted), creates branch/worktree, spawns PM+Tech Lead for scoping, IC4/IC5 for implementation, QA for validation, enforces tech-lead review loops with deadloop detection, optionally creates PR; main Claude stays as observer/navigator throughout
 
 ### v0.9.10
 - **`/init-orchestration`**: enable bubblewrap sandbox (`sandbox.enabled: true`, `autoAllowBashIfSandboxed: true`) + simplify permissions to `Bash(*)` with `bypassPermissions` — replaces 70-line command allowlist with OS-level isolation for zero-prompt fully autonomous agents
