@@ -428,6 +428,56 @@ These rules apply to YOU (the main Claude) throughout the entire flow:
 
 ---
 
+## Change Discipline
+
+These rules constrain how work is structured. Violating them is an escalation trigger.
+
+### Atomic PRs — one logical change per PR
+
+- Each ticket = its own branch + its own PR. Never bundle multiple tickets into one change.
+- A PR should do ONE thing. If the description needs "and" to explain it, it's too big.
+
+### Size limits
+
+- **~1,000 LOC of real code** per PR (soft cap). Tests, generated code, and migrations don't count toward this limit.
+- **Hard cap: 2,000 LOC total** (including tests). If a PR exceeds this, it must be split.
+- **No single file > 1,000 lines.** If a file approaches this, pause and discuss decomposition with Tech Lead before continuing.
+
+When a task would exceed these limits, the orchestrator must:
+1. Stop the IC agent
+2. Have Tech Lead split the task into smaller, shippable increments
+3. Each increment gets its own task, branch, and PR
+4. Increments ship sequentially — each must be green and mergeable on its own
+
+### Refactoring is always a separate PR
+
+If implementation requires refactoring existing code:
+1. **Stop implementation.** Do not mix refactoring with feature work.
+2. Have Tech Lead design the refactor — what changes, what stays, what's the migration path.
+3. Ship the refactor PR first. Get it merged.
+4. Resume feature implementation on top of the clean base.
+
+If the refactor is large enough to warrant its own ticket, create one (in Linear if available, otherwise `/backlog add`).
+
+### Discovered work → new tickets
+
+When agents discover work that wasn't in the original plan:
+- **Do NOT absorb it** into the current PR.
+- Create a new ticket (Linear if available, otherwise `/backlog add`).
+- If it blocks the current work, escalate to user with: "This blocks <ISSUE-ID>. Create a blocking ticket and do it first, or defer?"
+
+### Replan gate
+
+Whenever the approach changes materially — new dependencies discovered, scope expanded, architecture assumption invalidated:
+1. **Pause all IC work.**
+2. Spawn Tech Lead to replan.
+3. Present updated plan to user for approval.
+4. Only resume after user confirms.
+
+This applies even if the change seems small. Small deviations compound.
+
+---
+
 ## Error Handling
 
 - **No git repo**: warn; skip worktree, work in current directory

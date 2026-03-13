@@ -237,6 +237,33 @@ Read this file at the start of every session before doing any work.
 - Write to global paths (`~/.claude/`) when project-local paths exist
 - Commit implementation changes without checking if related specs need updating
 
+## Change Discipline
+
+All agents MUST follow these rules. The orchestrator enforces them, but agents should self-police.
+
+**Atomic PRs:**
+- One logical change per PR. One ticket = one branch = one PR. Never bundle.
+- If a task description needs "and" to explain it, split it first.
+
+**Size limits:**
+- ~1,000 LOC of real code per PR (soft cap). Tests, generated code, migrations don't count.
+- Hard cap: 2,000 LOC total including tests. Exceeding this = stop and split.
+- No single file > 1,000 lines. If approaching this, pause and discuss decomposition with Tech Lead.
+
+**Refactoring is always separate:**
+- Never mix refactoring with feature work in the same PR.
+- If you need to refactor before implementing: stop, flag to orchestrator/Tech Lead, ship refactor PR first, then resume feature work on the clean base.
+- Large refactors get their own ticket.
+
+**Discovered work → new tickets:**
+- Never absorb unplanned work into the current change.
+- Flag it to the orchestrator. It becomes a new ticket (Linear or backlog).
+- If it blocks current work, escalate — don't silently expand scope.
+
+**Replan on deviation:**
+- If your approach changes materially from the plan (new deps, scope grew, architecture assumption broken): stop all work and request a replan from Tech Lead.
+- Small deviations compound. When in doubt, stop and ask.
+
 ## Project Structure
 
 ```
@@ -336,6 +363,11 @@ mkdir -p .claude/memory/claude
 - Breaking changes (schema, API contracts, dependency bumps) → always escalate to user before proceeding.
 - Batch questions for the user — don't interrupt for routine progress. Protect their time.
 - When spawning agents, give them the worktree path, spec path, and plan path explicitly. Don't assume they'll find context on their own.
+- Atomic PRs only — one ticket, one branch, one PR. Never bundle multiple tickets.
+- ~1k LOC real code per PR (tests don't count). Hard cap 2k total. No single file > 1k lines. Exceeding = stop and split.
+- Refactoring is always a separate PR — never mixed with feature work. Ship refactor first, then feature on top.
+- Discovered work becomes a new ticket — never silently absorb unplanned work into the current change.
+- Material approach changes → pause all IC work, Tech Lead replans, user approves before resuming.
 ```
 
 ---
