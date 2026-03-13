@@ -13,8 +13,11 @@ Bootstrap the files needed for Claude Code Agent Teams in the current project.
 project/
 ├── .claude/
 │   ├── settings.json          # + env var + hooks section (merged)
-│   └── hooks/
-│       └── task-completed.sh  # Quality-gate hook (created)
+│   ├── hooks/
+│   │   └── task-completed.sh  # Quality-gate hook (created)
+│   └── memory/
+│       └── claude/
+│           └── memory.md      # Orchestrator rules seeded (created or appended)
 ├── AGENTS.md                  # Team coordination rules (created or appended)
 └── CLAUDE.md                  # AGENTS.md reference (created, existing content migrated)
 ```
@@ -307,7 +310,37 @@ All project rules live in AGENTS.md. CLAUDE.md just ensures Claude Code loads th
 
 ---
 
-### Step 7: Validate
+### Step 7: Seed orchestrator memory
+
+Create the Claude Code memory directory and seed it with learned patterns from past sessions. These prevent known mistakes from being repeated in every new project.
+
+```bash
+mkdir -p .claude/memory/claude
+```
+
+**If `.claude/memory/claude/memory.md` does not exist** — create it with the baseline below.
+
+**If it already exists** — read it, check if the orchestrator rules section is present. If not, append it. Do not duplicate.
+
+#### Baseline memory content
+
+```markdown
+# Project Memory
+
+## Orchestrator rules (seeded by /init-orchestration)
+
+- When acting as orchestrator/coordinator, NEVER implement code directly — not even "quick fixes" for broken agent output. Always create a task and assign to an IC agent.
+- After each agent phase completes, create an explicit "validate and debug" task before starting the next phase. Quality gaps between defined tasks are where bugs hide.
+- Agents stuck after 2 genuine attempts → escalate to user. Don't let them loop.
+- Scope creep discovered mid-implementation → pause and ask user whether to expand scope or defer to backlog. Never silently absorb extra work.
+- Breaking changes (schema, API contracts, dependency bumps) → always escalate to user before proceeding.
+- Batch questions for the user — don't interrupt for routine progress. Protect their time.
+- When spawning agents, give them the worktree path, spec path, and plan path explicitly. Don't assume they'll find context on their own.
+```
+
+---
+
+### Step 8: Validate
 
 Run the hook manually to confirm it passes:
 ```bash
@@ -322,7 +355,7 @@ python3 -c "import json; json.load(open('.claude/settings.json')); print('settin
 
 ---
 
-### Step 8: Summary
+### Step 9: Summary
 
 Print a summary of what was done:
 
@@ -335,6 +368,7 @@ Updated:
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
+  📄 .claude/memory/claude/memory.md — orchestrator rules seeded [created/updated]
 
 Next steps:
   1. Customize .claude/hooks/task-completed.sh with project-specific checks
