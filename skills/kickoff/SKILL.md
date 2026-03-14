@@ -54,9 +54,9 @@ Note which specs are relevant — they constrain the design.
 
 ---
 
-## Step 2: Parallel PM + Tech Lead kickoff
+## Step 2: Parallel PM + Tech Lead + Codebase Exploration
 
-Spawn both agents simultaneously. Do not wait for one before starting the other.
+Spawn **three** agents simultaneously. Do not wait for one before starting the others.
 
 ### PM prompt (send now):
 ```
@@ -89,7 +89,38 @@ Do NOT produce a plan yet — wait for confirmed ACs.
 Output: affected files, relevant specs, risks.
 ```
 
-Collect both outputs before proceeding.
+### Codebase Explorer prompt (send now, in parallel — Sonnet):
+```
+You are a codebase exploration agent. Deep-dive the codebase to map how
+the area related to ticket <TICKET-ID> currently works.
+
+Ticket summary: <first 2 sentences of ticket text>
+Keywords: <extract 3-5 keywords from ticket text>
+
+Your methodology:
+1. DISCOVERY — Grep/Glob for the keywords across the codebase. Find all
+   relevant files, types, functions, routes, handlers.
+2. FLOW ANALYSIS — For the top 3-5 most relevant entry points, trace the
+   execution path: caller → function → dependencies → side effects.
+   Read each file fully, do not skim.
+3. ARCHITECTURE MAPPING — Identify patterns: what abstractions exist,
+   what conventions are followed, what data flows through the system.
+4. DEPENDENCY MAP — What does this area depend on? What depends on it?
+
+Output a structured report:
+- Entry points: <list with file:line>
+- Execution flows: <caller → callee chains>
+- Patterns in use: <conventions, abstractions, data flow>
+- Dependencies (inbound): <what calls into this area>
+- Dependencies (outbound): <what this area calls>
+- Landmines: <anything surprising, fragile, or undocumented>
+```
+
+Collect all three outputs before proceeding.
+
+Present the codebase exploration findings to the user alongside PM and Tech Lead
+outputs — this gives everyone a shared understanding of how the code works today
+before any design decisions are made.
 
 ---
 
