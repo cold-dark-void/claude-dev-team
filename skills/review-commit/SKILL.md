@@ -1,9 +1,10 @@
 ---
 name: review-and-commit
 description: Brutally honest review of staged/modified files — no sugar-coating, no
-  diplomacy. Checks for bugs, security issues, PII/data exposure, over-engineering,
-  and spec drift. Blocks commit on critical issues. Prints review as text; accepts
-  an optional path argument to also save to a file.
+  diplomacy. Runs 5 parallel specialist sub-agents (Logic, Security, Compliance,
+  Quality, Simplification) with confidence scoring to filter false positives. Blocks
+  commit on critical issues. Prints review as text; accepts an optional path argument
+  to also save to a file.
 ---
 
 # Review and Commit
@@ -27,109 +28,171 @@ git diff
 
 If nothing is staged or modified, tell the user there is nothing to review and stop.
 
----
-
-## Step 2: Review the Changes
-
 Read every changed file in full — do not review hunks in isolation.
 
-### Tone rules (non-negotiable)
-- Do not soften criticism
-- Do not congratulate
-- Do not say "nice work" or "looks good"
-- No hedging language — never say "maybe", "consider", "you might want to"
-- Every issue must reference a specific `file:line`
-- Suggest concrete fixes, not vague advice
-- If the code is genuinely fine: write "No issues found. This is appropriately boring."
+---
 
-### What to look for
+## Step 2: Load Project Rules
 
-**Correctness**
+Read these files (skip any that don't exist):
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || PROOT=$(pwd)
+```
+
+- `$PROOT/AGENTS.md` — project rules and conventions
+- `$PROOT/CLAUDE.md` — project instructions
+- Any per-directory `CLAUDE.md` files in directories containing changed files
+
+Extract all rules, conventions, and constraints from these files. These form
+the compliance checklist for Step 3.
+
+---
+
+## Step 3: Parallel Multi-Agent Review
+
+Launch **5 specialist sub-agents in parallel** (Sonnet model). Each receives the
+full diff, the full content of changed files, and their specific review focus.
+
+### Agent 1: Logic & Correctness
+Focus exclusively on:
 - Bugs, off-by-ones, missed early returns
 - Race conditions and concurrency mistakes
 - Error handling gaps — swallowed errors, missing retries, silent failures
 - Edge cases the author clearly didn't think about
+- N+1 queries, unbounded allocations, hot-path inefficiencies
 
-**Security**
+### Agent 2: Security & PII
+Focus exclusively on:
 - Injection vulnerabilities (SQL, command, template)
 - Auth bypass, missing authorization checks
 - Secret or token exposure in code or logs
 - OWASP top 10 violations
 - Trust boundary violations — unvalidated external input treated as safe
+- Logging that emits PII fields (email, name, phone, address, password, token,
+  secret, ssn, card, account, session, ip, user_id, customer_id)
+- Error messages that leak internal state or user data
+- Struct serialization of types with sensitive fields missing omit/redact tags
 
-**PII & Data Exposure**
-- Logging calls (`log.*`, `fmt.Print*`, `console.log`, `print()`, `logger.*`) that emit fields
-  resembling: email, name, phone, address, SSN, card number, account ID, auth token, password,
-  session ID, IP address, or any field named `user*`, `customer*`, `pii*`, `private*`
-- Error messages returned to callers that leak internal state or user data
-- Struct serialization (JSON/XML marshaling) of types containing sensitive fields with no
-  explicit omit/redact tags
-- Any place where a PII field is passed into a format string, structured log, or error
+### Agent 3: Compliance (AGENTS.md / CLAUDE.md)
+Focus exclusively on:
+- Every rule extracted from AGENTS.md — validate the diff does not violate it
+- Every rule from CLAUDE.md files — validate compliance
+- Version file sync (plugin.json, marketplace.json, README.md)
+- File size constraints (no file > 1k lines)
+- PR size constraints (~1k LOC soft cap, 2k hard cap)
+- Memory file line limits if agent memory files are changed
+- Naming conventions and code conventions from project rules
+- Commit hygiene rules
 
-**Simplicity & Over-engineering**
-- Treat complexity as a bug unless proven otherwise
-- Interfaces with one implementation — delete the interface
-- Helpers used in exactly one place — inline them
-- Abstractions that exist to feel clever, not to solve a problem
-- Config for things that never change
-- Premature generalization for hypothetical future requirements
-- Prefer deletion over addition — if a simpler path exists, that is the path
+For each rule checked, report: PASS, FAIL, or N/A.
 
-**Design**
+### Agent 4: Design & Quality
+Focus exclusively on:
 - Wrong abstractions or layering
 - Hidden coupling that will cause pain later
 - Breaking API changes without justification
 - Copy-paste that should be abstracted — or premature abstractions that shouldn't exist
+- Interfaces with one implementation — delete the interface
+- Helpers used in exactly one place — inline them
+- Config for things that never change
+- Premature generalization for hypothetical future requirements
 - Naming that requires a comment to decode
 
-**Performance**
-- N+1 queries
-- Unbounded allocations
-- Obvious hot-path inefficiencies
+### Agent 5: Simplification
+Focus exclusively on:
+- Can any changed code be made simpler while preserving behavior?
+- Are there shorter, clearer ways to express the same logic?
+- Is there dead code, unused imports, unreachable branches?
+- Consistent patterns — does the new code match existing conventions?
+- Complexity reduction opportunities
+- Prefer deletion over addition — if a simpler path exists, that is the path
+
+### Sub-agent output format
+
+Each agent must output findings as a JSON array:
+```json
+[
+  {
+    "file": "path/to/file",
+    "line": 42,
+    "severity": "critical|warning|nitpick",
+    "category": "logic|security|compliance|design|simplification",
+    "description": "what is wrong",
+    "suggestion": "what to do instead"
+  }
+]
+```
+
+If no issues found, return `[]`.
+
+### Tone rules for ALL agents (non-negotiable)
+- Do not soften criticism
+- Do not congratulate
+- No hedging language — never say "maybe", "consider", "you might want to"
+- Every issue must reference a specific `file:line`
+- Suggest concrete fixes, not vague advice
 
 ---
 
-## Step 3: PII Scan (dedicated pass)
+## Step 4: Confidence Scoring
 
-After the general review, do a dedicated grep pass on changed files for:
-1. Any logging statement containing field names matching: `email`, `name`, `phone`, `address`,
-   `password`, `token`, `secret`, `ssn`, `card`, `account`, `session`, `ip`, `user_id`,
-   `customer_id` (case-insensitive)
-2. Any error string construction that includes user-supplied data without sanitization
-3. Any HTTP response body that serializes a full user/customer struct
+After collecting all findings from the 5 agents, score each finding for
+confidence on a 0-100 scale:
 
-Flag every hit as at minimum a WARNING. Flag any confirmed leak as a BLOCKER.
+- **0-25**: Likely false positive — the code is probably fine
+- **26-50**: Uncertain — might be an issue but not clear
+- **51-79**: Probable issue — worth a second look
+- **80-94**: High confidence — this should be fixed (WARNING)
+- **95-100**: Near certain — this must be fixed (CRITICAL)
+
+Scoring criteria:
+- Is there clear evidence in the code for the issue?
+- Could the reviewer be misunderstanding intent or context?
+- Is this a pre-existing issue or introduced by this diff?
+- Is this something a linter would catch? (deprioritize — linters should handle it)
+
+**Discard all findings scoring below 80.** This is the noise filter.
 
 ---
 
-## Step 4: Spec Alignment
+## Step 5: Spec Alignment
 
-Check `specs/` for specs related to the changed behavior. If any spec is out of date with
-the changes, update it now. Never skip this step — if no specs directory exists, note it
-and move on.
+Check `specs/` for specs related to the changed behavior. If any spec is out of
+date with the changes, update it now. Never skip this step — if no specs
+directory exists, note it and move on.
 
 ---
 
-## Step 5: Output the Review
+## Step 6: Output the Review
 
 Print the review directly in the conversation using this structure.
-Omit any section that has no items.
+Omit any section that has no items (after confidence filtering).
 
 ```
-## Critical Issues (Must Fix)
+## Critical Issues (Must Fix) [confidence 95-100]
 Bugs, security risks, confirmed PII leaks, correctness failures.
-Each item: `file:line` — what is wrong — what to do instead.
+Each item: `file:line` — what is wrong — what to do instead. [confidence: N]
 
-## Design Problems
+## Compliance Violations
+AGENTS.md / CLAUDE.md rule violations.
+Each item: `file:line` — rule violated — what to fix. [confidence: N]
+
+## Design Problems [confidence 80-94]
 Wrong abstractions, unnecessary complexity, over-engineering.
 
-## Security & PII
+## Security & PII [confidence 80-94]
 Trust boundaries, auth gaps, data exposure, logging risks.
 
 ## Maintainability Risks
 Hidden coupling, future migration pain, naming that lies.
 
-## Nitpicks (Yes, They Matter)
+## Simplification Opportunities
+Concrete ways to make the code simpler.
+
+## Nitpicks (Yes, They Matter) [confidence 80-94]
 Small things that compound. Still cite file:line.
 
 ## What I Would Do Instead
@@ -137,22 +200,27 @@ The simpler or safer direction. Prefer subtraction.
 
 ## Overall Assessment
 2–3 blunt sentences. End with one of: APPROVE / REQUEST CHANGES / NEEDS DISCUSSION
+
+Review stats: N findings from 5 agents, M passed confidence filter (≥80), K discarded.
 ```
 
 If a path argument was provided, also write the same output to that file.
 
 ---
 
-## Step 6: Commit Gate
+## Step 7: Commit Gate
 
-- If any **Critical Issues** exist: do NOT commit. Tell the user exactly what must be fixed first.
-- If only Design Problems / Nitpicks / Maintainability: ask the user "Proceed with commit despite findings? (y/n)"
-- If clean (or user confirmed): commit with a conventional commit message explaining *why* the change was made.
+- If any **Critical Issues** or **Compliance Violations** with severity "critical" exist:
+  do NOT commit. Tell the user exactly what must be fixed first.
+- If only Design Problems / Nitpicks / Simplification: ask the user
+  "Proceed with commit despite findings? (y/n)"
+- If clean (or user confirmed): commit with a conventional commit message
+  explaining *why* the change was made.
 
-## Step 7: Action Items
+## Step 8: Action Items
 
-After the review output, always print a structured action list — even if the commit proceeds.
-This gives the agent (or user) a concrete checklist to execute.
+After the review output, always print a structured action list — even if the
+commit proceeds.
 
 Print a summary line first:
 ```
@@ -162,19 +230,19 @@ Action Items: N BLOCKERs, M DESIGN, K NITPICK — [commit blocked | commit proce
 Then the checklist:
 ```
 ## Action Items
-- [ ] BLOCKER `file:line` — what is wrong — exactly what to do
-- [ ] DESIGN  `file:line` — what is wrong — exactly what to do
-- [ ] NITPICK `file:line` — what is wrong — exactly what to do
+- [ ] BLOCKER `file:line` — what is wrong — exactly what to do [confidence: N]
+- [ ] DESIGN  `file:line` — what is wrong — exactly what to do [confidence: N]
+- [ ] NITPICK `file:line` — what is wrong — exactly what to do [confidence: N]
 ```
 
 Rules:
 - Every item from the review must appear here — nothing omitted
-- Each item is one line: severity tag, `file:line`, problem, fix
+- Each item is one line: severity tag, `file:line`, problem, fix, confidence
 - No vague items — "refactor this" is not acceptable; "delete QueueInterface, use ConcreteQueue directly" is
-- Ordered: BLOCKERs first, then DESIGN, then NITPICK
+- Ordered: BLOCKERs first, then COMPLIANCE, then DESIGN, then NITPICK
 
 ---
 
-## Step 8: Verify
+## Step 9: Verify
 
 Run `git status` to confirm clean state.
