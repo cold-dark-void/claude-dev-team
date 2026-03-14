@@ -62,6 +62,9 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/standup` | Status snapshot of active agent work: reads TaskList + agent context files, surfaces blockers and stale tasks |
 | `/wrap-ticket` | Close out a shipped ticket: verify tasks done, capture learnings to memory, update plans, remove worktree |
 | `/orchestrate` | Full lifecycle orchestrator: fetch issue, create worktree, spawn agents end-to-end, tech-lead review loops, optional PR |
+| `/brainstorm` | Socratic design refinement — structured questioning that forces requirement clarity before planning or implementation |
+| `/recall` | Search all prior work by topic across sessions, memory, specs, plans, git history — outputs `claude --resume` commands |
+| `/mem-search` | Search across all agent memory files (cortex, memory, lessons, context) for a keyword or topic |
 
 ---
 
@@ -266,6 +269,15 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.11.0
+- **`/brainstorm`**: new skill — Socratic design refinement with structured questioning rounds (Core Intent → Scope & Constraints → Edge Cases → Alternatives) that forces requirement clarity before planning; saves synthesis to `.claude/plans/`; inspired by Superpowers
+- **`/recall [topic]`**: new command — cross-project session search across `history.jsonl`, agent memory, git history, specs, plans, and backlog; groups results by session and outputs `claude --resume <id>` commands for instant context recovery; inspired by WorkCommand
+- **`/mem-search [topic]`**: new command — searches all agent memory files (cortex, memory, lessons, context) for a keyword; shows which agents know what about a given subject
+- **`/review-and-commit` overhaul**: now runs 5 parallel specialist sub-agents (Logic, Security, Compliance, Design, Simplification) instead of single-agent review; adds confidence scoring (0-100) that filters findings below 80 to reduce false positives; adds AGENTS.md/CLAUDE.md compliance checking as a dedicated review dimension; inspired by local-review
+- **`/kickoff` enhancement**: adds a parallel codebase exploration agent alongside PM and Tech Lead — traces execution paths, maps architecture patterns, and documents dependencies before design decisions; inspired by feature-dev
+- **TDD gates**: IC4 and IC5 agents now enforce mandatory RED-GREEN-REFACTOR cycle for new features and bug fixes — write failing test first, then implement, then refactor; skip only for config/docs or when user opts out; inspired by Superpowers
+- **Micro-task decomposition**: Tech Lead now breaks implementation plans into 2-5 minute micro-tasks with exact file paths, specific changes, interface contracts, verification steps, and dependencies; inspired by Superpowers
 
 ### v0.10.2
 - **`/orchestrate`**: add Change Discipline rules — atomic PRs, ~1k LOC soft cap / 2k hard cap, no file >1k lines, refactoring always separate, discovered work becomes new tickets, replan gate on material deviations
