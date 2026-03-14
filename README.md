@@ -65,6 +65,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/brainstorm` | Socratic design refinement — structured questioning that forces requirement clarity before planning or implementation |
 | `/recall` | Search all prior work by topic across sessions, memory, specs, plans, git history — outputs `claude --resume` commands |
 | `/mem-search` | Search across all agent memory files (cortex, memory, lessons, context) for a keyword or topic |
+| `/scout-plugins` | Research new Claude Code plugins released in the last week (or custom window), evaluate against current setup, propose enhancements |
 
 ---
 
@@ -269,6 +270,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.11.1
+- **`/scout-plugins`**: new skill — automated competitive intelligence scan of the Claude Code plugin ecosystem; searches for new/updated plugins within a configurable time window (default 1 week), evaluates each against dev-team's current capabilities, classifies as ADOPT/STEAL/WATCH/SKIP, and produces an enhancement proposal table
 
 ### v0.11.0
 - **`/brainstorm`**: new skill — Socratic design refinement with structured questioning rounds (Core Intent → Scope & Constraints → Edge Cases → Alternatives) that forces requirement clarity before planning; saves synthesis to `.claude/plans/`; inspired by Superpowers
