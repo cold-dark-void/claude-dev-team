@@ -75,8 +75,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/orchestrate` | Full lifecycle orchestrator: fetch issue, create worktree, spawn agents end-to-end, tech-lead review loops, optional PR |
 | `/brainstorm` | Socratic design refinement — structured questioning that forces requirement clarity before planning or implementation |
 | `/recall` | Search all prior work by topic across sessions, memory, specs, plans, git history — outputs `claude --resume` commands |
-| `/memory-search <query>` | Semantic search across all agent memories (vector embeddings when available, keyword fallback) |
-| `/mem-search` | Search across all agent memory files (cortex, memory, lessons, context) for a keyword or topic |
+| `/memory-search <query>` | Search all agent memories — semantic (embeddings), keyword (DB), or grep (.md fallback) |
 | `/scout-plugins` | Research new Claude Code plugins released in the last week (or custom window), evaluate against current setup, propose enhancements |
 
 ---
@@ -301,6 +300,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.12.3
+- **`/memory-search`**: unified — absorbs `/mem-search` into a single command with 3-tier auto-detection: semantic (embeddings) → keyword (DB LIKE) → grep (.md files); adds error handling for curl failures, dynamic vec table dims, and non-agent directory filtering
+
 ### v0.12.2
 - **Generic remote embeddings** — set `EMBEDDING_URL` and `EMBEDDING_API_KEY` env vars to use any OpenAI-compatible embedding provider (OpenAI, LLMGateway, ollama, etc.)
 - Ollama is no longer a special case — just set `EMBEDDING_URL=http://localhost:11434/api/embed`
@@ -326,7 +328,7 @@ Check the plugin into your project's settings so teammates get it automatically.
 ### v0.11.0
 - **`/brainstorm`**: new skill — Socratic design refinement with structured questioning rounds (Core Intent → Scope & Constraints → Edge Cases → Alternatives) that forces requirement clarity before planning; saves synthesis to `.claude/plans/`; inspired by Superpowers
 - **`/recall [topic]`**: new command — cross-project session search across `history.jsonl`, agent memory, git history, specs, plans, and backlog; groups results by session and outputs `claude --resume <id>` commands for instant context recovery; inspired by WorkCommand
-- **`/mem-search [topic]`**: new command — searches all agent memory files (cortex, memory, lessons, context) for a keyword; shows which agents know what about a given subject
+- **`/memory-search [query]`**: now unified — absorbs `/mem-search`; auto-detects best mode: semantic (embeddings) → keyword (DB LIKE) → grep (.md files)
 - **`/review-and-commit` overhaul**: now runs 5 parallel specialist sub-agents (Logic, Security, Compliance, Design, Simplification) instead of single-agent review; adds confidence scoring (0-100) that filters findings below 80 to reduce false positives; adds AGENTS.md/CLAUDE.md compliance checking as a dedicated review dimension; inspired by local-review
 - **`/kickoff` enhancement**: adds a parallel codebase exploration agent alongside PM and Tech Lead — traces execution paths, maps architecture patterns, and documents dependencies before design decisions; inspired by feature-dev
 - **TDD gates**: IC4 and IC5 agents now enforce mandatory RED-GREEN-REFACTOR cycle for new features and bug fixes — write failing test first, then implement, then refactor; skip only for config/docs or when user opts out; inspired by Superpowers
