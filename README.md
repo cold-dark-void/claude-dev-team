@@ -219,7 +219,7 @@ Cortex knowledge is populated on init. Everything else fills naturally as the te
 
 ### Memory Distillation
 
-Over time, raw memories accumulate. Run `/memory-distill` periodically to compress them into concise digests (tier 1) and promote the highest-signal knowledge to permanent core (tier 2).
+Over time, raw memories accumulate — context windows fill up and agents re-read stale information. Run `/memory-distill` periodically to keep memory lean. When triggered, it batches tier-0 (raw) rows, spawns the `@distiller` agent (Haiku) to compress them into tier-1 digests, evaluates each digest for tier-2 promotion, and archives the consumed tier-0 rows (never deletes). A good time to run it: after wrapping a ticket, or when `/memory-distill --status` shows a high raw count.
 
 | Tier | Label | Description |
 |------|-------|-------------|
@@ -228,10 +228,26 @@ Over time, raw memories accumulate. Run `/memory-distill` periodically to compre
 | 2 | core | Promoted permanent knowledge (decisions, lessons, architecture) |
 
 Configure with `/memory-config`:
-- `distill_enabled` — enable/disable (default: false)
-- `distill_mode` — manual / suggest / auto (default: suggest)
-- `distill_threshold` — raw count before triggering (default: 50)
-- `distill_model` — LLM model for compression (default: haiku)
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `distill_enabled` | true / false | false | Master switch — distillation does nothing when false |
+| `distill_mode` | manual / suggest / auto | suggest | manual: only on explicit run; suggest: prints notice at threshold; auto: runs at ticket close |
+| `distill_threshold` | 1–9999 | 50 | Raw memory count before suggest/auto triggers |
+| `distill_model` | model name | haiku | LLM used for compression (Haiku recommended for cost) |
+
+### Remote Embeddings (OpenAI example)
+
+To use a remote embedding provider instead of the bundled local model, set these environment variables before running `/init-team`:
+
+```bash
+export EMBEDDING_URL=https://api.openai.com/v1/embeddings
+export EMBEDDING_API_KEY=sk-...
+export EMBEDDING_MODEL=text-embedding-3-small
+/init-team --refresh
+```
+
+Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, LLMGateway, ollama, etc.). When `EMBEDDING_URL` is set, `/init-team` skips the local extension download entirely — no sqlite-lembed or GGUF model needed.
 
 ### Re-initialize after major changes
 
@@ -515,6 +531,32 @@ Check the plugin into your project's settings so teammates get it automatically.
 - Four-file per-agent memory system (cortex, memory, lessons, context) — worktree-aware
 - Spec management: `/create-spec`, `/update-spec`, `/find-spec`, `/list-specs`, `/check-specs`
 - `/scaffold-project` and `/init-team` commands
+
+---
+
+## Troubleshooting
+
+### `sqlite3: command not found`
+
+Install sqlite3 via your package manager (`apt install sqlite3`, `brew install sqlite3`).
+Without it, agents fall back to .md files — the plugin still works, just without semantic search.
+
+### Extension download fails
+
+`/init-team` downloads sqlite-vec and sqlite-lembed (~29MB). If on a restricted network:
+- Use `/init-team --no-extensions` for keyword-only search
+- Or set `EMBEDDING_URL` for remote embeddings (no local extensions needed)
+
+### Schema migration errors
+
+If you see "table already exists" or column errors after upgrading:
+- Run `/init-team --refresh` to re-probe and re-migrate
+- Or delete `.claude/memory/memory.db` and re-run `/init-team` (loses stored memories)
+
+### Agents not discovering commands
+
+All command/skill `.md` files require YAML frontmatter (`name`, `description`).
+Files without frontmatter are invisible to Claude Code's discovery system.
 
 ---
 
