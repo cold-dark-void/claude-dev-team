@@ -100,32 +100,52 @@ done
 echo "Checked .gitignore entries."
 ```
 
-## Step 5b: Add embedding host to sandbox network allowlist
+## Step 5b: Add required hosts to sandbox network allowlist
 
-If `$EMBEDDING_URL` is set, extract the host:port and ensure it's in `.claude/settings.json` network allowlist so embedding calls aren't blocked by the sandbox.
+Collect all hosts that need sandbox network access. Always include `github.com:22`
+(for git push over SSH). If `$EMBEDDING_URL` is set, also include the embedding host.
 
 ```bash
-if [ -n "${EMBEDDING_URL:-}" ]; then
-  # Extract host:port from URL (e.g., "http://localhost:11434/api/embed" → "localhost:11434")
-  EMBED_HOST=$(echo "$EMBEDDING_URL" | sed -E 's|https?://([^/]+).*|\1|')
-  SETTINGS="$MROOT/.claude/settings.json"
+SETTINGS="$MROOT/.claude/settings.json"
+HOSTS_TO_ADD=()
 
-  if [ -f "$SETTINGS" ]; then
-    # Check if host already in allowedHosts
-    if ! grep -qF "$EMBED_HOST" "$SETTINGS" 2>/dev/null; then
-      # Add to allowedHosts array using jq if available, otherwise warn
-      if command -v jq &>/dev/null; then
-        jq --arg host "$EMBED_HOST" '
-          .sandbox.network.allowedDomains = ((.sandbox.network.allowedDomains // []) + [$host] | unique)
-        ' "$SETTINGS" > "${SETTINGS}.tmp" && mv "${SETTINGS}.tmp" "$SETTINGS"
-        echo "Added $EMBED_HOST to sandbox.network.allowedDomains"
-      else
-        echo "NOTE: Add \"$EMBED_HOST\" to .claude/settings.json sandbox.network.allowedDomains manually, or run /sandbox"
-      fi
-    fi
-  else
-    echo "NOTE: No .claude/settings.json yet. Run project-init first, then re-run /init-team --refresh to add $EMBED_HOST to allowlist."
+# Always need github SSH for push
+HOSTS_TO_ADD+=("github.com:22")
+
+# Embedding host if configured
+if [ -n "${EMBEDDING_URL:-}" ]; then
+  EMBED_HOST=$(echo "$EMBEDDING_URL" | sed -E 's|https?://([^/]+).*|\1|')
+  HOSTS_TO_ADD+=("$EMBED_HOST")
+fi
+```
+
+For each host, check if it's already in the allowlist. If not, add it.
+
+**IMPORTANT:** `.claude/settings.json` is protected by the sandbox. The bash command
+below will be blocked on first attempt. When it fails with a sandbox/permission error,
+**retry with `dangerouslyDisableSandbox: true`** — the user will be prompted once to
+approve. This is the expected flow for zero-intervention setup.
+
+```bash
+if command -v jq &>/dev/null; then
+  # Ensure settings.json exists with minimal structure
+  if [ ! -f "$SETTINGS" ]; then
+    echo '{}' > "$SETTINGS"
   fi
+
+  for HOST in "${HOSTS_TO_ADD[@]}"; do
+    if ! grep -qF "$HOST" "$SETTINGS" 2>/dev/null; then
+      jq --arg host "$HOST" '
+        .sandbox.network.allowedDomains = ((.sandbox.network.allowedDomains // []) + [$host] | unique)
+      ' "$SETTINGS" > "${SETTINGS}.tmp" && mv "${SETTINGS}.tmp" "$SETTINGS"
+      echo "Added $HOST to sandbox.network.allowedDomains"
+    else
+      echo "$HOST already in allowlist"
+    fi
+  done
+else
+  echo "WARNING: jq not found. Manually add these to .claude/settings.json sandbox.network.allowedDomains:"
+  printf '  - %s\n' "${HOSTS_TO_ADD[@]}"
 fi
 ```
 
