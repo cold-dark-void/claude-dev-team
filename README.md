@@ -301,6 +301,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.12.1
+- **`/memory-stats`** — anonymized memory usage metrics (counts, sizes, boot load per agent). Safe to share for data-driven decisions.
+
 ### v0.12.0
 - **SQLite memory backend** — agents now store memory in a single SQLite DB per project with semantic search via sqlite-vec embeddings
 - **`/memory-search`** — new semantic search command across all agent memories
