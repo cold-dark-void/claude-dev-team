@@ -29,6 +29,7 @@ Or if you haven't added this marketplace yet:
 | `qa` | Opus | Read, Write, Edit, Grep, Glob, Bash, Task*, SendMessage | Test planning, validation, bug reports, **release gating** |
 | `ds` | Opus | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
 | `project-init` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, SendMessage | _(internal)_ One-time team memory bootstrap — invoked by `/init-team`, not directly |
+| `distiller` | Haiku | Bash, Read | _(internal)_ Memory compression specialist — invoked by `/memory-distill`, not directly |
 
 Each agent has persistent memory — stored in SQLite (preferred) or markdown files (fallback):
 
@@ -348,12 +349,17 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.14.1
+- Fix CAS lock in `/memory-distill` — UPDATE + `changes()` now run in single sqlite3 session
+- Add `@distiller` agent to README agents table
+- Fix changelog: 7 working agents have tiered loading (not 8; project-init has no session read)
+
 ### v0.14.0
 - **3-layer tiered memory distillation**: raw memories (tier 0) can now be compressed into LLM-generated digests (tier 1) and promoted to permanent core knowledge (tier 2) via `/memory-distill`
 - **`/memory-distill`**: new command — compress raw agent memories into concise digests, evaluate for tier-2 promotion; supports `--agent`, `--status`, and `--force` flags; orchestrates a dedicated `@distiller` agent (Haiku)
 - **`/memory-config`**: new command — view and set distillation config keys (`distill_enabled`, `distill_mode`, `distill_threshold`, `distill_model`) with validation
 - **`@distiller` agent**: lightweight Haiku specialist spawned only by `/memory-distill`; never self-prompts; archives source memories after distillation (never deletes)
-- **Tiered session loading**: all 8 agents load tier-2 + tier-1 when distilled content exists; fall back to tier-0 for full backward compatibility on undistilled DBs
+- **Tiered session loading**: all 7 working agents load tier-2 + tier-1 when distilled content exists; fall back to tier-0 for full backward compatibility on undistilled DBs
 - **Auto-distill hook in `/wrap-ticket`**: in `suggest` mode prints notice when agents exceed threshold; in `auto` mode queues distillation at ticket close
 - **Schema v2 migration**: `memories` table gains `tier`, `archived`, `distilled_from` columns; new `distillation_log` table; `migrate-v2.sh` for upgrading existing DBs; `/init-team` auto-migrates v1 DBs
 - **`archived=FALSE` filters**: all memory queries (recall, memory-search, skill reads) exclude archived memories; `tier` column visible in search results

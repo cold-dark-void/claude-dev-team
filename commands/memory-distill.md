@@ -91,8 +91,11 @@ Continue to distillation steps.
 Use compare-and-swap to prevent concurrent distillation:
 
 ```bash
-sqlite3 "$MEMDB" "UPDATE config SET value='distill-$(date +%s)' WHERE key='distilling_lock' AND value='';"
-CHANGED=$(sqlite3 "$MEMDB" "SELECT changes();")
+# UPDATE + changes() MUST run in a single sqlite3 session for CAS to work
+CHANGED=$(sqlite3 "$MEMDB" "
+  UPDATE config SET value='distill-$(date +%s)' WHERE key='distilling_lock' AND value='';
+  SELECT changes();
+")
 if [ "$CHANGED" = "0" ]; then
   HOLDER=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';")
   echo "[distill] Skipped: distillation already in progress (locked by $HOLDER). Use --force to clear."
