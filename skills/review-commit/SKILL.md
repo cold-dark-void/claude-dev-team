@@ -53,7 +53,7 @@ the compliance checklist for Step 3.
 
 ## Step 3: Parallel Multi-Agent Review
 
-Launch **5 specialist sub-agents in parallel** (Sonnet model). Each receives the
+Launch **5 specialist sub-agents in parallel** (Opus model). Each receives the
 full diff, the full content of changed files, and their specific review focus.
 
 ### Agent 1: Logic & Correctness
