@@ -35,7 +35,8 @@ Used by agents at boot to load their full context. Replace `<AGENT>` with the ag
 (e.g., `ic5`, `tech-lead`).
 
 ```bash
-sqlite3 "$MEMDB" "SELECT type, content FROM memories WHERE agent='<AGENT>' ORDER BY type, updated_at DESC;"
+# Load all memories (returns multiple rows per type — each row is one focused entry)
+sqlite3 "$MEMDB" "SELECT type, content FROM memories WHERE agent='<AGENT>' ORDER BY type, created_at DESC;"
 ```
 
 **Fallback** when `USE_DB=false`:
@@ -102,15 +103,23 @@ WHERE e.embedding MATCH lembed('$MODEL_PATH', '<QUERY>')
 ORDER BY e.distance ASC;
 EOSQL
 
-elif [ "$EMBED_MODE" = "ollama" ]; then
-  OLLAMA_MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
+elif [ "$EMBED_MODE" = "remote" ]; then
+  EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';")
+  EMBED_KEY="${EMBEDDING_API_KEY:-}"
+  EMBED_MODEL="${EMBEDDING_MODEL:-}"
   DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
   VEC_TABLE="vec_memories_${DIMS}"
 
-  # Get query embedding from ollama
-  QUERY_EMBEDDING=$(curl -s http://localhost:11434/api/embed \
-    -d "{\"model\":\"$OLLAMA_MODEL\",\"input\":[$(echo '<QUERY>' | jq -Rs .)]}" \
-    | jq -c '.embeddings[0]')
+  # Build curl args
+  CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
+  [ -n "$EMBED_KEY" ] && CURL_ARGS+=(-H "Authorization: Bearer $EMBED_KEY")
+
+  BODY="{\"input\":[$(echo "$QUERY" | jq -Rs .)]}"
+  [ -n "$EMBED_MODEL" ] && BODY=$(echo "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
+  CURL_ARGS+=(-d "$BODY")
+
+  RESPONSE=$(curl "${CURL_ARGS[@]}")
+  QUERY_EMBEDDING=$(echo "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')
 
   sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
@@ -205,8 +214,9 @@ EOSQL
 - Distance is cosine distance: lower = more similar, 0 = identical.
 - To convert to similarity percentage: `(1 - distance) * 100`.
 - `lembed()` takes the **model file path** (GGUF) as its first argument, not a model name.
-- For ollama, use `/api/embed` — `/api/embeddings` is the deprecated path.
-- `jq` is required for ollama embedding extraction.
+- For remote embedding providers, the URL and optional API key are read from the DB config
+  and the `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` environment variables respectively.
+- `jq` is required for remote embedding extraction and request building.
 - Vec0 virtual tables (`vec_memories_384`, `vec_memories_768`) are only accessible when
   the sqlite-vec extension is loaded. Always guard vec0 operations with an extension
   availability check.

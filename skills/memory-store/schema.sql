@@ -36,21 +36,18 @@ CREATE TABLE IF NOT EXISTS embedding_meta (
   PRIMARY KEY (memory_id, model)
 );
 
--- NOTE: The following vec0 virtual tables are created ONLY when sqlite-vec
--- extension is loaded. They will fail silently if vec0 is not available.
+-- NOTE: vec0 virtual tables are created ONLY when sqlite-vec extension is
+-- loaded. They will fail silently if vec0 is not available.
 -- Agents must check for extension availability before creating these.
 --
--- For 384-dim (sqlite-lembed / all-MiniLM-L6-v2):
--- CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_384 USING vec0(
---   memory_id INTEGER,
---   embedding FLOAT[384]
--- );
+-- Common dimensions:
+--   384  — sqlite-lembed / all-MiniLM-L6-v2
+--   768  — nomic-embed-text
+--   1024 — mxbai-embed-large
+--   1536 — OpenAI text-embedding-3-small
 --
--- For 768-dim (ollama / nomic-embed-text):
--- CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_768 USING vec0(
---   memory_id INTEGER,
---   embedding FLOAT[768]
--- );
+-- Tables are auto-created at runtime for any dimension via:
+--   CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_N USING vec0(...)
 
 -- Enable WAL mode for concurrent agent access
 PRAGMA journal_mode=WAL;

@@ -92,10 +92,8 @@ fi
 ### Session start — read memory
 ```bash
 if [ "$USE_DB" = "true" ]; then
-  # Load from SQLite
-  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='ic5' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
-  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='ic5' AND type='memory' ORDER BY updated_at DESC LIMIT 1;"
-  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='ic5' AND type='lessons' ORDER BY updated_at DESC LIMIT 1;"
+  # Load all memories for this agent (multiple entries per type)
+  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='ic5' ORDER BY type, created_at DESC;"
 else
   # Fallback: read .md files
   cat "$AGENT_MEM/cortex.md" 2>/dev/null
@@ -109,14 +107,9 @@ cat "$WTROOT/.claude/memory/ic5/context.md" 2>/dev/null
 ### Writing memory
 ```bash
 if [ "$USE_DB" = "true" ]; then
-  # Upsert to SQLite (see skills/memory-store/SKILL.md for full protocol)
-  ESCAPED=$(echo "$CONTENT" | sed "s/'/''/g")
-  EXISTING=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='ic5' AND type='<TYPE>';")
-  if [ "$EXISTING" -gt 0 ]; then
-    sqlite3 "$MEMDB" "UPDATE memories SET content='$ESCAPED', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE agent='ic5' AND type='<TYPE>';"
-  else
-    sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', '<TYPE>', '$ESCAPED');"
-  fi
+  # Append focused entries — one fact/decision/lesson per INSERT (see skills/memory-store/SKILL.md)
+  ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
+  sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', '<TYPE>', '$ESCAPED');"
 else
   # Fallback: write .md files
   mkdir -p "$AGENT_MEM"

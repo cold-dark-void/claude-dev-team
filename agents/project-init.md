@@ -141,15 +141,16 @@ fi
 echo "Memory backend: $MEMORY_BACKEND"
 ```
 
-For **each** cortex/lessons write below, use this logic (replace `$AGENT`, `$TYPE`, and `$CONTENT` with the actual values):
+For **each** cortex/lessons write below, use **multiple focused INSERTs** — one entry per
+subsystem, concept, or lesson. Do NOT write one giant blob per agent.
 
 ```bash
 if [ "$MEMORY_BACKEND" = "sqlite" ]; then
-  # Write to DB instead of .md
-  ESCAPED_CONTENT=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
-  sqlite3 "$MEMDB" "INSERT OR REPLACE INTO memories(agent, type, content, updated_at)
-    VALUES ('$AGENT', '$TYPE', '$ESCAPED_CONTENT', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
-  echo "  [db] Wrote $AGENT/$TYPE to memory.db"
+  # Append one focused entry per INSERT — one fact/subsystem/concept per row
+  ESCAPED_ENTRY=$(printf '%s' "$ENTRY" | sed "s/'/''/g")
+  sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content)
+    VALUES ('$AGENT', '$TYPE', '$ESCAPED_ENTRY');"
+  # Repeat for each additional entry — do NOT combine into one row
 else
   # Fallback: write .md as before
   cat > "$MROOT/.claude/memory/$AGENT/$TYPE.md" << 'EOF'
@@ -160,6 +161,18 @@ fi
 ```
 
 `$TYPE` is one of: `cortex`, `lessons`, `memory`.
+
+**Critical rule for DB writes:** Each INSERT must capture exactly ONE piece of knowledge.
+Instead of inserting `"# IC5 Cortex\n## Codebase Map\ncmd/...\n## Cache\n..."` as one row,
+write separate rows:
+```bash
+sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Entry point: cmd/describer/main.go — starts HTTP server and backend manager');"
+sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Cache: sharded LRU in internal/cache/, keys sha256(model+prompt+image_hash), TTL 1h');"
+sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Queue: internal/queue/ — semaphore-based backpressure, max 4 concurrent jobs per backend');"
+```
+
+One entry per subsystem, file group, pattern, or lesson. This enables semantic search to
+find relevant entries instead of retrieving the entire codebase in one row.
 
 ---
 

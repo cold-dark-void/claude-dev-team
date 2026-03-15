@@ -5,7 +5,7 @@ set -euo pipefail
 # Where MROOT is the project root (resolved via git-common-dir)
 #
 # Downloads sqlite-vec, sqlite-lembed, and the all-MiniLM-L6-v2 GGUF model.
-# Probes for ollama and stores the resolved embedding mode in the SQLite config table.
+# Resolves embedding mode (remote/lembed/fallback) and stores it in the SQLite config table.
 
 MROOT="${1:?Usage: download-extensions.sh <project-root>}"
 MEMDB="$MROOT/.claude/memory/memory.db"
@@ -140,7 +140,7 @@ echo "=== sqlite-lembed ==="
 # sqlite-lembed v0.0.1-alpha.8 does not publish a linux-aarch64 build.
 if [ "${OS}-${ARCH}" = "linux-aarch64" ]; then
   echo "  WARNING: sqlite-lembed has no linux-aarch64 binary in release v${LEMBED_VERSION}."
-  echo "  Skipping lembed download. Embedding mode will fall back to ollama or keyword search."
+  echo "  Skipping lembed download. Embedding mode will fall back to remote or keyword search."
 else
   LEMBED_URL="https://github.com/asg017/sqlite-lembed/releases/download/v${LEMBED_VERSION}/sqlite-lembed-${LEMBED_VERSION}-loadable-${PLATFORM}.tar.gz"
   LEMBED_DEST="$EXT_DIR/lembed0.$EXT"
@@ -157,30 +157,30 @@ MODEL_DEST_PATH="$MODEL_DIR/$MODEL_DEST"
 download_file "$MODEL_URL" "$MODEL_DEST_PATH" "all-MiniLM-L6-v2"
 
 # ---------------------------------------------------------------------------
-# Probe for ollama (2-second timeout)
+# Migrate legacy ollama mode from v0.12.0/v0.12.1
 # ---------------------------------------------------------------------------
-echo ""
-echo "=== Probing for ollama ==="
-OLLAMA_MODEL=""
-if TAGS=$(curl -s --max-time 2 http://localhost:11434/api/tags 2>/dev/null); then
-  OLLAMA_MODEL=$(echo "$TAGS" | grep -o '"name":"[^"]*embed[^"]*"' | head -1 | cut -d'"' -f4)
-  if [ -n "$OLLAMA_MODEL" ]; then
-    echo "  [ok]   Found ollama embedding model: $OLLAMA_MODEL"
-  else
-    echo "  Ollama is running but no embedding model found."
+if [ -f "$MEMDB" ]; then
+  OLD_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null)
+  if [ "$OLD_MODE" = "ollama" ]; then
+    sqlite3 "$MEMDB" "UPDATE config SET value='fallback', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_mode';"
+    echo "  Migrated legacy ollama mode -> fallback"
+    echo "  To re-enable: export EMBEDDING_URL=http://localhost:11434/api/embed"
   fi
-else
-  echo "  Ollama not available (not running or not installed)."
 fi
 
 # ---------------------------------------------------------------------------
 # Resolve embedding mode
 # ---------------------------------------------------------------------------
-if [ -n "$OLLAMA_MODEL" ]; then
-  MODE="ollama"
-  MODEL="$OLLAMA_MODEL"
-  DIMS=$(if echo "$MODEL" | grep -q "nomic"; then echo 768; else echo 384; fi)
-elif [ -f "$EXT_DIR/lembed0.$EXT" ] && [ -f "$MODEL_DIR/$MODEL_DEST" ]; then
+if [ -n "${EMBEDDING_URL:-}" ]; then
+  MODE="remote"
+  MODEL="${EMBEDDING_MODEL:-remote}"
+  # Auto-detect dimensions on first use, default to 0 until then
+  DIMS="${EMBEDDING_DIMENSIONS:-0}"
+  # Store URL in config for recall/search to use
+  if [ -f "$MEMDB" ]; then
+    sqlite3 "$MEMDB" "INSERT OR REPLACE INTO config(key, value, updated_at) VALUES ('embedding_url', '$EMBEDDING_URL', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
+  fi
+elif [ -f "$EXT_DIR/lembed0.$EXT" ] && [ -f "$MODEL_DIR/all-MiniLM-L6-v2.gguf" ]; then
   MODE="lembed"
   MODEL="all-MiniLM-L6-v2"
   DIMS=384
@@ -198,6 +198,9 @@ if [ -f "$MEMDB" ]; then
     "UPDATE config SET value='$MODE',  updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_mode';" \
     "UPDATE config SET value='$MODEL', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_model';" \
     "UPDATE config SET value='$DIMS',  updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_dimensions';"
+  if [ "$MODE" != "remote" ]; then
+    sqlite3 "$MEMDB" "DELETE FROM config WHERE key='embedding_url';" 2>/dev/null || true
+  fi
 else
   echo "  WARNING: $MEMDB not found — skipping config update (run /init-team to create it first)."
 fi
@@ -258,6 +261,7 @@ echo ""
 echo "=== Memory Extensions Setup ==="
 echo "Platform:   ${OS}/${ARCH}"
 echo "Mode:       ${MODE}"
+[ "$MODE" = "remote" ] && echo "URL:        ${EMBEDDING_URL}"
 echo "Model:      ${MODEL}"
 echo "Dimensions: ${DIMS}"
 echo "Extensions: ${EXT_DIR}"

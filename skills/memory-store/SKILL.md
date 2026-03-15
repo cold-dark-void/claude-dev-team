@@ -1,9 +1,9 @@
 ---
 name: memory-store
 description: Write agent memories to the SQLite database (or fall back to .md files). Handles
-  DB detection, SQL-safe INSERT/UPDATE, optional embedding generation (lembed or ollama),
-  and retry on SQLITE_BUSY. Usage: read this file to learn the protocol, then execute
-  the relevant bash blocks.
+  DB detection, SQL-safe INSERT/UPDATE, optional embedding generation (lembed or remote
+  embedding provider), and retry on SQLITE_BUSY. Usage: read this file to learn the
+  protocol, then execute the relevant bash blocks.
 ---
 
 # memory-store
@@ -33,50 +33,54 @@ fi
 
 ## Step 2: Store a memory (DB path)
 
-Replace `<AGENT>`, `<TYPE>`, `<CONTENT_ESCAPED>`, and `<METADATA_JSON>` with real values.
+Replace `<AGENT>`, `<TYPE>`, and `<CONTENT_ESCAPED>` with real values.
 `<TYPE>` must be one of: `cortex`, `memory`, `lessons`.
 
-**Single-line insert:**
+**Write protocol: append-only — one focused fact per INSERT.**
+
 ```bash
-sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content, metadata_json)
-  VALUES ('<AGENT>', '<TYPE>', '<CONTENT_ESCAPED>', '<METADATA_JSON>');"
+# APPEND a focused memory entry (one fact, decision, or lesson per INSERT)
+ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
+sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('<AGENT>', '<TYPE>', '$ESCAPED');"
 ```
 
-**Update existing record for agent + type:**
-```bash
-sqlite3 "$MEMDB" "UPDATE memories SET content='<CONTENT_ESCAPED>',
-  updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
-  WHERE agent='<AGENT>' AND type='<TYPE>';"
-```
-
-**IMPORTANT — SQL escaping:** Content that contains single quotes MUST have each `'`
-doubled to `''` before interpolation into the SQL string. Failure to do so will corrupt
-the statement. Use a heredoc for multi-line content to avoid shell quoting issues:
+**Use heredoc for multi-line content** to avoid shell quoting issues:
 
 ```bash
 sqlite3 "$MEMDB" <<'EOSQL'
 INSERT INTO memories(agent, type, content) VALUES (
   'tech-lead',
   'cortex',
-  'Architecture overview:
-  - This is a Claude Code plugin
-  - Uses markdown/JSON, no build step
-  - Skills live in skills/<name>/SKILL.md
-  ...'
+  'Cache: sharded LRU in internal/cache/, keys sha256(model+prompt), TTL 1h default'
 );
 EOSQL
 ```
 
 **Capture the new row ID in the same session** (needed for embedding — see Step 4):
 ```bash
-MEMORY_ID=$(sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content, metadata_json)
-  VALUES ('<AGENT>', '<TYPE>', '<CONTENT_ESCAPED>', '<METADATA_JSON>');
+MEMORY_ID=$(sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content)
+  VALUES ('<AGENT>', '<TYPE>', '$ESCAPED');
   SELECT last_insert_rowid();")
 ```
 
 > Note: `last_insert_rowid()` MUST be called within the same sqlite3 session as the
 > INSERT. A separate `sqlite3 "$MEMDB" "SELECT last_insert_rowid();"` call will return
 > 0 because each invocation is an independent connection.
+
+---
+
+### What makes a good memory entry
+
+Each INSERT should capture ONE focused piece of knowledge:
+- A specific architectural fact: `"Cache uses sharded LRU with per-shard locks, max size via DESCRIBER_CACHE_SIZE"`
+- A key decision: `"Chose SQLite over Postgres for simplicity — no server needed"`
+- A lesson learned: `"NEVER mock the database — prod migration broke despite green mocked tests"`
+- A pattern to follow: `"All backends implement the Describer interface in internal/backend/"`
+
+Do NOT write:
+- Entire codebase maps as one entry (break into per-subsystem entries)
+- Multi-topic paragraphs (split into separate INSERTs)
+- Duplicate entries (search first with memory-recall before writing)
 
 ---
 
@@ -132,28 +136,49 @@ EOSQL
 fi
 ```
 
-### 4b. ollama mode (local Ollama server)
+### 4b. remote mode (any OpenAI-compatible embedding provider)
 
-Use the `/api/embed` endpoint (not `/api/embeddings` — that is the deprecated path).
-Dimensions are inferred from the response so this works with any model.
+Reads `embedding_url` from the config table. Optionally reads `EMBEDDING_API_KEY` and
+`EMBEDDING_MODEL` from the environment. Handles both OpenAI (`data[0].embedding`) and
+ollama-style (`embeddings[0]` / `embedding`) response shapes. Dimensions are inferred
+from the response so this works with any model.
 
 ```bash
-if [ "$EMBED_MODE" = "ollama" ]; then
-  OLLAMA_MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
+elif [ "$EMBED_MODE" = "remote" ]; then
+  EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';")
+  EMBED_KEY="${EMBEDDING_API_KEY:-}"
+  EMBED_MODEL="${EMBEDDING_MODEL:-}"
 
-  EMBEDDING=$(curl -s http://localhost:11434/api/embed \
-    -d "{\"model\":\"$OLLAMA_MODEL\",\"input\":[$(echo '<CONTENT>' | jq -Rs .)]}" \
-    | jq -c '.embeddings[0]')
+  # Build curl args (array to avoid eval/quoting issues)
+  CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
+  [ -n "$EMBED_KEY" ] && CURL_ARGS+=(-H "Authorization: Bearer $EMBED_KEY")
 
+  # Truncate content for embedding (most models have ~512 token limit)
+  EMBED_TEXT=$(echo "$CONTENT" | head -c 1500)
+
+  # Build request body
+  BODY="{\"input\":[$(echo "$EMBED_TEXT" | jq -Rs .)]}"
+  [ -n "$EMBED_MODEL" ] && BODY=$(echo "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
+  CURL_ARGS+=(-d "$BODY")
+
+  RESPONSE=$(curl "${CURL_ARGS[@]}")
+
+  # Handle both OpenAI and ollama response formats
+  EMBEDDING=$(echo "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')
   DIMS=$(echo "$EMBEDDING" | jq 'length')
   VEC_TABLE="vec_memories_${DIMS}"
 
+  # Ensure vec table exists for this dimension
+  sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
+    "CREATE VIRTUAL TABLE IF NOT EXISTS ${VEC_TABLE} USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);"
+
+  # Insert embedding
   sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
 INSERT INTO ${VEC_TABLE}(memory_id, embedding)
   VALUES ($MEMORY_ID, '$EMBEDDING');
 INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table)
-  VALUES ($MEMORY_ID, '$OLLAMA_MODEL', $DIMS, '$VEC_TABLE');
+  VALUES ($MEMORY_ID, '${EMBED_MODEL:-remote}', $DIMS, '$VEC_TABLE');
 EOSQL
 fi
 ```
@@ -203,7 +228,9 @@ Expected output format: `<id>|<agent>|<type>|<bytes>|<timestamp>`
 - `last_insert_rowid()` must be in the same sqlite3 session as the INSERT or it
   returns 0 (each `sqlite3` invocation is a separate connection).
 - `lembed()` takes a **file path** to the GGUF model, not a model name string.
-- For ollama, call `/api/embed` — `/api/embeddings` is deprecated.
+- For `remote` mode, set `embedding_url` in the config table and optionally export
+  `EMBEDDING_API_KEY` and `EMBEDDING_MODEL`. The response parser handles both OpenAI
+  (`data[0].embedding`) and ollama-style (`embeddings[0]` / `embedding`) shapes.
 - The vec0 virtual tables (`vec_memories_384`, `vec_memories_768`) are created only
   when the sqlite-vec extension is loaded; they are absent from a plain `schema.sql`
   apply. Agents must guard all vec0 operations with an extension availability check.

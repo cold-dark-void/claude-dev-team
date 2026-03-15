@@ -5,11 +5,11 @@ Note: project-init needs Read, Write, Bash, and Glob permissions. Run this in th
 ## Flag handling
 
 Parse flags from `$ARGS` (or the arguments passed to this command):
-- `--refresh` — re-probe ollama, re-check extensions, re-run migration for any new .md files
+- `--refresh` — re-check embedding configuration, re-check extensions, re-run migration for any new .md files
 - `--migrate-only` — only run migration, skip everything else (DB init, extensions, project-init agent)
 - `--no-extensions` — skip binary download (for air-gapped setups where the user installs extensions manually)
 
-## Step 1: Resolve project root
+## Step 1: Resolve project root and plugin path
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -20,17 +20,33 @@ echo "Project root: $MROOT"
 echo "Memory DB:    $MEMDB"
 ```
 
+Resolve the plugin's install directory (where schema.sql and scripts live):
+```bash
+# Find the current plugin version from plugin.json, then use that exact path
+PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/\\.claude-plugin/plugin.json 2>/dev/null | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
+PLUGIN_DIR="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/memory-store"
+if [ -z "$PLUGIN_VER" ] || [ ! -f "$PLUGIN_DIR/schema.sql" ]; then
+  # Fallback: find any version with schema.sql
+  PLUGIN_DIR=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/memory-store/schema.sql" 2>/dev/null | sort -V | tail -1 | xargs dirname 2>/dev/null)
+fi
+if [ -z "$PLUGIN_DIR" ] || [ ! -f "$PLUGIN_DIR/schema.sql" ]; then
+  echo "WARNING: Could not find dev-team plugin memory-store skills. SQLite setup will be skipped."
+  PLUGIN_DIR=""
+fi
+echo "Plugin dir: $PLUGIN_DIR"
+```
+
 ## Step 2: Initialize SQLite memory DB
 
 Skip this step if `--migrate-only` is set.
 
 ```bash
 mkdir -p "$MROOT/.claude/memory"
-if command -v sqlite3 &>/dev/null; then
-  sqlite3 "$MEMDB" < "$MROOT/skills/memory-store/schema.sql"
+if command -v sqlite3 &>/dev/null && [ -n "$PLUGIN_DIR" ]; then
+  sqlite3 "$MEMDB" < "$PLUGIN_DIR/schema.sql"
   echo "SQLite memory DB initialized at $MEMDB"
 else
-  echo "WARNING: sqlite3 not found. Using .md memory fallback."
+  echo "WARNING: sqlite3 or plugin not found. Using .md memory fallback."
 fi
 ```
 
@@ -41,20 +57,27 @@ This is idempotent — schema uses `CREATE TABLE IF NOT EXISTS` and `INSERT OR I
 Skip this step if `--no-extensions` or `--migrate-only` is set.
 
 ```bash
-if command -v sqlite3 &>/dev/null; then
-  bash "$MROOT/skills/memory-store/download-extensions.sh" "$MROOT"
+if command -v sqlite3 &>/dev/null && [ -n "$PLUGIN_DIR" ]; then
+  bash "$PLUGIN_DIR/download-extensions.sh" "$MROOT"
 fi
 ```
 
-On `--refresh`: this step always re-runs (the script itself is idempotent — it skips already-present files but re-probes ollama).
+On `--refresh`: this step always re-runs (the script itself is idempotent — it skips already-present files but re-detects the embedding provider).
+
+To configure a remote embedding provider, set environment variables before running:
+```
+export EMBEDDING_URL=https://api.openai.com/v1/embeddings
+export EMBEDDING_API_KEY=sk-...
+export EMBEDDING_MODEL=text-embedding-3-small
+```
 
 ## Step 4: Run migration (if .md files exist)
 
 Skip this step if `--migrate-only` is NOT set AND this is the first run (no prior .md files). Always run on `--migrate-only` or `--refresh`.
 
 ```bash
-if command -v sqlite3 &>/dev/null && [ -f "$MEMDB" ]; then
-  bash "$MROOT/skills/memory-store/migrate-md.sh" "$MROOT"
+if command -v sqlite3 &>/dev/null && [ -f "$MEMDB" ] && [ -n "$PLUGIN_DIR" ]; then
+  bash "$PLUGIN_DIR/migrate-md.sh" "$MROOT"
 fi
 ```
 
@@ -77,8 +100,37 @@ done
 echo "Checked .gitignore entries."
 ```
 
+## Step 5b: Add embedding host to sandbox network allowlist
+
+If `$EMBEDDING_URL` is set, extract the host:port and ensure it's in `.claude/settings.json` network allowlist so embedding calls aren't blocked by the sandbox.
+
+```bash
+if [ -n "${EMBEDDING_URL:-}" ]; then
+  # Extract host:port from URL (e.g., "http://localhost:11434/api/embed" → "localhost:11434")
+  EMBED_HOST=$(echo "$EMBEDDING_URL" | sed -E 's|https?://([^/]+).*|\1|')
+  SETTINGS="$MROOT/.claude/settings.json"
+
+  if [ -f "$SETTINGS" ]; then
+    # Check if host already in allowedHosts
+    if ! grep -qF "$EMBED_HOST" "$SETTINGS" 2>/dev/null; then
+      # Add to allowedHosts array using jq if available, otherwise warn
+      if command -v jq &>/dev/null; then
+        jq --arg host "$EMBED_HOST" '
+          .sandbox.network.allowedDomains = ((.sandbox.network.allowedDomains // []) + [$host] | unique)
+        ' "$SETTINGS" > "${SETTINGS}.tmp" && mv "${SETTINGS}.tmp" "$SETTINGS"
+        echo "Added $EMBED_HOST to sandbox.network.allowedDomains"
+      else
+        echo "NOTE: Add \"$EMBED_HOST\" to .claude/settings.json sandbox.network.allowedDomains manually, or run /sandbox"
+      fi
+    fi
+  else
+    echo "NOTE: No .claude/settings.json yet. Run project-init first, then re-run /init-team --refresh to add $EMBED_HOST to allowlist."
+  fi
+fi
+```
+
 ## Step 6: Invoke project-init agent
 
-Skip this step if `--migrate-only` is set.
+Skip this step if `--migrate-only` or `--refresh` is set. Project-init only runs on first initialization — `--refresh` re-checks extensions and embeddings but does NOT rescan the project or rewrite cortex data.
 
 Use the project-init subagent to scan the project and write cortex.md files for all 7 team agents.

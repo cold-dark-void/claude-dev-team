@@ -301,6 +301,14 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.12.2
+- **Generic remote embeddings** — set `EMBEDDING_URL` and `EMBEDDING_API_KEY` env vars to use any OpenAI-compatible embedding provider (OpenAI, LLMGateway, ollama, etc.)
+- Ollama is no longer a special case — just set `EMBEDDING_URL=http://localhost:11434/api/embed`
+- `/init-team` resolves plugin install path correctly for target projects
+- `/init-team` auto-adds embedding host to sandbox network allowlist
+- **Chunked migration** — .md files split by `##` sections into focused chunks for better embedding quality
+- Migration generates embeddings inline, handles legacy vec table schemas, truncates to ~1000 chars
+
 ### v0.12.1
 - **`/memory-stats`** — anonymized memory usage metrics (counts, sizes, boot load per agent). Safe to share for data-driven decisions.
 
@@ -308,7 +316,7 @@ Check the plugin into your project's settings so teammates get it automatically.
 - **SQLite memory backend** — agents now store memory in a single SQLite DB per project with semantic search via sqlite-vec embeddings
 - **`/memory-search`** — new semantic search command across all agent memories
 - **`memory-store` / `memory-recall` skills** — agent skills for DB-backed memory operations
-- **Tiered embedding strategy** — ollama (best quality) > sqlite-lembed (air-gapped) > keyword fallback
+- **Tiered embedding strategy** — remote provider (best quality) > sqlite-lembed (air-gapped) > keyword fallback
 - **Automatic migration** — `/init-team` migrates existing .md memory files to SQLite
 - **`/init-team --refresh`** — re-probe embedding mode and re-run migration
 
