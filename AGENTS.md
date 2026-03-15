@@ -43,28 +43,43 @@ After commit: `git tag vX.Y.Z && git push && git push --tags`
 
 ## Persistent Memory Protocol
 
-Each agent has memory at `.claude/memory/<agent>/`:
-- `cortex.md` — architecture/domain expertise (shared across worktrees)
-- `memory.md` — working state and recent decisions (shared)
-- `lessons.md` — mistakes and project-specific patterns (shared)
-- `context.md` — current task progress (per worktree)
+Each agent has memory stored in SQLite (preferred) or .md files (fallback):
 
-**Path resolution (shared memory):**
+**SQLite mode** (after `/init-team`):
+- Single DB at `.claude/memory/memory.db` (shared across worktrees)
+- Agents read/write via `sqlite3` CLI
+- Semantic search via sqlite-vec embeddings
+- No line limits
+
+**Fallback mode** (no sqlite3 or extensions):
+- Per-agent files at `.claude/memory/<agent>/`:
+  - `cortex.md` — architecture/domain expertise
+  - `memory.md` — working state and recent decisions
+  - `lessons.md` — mistakes and project-specific patterns
+- Line limits: cortex 100, memory 50, lessons 80
+
+**Always .md** (both modes):
+- `context.md` — current task progress (per-worktree, never migrated to DB)
+- Line limit: 60 lines
+
+**Path resolution:**
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-AGENT_MEM="$MROOT/.claude/memory/<agent-name>"
-mkdir -p "$AGENT_MEM"
-```
+MEMDB="$MROOT/.claude/memory/memory.db"
 
-**Path resolution (worktree context):**
-```bash
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
+
+# Worktree context (always .md)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 AGENT_CTX="$WTROOT/.claude/memory/<agent-name>"
 ```
 
-Read all four files at session start before doing anything else.
+Read memory at session start. Write back at end of task. Context stays per-worktree.
 
 ## Team Coordination (Agent Teams)
 
@@ -84,6 +99,7 @@ When working as a native Agent Team teammate:
 - Commands live in `commands/<name>.md` as single files
 - Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
 - No build step — this is a pure markdown/JSON plugin
+- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is added to the permission allowlist by `/init-team`)
 
 ## What NOT to Do
 
