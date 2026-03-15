@@ -23,8 +23,8 @@ interrupting agents mid-task.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ```
 
