@@ -25,8 +25,8 @@ domain-level specs, and writes them to `specs/core/`. All generated specs are ma
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ```
 
 Detect language by checking for:
@@ -46,7 +46,7 @@ If no language detected: ask the user what language/extensions to scan.
 ## Step 1: Check for existing specs
 
 ```bash
-ls $PROOT/specs/ 2>/dev/null
+ls $MROOT/specs/ 2>/dev/null
 ```
 
 If specs already exist, warn:
@@ -148,14 +148,14 @@ If user edits: apply their changes before proceeding.
 
 Check existing specs for the highest SPEC number:
 ```bash
-ls $PROOT/specs/core/ 2>/dev/null | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
+ls $MROOT/specs/core/ 2>/dev/null | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
 ```
 
 Start from that number + 1 (or SPEC-001 if none exist).
 
 Create `specs/core/` if it doesn't exist:
 ```bash
-mkdir -p $PROOT/specs/core
+mkdir -p $MROOT/specs/core
 ```
 
 ---
@@ -275,4 +275,4 @@ Next steps:
 - **Tech Lead grouping produces <3 domains**: warn that grouping may be too coarse
 - **Existing specs cover some domains**: skip those domains, only generate for uncovered areas
 - **specs/core/ already has SPEC numbers that conflict**: start numbering after the highest existing number
-- **No git repo**: use `pwd` as PROOT; warn that worktree-shared memory won't apply
+- **No git repo**: use `pwd` as MROOT; warn that worktree-shared memory won't apply

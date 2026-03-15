@@ -28,13 +28,13 @@ Read in parallel to understand what the dev-team plugin already provides:
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ```
 
-- `$PROOT/README.md` — current feature set, commands, agents, changelog
-- `$PROOT/AGENTS.md` — project rules and conventions
-- `$PROOT/.claude-plugin/plugin.json` — current version
+- `$MROOT/README.md` — current feature set, commands, agents, changelog
+- `$MROOT/AGENTS.md` — project rules and conventions
+- `$MROOT/.claude-plugin/plugin.json` — current version
 
 Build a mental inventory of:
 - All commands/skills and what they do

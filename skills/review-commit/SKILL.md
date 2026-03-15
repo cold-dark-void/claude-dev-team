@@ -38,12 +38,12 @@ Read these files (skip any that don't exist):
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ```
 
-- `$PROOT/AGENTS.md` — project rules and conventions
-- `$PROOT/CLAUDE.md` — project instructions
+- `$MROOT/AGENTS.md` — project rules and conventions
+- `$MROOT/CLAUDE.md` — project instructions
 - Any per-directory `CLAUDE.md` files in directories containing changed files
 
 Extract all rules, conventions, and constraints from these files. These form

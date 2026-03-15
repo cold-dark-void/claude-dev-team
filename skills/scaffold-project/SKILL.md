@@ -54,8 +54,13 @@ If sqlite3 is available, also initialize the memory database:
 ```bash
 MEMDB=".claude/memory/memory.db"
 if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
-  # Locate schema relative to project root (skills/memory-store/schema.sql)
-  SCHEMA=$(git rev-parse --show-toplevel 2>/dev/null)/skills/memory-store/schema.sql
+  # Locate schema from plugin install cache
+  SCHEMA=""
+  for d in ~/.claude/plugins/cache/cold-dark-void/dev-team/*/skills/memory-store/schema.sql; do
+    [ -f "$d" ] && SCHEMA="$d" && break
+  done
+  # Fallback: try relative to project root (dev on the plugin itself)
+  [ -z "$SCHEMA" ] && SCHEMA="$(git rev-parse --show-toplevel 2>/dev/null)/skills/memory-store/schema.sql"
   if [ -f "$SCHEMA" ]; then
     sqlite3 "$MEMDB" < "$SCHEMA"
   fi
@@ -110,7 +115,9 @@ Create `.claude/settings.json` to enable autonomous agent operation (no permissi
       "Bash(cp:*)",
       "Bash(mv:*)",
       "Bash(tree:*)",
-      "Bash(stat:*)"
+      "Bash(stat:*)",
+      "Bash(sqlite3:*)",
+      "Bash(curl:*)"
     ],
     "defaultMode": "acceptEdits"
   }
@@ -529,7 +536,7 @@ project/
 ## Commit Guidelines
 
 - Write clear, descriptive commit messages
-- Include `Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>`
+- Include `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
 - Always update `specs/` if behavior changes
 - Always update `.claude/plans.md` if completing work
 ```
@@ -600,7 +607,7 @@ Next steps:
    - git add -f .claude/plans.md
    - git commit -m "Initial project scaffold with TDD workflow
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 
 💡 Tip: Read ~/.claude/CLAUDE.md for full workflow documentation
 💡 The 3 starter specs are examples - customize them for your project!

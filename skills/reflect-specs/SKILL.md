@@ -27,11 +27,11 @@ documentation against reality, and pausing for user confirmation at each conflic
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ```
 
-All paths below are relative to `$PROOT`.
+All paths below are relative to `$MROOT`.
 
 ---
 

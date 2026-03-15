@@ -65,7 +65,8 @@ chore: release vX.Y.Z
 
 ```bash
 git tag vX.Y.Z
-git push origin master --tags
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git push origin "$BRANCH" --tags
 ```
 
 Confirm with: `git log --oneline -3` and `git tag --list 'v*' | tail -3`
