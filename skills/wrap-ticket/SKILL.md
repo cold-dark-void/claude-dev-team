@@ -23,8 +23,8 @@ Run this after the PR is merged and released.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ```
 
@@ -91,15 +91,15 @@ Summarize into 3–8 bullet points maximum. Be specific — not "cache is import
 ## Step 3: Append learnings to project memory
 
 ```bash
-MEMDB="$PROOT/.claude/memory/memory.db"
+MEMDB="$MROOT/.claude/memory/memory.db"
 ```
 
 Read current memory:
 ```bash
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY updated_at DESC LIMIT 1;"
+  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY created_at DESC;"
 else
-  cat "$PROOT/.claude/memory/claude/memory.md" 2>/dev/null
+  cat "$MROOT/.claude/memory/claude/memory.md" 2>/dev/null
 fi
 ```
 
@@ -121,7 +121,7 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   ESCAPED=$(echo "$CONTENT" | sed "s/'/''/g")
   sqlite3 "$MEMDB" "INSERT OR REPLACE INTO memories(agent, type, content, updated_at) VALUES ('claude', 'memory', '$ESCAPED', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
 else
-  cat > "$PROOT/.claude/memory/claude/memory.md" << 'MEMEOF'
+  cat > "$MROOT/.claude/memory/claude/memory.md" << MEMEOF
 $CONTENT
 MEMEOF
 fi
@@ -134,9 +134,9 @@ If the memory file is getting long (>150 lines), note:
 
 ## Step 4: Update plans index
 
-Find the plan entry in `$PROOT/.claude/plans.md` (if it exists):
+Find the plan entry in `$MROOT/.claude/plans.md` (if it exists):
 ```bash
-grep -i "<TICKET-ID>" $PROOT/.claude/plans.md 2>/dev/null
+grep -i "<TICKET-ID>" $MROOT/.claude/plans.md 2>/dev/null
 ```
 
 If found, update its status from `[IN PROGRESS]` or `[ACTIVE]` to `[COMPLETED]`.
@@ -176,7 +176,7 @@ Proceed? (y/n)
 
 If yes:
 ```bash
-cd $PROOT
+cd $MROOT
 git worktree remove <worktree-path>
 ```
 

@@ -349,7 +349,13 @@ MEMDB=".claude/memory/memory.db"
 If sqlite3 is available and the DB does not yet exist, initialize it:
 ```bash
 if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
-  SCHEMA=$(git rev-parse --show-toplevel 2>/dev/null)/skills/memory-store/schema.sql
+  # Locate schema from plugin install cache
+  SCHEMA=""
+  for d in ~/.claude/plugins/cache/cold-dark-void/dev-team/*/skills/memory-store/schema.sql; do
+    [ -f "$d" ] && SCHEMA="$d" && break
+  done
+  # Fallback: try relative to project root (dev on the plugin itself)
+  [ -z "$SCHEMA" ] && SCHEMA="$(git rev-parse --show-toplevel 2>/dev/null)/skills/memory-store/schema.sql"
   if [ -f "$SCHEMA" ]; then
     sqlite3 "$MEMDB" < "$SCHEMA"
   fi
@@ -388,7 +394,7 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   ESCAPED=$(echo "$CONTENT" | sed "s/'/''/g")
   sqlite3 "$MEMDB" "INSERT OR REPLACE INTO memories(agent, type, content, updated_at) VALUES ('claude', 'memory', '$ESCAPED', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
 else
-  cat > ".claude/memory/claude/memory.md" << 'MEMEOF'
+  cat > ".claude/memory/claude/memory.md" << MEMEOF
 $CONTENT
 MEMEOF
 fi
