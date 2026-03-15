@@ -227,27 +227,11 @@ Over time, raw memories accumulate — context windows fill up and agents re-rea
 | 1 | digest | LLM-compressed summaries from batches of raw memories |
 | 2 | core | Promoted permanent knowledge (decisions, lessons, architecture) |
 
-Configure with `/memory-config`:
+Configure with `/memory-config` — see [memory configuration](docs/setup.md#memory-configuration----memory-config) for the full options table.
 
-| Key | Values | Default | Description |
-|-----|--------|---------|-------------|
-| `distill_enabled` | true / false | false | Master switch — distillation does nothing when false |
-| `distill_mode` | manual / suggest / auto | suggest | manual: only on explicit run; suggest: prints notice at threshold; auto: runs at ticket close |
-| `distill_threshold` | 1–9999 | 50 | Raw memory count before suggest/auto triggers |
-| `distill_model` | model name | haiku | LLM used for compression (Haiku recommended for cost) |
+### Remote Embeddings
 
-### Remote Embeddings (OpenAI example)
-
-To use a remote embedding provider instead of the bundled local model, set these environment variables before running `/init-team`:
-
-```bash
-export EMBEDDING_URL=https://api.openai.com/v1/embeddings
-export EMBEDDING_API_KEY=sk-...
-export EMBEDDING_MODEL=text-embedding-3-small
-/init-team --refresh
-```
-
-Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, LLMGateway, ollama, etc.). When `EMBEDDING_URL` is set, `/init-team` skips the local extension download entirely — no sqlite-lembed or GGUF model needed.
+Set `EMBEDDING_URL`, `EMBEDDING_API_KEY`, and `EMBEDDING_MODEL` env vars before `/init-team --refresh` to use any OpenAI-compatible provider. See [Remote Embeddings setup](docs/setup.md#remote-embeddings) for details.
 
 ### Re-initialize after major changes
 
@@ -364,6 +348,10 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.14.2
+- **Documentation revamp**: 10 command guides in `docs/commands/`, expanded memory distillation and remote embeddings docs
+- **Doc restructure**: split 1313-line runbook into `docs/setup.md` (config/troubleshooting) and 6 goal-oriented runbooks in `docs/runbooks/`
 
 ### v0.14.1
 - Fix CAS lock in `/memory-distill` — UPDATE + `changes()` now run in single sqlite3 session
@@ -536,27 +524,7 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Troubleshooting
 
-### `sqlite3: command not found`
-
-Install sqlite3 via your package manager (`apt install sqlite3`, `brew install sqlite3`).
-Without it, agents fall back to .md files — the plugin still works, just without semantic search.
-
-### Extension download fails
-
-`/init-team` downloads sqlite-vec and sqlite-lembed (~29MB). If on a restricted network:
-- Use `/init-team --no-extensions` for keyword-only search
-- Or set `EMBEDDING_URL` for remote embeddings (no local extensions needed)
-
-### Schema migration errors
-
-If you see "table already exists" or column errors after upgrading:
-- Run `/init-team --refresh` to re-probe and re-migrate
-- Or delete `.claude/memory/memory.db` and re-run `/init-team` (loses stored memories)
-
-### Agents not discovering commands
-
-All command/skill `.md` files require YAML frontmatter (`name`, `description`).
-Files without frontmatter are invisible to Claude Code's discovery system.
+See [Troubleshooting](docs/setup.md#troubleshooting) in the Setup Guide.
 
 ---
 
