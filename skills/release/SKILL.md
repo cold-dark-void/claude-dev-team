@@ -9,19 +9,35 @@ description: Bump version across all required files (README.md changelog, plugin
 
 Bumps the version in all required files, commits, tags, and pushes.
 
+**Usage**: `/release [patch|minor|major|vX.Y.Z]`
+
 ## Step 1: Determine new version
 
-If the user provided a version (e.g. `v0.9.2` or `0.9.2`), use it.
+Read `.claude-plugin/plugin.json` to get the current `"version"` field.
 
-Otherwise:
-1. Read `.claude-plugin/plugin.json` — note current `"version"` field
-2. Ask the user: "Current version is X.Y.Z — patch (X.Y.Z+1), minor (X.Y+1.0), or major (X+1.0.0)?"
-3. Wait for answer, compute new version string (without `v` prefix for files, with `v` prefix for git tag)
+Resolve the new version using these rules (first match wins):
 
-## Step 2: Get changelog entry
+1. **Explicit version in args** (e.g. `v0.14.0` or `0.14.0`) → use it directly
+2. **Bump keyword in args** (`patch`, `minor`, or `major`) → compute from current version
+3. **No args provided** → auto-detect:
+   - Run `git log $(git describe --tags --abbrev=0)..HEAD --oneline` to see commits since last tag
+   - If ANY commit message contains `feat:` or `feat(` → **minor**
+   - Otherwise → **patch**
+   - Tell the user what you chose and why (e.g. "Auto-detected **patch** — no feat: commits since v0.13.2")
 
-If the user provided a description, use it.
-Otherwise ask: "What changed in this release? (one line)"
+Version format: no `v` prefix in files, `v` prefix for git tag and changelog heading.
+
+## Step 2: Generate changelog entry
+
+**Do NOT ask the user for a description.** Auto-generate it from git history:
+
+1. Run `git log $(git describe --tags --abbrev=0)..HEAD --oneline --no-merges` to get commits since last tag
+2. Exclude any `chore: release` commits
+3. Write the changelog as a bulleted Markdown list — one `- **summary**` line per meaningful commit
+4. If commits are very granular, group related ones into a single bullet
+5. Match the style of existing changelog entries in README.md (bold lead, concise description)
+
+If there are zero non-release commits since the last tag, tell the user "Nothing to release — no commits since last tag" and stop.
 
 ## Step 3: Bump all three version files
 
@@ -31,7 +47,7 @@ Otherwise ask: "What changed in this release? (one line)"
 Add a new `### vX.Y.Z` section at the top of the `## Changelog` section (above the previous version):
 ```markdown
 ### vX.Y.Z
-- <changelog entry>
+- <changelog entries>
 ```
 
 ### 3b. `.claude-plugin/plugin.json`
@@ -67,6 +83,11 @@ chore: release vX.Y.Z
 git tag vX.Y.Z
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git push origin "$BRANCH" --tags
+```
+
+**If push fails due to sandbox restrictions**: tell the user to run the push manually and print the exact commands:
+```
+git push origin <branch> --tags
 ```
 
 Confirm with: `git log --oneline -3` and `git tag --list 'v*' | tail -3`
