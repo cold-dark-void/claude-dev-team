@@ -19,7 +19,40 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ```
 
-## Step 2: Discover agents
+## Step 2: Check for SQLite DB
+
+```bash
+MEMDB="$MROOT/.claude/memory/memory.db"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
+```
+
+If `USE_DB=true`, search the memories table and display results:
+
+```bash
+sqlite3 -header -column "$MEMDB" \
+  "SELECT agent, type, substr(content, 1, 200) AS content_preview, updated_at
+   FROM memories
+   WHERE content LIKE '%$ARGUMENTS%' COLLATE NOCASE
+   ORDER BY updated_at DESC
+   LIMIT 20;"
+```
+
+Output the DB results under a header:
+
+```
+═══ DB SEARCH: $ARGUMENTS ═══════════════════════════
+<sqlite3 output>
+═══════════════════════════════════════════════════════
+
+TIP: For semantic search, use /memory-search <query>
+```
+
+If `USE_DB=false` (DB missing or sqlite3 unavailable), skip this step and fall through to the grep-based search below.
+
+## Step 3: Discover agents
 
 List all agent memory directories:
 
@@ -27,7 +60,7 @@ List all agent memory directories:
 ls "$MROOT/.claude/memory/" 2>/dev/null
 ```
 
-## Step 3: Search (parallel across all agents)
+## Step 4: Search (parallel across all agents)
 
 For each agent directory found, search all four memory files for "$ARGUMENTS"
 (case-insensitive, partial match) with 2 lines of surrounding context:
@@ -43,7 +76,7 @@ Use Grep with context lines to find matches.
 Also search the project-level Claude memory:
 - `$MROOT/.claude/memory/claude/memory.md`
 
-## Step 4: Output
+## Step 5: Output
 
 ```
 ═══ MEMORY SEARCH: $ARGUMENTS ════════════════════════
