@@ -48,7 +48,26 @@ git log --oneline --all --grep="$ARGUMENTS" -i -20
 
 ### C. Agent Memory Files
 
-Use Grep to search across all agent memory directories for "$ARGUMENTS":
+```bash
+MEMDB="$PROOT/.claude/memory/memory.db"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
+```
+
+If USE_DB=true, search the memories table:
+
+```bash
+sqlite3 -header -column "$MEMDB" \
+  "SELECT agent, type, substr(content, 1, 300) AS content_preview, updated_at
+   FROM memories
+   WHERE content LIKE '%$ARGUMENTS%' COLLATE NOCASE
+   ORDER BY updated_at DESC
+   LIMIT 10;"
+```
+
+If USE_DB=false, fall back to grepping .md files:
 
 ```bash
 # Project-local agent memory
@@ -58,7 +77,7 @@ grep -r -i -l "$ARGUMENTS" $PROOT/.claude/memory/ 2>/dev/null
 grep -r -i -l "$ARGUMENTS" ~/.claude/projects/*/memory/ 2>/dev/null
 ```
 
-For each matching file, extract the relevant lines with 2 lines of context.
+For each matching file (grep path only), extract the relevant lines with 2 lines of context.
 
 ### D. Plans
 
