@@ -90,9 +90,17 @@ Summarize into 3–8 bullet points maximum. Be specific — not "cache is import
 
 ## Step 3: Append learnings to project memory
 
+```bash
+MEMDB="$PROOT/.claude/memory/memory.db"
+```
+
 Read current memory:
 ```bash
-cat $PROOT/.claude/memory/claude/memory.md
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY updated_at DESC LIMIT 1;"
+else
+  cat "$PROOT/.claude/memory/claude/memory.md" 2>/dev/null
+fi
 ```
 
 Append a new section:
@@ -106,7 +114,18 @@ Append a new section:
 ...
 ```
 
-Write back to `$PROOT/.claude/memory/claude/memory.md`.
+Write back:
+```bash
+CONTENT="<full updated memory content>"
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  ESCAPED=$(echo "$CONTENT" | sed "s/'/''/g")
+  sqlite3 "$MEMDB" "INSERT OR REPLACE INTO memories(agent, type, content, updated_at) VALUES ('claude', 'memory', '$ESCAPED', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
+else
+  cat > "$PROOT/.claude/memory/claude/memory.md" << 'MEMEOF'
+$CONTENT
+MEMEOF
+fi
+```
 
 If the memory file is getting long (>150 lines), note:
 `Memory file is >150 lines — consider consolidating older entries.`

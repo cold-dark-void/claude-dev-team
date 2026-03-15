@@ -27,11 +27,26 @@ Read in parallel:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || PROOT=$(pwd)
+MEMDB="$PROOT/.claude/memory/memory.db"
 ```
 
 - `$PROOT/AGENTS.md` (project rules)
-- `$PROOT/.claude/memory/tech-lead/cortex.md` (architecture context)
-- `$PROOT/.claude/memory/pm/cortex.md` (product context)
+- Tech Lead cortex:
+  ```bash
+  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+  else
+    cat "$PROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
+  fi
+  ```
+- PM cortex:
+  ```bash
+  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+  else
+    cat "$PROOT/.claude/memory/pm/cortex.md" 2>/dev/null
+  fi
+  ```
 
 Scan `specs/` for any specs related to the topic. Note constraints.
 

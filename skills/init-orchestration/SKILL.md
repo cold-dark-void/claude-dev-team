@@ -343,9 +343,20 @@ Create the Claude Code memory directory and seed it with learned patterns from p
 
 ```bash
 mkdir -p .claude/memory/claude
+MEMDB=".claude/memory/memory.db"
 ```
 
-**If `.claude/memory/claude/memory.md` does not exist** — create it with the baseline below.
+If sqlite3 is available and the DB does not yet exist, initialize it:
+```bash
+if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
+  SCHEMA=$(git rev-parse --show-toplevel 2>/dev/null)/skills/memory-store/schema.sql
+  if [ -f "$SCHEMA" ]; then
+    sqlite3 "$MEMDB" < "$SCHEMA"
+  fi
+fi
+```
+
+**If `.claude/memory/claude/memory.md` does not exist AND no DB row exists** — create/seed both paths below.
 
 **If it already exists** — read it, check if the orchestrator rules section is present. If not, append it. Do not duplicate.
 
@@ -368,6 +379,19 @@ mkdir -p .claude/memory/claude
 - Refactoring is always a separate PR — never mixed with feature work. Ship refactor first, then feature on top.
 - Discovered work becomes a new ticket — never silently absorb unplanned work into the current change.
 - Material approach changes → pause all IC work, Tech Lead replans, user approves before resuming.
+```
+
+Write this content using the DB-first dual path:
+```bash
+CONTENT="<baseline memory content above>"
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  ESCAPED=$(echo "$CONTENT" | sed "s/'/''/g")
+  sqlite3 "$MEMDB" "INSERT OR REPLACE INTO memories(agent, type, content, updated_at) VALUES ('claude', 'memory', '$ESCAPED', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
+else
+  cat > ".claude/memory/claude/memory.md" << 'MEMEOF'
+$CONTENT
+MEMEOF
+fi
 ```
 
 ---
