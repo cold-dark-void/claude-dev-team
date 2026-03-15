@@ -1,6 +1,6 @@
 # Claude Dev Team
 
-A FAANG-style AI dev team plugin for [Claude Code](https://claude.ai/claude-code). Gives you six specialized agents with persistent per-project memory, plus a full spec management workflow and project scaffolding — all wired together.
+A FAANG-style AI dev team plugin for [Claude Code](https://claude.ai/claude-code). Gives you seven specialized agents with persistent per-project memory, plus a full spec management workflow and project scaffolding — all wired together.
 
 ## Install
 
@@ -21,14 +21,14 @@ Or if you haven't added this marketplace yet:
 
 | Agent | Model | Tools | Role |
 |-------|-------|-------|------|
-| `pm` | Sonnet | Read, Grep, Glob, Bash, Task*, SendMessage | Requirements, user stories, acceptance criteria, prioritization |
-| `tech-lead` | Opus | Read, Grep, Glob, Bash, Task*, SendMessage | Architecture, system design, cross-cutting concerns, unblocking ICs |
+| `pm` | Sonnet | Read, Write, Edit, Grep, Glob, Bash, Task*, SendMessage | Requirements, user stories, acceptance criteria, prioritization |
+| `tech-lead` | Opus | Read, Write, Edit, Grep, Glob, Bash, Task*, SendMessage | Architecture, system design, cross-cutting concerns, unblocking ICs |
 | `ic5` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Complex implementation — ambiguous problems, hard bugs, new systems |
 | `ic4` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Well-defined tasks — extending patterns, tests, simple fixes |
 | `devops` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Deployments, CI/CD, infrastructure, monitoring, incident response |
-| `qa` | Sonnet | Read, Grep, Glob, Bash, Task*, SendMessage | Test planning, validation, bug reports, **release gating** |
+| `qa` | Sonnet | Read, Write, Edit, Grep, Glob, Bash, Task*, SendMessage | Test planning, validation, bug reports, **release gating** |
 | `ds` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
-| `project-init` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, SendMessage | One-time team memory bootstrap (invoked via `/init-team`) |
+| `project-init` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, SendMessage | _(internal)_ One-time team memory bootstrap — invoked by `/init-team`, not directly |
 
 Each agent has persistent memory — stored in SQLite (preferred) or markdown files (fallback):
 
@@ -46,7 +46,7 @@ After running `/init-team`, the plugin downloads sqlite-vec + sqlite-lembed exte
 
 | Mode | Trigger | Quality |
 |------|---------|---------|
-| `ollama` | Ollama running with `nomic-embed-text` | Best (768-dim) |
+| `remote` | `EMBEDDING_URL` env var set (OpenAI-compatible endpoint) | Best (provider-dependent dims) |
 | `lembed` | Extensions + GGUF model downloaded | Good (384-dim, all-MiniLM-L6-v2) |
 | `fallback` | No extensions available | Keyword search only |
 
@@ -54,33 +54,64 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 
 ### Commands / Skills
 
+#### Setup (run once per project)
+
 | Command | What it does |
 |---------|-------------|
-| `/init-team` | Bootstrap all 6 agents' memory for the current project (run once per project) |
+| `/init-team` | Bootstrap all 7 agents' memory for the current project |
 | `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` |
+| `/init-orchestration` | Enable Agent Teams: sandbox, env var, TaskCompleted hook, AGENTS.md |
+
+#### Feature work
+
+| Command | What it does |
+|---------|-------------|
+| `/brainstorm` | Socratic design refinement — structured questioning before planning |
+| `/kickoff` | Parallel PM+TL kickoff → spec → implementation plan → task graph |
+| `/orchestrate` | Full lifecycle: fetch issue → worktree → agents → review loops → PR |
+| `/standup` | Status snapshot: TaskList + agent context, surfaces blockers and stale tasks |
+| `/wrap-ticket` | Close out: verify tasks, capture learnings, update plans, remove worktree |
+
+#### Spec management
+
+| Command | What it does |
+|---------|-------------|
 | `/create-spec` | Guided interview → new behavioral spec in `specs/` |
 | `/update-spec` | Modify an existing spec with version history |
 | `/find-spec` | Search specs by keyword |
 | `/list-specs` | Quick status overview of all specs |
-| `/check-specs` | Audit spec format + code alignment (Phase 1: format/index, Phase 2: MATCH/MISSING/DIFFERS per requirement) |
-| `/review-and-commit` | Review changes, update specs, append to review.md, commit |
-| `/reflect-specs` | Full-system health check — ALL specs exhaustively, cross-spec conflicts, skill/command consistency, interactive confirmation |
-| `/release` | Bump version in all required files (README, plugin.json, marketplace.json), commit, tag, and push |
-| `/init-orchestration` | Enable Agent Teams for any project: adds env var, TaskCompleted hook, and AGENTS.md with team coordination rules |
-| `/generate-specs` | Reverse-engineer behavioral specs from existing code — establishes a spec baseline for legacy projects with no existing specs |
-| `/generate-tests` | Generate unit/integration tests from specs — one test per MUST requirement, tagged with source spec ID for traceability |
-| `/kickoff` | Orchestrate full ticket intake + planning: parallel PM+TL kickoff, spec creation, implementation plan, TaskCreate task graph |
-| `/standup` | Status snapshot of active agent work: reads TaskList + agent context files, surfaces blockers and stale tasks |
-| `/wrap-ticket` | Close out a shipped ticket: verify tasks done, capture learnings to memory, update plans, remove worktree |
-| `/orchestrate` | Full lifecycle orchestrator: fetch issue, create worktree, spawn agents end-to-end, tech-lead review loops, optional PR |
-| `/brainstorm` | Socratic design refinement — structured questioning that forces requirement clarity before planning or implementation |
-| `/recall` | Search all prior work by topic across sessions, memory, specs, plans, git history — outputs `claude --resume` commands |
-| `/memory-search <query>` | Search all agent memories — semantic (embeddings), keyword (DB), or grep (.md fallback) |
-| `/scout-plugins` | Research new Claude Code plugins released in the last week (or custom window), evaluate against current setup, propose enhancements |
+| `/generate-specs` | Reverse-engineer specs from existing code (legacy project baseline) |
+
+#### Code quality
+
+| Command | What it does |
+|---------|-------------|
+| `/review-and-commit` | 5-agent parallel review with confidence scoring, blocks commit on critical issues |
+| `/check-specs` | Audit spec format + code alignment (MATCH/MISSING/DIFFERS per requirement) |
+| `/reflect-specs` | Full health check — ALL specs exhaustively, cross-spec conflicts, interactive |
+| `/generate-tests` | Generate tests from specs — one test per MUST requirement, tagged with spec ID |
+
+#### Memory & recall
+
+| Command | What it does |
+|---------|-------------|
+| `/memory-search <query>` | Search agent memories — semantic, keyword, or grep fallback |
+| `/memory-stats` | Show memory usage statistics (counts, sizes, growth) |
+| `/recall` | Cross-source search: sessions, memory, specs, plans, git history |
+
+#### Maintenance
+
+| Command | What it does |
+|---------|-------------|
+| `/backlog` | Manage project backlog items (add, close, list, init) |
+| `/release` | Bump version across all files, commit, tag, push |
+| `/scout-plugins` | Research new plugins, evaluate against current setup, propose enhancements |
 
 ---
 
 ## Quick Start
+
+> **Heads up**: `/init-team` downloads sqlite-vec, sqlite-lembed, and an embedding model (~29MB total) for semantic memory search. This takes 1-2 minutes and requires internet access. If you're on a restricted network or air-gapped, use `/init-team --no-extensions` to skip downloads and use keyword-only search.
 
 ### New project
 
@@ -103,21 +134,20 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 ### Starting a task
 
 ```
-# 1. Requirements
-Use the pm subagent to write a spec for: [feature]
+/kickoff POC-123 "Add user avatar upload with S3 storage"
+```
 
-# 2. Technical direction
-Use the tech-lead subagent to review the spec and give implementation direction
+This runs PM + Tech Lead in parallel, creates a spec, produces an implementation plan, and generates a task graph — all in one command.
 
-# 3. Implement
+For full lifecycle automation (branch, implement, review, PR):
+```
+/orchestrate POC-123
+```
+
+You can also invoke agents directly when needed:
+```
 Use the ic5 subagent to implement: [complex task]
-Use the ic4 subagent to implement: [well-defined task]
-
-# 4. QA gates the release
 Use the qa subagent to validate against the spec before we deploy
-
-# 5. Ship
-Use the devops subagent to deploy to staging
 ```
 
 Or just describe the task — Claude will route to the right agent automatically based on their descriptions.
@@ -163,8 +193,8 @@ After `/init-team` runs:
   extensions/
     vec0.so          ← sqlite-vec (vector search)
     lembed0.so       ← sqlite-lembed (local embeddings)
-    models/
-      all-MiniLM-L6-v2.gguf
+  models/
+    all-MiniLM-L6-v2.gguf
 
 {worktree}/.claude/memory/{agent}/context.md   ← per-worktree, stays as .md
 ```
