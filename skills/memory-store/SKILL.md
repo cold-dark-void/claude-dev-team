@@ -41,7 +41,7 @@ Replace `<AGENT>`, `<TYPE>`, and `<CONTENT_ESCAPED>` with real values.
 ```bash
 # APPEND a focused memory entry (one fact, decision, or lesson per INSERT)
 ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
-sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('<AGENT>', '<TYPE>', '$ESCAPED');"
+sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO memories(agent, type, content) VALUES ('<AGENT>', '<TYPE>', '$ESCAPED');"
 ```
 
 **Use heredoc for multi-line content** to avoid shell quoting issues:
@@ -187,11 +187,12 @@ fi
 
 ## Step 5: Retry on SQLITE_BUSY
 
-WAL mode and `busy_timeout=5000` are set at DB init and handle most contention
-automatically. For the rare case of a hard lock, retry once:
+WAL mode is set at DB init, but `busy_timeout` is a per-connection setting.
+Always prepend `PRAGMA busy_timeout=5000;` to write operations. For the rare
+case of a hard lock, retry once:
 
 ```bash
-sqlite3 "$MEMDB" "INSERT ..." || { sleep 1; sqlite3 "$MEMDB" "INSERT ..."; }
+sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT ..." || { sleep 1; sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT ..."; }
 ```
 
 ---

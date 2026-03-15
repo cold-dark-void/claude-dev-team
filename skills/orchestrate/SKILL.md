@@ -22,35 +22,35 @@ happens in agent worktrees.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
-MEMDB="$PROOT/.claude/memory/memory.db"
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 ```
 
 Read in parallel:
-- `$PROOT/AGENTS.md`
+- `$MROOT/AGENTS.md`
 - Claude memory:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY updated_at DESC LIMIT 1;"
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY created_at DESC;"
   else
-    cat "$PROOT/.claude/memory/claude/memory.md" 2>/dev/null
+    cat "$MROOT/.claude/memory/claude/memory.md" 2>/dev/null
   fi
   ```
 - Tech Lead cortex:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND type='cortex' ORDER BY created_at DESC;"
   else
-    cat "$PROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
+    cat "$MROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
   fi
   ```
 - PM cortex:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND type='cortex' ORDER BY created_at DESC;"
   else
-    cat "$PROOT/.claude/memory/pm/cortex.md" 2>/dev/null
+    cat "$MROOT/.claude/memory/pm/cortex.md" 2>/dev/null
   fi
   ```
 
@@ -111,7 +111,7 @@ Wait for user confirmation before proceeding. This is the first escalation gate.
 ```bash
 BRANCH="feat/<ISSUE-ID>-$(echo '<slug from title>' | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | head -c 40)"
 git branch "$BRANCH" 2>/dev/null || true
-git worktree add "$PROOT/../$(basename $PROOT)-$ISSUE_ID" "$BRANCH"
+git worktree add "$MROOT/../$(basename $MROOT)-$ISSUE_ID" "$BRANCH"
 ```
 
 Note the worktree path — all agent work happens there.
