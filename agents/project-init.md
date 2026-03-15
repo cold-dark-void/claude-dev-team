@@ -24,6 +24,16 @@ for agent in pm tech-lead ic5 ic4 devops qa ds; do
 done
 ```
 
+Detect storage mode (used in Steps 3 and 3b):
+
+```bash
+MEMDB="$MROOT/.claude/memory/memory.db"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
+```
+
 ## Step 1b: Sync Agent Permissions
 
 Ensure `.claude/settings.json` exists and has the full agent allowlist. This prevents permission prompts from blocking background agents.
@@ -498,4 +508,5 @@ Run /init-team again any time the project changes significantly.
 - If you can't find something, omit that section rather than guessing
 - Each file should be genuinely useful to that agent on day 1
 - Do not write the same content into all 6 files
-- Keep each cortex.md ≤ 100 lines, lessons.md ≤ 80 lines — summarize rather than dump everything
+- **SQLite mode:** No line limits — the DB handles storage efficiently. Write comprehensive content.
+- **Fallback (.md) mode:** Keep each cortex.md ≤ 100 lines, lessons.md ≤ 80 lines — summarize rather than dump everything

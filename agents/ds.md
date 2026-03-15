@@ -81,49 +81,77 @@ If you encounter a genuinely novel statistical challenge, a complex ML architect
 
 ## Persistent Memory
 
-You have four persistent knowledge files. Read all of them at the start of every session before doing anything else.
-
-### Path Resolution
-
-**Shared memory** (memory.md, lessons.md, cortex.md) — always at the main worktree root, shared across all git worktrees:
+### Path resolution
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 AGENT_MEM="$MROOT/.claude/memory/ds"
-mkdir -p "$AGENT_MEM"
+
+# Detect storage mode
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
 ```
 
-**Worktree-specific context** (context.md) — at the current worktree root, isolated per worktree:
+### Session start — read memory
 ```bash
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-AGENT_CTX="$WTROOT/.claude/memory/ds"
-mkdir -p "$AGENT_CTX"
+if [ "$USE_DB" = "true" ]; then
+  # Load from SQLite
+  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='ds' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='ds' AND type='memory' ORDER BY updated_at DESC LIMIT 1;"
+  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='ds' AND type='lessons' ORDER BY updated_at DESC LIMIT 1;"
+else
+  # Fallback: read .md files
+  cat "$AGENT_MEM/cortex.md" 2>/dev/null
+  cat "$AGENT_MEM/memory.md" 2>/dev/null
+  cat "$AGENT_MEM/lessons.md" 2>/dev/null
+fi
+# Context is always .md (per-worktree)
+cat "$WTROOT/.claude/memory/ds/context.md" 2>/dev/null
+```
+
+### Writing memory
+```bash
+if [ "$USE_DB" = "true" ]; then
+  # Upsert to SQLite (see skills/memory-store/SKILL.md for full protocol)
+  ESCAPED=$(echo "$CONTENT" | sed "s/'/''/g")
+  EXISTING=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='ds' AND type='<TYPE>';")
+  if [ "$EXISTING" -gt 0 ]; then
+    sqlite3 "$MEMDB" "UPDATE memories SET content='$ESCAPED', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE agent='ds' AND type='<TYPE>';"
+  else
+    sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ds', '<TYPE>', '$ESCAPED');"
+  fi
+else
+  # Fallback: write .md files
+  mkdir -p "$AGENT_MEM"
+  cat > "$AGENT_MEM/<TYPE>.md" << 'EOF'
+  ...content...
+  EOF
+fi
+# Context always writes to .md (per-worktree)
+cat > "$WTROOT/.claude/memory/ds/context.md" << 'EOF'
+...context...
+EOF
+```
+
+### Memory search (cross-agent)
+```bash
+# See skills/memory-recall/SKILL.md for semantic and keyword search
 ```
 
 ### Files
 
-| File | Location | Purpose | When to Update |
-|------|----------|---------|----------------|
-| `memory.md` | `$AGENT_MEM/` (shared) | Working state: active analyses, models in flight, key findings | After completing analyses, model runs, or major discoveries |
-| `lessons.md` | `$AGENT_MEM/` (shared) | Learned patterns: data quirks, model gotchas, what didn't work | When data surprises you or a model fails in an unexpected way |
-| `cortex.md` | `$AGENT_MEM/` (shared) | Deep expertise: data sources, schema, metrics definitions, model inventory, known data quality issues | When learning something significant about the data or ML stack |
-| `context.md` | `$AGENT_CTX/` (worktree-specific) | Current analysis progress: steps done, next steps, blockers, scratch findings | Continuously during analysis — before and after each major step |
+| File | Purpose | When to Update |
+|------|---------|----------------|
+| `cortex` | Deep expertise: data sources, schema, metrics definitions, model inventory, known data quality issues | When learning something significant about the data or ML stack |
+| `memory` | Working state: active analyses, models in flight, key findings | After completing analyses, model runs, or major discoveries |
+| `lessons` | Learned patterns: data quirks, model gotchas, what didn't work | When data surprises you or a model fails in an unexpected way |
+| `context.md` | Current analysis progress: steps done, next steps, blockers, scratch findings (per-worktree) | Continuously during analysis — before and after each major step |
 
-### Session Start Protocol
-1. Resolve both paths above and create directories if they don't exist
-2. Read `$AGENT_MEM/memory.md` — orient to current state
-3. Read `$AGENT_MEM/lessons.md` — recall data quirks and model lessons
-4. Read `$AGENT_MEM/cortex.md` — load data sources, schema, metrics definitions
-5. Read `$AGENT_CTX/context.md` — understand what's in flight in this worktree
-6. Then begin work
-
-### Memory File Size Budget
-Before adding new content, trim stale entries to stay within limits:
-- `cortex.md` ≤ 100 lines
-- `memory.md` ≤ 50 lines
-- `lessons.md` ≤ 80 lines
-- `context.md` ≤ 60 lines
-
-### Conditional Loading
-Skip reading a file if it doesn't exist. If any file exceeds its budget, summarize and overwrite it before loading new content.
+### Limits
+- **SQLite mode:** No line limits. The DB handles storage efficiently.
+- **Fallback (.md) mode:** cortex 100 lines, memory 50 lines, lessons 80 lines, context 60 lines.
