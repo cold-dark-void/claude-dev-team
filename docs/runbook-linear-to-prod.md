@@ -12,6 +12,7 @@ End-to-end workflow for implementing and shipping a Linear ticket using the clau
   `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, wires the `TaskCompleted` quality-gate hook,
   and updates `AGENTS.md` with team coordination rules). Safe to re-run.
 - Linear ticket assigned to you and in **In Progress**
+- Memory distillation configured (`/memory-config set distill_enabled true`) — recommended but not required
 
 ---
 
@@ -26,6 +27,9 @@ ticket to establish a baseline:
 ```bash
 # 1. Bootstrap agents and orchestration (if not done)
 /init-team
+# Note: /init-team downloads the sqlite-vec and sqlite-lembed extensions (~29MB).
+# After it runs, agents store memory in a SQLite DB (.claude/memory/memory.db)
+# in addition to — and in most configs instead of — the .md fallback files.
 /init-orchestration
 
 # 2. Reverse-engineer specs from the existing codebase
@@ -81,6 +85,8 @@ Open the Linear ticket. Collect:
 git checkout main && git pull
 
 # Check project memory for relevant context
+# If SQLite is enabled (v0.14+), agents query the DB automatically.
+# These .md files exist as fallback when sqlite3 is not available.
 cat .claude/memory/claude/memory.md
 cat .claude/memory/tech-lead/cortex.md   # architecture decisions
 cat .claude/memory/pm/cortex.md          # product context
@@ -462,6 +468,28 @@ Verify the acceptance criteria from the ticket are met in prod:
 @devops Deployment for ENG-123 is live. Here are the logs: <paste>
 Anything to worry about?
 ```
+
+---
+
+## Post-ship: Memory Hygiene
+
+After deploying, agents will have accumulated raw memories from the ticket. Optionally
+compress them to keep context windows lean for future tickets:
+
+```bash
+# Check how many raw memories have accumulated
+/memory-distill --status
+
+# Optionally compress raw memories from this ticket into distilled digests
+/memory-distill
+
+# Verify distillation settings are what you expect
+/memory-config list
+```
+
+This step is optional but recommended after long or complex tickets. Raw memories are
+archived (never deleted) — distillation only compresses them into tier-1 digests for
+faster future retrieval.
 
 ---
 
