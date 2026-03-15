@@ -34,9 +34,29 @@ fi
 Used by agents at boot to load their full context. Replace `<AGENT>` with the agent name
 (e.g., `ic5`, `tech-lead`).
 
+Tiered loading: if distilled content (tier 1 or 2) exists, load only the compressed layers.
+Otherwise fall back to raw tier-0 memories (backward compatible with pre-distillation DBs).
+
 ```bash
-# Load all memories (returns multiple rows per type — each row is one focused entry)
-sqlite3 "$MEMDB" "SELECT type, content FROM memories WHERE agent='<AGENT>' ORDER BY type, created_at DESC;"
+# Check if agent has any distilled content (tier 1 or 2)
+HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories
+  WHERE agent='<AGENT>' AND tier > 0 AND archived=FALSE;")
+
+if [ "$HAS_DISTILLED" -gt 0 ]; then
+  # Tier 2: core knowledge (always loaded, small set)
+  sqlite3 "$MEMDB" "SELECT type, content FROM memories
+    WHERE agent='<AGENT>' AND tier=2 AND archived=FALSE
+    ORDER BY type, updated_at DESC;"
+  # Tier 1: digests (compressed summaries)
+  sqlite3 "$MEMDB" "SELECT type, content FROM memories
+    WHERE agent='<AGENT>' AND tier=1 AND archived=FALSE
+    ORDER BY type, updated_at DESC;"
+else
+  # No distilled content yet — load raw tier-0 (backward compat)
+  sqlite3 "$MEMDB" "SELECT type, content FROM memories
+    WHERE agent='<AGENT>' AND tier=0 AND archived=FALSE
+    ORDER BY type, created_at DESC;"
+fi
 ```
 
 **Fallback** when `USE_DB=false`:
@@ -55,10 +75,11 @@ Simple LIKE-based search — no extensions required. Replace `<QUERY>` and `<LIM
 
 ```bash
 sqlite3 -header -column "$MEMDB" \
-  "SELECT agent, type, substr(content, 1, 200) AS snippet, updated_at
+  "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
    FROM memories
    WHERE content LIKE '%<QUERY>%' COLLATE NOCASE
-   ORDER BY updated_at DESC
+     AND archived = FALSE
+   ORDER BY tier DESC, updated_at DESC
    LIMIT <LIMIT>;"
 ```
 
@@ -92,15 +113,15 @@ if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$
   sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
 .load $EXT_DIR/lembed0
-SELECT m.agent, m.type,
+SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet,
        e.distance AS score,
        m.created_at
 FROM vec_memories_384 e
-JOIN memories m ON m.id = e.memory_id
+JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
 WHERE e.embedding MATCH lembed('$MODEL_PATH', '<QUERY>')
   AND k = <LIMIT>
-ORDER BY e.distance ASC;
+ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 
 elif [ "$EMBED_MODE" = "remote" ]; then
@@ -123,24 +144,25 @@ elif [ "$EMBED_MODE" = "remote" ]; then
 
   sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
-SELECT m.agent, m.type,
+SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet,
        e.distance AS score,
        m.created_at
 FROM ${VEC_TABLE} e
-JOIN memories m ON m.id = e.memory_id
+JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
 WHERE e.embedding MATCH '$QUERY_EMBEDDING'
   AND k = <LIMIT>
-ORDER BY e.distance ASC;
+ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 
 else
   # Fallback: keyword search
   echo "[memory-recall] No embeddings available. Using keyword search."
   sqlite3 -header -column "$MEMDB" \
-    "SELECT agent, type, substr(content, 1, 200) AS snippet, updated_at
+    "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
      FROM memories WHERE content LIKE '%<QUERY>%' COLLATE NOCASE
-     ORDER BY updated_at DESC LIMIT <LIMIT>;"
+       AND archived = FALSE
+     ORDER BY tier DESC, updated_at DESC LIMIT <LIMIT>;"
 fi
 ```
 
@@ -170,8 +192,12 @@ fi
 |-----------|----------|---------|-------------|
 | query | yes | — | Search query string |
 | agent | no | all agents | Filter to single agent |
-| type | no | all types | Filter to cortex/memory/lessons |
+| type | no | all types | Filter to cortex/memory/lessons/digest/core |
 | limit | no | 5 | Max results to return |
+
+**Filtering:** Archived rows (`archived = TRUE`) are **never** returned in any mode
+(session load, keyword search, semantic search, or unembedded fallback). This is enforced
+at the query level in every step above.
 
 ---
 
@@ -180,7 +206,8 @@ fi
 Each result includes:
 
 - `agent` — which agent stored this memory
-- `type` — cortex, memory, or lessons
+- `type` — cortex, memory, lessons, digest, or core
+- `tier` — 0 (raw), 1 (digest), or 2 (core)
 - `snippet` — first 200 chars of content
 - `score` — cosine distance (semantic) or null (keyword)
 - `created_at` — when the memory was stored
@@ -196,11 +223,12 @@ absent). Replace `<CURRENT_MODEL>` and `<QUERY>`.
 ```bash
 # Append unembedded memories (keyword match) after semantic results
 sqlite3 "$MEMDB" <<EOSQL
-SELECT m.agent, m.type, substr(m.content, 1, 200) AS snippet,
+SELECT m.agent, m.type, m.tier, substr(m.content, 1, 200) AS snippet,
        '[not yet embedded]' AS score, m.created_at
 FROM memories m
 LEFT JOIN embedding_meta em ON em.memory_id = m.id AND em.model = '<CURRENT_MODEL>'
 WHERE em.memory_id IS NULL
+  AND m.archived = FALSE
   AND m.content LIKE '%<QUERY>%' COLLATE NOCASE
 LIMIT 5;
 EOSQL

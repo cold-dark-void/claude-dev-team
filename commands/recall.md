@@ -54,10 +54,11 @@ If USE_DB=true, search the memories table:
 
 ```bash
 sqlite3 -header -column "$MEMDB" \
-  "SELECT agent, type, substr(content, 1, 300) AS content_preview, updated_at
+  "SELECT agent, type, tier, substr(content, 1, 300) AS content_preview, updated_at
    FROM memories
    WHERE content LIKE '%$ARGUMENTS%' COLLATE NOCASE
-   ORDER BY updated_at DESC
+     AND archived = FALSE
+   ORDER BY tier DESC, updated_at DESC
    LIMIT 10;"
 ```
 

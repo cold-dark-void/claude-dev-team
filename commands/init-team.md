@@ -60,6 +60,27 @@ fi
 
 This is idempotent — schema uses `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`, so re-running is safe.
 
+## Step 2.5: Run schema migration (if upgrading)
+
+If the DB already existed before Step 2, check if it needs a schema upgrade:
+
+```bash
+if [ -f "$MEMDB" ] && [ -n "$PLUGIN_DIR" ]; then
+  V=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null)
+  if [ "$V" = "1" ]; then
+    echo "Migrating schema v1 -> v2..."
+    bash "$PLUGIN_DIR/migrate-v2.sh" "$MROOT"
+  elif [ -n "$V" ]; then
+    echo "Schema version: $V (up to date)"
+  fi
+fi
+```
+
+This is idempotent — migrate-v2.sh checks schema_version internally.
+
+On `--refresh`: always run this migration check.
+On `--migrate-only`: run this step, then the .md migration (Step 4), then exit.
+
 ## Step 3: Download extensions (unless --no-extensions or --migrate-only)
 
 Skip this step if `--no-extensions` or `--migrate-only` is set.

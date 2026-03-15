@@ -1,16 +1,20 @@
--- Core memory table
+-- Core memory table (v2: tiered distillation support)
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('cortex','memory','lessons')),
+  type TEXT NOT NULL CHECK(type IN ('cortex','memory','lessons','digest','core')),
   content TEXT NOT NULL,
   metadata_json TEXT DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+  tier INTEGER NOT NULL DEFAULT 0 CHECK(tier IN (0, 1, 2)),
+  archived BOOLEAN NOT NULL DEFAULT FALSE,
+  distilled_from TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent);
 CREATE INDEX IF NOT EXISTS idx_memories_agent_type ON memories(agent, type);
+CREATE INDEX IF NOT EXISTS idx_memories_tier ON memories(agent, tier, archived);
 
 -- Config table for runtime state (embedding mode, model info, schema version)
 CREATE TABLE IF NOT EXISTS config (
@@ -21,10 +25,26 @@ CREATE TABLE IF NOT EXISTS config (
 
 -- Seed config
 INSERT OR IGNORE INTO config(key, value) VALUES
-  ('schema_version', '1'),
+  ('schema_version', '2'),
   ('embedding_mode', 'fallback'),
   ('embedding_model', 'none'),
-  ('embedding_dimensions', '0');
+  ('embedding_dimensions', '0'),
+  ('distill_enabled', 'false'),
+  ('distill_mode', 'suggest'),
+  ('distill_threshold', '50'),
+  ('distilling_lock', ''),
+  ('distill_model', 'haiku');
+
+-- Distillation audit log
+CREATE TABLE IF NOT EXISTS distillation_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent TEXT NOT NULL,
+  from_tier INTEGER NOT NULL,
+  to_tier INTEGER NOT NULL,
+  source_count INTEGER NOT NULL,
+  result_memory_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
 
 -- Embedding provenance tracking (which model produced which embeddings)
 CREATE TABLE IF NOT EXISTS embedding_meta (

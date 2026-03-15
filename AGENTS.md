@@ -40,6 +40,7 @@ After commit: `git tag vX.Y.Z && git push && git push --tags`
 | `qa` | Opus | Testing, validation, release gating |
 | `ds` | Opus | Data analysis, ML, metrics |
 | `project-init` | Sonnet | One-time memory bootstrap (via `/init-team`) |
+| `distiller` | Haiku | Memory compression specialist (invoked by `/memory-distill` only) |
 
 ## Persistent Memory Protocol
 
@@ -50,6 +51,12 @@ Each agent has memory stored in SQLite (preferred) or .md files (fallback):
 - Agents read/write via `sqlite3` CLI
 - Semantic search via sqlite-vec embeddings
 - No line limits
+
+**Memory tiers** (SQLite mode, after v0.14.0):
+- Tier 0: Raw memories (written by agents during work)
+- Tier 1: Digests (LLM-compressed summaries, created by `/memory-distill`)
+- Tier 2: Core knowledge (promoted from digests, permanent)
+- `archived = TRUE`: consumed by distillation, excluded from all queries
 
 **Fallback mode** (no sqlite3 or extensions):
 - Per-agent files at `.claude/memory/<agent>/`:
@@ -79,7 +86,35 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 AGENT_CTX="$WTROOT/.claude/memory/<agent-name>"
 ```
 
-Read memory at session start. Write back at end of task. Context stays per-worktree.
+**Session start — read memory (tiered):**
+```bash
+if [ "$USE_DB" = "true" ]; then
+  # Check if distilled content exists
+  HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories
+    WHERE agent='<NAME>' AND tier > 0 AND archived=FALSE;")
+  if [ "$HAS_DISTILLED" -gt 0 ]; then
+    # Tier 2: core knowledge (always loaded)
+    sqlite3 "$MEMDB" "SELECT content FROM memories
+      WHERE agent='<NAME>' AND tier=2 AND archived=FALSE
+      ORDER BY type, updated_at DESC;"
+    # Tier 1: digests (compressed summaries)
+    sqlite3 "$MEMDB" "SELECT content FROM memories
+      WHERE agent='<NAME>' AND tier=1 AND archived=FALSE
+      ORDER BY type, updated_at DESC;"
+  else
+    # No distilled content yet — load all tier-0 (backward compat)
+    sqlite3 "$MEMDB" "SELECT content FROM memories
+      WHERE agent='<NAME>' AND tier=0 AND archived=FALSE
+      ORDER BY type, created_at DESC;"
+  fi
+fi
+```
+
+Write back at end of task. Context stays per-worktree.
+
+**Memory distillation:** Run `/memory-distill` to compress raw memories (tier 0) into
+digests (tier 1) and promote high-signal knowledge to core (tier 2). Configure via
+`/memory-config` (keys: `distill_enabled`, `distill_mode`, `distill_threshold`, `distill_model`).
 
 ## Team Coordination (Agent Teams)
 

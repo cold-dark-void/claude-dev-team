@@ -57,7 +57,6 @@ EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mod
 MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
 DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
 TOTAL=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;")
-AGENTS=$(sqlite3 "$MEMDB" "SELECT agent || ' (' || COUNT(*) || ')' FROM memories GROUP BY agent ORDER BY agent;" | tr '\n' ', ' | sed 's/,$//')
 
 EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
 
@@ -65,7 +64,14 @@ echo "Memory DB:      $MEMDB"
 echo "Embedding mode: $EMBED_MODE ($MODEL, ${DIMS}-dim)"
 [ -n "$EMBED_URL" ] && echo "Embedding URL:  $EMBED_URL"
 echo "Total memories: $TOTAL"
-echo "Agents:         $AGENTS"
+echo ""
+sqlite3 -header -column "$MEMDB" \
+  "SELECT agent,
+    SUM(CASE WHEN tier=0 AND archived=FALSE THEN 1 ELSE 0 END) AS raw,
+    SUM(CASE WHEN tier=1 THEN 1 ELSE 0 END) AS digests,
+    SUM(CASE WHEN tier=2 THEN 1 ELSE 0 END) AS core,
+    SUM(CASE WHEN archived=TRUE THEN 1 ELSE 0 END) AS archived
+  FROM memories GROUP BY agent ORDER BY agent;"
 ```
 And stop.
 
@@ -103,15 +109,15 @@ VEC_TABLE="vec_memories_${DIMS}"
 RESULTS=$(sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
 .load $EXT_DIR/lembed0
-SELECT m.agent, m.type,
+SELECT m.agent, m.type, m.tier,
        CAST(ROUND((1 - e.distance) * 100) AS INTEGER) || '%' AS score,
        m.created_at,
        substr(m.content, 1, 200) AS snippet
 FROM ${VEC_TABLE} e
-JOIN memories m ON m.id = e.memory_id
+JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
 WHERE e.embedding MATCH lembed('$MODEL_PATH', '$QUERY')
   AND k = 10
-ORDER BY e.distance ASC;
+ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 )
 ```
@@ -140,15 +146,15 @@ fi
 
 RESULTS=$(sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
-SELECT m.agent, m.type,
+SELECT m.agent, m.type, m.tier,
        CAST(ROUND((1 - e.distance) * 100) AS INTEGER) || '%' AS score,
        m.created_at,
        substr(m.content, 1, 200) AS snippet
 FROM ${VEC_TABLE} e
-JOIN memories m ON m.id = e.memory_id
+JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
 WHERE e.embedding MATCH '$QUERY_EMBEDDING'
   AND k = 10
-ORDER BY e.distance ASC;
+ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 )
 ```
@@ -157,9 +163,10 @@ EOSQL
 
 ```bash
 RESULTS=$(sqlite3 "$MEMDB" \
-  "SELECT agent, type, '' AS score, updated_at, substr(content, 1, 200) AS snippet
+  "SELECT agent, type, tier, '' AS score, updated_at, substr(content, 1, 200) AS snippet
    FROM memories WHERE content LIKE '%$QUERY%' COLLATE NOCASE
-   ORDER BY updated_at DESC LIMIT 20;")
+     AND archived = FALSE
+   ORDER BY tier DESC, updated_at DESC LIMIT 20;")
 ```
 
 ### Mode: grep

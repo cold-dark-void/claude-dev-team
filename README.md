@@ -98,6 +98,8 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/memory-search <query>` | Search agent memories — semantic, keyword, or grep fallback |
 | `/memory-stats` | Show memory usage statistics (counts, sizes, growth) |
 | `/recall` | Cross-source search: sessions, memory, specs, plans, git history |
+| `/memory-distill` | Compress raw memories into digests, promote high-signal to core |
+| `/memory-config` | View and set memory configuration (distill mode, threshold) |
 
 #### Maintenance
 
@@ -214,6 +216,22 @@ After `/init-team` runs:
 
 Cortex knowledge is populated on init. Everything else fills naturally as the team works. The team gets sharper the more you use it on a project — agents stop re-reading the codebase from scratch each session.
 
+### Memory Distillation
+
+Over time, raw memories accumulate. Run `/memory-distill` periodically to compress them into concise digests (tier 1) and promote the highest-signal knowledge to permanent core (tier 2).
+
+| Tier | Label | Description |
+|------|-------|-------------|
+| 0 | raw | Every memory written by agents during work |
+| 1 | digest | LLM-compressed summaries from batches of raw memories |
+| 2 | core | Promoted permanent knowledge (decisions, lessons, architecture) |
+
+Configure with `/memory-config`:
+- `distill_enabled` — enable/disable (default: false)
+- `distill_mode` — manual / suggest / auto (default: suggest)
+- `distill_threshold` — raw count before triggering (default: 50)
+- `distill_model` — LLM model for compression (default: haiku)
+
 ### Re-initialize after major changes
 
 ```
@@ -329,6 +347,16 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.14.0
+- **3-layer tiered memory distillation**: raw memories (tier 0) can now be compressed into LLM-generated digests (tier 1) and promoted to permanent core knowledge (tier 2) via `/memory-distill`
+- **`/memory-distill`**: new command — compress raw agent memories into concise digests, evaluate for tier-2 promotion; supports `--agent`, `--status`, and `--force` flags; orchestrates a dedicated `@distiller` agent (Haiku)
+- **`/memory-config`**: new command — view and set distillation config keys (`distill_enabled`, `distill_mode`, `distill_threshold`, `distill_model`) with validation
+- **`@distiller` agent**: lightweight Haiku specialist spawned only by `/memory-distill`; never self-prompts; archives source memories after distillation (never deletes)
+- **Tiered session loading**: all 8 agents load tier-2 + tier-1 when distilled content exists; fall back to tier-0 for full backward compatibility on undistilled DBs
+- **Auto-distill hook in `/wrap-ticket`**: in `suggest` mode prints notice when agents exceed threshold; in `auto` mode queues distillation at ticket close
+- **Schema v2 migration**: `memories` table gains `tier`, `archived`, `distilled_from` columns; new `distillation_log` table; `migrate-v2.sh` for upgrading existing DBs; `/init-team` auto-migrates v1 DBs
+- **`archived=FALSE` filters**: all memory queries (recall, memory-search, skill reads) exclude archived memories; `tier` column visible in search results
 
 ### v0.13.3
 - **Smarter `/release` skill**: auto-detects patch/minor/major from args or commit history, auto-generates changelog from git log instead of asking, handles push failures gracefully

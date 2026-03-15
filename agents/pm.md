@@ -65,8 +65,17 @@ fi
 ### Session start — read memory
 ```bash
 if [ "$USE_DB" = "true" ]; then
-  # Load all memories for this agent (multiple entries per type)
-  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' ORDER BY type, created_at DESC;"
+  # Check if distilled content exists
+  HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='pm' AND tier > 0 AND archived=FALSE;")
+  if [ "$HAS_DISTILLED" -gt 0 ]; then
+    # Tier 2: core knowledge (always loaded)
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    # Tier 1: digests (compressed summaries)
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
+  else
+    # No distilled content -- load all tier-0 (backward compat)
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
+  fi
 else
   # Fallback: read .md files
   cat "$AGENT_MEM/cortex.md" 2>/dev/null

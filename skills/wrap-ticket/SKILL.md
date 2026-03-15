@@ -97,7 +97,13 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 Read current memory:
 ```bash
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY created_at DESC;"
+  HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
+  if [ "$HAS_DISTILLED" -gt 0 ]; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
+  else
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
+  fi
 else
   cat "$MROOT/.claude/memory/claude/memory.md" 2>/dev/null
 fi
@@ -129,6 +135,43 @@ fi
 
 If the memory file is getting long (>150 lines), note:
 `Memory file is >150 lines — consider consolidating older entries.`
+
+---
+
+## Step 3.5: Auto-distill check
+
+After writing learnings to memory, check if distillation should run:
+
+```bash
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  DISTILL_ENABLED=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
+  DISTILL_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_mode';")
+
+  if [ "$DISTILL_ENABLED" = "true" ] && [ "$DISTILL_MODE" = "auto" ]; then
+    THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
+    AGENTS_OVER=$(sqlite3 "$MEMDB" "SELECT agent FROM memories
+      WHERE tier=0 AND archived=FALSE
+      GROUP BY agent HAVING COUNT(*) >= $THRESHOLD;")
+    if [ -n "$AGENTS_OVER" ]; then
+      echo "[wrap-ticket] Auto-distilling agents over threshold..."
+      for AGENT in $AGENTS_OVER; do
+        echo "  Queuing distillation for @$AGENT"
+      done
+      echo "Run /memory-distill to execute distillation."
+    fi
+  elif [ "$DISTILL_ENABLED" = "true" ] && [ "$DISTILL_MODE" = "suggest" ]; then
+    THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
+    AGENTS_OVER=$(sqlite3 "$MEMDB" "SELECT agent || ' (' || COUNT(*) || ' raw)' FROM memories
+      WHERE tier=0 AND archived=FALSE
+      GROUP BY agent HAVING COUNT(*) >= $THRESHOLD;")
+    if [ -n "$AGENTS_OVER" ]; then
+      echo "[wrap-ticket] Agents over distill threshold:"
+      echo "$AGENTS_OVER"
+      echo "Run /memory-distill to compress."
+    fi
+  fi
+fi
+```
 
 ---
 
