@@ -23,11 +23,11 @@ Or if you haven't added this marketplace yet:
 |-------|-------|-------|------|
 | `pm` | Sonnet | Read, Write, Edit, Grep, Glob, Bash, Task*, SendMessage | Requirements, user stories, acceptance criteria, prioritization |
 | `tech-lead` | Opus | Read, Write, Edit, Grep, Glob, Bash, Task*, SendMessage | Architecture, system design, cross-cutting concerns, unblocking ICs |
-| `ic5` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Complex implementation — ambiguous problems, hard bugs, new systems |
+| `ic5` | Opus | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Complex implementation — ambiguous problems, hard bugs, new systems |
 | `ic4` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Well-defined tasks — extending patterns, tests, simple fixes |
 | `devops` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Deployments, CI/CD, infrastructure, monitoring, incident response |
-| `qa` | Sonnet | Read, Write, Edit, Grep, Glob, Bash, Task*, SendMessage | Test planning, validation, bug reports, **release gating** |
-| `ds` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
+| `qa` | Opus | Read, Write, Edit, Grep, Glob, Bash, Task*, SendMessage | Test planning, validation, bug reports, **release gating** |
+| `ds` | Opus | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
 | `project-init` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, SendMessage | _(internal)_ One-time team memory bootstrap — invoked by `/init-team`, not directly |
 
 Each agent has persistent memory — stored in SQLite (preferred) or markdown files (fallback):
