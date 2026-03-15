@@ -330,6 +330,10 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.13.3
+- **Smarter `/release` skill**: auto-detects patch/minor/major from args or commit history, auto-generates changelog from git log instead of asking, handles push failures gracefully
+- **MEM-001/MEM-002 design docs**: brainstorm, specs, and plans for memory system improvements
+
 ### v0.13.2
 - **Upgrade review-commit sub-agents to Opus**: the 5 parallel specialist review agents (Logic, Security, Compliance, Quality, Simplification) now use Opus instead of Sonnet
 
