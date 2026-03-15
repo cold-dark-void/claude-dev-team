@@ -418,7 +418,7 @@ _Last updated: [date]_
 
 Extract known bugs, critical pitfalls, and "do not do" rules from AGENTS.md and write them as lessons:
 
-**`$AGENT_MEM_ROOT/tech-lead/lessons.md`**:
+**`$MROOT/.claude/memory/tech-lead/lessons.md`**:
 ```markdown
 # Tech Lead Lessons — [Project Name]
 _Seeded from AGENTS.md on [date]. Add to this as new patterns are discovered._
@@ -433,7 +433,7 @@ _Seeded from AGENTS.md on [date]. Add to this as new patterns are discovered._
 [List of known bugs with locations and descriptions]
 ```
 
-**`$AGENT_MEM_ROOT/ic5/lessons.md`**:
+**`$MROOT/.claude/memory/ic5/lessons.md`**:
 ```markdown
 # IC5 Lessons — [Project Name]
 _Seeded from AGENTS.md on [date]._
