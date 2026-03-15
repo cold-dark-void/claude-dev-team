@@ -330,6 +330,9 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.13.1
+- **`/recall` two-phase search**: structured sources (memory, specs, plans, commits) are searched first, then related keywords are extracted and used to expand the session history search — finds precursor sessions that predate the formal identifier
+
 ### v0.13.0
 - **Opus by default** for ic5, qa, and ds agents — removes aspirational escalation clauses in favor of native Opus reasoning where it matters (complex implementation, release gating, statistical analysis)
 - **Comprehensive polish pass** driven by 4-agent quorum review (Tech Lead, PM, QA, IC5):
