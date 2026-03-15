@@ -22,8 +22,8 @@ instantly resume any matching session.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 CLAUDE_DIR="$HOME/.claude"
 ```
 
@@ -49,7 +49,7 @@ git log --oneline --all --grep="$ARGUMENTS" -i -20
 ### C. Agent Memory Files
 
 ```bash
-MEMDB="$PROOT/.claude/memory/memory.db"
+MEMDB="$MROOT/.claude/memory/memory.db"
 USE_DB=false
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
@@ -71,7 +71,7 @@ If USE_DB=false, fall back to grepping .md files:
 
 ```bash
 # Project-local agent memory
-grep -r -i -l "$ARGUMENTS" $PROOT/.claude/memory/ 2>/dev/null
+grep -r -i -l "$ARGUMENTS" $MROOT/.claude/memory/ 2>/dev/null
 
 # Global project memories
 grep -r -i -l "$ARGUMENTS" ~/.claude/projects/*/memory/ 2>/dev/null
@@ -84,7 +84,7 @@ For each matching file (grep path only), extract the relevant lines with 2 lines
 Search plan files for the topic:
 
 ```bash
-grep -r -i -l "$ARGUMENTS" $PROOT/.claude/plans/ 2>/dev/null
+grep -r -i -l "$ARGUMENTS" $MROOT/.claude/plans/ 2>/dev/null
 ```
 
 Read matching plan titles and status.
@@ -94,7 +94,7 @@ Read matching plan titles and status.
 Search spec files:
 
 ```bash
-grep -r -i -l "$ARGUMENTS" $PROOT/specs/ 2>/dev/null
+grep -r -i -l "$ARGUMENTS" $MROOT/specs/ 2>/dev/null
 ```
 
 Note spec IDs and titles.
@@ -104,7 +104,7 @@ Note spec IDs and titles.
 Search backlog items:
 
 ```bash
-grep -r -i -l "$ARGUMENTS" $PROOT/.claude/backlog/ 2>/dev/null
+grep -r -i -l "$ARGUMENTS" $MROOT/.claude/backlog/ 2>/dev/null
 ```
 
 ### G. Cross-Project Sessions
