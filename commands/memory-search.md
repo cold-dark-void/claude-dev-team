@@ -54,8 +54,11 @@ DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimension
 TOTAL=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;")
 AGENTS=$(sqlite3 "$MEMDB" "SELECT agent || ' (' || COUNT(*) || ')' FROM memories GROUP BY agent ORDER BY agent;" | tr '\n' ', ' | sed 's/,$//')
 
+EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
+
 echo "Memory DB:      $MEMDB"
 echo "Embedding mode: $MODE ($MODEL, ${DIMS}-dim)"
+[ -n "$EMBED_URL" ] && echo "Embedding URL:  $EMBED_URL"
 echo "Total memories: $TOTAL"
 echo "Agents:         $AGENTS"
 ```
@@ -100,15 +103,22 @@ ORDER BY e.distance ASC;
 EOSQL
     )
 
-  elif [ "$EMBED_MODE" = "ollama" ]; then
-    MODE_LABEL="semantic / ollama"
-    OLLAMA_MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
+  elif [ "$EMBED_MODE" = "remote" ]; then
+    MODE_LABEL="semantic / remote"
+    EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';")
+    EMBED_KEY="${EMBEDDING_API_KEY:-}"
+    EMBED_MODEL="${EMBEDDING_MODEL:-}"
     DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
     VEC_TABLE="vec_memories_${DIMS}"
 
-    QUERY_EMBEDDING=$(curl -s http://localhost:11434/api/embed \
-      -d "{\"model\":\"$OLLAMA_MODEL\",\"input\":[$(echo "$QUERY" | jq -Rs .)]}" \
-      | jq -c '.embeddings[0]')
+    CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
+    [ -n "$EMBED_KEY" ] && CURL_ARGS+=(-H "Authorization: Bearer $EMBED_KEY")
+
+    BODY="{\"input\":[$(echo "$QUERY" | jq -Rs .)]}"
+    [ -n "$EMBED_MODEL" ] && BODY=$(echo "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
+    CURL_ARGS+=(-d "$BODY")
+
+    QUERY_EMBEDDING=$(curl "${CURL_ARGS[@]}" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')
 
     RESULTS=$(sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
