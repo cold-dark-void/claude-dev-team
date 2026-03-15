@@ -75,7 +75,9 @@ Required permissions:
       "Bash(cp:*)",
       "Bash(mv:*)",
       "Bash(tree:*)",
-      "Bash(stat:*)"
+      "Bash(stat:*)",
+      "Bash(sqlite3:*)",
+      "Bash(curl:*)"
     ],
     "defaultMode": "acceptEdits"
   }
@@ -114,6 +116,40 @@ Use `Glob` to find files, `Read` to read them. Use `Bash` to get directory trees
 ## Step 3: Write Cortex + Lessons Files
 
 Write each cortex.md with information RELEVANT TO THAT ROLE. Do not just copy-paste the same content into all 6 files.
+
+### DB-first write path
+
+Before writing any file, check whether the SQLite memory DB is available:
+
+```bash
+MEMDB="$MROOT/.claude/memory/memory.db"
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  MEMORY_BACKEND="sqlite"
+else
+  MEMORY_BACKEND="md"
+fi
+echo "Memory backend: $MEMORY_BACKEND"
+```
+
+For **each** cortex/lessons write below, use this logic (replace `$AGENT`, `$TYPE`, and `$CONTENT` with the actual values):
+
+```bash
+if [ "$MEMORY_BACKEND" = "sqlite" ]; then
+  # Write to DB instead of .md
+  ESCAPED_CONTENT=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
+  sqlite3 "$MEMDB" "INSERT OR REPLACE INTO memories(agent, type, content, updated_at)
+    VALUES ('$AGENT', '$TYPE', '$ESCAPED_CONTENT', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
+  echo "  [db] Wrote $AGENT/$TYPE to memory.db"
+else
+  # Fallback: write .md as before
+  cat > "$MROOT/.claude/memory/$AGENT/$TYPE.md" << 'EOF'
+  [content]
+  EOF
+  echo "  [md] Wrote $AGENT/$TYPE.md"
+fi
+```
+
+`$TYPE` is one of: `cortex`, `lessons`, `memory`.
 
 ---
 
