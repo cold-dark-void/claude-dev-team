@@ -1,3 +1,11 @@
+---
+name: init-team
+description: Bootstrap all 7 agents' memory for the current project — initializes
+  SQLite DB, downloads embedding extensions (~29MB), runs project-init scan, syncs
+  permissions. Run once per project, safe to re-run. Flags --refresh, --migrate-only,
+  --no-extensions.
+---
+
 Perform SQLite memory setup, then use the project-init subagent to initialize the team's memory for the current project.
 
 Note: project-init needs Read, Write, Bash, and Glob permissions. Run this in the foreground (not as a background task) so tool permission prompts can be approved.

@@ -95,8 +95,10 @@ When working as a native Agent Team teammate:
 ## Code Conventions
 
 - Agent `.md` files require YAML frontmatter: `name`, `description`, `tools`, `model`
-- Skills live in `skills/<skill-name>/` subdirs with their own structure
-- Commands live in `commands/<name>.md` as single files
+- **All** command and skill `.md` files require YAML frontmatter: `name`, `description` — without it they won't appear in Claude Code's discovery/suggestion system
+- `commands/<name>.md` — user-invoked slash commands (single file)
+- `skills/<name>/SKILL.md` — multi-file skills needing supporting assets (scripts, schemas), or agent-internal protocols not directly user-invoked (e.g. `memory-store`, `memory-recall`)
+- Both directories are functionally equivalent to Claude Code's plugin loader — the split is organizational only
 - Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
 - No build step — this is a pure markdown/JSON plugin
 - Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is added to the permission allowlist by `/init-team`)

@@ -1,3 +1,10 @@
+---
+name: check-specs
+description: Audit spec format + code alignment (Phase 1 format/index, Phase 2
+  MATCH/MISSING/DIFFERS per requirement). Run with a spec ID to validate a single
+  spec against source code. Usage /check-specs or /check-specs SPEC-012
+---
+
 # Audit & Validate Specs
 
 You are helping the user verify spec quality and implementation status.

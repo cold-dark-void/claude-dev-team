@@ -1,3 +1,10 @@
+---
+name: create-spec
+description: Guided interview to create a new behavioral spec in specs/ — includes
+  conflict scan against existing specs, category selection, and TDD.md index update.
+  Usage /create-spec
+---
+
 # Create New Specification
 
 You are helping the user create a new TDD specification through an interactive interview process.
