@@ -1,7 +1,7 @@
 ---
 name: pm
 description: Product Manager. Use for defining requirements, writing user stories, prioritization, acceptance criteria, feature scoping, and stakeholder communication. Owns the "what" and "why" — not the "how". Invoke before implementation to clarify requirements.
-tools: Read, Grep, Glob, Bash, TaskCreate, TaskList, TaskUpdate, TaskGet, SendMessage
+tools: Read, Write, Edit, Grep, Glob, Bash, TaskCreate, TaskList, TaskUpdate, TaskGet, SendMessage
 model: sonnet
 ---
 
