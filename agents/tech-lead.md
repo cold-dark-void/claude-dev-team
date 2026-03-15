@@ -1,7 +1,7 @@
 ---
 name: tech-lead
 description: Tech Lead / Staff Engineer. Use for architecture decisions, system design, technical vision, project structure, cross-cutting concerns, code standards, and unblocking engineers. Owns technical direction and coordinates across ICs. Invoke for design reviews, architecture questions, or when IC5/IC4 need direction.
-tools: Read, Grep, Glob, Bash, TaskCreate, TaskList, TaskUpdate, TaskGet, SendMessage
+tools: Read, Write, Edit, Grep, Glob, Bash, TaskCreate, TaskList, TaskUpdate, TaskGet, SendMessage
 model: opus
 ---
 
