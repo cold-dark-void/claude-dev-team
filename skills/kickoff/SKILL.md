@@ -24,8 +24,8 @@ and task graph ready for IC agents to claim.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || PROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ```
 
@@ -40,38 +40,38 @@ If TICKET-ID or ticket text are missing, ask:
 Read the following in parallel before doing anything else:
 
 ```bash
-MEMDB="$PROOT/.claude/memory/memory.db"
+MEMDB="$MROOT/.claude/memory/memory.db"
 ```
 
 - Claude memory:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY updated_at DESC LIMIT 1;"
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY created_at DESC;"
   else
-    cat "$PROOT/.claude/memory/claude/memory.md" 2>/dev/null
+    cat "$MROOT/.claude/memory/claude/memory.md" 2>/dev/null
   fi
   ```
 - Tech Lead cortex:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND type='cortex' ORDER BY created_at DESC;"
   else
-    cat "$PROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
+    cat "$MROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
   fi
   ```
 - PM cortex:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND type='cortex' ORDER BY created_at DESC;"
   else
-    cat "$PROOT/.claude/memory/pm/cortex.md" 2>/dev/null
+    cat "$MROOT/.claude/memory/pm/cortex.md" 2>/dev/null
   fi
   ```
-- `$PROOT/AGENTS.md` (project rules)
+- `$MROOT/AGENTS.md` (project rules)
 
 Scan `specs/` for specs likely related to the ticket:
 ```bash
-ls $PROOT/specs/core/ 2>/dev/null || ls $PROOT/specs/ 2>/dev/null
+ls $MROOT/specs/core/ 2>/dev/null || ls $MROOT/specs/ 2>/dev/null
 ```
 
 Read any spec whose filename or title matches keywords from the ticket text.
@@ -207,7 +207,7 @@ Cross-reference any specs that constrain this one.
 
 Determine the next SPEC number:
 ```bash
-ls $PROOT/specs/core/ | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
+ls $MROOT/specs/core/ | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
 # increment by 1
 ```
 
@@ -222,7 +222,7 @@ unless they are directly contradicted.
 Wait for Tech Lead to write/update the spec. Then commit it:
 
 ```bash
-git add $PROOT/specs/
+git add $MROOT/specs/
 git commit -m "spec: <TICKET-ID> — add/update <feature area> spec"
 ```
 
@@ -302,7 +302,7 @@ Next: /standup to monitor progress
 
 ## Error Handling
 
-- **No git repo**: use `pwd` as PROOT; warn that worktree isolation won't work
+- **No git repo**: use `pwd` as MROOT; warn that worktree isolation won't work
 - **PM finds too many ambiguities (>4 open questions)**: pause and tell the user to clarify the ticket in Linear before proceeding — do not plan against a vague ticket
 - **Tech Lead identifies a breaking schema change**: pause and flag to the user; suggest DevOps involvement before creating tasks
 - **No specs/ directory**: create `specs/core/` and note it in the summary; this ticket is the first spec
