@@ -29,24 +29,18 @@ CLAUDE_DIR="$HOME/.claude"
 
 ---
 
-## Step 2: Search (execute ALL available searches in parallel)
+## Step 2: Search structured sources FIRST (execute in parallel)
 
-### A. Conversation History
+Search memory, specs, plans, commits, and backlog for the literal term FIRST.
+These results will be used to expand the search for sessions.
 
-Search `~/.claude/history.jsonl` for lines where the `display` field matches
-"$ARGUMENTS" (case-insensitive, partial match). Each line is JSON with fields:
-`display`, `timestamp`, `project`, `sessionId`.
-
-Extract the most recent 15 matching entries. Group by `sessionId` — each session
-may have multiple matching prompts.
-
-### B. Current Project Git History
+### A. Current Project Git History
 
 ```bash
 git log --oneline --all --grep="$ARGUMENTS" -i -20
 ```
 
-### C. Agent Memory Files
+### B. Agent Memory Files
 
 ```bash
 MEMDB="$MROOT/.claude/memory/memory.db"
@@ -79,7 +73,7 @@ grep -r -i -l "$ARGUMENTS" ~/.claude/projects/*/memory/ 2>/dev/null
 
 For each matching file (grep path only), extract the relevant lines with 2 lines of context.
 
-### D. Plans
+### C. Plans
 
 Search plan files for the topic:
 
@@ -87,9 +81,9 @@ Search plan files for the topic:
 grep -r -i -l "$ARGUMENTS" $MROOT/.claude/plans/ 2>/dev/null
 ```
 
-Read matching plan titles and status.
+Read matching plan files — extract titles, status, AND key terms/phrases.
 
-### E. Specs
+### D. Specs
 
 Search spec files:
 
@@ -97,9 +91,9 @@ Search spec files:
 grep -r -i -l "$ARGUMENTS" $MROOT/specs/ 2>/dev/null
 ```
 
-Note spec IDs and titles.
+Note spec IDs, titles, AND key terms/phrases from matching specs.
 
-### F. Backlog
+### E. Backlog
 
 Search backlog items:
 
@@ -107,7 +101,7 @@ Search backlog items:
 grep -r -i -l "$ARGUMENTS" $MROOT/.claude/backlog/ 2>/dev/null
 ```
 
-### G. Cross-Project Sessions
+### F. Cross-Project Sessions
 
 Search `~/.claude/projects/` directory names for projects that might match,
 then check their session files:
@@ -115,6 +109,51 @@ then check their session files:
 ```bash
 ls ~/.claude/projects/ | grep -i "$ARGUMENTS" 2>/dev/null
 ```
+
+---
+
+## Step 2b: Extract related search terms
+
+From the results of Step 2, extract **related keywords** that someone might have
+used BEFORE the formal identifier "$ARGUMENTS" existed. These are terms that
+describe the same concept in plain language.
+
+For example, if "$ARGUMENTS" is "MEM-002" and the spec/plan mentions
+"tiered memory distillation with LLM compression", the related terms would be:
+"tiered distillation", "memory distillation", "LLM compression".
+
+Build a list of up to 8 related search terms (may be fewer if sources are sparse) by:
+1. Reading titles and descriptions from matching specs, plans, and memory entries
+2. Extracting distinctive noun phrases and technical terms (not generic words)
+3. Including any alternative names, aliases, branch names, or words from
+   hyphenated identifiers (e.g., "MEM-002-tiered-distillation" yields
+   "tiered distillation")
+
+Skip generic terms that would produce too many false positives (e.g., "memory",
+"fix").
+
+**If Step 2 returned zero results**, decompose "$ARGUMENTS" itself to seed terms:
+split on hyphens/underscores, strip numeric prefixes/suffixes, and use the
+remaining words as search terms. For example, "MEM-002-tiered-distillation"
+yields "tiered distillation", "tiered", "distillation".
+
+---
+
+## Step 2c: Search conversation history (with expanded terms)
+
+Search `~/.claude/history.jsonl` for lines where the `display` field matches
+the original "$ARGUMENTS" OR any related term from Step 2b (case-insensitive,
+partial match). Build a single combined pattern (pipe-delimited alternation)
+and scan the file in one pass — do NOT grep once per term.
+
+Each line is JSON with fields: `display`, `timestamp`, `project`, `sessionId`.
+
+Extract the most recent 20 matching entries across all terms combined. Group
+by `sessionId` — each session may have multiple matching prompts.
+
+When reporting sessions, indicate which search term matched:
+- Sessions matching the original "$ARGUMENTS" → show normally
+- Sessions matching only expanded terms → mark with `(related: "<term>")`
 
 ---
 
@@ -132,7 +171,7 @@ SESSIONS (sorted by most recent):
     > "<second matching prompt>"
     Resume: claude --resume <full-sessionId>
 
-  <sessionId> | <date> | <project> | <N> prompts
+  <sessionId> | <date> | <project> | <N> prompts (related: "<matched term>")
     > "<matching prompt>"
     Resume: claude --resume <full-sessionId>
 
