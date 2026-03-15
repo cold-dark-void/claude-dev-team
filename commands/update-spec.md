@@ -1,3 +1,10 @@
+---
+name: update-spec
+description: Modify an existing spec with version history — includes cross-spec
+  conflict check and code alignment warning for changed requirements.
+  Usage /update-spec or /update-spec SPEC-012
+---
+
 # Update Existing Specification
 
 You are helping the user modify an existing TDD specification.

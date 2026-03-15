@@ -1,3 +1,9 @@
+---
+name: list-specs
+description: Quick status overview of all specs — counts by category and status,
+  recent changes, items needing attention. Usage /list-specs
+---
+
 # Quick Spec Overview
 
 You are providing a fast status summary of all specifications.

@@ -1,3 +1,9 @@
+---
+name: find-spec
+description: Search specs by keyword across titles, MUST requirements, overview,
+  and test sections. Usage /find-spec <keyword>
+---
+
 # Find Specs by Keyword
 
 You are helping the user search for specifications by keyword.
