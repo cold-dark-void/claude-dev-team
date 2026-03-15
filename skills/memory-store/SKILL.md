@@ -34,7 +34,11 @@ fi
 ## Step 2: Store a memory (DB path)
 
 Replace `<AGENT>`, `<TYPE>`, and `<CONTENT_ESCAPED>` with real values.
-`<TYPE>` must be one of: `cortex`, `memory`, `lessons`.
+`<TYPE>` must be one of: `cortex`, `memory`, `lessons`, `digest`, `core`.
+
+> **Tier note:** Regular agent writes are always tier 0 (the column defaults to 0 and
+> agents do not specify it). Types `digest` and `core` with tier 1/2 are written only
+> by the `@distiller` agent during `/memory-distill`.
 
 **Write protocol: append-only — one focused fact per INSERT.**
 
@@ -197,6 +201,29 @@ sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT ..." || { sleep 1; sqlite3 "$
 
 ---
 
+## Step 5.5: Post-store threshold check
+
+After a successful INSERT, check whether the agent's raw memory count has exceeded
+the distillation threshold. This only fires when `distill_enabled=true` — otherwise
+zero extra queries are issued.
+
+```bash
+# Threshold check (skip if distill_enabled=false)
+DISTILL_ENABLED=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
+if [ "$DISTILL_ENABLED" = "true" ]; then
+  DISTILL_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_mode';")
+  if [ "$DISTILL_MODE" != "manual" ]; then
+    THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
+    COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='<AGENT>' AND tier=0 AND archived=FALSE;")
+    if [ "$COUNT" -ge "$THRESHOLD" ]; then
+      echo "[memory] @<AGENT> has $COUNT raw memories (threshold: $THRESHOLD). Run /memory-distill to compress."
+    fi
+  fi
+fi
+```
+
+---
+
 ## Step 6: Verify the write
 
 ```bash
@@ -214,9 +241,10 @@ Expected output format: `<id>|<agent>|<type>|<bytes>|<timestamp>`
 | Parameter | Required | Values | Description |
 |-----------|----------|--------|-------------|
 | agent | yes | string | Agent name (e.g., `tech-lead`, `ic5`) |
-| type | yes | `cortex`, `memory`, `lessons` | Memory type — must match CHECK constraint |
+| type | yes | `cortex`, `memory`, `lessons`, `digest`, `core` | Memory type — must match CHECK constraint |
 | content | yes | string | Text content to store |
 | metadata | no | JSON object string | Arbitrary key-value metadata; defaults to `{}` |
+| tier | no (DB default) | `0`, `1`, `2` | Memory tier — defaults to 0. Agents never set this; tier 1/2 is written by `@distiller` only |
 
 ---
 
@@ -235,3 +263,6 @@ Expected output format: `<id>|<agent>|<type>|<bytes>|<timestamp>`
 - The vec0 virtual tables (`vec_memories_384`, `vec_memories_768`) are created only
   when the sqlite-vec extension is loaded; they are absent from a plain `schema.sql`
   apply. Agents must guard all vec0 operations with an extension availability check.
+- **Distill threshold short-circuit:** When `distill_enabled=false` (the default), the
+  post-store threshold check (Step 5.5) issues exactly one SELECT and exits immediately.
+  Zero additional queries are run, so there is no performance impact on normal writes.

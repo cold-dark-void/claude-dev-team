@@ -46,7 +46,13 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 - Claude memory:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY created_at DESC;"
+    HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
+    if [ "$HAS_DISTILLED" -gt 0 ]; then
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    else
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
+    fi
   else
     cat "$MROOT/.claude/memory/claude/memory.md" 2>/dev/null
   fi
@@ -54,7 +60,13 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 - Tech Lead cortex:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND type='cortex' ORDER BY created_at DESC;"
+    HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead' AND tier > 0 AND archived=FALSE;")
+    if [ "$HAS_DISTILLED" -gt 0 ]; then
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    else
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
+    fi
   else
     cat "$MROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
   fi
@@ -62,7 +74,13 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 - PM cortex:
   ```bash
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND type='cortex' ORDER BY created_at DESC;"
+    HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='pm' AND tier > 0 AND archived=FALSE;")
+    if [ "$HAS_DISTILLED" -gt 0 ]; then
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    else
+      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
+    fi
   else
     cat "$MROOT/.claude/memory/pm/cortex.md" 2>/dev/null
   fi
