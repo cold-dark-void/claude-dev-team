@@ -301,6 +301,14 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.12.0
+- **SQLite memory backend** — agents now store memory in a single SQLite DB per project with semantic search via sqlite-vec embeddings
+- **`/memory-search`** — new semantic search command across all agent memories
+- **`memory-store` / `memory-recall` skills** — agent skills for DB-backed memory operations
+- **Tiered embedding strategy** — ollama (best quality) > sqlite-lembed (air-gapped) > keyword fallback
+- **Automatic migration** — `/init-team` migrates existing .md memory files to SQLite
+- **`/init-team --refresh`** — re-probe embedding mode and re-run migration
+
 ### v0.11.1
 - **`/scout-plugins`**: new skill — automated competitive intelligence scan of the Claude Code plugin ecosystem; searches for new/updated plugins within a configurable time window (default 1 week), evaluates each against dev-team's current capabilities, classifies as ADOPT/STEAL/WATCH/SKIP, and produces an enhancement proposal table
 
