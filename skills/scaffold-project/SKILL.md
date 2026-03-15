@@ -50,6 +50,18 @@ mkdir -p .claude/plans .claude/context .claude/memory/claude specs
 touch .claude/plans/.gitkeep .claude/context/.gitkeep
 ```
 
+If sqlite3 is available, also initialize the memory database:
+```bash
+MEMDB=".claude/memory/memory.db"
+if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
+  # Locate schema relative to project root (skills/memory-store/schema.sql)
+  SCHEMA=$(git rev-parse --show-toplevel 2>/dev/null)/skills/memory-store/schema.sql
+  if [ -f "$SCHEMA" ]; then
+    sqlite3 "$MEMDB" < "$SCHEMA"
+  fi
+fi
+```
+
 ### Step 2b: Create .claude/settings.json
 
 Create `.claude/settings.json` to enable autonomous agent operation (no permission prompts for common operations):

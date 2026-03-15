@@ -24,13 +24,35 @@ happens in agent worktrees.
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && PROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || PROOT=$(pwd)
+MEMDB="$PROOT/.claude/memory/memory.db"
 ```
 
 Read in parallel:
 - `$PROOT/AGENTS.md`
-- `$PROOT/.claude/memory/claude/memory.md`
-- `$PROOT/.claude/memory/tech-lead/cortex.md`
-- `$PROOT/.claude/memory/pm/cortex.md`
+- Claude memory:
+  ```bash
+  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY updated_at DESC LIMIT 1;"
+  else
+    cat "$PROOT/.claude/memory/claude/memory.md" 2>/dev/null
+  fi
+  ```
+- Tech Lead cortex:
+  ```bash
+  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+  else
+    cat "$PROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
+  fi
+  ```
+- PM cortex:
+  ```bash
+  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+  else
+    cat "$PROOT/.claude/memory/pm/cortex.md" 2>/dev/null
+  fi
+  ```
 
 If ISSUE-ID missing, ask:
 > "Issue ID (e.g. CDV-1):"
