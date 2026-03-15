@@ -30,16 +30,27 @@ Or if you haven't added this marketplace yet:
 | `ds` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
 | `project-init` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, SendMessage | One-time team memory bootstrap (invoked via `/init-team`) |
 
-Each agent maintains **four persistent memory files per project**:
+Each agent has persistent memory — stored in SQLite (preferred) or markdown files (fallback):
 
-| File | Scope | Purpose |
-|------|-------|---------|
-| `cortex.md` | Shared (all worktrees) | Accumulated project expertise |
-| `memory.md` | Shared (all worktrees) | Working state and recent decisions |
-| `lessons.md` | Shared (all worktrees) | Mistakes, anti-patterns, what works here |
-| `context.md` | Per worktree | Current task progress and next steps |
+### Memory Storage
 
-Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified across git worktrees** — all worktrees share the same `cortex`, `memory`, and `lessons`, while each worktree gets its own `context`.
+| Storage | When | Description |
+|---------|------|-------------|
+| SQLite DB | After `/init-team` with extensions | Single DB at `.claude/memory/memory.db` with semantic search |
+| .md files | Fallback (no sqlite3 or extensions) | Per-agent files at `.claude/memory/<agent>/` |
+| `context.md` | Always | Per-worktree task progress (never migrated to DB) |
+
+After running `/init-team`, the plugin downloads sqlite-vec + sqlite-lembed extensions and an embedding model (~29MB total) for semantic search. If unavailable, agents fall back to .md files transparently.
+
+### Embedding Modes
+
+| Mode | Trigger | Quality |
+|------|---------|---------|
+| `ollama` | Ollama running with `nomic-embed-text` | Best (768-dim) |
+| `lembed` | Extensions + GGUF model downloaded | Good (384-dim, all-MiniLM-L6-v2) |
+| `fallback` | No extensions available | Keyword search only |
+
+Mode is detected during `/init-team` and can be refreshed with `/init-team --refresh`.
 
 ### Commands / Skills
 
@@ -64,6 +75,7 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 | `/orchestrate` | Full lifecycle orchestrator: fetch issue, create worktree, spawn agents end-to-end, tech-lead review loops, optional PR |
 | `/brainstorm` | Socratic design refinement — structured questioning that forces requirement clarity before planning or implementation |
 | `/recall` | Search all prior work by topic across sessions, memory, specs, plans, git history — outputs `claude --resume` commands |
+| `/memory-search <query>` | Semantic search across all agent memories (vector embeddings when available, keyword fallback) |
 | `/mem-search` | Search across all agent memory files (cortex, memory, lessons, context) for a keyword or topic |
 | `/scout-plugins` | Research new Claude Code plugins released in the last week (or custom window), evaluate against current setup, propose enhancements |
 
@@ -82,8 +94,10 @@ Memory files live at `{project-root}/.claude/memory/{agent}/` and are **unified 
 ### Existing project
 
 ```
-/init-team                 # Run once — reads AGENTS.md, code, CI, infra, writes cortex.md for each agent
+/init-team                 # Run once — reads AGENTS.md, code, CI, infra, writes memory for each agent
 ```
+
+> **Note**: `/init-team` downloads sqlite-vec + sqlite-lembed extensions and an embedding model (~29MB) for semantic memory search. If the download fails or `sqlite3` is unavailable, agents fall back to .md files automatically.
 
 > **Note**: The bundled `.claude/settings.json` pre-approves common operations so agents run without permission prompts. See [Autonomy & Permissions](#autonomy--permissions) below.
 
@@ -143,6 +157,20 @@ DevOps ──► deploy + monitor
 
 After `/init-team` runs:
 
+**SQLite mode** (sqlite3 + extensions available):
+```
+{project}/.claude/memory/
+  memory.db          ← single shared DB (all agents, all types)
+  extensions/
+    vec0.so          ← sqlite-vec (vector search)
+    lembed0.so       ← sqlite-lembed (local embeddings)
+    models/
+      all-MiniLM-L6-v2.gguf
+
+{worktree}/.claude/memory/{agent}/context.md   ← per-worktree, stays as .md
+```
+
+**Fallback mode** (no sqlite3 or extensions):
 ```
 {project}/.claude/memory/
   pm/           cortex.md ✓   memory.md   lessons.md
@@ -155,7 +183,7 @@ After `/init-team` runs:
 {worktree}/.claude/memory/{agent}/context.md   ← fills as work happens
 ```
 
-`cortex.md` is populated on init. Everything else fills naturally as the team works. The team gets sharper the more you use it on a project — agents stop re-reading the codebase from scratch each session.
+Cortex knowledge is populated on init. Everything else fills naturally as the team works. The team gets sharper the more you use it on a project — agents stop re-reading the codebase from scratch each session.
 
 ### Re-initialize after major changes
 
@@ -225,14 +253,16 @@ To extend for your stack, add entries to `.claude/settings.json`:
 
 ### Memory budgets
 
-All agents enforce file size limits to prevent context blowout:
+In SQLite mode, there are no line limits — the DB handles storage efficiently.
+
+In .md fallback mode, agents enforce file size limits to prevent context blowout:
 
 | File | Limit |
 |------|-------|
 | `cortex.md` | ≤ 100 lines |
 | `memory.md` | ≤ 50 lines |
 | `lessons.md` | ≤ 80 lines |
-| `context.md` | ≤ 60 lines |
+| `context.md` | ≤ 60 lines (always .md, both modes) |
 
 Agents trim stale content before writing and skip files that don't exist yet.
 
