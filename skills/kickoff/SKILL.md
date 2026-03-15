@@ -39,9 +39,34 @@ If TICKET-ID or ticket text are missing, ask:
 
 Read the following in parallel before doing anything else:
 
-- `$PROOT/.claude/memory/claude/memory.md` (project memory)
-- `$PROOT/.claude/memory/tech-lead/cortex.md` (architecture context)
-- `$PROOT/.claude/memory/pm/cortex.md` (product context)
+```bash
+MEMDB="$PROOT/.claude/memory/memory.db"
+```
+
+- Claude memory:
+  ```bash
+  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND type='memory' ORDER BY updated_at DESC LIMIT 1;"
+  else
+    cat "$PROOT/.claude/memory/claude/memory.md" 2>/dev/null
+  fi
+  ```
+- Tech Lead cortex:
+  ```bash
+  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+  else
+    cat "$PROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
+  fi
+  ```
+- PM cortex:
+  ```bash
+  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND type='cortex' ORDER BY updated_at DESC LIMIT 1;"
+  else
+    cat "$PROOT/.claude/memory/pm/cortex.md" 2>/dev/null
+  fi
+  ```
 - `$PROOT/AGENTS.md` (project rules)
 
 Scan `specs/` for specs likely related to the ticket:
