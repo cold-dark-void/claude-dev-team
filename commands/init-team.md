@@ -183,3 +183,11 @@ fi
 Skip this step if `--migrate-only` or `--refresh` is set. Project-init only runs on first initialization — `--refresh` re-checks extensions and embeddings but does NOT rescan the project or rewrite cortex data.
 
 Use the project-init subagent to scan the project and write cortex.md files for all 7 team agents.
+
+## Step 7: Post-bootstrap hints
+
+After all steps complete, print:
+
+```
+Tip: Use /adjust-agent to set per-agent behavioral directives for this project.
+```

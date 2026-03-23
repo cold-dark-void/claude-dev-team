@@ -60,6 +60,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | Command | What it does |
 |---------|-------------|
 | `/init-team` | Bootstrap all 7 agents' memory for the current project |
+| `/adjust-agent` | View and manage per-agent behavioral directives |
 | `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` |
 | `/init-orchestration` | Enable Agent Teams: sandbox, env var, TaskCompleted hook, AGENTS.md |
 
@@ -348,6 +349,12 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.15.0
+- `/adjust-agent`: per-agent behavioral directives — customize agent tone, strictness, and standing orders per project
+- Directives load before memory (Asimov model — standing orders agents cannot override)
+- All 7 behavioral agents support directives loading
+- `/init-team` now hints about `/adjust-agent` after bootstrap
 
 ### v0.14.2
 - **Documentation revamp**: 10 command guides in `docs/commands/`, expanded memory distillation and remote embeddings docs
