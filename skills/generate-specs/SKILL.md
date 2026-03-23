@@ -1,10 +1,11 @@
 ---
 name: generate-specs
-description: Reverse-engineer behavioral specs from existing source code. Reads the
-  codebase, groups the public surface by domain, and writes MUST/SHOULD/MUST NOT specs
-  from what the code actually does. All output is marked INFERRED and requires human
-  review. Designed for legacy projects with no existing specs. Run once to establish a
-  baseline, then use /reflect-specs to keep them current.
+description: |
+    Reverse-engineer behavioral specs from existing source code. Reads the codebase,
+    groups the public surface by domain, and writes MUST/SHOULD/MUST NOT specs from
+    what the code actually does. All output is marked INFERRED and requires human
+    review. Designed for legacy projects with no existing specs. Run once to establish
+    a baseline, then use /reflect-specs to keep them current.
 ---
 
 # Generate Specs

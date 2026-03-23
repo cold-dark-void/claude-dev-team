@@ -1,8 +1,9 @@
 ---
 name: demo
-description: Interactive demo of the dev-team workflow. Scaffolds a tiny project in a
-  temp worktree, injects a ticket, and runs the full agent pipeline so you can see
-  real agents working. Cleans up after. Usage /demo [orchestrate|kickoff|specs]
+description: |
+    Interactive demo of the dev-team workflow. Scaffolds a tiny project in a temp
+    worktree, injects a ticket, and runs the full agent pipeline so you can see
+    real agents working. Cleans up after. Usage: /demo [orchestrate|kickoff|specs]
 argument-hint: "[orchestrate|kickoff|specs]"
 ---
 

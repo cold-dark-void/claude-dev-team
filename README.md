@@ -350,6 +350,10 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.15.1
+- **SKILL.md YAML fix** — convert all multiline `description` fields to `|` block scalar syntax, fixing parse errors when skills are used outside Claude Code (colons in continuation lines were misinterpreted as YAML keys)
+- **Baseline specs** — establish SPEC-001 through SPEC-010 from /generate-specs
+
 ### v0.15.0
 - `/adjust-agent`: per-agent behavioral directives — customize agent tone, strictness, and standing orders per project
 - Directives load before memory (Asimov model — standing orders agents cannot override)

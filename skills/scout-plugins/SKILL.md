@@ -1,9 +1,10 @@
 ---
 name: scout-plugins
-description: Research new/updated Claude Code plugins, MCP servers, and skills
-  released in the last week (or custom time window). Evaluates each against the
-  current dev-team plugin setup, identifies gaps, and proposes enhancements with
-  priority and effort. Usage /scout-plugins or /scout-plugins 2w or /scout-plugins 30d
+description: |
+    Research new/updated Claude Code plugins, MCP servers, and skills released in
+    the last week (or custom time window). Evaluates each against the current
+    dev-team plugin setup, identifies gaps, and proposes enhancements with priority
+    and effort. Usage: /scout-plugins or /scout-plugins 2w or /scout-plugins 30d
 argument-hint: "[time window, e.g. 1w, 2w, 30d — default: 1w]"
 ---
 
