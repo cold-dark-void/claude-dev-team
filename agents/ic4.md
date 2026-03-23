@@ -82,6 +82,14 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
 fi
 ```
 
+### Session start — load directives (before memory)
+```bash
+DIRECTIVES="$MROOT/.claude/memory/ic4/directives.md"
+if [ -s "$DIRECTIVES" ]; then
+  echo "## Standing orders for this project"; cat "$DIRECTIVES"
+fi
+```
+
 ### Session start — read memory
 ```bash
 if [ "$USE_DB" = "true" ]; then

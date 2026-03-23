@@ -116,6 +116,27 @@ Write back at end of task. Context stays per-worktree.
 digests (tier 1) and promote high-signal knowledge to core (tier 2). Configure via
 `/memory-config` (keys: `distill_enabled`, `distill_mode`, `distill_threshold`, `distill_model`).
 
+## Per-Agent Directives
+
+Agents can receive project-specific standing orders via directives files:
+
+**File:** `.claude/memory/<agent>/directives.md`
+**Format:** Numbered list, one directive per line
+**Applies to:** 7 behavioral agents (pm, tech-lead, ic5, ic4, devops, qa, ds)
+**Does NOT apply to:** project-init, distiller
+
+Directives load BEFORE memory (load order: directives → memory → context).
+They are framed as "standing orders" that the agent must not override — analogous to
+Asimov's laws. If a user instruction during a session conflicts with a directive,
+the agent flags the conflict rather than silently ignoring the directive.
+
+Manage directives with `/adjust-agent`:
+- `/adjust-agent` — dashboard (all agents + directive counts)
+- `/adjust-agent <agent>` — view directives for one agent
+- `/adjust-agent <agent> <prompt>` — conversational adjustment with conflict detection
+
+Directives files are local (not committed to git).
+
 ## Team Coordination (Agent Teams)
 
 When working as a native Agent Team teammate:
