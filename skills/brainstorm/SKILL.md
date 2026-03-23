@@ -1,8 +1,9 @@
 ---
 name: brainstorm
-description: Socratic design refinement — structured questioning that forces
-  requirement clarification before any planning or implementation. Use before
-  /kickoff for complex features, or standalone for early-stage ideation.
+description: |
+    Socratic design refinement — structured questioning that forces requirement
+    clarification before any planning or implementation. Use before /kickoff for
+    complex features, or standalone for early-stage ideation.
 ---
 
 # Brainstorm

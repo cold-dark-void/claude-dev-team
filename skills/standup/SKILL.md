@@ -1,9 +1,10 @@
 ---
 name: standup
-description: Status snapshot for active agent team work — reads TaskList and each agent's
-  context.md, produces a table of who is doing what, what's blocked, and what's ready to
-  claim. Use during Phase 3 implementation to monitor parallel agent progress.
-  Usage: /standup [TICKET-ID]
+description: |
+    Status snapshot for active agent team work — reads TaskList and each agent's
+    context.md, produces a table of who is doing what, what's blocked, and what's
+    ready to claim. Use during Phase 3 implementation to monitor parallel agent
+    progress. Usage: /standup [TICKET-ID]
 ---
 
 # Standup

@@ -1,10 +1,11 @@
 ---
 name: review-and-commit
-description: Brutally honest review of staged/modified files — no sugar-coating, no
-  diplomacy. Runs 5 parallel specialist sub-agents (Logic, Security, Compliance,
-  Quality, Simplification) with confidence scoring to filter false positives. Blocks
-  commit on critical issues. Prints review as text; accepts an optional path argument
-  to also save to a file.
+description: |
+    Brutally honest review of staged/modified files — no sugar-coating, no diplomacy.
+    Runs 5 parallel specialist sub-agents (Logic, Security, Compliance, Quality,
+    Simplification) with confidence scoring to filter false positives. Blocks commit
+    on critical issues. Prints review as text; accepts an optional path argument to
+    also save to a file.
 ---
 
 # Review and Commit

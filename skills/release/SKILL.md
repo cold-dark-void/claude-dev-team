@@ -1,8 +1,10 @@
 ---
 name: release
-description: Bump version across all required files (README.md changelog, plugin.json,
-  marketplace.json), commit, tag, and push. Use when releasing any version of this
-  plugin. Ensures all three version files stay in sync — never skips any of them.
+description: |
+    Bump version across all required files (README.md changelog, plugin.json,
+    marketplace.json), commit, tag, and push. Use when releasing any version of
+    this plugin. Ensures all three version files stay in sync — never skips any
+    of them.
 ---
 
 # Release

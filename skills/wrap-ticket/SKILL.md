@@ -1,8 +1,9 @@
 ---
 name: wrap-ticket
-description: Clean up after a ticket ships — verifies all tasks completed, removes the
-  worktree, appends learnings to project memory, marks the plan complete, and prints a
-  Linear close-out checklist. Usage: /wrap-ticket <TICKET-ID>
+description: |
+    Clean up after a ticket ships — verifies all tasks completed, removes the
+    worktree, appends learnings to project memory, marks the plan complete, and
+    prints a Linear close-out checklist. Usage: /wrap-ticket <TICKET-ID>
 ---
 
 # Wrap Ticket

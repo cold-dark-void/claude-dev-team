@@ -1,10 +1,11 @@
 ---
 name: generate-tests
-description: Generate unit/integration tests from behavioral specs. Reads MUST/SHOULD
-  requirements from specs/core/ or specs/TDD.md, detects the project's test framework,
-  and writes test files with one test case per requirement. Each test is tagged with
-  its source spec for traceability. Run after /generate-specs or /create-spec to close
-  the spec-to-test gap.
+description: |
+    Generate unit/integration tests from behavioral specs. Reads MUST/SHOULD
+    requirements from specs/core/ or specs/TDD.md, detects the project's test
+    framework, and writes test files with one test case per requirement. Each test
+    is tagged with its source spec for traceability. Run after /generate-specs or
+    /create-spec to close the spec-to-test gap.
 ---
 
 # Generate Tests from Specs

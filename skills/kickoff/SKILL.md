@@ -1,9 +1,10 @@
 ---
 name: kickoff
-description: Orchestrate the full ticket intake and planning phase — parallel PM+Tech Lead
-  kickoff, spec creation, implementation plan, and TaskCreate task graph. Replaces 7 manual
-  prompts with one command. Usage: /kickoff <TICKET-ID> "<ticket text>" or /kickoff alone
-  to be prompted.
+description: |
+    Orchestrate the full ticket intake and planning phase — parallel PM+Tech Lead
+    kickoff, spec creation, implementation plan, and TaskCreate task graph. Replaces
+    7 manual prompts with one command. Usage: /kickoff <TICKET-ID> "<ticket text>"
+    or /kickoff alone to be prompted.
 ---
 
 # Kickoff

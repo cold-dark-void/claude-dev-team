@@ -1,9 +1,11 @@
 ---
 name: reflect-specs
-description: Full-system health check — exhaustive code alignment across ALL specs (not sampled),
-  cross-spec conflict detection, skill/command self-consistency, and coverage gaps. Presents
-  each conflict class interactively and asks the user to confirm or resolve before proceeding.
-  Use when you want a holistic audit of specs + skills + code with human sign-off.
+description: |
+    Full-system health check — exhaustive code alignment across ALL specs (not
+    sampled), cross-spec conflict detection, skill/command self-consistency, and
+    coverage gaps. Presents each conflict class interactively and asks the user to
+    confirm or resolve before proceeding. Use when you want a holistic audit of
+    specs + skills + code with human sign-off.
 ---
 
 # Reflect Specs
