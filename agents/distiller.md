@@ -37,7 +37,7 @@ For each batch of raw memories:
    ```
 5. Archive source memories:
    ```bash
-   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE memories SET archived=TRUE WHERE id IN (<IDS>);"
+   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE memories SET archived=TRUE, archive_reason='distilled' WHERE id IN (<IDS>);"
    ```
 6. Log to distillation_log:
    ```bash

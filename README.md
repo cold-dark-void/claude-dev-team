@@ -350,6 +350,14 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.16.0
+- `/validate-memory`: cross-reference agent memories against the live codebase to detect stale references (dead files, renamed functions, shifted line numbers)
+- Multi-stage validation pipeline: confidence scoring (0-100), auto-archive (>80), tech-lead review (40-80), user flag (<40)
+- `--deep` mode: rebuild tier-1 digests whose source memories have gone stale
+- Pre-distill integration: `/memory-distill` now validates before compressing (opt-out via `--skip-validate`)
+- Schema v3 migration: `validated_at`, `archive_reason` columns, `validation_log` table
+- Configurable validation window via `/memory-config set validate_window_days <N>`
+
 ### v0.15.1
 - **SKILL.md YAML fix** — convert all multiline `description` fields to `|` block scalar syntax, fixing parse errors when skills are used outside Claude Code (colons in continuation lines were misinterpreted as YAML keys)
 - **Baseline specs** — establish SPEC-001 through SPEC-010 from /generate-specs

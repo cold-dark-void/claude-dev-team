@@ -1,7 +1,7 @@
 ---
 name: memory-distill
 description: Compress raw memories into digests and promote high-signal knowledge to core tier
-argument-hint: "[--agent <name>] [--status] [--force]"
+argument-hint: "[--agent <name>] [--status] [--force] [--skip-validate]"
 ---
 
 # /memory-distill
@@ -16,8 +16,12 @@ knowledge to tier-2 core. Handles locking, batching, and status display.
 - `/memory-distill --agent <name>` -- distill a specific agent regardless of threshold
 - `/memory-distill --status` -- show tier stats per agent (no distillation)
 - `/memory-distill --force` -- clear stale lock before running
+- `/memory-distill --skip-validate` -- skip pre-distill validation step
 
 Flags can be combined: `/memory-distill --force --agent pm`
+
+Validation runs automatically before distillation (archive stale memories first,
+so they don't get distilled). Use `--skip-validate` to bypass.
 
 ## Step 1: Parse arguments, resolve DB
 
@@ -44,6 +48,7 @@ Parse flags from arguments:
 - `--status` -- set `STATUS=true`
 - `--force` -- set `FORCE=true`
 - `--agent <name>` -- set `TARGET_AGENT=<name>`
+- `--skip-validate` -- set `SKIP_VALIDATE=true`
 
 ## Step 2: Handle --status
 
@@ -80,7 +85,7 @@ Stop after printing.
 If `--force` flag is set, clear any stale lock:
 
 ```bash
-sqlite3 "$MEMDB" "UPDATE config SET value='' WHERE key='distilling_lock';"
+sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
 echo "[distill] Stale lock cleared. Proceeding."
 ```
 
@@ -100,6 +105,44 @@ if [ "$CHANGED" = "0" ]; then
   HOLDER=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';")
   echo "[distill] Skipped: distillation already in progress (locked by $HOLDER). Use --force to clear."
   # Stop here
+fi
+```
+
+## Step 4.5: Pre-distill validation
+
+Unless `SKIP_VALIDATE=true`, run memory validation before distillation begins.
+Validation runs inside the lock window (after lock acquired, before distiller
+spawned) to prevent concurrent modifications during validation.
+
+If validation fails (non-zero exit), abort distillation, release the lock, and stop.
+
+The validation step is equivalent to running `/validate-memory` with the same
+`--agent` filter if provided, but without `--deep`. Deep mode is excluded
+because it invokes the @distiller agent, which would create a circular
+dependency.
+
+```bash
+if [ "$SKIP_VALIDATE" != "true" ]; then
+  echo "[distill] Running pre-distill validation..."
+
+  # Run /validate-memory with the same agent filter if specified.
+  # Do NOT pass --deep: deep mode invokes the distiller which would create
+  # a circular dependency (distiller -> validate -> distiller).
+  VALIDATE_ARGS=""
+  if [ -n "$TARGET_AGENT" ]; then
+    VALIDATE_ARGS="--agent $TARGET_AGENT"
+  fi
+
+  # Execute validation. On failure, abort distillation and release lock.
+  # (The executing agent reads commands/validate-memory.md and runs its
+  # Steps 1-8, skipping Step 9 deep mode.)
+  #
+  # If validation fails:
+  echo "[distill] Validation failed. Aborting distillation."
+  sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
+  # Stop here (do not proceed to distillation)
+
+  echo "[distill] Validation complete. Proceeding to distillation."
 fi
 ```
 
@@ -135,7 +178,7 @@ fi
 if [ -z "$AGENTS" ]; then
   echo "[distill] No agents have enough raw memories to distill (threshold: $THRESHOLD)."
   # Release lock and stop
-  sqlite3 "$MEMDB" "UPDATE config SET value='' WHERE key='distilling_lock';"
+  sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
   # Stop here
 fi
 ```
@@ -184,7 +227,7 @@ to the next agent.
 After all agents are processed (or on error), release the lock:
 
 ```bash
-sqlite3 "$MEMDB" "UPDATE config SET value='' WHERE key='distilling_lock';"
+sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
 ```
 
 Always release the lock, even if distillation encountered errors for some agents.
