@@ -1,4 +1,4 @@
--- Core memory table (v2: tiered distillation support)
+-- Core memory table (v3: validation support)
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent TEXT NOT NULL,
@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS memories (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   tier INTEGER NOT NULL DEFAULT 0 CHECK(tier IN (0, 1, 2)),
   archived BOOLEAN NOT NULL DEFAULT FALSE,
-  distilled_from TEXT NOT NULL DEFAULT '[]'
+  distilled_from TEXT NOT NULL DEFAULT '[]',
+  validated_at TEXT DEFAULT NULL,
+  archive_reason TEXT DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent);
@@ -25,7 +27,7 @@ CREATE TABLE IF NOT EXISTS config (
 
 -- Seed config
 INSERT OR IGNORE INTO config(key, value) VALUES
-  ('schema_version', '2'),
+  ('schema_version', '3'),
   ('embedding_mode', 'fallback'),
   ('embedding_model', 'none'),
   ('embedding_dimensions', '0'),
@@ -33,7 +35,8 @@ INSERT OR IGNORE INTO config(key, value) VALUES
   ('distill_mode', 'suggest'),
   ('distill_threshold', '50'),
   ('distilling_lock', ''),
-  ('distill_model', 'haiku');
+  ('distill_model', 'haiku'),
+  ('validate_window_days', '7');
 
 -- Distillation audit log
 CREATE TABLE IF NOT EXISTS distillation_log (
@@ -44,6 +47,17 @@ CREATE TABLE IF NOT EXISTS distillation_log (
   source_count INTEGER NOT NULL,
   result_memory_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
+-- Validation audit log
+CREATE TABLE IF NOT EXISTS validation_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  memory_id INTEGER NOT NULL,
+  agent TEXT NOT NULL,
+  action TEXT NOT NULL CHECK(action IN ('pass','archive','rewrite','flag_review','flag_user')),
+  confidence INTEGER NOT NULL,
+  reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
 -- Embedding provenance tracking (which model produced which embeddings)

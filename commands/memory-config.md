@@ -22,10 +22,11 @@ Usage: /memory-config list
        /memory-config set <key> <value>
 
 Settable keys:
-  distill_enabled    true | false
-  distill_mode       manual | suggest | auto
-  distill_threshold  integer (1-9999)
-  distill_model      model name (e.g., haiku, sonnet, opus)
+  distill_enabled       true | false
+  distill_mode          manual | suggest | auto
+  distill_threshold     integer (1-9999)
+  distill_model         model name (e.g., haiku, sonnet, opus)
+  validate_window_days  integer (1-365)
 ```
 And stop.
 
@@ -57,7 +58,7 @@ sqlite3 -header -column "$MEMDB" \
     CASE WHEN key='distilling_lock' AND value='' THEN '(none)' ELSE value END AS value,
     updated_at
   FROM config
-  WHERE key LIKE 'distill%' OR key = 'schema_version'
+  WHERE key LIKE 'distill%' OR key LIKE 'validate%' OR key = 'schema_version'
   ORDER BY key;"
 ```
 
@@ -85,7 +86,7 @@ case "$KEY" in
     echo "Error: 'schema_version' is managed by migrations."
     exit 1
     ;;
-  distill_enabled|distill_mode|distill_threshold|distill_model)
+  distill_enabled|distill_mode|distill_threshold|distill_model|validate_window_days)
     # settable — continue to validation
     ;;
   *)
@@ -123,6 +124,12 @@ case "$KEY" in
       exit 1
     fi
     ;;
+  validate_window_days)
+    if ! [[ "$VALUE" =~ ^[0-9]+$ ]] || [ "$VALUE" -lt 1 ] || [ "$VALUE" -gt 365 ]; then
+      echo "Error: validate_window_days must be an integer between 1 and 365."
+      exit 1
+    fi
+    ;;
 esac
 ```
 
@@ -130,6 +137,6 @@ esac
 
 ```bash
 ESCAPED=$(printf '%s' "$VALUE" | sed "s/'/''/g")
-sqlite3 "$MEMDB" "UPDATE config SET value='$ESCAPED' WHERE key='$KEY';"
+sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='$ESCAPED' WHERE key='$KEY';"
 echo "Updated: $KEY = $VALUE"
 ```
