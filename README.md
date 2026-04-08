@@ -350,6 +350,12 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.17.0
+- `/retro`: session retrospective — two-phase friction gate + phase-2 deep-read subagent; proposes targeted adjustments to agent directives
+- `/adjust-agent --apply` non-interactive mode (SPEC-001 extension) — enables automation callers like `/retro --auto` while preserving conflict detection
+- `/kickoff` and `/orchestrate` gain non-blocking friction-check hooks that suggest `/retro <session-id>` when friction accumulated
+- New skills: `skills/retro-gate/` (phase-1 heuristic scorer), `skills/retro-subagent/` (phase-2 analysis prompt template)
+
 ### v0.16.0
 - `/validate-memory`: cross-reference agent memories against the live codebase to detect stale references (dead files, renamed functions, shifted line numbers)
 - Multi-stage validation pipeline: confidence scoring (0-100), auto-archive (>80), tech-lead review (40-80), user flag (<40)

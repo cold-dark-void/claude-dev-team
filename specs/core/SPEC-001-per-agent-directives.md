@@ -68,6 +68,7 @@ Persistent behavioral instructions for individual agents — project-specific st
 - [ ] `/adjust-agent pm "use Gherkin"` creates/updates `.claude/memory/pm/directives.md`
 - [ ] Running same adjustment twice produces identical file content (idempotent)
 - [ ] Deleting `directives.md` causes zero errors on next agent session start
+- [ ] `/adjust-agent <agent> --apply <prompt>` writes directives on no-conflict; refuses with non-zero exit on conflict
 
 ## Open Questions
 
