@@ -319,6 +319,44 @@ Next: /standup to monitor progress
 
 ---
 
+## Step 8b: Friction check (non-blocking)
+
+After printing the kickoff summary, silently check whether the current session has accumulated enough friction to warrant a retrospective. This check is entirely non-blocking: if anything fails at any step, print nothing and move on.
+
+Run the following bash to locate the session JSONL and the retro gate:
+
+```bash
+# Resolve current session JSONL (Claude stores sessions under an encoded project path)
+ENCODED_PATH=$(pwd | sed 's|/|-|g')
+SESSION_JSONL=$(ls -t "$HOME/.claude/projects/${ENCODED_PATH}/"*.jsonl 2>/dev/null | head -1)
+
+# Locate gate.sh via plugin version lookup (mirrors commands/init-team.md pattern)
+PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
+GATE_SH="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/retro-gate/gate.sh"
+if [ ! -x "$GATE_SH" ]; then
+  GATE_SH=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/retro-gate/gate.sh" 2>/dev/null | sort -V | tail -1)
+fi
+[ -x "$GATE_SH" ] || GATE_SH=""
+
+# Only invoke if both gate.sh and a session JSONL were found
+if [ -n "$GATE_SH" ] && [ -n "$SESSION_JSONL" ]; then
+  GATE_OUT=$(bash "$GATE_SH" "$SESSION_JSONL" 2>/dev/null)
+  PASSED=$(echo "$GATE_OUT" | grep -o '"passed": *true' | head -1)
+  if [ -n "$PASSED" ]; then
+    SESSION_ID=$(basename "$SESSION_JSONL" .jsonl)
+    echo "Consider: /retro ${SESSION_ID}"
+  fi
+fi
+```
+
+Rules:
+- Do **not** auto-run `/retro`. The single printed line is a suggestion only.
+- Do **not** surface any error output from gate.sh or from path resolution.
+- If gate.sh is missing, the session JSONL is missing, or the gate returns `passed:false`, print nothing.
+- This section must never block or delay the rest of the kickoff output.
+
+---
+
 ## Error Handling
 
 - **No git repo**: use `pwd` as MROOT; warn that worktree isolation won't work

@@ -1,7 +1,7 @@
 ---
 name: adjust-agent
 description: View and manage per-agent behavioral directives — standing orders that persist across sessions.
-argument-hint: "[<agent>] [<prompt>]"
+argument-hint: "[<agent>] [--apply] [<prompt>]"
 ---
 
 # /adjust-agent
@@ -15,6 +15,7 @@ agent's own reasoning.
 - `/adjust-agent` — Dashboard: show all agents and their directive counts
 - `/adjust-agent <agent>` — Read-only view of current directives for one agent
 - `/adjust-agent <agent> <prompt>` — Conversational adjustment of an agent's directives
+- `/adjust-agent <agent> --apply <prompt>` — Non-interactive adjustment: applies directly on no conflict, exits non-zero on conflict (never prompts)
 
 ## Step 1: Resolve paths
 
@@ -40,7 +41,8 @@ Extract the first word as `AGENT` and the remainder as `PROMPT` from the argumen
 
 - If no arguments: go to **Step 3** (Dashboard mode)
 - If agent name only (one word, no prompt): go to **Step 4** (Read-only mode)
-- If agent name + prompt: go to **Step 5** (Adjustment mode)
+- If agent name + `--apply` + prompt: go to **Step 6** (Non-interactive apply mode)
+- If agent name + prompt (no `--apply`): go to **Step 5** (Adjustment mode)
 
 ## Step 3: Dashboard mode (no arguments)
 
@@ -196,3 +198,38 @@ Invoking this command with the same prompt twice on the same state MUST produce
 the same result. No duplicate directives, no numbering drift, no semantic changes.
 When the existing directives already fully satisfy the prompt, confirm this and
 leave the file unchanged.
+
+## Step 6: Non-interactive apply mode (`--apply`)
+
+This mode is intended for automation callers (e.g., `/retro --auto`). It reuses
+the conflict-detection and holistic-rewrite logic from Step 5 but NEVER prompts.
+
+### Step 6a: Validate agent name
+
+Same validation as Step 4a. Warn to stderr if no agent definition exists, continue.
+
+### Step 6b: Read existing directives
+
+Same as Step 5b.
+
+### Step 6c: Conflict detection (fail-fast)
+
+Run the same conflict-detection logic as Step 5c. If a conflict is found:
+
+1. Print the conflict description to **stderr** (same format as Step 5c).
+2. Do NOT write the file.
+3. Exit with a non-zero status.
+
+Do NOT attempt to resolve the conflict automatically. Never silently drop or
+rewrite conflicting directives without user awareness.
+
+### Step 6d: Apply on no conflict
+
+If no conflict is detected, proceed directly to:
+
+- Step 5d (holistic rewrite)
+- Step 5e (`.gitignore` coverage)
+- Step 5f (write file)
+- Step 5g (show final result to stdout)
+
+Exit 0.

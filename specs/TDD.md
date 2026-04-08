@@ -15,7 +15,7 @@
 | SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-commit, release |
 | SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
-| SPEC-012 | Session Retrospective | NEW | commands/retro.md (pending), skills/kickoff + orchestrate hooks |
+| SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/kickoff + orchestrate hooks |
 
 ## Version History
 
