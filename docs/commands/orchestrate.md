@@ -59,6 +59,7 @@ Proceed with this scope? Any adjustments?
 10. **Tech Lead review loop** — every completed IC task gets a Tech Lead review. `REQUEST CHANGES` routes feedback back to the IC. If the same task cycles 3+ times without consensus, you are asked to break the deadlock.
 11. **QA validation** — after all IC tasks pass review, QA runs against the spec and acceptance criteria. Failures route back to the responsible IC for a fix-and-re-review cycle.
 12. **Ship** — presents a diff summary and offers to create a PR with a structured description, then suggests `/wrap-ticket`.
+13. **Friction check (non-blocking)** — at completion the orchestrator runs the phase-1 retro gate against the just-finished session. If the session accumulated friction signals, it prints a one-line `Consider: /retro <session-id>` hint. Never auto-runs `/retro`, never blocks completion.
 
 ### Escalation triggers
 
@@ -85,3 +86,4 @@ Routine issues (test failures, lint, formatting, implementation choices within s
 - [`/wrap-ticket`](./wrap-ticket.md) — close out after the PR is merged
 - [`/brainstorm`](./brainstorm.md) — Socratic refinement before formal planning
 - [`/standup`](./standup.md) — monitor in-progress task state
+- [`/retro`](./retro.md) — review the just-finished session for friction patterns (suggested at completion when the gate fires)

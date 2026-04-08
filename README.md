@@ -60,7 +60,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | Command | What it does |
 |---------|-------------|
 | `/init-team` | Bootstrap all 7 agents' memory for the current project |
-| `/adjust-agent` | View and manage per-agent behavioral directives |
+| `/adjust-agent` | View and manage per-agent behavioral directives (supports `--apply` for non-interactive use) |
 | `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` |
 | `/init-orchestration` | Enable Agent Teams: sandbox, env var, TaskCompleted hook, AGENTS.md |
 
@@ -110,6 +110,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/backlog` | Manage project backlog items (add, close, list, init) |
 | `/release` | Bump version across all files, commit, tag, push |
 | `/scout-plugins` | Research new plugins, evaluate against current setup, propose enhancements |
+| `/retro` | Review past sessions for friction patterns, propose directive adjustments — `--all` for cross-session, `--auto` to apply without confirm, `--why` for gate calibration |
 
 ---
 
@@ -349,6 +350,11 @@ Check the plugin into your project's settings so teammates get it automatically.
 ---
 
 ## Changelog
+
+### v0.17.2
+- **Docs catch-up for v0.17.0/v0.17.1**: new `docs/commands/retro.md` walks through `/retro` end-to-end (flags, two-phase pipeline, dedup classification, apply paths, integration with `/kickoff` and `/orchestrate`)
+- `docs/commands/kickoff.md` and `docs/commands/orchestrate.md` now document the Step 8b / Step 12b friction-check hook and link to `/retro`
+- README `Commands / Skills` table gains a `/retro` row and notes `/adjust-agent`'s new `--apply` non-interactive mode
 
 ### v0.17.1
 - **Polish pass on v0.17.0**: `commands/retro.md` 1031 → 993 lines; ~190 net LOC deleted across the retro feature
