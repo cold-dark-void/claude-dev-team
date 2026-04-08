@@ -122,16 +122,12 @@ if [ -s "$FILE" ]; then
 fi
 ```
 
-### Step 5c: Interpret prompt and detect conflicts
+### Conflict detection rules
 
-Consider the user's prompt in context of any existing directives.
+A conflict exists when the incoming prompt is semantically contradictory to an
+existing directive (e.g., existing says "always use tabs" and the new prompt says
+"use spaces"). When a conflict is found, format it as:
 
-If the prompt conflicts with an existing directive (e.g., existing says "always use
-tabs" and the new prompt says "use spaces"), you MUST surface the conflict to the
-user before proceeding. Do NOT silently resolve conflicts by dropping or rewriting
-directives without the user's awareness.
-
-Example conflict surfacing:
 ```
 Conflict detected:
   Existing #2: "Always use tabs for indentation"
@@ -140,7 +136,11 @@ Conflict detected:
 These are contradictory. Which should take precedence?
 ```
 
-Wait for the user's response before continuing.
+### Step 5c: Interpret prompt and detect conflicts
+
+Apply conflict detection rules. If a conflict is found, show it to the user and
+wait for their response before continuing. Do NOT silently resolve conflicts by
+dropping or rewriting directives without the user's awareness.
 
 ### Step 5d: Produce holistic rewrite
 
@@ -214,14 +214,13 @@ Same as Step 5b.
 
 ### Step 6c: Conflict detection (fail-fast)
 
-Run the same conflict-detection logic as Step 5c. If a conflict is found:
+Apply conflict detection rules. If a conflict is found:
 
-1. Print the conflict description to **stderr** (same format as Step 5c).
+1. Print the conflict description to **stderr**.
 2. Do NOT write the file.
 3. Exit with a non-zero status.
 
-Do NOT attempt to resolve the conflict automatically. Never silently drop or
-rewrite conflicting directives without user awareness.
+Do NOT prompt. Do NOT attempt to resolve the conflict automatically.
 
 ### Step 6d: Apply on no conflict
 

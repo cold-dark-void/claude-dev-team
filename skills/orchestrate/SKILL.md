@@ -459,13 +459,9 @@ Next: /wrap-ticket <ISSUE-ID> after merge
 ## Step 12b: Friction check (non-blocking)
 
 Before exiting, check the just-completed orchestration session for friction
-signals. If the phase-1 gate from `skills/retro-gate/gate.sh` fires, print a
-plain suggestion. Never auto-run `/retro`. Never block.
+signals. Never auto-run `/retro`. Never block.
 
 ```bash
-# Resolve current session JSONL
-CURRENT_SESSION_JSONL=$(ls -t ~/.claude/projects/$(pwd | sed 's|/|-|g')/*.jsonl 2>/dev/null | head -1)
-
 # Locate gate.sh via plugin version lookup (mirrors commands/init-team.md pattern)
 PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null \
   | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
@@ -473,17 +469,9 @@ GATE_SH="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skill
 if [ ! -x "$GATE_SH" ]; then
   GATE_SH=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/retro-gate/gate.sh" 2>/dev/null | sort -V | tail -1)
 fi
-[ -x "$GATE_SH" ] || GATE_SH=""
 
-# Invoke gate if both gate and JSONL are present; print hint only when passed:true
-if [ -n "$GATE_SH" ] && [ -n "$CURRENT_SESSION_JSONL" ]; then
-  GATE_RESULT=$(bash "$GATE_SH" "$CURRENT_SESSION_JSONL" 2>/dev/null)
-  if echo "$GATE_RESULT" | grep -q '"passed":true'; then
-    SID=$(basename "$CURRENT_SESSION_JSONL" .jsonl)
-    echo ""
-    echo "Consider: /retro $SID"
-  fi
-fi
+HINT_SH="$(dirname "$GATE_SH")/hint.sh"
+bash "$HINT_SH" "$GATE_SH" 2>/dev/null || true
 ```
 
 Non-blocking. Silently skipped when gate binary is absent or JSONL is not

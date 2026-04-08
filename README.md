@@ -350,6 +350,17 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ## Changelog
 
+### v0.17.1
+- **Polish pass on v0.17.0**: `commands/retro.md` 1031 → 993 lines; ~190 net LOC deleted across the retro feature
+- Dead jq fallback paths removed from `skills/retro-gate/gate.sh` and `commands/retro.md` (python3 was already required elsewhere)
+- Step 4a `load_rules()` helper deleted (superseded by Step 5b); `build_anchor_json()` and `target_rules_for()` helpers inlined
+- `--why` signal parser rewritten from grep+awk to a python3 one-liner
+- TIGHTEN classifier now uses a deterministic `existing_ref + "; additionally, " + proposed_text` merge instead of the "mentally rewrite" prompt-in-comment pattern
+- New `skills/retro-gate/hint.sh` — friction-check helper; `/kickoff` and `/orchestrate` hooks now call it instead of duplicating ~30 lines each. One parser, one contract.
+- `/adjust-agent`: conflict-detection rules extracted into a named subsection; Step 5c (interactive) and Step 6c (`--apply`) both reference it cleanly
+- `skills/retro-subagent/SKILL.md`: 44-line worked example pruned to a UUID-format callout under the Input contract
+- Nitpicks cleaned: HTML comments with personal paths and planning residue removed; unused `last_tool_use_target` variable and `tool_target()` helper deleted from gate.sh
+
 ### v0.17.0
 - `/retro`: session retrospective — two-phase friction gate + phase-2 deep-read subagent; proposes targeted adjustments to agent directives
 - `/adjust-agent --apply` non-interactive mode (SPEC-001 extension) — enables automation callers like `/retro --auto` while preserving conflict detection
