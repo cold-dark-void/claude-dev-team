@@ -37,6 +37,7 @@ Persistent behavioral instructions for individual agents — project-specific st
 - MUST display final directive list after writing so user can verify
 - MUST create `directives.md` file and parent directory if they do not exist
 - MUST be idempotent: same prompt on same state produces same result (no duplicates, no drift)
+- MUST support a non-interactive `--apply` flag: `/adjust-agent <agent> --apply <prompt>` skips user prompting and applies the adjustment directly — but on conflict detection MUST refuse the write and exit with a clear error (fail-fast, never silently resolve). Enables automation callers (e.g. `/retro --auto`) to request directive updates without bypassing conflict safety.
 
 ### /init-team Integration
 - MUST output hint about `/adjust-agent` after init-team completes bootstrap
@@ -87,6 +88,7 @@ None — all ACs confirmed by user.
 | 2026-03-16 | Initial spec drafted by tech-lead for DIR-001 |
 | 2026-03-16 | Implemented and shipped in v0.15.0 |
 | 2026-03-23 | Reformatted for /reflect-specs compliance: added Category, Created, Covers, Overview, Test, Validation, Version History sections. Consolidated section-based requirements into bulleted MUST format. Status updated from Draft to ACTIVE. |
+| 2026-04-08 | Added `--apply` non-interactive mode MUST to enable automation callers (RETRO-001 / SPEC-012). Fail-fast on conflict preserves existing conflict-detection guarantee. |
 
 ## Cross-references
 
