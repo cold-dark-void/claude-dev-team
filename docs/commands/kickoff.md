@@ -63,6 +63,7 @@ Next: /standup to monitor progress
 6. **Implementation plan** — Tech Lead produces a step-by-step plan (saved to `.claude/plans/<date>-<TICKET-ID>-<slug>.md`) that identifies which steps are independent, which are blocked, and which agent (ic4 for extending patterns, ic5 for novel/complex work) is recommended for each.
 7. **Task graph** — each plan step becomes a `TaskCreate` call with dependencies noted. Task IDs are written back into the plan file.
 8. **Summary** — a structured output shows the full task graph and tells each agent exactly what to claim and when.
+9. **Friction check (non-blocking)** — after the summary prints, kickoff runs the phase-1 retro gate against the just-finished session. If the session accumulated friction signals, a one-line `Consider: /retro <session-id>` hint is printed. Never auto-runs `/retro`, never blocks completion.
 
 `/kickoff` covers Phase 1 (intake) and Phase 2 (planning) of the Linear-to-prod workflow. It does not create a worktree or spawn IC agents — use `/orchestrate` for the full end-to-end flow, or claim tasks manually after `/kickoff`.
 
@@ -72,3 +73,4 @@ Next: /standup to monitor progress
 - [`/brainstorm`](./brainstorm.md) — Socratic refinement to use before kickoff on complex features
 - [`/standup`](./standup.md) — monitor task progress after kickoff
 - [`/wrap-ticket`](./wrap-ticket.md) — close out after the PR is merged
+- [`/retro`](./retro.md) — review the just-finished session for friction patterns (suggested at completion when the gate fires)
