@@ -78,12 +78,6 @@ if [ ! -d "$PROJECT_DIR" ]; then
 fi
 ```
 
-<!-- Encoding verified: /home/user/vibes/claude-dev-team encodes to
-     -home-user-vibes-claude-dev-team, and ls ~/.claude/projects/ confirms
-     -home-user-vibes-claude-dev-team exists. Worktree
-     /home/user/vibes/claude-dev-team-RETRO-001 shares git-common-dir with the
-     main checkout so MROOT resolves to /home/user/vibes/claude-dev-team. -->
-
 ### Step 2b: Collect candidate JSONL paths
 
 **Default (single, no explicit SID):** most recently modified `.jsonl` in the project dir.
@@ -216,7 +210,7 @@ Unlike the kickoff hook (which soft-skips when gate.sh is missing), `/retro` tre
 
 Budget policy (two modes):
 - **single/explicit-SID mode**: 5s total budget (per SPEC-012 "exit in under 5 seconds on smooth sessions").
-- **`--all` mode**: no total budget cap (too many sessions to constrain to 5s); instead a hard 2s per-file cap prevents any one session from dominating. Rationale: at 500 sessions, 5s ÷ 500 = 10ms/session — tighter than gate.sh can run. We relax the total cap and rely on the per-file timeout.
+- **`--all` mode**: no total budget cap; instead a hard 2s per-file cap prevents any one session from dominating.
 
 ```bash
 FLAGGED_SESSIONS=""
@@ -287,31 +281,20 @@ $JSONL $ID"
     echo "Session: $SID"
     echo "Score: ${SCORE:-?} / ${THRESHOLD:-5.0} ($PASSED_LABEL)"
 
-    # Matched signals — names present in signals[] with count > 0
-    MATCHED=$(echo "$GATE_OUT" | grep -o '"name": *"[^"]*", *"count": *[1-9][0-9]*[^}]*"ids": *\[[^]]*\]' | \
-      awk -F'"' '{
-        for(i=1;i<=NF;i++) {
-          if($i=="name") name=$(i+2)
-          if($i=="count") { split($0, a, "\"count\": "); split(a[2], b, ","); count=b[1] }
-        }
-        ids=""
-        n=split($0, parts, "\"ids\": [")
-        if(n>1) { split(parts[2], id_parts, "]"); ids=id_parts[1] }
-        if(name!="") printf "  %s x%s\n", name, count
-      }')
-    ALL_SIGNALS="S1 S2 S3 S4 S5"
-    NOT_MATCHED=""
-    for SIG in $ALL_SIGNALS; do
-      if ! echo "$GATE_OUT" | grep -q "\"name\": *\"$SIG\""; then
-        NOT_MATCHED="$NOT_MATCHED $SIG"
-      fi
-    done
-    if [ -n "$MATCHED" ]; then
-      echo "Matched:$MATCHED"
-    else
-      echo "Matched: (none)"
-    fi
-    echo "Not matched:$NOT_MATCHED"
+    echo "$GATE_OUT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+matched = {s["name"]: s["count"] for s in d.get("signals", [])}
+if matched:
+    print("Matched signals:")
+    for name, count in sorted(matched.items()):
+        print("  %s x%s" % (name, count))
+else:
+    print("Matched signals: (none)")
+not_matched = [s for s in ("S1","S2","S3","S4","S5") if s not in matched]
+if not_matched:
+    print("Not matched: " + ", ".join(not_matched))
+'
     echo ""
   fi
 
@@ -339,34 +322,6 @@ passed the phase-1 gate, and `$ANCHOR_IDS` holds newline-separated
 `<jsonl-path> <message-id>` pairs. See `skills/retro-subagent/SKILL.md` for the
 full input/output contract — this section enforces it.
 
-### Step 4a: Load EXISTING_RULES for every possible target
-
-We need the current rule text for each of the 7 team agents plus plain Claude so
-the subagent can avoid re-proposing things already covered. `$MROOT` was resolved
-in Step 0.
-
-```bash
-# Load each directives file (team agents) / lessons.md (claude). Missing files
-# become the literal string "empty" — matches the SKILL.md input contract.
-load_rules() {
-  local f="$1"
-  if [ -s "$f" ]; then
-    cat "$f"
-  else
-    echo "empty"
-  fi
-}
-
-RULES_PM=$(load_rules       "$MROOT/.claude/memory/pm/directives.md")
-RULES_TL=$(load_rules       "$MROOT/.claude/memory/tech-lead/directives.md")
-RULES_IC5=$(load_rules      "$MROOT/.claude/memory/ic5/directives.md")
-RULES_IC4=$(load_rules      "$MROOT/.claude/memory/ic4/directives.md")
-RULES_DEVOPS=$(load_rules   "$MROOT/.claude/memory/devops/directives.md")
-RULES_QA=$(load_rules       "$MROOT/.claude/memory/qa/directives.md")
-RULES_DS=$(load_rules       "$MROOT/.claude/memory/ds/directives.md")
-RULES_CLAUDE=$(load_rules   "$MROOT/.claude/memory/claude/lessons.md")
-```
-
 ### Step 4b: Build per-session Task inputs
 
 For every flagged session, assemble the four inputs the subagent expects:
@@ -375,33 +330,11 @@ For every flagged session, assemble the four inputs the subagent expects:
 - `ANCHOR_MESSAGE_IDS_JSON` — JSON array of message IDs collected by the gate
   for this specific JSONL, extracted from `$ANCHOR_IDS`
 - `FRICTION_SIGNALS_JSON` — verbatim stdout of `gate.sh` for this JSONL.
-  Re-invoke the gate per flagged session (~60ms, deterministic); do NOT try to
-  cache `GATE_OUT` from Step 3. Concretely, inside the per-session loop of
-  Step 4c you MUST run:
-  `FRICTION_SIGNALS_JSON=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)`
-  BEFORE constructing the Task prompt, so `${FRICTION_SIGNALS_JSON}` inside
-  the `skills/retro-subagent/SKILL.md` prompt template resolves to the real
-  gate JSON rather than an empty string.
-- `EXISTING_RULES` — the eight variables from Step 4a
+  Before each Task spawn, re-run the gate per session:
+  `FRICTION_SIGNALS_JSON=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)`.
+  Re-invocation is cheap (~60ms per session) and avoids caching complexity.
+- `EXISTING_RULES` — loaded fresh per Step 5b (load_rules_raw)
 
-```bash
-# For each flagged JSONL, build its anchor-id JSON array.
-build_anchor_json() {
-  local jsonl="$1"
-  local ids
-  ids=$(echo "$ANCHOR_IDS" | awk -v p="$jsonl" '$1==p {print $2}')
-  # Compose as JSON array without relying on jq.
-  local out="["
-  local first=1
-  while IFS= read -r id; do
-    [ -z "$id" ] && continue
-    if [ $first -eq 1 ]; then first=0; else out="$out,"; fi
-    out="$out\"$id\""
-  done <<< "$ids"
-  out="$out]"
-  echo "$out"
-}
-```
 
 ### Step 4c: Spawn subagents in parallel
 
@@ -433,7 +366,12 @@ each Task spawn:
 ```bash
 # For each $JSONL in $FLAGGED_SESSIONS:
 FRICTION_SIGNALS_JSON=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)
-ANCHOR_MESSAGE_IDS_JSON=$(build_anchor_json "$JSONL")
+ANCHOR_MESSAGE_IDS_JSON=$(echo "$ANCHOR_IDS" | python3 -c "
+import sys, json
+lines = [l for l in sys.stdin.read().splitlines() if l.strip()]
+ids = [p.split(None,1)[1] for p in lines if p.startswith('$JSONL ')]
+print(json.dumps(ids))
+")
 # ... substitute FRICTION_SIGNALS_JSON, ANCHOR_MESSAGE_IDS_JSON, SESSION_JSONL,
 # and the EXISTING_RULES.* entries into the prompt template from
 # skills/retro-subagent/SKILL.md §"Subagent prompt template", then spawn Task.
@@ -453,8 +391,7 @@ so they run in parallel; the accumulation above describes the logical shape of
 
 ### Step 4d: Parse + validate per the SKILL.md contract
 
-Do NOT grep nested JSON by hand — use `jq` when available, otherwise fall back
-to a `python3 -c` one-liner. Both paths emit tab-separated rows to stdout:
+Use `python3` to parse the JSON. Emit tab-separated rows to stdout:
 
 ```
 proposal<TAB>target<TAB>proposed_text<TAB>confidence<TAB>citation_count<TAB>pattern_summary<TAB>source_jsonl
@@ -467,20 +404,7 @@ ALLOWED_TARGETS="pm tech-lead ic5 ic4 devops qa ds claude"
 parse_one() {
   local json="$1"
   local src="$2"
-  if command -v jq >/dev/null 2>&1; then
-    echo "$json" | jq -r --arg src "$src" '
-      (.proposals // [])[] |
-        "proposal\t" + (.target // "") + "\t" + (.proposed_text // "") + "\t" +
-        ((.confidence // 0)|tostring) + "\t" +
-        ((.citations // []|length)|tostring) + "\t" +
-        (.pattern_summary // "") + "\t" + $src
-    ' 2>/dev/null
-    echo "$json" | jq -r --arg src "$src" '
-      (.observations // [])[] |
-        "observation\t" + (.description // "") + "\t" + $src
-    ' 2>/dev/null
-  else
-    RETRO_JSON="$json" RETRO_SRC="$src" python3 - <<'PY'
+  RETRO_JSON="$json" RETRO_SRC="$src" python3 - <<'PY'
 import json, os
 src = os.environ.get("RETRO_SRC", "")
 raw = os.environ.get("RETRO_JSON", "")
@@ -499,7 +423,6 @@ for o in d.get("observations", []) or []:
     print("observation\t%s\t%s" % (
         (o.get("description","") or "").replace("\t"," "), src))
 PY
-  fi
 }
 
 RAW_PROPOSALS=""
@@ -659,19 +582,6 @@ RULES_QA=$(load_rules_raw       "$MROOT/.claude/memory/qa/directives.md")
 RULES_DS=$(load_rules_raw       "$MROOT/.claude/memory/ds/directives.md")
 RULES_CLAUDE=$(load_rules_raw   "$MROOT/.claude/memory/claude/lessons.md")
 
-target_rules_for() {
-  case "$1" in
-    pm)        printf '%s' "$RULES_PM" ;;
-    tech-lead) printf '%s' "$RULES_TL" ;;
-    ic5)       printf '%s' "$RULES_IC5" ;;
-    ic4)       printf '%s' "$RULES_IC4" ;;
-    devops)    printf '%s' "$RULES_DEVOPS" ;;
-    qa)        printf '%s' "$RULES_QA" ;;
-    ds)        printf '%s' "$RULES_DS" ;;
-    claude)    printf '%s' "$RULES_CLAUDE" ;;
-    *)         printf '' ;;
-  esac
-}
 ```
 
 ### Step 5c: Deterministic NEW / TIGHTEN / DUPLICATE classification
@@ -708,7 +618,11 @@ while IFS= read -r row; do
   pattern_summary=$(printf '%s' "$row" | awk -F'\t' '{print $5}')
   proposed_text=$(printf '%s' "$row" | awk -F'\t' '{print $6}')
 
-  rules_text=$(target_rules_for "$target")
+  if [ "$target" = "claude" ]; then
+    rules_text=$(cat "$MROOT/.claude/memory/claude/lessons.md" 2>/dev/null || true)
+  else
+    rules_text=$(cat "$MROOT/.claude/memory/$target/directives.md" 2>/dev/null || true)
+  fi
 
   # Run the classifier. Inputs travel via env vars to avoid quoting hell.
   CLASS_OUT=$(
@@ -790,7 +704,7 @@ PY
   #   1 target           pm|tech-lead|ic5|ic4|devops|qa|ds|claude
   #   2 action           NEW|TIGHTEN|DUPLICATE
   #   3 pattern_summary  short tag from Phase-2 subagent
-  #   4 proposed_text    imperative sentence (may be rewritten by Step 5d for TIGHTEN)
+  #   4 proposed_text    imperative sentence (deterministically merged by Step 5d for TIGHTEN)
   #   5 citations        comma-joined message IDs / line refs
   #   6 existing_ref     rule line matched (empty for NEW)
   #   7 best_jaccard     float, "0.000".."1.000" — debug/telemetry
@@ -804,24 +718,18 @@ done <<< "$RAW_PROPOSALS"
 CLASSIFIED_PROPOSALS=$(printf '%s' "$CLASSIFIED_PROPOSALS" | sed '/^[[:space:]]*$/d')
 ```
 
-### Step 5d: Inline TIGHTEN rewrite (Claude, not a subagent)
+### Step 5d: Deterministic TIGHTEN merge
 
-For each row in `$CLASSIFIED_PROPOSALS` with `action == TIGHTEN`, the
-orchestrating Claude rewrites column 4 (`proposed_text`) in place so it
-unambiguously covers BOTH the `existing_ref` directive AND the new cited
-evidence from column 5. This is a single-sentence transformation — do NOT spawn
-a subagent and do NOT call any tool beyond string substitution on the TSV.
+For each row in `$CLASSIFIED_PROPOSALS` with `action == TIGHTEN`, replace
+column 4 (`proposed_text`) with a deterministic concatenation:
 
-Rewrite prompt (apply mentally per TIGHTEN row):
+```
+new_text = f"{existing_ref.strip().rstrip('.')}; additionally, {proposed_text}"
+```
 
-> Rewrite `proposed_text` into one imperative sentence, ≤ 200 characters, same
-> scope as `existing_ref`, that unambiguously covers both the existing directive
-> and the new cited evidence. Do not add new scope. Do not weaken the existing
-> rule. Preserve any concrete file paths, commands, or error strings from the
-> citations. Output the rewritten sentence only — no prose, no quotes.
-
-After rewriting, replace column 4 in the matching TSV row. All other columns
-stay identical. DUPLICATE and NEW rows are never rewritten.
+Truncate to 200 characters if needed. This happens in the same Python pass as
+Step 5c or as a post-loop substitution — no subagent, no LLM call. DUPLICATE
+and NEW rows are never rewritten.
 
 ### Step 5e: Anti-sprawl final sweep
 
@@ -864,8 +772,6 @@ Step 5 produces two variables for Step 6 to consume:
 ---
 
 ## Step 6: Phase-4 confirm / apply
-
-<!-- T8 (--all mode) extends Steps 2 and 5 — it does NOT add a new step here. -->
 
 ### Step 6a: Short-circuit on empty input
 

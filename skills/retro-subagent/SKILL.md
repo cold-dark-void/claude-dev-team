@@ -52,6 +52,11 @@ The calling command MUST provide all of the following before the Task spawn:
 The subagent MUST NOT be passed any other context. Do not include the full session
 transcript inline — the subagent reads the JSONL file itself and seeks to anchors.
 
+> **UUID note:** real Claude Code session JSONL uses UUID-format message IDs
+> (e.g. `00000000-0000-4000-8000-000000000004`). Do not assume a `msg_` prefix.
+> Implementations that regex-match a fake prefix will extract zero IDs on every
+> real session.
+
 ---
 
 ## Subagent prompt template
@@ -178,48 +183,3 @@ If the subagent returns invalid JSON or fails to return at all, the command shou
 log the failure with the session ID and continue with zero proposals for that session
 — never block the retro on a single bad spawn.
 
----
-
-## Worked example
-
-**Fictional session:** ic5 was asked to add a feature. They wrote the implementation
-first, then tests. The user reverted twice and asked "why no tests first?". The gate
-fired with S1 (2 explicit rejects) and S3 (3 edits on `auth.go`).
-
-**Inputs to subagent:**
-- `SESSION_JSONL`: `/home/u/.claude/projects/-home-u-proj/abc123.jsonl`
-- `ANCHOR_MESSAGE_IDS`: `["00000000-0000-4000-8000-000000000004","00000000-0000-4000-8000-000000000002","00000000-0000-4000-8000-000000000005"]`
-- `FRICTION_SIGNALS`: `{"score":7.5,"passed":true,"signals":[{"name":"S1","count":2,"ids":["00000000-0000-4000-8000-000000000004","00000000-0000-4000-8000-000000000002"]},{"name":"S3","count":1,"ids":["00000000-0000-4000-8000-000000000005"]}]}`
-- `EXISTING_RULES.ic5`: `"empty"`
-
-> **Note:** real Claude Code session JSONL uses UUID-format message IDs (e.g.
-> `00000000-0000-4000-8000-000000000004`). Do not assume a `msg_` prefix or
-> any other prefix. Implementations that regex-match a fake prefix will
-> extract zero IDs on every real session.
-
-**Expected subagent output (one line, pretty-printed here for readability):**
-
-```json
-{
-  "proposals": [
-    {
-      "target": "ic5",
-      "proposed_text": "Always write a failing test before implementation code for any new feature; commit the red test before writing the fix.",
-      "confidence": 0.85,
-      "citations": [
-        {"message_id": "00000000-0000-4000-8000-000000000004", "excerpt": "wait — why are you writing the impl before the test?"},
-        {"message_id": "00000000-0000-4000-8000-000000000002", "excerpt": "revert that. tests first please."},
-        {"message_id": "00000000-0000-4000-8000-000000000005", "excerpt": "Edit auth.go (3rd edit in 4 turns)"}
-      ],
-      "pattern_summary": "tests first"
-    }
-  ],
-  "observations": []
-}
-```
-
-**What T5 does with this:**
-- Validates: 1 proposal, 3 citations, target `ic5` allowed, text 116 chars, confidence 0.85. PASS.
-- Ranks: `0.85 * 3 = 2.55`. Single proposal, kept.
-- Hands to T6 dedup: `EXISTING_RULES.ic5` is `"empty"` so action = `NEW`.
-- T7 confirm-mode prints `Run: /adjust-agent ic5 "Always write a failing test before..."`.

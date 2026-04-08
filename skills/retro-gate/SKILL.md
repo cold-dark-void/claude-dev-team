@@ -112,13 +112,11 @@ Measured on real sessions:
 
 Well under the 2-second budget for 10k lines.
 
-## Engine selection
+## Engine
 
-The script prefers `python3` because the per-turn state machine (sliding
-edit-window, consecutive-error runs) is awkward in pure jq. A minimal `jq`
-fallback is provided for python-less environments — it only computes S1, so
-it under-triggers but never crashes. If neither is available, the script
-emits a JSON error verdict and still exits 0.
+`python3` is required. The per-turn state machine (sliding edit-window,
+consecutive-error runs) requires it. If `python3` is absent the script
+emits a JSON error verdict and exits 0.
 
 ## Schema-drift detection
 

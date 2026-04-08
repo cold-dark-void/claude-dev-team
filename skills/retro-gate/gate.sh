@@ -37,27 +37,10 @@ if [ ! -s "$JSONL" ]; then
   exit 0
 fi
 
-# Engine selection. We prefer python3 because the gate needs stateful per-turn
-# tracking (edit-loop windows, consecutive errors) that is awkward in pure jq.
-# jq is acceptable as a fallback for very minimal environments, but in practice
-# python3 is universally present on dev machines and is the primary path.
 if ! command -v python3 >/dev/null 2>&1; then
-  if command -v jq >/dev/null 2>&1; then
-    # Minimal jq fallback: only S1 (explicit reject) so callers still get a
-    # valid JSON verdict on python3-less systems. This intentionally
-    # under-triggers — better than crashing.
-    COUNT=$(jq -r 'select(.type=="user") | .message.content // ""
-                   | if type=="string" then . else (. | tostring) end' "$JSONL" 2>/dev/null \
-            | grep -ciE "\b(revert|stop|wrong|don't|why did you|no that's)\b" || true)
-    [ -z "$COUNT" ] && COUNT=0
-    SCORE=$(awk -v c="$COUNT" 'BEGIN{ if(c>3) c=3; printf "%.1f", c*3.0 }')
-    PASSED=$(awk -v s="$SCORE" -v t="$THRESHOLD" 'BEGIN{ print (s+0>=t+0)?"true":"false" }')
-    echo '{"score":'"$SCORE"',"passed":'"$PASSED"',"threshold":'"$THRESHOLD"',"signals":[{"name":"S1","count":'"$COUNT"',"ids":[]}],"engine":"jq-fallback"}'
-    exit 0
-  else
-    echo '{"score":0,"passed":false,"threshold":'"$THRESHOLD"',"signals":[],"error":"no python3 or jq"}'
-    exit 0
-  fi
+  THRESHOLD="${RETRO_THRESHOLD:-5.0}"
+  echo "{\"score\":0,\"passed\":false,\"threshold\":${THRESHOLD},\"signals\":[],\"error\":\"python3 required\"}"
+  exit 0
 fi
 
 python3 - "$JSONL" "$THRESHOLD" <<'PYEOF'
@@ -101,7 +84,6 @@ edit_history_per_file = {}         # file_path -> set of turn_idx already counte
 assistant_turn_idx = -1
 last_assistant_len = 0
 last_assistant_id = None
-last_tool_use_target = None        # (tool_name, target_str)
 last_tool_was_error_run_len = 0
 last_error_run_start_id = None
 known_field_seen_in_first_50 = False
@@ -125,17 +107,6 @@ def msg_text(content):
                 continue
         return "\n".join(out)
     return ""
-
-
-def tool_target(tool_name, inp):
-    """Best-effort key for grouping consecutive tool errors against same target."""
-    if not isinstance(inp, dict):
-        return tool_name or "?"
-    for k in ("file_path", "path", "command", "url", "pattern"):
-        v = inp.get(k)
-        if isinstance(v, str) and v:
-            return f"{tool_name}:{v[:120]}"
-    return tool_name or "?"
 
 
 def is_edit_tool(name):
@@ -188,7 +159,6 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                         continue
                     name = b.get("name", "")
                     inp = b.get("input", {})
-                    last_tool_use_target = tool_target(name, inp)
 
                     if is_edit_tool(name):
                         fp = edit_file_path(inp)
