@@ -127,13 +127,41 @@ PROCEDURE
 9. Assign a `pattern_summary` — a 2-word lowercase tag used by the dedup phase
    (e.g. "premature commit", "missing tests", "wrong path").
 
+FABRICATION ANCHOR DETECTION
+----------------------------
+In addition to proposals and observations, detect fabrication anchors: assistant
+turns that assert facts without a preceding tool call confirming them. Look for:
+
+- Assistant states "X is at Y" / "you have Z in your config" without a prior Read,
+  Grep, Bash, or MCP tool result confirming X or Z.
+- Assistant references a specific function name, line number, or config key without
+  first reading the file that would contain it.
+- Assistant green-lights a deploy/change ("everything looks good", "the build is
+  clean") without a preceding tool call correlating logs/metrics/diff with the
+  change.
+- Assistant makes a factual assertion about code, file paths, or system state with
+  no tool evidence in the same or immediately preceding turn.
+
+For each detected fabrication anchor, emit one record in `fabrication_anchors[]`.
+Do NOT emit a record unless you have a concrete turn_id and a specific excerpt.
+If you cannot find clear evidence of fabrication, emit an empty array — never
+fabricate fabrication anchors.
+
+anchor_id MUST be a deterministic hash of (session_id, turn_id, first 50 chars of
+fabricated_claim_text). Use: sha1(session_id + ":" + turn_id + ":" + claim[:50]).
+Compute with python3 hashlib.sha1 and take the first 16 hex chars. This ensures
+the same anchor surfacing in multiple /retro runs produces the same anchor_id
+(idempotent dedup downstream).
+
+The session_id is the basename of SESSION_JSONL (strip .jsonl).
+
 OUTPUT
 ------
 Respond with a SINGLE LINE of strict JSON matching this schema. No prose, no
 markdown fences, no commentary. If you have nothing to propose, return
-`{"proposals":[],"observations":[]}`.
+`{"proposals":[],"observations":[],"fabrication_anchors":[]}`.
 
-{"proposals":[{"target":"<allowed>","proposed_text":"<= 200 chars imperative","confidence":0.0,"citations":[{"message_id":"...","excerpt":"..."}],"pattern_summary":"two words"}],"observations":[{"description":"...","citations":[{"message_id":"...","excerpt":"..."}]}]}
+{"proposals":[{"target":"<allowed>","proposed_text":"<= 200 chars imperative","confidence":0.0,"citations":[{"message_id":"...","excerpt":"..."}],"pattern_summary":"two words"}],"observations":[{"description":"...","citations":[{"message_id":"...","excerpt":"..."}]}],"fabrication_anchors":[{"anchor_id":"<16 hex chars>","turn_id":"<UUID from JSONL>","fabricated_claim_text":"<short excerpt, <= 120 chars>","evidence_for_fabrication":"<1-2 line citation explaining why this is a fabrication anchor>"}]}
 ```
 
 ---
@@ -155,6 +183,14 @@ markdown fences, no commentary. If you have nothing to propose, return
   ],
   "observations": [
     {"description": "non-actionable finding", "citations": [{"message_id": "...", "excerpt": "..."}]}
+  ],
+  "fabrication_anchors": [
+    {
+      "anchor_id": "<16-char sha1 hex: sha1(session_id + ':' + turn_id + ':' + claim[:50])[:16]>",
+      "turn_id": "<UUID message ID from the JSONL>",
+      "fabricated_claim_text": "<short excerpt of the assistant claim that lacked evidence, <= 120 chars>",
+      "evidence_for_fabrication": "<1-2 line citation explaining why — name the missing tool call>"
+    }
   ]
 }
 ```
@@ -178,6 +214,12 @@ descending order, then CAPPED to the top 5 (per SPEC-012 SHOULD).
 
 Observations are not validated beyond requiring a non-empty `description`. They flow
 through to the confirm phase as "observed pattern, no fix proposed."
+
+Any `fabrication_anchor` record missing `turn_id` or `evidence_for_fabrication`
+MUST be dropped (same evidence-or-silence rule as proposals). Records with an
+empty or non-string `anchor_id` or `fabricated_claim_text` MUST also be dropped.
+After filtering, surviving fabrication anchors are passed to the calling command
+for dedup and hint printing.
 
 If the subagent returns invalid JSON or fails to return at all, the command should
 log the failure with the session ID and continue with zero proposals for that session

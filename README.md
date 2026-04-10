@@ -111,6 +111,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/release` | Bump version across all files, commit, tag, push |
 | `/scout-plugins` | Research new plugins, evaluate against current setup, propose enhancements |
 | `/retro` | Review past sessions for friction patterns, propose directive adjustments — `--all` for cross-session, `--auto` to apply without confirm, `--why` for gate calibration |
+| `/council` | Adversarial tribunal — reality-checks a claim, session slice, or diff via blind investigators, prosecutor, devil's advocate, and a tool-less judge. See [/council](#council) below. |
 
 ---
 
@@ -349,7 +350,43 @@ Check the plugin into your project's settings so teammates get it automatically.
 
 ---
 
+## /council
+
+Adversarial tribunal that reality-checks claims with material evidence. Spawns
+blind Investigators (read-only tools only), a Prosecutor (jaded-senior flavor),
+a Devil's Advocate (yolo-ic flavor), and a tool-less `council-judge` agent.
+Issues per-claim verdicts with confidence scores (`VERIFIED`, `PARTIALLY_VERIFIED`,
+`UNVERIFIED`, `CONTRADICTED`, `FABRICATED`). Shares an engine with `/review-commit`
+via the `diff-mode` preset. Every verdict line must be backed by an investigator
+`tool_use_id`; lines without evidence are struck and logged.
+
+**Arguments:**
+
+| Form | Scope |
+|------|-------|
+| `/council "<claim text>"` | Audit a single pasted claim |
+| `/council --session [--last N]` | Audit a slice of the current session transcript |
+| `/council --diff` | Audit staged diff (same engine path as `/review-commit`) |
+| `/council --task-id <id>` | Bind verdict to a task; appends row to `.claude/council/index.json` |
+
+`--plan <path>` and `--from-retro <anchor-id>` are deferred to COUNCIL-002 — both
+fail loudly with a clear deferral message (engine exit 3). Do not substitute another
+scope when either is supplied.
+
+Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-adversarial-council-tribunal.md`.
+
+---
+
 ## Changelog
+
+### v0.18.0
+- New `/council` adversarial tribunal — reality-checks claims with material evidence via blind investigators, prosecutor, devil's advocate, and a tool-less judge
+- `/review-commit` refactored to delegate to the council engine via `diff-mode` preset (finding-shape output; identical user-visible behavior preserved)
+- `/retro` now classifies fabrication anchors and prints `Consider: /council --from-retro <anchor-id>` hints at completion
+- TaskCompleted hook gains an opt-in council quality gate — blocks completion until a council verdict at or above threshold when task metadata sets `requires_council: true`
+- New `council-judge` agent with structurally empty tool allowlist enforcing the evidence-only invariant
+- Per-task metadata store at `.claude/tasks/<id>.json` (orchestrator-owned) and verdict index at `.claude/council/index.json` (engine-owned)
+- 60+ new MUSTs across SPEC-013 (new), SPEC-002, SPEC-009, SPEC-010, SPEC-012
 
 ### v0.17.2
 - **Docs catch-up for v0.17.0/v0.17.1**: new `docs/commands/retro.md` walks through `/retro` end-to-end (flags, two-phase pipeline, dedup classification, apply paths, integration with `/kickoff` and `/orchestrate`)

@@ -422,11 +422,22 @@ for p in d.get("proposals", []) or []:
 for o in d.get("observations", []) or []:
     print("observation\t%s\t%s" % (
         (o.get("description","") or "").replace("\t"," "), src))
+# fabrication_anchors (SPEC-012 §Phase 2 / SPEC-013 §Integration Hooks)
+for fa in d.get("fabrication_anchors", []) or []:
+    aid   = (fa.get("anchor_id","") or "").replace("\t"," ")
+    tid   = (fa.get("turn_id","") or "").replace("\t"," ")
+    claim = (fa.get("fabricated_claim_text","") or "").replace("\t"," ")
+    evid  = (fa.get("evidence_for_fabrication","") or "").replace("\t"," ")
+    # Drop records missing required fields (SKILL.md validation contract)
+    if not tid or not evid or not aid or not claim:
+        continue
+    print("fabrication_anchor\t%s\t%s\t%s\t%s" % (aid, tid, claim, evid))
 PY
 }
 
 RAW_PROPOSALS=""
 OBSERVATIONS=""
+RAW_FABRICATION_ANCHORS=""   # newline-separated: anchor_id<TAB>turn_id<TAB>claim<TAB>evidence
 
 while IFS= read -r LINE; do
   [ -z "$LINE" ] && continue
@@ -436,6 +447,12 @@ while IFS= read -r LINE; do
 
   while IFS=$'\t' read -r KIND F1 F2 F3 F4 F5 F6; do
     case "$KIND" in
+      fabrication_anchor)
+        AID="$F1"; TID="$F2"; CLAIM="$F3"; EVID="$F4"
+        [ -z "$AID" ] || [ -z "$TID" ] || [ -z "$EVID" ] && continue
+        RAW_FABRICATION_ANCHORS="$RAW_FABRICATION_ANCHORS
+$AID	$TID	$CLAIM	$EVID"
+        ;;
       proposal)
         TARGET="$F1"; TEXT="$F2"; CONF="$F3"; CITES="$F4"; PSUM="$F5"; SRCJ="$F6"
         # Rule 1: citations.length > 0
@@ -495,6 +512,26 @@ done <<< "$SUBAGENT_RESULTS"
 
 RAW_PROPOSALS=$(echo "$RAW_PROPOSALS" | sed '/^[[:space:]]*$/d')
 OBSERVATIONS=$(echo "$OBSERVATIONS"  | sed '/^[[:space:]]*$/d')
+RAW_FABRICATION_ANCHORS=$(echo "$RAW_FABRICATION_ANCHORS" | sed '/^[[:space:]]*$/d')
+
+# Dedup fabrication anchors by anchor_id — per SPEC-012 §Integration Hooks,
+# surface at most one hint per distinct anchor_id within a single retro run.
+# Cross-run dedup is automatic via the deterministic hash in anchor_id.
+FABRICATION_ANCHORS=""
+SEEN_ANCHOR_IDS=""
+while IFS= read -r row; do
+  [ -z "$row" ] && continue
+  AID=$(printf '%s' "$row" | cut -f1)
+  if printf '%s\n' "$SEEN_ANCHOR_IDS" | grep -Fxq -- "$AID"; then
+    echo "# retro: dedup fabrication_anchor anchor_id=$AID (already seen in this run)" >&2
+    continue
+  fi
+  SEEN_ANCHOR_IDS="$SEEN_ANCHOR_IDS
+$AID"
+  FABRICATION_ANCHORS="$FABRICATION_ANCHORS
+$row"
+done <<< "$RAW_FABRICATION_ANCHORS"
+FABRICATION_ANCHORS=$(echo "$FABRICATION_ANCHORS" | sed '/^[[:space:]]*$/d')
 ```
 
 ### Step 4e: Rank and cap to top 5
@@ -988,6 +1025,32 @@ Rejected/skipped: <REJECTED>
 Duplicates:       <count of DUPLICATE_PROPOSALS>
 Manual follow-up: <count of MANUAL_FOLLOWUP items>   (--auto mode only)
 Observations:     <count of OBSERVATIONS lines>
+```
+
+### Step 6h: Council integration hints (SPEC-012 §Integration Hooks, SPEC-013 §Integration Hooks)
+
+Print AFTER the retro summary, BEFORE exit. Silent skip when no anchors detected.
+
+These hints are plain suggestions — NOT auto-invocations. This command does NOT
+call `/council` itself, does NOT block completion on fabrication anchor detection,
+and does NOT require user action. They are advisory only.
+
+In COUNCIL-001 (v0.18.0), `/council --from-retro <anchor-id>` fails loudly with
+"not implemented in COUNCIL-001, planned for COUNCIL-002" — this is expected per
+the locked deferred-scope decision. The hint is printed for forward-compat.
+
+```bash
+if [ -n "$FABRICATION_ANCHORS" ]; then
+  FA_COUNT=$(printf '%s\n' "$FABRICATION_ANCHORS" | grep -c '.' || echo 0)
+  echo ""
+  echo "Detected ${FA_COUNT} fabrication anchor(s) — consider auditing with /council:"
+  while IFS= read -r row; do
+    [ -z "$row" ] && continue
+    AID=$(printf '%s' "$row" | cut -f1)
+    echo "  - Consider: /council --from-retro $AID"
+  done <<< "$FABRICATION_ANCHORS"
+  echo "(Note: /council --from-retro is deferred to COUNCIL-002; the hint is for forward-compat.)"
+fi
 ```
 
 Exit 0.

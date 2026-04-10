@@ -245,7 +245,16 @@ TaskCreate:
     <description>
     Recommended agent: <ic4|ic5|qa>
     Depends on: [Task IDs] or "none"
+    requires_council: <true|false>   # omit = false
 ```
+
+After each TaskCreate succeeds and the task id is known, the orchestrator MUST call:
+
+```bash
+bash skills/orchestrate/task-store.sh create <task_id> "<subject>" <requires_council>
+```
+
+The `requires_council` value is read from the task metadata passed to TaskCreate (default `false` if absent). This writes `$MROOT/.claude/tasks/<task_id>.json` — the source of truth the SPEC-002 TaskCompleted hook reads to determine whether the council quality gate applies (SPEC-009 line 48). If `task-store.sh` exits non-zero, surface the error to the user immediately — do NOT silently continue.
 
 Update the plan file with task IDs.
 
@@ -269,6 +278,10 @@ Plan: <plan path>
 
 When done, mark your task completed via TaskUpdate."
 ```
+
+Whenever the orchestrator invokes `/council` as part of a task's orchestration steps (e.g., a task with `requires_council: true` that requires a council verdict before completion), the orchestrator MUST export `CLAUDE_TASK_ID=<task_id>` in the subprocess environment of that `/council` invocation. This is the ambient task-id transport SPEC-013 Phase 6 uses for verdict-to-task binding via the fallback chain `--task-id` flag → `CLAUDE_TASK_ID` env → unbound (SPEC-009 line 46; SPEC-013 Task-ID Plumbing). The hook path (SPEC-002 TaskCompleted) resolves its task id from stdin JSON and does NOT share this fallback chain — the two paths are independent.
+
+The orchestrator MAY also export `CLAUDE_TASK_ID=<task_id>` when spawning regular IC agents for a task; this is useful when the agent itself invokes `/council` mid-task as a self-review.
 
 ### Monitoring loop
 
@@ -350,6 +363,14 @@ Escalate to user. Do NOT let it loop further.
 ### After Tech Lead approves:
 
 Update TaskUpdate → completed. Check if this unblocks other tasks.
+
+On every TaskUpdate that changes a task's status, the orchestrator MUST also call:
+
+```bash
+bash skills/orchestrate/task-store.sh update-status <task_id> <new_status>
+```
+
+This mirrors the new status into `$MROOT/.claude/tasks/<task_id>.json`, preserving all other fields (task_id, subject, requires_council, created_at). Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009 lines 49–51); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
 
 ---
 
@@ -544,6 +565,8 @@ This applies even if the change seems small. Small deviations compound.
 ---
 
 ## Error Handling
+
+Task metadata writes via `skills/orchestrate/task-store.sh` are **distinct from** the Claude Code TaskList / TaskCreate / TaskUpdate tools. Both tracks must stay in sync: TaskCreate → `task-store.sh create`, each TaskUpdate → `task-store.sh update-status`. If either track fails, the orchestrator MUST surface the failure to the user rather than silently diverging. The task store is the persistent source of truth for the TaskCompleted council gate (SPEC-002); TaskList is the in-session state.
 
 - **No git repo**: warn; skip worktree, work in current directory
 - **Linear MCP unavailable**: fall back to prompted context; use plans for tracking instead
