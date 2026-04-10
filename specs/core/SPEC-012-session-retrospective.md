@@ -69,6 +69,7 @@ conflict-detection and holistic-rewrite guarantees.
 - MUST require the subagent to cite evidence (message ID + 1-line excerpt) for every proposed finding
 - MUST reject proposals from the subagent that lack citations
 - MUST require `--all` mode to collapse findings that occurred only once across all sessions — only surface repeat patterns (≥ 2 occurrences) when `--all` is set
+- MUST classify findings that indicate fabricated or unverified assistant claims with a `fabrication_anchor` marker containing: the turn ID, the fabricated claim text, and a stable anchor-id (for downstream `/council --from-retro` integration per SPEC-013)
 
 ### Phase 3 — Routing & Deduplication
 - MUST classify each proposal's target as one of:
@@ -100,6 +101,9 @@ conflict-detection and holistic-rewrite guarantees.
 - `/kickoff` MUST print `Consider: /retro <session-id>` at completion if the phase-1 gate detected friction in the just-completed session
 - `/orchestrate` MUST print `Consider: /retro <session-id>` at completion if the phase-1 gate detected friction in the just-completed session
 - These hints MUST be printed as plain suggestions — MUST NOT auto-run `/retro`, MUST NOT block completion, MUST NOT require user action
+- `/retro` MUST print `Consider: /council --from-retro <anchor-id>` as a plain suggestion for each detected `fabrication_anchor` at completion (SPEC-013 integration)
+- The `/council` hint MUST NOT auto-run `/council`, MUST NOT block completion, MUST NOT require user action (mirrors the `/kickoff` and `/orchestrate` hint contracts above)
+- `/retro` MUST surface at most one `/council` hint per distinct anchor-id (dedup within a single run)
 
 ### Scope Exclusions
 - MUST NOT modify `AGENTS.md`
@@ -178,6 +182,7 @@ conflict-detection and holistic-rewrite guarantees.
 |------|--------|
 | 2026-04-07 | Initial spec created from brainstorm `.claude/plans/2026-04-07-brainstorm-retro.md` |
 | 2026-04-08 | Added `--apply` routing MUSTs after kickoff revealed `/adjust-agent` had no non-interactive mode. Resolved by extending SPEC-001 rather than bypassing it. |
+| 2026-04-09 | Added `fabrication_anchor` classification in phase-2 and `Consider: /council --from-retro <anchor-id>` integration hint (additive, non-blocking, dedup per anchor-id) per SPEC-013. |
 
 ---
 

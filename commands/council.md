@@ -1,0 +1,301 @@
+---
+name: council
+description: |
+  Adversarial council tribunal — reality-checks claims with material evidence.
+  Spawns blind investigators, prosecutor, devil's advocate, and a tool-less
+  judge. Issues per-claim verdicts with confidence scores. Use mid-session
+  to audit a shaky claim, after a debug session to verify "all green", or
+  on a plan file to find unverified assumptions. Shares an engine with
+  /review-commit (diff-mode preset).
+argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> [--task-id <id>]'
+---
+
+# Council
+
+Thin wrapper around the adversarial council tribunal engine. Parses user
+arguments, invokes `skills/council/engine.sh` for deterministic scaffolding,
+then drives the LLM tribunal phases (claim extraction, parallel investigation,
+prosecution, defense, judgment) via Task tool subagent spawns. Writes a
+structured report to `.claude/council/` and, for task-bound runs, appends a
+verdict row to `.claude/council/index.json`.
+
+## Arguments
+
+- `/council "<claim text>"` — audit a single pasted claim
+- `/council --session [--last N]` — audit a slice of the current session transcript
+- `/council --diff` — audit staged diff (equivalent to /review-commit dispatch path)
+- `/council --plan <path>` — audit a plan file (DEFERRED to COUNCIL-002, fails loudly)
+- `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (DEFERRED to COUNCIL-002, fails loudly)
+- `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
+- `/council --why` — print flavor presets used + reasoning (DEFERRED to COUNCIL-002, optional)
+- `/council` — no scope, fails loudly with usage
+
+Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
+`--diff`, `--plan`, or `--from-retro` must be supplied.
+
+## Step 0: Resolve roots
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+```
+
+## Step 1: Locate the engine
+
+```bash
+# Try MROOT (dev / worktree path) first
+ENGINE_SH="$MROOT/skills/council/engine.sh"
+
+if [ ! -x "$ENGINE_SH" ]; then
+  # Fall back to plugin cache (installed path), same pattern as commands/retro.md
+  PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null \
+    | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
+  ENGINE_SH="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/council/engine.sh"
+  if [ ! -x "$ENGINE_SH" ]; then
+    ENGINE_SH=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/council/engine.sh" 2>/dev/null \
+      | sort -V | tail -1)
+  fi
+fi
+
+if [ ! -x "$ENGINE_SH" ]; then
+  echo "error: skills/council/engine.sh not found" >&2
+  echo "Expected: $MROOT/skills/council/engine.sh" >&2
+  echo "      or: $HOME/.claude/plugins/cache/cold-dark-void/dev-team/<ver>/skills/council/engine.sh" >&2
+  exit 1
+fi
+```
+
+## Step 2: Preflight
+
+Pass all user-supplied arguments to the engine's `preflight` subcommand.
+The engine validates scope, resolves task-id (via `--task-id` flag →
+`CLAUDE_TASK_ID` env → unbound), resolves preset (`--diff` → `diff-mode`,
+otherwise `generic`), and fails loudly on deferred or missing scopes.
+
+```bash
+PLAN_FILE=$(mktemp /tmp/council-plan.XXXXXX.json)
+
+engine.sh preflight <parsed-args> > "$PLAN_FILE"
+EXIT=$?
+```
+
+Exit code handling:
+
+- **Exit 2 (no scope / mutually exclusive scopes):** print engine's stderr
+  verbatim and exit. Do NOT continue.
+- **Exit 3 (deferred scope: `--plan` or `--from-retro`):** print engine's
+  stderr verbatim and exit. Do NOT silently treat as another scope.
+- **Exit 4 (unknown preset):** print engine's stderr verbatim and exit.
+- **Exit 0:** `$PLAN_FILE` contains the investigation-plan JSON. Proceed to
+  Step 3.
+
+The investigation-plan JSON emitted by `preflight` contains at minimum:
+`scope`, `preset`, `output_shape`, `task_id` (or null), `claim_budget`,
+`claim_extraction_needed` (bool), `raw_input_type`, and `flavor_list`.
+
+## Step 3: Drive the council tribunal phases
+
+Read the investigation-plan JSON from `$PLAN_FILE`. The interpreting Claude
+executes the phases below, spawning Task subagents as specified. All subagent
+spawns for a given phase must be issued in a single message (parallel
+execution).
+
+### Phase 1 — Claim Extraction
+
+Run when `claim_extraction_needed` is `true` in the investigation plan (i.e.
+for `--session` and `--diff` scopes). Skip for single pasted claims —
+extraction is not needed when the claim is already isolated.
+
+Spawn one Task subagent:
+
+```
+subagent_type: "general-purpose"
+prompt: skills/council/prompts/claim-extractor.md
+  with substitutions:
+    {{SCOPE_TYPE}}   ← plan.scope
+    {{RAW_INPUT}}    ← raw transcript slice / diff text (artifacts only, no prior narrative)
+    {{SPEC_BUNDLE}}  ← applicable-specs bundle if diff-mode, else omit placeholder
+    {{CLAIM_BUDGET}} ← plan.claim_budget (default 10)
+```
+
+Receive the structured claim list: `[{ claim, source_locator, claim_type }]`.
+For diff-mode the records are candidate findings `{ file, line, description }`.
+
+### Phase 2 — Parallel Investigation
+
+For each claim from Phase 1 (or the single pasted claim), spawn at least 2
+investigator Task subagents in parallel with distinct flavor presets. Minimum:
+`paranoid-ic` flavor + at least one other (e.g. `jaded-senior`) to prevent
+monoculture. Use `plan.flavor_list` to determine which flavors to spawn.
+
+Spawn pattern (one Task per claim per flavor):
+
+```
+subagent_type: "general-purpose"
+prompt: skills/council/prompts/investigator.md
+  with substitutions:
+    {{CLAIM}}          ← claim.claim (verbatim)
+    {{SOURCE_LOCATOR}} ← claim.source_locator
+    {{RAW_ARTIFACTS}}  ← raw files / logs / diff (artifacts only)
+    {{FLAVOR_DELTA}}   ← contents of skills/council/flavors/<flavor>.md body
+    {{TOOL_ALLOWLIST}} ← "Read, Grep, Glob, Bash (read-only)"
+```
+
+**Blindness invariant:** do NOT pass prior assistant narrative, prior
+verdicts, or prior advocate/prosecutor output to any investigator. Raw
+artifacts only.
+
+Collect evidence bundles. Required schema per bundle:
+```
+{ tool_use_id, raw_blob, file_line, reproducible_command }
+```
+
+Bundles missing `tool_use_id` are treated as "no evidence collected" for
+that claim. Do not discard them yet — pass the full set to Phase 4 and let
+the engine finalize strike accounting.
+
+### Phase 3 — Domain Specialist (DEFERRED — COUNCIL-001 no-op)
+
+Skip entirely. Do not inspect claim topics, do not pull any specialist agent.
+Note in the collected outputs that Phase 3 was skipped per COUNCIL-001 scope.
+The evidence bundle set from Phase 2 is passed directly to Phase 4.
+
+### Phase 4 — Prosecution and Defense
+
+Spawn exactly one Prosecutor and one Devil's Advocate in parallel:
+
+```
+Prosecutor:
+  subagent_type: "general-purpose"
+  prompt: skills/council/prompts/prosecutor.md
+    with substitutions:
+      {{EVIDENCE_BUNDLES}} ← all evidence bundles from Phase 2 (raw, no narrative)
+      {{FLAVOR_DELTA}}     ← contents of skills/council/flavors/jaded-senior.md body
+
+Devil's Advocate:
+  subagent_type: "general-purpose"
+  prompt: skills/council/prompts/advocate.md
+    with substitutions:
+      {{EVIDENCE_BUNDLES}} ← all evidence bundles from Phase 2 (raw, no narrative)
+      {{FLAVOR_DELTA}}     ← contents of skills/council/flavors/yolo-ic.md body
+```
+
+Both roles receive evidence bundles only — not the original claims, not each
+other's output, not prior narrative.
+
+Collect: prosecutor brief, advocate brief.
+
+### Phase 5 — Judgment
+
+Spawn the council judge via the Task tool using the agent definition at
+`agents/council-judge.md`. That file declares `tools: ""` — the empty tool
+allowlist is structurally enforced; the judge cannot call any tool.
+
+```
+agent: agents/council-judge.md
+prompt: skills/council/prompts/judge.md
+  with substitutions:
+    {{CLAIMS}}            ← original claim list from Phase 1 (verbatim records)
+    {{EVIDENCE_BUNDLES}}  ← all evidence bundles from Phase 2
+    {{PROSECUTOR_BRIEF}}  ← prosecutor brief (post Phase 4)
+    {{ADVOCATE_BRIEF}}    ← advocate brief (post Phase 4)
+    {{OUTPUT_SHAPE}}      ← plan.output_shape ("verdict[]" or "finding[]")
+```
+
+Receive the judge's verdict list or finding list.
+
+Expected schemas:
+
+```
+verdict[]  → [{ claim, verdict, confidence, evidence_blob }]
+  verdict values: VERIFIED | PARTIALLY_VERIFIED | UNVERIFIED | CONTRADICTED | FABRICATED
+
+finding[]  → [{ file, line, severity, category, description, suggestion, confidence, tool_use_id }]
+  severity values: critical | warning | nitpick
+```
+
+### Strike Enforcement (before finalize)
+
+Before passing outputs to Step 4, scan prosecutor brief, advocate brief, and
+judge output for lines that lack an investigator `tool_use_id` reference.
+Collect these into a `struck_lines` array. The engine's finalize subcommand
+expects this array as input.
+
+Also strike:
+- Any verdict with a value outside the five-term taxonomy
+- Any finding with a severity outside the three-term taxonomy
+- Any verdict or finding line missing an inline raw evidence blob
+
+Struck lines must be preserved — never silently dropped.
+
+## Step 4: Finalize and persist
+
+Write collected outputs (evidence bundles, prosecutor brief, advocate brief,
+judge output, struck_lines) to temp files, then call `engine.sh finalize`:
+
+```bash
+engine.sh finalize \
+  --plan-file    "$PLAN_FILE" \
+  --evidence-file "$EVIDENCE_FILE" \
+  --judge-output  "$JUDGE_FILE" \
+  [--task-id      "<task_id if present>"]
+```
+
+The engine renders the report from the appropriate template
+(`skills/council/templates/report-verdict.md` or `report-finding.md`),
+writes it to `.claude/council/`, calls `skills/council/index-writer.sh`
+for task-bound runs, and prints a stdout summary.
+
+Capture the engine's stdout. On non-zero exit, print engine stderr verbatim
+and exit non-zero.
+
+## Step 5: Print stdout summary
+
+Print the engine's stdout summary verbatim. It will contain:
+
+```
+Council report: <relative path>
+Scope: <scope>
+Preset: <preset> (<output_shape>)
+<verdict counts or finding counts by severity>
+<struck lines count>
+```
+
+## Step 6: Surface struck lines
+
+If the engine reported `struck_lines > 0`, print a one-line warning:
+
+```
+Warning: N verdict lines were struck for missing evidence — see <report path> Audit Trail section.
+```
+
+## Error Handling
+
+- **No scope and no prior context** → engine exits 2 → print usage and exit
+- **Deferred scope (`--plan`, `--from-retro`)** → engine exits 3 → print the
+  engine's stderr message verbatim and exit. Do NOT silently treat as another scope.
+- **Unknown preset** → engine exits 4 → print stderr and exit
+- **Engine not found** → print clear error mentioning expected paths and exit
+- **Investigator returns no evidence** → legal "no evidence found" outcome;
+  the judge marks the verdict UNVERIFIED with low confidence
+- **Judge attempts to call a tool** → structurally impossible (empty tool
+  allowlist) but if it happens, the evidence-or-silence rule strikes the
+  affected lines
+- **Phase 2 produces zero bundles** → engine finalize exits 5 → print stderr and exit
+- **Index write failure** → engine finalize exits 6 → print stderr and exit
+- **Judge returned malformed output** → engine finalize exits 7 → print stderr and exit
+
+## Rules
+
+- This command does NOT write code. It orchestrates Task subagents and pipes
+  their outputs through the engine.
+- Investigators MUST be blind (no prior assistant narrative passed)
+- Judge MUST NOT have any tool access (enforced by `agents/council-judge.md`)
+- Every verdict line MUST be backed by an investigator tool_use_id
+- Phase 3 (domain specialist) is a no-op in COUNCIL-001 — skip entirely
+- Phase 7 (feedback memory) is invoked by the engine for `verdict[]`-shape
+  runs only; the command does not call it directly
+- Deferred scopes MUST fail loudly via engine exit code 3 — never silently
+  substitute another behavior

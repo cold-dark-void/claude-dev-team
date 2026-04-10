@@ -19,6 +19,24 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
 - MUST validate both `plugin.json` and `marketplace.json` as parseable JSON before allowing task completion (exit code 2 on failure)
 - MUST send hook error output to stderr, not stdout
 - MUST skip validation for missing files (only validate files that exist)
+- `task-completed.sh` MUST read its event payload from stdin as a single JSON object and parse the following fields: `task_id` (string), `task_subject` (string), `task_description` (string), `hook_event_name` (string), `session_id` (string), `transcript_path` (string), `cwd` (string); the `task_id` field is the authoritative task identifier for the gate in Claude-Code-native TaskCompleted invocations
+- `task-completed.sh` MUST read `$MROOT/.claude/tasks/<task_id>.json` using the resolved task id (see stdin/env resolution MUSTs below) to determine whether the opt-in council quality gate from SPEC-013 applies
+- The hook MUST resolve `$MROOT` from `git rev-parse --git-common-dir` (NOT from cwd) so it reads task/council files under the shared worktree root
+- When `.claude/tasks/<task_id>.json` is missing, the hook MUST treat it as "task not council-gated" and silent no-op pass — this is the legitimate "task existed before the council gate existed" path
+- When `.claude/tasks/<task_id>.json` exists and `requires_council: false` or the field is absent, the hook MUST silent no-op pass
+- When `.claude/tasks/<task_id>.json` exists and `requires_council: true`, the hook MUST then query `.claude/council/index.json` for a qualifying verdict and apply the council gate logic below (confidence ≥ threshold, `verdict[]`-shape only, distinct fail modes)
+- The hook MUST resolve the completing task id from stdin JSON `task_id` as the primary transport — this is the channel Claude Code itself uses to deliver the TaskCompleted event (verified by the 2026-04-09 contract spike at `.claude/plans/2026-04-09-taskcompleted-hook-spike.md`); the hook MUST treat the stdin `task_id` as a string and MUST NOT coerce it to integer
+- The hook MAY read `CLAUDE_TASK_ID` from the environment as a fallback task-id source, used only when stdin is empty or does not contain a parseable JSON object with a `task_id` field (edge case: the hook is invoked outside a Claude-Code-native TaskCompleted event flow, e.g. direct shell invocation during tests). Claude Code itself does NOT inject `CLAUDE_TASK_ID`; the env var is populated only when an orchestrator explicitly exports it for a subprocess invocation (see SPEC-009 Orchestrate section)
+- If neither stdin JSON nor `CLAUDE_TASK_ID` yields a task id, the hook MUST treat the event as non-gated and silent no-op pass, UNLESS the hook has already determined from other context that `requires_council: true` applies (which is impossible without a task id — so in practice the no-task-id path is always a silent pass)
+- When `requires_council: true`, the hook MUST resolve the council verdict by querying `.claude/council/index.json` only — the single source of truth defined by SPEC-013 Phase 6. The hook MUST NOT scan `.claude/council/*.md` report files, MUST NOT pattern-match filenames, and MUST NOT invoke `/council`
+- The hook MUST parse the index as `{ "<task_id>": [ { "report_path": string, "max_verdict_confidence": int|null, "max_finding_confidence": int|null, "created_at": ISO-8601 }, … ], … }` and consider only rows whose `max_verdict_confidence` is non-null — `finding[]`-shape rows (diff-mode code review from `/review-commit`) MUST be ignored by the council gate, because a code-review finding is not a fabrication verdict (mirrors SPEC-013's "gate applies to `verdict[]`-shape runs only")
+- The hook MUST pass when at least one `verdict[]`-shape row for the task id has `max_verdict_confidence ≥ council.taskgate.min_confidence` (default 80); newest-first order per SPEC-013 means the most recent run wins but any qualifying row is sufficient
+- The hook MUST hard-fail with exit code 2 and a clear stderr message in each of the following cases (no soft fallbacks, no silent passes):
+  - `requires_council: true` declared but no task id can be resolved from either stdin JSON `task_id` or `CLAUDE_TASK_ID` env var → stderr "cannot gate without task id" naming both attempted sources (this is a structural impossibility on a Claude-Code-native TaskCompleted event; the fail path exists for defensive coverage of non-native invocations)
+  - `.claude/council/index.json` missing or unparseable → stderr naming the missing/invalid index path
+  - Task id absent from the index → stderr "no verdict exists" naming the blocked task id
+  - Task id present but no `verdict[]`-shape row meets the threshold → stderr naming the blocked task id, the best observed `max_verdict_confidence`, and the required `council.taskgate.min_confidence` value
+- The hook MUST treat `requires_council: false` or absent as the default no-op path — no index read, no env var requirement, silent pass
 - MUST enable sandbox (`sandbox.enabled: true`) with `autoAllowBashIfSandboxed: true`
 - MUST include `Bash(*)` in permissions.allow
 - MUST set `permissions.defaultMode: "bypassPermissions"` as the shipped default
@@ -28,6 +46,11 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
 - MUST use MIT license
 
 Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap — see SPEC-005.
+
+### Settings keys (`.claude/settings.json`)
+
+- `council.taskgate.min_confidence` — integer 0–100, default 80. Confidence threshold for the TaskCompleted council gate (see MUSTs above).
+- `council.feedback.fabricated_min` and `council.feedback.unverified_min` — owned by SPEC-013 Phase 7 (feedback memory thresholds); listed here for centralized settings reference only.
 
 ## SHOULD
 
@@ -52,6 +75,7 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 ## Open Questions
 
 - [ ] Is `exit 2` the correct hook failure code for all Claude Code versions, or should it be `exit 1`?
+- [x] ~~TaskCompleted hook event-payload transport~~ **Resolved 2026-04-09**: Claude Code delivers a single-line JSON object on stdin with fields `task_id`, `task_subject`, `task_description`, `hook_event_name`, `session_id`, `transcript_path`, `cwd`. `CLAUDE_TASK_ID` is NOT injected by Claude Code — only by orchestrators exporting it for subprocess `/council` invocations. Stdin is now the primary transport MUST; env var is the fallback. See `.claude/plans/2026-04-09-taskcompleted-hook-spike.md` for the verbatim probe output.
 
 ## Version History
 
@@ -59,9 +83,15 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 |------|--------|
 | 2026-03-22 | Initial spec generated by /generate-specs |
 | 2026-03-23 | Resolved: bypassPermissions is shipped default. Clarified version format (semantically identical, not string-identical). Moved AGENT_TEAMS env var to SPEC-005. Added version format rules. |
+| 2026-04-09 | Added TaskCompleted council gate: `task-completed.sh` enforces `requires_council: true` via verdict lookup in `.claude/council/` with `council.taskgate.min_confidence` threshold (SPEC-013, SPEC-009). |
+| 2026-04-09 | Tightened TaskCompleted gate contract to match SPEC-013 Phase 6 plumbing: hook MUST query `.claude/council/index.json` only (no report-file scans), MUST read task id from `CLAUDE_TASK_ID`, MUST ignore `finding[]`-shape rows, and MUST hard-fail distinctly for missing-index / missing-task-id / missing-verdict / below-threshold / unset-env cases. |
+| 2026-04-09 | Defined task-metadata read path: hook MUST read `$MROOT/.claude/tasks/<task_id>.json` (resolved via `git rev-parse --git-common-dir`) to determine `requires_council`. Missing file or `requires_council: false`/absent → silent no-op; `requires_council: true` → proceeds to the council index gate. Per-task metadata file is written by SPEC-009 orchestrator. |
+| 2026-04-09 | Stdin-authoritative correction (post-Task-1 spike): inverted task-id transport priority. Hook MUST read `task_id` from stdin JSON (the channel Claude Code itself uses) as the primary source; `CLAUDE_TASK_ID` env var demoted to fallback for non-native invocations only. Recorded the verified stdin payload shape (task_id/task_subject/task_description/hook_event_name/session_id/transcript_path/cwd) and closed the transport Open Question. Orchestrator-side `CLAUDE_TASK_ID` export in SPEC-009 remains valid — it governs the separate `/council` subprocess path, not the hook. See `.claude/plans/2026-04-09-taskcompleted-hook-spike.md`. |
 
 ## Cross-references
 
 - SPEC-010: Code Review & Release — release skill bumps all three version files
 - SPEC-003: Agent Role System — settings.json enables agent teams
 - SPEC-005: Team Bootstrap — init-orchestration writes/merges settings.json, sets AGENT_TEAMS env var
+- SPEC-013: Adversarial Council Tribunal — defines council verdicts, confidence taxonomy, and `requires_council` opt-in; TaskCompleted hook enforces verdict gate
+- SPEC-009: Ticket Workflow — orchestrated tasks MAY set `requires_council: true` metadata, enforced by this spec's hook

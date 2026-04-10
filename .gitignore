@@ -2,3 +2,5 @@
 .claude/settings.local.json
 .claude/context/
 .claude/memory/
+.claude/council/
+.claude/tasks/

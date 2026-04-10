@@ -1,176 +1,105 @@
 ---
 name: review-and-commit
 description: |
-    Brutally honest review of staged/modified files — no sugar-coating, no diplomacy.
-    Runs 5 parallel specialist sub-agents (Logic, Security, Compliance, Quality,
-    Simplification) with confidence scoring to filter false positives. Blocks commit
-    on critical issues. Prints review as text; accepts an optional path argument to
-    also save to a file.
+    Brutally honest review of staged/modified files — no sugar-coating. Thin
+    wrapper over the council engine with preset `diff-mode`: 5 specialist
+    investigators (logic, security, compliance, quality, simplification) run
+    in parallel, filtered at confidence 80. Blocks commit on critical or
+    compliance findings. Optional path argument saves the review to a file.
 ---
 
 # Review and Commit
 
-Your job is NOT to be nice. Your job is to protect the codebase from entropy.
+Thin wrapper over `skills/council/engine.sh` with `preset: diff-mode`. The
+engine owns the adversarial pipeline; this skill configures the diff scope,
+drives the LLM phases, and renders findings in the legacy review-commit
+format users already know. Your job is NOT to be nice — protect the codebase
+from entropy.
 
 ## Arguments
 
 - No argument: print review as text only
-- With path (e.g. `/review-and-commit /tmp/review.md`): also save to that file
+- `/review-and-commit <path>`: also save the rendered review to that file
 
----
+## Step 1: Stage and inspect
 
-## Step 1: Get the Changes
-
-Read all staged and modified files:
 ```bash
 git diff --cached
 git diff
 ```
 
-If nothing is staged or modified, tell the user there is nothing to review and stop.
+If nothing is staged or modified, stop. Read every changed file in full —
+do not review hunks in isolation.
 
-Read every changed file in full — do not review hunks in isolation.
+## Step 2: Locate the council engine
 
----
-
-## Step 2: Load Project Rules
-
-Read these files (skip any that don't exist):
+Same resolution pattern as `commands/council.md`:
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)
+ENGINE_SH="$MROOT/skills/council/engine.sh"
+if [ ! -x "$ENGINE_SH" ]; then
+  ENGINE_SH=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/council/engine.sh" 2>/dev/null | sort -V | tail -1)
+fi
+[ -x "$ENGINE_SH" ] || { echo "error: council engine.sh not found" >&2; exit 1; }
 ```
 
-- `$MROOT/AGENTS.md` — project rules and conventions
-- `$MROOT/CLAUDE.md` — project instructions
-- Any per-directory `CLAUDE.md` files in directories containing changed files
+## Step 3: Preflight (diff-mode preset)
 
-Extract all rules, conventions, and constraints from these files. These form
-the compliance checklist for Step 3.
-
----
-
-## Step 3: Parallel Multi-Agent Review
-
-Launch **5 specialist sub-agents in parallel** (Opus model). Each receives the
-full diff, the full content of changed files, and their specific review focus.
-
-### Agent 1: Logic & Correctness
-Focus exclusively on:
-- Bugs, off-by-ones, missed early returns
-- Race conditions and concurrency mistakes
-- Error handling gaps — swallowed errors, missing retries, silent failures
-- Edge cases the author clearly didn't think about
-- N+1 queries, unbounded allocations, hot-path inefficiencies
-
-### Agent 2: Security & PII
-Focus exclusively on:
-- Injection vulnerabilities (SQL, command, template)
-- Auth bypass, missing authorization checks
-- Secret or token exposure in code or logs
-- OWASP top 10 violations
-- Trust boundary violations — unvalidated external input treated as safe
-- Logging that emits PII fields (email, name, phone, address, password, token,
-  secret, ssn, card, account, session, ip, user_id, customer_id)
-- Error messages that leak internal state or user data
-- Struct serialization of types with sensitive fields missing omit/redact tags
-
-### Agent 3: Compliance (AGENTS.md / CLAUDE.md)
-Focus exclusively on:
-- Every rule extracted from AGENTS.md — validate the diff does not violate it
-- Every rule from CLAUDE.md files — validate compliance
-- Version file sync (plugin.json, marketplace.json, README.md)
-- File size constraints (no file > 1k lines)
-- PR size constraints (~1k LOC soft cap, 2k hard cap)
-- Memory file line limits if agent memory files are changed
-- Naming conventions and code conventions from project rules
-- Commit hygiene rules
-
-For each rule checked, report: PASS, FAIL, or N/A.
-
-### Agent 4: Design & Quality
-Focus exclusively on:
-- Wrong abstractions or layering
-- Hidden coupling that will cause pain later
-- Breaking API changes without justification
-- Copy-paste that should be abstracted — or premature abstractions that shouldn't exist
-- Interfaces with one implementation — delete the interface
-- Helpers used in exactly one place — inline them
-- Config for things that never change
-- Premature generalization for hypothetical future requirements
-- Naming that requires a comment to decode
-
-### Agent 5: Simplification
-Focus exclusively on:
-- Can any changed code be made simpler while preserving behavior?
-- Are there shorter, clearer ways to express the same logic?
-- Is there dead code, unused imports, unreachable branches?
-- Consistent patterns — does the new code match existing conventions?
-- Complexity reduction opportunities
-- Prefer deletion over addition — if a simpler path exists, that is the path
-
-### Sub-agent output format
-
-Each agent must output findings as a JSON array:
-```json
-[
-  {
-    "file": "path/to/file",
-    "line": 42,
-    "severity": "critical|warning|nitpick",
-    "category": "logic|security|compliance|design|simplification",
-    "description": "what is wrong",
-    "suggestion": "what to do instead"
-  }
-]
+```bash
+PLAN_FILE=$(mktemp /tmp/review-commit-plan.XXXXXX.json)
+"$ENGINE_SH" preflight --scope diff --preset diff-mode > "$PLAN_FILE"
 ```
 
-If no issues found, return `[]`.
+Preflight runs Phase 0 intake including spec-grep enrichment over
+`$MROOT/specs/**/*.md` for MUSTs matching changed paths. The plan declares
+`output_shape: finding[]`, flavor list (logic, security, compliance, quality,
+simplification), `spec_grep: true`, `feedback_memory_enabled: false`,
+`confidence_filter_threshold: 80`.
 
-### Tone rules for ALL agents (non-negotiable)
-- Do not soften criticism
-- Do not congratulate
-- No hedging language — never say "maybe", "consider", "you might want to"
-- Every issue must reference a specific `file:line`
-- Suggest concrete fixes, not vague advice
+## Step 4: Drive the diff-mode council phases
 
----
+Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
 
-## Step 4: Confidence Scoring
+- **Phase 1** — the 5 specialist flavors ARE the investigators. Spawn 5 Task
+  subagents in one message (parallel), one per flavor from
+  `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`,
+  using `skills/council/prompts/investigator.md`. Pass full diff, full
+  changed-file contents, applicable-specs bundle, `output_shape: finding[]`,
+  tool allowlist `Read, Grep, Glob, Bash (read-only)`. Every finding MUST
+  carry a `tool_use_id`.
+- **Phase 2 / Phase 3** — n/a (specialists already investigate; domain
+  specialist deferred).
+- **Phase 4** — skipped in diff-mode; route specialist findings directly to
+  the judge.
+- **Phase 5** — spawn `agents/council-judge.md` (empty tool allowlist) with
+  `skills/council/prompts/judge.md`, `claims=[]`, findings as evidence
+  bundles, `output_shape: finding[]`. Judge dedupes, strikes findings
+  missing `tool_use_id` or confidence <80, emits final `finding[]`.
+- **Strike enforcement** — same rule as `commands/council.md`: any line
+  without a `tool_use_id`, severity outside `critical|warning|nitpick`, or
+  confidence <80 → `struck_lines`; never silently drop.
 
-After collecting all findings from the 5 agents, score each finding for
-confidence on a 0-100 scale:
+## Step 5: Finalize
 
-- **0-25**: Likely false positive — the code is probably fine
-- **26-50**: Uncertain — might be an issue but not clear
-- **51-79**: Probable issue — worth a second look
-- **80-94**: High confidence — this should be fixed (WARNING)
-- **95-100**: Near certain — this must be fixed (CRITICAL)
+```bash
+EVIDENCE_FILE=$(mktemp /tmp/rc-evidence.XXXXXX.json)
+JUDGE_FILE=$(mktemp /tmp/rc-judge.XXXXXX.json)
+# populate from Phase 1 / Phase 5 outputs, then:
+"$ENGINE_SH" finalize --plan-file "$PLAN_FILE" \
+  --evidence-file "$EVIDENCE_FILE" --judge-output "$JUDGE_FILE"
+```
 
-Scoring criteria:
-- Is there clear evidence in the code for the issue?
-- Could the reviewer be misunderstanding intent or context?
-- Is this a pre-existing issue or introduced by this diff?
-- Is this something a linter would catch? (deprioritize — linters should handle it)
+Engine renders the canonical report via
+`skills/council/templates/report-finding.md` to
+`$MROOT/.claude/council/<YYYY-MM-DD>-diff-staged.md`.
 
-**Discard all findings scoring below 80.** This is the noise filter.
+## Step 6: Output the Review (legacy format — DO NOT ALTER)
 
----
-
-## Step 5: Spec Alignment
-
-Check `specs/` for specs related to the changed behavior. If any spec is out of
-date with the changes, update it now. Never skip this step — if no specs
-directory exists, note it and move on.
-
----
-
-## Step 6: Output the Review
-
-Print the review directly in the conversation using this structure.
-Omit any section that has no items (after confidence filtering).
+Read the judge's finding[] output and print it in this exact structure. Omit
+empty sections. Every heading, label, and bracket-confidence annotation is
+load-bearing — user muscle memory and Task 15's snapshot test depend on it.
 
 ```
 ## Critical Issues (Must Fix) [confidence 95-100]
@@ -205,45 +134,62 @@ The simpler or safer direction. Prefer subtraction.
 Review stats: N findings from 5 agents, M passed confidence filter (≥80), K discarded.
 ```
 
-If a path argument was provided, also write the same output to that file.
+Grouping rules: `severity=critical` → Critical Issues; `category=compliance`
+(any severity) → Compliance Violations; `category=design,severity=warning` →
+Design Problems; `category=security,severity=warning` → Security & PII;
+`category=quality,severity=warning` → Maintainability Risks;
+`category=simplification` → Simplification Opportunities; `severity=nitpick`
+→ Nitpicks. If spec-grep detected drift, add `## Spec Alignment` listing
+affected specs. If a path argument was given, also write this output there.
 
----
+Tone rules (non-negotiable): no softening, no congratulation, no hedging
+("maybe", "consider", "you might want to"), every issue references a
+specific `file:line`, fixes are concrete.
 
 ## Step 7: Commit Gate
 
-- If any **Critical Issues** or **Compliance Violations** with severity "critical" exist:
-  do NOT commit. Tell the user exactly what must be fixed first.
-- If only Design Problems / Nitpicks / Simplification: ask the user
+- Any **Critical Issues** or **Compliance Violations** → do NOT commit; tell
+  the user exactly what must be fixed. (Matches diff-mode preset
+  `commit_gate_blocks_on: [critical, compliance]`.)
+- Design / Nitpicks / Simplification only → ask
   "Proceed with commit despite findings? (y/n)"
-- If clean (or user confirmed): commit with a conventional commit message
+- Clean or user-confirmed → `git commit` with a conventional message
   explaining *why* the change was made.
 
 ## Step 8: Action Items
 
-After the review output, always print a structured action list — even if the
-commit proceeds.
+Always print — even if the commit proceeds. Summary line first:
 
-Print a summary line first:
 ```
 Action Items: N BLOCKERs, M DESIGN, K NITPICK — [commit blocked | commit proceeded]
 ```
 
 Then the checklist:
+
 ```
 ## Action Items
 - [ ] BLOCKER `file:line` — what is wrong — exactly what to do [confidence: N]
+- [ ] COMPLIANCE `file:line` — rule violated — exactly what to do [confidence: N]
 - [ ] DESIGN  `file:line` — what is wrong — exactly what to do [confidence: N]
 - [ ] NITPICK `file:line` — what is wrong — exactly what to do [confidence: N]
 ```
 
-Rules:
-- Every item from the review must appear here — nothing omitted
-- Each item is one line: severity tag, `file:line`, problem, fix, confidence
-- No vague items — "refactor this" is not acceptable; "delete QueueInterface, use ConcreteQueue directly" is
-- Ordered: BLOCKERs first, then COMPLIANCE, then DESIGN, then NITPICK
-
----
+Rules: every review item appears here; one line each; no vague items
+("refactor this" is not acceptable — "delete QueueInterface, use
+ConcreteQueue directly" is); ordered BLOCKER → COMPLIANCE → DESIGN → NITPICK.
 
 ## Step 9: Verify
 
-Run `git status` to confirm clean state.
+`git status` to confirm clean state (if the commit proceeded).
+
+## Notes
+
+- Thin wrapper over `skills/council/SKILL.md` with `preset: diff-mode`. The
+  5 specialists load from `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`.
+- **Phase 7 feedback memory is DISABLED** for diff-mode
+  (`feedback_memory_enabled: false`). A code bug is not a claim fabrication;
+  conflating them would poison agent directives. See SPEC-013 line 105,
+  SPEC-010 line 28.
+- Engine always writes the canonical report to
+  `$MROOT/.claude/council/<date>-diff-staged.md`. An optional path argument
+  writes an ADDITIONAL copy in the legacy text format rendered by Step 6.
