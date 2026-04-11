@@ -108,9 +108,10 @@ Run when `claim_extraction_needed` is `true` in the investigation plan (i.e.
 for `--session` and `--diff` scopes). Skip for single pasted claims —
 extraction is not needed when the claim is already isolated.
 
-Spawn one Task subagent:
+Spawn one Agent subagent:
 
 ```
+description: "Extract claims from session"
 subagent_type: "general-purpose"
 prompt: skills/council/prompts/claim-extractor.md
   with substitutions:
@@ -130,9 +131,10 @@ investigator Task subagents in parallel with distinct flavor presets. Minimum:
 `paranoid-ic` flavor + at least one other (e.g. `jaded-senior`) to prevent
 monoculture. Use `plan.flavor_list` to determine which flavors to spawn.
 
-Spawn pattern (one Task per claim per flavor):
+Spawn pattern (one Agent per claim per flavor):
 
 ```
+description: "Investigate claim <N> (<flavor>)"
 subagent_type: "general-purpose"
 prompt: skills/council/prompts/investigator.md
   with substitutions:
@@ -168,6 +170,7 @@ Spawn exactly one Prosecutor and one Devil's Advocate in parallel:
 
 ```
 Prosecutor:
+  description: "Prosecute claims against evidence"
   subagent_type: "general-purpose"
   prompt: skills/council/prompts/prosecutor.md
     with substitutions:
@@ -175,6 +178,7 @@ Prosecutor:
       {{FLAVOR_DELTA}}     ← contents of skills/council/flavors/jaded-senior.md body
 
 Devil's Advocate:
+  description: "Defend claims with evidence"
   subagent_type: "general-purpose"
   prompt: skills/council/prompts/advocate.md
     with substitutions:
@@ -194,7 +198,8 @@ Spawn the council judge via the Task tool using the agent definition at
 allowlist is structurally enforced; the judge cannot call any tool.
 
 ```
-agent: agents/council-judge.md
+description: "Judge claims from evidence"
+subagent_type: "dev-team:council-judge"
 prompt: skills/council/prompts/judge.md
   with substitutions:
     {{CLAIMS}}            ← original claim list from Phase 1 (verbatim records)

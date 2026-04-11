@@ -379,6 +379,11 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.18.1
+- Fix: council report template substitution — `engine.sh finalize` now renders all `{{VAR}}` placeholders instead of dumping raw templates with appended JSON
+- Fix: claim extractor now prioritizes behavioral claims ("the fix works") over code-structure assertions ("line N calls X") in frustration-heavy debugging sessions
+- Fix: stdout summary surfaces PARTIALLY_VERIFIED / FABRICATED verdicts with claim text + confidence ("Needs attention" block), not just counts
+
 ### v0.18.0
 - New `/council` adversarial tribunal — reality-checks claims with material evidence via blind investigators, prosecutor, devil's advocate, and a tool-less judge
 - `/review-commit` refactored to delegate to the council engine via `diff-mode` preset (finding-shape output; identical user-visible behavior preserved)
