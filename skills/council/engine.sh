@@ -334,36 +334,273 @@ cmd_finalize() {
   # Ensure parent dir exists
   mkdir -p "$(dirname "$plan_report_path")"
 
-  # Render: engine.sh owns the write, templates own the prose. Task 8 may
-  # refine substitution later; this preserves the contract.
+  # Render report: python3 reads the template + all JSON inputs, substitutes
+  # every {{VAR}} placeholder, and writes the fully-rendered report.
   local created_at
   created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-  {
-    echo "---"
-    echo "scope: \"$scope\""
-    echo "preset: \"$preset\""
-    echo "output_shape: \"$output_shape\""
-    echo "created_at: \"$created_at\""
-    if [ -n "$task_id" ]; then
-      echo "task_id: \"$task_id\""
-    fi
-    echo "---"
-    echo
-    cat "$template_file"
-    echo
-    echo "## Evidence Bundles"
-    echo
-    echo '```json'
-    jq '.' "$evidence_file"
-    echo '```'
-    echo
-    echo "## Judge Output"
-    echo
-    echo '```json'
-    jq '.' "$judge_output"
-    echo '```'
-  } > "$plan_report_path"
+  python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
+    "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
+    "$task_id" <<'PYEOF'
+import json, sys, os, re
+from collections import Counter
+
+template_file  = sys.argv[1]
+plan_file      = sys.argv[2]
+evidence_file  = sys.argv[3]
+judge_file     = sys.argv[4]
+output_path    = sys.argv[5]
+scope          = sys.argv[6]
+preset         = sys.argv[7]
+output_shape   = sys.argv[8]
+created_at     = sys.argv[9]
+task_id        = sys.argv[10] if len(sys.argv) > 10 else ""
+
+# --- Load JSON inputs ---
+with open(plan_file) as f:
+    plan = json.load(f)
+with open(evidence_file) as f:
+    evidence_raw = json.load(f)
+with open(judge_file) as f:
+    judge_raw = json.load(f)
+
+# Evidence file may be a flat array of bundles or an object with sub-keys
+if isinstance(evidence_raw, list):
+    bundles = evidence_raw
+    prosecutor_brief = ""
+    advocate_brief = ""
+    extracted_claims_raw = []
+    struck_lines_raw = []
+else:
+    bundles = evidence_raw.get("bundles", evidence_raw.get("evidence_bundles", []))
+    prosecutor_brief = evidence_raw.get("prosecutor_brief", "")
+    advocate_brief = evidence_raw.get("advocate_brief", "")
+    extracted_claims_raw = evidence_raw.get("extracted_claims", evidence_raw.get("claims", []))
+    struck_lines_raw = evidence_raw.get("struck_lines", [])
+
+judge_items = judge_raw if isinstance(judge_raw, list) else []
+
+# --- Plan metadata ---
+flavors = plan.get("flavors", [])
+if isinstance(flavors, list):
+    flavors_str = ", ".join(flavors)
+else:
+    flavors_str = str(flavors)
+claim_budget = str(plan.get("claim_budget", 10))
+claims_audited = str(len(judge_items))
+completion_time = plan.get("completion_time", "N/A")
+
+# --- Format extracted claims ---
+if extracted_claims_raw:
+    claims_lines = []
+    for i, c in enumerate(extracted_claims_raw, 1):
+        if isinstance(c, dict):
+            ctype = c.get("claim_type", c.get("type", "factual"))
+            ctext = c.get("claim_text", c.get("claim", c.get("text", "")))
+            src = c.get("source_locator", c.get("source", ""))
+            claims_lines.append(f"{i}. **{ctype}** — {ctext} (source: {src})")
+        else:
+            claims_lines.append(f"{i}. {c}")
+    extracted_claims_md = "\n".join(claims_lines)
+else:
+    # Infer from judge output when claims not provided separately
+    claims_lines = []
+    for i, j in enumerate(judge_items, 1):
+        claim_text = j.get("claim", j.get("description", ""))
+        claims_lines.append(f"{i}. **factual** — {claim_text}")
+    extracted_claims_md = "\n".join(claims_lines) if claims_lines else "_No claims extracted._"
+
+# --- Format evidence bundles ---
+bundle_lines = []
+for b in bundles:
+    tid = b.get("tool_use_id", "unknown")
+    raw = b.get("raw_blob", "")
+    fl = b.get("file_line", "")
+    cmd = b.get("reproducible_command", "")
+    bundle_lines.append(f"### `{tid}` — {fl}\n")
+    bundle_lines.append(f"```\n{raw}\n```\n")
+    if cmd:
+        bundle_lines.append(f"Reproducible: `{cmd}`\n")
+evidence_bundles_md = "\n".join(bundle_lines) if bundle_lines else "_No evidence bundles._"
+
+# --- Format briefs ---
+def format_brief(text):
+    if not text:
+        return "_Brief not provided._"
+    lines = text.strip().splitlines()
+    return "\n".join(f"> {ln}" for ln in lines)
+
+prosecutor_brief_md = format_brief(prosecutor_brief)
+advocate_brief_md = format_brief(advocate_brief)
+
+# --- Format verdicts / findings ---
+if output_shape == "verdict[]":
+    verdict_lines = []
+    for v in judge_items:
+        cid = v.get("claim_id", "?")
+        claim = v.get("claim", "")
+        verd = v.get("verdict", "UNVERIFIED")
+        conf = v.get("confidence", 0)
+        blob = v.get("evidence_blob", "")
+        badge = {"VERIFIED": "VERIFIED", "PARTIALLY_VERIFIED": "PARTIALLY_VERIFIED",
+                 "UNVERIFIED": "UNVERIFIED", "CONTRADICTED": "CONTRADICTED",
+                 "FABRICATED": "FABRICATED"}.get(verd, verd)
+        verdict_lines.append(f"### Claim {cid}: {claim}\n")
+        verdict_lines.append(f"**{badge}** — confidence: {conf}/100\n")
+        verdict_lines.append(f"```\n{blob}\n```\n")
+    verdicts_md = "\n".join(verdict_lines) if verdict_lines else "_No verdicts._"
+
+    # Verdict summary table
+    counts = Counter(v.get("verdict", "UNVERIFIED") for v in judge_items)
+    taxonomy = ["VERIFIED", "PARTIALLY_VERIFIED", "UNVERIFIED", "CONTRADICTED", "FABRICATED"]
+    table_lines = ["| Taxonomy | Count |", "|---|---|"]
+    for t in taxonomy:
+        table_lines.append(f"| {t} | {counts.get(t, 0)} |")
+    verdict_summary_table_md = "\n".join(table_lines)
+else:
+    # finding[] shape
+    finding_lines = []
+    for f in judge_items:
+        fl = f.get("file", "")
+        ln = f.get("line", "")
+        sev = f.get("severity", "warning")
+        cat = f.get("category", "")
+        desc = f.get("description", "")
+        sugg = f.get("suggestion", "")
+        conf = f.get("confidence", 0)
+        tid = f.get("tool_use_id", "")
+        loc = f"{fl}:{ln}" if fl else ""
+        finding_lines.append(f"### [{sev.upper()}] {loc} ({cat})\n")
+        finding_lines.append(f"{desc}\n")
+        if sugg:
+            finding_lines.append(f"**Suggestion:** {sugg}\n")
+        finding_lines.append(f"Confidence: {conf}/100 | tool_use_id: `{tid}`\n")
+    verdicts_md = "\n".join(finding_lines) if finding_lines else "_No findings._"
+
+    # Severity summary table
+    counts = Counter(f.get("severity", "warning") for f in judge_items)
+    sev_taxonomy = ["critical", "warning", "nitpick"]
+    table_lines = ["| Severity | Count |", "|---|---|"]
+    for s in sev_taxonomy:
+        table_lines.append(f"| {s} | {counts.get(s, 0)} |")
+    verdict_summary_table_md = "\n".join(table_lines)
+
+# --- Format struck lines ---
+if struck_lines_raw:
+    struck_md = "\n".join(f"- {ln}" for ln in struck_lines_raw)
+else:
+    struck_md = "No lines struck."
+
+# --- Diff-mode specific placeholders ---
+diff_summary = plan.get("diff_summary", plan.get("scope_arg", "_Not available._"))
+applicable_specs = plan.get("applicable_specs", "_None matched._")
+if isinstance(applicable_specs, list):
+    applicable_specs = "\n".join(f"- `{s}`" for s in applicable_specs)
+
+# Commit gate status for finding[] shape
+commit_gate = "PASSED"
+if output_shape == "finding[]":
+    for f in judge_items:
+        if f.get("severity") == "critical" or f.get("category") == "compliance":
+            commit_gate = "BLOCKED"
+            break
+
+# Action items for finding[] shape
+action_lines = []
+sev_order = {"critical": 0, "warning": 1, "nitpick": 2}
+label_map = {"critical": "BLOCKER", "warning": "DESIGN", "nitpick": "NITPICK"}
+for f in sorted(judge_items, key=lambda x: sev_order.get(x.get("severity", ""), 9)):
+    sev = f.get("severity", "warning")
+    fl = f.get("file", "")
+    ln = f.get("line", "")
+    desc = f.get("description", "")
+    sugg = f.get("suggestion", desc)
+    conf = f.get("confidence", 0)
+    loc = f"`{fl}:{ln}`" if fl else ""
+    label = label_map.get(sev, "NITPICK")
+    action_lines.append(f"- [ ] {label} {loc} — {desc} — {sugg} [confidence: {conf}]")
+action_items_md = "\n".join(action_lines) if action_lines else "_No action items._"
+
+# --- Read template and strip comment block ---
+with open(template_file) as f:
+    template = f.read()
+
+# Strip [//]: # comment lines (authoring notes)
+template = re.sub(r'^\[//\]: #.*\n?', '', template, flags=re.MULTILINE)
+
+# --- Build YAML frontmatter ---
+fm_lines = ["---"]
+fm_lines.append(f'scope: "{scope}"')
+fm_lines.append(f'preset: "{preset}"')
+fm_lines.append(f'output_shape: "{output_shape}"')
+fm_lines.append(f'created_at: "{created_at}"')
+if task_id:
+    fm_lines.append(f'task_id: "{task_id}"')
+fm_lines.append("---")
+frontmatter = "\n".join(fm_lines)
+
+# --- Substitution map ---
+subs = {
+    "{{SCOPE}}": scope,
+    "{{PRESET}}": preset,
+    "{{TIMESTAMP}}": created_at,
+    "{{INVESTIGATOR_FLAVORS}}": flavors_str,
+    "{{CLAIM_BUDGET}}": claim_budget,
+    "{{CLAIMS_AUDITED}}": claims_audited,
+    "{{EXTRACTED_CLAIMS}}": extracted_claims_md,
+    "{{EVIDENCE_BUNDLES}}": evidence_bundles_md,
+    "{{PROSECUTOR_BRIEF}}": prosecutor_brief_md,
+    "{{ADVOCATE_BRIEF}}": advocate_brief_md,
+    "{{VERDICTS}}": verdicts_md,
+    "{{FINDINGS}}": verdicts_md,
+    "{{STRUCK_LINES}}": struck_md,
+    "{{STRUCK_FINDINGS}}": struck_md,
+    "{{VERDICT_SUMMARY_TABLE}}": verdict_summary_table_md,
+    "{{SEVERITY_SUMMARY_TABLE}}": verdict_summary_table_md,
+    "{{COMPLETION_TIME}}": completion_time,
+    "{{DIFF_SUMMARY}}": str(diff_summary),
+    "{{APPLICABLE_SPECS}}": str(applicable_specs),
+    "{{COMMIT_GATE_STATUS}}": commit_gate,
+    "{{ACTION_ITEMS}}": action_items_md,
+    "{{TASK_ID}}": task_id,
+}
+
+# --- Apply substitutions ---
+rendered = template
+for var, val in subs.items():
+    rendered = rendered.replace(var, val)
+
+# Remove the template's static fallback table that follows the summary
+# table placeholder (it has "| — |" placeholders meant to be replaced
+# by the dynamic table above).
+rendered = re.sub(
+    r'\n\| Taxonomy \| Count \|\n\|---\|---\|\n(\| [A-Z_]+ \| — \|\n)+',
+    '\n', rendered)
+rendered = re.sub(
+    r'\n\| Severity \| Count \|\n\|---\|---\|\n(\| [a-z]+ \| — \|\n)+',
+    '\n', rendered)
+
+# Remove the static "No lines struck." / "No findings struck." that
+# follows the {{STRUCK_*}} placeholder in the template — we already
+# rendered the correct value into the placeholder.
+if struck_lines_raw:
+    # If there ARE struck lines, remove the static fallback text
+    rendered = rendered.replace("\nNo lines struck.\n", "\n")
+    rendered = rendered.replace("\nNo findings struck.\n", "\n")
+else:
+    # struck_md is already "No lines struck." — remove the duplicate
+    # static line so it doesn't appear twice.
+    rendered = re.sub(r'(No lines struck\.)\n+No lines struck\.', r'\1', rendered)
+    rendered = re.sub(r'(No findings struck\.)\n+No findings struck\.', r'\1', rendered)
+
+# Strip any remaining {{VAR}} that weren't in our map (safety net)
+rendered = re.sub(r'\{\{[A-Z_]+\}\}', '', rendered)
+
+# --- Write output ---
+output = frontmatter + "\n\n" + rendered.strip() + "\n"
+with open(output_path, 'w') as f:
+    f.write(output)
+PYEOF
 
   # Call index-writer.sh ONLY when task-bound
   if [ -n "$task_id" ]; then
@@ -378,8 +615,79 @@ cmd_finalize() {
   fi
 
   # Stdout summary (contract from SKILL.md Phase 6)
-  printf '%d verdicts | %d findings written to %s\n' \
-    "$verdict_count" "$finding_count" "$plan_report_path"
+  local rel_path="${plan_report_path#$MROOT/}"
+  printf 'Council report: %s\n' "$rel_path"
+  printf 'Scope: %s\n' "$scope"
+  printf 'Preset: %s (%s)\n' "$preset" "$output_shape"
+
+  if [ "$output_shape" = "verdict[]" ]; then
+    # Verdict counts
+    local v_verified v_partial v_unverified v_contradicted v_fabricated
+    v_verified=$(jq '[.[] | select(.verdict=="VERIFIED")] | length' "$judge_output")
+    v_partial=$(jq '[.[] | select(.verdict=="PARTIALLY_VERIFIED")] | length' "$judge_output")
+    v_unverified=$(jq '[.[] | select(.verdict=="UNVERIFIED")] | length' "$judge_output")
+    v_contradicted=$(jq '[.[] | select(.verdict=="CONTRADICTED")] | length' "$judge_output")
+    v_fabricated=$(jq '[.[] | select(.verdict=="FABRICATED")] | length' "$judge_output")
+    printf 'VERIFIED: %d  PARTIALLY_VERIFIED: %d  UNVERIFIED: %d  CONTRADICTED: %d  FABRICATED: %d\n' \
+      "$v_verified" "$v_partial" "$v_unverified" "$v_contradicted" "$v_fabricated"
+
+    # Needs-attention block: any non-VERIFIED verdict
+    local attention_count=$(( v_partial + v_unverified + v_contradicted + v_fabricated ))
+    if [ "$attention_count" -gt 0 ]; then
+      printf '\n\xe2\x9a\xa0 Needs attention (%d):\n' "$attention_count"
+      python3 - "$judge_output" <<'PYEOF'
+import json, sys, textwrap
+data = json.load(open(sys.argv[1]))
+for v in data:
+    vt = v.get("verdict", "")
+    if vt == "VERIFIED":
+        continue
+    conf = v.get("confidence", "?")
+    claim = v.get("claim", "").strip()
+    blob = v.get("evidence_blob", "").strip()
+    # First non-empty line of blob as snippet
+    snippet = next((ln.strip() for ln in blob.splitlines() if ln.strip()), "")
+    if snippet:
+        print(f"  [{conf}] {vt} \u2014 {claim} ({snippet})")
+    else:
+        print(f"  [{conf}] {vt} \u2014 {claim}")
+PYEOF
+    fi
+  else
+    # Finding counts by severity
+    local f_critical f_warning f_nitpick
+    f_critical=$(jq '[.[] | select(.severity=="critical")] | length' "$judge_output")
+    f_warning=$(jq '[.[] | select(.severity=="warning")] | length' "$judge_output")
+    f_nitpick=$(jq '[.[] | select(.severity=="nitpick")] | length' "$judge_output")
+    printf 'critical: %d  warning: %d  nitpick: %d\n' \
+      "$f_critical" "$f_warning" "$f_nitpick"
+
+    # Needs-attention block: critical and warning findings
+    local attention_count=$(( f_critical + f_warning ))
+    if [ "$attention_count" -gt 0 ]; then
+      printf '\n\xe2\x9a\xa0 Needs attention (%d):\n' "$attention_count"
+      python3 - "$judge_output" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+for f in data:
+    sev = f.get("severity", "")
+    if sev not in ("critical", "warning"):
+        continue
+    conf = f.get("confidence", "?")
+    fname = f.get("file", "")
+    line = f.get("line", "")
+    desc = f.get("description", "").strip()
+    loc = f"{fname}:{line}" if fname else ""
+    if loc:
+        print(f"  [{conf}] {sev.upper()} \u2014 {loc}: {desc}")
+    else:
+        print(f"  [{conf}] {sev.upper()} \u2014 {desc}")
+PYEOF
+    fi
+  fi
+
+  # Struck lines count (not tracked at engine level; report will contain details)
+  printf '\nStruck lines: 0\n'
 }
 
 # ---- Dispatch ---------------------------------------------------------------

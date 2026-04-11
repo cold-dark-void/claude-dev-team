@@ -47,22 +47,72 @@ INPUT_TEXT:
 {{INPUT_TEXT}}
 <<<END_INPUT>>>
 
+CLAIM PRIORITY AND RANKING
+--------------------------
+Before extracting claims, pre-scan user turns in INPUT_TEXT for frustration
+signals: "revert", "stop", "wrong", "not working", "doesn't work",
+"bullshit", "same result", "nothing changed", "same", terse one-line replies
+immediately following long assistant turns. Count the number of user turns
+containing at least one signal. If >= 3 signals OR >= 30% of user turns
+contain them, frustration is HIGH. Otherwise frustration is LOW.
+
+Claim types ranked by audit value (highest first):
+
+  1. BEHAVIORAL — claims about outcomes, end-to-end behavior, or observable
+     state. Examples:
+     - "The fix resolves the issue" / "This should work now"
+     - "Score is preserved when switching items"
+     - "The generated image is sent to the scoring model"
+     - "All tests pass" / "The build succeeds"
+     These require running code, checking logs, or end-to-end reasoning to
+     verify. They are the claims users actually care about.
+
+  2. CAUSAL — claims about WHY something works or fails. Examples:
+     - "The bug was caused by stale cache in the scoring path"
+     - "This fails because the config omits the retry flag"
+     Verifiable via code reading + reasoning, but not trivially.
+
+  3. CODE-STRUCTURE — claims about what code exists at a location. Examples:
+     - "Line 42 calls computeScore()" / "The handler is in server.ts"
+     Trivially verifiable by reading the file. Rarely the claim that matters
+     in a debugging session.
+
+Budget allocation rule:
+  - When frustration is HIGH: reserve >= 5 slots for behavioral claims,
+    <= 3 for code-structure. Fill remaining slots with causal claims.
+    If fewer than 5 behavioral claims exist, fill the gap with causal.
+  - When frustration is LOW: no hard reservation. Rank all claims by
+    load_weight as normal, but when two claims have equal load_weight,
+    prefer behavioral > causal > code-structure.
+
+Map these priority tiers to claim_type values:
+  behavioral  -> claim_type "behavioral"
+  causal      -> claim_type "causal"
+  code-structure -> claim_type "factual"
+  (recommendations remain claim_type "recommendation")
+
 PROCEDURE
 ---------
-1. Scan INPUT_TEXT for ASSERTIONS — statements that claim something is true
+1. Run the frustration pre-scan described above. Note the frustration level
+   (HIGH or LOW) — this controls budget allocation in step 4.
+2. Scan INPUT_TEXT for ASSERTIONS — statements that claim something is true
    about code, config, behavior, metrics, or state. Ignore questions,
    opinions, hedged language ("maybe", "I think"), and pure narration.
-2. For each assertion, record:
+3. For each assertion, record:
    - claim: the verbatim assertion (or a lossless paraphrase <= 200 chars
      if the source is multi-sentence)
    - source_locator: a pointer the investigator can use to re-find the
      claim — turn id, file:line, diff hunk header, or "input:offset=N"
-   - claim_type: one of "factual" (X is true of file/state) | "causal"
-     (X caused Y) | "recommendation" (we should do X)
+   - claim_type: one of "behavioral" (outcome/observable state) | "factual"
+     (X is true of file/state) | "causal" (X caused Y) |
+     "recommendation" (we should do X)
    - load_weight: integer 1-10 — how much of the session's decision rests
-     on this claim being true (10 = gates a deploy; 1 = flavor text)
-3. Rank by load_weight descending. Break ties by order of appearance.
-4. Truncate to the top CLAIM_BUDGET claims. If the raw list exceeds
+     on this claim being true (10 = gates a deploy; 1 = flavor text).
+     Behavioral claims about contested outcomes start at 7 minimum when
+     frustration is HIGH.
+4. Apply the budget allocation rule above, then rank by load_weight
+   descending. Break ties: behavioral > causal > factual > recommendation.
+5. Truncate to the top CLAIM_BUDGET claims. If the raw list exceeds
    CLAIM_BUDGET, list the dropped ones in `un_audited[]` with the same
    record shape.
 5. If you can find ZERO load-bearing claims, return
@@ -83,7 +133,7 @@ OUTPUT
 Respond with a SINGLE LINE of strict JSON matching this schema. No prose,
 no markdown fences, no commentary.
 
-{"claims":[{"claim":"...","source_locator":"...","claim_type":"factual|causal|recommendation","load_weight":1}],"un_audited":[{"claim":"...","source_locator":"...","claim_type":"...","load_weight":1}],"reason":null}
+{"claims":[{"claim":"...","source_locator":"...","claim_type":"behavioral|factual|causal|recommendation","load_weight":1}],"un_audited":[{"claim":"...","source_locator":"...","claim_type":"...","load_weight":1}],"reason":null}
 ```
 
 ---
@@ -103,7 +153,7 @@ no markdown fences, no commentary.
   "claims": [
     {"claim": "string <= 200 chars",
      "source_locator": "string",
-     "claim_type": "factual|causal|recommendation",
+     "claim_type": "behavioral|factual|causal|recommendation",
      "load_weight": 1}
   ],
   "un_audited": [],
@@ -118,7 +168,7 @@ The engine MUST reject the response and exit non-zero if:
 2. `claims` is not an array.
 3. `len(claims) > CLAIM_BUDGET`.
 4. Any claim is missing `claim`, `source_locator`, `claim_type`, or `load_weight`.
-5. Any `claim_type` is not in `{factual, causal, recommendation}`.
+5. Any `claim_type` is not in `{behavioral, factual, causal, recommendation}`.
 6. Any `load_weight` is outside `[1,10]`.
 7. Any `claim` text is not a substring (modulo whitespace) of `INPUT_TEXT`.
    This is how fabrication is mechanized out.
