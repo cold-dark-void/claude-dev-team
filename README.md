@@ -92,6 +92,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/check-specs` | Audit spec format + code alignment (MATCH/MISSING/DIFFERS per requirement) |
 | `/reflect-specs` | Full health check — ALL specs exhaustively, cross-spec conflicts, interactive |
 | `/generate-tests` | Generate tests from specs — one test per MUST requirement, tagged with spec ID |
+| `/tdd-gate` | Toggle hook-based TDD enforcement — blocks Write/Edit without tests (on/off/status) |
 
 #### Memory & recall
 
@@ -378,6 +379,10 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 ---
 
 ## Changelog
+
+### v0.19.0
+- New `/tdd-gate` command — toggle hook-based TDD enforcement. When enabled, a `PreToolUse` hook blocks Write/Edit to implementation files unless a corresponding test file exists. Supports TypeScript, JavaScript, Python, Go, Rust. Inspired by Superpowers + TDD Guard
+- Usage: `/tdd-gate on` to enable, `/tdd-gate off` to disable, `/tdd-gate status` to check
 
 ### v0.18.4
 - Auto memory capture — `/init-orchestration` now installs a `PostToolUse` hook (`memory-capture.sh`) that logs Write/Edit/Bash actions to tier-0 memory automatically. No LLM calls — raw observations feed `/memory-distill` for compression later. Inspired by claude-mem
