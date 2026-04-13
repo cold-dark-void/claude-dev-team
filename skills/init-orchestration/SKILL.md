@@ -1,6 +1,6 @@
 ---
 name: init-orchestration
-description: Bootstrap Agent Teams orchestration for any project. Enables bubblewrap sandbox with auto-detected network allowlist, bypassPermissions for zero-prompt agents, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, and Stop + TaskCompleted hooks. Creates/updates AGENTS.md with team coordination rules and CLAUDE.md as reference. Run once per project. Safe to re-run — existing files are merged, not overwritten.
+description: Bootstrap Agent Teams orchestration for any project. Enables bubblewrap sandbox with auto-detected network allowlist, bypassPermissions for zero-prompt agents, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, and PostToolUse + Stop + TaskCompleted hooks. Creates/updates AGENTS.md with team coordination rules and CLAUDE.md as reference. Run once per project. Safe to re-run — existing files are merged, not overwritten.
 ---
 
 # Init Orchestration
@@ -15,7 +15,8 @@ project/
 │   ├── settings.json          # + env var + hooks section (merged)
 │   ├── hooks/
 │   │   ├── task-completed.sh  # Quality-gate hook (created)
-│   │   └── stop-review.sh     # Self-review gate — checks diff before agent exits (created)
+│   │   ├── stop-review.sh     # Self-review gate — checks diff before agent exits (created)
+│   │   └── memory-capture.sh  # Auto memory — logs Write/Edit/Bash to tier-0 (created)
 │   └── memory/
 │       └── claude/
 │           └── memory.md      # Orchestrator rules seeded (created or appended)
@@ -104,6 +105,16 @@ Using the `allowedDomains` list from Step 2, write the settings file.
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/memory-capture.sh"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -145,8 +156,8 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 **If `settings.json` already exists** — read it, then merge in the missing keys:
 - Add `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }` if `env` key is absent
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
-- Add the `Stop` and `TaskCompleted` hooks entries if `hooks` key is absent
-- If `hooks` key exists but lacks `Stop` or `TaskCompleted`, add the missing ones
+- Add the `PostToolUse`, `Stop`, and `TaskCompleted` hooks entries if `hooks` key is absent
+- If `hooks` key exists but lacks `PostToolUse`, `Stop`, or `TaskCompleted`, add the missing ones
 - Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists, ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`, merge new domains into existing `allowedDomains` (no duplicates), and preserve any existing `filesystem` overrides
 - Ensure `permissions.allow` contains `"Bash(*)"` and `permissions.defaultMode` is `"bypassPermissions"` — add or update as needed, but preserve any other existing allow entries
 - Write the merged result back as valid JSON
@@ -258,6 +269,75 @@ exit 0
 Make it executable:
 ```bash
 chmod +x .claude/hooks/stop-review.sh
+```
+
+---
+
+### Step 4c: Create .claude/hooks/memory-capture.sh
+
+Write `.claude/hooks/memory-capture.sh`:
+
+```bash
+#!/usr/bin/env bash
+# PostToolUse hook — automatic memory capture for agent observations.
+# Logs significant tool uses (Write, Edit, Bash) to tier-0 memory in SQLite.
+# Skips read-only tools (Read, Grep, Glob) to avoid noise.
+# Designed to feed /memory-distill — raw observations are compressed later.
+#
+# Input (via stdin): JSON with tool_name, tool_input, session_id, etc.
+# Exit 0 always — this hook should never block the agent.
+
+# Only run if SQLite DB exists
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+
+[ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null || exit 0
+
+# Read stdin JSON
+INPUT=$(cat)
+
+# Extract tool name
+TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || true)
+
+# Only capture mutating tools
+case "$TOOL_NAME" in
+  Write|Edit|Bash) ;;
+  *) exit 0 ;;
+esac
+
+# Extract key info based on tool type
+case "$TOOL_NAME" in
+  Write)
+    FILE_PATH=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))" 2>/dev/null || true)
+    OBSERVATION="wrote $FILE_PATH"
+    ;;
+  Edit)
+    FILE_PATH=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))" 2>/dev/null || true)
+    OBSERVATION="edited $FILE_PATH"
+    ;;
+  Bash)
+    COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; c=json.load(sys.stdin).get('tool_input',{}).get('command',''); print(c[:120])" 2>/dev/null || true)
+    OBSERVATION="ran: $COMMAND"
+    ;;
+esac
+
+[ -z "$OBSERVATION" ] && exit 0
+
+# Determine agent name (from teammate_name or default to 'unknown')
+AGENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('teammate_name','auto'))" 2>/dev/null || echo "auto")
+
+# Append to tier-0 memory (fire-and-forget, non-blocking)
+ESCAPED=$(printf '%s' "$OBSERVATION" | sed "s/'/''/g")
+sqlite3 "$MEMDB" "PRAGMA busy_timeout=2000; INSERT INTO memories(agent, type, content) VALUES ('$AGENT', 'memory', '$ESCAPED');" 2>/dev/null || true
+
+exit 0
+```
+
+Make it executable:
+```bash
+chmod +x .claude/hooks/memory-capture.sh
 ```
 
 ---
@@ -484,10 +564,11 @@ Print a summary of what was done:
 ✅ Agent Teams orchestration initialized!
 
 Updated:
-  📄 .claude/settings.json   — sandbox + bypassPermissions + Stop + TaskCompleted hooks
+  📄 .claude/settings.json   — sandbox + bypassPermissions + PostToolUse + Stop + TaskCompleted hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (blocks exit on uncommitted changes)
+  📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit/Bash to tier-0)
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
   📄 .claude/memory/claude/memory.md — orchestrator rules seeded [created/updated]
