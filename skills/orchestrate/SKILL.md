@@ -272,6 +272,8 @@ For each task that has no blockers, spawn the recommended agent in the worktree:
 Spawn @<agent> for Task <ID>:
 "<task description>
 
+Output mode: terse
+
 Work in worktree: <path>
 Spec: <spec path>
 Plan: <plan path>

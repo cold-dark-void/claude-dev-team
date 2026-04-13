@@ -106,6 +106,8 @@ Spawn **three** agents simultaneously. Do not wait for one before starting the o
 ```
 You are @pm. Review ticket <TICKET-ID>:
 
+Output mode: terse
+
 <TICKET TEXT>
 
 Your job:
@@ -120,6 +122,8 @@ Do NOT start planning implementation. Scope only.
 ### Tech Lead prompt (send now, in parallel):
 ```
 You are @tech-lead. Orient on ticket <TICKET-ID> while @pm reviews scope.
+
+Output mode: terse
 
 Ticket summary: <first 2 sentences of ticket text>
 
@@ -137,6 +141,8 @@ Output: affected files, relevant specs, risks.
 ```
 You are a codebase exploration agent. Deep-dive the codebase to map how
 the area related to ticket <TICKET-ID> currently works.
+
+Output mode: terse
 
 Ticket summary: <first 2 sentences of ticket text>
 Keywords: <extract 3-5 keywords from ticket text>

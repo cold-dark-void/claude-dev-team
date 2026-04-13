@@ -379,6 +379,10 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.18.2
+- Terse agent-to-agent communication — agents compress output ~65% when spawned by `/orchestrate` or `/kickoff` (decisions, code, blockers only; no narrative). Inspired by Caveman plugin. Override per-agent via `/adjust-agent`
+- Trigger: `Output mode: terse` in task prompt activates compressed output; user-facing sessions unaffected
+
 ### v0.18.1
 - Fix: council report template substitution — `engine.sh finalize` now renders all `{{VAR}}` placeholders instead of dumping raw templates with appended JSON
 - Fix: claim extractor now prioritizes behavioral claims ("the fix works") over code-structure assertions ("line N calls X") in frustration-heavy debugging sessions
