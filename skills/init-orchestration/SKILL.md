@@ -1,6 +1,6 @@
 ---
 name: init-orchestration
-description: Bootstrap Agent Teams orchestration for any project. Enables bubblewrap sandbox with auto-detected network allowlist, bypassPermissions for zero-prompt agents, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, and a TaskCompleted quality-gate hook. Creates/updates AGENTS.md with team coordination rules and CLAUDE.md as reference. Run once per project. Safe to re-run — existing files are merged, not overwritten.
+description: Bootstrap Agent Teams orchestration for any project. Enables bubblewrap sandbox with auto-detected network allowlist, bypassPermissions for zero-prompt agents, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, and Stop + TaskCompleted hooks. Creates/updates AGENTS.md with team coordination rules and CLAUDE.md as reference. Run once per project. Safe to re-run — existing files are merged, not overwritten.
 ---
 
 # Init Orchestration
@@ -14,7 +14,8 @@ project/
 ├── .claude/
 │   ├── settings.json          # + env var + hooks section (merged)
 │   ├── hooks/
-│   │   └── task-completed.sh  # Quality-gate hook (created)
+│   │   ├── task-completed.sh  # Quality-gate hook (created)
+│   │   └── stop-review.sh     # Self-review gate — checks diff before agent exits (created)
 │   └── memory/
 │       └── claude/
 │           └── memory.md      # Orchestrator rules seeded (created or appended)
@@ -103,6 +104,16 @@ Using the `allowedDomains` list from Step 2, write the settings file.
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/stop-review.sh"
+          }
+        ]
+      }
+    ],
     "TaskCompleted": [
       {
         "hooks": [
@@ -134,8 +145,8 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 **If `settings.json` already exists** — read it, then merge in the missing keys:
 - Add `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }` if `env` key is absent
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
-- Add the `TaskCompleted` hooks entry if `hooks` key is absent
-- If `hooks` key exists but lacks `TaskCompleted`, add it
+- Add the `Stop` and `TaskCompleted` hooks entries if `hooks` key is absent
+- If `hooks` key exists but lacks `Stop` or `TaskCompleted`, add the missing ones
 - Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists, ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`, merge new domains into existing `allowedDomains` (no duplicates), and preserve any existing `filesystem` overrides
 - Ensure `permissions.allow` contains `"Bash(*)"` and `permissions.defaultMode` is `"bypassPermissions"` — add or update as needed, but preserve any other existing allow entries
 - Write the merged result back as valid JSON
@@ -199,6 +210,54 @@ exit 0
 Make it executable:
 ```bash
 chmod +x .claude/hooks/task-completed.sh
+```
+
+---
+
+### Step 4b: Create .claude/hooks/stop-review.sh
+
+Write `.claude/hooks/stop-review.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Stop hook — lightweight self-review gate before an agent exits.
+# Exit code 2 = block exit (stderr is fed back to the agent as feedback).
+# Exit code 0 = allow exit.
+#
+# Checks for uncommitted changes that might indicate unfinished work.
+# The agent sees the stderr feedback and can address issues before exiting.
+
+# Only run if inside a git repo
+if ! git rev-parse --git-dir &>/dev/null; then
+  exit 0
+fi
+
+# Check for unstaged or staged-but-uncommitted changes
+DIRTY=$(git status --porcelain 2>/dev/null | head -20)
+if [ -n "$DIRTY" ]; then
+  # Count modified files (excludes untracked)
+  MODIFIED=$(echo "$DIRTY" | grep -cE '^\s?[MADRC]' || true)
+  UNTRACKED=$(echo "$DIRTY" | grep -c '^??' || true)
+
+  if [ "$MODIFIED" -gt 0 ]; then
+    echo "SELF-REVIEW: $MODIFIED file(s) modified but not committed." >&2
+    echo "Before exiting, verify:" >&2
+    echo "  - All changes are intentional and complete" >&2
+    echo "  - Tests pass with these changes" >&2
+    echo "  - No debug code or TODO markers left behind" >&2
+    echo "" >&2
+    echo "Files:" >&2
+    echo "$DIRTY" | grep -E '^\s?[MADRC]' | head -10 >&2
+    exit 2
+  fi
+fi
+
+exit 0
+```
+
+Make it executable:
+```bash
+chmod +x .claude/hooks/stop-review.sh
 ```
 
 ---
@@ -425,9 +484,10 @@ Print a summary of what was done:
 ✅ Agent Teams orchestration initialized!
 
 Updated:
-  📄 .claude/settings.json   — sandbox + bypassPermissions + TaskCompleted hook
+  📄 .claude/settings.json   — sandbox + bypassPermissions + Stop + TaskCompleted hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
+  📄 .claude/hooks/stop-review.sh   — self-review gate (blocks exit on uncommitted changes)
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
   📄 .claude/memory/claude/memory.md — orchestrator rules seeded [created/updated]

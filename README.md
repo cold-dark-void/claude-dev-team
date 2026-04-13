@@ -62,7 +62,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/init-team` | Bootstrap all 7 agents' memory for the current project |
 | `/adjust-agent` | View and manage per-agent behavioral directives (supports `--apply` for non-interactive use) |
 | `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` |
-| `/init-orchestration` | Enable Agent Teams: sandbox, env var, TaskCompleted hook, AGENTS.md |
+| `/init-orchestration` | Enable Agent Teams: sandbox, env var, Stop + TaskCompleted hooks, AGENTS.md |
 
 #### Feature work
 
@@ -378,6 +378,10 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 ---
 
 ## Changelog
+
+### v0.18.3
+- Stop hook self-review gate — `/init-orchestration` now installs a `Stop` hook (`stop-review.sh`) that blocks agent exit when uncommitted changes exist, forcing the agent to verify completeness before finishing. Inspired by codex-plugin-cc
+- **Migration**: existing projects should re-run `/init-orchestration` to pick up the new Stop hook
 
 ### v0.18.2
 - Terse agent-to-agent communication — agents compress output ~65% when spawned by `/orchestrate` or `/kickoff` (decisions, code, blockers only; no narrative). Inspired by Caveman plugin. Override per-agent via `/adjust-agent`
