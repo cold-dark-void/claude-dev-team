@@ -148,6 +148,14 @@ When working as a native Agent Team teammate:
 - Do NOT edit files another teammate is actively working on
 - When idle, send a status update to the team lead
 
+### Terse Communication
+
+When spawning agents via `/orchestrate`, `/kickoff`, or manually, include
+`Output mode: terse` in the task prompt. This triggers compressed output —
+decisions, code, and blockers only, no narrative. Agents produce the same
+quality work; they just stop explaining it to an audience that doesn't need
+explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"`.
+
 ## Code Conventions
 
 - Agent `.md` files require YAML frontmatter: `name`, `description`, `tools`, `model`
