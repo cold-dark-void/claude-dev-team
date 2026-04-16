@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.19.1
+- **Simplify project-init bash permissions** — replaced 44-entry command allowlist with single `Bash(*)` wildcard
+
 ### v0.19.0
 - New `/tdd-gate` command — toggle hook-based TDD enforcement. When enabled, a `PreToolUse` hook blocks Write/Edit to implementation files unless a corresponding test file exists. Supports TypeScript, JavaScript, Python, Go, Rust. Inspired by Superpowers + TDD Guard
 - Usage: `/tdd-gate on` to enable, `/tdd-gate off` to disable, `/tdd-gate status` to check
