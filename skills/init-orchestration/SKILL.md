@@ -247,13 +247,18 @@ if ! git rev-parse --git-dir &>/dev/null; then
   exit 0
 fi
 
+# Resolve MROOT for project-local stamp file
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || _MROOT=$(pwd)
+
 # Read stdin JSON (Claude Code delivers session context)
 INPUT=$(timeout 1 cat 2>/dev/null || true)
 
 # Extract session_id for one-shot stamp; fall back to PPID if unavailable
 SESSION_ID=$(printf '%s' "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
 STAMP_KEY="${SESSION_ID:-ppid-${PPID:-0}}"
-STAMP="${TMPDIR:-/tmp}/.claude-stop-review-${STAMP_KEY}"
+STAMP="$_MROOT/.claude/.stop-review-${STAMP_KEY}"
 
 # One-shot guard: if we already warned this session, let the agent exit.
 if [ -f "$STAMP" ]; then
@@ -349,6 +354,14 @@ print(c)
 esac
 
 [ -z "$OBSERVATION" ] && exit 0
+
+# Deduplicate: skip if same observation was just logged (avoids tier-0 flood)
+DEDUP_FILE="${TMPDIR:-/tmp}/.claude-memcap-last"
+LAST=$(cat "$DEDUP_FILE" 2>/dev/null || true)
+if [ "$OBSERVATION" = "$LAST" ]; then
+  exit 0
+fi
+printf '%s' "$OBSERVATION" > "$DEDUP_FILE"
 
 # Determine agent name (from teammate_name or default to 'unknown')
 AGENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('teammate_name','auto'))" 2>/dev/null || echo "auto")
