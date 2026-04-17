@@ -237,9 +237,26 @@ Write `.claude/hooks/stop-review.sh`:
 #
 # Checks for uncommitted changes that might indicate unfinished work.
 # The agent sees the stderr feedback and can address issues before exiting.
+#
+# IMPORTANT: Only fires ONCE per session to avoid infinite loops.
+# Uses a stamp file keyed on session_id (from stdin JSON) so the agent
+# sees the warning once, gets a chance to address it, then exits cleanly.
 
 # Only run if inside a git repo
 if ! git rev-parse --git-dir &>/dev/null; then
+  exit 0
+fi
+
+# Read stdin JSON (Claude Code delivers session context)
+INPUT=$(timeout 1 cat 2>/dev/null || true)
+
+# Extract session_id for one-shot stamp; fall back to PPID if unavailable
+SESSION_ID=$(printf '%s' "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
+STAMP_KEY="${SESSION_ID:-ppid-${PPID:-0}}"
+STAMP="${TMPDIR:-/tmp}/.claude-stop-review-${STAMP_KEY}"
+
+# One-shot guard: if we already warned this session, let the agent exit.
+if [ -f "$STAMP" ]; then
   exit 0
 fi
 
@@ -248,9 +265,10 @@ DIRTY=$(git status --porcelain 2>/dev/null | head -20)
 if [ -n "$DIRTY" ]; then
   # Count modified files (excludes untracked)
   MODIFIED=$(echo "$DIRTY" | grep -cE '^\s?[MADRC]' || true)
-  UNTRACKED=$(echo "$DIRTY" | grep -c '^??' || true)
 
   if [ "$MODIFIED" -gt 0 ]; then
+    # Drop the stamp so next invocation passes through
+    touch "$STAMP"
     echo "SELF-REVIEW: $MODIFIED file(s) modified but not committed." >&2
     echo "Before exiting, verify:" >&2
     echo "  - All changes are intentional and complete" >&2
@@ -567,7 +585,7 @@ Updated:
   📄 .claude/settings.json   — sandbox + bypassPermissions + PostToolUse + Stop + TaskCompleted hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
-  📄 .claude/hooks/stop-review.sh   — self-review gate (blocks exit on uncommitted changes)
+  📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
   📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit/Bash to tier-0)
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
