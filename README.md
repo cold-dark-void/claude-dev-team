@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.19.4
+- **Remaining review fixes** — stop-review stamp stored project-locally (not in $TMPDIR), generic preset uses only investigator-role flavors, memory-capture deduplicates consecutive identical observations, FK constraints on distillation_log and validation_log
+
 ### v0.19.3
 - **33-finding upstream review sweep** — comprehensive bug, security, and correctness fixes from external review
 - **Council engine fixed** — judge output parser now unwraps `{verdicts: [...]}` / `{findings: [...]}` object (was treating as flat array, producing empty reports). All 12 jq queries + Python renderer corrected. Evidence validation accepts object shape. Report writes are atomic (tmp+rename). Diff-mode flavor list trimmed to 5 specialists

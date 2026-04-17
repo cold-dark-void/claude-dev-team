@@ -45,14 +45,14 @@ CREATE TABLE IF NOT EXISTS distillation_log (
   from_tier INTEGER NOT NULL,
   to_tier INTEGER NOT NULL,
   source_count INTEGER NOT NULL,
-  result_memory_id INTEGER,
+  result_memory_id INTEGER REFERENCES memories(id),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
 -- Validation audit log
 CREATE TABLE IF NOT EXISTS validation_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  memory_id INTEGER NOT NULL,
+  memory_id INTEGER NOT NULL REFERENCES memories(id),
   agent TEXT NOT NULL,
   action TEXT NOT NULL CHECK(action IN ('pass','archive','rewrite','flag_review','flag_user')),
   confidence INTEGER NOT NULL,
@@ -86,3 +86,4 @@ CREATE TABLE IF NOT EXISTS embedding_meta (
 -- Enable WAL mode for concurrent agent access
 PRAGMA journal_mode=WAL;
 PRAGMA busy_timeout=5000;
+PRAGMA foreign_keys=ON;
