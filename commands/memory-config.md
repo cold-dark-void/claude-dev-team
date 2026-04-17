@@ -136,7 +136,12 @@ esac
 ### Step 5c: Apply update
 
 ```bash
-ESCAPED=$(printf '%s' "$VALUE" | sed "s/'/''/g")
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='$ESCAPED' WHERE key='$KEY';"
+python3 -c "
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA busy_timeout=5000')
+db.execute('UPDATE config SET value=? WHERE key=?', (sys.argv[2], sys.argv[3]))
+db.commit()
+" "$MEMDB" "$VALUE" "$KEY"
 echo "Updated: $KEY = $VALUE"
 ```

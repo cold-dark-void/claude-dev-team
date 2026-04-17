@@ -154,9 +154,15 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   EMBED_KEY="${EMBEDDING_API_KEY:-}"
   EMBED_MODEL="${EMBEDDING_MODEL:-}"
 
-  # Build curl args (array to avoid eval/quoting issues)
+  # Build curl args — auth header via config file to avoid leaking in ps aux
   CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
-  [ -n "$EMBED_KEY" ] && CURL_ARGS+=(-H "Authorization: Bearer $EMBED_KEY")
+  CURL_CONFIG=""
+  if [ -n "$EMBED_KEY" ]; then
+    CURL_CONFIG=$(mktemp "${TMPDIR:-/tmp}/curl-cfg.XXXXXX")
+    printf 'header = "Authorization: Bearer %s"\n' "$EMBED_KEY" > "$CURL_CONFIG"
+    chmod 600 "$CURL_CONFIG"
+    CURL_ARGS+=(-K "$CURL_CONFIG")
+  fi
 
   # Truncate content for embedding (most models have ~512 token limit)
   EMBED_TEXT=$(echo "$CONTENT" | head -c 1500)
@@ -167,6 +173,7 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   CURL_ARGS+=(-d "$BODY")
 
   RESPONSE=$(curl "${CURL_ARGS[@]}")
+  [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
 
   # Handle both OpenAI and ollama response formats
   EMBEDDING=$(echo "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')

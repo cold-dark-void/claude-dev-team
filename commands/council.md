@@ -77,7 +77,7 @@ otherwise `generic`), and fails loudly on deferred or missing scopes.
 ```bash
 PLAN_FILE=$(mktemp /tmp/council-plan.XXXXXX.json)
 
-engine.sh preflight <parsed-args> > "$PLAN_FILE"
+"$ENGINE_SH" preflight <parsed-args> > "$PLAN_FILE"
 EXIT=$?
 ```
 
@@ -92,8 +92,9 @@ Exit code handling:
   Step 3.
 
 The investigation-plan JSON emitted by `preflight` contains at minimum:
-`scope`, `preset`, `output_shape`, `task_id` (or null), `claim_budget`,
-`claim_extraction_needed` (bool), `raw_input_type`, and `flavor_list`.
+`scope`, `scope_arg`, `preset`, `output_shape`, `task_id` (or null),
+`claim_budget`, `phases.1_claim_extraction.skip` (bool — true when extraction
+should be skipped, i.e. for single pasted claims), and `flavors` (array).
 
 ## Step 3: Drive the council tribunal phases
 
@@ -104,8 +105,8 @@ execution).
 
 ### Phase 1 — Claim Extraction
 
-Run when `claim_extraction_needed` is `true` in the investigation plan (i.e.
-for `--session` and `--diff` scopes). Skip for single pasted claims —
+Run when `phases.1_claim_extraction.skip` is `false` in the investigation plan
+(i.e. for `--session` and `--diff` scopes). Skip for single pasted claims —
 extraction is not needed when the claim is already isolated.
 
 Spawn one Agent subagent:
@@ -129,7 +130,7 @@ For diff-mode the records are candidate findings `{ file, line, description }`.
 For each claim from Phase 1 (or the single pasted claim), spawn at least 2
 investigator Task subagents in parallel with distinct flavor presets. Minimum:
 `paranoid-ic` flavor + at least one other (e.g. `jaded-senior`) to prevent
-monoculture. Use `plan.flavor_list` to determine which flavors to spawn.
+monoculture. Use `plan.flavors` to determine which flavors to spawn.
 
 Spawn pattern (one Agent per claim per flavor):
 
@@ -241,7 +242,7 @@ Write collected outputs (evidence bundles, prosecutor brief, advocate brief,
 judge output, struck_lines) to temp files, then call `engine.sh finalize`:
 
 ```bash
-engine.sh finalize \
+"$ENGINE_SH" finalize \
   --plan-file    "$PLAN_FILE" \
   --evidence-file "$EVIDENCE_FILE" \
   --judge-output  "$JUDGE_FILE" \

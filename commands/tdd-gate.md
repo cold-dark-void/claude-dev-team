@@ -82,9 +82,9 @@ INPUT=$(cat)
 
 TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || true)
 
-# Only gate Write and Edit
+# Only gate Write, Edit, and MultiEdit
 case "$TOOL_NAME" in
-  Write|Edit) ;;
+  Write|Edit|MultiEdit) ;;
   *) exit 0 ;;
 esac
 
@@ -126,9 +126,10 @@ case "$EXT" in
     WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
     REL=${FILE_PATH#"$WTROOT/"}
     REL_NAME="${REL%.*}"
-    check_exists "$WTROOT/test/$REL_NAME.test.ts"
-    check_exists "$WTROOT/tests/$REL_NAME.test.ts"
-    check_exists "$WTROOT/__tests__/$REL_NAME.test.ts"
+    REL_NAME_STRIPPED="${REL_NAME#src/}"  # Strip src/ prefix for test/ lookups
+    check_exists "$WTROOT/test/$REL_NAME_STRIPPED.test.ts"
+    check_exists "$WTROOT/tests/$REL_NAME_STRIPPED.test.ts"
+    check_exists "$WTROOT/__tests__/$REL_NAME_STRIPPED.test.ts"
     ;;
   js|jsx)
     check_exists "$DIRNAME/$NAME.test.$EXT"
@@ -138,9 +139,10 @@ case "$EXT" in
     WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
     REL=${FILE_PATH#"$WTROOT/"}
     REL_NAME="${REL%.*}"
-    check_exists "$WTROOT/test/$REL_NAME.test.js"
-    check_exists "$WTROOT/tests/$REL_NAME.test.js"
-    check_exists "$WTROOT/__tests__/$REL_NAME.test.js"
+    REL_NAME_STRIPPED="${REL_NAME#src/}"  # Strip src/ prefix for test/ lookups
+    check_exists "$WTROOT/test/$REL_NAME_STRIPPED.test.js"
+    check_exists "$WTROOT/tests/$REL_NAME_STRIPPED.test.js"
+    check_exists "$WTROOT/__tests__/$REL_NAME_STRIPPED.test.js"
     ;;
   py)
     check_exists "$DIRNAME/test_$NAME.py"

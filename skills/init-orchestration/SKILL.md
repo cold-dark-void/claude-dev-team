@@ -336,7 +336,14 @@ case "$TOOL_NAME" in
     OBSERVATION="edited $FILE_PATH"
     ;;
   Bash)
-    COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; c=json.load(sys.stdin).get('tool_input',{}).get('command',''); print(c[:120])" 2>/dev/null || true)
+    COMMAND=$(echo "$INPUT" | python3 -c "
+import sys,json,re
+c=json.load(sys.stdin).get('tool_input',{}).get('command','')[:120]
+# Redact known secret patterns before logging
+c=re.sub(r'(Bearer|Token|Authorization:?)\s+\S+', r'\1 [REDACTED]', c, flags=re.I)
+c=re.sub(r'(PASSWORD|SECRET|API_KEY|TOKEN)=\S+', r'\1=[REDACTED]', c, flags=re.I)
+print(c)
+" 2>/dev/null || true)
     OBSERVATION="ran: $COMMAND"
     ;;
 esac
@@ -346,9 +353,15 @@ esac
 # Determine agent name (from teammate_name or default to 'unknown')
 AGENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('teammate_name','auto'))" 2>/dev/null || echo "auto")
 
-# Append to tier-0 memory (fire-and-forget, non-blocking)
-ESCAPED=$(printf '%s' "$OBSERVATION" | sed "s/'/''/g")
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=2000; INSERT INTO memories(agent, type, content) VALUES ('$AGENT', 'memory', '$ESCAPED');" 2>/dev/null || true
+# Append to tier-0 memory (fire-and-forget, parameterized query)
+python3 -c "
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA busy_timeout=5000')
+db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)',
+           (sys.argv[2], 'memory', sys.argv[3]))
+db.commit()
+" "$MEMDB" "$AGENT" "$OBSERVATION" 2>/dev/null || true
 
 exit 0
 ```
@@ -508,7 +521,7 @@ If sqlite3 is available and the DB does not yet exist, initialize it:
 if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
   # Locate schema from plugin install cache
   SCHEMA=""
-  for d in ~/.claude/plugins/cache/cold-dark-void/dev-team/*/skills/memory-store/schema.sql; do
+  for d in ~/.claude/plugins/cache/*/dev-team/*/skills/memory-store/schema.sql; do
     [ -f "$d" ] && SCHEMA="$d" && break
   done
   # Fallback: try relative to project root (dev on the plugin itself)
@@ -548,8 +561,16 @@ Write this content using the DB-first dual path:
 ```bash
 CONTENT="<baseline memory content above>"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  ESCAPED=$(echo "$CONTENT" | sed "s/'/''/g")
-  sqlite3 "$MEMDB" "INSERT OR REPLACE INTO memories(agent, type, content, updated_at) VALUES ('claude', 'memory', '$ESCAPED', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
+  python3 -c "
+import sqlite3, sys, datetime
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA busy_timeout=5000')
+db.execute('DELETE FROM memories WHERE agent=? AND type=? AND content LIKE ?',
+           ('claude', 'memory', '%seeded by /init-orchestration%'))
+db.execute('INSERT INTO memories(agent, type, content, updated_at) VALUES (?, ?, ?, ?)',
+           ('claude', 'memory', sys.argv[2], datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')))
+db.commit()
+" "$MEMDB" "$CONTENT"
 else
   cat > ".claude/memory/claude/memory.md" << MEMEOF
 $CONTENT

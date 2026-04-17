@@ -81,15 +81,25 @@ cmd_resolve_task_id() {
   printf '%s\n' "$tid"
 }
 
+# ---- path-safe validation ----------------------------------------------------
+# Reject any value containing path traversal characters.
+validate_path_component() {
+  local label="$1" value="$2"
+  if ! printf '%s' "$value" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+    echo "engine.sh: invalid $label: must match [a-zA-Z0-9._-]+" >&2
+    exit 2
+  fi
+}
+
 # ---- report-path ------------------------------------------------------------
 # $MROOT/.claude/council/<YYYY-MM-DD>-<slug>[--<task_id>].md
-# Slug is used verbatim; caller must pre-sanitize.
 cmd_report_path() {
   if [ $# -lt 1 ]; then
     echo "engine.sh: report-path requires <slug>" >&2
     exit 2
   fi
   local slug="$1"; shift
+  validate_path_component "slug" "$slug"
   local tid=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -97,6 +107,9 @@ cmd_report_path() {
       *) shift ;;
     esac
   done
+  if [ -n "$tid" ]; then
+    validate_path_component "task-id" "$tid"
+  fi
   local date
   date=$(date -u +%Y-%m-%d)  # UTC per SKILL.md report-path contract
   local suffix=""
@@ -171,7 +184,7 @@ cmd_preflight() {
     diff-mode)
       output_shape="finding[]"; feedback_enabled="false"; spec_grep="true"
       confidence_filter="80"
-      flavors='["logic","security","compliance","quality","simplification","jaded-senior","yolo-ic"]' ;;
+      flavors='["logic","security","compliance","quality","simplification"]' ;;
     *)
       echo "engine.sh: unknown preset: $preset — known: generic, diff-mode" >&2
       exit 4 ;;
@@ -310,7 +323,7 @@ cmd_finalize() {
   # Validate evidence file is non-empty JSON array. An empty bundle set is
   # exit 5 per SKILL.md failure-mode table.
   local evidence_count
-  evidence_count=$(jq 'if type == "array" then length else 0 end' "$evidence_file")
+  evidence_count=$(jq 'if type == "array" then length elif type == "object" then (.bundles // .evidence_bundles // []) | length else 0 end' "$evidence_file")
   if [ "$evidence_count" = "0" ]; then
     echo "engine.sh: Phase 2 produced zero evidence bundles — aborting" >&2
     exit 5
@@ -320,14 +333,14 @@ cmd_finalize() {
   local max_verdict_confidence="null" max_finding_confidence="null"
   local verdict_count=0 finding_count=0
   if [ "$output_shape" = "verdict[]" ]; then
-    verdict_count=$(jq 'if type == "array" then length else 0 end' "$judge_output")
+    verdict_count=$(jq '(.verdicts // []) | length' "$judge_output")
     if [ "$verdict_count" -gt 0 ]; then
-      max_verdict_confidence=$(jq '[.[] | .confidence // 0] | max // 0' "$judge_output")
+      max_verdict_confidence=$(jq '[(.verdicts // [])[] | .confidence // 0] | max // 0' "$judge_output")
     fi
   else
-    finding_count=$(jq 'if type == "array" then length else 0 end' "$judge_output")
+    finding_count=$(jq '(.findings // []) | length' "$judge_output")
     if [ "$finding_count" -gt 0 ]; then
-      max_finding_confidence=$(jq '[.[] | .confidence // 0] | max // 0' "$judge_output")
+      max_finding_confidence=$(jq '[(.findings // [])[] | .confidence // 0] | max // 0' "$judge_output")
     fi
   fi
 
@@ -378,7 +391,17 @@ else:
     extracted_claims_raw = evidence_raw.get("extracted_claims", evidence_raw.get("claims", []))
     struck_lines_raw = evidence_raw.get("struck_lines", [])
 
-judge_items = judge_raw if isinstance(judge_raw, list) else []
+# Judge emits {verdicts: [...], struck_lines: [...]} or {findings: [...], struck_lines: [...]}
+if isinstance(judge_raw, dict):
+    judge_items = judge_raw.get("verdicts", judge_raw.get("findings", []))
+    # struck_lines from judge output take precedence over evidence file
+    judge_struck = judge_raw.get("struck_lines", [])
+    if judge_struck:
+        struck_lines_raw = judge_struck
+elif isinstance(judge_raw, list):
+    judge_items = judge_raw
+else:
+    judge_items = []
 
 # --- Plan metadata ---
 flavors = plan.get("flavors", [])
@@ -596,10 +619,14 @@ else:
 # Strip any remaining {{VAR}} that weren't in our map (safety net)
 rendered = re.sub(r'\{\{[A-Z_]+\}\}', '', rendered)
 
-# --- Write output ---
+# --- Write output (atomic: tmp + rename) ---
+import tempfile, os
 output = frontmatter + "\n\n" + rendered.strip() + "\n"
-with open(output_path, 'w') as f:
+dir_name = os.path.dirname(output_path) or '.'
+fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+with os.fdopen(fd, 'w') as f:
     f.write(output)
+os.rename(tmp_path, output_path)
 PYEOF
 
   # Call index-writer.sh ONLY when task-bound
@@ -623,11 +650,11 @@ PYEOF
   if [ "$output_shape" = "verdict[]" ]; then
     # Verdict counts
     local v_verified v_partial v_unverified v_contradicted v_fabricated
-    v_verified=$(jq '[.[] | select(.verdict=="VERIFIED")] | length' "$judge_output")
-    v_partial=$(jq '[.[] | select(.verdict=="PARTIALLY_VERIFIED")] | length' "$judge_output")
-    v_unverified=$(jq '[.[] | select(.verdict=="UNVERIFIED")] | length' "$judge_output")
-    v_contradicted=$(jq '[.[] | select(.verdict=="CONTRADICTED")] | length' "$judge_output")
-    v_fabricated=$(jq '[.[] | select(.verdict=="FABRICATED")] | length' "$judge_output")
+    v_verified=$(jq '[(.verdicts // [])[] | select(.verdict=="VERIFIED")] | length' "$judge_output")
+    v_partial=$(jq '[(.verdicts // [])[] | select(.verdict=="PARTIALLY_VERIFIED")] | length' "$judge_output")
+    v_unverified=$(jq '[(.verdicts // [])[] | select(.verdict=="UNVERIFIED")] | length' "$judge_output")
+    v_contradicted=$(jq '[(.verdicts // [])[] | select(.verdict=="CONTRADICTED")] | length' "$judge_output")
+    v_fabricated=$(jq '[(.verdicts // [])[] | select(.verdict=="FABRICATED")] | length' "$judge_output")
     printf 'VERIFIED: %d  PARTIALLY_VERIFIED: %d  UNVERIFIED: %d  CONTRADICTED: %d  FABRICATED: %d\n' \
       "$v_verified" "$v_partial" "$v_unverified" "$v_contradicted" "$v_fabricated"
 
@@ -637,7 +664,8 @@ PYEOF
       printf '\n\xe2\x9a\xa0 Needs attention (%d):\n' "$attention_count"
       python3 - "$judge_output" <<'PYEOF'
 import json, sys, textwrap
-data = json.load(open(sys.argv[1]))
+raw = json.load(open(sys.argv[1]))
+data = raw.get("verdicts", raw) if isinstance(raw, dict) else raw
 for v in data:
     vt = v.get("verdict", "")
     if vt == "VERIFIED":
@@ -656,9 +684,9 @@ PYEOF
   else
     # Finding counts by severity
     local f_critical f_warning f_nitpick
-    f_critical=$(jq '[.[] | select(.severity=="critical")] | length' "$judge_output")
-    f_warning=$(jq '[.[] | select(.severity=="warning")] | length' "$judge_output")
-    f_nitpick=$(jq '[.[] | select(.severity=="nitpick")] | length' "$judge_output")
+    f_critical=$(jq '[(.findings // [])[] | select(.severity=="critical")] | length' "$judge_output")
+    f_warning=$(jq '[(.findings // [])[] | select(.severity=="warning")] | length' "$judge_output")
+    f_nitpick=$(jq '[(.findings // [])[] | select(.severity=="nitpick")] | length' "$judge_output")
     printf 'critical: %d  warning: %d  nitpick: %d\n' \
       "$f_critical" "$f_warning" "$f_nitpick"
 
@@ -668,7 +696,8 @@ PYEOF
       printf '\n\xe2\x9a\xa0 Needs attention (%d):\n' "$attention_count"
       python3 - "$judge_output" <<'PYEOF'
 import json, sys
-data = json.load(open(sys.argv[1]))
+raw = json.load(open(sys.argv[1]))
+data = raw.get("findings", raw) if isinstance(raw, dict) else raw
 for f in data:
     sev = f.get("severity", "")
     if sev not in ("critical", "warning"):
@@ -686,8 +715,10 @@ PYEOF
     fi
   fi
 
-  # Struck lines count (not tracked at engine level; report will contain details)
-  printf '\nStruck lines: 0\n'
+  # Struck lines count from judge output
+  local struck_count
+  struck_count=$(jq '(.struck_lines // []) | length' "$judge_output" 2>/dev/null || echo "0")
+  printf '\nStruck lines: %d\n' "$struck_count"
 }
 
 # ---- Dispatch ---------------------------------------------------------------

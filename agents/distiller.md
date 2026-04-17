@@ -25,15 +25,18 @@ For each batch of raw memories:
    - Important patterns and anti-patterns
    - Specific technical details (file paths, function names, gotchas)
    - Drop: timestamps, transient status, duplicate information
-3. INSERT each digest as a tier-1 record:
+3. INSERT each digest as a tier-1 record and capture the new row ID in one call:
    ```bash
-   ESCAPED=$(printf '%s' "$DIGEST" | sed "s/'/''/g")
    JSON_IDS='[1,2,3]'  # IDs of source memories in this group
-   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO memories(agent, type, content, tier, distilled_from) VALUES ('<AGENT>', 'digest', '$ESCAPED', 1, '$JSON_IDS');"
-   ```
-4. Capture the new row ID:
-   ```bash
-   NEW_ID=$(sqlite3 "$MEMDB" "SELECT last_insert_rowid();")
+   NEW_ID=$(python3 -c "
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA busy_timeout=5000')
+cur = db.execute('INSERT INTO memories(agent, type, content, tier, distilled_from) VALUES (?, ?, ?, 1, ?)',
+                 (sys.argv[2], 'digest', sys.argv[3], sys.argv[4]))
+db.commit()
+print(cur.lastrowid)
+" "$MEMDB" "<AGENT>" "$DIGEST" "$JSON_IDS")
    ```
 5. Archive source memories:
    ```bash

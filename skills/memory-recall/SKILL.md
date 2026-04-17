@@ -131,15 +131,22 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
   VEC_TABLE="vec_memories_${DIMS}"
 
-  # Build curl args
+  # Build curl args — auth header via config file to avoid leaking in ps aux
   CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
-  [ -n "$EMBED_KEY" ] && CURL_ARGS+=(-H "Authorization: Bearer $EMBED_KEY")
+  CURL_CONFIG=""
+  if [ -n "$EMBED_KEY" ]; then
+    CURL_CONFIG=$(mktemp "${TMPDIR:-/tmp}/curl-cfg.XXXXXX")
+    printf 'header = "Authorization: Bearer %s"\n' "$EMBED_KEY" > "$CURL_CONFIG"
+    chmod 600 "$CURL_CONFIG"
+    CURL_ARGS+=(-K "$CURL_CONFIG")
+  fi
 
   BODY="{\"input\":[$(echo "$QUERY" | jq -Rs .)]}"
   [ -n "$EMBED_MODEL" ] && BODY=$(echo "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
   CURL_ARGS+=(-d "$BODY")
 
   RESPONSE=$(curl "${CURL_ARGS[@]}")
+  [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
   QUERY_EMBEDDING=$(echo "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')
 
   sqlite3 "$MEMDB" <<EOSQL
