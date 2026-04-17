@@ -56,7 +56,7 @@ MEMDB=".claude/memory/memory.db"
 if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
   # Locate schema from plugin install cache
   SCHEMA=""
-  for d in ~/.claude/plugins/cache/cold-dark-void/dev-team/*/skills/memory-store/schema.sql; do
+  for d in ~/.claude/plugins/cache/*/dev-team/*/skills/memory-store/schema.sql; do
     [ -f "$d" ] && SCHEMA="$d" && break
   done
   # Fallback: try relative to project root (dev on the plugin itself)

@@ -52,7 +52,11 @@ while IFS= read -r FILE; do
   TOTAL_FILES=$((TOTAL_FILES + 1))
 
   # Idempotent: skip if this agent+type already has rows
-  EXISTING=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='$AGENT' AND type='$TYPE';")
+  EXISTING=$(python3 -c "
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+print(db.execute('SELECT COUNT(*) FROM memories WHERE agent=? AND type=?', (sys.argv[2], sys.argv[3])).fetchone()[0])
+" "$MEMDB" "$AGENT" "$TYPE")
   if [ "$EXISTING" -gt 0 ]; then
     echo "  SKIP: $AGENT/$TYPE.md ($EXISTING chunks already in DB)"
     SKIPPED=$((SKIPPED + 1))
@@ -76,8 +80,13 @@ while IFS= read -r FILE; do
         # Save previous chunk
         CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 5000)
         if [ ${#CHUNK_TRIMMED} -gt 20 ]; then
-          ESCAPED=$(printf '%s' "$CHUNK_TRIMMED" | sed "s/'/''/g")
-          if sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('$AGENT', '$TYPE', '$ESCAPED');"; then
+          if python3 -c "
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA busy_timeout=5000')
+db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)', (sys.argv[2], sys.argv[3], sys.argv[4]))
+db.commit()
+" "$MEMDB" "$AGENT" "$TYPE" "$CHUNK_TRIMMED"; then
             CHUNK_NUM=$((CHUNK_NUM + 1))
           else
             FILE_FAILED=true
@@ -93,8 +102,13 @@ ${LINE}"
     if [ -n "$CHUNK" ]; then
       CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 5000)
       if [ ${#CHUNK_TRIMMED} -gt 20 ]; then
-        ESCAPED=$(printf '%s' "$CHUNK_TRIMMED" | sed "s/'/''/g")
-        if sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('$AGENT', '$TYPE', '$ESCAPED');"; then
+        if python3 -c "
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA busy_timeout=5000')
+db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)', (sys.argv[2], sys.argv[3], sys.argv[4]))
+db.commit()
+" "$MEMDB" "$AGENT" "$TYPE" "$CHUNK_TRIMMED"; then
           CHUNK_NUM=$((CHUNK_NUM + 1))
         else
           FILE_FAILED=true
@@ -106,8 +120,13 @@ ${LINE}"
   else
     # No ## headers — insert whole file as one chunk (capped at 5000 chars)
     CONTENT_TRIMMED=$(printf '%s' "$CONTENT" | head -c 5000)
-    ESCAPED=$(printf '%s' "$CONTENT_TRIMMED" | sed "s/'/''/g")
-    if sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('$AGENT', '$TYPE', '$ESCAPED');"; then
+    if python3 -c "
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA busy_timeout=5000')
+db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)', (sys.argv[2], sys.argv[3], sys.argv[4]))
+db.commit()
+" "$MEMDB" "$AGENT" "$TYPE" "$CONTENT_TRIMMED"; then
       echo "  OK: 1 chunk (no sections) from $AGENT/$TYPE"
       TOTAL_CHUNKS=$((TOTAL_CHUNKS + 1))
     else
@@ -125,7 +144,7 @@ ${LINE}"
 done < <(find "$MEMDIR" -mindepth 2 -maxdepth 2 -name "*.md" | sort)
 
 # Generate embeddings for all unembedded memories
-EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null || echo "fallback")
+EMBED_MODE=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null || echo "fallback")
 EXT_DIR="$MROOT/.claude/memory/extensions"
 MODEL_DIR="$MROOT/.claude/memory/models"
 
@@ -133,7 +152,7 @@ EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
 if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
-  UNEMBEDDED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;")
+  UNEMBEDDED=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;")
 
   if [ "$UNEMBEDDED" -gt 0 ]; then
     echo ""
@@ -145,10 +164,12 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
     EMBED_KEY="${EMBEDDING_API_KEY:-}"
     EMBED_MODEL="${EMBEDDING_MODEL:-}"
     if [ "$EMBED_MODE" = "remote" ]; then
-      EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
+      EMBED_URL=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
     fi
 
     while read -r MEM_ID; do
+      # Validate MEM_ID is numeric (defense in depth)
+      [[ "$MEM_ID" =~ ^[0-9]+$ ]] || continue
       # Fetch content — truncate to 1000 chars for embedding (safe for most models)
       MEM_CONTENT=$(sqlite3 "$MEMDB" "SELECT substr(content, 1, 1000) FROM memories WHERE id=$MEM_ID;")
       [ -z "$MEM_CONTENT" ] && continue
@@ -157,13 +178,22 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
 
       if [ "$EMBED_MODE" = "remote" ] && [ -n "$EMBED_URL" ]; then
         CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
-        [ -n "$EMBED_KEY" ] && CURL_ARGS+=(-H "Authorization: Bearer $EMBED_KEY")
+
+        # Pass auth header via config file to avoid leaking token in ps aux
+        CURL_CONFIG=""
+        if [ -n "$EMBED_KEY" ]; then
+          CURL_CONFIG=$(mktemp "${TMPDIR:-/tmp}/curl-cfg.XXXXXX")
+          printf 'header = "Authorization: Bearer %s"\n' "$EMBED_KEY" > "$CURL_CONFIG"
+          chmod 600 "$CURL_CONFIG"
+          CURL_ARGS+=(-K "$CURL_CONFIG")
+        fi
 
         BODY="{\"input\":[$JSON_CONTENT]}"
         [ -n "$EMBED_MODEL" ] && BODY=$(printf '%s' "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
         CURL_ARGS+=(-d "$BODY")
 
-        RESPONSE=$(curl "${CURL_ARGS[@]}" 2>/dev/null) || { echo "  WARN: curl failed for chunk $MEM_ID"; continue; }
+        RESPONSE=$(curl "${CURL_ARGS[@]}" 2>/dev/null) || { [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"; echo "  WARN: curl failed for chunk $MEM_ID"; continue; }
+        [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
         EMBEDDING=$(printf '%s' "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding' 2>/dev/null)
 
       elif [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ]; then
@@ -179,6 +209,7 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
       [ -z "$EMBEDDING" ] || [ "$EMBEDDING" = "null" ] && { echo "  WARN: empty embedding for chunk $MEM_ID"; continue; }
       DIMS=$(printf '%s' "$EMBEDDING" | jq 'length' 2>/dev/null)
       [ -z "$DIMS" ] || [ "$DIMS" = "0" ] || [ "$DIMS" = "null" ] && continue
+      [[ "$DIMS" =~ ^[0-9]+$ ]] || continue
 
       VEC_TABLE="vec_memories_${DIMS}"
 
@@ -201,19 +232,25 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
         2>/dev/null || { echo "  WARN: vec insert failed for chunk $MEM_ID"; continue; }
 
       EMBEDDED_COUNT=$((EMBEDDED_COUNT + 1))
-    done < <(sqlite3 "$MEMDB" "SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;" 2>/dev/null)
+    done < <(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;" 2>/dev/null)
 
     echo "  Embedded: $EMBEDDED_COUNT/$UNEMBEDDED chunks"
 
     # Update dimensions in config
     if [ -n "${DIMS:-}" ] && [ "${DIMS:-0}" != "0" ] && [ "${DIMS:-null}" != "null" ]; then
-      sqlite3 "$MEMDB" "UPDATE config SET value='$DIMS', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_dimensions';"
+      python3 -c "
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA busy_timeout=5000')
+db.execute('UPDATE config SET value=?, updated_at=strftime(\'%Y-%m-%dT%H:%M:%SZ\',\'now\') WHERE key=?', (sys.argv[2], 'embedding_dimensions'))
+db.commit()
+" "$MEMDB" "$DIMS"
     fi
   fi
 fi
 
 # Validation
-TOTAL_ROWS=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;")
+TOTAL_ROWS=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT COUNT(*) FROM memories;")
 echo ""
 echo "Validation: $TOTAL_ROWS total rows in memories table"
 

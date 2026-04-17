@@ -380,6 +380,13 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.19.3
+- **33-finding upstream review sweep** — comprehensive bug, security, and correctness fixes from external review
+- **Council engine fixed** — judge output parser now unwraps `{verdicts: [...]}` / `{findings: [...]}` object (was treating as flat array, producing empty reports). All 12 jq queries + Python renderer corrected. Evidence validation accepts object shape. Report writes are atomic (tmp+rename). Diff-mode flavor list trimmed to 5 specialists
+- **Security hardening** — SQL injection eliminated across 5 files (sed-escaped interpolation replaced with python3 parameterized queries). Bearer tokens passed via `curl --config` file instead of `-H` flag (invisible to `ps aux`). Path traversal validation on task_id and slug. Memory-capture redacts secret patterns in bash args
+- **Correctness fixes** — `commands/council.md` uses `$ENGINE_SH` variable instead of bare `engine.sh`. Preflight field names match engine output. `init-orchestration` baseline seeding uses DELETE+INSERT (was broken INSERT OR REPLACE). `tdd-gate` intercepts MultiEdit and handles `src/` path prefix. `memory-distill` validation abort gated by exit code. `distiller.md` INSERT+lastrowid in single call. PRAGMA busy_timeout=5000 on all read paths. Schema lookup uses vendor-agnostic glob
+- **Migration**: existing projects should re-run `/init-orchestration` to pick up the new hook templates and memory-capture fixes
+
 ### v0.19.2
 - **Fix stop-review hook infinite loop** — the Stop hook (`stop-review.sh`) installed by `/init-orchestration` would enter an infinite exit-block loop when uncommitted changes existed before the session (or when the agent couldn't commit). Now uses a one-shot stamp keyed on `session_id` from stdin JSON: warns once, then lets the agent exit
 - **Migration**: existing projects should re-run `/init-orchestration` to regenerate the hook, or manually replace `.claude/hooks/stop-review.sh`

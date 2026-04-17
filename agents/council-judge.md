@@ -39,15 +39,15 @@ fi
 ```bash
 if [ "$USE_DB" = "true" ]; then
   # Check if distilled content exists
-  HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead' AND tier > 0 AND archived=FALSE;")
+  HAS_DISTILLED=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT COUNT(*) FROM memories WHERE agent='tech-lead' AND tier > 0 AND archived=FALSE;")
   if [ "$HAS_DISTILLED" -gt 0 ]; then
     # Tier 2: core knowledge (always loaded)
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT content FROM memories WHERE agent='tech-lead' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
     # Tier 1: digests (compressed summaries)
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT content FROM memories WHERE agent='tech-lead' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
   else
     # No distilled content -- load all tier-0 (backward compat)
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
+    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT content FROM memories WHERE agent='tech-lead' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
   fi
 else
   # Fallback: read .md files

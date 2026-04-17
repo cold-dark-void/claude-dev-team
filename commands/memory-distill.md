@@ -136,11 +136,13 @@ if [ "$SKIP_VALIDATE" != "true" ]; then
   # Execute validation. On failure, abort distillation and release lock.
   # (The executing agent reads commands/validate-memory.md and runs its
   # Steps 1-8, skipping Step 9 deep mode.)
-  #
-  # If validation fails:
-  echo "[distill] Validation failed. Aborting distillation."
-  sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
-  # Stop here (do not proceed to distillation)
+
+  # Check validation exit code:
+  if [ "$VALIDATION_EXIT" -ne 0 ]; then
+    echo "[distill] Validation failed. Aborting distillation."
+    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
+    exit 1
+  fi
 
   echo "[distill] Validation complete. Proceeding to distillation."
 fi
