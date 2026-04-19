@@ -384,9 +384,9 @@ except json.JSONDecodeError as e:
     print(f"engine.sh: evidence file is not valid JSON and repair failed: {e}", file=sys.stderr)
     sys.exit(5)
 PYREPAIR
-    if [ $? -ne 0 ]; then
-      exit 5
-    fi
+    # Note: under set -e, python3 non-zero exit fires errexit before this
+    # guard executes. Guard kept as explicit documentation of the contract.
+    [ $? -ne 0 ] && exit 5
   fi
 
   # Validate evidence file is non-empty JSON array. An empty bundle set is
@@ -396,6 +396,83 @@ PYREPAIR
   if [ "$evidence_count" = "0" ]; then
     echo "engine.sh: Phase 2 produced zero evidence bundles — aborting" >&2
     exit 5
+  fi
+
+  # Validate judge output is parseable JSON. The judge is an LLM agent and
+  # may emit malformed JSON (markdown fences, trailing text, unescaped chars).
+  # Apply the same backslash repair as evidence, then validate.
+  if ! jq empty "$judge_output" 2>/dev/null; then
+    python3 - "$judge_output" <<'PYJUDGEFIX'
+import json, sys
+
+path = sys.argv[1]
+with open(path, 'r') as f:
+    raw = f.read()
+
+try:
+    json.loads(raw)
+    sys.exit(0)
+except json.JSONDecodeError:
+    pass
+
+# Strip markdown fences if present (common LLM wrapping)
+import re
+stripped = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+stripped = re.sub(r'\n?```\s*$', '', stripped)
+try:
+    json.loads(stripped)
+    with open(path, 'w') as f:
+        f.write(stripped)
+    print("engine.sh: stripped markdown fences from judge output", file=sys.stderr)
+    sys.exit(0)
+except json.JSONDecodeError:
+    pass
+
+# Apply backslash repair (same logic as evidence repair)
+VALID_ESCAPES = set('"\\/' + 'bfnrtu')
+out = []
+i = 0
+in_string = False
+text = stripped  # use fence-stripped version
+while i < len(text):
+    ch = text[i]
+    if not in_string:
+        if ch == '"':
+            in_string = True
+        out.append(ch)
+        i += 1
+    else:
+        if ch == '"':
+            in_string = False
+            out.append(ch)
+            i += 1
+        elif ch == '\\':
+            if i + 1 < len(text) and text[i + 1] in VALID_ESCAPES:
+                out.append(ch)
+                out.append(text[i + 1])
+                i += 2
+            else:
+                out.append('\\')
+                out.append('\\')
+                i += 1
+        else:
+            out.append(ch)
+            i += 1
+
+repaired = ''.join(out)
+try:
+    json.loads(repaired)
+    with open(path, 'w') as f:
+        f.write(repaired)
+    print("engine.sh: repaired malformed JSON in judge output", file=sys.stderr)
+except json.JSONDecodeError as e:
+    print(f"engine.sh: judge output is not valid JSON and repair failed: {e}", file=sys.stderr)
+    print(f"engine.sh: first 200 chars: {raw[:200]}", file=sys.stderr)
+    sys.exit(7)
+PYJUDGEFIX
+    if [ $? -ne 0 ]; then
+      exit 7
+    fi
   fi
 
   # Compute max confidence for the index row.
