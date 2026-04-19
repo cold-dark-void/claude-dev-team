@@ -266,7 +266,15 @@ Output:
 1. Step-by-step plan saved to $WTROOT/.claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md
 2. Task graph — which steps are independent (can run in parallel) and which have dependencies
 3. For each step: recommended agent (ic4 for well-defined/extending patterns, ic5 for novel/complex),
-   and what interface/contract it exposes that other steps depend on
+   and what interface/contract it exposes that other steps depend on.
+
+   Escalation heuristic: assign ic5 (not ic4) when a task:
+   - Touches more than 10 files
+   - Requires deleting/modifying code across more than 15 callsites
+   - Involves wide-scope structural refactoring (e.g. removing a mode, renaming a concept)
+   - Has unclear replacement strategy (each removed usage needs a different fix)
+   ic4 excels at focused, well-scoped tasks. Wide-scope structural work burns excessive
+   ic4 context (300+ messages observed). Either assign ic5, or split the task further.
 
 No schema changes or new dependencies without calling them out explicitly.
 ```
