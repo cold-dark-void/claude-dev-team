@@ -211,7 +211,10 @@ Your earlier assessment: <affected files, specs, risks>
 Produce:
 1. Spec (create/update in specs/core/ with MUST/SHOULD/MUST NOT)
 2. Implementation plan with task graph (dependencies, parallelism)
-3. For each task: recommended agent (ic4/ic5/qa) and why
+3. For each task: recommended agent (ic4/ic5/qa) and why.
+   Escalation heuristic: assign ic5 (not ic4) when a task touches >10 files,
+   modifies >15 callsites, or involves wide-scope structural deletion/renaming.
+   ic4 excels at focused tasks; wide-scope structural work should go to ic5 or be split further.
 4. Save plan to .claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md
 ```
 
@@ -278,12 +281,26 @@ Work in worktree: <path>
 Spec: <spec path>
 Plan: <plan path>
 
+Architecture context (from Tech Lead's orientation):
+- Affected components: <list all backends/services/packages that need changes for this task>
+- If the spec or plan mentions multiple backends, services, or platforms (e.g. Fyne, Gio,
+  Web; or API, Worker, CLI), enumerate EVERY one that this task must touch. Do not assume
+  the agent will discover them on its own.
+
 When done, mark your task completed via TaskUpdate."
 ```
 
 Whenever the orchestrator invokes `/council` as part of a task's orchestration steps (e.g., a task with `requires_council: true` that requires a council verdict before completion), the orchestrator MUST export `CLAUDE_TASK_ID=<task_id>` in the subprocess environment of that `/council` invocation. This is the ambient task-id transport SPEC-013 Phase 6 uses for verdict-to-task binding via the fallback chain `--task-id` flag → `CLAUDE_TASK_ID` env → unbound (SPEC-009 line 46; SPEC-013 Task-ID Plumbing). The hook path (SPEC-002 TaskCompleted) resolves its task id from stdin JSON and does NOT share this fallback chain — the two paths are independent.
 
 The orchestrator MAY also export `CLAUDE_TASK_ID=<task_id>` when spawning regular IC agents for a task; this is useful when the agent itself invokes `/council` mid-task as a self-review.
+
+### PM kickoff is mandatory for every ticket
+
+When orchestrating an umbrella ticket with child issues, each child ticket MUST get
+its own PM kickoff (Step 4 AC review). Do NOT skip PM for "obvious" tickets or
+tickets that came from a TL plan — PM's job is to validate ACs independently.
+In session 00000000, PM caught a false premise in CDV-151's spec that would have
+broken the implementation. Skipping PM for 5/7 child tickets was a missed opportunity.
 
 ### Monitoring loop
 
@@ -397,6 +414,23 @@ Tech Lead reviews the fix. Repeat until QA passes.
 
 ---
 
+## Step 10b: Spec alignment check (mandatory, survives pause/resume)
+
+After QA passes, run a spec alignment check. This step is **mandatory** — it MUST
+NOT be skipped even after session pauses, context compression, or `/reload-plugins`.
+If you are resuming an orchestration and unsure which steps have run, check whether
+a spec alignment check has been reported in the conversation. If not, run it now.
+
+```
+Run /check-specs <spec-file> to verify code matches the spec written in Step 6.
+If /check-specs finds MISSING or DIFFERS items, route them back to the responsible
+IC agent for correction before shipping.
+```
+
+This is the last quality gate before presenting to the user.
+
+---
+
 ## Step 11: Ship (present to user)
 
 When all tasks are complete, reviewed, and QA-validated:
@@ -446,7 +480,44 @@ EOF
 )"
 ```
 
+If `gh` is not available, fall back to `git push -u origin <branch>` and print the
+URL for manual PR creation.
+
 If Linear is available, update issue status and link the PR.
+
+### If squash merge requested (no PR):
+
+Prefer plain git — do NOT require `gh`:
+
+```bash
+cd <main-repo-path>
+git merge --squash <branch>
+git commit -m "<ISSUE-ID>: <title>
+
+<bullet summary>
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+Only use `gh pr merge --squash` if the user explicitly created a PR and `gh` is
+available. Plain `git merge --squash` is the default merge path.
+
+---
+
+## Worktree cleanup
+
+When removing worktree branches after a squash merge, `git branch -d` will fail
+with "not fully merged" (expected — squash merge doesn't create a merge commit).
+Use `git branch -D` instead.
+
+**Serialize worktree removal** — do NOT remove multiple worktrees in parallel.
+Parallel git operations on shared `.git/config` cause `error: could not write
+config file .git/config: Device or resource busy`. Remove worktrees one at a time:
+
+```bash
+git worktree remove <path-1> && git branch -D <branch-1>
+git worktree remove <path-2> && git branch -D <branch-2>
+```
 
 ---
 

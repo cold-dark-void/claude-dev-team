@@ -380,6 +380,18 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.19.5
+- **Session 00000000 dogfood improvements** — 9 fixes from analyzing a real 17-hour orchestration session on the Project project (Architecture 2.0 overhaul, 98 subagents, 7 tickets shipped)
+- **Council evidence JSON repair** — `engine.sh finalize` now auto-repairs invalid JSON caused by unescaped backslashes in investigator `raw_blob` fields (Go regex, Windows paths, etc.). Character-by-character repair runs only when jq rejects the evidence file. Tested against the exact jq exit-5 error from session 00000000
+- **Task store upsert** — `task-store.sh create` now upserts instead of erroring on duplicate task IDs; `update-status` auto-creates stub if task file missing after session pause/resume
+- **Mandatory spec alignment check** — new Step 10b in orchestrate: `/check-specs` runs after QA and survives pause/resume (explicitly flagged as non-skippable)
+- **PM kickoff enforced for all child tickets** — orchestrate now requires PM AC review for every ticket in an umbrella, not just leaf/bug tickets
+- **IC agent prompts include architecture context** — orchestrate Step 8 spawn template now enumerates all affected backends/services/platforms so ICs don't discover them by accident
+- **ic4→ic5 escalation heuristic** — kickoff and orchestrate now guide Tech Lead: tasks touching >10 files or >15 callsites should go to ic5, not ic4
+- **Plain git squash merge** — orchestrate prefers `git merge --squash` over `gh pr merge`; gh is optional, not required
+- **Go sandbox cache detection** — init-orchestration detects `go.mod` and offers `GOCACHE=$TMPDIR/go-cache GOWORK=off` injection into agent prompts
+- **Worktree cleanup serialized** — orchestrate documents serial worktree removal to avoid `git config: Device or resource busy` from parallel operations
+
 ### v0.19.4
 - **Remaining review fixes** — stop-review stamp stored project-locally (not in $TMPDIR), generic preset uses only investigator-role flavors, memory-capture deduplicates consecutive identical observations, FK constraints on distillation_log and validation_log
 

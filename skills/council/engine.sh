@@ -320,6 +320,75 @@ cmd_finalize() {
     exit 7
   fi
 
+  # Validate evidence file is parseable JSON. Investigator raw_blob fields
+  # may contain code with backslashes (regex, paths) that the LLM fails to
+  # escape properly. Attempt repair before any jq calls.
+  if ! jq empty "$evidence_file" 2>/dev/null; then
+    python3 - "$evidence_file" <<'PYREPAIR'
+import json, sys
+
+path = sys.argv[1]
+with open(path, 'r') as f:
+    raw = f.read()
+
+# Try parsing as-is first
+try:
+    json.loads(raw)
+    sys.exit(0)  # already valid
+except json.JSONDecodeError:
+    pass
+
+# Repair: fix unescaped backslashes inside JSON string values.
+# Walk the raw text character by character, tracking whether we're inside a
+# JSON string. Inside strings, double any backslash that isn't followed by
+# a valid JSON escape character: " \ / b f n r t u
+VALID_ESCAPES = set('"\\/' + 'bfnrtu')
+out = []
+i = 0
+in_string = False
+while i < len(raw):
+    ch = raw[i]
+    if not in_string:
+        if ch == '"':
+            in_string = True
+        out.append(ch)
+        i += 1
+    else:
+        if ch == '"':
+            in_string = False
+            out.append(ch)
+            i += 1
+        elif ch == '\\':
+            if i + 1 < len(raw) and raw[i + 1] in VALID_ESCAPES:
+                # Valid JSON escape — keep as-is
+                out.append(ch)
+                out.append(raw[i + 1])
+                i += 2
+            else:
+                # Invalid escape (e.g. \d, \., \w) — double the backslash
+                out.append('\\')
+                out.append('\\')
+                i += 1
+        else:
+            out.append(ch)
+            i += 1
+
+repaired = ''.join(out)
+
+try:
+    json.loads(repaired)
+    with open(path, 'w') as f:
+        f.write(repaired)
+    print("engine.sh: repaired malformed JSON in evidence file (unescaped backslashes)", file=sys.stderr)
+except json.JSONDecodeError as e:
+    print(f"engine.sh: evidence file is not valid JSON and repair failed: {e}", file=sys.stderr)
+    sys.exit(5)
+PYREPAIR
+    if [ $? -ne 0 ]; then
+      exit 5
+    fi
+  fi
+
   # Validate evidence file is non-empty JSON array. An empty bundle set is
   # exit 5 per SKILL.md failure-mode table.
   local evidence_count

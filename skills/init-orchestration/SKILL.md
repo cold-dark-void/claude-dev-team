@@ -91,6 +91,36 @@ Collect the user's answer. Build the final `allowedDomains` list (auto-detected 
 If the user says "none" and auto-detection found domains, still use the auto-detected ones.
 If the user says "skip" or "no sandbox", note that sandbox should be disabled — Step 3 will set `sandbox.enabled` to `false`.
 
+#### Go project sandbox workarounds
+
+If `go.mod` was detected, agents will need writable Go build and module caches.
+The sandbox blocks `~/.cache/go-build/` by default. Inform the user:
+
+```
+Go project detected. Agents running `go build` or `go test` in sandbox mode need
+a writable build cache. Two options:
+
+1. (Recommended) Agents will use GOCACHE=$TMPDIR/go-cache GOWORK=off automatically
+2. Add ~/.cache/go-build to sandbox filesystem write allowlist
+
+Option 1 requires no config changes — I'll seed this into orchestrator memory.
+```
+
+If user picks option 1 (default), append this to the orchestrator memory content in Step 7:
+```
+- Go project: agents MUST prefix build/test commands with `GOWORK=off GOCACHE=$TMPDIR/go-cache`
+  to avoid sandbox read-only cache errors. Inject this into IC agent prompts.
+```
+
+If user picks option 2, add to `.claude/settings.json` sandbox filesystem section:
+```json
+"filesystem": {
+  "write": {
+    "allowOnly": ["~/.cache/go-build"]
+  }
+}
+```
+
 ---
 
 ### Step 3: Write .claude/settings.json

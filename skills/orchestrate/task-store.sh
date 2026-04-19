@@ -68,19 +68,24 @@ cmd_create() {
     flock -x 9
 
     if [ -f "$dest" ]; then
-      echo "error: task already exists: $task_id" >&2
-      exit 1
+      # Upsert: update subject and requires_council, preserve created_at and status
+      jq \
+        --arg subj "$subject" \
+        --argjson rc "$requires_council" \
+        '.subject = $subj | .requires_council = $rc' \
+        "$dest" > "$tmp"
+      mv "$tmp" "$dest"
+      echo "upserted: $dest (already existed, updated)" >&2
+    else
+      jq -n \
+        --arg tid  "$task_id" \
+        --arg subj "$subject" \
+        --argjson rc "$requires_council" \
+        --arg ts   "$ts" \
+        '{task_id: $tid, subject: $subj, requires_council: $rc, created_at: $ts, status: "pending"}' \
+        > "$tmp"
+      mv "$tmp" "$dest"
     fi
-
-    jq -n \
-      --arg tid  "$task_id" \
-      --arg subj "$subject" \
-      --argjson rc "$requires_council" \
-      --arg ts   "$ts" \
-      '{task_id: $tid, subject: $subj, requires_council: $rc, created_at: $ts, status: "pending"}' \
-      > "$tmp"
-
-    mv "$tmp" "$dest"
   ) 9>"$LOCK"
 
   echo "created: $dest"
@@ -105,13 +110,21 @@ cmd_update_status() {
     flock -x 9
 
     if [ ! -f "$dest" ]; then
-      echo "error: task file not found: $dest" >&2
-      exit 1
+      # Auto-create a stub if task file is missing (e.g. after session pause/resume)
+      local ts
+      ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      jq -n \
+        --arg tid "$task_id" \
+        --arg s   "$new_status" \
+        --arg ts  "$ts" \
+        '{task_id: $tid, subject: "(auto-created stub)", requires_council: false, created_at: $ts, status: $s}' \
+        > "$tmp"
+      mv "$tmp" "$dest"
+      echo "warning: task file not found, created stub: $dest" >&2
+    else
+      jq --arg s "$new_status" '.status = $s' "$dest" > "$tmp"
+      mv "$tmp" "$dest"
     fi
-
-    jq --arg s "$new_status" '.status = $s' "$dest" > "$tmp"
-
-    mv "$tmp" "$dest"
   ) 9>"$LOCK"
 
   echo "updated: $dest (status=$new_status)"
