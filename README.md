@@ -380,6 +380,10 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.19.6
+- **Judge output JSON validation** — `engine.sh finalize` now validates and repairs judge output (strips markdown fences, fixes unescaped backslashes) with clear error messages on failure (exit 7). Found during v0.19.5 council self-review when LLM-generated judge JSON was malformed
+- **Dead code comment** — documented that the `$?` guard after evidence repair is reached via `set -e` errexit, not the explicit check (council tribunal finding, confidence 85)
+
 ### v0.19.5
 - **Session 00000000 dogfood improvements** — 9 fixes from analyzing a real 17-hour orchestration session on the Project project (Architecture 2.0 overhaul, 98 subagents, 7 tickets shipped)
 - **Council evidence JSON repair** — `engine.sh finalize` now auto-repairs invalid JSON caused by unescaped backslashes in investigator `raw_blob` fields (Go regex, Windows paths, etc.). Character-by-character repair runs only when jq rejects the evidence file. Tested against the exact jq exit-5 error from session 00000000
