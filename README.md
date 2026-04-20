@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.19.8
+- **Lean orchestrator startup** — removed redundant Tech Lead and PM memory loading from `/orchestrate` Step 0. Both agents load their own memory when spawned in Step 4; pre-loading saved ~2-5K tokens of wasted orchestrator context
+
 ### v0.19.7
 - **Anti-rationalization directives** — ic5, ic4, and qa agents now embed excuse/rebuttal tables that counter common step-skipping rationalizations (TDD shortcuts, spec non-compliance, premature approval). Inspired by addyosmani/agent-skills
 
