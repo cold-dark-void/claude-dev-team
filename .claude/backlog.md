@@ -9,5 +9,7 @@
 - [COUNCIL-002 — Per-phase token usage reporting](backlog/council-002-token-usage-reporting.md) - Cost visibility in council stdout summary [PENDING]
 - [COUNCIL-002 — Investigator tool-call caching](backlog/council-002-tool-call-caching.md) - Avoid redundant file reads across investigators in one run [PENDING]
 - [COUNCIL-002 — Template `{{TASK_ID}}` placeholder polish](backlog/council-002-task-id-frontmatter-polish.md) - Move {{TASK_ID}} into YAML block proper [PENDING]
+- [Agent notification sink (tiered)](backlog/agent-notification-sink.md) - Passive agent progress notifications via MCP tools or raw webhook [PENDING]
+- [External reviewer option](backlog/external-reviewer-option.md) - Optional cross-tool review step in council engine (Codex, Gemini) [PENDING]
 
 ## Completed
