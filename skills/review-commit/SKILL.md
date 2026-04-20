@@ -20,6 +20,8 @@ from entropy.
 
 - No argument: print review as text only
 - `/review-and-commit <path>`: also save the rendered review to that file
+- `/review-and-commit --impact`: run blast radius analysis before review (adds affected callers as supplementary context for reviewers)
+- `/review-and-commit --impact <path>`: both impact analysis and save to file
 
 ## Step 1: Stage and inspect
 
@@ -30,6 +32,50 @@ git diff
 
 If nothing is staged or modified, stop. Read every changed file in full —
 do not review hunks in isolation.
+
+## Step 1b: Blast radius analysis (only when `--impact` is passed)
+
+Skip this step entirely if `--impact` was not passed. When enabled:
+
+1. **Extract changed symbols** — parse the diff hunks for function, method,
+   and class names that were modified (added, removed, or changed signature).
+   Use simple regex heuristics, not a full parser:
+   - Python: `def <name>`, `class <name>`
+   - JS/TS: `function <name>`, `<name>(`, `class <name>`, `export.*<name>`
+   - Go: `func <name>`, `func (.*) <name>`
+   - Rust: `fn <name>`, `struct <name>`, `impl <name>`
+   - Shell: `<name>()`, `function <name>`
+   - Fallback: any line matching `^\+.*\b(def|func|fn|function|class|struct|impl)\s+(\w+)`
+
+2. **Find callers** — for each extracted symbol, grep the codebase for
+   references (exclude the changed files themselves, test files, and
+   vendor/node_modules directories):
+   ```bash
+   grep -rl --include='*.{py,js,ts,go,rs,sh}' '<symbol>' . \
+     | grep -v node_modules | grep -v vendor | grep -v __pycache__
+   ```
+   Cap at 20 caller files total to avoid context blowout.
+
+3. **Build impact context** — produce a concise summary:
+   ```
+   ## Impact Analysis (--impact)
+
+   Changed symbols: <list>
+   Affected files (callers): <N files>
+   - path/to/caller1.py:42 — calls <symbol>
+   - path/to/caller2.go:18 — references <symbol>
+   ...
+
+   Reviewers: check these callers for compatibility with the changes above.
+   ```
+
+4. **Pass to specialists** — include the impact context as supplementary
+   material in the Phase 1 investigator prompts (alongside the diff and
+   changed-file contents). Specialists should flag callers that may break
+   due to signature changes, removed functions, or altered behavior.
+
+If no symbols are extracted (e.g., only config/doc changes), skip silently
+and proceed without impact context.
 
 ## Step 2: Locate the council engine
 
@@ -66,7 +112,9 @@ Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
   subagents in one message (parallel), one per flavor from
   `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`,
   using `skills/council/prompts/investigator.md`. Pass full diff, full
-  changed-file contents, applicable-specs bundle, `output_shape: finding[]`,
+  changed-file contents, applicable-specs bundle, impact context from
+  Step 1b if available (empty string if `--impact` was not used),
+  `output_shape: finding[]`,
   tool allowlist `Read, Grep, Glob, Bash (read-only)`. Every finding MUST
   carry a `tool_use_id`.
 - **Phase 2 / Phase 3** — n/a (specialists already investigate; domain

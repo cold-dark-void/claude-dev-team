@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.20.0
+- **Blast radius analysis for reviews** — `/review-and-commit --impact` runs a lightweight impact analysis before spawning reviewers: extracts changed function/class names from diff hunks, greps for callers across the codebase (cap 20 files), and passes affected-caller context to all 5 specialists. Reviewers can now flag callers that may break due to signature changes or removed functions. Inspired by Code Review Graph (11.4K stars)
+
 ### v0.19.8
 - **Lean orchestrator startup** — removed redundant Tech Lead and PM memory loading from `/orchestrate` Step 0. Both agents load their own memory when spawned in Step 4; pre-loading saved ~2-5K tokens of wasted orchestrator context
 
