@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.19.7
+- **Anti-rationalization directives** — ic5, ic4, and qa agents now embed excuse/rebuttal tables that counter common step-skipping rationalizations (TDD shortcuts, spec non-compliance, premature approval). Inspired by addyosmani/agent-skills
+
 ### v0.19.6
 - **Judge output JSON validation** — `engine.sh finalize` now validates and repairs judge output (strips markdown fences, fixes unescaped backslashes) with clear error messages on failure (exit 7). Found during v0.19.5 council self-review when LLM-generated judge JSON was malformed
 - **Dead code comment** — documented that the `$?` guard after evidence repair is reached via `set -e` errexit, not the explicit check (council tribunal finding, confidence 85)
