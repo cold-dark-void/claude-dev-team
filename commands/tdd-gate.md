@@ -5,10 +5,11 @@ description: Toggle hook-based TDD enforcement — blocks Write/Edit to implemen
 
 # TDD Gate
 
-Hook-based TDD enforcement toggle. When enabled, a `PreToolUse` hook blocks
+Hook-based TDD enforcement toggle. When enabled, a `PreToolUse` hook enforces
 Write/Edit operations on implementation files unless a corresponding test file
-already exists. Forces the red-green-refactor discipline at the tool level —
-deterministic, not probabilistic.
+already exists. Uses graduated enforcement per session: hint (1st attempt) →
+warning (2nd) → hard block (3rd+). Forces the red-green-refactor discipline
+at the tool level — deterministic, not probabilistic.
 
 ## Arguments
 
@@ -169,18 +170,42 @@ case "$EXT" in
 esac
 
 if [ "$FOUND_TEST" = "false" ]; then
-  echo "TDD GATE: No test file found for $BASENAME" >&2
-  echo "Write a failing test first, then implement." >&2
-  echo "" >&2
-  echo "Expected test file locations:" >&2
+  # Graduated enforcement: hint (1st) → warning (2nd) → block (3rd+)
+  SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id','unknown'))" 2>/dev/null || echo "unknown")
+  FILE_HASH=$(echo "$FILE_PATH" | python3 -c "import sys,hashlib; print(hashlib.md5(sys.stdin.read().strip().encode()).hexdigest()[:8])" 2>/dev/null || echo "unknown")
+  COUNTER_FILE="${TMPDIR:-/tmp}/tdd-gate-${SESSION_ID}-${FILE_HASH}"
+
+  # Increment counter
+  COUNT=1
+  [ -f "$COUNTER_FILE" ] && COUNT=$(( $(cat "$COUNTER_FILE") + 1 ))
+  echo "$COUNT" > "$COUNTER_FILE"
+
+  LOCATIONS=""
   case "$EXT" in
-    ts|tsx) echo "  $DIRNAME/$NAME.test.ts or $DIRNAME/$NAME.spec.ts" >&2 ;;
-    js|jsx) echo "  $DIRNAME/$NAME.test.js or $DIRNAME/$NAME.spec.js" >&2 ;;
-    py)     echo "  $DIRNAME/test_$NAME.py or tests/test_$NAME.py" >&2 ;;
-    go)     echo "  $DIRNAME/${NAME}_test.go" >&2 ;;
-    rs)     echo "  $DIRNAME/${NAME}_test.rs or tests/$NAME.rs" >&2 ;;
+    ts|tsx) LOCATIONS="$DIRNAME/$NAME.test.ts or $DIRNAME/$NAME.spec.ts" ;;
+    js|jsx) LOCATIONS="$DIRNAME/$NAME.test.js or $DIRNAME/$NAME.spec.js" ;;
+    py)     LOCATIONS="$DIRNAME/test_$NAME.py or tests/test_$NAME.py" ;;
+    go)     LOCATIONS="$DIRNAME/${NAME}_test.go" ;;
+    rs)     LOCATIONS="$DIRNAME/${NAME}_test.rs or tests/$NAME.rs" ;;
   esac
-  exit 2
+
+  if [ "$COUNT" -eq 1 ]; then
+    # Hint: allow but nudge
+    echo "TDD hint: No test file found for $BASENAME. Consider writing a failing test first." >&2
+    echo "Expected: $LOCATIONS" >&2
+    exit 0
+  elif [ "$COUNT" -eq 2 ]; then
+    # Warning: allow but stronger nudge
+    echo "TDD warning: Still no test file for $BASENAME. Write the test before continuing implementation." >&2
+    echo "Expected: $LOCATIONS" >&2
+    exit 0
+  else
+    # Block: 3rd+ attempt
+    echo "TDD GATE: No test file found for $BASENAME — blocked after $COUNT attempts." >&2
+    echo "Write a failing test first, then implement." >&2
+    echo "Expected: $LOCATIONS" >&2
+    exit 2
+  fi
 fi
 
 exit 0
@@ -238,4 +263,7 @@ TDD Gate: DISABLED
 - The hook does NOT check whether the test is failing (that's the agent's job)
 - It only verifies that a test file _exists_ — a minimal bar that ensures TDD
   is at least structurally followed
+- Graduated enforcement tracks attempts per file per session via `$TMPDIR`
+  counter files. Counter resets on new session. First attempt is a hint (exit 0),
+  second is a warning (exit 0), third+ is a block (exit 2).
 - Does not interfere with `/init-orchestration` hooks — they use different events
