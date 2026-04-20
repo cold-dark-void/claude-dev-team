@@ -45,34 +45,9 @@ Read in parallel:
     cat "$MROOT/.claude/memory/claude/memory.md" 2>/dev/null
   fi
   ```
-- Tech Lead cortex:
-  ```bash
-  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead' AND tier > 0 AND archived=FALSE;")
-    if [ "$HAS_DISTILLED" -gt 0 ]; then
-      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
-      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
-    else
-      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='tech-lead' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
-    fi
-  else
-    cat "$MROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
-  fi
-  ```
-- PM cortex:
-  ```bash
-  if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-    HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='pm' AND tier > 0 AND archived=FALSE;")
-    if [ "$HAS_DISTILLED" -gt 0 ]; then
-      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
-      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
-    else
-      sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='pm' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
-    fi
-  else
-    cat "$MROOT/.claude/memory/pm/cortex.md" 2>/dev/null
-  fi
-  ```
+- _(Tech Lead and PM memory loading removed from Step 0 — both agents load their own
+  memory via their agent definitions when spawned in Step 4. Loading it here was
+  redundant and added ~2-5K tokens to the orchestrator's startup context.)_
 
 If ISSUE-ID missing, ask:
 > "Issue ID (e.g. CDV-1):"
