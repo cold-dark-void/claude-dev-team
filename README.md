@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.21.0
+- **Graduated TDD nudges** — `/tdd-gate` now uses soft enforcement: hint on 1st Write/Edit to untested file (allowed), warning on 2nd (allowed), hard block on 3rd+ (exit 2). Per-file counter tracked per session via `$TMPDIR`. Reduces wasted context from block+retry cycles while still enforcing TDD. Inspired by barkain/claude-code-workflow-orchestration
+
 ### v0.20.0
 - **Blast radius analysis for reviews** — `/review-and-commit --impact` runs a lightweight impact analysis before spawning reviewers: extracts changed function/class names from diff hunks, greps for callers across the codebase (cap 20 files), and passes affected-caller context to all 5 specialists. Reviewers can now flag callers that may break due to signature changes or removed functions. Inspired by Code Review Graph (11.4K stars)
 
