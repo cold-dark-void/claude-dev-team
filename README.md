@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.22.0
+- **Bash output compression** — `/init-orchestration` now installs a PreToolUse hook (`bash-compress.sh`) that rewrites noisy test/build commands through a compression wrapper. Uses Claude Code's `updatedInput` to transparently pipe output through head/tail (threshold: 50 lines, shows first 20 + last 20). Covers npm/jest/vitest/pytest/go/cargo/mvn/gradle test, build commands, make, and tsc. Zero external deps — pure bash. Unblocked by `/council --session` audit that revealed PreToolUse hooks support `updatedInput` for command rewriting
+
 ### v0.21.0
 - **Graduated TDD nudges** — `/tdd-gate` now uses soft enforcement: hint on 1st Write/Edit to untested file (allowed), warning on 2nd (allowed), hard block on 3rd+ (exit 2). Per-file counter tracked per session via `$TMPDIR`. Reduces wasted context from block+retry cycles while still enforcing TDD. Inspired by barkain/claude-code-workflow-orchestration
 

@@ -14,9 +14,11 @@ project/
 ├── .claude/
 │   ├── settings.json          # + env var + hooks section (merged)
 │   ├── hooks/
-│   │   ├── task-completed.sh  # Quality-gate hook (created)
-│   │   ├── stop-review.sh     # Self-review gate — checks diff before agent exits (created)
-│   │   └── memory-capture.sh  # Auto memory — logs Write/Edit/Bash to tier-0 (created)
+│   │   ├── task-completed.sh          # Quality-gate hook (created)
+│   │   ├── stop-review.sh             # Self-review gate — checks diff before agent exits (created)
+│   │   ├── memory-capture.sh          # Auto memory — logs Write/Edit/Bash to tier-0 (created)
+│   │   ├── bash-compress.sh           # Output compression — rewrites noisy commands (created)
+│   │   └── bash-compress-wrapper.sh   # Compression wrapper — head/tail with exit code (created)
 │   └── memory/
 │       └── claude/
 │           └── memory.md      # Orchestrator rules seeded (created or appended)
@@ -135,6 +137,17 @@ Using the `allowedDomains` list from Step 2, write the settings file.
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/bash-compress.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "hooks": [
@@ -186,8 +199,8 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 **If `settings.json` already exists** — read it, then merge in the missing keys:
 - Add `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }` if `env` key is absent
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
-- Add the `PostToolUse`, `Stop`, and `TaskCompleted` hooks entries if `hooks` key is absent
-- If `hooks` key exists but lacks `PostToolUse`, `Stop`, or `TaskCompleted`, add the missing ones
+- Add the `PreToolUse`, `PostToolUse`, `Stop`, and `TaskCompleted` hooks entries if `hooks` key is absent
+- If `hooks` key exists but lacks `PreToolUse`, `PostToolUse`, `Stop`, or `TaskCompleted`, add the missing ones
 - Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists, ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`, merge new domains into existing `allowedDomains` (no duplicates), and preserve any existing `filesystem` overrides
 - Ensure `permissions.allow` contains `"Bash(*)"` and `permissions.defaultMode` is `"bypassPermissions"` — add or update as needed, but preserve any other existing allow entries
 - Write the merged result back as valid JSON
@@ -412,6 +425,104 @@ exit 0
 Make it executable:
 ```bash
 chmod +x .claude/hooks/memory-capture.sh
+```
+
+---
+
+### Step 4d: Create .claude/hooks/bash-compress.sh and bash-compress-wrapper.sh
+
+Write `.claude/hooks/bash-compress.sh`:
+
+```bash
+#!/usr/bin/env bash
+# PreToolUse hook — rewrites noisy Bash commands to compress output.
+# Returns updatedInput JSON to rewrite the command through a wrapper.
+# Exit 0 with no stdout = no modification (pass through).
+
+INPUT=$(cat)
+
+TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || true)
+[ "$TOOL_NAME" = "Bash" ] || exit 0
+
+COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null || true)
+[ -z "$COMMAND" ] && exit 0
+
+# Check if command matches a noisy pattern
+NOISY=false
+case "$COMMAND" in
+  npm\ test*|npx\ jest*|npx\ vitest*|yarn\ test*|pnpm\ test*) NOISY=true ;;
+  pytest*|python\ -m\ pytest*) NOISY=true ;;
+  go\ test*) NOISY=true ;;
+  cargo\ test*) NOISY=true ;;
+  mvn\ test*|gradle\ test*) NOISY=true ;;
+  npm\ run\ build*|yarn\ build*|pnpm\ build*) NOISY=true ;;
+  cargo\ build*) NOISY=true ;;
+  make\ *|make) NOISY=true ;;
+  tsc\ *|tsc) NOISY=true ;;
+esac
+
+[ "$NOISY" = "false" ] && exit 0
+
+# Find the wrapper script
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+WRAPPER="$WTROOT/.claude/hooks/bash-compress-wrapper.sh"
+[ -f "$WRAPPER" ] || exit 0
+
+# Return updatedInput to rewrite the command through the wrapper
+cat <<ENDJSON
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "allow",
+    "permissionDecisionReason": "Bash output compression",
+    "updatedInput": {
+      "command": "bash $WRAPPER $COMMAND"
+    }
+  }
+}
+ENDJSON
+```
+
+Make it executable:
+```bash
+chmod +x .claude/hooks/bash-compress.sh
+```
+
+Write `.claude/hooks/bash-compress-wrapper.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Runs a command and compresses output if it exceeds a threshold.
+# Preserves exit code. Shows first/last N lines with a count of omitted lines.
+
+THRESHOLD=50
+HEAD_LINES=20
+TAIL_LINES=20
+
+# Run the command, capture output and exit code
+OUTPUT=$("$@" 2>&1)
+EXIT_CODE=$?
+
+LINE_COUNT=$(echo "$OUTPUT" | wc -l)
+
+if [ "$LINE_COUNT" -le "$THRESHOLD" ]; then
+  echo "$OUTPUT"
+else
+  OMITTED=$(( LINE_COUNT - HEAD_LINES - TAIL_LINES ))
+  echo "[compressed: $LINE_COUNT lines → $(( HEAD_LINES + TAIL_LINES )) lines]"
+  echo "$OUTPUT" | head -"$HEAD_LINES"
+  echo ""
+  echo "... $OMITTED lines omitted ..."
+  echo ""
+  echo "$OUTPUT" | tail -"$TAIL_LINES"
+fi
+
+exit $EXIT_CODE
+```
+
+Make it executable:
+```bash
+chmod +x .claude/hooks/bash-compress-wrapper.sh
 ```
 
 ---
@@ -646,11 +757,13 @@ Print a summary of what was done:
 ✅ Agent Teams orchestration initialized!
 
 Updated:
-  📄 .claude/settings.json   — sandbox + bypassPermissions + PostToolUse + Stop + TaskCompleted hooks
+  📄 .claude/settings.json   — sandbox + bypassPermissions + PreToolUse + PostToolUse + Stop + TaskCompleted hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
   📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit/Bash to tier-0)
+  📄 .claude/hooks/bash-compress.sh — output compression (rewrites noisy test/build commands)
+  📄 .claude/hooks/bash-compress-wrapper.sh — compression wrapper (head/tail with preserved exit code)
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
   📄 .claude/memory/claude/memory.md — orchestrator rules seeded [created/updated]
