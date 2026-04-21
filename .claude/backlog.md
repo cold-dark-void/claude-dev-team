@@ -11,7 +11,8 @@
 - [COUNCIL-002 — Template `{{TASK_ID}}` placeholder polish](backlog/council-002-task-id-frontmatter-polish.md) - Move {{TASK_ID}} into YAML block proper [PENDING]
 - [Agent notification sink (tiered)](backlog/agent-notification-sink.md) - Passive agent progress notifications via MCP tools or raw webhook [PENDING]
 - [External reviewer option](backlog/external-reviewer-option.md) - Optional cross-tool review step in council engine (Codex, Gemini) [PENDING]
-- [Bash output compression hook](backlog/bash-output-compression.md) - DEFERRED — awaiting Claude Code output replacement API [PENDING]
-- [Session cost tracking](backlog/session-cost-tracking.md) - DEFERRED — hook payloads lack token data [PENDING]
 
 ## Completed
+
+- [Bash output compression hook](backlog/bash-output-compression.md) - Implemented via PreToolUse + updatedInput [COMPLETED]
+- [Session cost tracking](backlog/session-cost-tracking.md) - Implemented via Stop hook + transcript JSONL parsing [COMPLETED]
