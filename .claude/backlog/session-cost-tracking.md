@@ -1,6 +1,6 @@
 # Session cost tracking
 
-**Status**: PENDING — DEFERRED (hook payloads lack token data)
+**Status**: COMPLETED
 
 ## Problem
 

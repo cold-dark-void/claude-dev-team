@@ -18,7 +18,8 @@ project/
 │   │   ├── stop-review.sh             # Self-review gate — checks diff before agent exits (created)
 │   │   ├── memory-capture.sh          # Auto memory — logs Write/Edit/Bash to tier-0 (created)
 │   │   ├── bash-compress.sh           # Output compression — rewrites noisy commands (created)
-│   │   └── bash-compress-wrapper.sh   # Compression wrapper — head/tail with exit code (created)
+│   │   ├── bash-compress-wrapper.sh   # Compression wrapper — head/tail with exit code (created)
+│   │   └── cost-summary.sh            # Session cost summary — reads transcript JSONL (created)
 │   └── memory/
 │       └── claude/
 │           └── memory.md      # Orchestrator rules seeded (created or appended)
@@ -164,6 +165,10 @@ Using the `allowedDomains` list from Step 2, write the settings file.
           {
             "type": "command",
             "command": "bash .claude/hooks/stop-review.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/cost-summary.sh"
           }
         ]
       }
@@ -527,6 +532,81 @@ chmod +x .claude/hooks/bash-compress-wrapper.sh
 
 ---
 
+### Step 4e: Create .claude/hooks/cost-summary.sh
+
+Write `.claude/hooks/cost-summary.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Stop hook — reads transcript JSONL and prints session cost summary.
+# Non-blocking: errors are silently ignored. Exit 0 always.
+#
+# Pricing is approximate — rates are per 1M tokens and may change.
+# Check https://anthropic.com/pricing for current rates.
+
+INPUT=$(cat)
+
+TRANSCRIPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('transcript_path',''))" 2>/dev/null || true)
+[ -z "$TRANSCRIPT" ] && exit 0
+[ -f "$TRANSCRIPT" ] || exit 0
+
+# Parse transcript JSONL for token usage, calculate cost
+python3 -c "
+import json, sys, os
+
+transcript = '$TRANSCRIPT'
+if not os.path.isfile(transcript):
+    sys.exit(0)
+
+total_input = 0
+total_output = 0
+total_cache_read = 0
+total_cache_create = 0
+turns = 0
+
+with open(transcript, 'r', encoding='utf-8', errors='replace') as f:
+    for line in f:
+        try:
+            data = json.loads(line)
+            msg = data.get('message', {}) if isinstance(data, dict) else {}
+            usage = msg.get('usage', {}) if isinstance(msg, dict) else {}
+            if usage:
+                total_input += usage.get('input_tokens', 0)
+                total_output += usage.get('output_tokens', 0)
+                total_cache_read += usage.get('cache_read_input_tokens', 0)
+                total_cache_create += usage.get('cache_creation_input_tokens', 0)
+                turns += 1
+        except (json.JSONDecodeError, AttributeError):
+            continue
+
+if turns == 0:
+    sys.exit(0)
+
+# Anthropic API pricing (Opus per 1M tokens as of 2026)
+# Input: \$15, Output: \$75, Cache read: \$1.50, Cache write: \$18.75
+input_cost = (total_input / 1_000_000) * 15
+output_cost = (total_output / 1_000_000) * 75
+cache_read_cost = (total_cache_read / 1_000_000) * 1.50
+cache_create_cost = (total_cache_create / 1_000_000) * 18.75
+total_cost = input_cost + output_cost + cache_read_cost + cache_create_cost
+
+print(f'Session cost: ~\${total_cost:.2f} ({turns} turns)', file=sys.stderr)
+print(f'  Input: {total_input:,} tokens (\${input_cost:.2f})', file=sys.stderr)
+print(f'  Output: {total_output:,} tokens (\${output_cost:.2f})', file=sys.stderr)
+print(f'  Cache read: {total_cache_read:,} tokens (\${cache_read_cost:.2f})', file=sys.stderr)
+print(f'  Cache create: {total_cache_create:,} tokens (\${cache_create_cost:.2f})', file=sys.stderr)
+" 2>&1 || true
+
+exit 0
+```
+
+Make it executable:
+```bash
+chmod +x .claude/hooks/cost-summary.sh
+```
+
+---
+
 ### Step 5: Create or update AGENTS.md
 
 **If `AGENTS.md` does not exist** — create it with a full template (see below).
@@ -762,6 +842,7 @@ Updated:
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
   📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit/Bash to tier-0)
+  📄 .claude/hooks/cost-summary.sh  — session cost summary (reads transcript JSONL, prints token costs)
   📄 .claude/hooks/bash-compress.sh — output compression (rewrites noisy test/build commands)
   📄 .claude/hooks/bash-compress-wrapper.sh — compression wrapper (head/tail with preserved exit code)
   📄 AGENTS.md               — team coordination rules [created/appended]
