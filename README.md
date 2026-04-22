@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.23.0
+- **Per-claim memory validation** — `/validate-memory` now uses LLM-based claim extraction + two-tier verification instead of regex+grep. Extracts checkable assertions from each memory, verifies file/symbol refs via bash (Tier A) and behavioral/architectural claims via read-only investigator subagent (Tier B). Composite scoring averages per-claim verdicts weighted by confidence. Includes path traversal guard, rename detection, file-scoped symbol lookup, and per-claim breakdown in reports
+
 ### v0.22.0
 - **Bash output compression** — `/init-orchestration` now installs a PreToolUse hook (`bash-compress.sh`) that rewrites noisy test/build commands through a compression wrapper. Uses Claude Code's `updatedInput` to transparently pipe output through head/tail (threshold: 50 lines, shows first 20 + last 20). Covers npm/jest/vitest/pytest/go/cargo/mvn/gradle test, build commands, make, and tsc. Zero external deps — pure bash. Unblocked by `/council --session` audit that revealed PreToolUse hooks support `updatedInput` for command rewriting
 

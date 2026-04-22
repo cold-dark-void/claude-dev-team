@@ -7,9 +7,11 @@ argument-hint: "[--agent <name>] [--deep] [--force]"
 # /validate-memory
 
 Cross-reference agent memories against the live codebase to detect and resolve
-stale references — dead files, renamed functions, shifted line numbers. Uses a
-multi-stage pipeline with confidence scoring: validator proposes, tech-lead
-reviewer confirms, user decides ambiguous cases.
+stale references — dead files, renamed functions, shifted line numbers,
+outdated factual claims. Uses LLM-based per-claim extraction and two-tier
+verification (bash for structural refs, LLM investigator for semantic claims)
+with confidence scoring: validator proposes, tech-lead reviewer confirms,
+user decides ambiguous cases.
 
 ## Arguments
 
@@ -95,116 +97,291 @@ if [ -z "$MEMORIES" ]; then
 fi
 ```
 
-## Step 3: Extract code references via pattern matching
+## Step 3: Extract checkable claims via LLM
 
-For each memory, scan its content for checkable code references:
+For each memory, use an LLM claim extractor to identify concrete, checkable
+assertions about the codebase. This replaces the previous regex-based
+extraction with semantic claim understanding.
 
-- **File paths**: strings ending in recognized code extensions (`.go`, `.md`,
-  `.sh`, `.yaml`, `.yml`, `.json`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.rs`,
-  `.sql`, `.toml`, `.cfg`, `.ini`)
-- **Symbol patterns**: `func <name>`, `class <name>`, `def <name>`,
-  `function <name>`, `type <name> struct`
-- **Line references**: `L<N>`, `:<N>` (line number notation)
+Read the claim extractor prompt template from
+`skills/validate-memory/SKILL.md` section "Claim Extractor Prompt Template".
 
-```bash
-# Extract file paths (words containing / and ending in code extension)
-FILE_REFS=$(echo "$CONTENT" | grep -oE '[a-zA-Z0-9_./-]+\.(go|md|sh|yaml|yml|json|ts|tsx|js|jsx|py|rs|sql|toml|cfg|ini)\b')
+### Step 3.1: Batch memories for extraction
 
-# Extract symbol names
-SYMBOL_REFS=$(echo "$CONTENT" | grep -oE '(func|class|def|function|type)\s+[A-Za-z_][A-Za-z0-9_]*')
+Collect all eligible memories from Step 2 into batches of up to 10 memories
+each. For each memory, prepare a JSON object:
 
-# Extract line references
-LINE_REFS=$(echo "$CONTENT" | grep -oE '(L[0-9]+|:[0-9]+)')
+```json
+{
+  "id": "<MEM_ID>",
+  "agent": "<MEM_AGENT>",
+  "content": "<CONTENT>",
+  "tier": "<TIER>",
+  "type": "<TYPE>",
+  "created_at": "<CREATED_AT>"
+}
 ```
 
-**Skip memories that match NONE of these patterns.** They have no checkable
-ground truth (e.g., process decisions, domain knowledge without code anchors).
-Do NOT set `validated_at` on skipped entries -- they are simply not subject to
-code-reference validation.
+Maximum 10 batches per run (100 memories). To enforce this, add `LIMIT 100`
+to the Step 2 SQL query. Memories beyond this limit remain unvalidated and
+will be picked up on the next run (they keep `validated_at IS NULL` and
+retain highest processing priority).
 
-## Step 4: Compute confidence scores (staleness probability 0-100)
+### Step 3.2: Spawn claim extractors
 
-For each memory with at least one code reference, compute a composite staleness
-score. Higher score = more likely stale.
+For each batch, substitute `{{MEMORY_BATCH}}` in the claim extractor prompt
+with the JSON array of memories, and spawn a Task subagent
+(`subagent_type: "general-purpose"`).
 
-| Signal | Weight | How to check | Points |
-|--------|--------|--------------|--------|
-| File existence | High | `test -f "$WTROOT/<path>"` | 0 (exists) or 40 (missing) |
-| Symbol existence | High | `grep -r "<symbol>" "$WTROOT"` in codebase | 0 (found) or 30 (missing) |
-| Line content match | Medium | Read line N from file, fuzzy compare | 0-20 scaled |
-| Memory age | Low | Days since `created_at`, scaled | 0-5 scaled |
-| Tier bias | Slight | Tier-2 gets benefit of doubt | -5 for tier-2 |
+Spawn all extraction batches in parallel (all Task calls in one tool-use
+block).
+
+### Step 3.3: Validate extraction results
+
+For each returned result, validate per the rules in the SKILL.md:
+
+1. Output must be valid JSON.
+2. Every `memory_id` must correspond to an input memory.
+3. Every `claim_type` must be one of: `file_reference`, `symbol_reference`,
+   `line_content`, `behavioral`, `architectural`, `configuration`.
+4. Every claim must have at least one `code_ref` with a non-empty `path`.
+5. Empty `claims` array requires non-null `skip_reason`.
+
+Memories with malformed extraction results go to FLAG_USER with score 30 and
+reason "claim extraction failed".
+
+### Step 3.4: Partition memories
+
+After extraction, partition memories into:
+
+- **Has claims**: proceed to Step 4
+- **No claims (skip_reason set)**: skip entirely, do NOT set `validated_at`
+- **Extraction failed**: add to FLAG_USER bucket with score 30
+
+Also partition claims by type for Step 4:
+
+- **Tier A claims** (`file_reference`, `symbol_reference`): verified by bash
+- **Tier B claims** (`line_content`, `behavioral`, `architectural`,
+  `configuration`): verified by LLM investigator
+
+## Step 4: Two-tier claim verification
+
+Verify each claim against the live codebase. Tier A (bash, no LLM cost) for
+structural references, Tier B (LLM investigator) for semantic claims.
+
+Both tiers produce per-claim verdicts using the same taxonomy:
+
+| Verdict | Meaning | Score pts |
+|---------|---------|-----------|
+| `VALID` | Claim matches current code | 0 |
+| `STALE` | Code changed; claim was probably true once | 25 |
+| `CONTRADICTED` | Claim is demonstrably false | 40 |
+| `AMBIGUOUS` | Cannot determine; evidence is mixed | 10 |
+
+Each verdict carries a `confidence` score (0-100) and an `evidence` string.
+
+### Step 4a: Tier A verification (bash)
+
+**Path containment guard** — apply to every claim before any file operation.
+REF_PATH comes from LLM-extracted claims (untrusted). Canonicalize and reject
+paths that escape the project root:
 
 ```bash
-SCORE=0
+# Resolve the path and verify it stays within WTROOT
+RESOLVED=$(realpath -m "$WTROOT/$REF_PATH" 2>/dev/null \
+  || python3 -c "import os.path; print(os.path.normpath(os.path.join('$WTROOT','$REF_PATH')))")
+case "$RESOLVED" in
+  "$WTROOT"/*) ;;  # safe — inside project
+  *)
+    verdict="AMBIGUOUS"; confidence=20
+    evidence="path escapes project root, skipped"
+    continue
+    ;;
+esac
+```
 
-# --- File existence (0 or 40 pts per missing file) ---
-# Skip bare filenames with no path separator (e.g., "main.go" without a
-# directory -- too ambiguous to resolve).
-# Also capture the first existing file path for line-content matching later.
-NEAREST_FILE=""
-for FILE_PATH in $FILE_REFS; do
-  if [[ "$FILE_PATH" == */* ]]; then
-    if [ -f "$WTROOT/$FILE_PATH" ]; then
-      [ -z "$NEAREST_FILE" ] && NEAREST_FILE="$FILE_PATH"
+**realpath portability note**: `realpath` is GNU coreutils; not available on
+macOS by default. All `realpath --relative-to` calls below use a fallback:
+
+```bash
+# Helper: relative path with fallback for macOS
+relpath() {
+  realpath --relative-to="$WTROOT" "$1" 2>/dev/null \
+    || python3 -c "import os.path; print(os.path.relpath('$1','$WTROOT'))"
+}
+```
+
+For `file_reference` claims (after path containment guard):
+
+```bash
+for each claim where claim_type == "file_reference":
+  REF_PATH="${code_refs[0].path}"
+  # ... apply path containment guard above ...
+  if [[ "$REF_PATH" == */* ]]; then
+    if [ -f "$WTROOT/$REF_PATH" ]; then
+      verdict="VALID"; confidence=90
+      evidence="file exists at $REF_PATH"
     else
-      SCORE=$((SCORE + 40))
-      STALE_SIGNAL="file missing: $FILE_PATH"
-      break  # One dead file is enough evidence
+      # Rename detection: glob for basename in nearby directories
+      BASENAME=$(basename "$REF_PATH")
+      PARENT=$(dirname "$REF_PATH")
+      NEARBY=$(find "$WTROOT/$PARENT/.." -name "$BASENAME" -maxdepth 3 2>/dev/null | head -1)
+      if [ -n "$NEARBY" ]; then
+        verdict="STALE"; confidence=70
+        evidence="file moved to $(relpath "$NEARBY")"
+      else
+        verdict="CONTRADICTED"; confidence=90
+        evidence="file not found, no similar file nearby"
+      fi
     fi
+  else
+    # Bare filename with no path separator — too ambiguous
+    verdict="AMBIGUOUS"; confidence=30
+    evidence="bare filename, cannot resolve without path"
   fi
-done
+```
 
-# --- Symbol existence (0 or 30 pts per missing symbol) ---
-for SYM in $SYMBOL_REFS; do
-  SYM_NAME=$(echo "$SYM" | awk '{print $2}')
-  if ! grep -rqF -- "$SYM_NAME" "$WTROOT" --include='*.go' --include='*.py' \
-       --include='*.ts' --include='*.js' --include='*.sh' --include='*.rs' \
-       2>/dev/null; then
-    SCORE=$((SCORE + 30))
-    STALE_SIGNAL="${STALE_SIGNAL:+$STALE_SIGNAL; }symbol missing: $SYM_NAME"
-    break  # One dead symbol is enough
-  fi
-done
+For `symbol_reference` claims (after path containment guard):
 
-# --- Line content match (0-20 pts) ---
-# For each line reference paired with the nearest valid file, read the line
-# and check if it exists. If the file exists but line is out of range,
-# add up to 20 points.
-for LINE_REF in $LINE_REFS; do
-  LINE_NUM=$(echo "$LINE_REF" | tr -d 'L:')
-  if [ -n "$NEAREST_FILE" ] && [ -f "$WTROOT/$NEAREST_FILE" ]; then
-    ACTUAL_LINE=$(sed -n "${LINE_NUM}p" "$WTROOT/$NEAREST_FILE" 2>/dev/null)
-    if [ -z "$ACTUAL_LINE" ]; then
-      SCORE=$((SCORE + 20))
-      STALE_SIGNAL="${STALE_SIGNAL:+$STALE_SIGNAL; }line $LINE_NUM out of range in $NEAREST_FILE"
+```bash
+for each claim where claim_type == "symbol_reference":
+  REF_PATH="${code_refs[0].path}"
+  SYM_NAME="${code_refs[0].symbol}"
+  # ... apply path containment guard above ...
+
+  if [ -n "$REF_PATH" ] && [ -f "$WTROOT/$REF_PATH" ]; then
+    # Check symbol in the SPECIFIC file the memory claims
+    if grep -qF "$SYM_NAME" "$WTROOT/$REF_PATH" 2>/dev/null; then
+      verdict="VALID"; confidence=85
+      evidence="$SYM_NAME found in $REF_PATH"
+    else
+      # Symbol not in claimed file — check if it exists elsewhere
+      FOUND=$(grep -rlF "$SYM_NAME" "$WTROOT" \
+        --include='*.go' --include='*.py' --include='*.ts' \
+        --include='*.js' --include='*.sh' --include='*.rs' \
+        --exclude-dir='.claude' 2>/dev/null | head -1)
+      if [ -n "$FOUND" ]; then
+        verdict="STALE"; confidence=70
+        evidence="$SYM_NAME found in $(relpath "$FOUND"), not in claimed $REF_PATH"
+      else
+        verdict="CONTRADICTED"; confidence=85
+        evidence="$SYM_NAME not found anywhere in codebase"
+      fi
     fi
-    break  # Check one line reference
+  elif [ -n "$REF_PATH" ] && [ -n "$SYM_NAME" ]; then
+    # REF_PATH provided but file deleted — grep globally, verdict is STALE if found
+    FOUND=$(grep -rlF "$SYM_NAME" "$WTROOT" \
+      --include='*.go' --include='*.py' --include='*.ts' \
+      --include='*.js' --include='*.sh' --include='*.rs' \
+      --exclude-dir='.claude' 2>/dev/null | head -1)
+    if [ -n "$FOUND" ]; then
+      verdict="STALE"; confidence=65
+      evidence="$SYM_NAME found in $(relpath "$FOUND"), claimed file $REF_PATH deleted"
+    else
+      verdict="CONTRADICTED"; confidence=80
+      evidence="$SYM_NAME not found in codebase, claimed file $REF_PATH deleted"
+    fi
+  elif [ -n "$SYM_NAME" ]; then
+    # No file specified — grep globally
+    FOUND=$(grep -rlF "$SYM_NAME" "$WTROOT" \
+      --include='*.go' --include='*.py' --include='*.ts' \
+      --include='*.js' --include='*.sh' --include='*.rs' \
+      --exclude-dir='.claude' 2>/dev/null | head -1)
+    if [ -n "$FOUND" ]; then
+      verdict="VALID"; confidence=60
+      evidence="$SYM_NAME found in $(relpath "$FOUND") (no file specified in memory)"
+    else
+      verdict="CONTRADICTED"; confidence=80
+      evidence="$SYM_NAME not found in codebase"
+    fi
+  else
+    # No symbol name to check — cannot verify
+    verdict="AMBIGUOUS"; confidence=30
+    evidence="symbol_reference claim has no symbol name to check"
   fi
-done
+```
 
-# --- Memory age (0-5 pts) ---
-# Scale: 0 pts for <30 days, 5 pts for >180 days
+### Step 4b: Tier B verification (LLM investigator)
+
+For `line_content`, `behavioral`, `architectural`, and `configuration` claims.
+
+Read the investigator prompt template from `skills/validate-memory/SKILL.md`
+section "Investigator Prompt Template".
+
+1. Collect all Tier B claims from all memories.
+2. Batch into groups of up to 15 claims per investigation call.
+3. For each batch, substitute `{{CLAIMS_TO_VERIFY}}` with the JSON array of
+   claims and spawn a Task subagent (`subagent_type: "general-purpose"`).
+4. Spawn all investigation batches in parallel.
+5. Maximum 5 investigation batches per run (75 claims). Claims beyond this
+   limit are skipped — their parent memories are excluded from scoring and
+   deferred to the next run (do NOT set `validated_at`, so they retain
+   highest processing priority).
+
+Validate returned verdicts per the SKILL.md rules:
+
+1. Output must be valid JSON.
+2. Exactly one verdict per input claim.
+3. `verdict` must be one of: `VALID`, `STALE`, `CONTRADICTED`, `AMBIGUOUS`.
+4. `confidence` must be integer 0-100.
+5. `evidence` must be non-empty.
+
+Claims with no returned verdict (missing from output or malformed) default to
+`AMBIGUOUS` with confidence 50.
+
+## Step 5: Composite scoring
+
+For each memory, combine its per-claim verdicts into a single staleness
+score (0-100). See `skills/validate-memory/SKILL.md` "Composite Scoring
+Formula" for the canonical reference.
+
+```bash
+# Per-claim points (weighted by confidence)
+BASE_POINTS={"VALID": 0, "STALE": 25, "AMBIGUOUS": 10, "CONTRADICTED": 40}
+
+for each claim verdict:
+  weighted_pts = BASE_POINTS[verdict] * (confidence / 100)
+
+# Average across all claims for this memory
+raw_score = SUM(weighted_pts) / num_claims
+
+# --- Age modifier (0-5 pts) ---
 CREATED_EPOCH=$(date -d "$CREATED_AT" +%s 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$CREATED_AT" +%s 2>/dev/null)
 NOW_EPOCH=$(date +%s)
 AGE_DAYS=$(( (NOW_EPOCH - CREATED_EPOCH) / 86400 ))
 if [ "$AGE_DAYS" -gt 180 ]; then
-  SCORE=$((SCORE + 5))
+  age_mod=5
 elif [ "$AGE_DAYS" -gt 30 ]; then
-  SCORE=$((SCORE + (AGE_DAYS - 30) * 5 / 150))
+  age_mod=$(( (AGE_DAYS - 30) * 5 / 150 ))
+else
+  age_mod=0
 fi
 
-# --- Tier bias (-5 pts for tier-2) ---
+# --- Tier modifier ---
+tier_mod=0
 if [ "$TIER" = "2" ]; then
-  SCORE=$((SCORE - 5))
+  tier_mod=-5
 fi
 
-# --- Clamp to 0-100 ---
+# --- Final score ---
+SCORE=$(( raw_score + age_mod + tier_mod ))
 [ "$SCORE" -lt 0 ] && SCORE=0
 [ "$SCORE" -gt 100 ] && SCORE=100
 ```
 
-## Step 5: Triage by threshold
+**Why averaging?** A memory with 5 VALID claims and 1 STALE claim scores ~4,
+not 25. The average normalizes by claim count, so memories with many verified
+claims are not penalized by a single stale reference.
+
+**Worked examples:**
+
+- 3 claims: 2 VALID (conf 90) + 1 STALE (conf 85) → raw = (0+0+21.25)/3 =
+  7.1 → flagged for user
+- 2 claims: both CONTRADICTED (conf 90) → raw = (36+36)/2 = 36 → flagged
+- 1 claim: CONTRADICTED (conf 95), age 200d → raw = 38 + 5 = 43 → reviewer
+- All VALID → raw = 0 → clean pass
+
+## Step 6: Triage by threshold
 
 Four buckets based on staleness confidence score:
 
@@ -230,11 +407,11 @@ Collect memories into four arrays: `CLEAN_PASS`, `FLAG_USER`, `REVIEW`, `AUTO_AR
 | Reviewer: REWRITE | Yes | Content updated, now fresh |
 | Reviewer: KEEP | Yes | Confirmed still valid |
 | User-flagged (1-39) | No | Awaiting user decision |
-| Skipped (no code refs) | No | Not subject to validation |
+| Skipped (no checkable claims) | No | Not subject to validation |
 
 ### Clean pass (score = 0)
 
-For memories where all code references checked out (score 0 after all signals),
+For memories where all claims verified as VALID (score 0 after composite scoring),
 mark as validated immediately:
 
 ```bash
@@ -242,18 +419,26 @@ sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   UPDATE memories SET validated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
   WHERE id=$MEM_ID;
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
-  VALUES ($MEM_ID, '$MEM_AGENT', 'pass', 0, 'all references valid');"
+  VALUES ($MEM_ID, '$MEM_AGENT', 'pass', 0, 'all claims verified');"
 ```
 
 These entries will be skipped on the next run (within the `validate_window_days`
 window), ensuring idempotency.
 
-## Step 6: Auto-archive high-confidence stale entries (score > 80)
+## Step 7: Auto-archive high-confidence stale entries (score > 80)
 
 For each memory with score strictly greater than 80:
 
+Build a reason string summarizing per-claim verdicts for the audit log:
+
 ```bash
-ESCAPED_REASON=$(printf '%s' "$STALE_SIGNAL" | sed "s/'/''/g")
+# Build per-claim summary for audit log
+# e.g., "CONTRADICTED(90%): file missing; STALE(70%): symbol moved"
+CLAIM_SUMMARY=""
+for each claim verdict for this memory:
+  CLAIM_SUMMARY="${CLAIM_SUMMARY:+$CLAIM_SUMMARY; }${verdict}(${confidence}%): ${evidence}"
+
+ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   UPDATE memories SET archived=TRUE, archive_reason='stale'
   WHERE id=$MEM_ID;
@@ -266,7 +451,7 @@ on archived memories).
 
 Log each auto-archive action for the TLDR summary.
 
-## Step 7: Reviewer pipeline (score 40-80)
+## Step 8: Reviewer pipeline (score 40-80)
 
 Spawn the tech-lead agent (Opus model, per SPEC-003) as a reviewer for entries
 in the 40-80 score range. Batch up to 20 entries per call, max 5 batches per
@@ -277,9 +462,21 @@ For each batch, provide the reviewer with:
 
 - Memory ID
 - Content (first 200 chars)
-- Stale signal (what reference failed)
-- Confidence score
-- Current codebase state (what exists at the referenced path/symbol now)
+- **Per-claim verdicts with evidence** (each claim's verdict, confidence, and
+  evidence string from Step 4)
+- **Composite score breakdown** (which claims drove the score up)
+- Current codebase state for CONTRADICTED/STALE claims
+- **Recommended action**: `archive` if score >= 60, `keep` if score < 60
+  (the reviewer may override this recommendation)
+
+Before sending to the reviewer, log each entry as routed to review:
+
+```bash
+ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")
+sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+  INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
+  VALUES ($MEM_ID, '$MEM_AGENT', 'flag_review', $SCORE, '$ESCAPED_REASON');"
+```
 
 Ask the reviewer for a structured response per entry, one of:
 - `ARCHIVE` -- memory is stale, archive it
@@ -290,7 +487,7 @@ Process reviewer responses:
 
 ### On ARCHIVE
 
-Same as Step 6: set `archived=TRUE`, `archive_reason='stale'`. Log to
+Same as Step 7: set `archived=TRUE`, `archive_reason='stale'`. Log to
 `validation_log` with action `'archive'`. Do NOT set `validated_at`.
 
 ```bash
@@ -338,38 +535,34 @@ sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   VALUES ($MEM_ID, '$MEM_AGENT', 'pass', $SCORE, 'reviewer: keep');"
 ```
 
-## Step 8: Surface low-confidence entries to user (score < 40)
+## Step 9: Surface low-confidence entries to user (score 1-39)
 
-Print a flagged list for the user. Each entry shows:
+Print a flagged list for the user. Each entry shows per-claim breakdown:
 
-- Memory ID
-- First 80 chars of content
-- Stale signal (what reference was checked)
-- Confidence score
-- Recommended action
-
-```bash
-echo "FLAGGED FOR REVIEW (score < 40, non-blocking):"
-echo "  ID: $MEM_ID | Score: $SCORE"
-echo "  Content: $(echo "$CONTENT" | head -c 80)..."
-echo "  Signal: $STALE_SIGNAL"
-echo "  Recommended: keep (low staleness confidence)"
-echo ""
+```
+FLAGGED FOR REVIEW (score 1-39, non-blocking):
+  ID: $MEM_ID | Score: $SCORE
+  Content: <first 80 chars>...
+  Claims:
+    [VALID  90%] File internal/cache/lru.go exists
+    [STALE  70%] Default shard count is 16 — actual: 32 at L70
+  Recommended: keep (low staleness confidence)
 ```
 
 Do NOT set `validated_at` on these entries (spec: MUST NOT set validated_at on
 user-flagged memories).
 
-Log to `validation_log` with action `'flag_user'`:
+Log to `validation_log` with action `'flag_user'`, including per-claim
+verdict summary in reason:
 
 ```bash
-ESCAPED_REASON=$(printf '%s' "$STALE_SIGNAL" | sed "s/'/''/g")
+ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
   VALUES ($MEM_ID, '$MEM_AGENT', 'flag_user', $SCORE, '$ESCAPED_REASON');"
 ```
 
-## Step 9: Deep mode (--deep flag only)
+## Step 10: Deep mode (--deep flag only)
 
 Runs only when `--deep` is set. Executes AFTER standard validation completes
 (Steps 2-9). Deep mode checks whether tier-1 digests have become unreliable
@@ -381,7 +574,7 @@ because too many of their source memories were archived as stale.
 > dependency. The caller (memory-distill) is responsible for omitting `--deep`.
 > This command does not enforce the guard itself.
 
-### Step 9.1: Query tier-1 digests
+### Step 10.1: Query tier-1 digests
 
 ```bash
 DIGESTS=$(sqlite3 "$MEMDB" "
@@ -392,7 +585,7 @@ DIGESTS=$(sqlite3 "$MEMDB" "
 ")
 ```
 
-### Step 9.2: Check source staleness ratio
+### Step 10.2: Check source staleness ratio
 
 For each digest, parse the `distilled_from` JSON array of source memory IDs.
 Count how many sources have `archive_reason='stale'`.
@@ -410,7 +603,7 @@ STALE_COUNT=$(sqlite3 "$MEMDB" "
 ")
 ```
 
-### Step 9.3: Flag digests for rebuild
+### Step 10.3: Flag digests for rebuild
 
 If more than 50% of sources are stale, flag the digest for rebuild. The 50%
 threshold is fixed for v1. Use cross-multiplication to avoid bash integer
@@ -425,7 +618,7 @@ if [ $((STALE_COUNT * 2)) -gt "$TOTAL_SOURCES" ]; then
 fi
 ```
 
-### Step 9.4: Check distiller lock before rebuilding
+### Step 10.4: Check distiller lock before rebuilding
 
 ```bash
 LOCK=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';")
@@ -433,14 +626,14 @@ if [ -n "$LOCK" ]; then
   echo "Error: distiller lock held ($LOCK). Cannot rebuild digests. Try again later."
   # Report all flagged digests as skipped, do NOT archive them
   DEEP_SKIPPED=$FLAGGED_COUNT
-  # Skip to Step 10.6 reporting
+  # Skip to Step 10.6 deep mode reporting
 fi
 ```
 
 Do NOT archive digests if the lock is held. Exit deep mode with an error in
 this case.
 
-### Step 9.5: Rebuild flagged digests
+### Step 10.5: Rebuild flagged digests
 
 For each flagged digest:
 
@@ -467,7 +660,7 @@ For each flagged digest:
    digest. The distiller reads the source memories and produces a replacement
    tier-1 entry.
 
-### Step 9.6: Report deep mode results
+### Step 10.6: Report deep mode results
 
 ```bash
 echo "@$DIGEST_AGENT: $DIGESTS_CHECKED digests checked, $DEEP_REBUILT rebuilt, $DEEP_ARCHIVED archived, $DEEP_SKIPPED skipped (locked)"
@@ -475,10 +668,10 @@ echo "@$DIGEST_AGENT: $DIGESTS_CHECKED digests checked, $DEEP_REBUILT rebuilt, $
 
 One line per agent processed in deep mode.
 
-## Step 10: Print TLDR summary
+## Step 11: Print TLDR summary
 
 Output the TLDR block FIRST (one line per agent), then detailed per-entry
-reasoning below.
+reasoning with per-claim breakdown below.
 
 ```
 TLDR: @<agent>: N checked, M archived, K rewritten, J flagged for review
@@ -491,14 +684,25 @@ TLDR: @pm: 12 checked, 3 archived, 1 rewritten, 2 flagged for review
 TLDR: @tech-lead: 8 checked, 0 archived, 0 rewritten, 1 flagged for review
 
 DETAIL:
-  [id=42] "Cache uses sharded LRU with per-shard lo..." | signal: file missing: internal/cache/lru.go | score: 85 | action: archived
-  [id=55] "API handler validates JWT in middleware/a..." | signal: symbol missing: ValidateJWT | score: 60 | action: rewrite (reviewer)
-  [id=71] "Config loader reads from configs/base.ya..." | signal: age >180 days | score: 5 | action: flagged for user
+  [id=42] "Cache uses sharded LRU with per-shard lo..." | score: 7 | action: flagged
+    [VALID  90%] File internal/cache/lru.go exists
+    [VALID  95%] ShardedCache has mutex per shard
+    [STALE  85%] Default shard count is 16 — actual: 32 at L70
+  [id=55] "API handler validates JWT in middleware/a..." | score: 45 | action: rewrite (reviewer)
+    [CONTRA 90%] File middleware/auth.go exists — not found
+    [CONTRA 85%] ValidateJWT exists in middleware/auth.go — not found anywhere
+  [id=71] "Config loader reads from configs/base.ya..." | score: 0 | action: pass
+    [VALID  95%] File configs/base.yaml exists
+    [VALID  80%] Falls back to env vars — confirmed at config.go:88
+  [id=88] "Team standup runs via /standup command" | skipped (no checkable claims)
 ```
 
-Each detail line includes:
+Each detail entry includes:
 - Memory ID
 - First 80 chars of content
-- Stale signal (or "none" if all refs checked out)
-- Confidence score
+- Composite staleness score
 - Action taken
+- Indented per-claim lines with 6-char verdict tag (`VALID`, `STALE`,
+  `CONTRA`, `AMBIG`), confidence percentage, and evidence summary
+- CONTRADICTED and STALE claims include a dash-separated evidence note
+- Skipped memories (no checkable claims) show "skipped" with reason
