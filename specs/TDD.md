@@ -14,7 +14,7 @@
 | SPEC-008 | Spec Management | INFERRED | commands/create-spec.md, update-spec.md, check-specs.md, find-spec.md, list-specs.md, skills/generate-specs, generate-tests, reflect-specs |
 | SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-commit, release |
-| SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
+| SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, skills/validate-memory/SKILL.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | NEW | skills/dev-team:council (engine), commands/council.md, commands/review-commit.md (preset refactor), /retro + TaskCompleted hooks |
 

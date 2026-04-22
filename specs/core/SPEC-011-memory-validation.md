@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-23
 
-**Covers**: `commands/validate-memory.md`, `/memory-distill` integration (pre-distill hook), `skills/memory-store/migrate-v3.sh`
+**Covers**: `commands/validate-memory.md`, `skills/validate-memory/SKILL.md`, `/memory-distill` integration (pre-distill hook), `skills/memory-store/migrate-v3.sh`
 
 ---
 
@@ -17,16 +17,16 @@ Cross-references agent memories against the live codebase to detect and resolve 
 ## MUST
 
 ### Validation Engine
-- MUST cross-reference every memory entry against the live codebase using weighted signals:
-  - File existence (`test -f <path>`) — high weight
-  - Function/class/symbol existence (`grep -r` in codebase) — high weight
-  - Line number content match (read line N, fuzzy-compare) — medium weight
-  - Memory age (older = more suspect) — low weight
-  - Tier level (tier-2 gets marginal benefit of the doubt) — slight bias
-- MUST compute a composite confidence score (0-100) representing staleness probability: 0 = definitely fresh, 100 = definitely stale
-- MUST resolve file paths relative to the project root (`WTROOT`); skip bare filenames with no path separator for file-existence checks
-- MUST detect code references via pattern matching: (a) strings ending in recognized code file extensions (`.go`, `.md`, `.sh`, `.yaml`, `.json`, `.ts`, `.py`, etc.), (b) patterns matching `func <name>`, `class <name>`, `def <name>`, or line number notation (`L<N>`, `:<N>`). Memories matching none of these patterns are skipped (not marked as validated)
-- MUST use Opus model for the reviewer agent (judgment-heavy confirmation of medium-confidence entries); the scoring engine itself is deterministic bash and runs in the host context
+- MUST extract checkable claims from memory content via LLM-based claim extraction (Task subagent), producing structured claims with `claim_type` and `code_refs`
+- MUST classify claims into one of six types: `file_reference`, `symbol_reference`, `line_content`, `behavioral`, `architectural`, `configuration`
+- MUST verify `file_reference` and `symbol_reference` claims via deterministic bash checks (Tier A): file-scoped symbol lookup (check the specific file the memory claims, not global grep) and rename detection (glob for basename in nearby directories when file missing)
+- MUST verify `line_content`, `behavioral`, `architectural`, and `configuration` claims via read-only LLM investigation (Tier B): investigator subagent with Read/Grep/Glob tools checks claim against actual code
+- MUST produce per-claim verdicts using the four-term taxonomy: `VALID` (claim matches code), `STALE` (code changed, claim was probably true once), `CONTRADICTED` (claim is demonstrably false), `AMBIGUOUS` (cannot determine)
+- MUST attach a confidence score (0-100) to each per-claim verdict
+- MUST compute a composite staleness score (0-100) per memory as weighted average of per-claim verdict points: `CONTRADICTED`=40pts, `STALE`=25pts, `AMBIGUOUS`=10pts, `VALID`=0pts, each weighted by `confidence/100`, then averaged across claims, plus age modifier (0-5pts) and tier modifier (-5pts for tier-2)
+- MUST resolve file paths relative to the project root (`WTROOT`)
+- MUST skip memories with zero extractable checkable claims (not marked as validated)
+- MUST use Opus model for the reviewer agent (judgment-heavy confirmation of medium-confidence entries); claim extraction and investigation subagents may use any available model
 - MUST work via sqlite3 CLI for all DB operations (consistent with SPEC-004)
 - MUST set `PRAGMA busy_timeout=5000` on every write operation
 - MUST SQL-escape all content (single quotes → double single quotes)
@@ -34,11 +34,17 @@ Cross-references agent memories against the live codebase to detect and resolve 
 ### Action Thresholds (Multi-Stage Pipeline)
 - MUST mark memories with stale confidence = 0 as clean pass: set `validated_at`, log action `'pass'` (enables idempotency — next run skips these)
 - MUST surface memories with stale confidence 1-39 to the user as a non-blocking flagged list — command does NOT wait for user input; `validated_at` is NOT set on these entries
-- MUST route memories with stale confidence 40-80% to tech-lead agent (Opus, per SPEC-003) for confirmation before acting (score of exactly 80 routes to reviewer, NOT auto-archive)
-- MUST auto-archive memories with stale confidence >80% (strictly greater than)
-- MUST present each flagged entry with: the memory content, what reference is stale, current codebase state, confidence score, and recommended action (archive / rewrite / keep)
+- MUST route memories with stale confidence 40-80 to tech-lead agent (Opus, per SPEC-003) for confirmation before acting (score of exactly 80 routes to reviewer, NOT auto-archive)
+- MUST auto-archive memories with stale confidence >80 (strictly greater than)
+- MUST present each flagged entry with: the memory content, per-claim verdicts with evidence, composite score breakdown, current codebase state for CONTRADICTED/STALE claims, and recommended action (archive / rewrite / keep)
 - MUST accept reviewer agent responses as structured output: `ARCHIVE`, `REWRITE: <new content>`, or `KEEP`
 - MUST batch reviewer invocations (max 20 entries per call, max 5 batches per run; remainder flagged for user)
+- MUST batch claim extraction: up to 10 memories per extraction call, up to 10 batches per run (100 memories max); enforce via SQL LIMIT, overflow deferred to next run
+- MUST batch Tier B investigation: up to 15 claims per investigation call, up to 5 batches per run (75 claims max); overflow claims skipped, parent memory deferred to next run
+- MUST canonicalize and containment-check all file paths from extracted claims before any file operations (reject paths that escape `WTROOT`)
+- MUST exclude `.claude/` directory from global symbol grep to prevent false positives from memory files
+- MUST assign per-claim verdicts before computing per-memory composite scores
+- MUST include per-claim verdict breakdown in the DETAIL report output
 
 ### Rewriting
 - MUST append `\n\n[validated: YYYY-MM-DD]` to the end of rewritten memory content; replace existing `[validated:]` tag if present (no duplicates)
@@ -83,7 +89,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - MUST support `--force` flag (ignore validated_at window)
 - MUST require SQLite DB (error with helpful message including path and init command reference)
 - MUST output TLDR summary header followed by per-decision commentary
-- MUST output format: `TLDR: @<agent>: N checked, M archived, K rewritten, J flagged for review` per agent, then detailed per-entry reasoning (memory ID, first 80 chars, stale signal, score, action)
+- MUST output format: `TLDR: @<agent>: N checked, M archived, K rewritten, J flagged for review` per agent, then detailed per-entry reasoning with per-claim verdict breakdown (memory ID, first 80 chars, score, action, then indented per-claim lines with verdict tag, confidence, and evidence)
 - MUST exit 0 and output `TLDR: all memories validated within the last N days. Nothing to do. Use --force to re-validate.` when zero memories are eligible
 
 ### Idempotency
@@ -98,9 +104,10 @@ Cross-references agent memories against the live codebase to detect and resolve 
 ## SHOULD
 
 - SHOULD batch file existence checks for performance (collect all paths first, check in parallel)
-- SHOULD detect renamed files (if a referenced file doesn't exist but a similarly-named file does, flag as "possibly renamed" rather than "dead")
+- SHOULD detect renamed files via basename glob in nearby directories (Tier A rename detection) — flag as STALE rather than CONTRADICTED
 - SHOULD weight recently-validated-clean memories lower priority in processing order (focus effort on never-validated entries first)
 - SHOULD log all actions to `validation_log` table for audit trail
+- SHOULD include per-claim verdict summary in `validation_log.reason` field for traceability
 
 ---
 
@@ -134,6 +141,11 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - Verify idempotency: second run on unchanged codebase produces zero changes
 - Verify schema migration: validated_at, archive_reason columns, validation_log table, schema_version=3
 - Verify concurrent run protection: exits with error if distilling_lock held
+- Verify claim extraction produces structured claims from a memory with mixed file references and behavioral assertions
+- Verify Tier A catches a symbol that exists globally but not in the claimed file (verdict: STALE, not VALID)
+- Verify Tier B investigation detects a changed default value as STALE (not CONTRADICTED)
+- Verify composite scoring averages across claims: 5 VALID + 1 STALE scores below 10
+- Verify per-claim verdict breakdown appears in DETAIL report output
 
 ---
 
@@ -179,6 +191,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 | 2026-03-23 | Initial spec created from brainstorm session |
 | 2026-03-23 | Resolved all open questions per kickoff review. Added: archive_reason column, validation_log table, schema v3 migration, reviewer=tech-lead, non-blocking user flags, idempotency AC, concurrent run protection. Deferred --scope global. Status → APPROVED. |
 | 2026-03-23 | Added score-0 "clean pass" bucket (sets validated_at) to fix idempotency gap for truly clean memories. Threshold buckets now: 0=pass, 1-39=flag_user, 40-80=reviewer, >80=auto-archive. |
+| 2026-04-21 | Replaced regex-based reference extraction and bash-only scoring with LLM-based claim extraction + two-tier verification. Added claim types (file_reference, symbol_reference, line_content, behavioral, architectural, configuration), verdict taxonomy (VALID, STALE, CONTRADICTED, AMBIGUOUS), per-claim confidence scoring, composite weighted-average scoring. Tier A (bash) handles file/symbol refs with rename detection. Tier B (LLM investigator) handles behavioral/architectural/config/line claims. Prompt templates in skills/validate-memory/SKILL.md. |
 
 ---
 
