@@ -380,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.23.1
+- **Fix hooks for Claude Code 2.1.116** — rewrote `bash-compress.sh` to inline compression instead of calling `bash wrapper.sh` (the wrapper re-triggered permission checks). Narrowed `memory-capture.sh` to Write/Edit only. Made `stop-review.sh` non-blocking (exit 0). Rewrote all hooks to use temp files instead of pipes (pipes poison the sandbox session)
+
 ### v0.23.0
 - **Per-claim memory validation** — `/validate-memory` now uses LLM-based claim extraction + two-tier verification instead of regex+grep. Extracts checkable assertions from each memory, verifies file/symbol refs via bash (Tier A) and behavioral/architectural claims via read-only investigator subagent (Tier B). Composite scoring averages per-claim verdicts weighted by confidence. Includes path traversal guard, rename detection, file-scoped symbol lookup, and per-claim breakdown in reports
 

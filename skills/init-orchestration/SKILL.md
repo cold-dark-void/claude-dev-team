@@ -39,6 +39,18 @@ ls CLAUDE.md 2>/dev/null && echo "claude.md exists"
 
 Note which files exist — they get merged, not overwritten.
 
+**Upgrade check — always run regardless of prior initialization:**
+
+Even if the project was previously initialized, scan ALL hook commands in settings.json for pipe operators (`|`). Pipes in hooks fail in the sandbox and poison the session — every subsequent bash command fails, even ones with no pipe. If any piped hook commands are found, warn the user prominently:
+```
+⚠️  Piped hook commands detected — these will poison the session and break all bash:
+  [list the commands]
+Fix: remove '| <cmd>' from each. Example: 'go vet ./... 2>&1 | head -20' → 'go vet ./... 2>&1'
+Restart required after fixing.
+```
+
+If any upgrade keys are missing, proceed through the relevant steps to add them. Report what was upgraded in the Step 9 summary.
+
 ---
 
 ### Step 2: Detect sandbox network needs
@@ -201,7 +213,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
 - Add the `PreToolUse`, `PostToolUse`, `Stop`, and `TaskCompleted` hooks entries if `hooks` key is absent
 - If `hooks` key exists but lacks `PreToolUse`, `PostToolUse`, `Stop`, or `TaskCompleted`, add the missing ones
-- Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists, ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`, merge new domains into existing `allowedDomains` (no duplicates), and preserve any existing `filesystem` overrides
+- Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists: ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`; merge new domains into existing `allowedDomains` (no duplicates); preserve any existing `filesystem` overrides
 - Ensure `permissions.allow` contains `"Bash(*)"` and `permissions.defaultMode` is `"bypassPermissions"` — add or update as needed, but preserve any other existing allow entries
 - Write the merged result back as valid JSON
 
@@ -209,13 +221,15 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 
 ### Step 4: Create .claude/hooks/task-completed.sh
 
-Create `.claude/hooks/` directory and write the hook script:
+Create `.claude/hooks/` directory:
 
 ```bash
 mkdir -p .claude/hooks
 ```
 
-Write `.claude/hooks/task-completed.sh`:
+**IMPORTANT — use the `Write` tool (NOT a bash heredoc) to create each hook file below.**
+
+Use the `Write` tool to create `.claude/hooks/task-completed.sh` with this content:
 
 ```bash
 #!/usr/bin/env bash
@@ -261,7 +275,7 @@ Write `.claude/hooks/task-completed.sh`:
 exit 0
 ```
 
-Make it executable:
+Then make it executable:
 ```bash
 chmod +x .claude/hooks/task-completed.sh
 ```
@@ -270,7 +284,7 @@ chmod +x .claude/hooks/task-completed.sh
 
 ### Step 4b: Create .claude/hooks/stop-review.sh
 
-Write `.claude/hooks/stop-review.sh`:
+Use the `Write` tool to create `.claude/hooks/stop-review.sh` with this content:
 
 ```bash
 #!/usr/bin/env bash
@@ -278,61 +292,53 @@ Write `.claude/hooks/stop-review.sh`:
 # Exit code 2 = block exit (stderr is fed back to the agent as feedback).
 # Exit code 0 = allow exit.
 #
-# Checks for uncommitted changes that might indicate unfinished work.
-# The agent sees the stderr feedback and can address issues before exiting.
-#
 # IMPORTANT: Only fires ONCE per session to avoid infinite loops.
-# Uses a stamp file keyed on session_id (from stdin JSON) so the agent
-# sees the warning once, gets a chance to address it, then exits cleanly.
 
-# Only run if inside a git repo
 if ! git rev-parse --git-dir &>/dev/null; then
   exit 0
 fi
 
-# Resolve MROOT for project-local stamp file
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || _MROOT=$(pwd)
 
-# Read stdin JSON (Claude Code delivers session context)
-INPUT=$(timeout 1 cat 2>/dev/null || true)
+TMPF="${TMPDIR:-/tmp}/stop-review-$$"
+timeout 1 cat > "$TMPF" 2>/dev/null || true
 
-# Extract session_id for one-shot stamp; fall back to PPID if unavailable
-SESSION_ID=$(printf '%s' "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
+SESSION_ID=$(jq -r '.session_id // empty' "$TMPF" 2>/dev/null || true)
+rm -f "$TMPF"
+
 STAMP_KEY="${SESSION_ID:-ppid-${PPID:-0}}"
 STAMP="$_MROOT/.claude/.stop-review-${STAMP_KEY}"
 
-# One-shot guard: if we already warned this session, let the agent exit.
 if [ -f "$STAMP" ]; then
   exit 0
 fi
 
-# Check for unstaged or staged-but-uncommitted changes
-DIRTY=$(git status --porcelain 2>/dev/null | head -20)
-if [ -n "$DIRTY" ]; then
-  # Count modified files (excludes untracked)
-  MODIFIED=$(echo "$DIRTY" | grep -cE '^\s?[MADRC]' || true)
+DIRTY=$(git status --porcelain 2>/dev/null)
+[ -z "$DIRTY" ] && exit 0
 
-  if [ "$MODIFIED" -gt 0 ]; then
-    # Drop the stamp so next invocation passes through
-    touch "$STAMP"
-    echo "SELF-REVIEW: $MODIFIED file(s) modified but not committed." >&2
-    echo "Before exiting, verify:" >&2
-    echo "  - All changes are intentional and complete" >&2
-    echo "  - Tests pass with these changes" >&2
-    echo "  - No debug code or TODO markers left behind" >&2
-    echo "" >&2
-    echo "Files:" >&2
-    echo "$DIRTY" | grep -E '^\s?[MADRC]' | head -10 >&2
-    exit 2
-  fi
+MODIFIED=0
+while IFS= read -r line; do
+  case "$line" in
+    [MADRC]\ *|\ [MADRC]\ *) MODIFIED=$(( MODIFIED + 1 )) ;;
+  esac
+done <<< "$DIRTY"
+
+if [ "$MODIFIED" -gt 0 ]; then
+  touch "$STAMP"
+  printf "SELF-REVIEW: %d file(s) modified but not committed.\n" "$MODIFIED" >&2
+  printf "Before exiting, verify:\n" >&2
+  printf "  - All changes are intentional and complete\n" >&2
+  printf "  - Tests pass with these changes\n" >&2
+  printf "  - No debug code or TODO markers left behind\n" >&2
+  exit 2
 fi
 
 exit 0
 ```
 
-Make it executable:
+Then make it executable:
 ```bash
 chmod +x .claude/hooks/stop-review.sh
 ```
@@ -341,19 +347,13 @@ chmod +x .claude/hooks/stop-review.sh
 
 ### Step 4c: Create .claude/hooks/memory-capture.sh
 
-Write `.claude/hooks/memory-capture.sh`:
+Use the `Write` tool to create `.claude/hooks/memory-capture.sh` with this content:
 
 ```bash
 #!/usr/bin/env bash
 # PostToolUse hook — automatic memory capture for agent observations.
-# Logs significant tool uses (Write, Edit, Bash) to tier-0 memory in SQLite.
-# Skips read-only tools (Read, Grep, Glob) to avoid noise.
-# Designed to feed /memory-distill — raw observations are compressed later.
-#
-# Input (via stdin): JSON with tool_name, tool_input, session_id, etc.
-# Exit 0 always — this hook should never block the agent.
+# Logs Write/Edit/Bash to tier-0 memory in SQLite. Exit 0 always.
 
-# Only run if SQLite DB exists
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
@@ -361,68 +361,50 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 
 [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null || exit 0
 
-# Read stdin JSON
-INPUT=$(cat)
+TMPF="${TMPDIR:-/tmp}/memcap-$$"
+cat > "$TMPF"
 
-# Extract tool name
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || true)
+TOOL_NAME=$(jq -r '.tool_name // empty' "$TMPF" 2>/dev/null)
 
-# Only capture mutating tools
 case "$TOOL_NAME" in
   Write|Edit|Bash) ;;
-  *) exit 0 ;;
+  *) rm -f "$TMPF"; exit 0 ;;
 esac
 
-# Extract key info based on tool type
+AGENT=$(jq -r '.teammate_name // "auto"' "$TMPF" 2>/dev/null || echo "auto")
+
 case "$TOOL_NAME" in
   Write)
-    FILE_PATH=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))" 2>/dev/null || true)
+    FILE_PATH=$(jq -r '.tool_input.file_path // empty' "$TMPF" 2>/dev/null)
     OBSERVATION="wrote $FILE_PATH"
     ;;
   Edit)
-    FILE_PATH=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))" 2>/dev/null || true)
+    FILE_PATH=$(jq -r '.tool_input.file_path // empty' "$TMPF" 2>/dev/null)
     OBSERVATION="edited $FILE_PATH"
     ;;
   Bash)
-    COMMAND=$(echo "$INPUT" | python3 -c "
-import sys,json,re
-c=json.load(sys.stdin).get('tool_input',{}).get('command','')[:120]
-# Redact known secret patterns before logging
-c=re.sub(r'(Bearer|Token|Authorization:?)\s+\S+', r'\1 [REDACTED]', c, flags=re.I)
-c=re.sub(r'(PASSWORD|SECRET|API_KEY|TOKEN)=\S+', r'\1=[REDACTED]', c, flags=re.I)
-print(c)
-" 2>/dev/null || true)
-    OBSERVATION="ran: $COMMAND"
+    RAW=$(jq -r '.tool_input.command // empty' "$TMPF" 2>/dev/null)
+    RAW="${RAW:0:120}"
+    OBSERVATION="ran: $RAW"
     ;;
 esac
 
+rm -f "$TMPF"
 [ -z "$OBSERVATION" ] && exit 0
 
-# Deduplicate: skip if same observation was just logged (avoids tier-0 flood)
 DEDUP_FILE="${TMPDIR:-/tmp}/.claude-memcap-last"
 LAST=$(cat "$DEDUP_FILE" 2>/dev/null || true)
-if [ "$OBSERVATION" = "$LAST" ]; then
-  exit 0
-fi
+[ "$OBSERVATION" = "$LAST" ] && exit 0
 printf '%s' "$OBSERVATION" > "$DEDUP_FILE"
 
-# Determine agent name (from teammate_name or default to 'unknown')
-AGENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('teammate_name','auto'))" 2>/dev/null || echo "auto")
-
-# Append to tier-0 memory (fire-and-forget, parameterized query)
-python3 -c "
-import sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
-db.execute('PRAGMA busy_timeout=5000')
-db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)',
-           (sys.argv[2], 'memory', sys.argv[3]))
-db.commit()
-" "$MEMDB" "$AGENT" "$OBSERVATION" 2>/dev/null || true
+sqlite3 "$MEMDB" \
+  "INSERT INTO memories(agent, type, content) VALUES (?, 'memory', ?);" \
+  "$AGENT" "$OBSERVATION" 2>/dev/null || true
 
 exit 0
 ```
 
-Make it executable:
+Then make it executable:
 ```bash
 chmod +x .claude/hooks/memory-capture.sh
 ```
@@ -431,23 +413,23 @@ chmod +x .claude/hooks/memory-capture.sh
 
 ### Step 4d: Create .claude/hooks/bash-compress.sh and bash-compress-wrapper.sh
 
-Write `.claude/hooks/bash-compress.sh`:
+Use the `Write` tool to create `.claude/hooks/bash-compress.sh` with this content:
 
 ```bash
 #!/usr/bin/env bash
 # PreToolUse hook — rewrites noisy Bash commands to compress output.
-# Returns updatedInput JSON to rewrite the command through a wrapper.
-# Exit 0 with no stdout = no modification (pass through).
+# Exit 0 with no stdout = pass through unchanged.
 
-INPUT=$(cat)
+TMPF="${TMPDIR:-/tmp}/bcompress-$$"
+cat > "$TMPF"
 
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || true)
-[ "$TOOL_NAME" = "Bash" ] || exit 0
+TOOL_NAME=$(jq -r '.tool_name // empty' "$TMPF" 2>/dev/null)
+[ "$TOOL_NAME" = "Bash" ] || { rm -f "$TMPF"; exit 0; }
 
-COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null || true)
+COMMAND=$(jq -r '.tool_input.command // empty' "$TMPF" 2>/dev/null)
+rm -f "$TMPF"
 [ -z "$COMMAND" ] && exit 0
 
-# Check if command matches a noisy pattern
 NOISY=false
 case "$COMMAND" in
   npm\ test*|npx\ jest*|npx\ vitest*|yarn\ test*|pnpm\ test*) NOISY=true ;;
@@ -463,24 +445,11 @@ esac
 
 [ "$NOISY" = "false" ] && exit 0
 
-# Find the wrapper script
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 WRAPPER="$WTROOT/.claude/hooks/bash-compress-wrapper.sh"
 [ -f "$WRAPPER" ] || exit 0
 
-# Return updatedInput to rewrite the command through the wrapper
-cat <<ENDJSON
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "allow",
-    "permissionDecisionReason": "Bash output compression",
-    "updatedInput": {
-      "command": "bash $WRAPPER $COMMAND"
-    }
-  }
-}
-ENDJSON
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Bash output compression","updatedInput":{"command":"bash %s %s"}}}\n' "$WRAPPER" "$COMMAND"
 ```
 
 Make it executable:
@@ -493,36 +462,37 @@ Write `.claude/hooks/bash-compress-wrapper.sh`:
 ```bash
 #!/usr/bin/env bash
 # Runs a command and compresses output if it exceeds a threshold.
-# Preserves exit code. Shows first/last N lines with a count of omitted lines.
+# Preserves exit code. Shows first/last N lines with omitted count.
 
 THRESHOLD=50
 HEAD_LINES=20
 TAIL_LINES=20
 
-# Run the command, capture output and exit code
 OUTPUT=$("$@" 2>&1)
 EXIT_CODE=$?
 
-LINE_COUNT=$(echo "$OUTPUT" | wc -l)
+TMPF="${TMPDIR:-/tmp}/bcompress-out-$$"
+printf '%s\n' "$OUTPUT" > "$TMPF"
+LINE_COUNT=$(awk 'END{print NR}' "$TMPF")
 
 if [ "$LINE_COUNT" -le "$THRESHOLD" ]; then
-  echo "$OUTPUT"
+  cat "$TMPF"
 else
   OMITTED=$(( LINE_COUNT - HEAD_LINES - TAIL_LINES ))
-  echo "[compressed: $LINE_COUNT lines → $(( HEAD_LINES + TAIL_LINES )) lines]"
-  echo "$OUTPUT" | head -"$HEAD_LINES"
-  echo ""
-  echo "... $OMITTED lines omitted ..."
-  echo ""
-  echo "$OUTPUT" | tail -"$TAIL_LINES"
+  printf '[compressed: %d lines -> %d lines]\n' "$LINE_COUNT" $(( HEAD_LINES + TAIL_LINES ))
+  head -"$HEAD_LINES" "$TMPF"
+  printf '\n... %d lines omitted ...\n\n' "$OMITTED"
+  tail -"$TAIL_LINES" "$TMPF"
 fi
 
+rm -f "$TMPF"
 exit $EXIT_CODE
 ```
 
-Make it executable:
+Use the `Write` tool to create `.claude/hooks/bash-compress-wrapper.sh` with the content above, then:
+
 ```bash
-chmod +x .claude/hooks/bash-compress-wrapper.sh
+chmod +x .claude/hooks/bash-compress.sh .claude/hooks/bash-compress-wrapper.sh
 ```
 
 ---
@@ -709,13 +679,14 @@ fi
 - Refactoring is always a separate PR — never mixed with feature work. Ship refactor first, then feature on top.
 - Discovered work becomes a new ticket — never silently absorb unplanned work into the current change.
 - Material approach changes → pause all IC work, Tech Lead replans, user approves before resuming.
+- `dangerouslyDisableSandbox` is per-command, not a session state. Only use it when the specific command needs it (heredocs, process substitution). Never carry it forward after one command requires it — `pwd`, `ls`, `python3 -c`, `chmod` and similar never need it.
 ```
 
-Write this content using the DB-first dual path:
+Write this content using the DB-first dual path.
+
+**If DB exists:** use the `Bash` tool to run the python3 sqlite3 insert:
 ```bash
-CONTENT="<baseline memory content above>"
-if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  python3 -c "
+python3 -c "
 import sqlite3, sys, datetime
 db = sqlite3.connect(sys.argv[1])
 db.execute('PRAGMA busy_timeout=5000')
@@ -725,26 +696,37 @@ db.execute('INSERT INTO memories(agent, type, content, updated_at) VALUES (?, ?,
            ('claude', 'memory', sys.argv[2], datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')))
 db.commit()
 " "$MEMDB" "$CONTENT"
-else
-  cat > ".claude/memory/claude/memory.md" << MEMEOF
-$CONTENT
-MEMEOF
-fi
 ```
+
+**If no DB:** use the `Write` tool to create `.claude/memory/claude/memory.md` with the baseline content above.
 
 ---
 
 ### Step 8: Validate
 
-Run the hook manually to confirm it passes:
+Run the hook manually to confirm it passes. Use file redirection — NOT a pipe (`echo '{}' | bash ...` poisons the session):
 ```bash
-echo '{}' | bash .claude/hooks/task-completed.sh
+printf '{}' > "$TMPDIR/hook-test-$$"
+bash .claude/hooks/task-completed.sh < "$TMPDIR/hook-test-$$"
 echo "Hook exit code: $?"
+rm -f "$TMPDIR/hook-test-$$"
 ```
 
 Validate settings.json is still valid JSON:
 ```bash
 python3 -c "import json; json.load(open('.claude/settings.json')); print('settings.json OK')"
+```
+
+**Warn about piped user hooks:** Check whether any existing hooks in settings.json use pipe operators (`|`). If found, warn the user:
+```
+⚠️  WARNING: The following hook commands use pipes ('|') which fail in the sandbox
+and will poison the session, causing all subsequent bash commands to fail:
+
+  [list the piped hook commands]
+
+Fix: remove the pipe and any command after it, or replace with a non-piped equivalent.
+Example: 'go vet ./... 2>&1 | head -20' → 'go vet ./... 2>&1'
+A restart is required after fixing hooks.
 ```
 
 ---
