@@ -17,6 +17,7 @@
 | SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, skills/validate-memory/SKILL.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | NEW | skills/dev-team:council (engine), commands/council.md, commands/review-commit.md (preset refactor), /retro + TaskCompleted hooks |
+| SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
 
 ## Version History
 
@@ -28,3 +29,4 @@
 | 2026-03-23 | SPEC-011 created: Memory Validation — stale reference detection, multi-stage pipeline, /memory-distill integration |
 | 2026-04-07 | SPEC-012 created: Session Retrospective — /retro command, two-phase friction gate + subagent deep-read, routes through /adjust-agent |
 | 2026-04-09 | SPEC-013 created: Adversarial Council Tribunal — /council engine skill, blind investigators, tech-lead judge, feedback-memory learning loop, /review-commit refactor |
+| 2026-04-26 | SPEC-014 implemented — skills/debug/SKILL.md shipped |
