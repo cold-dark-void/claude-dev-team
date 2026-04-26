@@ -312,20 +312,30 @@ Run the test. Confirm it fails — and confirm it fails for the right reason (th
 
 Skip this sub-step entirely if scope = `targeted-patch`.
 
-Perform the refactor — the structural change that eliminates the duplication or correctly centralizes the logic. **Do NOT fix the bug yet.** The refactor must preserve the buggy behavior so that the regression test from 2.5 still fails after the refactor.
+---
 
-Run the full test suite. All tests except the regression test from 2.5 must pass. If any other test breaks, the refactor changed behavior — fix that before proceeding.
+**Commit ordering note:** the refactor commit (from `/refactor inline`) must land before the fix commit. This preserves git bisect usefulness — the fix commit should be the first commit where the regression test from 2.5 passes.
 
-Commit the refactor as a separate commit, before the fix:
+If scope = `refactor-first`, emit the `/refactor inline` handoff and stop modifying files until it completes:
 
 ```
-git add <files>
-git commit -m "refactor: <what was centralized/cleaned up> (pre-fix for <ticket-id>)"
+APPROACH: <one sentence describing the structural change needed>
+AFFECTED FILES:
+  - <file or module from root cause analysis>
+CONTEXT: pre-fix refactor — fix will follow in 2.7 after /refactor inline completes
 ```
+
+The APPROACH sentence above is the inline description argument. Pass it as: `/refactor inline <APPROACH sentence>`. The structured block above is session record only — do not pass the whole block as the argument.
+
+Commit issuance is delegated entirely to `/refactor inline` — do not issue a `git commit` for the refactor in this step.
+
+Run `/refactor inline <description>` with the above context. Do not proceed to 2.7 until `/refactor inline` reports its self-calibration checklist as passing.
+
+If the refactor completes successfully, continue to 2.7 (fix).
+
+---
 
 If this work is escalated to `/kickoff`, the refactor and fix become separate PRs; in an inline session they are separate commits in the same branch.
-
-The fix commit must come after this refactor commit so `git bisect` stays useful.
 
 ---
 

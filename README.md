@@ -70,6 +70,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 |---------|-------------|
 | `/brainstorm` | Socratic design refinement — structured questioning before planning |
 | `/debug` | Phase-gated bug workflow — root cause → failing test → fix → verify; subcommands: `patch` (fast path), `arch` (design-first → /kickoff) |
+| `/refactor` | Design-first code restructuring — design problem → characterization tests → implement → behavior-unchanged verify; `inline` subcommand for /debug handoff |
 | `/kickoff` | Parallel PM+TL kickoff → spec → implementation plan → task graph |
 | `/orchestrate` | Full lifecycle: fetch issue → worktree → agents → review loops → PR |
 | `/standup` | Status snapshot: TaskList + agent context, surfaces blockers and stale tasks |
@@ -380,6 +381,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 ---
 
 ## Changelog
+
+### v0.25.0
+- **`/refactor` skill** — standalone design-first refactor workflow: design problem gate (no file edits until problem is written), approach decision (auto-proceed when unambiguous, options + approval when scope is ambiguous), characterization tests when coverage is thin, behavioral-change detection halts the refactor, self-calibration checklist before completion; `inline` subcommand skips gates for handoffs from `/debug` or `/orchestrate`
 
 ### v0.24.0
 - `/debug` — phase-gated bug workflow: root-cause → failing test → fix → verify; subcommands `patch` (fast path) and `arch` (design-first → /kickoff); enforces root-cause-before-edit gate, self-calibration checklist, holistic callsite scan, escalation ladder to /kickoff → /orchestrate
