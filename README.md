@@ -69,6 +69,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | Command | What it does |
 |---------|-------------|
 | `/brainstorm` | Socratic design refinement — structured questioning before planning |
+| `/debug` | Phase-gated bug workflow — root cause → failing test → fix → verify; subcommands: `patch` (fast path), `arch` (design-first → /kickoff) |
 | `/kickoff` | Parallel PM+TL kickoff → spec → implementation plan → task graph |
 | `/orchestrate` | Full lifecycle: fetch issue → worktree → agents → review loops → PR |
 | `/standup` | Status snapshot: TaskList + agent context, surfaces blockers and stale tasks |
@@ -379,6 +380,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 ---
 
 ## Changelog
+
+### v0.24.0
+- `/debug` — phase-gated bug workflow: root-cause → failing test → fix → verify; subcommands `patch` (fast path) and `arch` (design-first → /kickoff); enforces root-cause-before-edit gate, self-calibration checklist, holistic callsite scan, escalation ladder to /kickoff → /orchestrate
 
 ### v0.23.1
 - **Fix hooks for Claude Code 2.1.116** — rewrote `bash-compress.sh` to inline compression instead of calling `bash wrapper.sh` (the wrapper re-triggered permission checks). Narrowed `memory-capture.sh` to Write/Edit only. Made `stop-review.sh` non-blocking (exit 0). Rewrote all hooks to use temp files instead of pipes (pipes poison the sandbox session)
