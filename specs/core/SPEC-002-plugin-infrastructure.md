@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.claude/settings.json`, `.claude/hooks/task-completed.sh`, `skills/scout-plugins/SKILL.md`
+**Covers**: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.claude/settings.json`, `.claude/hooks/task-completed.sh`, `.claude/hooks/bash-compress.sh`, `.claude/hooks/memory-capture.sh`, `.claude/hooks/stop-review.sh`, `skills/scout-plugins/SKILL.md`
 
 ## Overview
 
@@ -47,6 +47,24 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
 
 Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap — see SPEC-005.
 
+### Additional Hooks
+
+#### PreToolUse — Bash output compression (`bash-compress.sh`)
+- MUST intercept Bash tool calls for known noisy commands: `npm test`, `npx jest`, `npx vitest`, `yarn test`, `pnpm test`, `pytest`, `python -m pytest`, `go test`
+- MUST compress output by rewriting the command to pipe through `bash-compress-wrapper.sh`
+- MUST exit 0 for all non-matching commands (pass-through, no rewrite)
+
+#### PostToolUse — Memory capture (`memory-capture.sh`)
+- MUST only fire on `Write` and `Edit` tool events (not Bash — file changes are high-signal, shell commands are not)
+- MUST write an entry to `.claude/memory/memory.db` when SQLite and sqlite3 are available
+- MUST silently exit 0 when the DB does not exist or sqlite3 is unavailable (no disruption to editing)
+
+#### Stop — Uncommitted change reminder (`stop-review.sh`)
+- MUST check for uncommitted changes via git on session stop
+- MUST print at most one reminder per session (keyed to session_id from Stop event payload)
+- MUST NOT block session exit (always exits 0)
+- MUST silently exit 0 when not in a git repository
+
 ### Settings keys (`.claude/settings.json`)
 
 - `council.taskgate.min_confidence` — integer 0–100, default 80. Confidence threshold for the TaskCompleted council gate (see MUSTs above).
@@ -87,6 +105,7 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 | 2026-04-09 | Tightened TaskCompleted gate contract to match SPEC-013 Phase 6 plumbing: hook MUST query `.claude/council/index.json` only (no report-file scans), MUST read task id from `CLAUDE_TASK_ID`, MUST ignore `finding[]`-shape rows, and MUST hard-fail distinctly for missing-index / missing-task-id / missing-verdict / below-threshold / unset-env cases. |
 | 2026-04-09 | Defined task-metadata read path: hook MUST read `$MROOT/.claude/tasks/<task_id>.json` (resolved via `git rev-parse --git-common-dir`) to determine `requires_council`. Missing file or `requires_council: false`/absent → silent no-op; `requires_council: true` → proceeds to the council index gate. Per-task metadata file is written by SPEC-009 orchestrator. |
 | 2026-04-09 | Stdin-authoritative correction (post-Task-1 spike): inverted task-id transport priority. Hook MUST read `task_id` from stdin JSON (the channel Claude Code itself uses) as the primary source; `CLAUDE_TASK_ID` env var demoted to fallback for non-native invocations only. Recorded the verified stdin payload shape (task_id/task_subject/task_description/hook_event_name/session_id/transcript_path/cwd) and closed the transport Open Question. Orchestrator-side `CLAUDE_TASK_ID` export in SPEC-009 remains valid — it governs the separate `/council` subprocess path, not the hook. See `.claude/plans/2026-04-09-taskcompleted-hook-spike.md`. |
+| 2026-04-26 | Added MUST coverage for three previously-undocumented hooks: `bash-compress.sh` (PreToolUse output compression), `memory-capture.sh` (PostToolUse Write/Edit memory write), `stop-review.sh` (Stop hook uncommitted-change reminder). Updated Covers field. |
 
 ## Cross-references
 
