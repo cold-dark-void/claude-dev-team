@@ -16,9 +16,9 @@
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-commit, release |
 | SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, skills/validate-memory/SKILL.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/kickoff + orchestrate hooks |
-| SPEC-013 | Adversarial Council Tribunal | NEW | skills/dev-team:council (engine), commands/council.md, commands/review-commit.md (preset refactor), /retro + TaskCompleted hooks |
+| SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
 | SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
-| SPEC-015 | Refactor Workflow | APPROVED | specs/core/SPEC-015-refactor-workflow.md, skills/refactor/SKILL.md |
+| SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
 
 ## Version History
 
@@ -32,3 +32,4 @@
 | 2026-04-09 | SPEC-013 created: Adversarial Council Tribunal — /council engine skill, blind investigators, tech-lead judge, feedback-memory learning loop, /review-commit refactor |
 | 2026-04-26 | SPEC-014 implemented — skills/debug/SKILL.md shipped |
 | 2026-04-26 | SPEC-015 implemented — skills/refactor/SKILL.md shipped |
+| 2026-04-26 | /reflect-specs fixes: SPEC-013 status NEW→ACTIVE, corrected coverage paths (dev-team:council→skills/council/, commands/review-commit.md→skills/review-commit/SKILL.md), removed spec-file self-reference from SPEC-015 coverage |

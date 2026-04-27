@@ -45,6 +45,9 @@ ROW_COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || ech
 # Steps 2-9: 12-step table rebuild inside a transaction
 # SQLite cannot ALTER CHECK constraints, so we rebuild the table.
 sqlite3 "$MEMDB" <<'SQL'
+-- Step 1a: set busy timeout so concurrent writes don't immediately fail
+PRAGMA busy_timeout=5000;
+
 -- Step 2
 PRAGMA foreign_keys=OFF;
 
