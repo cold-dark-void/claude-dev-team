@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.25.1
+- **`/reflect-specs` health-check fixes** — spec and code alignment corrections from full system audit: SPEC-013 council-judge MUST NOT clarified, TDD.md stale paths/status corrected, SPEC-004 whole-file chunk truncation documented, SPEC-007 terminology aligned, SPEC-002 now covers three previously-undocumented hooks (`bash-compress`, `memory-capture`, `stop-review`), `migrate-v2.sh` gains missing `PRAGMA busy_timeout`
+
 ### v0.25.0
 - **`/refactor` skill** — standalone design-first refactor workflow: design problem gate (no file edits until problem is written), approach decision (auto-proceed when unambiguous, options + approval when scope is ambiguous), characterization tests when coverage is thin, behavioral-change detection halts the refactor, self-calibration checklist before completion; `inline` subcommand skips gates for handoffs from `/debug` or `/orchestrate`
 
