@@ -4,3 +4,10 @@
 .claude/memory/
 .claude/council/
 .claude/tasks/
+
+# Memory store binaries and database (auto-generated)
+.claude/memory/extensions/
+.claude/memory/models/
+.claude/memory/memory.db
+.claude/memory/memory.db-wal
+.claude/memory/memory.db-shm
