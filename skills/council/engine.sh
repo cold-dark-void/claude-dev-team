@@ -180,7 +180,7 @@ cmd_preflight() {
     generic)
       output_shape="verdict[]"; feedback_enabled="true"; spec_grep="false"
       confidence_filter="null"
-      flavors='["paranoid-ic","logic"]' ;;
+      flavors='["paranoid-ic","jaded-senior"]' ;;
     diff-mode)
       output_shape="finding[]"; feedback_enabled="false"; spec_grep="true"
       confidence_filter="80"

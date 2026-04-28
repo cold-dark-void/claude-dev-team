@@ -16,6 +16,9 @@ timeout 1 cat > "$TMPF" 2>/dev/null || true
 SESSION_ID=$(jq -r '.session_id // empty' "$TMPF" 2>/dev/null || true)
 rm -f "$TMPF"
 
+# Strip anything that isn't alphanumeric, hyphen, or underscore to prevent
+# path traversal via a crafted session_id value.
+SESSION_ID=$(printf '%s' "$SESSION_ID" | tr -cd 'a-zA-Z0-9_-')
 STAMP_KEY="${SESSION_ID:-ppid-${PPID:-0}}"
 STAMP="$_MROOT/.claude/.stop-review-${STAMP_KEY}"
 

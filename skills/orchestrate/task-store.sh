@@ -54,6 +54,11 @@ cmd_create() {
   [ $# -eq 3 ] || { echo "error: create requires 3 arguments" >&2; usage; }
   local task_id="$1" subject="$2" requires_council="$3"
 
+  if ! printf '%s' "$task_id" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+    echo "error: task_id must match [a-zA-Z0-9._-]+, got: $task_id" >&2
+    exit 2
+  fi
+
   if [ "$requires_council" != "true" ] && [ "$requires_council" != "false" ]; then
     echo "error: requires_council must be 'true' or 'false', got: $requires_council" >&2
     exit 1
@@ -94,6 +99,11 @@ cmd_create() {
 cmd_update_status() {
   [ $# -eq 2 ] || { echo "error: update-status requires 2 arguments" >&2; usage; }
   local task_id="$1" new_status="$2"
+
+  if ! printf '%s' "$task_id" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+    echo "error: task_id must match [a-zA-Z0-9._-]+, got: $task_id" >&2
+    exit 2
+  fi
 
   case "$new_status" in
     pending|in_progress|completed|blocked) ;;

@@ -1,6 +1,6 @@
 # SPEC-013: Adversarial Council Tribunal
 
-**Status**: 🚧 NEW
+**Status**: ✅ ACTIVE
 **Category**: core
 **Created**: 2026-04-09
 
@@ -59,7 +59,14 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST reject evidence bundles that lack a tool_use_id — the engine MUST treat such bundles as "no evidence collected"
 - MUST spawn at least 2 investigators per claim with distinct flavor presets (paranoid-ic + at least one other) to defeat monoculture
 
-### Phase 3 — Dynamic Domain Specialist
+### Phase 3 — Dynamic Domain Specialist *(deferred — COUNCIL-002)*
+
+> **Deferred to COUNCIL-002.** Phase 3 is permanently skipped in the current
+> COUNCIL-001 implementation. The MUSTs below are the intended contract for
+> COUNCIL-002; they are not active requirements until that milestone ships.
+> `commands/council.md` and `skills/council/engine.sh` skip Phase 3 entirely
+> and note this deferral explicitly.
+
 - MUST inspect each claim's topic and pull a domain specialist when a match exists:
   - Deploy / infra / CI / Docker / K8s claims → `devops` agent
   - Metrics / statistics / ML / data-pipeline claims → `ds` agent
@@ -247,4 +254,5 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 | 2026-04-09 | Path drift fix: corrected engine path from `skills/dev-team:council/` to `skills/council/` (the `dev-team:` prefix is invocation-time namespace, not filesystem); corrected refactor target from `commands/review-commit.md` to `skills/review-commit/SKILL.md` (review-commit is skill-only, no command shim exists). No behavioral change. |
 | 2026-04-26 | Clarified "no entries in agents/" MUST NOT: scoped to Prosecutor/Investigator/DA/Specialist only; `council-judge` is explicitly excluded because its empty-tool-allowlist invariant requires a persistent agent file. |
 | 2026-04-09 | Judge agent split: Phase 5 now routes judgment to a dedicated `council-judge` agent at `agents/council-judge.md` (inherits `tech-lead`'s cortex/memory/directives load path, declares empty tool allowlist in frontmatter) instead of reusing the `tech-lead` agent directly — no per-invocation tool-allowlist override mechanism exists, so the empty allowlist invariant is enforced structurally via a distinct agent file. Overview and validation checkbox updated accordingly. |
+| 2026-04-28 | Phase 3 deferral formalised: added blockquote deferral notice to Phase 3 section marking COUNCIL-002 as the delivery milestone; status promoted to ACTIVE; closes spec-code compliance gap flagged in v0.25.2 plugin review. |
 | 2026-04-09 | Task-ID path separation (post-Task-1 spike): clarified in Task-ID Plumbing that the `/council` command fallback chain (`--task-id` → `CLAUDE_TASK_ID` → unbound) governs direct command invocations only; the SPEC-002 TaskCompleted hook resolves its task id from stdin JSON (primary) per the verified Claude Code contract and does NOT share this fallback chain. Prevents the hook IC from reusing command-side plumbing. No change to the command path itself. |

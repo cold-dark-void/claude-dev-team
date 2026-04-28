@@ -121,32 +121,29 @@ The validation step is equivalent to running `/validate-memory` with the same
 because it invokes the @distiller agent, which would create a circular
 dependency.
 
-```bash
-if [ "$SKIP_VALIDATE" != "true" ]; then
-  echo "[distill] Running pre-distill validation..."
+If `SKIP_VALIDATE` is not `"true"`, follow these steps in order:
 
-  # Run /validate-memory with the same agent filter if specified.
-  # Do NOT pass --deep: deep mode invokes the distiller which would create
-  # a circular dependency (distiller -> validate -> distiller).
-  VALIDATE_ARGS=""
-  if [ -n "$TARGET_AGENT" ]; then
-    VALIDATE_ARGS="--agent $TARGET_AGENT"
-  fi
+1. Build the validate args:
+   ```bash
+   VALIDATE_ARGS=""
+   if [ -n "$TARGET_AGENT" ]; then VALIDATE_ARGS="--agent $TARGET_AGENT"; fi
+   ```
 
-  # Execute validation. On failure, abort distillation and release lock.
-  # (The executing agent reads commands/validate-memory.md and runs its
-  # Steps 1-8, skipping Step 9 deep mode.)
+2. **Run `/validate-memory $VALIDATE_ARGS` now** — read and follow Steps 1–8 of
+   `commands/validate-memory.md`. Do NOT pass `--deep` (circular dependency:
+   distiller → validate → distiller).
 
-  # Check validation exit code:
-  if [ "$VALIDATION_EXIT" -ne 0 ]; then
-    echo "[distill] Validation failed. Aborting distillation."
-    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
-    exit 1
-  fi
+3. If validation reported failures, release the lock and stop:
+   ```bash
+   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
+   echo "[distill] Validation failed. Aborting distillation."
+   exit 1
+   ```
 
-  echo "[distill] Validation complete. Proceeding to distillation."
-fi
-```
+4. On pass:
+   ```bash
+   echo "[distill] Validation complete. Proceeding to distillation."
+   ```
 
 ## Step 5: Check distill_enabled and determine target agents
 

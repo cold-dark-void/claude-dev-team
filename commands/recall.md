@@ -53,10 +53,11 @@ fi
 If USE_DB=true, search the memories table:
 
 ```bash
+ESCAPED_ARGS=$(printf '%s' "$ARGUMENTS" | sed "s/'/''/g")
 sqlite3 -header -column "$MEMDB" \
   "SELECT agent, type, tier, substr(content, 1, 300) AS content_preview, updated_at
    FROM memories
-   WHERE content LIKE '%$ARGUMENTS%' COLLATE NOCASE
+   WHERE content LIKE '%${ESCAPED_ARGS}%' COLLATE NOCASE
      AND archived = FALSE
    ORDER BY tier DESC, updated_at DESC
    LIMIT 10;"
