@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.25.2
+- **`/orchestrate` task-store collision fix** — `TaskCreate` resets integers to 1 each new Claude process; switched to compound `<ISSUE-ID>-<task_id>` keys (e.g. `CDV-QF-FILTER-1.json`) to prevent cross-run upsert stomping; `task-completed.sh` hook gains `*-<id>.json` glob fallback for backward compatibility
+
 ### v0.25.1
 - **`/reflect-specs` health-check fixes** — spec and code alignment corrections from full system audit: SPEC-013 council-judge MUST NOT clarified, TDD.md stale paths/status corrected, SPEC-004 whole-file chunk truncation documented, SPEC-007 terminology aligned, SPEC-002 now covers three previously-undocumented hooks (`bash-compress`, `memory-capture`, `stop-review`), `migrate-v2.sh` gains missing `PRAGMA busy_timeout`
 
