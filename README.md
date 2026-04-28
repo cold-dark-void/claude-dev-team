@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.25.3
+- **Security + bug fixes from 6-team blind review** — `memory-search` and `recall` now escape query strings before SQLite LIKE interpolation; `stop-review.sh` sanitizes `SESSION_ID` before using it in a filesystem path; `task-store.sh` validates `task_id` against `[a-zA-Z0-9._-]+` in both `create` and `update-status`; `memory-distill.md` pre-validation step rewritten as numbered instructions (was referencing an unset `$VALIDATION_EXIT`); `init-team` gains v2→v3 schema migration branch; council generic preset corrected (`logic` → `jaded-senior`); SPEC-013 Phase 3 deferral formalised and status promoted to ACTIVE
+
 ### v0.25.2
 - **`/orchestrate` task-store collision fix** — `TaskCreate` resets integers to 1 each new Claude process; switched to compound `<ISSUE-ID>-<task_id>` keys (e.g. `CDV-QF-FILTER-1.json`) to prevent cross-run upsert stomping; `task-completed.sh` hook gains `*-<id>.json` glob fallback for backward compatibility
 
