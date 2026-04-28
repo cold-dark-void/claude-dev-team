@@ -45,10 +45,11 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - When `requires_council: true` is set, the TaskCompleted quality-gate hook MUST block task completion until a `/council` verdict exists for the task's deliverable with confidence at or above the configured threshold (`council.taskgate.min_confidence`, default 80)
 - MUST export `CLAUDE_TASK_ID=<task_id>` in the subprocess environment whenever the orchestrator invokes `/council` as part of a task's orchestration steps — ambient task-id transport required by SPEC-013 Phase 6 Task Binding & Verdict Index for correct verdict-to-task binding
 - MUST surface the blocked state clearly when the council gate fails — naming the blocked task, the missing-or-below-threshold verdict, and the required minimum confidence
-- MUST write per-task metadata to `$MROOT/.claude/tasks/<task_id>.json` at TaskCreate time for every orchestrated task, with schema: `{"task_id": string, "subject": string, "requires_council": bool, "created_at": ISO-8601, "status": string}`; the orchestrator MUST create `.claude/tasks/` if absent
-- MUST update the `status` field in `.claude/tasks/<task_id>.json` on every TaskUpdate transition (pending → in_progress → completed | blocked), preserving other fields
-- MUST NOT delete `.claude/tasks/<task_id>.json` files after completion — they are the source of truth for the TaskCompleted gate and must survive the task being marked done
-- MUST use atomic write-to-tmp + rename when updating `.claude/tasks/<task_id>.json` (prevents the TaskCompleted hook from reading a partial write)
+- MUST write per-task metadata to `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` at TaskCreate time for every orchestrated task (e.g. `CDV-QF-FILTER-1.json`), using a compound key `<ISSUE-ID>-<task_id>` to prevent collisions when a new Claude process reuses integer task IDs; the orchestrator MUST create `.claude/tasks/` if absent. Schema: `{"task_id": string, "subject": string, "requires_council": bool, "created_at": ISO-8601, "status": string}`
+- MUST update the `status` field in the compound-key file on every TaskUpdate transition (pending → in_progress → completed | blocked), preserving other fields
+- MUST NOT delete task store files after completion — they are the source of truth for the TaskCompleted gate and must survive the task being marked done
+- MUST use atomic write-to-tmp + rename when updating task store files (prevents the TaskCompleted hook from reading a partial write)
+- The TaskCompleted hook MUST support both legacy flat-key (`<task_id>.json`) and compound-key (`*-<task_id>.json`) formats, resolving ambiguity by selecting the most recently modified matching file
 - MUST resolve `$MROOT` with the worktree-aware formula: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)` — task metadata is shared across worktrees
 
 ### Standup
@@ -123,6 +124,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 | 2026-04-09 | Added opt-in `requires_council: true` task metadata + council gate MUSTs in Orchestrate section, per SPEC-013. Gate is per-task opt-in; default min confidence 80 via `council.taskgate.min_confidence`. |
 | 2026-04-09 | Added `CLAUDE_TASK_ID` export MUST in Orchestrate section — orchestrator propagates task id to spawned `/council` subprocesses via env var, per SPEC-013 Phase 6 verdict-to-task binding contract. |
 | 2026-04-09 | Added per-task metadata storage contract: orchestrator MUST write/update `.claude/tasks/<task_id>.json` at TaskCreate and on every TaskUpdate (atomic write, never deleted), with `requires_council` field read by the SPEC-002 TaskCompleted hook. `$MROOT` resolved worktree-aware so task store is shared across worktrees. |
+| 2026-04-28 | Changed task store key from raw integer to compound `<ISSUE-ID>-<task_id>` (e.g. `CDV-QF-FILTER-1.json`) — `TaskCreate` integers reset to 1 for each new Claude process, causing cross-run collisions via upsert. Hook updated to fall back to `*-<task_id>.json` glob (most-recently-modified) when flat-key file not found. |
 
 ## Cross-references
 

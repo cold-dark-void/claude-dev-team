@@ -229,10 +229,10 @@ TaskCreate:
 After each TaskCreate succeeds and the task id is known, the orchestrator MUST call:
 
 ```bash
-bash skills/orchestrate/task-store.sh create <task_id> "<subject>" <requires_council>
+bash skills/orchestrate/task-store.sh create <ISSUE-ID>-<task_id> "<subject>" <requires_council>
 ```
 
-The `requires_council` value is read from the task metadata passed to TaskCreate (default `false` if absent). This writes `$MROOT/.claude/tasks/<task_id>.json` — the source of truth the SPEC-002 TaskCompleted hook reads to determine whether the council quality gate applies (SPEC-009 line 48). If `task-store.sh` exits non-zero, surface the error to the user immediately — do NOT silently continue.
+where `<ISSUE-ID>` is the current issue ID (e.g. `CDV-QF-FILTER`) and `<task_id>` is the integer returned by TaskCreate (e.g. `1`). The compound key (e.g. `CDV-QF-FILTER-1`) prevents task-store collisions when a new Claude process reuses the same integer IDs across runs. This writes `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` — the source of truth the SPEC-002 TaskCompleted hook reads to determine whether the council quality gate applies (SPEC-009 line 48). If `task-store.sh` exits non-zero, surface the error to the user immediately — do NOT silently continue.
 
 Update the plan file with task IDs.
 
@@ -361,10 +361,10 @@ Update TaskUpdate → completed. Check if this unblocks other tasks.
 On every TaskUpdate that changes a task's status, the orchestrator MUST also call:
 
 ```bash
-bash skills/orchestrate/task-store.sh update-status <task_id> <new_status>
+bash skills/orchestrate/task-store.sh update-status <ISSUE-ID>-<task_id> <new_status>
 ```
 
-This mirrors the new status into `$MROOT/.claude/tasks/<task_id>.json`, preserving all other fields (task_id, subject, requires_council, created_at). Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009 lines 49–51); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
+Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009 lines 49–51); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
 
 ---
 

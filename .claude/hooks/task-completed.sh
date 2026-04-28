@@ -58,8 +58,15 @@ if [ -z "$TASK_ID" ]; then
 fi
 
 # Read task metadata
-TASK_META="$MROOT/.claude/tasks/${TASK_ID}.json"
+# Support both legacy flat key (1.json) and compound key (TICKET-1.json).
+# TaskCreate resets integers to 1 each new process; compound keys prevent
+# cross-run collisions. Fallback: pick most-recently-modified *-<ID>.json.
+TASKS_DIR="$MROOT/.claude/tasks"
+TASK_META="${TASKS_DIR}/${TASK_ID}.json"
 if [ ! -f "$TASK_META" ]; then
+  TASK_META=$(ls -t "${TASKS_DIR}/"*"-${TASK_ID}.json" 2>/dev/null | head -1 || true)
+fi
+if [ -z "$TASK_META" ] || [ ! -f "$TASK_META" ]; then
   # Silent pass — task pre-dates the gate or is not council-tracked
   exit 0
 fi
