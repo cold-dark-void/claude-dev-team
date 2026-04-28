@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.26.0
+- **`/blind-review`** — New skill: multi-team blind peer review with automatic quorum analysis. Spawns N unconstrained + M lens-differentiated reviewer agents in parallel (security, contributor, spec, architecture, logic lenses available), clusters independent findings by semantic similarity into Tier 1 (cross-cohort ≥2 teams), Tier 2 (same-cohort ≥2 teams), and Tier 3 (single team) confidence buckets, and optionally forwards Tier 1 consensus findings to `/council` for reverse validation. Writes a ranked report to `.claude/reviews/`
+
 ### v0.25.3
 - **Security + bug fixes from 6-team blind review** — `memory-search` and `recall` now escape query strings before SQLite LIKE interpolation; `stop-review.sh` sanitizes `SESSION_ID` before using it in a filesystem path; `task-store.sh` validates `task_id` against `[a-zA-Z0-9._-]+` in both `create` and `update-status`; `memory-distill.md` pre-validation step rewritten as numbered instructions (was referencing an unset `$VALIDATION_EXIT`); `init-team` gains v2→v3 schema migration branch; council generic preset corrected (`logic` → `jaded-senior`); SPEC-013 Phase 3 deferral formalised and status promoted to ACTIVE
 
