@@ -70,6 +70,9 @@ if [ -f "$MEMDB" ] && [ -n "$PLUGIN_DIR" ]; then
   if [ "$V" = "1" ]; then
     echo "Migrating schema v1 -> v2..."
     bash "$PLUGIN_DIR/migrate-v2.sh" "$MROOT"
+  elif [ "$V" = "2" ]; then
+    echo "Migrating schema v2 -> v3..."
+    bash "$PLUGIN_DIR/migrate-v3.sh" "$MROOT"
   elif [ -n "$V" ]; then
     echo "Schema version: $V (up to date)"
   fi

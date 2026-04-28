@@ -170,9 +170,10 @@ EOSQL
 ### Mode: keyword
 
 ```bash
+ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 RESULTS=$(sqlite3 "$MEMDB" \
   "SELECT agent, type, tier, '' AS score, updated_at, substr(content, 1, 200) AS snippet
-   FROM memories WHERE content LIKE '%$QUERY%' COLLATE NOCASE
+   FROM memories WHERE content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
      AND archived = FALSE
    ORDER BY tier DESC, updated_at DESC LIMIT 20;")
 ```
