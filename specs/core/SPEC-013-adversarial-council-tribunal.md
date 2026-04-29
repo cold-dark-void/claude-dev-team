@@ -75,6 +75,16 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST NOT pull a specialist when no confident topic match is found
 - MUST treat the specialist as an additional investigator (blind to prior narrative, read-only, returns an evidence bundle)
 
+### Phase 2.5 — Blind Cross-Review *(COUNCIL-002)*
+- MUST anonymize evidence bundles before cross-review: strip investigator identity, assign random labels (A, B, C…), and shuffle label order independently per reviewer to defeat position bias
+- MUST exclude each investigator from ranking their own bundle (self-exclusion)
+- MUST forbid cross-reviewers from running any tools — evaluation is over submitted bundles only, not raw artifacts
+- MUST aggregate per-reviewer rankings via Borda count into a consensus quality score per bundle
+- MUST pass evidence bundles to Phase 4 (Prosecution & Defense) and Phase 5 (Judgment) ordered by Borda consensus rank, not submission order
+- MUST flag bundles in the bottom Borda quartile as `WEAK_EVIDENCE` in the report
+- MUST skip Phase 2.5 when fewer than 3 investigators participate (minimum for meaningful cross-ranking); proceed directly to Phase 4 and note the bypass reason in the report
+- SHOULD record each reviewer's per-bundle rankings in the report as a visible audit trail
+
 ### Phase 4 — Prosecution & Defense
 - MUST spawn exactly one Prosecutor and one Devil's Advocate per council run
 - MUST pass both the evidence bundles from investigators, NOT the original claims (prosecution/defense operate on evidence alone)
@@ -220,6 +230,16 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 11. Unset `--task-id` and rerun with `CLAUDE_TASK_ID=$TID` exported — verify the env fallback produces the same task-bound report path and index entry as step 3
 12. Run plain `/council "<claim>"` with no flag and no env var — verify the report filename has no `--<task_id>` suffix and the index is not updated
 
+### Test 10 — Blind Cross-Review ordering
+1. Run `/council` with ≥ 3 investigators on a session containing a contested claim
+2. Verify: cross-review prompts contain anonymized bundle labels (A/B/C) with no investigator identity present
+3. Verify: each cross-reviewer's prompt omits their own bundle
+4. Verify: label ordering differs between at least two reviewers' prompts (position-bias mitigation)
+5. Verify: when bundles have unequal evidence quality, the Borda-ranked order in the report differs from submission order
+6. Verify: Phase 4 Prosecution brief references bundles in Borda-ranked order
+7. Run with exactly 2 investigators — verify Phase 2.5 is skipped and the report notes the bypass reason
+8. Verify: any bundle in the bottom Borda quartile is labelled `WEAK_EVIDENCE` in the report
+
 ---
 
 ## Validation
@@ -240,7 +260,8 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - [ ] `task_id` field appears in report frontmatter and `--<task_id>` suffix appears in filename when a run is task-bound
 - [ ] `CLAUDE_TASK_ID` env var fallback produces the same binding as the `--task-id` flag
 - [ ] TaskCompleted gate queries `index.json` only (no filename scans) and applies to `verdict[]`-shape rows exclusively
-- [ ] Test 1–9 pass against the implementation
+- [ ] `skills/council/prompts/cross-reviewer.md` exists; council.md Phase 2.5 block describes N cross-reviewers spawned with per-reviewer shuffled labels, self-exclusion, Borda-ranked bundle output to Phase 4 and Phase 5, bottom-quartile WEAK_EVIDENCE flagging, and bypass recorded when < 3 investigators
+- [ ] Test 1–10 pass against the implementation
 
 ---
 
@@ -256,3 +277,4 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 | 2026-04-09 | Judge agent split: Phase 5 now routes judgment to a dedicated `council-judge` agent at `agents/council-judge.md` (inherits `tech-lead`'s cortex/memory/directives load path, declares empty tool allowlist in frontmatter) instead of reusing the `tech-lead` agent directly — no per-invocation tool-allowlist override mechanism exists, so the empty allowlist invariant is enforced structurally via a distinct agent file. Overview and validation checkbox updated accordingly. |
 | 2026-04-28 | Phase 3 deferral formalised: added blockquote deferral notice to Phase 3 section marking COUNCIL-002 as the delivery milestone; status promoted to ACTIVE; closes spec-code compliance gap flagged in v0.25.2 plugin review. |
 | 2026-04-09 | Task-ID path separation (post-Task-1 spike): clarified in Task-ID Plumbing that the `/council` command fallback chain (`--task-id` → `CLAUDE_TASK_ID` → unbound) governs direct command invocations only; the SPEC-002 TaskCompleted hook resolves its task id from stdin JSON (primary) per the verified Claude Code contract and does NOT share this fallback chain. Prevents the hook IC from reusing command-side plumbing. No change to the command path itself. |
+| 2026-04-29 | Added Phase 2.5 — Blind Cross-Review (COUNCIL-002): anonymized peer-review round between Phase 2 and Phase 4, Borda-count aggregation of investigator rankings, self-exclusion, position-bias mitigation via per-reviewer label shuffling, WEAK_EVIDENCE flagging for bottom-quartile bundles, bypass when fewer than 3 investigators. Inspired by Karpathy's llm-council anonymized peer-review pattern. Added Test 10. Purely additive — no existing phase behavior changes. |

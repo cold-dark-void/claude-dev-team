@@ -255,6 +255,7 @@ cmd_finalize() {
   require_jq
 
   local plan_file="" evidence_file="" judge_output="" task_id="" report_out=""
+  local cross_review_status="" cross_review_rankings="" cross_review_scores=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -263,6 +264,9 @@ cmd_finalize() {
       --judge-output)  judge_output="${2:-}"; shift 2 ;;
       --task-id)       task_id="${2:-}"; shift 2 ;;
       --report-out)    report_out="${2:-}"; shift 2 ;;
+      --cross-review-status)    cross_review_status="${2:-}"; shift 2 ;;
+      --cross-review-rankings)  cross_review_rankings="${2:-}"; shift 2 ;;
+      --cross-review-scores)    cross_review_scores="${2:-}"; shift 2 ;;
       *)
         echo "engine.sh: unknown finalize flag: $1" >&2
         exit 2
@@ -500,7 +504,8 @@ PYJUDGEFIX
 
   python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
-    "$task_id" <<'PYEOF'
+    "$task_id" "$cross_review_status" "$cross_review_rankings" \
+    "$cross_review_scores" <<'PYEOF'
 import json, sys, os, re
 from collections import Counter
 
@@ -514,6 +519,17 @@ preset         = sys.argv[7]
 output_shape   = sys.argv[8]
 created_at     = sys.argv[9]
 task_id        = sys.argv[10] if len(sys.argv) > 10 else ""
+cross_review_status   = sys.argv[11]
+cross_review_rankings = sys.argv[12]
+cross_review_scores   = sys.argv[13]
+
+# Phase 2.5 fallbacks when flags absent
+if not cross_review_status:
+    cross_review_status = "Phase 2.5 not run"
+if not cross_review_rankings:
+    cross_review_rankings = "_Phase 2.5 not run — no cross-review rankings._"
+if not cross_review_scores:
+    cross_review_scores = "_Phase 2.5 not run — no Borda scores._"
 
 # --- Load JSON inputs ---
 with open(plan_file) as f:
@@ -732,6 +748,9 @@ subs = {
     "{{COMMIT_GATE_STATUS}}": commit_gate,
     "{{ACTION_ITEMS}}": action_items_md,
     "{{TASK_ID}}": task_id,
+    "{{CROSS_REVIEW_STATUS}}": cross_review_status,
+    "{{CROSS_REVIEW_RANKINGS}}": cross_review_rankings,
+    "{{CROSS_REVIEW_SCORES}}": cross_review_scores,
 }
 
 # --- Apply substitutions ---

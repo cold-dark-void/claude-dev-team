@@ -163,7 +163,84 @@ the engine finalize strike accounting.
 
 Skip entirely. Do not inspect claim topics, do not pull any specialist agent.
 Note in the collected outputs that Phase 3 was skipped per COUNCIL-001 scope.
-The evidence bundle set from Phase 2 is passed directly to Phase 4.
+The evidence bundle set from Phase 2 is passed to Phase 2.5, which either
+ranks them via Borda count or short-circuits to original submission order
+when fewer than 3 investigators participated (or all reviewer responses
+are rejected).
+
+### Phase 2.5 — Blind Cross-Review
+
+Anonymized cross-ranking of Phase 2 evidence bundles by the investigators
+themselves (each reviewing peers, never their own bundle), aggregated by
+Borda count to produce a quality-ranked bundle list for Phase 4 and Phase 5.
+
+**Bypass check (do this first):**
+
+Skip Phase 2.5 entirely if either:
+- Fewer than 3 investigators participated (i.e. fewer than 3 bundles collected
+  in Phase 2). Record bypass reason `"fewer than 3 investigators (N found)"`.
+- Zero valid RANKING lines were collected after the cross-review round (every
+  reviewer's response was rejected). Record bypass reason `"no valid
+  cross-review rankings collected"`.
+
+In either case, proceed to Phase 4 with the bundles in their original
+submission order.
+
+**Anonymization:**
+
+- Assign a random label (`A`, `B`, `C`, …) to each bundle.
+- Generate an independent `label → bundle` shuffled mapping for each
+  reviewer, so reviewer 1 might see `A=bundle2, B=bundle0, C=bundle1` while
+  reviewer 2 sees `A=bundle1, B=bundle2, C=bundle0`. Independent shuffles
+  per reviewer defeat position bias.
+
+**Spawn cross-reviewers in parallel:**
+
+For each investigator (N investigators → N cross-reviewers), spawn one
+ephemeral Task subagent. Each reviewer sees all bundles EXCEPT their own,
+labeled with their personal shuffled mapping:
+
+```
+description: "Cross-review evidence bundles for claim <claim-id>"
+subagent_type: "general-purpose"
+prompt: skills/council/prompts/cross-reviewer.md
+  with substitutions:
+    {{CLAIM_TEXT}}    ← claim.claim (verbatim)
+    {{BUNDLE_BLOCK}}  ← all bundles EXCEPT this reviewer's own,
+                        labeled per this reviewer's shuffled mapping
+```
+
+Pass nothing else: do NOT pass investigator identities, prior narrative,
+prior verdicts, or anything outside the bundles themselves.
+
+**Collect RANKING lines:**
+
+Each reviewer returns a `RANKING: X > Y > Z` line per the cross-reviewer
+output schema. Reject any response missing a valid `RANKING:` line — treat
+it as an abstain and exclude that reviewer from the Borda tally.
+
+**Borda count:**
+
+- For each reviewer's ranking over their presented set of `M = N − 1`
+  bundles (self-exclusion removes their own): rank-1 vote = `M − 1` points,
+  rank-2 = `M − 2` points, …, rank-M = `0` points.
+- Map each reviewer's label ranking back to the original bundle identities
+  using that reviewer's `label → bundle` mapping.
+- Sum Borda points per bundle across all valid reviewers.
+- Sort bundles descending by total Borda score.
+- **Tiebreaker:** when two bundles share equal total Borda score, preserve
+  their original submission order (stable sort — do not break ties
+  arbitrarily).
+
+**WEAK_EVIDENCE flagging:**
+
+- Compute the 25th-percentile Borda score across all bundles as the
+  threshold.
+- Flag any bundle with score `≤ threshold` as `WEAK_EVIDENCE`.
+
+Pass the ranked bundle list (with WEAK_EVIDENCE flags) to Phase 4; store
+per-reviewer rankings and scores for `{{CROSS_REVIEW_RANKINGS}}` /
+`{{CROSS_REVIEW_SCORES}}`.
 
 ### Phase 4 — Prosecution and Defense
 
@@ -175,7 +252,9 @@ Prosecutor:
   subagent_type: "general-purpose"
   prompt: skills/council/prompts/prosecutor.md
     with substitutions:
-      {{EVIDENCE_BUNDLES}} ← all evidence bundles from Phase 2 (raw, no narrative)
+      {{EVIDENCE_BUNDLES}} ← Borda-ranked evidence bundles from Phase 2.5
+                             (or Phase 2 if Phase 2.5 was bypassed) — raw,
+                             no narrative
       {{FLAVOR_DELTA}}     ← contents of skills/council/flavors/jaded-senior.md body
 
 Devil's Advocate:
@@ -183,7 +262,9 @@ Devil's Advocate:
   subagent_type: "general-purpose"
   prompt: skills/council/prompts/advocate.md
     with substitutions:
-      {{EVIDENCE_BUNDLES}} ← all evidence bundles from Phase 2 (raw, no narrative)
+      {{EVIDENCE_BUNDLES}} ← Borda-ranked evidence bundles from Phase 2.5
+                             (or Phase 2 if Phase 2.5 was bypassed) — raw,
+                             no narrative
       {{FLAVOR_DELTA}}     ← contents of skills/council/flavors/yolo-ic.md body
 ```
 
@@ -204,7 +285,8 @@ subagent_type: "dev-team:council-judge"
 prompt: skills/council/prompts/judge.md
   with substitutions:
     {{CLAIMS}}            ← original claim list from Phase 1 (verbatim records)
-    {{EVIDENCE_BUNDLES}}  ← all evidence bundles from Phase 2
+    {{EVIDENCE_BUNDLES}}  ← Borda-ranked evidence bundles from Phase 2.5
+                           (or Phase 2 if Phase 2.5 was bypassed)
     {{PROSECUTOR_BRIEF}}  ← prosecutor brief (post Phase 4)
     {{ADVOCATE_BRIEF}}    ← advocate brief (post Phase 4)
     {{OUTPUT_SHAPE}}      ← plan.output_shape ("verdict[]" or "finding[]")

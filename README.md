@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.28.0
+- **SPEC-013 Phase 2.5 — Blind Cross-Review** — Adds an anonymized peer-review round to the `/council` pipeline between Phase 2 (investigation) and Phase 4 (prosecution/defense), inspired by Karpathy's llm-council design. Each investigator cross-ranks peers' evidence bundles using anonymized labels (per-reviewer independent shuffle defeats position bias; self-exclusion prevents reviewing your own bundle). Rankings are aggregated via Borda count; bundles in the bottom quartile are flagged `WEAK_EVIDENCE`. Phase 4 and Phase 5 receive bundles in consensus rank order rather than submission order. Bypasses gracefully when fewer than 3 investigators participated or all reviewer responses are invalid. Engine finalize wired with `--cross-review-status/rankings/scores` flags; both report templates gain a `## Cross-Review` section. New `skills/council/prompts/cross-reviewer.md` prompt template.
+
 ### v0.27.0
 - **Worktree isolation convention** — `skills/worktree-lib.sh`: new subprocess CLI for collision-safe worktree management. `ensure <slug>` creates `.worktrees/<slug>` with a PID-based lock, prompts on live-lock collision (abort/steal), and silently recovers stale locks. `release <slug>` removes the lock and worktree, refuses on uncommitted changes. Security hardened: slug sanitization (`[A-Za-z0-9_-]` only), PID lower-bound guard (rejects PID ≤1), `umask 077` on lock writes, bounded lock-file reads. `/orchestrate` Step 3 updated to call `worktree-lib.sh ensure`; `/wrap-ticket` Step 6 calls `release`, with new+legacy path detection and anchored ticket-ID greps (`-wF`). `/demo` gets an interactive existence prompt. `AGENTS.md` Worktree Protocol section added. `SPEC-016-worktree-isolation.md` written.
 

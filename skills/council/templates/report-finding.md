@@ -6,6 +6,9 @@
 [//]: # "{{DIFF_SUMMARY}}          — paths and line counts of the diff under review"
 [//]: # "{{APPLICABLE_SPECS}}      — list of spec files matched by spec-grep intake"
 [//]: # "{{INVESTIGATOR_FLAVORS}}  — comma-separated list of flavor ids used"
+[//]: # "{{CROSS_REVIEW_STATUS}}   — 'RAN' or 'BYPASSED (reason: <text>)'"
+[//]: # "{{CROSS_REVIEW_RANKINGS}} — per-reviewer ranking table (anonymized labels A/B/C)"
+[//]: # "{{CROSS_REVIEW_SCORES}}   — Borda score table: bundle identity, score, WEAK_EVIDENCE flag"
 [//]: # "{{FINDINGS}}              — per-finding records grouped by severity"
 [//]: # "{{STRUCK_FINDINGS}}       — findings struck for missing tool_use_id or unsupported citation"
 [//]: # "{{SEVERITY_SUMMARY_TABLE}} — counts by severity: critical / warning / nitpick"
@@ -62,6 +65,30 @@ MUST requirement was provided to investigators as context during Phase 1
 enrichment and Phase 2 investigation.
 
 {{APPLICABLE_SPECS}}
+
+---
+
+## Cross-Review
+
+Phase 2.5: {{CROSS_REVIEW_STATUS}}
+
+### Per-Reviewer Rankings
+
+Each row is one cross-reviewer (the investigator who submitted that row's
+bundle is excluded from their own evaluation). Labels A/B/C are the
+anonymized bundle identifiers presented to that reviewer; order within
+each row is best-first.
+
+{{CROSS_REVIEW_RANKINGS}}
+
+### Borda Scores
+
+Borda count aggregated across all cross-reviewers. For N bundles, a
+rank-1 vote = N−1 points, rank-2 = N−2, …, rank-N = 0. Bundles in the
+bottom quartile are flagged WEAK_EVIDENCE and passed to Phase 4/5 with
+that flag set.
+
+{{CROSS_REVIEW_SCORES}}
 
 ---
 
