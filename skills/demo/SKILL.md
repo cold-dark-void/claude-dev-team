@@ -47,6 +47,10 @@ Create a temporary worktree with a minimal Go project that has an obvious featur
 ```bash
 # Create branch and worktree
 DEMO_BRANCH="demo/dev-team-$(date +%s)"
+if [ -e "${TMPDIR:-/tmp}/demo-project" ]; then
+  echo "demo-project already exists at ${TMPDIR:-/tmp}/demo-project — remove it first (git worktree remove ${TMPDIR:-/tmp}/demo-project) or let me know if you want to resume." >&2
+  exit 1
+fi
 git worktree add "$TMPDIR/demo-project" -b "$DEMO_BRANCH"
 ```
 

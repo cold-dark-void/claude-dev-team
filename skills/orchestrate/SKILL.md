@@ -103,13 +103,31 @@ Wait for user confirmation before proceeding. This is the first escalation gate.
 
 ## Step 3: Create branch and worktree
 
+A git worktree is an additional working tree linked to the same repository — it lets
+agents work on the issue branch in isolation without disturbing the main checkout.
+
 ```bash
-BRANCH="feat/<ISSUE-ID>-$(echo '<slug from title>' | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | head -c 40)"
-git branch "$BRANCH" 2>/dev/null || true
-git worktree add "$MROOT/../$(basename $MROOT)-$ISSUE_ID" "$BRANCH"
+SLUG="<ISSUE-ID>"   # e.g. "CDV-42" or a branch-safe slug derived from the issue ID
+WT_PATH=$(bash "$MROOT/skills/worktree-lib.sh" ensure "$SLUG") || {
+  EXIT=$?
+  if [ "$EXIT" -eq 2 ]; then
+    echo "Worktree setup aborted by user." >&2
+  elif [ "$EXIT" -eq 64 ]; then
+    echo "worktree-lib.sh usage error, check slug" >&2
+  fi
+  exit "$EXIT"
+}
 ```
 
-Note the worktree path — all agent work happens there.
+`worktree-lib.sh` creates the branch `feat/<SLUG>` automatically and prints the
+absolute worktree path to stdout — that value is captured in `WT_PATH`. Use
+`$WT_PATH` everywhere downstream that references the worktree location.
+
+- **Exit 1** (live collision): the lib already printed the collision summary to stderr; halt.
+- **Exit 2** (user aborted): halt cleanly.
+- **Exit 64** (usage error): unexpected — surface "worktree-lib.sh usage error, check slug" to stderr.
+
+The worktree path comes from the lib's stdout (`$WT_PATH`) — all agent work happens there.
 
 If Linear is available, update issue status to "In Progress".
 
