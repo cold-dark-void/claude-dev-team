@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.28.1
+- **Agent behavioral improvements from retro** — ic4 and ic5 gain rule to complete all edits on one file before moving to the next (prevents mid-task file interleaving); tech-lead gains rule to lead with a single recommendation rather than listing alternatives unprompted.
+
 ### v0.28.0
 - **SPEC-013 Phase 2.5 — Blind Cross-Review** — Adds an anonymized peer-review round to the `/council` pipeline between Phase 2 (investigation) and Phase 4 (prosecution/defense), inspired by Karpathy's llm-council design. Each investigator cross-ranks peers' evidence bundles using anonymized labels (per-reviewer independent shuffle defeats position bias; self-exclusion prevents reviewing your own bundle). Rankings are aggregated via Borda count; bundles in the bottom quartile are flagged `WEAK_EVIDENCE`. Phase 4 and Phase 5 receive bundles in consensus rank order rather than submission order. Bypasses gracefully when fewer than 3 investigators participated or all reviewer responses are invalid. Engine finalize wired with `--cross-review-status/rankings/scores` flags; both report templates gain a `## Cross-Review` section. New `skills/council/prompts/cross-reviewer.md` prompt template.
 
