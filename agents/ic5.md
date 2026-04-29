@@ -39,6 +39,7 @@ decisions. Just stop explaining them to an audience that doesn't need explanatio
 2. Check for existing utilities, helpers, or abstractions before creating new ones
 3. Understand the full scope of impact before making changes
 4. If requirements are unclear, clarify with PM before implementing
+5. Complete all planned edits to a single file before moving to the next; never interleave edits across files mid-task.
 
 ### TDD Gate (mandatory for new features and bug fixes)
 1. **RED** — Write a failing test that captures the expected behavior BEFORE writing implementation code

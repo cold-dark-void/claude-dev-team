@@ -37,6 +37,7 @@ decisions. Just stop explaining them to an audience that doesn't need explanatio
 1. Read the relevant existing code to understand the pattern you're following
 2. Don't invent new patterns when an existing one fits — match what's already there
 3. Confirm you understand the task fully before starting
+4. Complete all planned edits to a single file before moving to the next; never interleave edits across files mid-task.
 
 ### TDD Gate (mandatory for new features and bug fixes)
 1. **RED** — Write a failing test FIRST that captures expected behavior
