@@ -8,6 +8,9 @@
 [//]: # "{{CLAIMS_AUDITED}}        — actual number of claims investigated"
 [//]: # "{{EXTRACTED_CLAIMS}}      — structured claim list from Phase 1"
 [//]: # "{{EVIDENCE_BUNDLES}}      — raw evidence bundles from Phase 2 investigators"
+[//]: # "{{CROSS_REVIEW_STATUS}}   — 'RAN' or 'BYPASSED (reason: <text>)'"
+[//]: # "{{CROSS_REVIEW_RANKINGS}} — per-reviewer ranking table (anonymized labels A/B/C)"
+[//]: # "{{CROSS_REVIEW_SCORES}}   — Borda score table: bundle identity, score, WEAK_EVIDENCE flag"
 [//]: # "{{PROSECUTOR_BRIEF}}      — Phase 4 prosecutor output (post-strike)"
 [//]: # "{{ADVOCATE_BRIEF}}        — Phase 4 devil's advocate output (post-strike)"
 [//]: # "{{VERDICTS}}              — per-claim verdict records from Phase 5 judge"
@@ -75,6 +78,30 @@ bundle contains a `tool_use_id`, the raw output blob (not paraphrased), a
 `tool_use_id` were rejected; those claims are noted in the Audit Trail.
 
 {{EVIDENCE_BUNDLES}}
+
+---
+
+## Cross-Review
+
+Phase 2.5: {{CROSS_REVIEW_STATUS}}
+
+### Per-Reviewer Rankings
+
+Each row is one cross-reviewer (the investigator who submitted that row's
+bundle is excluded from their own evaluation). Labels A/B/C are the
+anonymized bundle identifiers presented to that reviewer; order within
+each row is best-first.
+
+{{CROSS_REVIEW_RANKINGS}}
+
+### Borda Scores
+
+Borda count aggregated across all cross-reviewers. For N bundles, a
+rank-1 vote = N−1 points, rank-2 = N−2, …, rank-N = 0. Bundles in the
+bottom quartile are flagged WEAK_EVIDENCE and passed to Phase 4/5 with
+that flag set.
+
+{{CROSS_REVIEW_SCORES}}
 
 ---
 
