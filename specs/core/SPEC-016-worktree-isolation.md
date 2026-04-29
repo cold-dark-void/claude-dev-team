@@ -22,7 +22,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST be a pure subprocess CLI — `bash skills/worktree-lib.sh <cmd> <args>` only; MUST NOT require sourcing; MUST NOT mutate the caller's shell
 - MUST support exactly two subcommands: `ensure <slug>` and `release <slug>`
 - MUST resolve `$MROOT` internally using the worktree-aware formula above
-- MUST exit with: `0` = success, `1` = live collision, `2` = user aborted
+- MUST exit with: `0` = success, `1` = release error, `2` = user aborted on collision prompt, `64` = usage error
 
 ### `ensure <slug>` semantics
 - MUST create the worktree at `$MROOT/.worktrees/<slug>` if absent
@@ -55,6 +55,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - SHOULD include the slug, branch, HEAD short SHA, commit subject, lock age, and PID liveness in the collision summary so the user can decide informed
 - SHOULD use `kill -0 <pid>` (POSIX) for liveness check
 - SHOULD treat absent `$MROOT` resolution as a fatal error and exit non-zero with a clear message
+- SHOULD exclude `.wt-lock` from the dirty-tree check in `release` (it is bookkeeping, not user content)
 
 ## MUST NOT
 
@@ -84,14 +85,15 @@ PID is the only authoritative field. SESSION_ID and TIMESTAMP are informational 
 | Code | Meaning |
 |------|---------|
 | 0 | Success — worktree ready, path on stdout |
-| 1 | Live collision — another live PID owns the lock and steal was not chosen |
-| 2 | User aborted on prompt |
-| non-zero (other) | `release` blocked by uncommitted changes, or fatal error |
+| 1 | `release` error — missing worktree or uncommitted changes block removal |
+| 2 | User aborted on prompt (live lock collision declined or no answer given) |
+| 64 | Usage error — missing slug or unknown subcommand |
+| non-zero (other) | Fatal error |
 
 ## Test
 
 - Verify `ensure <slug>` creates `.worktrees/<slug>`, branch `feat/<slug>`, and `.wt-lock`; prints absolute path; exits 0
-- Verify `ensure` against an existing live-PID lock: stderr shows summary, exit 1, stdout empty
+- Verify `ensure` against an existing live-PID lock: stderr shows summary, exit 2 on abort, stdout empty
 - Verify `ensure` against a stale lock (dead PID): silently overwrites, exits 0, prints path
 - Verify `ensure` no-TTY collision still prompts and honors abort (exit 2) / steal (exit 0)
 - Verify `release` cleans `.wt-lock` + removes worktree on clean tree; exits non-zero on dirty tree without force
@@ -119,6 +121,7 @@ PID is the only authoritative field. SESSION_ID and TIMESTAMP are informational 
 | Date | Change |
 |------|--------|
 | 2026-04-28 | Initial spec for WISO-001. |
+| 2026-04-29 | Exit code table corrected to match implementation (exit 1 = release error, exit 2 = abort/decline, exit 64 = usage). Added SHOULD for .wt-lock dirty-check exclusion. |
 
 ## Cross-references
 

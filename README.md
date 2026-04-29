@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.27.0
+- **Worktree isolation convention** — `skills/worktree-lib.sh`: new subprocess CLI for collision-safe worktree management. `ensure <slug>` creates `.worktrees/<slug>` with a PID-based lock, prompts on live-lock collision (abort/steal), and silently recovers stale locks. `release <slug>` removes the lock and worktree, refuses on uncommitted changes. Security hardened: slug sanitization (`[A-Za-z0-9_-]` only), PID lower-bound guard (rejects PID ≤1), `umask 077` on lock writes, bounded lock-file reads. `/orchestrate` Step 3 updated to call `worktree-lib.sh ensure`; `/wrap-ticket` Step 6 calls `release`, with new+legacy path detection and anchored ticket-ID greps (`-wF`). `/demo` gets an interactive existence prompt. `AGENTS.md` Worktree Protocol section added. `SPEC-016-worktree-isolation.md` written.
+
 ### v0.26.0
 - **`/blind-review`** — New skill: multi-team blind peer review with automatic quorum analysis. Spawns N unconstrained + M lens-differentiated reviewer agents in parallel (security, contributor, spec, architecture, logic lenses available), clusters independent findings by semantic similarity into Tier 1 (cross-cohort ≥2 teams), Tier 2 (same-cohort ≥2 teams), and Tier 3 (single team) confidence buckets, and optionally forwards Tier 1 consensus findings to `/council` for reverse validation. Writes a ranked report to `.claude/reviews/`
 
