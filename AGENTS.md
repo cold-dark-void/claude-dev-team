@@ -42,6 +42,18 @@ After commit: `git tag vX.Y.Z && git push && git push --tags`
 | `project-init` | Sonnet | One-time memory bootstrap (via `/init-team`) |
 | `distiller` | Haiku | Memory compression specialist (invoked by `/memory-distill` only) |
 
+## Worktree Protocol
+
+All plugin-managed worktrees MUST be created at `.worktrees/<slug>` inside the project root.
+
+Use the shared CLI script — subprocess only, never sourced:
+- Create: `bash skills/worktree-lib.sh ensure <slug>` (prints path on stdout)
+- Remove: `bash skills/worktree-lib.sh release <slug>`
+
+Full contract: `specs/core/SPEC-016-worktree-isolation.md`
+
+Sibling-directory worktrees (`$MROOT/../<project>-<id>`) are forbidden when this lib is in use.
+
 ## Persistent Memory Protocol
 
 Each agent has memory stored in SQLite (preferred) or .md files (fallback):

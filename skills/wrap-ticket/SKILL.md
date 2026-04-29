@@ -29,13 +29,23 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ```
 
-Detect the ticket's worktree path:
+Detect the ticket's worktree path — prefer the new convention, fall back to legacy:
 ```bash
-git worktree list | grep -i "<TICKET-ID>"
+TICKET_ID="<TICKET-ID>"
+if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
+  # New convention: $MROOT/.worktrees/<TICKET-ID>
+  WORKTREE_PATH="$MROOT/.worktrees/$TICKET_ID"
+else
+  # Legacy: sibling directory
+  WORKTREE_PATH=$(git worktree list --porcelain \
+    | grep "^worktree " \
+    | sed 's/^worktree //' \
+    | grep -wF "$TICKET_ID" | head -1)
+fi
 ```
 
-Note the worktree path if found (e.g. `../project-POC-123`). If no worktree found,
-continue — it may already have been removed.
+`$WORKTREE_PATH` is used in all downstream steps. If empty, no worktree was found —
+continue; it may already have been removed.
 
 ---
 
@@ -74,7 +84,7 @@ done
 
 Also read the plan file:
 ```bash
-ls $WTROOT/.claude/plans/ | grep -i "<TICKET-ID>"
+ls $WTROOT/.claude/plans/ | grep -wF "$TICKET_ID"
 ```
 
 From these, extract:
@@ -180,7 +190,7 @@ fi
 
 Find the plan entry in `$MROOT/.claude/plans.md` (if it exists):
 ```bash
-grep -i "<TICKET-ID>" $MROOT/.claude/plans.md 2>/dev/null
+grep -wF "$TICKET_ID" $MROOT/.claude/plans.md 2>/dev/null
 ```
 
 If found, update its status from `[IN PROGRESS]` or `[ACTIVE]` to `[COMPLETED]`.
@@ -221,10 +231,18 @@ Proceed? (y/n)
 If yes:
 ```bash
 cd $MROOT
-git worktree remove <worktree-path>
+if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
+  # New convention — delegate to worktree-lib.sh for lock cleanup + removal
+  bash "$MROOT/skills/worktree-lib.sh" release "$TICKET_ID"
+else
+  # Legacy sibling path — remove directly and delete the tracking branch
+  git worktree remove "$WORKTREE_PATH"
+  git branch -D "feat/$TICKET_ID" 2>/dev/null || true
+fi
 ```
 
-If the worktree has uncommitted changes, git will refuse. Report:
+If the worktree has uncommitted changes, `worktree-lib.sh release` (or `git worktree
+remove`) will refuse. Report:
 ```
 Worktree has uncommitted changes — cannot remove automatically.
 Check <path> and either commit or discard before retrying.
