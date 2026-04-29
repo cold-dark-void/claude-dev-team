@@ -107,7 +107,9 @@ A git worktree is an additional working tree linked to the same repository — i
 agents work on the issue branch in isolation without disturbing the main checkout.
 
 ```bash
-SLUG="<ISSUE-ID>"   # e.g. "CDV-42" or a branch-safe slug derived from the issue ID
+SLUG="<ISSUE-ID>"   # MUST be the bare issue ID exactly as-is (e.g. "CDV-42")
+                    # wrap-ticket detects the worktree at .worktrees/<ISSUE-ID> using
+                    # this exact value — a longer slug will break detection
 WT_PATH=$(bash "$MROOT/skills/worktree-lib.sh" ensure "$SLUG") || {
   EXIT=$?
   if [ "$EXIT" -eq 2 ]; then
@@ -123,7 +125,7 @@ WT_PATH=$(bash "$MROOT/skills/worktree-lib.sh" ensure "$SLUG") || {
 absolute worktree path to stdout — that value is captured in `WT_PATH`. Use
 `$WT_PATH` everywhere downstream that references the worktree location.
 
-- **Exit 1** (live collision): the lib already printed the collision summary to stderr; halt.
+- **Exit 1** (unexpected error): git or filesystem failure in the lib; stderr will have details; halt.
 - **Exit 2** (user aborted): halt cleanly.
 - **Exit 64** (usage error): unexpected — surface "worktree-lib.sh usage error, check slug" to stderr.
 
@@ -637,7 +639,7 @@ Task metadata writes via `skills/orchestrate/task-store.sh` are **distinct from*
 - **No git repo**: warn; skip worktree, work in current directory
 - **Linear MCP unavailable**: fall back to prompted context; use plans for tracking instead
 - **Agent fails to start**: retry once, then report to user with error details
-- **Worktree already exists for this issue**: ask user — reuse or remove and recreate?
+- **Worktree already exists for this issue**: `worktree-lib.sh ensure` reuses it silently (writes a fresh lock). A prompt only appears if another live PID holds the lock — in that case surface the lib's stderr output to the user.
 - **Branch already exists**: check if it has unmerged work; ask user before resetting
 - **All agents stuck**: don't panic — present the full state to user and ask for direction
 - **User goes AFK mid-flow**: pause gracefully; state is in tasks + plan file; resumable

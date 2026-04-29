@@ -19,23 +19,14 @@ resolve_mroot() {
   fi
 }
 
-# lock_age_seconds <iso8601-utc-timestamp>
-# Print integer seconds elapsed since timestamp, or empty string on parse failure.
-lock_age_seconds() {
-  local ts="$1" then now
-  now=$(date -u +%s)
-  # GNU date
-  if then=$(date -u -d "$ts" +%s 2>/dev/null); then
-    echo $(( now - then ))
-    return 0
-  fi
-  # BSD/macOS date — strip trailing Z, use -j -f
-  local stripped="${ts%Z}"
-  if then=$(date -u -j -f "%Y-%m-%dT%H:%M:%S" "$stripped" +%s 2>/dev/null); then
-    echo $(( now - then ))
-    return 0
-  fi
-  echo ""
+# write_lock_and_exit <wt> <lock>
+# Atomically write the lock file (mode 600) with PID + UTC timestamp,
+# print the worktree path on stdout, and exit 0.
+write_lock_and_exit() {
+  local wt="$1" lock="$2"
+  (umask 077; printf '%s %s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock")
+  printf '%s\n' "$wt"
+  exit 0
 }
 
 cmd_ensure() {
@@ -44,22 +35,26 @@ cmd_ensure() {
     echo "ensure: missing <slug>" >&2
     exit 64
   fi
+  if [[ ! "$slug" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "ensure: invalid slug (only [A-Za-z0-9_-] allowed): $slug" >&2
+    exit 64
+  fi
 
   resolve_mroot
   local wt="$MROOT/.worktrees/$slug"
   local lock="$wt/.wt-lock"
   local branch="feat/$slug"
-  local session_id="${CLAUDE_SESSION_ID:-sess-$$}"
 
   if [ -f "$lock" ]; then
-    # Parse: "<session> <pid> <iso-timestamp>"
-    local lock_content lock_session lock_pid lock_ts
-    lock_content=$(cat "$lock" 2>/dev/null || echo "")
-    # shellcheck disable=SC2086
-    set -- $lock_content
-    lock_session="${1:-}"
-    lock_pid="${2:-}"
-    lock_ts="${3:-}"
+    # Parse: "<pid> <iso-timestamp>"; cap read at 256 bytes to bound input.
+    local lock_pid lock_ts
+    { read -r lock_pid lock_ts _ ; } < <(head -c 256 "$lock" 2>/dev/null) \
+      || { lock_pid=""; lock_ts=""; }
+
+    # Reject implausible PIDs (non-numeric, zero, or PID 1 which is always alive).
+    if [[ ! "$lock_pid" =~ ^[1-9][0-9]*$ ]] || [ "$lock_pid" -le 1 ]; then
+      lock_pid=""  # treat as stale
+    fi
 
     if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
       # Live collision — gather diagnostics
@@ -67,20 +62,12 @@ cmd_ensure() {
       if [ -d "$wt/.git" ] || [ -f "$wt/.git" ]; then
         head_info=$(git -C "$wt" log -1 --format='%h %s' 2>/dev/null || echo "(unknown)")
       fi
-      local age_secs age_str
-      age_secs=$(lock_age_seconds "$lock_ts")
-      if [ -n "$age_secs" ]; then
-        age_str="${age_secs}s"
-      else
-        age_str="unknown"
-      fi
 
       {
         echo "Worktree collision: $slug"
         echo "  branch:   $branch"
         echo "  HEAD:     $head_info"
-        echo "  lock age: $age_str"
-        echo "  session:  $lock_session"
+        echo "  lock ts:  $lock_ts"
         echo "  PID $lock_pid is live"
       } >&2
 
@@ -95,24 +82,18 @@ cmd_ensure() {
       fi
 
       if [ "$answer" = "steal" ]; then
-        printf '%s %s %s\n' "$session_id" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock"
-        printf '%s\n' "$wt"
-        exit 0
+        write_lock_and_exit "$wt" "$lock"
       fi
       exit 2
     fi
 
     # Stale lock — silently overwrite
-    printf '%s %s %s\n' "$session_id" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock"
-    printf '%s\n' "$wt"
-    exit 0
+    write_lock_and_exit "$wt" "$lock"
   fi
 
   # No lock. If worktree dir exists, just create the lock.
   if [ -d "$wt" ]; then
-    printf '%s %s %s\n' "$session_id" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock"
-    printf '%s\n' "$wt"
-    exit 0
+    write_lock_and_exit "$wt" "$lock"
   fi
 
   mkdir -p "$MROOT/.worktrees"
@@ -124,15 +105,17 @@ cmd_ensure() {
     git -C "$MROOT" worktree add -b "$branch" "$wt" >&2
   fi
 
-  printf '%s %s %s\n' "$session_id" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock"
-  printf '%s\n' "$wt"
-  exit 0
+  write_lock_and_exit "$wt" "$lock"
 }
 
 cmd_release() {
   local slug="${1:-}"
   if [ -z "$slug" ]; then
     echo "release: missing <slug>" >&2
+    exit 64
+  fi
+  if [[ ! "$slug" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "release: invalid slug (only [A-Za-z0-9_-] allowed): $slug" >&2
     exit 64
   fi
 

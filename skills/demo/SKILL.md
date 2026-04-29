@@ -48,10 +48,17 @@ Create a temporary worktree with a minimal Go project that has an obvious featur
 # Create branch and worktree
 DEMO_BRANCH="demo/dev-team-$(date +%s)"
 if [ -e "${TMPDIR:-/tmp}/demo-project" ]; then
-  echo "demo-project already exists at ${TMPDIR:-/tmp}/demo-project — remove it first (git worktree remove ${TMPDIR:-/tmp}/demo-project) or let me know if you want to resume." >&2
-  exit 1
+  echo "demo-project already exists at ${TMPDIR:-/tmp}/demo-project." >&2
+  printf "Remove it and continue? [y/N] " >&2
+  read -r _demo_answer </dev/tty 2>/dev/null || _demo_answer="n"
+  if [[ "$_demo_answer" =~ ^[Yy]$ ]]; then
+    git worktree remove "${TMPDIR:-/tmp}/demo-project" --force 2>/dev/null || rm -rf "${TMPDIR:-/tmp}/demo-project"
+  else
+    echo "Aborted." >&2
+    exit 1
+  fi
 fi
-git worktree add "$TMPDIR/demo-project" -b "$DEMO_BRANCH"
+git worktree add "${TMPDIR:-/tmp}/demo-project" -b "$DEMO_BRANCH"
 ```
 
 Write these files into the worktree:
@@ -296,14 +303,14 @@ A minimal CLI todo app used for dev-team plugin demos.
 Commit the scaffold:
 
 ```bash
-cd "$TMPDIR/demo-project"
+cd "${TMPDIR:-/tmp}/demo-project"
 git add -A
 git commit -m "scaffold: demo-todo CLI app"
 ```
 
 Print:
 ```
-Demo project scaffolded at $TMPDIR/demo-project
+Demo project scaffolded at ${TMPDIR:-/tmp}/demo-project
 Branch: <DEMO_BRANCH>
 Files: main.go, main_test.go, go.mod, README.md
 Tests: 5 passing
@@ -311,7 +318,7 @@ Tests: 5 passing
 
 Verify tests pass:
 ```bash
-cd "$TMPDIR/demo-project" && go test ./...
+cd "${TMPDIR:-/tmp}/demo-project" && go test ./...
 ```
 
 If tests fail, fix the scaffold before proceeding.
@@ -348,7 +355,7 @@ Demo ticket:
 Change to the demo worktree before running any commands:
 
 ```bash
-cd "$TMPDIR/demo-project"
+cd "${TMPDIR:-/tmp}/demo-project"
 ```
 
 ### Mode: `orchestrate` (default)
@@ -443,13 +450,13 @@ If yes:
 ```bash
 # Return to original directory first
 cd <original working directory>
-git worktree remove "$TMPDIR/demo-project" --force
+git worktree remove "${TMPDIR:-/tmp}/demo-project"
 git branch -D "$DEMO_BRANCH"
 ```
 
 If no:
 ```
-Demo project left at: $TMPDIR/demo-project
+Demo project left at: ${TMPDIR:-/tmp}/demo-project
 Branch: <DEMO_BRANCH>
-Clean up later: git worktree remove $TMPDIR/demo-project && git branch -D <DEMO_BRANCH>
+Clean up later: git worktree remove ${TMPDIR:-/tmp}/demo-project && git branch -D <DEMO_BRANCH>
 ```

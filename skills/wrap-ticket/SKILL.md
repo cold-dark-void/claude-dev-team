@@ -38,7 +38,6 @@ if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
 else
   # Legacy: sibling directory
   WORKTREE_PATH=$(git worktree list --porcelain \
-    | grep -A1 "^worktree " \
     | grep "^worktree " \
     | sed 's/^worktree //' \
     | grep -wF "$TICKET_ID" | head -1)
