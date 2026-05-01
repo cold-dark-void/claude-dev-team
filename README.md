@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.0
+- **SPEC-017 — Autonomous CI Watch + Task DAG** — Two coupled autonomy features. *CI Watch*: after /orchestrate pushes work, a durable CronCreate loop monitors quality checks and auto-spawns a `dev-team:ic5` fixer agent on failure (retry cap: 3). Adapts to the project's setup: `ci` mode polls `gh pr checks`; `local-test` mode runs the detected test command (`npm test`, `make test`, `go test ./...`, `pytest`); `none` mode skips silently. New subprocess CLIs: `skills/ci-watch/sidecar.sh` (atomic sidecar state), `skills/ci-watch/detect-mode.sh` (mode probe), `skills/ci-watch/poll.sh` (deterministic `done|fail|cap|wait` decision). *Task DAG*: `task-store.sh` gains an optional 4th `depends_on` arg; new `skills/orchestrate/dag-lib.sh` provides `check-cycle` (3-color DFS), `ready-set`, and `status-of`. `/kickoff` Step 7 detects cycles before any `TaskCreate` and populates `depends_on` using compound keys. `/orchestrate` fans out all unblocked tasks in parallel via `dag-lib.sh ready-set`. `/standup` READY/WAITING computed from task store files (not prose). `/wrap-ticket` Step 6.5 cleans up the CI-watcher cron via `CronDelete`. New spec: `SPEC-017`.
+
 ### v0.28.1
 - **Agent behavioral improvements from retro** — ic4 and ic5 gain rule to complete all edits on one file before moving to the next (prevents mid-task file interleaving); tech-lead gains rule to lead with a single recommendation rather than listing alternatives unprompted.
 

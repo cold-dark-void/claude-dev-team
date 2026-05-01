@@ -19,6 +19,8 @@
 | SPEC-013 | Adversarial Council Tribunal | 🔄 UPDATED | skills/council/ (engine), commands/council.md, skills/review-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
 | SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
+| SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, skills/orchestrate/SKILL.md, skills/wrap-ticket/SKILL.md, AGENTS.md |
+| SPEC-017 | Autonomous CI Watch + Task DAG | 🚧 NEW | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh |
 
 ## Version History
 
@@ -34,3 +36,5 @@
 | 2026-04-26 | SPEC-015 implemented — skills/refactor/SKILL.md shipped |
 | 2026-04-26 | /reflect-specs fixes: SPEC-013 status NEW→ACTIVE, corrected coverage paths (dev-team:council→skills/council/, commands/review-commit.md→skills/review-commit/SKILL.md), removed spec-file self-reference from SPEC-015 coverage |
 | 2026-04-29 | SPEC-013 updated: Phase 2.5 Blind Cross-Review added (COUNCIL-002) — Borda-count peer ranking, anonymized bundles, self-exclusion, WEAK_EVIDENCE flagging | SPEC-013 |
+| 2026-04-28 | SPEC-016 created: Worktree Isolation — canonical `.worktrees/<slug>` path, worktree-lib.sh CLI, PID-based lock, collision recovery |
+| 2026-04-30 | SPEC-017 created: Autonomous CI Watch + Task DAG — adaptive 3-mode CI watch loop, structured depends_on schema, parallel fan-out in orchestrate |
