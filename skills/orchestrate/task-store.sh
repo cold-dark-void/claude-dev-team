@@ -7,7 +7,7 @@
 # for the optional council quality-gate.
 #
 # Usage:
-#   task-store.sh create <task_id> <subject> <requires_council>
+#   task-store.sh create <task_id> <subject> <requires_council> [depends_on]
 #   task-store.sh update-status <task_id> <new_status>
 #
 # <requires_council>: literal "true" or "false"
@@ -20,6 +20,7 @@
 # transition).
 
 set -euo pipefail
+# THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
 # ---- Usage ------------------------------------------------------------------
 usage() {
@@ -107,7 +108,7 @@ cmd_create() {
     fi
   ) 9>"$LOCK"
 
-  echo "created: $dest"
+  echo "created: $dest" >&2
 }
 
 cmd_update_status() {
@@ -151,7 +152,7 @@ cmd_update_status() {
     fi
   ) 9>"$LOCK"
 
-  echo "updated: $dest (status=$new_status)"
+  echo "updated: $dest (status=$new_status)" >&2
 }
 
 # ---- Dispatch ---------------------------------------------------------------

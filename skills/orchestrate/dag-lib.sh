@@ -99,7 +99,6 @@ cmd_check_cycle() {
   # Build adjacency: ADJ[parent] = "child1 child2 ..." (space separated).
   declare -A ADJ
   declare -A COLOR  # 0=white (default/unset), 1=gray, 2=black
-  declare -A PARENT # for cycle path reconstruction
   local n
   while IFS= read -r n; do
     [ -z "$n" ] && continue
@@ -125,6 +124,7 @@ cmd_check_cycle() {
   local cycle_from=""
   local start
   while IFS= read -r start; do
+    [ -n "$cycle_node" ] && break   # already found one, stop
     [ -z "$start" ] && continue
     [ "${COLOR[$start]}" != "0" ] && continue
 
@@ -155,7 +155,9 @@ cmd_check_cycle() {
       local children="${ADJ[$node]:-}"
       if [ -n "$children" ]; then
         local child
-        for child in $children; do
+        local -a child_arr
+        read -ra child_arr <<< "$children"
+        for child in "${child_arr[@]}"; do
           local ccolor="${COLOR[$child]:-0}"
           if [ "$ccolor" = "1" ]; then
             # back edge → cycle from $node to $child
@@ -164,7 +166,6 @@ cmd_check_cycle() {
             break 2
           fi
           if [ "$ccolor" = "0" ]; then
-            PARENT["$child"]="$node"
             stack+=("ENTER:$child")
           fi
         done
@@ -173,29 +174,7 @@ cmd_check_cycle() {
   done <<<"$nodes"
 
   if [ -n "$cycle_node" ]; then
-    # Reconstruct path: cycle_node -> ... -> cycle_from -> cycle_node
-    local path=("$cycle_node")
-    local cur="$cycle_from"
-    local guard=0
-    while [ "$cur" != "$cycle_node" ] && [ -n "$cur" ] && [ $guard -lt 10000 ]; do
-      path+=("$cur")
-      cur="${PARENT[$cur]:-}"
-      guard=$((guard + 1))
-    done
-    path+=("$cycle_node")
-
-    # Reverse for natural reading order (root → ... → back).
-    local rev=()
-    local i
-    for ((i=${#path[@]}-1; i>=0; i--)); do
-      rev+=("${path[i]}")
-    done
-
-    local joined=""
-    for n in "${rev[@]}"; do
-      joined="${joined}${joined:+ -> }${n}"
-    done
-    echo "cycle: $joined" >&2
+    echo "cycle: $cycle_from -> $cycle_node" >&2
     exit 1
   fi
 
