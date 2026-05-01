@@ -252,6 +252,36 @@ If no worktree was found: skip silently.
 
 ---
 
+## Step 6.5: CI-watch cleanup
+
+Check for an active CI-watch sidecar for this ticket:
+
+```bash
+SIDECAR_PATH=$(bash "$MROOT/skills/ci-watch/sidecar.sh" path "$TICKET_ID" 2>/dev/null)
+```
+
+If `$SIDECAR_PATH` is non-empty and the file exists:
+
+1. Read the cron job ID:
+   ```bash
+   CRON_ID=$(jq -r '.cron_job_id // empty' "$SIDECAR_PATH")
+   ```
+
+2. If `CRON_ID` is non-empty:
+   - Call **CronDelete** with `id: <CRON_ID>` — this is a Claude tool call, NOT a bash command.
+   - On success, print: `CI watch cron <CRON_ID> deleted.`
+   - If CronDelete fails: warn `CI watch cron deletion failed — may need manual cleanup` but do NOT halt wrap-ticket.
+
+3. Clean up the sidecar file:
+   ```bash
+   bash "$MROOT/skills/ci-watch/sidecar.sh" delete "$TICKET_ID"
+   ```
+   Print: `CI watch sidecar cleaned up.`
+
+If the sidecar file does not exist: skip silently.
+
+---
+
 ## Step 7: Print close-out checklist
 
 Print a checklist for the engineer to complete manually:

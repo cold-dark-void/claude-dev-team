@@ -24,8 +24,10 @@ set -euo pipefail
 # ---- Usage ------------------------------------------------------------------
 usage() {
   echo "Usage:" >&2
-  echo "  task-store.sh create <task_id> <subject> <requires_council>" >&2
+  echo "  task-store.sh create <task_id> <subject> <requires_council> [depends_on]" >&2
   echo "  task-store.sh update-status <task_id> <new_status>" >&2
+  echo "" >&2
+  echo "  [depends_on]: colon-separated task IDs, e.g. T-1:T-2 (optional)" >&2
   exit 1
 }
 
@@ -51,8 +53,10 @@ mkdir -p "$TASKS_DIR"
 
 # ---- Subcommands ------------------------------------------------------------
 cmd_create() {
-  [ $# -eq 3 ] || { echo "error: create requires 3 arguments" >&2; usage; }
+  { [ $# -ge 3 ] && [ $# -le 4 ]; } || { echo "error: create requires 3 or 4 arguments" >&2; usage; }
   local task_id="$1" subject="$2" requires_council="$3"
+  local deps
+  deps=$(printf '%s' "${4:-}" | jq -Rs 'split(":") | map(select(length > 0))')
 
   if ! printf '%s' "$task_id" | grep -qE '^[a-zA-Z0-9._-]+$'; then
     echo "error: task_id must match [a-zA-Z0-9._-]+, got: $task_id" >&2
@@ -74,11 +78,20 @@ cmd_create() {
 
     if [ -f "$dest" ]; then
       # Upsert: update subject and requires_council, preserve created_at and status
-      jq \
-        --arg subj "$subject" \
-        --argjson rc "$requires_council" \
-        '.subject = $subj | .requires_council = $rc' \
-        "$dest" > "$tmp"
+      if [ $# -eq 4 ]; then
+        jq \
+          --arg subj "$subject" \
+          --argjson rc "$requires_council" \
+          --argjson deps "$deps" \
+          '.subject = $subj | .requires_council = $rc | .depends_on = $deps' \
+          "$dest" > "$tmp"
+      else
+        jq \
+          --arg subj "$subject" \
+          --argjson rc "$requires_council" \
+          '.subject = $subj | .requires_council = $rc | .depends_on = (.depends_on // [])' \
+          "$dest" > "$tmp"
+      fi
       mv "$tmp" "$dest"
       echo "upserted: $dest (already existed, updated)" >&2
     else
@@ -87,7 +100,8 @@ cmd_create() {
         --arg subj "$subject" \
         --argjson rc "$requires_council" \
         --arg ts   "$ts" \
-        '{task_id: $tid, subject: $subj, requires_council: $rc, created_at: $ts, status: "pending"}' \
+        --argjson deps "$deps" \
+        '{task_id: $tid, subject: $subj, requires_council: $rc, depends_on: $deps, created_at: $ts, status: "pending"}' \
         > "$tmp"
       mv "$tmp" "$dest"
     fi
@@ -127,7 +141,7 @@ cmd_update_status() {
         --arg tid "$task_id" \
         --arg s   "$new_status" \
         --arg ts  "$ts" \
-        '{task_id: $tid, subject: "(auto-created stub)", requires_council: false, created_at: $ts, status: $s}' \
+        '{task_id: $tid, subject: "(auto-created stub)", requires_council: false, depends_on: [], created_at: $ts, status: $s}' \
         > "$tmp"
       mv "$tmp" "$dest"
       echo "warning: task file not found, created stub: $dest" >&2

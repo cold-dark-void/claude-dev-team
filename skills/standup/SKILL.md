@@ -81,9 +81,30 @@ Flag stale tasks with `⚠️ STALE` in the output.
 
 ## Step 4: Identify ready-to-claim tasks
 
-For each `pending` task, check its `depends_on` list (from task description):
-- If all dependencies are `completed` → mark as **READY**
-- If any dependency is still `in_progress` or `pending` → mark as **WAITING ON <task IDs>**
+For each `pending` task, compute readiness from the task store:
+
+```bash
+READY_TASKS=$(bash "$MROOT/skills/orchestrate/dag-lib.sh" ready-set)
+```
+
+- A task is **READY** when its `task_id` appears in the output of `dag-lib.sh ready-set`.
+- A task is **WAITING** when it is `pending` but NOT in the ready-set.
+
+For each WAITING task, show the dependency chain by reading its task file:
+
+```bash
+TASK_FILE="$MROOT/.claude/tasks/<task_id>.json"
+DEP_IDS=$(jq -r '.depends_on // [] | .[]' "$TASK_FILE" 2>/dev/null)
+```
+
+For each `dep_id` in `depends_on`:
+```bash
+STATUS=$(bash "$MROOT/skills/orchestrate/dag-lib.sh" status-of "$dep_id")
+```
+- Show: `WAITING on: <dep_id> (<STATUS>)`
+- If the dep's task file is missing: show `WAITING on: <dep_id> (file missing)`
+
+Use `jq '.depends_on // []'` as the default to ensure backward compatibility with task files that predate the `depends_on` field.
 
 ---
 

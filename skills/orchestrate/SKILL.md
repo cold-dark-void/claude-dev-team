@@ -305,6 +305,25 @@ After spawning, enter a monitoring cycle:
 2. When an agent completes a task, check if blocked tasks are now unblocked → spawn next agents
 3. Surface blockers or errors to user immediately
 
+### DAG-aware task fan-out
+
+At orchestration start and after every task status transition to `completed`,
+compute the unblocked set via:
+
+  ```bash
+  READY=$(bash "$MROOT/skills/orchestrate/dag-lib.sh" ready-set)
+  ```
+
+Spawn an agent for every task_id in `$READY` simultaneously — do not process
+them one at a time. This is the parallel fan-out guaranteed by SPEC-017.
+
+A task is only eligible for spawning when:
+1. dag-lib.sh ready-set includes its task_id
+2. No agent is currently running for that task_id (check in-progress task store status)
+
+After each agent completes (status → completed), immediately re-run ready-set
+and spawn any newly-unblocked tasks.
+
 ### Escalation triggers (interrupt user):
 
 - **Agent stuck after 2 genuine attempts** — present what was tried, ask for guidance
@@ -318,6 +337,72 @@ After spawning, enter a monitoring cycle:
 - Lint/format issues (agent should fix)
 - Routine implementation decisions within the spec
 - File organization within established patterns
+
+### CI-watch fixer agent convention
+
+When a CI-watch cron spawns a `dev-team:ic5` fixer agent, the fixer prompt
+MUST end with this instruction:
+
+  "When done with the fix, run:
+   bash <MROOT>/skills/ci-watch/sidecar.sh set <TICKET_ID> fixer_active false
+   This clears the fixer guard so the CI-watch cron can evaluate the next poll."
+
+---
+
+## Step 8.5: Arm CI-watch after first push
+
+After the first IC agent reports a push to the remote branch (detected when the
+monitoring loop sees a new commit on the remote), arm the CI-watch loop:
+
+1. **Check if already armed** (idempotent guard):
+   ```bash
+   SIDECAR="$MROOT/.claude/ci-watch/<TICKET-ID>.json"
+   [ -f "$SIDECAR" ] && exit 0   # already armed, skip
+   ```
+
+2. **Detect quality-check mode**:
+   ```bash
+   MODE_LINE=$(bash "$MROOT/skills/ci-watch/detect-mode.sh" "$WT_PATH")
+   MODE=$(echo "$MODE_LINE" | head -n1)
+   TEST_CMD=$(echo "$MODE_LINE" | sed -n 2p)
+   ```
+   If MODE is `none`: print "CI watch: no quality checks detected — skipping." and skip to Step 9.
+
+3. **Create draft PR** (ci mode only):
+   In ci mode, create a draft PR immediately if one doesn't exist yet:
+   ```bash
+   PR=$(cd "$WT_PATH" && gh pr view --json number -q .number 2>/dev/null || echo "")
+   if [ -z "$PR" ]; then
+     cd "$WT_PATH" && gh pr create --draft \
+       --title "<TICKET-ID>: WIP — <issue title>" \
+       --body "Auto-draft created by CI watch for <TICKET-ID>"
+     PR=$(cd "$WT_PATH" && gh pr view --json number -q .number)
+   fi
+   ```
+
+4. **Init sidecar**:
+   ```bash
+   bash "$MROOT/skills/ci-watch/sidecar.sh" init "<TICKET-ID>" "$MODE" "${PR:-}" "$BRANCH"
+   ```
+
+5. **Schedule durable cron**:
+   Call CronCreate (Claude tool) with:
+   - cron: `"*/7 * * * *"` (off-minute per project convention)
+   - durable: `true`
+   - recurring: `true`
+   - prompt: the self-contained cron body from skills/ci-watch/SKILL.md
+     (copy the exact template, substituting TICKET-ID, MROOT, and BRANCH)
+
+   The cron prompt MUST be self-contained — it reads the sidecar and runs
+   poll.sh without relying on any session context. See SKILL.md for the template.
+
+6. **Persist cron job ID**:
+   ```bash
+   bash "$MROOT/skills/ci-watch/sidecar.sh" set "<TICKET-ID>" cron_job_id "<returned-job-id>"
+   ```
+
+7. **Notify**:
+   Print: `CI watch armed for <TICKET-ID> in <MODE> mode (cron job: <job-id>).`
 
 ---
 
@@ -385,6 +470,24 @@ bash skills/orchestrate/task-store.sh update-status <ISSUE-ID>-<task_id> <new_st
 ```
 
 Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009 lines 49–51); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
+
+### Defensive CI-watch cleanup
+
+After any task transitions to `completed`, the orchestrator MUST run this block.
+If TASK_ID does not end with `-ci-fixer`, skip this block.
+
+Otherwise, verify `fixer_active` is false in the CI-watch sidecar:
+
+  # Extract TICKET from task_id (compound key format: TICKET-ci-fixer)
+  # ci-fixer tasks have task_id like "CDV-1-ci-fixer"
+  TICKET=$(echo "$TASK_ID" | sed 's/-ci-fixer$//')
+  FIXER_ACTIVE=$(bash skills/ci-watch/sidecar.sh get "$TICKET" fixer_active 2>/dev/null || echo "false")
+  if [ "$FIXER_ACTIVE" = "true" ]; then
+    bash skills/ci-watch/sidecar.sh set "$TICKET" fixer_active false
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) corrected stale fixer_active=true" >> "$MROOT/.claude/ci-watch/$TICKET.log"
+  fi
+
+This guards against a fixer agent that exited without clearing the flag.
 
 ---
 

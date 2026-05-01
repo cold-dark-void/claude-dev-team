@@ -277,11 +277,33 @@ Output:
    ic4 context (300+ messages observed). Either assign ic5, or split the task further.
 
 No schema changes or new dependencies without calling them out explicitly.
+For each task, list dependencies as `Depends on: <TaskID>, <TaskID>` or `Depends on: none` so kickoff can extract them programmatically.
 ```
 
 ---
 
 ## Step 7: Create task graph via TaskCreate
+
+Before creating any tasks, extract the dependency graph from the Tech Lead plan:
+1. For each task in the plan, note its ID (Task 1, Task 2, etc.) and its "Depends on:" list
+2. Build a JSON array: `[{"task_id": "TICKET-N", "depends_on": ["TICKET-M", ...]}, ...]`
+3. Write to a temp file and run:
+   ```bash
+   bash skills/orchestrate/dag-lib.sh check-cycle /tmp/kickoff-dag-$$.json 2>/tmp/kickoff-cycle-err-$$.txt
+   if [ $? -eq 1 ]; then
+     CYCLE_MSG=$(cat /tmp/kickoff-cycle-err-$$.txt)
+     rm -f /tmp/kickoff-dag-$$.json /tmp/kickoff-cycle-err-$$.txt
+     echo "Kickoff error: circular dependency detected: $CYCLE_MSG. Revise the task graph."
+     # halt — do NOT call TaskCreate for any task
+   fi
+   ```
+   Do NOT call TaskCreate for any task if a cycle is detected.
+4. Clean up temp file after check.
+
+Then detect quality-check mode:
+```bash
+QC_MODE=$(bash skills/ci-watch/detect-mode.sh "$WTROOT" | head -n1)
+```
 
 Read the plan Tech Lead produced. For each step, issue a TaskCreate:
 
@@ -293,6 +315,19 @@ TaskCreate:
     Recommended agent: <ic4|ic5|qa>
     Depends on: [Task IDs] or "none"
     Exposes: <interface/contract other tasks need, if any>
+```
+
+After each TaskCreate, register the task in the task store with its dependencies:
+```bash
+# Build colon-separated depends_on from plan dep list
+# Map to compound keys: replace "Task N" with "<TICKET>-<taskid>"
+# e.g. if Task 3 depends on Task 1 and Task 2, and TICKET-ID is CDV-1:
+#   DEPS="CDV-1-1:CDV-1-2"
+# If no deps:
+#   DEPS=""
+DEPS=$(echo "<dep task IDs from plan, space/comma-separated>" | tr ', ' ':' | tr -s ':' | sed 's/^://;s/:$//')
+# Replace each "Task N" reference with "<TICKET-ID>-N" compound key
+bash skills/orchestrate/task-store.sh create "<TICKET-ID>-<task_id>" "<subject>" <requires_council> "$DEPS"
 ```
 
 Create all tasks. Note their assigned IDs.
@@ -322,6 +357,7 @@ Task Graph:
   id:<N> Task 2 — <title>     → <ic5>        [ready to claim]
   id:<N> Task 3 — <title>     → <ic4>        [blocked by Task 1, Task 2]
   id:<N> Task 4 — QA tests    → qa           [ready after Task 2 interface defined]
+Quality check: <ci|local-test|none>  (detected via skills/ci-watch/detect-mode.sh $WTROOT)
 
 Parallel work ready:
   @ic4: claim Task 1 via TaskUpdate, start immediately
