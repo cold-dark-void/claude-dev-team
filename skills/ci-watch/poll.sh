@@ -13,6 +13,7 @@
 #           checks not yet reported, transient poll error, etc.)
 #
 # Usage: poll.sh <TICKET_ID>
+# THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
 set -u
 # Note: NOT -e — every error path here is recoverable and must keep the
@@ -20,6 +21,10 @@ set -u
 
 TICKET="${1:-}"
 if [ -z "$TICKET" ]; then
+  echo "wait"
+  exit 0
+fi
+if ! printf '%s' "$TICKET" | grep -qE '^[a-zA-Z0-9._-]+$'; then
   echo "wait"
   exit 0
 fi
@@ -36,6 +41,7 @@ SIDECAR="$WATCH_DIR/${TICKET}.json"
 
 OUT_TMP="${TMPDIR:-/tmp}/ci-watch-out-$TICKET.txt"
 ERR_TMP="${TMPDIR:-/tmp}/ci-watch-err-$TICKET.txt"
+trap 'rm -f "$OUT_TMP" "$ERR_TMP"' EXIT
 
 # Sibling scripts — resolve relative to this script so the skill works
 # whether invoked from the main repo or a worktree checkout.
@@ -52,25 +58,19 @@ log_event() {
 
 emit() {
   echo "$1"
-  log_event "$1"
-  exit 0
-}
-
-# Quiet emit (no log) — used for "wait" which is the silent case.
-emit_quiet() {
-  echo "$1"
+  [[ "$1" != "wait" ]] && log_event "$1"
   exit 0
 }
 
 # ---- Sidecar gate -----------------------------------------------------------
 if [ ! -f "$SIDECAR" ]; then
-  emit_quiet "wait"
+  emit "wait"
 fi
 
 # Read fixer guard first — if a fixer is currently running, do nothing.
 FIXER_ACTIVE=$(bash "$SIDECAR_CLI" get "$TICKET" fixer_active 2>/dev/null || echo "false")
 if [ "$FIXER_ACTIVE" = "true" ]; then
-  emit_quiet "wait"
+  emit "wait"
 fi
 
 MODE=$(bash "$SIDECAR_CLI" get "$TICKET" mode 2>/dev/null || echo "")
@@ -99,7 +99,7 @@ poll_ci() {
   local pr
   pr=$(bash "$SIDECAR_CLI" get "$TICKET" pr_number 2>/dev/null || echo "")
   if [ -z "$pr" ] || [ "$pr" = "null" ]; then
-    emit_quiet "wait"
+    emit "wait"
   fi
 
   # PR state — merged/closed short-circuits to done (silent done at cron prompt).
@@ -114,7 +114,7 @@ poll_ci() {
   if ! result=$(gh pr checks "$pr" --json name,conclusion 2>"$ERR_TMP"); then
     bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
     log_event "poll_error"
-    emit_quiet "wait"
+    emit "wait"
   fi
 
   local total fail_count success_count
@@ -141,7 +141,7 @@ poll_ci() {
   fi
 
   # Otherwise still pending (in-progress checks).
-  emit_quiet "wait"
+  emit "wait"
 }
 
 # ---- local-test mode --------------------------------------------------------
@@ -150,7 +150,7 @@ poll_local_test() {
   if [ ! -d "$wt" ]; then
     bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
     log_event "poll_error"
-    emit_quiet "wait"
+    emit "wait"
   fi
 
   local mode_out test_cmd
@@ -160,9 +160,10 @@ poll_local_test() {
   if [ -z "$test_cmd" ]; then
     bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
     log_event "poll_error"
-    emit_quiet "wait"
+    emit "wait"
   fi
 
+  # test_cmd MUST be a hardcoded literal from detect-mode.sh — never interpolate user data here
   ( cd "$wt" && timeout 120 bash -c "$test_cmd" ) > "$OUT_TMP" 2>&1
   local rc=$?
 
@@ -177,5 +178,5 @@ poll_local_test() {
 case "$MODE" in
   ci)         poll_ci ;;
   local-test) poll_local_test ;;
-  *)          emit_quiet "wait" ;;
+  *)          emit "wait" ;;
 esac

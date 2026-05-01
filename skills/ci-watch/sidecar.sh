@@ -34,6 +34,13 @@ usage() {
   exit 1
 }
 
+validate_ticket_id() {
+  if ! printf '%s' "$1" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+    echo "error: ticket_id must match [a-zA-Z0-9._-]+, got: $1" >&2
+    exit 2
+  fi
+}
+
 [ $# -lt 1 ] && usage
 SUBCMD="$1"; shift
 
@@ -64,6 +71,7 @@ sidecar_tmp() {
 # ---- Subcommands ------------------------------------------------------------
 cmd_init() {
   [ $# -eq 4 ] || { echo "error: init requires 4 arguments" >&2; usage; }
+  validate_ticket_id "$1"
   local ticket="$1" mode="$2" pr_number="$3" branch="$4"
 
   mkdir -p "$WATCH_DIR"
@@ -105,6 +113,7 @@ cmd_init() {
 
 cmd_set() {
   [ $# -eq 3 ] || { echo "error: set requires 3 arguments" >&2; usage; }
+  validate_ticket_id "$1"
   local ticket="$1" key="$2" value="$3"
 
   local dest
@@ -133,6 +142,7 @@ cmd_set() {
 
 cmd_get() {
   [ $# -eq 2 ] || { echo "error: get requires 2 arguments" >&2; usage; }
+  validate_ticket_id "$1"
   local ticket="$1" key="$2"
 
   local dest
@@ -148,6 +158,7 @@ cmd_get() {
 
 cmd_inc() {
   [ $# -eq 2 ] || { echo "error: inc requires 2 arguments" >&2; usage; }
+  validate_ticket_id "$1"
   local ticket="$1" key="$2"
 
   local dest
@@ -171,6 +182,7 @@ cmd_inc() {
 
 cmd_delete() {
   [ $# -eq 1 ] || { echo "error: delete requires 1 argument" >&2; usage; }
+  validate_ticket_id "$1"
   local ticket="$1"
 
   local dest
@@ -180,6 +192,7 @@ cmd_delete() {
 
 cmd_path() {
   [ $# -eq 1 ] || { echo "error: path requires 1 argument" >&2; usage; }
+  validate_ticket_id "$1"
   sidecar_file "$1"
 }
 
