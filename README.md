@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.6
+- **stop-review.sh: sync install template, fix stamp key** — the install heredoc in `/init-orchestration` still shipped the legacy blocking version (`exit 2`) while the plugin's own dogfood copy was already non-blocking — silent drift. Both are now the same non-blocking script. The stamp key is now `cwd + HEAD-sha` instead of `session_id`; `claude --resume` mints a fresh `session_id` per invocation, so the old guard re-fired on every resume even when no new dirty state existed. The new stamp re-fires only when HEAD moves (a commit lands). Stale stamps from prior HEAD shas are swept on each fire to keep `.claude/` tidy. On re-run, `/init-orchestration` overwrites legacy `exit 2` / `SESSION_ID` versions of the hook.
+
 ### v0.29.5
 - **Worktree-safe hook paths** — `/init-orchestration` now writes hook commands as `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh"` instead of relative `.claude/hooks/<name>.sh`. Relative paths broke every Bash tool call from agents spawned inside worktrees (worktrees share `.git/` but not `.claude/`), producing "No such file or directory" on every PreToolUse / PostToolUse / Stop / TaskCompleted fire. The Step 1 upgrade check now also auto-rewrites stale relative paths in existing settings.json on re-run.
 
