@@ -115,6 +115,9 @@ PROCEDURE
      - <= 200 characters
      - Specific enough that an agent reading it would change behavior
      - Not already covered by the matching EXISTING_RULES entry
+     - Universal: would prevent recurrence across any project, not just this one.
+       If the rule only applies to this specific domain or codebase, emit it as
+       an observation instead.
 5. Every proposal MUST include >= 1 citation, where each citation is a
    message_id from the JSONL plus a <= 1-line excerpt (<= 120 chars) from that
    message. The excerpt must be a verbatim substring.
