@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.8
+- **Harden worktree cleanup against WSL2 EBUSY** — `worktree-lib.sh release` now (a) retries every git op 3× with 200ms backoff on `Device or resource busy` / `could not write config` / `update of config-file failed` errors, (b) actually deletes the feature branch (was missing — `release` only ran `worktree remove` before), (c) runs `worktree prune` to reap partial-failure admin entries, (d) sweeps any orphaned `[branch "feat/X"]` config stanza via `git config --remove-section`. Each step is a separate `git` call so the second never fires while the first is still releasing `.git/config`. Updated `orchestrate/SKILL.md` worktree-cleanup prose to point at the lib first and to forbid chained `worktree remove && branch -D` in by-hand cleanups (the chained form is the exact pattern that races on WSL2's 9p mmap-rename).
+
 ### v0.29.7
 - **Stop spawned agents from hallucinating an addressable orchestrator** — child agents under `/orchestrate` and `/kickoff` repeatedly invented symbolic recipients (`main`, `orchestrator`, `tl-cdv162-plan`) and tried `SendMessage` with `to: "<that name>"`, which the runtime rejects (only opaque agent IDs are addressable). The agent then logged apologetic prose ("The orchestrator isn't running as an addressable agent named 'main'…") and dumped its report to final output anyway — wasted tokens with no functional benefit. Spawn templates in `skills/orchestrate/SKILL.md` and `skills/kickoff/SKILL.md` now explicitly tell agents: return your output as the final message, do NOT SendMessage to the orchestrator. AGENTS.md `Team Coordination` section gains the same rule for hand-edited spawns.
 
