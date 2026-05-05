@@ -326,6 +326,28 @@ After spawning, enter a monitoring cycle:
 2. When an agent completes a task, check if blocked tasks are now unblocked → spawn next agents
 3. Surface blockers or errors to user immediately
 
+**TaskList ↔ Agent-spawn reconciliation.** The Agent tool reports
+`status: "async_launched"` when a spawn is fired-and-forgotten — that
+status lives on the *Agent tool result*, not on the TaskList. A spawned
+agent's `TaskUpdate(completed)` runs in its own sandbox session and
+does NOT propagate back to the orchestrator's TaskList. So TaskList
+will stay at `in_progress` forever unless the orchestrator itself
+closes the loop.
+
+**The orchestrator MUST**, on every Agent-completion notification:
+1. Identify the `task_id` the spawned agent was working (you set this
+   when you called `TaskCreate`; record `task_id ↔ agentId` at spawn
+   time so you can map back).
+2. Read the spawn result for outcome (success/failure/blocker).
+3. Call `TaskUpdate(task_id, completed)` (or `blocked` with reason).
+4. Then re-run `dag-lib.sh ready-set` to fan out unblocked work.
+
+Without step 3, `/standup` will show stale `in_progress` counters and
+the TaskCompleted hook (council gate) never fires for that task. The
+file-based task store at `.claude/tasks/<task_id>.json` is the source
+of truth that survives compaction; TaskList is the in-session view of
+it.
+
 ### DAG-aware task fan-out
 
 At orchestration start and after every task status transition to `completed`,

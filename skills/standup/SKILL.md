@@ -31,18 +31,33 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
 ---
 
-## Step 1: Read TaskList
+## Step 1: Read task state
 
-Call `TaskList` to get all tasks.
+Read both views of task state and reconcile them:
+
+1. Call `TaskList` for the in-session view.
+2. Read `.claude/tasks/*.json` for the file-store view (the source of
+   truth that survives compaction):
+   ```bash
+   for f in "$MROOT"/.claude/tasks/*.json; do
+     [ -f "$f" ] || continue
+     jq -r '[.id, .status, .owner // "—", .subject // ""] | @tsv' "$f"
+   done
+   ```
 
 If a TICKET-ID was provided, filter to tasks whose subject contains that ID.
-If no tasks are found: print `No active tasks found.` and stop.
+If no tasks are found in either view: print `No active tasks found.` and stop.
 
 Group tasks by status:
 - `pending` — not yet claimed
 - `in_progress` — claimed, actively being worked
 - `completed` — done
 - `blocked` — explicitly marked blocked
+
+When TaskList and the file store disagree on a task's status, prefer
+the file store (TaskList can stale out across `/clear` and across
+async-spawned agents whose completion never closed the parent's
+TaskList row).
 
 ---
 
@@ -76,6 +91,24 @@ For each `in_progress` task, determine if it looks stale:
 - Task has been `in_progress` since before the last completed task finished
 
 Flag stale tasks with `⚠️ STALE` in the output.
+
+**Probably-completed-but-unmarked detection.** Async-spawned agents
+finish in their own sandbox session, so their `TaskUpdate(completed)`
+never reaches the orchestrator. Their TaskList row stays
+`in_progress` indefinitely while the work is actually done. Flag a
+task as `🟡 LIKELY-DONE` (separate from STALE) when ALL of:
+
+- Status is `in_progress` AND
+- Owner has no live agent process (no recent context.md write, no
+  recent commits) AND
+- The agent's expected output marker exists — either
+  `.claude/tasks/<id>.json` shows `status: completed` in the file
+  store but TaskList disagrees, OR the agent has commits referencing
+  the ticket within the last 2 hours but no activity since.
+
+Surface these in a dedicated section — they need an orchestrator
+`TaskUpdate(<id>, completed)` to close the loop and unblock dependent
+tasks.
 
 ---
 
@@ -140,6 +173,7 @@ Standup — <TICKET-ID or "all tickets"> — <current time>
 
 ─── Suggested actions ────────────────────────────────────────────────
   ⚠️  ic5 Task 2 looks stale — check .claude/memory/ic5/context.md or SendMessage to @ic5
+  🟡 Task 5 likely-done — orchestrator should TaskUpdate id:5 → completed
   ✅  Task 4 is ready — @qa can claim via TaskUpdate now
   ⏳  Task 3 unblocks when Tasks 1+2 complete — Tech Lead should monitor
 ```

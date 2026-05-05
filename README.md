@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.10
+- **Reconcile TaskList against Agent-spawn lifecycle** — `Agent` tool's `async_launched` is *not* a TaskList status; it lives on the spawn-result, not the task. A spawned agent's `TaskUpdate(completed)` runs in its own sandbox session and never reaches the orchestrator, so TaskList rows for async-spawned work stay `in_progress` forever and the TaskCompleted council hook never fires. Two complementary fixes: `skills/orchestrate/SKILL.md` Step 8 monitoring loop now states explicitly that the *orchestrator* must record `task_id ↔ agentId` at spawn time and call `TaskUpdate(completed)` itself on every Agent-completion notification; `skills/standup/SKILL.md` now reads the file-store at `.claude/tasks/*.json` (the source of truth) alongside `TaskList`, prefers the file-store on disagreement, and surfaces a new `🟡 LIKELY-DONE` category for `in_progress` tasks whose owner has no live activity but whose file-store shows completed — these need an orchestrator-side TaskUpdate to close the loop.
+
 ### v0.29.9
 - **Orchestrator post-compaction discipline** — long `/orchestrate` sessions saw 28 "File has not been read yet" errors all originating from the main orchestrator (not sub-agents) clustered on post-compaction continuations: the harness wipes the per-tool read-tracker on summary-resume but the conversation summary still convinces the model it has read those files. Same compaction also lets the "you do NOT write code" rule decay — orchestrator drifts into doing IC work directly. Added explicit post-compaction discipline to `skills/orchestrate/SKILL.md` Step 8: the no-code rule survives compaction; the "File not read yet" error means compaction just happened, treat it as a directive to re-Read every file you intend to touch this turn, not a one-off retry.
 
