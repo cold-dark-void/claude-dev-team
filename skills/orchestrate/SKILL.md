@@ -152,6 +152,8 @@ Your job:
 4. Output: revised AC list + open questions (if any)
 
 Do NOT plan implementation. Scope only.
+Return your output as this agent's final message — do NOT SendMessage to the
+orchestrator; there is no addressable parent.
 ```
 
 ### Tech Lead agent (spawn now, in parallel):
@@ -168,6 +170,8 @@ Your job:
 
 Do NOT produce a plan yet — wait for confirmed ACs.
 Output: affected files, relevant specs, risks.
+Return your output as this agent's final message — do NOT SendMessage to the
+orchestrator; there is no addressable parent.
 ```
 
 Collect both outputs.
@@ -282,7 +286,10 @@ Architecture context (from Tech Lead's orientation):
   Web; or API, Worker, CLI), enumerate EVERY one that this task must touch. Do not assume
   the agent will discover them on its own.
 
-When done, mark your task completed via TaskUpdate."
+When done, mark your task completed via TaskUpdate. Return your final report as
+this agent invocation's output — do NOT SendMessage to the orchestrator. There
+is no addressable parent named 'main' or 'orchestrator'; symbolic addressing
+will fail. The orchestrator reads your output directly from this spawn return."
 ```
 
 Whenever the orchestrator invokes `/council` as part of a task's orchestration steps (e.g., a task with `requires_council: true` that requires a council verdict before completion), the orchestrator MUST export `CLAUDE_TASK_ID=<task_id>` in the subprocess environment of that `/council` invocation. This is the ambient task-id transport SPEC-013 Phase 6 uses for verdict-to-task binding via the fallback chain `--task-id` flag → `CLAUDE_TASK_ID` env → unbound (SPEC-009 line 46; SPEC-013 Task-ID Plumbing). The hook path (SPEC-002 TaskCompleted) resolves its task id from stdin JSON and does NOT share this fallback chain — the two paths are independent.

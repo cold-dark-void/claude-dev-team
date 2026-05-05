@@ -117,6 +117,8 @@ Your job:
 4. Output: revised AC list + list of open questions (if any)
 
 Do NOT start planning implementation. Scope only.
+Return your output as this agent's final message — do NOT SendMessage to the
+orchestrator; there is no addressable parent.
 ```
 
 ### Tech Lead prompt (send now, in parallel):
@@ -135,6 +137,8 @@ Your job right now (before ACs are confirmed):
 
 Do NOT produce a plan yet — wait for confirmed ACs.
 Output: affected files, relevant specs, risks.
+Return your output as this agent's final message — do NOT SendMessage to the
+orchestrator; there is no addressable parent.
 ```
 
 ### Codebase Explorer prompt (send now, in parallel — Sonnet):

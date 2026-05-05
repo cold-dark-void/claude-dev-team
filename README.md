@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.7
+- **Stop spawned agents from hallucinating an addressable orchestrator** — child agents under `/orchestrate` and `/kickoff` repeatedly invented symbolic recipients (`main`, `orchestrator`, `tl-cdv162-plan`) and tried `SendMessage` with `to: "<that name>"`, which the runtime rejects (only opaque agent IDs are addressable). The agent then logged apologetic prose ("The orchestrator isn't running as an addressable agent named 'main'…") and dumped its report to final output anyway — wasted tokens with no functional benefit. Spawn templates in `skills/orchestrate/SKILL.md` and `skills/kickoff/SKILL.md` now explicitly tell agents: return your output as the final message, do NOT SendMessage to the orchestrator. AGENTS.md `Team Coordination` section gains the same rule for hand-edited spawns.
+
 ### v0.29.6
 - **stop-review.sh: sync install template, fix stamp key** — the install heredoc in `/init-orchestration` still shipped the legacy blocking version (`exit 2`) while the plugin's own dogfood copy was already non-blocking — silent drift. Both are now the same non-blocking script. The stamp key is now `cwd + HEAD-sha` instead of `session_id`; `claude --resume` mints a fresh `session_id` per invocation, so the old guard re-fired on every resume even when no new dirty state existed. The new stamp re-fires only when HEAD moves (a commit lands). Stale stamps from prior HEAD shas are swept on each fire to keep `.claude/` tidy. On re-run, `/init-orchestration` overwrites legacy `exit 2` / `SESSION_ID` versions of the hook.
 
