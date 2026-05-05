@@ -19,6 +19,35 @@ resolve_mroot() {
   fi
 }
 
+# git_retry <max_tries> <sleep_ms> <git args...>
+# Run a git command, retrying on EBUSY-class errors that surface from
+# concurrent .git/config rewrites (common on WSL2's 9p filesystem when
+# multiple agents share a repo). Returns the final exit code.
+git_retry() {
+  local max="$1" sleep_ms="$2"; shift 2
+  local i=0 rc=0 err=""
+  while [ "$i" -lt "$max" ]; do
+    err=$(git "$@" 2>&1) && { [ -n "$err" ] && printf '%s\n' "$err" >&2; return 0; }
+    rc=$?
+    case "$err" in
+      *"Device or resource busy"*|*"could not write config"*|*"update of config-file failed"*)
+        i=$(( i + 1 ))
+        [ "$i" -ge "$max" ] && break
+        # Bash sleep takes seconds; convert ms.
+        local secs="0.$(printf '%03d' "$sleep_ms")"
+        sleep "$secs" 2>/dev/null || sleep 1
+        continue
+        ;;
+      *)
+        printf '%s\n' "$err" >&2
+        return $rc
+        ;;
+    esac
+  done
+  printf '%s\n' "$err" >&2
+  return $rc
+}
+
 # write_lock_and_exit <wt> <lock>
 # Atomically write the lock file (mode 600) with PID + UTC timestamp,
 # print the worktree path on stdout, and exit 0.
@@ -137,7 +166,29 @@ cmd_release() {
   fi
 
   rm -f "$wt/.wt-lock"
-  git -C "$MROOT" worktree remove "$wt" >&2
+
+  # Worktree remove + branch delete + config cleanup. Each git op is
+  # retried on EBUSY (WSL2 race); they run as separate calls so the
+  # second op doesn't fire while the first is still releasing
+  # .git/config.
+  local branch="feat/$slug"
+  git_retry 3 200 -C "$MROOT" worktree remove "$wt" || \
+    git_retry 3 200 -C "$MROOT" worktree remove --force "$wt"
+
+  # Reap any leftover admin entries (handles partial-failure state).
+  git_retry 3 200 -C "$MROOT" worktree prune || true
+
+  # Delete the feature branch if it exists. -D since squash-merge
+  # leaves the branch "not fully merged" by git's reachability check.
+  if git -C "$MROOT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1; then
+    git_retry 3 200 -C "$MROOT" branch -D "$branch" || true
+  fi
+
+  # If branch -D's config-section rewrite was the op that hit EBUSY,
+  # the ref is gone but [branch "feat/X"] may linger in .git/config.
+  # Sweep it explicitly — this is a no-op if the section is absent.
+  git_retry 3 200 -C "$MROOT" config --remove-section "branch.$branch" 2>/dev/null || true
+
   exit 0
 }
 

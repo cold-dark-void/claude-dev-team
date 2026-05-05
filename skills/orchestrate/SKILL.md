@@ -611,18 +611,30 @@ available. Plain `git merge --squash` is the default merge path.
 
 ## Worktree cleanup
 
-When removing worktree branches after a squash merge, `git branch -d` will fail
-with "not fully merged" (expected — squash merge doesn't create a merge commit).
-Use `git branch -D` instead.
-
-**Serialize worktree removal** — do NOT remove multiple worktrees in parallel.
-Parallel git operations on shared `.git/config` cause `error: could not write
-config file .git/config: Device or resource busy`. Remove worktrees one at a time:
+**Prefer `worktree-lib.sh release <slug>`** — it handles EBUSY retry, branch
+deletion, and orphaned config-section cleanup in the right order. Use it
+instead of running `git worktree remove` + `git branch -D` by hand:
 
 ```bash
-git worktree remove <path-1> && git branch -D <branch-1>
-git worktree remove <path-2> && git branch -D <branch-2>
+bash "$MROOT/skills/worktree-lib.sh" release "$SLUG"
 ```
+
+If you must do it by hand (squash-merge case where the lib refuses on
+"uncommitted changes"), run each step as a SEPARATE Bash call — never
+chain `worktree remove && branch -D` in a single command. On WSL2 the
+second op fires while the first is still releasing `.git/config`, which
+produces `error: could not write config file .git/config: Device or
+resource busy`. The branch ref still gets deleted but the
+`[branch "feat/X"]` config stanza orphans:
+
+```bash
+git worktree remove <path-1>      # call 1
+git branch -D <branch-1>          # call 2 (separate Bash invocation)
+git worktree prune                # call 3 (reaps leftover admin entries)
+```
+
+**Serialize across worktrees** — do NOT remove multiple worktrees in
+parallel for the same reason. Drain them one at a time.
 
 ---
 
