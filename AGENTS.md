@@ -157,6 +157,7 @@ When working as a native Agent Team teammate:
 - Claim tasks with `TaskUpdate` (set `owner` to your agent name) before starting
 - Mark tasks `completed` via `TaskUpdate` when done, then check `TaskList` again
 - Communicate with teammates via `SendMessage` (DM) or broadcast sparingly
+- `SendMessage` is for **peer-to-peer** DMs only. Spawned sub-agents have NO addressable parent — there is no agent named `main` or `orchestrator`. Return work to the orchestrator as your final message; the orchestrator reads it from your spawn-return value, not from an inbound SendMessage.
 - Do NOT edit files another teammate is actively working on
 - When idle, send a status update to the team lead
 
