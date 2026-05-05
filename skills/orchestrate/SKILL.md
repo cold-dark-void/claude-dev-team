@@ -266,7 +266,21 @@ If Linear is available, add a comment with the task breakdown.
 
 ## Step 8: Execute — spawn agents and monitor
 
-**CRITICAL: You do NOT write code. You orchestrate.**
+**CRITICAL: You do NOT write code. You orchestrate.** This rule survives
+session compaction and `claude --resume`. If you find yourself reaching
+for `Edit` or `Write` on a project file after a long session — stop.
+That work belongs to a spawned IC agent. Re-enter the orchestrator
+posture, identify the right task and agent, and spawn.
+
+**Post-compaction discipline.** When the harness summarises and resumes
+the session (after `/clear`, after auto-compaction, or after a fresh
+`claude --resume`), Claude Code resets its per-tool read-tracker — but
+the conversation summary may still convince you that you have already
+read a given file. You have not. Before any `Edit` on a file you do not
+remember reading *in this concrete turn*, run `Read` first. The
+"File has not been read yet" tool error is the signal that compaction
+just happened; treat it as a directive to re-Read every file you intend
+to touch this turn, not a one-off retry.
 
 For each task that has no blockers, spawn the recommended agent in the worktree:
 

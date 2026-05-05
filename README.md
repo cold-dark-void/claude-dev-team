@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.9
+- **Orchestrator post-compaction discipline** — long `/orchestrate` sessions saw 28 "File has not been read yet" errors all originating from the main orchestrator (not sub-agents) clustered on post-compaction continuations: the harness wipes the per-tool read-tracker on summary-resume but the conversation summary still convinces the model it has read those files. Same compaction also lets the "you do NOT write code" rule decay — orchestrator drifts into doing IC work directly. Added explicit post-compaction discipline to `skills/orchestrate/SKILL.md` Step 8: the no-code rule survives compaction; the "File not read yet" error means compaction just happened, treat it as a directive to re-Read every file you intend to touch this turn, not a one-off retry.
+
 ### v0.29.8
 - **Harden worktree cleanup against WSL2 EBUSY** — `worktree-lib.sh release` now (a) retries every git op 3× with 200ms backoff on `Device or resource busy` / `could not write config` / `update of config-file failed` errors, (b) actually deletes the feature branch (was missing — `release` only ran `worktree remove` before), (c) runs `worktree prune` to reap partial-failure admin entries, (d) sweeps any orphaned `[branch "feat/X"]` config stanza via `git config --remove-section`. Each step is a separate `git` call so the second never fires while the first is still releasing `.git/config`. Updated `orchestrate/SKILL.md` worktree-cleanup prose to point at the lib first and to forbid chained `worktree remove && branch -D` in by-hand cleanups (the chained form is the exact pattern that races on WSL2's 9p mmap-rename).
 
