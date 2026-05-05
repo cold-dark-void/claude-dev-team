@@ -41,13 +41,21 @@ Note which files exist — they get merged, not overwritten.
 
 **Upgrade check — always run regardless of prior initialization:**
 
-Even if the project was previously initialized, scan ALL hook commands in settings.json for pipe operators (`|`). Pipes in hooks fail in the sandbox and poison the session — every subsequent bash command fails, even ones with no pipe. If any piped hook commands are found, warn the user prominently:
+Even if the project was previously initialized, scan ALL hook commands in settings.json for:
+
+1. **Pipe operators (`|`)** — pipes in hooks fail in the sandbox and poison the session, every subsequent bash command fails. Warn the user:
 ```
 ⚠️  Piped hook commands detected — these will poison the session and break all bash:
   [list the commands]
 Fix: remove '| <cmd>' from each. Example: 'go vet ./... 2>&1 | head -20' → 'go vet ./... 2>&1'
 Restart required after fixing.
 ```
+
+2. **Worktree-unsafe relative paths** — commands of the form `bash .claude/hooks/<name>.sh` resolve from the agent's cwd, not the project root. Inside a git worktree (which doesn't share `.claude/`) every Bash tool call fails with "No such file or directory". Auto-rewrite these to use `${CLAUDE_PROJECT_DIR}`:
+```
+bash .claude/hooks/X.sh  →  bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/X.sh"
+```
+Apply this rewrite for every hook command matching the relative pattern. Note this in the Step 9 summary as an upgrade applied.
 
 If any upgrade keys are missing, proceed through the relevant steps to add them. Report what was upgraded in the Step 9 summary.
 
@@ -155,7 +163,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/bash-compress.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-compress.sh\""
           }
         ]
       }
@@ -165,7 +173,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/memory-capture.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/memory-capture.sh\""
           }
         ]
       }
@@ -175,7 +183,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/stop-review.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/stop-review.sh\""
           }
         ]
       }
@@ -185,7 +193,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/task-completed.sh"
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh\""
           }
         ]
       }

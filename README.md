@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.5
+- **Worktree-safe hook paths** — `/init-orchestration` now writes hook commands as `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh"` instead of relative `.claude/hooks/<name>.sh`. Relative paths broke every Bash tool call from agents spawned inside worktrees (worktrees share `.git/` but not `.claude/`), producing "No such file or directory" on every PreToolUse / PostToolUse / Stop / TaskCompleted fire. The Step 1 upgrade check now also auto-rewrites stale relative paths in existing settings.json on re-run.
+
 ### v0.29.4
 - **retro-gate: exclude context-continuation messages** — S1/S5 no longer fire on "This session is being continued from a previous conversation..." messages, whose session summaries often contain rejection-like words that are not user friction.
 - **retro.md: fix `$N` substitution** — Claude Code substitutes `$1`–`$6` CLI args into skill text, clobbering awk field refs and bash function `$1`/`$2` params. Replaced all awk `$N` with `cut -fN`, singleton filter awk with a `while read` loop, and function params with `$*` / env-var pass-through.
