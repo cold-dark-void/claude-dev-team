@@ -197,9 +197,14 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                 # Real human user turn (not a tool_result wrapper, not meta,
                 # and not a task-notification/agent-output message).
                 is_system_notification = bool(re.search(r'<[a-z][a-z0-9-]*[\s>]', text))
-                # S1: explicit reject — skip system notifications (contain XML tags
-                # from task/agent output that embed rejection-like words)
-                if not is_system_notification:
+                # Context-continuation summaries start with this sentinel; they
+                # often contain rejection-like words in the session summary text.
+                is_context_continuation = text.startswith(
+                    "This session is being continued"
+                )
+                # S1: explicit reject — skip system notifications (XML-tagged)
+                # and context-continuation summaries.
+                if not is_system_notification and not is_context_continuation:
                     for _ in S1_RE.findall(text):
                         s1_hits.append(uuid)
                 # S5: terse follow-up after long assistant turn — skip system
@@ -215,6 +220,7 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                     last_assistant_len >= S5_LONG_ASSISTANT_CHARS
                     and 0 < words <= S5_TERSE_USER_WORDS
                     and not is_system_notification
+                    and not is_context_continuation
                     and not text.lstrip().startswith("/")
                     and not is_approval
                 ):

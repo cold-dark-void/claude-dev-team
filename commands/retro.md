@@ -404,9 +404,9 @@ observation<TAB>description<TAB>source_jsonl
 ALLOWED_TARGETS="pm tech-lead ic5 ic4 devops qa ds claude plugin"
 
 parse_one() {
-  local json="$1"
-  local src="$2"
-  RETRO_JSON="$json" RETRO_SRC="$src" python3 - <<'PY'
+  # Caller sets RETRO_JSON and RETRO_SRC before invoking.
+  # No function parameters — avoids Claude Code $1/$2 arg substitution in skill text.
+  python3 - <<'PY'
 import json, os
 src = os.environ.get("RETRO_SRC", "")
 raw = os.environ.get("RETRO_JSON", "")
@@ -509,7 +509,7 @@ $RANK	$TARGET	$CONF	$CITES	$PSUM	$TEXT	$SRCJ"
 $DESC	$SRCJ"
         ;;
     esac
-  done < <(parse_one "$JSON" "$SRC")
+  done < <(RETRO_JSON="$JSON" RETRO_SRC="$SRC" parse_one)
 done <<< "$SUBAGENT_RESULTS"
 
 RAW_PROPOSALS=$(echo "$RAW_PROPOSALS" | sed '/^[[:space:]]*$/d')
@@ -558,8 +558,8 @@ RAW_PROPOSALS set — T6 may drop those when `$MODE = "all"`.
 if [ "$MODE" = "all" ] && [ -n "$RAW_PROPOSALS" ]; then
   # Count occurrences of each pattern_summary (column 5 after the rank key).
   SINGLETON_PATTERNS=$(printf '%s\n' "$RAW_PROPOSALS" \
-    | awk -F'\t' '{print $5}' | sort | uniq -c \
-    | awk '$1==1 {sub(/^ *1 /,""); print}')
+    | cut -f5 | sort | uniq -c \
+    | while read -r _cnt _pat; do [ "$_cnt" -eq 1 ] && printf '%s\n' "$_pat"; done)
   # T6 will consume $SINGLETON_PATTERNS alongside $RAW_PROPOSALS.
 fi
 ```
@@ -589,7 +589,7 @@ if [ "$MODE" = "all" ] && [ -n "$SINGLETON_PATTERNS" ]; then
   FILTERED=""
   while IFS= read -r row; do
     [ -z "$row" ] && continue
-    psum=$(printf '%s' "$row" | awk -F'\t' '{print $5}')
+    psum=$(printf '%s' "$row" | cut -f5)
     if printf '%s\n' "$SINGLETON_PATTERNS" | grep -Fxq -- "$psum"; then
       echo "# retro: dropped singleton pattern '$psum' (--all mode)" >&2
       continue
@@ -608,8 +608,8 @@ We mirror Step 4a rather than trust variable persistence across the interpreted
 
 ```bash
 load_rules_raw() {
-  local f="$1"
-  [ -s "$f" ] && cat "$f" || printf ''
+  # Use $* (all args) instead of $1 — avoids Claude Code arg substitution in skill text.
+  [ -s "$*" ] && cat "$*" || printf ''
 }
 
 RULES_PM=$(load_rules_raw       "$MROOT/.claude/memory/pm/directives.md")
@@ -652,10 +652,10 @@ TIGHTEN_PATTERNS=""
 while IFS= read -r row; do
   [ -z "$row" ] && continue
   # Columns: rank \t target \t confidence \t citations \t pattern \t text \t source
-  target=$(printf '%s' "$row" | awk -F'\t' '{print $2}')
-  citations=$(printf '%s' "$row" | awk -F'\t' '{print $4}')
-  pattern_summary=$(printf '%s' "$row" | awk -F'\t' '{print $5}')
-  proposed_text=$(printf '%s' "$row" | awk -F'\t' '{print $6}')
+  target=$(printf '%s' "$row" | cut -f2)
+  citations=$(printf '%s' "$row" | cut -f4)
+  pattern_summary=$(printf '%s' "$row" | cut -f5)
+  proposed_text=$(printf '%s' "$row" | cut -f6)
 
   if [ "$target" = "claude" ]; then
     rules_text=$(cat "$MROOT/.claude/memory/claude/lessons.md" 2>/dev/null || true)
@@ -734,9 +734,9 @@ print(f"{action}\t{best_line}\t{best_j:.3f}")
 PY
   )
 
-  action=$(printf '%s' "$CLASS_OUT" | awk -F'\t' '{print $1}')
-  existing_ref=$(printf '%s' "$CLASS_OUT" | awk -F'\t' '{print $2}')
-  best_j=$(printf '%s' "$CLASS_OUT" | awk -F'\t' '{print $3}')
+  action=$(printf '%s' "$CLASS_OUT" | cut -f1)
+  existing_ref=$(printf '%s' "$CLASS_OUT" | cut -f2)
+  best_j=$(printf '%s' "$CLASS_OUT" | cut -f3)
 
   # For TIGHTEN we leave proposed_text as-is in the TSV. The orchestrating
   # Claude performs the inline rewrite step below (Step 5d) when presenting
@@ -784,8 +784,8 @@ if [ -n "$TIGHTEN_PATTERNS" ] && [ -n "$CLASSIFIED_PROPOSALS" ]; then
   SWEPT=""
   while IFS= read -r row; do
     [ -z "$row" ] && continue
-    action=$(printf '%s' "$row" | awk -F'\t' '{print $2}')
-    psum=$(printf '%s' "$row" | awk -F'\t' '{print $3}')
+    action=$(printf '%s' "$row" | cut -f2)
+    psum=$(printf '%s' "$row" | cut -f3)
     if [ "$action" = "NEW" ] && printf '%s\n' "$TIGHTEN_PATTERNS" | grep -Fxq -- "$psum"; then
       echo "# retro: dropped NEW proposal for pattern '$psum' (TIGHTEN exists)" >&2
       continue
