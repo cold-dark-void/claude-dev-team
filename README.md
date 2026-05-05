@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.3
+- **retro `plugin` target** — `/retro` now classifies friction caused by the plugin itself (gate false positives, skill bugs, missing commands) as `target: "plugin"` and routes proposals to `/backlog add` instead of agent directives. Fixes the core issue where project-specific friction was being written as universal behavioral rules.
+
 ### v0.29.2
 - **retro-gate false positive fixes** — S1 no longer fires on `<task-notification>` and `<command-name>` system messages; S5 no longer fires on slash commands or common approval words (`waive`, `ok`, `merge`, `lgtm`, etc.) that signal user satisfaction, not friction.
 - **retro-subagent generalizability filter** — proposals must now apply across any project; domain-specific rules (e.g. about a particular DB schema) are demoted to observations instead of becoming universal behavioral directives.

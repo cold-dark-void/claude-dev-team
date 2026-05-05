@@ -107,6 +107,14 @@ PROCEDURE
 3. Classify the TARGET — whose behavior produced the friction:
      - One of: pm, tech-lead, ic5, ic4, devops, qa, ds
      - OR "claude" if the friction came from plain Claude (no team agent involved)
+     - OR "plugin" if the friction was caused by the dev-team plugin itself —
+       a bug, missing feature, or poor UX in a skill/command/gate. Use "plugin"
+       when you see any of: gate signals that don't match real friction (false
+       positives); a /command that produced wrong or confusing output; a skill
+       that crashed or returned malformed JSON; agent coordination logic that
+       looped or deadlocked; the user re-running the same command because the
+       first run misbehaved; or a missing command the user tried to invoke.
+       Plugin proposals go to the project backlog, not to agent directives.
    REJECT "project-init" and "distiller" as targets — those are not configurable
    via this pipeline. If the friction is from those agents, surface as an
    observation instead of a proposal.
@@ -165,6 +173,10 @@ markdown fences, no commentary. If you have nothing to propose, return
 `{"proposals":[],"observations":[],"fabrication_anchors":[]}`.
 
 {"proposals":[{"target":"<allowed>","proposed_text":"<= 200 chars imperative","confidence":0.0,"citations":[{"message_id":"...","excerpt":"..."}],"pattern_summary":"two words"}],"observations":[{"description":"...","citations":[{"message_id":"...","excerpt":"..."}]}],"fabrication_anchors":[{"anchor_id":"<16 hex chars>","turn_id":"<UUID from JSONL>","fabricated_claim_text":"<short excerpt, <= 120 chars>","evidence_for_fabrication":"<1-2 line citation explaining why this is a fabrication anchor>"}]}
+
+Note: for target="plugin", proposed_text describes the plugin defect or missing
+feature as a concrete improvement ("Fix gate S1 to exclude <task-notification>
+messages", "Add --dry-run flag to /orchestrate"). These become backlog items.
 ```
 
 ---
@@ -175,7 +187,7 @@ markdown fences, no commentary. If you have nothing to propose, return
 {
   "proposals": [
     {
-      "target": "ic5|ic4|pm|tech-lead|devops|qa|ds|claude",
+      "target": "ic5|ic4|pm|tech-lead|devops|qa|ds|claude|plugin",
       "proposed_text": "One-sentence directive in imperative form",
       "confidence": 0.0,
       "citations": [
@@ -206,7 +218,7 @@ The command MUST drop any proposal that fails ANY of these checks:
 
 1. `citations` is missing, not an array, or `length == 0`.
 2. Any citation is missing `message_id` or `excerpt`, or has empty values.
-3. `target` is not one of: `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `claude`.
+3. `target` is not one of: `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `claude`, `plugin`.
    (Explicitly reject `project-init` and `distiller`.)
 4. `proposed_text` is empty, not a string, or `len(proposed_text) > 200`.
 5. `pattern_summary` is empty.
