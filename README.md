@@ -382,6 +382,10 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.2
+- **retro-gate false positive fixes** — S1 no longer fires on `<task-notification>` and `<command-name>` system messages; S5 no longer fires on slash commands or common approval words (`waive`, `ok`, `merge`, `lgtm`, etc.) that signal user satisfaction, not friction.
+- **retro-subagent generalizability filter** — proposals must now apply across any project; domain-specific rules (e.g. about a particular DB schema) are demoted to observations instead of becoming universal behavioral directives.
+
 ### v0.29.1
 - **SPEC-017 security + quality hotfix** — `sidecar.sh` and `poll.sh` lacked the `^[a-zA-Z0-9._-]+$` ticket ID validation that `task-store.sh` already enforced; a crafted ticket ID could construct arbitrary file paths including `rm -f` in `sidecar.sh cmd_delete`. Fixed with a `validate_ticket_id()` helper in both scripts. Additional: `poll.sh` EXIT trap for temp file cleanup, `emit_quiet` collapsed into `emit`, trust-boundary comment on `bash -c "$test_cmd"`. `dag-lib.sh` cycle-path reconstruction replaced with a one-line message (was ~25 lines for cosmetic stderr output), outer-loop guard added so cycle detection stops at first back-edge, `for child in $children` replaced with `read -ra` to prevent glob expansion. `task-store.sh` success messages redirected to stderr. `SKILL.md` frontmatter corrected from "5 min" to "7 min".
 

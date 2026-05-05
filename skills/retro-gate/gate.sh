@@ -194,15 +194,29 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                         last_error_run_start_id = None
 
             if not had_tool_result and isinstance(text, str) and text and not is_meta:
-                # Real human user turn (not a tool_result wrapper, not meta).
-                # S1: explicit reject
-                for _ in S1_RE.findall(text):
-                    s1_hits.append(uuid)
-                # S5: terse follow-up after long assistant turn
+                # Real human user turn (not a tool_result wrapper, not meta,
+                # and not a task-notification/agent-output message).
+                is_system_notification = bool(re.search(r'<[a-z][a-z0-9-]*[\s>]', text))
+                # S1: explicit reject — skip system notifications (contain XML tags
+                # from task/agent output that embed rejection-like words)
+                if not is_system_notification:
+                    for _ in S1_RE.findall(text):
+                        s1_hits.append(uuid)
+                # S5: terse follow-up after long assistant turn — skip system
+                # notifications (XML-tagged command/task messages) and plain
+                # slash command invocations that represent user approval/delegation
                 words = len(text.split())
+                word_set = {w.lower().strip(".,!?") for w in text.split()}
+                is_approval = bool(word_set & {
+                    "waive","ok","okay","yes","sure","proceed","done","approved",
+                    "ship","merge","lgtm","ack","go","yep","yup","fine","agreed",
+                })
                 if (
                     last_assistant_len >= S5_LONG_ASSISTANT_CHARS
                     and 0 < words <= S5_TERSE_USER_WORDS
+                    and not is_system_notification
+                    and not text.lstrip().startswith("/")
+                    and not is_approval
                 ):
                     s5_hits.append(uuid)
                 # Reset error run on real user input
