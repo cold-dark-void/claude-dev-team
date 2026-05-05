@@ -657,6 +657,20 @@ if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
   [ -z "$SCHEMA" ] && SCHEMA="$(git rev-parse --show-toplevel 2>/dev/null)/skills/memory-store/schema.sql"
   if [ -f "$SCHEMA" ]; then
     sqlite3 "$MEMDB" < "$SCHEMA"
+
+    # Probe journal mode. Some sandboxed filesystems (bubblewrap
+    # tmpdirs, NFS, certain CI containers) reject WAL and SQLite
+    # silently degrades to journal_mode=delete. The DB still works
+    # but writes serialize across agents — surface this so the user
+    # knows what they're getting.
+    JMODE=$(sqlite3 "$MEMDB" "PRAGMA journal_mode;" 2>/dev/null | tr 'A-Z' 'a-z')
+    if [ "$JMODE" != "wal" ]; then
+      echo "⚠️  memory.db journal_mode=$JMODE (WAL rejected by this filesystem)." >&2
+      echo "    DB works correctly; concurrent agent writes will serialize" >&2
+      echo "    instead of running in parallel. Common cause: sandboxed tmpdir" >&2
+      echo "    or NFS-backed project root. Re-running outside the sandbox or" >&2
+      echo "    on a local filesystem will enable WAL." >&2
+    fi
   fi
 fi
 ```

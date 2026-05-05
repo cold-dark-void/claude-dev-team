@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.11
+- **Visible WAL fallback for memory.db** — sandboxed filesystems (bubblewrap tmpdirs, NFS, some CI containers) reject `PRAGMA journal_mode=WAL` and SQLite silently degrades to `journal_mode=delete`. The DB still works but concurrent agent writes serialize instead of running in parallel — invisible regression. `/init-orchestration` Step 7 now probes `PRAGMA journal_mode;` after schema apply and prints a clear stderr warning when WAL was rejected, telling the user what degraded and how to recover (re-run outside the sandbox / on a local filesystem). Schema comment in `schema.sql` documents the same fallback path.
+
 ### v0.29.10
 - **Reconcile TaskList against Agent-spawn lifecycle** — `Agent` tool's `async_launched` is *not* a TaskList status; it lives on the spawn-result, not the task. A spawned agent's `TaskUpdate(completed)` runs in its own sandbox session and never reaches the orchestrator, so TaskList rows for async-spawned work stay `in_progress` forever and the TaskCompleted council hook never fires. Two complementary fixes: `skills/orchestrate/SKILL.md` Step 8 monitoring loop now states explicitly that the *orchestrator* must record `task_id ↔ agentId` at spawn time and call `TaskUpdate(completed)` itself on every Agent-completion notification; `skills/standup/SKILL.md` now reads the file-store at `.claude/tasks/*.json` (the source of truth) alongside `TaskList`, prefers the file-store on disagreement, and surfaces a new `🟡 LIKELY-DONE` category for `in_progress` tasks whose owner has no live activity but whose file-store shows completed — these need an orchestrator-side TaskUpdate to close the loop.
 

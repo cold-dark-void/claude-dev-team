@@ -83,7 +83,12 @@ CREATE TABLE IF NOT EXISTS embedding_meta (
 -- Tables are auto-created at runtime for any dimension via:
 --   CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_N USING vec0(...)
 
--- Enable WAL mode for concurrent agent access
+-- Enable WAL mode for concurrent agent access. Some sandboxed
+-- filesystems (bubblewrap tmpdirs, NFS, certain CI runners) cannot
+-- host the WAL/SHM shared-memory files; in those environments SQLite
+-- silently falls back to journal_mode=delete and writes serialize
+-- across agents. Init-orchestration probes the actual mode after
+-- apply and warns if WAL was rejected, so the degradation is visible.
 PRAGMA journal_mode=WAL;
 PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
