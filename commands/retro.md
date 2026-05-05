@@ -7,8 +7,10 @@ argument-hint: "[<session-id>] [--all] [--auto] [--why]"
 # /retro
 
 Review past Claude session(s) for friction patterns and propose concrete behavioral
-adjustments. Adjustments target either a team agent (via `/adjust-agent`) or plain
-Claude (via `$MROOT/.claude/memory/claude/lessons.md`).
+adjustments. Adjustments target a team agent (via `/adjust-agent`), plain Claude
+(via `$MROOT/.claude/memory/claude/lessons.md`), or the plugin itself (via
+`/backlog add` when the friction was caused by a gate bug, skill defect, or
+missing feature).
 
 When invoked with `--all`, `/retro` walks every project's sessions under `~/.claude/projects/`, pre-filters singleton patterns, and surfaces only patterns that recurred across 2+ sessions. This prevents the noise of one-off frustrations from becoming directives. Single-session mode (the default) surfaces all patterns regardless of recurrence.
 
@@ -399,7 +401,7 @@ observation<TAB>description<TAB>source_jsonl
 ```
 
 ```bash
-ALLOWED_TARGETS="pm tech-lead ic5 ic4 devops qa ds claude"
+ALLOWED_TARGETS="pm tech-lead ic5 ic4 devops qa ds claude plugin"
 
 parse_one() {
   local json="$1"
@@ -657,6 +659,9 @@ while IFS= read -r row; do
 
   if [ "$target" = "claude" ]; then
     rules_text=$(cat "$MROOT/.claude/memory/claude/lessons.md" 2>/dev/null || true)
+  elif [ "$target" = "plugin" ]; then
+    # Plugin proposals go to the backlog — no existing-rule corpus to diff against.
+    rules_text=""
   else
     rules_text=$(cat "$MROOT/.claude/memory/$target/directives.md" 2>/dev/null || true)
   fi
@@ -738,7 +743,7 @@ PY
   # proposals to the user in Step 6.
   #
   # CLASSIFIED_PROPOSALS schema (TSV, one proposal per line):
-  #   1 target           pm|tech-lead|ic5|ic4|devops|qa|ds|claude
+  #   1 target           pm|tech-lead|ic5|ic4|devops|qa|ds|claude|plugin
   #   2 action           NEW|TIGHTEN|DUPLICATE
   #   3 pattern_summary  short tag from Phase-2 subagent
   #   4 proposed_text    imperative sentence (deterministically merged by Step 5d for TIGHTEN)
@@ -797,7 +802,7 @@ Step 5 produces two variables for Step 6 to consume:
 
 - `CLASSIFIED_PROPOSALS` — TSV, 7 columns per row. Schema (repeated here so T7
   can parse without re-reading Step 5c):
-  1. `target` — one of `pm tech-lead ic5 ic4 devops qa ds claude`
+  1. `target` — one of `pm tech-lead ic5 ic4 devops qa ds claude plugin`
   2. `action` — `NEW` | `TIGHTEN` | `DUPLICATE`
   3. `pattern_summary` — short tag
   4. `proposed_text` — imperative sentence (rewritten for TIGHTEN per Step 5d)
@@ -897,6 +902,15 @@ Handle the user's response:
     printf '%s: %s directive(s) currently (run the command above to update)\n' "<target>" "$COUNT"
     ```
     Increment `APPLIED`.
+  - If `target` is **`plugin`**: add `proposed_text` to the project backlog via
+    `/backlog add`. Print the command for the user to confirm — do NOT auto-invoke:
+    ```
+    Plugin improvement identified:
+      <proposed_text>
+    Run: /backlog add "<proposed_text>"
+    ```
+    Increment `APPLIED`. In `--auto` mode, invoke `/backlog add "<proposed_text>"`
+    directly and print `[auto-added] plugin backlog: <proposed_text>`.
   - If `target` is **`claude`**: append `proposed_text` to
     `$MROOT/.claude/memory/claude/lessons.md`. Create the file and parent
     directory if absent:
@@ -951,6 +965,9 @@ Skip the confirm UI. For each proposal, apply immediately:
       Conflict: <stderr from /adjust-agent --apply>
       → Added to manual follow-up list.
     ```
+
+- If `target` is **`plugin`**: invoke `/backlog add "<proposed_text>"` directly.
+  Print `[auto-added] plugin backlog: <proposed_text>`. Increment `APPLIED`.
 
 - If `target` is **`claude`**: append directly to
   `$MROOT/.claude/memory/claude/lessons.md` (no slash command needed):
