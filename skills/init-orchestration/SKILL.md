@@ -296,11 +296,9 @@ Use the `Write` tool to create `.claude/hooks/stop-review.sh` with this content:
 
 ```bash
 #!/usr/bin/env bash
-# Stop hook — lightweight self-review gate before an agent exits.
-# Exit code 2 = block exit (stderr is fed back to the agent as feedback).
-# Exit code 0 = allow exit.
-#
-# IMPORTANT: Only fires ONCE per session to avoid infinite loops.
+# Stop hook — non-blocking self-review reminder.
+# Prints once per (cwd + HEAD-sha) when uncommitted changes exist; never blocks exit.
+# The stamp re-fires when HEAD moves (a commit lands), not on every `claude --resume`.
 
 if ! git rev-parse --git-dir &>/dev/null; then
   exit 0
@@ -310,18 +308,17 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || _MROOT=$(pwd)
 
+# Drain stdin so the harness doesn't block on the pipe; we don't need its content.
 TMPF="${TMPDIR:-/tmp}/stop-review-$$"
 timeout 1 cat > "$TMPF" 2>/dev/null || true
-
-SESSION_ID=$(jq -r '.session_id // empty' "$TMPF" 2>/dev/null || true)
 rm -f "$TMPF"
 
-STAMP_KEY="${SESSION_ID:-ppid-${PPID:-0}}"
+HEAD_SHA=$(git -C "$_MROOT" rev-parse --short HEAD 2>/dev/null || echo "nohead")
+CWD_HASH=$(printf '%s' "$PWD" | cksum | cut -d' ' -f1)
+STAMP_KEY="${CWD_HASH}-${HEAD_SHA}"
 STAMP="$_MROOT/.claude/.stop-review-${STAMP_KEY}"
 
-if [ -f "$STAMP" ]; then
-  exit 0
-fi
+[ -f "$STAMP" ] && exit 0
 
 DIRTY=$(git status --porcelain 2>/dev/null)
 [ -z "$DIRTY" ] && exit 0
@@ -334,13 +331,11 @@ while IFS= read -r line; do
 done <<< "$DIRTY"
 
 if [ "$MODIFIED" -gt 0 ]; then
+  # Sweep stale stamps from prior HEAD shas to keep .claude/ tidy.
+  find "$_MROOT/.claude" -maxdepth 1 -name '.stop-review-*' \
+    ! -name ".stop-review-${STAMP_KEY}" -delete 2>/dev/null || true
   touch "$STAMP"
-  printf "SELF-REVIEW: %d file(s) modified but not committed.\n" "$MODIFIED" >&2
-  printf "Before exiting, verify:\n" >&2
-  printf "  - All changes are intentional and complete\n" >&2
-  printf "  - Tests pass with these changes\n" >&2
-  printf "  - No debug code or TODO markers left behind\n" >&2
-  exit 2
+  printf "Stop hook: %d file(s) modified but not committed.\n" "$MODIFIED"
 fi
 
 exit 0
@@ -350,6 +345,8 @@ Then make it executable:
 ```bash
 chmod +x .claude/hooks/stop-review.sh
 ```
+
+**Re-running on an existing install**: if `.claude/hooks/stop-review.sh` already exists and contains `exit 2` (the legacy blocking version) or references `SESSION_ID` for its stamp key, overwrite it with the content above. Sweep stale stamps with `find .claude -maxdepth 1 -name '.stop-review-*' -delete`.
 
 ---
 
