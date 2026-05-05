@@ -382,6 +382,10 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.4
+- **retro-gate: exclude context-continuation messages** — S1/S5 no longer fire on "This session is being continued from a previous conversation..." messages, whose session summaries often contain rejection-like words that are not user friction.
+- **retro.md: fix `$N` substitution** — Claude Code substitutes `$1`–`$6` CLI args into skill text, clobbering awk field refs and bash function `$1`/`$2` params. Replaced all awk `$N` with `cut -fN`, singleton filter awk with a `while read` loop, and function params with `$*` / env-var pass-through.
+
 ### v0.29.3
 - **retro `plugin` target** — `/retro` now classifies friction caused by the plugin itself (gate false positives, skill bugs, missing commands) as `target: "plugin"` and routes proposals to `/backlog add` instead of agent directives. Fixes the core issue where project-specific friction was being written as universal behavioral rules.
 
