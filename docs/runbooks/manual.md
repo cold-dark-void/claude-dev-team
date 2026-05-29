@@ -152,7 +152,7 @@ git commit -m "feat: ENG-123 — <short description>
 
 <1-2 sentence summary>
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
 ---

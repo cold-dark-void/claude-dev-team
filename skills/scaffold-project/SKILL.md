@@ -536,7 +536,7 @@ project/
 ## Commit Guidelines
 
 - Write clear, descriptive commit messages
-- Include `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
+- Include `Co-Authored-By: Claude <noreply@anthropic.com>`
 - Always update `specs/` if behavior changes
 - Always update `.claude/plans.md` if completing work
 ```
@@ -607,7 +607,7 @@ Next steps:
    - git add -f .claude/plans.md
    - git commit -m "Initial project scaffold with TDD workflow
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+Co-Authored-By: Claude <noreply@anthropic.com>"
 
 💡 Tip: Read ~/.claude/CLAUDE.md for full workflow documentation
 💡 The 3 starter specs are examples - customize them for your project!

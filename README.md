@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.29.12
+- **Version-agnostic commit co-author trailers** — `scaffold-project`, `init-orchestration`, and the manual runbook hardcoded `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>` in the commit templates they emit, which pins generated commits to a stale model name (and is plain wrong once the agent producing the commit runs on Opus 4.8 or any other model). Aligned all three with the form `/orchestrate` already uses — `Co-Authored-By: Claude <noreply@anthropic.com>` — so the trailer never goes stale across model upgrades. Agent `model:` frontmatter already uses bare `opus`/`sonnet`/`haiku` aliases, so the Opus agents (tech-lead, ic5, qa, ds, council-judge) resolve to Opus 4.8 automatically with no change.
+
 ### v0.29.11
 - **Visible WAL fallback for memory.db** — sandboxed filesystems (bubblewrap tmpdirs, NFS, some CI containers) reject `PRAGMA journal_mode=WAL` and SQLite silently degrades to `journal_mode=delete`. The DB still works but concurrent agent writes serialize instead of running in parallel — invisible regression. `/init-orchestration` Step 7 now probes `PRAGMA journal_mode;` after schema apply and prints a clear stderr warning when WAL was rejected, telling the user what degraded and how to recover (re-run outside the sandbox / on a local filesystem). Schema comment in `schema.sql` documents the same fallback path.
 
