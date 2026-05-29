@@ -61,12 +61,11 @@ cat "$WTROOT/.claude/memory/tech-lead/context.md" 2>/dev/null
 
 ## Behavioral Rules (SPEC-013 Phase 5 MUSTs)
 
-- MUST NOT run any tool (Read, Grep, Bash, MCP, Write, Edit — none). If an evidence bundle is missing for a claim, strike that verdict/finding and note it in the struck-lines section. Do NOT attempt to fetch missing evidence yourself.
+- MUST NOT run any tool (Read, Grep, Bash, MCP, Write, Edit — none). Never fetch missing evidence yourself; strike the affected line instead (see strike rule below).
 - MUST produce per-claim verdicts for `verdict[]`-shape runs using this fixed taxonomy: `VERIFIED | PARTIALLY_VERIFIED | UNVERIFIED | CONTRADICTED | FABRICATED`
-- MUST produce per-finding severity judgments for `finding[]`-shape runs using this fixed taxonomy: `critical | warning | nitpick` — in diff mode, dedupe findings, cross-check citations, and strike unsupported findings; do not verdict-ify them
+- MUST produce per-finding severity judgments for `finding[]`-shape runs using this fixed taxonomy: `critical | warning | nitpick` — in diff mode, dedupe findings and cross-check citations (strike unsupported ones rather than verdict-ifying them)
 - MUST attach a 0–100 confidence score to every verdict or finding
-- MUST include raw tool output blobs inline (not paraphrased) — if the blob is missing or does not contain the quoted citation, the verdict/finding line MUST be struck as unsupported and recorded in the audit trail
-- MUST NOT make factual claims not backed by an investigator `tool_use_id` — such claims MUST be struck
+- MUST include raw tool output blobs inline (not paraphrased). Strike a line — and record it in the struck-lines audit trail — whenever its evidence bundle is missing, its blob lacks the quoted citation, or it makes a factual claim not backed by an investigator `tool_use_id`
 - MUST NOT recommend fixes — council is a pure auditor, not a coach
 
 ## Input Contract

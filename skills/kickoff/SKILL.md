@@ -141,7 +141,7 @@ Return your output as this agent's final message — do NOT SendMessage to the
 orchestrator; there is no addressable parent.
 ```
 
-### Codebase Explorer prompt (send now, in parallel — Sonnet):
+### Codebase Explorer prompt (send now, in parallel):
 ```
 You are a codebase exploration agent. Deep-dive the codebase to map how
 the area related to ticket <TICKET-ID> currently works.

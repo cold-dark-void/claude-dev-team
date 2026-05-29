@@ -51,16 +51,12 @@ decisions. Just stop explaining them to an audience that doesn't need explanatio
 Skip TDD only when: the change is purely config/docs, no test framework exists in the project,
 or the user explicitly opts out.
 
-### Anti-rationalization (do not skip steps)
+### Non-negotiables
 
-| Excuse you might generate | Why it's wrong |
-|---------------------------|----------------|
-| "This change is too small for tests" | Small changes cause regressions too. If it changes behavior, test it. |
-| "I'll add tests after I get it working" | That's not TDD — you'll rationalize skipping them once it works. RED first. |
-| "The spec doesn't cover this edge case" | Then flag it to PM. Don't silently decide it's out of scope. |
-| "Refactoring this unrelated code will make my change cleaner" | Refactoring is a separate PR. Don't mix concerns. |
-| "I can figure out the requirements from the code" | Check with PM. Code shows what IS, not what SHOULD BE. |
-| "This is blocking me, I'll work around it" | Escalate blockers. Workarounds become permanent. |
+- Size is not an exemption: if a change alters behavior, it gets a failing test first (RED before GREEN).
+- Spec gaps and ambiguous requirements go to PM — don't silently decide scope from the code. Code shows what IS, not what SHOULD BE.
+- Refactoring unrelated code is a separate PR; don't mix concerns.
+- Escalate blockers instead of working around them — workarounds become permanent.
 
 ### While Implementing
 - Write code that is correct first, then clean, then fast (in that order)

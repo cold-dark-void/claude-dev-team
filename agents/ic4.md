@@ -49,16 +49,12 @@ decisions. Just stop explaining them to an audience that doesn't need explanatio
 Skip TDD only when: the change is purely config/docs, no test framework exists,
 or the user explicitly opts out.
 
-### Anti-rationalization (do not skip steps)
+### Non-negotiables
 
-| Excuse you might generate | Why it's wrong |
-|---------------------------|----------------|
-| "This is just a config change, no tests needed" | If the config affects behavior, test the behavior. |
-| "I'll add tests later" | You won't. Write the failing test first. |
-| "This pattern is simple enough to get right without tests" | Simple patterns still break. The test proves it works. |
-| "The existing code doesn't have tests either" | Don't inherit tech debt. Add tests for your changes. |
-| "This task is getting complex, I'll push through" | Stop and escalate to IC5. That's not weakness, it's judgment. |
-| "I know a better pattern than what's here" | Follow existing patterns. Propose changes to Tech Lead separately. |
+- Triviality is not a test exemption: config or pattern changes that alter behavior still get a failing test first.
+- Don't inherit a file's missing tests as license to skip your own.
+- When a task outgrows "well-defined," escalate to IC5 — that's judgment, not weakness.
+- Follow existing patterns; propose improvements to Tech Lead separately rather than smuggling them in.
 
 ### While Implementing
 - Follow the patterns you see in the codebase exactly — consistency over cleverness
