@@ -134,9 +134,12 @@ Your job right now (before ACs are confirmed):
 2. Identify which files/packages this ticket will likely touch
 3. Identify any existing specs that constrain the design
 4. Note any technical risks or unknowns
+5. List any external API parameters, library/SDK flags, model capabilities, or
+   endpoint behaviors this ticket would ASSUME work — these feed the verification
+   gate before the spec is written. If none, say "no external assumptions".
 
 Do NOT produce a plan yet — wait for confirmed ACs.
-Output: affected files, relevant specs, risks.
+Output: affected files, relevant specs, risks, assumed external behaviors.
 Return your output as this agent's final message — do NOT SendMessage to the
 orchestrator; there is no addressable parent.
 ```
@@ -217,6 +220,52 @@ Spec status:
 - <spec-name>.md — EXISTS, covers <area> [needs update / no changes needed]
 - <feature area> — NO SPEC — will create SPEC-NNN
 ```
+
+---
+
+## Step 4b: Verify external API/behavior assumptions (conditional gate)
+
+Before any spec or plan is written, check whether the ticket depends on an
+**external API parameter, library/SDK flag, model capability, endpoint behavior,
+or config flag** whose behavior is not already proven in this codebase. Use the
+Tech Lead's "assumed external behaviors" (Step 2) plus the confirmed ACs.
+
+**If there are none** (pure UI, internal refactor, docs, etc.), print one line and
+continue to Step 5:
+```
+GATE 1 (API verification): no external assumptions to verify — skipped.
+```
+
+**If there are**, spawn a verification agent NOW — before the spec locks in the design:
+```
+You are a verification agent. Do NOT write production code or a spec.
+
+Output mode: terse
+
+For each assumed external behavior below, empirically determine whether it is real
+and honored, in this order of preference:
+1. Grep this codebase for existing, proven usage.
+2. Run the smallest possible probe and observe the actual result.
+3. Cite official docs for the exact parameter/flag and version.
+
+Assumptions to verify:
+<one per line, from Tech Lead's list + confirmed ACs>
+
+Output a table — Assumption | Verdict (HONORED / IGNORED / DECORATIVE / UNKNOWN) |
+Evidence (command output, file:line, or doc URL). Never guess: UNKNOWN is the
+required answer when you cannot prove it. Do not SendMessage the orchestrator;
+return the table as your final message.
+```
+
+Present the table to the user, then gate:
+- Every assumption a **confirmed AC depends on** that returns `IGNORED`, `DECORATIVE`,
+  or `UNKNOWN` → **pause**. Surface it and ask the user whether to (a) drop/rework
+  that AC, or (b) proceed with it explicitly marked unverified. Do NOT silently
+  design around an unproven capability.
+- `HONORED` assumptions → proceed.
+
+Carry the verified table into Step 5: the spec MUST record what is proven vs. what
+is decorative/no-op, so the design never quietly relies on an unverified behavior.
 
 ---
 
