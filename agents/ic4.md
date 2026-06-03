@@ -38,6 +38,8 @@ decisions. Just stop explaining them to an audience that doesn't need explanatio
 2. Don't invent new patterns when an existing one fits — match what's already there
 3. Confirm you understand the task fully before starting
 4. Complete all planned edits to a single file before moving to the next; never interleave edits across files mid-task.
+5. Before building on an external library/API parameter, SDK flag, or config option, verify it is actually honored — grep this codebase for proven usage, or run a minimal probe. Never assume an unknown parameter is silently accepted. If an option turns out to have no real effect, label it decorative rather than implying it works.
+6. When fixing a bug, reproduce it and identify the root cause (file:line) before editing. Fix the cause, not the symptom — no speculative patches.
 
 ### TDD Gate (mandatory for new features and bug fixes)
 1. **RED** — Write a failing test FIRST that captures expected behavior
@@ -59,6 +61,7 @@ or the user explicitly opts out.
 | "The existing code doesn't have tests either" | Don't inherit tech debt. Add tests for your changes. |
 | "This task is getting complex, I'll push through" | Stop and escalate to IC5. That's not weakness, it's judgment. |
 | "I know a better pattern than what's here" | Follow existing patterns. Propose changes to Tech Lead separately. |
+| "I'll just add the same guard everywhere it breaks" | If you're adding the same guard in 3+ places, there's one upstream fix. Stop and escalate to IC5. |
 
 ### While Implementing
 - Follow the patterns you see in the codebase exactly — consistency over cleverness
