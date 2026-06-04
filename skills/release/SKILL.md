@@ -9,7 +9,14 @@ description: |
 
 # Release
 
-Bumps the version in all required files, commits, tags, and pushes.
+Bumps the version in all required files, then folds the release into a SINGLE
+commit (the actual change + the version bump together), tags, and pushes.
+
+This repo uses **one commit per release**: the work being released is usually
+still uncommitted in the working tree when `/release` runs (HEAD sits on the last
+tag). So this skill stages the changed source files *and* the version files into
+one `fix:/feat: vX.Y.Z — <summary>` commit. It does NOT assume the work was
+committed separately, and it does NOT create a standalone `chore: release` commit.
 
 **Usage**: `/release [patch|minor|major|vX.Y.Z]`
 
@@ -21,25 +28,31 @@ Resolve the new version using these rules (first match wins):
 
 1. **Explicit version in args** (e.g. `v0.14.0` or `0.14.0`) → use it directly
 2. **Bump keyword in args** (`patch`, `minor`, or `major`) → compute from current version
-3. **No args provided** → auto-detect:
-   - Run `git log $(git describe --tags --abbrev=0)..HEAD --oneline` to see commits since last tag
-   - If ANY commit message contains `feat:` or `feat(` → **minor**
-   - Otherwise → **patch**
-   - Tell the user what you chose and why (e.g. "Auto-detected **patch** — no feat: commits since v0.13.2")
+3. **No args provided** → auto-detect from everything being released — BOTH
+   commits since the last tag AND the current uncommitted changes:
+   - `git log $(git describe --tags --abbrev=0)..HEAD --oneline` — committed since tag
+   - `git status --short` and `git diff --stat HEAD` — uncommitted work (usually the bulk)
+   - If the release adds a new user-facing capability (or any commit subject contains
+     `feat:`/`feat(`) → **minor**; otherwise → **patch**
+   - Tell the user what you chose and why (e.g. "Auto-detected **patch** — hardening, no new feature")
 
 Version format: no `v` prefix in files, `v` prefix for git tag and changelog heading.
 
 ## Step 2: Generate changelog entry
 
-**Do NOT ask the user for a description.** Auto-generate it from git history:
+**Do NOT ask the user for a description.** Auto-generate it from the actual
+changes being released — which include uncommitted working-tree changes, not just
+committed history:
 
-1. Run `git log $(git describe --tags --abbrev=0)..HEAD --oneline --no-merges` to get commits since last tag
-2. Exclude any `chore: release` commits
-3. Write the changelog as a bulleted Markdown list — one `- **summary**` line per meaningful commit
-4. If commits are very granular, group related ones into a single bullet
-5. Match the style of existing changelog entries in README.md (bold lead, concise description)
+1. Gather the full change set:
+   - `git diff --stat HEAD` and `git status --short` — uncommitted work (usually the bulk)
+   - `git log $(git describe --tags --abbrev=0)..HEAD --oneline --no-merges` — anything already committed since the last tag (exclude `chore: release` commits)
+2. Read the actual diffs of changed files as needed to describe them accurately — do not infer from filenames alone.
+3. Write the changelog as a bulleted Markdown list — one `- **bold summary** — detail` line per meaningful change, grouping granular edits.
+4. Match the style of existing changelog entries in README.md (bold lead, concise but specific).
 
-If there are zero non-release commits since the last tag, tell the user "Nothing to release — no commits since last tag" and stop.
+If there are NO uncommitted changes AND no commits since the last tag, tell the
+user "Nothing to release — working tree clean and no commits since last tag" and stop.
 
 ## Step 3: Bump all three version files
 
@@ -67,17 +80,28 @@ Read all three files and confirm the version string is identical in:
 
 If any mismatch: fix before proceeding.
 
-## Step 5: Commit
+## Step 5: Commit (one folded commit)
 
-Stage all three files:
-```
+Stage the version files **and the actual changed source files** — everything being
+released goes into a single commit:
+```bash
 git add README.md .claude-plugin/plugin.json .claude-plugin/marketplace.json
+git add <the source files this release changes>   # e.g. agents/*.md, skills/**, commands/*.md
 ```
+Then check `git status --short`: confirm nothing intended is left unstaged and that
+no unrelated/untracked files were swept in.
 
-Commit with message:
+Commit message — **type-prefixed subject with the version inline, plus a
+Co-Authored-By trailer. No `chore: release`. No prose body:**
 ```
-chore: release vX.Y.Z
+<feat|fix>: vX.Y.Z — <one-line summary derived from the changelog lead bullet>
+
+Co-Authored-By: Claude <Model> (1M context) <noreply@anthropic.com>
 ```
+- `feat:` for feature releases, `fix:` for fixes/hardening — match the bump from Step 1.
+- Em-dash (`—`) between version and summary, not a hyphen.
+- `<Model>` = the model doing the work, e.g. `Claude Opus 4.8 (1M context)`. Keep the `(1M context)` suffix to match this repo's history.
+- The README changelog carries the detail; the commit subject stays one line.
 
 ## Step 6: Tag and push
 
