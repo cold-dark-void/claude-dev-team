@@ -105,6 +105,8 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/recall` | Cross-source search: sessions, memory, specs, plans, git history |
 | `/memory-distill` | Compress raw memories into digests, promote high-signal to core |
 | `/memory-config` | View and set memory configuration (distill mode, threshold) |
+| `/handoff <session-uuid>` | Cold mode: reconstruct a past session from disk into a dense brief injected into the current session — survives `/compact`, multiday gaps, multi-fork transcripts |
+| `/handoff` | Warm mode: capture the current live session into a five-section brief written to `.claude/handoff/` before the session ends |
 
 #### Maintenance
 
@@ -381,6 +383,11 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 ---
 
 ## Changelog
+
+### v0.30.0
+- **Session handoff (`/handoff`) — SPEC-018**: cold `/handoff <uuid>` reconstructs a past session from disk (fork-tree assembly, `toolUseResult` strip, size-adaptive spine + chunking for 90 MB+ multi-fork transcripts, 5 specialized extractors → a pointer-bearing brief, cached) — survives `/compact`. Warm `/handoff` captures the live session.
+- **Shared `skills/transcript-parse/` module** (session-JSONL location, fork-tree assembly, parse primitives, freshness guard); `/retro` refactored onto it with zero scoring regression.
+- **Deprecated** the personal `~/.claude/skills/handoff` skill in favour of the unified plugin command.
 
 ### v0.29.13
 - **`/release` skill matches the real one-folded-commit convention** — the bundled skill assumed the work was already committed: it derived the version and changelog from `git log` since the last tag (empty when the change is still uncommitted, so it wrongly reported "nothing to release"), staged only the 3 version files, and committed a standalone `chore: release vX.Y.Z`. It now derives the changelog from the uncommitted working-tree changes (plus any commits since the tag), stages the changed source files alongside the version files, and folds everything into a single `fix:/feat: vX.Y.Z — <summary>` commit with a `Co-Authored-By: Claude <Model> (1M context)` trailer — no `chore: release` commit, no tag pointing at a version-bump-only commit that omits its own code.

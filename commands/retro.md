@@ -57,6 +57,28 @@ Rules:
 
 ## Step 2: Session discovery
 
+### Step 2.0: Resolve the shared transcript-parse module
+
+`/retro` reuses the SPEC-018 `transcript-parse` module for two things in this
+step: resolving an explicit session-id to its canonical file (`assemble.py
+locate`) and the in-progress freshness guard (`freshness.sh check`). Locate the
+module the same way Step 3a locates `gate.sh` (installed-plugin cache first,
+then any cache match), so both seams come from the same plugin version.
+
+```bash
+PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
+PARSE_DIR="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/transcript-parse"
+if [ ! -f "$PARSE_DIR/assemble.py" ]; then
+  ASSEMBLE_FOUND=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/transcript-parse/assemble.py" 2>/dev/null | sort -V | tail -1)
+  [ -n "$ASSEMBLE_FOUND" ] && PARSE_DIR=$(dirname "$ASSEMBLE_FOUND")
+fi
+ASSEMBLE="$PARSE_DIR/assemble.py"
+FRESHNESS="$PARSE_DIR/freshness.sh"
+```
+
+If the module is missing, the two consumers below fall back to their original
+inline behavior (noted at each site) so `/retro` still runs on a partial install.
+
 ### Step 2a: Locate the project directory under `~/.claude/projects/`
 
 The project directory name is the absolute path to `MROOT` with every `/` replaced
@@ -88,10 +110,14 @@ fi
 if [ "$MODE" = "single" ] && [ -z "$EXPLICIT_SID" ]; then
   CANDIDATES=$(ls -t "$PROJECT_DIR"/*.jsonl 2>/dev/null | head -1)
 
-# Explicit SID: locate a JSONL whose basename matches across all project dirs.
+# Explicit SID: resolve to the canonical transcript via the shared module's
+# `assemble.py locate`. This handles forked sessions correctly — when a uuid
+# appears in several files (a fork copies its chosen-path prefix into the child),
+# locate returns the *latest descendant* (greatest max-timestamp), i.e. the one
+# canonical file, instead of every basename match.
 elif [ -n "$EXPLICIT_SID" ]; then
-  # Validate UUID shape before handing to find(1): unvalidated input would allow
-  # glob metacharacters (`*`, `[a-f]*`) to enumerate the filesystem.
+  # Validate UUID shape before handing it to locate/find: unvalidated input would
+  # allow glob metacharacters (`*`, `[a-f]*`) to enumerate the filesystem.
   case "$EXPLICIT_SID" in
     [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*) ;;
     *)
@@ -99,10 +125,16 @@ elif [ -n "$EXPLICIT_SID" ]; then
       exit 1
       ;;
   esac
-  CANDIDATES=$(find "$HOME/.claude/projects" -name "${EXPLICIT_SID}.jsonl" 2>/dev/null)
-  if [ -z "$CANDIDATES" ]; then
-    # Also try with .jsonl already stripped
-    CANDIDATES=$(find "$HOME/.claude/projects" -name "${EXPLICIT_SID}" 2>/dev/null)
+  CANDIDATES=""
+  if [ -f "$ASSEMBLE" ] && command -v python3 >/dev/null 2>&1; then
+    # locate prints the canonical path on stdout (exit 0) or warns + exits 1.
+    CANDIDATES=$(python3 "$ASSEMBLE" locate "$EXPLICIT_SID" 2>/dev/null || true)
+  else
+    # Fallback (module/python3 unavailable): original basename match across dirs.
+    CANDIDATES=$(find "$HOME/.claude/projects" -name "${EXPLICIT_SID}.jsonl" 2>/dev/null)
+    if [ -z "$CANDIDATES" ]; then
+      CANDIDATES=$(find "$HOME/.claude/projects" -name "${EXPLICIT_SID}" 2>/dev/null)
+    fi
   fi
   if [ -z "$CANDIDATES" ]; then
     echo "Session not found: $EXPLICIT_SID"
@@ -128,14 +160,32 @@ Two filters apply in every mode.
 Files that are still being written by an active Claude session must be excluded to
 avoid reading a partial or live JSONL.
 
+This is the 60 s in-progress guard shared with `/handoff`. Delegate the decision
+to `freshness.sh check`, which returns exit 9 when the file was modified < 60 s
+ago (and exit 0 when it is old enough). We suppress its stderr warning so the
+`--why` output below stays in `/retro`'s own format; the local `stat`/`AGE`
+computation now exists ONLY to render that `--why` line, not to make the skip
+decision. If the module is unavailable we fall back to the original inline test.
+
 ```bash
 NOW=$(date +%s)
 FILTERED=""
 while IFS= read -r f; do
   [ -z "$f" ] && continue
+
+  # mtime/AGE kept only for the --why message (same threshold: 60 s).
   MTIME=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null)
-  AGE=$(( NOW - MTIME ))
-  if [ "$AGE" -lt 60 ]; then
+  AGE=$(( NOW - ${MTIME:-NOW} ))
+
+  if [ -f "$FRESHNESS" ]; then
+    sh "$FRESHNESS" check "$f" >/dev/null 2>&1
+    FRESH_RC=$?
+  else
+    # Fallback: replicate the original inline AGE<60 test (rc 9 == too fresh).
+    if [ "$AGE" -lt 60 ]; then FRESH_RC=9; else FRESH_RC=0; fi
+  fi
+
+  if [ "$FRESH_RC" -eq 9 ]; then
     if [ "$WHY" = "1" ]; then
       echo "[skip] $(basename "$f" .jsonl)  (modified ${AGE}s ago — in-progress threshold: 60s)"
     fi

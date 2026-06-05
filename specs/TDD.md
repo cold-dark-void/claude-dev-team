@@ -21,6 +21,7 @@
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, skills/orchestrate/SKILL.md, skills/wrap-ticket/SKILL.md, AGENTS.md |
 | SPEC-017 | Autonomous CI Watch + Task DAG | 🚧 NEW | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh |
+| SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/transcript-parse/, skills/handoff/, commands/handoff.md, skills/retro-gate/gate.sh (refactor) |
 
 ## Version History
 
@@ -38,3 +39,6 @@
 | 2026-04-29 | SPEC-013 updated: Phase 2.5 Blind Cross-Review added (COUNCIL-002) — Borda-count peer ranking, anonymized bundles, self-exclusion, WEAK_EVIDENCE flagging | SPEC-013 |
 | 2026-04-28 | SPEC-016 created: Worktree Isolation — canonical `.worktrees/<slug>` path, worktree-lib.sh CLI, PID-based lock, collision recovery |
 | 2026-04-30 | SPEC-017 created: Autonomous CI Watch + Task DAG — adaptive 3-mode CI watch loop, structured depends_on schema, parallel fan-out in orchestrate |
+| 2026-06-04 | SPEC-018 created: Cold Session Handoff — retroactive `/handoff <uuid>`, deterministic pre-pass + size-adaptive spine + specialized fan-out extractors, anti-gaslighting dead-ends payload; conflict-scanned (shared parser w/ SPEC-012, M5 delegates to /council, cache outside memory.db) |
+| 2026-06-04 | SPEC-018 updated (CDV-10): +M10 warm live-capture mode, +M11 consolidation (replaces personal handoff skill); Phase-1 includes size-adaptive chunking |
+| 2026-06-05 | SPEC-018 implemented via CDV-10 (Tasks 1-14): status NEW→ACTIVE; coverage skills/transcript-parse/, skills/handoff/, commands/handoff.md, skills/retro-gate/gate.sh (refactor) |
