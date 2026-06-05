@@ -384,6 +384,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.30.1
+- **Handoff cache retention (`/handoff` cold cache)** — `skills/handoff/prepass.sh` now bounds `.claude/handoff/cache/` instead of letting it grow forever: after `finalize` writes a brief it keeps the newest `HANDOFF_CACHE_MAX_ENTRIES` cached briefs (default 50) by `created_at` and prunes the rest oldest-first, never evicting the entry just written, and sweeps orphan `*.tmp` files. Safe by construction — a cached brief is a derived memoization of its transcript, so an evicted entry is rebuilt on the next cache MISS (no recoverable context lost). Best-effort and silent under the cap; confined to the cache dir (never `memory.db`). Implements the SPEC-018 M8 eviction follow-up.
+
 ### v0.30.0
 - **Session handoff (`/handoff`) — SPEC-018**: cold `/handoff <uuid>` reconstructs a past session from disk (fork-tree assembly, `toolUseResult` strip, size-adaptive spine + chunking for 90 MB+ multi-fork transcripts, 5 specialized extractors → a pointer-bearing brief, cached) — survives `/compact`. Warm `/handoff` captures the live session.
 - **Shared `skills/transcript-parse/` module** (session-JSONL location, fork-tree assembly, parse primitives, freshness guard); `/retro` refactored onto it with zero scoring regression.

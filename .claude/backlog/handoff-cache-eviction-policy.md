@@ -1,6 +1,6 @@
 # Handoff — cache-eviction policy
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.30.1 (count-cap retention in prepass.sh; HANDOFF_CACHE_MAX_ENTRIES, default 50)
 
 ## Problem
 The cold-handoff cache (.claude/handoff/cache/<uuid>.json) is invalidated only on session growth (leaf-uuid change). Stale briefs for old sessions accumulate with no eviction.

@@ -279,6 +279,7 @@ if [ "$SUBCMD" = "finalize" ]; then
   fi
 
   HANDOFF_BRIEF_MAX_LINES="${HANDOFF_BRIEF_MAX_LINES:-400}" \
+  HANDOFF_CACHE_MAX_ENTRIES="${HANDOFF_CACHE_MAX_ENTRIES:-50}" \
   FINALIZE_SECTIONS="$SECTIONS" \
   FINALIZE_UUID="$UUID" \
   FINALIZE_LEAF="$LEAF" \
@@ -301,6 +302,98 @@ MAX_LINES = max(1, int(os.environ.get("HANDOFF_BRIEF_MAX_LINES", "400")))
 
 def warn(msg):
     sys.stderr.write("prepass.sh: " + msg + "\n")
+
+
+def _cache_sort_key(path):
+    """Chronological sort key (oldest first): payload created_at, else mtime.
+
+    created_at is ISO-8601 'Z' (lexically chronological). A file lacking a
+    parseable created_at falls back to its filesystem mtime so it still orders
+    deterministically; a fully unreadable file sorts oldest (evicted first).
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        ca = data.get("created_at") if isinstance(data, dict) else None
+        if isinstance(ca, str) and ca.strip():
+            return ca
+    except (OSError, ValueError):
+        pass
+    try:
+        return (
+            datetime.datetime.fromtimestamp(
+                os.path.getmtime(path), datetime.timezone.utc
+            )
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    except OSError:
+        return ""
+
+
+def prune_cache(cache_dir, current_file):
+    """Bound the handoff cache so it never grows without limit (M8 follow-up).
+
+    Keep the newest HANDOFF_CACHE_MAX_ENTRIES briefs (default 50) by created_at
+    and delete the rest, oldest first. The entry just written (current_file) is
+    NEVER evicted. Orphan '*.tmp' files (from a crashed finalize) are swept too.
+
+    A cached brief is a *derived* memoization of the session transcript, not the
+    source — an evicted brief is simply rebuilt on the next cache MISS, so this
+    never loses recoverable context. All I/O is confined to cache_dir; memory.db
+    is never touched. Best-effort: every failure warns and is swallowed so cache
+    pruning can never break the brief that was already produced.
+    """
+    raw = os.environ.get("HANDOFF_CACHE_MAX_ENTRIES", "50")
+    try:
+        max_entries = int(raw)
+    except (TypeError, ValueError):
+        warn(f"cache prune: HANDOFF_CACHE_MAX_ENTRIES={raw!r} not an int — using 50.")
+        max_entries = 50
+    if max_entries < 1:
+        warn(f"cache prune: HANDOFF_CACHE_MAX_ENTRIES={max_entries} < 1 — using 50.")
+        max_entries = 50
+
+    try:
+        if not os.path.isdir(cache_dir):
+            return
+        current = os.path.abspath(current_file)
+        entries = []
+        for name in os.listdir(cache_dir):
+            path = os.path.join(cache_dir, name)
+            if name.endswith(".tmp"):
+                try:
+                    os.remove(path)  # orphan from a crashed finalize
+                except OSError:
+                    pass
+                continue
+            if not name.endswith(".json"):
+                continue
+            if os.path.abspath(path) == current:
+                continue  # never evict the entry we just wrote
+            entries.append((_cache_sort_key(path), path))
+
+        keep_others = max(0, max_entries - 1)  # the current entry holds one slot
+        if len(entries) <= keep_others:
+            return  # under the cap — stay silent
+        entries.sort(key=lambda e: e[0])  # oldest first
+        victims = entries[: len(entries) - keep_others]
+        pruned = 0
+        for _key, path in victims:
+            try:
+                os.remove(path)
+                pruned += 1
+            except FileNotFoundError:
+                pass  # a concurrent worktree pruned it first
+            except OSError as e:
+                warn(f"cache prune: could not remove {path}: {e}")
+        if pruned:
+            warn(
+                f"cache prune: removed {pruned} old brief(s), kept <= "
+                f"{max_entries} (HANDOFF_CACHE_MAX_ENTRIES)."
+            )
+    except OSError as e:
+        warn(f"cache prune: skipped ({e}).")
 
 
 # The five M4 sections, in canonical brief order. Each entry maps a stable key
@@ -462,6 +555,13 @@ if LEAF:
         warn(f"WARNING — could not write cache {CACHE_FILE}: {e}")
 else:
     warn("leaf-uuid unknown — brief printed but not cached (M8 key missing).")
+
+# --- bound the cache size (retention policy) -------------------------------
+# Keep .claude/handoff/cache/ from growing without limit. Safe because each
+# cache file is a derived memoization of its transcript, not the source: an
+# evicted brief is simply rebuilt on the next cache MISS.
+if cache_written:
+    prune_cache(CACHE_DIR, CACHE_FILE)
 
 # --- print the brief to stdout (M7 cold-mode injection) --------------------
 sys.stdout.write(brief)
