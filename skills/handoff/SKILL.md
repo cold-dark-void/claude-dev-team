@@ -574,7 +574,9 @@ proceeding with whatever sections succeeded).
 
 `prepass.sh prepare` emits `plan.json` with `mode: "chunked"` when the stripped
 spine exceeds the target context window. In that case `plan.chunks` is an array of
-pre-split chunk files (split at message boundaries by `prepass.sh`). The
+pre-split chunk files (split by `prepass.sh`, preferring user-turn boundaries
+over a raw token cutoff so a debug arc stays within one chunk; never exceeding
+the token budget). The
 orchestrator MUST run the chunk-summarizers **before** spawning the five extractors:
 
 ```

@@ -384,6 +384,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.30.3
+- **Natural-break chunking for monster-session handoffs (`skills/handoff/prepass.sh`)** — when a transcript is too large for one window and must be chunked, `prepare` now prefers to cut at a user-turn boundary (the start of a user message) once past a soft threshold, instead of an arbitrary token cutoff, so a hypothesis->test->correction arc stays within one chunk and the convergence through-line survives the map step. The hard token budget is still never exceeded (an oversized single message is the only thing that can exceed it, as before). Measured on a real session, turn-aligned chunk boundaries rose 40%->76%. Tunable via `HANDOFF_CHUNK_SOFT_RATIO` (default 0.8; 1.0 restores pure budget cutting).
+
 ### v0.30.2
 - **Tool-Offload Discipline in the generated AGENTS.md (`/init-orchestration`)** — the prevention prong of session-handoff now ships where it reaches users: the `/init-orchestration` AGENTS.md template gains a Tool-Offload Discipline section, so new projects instruct both the main loop and all agents to offload bulk tool I/O (reads spanning 3+ files, > ~400-line reads, or > ~50-line/unbounded command output) to a subagent that returns findings + pointers, not raw dumps. MUST above the bar; below it the rule does not apply.
 
