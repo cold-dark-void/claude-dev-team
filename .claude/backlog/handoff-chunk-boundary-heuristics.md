@@ -1,6 +1,6 @@
 # Handoff — smarter chunk-boundary heuristics
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.30.3 (user-turn-boundary chunk cutting in prepass.sh; HANDOFF_CHUNK_SOFT_RATIO, default 0.8)
 
 ## Problem
 prepass.sh chunks the size-adaptive spine at plain message boundaries by token budget. A debug arc can split mid-thread, weakening the convergence through-line in chunked (monster) mode.

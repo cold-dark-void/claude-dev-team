@@ -2,7 +2,6 @@
 
 ## Pending
 
-- [Handoff — smarter chunk-boundary heuristics](backlog/handoff-chunk-boundary-heuristics.md) - Prefer natural breaks over raw token cutoff in chunked mode [PENDING]
 - [Handoff — deeper sidechain reconstruction](backlog/handoff-sidechain-reconstruction.md) - Preserve signal-bearing subagent sidechains (currently no-op) [PENDING]
 
 - [COUNCIL-002 — `/council --plan <path>` scope](backlog/council-002-plan-scope.md) - Audit a plan file for unverified assumptions [PENDING]
@@ -18,6 +17,7 @@
 
 ## Completed
 
+- [Handoff — smarter chunk-boundary heuristics](backlog/handoff-chunk-boundary-heuristics.md) - User-turn-boundary chunk cutting in prepass.sh (HANDOFF_CHUNK_SOFT_RATIO, default 0.8) [COMPLETED]
 - [Handoff — Prong-1 tool-offload convention](backlog/handoff-prong1-tool-offload-convention.md) - Prevention prong shipped in the /init-orchestration AGENTS.md template (v0.30.2) [COMPLETED]
 - [Handoff — cache-eviction policy](backlog/handoff-cache-eviction-policy.md) - Count-cap retention in prepass.sh (HANDOFF_CACHE_MAX_ENTRIES, default 50) [COMPLETED]
 - [Bash output compression hook](backlog/bash-output-compression.md) - Implemented via PreToolUse + updatedInput [COMPLETED]

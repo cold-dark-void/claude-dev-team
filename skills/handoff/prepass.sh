@@ -895,15 +895,34 @@ if est_tokens <= BUDGET_TOKENS:
     plan["spine"] = os.path.abspath(spine_path)
 else:
     plan["mode"] = "chunked"
-    # Split at MESSAGE boundaries: greedily pack whole spine blocks into a
-    # chunk until adding the next block would exceed the char budget. A single
-    # oversized message (> budget) becomes its own chunk rather than being torn.
+    # Split into chunks that each fit the char budget, but PREFER a natural turn
+    # boundary (the start of a user message) over an arbitrary token cutoff:
+    # once a chunk passes a soft threshold, cut at the next user message so a
+    # hypothesis -> test -> correction arc stays whole and the convergence
+    # through-line survives the map step. The hard char budget is never exceeded
+    # (a single oversized turn is still force-cut), preserving the "each chunk
+    # fits the window" guarantee. Tunable via HANDOFF_CHUNK_SOFT_RATIO
+    # (default 0.8; 1.0 restores pure budget cutting).
+    try:
+        soft_ratio = float(os.environ.get("HANDOFF_CHUNK_SOFT_RATIO", "0.8"))
+    except ValueError:
+        soft_ratio = 0.8
+    soft_ratio = min(max(soft_ratio, 0.1), 1.0)
+    SOFT_CHARS = int(BUDGET_CHARS * soft_ratio)
+
+    def _block_role(part):
+        # Block header is "[L<n>] <role> <ts>"; return <role> ("" if unknown).
+        head = part.split("\n", 1)[0].split()
+        return head[1] if len(head) >= 2 and head[0].startswith("[L") else ""
+
     chunks = []
     cur = []
     cur_chars = 0
     for part in spine_parts:
         plen = len(part)
-        if cur and cur_chars + plen > BUDGET_CHARS:
+        hard_cut = cur and cur_chars + plen > BUDGET_CHARS
+        soft_cut = cur and cur_chars >= SOFT_CHARS and _block_role(part) == "user"
+        if hard_cut or soft_cut:
             chunks.append(cur)
             cur = []
             cur_chars = 0
