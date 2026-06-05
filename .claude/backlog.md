@@ -5,7 +5,6 @@
 - [Handoff — Prong-1 tool-offload convention](backlog/handoff-prong1-tool-offload-convention.md) - Prevention prong: delegate heavy reads to subagents via AGENTS.md rule [PENDING]
 - [Handoff — smarter chunk-boundary heuristics](backlog/handoff-chunk-boundary-heuristics.md) - Prefer natural breaks over raw token cutoff in chunked mode [PENDING]
 - [Handoff — deeper sidechain reconstruction](backlog/handoff-sidechain-reconstruction.md) - Preserve signal-bearing subagent sidechains (currently no-op) [PENDING]
-- [Handoff — cache-eviction policy](backlog/handoff-cache-eviction-policy.md) - LRU/age eviction for .claude/handoff/cache [PENDING]
 
 - [COUNCIL-002 — `/council --plan <path>` scope](backlog/council-002-plan-scope.md) - Audit a plan file for unverified assumptions [PENDING]
 - [COUNCIL-002 — `/council --from-retro <anchor-id>` scope](backlog/council-002-from-retro-scope.md) - Consume fabrication anchor IDs that /retro already prints [PENDING]
@@ -20,5 +19,6 @@
 
 ## Completed
 
+- [Handoff — cache-eviction policy](backlog/handoff-cache-eviction-policy.md) - Count-cap retention in prepass.sh (HANDOFF_CACHE_MAX_ENTRIES, default 50) [COMPLETED]
 - [Bash output compression hook](backlog/bash-output-compression.md) - Implemented via PreToolUse + updatedInput [COMPLETED]
 - [Session cost tracking](backlog/session-cost-tracking.md) - Implemented via Stop hook + transcript JSONL parsing [COMPLETED]
