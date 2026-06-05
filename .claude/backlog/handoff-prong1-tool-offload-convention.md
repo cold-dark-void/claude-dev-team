@@ -1,6 +1,6 @@
 # Handoff — Prong-1 tool-offload AGENTS.md convention
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.30.2 as a Tool-Offload Discipline section in the /init-orchestration AGENTS.md template (reaches consumer projects)
 
 ## Problem
 SPEC-018 shipped the *recovery* prong (cold/warm `/handoff`). The *prevention* prong from the brainstorm — keeping the main context clean so sessions hit the ~70% wall far later — was deferred. Tool I/O (file reads, bash output) is ~88% of session bytes and pollutes the main window.
