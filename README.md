@@ -384,6 +384,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.30.2
+- **Tool-Offload Discipline in the generated AGENTS.md (`/init-orchestration`)** — the prevention prong of session-handoff now ships where it reaches users: the `/init-orchestration` AGENTS.md template gains a Tool-Offload Discipline section, so new projects instruct both the main loop and all agents to offload bulk tool I/O (reads spanning 3+ files, > ~400-line reads, or > ~50-line/unbounded command output) to a subagent that returns findings + pointers, not raw dumps. MUST above the bar; below it the rule does not apply.
+
 ### v0.30.1
 - **Handoff cache retention (`/handoff` cold cache)** — `skills/handoff/prepass.sh` now bounds `.claude/handoff/cache/` instead of letting it grow forever: after `finalize` writes a brief it keeps the newest `HANDOFF_CACHE_MAX_ENTRIES` cached briefs (default 50) by `created_at` and prunes the rest oldest-first, never evicting the entry just written, and sweeps orphan `*.tmp` files. Safe by construction — a cached brief is a derived memoization of its transcript, so an evicted entry is rebuilt on the next cache MISS (no recoverable context lost). Best-effort and silent under the cap; confined to the cache dir (never `memory.db`). Implements the SPEC-018 M8 eviction follow-up.
 

@@ -2,7 +2,6 @@
 
 ## Pending
 
-- [Handoff — Prong-1 tool-offload convention](backlog/handoff-prong1-tool-offload-convention.md) - Prevention prong: delegate heavy reads to subagents via AGENTS.md rule [PENDING]
 - [Handoff — smarter chunk-boundary heuristics](backlog/handoff-chunk-boundary-heuristics.md) - Prefer natural breaks over raw token cutoff in chunked mode [PENDING]
 - [Handoff — deeper sidechain reconstruction](backlog/handoff-sidechain-reconstruction.md) - Preserve signal-bearing subagent sidechains (currently no-op) [PENDING]
 
@@ -19,6 +18,7 @@
 
 ## Completed
 
+- [Handoff — Prong-1 tool-offload convention](backlog/handoff-prong1-tool-offload-convention.md) - Prevention prong shipped in the /init-orchestration AGENTS.md template (v0.30.2) [COMPLETED]
 - [Handoff — cache-eviction policy](backlog/handoff-cache-eviction-policy.md) - Count-cap retention in prepass.sh (HANDOFF_CACHE_MAX_ENTRIES, default 50) [COMPLETED]
 - [Bash output compression hook](backlog/bash-output-compression.md) - Implemented via PreToolUse + updatedInput [COMPLETED]
 - [Session cost tracking](backlog/session-cost-tracking.md) - Implemented via Stop hook + transcript JSONL parsing [COMPLETED]

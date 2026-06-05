@@ -563,6 +563,25 @@ All agents MUST follow these rules. The orchestrator enforces them, but agents s
 - If your approach changes materially from the plan (new deps, scope grew, architecture assumption broken): stop all work and request a replan from Tech Lead.
 - Small deviations compound. When in doubt, stop and ask.
 
+## Tool-Offload Discipline
+
+Tool I/O (file reads, command output) is the dominant consumer of the context
+window and is what forces compaction. Keep the window clean by offloading bulk
+tool I/O to subagents that return **conclusions, not raw dumps**. Applies to both
+the main orchestrating loop and every spawned agent.
+
+You **MUST** offload when a step would read **3+ files**, read **> ~400 lines**
+from one file, or run a command whose output is **> ~50 lines or unbounded**
+(test suites, builds, full `git log`/`diff`, recursive `grep`/`find`) — when you
+need the *answer*, not the raw text in-window. Below that bar — a single known
+file you must edit, a short targeted read, a bounded command, or any case where
+you genuinely need the raw text (e.g. an exact string to edit) — read directly;
+the rule does not apply (it is not an exception to it).
+
+Offload by spawning a subagent (`Task`, `subagent_type: "general-purpose"`, or
+`"Explore"` if available) that returns findings + pointers (`file:symbol`,
+`path:Ln`) and never pasted raw output. Add `Output mode: terse`.
+
 ## Project Structure
 
 ```
