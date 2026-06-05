@@ -5,6 +5,7 @@
 .claude/memory/
 .claude/council/
 .claude/tasks/
+.claude/handoff/          # M8 cold-cache and warm-mode briefs (session metadata)
 
 # Memory store binaries and database (auto-generated)
 .claude/memory/extensions/
@@ -12,3 +13,7 @@
 .claude/memory/memory.db
 .claude/memory/memory.db-wal
 .claude/memory/memory.db-shm
+
+# Python bytecode
+__pycache__/
+*.pyc

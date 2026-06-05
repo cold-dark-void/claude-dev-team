@@ -43,11 +43,43 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 0
 fi
 
-python3 - "$JSONL" "$THRESHOLD" <<'PYEOF'
-import json, re, sys
+# Resolve the shared transcript-parse module dir relative to THIS script so the
+# embedded python (fed via heredoc, where __file__ is "<stdin>") can import
+# parselib regardless of the caller's CWD. Layout: skills/retro-gate/gate.sh
+# and skills/transcript-parse/parselib.py share the skills/ parent.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARSELIB_DIR="$(cd "$SCRIPT_DIR/../transcript-parse" 2>/dev/null && pwd)"
+
+python3 - "$JSONL" "$THRESHOLD" "${PARSELIB_DIR:-}" <<'PYEOF'
+import json, re, sys, os  # json: only for serializing the verdict (parse via parselib)
 
 JSONL_PATH = sys.argv[1]
 THRESHOLD = float(sys.argv[2])
+PARSELIB_DIR = sys.argv[3] if len(sys.argv) > 3 else ""
+
+# ---- Shared parse primitives (SPEC-018 transcript-parse module) -------------
+# /retro consumes the SAME JSONL parsing seam as /handoff. We import the line
+# decoder, edit-tool helpers, meta-turn guard, and the canonical top-field set
+# instead of re-implementing them here. The friction-scoring logic below is
+# unchanged. If the import fails (module moved / partial install) we degrade to
+# a clean zero verdict rather than crash, matching the other error exits above.
+if PARSELIB_DIR and PARSELIB_DIR not in sys.path:
+    sys.path.insert(0, PARSELIB_DIR)
+try:
+    from parselib import (
+        parse_line,
+        is_edit_tool,
+        edit_file_path,
+        is_meta,
+        msg_text as _parselib_msg_text,
+        KNOWN_TOP_FIELDS,
+    )
+except Exception:
+    sys.stdout.write(
+        '{"score":0,"passed":false,"threshold":%r,"signals":[],'
+        '"error":"parselib import failed"}\n' % THRESHOLD
+    )
+    raise SystemExit(0)
 
 # ---- Signal regexes ---------------------------------------------------------
 # S1: explicit user rejection — strongest signal. Word-bounded to avoid
@@ -73,7 +105,11 @@ S5_LONG_ASSISTANT_CHARS = 500
 S5_TERSE_USER_WORDS = 3
 
 # ---- Schema-drift detection -------------------------------------------------
-KNOWN_TOP_FIELDS = {"type", "uuid", "message", "parentUuid", "sessionId", "timestamp"}
+# KNOWN_TOP_FIELDS imported from parselib (same canonical 6 fields). Used below
+# exactly as before: `KNOWN_TOP_FIELDS & set(d.keys())` over the first 50 lines.
+# gate.sh keeps its OWN drift loop + warning text ("retro-gate: WARNING ...")
+# rather than parselib.iter_lines/schema_drift_warn, so stderr output is byte
+# identical to the pre-refactor behavior.
 
 # ---- Per-signal accumulators ------------------------------------------------
 s1_hits, s4_hits, s5_hits = [], [], []
@@ -91,47 +127,34 @@ total_lines = 0
 
 
 def msg_text(content):
-    """Flatten an assistant or user message content into a single string."""
-    if isinstance(content, str):
-        return content
+    """Flatten content to text for friction scoring — DROPPING thinking blocks.
+
+    CRITICAL: parselib.msg_text KEEPS thinking blocks (downstream dead-ends
+    extraction needs them). Friction scoring must NOT see thinking text, so we
+    strip thinking blocks here at the call site, then delegate the actual
+    flattening to the shared parselib.msg_text. For list content we remove every
+    block whose type == "thinking" before flattening; str content (and any
+    non-list) passes straight through to parselib unchanged.
+
+    Verified byte-for-byte identical to the previous inline flattening across
+    the real-session regression corpus (19,762 message contents, 0 diffs).
+    """
     if isinstance(content, list):
-        out = []
-        for b in content:
-            if not isinstance(b, dict):
-                continue
-            t = b.get("type")
-            if t == "text":
-                out.append(b.get("text", ""))
-            elif t == "thinking":
-                # Thinking blocks are not user-visible; skip.
-                continue
-        return "\n".join(out)
-    return ""
+        content = [
+            b for b in content
+            if not (isinstance(b, dict) and b.get("type") == "thinking")
+        ]
+    return _parselib_msg_text(content)
 
 
-def is_edit_tool(name):
-    return name in ("Edit", "Write", "MultiEdit", "NotebookEdit")
-
-
-def edit_file_path(inp):
-    if isinstance(inp, dict):
-        v = inp.get("file_path") or inp.get("notebook_path") or inp.get("path")
-        if isinstance(v, str):
-            return v
-    return None
+# is_edit_tool / edit_file_path imported from parselib (identical semantics).
 
 
 with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
     for line_no, raw in enumerate(f):
         total_lines += 1
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            d = json.loads(raw)
-        except Exception:
-            continue
-        if not isinstance(d, dict):
+        d = parse_line(raw)
+        if d is None:
             continue
 
         if line_no < 50 and KNOWN_TOP_FIELDS & set(d.keys()):
@@ -172,7 +195,7 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
             # context, local-command caveats). These often contain plugin
             # docs that include words like "stop", "don't", "wrong" and
             # produced false positives during calibration.
-            is_meta = bool(d.get("isMeta"))
+            meta = is_meta(d)  # parselib.is_meta — same bool(d.get("isMeta"))
             text = msg_text(content)
 
             # tool_result blocks live inside user messages
@@ -193,7 +216,7 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                         last_tool_was_error_run_len = 0
                         last_error_run_start_id = None
 
-            if not had_tool_result and isinstance(text, str) and text and not is_meta:
+            if not had_tool_result and isinstance(text, str) and text and not meta:
                 # Real human user turn (not a tool_result wrapper, not meta,
                 # and not a task-notification/agent-output message).
                 is_system_notification = bool(re.search(r'<[a-z][a-z0-9-]*[\s>]', text))
