@@ -384,6 +384,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.30.4
+- **ci-watch ci-mode poll works again (`skills/ci-watch/poll.sh`)** — the poll queried `gh pr checks --json name,conclusion`, but `conclusion` has never been a valid `gh pr checks` JSON field, so every poll errored and the error-tolerant path swallowed it as an eternal `wait`: the watcher never reported green, never spawned a fixer, and only `poll_error_count` climbed. The poll now fetches `name,state,bucket` and classifies via `bucket`, gh's version-stable normalization — `fail`/`cancel` → failure, `pass`/`skipping` → green, `pending` → wait. Skipped checks no longer block green (previously another eternal-wait), `ERROR`/`ACTION_REQUIRED` states now correctly count as failures, and `last_failure.txt` carries each failing check's `state` for the fixer agent. Verified against gh 2.94.0 field validation plus a stub-gh harness (pass/fail/pending/skip/cancel/cap scenarios). SPEC-017 and the skill's decision matrix updated to match.
+
 ### v0.30.3
 - **Natural-break chunking for monster-session handoffs (`skills/handoff/prepass.sh`)** — when a transcript is too large for one window and must be chunked, `prepare` now prefers to cut at a user-turn boundary (the start of a user message) once past a soft threshold, instead of an arbitrary token cutoff, so a hypothesis->test->correction arc stays within one chunk and the convergence through-line survives the map step. The hard token budget is still never exceeded (an oversized single message is the only thing that can exceed it, as before). Measured on a real session, turn-aligned chunk boundaries rose 40%->76%. Tunable via `HANDOFF_CHUNK_SOFT_RATIO` (default 0.8; 1.0 restores pure budget cutting).
 

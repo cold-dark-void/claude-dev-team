@@ -16,7 +16,7 @@ is hit. No human intervention is required for transient failures.
 
 | Mode         | Trigger                                                              | Poll mechanism                              |
 |--------------|----------------------------------------------------------------------|---------------------------------------------|
-| `ci`         | `.github/workflows/` + `gh` available                                | `gh pr checks <PR> --json name,conclusion`  |
+| `ci`         | `.github/workflows/` + `gh` available                                | `gh pr checks <PR> --json name,state,bucket` |
 | `local-test` | `package.json scripts.test` / `Makefile test:` / `go.mod` / `pytest` | `timeout 120 bash -c "<cmd>"` in worktree   |
 | `none`       | Neither                                                              | Watch is **not armed** (skipped silently)   |
 
@@ -74,11 +74,11 @@ mode=ci:
   PR MERGED|CLOSED      → done
   gh checks errored     → wait (poll_error_count++)
   total checks == 0     → done
-  all SUCCESS           → done
-  any FAILURE/TIMED_OUT/CANCELLED:
+  any bucket fail/cancel:
       retry_count >= 3  → cap
       else              → fail (write last_failure.txt)
-  otherwise (in-prog)   → wait
+  all bucket pass/skipping → done
+  otherwise (pending)   → wait
 mode=local-test:
   worktree missing      → wait (poll_error_count++)
   detect-mode = none    → wait (poll_error_count++)
