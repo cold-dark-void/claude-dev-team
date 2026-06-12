@@ -48,10 +48,10 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 
 ### CI watch loop — ci mode
 
-- Each poll MUST run `gh pr checks <PR-number> --json name,conclusion` (PR open/closed state is checked separately via `gh pr view --json state`)
-- If **all checks pass**: MUST delete the cron job and emit one notification line:
+- Each poll MUST run `gh pr checks <PR-number> --json name,state,bucket` (PR open/closed state is checked separately via `gh pr view --json state`). Pass/fail decisions MUST key off `bucket` — gh's version-stable normalization (`pass`/`skipping`/`fail`/`cancel`/`pending`); `gh pr checks --json` exposes no `conclusion` field
+- If **all checks resolve green** (every bucket is `pass` or `skipping`): MUST delete the cron job and emit one notification line:
   `CI watch: <TICKET-ID> green on <branch>. Cron deleted.`
-- If **any check fails**: proceed to fixer logic (see below)
+- If **any check fails** (bucket `fail` or `cancel`): proceed to fixer logic (see below)
 - If PR is merged or closed: MUST delete the cron and exit silently
 
 ### CI watch loop — local-test mode
@@ -194,6 +194,7 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 |------|--------|
 | 2026-04-30 | Initial spec — CI watch (3-mode adaptive) + task DAG (depends_on schema + parallel fan-out) |
 | 2026-04-30 | Implemented and aligned: poll interval → `*/7` (off-minute convention); unified done notification; fixer guard via sidecar primary + task store secondary; retry cap semantics clarified (3 total spawns); resolved OQ-1 (durable:true) and OQ-2 (worktree root); status → ACTIVE |
+| 2026-06-12 | ci-mode poll: `--json name,conclusion` → `name,state,bucket` (`conclusion` was never a `gh pr checks` JSON field; the error was masked as eternal `wait` by the poll_error path). Decisions now bucket-based; skipped checks no longer block green |
 
 ---
 

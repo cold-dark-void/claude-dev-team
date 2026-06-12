@@ -109,35 +109,38 @@ poll_ci() {
     emit "done"
   fi
 
-  # Fetch checks.
+  # Fetch checks. `gh pr checks --json` has no `conclusion` field — decisions
+  # key off `bucket`, gh's stable normalization of check state:
+  #   pass | skipping (SKIPPED/NEUTRAL) | fail (FAILURE/ERROR/TIMED_OUT/
+  #   ACTION_REQUIRED) | cancel (CANCELLED) | pending (queued/in-progress).
   local result
-  if ! result=$(gh pr checks "$pr" --json name,conclusion 2>"$ERR_TMP"); then
+  if ! result=$(gh pr checks "$pr" --json name,state,bucket 2>"$ERR_TMP"); then
     bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
     log_event "poll_error"
     emit "wait"
   fi
 
-  local total fail_count success_count
+  local total fail_count ok_count
   total=$(echo "$result" | jq 'length' 2>/dev/null || echo 0)
-  fail_count=$(echo "$result" | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "TIMED_OUT" or .conclusion == "CANCELLED")] | length' 2>/dev/null || echo 0)
-  success_count=$(echo "$result" | jq '[.[] | select(.conclusion == "SUCCESS")] | length' 2>/dev/null || echo 0)
+  fail_count=$(echo "$result" | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length' 2>/dev/null || echo 0)
+  ok_count=$(echo "$result" | jq '[.[] | select(.bucket == "pass" or .bucket == "skipping")] | length' 2>/dev/null || echo 0)
 
   # No checks configured for this PR → nothing to wait on.
   if [ "$total" -eq 0 ]; then
     emit "done"
   fi
 
-  # All green.
-  if [ "$fail_count" -eq 0 ] && [ "$success_count" -eq "$total" ]; then
-    emit "done"
-  fi
-
   # Some failed → handle failure (fail/cap).
   if [ "$fail_count" -gt 0 ]; then
     # Capture the failing-check JSON as the failure context.
-    echo "$result" | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "TIMED_OUT" or .conclusion == "CANCELLED")]' > "$OUT_TMP" 2>/dev/null \
+    echo "$result" | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")]' > "$OUT_TMP" 2>/dev/null \
       || echo "$result" > "$OUT_TMP" 2>/dev/null
     handle_failure "$OUT_TMP"
+  fi
+
+  # All checks resolved green (passed or skipped).
+  if [ "$ok_count" -eq "$total" ]; then
+    emit "done"
   fi
 
   # Otherwise still pending (in-progress checks).
