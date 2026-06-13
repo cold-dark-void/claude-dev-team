@@ -82,12 +82,9 @@ and proceed without impact context.
 Same resolution pattern as `commands/council.md`:
 
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)
-ENGINE_SH="$MROOT/skills/council/engine.sh"
-if [ ! -x "$ENGINE_SH" ]; then
-  ENGINE_SH=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/council/engine.sh" 2>/dev/null | sort -V | tail -1)
-fi
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 [ -x "$ENGINE_SH" ] || { echo "error: council engine.sh not found" >&2; exit 1; }
 ```
 

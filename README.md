@@ -384,6 +384,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.31.0
+- **feat: plugin-dir locator consolidation** — new `skills/plugin-dir.sh` subprocess CLI resolves any plugin file via a single `sort -V` highest-version algorithm with a dev-checkout fast path; replaces ~15 hand-rolled locators across 11 command/skill files (drops the duplicated `PLUGIN_VER` grep, the hardcoded `cold-dark-void` slug, and two divergent glob-first-match resolvers). SPEC-002 gains the `plugin-dir.sh` CLI contract + caller bootstrap clause. `retro-gate/hint.sh` now self-locates `gate.sh`. (AUDIT-P1-3).
+
 ### v0.30.4
 - **ci-watch ci-mode poll works again (`skills/ci-watch/poll.sh`)** — the poll queried `gh pr checks --json name,conclusion`, but `conclusion` has never been a valid `gh pr checks` JSON field, so every poll errored and the error-tolerant path swallowed it as an eternal `wait`: the watcher never reported green, never spawned a fixer, and only `poll_error_count` climbed. The poll now fetches `name,state,bucket` and classifies via `bucket`, gh's version-stable normalization — `fail`/`cancel` → failure, `pass`/`skipping` → green, `pending` → wait. Skipped checks no longer block green (previously another eternal-wait), `ERROR`/`ACTION_REQUIRED` states now correctly count as failures, and `last_failure.txt` carries each failing check's `state` for the fixer agent. Verified against gh 2.94.0 field validation plus a stub-gh harness (pass/fail/pending/skip/cancel/cap scenarios). SPEC-017 and the skill's decision matrix updated to match.
 

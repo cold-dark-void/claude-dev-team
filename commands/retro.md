@@ -66,14 +66,10 @@ module the same way Step 3a locates `gate.sh` (installed-plugin cache first,
 then any cache match), so both seams come from the same plugin version.
 
 ```bash
-PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
-PARSE_DIR="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/transcript-parse"
-if [ ! -f "$PARSE_DIR/assemble.py" ]; then
-  ASSEMBLE_FOUND=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/transcript-parse/assemble.py" 2>/dev/null | sort -V | tail -1)
-  [ -n "$ASSEMBLE_FOUND" ] && PARSE_DIR=$(dirname "$ASSEMBLE_FOUND")
-fi
-ASSEMBLE="$PARSE_DIR/assemble.py"
-FRESHNESS="$PARSE_DIR/freshness.sh"
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+ASSEMBLE=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/assemble.py)
+FRESHNESS=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/freshness.sh)
 ```
 
 If the module is missing, the two consumers below fall back to their original
@@ -240,18 +236,16 @@ for analysis.
 
 ### Step 3a: Locate gate.sh
 
-Use the PLUGIN_VER lookup pattern (mirrors the kickoff friction-check hook):
+Step 2.0's `$PDH` is from a separate shell; re-resolve it here (shell variables do not persist across the command's bash blocks):
 
 ```bash
-PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
-GATE_SH="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/retro-gate/gate.sh"
-if [ ! -x "$GATE_SH" ]; then
-  GATE_SH=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/retro-gate/gate.sh" 2>/dev/null | sort -V | tail -1)
-fi
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+GATE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/gate.sh)
 
 if [ ! -x "$GATE_SH" ]; then
   echo "# retro: gate.sh not found — cannot run phase-1 gate" >&2
-  echo "# Expected: $HOME/.claude/plugins/cache/cold-dark-void/dev-team/<ver>/skills/retro-gate/gate.sh" >&2
+  echo "# Check the installed plugin cache for skills/retro-gate/gate.sh" >&2
   exit 1
 fi
 ```
