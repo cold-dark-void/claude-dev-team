@@ -106,96 +106,25 @@ echo "[memory-store] DB unavailable — writing to .md fallback."
 
 ---
 
-## Step 4: Generate embedding after store (if extensions available)
+## Step 4: Generate embedding after store (delegated to `embed-one.sh`)
 
-This step is optional. Skip it when the embedding mode is `fallback` or when the
-required extensions/models are absent.
-
-```bash
-# Read embedding mode from config
-EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
-
-# Determine platform extension suffix
-EXT_SUFFIX="so"
-[ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
-```
-
-### 4a. lembed mode (sqlite-lembed + local GGUF model)
-
-The `lembed()` function takes the **model file path** as its first argument, not the
-model name. Ensure the GGUF file exists before calling.
+After the Step 2 INSERT has captured `$MEMORY_ID`, generate the embedding with the
+shared **`embed-one.sh`** helper (a sibling of this skill). It self-derives the
+extensions/model paths from the DB, reads `embedding_mode` / `embedding_url` from
+the `config` table, and is **best-effort**: it ALWAYS exits 0 and silently skips
+when the mode is `fallback` or the required extensions/models are absent — so it
+never breaks the write.
 
 ```bash
-if [ "$EMBED_MODE" = "lembed" ] && \
-   [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && \
-   [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ]; then
-  MODEL_PATH="$MROOT/.claude/memory/models/all-MiniLM-L6-v2.gguf"
-  sqlite3 "$MEMDB" <<EOSQL
-.load $EXT_DIR/vec0
-.load $EXT_DIR/lembed0
-INSERT INTO vec_memories_384(memory_id, embedding)
-  VALUES ($MEMORY_ID, lembed('$MODEL_PATH', '<CONTENT_ESCAPED>'));
-INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table)
-  VALUES ($MEMORY_ID, 'all-MiniLM-L6-v2', 384, 'vec_memories_384');
-EOSQL
-fi
+bash skills/memory-store/embed-one.sh "$MEMDB" "$MEMORY_ID" "$CONTENT"
 ```
 
-### 4b. remote mode (any OpenAI-compatible embedding provider)
+The lembed (local GGUF) and remote (OpenAI-compatible) provider logic — formerly
+inline here — now lives **once** in `embed-one.sh`, shared with
+`skills/memory-store/migrate-md.sh` and the agent memory-write path. Consumers
+resolve the skill's own directory via the plugin-dir bootstrap (SPEC-002,
+"Locating `plugin-dir.sh` itself"); `embed-one.sh` sits alongside this file.
 
-Reads `embedding_url` from the config table. Optionally reads `EMBEDDING_API_KEY` and
-`EMBEDDING_MODEL` from the environment. Handles both OpenAI (`data[0].embedding`) and
-ollama-style (`embeddings[0]` / `embedding`) response shapes. Dimensions are inferred
-from the response so this works with any model.
-
-```bash
-elif [ "$EMBED_MODE" = "remote" ]; then
-  EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';")
-  EMBED_KEY="${EMBEDDING_API_KEY:-}"
-  EMBED_MODEL="${EMBEDDING_MODEL:-}"
-
-  # Build curl args — auth header via config file to avoid leaking in ps aux
-  CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
-  CURL_CONFIG=""
-  if [ -n "$EMBED_KEY" ]; then
-    CURL_CONFIG=$(mktemp "${TMPDIR:-/tmp}/curl-cfg.XXXXXX")
-    printf 'header = "Authorization: Bearer %s"\n' "$EMBED_KEY" > "$CURL_CONFIG"
-    chmod 600 "$CURL_CONFIG"
-    CURL_ARGS+=(-K "$CURL_CONFIG")
-  fi
-
-  # Truncate content for embedding (most models have ~512 token limit)
-  EMBED_TEXT=$(echo "$CONTENT" | head -c 1500)
-
-  # Build request body
-  BODY="{\"input\":[$(echo "$EMBED_TEXT" | jq -Rs .)]}"
-  [ -n "$EMBED_MODEL" ] && BODY=$(echo "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
-  CURL_ARGS+=(-d "$BODY")
-
-  RESPONSE=$(curl "${CURL_ARGS[@]}")
-  [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
-
-  # Handle both OpenAI and ollama response formats
-  EMBEDDING=$(echo "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')
-  DIMS=$(echo "$EMBEDDING" | jq 'length')
-  VEC_TABLE="vec_memories_${DIMS}"
-
-  # Ensure vec table exists for this dimension
-  sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
-    "CREATE VIRTUAL TABLE IF NOT EXISTS ${VEC_TABLE} USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);"
-
-  # Insert embedding
-  sqlite3 "$MEMDB" <<EOSQL
-.load $EXT_DIR/vec0
-INSERT INTO ${VEC_TABLE}(memory_id, embedding)
-  VALUES ($MEMORY_ID, '$EMBEDDING');
-INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table)
-  VALUES ($MEMORY_ID, '${EMBED_MODEL:-remote}', $DIMS, '$VEC_TABLE');
-EOSQL
-fi
-```
-
----
 
 ## Step 5: Retry on SQLITE_BUSY
 
