@@ -384,6 +384,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.31.2
+- **fix: extract `skills/memory-store/embed-one.sh`** — the write-time embedding logic (lembed + remote provider) is single-sourced into one best-effort `embed-one.sh <db> <memory_id> <text>` helper; `memory-store` Step 4 now delegates to it instead of inlining ~90 lines. Self-derives extension/model paths from the DB, always exits 0, and silently skips when extensions are absent or mode is `fallback`. Zero behavior change — Step 4 produces byte-identical `vec_*`/`embedding_meta` rows. Prerequisite for the AUDIT-P1-1 agent memory-write path. (AUDIT-P1-1C).
+
 ### v0.31.1
 - **docs: single-source the project-root resolution contract (SPEC-002)** — declared the three authoritative root-resolution contexts (shared-root via `git rev-parse --git-common-dir`; working-tree-root via `--show-toplevel`; cwd-anchored single-root for project-bootstrap skills) with a MUST-NOT-mix-roots clause. Doc-only: no behavioral change. The real subdir-invocation hardening for `scaffold-project`/`init-orchestration` (anchor every `.claude/` op on one resolved root) is filed as `.claude/backlog/bootstrap-single-root-anchoring.md` — deferred after review showed a naive partial anchor would split the scaffold. (AUDIT-P1-2).
 
