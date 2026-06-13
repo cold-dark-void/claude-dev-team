@@ -97,6 +97,14 @@ PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path 
 - The bootstrap MUST be slug-free (searches `*/dev-team/*`, not `cold-dark-void`) and MUST use `sort -V` — the single sanctioned cache-search algorithm (D3), identical to the lib's own tier-3.
 - If `$PDH` is empty (no dev checkout, no install), `bash "$PDH/skills/plugin-dir.sh"` runs `bash /skills/plugin-dir.sh` → file-not-found → non-zero, empty stdout. The site's existing fail-mode (hard/warn/soft) then triggers exactly as today. This introduces no new failure path.
 
+### Project-root resolution — authoritative formulas
+
+- **Shared-root (worktree-aware)** — authoritative for any plugin file that reads/writes team-shared state under the common `.claude/` (memory DB in an existing team repo, tasks, council index) and for emitted hooks that run from the installed project:
+  `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
+  Callers MUST use this form and MUST NOT re-derive a divergent one.
+- **Working-tree-root** — authoritative where a skill needs the current tree's own root rather than the shared worktree root: `WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)`.
+- **Cwd-anchored (bootstrap)** — *project-bootstrap* skills (`scaffold-project`, `init-orchestration` Step 7) that CREATE a new project's `.claude/` tree run with cwd = the target root and intentionally use **relative** paths for ALL `.claude/`/`specs/` ops (mkdir, DB, settings, AGENTS/CLAUDE, plans, TDD). This is correct-by-context: every op shares one root (cwd). Such skills MUST keep all `.claude/` ops anchored on a SINGLE root — they MUST NOT mix a `git-common-dir`/`show-toplevel` absolute path for one op with relative paths for the rest (mixing splits the scaffold across two roots). They MUST NOT use `--git-common-dir` to anchor a fresh project (it resolves a parent worktree's shared root, not the project being created).
+
 ## SHOULD
 
 - SHOULD maintain keyword list in plugin.json for marketplace discovery
@@ -139,6 +147,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 - `plugin-dir.sh` not-found — no tier matches: exit 3, stdout empty
 - `plugin-dir.sh` slug-defined-once — the marketplace slug literal appears in exactly one place in the script
 - Consumer-mode resolution — no dev checkout present (cwd is a foreign project), two plugin versions cached: the bootstrap stanza + `plugin-dir.sh` together resolve the requested file from the **highest** cached version; PDH is non-empty and slug-free
+- Project-root formulas — bootstrap skills (scaffold-project, init-orchestration Step 7) keep ALL `.claude/` ops on one root (relative/cwd); no op mixes an absolute git-derived root with relative siblings; shared-`.claude/` accessors and emitted hooks use the git-common-dir form
 
 ## Validation
 
@@ -164,6 +173,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-04-09 | Stdin-authoritative correction (post-Task-1 spike): inverted task-id transport priority. Hook MUST read `task_id` from stdin JSON (the channel Claude Code itself uses) as the primary source; `CLAUDE_TASK_ID` env var demoted to fallback for non-native invocations only. Recorded the verified stdin payload shape (task_id/task_subject/task_description/hook_event_name/session_id/transcript_path/cwd) and closed the transport Open Question. Orchestrator-side `CLAUDE_TASK_ID` export in SPEC-009 remains valid — it governs the separate `/council` subprocess path, not the hook. See `.claude/plans/2026-04-09-taskcompleted-hook-spike.md`. |
 | 2026-04-26 | Added MUST coverage for three previously-undocumented hooks: `bash-compress.sh` (PreToolUse output compression), `memory-capture.sh` (PostToolUse Write/Edit memory write), `stop-review.sh` (Stop hook uncommitted-change reminder). Updated Covers field. |
 | 2026-06-12 | SPEC-002: plugin-dir.sh CLI contract added — single version-resolution algorithm (sort -V), dev-checkout fast path, replaces ~15 hand-rolled locators (AUDIT-P1-3) |
+| 2026-06-13 | SPEC-002: declared the three authoritative project-root resolution contexts (shared-root via git-common-dir; working-tree-root via show-toplevel; cwd-anchored single-root for bootstrap skills) — single-sources the root-resolution contract (AUDIT-P1-2, doc-only) |
 
 ## Cross-references
 
