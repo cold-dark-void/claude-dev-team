@@ -384,6 +384,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.31.1
+- **docs: single-source the project-root resolution contract (SPEC-002)** — declared the three authoritative root-resolution contexts (shared-root via `git rev-parse --git-common-dir`; working-tree-root via `--show-toplevel`; cwd-anchored single-root for project-bootstrap skills) with a MUST-NOT-mix-roots clause. Doc-only: no behavioral change. The real subdir-invocation hardening for `scaffold-project`/`init-orchestration` (anchor every `.claude/` op on one resolved root) is filed as `.claude/backlog/bootstrap-single-root-anchoring.md` — deferred after review showed a naive partial anchor would split the scaffold. (AUDIT-P1-2).
+
 ### v0.31.0
 - **feat: plugin-dir locator consolidation** — new `skills/plugin-dir.sh` subprocess CLI resolves any plugin file via a single `sort -V` highest-version algorithm with a dev-checkout fast path; replaces ~15 hand-rolled locators across 11 command/skill files (drops the duplicated `PLUGIN_VER` grep, the hardcoded `cold-dark-void` slug, and two divergent glob-first-match resolvers). SPEC-002 gains the `plugin-dir.sh` CLI contract + caller bootstrap clause. `retro-gate/hint.sh` now self-locates `gate.sh`. (AUDIT-P1-3).
 

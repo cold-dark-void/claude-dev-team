@@ -2,6 +2,8 @@
 
 ## Pending
 
+- [Bootstrap skills — single-root anchoring](backlog/bootstrap-single-root-anchoring.md) - Anchor all .claude/ ops on one resolved project root; fixes subdir-invocation split in scaffold-project / init-orchestration (surfaced by AUDIT-P1-2) [PENDING]
+
 - [Handoff — deeper sidechain reconstruction](backlog/handoff-sidechain-reconstruction.md) - Preserve signal-bearing subagent sidechains (currently no-op) [PENDING]
 
 - [COUNCIL-002 — `/council --plan <path>` scope](backlog/council-002-plan-scope.md) - Audit a plan file for unverified assumptions [PENDING]
