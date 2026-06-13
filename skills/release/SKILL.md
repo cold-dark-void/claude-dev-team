@@ -80,6 +80,15 @@ Read all three files and confirm the version string is identical in:
 
 If any mismatch: fix before proceeding.
 
+## Step 4.5: Include drift-check (pre-commit gate)
+
+Run:
+```bash
+python3 skills/agent-memory/sync-includes.py check
+```
+
+If it exits non-zero, the managed agent-memory include regions have drifted from the canonical partial (`skills/agent-memory/protocol.md`). **Do NOT commit or tag.** Fix the drift first (re-expand the drifted region to match the partial), then re-run until it exits 0.
+
 ## Step 5: Commit (one folded commit)
 
 Stage the version files **and the actual changed source files** — everything being

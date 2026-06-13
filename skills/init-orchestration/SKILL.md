@@ -402,9 +402,9 @@ LAST=$(cat "$DEDUP_FILE" 2>/dev/null || true)
 [ "$OBSERVATION" = "$LAST" ] && exit 0
 printf '%s' "$OBSERVATION" > "$DEDUP_FILE"
 
-sqlite3 "$MEMDB" \
-  "INSERT INTO memories(agent, type, content) VALUES (?, 'memory', ?);" \
-  "$AGENT" "$OBSERVATION" 2>/dev/null || true
+AGENT_ESC=$(printf '%s' "$AGENT" | sed "s/'/''/g")
+OBS_ESC=$(printf '%s' "$OBSERVATION" | sed "s/'/''/g")
+sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO memories(agent, type, content) VALUES ('$AGENT_ESC', 'memory', '$OBS_ESC');" 2>/dev/null || true
 
 exit 0
 ```

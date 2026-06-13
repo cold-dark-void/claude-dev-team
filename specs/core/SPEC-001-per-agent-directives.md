@@ -24,7 +24,7 @@ Persistent behavioral instructions for individual agents — project-specific st
 - MUST load directives BEFORE memory during session start — load order: (1) directives, (2) memory, (3) context
 - MUST frame directives as "standing orders for this project" that take priority over agent reasoning and memory
 - MUST NOT error when the file is absent or empty — use `cat ... 2>/dev/null` or equivalent silent fallback
-- MUST use ~3 lines of bash for loading, consistent across all 7 agents — placed after path resolution, before memory loading
+- MUST use ~3 lines of bash for loading, consistent across all 7 agents — placed after path resolution, before memory loading. The canonical directives-load-then-memory sequence lives in the managed-inline agent memory protocol (`skills/agent-memory/protocol.md`, "load directives (before memory)" then the tiered read of `skills/memory-recall` Step 2); see SPEC-006.
 - MUST NOT allow agent to override directives via its own reasoning — framing and load-first positioning are the enforcement mechanisms
 
 ### /adjust-agent Command
@@ -90,8 +90,10 @@ None — all ACs confirmed by user.
 | 2026-03-16 | Implemented and shipped in v0.15.0 |
 | 2026-03-23 | Reformatted for /reflect-specs compliance: added Category, Created, Covers, Overview, Test, Validation, Version History sections. Consolidated section-based requirements into bulleted MUST format. Status updated from Draft to ACTIVE. |
 | 2026-04-08 | Added `--apply` non-interactive mode MUST to enable automation callers (RETRO-001 / SPEC-012). Fail-fast on conflict preserves existing conflict-detection guarantee. |
+| 2026-06-13 | Cross-referenced the canonical directives-load-then-memory sequence to the managed-inline agent memory protocol (skills/agent-memory/protocol.md) and SPEC-006 Step 2 tiered read (AUDIT-P1-1). |
 
 ## Cross-references
 
 - SPEC-003: Agent Role System — 7 behavioral agents, directives in memory architecture
 - SPEC-005: Team Bootstrap — init-team outputs /adjust-agent hint
+- SPEC-006: Memory Retrieval — tiered session-start read that runs after directives load (directives → memory → context)
