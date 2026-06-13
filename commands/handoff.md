@@ -240,34 +240,16 @@ Proceed to Step 2 (cold mode).
 
 ## Step 2: Locate the engine + skill
 
-Resolve `prepass.sh` and `SKILL.md` the same way `commands/council.md` Step 1
-resolves its engine: try the dev/worktree path under `MROOT` first, then fall
-back to the installed plugin cache (`cold-dark-void/dev-team/<ver>/...`), then a
-broad cache search.
+Resolve `prepass.sh` and `SKILL.md` via the canonical plugin-dir locator.
 
 ```bash
-# Dev / worktree path first.
-PREPASS="$MROOT/skills/handoff/prepass.sh"
-SKILL="$MROOT/skills/handoff/SKILL.md"
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
+SKILL=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/SKILL.md)
 
 if [ ! -x "$PREPASS" ]; then
-  # Installed plugin cache (same pattern as council.md / retro.md).
-  PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null \
-    | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
-  BASE="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/handoff"
-  PREPASS="$BASE/prepass.sh"
-  SKILL="$BASE/SKILL.md"
-  if [ ! -x "$PREPASS" ]; then
-    PREPASS=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/handoff/prepass.sh" 2>/dev/null \
-      | sort -V | tail -1)
-    [ -n "$PREPASS" ] && SKILL="$(dirname "$PREPASS")/SKILL.md"
-  fi
-fi
-
-if [ ! -x "$PREPASS" ]; then
-  echo "error: skills/handoff/prepass.sh not found" >&2
-  echo "Expected: $MROOT/skills/handoff/prepass.sh" >&2
-  echo "      or: $HOME/.claude/plugins/cache/cold-dark-void/dev-team/<ver>/skills/handoff/prepass.sh" >&2
+  echo "error: skills/handoff/prepass.sh not found in the installed plugin cache" >&2
   exit 1
 fi
 ```

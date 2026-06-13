@@ -28,11 +28,9 @@ DIRECTIVES_BASE="$MROOT/.claude/memory"
 
 Resolve the plugin's install directory (for agent name validation):
 ```bash
-PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
-PLUGIN_AGENTS="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/agents"
-if [ -z "$PLUGIN_VER" ] || [ ! -d "$PLUGIN_AGENTS" ]; then
-  PLUGIN_AGENTS=$(find ~/.claude/plugins/cache -path "*/dev-team/*/agents/pm.md" 2>/dev/null | sort -V | tail -1 | xargs dirname 2>/dev/null)
-fi
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)
 ```
 
 ## Step 2: Parse arguments

@@ -30,13 +30,9 @@ echo "Memory DB:    $MEMDB"
 
 Resolve the plugin's install directory (where schema.sql and scripts live):
 ```bash
-# Find the current plugin version from plugin.json, then use that exact path
-PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/\\.claude-plugin/plugin.json 2>/dev/null | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
-PLUGIN_DIR="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/memory-store"
-if [ -z "$PLUGIN_VER" ] || [ ! -f "$PLUGIN_DIR/schema.sql" ]; then
-  # Fallback: find any version with schema.sql
-  PLUGIN_DIR=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/memory-store/schema.sql" 2>/dev/null | sort -V | tail -1 | xargs dirname 2>/dev/null)
-fi
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PLUGIN_DIR=$(bash "$PDH/skills/plugin-dir.sh" dir skills/memory-store/schema.sql)
 if [ -z "$PLUGIN_DIR" ] || [ ! -f "$PLUGIN_DIR/schema.sql" ]; then
   echo "WARNING: Could not find dev-team plugin memory-store skills. SQLite setup will be skipped."
   PLUGIN_DIR=""

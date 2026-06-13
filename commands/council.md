@@ -45,24 +45,12 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ## Step 1: Locate the engine
 
 ```bash
-# Try MROOT (dev / worktree path) first
-ENGINE_SH="$MROOT/skills/council/engine.sh"
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 
 if [ ! -x "$ENGINE_SH" ]; then
-  # Fall back to plugin cache (installed path), same pattern as commands/retro.md
-  PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null \
-    | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
-  ENGINE_SH="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/council/engine.sh"
-  if [ ! -x "$ENGINE_SH" ]; then
-    ENGINE_SH=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/council/engine.sh" 2>/dev/null \
-      | sort -V | tail -1)
-  fi
-fi
-
-if [ ! -x "$ENGINE_SH" ]; then
-  echo "error: skills/council/engine.sh not found" >&2
-  echo "Expected: $MROOT/skills/council/engine.sh" >&2
-  echo "      or: $HOME/.claude/plugins/cache/cold-dark-void/dev-team/<ver>/skills/council/engine.sh" >&2
+  echo "error: skills/council/engine.sh not found in the installed plugin cache" >&2
   exit 1
 fi
 ```

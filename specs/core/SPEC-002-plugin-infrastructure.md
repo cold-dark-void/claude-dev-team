@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.claude/settings.json`, `.claude/hooks/task-completed.sh`, `.claude/hooks/bash-compress.sh`, `.claude/hooks/memory-capture.sh`, `.claude/hooks/stop-review.sh`, `skills/scout-plugins/SKILL.md`
+**Covers**: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.claude/settings.json`, `.claude/hooks/task-completed.sh`, `.claude/hooks/bash-compress.sh`, `.claude/hooks/memory-capture.sh`, `.claude/hooks/stop-review.sh`, `skills/scout-plugins/SKILL.md`, `skills/plugin-dir.sh`
 
 ## Overview
 
@@ -70,10 +70,61 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 - `council.taskgate.min_confidence` — integer 0–100, default 80. Confidence threshold for the TaskCompleted council gate (see MUSTs above).
 - `council.feedback.fabricated_min` and `council.feedback.unverified_min` — owned by SPEC-013 Phase 7 (feedback memory thresholds); listed here for centralized settings reference only.
 
+### `plugin-dir.sh` CLI contract
+
+- MUST be a pure subprocess CLI — `bash skills/plugin-dir.sh <cmd> <relpath>` only; MUST NOT require sourcing; MUST NOT mutate the caller's shell
+- MUST support: `file <relpath>` (resolve+print an absolute path to a plugin file/dir), `dir <relpath>` (alias: print the parent dir of the resolved relpath)
+- Resolution order (3-tier, matching today's call-site semantics):
+  1. **Dev-checkout fast path:** if `$MROOT/<relpath>` exists (resolve `$MROOT` via the worktree-aware formula), print it
+  2. **Versioned cache:** `~/.claude/plugins/cache/<slug>/dev-team/<VER>/<relpath>` where `<VER>` is read from the cache's `plugin.json`
+  3. **Find fallback:** `find ~/.claude/plugins/cache -path "*/dev-team/*/<relpath>" | sort -V | tail -1` — MUST use `sort -V | tail -1` (highest version); MUST NOT use glob-first-match
+- MUST print ONLY the resolved absolute path to stdout on success; all diagnostics to stderr; stdout empty on non-zero exit
+- MUST exit: `0` = resolved, `3` = not found (no tier matched), `64` = usage error (missing/unknown subcommand or empty relpath)
+- The marketplace slug MUST be defined in exactly one place in this script (no per-caller hardcoded `cold-dark-void`)
+
+### Locating `plugin-dir.sh` itself
+
+The locator cannot locate itself: the collapsed form `bash skills/plugin-dir.sh file <relpath>` uses a path relative to cwd, and in an installed plugin the caller runs with the user's own project as cwd, where `skills/plugin-dir.sh` does not exist. Resolving the locator's own path is therefore irreducibly a per-site search (circular — there is no shipped bootstrap file, and no `--self` mode, both of which would re-pose the same problem). The bootstrap MUST be inline caller-side text.
+
+- Every skill/command site that resolves plugin files at runtime MUST emit the canonical bootstrap stanza below VERBATIM (byte-for-byte identical across all sites), then resolve all further plugin files through `$PDH/skills/plugin-dir.sh`:
+
+```bash
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+```
+
+- The stanza resolves **dev-checkout-first**: `[ -f skills/plugin-dir.sh ] && pwd` is the dev fast path (cwd is `$MROOT` when dogfooding this repo). Otherwise it does a **slug-free `sort -V` cache search**: `find … -path '*/dev-team/*/skills/plugin-dir.sh' | sort -V | tail -1` selects the highest cached version, and the two `xargs -r dirname` strip `.../skills/plugin-dir.sh` → `.../skills` → `.../<VER>` = PDH (the plugin root). `-r` guards the not-found case so PDH ends empty rather than `/`.
+- The bootstrap MUST be slug-free (searches `*/dev-team/*`, not `cold-dark-void`) and MUST use `sort -V` — the single sanctioned cache-search algorithm (D3), identical to the lib's own tier-3.
+- If `$PDH` is empty (no dev checkout, no install), `bash "$PDH/skills/plugin-dir.sh"` runs `bash /skills/plugin-dir.sh` → file-not-found → non-zero, empty stdout. The site's existing fail-mode (hard/warn/soft) then triggers exactly as today. This introduces no new failure path.
+
 ## SHOULD
 
 - SHOULD maintain keyword list in plugin.json for marketplace discovery
 - SHOULD report push failures clearly with manual fallback command when sandbox blocks git push
+- SHOULD let callers decide soft-skip vs hard-fail by inspecting exit code 3 (not found) — `plugin-dir.sh` itself MUST NOT exit the caller
+
+## MUST NOT
+
+- MUST NOT source `plugin-dir.sh` (subprocess only, matches `worktree-lib.sh` / `gate.sh` precedent)
+- MUST NOT use glob-first-match resolution anywhere — `sort -V | tail -1` is the single sanctioned version-resolution algorithm (D3)
+
+### Caller integration
+
+Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lines above), then the collapsed resolution call(s). Each site's existing fail-mode is preserved exactly. All 11 call sites:
+
+| # | Site | Collapsed form (after the `PDH=…` stanza) | Fail-mode |
+|---|------|-------------------------------------------|-----------|
+| 1 | `commands/retro.md` (assemble.py / freshness.sh) | `ASSEMBLE=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/assemble.py)`; `FRESHNESS=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/freshness.sh)` | soft |
+| 2 | `commands/retro.md` (gate.sh) | `GATE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/gate.sh)` | hard |
+| 3 | `commands/council.md` (engine.sh) | `ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)` | hard |
+| 4 | `commands/init-team.md` (memory-store dir) | `PLUGIN_DIR=$(bash "$PDH/skills/plugin-dir.sh" dir skills/memory-store/schema.sql)` | warn+continue |
+| 5 | `commands/adjust-agent.md` (agents dir) | `PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)` | soft |
+| 6 | `commands/handoff.md` (prepass.sh / SKILL.md) | `PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)`; `SKILL=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/SKILL.md)` | hard |
+| 7 | `skills/kickoff/SKILL.md` (retro-gate hint) | `bash "$PDH/skills/retro-gate/hint.sh" 2>/dev/null \|\| true` (hint self-locates gate.sh) | soft |
+| 8 | `skills/orchestrate/SKILL.md` (retro-gate hint) | `bash "$PDH/skills/retro-gate/hint.sh" 2>/dev/null \|\| true` (hint self-locates gate.sh) | soft |
+| 9 | `skills/review-commit/SKILL.md` (engine.sh) | `ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)` | hard |
+| 10 | `skills/scaffold-project/SKILL.md` (schema.sql) | `SCHEMA=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/schema.sql)` (replaces glob-first) | guarded |
+| 11 | `skills/init-orchestration/SKILL.md` (schema.sql) | `SCHEMA=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/schema.sql)` (replaces glob-first; WAL probe retained) | guarded |
 
 ## Test
 
@@ -82,6 +133,12 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 - Verify TaskCompleted hook exits 2 on malformed JSON, exits 0 on valid JSON
 - Verify hook skips validation when files are missing (no false failures)
 - Verify settings.json contains required sandbox, permissions, and hook entries
+- `plugin-dir.sh` resolved-in-dev — with cwd = this repo checkout, `file <relpath>` returns the dev-checkout path (`$MROOT/<relpath>`), exits 0
+- `plugin-dir.sh` resolved-from-cache — no dev checkout for the relpath, one cached version: `file <relpath>` returns the cached path, exits 0
+- `plugin-dir.sh` two-versions-picks-highest — two cached versions present: `file <relpath>` resolves the path under the **highest** version (`sort -V | tail -1`), never glob-first
+- `plugin-dir.sh` not-found — no tier matches: exit 3, stdout empty
+- `plugin-dir.sh` slug-defined-once — the marketplace slug literal appears in exactly one place in the script
+- Consumer-mode resolution — no dev checkout present (cwd is a foreign project), two plugin versions cached: the bootstrap stanza + `plugin-dir.sh` together resolve the requested file from the **highest** cached version; PDH is non-empty and slug-free
 
 ## Validation
 
@@ -106,6 +163,7 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 | 2026-04-09 | Defined task-metadata read path: hook MUST read `$MROOT/.claude/tasks/<task_id>.json` (resolved via `git rev-parse --git-common-dir`) to determine `requires_council`. Missing file or `requires_council: false`/absent → silent no-op; `requires_council: true` → proceeds to the council index gate. Per-task metadata file is written by SPEC-009 orchestrator. |
 | 2026-04-09 | Stdin-authoritative correction (post-Task-1 spike): inverted task-id transport priority. Hook MUST read `task_id` from stdin JSON (the channel Claude Code itself uses) as the primary source; `CLAUDE_TASK_ID` env var demoted to fallback for non-native invocations only. Recorded the verified stdin payload shape (task_id/task_subject/task_description/hook_event_name/session_id/transcript_path/cwd) and closed the transport Open Question. Orchestrator-side `CLAUDE_TASK_ID` export in SPEC-009 remains valid — it governs the separate `/council` subprocess path, not the hook. See `.claude/plans/2026-04-09-taskcompleted-hook-spike.md`. |
 | 2026-04-26 | Added MUST coverage for three previously-undocumented hooks: `bash-compress.sh` (PreToolUse output compression), `memory-capture.sh` (PostToolUse Write/Edit memory write), `stop-review.sh` (Stop hook uncommitted-change reminder). Updated Covers field. |
+| 2026-06-12 | SPEC-002: plugin-dir.sh CLI contract added — single version-resolution algorithm (sort -V), dev-checkout fast path, replaces ~15 hand-rolled locators (AUDIT-P1-3) |
 
 ## Cross-references
 
@@ -114,3 +172,4 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 - SPEC-005: Team Bootstrap — init-orchestration writes/merges settings.json, sets AGENT_TEAMS env var
 - SPEC-013: Adversarial Council Tribunal — defines council verdicts, confidence taxonomy, and `requires_council` opt-in; TaskCompleted hook enforces verdict gate
 - SPEC-009: Ticket Workflow — orchestrated tasks MAY set `requires_council: true` metadata, enforced by this spec's hook
+- SPEC-016: Worktree Isolation — subprocess-CLI precedent (`worktree-lib.sh`); `plugin-dir.sh` mirrors its contract shape and `$MROOT` worktree-aware resolution formula

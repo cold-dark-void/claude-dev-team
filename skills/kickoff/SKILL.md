@@ -429,15 +429,9 @@ has accumulated enough friction to warrant a retrospective. This check is
 entirely non-blocking: if anything fails, print nothing and move on.
 
 ```bash
-# Locate gate.sh via plugin version lookup
-PLUGIN_VER=$(cat ~/.claude/plugins/cache/cold-dark-void/dev-team/*/.claude-plugin/plugin.json 2>/dev/null | grep -o '"version": *"[^"]*"' | tail -1 | grep -o '[0-9][0-9.]*')
-GATE_SH="$HOME/.claude/plugins/cache/cold-dark-void/dev-team/${PLUGIN_VER}/skills/retro-gate/gate.sh"
-if [ ! -x "$GATE_SH" ]; then
-  GATE_SH=$(find ~/.claude/plugins/cache -path "*/dev-team/*/skills/retro-gate/gate.sh" 2>/dev/null | sort -V | tail -1)
-fi
-
-HINT_SH="$(dirname "$GATE_SH")/hint.sh"
-bash "$HINT_SH" "$GATE_SH" 2>/dev/null || true
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+bash "$PDH/skills/retro-gate/hint.sh" 2>/dev/null || true
 ```
 
 Rules:

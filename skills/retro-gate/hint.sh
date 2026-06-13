@@ -5,13 +5,18 @@
 # Resolves the current session JSONL, runs gate.sh, and prints a /retro
 # suggestion to stdout when the gate passes. Always exits 0. Never blocks.
 #
-# Usage: bash skills/retro-gate/hint.sh <GATE_SH>
-#   where GATE_SH is the absolute path to skills/retro-gate/gate.sh
-#   (the caller already has this from its own PLUGIN_VER lookup).
+# Self-locates gate.sh as a sibling of this script via BASH_SOURCE.
+# No positional argument required.
+#
+# Usage: bash skills/retro-gate/hint.sh
+#   (or via PDH bootstrap: bash "$PDH/skills/retro-gate/hint.sh")
+#
+# Optional: pass an explicit gate.sh path as $1 to override the sibling default.
 
 set -u
 
-GATE_SH="${1:-}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GATE_SH="${1:-$SELF_DIR/gate.sh}"
 if [ -z "$GATE_SH" ] || [ ! -x "$GATE_SH" ]; then
   exit 0
 fi

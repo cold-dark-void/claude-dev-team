@@ -667,13 +667,9 @@ MEMDB=".claude/memory/memory.db"
 If sqlite3 is available and the DB does not yet exist, initialize it:
 ```bash
 if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
-  # Locate schema from plugin install cache
-  SCHEMA=""
-  for d in ~/.claude/plugins/cache/*/dev-team/*/skills/memory-store/schema.sql; do
-    [ -f "$d" ] && SCHEMA="$d" && break
-  done
-  # Fallback: try relative to project root (dev on the plugin itself)
-  [ -z "$SCHEMA" ] && SCHEMA="$(git rev-parse --show-toplevel 2>/dev/null)/skills/memory-store/schema.sql"
+  # Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+  PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+  SCHEMA=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/schema.sql)
   if [ -f "$SCHEMA" ]; then
     sqlite3 "$MEMDB" < "$SCHEMA"
 
