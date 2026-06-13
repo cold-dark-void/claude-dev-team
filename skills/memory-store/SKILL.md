@@ -96,7 +96,7 @@ Use this branch when `USE_DB=false` (DB file absent or sqlite3 not installed).
 ```bash
 AGENT_MEM="$MROOT/.claude/memory/<AGENT>"
 mkdir -p "$AGENT_MEM"
-cat > "$AGENT_MEM/<TYPE>.md" << 'EOF'
+cat >> "$AGENT_MEM/<TYPE>.md" << 'EOF'
 <content>
 EOF
 echo "[memory-store] DB unavailable — writing to .md fallback."

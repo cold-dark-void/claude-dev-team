@@ -23,6 +23,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 ### Kickoff
 - MUST spawn three agents in parallel: PM, Tech Lead, Codebase Explorer (no sequential waiting)
 - MUST collect all three outputs before proceeding to planning
+- MUST include the line `Output mode: terse` in every agent-spawn prompt template (kickoff and orchestrate own the spawn templates) — mirrors SPEC-003 MC-4; `/reflect-specs` flags any spawn template missing it
 - MUST pause kickoff and present unresolved questions to user if PM found >4 open questions (do not plan against vague ticket)
 - MUST escalate if Tech Lead identifies breaking schema change
 - MUST write or update spec BEFORE creating task graph (spec-first principle)
@@ -64,7 +65,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST block wrap if any tasks are in-progress or pending (unless user force-closes)
 - MUST extract learnings from agent context files (limit to 3-8 specific bullets)
 - MUST append learnings to existing memory (never overwrite)
-- MUST warn if memory file exceeds 150 lines (suggest consolidation)
+- MUST warn if any memory file exceeds its SPEC-004 line limit (cortex 100/memory 50/lessons 80/context 60), suggesting consolidation
 - MUST check if distillation should auto-trigger based on config and raw memory count
 - MUST skip plan update silently if plans.md doesn't exist
 - MUST NOT remove worktree if it has uncommitted changes
@@ -125,6 +126,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 | 2026-04-09 | Added `CLAUDE_TASK_ID` export MUST in Orchestrate section — orchestrator propagates task id to spawned `/council` subprocesses via env var, per SPEC-013 Phase 6 verdict-to-task binding contract. |
 | 2026-04-09 | Added per-task metadata storage contract: orchestrator MUST write/update `.claude/tasks/<task_id>.json` at TaskCreate and on every TaskUpdate (atomic write, never deleted), with `requires_council` field read by the SPEC-002 TaskCompleted hook. `$MROOT` resolved worktree-aware so task store is shared across worktrees. |
 | 2026-04-28 | Changed task store key from raw integer to compound `<ISSUE-ID>-<task_id>` (e.g. `CDV-QF-FILTER-1.json`) — `TaskCreate` integers reset to 1 for each new Claude process, causing cross-run collisions via upsert. Hook updated to fall back to `*-<task_id>.json` glob (most-recently-modified) when flat-key file not found. |
+| 2026-06-13 | Mirrored SPEC-003 MC-4: Kickoff/Orchestrate spawn templates MUST include `Output mode: terse`. Fixed the memory-file warn threshold — was "exceeds 150 lines", now "exceeds its SPEC-004 line limit (cortex 100/memory 50/lessons 80/context 60)", reconciling the conflict with SPEC-004:29 (AUDIT-P1-1). |
 
 ## Cross-references
 

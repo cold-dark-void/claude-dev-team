@@ -131,21 +131,32 @@ Append a new section:
 ...
 ```
 
-Write back:
+Write back — **append-only** (matches `skills/agent-memory/protocol.md` / `skills/memory-store`
+Step 2). wrap-ticket appends ONE consolidated learnings doc per wrap; the table has no unique
+key, so `INSERT OR REPLACE` would just append a duplicate every time. Append-only is correct —
+distillation (`/memory-distill`) compresses older rows later.
 ```bash
-CONTENT="<full updated memory content>"
+CONTENT="<the new learnings section only (## <TICKET-ID> learnings …) — NOT the full re-read>"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  ESCAPED=$(echo "$CONTENT" | sed "s/'/''/g")
-  sqlite3 "$MEMDB" "INSERT OR REPLACE INTO memories(agent, type, content, updated_at) VALUES ('claude', 'memory', '$ESCAPED', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
+  ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
+  MEMORY_ID=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+    INSERT INTO memories(agent, type, content) VALUES ('claude', 'memory', '$ESCAPED');
+    SELECT last_insert_rowid();")
+  # Best-effort embedding — silently skips when extensions absent (SPEC-004:36). embed-one.sh
+  # is a sibling of skills/memory-store/; resolve it (dev checkout first, else installed cache).
+  EMB=$( [ -f skills/memory-store/embed-one.sh ] && echo skills/memory-store/embed-one.sh \
+    || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/memory-store/embed-one.sh' 2>/dev/null | sort -V | tail -1 )
+  [ -n "$EMB" ] && [ -n "$MEMORY_ID" ] && bash "$EMB" "$MEMDB" "$MEMORY_ID" "$CONTENT" 2>/dev/null || true
 else
-  cat > "$MROOT/.claude/memory/claude/memory.md" << MEMEOF
+  # Fallback: append to .md (NEVER truncate — append-only contract, SPEC-004)
+  cat >> "$MROOT/.claude/memory/claude/memory.md" << MEMEOF
 $CONTENT
 MEMEOF
 fi
 ```
 
-If the memory file is getting long (>150 lines), note:
-`Memory file is >150 lines — consider consolidating older entries.`
+If the memory file exceeds its SPEC-004 line limit (memory: 50 lines), note:
+`Memory file exceeds its SPEC-004 limit — run /memory-distill to compress older entries.`
 
 ---
 
