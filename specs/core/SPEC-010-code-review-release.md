@@ -41,6 +41,8 @@ Quality gates and shipping. The review-commit skill delegates to the adversarial
 - MUST exclude `chore: release` commits from changelog generation
 - MUST group related commits into single changelog bullets (not one line per commit)
 - MUST add new changelog section at top of `## Changelog` section in README.md
+- MUST run the managed-include drift-gate before committing/tagging a release: `python3 skills/agent-memory/sync-includes.py check`. If it exits non-zero, a managed `<!-- include: -->` region (currently the agent-memory protocol expanded across the 7 agents, per `skills/agent-memory/protocol.md`) has drifted from its canonical partial — MUST NOT commit or tag; fix the drift (re-expand the region to match the partial) and re-run until it exits 0.
+- The drift-gate covers only managed-include regions (markers present). It does NOT cross-check AGENTS.md against the emitted consumer template — those are intentionally distinct documents (SPEC-005), with no managed-include relationship.
 
 ## SHOULD
 
@@ -55,6 +57,7 @@ Quality gates and shipping. The review-commit skill delegates to the adversarial
 - Verify release updates all three version files identically
 - Verify release auto-detects patch vs minor from commit messages
 - Verify changelog excludes `chore: release` commits
+- Verify `/release` aborts (no commit/tag) when `sync-includes.py check` exits non-zero (drifted managed-include region), and proceeds when it exits 0
 
 ## Validation
 
@@ -78,6 +81,7 @@ Quality gates and shipping. The review-commit skill delegates to the adversarial
 | 2026-04-09 | Refactored `/review-commit` to delegate to the council engine (SPEC-013) with `preset: diff-mode`. 5 specialists now loaded as flavor presets from `skills/council/flavors/`. Behavioral contracts (JSON schema, 80-confidence threshold, severity levels, no-hedging, file:line, concrete fixes) preserved as engine preset requirements. Added MUST NOT clause forbidding a parallel adversarial pipeline. |
 | 2026-04-09 | Taxonomy resolution: reframed findings schema as diff-mode preset emission of SPEC-013's `finding[]` output shape; clarified spec-grep runs at diff-mode intake feeding Phase 1 (not a pre-Phase-1 hook); clarified optional report path triggers a post-engine copy of the canonical council report; forbade diff-mode from invoking Phase 7 feedback memory; recorded engine invariants apply to findings as to verdicts. |
 | 2026-04-09 | Path drift fix: corrected flavor preset directory from `skills/dev-team:council/flavors/` to `skills/council/flavors/` (filesystem path carries no `dev-team:` namespace prefix). No behavioral change. |
+| 2026-06-13 | AUDIT-P1-1B: anchored the managed-include drift-gate (`sync-includes.py check`, shipped v0.32.0 in `skills/release/SKILL.md` Step 4.5) as a Release MUST — it was previously specced nowhere. Scoped it to managed-include regions only; clarified it does NOT cross-check AGENTS.md vs the emitted template (SPEC-005 distinctness). |
 
 ## Cross-references
 
