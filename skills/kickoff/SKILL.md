@@ -279,7 +279,8 @@ is decorative/no-op, so the design never quietly relies on an unverified behavio
 - Affected files: <list from Step 2>
 - Relevant cross-refs: <existing specs>
 
-Use MUST/SHOULD/MUST NOT language. Save to specs/core/SPEC-NNN-<slug>.md.
+Follow the SPEC-008 format contract (required sections, status taxonomy, index columns).
+Save to specs/core/SPEC-NNN-<slug>.md.
 Cross-reference any specs that constrain this one.
 ```
 

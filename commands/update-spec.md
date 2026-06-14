@@ -82,8 +82,8 @@ Only applies to **ADDED** or **MODIFIED** requirements (not removals).
 
 ### Step 5: Update TDD.md
 Update `specs/TDD.md`:
-1. Change status in Quick Status Table to `🔄 UPDATED` if not already
-2. Add entry to Version History table at bottom with affected spec IDs
+1. Change the Status column in the `## Spec Index` table to the appropriate lifecycle word (`DRAFT`, `ACTIVE`, `APPROVED`, or `DEPRECATED`) if the update changes the spec's lifecycle state.
+2. Add an entry to the `## Version History` table at bottom with affected spec IDs (`| Date | Change |` format).
 
 ## Version History Entry Format
 
@@ -92,9 +92,9 @@ Add to the spec's Version History table:
 | <YYYY-MM-DD> | <Brief description of change> |
 ```
 
-Add to TDD.md Version History:
+Add to TDD.md `## Version History` table:
 ```markdown
-| <YYYY-MM-DD> | <Brief description> | <SPEC-ID> |
+| <YYYY-MM-DD> | <Brief description> (<SPEC-ID>) |
 ```
 
 ## Important Notes

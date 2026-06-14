@@ -61,55 +61,49 @@ Find the next available ID by scanning existing specs in `specs/<category>/`:
 - For architecture: Find highest ARCH-XXX number, increment
 
 ### Step 4: Create Spec File
-Create the spec file at `specs/<category>/<ID>-<kebab-case-title>.md` with this format:
+Create the spec file at `specs/<category>/<ID>-<kebab-case-title>.md` with the canonical 9-section skeleton below.
 
+When producing a real spec file:
+- Render the literal `<STATUS>` token as `DRAFT` (new specs start at DRAFT in the lifecycle: INFERRED → DRAFT → ACTIVE → APPROVED → DEPRECATED).
+- Fill `<PREFIX>-<NNN>` (e.g. `SPEC-019`), `<Title>`, `<YYYY-MM-DD>` (today's date), and replace each `<…>` placeholder with content from the Step 1 interview.
+- DO NOT copy the `<!-- include: … -->` / `<!-- /include -->` marker lines into the produced spec file — they are build-time directives only (and sit OUTSIDE the fenced template, so a verbatim copy of the ```markdown block already excludes them).
+
+<!-- include: skills/spec-tooling/spec-skeleton.md agent=spec -->
 ```markdown
-# <ID>: <Title>
+# <PREFIX>-<NNN>: <Title>
 
-**Status**: 🚧 NEW
-**Category**: <Category>
+**Status**: <STATUS>
+**Category**: core
 **Created**: <YYYY-MM-DD>
-
----
 
 ## Overview
 
-<Brief description of what this spec covers>
-
----
+<One paragraph: what behavior this spec governs and why it exists.>
 
 ## MUST
 
-<Bulleted list of required behaviors - these are the contract>
-
----
+- MUST <one concrete, testable requirement>
 
 ## Test
 
-<Concrete test steps to verify the MUST requirements>
-
----
+- [ ] <one concrete check verifying a MUST requirement above>
 
 ## Validation
 
-<Checkbox list for manual verification>
-- [ ] <Validation item 1>
-- [ ] <Validation item 2>
-
----
+- [ ] Spec reviewed and promoted to ACTIVE
 
 ## Version History
 
 | Date | Change |
 |------|--------|
-| <YYYY-MM-DD> | Initial spec created |
+| <YYYY-MM-DD> | Initial version |
 ```
+<!-- /include -->
 
 ### Step 5: Update TDD.md Index
 Add the new spec to `specs/TDD.md`:
-1. Add row to Quick Status Table (alphabetically by ID within category)
-2. Add to appropriate Navigation by Category section
-3. Add entry to Version History table at bottom
+1. Add a row to the `## Spec Index` table (keep IDs in ascending order within category). Use columns `| ID | Title | Status | Coverage |` — set Status to `DRAFT` for a newly-created spec.
+2. Add an entry to the `## Version History` table at bottom (`| Date | Change |` format).
 
 ## Important Notes
 

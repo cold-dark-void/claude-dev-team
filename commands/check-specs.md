@@ -26,9 +26,9 @@ Run implementation validation for a specific spec against actual source code.
 Run these checks on all spec files in `specs/`:
 
 #### Format Compliance
-For each spec file, verify:
+These 9 checks enforce the **SPEC-008 Spec Format contract** (see `specs/core/SPEC-008-spec-management.md § Spec Format`). For each spec file, verify:
 - [ ] Has `# <ID>: <Title>` header
-- [ ] Has `**Status**:` line with valid status
+- [ ] Has `**Status**:` line — value MUST be one of the lifecycle states: `INFERRED`, `DRAFT`, `ACTIVE`, `APPROVED`, or `DEPRECATED` (or `INFERRED — …` prefix form)
 - [ ] Has `**Category**:` line
 - [ ] Has `**Created**:` date line
 - [ ] Has `## Overview` section
@@ -43,10 +43,10 @@ For each spec file, verify:
 - [ ] Validation checkboxes exist
 
 #### Index Integrity (TDD.md)
-- [ ] All spec files are listed in Quick Status Table
+- [ ] All spec files are listed in the `## Spec Index` table (canonical columns: `| ID | Title | Status | Coverage |`)
 - [ ] All links in TDD.md point to existing files
 - [ ] No orphaned spec files (files not in TDD.md)
-- [ ] Status badges match between TDD.md and spec files
+- [ ] Status values in TDD.md `Status` column match the spec file's `**Status**:` line
 
 ---
 
