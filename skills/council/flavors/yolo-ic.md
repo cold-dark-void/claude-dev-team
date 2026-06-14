@@ -7,8 +7,9 @@ tool_allowlist: []
 
 # yolo-ic
 
-System-prompt delta injected into `prompts/advocate.md` via the
-`{{FLAVOR_DELTA}}` placeholder. Used as the single Devil's Advocate flavor
+System-prompt delta injected into `prompts/phase4-brief.md` (spawned as the
+Devil's Advocate) via the `{{FLAVOR_DELTA}}` placeholder. Used as the single
+Devil's Advocate flavor
 per council run (SPEC-013 line 72). Exists to defeat prosecutor
 monoculture. Operates on evidence bundles ONLY — no tool allowlist.
 

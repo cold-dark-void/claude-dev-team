@@ -17,12 +17,16 @@
 #   - A var in the source but not in the prompt table  -> DEAD SUBSTITUTION /
 #     documented var with no backing declaration.
 #
-# Covered prompts: claim-extractor, investigator, cross-reviewer, judge.
+# Covered prompts: claim-extractor, investigator, cross-reviewer, phase4-brief,
+# judge.
 #
-# DEFERRED (intentionally NOT checked): prosecutor, advocate. Their variable
-# contract is entangled with a Phase-4 blind-input contradiction deferred to
-# AUDIT-P1-4C. This gate logs them explicitly so its coverage is never silently
-# overstated (no-silent-caps discipline).
+# phase4-brief.md is the merged Phase-4 template (AUDIT-P1-4C-1) that replaced
+# the former prosecutor.md + advocate.md. It is referenced in council.md TWICE
+# (the Prosecutor spawn and the Devil's Advocate spawn) — both substitution
+# blocks name the SAME var set with different values. council_subs() therefore
+# collects the UNION of {{VARS}} across ALL substitution blocks naming a given
+# prompt (see its comment), so a multi-spawn template is validated against every
+# block, not just the first.
 #
 # Exit 0  -> all covered prompts match in BOTH sources.
 # Exit 1  -> at least one covered prompt drifted (readable diff printed).
@@ -42,13 +46,13 @@ COUNCIL="$ROOT/commands/council.md"
 SKILL="$ROOT/skills/council/SKILL.md"
 PROMPT_DIR="$ROOT/skills/council/prompts"
 
-COVERED="claim-extractor investigator cross-reviewer judge"
-DEFERRED="prosecutor advocate"
+COVERED="claim-extractor investigator cross-reviewer phase4-brief judge"
+DEFERRED=""
 
-# Loud, unmissable note: coverage is partial by design.
-echo "NOTE: council template-var gate DEFERS (does not check): ${DEFERRED}" >&2
-echo "NOTE:   -> their var contract is entangled with a Phase-4 blind-input" >&2
-echo "NOTE:      contradiction deferred to AUDIT-P1-4C." >&2
+# Loud, unmissable note ONLY when coverage is partial by design (no-silent-caps).
+if [ -n "$DEFERRED" ]; then
+  echo "NOTE: council template-var gate DEFERS (does not check): ${DEFERRED}" >&2
+fi
 
 for f in "$COUNCIL" "$SKILL"; do
   if [ ! -f "$f" ]; then
@@ -70,12 +74,21 @@ prompt_vars() {
 }
 
 # Extract the {{VARS}} commands/council.md SUBSTITUTES for a given prompt.
-# The substitution block runs from the `prompt: skills/council/prompts/<name>.md`
+# A substitution block runs from a `prompt: skills/council/prompts/<name>.md`
 # line up to (and not including) the next code-fence line (```).
+#
+# UNION across ALL such blocks: a prompt may be spawned multiple times (e.g.
+# phase4-brief.md as both Prosecutor and Devil's Advocate). Each `prompt:`
+# line for <name> re-arms collection (`grab=1`), so the {{VARS}} from every
+# matching block are gathered and sort -u'd into one set. Both phase4-brief
+# blocks name the identical var set, so the union equals each block's set;
+# collecting the union is the robust choice whether the two spawns share one
+# fenced block or are split into two.
 council_subs() {
   local name="$1"
   awk -v name="$name" '
-    # Match the prompt: line for this exact prompt (allow leading whitespace).
+    # Match a prompt: line for this exact prompt (allow leading whitespace).
+    # Re-arms on every matching block -> union across all spawns of <name>.
     $0 ~ ("prompt:[[:space:]]*skills/council/prompts/" name "\\.md") { grab=1; next }
     grab && /^[[:space:]]*```/ { grab=0 }
     grab { print }

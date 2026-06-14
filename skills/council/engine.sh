@@ -240,7 +240,7 @@ cmd_preflight() {
         "1_claim_extraction": { skip: ($scope == "claim"), prompt: "skills/council/prompts/claim-extractor.md" },
         "2_parallel_investigation": { min_flavors_per_claim: 2, prompt: "skills/council/prompts/investigator.md" },
         "3_domain_specialist": { deferred: true },
-        "4_prosecution_defense": { prosecutor: "skills/council/prompts/prosecutor.md", advocate: "skills/council/prompts/advocate.md" },
+        "4_prosecution_defense": { prosecutor: { prompt: "skills/council/prompts/phase4-brief.md", role: "Prosecutor", evidence_field: "evidence_against", flavor: "jaded-senior" }, advocate: { prompt: "skills/council/prompts/phase4-brief.md", role: "Devil\u0027s Advocate", evidence_field: "evidence_for", flavor: "yolo-ic" } },
         "5_judgment": { agent: "council-judge", prompt: "skills/council/prompts/judge.md" },
         "6_finalize": { invoke: "engine.sh finalize --plan-file <p> --evidence-file <e> --judge-output <j>" }
       }

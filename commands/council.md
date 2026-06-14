@@ -239,8 +239,15 @@ Spawn exactly one Prosecutor and one Devil's Advocate in parallel:
 Prosecutor:
   description: "Prosecute claims against evidence"
   subagent_type: "general-purpose"
-  prompt: skills/council/prompts/prosecutor.md
+  prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
+      {{ROLE}}             ← "Prosecutor"
+      {{ROLE_BIAS}}        ← "You prosecute. Your default prior is the claim is
+                             FALSE until the bundles overwhelmingly prove
+                             otherwise. Be brutal: strike anything vague,
+                             paraphrased, or that merely 'sounds right'. Demand
+                             receipts."
+      {{EVIDENCE_FIELD}}   ← "evidence_against"
       {{EVIDENCE_BUNDLES}} ← Borda-ranked evidence bundles from Phase 2.5
                              (or Phase 2 if Phase 2.5 was bypassed) — raw,
                              no narrative
@@ -249,8 +256,16 @@ Prosecutor:
 Devil's Advocate:
   description: "Defend claims with evidence"
   subagent_type: "general-purpose"
-  prompt: skills/council/prompts/advocate.md
+  prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
+      {{ROLE}}             ← "Devil's Advocate"
+      {{ROLE_BIAS}}        ← "You defend, to prevent prosecutor monoculture.
+                             Your bias is FOR the claim: look for any defensible
+                             reading of the bundles that supports it, leaning
+                             VERIFIED or PARTIALLY_VERIFIED. But concede when the
+                             bundles truly contradict the claim — a dishonest
+                             advocate is worse than no advocate."
+      {{EVIDENCE_FIELD}}   ← "evidence_for"
       {{EVIDENCE_BUNDLES}} ← Borda-ranked evidence bundles from Phase 2.5
                              (or Phase 2 if Phase 2.5 was bypassed) — raw,
                              no narrative
@@ -258,7 +273,9 @@ Devil's Advocate:
 ```
 
 Both roles receive evidence bundles only — not the original claims, not each
-other's output, not prior narrative.
+other's output, not prior narrative. They are BLIND to the original claim
+list and reconstruct the claims under audit from the `claim_id` carried inside
+each bundle.
 
 Collect: prosecutor brief, advocate brief.
 
