@@ -28,7 +28,7 @@ if ! command -v sqlite3 &>/dev/null; then
 fi
 
 # Check schema_version — exit early if already v3
-CURRENT_VERSION=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo "")
+CURRENT_VERSION=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo "")
 if [ "$CURRENT_VERSION" = "3" ]; then
   echo "Schema already at v3. Nothing to do."
   exit 0
@@ -40,7 +40,7 @@ if [ "$CURRENT_VERSION" != "2" ]; then
 fi
 
 # Count existing memories for summary
-ROW_COUNT=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
+ROW_COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
 
 # Run migration inside a transaction
 sqlite3 "$MEMDB" <<'SQL'
