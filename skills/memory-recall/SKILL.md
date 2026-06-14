@@ -124,11 +124,12 @@ WHERE e.embedding MATCH lembed('$MODEL_PATH', '<QUERY>')
 ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 
-elif [ "$EMBED_MODE" = "remote" ]; then
+elif [ "$EMBED_MODE" = "remote" ] && \
+     DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';") && \
+     [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
   EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';")
   EMBED_KEY="${EMBEDDING_API_KEY:-}"
   EMBED_MODEL="${EMBEDDING_MODEL:-}"
-  DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
   VEC_TABLE="vec_memories_${DIMS}"
 
   # Build curl args — auth header via config file to avoid leaking in ps aux

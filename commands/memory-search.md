@@ -89,9 +89,9 @@ else
 
   DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';" 2>/dev/null)
 
-  if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && [[ "$DIMS" =~ ^[0-9]+$ ]]; then
+  if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
     SEARCH_MODE="semantic/lembed"
-  elif [ "$EMBED_MODE" = "remote" ] && [[ "$DIMS" =~ ^[0-9]+$ ]]; then
+  elif [ "$EMBED_MODE" = "remote" ] && [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
     EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
     [ -n "$EMBED_URL" ] && SEARCH_MODE="semantic/remote" || SEARCH_MODE="keyword"
   else
