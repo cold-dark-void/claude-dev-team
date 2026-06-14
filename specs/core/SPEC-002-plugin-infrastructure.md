@@ -15,7 +15,7 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
 - MUST maintain three version-synced files: `plugin.json`, `marketplace.json`, and `README.md` changelog — all three MUST contain semantically identical versions (format may differ: `X.Y.Z` in JSON fields, `vX.Y.Z` in changelog headings and git tags)
 - MUST use semantic versioning (MAJOR.MINOR.PATCH) for all version fields
 - MUST use format: no `v` prefix in plugin.json/marketplace.json version fields, `v` prefix for git tags and README changelog headings
-- MUST include a `TaskCompleted` hook in `.claude/settings.json` that runs `bash .claude/hooks/task-completed.sh`
+- MUST include a `TaskCompleted` hook in `.claude/settings.json` that runs `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"`
 - MUST validate both `plugin.json` and `marketplace.json` as parseable JSON before allowing task completion (exit code 2 on failure)
 - MUST send hook error output to stderr, not stdout
 - MUST skip validation for missing files (only validate files that exist)
@@ -174,6 +174,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-04-26 | Added MUST coverage for three previously-undocumented hooks: `bash-compress.sh` (PreToolUse output compression), `memory-capture.sh` (PostToolUse Write/Edit memory write), `stop-review.sh` (Stop hook uncommitted-change reminder). Updated Covers field. |
 | 2026-06-12 | SPEC-002: plugin-dir.sh CLI contract added — single version-resolution algorithm (sort -V), dev-checkout fast path, replaces ~15 hand-rolled locators (AUDIT-P1-3) |
 | 2026-06-13 | SPEC-002: declared the three authoritative project-root resolution contexts (shared-root via git-common-dir; working-tree-root via show-toplevel; cwd-anchored single-root for bootstrap skills) — single-sources the root-resolution contract (AUDIT-P1-2, doc-only) |
+| 2026-06-14 | AUDIT-P0.12: TaskCompleted-hook registration command changed to the worktree-safe `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"` form (relative path fired from arbitrary agent cwd and failed inside worktrees). Direct test-checklist invocation (run from project root) stays relative. |
 
 ## Cross-references
 
