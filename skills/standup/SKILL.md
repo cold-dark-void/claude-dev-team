@@ -41,7 +41,7 @@ Read both views of task state and reconcile them:
    ```bash
    for f in "$MROOT"/.claude/tasks/*.json; do
      [ -f "$f" ] || continue
-     jq -r '[.id, .status, .owner // "—", .subject // ""] | @tsv' "$f"
+     jq -r '[.task_id, .status, .subject // ""] | @tsv' "$f"
    done
    ```
 
