@@ -144,7 +144,7 @@ Engine renders the canonical report via
 
 Read the judge's finding[] output and print it in this exact structure. Omit
 empty sections. Every heading, label, and bracket-confidence annotation is
-load-bearing — user muscle memory and Task 15's snapshot test depend on it.
+load-bearing — user muscle memory depends on it.
 
 ```
 ## Critical Issues (Must Fix) [confidence 95-100]

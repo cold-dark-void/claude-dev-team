@@ -128,8 +128,12 @@ Preset selection:
 2. Otherwise inferred from scope: `--diff` → `diff-mode`; everything else →
    `generic`
 
-Preset schema (each preset file lives at `skills/council/presets/<name>.md`
-with YAML frontmatter; the diff-mode preset is authored in T9):
+There is no `skills/council/presets/` directory. Presets are not files:
+`engine.sh` resolves them via a hardcoded `case` statement (the `generic` and
+`diff-mode` arms) and emits the resolved field values into the investigation
+plan JSON it hands to the orchestrating Claude. That `case` is the
+**authoritative source of preset values** — the fields below document what the
+resolution emits into the plan, not a file format:
 
 | Field | Type | Description |
 |---|---|---|
@@ -275,6 +279,53 @@ evidence_bundle := {
 as "no evidence collected" for that claim. The engine MUST NOT accept a
 bundle that paraphrases a tool output instead of inlining the raw blob.
 (SPEC-013 line 59.)
+
+### Phase 2.5 — Blind Cross-Review
+
+Anonymized peer-ranking of the Phase 2 evidence bundles by the investigators
+themselves, aggregated by Borda count into a consensus quality score per
+bundle. This phase is implemented in the council pipeline (driven by
+`commands/council.md`; its Cross-Review section is rendered into both
+`templates/report-verdict.md` and `templates/report-finding.md` — Phase 2.5 is
+not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
+
+**Spawn contract:**
+- For N investigators, spawn N cross-reviewers via the Task tool
+  (`subagent_type: "general-purpose"`), in parallel.
+- Each reviewer sees every bundle **EXCEPT its own** (self-exclusion) — never
+  investigator identities, prior narrative, or prior verdicts. (SPEC-013
+  lines 80–82.)
+
+**Anonymization:** Bundles are stripped of investigator identity and assigned
+random labels (`A`, `B`, `C`, …). The `label → bundle` mapping is shuffled
+**independently per reviewer** to defeat position bias. (SPEC-013 line 80.)
+
+**Tool allowlist:** Cross-reviewers MUST NOT run any tools — evaluation is over
+the submitted bundles only, never raw artifacts. (SPEC-013 line 82.)
+
+**Aggregation (Borda count):** Each reviewer returns a `RANKING: X > Y > Z`
+line; an invalid/missing line is an abstain. Rankings are mapped back to bundle
+identities and summed into a Borda consensus score per bundle. The ranked list
+(stable-sorted, original submission order as tiebreaker) is passed to **Phase 4
+and Phase 5 ordered by Borda consensus rank, not submission order.** (SPEC-013
+lines 83–84.)
+
+**WEAK_EVIDENCE:** Bundles in the bottom Borda quartile (score ≤ the
+25th-percentile threshold) MUST be flagged `WEAK_EVIDENCE` in the report.
+(SPEC-013 line 85.)
+
+**Bypass:** When fewer than 3 investigators participate — or every reviewer
+response is rejected — Phase 2.5 is SKIPPED; bundles pass through in original
+submission order and the bypass reason is noted in the report. (SPEC-013
+line 86.)
+
+`commands/council.md` stores the per-reviewer rankings and consensus scores for
+the `{{CROSS_REVIEW_RANKINGS}}` / `{{CROSS_REVIEW_SCORES}}` report variables
+(audit trail; SPEC-013 line 87).
+
+*Traceability:* SPEC-013 lines 79–86. SPEC-013 tags this phase
+*(COUNCIL-002)*, but unlike the Phase 3 domain specialist (a true v1 no-op),
+Phase 2.5 is live in the council pipeline.
 
 ### Phase 3 — Domain Specialist (DEFERRED TO COUNCIL-002)
 
@@ -672,13 +723,14 @@ either fail loud (if user-reachable via CLI) or be a protocol-reserved no-op
 | 46–52 | Phase 1 claim extraction (budget, ranking, skip rules, diff-mode enrichment) | Phase 1 |
 | 54–60 | Phase 2 investigation (parallel, blindness, read-only, evidence bundle, ≥2 flavors) | Phase 2 |
 | 62–69 | Phase 3 domain specialist | Phase 3 (deferred) |
-| 71–76 | Phase 4 prosecution + defense (evidence-only, strike rule) | Phase 4 |
-| 78–86 | Phase 5 judgment (council-judge agent, taxonomies, strike rule, empty allowlist) | Phase 5 |
-| 88–102 | Phase 6 report + verdict index (path, frontmatter, atomic writes, null columns) | Phase 6 |
-| 104–111 | Phase 7 feedback memory (verdict[]-only, thresholds, routing, settings keys) | Phase 7 |
-| 113–116 | Integration hooks (retro hint, requires_council, no global enable) | Interaction table |
-| 118–125 | Task-ID plumbing (fallback chain, command-path only, post-replan clarification) | Task-id resolution |
-| 127–136 | Scope exclusions (no writes, no fixes, not automatic, verdict[]-only gate) | Invariants, Phase 7 |
+| 79–87 | Phase 2.5 blind cross-review (anonymized peer ranking, Borda consensus, WEAK_EVIDENCE, <3-investigator bypass) | Phase 2.5 |
+| 89–94 | Phase 4 prosecution + defense (evidence-only, strike rule) | Phase 4 |
+| 96–104 | Phase 5 judgment (council-judge agent, taxonomies, strike rule, empty allowlist) | Phase 5 |
+| 106–121 | Phase 6 report + verdict index (path, frontmatter, atomic writes, null columns) | Phase 6 |
+| 122–130 | Phase 7 feedback memory (verdict[]-only, thresholds, routing, settings keys) | Phase 7 |
+| 131–135 | Integration hooks (retro hint, requires_council, no global enable) | Interaction table |
+| 136–144 | Task-ID plumbing (fallback chain, command-path only, post-replan clarification) | Task-id resolution |
+| 145–157 | Scope exclusions (no writes, no fixes, not automatic, verdict[]-only gate) | Invariants, Phase 7 |
 
 Every MUST in SPEC-013 traces to a section above. If a future edit to
 SPEC-013 adds a MUST without a corresponding section here, that is a bug in
