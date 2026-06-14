@@ -54,7 +54,7 @@ def expand(root, partial_rel, agent):
 
 def default_files(root):
     out = []
-    for pat in ('agents/*.md', 'skills/**/*.md', 'AGENTS.md'):
+    for pat in ('agents/*.md', 'skills/**/*.md', 'commands/**/*.md', 'AGENTS.md'):
         out += glob.glob(os.path.join(root, pat), recursive=True)
     return [f for f in sorted(set(out)) if '<!-- include:' in open(f, encoding='utf-8').read()]
 

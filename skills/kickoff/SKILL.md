@@ -88,7 +88,7 @@ MEMDB="$MROOT/.claude/memory/memory.db"
   ```
 - `$MROOT/AGENTS.md` (project rules)
 
-Scan `specs/` for specs likely related to the ticket:
+Scan `specs/` for specs likely related to the ticket (SPEC-008 `### Spec Discovery`):
 ```bash
 ls $MROOT/specs/core/ 2>/dev/null || ls $MROOT/specs/ 2>/dev/null
 ```

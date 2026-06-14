@@ -28,6 +28,8 @@ Based on the feature, suggest and confirm the appropriate category:
 - **architecture** (ARCH-XXX): System design and structural decisions
 
 ### Step 2.5: Conflict Scan
+Discovery procedure: SPEC-008 `### Spec Discovery`. Conflict taxonomy: SPEC-008 `### Spec Conflict Scan` (BLOCKER / WARNING).
+
 1. `Glob specs/**/*.md` — if no results, print "No existing specs — skipping conflict scan" and proceed to Step 3
 2. Read all existing spec files; for each, note its ID and extract its MUST requirements
 3. Compare the **proposed** MUST requirements (from Step 1 interview) against every existing spec semantically:

@@ -30,14 +30,17 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 ```
 
-Detect language and test framework:
+Detect language and test framework. The marker column is the canonical 5-marker set from
+SPEC-008 `### Project-Language Markers`; the test-runner and test-path columns are
+generate-tests' own richer additions (legitimately different — SPEC-008 explicitly permits
+surrounding columns to differ by purpose):
 
-| Indicator | Language | Default test framework | Test file pattern |
-|-----------|----------|----------------------|-------------------|
+| Marker file | Language | Default test framework | Test file pattern |
+|-------------|----------|----------------------|-------------------|
 | `go.mod` | Go | `go test` | `*_test.go` (same package dir) |
 | `package.json` + jest/vitest | TypeScript/JS | jest or vitest | `__tests__/*.test.ts` or `*.test.ts` |
 | `package.json` + mocha | TypeScript/JS | mocha | `test/*.test.ts` |
-| `pyproject.toml` / `setup.py` | Python | pytest | `tests/test_*.py` |
+| `pyproject.toml` (fallback `setup.py`) | Python | pytest | `tests/test_*.py` |
 | `Cargo.toml` | Rust | `cargo test` | `#[cfg(test)]` inline or `tests/*.rs` |
 | `*.csproj` | C# | xUnit/NUnit | `*.Tests/*.cs` |
 

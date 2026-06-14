@@ -11,11 +11,20 @@ You are providing a fast status summary of all specifications.
 ## Workflow
 
 ### Step 1: Gather Data
-Read `specs/TDD.md` to extract:
+Gather data from two sources (per SPEC-008 `### Spec Discovery`):
+
+**A. TDD.md index** — read `specs/TDD.md` to extract:
 1. All specs from the `## Spec Index` table (columns: `ID | Title | Status | Coverage`)
 2. Lifecycle Status for each spec
 3. Categories (derived from ID prefix or Coverage column)
 4. `## Version History` entries
+
+**B. Orphan detection** — enumerate all governed spec files with `Glob $MROOT/specs/**/*.md`
+(where `$MROOT` is the project root via the SPEC-002 worktree-aware formula; exclude `specs/TDD.md`
+— that is the index, not a governed spec). Cross-reference each discovered file against the TDD.md
+Spec Index; any governed spec file NOT listed in the index is an ORPHAN and MUST be flagged in the
+output (see "Needs Attention" below). This aligns with check-specs Index-Integrity and ensures
+spec files that were created but never indexed are visible.
 
 ### Step 2: Generate Summary
 
@@ -52,6 +61,7 @@ Output format:
 ### Needs Attention
 - **DRAFT** (not yet baseline): SPEC-017, ...
 - **INFERRED** (needs human review): SPEC-002, SPEC-003, ...
+- **ORPHANS** (governed file not in TDD.md Spec Index): specs/safety/SPEC-099-foo.md, ...
 ```
 
 **Status legend** — lifecycle states (from `## Spec Index` Status column):
