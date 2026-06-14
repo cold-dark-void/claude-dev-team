@@ -238,6 +238,21 @@ Wait for user approval. This is the second escalation gate.
 
 ## Step 7: Create task graph
 
+Before creating any tasks, extract the dependency graph from the approved Tech Lead plan and reject cycles up front:
+1. For each task in the plan, note its ID (Task 1, Task 2, …) and its "Depends on:" list.
+2. Map each plan "Task N" reference to its compound key `<ISSUE-ID>-N` (the same key Step 7 uses for `task-store.sh create`), then build a JSON array: `[{"task_id": "<ISSUE-ID>-N", "depends_on": ["<ISSUE-ID>-M", ...]}, ...]`. A task with no deps gets `"depends_on": []`.
+3. Write to a temp file and run the cycle pre-gate BEFORE any TaskCreate:
+   ```bash
+   bash skills/orchestrate/dag-lib.sh check-cycle /tmp/orchestrate-dag-$$.json 2>/tmp/orchestrate-cycle-err-$$.txt
+   if [ $? -eq 1 ]; then
+     CYCLE_MSG=$(cat /tmp/orchestrate-cycle-err-$$.txt)
+     rm -f /tmp/orchestrate-dag-$$.json /tmp/orchestrate-cycle-err-$$.txt
+     echo "Orchestrate error: circular dependency detected: $CYCLE_MSG. Revise the task graph."
+     # halt — do NOT call TaskCreate for any task
+   fi
+   ```
+   Do NOT call TaskCreate (or `task-store.sh create`) for any task if a cycle is detected. Clean up the temp files after the check.
+
 For each task in the approved plan, call TaskCreate:
 
 ```
@@ -253,10 +268,17 @@ TaskCreate:
 After each TaskCreate succeeds and the task id is known, the orchestrator MUST call:
 
 ```bash
-bash skills/orchestrate/task-store.sh create <ISSUE-ID>-<task_id> "<subject>" <requires_council>
+# Build colon-separated depends_on from this task's plan "Depends on:" list.
+# Map each "Task N" reference to the SAME compound key used below: "<ISSUE-ID>-N".
+# e.g. if Task 3 depends on Task 1 and Task 2 and <ISSUE-ID> is CDV-QF-FILTER:
+#   DEPS="CDV-QF-FILTER-1:CDV-QF-FILTER-2"
+# If no deps:
+#   DEPS=""
+DEPS=$(echo "<compound dep keys for this task, space/comma-separated>" | tr ', ' ':' | tr -s ':' | sed 's/^://;s/:$//')
+bash skills/orchestrate/task-store.sh create <ISSUE-ID>-<task_id> "<subject>" <requires_council> "$DEPS"
 ```
 
-where `<ISSUE-ID>` is the current issue ID (e.g. `CDV-QF-FILTER`) and `<task_id>` is the integer returned by TaskCreate (e.g. `1`). The compound key (e.g. `CDV-QF-FILTER-1`) prevents task-store collisions when a new Claude process reuses the same integer IDs across runs. This writes `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` — the source of truth the SPEC-002 TaskCompleted hook reads to determine whether the council quality gate applies (SPEC-009 line 48). If `task-store.sh` exits non-zero, surface the error to the user immediately — do NOT silently continue.
+where `<ISSUE-ID>` is the current issue ID (e.g. `CDV-QF-FILTER`) and `<task_id>` is the integer returned by TaskCreate (e.g. `1`). The compound key (e.g. `CDV-QF-FILTER-1`) prevents task-store collisions when a new Claude process reuses the same integer IDs across runs. The 4th `[depends_on]` argument MUST use the SAME compound `<ISSUE-ID>-N` form so `dag-lib.sh ready-set`'s set-subtraction matches completed task IDs — a bare `Task N` or `N` would never appear in the done-set and would silently re-mark every dependent as ready, defeating the DAG. A task with no deps passes `""` (empty depends_on). This writes `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` — the source of truth the SPEC-002 TaskCompleted hook reads to determine whether the council quality gate applies (SPEC-009 line 48). If `task-store.sh` exits non-zero, surface the error to the user immediately — do NOT silently continue.
 
 Update the plan file with task IDs.
 
