@@ -7,11 +7,21 @@
 
 set -uo pipefail  # not -e — we handle errors explicitly per gate case
 
+# Resolve roots once (set-u-safe).
+# WTROOT = working-tree root: plugin manifests are PER-WORKTREE tracked artifacts;
+#   validate THIS worktree's copy (show-toplevel resolves it from any subdir).
+# MROOT = git-common-dir root: .claude/tasks, .claude/council, settings.json are
+#   SHARED across worktrees per SPEC-002:24.
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+
 # === existing plugin JSON validation (preserve verbatim) ===
 
 ERRORS=()
 
-for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
+for f in "$WTROOT/.claude-plugin/plugin.json" "$WTROOT/.claude-plugin/marketplace.json"; do
   if [ -f "$f" ]; then
     if ! python3 -c "import json,sys; json.load(open('$f'))" 2>/dev/null; then
       ERRORS+=("$f is not valid JSON")
@@ -28,11 +38,7 @@ if [ ${#ERRORS[@]} -gt 0 ]; then
 fi
 
 # === council gate ===
-
-# Resolve $MROOT (worktree-aware, shared common dir for .claude/tasks/ and .claude/council/)
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+# Uses $MROOT (git-common-dir root, resolved at top) for shared council state.
 
 # Read stdin once (one-shot); timeout 1 avoids hanging on direct shell invocations
 STDIN_JSON=$(timeout 1 cat 2>/dev/null || true)
@@ -52,7 +58,10 @@ if [ -z "$TASK_ID" ]; then
   TASK_ID="${CLAUDE_TASK_ID:-}"
 fi
 
-# If no task id resolved, silent pass — gate cannot apply
+# If no task id resolved, silent pass — gate cannot apply.
+# Per SPEC-002:30 a missing task id is ALWAYS a silent pass; SPEC-002:35's
+# "cannot gate without task id" fail path is structurally unreachable past this
+# guard, so it is intentionally not implemented.
 if [ -z "$TASK_ID" ]; then
   exit 0
 fi
@@ -83,12 +92,6 @@ except Exception:
 
 if [ "$REQUIRES_COUNCIL" != "true" ]; then
   exit 0  # silent pass — gate not opted in
-fi
-
-# Gate is opted in but we need a task id to evaluate it (defensive; already checked above)
-if [ -z "$TASK_ID" ]; then
-  echo "TaskCompleted council gate: cannot evaluate council gate: no task id from stdin or CLAUDE_TASK_ID" >&2
-  exit 2
 fi
 
 # Read threshold from settings.json (default 80)
