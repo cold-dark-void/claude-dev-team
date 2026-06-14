@@ -89,6 +89,15 @@ python3 skills/agent-memory/sync-includes.py check
 
 If it exits non-zero, the managed agent-memory include regions have drifted from the canonical partial (`skills/agent-memory/protocol.md`). **Do NOT commit or tag.** Fix the drift first (re-expand the drifted region to match the partial), then re-run until it exits 0.
 
+## Step 4.6: Council template-variable drift-check (pre-commit gate)
+
+Run:
+```bash
+bash skills/council/check-template-vars.sh
+```
+
+If it exits non-zero, the council template-variable contract has drifted: `commands/council.md` substitutes a variable set that no longer matches a prompt's authoritative `## Variables` table (a dead substitution or a literal `{{VAR}}` leak into the spawned subagent, per SPEC-013). **Do NOT commit or tag.** Fix `commands/council.md` (and/or the prompt's `## Variables` table) so each covered prompt's substituted set exactly equals its declared set, then re-run until it exits 0. (Covered: claim-extractor, investigator, cross-reviewer, judge. Prosecutor/advocate are explicitly deferred to AUDIT-P1-4C and the gate logs them as unchecked.)
+
 ## Step 5: Commit (one folded commit)
 
 Stage the version files **and the actual changed source files** — everything being

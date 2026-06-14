@@ -105,8 +105,9 @@ subagent_type: "general-purpose"
 prompt: skills/council/prompts/claim-extractor.md
   with substitutions:
     {{SCOPE_TYPE}}   ← plan.scope
-    {{RAW_INPUT}}    ← raw transcript slice / diff text (artifacts only, no prior narrative)
-    {{SPEC_BUNDLE}}  ← applicable-specs bundle if diff-mode, else omit placeholder
+    {{INPUT_TEXT}}   ← raw transcript slice / diff text (artifacts only, no prior narrative);
+                       in diff-mode the applicable-specs bundle is prepended/concatenated
+                       into INPUT_TEXT so the spec context still reaches the extractor
     {{CLAIM_BUDGET}} ← plan.claim_budget (default 10)
 ```
 
@@ -127,11 +128,11 @@ description: "Investigate claim <N> (<flavor>)"
 subagent_type: "general-purpose"
 prompt: skills/council/prompts/investigator.md
   with substitutions:
-    {{CLAIM}}          ← claim.claim (verbatim)
+    {{CLAIM_TEXT}}     ← claim.claim (verbatim)
     {{SOURCE_LOCATOR}} ← claim.source_locator
     {{RAW_ARTIFACTS}}  ← raw files / logs / diff (artifacts only)
     {{FLAVOR_DELTA}}   ← contents of skills/council/flavors/<flavor>.md body
-    {{TOOL_ALLOWLIST}} ← "Read, Grep, Glob, Bash (read-only)"
+    # tool allowlist is fixed in the investigator prompt body (not substituted)
 ```
 
 **Blindness invariant:** do NOT pass prior assistant narrative, prior
@@ -272,7 +273,7 @@ description: "Judge claims from evidence"
 subagent_type: "dev-team:council-judge"
 prompt: skills/council/prompts/judge.md
   with substitutions:
-    {{CLAIMS}}            ← original claim list from Phase 1 (verbatim records)
+    {{ORIGINAL_CLAIMS}}   ← original claim list from Phase 1 (verbatim records)
     {{EVIDENCE_BUNDLES}}  ← Borda-ranked evidence bundles from Phase 2.5
                            (or Phase 2 if Phase 2.5 was bypassed)
     {{PROSECUTOR_BRIEF}}  ← prosecutor brief (post Phase 4)
@@ -282,7 +283,7 @@ prompt: skills/council/prompts/judge.md
 
 Receive the judge's verdict list or finding list.
 
-Expected schemas:
+Expected schemas (canonical taxonomy/schema is normatively defined in SPEC-013; this is a quick reference):
 
 ```
 verdict[]  → [{ claim, verdict, confidence, evidence_blob }]
