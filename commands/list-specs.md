@@ -12,10 +12,10 @@ You are providing a fast status summary of all specifications.
 
 ### Step 1: Gather Data
 Read `specs/TDD.md` to extract:
-1. All specs from Quick Status Table
-2. Status badges for each spec
-3. Categories
-4. Version History entries
+1. All specs from the `## Spec Index` table (columns: `ID | Title | Status | Coverage`)
+2. Lifecycle Status for each spec
+3. Categories (derived from ID prefix or Coverage column)
+4. `## Version History` entries
 
 ### Step 2: Generate Summary
 
@@ -37,23 +37,31 @@ Output format:
 ### By Status
 | Status | Count | Specs |
 |--------|-------|-------|
-| ✅ PASS | XX | SPEC-001, SPEC-002, ... |
-| 🔄 UPDATED | XX | SPEC-012, SPEC-013, ... |
-| 🚧 NEW | XX | SPEC-016, SPEC-017, ... |
-| ❌ FAIL | XX | (none) |
-| ⚠️ UNDER REVIEW | XX | (none) |
+| APPROVED | XX | SPEC-011, SPEC-012, ... |
+| ACTIVE | XX | SPEC-001, SPEC-013, ... |
+| DRAFT | XX | SPEC-017, ... |
+| INFERRED | XX | SPEC-002, SPEC-003, ... |
+| DEPRECATED | XX | (none) |
 
 ### Recent Changes (Last 5)
-| Date | Change | Specs |
-|------|--------|-------|
-| 2026-02-10 | Added multi-GUI backend | ARCH-001, SPEC-001 |
-| ... | ... | ... |
+| Date | Change |
+|------|--------|
+| 2026-02-10 | Added multi-GUI backend (ARCH-001, SPEC-001) |
+| ... | ... |
 
 ### Needs Attention
-- **🚧 NEW** (not yet baseline): SPEC-016, SPEC-017, SPEC-018, ...
-- **❌ FAIL** (broken): (none)
-- **⚠️ UNDER REVIEW**: (none)
+- **DRAFT** (not yet baseline): SPEC-017, ...
+- **INFERRED** (needs human review): SPEC-002, SPEC-003, ...
 ```
+
+**Status legend** — lifecycle states (from `## Spec Index` Status column):
+- `INFERRED` — machine-generated, needs human review
+- `DRAFT` — human-authored, not yet reviewed/activated
+- `ACTIVE` — in use, enforced
+- `APPROVED` — formally reviewed and signed off
+- `DEPRECATED` — superseded or retired
+
+Note: `/check-specs` produces a separate REPORT with per-spec verify-status (`PASS / FAIL / WARN`) — that is NOT the spec's lifecycle Status and is not shown here.
 
 ### Step 3: Offer Actions
 After the summary, offer:
@@ -65,5 +73,5 @@ After the summary, offer:
 ## Tips
 
 - Keep output concise - this is meant for quick reference
-- Highlight items needing attention (FAIL, NEW, UNDER REVIEW)
+- Highlight items needing attention (DRAFT, INFERRED)
 - Show recent activity to give context on project momentum

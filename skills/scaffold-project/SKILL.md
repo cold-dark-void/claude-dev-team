@@ -241,15 +241,15 @@ This file contains living behavioral specifications that define how the applicat
 
 ---
 
-## Quick Status Table
+## Spec Index
 
-| SPEC | Title | Status | Last Verified |
-|------|-------|--------|---------------|
-| 001 | Application Launch | ✅ PASS | <TODAY'S DATE> |
-| 002 | Basic Navigation | ✅ PASS | <TODAY'S DATE> |
-| 003 | Data Persistence | ✅ PASS | <TODAY'S DATE> |
+| ID | Title | Status | Coverage |
+|----|-------|--------|----------|
+| SPEC-001 | Application Launch | DRAFT | <key files> |
+| SPEC-002 | Basic Navigation | DRAFT | <key files> |
+| SPEC-003 | Data Persistence | DRAFT | <key files> |
 
-**Legend**: ✅ PASS | ❌ FAIL | ⚠️ UNDER REVIEW | 🚧 NEW | 🔄 CHANGED
+<!-- Verify status (✅ PASS / ❌ FAIL / ⚠️) is reported by /check-specs, not stored here -->
 
 ---
 
