@@ -53,6 +53,7 @@ INSERT INTO vec_memories_384(memory_id, embedding)
   VALUES ($MEMORY_ID, lembed('$MODEL_PATH', '$CONTENT_ESC'));
 INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table)
   VALUES ($MEMORY_ID, 'all-MiniLM-L6-v2', 384, 'vec_memories_384');
+UPDATE config SET value='384', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_dimensions';
 EOSQL
 
 # --- 4b. remote mode (any OpenAI-compatible embedding provider) ---
@@ -103,6 +104,7 @@ INSERT INTO ${VEC_TABLE}(memory_id, embedding)
   VALUES ($MEMORY_ID, '$EMBEDDING');
 INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table)
   VALUES ($MEMORY_ID, '${EMBED_MODEL:-remote}', $DIMS, '$VEC_TABLE');
+UPDATE config SET value='$DIMS', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_dimensions';
 EOSQL
 fi
 
