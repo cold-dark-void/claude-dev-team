@@ -361,7 +361,7 @@ Adversarial tribunal that reality-checks claims with material evidence. Spawns
 blind Investigators (read-only tools only), a Prosecutor (jaded-senior flavor),
 a Devil's Advocate (yolo-ic flavor), and a tool-less `council-judge` agent.
 Issues per-claim verdicts with confidence scores (`VERIFIED`, `PARTIALLY_VERIFIED`,
-`UNVERIFIED`, `CONTRADICTED`, `FABRICATED`). Shares an engine with `/review-commit`
+`UNVERIFIED`, `CONTRADICTED`, `FABRICATED`). Shares an engine with `/review-and-commit`
 via the `diff-mode` preset. Every verdict line must be backed by an investigator
 `tool_use_id`; lines without evidence are struck and logged.
 
@@ -371,7 +371,7 @@ via the `diff-mode` preset. Every verdict line must be backed by an investigator
 |------|-------|
 | `/council "<claim text>"` | Audit a single pasted claim |
 | `/council --session [--last N]` | Audit a slice of the current session transcript |
-| `/council --diff` | Audit staged diff (same engine path as `/review-commit`) |
+| `/council --diff` | Audit staged diff (same engine path as `/review-and-commit`) |
 | `/council --task-id <id>` | Bind verdict to a task; appends row to `.claude/council/index.json` |
 
 `--plan <path>` and `--from-retro <anchor-id>` are deferred to COUNCIL-002 — both
@@ -383,6 +383,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 ---
 
 ## Changelog
+
+### v0.36.0
+- **feat: rename the code-review command `/review-commit` → `/review-and-commit` (D5) — finish the half-done rename across the dir, docs, and ~16 files** — the skill's invocation `name:` was already `review-and-commit` (so `/review-and-commit` already worked and `/review-commit` resolved to nothing), but the skill **directory**, its docs page, and dozens of path/slash/prose references still used the old `review-commit` name. This completes the canonical rename: `git mv skills/review-commit/ → skills/review-and-commit/` and `docs/commands/review-commit.md → review-and-commit.md` (both history-preserving), and updates every current reference — `skills/review-commit/` path strings, `/review-commit` slash-command mentions, and feature-name prose — across the specs (SPEC-002/010/013, TDD), the 6 council flavors, `commands/council.md`, `skills/council/SKILL.md`, `engine.sh` comments, and the README command table. Historical `## Changelog` entries are preserved verbatim (they record the name at their release). The council-engine locator is unaffected (it resolves `engine.sh` via `plugin-dir.sh`, not the renamed dir). Adversarially verified: a completeness refuter confirmed zero functional/dangling old-path survivors (only the historical changelog lines remain), the renames are tracked as renames, and both `/release` drift-gates stay green. Final part of the 4-part AUDIT-P1-4C split — the council subsystem consolidation is complete. (AUDIT-P1-4C-4).
 
 ### v0.35.2
 - **fix: council docs — drop the phantom preset-file schema, document the implemented Phase 2.5, delete orphaned review-commit fixtures** — three doc-vs-reality cleanups. (1) `skills/council/SKILL.md` claimed each preset "lives at `skills/council/presets/<name>.md` with YAML frontmatter" — but no `presets/` directory exists; `engine.sh` resolves presets via a hardcoded `case` statement. The phantom file-claim is removed and `engine.sh`'s `case` is declared the authoritative source (the fields table is reframed as documenting what the resolution emits into the investigation plan, not a file format). (2) Added the **Phase 2.5 — Blind Cross-Review** section to the council SKILL's Engine Phases (it was implemented in the pipeline but undocumented there), mirroring SPEC-013:79–87 and `commands/council.md`'s actual behavior (anonymized per-reviewer ranking with self-exclusion + independent label shuffle, Borda consensus, Borda-ordered hand-off to Phases 4/5, bottom-quartile `WEAK_EVIDENCE`, `<3`-investigator bypass); also refreshed the Traceability table's drifted SPEC-013 line ranges for Phases 4–7 + Integration/Task-ID/Scope so the MUST→section map is monotonic and accurate. (3) Deleted the orphaned `skills/review-commit/fixtures/*` (no runner ever referenced them) and dropped the dead "Task 15's snapshot test" claim. Doc-only. Adversarially verified (an independent refuter caught — and I corrected — a renderer-attribution slip + the traceability cascade). Third of the 4-part AUDIT-P1-4C split. (AUDIT-P1-4C-3).

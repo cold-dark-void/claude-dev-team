@@ -13,10 +13,10 @@
 | SPEC-007 | Memory Distillation | INFERRED | agents/distiller.md, commands/memory-distill.md, memory-config.md, memory-stats.md |
 | SPEC-008 | Spec Management | INFERRED | commands/create-spec.md, update-spec.md, check-specs.md, find-spec.md, list-specs.md, skills/generate-specs, generate-tests, reflect-specs |
 | SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
-| SPEC-010 | Code Review & Release | INFERRED | skills/review-commit, release |
+| SPEC-010 | Code Review & Release | INFERRED | skills/review-and-commit, release |
 | SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, skills/validate-memory/SKILL.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/kickoff + orchestrate hooks |
-| SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
+| SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
 | SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, skills/orchestrate/SKILL.md, skills/wrap-ticket/SKILL.md, AGENTS.md |
@@ -32,10 +32,10 @@
 | 2026-03-23 | SPEC-001 reformatted for /reflect-specs compliance; all specs reviewed and updated |
 | 2026-03-23 | SPEC-011 created: Memory Validation — stale reference detection, multi-stage pipeline, /memory-distill integration |
 | 2026-04-07 | SPEC-012 created: Session Retrospective — /retro command, two-phase friction gate + subagent deep-read, routes through /adjust-agent |
-| 2026-04-09 | SPEC-013 created: Adversarial Council Tribunal — /council engine skill, blind investigators, tech-lead judge, feedback-memory learning loop, /review-commit refactor |
+| 2026-04-09 | SPEC-013 created: Adversarial Council Tribunal — /council engine skill, blind investigators, tech-lead judge, feedback-memory learning loop, /review-and-commit refactor |
 | 2026-04-26 | SPEC-014 implemented — skills/debug/SKILL.md shipped |
 | 2026-04-26 | SPEC-015 implemented — skills/refactor/SKILL.md shipped |
-| 2026-04-26 | /reflect-specs fixes: SPEC-013 status NEW→ACTIVE, corrected coverage paths (dev-team:council→skills/council/, commands/review-commit.md→skills/review-commit/SKILL.md), removed spec-file self-reference from SPEC-015 coverage |
+| 2026-04-26 | /reflect-specs fixes: SPEC-013 status NEW→ACTIVE, corrected coverage paths (dev-team:council→skills/council/, commands/review-and-commit.md→skills/review-and-commit/SKILL.md), removed spec-file self-reference from SPEC-015 coverage |
 | 2026-04-29 | SPEC-013 updated: Phase 2.5 Blind Cross-Review added (COUNCIL-002) — Borda-count peer ranking, anonymized bundles, self-exclusion, WEAK_EVIDENCE flagging |
 | 2026-04-28 | SPEC-016 created: Worktree Isolation — canonical `.worktrees/<slug>` path, worktree-lib.sh CLI, PID-based lock, collision recovery |
 | 2026-04-30 | SPEC-017 created: Autonomous CI Watch + Task DAG — adaptive 3-mode CI watch loop, structured depends_on schema, parallel fan-out in orchestrate |

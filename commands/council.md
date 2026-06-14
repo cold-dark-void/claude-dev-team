@@ -6,7 +6,7 @@ description: |
   judge. Issues per-claim verdicts with confidence scores. Use mid-session
   to audit a shaky claim, after a debug session to verify "all green", or
   on a plan file to find unverified assumptions. Shares an engine with
-  /review-commit (diff-mode preset).
+  /review-and-commit (diff-mode preset).
 argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> [--task-id <id>]'
 ---
 
@@ -23,7 +23,7 @@ verdict row to `.claude/council/index.json`.
 
 - `/council "<claim text>"` — audit a single pasted claim
 - `/council --session [--last N]` — audit a slice of the current session transcript
-- `/council --diff` — audit staged diff (equivalent to /review-commit dispatch path)
+- `/council --diff` — audit staged diff (equivalent to /review-and-commit dispatch path)
 - `/council --plan <path>` — audit a plan file (DEFERRED to COUNCIL-002, fails loudly)
 - `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (DEFERRED to COUNCIL-002, fails loudly)
 - `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
@@ -236,7 +236,7 @@ per-reviewer rankings and scores for `{{CROSS_REVIEW_RANKINGS}}` /
 Runs for `verdict[]`-shape only. In `finding[]`-shape (diff-mode) Phase 4 is
 skipped — the plan emits `4_prosecution_defense: {skipped: true}` and
 specialist findings route straight to the Judge (Phase 5). See
-`skills/review-commit/SKILL.md`. For `verdict[]`-shape, spawn exactly one
+`skills/review-and-commit/SKILL.md`. For `verdict[]`-shape, spawn exactly one
 Prosecutor and one Devil's Advocate in parallel:
 
 ```

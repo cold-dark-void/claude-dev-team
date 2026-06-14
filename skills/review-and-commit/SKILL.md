@@ -12,7 +12,7 @@ description: |
 
 Thin wrapper over `skills/council/engine.sh` with `preset: diff-mode`. The
 engine owns the adversarial pipeline; this skill configures the diff scope,
-drives the LLM phases, and renders findings in the legacy review-commit
+drives the LLM phases, and renders findings in the legacy review-and-commit
 format users already know. Your job is NOT to be nice — protect the codebase
 from entropy.
 
@@ -91,7 +91,7 @@ ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 ## Step 3: Preflight (diff-mode preset)
 
 ```bash
-PLAN_FILE=$(mktemp /tmp/review-commit-plan.XXXXXX.json)
+PLAN_FILE=$(mktemp /tmp/review-and-commit-plan.XXXXXX.json)
 "$ENGINE_SH" preflight --scope diff --preset diff-mode > "$PLAN_FILE"
 ```
 
