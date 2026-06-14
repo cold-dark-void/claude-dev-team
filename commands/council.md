@@ -233,7 +233,11 @@ per-reviewer rankings and scores for `{{CROSS_REVIEW_RANKINGS}}` /
 
 ### Phase 4 — Prosecution and Defense
 
-Spawn exactly one Prosecutor and one Devil's Advocate in parallel:
+Runs for `verdict[]`-shape only. In `finding[]`-shape (diff-mode) Phase 4 is
+skipped — the plan emits `4_prosecution_defense: {skipped: true}` and
+specialist findings route straight to the Judge (Phase 5). See
+`skills/review-commit/SKILL.md`. For `verdict[]`-shape, spawn exactly one
+Prosecutor and one Devil's Advocate in parallel:
 
 ```
 Prosecutor:

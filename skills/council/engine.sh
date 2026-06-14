@@ -240,7 +240,16 @@ cmd_preflight() {
         "1_claim_extraction": { skip: ($scope == "claim"), prompt: "skills/council/prompts/claim-extractor.md" },
         "2_parallel_investigation": { min_flavors_per_claim: 2, prompt: "skills/council/prompts/investigator.md" },
         "3_domain_specialist": { deferred: true },
-        "4_prosecution_defense": { prosecutor: { prompt: "skills/council/prompts/phase4-brief.md", role: "Prosecutor", evidence_field: "evidence_against", flavor: "jaded-senior" }, advocate: { prompt: "skills/council/prompts/phase4-brief.md", role: "Devil\u0027s Advocate", evidence_field: "evidence_for", flavor: "yolo-ic" } },
+        # Phase 4 runs only for verdict[]-shape presets (claim/session/generic).
+        # finding[]-shape (diff-mode) routes specialist findings straight to the
+        # judge — there is no prosecutor/advocate step. See review-commit/SKILL.md
+        # ("Phase 4 — skipped in diff-mode") and commands/council.md Phase 4.
+        "4_prosecution_defense": (
+          if $output_shape == "verdict[]"
+          then { prosecutor: { prompt: "skills/council/prompts/phase4-brief.md", role: "Prosecutor", evidence_field: "evidence_against", flavor: "jaded-senior" }, advocate: { prompt: "skills/council/prompts/phase4-brief.md", role: "Devil\u0027s Advocate", evidence_field: "evidence_for", flavor: "yolo-ic" } }
+          else { skipped: true, reason: "finding[]-shape preset" }
+          end
+        ),
         "5_judgment": { agent: "council-judge", prompt: "skills/council/prompts/judge.md" },
         "6_finalize": { invoke: "engine.sh finalize --plan-file <p> --evidence-file <e> --judge-output <j>" }
       }
@@ -672,19 +681,41 @@ if output_shape == "finding[]":
             commit_gate = "BLOCKED"
             break
 
-# Action items for finding[] shape
-action_lines = []
+# Action items for finding[] shape.
+# Label + sort order is category-then-severity to match review-commit/SKILL.md
+# (Step 8): BLOCKER -> COMPLIANCE -> DESIGN -> NITPICK. A compliance finding
+# (any severity) gets the COMPLIANCE label and sorts to rank 1, EXCEPT a
+# critical one which is a BLOCKER first (rank 0) — critical always blocks.
 sev_order = {"critical": 0, "warning": 1, "nitpick": 2}
 label_map = {"critical": "BLOCKER", "warning": "DESIGN", "nitpick": "NITPICK"}
-for f in sorted(judge_items, key=lambda x: sev_order.get(x.get("severity", ""), 9)):
+
+def action_rank(f):
     sev = f.get("severity", "warning")
+    if sev == "critical":
+        return 0
+    if f.get("category") == "compliance":
+        return 1
+    # warning -> 2, nitpick -> 3 (sev_order is 1/2 here, +1 to leave room for COMPLIANCE)
+    return sev_order.get(sev, 8) + 1
+
+def action_label(f):
+    # critical always BLOCKER (label matches rank 0); a non-critical compliance
+    # finding is COMPLIANCE; otherwise map by severity.
+    if f.get("severity") == "critical":
+        return "BLOCKER"
+    if f.get("category") == "compliance":
+        return "COMPLIANCE"
+    return label_map.get(f.get("severity", "warning"), "NITPICK")
+
+action_lines = []
+for f in sorted(judge_items, key=action_rank):
     fl = f.get("file", "")
     ln = f.get("line", "")
     desc = f.get("description", "")
     sugg = f.get("suggestion", desc)
     conf = f.get("confidence", 0)
     loc = f"`{fl}:{ln}`" if fl else ""
-    label = label_map.get(sev, "NITPICK")
+    label = action_label(f)
     action_lines.append(f"- [ ] {label} {loc} — {desc} — {sugg} [confidence: {conf}]")
 action_items_md = "\n".join(action_lines) if action_lines else "_No action items._"
 
@@ -736,32 +767,13 @@ subs = {
 }
 
 # --- Apply substitutions ---
+# The templates are placeholders-only (each section holds a single {{VAR}} plus
+# legitimate prose/headings). The dynamic value rendered into {{VERDICT_SUMMARY_TABLE}}
+# / {{SEVERITY_SUMMARY_TABLE}} / {{STRUCK_*}} fully replaces what the section needs,
+# so there is no static example/fallback content left to strip post-substitution.
 rendered = template
 for var, val in subs.items():
     rendered = rendered.replace(var, val)
-
-# Remove the template's static fallback table that follows the summary
-# table placeholder (it has "| — |" placeholders meant to be replaced
-# by the dynamic table above).
-rendered = re.sub(
-    r'\n\| Taxonomy \| Count \|\n\|---\|---\|\n(\| [A-Z_]+ \| — \|\n)+',
-    '\n', rendered)
-rendered = re.sub(
-    r'\n\| Severity \| Count \|\n\|---\|---\|\n(\| [a-z]+ \| — \|\n)+',
-    '\n', rendered)
-
-# Remove the static "No lines struck." / "No findings struck." that
-# follows the {{STRUCK_*}} placeholder in the template — we already
-# rendered the correct value into the placeholder.
-if struck_lines_raw:
-    # If there ARE struck lines, remove the static fallback text
-    rendered = rendered.replace("\nNo lines struck.\n", "\n")
-    rendered = rendered.replace("\nNo findings struck.\n", "\n")
-else:
-    # struck_md is already "No lines struck." — remove the duplicate
-    # static line so it doesn't appear twice.
-    rendered = re.sub(r'(No lines struck\.)\n+No lines struck\.', r'\1', rendered)
-    rendered = re.sub(r'(No findings struck\.)\n+No findings struck\.', r'\1', rendered)
 
 # Strip any remaining {{VAR}} that weren't in our map (safety net)
 rendered = re.sub(r'\{\{[A-Z_]+\}\}', '', rendered)
