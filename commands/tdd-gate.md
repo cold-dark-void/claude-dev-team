@@ -226,7 +226,7 @@ Read `$SETTINGS`. If `hooks.PreToolUse` does not exist, add it:
     "hooks": [
       {
         "type": "command",
-        "command": "bash .claude/hooks/tdd-gate.sh"
+        "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tdd-gate.sh\""
       }
     ]
   }
