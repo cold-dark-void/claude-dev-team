@@ -2,7 +2,7 @@
 name: council
 description: |
   Adversarial council tribunal engine — reality-checks claims with material
-  evidence. Shared engine for /council and /review-commit (diff-mode preset).
+  evidence. Shared engine for /council and /review-and-commit (diff-mode preset).
   Blind investigators, evidence-or-silence rule, dual output shapes
   (verdict[] and finding[]), atomic verdict index at .claude/council/index.json,
   feedback-memory learning loop. Judge is a dedicated agent with an empty
@@ -15,7 +15,7 @@ Protocol specification for the adversarial council tribunal engine. This file
 is the contract every component in `skills/council/` codes against —
 `engine.sh` (T6), prompt templates (T7), report templates (T8), the diff-mode
 preset (T9), the `/council` command wrapper (T12), and the refactored
-`skills/review-commit/SKILL.md` (T13) all read this file to know what to
+`skills/review-and-commit/SKILL.md` (T13) all read this file to know what to
 build. It is a spec for the implementation, not the implementation itself.
 
 Authoritative source of truth for all MUSTs cited below:
@@ -37,8 +37,8 @@ issues the final verdicts or findings. The engine writes a report to
 writes feedback memories for high-confidence fabrications.
 
 Two callers share this engine: `/council` (generic, verdict-shape) and
-`/review-commit` (diff scope, finding-shape, via the diff-mode preset). The
-engine is invoked from `commands/council.md` and `skills/review-commit/SKILL.md`;
+`/review-and-commit` (diff scope, finding-shape, via the diff-mode preset). The
+engine is invoked from `commands/council.md` and `skills/review-and-commit/SKILL.md`;
 it is never invoked from hooks — hooks read `index.json` only.
 
 ---
@@ -85,7 +85,7 @@ is a bug.
 ### CLI arguments
 
 `engine.sh` is the single entry point. It is invoked by `commands/council.md`
-(thin passthrough) and by `skills/review-commit/SKILL.md` (passes a scope +
+(thin passthrough) and by `skills/review-and-commit/SKILL.md` (passes a scope +
 preset selector). The argument surface:
 
 | Argument | Purpose | Status in COUNCIL-001 |
@@ -93,7 +93,7 @@ preset selector). The argument surface:
 | `"<claim text>"` (positional) | Audit a single pasted claim | Supported |
 | `--session` | Audit a slice of the current session transcript | Supported |
 | `--session --last N` | Audit last N turns only | Supported |
-| `--diff` | Audit staged diff (review-commit entry path) | Supported |
+| `--diff` | Audit staged diff (review-and-commit entry path) | Supported |
 | `--plan <path>` | Audit a plan file for unverified assumptions | **Deferred — fail loud** |
 | `--from-retro <anchor-id>` | Audit a fabrication anchor from `/retro` | **Deferred — fail loud** |
 | `--task-id <id>` | Bind this run to an orchestrated task id | Supported |
@@ -167,7 +167,7 @@ Fallback chain, evaluated left-to-right (SPEC-013 lines 119–120):
 3. **Unbound** (no task id — report filename has no suffix, no index row)
 
 This fallback chain applies ONLY to direct command-path invocations
-(`/council`, `/review-commit` → `engine.sh`). The SPEC-002 TaskCompleted
+(`/council`, `/review-and-commit` → `engine.sh`). The SPEC-002 TaskCompleted
 hook uses its own stdin-based task-id resolution and does NOT participate in
 this fallback chain — the two paths are independent. (SPEC-013 line 125,
 post-replan clarification from Task 1 spike.)
@@ -348,7 +348,7 @@ even though in v1 it never does.
 (diff-mode), Phase 4 is **skipped** — specialist findings route directly to
 the Judge with no prosecutor/advocate step (the engine's investigation plan
 emits `4_prosecution_defense: {skipped: true}` for that shape). See
-`skills/review-commit/SKILL.md` ("Phase 4 — skipped in diff-mode").
+`skills/review-and-commit/SKILL.md` ("Phase 4 — skipped in diff-mode").
 
 **Spawn contract (verdict[]-shape):**
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
@@ -614,7 +614,7 @@ prompt.
   defeat prosecutor monoculture.
 - `logic.md`, `security.md`, `compliance.md`, `quality.md`,
   `simplification.md` (T9) — diff-mode specialist investigators; the 5
-  focus areas migrated from the pre-refactor `skills/review-commit/SKILL.md`.
+  focus areas migrated from the pre-refactor `skills/review-and-commit/SKILL.md`.
 
 ---
 
@@ -654,7 +654,7 @@ primarily a code review discipline (T7 will be reviewed against this rule).
 | `skills/council/index-writer.sh` | **Sole writer** of `.claude/council/index.json`. The engine shells out to this helper in Phase 6; never opens the index file directly. Committed in T3. |
 | `skills/orchestrate/task-store.sh` | Writes `.claude/tasks/<task_id>.json` with task metadata (including `requires_council: true`). The engine does NOT write to this file; the orchestrator owns it. Committed in T5, referenced by SPEC-009. |
 | `agents/council-judge.md` | The Judge agent invoked in Phase 5. Empty tool allowlist. Committed in T4. |
-| `skills/review-commit/SKILL.md` | After the T13 refactor, calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
+| `skills/review-and-commit/SKILL.md` | After the T13 refactor, calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
 | `commands/council.md` | Thin wrapper; passes CLI args through to `engine.sh` unchanged. Authored in T12. |
 | `.claude/hooks/task-completed.sh` | After T10, **reads** `.claude/council/index.json` to apply the `requires_council` gate. Never calls the engine. Authoritative behavior is SPEC-002's domain — referenced here, not re-specified. |
 | `commands/retro.md` | After T14, prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. The `--from-retro` scope fails loud in COUNCIL-001 — users will see the fail-loud message, which is correct (SPEC-013 line 114, locked decision 8). |
@@ -664,7 +664,7 @@ primarily a code review discipline (T7 will be reviewed against this rule).
 ## Failure modes
 
 Every failure mode has a distinct exit code and a stderr message contract.
-Callers (`commands/council.md`, `skills/review-commit/SKILL.md`) rely on
+Callers (`commands/council.md`, `skills/review-and-commit/SKILL.md`) rely on
 exit codes to decide whether to continue.
 
 | Exit | Meaning | Stderr message contract |

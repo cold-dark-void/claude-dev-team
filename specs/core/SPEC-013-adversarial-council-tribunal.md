@@ -12,7 +12,7 @@
 
 The council is structured as a court: a **Prosecutor** (jaded senior) demands receipts, **Investigators** (paranoid ICs, blind and read-only) collect evidence with real tool calls, a **Devil's Advocate** (yolo IC) argues the claim is true to prevent prosecutor monoculture, a dynamic **Domain Specialist** is pulled per topic (devops/ds/etc.), and a dedicated `council-judge` agent (inheriting `tech-lead`'s project cortex but with an empty tool allowlist) serves as **Judge** — forbidden from running tools, issuing verdicts only from collected evidence.
 
-Core architecture is an engine skill (`skills/council/`) with thin command wrappers. `/council` is the generic entry. `/review-commit` is refactored to call the same engine with a diff-mode preset, eliminating drift between the two adversarial systems. Integration updates have been applied to SPEC-002, SPEC-009, SPEC-010, and SPEC-012.
+Core architecture is an engine skill (`skills/council/`) with thin command wrappers. `/council` is the generic entry. `/review-and-commit` is refactored to call the same engine with a diff-mode preset, eliminating drift between the two adversarial systems. Integration updates have been applied to SPEC-002, SPEC-009, SPEC-010, and SPEC-012.
 
 Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 
@@ -25,14 +25,14 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST support `/council --session` — audit a slice of the current session transcript
 - MUST support `/council --session --last N` — audit last N turns only
 - MUST support `/council --plan <path>` — audit a plan file for unverified assumptions
-- MUST support `/council --diff` — audit staged diff (equivalent to `/review-commit` invocation path)
+- MUST support `/council --diff` — audit staged diff (equivalent to `/review-and-commit` invocation path)
 - MUST support `/council --from-retro <anchor-id>` — audit a fabrication anchor surfaced by `/retro`
 - MUST refuse to run with no scope argument and no prior context (must fail loudly, not guess)
 
 ### Engine Architecture
 - MUST implement core logic as a skill at `skills/council/` (NOT duplicated inline in commands)
 - MUST expose `commands/council.md` as a thin wrapper over the engine skill
-- MUST refactor `skills/review-commit/SKILL.md` to call the same engine with a `preset: diff-mode` — MUST NOT maintain a parallel adversarial pipeline
+- MUST refactor `skills/review-and-commit/SKILL.md` to call the same engine with a `preset: diff-mode` — MUST NOT maintain a parallel adversarial pipeline
 - MUST define flavor presets as files in `skills/council/flavors/<name>.md` — each containing name, system-prompt delta, and tool allowlist
 - For every council prompt template under `skills/council/prompts/`, that file's own `## Variables` table is the authoritative declaration of its `{{TEMPLATE_VARIABLE}}` contract; `commands/council.md` substitution blocks and `skills/council/SKILL.md`'s documented-variables table MUST name exactly the variables declared in each prompt's Variables table — no more (no dead substitutions), no fewer (no unsubstituted placeholders leaking into spawned subagents)
 - MUST NOT register Prosecutor, Investigator, Devil's Advocate, or Domain Specialist as persistent team agents (no entries in `agents/`, no cortex, no `init-team` bootstrap) — `council-judge` is the sole exception, as it requires a persistent agent definition to enforce the empty-tool-allowlist invariant structurally
@@ -193,8 +193,8 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 2. Verify: the paraphrased verdict line is struck from the report
 3. Verify: the struck line is visible in the report's audit trail (not silently dropped)
 
-### Test 5 — `/review-commit` engine share
-1. Run `/review-commit` on a staged diff after SPEC-013 implementation
+### Test 5 — `/review-and-commit` engine share
+1. Run `/review-and-commit` on a staged diff after SPEC-013 implementation
 2. Verify: it dispatches to the council engine with `preset: diff-mode`
 3. Verify: the 5 original specialists (Logic, Security, Compliance, Quality, Simplification) are loaded as flavor presets from `skills/council/flavors/`
 4. Verify: the verdict schema matches `/council` output (same taxonomy, same confidence score format)
@@ -247,15 +247,15 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 
 - [ ] `skills/council/` skill exists with engine protocol documented
 - [ ] `commands/council.md` exists as a thin wrapper calling the engine
-- [ ] `skills/review-commit/SKILL.md` refactored to call the engine with `preset: diff-mode` (SPEC-010 updated via `/update-spec`)
-- [ ] `skills/council/flavors/` directory contains: paranoid-ic, jaded-senior, yolo-ic, plus the 5 review-commit specialists
+- [ ] `skills/review-and-commit/SKILL.md` refactored to call the engine with `preset: diff-mode` (SPEC-010 updated via `/update-spec`)
+- [ ] `skills/council/flavors/` directory contains: paranoid-ic, jaded-senior, yolo-ic, plus the 5 review-and-commit specialists
 - [ ] `agents/council-judge.md` exists with `tools: ""` and a cortex-load path inheriting from `tech-lead`; engine invokes `council-judge` (not `tech-lead`) for Phase 5
 - [ ] Verdict taxonomy enforced structurally (not free-form)
 - [ ] Feedback memory auto-write verified on `FABRICATED ≥70` and `UNVERIFIED ≥85`
 - [ ] `.claude/council/` directory added to `.gitignore` conventions
 - [ ] SPEC-012 updated with `/retro` → `/council` integration hint
 - [ ] SPEC-009 updated with `requires_council: true` TaskCompleted gate flag
-- [ ] SPEC-010 updated to reflect `/review-commit` delegation to council engine
+- [ ] SPEC-010 updated to reflect `/review-and-commit` delegation to council engine
 - [ ] Settings keys `council.feedback.fabricated_min` and `council.feedback.unverified_min` documented in `/memory-config` or equivalent
 - [ ] `.claude/council/index.json` exists after any task-bound run and is written atomically (tmp + rename)
 - [ ] `task_id` field appears in report frontmatter and `--<task_id>` suffix appears in filename when a run is task-bound
@@ -273,7 +273,7 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 | 2026-04-09 | Initial spec created from brainstorm `.claude/plans/2026-04-09-brainstorm-council.md` |
 | 2026-04-09 | Taxonomy resolution: added Output Shapes section declaring `verdict[]` and `finding[]` as first-class engine outputs; Phase 1 enriches diff-mode input with applicable-specs bundle; Phase 5 Judge emits the shape declared by the preset (empty tool allowlist unchanged); Phase 6 report template branches on shape; Phase 7 feedback memory scoped to `verdict[]` only; findings require `tool_use_id` citations; confidence unified as 0–100 with per-shape thresholds. |
 | 2026-04-09 | Task binding closure: Phase 6 adds a verdict index at `.claude/council/index.json` (atomic tmp+rename writes) as the single source of truth for the SPEC-002 TaskCompleted gate; reports gain a `task_id` frontmatter field and `--<task_id>` filename suffix when task-bound; `/council` accepts `--task-id` with a `CLAUDE_TASK_ID` env fallback; the gate is scoped to `verdict[]`-shape rows only (findings-shape runs excluded); Test 9 and validation checkboxes added for the new plumbing. |
-| 2026-04-09 | Path drift fix: corrected engine path from `skills/dev-team:council/` to `skills/council/` (the `dev-team:` prefix is invocation-time namespace, not filesystem); corrected refactor target from `commands/review-commit.md` to `skills/review-commit/SKILL.md` (review-commit is skill-only, no command shim exists). No behavioral change. |
+| 2026-04-09 | Path drift fix: corrected engine path from `skills/dev-team:council/` to `skills/council/` (the `dev-team:` prefix is invocation-time namespace, not filesystem); corrected refactor target from `commands/review-and-commit.md` to `skills/review-and-commit/SKILL.md` (review-and-commit is skill-only, no command shim exists). No behavioral change. |
 | 2026-04-26 | Clarified "no entries in agents/" MUST NOT: scoped to Prosecutor/Investigator/DA/Specialist only; `council-judge` is explicitly excluded because its empty-tool-allowlist invariant requires a persistent agent file. |
 | 2026-04-09 | Judge agent split: Phase 5 now routes judgment to a dedicated `council-judge` agent at `agents/council-judge.md` (inherits `tech-lead`'s cortex/memory/directives load path, declares empty tool allowlist in frontmatter) instead of reusing the `tech-lead` agent directly — no per-invocation tool-allowlist override mechanism exists, so the empty allowlist invariant is enforced structurally via a distinct agent file. Overview and validation checkbox updated accordingly. |
 | 2026-04-28 | Phase 3 deferral formalised: added blockquote deferral notice to Phase 3 section marking COUNCIL-002 as the delivery milestone; status promoted to ACTIVE; closes spec-code compliance gap flagged in v0.25.2 plugin review. |

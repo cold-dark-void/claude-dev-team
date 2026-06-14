@@ -71,7 +71,7 @@ explicitly-banned patterns are `critical`. Minor convention deviations are
 `warning`. If the rule is ambiguous, the finding is below 80 — do not emit.
 
 **Compliance is a blocking category regardless of severity.** The
-`/review-commit` commit gate blocks on any finding with
+`/review-and-commit` commit gate blocks on any finding with
 `category == compliance`. That is enforced by the preset, not by you —
 your job is to emit the finding with accurate severity and confidence.
 
@@ -116,5 +116,5 @@ If no issues found, return `[]`.
 - SPEC-010 Code Review — authoritative MUSTs for diff-mode review
 - SPEC-013 Adversarial Council Tribunal — `finding[]` schema, strike rule,
   evidence-or-silence invariant
-- `skills/review-commit/SKILL.md` (pre-T13) — source of these focus bullets
+- `skills/review-and-commit/SKILL.md` (pre-T13) — source of these focus bullets
   and the AGENTS.md/CLAUDE.md pre-scan requirement

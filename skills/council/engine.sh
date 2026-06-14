@@ -242,7 +242,7 @@ cmd_preflight() {
         "3_domain_specialist": { deferred: true },
         # Phase 4 runs only for verdict[]-shape presets (claim/session/generic).
         # finding[]-shape (diff-mode) routes specialist findings straight to the
-        # judge — there is no prosecutor/advocate step. See review-commit/SKILL.md
+        # judge — there is no prosecutor/advocate step. See review-and-commit/SKILL.md
         # ("Phase 4 — skipped in diff-mode") and commands/council.md Phase 4.
         "4_prosecution_defense": (
           if $output_shape == "verdict[]"
@@ -682,7 +682,7 @@ if output_shape == "finding[]":
             break
 
 # Action items for finding[] shape.
-# Label + sort order is category-then-severity to match review-commit/SKILL.md
+# Label + sort order is category-then-severity to match review-and-commit/SKILL.md
 # (Step 8): BLOCKER -> COMPLIANCE -> DESIGN -> NITPICK. A compliance finding
 # (any severity) gets the COMPLIANCE label and sorts to rank 1, EXCEPT a
 # critical one which is a BLOCKER first (rank 0) — critical always blocks.

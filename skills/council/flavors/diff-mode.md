@@ -2,8 +2,8 @@
 name: diff-mode
 role: preset
 description: |
-  Code-review preset used by /review-commit. Emits finding[] output shape with
-  the 5 review-commit specialists as investigator flavors. Spec-grep intake
+  Code-review preset used by /review-and-commit. Emits finding[] output shape with
+  the 5 review-and-commit specialists as investigator flavors. Spec-grep intake
   enriched into Phase 1. Feedback memory disabled — code bugs are not
   fabrications.
 output_shape: finding[]
@@ -23,8 +23,8 @@ code-review pipeline over a staged/modified diff: 5 specialist investigators
 in parallel, `finding[]` output shape, 80-confidence discard filter, and no
 feedback-memory writes (a code bug is not a fabrication — SPEC-013 line 105).
 
-This preset is the ONLY v1 caller path for `/review-commit`. The command
-wrapper at `skills/review-commit/SKILL.md` (post-T13) is a thin entry point
+This preset is the ONLY v1 caller path for `/review-and-commit`. The command
+wrapper at `skills/review-and-commit/SKILL.md` (post-T13) is a thin entry point
 that resolves the diff scope and passes control to `engine.sh` with this
 preset selected.
 
@@ -86,7 +86,7 @@ a severity outside this set MUST be struck by the engine (SPEC-013 line 83).
 
 ## Commit gate
 
-The `/review-commit` command enforces a commit gate after the engine returns:
+The `/review-and-commit` command enforces a commit gate after the engine returns:
 
 - ANY finding with `severity == critical` blocks the commit.
 - ANY finding with `category == compliance` blocks the commit, regardless of
@@ -107,10 +107,10 @@ an agent's directives would conflate "caught a bug" with "caught a lie"
 
 ## Cross-references
 
-- SPEC-010 Code Review & Release — owns the user-facing `/review-commit`
+- SPEC-010 Code Review & Release — owns the user-facing `/review-and-commit`
   contract and the 5-specialist requirement.
 - SPEC-013 Adversarial Council Tribunal — owns the `finding[]` output shape,
   the strike rule, and the Phase 1 spec-grep enrichment step.
 - `skills/council/SKILL.md` — engine protocol this preset plugs into.
-- `skills/review-commit/SKILL.md` — pre-T13 source of the 5 specialist
+- `skills/review-and-commit/SKILL.md` — pre-T13 source of the 5 specialist
   sub-prompts migrated into the flavor files listed above.

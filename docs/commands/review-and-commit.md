@@ -1,11 +1,11 @@
-# /review-commit
+# /review-and-commit
 
 Brutally honest multi-agent review of staged and modified files. Runs 5 specialist sub-agents in parallel, applies confidence scoring to filter noise, and gates the commit on the results.
 
 ## Usage
 
 ```
-/review-commit [output-path]
+/review-and-commit [output-path]
 ```
 
 ## Flags
@@ -19,12 +19,12 @@ Brutally honest multi-agent review of staged and modified files. Runs 5 speciali
 
 **Review and commit interactively:**
 ```
-/review-commit
+/review-and-commit
 ```
 
 **Save review for later reference:**
 ```
-/review-commit /tmp/review-$(date +%Y%m%d).md
+/review-and-commit /tmp/review-$(date +%Y%m%d).md
 ```
 
 Output (abbreviated):
@@ -47,14 +47,14 @@ Action Items: 2 BLOCKERs, 0 DESIGN, 1 NITPICK — commit blocked
 
 **Clean diff — commit proceeds:**
 ```
-/review-commit
+/review-and-commit
 # ... review output with no critical findings ...
 # Claude commits automatically with a conventional commit message
 ```
 
 ## How It Works
 
-`/review-commit` runs a structured pipeline that treats code review as a first-class engineering step, not a formality.
+`/review-and-commit` runs a structured pipeline that treats code review as a first-class engineering step, not a formality.
 
 **Step 1 — Gather changes:** Reads `git diff --cached` and `git diff`. If nothing is staged or modified, stops immediately. Each changed file is read in full — findings are not made on diff hunks in isolation.
 
@@ -85,5 +85,5 @@ After every run — even when the commit proceeds — a structured action-items 
 
 ## See Also
 
-- [/wrap-ticket](wrap-ticket.md) — end-of-ticket checklist that runs review-commit as a final gate
-- [/orchestrate](orchestrate.md) — full ticket lifecycle that assigns review-commit to a QA agent
+- [/wrap-ticket](wrap-ticket.md) — end-of-ticket checklist that runs review-and-commit as a final gate
+- [/orchestrate](orchestrate.md) — full ticket lifecycle that assigns review-and-commit to a QA agent
