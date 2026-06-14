@@ -30,21 +30,37 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 ```
 
-Detect language by checking for:
-- `go.mod` → Go (`**/*.go`, exclude `*_test.go`, `vendor/`)
-- `package.json` → TypeScript/JavaScript (`**/*.ts`, `**/*.tsx`, `**/*.js`, exclude `node_modules/`, `dist/`)
-- `pyproject.toml` or `setup.py` → Python (`**/*.py`, exclude `__pycache__/`, `.venv/`)
-- `Cargo.toml` → Rust (`**/*.rs`, exclude `target/`)
-- `*.csproj` → C# (`**/*.cs`, exclude `bin/`, `obj/`)
+Detect language by checking for the canonical 5-marker set (SPEC-008 `### Project-Language Markers`):
+
+| Marker file | Language | Source extensions | Exclude |
+|-------------|----------|-------------------|---------|
+| `go.mod` | Go | `**/*.go` | `*_test.go`, `vendor/` |
+| `package.json` | TypeScript/JavaScript | `**/*.ts`, `**/*.tsx`, `**/*.js` | `node_modules/`, `dist/` |
+| `pyproject.toml` (fallback `setup.py`) | Python | `**/*.py` | `__pycache__/`, `.venv/` |
+| `Cargo.toml` | Rust | `**/*.rs` | `target/` |
+| `*.csproj` | C# | `**/*.cs` | `bin/`, `obj/` |
+
+The marker set is canonical (SPEC-008); the extension/exclude columns above are generate-specs' own
+scan-scope additions and are legitimately richer than the bare-presence detection used by
+check-specs/reflect-specs.
 
 Exclude always: `.claude/`, `specs/`, `skills/`, `commands/`, `*.md`, `*.json`, `*.yaml`,
 `*.lock`, `*.sum`, generated files (`*.pb.go`, `*_gen.*`, `*_generated.*`).
+
+Note: this generation-scope source-scan exclude is intentionally distinct from the code-alignment
+exclude set defined in SPEC-008 `### Source Exclusions (code alignment)`. When reverse-engineering
+product specs from code, generate-specs rightly skips the plugin's own tooling dirs (`skills/`,
+`commands/`); the alignment consumers do NOT exclude those dirs (see SPEC-008 for rationale).
 
 If no language detected: ask the user what language/extensions to scan.
 
 ---
 
 ## Step 1: Check for existing specs
+
+The directory-existence check below follows SPEC-008 `### Spec Discovery` (canonical enumeration
+anchored on `$MROOT`). The `ls` here is a presence guard only — full spec enumeration uses
+`Glob $MROOT/specs/**/*.md` in later steps.
 
 ```bash
 ls $MROOT/specs/ 2>/dev/null
@@ -147,7 +163,7 @@ If user edits: apply their changes before proceeding.
 
 ## Step 4: Determine SPEC numbering
 
-Check existing specs for the highest SPEC number:
+Check existing specs for the highest SPEC number (SPEC-008 `### Spec Discovery`):
 ```bash
 ls $MROOT/specs/core/ 2>/dev/null | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
 ```

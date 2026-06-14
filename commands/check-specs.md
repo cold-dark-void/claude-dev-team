@@ -52,14 +52,22 @@ These 9 checks enforce the **SPEC-008 Spec Format contract** (see `specs/core/SP
 
 ### Phase 2: Code Alignment Audit
 
-1. `Glob specs/**/*.md` — if no results, print "No spec files found — skipping code alignment" and stop Phase 2
+1. `Glob specs/**/*.md` (the category-agnostic enumerator, per SPEC-008 § Spec Discovery; TDD.md is the index, not a governed spec) — if no results, print "No spec files found — skipping code alignment" and stop Phase 2
 2. Select the **3–5 most recently modified specs** by examining the most recent date in each spec's Version History table; note at the top of Phase 2 output: "Sampled N specs (most recently updated)"
 3. For each sampled spec:
    a. Extract all MUST requirements as a list
    b. Derive **search keywords**: specific nouns (feature names, data types, identifiers), verbs (operations), numeric constraints — prefer unique identifiers over generic words
-   c. `Grep` source files using those keywords (exclude paths: `specs/`, `.claude/`, `node_modules/`, `dist/`, `vendor/`; exclude file extensions: `*.md`, `*.txt`, `*.json`, `*.yaml`, `*.yml`, `*.toml`, `*.lock`)
+   c. `Grep` source files using those keywords, excluding non-product sources — the canonical alignment exclude set (per SPEC-008 § Source Exclusions):
+
+<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->
+```text
+Exclude paths:      specs/  .claude/  node_modules/  dist/  build/  target/  vendor/  .git/
+Exclude extensions: *.md  *.txt  *.json  *.yaml  *.yml  *.toml  *.lock  *.sum  *.pb.go  *_gen.*  *_generated.*
+```
+<!-- /include -->
+
    d. Read relevant files with `-C 10` context around keyword matches
-4. For each MUST requirement, classify:
+4. For each MUST requirement, classify (the post-hoc alignment verdicts, per SPEC-008 § Code-Alignment Verdicts):
    - **MATCH** — code clearly satisfies the requirement; cite `file:~line`
    - **MISSING** — no code found implementing this behavior
    - **DIFFERS** — code exists but behavior contradicts the requirement; cite `file:~line`
@@ -130,15 +138,23 @@ From the spec's title, Overview, and each MUST bullet, extract:
 Write these as a flat keyword list before proceeding. Prefer specific, discriminating terms over generic words like "data" or "handle".
 
 ### Step 3: Find Relevant Source Files
-1. **Detect project language**: check for `package.json`, `go.mod`, `Cargo.toml`, `pyproject.toml`, `*.csproj` — note which was found
-2. **Glob for relevant extensions**: e.g., `**/*.go`, `**/*.ts`, `**/*.py`, `**/*.rs` (exclude `specs/`, `.claude/`, `node_modules/`, `dist/`, `vendor/`, `*.md`)
+1. **Detect project language** (the canonical 5-marker map, per SPEC-008 § Project-Language Markers): check for `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml` (fallback `setup.py`), `*.csproj` — note which was found
+2. **Glob for relevant extensions**: e.g., `**/*.go`, `**/*.ts`, `**/*.py`, `**/*.rs`, excluding non-product sources — the canonical alignment exclude set (per SPEC-008 § Source Exclusions):
+
+<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->
+```text
+Exclude paths:      specs/  .claude/  node_modules/  dist/  build/  target/  vendor/  .git/
+Exclude extensions: *.md  *.txt  *.json  *.yaml  *.yml  *.toml  *.lock  *.sum  *.pb.go  *_gen.*  *_generated.*
+```
+<!-- /include -->
+
 3. **Grep with most discriminating keywords** from Step 2; use `output_mode: "content"` with `-C 10` to read context around matches
 4. If >8 files match, narrow by combining two specific keywords (AND search via two sequential Greps, intersect results)
 5. Read the most relevant files (at minimum: functions/methods within 10 lines of keyword matches)
 6. **Graceful fallback**: if no source files found after Glob + Grep, print "No source files found — code alignment skipped" and proceed to Step 6 with only spec-level observations
 
 ### Step 4: Reason Per MUST Requirement
-For each MUST requirement:
+For each MUST requirement (verdicts per SPEC-008 § Code-Alignment Verdicts):
 - State the requirement verbatim
 - State what the code does in the relevant area
 - Assign verdict:

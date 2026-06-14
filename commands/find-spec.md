@@ -15,23 +15,23 @@ If the user provided search terms with the command, use those.
 Otherwise, ask what they're looking for.
 
 ### Step 2: Search Specs
-Search across all spec files in `specs/`:
+Search across all governed spec files (per SPEC-008 `### Spec Discovery`):
 1. Search spec titles (in filenames and # headers)
 2. Search MUST requirements sections
 3. Search Overview sections
 4. Search Test sections
 
-Use grep/ripgrep to find matches in:
-- `specs/core/*.md`
-- `specs/performance/*.md`
-- `specs/safety/*.md`
-- `specs/compatibility/*.md`
-- `specs/architecture/*.md`
+Enumerate specs with the canonical category-agnostic glob — do NOT hardcode per-category dirs:
+- `Glob $MROOT/specs/**/*.md` (where `$MROOT` is the project root resolved by the SPEC-002
+  worktree-aware formula; exclude `specs/TDD.md` — that is the index, not a governed spec)
+
+This covers every category dir (`specs/core/`, `specs/performance/`, `specs/safety/`,
+`specs/compatibility/`, `specs/architecture/`) AND any new category dir without a per-category list.
 
 ### Step 3: Present Results
 For each matching spec, show:
 - **Spec ID and Title**
-- **Category** (core/performance/safety/compatibility/architecture)
+- **Category** (derived from the spec file's subdirectory under `specs/`)
 - **Status** (from the Status line in the spec)
 - **Context snippet** (the matching text with surrounding context)
 

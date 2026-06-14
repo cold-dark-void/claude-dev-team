@@ -57,8 +57,16 @@ Make the requested changes to the spec file:
 Only applies to **ADDED** or **MODIFIED** requirements (not removals).
 
 1. Extract keywords from changed requirements (same technique as `check-specs` Validate Step 2: specific nouns, verbs, numeric constraints, named identifiers)
-2. `Grep` source files using those keywords (exclude `specs/`, `.claude/`, `node_modules/`, `dist/`, `vendor/`, `*.md`)
-3. For each ADDED or MODIFIED requirement, classify current code behavior:
+2. `Grep` source files using those keywords, excluding non-product sources — the canonical alignment exclude set (per SPEC-008 § Source Exclusions):
+
+<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->
+```text
+Exclude paths:      specs/  .claude/  node_modules/  dist/  build/  target/  vendor/  .git/
+Exclude extensions: *.md  *.txt  *.json  *.yaml  *.yml  *.toml  *.lock  *.sum  *.pb.go  *_gen.*  *_generated.*
+```
+<!-- /include -->
+
+3. For each ADDED or MODIFIED requirement, classify current code behavior (the pre-write code-impact taxonomy, per SPEC-008 § Code-Impact Warning — distinct from the post-hoc MATCH/MISSING/DIFFERS/UNDOCUMENTED audit verdicts):
    - **CODE MATCHES** — current code already satisfies the new requirement
    - **CODE CONTRADICTS** — current code does the opposite or would need to change
    - **NO CODE FOUND** — no relevant source files found

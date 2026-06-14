@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `commands/create-spec.md`, `commands/update-spec.md`, `commands/check-specs.md`, `commands/find-spec.md`, `commands/list-specs.md`, `skills/generate-specs/SKILL.md`, `skills/generate-tests/SKILL.md`, `skills/reflect-specs/SKILL.md`, `skills/spec-tooling/`
+**Covers**: `commands/create-spec.md`, `commands/update-spec.md`, `commands/check-specs.md`, `commands/find-spec.md`, `commands/list-specs.md`, `skills/generate-specs/SKILL.md`, `skills/generate-tests/SKILL.md`, `skills/reflect-specs/SKILL.md`, `skills/spec-tooling/`, `skills/spec-tooling/source-exclude.md`
 
 ## Overview
 
@@ -147,6 +147,118 @@ Status is governed on TWO orthogonal axes. They MUST NOT be conflated in one val
 - MUST check skill/command path references exist (Glob each)
 - MUST cap per-file reading at 300 lines
 
+### Spec Discovery
+
+This is the SINGLE normative spec-enumeration procedure. `/check-specs`, `/reflect-specs`,
+`/find-spec`, `/list-specs`, `/create-spec`, `/update-spec`, `/generate-specs`, and
+`/generate-tests` MUST agree with it; they MUST NOT hardcode a per-category dir list and
+MUST NOT define a divergent enumerator.
+
+- MUST anchor enumeration on the shared project root `$MROOT` resolved by the SPEC-002
+  worktree-aware formula (`_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`).
+- MUST enumerate governed specs with the single category-agnostic glob `Glob $MROOT/specs/**/*.md`.
+  Because it is category-agnostic, it covers EVERY category dir (`specs/core/`, `specs/performance/`,
+  `specs/safety/`, `specs/compatibility/`, `specs/architecture/`) AND any new category dir without
+  a per-category list, and it surfaces ORPHAN spec files (files not listed in the index). Consumers
+  MUST NOT enumerate by a fixed set of per-category globs (that misses any new category dir).
+- MUST treat `specs/TDD.md` as the INDEX, not a spec-discovery source: it is excluded from the
+  governed-spec set (it is the index of specs, not itself a governed spec). A consumer MAY READ
+  `specs/TDD.md` as the index (e.g. `/list-specs`) but MUST cross-check it against the
+  `Glob $MROOT/specs/**/*.md` enumeration to detect orphans (governed files absent from the index).
+- Consumers CITE this procedure and keep their own SCOPE filter inline (single spec / sampled /
+  all) — the scope legitimately differs and MUST NOT be forced identical.
+
+### Source Exclusions (code alignment)
+
+This is the SINGLE normative definition of what counts as PRODUCT source for spec→code alignment.
+The four code-alignment consumers — `/check-specs` (audit Phase 2 + validate), `/update-spec`
+(code-impact grep), `/reflect-specs` (source-file inventory + Phase-4 alignment) — MUST use this
+exact exclude set; drift here silently redefines "source" and changes audit verdicts.
+
+- The canonical exclude set is:
+  - **Paths:** `specs/`, `.claude/`, `node_modules/`, `dist/`, `build/`, `target/`, `vendor/`, `.git/`
+  - **Extensions:** `*.md`, `*.txt`, `*.json`, `*.yaml`, `*.yml`, `*.toml`, `*.lock`, `*.sum`,
+    `*.pb.go`, `*_gen.*`, `*_generated.*`
+- MUST source this set operationally from the ONE shared partial `skills/spec-tooling/source-exclude.md`,
+  included byte-identical into the four alignment consumers via
+  `<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->` markers and drift-gated by
+  `sync-includes.py check` at `/release`. The four consumers MUST NOT carry a divergent inline copy.
+- MUST NOT path-exclude `skills/` or `commands/`. Rationale: the `*.md` extension exclude already
+  removes the SKILL.md/command.md prose self-match (a markdown plugin's behavioral prose is a contract,
+  not the implementation under test), while real implementation under `skills/*.sh` (and `.go`/`.ts`/etc.
+  in any consumer project) stays VISIBLE to code-alignment. Path-excluding those dirs would hide this
+  repo's genuine `.sh` logic; for a normal consumer project the dirs do not exist (harmless no-op).
+- The `/generate-specs` GENERATION-scope source scan is a DISTINCT exclusion, NOT this alignment set:
+  when reverse-engineering PRODUCT specs it rightly skips the plugin's own tooling dirs (`skills/`,
+  `commands/`). It CITES this section to mark the contrast, but legitimately differs and MUST NOT be
+  forced onto the alignment canonical.
+
+### Project-Language Markers
+
+This is the SINGLE normative project-language detection map. `/check-specs`, `/reflect-specs`,
+`/generate-specs`, and `/generate-tests` MUST agree on the marker→language mapping below.
+
+- The canonical 5-marker map is:
+  | Marker file | Language |
+  |-------------|----------|
+  | `go.mod` | Go |
+  | `package.json` | TypeScript / JavaScript |
+  | `Cargo.toml` | Rust |
+  | `pyproject.toml` (fallback `setup.py`) | Python |
+  | `*.csproj` | C# |
+- MUST apply per-language build-artifact excludes when globbing detected-language source:
+  `vendor/`, `node_modules/`, `dist/`, `target/`, `bin/`, `obj/`, `__pycache__/`, `.venv/`.
+- Consumers CITE this map; their SURROUNDING columns legitimately differ by purpose and MUST NOT be
+  forced byte-identical: `/generate-specs` maps markers→source extensions; `/generate-tests` maps
+  markers→test-runner + test-path (and may split jest/vitest/mocha under TS/JS); `/check-specs` and
+  `/reflect-specs` use bare-presence detection (no action column). Only the marker SET must agree.
+
+### Code-Alignment Verdicts
+
+This is the SINGLE normative spec→code alignment verdict taxonomy (the POST-HOC audit question:
+"does existing code satisfy this MUST?"). `/check-specs` (audit Phase 2 + validate) and
+`/reflect-specs` (Phase-4) MUST use it.
+
+- MUST classify each MUST requirement against code as exactly one of:
+  - **MATCH** — code clearly satisfies the requirement; cite `file:~line`
+  - **MISSING** — no code found implementing this behavior
+  - **DIFFERS** — code exists but its behavior contradicts the requirement; cite `file:~line`
+  - **UNDOCUMENTED** — behavior exists in code but the spec does not mention it (drift, the inverse direction)
+- MUST cite `file:~line` evidence for MATCH and DIFFERS.
+- Consumers CITE this taxonomy and keep their SCOPE inline (check-specs samples 3–5 specs in audit
+  mode / is exhaustive in validate mode; reflect-specs is all-specs) — scope MUST NOT be forced identical.
+- This is DISTINCT from `### Code-Impact Warning` below. `/update-spec`'s pre-write check answers a
+  DIFFERENT question (does current code CONTRADICT a PROPOSED change?) with a different vocabulary
+  (`CODE MATCHES / CODE CONTRADICTS / NO CODE FOUND`). The two taxonomies MUST NOT be conflated.
+
+### Code-Impact Warning
+
+This is the SINGLE normative pre-write code-impact taxonomy (the PROPOSED-CHANGE question: "would
+this edit clash with current code?"). `/update-spec` MUST use it for ADDED/MODIFIED requirements,
+and it is DELIBERATELY separate from `### Code-Alignment Verdicts` (different question, different vocab).
+
+- MUST classify each ADDED/MODIFIED requirement's relation to current code as exactly one of:
+  - **CODE MATCHES** — current code already satisfies the proposed requirement
+  - **CODE CONTRADICTS** — current code clashes with the proposed requirement (warn before writing)
+  - **NO CODE FOUND** — no implementation exists yet for the proposed requirement
+- This warning grades a PROPOSED change against existing code; it MUST NOT be substituted for the
+  post-hoc MATCH/MISSING/DIFFERS/UNDOCUMENTED audit verdicts, and those MUST NOT be substituted for it.
+
+### Spec Conflict Scan
+
+This is the SINGLE normative cross-spec conflict taxonomy. `/create-spec`, `/update-spec`, and
+`/reflect-specs` MUST agree on the base BLOCKER/WARNING classes below.
+
+- MUST classify cross-spec conflicts as exactly one of the two BASE classes:
+  - **BLOCKER** — direct contradiction between specs (MUST be resolved before proceeding)
+  - **WARNING** — scope overlap or potential redundancy (surfaced, non-blocking)
+- The following are NAMED scope-specific EXTENSIONS, not part of the base set forced everywhere:
+  - **TERMINOLOGY** — inconsistent terminology across specs; `/reflect-specs` ONLY.
+  - **REMOVED-dependency WARNING** — when REMOVING a requirement, warn if other specs depend on it;
+    `/update-spec` ONLY.
+- Consumers CITE the base BLOCKER/WARNING taxonomy; the extensions stay with the consumer that owns
+  them and MUST NOT be forced onto the others.
+
 ## SHOULD
 
 - SHOULD use realistic test data in generated tests (not "test" / "123" / "foo")
@@ -172,6 +284,11 @@ Status is governed on TWO orthogonal axes. They MUST NOT be conflated in one val
 - Verify a fresh `/generate-specs` output has all 9 required sections and passes check-specs Phase 1 (`skills/spec-tooling/check-format.sh` exits 0; MC-6)
 - Verify the `skills/spec-tooling/spec-skeleton.md` include regions in generate-specs and create-spec are byte-identical (`sync-includes.py check` exits 0)
 - Verify `**Status**:` values and the TDD-index Status column are Axis-A lifecycle words only (no `✅/❌/⚠️` or `🚧/🔄` emoji); verify TDD-index and spec-file Version-History rows are 2-column
+- Verify the four code-alignment consumers (check-specs ×2 regions, update-spec, reflect-specs ×2 regions) carry a byte-identical `skills/spec-tooling/source-exclude.md` include region (`sync-includes.py check` exits 0); verify none of the four path-excludes `skills/` or `commands/` (the `*.md` extension exclude handles plugin prose, real `.sh` stays visible)
+- Verify spec discovery is the single category-agnostic `Glob $MROOT/specs/**/*.md` enumerator (no hardcoded per-category dir list in find-spec; list-specs cross-checks TDD.md against the glob to flag orphans; TDD.md is excluded from the governed-spec set)
+- Verify the 5 canonical language markers (`go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`+`setup.py`, `*.csproj`) agree across check-specs/reflect-specs/generate-specs/generate-tests
+- Verify the post-hoc alignment taxonomy (`MATCH/MISSING/DIFFERS/UNDOCUMENTED`) and update-spec's pre-write code-impact taxonomy (`CODE MATCHES/CODE CONTRADICTS/NO CODE FOUND`) are kept distinct (not conflated)
+- Verify the conflict-scan base taxonomy (`BLOCKER/WARNING`) is shared by create/update/reflect, with `TERMINOLOGY` scoped to reflect-specs and the REMOVED-dependency WARNING scoped to update-spec
 
 ## Validation
 
@@ -192,6 +309,7 @@ Status is governed on TWO orthogonal axes. They MUST NOT be conflated in one val
 | 2026-03-22 | Initial spec generated by /generate-specs |
 | 2026-03-23 | Fixed cross-reference typo (was self-referencing SPEC-008 instead of SPEC-010). Clarified SPEC numbering is per-category. Removed orphaned open question about markdown source code. |
 | 2026-06-13 | SPEC-008: single-sourced spec format (9 required sections via skills/spec-tooling/spec-skeleton.md), defined lifecycle status taxonomy (INFERRED/DRAFT/ACTIVE/APPROVED/DEPRECATED, Axis A) vs report-only verify status (Axis B), canonical TDD-index columns + 2-col VH row; generate-specs output now passes check-specs Phase-1 (AUDIT-P1-5A) |
+| 2026-06-14 | SPEC-008: single-sourced the 5 spec-tooling PROCEDURES — Spec Discovery ($MROOT-anchored category-agnostic Glob, TDD=index), Source Exclusions (canonical alignment grep-exclude set via skills/spec-tooling/source-exclude.md, no skills/commands path-exclude), Project-Language Markers (5-marker map), Code-Alignment Verdicts (MATCH/MISSING/DIFFERS/UNDOCUMENTED) kept distinct from update-spec's Code-Impact Warning (CODE MATCHES/CONTRADICTS/NO CODE FOUND), Spec Conflict Scan (BLOCKER/WARNING base + TERMINOLOGY/REMOVED-dep named extensions); consumers cite, the C9 exclude data is drift-gated (AUDIT-P1-5B) |
 
 ## Cross-references
 

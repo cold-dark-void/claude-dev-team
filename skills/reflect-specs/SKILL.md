@@ -42,8 +42,8 @@ All paths below are relative to `$MROOT`.
 Collect everything that will be inspected:
 
 ### 1a. Spec files
-- `Glob specs/**/*.md` — collect all spec files
-- Also check `specs/TDD.md` as an index
+- `Glob specs/**/*.md` — collect all spec files (the category-agnostic enumerator, per SPEC-008 § Spec Discovery)
+- Also check `specs/TDD.md` as an index (the index, not a governed spec — excluded from the spec set; cross-check it against the glob to flag orphans)
 - If no spec files found: print `No specs found in specs/ — nothing to reflect` and stop
 
 ### 1b. Skills and commands
@@ -52,10 +52,17 @@ Collect everything that will be inspected:
 - Note: skills/commands are only checked if they exist; skip gracefully if `skills/` or `commands/` don't exist
 
 ### 1c. Source files
-Detect project language:
-- Check for `package.json`, `go.mod`, `Cargo.toml`, `pyproject.toml`, `*.csproj`
+Detect project language (the canonical 5-marker map, per SPEC-008 § Project-Language Markers):
+- Check for `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml` (fallback `setup.py`), `*.csproj`
 - Glob the corresponding extensions (e.g., `**/*.go`, `**/*.ts`, `**/*.py`, `**/*.rs`)
-- Exclude: `specs/`, `.claude/`, `node_modules/`, `dist/`, `vendor/`, `skills/`, `commands/`, `*.md`
+- Exclude non-product sources — the canonical alignment exclude set (per SPEC-008 § Source Exclusions):
+
+<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->
+```text
+Exclude paths:      specs/  .claude/  node_modules/  dist/  build/  target/  vendor/  .git/
+Exclude extensions: *.md  *.txt  *.json  *.yaml  *.yml  *.toml  *.lock  *.sum  *.pb.go  *_gen.*  *_generated.*
+```
+<!-- /include -->
 
 Print inventory summary:
 ```
@@ -69,6 +76,8 @@ Inventory: N specs, M skills/commands, K source files
 Read all spec files. For each pair of specs, look for contradictions in their MUST requirements.
 
 ### What to look for:
+
+The base BLOCKER/WARNING taxonomy is per SPEC-008 § Spec Conflict Scan; TERMINOLOGY is reflect-specs' named extension (this skill only).
 
 **BLOCKER** — direct contradiction:
 - Spec A: `MUST store data in-memory only`
@@ -181,10 +190,17 @@ From each MUST requirement, extract:
 - **Named identifiers**: function names, config keys, API endpoints
 
 ### 4c. Search source files
-`Grep` source files using keywords (exclude: `specs/`, `.claude/`, `node_modules/`, `dist/`,
-`vendor/`, `skills/`, `commands/`, `*.md`, `*.json`, `*.yaml`, `*.lock`).
+`Grep` source files using keywords, excluding non-product sources — the canonical alignment
+exclude set (per SPEC-008 § Source Exclusions):
 
-### 4d. Classify each MUST requirement:
+<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->
+```text
+Exclude paths:      specs/  .claude/  node_modules/  dist/  build/  target/  vendor/  .git/
+Exclude extensions: *.md  *.txt  *.json  *.yaml  *.yml  *.toml  *.lock  *.sum  *.pb.go  *_gen.*  *_generated.*
+```
+<!-- /include -->
+
+### 4d. Classify each MUST requirement (the post-hoc alignment verdicts, per SPEC-008 § Code-Alignment Verdicts):
 - **MATCH** — code clearly satisfies requirement; cite `file:~line`
 - **MISSING** — no code found implementing this behavior
 - **DIFFERS** — code exists but contradicts requirement; cite `file:~line` and explain
