@@ -62,20 +62,15 @@ If the DB already existed before Step 2, check if it needs a schema upgrade:
 
 ```bash
 if [ -f "$MEMDB" ] && [ -n "$PLUGIN_DIR" ]; then
-  V=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null)
-  if [ "$V" = "1" ]; then
-    echo "Migrating schema v1 -> v2..."
-    bash "$PLUGIN_DIR/migrate-v2.sh" "$MROOT"
-  elif [ "$V" = "2" ]; then
-    echo "Migrating schema v2 -> v3..."
-    bash "$PLUGIN_DIR/migrate-v3.sh" "$MROOT"
-  elif [ -n "$V" ]; then
-    echo "Schema version: $V (up to date)"
-  fi
+  bash "$PLUGIN_DIR/migrate.sh" "$MROOT"
 fi
 ```
 
-This is idempotent — migrate-v2.sh checks schema_version internally.
+`migrate.sh` drives the DB to the latest schema in a single run: it reads
+`schema_version` and applies each `migrate-v<next>.sh` in sequence (v1->v2->v3->…)
+until the latest version is reached. It is idempotent — each step checks
+`schema_version` internally, an already-latest DB prints "up to date", and an
+empty/absent `schema_version` is a no-op (exit 0).
 
 On `--refresh`: always run this migration check.
 On `--migrate-only`: run this step, then the .md migration (Step 4), then exit.
