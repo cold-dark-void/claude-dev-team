@@ -293,7 +293,13 @@ even though in v1 it never does.
 
 ### Phase 4 — Prosecution & Defense
 
-**Spawn contract:**
+**Applies to `verdict[]`-shape runs only.** In `finding[]`-shape runs
+(diff-mode), Phase 4 is **skipped** — specialist findings route directly to
+the Judge with no prosecutor/advocate step (the engine's investigation plan
+emits `4_prosecution_defense: {skipped: true}` for that shape). See
+`skills/review-commit/SKILL.md` ("Phase 4 — skipped in diff-mode").
+
+**Spawn contract (verdict[]-shape):**
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
   **one** Devil's Advocate (flavor: `yolo-ic`) per council run, in parallel.
   (SPEC-013 line 72.)

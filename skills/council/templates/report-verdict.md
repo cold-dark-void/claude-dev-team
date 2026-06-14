@@ -36,14 +36,6 @@ lines struck for missing or unsupported evidence.
 
 {{VERDICT_SUMMARY_TABLE}}
 
-| Taxonomy | Count |
-|---|---|
-| VERIFIED | — |
-| PARTIALLY_VERIFIED | — |
-| UNVERIFIED | — |
-| CONTRADICTED | — |
-| FABRICATED | — |
-
 ---
 
 ## Scope & Configuration
@@ -144,8 +136,6 @@ Every line struck for missing `tool_use_id`, unsupported citation, or
 paraphrased evidence is listed here. This section is always present.
 
 {{STRUCK_LINES}}
-
-No lines struck.
 
 ---
 

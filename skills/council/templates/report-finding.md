@@ -33,12 +33,6 @@ See Findings for per-finding detail and Audit Trail for struck items.
 
 {{SEVERITY_SUMMARY_TABLE}}
 
-| Severity | Count |
-|---|---|
-| critical | — |
-| warning | — |
-| nitpick | — |
-
 ---
 
 ## Commit Gate
@@ -119,14 +113,6 @@ _See findings above._
 
 {{ACTION_ITEMS}}
 
-```
-Action Items: N BLOCKERs, M DESIGN, K NITPICK — [commit blocked | commit proceeded]
-```
-
-- [ ] BLOCKER `file:line` — what is wrong — exactly what to do [confidence: N]
-- [ ] DESIGN  `file:line` — what is wrong — exactly what to do [confidence: N]
-- [ ] NITPICK `file:line` — what is wrong — exactly what to do [confidence: N]
-
 ---
 
 ## Audit Trail — Struck Findings
@@ -136,8 +122,6 @@ severity outside the fixed taxonomy is listed here. This section is always
 present.
 
 {{STRUCK_FINDINGS}}
-
-No findings struck.
 
 ---
 
