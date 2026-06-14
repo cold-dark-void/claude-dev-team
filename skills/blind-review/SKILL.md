@@ -215,7 +215,7 @@ finding — look for evidence it is wrong or overstated)"
 ```
 
 Collect council verdicts. Annotate each Tier 1 cluster in the final report
-with the verdict: VERIFIED / PARTIALLY_VERIFIED / UNVERIFIED / CONTRADICTED.
+with the verdict: VERIFIED / PARTIALLY_VERIFIED / UNVERIFIED / CONTRADICTED / FABRICATED.
 
 ---
 
@@ -305,7 +305,7 @@ Top findings:
   [CLUSTER-003] <severity> — <claim> (N/M teams)
   (showing top 5 Tier 1+2 only)
 
-Council reverse-validation: <N claims challenged — N VERIFIED, N PARTIALLY_VERIFIED, N CONTRADICTED>
+Council reverse-validation: <N claims challenged — N VERIFIED, N PARTIALLY_VERIFIED, N UNVERIFIED, N CONTRADICTED, N FABRICATED>
 ```
 
 ---

@@ -637,6 +637,7 @@ if output_shape == "verdict[]":
 
     # Verdict summary table
     counts = Counter(v.get("verdict", "UNVERIFIED") for v in judge_items)
+    # verdict taxonomy authority: SPEC-013 (Output Shapes)
     taxonomy = ["VERIFIED", "PARTIALLY_VERIFIED", "UNVERIFIED", "CONTRADICTED", "FABRICATED"]
     table_lines = ["| Taxonomy | Count |", "|---|---|"]
     for t in taxonomy:

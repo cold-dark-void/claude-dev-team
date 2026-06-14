@@ -328,6 +328,10 @@ lines 79–80, 86.)
 
 **Engine expects from the Judge:**
 
+The verdict / finding / evidence schema below is the operational copy; the
+canonical schema is normatively defined in
+`specs/core/SPEC-013-adversarial-council-tribunal.md`.
+
 For `verdict[]`-shape runs, a list of records:
 
 ```
@@ -571,11 +575,12 @@ substitutes variables before invoking the Task tool or the judge agent.
 
 | Template | Variables |
 |---|---|
-| `claim-extractor.md` | `{{SCOPE}}`, `{{RAW_INPUT}}`, `{{SPEC_BUNDLE}}` (diff-mode only), `{{CLAIM_BUDGET}}` |
-| `investigator.md` | `{{CLAIM}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}`, `{{TOOL_ALLOWLIST}}` |
+| `claim-extractor.md` | `{{SCOPE_TYPE}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
+| `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}` |
+| `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
 | `prosecutor.md` | `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
 | `advocate.md` | `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
-| `judge.md` | `{{CLAIMS}}`, `{{EVIDENCE_BUNDLES}}`, `{{PROSECUTOR_BRIEF}}`, `{{ADVOCATE_BRIEF}}`, `{{OUTPUT_SHAPE}}` |
+| `judge.md` | `{{ORIGINAL_CLAIMS}}`, `{{EVIDENCE_BUNDLES}}`, `{{PROSECUTOR_BRIEF}}`, `{{ADVOCATE_BRIEF}}`, `{{OUTPUT_SHAPE}}` |
 
 Templates MUST NOT include `{{ASSISTANT_NARRATIVE}}` or any similar variable
 that would leak prior model output into a blind role. Enforcing this is
