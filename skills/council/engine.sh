@@ -247,6 +247,111 @@ cmd_preflight() {
     }'
 }
 
+# ---- shared JSON repair -----------------------------------------------------
+# repair_json_file <file> <mode> <err_label> <exit_code>
+#   <mode>: "evidence" or "judge". Judge mode runs a markdown-fence-strip
+#           pre-step before the shared backslash repair; evidence mode does not.
+#   <err_label>: human label used in stderr messages ("evidence file" / "judge output").
+#   <exit_code>: process exit code on unrepairable input (5 evidence / 7 judge).
+#
+# LLM-emitted JSON commonly contains unescaped backslashes inside string values
+# (regex like \d \w \., paths) and — for judge output — markdown fences. This
+# walks the raw text char-by-char, doubling any backslash inside a JSON string
+# that is not part of a valid escape (" \ / b f n r t u).
+#
+# errexit note: engine.sh runs under `set -euo pipefail`. A python3 non-zero
+# exit fires errexit before any post-heredoc bash guard can run, so the per-mode
+# exit code MUST be produced by sys.exit(int(code)) inside python (driven by the
+# exit_code argv), NOT by a bash `[ $? -ne 0 ]` guard. The guard is kept as
+# explicit documentation of the 5-vs-7 failure contract.
+repair_json_file() {
+  local _file="$1" _mode="$2" _label="$3" _code="$4"
+  python3 - "$_file" "$_mode" "$_label" "$_code" <<'PYREPAIR'
+import json, sys, re
+
+path = sys.argv[1]
+mode = sys.argv[2]
+label = sys.argv[3]
+exit_code = int(sys.argv[4])
+
+with open(path, 'r') as f:
+    raw = f.read()
+
+# Try parsing as-is first
+try:
+    json.loads(raw)
+    sys.exit(0)  # already valid
+except json.JSONDecodeError:
+    pass
+
+# Judge-only: strip markdown fences if present (common LLM wrapping)
+text = raw
+if mode == 'judge':
+    stripped = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+    stripped = re.sub(r'\n?```\s*$', '', stripped)
+    try:
+        json.loads(stripped)
+        with open(path, 'w') as f:
+            f.write(stripped)
+        print("engine.sh: stripped markdown fences from judge output", file=sys.stderr)
+        sys.exit(0)
+    except json.JSONDecodeError:
+        pass
+    text = stripped  # apply backslash repair to the fence-stripped version
+
+# Repair: fix unescaped backslashes inside JSON string values.
+# Walk the text char by char, tracking whether we're inside a JSON string.
+# Inside strings, double any backslash that isn't followed by a valid JSON
+# escape character: " \ / b f n r t u
+VALID_ESCAPES = set('"\\/' + 'bfnrtu')
+out = []
+i = 0
+in_string = False
+while i < len(text):
+    ch = text[i]
+    if not in_string:
+        if ch == '"':
+            in_string = True
+        out.append(ch)
+        i += 1
+    else:
+        if ch == '"':
+            in_string = False
+            out.append(ch)
+            i += 1
+        elif ch == '\\':
+            if i + 1 < len(text) and text[i + 1] in VALID_ESCAPES:
+                # Valid JSON escape — keep as-is
+                out.append(ch)
+                out.append(text[i + 1])
+                i += 2
+            else:
+                # Invalid escape (e.g. \d, \., \w) — double the backslash
+                out.append('\\')
+                out.append('\\')
+                i += 1
+        else:
+            out.append(ch)
+            i += 1
+
+repaired = ''.join(out)
+
+try:
+    json.loads(repaired)
+    with open(path, 'w') as f:
+        f.write(repaired)
+    # Evidence path historically appended a "(unescaped backslashes)" suffix;
+    # judge path did not. Preserve both verbatim for byte-identical stderr.
+    suffix = " (unescaped backslashes)" if mode == 'evidence' else ""
+    print(f"engine.sh: repaired malformed JSON in {label}{suffix}", file=sys.stderr)
+except json.JSONDecodeError as e:
+    print(f"engine.sh: {label} is not valid JSON and repair failed: {e}", file=sys.stderr)
+    if mode == 'judge':
+        print(f"engine.sh: first 200 chars: {raw[:200]}", file=sys.stderr)
+    sys.exit(exit_code)
+PYREPAIR
+}
+
 # ---- finalize ---------------------------------------------------------------
 # Consume plan + evidence + judge output, render report, write index row.
 # Inputs: --plan-file, --evidence-file, --judge-output. Does not interpret
@@ -328,66 +433,7 @@ cmd_finalize() {
   # may contain code with backslashes (regex, paths) that the LLM fails to
   # escape properly. Attempt repair before any jq calls.
   if ! jq empty "$evidence_file" 2>/dev/null; then
-    python3 - "$evidence_file" <<'PYREPAIR'
-import json, sys
-
-path = sys.argv[1]
-with open(path, 'r') as f:
-    raw = f.read()
-
-# Try parsing as-is first
-try:
-    json.loads(raw)
-    sys.exit(0)  # already valid
-except json.JSONDecodeError:
-    pass
-
-# Repair: fix unescaped backslashes inside JSON string values.
-# Walk the raw text character by character, tracking whether we're inside a
-# JSON string. Inside strings, double any backslash that isn't followed by
-# a valid JSON escape character: " \ / b f n r t u
-VALID_ESCAPES = set('"\\/' + 'bfnrtu')
-out = []
-i = 0
-in_string = False
-while i < len(raw):
-    ch = raw[i]
-    if not in_string:
-        if ch == '"':
-            in_string = True
-        out.append(ch)
-        i += 1
-    else:
-        if ch == '"':
-            in_string = False
-            out.append(ch)
-            i += 1
-        elif ch == '\\':
-            if i + 1 < len(raw) and raw[i + 1] in VALID_ESCAPES:
-                # Valid JSON escape — keep as-is
-                out.append(ch)
-                out.append(raw[i + 1])
-                i += 2
-            else:
-                # Invalid escape (e.g. \d, \., \w) — double the backslash
-                out.append('\\')
-                out.append('\\')
-                i += 1
-        else:
-            out.append(ch)
-            i += 1
-
-repaired = ''.join(out)
-
-try:
-    json.loads(repaired)
-    with open(path, 'w') as f:
-        f.write(repaired)
-    print("engine.sh: repaired malformed JSON in evidence file (unescaped backslashes)", file=sys.stderr)
-except json.JSONDecodeError as e:
-    print(f"engine.sh: evidence file is not valid JSON and repair failed: {e}", file=sys.stderr)
-    sys.exit(5)
-PYREPAIR
+    repair_json_file "$evidence_file" evidence "evidence file" 5
     # Note: under set -e, python3 non-zero exit fires errexit before this
     # guard executes. Guard kept as explicit documentation of the contract.
     [ $? -ne 0 ] && exit 5
@@ -406,74 +452,9 @@ PYREPAIR
   # may emit malformed JSON (markdown fences, trailing text, unescaped chars).
   # Apply the same backslash repair as evidence, then validate.
   if ! jq empty "$judge_output" 2>/dev/null; then
-    python3 - "$judge_output" <<'PYJUDGEFIX'
-import json, sys
-
-path = sys.argv[1]
-with open(path, 'r') as f:
-    raw = f.read()
-
-try:
-    json.loads(raw)
-    sys.exit(0)
-except json.JSONDecodeError:
-    pass
-
-# Strip markdown fences if present (common LLM wrapping)
-import re
-stripped = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
-stripped = re.sub(r'\n?```\s*$', '', stripped)
-try:
-    json.loads(stripped)
-    with open(path, 'w') as f:
-        f.write(stripped)
-    print("engine.sh: stripped markdown fences from judge output", file=sys.stderr)
-    sys.exit(0)
-except json.JSONDecodeError:
-    pass
-
-# Apply backslash repair (same logic as evidence repair)
-VALID_ESCAPES = set('"\\/' + 'bfnrtu')
-out = []
-i = 0
-in_string = False
-text = stripped  # use fence-stripped version
-while i < len(text):
-    ch = text[i]
-    if not in_string:
-        if ch == '"':
-            in_string = True
-        out.append(ch)
-        i += 1
-    else:
-        if ch == '"':
-            in_string = False
-            out.append(ch)
-            i += 1
-        elif ch == '\\':
-            if i + 1 < len(text) and text[i + 1] in VALID_ESCAPES:
-                out.append(ch)
-                out.append(text[i + 1])
-                i += 2
-            else:
-                out.append('\\')
-                out.append('\\')
-                i += 1
-        else:
-            out.append(ch)
-            i += 1
-
-repaired = ''.join(out)
-try:
-    json.loads(repaired)
-    with open(path, 'w') as f:
-        f.write(repaired)
-    print("engine.sh: repaired malformed JSON in judge output", file=sys.stderr)
-except json.JSONDecodeError as e:
-    print(f"engine.sh: judge output is not valid JSON and repair failed: {e}", file=sys.stderr)
-    print(f"engine.sh: first 200 chars: {raw[:200]}", file=sys.stderr)
-    sys.exit(7)
-PYJUDGEFIX
+    repair_json_file "$judge_output" judge "judge output" 7
+    # Note: under set -e, python3 non-zero exit fires errexit before this
+    # guard executes. Guard kept as explicit documentation of the contract.
     if [ $? -ne 0 ]; then
       exit 7
     fi
