@@ -297,9 +297,12 @@ even though in v1 it never does.
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
   **one** Devil's Advocate (flavor: `yolo-ic`) per council run, in parallel.
   (SPEC-013 line 72.)
-- Both receive **ONLY the evidence bundles** — not the original claims, not
-  the prior narrative, not each other's output. Prosecution and defense
-  operate on evidence alone. (SPEC-013 line 73.)
+- Both roles are **BLIND to the original claims.** They receive **ONLY the
+  evidence bundles** — not the original claim list, not the prior narrative,
+  not each other's output. Each role reconstructs the set of claims under
+  audit from the `claim_id` carried inside each bundle; it is never handed a
+  separate claims list. Prosecution and defense operate on evidence alone.
+  (SPEC-013 lines 89–94.)
 
 **Output contract:**
 - Prosecutor produces a brief: each claim → evidence against → requested
@@ -310,8 +313,9 @@ even though in v1 it never does.
   `tool_use_id`. Any such line MUST be struck by the engine before Phase 5.
   (SPEC-013 line 76.)
 
-The prompt templates in T7 (`prompts/prosecutor.md`, `prompts/advocate.md`)
-encode these constraints.
+The single role-parameterized prompt template `prompts/phase4-brief.md`
+encodes these constraints; the engine spawns it twice (as Prosecutor and as
+Devil's Advocate).
 
 ### Phase 5 — Judgment
 
@@ -564,8 +568,7 @@ in T7. Files:
 
 - `claim-extractor.md` — runs in Phase 1
 - `investigator.md` — runs in Phase 2 (one per claim per flavor)
-- `prosecutor.md` — runs in Phase 4 (one per run)
-- `advocate.md` — runs in Phase 4 (one per run)
+- `phase4-brief.md` — runs in Phase 4 (spawned twice: once as Prosecutor, once as Devil's Advocate, parameterized by role)
 - `judge.md` — delivered to the `council-judge` agent in Phase 5
 
 Templates are Markdown with `{{VARIABLE}}` placeholders. `engine.sh`
@@ -578,8 +581,7 @@ substitutes variables before invoking the Task tool or the judge agent.
 | `claim-extractor.md` | `{{SCOPE_TYPE}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
 | `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}` |
 | `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
-| `prosecutor.md` | `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
-| `advocate.md` | `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
+| `phase4-brief.md` | `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
 | `judge.md` | `{{ORIGINAL_CLAIMS}}`, `{{EVIDENCE_BUNDLES}}`, `{{PROSECUTOR_BRIEF}}`, `{{ADVOCATE_BRIEF}}`, `{{OUTPUT_SHAPE}}` |
 
 Templates MUST NOT include `{{ASSISTANT_NARRATIVE}}` or any similar variable
