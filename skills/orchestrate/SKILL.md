@@ -677,7 +677,7 @@ git commit -m "<ISSUE-ID>: <title>
 
 <bullet summary>
 
-Co-Authored-By: Claude <noreply@anthropic.com>"
+Co-Authored-By: Claude <model> <noreply@anthropic.com>"
 ```
 
 Only use `gh pr merge --squash` if the user explicitly created a PR and `gh` is

@@ -677,7 +677,7 @@ When working as a native Agent Team teammate:
 ## Commit Rules
 
 - [Project-specific commit convention, e.g., conventional commits]
-- Always include: `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
+- Always include: `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
 ```
 
 Replace all `[bracketed]` and `<ANGLE BRACKET>` placeholders with actual values.
