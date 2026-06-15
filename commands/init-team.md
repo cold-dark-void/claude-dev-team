@@ -81,7 +81,12 @@ Skip this step if `--no-extensions` or `--migrate-only` is set.
 
 ```bash
 if command -v sqlite3 &>/dev/null && [ -n "$PLUGIN_DIR" ]; then
-  bash "$PLUGIN_DIR/download-extensions.sh" "$MROOT"
+  # Only mark the memory .gitignore block as written if download-extensions.sh
+  # actually SUCCEEDED — it writes that block at the very end, so a mid-run abort
+  # (unsupported platform exit, curl/tar failure) must leave the flag UNSET so
+  # Step 5's idempotent fallback still covers the extensions/ + models/ dirs the
+  # script mkdir'd before failing. && ties the flag to the child's exit status.
+  bash "$PLUGIN_DIR/download-extensions.sh" "$MROOT" && export EXT_GITIGNORE_DONE=1
 fi
 ```
 
@@ -104,23 +109,29 @@ if command -v sqlite3 &>/dev/null && [ -f "$MEMDB" ] && [ -n "$PLUGIN_DIR" ]; th
 fi
 ```
 
-## Step 5: Update .gitignore
+## Step 5: Update .gitignore (fallback)
 
 Skip this step if `--migrate-only` is set.
 
-Ensure the following entries are present in `$MROOT/.gitignore`. Add any that are missing; do not remove or reorder existing entries.
+`download-extensions.sh` (Step 3) is the single source of the 5-line memory
+`.gitignore` block. This step is only a **fallback** for the paths where Step 3
+did not run — `--no-extensions`, or `sqlite3`/`PLUGIN_DIR` unavailable — so no
+init path loses gitignore coverage. When Step 3 ran (`EXT_GITIGNORE_DONE=1`),
+skip this step entirely. The `grep -qF || echo` guard is idempotent regardless.
 
 ```bash
-GITIGNORE="$MROOT/.gitignore"
-for ENTRY in \
-  ".claude/memory/memory.db" \
-  ".claude/memory/memory.db-wal" \
-  ".claude/memory/memory.db-shm" \
-  ".claude/memory/extensions/" \
-  ".claude/memory/models/"; do
-  grep -qF "$ENTRY" "$GITIGNORE" 2>/dev/null || echo "$ENTRY" >> "$GITIGNORE"
-done
-echo "Checked .gitignore entries."
+if [ -z "${EXT_GITIGNORE_DONE:-}" ]; then
+  GITIGNORE="$MROOT/.gitignore"
+  for ENTRY in \
+    ".claude/memory/extensions/" \
+    ".claude/memory/models/" \
+    ".claude/memory/memory.db" \
+    ".claude/memory/memory.db-wal" \
+    ".claude/memory/memory.db-shm"; do
+    grep -qF "$ENTRY" "$GITIGNORE" 2>/dev/null || echo "$ENTRY" >> "$GITIGNORE"
+  done
+  echo "Checked .gitignore entries (fallback)."
+fi
 ```
 
 ## Step 5b: Add required hosts to sandbox network allowlist
