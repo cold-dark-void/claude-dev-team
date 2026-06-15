@@ -95,6 +95,18 @@ If they provide content, use it. If they press Enter/skip, use placeholder text.
 
 <GOAL DESCRIPTION or "TODO: describe the goal">
 
+## Implementation Notes
+
+<optional: hints for how to implement, or leave blank>
+
+## Affects
+
+<optional: file/dir paths this work will touch, or leave blank>
+
+## Effort
+
+<optional: rough size — S / M / L, or leave blank>
+
 ## Notes
 
 <NOTES or leave blank>
@@ -199,7 +211,7 @@ Completed: 3 items (see .claude/backlog.md for details)
 ```markdown
 # <TITLE>
 
-**Status**: PENDING | COMPLETED
+**Status**: PENDING | COMPLETED | DEFERRED
 
 ## Problem
 
@@ -213,9 +225,17 @@ What the desired outcome looks like.
 
 Optional: hints for how to implement (backend, UI specifics, etc.).
 
+## Affects
+
+Optional: the file/dir paths this work will touch.
+
+## Effort
+
+Optional: rough size — S / M / L.
+
 ## Notes
 
-Optional: any other relevant context.
+Optional: any other relevant context. Items may also add ad-hoc sections as needed (e.g. `## Scope`, `## Blocker`, `## Design`, `## Acceptance Criteria`).
 
 ---
 
