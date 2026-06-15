@@ -87,7 +87,7 @@ Run:
 python3 skills/agent-memory/sync-includes.py check
 ```
 
-If it exits non-zero, the managed agent-memory include regions have drifted from the canonical partial (`skills/agent-memory/protocol.md`). **Do NOT commit or tag.** Fix the drift first (re-expand the drifted region to match the partial), then re-run until it exits 0.
+If it exits non-zero, one or more managed include regions have drifted from their canonical partials (`skills/agent-memory/protocol.md` — the 7-agent `## Persistent Memory` block; `skills/agent-memory/cortex-load.md` — the debug/refactor tiered-cortex block). **Do NOT commit or tag.** Fix the drift first (re-expand the drifted region to match its partial via `python3 skills/agent-memory/sync-includes.py apply`), then re-run until it exits 0.
 
 ## Step 4.6: Council template-variable drift-check (pre-commit gate)
 

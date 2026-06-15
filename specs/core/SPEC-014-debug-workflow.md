@@ -75,7 +75,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 ### Escalation (`full` and `arch` modes)
 
 - MUST escalate to `/kickoff` when: refactor scope spans multiple subsystems, an architectural decision is required, or the fix requires a tech-lead design review
-- MUST pass investigation findings to `/kickoff` as structured issue text containing: (1) root cause statement, (2) list of affected files/modules, (3) proposed approach, (4) why inline resolution was rejected
+- MUST pass investigation findings to `/kickoff` as structured issue text containing: (1) root cause statement, (2) list of affected files/modules, (3) proposed approach, (4) why inline resolution was rejected. The canonical field layout and the shared `WHY INLINE REJECTED` vocabulary are single-sourced in the `/kickoff` accepted-handoff input contract (`skills/kickoff/SKILL.md` § Accepted escalation handoff); `/debug` and `/refactor` MUST emit that vocabulary verbatim so the two producers do not diverge.
 - MUST NOT continue modifying files after triggering escalation
 - MUST escalate to `/orchestrate` (via `/kickoff`) when scope is large, clear, and requires multiple agents
 - MUST NOT escalate directly to `/orchestrate` without `/kickoff` first unless a `.claude/plans/` file for the work already exists

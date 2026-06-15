@@ -76,7 +76,7 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 ### Escalation (all modes)
 
 - MUST escalate to `/kickoff` when any of the following apply: (a) affected files span more than one top-level directory or named component/service, (b) the approach requires an architectural decision (new abstraction layer, interface contract change), or (c) a tech-lead design review is warranted
-- MUST pass refactor context to `/kickoff` as structured issue text: (1) design problem statement, (2) affected files/modules, (3) proposed approach, (4) why inline resolution was rejected
+- MUST pass refactor context to `/kickoff` as structured issue text: (1) design problem statement, (2) affected files/modules, (3) proposed approach, (4) why inline resolution was rejected. The canonical field layout and the shared `WHY INLINE REJECTED` vocabulary are single-sourced in the `/kickoff` accepted-handoff input contract (`skills/kickoff/SKILL.md` § Accepted escalation handoff); `/debug` and `/refactor` MUST emit that vocabulary verbatim so the two producers do not diverge.
 - MUST NOT continue modifying files after triggering escalation
 - MUST escalate to `/orchestrate` (via `/kickoff`) when scope is large, clear, and requires multiple agents
 - MUST NOT escalate directly to `/orchestrate` without `/kickoff` first unless a `.claude/plans/` file for this work already exists

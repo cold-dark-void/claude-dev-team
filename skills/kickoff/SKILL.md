@@ -21,6 +21,42 @@ and task graph ready for IC agents to claim.
 
 ---
 
+## Accepted escalation handoff (input contract)
+
+When `/kickoff` is reached as an escalation target from `/debug` (scope =
+escalate-to-kickoff, or arch mode) or `/refactor` (scope exceeds inline work),
+the `<ticket text>` argument is the producer's structured handoff. This is the ONE
+canonical contract both producers emit and `/kickoff` consumes — per SPEC-014 §
+Escalation and SPEC-015 § Escalation, which each MUST a 4-field structured handoff.
+
+The handoff MUST contain exactly these four fields:
+
+```
+ROOT CAUSE: <root-cause statement (/debug) or design-problem statement (/refactor)>
+AFFECTED FILES:
+  - <file or module>
+PROPOSED APPROACH: <2-3 sentences describing the intended fix or structural change>
+WHY INLINE REJECTED: <one of the canonical reasons below>
+```
+
+**Canonical `WHY INLINE REJECTED` vocabulary** (shared by `/debug` and `/refactor`;
+producers MUST emit one of these verbatim, consumers validate against this set):
+
+- `cross-subsystem or multi-directory refactor required`
+- `architectural decision required`
+- `tech-lead design review required`
+- `arch mode — design decision required` (`/debug` arch mode only)
+- `callsite count exceeded threshold`
+
+On intake, `/kickoff` treats this 4-field text as the ticket body: ROOT CAUSE and
+PROPOSED APPROACH seed the ticket summary, AFFECTED FILES seed the Tech Lead's
+affected-files assessment (Step 2), and WHY INLINE REJECTED records why the work
+could not be resolved inline. If a field is missing or WHY INLINE REJECTED is not
+one of the canonical values, treat the handoff as a malformed ticket and ask the
+producer (or user) to re-emit it before planning.
+
+---
+
 ## Step 0: Resolve project root and parse args
 
 ```bash
