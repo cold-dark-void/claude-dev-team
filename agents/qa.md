@@ -176,11 +176,9 @@ cat "$WTROOT/.claude/memory/qa/context.md" 2>/dev/null
 if [ "$USE_DB" = "true" ]; then
   # Append ONE focused fact/decision/lesson per INSERT. <TYPE> = cortex|memory|lessons.
   ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
-  MEMORY_ID=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
-    INSERT INTO memories(agent, type, content) VALUES ('qa', '<TYPE>', '$ESCAPED');
+  MEMORY_ID=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('qa', '<TYPE>', '$ESCAPED');
     SELECT last_insert_rowid();") \
-    || { sleep 1; MEMORY_ID=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
-      INSERT INTO memories(agent, type, content) VALUES ('qa', '<TYPE>', '$ESCAPED');
+    || { sleep 1; MEMORY_ID=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('qa', '<TYPE>', '$ESCAPED');
       SELECT last_insert_rowid();"); }
   # Best-effort embedding — silently skips when extensions absent. embed-one.sh is a
   # sibling of skills/memory-store/; resolve it (dev checkout first, else installed cache).
