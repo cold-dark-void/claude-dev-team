@@ -60,15 +60,15 @@ To force-close a task: TaskUpdate <task_id> status:completed
 
 ## How It Works
 
-`/wrap-ticket` runs seven steps sequentially:
+`/wrap-ticket` runs nine steps sequentially:
 
-1. **Resolve worktree** — detects the ticket's worktree path via `git worktree list`. Notes it for removal in Step 6; continues even if no worktree is found.
+1. **Resolve worktree** — detects the ticket's worktree path via `git worktree list`. Notes it for removal in Step 8; continues even if no worktree is found.
 
 2. **Verify tasks** — dual-reads the **file store as authoritative** plus `TaskList`. It enumerates the ticket's task records by compound-key filename (`find .claude/tasks -name "<TICKET-ID>-*.json"`) rather than by subject, because the file store survives `/clear` while the in-session `TaskList` empties out — a TaskList-only check would vacuously pass and let Step 8 destroy a worktree whose work is still incomplete. If any file-store task is not `completed`, presents the list and asks whether to force-close or stop. If no records are found in either source, it prints "Completion could not be verified" and relies on the Step 8 uncommitted-changes backstop — it never removes the worktree on a silent vacuous pass.
 
 3. **Collect learnings** — reads each agent's `context.md` from the ticket's worktree and the plan file. Extracts 3-8 specific bullet points: unexpected technical discoveries, patterns worth repeating, gotchas that would trip up a future engineer, specs or docs that need updating, and work that was deferred.
 
-4. **Append to project memory** — writes the learnings as a dated section to `.claude/memory/claude/memory.md` (or the SQLite `memories` table if the DB is active). Warns if the memory file exceeds 150 lines.
+4. **Append to project memory** — writes the learnings as a dated section to `.claude/memory/claude/memory.md` (or the SQLite `memories` table if the DB is active). Warns if the memory file exceeds its SPEC-004 line limit (memory: 50 lines).
 
 5. **Auto-distill check** — if `distill_enabled=true` and `distill_mode=auto`, checks whether any agent is over the `distill_threshold` raw-memory count and queues distillation. In `suggest` mode, prints a notice listing agents over threshold. In both cases, suggests running `/memory-distill` to compress.
 

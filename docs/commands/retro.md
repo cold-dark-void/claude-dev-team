@@ -74,7 +74,7 @@ Prints the per-session score, threshold, matched signals (with anchor IDs), and 
 
 ## See Also
 
-- [`/adjust-agent`](./adjust-agent.md) — the apply target for team-agent directive proposals; supports `--apply` non-interactive mode used by `/retro --auto`
+- `/adjust-agent` — the apply target for team-agent directive proposals; supports `--apply` non-interactive mode used by `/retro --auto`
 - [`/kickoff`](./kickoff.md) — runs the friction gate at completion and suggests `/retro` if it fires
 - [`/orchestrate`](./orchestrate.md) — same friction-check hook at the end of an orchestration run
 - [`/recall`](./recall.md) — search past sessions, memory, and git history (broader search, no scoring or proposals)
