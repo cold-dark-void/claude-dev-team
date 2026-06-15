@@ -59,8 +59,8 @@ cmd_create() {
   local deps
   deps=$(printf '%s' "${4:-}" | jq -Rs 'split(":") | map(select(length > 0))')
 
-  if ! printf '%s' "$task_id" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-    echo "error: task_id must match [a-zA-Z0-9._-]+, got: $task_id" >&2
+  if ! printf '%s' "$task_id" | grep -qE '^[A-Za-z0-9_-]+$'; then
+    echo "error: task_id must match [A-Za-z0-9_-]+ (no dots — a dotted ID cannot get a worktree), got: $task_id" >&2
     exit 2
   fi
 
@@ -115,8 +115,8 @@ cmd_update_status() {
   [ $# -eq 2 ] || { echo "error: update-status requires 2 arguments" >&2; usage; }
   local task_id="$1" new_status="$2"
 
-  if ! printf '%s' "$task_id" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-    echo "error: task_id must match [a-zA-Z0-9._-]+, got: $task_id" >&2
+  if ! printf '%s' "$task_id" | grep -qE '^[A-Za-z0-9_-]+$'; then
+    echo "error: task_id must match [A-Za-z0-9_-]+ (no dots — a dotted ID cannot get a worktree), got: $task_id" >&2
     exit 2
   fi
 
