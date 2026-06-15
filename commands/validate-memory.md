@@ -108,8 +108,9 @@ Read the claim extractor prompt template from
 
 ### Step 3.1: Batch memories for extraction
 
-Collect all eligible memories from Step 2 into batches of up to 10 memories
-each. For each memory, prepare a JSON object:
+Collect all eligible memories from Step 2 into batches, sized per the
+"Claim extraction" row of `skills/validate-memory/SKILL.md` section "Batching
+Limits". For each memory, prepare a JSON object:
 
 ```json
 {
@@ -122,10 +123,10 @@ each. For each memory, prepare a JSON object:
 }
 ```
 
-Maximum 10 batches per run (100 memories). To enforce this, add `LIMIT 100`
-to the Step 2 SQL query. Memories beyond this limit remain unvalidated and
-will be picked up on the next run (they keep `validated_at IS NULL` and
-retain highest processing priority).
+To enforce that run cap, add `LIMIT 100` to the Step 2 SQL query (the SQL-LIMIT
+overflow handling named in the Batching Limits table). Memories beyond this
+limit remain unvalidated and will be picked up on the next run (they keep
+`validated_at IS NULL` and retain highest processing priority).
 
 ### Step 3.2: Spawn claim extractors
 
@@ -138,14 +139,11 @@ block).
 
 ### Step 3.3: Validate extraction results
 
-For each returned result, validate per the rules in the SKILL.md:
-
-1. Output must be valid JSON.
-2. Every `memory_id` must correspond to an input memory.
-3. Every `claim_type` must be one of: `file_reference`, `symbol_reference`,
-   `line_content`, `behavioral`, `architectural`, `configuration`.
-4. Every claim must have at least one `code_ref` with a non-empty `path`.
-5. Empty `claims` array requires non-null `skip_reason`.
+For each returned result, enforce all six rules in `skills/validate-memory/SKILL.md`
+section "Claim Extractor Prompt Template" → "Validation rules (command-enforced)".
+That includes the "Maximum 8 claims per memory" cap (rule 6): truncate extractions
+that exceed it. The `claim_type` values it references are the six terms in the
+"Claim Type Taxonomy" section.
 
 Memories with malformed extraction results go to FLAG_USER with score 30 and
 reason "claim extraction failed".
@@ -169,14 +167,9 @@ Also partition claims by type for Step 4:
 Verify each claim against the live codebase. Tier A (bash, no LLM cost) for
 structural references, Tier B (LLM investigator) for semantic claims.
 
-Both tiers produce per-claim verdicts using the same taxonomy:
-
-| Verdict | Meaning | Score pts |
-|---------|---------|-----------|
-| `VALID` | Claim matches current code | 0 |
-| `STALE` | Code changed; claim was probably true once | 25 |
-| `CONTRADICTED` | Claim is demonstrably false | 40 |
-| `AMBIGUOUS` | Cannot determine; evidence is mixed | 10 |
+Both tiers produce per-claim verdicts using the same taxonomy — see
+`skills/validate-memory/SKILL.md` section "Verdict Taxonomy" for the four
+verdicts (`VALID`, `STALE`, `CONTRADICTED`, `AMBIGUOUS`) and their score points.
 
 Each verdict carries a `confidence` score (0-100) and an `evidence` string.
 
@@ -309,22 +302,18 @@ Read the investigator prompt template from `skills/validate-memory/SKILL.md`
 section "Investigator Prompt Template".
 
 1. Collect all Tier B claims from all memories.
-2. Batch into groups of up to 15 claims per investigation call.
+2. Batch claims per the "Tier B investigation" row of
+   `skills/validate-memory/SKILL.md` section "Batching Limits".
 3. For each batch, substitute `{{CLAIMS_TO_VERIFY}}` with the JSON array of
    claims and spawn a Task subagent (`subagent_type: "general-purpose"`).
 4. Spawn all investigation batches in parallel.
-5. Maximum 5 investigation batches per run (75 claims). Claims beyond this
-   limit are skipped — their parent memories are excluded from scoring and
-   deferred to the next run (do NOT set `validated_at`, so they retain
-   highest processing priority).
+5. Apply that table's run cap and overflow handling: claims beyond the cap are
+   skipped — their parent memories are excluded from scoring and deferred to the
+   next run (do NOT set `validated_at`, so they retain highest processing
+   priority).
 
-Validate returned verdicts per the SKILL.md rules:
-
-1. Output must be valid JSON.
-2. Exactly one verdict per input claim.
-3. `verdict` must be one of: `VALID`, `STALE`, `CONTRADICTED`, `AMBIGUOUS`.
-4. `confidence` must be integer 0-100.
-5. `evidence` must be non-empty.
+Validate returned verdicts per the rules in `skills/validate-memory/SKILL.md`
+section "Investigator Prompt Template" → "Validation rules (command-enforced)".
 
 Claims with no returned verdict (missing from output or malformed) default to
 `AMBIGUOUS` with confidence 50.
@@ -369,17 +358,8 @@ SCORE=$(( raw_score + age_mod + tier_mod ))
 [ "$SCORE" -gt 100 ] && SCORE=100
 ```
 
-**Why averaging?** A memory with 5 VALID claims and 1 STALE claim scores ~4,
-not 25. The average normalizes by claim count, so memories with many verified
-claims are not penalized by a single stale reference.
-
-**Worked examples:**
-
-- 3 claims: 2 VALID (conf 90) + 1 STALE (conf 85) → raw = (0+0+21.25)/3 =
-  7.1 → flagged for user
-- 2 claims: both CONTRADICTED (conf 90) → raw = (36+36)/2 = 36 → flagged
-- 1 claim: CONTRADICTED (conf 95), age 200d → raw = 38 + 5 = 43 → reviewer
-- All VALID → raw = 0 → clean pass
+For why the score averages across claims (and worked examples), see
+`skills/validate-memory/SKILL.md` section "Composite Scoring Formula".
 
 ## Step 6: Triage by threshold
 
