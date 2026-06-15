@@ -88,24 +88,16 @@ that flag set.
 
 ## Findings
 
-Per-finding records from the Council Judge (Phase 5, diff-mode). Grouped by
-severity: Critical first, then Warning, then Nitpick. Each entry includes
-`file:line`, category (from the specialist flavor), description, suggestion,
-confidence score (0–100), and the `tool_use_id` citing the Read/Grep that
-observed the cited location. Findings below confidence 80 were filtered at
-emission (diff-mode threshold per SPEC-013 line 44).
-
-### Critical Issues (Must Fix) [confidence 95–100]
+Per-finding records from the Council Judge (Phase 5, diff-mode). Each entry
+includes `file:line`, category (from the specialist flavor), description,
+suggestion, confidence score (0–100), and the `tool_use_id` citing the
+Read/Grep that observed the cited location. Findings below confidence 80 were
+filtered at emission (diff-mode threshold per SPEC-013 line 44). `engine.sh`
+emits one `### [SEVERITY] file:line (category)` heading per finding into
+`{{FINDINGS}}` (in the order the judge returned them), so each finding carries
+its own severity inline and no static severity subheadings are needed here.
 
 {{FINDINGS}}
-
-### Warnings [confidence 80–94]
-
-_See findings above._
-
-### Nitpicks [confidence 80–94]
-
-_See findings above._
 
 ---
 

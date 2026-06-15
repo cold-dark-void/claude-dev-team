@@ -35,8 +35,8 @@ This file is the single source of truth for the fan-out: the five JSON schemas
 `commands/handoff.md` (the cold-mode orchestrator), Step 6. The command reads this
 file, substitutes `${...}` placeholders, and spawns all five extractors **in one
 tool-use block**. Never invoked by humans. The warm-mode (`bare /handoff`) live
-capture is a separate path and does **not** spawn these extractors (see the
-warm-mode section appended to this file).
+capture is a separate path and does **not** spawn these extractors (warm mode
+lives in `commands/handoff.md` Step 1b).
 
 ---
 
