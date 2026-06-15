@@ -6,12 +6,6 @@ A FAANG-style AI dev team plugin for [Claude Code](https://claude.ai/claude-code
 
 ```bash
 /plugin marketplace add cold-dark-void/claude-dev-team
-```
-
-Or if you haven't added this marketplace yet:
-
-```bash
-/plugin marketplace add cold-dark-void/claude-dev-team
 /plugin install dev-team
 ```
 
@@ -30,6 +24,9 @@ Or if you haven't added this marketplace yet:
 | `ds` | Opus | Read, Write, Edit, Bash, Grep, Glob, Task*, SendMessage | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
 | `project-init` | Sonnet | Read, Write, Edit, Bash, Grep, Glob, SendMessage | _(internal)_ One-time team memory bootstrap — invoked by `/init-team`, not directly |
 | `distiller` | Haiku | Bash, Read | _(internal)_ Memory compression specialist — invoked by `/memory-distill`, not directly |
+| `council-judge` | Opus | _(none)_ | _(internal)_ Tool-less final arbiter for `/council` tribunals — invoked by the council engine, not directly |
+
+The first seven rows are the behavioral/team agents you route work to; `project-init`, `distiller`, and `council-judge` are internal agents invoked by specific commands. `Task*` is shorthand for the task tools (`TaskCreate`, `TaskList`, `TaskUpdate`, `TaskGet`).
 
 Each agent has persistent memory — stored in SQLite (preferred) or markdown files (fallback):
 
@@ -41,7 +38,7 @@ Each agent has persistent memory — stored in SQLite (preferred) or markdown fi
 | .md files | Fallback (no sqlite3 or extensions) | Per-agent files at `.claude/memory/<agent>/` |
 | `context.md` | Always | Per-worktree task progress (never migrated to DB) |
 
-After running `/init-team`, the plugin downloads sqlite-vec + sqlite-lembed extensions and an embedding model (~29MB total) for semantic search. If unavailable, agents fall back to .md files transparently.
+After running `/init-team`, the plugin downloads sqlite-vec + sqlite-lembed extensions and an embedding model for semantic search (see the [Quick Start](#quick-start) note for download size and the offline `--no-extensions` path). If unavailable, agents fall back to .md files transparently.
 
 ### Embedding Modes
 
@@ -63,6 +60,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/adjust-agent` | View and manage per-agent behavioral directives (supports `--apply` for non-interactive use) |
 | `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` |
 | `/init-orchestration` | Enable Agent Teams: sandbox, env var, auto-memory + Stop + TaskCompleted hooks, AGENTS.md |
+| `/demo` | Interactive walkthrough: scaffolds a tiny project in a temp worktree, injects a ticket, and runs the full agent pipeline so you can watch the team work |
 
 #### Feature work
 
@@ -91,6 +89,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | Command | What it does |
 |---------|-------------|
 | `/review-and-commit` | 5-agent parallel review with confidence scoring, blocks commit on critical issues |
+| `/blind-review` | Multi-team blind peer review with quorum analysis — spawns N unconstrained reviewers, aggregates consensus |
 | `/check-specs` | Audit spec format + code alignment (MATCH/MISSING/DIFFERS per requirement) |
 | `/reflect-specs` | Full health check — ALL specs exhaustively, cross-spec conflicts, interactive |
 | `/generate-tests` | Generate tests from specs — one test per MUST requirement, tagged with spec ID |
@@ -105,6 +104,7 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 | `/recall` | Cross-source search: sessions, memory, specs, plans, git history |
 | `/memory-distill` | Compress raw memories into digests, promote high-signal to core |
 | `/memory-config` | View and set memory configuration (distill mode, threshold) |
+| `/validate-memory` | Cross-reference agent memories against the live codebase to detect stale references |
 | `/handoff <session-uuid>` | Cold mode: reconstruct a past session from disk into a dense brief injected into the current session — survives `/compact`, multiday gaps, multi-fork transcripts |
 | `/handoff` | Warm mode: capture the current live session into a five-section brief written to `.claude/handoff/` before the session ends |
 
@@ -137,8 +137,6 @@ Mode is detected during `/init-team` and can be refreshed with `/init-team --ref
 ```
 /init-team                 # Run once — reads AGENTS.md, code, CI, infra, writes memory for each agent
 ```
-
-> **Note**: `/init-team` downloads sqlite-vec + sqlite-lembed extensions and an embedding model (~29MB) for semantic memory search. If the download fails or `sqlite3` is unavailable, agents fall back to .md files automatically.
 
 > **Note**: The bundled `.claude/settings.json` pre-approves common operations so agents run without permission prompts. See [Autonomy & Permissions](#autonomy--permissions) below.
 
@@ -294,10 +292,10 @@ The plugin ships `.claude/settings.json` which pre-approves common operations so
 ```
 
 - **`defaultMode: "acceptEdits"`** — file reads, writes, and edits are auto-approved
-- **Bash allow list** — 41 entries covering dev tools, agent bootstrap patterns (variable assignments, compound commands, shell control flow), and common read-only utilities
-- **Intentionally excluded**: destructive commands (`rm`, `curl`, `wget`) still prompt for confirmation
+- **Bash allow list** — covers dev tools, agent bootstrap patterns (variable assignments, compound commands, shell control flow), common read-only utilities, plus `sqlite3` and `curl` (the latter for memory-extension downloads and remote-embedding endpoints). The canonical list lives in `skills/scaffold-project/SKILL.md` — that's the single source of truth for its contents.
+- **Intentionally excluded**: destructive commands like `rm` and `wget` still prompt for confirmation
 
-Both `/scaffold-project` (new projects) and `/init-team` (existing projects) emit/sync the full allowlist automatically.
+`/scaffold-project` emits this Bash allow list for new projects. (`/init-team` syncs the sandbox *network* allowlist for Agent Teams, not the Bash permission list.)
 
 To extend for your stack, add entries to `.claude/settings.json`:
 
@@ -383,6 +381,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 ---
 
 ## Changelog
+
+### v0.36.24
+- **fix: reconcile the README/AGENTS rosters, command tables, and release/allowlist claims (AUDIT-P3.2)** — the agent roster in both `README.md` and `AGENTS.md` omitted `council-judge` (violating AGENTS.md's own "update the roster" rule); added it to both, framed as an internal (non-behavioral) agent alongside `project-init`/`distiller` so the "7 behavioral agents" wording stays correct. Added the missing `/blind-review`, `/validate-memory`, and `/demo` rows to the README command tables; added a `Task*` shorthand footnote; deduped the install block + the triple "~29MB" note. `AGENTS.md` "Release Rules" now **cites** `skills/release/SKILL.md` as the authoritative commit-format contract instead of restating it (single source). Corrected three false allowlist claims: `curl` is **allowed** (not "intentionally excluded" — it's in the emitted allowlist for downloads/remote-embedding; only `rm`/`wget` are excluded), the stale "41 entries" count → a reference to the canonical emitter (now 43), and the attribution that `/init-team` emits the Bash allowlist (it only syncs the sandbox **network** allowlist — only `/scaffold-project` emits the Bash permission list; fixed at both `README` and `AGENTS.md`). Scope: this repo's `README.md`/`AGENTS.md` + the one scaffold-project curl note — the SPEC-005/010-locked emitted consumer template was not touched. (AUDIT-P3.2).
 
 ### v0.36.23
 - **fix: correct stale references in the `docs/commands/` guides (AUDIT-P3.1)** — fixed the only dead intra-docs link (`docs/commands/retro.md` pointed at a nonexistent `./adjust-agent.md` — de-linked to plain text, since `/adjust-agent` has its own SKILL) and three stale literals in `docs/commands/wrap-ticket.md`: "runs seven steps" → "nine steps" (the list has nine), the Step-1 cross-reference "removal in Step 6" → "Step 8" (worktree removal moved to item 8 when the file-store-authoritative verify step landed in P0.5), and the memory-size warning "exceeds 150 lines" → "exceeds its SPEC-004 line limit (memory: 50 lines)" (the last surviving 150-literal after P1-1 reconciled the limit to 50 everywhere else). The audit's broader "7+ pages frozen at pre-council architecture" premise had already evaporated — the pages document the current council+worktree flow. Doc-only, two files. (AUDIT-P3.1).

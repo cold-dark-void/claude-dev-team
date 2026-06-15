@@ -26,7 +26,11 @@ Three files must have matching versions:
 3. `.claude-plugin/marketplace.json` — `"version"` field inside `plugins[]`
 
 Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
-After commit: `git tag vX.Y.Z && git push && git push --tags`
+
+The commit-message format, single-folded-commit rule, and tag/push sequence are owned by
+`skills/release/SKILL.md` (the authoritative `/release` contract) — follow it rather than
+hand-crafting a release commit. (The format is intentionally NOT restated here, to keep a
+single source of truth; read the skill.)
 
 ## Agent Roster
 
@@ -41,6 +45,10 @@ After commit: `git tag vX.Y.Z && git push && git push --tags`
 | `ds` | Opus | Data analysis, ML, metrics |
 | `project-init` | Sonnet | One-time memory bootstrap (via `/init-team`) |
 | `distiller` | Haiku | Memory compression specialist (invoked by `/memory-distill` only) |
+| `council-judge` | Opus | Tool-less final arbiter for `/council` tribunals (invoked by the council engine only) |
+
+The first 7 rows are the behavioral/team agents; `project-init`, `distiller`, and
+`council-judge` are internal agents invoked by specific commands, never routed to directly.
 
 ## Worktree Protocol
 
@@ -178,7 +186,7 @@ explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"
 - Both directories are functionally equivalent to Claude Code's plugin loader — the split is organizational only
 - Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
 - No build step — this is a pure markdown/JSON plugin
-- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is added to the permission allowlist by `/init-team`)
+- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is part of the Bash permission allowlist emitted by `/scaffold-project`; `/init-team` syncs only the sandbox network allowlist, not the permission list)
 
 ## What NOT to Do
 
