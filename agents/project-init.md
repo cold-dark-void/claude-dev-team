@@ -24,16 +24,6 @@ for agent in pm tech-lead ic5 ic4 devops qa ds; do
 done
 ```
 
-Detect storage mode (used in Steps 3 and 3b):
-
-```bash
-MEMDB="$MROOT/.claude/memory/memory.db"
-USE_DB=false
-if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  USE_DB=true
-fi
-```
-
 ## Step 1b: Sync Agent Permissions
 
 Ensure `.claude/settings.json` exists and has the full agent allowlist. This prevents permission prompts from blocking background agents.
@@ -59,7 +49,7 @@ Required permissions:
 
 ## Step 2: Comprehensive Project Scan
 
-Read broadly. Do NOT skip files. You are reading for 6 different roles simultaneously.
+Read broadly. Do NOT skip files. You are reading for 7 different roles simultaneously.
 
 ### FIRST: Read AGENTS.md if it exists
 ```bash
@@ -83,7 +73,7 @@ Use `Glob` to find files, `Read` to read them. Use `Bash` to get directory trees
 
 ## Step 3: Write Cortex + Lessons Files
 
-Write each cortex.md with information RELEVANT TO THAT ROLE. Do not just copy-paste the same content into all 6 files.
+Write each cortex.md with information RELEVANT TO THAT ROLE. Do not just copy-paste the same content into all 7 files.
 
 ### DB-first write path
 
@@ -478,6 +468,6 @@ Run /init-team again any time the project changes significantly.
 - Write REAL content based on what you found — no placeholders, no "TBD"
 - If you can't find something, omit that section rather than guessing
 - Each file should be genuinely useful to that agent on day 1
-- Do not write the same content into all 6 files
+- Do not write the same content into all 7 files
 - **SQLite mode:** No line limits — the DB handles storage efficiently. Write comprehensive content.
 - **Fallback (.md) mode:** Keep each cortex.md ≤ 100 lines, lessons.md ≤ 80 lines — summarize rather than dump everything
