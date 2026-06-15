@@ -67,7 +67,7 @@ SPAWN 5 EXTRACTORS IN ONE TOOL-USE BLOCK   ◄── THIS FILE   (the fan-out in
    Convergence · Dead-ends · Code-state · Open-threads & conflicts · Basics
         │  each writes one JSON object → ${SECTIONS_DIR}/<section>.json
         ▼
-prepass.sh finalize --uuid <u> --sections ${SECTIONS_DIR}   (Task 5)
+prepass.sh finalize --uuid <u> --sections ${SECTIONS_DIR} [--leaf <uuid>]   (Task 5)
         │  merge → 5 labeled sections, pointers enforced (M6), <=400 lines
         ▼
 print brief to stdout (cold-mode injection, M7) + write cache (M8)
@@ -180,12 +180,18 @@ section names, in this fixed order, and renders one labeled heading per section:
 
 | Order | `section` value | Filename | Rendered heading | MUST (spec) |
 |-------|-----------------|----------|------------------|-------------|
-| 1 | `convergence` | `convergence.json` | **Convergence** | M4(a) |
-| 2 | `dead_ends` | `dead_ends.json` | **Dead-ends** | M4(b) |
-| 3 | `code_state` | `code_state.json` | **Code-state** | M4(c) |
-| 4 | `open_threads` | `open_threads.json` | **Open-threads & conflicts** | M4(d), M5 |
-| 5 | `basics` | `basics.json` | **Basics** | M4(e) |
+| 1 | `convergence` | `convergence.json` | `## Convergence` | M4(a) |
+| 2 | `dead_ends` | `dead_ends.json` | `## Dead-ends` | M4(b) |
+| 3 | `code_state` | `code_state.json` | `## Code-state` | M4(c) |
+| 4 | `open_threads` | `open_threads.json` | `## Open-threads & conflicts` | M4(d), M5 |
+| 5 | `basics` | `basics.json` | `## Basics` | M4(e) |
 
+The `Rendered heading` column is the EXACT `## <Heading>` string `prepass.sh
+finalize` prints (its `SECTION_SPEC` heading column — the single source) and is
+the same string the warm-mode template in `commands/handoff.md` W2 renders, so
+cold and warm briefs are identical. The `section` value and `Filename` are the
+canonical UNDERSCORE spellings the extractors Write and `finalize` loads (it also
+accepts a stray hyphen stem, e.g. `dead-ends.json`, as a slug-tolerant fallback).
 The orchestrator writes each spawn's JSON to the matching filename. A missing or
 malformed file → `finalize` renders that heading with an `_(extraction failed —
 not available)_` placeholder rather than aborting the brief.
@@ -550,7 +556,7 @@ The boundary between this skill (LLM fan-out) and `prepass.sh finalize`
 - **This skill produces:** five files `${SECTIONS_DIR}/{convergence,dead_ends,
   code_state,open_threads,basics}.json`, each a single JSON object
   `{section, content, pointers:[{type,ref,note}]}` (the schema above).
-- **`finalize` consumes:** `prepass.sh finalize --uuid <u> --sections ${SECTIONS_DIR}`
+- **`finalize` consumes:** `prepass.sh finalize --uuid <u> --sections ${SECTIONS_DIR} [--leaf <uuid>]`
   reads those five files (by fixed filename), repairs/validates each per the rules
   above, renders the five headings in fixed order, enforces M6 pointer discipline on
   the merged output, caps the brief at ~400 lines, writes the cache file

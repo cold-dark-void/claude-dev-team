@@ -75,7 +75,7 @@ usage() {
   cat >&2 <<'EOF'
 Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
        prepass.sh cache-check --uuid <uuid>
-       prepass.sh finalize    --uuid <uuid> --sections <dir>
+       prepass.sh finalize    --uuid <uuid> --sections <dir> [--leaf <uuid>]
 
   prepare      assemble + pre-pass + size-decide; emits plan.json (+ spine/chunks)
   cache-check  exit 0 (HIT, prints cached brief) / exit 10 (MISS) keyed by leaf-uuid
@@ -84,6 +84,9 @@ Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
   --uuid     <uuid>   session uuid (required for all subcommands)
   --out      <path>   prepare: where to write the plan JSON (default: ./plan.json)
   --sections <dir>    finalize: dir holding the 5 extractor section JSONs
+  --leaf     <uuid>   finalize: the leaf-uuid (M8 cache key) prepare already
+                      computed; passing it skips a full transcript re-stream.
+                      Omitted -> finalize recomputes it via assemble.py.
 
 Env:
   HANDOFF_SPINE_TOKENS   token budget for a single spine (default 120000).
@@ -101,10 +104,11 @@ case "$SUBCMD" in
   *) echo "prepass.sh: unknown subcommand: $SUBCMD" >&2; usage ;;
 esac
 
-# Shared arg parse: --uuid (all), --out (prepare), --sections (finalize).
+# Shared arg parse: --uuid (all), --out (prepare), --sections + --leaf (finalize).
 UUID=""
 OUT="plan.json"
 SECTIONS=""
+LEAF_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --uuid)
@@ -122,6 +126,11 @@ while [ $# -gt 0 ]; do
       SECTIONS="$2"; shift 2 ;;
     --sections=*)
       SECTIONS="${1#--sections=}"; shift ;;
+    --leaf)
+      [ $# -ge 2 ] || usage
+      LEAF_ARG="$2"; shift 2 ;;
+    --leaf=*)
+      LEAF_ARG="${1#--leaf=}"; shift ;;
     -h|--help)
       usage ;;
     *)
@@ -154,14 +163,19 @@ CACHE_DIR="$REPO_ROOT/.claude/handoff/cache"
 CACHE_FILE="$CACHE_DIR/$UUID.json"
 
 # compute_leaf — recompute the current leaf-uuid for UUID by streaming the
-# assembled (timestamp-ordered) timeline and taking the last surviving
-# message's uuid. This is byte-identical to `prepare`'s leaf rule (last record
-# in timeline order), so a brief built by `prepare`/`finalize` and a later
-# `cache-check` agree on the M8 key. Prints leaf to stdout, exit 0; on
-# uuid-not-found / assemble failure prints nothing and returns non-zero.
+# assembled (timestamp-ordered) timeline and applying the shared keep_last_uuid
+# rule (skills/handoff/leafrule.py). This is byte-identical to `prepare`'s leaf
+# computation (SAME imported rule, same ordered input), so a brief built by
+# `prepare`/`finalize` and a later `cache-check` agree on the M8 key. Prints leaf
+# to stdout, exit 0; on uuid-not-found / assemble failure prints nothing and
+# returns non-zero.
 compute_leaf() {
-  PREPASS_ASSEMBLE="$ASSEMBLE" PREPASS_UUID="$UUID" python3 - <<'PYEOF'
+  PREPASS_ASSEMBLE="$ASSEMBLE" PREPASS_UUID="$UUID" PREPASS_SCRIPT_DIR="$SCRIPT_DIR" python3 - <<'PYEOF'
 import json, os, subprocess, sys
+
+# Import the single-source leaf rule (keep_last_uuid) from this skill dir.
+sys.path.insert(0, os.environ["PREPASS_SCRIPT_DIR"])
+from leafrule import keep_last_uuid
 
 ASSEMBLE = os.environ["PREPASS_ASSEMBLE"]
 UUID = os.environ["PREPASS_UUID"]
@@ -170,19 +184,18 @@ proc = subprocess.Popen(
     [sys.executable, ASSEMBLE, "assemble", UUID],
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
 )
-leaf = None
-for line in proc.stdout:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        obj = json.loads(line)
-    except (ValueError, TypeError):
-        continue
-    if isinstance(obj, dict):
-        u = obj.get("uuid")
-        if u:
-            leaf = u  # keep-last: timeline is ordered, so the final one wins
+
+def _stream(p):
+    for line in p.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            yield json.loads(line)
+        except (ValueError, TypeError):
+            continue
+
+leaf = keep_last_uuid(_stream(proc))
 proc.stdout.close()
 err = proc.stderr.read()
 proc.stderr.close()
@@ -266,16 +279,25 @@ if [ "$SUBCMD" = "finalize" ]; then
     echo "prepass.sh: --sections dir not found: $SECTIONS" >&2
     exit 1
   fi
-  # Recompute leaf-uuid (M8 cache key). A finalize without a resolvable leaf
+  # Resolve the leaf-uuid (M8 cache key). FAST PATH: `prepare` already computed
+  # it and the orchestrator passes it via --leaf, so we skip a full ~87 MB
+  # assemble.py re-stream on the common cold path. FALLBACK: when --leaf is
+  # absent (a stand-alone finalize), recompute it via compute_leaf(). Either way
+  # the value is the same keep-last leaf rule (leafrule.py), so the cache key is
+  # identical whichever path produced it. A finalize with no resolvable leaf
   # still produces a brief but cannot be cached — we warn and skip the write
   # rather than poison the cache with a null key.
-  set +e
-  LEAF=$(compute_leaf)
-  leaf_rc=$?
-  set -e
-  if [ "$leaf_rc" -ne 0 ] || [ -z "$LEAF" ]; then
-    echo "prepass.sh: WARNING — cannot recompute leaf-uuid for $UUID; brief will print but NOT be cached." >&2
-    LEAF=""
+  if [ -n "$LEAF_ARG" ]; then
+    LEAF="$LEAF_ARG"
+  else
+    set +e
+    LEAF=$(compute_leaf)
+    leaf_rc=$?
+    set -e
+    if [ "$leaf_rc" -ne 0 ] || [ -z "$LEAF" ]; then
+      echo "prepass.sh: WARNING — cannot recompute leaf-uuid for $UUID; brief will print but NOT be cached." >&2
+      LEAF=""
+    fi
   fi
 
   HANDOFF_BRIEF_MAX_LINES="${HANDOFF_BRIEF_MAX_LINES:-400}" \
@@ -396,22 +418,21 @@ def prune_cache(cache_dir, current_file):
         warn(f"cache prune: skipped ({e}).")
 
 
-# The five M4 sections, in canonical brief order. Each entry maps a stable key
-# to (display heading, list of accepted filename stems). Task 7's extractors
-# emit one JSON per section; we accept a few stem spellings so the contract is
-# forgiving (e.g. "dead-ends.json", "dead_ends.json", "deadends.json").
+# The five M4 sections, in canonical brief order. Each entry is
+# (section enum, rendered "## heading", accepted filename stems). The enum and
+# the canonical filename stem are the UNDERSCORE spellings the extractors
+# actually Write (SKILL.md "Section enum <-> heading <-> file" + commands/handoff.md
+# Step 6 table). The heading column is the SINGLE SOURCE the warm template in
+# commands/handoff.md renders the same bare "## <Heading>" from — warm and cold
+# MUST render identically. Each stem list is the canonical underscore stem plus
+# ONE slug-tolerant hyphen fallback, so a stray "dead-ends.json" still loads.
 SECTION_SPEC = [
-    ("convergence", "Convergence — current correct mental model / root cause",
-     ["convergence"]),
-    ("dead-ends", "Dead-ends — rejected hypotheses & verbatim user corrections",
-     ["dead-ends", "dead_ends", "deadends"]),
-    ("code-state", "Code-state — from git (diff / log)",
-     ["code-state", "code_state", "codestate"]),
-    ("open-threads", "Open-threads & conflicts (incl. stated-intent-vs-git flags)",
-     ["open-threads", "open_threads", "openthreads",
-      "open-threads-conflicts", "open_threads_conflicts"]),
-    ("basics", "Basics — established context, vocabulary & constraints",
-     ["basics"]),
+    ("convergence", "Convergence", ["convergence"]),
+    ("dead_ends", "Dead-ends", ["dead_ends", "dead-ends"]),
+    ("code_state", "Code-state", ["code_state", "code-state"]),
+    ("open_threads", "Open-threads & conflicts",
+     ["open_threads", "open-threads"]),
+    ("basics", "Basics", ["basics"]),
 ]
 
 
@@ -623,6 +644,7 @@ PREPASS_CANONICAL="$CANONICAL" \
 PREPASS_OUT="$OUT" \
 PREPASS_ASSEMBLE="$ASSEMBLE" \
 PREPASS_PARSE_DIR="$PARSE_DIR" \
+PREPASS_SCRIPT_DIR="$SCRIPT_DIR" \
 python3 - <<'PYEOF'
 import io
 import json
@@ -638,6 +660,18 @@ try:
     from parselib import msg_text, is_sidechain, edit_file_path
 except Exception as e:  # pragma: no cover - exercised only if module is broken
     sys.stderr.write(f"prepass.sh: cannot import shared parselib: {e}\n")
+    sys.exit(1)
+
+# Single-source the M8 leaf rule: import keep_last_uuid from this skill dir so
+# prepare and a later finalize/cache-check apply ONE identical rule (no second
+# inline implementation). leafrule.py lives next to prepass.sh.
+script_dir = os.environ.get("PREPASS_SCRIPT_DIR", "")
+if script_dir and script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+try:
+    from leafrule import keep_last_uuid
+except Exception as e:  # pragma: no cover - exercised only if module is broken
+    sys.stderr.write(f"prepass.sh: cannot import leafrule: {e}\n")
     sys.exit(1)
 
 UUID = os.environ["PREPASS_UUID"]
@@ -780,15 +814,13 @@ if not records:
     sys.exit(1)
 
 # ---------------------------------------------------------------------------
-# (e) LEAF — cache key (M8). The assembled timeline already dropped null-uuid
-# bookkeeping lines, so the last record's uuid is the last-message uuid.
+# (e) LEAF — cache key (M8). Apply the shared keep_last_uuid rule (leafrule.py,
+# the same one compute_leaf/cache-check use) to the already-buffered records, so
+# this value and a later finalize/cache-check recomputation agree by
+# construction. The assembled timeline already dropped null-uuid bookkeeping
+# lines; keep-last over the ordered records yields the last-message uuid.
 # ---------------------------------------------------------------------------
-leaf_uuid = None
-for rec in reversed(records):
-    u = rec["obj"].get("uuid")
-    if u:
-        leaf_uuid = u
-        break
+leaf_uuid = keep_last_uuid(rec["obj"] for rec in records)
 
 # ---------------------------------------------------------------------------
 # PASS 2: render each surviving message to a compact spine record. KEEP

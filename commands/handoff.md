@@ -134,6 +134,13 @@ OUTPUT_FILE="$HANDOFF_DIR/${SESSION_ID}-${SLUG}.md"
 and knows it. No subagent spawns, no transcript parsing, no prepass. Apply the
 density rules from M11 (see *Warm density rules* below) throughout.
 
+The five `## <Heading>` strings below are the SAME canonical headings the cold
+path's `prepass.sh finalize` renders (its `SECTION_SPEC` heading column —
+`Convergence` / `Dead-ends` / `Code-state` / `Open-threads & conflicts` /
+`Basics`). Warm and cold MUST render identically; keep these in lockstep with
+`finalize` (and the SKILL "Section enum ↔ heading ↔ file" table) if any heading
+is ever reworded.
+
 Write the file using the Write tool:
 
 ```
@@ -520,13 +527,19 @@ Hand the section directory to the engine. `finalize` reads the five section file
 (by fixed filename), repairs/validates each defensively, merges them into one
 dense brief (five labeled headings in fixed order, every non-trivial claim
 carrying a drill-down pointer per M6, no raw tool output, capped at ~400 lines),
-recomputes the leaf-uuid for the cache key, **writes the cache** (M8, under
+takes the leaf-uuid for the cache key, **writes the cache** (M8, under
 `.claude/handoff/cache/<uuid>.json`, outside `memory.db`), and **prints the brief
 to stdout** (M7 cold-mode injection).
 
+Pass `--leaf "$LEAF_UUID"` — the leaf-uuid `prepare` already computed (Step 4,
+read from `plan.json`). With it, `finalize` skips a redundant full transcript
+re-stream; the value is identical to what `finalize` would recompute (same
+leaf rule), so the M8 cache key is unchanged. If `$LEAF_UUID` is empty (e.g. a
+stand-alone finalize without a plan), omit it and `finalize` recomputes it.
+
 ```bash
 set +e
-BRIEF=$("$PREPASS" finalize --uuid "$UUID" --sections "$SECTIONS_DIR" 2>/tmp/handoff-finalize.err)
+BRIEF=$("$PREPASS" finalize --uuid "$UUID" --sections "$SECTIONS_DIR" --leaf "$LEAF_UUID" 2>/tmp/handoff-finalize.err)
 FIN_RC=$?
 set -e
 ```
