@@ -97,7 +97,7 @@ for images. This ticket adds CSV/JSON/Markdown export of cached descriptions.
 This is the most important gate — you're approving the spec and task breakdown.
 
 ```
-  Worktree created: ../project-POC-123 (branch feat/POC-123-batch-export)
+  Worktree created: .worktrees/POC-123-batch-export (branch feat/POC-123-batch-export)
 
   Spec: specs/core/SPEC-026-batch-export.md [created]
   Plan: .claude/plans/2026-03-07-POC-123-batch-export.md
@@ -196,25 +196,15 @@ QA found 2 spec violations. The orchestrator routed fixes automatically — no i
 
 ## Escalation Triggers
 
-The orchestrator interrupts you mid-flow when:
-
-- An agent is stuck after 2 genuine attempts
-- Scope creep is discovered (work not in the plan)
-- An ambiguous requirement can't be resolved from the spec
-- A breaking change is found (schema migration, API contract, dependency bump)
-- IC and Tech Lead cycle 3+ review rounds without consensus
-
-Routine issues (test failures, lint, formatting, implementation choices within spec) are handled by agents without interrupting you.
+When the orchestrator interrupts you mid-flow vs. handles things itself: see
+[`/orchestrate` → Escalation triggers](../commands/orchestrate.md#escalation-triggers).
 
 ---
 
 ## Change Discipline
 
-- One ticket = one branch = one PR. Never bundle multiple tickets.
-- Soft cap: ~1,000 LOC of real code per PR. Hard cap: 2,000 LOC total. PRs over limit must be split.
-- Refactoring is always a separate PR — never mixed with feature work.
-- Discovered out-of-scope work goes to a new ticket, not the current PR.
-- Material changes to the approach trigger a replan gate: all IC work pauses, Tech Lead replans, you approve before resuming.
+PR scope, LOC caps, refactoring rules, and the replan gate: see
+[`/orchestrate` → Change discipline](../commands/orchestrate.md#change-discipline).
 
 ---
 

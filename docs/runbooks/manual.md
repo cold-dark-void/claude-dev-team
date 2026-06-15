@@ -39,9 +39,13 @@ If no `specs/` directory exists, run `/generate-specs` first (see [Setup Guide](
 Create the worktree **before** planning — `/kickoff` writes the plan into the current working tree.
 
 ```bash
-git worktree add ../project-ENG-123 -b feat/ENG-123-short-description
-cd ../project-ENG-123
+WT=$(bash skills/worktree-lib.sh ensure ENG-123-short-description)
+cd "$WT"
 ```
+
+This creates branch `feat/ENG-123-short-description` and the worktree at
+`$MROOT/.worktrees/ENG-123-short-description`, printing its path on stdout
+(see [Worktree Protocol](../../AGENTS.md#worktree-protocol) / `specs/core/SPEC-016-worktree-isolation.md`).
 
 ---
 
@@ -255,7 +259,7 @@ Handles: task verification, learnings capture, plans.md update, backlog items, w
 
 ```bash
 # 8.1 Clean up worktree
-git worktree remove ../project-ENG-123
+bash skills/worktree-lib.sh release ENG-123-short-description
 
 # 8.2 Spec reflection (periodic — before minor/major bumps)
 /reflect-specs
