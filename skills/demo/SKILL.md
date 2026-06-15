@@ -458,5 +458,7 @@ If no:
 ```
 Demo project left at: ${TMPDIR:-/tmp}/demo-project
 Branch: <DEMO_BRANCH>
-Clean up later: git worktree remove ${TMPDIR:-/tmp}/demo-project && git branch -D <DEMO_BRANCH>
+Clean up later (run as two separate commands, never chained with && — WSL2 .git/config busy hazard):
+  git worktree remove ${TMPDIR:-/tmp}/demo-project
+  git branch -D <DEMO_BRANCH>
 ```

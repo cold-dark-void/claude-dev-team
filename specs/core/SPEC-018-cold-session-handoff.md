@@ -1,7 +1,7 @@
 # SPEC-018: Session Handoff (Cold + Warm)
 
 **Status**: ACTIVE
-**Category**: Core
+**Category**: core
 **Created**: 2026-06-04
 
 ---
@@ -85,3 +85,4 @@ Design: a deterministic, LLM-free pre-pass (fork-tree assembly + `toolUseResult`
 | 2026-06-04 | CDV-10 Task-1 spike (GATE-1): corrected M1 mechanism — `forkedFrom` is provenance, not a cross-file pointer; forks copy the prefix → assembly = locate canonical file + dedup-by-uuid keep-last + timestamp order (no cross-file walk); `isSidechain` collapse is a defensive no-op (never True in real data) |
 | 2026-06-05 | Implemented via CDV-10 (Tasks 1-14): status NEW→ACTIVE |
 | 2026-06-05 | Cache-eviction shipped (v0.30.1, HOFF-EVICT): `prepass.sh finalize` now bounds `.claude/handoff/cache/` — count-cap by `created_at` (HANDOFF_CACHE_MAX_ENTRIES, default 50), never evicts the just-written entry, sweeps orphan `*.tmp`; a cached brief is a derived memoization so eviction loses no recoverable context |
+| 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Category `Core`→`core` (lowercase, matches SPEC-008 category list and all other specs/core). No behavioral change. |
