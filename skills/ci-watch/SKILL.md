@@ -128,6 +128,7 @@ session context. Available tools: Bash, Task, CronDelete.
    d. Spawn dev-team:ic5 via Task tool with prompt:
         "Hot-fix only — do not refactor, do not add tests beyond the
          failing one. Push to existing branch <BRANCH>. Worktree: <WT>.
+         Output mode: terse.
          Failing output:
          <FAIL>
          When done, run:
@@ -146,7 +147,7 @@ is well within that.
 `wrap-ticket` Step 6.5 is the canonical teardown:
 
 ```bash
-SIDECAR="$MROOT/.claude/ci-watch/${TICKET_ID}.json"
+SIDECAR=$(bash "$MROOT/skills/ci-watch/sidecar.sh" path "$TICKET_ID")
 if [ -f "$SIDECAR" ]; then
   CRON_ID=$(jq -r '.cron_job_id // empty' "$SIDECAR")
   # Call the CronDelete tool with $CRON_ID  (tool, not bash)

@@ -143,6 +143,8 @@ Use `/kickoff` logic but adapted — spawn both agents in the worktree:
 ```
 You are @pm. Review issue <ISSUE-ID>:
 
+Output mode: terse
+
 <ISSUE CONTEXT>
 
 Your job:
@@ -159,6 +161,8 @@ orchestrator; there is no addressable parent.
 ### Tech Lead agent (spawn now, in parallel):
 ```
 You are @tech-lead. Orient on issue <ISSUE-ID> while @pm reviews scope.
+
+Output mode: terse
 
 Issue summary: <title + first 2 sentences>
 
@@ -203,6 +207,9 @@ Feed confirmed ACs + Tech Lead's orientation to Tech Lead:
 
 ```
 @tech-lead — ACs are confirmed:
+
+Output mode: terse
+
 <final AC list>
 
 Your earlier assessment: <affected files, specs, risks>
@@ -278,7 +285,7 @@ DEPS=$(echo "<compound dep keys for this task, space/comma-separated>" | tr ', '
 bash skills/orchestrate/task-store.sh create <ISSUE-ID>-<task_id> "<subject>" <requires_council> "$DEPS"
 ```
 
-where `<ISSUE-ID>` is the current issue ID (e.g. `CDV-QF-FILTER`) and `<task_id>` is the integer returned by TaskCreate (e.g. `1`). The compound key (e.g. `CDV-QF-FILTER-1`) prevents task-store collisions when a new Claude process reuses the same integer IDs across runs. The 4th `[depends_on]` argument MUST use the SAME compound `<ISSUE-ID>-N` form so `dag-lib.sh ready-set`'s set-subtraction matches completed task IDs — a bare `Task N` or `N` would never appear in the done-set and would silently re-mark every dependent as ready, defeating the DAG. A task with no deps passes `""` (empty depends_on). This writes `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` — the source of truth the SPEC-002 TaskCompleted hook reads to determine whether the council quality gate applies (SPEC-009 line 48). If `task-store.sh` exits non-zero, surface the error to the user immediately — do NOT silently continue.
+where `<ISSUE-ID>` is the current issue ID (e.g. `CDV-QF-FILTER`) and `<task_id>` is the integer returned by TaskCreate (e.g. `1`). The compound key (e.g. `CDV-QF-FILTER-1`) prevents task-store collisions when a new Claude process reuses the same integer IDs across runs. The 4th `[depends_on]` argument MUST use the SAME compound `<ISSUE-ID>-N` form so `dag-lib.sh ready-set`'s set-subtraction matches completed task IDs — a bare `Task N` or `N` would never appear in the done-set and would silently re-mark every dependent as ready, defeating the DAG. A task with no deps passes `""` (empty depends_on). This writes `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` — the source of truth the SPEC-002 TaskCompleted hook reads to determine whether the council quality gate applies (SPEC-009, "council gate applies when `requires_council: true`" MUST + the task-store source-of-truth MUSTs). If `task-store.sh` exits non-zero, surface the error to the user immediately — do NOT silently continue.
 
 Update the plan file with task IDs.
 
@@ -328,7 +335,7 @@ is no addressable parent named 'main' or 'orchestrator'; symbolic addressing
 will fail. The orchestrator reads your output directly from this spawn return."
 ```
 
-Whenever the orchestrator invokes `/council` as part of a task's orchestration steps (e.g., a task with `requires_council: true` that requires a council verdict before completion), the orchestrator MUST export `CLAUDE_TASK_ID=<task_id>` in the subprocess environment of that `/council` invocation. This is the ambient task-id transport SPEC-013 Phase 6 uses for verdict-to-task binding via the fallback chain `--task-id` flag → `CLAUDE_TASK_ID` env → unbound (SPEC-009 line 46; SPEC-013 Task-ID Plumbing). The hook path (SPEC-002 TaskCompleted) resolves its task id from stdin JSON and does NOT share this fallback chain — the two paths are independent.
+Whenever the orchestrator invokes `/council` as part of a task's orchestration steps (e.g., a task with `requires_council: true` that requires a council verdict before completion), the orchestrator MUST export `CLAUDE_TASK_ID=<task_id>` in the subprocess environment of that `/council` invocation. This is the ambient task-id transport SPEC-013 Phase 6 uses for verdict-to-task binding via the fallback chain `--task-id` flag → `CLAUDE_TASK_ID` env → unbound (SPEC-009, the `CLAUDE_TASK_ID` export MUST; SPEC-013 Task-ID Plumbing). The hook path (SPEC-002 TaskCompleted) resolves its task id from stdin JSON and does NOT share this fallback chain — the two paths are independent.
 
 The orchestrator MAY also export `CLAUDE_TASK_ID=<task_id>` when spawning regular IC agents for a task; this is useful when the agent itself invokes `/council` mid-task as a self-review.
 
@@ -405,8 +412,15 @@ and spawn any newly-unblocked tasks.
 
 ### CI-watch fixer agent convention
 
-When a CI-watch cron spawns a `dev-team:ic5` fixer agent, the fixer prompt
-MUST end with this instruction:
+The canonical CI-watch fixer-spawn block is `skills/ci-watch/SKILL.md` (the
+`outcome == "fail"` branch). Follow it verbatim — it owns the full bookkeeping:
+`task-store.sh create <TICKET>-ci-fixer` before the spawn, `sidecar.sh inc
+<TICKET> retry_count`, and `task-store.sh update-status <TICKET>-ci-fixer
+completed` after. Do NOT restate a partial copy here; defer to that block so
+the bookkeeping stays single-sourced.
+
+The one runtime instruction the spawned fixer needs IN its own prompt (it runs
+in a separate session that cannot read this file) is the trailing guard clear:
 
   "When done with the fix, run:
    bash <MROOT>/skills/ci-watch/sidecar.sh set <TICKET_ID> fixer_active false
@@ -421,7 +435,7 @@ monitoring loop sees a new commit on the remote), arm the CI-watch loop:
 
 1. **Check if already armed** (idempotent guard):
    ```bash
-   SIDECAR="$MROOT/.claude/ci-watch/<TICKET-ID>.json"
+   SIDECAR=$(bash "$MROOT/skills/ci-watch/sidecar.sh" path "<TICKET-ID>")
    [ -f "$SIDECAR" ] && exit 0   # already armed, skip
    ```
 
@@ -477,6 +491,8 @@ As each IC task completes, trigger a Tech Lead review:
 
 ```
 @tech-lead — Review the changes for Task <ID> (<title>).
+
+Output mode: terse
 
 Check against:
 - Spec: <spec path>
@@ -534,7 +550,7 @@ On every TaskUpdate that changes a task's status, the orchestrator MUST also cal
 bash skills/orchestrate/task-store.sh update-status <ISSUE-ID>-<task_id> <new_status>
 ```
 
-Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009 lines 49–51); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
+Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009, the task-store write/update/no-delete-after-completion MUSTs); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
 
 ### Defensive CI-watch cleanup
 
@@ -562,6 +578,8 @@ After all IC tasks pass Tech Lead review, spawn QA:
 
 ```
 @qa — All implementation tasks for <ISSUE-ID> are complete and reviewed.
+
+Output mode: terse
 
 Validate against the spec:
 - Spec: <spec path>
