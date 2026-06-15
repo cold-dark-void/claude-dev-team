@@ -69,7 +69,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - MUST scaffold minimal but realistic Go project with passing tests
 - MUST pause at each decision gate so user sees the workflow
 - MUST provide teardown prompt (clean up or keep for exploration)
-- MUST clean up gracefully: `git worktree remove` + `git branch -D`
+- MUST clean up gracefully via the worktree-teardown discipline in SPEC-016 — `git worktree remove` then `git branch -D` as SEPARATE git calls (never chained `&&`; the WSL2 `.git/config` device-or-resource-busy hazard); prefer `skills/worktree-lib.sh release` where available
 
 ## SHOULD
 
@@ -110,6 +110,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-03-23 | Resolved scaffold/orchestration merge question. Moved AGENT_TEAMS env var here from SPEC-002. Clarified TDD.md seeding as index entries not full specs. |
 | 2026-06-13 | AUDIT-P1-1B (D4): declared this repo's AGENTS.md and the emitted consumer template intentionally DISTINCT (no managed-include single-sourcing between them; emitted files MUST stay marker-free). Pushed the `SendMessage` no-addressable-parent guidance into the emitted template's Team Coordination section (both blocks) — consumers previously lacked it, risking spawned agents DMing a non-existent parent. |
 | 2026-06-14 | AUDIT-P0.12: TaskCompleted-hook registration command changed to the worktree-safe `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"` form, matching the init-orchestration safe emitter (relative path resolved from agent cwd and failed inside worktrees). |
+| 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): reworded the Demo cleanup MUST to defer to SPEC-016's safe worktree-teardown (separate `git worktree remove` / `git branch -D` calls, never chained `&&`; prefer `worktree-lib.sh release`); added SPEC-016 cross-reference. No behavioral change. |
 
 ## Cross-references
 
@@ -117,3 +118,4 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - SPEC-003: Agent Role System — 7 agents that project-init bootstraps
 - SPEC-004: Memory Storage — SQLite DB schema that init-team creates
 - SPEC-006: Memory Retrieval — extensions downloaded here enable semantic search
+- SPEC-016: Worktree Isolation — owns the safe worktree-teardown discipline used by the demo cleanup step (`worktree-lib.sh`, separate-call removal)

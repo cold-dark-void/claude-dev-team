@@ -1,6 +1,6 @@
 # SPEC-014: Debug Workflow
 
-**Status**: 🚧 NEW
+**Status**: APPROVED
 **Category**: core
 **Created**: 2026-04-25
 
@@ -176,3 +176,4 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 |------|--------|
 | 2026-04-25 | Initial spec created — brainstorm: `.claude/plans/2026-04-25-brainstorm-debug-skill.md` |
 | 2026-04-26 | PM review: rewrote T1/T2/T5/T6, added T9/T10, added 5 missing ACs, resolved OQ-1 (free-form root cause with quality criteria), OQ-2 (grep-based callsite check), OQ-3 (skip+warn when no test suite), OQ-4 (separate PRs if escalated, commits otherwise), OQ-5 (two-track fallback for non-reproducible bugs), switched from --mode flags to subcommands |
+| 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `🚧 NEW`→`APPROVED` (no emoji, matches TDD index). No behavioral change. |

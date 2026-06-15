@@ -1,10 +1,10 @@
 # SPEC-012: Session Retrospective
 
-**Status**: 🚧 NEW
+**Status**: APPROVED
 **Category**: core
 **Created**: 2026-04-07
 
-**Covers**: `commands/retro.md` (to be created), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`
+**Covers**: `commands/retro.md`, `skills/retro-gate/`, `skills/retro-subagent/`, `skills/transcript-parse/`, integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`
 
 ---
 
@@ -46,6 +46,7 @@ conflict-detection and holistic-rewrite guarantees.
 - MUST exit in under 5 seconds on smooth sessions (gate-only path, no subagent spawn)
 
 ### Session Discovery
+- Transcript location, canonical-file selection, fork-tree assembly, parse primitives, and the in-progress freshness guard are owned by the shared read-only parsing seam `skills/transcript-parse/` (`assemble.py` locate/assemble, `parselib.py` parse primitives, `freshness.sh` 60 s mid-write guard, plus `SKILL.md`). `/retro` and `/handoff` (SPEC-018) MUST both consume this single module — neither MUST re-implement transcript parsing privately. `/retro` owns only its own friction scoring on top of the shared primitives.
 - MUST read session JSONL files from `~/.claude/projects/<encoded-project-path>/` for current-project mode
 - MUST default to the most recently modified `.jsonl` file when no `<session-id>` given
 - MUST NOT read in-progress JSONL files (skip files modified within the last 60 seconds)
@@ -183,6 +184,7 @@ conflict-detection and holistic-rewrite guarantees.
 | 2026-04-07 | Initial spec created from brainstorm `.claude/plans/2026-04-07-brainstorm-retro.md` |
 | 2026-04-08 | Added `--apply` routing MUSTs after kickoff revealed `/adjust-agent` had no non-interactive mode. Resolved by extending SPEC-001 rather than bypassing it. |
 | 2026-04-09 | Added `fabrication_anchor` classification in phase-2 and `Consider: /council --from-retro <anchor-id>` integration hint (additive, non-blocking, dedup per anchor-id) per SPEC-013. |
+| 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `🚧 NEW`→`APPROVED` (no emoji, matches TDD index); refreshed Covers (dropped `(to be created)`, added shipped `skills/retro-gate/`, `skills/retro-subagent/`, `skills/transcript-parse/`); added the shared transcript-parse seam ownership MUST so SPEC-018's "see SPEC-012" citation resolves. No behavioral change. |
 
 ---
 

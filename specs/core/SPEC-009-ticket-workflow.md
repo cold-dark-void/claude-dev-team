@@ -46,7 +46,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - When `requires_council: true` is set, the TaskCompleted quality-gate hook MUST block task completion until a `/council` verdict exists for the task's deliverable with confidence at or above the configured threshold (`council.taskgate.min_confidence`, default 80)
 - MUST export `CLAUDE_TASK_ID=<task_id>` in the subprocess environment whenever the orchestrator invokes `/council` as part of a task's orchestration steps — ambient task-id transport required by SPEC-013 Phase 6 Task Binding & Verdict Index for correct verdict-to-task binding
 - MUST surface the blocked state clearly when the council gate fails — naming the blocked task, the missing-or-below-threshold verdict, and the required minimum confidence
-- MUST write per-task metadata to `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` at TaskCreate time for every orchestrated task (e.g. `CDV-QF-FILTER-1.json`), using a compound key `<ISSUE-ID>-<task_id>` to prevent collisions when a new Claude process reuses integer task IDs; the orchestrator MUST create `.claude/tasks/` if absent. Schema: `{"task_id": string, "subject": string, "requires_council": bool, "created_at": ISO-8601, "status": string}`
+- MUST write per-task metadata to `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` at TaskCreate time for every orchestrated task (e.g. `CDV-QF-FILTER-1.json`), using a compound key `<ISSUE-ID>-<task_id>` to prevent collisions when a new Claude process reuses integer task IDs; the orchestrator MUST create `.claude/tasks/` if absent. The task-file schema is owned by SPEC-017 (canonical 6-field schema incl `depends_on`) — see SPEC-017 "Task store schema".
 - MUST update the `status` field in the compound-key file on every TaskUpdate transition (pending → in_progress → completed | blocked), preserving other fields
 - MUST NOT delete task store files after completion — they are the source of truth for the TaskCompleted gate and must survive the task being marked done
 - MUST use atomic write-to-tmp + rename when updating task store files (prevents the TaskCompleted hook from reading a partial write)
@@ -58,7 +58,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST check file mtime to detect staleness (not updated in 30 minutes)
 - MUST check recent git commits (grep for agent name in Co-Authored-By, last 1 hour)
 - MUST flag as STALE if: context.md outdated OR no recent commits OR blocked/waiting without SendMessage to Tech Lead
-- MUST detect ready-to-claim tasks by checking depends_on list (all completed = READY)
+- MUST detect ready-to-claim tasks by checking depends_on list (all completed = READY) — readiness computed per SPEC-017 "/standup — READY computation"
 - MUST auto-escalate (surface for engineer, not send automatically) if: task stale without Tech Lead message, 2+ tasks blocked on same dependency, completed task output unconsumed 30+ minutes
 
 ### Wrap-Ticket
@@ -68,7 +68,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST warn if any memory file exceeds its SPEC-004 line limit (cortex 100/memory 50/lessons 80/context 60), suggesting consolidation
 - MUST check if distillation should auto-trigger based on config and raw memory count
 - MUST skip plan update silently if plans.md doesn't exist
-- MUST NOT remove worktree if it has uncommitted changes
+- MUST NOT remove worktree if it has uncommitted changes — worktree teardown safety per SPEC-016
 - MUST use `INSERT OR REPLACE` when writing back to DB memory
 - MUST preserve SQL escaping for single quotes in DB writes
 
@@ -127,6 +127,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 | 2026-04-09 | Added per-task metadata storage contract: orchestrator MUST write/update `.claude/tasks/<task_id>.json` at TaskCreate and on every TaskUpdate (atomic write, never deleted), with `requires_council` field read by the SPEC-002 TaskCompleted hook. `$MROOT` resolved worktree-aware so task store is shared across worktrees. |
 | 2026-04-28 | Changed task store key from raw integer to compound `<ISSUE-ID>-<task_id>` (e.g. `CDV-QF-FILTER-1.json`) — `TaskCreate` integers reset to 1 for each new Claude process, causing cross-run collisions via upsert. Hook updated to fall back to `*-<task_id>.json` glob (most-recently-modified) when flat-key file not found. |
 | 2026-06-13 | Mirrored SPEC-003 MC-4: Kickoff/Orchestrate spawn templates MUST include `Output mode: terse`. Fixed the memory-file warn threshold — was "exceeds 150 lines", now "exceeds its SPEC-004 line limit (cortex 100/memory 50/lessons 80/context 60)", reconciling the conflict with SPEC-004:29 (AUDIT-P1-1). |
+| 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): replaced the stale 5-field task-store schema literal (no `depends_on`) with a pointer to SPEC-017's canonical 6-field schema; pointed standup READY-computation and wrap-ticket uncommitted-worktree MUSTs at their owners (SPEC-017 / SPEC-016). No behavioral change. |
 
 ## Cross-references
 

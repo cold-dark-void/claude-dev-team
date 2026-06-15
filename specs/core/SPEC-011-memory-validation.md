@@ -28,7 +28,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - MUST skip memories with zero extractable checkable claims (not marked as validated)
 - MUST use Opus model for the reviewer agent (judgment-heavy confirmation of medium-confidence entries); claim extraction and investigation subagents may use any available model
 - MUST work via sqlite3 CLI for all DB operations (consistent with SPEC-004)
-- MUST set `PRAGMA busy_timeout=5000` on every write operation
+- MUST follow the SPEC-004 write-path contract on every write operation (incl. `PRAGMA busy_timeout=5000`) — SPEC-004 is the single source
 - MUST SQL-escape all content (single quotes → double single quotes)
 
 ### Action Thresholds (Multi-Stage Pipeline)
@@ -192,6 +192,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 | 2026-03-23 | Resolved all open questions per kickoff review. Added: archive_reason column, validation_log table, schema v3 migration, reviewer=tech-lead, non-blocking user flags, idempotency AC, concurrent run protection. Deferred --scope global. Status → APPROVED. |
 | 2026-03-23 | Added score-0 "clean pass" bucket (sets validated_at) to fix idempotency gap for truly clean memories. Threshold buckets now: 0=pass, 1-39=flag_user, 40-80=reviewer, >80=auto-archive. |
 | 2026-04-21 | Replaced regex-based reference extraction and bash-only scoring with LLM-based claim extraction + two-tier verification. Added claim types (file_reference, symbol_reference, line_content, behavioral, architectural, configuration), verdict taxonomy (VALID, STALE, CONTRADICTED, AMBIGUOUS), per-claim confidence scoring, composite weighted-average scoring. Tier A (bash) handles file/symbol refs with rename detection. Tier B (LLM investigator) handles behavioral/architectural/config/line claims. Prompt templates in skills/validate-memory/SKILL.md. |
+| 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): trimmed the verbatim `PRAGMA busy_timeout=5000` MUST restatement to defer to SPEC-004's write-path contract (SPEC-004 is the single source). No behavioral change. |
 
 ---
 

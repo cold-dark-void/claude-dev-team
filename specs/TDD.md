@@ -15,13 +15,13 @@
 | SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-and-commit, release |
 | SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, skills/validate-memory/SKILL.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
-| SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/kickoff + orchestrate hooks |
+| SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
 | SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, skills/orchestrate/SKILL.md, skills/wrap-ticket/SKILL.md, AGENTS.md |
 | SPEC-017 | Autonomous CI Watch + Task DAG | DRAFT | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh |
-| SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/transcript-parse/, skills/handoff/, commands/handoff.md, skills/retro-gate/gate.sh (refactor) |
+| SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012), skills/retro-gate/gate.sh (refactor) |
 
 ## Version History
 
@@ -36,11 +36,12 @@
 | 2026-04-26 | SPEC-014 implemented — skills/debug/SKILL.md shipped |
 | 2026-04-26 | SPEC-015 implemented — skills/refactor/SKILL.md shipped |
 | 2026-04-26 | /reflect-specs fixes: SPEC-013 status NEW→ACTIVE, corrected coverage paths (dev-team:council→skills/council/, commands/review-and-commit.md→skills/review-and-commit/SKILL.md), removed spec-file self-reference from SPEC-015 coverage |
-| 2026-04-29 | SPEC-013 updated: Phase 2.5 Blind Cross-Review added (COUNCIL-002) — Borda-count peer ranking, anonymized bundles, self-exclusion, WEAK_EVIDENCE flagging |
 | 2026-04-28 | SPEC-016 created: Worktree Isolation — canonical `.worktrees/<slug>` path, worktree-lib.sh CLI, PID-based lock, collision recovery |
+| 2026-04-29 | SPEC-013 updated: Phase 2.5 Blind Cross-Review added (COUNCIL-002) — Borda-count peer ranking, anonymized bundles, self-exclusion, WEAK_EVIDENCE flagging |
 | 2026-04-30 | SPEC-017 created: Autonomous CI Watch + Task DAG — adaptive 3-mode CI watch loop, structured depends_on schema, parallel fan-out in orchestrate |
 | 2026-06-04 | SPEC-018 created: Cold Session Handoff — retroactive `/handoff <uuid>`, deterministic pre-pass + size-adaptive spine + specialized fan-out extractors, anti-gaslighting dead-ends payload; conflict-scanned (shared parser w/ SPEC-012, M5 delegates to /council, cache outside memory.db) |
 | 2026-06-04 | SPEC-018 updated (CDV-10): +M10 warm live-capture mode, +M11 consolidation (replaces personal handoff skill); Phase-1 includes size-adaptive chunking |
 | 2026-06-05 | SPEC-018 implemented via CDV-10 (Tasks 1-14): status NEW→ACTIVE; coverage skills/transcript-parse/, skills/handoff/, commands/handoff.md, skills/retro-gate/gate.sh (refactor) |
 | 2026-06-15 | SPEC-002 updated: bash-compress MUST rewritten to the shipped inline-rewrite design; vestigial bash-compress-wrapper.sh deleted (AUDIT-P3.5a) |
 | 2026-06-15 | SPEC-004 updated: schema.sql added to Covers; migrate-v2/v3 log-table FK clauses (REFERENCES memories(id)) aligned to schema.sql (AUDIT-P3.5a) |
+| 2026-06-15 | Editorial spec hygiene across specs/core (AUDIT-P3.5b): normalized 3 emoji-prefixed Status lines (SPEC-012/014→APPROVED, SPEC-013→ACTIVE) and SPEC-018 Category Core→core; de-duplicated SPEC-009 task-store schema→SPEC-017, SPEC-003 directives→SPEC-001, SPEC-007/011 busy_timeout→SPEC-004; refreshed SPEC-012 Covers + added the transcript-parse seam MUST; reordered SPEC-013 + this index's Version-History rows chronologically; reworded SPEC-005 + demo cleanup to SPEC-016's separate-call worktree teardown |
