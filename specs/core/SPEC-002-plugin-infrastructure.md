@@ -51,7 +51,7 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 
 #### PreToolUse — Bash output compression (`bash-compress.sh`)
 - MUST intercept Bash tool calls for known noisy commands: `npm test`, `npx jest`, `npx vitest`, `yarn test`, `pnpm test`, `pytest`, `python -m pytest`, `go test`
-- MUST compress output by rewriting the command to pipe through `bash-compress-wrapper.sh`
+- MUST compress output by rewriting the command inline (no external wrapper script): builds a self-contained `WRAPPED=` shell string and emits it via `jq -n --arg cmd` as `hookSpecificOutput.updatedInput.command` (`permissionDecision: "allow"`). The wrapper captures stdout+stderr, preserves the original exit code, and truncates to head-20 / tail-20 with an omitted-lines marker when output exceeds 50 lines. Inlining avoids the permission re-check a separate script invocation would trigger in CC 2.1.116+.
 - MUST exit 0 for all non-matching commands (pass-through, no rewrite)
 
 #### PostToolUse — Memory capture (`memory-capture.sh`)

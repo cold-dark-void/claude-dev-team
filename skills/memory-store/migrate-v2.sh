@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS distillation_log (
   from_tier INTEGER NOT NULL,
   to_tier INTEGER NOT NULL,
   source_count INTEGER NOT NULL,
-  result_memory_id INTEGER,
+  result_memory_id INTEGER REFERENCES memories(id),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
