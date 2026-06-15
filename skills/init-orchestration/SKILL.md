@@ -16,9 +16,8 @@ project/
 │   ├── hooks/
 │   │   ├── task-completed.sh          # Quality-gate hook (created)
 │   │   ├── stop-review.sh             # Self-review gate — checks diff before agent exits (created)
-│   │   ├── memory-capture.sh          # Auto memory — logs Write/Edit/Bash to tier-0 (created)
-│   │   ├── bash-compress.sh           # Output compression — rewrites noisy commands (created)
-│   │   └── bash-compress-wrapper.sh   # Compression wrapper — head/tail with exit code (created)
+│   │   ├── memory-capture.sh          # Auto memory — logs Write/Edit to tier-0 (created)
+│   │   └── bash-compress.sh           # Output compression — rewrites noisy commands inline (created)
 │   └── memory/
 │       └── claude/
 │           └── memory.md      # Orchestrator rules seeded (created or appended)
@@ -237,49 +236,169 @@ mkdir -p .claude/hooks
 
 **IMPORTANT — use the `Write` tool (NOT a bash heredoc) to create each hook file below.**
 
+> Each fenced hook template below is kept byte-identical to this repo's canonical live `.claude/hooks/<name>.sh`. `skills/init-orchestration/check-hook-templates.sh` enforces this (a `/release` pre-commit gate); if you change a live hook, regenerate the matching template here.
+
 Use the `Write` tool to create `.claude/hooks/task-completed.sh` with this content:
 
 ```bash
 #!/usr/bin/env bash
-# TaskCompleted hook — quality gate that runs before any task is marked done.
-# Exit code 2 = block completion (stderr is fed back to the agent as feedback).
-# Exit code 0 = allow completion.
-#
-# Customize this script for your project. Examples:
-#   - Run tests: npm test / go test ./... / pytest
-#   - Validate JSON/YAML config files
-#   - Check for lint errors
-#   - Verify build artifacts exist
-#
-# Input (via stdin): JSON with task_id, task_subject, task_description, teammate_name, team_name
+# TaskCompleted hook — plugin JSON validation + council quality gate
+# Council gate enforces SPEC-002 + SPEC-013 + SPEC-009 contracts.
+# Stdin is the primary task-id transport per the verified Claude Code contract
+# (see .claude/plans/2026-04-09-taskcompleted-hook-spike.md). CLAUDE_TASK_ID env
+# var is a fallback for non-native invocations only.
 
-# Uncomment and adapt the check(s) relevant to your project:
+set -uo pipefail  # not -e — we handle errors explicitly per gate case
 
-# --- Example: require tests to pass ---
-# if ! npm test 2>&1; then
-#   echo "Tests must pass before completing task." >&2
-#   exit 2
-# fi
+# Resolve roots once (set-u-safe).
+# WTROOT = working-tree root: plugin manifests are PER-WORKTREE tracked artifacts;
+#   validate THIS worktree's copy (show-toplevel resolves it from any subdir).
+# MROOT = git-common-dir root: .claude/tasks, .claude/council, settings.json are
+#   SHARED across worktrees per SPEC-002:24.
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 
-# --- Example: validate JSON config files ---
-# for f in package.json tsconfig.json; do
-#   if [ -f "$f" ] && ! python3 -c "import json,sys; json.load(open('$f'))" 2>/dev/null; then
-#     echo "$f is not valid JSON" >&2
-#     exit 2
-#   fi
-# done
+# === existing plugin JSON validation (preserve verbatim) ===
 
-# --- Example: check for spec updates when source files change ---
-# CHANGED=$(git diff --cached --name-only 2>/dev/null || true)
-# if echo "$CHANGED" | grep -qE '\.(go|ts|py|rs|java)$'; then
-#   if ! echo "$CHANGED" | grep -q 'specs/'; then
-#     echo "WARNING: Source files changed but no spec files updated." >&2
-#     echo "Verify that related specs in specs/ are still accurate." >&2
-#     # Uncomment the next line to hard-block commits without spec updates:
-#     # exit 2
-#   fi
-# fi
+ERRORS=()
 
+for f in "$WTROOT/.claude-plugin/plugin.json" "$WTROOT/.claude-plugin/marketplace.json"; do
+  if [ -f "$f" ]; then
+    if ! python3 -c "import json,sys; json.load(open('$f'))" 2>/dev/null; then
+      ERRORS+=("$f is not valid JSON")
+    fi
+  fi
+done
+
+if [ ${#ERRORS[@]} -gt 0 ]; then
+  echo "TaskCompleted hook: fix these before marking task done:" >&2
+  for e in "${ERRORS[@]}"; do
+    echo "  - $e" >&2
+  done
+  exit 2
+fi
+
+# === council gate ===
+# Uses $MROOT (git-common-dir root, resolved at top) for shared council state.
+
+# Read stdin once (one-shot); timeout 1 avoids hanging on direct shell invocations
+STDIN_JSON=$(timeout 1 cat 2>/dev/null || true)
+
+# Resolve task_id: stdin .task_id first, then CLAUDE_TASK_ID env var fallback
+# Use heredoc to pass STDIN_JSON safely (avoids shell injection on backticks/quotes)
+TASK_ID=$(python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    print(data.get("task_id", ""))
+except Exception:
+    print("")
+' <<< "$STDIN_JSON" 2>/dev/null || true)
+
+if [ -z "$TASK_ID" ]; then
+  TASK_ID="${CLAUDE_TASK_ID:-}"
+fi
+
+# If no task id resolved, silent pass — gate cannot apply.
+# Per SPEC-002:30 a missing task id is ALWAYS a silent pass; SPEC-002:35's
+# "cannot gate without task id" fail path is structurally unreachable past this
+# guard, so it is intentionally not implemented.
+if [ -z "$TASK_ID" ]; then
+  exit 0
+fi
+
+# Read task metadata
+# Support both legacy flat key (1.json) and compound key (TICKET-1.json).
+# TaskCreate resets integers to 1 each new process; compound keys prevent
+# cross-run collisions. Fallback: pick most-recently-modified *-<ID>.json.
+TASKS_DIR="$MROOT/.claude/tasks"
+TASK_META="${TASKS_DIR}/${TASK_ID}.json"
+if [ ! -f "$TASK_META" ]; then
+  TASK_META=$(ls -t "${TASKS_DIR}/"*"-${TASK_ID}.json" 2>/dev/null | head -1 || true)
+fi
+if [ -z "$TASK_META" ] || [ ! -f "$TASK_META" ]; then
+  # Silent pass — task pre-dates the gate or is not council-tracked
+  exit 0
+fi
+
+# Parse requires_council
+REQUIRES_COUNCIL=$(python3 -c '
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    print("true" if data.get("requires_council", False) else "false")
+except Exception:
+    print("false")
+' "$TASK_META" 2>/dev/null || echo "false")
+
+if [ "$REQUIRES_COUNCIL" != "true" ]; then
+  exit 0  # silent pass — gate not opted in
+fi
+
+# Read threshold from settings.json (default 80)
+SETTINGS="$MROOT/.claude/settings.json"
+THRESHOLD=$(python3 -c '
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    print(data.get("council", {}).get("taskgate", {}).get("min_confidence", 80))
+except Exception:
+    print(80)
+' "$SETTINGS" 2>/dev/null || echo "80")
+THRESHOLD="${THRESHOLD:-80}"
+
+# Read council index — required when gate is opted in
+INDEX="$MROOT/.claude/council/index.json"
+if [ ! -f "$INDEX" ]; then
+  echo "TaskCompleted council gate: council index missing at $INDEX (task $TASK_ID requires_council=true)" >&2
+  exit 2
+fi
+
+# Look up task in index; find max verdict confidence; ignore finding[]-shape rows (max_verdict_confidence: null)
+MAX_VERDICT=$(python3 -c '
+import json, sys
+task_id = sys.argv[1]
+index_path = sys.argv[2]
+try:
+    data = json.load(open(index_path))
+    rows = data.get(task_id, [])
+    if not rows:
+        print("NO_TASK_IN_INDEX")
+        sys.exit(0)
+    verdict_rows = [r for r in rows if r.get("max_verdict_confidence") is not None]
+    if not verdict_rows:
+        print("NO_VERDICT_ROWS")
+    else:
+        print(max(r["max_verdict_confidence"] for r in verdict_rows))
+except Exception as e:
+    print("PARSE_ERROR", file=sys.stderr)
+    print("PARSE_ERROR")
+' "$TASK_ID" "$INDEX" 2>/dev/null || echo "PARSE_ERROR")
+
+case "$MAX_VERDICT" in
+  NO_TASK_IN_INDEX)
+    echo "TaskCompleted council gate: no council verdict for task $TASK_ID (task not found in index)" >&2
+    exit 2
+    ;;
+  NO_VERDICT_ROWS)
+    echo "TaskCompleted council gate: no verdict[]-shape council run for task $TASK_ID (only finding[] rows or no rows)" >&2
+    exit 2
+    ;;
+  PARSE_ERROR)
+    echo "TaskCompleted council gate: failed to parse council index $INDEX for task $TASK_ID" >&2
+    exit 2
+    ;;
+esac
+
+# Numeric comparison — MAX_VERDICT is an integer at this point
+if [ "$MAX_VERDICT" -lt "$THRESHOLD" ]; then
+  echo "TaskCompleted council gate: max verdict confidence $MAX_VERDICT below threshold $THRESHOLD for task $TASK_ID" >&2
+  exit 2
+fi
+
+# Pass
 exit 0
 ```
 
@@ -356,8 +475,8 @@ Use the `Write` tool to create `.claude/hooks/memory-capture.sh` with this conte
 
 ```bash
 #!/usr/bin/env bash
-# PostToolUse hook — automatic memory capture for agent observations.
-# Logs Write/Edit/Bash to tier-0 memory in SQLite. Exit 0 always.
+# PostToolUse hook — memory capture for Write/Edit only (not Bash).
+# High-signal events only: file changes are worth remembering, shell commands are not.
 
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -372,30 +491,17 @@ cat > "$TMPF"
 TOOL_NAME=$(jq -r '.tool_name // empty' "$TMPF" 2>/dev/null)
 
 case "$TOOL_NAME" in
-  Write|Edit|Bash) ;;
+  Write|Edit) ;;
   *) rm -f "$TMPF"; exit 0 ;;
 esac
 
 AGENT=$(jq -r '.teammate_name // "auto"' "$TMPF" 2>/dev/null || echo "auto")
-
-case "$TOOL_NAME" in
-  Write)
-    FILE_PATH=$(jq -r '.tool_input.file_path // empty' "$TMPF" 2>/dev/null)
-    OBSERVATION="wrote $FILE_PATH"
-    ;;
-  Edit)
-    FILE_PATH=$(jq -r '.tool_input.file_path // empty' "$TMPF" 2>/dev/null)
-    OBSERVATION="edited $FILE_PATH"
-    ;;
-  Bash)
-    RAW=$(jq -r '.tool_input.command // empty' "$TMPF" 2>/dev/null)
-    RAW="${RAW:0:120}"
-    OBSERVATION="ran: $RAW"
-    ;;
-esac
-
+FILE_PATH=$(jq -r '.tool_input.file_path // empty' "$TMPF" 2>/dev/null)
 rm -f "$TMPF"
-[ -z "$OBSERVATION" ] && exit 0
+
+[ -z "$FILE_PATH" ] && exit 0
+
+OBSERVATION="${TOOL_NAME,,} $FILE_PATH"
 
 DEDUP_FILE="${TMPDIR:-/tmp}/.claude-memcap-last"
 LAST=$(cat "$DEDUP_FILE" 2>/dev/null || true)
@@ -416,14 +522,15 @@ chmod +x .claude/hooks/memory-capture.sh
 
 ---
 
-### Step 4d: Create .claude/hooks/bash-compress.sh and bash-compress-wrapper.sh
+### Step 4d: Create .claude/hooks/bash-compress.sh
 
 Use the `Write` tool to create `.claude/hooks/bash-compress.sh` with this content:
 
 ```bash
 #!/usr/bin/env bash
-# PreToolUse hook — rewrites noisy Bash commands to compress output.
-# Exit 0 with no stdout = pass through unchanged.
+# PreToolUse hook — compresses output of noisy Bash commands inline.
+# Inlines the compression logic so no wrapper script is invoked (avoids
+# permission re-checks on the rewritten command in CC 2.1.116+).
 
 TMPF="${TMPDIR:-/tmp}/bcompress-$$"
 cat > "$TMPF"
@@ -450,54 +557,17 @@ esac
 
 [ "$NOISY" = "false" ] && exit 0
 
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-WRAPPER="$WTROOT/.claude/hooks/bash-compress-wrapper.sh"
-[ -f "$WRAPPER" ] || exit 0
+# Wrap the original command inline — no external script call.
+# Captures output, preserves exit code, truncates if > 50 lines.
+WRAPPED="_ccout=\$(( $COMMAND ) 2>&1); _ccexit=\$?; _ccf=\$(mktemp); printf '%s\n' \"\$_ccout\" > \"\$_ccf\"; _ccn=\$(awk 'END{print NR}' \"\$_ccf\"); if [ \"\$_ccn\" -le 50 ]; then cat \"\$_ccf\"; else head -20 \"\$_ccf\"; printf '\n... %d lines omitted ...\n\n' \"\$((_ccn - 40))\"; tail -20 \"\$_ccf\"; fi; rm -f \"\$_ccf\"; exit \$_ccexit"
 
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Bash output compression","updatedInput":{"command":"bash %s %s"}}}\n' "$WRAPPER" "$COMMAND"
+jq -n --arg cmd "$WRAPPED" \
+  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"output compression","updatedInput":{"command":$cmd}}}'
 ```
 
 Make it executable:
 ```bash
 chmod +x .claude/hooks/bash-compress.sh
-```
-
-Write `.claude/hooks/bash-compress-wrapper.sh`:
-
-```bash
-#!/usr/bin/env bash
-# Runs a command and compresses output if it exceeds a threshold.
-# Preserves exit code. Shows first/last N lines with omitted count.
-
-THRESHOLD=50
-HEAD_LINES=20
-TAIL_LINES=20
-
-OUTPUT=$("$@" 2>&1)
-EXIT_CODE=$?
-
-TMPF="${TMPDIR:-/tmp}/bcompress-out-$$"
-printf '%s\n' "$OUTPUT" > "$TMPF"
-LINE_COUNT=$(awk 'END{print NR}' "$TMPF")
-
-if [ "$LINE_COUNT" -le "$THRESHOLD" ]; then
-  cat "$TMPF"
-else
-  OMITTED=$(( LINE_COUNT - HEAD_LINES - TAIL_LINES ))
-  printf '[compressed: %d lines -> %d lines]\n' "$LINE_COUNT" $(( HEAD_LINES + TAIL_LINES ))
-  head -"$HEAD_LINES" "$TMPF"
-  printf '\n... %d lines omitted ...\n\n' "$OMITTED"
-  tail -"$TAIL_LINES" "$TMPF"
-fi
-
-rm -f "$TMPF"
-exit $EXIT_CODE
-```
-
-Use the `Write` tool to create `.claude/hooks/bash-compress-wrapper.sh` with the content above, then:
-
-```bash
-chmod +x .claude/hooks/bash-compress.sh .claude/hooks/bash-compress-wrapper.sh
 ```
 
 ---
@@ -779,9 +849,8 @@ Updated:
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
-  📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit/Bash to tier-0)
-  📄 .claude/hooks/bash-compress.sh — output compression (rewrites noisy test/build commands)
-  📄 .claude/hooks/bash-compress-wrapper.sh — compression wrapper (head/tail with preserved exit code)
+  📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit to tier-0)
+  📄 .claude/hooks/bash-compress.sh — output compression (rewrites noisy test/build commands inline)
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
   📄 .claude/memory/claude/memory.md — orchestrator rules seeded [created/updated]
