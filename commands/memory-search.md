@@ -68,9 +68,9 @@ echo ""
 sqlite3 -header -column "$MEMDB" \
   "SELECT agent,
     SUM(CASE WHEN tier=0 AND archived=FALSE THEN 1 ELSE 0 END) AS raw,
-    SUM(CASE WHEN tier=1 THEN 1 ELSE 0 END) AS digests,
-    SUM(CASE WHEN tier=2 THEN 1 ELSE 0 END) AS core,
-    SUM(CASE WHEN archived=TRUE THEN 1 ELSE 0 END) AS archived
+    SUM(CASE WHEN tier=1 AND archived=FALSE THEN 1 ELSE 0 END) AS digests,
+    SUM(CASE WHEN tier=2 AND archived=FALSE THEN 1 ELSE 0 END) AS core,
+    SUM(CASE WHEN tier=0 AND archived=TRUE THEN 1 ELSE 0 END) AS archived
   FROM memories GROUP BY agent ORDER BY agent;"
 ```
 And stop.

@@ -34,7 +34,7 @@ Run /init-team to initialize.
 Run these queries and format the output:
 
 ```bash
-# Per-agent stats
+# Per-agent stats (active rows only — archived excluded)
 sqlite3 -header -column "$MEMDB" "
 SELECT
   agent,
@@ -46,11 +46,12 @@ SELECT
   MAX(LENGTH(content)) AS max_chars,
   SUM(LENGTH(content)) AS total_chars
 FROM memories
+WHERE archived = FALSE
 GROUP BY agent
 ORDER BY total_chars DESC;
 "
 
-# Overall summary
+# Overall summary (active rows only — archived excluded)
 sqlite3 "$MEMDB" "
 SELECT
   COUNT(*) AS total_rows,
@@ -60,7 +61,8 @@ SELECT
   MAX(LENGTH(content)) AS max_chars,
   MIN(created_at) AS oldest_memory,
   MAX(created_at) AS newest_memory
-FROM memories;
+FROM memories
+WHERE archived = FALSE;
 "
 
 # Embedding status
@@ -72,18 +74,35 @@ SELECT
   (SELECT COUNT(*) FROM memories) AS total_count;
 "
 
-# Boot load estimate (what agents load at session start)
+# Boot load estimate (what agents actually load at session start).
+# Mirrors the tiered read (SPEC-006 Step 2): tier-1 + tier-2 active content when an
+# agent has any distilled rows, else tier-0 active content. Archived rows never load.
 sqlite3 -header -column "$MEMDB" "
+WITH active AS (
+  SELECT agent, tier, LENGTH(content) AS len FROM memories WHERE archived = FALSE
+),
+distilled AS (
+  SELECT DISTINCT agent FROM active WHERE tier >= 1
+)
 SELECT
-  agent,
-  SUM(LENGTH(content)) AS boot_load_chars,
+  a.agent,
+  SUM(CASE
+        WHEN a.agent IN (SELECT agent FROM distilled) THEN CASE WHEN a.tier >= 1 THEN a.len ELSE 0 END
+        ELSE CASE WHEN a.tier = 0 THEN a.len ELSE 0 END
+      END) AS boot_load_chars,
   CASE
-    WHEN SUM(LENGTH(content)) > 10000 THEN '⚠ HIGH'
-    WHEN SUM(LENGTH(content)) > 5000 THEN 'moderate'
+    WHEN SUM(CASE
+        WHEN a.agent IN (SELECT agent FROM distilled) THEN CASE WHEN a.tier >= 1 THEN a.len ELSE 0 END
+        ELSE CASE WHEN a.tier = 0 THEN a.len ELSE 0 END
+      END) > 10000 THEN '⚠ HIGH'
+    WHEN SUM(CASE
+        WHEN a.agent IN (SELECT agent FROM distilled) THEN CASE WHEN a.tier >= 1 THEN a.len ELSE 0 END
+        ELSE CASE WHEN a.tier = 0 THEN a.len ELSE 0 END
+      END) > 5000 THEN 'moderate'
     ELSE 'ok'
   END AS status
-FROM memories
-GROUP BY agent
+FROM active a
+GROUP BY a.agent
 ORDER BY boot_load_chars DESC;
 "
 ```

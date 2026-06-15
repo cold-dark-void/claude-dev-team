@@ -71,7 +71,8 @@ done
 
 ## Step 3: Keyword search (cross-agent)
 
-Simple LIKE-based search — no extensions required. Replace `<QUERY>` and `<LIMIT>`.
+Simple LIKE-based search — no extensions required. Replace `<QUERY>`. Keyword mode
+returns up to 20 rows per SPEC-006 (`LIMIT 20`).
 
 ```bash
 sqlite3 -header -column "$MEMDB" \
@@ -80,7 +81,7 @@ sqlite3 -header -column "$MEMDB" \
    WHERE content LIKE '%<QUERY>%' COLLATE NOCASE
      AND archived = FALSE
    ORDER BY tier DESC, updated_at DESC
-   LIMIT <LIMIT>;"
+   LIMIT 20;"
 ```
 
 **Optional agent filter** — append to the WHERE clause:
@@ -108,19 +109,22 @@ EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mod
 EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
-if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ]; then
+DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
+if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \
+   [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
   MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
+  VEC_TABLE="vec_memories_${DIMS}"
   sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
 .load $EXT_DIR/lembed0
 SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet,
-       e.distance AS score,
+       CAST(ROUND((1 - e.distance) * 100) AS INTEGER) || '%' AS score,
        m.created_at
-FROM vec_memories_384 e
+FROM ${VEC_TABLE} e
 JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
 WHERE e.embedding MATCH lembed('$MODEL_PATH', '<QUERY>')
-  AND k = <LIMIT>
+  AND k = 10
 ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 
@@ -154,12 +158,12 @@ elif [ "$EMBED_MODE" = "remote" ] && \
 .load $EXT_DIR/vec0
 SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet,
-       e.distance AS score,
+       CAST(ROUND((1 - e.distance) * 100) AS INTEGER) || '%' AS score,
        m.created_at
 FROM ${VEC_TABLE} e
 JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
 WHERE e.embedding MATCH '$QUERY_EMBEDDING'
-  AND k = <LIMIT>
+  AND k = 10
 ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 
@@ -170,7 +174,7 @@ else
     "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
      FROM memories WHERE content LIKE '%<QUERY>%' COLLATE NOCASE
        AND archived = FALSE
-     ORDER BY tier DESC, updated_at DESC LIMIT <LIMIT>;"
+     ORDER BY tier DESC, updated_at DESC LIMIT 20;"
 fi
 ```
 
@@ -201,7 +205,7 @@ fi
 | query | yes | — | Search query string |
 | agent | no | all agents | Filter to single agent |
 | type | no | all types | Filter to cortex/memory/lessons/digest/core |
-| limit | no | 5 | Max results to return |
+| limit | no | semantic 10 / keyword 20 | Max results (SPEC-006: top-10 semantic, up-to-20 keyword) |
 
 **Filtering:** Archived rows (`archived = TRUE`) are **never** returned in any mode
 (session load, keyword search, semantic search, or unembedded fallback). This is enforced
@@ -217,7 +221,7 @@ Each result includes:
 - `type` — cortex, memory, lessons, digest, or core
 - `tier` — 0 (raw), 1 (digest), or 2 (core)
 - `snippet` — first 200 chars of content
-- `score` — cosine distance (semantic) or null (keyword)
+- `score` — similarity percentage `(1 - distance) * 100` (semantic) or empty (keyword)
 - `created_at` — when the memory was stored
 
 ---
@@ -238,7 +242,7 @@ LEFT JOIN embedding_meta em ON em.memory_id = m.id AND em.model = '<CURRENT_MODE
 WHERE em.memory_id IS NULL
   AND m.archived = FALSE
   AND m.content LIKE '%<QUERY>%' COLLATE NOCASE
-LIMIT 5;
+LIMIT 10;
 EOSQL
 ```
 

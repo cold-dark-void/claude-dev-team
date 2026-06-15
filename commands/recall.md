@@ -50,7 +50,12 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
 fi
 ```
 
-If USE_DB=true, search the memories table:
+If USE_DB=true, search the memories table. This is the keyword form from
+`skills/memory-recall` Step 3, specialized for /recall: it is intentionally
+keyword-only (no semantic mode) and capped at 10 because /recall is a cross-source
+session/plan/spec/git finder, not a pure memory query — memory is one of several
+sources here, so it shows a wider 300-char preview and a tighter 10-row cap rather
+than the SKILL's 20-row keyword default.
 
 ```bash
 ESCAPED_ARGS=$(printf '%s' "$ARGUMENTS" | sed "s/'/''/g")
