@@ -379,7 +379,11 @@ For every flagged session, assemble the four inputs the subagent expects:
   Before each Task spawn, re-run the gate per session:
   `FRICTION_SIGNALS_JSON=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)`.
   Re-invocation is cheap (~60ms per session) and avoids caching complexity.
-- `EXISTING_RULES` — loaded fresh per Step 5b (load_rules_raw)
+- `EXISTING_RULES` — per-target rules text, coalesced to the literal sentinel
+  `empty` for any missing/empty file (SKILL.md:50 input contract). Built in the
+  Step 4c block below via `load_rules_for_prompt`. NOTE: only the SUBAGENT-PROMPT
+  path gets the sentinel — Step 5b's classifier (load_rules_raw) keeps the raw
+  empty string (it needs a real emptiness test, see retro.md Step 5b).
 
 
 ### Step 4c: Spawn subagents in parallel
@@ -418,9 +422,28 @@ lines = [l for l in sys.stdin.read().splitlines() if l.strip()]
 ids = [p.split(None,1)[1] for p in lines if p.startswith('$JSONL ')]
 print(json.dumps(ids))
 ")
+# EXISTING_RULES for the prompt: load each per-target rules file and coalesce a
+# missing/empty file to the literal sentinel "empty" (SKILL.md:50 input contract).
+# load_rules_for_prompt returns the raw file text, or the literal "empty" when the
+# file is absent/empty. This sentinel lives ONLY on the prompt-substitution path;
+# Step 5b's classifier deliberately uses the raw empty string instead (it needs a
+# real emptiness test), so do NOT route the classifier through this helper.
+load_rules_for_prompt() {
+  # $* (all args) instead of $1 — avoids Claude Code arg substitution in command text.
+  [ -s "$*" ] && cat "$*" || printf 'empty'
+}
+ER_PM=$(load_rules_for_prompt       "$MROOT/.claude/memory/pm/directives.md")
+ER_TL=$(load_rules_for_prompt       "$MROOT/.claude/memory/tech-lead/directives.md")
+ER_IC5=$(load_rules_for_prompt      "$MROOT/.claude/memory/ic5/directives.md")
+ER_IC4=$(load_rules_for_prompt      "$MROOT/.claude/memory/ic4/directives.md")
+ER_DEVOPS=$(load_rules_for_prompt   "$MROOT/.claude/memory/devops/directives.md")
+ER_QA=$(load_rules_for_prompt       "$MROOT/.claude/memory/qa/directives.md")
+ER_DS=$(load_rules_for_prompt       "$MROOT/.claude/memory/ds/directives.md")
+ER_CLAUDE=$(load_rules_for_prompt   "$MROOT/.claude/memory/claude/lessons.md")
 # ... substitute FRICTION_SIGNALS_JSON, ANCHOR_MESSAGE_IDS_JSON, SESSION_JSONL,
-# and the EXISTING_RULES.* entries into the prompt template from
-# skills/retro-subagent/SKILL.md §"Subagent prompt template", then spawn Task.
+# and the EXISTING_RULES.* entries (ER_PM..ER_CLAUDE above) into the prompt
+# template from skills/retro-subagent/SKILL.md §"Subagent prompt template", then
+# spawn Task.
 ```
 
 After each parallel Task call returns with its `$RETURNED_JSON`, append one row
@@ -470,16 +493,26 @@ for p in d.get("proposals", []) or []:
     # actual {message_id, excerpt} pairs (for the Step 6 Evidence: display). The
     # JSON array is one TSV-safe field — json.dumps escapes any tab/newline in
     # the excerpt text, so it cannot break the column structure.
+    # Validation rule 2 (SKILL.md:225): drop any citation missing message_id or
+    # excerpt, or with empty values, BEFORE counting. len(norm) then feeds the
+    # rank key and the Rule-1 count gate (Step 4d), so a proposal whose only
+    # citation is empty drops to zero valid citations and fails Rule 1.
     norm = []
     for c in cites:
-        if isinstance(c, dict):
-            norm.append({"message_id": c.get("message_id",""),
-                         "excerpt": c.get("excerpt","")})
+        if not isinstance(c, dict):
+            continue
+        mid = c.get("message_id", "")
+        exc = c.get("excerpt", "")
+        if not isinstance(mid, str) or not isinstance(exc, str):
+            continue
+        if mid == "" or exc == "":
+            continue
+        norm.append({"message_id": mid, "excerpt": exc})
     cites_json = json.dumps(norm, separators=(",", ":"))
     print("proposal\t%s\t%s\t%s\t%d\t%s\t%s\t%s" % (
         p.get("target",""),
         (p.get("proposed_text","") or "").replace("\t"," "),
-        p.get("confidence",0), len(cites), cites_json,
+        p.get("confidence",0), len(norm), cites_json,
         p.get("pattern_summary",""), src))
 for o in d.get("observations", []) or []:
     print("observation\t%s\t%s" % (
@@ -552,12 +585,26 @@ $AID	$TID	$CLAIM	$EVID"
             continue
             ;;
         esac
-        # Secondary checks from SKILL.md (pattern_summary non-empty, confidence in [0,1])
+        # Rule 5 (SKILL.md): pattern_summary non-empty.
         if [ -z "$PSUM" ]; then
           echo "# retro: dropped proposal (reason: empty pattern_summary) target=$TARGET" >&2
           continue
         fi
-        # Compute rank key = confidence * citation_count (awk for float math)
+        # Rule 6 (SKILL.md:225): confidence present, numeric, and within [0.0, 1.0].
+        # MUST run BEFORE the rank multiply — an out-of-range or non-numeric
+        # confidence would otherwise inflate RANK=confidence*citation_count and
+        # float a bogus proposal into the top-5 (Step 4e sort). The awk regex
+        # rejects non-numeric / empty CONF; the range check rejects <0 or >1. awk
+        # exits 0 only when CONF is a valid in-range number (avoid `!` here so the
+        # gate is copy-paste safe under zsh).
+        if awk -v c="$CONF" 'BEGIN{ if (c ~ /^-?[0-9]+(\.[0-9]+)?$/) { v=c+0; if (v >= 0.0 && v <= 1.0) exit 0 } exit 1 }'; then
+          : # confidence valid — fall through to ranking
+        else
+          echo "# retro: dropped proposal (reason: confidence not in [0.0,1.0]) target=$TARGET conf=$CONF" >&2
+          continue
+        fi
+        # Compute rank key = confidence * citation_count (awk for float math).
+        # CONF is validated numeric+in-range above, so the multiply cannot inflate.
         RANK=$(awk -v c="$CONF" -v n="$CITES" 'BEGIN{printf "%.6f", c*n}')
         # RAW_PROPOSALS columns (TSV): 1 rank, 2 target, 3 confidence,
         # 4 citation_count, 5 pattern_summary, 6 proposed_text, 7 source_jsonl,
