@@ -20,6 +20,7 @@ This skill sets up a complete project structure for AI agent collaboration using
 project/
 ├── .claude/
 │   ├── CLAUDE.md             # Project memory pointer for Claude Code
+│   ├── settings.json         # Agent permissions allowlist
 │   ├── plans.md              # Master plan index
 │   ├── plans/                # Individual plan files
 │   │   └── .gitkeep

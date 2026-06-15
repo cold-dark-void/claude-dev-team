@@ -42,19 +42,16 @@ fi
 # Count existing memories for summary
 ROW_COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
 
-# Steps 2-9: 12-step table rebuild inside a transaction
-# SQLite cannot ALTER CHECK constraints, so we rebuild the table.
+# Table rebuild inside a transaction (SQLite cannot ALTER CHECK constraints).
 sqlite3 "$MEMDB" <<'SQL'
--- Step 1a: set busy timeout so concurrent writes don't immediately fail
+-- Set busy timeout so concurrent writes don't immediately fail
 PRAGMA busy_timeout=5000;
 
--- Step 2
 PRAGMA foreign_keys=OFF;
 
--- Step 3
 BEGIN TRANSACTION;
 
--- Step 4: Create new table with v2 schema
+-- Create new table with v2 schema
 CREATE TABLE memories_new (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent TEXT NOT NULL,
@@ -68,30 +65,26 @@ CREATE TABLE memories_new (
   distilled_from TEXT NOT NULL DEFAULT '[]'
 );
 
--- Step 5: Copy existing data with v2 defaults
+-- Copy existing data with v2 defaults
 INSERT INTO memories_new
   SELECT id, agent, type, content, metadata_json, created_at, updated_at,
          0, FALSE, '[]'
   FROM memories;
 
--- Step 6: Drop old table
 DROP TABLE memories;
 
--- Step 7: Rename new table
 ALTER TABLE memories_new RENAME TO memories;
 
--- Step 8: Recreate indexes
+-- Recreate indexes
 CREATE INDEX idx_memories_agent ON memories(agent);
 CREATE INDEX idx_memories_agent_type ON memories(agent, type);
 CREATE INDEX idx_memories_tier ON memories(agent, tier, archived);
 
--- Step 9: Commit
 COMMIT;
 
--- Step 10
 PRAGMA foreign_keys=ON;
 
--- Step 11: Create distillation_log table
+-- Create distillation_log table
 CREATE TABLE IF NOT EXISTS distillation_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent TEXT NOT NULL,
@@ -102,7 +95,7 @@ CREATE TABLE IF NOT EXISTS distillation_log (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
--- Step 12: Insert config keys and update schema_version
+-- Insert config keys and update schema_version
 INSERT OR IGNORE INTO config(key, value) VALUES
   ('distill_enabled', 'false'),
   ('distill_mode', 'suggest'),

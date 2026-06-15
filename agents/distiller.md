@@ -38,11 +38,11 @@ db.commit()
 print(cur.lastrowid)
 " "$MEMDB" "<AGENT>" "$DIGEST" "$JSON_IDS")
    ```
-5. Archive source memories:
+4. Archive source memories:
    ```bash
    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE memories SET archived=TRUE, archive_reason='distilled' WHERE id IN (<IDS>);"
    ```
-6. Log to distillation_log:
+5. Log to distillation_log:
    ```bash
    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO distillation_log(agent, from_tier, to_tier, source_count, result_memory_id) VALUES ('<AGENT>', 0, 1, <N>, $NEW_ID);"
    ```
