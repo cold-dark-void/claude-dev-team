@@ -440,9 +440,15 @@ so they run in parallel; the accumulation above describes the logical shape of
 Use `python3` to parse the JSON. Emit tab-separated rows to stdout:
 
 ```
-proposal<TAB>target<TAB>proposed_text<TAB>confidence<TAB>citation_count<TAB>pattern_summary<TAB>source_jsonl
+proposal<TAB>target<TAB>proposed_text<TAB>confidence<TAB>citation_count<TAB>citations_json<TAB>pattern_summary<TAB>source_jsonl
 observation<TAB>description<TAB>source_jsonl
 ```
+
+`citation_count` (an int) drives ranking (`confidence * citation_count`, SPEC-012
+SHOULD); `citations_json` carries the actual `[{message_id, excerpt}, …]` array as
+a single JSON-encoded field so the Step 6 `Evidence:` display can render the real
+excerpt text. `json.dumps` escapes tabs/newlines, so the array is TSV-safe in one
+column.
 
 ```bash
 ALLOWED_TARGETS="pm tech-lead ic5 ic4 devops qa ds claude plugin"
@@ -460,10 +466,20 @@ except Exception:
     raise SystemExit(0)
 for p in d.get("proposals", []) or []:
     cites = p.get("citations") or []
-    print("proposal\t%s\t%s\t%s\t%d\t%s\t%s" % (
+    # Keep BOTH: the count (for the confidence*citation_count rank key) and the
+    # actual {message_id, excerpt} pairs (for the Step 6 Evidence: display). The
+    # JSON array is one TSV-safe field — json.dumps escapes any tab/newline in
+    # the excerpt text, so it cannot break the column structure.
+    norm = []
+    for c in cites:
+        if isinstance(c, dict):
+            norm.append({"message_id": c.get("message_id",""),
+                         "excerpt": c.get("excerpt","")})
+    cites_json = json.dumps(norm, separators=(",", ":"))
+    print("proposal\t%s\t%s\t%s\t%d\t%s\t%s\t%s" % (
         p.get("target",""),
         (p.get("proposed_text","") or "").replace("\t"," "),
-        p.get("confidence",0), len(cites),
+        p.get("confidence",0), len(cites), cites_json,
         p.get("pattern_summary",""), src))
 for o in d.get("observations", []) or []:
     print("observation\t%s\t%s" % (
@@ -491,7 +507,7 @@ while IFS= read -r LINE; do
   SRC=$(printf '%s' "$LINE" | cut -f1)
   JSON=$(printf '%s' "$LINE" | cut -f2-)
 
-  while IFS=$'\t' read -r KIND F1 F2 F3 F4 F5 F6; do
+  while IFS=$'\t' read -r KIND F1 F2 F3 F4 F5 F6 F7; do
     case "$KIND" in
       fabrication_anchor)
         AID="$F1"; TID="$F2"; CLAIM="$F3"; EVID="$F4"
@@ -500,7 +516,7 @@ while IFS= read -r LINE; do
 $AID	$TID	$CLAIM	$EVID"
         ;;
       proposal)
-        TARGET="$F1"; TEXT="$F2"; CONF="$F3"; CITES="$F4"; PSUM="$F5"; SRCJ="$F6"
+        TARGET="$F1"; TEXT="$F2"; CONF="$F3"; CITES="$F4"; CITESJSON="$F5"; PSUM="$F6"; SRCJ="$F7"
         # Rule 1: citations.length > 0
         if [ "${CITES:-0}" -lt 1 ]; then
           echo "# retro: dropped proposal (reason: zero citations) target=$TARGET summary=$PSUM" >&2
@@ -543,8 +559,11 @@ $AID	$TID	$CLAIM	$EVID"
         fi
         # Compute rank key = confidence * citation_count (awk for float math)
         RANK=$(awk -v c="$CONF" -v n="$CITES" 'BEGIN{printf "%.6f", c*n}')
+        # RAW_PROPOSALS columns (TSV): 1 rank, 2 target, 3 confidence,
+        # 4 citation_count, 5 pattern_summary, 6 proposed_text, 7 source_jsonl,
+        # 8 citations_json. col8 (JSON array) is TSV-safe (see Step 4d parser).
         RAW_PROPOSALS="$RAW_PROPOSALS
-$RANK	$TARGET	$CONF	$CITES	$PSUM	$TEXT	$SRCJ"
+$RANK	$TARGET	$CONF	$CITES	$PSUM	$TEXT	$SRCJ	$CITESJSON"
         ;;
       observation)
         DESC="$F1"; SRCJ="$F2"
@@ -695,11 +714,14 @@ TIGHTEN_PATTERNS=""
 
 while IFS= read -r row; do
   [ -z "$row" ] && continue
-  # Columns: rank \t target \t confidence \t citations \t pattern \t text \t source
+  # RAW_PROPOSALS columns: 1 rank, 2 target, 3 confidence, 4 citation_count,
+  # 5 pattern_summary, 6 proposed_text, 7 source_jsonl, 8 citations_json.
   target=$(printf '%s' "$row" | cut -f2)
-  citations=$(printf '%s' "$row" | cut -f4)
+  citation_count=$(printf '%s' "$row" | cut -f4)
   pattern_summary=$(printf '%s' "$row" | cut -f5)
   proposed_text=$(printf '%s' "$row" | cut -f6)
+  source_jsonl=$(printf '%s' "$row" | cut -f7)
+  citations_json=$(printf '%s' "$row" | cut -f8)
 
   if [ "$target" = "claude" ]; then
     rules_text=$(cat "$MROOT/.claude/memory/claude/lessons.md" 2>/dev/null || true)
@@ -786,15 +808,25 @@ PY
   # Claude performs the inline rewrite step below (Step 5d) when presenting
   # proposals to the user in Step 6.
   #
-  # CLASSIFIED_PROPOSALS schema (TSV, one proposal per line):
+  # ============================================================================
+  # CANONICAL CLASSIFIED_PROPOSALS SCHEMA (TSV, one proposal per line).
+  # This block is the ONE authoritative definition. Every other site that reads
+  # or documents these columns (Step 5d, Step 5e, the Step 5 handoff, Step 6c)
+  # MUST reference this block by name — do NOT restate the column list elsewhere,
+  # so an off-by-one cut -fN cannot drift back in.
   #   1 target           pm|tech-lead|ic5|ic4|devops|qa|ds|claude|plugin
   #   2 action           NEW|TIGHTEN|DUPLICATE
   #   3 pattern_summary  short tag from Phase-2 subagent
   #   4 proposed_text    imperative sentence (deterministically merged by Step 5d for TIGHTEN)
-  #   5 citations        comma-joined message IDs / line refs
+  #   5 citation_count   int — number of citations (rank key = confidence*count)
   #   6 existing_ref     rule line matched (empty for NEW)
   #   7 best_jaccard     float, "0.000".."1.000" — debug/telemetry
-  CLASSIFIED_PROPOSALS="${CLASSIFIED_PROPOSALS}${target}	${action}	${pattern_summary}	${proposed_text}	${citations}	${existing_ref}	${best_j}"$'\n'
+  #   8 source_jsonl     originating session file (per-proposal provenance; drives
+  #                      the --all per-target session count M in Step 6c)
+  #   9 citations_json   JSON array of {message_id, excerpt} — TSV-safe (json.dumps
+  #                      escapes tab/newline). Renders the Step 6 Evidence: display.
+  # ============================================================================
+  CLASSIFIED_PROPOSALS="${CLASSIFIED_PROPOSALS}${target}	${action}	${pattern_summary}	${proposed_text}	${citation_count}	${existing_ref}	${best_j}	${source_jsonl}	${citations_json}"$'\n'
 
   if [ "$action" = "TIGHTEN" ]; then
     TIGHTEN_PATTERNS="${TIGHTEN_PATTERNS}${pattern_summary}"$'\n'
@@ -844,15 +876,10 @@ fi
 
 Step 5 produces two variables for Step 6 to consume:
 
-- `CLASSIFIED_PROPOSALS` — TSV, 7 columns per row. Schema (repeated here so T7
-  can parse without re-reading Step 5c):
-  1. `target` — one of `pm tech-lead ic5 ic4 devops qa ds claude plugin`
-  2. `action` — `NEW` | `TIGHTEN` | `DUPLICATE`
-  3. `pattern_summary` — short tag
-  4. `proposed_text` — imperative sentence (rewritten for TIGHTEN per Step 5d)
-  5. `citations` — comma-joined message IDs / line refs
-  6. `existing_ref` — matched rule line (empty string for NEW)
-  7. `best_jaccard` — float in `[0.000, 1.000]` (debug/telemetry)
+- `CLASSIFIED_PROPOSALS` — TSV, 9 columns per row. The column layout is defined
+  ONCE in the **canonical CLASSIFIED_PROPOSALS schema** block in Step 5c; T7/T8
+  MUST read that block rather than a copy here (single source — prevents column
+  drift).
 - `OBSERVATIONS` — pass-through, unchanged from Step 4.
 
 ---
@@ -891,8 +918,20 @@ MANUAL_FOLLOWUP=""   # newline-separated proposals that --auto could not apply
 ```
 
 Iterate `ACTIONABLE_PROPOSALS` grouped by `target` agent. For each group, compute
-`N` (proposals for this target) and `M` (distinct source JSONL paths for this
-target, from column 7). Print a group header before the first proposal:
+`N` (proposals for this target) and `M` (distinct `source_jsonl` paths for this
+target — that is **column 8**, the canonical CLASSIFIED_PROPOSALS schema's
+per-proposal provenance). `M` is computable because each proposal carries its
+originating session in col 8:
+
+```bash
+# Rows of this target's group are in $GROUP_ROWS (TSV, canonical schema).
+N=$(printf '%s\n' "$GROUP_ROWS" | sed '/^[[:space:]]*$/d' | wc -l)
+# M = distinct source_jsonl (col 8) across this target's proposals.
+M=$(printf '%s\n' "$GROUP_ROWS" | sed '/^[[:space:]]*$/d' \
+      | cut -f8 | sort -u | grep -c .)
+```
+
+Print a group header before the first proposal:
 
 ```bash
 # In single/explicit mode:
@@ -903,14 +942,14 @@ echo "=== <target> (<N> proposal(s) across <M> session(s)) ==="
 
 So for example: `=== ic5 (3 proposal(s) across 2 session(s)) ===`
 
-For each proposal row (columns per Step 5 handoff schema):
-- col 1: `target`
-- col 2: `action`
-- col 3: `pattern_summary`
-- col 4: `proposed_text`
-- col 5: `citations`
-- col 6: `existing_ref`
-- col 7: `best_jaccard`
+For each proposal row, read fields per the **canonical CLASSIFIED_PROPOSALS
+schema** (Step 5c) — that block is the only place the column list lives.
+`target`/`action` come from the group context above; the per-proposal display
+below additionally reads (a usage subset, not a schema restatement):
+- col 4: `proposed_text` (`cut -f4`)
+- col 6: `existing_ref` (`cut -f6`)
+- col 9: `citations_json` (`cut -f9`) — JSON `[{message_id, excerpt}, …]`, the
+  source for the `Evidence:` block below
 
 #### Default mode (no `--auto`)
 
@@ -920,12 +959,32 @@ Present the proposal:
 [<ACTION>] target=<target>
   Proposed: <proposed_text>
   Evidence:
-    - <citation 1>
-    - <citation 2>
+    - [<message_id 1>] <excerpt 1>
+    - [<message_id 2>] <excerpt 2>
     ...
   Existing rule (TIGHTEN/DUPLICATE only): <existing_ref>
 
 Action: [a]pply / [r]eject / [e]dit / [s]kip remaining ?
+```
+
+Render the `Evidence:` lines by decoding `citations_json` (col 9) — this is the
+actual `{message_id, excerpt}` array the subagent cited, NOT a count. Each line
+shows the real excerpt text:
+
+```bash
+# $citations_json is column 9 of the current CLASSIFIED_PROPOSALS row.
+CIT="$citations_json" python3 - <<'PY'
+import json, os
+try:
+    cites = json.loads(os.environ.get("CIT", "") or "[]")
+except Exception:
+    cites = []
+for c in cites:
+    mid = (c.get("message_id", "") or "").strip()
+    exc = (c.get("excerpt", "") or "").replace("\n", " ").replace("\t", " ").strip()
+    tag = f"[{mid}] " if mid else ""
+    print(f"    - {tag}{exc}")
+PY
 ```
 
 (Omit the "Existing rule" line entirely for `NEW` proposals.)
