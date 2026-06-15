@@ -34,26 +34,33 @@ This module is parse-only: it locates and orders, it never scores or distils.
 Consumers (the /handoff prepass, the /retro gate + Step 2) own that.
 """
 
-import json
 import os
 import sys
 
-PROJECTS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "projects")
+# This file is invoked as a CLI (python3 assemble.py ... from retro.md and
+# handoff/prepass.sh). When run as a script its own dir is NOT auto on
+# sys.path, so an `import parselib` would fail. Inject the sibling dir first --
+# mirrors the seam gate.sh/prepass.sh use to share the same primitives.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Top-level fields we expect on a JSONL transcript line. Used only to emit a
-# best-effort schema-drift warning -- never to reject a line. Mirrors
-# skills/retro-gate/gate.sh KNOWN_TOP_FIELDS so the shared seam stays aligned.
-KNOWN_TOP_FIELDS = {
-    "type",
-    "uuid",
-    "message",
-    "parentUuid",
-    "sessionId",
-    "timestamp",
-}
+# Canonical parse primitives live in parselib -- import them rather than
+# re-defining, so this CLI shares one definition with the /retro gate and the
+# /handoff prepass (KNOWN_TOP_FIELDS, parse_line, warn_schema_drift,
+# is_sidechain). Do NOT re-inline these. We use the lower-level
+# warn_schema_drift (not schema_drift_warn) so we keep our single streaming
+# pass over the file -- monsters are 70 MB+ and must not be read twice.
+from parselib import (  # noqa: E402  (after sys.path injection, by design)
+    KNOWN_TOP_FIELDS,
+    is_sidechain,
+    parse_line,
+    warn_schema_drift,
+)
 
 # How many leading lines to inspect before deciding the file looks foreign.
+# Matches parselib's default schema_drift_check_n (50).
 _DRIFT_PROBE_LINES = 50
+
+PROJECTS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 
 
 def _warn(msg):
@@ -100,28 +107,19 @@ def _scan_file_for_uuid(path, target_uuid):
     stem = os.path.splitext(os.path.basename(path))[0]
     contains = stem == target_uuid
     max_ts = ""
-    drift_checked = False
     known_seen = False
     probed = 0
     try:
         with open(path, "r", errors="replace") as fh:
             for line in fh:
-                line = line.strip()
-                if not line:
+                obj = parse_line(line)
+                if obj is None:
+                    # Blank / corrupt / non-dict line -- skip it.
                     continue
-                try:
-                    obj = json.loads(line)
-                except (ValueError, TypeError):
-                    # Corrupt / partially written line -- skip it.
-                    continue
-                if not isinstance(obj, dict):
-                    continue
-                if not drift_checked and probed < _DRIFT_PROBE_LINES:
+                if probed < _DRIFT_PROBE_LINES:
                     probed += 1
                     if obj.keys() & KNOWN_TOP_FIELDS:
                         known_seen = True
-                    if probed >= _DRIFT_PROBE_LINES:
-                        drift_checked = True
                 u = obj.get("uuid")
                 if u is not None and u == target_uuid:
                     contains = True
@@ -133,11 +131,8 @@ def _scan_file_for_uuid(path, target_uuid):
     except OSError as e:
         _warn(f"cannot read {path}: {e}")
         return (False, "")
-    if probed and not known_seen:
-        _warn(
-            f"WARNING -- no known JSONL fields in first {probed} lines of "
-            f"{path}; possible schema drift."
-        )
+    # Drift warning shares parselib's canonical text + once-per-path dedup.
+    warn_schema_drift(path, probed, known_seen)
     return (contains, max_ts)
 
 
@@ -180,14 +175,8 @@ def _stream_message_lines(path):
     probed = 0
     with open(path, "r", errors="replace") as fh:
         for raw in fh:
-            stripped = raw.strip()
-            if not stripped:
-                continue
-            try:
-                obj = json.loads(stripped)
-            except (ValueError, TypeError):
-                continue
-            if not isinstance(obj, dict):
+            obj = parse_line(raw)
+            if obj is None:
                 continue
             if probed < _DRIFT_PROBE_LINES:
                 probed += 1
@@ -200,12 +189,9 @@ def _stream_message_lines(path):
             ts = obj.get("timestamp")
             if not isinstance(ts, str):
                 ts = ""
-            yield (idx, ts, u, stripped)
-    if probed and not known_seen:
-        _warn(
-            f"WARNING -- no known JSONL fields in first {probed} lines of "
-            f"{path}; possible schema drift."
-        )
+            yield (idx, ts, u, raw.strip())
+    # Drift warning shares parselib's canonical text + once-per-path dedup.
+    warn_schema_drift(path, probed, known_seen)
 
 
 def assemble(target_uuid, out=sys.stdout):
@@ -254,11 +240,8 @@ def assemble(target_uuid, out=sys.stdout):
     in_sidechain = False
     for ts, idx, raw in ordered:
         # Defensive isSidechain span tagging (no-op in real data).
-        try:
-            obj = json.loads(raw)
-            is_side = obj.get("isSidechain") is True
-        except (ValueError, TypeError):
-            is_side = False
+        obj = parse_line(raw)
+        is_side = is_sidechain(obj) if obj is not None else False
         if is_side and not in_sidechain:
             in_sidechain = True
             _warn("isSidechain span begins (passthrough; collapse is prepass)")

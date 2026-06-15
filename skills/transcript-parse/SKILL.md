@@ -82,11 +82,12 @@ spike against real 72 MB transcripts):
 4. **ORDER** by `(timestamp, first_seen_index)`. NOT the `parentUuid` DAG
    (copy-duplication makes it multi-root/branchy); NOT raw file order (copied
    segments overlap in time).
-5. **SIDECHAIN** — maximal contiguous runs of `isSidechain is True` are tagged
+5. **SIDECHAIN** — maximal contiguous runs where `isSidechain` is truthy are tagged
    (span begin/end logged to stderr) and passed through **unmodified**.
    Collapsing them is the prepass's job, not the parser's. In real data no
    line is ever a sidechain, so this is a defensive no-op. Detection uses
-   `obj.get("isSidechain") is True` — tolerant of the field being absent.
+   the shared `parselib.is_sidechain` (`bool(obj.get("isSidechain"))`) — tolerant
+   of the field being absent.
 
 Output is exactly the input raw lines, reordered/deduped — fields are NOT
 rewritten or stripped here (the prepass strips). One JSON object per line.
@@ -106,8 +107,10 @@ rewritten or stripped here (the prepass strips). One JSON object per line.
 - **Schema-drift warning.** If none of `KNOWN_TOP_FIELDS`
   (`type, uuid, message, parentUuid, sessionId, timestamp`) appears in the
   first 50 parsed lines of a file, a `transcript-parse: WARNING …` is written
-  to **stderr** (matches `retro-gate/gate.sh`). Stdout stays clean so it can
-  be piped.
+  to **stderr** via the shared `parselib.warn_schema_drift` helper (so
+  `assemble.py` and any `parselib` consumer emit byte-identical text;
+  `retro-gate/gate.sh` deliberately keeps its own `retro-gate:`-prefixed
+  variant — see gate.sh's drift note). Stdout stays clean so it can be piped.
 - **Tolerate missing files.** A referenced ancestor project/file that no
   longer exists is normal — `FileNotFoundError` / unreadable dirs are caught
   and skipped, never opened blindly, never fatal.
@@ -147,7 +150,7 @@ Task 3 MUST match** (derived from spec + plan §"Shared parser seam"):
 | `is_edit_tool` | `is_edit_tool(name) -> bool` | True for `Edit`, `Write`, `MultiEdit`, `NotebookEdit`. |
 | `edit_file_path` | `edit_file_path(tool_input) -> str | None` | Extract the edited path (`file_path`/`notebook_path`) from a tool-use input; `None` if absent. |
 | `is_meta` | `is_meta(obj) -> bool` | True for a meta/system bookkeeping line (e.g. `isMeta is True`). |
-| `is_sidechain` | `is_sidechain(obj) -> bool` | `obj.get("isSidechain") is True` — tolerant of the field being absent (returns False). |
+| `is_sidechain` | `is_sidechain(obj) -> bool` | `bool(obj.get("isSidechain"))` — truthy test, tolerant of the field being absent (returns False). |
 | `is_tool_result` | `is_tool_result(obj) -> bool` | True if the **line dict** (as returned by `parse_line` / `iter_lines`) carries a `tool_result` block inside `obj["message"]["content"]`. Accepts a full line object, not a raw content list. Returns False on missing/unexpected structure. |
 | `schema_drift_warn` | `schema_drift_warn(path) -> None` | Stream the file's first 50 lines; if no `KNOWN_TOP_FIELDS` seen, write the same `transcript-parse: WARNING …` to stderr. |
 | `iter_lines` | `iter_lines(path, schema_drift_check_n=50) -> Iterator[(int, dict)]` | Yield `(line_no, dict)` for every valid JSONL line in `path`. Handles schema-drift detection automatically after the first `schema_drift_check_n` lines. Uses UTF-8 with replacement for robustness on files with stray bytes. Skips blank/unparseable lines. |
