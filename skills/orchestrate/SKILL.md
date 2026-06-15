@@ -45,9 +45,8 @@ Read in parallel:
     cat "$MROOT/.claude/memory/claude/memory.md" 2>/dev/null
   fi
   ```
-- _(Tech Lead and PM memory loading removed from Step 0 — both agents load their own
-  memory via their agent definitions when spawned in Step 4. Loading it here was
-  redundant and added ~2-5K tokens to the orchestrator's startup context.)_
+- Tech Lead and PM load their own memory via their agent definitions when spawned
+  in Step 4 — the orchestrator does not load it here.
 
 If ISSUE-ID missing, ask:
 > "Issue ID (e.g. CDV-1):"
@@ -344,8 +343,8 @@ The orchestrator MAY also export `CLAUDE_TASK_ID=<task_id>` when spawning regula
 When orchestrating an umbrella ticket with child issues, each child ticket MUST get
 its own PM kickoff (Step 4 AC review). Do NOT skip PM for "obvious" tickets or
 tickets that came from a TL plan — PM's job is to validate ACs independently.
-In session 00000000, PM caught a false premise in CDV-151's spec that would have
-broken the implementation. Skipping PM for 5/7 child tickets was a missed opportunity.
+PM regularly catches false premises in a child ticket's spec that would otherwise
+break the implementation, so skipping PM for "obvious" child tickets is a defect.
 
 ### Monitoring loop
 

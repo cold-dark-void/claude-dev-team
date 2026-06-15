@@ -138,8 +138,8 @@ session context. Available tools: Bash, Task, CronDelete.
        bash <MROOT>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active false
 ```
 
-The cron body never re-arms itself; T6 arms exactly once, T9 / wrap-ticket
-tears down. CronCreate prompts must stay under 4 KiB — the template above
+The cron body never re-arms itself; it is armed exactly once at setup, and
+wrap-ticket tears it down. CronCreate prompts must stay under 4 KiB — the template above
 is well within that.
 
 ## Cleanup contract

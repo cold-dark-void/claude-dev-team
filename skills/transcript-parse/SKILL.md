@@ -25,9 +25,9 @@ or rank. Consumers own all of that:
 
 | File | Status | Provides | Consumers |
 |------|--------|----------|-----------|
-| `assemble.py` | **present (Task 2)** | CLI `locate` + `assemble` | handoff prepass, retro Step 2 location |
-| `parselib.py` | **present (Task 3)** | importable parse primitives | handoff prepass, retro gate |
-| `freshness.sh` | **present (Task 3)** | 60 s mid-write guard | handoff (M9), retro Filter-1 |
+| `assemble.py` | **present** | CLI `locate` + `assemble` | handoff prepass, retro Step 2 location |
+| `parselib.py` | **present** | importable parse primitives | handoff prepass, retro gate |
+| `freshness.sh` | **present** | 60 s mid-write guard | handoff (M9), retro Filter-1 |
 
 Runtime: `python3` only (already required by retro-gate). No other deps. Every
 entry point degrades with a clear error and a non-zero exit if `python3` is
@@ -66,8 +66,8 @@ Locate the canonical file, then stream **one raw-JSON message line per
 surviving message** to stdout, in chronological order. Exit 0 on success;
 **exit 1** if the uuid cannot be located (or the file vanished mid-read).
 
-Pipeline (this is the authoritative M1 algorithm — from the CDV-10 Task-1
-spike against real 72 MB transcripts):
+Pipeline (this is the authoritative M1 algorithm — validated against real
+72 MB transcripts):
 
 1. **LOCATE** the canonical file (above).
 2. **LOAD** — stream it; a *message line* is one that parses to a JSON object
@@ -126,7 +126,7 @@ rewritten or stripped here (the prepass strips). One JSON object per line.
 - `KNOWN_TOP_FIELDS: set[str]` — shared schema-drift field set.
 - `PROJECTS_DIR: str` — `~/.claude/projects`.
 
-### Validated (Task 2, against real data)
+### Validated (against real data)
 
 Monster `00000000-0000-4000-8000-000000000003` in
 `~/.claude/projects/-home-user-vibes-project/` (~87 MB, mid-write):
@@ -137,11 +137,11 @@ exit 1 with a clear stderr message.
 
 ---
 
-## `parselib.py` — parse primitives (SPEC-018 M2 helpers) — PLANNED (Task 3)
+## `parselib.py` — parse primitives (SPEC-018 M2 helpers) — PRESENT
 
 Importable, no CLI. Lifted from the inlined helpers in
-`skills/retro-gate/gate.sh` so both consumers share one definition. **Contract
-Task 3 MUST match** (derived from spec + plan §"Shared parser seam"):
+`skills/retro-gate/gate.sh` so both consumers share one definition. **Contract**
+(derived from spec + plan §"Shared parser seam"):
 
 | Symbol | Signature | Contract |
 |--------|-----------|----------|
@@ -155,24 +155,24 @@ Task 3 MUST match** (derived from spec + plan §"Shared parser seam"):
 | `schema_drift_warn` | `schema_drift_warn(path) -> None` | Stream the file's first 50 lines; if no `KNOWN_TOP_FIELDS` seen, write the same `transcript-parse: WARNING …` to stderr. |
 | `iter_lines` | `iter_lines(path, schema_drift_check_n=50) -> Iterator[(int, dict)]` | Yield `(line_no, dict)` for every valid JSONL line in `path`. Handles schema-drift detection automatically after the first `schema_drift_check_n` lines. Uses UTF-8 with replacement for robustness on files with stray bytes. Skips blank/unparseable lines. |
 
-Notes for Task 3:
+Notes:
 - Keep these **pure parse helpers** — no scoring, no I/O beyond
   `schema_drift_warn`'s stderr.
 - Real message IDs are **UUIDs, not `msg_`** — do not add any `msg_`-prefix
   regex.
 - Importable both as `from parselib import msg_text, …` (when
   `skills/transcript-parse/` is on `sys.path`) and from gate.sh's embedded
-  python (Task 12 repoints it here).
+  python (which points here).
 
-Verification gate (from plan Task 3):
+Verification gate:
 `python3 -c "from parselib import msg_text; print(msg_text([{'type':'thinking','text':'x'},{'type':'text','text':'y'}]))"`
 → output includes **both** `x` and `y`.
 
 ---
 
-## `freshness.sh` — mid-write guard (SPEC-018 M9 / SPEC-012 Filter-1) — PLANNED (Task 3)
+## `freshness.sh` — mid-write guard (SPEC-018 M9 / SPEC-012 Filter-1) — PRESENT
 
-POSIX sh. **Contract Task 3 MUST match:**
+POSIX sh. **Contract:**
 
 ```
 freshness.sh check <path>
@@ -189,19 +189,19 @@ Exit codes are the API: `0` = ok to parse, `9` = too fresh (caller warns +
 declines). Consumed by the handoff prepass (M9 → warn + stop) and the retro
 location/Filter-1 path.
 
-Verification gate (from plan Task 3): `freshness.sh check` on a just-`touch`ed
+Verification gate: `freshness.sh check` on a just-`touch`ed
 file → **exit 9**.
 
 ---
 
 ## Consumer wiring (informational)
 
-- **/handoff prepass** (`skills/handoff/prepass.sh prepare`, Task 4):
+- **/handoff prepass** (`skills/handoff/prepass.sh prepare`):
   `freshness.sh check` (exit 9 → warn+decline) → `assemble.py assemble` →
   strip `toolUseResult` → dedup repeated reads → collapse sidechains → token
   budget → spine or chunk manifest. `source_files` is the single canonical
   file (no cross-file engine).
-- **/retro** (Task 12): gate.sh imports `parselib` primitives (keeps its own
+- **/retro**: gate.sh imports `parselib` primitives (keeps its own
   thinking-skip + S1–S5 scoring local); `retro.md` Step 2 repoints location to
   `assemble.py locate` and Filter-1 freshness to `freshness.sh check`. No
   behavior change to retro scores — that seam is what proves this module is

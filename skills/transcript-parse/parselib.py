@@ -151,8 +151,8 @@ def is_meta(d: dict) -> bool:
 def is_sidechain(d: dict) -> bool:
     """True for messages tagged as belonging to a sidechain agent interaction.
 
-    In real production transcripts (CDV-10 Task-1 spike) isSidechain was never
-    True, so this is a defensive guard for future schema changes.
+    In real production transcripts isSidechain was never True, so this is a
+    defensive guard for future schema changes.
     """
     return bool(d.get("isSidechain"))
 
@@ -214,8 +214,8 @@ def warn_schema_drift(path: str, lines_checked: int, seen_known: bool) -> None:
 def schema_drift_warn(path: str, n: int = 50) -> None:
     """Stream the first *n* lines of *path*; warn stderr if no known field seen.
 
-    Documented public API consumed by Task 4/12 importers.  Thin wrapper
-    around ``warn_schema_drift`` that handles its own I/O so callers do not
+    Documented public API consumed by the handoff and retro importers.  Thin
+    wrapper around ``warn_schema_drift`` that handles its own I/O so callers do not
     need to manage ``lines_checked`` / ``seen_known`` bookkeeping.
 
     ``from parselib import schema_drift_warn`` MUST work.
