@@ -189,8 +189,7 @@ distillation (`/memory-distill`) compresses older rows later.
 CONTENT="<the new learnings section only (## <TICKET-ID> learnings …) — NOT the full re-read>"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
-  MEMORY_ID=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
-    INSERT INTO memories(agent, type, content) VALUES ('claude', 'memory', '$ESCAPED');
+  MEMORY_ID=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('claude', 'memory', '$ESCAPED');
     SELECT last_insert_rowid();")
   # Best-effort embedding — silently skips when extensions absent (SPEC-004:36). embed-one.sh
   # is a sibling of skills/memory-store/; resolve it (dev checkout first, else installed cache).
