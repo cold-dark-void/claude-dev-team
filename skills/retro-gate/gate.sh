@@ -11,7 +11,9 @@
 #
 # Output:
 #   {"score":N,"passed":bool,"threshold":N,"signals":[
-#       {"name":"S1","count":N,"ids":["msg_..."]}, ...]}
+#       {"name":"S1","count":N,"ids":["00000000-0000-4000-8000-000000000004"]}, ...]}
+#   (ids are real JSONL message UUIDs, or a "line:N" fallback when absent — never
+#    `msg_`-prefixed; see skills/transcript-parse/SKILL.md.)
 #
 # Design notes: see skills/retro-gate/SKILL.md and
 # .claude/plans/2026-04-08-RETRO-001-session-retrospective.md §4.

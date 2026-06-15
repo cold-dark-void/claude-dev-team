@@ -191,7 +191,7 @@ messages", "Add --dry-run flag to /orchestrate"). These become backlog items.
       "proposed_text": "One-sentence directive in imperative form",
       "confidence": 0.0,
       "citations": [
-        {"message_id": "msg_...", "excerpt": "short verbatim quote"}
+        {"message_id": "00000000-0000-4000-8000-000000000004", "excerpt": "short verbatim quote"}
       ],
       "pattern_summary": "two-word tag"
     }

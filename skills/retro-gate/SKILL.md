@@ -51,7 +51,7 @@ evidence rather than re-scanning the whole transcript.
 | S1 | Explicit reject   | Regex on real (non-meta) `type=user` text: `\b(revert\|stop\|wrong\|don'?t\|why did you\|no that'?s\|undo\|that'?s not\|nope)\b` | 3.0    | 3   |
 | S2 | Tool error run    | A run of >=2 consecutive `tool_result.is_error:true` blocks; reset by a successful result or a real user turn       | 2.0    | -   |
 | S3 | Edit loop         | >=3 `Edit`/`Write`/`MultiEdit` tool_uses on the same `file_path` within 10 assistant turns; one score per file       | 2.5    | -   |
-| S4 | Assistant retry   | Regex on assistant text: `\b(let me try again\|let me try a different\|that didn'?t work\|actually,? let me\|sorry,? let me\|my mistake\|i'?ll try)\b` (see gate.sh:77-81) | 1.5    | 3   |
+| S4 | Assistant retry   | Regex on assistant text: `\b(let me try again\|let me try a different\|that didn'?t work\|actually,? let me\|sorry,? let me\|my mistake\|i'?ll try)\b` (see `S4_RE` in gate.sh) | 1.5    | 3   |
 | S5 | Terse follow-up   | Real user message of <=3 words immediately after an assistant turn >=500 chars                                       | 1.0    | 4   |
 
 `score = sum(weight * min(count, cap))`. Sessions are flagged when
@@ -89,8 +89,8 @@ treated as user input.
 Session: <id>
 Score: 5.5 / 5.0 (passed)
 Signals matched:
-  S1 (explicit reject) x2  — msg_a, msg_b
-  S3 (edit loop)       x1  — msg_c
+  S1 (explicit reject) x2  — 00000000-0000-4000-8000-000000000004, 00000000-0000-4000-8000-000000000002
+  S3 (edit loop)       x1  — 00000000-0000-4000-8000-000000000005
 Signals NOT matched: S2, S4, S5
 ```
 

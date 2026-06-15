@@ -465,6 +465,7 @@ Use `python3` to parse the JSON. Emit tab-separated rows to stdout:
 ```
 proposal<TAB>target<TAB>proposed_text<TAB>confidence<TAB>citation_count<TAB>citations_json<TAB>pattern_summary<TAB>source_jsonl
 observation<TAB>description<TAB>source_jsonl
+fabrication_anchor<TAB>anchor_id<TAB>turn_id<TAB>fabricated_claim_text<TAB>evidence_for_fabrication
 ```
 
 `citation_count` (an int) drives ranking (`confidence * citation_count`, SPEC-012
@@ -712,9 +713,10 @@ fi
 
 ### Step 5b: Re-load existing rules per target
 
-We mirror Step 4a rather than trust variable persistence across the interpreted
-`.md` boundaries. Missing files collapse to the empty string (NOT the literal
-`"empty"` — the classifier needs a real emptiness test here).
+We re-load each per-target rules file here rather than trust variable
+persistence across the interpreted `.md` boundaries. Missing files collapse to
+the empty string (NOT the literal `"empty"` — the classifier needs a real
+emptiness test here, unlike the Step 4c prompt-substitution helper).
 
 ```bash
 load_rules_raw() {
