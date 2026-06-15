@@ -260,7 +260,7 @@ Budget policy (two modes):
 
 ```bash
 FLAGGED_SESSIONS=""
-ANCHOR_IDS=""        # newline-separated "<jsonl-path> <id>" pairs for T5
+ANCHOR_IDS=""        # newline-separated "<jsonl-path> <id>" pairs for Step 4
 GATE_START=$(date +%s)
 TOTAL=$(echo "$SESSIONS" | wc -l)
 N=0
@@ -301,7 +301,7 @@ while IFS= read -r JSONL; do
   if [ -n "$PASSED" ]; then
     FLAGGED_SESSIONS="$FLAGGED_SESSIONS
 $JSONL"
-    # Collect anchor message IDs from signals[].ids[] for T5.
+    # Collect anchor message IDs from signals[].ids[] for Step 4.
     # gate.sh emits real Claude Code UUIDs (not `msg_*` prefixed), so parse JSON
     # directly rather than regex-matching a prefix.
     IDS=$(echo "$GATE_OUT" | python3 -c 'import json,sys
@@ -656,13 +656,13 @@ descending, keep the top 5.
 RAW_PROPOSALS=$(printf '%s\n' "$RAW_PROPOSALS" | sort -t$'\t' -k1,1 -nr | head -5)
 ```
 
-### Step 4f: --all repeat-filter pre-grouping (hint for T6)
+### Step 4f: --all repeat-filter pre-grouping (hint for Step 5)
 
 When `$MODE = "all"` the spec asks us to collapse patterns that occur in only
-one session. T6 (routing/dedup) is the natural home for that, but we pre-tag
-singletons here so T6 has the info without re-parsing. We group by
+one session. Step 5 (routing/dedup) is the natural home for that, but we pre-tag
+singletons here so Step 5 has the info without re-parsing. We group by
 `pattern_summary` and mark any summary with a single occurrence across the whole
-RAW_PROPOSALS set — T6 may drop those when `$MODE = "all"`.
+RAW_PROPOSALS set — Step 5 may drop those when `$MODE = "all"`.
 
 ```bash
 if [ "$MODE" = "all" ] && [ -n "$RAW_PROPOSALS" ]; then
@@ -670,16 +670,16 @@ if [ "$MODE" = "all" ] && [ -n "$RAW_PROPOSALS" ]; then
   SINGLETON_PATTERNS=$(printf '%s\n' "$RAW_PROPOSALS" \
     | cut -f5 | sort | uniq -c \
     | while read -r _cnt _pat; do [ "$_cnt" -eq 1 ] && printf '%s\n' "$_pat"; done)
-  # T6 will consume $SINGLETON_PATTERNS alongside $RAW_PROPOSALS.
+  # Step 5 will consume $SINGLETON_PATTERNS alongside $RAW_PROPOSALS.
 fi
 ```
 
 `RAW_PROPOSALS`, `OBSERVATIONS`, and (when `--all`) `SINGLETON_PATTERNS` are the
-handoff to Step 5 (T6).
+handoff to Step 5.
 
 ---
 
-## Step 5: Phase-3 routing and deduplication (T6)
+## Step 5: Phase-3 routing and deduplication
 
 Classify each surviving proposal in `$RAW_PROPOSALS` as `NEW`, `TIGHTEN`, or
 `DUPLICATE` against the existing rule corpus for its target. Output is
@@ -735,7 +735,7 @@ RULES_CLAUDE=$(load_rules_raw   "$MROOT/.claude/memory/claude/lessons.md")
 
 ### Step 5c: Deterministic NEW / TIGHTEN / DUPLICATE classification
 
-We run a single Python pass per proposal. Python3 is the T5-established fallback
+We run a single Python pass per proposal. Python3 is the Step 4 fallback
 tool; it computes jaccard on token sets with the tokenization rules below and
 emits one TSV line per proposal containing the action, best-match line, and best
 jaccard score.
@@ -919,12 +919,12 @@ if [ -n "$TIGHTEN_PATTERNS" ] && [ -n "$CLASSIFIED_PROPOSALS" ]; then
 fi
 ```
 
-### Handoff to Step 6 (T7/T8)
+### Handoff to Step 6
 
 Step 5 produces two variables for Step 6 to consume:
 
 - `CLASSIFIED_PROPOSALS` — TSV, 9 columns per row. The column layout is defined
-  ONCE in the **canonical CLASSIFIED_PROPOSALS schema** block in Step 5c; T7/T8
+  ONCE in the **canonical CLASSIFIED_PROPOSALS schema** block in Step 5c; Step 6
   MUST read that block rather than a copy here (single source — prevents column
   drift).
 - `OBSERVATIONS` — pass-through, unchanged from Step 4.
@@ -1066,7 +1066,7 @@ Handle the user's response:
     directory if absent:
     ```bash
     mkdir -p "$MROOT/.claude/memory/claude"
-    # Belt-and-braces: re-sanitize at write time. The T5 validator already
+    # Belt-and-braces: re-sanitize at write time. The Step 4 validator already
     # strips control chars, but defense-in-depth in case proposed_text reached
     # here through an unexpected path.
     proposed_text=$(printf '%s' "$proposed_text" | tr -d '\r\n\t\000-\037' | cut -c1-200)

@@ -7,7 +7,7 @@
 #   prepass.sh cache-check --uuid <uuid>
 #   prepass.sh finalize    --uuid <uuid> --sections <dir>
 #
-# `prepare` (Task 4) — what it does (no LLM — this is the deterministic stage
+# `prepare` — what it does (no LLM — this is the deterministic stage
 # that feeds the extractor subagents):
 #   (a) LOCATE   — resolve the canonical transcript file via the shared module
 #                  (skills/transcript-parse/assemble.py locate).
@@ -27,10 +27,10 @@
 #   (f) SIZE     — M3: spine_chars / CHARS_PER_TOKEN <= HANDOFF_SPINE_TOKENS
 #                  → mode="direct"; else mode="chunked", split at message
 #                  boundaries into chunks each within the token budget.
-#   (g) EMIT     — a plan.json the orchestrator (Task 6) and finalize (Task 5)
+#   (g) EMIT     — a plan.json the orchestrator and finalize
 #                  consume: {mode, leaf_uuid, source_files, spine|chunks, stats}.
 #
-# `cache-check` (Task 5, M8) — recompute the current leaf-uuid (same logic as
+# `cache-check` (M8) — recompute the current leaf-uuid (same logic as
 #   `prepare`: the last surviving message of the assembled timeline), then look
 #   up <REPO>/.claude/handoff/cache/<uuid>.json. If it exists AND its stored
 #   leaf_uuid equals the current leaf-uuid, print the cached brief and exit 0
@@ -38,7 +38,7 @@
 #   or new messages were appended). The cache lives under .claude/handoff/,
 #   NEVER memory.db, so it cannot intersect the memory write-path (M8 / spec).
 #
-# `finalize` (Task 5, M6/M7/M8) — merge the five extractor section JSONs (M4:
+# `finalize` (M6/M7/M8) — merge the five extractor section JSONs (M4:
 #   Convergence / Dead-ends / Code-state / Open-threads+conflicts / Basics) from
 #   --sections <dir> into ONE dense markdown brief: five labeled sections, every
 #   non-trivial claim carrying a drill-down pointer (M6), no raw tool output,

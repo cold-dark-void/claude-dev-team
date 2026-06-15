@@ -260,7 +260,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 
-# === existing plugin JSON validation (preserve verbatim) ===
+# === plugin JSON validation ===
 
 ERRORS=()
 

@@ -35,8 +35,8 @@ This file is the single source of truth for the fan-out: the five JSON schemas
 `commands/handoff.md` (the cold-mode orchestrator), Step 6. The command reads this
 file, substitutes `${...}` placeholders, and spawns all five extractors **in one
 tool-use block**. Never invoked by humans. The warm-mode (`bare /handoff`) live
-capture is a separate path and does **not** spawn these extractors (see Task 9 /
-the warm-mode section appended to this file).
+capture is a separate path and does **not** spawn these extractors (see the
+warm-mode section appended to this file).
 
 ---
 
@@ -57,17 +57,17 @@ the warm-mode section appended to this file).
 ## The pipeline at a glance
 
 ```
-prepass.sh prepare --uuid <u> --out plan.json     (Task 4, deterministic, no LLM)
+prepass.sh prepare --uuid <u> --out plan.json     (deterministic, no LLM)
         │  emits plan.json {mode, leaf_uuid, source_files, spine|chunks, stats}
         ▼
-[ if mode == "chunked" ]  spawn N chunk-summarizers in ONE block  (Task 8)
+[ if mode == "chunked" ]  spawn N chunk-summarizers in ONE block
         │  → reduced spine.txt (hypotheses/corrections/decisions preserved)
         ▼
 SPAWN 5 EXTRACTORS IN ONE TOOL-USE BLOCK   ◄── THIS FILE   (the fan-out invariant)
    Convergence · Dead-ends · Code-state · Open-threads & conflicts · Basics
         │  each writes one JSON object → ${SECTIONS_DIR}/<section>.json
         ▼
-prepass.sh finalize --uuid <u> --sections ${SECTIONS_DIR} [--leaf <uuid>]   (Task 5)
+prepass.sh finalize --uuid <u> --sections ${SECTIONS_DIR} [--leaf <uuid>]
         │  merge → 5 labeled sections, pointers enforced (M6), <=400 lines
         ▼
 print brief to stdout (cold-mode injection, M7) + write cache (M8)
@@ -84,7 +84,7 @@ print brief to stdout (cold-mode injection, M7) + write cache (M8)
 
 This mirrors `skills/council/SKILL.md` Phase 2 ("investigators MUST spawn in
 parallel within a single message, subject to Task-tool concurrency limits") and the
-same-block rule for chunk-summarizers (Task 8).
+same-block rule for chunk-summarizers.
 
 The five extractors are **mutually blind**: each sees only the spine (and git, for
 Code-state). None receives another extractor's output, prior narrative, or the
@@ -92,7 +92,7 @@ finalized brief. Cross-section reconciliation happens only in `finalize`.
 
 If a spawn fails or returns invalid JSON, the orchestrator drops that one section
 and proceeds with the rest (see *Validation* below) — **never block the whole
-handoff on a single bad spawn** (same rule as retro-subagent T5 and council
+handoff on a single bad spawn** (same rule as the retro-subagent and council
 evidence-bundle validation).
 
 ---
@@ -300,7 +300,7 @@ CONTENT SHAPE (markdown, dense, no chronology):
 The anti-gaslighting core: **rejected hypotheses, why each was killed, and user
 corrections quoted VERBATIM**, so the new session does not re-propose them.
 
-> ⚠ **REAL-DATA FINDING (CDV-10 Task 4, the 89 MB monster):** `thinking` blocks in
+> ⚠ **REAL-DATA FINDING (the 89 MB monster):** `thinking` blocks in
 > real transcripts are frequently **signature-only / encrypted — they carry no
 > plaintext**. The spine KEEPS thinking blocks (M4-b), but this extractor MUST NOT
 > depend on thinking-block *text* being present. It mines, in priority order:
@@ -498,7 +498,7 @@ CONTENT SHAPE (markdown, dense, reference-style):
 ## How the Dead-ends extractor copes with absent `thinking` text (summary)
 
 Because real transcripts frequently carry **signature-only / encrypted `thinking`
-blocks with no plaintext** (CDV-10 Task 4, 89 MB monster), the Dead-ends extractor
+blocks with no plaintext** (89 MB monster), the Dead-ends extractor
 is explicitly built to **never depend on thinking-block text**. Its signal sources,
 in priority order:
 
@@ -539,7 +539,7 @@ The orchestrator (and `finalize`) MUST treat extractor output defensively:
 5. **Never block on one bad spawn.** A failed/invalid/empty section → render its
    heading with `_(extraction failed — not available)_` and continue. The brief is
    produced as long as at least one section succeeded. Log the failed section name to
-   stderr (do not crash). Same rule as retro-subagent T5.
+   stderr (do not crash). Same rule as the retro-subagent.
 
 After validation, `finalize` merges the (up to) five section objects into one dense
 brief — five labeled headings in the fixed order above, pointers preserved, no raw

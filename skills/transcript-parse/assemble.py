@@ -19,7 +19,7 @@ Two subcommands, both read-only over ~/.claude/projects/:
       Messages are de-duplicated on "uuid" KEEP-LAST and ordered by
       (timestamp, first-seen line index).
 
-Why this shape (CDV-10 Task-1 spike against real 72 MB+ transcripts):
+Why this shape (validated against real 72 MB+ transcripts):
   - `forkedFrom` is PROVENANCE -- an object {sessionId, messageUuid} where
     messageUuid is self-referential -- NOT a cross-file pointer. A fork copies
     its chosen-path prefix (with stable uuids) into the child file, so

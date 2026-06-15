@@ -549,7 +549,7 @@ Runs only when `--deep` is set. Executes AFTER standard validation completes
 because too many of their source memories were archived as stale.
 
 > **IMPORTANT: Circularity guard.** When `/memory-distill` calls
-> `/validate-memory` as a pre-distill step (Task 5), it MUST NOT pass `--deep`.
+> `/validate-memory` as a pre-distill step, it MUST NOT pass `--deep`.
 > Deep mode invokes the @distiller agent, which would create a circular
 > dependency. The caller (memory-distill) is responsible for omitting `--deep`.
 > This command does not enforce the guard itself.

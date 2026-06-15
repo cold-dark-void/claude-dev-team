@@ -13,9 +13,9 @@ description: |
 
 Protocol specification for the adversarial council tribunal engine. This file
 is the contract every component in `skills/council/` codes against —
-`engine.sh` (T6), prompt templates (T7), report templates (T8), the diff-mode
-preset (T9), the `/council` command wrapper (T12), and the refactored
-`skills/review-and-commit/SKILL.md` (T13) all read this file to know what to
+`engine.sh`, the prompt templates, the report templates, the diff-mode
+preset, the `/council` command wrapper, and the refactored
+`skills/review-and-commit/SKILL.md` all read this file to know what to
 build. It is a spec for the implementation, not the implementation itself.
 
 Authoritative source of truth for all MUSTs cited below:
@@ -169,8 +169,7 @@ Fallback chain, evaluated left-to-right (SPEC-013 lines 119–120):
 This fallback chain applies ONLY to direct command-path invocations
 (`/council`, `/review-and-commit` → `engine.sh`). The SPEC-002 TaskCompleted
 hook uses its own stdin-based task-id resolution and does NOT participate in
-this fallback chain — the two paths are independent. (SPEC-013 line 125,
-post-replan clarification from Task 1 spike.)
+this fallback chain — the two paths are independent. (SPEC-013 line 125.)
 
 When task-bound:
 - Report filename MUST include `--<task_id>` suffix (Phase 6).
@@ -240,7 +239,7 @@ and confidence.
   (SPEC-013 lines 51–52.)
 
 **Implementation note:** claim extraction is performed by a Task-tool
-subagent using `skills/council/prompts/claim-extractor.md` (authored in T7).
+subagent using `skills/council/prompts/claim-extractor.md`.
 The extractor is itself blind — it sees raw transcript/diff, never prior
 narrative or prior verdicts.
 
@@ -261,7 +260,7 @@ narrative or prior verdicts.
 `Read`, `Grep`, `Glob`, `Bash` for read commands only, MCP query tools.
 No Write, Edit, MultiEdit, no Bash mutating commands. (SPEC-013 line 57.)
 This allowlist is injected into the Task prompt by the investigator prompt
-template (T7); Task-tool spawns do not have per-invocation tool allowlists,
+template; Task-tool spawns do not have per-invocation tool allowlists,
 so enforcement is prompt-level + strike-rule at evidence-bundle validation.
 
 **Evidence bundle schema (required return shape):**
@@ -376,7 +375,7 @@ Devil's Advocate).
 
 ### Phase 5 — Judgment
 
-**Agent:** `agents/council-judge.md`, committed in T4. Structurally
+**Agent:** `agents/council-judge.md`. Structurally
 forbidden from running tools via `tools: ""` in YAML frontmatter. (SPEC-013
 lines 79–80, 86.)
 
@@ -438,7 +437,7 @@ with a severity outside the three-term set MUST be struck. (SPEC-013 lines
   never silently dropped. (SPEC-013 SHOULD line 146; treated as hard AC.)
 
 The Judge reasoning is documented in `agents/council-judge.md` and the
-`prompts/judge.md` template (T7). This SKILL only documents what the engine
+`prompts/judge.md` template. This SKILL only documents what the engine
 passes to and expects from the Judge — not how it decides.
 
 ### Phase 6 — Report & Persistence
@@ -482,10 +481,10 @@ brief, Devil's Advocate brief, per-claim verdict or per-finding entry with
 confidence + raw evidence, a **struck-lines audit trail** section.
 (SPEC-013 line 90.)
 
-- `verdict[]` template (`templates/report-verdict.md`, T8): verdict summary
+- `verdict[]` template (`templates/report-verdict.md`): verdict summary
   grouped by taxonomy (VERIFIED / PARTIALLY_VERIFIED / UNVERIFIED /
   CONTRADICTED / FABRICATED counts).
-- `finding[]` template (`templates/report-finding.md`, T8): findings summary
+- `finding[]` template (`templates/report-finding.md`): findings summary
   grouped by severity (critical / warning / nitpick counts).
 
 (SPEC-013 line 91.)
@@ -506,7 +505,7 @@ Preset: <preset> (<output_shape>)
 
 After the report file is written, the engine MUST append a row to
 `.claude/council/index.json` by shelling out to
-`skills/council/index-writer.sh` (committed in T3). The engine MUST NOT
+`skills/council/index-writer.sh`. The engine MUST NOT
 open, read, or write `index.json` directly — `index-writer.sh` is the sole
 writer and owns the atomic tmp+rename + `flock` semantics. (SPEC-013 lines
 98–101.)
@@ -584,8 +583,8 @@ slice). When authorship is ambiguous, default to plain-Claude routing.
 
 ## Flavor file schema
 
-Flavor files live at `skills/council/flavors/<name>.md`. They are authored
-in T7 (tribunal flavors) and T9 (diff-mode specialist flavors).
+Flavor files live at `skills/council/flavors/<name>.md`. They come in two
+groups: the tribunal flavors and the diff-mode specialist flavors.
 
 **YAML frontmatter (required fields):**
 
@@ -606,22 +605,21 @@ each flavor file under 60 lines; the delta is a focus lens, not a full
 prompt.
 
 **Committed flavor set (COUNCIL-001):**
-- `paranoid-ic.md` (T7) — hostile-read investigator; demands receipts for
+- `paranoid-ic.md` — hostile-read investigator; demands receipts for
   every asserted fact.
-- `jaded-senior.md` (T7) — prosecutor flavor; has seen every failure mode;
+- `jaded-senior.md` — prosecutor flavor; has seen every failure mode;
   assumes the claim is wrong until evidence proves otherwise.
-- `yolo-ic.md` (T7) — advocate flavor; argues the claim is true; exists to
+- `yolo-ic.md` — advocate flavor; argues the claim is true; exists to
   defeat prosecutor monoculture.
 - `logic.md`, `security.md`, `compliance.md`, `quality.md`,
-  `simplification.md` (T9) — diff-mode specialist investigators; the 5
+  `simplification.md` — diff-mode specialist investigators; the 5
   focus areas migrated from the pre-refactor `skills/review-and-commit/SKILL.md`.
 
 ---
 
 ## Prompt template schema
 
-Role prompt templates live at `skills/council/prompts/<name>.md`. Authored
-in T7. Files:
+Role prompt templates live at `skills/council/prompts/<name>.md`. Files:
 
 - `claim-extractor.md` — runs in Phase 1
 - `investigator.md` — runs in Phase 2 (one per claim per flavor)
@@ -643,7 +641,7 @@ substitutes variables before invoking the Task tool or the judge agent.
 
 Templates MUST NOT include `{{ASSISTANT_NARRATIVE}}` or any similar variable
 that would leak prior model output into a blind role. Enforcing this is
-primarily a code review discipline (T7 will be reviewed against this rule).
+primarily a code review discipline (the prompt templates are reviewed against this rule).
 
 ---
 
@@ -651,13 +649,13 @@ primarily a code review discipline (T7 will be reviewed against this rule).
 
 | Component | Relationship |
 |---|---|
-| `skills/council/index-writer.sh` | **Sole writer** of `.claude/council/index.json`. The engine shells out to this helper in Phase 6; never opens the index file directly. Committed in T3. |
-| `skills/orchestrate/task-store.sh` | Writes `.claude/tasks/<task_id>.json` with task metadata (including `requires_council: true`). The engine does NOT write to this file; the orchestrator owns it. Committed in T5, referenced by SPEC-009. |
-| `agents/council-judge.md` | The Judge agent invoked in Phase 5. Empty tool allowlist. Committed in T4. |
-| `skills/review-and-commit/SKILL.md` | After the T13 refactor, calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
-| `commands/council.md` | Thin wrapper; passes CLI args through to `engine.sh` unchanged. Authored in T12. |
-| `.claude/hooks/task-completed.sh` | After T10, **reads** `.claude/council/index.json` to apply the `requires_council` gate. Never calls the engine. Authoritative behavior is SPEC-002's domain — referenced here, not re-specified. |
-| `commands/retro.md` | After T14, prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. The `--from-retro` scope fails loud in COUNCIL-001 — users will see the fail-loud message, which is correct (SPEC-013 line 114, locked decision 8). |
+| `skills/council/index-writer.sh` | **Sole writer** of `.claude/council/index.json`. The engine shells out to this helper in Phase 6; never opens the index file directly. |
+| `skills/orchestrate/task-store.sh` | Writes `.claude/tasks/<task_id>.json` with task metadata (including `requires_council: true`). The engine does NOT write to this file; the orchestrator owns it. Referenced by SPEC-009. |
+| `agents/council-judge.md` | The Judge agent invoked in Phase 5. Empty tool allowlist. |
+| `skills/review-and-commit/SKILL.md` | Calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
+| `commands/council.md` | Thin wrapper; passes CLI args through to `engine.sh` unchanged. |
+| `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate. Never calls the engine. Authoritative behavior is SPEC-002's domain — referenced here, not re-specified. |
+| `commands/retro.md` | Prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. The `--from-retro` scope fails loud in COUNCIL-001 — users will see the fail-loud message, which is correct (SPEC-013 line 114, locked decision 8). |
 
 ---
 
@@ -695,7 +693,7 @@ either fail loud (if user-reachable via CLI) or be a protocol-reserved no-op
   extraction. (SPEC-013 line 27, locked decision 8.)
 - **`--from-retro <anchor-id>` scope** — arg parser MUST recognize it and
   fail loud with the COUNCIL-002 message. `/retro` still prints the hint
-  (T14), but running the hinted command fails — this is correct, documented,
+  but running the hinted command fails — this is correct, documented,
   and expected v0.18.0 behavior. (SPEC-013 line 29, locked decision 8.)
 - **Phase 3 dynamic domain specialist** — no-op in v1. The engine MUST NOT
   inspect claim topics or attempt agent pull. Phase 3 exists in the protocol
@@ -734,4 +732,4 @@ either fail loud (if user-reachable via CLI) or be a protocol-reserved no-op
 
 Every MUST in SPEC-013 traces to a section above. If a future edit to
 SPEC-013 adds a MUST without a corresponding section here, that is a bug in
-this file — reopen T2 and update.
+this file — update this file to cover it.

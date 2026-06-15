@@ -24,7 +24,7 @@ in parallel, `finding[]` output shape, 80-confidence discard filter, and no
 feedback-memory writes (a code bug is not a fabrication — SPEC-013 line 105).
 
 This preset is the ONLY v1 caller path for `/review-and-commit`. The command
-wrapper at `skills/review-and-commit/SKILL.md` (post-T13) is a thin entry point
+wrapper at `skills/review-and-commit/SKILL.md` is a thin entry point
 that resolves the diff scope and passes control to `engine.sh` with this
 preset selected.
 
@@ -112,5 +112,5 @@ an agent's directives would conflate "caught a bug" with "caught a lie"
 - SPEC-013 Adversarial Council Tribunal — owns the `finding[]` output shape,
   the strike rule, and the Phase 1 spec-grep enrichment step.
 - `skills/council/SKILL.md` — engine protocol this preset plugs into.
-- `skills/review-and-commit/SKILL.md` — pre-T13 source of the 5 specialist
+- `skills/review-and-commit/SKILL.md` — original source of the 5 specialist
   sub-prompts migrated into the flavor files listed above.

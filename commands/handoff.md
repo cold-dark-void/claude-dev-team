@@ -514,7 +514,7 @@ above. Cross-section reconciliation happens solely in `finalize`.
 **not** abort the handoff: simply leave that section's file absent/partial —
 `finalize` renders the missing heading with an `_(extraction failed — not
 available)_` placeholder and still produces the brief from the sections that
-succeeded (SKILL.md validation contract; same rule as retro-subagent T5). The
+succeeded (SKILL.md validation contract; same rule as the retro-subagent). The
 brief is produced as long as at least one section succeeded.
 
 After this block returns, the (up to) five JSON files exist in `$SECTIONS_DIR`.

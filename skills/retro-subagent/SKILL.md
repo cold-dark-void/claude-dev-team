@@ -15,14 +15,14 @@ identifies friction anchors in a session JSONL (signals S1-S5), this skill speci
 how to spawn a deep-read subagent that converts those anchors into concrete,
 behavior-changing rule proposals targeted at a specific team agent (or plain Claude).
 
-The output of this subagent is consumed by the dedup/routing phase (T6) and the
-confirm/apply phase (T7) of `commands/retro.md`.
+The output of this subagent is consumed by the dedup/routing phase and the
+confirm/apply phase of `commands/retro.md`.
 
 ---
 
 ## Who calls this
 
-`commands/retro.md` Step 4 (T5). One subagent per flagged session. Spawned in parallel
+`commands/retro.md` Step 4. One subagent per flagged session. Spawned in parallel
 when multiple sessions are flagged (`--all` mode). Never invoked by humans.
 
 ---
@@ -212,7 +212,7 @@ messages", "Add --dry-run flag to /orchestrate"). These become backlog items.
 
 ---
 
-## Validation contract (enforced by the calling command, T5)
+## Validation contract (enforced by the calling command)
 
 The command MUST drop any proposal that fails ANY of these checks:
 

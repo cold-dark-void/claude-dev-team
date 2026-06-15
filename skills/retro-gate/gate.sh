@@ -137,7 +137,7 @@ def msg_text(content):
     non-list) passes straight through to parselib unchanged.
 
     Verified byte-for-byte identical to the previous inline flattening across
-    the real-session regression corpus (19,762 message contents, 0 diffs).
+    the real-session regression corpus.
     """
     if isinstance(content, list):
         content = [

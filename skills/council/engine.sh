@@ -434,7 +434,7 @@ cmd_finalize() {
   esac
 
   if [ ! -f "$template_file" ]; then
-    echo "engine.sh: report template missing: $template_file (expected from Task 8)" >&2
+    echo "engine.sh: report template missing: $template_file" >&2
     exit 7
   fi
 

@@ -95,4 +95,4 @@ If no issues found, return `[]`.
 - SPEC-010 Code Review — authoritative MUSTs for diff-mode review
 - SPEC-013 Adversarial Council Tribunal — `finding[]` schema, strike rule,
   evidence-or-silence invariant
-- `skills/review-and-commit/SKILL.md` (pre-T13) — source of these focus bullets
+- `skills/review-and-commit/SKILL.md` — source of these focus bullets
