@@ -144,7 +144,7 @@ db.commit()
 done < <(find "$MEMDIR" -mindepth 2 -maxdepth 2 -name "*.md" | sort)
 
 # Generate embeddings for all unembedded memories
-EMBED_MODE=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null || echo "fallback")
+EMBED_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null || echo "fallback")
 EXT_DIR="$MROOT/.claude/memory/extensions"
 MODEL_DIR="$MROOT/.claude/memory/models"
 
@@ -152,7 +152,7 @@ EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
 if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
-  UNEMBEDDED=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;")
+  UNEMBEDDED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;")
 
   if [ "$UNEMBEDDED" -gt 0 ]; then
     echo ""
@@ -164,7 +164,7 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
     EMBED_KEY="${EMBEDDING_API_KEY:-}"
     EMBED_MODEL="${EMBEDDING_MODEL:-}"
     if [ "$EMBED_MODE" = "remote" ]; then
-      EMBED_URL=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
+      EMBED_URL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
     fi
 
     while read -r MEM_ID; do
@@ -232,7 +232,7 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
         2>/dev/null || { echo "  WARN: vec insert failed for chunk $MEM_ID"; continue; }
 
       EMBEDDED_COUNT=$((EMBEDDED_COUNT + 1))
-    done < <(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;" 2>/dev/null)
+    done < <(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;" 2>/dev/null)
 
     echo "  Embedded: $EMBEDDED_COUNT/$UNEMBEDDED chunks"
 
@@ -250,7 +250,7 @@ db.commit()
 fi
 
 # Validation
-TOTAL_ROWS=$(sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; SELECT COUNT(*) FROM memories;")
+TOTAL_ROWS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories;")
 echo ""
 echo "Validation: $TOTAL_ROWS total rows in memories table"
 
