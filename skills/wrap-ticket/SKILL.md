@@ -51,24 +51,74 @@ continue; it may already have been removed.
 
 ## Step 1: Verify all tasks are completed
 
-Call `TaskList`. Filter to tasks containing `<TICKET-ID>`.
+Verification dual-reads the **file store as authoritative** — the in-session
+`TaskList` is empty after `/clear`, so a TaskList-only check would vacuously
+pass and let Step 6 destroy a worktree whose work is still incomplete. The file
+store (`$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, written by
+`skills/orchestrate/task-store.sh`) survives `/clear`; it is the source of truth.
 
-If any task is NOT `completed`:
+This block is self-contained (each SKILL bash block runs as a fresh shell):
+re-resolve `MROOT` and set `TICKET_ID` at the top so it does not depend on Step 0.
+Select the ticket's tasks by **compound-key FILENAME** (`<TICKET-ID>-*.json`), NOT
+by subject — subjects are free-text (`t1`, `(auto-created stub)`), so a subject
+filter misses real files. The `-` separator anchors the match so `FOO-1` does NOT
+match `FOO-10-1.json`. Enumerate with `find` (never a bare glob: under zsh an
+empty glob is a fatal `no matches found` that aborts the whole block; do NOT use
+`shopt -s nullglob` — bash-only).
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+TICKET_ID="<TICKET-ID>"
+
+INCOMPLETE=""
+FOUND=0
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  FOUND=$((FOUND + 1))
+  IFS=$'\t' read -r TID STATUS SUBJECT < <(jq -r '[.task_id, .status, .subject // ""] | @tsv' "$f")
+  # Anything != completed (pending|in_progress|blocked) is incomplete.
+  if [ "$STATUS" != "completed" ]; then
+    INCOMPLETE="${INCOMPLETE}  ${TID}  status:${STATUS}  ${SUBJECT}"$'\n'
+  fi
+done < <(find "$MROOT/.claude/tasks" -maxdepth 1 -name "${TICKET_ID}-*.json" 2>/dev/null)
+N=$(printf '%s' "$INCOMPLETE" | grep -c .)
+```
+
+Also call `TaskList` for the in-session view and reconcile — but the file store
+wins: an empty/stale `TaskList` does **not** override an incomplete file-store
+record (this is the fix). Then branch:
+
+**If any file-store task is incomplete (`$N` > 0):** refuse.
 
 ```
 Cannot wrap — N tasks are not yet completed:
-  id:<N>  [<owner>]  <title>  status:<status>
+  <task_id>  status:<status>  <subject>
 
 Complete or close these tasks before wrapping.
-To force-close a task: TaskUpdate id:<N> status:completed
+To force-close a task: TaskUpdate <task_id> status:completed
 ```
+
+(The displayed columns — `<task_id>  status:<status>  <subject>` — match the
+captured `@tsv` order exactly. The task store has no owner field, so there is no
+`[owner]` column.)
 
 Ask the user: "Force-close these tasks and proceed, or stop?"
 
 If user says stop: exit.
-If user says force-close: issue `TaskUpdate status:completed` for each, then continue.
+If user says force-close: issue `TaskUpdate status:completed` for each (and run
+`skills/orchestrate/task-store.sh update-status <task_id> completed` so the file
+store agrees), then continue.
 
-If all tasks are completed: proceed silently.
+**If `find` found NO matching files AND TaskList has none (`$FOUND` == 0):** do
+not silently pass — print and continue to the Step 6 uncommitted-changes backstop:
+
+```
+Completion could not be verified — no task records found for <TICKET-ID>.
+```
+
+**If all file-store tasks are completed:** proceed silently.
 
 ---
 
@@ -332,7 +382,7 @@ Backlog items added:
 
 - **No TICKET-ID provided**: ask for it — do not guess
 - **Not in a git repo**: warn; skip worktree removal and git-based steps; still collect learnings
-- **TaskList unavailable**: warn and skip Step 1; still do learnings, plans update, and worktree removal
+- **TaskList unavailable**: do NOT skip the completion check — verify from the file store instead. The Step 1 `find "$MROOT/.claude/tasks" -name "<TICKET-ID>-*.json"` read does not depend on TaskList and survives `/clear`. Worktree removal must never proceed without a completion verdict from at least one surviving source (file store or TaskList); if the file store shows incomplete tasks, refuse exactly as Step 1 does. If neither source has any record, print the "Completion could not be verified" note and rely on the Step 6 uncommitted-changes backstop — never remove silently.
 - **Worktree has uncommitted changes**: report clearly, do not force-remove
 - **Memory file does not exist**: create it with the learnings section as the first content
 - **Plan file not found**: skip plans update silently (not all projects use plans.md)
