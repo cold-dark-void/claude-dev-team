@@ -163,7 +163,7 @@ The result MUST be a numbered list, one directive per line:
 Before writing, verify that `.claude/memory/` is covered by `.gitignore`:
 ```bash
 GITIGNORE="$MROOT/.gitignore"
-if ! grep -qE '^\\.claude/memory(/|$)' "$GITIGNORE" 2>/dev/null && \
+if ! grep -qE '^\.claude/memory(/|$)' "$GITIGNORE" 2>/dev/null && \
    ! grep -qF '.claude/memory/' "$GITIGNORE" 2>/dev/null; then
   echo ".claude/memory/" >> "$GITIGNORE"
   echo "(Added .claude/memory/ to .gitignore)"
