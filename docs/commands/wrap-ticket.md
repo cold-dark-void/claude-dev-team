@@ -51,11 +51,11 @@ Learnings saved:
 **If tasks are still open:**
 ```
 Cannot wrap — 2 tasks are not yet completed:
-  id:41  [ic4]  Task 1 — CSV serializer  status:in-progress
-  id:43  [qa]   Task 3 — Acceptance tests  status:pending
+  POC-123-1  status:in_progress  CSV serializer
+  POC-123-3  status:pending  Acceptance tests
 
 Complete or close these tasks before wrapping.
-To force-close a task: TaskUpdate id:<N> status:completed
+To force-close a task: TaskUpdate <task_id> status:completed
 ```
 
 ## How It Works
@@ -64,7 +64,7 @@ To force-close a task: TaskUpdate id:<N> status:completed
 
 1. **Resolve worktree** — detects the ticket's worktree path via `git worktree list`. Notes it for removal in Step 6; continues even if no worktree is found.
 
-2. **Verify tasks** — calls `TaskList` and filters to tasks containing `<TICKET-ID>`. If any task is not `completed`, presents the list and asks whether to force-close or stop. Does not proceed past this gate until all tasks are accounted for.
+2. **Verify tasks** — dual-reads the **file store as authoritative** plus `TaskList`. It enumerates the ticket's task records by compound-key filename (`find .claude/tasks -name "<TICKET-ID>-*.json"`) rather than by subject, because the file store survives `/clear` while the in-session `TaskList` empties out — a TaskList-only check would vacuously pass and let Step 8 destroy a worktree whose work is still incomplete. If any file-store task is not `completed`, presents the list and asks whether to force-close or stop. If no records are found in either source, it prints "Completion could not be verified" and relies on the Step 8 uncommitted-changes backstop — it never removes the worktree on a silent vacuous pass.
 
 3. **Collect learnings** — reads each agent's `context.md` from the ticket's worktree and the plan file. Extracts 3-8 specific bullet points: unexpected technical discoveries, patterns worth repeating, gotchas that would trip up a future engineer, specs or docs that need updating, and work that was deferred.
 
