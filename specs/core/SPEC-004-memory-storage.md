@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`
+**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`
 
 ## Overview
 
@@ -94,6 +94,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 | 2026-03-23 | Bumped chunk truncation from 5000 to 8000 chars. Added context.md 60-line limit. Added default distill config values. Moved tier access control to SPEC-007. Moved distillation threshold check to SPEC-007. |
 | 2026-04-26 | Added MUST for whole-file (no-header) chunk truncation at 5000 chars — distinct from the 8000-char ## section limit. Added PRAGMA busy_timeout=5000 to migrate-v2.sh to satisfy the "every write" requirement. |
 | 2026-06-13 | Added "Agent Session-Write Protocol (single source of truth)" MUST — the write block is defined once in skills/memory-store + the canonical skills/agent-memory/protocol.md partial; the 7 behavioral agents carry a managed-inline copy (markers, sync-includes.py byte-check at /release) and MUST NOT hand-edit it. Confirmed the cortex 100/memory 50/lessons 80/context 60 line-limits MUST is the canonical copy (AUDIT-P1-1). |
+| 2026-06-15 | Added `skills/memory-store/schema.sql` (the fresh-DB DDL — normative home for the schema) to Covers; it was orphaned. Added the `REFERENCES memories(id)` FK clause to `distillation_log.result_memory_id` (migrate-v2.sh) and `validation_log.memory_id` (migrate-v3.sh) so a migrated DB's log-table DDL matches schema.sql's fresh-create DDL exactly (`migrate-v3.sh` itself stays owned by SPEC-011) (AUDIT-P3.5a). |
 
 ## Cross-references
 

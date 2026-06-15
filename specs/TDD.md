@@ -7,7 +7,7 @@
 | SPEC-001 | Per-Agent Directives | ACTIVE | commands/adjust-agent.md, agents/*.md (directives loading) |
 | SPEC-002 | Plugin Infrastructure | INFERRED | .claude-plugin/plugin.json, marketplace.json, .claude/settings.json, hooks/task-completed.sh, skills/scout-plugins |
 | SPEC-003 | Agent Role System | INFERRED | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
-| SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, migrate-md.sh, migrate-v2.sh |
+| SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, schema.sql, migrate-md.sh, migrate-v2.sh |
 | SPEC-005 | Team Bootstrap | INFERRED | agents/project-init.md, commands/init-team.md, download-extensions.sh, skills/scaffold-project, init-orchestration, demo |
 | SPEC-006 | Memory Retrieval & Search | INFERRED | skills/memory-recall/SKILL.md, commands/memory-search.md, recall.md |
 | SPEC-007 | Memory Distillation | INFERRED | agents/distiller.md, commands/memory-distill.md, memory-config.md, memory-stats.md |
@@ -42,3 +42,5 @@
 | 2026-06-04 | SPEC-018 created: Cold Session Handoff — retroactive `/handoff <uuid>`, deterministic pre-pass + size-adaptive spine + specialized fan-out extractors, anti-gaslighting dead-ends payload; conflict-scanned (shared parser w/ SPEC-012, M5 delegates to /council, cache outside memory.db) |
 | 2026-06-04 | SPEC-018 updated (CDV-10): +M10 warm live-capture mode, +M11 consolidation (replaces personal handoff skill); Phase-1 includes size-adaptive chunking |
 | 2026-06-05 | SPEC-018 implemented via CDV-10 (Tasks 1-14): status NEW→ACTIVE; coverage skills/transcript-parse/, skills/handoff/, commands/handoff.md, skills/retro-gate/gate.sh (refactor) |
+| 2026-06-15 | SPEC-002 updated: bash-compress MUST rewritten to the shipped inline-rewrite design; vestigial bash-compress-wrapper.sh deleted (AUDIT-P3.5a) |
+| 2026-06-15 | SPEC-004 updated: schema.sql added to Covers; migrate-v2/v3 log-table FK clauses (REFERENCES memories(id)) aligned to schema.sql (AUDIT-P3.5a) |

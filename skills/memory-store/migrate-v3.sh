@@ -53,7 +53,7 @@ ALTER TABLE memories ADD COLUMN archive_reason TEXT DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS validation_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  memory_id INTEGER NOT NULL,
+  memory_id INTEGER NOT NULL REFERENCES memories(id),
   agent TEXT NOT NULL,
   action TEXT NOT NULL CHECK(action IN ('pass','archive','rewrite','flag_review','flag_user')),
   confidence INTEGER NOT NULL,
