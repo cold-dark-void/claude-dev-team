@@ -50,6 +50,7 @@ Read the following **in parallel**:
 cat "$MROOT/AGENTS.md" 2>/dev/null || echo "AGENTS.md not present — proceeding without project rules"
 ```
 
+<!-- include: skills/agent-memory/cortex-load.md agent=tech-lead -->
 **b. Tech Lead cortex (tiered memory)**
 
 ```bash
@@ -65,6 +66,7 @@ else
   cat "$MROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
 fi
 ```
+<!-- /include -->
 
 **c. Specs index (filenames only; bodies loaded later if needed)**
 
@@ -316,14 +318,17 @@ Items not applicable to this run (e.g. characterization-test item when coverage 
 
 Used when refactor scope or required decisions exceed what inline work should resolve.
 
-**For `/kickoff` handoff — emit verbatim:**
+**For `/kickoff` handoff — emit verbatim.** This is the 4-field contract `/kickoff`
+accepts as input (see `## Accepted escalation handoff (input contract)` in
+`skills/kickoff/SKILL.md`); the `WHY INLINE REJECTED` value MUST be one of that
+contract's canonical reasons.
 
 ```
 ROOT CAUSE: <design problem statement from 2.1, or inline description from 3.1>
 AFFECTED FILES:
   - <file or module>
 PROPOSED APPROACH: <2-3 sentences describing the intended structural change>
-WHY INLINE REJECTED: <one of: multi-directory scope | architectural decision required | tech-lead review warranted | callsite count exceeded threshold>
+WHY INLINE REJECTED: <one of: cross-subsystem or multi-directory refactor required | architectural decision required | tech-lead design review required | callsite count exceeded threshold>
 ```
 
 **For `/update-spec` handoff (refactor reveals undocumented behavior) — emit verbatim:**

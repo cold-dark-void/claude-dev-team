@@ -65,6 +65,7 @@ Read the following **in parallel** before doing anything else:
 cat "$MROOT/AGENTS.md" 2>/dev/null || echo "AGENTS.md not present — proceeding without project rules"
 ```
 
+<!-- include: skills/agent-memory/cortex-load.md agent=tech-lead -->
 **b. Tech Lead cortex (tiered memory)**
 
 ```bash
@@ -80,6 +81,7 @@ else
   cat "$MROOT/.claude/memory/tech-lead/cortex.md" 2>/dev/null
 fi
 ```
+<!-- /include -->
 
 **c. Specs index (enumerate only; full load deferred to mode-specific steps)**
 
@@ -227,6 +229,23 @@ Bug-specific context loaded:
 
 ---
 
+## Root-cause triad
+
+Every mode's root-cause gate (full 2.2, patch P.2, arch A.2) requires the same
+three-part statement. It is defined once here; each gate references it rather than
+restating it. The statement is free-form prose but MUST cover all three parts:
+
+- **(a) What specifically fails** — the mechanism, not the symptom
+- **(b) Why it fails** — the architectural or logical reason (not just what fails)
+- **(c) The originating layer** — the file/function where the defect lives, not the
+  layer where the symptom surfaces
+
+Example format (a model, not a template — adapt to the actual bug):
+
+> "Root cause: The WebSocket handler reads the saved `thinking` preference before `SetThinkingEnabled` has been called, so the request uses the stale default (true). The defect originates in the handler initialization order in `ws.go:HandleConnect`, not in the preference storage layer."
+
+---
+
 ## Step 2: Full mode
 
 This is the default pipeline. Execute each sub-step in order. Do not skip ahead. Hard gates are marked GATE — they block all further action until satisfied.
@@ -255,15 +274,7 @@ Do not proceed until the reproduction (or the fallback document) appears in the 
 
 Trace the full execution path. Do not stop at the first grep match. Follow the call chain back to the originating layer — the place where the defect actually lives, not the place where the symptom surfaces.
 
-Then write the root cause statement in free-form prose. It MUST cover:
-
-- **(a)** What specifically fails — the mechanism, not the symptom
-- **(b)** Why it fails — the architectural or logical reason
-- **(c)** The originating layer — the file/function where the defect lives
-
-Example format (a model, not a template — adapt to the actual bug):
-
-> "Root cause: The WebSocket handler reads the saved `thinking` preference before `SetThinkingEnabled` has been called, so the request uses the stale default (true). The defect originates in the handler initialization order in `ws.go:HandleConnect`, not in the preference storage layer."
+Then write the root cause statement in free-form prose, covering all three parts of the **Root-cause triad** (see `## Root-cause triad` for the (a)/(b)/(c) contract and a model example).
 
 **HARD GATE: Do not edit, create, or delete any file before this statement appears in the session output.** Reading files for investigation is allowed. Modifying is not.
 
@@ -377,7 +388,7 @@ grep -rn "<keyword2>" "$WTROOT" --include="*.<ext>"
 
 **Cap:** if grep returns more than 10 hits across all keywords, do NOT investigate each one. Escalate to `/kickoff` with the grep output as evidence of refactor scope. Emit the handoff (see `## Escalation handoff format`) and stop.
 
-> If escalating after a fix was already committed in 2.7, include the commit hash in the WHY INLINE REJECTED field and instruct `/kickoff` to treat the grep results as additional scope, not as the primary unfixed bug.
+> If escalating after a fix was already committed in 2.7, keep WHY INLINE REJECTED to the canonical vocabulary and put the commit hash in the PROPOSED APPROACH field; instruct `/kickoff` to treat the grep results as additional scope, not as the primary unfixed bug.
 
 For each hit under the cap: either address it (if trivial — same root cause, same fix) or document it explicitly with a follow-up note in the session output. Do not silently skip any hit.
 
@@ -430,19 +441,7 @@ Describe the bug briefly: what was expected, what actually happened, and what tr
 
 ### P.2 Root cause statement [GATE]
 
-Write the root cause before touching any file. The statement must identify:
-
-- **(a)** what specifically fails
-- **(b)** why it fails (not just what fails)
-- **(c)** the originating layer — not the symptom layer
-
-Example format:
-```
-Root cause: the token refresh handler (auth/refresh.go) returns a cached
-expiry timestamp (a) because it reads from an in-memory map that is never
-invalidated on logout (b); the originating layer is the session store, not
-the HTTP handler that surfaces the 401 (c).
-```
+Write the root cause before touching any file. The statement must cover all three parts of the **Root-cause triad** (see `## Root-cause triad`): (a) what specifically fails, (b) why it fails, (c) the originating layer — not the symptom layer.
 
 HARD GATE: do not edit, create, or delete any file before this statement appears in the session output.
 
@@ -496,20 +495,10 @@ as concrete steps or a minimal invocation sequence.
 
 **A.2 Root cause statement [GATE]**
 
-Write the root cause statement before touching any file. The statement must
-identify:
-
-1. What specifically fails
-2. Why it fails (not just what fails)
-3. The originating layer — not the symptom layer
-
-Example format:
-
-```
-ROOT CAUSE: The session token is invalidated on the first concurrent request
-because the token store uses a non-atomic read-modify-write cycle (originating
-layer: auth/token_store.go — not the HTTP handler that surfaces the 401).
-```
+Write the root cause statement before touching any file. It must cover all three
+parts of the **Root-cause triad** (see `## Root-cause triad`): (a) what
+specifically fails, (b) why it fails, (c) the originating layer — not the symptom
+layer.
 
 HARD GATE: no file edits, no test writes, no fix code before this statement
 exists in the session output.
@@ -542,7 +531,10 @@ This format is shared by:
 - Full mode spec alignment check when classification = spec gap (routes to
   `/update-spec` instead)
 
-**For `/kickoff` handoff — emit verbatim:**
+**For `/kickoff` handoff — emit verbatim.** This is the 4-field contract `/kickoff`
+accepts as input (see `## Accepted escalation handoff (input contract)` in
+`skills/kickoff/SKILL.md`); the `WHY INLINE REJECTED` value MUST be one of that
+contract's canonical reasons.
 
 ```
 ROOT CAUSE: <the written statement from the root cause gate>
@@ -550,7 +542,7 @@ AFFECTED FILES:
   - <file or module>
   - <file or module>
 PROPOSED APPROACH: <2-3 sentences describing the intended fix or refactor>
-WHY INLINE REJECTED: <one of: cross-subsystem refactor required | architectural decision needed | design review required | arch mode — design decision required | callsite grep exceeded 10 hits>
+WHY INLINE REJECTED: <one of: cross-subsystem or multi-directory refactor required | architectural decision required | tech-lead design review required | arch mode — design decision required | callsite count exceeded threshold>
 ```
 
 **For `/update-spec` handoff — emit verbatim:**
