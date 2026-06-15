@@ -179,9 +179,15 @@ real path in the repo, run:
 
 ```bash
 # Validate path before use: strip non-[A-Za-z0-9_./-] characters, reject if empty
-SAFE_PATH=$(echo "<affected-path>" | tr -cd 'A-Za-z0-9_./-')
-[ -z "$SAFE_PATH" ] && echo "Could not identify affected path from description — skip git log" && SAFE_PATH=""
 # Replace <affected-path> with the path extracted from $DESC
+RAW_PATH='<affected-path>'
+SAFE_PATH=$(printf '%s' "$RAW_PATH" | tr -cd 'A-Za-z0-9_./-')
+[ -z "$SAFE_PATH" ] && echo "Could not identify affected path from description — skip git log" && SAFE_PATH=""
+# Reject traversal attempts
+case "$SAFE_PATH" in
+  *..* ) echo "Path traversal detected — skip" && SAFE_PATH="" ;;
+esac
+[ -n "$SAFE_PATH" ] && [[ "$SAFE_PATH" != "$WTROOT"* ]] && SAFE_PATH=""
 git log --oneline -20 -- "$SAFE_PATH"
 ```
 
@@ -193,8 +199,15 @@ after reproducing the bug."
 
 ```bash
 # Validate path before use: strip non-[A-Za-z0-9_./-] characters, reject if empty
-SAFE_PATH=$(echo "<affected-path>" | tr -cd 'A-Za-z0-9_./-')
-[ -z "$SAFE_PATH" ] && echo "Could not identify affected path from description — skip git log" && SAFE_PATH=""
+# Replace <affected-path> with the path extracted from $DESC
+RAW_PATH='<affected-path>'
+SAFE_PATH=$(printf '%s' "$RAW_PATH" | tr -cd 'A-Za-z0-9_./-')
+[ -z "$SAFE_PATH" ] && echo "Could not identify affected path from description — skip test scan" && SAFE_PATH=""
+# Reject traversal attempts
+case "$SAFE_PATH" in
+  *..* ) echo "Path traversal detected — skip" && SAFE_PATH="" ;;
+esac
+[ -n "$SAFE_PATH" ] && [[ "$SAFE_PATH" != "$WTROOT"* ]] && SAFE_PATH=""
 # When affected path is known:
 find "$(dirname "$SAFE_PATH")" -name "*test*" -o -name "*_test.*" 2>/dev/null | head -20
 # Fallback: project-wide test discovery
