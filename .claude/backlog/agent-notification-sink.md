@@ -17,7 +17,7 @@ Tiered notification system that works with whatever the user already has configu
 ## Scope
 
 - **Hook layer** (`memory-capture.sh`): raw webhook via `curl` for all high-signal events
-- **Agent layer** (`orchestrate.md`): checks for `mcp__slack__*` tools at milestone points, uses if available
+- **Agent layer** (`skills/orchestrate/SKILL.md`): checks for `mcp__slack__*` tools at milestone points, uses if available
 - **Events**: task-complete, task-blocked, QA pass/fail, council verdict, errors (non-zero exit), review findings above confidence threshold
 
 ## Implementation Notes
@@ -29,8 +29,8 @@ Tiered notification system that works with whatever the user already has configu
 
 ## Affects
 
-- `skills/init-orchestration/memory-capture.sh`
-- `commands/orchestrate.md`
+- `.claude/hooks/memory-capture.sh` (the live hook; emitted as a template by `/init-orchestration`)
+- `skills/orchestrate/SKILL.md`
 
 ## Effort
 

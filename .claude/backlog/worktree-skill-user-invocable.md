@@ -20,7 +20,7 @@ Other skills could also call it via bash for richer UX, but the primary value is
 
 ## Implementation Notes
 
-- Prerequisite: Option B (`skills/worktree-lib.sh`) must ship first — this skill wraps it
+- Prerequisite satisfied: Option B (`skills/worktree-lib.sh`, providing `ensure`/`release`) has shipped — this skill wraps it
 - Should reuse `worktree_release` from the lib, not duplicate logic
 - `status` output should show: slug, branch, lock PID (live/stale), lock age, HEAD commit summary
 

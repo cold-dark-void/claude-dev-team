@@ -6,22 +6,13 @@
 
 When IC agents run test suites, builds, or git commands during `/orchestrate`, full raw output floods the context window. dev-team has zero terminal output compression. Inspired by RTK (30.1K stars) but built in-house (no external binary — security/privacy concern).
 
-## Blocker
+## Resolution (shipped)
 
-PostToolUse hooks cannot replace `tool_result`. The hook can add a `systemMessage` and control `suppressOutput`, but there is no documented mechanism to swap out what the agent sees as the command output. Without output replacement, actual token savings are near zero — only advisory guidance is possible.
+The original PostToolUse approach was blocked — PostToolUse hooks cannot replace `tool_result`, so a post-hoc compressor could only add advisory `systemMessage` text with near-zero token savings. **Shipped instead as a PreToolUse hook** that sidesteps the blocker: `.claude/hooks/bash-compress.sh` rewrites the command *before* execution via `hookSpecificOutput.updatedInput.command`, wrapping noisy commands so their output is captured and compressed inline.
 
-**Unblock condition**: Claude Code ships an API for PostToolUse hooks to rewrite/replace tool_result, OR a spike confirms `suppressOutput: true` suppresses the tool result (not just hook stdout).
-
-## Design (ready to implement when unblocked)
-
-- Pure shell/python3 PostToolUse hook (`bash-output-compress.sh`)
-- Pattern-match on command prefix: go/cargo/npm/pytest test, go/cargo/npm build, make, git log/diff/status
-- Retain: pass/fail summary, error messages, changed file paths. Drop: progress lines, passing tests, raw patches.
-- Passthrough threshold: skip compression for output < 50 lines
-- Header: `[output compressed: N lines -> M lines]`
-- Installed by `/init-orchestration` alongside `memory-capture.sh`
-- Run after `memory-capture.sh` (so memory gets raw output)
-- Exit 0 always (never blocks agent)
+- PreToolUse `Bash` matcher; the wiring is emitted into consumer projects' `settings.json` by `/init-orchestration` (`skills/init-orchestration/SKILL.md`).
+- Pattern-matches noisy command prefixes (test/build, git log/diff/status); short output passes through untouched.
+- Truncates to head-20 + tail-20 with a compression header; skipped for output under 50 lines; the wrapped command's exit code is preserved and the hook never blocks the agent.
 
 ## Acceptance Criteria (from PM review)
 
@@ -29,14 +20,14 @@ AC-1 through AC-14 documented in PM agent output, session 2026-04-19.
 
 ## Affects
 
-- `skills/init-orchestration/`
-- `.claude/settings.json` (target projects)
+- `.claude/hooks/bash-compress.sh` (the shipped PreToolUse hook)
+- `skills/init-orchestration/SKILL.md` (emits the hook + the PreToolUse `settings.json` wiring into target projects)
 
 ## Effort
 
-Medium (when unblocked)
+Medium
 
 ---
 
 *Added: 2026-04-19*
-*Deferred: 2026-04-19 — PostToolUse cannot replace tool_result*
+*Shipped: implemented as a PreToolUse hook that rewrites the command via `updatedInput` — the original PostToolUse "cannot replace tool_result" blocker was bypassed by moving to PreToolUse.*
