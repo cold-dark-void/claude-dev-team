@@ -21,8 +21,14 @@ if [ -z "$GATE_SH" ] || [ ! -x "$GATE_SH" ]; then
   exit 0
 fi
 
-# Resolve current session JSONL (Claude stores sessions under an encoded project path)
-ENCODED_PATH=$(pwd | sed 's|/|-|g')
+# Resolve current session JSONL (Claude stores sessions under an encoded project
+# path). Encode MROOT (the git-common-dir parent), NOT pwd: in a git worktree
+# pwd != MROOT, so a pwd-based encoding would pick the WRONG project dir and can
+# flag the wrong session. Mirrors commands/retro.md's MROOT resolution.
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+ENCODED_PATH=$(echo "$MROOT" | sed 's|/|-|g')
 SESSION_JSONL=$(ls -t "$HOME/.claude/projects/${ENCODED_PATH}/"*.jsonl 2>/dev/null | head -1)
 
 if [ -z "$SESSION_JSONL" ]; then
