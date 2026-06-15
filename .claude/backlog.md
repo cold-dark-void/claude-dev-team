@@ -23,4 +23,4 @@
 - [Handoff — Prong-1 tool-offload convention](backlog/handoff-prong1-tool-offload-convention.md) - Prevention prong shipped in the /init-orchestration AGENTS.md template (v0.30.2) [COMPLETED]
 - [Handoff — cache-eviction policy](backlog/handoff-cache-eviction-policy.md) - Count-cap retention in prepass.sh (HANDOFF_CACHE_MAX_ENTRIES, default 50) [COMPLETED]
 - [Bash output compression hook](backlog/bash-output-compression.md) - Implemented via PreToolUse + updatedInput [COMPLETED]
-- [Session cost tracking](backlog/session-cost-tracking.md) - Implemented via Stop hook + transcript JSONL parsing [COMPLETED]
+- [Session cost tracking](backlog/session-cost-tracking.md) - DEFERRED — hook payloads lack token data (the v0.23.0 attempt was abandoned) [DEFERRED]

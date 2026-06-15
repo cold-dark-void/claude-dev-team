@@ -119,7 +119,7 @@ All items resolved. Summary:
 | Enhancement | Disposition | Version |
 |-------------|------------|---------|
 | Bash output compression hook | **SHIPPED** (unblocked via PreToolUse + updatedInput after /council audit) | v0.22.0 |
-| Session cost tracking | **SHIPPED** (unblocked via transcript JSONL parsing after /council audit) | v0.23.0 |
+| Session cost tracking | **DEFERRED** (v0.23.0 attempt abandoned — hook payloads lack token data; tracked in `.claude/backlog/session-cost-tracking.md`) | — |
 | Anti-rationalization directives | **SHIPPED** | v0.19.7 |
 | Blast radius pre-filter (`--impact`) | **SHIPPED** | v0.20.0 |
 | Agent notification sink (tiered) | **BACKLOG** | — |
