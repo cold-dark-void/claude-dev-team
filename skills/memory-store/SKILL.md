@@ -120,10 +120,11 @@ bash skills/memory-store/embed-one.sh "$MEMDB" "$MEMORY_ID" "$CONTENT"
 ```
 
 The lembed (local GGUF) and remote (OpenAI-compatible) provider logic — formerly
-inline here — now lives **once** in `embed-one.sh`, shared with
-`skills/memory-store/migrate-md.sh` and the agent memory-write path. Consumers
-resolve the skill's own directory via the plugin-dir bootstrap (SPEC-002,
-"Locating `plugin-dir.sh` itself"); `embed-one.sh` sits alongside this file.
+inline here — now lives in `embed-one.sh`, shared with the agent memory-write
+path. (`skills/memory-store/migrate-md.sh` is a separate, bulk-migration path
+that inlines its own embedding logic — it is not a caller of `embed-one.sh`.)
+Consumers resolve the skill's own directory via the plugin-dir bootstrap
+(SPEC-002, "Locating `plugin-dir.sh` itself"); `embed-one.sh` sits alongside this file.
 
 
 ## Step 5: Retry on SQLITE_BUSY
@@ -197,6 +198,11 @@ Expected output format: `<id>|<agent>|<type>|<bytes>|<timestamp>`
 - For `remote` mode, set `embedding_url` in the config table and optionally export
   `EMBEDDING_API_KEY` and `EMBEDDING_MODEL`. The response parser handles both OpenAI
   (`data[0].embedding`) and ollama-style (`embeddings[0]` / `embedding`) shapes.
+  `remote` mode skips the lembed0 extension + GGUF model needed to **compute**
+  embeddings, but the `vec0` extension is still required to **store** and query
+  them; if `vec0` is absent (e.g. `--no-extensions`), `embed-one.sh` computes the
+  embedding, logs a one-line stderr warning, and skips the store (the write still
+  succeeds — only the vector is lost).
 - The vec0 virtual tables (`vec_memories_384`, `vec_memories_768`) are created only
   when the sqlite-vec extension is loaded; they are absent from a plain `schema.sql`
   apply. Agents must guard all vec0 operations with an extension availability check.

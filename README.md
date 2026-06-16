@@ -50,6 +50,8 @@ After running `/init-team`, the plugin downloads sqlite-vec + sqlite-lembed exte
 
 Mode is detected during `/init-team` and can be refreshed with `/init-team --refresh`.
 
+`remote` mode avoids needing the sqlite-lembed extension + GGUF model to **compute** embeddings, but the sqlite-vec (`vec0`) extension is still required to **store** and query them. With `--no-extensions`, remote embeddings are computed then dropped (a warning is logged) and search falls back to keyword-only.
+
 ### Commands / Skills
 
 #### Setup (run once per project)
@@ -381,6 +383,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 ---
 
 ## Changelog
+
+### v0.36.41
+- **fix: reconcile memory-store embedding & truncation contracts (blind-review)** — corrected the false "single source of truth" claim in `embed-one.sh` / `memory-store/SKILL.md` (migrate-md.sh has its own bulk-migration embedding path, it is not a caller) and aligned the embedding-input truncation to **1500** in both, so a memory embeds over the same amount of text regardless of write path (017); fixed the `##`-section chunk-storage truncation in `migrate-md.sh` to the SPEC-004-mandated **8000** chars (was 5000; the no-header fallback correctly stays 5000) (018); added `embed-one.sh` and `migrate.sh` to SPEC-004's `Covers` (030); and made remote-mode embedding **fail loud-but-nonfatal** when the `vec0` extension is absent (it was silently dropped), with README/SKILL now clarifying that remote mode still requires vec0 to store/query vectors (016). (blind-review CLUSTER-016/017/018/030).
 
 ### v0.36.40
 - **fix: replace the broken PID-liveness worktree lock with an advisory age-gated lock (blind-review)** — `skills/worktree-lib.sh` recorded its own ephemeral PID in `.wt-lock` (the `ensure` subprocess exits within milliseconds), so the `kill -0` collision check always read "stale" and silently overwrote — two parallel runs could grab the same worktree, defeating the lock's purpose. Investigation confirmed there is no live holder process to track (the holder is an LLM agent/conversation, not an OS PID) and no session id is available to the script, so PID-liveness is structurally unworkable. The lock is now advisory: one line `<epoch> <ISO-8601-UTC>`; an existing lock younger than `WT_LOCK_TTL_SECONDS` (default 6h) prompts abort/steal, while an older/corrupt/legacy lock is reclaimed as stale. SPEC-016's PID-authoritative MUSTs were relaxed to the age-based model — which also reconciles the prior 3-field-spec vs 2-field-code drift (legacy `PID TIMESTAMP` locks auto-reclaim). (blind-review: wt-lock ephemeral-PID bug + CLUSTER-004).

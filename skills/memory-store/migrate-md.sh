@@ -78,7 +78,7 @@ print(db.execute('SELECT COUNT(*) FROM memories WHERE agent=? AND type=?', (sys.
     while IFS= read -r LINE; do
       if echo "$LINE" | grep -q '^## ' && [ -n "$CHUNK" ]; then
         # Save previous chunk
-        CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 5000)
+        CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 8000)
         if [ ${#CHUNK_TRIMMED} -gt 20 ]; then
           if python3 -c "
 import sqlite3, sys
@@ -100,7 +100,7 @@ ${LINE}"
     done <<< "$CONTENT"
     # Save last chunk
     if [ -n "$CHUNK" ]; then
-      CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 5000)
+      CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 8000)
       if [ ${#CHUNK_TRIMMED} -gt 20 ]; then
         if python3 -c "
 import sqlite3, sys
@@ -170,8 +170,8 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
     while read -r MEM_ID; do
       # Validate MEM_ID is numeric (defense in depth)
       [[ "$MEM_ID" =~ ^[0-9]+$ ]] || continue
-      # Fetch content — truncate to 1000 chars for embedding (safe for most models)
-      MEM_CONTENT=$(sqlite3 "$MEMDB" "SELECT substr(content, 1, 1000) FROM memories WHERE id=$MEM_ID;")
+      # Fetch content — truncate to 1500 chars for embedding (matches embed-one.sh)
+      MEM_CONTENT=$(sqlite3 "$MEMDB" "SELECT substr(content, 1, 1500) FROM memories WHERE id=$MEM_ID;")
       [ -z "$MEM_CONTENT" ] && continue
 
       JSON_CONTENT=$(printf '%s' "$MEM_CONTENT" | jq -Rs .)
