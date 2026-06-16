@@ -118,7 +118,7 @@ PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path 
 
 ### Caller integration
 
-Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lines above), then the collapsed resolution call(s). Each site's existing fail-mode is preserved exactly. All 11 call sites:
+Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lines above), then the collapsed resolution call(s). Each site's existing fail-mode is preserved exactly. This covers BOTH plugin-data files (`schema.sql`, `agents/`, engine `*.sh`) AND the subprocess-CLI helpers (`worktree-lib.sh`, `dag-lib.sh`, `task-store.sh`, `ci-watch/*.sh`) — both ship in the plugin, not the user's repo, so neither may be addressed as `$MROOT/skills/…`. All 15 call sites:
 
 | # | Site | Collapsed form (after the `PDH=…` stanza) | Fail-mode |
 |---|------|-------------------------------------------|-----------|
@@ -133,6 +133,10 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 9 | `skills/review-and-commit/SKILL.md` (engine.sh) | `ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)` | hard |
 | 10 | `skills/scaffold-project/SKILL.md` (schema.sql) | `SCHEMA=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/schema.sql)` (replaces glob-first) | guarded |
 | 11 | `skills/init-orchestration/SKILL.md` (schema.sql) | `SCHEMA=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/schema.sql)` (replaces glob-first; WAL probe retained) | guarded |
+| 12 | `skills/orchestrate/SKILL.md` (worktree-lib.sh, dag-lib.sh, ci-watch/sidecar.sh, ci-watch/detect-mode.sh) | `WT_LIB=$(… file skills/worktree-lib.sh)`; `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; `SIDECAR_CLI=$(… file skills/ci-watch/sidecar.sh)`; `DETECT_CLI=$(… file skills/ci-watch/detect-mode.sh)`; then `bash "$WT_LIB" …` etc. | hard (exit codes preserved) |
+| 13 | `skills/wrap-ticket/SKILL.md` (worktree-lib.sh, ci-watch/sidecar.sh) | `WT_LIB=$(… file skills/worktree-lib.sh)`; `SIDECAR_CLI=$(… file skills/ci-watch/sidecar.sh)` | soft (cleanup never halts) |
+| 14 | `skills/standup/SKILL.md` (dag-lib.sh) | `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; then `bash "$DAG_LIB" ready-set` / `status-of` | soft |
+| 15 | `skills/orchestrate/SKILL.md` Step 8.5 → ci-watch cron prompt (poll.sh, sidecar.sh, task-store.sh) | arming-time `PLUGIN=$(… dir skills/ci-watch/poll.sh \| xargs dirname \| xargs dirname)`; the detached cron prompt then addresses helpers as `<PLUGIN>/skills/…` (it cannot re-run the bootstrap stanza; the data-file read keeps `<MROOT>`) | self-contained prompt |
 
 ## Test
 
@@ -148,6 +152,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 - `plugin-dir.sh` slug-defined-once — the marketplace slug literal appears in exactly one place in the script
 - Consumer-mode resolution — no dev checkout present (cwd is a foreign project), two plugin versions cached: the bootstrap stanza + `plugin-dir.sh` together resolve the requested file from the **highest** cached version; PDH is non-empty and slug-free
 - Project-root formulas — bootstrap skills (scaffold-project, init-orchestration Step 7) keep ALL `.claude/` ops on one root (relative/cwd); no op mixes an absolute git-derived root with relative siblings; shared-`.claude/` accessors and emitted hooks use the git-common-dir form
+- Subprocess-CLI helper resolution — the four caller SKILLs (orchestrate, wrap-ticket, standup, ci-watch) resolve every plugin helper (`worktree-lib.sh`, `dag-lib.sh`, `task-store.sh`, `ci-watch/*.sh`) through `plugin-dir.sh`; no helper is invoked as `bash "$MROOT/skills/…"` (which would resolve to the consumer's repo and exit 127 on a real install)
 
 ## Validation
 
@@ -175,6 +180,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-06-12 | SPEC-002: plugin-dir.sh CLI contract added — single version-resolution algorithm (sort -V), dev-checkout fast path, replaces ~15 hand-rolled locators (AUDIT-P1-3) |
 | 2026-06-13 | SPEC-002: declared the three authoritative project-root resolution contexts (shared-root via git-common-dir; working-tree-root via show-toplevel; cwd-anchored single-root for bootstrap skills) — single-sources the root-resolution contract (AUDIT-P1-2, doc-only) |
 | 2026-06-14 | AUDIT-P0.12: TaskCompleted-hook registration command changed to the worktree-safe `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"` form (relative path fired from arbitrary agent cwd and failed inside worktrees). Direct test-checklist invocation (run from project root) stays relative. |
+| 2026-06-16 | CLUSTER-003/A5: extended the resolution-site table (11→15) to cover the subprocess-CLI helpers (worktree-lib/dag-lib/task-store/ci-watch scripts) invoked by orchestrate/wrap-ticket/standup/ci-watch. These previously used `$MROOT/skills/…` (the consumer's repo) and exited 127 on a real cache install; they now resolve through `plugin-dir.sh` like the engine/schema sites. The detached ci-watch cron prompt bakes in a `plugin-dir.sh`-resolved `<PLUGIN>` root at arming time. |
 
 ## Cross-references
 

@@ -27,7 +27,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 ```
+
+`dag-lib.sh` ships in the plugin, not the user's repo, so it is resolved through
+`bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh`. Each SKILL
+bash block runs as a fresh shell, so Step 4 re-emits this stanza.
 
 ---
 
@@ -117,7 +123,9 @@ tasks.
 For each `pending` task, compute readiness from the task store:
 
 ```bash
-READY_TASKS=$(bash "$MROOT/skills/orchestrate/dag-lib.sh" ready-set)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh)
+READY_TASKS=$(bash "$DAG_LIB" ready-set)
 ```
 
 - A task is **READY** when its `task_id` appears in the output of `dag-lib.sh ready-set`.
@@ -130,9 +138,10 @@ TASK_FILE="$MROOT/.claude/tasks/<task_id>.json"
 DEP_IDS=$(jq -r '.depends_on // [] | .[]' "$TASK_FILE" 2>/dev/null)
 ```
 
-For each `dep_id` in `depends_on`:
+For each `dep_id` in `depends_on` (reuse `$DAG_LIB`, or re-resolve if running
+this block fresh):
 ```bash
-STATUS=$(bash "$MROOT/skills/orchestrate/dag-lib.sh" status-of "$dep_id")
+STATUS=$(bash "$DAG_LIB" status-of "$dep_id")
 ```
 - Show: `WAITING on: <dep_id> (<STATUS>)`
 - If the dep's task file is missing: show `WAITING on: <dep_id> (file missing)`

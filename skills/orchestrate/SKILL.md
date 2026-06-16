@@ -27,7 +27,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 ```
+
+`$PDH` is the install-aware plugin root: helper scripts ship in the plugin
+(not the user's repo), so every `skills/…` helper below is resolved through
+`bash "$PDH/skills/plugin-dir.sh" file <relpath>` rather than `$MROOT/skills/…`.
 
 Read in parallel:
 - `$MROOT/AGENTS.md`
@@ -109,7 +115,8 @@ agents work on the issue branch in isolation without disturbing the main checkou
 SLUG="<ISSUE-ID>"   # MUST be the bare issue ID exactly as-is (e.g. "CDV-42")
                     # wrap-ticket detects the worktree at .worktrees/<ISSUE-ID> using
                     # this exact value — a longer slug will break detection
-WT_PATH=$(bash "$MROOT/skills/worktree-lib.sh" ensure "$SLUG") || {
+WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+WT_PATH=$(bash "$WT_LIB" ensure "$SLUG") || {
   EXIT=$?
   if [ "$EXIT" -eq 2 ]; then
     echo "Worktree setup aborted by user." >&2
@@ -382,7 +389,8 @@ At orchestration start and after every task status transition to `completed`,
 compute the unblocked set via:
 
   ```bash
-  READY=$(bash "$MROOT/skills/orchestrate/dag-lib.sh" ready-set)
+  DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh)
+  READY=$(bash "$DAG_LIB" ready-set)
   ```
 
 Spawn an agent for every task_id in `$READY` simultaneously — do not process
@@ -419,10 +427,12 @@ completed` after. Do NOT restate a partial copy here; defer to that block so
 the bookkeeping stays single-sourced.
 
 The one runtime instruction the spawned fixer needs IN its own prompt (it runs
-in a separate session that cannot read this file) is the trailing guard clear:
+in a separate session that cannot read this file) is the trailing guard clear.
+Substitute `<PLUGIN>` with the resolved plugin root (`plugin-dir.sh`), not
+`<MROOT>` — the fixer runs detached with the user's repo as cwd:
 
   "When done with the fix, run:
-   bash <MROOT>/skills/ci-watch/sidecar.sh set <TICKET_ID> fixer_active false
+   bash <PLUGIN>/skills/ci-watch/sidecar.sh set <TICKET_ID> fixer_active false
    This clears the fixer guard so the CI-watch cron can evaluate the next poll."
 
 ---
@@ -434,13 +444,15 @@ monitoring loop sees a new commit on the remote), arm the CI-watch loop:
 
 1. **Check if already armed** (idempotent guard):
    ```bash
-   SIDECAR=$(bash "$MROOT/skills/ci-watch/sidecar.sh" path "<TICKET-ID>")
+   SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
+   DETECT_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/detect-mode.sh)
+   SIDECAR=$(bash "$SIDECAR_CLI" path "<TICKET-ID>")
    [ -f "$SIDECAR" ] && exit 0   # already armed, skip
    ```
 
 2. **Detect quality-check mode**:
    ```bash
-   MODE_LINE=$(bash "$MROOT/skills/ci-watch/detect-mode.sh" "$WT_PATH")
+   MODE_LINE=$(bash "$DETECT_CLI" "$WT_PATH")
    MODE=$(echo "$MODE_LINE" | head -n1)
    TEST_CMD=$(echo "$MODE_LINE" | sed -n 2p)
    ```
@@ -460,7 +472,7 @@ monitoring loop sees a new commit on the remote), arm the CI-watch loop:
 
 4. **Init sidecar**:
    ```bash
-   bash "$MROOT/skills/ci-watch/sidecar.sh" init "<TICKET-ID>" "$MODE" "${PR:-}" "$BRANCH"
+   bash "$SIDECAR_CLI" init "<TICKET-ID>" "$MODE" "${PR:-}" "$BRANCH"
    ```
 
 5. **Schedule durable cron**:
@@ -469,14 +481,22 @@ monitoring loop sees a new commit on the remote), arm the CI-watch loop:
    - durable: `true`
    - recurring: `true`
    - prompt: the self-contained cron body from skills/ci-watch/SKILL.md
-     (copy the exact template, substituting TICKET-ID, MROOT, and BRANCH)
+     (copy the exact template, substituting TICKET-ID, BRANCH, and `<PLUGIN>`).
+     `<PLUGIN>` is the resolved plugin root — the cron runs detached with the
+     user's repo as cwd, so the helper scripts live in the plugin, not the repo:
+     ```bash
+     PLUGIN=$(bash "$PDH/skills/plugin-dir.sh" dir skills/ci-watch/poll.sh | xargs dirname | xargs dirname)
+     ```
+     (`dir` gives `<root>/skills/ci-watch`; two `dirname`s strip back to the
+     plugin root. The only `<MROOT>` left in the template is the data-file read
+     `<MROOT>/.claude/ci-watch/<TICKET>.last_failure.txt`, which stays MROOT.)
 
    The cron prompt MUST be self-contained — it reads the sidecar and runs
    poll.sh without relying on any session context. See SKILL.md for the template.
 
 6. **Persist cron job ID**:
    ```bash
-   bash "$MROOT/skills/ci-watch/sidecar.sh" set "<TICKET-ID>" cron_job_id "<returned-job-id>"
+   bash "$SIDECAR_CLI" set "<TICKET-ID>" cron_job_id "<returned-job-id>"
    ```
 
 7. **Notify**:
@@ -691,7 +711,8 @@ deletion, and orphaned config-section cleanup in the right order. Use it
 instead of running `git worktree remove` + `git branch -D` by hand:
 
 ```bash
-bash "$MROOT/skills/worktree-lib.sh" release "$SLUG"
+WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+bash "$WT_LIB" release "$SLUG"
 ```
 
 If you must do it by hand (squash-merge case where the lib refuses on
