@@ -195,6 +195,14 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
         RESPONSE=$(curl "${CURL_ARGS[@]}" 2>/dev/null) || { [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"; echo "  WARN: curl failed for chunk $MEM_ID"; continue; }
         [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
         EMBEDDING=$(printf '%s' "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding' 2>/dev/null)
+        # $EMBEDDING is interpolated raw into INSERT VALUES — it must be a well-formed
+        # numeric array. Reject anything outside digits . , e E + - space [ ] (network
+        # trust boundary). ']' is first and '-' last so the bracket class is literal.
+        # Per-row best-effort: skip this chunk's embedding, don't abort the migration.
+        if printf '%s' "$EMBEDDING" | grep -q '[^][0-9.,eE+ -]'; then
+          echo "  WARN: embedding from endpoint is not a numeric vector for chunk $MEM_ID; skipping" >&2
+          continue
+        fi
 
       elif [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ]; then
         MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"

@@ -105,6 +105,8 @@ fi
 ```bash
 MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
 VEC_TABLE="vec_memories_${DIMS}"
+# Escape the query for SQL interpolation (same idiom as the keyword path): '→''
+ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 
 RESULTS=$(sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
@@ -115,7 +117,7 @@ SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet
 FROM ${VEC_TABLE} e
 JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
-WHERE e.embedding MATCH lembed('$MODEL_PATH', '$QUERY')
+WHERE e.embedding MATCH lembed('$MODEL_PATH', '$ESCAPED_QUERY')
   AND k = 10
 ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
@@ -147,12 +149,17 @@ CURL_ARGS+=(-d "$BODY")
 QUERY_EMBEDDING=$(curl "${CURL_ARGS[@]}" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')
 [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
 
-# Fall back to keyword if embedding failed
-if [ -z "$QUERY_EMBEDDING" ] || [ "$QUERY_EMBEDDING" = "null" ]; then
+# $QUERY_EMBEDDING crosses a network trust boundary (remote endpoint) and is
+# interpolated raw into the MATCH clause. Fall back to keyword unless it is a
+# bracketed numeric vector — reject anything outside digits . , e E + - space [ ]
+# (']' first and '-' last keep the bracket class literal).
+if [ -z "$QUERY_EMBEDDING" ] || [ "$QUERY_EMBEDDING" = "null" ] || \
+   printf '%s' "$QUERY_EMBEDDING" | grep -q '[^][0-9.,eE+ -]'; then
   SEARCH_MODE="keyword"
 fi
 
-RESULTS=$(sqlite3 "$MEMDB" <<EOSQL
+if [ "$SEARCH_MODE" = "semantic/remote" ]; then
+  RESULTS=$(sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
 SELECT m.agent, m.type, m.tier,
        CAST(ROUND((1 - e.distance) * 100) AS INTEGER) || '%' AS score,
@@ -165,6 +172,7 @@ WHERE e.embedding MATCH '$QUERY_EMBEDDING'
 ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 )
+fi
 ```
 
 ### Mode: keyword

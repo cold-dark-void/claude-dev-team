@@ -71,14 +71,19 @@ done
 
 ## Step 3: Keyword search (cross-agent)
 
-Simple LIKE-based search — no extensions required. Replace `<QUERY>`. Keyword mode
-returns up to 20 rows per SPEC-006 (`LIMIT 20`).
+Simple LIKE-based search — no extensions required. Keyword mode returns up to 20 rows
+per SPEC-006 (`LIMIT 20`).
+
+The query is interpolated into SQL, so it MUST be single-quote escaped first (`'`→`''`)
+to prevent SQL injection. Define `ESCAPED_QUERY` once and use it everywhere the query
+lands in SQL (here and in the LIKE/lembed paths below):
 
 ```bash
+ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 sqlite3 -header -column "$MEMDB" \
   "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
    FROM memories
-   WHERE content LIKE '%<QUERY>%' COLLATE NOCASE
+   WHERE content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
      AND archived = FALSE
    ORDER BY tier DESC, updated_at DESC
    LIMIT 20;"
@@ -114,6 +119,8 @@ if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$
    [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
   MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
   VEC_TABLE="vec_memories_${DIMS}"
+  # Escape the query for SQL interpolation (see Step 3): '→''
+  ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
   sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
 .load $EXT_DIR/lembed0
@@ -123,7 +130,7 @@ SELECT m.agent, m.type, m.tier,
        m.created_at
 FROM ${VEC_TABLE} e
 JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
-WHERE e.embedding MATCH lembed('$MODEL_PATH', '<QUERY>')
+WHERE e.embedding MATCH lembed('$MODEL_PATH', '$ESCAPED_QUERY')
   AND k = 10
 ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
@@ -154,6 +161,22 @@ elif [ "$EMBED_MODE" = "remote" ] && \
   [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
   QUERY_EMBEDDING=$(echo "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')
 
+  # $QUERY_EMBEDDING crosses a network trust boundary (remote endpoint) and is
+  # interpolated raw into the MATCH clause. Require a bracketed numeric vector —
+  # reject anything outside digits . , e E + - space [ ] and fall back to keyword
+  # search (']' first and '-' last keep the bracket class literal).
+  if [ -z "$QUERY_EMBEDDING" ] || [ "$QUERY_EMBEDDING" = "null" ] || \
+     printf '%s' "$QUERY_EMBEDDING" | grep -q '[^][0-9.,eE+ -]'; then
+    echo "[memory-recall] Invalid/empty embedding from endpoint. Using keyword search."
+    ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+    sqlite3 -header -column "$MEMDB" \
+      "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
+       FROM memories WHERE content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
+         AND archived = FALSE
+       ORDER BY tier DESC, updated_at DESC LIMIT 20;"
+    exit 0
+  fi
+
   sqlite3 "$MEMDB" <<EOSQL
 .load $EXT_DIR/vec0
 SELECT m.agent, m.type, m.tier,
@@ -170,9 +193,10 @@ EOSQL
 else
   # Fallback: keyword search
   echo "[memory-recall] No embeddings available. Using keyword search."
+  ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
   sqlite3 -header -column "$MEMDB" \
     "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
-     FROM memories WHERE content LIKE '%<QUERY>%' COLLATE NOCASE
+     FROM memories WHERE content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
        AND archived = FALSE
      ORDER BY tier DESC, updated_at DESC LIMIT 20;"
 fi
@@ -230,10 +254,12 @@ Each result includes:
 
 After semantic results, also surface memories that lack embeddings for the current model
 (e.g., memories stored before embedding was configured, or stored while extensions were
-absent). Replace `<CURRENT_MODEL>` and `<QUERY>`.
+absent). Replace `<CURRENT_MODEL>`. The query is single-quote escaped (`ESCAPED_QUERY`,
+see Step 3) before interpolation.
 
 ```bash
 # Append unembedded memories (keyword match) after semantic results
+ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 sqlite3 "$MEMDB" <<EOSQL
 SELECT m.agent, m.type, m.tier, substr(m.content, 1, 200) AS snippet,
        '[not yet embedded]' AS score, m.created_at
@@ -241,7 +267,7 @@ FROM memories m
 LEFT JOIN embedding_meta em ON em.memory_id = m.id AND em.model = '<CURRENT_MODEL>'
 WHERE em.memory_id IS NULL
   AND m.archived = FALSE
-  AND m.content LIKE '%<QUERY>%' COLLATE NOCASE
+  AND m.content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
 LIMIT 10;
 EOSQL
 ```
