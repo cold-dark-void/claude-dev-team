@@ -14,9 +14,11 @@ description: |
 Runtime template handed to the `council-judge` agent at Phase 5 invocation.
 `engine.sh` substitutes `{{ORIGINAL_CLAIMS}}`, `{{EVIDENCE_BUNDLES}}`,
 `{{PROSECUTOR_BRIEF}}`, `{{ADVOCATE_BRIEF}}`, and `{{OUTPUT_SHAPE}}` before
-delivering. The council-judge agent file (`agents/council-judge.md`) has
-its own standing behavioral rules; this prompt is a runtime REINFORCEMENT
-of those rules, not a replacement. The two must stay aligned.
+delivering. The canonical behavioral rules, verdict/severity taxonomies,
+and strike rules are defined once in `agents/council-judge.md` — see its
+Behavioral Rules and Output Contract. This prompt is a runtime REINFORCEMENT
+that restates only the operational copy the model needs inline at invocation
+time; it does not override or extend the agent file. The two must stay aligned.
 
 ---
 
