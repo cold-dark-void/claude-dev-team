@@ -12,8 +12,9 @@
 #   lembed  — sqlite-lembed + a local GGUF model (vec_memories_384)
 #   remote  — any OpenAI-compatible provider (vec_memories_<dims>, dims inferred)
 #
-# Single source of truth for write-time embedding: called by skills/memory-store
-# Step 4, skills/memory-store/migrate-md.sh, and the agent memory-write protocol.
+# Per-write embedding helper: called by skills/memory-store Step 4 and the agent
+# memory-write protocol. migrate-md.sh is NOT a caller — its bulk-migration path
+# inlines its own embedding logic (a separate implementation, not this one).
 #
 # Best-effort: ALWAYS exits 0. Embedding is optional — it MUST NEVER break the
 # caller's write. Skips silently when mode=fallback, args/DB are missing, the
@@ -110,12 +111,21 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   fi
   VEC_TABLE="vec_memories_${DIMS}"
 
+  # Remote mode computes embeddings without lembed0, but vec0 is still REQUIRED to
+  # store them. If vec0 is absent (e.g. --no-extensions), warn loudly-but-nonfatally
+  # and skip the store — the memory write itself already succeeded; only the vector
+  # is lost. (Do NOT silently swallow: a swallowed failure strands semantic search.)
+  if [ ! -f "$EXT_DIR/vec0.$EXT_SUFFIX" ]; then
+    echo "embed-one: vec0 extension unavailable — remote embedding computed but NOT stored; install extensions to enable semantic search." >&2
+    exit 0
+  fi
+
   # Ensure vec table exists for this dimension.
   sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
     "CREATE VIRTUAL TABLE IF NOT EXISTS ${VEC_TABLE} USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);" 2>/dev/null || true
 
-  # Insert embedding.
-  sqlite3 "$MEMDB" <<EOSQL 2>/dev/null || true
+  # Insert embedding. Warn (don't swallow) if the vec store fails despite vec0.
+  sqlite3 "$MEMDB" <<EOSQL 2>/dev/null || echo "embed-one: vec store failed — remote embedding computed but NOT stored for memory $MEMORY_ID." >&2
 .load $EXT_DIR/vec0
 INSERT INTO ${VEC_TABLE}(memory_id, embedding)
   VALUES ($MEMORY_ID, '$EMBEDDING');
