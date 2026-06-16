@@ -27,6 +27,11 @@ CONTENT="${3:-}"
 
 # Missing inputs, no DB, or no sqlite3 → nothing to do (best-effort, exit 0).
 { [ -z "$MEMDB" ] || [ -z "$MEMORY_ID" ] || [ -z "$CONTENT" ]; } && exit 0
+# MEMORY_ID is interpolated raw into INSERT VALUES — it must be a bare rowid.
+if ! [[ "$MEMORY_ID" =~ ^[0-9]+$ ]]; then
+  echo "embed-one: invalid memory_id '$MEMORY_ID' (must be numeric); skipping embed." >&2
+  exit 0
+fi
 [ -f "$MEMDB" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
@@ -89,8 +94,20 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   # Handle both OpenAI (.data[0].embedding) and ollama (.embeddings[0]/.embedding) shapes.
   EMBEDDING=$(echo "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding' 2>/dev/null)
   { [ -z "$EMBEDDING" ] || [ "$EMBEDDING" = "null" ]; } && exit 0
+  # $EMBEDDING is interpolated raw into INSERT VALUES — it must be a well-formed
+  # numeric array. Reject anything outside digits . , e E + - space [ ] (network
+  # trust boundary). ']' is first and '-' last so the bracket class is literal.
+  if printf '%s' "$EMBEDDING" | grep -q '[^][0-9.,eE+ -]'; then
+    echo "embed-one: embedding from endpoint is not a numeric vector; skipping embed." >&2
+    exit 0
+  fi
   DIMS=$(echo "$EMBEDDING" | jq 'length' 2>/dev/null)
-  { [ -z "$DIMS" ] || [ "$DIMS" -le 0 ] 2>/dev/null; } && exit 0
+  # $DIMS becomes a table identifier (vec_memories_<DIMS>) and a FLOAT[<DIMS>] size —
+  # require a strict positive integer (mirrors migrate-md.sh's ^[0-9]+$ guard).
+  if ! { [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; }; then
+    echo "embed-one: invalid embedding dimensions '$DIMS'; skipping embed." >&2
+    exit 0
+  fi
   VEC_TABLE="vec_memories_${DIMS}"
 
   # Ensure vec table exists for this dimension.
