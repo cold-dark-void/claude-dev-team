@@ -144,6 +144,18 @@ if [ -z "$UUID" ]; then
   usage
 fi
 
+# Validate --uuid shape BEFORE any path is built from it. CACHE_FILE below is
+# "$CACHE_DIR/$UUID.json"; an unconstrained UUID (e.g. "../../etc/passwd" or
+# "a/b") would escape the cache dir, so reject anything that isn't a safe id.
+# Allow only [A-Za-z0-9._-]; this also forbids '/' and any '..' path segment.
+# (Matches the in-script validation discipline of engine.sh / worktree-lib.sh /
+# task-store.sh — the guard does not live solely in the calling command.)
+case "$UUID" in
+  *[!A-Za-z0-9._-]*|*..*)
+    echo "prepass.sh: invalid --uuid '$UUID' (allowed: letters, digits, '.', '_', '-'; no '/' or '..')." >&2
+    exit 2 ;;
+esac
+
 if [ ! -f "$ASSEMBLE" ]; then
   echo "prepass.sh: shared module not found at $ASSEMBLE" >&2
   exit 1

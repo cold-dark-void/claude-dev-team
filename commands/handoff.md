@@ -340,20 +340,36 @@ After a successful `prepare`, read `plan.json` and extract the fields the fan-ou
 needs. Use python3 (no `jq` dependency — matches the engine's "no new deps" rule):
 
 ```bash
+# Emit the field VALUES (not shell `VAR=value` text) as a NUL-delimited stream,
+# then read each into a bash variable. NUL-delimiting + `IFS= read -r -d ''`
+# means every value is treated strictly as DATA — never re-parsed as shell — so
+# a transcript-derived SPINE/source path containing shell metacharacters cannot
+# execute (NO `eval`). Order below MUST match the read order.
 read_plan() {
   PLAN_JSON="$PLAN_JSON" python3 - <<'PY'
-import json, os
+import json, os, sys
 with open(os.environ["PLAN_JSON"], encoding="utf-8") as fh:
     p = json.load(fh)
-print("MODE="        + str(p.get("mode", "")))
-print("LEAF_UUID="   + str(p.get("leaf_uuid", "")))
-print("SPINE="       + str(p.get("spine", "")))         # present iff mode==direct
-print("N_CHUNKS="    + str(len(p.get("chunks", []))))   # >0 iff mode==chunked
-# source_files as a JSON array string (passed verbatim to extractors as SOURCE_FILES)
-print("SOURCE_FILES_JSON=" + json.dumps(p.get("source_files", [])))
+out = [
+    str(p.get("mode", "")),                  # MODE
+    str(p.get("leaf_uuid", "")),             # LEAF_UUID
+    str(p.get("spine", "")),                 # SPINE (present iff mode==direct)
+    str(len(p.get("chunks", []))),           # N_CHUNKS (>0 iff mode==chunked)
+    json.dumps(p.get("source_files", [])),   # SOURCE_FILES_JSON (JSON array string, verbatim)
+]
+sys.stdout.write("\0".join(out) + "\0")
 PY
 }
-eval "$(read_plan)"   # sets MODE, LEAF_UUID, SPINE, N_CHUNKS, SOURCE_FILES_JSON
+# Read the NUL-delimited fields positionally into the SAME variable names.
+# `IFS=` + `-r` + `-d ''` keep each value whole and literal (no word-splitting,
+# no glob, no backslash interpretation) — SOURCE_FILES_JSON is captured intact.
+{
+  IFS= read -r -d '' MODE
+  IFS= read -r -d '' LEAF_UUID
+  IFS= read -r -d '' SPINE
+  IFS= read -r -d '' N_CHUNKS
+  IFS= read -r -d '' SOURCE_FILES_JSON
+} < <(read_plan)   # sets MODE, LEAF_UUID, SPINE, N_CHUNKS, SOURCE_FILES_JSON — no eval
 SECTIONS_DIR="$WORK_DIR/sections"
 mkdir -p "$SECTIONS_DIR"
 ```

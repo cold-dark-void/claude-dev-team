@@ -40,6 +40,7 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
 - MUST enable sandbox (`sandbox.enabled: true`) with `autoAllowBashIfSandboxed: true`
 - MUST include `Bash(*)` in permissions.allow
 - MUST set `permissions.defaultMode: "bypassPermissions"` as the shipped default
+  - RISK (acknowledged, intentional): `Bash(*)` + `bypassPermissions` grants every spawned agent unprompted arbitrary shell, contained ONLY by the OS sandbox above — running without a sandbox accepts that full-host blast radius.
 - MUST include `github.com` in sandbox network allowlist
 - MUST exclude `docker` and `docker-compose` from sandbox
 - MUST set `marketplace.json` plugin source to `"./"` (same-repo distribution)
