@@ -20,7 +20,7 @@
 | SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, skills/orchestrate/SKILL.md, skills/wrap-ticket/SKILL.md, AGENTS.md |
-| SPEC-017 | Autonomous CI Watch + Task DAG | DRAFT | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh |
+| SPEC-017 | Autonomous CI Watch + Task DAG | ACTIVE | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh, skills/orchestrate/dag-lib.sh, skills/ci-watch/SKILL.md, skills/ci-watch/poll.sh, skills/ci-watch/sidecar.sh, skills/ci-watch/detect-mode.sh |
 | SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012), skills/retro-gate/gate.sh (refactor) |
 
 ## Version History
