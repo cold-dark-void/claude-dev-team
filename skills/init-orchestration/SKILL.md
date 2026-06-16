@@ -254,7 +254,8 @@ set -uo pipefail  # not -e — we handle errors explicitly per gate case
 # WTROOT = working-tree root: plugin manifests are PER-WORKTREE tracked artifacts;
 #   validate THIS worktree's copy (show-toplevel resolves it from any subdir).
 # MROOT = git-common-dir root: .claude/tasks, .claude/council, settings.json are
-#   SHARED across worktrees per SPEC-002:24.
+#   SHARED across worktrees per SPEC-002 "MUST resolve $MROOT from
+#   git rev-parse --git-common-dir (NOT from cwd) ... under the shared worktree root".
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -302,9 +303,11 @@ if [ -z "$TASK_ID" ]; then
 fi
 
 # If no task id resolved, silent pass — gate cannot apply.
-# Per SPEC-002:30 a missing task id is ALWAYS a silent pass; SPEC-002:35's
-# "cannot gate without task id" fail path is structurally unreachable past this
-# guard, so it is intentionally not implemented.
+# Per SPEC-002 "If neither stdin JSON nor CLAUDE_TASK_ID yields a task id, the
+# hook MUST treat the event as non-gated and silent no-op pass" a missing task id
+# is ALWAYS a silent pass; the "cannot gate without task id" hard-fail (SPEC-002
+# "requires_council: true declared but no task id can be resolved ... structural
+# impossibility") is unreachable past this guard, so it is intentionally not implemented.
 if [ -z "$TASK_ID" ]; then
   exit 0
 fi

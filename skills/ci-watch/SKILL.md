@@ -5,6 +5,8 @@ description: Autonomous CI/test watcher — durable cron polls a ticket's PR che
 
 # CI Watch
 
+**Not user-invoked — armed by `/orchestrate`** after the first push.
+
 Autonomous CI/test polling and recovery for a single ticket. Once armed by
 `/orchestrate` after the first push, a durable cron drives a self-contained
 poll loop until the ticket's PR is green, merged, closed, or the retry cap

@@ -383,7 +383,8 @@ Before creating any tasks, extract the dependency graph from the Tech Lead plan:
    if [ $? -eq 1 ]; then
      CYCLE_MSG=$(cat /tmp/kickoff-cycle-err-$$.txt)
      rm -f /tmp/kickoff-dag-$$.json /tmp/kickoff-cycle-err-$$.txt
-     echo "Kickoff error: circular dependency detected: $CYCLE_MSG. Revise the task graph."
+     # $CYCLE_MSG is the detected back-edge ("cycle: <from> -> <to>"), not a full path.
+     echo "Kickoff error: circular dependency detected ($CYCLE_MSG). Revise the task graph."
      # halt — do NOT call TaskCreate for any task
    fi
    ```

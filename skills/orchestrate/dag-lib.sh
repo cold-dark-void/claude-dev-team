@@ -15,7 +15,8 @@
 #
 # check-cycle input: JSON array of {"task_id":"...","depends_on":[...]} objects.
 #   Exit 0  if acyclic.
-#   Exit 1  if a cycle exists; prints "cycle: A -> B -> ... -> A" on stderr.
+#   Exit 1  if a cycle exists; prints the detected back-edge as
+#           "cycle: <from> -> <to>" on stderr (not the full cycle path).
 #   Unknown task IDs in depends_on (not present as nodes) are treated as
 #   roots with no outgoing edges (no error).
 #

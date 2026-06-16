@@ -88,4 +88,4 @@ Print a summary for each agent processed:
 - Use `PRAGMA busy_timeout=5000` on every write operation
 - If a batch fails, skip it and continue with remaining batches
 - If the DB is locked after busy_timeout, report the error and exit
-- Do not read or write any files -- operate exclusively via `sqlite3` CLI
+- Operate on the memory DB via Bash (`sqlite3`, `python3`); you may Read files for context, but do NOT write project files outside the memory DB
