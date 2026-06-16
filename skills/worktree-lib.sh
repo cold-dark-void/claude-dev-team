@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
-# worktree-lib.sh — manage per-task git worktrees with PID-aware locks.
+# worktree-lib.sh — manage per-task git worktrees with advisory, age-gated locks.
 #
 # Subcommands:
 #   ensure <slug>   create-or-reuse worktree at $MROOT/.worktrees/<slug>
 #   release <slug>  remove lock + worktree if clean
 #
+# The real holder of a worktree is an LLM agent/conversation, not an OS process
+# with a checkable PID, so the lock is ADVISORY and keyed on AGE: a lock younger
+# than WT_LOCK_TTL_SECONDS is FRESH (prompt before reuse); older (or unparseable)
+# is STALE (silently reclaimed).
+#
 # Stdout discipline: ensure prints ONLY the absolute worktree path on success.
 # All diagnostics go to stderr. Stdout is empty on any non-zero exit.
 
 set -euo pipefail
+
+# Lock time-to-live: a lock younger than this is treated as FRESH (held by an
+# active agent); older is STALE and silently reclaimed. Env-overridable; falls
+# back to 6h on a non-numeric value.
+WT_LOCK_TTL_SECONDS="${WT_LOCK_TTL_SECONDS:-21600}"
+[[ "$WT_LOCK_TTL_SECONDS" =~ ^[0-9]+$ ]] || WT_LOCK_TTL_SECONDS=21600
 
 resolve_mroot() {
   local _gc
@@ -49,11 +60,13 @@ git_retry() {
 }
 
 # write_lock_and_exit <wt> <lock>
-# Atomically write the lock file (mode 600) with PID + UTC timestamp,
-# print the worktree path on stdout, and exit 0.
+# Atomically write the lock file (mode 600) as one line:
+#   <EPOCH_SECONDS> <ISO_8601_UTC>
+# Field 1 (epoch) is authoritative for age; field 2 (ISO) is human-readable only.
+# Print the worktree path on stdout, and exit 0.
 write_lock_and_exit() {
   local wt="$1" lock="$2"
-  (umask 077; printf '%s %s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock")
+  (umask 077; printf '%s %s\n' "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$lock")
   printf '%s\n' "$wt"
   exit 0
 }
@@ -75,29 +88,48 @@ cmd_ensure() {
   local branch="feat/$slug"
 
   if [ -f "$lock" ]; then
-    # Parse: "<pid> <iso-timestamp>"; cap read at 256 bytes to bound input.
-    local lock_pid lock_ts
-    { read -r lock_pid lock_ts _ ; } < <(head -c 256 "$lock" 2>/dev/null) \
-      || { lock_pid=""; lock_ts=""; }
+    # Parse: "<epoch-seconds> <iso-timestamp>"; cap read at 256 bytes to bound
+    # input. Field 1 (epoch) is authoritative for age.
+    local lock_epoch lock_iso
+    { read -r lock_epoch lock_iso _ ; } < <(head -c 256 "$lock" 2>/dev/null) \
+      || { lock_epoch=""; lock_iso=""; }
 
-    # Reject implausible PIDs (non-numeric, zero, or PID 1 which is always alive).
-    if [[ ! "$lock_pid" =~ ^[1-9][0-9]*$ ]] || [ "$lock_pid" -le 1 ]; then
-      lock_pid=""  # treat as stale
+    # Decide FRESH vs STALE by age. A non-numeric field 1 (corrupt, or a legacy
+    # "PID TS" lock) is unparseable → STALE. A negative age (future stamp / clock
+    # skew) is conservatively treated as FRESH (prompt, don't auto-clobber).
+    local fresh=0 age=-1
+    if [[ "$lock_epoch" =~ ^[0-9]+$ ]]; then
+      local now; now=$(date +%s)
+      age=$(( now - lock_epoch ))
+      if [ "$age" -lt 0 ]; then
+        fresh=1
+      elif [ "$age" -lt "$WT_LOCK_TTL_SECONDS" ]; then
+        fresh=1
+      fi
     fi
 
-    if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
-      # Live collision — gather diagnostics
+    if [ "$fresh" -eq 1 ]; then
+      # FRESH lock — likely held by an active agent. Gather diagnostics.
       local head_info="(unknown)"
       if [ -d "$wt/.git" ] || [ -f "$wt/.git" ]; then
         head_info=$(git -C "$wt" log -1 --format='%h %s' 2>/dev/null || echo "(unknown)")
+      fi
+
+      # Human-readable age summary.
+      local age_human
+      if [ "$age" -lt 0 ]; then
+        age_human="future timestamp (clock skew)"
+      elif [ "$age" -lt 3600 ]; then
+        age_human="held $(( age / 60 ))m ago"
+      else
+        age_human="held $(( age / 3600 ))h$(( (age % 3600) / 60 ))m ago"
       fi
 
       {
         echo "Worktree collision: $slug"
         echo "  branch:   $branch"
         echo "  HEAD:     $head_info"
-        echo "  lock ts:  $lock_ts"
-        echo "  PID $lock_pid is live"
+        echo "  lock age:  $age_human (lock ts: ${lock_iso:-unknown})"
       } >&2
 
       local answer=""
@@ -116,7 +148,12 @@ cmd_ensure() {
       exit 2
     fi
 
-    # Stale lock — silently overwrite
+    # STALE lock (age >= TTL, or unparseable/legacy format) — reclaim it.
+    if [ "$age" -ge 0 ]; then
+      echo "stale lock (age $(( age / 3600 ))h >= $(( WT_LOCK_TTL_SECONDS / 3600 ))h TTL) — reclaiming" >&2
+    else
+      echo "stale lock (unparseable / legacy format) — reclaiming" >&2
+    fi
     write_lock_and_exit "$wt" "$lock"
   fi
 

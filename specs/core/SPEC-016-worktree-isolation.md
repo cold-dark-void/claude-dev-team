@@ -28,12 +28,12 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST create the worktree at `$MROOT/.worktrees/<slug>` if absent
 - MUST create branch `feat/<slug>` if absent; MUST reuse the branch if it already exists
 - MUST print the absolute worktree path to stdout on success (and only on success)
-- MUST write `$MROOT/.worktrees/<slug>/.wt-lock` on success containing one line: `SESSION_ID PID ISO-8601-TIMESTAMP` (space-separated). SESSION_ID and TIMESTAMP are informational only; PID is authoritative
-- MUST detect existing `.wt-lock`:
-  - If lock PID is a live process: print collision summary to stderr (slug, branch, HEAD short SHA + commit subject, lock age, PID + live status), then:
+- MUST write `$MROOT/.worktrees/<slug>/.wt-lock` on success containing one line: `<epoch-seconds> <ISO-8601-UTC>` (space-separated). The lock is ADVISORY (the real holder is an LLM agent/conversation, not an OS process); AGE derived from the epoch field is authoritative. The ISO field is human-readable only
+- MUST detect existing `.wt-lock`, deciding FRESH vs STALE by age against `WT_LOCK_TTL_SECONDS` (env-overridable, default 6h / 21600s):
+  - If the lock is FRESH (epoch parses and `0 <= age < TTL`, or a future/negative-age stamp treated conservatively as fresh): print collision summary to stderr (slug, branch, HEAD short SHA + commit subject, lock age in human form), then:
     - If stdin is a TTY: prompt user (abort | steal lock). On abort exit 2 with nothing on stdout. On steal overwrite lock and exit 0 with worktree path on stdout
     - If no TTY: still print summary, prompt, and apply same exit codes (AC-5)
-  - If lock PID is dead (stale): silently overwrite lock and exit 0 with worktree path on stdout
+  - If the lock is STALE (`age >= TTL`, or field 1 is unparseable — e.g. a corrupt lock or a legacy `PID TS` lock): silently overwrite lock and exit 0 with worktree path on stdout
 - MUST NOT print the worktree path on stdout for any non-zero exit
 
 ### `release <slug>` semantics
@@ -53,15 +53,15 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 
 ## SHOULD
 
-- SHOULD include the slug, branch, HEAD short SHA, commit subject, lock age, and PID liveness in the collision summary so the user can decide informed
-- SHOULD use `kill -0 <pid>` (POSIX) for liveness check
+- SHOULD include the slug, branch, HEAD short SHA, commit subject, and lock age (human form, e.g. "held 12m ago") in the collision summary so the user can decide informed
+- SHOULD derive freshness from lock age (`now - epoch` vs `WT_LOCK_TTL_SECONDS`); there is no live holder process to probe, so age is the only signal
 - SHOULD treat absent `$MROOT` resolution as a fatal error and exit non-zero with a clear message
 - SHOULD exclude `.wt-lock` from the dirty-tree check in `release` (it is bookkeeping, not user content)
 
 ## MUST NOT
 
 - MUST NOT source `worktree-lib.sh`; subprocess invocation only (matches `task-store.sh`, `gate.sh` precedent)
-- MUST NOT silently reuse a worktree owned by a live PID
+- MUST NOT silently reuse a worktree whose lock is still FRESH (age < `WT_LOCK_TTL_SECONDS`); MUST prompt (abort/steal) instead
 - MUST NOT delete or `--force` a worktree with uncommitted changes
 - MUST NOT run parallel `git worktree` operations — already documented in AGENTS.md; this spec inherits that constraint
 
@@ -70,16 +70,16 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 `.wt-lock` contains exactly one line:
 
 ```
-<SESSION_ID> <PID> <ISO-8601-TIMESTAMP>
+<epoch-seconds> <ISO-8601-UTC>
 ```
 
 Example:
 
 ```
-sess-abc123 48217 2026-04-28T14:32:11Z
+1718521234 2026-06-16T06:34:41Z
 ```
 
-PID is the only authoritative field. SESSION_ID and TIMESTAMP are informational (debug aid only).
+Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared against `WT_LOCK_TTL_SECONDS`. Field 2 (ISO timestamp) is human-readable only. The lock is advisory: it records *when* a worktree was claimed, not *who* holds it (the holder is an LLM agent/conversation, not a checkable OS process). Legacy `<SESSION_ID> <PID> <ISO>` locks have a non-numeric field 1 and are auto-reclaimed as stale.
 
 ## Exit code contract
 
@@ -93,9 +93,9 @@ PID is the only authoritative field. SESSION_ID and TIMESTAMP are informational 
 
 ## Test
 
-- Verify `ensure <slug>` creates `.worktrees/<slug>`, branch `feat/<slug>`, and `.wt-lock`; prints absolute path; exits 0
-- Verify `ensure` against an existing live-PID lock: stderr shows summary, exit 2 on abort, stdout empty
-- Verify `ensure` against a stale lock (dead PID): silently overwrites, exits 0, prints path
+- Verify `ensure <slug>` creates `.worktrees/<slug>`, branch `feat/<slug>`, and `.wt-lock` in `<epoch> <ISO>` format; prints absolute path; exits 0
+- Verify `ensure` against a FRESH lock (epoch = now, age < TTL): stderr shows summary, exit 2 on abort, stdout empty
+- Verify `ensure` against a STALE lock (age >= TTL, or unparseable/legacy `PID TS` format): silently overwrites, exits 0, prints path
 - Verify `ensure` no-TTY collision still prompts and honors abort (exit 2) / steal (exit 0)
 - Verify `release` cleans `.wt-lock` + removes worktree on clean tree; exits non-zero on dirty tree without force
 - Verify orchestrate Step 3 captures stdout path correctly and halts on exit 1/2
@@ -124,6 +124,7 @@ PID is the only authoritative field. SESSION_ID and TIMESTAMP are informational 
 | 2026-04-28 | Initial spec for WISO-001. |
 | 2026-04-29 | Exit code table corrected to match implementation (exit 1 = release error, exit 2 = abort/decline, exit 64 = usage). Added SHOULD for .wt-lock dirty-check exclusion. |
 | 2026-06-16 | CLUSTER-003/A5: caller-integration MUSTs changed from the cwd-relative `bash skills/worktree-lib.sh` to install-aware resolution via `plugin-dir.sh` (`WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)`). The cwd-relative form (and `$MROOT/skills/…`) is absent / wrong on a real cache install where the script ships in the plugin, not the user's repo. The lib still self-resolves `$MROOT` internally for worktree data paths. |
+| 2026-06-16 | Switched the lock from PID-liveness to advisory, age-based locking. The lock now holds `<epoch-seconds> <ISO-8601-UTC>`; freshness is `now - epoch` vs `WT_LOCK_TTL_SECONDS` (env-overridable, default 6h). Rationale: the holder is an LLM agent/conversation, not an OS process — `kill -0` liveness was structurally unworkable (the old code recorded `worktree-lib.sh`'s own ephemeral subprocess PID, so collision detection never fired). FRESH → prompt abort/steal; STALE (age ≥ TTL or unparseable) → silent reclaim; legacy `PID TS` locks auto-reclaim as stale. Reconciles the prior 3-field-spec (`SESSION_ID PID ISO`) vs 2-field-code (`PID ISO`) drift (CLUSTER-004). |
 
 ## Cross-references
 
