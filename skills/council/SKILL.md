@@ -102,15 +102,18 @@ preset selector). The argument surface:
 | (no scope) | — | **Hard fail, non-zero exit** |
 
 Scope exclusivity: exactly one of `<claim>`, `--session`, `--plan`, `--diff`,
-`--from-retro` MUST be given. Multiple scope args or zero scope args MUST
-cause `engine.sh` to exit non-zero with a clear stderr message. (SPEC-013
+`--from-retro` MUST be given. `commands/council.md` enforces exclusivity when
+it translates the user surface into the engine's single `--scope <name>` —
+the engine itself takes one `--scope` value, so it cannot receive (or detect)
+multiple scopes. A zero-scope invocation reaches the engine as an empty
+`--scope` and MUST exit non-zero with a clear stderr message. (SPEC-013
 line 30)
 
 Deferred scopes (`--plan`, `--from-retro`) MUST be recognized by the arg
-parser and MUST fail loudly with the exact message:
+parser and MUST fail loudly with the exact message (`<flag>` is the scope name):
 
 ```
-error: --<flag> is not implemented in COUNCIL-001, planned for COUNCIL-002
+engine.sh: --<flag> is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.
 ```
 
 …and exit non-zero. The engine MUST NOT silently accept them, treat them as
@@ -668,15 +671,14 @@ exit codes to decide whether to continue.
 | Exit | Meaning | Stderr message contract |
 |---|---|---|
 | 0 | Success | none on stderr |
-| 2 | No scope argument supplied | `error: no scope specified — pass one of "<claim>", --session, --diff, --plan, --from-retro` |
-| 2 | Multiple scope arguments | `error: scope arguments are mutually exclusive — got: <list>` |
-| 3 | Deferred scope: `--plan` | `error: --plan is not implemented in COUNCIL-001, planned for COUNCIL-002` |
-| 3 | Deferred scope: `--from-retro` | `error: --from-retro is not implemented in COUNCIL-001, planned for COUNCIL-002` |
-| 4 | Unknown preset | `error: unknown preset: <name> — known: generic, diff-mode` |
-| 5 | No investigators could spawn | `error: Phase 2 produced zero evidence bundles — aborting (no claims could be verified)` |
-| 6 | Index write failure | `error: failed to update .claude/council/index.json — see index-writer.sh stderr` |
-| 7 | Judge returned malformed output | `error: Phase 5 judge output failed schema validation — see report audit trail` |
-| 8 | Judge refused output | `error: Phase 5 judge returned empty result — council aborted` |
+| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff)` |
+| 2 | Unknown preflight flag | `engine.sh: unknown preflight flag: <flag>` |
+| 3 | Deferred scope: `--plan` | `engine.sh: --plan is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.` |
+| 3 | Deferred scope: `--from-retro` | `engine.sh: --from-retro is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.` |
+| 4 | Unknown preset | `engine.sh: unknown preset: <name> — known: generic, diff-mode` |
+| 5 | No investigators could spawn | `engine.sh: Phase 2 produced zero evidence bundles — aborting` |
+| 6 | Index write failure | `engine.sh: failed to update .claude/council/index.json` |
+| 7 | Judge returned malformed/empty output | `engine.sh: judge output is not valid JSON and repair failed: <detail>` (also covers an empty or refused judge result, which fails JSON repair) |
 
 Exit code 3 is reserved for deferred-scope fail-loud per locked decision 8.
 

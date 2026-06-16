@@ -57,15 +57,30 @@ fi
 
 ## Step 2: Preflight
 
-Pass all user-supplied arguments to the engine's `preflight` subcommand.
+Translate the user CLI surface into the engine's `preflight` flags, then invoke
+it. The engine does NOT accept the user-facing scope flags (`--session`,
+`--diff`, etc.) directly — it takes a single `--scope <name>` plus a
+`--scope-arg <value>` for whatever payload that scope carries. Translation:
+
+| User invocation | Engine `preflight` args |
+|---|---|
+| `"<claim text>"` | `--scope claim --scope-arg "<claim text>"` |
+| `--session` | `--scope session` |
+| `--session --last N` | `--scope session --last N` |
+| `--diff` | `--scope diff` |
+| `--plan <path>` | `--scope plan --scope-arg <path>` (exits 3, deferred) |
+| `--from-retro <id>` | `--scope from-retro --scope-arg <id>` (exits 3, deferred) |
+| `--task-id <id>` | `--task-id <id>` (passthrough) |
+| `--why` | `--why` (passthrough) |
+
 The engine validates scope, resolves task-id (via `--task-id` flag →
-`CLAUDE_TASK_ID` env → unbound), resolves preset (`--diff` → `diff-mode`,
+`CLAUDE_TASK_ID` env → unbound), resolves preset (`--scope diff` → `diff-mode`,
 otherwise `generic`), and fails loudly on deferred or missing scopes.
 
 ```bash
 PLAN_FILE=$(mktemp /tmp/council-plan.XXXXXX.json)
 
-"$ENGINE_SH" preflight <parsed-args> > "$PLAN_FILE"
+"$ENGINE_SH" preflight <translated-args> > "$PLAN_FILE"
 EXIT=$?
 ```
 
