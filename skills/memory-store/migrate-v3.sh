@@ -42,15 +42,27 @@ fi
 # Count existing memories for summary
 ROW_COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
 
+# SQLite has no ADD COLUMN IF NOT EXISTS — a re-run after a prior partial migration
+# (column added before the schema_version bump) would otherwise fail "duplicate column".
+# Detect existing columns via PRAGMA table_info and emit each ADD COLUMN only if absent.
+EXISTING_COLS=$(sqlite3 "$MEMDB" "PRAGMA table_info(memories);" 2>/dev/null | cut -d'|' -f2)
+ADD_COLS=""
+case "$EXISTING_COLS" in
+  *validated_at*) ;;
+  *) ADD_COLS="${ADD_COLS}ALTER TABLE memories ADD COLUMN validated_at TEXT DEFAULT NULL;"$'\n' ;;
+esac
+case "$EXISTING_COLS" in
+  *archive_reason*) ;;
+  *) ADD_COLS="${ADD_COLS}ALTER TABLE memories ADD COLUMN archive_reason TEXT DEFAULT NULL;"$'\n' ;;
+esac
+
 # Run migration inside a transaction
-sqlite3 "$MEMDB" <<'SQL'
+sqlite3 "$MEMDB" <<SQL
 PRAGMA busy_timeout=5000;
 
 BEGIN TRANSACTION;
 
-ALTER TABLE memories ADD COLUMN validated_at TEXT DEFAULT NULL;
-ALTER TABLE memories ADD COLUMN archive_reason TEXT DEFAULT NULL;
-
+${ADD_COLS}
 CREATE TABLE IF NOT EXISTS validation_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   memory_id INTEGER NOT NULL REFERENCES memories(id),

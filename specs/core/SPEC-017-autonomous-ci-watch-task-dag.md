@@ -33,8 +33,10 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
   mode in this priority order:
   1. `ci` — `.github/workflows/` directory exists **and** `gh pr checks` is available
   2. `local-test` — a test command is detectable: `package.json` has a `test` script,
-     or a `Makefile` has a `test` target, or `pytest.ini` / `pyproject.toml` / `setup.py`
-     is present, or `go.mod` is present (use `go test ./...`)
+     or a `Makefile` has a `test` target, or `pytest.ini` / `setup.py` is present,
+     or a `pyproject.toml` declares a pytest config (a `[tool.pytest.ini_options]`
+     section — bare presence alone does not trigger detection, to avoid false
+     positives on non-test pyprojects), or `go.mod` is present (use `go test ./...`)
   3. `none` — skip the watch loop silently; do not notify the user
 - MUST re-detect mode per ticket run (mode is not cached globally)
 
@@ -195,6 +197,7 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 | 2026-04-30 | Initial spec — CI watch (3-mode adaptive) + task DAG (depends_on schema + parallel fan-out) |
 | 2026-04-30 | Implemented and aligned: poll interval → `*/7` (off-minute convention); unified done notification; fixer guard via sidecar primary + task store secondary; retry cap semantics clarified (3 total spawns); resolved OQ-1 (durable:true) and OQ-2 (worktree root); status → ACTIVE |
 | 2026-06-12 | ci-mode poll: `--json name,conclusion` → `name,state,bucket` (`conclusion` was never a `gh pr checks` JSON field; the error was masked as eternal `wait` by the poll_error path). Decisions now bucket-based; skipped checks no longer block green |
+| 2026-06-16 | Aligned the local-test detection MUST to `detect-mode.sh`: a `pyproject.toml` triggers `local-test` only when it declares a `[tool.pytest.ini_options]` section (bare presence alone does not), avoiding false positives on non-test pyprojects |
 
 ---
 

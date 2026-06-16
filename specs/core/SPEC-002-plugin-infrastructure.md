@@ -50,7 +50,7 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 ### Additional Hooks
 
 #### PreToolUse — Bash output compression (`bash-compress.sh`)
-- MUST intercept Bash tool calls for known noisy commands: `npm test`, `npx jest`, `npx vitest`, `yarn test`, `pnpm test`, `pytest`, `python -m pytest`, `go test`
+- MUST intercept Bash tool calls for known noisy commands, such as test runners (`npm test`, `npx jest`, `npx vitest`, `yarn test`, `pnpm test`, `pytest`, `python -m pytest`, `go test`, `cargo test`, `mvn test`, `gradle test`), build commands (`npm run build`, `yarn build`, `pnpm build`, `cargo build`, `make`, `tsc`), and similar high-volume commands (the matched set is maintained in the hook, not frozen here)
 - MUST compress output by rewriting the command inline (no external wrapper script): builds a self-contained `WRAPPED=` shell string and emits it via `jq -n --arg cmd` as `hookSpecificOutput.updatedInput.command` (`permissionDecision: "allow"`). The wrapper captures stdout+stderr, preserves the original exit code, and truncates to head-20 / tail-20 with an omitted-lines marker when output exceeds 50 lines. Inlining avoids the permission re-check a separate script invocation would trigger in CC 2.1.116+.
 - MUST exit 0 for all non-matching commands (pass-through, no rewrite)
 
@@ -61,7 +61,7 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 
 #### Stop — Uncommitted change reminder (`stop-review.sh`)
 - MUST check for uncommitted changes via git on session stop
-- MUST print at most one reminder per session (keyed to session_id from Stop event payload)
+- MUST print at most one reminder per project per HEAD commit (keyed to a cwd-hash + short HEAD sha stamp under `.claude/`); the reminder re-fires only when HEAD moves (new work lands), not on every `claude --resume` of the same commit
 - MUST NOT block session exit (always exits 0)
 - MUST silently exit 0 when not in a git repository
 
@@ -177,10 +177,11 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-04-09 | Defined task-metadata read path: hook MUST read `$MROOT/.claude/tasks/<task_id>.json` (resolved via `git rev-parse --git-common-dir`) to determine `requires_council`. Missing file or `requires_council: false`/absent → silent no-op; `requires_council: true` → proceeds to the council index gate. Per-task metadata file is written by SPEC-009 orchestrator. |
 | 2026-04-09 | Stdin-authoritative correction (post-Task-1 spike): inverted task-id transport priority. Hook MUST read `task_id` from stdin JSON (the channel Claude Code itself uses) as the primary source; `CLAUDE_TASK_ID` env var demoted to fallback for non-native invocations only. Recorded the verified stdin payload shape (task_id/task_subject/task_description/hook_event_name/session_id/transcript_path/cwd) and closed the transport Open Question. Orchestrator-side `CLAUDE_TASK_ID` export in SPEC-009 remains valid — it governs the separate `/council` subprocess path, not the hook. See `.claude/plans/2026-04-09-taskcompleted-hook-spike.md`. |
 | 2026-04-26 | Added MUST coverage for three previously-undocumented hooks: `bash-compress.sh` (PreToolUse output compression), `memory-capture.sh` (PostToolUse Write/Edit memory write), `stop-review.sh` (Stop hook uncommitted-change reminder). Updated Covers field. |
-| 2026-06-12 | SPEC-002: plugin-dir.sh CLI contract added — single version-resolution algorithm (sort -V), dev-checkout fast path, replaces ~15 hand-rolled locators (AUDIT-P1-3) |
+| 2026-06-12 | SPEC-002: plugin-dir.sh CLI contract added — single version-resolution algorithm (sort -V), dev-checkout fast path, replaces most of the ~15 hand-rolled locators; a best-effort `embed-one.sh` locator (`sort -V | tail -1`, `|| true`) is a deliberate remaining exception (AUDIT-P1-3) |
 | 2026-06-13 | SPEC-002: declared the three authoritative project-root resolution contexts (shared-root via git-common-dir; working-tree-root via show-toplevel; cwd-anchored single-root for bootstrap skills) — single-sources the root-resolution contract (AUDIT-P1-2, doc-only) |
 | 2026-06-14 | AUDIT-P0.12: TaskCompleted-hook registration command changed to the worktree-safe `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"` form (relative path fired from arbitrary agent cwd and failed inside worktrees). Direct test-checklist invocation (run from project root) stays relative. |
 | 2026-06-16 | CLUSTER-003/A5: extended the resolution-site table (11→15) to cover the subprocess-CLI helpers (worktree-lib/dag-lib/task-store/ci-watch scripts) invoked by orchestrate/wrap-ticket/standup/ci-watch. These previously used `$MROOT/skills/…` (the consumer's repo) and exited 127 on a real cache install; they now resolve through `plugin-dir.sh` like the engine/schema sites. The detached ci-watch cron prompt bakes in a `plugin-dir.sh`-resolved `<PLUGIN>` root at arming time. |
+| 2026-06-16 | Aligned the Stop-hook dedup MUST to the deployed keying: `stop-review.sh` stamps per (cwd-hash + short HEAD sha) and re-fires only when HEAD moves, not per session_id. Restated as "one reminder per project per HEAD commit". |
 
 ## Cross-references
 
