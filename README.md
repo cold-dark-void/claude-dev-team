@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.36.35
+- **fix: reconcile the SPEC-017 row in the TDD index (blind-review)** — `specs/TDD.md` listed SPEC-017 as `DRAFT` with a 5-path Coverage column, but the spec's own header is `**Status**: ACTIVE` (since 2026-04-30) and its `**Covers**:` list names 10 paths — a SPEC-008 index-integrity violation for a fully-shipped, smoke-tested feature. Set Status → `ACTIVE` and expanded Coverage to all 10 paths (adds `skills/orchestrate/dag-lib.sh` and `skills/ci-watch/{SKILL.md,poll.sh,sidecar.sh,detect-mode.sh}`). Doc-only; the sole file-vs-index status mismatch among the 18 specs. (blind-review CLUSTER-002/020).
+
 ### v0.36.34
 - **fix: clarify `.claude/settings.json` is generated, not shipped, and document the two-mode permission posture (blind-review)** — three README claims that the plugin "ships"/"bundles"/"already ships" `.claude/settings.json` were false (the file is gitignored/untracked; it is generated locally by `/scaffold-project` and `/init-orchestration`) and contradicted the README's own AUDIT-P0.12 changelog — reworded to "generated, not shipped". Documented the two real permission modes instead of one false guarantee: `/scaffold-project`'s curated **interactive** allowlist (rm/wget excluded, still prompt) vs **orchestration** mode (`/init-team` → `Bash(*)`; `/init-orchestration` → `bypassPermissions`) contained by the OS sandbox. Fixed `AGENTS.md` (init-team sets `Bash(*)` and syncs the network allowlist — not "only the network allowlist, not the permission list") and `docs/setup.md` (init-team syncs the sandbox **network** allowlist, not the Bash permission list). Doc-only. (blind-review CLUSTER-001/019).
 
