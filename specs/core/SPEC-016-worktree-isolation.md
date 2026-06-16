@@ -19,7 +19,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST NOT create new worktrees at sibling paths (`$MROOT/../<project>-<TICKET-ID>`); legacy paths are read-only for detection/cleanup
 
 ### `worktree-lib.sh` CLI contract
-- MUST be a pure subprocess CLI — `bash skills/worktree-lib.sh <cmd> <args>` only; MUST NOT require sourcing; MUST NOT mutate the caller's shell
+- MUST be a pure subprocess CLI — invoked as `bash "$WT_LIB" <cmd> <args>` where `$WT_LIB` is the install-aware path resolved via `plugin-dir.sh` (see Caller integration); MUST NOT require sourcing; MUST NOT mutate the caller's shell
 - MUST support exactly two subcommands: `ensure <slug>` and `release <slug>`
 - MUST resolve `$MROOT` internally using the worktree-aware formula above
 - MUST exit with: `0` = success, `1` = release error, `2` = user aborted on collision prompt, `64` = usage error
@@ -43,8 +43,9 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST exit 0 on clean removal
 
 ### Caller integration
-- `skills/orchestrate/SKILL.md` Step 3 MUST call `bash skills/worktree-lib.sh ensure <slug>` as a subprocess and capture stdout as the worktree path. MUST remove the legacy sibling-path creation. On exit 1: surface the stderr error to the user and halt. On exit 2: halt cleanly without error
-- `skills/wrap-ticket/SKILL.md` Step 6 MUST call `bash skills/worktree-lib.sh release <slug>` as a subprocess. MUST remove any direct `git worktree remove` call targeting `.worktrees/` paths
+- Callers MUST resolve `worktree-lib.sh` through `plugin-dir.sh` (install-aware: the script ships in the plugin, not the user's repo) — emit the canonical bootstrap stanza (SPEC-002) to set `$PDH`, then `WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)`. MUST NOT invoke the cwd-relative form `bash skills/worktree-lib.sh` (absent on a real install) nor `$MROOT/skills/worktree-lib.sh` (resolves to the user's repo, not the plugin)
+- `skills/orchestrate/SKILL.md` Step 3 MUST call `bash "$WT_LIB" ensure <slug>` as a subprocess and capture stdout as the worktree path. MUST remove the legacy sibling-path creation. On exit 1: surface the stderr error to the user and halt. On exit 2: halt cleanly without error
+- `skills/wrap-ticket/SKILL.md` Step 6 MUST call `bash "$WT_LIB" release <slug>` as a subprocess. MUST remove any direct `git worktree remove` call targeting `.worktrees/` paths
 - `skills/wrap-ticket/SKILL.md` MUST detect both `.worktrees/<slug>` (new) and `$MROOT/../<project>-<TICKET-ID>` (legacy) worktree paths; MUST prefer the new path when both exist
 - `skills/wrap-ticket/SKILL.md` MUST anchor every `grep` for a TICKET-ID so `WISO-1` does not match `WISO-10` (use `grep -E "(^|[^A-Z0-9-])WISO-1([^0-9]|$)"` or `grep -wF`); fix everywhere wrap-ticket greps for ticket ID
 - `skills/demo/SKILL.md` MUST keep its dedicated `$TMPDIR/demo-project` path and MUST NOT depend on `worktree-lib.sh`. MUST add a 2-3 line inline check at worktree creation: if path exists, prompt user before proceeding
@@ -122,6 +123,7 @@ PID is the only authoritative field. SESSION_ID and TIMESTAMP are informational 
 |------|--------|
 | 2026-04-28 | Initial spec for WISO-001. |
 | 2026-04-29 | Exit code table corrected to match implementation (exit 1 = release error, exit 2 = abort/decline, exit 64 = usage). Added SHOULD for .wt-lock dirty-check exclusion. |
+| 2026-06-16 | CLUSTER-003/A5: caller-integration MUSTs changed from the cwd-relative `bash skills/worktree-lib.sh` to install-aware resolution via `plugin-dir.sh` (`WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)`). The cwd-relative form (and `$MROOT/skills/…`) is absent / wrong on a real cache install where the script ships in the plugin, not the user's repo. The lib still self-resolves `$MROOT` internally for worktree data paths. |
 
 ## Cross-references
 

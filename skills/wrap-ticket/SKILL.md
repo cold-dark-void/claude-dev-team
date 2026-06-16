@@ -27,7 +27,14 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 ```
+
+Helper scripts (`worktree-lib.sh`, `ci-watch/sidecar.sh`) ship in the plugin,
+not the user's repo, so they are resolved through `bash "$PDH/skills/plugin-dir.sh"
+file <relpath>`. Each SKILL bash block runs as a fresh shell, so the later
+cleanup blocks re-emit this stanza.
 
 Detect the ticket's worktree path — prefer the new convention, fall back to legacy:
 ```bash
@@ -291,9 +298,11 @@ Proceed? (y/n)
 If yes:
 ```bash
 cd $MROOT
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
   # New convention — delegate to worktree-lib.sh for lock cleanup + removal
-  bash "$MROOT/skills/worktree-lib.sh" release "$TICKET_ID"
+  WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+  bash "$WT_LIB" release "$TICKET_ID"
 else
   # Legacy sibling path — remove directly and delete the tracking branch
   git worktree remove "$WORKTREE_PATH"
@@ -317,7 +326,9 @@ If no worktree was found: skip silently.
 Check for an active CI-watch sidecar for this ticket:
 
 ```bash
-SIDECAR_PATH=$(bash "$MROOT/skills/ci-watch/sidecar.sh" path "$TICKET_ID" 2>/dev/null)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
+SIDECAR_PATH=$(bash "$SIDECAR_CLI" path "$TICKET_ID" 2>/dev/null)
 ```
 
 If `$SIDECAR_PATH` is non-empty and the file exists:
@@ -332,9 +343,10 @@ If `$SIDECAR_PATH` is non-empty and the file exists:
    - On success, print: `CI watch cron <CRON_ID> deleted.`
    - If CronDelete fails: warn `CI watch cron deletion failed — may need manual cleanup` but do NOT halt wrap-ticket.
 
-3. Clean up the sidecar file:
+3. Clean up the sidecar file (reuse `$SIDECAR_CLI` from the block above, or
+   re-resolve it if running this block fresh):
    ```bash
-   bash "$MROOT/skills/ci-watch/sidecar.sh" delete "$TICKET_ID"
+   bash "$SIDECAR_CLI" delete "$TICKET_ID"
    ```
    Print: `CI watch sidecar cleaned up.`
 

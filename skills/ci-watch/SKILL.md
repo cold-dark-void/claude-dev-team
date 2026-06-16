@@ -93,36 +93,39 @@ mode unknown            → wait
 
 `/orchestrate` Step 8.5 calls `CronCreate` with `durable: true`,
 `schedule: "*/7 * * * *"`, and the following self-contained prompt
-(`<MROOT>`, `<TICKET>`, `<PR>`, `<BRANCH>`, `<WT>` are substituted at
-arming time):
+(`<PLUGIN>`, `<MROOT>`, `<TICKET>`, `<PR>`, `<BRANCH>`, `<WT>` are substituted at
+arming time). `<PLUGIN>` is the install-aware plugin root resolved via
+`plugin-dir.sh` — the cron runs detached with the user's repo as cwd, so the
+helper scripts (which live in the plugin, not the repo) MUST be addressed by
+their resolved absolute path, never `<MROOT>/skills/…`:
 
 ```
 You are the CI-watch poller for <TICKET>. Self-contained: do not assume
 session context. Available tools: Bash, Task, CronDelete.
 
-1. Run: bash <MROOT>/skills/ci-watch/poll.sh <TICKET>
+1. Run: bash <PLUGIN>/skills/ci-watch/poll.sh <TICKET>
    Capture stdout — one word from {done, fail, cap, wait}.
 
 2. outcome == "wait" → exit silently.
 
 3. outcome == "done":
-   a. CRON_ID=$(bash <MROOT>/skills/ci-watch/sidecar.sh get <TICKET> cron_job_id)
+   a. CRON_ID=$(bash <PLUGIN>/skills/ci-watch/sidecar.sh get <TICKET> cron_job_id)
    b. Call CronDelete with $CRON_ID.
-   c. Run: bash <MROOT>/skills/ci-watch/sidecar.sh delete <TICKET>
+   c. Run: bash <PLUGIN>/skills/ci-watch/sidecar.sh delete <TICKET>
    d. Notify user: "CI watch: <TICKET> green on <BRANCH>. Cron deleted."
 
 4. outcome == "cap":
-   a. CRON_ID=$(bash <MROOT>/skills/ci-watch/sidecar.sh get <TICKET> cron_job_id)
+   a. CRON_ID=$(bash <PLUGIN>/skills/ci-watch/sidecar.sh get <TICKET> cron_job_id)
    b. Call CronDelete with $CRON_ID.
    c. Notify user: "CI watch: <TICKET> hit 3-retry cap on <BRANCH>. Manual intervention needed."
       (Sidecar is intentionally NOT deleted on cap — preserves last_failure.txt for inspection.)
 
 5. outcome == "fail":
-   a. bash <MROOT>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active true
-   b. bash <MROOT>/skills/ci-watch/sidecar.sh inc <TICKET> retry_count
+   a. bash <PLUGIN>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active true
+   b. bash <PLUGIN>/skills/ci-watch/sidecar.sh inc <TICKET> retry_count
    c. FAIL=$(cat <MROOT>/.claude/ci-watch/<TICKET>.last_failure.txt)
    5a. Before spawning fixer:
-       bash <MROOT>/skills/orchestrate/task-store.sh create "<TICKET>-ci-fixer" "<TICKET> CI-watch hot-fix attempt <retry_count+1>" false ""
+       bash <PLUGIN>/skills/orchestrate/task-store.sh create "<TICKET>-ci-fixer" "<TICKET> CI-watch hot-fix attempt <retry_count+1>" false ""
        Note the returned task entry — this tracks the fixer in the task store so the orchestrator
        can detect "a fixer is already running" via task store, and so defensive cleanup fires.
    d. Spawn dev-team:ic5 via Task tool with prompt:
@@ -132,10 +135,10 @@ session context. Available tools: Bash, Task, CronDelete.
          Failing output:
          <FAIL>
          When done, run:
-           bash <MROOT>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active false"
+           bash <PLUGIN>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active false"
    5c. After fixer completes:
-       bash <MROOT>/skills/orchestrate/task-store.sh update-status "<TICKET>-ci-fixer" completed
-       bash <MROOT>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active false
+       bash <PLUGIN>/skills/orchestrate/task-store.sh update-status "<TICKET>-ci-fixer" completed
+       bash <PLUGIN>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active false
 ```
 
 The cron body never re-arms itself; it is armed exactly once at setup, and
@@ -147,11 +150,13 @@ is well within that.
 `wrap-ticket` Step 6.5 is the canonical teardown:
 
 ```bash
-SIDECAR=$(bash "$MROOT/skills/ci-watch/sidecar.sh" path "$TICKET_ID")
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
+SIDECAR=$(bash "$SIDECAR_CLI" path "$TICKET_ID")
 if [ -f "$SIDECAR" ]; then
   CRON_ID=$(jq -r '.cron_job_id // empty' "$SIDECAR")
   # Call the CronDelete tool with $CRON_ID  (tool, not bash)
-  bash "$MROOT/skills/ci-watch/sidecar.sh" delete "$TICKET_ID"
+  bash "$SIDECAR_CLI" delete "$TICKET_ID"
 fi
 ```
 
