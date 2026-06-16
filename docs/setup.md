@@ -30,7 +30,7 @@ What it does:
 - Downloads sqlite-vec + sqlite-lembed extensions and an embedding model (~29MB) for semantic search
 - Agents store memory in `.claude/memory/memory.db` (SQLite mode) or `.claude/memory/<agent>/` (.md fallback)
 - Migrates existing v1 DBs to v2 schema automatically
-- Syncs `.claude/settings.json` with the full Bash allow list
+- Syncs the sandbox network allowlist in `.claude/settings.json` for Agent Teams (not the Bash permission list)
 
 Safe to re-run — updates cortex for all agents without losing history.
 

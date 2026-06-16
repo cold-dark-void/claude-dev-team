@@ -186,7 +186,7 @@ explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"
 - Both directories are functionally equivalent to Claude Code's plugin loader — the split is organizational only
 - Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
 - No build step — this is a pure markdown/JSON plugin
-- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is part of the Bash permission allowlist emitted by `/scaffold-project`; `/init-team` syncs only the sandbox network allowlist, not the permission list)
+- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/scaffold-project` emits for interactive use; `/init-team`, via `project-init`, sets the `Bash(*)` wildcard — the sandbox is the boundary — and syncs the sandbox network allowlist)
 
 ## What NOT to Do
 

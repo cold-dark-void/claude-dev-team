@@ -26,7 +26,7 @@ done
 
 ## Step 1b: Sync Agent Permissions
 
-Ensure `.claude/settings.json` exists and has the full agent allowlist. This prevents permission prompts from blocking background agents.
+Ensure `.claude/settings.json` exists and has the full agent allowlist. This prevents permission prompts from blocking background agents. This is the orchestration posture: the `Bash(*)` wildcard is intentional — the OS sandbox, not the allowlist, is the boundary.
 
 Read the existing `$MROOT/.claude/settings.json` (if any). Merge/ensure the following permissions are present. **Do not remove** any existing user-added permissions — only add missing ones.
 
