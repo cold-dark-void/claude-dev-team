@@ -123,7 +123,7 @@ Create `.claude/settings.json` to enable autonomous agent operation (no permissi
 
 `defaultMode: "acceptEdits"` auto-approves all Read/Write/Edit operations. The Bash allow list covers common dev tools plus agent bootstrap patterns (variable assignments, compound commands, shell control flow). Customize to add/remove commands for your stack.
 
-> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). Destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those.
+> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use: destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those. (Orchestration mode via `/init-orchestration` instead grants `Bash(*)` under `bypassPermissions`, where the OS sandbox is the boundary.)
 
 ### Step 3: Create .claude/CLAUDE.md
 
