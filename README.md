@@ -382,6 +382,9 @@ Engine protocol: `skills/council/SKILL.md`. Full contract: `specs/core/SPEC-013-
 
 ## Changelog
 
+### v0.36.36
+- **fix: reconcile council documentation with `engine.sh` behavior (blind-review)** — six doc/code-drift fixes in the council subsystem: the deferred-scope and no-scope error messages that `skills/council/SKILL.md` called "exact" now quote `engine.sh`'s actual output verbatim; removed the phantom exit-code 8 row (the engine emits 0–7; empty/refused judge output is exit 7); corrected `skills/release/SKILL.md`'s gate-coverage note (the template-var gate covers 5 prompts incl. `phase4-brief` and defers nothing — prosecutor/advocate were merged into it); added the user→engine flag mapping (`--session`/`--diff`/`--plan`/`<claim>` → `--scope`/`--scope-arg`) to `commands/council.md` preflight and reworded the false "engine detects multiple scope arguments" claim; removed the unreachable `from-retro|plan` branches in `engine.sh`; and replaced two off-by-one `SPEC-013 line N` citations with rot-proof quoted phrases. `check-template-vars.sh` still passes. (blind-review CLUSTER-007/015/025/027/029/023).
+
 ### v0.36.35
 - **fix: reconcile the SPEC-017 row in the TDD index (blind-review)** — `specs/TDD.md` listed SPEC-017 as `DRAFT` with a 5-path Coverage column, but the spec's own header is `**Status**: ACTIVE` (since 2026-04-30) and its `**Covers**:` list names 10 paths — a SPEC-008 index-integrity violation for a fully-shipped, smoke-tested feature. Set Status → `ACTIVE` and expanded Coverage to all 10 paths (adds `skills/orchestrate/dag-lib.sh` and `skills/ci-watch/{SKILL.md,poll.sh,sidecar.sh,detect-mode.sh}`). Doc-only; the sole file-vs-index status mismatch among the 18 specs. (blind-review CLUSTER-002/020).
 

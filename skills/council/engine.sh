@@ -164,9 +164,11 @@ cmd_preflight() {
 
   # Resolve preset (explicit or inferred from scope)
   if [ -z "$preset" ]; then
+    # plan|from-retro never reach here — they exit 3 in the deferred-scope
+    # case above before preset inference runs.
     case "$scope" in
       diff)    preset="diff-mode" ;;
-      claim|session|from-retro|plan) preset="generic" ;;
+      claim|session) preset="generic" ;;
       *)
         echo "engine.sh: unknown scope: $scope" >&2
         exit 2
@@ -190,7 +192,7 @@ cmd_preflight() {
       exit 4 ;;
   esac
 
-  local claim_budget=10  # SPEC-013 line 51, hardcoded in v1
+  local claim_budget=10  # SPEC-013 "per-run claim budget (default: 10 claims)", hardcoded in v1
   local slug
   case "$scope" in
     claim)   slug="claim" ;;
