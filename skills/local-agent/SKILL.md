@@ -1,6 +1,6 @@
 ---
 name: local-agent
-description: Opt-in offload of mechanical, machine-verifiable tasks to a local model via the OpenCode CLI. Off by default; falls back transparently to Claude when disabled or when preflight fails.
+description: "Internal engine primitive — not user-invoked. Offloads mechanical, machine-verifiable tasks to a local model via OpenCode CLI; driven by /orchestrate and /local-do. Off by default; falls back transparently to Claude when disabled or preflight fails."
 ---
 
 # Local Agent
