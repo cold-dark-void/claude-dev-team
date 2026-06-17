@@ -36,12 +36,21 @@
 # the result payload; ALL diagnostics go to stderr. Stdout is empty on a
 # non-zero exit.
 #
-# Leash (best-effort, NOT OS-enforced): the local agent runs with its working
-# directory set to the worktree (`opencode run --dir <worktree>`) and relies on
-# OpenCode's own permission/provider config to bound tool actions and egress.
-# Residual risk: a misconfigured/adversarial local model could in principle
-# write outside the worktree or reach other hosts. OS-level enforcement
-# (bubblewrap/seccomp + egress allowlist) is deferred to PR2 (SPEC-019).
+# Leash (OS filesystem confinement when available; best-effort otherwise):
+#   * When `bwrap` (bubblewrap) is present and a pre-flight probe succeeds, the
+#     local agent runs inside a bind-mount sandbox: the host root is mounted
+#     read-only and the ONLY writable surfaces are the worktree, its git plumbing
+#     (--git-dir + --git-common-dir, so commits land), and OpenCode's own XDG
+#     state dirs. /dev, /proc, and /tmp are private. This bounds filesystem
+#     writes to the worktree + the agent's own state even against an
+#     adversarial/misconfigured local model.
+#   * Fallback — bwrap absent, LOCAL_AGENT_SANDBOX=0, or probe failure — degrades
+#     to the best-effort working-dir leash only (`opencode run --dir <worktree>`),
+#     relying on OpenCode's own permission/provider config. A one-line stderr
+#     notice marks which path was taken.
+#   * NETWORK egress is NOT enforced (no --unshare-net): the sandbox is FS-only.
+#     Egress bounding remains OpenCode-config / deferred. Only the opencode call
+#     is wrapped; the caller's --check runs UNWRAPPED on the trusted host shell.
 
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -190,10 +199,74 @@ if ! opencode --version >/dev/null 2>&1; then
   exit 2
 fi
 
+# ---- OS leash (bubblewrap FS confinement) -----------------------------------
+# Populate the global SANDBOX=() argv prefix wrapping ONLY the opencode call.
+# Empty array ⇒ unwrapped (today's best-effort --dir behavior). Disabled by
+# LOCAL_AGENT_SANDBOX=0, by bwrap being absent, or by a failed pre-flight probe;
+# each path emits ONE stderr notice. NOT OS-enforced for network (FS-only).
+SANDBOX=()
+build_sandbox() {
+  # Opt-out: default (unset/"1") = on-if-available; "0" = explicitly disabled.
+  if [ "${LOCAL_AGENT_SANDBOX:-1}" = "0" ]; then
+    echo "local-agent: OS leash disabled (LOCAL_AGENT_SANDBOX=0) — best-effort --dir only." >&2
+    return 0
+  fi
+  if ! command -v bwrap >/dev/null 2>&1; then
+    echo "local-agent: bwrap not found — best-effort --dir only." >&2
+    return 0
+  fi
+
+  # OpenCode XDG state dirs (created on demand by opencode; --bind-try tolerates
+  # absence, so we bind unconditionally rather than pre-creating them).
+  local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+  local data="${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/opencode"
+  local state="${XDG_STATE_HOME:-$HOME/.local/state}/opencode"
+
+  # Git plumbing as ABSOLUTE paths so commits inside the worktree succeed even
+  # when .git is a gitfile pointing elsewhere (linked worktree) or commondir is
+  # outside the worktree. realpath canonicalizes; empty ⇒ skip its bind.
+  local gitdir commondir
+  gitdir=$(git -C "$WORKTREE" rev-parse --git-dir 2>/dev/null) \
+    && gitdir=$(realpath "$gitdir" 2>/dev/null) || gitdir=""
+  commondir=$(git -C "$WORKTREE" rev-parse --git-common-dir 2>/dev/null) \
+    && commondir=$(realpath "$commondir" 2>/dev/null) || commondir=""
+
+  # Candidate argv: host root read-only; private /dev /proc /tmp; the worktree
+  # and the agent's own state/git plumbing read-write. No --unshare-net.
+  local cand=(
+    bwrap
+    --ro-bind / /
+    --dev /dev
+    --proc /proc
+    --tmpfs /tmp
+    --bind "$WORKTREE" "$WORKTREE"
+    --bind-try "$cfg"   "$cfg"
+    --bind-try "$data"  "$data"
+    --bind-try "$cache" "$cache"
+    --bind-try "$state" "$state"
+  )
+  [ -n "$gitdir" ]    && cand+=( --bind-try "$gitdir"    "$gitdir" )
+  [ -n "$commondir" ] && cand+=( --bind-try "$commondir" "$commondir" )
+
+  # Pre-flight probe: if bwrap can't construct the namespace here (e.g. no
+  # user-namespaces, restrictive container), degrade rather than fail — do NOT
+  # exit 2 and do NOT burn an opencode retry.
+  if ! "${cand[@]}" -- true >/dev/null 2>&1; then
+    echo "local-agent: bwrap probe failed — degrading to best-effort --dir." >&2
+    return 0
+  fi
+  SANDBOX=( "${cand[@]}" )
+}
+build_sandbox
+
 # ---- Invoke the local agent -------------------------------------------------
 # `opencode run --dir <worktree> "<brief>"` — brief is the single positional
 # argument. Nothing else (no memory DB path, cortex file, or credential) is
 # appended: the brief is the local agent's SOLE context (SPEC-019).
+#
+# When SANDBOX is non-empty the call is bwrap-wrapped (FS confinement above);
+# the ${SANDBOX[@]+...} guard keeps an EMPTY array safe under `set -u`.
 #
 # Run under `set +e` so a non-zero opencode exit does not abort the wrapper via
 # `set -e` before we record metrics. Diagnostics from opencode go to stderr;
@@ -201,7 +274,7 @@ fi
 # (the result payload, if any, is the machine-check outcome — not opencode's
 # chatter).
 set +e
-opencode run --dir "$WORKTREE" "$BRIEF" >&2
+${SANDBOX[@]+"${SANDBOX[@]}"} opencode run --dir "$WORKTREE" "$BRIEF" >&2
 OC_RC=$?
 set -e
 
