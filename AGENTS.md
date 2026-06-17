@@ -188,6 +188,13 @@ explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"
 - No build step — this is a pure markdown/JSON plugin
 - Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/scaffold-project` emits for interactive use; `/init-team`, via `project-init`, sets the `Bash(*)` wildcard — the sandbox is the boundary — and syncs the sandbox network allowlist)
 
+## Local-Agent Offload (OPT-IN)
+
+Setting `LOCAL_AGENT=opencode` enables offloading mechanical/machine-verifiable work
+to a local model via `skills/local-agent/run.sh`. **Off by default** — unset, all
+work is done by Claude as usual. PR1 ships the standalone wrapper only; orchestrated
+routing is a later phase (PR2). Governing spec: `specs/core/SPEC-019-local-agent-offload-via-opencode.md`.
+
 ## What NOT to Do
 
 - Do not commit `.claude/settings.local.json` or `.claude/context/`
