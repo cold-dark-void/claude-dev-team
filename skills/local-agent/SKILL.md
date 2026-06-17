@@ -14,7 +14,8 @@ the caller falls back to the Claude executor — output is indistinguishable fro
 Claude-only run.
 
 Implements the SPEC-019 PR1 "scriptable subset". Orchestrator routing, Claude
-diff-review, 2-attempt escalation, and OS-level leash enforcement are PR2.
+diff-review, and 2-attempt escalation were delivered in PR2 (CDV-20). The OS-enforced
+bubblewrap FS leash was delivered in CDV-21.
 
 ## Purpose
 
@@ -80,18 +81,47 @@ with one stderr notice.
 Stdout carries only the result payload; **all diagnostics go to stderr**. Stdout is
 empty on any non-zero exit. (Matches `worktree-lib.sh` / `ci-watch` stdout discipline.)
 
-## Leash (best-effort, NOT OS-enforced)
+## Leash (OS-enforced when available)
 
-The local agent runs with its working directory set to the ticket worktree
-(`opencode run --dir <worktree>`) and relies on OpenCode's own
-permission/provider configuration to bound tool actions and network egress to
-the configured model endpoint. This is **convention-level confinement, not
-OS-enforced isolation**.
+When `bwrap` is present on PATH and `LOCAL_AGENT_SANDBOX` is not set to `0`, the
+`opencode run` call runs inside a **bubblewrap FS sandbox** with the following
+bind-set:
 
-**Residual risk:** a misconfigured or adversarial local model could in principle
-write outside the worktree or reach other hosts. PR1 accepts this risk for an
-opt-in, user-controlled feature. Hard OS-level enforcement (filesystem scope via
-bubblewrap/seccomp, egress allowlist) is a future ticket (PR2/SPEC-019-follow-up).
+| Mount | Mode | Purpose |
+|-------|------|---------|
+| `--ro-bind / /` | read-only | Full host FS as base layer; blocks all writes by default |
+| `--dev /dev` | private | Private device namespace |
+| `--proc /proc` | private | Private proc namespace |
+| `--tmpfs /tmp` | private tmpfs | Ephemeral scratch; discarded after the call |
+| `--bind <worktree> <worktree>` | read-write | Primary write target |
+| `--bind-try <gitdir> <gitdir>` | read-write | Resolved `.git` dir (a worktree's `.git` file points outside the worktree; must be writable or git ops fail) |
+| `--bind-try <git-common-dir> <git-common-dir>` | read-write | Shared object store, packed-refs, etc. |
+| `--bind-try <XDG_CONFIG_HOME/opencode> <path>` | read-write | OpenCode config dir |
+| `--bind-try <XDG_DATA_HOME/opencode> <path>` | read-write | OpenCode data dir |
+| `--bind-try <XDG_CACHE_HOME/opencode> <path>` | read-write | OpenCode cache dir |
+| `--bind-try <XDG_STATE_HOME/opencode> <path>` | read-write | OpenCode state dir |
+
+**Confinement scope:** worktree + git plumbing (gitdir + git-common-dir) + opencode
+state dirs. This is NOT worktree-leaf-only: a git worktree's `.git` is a pointer
+file outside the worktree itself, so the gitdir and common-dir must be writable or
+git operations fail inside the sandbox.
+
+**Scope boundary:** the sandbox wraps ONLY the `opencode run` call. The
+caller-supplied `--check` runs **unconfined on the host** — it is trusted
+verification code that requires full git plumbing access.
+
+**Network NOT enforced:** no `--unshare-net` is applied. Restricting egress via an
+allowlist is a separate future ticket. This sandbox provides FS-scope isolation only.
+
+**Graceful degradation:** when `bwrap` is absent from PATH, `LOCAL_AGENT_SANDBOX=0`
+is set, or the `bwrap` pre-flight probe fails, the wrapper emits a one-line downgrade
+notice to stderr and falls back to convention-level `--dir` confinement (the `opencode
+run --dir <worktree>` working-directory bound from PR1). The exit-code contract
+(`0`/`1`/`2`/`64`) is unchanged in all modes.
+
+**Escape hatch:** set `LOCAL_AGENT_SANDBOX=0` to explicitly bypass the bubblewrap
+leash and run with `--dir`-only confinement (useful for environments where `bwrap`
+is installed but namespaces are restricted, e.g. some container runtimes).
 
 The wrapper issues no git write commands; the local agent cannot commit, push, or
 tag via the wrapper.
@@ -158,14 +188,12 @@ jq-guarded: if `jq` is absent, the script exits `0` silently (no record written)
 Best-effort and non-fatal: any internal failure returns `0`. Only usage errors
 (wrong argument count) exit `64`.
 
-## PR2 deferral
+## Delivery history
 
-This skill ships the standalone wrapper only. The following are PR2:
-
-- Orchestrator routing (per-task eligibility check, brief composition)
-- Claude diff-review loop
-- 2-attempt escalation to the Claude executor
-- OS-level leash enforcement (bubblewrap/seccomp + egress allowlist)
+- **PR1** — standalone wrapper: `run.sh`, `SKILL.md`, metrics schema
+- **PR2 (CDV-20)** — orchestrator routing, Claude diff-review loop, 2-attempt escalation,
+  `emit-orch-metric.sh`
+- **CDV-21** — bubblewrap FS-scope leash (this section); egress allowlist remains backlog
 
 ## Cross-references
 

@@ -6,13 +6,13 @@
 
 **Covers**: `skills/local-agent/run.sh`, `skills/local-agent/SKILL.md`, `skills/local-agent/emit-orch-metric.sh`, `skills/orchestrate/SKILL.md`, `skills/standup/SKILL.md`, `AGENTS.md`
 
-**Delivery split:** **PR1 (this reconcile)** delivers the *scriptable subset* — the
+**Delivery split:** **PR1 (initial reconcile)** delivers the *scriptable subset* — the
 `skills/local-agent/run.sh` subprocess CLI, its `SKILL.md` contract, the metrics file, and
-the `AGENTS.md` tool-offload note. **PR2 (separate later ticket)** delivers the
-orchestrator wiring (`skills/orchestrate/`): per-task routing, the Claude diff-review loop,
-2-attempt escalation, and OS-level leash enforcement. MUST/MUST-NOT clauses below that
-describe routing, review, escalation, or council/TDD gating define the *target system* and
-are realized in PR2; PR1 provides the leaf primitive they call.
+the `AGENTS.md` tool-offload note. **PR2 (CDV-20)** delivers the orchestrator wiring
+(`skills/orchestrate/`): per-task routing, the Claude diff-review loop, and 2-attempt
+escalation. **CDV-21** delivers the bubblewrap FS-scope leash. MUST/MUST-NOT clauses below
+that describe routing, review, escalation, or council/TDD gating define the *target system*
+and are realized in PR2; PR1 provides the leaf primitive they call.
 
 ## Overview
 
@@ -85,25 +85,45 @@ one-line forward-reference to this spec when next revised.
   brief is its sole context.
 - MUST set the subprocess working directory to the ticket worktree.
 
-### Execution isolation (leash — best-effort)
+### Execution isolation (leash — OS-enforced when available)
 
-- MUST apply a **best-effort leash**: run with the working directory set to the ticket
-  worktree (`opencode run --dir <worktree>`) and rely on OpenCode's own
-  permission/provider configuration to bound tool actions and network egress to the
-  configured model endpoint. This is **convention-level confinement, not OS-enforced
-  isolation**.
-- **Documented residual risk:** the wrapper does NOT spawn OpenCode inside an OS sandbox
-  (bubblewrap/seccomp/namespaces). A misconfigured or adversarial local model *could* in
-  principle write outside the worktree or reach other hosts. PR1 accepts this residual
-  risk for an opt-in, user-controlled feature and surfaces it in `SKILL.md`. Hard
-  OS-level enforcement (writes fs-scoped to the worktree, egress allowlist) is a **future
-  ticket (PR2/SPEC-019-follow-up)** and is explicitly out of PR1 scope.
+- MUST apply a **bubblewrap FS leash** when `bwrap` is present on PATH: the `opencode run`
+  call MUST be wrapped in `bwrap` with the following bind-set:
+  - `--ro-bind / /` — read-only view of the full host FS as the base layer
+  - `--dev /dev` — private device namespace
+  - `--proc /proc` — private proc namespace
+  - `--tmpfs /tmp` — private tmpfs (ephemeral scratch)
+  - `--bind <worktree> <worktree>` — worktree read-write (the primary write target)
+  - `--bind-try <gitdir> <gitdir>` — resolved `.git` dir read-write (a git worktree's
+    `.git` file points outside the worktree; without this bind, git operations that write
+    refs, index, or ORIG_HEAD fail)
+  - `--bind-try <git-common-dir> <git-common-dir>` — resolved git common dir read-write
+    (shared object store, packed-refs, etc.)
+  - `--bind-try <XDG_CONFIG_HOME/opencode> <path>` — opencode config dir read-write
+  - `--bind-try <XDG_DATA_HOME/opencode> <path>` — opencode data dir read-write
+  - `--bind-try <XDG_CACHE_HOME/opencode> <path>` — opencode cache dir read-write
+  - `--bind-try <XDG_STATE_HOME/opencode> <path>` — opencode state dir read-write
+  - NO `--unshare-net` — network is **not** restricted by this leash (see Network note
+    below).
+- **Confinement scope:** the sandbox grants write access to the **worktree + its git
+  plumbing (gitdir + git-common-dir) + opencode state dirs**. It is NOT worktree-leaf-only:
+  a git worktree's `.git` is a file pointing outside the worktree, so the gitdir and
+  common-dir must be writable or all git operations fail inside the sandbox.
+- **Scope boundary MUST:** the `bwrap` leash wraps **only** the `opencode run` call. The
+  caller-supplied `--check` runs **unconfined on the host** (trusted verification code that
+  needs full git plumbing access).
+- **Network NOT enforced here:** restricting egress via an allowlist is a SEPARATE future
+  ticket. The sandbox provides FS-scope isolation only; network access remains unrestricted
+  in this version.
+- **Graceful degradation MUST:** when `bwrap` is absent from PATH, `LOCAL_AGENT_SANDBOX=0`
+  is set, OR the `bwrap` pre-flight probe fails, the wrapper MUST fall back to the PR1
+  best-effort `--dir` confinement (convention-level only) and emit a one-line downgrade
+  notice to stderr. The exit-code contract (`0`/`1`/`2`/`64`) is unchanged in all modes.
 - The CALLER obtains the worktree via `skills/worktree-lib.sh` per SPEC-016 and passes the
   resolved path as `--worktree <path>` to the wrapper; the wrapper itself does NOT call
   `worktree-lib.sh` (subprocess-CLI separation per SPEC-016).
 - MUST NOT grant the local agent authority to commit, push, or tag (the wrapper issues no
-  git write commands); out-of-worktree writes are discouraged by `--dir` but not
-  hard-prevented in PR1 (see residual risk above).
+  git write commands).
 
 ### Verification & review loop
 
@@ -302,8 +322,7 @@ for each unblocked task:
 - ~~Liveness probe command.~~ **Resolved:** `opencode --version`.
 - ~~Worktree source for the wrapper.~~ **Resolved:** caller passes `--worktree <path>`;
   wrapper does not call `worktree-lib.sh` (SPEC-016 subprocess-CLI separation).
-- **Backlog (PR2):** OS-level leash enforcement (bubblewrap/seccomp fs-scope + egress
-  allowlist) to replace PR1's best-effort `--dir` confinement.
+- **Delivered (CDV-21):** FS-scope leash via bubblewrap; egress allowlist still backlog.
 
 ## Version History
 
@@ -314,6 +333,7 @@ for each unblocked task:
 | 2026-06-16 | Metrics-schema adjudication (CDV-19-1 review, DRAFT). **Fixed conceptual error**: prior text conflated `saved_est_tokens` (estimate of *Claude* tokens saved) with the measured local cost. Canonical PR1 record is now `{ ts, outcome, exit_code, saved_est_tokens, spent_tokens }`: `saved_est_tokens` = Claude-tokens-saved estimate = `null` in PR1 (orchestrator-owned, deferred to PR2); `spent_tokens` = measured local OpenCode cost (or `null`), explicitly NOT a Claude cost. Marked `ticket` and `spent_review_escalation` as PR2-only additions (the wrapper has no ticket id and review/escalation runs in `skills/orchestrate/`). Updated Configuration metrics line. Status stays DRAFT. |
 | 2026-06-16 | PR2 design active (CDV-20, DRAFT held). Resolved 5 PR2 ambiguities as ADRs inline: **AMB-1** machine-check home = `Machine-check: <expr>`/`none` prose line in the Step-7 `TaskCreate` description (no `task-store.sh` schema change; missing/`none` ⇒ route Claude). **AMB-3** metrics = `run.sh` frozen (no new flags); orchestrator appends a **companion** JSONL record `{ts, ticket, saved_est_tokens, spent_review_escalation}` to the same `metrics.jsonl` via a new `jq`-guarded helper `skills/local-agent/emit-orch-metric.sh`; wrapper line unchanged (`saved_est_tokens: null`). **AMB-2** `saved_est_tokens` = documented conservative constant per task type (impl≈8000, discovery≈3000, docs≈2000), labeled ESTIMATE not measured; `0` on escalation. **AMB-5** two distinct caps (local-iteration cap=2 on exit 1, Claude-reviewed cap=2 on exit-0 diff-review reject), both → escalate to Claude executor with partial diff; implemented as a **dedicated scoped offload-review sub-block**, not a Step-9 rewrite. **AMB-4** orchestrator routing = additive-only fork immediately before the Step-8 spawn fence; the existing Claude-IC spawn template is the literal untouched `else`/fallback. Forbidden-agent guard (tech-lead/ic5/qa-gate/council judge+investigators/PM/release) hard-gated on `Recommended agent`. Status held DRAFT — the DRAFT→ACTIVE flip is the final post-QA task (AC-22). |
 | 2026-06-16 | PR2 landed (CDV-20): orchestrate routing fork + offload-review loop + companion metrics (`emit-orch-metric.sh`) + standup surface implemented and passed QA; status DRAFT→ACTIVE. |
+| 2026-06-17 | CDV-21: Upgraded execution isolation from best-effort `--dir` leash to OS-enforced bubblewrap FS leash. New bind-set: `--ro-bind / /`, `--dev`/`--proc`/`--tmpfs /tmp`, `--bind` worktree rw, `--bind-try` gitdir + git-common-dir rw, `--bind-try` four XDG opencode state dirs rw; no `--unshare-net` (egress allowlist is separate future ticket). Confinement scope: worktree + git plumbing + opencode state. `--check` runs unconfined on host. Graceful degradation: absent bwrap / `LOCAL_AGENT_SANDBOX=0` / probe failure → falls back to `--dir` confinement + stderr downgrade notice; exit-code contract unchanged. FS-leash backlog item closed; egress allowlist remains backlog. |
 
 ## Cross-references
 
