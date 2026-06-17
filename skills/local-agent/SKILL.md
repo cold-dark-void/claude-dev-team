@@ -26,8 +26,9 @@ machine-check as Claude-authored work. The feature is invisible when off.
 
 ```
 skills/local-agent/
-├── SKILL.md   (this file)
-└── run.sh     subprocess CLI — the PR1 leaf primitive
+├── SKILL.md              (this file)
+├── run.sh                subprocess CLI — the PR1 leaf primitive
+└── emit-orch-metric.sh   subprocess CLI — PR2 companion metrics helper
 ```
 
 ## Opt-in flag
@@ -120,6 +121,42 @@ changes the wrapper's exit code).
 id; `run.sh` is invoked without one) and `spent_review_escalation` (Claude tokens
 spent on diff review + escalation, which occur in `skills/orchestrate/`, not in
 the wrapper).
+
+These PR2 fields are **not** emitted by `run.sh` (which is frozen at its 5-key PR1
+record). They are emitted by `emit-orch-metric.sh` — a separate companion CLI the
+orchestrator calls after completing diff-review and escalation accounting.
+
+## PR2 companion metrics: emit-orch-metric.sh
+
+```
+emit-orch-metric.sh <ticket> <saved_est_tokens|null> <spent_review_escalation|null>
+```
+
+**THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.**
+
+Appends one JSONL record to `.claude/local-agent/metrics.jsonl` per orchestrator
+run, capturing the PR2-owned fields that `run.sh` cannot know:
+
+**PR2 companion record schema**:
+
+```json
+{ "ts": 1718500000, "ticket": "CDV-20", "saved_est_tokens": 8000, "spent_review_escalation": 0 }
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ts` | integer | Epoch seconds. |
+| `ticket` | string | Ticket identifier (orchestrator-owned). |
+| `saved_est_tokens` | number \| null | Orchestrator estimate of Claude tokens saved by local-agent offload. `null` when not available. |
+| `spent_review_escalation` | number \| null | Claude tokens spent on diff-review + escalation in the orchestrator. `null` when not applicable. |
+
+Arguments `<saved_est_tokens>` and `<spent_review_escalation>` are passed as raw
+JSON values — pass a number or the literal word `null`. They are forwarded via
+`--argjson` so they serialize as JSON numbers/null, never as strings.
+
+jq-guarded: if `jq` is absent, the script exits `0` silently (no record written).
+Best-effort and non-fatal: any internal failure returns `0`. Only usage errors
+(wrong argument count) exit `64`.
 
 ## PR2 deferral
 

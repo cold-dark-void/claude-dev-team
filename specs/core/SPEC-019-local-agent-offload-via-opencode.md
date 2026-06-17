@@ -1,10 +1,10 @@
 # SPEC-019: Local-Agent Offload via OpenCode
 
-**Status**: DRAFT
+**Status**: ACTIVE
 **Category**: core
 **Created**: 2026-06-16
 
-**Covers** (planned): `skills/local-agent/` (wrapper script), `skills/orchestrate/SKILL.md` (routing hook), config surface (opt-in flag), `AGENTS.md` (tool-offload note)
+**Covers**: `skills/local-agent/run.sh`, `skills/local-agent/SKILL.md`, `skills/local-agent/emit-orch-metric.sh`, `skills/orchestrate/SKILL.md`, `skills/standup/SKILL.md`, `AGENTS.md`
 
 **Delivery split:** **PR1 (this reconcile)** delivers the *scriptable subset* — the
 `skills/local-agent/run.sh` subprocess CLI, its `SKILL.md` contract, the metrics file, and
@@ -62,6 +62,12 @@ one-line forward-reference to this spec when next revised.
   the task is mechanical AND (b) a deterministic machine-check exists for it (tests,
   lint, `bash -n`, JSON-validate, or build). If no machine-check exists, MUST route to
   Claude.
+  - **PR2 realization (machine-check home = prose-field, ADR AMB-1):** the orchestrator
+    carries the per-task machine-check as a `Machine-check: <shell-expr>` line in the
+    Step-7 `TaskCreate` description (mirroring the existing `Recommended agent:` prose
+    line) — NOT a `task-store.sh` schema field (schema persistence is a later concern).
+    The string is threaded verbatim into `run.sh --check`. A missing `Machine-check:`
+    line, or the literal value `none`, MUST route the task to Claude.
 - MUST use a **static per-agent eligibility set** for this version (the three types
   above). Capability-tier routing and runtime-orchestrator routing are out of scope (see
   Open Questions).
@@ -105,6 +111,19 @@ one-line forward-reference to this spec when next revised.
   check is a caller-supplied shell string executed via `bash -c "$CHECK"` (never `eval`),
   run **after** the `opencode run` invocation. Exit 0 ⇒ pass, non-zero ⇒ fail.
   Local iterations against the machine-check do NOT consume Claude review tokens.
+- **PR2 realization — two distinct caps (ADR AMB-5).** The loop has two independent
+  attempt counters, both capped at 2, both inheriting SPEC-009's "stuck after 2 → escalate":
+  - **Local-iteration cap (machine-check, `run.sh` exit 1):** on a machine-check failure
+    the orchestrator re-calls `run.sh` with the failure folded into the brief, capped at
+    **2 local attempts**. These iterations cost **no Claude tokens**. Cap exhausted ⇒
+    escalate to the Claude executor.
+  - **Claude-reviewed cap (diff review, `run.sh` exit 0):** a successful machine-check
+    triggers a Claude diff review. On reject, the orchestrator folds the review feedback
+    into the brief and re-calls `run.sh`, capped at **2 Claude-reviewed attempts**. On the
+    second rejected review ⇒ escalate to the Claude executor.
+  - The orchestrator MUST implement these as a **dedicated scoped offload-review sub-block**
+    in `skills/orchestrate/SKILL.md`, NOT a rewrite of the Step-9 Tech-Lead review loop
+    (protects the central-file LOC budget per SPEC-009).
 - MUST require Claude to review the resulting diff before the change is accepted — the
   same bar applied to Claude-authored work (reuse SPEC-010 / council `diff-mode` where
   applicable).
@@ -159,6 +178,25 @@ one-line forward-reference to this spec when next revised.
   ticket id; `run.sh` is invoked without one) and `spent_review_escalation` (Claude tokens
   spent on diff review + escalation, which occur in `skills/orchestrate/`, not in the
   wrapper). PR2 appends these without breaking the PR1 keys above.
+  - **PR2 realization — companion record (ADR AMB-3).** `run.sh` STAYS FROZEN: PR2 adds NO
+    flags to the wrapper and does NOT rewrite the wrapper's emitted line. Instead the
+    orchestrator appends a **separate companion JSONL record** to the same
+    `.claude/local-agent/metrics.jsonl`, keyed by `ticket` + `ts` (correlatable to the
+    wrapper's record by `ts` proximity), carrying
+    `{ ts, ticket, saved_est_tokens, spent_review_escalation }`. This companion-emit is the
+    only scriptable PR2 artifact — a small `jq`-guarded bash helper
+    (`skills/local-agent/emit-orch-metric.sh`), `bash -n`-clean and emitting valid JSONL.
+    The wrapper's own record continues to carry `saved_est_tokens: null` (PR1 contract,
+    unchanged); the **non-null** Claude-savings estimate lives ONLY on the companion record.
+  - **PR2 realization — `saved_est_tokens` method (ADR AMB-2).** The estimate is a
+    **documented conservative constant per eligible task type**, explicitly labeled an
+    ESTIMATE and never asserted as a measured value:
+    `ic4-class implementation ≈ 8000`, `discovery/search ≈ 3000`, `docs/boilerplate ≈ 2000`
+    Claude tokens saved (the authoring cost avoided by offloading). These are coarse
+    planning constants for manual eligibility-set tuning, NOT instrumented measurements;
+    the Validation "net-positive savings" gate treats them as estimates. On escalation
+    (offload abandoned), `saved_est_tokens` for that task is `0` — no Claude authoring cost
+    was avoided.
 - Metric writes MUST be guarded by `command -v jq`; with `jq` absent the wrapper skips the
   metrics append (best-effort, non-fatal) rather than failing the run.
 - MUST keep the metrics readable for **manual tuning** of the eligibility set. An
@@ -274,6 +312,8 @@ for each unblocked task:
 | 2026-06-16 | Initial version (DRAFT) — opt-in OpenCode offload of mechanical/verifiable work; static per-agent routing; per-task machine-check gate; direct-write + Claude diff review; 2-attempt cap inheriting SPEC-009; sandboxed/allowlisted leash; token-savings instrumentation. Conflict-scanned against SPEC-002/003/009/010/013/016 (no blockers; SPEC-003 model-tier coupling documented; inherited disciplines encoded as MUSTs). |
 | 2026-06-16 | Reconcile for CDV-19 PR1 (DRAFT). **Softened** the isolation MUST from OS-enforced sandbox/allowlist to a **best-effort `--dir` leash** + documented residual-risk note + forward-pointer to a PR2 OS-enforcement ticket. Pinned: env-var flag `LOCAL_AGENT=opencode` (exact match) with exit-2 fallback; invocation `opencode run --dir <worktree> "<brief>"` (flags verified on 1.17.4); caller-supplied machine-check via `bash -c "$CHECK"` (no `eval`); wrapper exit-code contract 0/1/2; metrics `.claude/local-agent/metrics.jsonl` (JSONL, `jq`-guarded) with stable schema (`saved_est_tokens` = measured-or-`null`, never `"unknown"`); liveness probe `opencode --version`; worktree passed as `--worktree <path>` (caller owns `worktree-lib.sh`, SPEC-016 separation). Added PR1/PR2 delivery split. Status stays DRAFT. |
 | 2026-06-16 | Metrics-schema adjudication (CDV-19-1 review, DRAFT). **Fixed conceptual error**: prior text conflated `saved_est_tokens` (estimate of *Claude* tokens saved) with the measured local cost. Canonical PR1 record is now `{ ts, outcome, exit_code, saved_est_tokens, spent_tokens }`: `saved_est_tokens` = Claude-tokens-saved estimate = `null` in PR1 (orchestrator-owned, deferred to PR2); `spent_tokens` = measured local OpenCode cost (or `null`), explicitly NOT a Claude cost. Marked `ticket` and `spent_review_escalation` as PR2-only additions (the wrapper has no ticket id and review/escalation runs in `skills/orchestrate/`). Updated Configuration metrics line. Status stays DRAFT. |
+| 2026-06-16 | PR2 design active (CDV-20, DRAFT held). Resolved 5 PR2 ambiguities as ADRs inline: **AMB-1** machine-check home = `Machine-check: <expr>`/`none` prose line in the Step-7 `TaskCreate` description (no `task-store.sh` schema change; missing/`none` ⇒ route Claude). **AMB-3** metrics = `run.sh` frozen (no new flags); orchestrator appends a **companion** JSONL record `{ts, ticket, saved_est_tokens, spent_review_escalation}` to the same `metrics.jsonl` via a new `jq`-guarded helper `skills/local-agent/emit-orch-metric.sh`; wrapper line unchanged (`saved_est_tokens: null`). **AMB-2** `saved_est_tokens` = documented conservative constant per task type (impl≈8000, discovery≈3000, docs≈2000), labeled ESTIMATE not measured; `0` on escalation. **AMB-5** two distinct caps (local-iteration cap=2 on exit 1, Claude-reviewed cap=2 on exit-0 diff-review reject), both → escalate to Claude executor with partial diff; implemented as a **dedicated scoped offload-review sub-block**, not a Step-9 rewrite. **AMB-4** orchestrator routing = additive-only fork immediately before the Step-8 spawn fence; the existing Claude-IC spawn template is the literal untouched `else`/fallback. Forbidden-agent guard (tech-lead/ic5/qa-gate/council judge+investigators/PM/release) hard-gated on `Recommended agent`. Status held DRAFT — the DRAFT→ACTIVE flip is the final post-QA task (AC-22). |
+| 2026-06-16 | PR2 landed (CDV-20): orchestrate routing fork + offload-review loop + companion metrics (`emit-orch-metric.sh`) + standup surface implemented and passed QA; status DRAFT→ACTIVE. |
 
 ## Cross-references
 
