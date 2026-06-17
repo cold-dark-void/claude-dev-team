@@ -38,6 +38,27 @@ Resolve the new version using these rules (first match wins):
 
 Version format: no `v` prefix in files, `v` prefix for git tag and changelog heading.
 
+### Feature-line versioning (multi-PR arcs)
+
+The auto-detect rule (`feat:` → minor) governs **independent** feature changes.
+When a planned feature ships across several sequential releases (a multi-PR arc
+tracked by a single spec), you **MAY** hold the entire arc under one minor line:
+
+- The **first** release in the arc opens the minor (e.g. SPEC-019 PR1 → 0.37.0).
+- Subsequent increments of the **same** arc take **patch** bumps via an explicit
+  `/release patch`, even though they add capability.
+- **Keep the `feat:` commit prefix** on those increments — the subject describes
+  the change honestly; the patch bump reflects the feature-line policy, not a
+  downgrade of the change to a fix. Do **not** relabel feature increments as `fix:`.
+- Because the commits are `feat:`, the no-args auto-detect would choose `minor`
+  (opening a new line). To stay on the current line you **must** pass `patch`
+  explicitly; passing nothing (`/release`) is also valid — it just opens a new
+  minor line instead.
+
+**Worked example** — SPEC-019 shipped entirely under the 0.37 line:
+`0.37.0` (PR1 wrapper) → `0.37.1` (PR2 orchestrate integration) →
+`0.37.2` (OS-leash) → `0.37.3` (/local-do), all `feat:`, all patches.
+
 ## Step 2: Generate changelog entry
 
 **Do NOT ask the user for a description.** Auto-generate it from the actual
