@@ -32,7 +32,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - MUST support optional file path argument to save review report; the engine still writes the canonical `.claude/council/<YYYY-MM-DD>-<slug>.md` report, and `/review-and-commit` copies that canonical file to the user-supplied path after the engine returns
 
 ### Release
-- MUST update all three files per SPEC-002 version sync rules: README.md changelog, plugin.json version, marketplace.json version — never skip any
+- MUST update all three files per SPEC-002 version sync rules: CHANGELOG.md changelog, plugin.json version, marketplace.json version — never skip any
 - MUST verify version strings are semantically identical across all three files before committing
 - MUST NOT proceed if no commits exist since last tag ("Nothing to release")
 - MUST auto-detect version bump: minor if any `feat:` commits since last tag, else patch
@@ -40,7 +40,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - MUST auto-generate changelog from git log (never ask user for description)
 - MUST exclude `chore: release` commits from changelog generation
 - MUST group related commits into single changelog bullets (not one line per commit)
-- MUST add new changelog section at top of `## Changelog` section in README.md
+- MUST add new changelog section at the top of the changelog in `CHANGELOG.md` (repo root), directly under the file header. The README MUST NOT carry changelog entries — only a pointer to `CHANGELOG.md`.
 - MUST run the managed-include drift-gate before committing/tagging a release: `python3 skills/agent-memory/sync-includes.py check`. If it exits non-zero, a managed `<!-- include: -->` region has drifted from its canonical partial — MUST NOT commit or tag; fix the drift (re-expand the region to match the partial) and re-run until it exits 0. Currently single-sourced regions: the agent-memory protocol expanded across the 7 agents (`skills/agent-memory/protocol.md`), and the shared tech-lead tiered-cortex load block in `/debug` and `/refactor` Step 0 (`skills/agent-memory/cortex-load.md`).
 - The drift-gate covers only managed-include regions (markers present). It does NOT cross-check AGENTS.md against the emitted consumer template — those are intentionally distinct documents (SPEC-005), with no managed-include relationship.
 
@@ -64,7 +64,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - [ ] Review of clean code produces no critical findings
 - [ ] Review of code with obvious bug produces critical finding with file:line
 - [ ] Release with no commits since tag reports "Nothing to release"
-- [ ] After release: plugin.json, marketplace.json, README.md versions match
+- [ ] After release: plugin.json, marketplace.json, CHANGELOG.md versions match
 
 ## Open Questions
 
@@ -82,6 +82,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 | 2026-04-09 | Taxonomy resolution: reframed findings schema as diff-mode preset emission of SPEC-013's `finding[]` output shape; clarified spec-grep runs at diff-mode intake feeding Phase 1 (not a pre-Phase-1 hook); clarified optional report path triggers a post-engine copy of the canonical council report; forbade diff-mode from invoking Phase 7 feedback memory; recorded engine invariants apply to findings as to verdicts. |
 | 2026-04-09 | Path drift fix: corrected flavor preset directory from `skills/dev-team:council/flavors/` to `skills/council/flavors/` (filesystem path carries no `dev-team:` namespace prefix). No behavioral change. |
 | 2026-06-13 | AUDIT-P1-1B: anchored the managed-include drift-gate (`sync-includes.py check`, shipped v0.32.0 in `skills/release/SKILL.md` Step 4.5) as a Release MUST — it was previously specced nowhere. Scoped it to managed-include regions only; clarified it does NOT cross-check AGENTS.md vs the emitted template (SPEC-005 distinctness). |
+| 2026-06-22 | Doc-IA pass: changelog target moved from `README.md` to a dedicated repo-root `CHANGELOG.md`. Release MUST now writes the new `### vX.Y.Z` section to `CHANGELOG.md` and the README only points to it. `skills/release/SKILL.md` Steps 2/3a/4/5 updated accordingly. |
 
 ## Cross-references
 
