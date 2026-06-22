@@ -2,6 +2,7 @@
 name: memory-distill
 description: Compress raw memories into digests and promote high-signal knowledge to core tier
 argument-hint: "[--agent <name>] [--status] [--force] [--skip-validate]"
+agent: build
 ---
 
 # /memory-distill

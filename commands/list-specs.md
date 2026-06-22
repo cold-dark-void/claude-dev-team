@@ -2,6 +2,7 @@
 name: list-specs
 description: Quick status overview of all specs — counts by category and status,
   recent changes, items needing attention. Usage /list-specs
+agent: build
 ---
 
 # Quick Spec Overview

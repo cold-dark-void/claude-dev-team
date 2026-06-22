@@ -2,6 +2,7 @@
 name: find-spec
 description: Search specs by keyword across titles, MUST requirements, overview,
   and test sections. Usage /find-spec <keyword>
+agent: build
 ---
 
 # Find Specs by Keyword

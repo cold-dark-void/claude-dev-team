@@ -20,10 +20,13 @@ commands/        # Single-file slash command definitions (.md)
 
 ## Release Rules — MUST follow on every commit
 
-Three files must have matching versions:
-1. `README.md` — add `### vX.Y.Z` section above previous version
+Three files must have matching versions (SPEC-002):
+1. `CHANGELOG.md` — add a `### vX.Y.Z` section at the top (newest first)
 2. `.claude-plugin/plugin.json` — `"version"` field
 3. `.claude-plugin/marketplace.json` — `"version"` field inside `plugins[]`
+
+`README.md` carries only a pointer to `CHANGELOG.md` — do NOT add version
+sections to it (the changelog was moved out of the README in v0.37.4).
 
 Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
 

@@ -2,6 +2,7 @@
 name: memory-config
 description: View and set memory configuration (distillation mode, threshold, model)
 argument-hint: list | set <key> <value>
+agent: build
 ---
 
 # /memory-config

@@ -1,13 +1,25 @@
 # Claude Dev Team
 
-A FAANG-style AI dev team plugin for [Claude Code](https://claude.ai/claude-code). Gives you seven specialized agents with persistent per-project memory, plus a full spec management workflow and project scaffolding — all wired together.
+A FAANG-style AI dev team plugin for [Claude Code](https://claude.ai/claude-code) and [opencode](https://opencode.ai). Gives you seven specialized agents with persistent per-project memory, plus a full spec management workflow and project scaffolding — all wired together.
 
 ## Install
+
+### Claude Code
 
 ```bash
 /plugin marketplace add cold-dark-void/claude-dev-team
 /plugin install dev-team
 ```
+
+### opencode
+
+```bash
+git clone https://github.com/cold-dark-void/claude-dev-team.git
+cd claude-dev-team
+bash install.sh
+```
+
+The opencode install script creates symlinks to `agents/` and `commands/` in your opencode config directory (`~/.config/opencode/`). Skills are added via `opencode.json` `skills.paths`.
 
 ## Documentation
 
@@ -54,6 +66,8 @@ for configuration and remote-embedding options.
 ## Commands
 
 Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glance:
+
+> **opencode**: Commands are namespaced under `/dev-team/` (e.g., `/dev-team/handoff`, `/dev-team/recall`). Claude Code uses the bare command name (e.g., `/handoff`, `/recall`).
 
 ### Setup (run once per project)
 
@@ -212,6 +226,8 @@ Extend for your stack by adding entries (`Bash(terraform:*)`, `Bash(kubectl:*)`,
 
 ## Adding to a Team
 
+### Claude Code
+
 The generated `.claude/settings.json` is gitignored, so to share the plugin with teammates,
 add the marketplace entry to a settings file you **do** commit:
 
@@ -224,6 +240,41 @@ add the marketplace entry to a settings file you **do** commit:
   }
 }
 ```
+
+### opencode
+
+For opencode, clone the repo and run `bash install.sh` to create symlinks in your opencode config directory. Commands are accessible as `/dev-team/<command-name>` (e.g., `/dev-team/handoff`, `/dev-team/recall`).
+
+For skills, add your clone's `skills/` directory to `opencode.json` (skills are
+**not** symlinked by `install.sh` — they are loaded in place from the clone):
+
+```json
+{
+  "skills": {
+    "paths": ["~/claude-dev-team/skills"]
+  }
+}
+```
+
+For teammates, add the plugin paths to `opencode.json`. Agents and commands resolve
+from the `install.sh` symlinks under `~/.config/opencode/`; skills still load from
+the clone's `skills/` directory:
+
+```json
+{
+  "skills": {
+    "paths": ["~/claude-dev-team/skills"]
+  },
+  "agents": {
+    "paths": ["~/.config/opencode/agents"]
+  },
+  "commands": {
+    "paths": ["~/.config/opencode/commands"]
+  }
+}
+```
+
+Note: opencode command names are namespaced as `/dev-team/<command>` (e.g., `/dev-team/handoff` instead of `/handoff`) to avoid conflicts with other plugins and opencode's built-in commands.
 
 ## /council
 
@@ -238,7 +289,8 @@ Contract: `specs/core/SPEC-013-adversarial-council-tribunal.md`.
 
 ## Requirements
 
-- Claude Code 2.x+
+- Claude Code 2.x+ (Claude Code install)
+- opencode 1.x+ (opencode install)
 - Git (for worktree-aware memory path resolution)
 - `sqlite3` recommended for the SQLite memory backend — agents fall back to `.md` files without it
 

@@ -3,6 +3,7 @@ name: create-spec
 description: Guided interview to create a new behavioral spec in specs/ — includes
   conflict scan against existing specs, category selection, and TDD.md index update.
   Usage /create-spec
+agent: build
 ---
 
 # Create New Specification

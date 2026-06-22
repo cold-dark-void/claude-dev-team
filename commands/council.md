@@ -8,6 +8,7 @@ description: |
   on a plan file to find unverified assumptions. Shares an engine with
   /review-and-commit (diff-mode preset).
 argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> [--task-id <id>]'
+agent: build
 ---
 
 # Council
