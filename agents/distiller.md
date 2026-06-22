@@ -2,6 +2,7 @@
 name: distiller
 description: Memory compression specialist. Reads raw memories, produces tier-1
   digests and evaluates tier-2 promotions. Invoked by /memory-distill only.
+tools: Bash, Read
 model: haiku
 mode: subagent
 ---

@@ -19,7 +19,7 @@ cd claude-dev-team
 bash install.sh
 ```
 
-The opencode install script creates symlinks to `agents/` and `commands/` in your opencode config directory (`~/.config/opencode/`). Skills are added via `opencode.json` `skills.paths`.
+The opencode install script symlinks `commands/` and generates opencode-valid agent files (Claude Code's string `tools:` field is stripped — opencode rejects it) into your opencode config directory (`~/.config/opencode/`). Re-run `bash install.sh` after editing an agent. Skills are added via `opencode.json` `skills.paths`.
 
 ## Documentation
 
@@ -243,7 +243,7 @@ add the marketplace entry to a settings file you **do** commit:
 
 ### opencode
 
-For opencode, clone the repo and run `bash install.sh` to create symlinks in your opencode config directory. Commands are accessible as `/dev-team/<command-name>` (e.g., `/dev-team/handoff`, `/dev-team/recall`).
+For opencode, clone the repo and run `bash install.sh` to install into your opencode config directory (commands are symlinked; agents are copied with the Claude Code `tools:` field stripped, since opencode rejects it — re-run after editing an agent). Commands are accessible as `/dev-team/<command-name>` (e.g., `/dev-team/handoff`, `/dev-team/recall`).
 
 For skills, add your clone's `skills/` directory to `opencode.json` (skills are
 **not** symlinked by `install.sh` — they are loaded in place from the clone):
