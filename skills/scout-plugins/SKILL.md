@@ -33,7 +33,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 ```
 
-- `$MROOT/README.md` — current feature set, commands, agents, changelog
+- `$MROOT/README.md` — current feature set, commands, agents (changelog lives in `$MROOT/CHANGELOG.md`)
 - `$MROOT/AGENTS.md` — project rules and conventions
 - `$MROOT/.claude-plugin/plugin.json` — current version
 

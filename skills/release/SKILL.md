@@ -1,7 +1,7 @@
 ---
 name: release
 description: |
-    Bump version across all required files (README.md changelog, plugin.json,
+    Bump version across all required files (CHANGELOG.md, plugin.json,
     marketplace.json), commit, tag, and push. Use when releasing any version of
     this plugin. Ensures all three version files stay in sync — never skips any
     of them.
@@ -70,7 +70,7 @@ committed history:
    - `git log $(git describe --tags --abbrev=0)..HEAD --oneline --no-merges` — anything already committed since the last tag (exclude `chore: release` commits)
 2. Read the actual diffs of changed files as needed to describe them accurately — do not infer from filenames alone.
 3. Write the changelog as a bulleted Markdown list — one `- **bold summary** — detail` line per meaningful change, grouping granular edits.
-4. Match the style of existing changelog entries in README.md (bold lead, concise but specific).
+4. Match the style of existing changelog entries in CHANGELOG.md (bold lead, concise but specific).
 
 If there are NO uncommitted changes AND no commits since the last tag, tell the
 user "Nothing to release — working tree clean and no commits since last tag" and stop.
@@ -79,12 +79,17 @@ user "Nothing to release — working tree clean and no commits since last tag" a
 
 **CRITICAL — all three must be updated. Never skip any.**
 
-### 3a. `README.md`
-Add a new `### vX.Y.Z` section at the top of the `## Changelog` section (above the previous version):
+### 3a. `CHANGELOG.md`
+Add a new `### vX.Y.Z` section at the top of the changelog — directly under the file's
+header block, above the previous version's section:
 ```markdown
 ### vX.Y.Z
 - <changelog entries>
 ```
+The changelog lives in `CHANGELOG.md`, **not** `README.md` — the README only carries a
+pointer to it. Do not re-add changelog entries to the README. (The README may still change
+in a release if you altered the command index or other front-page content; stage it as a
+normal source file in Step 5, not as the changelog target.)
 
 ### 3b. `.claude-plugin/plugin.json`
 Update `"version"` field to new version string.
@@ -95,7 +100,7 @@ Update `"version"` field inside the `plugins[]` array to new version string.
 ## Step 4: Verify all three match
 
 Read all three files and confirm the version string is identical in:
-- `README.md` changelog heading (`### vX.Y.Z`)
+- `CHANGELOG.md` changelog heading (`### vX.Y.Z`)
 - `.claude-plugin/plugin.json` `"version"` field
 - `.claude-plugin/marketplace.json` `"version"` field inside `plugins[]`
 
@@ -133,8 +138,8 @@ If it exits non-zero, a hook template emitted by `/init-orchestration` has drift
 Stage the version files **and the actual changed source files** — everything being
 released goes into a single commit:
 ```bash
-git add README.md .claude-plugin/plugin.json .claude-plugin/marketplace.json
-git add <the source files this release changes>   # e.g. agents/*.md, skills/**, commands/*.md
+git add CHANGELOG.md .claude-plugin/plugin.json .claude-plugin/marketplace.json
+git add <the source files this release changes>   # e.g. README.md, agents/*.md, skills/**, commands/*.md
 ```
 Then check `git status --short`: confirm nothing intended is left unstaged and that
 no unrelated/untracked files were swept in.
@@ -149,7 +154,7 @@ Co-Authored-By: Claude <Model> (1M context) <noreply@anthropic.com>
 - `feat:` for feature releases, `fix:` for fixes/hardening — match the bump from Step 1.
 - Em-dash (`—`) between version and summary, not a hyphen.
 - `<Model>` = the model doing the work, e.g. `Claude Opus 4.8 (1M context)`. Keep the `(1M context)` suffix to match this repo's history.
-- The README changelog carries the detail; the commit subject stays one line.
+- The CHANGELOG carries the detail; the commit subject stays one line.
 
 ## Step 6: Tag and push
 

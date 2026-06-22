@@ -12,9 +12,9 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
 
 ## MUST
 
-- MUST maintain three version-synced files: `plugin.json`, `marketplace.json`, and `README.md` changelog — all three MUST contain semantically identical versions (format may differ: `X.Y.Z` in JSON fields, `vX.Y.Z` in changelog headings and git tags)
+- MUST maintain three version-synced files: `plugin.json`, `marketplace.json`, and `CHANGELOG.md` — all three MUST contain semantically identical versions (format may differ: `X.Y.Z` in JSON fields, `vX.Y.Z` in changelog headings and git tags). The changelog lives in `CHANGELOG.md` (repo root); `README.md` carries only a pointer to it and is not a version-synced file.
 - MUST use semantic versioning (MAJOR.MINOR.PATCH) for all version fields
-- MUST use format: no `v` prefix in plugin.json/marketplace.json version fields, `v` prefix for git tags and README changelog headings
+- MUST use format: no `v` prefix in plugin.json/marketplace.json version fields, `v` prefix for git tags and `CHANGELOG.md` changelog headings
 - MUST include a `TaskCompleted` hook in `.claude/settings.json` that runs `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"`
 - MUST validate both `plugin.json` and `marketplace.json` as parseable JSON before allowing task completion (exit code 2 on failure)
 - MUST send hook error output to stderr, not stdout
@@ -159,7 +159,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 
 - [ ] `python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"` succeeds
 - [ ] `python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"` succeeds
-- [ ] Version in plugin.json == version in marketplace.json == version in README changelog (ignoring `v` prefix)
+- [ ] Version in plugin.json == version in marketplace.json == version in CHANGELOG.md changelog heading (ignoring `v` prefix)
 - [ ] `bash .claude/hooks/task-completed.sh` exits 0 with valid JSON files
 
 ## Open Questions
@@ -183,6 +183,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-06-14 | AUDIT-P0.12: TaskCompleted-hook registration command changed to the worktree-safe `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"` form (relative path fired from arbitrary agent cwd and failed inside worktrees). Direct test-checklist invocation (run from project root) stays relative. |
 | 2026-06-16 | CLUSTER-003/A5: extended the resolution-site table (11→15) to cover the subprocess-CLI helpers (worktree-lib/dag-lib/task-store/ci-watch scripts) invoked by orchestrate/wrap-ticket/standup/ci-watch. These previously used `$MROOT/skills/…` (the consumer's repo) and exited 127 on a real cache install; they now resolve through `plugin-dir.sh` like the engine/schema sites. The detached ci-watch cron prompt bakes in a `plugin-dir.sh`-resolved `<PLUGIN>` root at arming time. |
 | 2026-06-16 | Aligned the Stop-hook dedup MUST to the deployed keying: `stop-review.sh` stamps per (cwd-hash + short HEAD sha) and re-fires only when HEAD moves, not per session_id. Restated as "one reminder per project per HEAD commit". |
+| 2026-06-22 | Doc-IA pass: the changelog moved out of `README.md` into a dedicated repo-root `CHANGELOG.md`. The third version-synced file is now `CHANGELOG.md`, not the README; `README.md` carries only a pointer. `/release` (SPEC-010) updated to match. |
 
 ## Cross-references
 
