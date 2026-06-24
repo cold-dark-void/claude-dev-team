@@ -36,9 +36,6 @@ mkdir -p "$AGENT_DIR" "$CMD_DIR"
 # Commands: symlink unchanged (opencode accepts `agent: build` and $ARGUMENTS).
 ln -sf "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
 
-# Internal agents invoked by commands (not directly) — skip them
-INTERNAL_AGENTS="council-judge project-init distiller"
-
 # Discover available models from opencode.json (all providers, sorted)
 config_file="$OPCODE_DIR/opencode.json"
 if [ -f "$config_file" ]; then
@@ -47,13 +44,16 @@ if [ -f "$config_file" ]; then
     [ -n "$line" ] && available_models+=("$line")
   done < <(jq -r '[.provider | to_entries[] | .key as $prov | .value.models | to_entries[] | "\($prov)/\(.key)"] | unique | .[]' "$config_file" 2>/dev/null | sort)
 
-  if [ ${#available_models[@]} -gt 0 ] && ! $NON_INTERACTIVE; then
+  # Only prompt when there's an actual choice (>1 model). With 0 or 1 model
+  # there is nothing to switch, so fall through to inherit the session model.
+  if [ ${#available_models[@]} -gt 1 ] && ! $NON_INTERACTIVE; then
     echo "Available models in your opencode.json:"
     printf '  %s\n' "${available_models[@]}"
     echo ""
 
     # Ask for 3 model tiers: haiku (fast), sonnet (general), opus (complex)
     echo "Assign model tiers for the agent team:"
+    echo "(press Enter at any tier to leave those agents on the session model)"
     echo ""
     echo "  Haiku  (fast/simple tasks — ic4, qa):"
     for i in "${!available_models[@]}"; do
@@ -141,15 +141,12 @@ else
   echo ""
 fi
 
-# Strip tools: and model: from agent files (model assignments go in opencode.json)
+# Generate opencode-valid copies of ALL agents (strip tools: + model:).
+# Internal agents (council-judge/project-init/distiller) are installed too —
+# they're excluded only from the model-tier menu above (their model isn't
+# switched per-provider), so they inherit the session model.
 for f in "$SCRIPT_DIR"/agents/*.md; do
-  base=$(basename "$f")
-  is_internal=false
-  for ia in $INTERNAL_AGENTS; do
-    [ "$base" = "${ia}.md" ] && is_internal=true && break
-  done
-  if $is_internal; then continue; fi
-  grep -v -E '^\s*(tools|model):' "$f" > "$AGENT_DIR/$base"
+  grep -v -E '^\s*(tools|model):' "$f" > "$AGENT_DIR/$(basename "$f")"
 done
 
 echo "Installed claude-dev-team for opencode"
