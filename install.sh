@@ -21,10 +21,15 @@ OPCODE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 AGENT_DIR="$OPCODE_DIR/agents/dev-team"
 CMD_DIR="$OPCODE_DIR/commands"
 
-# Parse flags
-NON_INTERACTIVE=false
+# Parse flags. Default: agents inherit the session model (any prior dev-team
+# pins are cleared). --assign-models opts into the interactive per-tier picker.
+# --reset is an explicit alias for the default (clear pins → inherit).
+ASSIGN_MODELS=false
 for arg in "$@"; do
-  [ "$arg" = "--non-interactive" ] && NON_INTERACTIVE=true
+  case "$arg" in
+    --assign-models) ASSIGN_MODELS=true ;;
+    --reset)         ASSIGN_MODELS=false ;;
+  esac
 done
 
 # Remove any prior install (older symlink, or a previously generated dir)
@@ -39,10 +44,10 @@ ln -sf "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
 # Discover available models from opencode.json (all providers, sorted)
 config_file="$OPCODE_DIR/opencode.json"
 if [ -f "$config_file" ]; then
-  # Reset prior dev-team model pins so every run starts clean. Without this,
-  # --non-interactive / inherit (or leaving a tier blank) would leave stale
-  # assignments from an earlier interactive run in opencode.json. The
-  # interactive path below re-adds only the tiers you choose.
+  # Reset prior dev-team model pins so every run starts clean (default = inherit
+  # the session model). Without this, an inherit run would leave stale
+  # assignments from an earlier --assign-models run in opencode.json. The
+  # --assign-models path below re-adds only the tiers you choose.
   if command -v jq >/dev/null 2>&1; then
     reset_filter="."
     for a in ic4 qa devops pm tech-lead ic5 ds; do
@@ -56,9 +61,10 @@ if [ -f "$config_file" ]; then
     [ -n "$line" ] && available_models+=("$line")
   done < <(jq -r '[.provider | to_entries[] | .key as $prov | .value.models | to_entries[] | "\($prov)/\(.key)"] | unique | .[]' "$config_file" 2>/dev/null | sort)
 
-  # Only prompt when there's an actual choice (>1 model). With 0 or 1 model
-  # there is nothing to switch, so fall through to inherit the session model.
-  if [ ${#available_models[@]} -gt 1 ] && ! $NON_INTERACTIVE; then
+  # Prompt only when the user opted in (--assign-models), there's a real choice
+  # (>1 model), and we're on a TTY (so CI / piped installs never block). Every
+  # other case falls through to inherit the session model.
+  if $ASSIGN_MODELS && [ ${#available_models[@]} -gt 1 ] && [ -t 0 ]; then
     echo "Available models in your opencode.json:"
     printf '  %s\n' "${available_models[@]}"
     echo ""
@@ -141,15 +147,17 @@ if [ -f "$config_file" ]; then
     fi
     echo ""
   else
-    echo "Agents will inherit session model."
-    echo "To assign models later, edit opencode.json:"
-    echo '  "agent": { "pm": { "model": "provider/model-id" } }'
+    if $ASSIGN_MODELS && [ ${#available_models[@]} -le 1 ]; then
+      echo "Only one model available — nothing to assign; agents inherit the session model."
+    elif $ASSIGN_MODELS; then
+      echo "Not a TTY — skipping the model picker; agents inherit the session model."
+    else
+      echo "Agents inherit the session model (run with --assign-models to pin per-tier models)."
+    fi
     echo ""
   fi
 else
-  echo "No $config_file found — agents will inherit session model."
-  echo "To assign models later, edit opencode.json:"
-  echo '  "agent": { "pm": { "model": "provider/model-id" } }'
+  echo "No $config_file found — agents will inherit the session model."
   echo ""
 fi
 
@@ -170,7 +178,6 @@ echo "  \"skills\": { \"paths\": [\"$SCRIPT_DIR/skills\"] }"
 echo ""
 echo "Commands are accessible as /dev-team/<command-name> (e.g., /dev-team/handoff)"
 echo "Re-run 'bash install.sh' after editing an agent (agents are copied, not symlinked)."
-echo "To fine-tune model assignments later, edit opencode.json directly:"
-echo '  "agent": { "pm": { "model": "provider/model-id" } }'
-echo "Use 'bash install.sh --non-interactive' to skip model assignment prompt."
+echo "Models: agents inherit the session model by default."
+echo "  'bash install.sh --assign-models' pins models per tier; '--reset' clears pins (back to inherit)."
 echo "Uninstall: run 'bash uninstall.sh' in the claude-dev-team directory"
