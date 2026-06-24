@@ -39,6 +39,18 @@ ln -sf "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
 # Discover available models from opencode.json (all providers, sorted)
 config_file="$OPCODE_DIR/opencode.json"
 if [ -f "$config_file" ]; then
+  # Reset prior dev-team model pins so every run starts clean. Without this,
+  # --non-interactive / inherit (or leaving a tier blank) would leave stale
+  # assignments from an earlier interactive run in opencode.json. The
+  # interactive path below re-adds only the tiers you choose.
+  if command -v jq >/dev/null 2>&1; then
+    reset_filter="."
+    for a in ic4 qa devops pm tech-lead ic5 ds; do
+      reset_filter="$reset_filter | del(.agent[\"$a\"])"
+    done
+    jq "$reset_filter" "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+  fi
+
   available_models=()
   while IFS= read -r line; do
     [ -n "$line" ] && available_models+=("$line")
