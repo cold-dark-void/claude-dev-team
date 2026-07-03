@@ -2,6 +2,13 @@
 
 ## Pending
 
+- [Promote the p0-fix-workflow into the plugin as /fix-ticket](backlog/fix-ticket-workflow-promotion.md) - Ship the proven premise→impl→refuters workflow as a first-class command [PENDING]
+- [Rate-limit resilience for adversarial refuter fleets](backlog/refuter-rate-limit-resilience.md) - Formalize orchestrator self-verification fallback with explicit degraded-run marker [PENDING]
+- [/metrics — observability rollup command](backlog/metrics-rollup-command.md) - Rollup of local-agent metrics.jsonl, council verdicts, retro trends [PENDING]
+- [Fix retro-gate S3 false positives on draft-then-polish authoring](backlog/retro-gate-s3-draft-polish-false-positive.md) - Exclude same-session Write-then-Edit polish from the S3 edit-loop signal [PENDING]
+- [Scheduled autonomous /retro --all](backlog/scheduled-autonomous-retro.md) - Weekly cron retro with passive result delivery; pairs with notification sink [PENDING]
+- [Local-agent expansion: /debug + /refactor consumers, egress allowlist](backlog/local-agent-expansion.md) - Wire the two documented future consumers + bwrap network egress restriction [PENDING]
+
 - [Bootstrap skills — single-root anchoring](backlog/bootstrap-single-root-anchoring.md) - Anchor all .claude/ ops on one resolved project root; fixes subdir-invocation split in scaffold-project / init-orchestration (surfaced by AUDIT-P1-2) [PENDING]
 
 - [Handoff — deeper sidechain reconstruction](backlog/handoff-sidechain-reconstruction.md) - Preserve signal-bearing subagent sidechains (currently no-op) [PENDING]
