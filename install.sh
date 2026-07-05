@@ -32,14 +32,18 @@ for arg in "$@"; do
   esac
 done
 
-# Remove any prior install (older symlink, or a previously generated dir)
+# Remove any prior install (older symlink, or a previously generated dir).
+# rm -rf the command entry too — if a real directory somehow exists there,
+# `ln -sf` would create the link *inside* it ($CMD_DIR/dev-team/commands)
+# rather than replacing it.
 rm -rf "$OPCODE_DIR/agents/dev-team"
-[ -L "$CMD_DIR/dev-team" ] && rm -f "$CMD_DIR/dev-team"
+rm -rf "$CMD_DIR/dev-team"
 
 mkdir -p "$AGENT_DIR" "$CMD_DIR"
 
 # Commands: symlink unchanged (opencode accepts `agent: build` and $ARGUMENTS).
-ln -sf "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
+# -n so an existing symlink-to-dir is replaced, not dereferenced into.
+ln -sfn "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
 
 # Discover available models from opencode.json (all providers, sorted)
 config_file="$OPCODE_DIR/opencode.json"
@@ -54,6 +58,10 @@ if [ -f "$config_file" ]; then
       reset_filter="$reset_filter | del(.agent[\"$a\"])"
     done
     jq "$reset_filter" "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+  else
+    echo "Note: 'jq' not found — cannot read models or clear existing dev-team model pins in"
+    echo "      $config_file. Install jq to manage per-tier assignments; any existing pins are"
+    echo "      left untouched and agents otherwise inherit the session model."
   fi
 
   available_models=()
@@ -97,58 +105,78 @@ if [ -f "$config_file" ]; then
     # Build jq filter from tier assignments
     jq_filter="."
 
-    # Function to add a tier assignment to the filter
-    add_tier() {
-      local tier_name="$1"
-      local tier_idx="$2"
-
-      if [ -n "$tier_idx" ] && [[ "$tier_idx" =~ ^[0-9]+$ ]]; then
-        local idx=$((tier_idx - 1))
-        if [ "$idx" -ge 0 ] && [ "$idx" -lt ${#available_models[@]} ]; then
-          local model_id="${available_models[$idx]}"
-          local agent_name_escaped=$(echo "$tier_name" | sed 's/"/\\"/g')
-          local model_id_escaped=$(echo "$model_id" | sed 's/"/\\"/g')
-          jq_filter="$jq_filter | .agent[\"$agent_name_escaped\"] = {\"model\": \"$model_id_escaped\"}"
-        fi
+    # Resolve a 1-based menu index to a model ID. Prints the model on success;
+    # prints nothing for blank, non-numeric, or out-of-range input. This is the
+    # single validation point — the summary below reads the resolved values, so
+    # bad input (e.g. 0 → index -1 → bash wraps to the last element, or 99 →
+    # unbound index that crashes under `set -u`) can neither mis-report nor abort.
+    resolve_model() {
+      local raw="$1"
+      [[ "$raw" =~ ^[0-9]+$ ]] || return 0
+      local idx=$((raw - 1))
+      if [ "$idx" -ge 0 ] && [ "$idx" -lt ${#available_models[@]} ]; then
+        printf '%s' "${available_models[$idx]}"
       fi
     }
 
+    # Add one agent → model assignment to the jq filter (no-op if model is empty).
+    add_tier() {
+      local tier_name="$1"
+      local model_id="$2"
+      [ -n "$model_id" ] || return 0
+      local agent_name_escaped model_id_escaped
+      agent_name_escaped=$(printf '%s' "$tier_name" | sed 's/"/\\"/g')
+      model_id_escaped=$(printf '%s' "$model_id" | sed 's/"/\\"/g')
+      jq_filter="$jq_filter | .agent[\"$agent_name_escaped\"] = {\"model\": \"$model_id_escaped\"}"
+    }
+
+    haiku_model=$(resolve_model "$haiku_idx")
+    sonnet_model=$(resolve_model "$sonnet_idx")
+    opus_model=$(resolve_model "$opus_idx")
+
+    # Warn on non-empty input that didn't map to a real model.
+    warn_bad() {
+      if [ -n "$1" ] && [ -z "$2" ]; then
+        echo "  ⚠ $3: '$1' is not a valid choice (1-${#available_models[@]}) — those agents stay on the session model."
+      fi
+    }
+    warn_bad "$haiku_idx" "$haiku_model" "Haiku"
+    warn_bad "$sonnet_idx" "$sonnet_model" "Sonnet"
+    warn_bad "$opus_idx" "$opus_model" "Opus"
+
     # Map: Claude Code model tier → opencode agent name
     # haiku → ic4, qa (fast/simple)
-    add_tier "ic4" "$haiku_idx"
-    add_tier "qa" "$haiku_idx"
+    add_tier "ic4" "$haiku_model"
+    add_tier "qa" "$haiku_model"
     # sonnet → devops, pm (general)
-    add_tier "devops" "$sonnet_idx"
-    add_tier "pm" "$sonnet_idx"
+    add_tier "devops" "$sonnet_model"
+    add_tier "pm" "$sonnet_model"
     # opus → tech-lead, ic5, ds (complex)
-    add_tier "tech-lead" "$opus_idx"
-    add_tier "ic5" "$opus_idx"
-    add_tier "ds" "$opus_idx"
+    add_tier "tech-lead" "$opus_model"
+    add_tier "ic5" "$opus_model"
+    add_tier "ds" "$opus_model"
 
     # Apply filter
     jq "$jq_filter | .agent = (.agent // {})" "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
 
     echo "Added to opencode.json agent section:"
-    if [ -n "$haiku_idx" ] && [[ "$haiku_idx" =~ ^[0-9]+$ ]]; then
-      h_idx=$((haiku_idx - 1))
-      echo "  ic4 → ${available_models[$h_idx]}"
-      echo "  qa  → ${available_models[$h_idx]}"
+    if [ -n "$haiku_model" ]; then
+      echo "  ic4 → $haiku_model"
+      echo "  qa  → $haiku_model"
     fi
-    if [ -n "$sonnet_idx" ] && [[ "$sonnet_idx" =~ ^[0-9]+$ ]]; then
-      s_idx=$((sonnet_idx - 1))
-      echo "  devops → ${available_models[$s_idx]}"
-      echo "  pm     → ${available_models[$s_idx]}"
+    if [ -n "$sonnet_model" ]; then
+      echo "  devops → $sonnet_model"
+      echo "  pm     → $sonnet_model"
     fi
-    if [ -n "$opus_idx" ] && [[ "$opus_idx" =~ ^[0-9]+$ ]]; then
-      o_idx=$((opus_idx - 1))
-      echo "  tech-lead → ${available_models[$o_idx]}"
-      echo "  ic5       → ${available_models[$o_idx]}"
-      echo "  ds        → ${available_models[$o_idx]}"
+    if [ -n "$opus_model" ]; then
+      echo "  tech-lead → $opus_model"
+      echo "  ic5       → $opus_model"
+      echo "  ds        → $opus_model"
     fi
     echo ""
   else
     if $ASSIGN_MODELS && [ ${#available_models[@]} -le 1 ]; then
-      echo "Only one model available — nothing to assign; agents inherit the session model."
+      echo "Fewer than two models available — nothing to assign; agents inherit the session model."
     elif $ASSIGN_MODELS; then
       echo "Not a TTY — skipping the model picker; agents inherit the session model."
     else
