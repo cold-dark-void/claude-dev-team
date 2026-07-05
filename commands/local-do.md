@@ -1,6 +1,7 @@
 ---
 name: local-do
 description: Offload one mechanical, machine-verifiable task to the local model, review the result, and fall back to Claude if the local agent is unavailable or fails.
+agent: build
 ---
 
 # Local Do

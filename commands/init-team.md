@@ -4,6 +4,7 @@ description: Bootstrap all 7 agents' memory for the current project — initiali
   SQLite DB, downloads embedding extensions (~29MB), runs project-init scan, syncs
   permissions. Run once per project, safe to re-run. Flags --refresh, --migrate-only,
   --no-extensions.
+agent: build
 ---
 
 Perform SQLite memory setup, then use the project-init subagent to initialize the team's memory for the current project.
@@ -12,7 +13,7 @@ Note: project-init needs Read, Write, Bash, and Glob permissions. Run this in th
 
 ## Flag handling
 
-Parse flags from `$ARGS` (or the arguments passed to this command):
+Parse flags from `$ARGUMENTS` (or the arguments passed to this command):
 - `--refresh` — re-check embedding configuration, re-check extensions, re-run migration for any new .md files
 - `--migrate-only` — only run migration, skip everything else (DB init, extensions, project-init agent)
 - `--no-extensions` — skip binary download (for air-gapped setups where the user installs extensions manually)

@@ -4,6 +4,7 @@ description: Search across all agent memories — semantic (embeddings), keyword
   or grep (.md fallback). Shows which agents know what about a given subject.
 arguments: query text or --status flag
 argument-hint: <query> or --status
+agent: build
 ---
 
 # /memory-search

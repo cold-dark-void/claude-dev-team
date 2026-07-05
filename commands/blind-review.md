@@ -8,6 +8,7 @@ description: |
   validation. Use when you want adversarial multi-perspective coverage of a
   codebase, directory, or file set.
 argument-hint: "[--teams N] [--lenses security,contributor,spec] [--target <path>] [--no-council]"
+agent: build
 ---
 
 Thin wrapper — parse arguments then hand off to the skill.

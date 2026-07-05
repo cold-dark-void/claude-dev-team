@@ -2,6 +2,7 @@
 name: adjust-agent
 description: View and manage per-agent behavioral directives — standing orders that persist across sessions.
 argument-hint: "[<agent>] [--apply] [<prompt>]"
+agent: build
 ---
 
 # /adjust-agent

@@ -1,6 +1,7 @@
 ---
 name: tdd-gate
 description: Toggle hook-based TDD enforcement — blocks Write/Edit to implementation files when no corresponding test file exists. Usage /tdd-gate on, /tdd-gate off, /tdd-gate status
+agent: build
 ---
 
 # TDD Gate

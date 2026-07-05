@@ -20,10 +20,13 @@ commands/        # Single-file slash command definitions (.md)
 
 ## Release Rules — MUST follow on every commit
 
-Three files must have matching versions:
-1. `README.md` — add `### vX.Y.Z` section above previous version
+Three files must have matching versions (SPEC-002):
+1. `CHANGELOG.md` — add a `### vX.Y.Z` section at the top (newest first)
 2. `.claude-plugin/plugin.json` — `"version"` field
 3. `.claude-plugin/marketplace.json` — `"version"` field inside `plugins[]`
+
+`README.md` carries only a pointer to `CHANGELOG.md` — do NOT add version
+sections to it (the changelog was moved out of the README in v0.37.4).
 
 Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
 
@@ -180,6 +183,11 @@ explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"
 ## Code Conventions
 
 - Agent `.md` files require YAML frontmatter: `name`, `description`, `tools`, `model`
+  - **Keep `tools:` in these source files** — Claude Code needs it for per-agent tool
+    scoping (e.g. `council-judge` uses `tools: ""` to stay tool-less per SPEC-013).
+    opencode requires `tools:` to be an object and hard-errors on the string form, so
+    `install.sh` strips the `tools:` line when generating the opencode copies. Do NOT
+    remove `tools:` here to satisfy opencode — fix it in the install transform instead.
 - **All** command and skill `.md` files require YAML frontmatter: `name`, `description` — without it they won't appear in Claude Code's discovery/suggestion system
 - `commands/<name>.md` — user-invoked slash commands (single file)
 - `skills/<name>/SKILL.md` — multi-file skills needing supporting assets (scripts, schemas), or agent-internal protocols not directly user-invoked (e.g. `memory-store`, `memory-recall`)

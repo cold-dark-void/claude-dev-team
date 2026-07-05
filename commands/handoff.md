@@ -2,6 +2,7 @@
 name: handoff
 description: Session handoff — cold mode (/handoff <uuid>) reconstructs a past session from disk into a dense, pointer-bearing brief injected into the current session; warm mode (bare /handoff) captures the current live session into the same five-section brief written to .claude/handoff/<session-id>-<slug>.md. Never re-explain basics or re-propose dead ends after /compact, multiday, or multi-fork sessions.
 argument-hint: "[<session-uuid>] | --help"
+agent: build
 ---
 
 # /handoff
@@ -62,7 +63,7 @@ SHOW_USAGE=0     # 1 → print usage and exit 0
 WARM=0           # 1 → bare invocation (warm mode — Step 1b)
 UNKNOWN=""       # captured unknown flag, for the error message
 
-set -- $ARGS
+set -- $ARGUMENTS
 if [ "$#" -eq 0 ]; then
   WARM=1
 else

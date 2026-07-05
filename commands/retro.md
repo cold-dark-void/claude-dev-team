@@ -2,6 +2,7 @@
 name: retro
 description: Session retrospective — scan past sessions for friction patterns and propose targeted behavioral adjustments for team agents or plain Claude.
 argument-hint: "[<session-id>] [--all] [--auto] [--why]"
+agent: build
 ---
 
 # /retro
@@ -39,7 +40,7 @@ AUTO=0               # 1 if --auto present
 WHY=0                # 1 if --why present
 EXPLICIT_SID=""      # non-empty if a bare word (not starting with --) was given
 
-for arg in $ARGS; do
+for arg in $ARGUMENTS; do
   case "$arg" in
     --all)  MODE="all" ;;
     --auto) AUTO=1 ;;

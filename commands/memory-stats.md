@@ -1,6 +1,7 @@
 ---
 name: memory-stats
 description: Show memory usage statistics (counts, sizes, growth) — no content displayed
+agent: build
 ---
 
 # /memory-stats

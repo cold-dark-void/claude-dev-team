@@ -3,6 +3,7 @@ name: update-spec
 description: Modify an existing spec with version history — includes cross-spec
   conflict check and code alignment warning for changed requirements.
   Usage /update-spec or /update-spec SPEC-012
+agent: build
 ---
 
 # Update Existing Specification

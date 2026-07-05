@@ -4,6 +4,7 @@ description: Search all prior work by topic across sessions, memory, specs, plan
   and git history. Outputs claude --resume commands for matching sessions. Usage
   /recall [topic]
 argument-hint: [topic]
+agent: build
 ---
 
 # Work Recall

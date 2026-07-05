@@ -2,6 +2,7 @@
 name: validate-memory
 description: Cross-reference agent memories against the live codebase to detect stale references
 argument-hint: "[--agent <name>] [--deep] [--force]"
+agent: build
 ---
 
 # /validate-memory
