@@ -128,6 +128,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 | 2026-04-28 | Changed task store key from raw integer to compound `<ISSUE-ID>-<task_id>` (e.g. `CDV-QF-FILTER-1.json`) — `TaskCreate` integers reset to 1 for each new Claude process, causing cross-run collisions via upsert. Hook updated to fall back to `*-<task_id>.json` glob (most-recently-modified) when flat-key file not found. |
 | 2026-06-13 | Mirrored SPEC-003 MC-4: Kickoff/Orchestrate spawn templates MUST include `Output mode: terse`. Fixed the memory-file warn threshold — was "exceeds 150 lines", now "exceeds its SPEC-004 line limit (cortex 100/memory 50/lessons 80/context 60)", reconciling the conflict with SPEC-004:29 (AUDIT-P1-1). |
 | 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): replaced the stale 5-field task-store schema literal (no `depends_on`) with a pointer to SPEC-017's canonical 6-field schema; pointed standup READY-computation and wrap-ticket uncommitted-worktree MUSTs at their owners (SPEC-017 / SPEC-016). No behavioral change. |
+| 2026-07-14 | Cross-ref SPEC-028 (`/fix-ticket`); no behavioral change to orchestrate/kickoff/wrap-ticket. |
 
 ## Cross-references
 
@@ -138,3 +139,4 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - SPEC-004: Memory Storage — wrap-ticket writes learnings through storage layer
 - SPEC-013: Adversarial Council Tribunal — `requires_council: true` task metadata gates TaskCompleted on a council verdict
 - SPEC-002: Plugin Infrastructure — owns the TaskCompleted hook script; council gate logic must be implemented in `task-completed.sh` (cross-spec follow-up required)
+- SPEC-028: `/fix-ticket` premise→implement→adversarial-refuters — ticket-workflow family member; does not absorb orchestrate lifecycle, task store, or PR automation

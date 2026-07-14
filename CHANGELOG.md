@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.53.0
+- **SPEC-028 /fix-ticket premise→implement→refuters (CDV-197)**
+
 ### v0.52.0
 - **SPEC-024 memory seed packs (CDV-194)** — `/memory-export` writes sanitized tier-2 seed packs; `/init-team` Step 5.5 non-blocking import with content-hash dedupe; gitignore carve-out for `.claude/memory/seed/`; SPEC-005/007 forward refs
 

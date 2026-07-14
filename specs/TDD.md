@@ -29,6 +29,7 @@
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 | SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory-export.md, commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
 | SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped), commands/local-do.md |
+| SPEC-028 | `/fix-ticket` Premise → Implement → Adversarial Refute | ACTIVE | commands/fix-ticket.md, skills/fix-ticket/SKILL.md, skills/fix-ticket/workflow.js, docs/commands/fix-ticket.md |
 
 ## Version History
 
@@ -61,3 +62,4 @@
 | 2026-07-14 | SPEC-026 path-cherry-picked + OQ locks (CDV-185): outcomes ledger + advisory routing; status DRAFT→ACTIVE. |
 | 2026-07-14 | SPEC-022 implemented (CDV-191): `/doctor` install/config diagnostics (`doctor.sh` + command); status DRAFT→ACTIVE. |
 | 2026-07-14 | SPEC-024 implemented (CDV-194): memory seed packs — `/memory-export` + init-team import; status DRAFT→ACTIVE. |
+| 2026-07-14 | SPEC-028 renumbered from colliding SPEC-025 (CDV-197): `/fix-ticket` workflow; CDV-192 owns SPEC-025 for `/epic`. |

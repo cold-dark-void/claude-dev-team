@@ -37,6 +37,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 |---------|------|---------|
 | `/brainstorm` | [brainstorm](commands/brainstorm.md) | Socratic design refinement before planning |
 | `/debug` | [debug](commands/debug.md) | Phase-gated bug workflow (`patch`, `arch` subcommands) |
+| `/fix-ticket` | [fix-ticket](commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket |
 | `/refactor` | [refactor](commands/refactor.md) | Design-first restructuring, behavior-preserving (`inline`) |
 | `/kickoff` | [kickoff](commands/kickoff.md) | Parallel PM+TL kickoff → spec → plan → task graph |
 | `/orchestrate` | [orchestrate](commands/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → PR |

@@ -85,6 +85,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 |---------|-------------|
 | [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement — structured questioning before planning |
 | [`/debug`](docs/commands/debug.md) | Phase-gated bug workflow — root cause → failing test → fix → verify (`patch`, `arch` subcommands) |
+| [`/fix-ticket`](docs/commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket (no auto-release) |
 | [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification (`inline` subcommand) |
 | [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL kickoff → spec → implementation plan → task graph |
 | [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: fetch issue → worktree → agents → review loops → PR |

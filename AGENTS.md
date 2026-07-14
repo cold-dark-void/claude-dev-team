@@ -227,7 +227,7 @@ On rate-limit or any unusable spawn of council/refuter/review investigators
 tools. Report marker (exact): `self-verified — refuters unavailable`.
 **Never ship on implementer self-validation.** Council and `/review-and-commit`
 implement the report path (`--verification-mode self-verified`); other
-workflows (incl. future `/fix-ticket`, CDV-197) reuse the same marker + actor
+workflows (incl. `/fix-ticket`) reuse the same marker + actor
 rule — do not invent a second string.
 
 ## What NOT to Do
