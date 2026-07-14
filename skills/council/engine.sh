@@ -756,19 +756,9 @@ with open(template_file) as f:
 # Strip [//]: # comment lines (authoring notes)
 template = re.sub(r'^\[//\]: #.*\n?', '', template, flags=re.MULTILINE)
 
-# --- Build YAML frontmatter ---
-fm_lines = ["---"]
-fm_lines.append(f'scope: "{scope}"')
-fm_lines.append(f'preset: "{preset}"')
-fm_lines.append(f'output_shape: "{output_shape}"')
-fm_lines.append(f'created_at: "{created_at}"')
-fm_lines.append(f'verification_mode: "{verification_mode}"')
-if task_id:
-    fm_lines.append(f'task_id: "{task_id}"')
-fm_lines.append("---")
-frontmatter = "\n".join(fm_lines)
-
 # --- Substitution map ---
+# Report templates own YAML frontmatter (CDV-203); finalize substitutes {{…}}
+# in-place and does not dual-write a synthetic FM block.
 subs = {
     "{{SCOPE}}": scope,
     "{{PRESET}}": preset,
@@ -792,6 +782,7 @@ subs = {
     "{{COMMIT_GATE_STATUS}}": commit_gate,
     "{{ACTION_ITEMS}}": action_items_md,
     "{{TASK_ID}}": task_id,
+    "{{VERIFICATION_MODE}}": verification_mode,
     "{{CROSS_REVIEW_STATUS}}": cross_review_status,
     "{{CROSS_REVIEW_RANKINGS}}": cross_review_rankings,
     "{{CROSS_REVIEW_SCORES}}": cross_review_scores,
@@ -810,9 +801,14 @@ for var, val in subs.items():
 # Strip any remaining {{VAR}} that weren't in our map (safety net)
 rendered = re.sub(r'\{\{[A-Z_]+\}\}', '', rendered)
 
+# Unbound runs: remove empty task_id key entirely (not null, not "")
+# Template carries `task_id: "{{TASK_ID}}"`; after empty sub it is `task_id: ""`.
+if not task_id:
+    rendered = re.sub(r'^task_id:\s*(?:""|\'\'|)\s*\n', '', rendered, count=1, flags=re.MULTILINE)
+
 # --- Write output (atomic: tmp + rename) ---
 import tempfile, os
-output = frontmatter + "\n\n" + rendered.strip() + "\n"
+output = rendered.strip() + "\n"
 dir_name = os.path.dirname(output_path) or '.'
 fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
 with os.fdopen(fd, 'w') as f:

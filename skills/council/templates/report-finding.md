@@ -16,6 +16,16 @@
 [//]: # "{{COMMIT_GATE_STATUS}}    — BLOCKED if any critical/compliance finding, else PASSED"
 [//]: # "{{ACTION_ITEMS}}          — checklist by severity (BLOCKERs first, then DESIGN, then NITPICK)"
 [//]: # "{{COMPLETION_TIME}}       — wall-clock duration of the full council run"
+[//]: # "{{VERIFICATION_MODE}}     — full | self-verified (CDV-199 degradation)"
+
+---
+scope: "{{SCOPE}}"
+preset: "{{PRESET}}"
+output_shape: "finding[]"
+created_at: "{{TIMESTAMP}}"
+verification_mode: "{{VERIFICATION_MODE}}"
+task_id: "{{TASK_ID}}"
+---
 
 # Council Code Review Report
 

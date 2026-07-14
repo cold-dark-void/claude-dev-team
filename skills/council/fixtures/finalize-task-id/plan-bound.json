@@ -1,0 +1,11 @@
+{
+  "output_shape": "verdict[]",
+  "scope": "claim",
+  "preset": "generic",
+  "slug": "cdv203-bound",
+  "task_id": "T-1",
+  "report_path": "/tmp/cdv203-bound-report.md",
+  "flavors": ["paranoid-ic"],
+  "claim_budget": 10,
+  "completion_time": "0s"
+}

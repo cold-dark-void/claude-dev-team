@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.59.0
+- **COUNCIL-002 template `task_id` frontmatter (CDV-203)** — report templates own YAML FM with `task_id: "{{TASK_ID}}"`; finalize strips unbound `task_id` key; SPEC-013 + SKILL docs
+
 ### v0.58.0
 - **SPEC-027 /incident war-room (CDV-193)** — severity triage SEV1–3; jsonl timeline; devops commander; propose-only mitigation; postmortem → backlog; no external paging
 

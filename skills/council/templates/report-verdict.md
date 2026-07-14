@@ -18,6 +18,16 @@
 [//]: # "{{STRUCK_LINES}}          — lines struck for missing/unsupported evidence"
 [//]: # "{{VERDICT_SUMMARY_TABLE}} — counts by taxonomy: VERIFIED/PARTIALLY_VERIFIED/UNVERIFIED/CONTRADICTED/FABRICATED"
 [//]: # "{{COMPLETION_TIME}}       — wall-clock duration of the full council run"
+[//]: # "{{VERIFICATION_MODE}}     — full | self-verified (CDV-199 degradation)"
+
+---
+scope: "{{SCOPE}}"
+preset: "{{PRESET}}"
+output_shape: "verdict[]"
+created_at: "{{TIMESTAMP}}"
+verification_mode: "{{VERIFICATION_MODE}}"
+task_id: "{{TASK_ID}}"
+---
 
 # Council Verdict Report
 

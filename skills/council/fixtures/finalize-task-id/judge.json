@@ -1,0 +1,12 @@
+{
+  "verdicts": [
+    {
+      "claim_id": "c1",
+      "claim": "judge is tool-less",
+      "verdict": "VERIFIED",
+      "confidence": 90,
+      "evidence_blob": "tools: \"\""
+    }
+  ],
+  "struck_lines": []
+}

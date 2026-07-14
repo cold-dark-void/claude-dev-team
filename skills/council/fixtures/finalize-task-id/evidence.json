@@ -1,0 +1,8 @@
+[
+  {
+    "tool_use_id": "tu-1",
+    "raw_blob": "agents/council-judge.md declares tools: \"\"",
+    "file_line": "agents/council-judge.md:1",
+    "reproducible_command": "head -5 agents/council-judge.md"
+  }
+]

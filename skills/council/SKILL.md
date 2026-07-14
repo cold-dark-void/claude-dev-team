@@ -560,7 +560,21 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 ```
 
-**Report frontmatter (YAML):**
+**Report frontmatter (YAML):** templates own the FM shape
+(`templates/report-verdict.md` / `templates/report-finding.md` carry a single
+YAML block with placeholders). Finalize substitutes `{{…}}` in-place and does
+**not** prepend a second synthetic frontmatter block (CDV-203).
+
+```yaml
+scope: "{{SCOPE}}"
+preset: "{{PRESET}}"
+output_shape: "verdict[]"   # or "finding[]" hard-coded per template
+created_at: "{{TIMESTAMP}}"
+verification_mode: "{{VERIFICATION_MODE}}"
+task_id: "{{TASK_ID}}"
+```
+
+After substitution (bound):
 
 ```yaml
 scope: "<claim | session | plan | diff | from-retro>"
@@ -568,12 +582,14 @@ preset: "<preset-name>"
 output_shape: "<verdict[] | finding[]>"
 created_at: "<ISO-8601 UTC>"
 verification_mode: "<full | self-verified>"
-task_id: "<id>"   # present IFF task-bound
+task_id: "<id>"
 ```
 
 The `task_id` field MUST be absent when unbound — not null, not empty
-string. (SPEC-013 line 97.) `verification_mode` is always present: `full`
-(default) or `self-verified` (spawn-failure degradation; see above).
+string. Finalize **strips** the empty `task_id:` line after substituting an
+empty `{{TASK_ID}}` so the key never appears. (SPEC-013 Task Binding.)
+`verification_mode` is always present: `full` (default) or `self-verified`
+(spawn-failure degradation; see above).
 
 **Report body (branches on output shape):**
 
