@@ -1044,16 +1044,124 @@ Step 5 produces two variables for Step 6 to consume:
 
 ---
 
+## Step 5.5: Trial review (SPEC-001 M4–M7 / CDV-200)
+
+Before presenting or applying new proposals, review elapsed directive trials.
+Helpers are pure subprocess CLIs under `skills/retro-gate/` (never sourced).
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+TRIAL_REVIEW=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/trial-review.sh 2>/dev/null || true)
+TRIAL_META=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/trial-meta.sh 2>/dev/null || true)
+TRIAL_DECISIONS=""   # TSV from trial-review.sh (KEEP|REVERT rows)
+if [ -n "$TRIAL_REVIEW" ] && [ -f "$TRIAL_REVIEW" ]; then  # lint-ok: C1
+  # Scope: match discovery mode. --all → all projects; else current project only.
+  # Session discovery inside trial-review.sh stays in sync with Step 2
+  # (~/.claude/projects/, skip mtime <60s, gate.sh scores).
+  SCOPE_ARG="current"
+  [ "${MODE:-single}" = "all" ] && SCOPE_ARG="all"  # lint-ok: C1
+  TRIAL_DECISIONS=$(bash "$TRIAL_REVIEW" --mroot "$MROOT" --scope "$SCOPE_ARG" 2>"${TMPDIR:-/tmp}/trial-review-$$.err" || true)
+  if [ -s "${TMPDIR:-/tmp}/trial-review-$$.err" ]; then
+    # DEFER lines and diagnostics — surface lightly
+    sed 's/^/# /' "${TMPDIR:-/tmp}/trial-review-$$.err" 2>/dev/null | head -20 || true
+  fi
+  rm -f "${TMPDIR:-/tmp}/trial-review-$$.err" 2>/dev/null || true
+else
+  echo "# retro: trial-review.sh missing — skip trial review" >&2
+fi
+```
+
+`TRIAL_DECISIONS` TSV columns (from `trial-review.sh`):
+1. `action` — `KEEP` | `REVERT`
+2. `agent`
+3. `directive_text` (may include leading `N. `)
+4. `source`
+5. `trial_start`
+6. `baseline_mean`
+7. `baseline_n`
+8. `in_trial_mean`
+9. `in_trial_n`
+10. `baseline_ids` (comma-separated)
+11. `in_trial_ids`
+12. `review_after`
+
+### Step 5.5b: Present / apply trial decisions
+
+**Default mode (no `--auto`):** for each row in `TRIAL_DECISIONS`, present:
+
+```
+[KEEP|REVERT] trial target=<agent>
+  Directive: <directive_text>
+  Trial start: <trial_start>  source: <source>  window: <review_after>
+  Baseline mean=<baseline_mean> n=<baseline_n> sessions=<baseline_ids>
+  In-trial mean=<in_trial_mean> n=<in_trial_n> sessions=<in_trial_ids>
+  Evidence rule: mean(in_trial) < mean(baseline) → KEEP; else REVERT
+
+Action: [a]pply / [r]eject / [s]kip remaining ?
+```
+
+- **`a` + KEEP:** strip text via `trial-meta.sh strip`, then print (do not invoke
+  from within retro in interactive mode):
+  ```
+  Run: /adjust-agent <agent> "Promote the following trial directive to permanent by removing only its trial annotation (leave the directive text). Do not add or remove other directives: <stripped_text>"
+  ```
+  After successful apply, audit:
+  ```bash
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+  TRIAL_REVIEW=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/trial-review.sh 2>/dev/null || true)
+  # agent/source/trial_start/means/ns/ids from the current TRIAL_DECISIONS row.
+  bash "$TRIAL_REVIEW" --record-decision --mroot "$MROOT" \
+    --agent "$agent" --directive "$stripped_text" --source "$source" \
+    --trial-start "$trial_start" \
+    --baseline-mean "$baseline_mean" --baseline-n "$baseline_n" --baseline-ids "$baseline_ids" \
+    --in-trial-mean "$in_trial_mean" --in-trial-n "$in_trial_n" --in-trial-ids "$in_trial_ids" \
+    --decision KEEP --decided-by user
+  ```
+
+- **`a` + REVERT:** print:
+  ```
+  Run: /adjust-agent <agent> "Remove this directive entirely (trial REVERT): <stripped_text>"
+  ```
+  Then `--record-decision … --decision REVERT --decided-by user` after success.
+
+- **`r`:** reject — no mutation, no audit line.
+
+**`--auto` mode:** for each row, print the full evidence block, then invoke:
+
+- KEEP: `/adjust-agent <agent> --apply "Promote the following trial directive to permanent by removing only its trial annotation (leave the directive text). Do not add or remove other directives: <stripped_text>"`
+- REVERT: `/adjust-agent <agent> --apply "Remove this directive entirely (trial REVERT): <stripped_text>"`
+
+On exit 0: print `[auto-applied] trial <KEEP|REVERT> <agent>: <stripped_text>` and
+`--record-decision … --decided-by auto`.
+On conflict (non-zero): append to `MANUAL_FOLLOWUP` with evidence (never silent
+drop). **MUST NOT** write `directives.md` directly. **MUST NOT** auto-revert
+without `--auto` or explicit confirm (M6).
+
+Include applied trial decisions in the scheduled report summary when
+`--all --auto` (append to applied list or a short "Trial decisions" note) if
+cheap; otherwise list under MANUAL_FOLLOWUP / follow-up file.
+
+---
+
 ## Step 6: Phase-4 confirm / apply
 
 ### Step 6a: Short-circuit on empty input
 
-If both `CLASSIFIED_PROPOSALS` and `OBSERVATIONS` are empty or contain only
-whitespace, print:
+If `CLASSIFIED_PROPOSALS`, `OBSERVATIONS`, **and** `TRIAL_DECISIONS` are all
+empty or contain only whitespace, print:
 
 ```
 No actionable findings.
 ```
+
+(If only trial decisions exist, skip this short-circuit — Step 5.5 already
+handled or still needs confirm/auto apply.)
 
 When `MODE=all` and `AUTO=1`, still write a short scheduled report (S3), then
 exit 0:
@@ -1164,11 +1272,53 @@ Handle the user's response:
 
 - **`a` (apply):**
   - If `target` is a **team agent** (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`,
-    `qa`, `ds`): print the slash command for the user to run manually — do NOT
-    invoke it from within the retro command:
-    ```
-    Run: /adjust-agent <target> "<proposed_text>"
-    ```
+    `qa`, `ds`):
+    - **NEW (default trial tag, SPEC-001 M3):** before printing the apply
+      command, annotate `proposed_text` with trial metadata unless the user
+      chose strip-to-permanent. Confirm UI for NEW team-agent proposals:
+      ```
+      Trial: [t]rial (default, review after 10 sessions) / [p]ermanent (no trial meta) ?
+      ```
+      Default `t`. Build annotated text (re-read fields from the current
+      CLASSIFIED_PROPOSALS row — col 4 proposed_text, col 8 source_jsonl,
+      col 9 citations_json):
+      ```bash
+      _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+        && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+        || MROOT=$(pwd)
+      PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+      TRIAL_META=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/trial-meta.sh 2>/dev/null || true)
+      # $row = current CLASSIFIED_PROPOSALS TSV line (orchestrator loop).  # lint-ok: C1
+      proposed_text=$(printf '%s' "$row" | cut -f4)
+      source_jsonl=$(printf '%s' "$row" | cut -f8)
+      citations_json=$(printf '%s' "$row" | cut -f9)
+      SESSION_UUID=$(basename "${source_jsonl:-unknown}" .jsonl)
+      ANCHOR_ID=$(CIT="$citations_json" python3 -c 'import json,os
+try:
+  c=json.loads(os.environ.get("CIT") or "[]")
+  print((c[0].get("message_id") or "na") if c else "na")
+except Exception:
+  print("na")' 2>/dev/null || echo na)
+      START_DAY=$(date -u +%Y-%m-%d)
+      if [ -n "$TRIAL_META" ] && [ -f "$TRIAL_META" ]; then  # lint-ok: C1
+        APPLY_TEXT=$(bash "$TRIAL_META" annotate \
+          --text "$proposed_text" \
+          --start "$START_DAY" \
+          --source "${SESSION_UUID}#${ANCHOR_ID}" \
+          --review-after "10-sessions")
+      else
+        APPLY_TEXT="$proposed_text"
+      fi
+      ```
+      Permanent choice (`p`): set `APPLY_TEXT="$proposed_text"` (no annotate).
+    - **TIGHTEN:** pass `proposed_text` unchanged (`APPLY_TEXT="$proposed_text"`).
+      Do not invent trial metadata; if the existing line already has a trial
+      comment, `/adjust-agent` holistic rewrite preserves it (SPEC-001 M1/M3).
+    - Print the slash command for the user to run manually — do NOT invoke it
+      from within the retro command:
+      ```
+      Run: /adjust-agent <target> "<APPLY_TEXT>"
+      ```
     Then print the current directive count for that agent:
     ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -1225,8 +1375,40 @@ Any unrecognized input: re-display the action prompt.
 
 Skip the confirm UI. For each proposal, apply immediately:
 
-- If `target` is a **team agent**: invoke
-  `/adjust-agent <target> --apply "<proposed_text>"`.
+- If `target` is a **team agent**: build `APPLY_TEXT` then invoke
+  `/adjust-agent <target> --apply "<APPLY_TEXT>"`.
+
+  - **NEW:** always annotate with trial metadata (default; no permanent
+    prompt under `--auto`). Re-read cols from current row:
+    ```bash
+    _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+      && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+      || MROOT=$(pwd)
+    PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+    TRIAL_META=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/trial-meta.sh 2>/dev/null || true)
+    # $row = current CLASSIFIED_PROPOSALS TSV line (orchestrator loop).  # lint-ok: C1
+    proposed_text=$(printf '%s' "$row" | cut -f4)
+    source_jsonl=$(printf '%s' "$row" | cut -f8)
+    citations_json=$(printf '%s' "$row" | cut -f9)
+    SESSION_UUID=$(basename "${source_jsonl:-unknown}" .jsonl)
+    ANCHOR_ID=$(CIT="$citations_json" python3 -c 'import json,os
+try:
+  c=json.loads(os.environ.get("CIT") or "[]")
+  print((c[0].get("message_id") or "na") if c else "na")
+except Exception:
+  print("na")' 2>/dev/null || echo na)
+    START_DAY=$(date -u +%Y-%m-%d)
+    if [ -n "$TRIAL_META" ] && [ -f "$TRIAL_META" ]; then  # lint-ok: C1
+      APPLY_TEXT=$(bash "$TRIAL_META" annotate \
+        --text "$proposed_text" \
+        --start "$START_DAY" \
+        --source "${SESSION_UUID}#${ANCHOR_ID}" \
+        --review-after "10-sessions")
+    else
+      APPLY_TEXT="$proposed_text"
+    fi
+    ```
+  - **TIGHTEN:** `APPLY_TEXT="$proposed_text"` (no new trial meta).
 
   This is a non-interactive apply: the slash command applies on no conflict and
   exits non-zero on conflict (never prompts). Handle the two outcomes:
@@ -1244,7 +1426,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
     proposal to `MANUAL_FOLLOWUP` with the conflict message captured from
     stderr. Print immediately:
     ```
-    [conflict] <target>: "<proposed_text>"
+    [conflict] <target>: "<APPLY_TEXT>"
       Conflict: <stderr from /adjust-agent --apply>
       → Added to manual follow-up list.
     ```

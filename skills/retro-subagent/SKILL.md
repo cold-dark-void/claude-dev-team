@@ -227,6 +227,11 @@ The command MUST drop any proposal that fails ANY of these checks:
 After filtering, surviving proposals are RANKED by `confidence * len(citations)` in
 descending order, then CAPPED to the top 5 (per SPEC-012 SHOULD).
 
+**Trial metadata (CDV-200 / SPEC-001 M3):** the subagent still emits plain
+`proposed_text` (≤200 chars, no trial comment). `/retro` command-side apply
+(Step 6) tags NEW team-agent proposals via `trial-meta.sh annotate` before
+routing through `/adjust-agent`. Do not put trial annotations in subagent JSON.
+
 Observations are not validated beyond requiring a non-empty `description`. They flow
 through to the confirm phase as "observed pattern, no fix proposed."
 

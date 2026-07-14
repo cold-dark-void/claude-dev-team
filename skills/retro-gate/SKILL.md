@@ -197,4 +197,61 @@ bash skills/retro-gate/test.sh                      # gate / hybrid / S3
 bash skills/retro-gate/write-scheduled-report-test.sh
 bash skills/retro-gate/scheduled-lock-test.sh
 bash skills/retro-gate/scheduled-retro-test.sh
+bash skills/retro-gate/trial-meta-test.sh            # CDV-200
+bash skills/retro-gate/trial-review-test.sh          # CDV-200
 ```
+
+## Directive trial helpers (CDV-200 / SPEC-001 M1–M8)
+
+Retro-born team-agent directives start as **trials** with inline HTML-comment
+metadata. After the review window, `/retro` compares gate scores (baseline vs
+in-trial) and emits KEEP/REVERT. Pure subprocess CLIs — never sourced.
+
+### `trial-meta.sh`
+
+```
+bash skills/retro-gate/trial-meta.sh parse <line>
+# → text\tstart\tsource\treview_after   exit 1 if no meta
+
+bash skills/retro-gate/trial-meta.sh annotate \
+  --text T --start YYYY-MM-DD --source SESS#ANCHOR --review-after 10-sessions
+
+bash skills/retro-gate/trial-meta.sh strip <line>
+# → bare directive (comment removed)
+
+bash skills/retro-gate/trial-meta.sh is-elapsed \
+  --start D --review-after N-sessions|D-days \
+  --session-mtimes-file F [--today YYYY-MM-DD]
+# → true|false
+```
+
+Annotation form (same numbered line):
+```
+3. Always run bash -n <!-- trial start=2026-07-03 source=uuid#msg review-after=10-sessions -->
+```
+
+### `trial-review.sh`
+
+```
+bash skills/retro-gate/trial-review.sh --mroot PATH \
+  [--scope current|all] [--projects-root PATH] [--today YYYY-MM-DD] \
+  [--session-scores-file PATH]   # tests: sid\tscore\tmtime_epoch
+# stdout TSV KEEP|REVERT rows; DEFER → stderr only
+# Does NOT write directives.md
+
+bash skills/retro-gate/trial-review.sh --record-decision --mroot PATH \
+  --agent A --directive D --source S --trial-start T \
+  --baseline-mean M --baseline-n N --baseline-ids id1,id2 \
+  --in-trial-mean M --in-trial-n N --in-trial-ids id3,id4 \
+  --decision KEEP|REVERT --decided-by user|auto
+# appends one NDJSON line to $MROOT/.claude/retro/directive-history.jsonl
+```
+
+**Decision rule (D5):** if `n_baseline < 2` or `n_in_trial < 2` → DEFER;
+elif `mean(in_trial) < mean(baseline)` → KEEP; else REVERT (ties → REVERT).
+
+**MVP limitation:** scores are project-session level (not agent-filtered).
+Gate semantics unchanged — `gate.sh` is the only scorer.
+
+Wired from `commands/retro.md` Step 5.5 (review) and Step 6 apply (NEW tag +
+audit after KEEP/REVERT). Outcomes always route through `/adjust-agent`.

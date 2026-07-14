@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.54.0
+- **directive A/B trial loop SPEC-001 M1–M8 (CDV-200)**
+
 ### v0.53.0
 - **SPEC-028 /fix-ticket premise→implement→refuters (CDV-197)**
 

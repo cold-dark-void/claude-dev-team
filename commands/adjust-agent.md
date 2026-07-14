@@ -165,13 +165,43 @@ new directive to the existing list. Consider all directives together:
 - Resolve any user-confirmed conflict decisions
 - Maintain consistent phrasing and scope
 - Re-number sequentially starting from 1
+- **Trial annotations (SPEC-001 M1 / CDV-200):** lines may end with
+  `<!-- trial start=… source=… review-after=… -->`. On holistic rewrite MUST
+  **copy through** any trial comment on lines that are not intentionally
+  removed or text-replaced. Do not invent trial metadata for lines that never
+  had it. Do not strip trial comments unless the prompt explicitly requests
+  KEEP-promote (strip) or the line is removed (REVERT).
 
 The result MUST be a numbered list, one directive per line:
 ```
 1. First directive
-2. Second directive
+2. Second directive <!-- trial start=2026-07-03 source=sess#a review-after=10-sessions -->
 3. Third directive
 ```
+
+#### Trial outcome prompt shapes (automation callers / SPEC-001 M5)
+
+Callers (`/retro` trial-review) MUST use these shapes so rewrite intent is unambiguous:
+
+- **KEEP (promote trial → permanent):** strip only the trial comment; keep the
+  directive text. Prompt example:
+  ```
+  Promote the following trial directive to permanent by removing only its
+  <!-- trial … --> annotation (leave the directive text). Do not add or remove
+  other directives: "<exact directive text without relying on number>"
+  ```
+  Equivalent `--apply` form is fine. Result line has no trial comment.
+
+- **REVERT (remove trial directive):** delete the directive entirely via the
+  normal removal path. Prompt example:
+  ```
+  Remove this directive entirely (trial REVERT): "<exact directive text>"
+  ```
+  Conflict detection still applies (M8); on `--apply` conflict, refuse and exit
+  non-zero — callers degrade to MANUAL_FOLLOWUP.
+
+Trial directives are full standing orders mid-trial (M8): conflict detection
+evaluates them exactly like permanent lines.
 
 ### Step 5e: Ensure .gitignore coverage
 
@@ -246,9 +276,12 @@ Do NOT prompt. Do NOT attempt to resolve the conflict automatically.
 
 If no conflict is detected, proceed directly to:
 
-- Step 5d (holistic rewrite)
+- Step 5d (holistic rewrite — **including trial-annotation preservation**)
 - Step 5e (`.gitignore` coverage)
 - Step 5f (write file)
 - Step 5g (show final result to stdout)
 
 Exit 0.
+
+Trial KEEP-strip and REVERT-remove prompts (Step 5d shapes) work under `--apply`
+the same way as any other non-conflicting rewrite.

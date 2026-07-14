@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-07
 
-**Covers**: `commands/retro.md`, `skills/retro-gate/` (incl. `write-scheduled-report.sh`, `scheduled-lock.sh`), `skills/retro-subagent/`, `skills/transcript-parse/`, live friction ledger hook `.claude/hooks/friction-capture.sh` (emitted by `skills/init-orchestration/`), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`, schedule scaffold `docs/runbooks/scheduled-retro.md`
+**Covers**: `commands/retro.md`, `skills/retro-gate/` (incl. `write-scheduled-report.sh`, `scheduled-lock.sh`, `trial-meta.sh`, `trial-review.sh`), `skills/retro-subagent/`, `skills/transcript-parse/`, live friction ledger hook `.claude/hooks/friction-capture.sh` (emitted by `skills/init-orchestration/`), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`, schedule scaffold `docs/runbooks/scheduled-retro.md`
 
 ---
 
@@ -97,6 +97,15 @@ conflict-detection and holistic-rewrite guarantees.
 - MUST resolve `$MROOT` using the worktree-aware formula: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
 - MUST print the directive count for each affected agent after apply, so the user sees the pile growing
 - MUST surface non-actionable findings as "observed pattern, no fix proposed" (visibility without action)
+
+### Directive A/B trial loop (SPEC-001 M1–M8 / CDV-200)
+
+- MUST attach trial metadata by default when applying a **NEW** team-agent proposal (`pm|tech-lead|ic5|ic4|devops|qa|ds`): wrap `proposed_text` via `skills/retro-gate/trial-meta.sh annotate` with `start` = UTC today, `source` = `<session-uuid>#<anchor-id>` from the proposal's citation / `source_jsonl`, `review-after=10-sessions` (default). Confirm UI MUST offer strip-to-permanent (no trial comment). TIGHTEN MUST pass text unchanged (preserve existing annotation if present; do not invent trial meta).
+- MUST run a **trial-review** step before new-proposal confirm/apply (interactive and `--all --auto` scheduled path): invoke `skills/retro-gate/trial-review.sh --mroot "$MROOT"` (scope matches discovery: current project or all under `~/.claude/projects/`). For each elapsed trial, emit KEEP or REVERT with baseline vs in-trial gate scores and session ids (DEFER when sample insufficient — stderr only). Scoring MUST use unchanged `gate.sh` semantics.
+- MUST present KEEP/REVERT like other proposals (confirm by default). Outcomes MUST route through `/adjust-agent` only: KEEP → strip trial annotation (permanent text remains); REVERT → remove the directive. MUST NOT write `directives.md` from the trial loop directly. MUST NOT silently auto-revert or auto-keep without `--auto` or explicit confirm.
+- Under `--auto`, MAY apply KEEP/REVERT without per-item prompt but MUST print each decision with evidence; `--apply` conflict refusals MUST degrade to MANUAL_FOLLOWUP (same as other team-agent proposals).
+- MUST append one NDJSON audit line to `$MROOT/.claude/retro/directive-history.jsonl` after each successful KEEP/REVERT apply via `trial-review.sh --record-decision` (append-only; never truncate; not in `memory.db`).
+- Helpers live in `skills/retro-gate/` as pure subprocess CLIs (`trial-meta.sh`, `trial-review.sh`) — never sourced.
 
 ### Integration Hooks
 - `/kickoff` MUST print `Consider: /retro <session-id>` at completion if the phase-1 gate detected friction in the just-completed session
@@ -281,12 +290,13 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 | 2026-07-14 | CDV-184: Phase-1 S3 (edit-loop) MUST exempts clean draft-polish paths (session-created via first `Write`, no intervening tool error or S1 rejection). Pre-existing paths and dirty session-created paths still score. No threshold/weight changes. |
 | 2026-07-14 | CDV-186: Promoted live friction telemetry ledger (M1–M7). Hybrid scoring: ledger supplies S2 when session covered (≥1 row); S1/S3/S4/S5 remain transcript. Schema `{ts,session_id,event,tool,path?}`. Single `friction-capture.sh` for PostToolUseFailure/PermissionDenied/StopFailure. Rotation 10k lines or 5 MiB. Wiring via `/init-orchestration` only. No S3 retune. |
 | 2026-07-14 | CDV-190: scheduled `--all --auto` report (`scheduled-YYYY-MM-DDTHHMMSSZ.md`) + `scheduled.lock` (2h TTL) + retention (last 12) + runbook scaffold (CronCreate / OS cron); optional fail-open `AGENT_WEBHOOK_URL`; Filter 1/2 untouched; CDV-210 full sink out of scope |
+| 2026-07-14 | CDV-200: Directive A/B trial loop — default trial tag on NEW team-agent applies; trial-review step (gate baseline vs in-trial → KEEP/REVERT); outcomes via `/adjust-agent` only; no silent auto-revert; audit `directive-history.jsonl`; covers `trial-meta.sh` / `trial-review.sh` (SPEC-001 M1–M8) |
 
 ---
 
 ## Cross-references
 
-- **SPEC-001: Per-Agent Directives** — `/retro` routes all team-agent proposals through `/adjust-agent` to preserve conflict detection and holistic rewrite. MUST NOT bypass. Uses the `--apply` non-interactive mode added to SPEC-001 on 2026-04-08 to support `/retro --auto`.
+- **SPEC-001: Per-Agent Directives** — `/retro` routes all team-agent proposals through `/adjust-agent` to preserve conflict detection and holistic rewrite. MUST NOT bypass. Uses the `--apply` non-interactive mode added to SPEC-001 on 2026-04-08 to support `/retro --auto`. Trial loop M1–M8 (CDV-200): NEW applies carry trial metadata; trial-review KEEP/REVERT also route exclusively through `/adjust-agent`.
 - **SPEC-002: Plugin Infrastructure** — hook path hygiene (`${CLAUDE_PROJECT_DIR}`, no pipes); init-orchestration template byte-identity gate.
 - **SPEC-003: Agent Role System** — `/retro` targets the 7 behavioral agents plus plain `claude`; excludes `project-init` and `distiller`.
 - **SPEC-009: Ticket Workflow** — `/kickoff` and `/orchestrate` gain a soft-suggestion hook at completion. No behavioral change to existing ticket-workflow MUST requirements.
