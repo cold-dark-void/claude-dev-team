@@ -43,17 +43,17 @@ fi
 ### Session start — read memory (tiered)
 ```bash
 if [ "$USE_DB" = "true" ]; then
-  HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories
+  HAS_DISTILLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories
     WHERE agent='<AGENT>' AND tier > 0 AND archived=FALSE;")
-  if [ "$HAS_DISTILLED" -gt 0 ]; then
-    sqlite3 "$MEMDB" "SELECT type, content FROM memories
+  if [ "${HAS_DISTILLED:-0}" -gt 0 ]; then
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
       WHERE agent='<AGENT>' AND tier=2 AND archived=FALSE
       ORDER BY type, updated_at DESC;"
-    sqlite3 "$MEMDB" "SELECT type, content FROM memories
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
       WHERE agent='<AGENT>' AND tier=1 AND archived=FALSE
       ORDER BY type, updated_at DESC;"
   else
-    sqlite3 "$MEMDB" "SELECT type, content FROM memories
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
       WHERE agent='<AGENT>' AND tier=0 AND archived=FALSE
       ORDER BY type, created_at DESC;"
   fi
@@ -88,11 +88,11 @@ else
 EOF
 fi
 # Context always writes to .md (per-worktree); current-state snapshot, so overwrite
+mkdir -p "$WTROOT/.claude/memory/<AGENT>"
 cat > "$WTROOT/.claude/memory/<AGENT>/context.md" << 'EOF'
 <context>
 EOF
 ```
-
 ### Memory search (cross-agent)
 ```bash
 # Semantic + keyword search across ALL agents lives in skills/memory-recall (Steps 3-5).

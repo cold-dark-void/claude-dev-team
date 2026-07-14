@@ -39,21 +39,21 @@ Otherwise fall back to raw tier-0 memories (backward compatible with pre-distill
 
 ```bash
 # Check if agent has any distilled content (tier 1 or 2)
-HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories
+HAS_DISTILLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories
   WHERE agent='<AGENT>' AND tier > 0 AND archived=FALSE;")
 
-if [ "$HAS_DISTILLED" -gt 0 ]; then
+if [ "${HAS_DISTILLED:-0}" -gt 0 ]; then
   # Tier 2: core knowledge (always loaded, small set)
-  sqlite3 "$MEMDB" "SELECT type, content FROM memories
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
     WHERE agent='<AGENT>' AND tier=2 AND archived=FALSE
     ORDER BY type, updated_at DESC;"
   # Tier 1: digests (compressed summaries)
-  sqlite3 "$MEMDB" "SELECT type, content FROM memories
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
     WHERE agent='<AGENT>' AND tier=1 AND archived=FALSE
     ORDER BY type, updated_at DESC;"
 else
   # No distilled content yet — load raw tier-0 (backward compat)
-  sqlite3 "$MEMDB" "SELECT type, content FROM memories
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
     WHERE agent='<AGENT>' AND tier=0 AND archived=FALSE
     ORDER BY type, created_at DESC;"
 fi

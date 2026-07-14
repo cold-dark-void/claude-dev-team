@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.4
+- **fix: create worktree memory dir before context.md write (CDV-173)** — session-end context snapshot wrote to `$WTROOT/.claude/memory/<agent>/context.md` without `mkdir -p`, so every fresh orchestrate worktree failed the write (`.claude/` is gitignored). Partial `protocol.md` now mkdir's first; session-start reads add `sqlite3 -cmd ".timeout 5000"` and `"${HAS_DISTILLED:-0}"`. Re-expanded via sync-includes to all 7 agents; same timeout/guard on orchestrate + memory-recall tiered reads.
+
 ### v0.38.3
 - **fix: TMPDIR-safe temps in orchestrate/kickoff/council/handoff (CDV-171)** — hard-coded `/tmp` paths broke under sandboxed harnesses with RO `/tmp` and writable `$TMPDIR` (false cycle-gate halt on redirect failure; empty `mktemp` paths). Cycle pre-gates now use `"${TMPDIR:-/tmp}/…"` plus explicit `rc` handling (only rc=1 = circular dependency; other non-zero = "cycle gate could not run"). Council/review-and-commit/handoff use TMPDIR-safe `mktemp` with fail-loud. AGENTS.md documents the convention.
 
