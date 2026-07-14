@@ -57,7 +57,7 @@ conflict-detection and holistic-rewrite guarantees.
 - MUST compute a friction score for each candidate session using signals including (but not limited to):
   - User messages containing: `revert`, `stop`, `no that's wrong`, `why did you`, `don't`, `wrong`
   - Consecutive tool errors on the same file or command
-  - Repeated edits to the same file within a short window (≥ 3 edits to same path in ≤ 10 turns)
+  - Repeated edit-tool uses (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) on the same path within a short window (≥ 3 uses in ≤ 10 assistant turns), **except** a clean draft-polish path: a path whose first edit-tool in the session is `Write` (session-created) and that has no intervening tool error (`tool_result.is_error: true`) and no intervening S1-eligible real user rejection after that creating `Write` and at or before the last edit-tool in the candidate window. Clean draft-polish paths MUST NOT contribute to the S3 (edit-loop) score. Pre-existing paths (first edit-tool is not `Write`) and session-created paths with intervening tool error or S1 rejection remain eligible for S3
   - "let me try again" / retry-loop patterns from the assistant
   - Terse user replies (≤ 3 words) immediately following long assistant turns (> 500 chars)
 - MUST exit with "smooth, nothing to retro" when score is below threshold — MUST NOT spawn a subagent
@@ -185,6 +185,7 @@ conflict-detection and holistic-rewrite guarantees.
 | 2026-04-08 | Added `--apply` routing MUSTs after kickoff revealed `/adjust-agent` had no non-interactive mode. Resolved by extending SPEC-001 rather than bypassing it. |
 | 2026-04-09 | Added `fabrication_anchor` classification in phase-2 and `Consider: /council --from-retro <anchor-id>` integration hint (additive, non-blocking, dedup per anchor-id) per SPEC-013. |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `🚧 NEW`→`APPROVED` (no emoji, matches TDD index); refreshed Covers (dropped `(to be created)`, added shipped `skills/retro-gate/`, `skills/retro-subagent/`, `skills/transcript-parse/`); added the shared transcript-parse seam ownership MUST so SPEC-018's "see SPEC-012" citation resolves. No behavioral change. |
+| 2026-07-14 | CDV-184: Phase-1 S3 (edit-loop) MUST exempts clean draft-polish paths (session-created via first `Write`, no intervening tool error or S1 rejection). Pre-existing paths and dirty session-created paths still score. No threshold/weight changes. |
 
 ---
 

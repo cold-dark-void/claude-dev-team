@@ -1,0 +1,8 @@
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000031","message":{"role":"user","content":[{"type":"text","text":"create module"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000032","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/home/proj/src/new_module.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000033","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"ok"}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000034","message":{"role":"user","content":[{"type":"text","text":"that's not what I asked for"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000035","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/home/proj/src/new_module.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000036","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000037","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/home/proj/src/new_module.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000038","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","is_error":false,"content":"ok"}]}}

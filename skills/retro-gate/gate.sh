@@ -116,8 +116,11 @@ S5_TERSE_USER_WORDS = 3
 # ---- Per-signal accumulators ------------------------------------------------
 s1_hits, s4_hits, s5_hits = [], [], []
 s2_runs = []                       # list of starting message ids per run
-s3_files = {}                      # file_path -> list[(turn_idx, msg_id)]
-edit_history_per_file = {}         # file_path -> set of turn_idx already counted
+# s3_files: file_path -> list[(turn_idx, msg_id, tool_name, seq)]
+s3_files = {}
+s3_first_tool = {}                 # file_path -> name of first edit-tool in session
+tool_error_seqs = []               # monotonic positions of tool_result is_error
+s1_event_seqs = []                 # monotonic positions of S1-eligible rejections
 
 assistant_turn_idx = -1
 last_assistant_len = 0
@@ -188,8 +191,10 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                     if is_edit_tool(name):
                         fp = edit_file_path(inp)
                         if fp:
+                            if fp not in s3_first_tool:
+                                s3_first_tool[fp] = name
                             s3_files.setdefault(fp, []).append(
-                                (assistant_turn_idx, uuid)
+                                (assistant_turn_idx, uuid, name, line_no)
                             )
 
         elif ttype == "user":
@@ -209,6 +214,7 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                     had_tool_result = True
                     is_err = bool(b.get("is_error"))
                     if is_err:
+                        tool_error_seqs.append(line_no)
                         if last_tool_was_error_run_len == 0:
                             last_error_run_start_id = uuid
                         last_tool_was_error_run_len += 1
@@ -232,6 +238,7 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                 if not is_system_notification and not is_context_continuation:
                     for _ in S1_RE.findall(text):
                         s1_hits.append(uuid)
+                        s1_event_seqs.append(line_no)
                 # S5: terse follow-up after long assistant turn — skip system
                 # notifications (XML-tagged command/task messages) and plain
                 # slash command invocations that represent user approval/delegation
@@ -263,17 +270,32 @@ if last_tool_was_error_run_len >= 2:
 # ---- S3 windowed evaluation -------------------------------------------------
 # A file scores once per distinct sliding window of S3_WINDOW assistant turns
 # that contains >= S3_MIN_EDITS edits to that file.
+# Clean draft-polish exemption (CDV-184): if the path's first edit-tool is
+# Write (session-created) and no tool_result is_error and no S1-eligible
+# rejection falls strictly after that creating Write and at/before the last
+# edit-tool in the candidate window, the path does not contribute to S3.
+def _intervening(seqs, after_seq, until_seq):
+    return any(after_seq < s <= until_seq for s in seqs)
+
 s3_hits = []  # list of (file_path, anchor_msg_id)
 for fp, edits in s3_files.items():
     if len(edits) < S3_MIN_EDITS:
         continue
-    flagged = False
+    create_seq = edits[0][3]
+    first_tool = s3_first_tool.get(fp, edits[0][2])
     for i in range(len(edits) - S3_MIN_EDITS + 1):
         window = edits[i : i + S3_MIN_EDITS]
-        if window[-1][0] - window[0][0] <= S3_WINDOW:
-            s3_hits.append((fp, window[0][1]))
-            flagged = True
+        if window[-1][0] - window[0][0] > S3_WINDOW:
+            continue
+        last_seq = window[-1][3]
+        if first_tool == "Write" and not (
+            _intervening(tool_error_seqs, create_seq, last_seq)
+            or _intervening(s1_event_seqs, create_seq, last_seq)
+        ):
+            # Clean session-created path — fully exempt (not just first Write).
             break
+        s3_hits.append((fp, window[0][1]))
+        break
     # One score per distinct file regardless of how many windows match.
 
 # ---- Scoring ----------------------------------------------------------------

@@ -1,0 +1,13 @@
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000041","message":{"role":"user","content":[{"type":"text","text":"add two files"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000042","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/home/proj/src/new_module.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000043","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000044","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/home/proj/src/new_module.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000045","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000046","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/home/proj/src/new_module.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000047","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000048","message":{"role":"assistant","content":[{"type":"tool_use","id":"t4","name":"Write","input":{"file_path":"/home/proj/src/other.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000049","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t4","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-00000000004a","message":{"role":"assistant","content":[{"type":"tool_use","id":"t5","name":"Edit","input":{"file_path":"/home/proj/src/other.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-00000000004b","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t5","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-00000000004c","message":{"role":"assistant","content":[{"type":"tool_use","id":"t6","name":"Edit","input":{"file_path":"/home/proj/src/other.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-00000000004d","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t6","is_error":false,"content":"ok"}]}}

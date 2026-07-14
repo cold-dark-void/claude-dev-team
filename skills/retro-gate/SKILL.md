@@ -50,7 +50,7 @@ evidence rather than re-scanning the whole transcript.
 |----|-------------------|--------------------------------------------------------------------------------------------------------------------|--------|-----|
 | S1 | Explicit reject   | Regex on real (non-meta) `type=user` text: `\b(revert\|stop\|wrong\|don'?t\|why did you\|no that'?s\|undo\|that'?s not\|nope)\b` | 3.0    | 3   |
 | S2 | Tool error run    | A run of >=2 consecutive `tool_result.is_error:true` blocks; reset by a successful result or a real user turn       | 2.0    | -   |
-| S3 | Edit loop         | >=3 `Edit`/`Write`/`MultiEdit` tool_uses on the same `file_path` within 10 assistant turns; one score per file       | 2.5    | -   |
+| S3 | Edit loop         | >=3 `Edit`/`Write`/`MultiEdit`/`NotebookEdit` tool_uses on the same `file_path` within 10 assistant turns; one score per file. **Exempt:** clean draft-polish — path whose first edit-tool is `Write` (session-created) with no intervening `tool_result.is_error` and no S1-eligible user rejection after that Write and at/before the last edit in the candidate window. Pre-existing paths and dirty session-created paths still score. | 2.5    | -   |
 | S4 | Assistant retry   | Regex on assistant text: `\b(let me try again\|let me try a different\|that didn'?t work\|actually,? let me\|sorry,? let me\|my mistake\|i'?ll try)\b` (see `S4_RE` in gate.sh) | 1.5    | 3   |
 | S5 | Terse follow-up   | Real user message of <=3 words immediately after an assistant turn >=500 chars                                       | 1.0    | 4   |
 
@@ -80,6 +80,10 @@ gate trips on every session that loads a skill.
 
 Tool-result blocks (which also live inside `type=user` messages) are never
 treated as user input.
+
+Clean draft-polish (Write-then-polish of a session-created path with no
+intervening tool error or user rejection) is an intentional under-trigger:
+those paths are fully exempt from S3, not merely discounted on the first Write.
 
 ## Calibration loop (`--why`)
 

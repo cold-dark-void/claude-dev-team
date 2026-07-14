@@ -1,0 +1,7 @@
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000011","message":{"role":"user","content":[{"type":"text","text":"fix legacy"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000012","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/home/proj/src/legacy.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000013","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000014","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/home/proj/src/legacy.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000015","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000016","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"/home/proj/src/legacy.py"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000017","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","is_error":false,"content":"ok"}]}}
