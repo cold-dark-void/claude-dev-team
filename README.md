@@ -131,6 +131,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 
 | Command | What it does |
 |---------|-------------|
+| `/doctor` | Install/config diagnostics (PASS/WARN/FAIL); read-only default; `--fix` allowlist only (`dev-team:doctor` — distinct from harness `/doctor`) |
 | `/worktree` | Inspect or release plugin worktrees (`status` \| `list` \| `release <slug>`) |
 | `/backlog` | Manage project backlog items (add, close, list, init) |
 | `/release` | Bump version across all files, commit, tag, push |

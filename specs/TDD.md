@@ -25,6 +25,7 @@
 | SPEC-019 | Local-Agent Offload via OpenCode | ACTIVE | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
 | SPEC-020 | Loop-Prompt Architect (/craft-loop) | ACTIVE | commands/craft-loop.md, skills/craft-loop/SKILL.md, program-template.md, examples/ |
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
+| SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 | SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped), commands/local-do.md |
 
@@ -57,3 +58,4 @@
 | 2026-07-13 | SPEC-023 implemented (CDV-181): release-train queue sequencer (train-lib + skill + command); `/release` skip-if-present; status DRAFT→ACTIVE. |
 | 2026-07-14 | SPEC-020 implemented (CDV-183): /craft-loop craft/refine/list; status DRAFT→ACTIVE. |
 | 2026-07-14 | SPEC-026 path-cherry-picked + OQ locks (CDV-185): outcomes ledger + advisory routing; status DRAFT→ACTIVE. |
+| 2026-07-14 | SPEC-022 implemented (CDV-191): `/doctor` install/config diagnostics (`doctor.sh` + command); status DRAFT→ACTIVE. |

@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.50.0
+- **SPEC-022 `/doctor` install & config diagnostics (CDV-191)** — `dev-team:doctor` read-only check battery (version triplet, memory stack, hooks, settings, optional deps, worktrees, plugin resolve); `--json` + exit 0/1/2/64; narrow `--fix` allowlist; documents harness `/doctor` name collision
+
 ### v0.49.0
 - **Council spawn-failure self-verified degradation (CDV-199)** — on unusable refuter/investigator spawn, orchestrator self-verifies with explicit `self-verified — refuters unavailable` marker; engine `--verification-mode full|self-verified`; SPEC-013 + council/review-and-commit/AGENTS guidance
 
