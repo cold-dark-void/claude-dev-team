@@ -25,9 +25,9 @@ or rank. Consumers own all of that:
 
 | File | Status | Provides | Consumers |
 |------|--------|----------|-----------|
-| `assemble.py` | **present** | CLI `locate` + `assemble` | handoff prepass, retro Step 2 location |
+| `assemble.py` | **present** | CLI `locate` + `assemble` + `assemble-file` | handoff prepass, retro Step 2 location, PreCompact capture |
 | `parselib.py` | **present** | importable parse primitives | handoff prepass, retro gate |
-| `freshness.sh` | **present** | 60 s mid-write guard | handoff (M9), retro Filter-1 |
+| `freshness.sh` | **present** | 60 s mid-write guard (+ M14 carve-out) | handoff (M9), retro Filter-1, PreCompact (M14) |
 
 Runtime: `python3` only (already required by retro-gate). No other deps. Every
 entry point degrades with a clear error and a non-zero exit if `python3` is
@@ -45,6 +45,7 @@ Read-only. Streams files line-by-line; never `read()`s a whole transcript
 ```
 assemble.py locate <uuid>
 assemble.py assemble <uuid>
+assemble.py assemble-file <path>
 ```
 
 #### `locate <uuid>`
@@ -92,6 +93,18 @@ Pipeline (this is the authoritative M1 algorithm — validated against real
 Output is exactly the input raw lines, reordered/deduped — fields are NOT
 rewritten or stripped here (the prepass strips). One JSON object per line.
 
+#### `assemble-file <path>`
+Stream **exactly** the named transcript file — no `locate` over
+`~/.claude/projects/`. Identical output contract to `assemble` (dedup
+KEEP-LAST, timestamp order, per-line corrupt/truncated tail drop via
+`_stream_message_lines`). Exit 0 on success (including zero surviving
+messages after drop); **exit 1** if the path is missing/unreadable.
+
+Consumed **ONLY** by the SPEC-018 M12 PreCompact capture path via
+`prepass.sh prepare --transcript <path>`. The hook already names the live
+file, so M1 locate is skipped. Mid-write truncated final lines are dropped
+per-line — that is what makes PreCompact capture safe under M14.
+
 ### Hard guarantees (honor in any change here)
 
 - **`forkedFrom` is PROVENANCE, never a cross-file pointer.** It is an object
@@ -121,8 +134,9 @@ rewritten or stripped here (the prepass strips). One JSON object per line.
 `assemble.py` also exposes, for `import`:
 
 - `locate(uuid) -> str | None` — canonical path or `None`.
-- `assemble(uuid, out=sys.stdout) -> int | None` — writes the timeline to
-  `out`, returns the count emitted, or `None` if not located.
+- `assemble(uuid, out=sys.stdout, path=None) -> int | None` — writes the
+  timeline to `out`, returns the count emitted, or `None` if not located /
+  path missing. When `path` is given, locate is skipped (assemble-file mode).
 - `KNOWN_TOP_FIELDS: set[str]` — shared schema-drift field set.
 - `PROJECTS_DIR: str` — `~/.claude/projects`.
 
@@ -175,22 +189,28 @@ Verification gate:
 POSIX sh. **Contract:**
 
 ```
-freshness.sh check <path>
+freshness.sh check <path> [--allow-in-progress]
 ```
 
 - Compute the file's mtime age. If modified **< 60 s ago** (in-progress
   write), print a warning to **stderr** and **exit 9** (decline to parse
   mid-write).
-- Fresh enough (≥ 60 s, or file missing) → **exit 0**, silent on stdout.
+- Fresh enough (≥ 60 s) → **exit 0**, silent on stdout. Missing file → exit 1.
 - Portable mtime: support **both GNU** (`stat -c %Y`) **and BSD/macOS**
   (`stat -f %m`) `stat`.
+
+**SCOPED CARVE-OUT (SPEC-018 M14):** a PreCompact capture is by definition
+mid-write. Passed EXCLUSIVELY by `skills/handoff/precompact-capture.sh` via
+`prepass.sh prepare --allow-in-progress`. No user-invoked path (`/handoff`
+cold, `/retro`) passes it — default guard behavior (exit 9) is unchanged.
+With the flag: mtime < 60 s → NOTE on stderr, **exit 0** (warn-and-proceed).
 
 Exit codes are the API: `0` = ok to parse, `9` = too fresh (caller warns +
 declines). Consumed by the handoff prepass (M9 → warn + stop) and the retro
 location/Filter-1 path.
 
 Verification gate: `freshness.sh check` on a just-`touch`ed
-file → **exit 9**.
+file → **exit 9**; same + `--allow-in-progress` → **exit 0**.
 
 ---
 

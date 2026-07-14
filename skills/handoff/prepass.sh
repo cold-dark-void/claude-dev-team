@@ -4,8 +4,15 @@
 #
 # Subcommands:
 #   prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
+#                          [--transcript <path>] [--allow-in-progress]
 #   prepass.sh cache-check --uuid <uuid>
 #   prepass.sh finalize    --uuid <uuid> --sections <dir>
+#
+# Capture-path flags (SPEC-018 M12/M14) — passed only by
+# skills/handoff/precompact-capture.sh:
+#   --transcript <path>     skip M1 locate; stream exactly this file
+#   --allow-in-progress     soften M9 guard to warn-and-proceed
+# Independent: --transcript alone still enforces M9.
 #
 # `prepare` — what it does (no LLM — this is the deterministic stage
 # that feeds the extractor subagents):
@@ -74,6 +81,7 @@ fi
 usage() {
   cat >&2 <<'EOF'
 Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
+                              [--transcript <path>] [--allow-in-progress]
        prepass.sh cache-check --uuid <uuid>
        prepass.sh finalize    --uuid <uuid> --sections <dir> [--leaf <uuid>]
 
@@ -87,6 +95,10 @@ Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
   --leaf     <uuid>   finalize: the leaf-uuid (M8 cache key) prepare already
                       computed; passing it skips a full transcript re-stream.
                       Omitted -> finalize recomputes it via assemble.py.
+  --transcript <path> prepare: stream exactly this file (skip locate; M12).
+                      Capture path only — precompact-capture.sh.
+  --allow-in-progress prepare: soften M9 freshness to warn-and-proceed (M14).
+                      Capture path only; independent of --transcript.
 
 Env:
   HANDOFF_SPINE_TOKENS   token budget for a single spine (default 120000).
@@ -104,11 +116,14 @@ case "$SUBCMD" in
   *) echo "prepass.sh: unknown subcommand: $SUBCMD" >&2; usage ;;
 esac
 
-# Shared arg parse: --uuid (all), --out (prepare), --sections + --leaf (finalize).
+# Shared arg parse: --uuid (all), --out (prepare), --sections + --leaf (finalize),
+# --transcript / --allow-in-progress (prepare capture path only; M12/M14).
 UUID=""
 OUT="plan.json"
 SECTIONS=""
 LEAF_ARG=""
+TRANSCRIPT=""
+ALLOW_IN_PROGRESS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --uuid)
@@ -121,6 +136,13 @@ while [ $# -gt 0 ]; do
       OUT="$2"; shift 2 ;;
     --out=*)
       OUT="${1#--out=}"; shift ;;
+    --transcript)
+      [ $# -ge 2 ] || usage
+      TRANSCRIPT="$2"; shift 2 ;;
+    --transcript=*)
+      TRANSCRIPT="${1#--transcript=}"; shift ;;
+    --allow-in-progress)
+      ALLOW_IN_PROGRESS=1; shift ;;
     --sections)
       [ $# -ge 2 ] || usage
       SECTIONS="$2"; shift 2 ;;
@@ -627,26 +649,40 @@ PYEOF
 fi
 
 # --- (a) LOCATE canonical file ---------------------------------------------
-# assemble.py locate prints the path on stdout, exit 1 + stderr if not found.
+# PreCompact capture path (M12): --transcript names the exact live file; M1
+# locate is skipped. Only precompact-capture.sh passes this flag.
 CANONICAL=""
-if CANONICAL=$(python3 "$ASSEMBLE" locate "$UUID" 2>/dev/null); then
-  :
+if [ -n "$TRANSCRIPT" ]; then
+  if [ ! -f "$TRANSCRIPT" ]; then
+    echo "prepass.sh: --transcript file not found: $TRANSCRIPT" >&2
+    exit 1
+  fi
+  CANONICAL="$TRANSCRIPT"
 else
-  echo "prepass.sh: uuid not found in any transcript: $UUID" >&2
-  exit 1
-fi
-if [ -z "$CANONICAL" ] || [ ! -f "$CANONICAL" ]; then
-  echo "prepass.sh: uuid not found in any transcript: $UUID" >&2
-  exit 1
+  # assemble.py locate prints the path on stdout, exit 1 + stderr if not found.
+  if CANONICAL=$(python3 "$ASSEMBLE" locate "$UUID" 2>/dev/null); then
+    :
+  else
+    echo "prepass.sh: uuid not found in any transcript: $UUID" >&2
+    exit 1
+  fi
+  if [ -z "$CANONICAL" ] || [ ! -f "$CANONICAL" ]; then
+    echo "prepass.sh: uuid not found in any transcript: $UUID" >&2
+    exit 1
+  fi
 fi
 
 # --- (b) FRESHNESS guard (M9) ----------------------------------------------
 # freshness.sh: exit 0 ok, exit 9 too-fresh (it prints its own warning), exit 1
 # missing/usage. We mirror exit 9 and decline, per M9. Run it without `set -e`
 # aborting on the non-zero exit we want to inspect.
+# --allow-in-progress (M14): append flag so freshness warn-and-proceeds.
 if [ -f "$FRESHNESS" ]; then
+  FRESH_FLAG=""
+  [ "$ALLOW_IN_PROGRESS" = "1" ] && FRESH_FLAG="--allow-in-progress"
   set +e
-  sh "$FRESHNESS" check "$CANONICAL"
+  # shellcheck disable=SC2086  # FRESH_FLAG empty-or-one-token by design
+  sh "$FRESHNESS" check "$CANONICAL" $FRESH_FLAG
   fresh_rc=$?
   set -e
   if [ "$fresh_rc" -eq 9 ]; then
@@ -665,6 +701,7 @@ HANDOFF_SPINE_TOKENS="${HANDOFF_SPINE_TOKENS:-120000}" \
 HANDOFF_CHARS_PER_TOKEN="${HANDOFF_CHARS_PER_TOKEN:-4}" \
 PREPASS_UUID="$UUID" \
 PREPASS_CANONICAL="$CANONICAL" \
+PREPASS_FROM_FILE="$([ -n "$TRANSCRIPT" ] && echo 1 || echo 0)" \
 PREPASS_OUT="$OUT" \
 PREPASS_ASSEMBLE="$ASSEMBLE" \
 PREPASS_PARSE_DIR="$PARSE_DIR" \
@@ -719,9 +756,14 @@ def warn(msg):
 # Stream the assembled (ordered, deduped) timeline from the shared module.
 # We never read the raw 87 MB file ourselves; assemble.py streams it and emits
 # one JSON object per surviving message. We read its stdout line-by-line.
+# PreCompact capture path: assemble-file <path> skips locate (M12).
 # ---------------------------------------------------------------------------
+if os.environ.get("PREPASS_FROM_FILE") == "1":
+    assemble_args = [sys.executable, ASSEMBLE, "assemble-file", CANONICAL]
+else:
+    assemble_args = [sys.executable, ASSEMBLE, "assemble", UUID]
 proc = subprocess.Popen(
-    [sys.executable, ASSEMBLE, "assemble", UUID],
+    assemble_args,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,

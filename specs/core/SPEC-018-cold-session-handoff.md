@@ -39,6 +39,18 @@ Design: a deterministic, LLM-free pre-pass (fork-tree assembly + `toolUseResult`
 - **M11 — Consolidation.** The plugin `/handoff` MUST supersede the personal `~/.claude/skills/handoff` skill; that skill MUST be removed (leaving a one-line deprecation pointer to the plugin command). Warm mode MUST preserve that skill's density rules and anti-patterns (no chronological narration; link by `file:symbol`; quote user constraints verbatim).
 - **MUST NOT** require any action to have been taken during the original session — it operates **retroactively** on existing transcripts.
 
+### Extension — PreCompact auto-handoff
+
+Goal: make context loss structurally impossible — capture a rescue artifact BEFORE any compaction (auto or manual) via the harness `PreCompact` hook, whose stdin JSON carries `session_id`, `transcript_path`, and `hook_event_name`. Hooks run shell commands, not model turns, so this path is deterministic by construction.
+
+- **M12 — Deterministic rescue capture (LLM-free).** A `PreCompact` hook (both `manual` and `auto` matchers) MUST invoke a capture script (e.g. `skills/handoff/precompact-capture.sh`) that runs the existing deterministic pre-pass machinery (`prepass.sh` / the shared `skills/transcript-parse` module) against the live `transcript_path` from the hook's stdin JSON — no canonical-file search needed (M1's locate step is skipped; the hook names the exact live file) — and writes a rescue artifact to `<repo>/.claude/handoff/<session-id>-precompact-<seq>.md` (`<seq>` monotonically increasing per session). The artifact is a **spine snapshot + drill-down pointers** (M6 discipline), explicitly **NOT** the five-section M4 brief: M4 quality is unreachable without a model. It is raw material for a later cold `/handoff <uuid>`, which remains the canonical quality path.
+- **M13 — Registration + template emission.** The hook MUST be registered in `.claude/settings.json` under `PreCompact` AND emitted by the `/init-orchestration` template set (kept byte-identical to the live hook per `skills/init-orchestration/check-hook-templates.sh`). The emitted command MUST follow the existing hook hygiene rules: `${CLAUDE_PROJECT_DIR}`-anchored path (worktree-safe), no pipe operators.
+- **M14 — Scoped freshness-guard carve-out.** A PreCompact capture is by definition mid-write, so the capture path MUST bypass the M9 <60s freshness guard via an explicit, narrowly scoped mechanism (e.g. an `--allow-in-progress` flag on the shared guard/pre-pass, passed ONLY by `precompact-capture.sh`) and MUST tolerate a truncated final JSONL line by dropping it. The default guard behavior for cold `/handoff` and `/retro` MUST remain unchanged — the carve-out MUST NOT be reachable from any user-invoked path.
+- **M15 — Bounded retention.** Keep at most N rescue artifacts per session (default 3, override `HANDOFF_PRECOMPACT_MAX_PER_SESSION`), pruning oldest-first on each capture — mirroring the M8 cache-eviction precedent (`HANDOFF_CACHE_MAX_ENTRIES`). Pruning MUST only ever touch `*-precompact-*.md` artifacts; warm briefs (M10) and the cold-result cache (M8) are separate namespaces and MUST NOT be pruned by this path.
+- **M16 — Surfacing (pointer, not dump).** After a capture, the post-compacted session (and/or the next session, via `PostCompact` and/or `SessionStart` hook output) MUST be told a rescue artifact exists: a one-line pointer carrying the artifact path and the suggested recovery invocation (`/handoff <uuid>`). Pointer injection only — the artifact content MUST NOT be dumped into context (M6 discipline).
+- **M17 — Failure isolation (never block compaction).** The hook MUST NEVER block compaction: on ANY capture failure (parse error, missing repo, missing `python3`, timeout, disk full) it logs a one-line diagnostic to stderr and exits `0`. It MUST NOT exit `2` (which blocks the operation), and its runtime MUST be bounded (soft timeout on oversized transcripts → give up, log, exit `0`).
+- **M18 — MUST NOT (hard boundaries).** The hook path MUST NOT invoke any LLM; MUST NOT write into `memory.db` (artifacts live under `.claude/handoff/`, consistent with M8 isolation); MUST NOT replace cold `/handoff` — the artifact supplements it, never substitutes for the M4 brief. When `PreCompact`/`PostCompact` hooks are unsupported by the installed Claude Code version or simply not wired, the plugin MUST behave exactly as today (graceful absence — no errors, no degraded `/handoff` behavior).
+
 ---
 
 ## Test
@@ -55,6 +67,16 @@ Design: a deterministic, LLM-free pre-pass (fork-tree assembly + `toolUseResult`
 10. **Freshness guard (M9):** invoke on a transcript modified < 60 s ago → warns, does not parse.
 11. **Warm mode (M10):** run bare `/handoff` in a live session → writes a five-section brief to `.claude/handoff/<session-id>-<slug>.md`; no uuid required; not injected.
 12. **Consolidation (M11):** after install, `~/.claude/skills/handoff` is removed/deprecated and bare `/handoff` covers the warm path.
+
+**Extension — PreCompact auto-handoff:**
+
+13. **Rescue capture (M12):** simulate a `PreCompact` event (feed the stdin JSON with a real `transcript_path` to `precompact-capture.sh`) → a `<session-id>-precompact-<seq>.md` artifact appears under `.claude/handoff/`, contains spine pointers, contains none of the five M4 section headers, and no model was invoked (deterministic runtime only).
+14. **Registration + emission (M13):** `.claude/settings.json` carries the `PreCompact` entry (both matchers covered); `check-hook-templates.sh` passes (template byte-identical to the live hook); the emitted command uses `${CLAUDE_PROJECT_DIR}` and contains no pipes.
+15. **Carve-out is scoped (M14):** the capture succeeds on a transcript modified <60s ago (with a truncated final line dropped), while a plain cold `/handoff <uuid>` on the same file still declines per M9.
+16. **Retention (M15):** trigger N+2 captures for one session → only the newest N artifacts remain; warm briefs and cache entries for the same session are untouched.
+17. **Surfacing (M16):** after a capture + compaction, the session (or next session start) receives a one-line pointer with the artifact path and `/handoff <uuid>` suggestion — and the artifact body is NOT injected.
+18. **Fail-open (M17):** force a capture failure (e.g. unreadable transcript) → hook exits `0`, compaction proceeds, one-line diagnostic on stderr; never exit `2`.
+19. **Hard boundaries + graceful absence (M18):** no LLM call and no `memory.db` write occur on the hook path; with the hook unregistered (or on a Claude Code version without `PreCompact`), `/handoff` cold + warm behavior is byte-for-byte today's behavior.
 
 ---
 
@@ -73,6 +95,7 @@ Design: a deterministic, LLM-free pre-pass (fork-tree assembly + `toolUseResult`
 - [ ] Transcript parsing reuses the shared module (no duplication of SPEC-012 logic)
 - [ ] Bare `/handoff` writes a warm five-section brief from live context
 - [ ] Personal `~/.claude/skills/handoff` removed/deprecated; plugin `/handoff` covers cold + warm
+- [x] PreCompact auto-handoff implemented and promoted (M12–M18; DRAFT marker dropped)
 
 ---
 
@@ -86,3 +109,5 @@ Design: a deterministic, LLM-free pre-pass (fork-tree assembly + `toolUseResult`
 | 2026-06-05 | Implemented via CDV-10 (Tasks 1-14): status NEW→ACTIVE |
 | 2026-06-05 | Cache-eviction shipped (v0.30.1, HOFF-EVICT): `prepass.sh finalize` now bounds `.claude/handoff/cache/` — count-cap by `created_at` (HANDOFF_CACHE_MAX_ENTRIES, default 50), never evicts the just-written entry, sweeps orphan `*.tmp`; a cached brief is a derived memoization so eviction loses no recoverable context |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Category `Core`→`core` (lowercase, matches SPEC-008 category list and all other specs/core). No behavioral change. |
+| 2026-07-03 | Proposed extension (DRAFT): PreCompact auto-handoff — ideation wave 2 |
+| 2026-07-14 | PreCompact auto-handoff implemented (M12–M18, CDV-182); DRAFT dropped |

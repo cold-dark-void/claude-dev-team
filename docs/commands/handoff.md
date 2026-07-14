@@ -93,6 +93,29 @@ producing a partial handoff, /handoff declines to parse it mid-write. Try again
 once the session has settled (≥ 60 s idle).
 ```
 
+## Rescue artifacts (PreCompact)
+
+Before any compaction (manual `/compact` or auto), a `PreCompact` hook can capture a
+deterministic, LLM-free **rescue artifact** so context loss is not permanent
+(SPEC-018 M12–M18).
+
+| What | Detail |
+|------|--------|
+| **When** | `PreCompact` fires for both manual and auto compaction (matcher-less registration) |
+| **Writes** | `<repo>/.claude/handoff/<session-id>-precompact-<seq>.md` — spine snapshot + `[L<n>]` drill-down pointers |
+| **Not** | The five-section M4 brief (that still needs a model; cold `/handoff <uuid>` remains the quality path) |
+| **Surfacing** | `PostCompact` / `SessionStart` print a one-line pointer (path + `/handoff <uuid>` suggestion); SessionStart consumes the marker; body is never dumped into context |
+| **Retention** | Keep newest N per session (default 3, env `HANDOFF_PRECOMPACT_MAX_PER_SESSION`); only `*-precompact-*.md` |
+| **Fail-open** | Capture failure → one stderr line + exit 0; never blocks compaction (never exit 2) |
+| **Timeout** | Soft prepare timeout default 30 s (`HANDOFF_PRECOMPACT_TIMEOUT`); spine tail-cap default 2 MB (`HANDOFF_PRECOMPACT_SPINE_BYTES`) |
+
+**Recovery:** after compaction (or on the next session start) follow the pointer and run
+`/handoff <session-id>` for the full brief. Artifacts are machine-local (gitignored under
+`.claude/handoff/`). If hooks are unregistered or the Claude Code version lacks
+`PreCompact`/`PostCompact`, cold + warm `/handoff` behave exactly as before (graceful
+absence). Wire hooks via `/init-orchestration` (templates + `check-hook-templates` are the
+ship gate; live `settings.json` is machine-local).
+
 ## See Also
 
 - [`/recall`](./recall.md) — find a past session's uuid to hand off (cross-session discovery)

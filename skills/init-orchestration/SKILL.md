@@ -17,7 +17,9 @@ project/
 │   │   ├── task-completed.sh          # Quality-gate hook (created)
 │   │   ├── stop-review.sh             # Self-review gate — checks diff before agent exits (created)
 │   │   ├── memory-capture.sh          # Auto memory — logs Write/Edit to tier-0 (created)
-│   │   └── bash-compress.sh           # Output compression — rewrites noisy commands inline (created)
+│   │   ├── bash-compress.sh           # Output compression — rewrites noisy commands inline (created)
+│   │   ├── precompact-rescue.sh       # PreCompact rescue capture (SPEC-018 M12)
+│   │   └── rescue-pointer.sh          # PostCompact/SessionStart pointer surfacing (M16)
 │   └── memory/
 │       └── claude/
 │           └── memory.md      # Orchestrator rules seeded (created or appended)
@@ -196,6 +198,36 @@ Using the `allowedDomains` list from Step 2, write the settings file.
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/precompact-rescue.sh\""
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rescue-pointer.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rescue-pointer.sh\""
+          }
+        ]
+      }
     ]
   },
   "sandbox": {
@@ -228,8 +260,9 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 **If `settings.json` already exists** — read it, then merge in the missing keys:
 - Add `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }` if `env` key is absent
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
-- Add the `PreToolUse`, `PostToolUse`, `Stop`, and `TaskCompleted` hooks entries if `hooks` key is absent
-- If `hooks` key exists but lacks `PreToolUse`, `PostToolUse`, `Stop`, or `TaskCompleted`, add the missing ones
+- Add the `PreToolUse`, `PostToolUse`, `Stop`, `TaskCompleted`, `PreCompact`, `PostCompact`, and `SessionStart` hooks entries if `hooks` key is absent
+- If `hooks` key exists but lacks any of `PreToolUse`, `PostToolUse`, `Stop`, `TaskCompleted`, `PreCompact`, `PostCompact`, or `SessionStart`, add the missing ones
+- `PreCompact`/`PostCompact`/`SessionStart` require a Claude Code version that supports those hook events; on older versions the entries are inert (graceful absence — SPEC-018 M18)
 - Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists: ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`; merge new domains into existing `allowedDomains` (no duplicates); preserve any existing `filesystem` overrides
 - Ensure `permissions.allow` contains `"Bash(*)"` and `permissions.defaultMode` is `"bypassPermissions"` — add or update as needed, but preserve any other existing allow entries
 - Write the merged result back as valid JSON
@@ -604,6 +637,131 @@ chmod +x .claude/hooks/bash-compress.sh
 
 ---
 
+### Step 4e: Create .claude/hooks/precompact-rescue.sh
+
+Use the `Write` tool to create `.claude/hooks/precompact-rescue.sh` with this content:
+
+```bash
+#!/usr/bin/env bash
+# PreCompact hook — delegate to the dev-team plugin's rescue-capture engine
+# (SPEC-018 M12/M13). FAIL-OPEN (M17): always exits 0; exit 2 would block
+# compaction and is forbidden. Graceful absence (M18): plugin not installed
+# -> log one line, exit 0, compaction proceeds untouched.
+#
+# Locator: skills/plugin-dir.sh (product lock — not an ad-hoc third locator).
+set -u
+
+# Resolve plugin root (PDH): dev-checkout cwd fast path, else highest installed
+# cache version. Same bootstrap as /orchestrate and init-orchestration Step 7.
+PDH=""
+if [ -f skills/plugin-dir.sh ]; then
+  PDH=$(pwd)
+else
+  _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
+    -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
+    | sort -V | tail -1) || _pdh_hit=""
+  if [ -n "$_pdh_hit" ]; then
+    PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
+  fi
+fi
+
+if [ -z "$PDH" ] || [ ! -f "$PDH/skills/plugin-dir.sh" ]; then
+  echo "precompact-rescue: dev-team plugin not found — skipping rescue capture" >&2
+  exit 0
+fi
+
+CAPTURE=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/precompact-capture.sh 2>/dev/null) || CAPTURE=""
+if [ -z "$CAPTURE" ] || [ ! -f "$CAPTURE" ]; then
+  echo "precompact-rescue: precompact-capture.sh not found — skipping rescue capture" >&2
+  exit 0
+fi
+
+bash "$CAPTURE"   # stdin (the hook JSON) passes through; engine always exits 0
+exit 0
+```
+
+Then make it executable:
+```bash
+chmod +x .claude/hooks/precompact-rescue.sh
+```
+
+---
+
+### Step 4f: Create .claude/hooks/rescue-pointer.sh
+
+Use the `Write` tool to create `.claude/hooks/rescue-pointer.sh` with this content:
+
+```bash
+#!/usr/bin/env bash
+# PostCompact + SessionStart hook — surface the latest PreCompact rescue
+# artifact (SPEC-018 M16). POINTER INJECTION ONLY: prints one line naming the
+# artifact path and the `/handoff <uuid>` recovery invocation. NEVER dumps
+# artifact content into context (M6 discipline). Fail-open: always exits 0.
+# SessionStart consumes the marker (one-shot); PostCompact leaves it so the
+# NEXT session start still learns about the artifact.
+set -u
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && ROOT=$(cd -- "$(dirname -- "$_gc")" && pwd) \
+  || ROOT="${CLAUDE_PROJECT_DIR:-}"
+[ -n "$ROOT" ] || exit 0
+MARKER="$ROOT/.claude/handoff/.rescue-pointer.json"
+[ -f "$MARKER" ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+# Which event is this? (stdin hook JSON; empty/garbage -> treated as unknown)
+EVENT=$(head -c 65536 | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print(d.get("hook_event_name", "") if isinstance(d, dict) else "")' 2>/dev/null)
+
+LINE=$(MARKER_FILE="$MARKER" python3 - <<'PYEOF' 2>/dev/null
+import datetime, json, os, sys
+try:
+    with open(os.environ["MARKER_FILE"], encoding="utf-8") as fh:
+        d = json.load(fh)
+except Exception:
+    sys.exit(1)
+art = d.get("artifact") or ""
+sid = d.get("session_id") or ""
+ca = d.get("created_at") or ""
+if not art or not sid or not os.path.isfile(art):
+    sys.exit(1)
+try:
+    age = datetime.datetime.now(datetime.timezone.utc) \
+        - datetime.datetime.fromisoformat(ca.replace("Z", "+00:00"))
+    if age.total_seconds() > 86400:
+        sys.exit(2)   # stale (>24 h): caller deletes the marker silently
+except Exception:
+    pass
+print(f"A pre-compaction rescue artifact exists for session {sid}: {art} — "
+      f"run `/handoff {sid}` to rebuild the full brief (the artifact is raw "
+      f"material, not the brief).")
+PYEOF
+)
+RC=$?
+if [ "$RC" -eq 2 ]; then
+  rm -f -- "$MARKER"
+  exit 0
+fi
+if [ "$RC" -ne 0 ] || [ -z "$LINE" ]; then
+  exit 0
+fi
+echo "$LINE"
+if [ "$EVENT" = "SessionStart" ]; then
+  rm -f -- "$MARKER"
+fi
+exit 0
+```
+
+Then make it executable:
+```bash
+chmod +x .claude/hooks/rescue-pointer.sh
+```
+
+
 ### Step 5: Create or update AGENTS.md
 
 **If `AGENTS.md` does not exist** — create it with a full template (see below).
@@ -887,12 +1045,14 @@ Print a summary of what was done:
 ✅ Agent Teams orchestration initialized!
 
 Updated:
-  📄 .claude/settings.json   — sandbox + bypassPermissions + PreToolUse + PostToolUse + Stop + TaskCompleted hooks
+  📄 .claude/settings.json   — sandbox + bypassPermissions + PreToolUse + PostToolUse + Stop + TaskCompleted + PreCompact + PostCompact + SessionStart hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
   📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit to tier-0)
   📄 .claude/hooks/bash-compress.sh — output compression (rewrites noisy test/build commands inline)
+  📄 .claude/hooks/precompact-rescue.sh — PreCompact rescue capture (SPEC-018 M12)
+  📄 .claude/hooks/rescue-pointer.sh — PostCompact/SessionStart pointer surfacing (M16)
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
   📄 .claude/memory/claude/memory.md — orchestrator rules seeded [created/updated]

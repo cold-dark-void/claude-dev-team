@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shared transcript locate + fork-assembly primitive (SPEC-018 M1).
 
-Two subcommands, both read-only over ~/.claude/projects/:
+Three subcommands, all read-only over ~/.claude/projects/ (or a named path):
 
   assemble.py locate <uuid>
       Print the canonical transcript file for a session uuid and exit 0.
@@ -18,6 +18,11 @@ Two subcommands, both read-only over ~/.claude/projects/:
       file-history-snapshot / etc.) are dropped from the timeline.
       Messages are de-duplicated on "uuid" KEEP-LAST and ordered by
       (timestamp, first-seen line index).
+
+  assemble.py assemble-file <path>
+      Stream exactly the named transcript file (no locate). Same emit
+      contract as assemble. Used by PreCompact capture (SPEC-018 M12)
+      when the hook already names the live file.
 
 Why this shape (validated against real 72 MB+ transcripts):
   - `forkedFrom` is PROVENANCE -- an object {sessionId, messageUuid} where
@@ -194,7 +199,7 @@ def _stream_message_lines(path):
     warn_schema_drift(path, probed, known_seen)
 
 
-def assemble(target_uuid, out=sys.stdout):
+def assemble(target_uuid, out=sys.stdout, path=None):
     """Stream the canonical file and write the ordered, deduped timeline.
 
     Dedup on uuid KEEP-LAST: a later copy of the same uuid replaces the
@@ -207,11 +212,19 @@ def assemble(target_uuid, out=sys.stdout):
     stderr and the raw lines pass through unmodified (collapse is the
     prepass's job, not the parser's).
 
+    path, when given, names the exact transcript to stream (PreCompact
+    capture path, SPEC-018 M12 — the hook already knows the live file; no
+    canonical-file search). target_uuid is unused in that mode.
+
     Returns the number of message lines emitted.
     """
-    path = locate(target_uuid)
     if path is None:
-        _warn(f"uuid not found in any transcript: {target_uuid}")
+        path = locate(target_uuid)
+        if path is None:
+            _warn(f"uuid not found in any transcript: {target_uuid}")
+            return None
+    elif not os.path.isfile(path):
+        _warn(f"transcript file not found: {path}")
         return None
 
     # uuid -> [timestamp, first_seen_index, raw_line]; keep-last on raw, but
@@ -257,6 +270,7 @@ def _usage(stream=sys.stderr):
     stream.write(
         "usage: assemble.py locate <uuid>\n"
         "       assemble.py assemble <uuid>\n"
+        "       assemble.py assemble-file <path>   (stream exactly this file; no locate)\n"
     )
 
 
@@ -282,6 +296,12 @@ def main(argv):
 
     if cmd == "assemble":
         count = assemble(target_uuid)
+        if count is None:
+            return 1
+        return 0
+
+    if cmd == "assemble-file":
+        count = assemble(None, path=target_uuid)
         if count is None:
             return 1
         return 0

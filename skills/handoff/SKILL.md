@@ -28,6 +28,12 @@ emitting one strict JSON section object, merged by `prepass.sh finalize`.
 This file is the single source of truth for the fan-out: the five JSON schemas
 `finalize` consumes and the substitution variables `commands/handoff.md` fills.
 
+**Related (not this skill):** PreCompact auto-rescue is a separate deterministic
+path — `skills/handoff/precompact-capture.sh` (engine) + `.claude/hooks/precompact-rescue.sh`
+/ `rescue-pointer.sh`. It writes a spine snapshot under `.claude/handoff/*-precompact-*.md`
+(M12–M18), not the five-section M4 brief. See `docs/commands/handoff.md` § Rescue
+artifacts and `bash skills/handoff/precompact-test.sh`.
+
 ---
 
 ## Who calls this

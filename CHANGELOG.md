@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.41.0
+- **feat: PreCompact auto-handoff rescue capture (SPEC-018 M12–M18 / CDV-182)** — deterministic LLM-free `PreCompact` hook writes spine+pointer artifacts to `.claude/handoff/<sid>-precompact-<seq>.md` (not M4 brief); `assemble-file` + scoped `--allow-in-progress` freshness carve-out; bounded retention (N=3); fail-open (never blocks compaction); PostCompact/SessionStart pointer surfacing; init-orchestration templates + drift gate; 29 bite-tests. Existing installs: re-run `/init-orchestration` to wire hooks.
+
 ### v0.40.0
 - **feat: release train queue coordinator (SPEC-023 / CDV-181)** — `/release-train` + `skills/release-train/train-lib.sh`: manual queue, frozen slot versions, mechanical M5a–d conflict pre-resolve (TDD index/VH/CHANGELOG/JSON), agent-driven `/release <assigned>` per entry; `--dry-run`/print-only inert; abort-safe queue under `.claude/release-train/`. `/release` gains **skip-if-present** for explicit CHANGELOG headings (train Option A). 64 unit + 13 integration tests. SPEC-023 ACTIVE.
 
