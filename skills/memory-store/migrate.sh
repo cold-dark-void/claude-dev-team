@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-LATEST=3
+LATEST=4
 
 if [ $# -lt 1 ]; then
   echo "Usage: migrate.sh <MROOT>" >&2

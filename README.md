@@ -126,7 +126,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | `/memory-stats` | Show memory usage statistics (counts, sizes, growth) |
 | `/memory-export` | Export sanitized tier-2 core memories to a committable seed pack (SPEC-024) |
 | `/metrics` | Read-only all-time rollup of local-agent, council, outcomes, worktree/task counts |
-| `/validate-memory` | Cross-reference agent memories against the live codebase to detect stale refs |
+| `/validate-memory` | Cross-reference agent memories against the live codebase; `--reconcile` detects cross-agent contradictions (`--report-only` for zero writes) |
 | [`/handoff`](docs/commands/handoff.md) | Reconstruct a past session, or capture the current one, into a dense brief |
 
 ### Maintenance

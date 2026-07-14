@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.56.0
+- **SPEC-011 /validate-memory --reconcile (CDV-195)** — bounded cross-agent contradiction candidates; LLM pair-judge; interactive or `--report-only`; schema v4 `reconcile_log`; never auto-archive
+
 ### v0.55.0
 - **optional Council-on-Workflow tribunal path (CDV-196)**
 

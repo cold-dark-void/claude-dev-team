@@ -1,7 +1,7 @@
 ---
 name: validate-memory
-description: Cross-reference agent memories against the live codebase to detect stale references
-argument-hint: "[--agent <name>] [--deep] [--force]"
+description: Cross-reference agent memories against the live codebase; --reconcile detects cross-agent contradictions
+argument-hint: "[--agent <name>] [--deep] [--force] [--reconcile] [--report-only]"
 agent: build
 ---
 
@@ -14,14 +14,22 @@ verification (bash for structural refs, LLM investigator for semantic claims)
 with confidence scoring: validator proposes, tech-lead reviewer confirms,
 user decides ambiguous cases.
 
+With `--reconcile`, instead detect **cross-agent contradictions** (memories vs
+memories): bounded candidate pairs → LLM pair-judge → interactive or
+`--report-only` resolution. Never auto-archives contradictions.
+
 ## Arguments
 
 - `/validate-memory` -- validate all agents' memories
 - `/validate-memory --agent <name>` -- validate only one agent's memories
 - `/validate-memory --deep` -- also rebuild digests whose sources have gone stale
 - `/validate-memory --force` -- ignore validated_at window, re-validate everything
+- `/validate-memory --reconcile` -- cross-agent contradiction pass (Steps R1–R4)
+- `/validate-memory --reconcile --report-only` -- list contradictions; **zero DB writes**
 
 Flags can be combined: `/validate-memory --deep --agent pm --force`
+
+**Mutual exclusion:** `--deep` and `--reconcile` MUST NOT be combined — error exit.
 
 ## Step 1: Parse arguments, resolve DB
 
@@ -44,9 +52,23 @@ Parse flags from arguments:
 - `--agent <name>` -- set `TARGET_AGENT=<name>`
 - `--deep` -- set `DEEP=true`
 - `--force` -- set `FORCE=true`
+- `--reconcile` -- set `RECONCILE=true`
+- `--report-only` -- set `REPORT_ONLY=true` (only meaningful with `--reconcile`)
+
+```bash
+# After flag parse — mutual exclusion
+if [ "$RECONCILE" = "true" ] && [ "$DEEP" = "true" ]; then
+  echo "Error: --deep and --reconcile cannot be combined."
+  # Stop here (exit 1)
+fi
+if [ "$REPORT_ONLY" = "true" ] && [ "$RECONCILE" != "true" ]; then
+  echo "Error: --report-only requires --reconcile."
+  # Stop here (exit 1)
+fi
+```
 
 Guard: check distilling_lock. Validation must not run concurrently with
-distillation (they share the same DB rows).
+distillation (they share the same DB rows). Same guard for `--reconcile`.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -62,7 +84,10 @@ if [ -n "$LOCK" ]; then
 fi
 ```
 
-Read validation window from config:
+If `RECONCILE=true`, skip the codebase-validation pipeline (Steps 2–11) and
+branch to **Steps R1–R4** below. Otherwise continue with the standard path.
+
+Read validation window from config (standard path only):
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -780,3 +805,224 @@ Each detail entry includes:
   `CONTRA`, `AMBIG`), confidence percentage, and evidence summary
 - CONTRADICTED and STALE claims include a dash-separated evidence note
 - Skipped memories (no checkable claims) show "skipped" with reason
+
+---
+
+# Reconcile path (`--reconcile`)
+
+Runs only when `RECONCILE=true` after Step 1 guards. Skips Steps 2–11
+(codebase claim pipeline). Contracts and pair-judge prompt live in
+`skills/validate-memory/SKILL.md` (Reconcile Candidate Contract, Pair-Judge
+Prompt Template). Host library: `skills/validate-memory/reconcile-lib.sh`.
+
+## Step R1: Candidate pair generation (no LLM)
+
+Resolve plugin root for the lib (worktree-aware; sibling of commands/):
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+# Plugin root: prefer WTROOT when it contains the skill; else walk from this
+# command file's known install layout.
+PLUGIN_ROOT="$WTROOT"
+if [ ! -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ]; then
+  # Fallback: installed plugin path from CLAUDE_PLUGIN_ROOT if set
+  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+fi
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+PAIRS_FILE=$(mktemp "${TMPDIR:-/tmp}/reconcile-pairs.XXXXXX")
+AGENT_ARGS=()
+if [ -n "${TARGET_AGENT:-}" ]; then
+  AGENT_ARGS=(--agent "$TARGET_AGENT")
+fi
+# R1a embed KNN (when vec0+embeddings available) else R1b keyword Jaccard.
+# Lib enforces: behavioral agents only, cross-agent, sim/Jaccard thresholds,
+# resolved-pair skip, sample ≤200/agent, cap from reconcile_pair_cap.
+# stderr carries RECONCILE_META; JSONL goes to --out only
+META_FILE=$(mktemp "${TMPDIR:-/tmp}/reconcile-meta.XXXXXX")
+bash "$RECONCILE_LIB" candidates "$MEMDB" "${AGENT_ARGS[@]}" --out "$PAIRS_FILE" \
+  2>"$META_FILE" >/dev/null || true
+META=$(cat "$META_FILE")
+rm -f "$META_FILE"
+# Parse RECONCILE_META candidates=N cap=K cap_hit=bool method=keyword|embed
+CAND_N=$(echo "$META" | sed -n 's/.*candidates=\([0-9]*\).*/\1/p' | tail -1)
+CAP_K=$(echo "$META" | sed -n 's/.*cap=\([0-9]*\).*/\1/p' | tail -1)
+CAP_HIT=$(echo "$META" | sed -n 's/.*cap_hit=\([^ ]*\).*/\1/p' | tail -1)
+METHOD=$(echo "$META" | sed -n 's/.*method=\([^ ]*\).*/\1/p' | tail -1)
+```
+
+If `CAND_N` is 0:
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+CAP_K=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='reconcile_pair_cap';" 2>/dev/null || echo "50")
+CAP_K="${CAP_K:-50}"
+echo "TLDR: reconcile: 0 candidates, 0 judged, 0 contradictory, 0 resolved, 0 skipped, cap=${CAP_K}"
+# Stop here (exit 0) — zero writes
+```
+
+Path-containment: N/A (no filesystem paths from untrusted claim text in R1).
+
+## Step R2: LLM pair-judge
+
+Read `skills/validate-memory/SKILL.md` section **Pair-Judge Prompt Template**.
+
+1. Load pairs from `$PAIRS_FILE` (JSONL → JSON array).
+2. Batch ≤10 pairs per call, max 5 batches (Batching Limits table).
+3. For each batch, substitute `{{PAIR_BATCH}}` and spawn Task subagent
+   (`subagent_type: "general-purpose"`). Spawn batches in parallel.
+4. Validate each batch against "Validation rules (command-enforced)".
+5. Malformed batch → every pair in that batch becomes `unrelated` conf 0;
+   note in DETAIL: `judge malformed → unrelated`.
+
+Collect all judgements into `JUDGEMENTS` (JSON array).
+
+## Step R3: Partition
+
+- `CONTRADICTORY` — verdict `contradictory` (only these enter resolution)
+- `NON_ACTION` — `consistent` | `unrelated` (no resolution prompt, no mutation)
+
+Counters: `J` = judged count, `C` = contradictory count.
+
+## Step R4a: `--report-only` or no contradictions
+
+If `REPORT_ONLY=true` OR `C=0`:
+
+```bash
+# Session counters from R1–R3 (agent state across steps — not a prior bash block):
+# CAND_N, CAP_K, CAP_HIT, J, C, PAIRS_FILE
+HIT_SUFFIX=""
+[ "${CAP_HIT:-false}" = "true" ] && HIT_SUFFIX=" HIT"  # lint-ok: C1
+echo "TLDR: reconcile: ${CAND_N:-0} candidates, ${J:-0} judged, ${C:-0} contradictory, 0 resolved, 0 skipped, cap=${CAP_K:-50}${HIT_SUFFIX}"  # lint-ok: C1
+echo ""
+echo "DETAIL:"
+# For each judgement: ids, agents, verdict, claim quotes, confidence, rationale
+# For contradictory under --report-only: still print evidence; action=report
+# MUST NOT: UPDATE memories, INSERT reconcile_log, archive anything
+rm -f "${PAIRS_FILE:-}"  # lint-ok: C1
+# Stop here (exit 0)
+```
+
+**AC7:** Even max-confidence `contradictory` never archives on this path.
+
+## Step R4b: Interactive resolution
+
+For each pair in `CONTRADICTORY`, present:
+
+```
+CONTRADICTION [id_a=@agent_a vs id_b=@agent_b] conf=N%
+  claim_a: "…"
+  claim_b: "…"
+  rationale: …
+Choose: pick-survivor | merge | both-stale | skip | deep-audit
+```
+
+Host applies SQL via `reconcile-lib.sh` (never auto-archive without this choice).
+All writes use SPEC-004 `PRAGMA busy_timeout=5000` inside the lib.
+
+### pick-survivor
+
+User picks winner id (other becomes loser):
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+PLUGIN_ROOT="$WTROOT"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+bash "$RECONCILE_LIB" resolve-pick "$MEMDB" "$WINNER_ID" "$LOSER_ID" \
+  "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
+# Archives loser with archive_reason='reconciled'; logs pick-survivor
+```
+
+### merge
+
+User supplies merged text (or accepts host-proposed merge of both contents).
+Host writes SQL (OQ-5 — judge/user supply text only):
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+PLUGIN_ROOT="$WTROOT"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+bash "$RECONCILE_LIB" resolve-merge "$MEMDB" "$WINNER_ID" "$LOSER_ID" \
+  "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$MERGED_CONTENT" "$REASON"
+# UPDATE winner content (preserve tier/type/distilled_from); tag [reconciled: YYYY-MM-DD];
+# archive loser reconciled
+```
+
+### both-stale
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+PLUGIN_ROOT="$WTROOT"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+bash "$RECONCILE_LIB" resolve-both-stale "$MEMDB" "$ID_A" "$ID_B" \
+  "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
+```
+
+### skip
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+PLUGIN_ROOT="$WTROOT"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+bash "$RECONCILE_LIB" resolve-skip "$MEMDB" "$ID_A" "$ID_B" \
+  "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
+# Log only — pair may reappear on a later run (skip is not a resolved action)
+```
+
+### deep-audit
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+PLUGIN_ROOT="$WTROOT"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+bash "$RECONCILE_LIB" resolve-deep-audit "$MEMDB" "$ID_A" "$ID_B" \
+  "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
+# Prints: /council "claim_a vs claim_b"
+# MUST NOT spawn tribunal phases (SPEC-013 owns that surface)
+```
+
+Track `R` (resolved = pick-survivor|merge|both-stale) and `S` (skip + deep-audit).
+
+### Final TLDR
+
+```bash
+# Session counters from R1–R4b (agent state): CAND_N CAP_K CAP_HIT J C R S PAIRS_FILE
+HIT_SUFFIX=""
+[ "${CAP_HIT:-false}" = "true" ] && HIT_SUFFIX=" HIT"  # lint-ok: C1
+echo "TLDR: reconcile: ${CAND_N:-0} candidates, ${J:-0} judged, ${C:-0} contradictory, ${R:-0} resolved, ${S:-0} skipped, cap=${CAP_K:-50}${HIT_SUFFIX}"  # lint-ok: C1
+echo ""
+echo "DETAIL:"
+# Per pair: ids, agents, verdict, quotes, action taken
+rm -f "${PAIRS_FILE:-}"  # lint-ok: C1
+```

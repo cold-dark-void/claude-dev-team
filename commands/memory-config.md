@@ -28,6 +28,7 @@ Settable keys:
   distill_threshold     integer (1-9999)
   distill_model         model name (e.g., haiku, sonnet, opus)
   validate_window_days  integer (1-365)
+  reconcile_pair_cap    integer (1-500)
 ```
 And stop.
 
@@ -69,7 +70,8 @@ sqlite3 -header -column "$MEMDB" \
     CASE WHEN key='distilling_lock' AND value='' THEN '(none)' ELSE value END AS value,
     updated_at
   FROM config
-  WHERE key LIKE 'distill%' OR key LIKE 'validate%' OR key = 'schema_version'
+  WHERE key LIKE 'distill%' OR key LIKE 'validate%' OR key LIKE 'reconcile%'
+     OR key = 'schema_version'
   ORDER BY key;"
 ```
 
@@ -97,7 +99,7 @@ case "$KEY" in
     echo "Error: 'schema_version' is managed by migrations."
     exit 1
     ;;
-  distill_enabled|distill_mode|distill_threshold|distill_model|validate_window_days)
+  distill_enabled|distill_mode|distill_threshold|distill_model|validate_window_days|reconcile_pair_cap)
     # settable — continue to validation
     ;;
   *)
@@ -138,6 +140,12 @@ case "$KEY" in
   validate_window_days)
     if ! [[ "$VALUE" =~ ^[0-9]+$ ]] || [ "$VALUE" -lt 1 ] || [ "$VALUE" -gt 365 ]; then
       echo "Error: validate_window_days must be an integer between 1 and 365."
+      exit 1
+    fi
+    ;;
+  reconcile_pair_cap)
+    if ! [[ "$VALUE" =~ ^[0-9]+$ ]] || [ "$VALUE" -lt 1 ] || [ "$VALUE" -gt 500 ]; then
+      echo "Error: reconcile_pair_cap must be an integer between 1 and 500."
       exit 1
     fi
     ;;

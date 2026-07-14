@@ -4,7 +4,7 @@
 
 | ID | Title | Status | Coverage |
 |----|-------|--------|----------|
-| SPEC-001 | Per-Agent Directives | ACTIVE | commands/adjust-agent.md, agents/*.md (directives loading), skills/retro-gate/trial-meta.sh, trial-review.sh (CDV-200 trial loop) |
+| SPEC-001 | Per-Agent Directives | ACTIVE | commands/adjust-agent.md, agents/*.md (directives loading) |
 | SPEC-002 | Plugin Infrastructure | INFERRED | .claude-plugin/plugin.json, marketplace.json, .claude/settings.json, hooks/task-completed.sh, skills/scout-plugins |
 | SPEC-003 | Agent Role System | INFERRED | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
 | SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, schema.sql, migrate-md.sh, migrate-v2.sh |
@@ -14,7 +14,7 @@
 | SPEC-008 | Spec Management | INFERRED | commands/create-spec.md, update-spec.md, check-specs.md, find-spec.md, list-specs.md, skills/generate-specs, generate-tests, reflect-specs |
 | SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-and-commit, release |
-| SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, skills/validate-memory/SKILL.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
+| SPEC-011 | Memory Validation | ACTIVE | commands/validate-memory.md, skills/validate-memory/SKILL.md, skills/validate-memory/reconcile-lib.sh, /memory-distill integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
 | SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
@@ -63,3 +63,4 @@
 | 2026-07-14 | SPEC-022 implemented (CDV-191): `/doctor` install/config diagnostics (`doctor.sh` + command); status DRAFT→ACTIVE. |
 | 2026-07-14 | SPEC-024 implemented (CDV-194): memory seed packs — `/memory-export` + init-team import; status DRAFT→ACTIVE. |
 | 2026-07-14 | SPEC-028 renumbered from colliding SPEC-025 (CDV-197): `/fix-ticket` workflow; CDV-192 owns SPEC-025 for `/epic`. |
+| 2026-07-14 | SPEC-011 extended (CDV-195): `/validate-memory --reconcile` cross-agent contradiction detection; schema v4 reconcile_log. |

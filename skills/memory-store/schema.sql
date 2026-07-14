@@ -1,4 +1,4 @@
--- Core memory table (v3: validation support)
+-- Core memory table (v4: validation + cross-agent reconcile)
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS config (
 
 -- Seed config
 INSERT OR IGNORE INTO config(key, value) VALUES
-  ('schema_version', '3'),
+  ('schema_version', '4'),
   ('embedding_mode', 'fallback'),
   ('embedding_model', 'none'),
   ('embedding_dimensions', '0'),
@@ -36,7 +36,8 @@ INSERT OR IGNORE INTO config(key, value) VALUES
   ('distill_threshold', '50'),
   ('distilling_lock', ''),
   ('distill_model', 'haiku'),
-  ('validate_window_days', '7');
+  ('validate_window_days', '7'),
+  ('reconcile_pair_cap', '50');
 
 -- Distillation audit log
 CREATE TABLE IF NOT EXISTS distillation_log (
@@ -59,6 +60,28 @@ CREATE TABLE IF NOT EXISTS validation_log (
   reason TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
+
+-- Cross-agent reconcile audit log (SPEC-011 extension)
+CREATE TABLE IF NOT EXISTS reconcile_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  memory_id_a INTEGER NOT NULL REFERENCES memories(id),
+  memory_id_b INTEGER NOT NULL REFERENCES memories(id),
+  agent_a TEXT NOT NULL,
+  agent_b TEXT NOT NULL,
+  verdict TEXT NOT NULL CHECK(verdict IN ('contradictory','consistent','unrelated')),
+  claim_a TEXT,
+  claim_b TEXT,
+  confidence INTEGER NOT NULL,
+  action TEXT NOT NULL CHECK(action IN (
+    'none','report','pick-survivor','merge','both-stale','skip','deep-audit'
+  )),
+  winner_id INTEGER,
+  loser_id INTEGER,
+  reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_reconcile_pair
+  ON reconcile_log(memory_id_a, memory_id_b);
 
 -- Embedding provenance tracking (which model produced which embeddings)
 CREATE TABLE IF NOT EXISTS embedding_meta (
