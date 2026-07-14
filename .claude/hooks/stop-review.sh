@@ -28,8 +28,12 @@ DIRTY=$(git status --porcelain 2>/dev/null)
 
 MODIFIED=0
 while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  # Count any porcelain XY status except untracked (??) and ignored (!!).
+  # Dual-index codes (MM, AM, MD, RM, UU, …) must count — not only single-side M/A/D/R/C.
   case "$line" in
-    [MADRC]\ *|\ [MADRC]\ *) MODIFIED=$(( MODIFIED + 1 )) ;;
+    \?\?*|\!\!*) ;;
+    *) MODIFIED=$(( MODIFIED + 1 )) ;;
   esac
 done <<< "$DIRTY"
 

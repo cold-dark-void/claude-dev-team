@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.11
+- **fix: stop-review counts dual-status porcelain lines (CDV-178)** — MM/AM/MD/RM were missed by single-column case patterns; now count all porcelain except untracked/ignored. Hook + init-orchestration template stay in sync.
+
 ### v0.38.10
 - **fix: memory-distill CAS lock fail-closed on sqlite error (CDV-176)** — empty CHANGED from busy/fail was treated as acquired. Require CHANGED==1 with `-cmd ".timeout 5000"`; otherwise stop with holder diagnostic.
 

@@ -62,6 +62,7 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 
 #### Stop — Uncommitted change reminder (`stop-review.sh`)
 - MUST check for uncommitted changes via git on session stop
+- MUST count any `git status --porcelain` entry except untracked (`??`) and ignored (`!!`) — including dual-index codes (`MM`, `AM`, `MD`, `RM`, merge conflicts, etc.), not only single-side `M`/`A`/`D`/`R`/`C`
 - MUST print at most one reminder per project per HEAD commit (keyed to a cwd-hash + short HEAD sha stamp under `.claude/`); the reminder re-fires only when HEAD moves (new work lands), not on every `claude --resume` of the same commit
 - MUST NOT block session exit (always exits 0)
 - MUST silently exit 0 when not in a git repository
@@ -184,6 +185,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-06-14 | AUDIT-P0.12: TaskCompleted-hook registration command changed to the worktree-safe `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"` form (relative path fired from arbitrary agent cwd and failed inside worktrees). Direct test-checklist invocation (run from project root) stays relative. |
 | 2026-06-16 | CLUSTER-003/A5: extended the resolution-site table (11→15) to cover the subprocess-CLI helpers (worktree-lib/dag-lib/task-store/ci-watch scripts) invoked by orchestrate/wrap-ticket/standup/ci-watch. These previously used `$MROOT/skills/…` (the consumer's repo) and exited 127 on a real cache install; they now resolve through `plugin-dir.sh` like the engine/schema sites. The detached ci-watch cron prompt bakes in a `plugin-dir.sh`-resolved `<PLUGIN>` root at arming time. |
 | 2026-06-16 | Aligned the Stop-hook dedup MUST to the deployed keying: `stop-review.sh` stamps per (cwd-hash + short HEAD sha) and re-fires only when HEAD moves, not per session_id. Restated as "one reminder per project per HEAD commit". |
+| 2026-07-13 | CDV-178: stop-review MUST count any porcelain XY status except `??`/`!!` (dual-index codes MM/AM/MD/RM and merge conflicts were previously skipped by a single-side `[MADRC]` matcher). |
 | 2026-06-22 | Doc-IA pass: the changelog moved out of `README.md` into a dedicated repo-root `CHANGELOG.md`. The third version-synced file is now `CHANGELOG.md`, not the README; `README.md` carries only a pointer. `/release` (SPEC-010) updated to match. |
 
 ## Cross-references
