@@ -84,13 +84,13 @@ refusal, empty/malformed return — any unusable spawn, not rate-limit-only):
 
 Default (all spawns succeed): `verification_mode: full` and no banner.
 
-### Phase 3 — Dynamic Domain Specialist *(deferred — COUNCIL-002)*
+### Phase 3 — Dynamic Domain Specialist *(CDV-209)*
 
-> **Deferred to COUNCIL-002.** Phase 3 is permanently skipped in the current
-> COUNCIL-001 implementation. The MUSTs below are the intended contract for
-> COUNCIL-002; they are not active requirements until that milestone ships.
-> `commands/council.md` and `skills/council/engine.sh` skip Phase 3 entirely
-> and note this deferral explicitly.
+Active. Topic classification via `skills/council/prompts/topic-classifier.md`;
+dispatch in `commands/council.md`; plan fields from `engine.sh` preflight
+(`phases.3_domain_specialist.deferred: false`). Runs after Phase 2 and
+**before** Phase 2.5. Diff-mode (`finding[]`) MUST skip Phase 3 (flavor
+investigators already cover specialist axes).
 
 - MUST inspect each claim's topic and pull a domain specialist when a match exists:
   - Deploy / infra / CI / Docker / K8s claims → `devops` agent
@@ -98,7 +98,10 @@ Default (all spawns succeed): `verification_mode: full` and no banner.
   - Test / coverage / regression claims → `qa` agent
   - Product / requirements / scope claims → `pm` agent
 - MUST NOT pull a specialist when no confident topic match is found
+  (confidence threshold ≥ 0.75; weak signal → skip)
+- MUST cap at most one specialist spawn per council run
 - MUST treat the specialist as an additional investigator (blind to prior narrative, read-only, returns an evidence bundle)
+- MUST NOT pull a specialist in diff-mode (`finding[]` / `--diff`)
 
 ### Phase 2.5 — Blind Cross-Review *(COUNCIL-002)*
 - MUST anonymize evidence bundles before cross-review: strip investigator identity, assign random labels (A, B, C…), and shuffle label order independently per reviewer to defeat position bias
@@ -257,13 +260,16 @@ degradation marker — never invent a second string. Distinct from CDV-197
 2. Verify: only the top N (default 10) claims are investigated
 3. Verify: the report notes the budget cap and lists the un-audited claims
 
-### Test 8 — Domain specialist selection
+### Test 8 — Domain specialist selection (CDV-209)
 1. Run `/council "the k8s rollout is healthy"`
-2. Verify: the `devops` agent is pulled as a domain specialist
-3. Run `/council "the a/b test shows statistical significance at p<0.05"`
-4. Verify: the `ds` agent is pulled
-5. Run `/council "users love the new onboarding flow"` (no topic match)
-6. Verify: no domain specialist is pulled, only default investigators
+2. Verify: topic classifier maps claim to deploy/devops with confidence ≥ 0.75
+3. Verify: the `devops` agent is pulled as a domain specialist (blind investigator bundle)
+4. Run `/council "the a/b test shows statistical significance at p<0.05"`
+5. Verify: the `ds` agent is pulled
+6. Run `/council "users love the new onboarding flow"` (no topic match)
+7. Verify: no domain specialist is pulled, only default investigators
+8. Run `/council --diff` (or any finding[] preset): Verify Phase 3 is skipped
+9. Static: `engine.sh preflight` → `.phases["3_domain_specialist"].deferred == false`
 
 ### Test 9 — Task-bound council gate
 1. Declare an orchestrated task with metadata `requires_council: true` and capture its id as `$TID`
@@ -371,6 +377,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] `skills/council/prompts/cross-reviewer.md` exists; council.md Phase 2.5 block describes N cross-reviewers spawned with per-reviewer shuffled labels, self-exclusion, Borda-ranked bundle output to Phase 4 and Phase 5, bottom-quartile WEAK_EVIDENCE flagging, and bypass recorded when < 3 investigators
 - [ ] Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
 - [ ] `--why` (CDV-206): preflight with `--why` emits `why: true` + `why_detail` (`preset`, `flavors`, `phase3_specialist`, `claim_budget`, `preset_source`); without flag `why` is not true and no debug section; `commands/council.md` Step 5 prints short labeled block after summary; no verdict impact, no raw prompt dumps
+- [ ] Phase 3 domain specialist (CDV-209): `phases.3_domain_specialist.deferred==false`; `topic-classifier.md` present; council.md classifies → pull devops/ds/qa/pm at conf ≥ 0.75, cap 1/run, skip weak match + diff-mode; before Phase 2.5; `why_detail.phase3_specialist` runtime strings; Test 8
 - [ ] Token usage (CDV-204): finalize `--tokens-file` prints `Tokens:` (or `Tokens (partial):`) when usable; omits when missing/unavailable/zeros; optional FM `tokens_total`/`tokens_by_phase`; `commands/council.md` best-effort collect + pass-through; index.json unchanged
 - [x] Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; Test 20
 - [x] From-retro scope (CDV-212): anchor files at `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2; present → Phase 1 skip + `resolved_claim`; exit 3 deferred removed; Test 21
@@ -386,6 +393,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-07-14 | CDV-209: Phase 3 dynamic domain specialist live — topic-classifier.md; engine `3_domain_specialist.deferred=false` (skip finding[]/diff-mode); classify → at most one of devops/ds/qa/pm when confidence ≥ 0.75; before Phase 2.5; why_detail runtime specialist strings; Test 8 active. |
 | 2026-07-14 | CDV-212: `/council --from-retro <anchor-id>` live — preflight loads `$MROOT/.claude/retro/anchors/<id>.json` (exit 2 if missing); preset `generic`; Phase 1 skip; `resolved_claim` in investigation plan; `/retro` single-writer after validation; exit 3 deferred residual removed. Test 21. |
 | 2026-07-14 | CDV-208: `/council --plan <path>` live — preflight requires readable path (exit 2 if missing, not exit 3); preset `generic`; Phase 1 via `skills/council/prompts/plan-extractor.md` with locator `file:heading-path:line`; fixture `skills/council/fixtures/plan-scope-sample.md`; `--from-retro` remains deferred exit 3 until CDV-212. Test 20. |
 | 2026-04-09 | Initial spec created from brainstorm `.claude/plans/2026-04-09-brainstorm-council.md` |

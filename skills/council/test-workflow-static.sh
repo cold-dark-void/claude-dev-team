@@ -120,6 +120,56 @@ else
   echo "FAIL: council.md missing why_detail"; fail=1
 fi
 
+# CDV-209 Phase 3 domain specialist
+if [ -f skills/council/prompts/topic-classifier.md ] \
+  && rg -q 'confidence|devops|topic' skills/council/prompts/topic-classifier.md; then
+  echo "OK: topic-classifier.md present"
+else
+  echo "FAIL: topic-classifier.md missing/incomplete"; fail=1
+fi
+if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' \
+  | jq -e '.phases["3_domain_specialist"].deferred==false and .phases["3_domain_specialist"].skipped==false and .phases["3_domain_specialist"].confidence_threshold==0.75 and .phases["3_domain_specialist"].max_specialists_per_run==1 and (.phases["3_domain_specialist"].classifier_prompt|test("topic-classifier"))' >/dev/null; then
+  echo "OK: phase 3 claim preflight (live, not deferred)"
+else
+  echo "FAIL: phase 3 claim preflight shape"; fail=1
+fi
+if bash skills/council/engine.sh preflight --scope diff \
+  | jq -e '.phases["3_domain_specialist"].deferred==false and .phases["3_domain_specialist"].skipped==true' >/dev/null; then
+  echo "OK: phase 3 diff-mode skipped"
+else
+  echo "FAIL: phase 3 should skip in diff-mode"; fail=1
+fi
+if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' --why \
+  | jq -e '.why_detail.phase3_specialist|test("pending|runtime")' >/dev/null; then
+  echo "OK: why_detail phase3 pending stub (claim)"
+else
+  echo "FAIL: why_detail phase3 claim stub"; fail=1
+fi
+if bash skills/council/engine.sh preflight --scope diff --why \
+  | jq -e '.why_detail.phase3_specialist|test("diff-mode")' >/dev/null; then
+  echo "OK: why_detail phase3 skipped (diff-mode)"
+else
+  echo "FAIL: why_detail phase3 diff stub"; fail=1
+fi
+if rg -n 'topic-classifier' commands/council.md >/dev/null \
+  && rg -n 'max_specialists_per_run|confidence_threshold|0\.75' commands/council.md >/dev/null \
+  && ! rg -n 'Phase 3 — Domain Specialist \(DEFERRED' commands/council.md >/dev/null; then
+  echo "OK: council.md Phase 3 dispatch live"
+else
+  echo "FAIL: council.md Phase 3 still deferred or missing classifier"; fail=1
+fi
+if rg -n 'Phase 3 — Domain Specialist \(DEFERRED' skills/council/SKILL.md >/dev/null \
+  || rg -n 'deferred \(CDV-209\)' skills/council/SKILL.md >/dev/null; then
+  echo "FAIL: SKILL.md still defers Phase 3"; fail=1
+else
+  echo "OK: SKILL.md Phase 3 not deferred"
+fi
+if rg -n 'Deferred to COUNCIL-002' specs/core/SPEC-013-adversarial-council-tribunal.md >/dev/null; then
+  echo "FAIL: SPEC-013 Phase 3 still deferred blockquote"; fail=1
+else
+  echo "OK: SPEC-013 Phase 3 undefferred"
+fi
+
 # CDV-204: finalize --tokens-file (graceful Tokens block + optional FM)
 FIX_BASE=skills/council/fixtures/finalize-task-id
 TOK_BASE=skills/council/fixtures/finalize-tokens

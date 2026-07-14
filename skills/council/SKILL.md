@@ -73,10 +73,12 @@ is a bug.
 - **Pure auditor.** The council MUST NOT propose fixes, MUST NOT modify
   files, MUST NOT audit user-authored claims, MUST NOT run automatically on
   every session or commit. (SPEC-013 lines 128–134)
-- **No persistent council roles.** Investigators, Prosecutor, Advocate, and
-  the (deferred) Domain Specialist are ephemeral — they are prompt-template
-  variants injected into Task-tool subagent invocations, not entries in
-  `agents/`. The only persistent agent is `council-judge`. (SPEC-013 lines 37, 134)
+- **No persistent council roles.** Investigators, Prosecutor, and Advocate are
+  ephemeral prompt-template variants injected into Task-tool subagent
+  invocations, not entries in `agents/`. Phase 3 Domain Specialist reuses an
+  existing team agent (`devops`/`ds`/`qa`/`pm`) as an investigator for one
+  claim — still ephemeral for the run, not a new council agent file. The only
+  persistent council-specific agent is `council-judge`. (SPEC-013 lines 37, 134)
 
 ---
 
@@ -435,24 +437,37 @@ line 86.)
 the `{{CROSS_REVIEW_RANKINGS}}` / `{{CROSS_REVIEW_SCORES}}` report variables
 (audit trail; SPEC-013 line 87).
 
-*Traceability:* SPEC-013 lines 79–86. SPEC-013 tags this phase
-*(COUNCIL-002)*, but unlike the Phase 3 domain specialist (a true v1 no-op),
-Phase 2.5 is live in the council pipeline.
+*Traceability:* SPEC-013 lines 79–86. Phase 2.5 is live; Phase 3 specialist
+bundles (when pulled) join the set before cross-review.
 
-### Phase 3 — Domain Specialist (DEFERRED TO COUNCIL-002)
+### Phase 3 — Domain Specialist (CDV-209)
 
-**Status:** Reserved in the protocol. Implemented as a **no-op in v1**.
+**Status:** Live for `verdict[]`-shape runs. Skipped in `finding[]` (diff-mode).
 
-The protocol reserves this phase so COUNCIL-002 can introduce dynamic
-specialist pull (`devops` / `ds` / `qa` / `pm` agents as additional
-investigators for domain-matching claims, per SPEC-013 lines 62–69) without
-rearchitecting the pipeline. In COUNCIL-001 the engine MUST NOT inspect
-claim topics, MUST NOT pull any specialist agent, and MUST NOT attempt
-dynamic agent selection.
+**When:** After Phase 2, **before** Phase 2.5. Plan key
+`phases.3_domain_specialist`: `deferred: false`, `confidence_threshold: 0.75`,
+`max_specialists_per_run: 1`, `classifier_prompt` →
+`skills/council/prompts/topic-classifier.md`, `specialist_prompt` →
+`skills/council/prompts/investigator.md`. Diff-mode plan sets
+`skipped: true` with reason `diff-mode (finding[] flavors cover specialist axes)`.
 
-The phase exists in the protocol so downstream consumers (Phase 4, Phase 5)
-can be written as if specialist evidence might appear in the bundle set,
-even though in v1 it never does.
+**Classify:** one cheap Task per claim (`topic-classifier.md`, `{{CLAIM_TEXT}}`
+only). Output `{topic, confidence, agent}` with
+`agent ∈ {devops, ds, qa, pm, null}`.
+
+**Pull rules (orchestrator):**
+- MUST pull when `agent != null` and `confidence >= 0.75` (SPEC-013 topic map:
+  deploy→devops, metrics→ds, test→qa, product→pm).
+- MUST NOT pull on weak signal (below threshold or `topic: none`).
+- Cap **1 specialist per run** — highest confidence among eligible claims.
+- Specialist is an additional blind investigator: `subagent_type:
+  "dev-team:<agent>"`, same evidence-bundle schema as Phase 2, domain lens via
+  `{{FLAVOR_DELTA}}`. MUST NOT read prior council reports.
+
+**Downstream:** specialist bundles merge into the Phase 2 set before Phase 2.5
+(and Phase 4/5). Empty pull is normal — not an error.
+
+*Traceability:* SPEC-013 Phase 3; `commands/council.md` Phase 3 dispatch.
 
 ### Phase 4 — Prosecution & Defense
 
@@ -494,7 +509,7 @@ lines 79–80, 86.)
 
 **Engine passes to the Judge:**
 1. Original claims (the list from Phase 1, not narrative summaries)
-2. Evidence bundles (all bundles from Phase 2; Phase 3 is empty in v1)
+2. Evidence bundles (all bundles from Phase 2 + optional Phase 3 specialist)
 3. Prosecutor brief (post-strike)
 4. Devil's Advocate brief (post-strike)
 5. Output shape flag (`verdict[]` or `finding[]`, from the active preset)
@@ -690,7 +705,7 @@ Graceful rules (exit 0 always for token issues — never fail the run):
   "why_detail": {
     "preset": "generic",
     "flavors": ["paranoid-ic", "jaded-senior"],
-    "phase3_specialist": "skipped (Phase 3 deferred)",
+    "phase3_specialist": "pending (runtime classify)",
     "claim_budget": 10,
     "preset_source": "inferred"
   }
@@ -698,8 +713,11 @@ Graceful rules (exit 0 always for token issues — never fail the run):
 ```
 
 - `preset_source` is `explicit` when `--preset` was passed, else `inferred`.
-- `phase3_specialist` is a stub until Phase 3 (CDV-209); post-209 it becomes
-  e.g. `"devops (topic=deploy conf=0.91)"` or `"skipped (no confident match)"`.
+- `phase3_specialist` preflight stubs: `"pending (runtime classify)"` for
+  `verdict[]`, `"skipped (diff-mode)"` for `finding[]`. After Phase 3,
+  `commands/council.md` prints the runtime reason instead, e.g.
+  `"devops (topic=deploy conf=0.91)"`, `"skipped (no confident match)"`,
+  `"skipped (diff-mode)"`, or `"skipped (classifier unusable)"`.
 - `commands/council.md` Step 5 prints a short labeled block from these fields
   after the stdout summary (after any Tokens block). No raw prompt dumps. No
   verdict impact.
@@ -826,7 +844,8 @@ Role prompt templates live at `skills/council/prompts/<name>.md`. Files:
 
 - `claim-extractor.md` — Phase 1 for session/diff
 - `plan-extractor.md` — Phase 1 for `--plan` (CDV-208)
-- `investigator.md` — runs in Phase 2 (one per claim per flavor)
+- `investigator.md` — runs in Phase 2 (one per claim per flavor) and Phase 3 specialist
+- `topic-classifier.md` — Phase 3 topic classify (one per claim; CDV-209)
 - `phase4-brief.md` — runs in Phase 4 (spawned twice: once as Prosecutor, once as Devil's Advocate, parameterized by role)
 - `judge.md` — delivered to the `council-judge` agent in Phase 5
 
@@ -840,6 +859,7 @@ substitutes variables before invoking the Task tool or the judge agent.
 | `claim-extractor.md` | `{{SCOPE_TYPE}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
 | `plan-extractor.md` | `{{PLAN_PATH}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
 | `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}` |
+| `topic-classifier.md` | `{{CLAIM_TEXT}}` |
 | `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
 | `phase4-brief.md` | `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
 | `judge.md` | `{{ORIGINAL_CLAIMS}}`, `{{EVIDENCE_BUNDLES}}`, `{{PROSECUTOR_BRIEF}}`, `{{ADVOCATE_BRIEF}}`, `{{OUTPUT_SHAPE}}` |
@@ -897,8 +917,9 @@ exit codes to decide whether to continue.
   readable path (exit 2 if missing); Phase 1 uses `plan-extractor.md`;
   rest of pipeline claim-shape agnostic. Fixture:
   `skills/council/fixtures/plan-scope-sample.md`.
-- **Phase 3 dynamic domain specialist** — deferred (CDV-209). The engine MUST
-  NOT inspect claim topics or attempt agent pull. (SPEC-013 lines 62–69.)
+- **Phase 3 dynamic domain specialist** — **implemented CDV-209**. Topic
+  classifier + at most one of devops/ds/qa/pm when confidence ≥ 0.75; skip
+  weak match and diff-mode; before Phase 2.5. (SPEC-013 Phase 3.)
 - **Investigator tool-call caching within a run** — SHOULD in SPEC-013 line
   143; not implemented. Each investigator spawn is independent.
   *(Per-phase token usage reporting — SPEC-013 SHOULD — implemented CDV-204
@@ -918,7 +939,7 @@ exit codes to decide whether to continue.
 | 40–44 | Output shapes (verdict[]/finding[], tool_use_id, confidence scale) | Invariants, Presets, Phase 5 |
 | 46–52 | Phase 1 claim extraction (budget, ranking, skip rules, diff-mode enrichment) | Phase 1 |
 | 54–60 | Phase 2 investigation (parallel, blindness, read-only, evidence bundle, ≥2 flavors) | Phase 2 |
-| 62–69 | Phase 3 domain specialist | Phase 3 (deferred) |
+| 62–69 | Phase 3 domain specialist | Phase 3 (CDV-209 live) |
 | 79–87 | Phase 2.5 blind cross-review (anonymized peer ranking, Borda consensus, WEAK_EVIDENCE, <3-investigator bypass) | Phase 2.5 |
 | 89–94 | Phase 4 prosecution + defense (evidence-only, strike rule) | Phase 4 |
 | 96–104 | Phase 5 judgment (council-judge agent, taxonomies, strike rule, empty allowlist) | Phase 5 |

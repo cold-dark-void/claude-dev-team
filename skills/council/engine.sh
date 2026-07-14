@@ -260,8 +260,16 @@ cmd_preflight() {
   # the contract: the Claude that invoked /council reads this document and
   # uses it to drive Phase 1-5 via Task-tool spawns.
   # When --why: include why_detail (CDV-206) for stdout debug after summary.
-  # Do not dump raw prompts. Phase 3 specialist string is a stub until CDV-209.
+  # Do not dump raw prompts. phase3_specialist at preflight is a plan stub;
+  # commands/council.md overwrites the printed value after runtime classify (CDV-209).
   # from-retro: resolved_claim is fabricated_claim_text; scope_arg remains anchor-id.
+  # Phase 3 skip for finding[] (diff-mode): flavors already cover specialist axes.
+  local phase3_why_stub
+  if [ "$output_shape" = "finding[]" ]; then
+    phase3_why_stub="skipped (diff-mode)"
+  else
+    phase3_why_stub="pending (runtime classify)"
+  fi
   jq -n \
     --arg scope "$scope" \
     --arg scope_arg "$scope_arg" \
@@ -281,6 +289,7 @@ cmd_preflight() {
     --arg report_path "$report_path" \
     --arg mroot "$MROOT" \
     --arg phase1_prompt "$phase1_prompt" \
+    --arg phase3_why_stub "$phase3_why_stub" \
     '{
       scope: $scope,
       scope_arg: $scope_arg,
@@ -301,7 +310,14 @@ cmd_preflight() {
       phases: {
         "1_claim_extraction": { skip: ($scope == "claim" or $scope == "from-retro"), prompt: $phase1_prompt },
         "2_parallel_investigation": { min_flavors_per_claim: 2, prompt: "skills/council/prompts/investigator.md" },
-        "3_domain_specialist": { deferred: true },
+        # Phase 3 (CDV-209): topic classify → at most one team-agent specialist.
+        # Runs before Phase 2.5. Skipped for finding[] (diff-mode).
+        "3_domain_specialist": (
+          if $output_shape == "finding[]"
+          then { deferred: false, skipped: true, reason: "diff-mode (finding[] flavors cover specialist axes)", confidence_threshold: 0.75, max_specialists_per_run: 1, classifier_prompt: "skills/council/prompts/topic-classifier.md", specialist_prompt: "skills/council/prompts/investigator.md" }
+          else { deferred: false, skipped: false, confidence_threshold: 0.75, max_specialists_per_run: 1, classifier_prompt: "skills/council/prompts/topic-classifier.md", specialist_prompt: "skills/council/prompts/investigator.md", agents: ["devops", "ds", "qa", "pm"] }
+          end
+        ),
         # Phase 4 runs only for verdict[]-shape presets (claim/session/plan/from-retro/generic).
         # finding[]-shape (diff-mode) routes specialist findings straight to the
         # judge — there is no prosecutor/advocate step. See review-and-commit/SKILL.md
@@ -321,7 +337,7 @@ cmd_preflight() {
           why_detail: {
             preset: $preset,
             flavors: $flavors,
-            phase3_specialist: "skipped (Phase 3 deferred)",
+            phase3_specialist: $phase3_why_stub,
             claim_budget: $claim_budget,
             preset_source: $preset_source
           }

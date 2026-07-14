@@ -30,7 +30,7 @@ to `.claude/council/index.json`.
 - `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (reads `$MROOT/.claude/retro/anchors/<id>.json`)
 - `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
 - `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1`
-- `/council --why` — print short debug section after summary (flavors, specialist stub, claim budget, preset source)
+- `/council --why` — print short debug section after summary (flavors, Phase 3 specialist reason, claim budget, preset source)
 - `/council` — no scope, fails loudly with usage
 
 Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
@@ -253,14 +253,101 @@ usable peer bundles; set `degraded=true`. If all spawns fail and
 self-verify yields ≥1 bundle, continue. Protocol:
 `skills/council/SKILL.md` § Spawn-failure degradation.
 
-### Phase 3 — Domain Specialist (DEFERRED — COUNCIL-001 no-op)
+### Phase 3 — Domain Specialist (CDV-209; before Phase 2.5)
 
-Skip entirely. Do not inspect claim topics, do not pull any specialist agent.
-Note in the collected outputs that Phase 3 was skipped per COUNCIL-001 scope.
-The evidence bundle set from Phase 2 is passed to Phase 2.5, which either
-ranks them via Borda count or short-circuits to original submission order
-when fewer than 3 investigators participated (or all reviewer responses
-are rejected).
+Conditional pull of one team agent (`devops` / `ds` / `qa` / `pm`) as an
+**additional blind investigator** when a claim's topic confidently matches.
+Plan fields: `phases.3_domain_specialist` (`deferred: false`,
+`confidence_threshold: 0.75`, `max_specialists_per_run: 1`,
+`classifier_prompt`, `specialist_prompt`).
+
+**Skip entirely (no classify, no spawn) when:**
+- `plan.phases.3_domain_specialist.skipped == true` (diff-mode / `finding[]`
+  — five flavor investigators already cover specialist axes), OR
+- `plan.output_shape == "finding[]"`
+
+Record runtime reason for `--why`:
+`skipped (diff-mode)`.
+
+**Otherwise — classify every claim:**
+
+For each claim from Phase 1, spawn a cheap classifier Task (parallel OK):
+
+```
+description: "Classify claim topic for domain specialist"
+subagent_type: "general-purpose"
+prompt: skills/council/prompts/topic-classifier.md
+  with substitutions:
+    {{CLAIM_TEXT}}  ← claim.claim (verbatim)
+```
+
+Pass nothing else — no prior narrative, no other claims, no evidence bundles.
+Classifier returns JSON:
+`{topic, confidence, agent}` with `agent ∈ {devops,ds,qa,pm,null}`.
+
+**Eligibility (orchestrator-enforced):**
+1. Reject malformed / missing JSON → treat that claim as no-match.
+2. Require `agent != null` AND `confidence >= plan.phases.3_domain_specialist.confidence_threshold`
+   (default **0.75**). Below threshold → skip (never invent a specialist).
+3. Cap **1 specialist per run** (`max_specialists_per_run: 1`): if multiple
+   claims qualify, pick the **highest confidence**; ties keep Phase-1 claim
+   order. Do not spawn a second agent even if topics differ.
+
+Topic map (SPEC-013):
+
+| Topic signal | Agent |
+|---|---|
+| deploy / infra / CI / Docker / K8s / rollout | `devops` |
+| metrics / stats / ML / data-pipeline / a-b | `ds` |
+| test / coverage / regression / fixture | `qa` |
+| product / requirements / scope / user-story | `pm` |
+
+If no claim qualifies → record `phase3_specialist_reason =
+"skipped (no confident match)"` and pass Phase 2 bundles unchanged to Phase 2.5.
+
+**When one claim qualifies — spawn the specialist:**
+
+```
+description: "Domain specialist investigation (<agent>) for claim <claim-id>"
+subagent_type: "dev-team:<agent>"   # e.g. dev-team:devops — NOT general-purpose
+prompt: skills/council/prompts/investigator.md
+  with substitutions:
+    {{CLAIM_TEXT}}      ← winning claim.claim (verbatim)
+    {{SOURCE_LOCATOR}}  ← winning claim.source_locator
+    {{RAW_ARTIFACTS}}   ← same raw artifacts as Phase 2 for that claim
+    {{FLAVOR_DELTA}}    ← domain-specialist delta (below), NOT a flavor file
+```
+
+`{{FLAVOR_DELTA}}` body (paste verbatim; substitute `<agent>` / `<topic>`):
+
+```
+DOMAIN SPECIALIST LENS (<agent>, topic=<topic>)
+You are the project's <agent> agent acting as a council investigator for this
+domain. Use domain judgment to pick the cheapest falsifying tool calls.
+You remain BLIND: raw artifacts + claim only. Do NOT load prior council
+reports, prior verdicts, or assistant narrative. Do NOT write files.
+Return the same evidence-bundle schema as any investigator.
+```
+
+**Blindness + tools:** same as Phase 2 — read-only tools only; no prior
+council reports; evidence-or-silence. Team-agent tool allowlists may be
+broader than investigator flavors — the prompt still forbids Write/Edit and
+mutating Bash; strike violations at bundle validation.
+
+**Collect:** merge specialist evidence bundles into the Phase 2 set for the
+winning claim (tag `investigator: "specialist:<agent>"` for audit). Pass the
+full set to Phase 2.5 (specialist counts toward the ≥3-investigator bar).
+
+**Spawn failure:** if classifier or specialist spawn fails → skip Phase 3
+pull; keep Phase 2 bundles; set `degraded=true` only if specialist was
+required mid-flight and self-verify cannot recover a bundle. Protocol:
+`skills/council/SKILL.md` § Spawn-failure degradation.
+
+**`--why` runtime string** (overwrite preflight stub when printing Step 5):
+- pulled: `"<agent> (topic=<topic> conf=<confidence>)"` e.g. `devops (topic=deploy conf=0.91)`
+- no match: `"skipped (no confident match)"`
+- diff-mode: `"skipped (diff-mode)"`
+- classifier error / all rejected: `"skipped (classifier unusable)"`
 
 ### Phase 2.5 — Blind Cross-Review
 
@@ -540,13 +627,16 @@ has no token fields, the entire Tokens block is omitted (never invent `0`).
 
 If `plan.why == true`, print a short labeled debug section **after** the
 summary (including any Tokens block; never before; never dump raw prompts).
-Source fields from `plan.why_detail` (emitted by `engine.sh preflight --why`):
+Source fields from `plan.why_detail` (emitted by `engine.sh preflight --why`).
+For `phase3_specialist`, prefer the **runtime** reason recorded in Phase 3
+(overwrites preflight stubs `pending (runtime classify)` /
+`skipped (diff-mode)`):
 
 ```
 Why:
   preset: <why_detail.preset> (<why_detail.preset_source>)
   flavors: <why_detail.flavors joined by ", ">
-  phase3_specialist: <why_detail.phase3_specialist>
+  phase3_specialist: <runtime Phase 3 reason, else why_detail.phase3_specialist>
   claim_budget: <why_detail.claim_budget>
 ```
 
@@ -589,7 +679,9 @@ Warning: N verdict lines were struck for missing evidence — see <report path> 
 - Investigators MUST be blind (no prior assistant narrative passed)
 - Judge MUST NOT have any tool access (enforced by `agents/council-judge.md`)
 - Every verdict line MUST be backed by an investigator tool_use_id
-- Phase 3 (domain specialist) is a no-op in COUNCIL-001 — skip entirely
+- Phase 3 (domain specialist, CDV-209): classify claims; pull at most one of
+  devops/ds/qa/pm when confidence ≥ 0.75; skip on weak match and in
+  diff-mode; run before Phase 2.5
 - Phase 7 (feedback memory) is invoked by the engine for `verdict[]`-shape
   runs only; the command does not call it directly
 - Missing scopes and missing retro anchors MUST fail loudly via engine exit
