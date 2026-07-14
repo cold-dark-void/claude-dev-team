@@ -98,14 +98,14 @@ Use compare-and-swap to prevent concurrent distillation:
 
 ```bash
 # UPDATE + changes() MUST run in a single sqlite3 session for CAS to work
-CHANGED=$(sqlite3 "$MEMDB" "
+CHANGED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   UPDATE config SET value='distill-$(date +%s)' WHERE key='distilling_lock' AND value='';
   SELECT changes();
-")
-if [ "$CHANGED" = "0" ]; then
-  HOLDER=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';")
-  echo "[distill] Skipped: distillation already in progress (locked by $HOLDER). Use --force to clear."
-  # Stop here
+") || CHANGED=""
+if [ "$CHANGED" != "1" ]; then
+  HOLDER=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';" 2>/dev/null || true)
+  echo "[distill] Skipped: distillation already in progress (locked by ${HOLDER:-unknown}). Use --force to clear."
+  # Stop here — not acquired (held by another process, or sqlite failed/timed out)
 fi
 ```
 
@@ -151,12 +151,12 @@ If `SKIP_VALIDATE` is not `"true"`, follow these steps in order:
 If `distill_enabled=false`, print a notice but continue (manual trigger bypasses the setting):
 
 ```bash
-DISTILL_ENABLED=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
+DISTILL_ENABLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
 if [ "$DISTILL_ENABLED" = "false" ]; then
   echo "[distill] Note: auto-distillation is disabled. Running manual distillation."
 fi
 
-THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
+THRESHOLD=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
 ```
 
 Determine which agents to process:
@@ -167,7 +167,7 @@ if [ -n "$TARGET_AGENT" ]; then
   AGENTS="$TARGET_AGENT"
 else
   # All agents over threshold
-  AGENTS=$(sqlite3 "$MEMDB" \
+  AGENTS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
     "SELECT agent FROM memories
      WHERE tier=0 AND archived=FALSE
      GROUP BY agent

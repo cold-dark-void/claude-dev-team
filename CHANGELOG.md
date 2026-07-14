@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.10
+- **fix: memory-distill CAS lock fail-closed on sqlite error (CDV-176)** — empty CHANGED from busy/fail was treated as acquired. Require CHANGED==1 with `-cmd ".timeout 5000"`; otherwise stop with holder diagnostic.
+
 ### v0.38.9
 - **fix: download-extensions hash-mismatch falls back instead of abort (CDV-175)** — call sites use `|| true`; helpers return 1 on curl/hash fail; SQL-escape embedding URL/model. Init reaches embedding_mode=fallback with exit 0.
 
