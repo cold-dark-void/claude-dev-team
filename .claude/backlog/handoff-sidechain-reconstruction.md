@@ -1,6 +1,6 @@
 # Handoff — deeper sidechain reconstruction
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.60.0 (CDV-205)
 
 ## Problem
 The pre-pass collapses isSidechain runs to a one-line outcome + pointer (defensive no-op today — real corpora had zero sidechains). When subagent sidechains DO appear, real debugging may live inside them.
@@ -22,3 +22,5 @@ Medium
 ---
 
 *Added: 2026-06-05*
+
+*Closed: 2026-07-14*

@@ -1,6 +1,6 @@
 # COUNCIL-002 — Phase 3 dynamic domain specialist
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.66.0 (CDV-209)
 
 ## Problem
 
@@ -32,3 +32,5 @@ Source: deferred from COUNCIL-001 per locked decision 1. Highest-complexity defe
 ---
 
 *Added: 2026-04-09*
+
+*Closed: 2026-07-14*

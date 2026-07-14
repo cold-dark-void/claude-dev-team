@@ -1,6 +1,6 @@
 # COUNCIL-002 — Template `{{TASK_ID}}` placeholder polish
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.59.0 (CDV-203)
 
 ## Problem
 
@@ -36,3 +36,5 @@ Source: QA smoke test PASS WITH NOTES from Task 15 (`.claude/plans/2026-04-09-CO
 ---
 
 *Added: 2026-04-09*
+
+*Closed: 2026-07-14*

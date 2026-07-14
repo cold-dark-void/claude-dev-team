@@ -1,6 +1,6 @@
 # COUNCIL-002 — Per-phase token usage reporting
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.63.0 (CDV-204)
 
 ## Problem
 
@@ -36,3 +36,5 @@ Source: deferred from COUNCIL-001 per locked decision 1 (SHOULD item). Useful fo
 ---
 
 *Added: 2026-04-09*
+
+*Closed: 2026-07-14*

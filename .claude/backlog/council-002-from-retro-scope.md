@@ -1,6 +1,6 @@
 # COUNCIL-002 — `/council --from-retro <anchor-id>` scope
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.65.0 (CDV-212)
 
 ## Problem
 
@@ -31,3 +31,5 @@ Source: deferred from COUNCIL-001 per locked decision 1 + locked decision 8 (def
 ---
 
 *Added: 2026-04-09*
+
+*Closed: 2026-07-14*

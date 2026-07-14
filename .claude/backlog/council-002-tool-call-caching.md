@@ -1,6 +1,6 @@
 # COUNCIL-002 — Investigator tool-call caching within a run
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.67.0 (CDV-211)
 
 ## Problem
 
@@ -33,3 +33,5 @@ Source: deferred from COUNCIL-001 per locked decision 1 (SHOULD item). Optimizat
 ---
 
 *Added: 2026-04-09*
+
+*Closed: 2026-07-14*

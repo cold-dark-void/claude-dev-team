@@ -1,6 +1,6 @@
 # COUNCIL-002 — `/council --plan <path>` scope
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.64.0 (CDV-208)
 
 ## Problem
 
@@ -25,3 +25,5 @@ Source: deferred from COUNCIL-001 per locked decision 1 (scope split). No spec c
 ---
 
 *Added: 2026-04-09*
+
+*Closed: 2026-07-14*

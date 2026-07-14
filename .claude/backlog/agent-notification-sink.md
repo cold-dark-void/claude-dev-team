@@ -1,6 +1,6 @@
 # Agent notification sink (tiered)
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.61.0 (CDV-210)
 
 ## Problem
 
@@ -39,3 +39,5 @@ Low
 ---
 
 *Added: 2026-04-19*
+
+*Closed: 2026-07-14*

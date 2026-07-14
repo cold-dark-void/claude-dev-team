@@ -1,6 +1,6 @@
 # External reviewer option
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.68.0 (CDV-207)
 
 ## Problem
 
@@ -30,3 +30,5 @@ Medium (needs external CLI detection + output parsing)
 ---
 
 *Added: 2026-04-19*
+
+*Closed: 2026-07-14*

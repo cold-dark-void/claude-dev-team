@@ -1,6 +1,6 @@
 # Worktree Skill — User-Invocable `/worktree` Command
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.45.0 (CDV-189)
 
 ## Problem
 
@@ -33,3 +33,5 @@ lib exists.
 ---
 
 *Added: 2026-04-28*
+
+*Closed: 2026-07-14*

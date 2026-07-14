@@ -1,6 +1,6 @@
 # COUNCIL-002 — `/council --why` flag
 
-**Status**: PENDING
+**Status**: COMPLETED — shipped v0.62.0 (CDV-206)
 
 ## Problem
 
@@ -31,3 +31,5 @@ Source: deferred from COUNCIL-001 per locked decision 1 (SHOULD item). Cheap, lo
 ---
 
 *Added: 2026-04-09*
+
+*Closed: 2026-07-14*
