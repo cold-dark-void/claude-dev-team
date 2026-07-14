@@ -53,7 +53,11 @@ liveness probe, metrics) are owned by `run.sh` and are not restated here.
 
 **Metrics:** `run.sh` logs its own PR1 JSONL record per terminal path. This
 command does NOT call `emit-orch-metric.sh` — there is no ticket or
-`saved_est_tokens` estimate available in standalone mode.
+`saved_est_tokens` estimate available in standalone mode. On **cap
+escalation only** (LOCAL_ATTEMPTS or REVIEW_ATTEMPTS hit), emit one
+SPEC-026 outcomes-ledger row via `skills/metrics/emit-outcome.sh`
+(agent=`local`, outcome=`escalated`). Do **not** write the SPEC-019
+local-agent metrics file from this path.
 
 ---
 
@@ -183,6 +187,33 @@ to **Step 3** (call `run.sh` again).
 
 Either the fallback path was taken (exit 2), or an attempt cap was hit
 (`LOCAL_ATTEMPTS >= 2` or `REVIEW_ATTEMPTS >= 2`).
+
+#### 5a. Outcomes-ledger emit (cap escalation only)
+
+When **and only when** a cap was hit (`LOCAL_ATTEMPTS >= 2` or
+`REVIEW_ATTEMPTS >= 2`) — not on exit-2 unavailable fallback — append one
+SPEC-026 outcomes row. Fail-open: any resolve/emit failure is ignored.
+
+Standalone `/local-do` has no ticket/task_id/task_class; use literal `null`.
+If this command is driven from an orchestrated local offload where
+ticket/task_id (and optionally task_class) are known, pass those instead of
+`null` for the first two (and fourth) args.
+
+```bash
+# Re-resolve PDH (each bash fence is a fresh shell)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+EMIT=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/emit-outcome.sh 2>/dev/null) || true
+# ticket task_id agent task_class size outcome review_cycles qa_bounces council_overturns
+if [ -n "${EMIT:-}" ] && [ -f "$EMIT" ]; then
+  bash "$EMIT" null null local null null escalated null null null 2>/dev/null || true
+fi
+```
+
+Do **not** call `emit-orch-metric.sh` and do **not** write
+`.claude/local-agent/metrics.jsonl` from this path (SPEC-019 ownership stays
+with `run.sh` / orchestrate).
+
+#### 5b. Claude finishes the task
 
 The invoking Claude finishes the task itself:
 

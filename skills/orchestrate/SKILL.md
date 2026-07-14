@@ -285,13 +285,48 @@ Before creating any tasks, extract the dependency graph from the approved Tech L
    ```
    Do NOT call TaskCreate (or `task-store.sh create`) for any task if a cycle is detected or the cycle gate could not run.
 
-For each task in the approved plan, call TaskCreate:
+For each task in the approved plan, finalize tagging then call TaskCreate.
+
+**`Task-class:` line (SPEC-026 M3).** Record class as a prose line (mirroring
+`Recommended agent:` / `Machine-check:`) — NOT a `task-store.sh` schema field.
+Fixed taxonomy: `impl-extend | impl-novel | refactor | test | docs | infra | discovery`.
+Missing line ⇒ `task_class: null` at emit; null-class records are still written but
+excluded from advisory aggregation (M7).
+
+#### Step 7 advisory (SPEC-026 M5/M6/M7) — before Recommended agent is finalized
+
+After choosing the **static** Recommended agent (SPEC-009 rules) and Task-class,
+consult the outcome ledger. Fail-open: any failure ⇒ silence, keep static (M9).
+MUST NOT auto-flip routing (M6).
+
+```bash
+# Re-resolve PDH (each bash fence is a fresh shell)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+RATES=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/outcome-rates.sh)
+STATIC_AGENT="<ic4|ic5|… from static rule>"
+TASK_CLASS="<from Task-class line; empty if missing>"
+ADVISORY=""
+if [ -n "$TASK_CLASS" ]; then
+  ADVISORY=$(bash "$RATES" "$STATIC_AGENT" "$TASK_CLASS" 2>/dev/null || true)
+fi
+[ -n "$ADVISORY" ] && printf '%s\n' "$ADVISORY"
+```
+
+- Empty `$ADVISORY` (cold start / thin data / boundary / no jq) → no advisory text;
+  set `Recommended agent: $STATIC_AGENT`.
+- Non-empty → print to user. **Interactive only:** wait for explicit accept/decline.
+  On **explicit accept**, set `Recommended agent:` to the suggested alt (the
+  `consider <alt>` agent — already M8-legal). Decline / timeout / unattended /
+  no response → keep `$STATIC_AGENT`. Unattended runs never wait.
+
+Then call TaskCreate with the finalized lines:
 
 ```
 TaskCreate:
   subject: "<ISSUE-ID> Task N — <title>"
   description: |
     <description>
+    Task-class: <impl-extend|impl-novel|refactor|test|docs|infra|discovery>
     Recommended agent: <ic4|ic5|qa>
     Depends on: [Task IDs] or "none"
     requires_council: <true|false>   # omit = false
@@ -452,7 +487,9 @@ REQUEST CHANGES retry, return to the `Loop:` `run.sh` call above and re-evaluate
 **Escalate** (either cap exhausted): spawn the Claude IC via the unchanged fence
 below, passing **the local agent's partial worktree diff as context** — Claude owns
 and completes the output. At this terminal handoff emit `saved_est = 0` (offload
-abandoned): `bash "$EMIT_METRIC" "<ISSUE-ID>" 0 null`.
+abandoned): `bash "$EMIT_METRIC" "<ISSUE-ID>" 0 null`. Also run **Stint-end outcome
+emit** (SPEC-026) with `STINT_AGENT=local` `STINT_OUTCOME=escalated` (see named
+block before Step 9).
 
 **Instrument every terminal outcome** (SPEC-019 ADR AMB-3 companion record; `run.sh`
 stays frozen and writes its own `saved_est_tokens: null` line — the non-null
@@ -555,7 +592,9 @@ and spawn any newly-unblocked tasks.
 
 ### Escalation triggers (interrupt user):
 
-- **Agent stuck after 2 genuine attempts** — present what was tried, ask for guidance
+- **Agent stuck after 2 genuine attempts** — present what was tried, ask for guidance.
+  Before re-routing: run **Stint-end outcome emit** with `STINT_OUTCOME=escalated`
+  for the agent whose stint is ending (counters as of hand-off).
 - **Scope creep detected** — agent discovers work not in the plan; ask user whether to expand scope or defer to backlog
 - **Ambiguous requirement** — agent can't resolve from spec/ACs alone
 - **Breaking change discovered** — schema migration, API contract change, dependency bump
@@ -676,6 +715,68 @@ SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
 
 ---
 
+### Stint-end outcome emit (SPEC-026 M4) — named reusable block
+
+Call when a **(task, agent) stint ends**. Never on Step-9 APPROVE alone (OQ4).
+Fail-open — never block orchestration (M9). MVP outcomes: `accepted` | `escalated`
+only (`rejected` reserved, never written this version).
+
+**Session-local counters** (orchestrator tracks per compound `task_id`; same
+bookkeeping SPEC-009 already requires for deadloop):
+- `review_cycles` — increment on each Step-9 REQUEST CHANGES for that task
+- `qa_bounces` — increment on each Step-10 QA FAIL routed back to the IC for that task
+Initialize both to `0` when a stint starts (agent spawn / hand-off receive).
+
+```bash
+# Stint-end emit — set STINT_* then run. Re-resolve PDH (fresh shell).
+# STINT_TICKET STINT_TASK_ID STINT_AGENT STINT_CLASS STINT_SIZE
+# STINT_OUTCOME STINT_REVIEW_CYCLES STINT_QA_BOUNCES
+# Optional fields: literal "null" when unknown. STINT_AGENT + STINT_OUTCOME required.
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+EMIT=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/emit-outcome.sh)
+MIN_CONF=$(python3 -c '
+import json,sys
+try:
+  data=json.load(open(sys.argv[1]))
+  print(data.get("council",{}).get("taskgate",{}).get("min_confidence",80))
+except Exception:
+  print(80)
+' "$MROOT/.claude/settings.json" 2>/dev/null || echo 80)
+# council_overturns: index rows for task_id where max_verdict_confidence is null
+# OR < min (OQ2). Missing index / jq / null task_id → null arg.
+COUNCIL_OVERTURNS=null
+if command -v jq >/dev/null 2>&1 && [ -f "$MROOT/.claude/council/index.json" ] \
+   && [ -n "${STINT_TASK_ID:-}" ] && [ "$STINT_TASK_ID" != "null" ]; then
+  COUNCIL_OVERTURNS=$(jq -r --arg tid "$STINT_TASK_ID" --argjson min "$MIN_CONF" '
+    (.[$tid] // [])
+    | map(select(
+        (.max_verdict_confidence == null)
+        or ((.max_verdict_confidence | type == "number")
+            and .max_verdict_confidence < $min)
+      ))
+    | length
+  ' "$MROOT/.claude/council/index.json" 2>/dev/null || echo null)
+fi
+bash "$EMIT" \
+  "${STINT_TICKET:-null}" "${STINT_TASK_ID:-null}" "${STINT_AGENT}" \
+  "${STINT_CLASS:-null}" "${STINT_SIZE:-null}" "${STINT_OUTCOME}" \
+  "${STINT_REVIEW_CYCLES:-null}" "${STINT_QA_BOUNCES:-null}" \
+  "${COUNCIL_OVERTURNS:-null}" 2>/dev/null || true
+```
+
+**Call sites** (prose only — do not rewrite review/QA loop bodies):
+1. **Escalated** (`STINT_OUTCOME=escalated`): Step-8 stuck-after-2 hand-off; Step-9
+   3+-round deadloop escalate; Step-8 local-agent cap (`STINT_AGENT=local`). Emit
+   for the agent whose stint ends; counters as of hand-off.
+2. **Accepted** (`STINT_OUTCOME=accepted`): **after** Step-10 finalizes `qa_bounces`
+   for that task (QA PASS, or QA N/A with counter frozen). MUST NOT emit on Step-9
+   APPROVE alone.
+
+---
+
 ## Step 9: Tech Lead review loop
 
 As each IC task completes, trigger a Tech Lead review:
@@ -700,7 +801,8 @@ Output: APPROVE, or REQUEST CHANGES with specific feedback.
 
 ### If REQUEST CHANGES:
 
-Send feedback back to the IC agent:
+Increment session-local `review_cycles` for this `task_id` (SPEC-026 counter only —
+no ledger write). Send feedback back to the IC agent:
 
 ```
 @<agent> — Tech Lead requested changes on Task <ID>:
@@ -729,11 +831,14 @@ This looks like a disagreement — please weigh in:
 3. Different direction entirely
 ```
 
-Escalate to user. Do NOT let it loop further.
+Escalate to user. Do NOT let it loop further. Before re-assigning or pausing the
+current agent, run **Stint-end outcome emit** with `STINT_OUTCOME=escalated` for
+the agent whose stint is ending (counters as of hand-off).
 
 ### After Tech Lead approves:
 
 Update TaskUpdate → completed. Check if this unblocks other tasks.
+**Do NOT** emit an outcomes-ledger record here — wait for Step-10 QA terminal (OQ4).
 
 On every TaskUpdate that changes a task's status, the orchestrator MUST also call:
 
@@ -794,8 +899,14 @@ Run tests. Check edge cases. Report:
 - FAIL: list what's broken with specifics
 ```
 
-If QA reports FAIL → route failures back to the responsible IC agent.
-Tech Lead reviews the fix. Repeat until QA passes.
+If QA reports FAIL → increment session-local `qa_bounces` for the responsible
+task_id (SPEC-026 counter only — no ledger write yet), then route failures back
+to the responsible IC agent. Tech Lead reviews the fix. Repeat until QA passes.
+
+When QA reports **PASS** (or QA is explicitly N/A and `qa_bounces` is frozen for
+each finished task), run **Stint-end outcome emit** once per task with
+`STINT_OUTCOME=accepted` and finalized counters. This is the accepted-stint
+terminal (OQ4) — not Step-9 APPROVE.
 
 ---
 

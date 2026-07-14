@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.44.0
+- **SPEC-026 outcomes ledger + adaptive routing (CDV-185)** — append-only `.claude/metrics/outcomes.jsonl` via `emit-outcome.sh`; assignment-time advisory from `outcome-rates.sh` (never silent reroute); orchestrate Task-class + stint-end emit; local-do escalate emit; 16 unit tests
+
 ### v0.43.0
 - **Docs-drift release gate (CDV-188)** — `skills/docs-drift` checks cmd-index, agent-roster, docs-hub, manifest-desc; wired as `/release` Step 4.9; 44 bite-tests
 - **`/check-specs --tests` Phase 3** — opt-in MUST→test coverage matrix (report-only; `--gate` not release-wired); SPEC-008/010 extensions promoted
