@@ -28,7 +28,9 @@ fi
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-ENCODED_PATH=$(echo "$MROOT" | sed 's|/|-|g')
+# Claude Code encodes project dirs by replacing every non-alnum with '-'.
+# (s|/|-|g alone misses '.', so ~/apps/my.app would never resolve.)
+ENCODED_PATH=$(echo "$MROOT" | sed 's|[^A-Za-z0-9]|-|g')
 SESSION_JSONL=$(ls -t "$HOME/.claude/projects/${ENCODED_PATH}/"*.jsonl 2>/dev/null | head -1)
 
 if [ -z "$SESSION_JSONL" ]; then

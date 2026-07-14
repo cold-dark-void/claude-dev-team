@@ -8,7 +8,10 @@
 # Resolution (3-tier, single version-algorithm = sort -V; never glob-first):
 #   1. Dev-checkout fast path: if $MROOT/<relpath> exists, print it.
 #   2. Versioned cache: $HOME/.claude/plugins/cache/$SLUG/dev-team/<VER>/<relpath>,
-#      where <VER> is read from that cache's .claude-plugin/plugin.json.
+#      where <VER> is the highest versioned subdir (ls | sort -V | tail -1).
+#      Real layout (verified): version dirs live directly under dev-team/
+#      (e.g. …/dev-team/0.37.4/); there is NO .claude-plugin/ at the
+#      dev-team/ level — each <VER> has its own .claude-plugin/plugin.json.
 #   3. Find fallback: find $HOME/.claude/plugins/cache -path '*/dev-team/*/<relpath>'
 #      | sort -V | tail -1 (highest installed version).
 #
@@ -44,20 +47,15 @@ resolve() {
     return 0
   fi
 
-  # Tier 2: versioned cache — read <VER> from the cache's plugin.json.
-  # Guard the substitution so a missing manifest doesn't trip set -e.
-  local manifest="$cache/$SLUG/dev-team/.claude-plugin/plugin.json"
-  if [ -f "$manifest" ]; then
+  # Tier 2: versioned cache — highest versioned subdir under dev-team/.
+  # Layout is …/dev-team/<VER>/… (no top-level .claude-plugin/ under dev-team/).
+  # Guard so a missing cache dir doesn't trip set -e.
+  local team_root="$cache/$SLUG/dev-team"
+  if [ -d "$team_root" ]; then
     local ver=""
-    if command -v jq >/dev/null 2>&1; then
-      ver=$(jq -r '.version // empty' "$manifest" 2>/dev/null) || ver=""
-    fi
-    if [ -z "$ver" ]; then
-      ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$manifest" 2>/dev/null \
-              | head -1 | sed 's/.*"\([^"]*\)"$/\1/') || ver=""
-    fi
+    ver=$(ls -1 "$team_root" 2>/dev/null | sort -V | tail -1) || ver=""
     if [ -n "$ver" ]; then
-      local cand="$cache/$SLUG/dev-team/$ver/$rel"
+      local cand="$team_root/$ver/$rel"
       if [ -e "$cand" ]; then
         printf '%s\n' "$cand"
         return 0

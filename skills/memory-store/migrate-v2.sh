@@ -43,7 +43,10 @@ fi
 ROW_COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
 
 # Table rebuild inside a transaction (SQLite cannot ALTER CHECK constraints).
+# .bail on: abort on first error so a partial rebuild cannot leave the DB
+# half-migrated while later statements (including schema_version) still run.
 sqlite3 "$MEMDB" <<'SQL'
+.bail on
 -- Set busy timeout so concurrent writes don't immediately fail
 PRAGMA busy_timeout=5000;
 

@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.12
+- **fix: minor robustness hardening batch (CDV-179)** — per-repo memory-capture dedup + timeout stdin; migrate-v2/v3 `.bail on`; bash-compress `#`-safe via `printf %q`; freshness set -e safe mtime; handoff prepass concurrent stderr + oversize force-split; plugin-dir tier2 versioned layout; retro-gate path encoding; download-extensions quoted `.load`.
+
 ### v0.38.11
 - **fix: stop-review counts dual-status porcelain lines (CDV-178)** — MM/AM/MD/RM were missed by single-column case patterns; now count all porcelain except untracked/ignored. Hook + init-orchestration template stay in sync.
 

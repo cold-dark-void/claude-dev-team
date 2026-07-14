@@ -37,7 +37,9 @@ if [ ! -f "$FILE" ]; then
 fi
 
 # Cross-platform mtime: Linux uses -c %Y; macOS/BSD uses -f %m.
-MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null)
+# `|| true` keeps set -e from aborting when BOTH stat variants fail, so the
+# "cannot read mtime" branch below is reachable (not dead code).
+MTIME=$(stat -c %Y "$FILE" 2>/dev/null || stat -f %m "$FILE" 2>/dev/null || true)
 
 if [ -z "$MTIME" ]; then
   echo "freshness.sh: cannot read mtime for: $FILE" >&2

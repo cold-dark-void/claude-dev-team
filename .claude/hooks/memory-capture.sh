@@ -10,7 +10,8 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null || exit 0
 
 TMPF="${TMPDIR:-/tmp}/memcap-$$"
-cat > "$TMPF"
+# timeout 1: match stop-review.sh — a stuck stdin must not hang PostToolUse.
+timeout 1 cat > "$TMPF" 2>/dev/null || { rm -f "$TMPF"; exit 0; }
 
 TOOL_NAME=$(jq -r '.tool_name // empty' "$TMPF" 2>/dev/null)
 
@@ -27,7 +28,10 @@ rm -f "$TMPF"
 
 OBSERVATION="${TOOL_NAME,,} $FILE_PATH"
 
-DEDUP_FILE="${TMPDIR:-/tmp}/.claude-memcap-last"
+# Per-repo dedup marker (hash of MROOT) so concurrent projects/agents on the
+# same host do not share or race a single global file.
+MROOT_HASH=$(printf '%s' "$MROOT" | cksum | cut -d' ' -f1)
+DEDUP_FILE="${TMPDIR:-/tmp}/.claude-memcap-${MROOT_HASH}"
 LAST=$(cat "$DEDUP_FILE" 2>/dev/null || true)
 [ "$OBSERVATION" = "$LAST" ] && exit 0
 printf '%s' "$OBSERVATION" > "$DEDUP_FILE"

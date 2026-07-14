@@ -56,8 +56,12 @@ case "$EXISTING_COLS" in
   *) ADD_COLS="${ADD_COLS}ALTER TABLE memories ADD COLUMN archive_reason TEXT DEFAULT NULL;"$'\n' ;;
 esac
 
-# Run migration inside a transaction
+# Run migration inside a transaction.
+# .bail on: a mid-transaction statement error must abort before schema_version
+# bumps and COMMIT — without it sqlite3 continues and can record a partial
+# migration as complete.
 sqlite3 "$MEMDB" <<SQL
+.bail on
 PRAGMA busy_timeout=5000;
 
 BEGIN TRANSACTION;

@@ -183,7 +183,7 @@ CACHE_FILE="$CACHE_DIR/$UUID.json"
 # returns non-zero.
 compute_leaf() {
   PREPASS_ASSEMBLE="$ASSEMBLE" PREPASS_UUID="$UUID" PREPASS_SCRIPT_DIR="$SCRIPT_DIR" python3 - <<'PYEOF'
-import json, os, subprocess, sys
+import json, os, subprocess, sys, threading
 
 # Import the single-source leaf rule (keep_last_uuid) from this skill dir.
 sys.path.insert(0, os.environ["PREPASS_SCRIPT_DIR"])
@@ -197,6 +197,17 @@ proc = subprocess.Popen(
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
 )
 
+# Drain stderr concurrently so a stderr flood cannot fill the pipe buffer and
+# deadlock while we still consume stdout (stdout-then-stderr was latent-risk).
+err_chunks = []
+def _drain_err():
+    try:
+        err_chunks.append(proc.stderr.read())
+    except Exception:
+        err_chunks.append("")
+err_thread = threading.Thread(target=_drain_err, daemon=True)
+err_thread.start()
+
 def _stream(p):
     for line in p.stdout:
         line = line.strip()
@@ -209,7 +220,8 @@ def _stream(p):
 
 leaf = keep_last_uuid(_stream(proc))
 proc.stdout.close()
-err = proc.stderr.read()
+err_thread.join()
+err = err_chunks[0] if err_chunks else ""
 proc.stderr.close()
 rc = proc.wait()
 if rc != 0 or leaf is None:
@@ -716,6 +728,18 @@ proc = subprocess.Popen(
     bufsize=1,
 )
 
+# Drain stderr concurrently — stdout-then-stderr can deadlock if stderr fills
+# the OS pipe buffer while stdout is still being consumed.
+import threading
+err_chunks = []
+def _drain_err():
+    try:
+        err_chunks.append(proc.stderr.read())
+    except Exception:
+        err_chunks.append("")
+err_thread = threading.Thread(target=_drain_err, daemon=True)
+err_thread.start()
+
 
 def role_of(obj):
     msg = obj.get("message")
@@ -807,7 +831,8 @@ for line in proc.stdout:
                 read_count[fp] = read_count.get(fp, 0) + 1
 
 proc.stdout.close()
-assemble_err = proc.stderr.read()
+err_thread.join()
+assemble_err = err_chunks[0] if err_chunks else ""
 proc.stderr.close()
 rc = proc.wait()
 if rc != 0:
@@ -943,10 +968,10 @@ else:
     # boundary (the start of a user message) over an arbitrary token cutoff:
     # once a chunk passes a soft threshold, cut at the next user message so a
     # hypothesis -> test -> correction arc stays whole and the convergence
-    # through-line survives the map step. The hard char budget is never exceeded
-    # (a single oversized turn is still force-cut), preserving the "each chunk
-    # fits the window" guarantee. Tunable via HANDOFF_CHUNK_SOFT_RATIO
-    # (default 0.8; 1.0 restores pure budget cutting).
+    # through-line survives the map step. A single oversized turn is force-cut
+    # at line boundaries so the hard char budget is honored (a single line
+    # longer than the budget is emitted whole with a warn — no mid-line cut).
+    # Tunable via HANDOFF_CHUNK_SOFT_RATIO (default 0.8; 1.0 = pure budget cut).
     try:
         soft_ratio = float(os.environ.get("HANDOFF_CHUNK_SOFT_RATIO", "0.8"))
     except ValueError:
@@ -959,6 +984,30 @@ else:
         head = part.split("\n", 1)[0].split()
         return head[1] if len(head) >= 2 and head[0].startswith("[L") else ""
 
+    def _force_split(text, budget):
+        """Split text into pieces each <= budget at line boundaries.
+        A single line longer than budget is emitted whole (with warn)."""
+        pieces = []
+        piece_lines = []
+        piece_chars = 0
+        for ln in text.splitlines(keepends=True):
+            if piece_lines and piece_chars + len(ln) > budget:
+                pieces.append("".join(piece_lines))
+                piece_lines = []
+                piece_chars = 0
+            if not piece_lines and len(ln) > budget:
+                warn(
+                    f"chunk force-cut: single line ({len(ln)} chars) exceeds "
+                    f"budget ({budget}); emitting oversize piece"
+                )
+                pieces.append(ln)
+                continue
+            piece_lines.append(ln)
+            piece_chars += len(ln)
+        if piece_lines:
+            pieces.append("".join(piece_lines))
+        return pieces if pieces else [text]
+
     chunks = []
     cur = []
     cur_chars = 0
@@ -970,6 +1019,20 @@ else:
             chunks.append(cur)
             cur = []
             cur_chars = 0
+        if plen > BUDGET_CHARS:
+            # Force-cut oversized single turn at line boundaries.
+            for piece in _force_split(part, BUDGET_CHARS):
+                if cur and cur_chars + len(piece) > BUDGET_CHARS:
+                    chunks.append(cur)
+                    cur = []
+                    cur_chars = 0
+                cur.append(piece)
+                cur_chars += len(piece)
+                if cur_chars >= BUDGET_CHARS:
+                    chunks.append(cur)
+                    cur = []
+                    cur_chars = 0
+            continue
         cur.append(part)
         cur_chars += plen
     if cur:
@@ -978,6 +1041,11 @@ else:
     chunk_meta = []
     for i, parts in enumerate(chunks):
         body = "".join(parts)
+        if len(body) > BUDGET_CHARS:
+            warn(
+                f"chunk {i} is {len(body)} chars (budget {BUDGET_CHARS}); "
+                f"oversize after force-cut (single-line residue)"
+            )
         cpath = os.path.join(OUT_DIR, f"{STEM}.chunk{i:03d}.txt")
         with io.open(cpath, "w", encoding="utf-8") as fh:
             fh.write(body)

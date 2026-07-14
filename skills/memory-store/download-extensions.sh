@@ -315,7 +315,7 @@ VEC_VER=""
 if [ -f "$EXT_DIR/vec0.$EXT" ]; then
   # Strip the .so/.dylib extension — SQLite .load appends it automatically
   VEC_LIB="$EXT_DIR/vec0"
-  VEC_VER=$(sqlite3 :memory: ".load $VEC_LIB" "SELECT vec_version();" 2>/dev/null) || true
+  VEC_VER=$(sqlite3 :memory: ".load \"$VEC_LIB\"" "SELECT vec_version();" 2>/dev/null) || true
   if [ -n "$VEC_VER" ]; then
     echo ""
     echo "sqlite-vec $VEC_VER loaded successfully"
@@ -328,7 +328,7 @@ fi
 # Create virtual tables if vec0 loads and the DB exists
 if [ -n "$VEC_VER" ] && [ -f "$MEMDB" ]; then
   VEC_LIB="$EXT_DIR/vec0"
-  sqlite3 "$MEMDB" ".load $VEC_LIB" \
+  sqlite3 "$MEMDB" ".load \"$VEC_LIB\"" \
     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_384 USING vec0(memory_id INTEGER, embedding FLOAT[384]);" \
     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_768 USING vec0(memory_id INTEGER, embedding FLOAT[768]);" \
     2>/dev/null || echo "WARNING: Failed to create vec virtual tables in $MEMDB"

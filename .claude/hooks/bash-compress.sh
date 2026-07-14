@@ -28,15 +28,16 @@ esac
 
 [ "$NOISY" = "false" ] && exit 0
 
-# Wrap the original command inline — no external script call.
-# Captures output, preserves exit code, truncates if > 50 lines.
-# Use `$( ( $COMMAND ) 2>&1 )` (space after `$(`) so this is unambiguously a
+# Wrap via bash -c with the original command as a single %q-quoted argument so
+# an inline `#` comment (e.g. `go test ./... # note`) cannot comment out the
+# wrapper's closing `)`. printf %q expands at hook time into WRAPPED.
+# Use `$( ( ... ) 2>&1 )` (space after `$(`) so this is unambiguously a
 # command substitution containing a subshell — NOT `$(( ... ))` arithmetic
-# expansion, which would misparse commands that begin with '(' or contain
-# arithmetic-looking text. The later `$((_ccn - 40))` IS real arithmetic.
+# expansion. The later `$((_ccn - 40))` IS real arithmetic.
 # NOTE: permissionDecision:"allow" re-grant below applies ONLY to commands the
 # hardcoded NOISY test/build allowlist already matched — bounded exposure.
-WRAPPED="_ccout=\$( ( $COMMAND ) 2>&1 ); _ccexit=\$?; _ccf=\$(mktemp); printf '%s\n' \"\$_ccout\" > \"\$_ccf\"; _ccn=\$(awk 'END{print NR}' \"\$_ccf\"); if [ \"\$_ccn\" -le 50 ]; then cat \"\$_ccf\"; else head -20 \"\$_ccf\"; printf '\n... %d lines omitted ...\n\n' \"\$((_ccn - 40))\"; tail -20 \"\$_ccf\"; fi; rm -f \"\$_ccf\"; exit \$_ccexit"
+_CMD_Q=$(printf '%q' "$COMMAND")
+WRAPPED="_ccout=\$( ( bash -c ${_CMD_Q} ) 2>&1 ); _ccexit=\$?; _ccf=\$(mktemp); printf '%s\n' \"\$_ccout\" > \"\$_ccf\"; _ccn=\$(awk 'END{print NR}' \"\$_ccf\"); if [ \"\$_ccn\" -le 50 ]; then cat \"\$_ccf\"; else head -20 \"\$_ccf\"; printf '\n... %d lines omitted ...\n\n' \"\$((_ccn - 40))\"; tail -20 \"\$_ccf\"; fi; rm -f \"\$_ccf\"; exit \$_ccexit"
 
 jq -n --arg cmd "$WRAPPED" \
   '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"output compression","updatedInput":{"command":$cmd}}}'
