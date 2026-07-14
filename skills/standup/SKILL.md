@@ -258,6 +258,37 @@ signal is unavailable — do not show a blank `[]` placeholder.
 
 ---
 
+## Step 5.5: Epic rollup (SPEC-025 / M10)
+
+When any epic under `$MROOT/.claude/epics/` has non-completed children, surface
+an epic section sourced from `state.json` via `epic-lib.sh` (not prose). Omit
+the entire section when rollup is empty.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+EPIC_LIB="$PDH/skills/epic/epic-lib.sh"
+ROLLUP=$(bash "$EPIC_LIB" rollup)
+```
+
+If `$ROLLUP` is non-empty, print:
+
+```
+─── Epics ────────────────────────────────────────────────────────────
+  <epic_id>  <title>  mode:<execution_mode>
+    pending:N  in_progress:N  completed:N  blocked:N  / total:N
+    ready: <id>, <id>, …
+    waves: Wave 1: … → Wave 2: …
+```
+
+Each stdout line from `rollup` is one JSON object — pretty-print with `jq` when
+available. Counts and ready set come only from that JSON (`state.json`), never
+from free-text memory.
+
+---
+
 ## Step 6: Escalation check
 
 After the report, check if any escalation is warranted:

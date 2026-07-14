@@ -396,6 +396,29 @@ If the sidecar file does not exist: skip silently.
 
 ---
 
+## Step 6.7: Epic child write-back (SPEC-025 SHOULD)
+
+If this ticket is an epic child, mark it `completed` in epic state. Soft — never
+fail the wrap when no epic matches.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+EPIC_LIB="$PDH/skills/epic/epic-lib.sh"
+TICKET_ID="<TICKET-ID>"
+MARK_OUT=$(bash "$EPIC_LIB" mark-done "$TICKET_ID" 2>/dev/null || true)
+```
+
+- If `$MARK_OUT` is non-empty JSON: print `Epic child marked completed: <id>` and
+  include it in the Step 7 summary.
+- If empty: skip silently (ticket is not an epic child, or no epic state).
+
+`mark-done` matches child `id` **or** `linear_id` and exits 0 on no match.
+
+---
+
 ## Step 7: Print close-out checklist
 
 Print a checklist for the engineer to complete manually:

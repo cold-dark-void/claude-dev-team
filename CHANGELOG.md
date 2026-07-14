@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.57.0
+- **SPEC-025 /epic umbrella decomposition (CDV-192)** — prompt-driven epic decompose + DAG handoff; `epic-lib.sh`; standup rollup; wrap-ticket mark-done; Linear optional
+
 ### v0.56.0
 - **SPEC-011 /validate-memory --reconcile (CDV-195)** — bounded cross-agent contradiction candidates; LLM pair-judge; interactive or `--report-only`; schema v4 `reconcile_log`; never auto-archive
 

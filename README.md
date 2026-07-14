@@ -89,6 +89,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification (`inline` subcommand) |
 | [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL kickoff → spec → implementation plan → task graph |
 | [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: fetch issue → worktree → agents → review loops → PR |
+| [`/epic`](docs/commands/epic.md) | Umbrella decompose + sequenced child handoff to `/kickoff` or `/orchestrate` |
 | [`/standup`](docs/commands/standup.md) | Status snapshot: TaskList + agent context, surfaces blockers and stale tasks |
 | [`/wrap-ticket`](docs/commands/wrap-ticket.md) | Close out: verify tasks, capture learnings, update plans, remove worktree |
 | [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the built-in `/loop`/`/goal` (library, journal, refine) |

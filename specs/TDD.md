@@ -15,7 +15,9 @@
 | SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-and-commit, release |
 | SPEC-011 | Memory Validation | ACTIVE | commands/validate-memory.md, skills/validate-memory/SKILL.md, skills/validate-memory/reconcile-lib.sh, /memory-distill integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
+| SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, skills/validate-memory/SKILL.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
+| SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
 | SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
@@ -28,6 +30,7 @@
 | SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 | SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory-export.md, commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
+| SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse) |
 | SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped), commands/local-do.md |
 | SPEC-028 | `/fix-ticket` Premise → Implement → Adversarial Refute | ACTIVE | commands/fix-ticket.md, skills/fix-ticket/SKILL.md, skills/fix-ticket/workflow.js, docs/commands/fix-ticket.md |
 
@@ -64,3 +67,4 @@
 | 2026-07-14 | SPEC-024 implemented (CDV-194): memory seed packs — `/memory-export` + init-team import; status DRAFT→ACTIVE. |
 | 2026-07-14 | SPEC-028 renumbered from colliding SPEC-025 (CDV-197): `/fix-ticket` workflow; CDV-192 owns SPEC-025 for `/epic`. |
 | 2026-07-14 | SPEC-011 extended (CDV-195): `/validate-memory --reconcile` cross-agent contradiction detection; schema v4 reconcile_log. |
+| 2026-07-14 | SPEC-025 implemented (CDV-192): `/epic` umbrella decompose + sequenced handoff (`epic-lib` + standup/wrap hooks); status DRAFT→ACTIVE. |

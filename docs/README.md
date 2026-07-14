@@ -41,6 +41,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 | `/refactor` | [refactor](commands/refactor.md) | Design-first restructuring, behavior-preserving (`inline`) |
 | `/kickoff` | [kickoff](commands/kickoff.md) | Parallel PM+TL kickoff → spec → plan → task graph |
 | `/orchestrate` | [orchestrate](commands/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → PR |
+| `/epic` | [epic](commands/epic.md) | Umbrella decompose + sequenced child handoff |
 | `/standup` | [standup](commands/standup.md) | Status snapshot of active agent work |
 | `/wrap-ticket` | [wrap-ticket](commands/wrap-ticket.md) | Close out: verify, capture learnings, remove worktree |
 | `/craft-loop` | [craft-loop](commands/craft-loop.md) | Design reviewed loop programs for the built-in `/loop`/`/goal` (library, journal, refine) |
