@@ -259,7 +259,10 @@ Before creating any tasks, extract the dependency graph from the approved Tech L
    DAG_FILE="${TMPDIR:-/tmp}/orchestrate-dag-$$.json"
    CYCLE_ERR="${TMPDIR:-/tmp}/orchestrate-cycle-err-$$.txt"
    # (caller already wrote the dependency JSON into $DAG_FILE)
-   bash skills/orchestrate/dag-lib.sh check-cycle "$DAG_FILE" 2>"$CYCLE_ERR"
+   # Re-resolve PDH (each bash fence is a fresh shell)
+   PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+   DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh)
+   bash "$DAG_LIB" check-cycle "$DAG_FILE" 2>"$CYCLE_ERR"
    rc=$?
    if [ "$rc" -eq 1 ]; then
      CYCLE_MSG=$(cat "$CYCLE_ERR" 2>/dev/null || true)
@@ -309,7 +312,10 @@ After each TaskCreate succeeds and the task id is known, the orchestrator MUST c
 # If no deps:
 #   DEPS=""
 DEPS=$(echo "<compound dep keys for this task, space/comma-separated>" | tr ', ' ':' | tr -s ':' | sed 's/^://;s/:$//')
-bash skills/orchestrate/task-store.sh create <ISSUE-ID>-<task_id> "<subject>" <requires_council> "$DEPS"
+# Re-resolve PDH (each bash fence is a fresh shell)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+TASK_STORE=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-store.sh)
+bash "$TASK_STORE" create <ISSUE-ID>-<task_id> "<subject>" <requires_council> "$DEPS"
 ```
 
 where `<ISSUE-ID>` is the current issue ID (e.g. `CDV-QF-FILTER`) and `<task_id>` is the integer returned by TaskCreate (e.g. `1`). The compound key (e.g. `CDV-QF-FILTER-1`) prevents task-store collisions when a new Claude process reuses the same integer IDs across runs. The 4th `[depends_on]` argument MUST use the SAME compound `<ISSUE-ID>-N` form so `dag-lib.sh ready-set`'s set-subtraction matches completed task IDs — a bare `Task N` or `N` would never appear in the done-set and would silently re-mark every dependent as ready, defeating the DAG. A task with no deps passes `""` (empty depends_on). This writes `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json` — the source of truth the SPEC-002 TaskCompleted hook reads to determine whether the council quality gate applies (SPEC-009, "council gate applies when `requires_council: true`" MUST + the task-store source-of-truth MUSTs). If `task-store.sh` exits non-zero, surface the error to the user immediately — do NOT silently continue.
@@ -719,7 +725,10 @@ Update TaskUpdate → completed. Check if this unblocks other tasks.
 On every TaskUpdate that changes a task's status, the orchestrator MUST also call:
 
 ```bash
-bash skills/orchestrate/task-store.sh update-status <ISSUE-ID>-<task_id> <new_status>
+# Re-resolve PDH (each bash fence is a fresh shell)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+TASK_STORE=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-store.sh)
+bash "$TASK_STORE" update-status <ISSUE-ID>-<task_id> <new_status>
 ```
 
 Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009, the task-store write/update/no-delete-after-completion MUSTs); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
@@ -731,14 +740,20 @@ If TASK_ID does not end with `-ci-fixer`, skip this block.
 
 Otherwise, verify `fixer_active` is false in the CI-watch sidecar:
 
+```bash
   # Extract TICKET from task_id (compound key format: TICKET-ci-fixer)
   # ci-fixer tasks have task_id like "CDV-1-ci-fixer"
+  # Re-resolve PDH (each bash fence is a fresh shell)
+  PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+  SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
   TICKET=$(echo "$TASK_ID" | sed 's/-ci-fixer$//')
-  FIXER_ACTIVE=$(bash skills/ci-watch/sidecar.sh get "$TICKET" fixer_active 2>/dev/null || echo "false")
+  # Do not mask helper-missing with `|| echo false` — let a missing plugin surface.
+  FIXER_ACTIVE=$(bash "$SIDECAR_CLI" get "$TICKET" fixer_active 2>/dev/null)
   if [ "$FIXER_ACTIVE" = "true" ]; then
-    bash skills/ci-watch/sidecar.sh set "$TICKET" fixer_active false
+    bash "$SIDECAR_CLI" set "$TICKET" fixer_active false
     echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) corrected stale fixer_active=true" >> "$MROOT/.claude/ci-watch/$TICKET.log"
   fi
+```
 
 This guards against a fixer agent that exited without clearing the flag.
 

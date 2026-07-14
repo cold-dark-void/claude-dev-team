@@ -1,6 +1,6 @@
 # Bootstrap skills — single-root anchoring (subdir-invocation hardening)
 
-**Status**: PENDING — DEFERRED (surfaced by AUDIT-P1-2; not a path-consolidation concern, deferred from the doc-only patch to avoid a coordinated-refactor regression surface)
+**Status**: DONE (CDV-174) (surfaced by AUDIT-P1-2; not a path-consolidation concern, deferred from the doc-only patch to avoid a coordinated-refactor regression surface)
 
 ## Problem
 `scaffold-project` and `init-orchestration` Step 7 are cwd-relative for ALL their `.claude/`/`specs/` ops (mkdir, MEMDB, settings.json, plans.md, TDD.md, AGENTS.md, .gitignore). This is correct when the skill is invoked from the target project root (the normal case), but if invoked from a **subdirectory** of an existing project — scaffold explicitly supports "Adding TDD workflow to an existing project" — every op lands in the subdir instead of the project root.

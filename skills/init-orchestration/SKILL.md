@@ -250,6 +250,8 @@ mkdir -p .claude/hooks
 
 Use the `Write` tool to create `.claude/hooks/task-completed.sh` with this content:
 
+> **Note (bootstrap vs hook runtime):** the `git-common-dir` MROOT resolution inside this template is *intentional for hook runtime* after the file is written into the target project. Do NOT rewrite it to `$PROJ_ROOT` / `show-toplevel` during bootstrap — shared `.claude/tasks` / council state must resolve via common-dir at runtime.
+
 ```bash
 #!/usr/bin/env bash
 # TaskCompleted hook — plugin JSON validation + council quality gate
@@ -485,6 +487,8 @@ chmod +x .claude/hooks/stop-review.sh
 ### Step 4c: Create .claude/hooks/memory-capture.sh
 
 Use the `Write` tool to create `.claude/hooks/memory-capture.sh` with this content:
+
+> **Note (bootstrap vs hook runtime):** the `MEMDB="$MROOT/.claude/memory/memory.db"` line below uses `git-common-dir` intentionally — this is *hook-runtime* resolution of the shared memory DB after the template is emitted into the target project. Step 7's seed path uses `$PROJ_ROOT`/`show-toplevel` instead; the two look contradictory but run in different contexts.
 
 ```bash
 #!/usr/bin/env bash
@@ -750,13 +754,18 @@ All project rules live in AGENTS.md. CLAUDE.md just ensures Claude Code loads th
 
 Create the Claude Code memory directory and seed it with learned patterns from past sessions. These prevent known mistakes from being repeated in every new project.
 
+**Single-root anchor.** Resolve ONE project root and put every Step-7 `.claude/` op under it. All-or-nothing — never mix absolute and relative siblings. Use `--show-toplevel`, **not** `--git-common-dir` (common-dir would resolve a parent worktree's shared root, not the project being bootstrapped). (Emitted hook templates above that resolve `MEMDB` via `git-common-dir` are intentional — those run at *hook runtime* in the target project, not during this bootstrap.)
+
 ```bash
-mkdir -p .claude/memory/claude
-MEMDB=".claude/memory/memory.db"
+PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+mkdir -p "$PROJ_ROOT/.claude/memory/claude"
+MEMDB="$PROJ_ROOT/.claude/memory/memory.db"
 ```
 
 If sqlite3 is available and the DB does not yet exist, initialize it:
 ```bash
+PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$PROJ_ROOT/.claude/memory/memory.db"
 if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
   # Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
   PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
@@ -781,7 +790,7 @@ if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
 fi
 ```
 
-**If `.claude/memory/claude/memory.md` does not exist AND no DB row exists** — create/seed both paths below.
+**If `$PROJ_ROOT/.claude/memory/claude/memory.md` does not exist AND no DB row exists** — create/seed both paths below.
 
 **If it already exists** — read it, check if the orchestrator rules section is present. If not, append it. Do not duplicate.
 
@@ -823,7 +832,7 @@ db.commit()
 " "$MEMDB" "$CONTENT"
 ```
 
-**If no DB:** use the `Write` tool to create `.claude/memory/claude/memory.md` with the baseline content above.
+**If no DB:** use the `Write` tool to create `$PROJ_ROOT/.claude/memory/claude/memory.md` with the baseline content above.
 
 ---
 

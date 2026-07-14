@@ -37,23 +37,35 @@ project/
 
 ## Instructions
 
+### Step 0: Resolve project root (single-root anchor)
+
+Resolve ONE project root and anchor **every** `.claude/` / `specs/` / `AGENTS.md` / `.gitignore` op on it. All-or-nothing — never mix absolute and relative siblings (that splits the scaffold). Use `--show-toplevel`, **not** `--git-common-dir` (common-dir would resolve a parent worktree's shared root, not the project being created).
+
+```bash
+PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+```
+
+If the user provided a project name and you create a new directory, `cd` into it first, then re-resolve `PROJ_ROOT`.
+
 ### Step 1: Verify and Prepare
 
 Before creating files, check:
-1. Are we in the correct directory? If user provided a project name, create that directory first.
-2. Do any files already exist? If so, ask user how to handle (skip/overwrite/cancel).
+1. Are we in the correct directory? If user provided a project name, create that directory first, then re-resolve `PROJ_ROOT`.
+2. Do any files already exist under `$PROJ_ROOT`? If so, ask user how to handle (skip/overwrite/cancel).
 3. Is this a git repository? If not, ask if user wants to initialize git.
 
 ### Step 2: Create Directory Structure
 
 ```bash
-mkdir -p .claude/plans .claude/context .claude/memory/claude specs
-touch .claude/plans/.gitkeep .claude/context/.gitkeep
+PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+mkdir -p "$PROJ_ROOT/.claude/plans" "$PROJ_ROOT/.claude/context" "$PROJ_ROOT/.claude/memory/claude" "$PROJ_ROOT/specs"
+touch "$PROJ_ROOT/.claude/plans/.gitkeep" "$PROJ_ROOT/.claude/context/.gitkeep"
 ```
 
 If sqlite3 is available, also initialize the memory database:
 ```bash
-MEMDB=".claude/memory/memory.db"
+PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$PROJ_ROOT/.claude/memory/memory.db"
 if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
   # Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
   PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
@@ -66,7 +78,7 @@ fi
 
 ### Step 2b: Create .claude/settings.json
 
-Create `.claude/settings.json` to enable autonomous agent operation (no permission prompts for common operations):
+Create `$PROJ_ROOT/.claude/settings.json` to enable autonomous agent operation (no permission prompts for common operations):
 
 ```json
 {
@@ -127,7 +139,7 @@ Create `.claude/settings.json` to enable autonomous agent operation (no permissi
 
 ### Step 3: Create .claude/CLAUDE.md
 
-Create `.claude/CLAUDE.md` with the project memory pointer so Claude Code uses project-local memory:
+Create `$PROJ_ROOT/.claude/CLAUDE.md` with the project memory pointer so Claude Code uses project-local memory:
 
 ```markdown
 # Project Memory
@@ -143,7 +155,7 @@ This file is shared across all git worktrees since they share the same `.git` co
 Fits the per-agent convention: each team agent uses `$MROOT/.claude/memory/<agent>/`; Claude Code uses `$MROOT/.claude/memory/claude/`.
 ```
 
-Also seed `.claude/memory/claude/memory.md` with a minimal header:
+Also seed `$PROJ_ROOT/.claude/memory/claude/memory.md` with a minimal header:
 
 ```markdown
 # Claude Code Memory — <PROJECT NAME>
@@ -157,7 +169,7 @@ Replace `<PROJECT NAME>` and `<TODAY'S DATE>` with actual values.
 
 ### Step 4: Create plans.md
 
-Create `.claude/plans.md` with this content:
+Create `$PROJ_ROOT/.claude/plans.md` with this content:
 
 ```markdown
 # Master Plan Index
@@ -219,7 +231,7 @@ _Plans older than 2 weeks. See `plans/archive/` for detailed documentation._
 ### Step 5: Create TDD.md
 
 
-Create `specs/TDD.md` with starter specifications:
+Create `$PROJ_ROOT/specs/TDD.md` with starter specifications:
 
 ```markdown
 # TDD Specifications - <PROJECT NAME>
@@ -427,7 +439,7 @@ specs/
 
 ### Step 6: Create AGENTS.md
 
-Create `AGENTS.md` with this template:
+Create `$PROJ_ROOT/AGENTS.md` with this template:
 
 ```markdown
 # <PROJECT NAME> - Agent Instructions
@@ -542,7 +554,7 @@ project/
 
 ### Step 7: Update or Create .gitignore
 
-If `.gitignore` doesn't exist, create it with:
+If `$PROJ_ROOT/.gitignore` doesn't exist, create it with:
 
 ```gitignore
 # Claude Code - AI agent working directory
@@ -560,7 +572,7 @@ If `.gitignore` doesn't exist, create it with:
 # Specs are in ./specs/ (NOT in .claude/), committed normally
 ```
 
-If `.gitignore` already exists, ask user if they want to append these patterns.
+If `$PROJ_ROOT/.gitignore` already exists, ask user if they want to append these patterns.
 
 ### Step 8: Summary and Next Steps
 
@@ -633,18 +645,19 @@ Co-Authored-By: Claude <model> <noreply@anthropic.com>"
 
 ## Files Created Checklist
 
-Before completing, verify:
-- [ ] .claude/plans/ directory exists
-- [ ] .claude/context/ directory exists
-- [ ] .claude/memory/claude/ directory exists
-- [ ] .claude/settings.json created with defaultMode and Bash allow list
-- [ ] .claude/CLAUDE.md created with project memory pointer
-- [ ] .claude/memory/claude/memory.md created with project header
-- [ ] .claude/plans.md created
-- [ ] specs/ directory exists
-- [ ] specs/TDD.md created with 3 starter specs
-- [ ] AGENTS.md created
-- [ ] .gitignore created or updated (if needed)
+Before completing, verify (all under `$PROJ_ROOT`):
+- [ ] $PROJ_ROOT/.claude/plans/ directory exists
+- [ ] $PROJ_ROOT/.claude/context/ directory exists
+- [ ] $PROJ_ROOT/.claude/memory/claude/ directory exists
+- [ ] $PROJ_ROOT/.claude/settings.json created with defaultMode and Bash allow list
+- [ ] $PROJ_ROOT/.claude/CLAUDE.md created with project memory pointer
+- [ ] $PROJ_ROOT/.claude/memory/claude/memory.md created with project header
+- [ ] $PROJ_ROOT/.claude/plans.md created
+- [ ] $PROJ_ROOT/specs/ directory exists
+- [ ] $PROJ_ROOT/specs/TDD.md created with 3 starter specs
+- [ ] $PROJ_ROOT/AGENTS.md created
+- [ ] $PROJ_ROOT/.gitignore created or updated (if needed)
 - [ ] .gitkeep files in empty directories
 - [ ] All placeholders replaced with actual values
 - [ ] User notified to customize AGENTS.md
+- [ ] No op mixed relative/cwd paths with `$PROJ_ROOT` (single-root all-or-nothing)

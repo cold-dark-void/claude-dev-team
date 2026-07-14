@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.7
+- **fix: PDH-resolve remaining orchestrate/kickoff helpers + bootstrap PROJ_ROOT (CDV-174)** — cycle-gate / task-store / sidecar / detect-mode call sites still used cwd-relative `bash skills/…`, which silently fails (exit 127) on consumer installs. All resolve via `$PDH` + `plugin-dir.sh` per block. Scaffold-project and init-orchestration Step 7 anchor every `.claude/`/`specs/` op on `PROJ_ROOT=$(git rev-parse --show-toplevel || pwd)` so subdir invocation cannot split the tree. Emitted hooks keep `git-common-dir` (documented). SPEC-002 updated.
+
 ### v0.38.6
 - **fix: worktree-lib non-TTY fresh-lock aborts cleanly (CDV-201)** — `[ -r /dev/tty ]` is true without a controlling terminal; `printf >/dev/tty` then fails ENXIO under `set -e` → messy exit 1. Probe TTY by successful write (`printf 2>/dev/null >/dev/tty`); on failure take stderr path and **exit 2** (abort). Steal only on explicit `steal`. SPEC-016 documents non-TTY exit 2.
 

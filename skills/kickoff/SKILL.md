@@ -382,7 +382,10 @@ Before creating any tasks, extract the dependency graph from the Tech Lead plan:
    DAG_FILE="${TMPDIR:-/tmp}/kickoff-dag-$$.json"
    CYCLE_ERR="${TMPDIR:-/tmp}/kickoff-cycle-err-$$.txt"
    # (caller already wrote the dependency JSON into $DAG_FILE)
-   bash skills/orchestrate/dag-lib.sh check-cycle "$DAG_FILE" 2>"$CYCLE_ERR"
+   # Re-resolve PDH (each bash fence is a fresh shell)
+   PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+   DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh)
+   bash "$DAG_LIB" check-cycle "$DAG_FILE" 2>"$CYCLE_ERR"
    rc=$?
    if [ "$rc" -eq 1 ]; then
      # $CYCLE_MSG is the detected back-edge ("cycle: <from> -> <to>"), not a full path.
@@ -402,7 +405,10 @@ Before creating any tasks, extract the dependency graph from the Tech Lead plan:
 
 Then detect quality-check mode:
 ```bash
-QC_MODE=$(bash skills/ci-watch/detect-mode.sh "$WTROOT" | head -n1)
+# Re-resolve PDH (each bash fence is a fresh shell)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+DETECT_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/detect-mode.sh)
+QC_MODE=$(bash "$DETECT_CLI" "$WTROOT" | head -n1)
 ```
 
 Read the plan Tech Lead produced. For each step, issue a TaskCreate:
@@ -427,7 +433,10 @@ After each TaskCreate, register the task in the task store with its dependencies
 #   DEPS=""
 DEPS=$(echo "<dep task IDs from plan, space/comma-separated>" | tr ', ' ':' | tr -s ':' | sed 's/^://;s/:$//')
 # Replace each "Task N" reference with "<TICKET-ID>-N" compound key
-bash skills/orchestrate/task-store.sh create "<TICKET-ID>-<task_id>" "<subject>" <requires_council> "$DEPS"
+# Re-resolve PDH (each bash fence is a fresh shell)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+TASK_STORE=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-store.sh)
+bash "$TASK_STORE" create "<TICKET-ID>-<task_id>" "<subject>" <requires_council> "$DEPS"
 ```
 
 Create all tasks. Note their assigned IDs.
