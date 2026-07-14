@@ -99,7 +99,7 @@ preset selector). The argument surface:
 | `--task-id <id>` | Bind this run to an orchestrated task id | Supported |
 | `--preset <name>` | Explicit preset selector (else inferred from scope) | Supported |
 | `--workflow` | Opt-in Workflow execution path (CDV-196); orthogonal to scope | Supported |
-| `--why` | Print flavors used + specialist reasoning | **Deferred (SHOULD, COUNCIL-002)** |
+| `--why` | Print flavors used + specialist reasoning after summary | Supported (CDV-206) |
 | (no scope) | — | **Hard fail, non-zero exit** |
 
 Env: `COUNCIL_WORKFLOW=1` is equivalent to `--workflow`.
@@ -620,6 +620,29 @@ verification_mode=<full|self-verified>
 
 (SPEC-013 line 92; CDV-199 adds `verification_mode=`.)
 
+**`--why` debug (CDV-206; SPEC-013 SHOULD):** When preflight receives
+`--why`, the investigation plan sets `why: true` and includes a
+`why_detail` object (absent when the flag is off):
+
+```json
+{
+  "why": true,
+  "why_detail": {
+    "preset": "generic",
+    "flavors": ["paranoid-ic", "jaded-senior"],
+    "phase3_specialist": "skipped (Phase 3 deferred)",
+    "claim_budget": 10,
+    "preset_source": "inferred"
+  }
+}
+```
+
+- `preset_source` is `explicit` when `--preset` was passed, else `inferred`.
+- `phase3_specialist` is a stub until Phase 3 (CDV-209); post-209 it becomes
+  e.g. `"devops (topic=deploy conf=0.91)"` or `"skipped (no confident match)"`.
+- `commands/council.md` Step 5 prints a short labeled block from these fields
+  after the stdout summary. No raw prompt dumps. No verdict impact.
+
 **Index writer (task-bound runs only):**
 
 After the report file is written, the engine MUST append a row to
@@ -817,9 +840,6 @@ either fail loud (if user-reachable via CLI) or be a protocol-reserved no-op
 - **Phase 3 dynamic domain specialist** — no-op in v1. The engine MUST NOT
   inspect claim topics or attempt agent pull. Phase 3 exists in the protocol
   for v2 extensibility. (SPEC-013 lines 62–69.)
-- **`--why` flag** — SHOULD in SPEC-013 line 145; not implemented. Arg
-  parser may accept or fail loud — either is fine; prefer fail loud for
-  consistency.
 - **Per-phase token usage reporting** — SHOULD in SPEC-013 line 144; not
   implemented.
 - **Investigator tool-call caching within a run** — SHOULD in SPEC-013 line

@@ -30,7 +30,7 @@ to `.claude/council/index.json`.
 - `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (DEFERRED to COUNCIL-002, fails loudly)
 - `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
 - `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1`
-- `/council --why` — print flavor presets used + reasoning (DEFERRED to COUNCIL-002, optional)
+- `/council --why` — print short debug section after summary (flavors, specialist stub, claim budget, preset source)
 - `/council` — no scope, fails loudly with usage
 
 Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
@@ -449,9 +449,28 @@ Print the engine's stdout summary verbatim. It will contain:
 Council report: <relative path>
 Scope: <scope>
 Preset: <preset> (<output_shape>)
+verification_mode=<full|self-verified>
 <verdict counts or finding counts by severity>
 <struck lines count>
 ```
+
+### `--why` debug block (CDV-206)
+
+If `plan.why == true`, print a short labeled debug section **after** the
+summary (never before; never dump raw prompts). Source fields from
+`plan.why_detail` (emitted by `engine.sh preflight --why`):
+
+```
+Why:
+  preset: <why_detail.preset> (<why_detail.preset_source>)
+  flavors: <why_detail.flavors joined by ", ">
+  phase3_specialist: <why_detail.phase3_specialist>
+  claim_budget: <why_detail.claim_budget>
+```
+
+Optional one-line runtime notes (claim ranking / cap applied) may follow the
+bullets when observed during Phases 1–3. Without `--why`, omit this section
+entirely. The flag MUST NOT change verdicts or findings.
 
 ## Step 6: Surface struck lines
 

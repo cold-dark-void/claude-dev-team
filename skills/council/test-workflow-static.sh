@@ -17,6 +17,31 @@ if rg -n 'tools: ""' agents/council-judge.md >/dev/null; then echo "OK: judge to
 bash skills/council/workflow-probe.sh
 COUNCIL_WORKFLOW_FORCE_FALLBACK=1 bash skills/council/workflow-probe.sh && { echo "FAIL: force fallback"; fail=1; } || echo "OK: force fallback"
 
+# CDV-206 --why preflight
+if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' --why \
+  | jq -e '.why==true and .why_detail.preset and .why_detail.flavors and .why_detail.phase3_specialist and .why_detail.claim_budget and (.why_detail.preset_source=="inferred" or .why_detail.preset_source=="explicit")' >/dev/null; then
+  echo "OK: preflight --why emits why_detail"
+else
+  echo "FAIL: preflight --why why_detail"; fail=1
+fi
+if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' \
+  | jq -e '.why!=true and (.why_detail|not)' >/dev/null; then
+  echo "OK: preflight without --why has no why_detail"
+else
+  echo "FAIL: preflight without --why leaked why_detail"; fail=1
+fi
+if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' --preset generic --why \
+  | jq -e '.why_detail.preset_source=="explicit"' >/dev/null; then
+  echo "OK: --preset sets preset_source=explicit"
+else
+  echo "FAIL: preset_source explicit"; fail=1
+fi
+if rg -n 'why_detail' commands/council.md >/dev/null; then
+  echo "OK: council.md documents why_detail"
+else
+  echo "FAIL: council.md missing why_detail"; fail=1
+fi
+
 # helpers + mock finalize
 node --input-type=module <<'JS'
 import { parseArgs, loadPrompt, runCouncil } from './skills/council/workflow.js'

@@ -127,6 +127,7 @@ cmd_preflight() {
   require_jq
 
   local scope="" scope_arg="" last="" task_id="" preset="" why="false"
+  local preset_source="inferred"
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -134,7 +135,7 @@ cmd_preflight() {
       --scope-arg) scope_arg="${2:-}"; shift 2 ;;
       --last)      last="${2:-}"; shift 2 ;;
       --task-id)   task_id="${2:-}"; shift 2 ;;
-      --preset)    preset="${2:-}"; shift 2 ;;
+      --preset)    preset="${2:-}"; preset_source="explicit"; shift 2 ;;
       --why)       why="true"; shift ;;
       *)
         echo "engine.sh: unknown preflight flag: $1" >&2
@@ -167,6 +168,7 @@ cmd_preflight() {
   if [ -z "$preset" ]; then
     # plan|from-retro never reach here — they exit 3 in the deferred-scope
     # case above before preset inference runs.
+    preset_source="inferred"
     case "$scope" in
       diff)    preset="diff-mode" ;;
       claim|session) preset="generic" ;;
@@ -207,6 +209,8 @@ cmd_preflight() {
   # Build the investigation plan JSON for the orchestrating Claude. This is
   # the contract: the Claude that invoked /council reads this document and
   # uses it to drive Phase 1-5 via Task-tool spawns.
+  # When --why: include why_detail (CDV-206) for stdout debug after summary.
+  # Do not dump raw prompts. Phase 3 specialist string is a stub until CDV-209.
   jq -n \
     --arg scope "$scope" \
     --arg scope_arg "$scope_arg" \
@@ -220,6 +224,7 @@ cmd_preflight() {
     --arg confidence_filter "$confidence_filter" \
     --argjson claim_budget "$claim_budget" \
     --arg why "$why" \
+    --arg preset_source "$preset_source" \
     --arg slug "$slug" \
     --arg report_path "$report_path" \
     --arg mroot "$MROOT" \
@@ -256,7 +261,19 @@ cmd_preflight() {
         "5_judgment": { agent: "council-judge", prompt: "skills/council/prompts/judge.md" },
         "6_finalize": { invoke: "engine.sh finalize --plan-file <p> --evidence-file <e> --judge-output <j>" }
       }
-    }'
+    }
+    | if $why == "true" then
+        . + {
+          why_detail: {
+            preset: $preset,
+            flavors: $flavors,
+            phase3_specialist: "skipped (Phase 3 deferred)",
+            claim_budget: $claim_budget,
+            preset_source: $preset_source
+          }
+        }
+      else .
+      end'
 }
 
 # ---- shared JSON repair -----------------------------------------------------

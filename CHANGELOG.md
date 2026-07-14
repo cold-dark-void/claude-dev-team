@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.62.0
+- **`/council --why` (CDV-206)** — preflight `why_detail` + stdout debug section (preset/flavors/specialist stub); no verdict impact
+
 ### v0.61.0
 - **Agent notification sink (CDV-210)** — fail-open `skills/notify/webhook.sh` + orchestrate MCP/webhook milestones; TaskCompleted success emit; silent default when `AGENT_WEBHOOK_URL` unset
 
