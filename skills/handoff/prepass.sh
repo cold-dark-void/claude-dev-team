@@ -26,10 +26,11 @@
 #   (d) PRE-PASS — M2: strip top-level `toolUseResult` payloads (where the bulk
 #                  of the bytes live), dedup repeated Reads of the same path
 #                  (keep last, leave a pointer for the superseded ones), and
-#                  collapse contiguous `isSidechain` runs to a 1-line pointer
-#                  (a no-op in real data — sidechains are never True — but
-#                  honored defensively). `thinking` blocks are KEPT (M4-b needs
-#                  the hypothesis-rejection reasoning), via parselib.msg_text.
+#                  collapse contiguous `isSidechain` runs: routine → 1-line
+#                  pointer; signal-bearing (cue hit in withheld text) → condensed
+#                  multi-line reconstruction for Dead-ends (CDV-205 / M2).
+#                  Defensive no-op when isSidechain is never True. `thinking`
+#                  blocks are KEPT (M4-b), via parselib.msg_text.
 #   (e) LEAF     — the cache key (M8): uuid of the last non-null-uuid line.
 #   (f) SIZE     — M3: spine_chars / CHARS_PER_TOKEN <= HANDOFF_SPINE_TOKENS
 #                  → mode="direct"; else mode="chunked", split at message
@@ -718,7 +719,12 @@ parse_dir = os.environ["PREPASS_PARSE_DIR"]
 if parse_dir and parse_dir not in sys.path:
     sys.path.insert(0, parse_dir)
 try:
-    from parselib import msg_text, is_sidechain, edit_file_path
+    from parselib import (
+        msg_text,
+        is_sidechain,
+        edit_file_path,
+        sidechain_cue_hit,
+    )
 except Exception as e:  # pragma: no cover - exercised only if module is broken
     sys.stderr.write(f"prepass.sh: cannot import shared parselib: {e}\n")
     sys.exit(1)
@@ -906,22 +912,78 @@ leaf_uuid = keep_last_uuid(rec["obj"] for rec in records)
 # thinking (msg_text). Dedup Reads: a Read of path P that is NOT the last read
 # of P is replaced by a 1-line superseded pointer; the last read of P (and all
 # non-Read tool calls) render in full-but-compact form. Collapse contiguous
-# isSidechain runs to one pointer line (defensive no-op in real data).
+# isSidechain runs: routine → one pointer line; signal-bearing (cue hit in
+# withheld msg_text) → condensed multi-line reconstruction (CDV-205 / M2).
+# Defensive no-op in real data where isSidechain is never True.
 # ---------------------------------------------------------------------------
 spine_parts = []
 deduped_reads = 0
-sidechain_runs = 0
+sidechain_runs_collapsed = 0
+sidechain_runs_signal = 0
 in_sidechain = False
 sidechain_start_L = None
+sidechain_buf = []  # list of {role, text} for the open sidechain run
+SIDECHAIN_BLOCK_CAP = 400
+HYP_CAP = 120
+KILLED_CAP = 160
+
+def _clip(s, n):
+    s = (s or "").replace("\n", " ").strip()
+    if len(s) <= n:
+        return s
+    return s[: max(0, n - 1)] + "…"
 
 def flush_sidechain(end_L):
-    """Emit a single collapsed pointer for the just-ended sidechain run."""
-    global sidechain_runs
-    sidechain_runs += 1
-    spine_parts.append(
-        f"[L{sidechain_start_L}-L{end_L}] (sidechain run collapsed — "
-        f"{end_L - sidechain_start_L + 1} msgs; drill in at transcript:L{sidechain_start_L})\n"
-    )
+    """Emit noise one-liner or signal-bearing condensed reconstruction."""
+    global sidechain_runs_collapsed, sidechain_runs_signal
+    n_msgs = end_L - sidechain_start_L + 1
+    # Scan withheld texts for the first cue hit (MVP: any single cue).
+    killed_cue = None
+    killed_line = None
+    killed_role = None
+    for entry in sidechain_buf:
+        hit = sidechain_cue_hit(entry["text"])
+        if hit is not None:
+            killed_cue, killed_line = hit
+            killed_role = entry["role"]
+            break
+
+    if killed_cue is None:
+        sidechain_runs_collapsed += 1
+        spine_parts.append(
+            f"[L{sidechain_start_L}-L{end_L}] (sidechain run collapsed — "
+            f"{n_msgs} msgs; drill in at transcript:L{sidechain_start_L})\n"
+        )
+    else:
+        sidechain_runs_signal += 1
+        # hypothesis: first non-empty assistant text, else "(unstated)"
+        hyp = "(unstated)"
+        for entry in sidechain_buf:
+            if entry["role"] == "assistant" and entry["text"].strip():
+                hyp = _clip(entry["text"], HYP_CAP)
+                break
+        killed = _clip(killed_line or killed_cue, KILLED_CAP)
+        # notes: compact tags from cue/role (no freeform dump)
+        notes_bits = []
+        low = (killed_line or "").lower()
+        if killed_role == "user":
+            notes_bits.append("user correction")
+        if any(k in low for k in ("abandoned", "dead end", "scratch that", "wrong approach")):
+            notes_bits.append("abandoned investigation")
+        if not notes_bits:
+            notes_bits.append("rejected path")
+        notes = " | ".join(notes_bits)
+        block = (
+            f"[L{sidechain_start_L}-L{end_L}] (sidechain signal — "
+            f"{n_msgs} msgs; transcript:L{sidechain_start_L})\n"
+            f"  hypothesis: {hyp}\n"
+            f"  killed: {killed}\n"
+            f"  notes: {notes}\n"
+        )
+        if len(block) > SIDECHAIN_BLOCK_CAP:
+            block = block[: SIDECHAIN_BLOCK_CAP - 1] + "…\n"
+        spine_parts.append(block)
+    sidechain_buf.clear()
 
 for rec in records:
     obj = rec["obj"]
@@ -931,7 +993,11 @@ for rec in records:
         if not in_sidechain:
             in_sidechain = True
             sidechain_start_L = Ln
-        # While inside a sidechain run, withhold output until the run ends.
+        # Withhold full render; buffer text only (no tool payloads).
+        msg = obj.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        text = msg_text(content) if content is not None else ""
+        sidechain_buf.append({"role": rec["role"], "text": text or ""})
         continue
     else:
         if in_sidechain:
@@ -980,7 +1046,8 @@ stats = {
     "stripped_tool_results": stripped_count,
     "stripped_bytes": stripped_bytes,
     "deduped_reads": deduped_reads,
-    "sidechain_runs_collapsed": sidechain_runs,
+    "sidechain_runs_collapsed": sidechain_runs_collapsed,
+    "sidechain_runs_signal": sidechain_runs_signal,
     "malformed_lines_skipped": malformed,
     "spine_chars": spine_chars,
     "est_tokens": est_tokens,

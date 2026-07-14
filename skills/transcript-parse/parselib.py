@@ -14,6 +14,9 @@ edit_file_path(inp)   : str|None   — extract target path from a tool_use input
 is_meta(d)            : bool       — True for system-injected isMeta user turns
 is_sidechain(d)       : bool       — True for isSidechain-tagged messages
 is_tool_result(obj)   : bool       — True when the line dict carries a tool_result block
+SIDECHAIN_SIGNAL_CUES : tuple[str] — closed cue list for signal-bearing sidechain detection (CDV-205)
+sidechain_cue_hit(text) : (cue, line)|None — first case-insensitive cue match in text
+sidechain_is_signal(texts) : bool  — True if any text hits a SIDECHAIN_SIGNAL_CUE
 schema_drift_warn(path): None      — stream first 50 lines of path; warn stderr if no known field seen
 warn_schema_drift(path, lines_checked, seen_known): None  — lower-level helper (used by iter_lines)
 iter_lines(path, n)   : Iterator[(int, dict)] — yield (line_no, dict) with auto schema-drift check
@@ -21,7 +24,7 @@ iter_lines(path, n)   : Iterator[(int, dict)] — yield (line_no, dict) with aut
 
 import json
 import sys
-from typing import Any
+from typing import Any, Iterable, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Schema constants
@@ -155,6 +158,59 @@ def is_sidechain(d: dict) -> bool:
     defensive guard for future schema changes.
     """
     return bool(d.get("isSidechain"))
+
+
+# Closed cue list for signal-bearing sidechain reconstruction (SPEC-018 M2 /
+# CDV-205). ONE named constant — prepass and any other consumer import this;
+# do not scatter cue strings. Match is case-insensitive substring (MVP: any
+# single hit marks the run as signal-bearing).
+SIDECHAIN_SIGNAL_CUES: Tuple[str, ...] = (
+    "actually,",
+    "wait,",
+    "never mind",
+    "that didn't work",
+    "that did not work",
+    "wrong approach",
+    "i was wrong",
+    "scratch that",
+    "on second thought",
+    "doesn't work",
+    "does not work",
+    "abandoned",
+    "dead end",
+    "hypothesis",
+)
+
+
+def sidechain_cue_hit(text: Any) -> Optional[Tuple[str, str]]:
+    """Return ``(cue, matching_line)`` for the first SIDECHAIN_SIGNAL_CUES hit.
+
+    Case-insensitive substring search over *text*. Returns None when *text* is
+    empty/non-string or no cue matches. The returned line is the first
+    non-empty line containing the cue (stripped); falls back to a truncated
+    whole-text snippet when no line split is available.
+    """
+    if not isinstance(text, str) or not text:
+        return None
+    lower = text.lower()
+    for cue in SIDECHAIN_SIGNAL_CUES:
+        if cue not in lower:
+            continue
+        for line in text.splitlines():
+            if cue in line.lower():
+                return (cue, line.strip())
+        # Match crossed a newline boundary — return a compact snippet.
+        snippet = " ".join(text.split())
+        return (cue, snippet)
+    return None
+
+
+def sidechain_is_signal(texts: Iterable[Any]) -> bool:
+    """True if any entry in *texts* hits a SIDECHAIN_SIGNAL_CUES cue (MVP ≥1)."""
+    for t in texts:
+        if sidechain_cue_hit(t) is not None:
+            return True
+    return False
 
 
 def is_tool_result(obj: Any) -> bool:

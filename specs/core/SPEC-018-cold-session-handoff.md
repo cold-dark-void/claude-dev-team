@@ -20,14 +20,14 @@ Design: a deterministic, LLM-free pre-pass (fork-tree assembly + `toolUseResult`
 - **SPEC-013 (`/council`)** owns adversarial claim verification. This spec MUST NOT reimplement that pipeline; M5 is a lightweight stated-intent-vs-git flag only, and deep auditing is delegated to `/council`.
 - **Memory (SPEC-004/006/007/011)**: when reading agent memory as a source, use SPEC-006 retrieval. The result cache MUST live outside `memory.db` so it does not intersect the memory write-path or staleness scans.
 
-**Out of scope (future phases):** smarter chunk-boundary heuristics, deeper sidechain reconstruction, cache-eviction policy beyond growth-invalidation, and the Prong-1 tool-offload `AGENTS.md` convention.
+**Out of scope (future phases):** smarter chunk-boundary heuristics, cache-eviction policy beyond growth-invalidation, and the Prong-1 tool-offload `AGENTS.md` convention.
 
 ---
 
 ## MUST
 
 - **M1 — Locate & assemble.** Given a session uuid, select the **canonical transcript file** — the descendant whose copied prefix is most complete (greatest max-`timestamp` among files under `~/.claude/projects/` containing that uuid) — then produce one chronologically ordered timeline by **de-duplicating copied messages on `uuid` (keep-last)** and ordering by **`(timestamp, file-position)`**. `forkedFrom` is **provenance** (`{sessionId, messageUuid}`; `messageUuid` is self-referential), NOT a cross-file pointer: the fork's chosen-path prefix is already copied into the file, so no cross-file message-walk is required, and ancestor-only branches (paths forked away from) are intentionally excluded. Ordering MUST use timestamps, not the `parentUuid` DAG (multi-root/branchy due to copy duplication). Location + parsing MUST use the shared module (see SPEC-012), not a private re-implementation. *(Mechanism corrected by CDV-10 Task-1 spike against real 72 MB transcripts.)*
-- **M2 — Deterministic pre-pass (no LLM).** Before any distillation: strip `toolUseResult` payloads, dedup repeated reads of the same path (retain the last), and collapse each `isSidechain` segment to a one-line outcome plus a pointer.
+- **M2 — Deterministic pre-pass (no LLM).** Before any distillation: strip `toolUseResult` payloads, dedup repeated reads of the same path (retain the last), and collapse each `isSidechain` segment. Default: one-line outcome plus a `transcript:L<n>` pointer. **When signal-bearing** (any single case-insensitive substring hit from the closed cue list in `parselib.SIDECHAIN_SIGNAL_CUES` over withheld sidechain `msg_text`), emit a condensed multi-line reconstruction (span header + `hypothesis` / `killed` / `notes`, hard cap ~400 chars) instead of the one-liner — still no raw `toolUseResult`. Stats: `sidechain_runs_collapsed` (noise) + `sidechain_runs_signal`. Defensive until production schemas emit `isSidechain:true`; synthetic fixtures gate the path.
 - **M3 — Size-adaptive distillation.** If the stripped spine fits the target context window, distill directly; if it exceeds it, chunk at message boundaries, summarize chunks in parallel (preserving hypotheses, corrections, and decisions), then distill the reduced spine. MUST complete on oversized (≥ 60 MB) transcripts without context overflow.
 - **M4 — Required brief sections.** The brief MUST contain, clearly delineated: (a) **Convergence** — the current correct mental model / root cause; (b) **Dead-ends** — rejected hypotheses, why each was killed, and user corrections quoted **verbatim**; (c) **Code-state** — derived from `git` (diff/log); (d) **Open-threads & conflicts**; (e) **Basics** — established context, vocabulary, and constraints.
 - **M5 — Stated-intent vs git flag (lightweight).** The brief MUST flag mismatches between intentions stated in the transcript (e.g. "will extract X", "TODO X") and the actual git state. This is a heuristic flag only — it MUST NOT implement an adversarial verification pipeline; deep claim auditing is delegated to `/council` (SPEC-013).
@@ -77,6 +77,7 @@ Goal: make context loss structurally impossible — capture a rescue artifact BE
 17. **Surfacing (M16):** after a capture + compaction, the session (or next session start) receives a one-line pointer with the artifact path and `/handoff <uuid>` suggestion — and the artifact body is NOT injected.
 18. **Fail-open (M17):** force a capture failure (e.g. unreadable transcript) → hook exits `0`, compaction proceeds, one-line diagnostic on stderr; never exit `2`.
 19. **Hard boundaries + graceful absence (M18):** no LLM call and no `memory.db` write occur on the hook path; with the hook unregistered (or on a Claude Code version without `PreCompact`), `/handoff` cold + warm behavior is byte-for-byte today's behavior.
+20. **Signal-bearing sidechain reconstruction (M2, CDV-205):** synthetic `skills/handoff/fixtures/sidechain-signal.jsonl` → spine contains a `sidechain signal` block with `killed:` and a cue substring, no raw `toolUseResult`; synthetic `sidechain-noise.jsonl` → one-line `sidechain run collapsed` only (no `killed:`). Machine-check: `bash skills/handoff/sidechain-test.sh`.
 
 ---
 
@@ -111,3 +112,4 @@ Goal: make context loss structurally impossible — capture a rescue artifact BE
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Category `Core`→`core` (lowercase, matches SPEC-008 category list and all other specs/core). No behavioral change. |
 | 2026-07-03 | Proposed extension (DRAFT): PreCompact auto-handoff — ideation wave 2 |
 | 2026-07-14 | PreCompact auto-handoff implemented (M12–M18, CDV-182); DRAFT dropped |
+| 2026-07-14 | CDV-205: M2 deeper sidechain reconstruction — signal-bearing runs emit condensed multi-line outcome (cue list in `parselib.SIDECHAIN_SIGNAL_CUES`); noise stays one-line; Test 20 + `sidechain-test.sh`; removed "deeper sidechain reconstruction" from out-of-scope |

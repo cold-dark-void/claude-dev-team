@@ -19,7 +19,8 @@ or rank. Consumers own all of that:
   primitives but deliberately uses its **own** thinking-block policy (gate
   drops `thinking`; see `msg_text` note below).
 - `/handoff` prepass keeps `toolUseResult` stripping, read-dedup, sidechain
-  collapse, token budgeting, and chunking local.
+  collapse (routine one-line / signal-bearing condensed multi-line via
+  `SIDECHAIN_SIGNAL_CUES`), token budgeting, and chunking local.
 
 ## Files in this module
 
@@ -85,10 +86,10 @@ Pipeline (this is the authoritative M1 algorithm — validated against real
    segments overlap in time).
 5. **SIDECHAIN** — maximal contiguous runs where `isSidechain` is truthy are tagged
    (span begin/end logged to stderr) and passed through **unmodified**.
-   Collapsing them is the prepass's job, not the parser's. In real data no
-   line is ever a sidechain, so this is a defensive no-op. Detection uses
-   the shared `parselib.is_sidechain` (`bool(obj.get("isSidechain"))`) — tolerant
-   of the field being absent.
+   Collapsing / signal-bearing reconstruction is the prepass's job (SPEC-018 M2 /
+   CDV-205), not the parser's. In real data no line is ever a sidechain, so this
+   is a defensive no-op. Detection uses the shared `parselib.is_sidechain`
+   (`bool(obj.get("isSidechain"))`) — tolerant of the field being absent.
 
 Output is exactly the input raw lines, reordered/deduped — fields are NOT
 rewritten or stripped here (the prepass strips). One JSON object per line.
@@ -165,6 +166,9 @@ Importable, no CLI. Lifted from the inlined helpers in
 | `edit_file_path` | `edit_file_path(tool_input) -> str | None` | Extract the edited path (`file_path`/`notebook_path`) from a tool-use input; `None` if absent. |
 | `is_meta` | `is_meta(obj) -> bool` | True for a meta/system bookkeeping line (e.g. `isMeta is True`). |
 | `is_sidechain` | `is_sidechain(obj) -> bool` | `bool(obj.get("isSidechain"))` — truthy test, tolerant of the field being absent (returns False). |
+| `SIDECHAIN_SIGNAL_CUES` | `tuple[str, ...]` | Closed cue list for signal-bearing sidechain detection (CDV-205 / SPEC-018 M2). Single source of truth — prepass imports this; do not scatter cue strings. |
+| `sidechain_cue_hit` | `sidechain_cue_hit(text) -> (cue, line) \| None` | First case-insensitive substring hit from `SIDECHAIN_SIGNAL_CUES`; returns `(cue, matching_line)` or `None`. |
+| `sidechain_is_signal` | `sidechain_is_signal(texts) -> bool` | True if any text in the iterable hits a cue (MVP: ≥1). |
 | `is_tool_result` | `is_tool_result(obj) -> bool` | True if the **line dict** (as returned by `parse_line` / `iter_lines`) carries a `tool_result` block inside `obj["message"]["content"]`. Accepts a full line object, not a raw content list. Returns False on missing/unexpected structure. |
 | `schema_drift_warn` | `schema_drift_warn(path) -> None` | Stream the file's first 50 lines; if no `KNOWN_TOP_FIELDS` seen, write the same `transcript-parse: WARNING …` to stderr. |
 | `iter_lines` | `iter_lines(path, schema_drift_check_n=50) -> Iterator[(int, dict)]` | Yield `(line_no, dict)` for every valid JSONL line in `path`. Handles schema-drift detection automatically after the first `schema_drift_check_n` lines. Uses UTF-8 with replacement for robustness on files with stray bytes. Skips blank/unparseable lines. |
@@ -218,9 +222,10 @@ file → **exit 9**; same + `--allow-in-progress` → **exit 0**.
 
 - **/handoff prepass** (`skills/handoff/prepass.sh prepare`):
   `freshness.sh check` (exit 9 → warn+decline) → `assemble.py assemble` →
-  strip `toolUseResult` → dedup repeated reads → collapse sidechains → token
-  budget → spine or chunk manifest. `source_files` is the single canonical
-  file (no cross-file engine).
+  strip `toolUseResult` → dedup repeated reads → collapse sidechains (noise
+  one-line / signal multi-line via `SIDECHAIN_SIGNAL_CUES`) → token budget →
+  spine or chunk manifest. `source_files` is the single canonical file (no
+  cross-file engine).
 - **/retro**: gate.sh imports `parselib` primitives (keeps its own
   thinking-skip + S1–S5 scoring local); `retro.md` Step 2 repoints location to
   `assemble.py locate` and Filter-1 freshness to `freshness.sh check`. No

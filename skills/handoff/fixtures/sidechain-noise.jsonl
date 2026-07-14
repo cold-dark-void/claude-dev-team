@@ -1,0 +1,6 @@
+{"uuid":"nz-main-1","timestamp":"2026-07-14T11:00:00Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"Run a quick status check"}]}}
+{"uuid":"nz-sc-1","timestamp":"2026-07-14T11:00:05Z","type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"Starting subagent status check."},{"type":"tool_use","name":"Bash","input":{"command":"git status --porcelain"}}]}}
+{"uuid":"nz-sc-2","timestamp":"2026-07-14T11:00:10Z","type":"user","isSidechain":true,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":" M README.md"}]},"toolUseResult":"FIXTURE_NOISE_PAYLOAD_YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"}
+{"uuid":"nz-sc-3","timestamp":"2026-07-14T11:00:15Z","type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"Status check complete. One modified file."}]}}
+{"uuid":"nz-sc-4","timestamp":"2026-07-14T11:00:20Z","type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"Returning to parent with clean summary."}]}}
+{"uuid":"nz-main-2","timestamp":"2026-07-14T11:00:25Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Main thread resumes after noise sidechain."}]}}

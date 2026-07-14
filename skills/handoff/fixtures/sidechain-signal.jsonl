@@ -1,0 +1,6 @@
+{"uuid":"sig-main-1","timestamp":"2026-07-14T10:00:00Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"Investigate the cache miss"}]}}
+{"uuid":"sig-sc-1","timestamp":"2026-07-14T10:00:05Z","type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"Hypothesis: the leaf uuid is wrong so the cache never hits."}]}}
+{"uuid":"sig-sc-2","timestamp":"2026-07-14T10:00:10Z","type":"user","isSidechain":true,"message":{"role":"user","content":[{"type":"text","text":"tool result wrapper"}]},"toolUseResult":"FIXTURE_SIDECHAIN_PAYLOAD_DO_NOT_LEAK_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"uuid":"sig-sc-3","timestamp":"2026-07-14T10:00:15Z","type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"Actually, that didn't work — leaf matches; the path is a wrong approach. Abandoned this investigation."}]}}
+{"uuid":"sig-sc-4","timestamp":"2026-07-14T10:00:20Z","type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"Scratch that branch; dead end on cache key."}]}}
+{"uuid":"sig-main-2","timestamp":"2026-07-14T10:00:25Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Main thread continues after sidechain."}]}}

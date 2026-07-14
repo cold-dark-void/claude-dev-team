@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.60.0
+- **Handoff signal-bearing sidechain reconstruction (CDV-205)** — prepass expands sidechains with rejection/correction cues for Dead-ends; synthetic fixtures + sidechain-test; SPEC-018 M2
+
 ### v0.59.0
 - **COUNCIL-002 template `task_id` frontmatter (CDV-203)** — report templates own YAML FM with `task_id: "{{TASK_ID}}"`; finalize strips unbound `task_id` key; SPEC-013 + SKILL docs
 

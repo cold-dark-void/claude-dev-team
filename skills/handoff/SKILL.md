@@ -314,9 +314,10 @@ corrections quoted VERBATIM**, so the new session does not re-propose them.
 > wrong", "we already tried that", explicit constraints); **(2) assistant `text`
 > blocks** — hypotheses raised and then abandoned ("Actually, that's not it
 > because…", "Let me try a different approach"); **(3) any plaintext that *does*
-> survive in thinking blocks** — bonus, never assumed; **(4) sidechain pointers** —
-> the spine collapses each sidechain to a one-line outcome + `transcript:L<n>`; a
-> sidechain whose outcome is an abandoned investigation is a dead-end signal.
+> survive in thinking blocks** — bonus, never assumed; **(4) sidechain blocks** —
+> routine sidechains collapse to a one-line pointer + `transcript:L<n>`;
+> **signal-bearing** sidechains (cue hit in `SIDECHAIN_SIGNAL_CUES`) appear as a
+> condensed multi-line block (`hypothesis` / `killed` / `notes`) for Dead-ends.
 
 ```
 You are the DEAD-ENDS extractor for a session handoff. This is the most important
@@ -338,9 +339,10 @@ this priority order:
       "scratch that", "I was wrong", "on second thought", "that didn't work".
   (3) THINKING blocks — IF (and only if) they contain plaintext, use them as a
       bonus source. Never depend on them; never fail if they are empty/encrypted.
-  (4) SIDECHAIN pointers — the spine collapses each sidechain to a one-line outcome
-      with a `transcript:L<n>` pointer. A sidechain that ended in an abandoned or
-      failed investigation is itself a dead-end; record it and cite the pointer.
+  (4) SIDECHAIN blocks — routine: one-line collapse + `transcript:L<n>`. Signal-
+      bearing: multi-line `sidechain signal` block with `hypothesis:` / `killed:` /
+      `notes:` (condensed; no tool payloads). Treat either form as a dead-end when
+      the outcome is abandoned/failed; record it and cite the pointer.
 
 PROCEDURE
 1. Read SPINE. Identify each HYPOTHESIS that was raised and then REJECTED/abandoned,
@@ -515,8 +517,9 @@ in priority order:
    approach", "I was wrong").
 3. **Thinking blocks** — used **only if** plaintext happens to be present; treated as
    a bonus, never assumed, never a failure point when empty/encrypted.
-4. **Sidechain pointers** — the spine collapses each sidechain to a one-line outcome
-   + `transcript:L<n>`; an abandoned/failed sidechain investigation is a dead-end.
+4. **Sidechain blocks** — routine one-line collapse + `transcript:L<n>`, or
+   signal-bearing condensed reconstruction (`hypothesis` / `killed` / `notes`);
+   abandoned/failed sidechain investigations are dead-ends.
 
 The prompt encodes this as the "WHERE THE SIGNAL LIVES" block and step 3's mandate
 to quote the user verbatim. The spine deliberately KEEPS thinking blocks (so the
@@ -772,8 +775,8 @@ PROCEDURE
       highest-value content; never paraphrase them. Each gets a `transcript:L<n>`.
    c. Every DECISION reached in this chunk, including tentative ones. Pointer each.
    d. Open questions and BLOCKERS still unresolved at the end of this chunk.
-   e. Any SIDECHAIN outcomes (the spine collapses sidesessions to one-line outcome +
-      pointer; include that outcome text and pointer in the summary).
+   e. Any SIDECHAIN outcomes (one-line collapse or signal-bearing multi-line
+      reconstruction + pointer; include that outcome text and pointer in the summary).
 3. Omit: raw tool outputs, repetitive file-read echoes, assistant acknowledgment
    boilerplate ("Understood", "I'll do X"), and un-noteworthy status chatter. These
    add no signal for the extractors and waste reduced-spine space.
