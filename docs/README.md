@@ -75,6 +75,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 | `/memory-distill` | [memory-distill](commands/memory-distill.md) | Compress raw memories, promote high-signal to core |
 | `/memory-config` | [memory-config](commands/memory-config.md) | View/set memory configuration |
 | `/memory-stats` | skill | Memory usage statistics (counts, sizes, growth) |
+| `/memory-export` | skill | Export sanitized tier-2 memories to a committable seed pack (SPEC-024) |
 | `/validate-memory` | skill | Detect stale memory references against live code |
 | `/handoff` | [handoff](commands/handoff.md) | Reconstruct a past session, or capture the current one |
 

@@ -146,6 +146,9 @@ did not run — `--no-extensions`, or `sqlite3`/`PLUGIN_DIR` unavailable — so 
 init path loses gitignore coverage. When Step 3 ran (`EXT_GITIGNORE_DONE=1`),
 skip this step entirely. The `grep -qF || echo` guard is idempotent regardless.
 
+**Never** write a bare `.claude/memory/` exclude here — use child globs only so a
+committed seed pack under `.claude/memory/seed/` stays committable (SPEC-024 M9).
+
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -160,8 +163,47 @@ if [ -z "${EXT_GITIGNORE_DONE:-}" ]; then  # lint-ok: C1
     ".claude/memory/memory.db-shm"; do
     grep -qF "$ENTRY" "$GITIGNORE" 2>/dev/null || echo "$ENTRY" >> "$GITIGNORE"
   done
+  # Seed carve-out (child-glob + negations) when a pack may be committed
+  PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+  COMMON=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/seed-common.sh 2>/dev/null || true)
+  if [ -n "$COMMON" ] && [ -f "$COMMON" ]; then
+    # shellcheck disable=SC1090
+    . "$COMMON"
+    ensure_seed_gitignore "$MROOT" || true
+  fi
   echo "Checked .gitignore entries (fallback)."
 fi
+```
+
+## Step 5.5: Import memory seed pack (if present)
+
+Skip this step if `--migrate-only` is set.
+
+Runs on **first init and `--refresh`**. If `.claude/memory/seed/manifest.json` is
+absent, do nothing (no new output — SPEC-024 M11 graceful absence). A bad pack
+never blocks bootstrap: import always exits 0 and prints counts/warnings only.
+
+Import runs **after** DB init + extensions + md-migrate + gitignore, and
+**before** project-init (Step 6), so seeded tier-1 digests already exist when the
+scan runs (SPEC-024 M4).
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+SEED_IMPORT_SUMMARY=""
+if [ -f "$MROOT/.claude/memory/seed/manifest.json" ]; then
+  PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+  IMPORT_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/import-seed-pack.sh)
+  if [ -n "$IMPORT_SH" ] && [ -f "$IMPORT_SH" ]; then
+    SEED_IMPORT_SUMMARY=$(bash "$IMPORT_SH" "$MROOT" 2>&1) || true
+    echo "$SEED_IMPORT_SUMMARY"
+  else
+    echo "WARNING: seed pack present but import-seed-pack.sh not found — skipping import"
+  fi
+fi
+# Export for Step 7 warm-start line (same shell / agent context)
+export SEED_IMPORT_SUMMARY
 ```
 
 ## Step 5b: Add required hosts to sandbox network allowlist
@@ -229,3 +271,13 @@ After all steps complete, print:
 ```
 Tip: Use /adjust-agent to set per-agent behavioral directives for this project.
 ```
+
+If Step 5.5 produced a `seed-import:` summary line, also print a one-line warm-start
+note for the user (SPEC-024 SHOULD), e.g.:
+
+```
+warm start: N memories imported for M agents from pack dated <date>; K rejected
+```
+
+Parse counts from `$SEED_IMPORT_SUMMARY` when non-empty; omit this line entirely when
+no pack was present (M11).

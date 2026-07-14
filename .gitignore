@@ -2,7 +2,9 @@
 .claude/settings.json
 .claude/settings.local.json
 .claude/context/
-.claude/memory/
+.claude/memory/*
+!.claude/memory/seed/
+!.claude/memory/seed/**
 .claude/council/
 .claude/tasks/
 # M8 cold-cache and warm-mode briefs (session metadata)

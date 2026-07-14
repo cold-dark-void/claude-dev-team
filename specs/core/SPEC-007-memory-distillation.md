@@ -13,7 +13,7 @@ The memory compression and lifecycle management layer. Compresses raw tier-0 mem
 ## MUST
 
 ### Tier Access Control
-- MUST NOT allow regular agents to set tier 1 or 2 (only @distiller may set tier > 0)
+- MUST NOT allow regular agents to set tier 1 or 2 (only @distiller may set tier > 0; host-script exception: `/init-team` seed import via `import-seed-pack.sh` writes tier-1 digests per SPEC-024 M5)
 - MUST check distillation threshold after each memory write when `distill_enabled=true` (skip check entirely when false)
 
 ### Distiller Agent

@@ -18,6 +18,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - MUST add embedding host URLs to sandbox network allowlist when `EMBEDDING_URL` is configured
 - MUST update `.gitignore` with `.claude/memory/` entries
 - MUST invoke project-init agent after DB and extensions are ready
+- MUST import a committed memory seed pack (SPEC-024) after DB/extensions/md-migrate and before project-init when `.claude/memory/seed/manifest.json` is present; a missing or bad pack MUST NOT block bootstrap; gitignore updates MUST use child globs + seed carve-out (never bare `.claude/memory/`)
 - MUST set `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` in settings.json env section (required for team agents)
 
 ### Extension Downloads

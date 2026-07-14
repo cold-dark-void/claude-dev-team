@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.52.0
+- **SPEC-024 memory seed packs (CDV-194)** — `/memory-export` writes sanitized tier-2 seed packs; `/init-team` Step 5.5 non-blocking import with content-hash dedupe; gitignore carve-out for `.claude/memory/seed/`; SPEC-005/007 forward refs
+
 ### v0.51.0
 - **Local-agent expansion: debug/refactor consumers + optional net egress (CDV-198)** — `/debug patch` and `/refactor inline` may offload mechanical steps via `/local-do` loop when `LOCAL_AGENT=opencode`; `LOCAL_AGENT_NET=none` adds bwrap `--unshare-net` (default host net unchanged); SPEC-019 updated
 

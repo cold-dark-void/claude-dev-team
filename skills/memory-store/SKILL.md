@@ -40,6 +40,11 @@ Replace `<AGENT>`, `<TYPE>`, and `<CONTENT_ESCAPED>` with real values.
 > **Tier note:** Regular agent writes are always tier 0 (the column defaults to 0 and
 > agents do not specify it). Types `digest` and `core` with tier 1/2 are written only
 > by the `@distiller` agent during `/memory-distill`.
+>
+> **Host-script elevated write (SPEC-024 M5):** `import-seed-pack.sh` (invoked only from
+> `/init-team` Step 5.5) may INSERT `tier=1`, `type='digest'`, `distilled_from='[]'`, and
+> a provenance `metadata_json` seed object. This is a narrow host-script carve-out —
+> behavioral agents remain forbidden from setting `tier > 0`. See also SPEC-007.
 
 **Write protocol: append-only — one focused fact per INSERT.**
 

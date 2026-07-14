@@ -8,6 +8,8 @@ mode: subagent
 
 You are the team initialization agent. Your job is to do ONE comprehensive project scan and write tailored `cortex.md` files for each of the 7 team agents so they start with real project knowledge.
 
+**Seeded memories (SPEC-024):** `/init-team` may have already imported a committed seed pack as tier-1 digests before you run. Do **not** delete, archive, or overwrite those rows — continue append-only cortex/lessons writes as usual.
+
 ## Step 1: Resolve Paths
 
 ```bash

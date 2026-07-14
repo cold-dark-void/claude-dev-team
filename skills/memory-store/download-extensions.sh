@@ -337,6 +337,8 @@ fi
 # ---------------------------------------------------------------------------
 # Update .gitignore
 # ---------------------------------------------------------------------------
+# Child paths only — NEVER write bare `.claude/memory/` (would make seed/ packs
+# uncommittable; SPEC-024 M9). Preserve any existing `!.claude/memory/seed/` lines.
 GITIGNORE="$MROOT/.gitignore"
 IGNORE_BLOCK=".claude/memory/extensions/
 .claude/memory/models/
@@ -356,6 +358,15 @@ else
   echo ""
   echo "Created $GITIGNORE"
 fi
+
+# Ensure seed pack carve-out when seed-common is available (best-effort)
+_SEED_COMMON="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/seed-common.sh"
+if [ -f "$_SEED_COMMON" ]; then
+  # shellcheck source=seed-common.sh
+  . "$_SEED_COMMON"
+  ensure_seed_gitignore "$MROOT" 2>/dev/null || true
+fi
+
 
 # ---------------------------------------------------------------------------
 # Summary
