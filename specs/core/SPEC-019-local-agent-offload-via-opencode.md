@@ -4,15 +4,18 @@
 **Category**: core
 **Created**: 2026-06-16
 
-**Covers**: `skills/local-agent/run.sh`, `skills/local-agent/SKILL.md`, `skills/local-agent/emit-orch-metric.sh`, `skills/orchestrate/SKILL.md`, `skills/standup/SKILL.md`, `AGENTS.md`
+**Covers**: `skills/local-agent/run.sh`, `skills/local-agent/SKILL.md`, `skills/local-agent/emit-orch-metric.sh`, `skills/orchestrate/SKILL.md`, `skills/standup/SKILL.md`, `commands/local-do.md`, `skills/debug/SKILL.md`, `skills/refactor/SKILL.md`, `AGENTS.md`
 
 **Delivery split:** **PR1 (initial reconcile)** delivers the *scriptable subset* — the
 `skills/local-agent/run.sh` subprocess CLI, its `SKILL.md` contract, the metrics file, and
 the `AGENTS.md` tool-offload note. **PR2 (CDV-20)** delivers the orchestrator wiring
 (`skills/orchestrate/`): per-task routing, the Claude diff-review loop, and 2-attempt
-escalation. **CDV-21** delivers the bubblewrap FS-scope leash. MUST/MUST-NOT clauses below
-that describe routing, review, escalation, or council/TDD gating define the *target system*
-and are realized in PR2; PR1 provides the leaf primitive they call.
+escalation. **CDV-21** delivers the bubblewrap FS-scope leash. **CDV-198** delivers
+optional network egress restriction (`LOCAL_AGENT_NET=none` → `--unshare-net`) and
+standalone consumers (`/debug patch` P.4, `/refactor inline` 3.3) that cite the
+`/local-do` Steps 3–5 loop. MUST/MUST-NOT clauses below that describe routing, review,
+escalation, or council/TDD gating define the *target system* and are realized in PR2+;
+PR1 provides the leaf primitive they call.
 
 ## Overview
 
@@ -71,6 +74,15 @@ one-line forward-reference to this spec when next revised.
 - MUST use a **static per-agent eligibility set** for this version (the three types
   above). Capability-tier routing and runtime-orchestrator routing are out of scope (see
   Open Questions).
+- **Standalone consumers (CDV-198):** when `LOCAL_AGENT=opencode` and a deterministic
+  machine-check exists, MUST route these **mechanical implement/fix steps only** through
+  the same `run.sh` + `/local-do` Steps 3–5 review loop (not an orchestrate task DAG):
+  - `/debug patch` **P.4 Fix only** — machine-check = regression test + full suite
+  - `/refactor inline` **3.3 Implement only** — machine-check = full suite
+- MUST NOT offload investigation/design gates: `/debug` P.1–P.3, full-mode 2.7, arch
+  mode; `/refactor` 3.1–3.2, default-mode 2.4. Characterization-test authorship stays
+  Claude. No machine-check ⇒ Claude only. Consumers MUST cite `commands/local-do.md`
+  Steps 3–5 rather than fork the loop prose.
 
 ### Invocation contract
 
@@ -103,8 +115,7 @@ one-line forward-reference to this spec when next revised.
   - `--bind-try <XDG_DATA_HOME/opencode> <path>` — opencode data dir read-write
   - `--bind-try <XDG_CACHE_HOME/opencode> <path>` — opencode cache dir read-write
   - `--bind-try <XDG_STATE_HOME/opencode> <path>` — opencode state dir read-write
-  - NO `--unshare-net` — network is **not** restricted by this leash (see Network note
-    below).
+  - Optional: `--unshare-net` when `LOCAL_AGENT_NET=none` (see Network below)
 - **Confinement scope:** the sandbox grants write access to the **worktree + its git
   plumbing (gitdir + git-common-dir) + opencode state dirs**. It is NOT worktree-leaf-only:
   a git worktree's `.git` is a file pointing outside the worktree, so the gitdir and
@@ -112,13 +123,24 @@ one-line forward-reference to this spec when next revised.
 - **Scope boundary MUST:** the `bwrap` leash wraps **only** the `opencode run` call. The
   caller-supplied `--check` runs **unconfined on the host** (trusted verification code that
   needs full git plumbing access).
-- **Network NOT enforced here:** restricting egress via an allowlist is a SEPARATE future
-  ticket. The sandbox provides FS-scope isolation only; network access remains unrestricted
-  in this version.
+- **Network (default host):** MUST NOT apply `--unshare-net` unless
+  `LOCAL_AGENT_NET=none` exactly. Unset / any other value ⇒ host network (unchanged
+  default). When `LOCAL_AGENT_NET=none`, MUST append `--unshare-net` to the bwrap
+  candidate argv. Docs MUST warn that `--unshare-net` breaks **any** model provider that
+  needs IP — remote API, LAN host, **and localhost ollama** (loopback is gone in a new
+  netns). Host:port allowlisting is **out of scope** for stock bwrap (all-or-nothing);
+  remains backlog.
+- **Network probe + degrade MUST:** the pre-flight probe MUST include the net mode under
+  test. Probe failure with `--unshare-net` MUST degrade by dropping the net flag and
+  retrying FS-only; if that also fails, degrade to `--dir` only. MUST NOT exit `2` solely
+  for net-mode failure. MUST NOT invent exit codes beyond `0`/`1`/`2`/`64`. Sandbox setup
+  (including net) MUST NOT burn `LOCAL_ATTEMPTS`.
 - **Graceful degradation MUST:** when `bwrap` is absent from PATH, `LOCAL_AGENT_SANDBOX=0`
   is set, OR the `bwrap` pre-flight probe fails, the wrapper MUST fall back to the PR1
   best-effort `--dir` confinement (convention-level only) and emit a one-line downgrade
-  notice to stderr. The exit-code contract (`0`/`1`/`2`/`64`) is unchanged in all modes.
+  notice to stderr. `LOCAL_AGENT_SANDBOX=0` MUST bypass the entire bwrap leash including
+  any `LOCAL_AGENT_NET` setting. The exit-code contract (`0`/`1`/`2`/`64`) is unchanged
+  in all modes.
 - The CALLER obtains the worktree via `skills/worktree-lib.sh` per SPEC-016 and passes the
   resolved path as `--worktree <path>` to the wrapper; the wrapper itself does NOT call
   `worktree-lib.sh` (subprocess-CLI separation per SPEC-016).
@@ -274,9 +296,15 @@ for each unblocked task:
   pattern, SPEC-004/006), not a `settings.json` key. It MUST equal exactly the string
   `opencode`; any other value (including unset or empty) ⇒ feature off ⇒ wrapper exits `2`
   (fallback).
+- Optional network flag `LOCAL_AGENT_NET`: exact string `none` ⇒ bwrap `--unshare-net`;
+  unset / any other value ⇒ host net. No new CLI flags on `run.sh` (env only; PR1 flag
+  surface frozen).
+- Escape hatch `LOCAL_AGENT_SANDBOX=0` bypasses the entire bwrap leash (FS + net).
 - Metrics file: `.claude/local-agent/metrics.jsonl` (JSONL, one record per line). PR1
   record keys: `{ ts, outcome, exit_code, saved_est_tokens, spent_tokens }` (see
-  Instrumentation; `ticket` + `spent_review_escalation` are PR2 additions).
+  Instrumentation; `ticket` + `spent_review_escalation` are PR2 additions). Standalone
+  consumers (`/local-do`, debug patch, refactor inline) MUST NOT double-write this file;
+  cap-escalation MAY emit SPEC-026 outcomes (`agent=local`, `outcome=escalated`) fail-open.
 - No model or provider keys are managed by this spec — OpenCode owns its own configuration.
 
 ## Test
@@ -292,8 +320,8 @@ for each unblocked task:
       kickoff, release) is never routed to the local agent even with the flag set.
 - [ ] A diff that fails Claude review twice escalates to the Claude executor on the second
       rejection (≤2 Claude-reviewed attempts), and the Claude output is what completes.
-- [ ] The local agent cannot write outside the worktree, nor commit/push/tag, nor reach
-      any network host beyond the model endpoint.
+- [ ] The local agent cannot write outside the worktree, nor commit/push/tag.
+      Default host net unchanged; with `LOCAL_AGENT_NET=none`, no IP (incl. loopback).
 - [ ] An offloaded implementation that skips the TDD gate, exceeds LOC caps, or fails the
       `TaskCompleted` council gate is rejected exactly as Claude-authored work would be.
 - [ ] Each offloaded task appends a `{saved_est, spent}` record to the metrics file.
@@ -315,14 +343,21 @@ for each unblocked task:
 - **Backlog:** offloading the council/blind-review investigator fan-out (largest token
   burst, but judgment-heavy — revisit only after this version proves net-positive).
 - **Backlog:** automatic kill-switch on a per-route reject-rate threshold.
-- Whether to promote the wrapper into a standalone composable skill (`/local-do`) reusable
-  by `/debug` and `/refactor`, vs keeping it wired only into `/orchestrate`.
+- **Backlog:** host:port egress allowlist (stock bwrap is all-or-nothing; needs
+  nftables-in-netns or equivalent — not decorative).
+- **Backlog:** `/debug` full 2.7 Fix + `/refactor` default 2.4 offload (same mechanical
+  shape as patch/inline; deferred pending metrics).
+- ~~Whether to promote the wrapper into a standalone composable skill (`/local-do`)
+  reusable by `/debug` and `/refactor`.~~ **Resolved (CDV-198):** `/local-do` ships;
+  `/debug patch` P.4 + `/refactor inline` 3.3 cite Steps 3–5.
 - ~~Exact metrics file format and location under `.claude/`.~~ **Resolved:**
   `.claude/local-agent/metrics.jsonl`, JSONL, `jq`-guarded (see Instrumentation).
 - ~~Liveness probe command.~~ **Resolved:** `opencode --version`.
 - ~~Worktree source for the wrapper.~~ **Resolved:** caller passes `--worktree <path>`;
   wrapper does not call `worktree-lib.sh` (SPEC-016 subprocess-CLI separation).
-- **Delivered (CDV-21):** FS-scope leash via bubblewrap; egress allowlist still backlog.
+- **Delivered (CDV-21):** FS-scope leash via bubblewrap.
+- **Delivered (CDV-198):** opt-in `LOCAL_AGENT_NET=none` → `--unshare-net` with probe
+  degrade; binary host/none only (allowlist backlog).
 
 ## Version History
 
@@ -333,7 +368,8 @@ for each unblocked task:
 | 2026-06-16 | Metrics-schema adjudication (CDV-19-1 review, DRAFT). **Fixed conceptual error**: prior text conflated `saved_est_tokens` (estimate of *Claude* tokens saved) with the measured local cost. Canonical PR1 record is now `{ ts, outcome, exit_code, saved_est_tokens, spent_tokens }`: `saved_est_tokens` = Claude-tokens-saved estimate = `null` in PR1 (orchestrator-owned, deferred to PR2); `spent_tokens` = measured local OpenCode cost (or `null`), explicitly NOT a Claude cost. Marked `ticket` and `spent_review_escalation` as PR2-only additions (the wrapper has no ticket id and review/escalation runs in `skills/orchestrate/`). Updated Configuration metrics line. Status stays DRAFT. |
 | 2026-06-16 | PR2 design active (CDV-20, DRAFT held). Resolved 5 PR2 ambiguities as ADRs inline: **AMB-1** machine-check home = `Machine-check: <expr>`/`none` prose line in the Step-7 `TaskCreate` description (no `task-store.sh` schema change; missing/`none` ⇒ route Claude). **AMB-3** metrics = `run.sh` frozen (no new flags); orchestrator appends a **companion** JSONL record `{ts, ticket, saved_est_tokens, spent_review_escalation}` to the same `metrics.jsonl` via a new `jq`-guarded helper `skills/local-agent/emit-orch-metric.sh`; wrapper line unchanged (`saved_est_tokens: null`). **AMB-2** `saved_est_tokens` = documented conservative constant per task type (impl≈8000, discovery≈3000, docs≈2000), labeled ESTIMATE not measured; `0` on escalation. **AMB-5** two distinct caps (local-iteration cap=2 on exit 1, Claude-reviewed cap=2 on exit-0 diff-review reject), both → escalate to Claude executor with partial diff; implemented as a **dedicated scoped offload-review sub-block**, not a Step-9 rewrite. **AMB-4** orchestrator routing = additive-only fork immediately before the Step-8 spawn fence; the existing Claude-IC spawn template is the literal untouched `else`/fallback. Forbidden-agent guard (tech-lead/ic5/qa-gate/council judge+investigators/PM/release) hard-gated on `Recommended agent`. Status held DRAFT — the DRAFT→ACTIVE flip is the final post-QA task (AC-22). |
 | 2026-06-16 | PR2 landed (CDV-20): orchestrate routing fork + offload-review loop + companion metrics (`emit-orch-metric.sh`) + standup surface implemented and passed QA; status DRAFT→ACTIVE. |
-| 2026-06-17 | CDV-21: Upgraded execution isolation from best-effort `--dir` leash to OS-enforced bubblewrap FS leash. New bind-set: `--ro-bind / /`, `--dev`/`--proc`/`--tmpfs /tmp`, `--bind` worktree rw, `--bind-try` gitdir + git-common-dir rw, `--bind-try` four XDG opencode state dirs rw; no `--unshare-net` (egress allowlist is separate future ticket). Confinement scope: worktree + git plumbing + opencode state. `--check` runs unconfined on host. Graceful degradation: absent bwrap / `LOCAL_AGENT_SANDBOX=0` / probe failure → falls back to `--dir` confinement + stderr downgrade notice; exit-code contract unchanged. FS-leash backlog item closed; egress allowlist remains backlog. |
+| 2026-06-17 | CDV-21: Upgraded execution isolation from best-effort `--dir` leash to OS-enforced bubblewrap FS leash. New bind-set: `--ro-bind / /`, `--dev`/`--proc`/`--tmpfs /tmp`, `--bind` worktree rw, `--bind-try` gitdir + git-common-dir rw, `--bind-try` four XDG opencode state dirs rw; no `--unshare-net` by default. Confinement scope: worktree + git plumbing + opencode state. `--check` runs unconfined on host. Graceful degradation: absent bwrap / `LOCAL_AGENT_SANDBOX=0` / probe failure → falls back to `--dir` confinement + stderr downgrade notice; exit-code contract unchanged. FS-leash backlog item closed. |
+| 2026-07-14 | CDV-198: (1) Optional egress — `LOCAL_AGENT_NET=none` appends `--unshare-net` to bwrap candidate; default host net unchanged; probe degrades net-off then FS-off, never exit 2 from net alone; docs warn ollama/LAN/remote break; host allowlist backlog. (2) Consumers — `/debug patch` P.4 + `/refactor inline` 3.3 cite `/local-do` Steps 3–5 when flag+machine-check+mechanical; investigation/design gates and full/default modes stay Claude; forbidden-agent set unchanged. Covers list + Configuration updated. |
 
 ## Cross-references
 

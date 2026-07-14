@@ -215,8 +215,10 @@ explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"
 
 Setting `LOCAL_AGENT=opencode` enables offloading mechanical/machine-verifiable work
 to a local model via `skills/local-agent/run.sh`. **Off by default** — unset, all
-work is done by Claude as usual. PR1 ships the standalone wrapper only; orchestrated
-routing is a later phase (PR2). Governing spec: `specs/core/SPEC-019-local-agent-offload-via-opencode.md`.
+work is done by Claude as usual. Drivers: `/orchestrate` (eligible tasks), `/local-do`,
+`/debug patch` P.4, `/refactor inline` 3.3. Optional `LOCAL_AGENT_NET=none` adds bwrap
+`--unshare-net` (breaks remote/LAN/**localhost** model HTTP — leave unset for ollama).
+Governing spec: `specs/core/SPEC-019-local-agent-offload-via-opencode.md`.
 
 ## Adversarial fleet degradation
 

@@ -500,6 +500,26 @@ GATE: do not write any fix code before this test exists and is confirmed failing
 
 Implement the minimal fix. Run the regression test — it must pass. Run the full test suite — all tests must pass. If the fix reveals that the same pattern exists elsewhere or requires a refactor, **stop here**: patch mode aborts, re-run `/debug <description>` (full mode).
 
+#### Optional local-agent offload (P.4 only)
+
+Off by default. Eligible when **all** hold:
+
+1. `LOCAL_AGENT=opencode` will be set on the `run.sh` invocation
+2. A deterministic machine-check exists (regression test from P.3 **and** full suite from the Step 0 runner)
+3. This step is mechanical implement/fix only — P.1–P.3 already completed by Claude
+
+Missing any ⇒ Claude implements as above; do **not** call `run.sh` or burn review caps. No-test-suite / characterization-only fallbacks ⇒ Claude only.
+
+When eligible, **drive the `/local-do` review loop** (`commands/local-do.md` Steps 3–5) — do not restate the full loop or invent an orchestrate DAG:
+
+- **Brief** MUST include: root-cause triad summary, fix intent, target file paths. MUST NOT include memory/cortex/DB.
+- **Machine-check:** compose regression-test command + full suite (caller-composed from Step 0).
+- **Caps / exits:** same as local-do — `LOCAL_ATTEMPTS` cap 2 (exit 1), `REVIEW_ATTEMPTS` cap 2 (diff reject), exit 2 ⇒ immediate Claude escalate (neither counter). Cap hit ⇒ Claude finishes with partial diff.
+- **Metrics:** do **not** write SPEC-019 `metrics.jsonl` (owned by `run.sh`). Cap-escalation MAY emit SPEC-026 outcomes row (`agent=local`, `outcome=escalated`) same as local-do Step 5a — optional, fail-open.
+- **Caller gotchas:** env per-invocation, brief-via-file under `"${TMPDIR:-/tmp}/…"`, exit 1 burns `LOCAL_ATTEMPTS`, unsandboxed Bash — see `commands/local-do.md`.
+
+**Scope cut (intentional):** full-mode 2.7 Fix and arch mode **never** offload in this ticket. P.1–P.3 investigation gates stay Claude.
+
 ### P.5 Self-calibration checklist
 
 Emit verbatim before any completion language:

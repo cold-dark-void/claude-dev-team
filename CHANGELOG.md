@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.51.0
+- **Local-agent expansion: debug/refactor consumers + optional net egress (CDV-198)** — `/debug patch` and `/refactor inline` may offload mechanical steps via `/local-do` loop when `LOCAL_AGENT=opencode`; `LOCAL_AGENT_NET=none` adds bwrap `--unshare-net` (default host net unchanged); SPEC-019 updated
+
 ### v0.50.0
 - **SPEC-022 `/doctor` install & config diagnostics (CDV-191)** — `dev-team:doctor` read-only check battery (version triplet, memory stack, hooks, settings, optional deps, worktrees, plugin resolve); `--json` + exit 0/1/2/64; narrow `--fix` allowlist; documents harness `/doctor` name collision
 

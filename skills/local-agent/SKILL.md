@@ -110,8 +110,26 @@ git operations fail inside the sandbox.
 caller-supplied `--check` runs **unconfined on the host** — it is trusted
 verification code that requires full git plumbing access.
 
-**Network NOT enforced:** no `--unshare-net` is applied. Restricting egress via an
-allowlist is a separate future ticket. This sandbox provides FS-scope isolation only.
+**Network (default = host):** no `--unshare-net` unless opted in. Default posture
+leaves host network unchanged so remote API, LAN model servers, and localhost
+providers (e.g. ollama at `http://127.0.0.1:11434`) keep working.
+
+| `LOCAL_AGENT_NET` | Effect |
+|-------------------|--------|
+| unset / any value ≠ `none` | Host network (current default) |
+| `none` | Adds `bwrap --unshare-net` to the sandbox candidate argv |
+
+**Warning:** `--unshare-net` removes **all** IP connectivity inside the sandbox —
+including **loopback**. Any provider that needs network (remote API, LAN host, **or
+localhost ollama**) will fail under `LOCAL_AGENT_NET=none`. Leave the variable unset
+unless the model is fully offline/in-process. Host:port allowlisting is **not**
+available from stock bwrap (backlog).
+
+**Probe + degrade:** the pre-flight probe includes the net mode under test. If
+`--unshare-net` probe fails, the wrapper drops the net flag and retries FS-only;
+if that also fails, degrades to `--dir` only. **Never** exit `2` solely for
+net-mode failure; **never** invent new exit codes. Net setup never burns
+`LOCAL_ATTEMPTS`.
 
 **Graceful degradation:** when `bwrap` is absent from PATH, `LOCAL_AGENT_SANDBOX=0`
 is set, or the `bwrap` pre-flight probe fails, the wrapper emits a one-line downgrade
@@ -119,9 +137,10 @@ notice to stderr and falls back to convention-level `--dir` confinement (the `op
 run --dir <worktree>` working-directory bound from PR1). The exit-code contract
 (`0`/`1`/`2`/`64`) is unchanged in all modes.
 
-**Escape hatch:** set `LOCAL_AGENT_SANDBOX=0` to explicitly bypass the bubblewrap
-leash and run with `--dir`-only confinement (useful for environments where `bwrap`
-is installed but namespaces are restricted, e.g. some container runtimes).
+**Escape hatch:** set `LOCAL_AGENT_SANDBOX=0` to explicitly bypass the **entire**
+bubblewrap leash (FS **and** any `LOCAL_AGENT_NET` setting) and run with `--dir`-only
+confinement (useful for environments where `bwrap` is installed but namespaces are
+restricted, e.g. some container runtimes).
 
 The wrapper issues no git write commands; the local agent cannot commit, push, or
 tag via the wrapper.
@@ -193,7 +212,9 @@ Best-effort and non-fatal: any internal failure returns `0`. Only usage errors
 - **PR1** — standalone wrapper: `run.sh`, `SKILL.md`, metrics schema
 - **PR2 (CDV-20)** — orchestrator routing, Claude diff-review loop, 2-attempt escalation,
   `emit-orch-metric.sh`
-- **CDV-21** — bubblewrap FS-scope leash (this section); egress allowlist remains backlog
+- **CDV-21** — bubblewrap FS-scope leash (this section)
+- **CDV-198** — optional `LOCAL_AGENT_NET=none` → `--unshare-net`; consumers
+  `/debug patch` P.4 + `/refactor inline` 3.3; host allowlist remains backlog
 
 ## Cross-references
 

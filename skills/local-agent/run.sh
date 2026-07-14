@@ -48,9 +48,11 @@
 #     to the best-effort working-dir leash only (`opencode run --dir <worktree>`),
 #     relying on OpenCode's own permission/provider config. A one-line stderr
 #     notice marks which path was taken.
-#   * NETWORK egress is NOT enforced (no --unshare-net): the sandbox is FS-only.
-#     Egress bounding remains OpenCode-config / deferred. Only the opencode call
-#     is wrapped; the caller's --check runs UNWRAPPED on the trusted host shell.
+#   * NETWORK (default host net): no --unshare-net unless LOCAL_AGENT_NET=none.
+#     Opt-in none adds --unshare-net (breaks remote API, LAN hosts, AND localhost
+#     ollama — loopback is gone in a new netns). Probe failure degrades net
+#     restriction off (or full FS sandbox) — never exit 2 from net alone.
+#     Only the opencode call is wrapped; --check runs UNWRAPPED on the host.
 
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -199,14 +201,19 @@ if ! opencode --version >/dev/null 2>&1; then
   exit 2
 fi
 
-# ---- OS leash (bubblewrap FS confinement) -----------------------------------
+# ---- OS leash (bubblewrap FS confinement + optional net) --------------------
 # Populate the global SANDBOX=() argv prefix wrapping ONLY the opencode call.
 # Empty array ⇒ unwrapped (today's best-effort --dir behavior). Disabled by
 # LOCAL_AGENT_SANDBOX=0, by bwrap being absent, or by a failed pre-flight probe;
-# each path emits ONE stderr notice. NOT OS-enforced for network (FS-only).
+# each path emits ONE stderr notice.
+#
+# Network: default = host net (no --unshare-net). LOCAL_AGENT_NET=none opts in
+# to --unshare-net. Any other value / unset = host. Probe failure degrades
+# (drop net restriction first, then full FS sandbox) — never exit 2 for net.
 SANDBOX=()
 build_sandbox() {
   # Opt-out: default (unset/"1") = on-if-available; "0" = explicitly disabled.
+  # Bypasses the entire bwrap leash including any LOCAL_AGENT_NET setting.
   if [ "${LOCAL_AGENT_SANDBOX:-1}" = "0" ]; then
     echo "local-agent: OS leash disabled (LOCAL_AGENT_SANDBOX=0) — best-effort --dir only." >&2
     return 0
@@ -233,7 +240,7 @@ build_sandbox() {
     && commondir=$(realpath "$commondir" 2>/dev/null) || commondir=""
 
   # Candidate argv: host root read-only; private /dev /proc /tmp; the worktree
-  # and the agent's own state/git plumbing read-write. No --unshare-net.
+  # and the agent's own state/git plumbing read-write.
   local cand=(
     bwrap
     --ro-bind / /
@@ -249,14 +256,40 @@ build_sandbox() {
   [ -n "$gitdir" ]    && cand+=( --bind-try "$gitdir"    "$gitdir" )
   [ -n "$commondir" ] && cand+=( --bind-try "$commondir" "$commondir" )
 
+  # Optional net isolation: exact match "none" only. Host allowlist is not
+  # available from stock bwrap (all-or-nothing); see SPEC-019 backlog.
+  local want_net_none=0
+  if [ "${LOCAL_AGENT_NET:-}" = "none" ]; then
+    want_net_none=1
+    cand+=( --unshare-net )
+    echo "local-agent: LOCAL_AGENT_NET=none — bwrap --unshare-net (no IP; breaks remote/LAN/localhost model providers)." >&2
+  fi
+
   # Pre-flight probe: if bwrap can't construct the namespace here (e.g. no
   # user-namespaces, restrictive container), degrade rather than fail — do NOT
-  # exit 2 and do NOT burn an opencode retry.
-  if ! "${cand[@]}" -- true >/dev/null 2>&1; then
-    echo "local-agent: bwrap probe failed — degrading to best-effort --dir." >&2
+  # exit 2 and do NOT burn an opencode retry / LOCAL_ATTEMPTS.
+  if "${cand[@]}" -- true >/dev/null 2>&1; then
+    SANDBOX=( "${cand[@]}" )
     return 0
   fi
-  SANDBOX=( "${cand[@]}" )
+
+  # Net-none probe failed: retry without --unshare-net (keep FS leash if possible).
+  if [ "$want_net_none" -eq 1 ]; then
+    local cand_fs=()
+    local arg
+    for arg in "${cand[@]}"; do
+      [ "$arg" = "--unshare-net" ] && continue
+      cand_fs+=( "$arg" )
+    done
+    if "${cand_fs[@]}" -- true >/dev/null 2>&1; then
+      echo "local-agent: bwrap --unshare-net probe failed — degrading to host net (FS leash kept)." >&2
+      SANDBOX=( "${cand_fs[@]}" )
+      return 0
+    fi
+  fi
+
+  echo "local-agent: bwrap probe failed — degrading to best-effort --dir." >&2
+  return 0
 }
 build_sandbox
 

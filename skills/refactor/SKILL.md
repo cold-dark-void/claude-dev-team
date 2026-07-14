@@ -318,6 +318,26 @@ Same four branches as 2.3:
 
 Same rules as 2.4 + 2.5: structural changes only, no feature/bug-fix mixing, `refactor:` prefix (or AGENTS.md override), full suite passes, explicit "no observable behavior was changed" statement.
 
+#### Optional local-agent offload (3.3 only)
+
+Off by default. Eligible when **all** hold:
+
+1. `LOCAL_AGENT=opencode` will be set on the `run.sh` invocation
+2. A deterministic machine-check exists (full suite / project test runner from Step 0)
+3. This step is mechanical implement/validate only — 3.1 preamble + 3.2 coverage gate already completed by Claude
+
+Missing any ⇒ Claude implements as above; do **not** call `run.sh` or burn review caps. Characterization-test **authorship** (branch 3.2b) is never offloaded. No-harness path ⇒ Claude only.
+
+When eligible, **drive the `/local-do` review loop** (`commands/local-do.md` Steps 3–5) — do not restate the full loop or invent an orchestrate DAG:
+
+- **Brief** MUST include: approach preamble from 3.1, constraints (no behavior change / no feature or bug-fix mix), target files. MUST NOT include memory/cortex/DB.
+- **Machine-check:** full suite (same runner as Step 0).
+- **Caps / exits:** same as local-do — `LOCAL_ATTEMPTS` cap 2 (exit 1), `REVIEW_ATTEMPTS` cap 2 (diff reject), exit 2 ⇒ immediate Claude escalate (neither counter). Cap hit ⇒ Claude finishes with partial diff.
+- **Metrics:** do **not** write SPEC-019 `metrics.jsonl` (owned by `run.sh`). Cap-escalation MAY emit SPEC-026 outcomes row (`agent=local`, `outcome=escalated`) same as local-do Step 5a — optional, fail-open.
+- **Caller gotchas:** env per-invocation, brief-via-file under `"${TMPDIR:-/tmp}/…"`, exit 1 burns `LOCAL_ATTEMPTS`, unsandboxed Bash — see `commands/local-do.md`.
+
+**Scope cut (intentional):** default-mode 2.4 Implement **never** offloads in this ticket. 3.1–3.2 stay Claude.
+
 Then emit the self-calibration checklist with the first item marked `[N/A — inline mode]`.
 
 ---

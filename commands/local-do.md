@@ -14,10 +14,15 @@ ticket-based work should go through the PR2 orchestrator instead.
 
 **Relationship to /local-agent:** `/local-agent` is the internal engine
 (`skills/local-agent/run.sh`) that this command drives. Do NOT invoke
-`run.sh` directly for user-facing work; use `/local-do`.
+`run.sh` raw for ad-hoc user work — use `/local-do` or a wired skill path
+below.
 
-**Future consumers:** `/debug` and `/refactor` MAY call `/local-do` for
-their mechanical execution phases. Not wired in v1.
+**Shipped consumers (CDV-198):** `/debug patch` **P.4 Fix only** and
+`/refactor inline` **3.3 Implement only** drive this command's Steps 3–5
+loop when eligible (`LOCAL_AGENT=opencode` + machine-check + mechanical
+step). Full-mode `/debug` and default `/refactor` do **not** offload.
+Investigation/design gates stay Claude. Do not expand into forbidden
+roles (tech-lead / ic5 / qa-gate / council / judge / release / PM).
 
 ## Usage
 
@@ -49,7 +54,8 @@ independent: a fallback (exit 2) consumes neither counter.
 
 For the authoritative exit-code contract (`0`/`1`/`2`/`64`) see
 `skills/local-agent/SKILL.md`. Engine internals (bwrap, opencode invocation,
-liveness probe, metrics) are owned by `run.sh` and are not restated here.
+liveness probe, metrics, optional `LOCAL_AGENT_NET`) are owned by `run.sh`
+and are not restated here.
 
 **Metrics:** `run.sh` logs its own PR1 JSONL record per terminal path. This
 command does NOT call `emit-orch-metric.sh` — there is no ticket or
@@ -57,7 +63,22 @@ command does NOT call `emit-orch-metric.sh` — there is no ticket or
 escalation only** (LOCAL_ATTEMPTS or REVIEW_ATTEMPTS hit), emit one
 SPEC-026 outcomes-ledger row via `skills/metrics/emit-outcome.sh`
 (agent=`local`, outcome=`escalated`). Do **not** write the SPEC-019
-local-agent metrics file from this path.
+local-agent metrics file from this path. Consumers that cite this loop
+follow the same rule (no double-write to `metrics.jsonl`).
+
+### Caller gotchas (all drivers of this loop)
+
+1. **Env per-invocation:** set `LOCAL_AGENT=opencode` on the `run.sh` bash
+   call itself (do not rely on ambient shell state alone).
+2. **Long briefs via file:** write the brief under `"${TMPDIR:-/tmp}/…"`
+   and pass `--brief "$(cat …)"` so argv length stays safe. Brief is
+   host-side argv; bwrap private tmpfs is only for the opencode process.
+3. **Exit 1 burns `LOCAL_ATTEMPTS`:** env/opencode failures that surface
+   as exit 1 (not 2) **do** consume the local-attempt cap. Exit 2
+   (fallback) consumes neither counter.
+4. **Unsandboxed Bash:** invoke `run.sh` via unsandboxed Bash so XDG
+   opencode state binds and `bwrap` namespaces work. Nested Claude agent
+   sandboxes cannot prove the OS leash.
 
 ---
 
@@ -117,13 +138,19 @@ REVIEW_ATTEMPTS=0
 CURRENT_BRIEF="$BRIEF"
 ```
 
-Call `run.sh` with the resolved worktree, brief, and check expression:
+Call `run.sh` with the resolved worktree, brief, and check expression.
+Prefer brief-via-file for long text (Caller gotcha #2):
 
 ```bash
+# Session state from Steps 1–3 init: WT, CURRENT_BRIEF, CHECK (lint-ok: C1)
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 RUN_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/run.sh)
-bash "$RUN_SH" --worktree "$WT" --brief "$CURRENT_BRIEF" --check "$CHECK"  # lint-ok: C1
+BRIEF_FILE="${TMPDIR:-/tmp}/local-brief-$$.txt"
+printf '%s' "$CURRENT_BRIEF" > "$BRIEF_FILE"  # lint-ok: C1
+LOCAL_AGENT=opencode bash "$RUN_SH" --worktree "$WT" \
+  --brief "$(cat "$BRIEF_FILE")" --check "$CHECK"  # lint-ok: C1
 RC=$?
+rm -f "$BRIEF_FILE"
 ```
 
 Branch on `$RC`:
