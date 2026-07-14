@@ -28,6 +28,7 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST support `/council --diff` — audit staged diff (equivalent to `/review-and-commit` invocation path)
 - MUST support `/council --from-retro <anchor-id>` — audit a fabrication anchor surfaced by `/retro`
 - MUST refuse to run with no scope argument and no prior context (must fail loudly, not guess)
+- MUST accept optional `/council --workflow` (or `COUNCIL_WORKFLOW=1`) as an execution-path selector orthogonal to scope flags — does not replace scope exclusivity rules; default remains engine.sh
 
 ### Engine Architecture
 - MUST implement core logic as a skill at `skills/council/` (NOT duplicated inline in commands)
@@ -176,6 +177,29 @@ Default (all spawns succeed): `verification_mode: full` and no banner.
 - MUST NOT gate TaskCompleted on `finding[]`-shape runs — diff-mode is code review, not a fabrication audit
 - The TaskCompleted council gate MUST apply to `verdict[]`-shape runs only; `finding[]`-shape index rows MUST be ignored by the hook
 
+
+### Council-on-Workflow execution path *(CDV-196)*
+
+Optional Workflow-tool execution path for the tribunal. **Strict output parity**
+with the default `engine.sh` + Task path: same verdict/finding schemas, same
+`.claude/council/index.json` rows, same report files/naming. Judge stays tool-less
+on both paths. Transparent fallback when Workflow unavailable. Reuse CDV-199
+degradation marker — never invent a second string. Distinct from CDV-197
+(`/fix-ticket` workflow promotion) — share authoring conventions only
+(args-as-JSON-string guard).
+
+- MUST keep `skills/council/engine.sh` as the canonical default execution path — the Workflow path activates only on explicit opt-in (`/council --workflow` flag or `COUNCIL_WORKFLOW=1` environment variable); with neither set, behavior is byte-for-byte today's engine.sh path
+- MUST detect Workflow availability before relying on it (capability probe or attempt-and-fallback): when the Workflow tool is unavailable (free plan, or a Claude Code version below the Workflow minimum), the run MUST fall back transparently to engine.sh with a one-line stderr notice — never a hard failure, never a degraded report
+- MUST preserve strict output parity with engine.sh: identical `verdict[]`/`finding[]` JSON schemas and taxonomies, identical `.claude/council/index.json` writes (same row shape, append-only, atomic tmp+rename), and identical report shape and naming at `.claude/council/<YYYY-MM-DD>-<slug>[--<task_id>].md` — downstream consumers (the SPEC-002 TaskCompleted gate, `/retro`) MUST NOT be able to tell which path produced a run
+- MUST keep the Judge tool-less on the Workflow path: the judgment step MUST use agentType `council-judge` (plugin-qualified as installed, e.g. `dev-team:council-judge`) with an empty tool allowlist (Phase 5 invariant unchanged) — schema-forced output changes the transport, not the evidence-only design
+- MUST use `agent()` schema-forced structured output for the investigator, Prosecutor, Devil's Advocate, and Judge steps; the Workflow path MUST NOT port the engine.sh JSON-repair layers forward — a schema violation on this path is a step failure, not a repair candidate
+- MUST handle investigator/refuter spawn failures on the Workflow path with the same explicit self-verified-marker degradation as Spawn-failure degradation (CDV-199): pass `engine.sh finalize --verification-mode self-verified` so the report carries the exact marker `self-verified — refuters unavailable` — never silent role omission; never invent a parallel degradation string
+- MUST single-source prompt and flavor bodies: the Workflow path reads the same `skills/council/prompts/*` and `skills/council/flavors/*` assets as the Task path, honoring each prompt's `## Variables` table contract — MUST NOT fork or inline-duplicate prompt content between the two paths
+- MUST share Workflow authoring conventions with CDV-197 / fix-ticket workflow (adjacent, distinct): notably the args-may-arrive-as-JSON-string guard (`typeof args === 'string' ? JSON.parse(args) : args`)
+- MUST implement the Workflow driver at `skills/council/workflow.js` and hand off plan + evidence + judge JSON files to **existing** `engine.sh finalize` (shared finalize — no dual report renderers)
+- MUST document opt-in + fallback in `commands/council.md` and `skills/council/SKILL.md`; `/review-and-commit` MUST honor the same opt-in (`--workflow` or `COUNCIL_WORKFLOW=1`) and cite the council dual-path protocol (no parallel pipeline)
+
+
 ---
 
 ## SHOULD
@@ -270,6 +294,46 @@ Default (all spawns succeed): `verification_mode: full` and no banner.
 3. Run finalize without the flag (or with `full`) — report has no marker banner and `verification_mode: "full"`
 4. Empty evidence still exits 5 when no self-verify path supplied usable bundles
 
+
+### Test 12 — Council-on-Workflow opt-in default
+1. With neither `--workflow` nor `COUNCIL_WORKFLOW=1` set, run `/council "<claim>"`
+2. Verify the Workflow tool is never invoked and behavior matches today's engine.sh path
+
+### Test 13 — Council-on-Workflow output parity
+1. With opt-in set on a Workflow-capable install, run the same fixture claim set through both paths
+2. Diff the verdict JSON, the `.claude/council/index.json` rows, and the report bodies (modulo timestamps/slug)
+3. Verify no consumer-visible differences (strict parity)
+
+### Test 14 — Council-on-Workflow transparent fallback
+1. With opt-in set but Workflow unavailable (free plan, pre-Workflow CC, or `COUNCIL_WORKFLOW_FORCE_FALLBACK=1`)
+2. Verify the run falls back to engine.sh with stderr notice `council: Workflow unavailable; falling back to engine.sh`
+3. Verify successful non-degraded report (`verification_mode: full`) — no hard failure solely for missing Workflow
+
+### Test 15 — Council-on-Workflow judge tool-less
+1. Inspect `skills/council/workflow.js` judgment step
+2. Verify it uses agentType `council-judge` (plugin-qualified) and `agents/council-judge.md` still has `tools: ""`
+3. Verify a tool-call attempt by the Judge is blocked (Test 3 invariant holds on this path)
+
+### Test 16 — Council-on-Workflow resume
+1. Kill a Workflow-path tribunal mid-run and resume it
+2. Verify the run continues from the last completed Workflow phase (not full restart from claim extraction)
+3. Verify final artifacts still pass Test 13 parity (manual QA if CI cannot kill/resume)
+
+### Test 17 — Council-on-Workflow spawn-failure degradation
+1. Simulate an investigator/refuter spawn failure on the Workflow path
+2. Verify the report and frontmatter carry exact marker `self-verified — refuters unavailable` via finalize `--verification-mode self-verified`
+3. Verify no silent role omission; actor is the workflow driver/orchestrator, never implementer-of-subject
+
+### Test 18 — Council-on-Workflow single-source prompts + args guard
+1. Grep `skills/council/workflow.js` — verify it loads `prompts/*` and `flavors/*` at runtime with no forked prompt bodies
+2. Verify args-as-JSON-string guard (`typeof args === 'string'`) is present
+3. Verify marker string `self-verified — refuters unavailable` is NOT present in workflow.js (only via finalize flag)
+
+### Test 19 — Council-on-Workflow no repair layers + token summary
+1. Grep workflow.js for `PYREPAIR` / `repair_json` — expect zero hits
+2. When Workflow budget API is available, verify per-run (ideally per-phase) token usage appears in stdout summary
+
+
 ---
 
 ## Validation
@@ -293,6 +357,8 @@ Default (all spawns succeed): `verification_mode: full` and no banner.
 - [ ] `skills/council/prompts/cross-reviewer.md` exists; council.md Phase 2.5 block describes N cross-reviewers spawned with per-reviewer shuffled labels, self-exclusion, Borda-ranked bundle output to Phase 4 and Phase 5, bottom-quartile WEAK_EVIDENCE flagging, and bypass recorded when < 3 investigators
 - [ ] Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
 - [ ] Test 1–11 pass against the implementation
+- [x] Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
+- [ ] Test 12–19 (Council-on-Workflow) pass against the implementation
 
 ---
 
@@ -313,4 +379,5 @@ Default (all spawns succeed): `verification_mode: full` and no banner.
 | 2026-06-14 | v0.35.0 (AUDIT-P1-4C-1): merged the Phase-4 `prompts/prosecutor.md` + `prompts/advocate.md` templates into one role-parameterized `prompts/phase4-brief.md` (vars: `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}`). Made the Phase-4 claim-blindness invariant explicit (line 91): both roles are BLIND to the original claim list and group evidence by the `claim_id` carried inside the bundles — fixes the v0.34.0-class literal leak where the prompt bodies declared/used `{{ORIGINAL_CLAIMS}}` that council.md never substituted, leaking the literal placeholder into the spawned subagent. Judge (Phase 5) still receives original claims — unchanged. Brief output schema (`evidence_against`/`evidence_for` + `struck_lines`) preserved byte-for-byte. |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `✅ ACTIVE`→`ACTIVE` (no emoji); reordered Version-History rows ascending by date (two stray 2026-04-09 rows were sitting after 04-26/04-28). Row content preserved verbatim. No behavioral change. |
 | 2026-06-15 | Judge cortex-inheritance reconciled to reality (AUDIT-P4.4): no cortex/memory injection is implemented in `commands/council.md` Phase-5 spawn or `engine.sh`, and the evidence-only Judge (`tools: ""`) cannot run a recall/cortex-load path itself. Relaxed the Phase-5 cortex MUST (line 97) from "MUST inherit `tech-lead`'s cortex/memory/directives load path" to OPTIONAL engine-prepended calibration the Judge MUST function without; updated the Overview line and the validation checkbox accordingly so neither asserts an unimplemented load path. The Judge's authority is the evidence bundle plus its standing behavioral rules. Aligned `agents/council-judge.md` (removed the impossible "Read SPEC-013" checklist step and the false "cortex injected by the council engine" assertion) and trimmed duplicated reasoning in `skills/council/prompts/judge.md`. No engine/spawn behavior change — docs now match the shipped evidence-only design. |
+| 2026-07-14 | CDV-196: Council-on-Workflow execution path promoted from DRAFT to active MUSTs — opt-in `--workflow`/`COUNCIL_WORKFLOW=1`, capability probe + transparent fallback, `skills/council/workflow.js` schema-forced agent() steps, shared `engine.sh finalize`, no PYREPAIR on Workflow path, CDV-199 marker via finalize flag only, single-source prompts/flavors, args-as-JSON-string guard (shared with CDV-197). Tests 12–19. |
 | 2026-07-14 | CDV-199: Spawn-failure degradation MUST — on unusable investigator/specialist/prosecutor/advocate/judge Task spawn, orchestrator self-verifies with tools; finalize `--verification-mode self-verified` surfaces exact marker `self-verified — refuters unavailable` in report body + frontmatter; exit 5 only when evidence still empty after self-verify path; no local-agent investigator routing. Test 11 + validation checkbox. |

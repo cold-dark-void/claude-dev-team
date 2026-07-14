@@ -104,6 +104,16 @@ Preflight runs Phase 0 intake including spec-grep enrichment over
 simplification), `spec_grep: true`, `feedback_memory_enabled: false`,
 `confidence_filter_threshold: 80`.
 
+## Step 3.5: Workflow opt-in (CDV-196)
+
+Same opt-in as `/council`: `--workflow` **or** `COUNCIL_WORKFLOW=1`. When set,
+run capability probe (`skills/council/workflow-probe.sh`); on fail print
+`council: Workflow unavailable; falling back to engine.sh` and continue with
+the Task path below (`verification_mode: full` — not degraded). On success,
+dispatch `skills/council/workflow.js` with `scope: diff` / `preset: diff-mode`
+and skip Steps 4–5 Task spawns (script owns preflight→finalize). Full dual-path
+protocol: `skills/council/SKILL.md` § Workflow execution path — do not restate.
+
 ## Step 4: Drive the diff-mode council phases
 
 Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:

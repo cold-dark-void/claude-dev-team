@@ -7,7 +7,7 @@ description: |
   to audit a shaky claim, after a debug session to verify "all green", or
   on a plan file to find unverified assumptions. Shares an engine with
   /review-and-commit (diff-mode preset).
-argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> [--task-id <id>]'
+argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> [--task-id <id>] [--workflow]'
 agent: build
 ---
 
@@ -16,9 +16,10 @@ agent: build
 Thin wrapper around the adversarial council tribunal engine. Parses user
 arguments, invokes `skills/council/engine.sh` for deterministic scaffolding,
 then drives the LLM tribunal phases (claim extraction, parallel investigation,
-prosecution, defense, judgment) via Task tool subagent spawns. Writes a
-structured report to `.claude/council/` and, for task-bound runs, appends a
-verdict row to `.claude/council/index.json`.
+prosecution, defense, judgment) via Task tool subagent spawns — or, on opt-in,
+via the Workflow driver `skills/council/workflow.js`. Writes a structured
+report to `.claude/council/` and, for task-bound runs, appends a verdict row
+to `.claude/council/index.json`.
 
 ## Arguments
 
@@ -28,11 +29,13 @@ verdict row to `.claude/council/index.json`.
 - `/council --plan <path>` — audit a plan file (DEFERRED to COUNCIL-002, fails loudly)
 - `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (DEFERRED to COUNCIL-002, fails loudly)
 - `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
+- `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1`
 - `/council --why` — print flavor presets used + reasoning (DEFERRED to COUNCIL-002, optional)
 - `/council` — no scope, fails loudly with usage
 
 Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
-`--diff`, `--plan`, or `--from-retro` must be supplied.
+`--diff`, `--plan`, or `--from-retro` must be supplied. `--workflow` is
+orthogonal to scope (execution transport only).
 
 ## Step 0: Resolve roots
 
@@ -103,12 +106,52 @@ The investigation-plan JSON emitted by `preflight` contains at minimum:
 `claim_budget`, `phases.1_claim_extraction.skip` (bool — true when extraction
 should be skipped, i.e. for single pasted claims), and `flavors` (array).
 
+## Step 2.5: Execution-path routing (CDV-196)
+
+Opt-in detection (true iff either condition holds):
+
+| Input | Workflow path? |
+|-------|----------------|
+| no `--workflow`, `COUNCIL_WORKFLOW` unset/0 | **No** — Task path (Steps 3–4 below) |
+| `--workflow` present | **Yes** if probe ok |
+| `COUNCIL_WORKFLOW=1` | **Yes** if probe ok |
+| opt-in + probe fail | **No** — fallback Task path |
+
+```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+USE_WORKFLOW=0
+# set USE_WORKFLOW=1 when user passed --workflow or COUNCIL_WORKFLOW=1
+if [ "${COUNCIL_WORKFLOW:-}" = "1" ] || [ "${_COUNCIL_WORKFLOW_FLAG:-}" = "1" ]; then
+  USE_WORKFLOW=1
+fi
+if [ "$USE_WORKFLOW" = "1" ]; then
+  PROBE=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/workflow-probe.sh)
+  if ! bash "$PROBE"; then
+    echo "council: Workflow unavailable; falling back to engine.sh" >&2
+    USE_WORKFLOW=0
+  fi
+fi
+```
+
+When `USE_WORKFLOW=1`, drive the tribunal via `skills/council/workflow.js`
+(Workflow tool / `agent()` schema steps). Pass the same scope payload as JSON
+args (`scope`, `claim`/`scope_arg`, `task_id`, `input_text`, `raw_artifacts`,
+…). The script runs `engine.sh preflight` + phases + `engine.sh finalize`
+internally — **skip Steps 3–4 Task spawns**. Protocol:
+`skills/council/SKILL.md` § Workflow execution path.
+
+On Workflow dispatch error after a green probe (tool missing mid-session),
+print the same stderr one-liner and continue with the Task path below.
+Fallback is never a degraded report.
+
+When `USE_WORKFLOW=0`, continue with Step 3 (Task path).
+
 ## Step 3: Drive the council tribunal phases
 
 Read the investigation-plan JSON from `$PLAN_FILE`. The interpreting Claude
 executes the phases below, spawning Task subagents as specified. All subagent
 spawns for a given phase must be issued in a single message (parallel
-execution).
+execution). (Skipped when Step 2.5 selected Workflow.)
 
 ### Phase 1 — Claim Extraction
 

@@ -9,6 +9,7 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 /council --session [--last N]
 /council --diff
 /council --task-id <id>
+/council --workflow "<claim text>"
 ```
 
 ## Arguments
@@ -19,10 +20,13 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 | `--session [--last N]` | Audit a slice of the current session transcript. `--last N` limits to the last N turns. |
 | `--diff` | Audit the staged diff. Routes through the same engine as [`/review-and-commit`](./review-and-commit.md) (diff-mode preset, finding-shape output). |
 | `--task-id <id>` | Bind the run to an orchestrated task. Adds a `task_id` to the report and appends a row to `.claude/council/index.json`. Falls back to the `CLAUDE_TASK_ID` env var, then unbound. |
+| `--workflow` | Opt-in Workflow execution path (schema-forced `agent()` steps). Also `COUNCIL_WORKFLOW=1`. Orthogonal to scope. Falls back to the default Task path with a one-line stderr notice when Workflow is unavailable — never a hard fail. |
 | `--plan <path>` | Deferred to COUNCIL-002 — fails loudly (engine exit 3). |
 | `--from-retro <id>` | Deferred to COUNCIL-002 — fails loudly (engine exit 3). |
 
-Scope flags are mutually exclusive: exactly one of `"<claim>"`, `--session`, `--diff`, `--plan`, or `--from-retro` must be supplied. Running `/council` with no scope fails loudly with usage — it never guesses.
+Scope flags are mutually exclusive: exactly one of `"<claim>"`, `--session`, `--diff`, `--plan`, or `--from-retro` must be supplied. `--workflow` is not a scope. Running `/council` with no scope fails loudly with usage — it never guesses.
+
+**Dual path (CDV-196):** default is `engine.sh` + Task subagents. With `--workflow` / `COUNCIL_WORKFLOW=1`, the tribunal may run via `skills/council/workflow.js` and still finish through shared `engine.sh finalize` (same report and index shape). See `skills/council/SKILL.md` § Workflow execution path.
 
 ## The Tribunal
 

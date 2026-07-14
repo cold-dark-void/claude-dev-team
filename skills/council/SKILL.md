@@ -98,11 +98,16 @@ preset selector). The argument surface:
 | `--from-retro <anchor-id>` | Audit a fabrication anchor from `/retro` | **Deferred — fail loud** |
 | `--task-id <id>` | Bind this run to an orchestrated task id | Supported |
 | `--preset <name>` | Explicit preset selector (else inferred from scope) | Supported |
+| `--workflow` | Opt-in Workflow execution path (CDV-196); orthogonal to scope | Supported |
 | `--why` | Print flavors used + specialist reasoning | **Deferred (SHOULD, COUNCIL-002)** |
 | (no scope) | — | **Hard fail, non-zero exit** |
 
+Env: `COUNCIL_WORKFLOW=1` is equivalent to `--workflow`.
+`COUNCIL_WORKFLOW_FORCE_FALLBACK=1` forces probe fail (tests).
+
 Scope exclusivity: exactly one of `<claim>`, `--session`, `--plan`, `--diff`,
-`--from-retro` MUST be given. `commands/council.md` enforces exclusivity when
+`--from-retro` MUST be given. `--workflow` is **not** a scope — it only
+selects the execution transport (see Workflow execution path). `commands/council.md` enforces exclusivity when
 it translates the user surface into the engine's single `--scope <name>` —
 the engine itself takes one `--scope` value, so it cannot receive (or detect)
 multiple scopes. A zero-scope invocation reaches the engine as an empty
@@ -314,6 +319,65 @@ produced usable bundles. Self-verify that yields ≥1 bundle continues finalize.
 *Traceability:* SPEC-013 Spawn-failure degradation (CDV-199). Single protocol
 home — `commands/council.md` and `skills/review-and-commit/SKILL.md` cite
 this section; do not restate a second protocol.
+
+### Workflow execution path *(CDV-196)*
+
+Optional second transport for Phases 1–5. **Default remains** the Task-spawn
+path documented above plus `engine.sh` preflight/finalize. Workflow activates
+only on explicit opt-in.
+
+| Opt-in | Behavior |
+|--------|----------|
+| neither `--workflow` nor `COUNCIL_WORKFLOW=1` | engine.sh + Task path only (byte-for-byte today) |
+| `--workflow` **or** `COUNCIL_WORKFLOW=1` | capability probe → Workflow path if available |
+| opt-in + probe fail / Workflow unavailable | stderr `council: Workflow unavailable; falling back to engine.sh` → Task path; **not** a degraded report (`verification_mode: full`) |
+| `COUNCIL_WORKFLOW_FORCE_FALLBACK=1` | forces probe fail (test harness) |
+
+**Driver:** `skills/council/workflow.js` (schemas in `workflow-schemas.js`).
+Capability probe: `skills/council/workflow-probe.sh`.
+
+**Shared finalize (parity):** Workflow path writes handoff JSON under
+`"${TMPDIR:-/tmp}/council-wf-*"` then calls existing:
+
+```
+engine.sh finalize --plan-file P --evidence-file E --judge-output J
+  [--verification-mode full|self-verified]
+  [--cross-review-status …] [--cross-review-rankings …] [--cross-review-scores …]
+```
+
+No dual report/index renderers. Downstream (TaskCompleted, `/retro`) cannot
+tell which path produced a run.
+
+**No PYREPAIR on Workflow path:** schema-forced `agent()` output only. Schema
+violation → step failure → retry-or-self-verify (CDV-199), never silent repair.
+The engine.sh Task path keeps `repair_json_file` / `PYREPAIR` for free-form JSON.
+
+**Judge tool-less:** judgment step uses `agentType: 'dev-team:council-judge'`
+(plugin-qualified as installed); empty tools from `agents/council-judge.md`.
+
+**Single-source prompts/flavors:** `workflow.js` loads `prompts/*` and
+`flavors/*` at runtime and substitutes the same `{{VARS}}` as
+`commands/council.md` / each prompt's `## Variables` table. No forked bodies.
+
+**CDV-199 degradation:** on unusable `agent()` result, the workflow driver
+(orchestrator-equivalent) performs the missing role's work (never grant tools
+to a judge persona) and passes `--verification-mode self-verified` to finalize.
+Marker string is rendered only by engine finalize — `workflow.js` MUST NOT
+retype `self-verified — refuters unavailable`. See § Spawn-failure degradation.
+
+**Args guard (shared with CDV-197):**
+`typeof args === 'string' ? JSON.parse(args) : args` — Workflow may deliver
+arguments as a JSON-encoded string. Distinct from CDV-197 (`/fix-ticket`
+promotion); share convention only.
+
+**Token summary (SHOULD):** when the Workflow budget API is available, print
+per-run / per-phase token usage on stdout. Engine Task path may still omit.
+
+**Callers:** `commands/council.md` and `skills/review-and-commit/SKILL.md`
+honor the same opt-in + fallback. Diff-mode (`finding[]`) skips Phase 4 on
+both paths.
+
+*Traceability:* SPEC-013 Council-on-Workflow execution path (CDV-196).
 
 ### Phase 2.5 — Blind Cross-Review
 
@@ -692,7 +756,8 @@ primarily a code review discipline (the prompt templates are reviewed against th
 | `skills/orchestrate/task-store.sh` | Writes `.claude/tasks/<task_id>.json` with task metadata (including `requires_council: true`). The engine does NOT write to this file; the orchestrator owns it. Referenced by SPEC-009. |
 | `agents/council-judge.md` | The Judge agent invoked in Phase 5. Empty tool allowlist. |
 | `skills/review-and-commit/SKILL.md` | Calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
-| `commands/council.md` | Thin wrapper; passes CLI args through to `engine.sh` unchanged. |
+| `commands/council.md` | Thin wrapper; passes CLI args through to `engine.sh` unchanged; routes opt-in Workflow path via `workflow.js`. |
+| `skills/council/workflow.js` | Optional Workflow-tool driver (CDV-196); schema-forced agent steps + shared finalize. |
 | `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate. Never calls the engine. Authoritative behavior is SPEC-002's domain — referenced here, not re-specified. |
 | `commands/retro.md` | Prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. The `--from-retro` scope fails loud in COUNCIL-001 — users will see the fail-loud message, which is correct (SPEC-013 line 114, locked decision 8). |
 

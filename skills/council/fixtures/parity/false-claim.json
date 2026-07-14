@@ -1,0 +1,8 @@
+{
+  "id": "parity-false-1",
+  "claim": "the retry logic in commands/retro.md uses exponential backoff with jitter",
+  "expect": {
+    "verdict_in": ["FABRICATED", "CONTRADICTED", "UNVERIFIED"],
+    "notes": "retro.md has no exponential backoff; classic fabrication fixture from SPEC-013 Test 1"
+  }
+}

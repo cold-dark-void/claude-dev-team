@@ -1,0 +1,8 @@
+{
+  "id": "parity-true-1",
+  "claim": "agents/council-judge.md declares tools: \"\" making the judge tool-less",
+  "expect": {
+    "verdict_in": ["VERIFIED", "PARTIALLY_VERIFIED"],
+    "notes": "Grounded in agents/council-judge.md frontmatter tools: \"\""
+  }
+}
