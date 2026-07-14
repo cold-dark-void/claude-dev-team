@@ -39,15 +39,45 @@ if [ "$ec_miss" -eq 2 ] && rg -q 'not found|not readable|requires a path' "${TMP
 else
   echo "FAIL: plan missing path exit=$ec_miss (want 2)"; fail=1
 fi
-set +e
-bash skills/council/engine.sh preflight --scope from-retro --scope-arg anchor-x >/dev/null 2>"${TMPDIR:-/tmp}/cdv208-fr.err"
-ec_fr=$?
-set -e
-if [ "$ec_fr" -eq 3 ] && rg -q 'not implemented' "${TMPDIR:-/tmp}/cdv208-fr.err"; then
-  echo "OK: from-retro still deferred exit 3"
+# CDV-212 from-retro scope preflight
+FIX_ANCHOR=skills/council/fixtures/from-retro-anchor.json
+if [ -f "$FIX_ANCHOR" ] \
+  && jq -e '.anchor_id and .fabricated_claim_text and .session_id and .turn_id' "$FIX_ANCHOR" >/dev/null; then
+  echo "OK: from-retro fixture present"
 else
-  echo "FAIL: from-retro exit=$ec_fr (want 3)"; fail=1
+  echo "FAIL: missing/invalid $FIX_ANCHOR"; fail=1
 fi
+set +e
+bash skills/council/engine.sh preflight --scope from-retro --scope-arg missing-cdv212-anchor >/dev/null 2>"${TMPDIR:-/tmp}/cdv212-fr-miss.err"
+ec_fr_miss=$?
+set -e
+if [ "$ec_fr_miss" -eq 2 ] && rg -q 'not found|requires an anchor' "${TMPDIR:-/tmp}/cdv212-fr-miss.err"; then
+  echo "OK: from-retro missing anchor → exit 2"
+else
+  echo "FAIL: from-retro missing exit=$ec_fr_miss (want 2)"; fail=1
+fi
+# Present fixture: stage under $MROOT/.claude/retro/anchors/ then preflight
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || _MROOT=$(pwd)
+AID=$(jq -r '.anchor_id' "$FIX_ANCHOR")
+ANCHOR_DIR="$_MROOT/.claude/retro/anchors"
+mkdir -p "$ANCHOR_DIR"
+cp "$FIX_ANCHOR" "$ANCHOR_DIR/${AID}.json"
+set +e
+FR_JSON=$(bash skills/council/engine.sh preflight --scope from-retro --scope-arg "$AID" 2>"${TMPDIR:-/tmp}/cdv212-fr-ok.err")
+ec_fr_ok=$?
+set -e
+if [ "$ec_fr_ok" -eq 0 ] && printf '%s' "$FR_JSON" | jq -e \
+  --arg aid "$AID" \
+  --arg claim "$(jq -r '.fabricated_claim_text' "$FIX_ANCHOR")" \
+  '.scope=="from-retro" and .preset=="generic" and .phases["1_claim_extraction"].skip==true and .scope_arg==$aid and .resolved_claim==$claim and (.slug|test("^from-retro-"))' >/dev/null; then
+  echo "OK: from-retro present → skip extract + resolved_claim"
+else
+  echo "FAIL: from-retro present preflight exit=$ec_fr_ok"; fail=1
+  cat "${TMPDIR:-/tmp}/cdv212-fr-ok.err" >&2 || true
+fi
+# Leave staged fixture for local re-runs; tests are idempotent overwrite.
 if bash skills/council/engine.sh preflight --scope plan --scope-arg "$FIX_PLAN" \
   | jq -e '.scope=="plan" and .preset=="generic" and .phases["1_claim_extraction"].skip==false and (.phases["1_claim_extraction"].prompt|test("plan-extractor")) and (.claim_budget==10) and (.slug|test("^plan-"))' >/dev/null; then
   echo "OK: plan preflight JSON (generic, extract, plan-extractor, slug)"
@@ -60,9 +90,9 @@ else
   echo "OK: council.md does not defer --plan"
 fi
 if rg -n 'from-retro' commands/council.md | rg -q 'DEFERRED|deferred|exits 3'; then
-  echo "OK: council.md keeps from-retro deferred"
+  echo "FAIL: council.md still defers from-retro"; fail=1
 else
-  echo "FAIL: from-retro deferred note missing in council.md"; fail=1
+  echo "OK: council.md does not defer from-retro"
 fi
 
 # CDV-206 --why preflight

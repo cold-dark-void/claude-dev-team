@@ -312,10 +312,18 @@ export async function runCouncil(runtime) {
 
   let claims = []
   if (skipExtract) {
+    const retroClaim = plan.resolved_claim || ''
+    const claimText =
+      plan.scope === 'from-retro'
+        ? retroClaim || t.claim || ''
+        : plan.scope_arg || t.claim || retroClaim || ''
     claims = [
       {
-        claim: plan.scope_arg || t.claim || '',
-        source_locator: 'cli:claim',
+        claim: claimText,
+        source_locator:
+          plan.scope === 'from-retro' && plan.scope_arg
+            ? `retro:${plan.scope_arg}`
+            : 'cli:claim',
         claim_type: 'factual',
       },
     ]

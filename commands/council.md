@@ -27,7 +27,7 @@ to `.claude/council/index.json`.
 - `/council --session [--last N]` — audit a slice of the current session transcript
 - `/council --diff` — audit staged diff (equivalent to /review-and-commit dispatch path)
 - `/council --plan <path>` — audit a plan file for unverified assumptions (Phase 1 uses `plan-extractor.md`)
-- `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (DEFERRED to CDV-212, fails loudly)
+- `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (reads `$MROOT/.claude/retro/anchors/<id>.json`)
 - `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
 - `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1`
 - `/council --why` — print short debug section after summary (flavors, specialist stub, claim budget, preset source)
@@ -73,14 +73,14 @@ it. The engine does NOT accept the user-facing scope flags (`--session`,
 | `--session --last N` | `--scope session --last N` |
 | `--diff` | `--scope diff` |
 | `--plan <path>` | `--scope plan --scope-arg <path>` (path must be readable; else exit 2) |
-| `--from-retro <id>` | `--scope from-retro --scope-arg <id>` (exits 3, deferred until CDV-212) |
+| `--from-retro <id>` | `--scope from-retro --scope-arg <id>` (loads `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2) |
 | `--task-id <id>` | `--task-id <id>` (passthrough) |
 | `--why` | `--why` (passthrough) |
 
 The engine validates scope, resolves task-id (via `--task-id` flag →
 `CLAUDE_TASK_ID` env → unbound), resolves preset (`--scope diff` → `diff-mode`,
-`--scope plan` → `generic`, otherwise `generic`), fails loudly on missing
-scopes (exit 2) and on remaining deferred scope `--from-retro` (exit 3).
+`--scope plan|from-retro|claim|session` → `generic`), fails loudly on missing
+scopes, bad plan paths, or missing retro anchors (exit 2).
 
 ```bash
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
@@ -94,19 +94,19 @@ EXIT=$?
 
 Exit code handling:
 
-- **Exit 2 (no scope / bad plan path / mutually exclusive scopes):** print
+- **Exit 2 (no scope / bad plan path / missing retro anchor / mutually exclusive scopes):** print
   engine's stderr verbatim and exit. Do NOT continue. Missing or unreadable
-  `--plan` path is exit 2 (not deferred).
-- **Exit 3 (deferred scope: `--from-retro` only):** print engine's stderr
-  verbatim and exit. Do NOT silently treat as another scope.
+  `--plan` path and missing `--from-retro` anchor file are exit 2.
 - **Exit 4 (unknown preset):** print engine's stderr verbatim and exit.
 - **Exit 0:** `$PLAN_FILE` contains the investigation-plan JSON. Proceed to
   Step 3.
 
 The investigation-plan JSON emitted by `preflight` contains at minimum:
-`scope`, `scope_arg`, `preset`, `output_shape`, `task_id` (or null),
+`scope`, `scope_arg`, `resolved_claim` (claim text when `scope` is `from-retro`;
+empty otherwise), `preset`, `output_shape`, `task_id` (or null),
 `claim_budget`, `phases.1_claim_extraction.skip` (bool — true when extraction
-should be skipped, i.e. for single pasted claims), and `flavors` (array).
+should be skipped, i.e. for single pasted claims and `--from-retro`), and
+`flavors` (array).
 
 ## Step 2.5: Execution-path routing (CDV-196)
 
@@ -159,7 +159,8 @@ execution). (Skipped when Step 2.5 selected Workflow.)
 
 Run when `phases.1_claim_extraction.skip` is `false` in the investigation plan
 (i.e. for `--session`, `--diff`, and `--plan` scopes). Skip for single pasted
-claims — extraction is not needed when the claim is already isolated.
+claims and `--from-retro` — extraction is not needed when the claim is already
+isolated.
 
 Use the prompt path from `plan.phases.1_claim_extraction.prompt` (session/diff
 → `claim-extractor.md`; plan → `plan-extractor.md`).
@@ -190,6 +191,20 @@ prompt: skills/council/prompts/plan-extractor.md
     {{CLAIM_BUDGET}} ← plan.claim_budget (default 10)
 ```
 
+**From-retro / single claim** (`phases.1_claim_extraction.skip == true`) — do
+not spawn an extractor. Build a one-element claim list:
+
+```
+claim.claim          ← plan.resolved_claim if scope is from-retro, else plan.scope_arg
+claim.source_locator ← "retro:<anchor-id>" when scope is from-retro; else "cli:claim"
+claim.claim_type     ← "factual"
+```
+
+When `plan.scope == "from-retro"`, optionally Read
+`$MROOT/.claude/retro/anchors/<plan.scope_arg>.json` for
+`evidence_for_fabrication` / `source_jsonl_path` to enrich `{{RAW_ARTIFACTS}}`
+in Phase 2 (artifacts only — no prior narrative).
+
 Receive the structured claim list: `[{ claim, source_locator, claim_type }]`.
 Plan locators use `file:heading-path:line`. For diff-mode the records are
 candidate findings `{ file, line, description }`.
@@ -200,10 +215,10 @@ orchestrator performs extraction with tools; set `degraded=true`. Protocol:
 
 ### Phase 2 — Parallel Investigation
 
-For each claim from Phase 1 (or the single pasted claim), spawn at least 2
-investigator Task subagents in parallel with distinct flavor presets. Minimum:
-`paranoid-ic` flavor + at least one other (e.g. `jaded-senior`) to prevent
-monoculture. Use `plan.flavors` to determine which flavors to spawn.
+For each claim from Phase 1 (or the single pasted / from-retro claim), spawn at
+least 2 investigator Task subagents in parallel with distinct flavor presets.
+Minimum: `paranoid-ic` flavor + at least one other (e.g. `jaded-senior`) to
+prevent monoculture. Use `plan.flavors` to determine which flavors to spawn.
 
 Spawn pattern (one Agent per claim per flavor):
 
@@ -214,7 +229,7 @@ prompt: skills/council/prompts/investigator.md
   with substitutions:
     {{CLAIM_TEXT}}     ← claim.claim (verbatim)
     {{SOURCE_LOCATOR}} ← claim.source_locator
-    {{RAW_ARTIFACTS}}  ← raw files / logs / diff (artifacts only)
+    {{RAW_ARTIFACTS}}  ← raw files / logs / diff / anchor evidence (artifacts only)
     {{FLAVOR_DELTA}}   ← contents of skills/council/flavors/<flavor>.md body
     # tool allowlist is fixed in the investigator prompt body (not substituted)
 ```
@@ -551,8 +566,8 @@ Warning: N verdict lines were struck for missing evidence — see <report path> 
 
 - **No scope and no prior context** → engine exits 2 → print usage and exit
 - **Missing/unreadable `--plan` path** → engine exits 2 → print stderr and exit
-- **Deferred scope (`--from-retro` only)** → engine exits 3 → print the
-  engine's stderr message verbatim and exit. Do NOT silently treat as another scope.
+- **Missing/unreadable `--from-retro` anchor** → engine exits 2 → print stderr
+  and exit (`$MROOT/.claude/retro/anchors/<id>.json` not found)
 - **Unknown preset** → engine exits 4 → print stderr and exit
 - **Engine not found** → print clear error mentioning expected paths and exit
 - **Investigator returns no evidence** → legal "no evidence found" outcome;
@@ -577,5 +592,6 @@ Warning: N verdict lines were struck for missing evidence — see <report path> 
 - Phase 3 (domain specialist) is a no-op in COUNCIL-001 — skip entirely
 - Phase 7 (feedback memory) is invoked by the engine for `verdict[]`-shape
   runs only; the command does not call it directly
-- Deferred scopes MUST fail loudly via engine exit code 3 — never silently
+- Missing scopes and missing retro anchors MUST fail loudly via engine exit
+  code 2 — never silently
   substitute another behavior

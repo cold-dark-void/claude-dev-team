@@ -95,7 +95,7 @@ preset selector). The argument surface:
 | `--session --last N` | Audit last N turns only | Supported |
 | `--diff` | Audit staged diff (review-and-commit entry path) | Supported |
 | `--plan <path>` | Audit a plan file for unverified assumptions | Supported (CDV-208) |
-| `--from-retro <anchor-id>` | Audit a fabrication anchor from `/retro` | **Deferred — fail loud** (CDV-212) |
+| `--from-retro <anchor-id>` | Audit a fabrication anchor from `/retro` | Supported (CDV-212) |
 | `--task-id <id>` | Bind this run to an orchestrated task id | Supported |
 | `--preset <name>` | Explicit preset selector (else inferred from scope) | Supported |
 | `--workflow` | Opt-in Workflow execution path (CDV-196); orthogonal to scope | Supported |
@@ -114,20 +114,17 @@ multiple scopes. A zero-scope invocation reaches the engine as an empty
 `--scope` and MUST exit non-zero with a clear stderr message. (SPEC-013
 line 30)
 
-Deferred scope (`--from-retro` only, until CDV-212) MUST be recognized by the
-arg parser and MUST fail loudly with the exact message (`<flag>` is the scope name):
-
-```
-engine.sh: --<flag> is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.
-```
-
-…and exit non-zero (exit 3). The engine MUST NOT silently accept it, treat it as
-a no-op, or fall through to another scope. (Locked decision 8.)
-
 `--plan <path>` is live (CDV-208): missing/unreadable path → exit 2 with a clear
 stderr message; present path → preset `generic`, Phase 1 extraction via
 `skills/council/prompts/plan-extractor.md`, source locators
 `file:heading-path:line`.
+
+`--from-retro <anchor-id>` is live (CDV-212): loads
+`$MROOT/.claude/retro/anchors/<anchor-id>.json` (MROOT, not WTROOT). Missing
+or unreadable file, invalid JSON, or empty `fabricated_claim_text` → exit 2.
+Present → preset `generic`, Phase 1 **skip**, investigation plan includes
+`resolved_claim` (claim text) with `scope_arg` still the anchor-id. Fixture:
+`skills/council/fixtures/from-retro-anchor.json`.
 
 ### Presets
 
@@ -206,8 +203,8 @@ Orchestrated-task invocations rely on SPEC-009's `CLAUDE_TASK_ID` export
 
 Parse args → resolve scope → resolve task id (fallback chain above) →
 resolve preset (explicit or inferred) → validate mutually exclusive flags →
-fail loud on deferred `--from-retro` → validate `--plan` path readable →
-fail loud on no-scope invocation.
+validate `--plan` path readable → load `--from-retro` anchor JSON (missing →
+exit 2) → fail loud on no-scope invocation.
 
 For diff-mode only: run spec-grep over the changed file paths against
 `specs/**/*.md` MUST requirements and produce an "applicable-specs" bundle.
@@ -230,8 +227,10 @@ validation + input assembly.
 - `--diff` (diff-mode): extraction runs over the diff + applicable-specs
   bundle and produces candidate **findings** (not claims-as-assertions) —
   the finding IS the assertion in diff-mode. (SPEC-013 line 48.)
-- Single pasted claim (`"<claim>"`) and `--from-retro` (deferred): extraction
-  is SKIPPED — the claim is already isolated. (SPEC-013 line 50.)
+- Single pasted claim (`"<claim>"`) and `--from-retro <anchor-id>`: extraction
+  is SKIPPED — the claim is already isolated. For from-retro, claim text is
+  `resolved_claim` from the anchor file; locator `retro:<anchor-id>`.
+  (SPEC-013 line 50; CDV-212.)
 
 **Output shape (structured records):**
 
@@ -862,7 +861,7 @@ primarily a code review discipline (the prompt templates are reviewed against th
 | `commands/council.md` | Thin wrapper; passes CLI args through to `engine.sh` unchanged; routes opt-in Workflow path via `workflow.js`. |
 | `skills/council/workflow.js` | Optional Workflow-tool driver (CDV-196); schema-forced agent steps + shared finalize. |
 | `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate. Never calls the engine. Authoritative behavior is SPEC-002's domain — referenced here, not re-specified. |
-| `commands/retro.md` | Prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. The `--from-retro` scope fails loud in COUNCIL-001 — users will see the fail-loud message, which is correct (SPEC-013 line 114, locked decision 8). |
+| `commands/retro.md` | Prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. Persists anchors to `$MROOT/.claude/retro/anchors/<id>.json` after validation (single writer; CDV-212). |
 
 ---
 
@@ -875,25 +874,25 @@ exit codes to decide whether to continue.
 | Exit | Meaning | Stderr message contract |
 |---|---|---|
 | 0 | Success | none on stderr |
-| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff\|plan)` |
+| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff\|plan\|from-retro)` |
 | 2 | Unknown preflight flag | `engine.sh: unknown preflight flag: <flag>` |
 | 2 | Plan path missing / unreadable | `engine.sh: plan file not found or not readable: <path>` (or `--plan requires a path`) |
-| 3 | Deferred scope: `--from-retro` | `engine.sh: --from-retro is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.` |
+| 2 | Retro anchor missing / unreadable / invalid | `engine.sh: retro anchor not found: <path>` (or requires anchor-id / missing fabricated_claim_text / not valid JSON) |
+| 3 | Reserved | (unused after CDV-212; no deferred scopes remain) |
 | 4 | Unknown preset | `engine.sh: unknown preset: <name> — known: generic, diff-mode` |
 | 5 | Empty evidence **and** no self-verify path | `engine.sh: Phase 2 produced zero evidence bundles — aborting` (after spawn failure, attempt orchestrator self-verify first — see Spawn-failure degradation; exit 5 only if still empty) |
 | 6 | Index write failure | `engine.sh: failed to update .claude/council/index.json` |
 | 7 | Judge returned malformed/empty output | `engine.sh: judge output is not valid JSON and repair failed: <detail>` (also covers an empty or refused judge result, which fails JSON repair) |
 
-Exit code 3 is reserved for deferred-scope fail-loud per locked decision 8.
-
 ---
 
 ## Deferred / remaining backlog
 
-- **`--from-retro <anchor-id>` scope** — still deferred (CDV-212). Arg parser
-  MUST recognize it and fail loud with the COUNCIL-002 message. `/retro`
-  still prints the hint but running the hinted command fails until CDV-212.
-  (SPEC-013 line 29, locked decision 8.)
+- **`--from-retro <anchor-id>` scope** — **implemented CDV-212**. Preflight
+  loads `$MROOT/.claude/retro/anchors/<id>.json` (exit 2 if missing); Phase 1
+  skip; `resolved_claim` in investigation plan. Fixture:
+  `skills/council/fixtures/from-retro-anchor.json`. `/retro` is the single
+  writer of anchor files after validation.
 - **`--plan <path>` scope** — **implemented CDV-208**. Preflight requires a
   readable path (exit 2 if missing); Phase 1 uses `plan-extractor.md`;
   rest of pipeline claim-shape agnostic. Fixture:

@@ -624,6 +624,7 @@ for o in d.get("observations", []) or []:
     print("observation\t%s\t%s" % (
         (o.get("description","") or "").replace("\t"," "), src))
 # fabrication_anchors (SPEC-012 §Phase 2 / SPEC-013 §Integration Hooks)
+# Columns: aid, tid, claim, evid, source_jsonl (src from outer SUBAGENT_RESULTS)
 for fa in d.get("fabrication_anchors", []) or []:
     aid   = (fa.get("anchor_id","") or "").replace("\t"," ")
     tid   = (fa.get("turn_id","") or "").replace("\t"," ")
@@ -632,13 +633,13 @@ for fa in d.get("fabrication_anchors", []) or []:
     # Drop records missing required fields (SKILL.md validation contract)
     if not tid or not evid or not aid or not claim:
         continue
-    print("fabrication_anchor\t%s\t%s\t%s\t%s" % (aid, tid, claim, evid))
+    print("fabrication_anchor\t%s\t%s\t%s\t%s\t%s" % (aid, tid, claim, evid, src))
 PY
 }
 
 RAW_PROPOSALS=""
 OBSERVATIONS=""
-RAW_FABRICATION_ANCHORS=""   # newline-separated: anchor_id<TAB>turn_id<TAB>claim<TAB>evidence
+RAW_FABRICATION_ANCHORS=""   # newline-separated: anchor_id<TAB>turn_id<TAB>claim<TAB>evidence<TAB>source_jsonl
 
 while IFS= read -r LINE; do
   [ -z "$LINE" ] && continue
@@ -649,10 +650,10 @@ while IFS= read -r LINE; do
   while IFS=$'\t' read -r KIND F1 F2 F3 F4 F5 F6 F7; do
     case "$KIND" in
       fabrication_anchor)
-        AID="$F1"; TID="$F2"; CLAIM="$F3"; EVID="$F4"
+        AID="$F1"; TID="$F2"; CLAIM="$F3"; EVID="$F4"; SRCJ="${F5:-$SRC}"
         [ -z "$AID" ] || [ -z "$TID" ] || [ -z "$EVID" ] && continue
         RAW_FABRICATION_ANCHORS="$RAW_FABRICATION_ANCHORS
-$AID	$TID	$CLAIM	$EVID"
+$AID	$TID	$CLAIM	$EVID	$SRCJ"
         ;;
       proposal)
         TARGET="$F1"; TEXT="$F2"; CONF="$F3"; CITES="$F4"; CITESJSON="$F5"; PSUM="$F6"; SRCJ="$F7"
@@ -750,6 +751,59 @@ $AID"
 $row"
 done <<< "$RAW_FABRICATION_ANCHORS"
 FABRICATION_ANCHORS=$(echo "$FABRICATION_ANCHORS" | sed '/^[[:space:]]*$/d')
+
+# Persist anchors to $MROOT/.claude/retro/anchors/<id>.json (CDV-212 design a).
+# Single writer: this command after validation/dedup — NOT the subagent.
+# Idempotent overwrite OK (deterministic anchor_id). Shared across worktrees.
+if [ -n "$FABRICATION_ANCHORS" ]; then  # lint-ok: C1
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  ANCHOR_DIR="$MROOT/.claude/retro/anchors"
+  mkdir -p "$ANCHOR_DIR"
+  while IFS= read -r row; do
+    [ -z "$row" ] && continue
+    AID=$(printf '%s' "$row" | cut -f1)
+    TID=$(printf '%s' "$row" | cut -f2)
+    CLAIM=$(printf '%s' "$row" | cut -f3)
+    EVID=$(printf '%s' "$row" | cut -f4)
+    SRCJ=$(printf '%s' "$row" | cut -f5)
+    # Path-safe id only (reject traversal)
+    case "$AID" in
+      *[!a-zA-Z0-9._-]*|"") 
+        echo "# retro: skip persist anchor (invalid anchor_id=$AID)" >&2
+        continue
+        ;;
+    esac
+    SESSION_ID=$(basename -- "${SRCJ:-unknown}" .jsonl)
+    CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    TMPA=$(mktemp "${TMPDIR:-/tmp}/retro-anchor.XXXXXX.json") \
+      || { echo "# retro: mktemp failed for anchor $AID" >&2; continue; }
+    if jq -n \
+      --arg anchor_id "$AID" \
+      --arg session_id "$SESSION_ID" \
+      --arg turn_id "$TID" \
+      --arg fabricated_claim_text "$CLAIM" \
+      --arg evidence_for_fabrication "$EVID" \
+      --arg source_jsonl_path "$SRCJ" \
+      --arg created_at "$CREATED_AT" \
+      '{
+        anchor_id: $anchor_id,
+        session_id: $session_id,
+        turn_id: $turn_id,
+        fabricated_claim_text: $fabricated_claim_text,
+        evidence_for_fabrication: $evidence_for_fabrication,
+        source_jsonl_path: $source_jsonl_path,
+        created_at: $created_at
+      }' > "$TMPA"; then
+      mv -f "$TMPA" "$ANCHOR_DIR/${AID}.json"
+      echo "# retro: persisted fabrication anchor $AID → $ANCHOR_DIR/${AID}.json" >&2
+    else
+      rm -f "$TMPA"
+      echo "# retro: failed to write anchor JSON for $AID" >&2
+    fi
+  done <<< "$FABRICATION_ANCHORS"
+fi
 ```
 
 ### Step 4e: Rank and cap to top 5
@@ -1520,9 +1574,9 @@ These hints are plain suggestions — NOT auto-invocations. This command does NO
 call `/council` itself, does NOT block completion on fabrication anchor detection,
 and does NOT require user action. They are advisory only.
 
-In COUNCIL-001 (v0.18.0), `/council --from-retro <anchor-id>` fails loudly with
-"not implemented in COUNCIL-001, planned for COUNCIL-002" — this is expected per
-the locked deferred-scope decision. The hint is printed for forward-compat.
+Anchors are persisted under `$MROOT/.claude/retro/anchors/<id>.json` after
+validation (Step 4d) so `/council --from-retro <anchor-id>` can load them
+without re-scanning session JSONL (CDV-212 / SPEC-012 / SPEC-013).
 
 ```bash
 if [ -n "$FABRICATION_ANCHORS" ]; then  # lint-ok: C1
@@ -1534,7 +1588,6 @@ if [ -n "$FABRICATION_ANCHORS" ]; then  # lint-ok: C1
     AID=$(printf '%s' "$row" | cut -f1)
     echo "  - Consider: /council --from-retro $AID"
   done <<< "$FABRICATION_ANCHORS"
-  echo "(Note: /council --from-retro is deferred to COUNCIL-002; the hint is for forward-compat.)"
 fi
 ```
 

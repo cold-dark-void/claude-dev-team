@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.65.0
+- **`/council --from-retro` (CDV-212)** — retro persists anchors under `.claude/retro/anchors/`; council loads claim and skips Phase 1; deferred exit 3 removed for from-retro
+
 ### v0.64.0
 - **`/council --plan <path>` (CDV-208)** — plan-file claim extraction live; plan-extractor prompt; deferred exit removed for plan (from-retro still deferred)
 

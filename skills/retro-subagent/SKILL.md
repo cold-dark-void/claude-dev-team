@@ -239,7 +239,27 @@ Any `fabrication_anchor` record missing `turn_id` or `evidence_for_fabrication`
 MUST be dropped (same evidence-or-silence rule as proposals). Records with an
 empty or non-string `anchor_id` or `fabricated_claim_text` MUST also be dropped.
 After filtering, surviving fabrication anchors are passed to the calling command
-for dedup and hint printing.
+for dedup, disk persist, and hint printing.
+
+**Disk persist (CDV-212, single writer = `commands/retro.md`):** after
+validation/dedup the calling command writes one JSON file per anchor to
+`$MROOT/.claude/retro/anchors/<anchor_id>.json` (MROOT, not WTROOT; gitignored
+under `.claude/retro/`). Schema:
+
+```json
+{
+  "anchor_id": "<16 hex>",
+  "session_id": "<basename of SESSION_JSONL without .jsonl>",
+  "turn_id": "<UUID>",
+  "fabricated_claim_text": "<excerpt>",
+  "evidence_for_fabrication": "<citation>",
+  "source_jsonl_path": "<absolute path to SESSION_JSONL>",
+  "created_at": "<ISO-8601 UTC>"
+}
+```
+
+Idempotent overwrite is OK (deterministic `anchor_id`). The subagent MUST NOT
+write these files itself — only emit `fabrication_anchors[]` in the JSON line.
 
 If the subagent returns invalid JSON or fails to return at all, the command should
 log the failure with the session ID and continue with zero proposals for that session

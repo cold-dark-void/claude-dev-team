@@ -14,9 +14,10 @@
 # commands/retro.md.
 #
 # Two execution modes:
-#   preflight — parse args, resolve scope/task-id/preset, fail loud on
-#     deferred scopes, emit an investigation-plan JSON document to stdout
-#     describing what the orchestrating Claude must spawn for phases 1-5.
+#   preflight — parse args, resolve scope/task-id/preset (from-retro loads
+#     $MROOT/.claude/retro/anchors/<id>.json), emit an investigation-plan
+#     JSON document to stdout describing what the orchestrating Claude must
+#     spawn for phases 1-5.
 #   finalize  — consume evidence bundles + judge output (as files), validate
 #     output_shape, render the report from skills/council/templates/, write
 #     it, and call index-writer.sh for the atomic index update.
@@ -54,7 +55,7 @@ Subcommands:
   resolve-task-id  [--task-id ID]   Print resolved id (or empty line).
   report-path SLUG [--task-id ID]   Print canonical report path.
 
-Exit codes: 0 ok | 2 usage/no-scope | 3 deferred scope | 4 unknown preset
+Exit codes: 0 ok | 2 usage/no-scope | 3 reserved (unused; no deferred scopes) | 4 unknown preset
             5 empty evidence | 6 index-writer failure | 7 schema mismatch
 USAGE
 }
@@ -123,12 +124,14 @@ cmd_report_path() {
 
 # ---- preflight --------------------------------------------------------------
 # Parse scope flags → validate → resolve preset → emit investigation-plan
-# JSON to stdout. Deferred scopes exit 3; no scope exit 2; bad preset exit 4.
+# JSON to stdout. No-scope / missing from-retro anchor / bad plan path → exit 2;
+# bad preset → exit 4. Exit 3 reserved (no deferred scopes remain after CDV-212).
 cmd_preflight() {
   require_jq
 
   local scope="" scope_arg="" last="" task_id="" preset="" why="false"
   local preset_source="inferred"
+  local resolved_claim="" anchor_file=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -147,20 +150,12 @@ cmd_preflight() {
 
   # No-scope invocation → usage error (exit 2)
   if [ -z "$scope" ]; then
-    echo "engine.sh: scope required (--scope claim|session|diff|plan)" >&2
+    echo "engine.sh: scope required (--scope claim|session|diff|plan|from-retro)" >&2
     usage
     exit 2
   fi
 
-  # Deferred scopes → exit 3 with exact message (from-retro until CDV-212)
-  case "$scope" in
-    from-retro)
-      echo "engine.sh: --${scope} is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013." >&2
-      exit 3
-      ;;
-  esac
-
-  # Plan scope: require a readable file path (missing/unreadable → exit 2, not 3)
+  # Plan scope: require a readable file path (missing/unreadable → exit 2)
   if [ "$scope" = "plan" ]; then
     if [ -z "$scope_arg" ]; then
       echo "engine.sh: --plan requires a path (--scope-arg <path>)" >&2
@@ -172,6 +167,31 @@ cmd_preflight() {
     fi
   fi
 
+  # from-retro: load $MROOT/.claude/retro/anchors/<id>.json (CDV-212 design a).
+  # Missing/unreadable/malformed → exit 2 (not deferred). Claim already isolated
+  # → Phase 1 skip; resolved_claim carries fabricated_claim_text for Phase 2.
+  if [ "$scope" = "from-retro" ]; then
+    if [ -z "$scope_arg" ]; then
+      echo "engine.sh: --from-retro requires an anchor-id (--scope-arg <id>)" >&2
+      exit 2
+    fi
+    validate_path_component "anchor-id" "$scope_arg"
+    anchor_file="$MROOT/.claude/retro/anchors/${scope_arg}.json"
+    if [ ! -f "$anchor_file" ] || [ ! -r "$anchor_file" ]; then
+      echo "engine.sh: retro anchor not found: $anchor_file" >&2
+      exit 2
+    fi
+    if ! jq -e . "$anchor_file" >/dev/null 2>&1; then
+      echo "engine.sh: retro anchor is not valid JSON: $anchor_file" >&2
+      exit 2
+    fi
+    resolved_claim=$(jq -r '.fabricated_claim_text // empty' "$anchor_file")
+    if [ -z "$resolved_claim" ]; then
+      echo "engine.sh: retro anchor missing fabricated_claim_text: $anchor_file" >&2
+      exit 2
+    fi
+  fi
+
   # Resolve task-id via fallback chain
   if [ -z "$task_id" ]; then
     task_id="${CLAUDE_TASK_ID:-}"
@@ -179,11 +199,10 @@ cmd_preflight() {
 
   # Resolve preset (explicit or inferred from scope)
   if [ -z "$preset" ]; then
-    # from-retro never reaches here — exits 3 in the deferred-scope case above.
     preset_source="inferred"
     case "$scope" in
       diff)    preset="diff-mode" ;;
-      claim|session|plan) preset="generic" ;;
+      claim|session|plan|from-retro) preset="generic" ;;
       *)
         echo "engine.sh: unknown scope: $scope" >&2
         exit 2
@@ -222,13 +241,16 @@ cmd_preflight() {
       [ -z "$slug" ] && slug="plan"
       slug="plan-${slug}"
       ;;
+    from-retro)
+      slug="from-retro-${scope_arg}"
+      ;;
     *)       slug="$scope" ;;
   esac
   local report_path
   report_path=$(cmd_report_path "$slug" --task-id "$task_id")
 
-  # Phase 1 prompt: plan scope uses plan-extractor; claim/session/diff use claim-extractor.
-  # skip=true only for single pasted claim (already isolated). Plan/session/diff extract.
+  # Phase 1 prompt: plan scope uses plan-extractor; others use claim-extractor.
+  # skip=true for single pasted claim and from-retro (claim already isolated).
   local phase1_prompt="skills/council/prompts/claim-extractor.md"
   if [ "$scope" = "plan" ]; then
     phase1_prompt="skills/council/prompts/plan-extractor.md"
@@ -239,9 +261,11 @@ cmd_preflight() {
   # uses it to drive Phase 1-5 via Task-tool spawns.
   # When --why: include why_detail (CDV-206) for stdout debug after summary.
   # Do not dump raw prompts. Phase 3 specialist string is a stub until CDV-209.
+  # from-retro: resolved_claim is fabricated_claim_text; scope_arg remains anchor-id.
   jq -n \
     --arg scope "$scope" \
     --arg scope_arg "$scope_arg" \
+    --arg resolved_claim "$resolved_claim" \
     --arg last "$last" \
     --arg task_id "$task_id" \
     --arg preset "$preset" \
@@ -260,6 +284,7 @@ cmd_preflight() {
     '{
       scope: $scope,
       scope_arg: $scope_arg,
+      resolved_claim: $resolved_claim,
       last: $last,
       task_id: $task_id,
       preset: $preset,
@@ -274,10 +299,10 @@ cmd_preflight() {
       report_path: $report_path,
       mroot: $mroot,
       phases: {
-        "1_claim_extraction": { skip: ($scope == "claim"), prompt: $phase1_prompt },
+        "1_claim_extraction": { skip: ($scope == "claim" or $scope == "from-retro"), prompt: $phase1_prompt },
         "2_parallel_investigation": { min_flavors_per_claim: 2, prompt: "skills/council/prompts/investigator.md" },
         "3_domain_specialist": { deferred: true },
-        # Phase 4 runs only for verdict[]-shape presets (claim/session/plan/generic).
+        # Phase 4 runs only for verdict[]-shape presets (claim/session/plan/from-retro/generic).
         # finding[]-shape (diff-mode) routes specialist findings straight to the
         # judge — there is no prosecutor/advocate step. See review-and-commit/SKILL.md
         # ("Phase 4 — skipped in diff-mode") and commands/council.md Phase 4.

@@ -8,6 +8,8 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 /council "<claim text>"
 /council --session [--last N]
 /council --diff
+/council --plan <path>
+/council --from-retro <anchor-id>
 /council --task-id <id>
 /council --workflow "<claim text>"
 ```
@@ -21,8 +23,8 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 | `--diff` | Audit the staged diff. Routes through the same engine as [`/review-and-commit`](./review-and-commit.md) (diff-mode preset, finding-shape output). |
 | `--task-id <id>` | Bind the run to an orchestrated task. Adds a `task_id` to the report and appends a row to `.claude/council/index.json`. Falls back to the `CLAUDE_TASK_ID` env var, then unbound. |
 | `--workflow` | Opt-in Workflow execution path (schema-forced `agent()` steps). Also `COUNCIL_WORKFLOW=1`. Orthogonal to scope. Falls back to the default Task path with a one-line stderr notice when Workflow is unavailable — never a hard fail. |
-| `--plan <path>` | Deferred to COUNCIL-002 — fails loudly (engine exit 3). |
-| `--from-retro <id>` | Deferred to COUNCIL-002 — fails loudly (engine exit 3). |
+| `--plan <path>` | Audit a plan file for unverified assumptions (CDV-208). Missing path exits 2. |
+| `--from-retro <id>` | Audit a fabrication anchor persisted by `/retro` under `.claude/retro/anchors/<id>.json` (CDV-212). Missing anchor exits 2; Phase 1 skipped. |
 
 Scope flags are mutually exclusive: exactly one of `"<claim>"`, `--session`, `--diff`, `--plan`, or `--from-retro` must be supplied. `--workflow` is not a scope. Running `/council` with no scope fails loudly with usage — it never guesses.
 
@@ -99,7 +101,7 @@ Empty evidence after self-verify still aborts (engine exit 5).
 
 - The council is a **pure auditor**: it never proposes fixes, never modifies files, never audits user-authored claims, and never runs automatically on a session or commit. Every invocation is explicit.
 - For `verdict[]` runs, a `FABRICATED` (confidence ≥ 70) or `UNVERIFIED` (≥ 85) verdict triggers a feedback-memory write — to `.claude/memory/claude/lessons.md` for plain Claude, or via `/adjust-agent` for a team-agent author. Diff-mode (`finding[]`) never writes feedback memory: a code bug is not a fabrication.
-- Deferred scopes fail loud by design. `/retro` prints `Consider: /council --from-retro <anchor-id>` as a hint; running it surfaces the COUNCIL-002 deferral message, which is the expected behavior.
+- `/retro` prints `Consider: /council --from-retro <anchor-id>` and persists anchors under `.claude/retro/anchors/`; `/council --from-retro` loads that file and skips claim extraction.
 
 ## See Also
 

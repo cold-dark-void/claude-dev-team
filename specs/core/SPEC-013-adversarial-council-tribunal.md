@@ -341,7 +341,12 @@ degradation marker — never invent a second string. Distinct from CDV-197
 3. Static: `skills/council/prompts/plan-extractor.md` exists; documents locator format `file:heading-path:line` and claim schema `{claim, source_locator, claim_type}`
 4. Static: fixture `skills/council/fixtures/plan-scope-sample.md` contains one true claim (SQLite memory path) and one fabricated claim (Rust council crate)
 5. Live (optional): `/council --plan skills/council/fixtures/plan-scope-sample.md` extracts ≥1 claim; investigators produce bundles; pipeline completes with verdicts
-6. Deferred residual: `--from-retro` still exits 3 until CDV-212
+
+### Test 21 — From-retro scope (`--from-retro <anchor-id>`, CDV-212)
+1. Static: preflight `--scope from-retro --scope-arg missing-id` exits **2** with stderr naming missing anchor path under `$MROOT/.claude/retro/anchors/`
+2. Static: stage fixture `skills/council/fixtures/from-retro-anchor.json` to `$MROOT/.claude/retro/anchors/<anchor_id>.json`; preflight exits **0**; JSON has `scope=from-retro`, `preset=generic`, `phases.1_claim_extraction.skip=true`, `resolved_claim` matching fixture `fabricated_claim_text`, `scope_arg` = anchor id
+3. Static: `/retro` single-writer contract — `commands/retro.md` persists anchors after validation; subagent emits JSON only
+4. Live (optional): `/council --from-retro <id>` skips Phase 1 and runs Phase 2–5 against the isolated claim
 
 ---
 
@@ -367,11 +372,13 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
 - [ ] `--why` (CDV-206): preflight with `--why` emits `why: true` + `why_detail` (`preset`, `flavors`, `phase3_specialist`, `claim_budget`, `preset_source`); without flag `why` is not true and no debug section; `commands/council.md` Step 5 prints short labeled block after summary; no verdict impact, no raw prompt dumps
 - [ ] Token usage (CDV-204): finalize `--tokens-file` prints `Tokens:` (or `Tokens (partial):`) when usable; omits when missing/unavailable/zeros; optional FM `tokens_total`/`tokens_by_phase`; `commands/council.md` best-effort collect + pass-through; index.json unchanged
-- [x] Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; deferred only `--from-retro` (exit 3); Test 20
+- [x] Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; Test 20
+- [x] From-retro scope (CDV-212): anchor files at `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2; present → Phase 1 skip + `resolved_claim`; exit 3 deferred removed; Test 21
 - [ ] Test 1–11 pass against the implementation
 - [x] Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
 - [ ] Test 12–19 (Council-on-Workflow) pass against the implementation
 - [ ] Test 20 (plan scope) pass against the implementation
+- [ ] Test 21 (from-retro scope) pass against the implementation
 
 ---
 
@@ -379,6 +386,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-07-14 | CDV-212: `/council --from-retro <anchor-id>` live — preflight loads `$MROOT/.claude/retro/anchors/<id>.json` (exit 2 if missing); preset `generic`; Phase 1 skip; `resolved_claim` in investigation plan; `/retro` single-writer after validation; exit 3 deferred residual removed. Test 21. |
 | 2026-07-14 | CDV-208: `/council --plan <path>` live — preflight requires readable path (exit 2 if missing, not exit 3); preset `generic`; Phase 1 via `skills/council/prompts/plan-extractor.md` with locator `file:heading-path:line`; fixture `skills/council/fixtures/plan-scope-sample.md`; `--from-retro` remains deferred exit 3 until CDV-212. Test 20. |
 | 2026-04-09 | Initial spec created from brainstorm `.claude/plans/2026-04-09-brainstorm-council.md` |
 | 2026-04-09 | Taxonomy resolution: added Output Shapes section declaring `verdict[]` and `finding[]` as first-class engine outputs; Phase 1 enriches diff-mode input with applicable-specs bundle; Phase 5 Judge emits the shape declared by the preset (empty tool allowlist unchanged); Phase 6 report template branches on shape; Phase 7 feedback memory scoped to `verdict[]` only; findings require `tool_use_id` citations; confidence unified as 0–100 with per-shape thresholds. |

@@ -114,6 +114,7 @@ conflict-detection and holistic-rewrite guarantees.
 - `/retro` MUST print `Consider: /council --from-retro <anchor-id>` as a plain suggestion for each detected `fabrication_anchor` at completion (SPEC-013 integration)
 - The `/council` hint MUST NOT auto-run `/council`, MUST NOT block completion, MUST NOT require user action (mirrors the `/kickoff` and `/orchestrate` hint contracts above)
 - `/retro` MUST surface at most one `/council` hint per distinct anchor-id (dedup within a single run)
+- `/retro` MUST persist each surviving `fabrication_anchor` (after validation and in-run anchor-id dedup) to `$MROOT/.claude/retro/anchors/<anchor_id>.json` (MROOT-shared, not WTROOT; directory gitignored under `.claude/retro/`). Schema MUST include: `anchor_id`, `session_id`, `turn_id`, `fabricated_claim_text`, `evidence_for_fabrication`, `source_jsonl_path`, `created_at`. Idempotent overwrite is OK (deterministic `anchor_id`). Single writer: `commands/retro.md` — the phase-2 subagent MUST NOT write these files
 
 ### Scope Exclusions
 - MUST NOT modify `AGENTS.md`
@@ -291,6 +292,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 | 2026-07-14 | CDV-186: Promoted live friction telemetry ledger (M1–M7). Hybrid scoring: ledger supplies S2 when session covered (≥1 row); S1/S3/S4/S5 remain transcript. Schema `{ts,session_id,event,tool,path?}`. Single `friction-capture.sh` for PostToolUseFailure/PermissionDenied/StopFailure. Rotation 10k lines or 5 MiB. Wiring via `/init-orchestration` only. No S3 retune. |
 | 2026-07-14 | CDV-190: scheduled `--all --auto` report (`scheduled-YYYY-MM-DDTHHMMSSZ.md`) + `scheduled.lock` (2h TTL) + retention (last 12) + runbook scaffold (CronCreate / OS cron); optional fail-open `AGENT_WEBHOOK_URL`; Filter 1/2 untouched; CDV-210 full sink out of scope |
 | 2026-07-14 | CDV-200: Directive A/B trial loop — default trial tag on NEW team-agent applies; trial-review step (gate baseline vs in-trial → KEEP/REVERT); outcomes via `/adjust-agent` only; no silent auto-revert; audit `directive-history.jsonl`; covers `trial-meta.sh` / `trial-review.sh` (SPEC-001 M1–M8) |
+| 2026-07-14 | CDV-212: fabrication anchors persisted to `$MROOT/.claude/retro/anchors/<id>.json` after validation (single writer `commands/retro.md`); schema includes session_id/source_jsonl_path/created_at for `/council --from-retro` load path (SPEC-013). |
 
 ---
 
