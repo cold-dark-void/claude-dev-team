@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# metrics/test.sh — SPEC-026 bite-tests for emit-outcome.sh + outcome-rates.sh
+# metrics/test.sh — SPEC-026 + CDV-187 bite-tests for emit-outcome, outcome-rates, rollup
 #
 # Machine-check: bash skills/metrics/test.sh  (exit 0)
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -10,6 +10,7 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EMIT="$SCRIPT_DIR/emit-outcome.sh"
 RATES="$SCRIPT_DIR/outcome-rates.sh"
+ROLLUP="$SCRIPT_DIR/rollup.sh"
 
 PASS=0
 FAIL=0
@@ -33,6 +34,10 @@ emit() {
 
 rates() {
   bash "$RATES" "$@"
+}
+
+rollup() {
+  bash "$ROLLUP" "$@"
 }
 
 reset_ledger() {
@@ -297,6 +302,286 @@ if [ "$N" = "0" ]; then
   pass "9b null task_class excluded from rates cells"
 else
   fail "9b null class leaked n=$N json=$JSON"
+fi
+
+# =============================================================================
+# 10. rollup.sh — usage exit 64
+# =============================================================================
+RC=0
+OUT=$(rollup --section bogon 2>&1) || RC=$?
+if [ "$RC" -eq 64 ]; then
+  pass "10a rollup bad section exits 64"
+else
+  fail "10a rollup bad section rc=$RC out=$OUT"
+fi
+
+RC=0
+OUT=$(rollup --unknown 2>&1) || RC=$?
+if [ "$RC" -eq 64 ]; then
+  pass "10b rollup unknown flag exits 64"
+else
+  fail "10b rollup unknown flag rc=$RC out=$OUT"
+fi
+
+# =============================================================================
+# 11. rollup — missing sources present:false / exit 0
+# =============================================================================
+rm -rf .claude/local-agent .claude/council .claude/metrics .claude/tasks .worktrees
+RC=0
+JSON=$(rollup --json) || RC=$?
+OK=$(printf '%s' "$JSON" | jq -e '
+  .local_agent.present == false
+  and .council.present == false
+  and .outcomes.present == false
+  and .worktree.present == false
+  and has("local_agent") and has("council") and has("outcomes") and has("worktree")
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$RC" -eq 0 ] && [ "$OK" = "y" ]; then
+  pass "11 missing sources present:false exit 0"
+else
+  fail "11 missing sources rc=$RC ok=$OK json=$JSON"
+fi
+
+# =============================================================================
+# 12. rollup — dual-shape no double-count
+# =============================================================================
+rm -rf .claude/local-agent
+mkdir -p .claude/local-agent
+# 2 run rows + 1 companion
+printf '%s\n' \
+  '{"ts":1,"outcome":"success","exit_code":0,"saved_est_tokens":null,"spent_tokens":null}' \
+  '{"ts":2,"outcome":"fail","exit_code":1,"saved_est_tokens":null,"spent_tokens":null}' \
+  '{"ts":3,"ticket":"CDV-187","saved_est_tokens":1200,"spent_review_escalation":null}' \
+  > .claude/local-agent/metrics.jsonl
+JSON=$(rollup --json --section local)
+OK=$(printf '%s' "$JSON" | jq -e '
+  .local_agent.present == true
+  and .local_agent.run.n == 2
+  and .local_agent.run.success == 1
+  and .local_agent.run.fail == 1
+  and .local_agent.run.fallback == 0
+  and .local_agent.companion.n == 1
+  and .local_agent.companion.saved_est_tokens_sum == 1200
+  and .local_agent.companion.completed_local_n == 1
+  and .local_agent.companion.escalated_n == 0
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$OK" = "y" ]; then
+  pass "12a dual-shape run.n=2 companion.n=1 no double-count"
+else
+  fail "12a dual-shape json=$JSON"
+fi
+
+# companion with saved_est_tokens==0 → escalated; >0 → completed_local
+printf '%s\n' \
+  '{"ts":1,"outcome":"fallback","exit_code":2,"saved_est_tokens":null,"spent_tokens":null}' \
+  '{"ts":2,"ticket":"T-A","saved_est_tokens":0,"spent_review_escalation":null}' \
+  '{"ts":3,"ticket":"T-B","saved_est_tokens":500,"spent_review_escalation":null}' \
+  '{"ts":4,"ticket":"T-C","saved_est_tokens":null,"spent_review_escalation":null}' \
+  > .claude/local-agent/metrics.jsonl
+JSON=$(rollup --json --section local)
+OK=$(printf '%s' "$JSON" | jq -e '
+  .local_agent.run.n == 1
+  and .local_agent.run.fallback == 1
+  and .local_agent.companion.n == 3
+  and .local_agent.companion.saved_est_tokens_sum == 500
+  and .local_agent.companion.escalated_n == 1
+  and .local_agent.companion.completed_local_n == 1
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$OK" = "y" ]; then
+  pass "12b companion escalated/completed + null saved skipped in sum"
+else
+  fail "12b companion buckets json=$JSON"
+fi
+
+# row with both ticket+outcome classified as companion only
+printf '%s\n' \
+  '{"ts":1,"ticket":"X","outcome":"success","saved_est_tokens":10}' \
+  '{"ts":2,"outcome":"success","exit_code":0,"saved_est_tokens":null,"spent_tokens":null}' \
+  > .claude/local-agent/metrics.jsonl
+JSON=$(rollup --json --section local)
+OK=$(printf '%s' "$JSON" | jq -e '
+  .local_agent.run.n == 1
+  and .local_agent.companion.n == 1
+  and .local_agent.companion.saved_est_tokens_sum == 10
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$OK" = "y" ]; then
+  pass "12c ticket+outcome → companion only (no double-count)"
+else
+  fail "12c ticket+outcome dual-shape json=$JSON"
+fi
+
+# =============================================================================
+# 13. rollup — council buckets
+# =============================================================================
+rm -rf .claude/council
+mkdir -p .claude/council
+cat > .claude/council/index.json << 'EOF'
+{
+  "task-a": [
+    {"report_path":"a.md","max_verdict_confidence":90,"max_finding_confidence":null,"created_at":"2026-01-01"},
+    {"report_path":"a2.md","max_verdict_confidence":60,"max_finding_confidence":null,"created_at":"2026-01-02"}
+  ],
+  "task-b": [
+    {"report_path":"b.md","max_verdict_confidence":null,"max_finding_confidence":40,"created_at":"2026-01-03"}
+  ]
+}
+EOF
+JSON=$(rollup --json --section council)
+OK=$(printf '%s' "$JSON" | jq -e '
+  .council.present == true
+  and .council.task_ids == 2
+  and .council.entries == 3
+  and .council.verdict_buckets.ge80 == 1
+  and .council.verdict_buckets.b50_79 == 1
+  and .council.verdict_buckets.lt50 == 0
+  and .council.verdict_buckets.null == 1
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$OK" = "y" ]; then
+  pass "13 council buckets ge80/b50_79/null (90,60,null)"
+else
+  fail "13 council buckets json=$JSON"
+fi
+
+# lt50 + missing field
+cat > .claude/council/index.json << 'EOF'
+{
+  "t1": [
+    {"report_path":"x.md","max_verdict_confidence":10,"max_finding_confidence":null,"created_at":"t"},
+    {"report_path":"y.md","max_finding_confidence":5,"created_at":"t"}
+  ]
+}
+EOF
+JSON=$(rollup --json --section council)
+OK=$(printf '%s' "$JSON" | jq -e '
+  .council.entries == 2
+  and .council.verdict_buckets.lt50 == 1
+  and .council.verdict_buckets.null == 1
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$OK" = "y" ]; then
+  pass "13b council lt50 + missing confidence → null"
+else
+  fail "13b council lt50 json=$JSON"
+fi
+
+# =============================================================================
+# 14. rollup — outcomes aggregate + bad-line skip + null class key
+# =============================================================================
+rm -rf .claude/metrics
+mkdir -p .claude/metrics
+# Use emit for 3 good lines + inject corrupt + null task_class
+emit "CDV-187" "o1" "ic4" "refactor" "M" "accepted" 1 0 0
+printf 'NOT-JSON{{{\n' >> .claude/metrics/outcomes.jsonl
+emit "CDV-187" "o2" "ic4" "refactor" "S" "escalated" 2 1 0
+emit "null" "o3" "ic5" "null" "null" "rejected" "null" "null" "null"
+JSON=$(rollup --json --section outcomes)
+OK=$(printf '%s' "$JSON" | jq -e '
+  .outcomes.present == true
+  and .outcomes.n == 3
+  and .outcomes.by_outcome.accepted == 1
+  and .outcomes.by_outcome.escalated == 1
+  and .outcomes.by_outcome.rejected == 1
+  and .outcomes.by_agent.ic4 == 2
+  and .outcomes.by_agent.ic5 == 1
+  and .outcomes.by_task_class.refactor == 2
+  and .outcomes.by_task_class["null"] == 1
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$OK" = "y" ]; then
+  pass "14 outcomes aggregate + corrupt skip + null class key"
+else
+  fail "14 outcomes json=$JSON"
+fi
+
+# =============================================================================
+# 15. rollup — worktree/task counts
+# =============================================================================
+rm -rf .worktrees .claude/tasks
+mkdir -p .worktrees/wt-a .worktrees/wt-b .claude/tasks
+# a file under .worktrees should not count as a worktree dir
+printf 'x' > .worktrees/not-a-dir
+printf '%s\n' '{"id":"t1","status":"pending"}' > .claude/tasks/t1.json
+printf '%s\n' '{"id":"t2","status":"in_progress"}' > .claude/tasks/t2.json
+printf '%s\n' '{"id":"t3","status":"completed"}' > .claude/tasks/t3.json
+printf '%s\n' '{"id":"t4","status":"blocked"}' > .claude/tasks/t4.json
+printf '%s\n' '{"id":"t5","status":"weird"}' > .claude/tasks/t5.json
+JSON=$(rollup --json --section worktree)
+OK=$(printf '%s' "$JSON" | jq -e '
+  .worktree.present == true
+  and .worktree.worktrees_n == 2
+  and .worktree.tasks.pending == 1
+  and .worktree.tasks.in_progress == 1
+  and .worktree.tasks.completed == 1
+  and .worktree.tasks.blocked == 1
+  and .worktree.tasks.other == 1
+  and .worktree.tasks.files_n == 5
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$OK" = "y" ]; then
+  pass "15 worktree dirs=2 + task status tallies"
+else
+  fail "15 worktree json=$JSON"
+fi
+
+# =============================================================================
+# 16. rollup — no-write guard (ledger/index mtimes byte-identity)
+# =============================================================================
+# Seed all three write-owned surfaces
+mkdir -p .claude/local-agent .claude/council .claude/metrics
+printf '%s\n' '{"ts":9,"outcome":"success","exit_code":0,"saved_est_tokens":null,"spent_tokens":null}' \
+  > .claude/local-agent/metrics.jsonl
+printf '%s\n' '{"tid":[{"report_path":"r.md","max_verdict_confidence":80,"max_finding_confidence":null,"created_at":"t"}]}' \
+  > .claude/council/index.json
+printf '%s\n' '{"ts":1,"ticket":"X","task_id":"Y","agent":"ic4","task_class":"test","size":"S","outcome":"accepted","review_cycles":0,"qa_bounces":0,"council_overturns":0}' \
+  > .claude/metrics/outcomes.jsonl
+
+cp .claude/local-agent/metrics.jsonl "$TMP/before-la.jsonl"
+cp .claude/council/index.json "$TMP/before-ci.json"
+cp .claude/metrics/outcomes.jsonl "$TMP/before-out.jsonl"
+LA_MTIME=$(stat -c %Y .claude/local-agent/metrics.jsonl 2>/dev/null || stat -f %m .claude/local-agent/metrics.jsonl)
+CI_MTIME=$(stat -c %Y .claude/council/index.json 2>/dev/null || stat -f %m .claude/council/index.json)
+OUT_MTIME=$(stat -c %Y .claude/metrics/outcomes.jsonl 2>/dev/null || stat -f %m .claude/metrics/outcomes.jsonl)
+
+# ensure mtime resolution gap
+sleep 1
+RC=0
+rollup --json >/dev/null || RC=$?
+rollup >/dev/null || RC=$?
+
+LA_AFTER=$(stat -c %Y .claude/local-agent/metrics.jsonl 2>/dev/null || stat -f %m .claude/local-agent/metrics.jsonl)
+CI_AFTER=$(stat -c %Y .claude/council/index.json 2>/dev/null || stat -f %m .claude/council/index.json)
+OUT_AFTER=$(stat -c %Y .claude/metrics/outcomes.jsonl 2>/dev/null || stat -f %m .claude/metrics/outcomes.jsonl)
+
+BYTE_OK=1
+cmp -s "$TMP/before-la.jsonl" .claude/local-agent/metrics.jsonl || BYTE_OK=0
+cmp -s "$TMP/before-ci.json" .claude/council/index.json || BYTE_OK=0
+cmp -s "$TMP/before-out.jsonl" .claude/metrics/outcomes.jsonl || BYTE_OK=0
+
+if [ "$RC" -eq 0 ] && [ "$BYTE_OK" -eq 1 ] \
+  && [ "$LA_MTIME" = "$LA_AFTER" ] && [ "$CI_MTIME" = "$CI_AFTER" ] && [ "$OUT_MTIME" = "$OUT_AFTER" ]; then
+  pass "16 no-write guard: ledgers byte-identical + mtime unchanged"
+else
+  fail "16 no-write rc=$RC byte=$BYTE_OK mtimes $LA_MTIME/$LA_AFTER $CI_MTIME/$CI_AFTER $OUT_MTIME/$OUT_AFTER"
+fi
+
+# =============================================================================
+# 17. rollup — no-jq degrade exit 0
+# =============================================================================
+NOJQ_BIN="$TMP/nojq-bin-rollup"
+mkdir -p "$NOJQ_BIN"
+for c in bash sh git date mkdir cat dirname pwd tr wc head tail uname find cmp sleep stat; do
+  p=$(command -v "$c" 2>/dev/null) || continue
+  ln -sf "$p" "$NOJQ_BIN/$(basename "$p")"
+done
+BASH_ABS=$(command -v bash)
+RC=0
+JSON_OUT=$(env PATH="$NOJQ_BIN" "$BASH_ABS" "$ROLLUP" --json 2>/dev/null) || RC=$?
+# human mode: notice on stderr
+RC2=0
+ERR2=$(env PATH="$NOJQ_BIN" "$BASH_ABS" "$ROLLUP" 2>&1 >/dev/null) || RC2=$?
+if [ "$RC" -eq 0 ] && [ "$RC2" -eq 0 ] \
+  && printf '%s' "$JSON_OUT" | grep -qi 'jq' \
+  && printf '%s' "$ERR2" | grep -qi 'jq'; then
+  pass "17 rollup no-jq degrade exit 0 with notice"
+else
+  fail "17 no-jq rc=$RC/$RC2 json=$JSON_OUT err2=$ERR2"
 fi
 
 # =============================================================================

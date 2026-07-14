@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.47.0
+- **`/metrics` observability rollup (CDV-187)** — read-only `skills/metrics/rollup.sh` over local-agent metrics, council index, SPEC-026 outcomes, and cheap worktree/task counts; fail-open per section; command + README index
+
 ### v0.46.0
 - **Friction telemetry ledger (CDV-186)** — `friction-capture.sh` hooks for PostToolUseFailure/PermissionDenied/StopFailure append NDJSON to `.claude/retro/friction.jsonl`; retro-gate hybrid S2 from ledger when covered; init-orch templates; no S3 retune
 

@@ -123,6 +123,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | [`/memory-distill`](docs/commands/memory-distill.md) | Compress raw memories into digests, promote high-signal to core |
 | [`/memory-config`](docs/commands/memory-config.md) | View and set memory configuration (distill mode, threshold) |
 | `/memory-stats` | Show memory usage statistics (counts, sizes, growth) |
+| `/metrics` | Read-only all-time rollup of local-agent, council, outcomes, worktree/task counts |
 | `/validate-memory` | Cross-reference agent memories against the live codebase to detect stale refs |
 | [`/handoff`](docs/commands/handoff.md) | Reconstruct a past session, or capture the current one, into a dense brief |
 
