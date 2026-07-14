@@ -117,6 +117,9 @@ fi
 
 ### Session start — load directives (before memory)
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 DIRECTIVES="$MROOT/.claude/memory/ic4/directives.md"
 if [ -s "$DIRECTIVES" ]; then
   echo "## Standing orders for this project"; cat "$DIRECTIVES"
@@ -125,6 +128,16 @@ fi
 
 ### Session start — read memory (tiered)
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+AGENT_MEM="$MROOT/.claude/memory/ic4"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
 if [ "$USE_DB" = "true" ]; then
   HAS_DISTILLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories
     WHERE agent='ic4' AND tier > 0 AND archived=FALSE;")
@@ -151,6 +164,16 @@ cat "$WTROOT/.claude/memory/ic4/context.md" 2>/dev/null
 
 ### Writing memory (append-only; embeds best-effort)
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+AGENT_MEM="$MROOT/.claude/memory/ic4"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
 if [ "$USE_DB" = "true" ]; then
   # Append ONE focused fact/decision/lesson per INSERT. <TYPE> = cortex|memory|lessons.
   ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")

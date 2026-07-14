@@ -47,6 +47,9 @@ Read the following **in parallel**:
 **a. Project rules**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 cat "$MROOT/AGENTS.md" 2>/dev/null || echo "AGENTS.md not present — proceeding without project rules"
 ```
 
@@ -54,6 +57,14 @@ cat "$MROOT/AGENTS.md" 2>/dev/null || echo "AGENTS.md not present — proceeding
 **b. Tech Lead cortex (tiered memory)**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
 if [ "$USE_DB" = "true" ]; then
   HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead' AND tier > 0 AND archived=FALSE;")
   if [ "$HAS_DISTILLED" -gt 0 ]; then
@@ -71,6 +82,9 @@ fi
 **c. Specs index (filenames only; bodies loaded later if needed)**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ls "$MROOT/specs/core/" 2>/dev/null || ls "$MROOT/specs/" 2>/dev/null
 ```
 
@@ -79,6 +93,9 @@ ls "$MROOT/specs/core/" 2>/dev/null || ls "$MROOT/specs/" 2>/dev/null
 1. `AGENTS.md` "Testing" or "Test runner" section is authoritative.
 2. Otherwise inspect project root:
    ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
    ls "$MROOT/go.mod" "$MROOT/package.json" "$MROOT/pyproject.toml" "$MROOT/Makefile" 2>/dev/null
    ```
    - `go.mod` → `go test ./...`
@@ -132,6 +149,9 @@ Variables produced (do not re-derive):
 **a. Existing plans for the refactor area** — extract first 3-5 meaningful words from `$DESC` (strip articles/prepositions). Strip non-`[A-Za-z0-9_-]` characters from each keyword AND use `grep -F` (fixed strings, disables regex):
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ls "$MROOT/.claude/plans/" 2>/dev/null | grep -iF -e "keyword1" -e "keyword2" -e "keyword3"
 ```
 
@@ -140,6 +160,10 @@ Read matches in full. No matches → "No existing plans matched — proceeding f
 **b. Recent git log for affected path (when identifiable from `$DESC`):**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Validate path: strip non-[A-Za-z0-9_./-], reject if empty
 RAW_PATH='<affected-path>'
 SAFE_PATH=$(printf '%s' "$RAW_PATH" | tr -cd 'A-Za-z0-9_./-')
@@ -159,6 +183,10 @@ If no path identifiable: skip and note "Affected path not identifiable — git l
 **c. Existing tests near the affected area:**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 RAW_PATH='<affected-path>'
 SAFE_PATH=$(printf '%s' "$RAW_PATH" | tr -cd 'A-Za-z0-9_./-')
 [ -z "$SAFE_PATH" ] && echo "Could not identify affected path — skip test scan" && SAFE_PATH=""

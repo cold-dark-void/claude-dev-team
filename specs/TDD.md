@@ -23,6 +23,7 @@
 | SPEC-017 | Autonomous CI Watch + Task DAG | ACTIVE | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh, skills/orchestrate/dag-lib.sh, skills/ci-watch/SKILL.md, skills/ci-watch/poll.sh, skills/ci-watch/sidecar.sh, skills/ci-watch/detect-mode.sh |
 | SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012), skills/retro-gate/gate.sh (refactor) |
 | SPEC-019 | Local-Agent Offload via OpenCode | ACTIVE | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
+| SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
 
 ## Version History
 
@@ -49,3 +50,4 @@
 | 2026-06-15 | SPEC-013 Judge cortex-inheritance reconciled to reality (AUDIT-P4.4): relaxed the Phase-5 "MUST inherit tech-lead cortex" to OPTIONAL engine-prepended calibration (no injection is implemented; the `tools: ""` Judge is by-design evidence-only); updated the Overview line + validation checkbox; aligned `agents/council-judge.md` (dropped impossible Read-tool checklist step + false cortex-injection assertion) and de-duplicated `skills/council/prompts/judge.md`. Docs-only; no engine/spawn change |
 | 2026-06-16 | SPEC-019 created: Local-Agent Offload via OpenCode — opt-in, default-off offload of mechanical/machine-verifiable work (ic4-class impl, discovery, docs) to a local model via `opencode run`; static per-agent routing + per-task machine-check gate; direct-write in worktree + Claude diff review; 2-attempt cap inheriting SPEC-009; sandboxed/allowlisted leash; token-savings instrumentation; conflict-scanned (no blockers; SPEC-003 model-tier coupling documented; TDD/LOC/council-gate disciplines inherited as MUSTs) |
 | 2026-06-16 | SPEC-019 PR2 implemented (CDV-20): orchestrate integration (routing fork + offload-review loop), companion metrics (`emit-orch-metric.sh`), standup surface; status DRAFT→ACTIVE. |
+| 2026-07-13 | SPEC-021 implemented (CDV-180): skill-bash lint gate (C1–C4) + `/release` Step 4.8; status DRAFT→ACTIVE. |

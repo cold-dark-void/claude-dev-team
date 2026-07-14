@@ -9,8 +9,8 @@
   every marked region equals this file expanded, so the copies can never drift again.
 
   Markers are placed OUTSIDE the ```bash fence (this partial CARRIES the fence) — the
-  P1-5A leak-safe pattern. The block assumes `$USE_DB`, `$MEMDB`, and `$MROOT` are
-  already set by the path/USE_DB stanza earlier in Step 0.
+  P1-5A leak-safe pattern. Self-contained path/USE_DB resolution (SPEC-021 C1 — each
+  fence is a separate shell).
 
   Scope note (AUDIT-P2.7b): the byte-identical pair is /debug and /refactor only, both
   loading agent='tech-lead'. The six other skills that carry a tiered-cortex query
@@ -22,6 +22,14 @@
 **b. Tech Lead cortex (tiered memory)**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
 if [ "$USE_DB" = "true" ]; then
   HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='<AGENT>' AND tier > 0 AND archived=FALSE;")
   if [ "$HAS_DISTILLED" -gt 0 ]; then

@@ -829,6 +829,11 @@ Write this content using the DB-first dual path.
 
 **If DB exists:** use the `Bash` tool to run the python3 sqlite3 insert:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 python3 -c "
 import sqlite3, sys, datetime
 db = sqlite3.connect(sys.argv[1])

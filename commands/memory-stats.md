@@ -35,6 +35,11 @@ Run /init-team to initialize.
 Run these queries and format the output:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # Per-agent stats (active rows only — archived excluded)
 sqlite3 -header -column "$MEMDB" "
 SELECT

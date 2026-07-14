@@ -51,6 +51,11 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 Detect SQLite availability:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 USE_DB=false
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
@@ -62,6 +67,9 @@ Read the following **in parallel** before doing anything else:
 **a. Project rules**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 cat "$MROOT/AGENTS.md" 2>/dev/null || echo "AGENTS.md not present — proceeding without project rules"
 ```
 
@@ -69,6 +77,14 @@ cat "$MROOT/AGENTS.md" 2>/dev/null || echo "AGENTS.md not present — proceeding
 **b. Tech Lead cortex (tiered memory)**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
 if [ "$USE_DB" = "true" ]; then
   HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead' AND tier > 0 AND archived=FALSE;")
   if [ "$HAS_DISTILLED" -gt 0 ]; then
@@ -86,6 +102,9 @@ fi
 **c. Specs index (enumerate only; full load deferred to mode-specific steps)**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ls "$MROOT/specs/core/" 2>/dev/null || ls "$MROOT/specs/" 2>/dev/null
 ```
 
@@ -100,6 +119,9 @@ Check in this priority order:
    specifies. This is the authoritative source.
 2. If AGENTS.md is silent, inspect the project root:
    ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
    ls "$MROOT/go.mod" "$MROOT/package.json" "$MROOT/pyproject.toml" "$MROOT/Makefile" 2>/dev/null
    ```
    - `go.mod` present → test runner is `go test ./...`
@@ -164,6 +186,9 @@ articles/prepositions). Glob `.claude/plans/` for files whose names contain
 any of those keywords:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 # Example: DESC="nil pointer in user auth handler"
 # Keywords: user, auth, handler
 # Strip any non-[A-Za-z0-9_-] characters from keywords before use in grep patterns,
@@ -180,6 +205,10 @@ If `$DESC` contains a file path, package name, or component name that maps to a
 real path in the repo, run:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Validate path before use: strip non-[A-Za-z0-9_./-] characters, reject if empty
 # Replace <affected-path> with the path extracted from $DESC
 RAW_PATH='<affected-path>'
@@ -200,6 +229,10 @@ after reproducing the bug."
 **c. Existing tests near the affected area**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Validate path before use: strip non-[A-Za-z0-9_./-] characters, reject if empty
 # Replace <affected-path> with the path extracted from $DESC
 RAW_PATH='<affected-path>'
@@ -382,6 +415,10 @@ Output both results to the session.
 Search for the same root cause pattern elsewhere in the codebase. Derive 2–3 keywords from the root cause statement in 2.2 — typically the function name, the misused variable, or the misordered call sequence.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 grep -rn "<keyword1>" "$WTROOT" --include="*.<ext>"
 grep -rn "<keyword2>" "$WTROOT" --include="*.<ext>"
 ```

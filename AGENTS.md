@@ -111,6 +111,15 @@ AGENT_CTX="$WTROOT/.claude/memory/<agent-name>"
 
 **Session start — read memory (tiered):**
 ```bash
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 if [ "$USE_DB" = "true" ]; then
   # Check if distilled content exists
   HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories

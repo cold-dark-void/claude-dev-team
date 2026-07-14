@@ -133,13 +133,25 @@ bash skills/init-orchestration/check-hook-templates.sh
 
 If it exits non-zero, a hook template emitted by `/init-orchestration` has drifted from this repo's canonical live `.claude/hooks/<name>.sh` (the gate names the drifted hook). Consumers would receive a broken/stale hook. **Do NOT commit or tag.** Re-sync the drifted template: replace the fenced ```bash block under its "create `.claude/hooks/<name>.sh` with this content:" marker in `skills/init-orchestration/SKILL.md` with the exact current content of the live hook, then re-run until it exits 0. (Covered: task-completed, stop-review, memory-capture, bash-compress.)
 
+## Step 4.8: Skill-bash lint (pre-commit gate)
+
+Run:
+```bash
+bash skills/skill-lint/check-skill-bash.sh
+```
+
+If it exits non-zero, a fenced bash block contains a known prompts-as-code defect
+(C1–C4 — see skills/skill-lint/SKILL.md). **Do NOT commit or tag.** Fix or waive
+(`# lint-ok: <id>` only if proven safe), re-run until exit 0.
+(Covered: commands/**/*.md, skills/**/*.md excl. skill-lint/fixtures/, agents/**/*.md, AGENTS.md; SPEC-021.)
+
 ## Step 5: Commit (one folded commit)
 
 Stage the version files **and the actual changed source files** — everything being
 released goes into a single commit:
 ```bash
 git add CHANGELOG.md .claude-plugin/plugin.json .claude-plugin/marketplace.json
-git add <the source files this release changes>   # e.g. README.md, agents/*.md, skills/**, commands/*.md
+git add <the source files this release changes>   # e.g. README.md, agents/, skills/, commands/
 ```
 Then check `git status --short`: confirm nothing intended is left unstaged and that
 no unrelated/untracked files were swept in.

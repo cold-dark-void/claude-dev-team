@@ -46,6 +46,13 @@ echo "Plugin dir: $PLUGIN_DIR"
 Skip this step if `--migrate-only` is set.
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PLUGIN_DIR="$PDH"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 mkdir -p "$MROOT/.claude/memory"
 if command -v sqlite3 &>/dev/null && [ -n "$PLUGIN_DIR" ]; then
   sqlite3 "$MEMDB" < "$PLUGIN_DIR/schema.sql"
@@ -62,6 +69,13 @@ This is idempotent — schema uses `CREATE TABLE IF NOT EXISTS` and `INSERT OR I
 If the DB already existed before Step 2, check if it needs a schema upgrade:
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PLUGIN_DIR="$PDH"
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 if [ -f "$MEMDB" ] && [ -n "$PLUGIN_DIR" ]; then
   bash "$PLUGIN_DIR/migrate.sh" "$MROOT"
 fi
@@ -81,6 +95,11 @@ On `--migrate-only`: run this step, then the .md migration (Step 4), then exit.
 Skip this step if `--no-extensions` or `--migrate-only` is set.
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PLUGIN_DIR="$PDH"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 if command -v sqlite3 &>/dev/null && [ -n "$PLUGIN_DIR" ]; then
   # Only mark the memory .gitignore block as written if download-extensions.sh
   # actually SUCCEEDED — it writes that block at the very end, so a mid-run abort
@@ -105,6 +124,13 @@ export EMBEDDING_MODEL=text-embedding-3-small
 Skip this step if `--migrate-only` is NOT set AND this is the first run (no prior .md files). Always run on `--migrate-only` or `--refresh`.
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PLUGIN_DIR="$PDH"
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 if command -v sqlite3 &>/dev/null && [ -f "$MEMDB" ] && [ -n "$PLUGIN_DIR" ]; then
   bash "$PLUGIN_DIR/migrate-md.sh" "$MROOT"
 fi
@@ -121,7 +147,10 @@ init path loses gitignore coverage. When Step 3 ran (`EXT_GITIGNORE_DONE=1`),
 skip this step entirely. The `grep -qF || echo` guard is idempotent regardless.
 
 ```bash
-if [ -z "${EXT_GITIGNORE_DONE:-}" ]; then
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+if [ -z "${EXT_GITIGNORE_DONE:-}" ]; then  # lint-ok: C1
   GITIGNORE="$MROOT/.gitignore"
   for ENTRY in \
     ".claude/memory/extensions/" \
@@ -141,6 +170,9 @@ Collect all hosts that need sandbox network access. Always include `github.com:2
 (for git push over SSH). If `$EMBEDDING_URL` is set, also include the embedding host.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 SETTINGS="$MROOT/.claude/settings.json"
 HOSTS_TO_ADD=()
 
@@ -164,11 +196,11 @@ approve. This is the expected flow for zero-intervention setup.
 ```bash
 if command -v jq &>/dev/null; then
   # Ensure settings.json exists with minimal structure
-  if [ ! -f "$SETTINGS" ]; then
+  if [ ! -f "$SETTINGS" ]; then  # lint-ok: C1
     echo '{}' > "$SETTINGS"
   fi
 
-  for HOST in "${HOSTS_TO_ADD[@]}"; do
+  for HOST in "${HOSTS_TO_ADD[@]}"; do  # lint-ok: C1
     if ! grep -qF "$HOST" "$SETTINGS" 2>/dev/null; then
       jq --arg host "$HOST" '
         .sandbox.network.allowedDomains = ((.sandbox.network.allowedDomains // []) + [$host] | unique)

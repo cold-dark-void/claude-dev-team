@@ -63,6 +63,9 @@ anchored on `$MROOT`). The `ls` here is a presence guard only — full spec enum
 `Glob $MROOT/specs/**/*.md` in later steps.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ls $MROOT/specs/ 2>/dev/null
 ```
 
@@ -165,6 +168,9 @@ If user edits: apply their changes before proceeding.
 
 Check existing specs for the highest SPEC number (SPEC-008 `### Spec Discovery`):
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ls $MROOT/specs/core/ 2>/dev/null | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
 ```
 
@@ -172,6 +178,9 @@ Start from that number + 1 (or SPEC-001 if none exist).
 
 Create `specs/core/` if it doesn't exist:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 mkdir -p $MROOT/specs/core
 ```
 

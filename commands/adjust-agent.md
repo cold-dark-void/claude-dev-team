@@ -49,6 +49,10 @@ The 7 behavioral agents are: `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `d
 
 For each agent, count directives:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DIRECTIVES_BASE="$MROOT/.claude/memory"
 for AGENT in pm tech-lead ic5 ic4 devops qa ds; do
   FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
   COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || echo 0)
@@ -80,7 +84,9 @@ Stop here.
 
 Check if the agent has a definition file in the plugin:
 ```bash
-if [ -n "$PLUGIN_AGENTS" ] && [ ! -f "$PLUGIN_AGENTS/$AGENT.md" ]; then
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)
+if [ -n "$PLUGIN_AGENTS" ] && [ ! -f "$PLUGIN_AGENTS/$AGENT.md" ]; then  # lint-ok: C1
   echo "Warning: No agent definition found for '$AGENT' (no agents/$AGENT.md in plugin)."
   echo "This may be a typo. Continuing anyway for forward-compatibility."
   echo ""
@@ -93,7 +99,11 @@ agents that may be added in future versions.
 ### Step 4b: Display current directives
 
 ```bash
-FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DIRECTIVES_BASE="$MROOT/.claude/memory"
+FILE="$DIRECTIVES_BASE/$AGENT/directives.md"  # lint-ok: C1
 if [ -s "$FILE" ]; then
   echo "Directives for $AGENT:"
   echo ""
@@ -114,7 +124,11 @@ Same validation as Step 4a. Warn if no agent definition exists, but continue.
 ### Step 5b: Read existing directives
 
 ```bash
-FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DIRECTIVES_BASE="$MROOT/.claude/memory"
+FILE="$DIRECTIVES_BASE/$AGENT/directives.md"  # lint-ok: C1
 EXISTING=""
 if [ -s "$FILE" ]; then
   EXISTING=$(cat "$FILE")
@@ -163,6 +177,9 @@ The result MUST be a numbered list, one directive per line:
 
 Before writing, verify that `.claude/memory/` is covered by `.gitignore`:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 GITIGNORE="$MROOT/.gitignore"
 if ! grep -qE '^\.claude/memory(/|$)' "$GITIGNORE" 2>/dev/null && \
    ! grep -qF '.claude/memory/' "$GITIGNORE" 2>/dev/null; then
@@ -174,7 +191,11 @@ fi
 ### Step 5f: Write directives file
 
 ```bash
-mkdir -p "$DIRECTIVES_BASE/$AGENT"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DIRECTIVES_BASE="$MROOT/.claude/memory"
+mkdir -p "$DIRECTIVES_BASE/$AGENT"  # lint-ok: C1
 cat > "$DIRECTIVES_BASE/$AGENT/directives.md" << 'DIREOF'
 <the holistic rewritten numbered list>
 DIREOF

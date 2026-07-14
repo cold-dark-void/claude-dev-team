@@ -108,6 +108,9 @@ Parse arguments:
 Build the reviewer file list. Pass it to every reviewer as `{{FILE_LIST}}`.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 if [ -n "$TARGET" ]; then
   # Narrowed scope: files under the target path
   FILE_LIST=$(git ls-files "$MROOT/$TARGET" 2>/dev/null \
@@ -223,6 +226,9 @@ with the verdict: VERIFIED / PARTIALLY_VERIFIED / UNVERIFIED / CONTRADICTED / FA
 
 Write the findings report to:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 REPORT_DATE=$(date +%Y-%m-%d)
 REPORT_PATH="$MROOT/.claude/reviews/${REPORT_DATE}-blind-review.md"
 mkdir -p "$MROOT/.claude/reviews"

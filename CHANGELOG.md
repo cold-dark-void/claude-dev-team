@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.39.0
+- **feat: skill-bash lint gate (SPEC-021 / CDV-180)** — deterministic LLM-free linter `skills/skill-lint/` (`check-skill-bash.sh` + `lint.py`) for fenced ```bash blocks: C1 cross-block vars, C2 zsh `!`/`<!--` hazards, C3 unguarded globs, C4 captured inline-PRAGMA sqlite; `# lint-ok:` waivers; fixture bite-tests (34); wired as `/release` Step 4.8; live tree lands green (session-state C1s waived). SPEC-021 ACTIVE.
+
 ### v0.38.12
 - **fix: minor robustness hardening batch (CDV-179)** — per-repo memory-capture dedup + timeout stdin; migrate-v2/v3 `.bail on`; bash-compress `#`-safe via `printf %q`; freshness set -e safe mtime; handoff prepass concurrent stderr + oversize force-split; plugin-dir tier2 versioned layout; retro-gate path encoding; download-extensions quoted `.load`.
 

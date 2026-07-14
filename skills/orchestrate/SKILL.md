@@ -39,6 +39,11 @@ Read in parallel:
 - `$MROOT/AGENTS.md`
 - Claude memory:
   ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
     HAS_DISTILLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
     if [ "${HAS_DISTILLED:-0}" -gt 0 ]; then
@@ -112,6 +117,7 @@ A git worktree is an additional working tree linked to the same repository — i
 agents work on the issue branch in isolation without disturbing the main checkout.
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 SLUG="<ISSUE-ID>"   # MUST be the bare issue ID exactly as-is (e.g. "CDV-42")
                     # wrap-ticket detects the worktree at .worktrees/<ISSUE-ID> using
                     # this exact value — a longer slug will break detection
@@ -396,6 +402,7 @@ memory DB, or any credential (SPEC-019 MUST; the wrapper appends nothing).
 ESTIMATE of Claude tokens saved, coarse planning constants, NOT measured):
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 RUN_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/run.sh)
 EMIT_METRIC=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/emit-orch-metric.sh)
 # saved_est = ESTIMATE of Claude authoring tokens avoided (NOT measured):
@@ -410,7 +417,9 @@ MCHECK="<verbatim Machine-check: value>"
 Loop:
 
 ```bash
-bash "$RUN_SH" --worktree "$WT_PATH" --brief "$BRIEF" --check "$MCHECK"
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+RUN_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/run.sh)
+bash "$RUN_SH" --worktree "$WT_PATH" --brief "$BRIEF" --check "$MCHECK"  # lint-ok: C1
 RC=$?
 ```
 
@@ -529,6 +538,7 @@ At orchestration start and after every task status transition to `completed`,
 compute the unblocked set via:
 
   ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
   DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh)
   READY=$(bash "$DAG_LIB" ready-set)
   ```
@@ -643,6 +653,7 @@ bash "$SIDECAR_CLI" init "<TICKET-ID>" "$MODE" "${PR:-}" "$BRANCH"
      `<PLUGIN>` is the resolved plugin root — the cron runs detached with the
      user's repo as cwd, so the helper scripts live in the plugin, not the repo:
      ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
      PLUGIN=$(bash "$PDH/skills/plugin-dir.sh" dir skills/ci-watch/poll.sh | xargs dirname | xargs dirname)
      ```
      (`dir` gives `<root>/skills/ci-watch`; two `dirname`s strip back to the
@@ -655,6 +666,8 @@ bash "$SIDECAR_CLI" init "<TICKET-ID>" "$MODE" "${PR:-}" "$BRANCH"
 6. **Persist cron job ID** (same shell session as step 5's PLUGIN resolve if
    needed; re-resolve SIDECAR_CLI if a new shell):
    ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
    bash "$SIDECAR_CLI" set "<TICKET-ID>" cron_job_id "<returned-job-id>"
    ```
 
@@ -741,6 +754,10 @@ If TASK_ID does not end with `-ci-fixer`, skip this block.
 Otherwise, verify `fixer_active` is false in the CI-watch sidecar:
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
   # Extract TICKET from task_id (compound key format: TICKET-ci-fixer)
   # ci-fixer tasks have task_id like "CDV-1-ci-fixer"
   # Re-resolve PDH (each bash fence is a fresh shell)
@@ -879,8 +896,9 @@ deletion, and orphaned config-section cleanup in the right order. Use it
 instead of running `git worktree remove` + `git branch -D` by hand:
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
-bash "$WT_LIB" release "$SLUG"
+bash "$WT_LIB" release "$SLUG"  # lint-ok: C1
 ```
 
 If you must do it by hand (squash-merge case where the lib refuses on

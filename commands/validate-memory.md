@@ -49,6 +49,11 @@ Guard: check distilling_lock. Validation must not run concurrently with
 distillation (they share the same DB rows).
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 LOCK=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';")
 if [ -n "$LOCK" ]; then
   echo "Error: distilling_lock is held ($LOCK). Cannot validate while distillation is in progress."
@@ -60,6 +65,11 @@ fi
 Read validation window from config:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 WINDOW_DAYS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='validate_window_days';")
 WINDOW_DAYS="${WINDOW_DAYS:-7}"
 ```
@@ -71,6 +81,11 @@ Order by `validated_at ASC NULLS FIRST` so never-validated entries are processed
 first (SHOULD requirement: focus effort on never-validated entries).
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 WINDOW_CLAUSE=""
 if [ "$FORCE" != "true" ]; then
   WINDOW_CLAUSE="AND (validated_at IS NULL OR validated_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-$WINDOW_DAYS days'))"
@@ -92,8 +107,8 @@ MEMORIES=$(sqlite3 "$MEMDB" "
 If zero eligible memories, report and exit:
 
 ```bash
-if [ -z "$MEMORIES" ]; then
-  echo "TLDR: all memories validated within the last $WINDOW_DAYS days. Nothing to do. Use --force to re-validate."
+if [ -z "$MEMORIES" ]; then  # lint-ok: C1
+  echo "TLDR: all memories validated within the last $WINDOW_DAYS days. Nothing to do. Use --force to re-validate."  # lint-ok: C1
   # Stop here (exit 0)
 fi
 ```
@@ -181,8 +196,13 @@ REF_PATH comes from LLM-extracted claims (untrusted). Canonicalize and reject
 paths that escape the project root:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Resolve the path and verify it stays within WTROOT
-RESOLVED=$(realpath -m "$WTROOT/$REF_PATH" 2>/dev/null \
+# REF_PATH set by surrounding claim loop (session state across fences)
+RESOLVED=$(realpath -m "$WTROOT/$REF_PATH" 2>/dev/null \  # lint-ok: C1
   || python3 -c "import os.path; print(os.path.normpath(os.path.join('$WTROOT','$REF_PATH')))")
 case "$RESOLVED" in
   "$WTROOT"/*) ;;  # safe — inside project
@@ -198,6 +218,10 @@ esac
 macOS by default. All `realpath --relative-to` calls below use a fallback:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Helper: relative path with fallback for macOS
 relpath() {
   realpath --relative-to="$WTROOT" "$1" 2>/dev/null \
@@ -208,6 +232,10 @@ relpath() {
 For `file_reference` claims (after path containment guard):
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 for each claim where claim_type == "file_reference":
   REF_PATH="${code_refs[0].path}"
   # ... apply path containment guard above ...
@@ -238,6 +266,10 @@ for each claim where claim_type == "file_reference":
 For `symbol_reference` claims (after path containment guard):
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 for each claim where claim_type == "symbol_reference":
   REF_PATH="${code_refs[0].path}"
   SYM_NAME="${code_refs[0].symbol}"
@@ -396,6 +428,11 @@ For memories where all claims verified as VALID (score 0 after composite scoring
 mark as validated immediately:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   UPDATE memories SET validated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
   WHERE id=$MEM_ID;
@@ -413,11 +450,16 @@ For each memory with score strictly greater than 80:
 Build a reason string summarizing per-claim verdicts for the audit log:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # Build per-claim summary for audit log
 # e.g., "CONTRADICTED(90%): file missing; STALE(70%): symbol moved"
 CLAIM_SUMMARY=""
 for each claim verdict for this memory:
-  CLAIM_SUMMARY="${CLAIM_SUMMARY:+$CLAIM_SUMMARY; }${verdict}(${confidence}%): ${evidence}"
+  CLAIM_SUMMARY="${CLAIM_SUMMARY:+$CLAIM_SUMMARY; }${verdict}(${confidence}%): ${evidence}"  # lint-ok: C1
 
 ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
@@ -453,7 +495,12 @@ For each batch, provide the reviewer with:
 Before sending to the reviewer, log each entry as routed to review:
 
 ```bash
-ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")  # lint-ok: C1
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
   VALUES ($MEM_ID, '$MEM_AGENT', 'flag_review', $SCORE, '$ESCAPED_REASON');"
@@ -472,6 +519,11 @@ Same as Step 7: set `archived=TRUE`, `archive_reason='stale'`. Log to
 `validation_log` with action `'archive'`. Do NOT set `validated_at`.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   UPDATE memories SET archived=TRUE, archive_reason='stale'
   WHERE id=$MEM_ID;
@@ -487,6 +539,11 @@ If existing `[validated: ...]` tag is present, replace it (no duplicates).
 Set `validated_at` to now.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 TODAY=$(date -u +%Y-%m-%d)
 # Remove existing [validated: ...] tag if present, then append new one
 NEW_CONTENT=$(echo "$REWRITE_CONTENT" | sed 's/\[validated: [0-9-]*\]//g')
@@ -509,6 +566,11 @@ reviewer agent directly. The reviewer only returns the decision and new content.
 Mark as validated (set `validated_at`). Log with action `'pass'`.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   UPDATE memories SET validated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
   WHERE id=$MEM_ID;
@@ -537,7 +599,12 @@ Log to `validation_log` with action `'flag_user'`, including per-claim
 verdict summary in reason:
 
 ```bash
-ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")  # lint-ok: C1
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
   VALUES ($MEM_ID, '$MEM_AGENT', 'flag_user', $SCORE, '$ESCAPED_REASON');"
@@ -558,10 +625,15 @@ because too many of their source memories were archived as stale.
 ### Step 10.1: Query tier-1 digests
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 DIGESTS=$(sqlite3 "$MEMDB" "
   SELECT id, agent, distilled_from
   FROM memories
-  WHERE tier=1 AND archived=FALSE $AGENT_CLAUSE
+  WHERE tier=1 AND archived=FALSE $AGENT_CLAUSE  # lint-ok: C1
   ORDER BY created_at ASC;
 ")
 ```
@@ -572,6 +644,11 @@ For each digest, parse the `distilled_from` JSON array of source memory IDs.
 Count how many sources have `archive_reason='stale'`.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # Parse distilled_from JSON array (e.g., '[1,2,3]')
 SOURCE_IDS=$(echo "$DISTILLED_FROM" | tr -d '[]' | tr ',' ' ')
 TOTAL_SOURCES=$(echo "$SOURCE_IDS" | wc -w)
@@ -591,7 +668,7 @@ threshold is fixed for v1. Use cross-multiplication to avoid bash integer
 division truncation:
 
 ```bash
-if [ "$TOTAL_SOURCES" -eq 0 ]; then
+if [ "$TOTAL_SOURCES" -eq 0 ]; then  # lint-ok: C1
   continue  # skip digests with no source references
 fi
 if [ $((STALE_COUNT * 2)) -gt "$TOTAL_SOURCES" ]; then
@@ -602,6 +679,11 @@ fi
 ### Step 10.4: Check distiller lock before rebuilding
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 LOCK=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';")
 if [ -n "$LOCK" ]; then
   echo "Error: distiller lock held ($LOCK). Cannot rebuild digests. Try again later."
@@ -620,6 +702,11 @@ For each flagged digest:
 
 1. Archive the stale digest:
    ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
      UPDATE memories SET archived=TRUE, archive_reason='stale'
      WHERE id=$DIGEST_ID;"
@@ -629,9 +716,14 @@ For each flagged digest:
    Include `archive_reason='distilled'` sources — they were valid at
    distillation time and their content is still usable for re-distillation:
    ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
    VALID_IDS=$(sqlite3 "$MEMDB" "
      SELECT id FROM memories
-     WHERE id IN ($SOURCE_IDS_CSV)
+     WHERE id IN ($SOURCE_IDS_CSV)  # lint-ok: C1
        AND (archive_reason IS NULL OR archive_reason='distilled')
      ORDER BY created_at ASC;
    ")
@@ -644,7 +736,8 @@ For each flagged digest:
 ### Step 10.6: Report deep mode results
 
 ```bash
-echo "@$DIGEST_AGENT: $DIGESTS_CHECKED digests checked, $DEEP_REBUILT rebuilt, $DEEP_ARCHIVED archived, $DEEP_SKIPPED skipped (locked)"
+# DEEP_* counters accumulated across deep-mode steps (session state)
+echo "@$DIGEST_AGENT: $DIGESTS_CHECKED digests checked, $DEEP_REBUILT rebuilt, $DEEP_ARCHIVED archived, $DEEP_SKIPPED skipped (locked)"  # lint-ok: C1
 ```
 
 One line per agent processed in deep mode.

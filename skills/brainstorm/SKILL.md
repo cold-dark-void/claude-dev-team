@@ -34,6 +34,11 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 - `$MROOT/AGENTS.md` (project rules)
 - Tech Lead cortex:
   ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
     HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead' AND tier > 0 AND archived=FALSE;")
     if [ "$HAS_DISTILLED" -gt 0 ]; then
@@ -48,6 +53,11 @@ MEMDB="$MROOT/.claude/memory/memory.db"
   ```
 - PM cortex:
   ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
     HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='pm' AND tier > 0 AND archived=FALSE;")
     if [ "$HAS_DISTILLED" -gt 0 ]; then

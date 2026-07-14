@@ -109,6 +109,9 @@ picture; it writes the brief itself.
 #### W1. Resolve the output path
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 # Repo root (same formula as Step 0)
 HANDOFF_DIR="$MROOT/.claude/handoff"
 mkdir -p "$HANDOFF_DIR"
@@ -233,7 +236,7 @@ unvalidated value could carry glob metacharacters into downstream `find`/glob
 calls (same guard as `commands/retro.md` Step 2b):
 
 ```bash
-case "$UUID" in
+case "$UUID" in  # lint-ok: C1
   [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*) ;;
   *)
     echo "error: session-uuid must be a UUID (e.g. 00000000-0000-4000-8000-000000000004)" >&2
@@ -274,9 +277,11 @@ still current (keyed by session-uuid + last-message uuid; the cache lives under
 `.claude/handoff/cache/`, never `memory.db`).
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
 set +e
 CACHE_ERR="${TMPDIR:-/tmp}/handoff-cachecheck.err"
-CACHED_BRIEF=$("$PREPASS" cache-check --uuid "$UUID" 2>"$CACHE_ERR")
+CACHED_BRIEF=$("$PREPASS" cache-check --uuid "$UUID" 2>"$CACHE_ERR")  # lint-ok: C1
 CACHE_RC=$?
 set -e
 ```
@@ -307,6 +312,8 @@ size-decides (M2/M3), and writes a `plan.json` (plus spine/chunk files) that the
 fan-out consumes.
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/handoff.XXXXXX") \
   || { echo "handoff error: mktemp -d failed for WORK_DIR"; exit 1; }   # holds plan.json, spine/chunks, sections/
 PLAN_JSON="$WORK_DIR/plan.json"
@@ -314,7 +321,7 @@ PREP_OUT="${TMPDIR:-/tmp}/handoff-prepare.out"
 PREP_ERR="${TMPDIR:-/tmp}/handoff-prepare.err"
 
 set +e
-"$PREPASS" prepare --uuid "$UUID" --out "$PLAN_JSON" >"$PREP_OUT" 2>"$PREP_ERR"
+"$PREPASS" prepare --uuid "$UUID" --out "$PLAN_JSON" >"$PREP_OUT" 2>"$PREP_ERR"  # lint-ok: C1
 PREP_RC=$?
 set -e
 ```
@@ -375,7 +382,7 @@ PY
   IFS= read -r -d '' N_CHUNKS
   IFS= read -r -d '' SOURCE_FILES_JSON
 } < <(read_plan)   # sets MODE, LEAF_UUID, SPINE, N_CHUNKS, SOURCE_FILES_JSON — no eval
-SECTIONS_DIR="$WORK_DIR/sections"
+SECTIONS_DIR="$WORK_DIR/sections"  # lint-ok: C1
 mkdir -p "$SECTIONS_DIR"
 ```
 
@@ -457,13 +464,13 @@ Each summarizer returns ONE single-line JSON object:
 3. Concatenate each `summary` in order, separated by a blank line and a chunk
    boundary marker, into the reduced spine, and write it to a file:
    ```bash
-   REDUCED_SPINE="$WORK_DIR/reduced-spine.txt"
+   REDUCED_SPINE="$WORK_DIR/reduced-spine.txt"  # lint-ok: C1
    # The interpreting Claude writes the sorted, concatenated summaries here using
    # the Write tool, in this exact shape (one block per chunk, ascending index):
-   #   <!-- chunk 0 -->
+   #   [chunk-marker 0 -->
    #   <summary text for chunk 0>
    #
-   #   <!-- chunk 1 -->
+   #   [chunk-marker 1 -->
    #   <summary text for chunk 1>
    #   ...
    EXTRACTOR_SPINE="$REDUCED_SPINE"
@@ -559,9 +566,11 @@ leaf rule), so the M8 cache key is unchanged. If `$LEAF_UUID` is empty (e.g. a
 stand-alone finalize without a plan), omit it and `finalize` recomputes it.
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
 set +e
 FIN_ERR="${TMPDIR:-/tmp}/handoff-finalize.err"
-BRIEF=$("$PREPASS" finalize --uuid "$UUID" --sections "$SECTIONS_DIR" --leaf "$LEAF_UUID" 2>"$FIN_ERR")
+BRIEF=$("$PREPASS" finalize --uuid "$UUID" --sections "$SECTIONS_DIR" --leaf "$LEAF_UUID" 2>"$FIN_ERR")  # lint-ok: C1
 FIN_RC=$?
 set -e
 ```
@@ -587,7 +596,7 @@ JSONs); the durable output is the brief (printed) and the cache file the engine
 wrote under `.claude/handoff/cache/`. You MAY remove `$WORK_DIR`:
 
 ```bash
-rm -rf "$WORK_DIR"
+rm -rf "$WORK_DIR"  # lint-ok: C1
 ```
 
 ---

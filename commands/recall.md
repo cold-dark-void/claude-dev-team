@@ -44,6 +44,9 @@ git log --oneline --all --grep="$ARGUMENTS" -i -20
 ### B. Agent Memory Files
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 USE_DB=false
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
@@ -59,6 +62,11 @@ sources here, so it shows a wider 300-char preview and a tighter 10-row cap rath
 than the SKILL's 20-row keyword default.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 ESCAPED_ARGS=$(printf '%s' "$ARGUMENTS" | sed "s/'/''/g")
 sqlite3 -header -column "$MEMDB" \
   "SELECT agent, type, tier, substr(content, 1, 300) AS content_preview, updated_at
@@ -72,11 +80,14 @@ sqlite3 -header -column "$MEMDB" \
 If USE_DB=false, fall back to grepping .md files:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 # Project-local agent memory
 grep -r -i -l "$ARGUMENTS" $MROOT/.claude/memory/ 2>/dev/null
 
 # Global project memories
-grep -r -i -l "$ARGUMENTS" ~/.claude/projects/*/memory/ 2>/dev/null
+find ~/.claude/projects -mindepth 2 -maxdepth 2 -type d -name memory 2>/dev/null | while read -r d; do grep -r -i -l "$ARGUMENTS" "$d" 2>/dev/null; done
 ```
 
 For each matching file (grep path only), extract the relevant lines with 2 lines of context.
@@ -86,6 +97,9 @@ For each matching file (grep path only), extract the relevant lines with 2 lines
 Search plan files for the topic:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 grep -r -i -l "$ARGUMENTS" $MROOT/.claude/plans/ 2>/dev/null
 ```
 
@@ -96,6 +110,9 @@ Read matching plan files — extract titles, status, AND key terms/phrases.
 Search spec files:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 grep -r -i -l "$ARGUMENTS" $MROOT/specs/ 2>/dev/null
 ```
 
@@ -106,6 +123,9 @@ Note spec IDs, titles, AND key terms/phrases from matching specs.
 Search backlog items:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 grep -r -i -l "$ARGUMENTS" $MROOT/.claude/backlog/ 2>/dev/null
 ```
 

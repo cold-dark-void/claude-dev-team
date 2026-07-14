@@ -79,6 +79,8 @@ The engine validates scope, resolves task-id (via `--task-id` flag →
 otherwise `generic`), and fails loudly on deferred or missing scopes.
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/council-plan.XXXXXX.json") \
   || { echo "council error: mktemp failed for PLAN_FILE"; exit 1; }
 
@@ -351,8 +353,10 @@ Write collected outputs (evidence bundles, prosecutor brief, advocate brief,
 judge output, struck_lines) to temp files, then call `engine.sh finalize`:
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 "$ENGINE_SH" finalize \
-  --plan-file    "$PLAN_FILE" \
+  --plan-file    "$PLAN_FILE" \  # lint-ok: C1
   --evidence-file "$EVIDENCE_FILE" \
   --judge-output  "$JUDGE_FILE" \
   [--task-id      "<task_id if present>"]

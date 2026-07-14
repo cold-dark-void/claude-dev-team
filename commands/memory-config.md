@@ -43,6 +43,11 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 ## Step 3: Guard — DB must exist
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 if [ ! -f "$MEMDB" ]; then
   echo "Error: memory DB not found. Run /init-team first."
   exit 1
@@ -54,6 +59,11 @@ fi
 If the first argument is `list`:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 -header -column "$MEMDB" \
   "SELECT key,
     CASE WHEN key='distilling_lock' AND value='' THEN '(none)' ELSE value END AS value,
@@ -137,6 +147,11 @@ esac
 ### Step 5c: Apply update
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 python3 -c "
 import sqlite3, sys
 db = sqlite3.connect(sys.argv[1])

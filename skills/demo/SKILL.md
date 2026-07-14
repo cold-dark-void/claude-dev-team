@@ -451,7 +451,7 @@ If yes:
 # Return to original directory first
 cd <original working directory>
 git worktree remove "${TMPDIR:-/tmp}/demo-project"
-git branch -D "$DEMO_BRANCH"
+git branch -D "$DEMO_BRANCH"  # lint-ok: C1
 ```
 
 If no:

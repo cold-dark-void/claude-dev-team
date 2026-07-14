@@ -45,10 +45,13 @@ Read both views of task state and reconcile them:
 2. Read `.claude/tasks/*.json` for the file-store view (the source of
    truth that survives compaction):
    ```bash
-   for f in "$MROOT"/.claude/tasks/*.json; do
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+   while IFS= read -r f; do
      [ -f "$f" ] || continue
      jq -r '[.task_id, .status, .subject // ""] | @tsv' "$f"
-   done
+   done < <(find "$MROOT/.claude/tasks" -maxdepth 1 -name '*.json' -type f 2>/dev/null)
    ```
 
 If a TICKET-ID was provided, filter to tasks whose subject contains that ID.
@@ -72,6 +75,10 @@ TaskList row).
 For each task with status `in_progress`, read the owning agent's context file:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cat $WTROOT/.claude/memory/<owner>/context.md 2>/dev/null
 ```
 
@@ -134,6 +141,9 @@ READY_TASKS=$(bash "$DAG_LIB" ready-set)
 For each WAITING task, show the dependency chain by reading its task file:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 TASK_FILE="$MROOT/.claude/tasks/<task_id>.json"
 DEP_IDS=$(jq -r '.depends_on // [] | .[]' "$TASK_FILE" 2>/dev/null)
 ```
@@ -141,6 +151,8 @@ DEP_IDS=$(jq -r '.depends_on // [] | .[]' "$TASK_FILE" 2>/dev/null)
 For each `dep_id` in `depends_on` (reuse `$DAG_LIB`, or re-resolve if running
 this block fresh):
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/task-dag.sh)
 STATUS=$(bash "$DAG_LIB" status-of "$dep_id")
 ```
 - Show: `WAITING on: <dep_id> (<STATUS>)`
@@ -175,6 +187,9 @@ the column is blank — best-effort and gracefully absent when the local-agent f
 hasn't run.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 # Best-effort: extract routing indicator for a given ticket from metrics.
 # Driven entirely by the orchestrator companion record (emit-orch-metric.sh),
 # which is the only record keyed by ticket. run.sh records have no ticket field

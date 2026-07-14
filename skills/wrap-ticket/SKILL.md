@@ -38,6 +38,9 @@ cleanup blocks re-emit this stanza.
 
 Detect the ticket's worktree path — prefer the new convention, fall back to legacy:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 TICKET_ID="<TICKET-ID>"
 if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
   # New convention: $MROOT/.worktrees/<TICKET-ID>
@@ -134,6 +137,10 @@ Completion could not be verified — no task records found for <TICKET-ID>.
 Read each agent's context.md for this ticket's worktree:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 for agent in ic4 ic5 qa tech-lead pm devops; do
   cat $WTROOT/.claude/memory/$agent/context.md 2>/dev/null
 done
@@ -141,7 +148,11 @@ done
 
 Also read the plan file:
 ```bash
-ls $WTROOT/.claude/plans/ | grep -wF "$TICKET_ID"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+ls $WTROOT/.claude/plans/ | grep -wF "$TICKET_ID"  # lint-ok: C1
 ```
 
 From these, extract:
@@ -159,11 +170,19 @@ Summarize into 3–8 bullet points maximum. Be specific — not "cache is import
 ## Step 3: Append learnings to project memory
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 ```
 
 Read current memory:
 ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
   if [ "$HAS_DISTILLED" -gt 0 ]; then
@@ -193,6 +212,11 @@ Step 2). wrap-ticket appends ONE consolidated learnings doc per wrap; the table 
 key, so `INSERT OR REPLACE` would just append a duplicate every time. Append-only is correct —
 distillation (`/memory-distill`) compresses older rows later.
 ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 CONTENT="<the new learnings section only (## <TICKET-ID> learnings …) — NOT the full re-read>"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
@@ -221,6 +245,11 @@ If the memory file exceeds its SPEC-004 line limit (memory: 50 lines), note:
 After writing learnings to memory, check if distillation should run:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   DISTILL_ENABLED=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
   DISTILL_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_mode';")
@@ -257,7 +286,10 @@ fi
 
 Find the plan entry in `$MROOT/.claude/plans.md` (if it exists):
 ```bash
-grep -wF "$TICKET_ID" $MROOT/.claude/plans.md 2>/dev/null
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+grep -wF "$TICKET_ID" $MROOT/.claude/plans.md 2>/dev/null  # lint-ok: C1
 ```
 
 If found, update its status from `[IN PROGRESS]` or `[ACTIVE]` to `[COMPLETED]`.
@@ -297,14 +329,22 @@ Proceed? (y/n)
 
 If yes:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 cd $MROOT
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+TICKET_ID="<TICKET-ID>"
 if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
   # New convention — delegate to worktree-lib.sh for lock cleanup + removal
   WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
   bash "$WT_LIB" release "$TICKET_ID"
 else
-  # Legacy sibling path — remove directly and delete the tracking branch
+  # Legacy sibling path — re-resolve WORKTREE_PATH (fresh shell per fence)
+  WORKTREE_PATH=$(git worktree list --porcelain \
+    | grep "^worktree " \
+    | sed 's/^worktree //' \
+    | grep -wF "$TICKET_ID" | head -1)
   git worktree remove "$WORKTREE_PATH"
   git branch -D "feat/$TICKET_ID" 2>/dev/null || true
 fi
@@ -328,14 +368,14 @@ Check for an active CI-watch sidecar for this ticket:
 ```bash
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
-SIDECAR_PATH=$(bash "$SIDECAR_CLI" path "$TICKET_ID" 2>/dev/null)
+SIDECAR_PATH=$(bash "$SIDECAR_CLI" path "$TICKET_ID" 2>/dev/null)  # lint-ok: C1
 ```
 
 If `$SIDECAR_PATH` is non-empty and the file exists:
 
 1. Read the cron job ID:
    ```bash
-   CRON_ID=$(jq -r '.cron_job_id // empty' "$SIDECAR_PATH")
+   CRON_ID=$(jq -r '.cron_job_id // empty' "$SIDECAR_PATH")  # lint-ok: C1
    ```
 
 2. If `CRON_ID` is non-empty:
@@ -346,7 +386,9 @@ If `$SIDECAR_PATH` is non-empty and the file exists:
 3. Clean up the sidecar file (reuse `$SIDECAR_CLI` from the block above, or
    re-resolve it if running this block fresh):
    ```bash
-   bash "$SIDECAR_CLI" delete "$TICKET_ID"
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
+   bash "$SIDECAR_CLI" delete "$TICKET_ID"  # lint-ok: C1
    ```
    Print: `CI watch sidecar cleaned up.`
 

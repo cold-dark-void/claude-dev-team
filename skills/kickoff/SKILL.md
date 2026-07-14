@@ -77,11 +77,19 @@ If TICKET-ID or ticket text are missing, ask:
 Read the following in parallel before doing anything else:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 ```
 
 - Claude memory:
   ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
     HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
     if [ "$HAS_DISTILLED" -gt 0 ]; then
@@ -96,6 +104,11 @@ MEMDB="$MROOT/.claude/memory/memory.db"
   ```
 - Tech Lead cortex:
   ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
     HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead' AND tier > 0 AND archived=FALSE;")
     if [ "$HAS_DISTILLED" -gt 0 ]; then
@@ -110,6 +123,11 @@ MEMDB="$MROOT/.claude/memory/memory.db"
   ```
 - PM cortex:
   ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
     HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='pm' AND tier > 0 AND archived=FALSE;")
     if [ "$HAS_DISTILLED" -gt 0 ]; then
@@ -126,6 +144,9 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 
 Scan `specs/` for specs likely related to the ticket (SPEC-008 `### Spec Discovery`):
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ls $MROOT/specs/core/ 2>/dev/null || ls $MROOT/specs/ 2>/dev/null
 ```
 
@@ -322,6 +343,9 @@ Cross-reference any specs that constrain this one.
 
 Determine the next SPEC number:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 ls $MROOT/specs/core/ | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
 # increment by 1
 ```
@@ -337,6 +361,9 @@ unless they are directly contradicted.
 Wait for Tech Lead to write/update the spec. Then commit it:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 git add $MROOT/specs/
 git commit -m "spec: <TICKET-ID> — add/update <feature area> spec"
 ```
@@ -405,6 +432,10 @@ Before creating any tasks, extract the dependency graph from the Tech Lead plan:
 
 Then detect quality-check mode:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Re-resolve PDH (each bash fence is a fresh shell)
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 DETECT_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/detect-mode.sh)
@@ -443,6 +474,10 @@ Create all tasks. Note their assigned IDs.
 
 Then update the plan file to include the task IDs:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Append task map to bottom of plan file
 echo "\n## Task Map\n" >> $WTROOT/.claude/plans/<plan-file>.md
 # For each task: "- Task N (id:<ID>): <title> [depends on: ...]"

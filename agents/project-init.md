@@ -20,6 +20,9 @@ echo "Project root: $MROOT"
 All cortex files go under `$MROOT/.claude/memory/<agent>/cortex.md`. Create all dirs:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 for agent in pm tech-lead ic5 ic4 devops qa ds; do
   mkdir -p "$MROOT/.claude/memory/$agent"
 done
@@ -54,6 +57,9 @@ Read broadly. Do NOT skip files. You are reading for 7 different roles simultane
 
 ### FIRST: Read AGENTS.md if it exists
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 # Check for project-specific rules — these override everything else
 cat "$MROOT/AGENTS.md" 2>/dev/null || echo "No AGENTS.md found"
 ```
@@ -81,6 +87,9 @@ Write each cortex.md with information RELEVANT TO THAT ROLE. Do not just copy-pa
 Before writing any file, check whether the SQLite memory DB is available:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   MEMORY_BACKEND="sqlite"
@@ -94,6 +103,17 @@ For **each** cortex/lessons write below, use **multiple focused INSERTs** — on
 subsystem, concept, or lesson. Do NOT write one giant blob per agent.
 
 ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+# Re-derive backend — each bash fence is a fresh shell
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  MEMORY_BACKEND="sqlite"
+else
+  MEMORY_BACKEND="md"
+fi
 if [ "$MEMORY_BACKEND" = "sqlite" ]; then
   # Append one focused entry per INSERT — one fact/subsystem/concept per row
   ESCAPED_ENTRY=$(printf '%s' "$ENTRY" | sed "s/'/''/g")
@@ -115,6 +135,11 @@ fi
 Instead of inserting `"# IC5 Cortex\n## Codebase Map\ncmd/...\n## Cache\n..."` as one row,
 write separate rows:
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Entry point: cmd/project/main.go — starts HTTP server and backend manager');"
 sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Cache: sharded LRU in internal/cache/, keys sha256(model+prompt+image_hash), TTL 1h');"
 sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Queue: internal/queue/ — semaphore-based backpressure, max 4 concurrent jobs per backend');"
@@ -404,7 +429,7 @@ If no AGENTS.md exists, write short placeholder lessons.md files with headers on
 Create `.claude/CLAUDE.md` (the project memory pointer) if it doesn't already exist:
 
 ```bash
-if [ ! -f "$MROOT/.claude/CLAUDE.md" ]; then
+if [ ! -f "$MROOT/.claude/CLAUDE.md" ]; then  # lint-ok: C1
   mkdir -p "$MROOT/.claude"
   cat > "$MROOT/.claude/CLAUDE.md" << 'EOF'
 # Project Memory
@@ -425,6 +450,9 @@ fi
 Seed `.claude/memory/claude/memory.md` with a project context header if it doesn't already exist:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 mkdir -p "$MROOT/.claude/memory/claude"
 if [ ! -f "$MROOT/.claude/memory/claude/memory.md" ]; then
   cat > "$MROOT/.claude/memory/claude/memory.md" << EOF

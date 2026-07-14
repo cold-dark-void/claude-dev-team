@@ -56,6 +56,11 @@ Parse flags from arguments:
 If `--status` flag is set, print tier breakdown and config, then stop.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 echo "MEMORY TIER STATUS"
 echo "================================"
 
@@ -86,6 +91,11 @@ Stop after printing.
 If `--force` flag is set, clear any stale lock:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
 echo "[distill] Stale lock cleared. Proceeding."
 ```
@@ -97,6 +107,11 @@ Continue to distillation steps.
 Use compare-and-swap to prevent concurrent distillation:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # UPDATE + changes() MUST run in a single sqlite3 session for CAS to work
 CHANGED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   UPDATE config SET value='distill-$(date +%s)' WHERE key='distilling_lock' AND value='';
@@ -136,6 +151,11 @@ If `SKIP_VALIDATE` is not `"true"`, follow these steps in order:
 
 3. If validation reported failures, release the lock and stop:
    ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
    sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
    echo "[distill] Validation failed. Aborting distillation."
    exit 1
@@ -151,6 +171,11 @@ If `SKIP_VALIDATE` is not `"true"`, follow these steps in order:
 If `distill_enabled=false`, print a notice but continue (manual trigger bypasses the setting):
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 DISTILL_ENABLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
 if [ "$DISTILL_ENABLED" = "false" ]; then
   echo "[distill] Note: auto-distillation is disabled. Running manual distillation."
@@ -162,6 +187,11 @@ THRESHOLD=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHER
 Determine which agents to process:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 if [ -n "$TARGET_AGENT" ]; then
   # Single agent mode -- process regardless of threshold
   AGENTS="$TARGET_AGENT"
@@ -171,7 +201,7 @@ else
     "SELECT agent FROM memories
      WHERE tier=0 AND archived=FALSE
      GROUP BY agent
-     HAVING COUNT(*) >= $THRESHOLD
+     HAVING COUNT(*) >= $THRESHOLD  # lint-ok: C1
      ORDER BY agent;")
 fi
 
@@ -188,6 +218,11 @@ fi
 For each target agent, query raw memories in oldest-first order, batched by threshold size:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 MEMORIES=$(sqlite3 "$MEMDB" \
   "SELECT id, content FROM memories
    WHERE agent='$AGENT' AND tier=0 AND archived=FALSE
@@ -205,6 +240,11 @@ If count is 0: print `"[distill] @<agent>: no raw memories to distill."` and ski
 Read the configured distill model:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 DISTILL_MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_model';")
 ```
 
@@ -227,6 +267,11 @@ to the next agent.
 After all agents are processed (or on error), release the lock:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
 ```
 

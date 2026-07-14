@@ -75,6 +75,10 @@ TDD Gate: DISABLED
 Create `.claude/hooks/` if needed, then write `.claude/hooks/tdd-gate.sh`:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 #!/usr/bin/env bash
 # PreToolUse hook — TDD gate. Blocks Write/Edit to implementation files
 # when no corresponding test file exists.

@@ -49,6 +49,11 @@ MODEL_DIR="$MROOT/.claude/memory/models"
 If arguments contain `--status`:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 if [ ! -f "$MEMDB" ]; then
   echo "Memory DB: not initialized (run /init-team first)"
   exit 0
@@ -81,6 +86,11 @@ And stop.
 Determine the best search mode and execute:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 if [ ! -f "$MEMDB" ] || ! command -v sqlite3 &>/dev/null; then
   SEARCH_MODE="grep"
 else
@@ -90,7 +100,7 @@ else
 
   DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';" 2>/dev/null)
 
-  if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
+  if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then  # lint-ok: C1
     SEARCH_MODE="semantic/lembed"
   elif [ "$EMBED_MODE" = "remote" ] && [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
     EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
@@ -104,8 +114,13 @@ fi
 ### Mode: semantic/lembed
 
 ```bash
-MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
-VEC_TABLE="vec_memories_${DIMS}"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"  # lint-ok: C1
+VEC_TABLE="vec_memories_${DIMS}"  # lint-ok: C1
 # Escape the query for SQL interpolation (same idiom as the keyword path): '→''
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 
@@ -128,12 +143,17 @@ EOSQL
 ### Mode: semantic/remote
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # EMBED_URL already resolved during mode detection
 EMBED_KEY="${EMBEDDING_API_KEY:-}"
 EMBED_MODEL="${EMBEDDING_MODEL:-}"
-VEC_TABLE="vec_memories_${DIMS}"
+VEC_TABLE="vec_memories_${DIMS}"  # lint-ok: C1
 
-CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
+CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")  # lint-ok: C1
 # Pass auth header via config file to avoid leaking token in ps aux
 CURL_CONFIG=""
 if [ -n "$EMBED_KEY" ]; then
@@ -179,6 +199,11 @@ fi
 ### Mode: keyword
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 RESULTS=$(sqlite3 "$MEMDB" \
   "SELECT agent, type, tier, '' AS score, updated_at, substr(content, 1, 200) AS snippet
@@ -192,8 +217,12 @@ RESULTS=$(sqlite3 "$MEMDB" \
 Search .md files across all agent directories:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 GREP_RESULTS=""
-for DIR in "$MROOT/.claude/memory"/*/; do
+for DIR in $(find "$MROOT/.claude/memory" -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
   AGENT=$(basename "$DIR")
   # Skip non-agent dirs (extensions, models)
   [ "$AGENT" = "extensions" ] || [ "$AGENT" = "models" ] && continue

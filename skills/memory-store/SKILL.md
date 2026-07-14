@@ -44,6 +44,11 @@ Replace `<AGENT>`, `<TYPE>`, and `<CONTENT_ESCAPED>` with real values.
 **Write protocol: append-only — one focused fact per INSERT.**
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # APPEND a focused memory entry (one fact, decision, or lesson per INSERT)
 ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO memories(agent, type, content) VALUES ('<AGENT>', '<TYPE>', '$ESCAPED');"
@@ -52,6 +57,11 @@ sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO memories(agent, type, co
 **Use heredoc for multi-line content** to avoid shell quoting issues:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" <<'EOSQL'
 INSERT INTO memories(agent, type, content) VALUES (
   'tech-lead',
@@ -63,6 +73,11 @@ EOSQL
 
 **Capture the new row ID in the same session** (needed for embedding — see Step 4):
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 MEMORY_ID=$(sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content)
   VALUES ('<AGENT>', '<TYPE>', '$ESCAPED');
   SELECT last_insert_rowid();")
@@ -94,6 +109,9 @@ Do NOT write:
 Use this branch when `USE_DB=false` (DB file absent or sqlite3 not installed).
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 AGENT_MEM="$MROOT/.claude/memory/<AGENT>"
 mkdir -p "$AGENT_MEM"
 cat >> "$AGENT_MEM/<TYPE>.md" << 'EOF'
@@ -116,7 +134,12 @@ when the mode is `fallback` or the required extensions/models are absent — so 
 never breaks the write.
 
 ```bash
-bash skills/memory-store/embed-one.sh "$MEMDB" "$MEMORY_ID" "$CONTENT"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+bash skills/memory-store/embed-one.sh "$MEMDB" "$MEMORY_ID" "$CONTENT"  # lint-ok: C1
 ```
 
 The lembed (local GGUF) and remote (OpenAI-compatible) provider logic — formerly
@@ -134,6 +157,11 @@ Always prepend `PRAGMA busy_timeout=5000;` to write operations. For the rare
 case of a hard lock, retry once:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT ..." || { sleep 1; sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT ..."; }
 ```
 
@@ -146,6 +174,11 @@ the distillation threshold. This only fires when `distill_enabled=true` — othe
 zero extra queries are issued.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # Threshold check (skip if distill_enabled=false)
 DISTILL_ENABLED=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
 if [ "$DISTILL_ENABLED" = "true" ]; then
@@ -165,6 +198,11 @@ fi
 ## Step 6: Verify the write
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 sqlite3 "$MEMDB" \
   "SELECT id, agent, type, length(content), created_at
    FROM memories ORDER BY id DESC LIMIT 1;"

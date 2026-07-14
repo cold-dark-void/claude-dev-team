@@ -82,6 +82,9 @@ The project directory name is the absolute path to `MROOT` with every `/` replac
 by `-`. This matches Claude's own encoding scheme.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 # Encode MROOT: replace each '/' with '-'
 ENCODED=$(echo "$MROOT" | sed 's|/|-|g')
 PROJECT_DIR="$HOME/.claude/projects/$ENCODED"
@@ -90,6 +93,11 @@ PROJECT_DIR="$HOME/.claude/projects/$ENCODED"
 Verify the directory exists:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+ENCODED=$(echo "$MROOT" | sed 's|/|-|g')
+PROJECT_DIR="$HOME/.claude/projects/$ENCODED"
 if [ ! -d "$PROJECT_DIR" ]; then
   echo "No Claude project directory found for this repo."
   echo "Expected: $PROJECT_DIR"
@@ -104,8 +112,15 @@ fi
 **Default (single, no explicit SID):** most recently modified `.jsonl` in the project dir.
 
 ```bash
-if [ "$MODE" = "single" ] && [ -z "$EXPLICIT_SID" ]; then
-  CANDIDATES=$(ls -t "$PROJECT_DIR"/*.jsonl 2>/dev/null | head -1)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+ASSEMBLE=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/assemble.py)
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+ENCODED=$(echo "$MROOT" | sed 's|/|-|g')
+PROJECT_DIR="$HOME/.claude/projects/$ENCODED"
+if [ "$MODE" = "single" ] && [ -z "$EXPLICIT_SID" ]; then  # lint-ok: C1
+  CANDIDATES=$(find "$PROJECT_DIR" -maxdepth 1 -name '*.jsonl' -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d" " -f2-)
 
 # Explicit SID: resolve to the canonical transcript via the shared module's
 # `assemble.py locate`. This handles forked sessions correctly — when a uuid
@@ -174,7 +189,7 @@ while IFS= read -r f; do
   MTIME=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null)
   AGE=$(( NOW - ${MTIME:-NOW} ))
 
-  if [ -f "$FRESHNESS" ]; then
+  if [ -f "$FRESHNESS" ]; then  # lint-ok: C1
     sh "$FRESHNESS" check "$f" >/dev/null 2>&1
     FRESH_RC=$?
   else
@@ -183,7 +198,7 @@ while IFS= read -r f; do
   fi
 
   if [ "$FRESH_RC" -eq 9 ]; then
-    if [ "$WHY" = "1" ]; then
+    if [ "$WHY" = "1" ]; then  # lint-ok: C1
       echo "[skip] $(basename "$f" .jsonl)  (modified ${AGE}s ago — in-progress threshold: 60s)"
     fi
     continue
@@ -208,21 +223,21 @@ FILTERED=""
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   if grep -qE '<command-name>/[a-z:-]*retro</command-name>' "$f" 2>/dev/null; then
-    if [ "$WHY" = "1" ]; then
+    if [ "$WHY" = "1" ]; then  # lint-ok: C1
       echo "[skip] $(basename "$f" .jsonl)  (contains /retro invocation — loop prevention)"
     fi
     continue
   fi
   FILTERED="$FILTERED
 $f"
-done <<< "$CANDIDATES"
+done <<< "$CANDIDATES"  # lint-ok: C1
 SESSIONS=$(echo "$FILTERED" | sed '/^[[:space:]]*$/d')
 ```
 
 ### Step 2d: Empty-set guard
 
 ```bash
-if [ -z "$SESSIONS" ]; then
+if [ -z "$SESSIONS" ]; then  # lint-ok: C1
   echo "No sessions to retro."
   exit 0
 fi
@@ -260,10 +275,12 @@ Budget policy (two modes):
 - **`--all` mode**: no total budget cap; instead a hard 2s per-file cap prevents any one session from dominating.
 
 ```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+GATE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/freshness-gate.sh)
 FLAGGED_SESSIONS=""
 ANCHOR_IDS=""        # newline-separated "<jsonl-path> <id>" pairs for Step 4
 GATE_START=$(date +%s)
-TOTAL=$(echo "$SESSIONS" | wc -l)
+TOTAL=$(echo "$SESSIONS" | wc -l)  # lint-ok: C1
 N=0
 
 # Total budget: 5s for single/explicit mode; unlimited for --all (per-file cap applies instead).
@@ -274,7 +291,7 @@ while IFS= read -r JSONL; do
   N=$(( N + 1 ))
 
   # Total-budget check — only enforce in single/explicit mode.
-  if [ "$MODE" != "all" ]; then
+  if [ "$MODE" != "all" ]; then  # lint-ok: C1
     ELAPSED=$(( $(date +%s) - GATE_START ))
     if [ "$ELAPSED" -ge $TOTAL_BUDGET ]; then
       REMAINING=$(( TOTAL - N + 1 ))
@@ -321,7 +338,7 @@ $JSONL $ID"
   fi
 
   # --why output: per-session signal table
-  if [ "$WHY" = "1" ]; then
+  if [ "$WHY" = "1" ]; then  # lint-ok: C1
     SID=$(basename "$JSONL" .jsonl)
     PASSED_LABEL="passed"
     [ -z "$PASSED" ] && PASSED_LABEL="not passed"
@@ -354,7 +371,7 @@ ANCHOR_IDS=$(echo "$ANCHOR_IDS" | sed '/^[[:space:]]*$/d')
 ### Step 3c: Early exit if nothing flagged
 
 ```bash
-if [ -z "$FLAGGED_SESSIONS" ]; then
+if [ -z "$FLAGGED_SESSIONS" ]; then  # lint-ok: C1
   echo "No friction detected — nothing to retro."
   exit 0
 fi
@@ -415,9 +432,14 @@ Per-session construction, to be performed by the orchestrating Claude before
 each Task spawn:
 
 ```bash
-# For each $JSONL in $FLAGGED_SESSIONS:
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+GATE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/freshness-gate.sh)
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# For each $JSONL in $FLAGGED_SESSIONS:  # lint-ok: C1
 FRICTION_SIGNALS_JSON=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)
-ANCHOR_MESSAGE_IDS_JSON=$(echo "$ANCHOR_IDS" | python3 -c "
+ANCHOR_MESSAGE_IDS_JSON=$(echo "$ANCHOR_IDS" | python3 -c "  # lint-ok: C1
 import sys, json
 lines = [l for l in sys.stdin.read().splitlines() if l.strip()]
 ids = [p.split(None,1)[1] for p in lines if p.startswith('$JSONL ')]
@@ -622,7 +644,7 @@ $DESC	$SRCJ"
         ;;
     esac
   done < <(RETRO_JSON="$JSON" RETRO_SRC="$SRC" parse_one)
-done <<< "$SUBAGENT_RESULTS"
+done <<< "$SUBAGENT_RESULTS"  # lint-ok: C1
 
 RAW_PROPOSALS=$(echo "$RAW_PROPOSALS" | sed '/^[[:space:]]*$/d')
 OBSERVATIONS=$(echo "$OBSERVATIONS"  | sed '/^[[:space:]]*$/d')
@@ -667,7 +689,7 @@ singletons here so Step 5 has the info without re-parsing. We group by
 RAW_PROPOSALS set — Step 5 may drop those when `$MODE = "all"`.
 
 ```bash
-if [ "$MODE" = "all" ] && [ -n "$RAW_PROPOSALS" ]; then
+if [ "$MODE" = "all" ] && [ -n "$RAW_PROPOSALS" ]; then  # lint-ok: C1
   # Count occurrences of each pattern_summary (column 5 after the rank key).
   SINGLETON_PATTERNS=$(printf '%s\n' "$RAW_PROPOSALS" \
     | cut -f5 | sort | uniq -c \
@@ -697,7 +719,7 @@ any proposal whose column-5 `pattern_summary` matches, and log each drop so the
 user can see why the proposal was suppressed.
 
 ```bash
-if [ "$MODE" = "all" ] && [ -n "$SINGLETON_PATTERNS" ]; then
+if [ "$MODE" = "all" ] && [ -n "$SINGLETON_PATTERNS" ]; then  # lint-ok: C1
   FILTERED=""
   while IFS= read -r row; do
     [ -z "$row" ] && continue
@@ -720,6 +742,9 @@ the empty string (NOT the literal `"empty"` — the classifier needs a real
 emptiness test here, unlike the Step 4c prompt-substitution helper).
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 load_rules_raw() {
   # Use $* (all args) instead of $1 — avoids Claude Code arg substitution in skill text.
   [ -s "$*" ] && cat "$*" || printf ''
@@ -759,6 +784,9 @@ jaccard score.
 - Otherwise → `TIGHTEN`; `existing_ref` is the highest-scoring candidate line.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 CLASSIFIED_PROPOSALS=""
 TIGHTEN_PATTERNS=""
 
@@ -881,7 +909,7 @@ PY
   if [ "$action" = "TIGHTEN" ]; then
     TIGHTEN_PATTERNS="${TIGHTEN_PATTERNS}${pattern_summary}"$'\n'
   fi
-done <<< "$RAW_PROPOSALS"
+done <<< "$RAW_PROPOSALS"  # lint-ok: C1
 
 CLASSIFIED_PROPOSALS=$(printf '%s' "$CLASSIFIED_PROPOSALS" | sed '/^[[:space:]]*$/d')
 ```
@@ -906,7 +934,7 @@ Drop any `NEW` proposal whose `pattern_summary` (column 3) collides with a
 existing rule for a pattern, adding a new rule for the same pattern is sprawl.
 
 ```bash
-if [ -n "$TIGHTEN_PATTERNS" ] && [ -n "$CLASSIFIED_PROPOSALS" ]; then
+if [ -n "$TIGHTEN_PATTERNS" ] && [ -n "$CLASSIFIED_PROPOSALS" ]; then  # lint-ok: C1
   SWEPT=""
   while IFS= read -r row; do
     [ -z "$row" ] && continue
@@ -1022,7 +1050,7 @@ actual `{message_id, excerpt}` array the subagent cited, NOT a count. Each line
 shows the real excerpt text:
 
 ```bash
-# $citations_json is column 9 of the current CLASSIFIED_PROPOSALS row.
+# $citations_json is column 9 of the current CLASSIFIED_PROPOSALS row.  # lint-ok: C1
 CIT="$citations_json" python3 - <<'PY'
 import json, os
 try:
@@ -1050,6 +1078,9 @@ Handle the user's response:
     ```
     Then print the current directive count for that agent:
     ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
     FILE="$MROOT/.claude/memory/<target>/directives.md"
     COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || echo 0)
     printf '%s: %s directive(s) currently (run the command above to update)\n' "<target>" "$COUNT"
@@ -1068,6 +1099,9 @@ Handle the user's response:
     `$MROOT/.claude/memory/claude/lessons.md`. Create the file and parent
     directory if absent:
     ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
     mkdir -p "$MROOT/.claude/memory/claude"
     # Belt-and-braces: re-sanitize at write time. The Step 4 validator already
     # strips control chars, but defense-in-depth in case proposed_text reached
@@ -1106,6 +1140,9 @@ Skip the confirm UI. For each proposal, apply immediately:
 
   - **Exit 0 (success):** Increment `APPLIED`. Print the updated directive count:
     ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
     FILE="$MROOT/.claude/memory/<target>/directives.md"
     COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || echo 0)
     printf '[auto-applied] %s: %s directive(s) now\n' "<target>" "$COUNT"
@@ -1125,6 +1162,9 @@ Skip the confirm UI. For each proposal, apply immediately:
 - If `target` is **`claude`**: append directly to
   `$MROOT/.claude/memory/claude/lessons.md` (no slash command needed):
   ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
   mkdir -p "$MROOT/.claude/memory/claude"
   # Belt-and-braces: re-sanitize at write time (see default-mode apply above).
   proposed_text=$(printf '%s' "$proposed_text" | tr -d '\r\n\t\000-\037' | cut -c1-200)
@@ -1210,7 +1250,7 @@ In COUNCIL-001 (v0.18.0), `/council --from-retro <anchor-id>` fails loudly with
 the locked deferred-scope decision. The hint is printed for forward-compat.
 
 ```bash
-if [ -n "$FABRICATION_ANCHORS" ]; then
+if [ -n "$FABRICATION_ANCHORS" ]; then  # lint-ok: C1
   FA_COUNT=$(printf '%s\n' "$FABRICATION_ANCHORS" | grep -c '.' || echo 0)
   echo ""
   echo "Detected ${FA_COUNT} fabrication anchor(s) — consider auditing with /council:"

@@ -38,6 +38,11 @@ Tiered loading: if distilled content (tier 1 or 2) exists, load only the compres
 Otherwise fall back to raw tier-0 memories (backward compatible with pre-distillation DBs).
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # Check if agent has any distilled content (tier 1 or 2)
 HAS_DISTILLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories
   WHERE agent='<AGENT>' AND tier > 0 AND archived=FALSE;")
@@ -62,6 +67,9 @@ fi
 **Fallback** when `USE_DB=false`:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 for TYPE in cortex memory lessons; do
   cat "$MROOT/.claude/memory/<AGENT>/$TYPE.md" 2>/dev/null
 done
@@ -79,6 +87,11 @@ to prevent SQL injection. Define `ESCAPED_QUERY` once and use it everywhere the 
 lands in SQL (here and in the LIKE/lembed paths below):
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 sqlite3 -header -column "$MEMDB" \
   "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
@@ -109,15 +122,20 @@ Cosine similarity search using stored embeddings. Gracefully degrades to keyword
 when extensions or models are absent.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
 
 EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
 DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
-if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \
+if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \  # lint-ok: C1
    [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
-  MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
+  MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"  # lint-ok: C1
   VEC_TABLE="vec_memories_${DIMS}"
   # Escape the query for SQL interpolation (see Step 3): '→''
   ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
@@ -209,8 +227,17 @@ fi
 Used when `USE_DB=false`. Searches all agent `.md` files with grep.
 
 ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 if [ "$USE_DB" = "false" ]; then
-  grep -ril "<QUERY>" "$MROOT/.claude/memory/"*/*.md 2>/dev/null | while read -r FILE; do
+  find "$MROOT/.claude/memory" -mindepth 2 -maxdepth 2 -name '*.md' -type f -exec grep -lil "<QUERY>" {} + 2>/dev/null | while read -r FILE; do
     AGENT=$(basename "$(dirname "$FILE")")
     TYPE=$(basename "$FILE" .md)
     echo "=== @$AGENT / $TYPE ==="
@@ -258,6 +285,11 @@ absent). Replace `<CURRENT_MODEL>`. The query is single-quote escaped (`ESCAPED_
 see Step 3) before interpolation.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 # Append unembedded memories (keyword match) after semantic results
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 sqlite3 "$MEMDB" <<EOSQL

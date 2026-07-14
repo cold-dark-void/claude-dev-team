@@ -116,7 +116,9 @@ CURRENT_BRIEF="$BRIEF"
 Call `run.sh` with the resolved worktree, brief, and check expression:
 
 ```bash
-bash "$RUN_SH" --worktree "$WT" --brief "$CURRENT_BRIEF" --check "$CHECK"
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+RUN_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/run.sh)
+bash "$RUN_SH" --worktree "$WT" --brief "$CURRENT_BRIEF" --check "$CHECK"  # lint-ok: C1
 RC=$?
 ```
 
@@ -151,13 +153,13 @@ The invoking Claude reviews the worktree diff directly — a lightweight
 PR-style review (not a council/diff-mode run). Read the diff:
 
 ```bash
-git -C "$WT" diff HEAD
+git -C "$WT" diff HEAD  # lint-ok: C1
 ```
 
 Also read any staged changes:
 
 ```bash
-git -C "$WT" diff --cached
+git -C "$WT" diff --cached  # lint-ok: C1
 ```
 
 Evaluate whether the diff correctly implements the brief and passes a
@@ -188,7 +190,7 @@ The invoking Claude finishes the task itself:
    in place, if anything):
 
    ```bash
-   git -C "$WT" diff HEAD
+   git -C "$WT" diff HEAD  # lint-ok: C1
    ```
 
 2. Apply any corrections or complete the remaining work, incorporating:

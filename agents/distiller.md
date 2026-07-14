@@ -45,7 +45,8 @@ print(cur.lastrowid)
    ```
 5. Log to distillation_log:
    ```bash
-   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO distillation_log(agent, from_tier, to_tier, source_count, result_memory_id) VALUES ('<AGENT>', 0, 1, <N>, $NEW_ID);"
+   # NEW_ID from step 3 INSERT (agent carries across sequential fences)
+   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO distillation_log(agent, from_tier, to_tier, source_count, result_memory_id) VALUES ('<AGENT>', 0, 1, <N>, $NEW_ID);"  # lint-ok: C1
    ```
 
 Repeat for each topic group in the batch.
