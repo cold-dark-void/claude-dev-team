@@ -14,6 +14,7 @@ Everything for the **claude-dev-team** plugin. New here? Start with the
 | [Specs](runbooks/specs.md) | The spec workflow — create, audit, reflect |
 | [Memory](runbooks/memory.md) | How memory works, distillation, search, hygiene |
 | [Manual operation](runbooks/manual.md) | Driving the agents by hand, without the orchestrators |
+| [Scheduled retro](runbooks/scheduled-retro.md) | Opt-in cron for `/retro --all --auto` (reports under `.claude/retro/`) |
 
 ## Command reference
 
@@ -84,7 +85,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 | `/backlog` | skill | Manage project backlog items (add, close, list, init) |
 | `/release` | skill | Bump version across all files, commit, tag, push |
 | `/scout-plugins` | skill | Research new plugins, propose enhancements |
-| `/retro` | [retro](commands/retro.md) | Review sessions for friction, propose directive adjustments |
+| `/retro` | [retro](commands/retro.md) · [scheduled runbook](runbooks/scheduled-retro.md) | Review sessions for friction, propose directive adjustments; opt-in `--all --auto` schedule |
 | `/local-do` | skill | Offload one mechanical, machine-verifiable task to the local model |
 
 ## See also

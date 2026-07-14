@@ -64,17 +64,37 @@ Prints the per-session score, threshold, matched signals (with anchor IDs), and 
 
 `/kickoff` (Step 9) and `/orchestrate` (Step 13) run the phase-1 friction gate at completion. If the gate fires on the just-finished session, they print a one-line `Consider: /retro <session-id>` hint. They never auto-run `/retro` and never block completion — the hint is just a nudge to retro the session yourself if you found it frustrating.
 
+## Scheduled runs (`--all --auto`)
+
+When **both** `--all` and `--auto` are set, `/retro` is the scheduled autonomous
+path (SPEC-012 / CDV-190):
+
+- Writes `$MROOT/.claude/retro/scheduled-YYYY-MM-DDTHHMMSSZ.md` (including empty
+  or all-smooth runs) and prints `Report: <absolute-path>`
+- Acquires `$MROOT/.claude/retro/scheduled.lock` (2h TTL) so concurrent cron
+  fires no-op cleanly
+- Keeps the newest 12 `scheduled-*.md` reports
+- Full `--auto` apply semantics; conflicts → manual follow-up section in the report
+- Filter 1 / Filter 2 unchanged
+
+**Arming is opt-in** (no default cron). Copy-paste CronCreate + OS cron fallback,
+cadence example (weekly Sun 06:00 UTC), disable steps, and optional
+`AGENT_WEBHOOK_URL`: **[Scheduled retro runbook](../runbooks/scheduled-retro.md)**.
+
+CDV-210 tiered notification sink is **out of scope** for this path.
+
 ## What `/retro` does NOT do
 
 - **Does not modify `AGENTS.md` or `~/.claude/CLAUDE.md`.** Project-wide and global rules are out of scope; each eng↔Claude interaction is project-specific.
 - **Does not auto-apply without `--auto`.** Default mode always confirms per proposal.
 - **Does not write `directives.md` files directly.** Team-agent proposals always go through `/adjust-agent`, preserving SPEC-001's holistic-rewrite and conflict-detection guarantees.
 - **Does not retro the session it was invoked in.** The retro-of-retros filter and the in-progress filter both block this. Retro a session from a fresh session if you want to analyze a session where `/retro` was invoked.
-- **Does not install hooks, intercept user messages, or run in the background.** It's a one-shot command you invoke when you want to retro something.
+- **Does not install hooks, intercept user messages, or run in the background.** It's a one-shot command you invoke when you want to retro something. (Scheduled mode is still opt-in external cron invoking the same command — not a daemon inside the plugin.)
 
 ## See Also
 
 - `/adjust-agent` — the apply target for team-agent directive proposals; supports `--apply` non-interactive mode used by `/retro --auto`
+- [Scheduled retro runbook](../runbooks/scheduled-retro.md) — CronCreate / OS cron scaffold for `/retro --all --auto`
 - [`/kickoff`](./kickoff.md) — runs the friction gate at completion and suggests `/retro` if it fires
 - [`/orchestrate`](./orchestrate.md) — same friction-check hook at the end of an orchestration run
 - [`/recall`](./recall.md) — search past sessions, memory, and git history (broader search, no scoring or proposals)

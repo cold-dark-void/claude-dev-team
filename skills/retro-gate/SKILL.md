@@ -154,3 +154,47 @@ JSONL fields (`type`, `uuid`, `message`, `parentUuid`, `sessionId`,
 `timestamp`) in the first 50 lines, it writes a warning to stderr. Claude
 Code's JSONL format is not a stable public API; this warning is the early
 signal that field names changed and the gate needs updating.
+
+## Scheduled retro helpers (CDV-190)
+
+Phase-1 gate ownership is unchanged. These pure-bash helpers support the
+scheduled `/retro --all --auto` path (report + concurrency + optional webhook).
+Wired from `commands/retro.md` only when both flags are set. Full schedule
+scaffold: `docs/runbooks/scheduled-retro.md`.
+
+### `write-scheduled-report.sh`
+
+```
+bash skills/retro-gate/write-scheduled-report.sh \
+  --mroot <MROOT> --mode all-auto \
+  [--scanned N] [--skipped N] [--gated N] [--deep N] \
+  [--applied-file PATH] [--followup-file PATH] \
+  [--duplicate-file PATH] [--observations-file PATH] \
+  [--summary TEXT] [--note TEXT]
+```
+
+- Writes `$MROOT/.claude/retro/scheduled-YYYY-MM-DDTHHMMSSZ.md`
+- Prints absolute report path on stdout; exit 0 on success, 1 on usage/IO error
+- After write: keeps newest **12** `scheduled-*.md` (never touches `friction.jsonl` or the lock)
+- Empty/smooth runs: pass `--note "…"` for a short observable report (S3)
+- If `AGENT_WEBHOOK_URL` is set: fail-open POST (`event=scheduled_retro`, path + counts only) — not CDV-210
+
+### `scheduled-lock.sh`
+
+```
+bash skills/retro-gate/scheduled-lock.sh acquire <mroot>   # 0 ok; 2 held; 1 error
+bash skills/retro-gate/scheduled-lock.sh release <mroot>   # always 0 (fail-open)
+```
+
+- Lock: `$MROOT/.claude/retro/scheduled.lock` (`pid\nts_epoch\n`)
+- TTL **2h** (7200s); stale locks are stolen
+- Concurrent scheduled runs: acquire rc 2 → print skip line, exit 0, no report
+
+### Tests
+
+```
+bash skills/retro-gate/test.sh                      # gate / hybrid / S3
+bash skills/retro-gate/write-scheduled-report-test.sh
+bash skills/retro-gate/scheduled-lock-test.sh
+bash skills/retro-gate/scheduled-retro-test.sh
+```

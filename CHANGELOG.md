@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.48.0
+- **Scheduled autonomous `/retro --all --auto` (CDV-190)** — report under `.claude/retro/scheduled-*.md` (retention 12); scheduled.lock (2h TTL); runbook for CronCreate + OS cron (opt-in weekly); Filter 1/2 unchanged; thin optional `AGENT_WEBHOOK_URL`
+
 ### v0.47.0
 - **`/metrics` observability rollup (CDV-187)** — read-only `skills/metrics/rollup.sh` over local-agent metrics, council index, SPEC-026 outcomes, and cheap worktree/task counts; fail-open per section; command + README index
 

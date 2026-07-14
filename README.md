@@ -136,7 +136,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | `/release` | Bump version across all files, commit, tag, push |
 | `/release-train` | Multi-branch release queue — register, freeze, land via `/release` (SPEC-023) |
 | `/scout-plugins` | Research new plugins, evaluate against current setup, propose enhancements |
-| [`/retro`](docs/commands/retro.md) | Review past sessions for friction patterns, propose directive adjustments |
+| [`/retro`](docs/commands/retro.md) | Review past sessions for friction patterns, propose directive adjustments ([scheduled `--all --auto` runbook](docs/runbooks/scheduled-retro.md)) |
 | `/local-do` | Offload one mechanical, machine-verifiable task to the local model |
 
 ## Quick Start

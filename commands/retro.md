@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Session retrospective — scan past sessions for friction patterns and propose targeted behavioral adjustments for team agents or plain Claude.
+description: Session retrospective — scan past sessions for friction patterns and propose targeted behavioral adjustments for team agents or plain Claude. --all --auto writes a scheduled report under .claude/retro/.
 argument-hint: "[<session-id>] [--all] [--auto] [--why]"
 agent: build
 ---
@@ -55,6 +55,73 @@ Rules:
 - `--all` and `<session-id>` are mutually exclusive. If both are present, print an
   error and exit non-zero.
 - All other flag combinations are valid.
+
+### Step 1b: Scheduled path lock (`--all --auto` only)
+
+When both `MODE=all` and `AUTO=1`, this invocation is the **scheduled runner**
+path (SPEC-012 S1–S9 / CDV-190). Acquire the project lock before discovery so
+concurrent cron fires no-op cleanly. Empty/smooth/success paths MUST release
+the lock (trap or explicit release). Lock-held skip does **not** write a report.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+SCHED_LOCK=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/scheduled-lock.sh 2>/dev/null || true)
+SCHED_WRITER=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/write-scheduled-report.sh 2>/dev/null || true)
+# Instrumentation for scheduled report (SPEC-012 S2); best-effort across steps.
+SCANNED=0
+SKIPPED_INPROG=0
+SKIPPED_FILTER2=0
+GATED_PASS=0
+DEEP_READ=0
+SCHEDULED_LOCK_HELD=0
+
+if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
+  if [ -x "$SCHED_LOCK" ]; then
+    bash "$SCHED_LOCK" acquire "$MROOT"
+    LOCK_RC=$?
+    if [ "$LOCK_RC" -eq 2 ]; then
+      echo "scheduled retro: lock held, skipping"
+      exit 0
+    fi
+    if [ "$LOCK_RC" -ne 0 ]; then
+      echo "# retro: scheduled lock acquire failed (rc=$LOCK_RC) — continuing without lock" >&2
+    else
+      SCHEDULED_LOCK_HELD=1
+      # Release on any exit from this shell block path.
+      trap 'bash "$SCHED_LOCK" release "$MROOT" 2>/dev/null || true' EXIT
+    fi
+  fi
+fi
+
+# Helper: write scheduled report when --all --auto (no-op otherwise).
+# Call sites: empty-set (2d), smooth gate (3c), empty findings (6a), end of 6h.
+write_scheduled_report_if_needed() {
+  # Args via env: NOTE, APPLIED_FILE, FOLLOWUP_FILE, DUP_FILE, OBS_FILE, SUMMARY
+  [ "$MODE" = "all" ] && [ "$AUTO" = "1" ] || return 0  # lint-ok: C1
+  [ -x "$SCHED_WRITER" ] || {
+    echo "# retro: write-scheduled-report.sh missing — skip report" >&2
+    return 0
+  }
+  # Session counters and paths are set in earlier orchestrator steps (not this fence).
+  SKIPPED_TOTAL=$(( ${SKIPPED_INPROG:-0} + ${SKIPPED_FILTER2:-0} ))  # lint-ok: C1
+  set -- --mroot "$MROOT" --mode all-auto \
+    --scanned "${SCANNED:-0}" --skipped "${SKIPPED_TOTAL:-0}" \
+    --gated "${GATED_PASS:-0}" --deep "${DEEP_READ:-0}"  # lint-ok: C1
+  [ -n "${NOTE:-}" ] && set -- "$@" --note "$NOTE"  # lint-ok: C1
+  [ -n "${APPLIED_FILE:-}" ] && [ -f "$APPLIED_FILE" ] && set -- "$@" --applied-file "$APPLIED_FILE"  # lint-ok: C1
+  [ -n "${FOLLOWUP_FILE:-}" ] && [ -f "$FOLLOWUP_FILE" ] && set -- "$@" --followup-file "$FOLLOWUP_FILE"  # lint-ok: C1
+  [ -n "${DUP_FILE:-}" ] && [ -f "$DUP_FILE" ] && set -- "$@" --duplicate-file "$DUP_FILE"  # lint-ok: C1
+  [ -n "${OBS_FILE:-}" ] && [ -f "$OBS_FILE" ] && set -- "$@" --observations-file "$OBS_FILE"  # lint-ok: C1
+  [ -n "${SUMMARY:-}" ] && set -- "$@" --summary "$SUMMARY"  # lint-ok: C1
+  REPORT_PATH=$(bash "$SCHED_WRITER" "$@" 2>/dev/null) || REPORT_PATH=""  # lint-ok: C1
+  if [ -n "$REPORT_PATH" ]; then
+    echo "Report: $REPORT_PATH"
+  fi
+}
+```
 
 ## Step 2: Session discovery
 
@@ -182,6 +249,7 @@ decision. If the module is unavailable we fall back to the original inline test.
 ```bash
 NOW=$(date +%s)
 FILTERED=""
+SKIPPED_INPROG=${SKIPPED_INPROG:-0}
 while IFS= read -r f; do
   [ -z "$f" ] && continue
 
@@ -198,6 +266,7 @@ while IFS= read -r f; do
   fi
 
   if [ "$FRESH_RC" -eq 9 ]; then
+    SKIPPED_INPROG=$(( SKIPPED_INPROG + 1 ))
     if [ "$WHY" = "1" ]; then  # lint-ok: C1
       echo "[skip] $(basename "$f" .jsonl)  (modified ${AGE}s ago — in-progress threshold: 60s)"
     fi
@@ -220,9 +289,11 @@ file, skip it.
 
 ```bash
 FILTERED=""
+SKIPPED_FILTER2=${SKIPPED_FILTER2:-0}
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   if grep -qE '<command-name>/[a-z:-]*retro</command-name>' "$f" 2>/dev/null; then
+    SKIPPED_FILTER2=$(( SKIPPED_FILTER2 + 1 ))
     if [ "$WHY" = "1" ]; then  # lint-ok: C1
       echo "[skip] $(basename "$f" .jsonl)  (contains /retro invocation — loop prevention)"
     fi
@@ -232,6 +303,7 @@ while IFS= read -r f; do
 $f"
 done <<< "$CANDIDATES"  # lint-ok: C1
 SESSIONS=$(echo "$FILTERED" | sed '/^[[:space:]]*$/d')
+SCANNED=$(printf '%s\n' "$SESSIONS" | sed '/^[[:space:]]*$/d' | grep -c . || echo 0)
 ```
 
 ### Step 2d: Empty-set guard
@@ -239,6 +311,10 @@ SESSIONS=$(echo "$FILTERED" | sed '/^[[:space:]]*$/d')
 ```bash
 if [ -z "$SESSIONS" ]; then  # lint-ok: C1
   echo "No sessions to retro."
+  # CDV-190 S3: empty-set still writes a short scheduled report when --all --auto.
+  NOTE="No sessions to retro."
+  SUMMARY="Applied: 0 | empty candidate set"
+  write_scheduled_report_if_needed
   exit 0
 fi
 ```
@@ -317,6 +393,8 @@ while IFS= read -r JSONL; do
   THRESHOLD=$(echo "$GATE_OUT" | grep -o '"threshold": *[0-9][0-9.]*' | head -1 | grep -o '[0-9][0-9.]*')
 
   if [ -n "$PASSED" ]; then
+    GATED_PASS=$(( ${GATED_PASS:-0} + 1 ))
+    DEEP_READ=$(( ${DEEP_READ:-0} + 1 ))
     FLAGGED_SESSIONS="$FLAGGED_SESSIONS
 $JSONL"
     # Collect anchor message IDs from signals[].ids[] for Step 4.
@@ -373,6 +451,10 @@ ANCHOR_IDS=$(echo "$ANCHOR_IDS" | sed '/^[[:space:]]*$/d')
 ```bash
 if [ -z "$FLAGGED_SESSIONS" ]; then  # lint-ok: C1
   echo "No friction detected — nothing to retro."
+  # CDV-190 S3: all-smooth still writes a short scheduled report when --all --auto.
+  NOTE="No friction detected — nothing to retro (all smooth)."
+  SUMMARY="Applied: 0 | all-smooth | scanned=${SCANNED:-0} gated=0"  # lint-ok: C1
+  write_scheduled_report_if_needed  # lint-ok: C1
   exit 0
 fi
 ```
@@ -973,7 +1055,18 @@ whitespace, print:
 No actionable findings.
 ```
 
-Exit 0.
+When `MODE=all` and `AUTO=1`, still write a short scheduled report (S3), then
+exit 0:
+
+```bash
+if [ -z "$(printf '%s' "$CLASSIFIED_PROPOSALS$OBSERVATIONS" | sed '/^[[:space:]]*$/d')" ]; then  # lint-ok: C1
+  echo "No actionable findings."
+  NOTE="No actionable findings."
+  SUMMARY="Applied: 0 | no actionable findings"
+  write_scheduled_report_if_needed
+  exit 0
+fi
+```
 
 ### Step 6b: Separate DUPLICATE proposals from actionable ones
 
@@ -1260,6 +1353,78 @@ if [ -n "$FABRICATION_ANCHORS" ]; then  # lint-ok: C1
     echo "  - Consider: /council --from-retro $AID"
   done <<< "$FABRICATION_ANCHORS"
   echo "(Note: /council --from-retro is deferred to COUNCIL-002; the hint is for forward-compat.)"
+fi
+```
+
+### Step 6i: Scheduled report (`--all --auto` only, CDV-190)
+
+After Step 6g summary and Step 6h hints, when both `--all` and `--auto` are set,
+write the non-interactive report under `$MROOT/.claude/retro/`. Build temp
+files from the in-memory apply/follow-up/dup/obs state accumulated above, then
+call `write-scheduled-report.sh`. Print `Report: <absolute-path>`. The EXIT trap
+from Step 1b releases `scheduled.lock`.
+
+```bash
+if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+  SCHED_WRITER=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/write-scheduled-report.sh 2>/dev/null || true)
+
+  APPLIED_FILE=$(mktemp "${TMPDIR:-/tmp}/retro-applied.XXXXXX")
+  FOLLOWUP_FILE=$(mktemp "${TMPDIR:-/tmp}/retro-followup.XXXXXX")
+  DUP_FILE=$(mktemp "${TMPDIR:-/tmp}/retro-dup.XXXXXX")
+  OBS_FILE=$(mktemp "${TMPDIR:-/tmp}/retro-obs.XXXXXX")
+
+  # Applied rows: best-effort from ACTIONABLE that were counted in APPLIED.
+  # TSV target\taction\tsummary — orchestrating Claude fills from apply loop state.
+  : >"$APPLIED_FILE"
+  if [ -n "${ACTIONABLE_PROPOSALS:-}" ]; then
+    printf '%s\n' "$ACTIONABLE_PROPOSALS" | while IFS= read -r row; do
+      [ -z "$row" ] && continue
+      t=$(printf '%s' "$row" | cut -f1)
+      a=$(printf '%s' "$row" | cut -f2)
+      s=$(printf '%s' "$row" | cut -f4)
+      # Only NEW/TIGHTEN that were not parked in MANUAL_FOLLOWUP.
+      case "$a" in NEW|TIGHTEN)
+        printf '%s\t%s\t%s\n' "$t" "$a" "$s" >>"$APPLIED_FILE"
+        ;;
+      esac
+    done
+  fi
+
+  : >"$FOLLOWUP_FILE"
+  if [ -n "${MANUAL_FOLLOWUP:-}" ]; then  # lint-ok: C1
+    printf '%s\n' "$MANUAL_FOLLOWUP" >>"$FOLLOWUP_FILE"  # lint-ok: C1
+  fi
+
+  : >"$DUP_FILE"
+  if [ -n "${DUPLICATE_PROPOSALS:-}" ]; then  # lint-ok: C1
+    printf '%s\n' "$DUPLICATE_PROPOSALS" | while IFS= read -r row; do  # lint-ok: C1
+      [ -z "$row" ] && continue
+      t=$(printf '%s' "$row" | cut -f1)
+      s=$(printf '%s' "$row" | cut -f4)
+      ref=$(printf '%s' "$row" | cut -f6)
+      printf 'target=%s existing=%s proposed=%s\n' "$t" "$ref" "$s" >>"$DUP_FILE"
+    done
+  fi
+
+  : >"$OBS_FILE"
+  if [ -n "${OBSERVATIONS:-}" ]; then  # lint-ok: C1
+    printf '%s\n' "$OBSERVATIONS" | while IFS= read -r row; do  # lint-ok: C1
+      [ -z "$row" ] && continue
+      printf '%s\n' "$(printf '%s' "$row" | cut -f1)" >>"$OBS_FILE"
+    done
+  fi
+
+  DUP_N=$(grep -c . "$DUP_FILE" 2>/dev/null || echo 0)
+  MF_N=$(grep -c . "$FOLLOWUP_FILE" 2>/dev/null || echo 0)
+  OBS_N=$(grep -c . "$OBS_FILE" 2>/dev/null || echo 0)
+  SUMMARY="Applied: ${APPLIED:-0} | Rejected: ${REJECTED:-0} | Duplicates: ${DUP_N} | Manual follow-up: ${MF_N} | Observations: ${OBS_N}"  # lint-ok: C1
+  NOTE=""
+  write_scheduled_report_if_needed  # lint-ok: C1
+  rm -f "$APPLIED_FILE" "$FOLLOWUP_FILE" "$DUP_FILE" "$OBS_FILE"
 fi
 ```
 

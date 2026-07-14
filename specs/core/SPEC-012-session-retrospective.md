@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-07
 
-**Covers**: `commands/retro.md`, `skills/retro-gate/`, `skills/retro-subagent/`, `skills/transcript-parse/`, live friction ledger hook `.claude/hooks/friction-capture.sh` (emitted by `skills/init-orchestration/`), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`
+**Covers**: `commands/retro.md`, `skills/retro-gate/` (incl. `write-scheduled-report.sh`, `scheduled-lock.sh`), `skills/retro-subagent/`, `skills/transcript-parse/`, live friction ledger hook `.claude/hooks/friction-capture.sh` (emitted by `skills/init-orchestration/`), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`, schedule scaffold `docs/runbooks/scheduled-retro.md`
 
 ---
 
@@ -141,6 +141,34 @@ surface as transcript `tool_result.is_error` rows. Banked design context:
 
 *Adjacency (non-normative):* ledger tool-error evidence may eventually obsolete S3 draft-polish heuristics for hook-covered sessions — **out of scope for CDV-186**; do not change S3 without a separate ticket. CDV-184 fixtures MUST continue to pass.
 
+### Scheduled autonomous retro (CDV-190)
+
+When both `--all` and `--auto` are set, `/retro` is the scheduled runner path
+(no separate slash command). Schedule arming is **opt-in** via runbook only
+(Claude `CronCreate` primary; OS cron + Claude CLI fallback). No always-on
+daemon and no mandatory auto-arm on `/init-team` or `/init-orchestration`.
+
+| ID | Requirement |
+|----|-------------|
+| S1 | When both `--all` and `--auto` are set, after Step 6g (and 6h hints) — and on empty-set / all-smooth early exits — MUST write a report to `$MROOT/.claude/retro/scheduled-<UTC-ISO>.md` where `<UTC-ISO>` = `YYYY-MM-DDTHHMMSSZ` |
+| S2 | Report MUST include: run timestamp, mode (`--all --auto`), sessions scanned/skipped/gated/deep-read counts; applied list (target, action, text summary); MANUAL_FOLLOWUP with suggested `/adjust-agent` lines; DUPLICATE + observations; Step 6g counters |
+| S3 | Empty-set / all-smooth runs MUST still write a short report so schedule success is observable |
+| S4 | Filter 1 (60s in-progress via `freshness.sh`) + Filter 2 (`/retro` command-name skip) MUST apply identically on the scheduled path; the scheduled runner session itself MUST be Filter-2-skippable on subsequent runs |
+| S5 | Concurrent second run MUST refuse/no-op if `$MROOT/.claude/retro/scheduled.lock` is held and age < 2h; MUST clear the lock on exit (including empty/smooth). On lock-held skip: print one line and exit 0 (cron-safe); no report required |
+| S6 | MUST print the absolute report path on stdout at end when a report is written |
+| S7 | MUST NOT implement the CDV-210 tiered notification sink; MAY best-effort POST if `AGENT_WEBHOOK_URL` is set (`event=scheduled_retro`, `report_path`, summary counts only), fail-open, no retry |
+| S8 | Schedule scaffold MUST ship as a runbook (copy-paste CronCreate + OS cron); MUST NOT require an always-on daemon; arming is opt-in |
+| S9 | Report files MUST NOT include full transcript bodies |
+
+**SHOULD:** rotate to keep the newest 12 `scheduled-*.md` files under
+`$MROOT/.claude/retro/` after a successful write (never prune `friction.jsonl`
+or the lock file). Pointer from `docs/commands/retro.md` + docs hub / README
+command index to the runbook.
+
+Helpers (pure bash, co-located under `skills/retro-gate/`):
+- `write-scheduled-report.sh` — report write, retention, optional webhook
+- `scheduled-lock.sh` — `acquire` / `release` (TTL 7200s; content `pid\nts_epoch\n`)
+
 ---
 
 ## SHOULD
@@ -179,6 +207,17 @@ surface as transcript `tool_result.is_error` rows. Banked design context:
 7. **Fail-open (M7):** unwritable ledger dir → handler exits 0 (never 2), one-line stderr diagnostic.
 8. **CDV-184 regression:** existing S3 draft-polish fixtures (`ac1`–`ac5`) still pass; no S3 weight/exemption changes.
 
+**Scheduled autonomous retro (CDV-190):**
+
+1. **Report write (S1/S2/S6):** `/retro --all --auto` (or writer helper) produces `$MROOT/.claude/retro/scheduled-YYYY-MM-DDTHHMMSSZ.md` with required sections; absolute path printed on stdout.
+2. **Empty/smooth (S3):** empty candidate set and all-smooth gate path still write a short report.
+3. **Filters unchanged (S4):** Filter 1 still uses `freshness.sh` 60s; Filter 2 still matches `<command-name>/…retro</command-name>`; no threshold/signal edits.
+4. **Lock (S5):** second concurrent acquire with fresh lock exits 2 / no-op; stale lock age > 2h is stolen; release clears lock.
+5. **Retention:** after successful write, at most 12 `scheduled-*.md` remain; newest retained; `friction.jsonl` and lock untouched.
+6. **Webhook fail-open (S7):** unset `AGENT_WEBHOOK_URL` is a no-op; unreachable URL still exits 0.
+7. **Runbook (S8):** `docs/runbooks/scheduled-retro.md` documents CronCreate + OS cron, cadence, disable, lock, filters.
+8. **No transcript dump (S9):** report does not embed full JSONL / transcript bodies.
+
 ---
 
 ## Validation
@@ -195,6 +234,12 @@ surface as transcript `tool_result.is_error` rows. Banked design context:
 - [ ] No modifications to `AGENTS.md`, `~/.claude/CLAUDE.md`, or any code files after any `/retro` run
 - [ ] Live friction ledger implemented (M1–M7): handler, hybrid gate path, init-orch wiring, rotation, fail-open
 - [ ] CDV-184 S3 fixtures still pass
+- [ ] **AC1** Scheduled report file written under `$MROOT/.claude/retro/scheduled-*.md` for `--all --auto` (incl. empty/smooth)
+- [ ] **AC2** Filter 1 + Filter 2 unchanged on scheduled path (static + harness)
+- [ ] **AC3** Full `--auto` semantics preserved; conflicts surface as MANUAL_FOLLOWUP in report
+- [ ] **AC4** Schedule scaffold runbook present (CronCreate primary + OS cron fallback); opt-in only
+- [ ] **AC5** Optional `AGENT_WEBHOOK_URL` fail-open only (no CDV-210 sink)
+- [ ] **AC7** `scheduled.lock` TTL 2h blocks concurrent second run; cleared on exit
 
 ---
 
@@ -218,6 +263,10 @@ surface as transcript `tool_result.is_error` rows. Banked design context:
 - Redaction of session content before review (same trust boundary as normal Claude reads)
 - Retroactively deleting or rewriting past directives/lessons (only add or tighten)
 - Metrics dashboards or long-term friction analytics beyond the bounded ledger
+- CDV-210 full tiered notification sink (Slack/Discord MCP, multi-channel routing) — only an optional thin `AGENT_WEBHOOK_URL` bridge is in scope for CDV-190
+- Auto-arming cron on `/init-team` or `/init-orchestration` without explicit opt-in
+- Reprocess-window optimization ("sessions since last scheduled report")
+- Report-only scheduled mode that skips `--auto` apply
 
 ---
 
@@ -231,6 +280,7 @@ surface as transcript `tool_result.is_error` rows. Banked design context:
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `🚧 NEW`→`APPROVED` (no emoji, matches TDD index); refreshed Covers (dropped `(to be created)`, added shipped `skills/retro-gate/`, `skills/retro-subagent/`, `skills/transcript-parse/`); added the shared transcript-parse seam ownership MUST so SPEC-018's "see SPEC-012" citation resolves. No behavioral change. |
 | 2026-07-14 | CDV-184: Phase-1 S3 (edit-loop) MUST exempts clean draft-polish paths (session-created via first `Write`, no intervening tool error or S1 rejection). Pre-existing paths and dirty session-created paths still score. No threshold/weight changes. |
 | 2026-07-14 | CDV-186: Promoted live friction telemetry ledger (M1–M7). Hybrid scoring: ledger supplies S2 when session covered (≥1 row); S1/S3/S4/S5 remain transcript. Schema `{ts,session_id,event,tool,path?}`. Single `friction-capture.sh` for PostToolUseFailure/PermissionDenied/StopFailure. Rotation 10k lines or 5 MiB. Wiring via `/init-orchestration` only. No S3 retune. |
+| 2026-07-14 | CDV-190: scheduled `--all --auto` report (`scheduled-YYYY-MM-DDTHHMMSSZ.md`) + `scheduled.lock` (2h TTL) + retention (last 12) + runbook scaffold (CronCreate / OS cron); optional fail-open `AGENT_WEBHOOK_URL`; Filter 1/2 untouched; CDV-210 full sink out of scope |
 
 ---
 
