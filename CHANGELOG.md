@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.40.0
+- **feat: release train queue coordinator (SPEC-023 / CDV-181)** — `/release-train` + `skills/release-train/train-lib.sh`: manual queue, frozen slot versions, mechanical M5a–d conflict pre-resolve (TDD index/VH/CHANGELOG/JSON), agent-driven `/release <assigned>` per entry; `--dry-run`/print-only inert; abort-safe queue under `.claude/release-train/`. `/release` gains **skip-if-present** for explicit CHANGELOG headings (train Option A). 64 unit + 13 integration tests. SPEC-023 ACTIVE.
+
 ### v0.39.0
 - **feat: skill-bash lint gate (SPEC-021 / CDV-180)** — deterministic LLM-free linter `skills/skill-lint/` (`check-skill-bash.sh` + `lint.py`) for fenced ```bash blocks: C1 cross-block vars, C2 zsh `!`/`<!--` hazards, C3 unguarded globs, C4 captured inline-PRAGMA sqlite; `# lint-ok:` waivers; fixture bite-tests (34); wired as `/release` Step 4.8; live tree lands green (session-state C1s waived). SPEC-021 ACTIVE.
 

@@ -1,0 +1,8 @@
+{
+  "plugins": [
+    {
+      "name": "dev-team",
+      "version": "0.40.0"
+    }
+  ]
+}

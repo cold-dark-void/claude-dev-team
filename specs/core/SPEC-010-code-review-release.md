@@ -41,6 +41,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - MUST exclude `chore: release` commits from changelog generation
 - MUST group related commits into single changelog bullets (not one line per commit)
 - MUST add new changelog section at the top of the changelog in `CHANGELOG.md` (repo root), directly under the file header. The README MUST NOT carry changelog entries — only a pointer to `CHANGELOG.md`.
+- MUST, when invoked with an **explicit** version `X.Y.Z` / `vX.Y.Z`, if `CHANGELOG.md` already contains a top-level heading `### vX.Y.Z` or `### X.Y.Z` with a non-empty body (at least one non-empty line under it before the next `### ` heading): **skip** changelog generation (Step 2) and **skip** prepending a new section (Step 3a); verify the existing section and proceed to triplet sync of JSON files if needed. MUST NOT create a duplicate heading for that version. If the heading exists but the body is empty, treat as missing and generate as usual. If the version was auto-detected or a bump keyword (`patch`/`minor`/`major`), never skip — always generate. Cross-ref: SPEC-023 train M5c pre-writes this heading; the train invokes `/release` with the explicit assigned version (**skip-if-present**).
 - MUST run the managed-include drift-gate before committing/tagging a release: `python3 skills/agent-memory/sync-includes.py check`. If it exits non-zero, a managed `<!-- include: -->` region has drifted from its canonical partial — MUST NOT commit or tag; fix the drift (re-expand the region to match the partial) and re-run until it exits 0. Currently single-sourced regions: the agent-memory protocol expanded across the 7 agents (`skills/agent-memory/protocol.md`), and the shared tech-lead tiered-cortex load block in `/debug` and `/refactor` Step 0 (`skills/agent-memory/cortex-load.md`).
 - The drift-gate covers only managed-include regions (markers present). It does NOT cross-check AGENTS.md against the emitted consumer template — those are intentionally distinct documents (SPEC-005), with no managed-include relationship.
 
@@ -83,6 +84,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 | 2026-04-09 | Path drift fix: corrected flavor preset directory from `skills/dev-team:council/flavors/` to `skills/council/flavors/` (filesystem path carries no `dev-team:` namespace prefix). No behavioral change. |
 | 2026-06-13 | AUDIT-P1-1B: anchored the managed-include drift-gate (`sync-includes.py check`, shipped v0.32.0 in `skills/release/SKILL.md` Step 4.5) as a Release MUST — it was previously specced nowhere. Scoped it to managed-include regions only; clarified it does NOT cross-check AGENTS.md vs the emitted template (SPEC-005 distinctness). |
 | 2026-06-22 | Doc-IA pass: changelog target moved from `README.md` to a dedicated repo-root `CHANGELOG.md`. Release MUST now writes the new `### vX.Y.Z` section to `CHANGELOG.md` and the README only points to it. `skills/release/SKILL.md` Steps 2/3a/4/5 updated accordingly. |
+| 2026-07-13 | CDV-181 / SPEC-023: Release MUST skip-if-present — when `/release` is invoked with an explicit version and CHANGELOG already has that heading with a non-empty body, skip Step 2 generation and Step 3a prepend (no duplicate heading). Enables train M5c pre-write. |
 
 ## Cross-references
 
@@ -91,3 +93,4 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - SPEC-009: Ticket Workflow — orchestrate triggers review before PR creation
 - SPEC-003: Agent Role System — QA agent has veto power that review-and-commit formalizes
 - SPEC-008: Spec Management — review checks spec alignment
+- SPEC-023: Release Train Queue — multi-branch sequencer invokes `/release` with explicit assigned version; relies on skip-if-present for pre-written CHANGELOG headings

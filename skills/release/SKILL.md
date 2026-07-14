@@ -75,13 +75,34 @@ committed history:
 If there are NO uncommitted changes AND no commits since the last tag, tell the
 user "Nothing to release — working tree clean and no commits since last tag" and stop.
 
+### Skip-if-present (explicit version only)
+
+If the resolved version came from an **explicit** version arg (Step 1 rule 1)
+AND `CHANGELOG.md` already has `### vX.Y.Z` or `### X.Y.Z` (normalize: strip
+optional leading `v` for compare) with ≥1 non-empty bullet/body line under it
+before the next `### ` heading:
+
+- Do NOT regenerate bullets; use the existing body as the changelog content
+  for the commit-summary derivation in Step 5.
+- Skip the "generate new entry" work; jump to Step 3 (which will also
+  skip-if-present for 3a).
+
+If the heading exists but body is empty → treat as missing (generate as usual).
+If version was auto-detected or bump-keyword → never skip (always generate).
+
+Used by the release train (SPEC-023): train M5c pre-writes the assigned-version
+heading; `/release <assigned_version>` verifies rather than duplicates.
+
 ## Step 3: Bump all three version files
 
 **CRITICAL — all three must be updated. Never skip any.**
 
 ### 3a. `CHANGELOG.md`
-Add a new `### vX.Y.Z` section at the top of the changelog — directly under the file's
-header block, above the previous version's section:
+If skip-if-present matched in Step 2: verify the heading exists with a non-empty
+body; do **not** prepend a second section for the same version.
+
+Else: add a new `### vX.Y.Z` section at the top of the changelog — directly under the
+file's header block, above the previous version's section:
 ```markdown
 ### vX.Y.Z
 - <changelog entries>
