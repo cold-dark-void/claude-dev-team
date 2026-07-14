@@ -102,6 +102,7 @@ preset selector). The argument surface:
 | `--preset <name>` | Explicit preset selector (else inferred from scope) | Supported |
 | `--workflow` | Opt-in Workflow execution path (CDV-196); orthogonal to scope | Supported |
 | `--why` | Print flavors used + specialist reasoning after summary | Supported (CDV-206) |
+| `--external[=codex\|gemini]` | Optional external investigator slot (codex → gemini) | Supported (CDV-207) |
 | (no scope) | — | **Hard fail, non-zero exit** |
 
 Env: `COUNCIL_WORKFLOW=1` is equivalent to `--workflow`.
@@ -306,6 +307,21 @@ Investigators receive `{{CACHE_DIR}}` and check cache files before Read/Grep;
 on miss they tool-call and write the cache. Orchestrator may seed `reads/`
 from claim source_locators before Phase 2. Finalize best-effort removes the
 dir. Empty/missing cache does not change correctness.
+
+**External investigator slot (CDV-207; SPEC-013 SHOULD):** opt-in via
+`--external` / `--external=codex|gemini` on `/council` and
+`/review-and-commit`. Preflight always emits `external` on the plan:
+`{requested:false}` when off; when on, runs
+`skills/council/external-reviewer.sh detect` (order: codex → gemini, or
+pinned tool) and sets `status: available|skipped`, `tool`, `helper`,
+`flavor: skills/council/flavors/external.md`. **Additive only** — never
+removes an internal flavor; ≥1 internal investigator always remains.
+Missing CLI / invoke failure → one-line stderr skip, continue with
+internal investigators; never hard-fail solely for an external miss.
+Orchestrator runs `external-reviewer.sh run` once in Phase 2 (or
+review-and-commit Phase 1 specialists) and merges the normalized
+`evidence_bundle` / `findings[]` (`tool_use_id` form
+`external:<tool>:<hash>`). CLI parse isolation lives only in the helper.
 
 ### Spawn-failure degradation
 
@@ -843,6 +859,8 @@ prompt.
 - `logic.md`, `security.md`, `compliance.md`, `quality.md`,
   `simplification.md` — diff-mode specialist investigators; the 5
   focus areas migrated from the pre-refactor `skills/review-and-commit/SKILL.md`.
+- `external.md` — external CLI investigator (CDV-207); not Task-spawned —
+  constraints for `external-reviewer.sh` prompt. Additive slot only.
 
 ---
 
@@ -936,6 +954,9 @@ exit codes to decide whether to continue.
   is fine — correctness unchanged.
   *(Per-phase token usage reporting — SPEC-013 SHOULD — implemented CDV-204
   via finalize `--tokens-file`; graceful omit when harness has no tokens.)*
+- **External investigator slot** — **implemented CDV-207**. Opt-in
+  `--external[=codex|gemini]`; helper `external-reviewer.sh` + flavor
+  `external.md`; plan.external; graceful skip; additive only.
 - **Per-invocation preset overrides** — `confidence_filter_threshold` and
   `claim_budget` remain hardcoded per preset unless a later ticket exposes
   CLI overrides.

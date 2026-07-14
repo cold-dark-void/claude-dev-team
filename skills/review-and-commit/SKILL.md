@@ -22,6 +22,10 @@ from entropy.
 - `/review-and-commit <path>`: also save the rendered review to that file
 - `/review-and-commit --impact`: run blast radius analysis before review (adds affected callers as supplementary context for reviewers)
 - `/review-and-commit --impact <path>`: both impact analysis and save to file
+- `/review-and-commit --external` / `--external=codex|gemini`: optional external
+  investigator slot (CDV-207; passthrough to council preflight). Detection
+  order codex → gemini; graceful skip if none installed. Never replaces the
+  5 internal specialists.
 
 ## Step 1: Stage and inspect
 
@@ -95,14 +99,19 @@ PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path 
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/review-and-commit-plan.XXXXXX.json") \
   || { echo "review-and-commit error: mktemp failed for PLAN_FILE"; exit 1; }
-"$ENGINE_SH" preflight --scope diff --preset diff-mode > "$PLAN_FILE"
+# Pass --external / --external=codex|gemini through when the user supplied it.
+EXT_ARGS=()
+# set EXT_ARGS=(--external) or (--external=codex) etc. from user CLI
+"$ENGINE_SH" preflight --scope diff --preset diff-mode "${EXT_ARGS[@]}" > "$PLAN_FILE"
 ```
 
 Preflight runs Phase 0 intake including spec-grep enrichment over
 `$MROOT/specs/**/*.md` for MUSTs matching changed paths. The plan declares
 `output_shape: finding[]`, flavor list (logic, security, compliance, quality,
 simplification), `spec_grep: true`, `feedback_memory_enabled: false`,
-`confidence_filter_threshold: 80`.
+`confidence_filter_threshold: 80`. When `--external` was passed,
+`plan.external` carries detection status (available|skipped); missing CLI is
+never a hard fail.
 
 ## Step 3.5: Workflow opt-in (CDV-196)
 
@@ -127,6 +136,12 @@ Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
   `output_shape: finding[]`,
   tool allowlist `Read, Grep, Glob, Bash (read-only)`. Every finding MUST
   carry a `tool_use_id`.
+- **External slot (CDV-207)** — when `plan.external.requested` and
+  `status==available`, run `skills/council/external-reviewer.sh run` once
+  (same contract as `commands/council.md` Phase 2 external slot) and merge
+  `evidence_bundle` / `findings[]` tagged `external:<tool>`. If skipped or
+  error: one-line notice, continue with the 5 internal specialists. Never
+  drop an internal flavor to make room for external.
 - **Phase 2 / Phase 3** — n/a (specialists already investigate; domain
   specialist deferred).
 - **Phase 4** — skipped in diff-mode; route specialist findings directly to

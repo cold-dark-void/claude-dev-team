@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.68.0
+- **External reviewer option (CDV-207)** — optional `--external` (codex/gemini CLI); one additive investigator slot; graceful skip if missing; review-and-commit passthrough
+
 ### v0.67.0
 - **Council investigator tool-call caching (CDV-211)** — per-run TMPDIR cache; preflight seed + cache-first investigator protocol; finalize cleanup
 

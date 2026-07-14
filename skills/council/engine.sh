@@ -44,6 +44,7 @@ Usage: engine.sh <subcommand> [args...]
 Subcommands:
   preflight        [--scope claim|session|diff|plan|from-retro] [--scope-arg V]
                    [--last N] [--task-id ID] [--preset NAME] [--why]
+                   [--external[=codex|gemini]]
                    Emits investigation-plan JSON on stdout.
 
   finalize         --plan-file P --evidence-file E --judge-output J
@@ -132,6 +133,7 @@ cmd_preflight() {
   local scope="" scope_arg="" last="" task_id="" preset="" why="false"
   local preset_source="inferred"
   local resolved_claim="" anchor_file=""
+  local external="false" external_prefer="auto"
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -141,12 +143,38 @@ cmd_preflight() {
       --task-id)   task_id="${2:-}"; shift 2 ;;
       --preset)    preset="${2:-}"; preset_source="explicit"; shift 2 ;;
       --why)       why="true"; shift ;;
+      # CDV-207: optional external investigator (codex/gemini). Forms:
+      #   --external | --external=codex|gemini | --external codex|gemini
+      --external)
+        external="true"
+        if [ -n "${2:-}" ] && [[ "${2}" != --* ]]; then
+          external_prefer="${2}"
+          shift 2
+        else
+          external_prefer="auto"
+          shift
+        fi
+        ;;
+      --external=*)
+        external="true"
+        external_prefer="${1#--external=}"
+        [ -n "$external_prefer" ] || external_prefer="auto"
+        shift
+        ;;
       *)
         echo "engine.sh: unknown preflight flag: $1" >&2
         exit 2
         ;;
     esac
   done
+
+  case "$external_prefer" in
+    auto|codex|gemini) ;;
+    *)
+      echo "engine.sh: invalid --external value: $external_prefer (want codex|gemini)" >&2
+      exit 2
+      ;;
+  esac
 
   # No-scope invocation → usage error (exit 2)
   if [ -z "$scope" ]; then
@@ -281,6 +309,42 @@ cmd_preflight() {
   mkdir -p "$cache_dir/reads" "$cache_dir/greps"
   printf '%s\n' '{"version":1,"entries":[]}' > "$cache_dir/manifest.json"
 
+  # CDV-207: optional external investigator detection (never hard-fail on miss).
+  # External is additive — plan.flavors (internal) are never reduced.
+  local external_json
+  if [ "$external" = "true" ]; then
+    local EXT_HELPER="$SCRIPT_DIR/external-reviewer.sh"
+    local det_json det_status det_tool det_reason
+    if [ -x "$EXT_HELPER" ]; then
+      # stderr (skip notices) passes through; only stdout is capture-bound.
+      det_json=$(bash "$EXT_HELPER" detect --prefer "$external_prefer") \
+        || det_json='{"status":"skipped","tool":null,"reason":"detect failed"}'
+    else
+      det_json='{"status":"skipped","tool":null,"reason":"external-reviewer.sh not found"}'
+      echo "engine.sh: external-reviewer.sh not found — skipping external slot" >&2
+    fi
+    det_status=$(printf '%s' "$det_json" | jq -r '.status // "skipped"')
+    det_tool=$(printf '%s' "$det_json" | jq -r '.tool // empty')
+    det_reason=$(printf '%s' "$det_json" | jq -r '.reason // empty')
+    # Map detect → plan.external (available|skipped). Never exit non-zero here.
+    external_json=$(jq -n \
+      --arg prefer "$external_prefer" \
+      --arg status "$det_status" \
+      --arg tool "$det_tool" \
+      --arg reason "$det_reason" \
+      '{
+        requested: true,
+        prefer: $prefer,
+        status: (if $status == "available" then "available" else "skipped" end),
+        tool: (if $tool == "" then null else $tool end),
+        reason: $reason,
+        helper: "skills/council/external-reviewer.sh",
+        flavor: "skills/council/flavors/external.md"
+      }')
+  else
+    external_json='{"requested":false}'
+  fi
+
   jq -n \
     --arg scope "$scope" \
     --arg scope_arg "$scope_arg" \
@@ -303,6 +367,7 @@ cmd_preflight() {
     --arg phase3_why_stub "$phase3_why_stub" \
     --arg cache_dir "$cache_dir" \
     --arg run_id "$run_id" \
+    --argjson external "$external_json" \
     '{
       scope: $scope,
       scope_arg: $scope_arg,
@@ -312,6 +377,7 @@ cmd_preflight() {
       preset: $preset,
       output_shape: $output_shape,
       flavors: $flavors,
+      external: $external,
       spec_grep: ($spec_grep == "true"),
       feedback_memory_enabled: ($feedback_enabled == "true"),
       confidence_filter_threshold: (if $confidence_filter == "null" then null else ($confidence_filter | tonumber) end),
@@ -354,7 +420,8 @@ cmd_preflight() {
             flavors: $flavors,
             phase3_specialist: $phase3_why_stub,
             claim_budget: $claim_budget,
-            preset_source: $preset_source
+            preset_source: $preset_source,
+            external: $external
           }
         }
       else .

@@ -158,6 +158,96 @@ if rg -n 'topic-classifier' commands/council.md >/dev/null \
 else
   echo "FAIL: council.md Phase 3 still deferred or missing classifier"; fail=1
 fi
+
+# CDV-207 external reviewer slot
+EXT_SH=skills/council/external-reviewer.sh
+if [ -x "$EXT_SH" ] || [ -f "$EXT_SH" ]; then
+  echo "OK: external-reviewer.sh present"
+else
+  echo "FAIL: missing $EXT_SH"; fail=1
+fi
+if [ -f skills/council/flavors/external.md ]; then
+  echo "OK: flavors/external.md present"
+else
+  echo "FAIL: missing flavors/external.md"; fail=1
+fi
+# PATH without codex/gemini → detect skip exit 0
+# (codex may live in /usr/bin on host — build a PATH that only has jq)
+_NOCLI_BIN=$(mktemp -d "${TMPDIR:-/tmp}/cdv207-nocli-bin.XXXXXX")
+ln -s "$(command -v jq)" "$_NOCLI_BIN/jq"
+set +e
+NOCLI_OUT=$(PATH="$_NOCLI_BIN" /bin/bash "$EXT_SH" detect --prefer auto 2>"${TMPDIR:-/tmp}/cdv207-nocli.err")
+ec_nocli=$?
+set -e
+rm -rf -- "$_NOCLI_BIN"
+if [ "$ec_nocli" -eq 0 ] && printf '%s' "$NOCLI_OUT" | jq -e '.status=="skipped" and .tool==null' >/dev/null \
+  && rg -q 'skip' "${TMPDIR:-/tmp}/cdv207-nocli.err"; then
+  echo "OK: external detect no-cli → skip exit 0"
+else
+  echo "FAIL: external detect no-cli exit=$ec_nocli out=$NOCLI_OUT"; fail=1
+  cat "${TMPDIR:-/tmp}/cdv207-nocli.err" >&2 || true
+fi
+# normalize mock raw → evidence_bundle
+MOCK_RAW=$(mktemp "${TMPDIR:-/tmp}/cdv207-raw.XXXXXX")
+printf '%s\n' '- CRITICAL skills/council/engine.sh:42 — missing null check on scope' >"$MOCK_RAW"
+set +e
+NORM_OUT=$(bash "$EXT_SH" normalize --tool codex --raw-file "$MOCK_RAW" --output-shape 'finding[]' --command 'mock')
+ec_norm=$?
+set -e
+rm -f -- "$MOCK_RAW"
+if [ "$ec_norm" -eq 0 ] && printf '%s' "$NORM_OUT" | jq -e \
+  '.status=="ok" and (.evidence_bundle.tool_use_id|test("^external:codex:")) and (.findings|type=="array")' >/dev/null; then
+  echo "OK: external normalize → evidence_bundle + findings"
+else
+  echo "FAIL: external normalize exit=$ec_norm"; fail=1
+  printf '%s\n' "$NORM_OUT" >&2 || true
+fi
+# preflight --external includes external field; never reduces flavors
+set +e
+EXT_PLAN=$(bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' --external 2>"${TMPDIR:-/tmp}/cdv207-pf.err")
+ec_ext_pf=$?
+set -e
+if [ "$ec_ext_pf" -eq 0 ] && printf '%s' "$EXT_PLAN" | jq -e \
+  '.external.requested==true and (.external.status=="available" or .external.status=="skipped") and (.external.helper|test("external-reviewer")) and (.flavors|length)>=2' >/dev/null; then
+  echo "OK: preflight --external emits external field; ≥2 internal flavors"
+else
+  echo "FAIL: preflight --external shape exit=$ec_ext_pf"; fail=1
+  cat "${TMPDIR:-/tmp}/cdv207-pf.err" >&2 || true
+fi
+# without --external: requested false
+if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' \
+  | jq -e '.external.requested==false' >/dev/null; then
+  echo "OK: preflight default external.requested=false"
+else
+  echo "FAIL: preflight missing external.requested=false"; fail=1
+fi
+# --external=gemini prefer pin (may skip if absent — still exit 0 + field)
+set +e
+PIN_PLAN=$(bash skills/council/engine.sh preflight --scope diff --external=gemini 2>/dev/null)
+ec_pin=$?
+set -e
+if [ "$ec_pin" -eq 0 ] && printf '%s' "$PIN_PLAN" | jq -e \
+  '.external.requested==true and .external.prefer=="gemini"' >/dev/null; then
+  echo "OK: preflight --external=gemini prefer pin"
+else
+  echo "FAIL: preflight --external=gemini exit=$ec_pin"; fail=1
+fi
+if rg -n -- '--external' commands/council.md >/dev/null \
+  && rg -n 'external-reviewer' commands/council.md >/dev/null; then
+  echo "OK: council.md documents --external slot"
+else
+  echo "FAIL: council.md missing --external docs"; fail=1
+fi
+if rg -n -- '--external' skills/review-and-commit/SKILL.md >/dev/null; then
+  echo "OK: review-and-commit passthrough --external"
+else
+  echo "FAIL: review-and-commit missing --external"; fail=1
+fi
+if rg -n 'CDV-207|external investigator' specs/core/SPEC-013-adversarial-council-tribunal.md >/dev/null; then
+  echo "OK: SPEC-013 SHOULD external diversity"
+else
+  echo "FAIL: SPEC-013 missing external SHOULD"; fail=1
+fi
 if rg -n 'Phase 3 — Domain Specialist \(DEFERRED' skills/council/SKILL.md >/dev/null \
   || rg -n 'deferred \(CDV-209\)' skills/council/SKILL.md >/dev/null; then
   echo "FAIL: SKILL.md still defers Phase 3"; fail=1

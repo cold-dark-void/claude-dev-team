@@ -7,7 +7,7 @@ description: |
   to audit a shaky claim, after a debug session to verify "all green", or
   on a plan file to find unverified assumptions. Shares an engine with
   /review-and-commit (diff-mode preset).
-argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> [--task-id <id>] [--workflow]'
+argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--why]'
 agent: build
 ---
 
@@ -31,11 +31,12 @@ to `.claude/council/index.json`.
 - `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
 - `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1`
 - `/council --why` — print short debug section after summary (flavors, Phase 3 specialist reason, claim budget, preset source)
+- `/council --external` — optional external investigator slot (codex → gemini; first available). Graceful skip if none installed. Forms: `--external`, `--external=codex`, `--external=gemini`
 - `/council` — no scope, fails loudly with usage
 
 Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
-`--diff`, `--plan`, or `--from-retro` must be supplied. `--workflow` is
-orthogonal to scope (execution transport only).
+`--diff`, `--plan`, or `--from-retro` must be supplied. `--workflow`,
+`--external`, and `--why` are orthogonal to scope.
 
 ## Step 0: Resolve roots
 
@@ -76,11 +77,14 @@ it. The engine does NOT accept the user-facing scope flags (`--session`,
 | `--from-retro <id>` | `--scope from-retro --scope-arg <id>` (loads `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2) |
 | `--task-id <id>` | `--task-id <id>` (passthrough) |
 | `--why` | `--why` (passthrough) |
+| `--external` / `--external=codex\|gemini` | `--external` / `--external=<tool>` (passthrough; CDV-207) |
 
 The engine validates scope, resolves task-id (via `--task-id` flag →
 `CLAUDE_TASK_ID` env → unbound), resolves preset (`--scope diff` → `diff-mode`,
 `--scope plan|from-retro|claim|session` → `generic`), fails loudly on missing
-scopes, bad plan paths, or missing retro anchors (exit 2).
+scopes, bad plan paths, or missing retro anchors (exit 2). `--external` never
+hard-fails solely for a missing CLI — plan.external.status is `skipped` and
+internal investigators still run.
 
 ```bash
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
@@ -105,8 +109,9 @@ The investigation-plan JSON emitted by `preflight` contains at minimum:
 `scope`, `scope_arg`, `resolved_claim` (claim text when `scope` is `from-retro`;
 empty otherwise), `preset`, `output_shape`, `task_id` (or null),
 `claim_budget`, `phases.1_claim_extraction.skip` (bool — true when extraction
-should be skipped, i.e. for single pasted claims and `--from-retro`), and
-`flavors` (array).
+should be skipped, i.e. for single pasted claims and `--from-retro`),
+`flavors` (array), and `external` (`{requested:false}` or
+`{requested:true, status:available|skipped, tool, prefer, helper, flavor}`).
 
 ## Step 2.5: Execution-path routing (CDV-196)
 
@@ -272,6 +277,44 @@ output → orchestrator self-verifies that claim/flavor with tools; keep
 usable peer bundles; set `degraded=true`. If all spawns fail and
 self-verify yields ≥1 bundle, continue. Protocol:
 `skills/council/SKILL.md` § Spawn-failure degradation.
+
+**External investigator slot (CDV-207; optional, additive):**
+
+When `plan.external.requested == true`, after internal investigator spawns
+(never instead of them — ≥1 internal flavor always remains):
+
+1. If `plan.external.status != "available"` (no CLI / detect skip): print
+   one-line notice from `plan.external.reason` (or
+   `external-reviewer: skip — no CLI`) and continue with internal bundles
+   only. **Never** hard-fail solely for an external miss.
+2. If available, invoke the helper (one slot per run, not per claim×flavor):
+
+```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+EXT_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/external-reviewer.sh)
+# ARTIFACTS_FILE = raw claim/diff/artifacts written for this run (TMPDIR-safe)
+EXT_OUT=$(mktemp "${TMPDIR:-/tmp}/council-ext.XXXXXX.json") \
+  || { echo "council: mktemp failed for external slot — skipping"; EXT_OUT=""; }
+if [ -n "$EXT_OUT" ] && [ -x "$EXT_SH" ]; then
+  # PLAN_FILE session-held by orchestrating Claude (Step 1) — not a cross-fence export
+  _ext_tool=$(jq -r '.external.tool // "auto"' "$PLAN_FILE")  # lint-ok: C1
+  _ext_shape=$(jq -r '.output_shape' "$PLAN_FILE")  # lint-ok: C1
+  bash "$EXT_SH" run \
+    --tool "$_ext_tool" \
+    --claim "<primary claim text or diff summary>" \
+    --artifacts-file "$ARTIFACTS_FILE" \
+    --output-shape "$_ext_shape" \
+    --out "$EXT_OUT" || true
+  # Merge: if status==ok and evidence_bundle present, append to Phase 2 set
+  # tagged investigator: "external:<tool>". findings[] (diff-mode) merge into
+  # candidate findings. status skipped|error → notice only; continue.
+fi
+```
+
+Detection order inside the helper: `codex` then `gemini` (first wins), or
+the pinned tool from `--external=codex|gemini`. Flavor constraints live in
+`skills/council/flavors/external.md`. Adapter isolation: CLI stdout parse
+lives only in `external-reviewer.sh` (normalize → evidence_bundle/finding).
 
 ### Phase 3 — Domain Specialist (CDV-209; before Phase 2.5)
 
