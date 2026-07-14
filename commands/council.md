@@ -26,8 +26,8 @@ to `.claude/council/index.json`.
 - `/council "<claim text>"` — audit a single pasted claim
 - `/council --session [--last N]` — audit a slice of the current session transcript
 - `/council --diff` — audit staged diff (equivalent to /review-and-commit dispatch path)
-- `/council --plan <path>` — audit a plan file (DEFERRED to COUNCIL-002, fails loudly)
-- `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (DEFERRED to COUNCIL-002, fails loudly)
+- `/council --plan <path>` — audit a plan file for unverified assumptions (Phase 1 uses `plan-extractor.md`)
+- `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (DEFERRED to CDV-212, fails loudly)
 - `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
 - `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1`
 - `/council --why` — print short debug section after summary (flavors, specialist stub, claim budget, preset source)
@@ -72,14 +72,15 @@ it. The engine does NOT accept the user-facing scope flags (`--session`,
 | `--session` | `--scope session` |
 | `--session --last N` | `--scope session --last N` |
 | `--diff` | `--scope diff` |
-| `--plan <path>` | `--scope plan --scope-arg <path>` (exits 3, deferred) |
-| `--from-retro <id>` | `--scope from-retro --scope-arg <id>` (exits 3, deferred) |
+| `--plan <path>` | `--scope plan --scope-arg <path>` (path must be readable; else exit 2) |
+| `--from-retro <id>` | `--scope from-retro --scope-arg <id>` (exits 3, deferred until CDV-212) |
 | `--task-id <id>` | `--task-id <id>` (passthrough) |
 | `--why` | `--why` (passthrough) |
 
 The engine validates scope, resolves task-id (via `--task-id` flag →
 `CLAUDE_TASK_ID` env → unbound), resolves preset (`--scope diff` → `diff-mode`,
-otherwise `generic`), and fails loudly on deferred or missing scopes.
+`--scope plan` → `generic`, otherwise `generic`), fails loudly on missing
+scopes (exit 2) and on remaining deferred scope `--from-retro` (exit 3).
 
 ```bash
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
@@ -93,10 +94,11 @@ EXIT=$?
 
 Exit code handling:
 
-- **Exit 2 (no scope / mutually exclusive scopes):** print engine's stderr
-  verbatim and exit. Do NOT continue.
-- **Exit 3 (deferred scope: `--plan` or `--from-retro`):** print engine's
-  stderr verbatim and exit. Do NOT silently treat as another scope.
+- **Exit 2 (no scope / bad plan path / mutually exclusive scopes):** print
+  engine's stderr verbatim and exit. Do NOT continue. Missing or unreadable
+  `--plan` path is exit 2 (not deferred).
+- **Exit 3 (deferred scope: `--from-retro` only):** print engine's stderr
+  verbatim and exit. Do NOT silently treat as another scope.
 - **Exit 4 (unknown preset):** print engine's stderr verbatim and exit.
 - **Exit 0:** `$PLAN_FILE` contains the investigation-plan JSON. Proceed to
   Step 3.
@@ -156,10 +158,13 @@ execution). (Skipped when Step 2.5 selected Workflow.)
 ### Phase 1 — Claim Extraction
 
 Run when `phases.1_claim_extraction.skip` is `false` in the investigation plan
-(i.e. for `--session` and `--diff` scopes). Skip for single pasted claims —
-extraction is not needed when the claim is already isolated.
+(i.e. for `--session`, `--diff`, and `--plan` scopes). Skip for single pasted
+claims — extraction is not needed when the claim is already isolated.
 
-Spawn one Agent subagent:
+Use the prompt path from `plan.phases.1_claim_extraction.prompt` (session/diff
+→ `claim-extractor.md`; plan → `plan-extractor.md`).
+
+**Session / diff** — spawn one Agent subagent:
 
 ```
 description: "Extract claims from session"
@@ -173,8 +178,21 @@ prompt: skills/council/prompts/claim-extractor.md
     {{CLAIM_BUDGET}} ← plan.claim_budget (default 10)
 ```
 
+**Plan** (`plan.scope == "plan"`) — read the plan file at `plan.scope_arg`, then:
+
+```
+description: "Extract claims from plan"
+subagent_type: "general-purpose"
+prompt: skills/council/prompts/plan-extractor.md
+  with substitutions:
+    {{PLAN_PATH}}    ← plan.scope_arg (path as given to --plan)
+    {{INPUT_TEXT}}   ← raw plan file contents (Read plan.scope_arg; artifacts only)
+    {{CLAIM_BUDGET}} ← plan.claim_budget (default 10)
+```
+
 Receive the structured claim list: `[{ claim, source_locator, claim_type }]`.
-For diff-mode the records are candidate findings `{ file, line, description }`.
+Plan locators use `file:heading-path:line`. For diff-mode the records are
+candidate findings `{ file, line, description }`.
 
 **Spawn failure:** if the extractor spawn fails or returns unusable output →
 orchestrator performs extraction with tools; set `degraded=true`. Protocol:
@@ -532,7 +550,8 @@ Warning: N verdict lines were struck for missing evidence — see <report path> 
 ## Error Handling
 
 - **No scope and no prior context** → engine exits 2 → print usage and exit
-- **Deferred scope (`--plan`, `--from-retro`)** → engine exits 3 → print the
+- **Missing/unreadable `--plan` path** → engine exits 2 → print stderr and exit
+- **Deferred scope (`--from-retro` only)** → engine exits 3 → print the
   engine's stderr message verbatim and exit. Do NOT silently treat as another scope.
 - **Unknown preset** → engine exits 4 → print stderr and exit
 - **Engine not found** → print clear error mentioning expected paths and exit

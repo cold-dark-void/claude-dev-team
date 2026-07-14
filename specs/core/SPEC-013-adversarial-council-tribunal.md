@@ -335,6 +335,13 @@ degradation marker — never invent a second string. Distinct from CDV-197
 2. When Workflow budget API / Task envelope tokens are available, verify per-run (ideally per-phase) token usage appears in stdout summary via finalize `--tokens-file` (`Tokens:` block; optional FM `tokens_total` / `tokens_by_phase`)
 3. When tokens file is missing, `source: unavailable`, or all null/≤0 — omit Tokens block and FM keys (exit 0; never invent `0` as real); partial phases print known rows under `Tokens (partial):`
 
+### Test 20 — Plan-file scope (`--plan <path>`, CDV-208)
+1. Static: `bash skills/council/engine.sh preflight --scope plan --scope-arg /nonexistent.md` exits **2** (not 3) with stderr naming the path
+2. Static: preflight `--scope plan --scope-arg skills/council/fixtures/plan-scope-sample.md` exits **0**; JSON has `scope=plan`, `preset=generic`, `phases.1_claim_extraction.skip=false`, `phases.1_claim_extraction.prompt` ending in `plan-extractor.md`
+3. Static: `skills/council/prompts/plan-extractor.md` exists; documents locator format `file:heading-path:line` and claim schema `{claim, source_locator, claim_type}`
+4. Static: fixture `skills/council/fixtures/plan-scope-sample.md` contains one true claim (SQLite memory path) and one fabricated claim (Rust council crate)
+5. Live (optional): `/council --plan skills/council/fixtures/plan-scope-sample.md` extracts ≥1 claim; investigators produce bundles; pipeline completes with verdicts
+6. Deferred residual: `--from-retro` still exits 3 until CDV-212
 
 ---
 
@@ -360,9 +367,11 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
 - [ ] `--why` (CDV-206): preflight with `--why` emits `why: true` + `why_detail` (`preset`, `flavors`, `phase3_specialist`, `claim_budget`, `preset_source`); without flag `why` is not true and no debug section; `commands/council.md` Step 5 prints short labeled block after summary; no verdict impact, no raw prompt dumps
 - [ ] Token usage (CDV-204): finalize `--tokens-file` prints `Tokens:` (or `Tokens (partial):`) when usable; omits when missing/unavailable/zeros; optional FM `tokens_total`/`tokens_by_phase`; `commands/council.md` best-effort collect + pass-through; index.json unchanged
+- [x] Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; deferred only `--from-retro` (exit 3); Test 20
 - [ ] Test 1–11 pass against the implementation
 - [x] Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
 - [ ] Test 12–19 (Council-on-Workflow) pass against the implementation
+- [ ] Test 20 (plan scope) pass against the implementation
 
 ---
 
@@ -370,6 +379,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-07-14 | CDV-208: `/council --plan <path>` live — preflight requires readable path (exit 2 if missing, not exit 3); preset `generic`; Phase 1 via `skills/council/prompts/plan-extractor.md` with locator `file:heading-path:line`; fixture `skills/council/fixtures/plan-scope-sample.md`; `--from-retro` remains deferred exit 3 until CDV-212. Test 20. |
 | 2026-04-09 | Initial spec created from brainstorm `.claude/plans/2026-04-09-brainstorm-council.md` |
 | 2026-04-09 | Taxonomy resolution: added Output Shapes section declaring `verdict[]` and `finding[]` as first-class engine outputs; Phase 1 enriches diff-mode input with applicable-specs bundle; Phase 5 Judge emits the shape declared by the preset (empty tool allowlist unchanged); Phase 6 report template branches on shape; Phase 7 feedback memory scoped to `verdict[]` only; findings require `tool_use_id` citations; confidence unified as 0–100 with per-shape thresholds. |
 | 2026-04-09 | Task binding closure: Phase 6 adds a verdict index at `.claude/council/index.json` (atomic tmp+rename writes) as the single source of truth for the SPEC-002 TaskCompleted gate; reports gain a `task_id` frontmatter field and `--<task_id>` filename suffix when task-bound; `/council` accepts `--task-id` with a `CLAUDE_TASK_ID` env fallback; the gate is scoped to `verdict[]`-shape rows only (findings-shape runs excluded); Test 9 and validation checkboxes added for the new plumbing. |

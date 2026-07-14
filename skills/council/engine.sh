@@ -147,18 +147,30 @@ cmd_preflight() {
 
   # No-scope invocation → usage error (exit 2)
   if [ -z "$scope" ]; then
-    echo "engine.sh: scope required (--scope claim|session|diff)" >&2
+    echo "engine.sh: scope required (--scope claim|session|diff|plan)" >&2
     usage
     exit 2
   fi
 
-  # Deferred scopes → exit 3 with exact message
+  # Deferred scopes → exit 3 with exact message (from-retro until CDV-212)
   case "$scope" in
-    plan|from-retro)
+    from-retro)
       echo "engine.sh: --${scope} is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013." >&2
       exit 3
       ;;
   esac
+
+  # Plan scope: require a readable file path (missing/unreadable → exit 2, not 3)
+  if [ "$scope" = "plan" ]; then
+    if [ -z "$scope_arg" ]; then
+      echo "engine.sh: --plan requires a path (--scope-arg <path>)" >&2
+      exit 2
+    fi
+    if [ ! -f "$scope_arg" ] || [ ! -r "$scope_arg" ]; then
+      echo "engine.sh: plan file not found or not readable: $scope_arg" >&2
+      exit 2
+    fi
+  fi
 
   # Resolve task-id via fallback chain
   if [ -z "$task_id" ]; then
@@ -167,12 +179,11 @@ cmd_preflight() {
 
   # Resolve preset (explicit or inferred from scope)
   if [ -z "$preset" ]; then
-    # plan|from-retro never reach here — they exit 3 in the deferred-scope
-    # case above before preset inference runs.
+    # from-retro never reaches here — exits 3 in the deferred-scope case above.
     preset_source="inferred"
     case "$scope" in
       diff)    preset="diff-mode" ;;
-      claim|session) preset="generic" ;;
+      claim|session|plan) preset="generic" ;;
       *)
         echo "engine.sh: unknown scope: $scope" >&2
         exit 2
@@ -202,10 +213,26 @@ cmd_preflight() {
     claim)   slug="claim" ;;
     session) slug="session${last:+-last-$last}" ;;
     diff)    slug="diff-staged" ;;
+    plan)
+      # Slug from plan basename (path-safe for report-path validation)
+      local base
+      base=$(basename -- "$scope_arg")
+      base="${base%.*}"
+      slug=$(printf '%s' "$base" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-\+//;s/-\+$//;s/-\+/-/g')
+      [ -z "$slug" ] && slug="plan"
+      slug="plan-${slug}"
+      ;;
     *)       slug="$scope" ;;
   esac
   local report_path
   report_path=$(cmd_report_path "$slug" --task-id "$task_id")
+
+  # Phase 1 prompt: plan scope uses plan-extractor; claim/session/diff use claim-extractor.
+  # skip=true only for single pasted claim (already isolated). Plan/session/diff extract.
+  local phase1_prompt="skills/council/prompts/claim-extractor.md"
+  if [ "$scope" = "plan" ]; then
+    phase1_prompt="skills/council/prompts/plan-extractor.md"
+  fi
 
   # Build the investigation plan JSON for the orchestrating Claude. This is
   # the contract: the Claude that invoked /council reads this document and
@@ -229,6 +256,7 @@ cmd_preflight() {
     --arg slug "$slug" \
     --arg report_path "$report_path" \
     --arg mroot "$MROOT" \
+    --arg phase1_prompt "$phase1_prompt" \
     '{
       scope: $scope,
       scope_arg: $scope_arg,
@@ -246,10 +274,10 @@ cmd_preflight() {
       report_path: $report_path,
       mroot: $mroot,
       phases: {
-        "1_claim_extraction": { skip: ($scope == "claim"), prompt: "skills/council/prompts/claim-extractor.md" },
+        "1_claim_extraction": { skip: ($scope == "claim"), prompt: $phase1_prompt },
         "2_parallel_investigation": { min_flavors_per_claim: 2, prompt: "skills/council/prompts/investigator.md" },
         "3_domain_specialist": { deferred: true },
-        # Phase 4 runs only for verdict[]-shape presets (claim/session/generic).
+        # Phase 4 runs only for verdict[]-shape presets (claim/session/plan/generic).
         # finding[]-shape (diff-mode) routes specialist findings straight to the
         # judge — there is no prosecutor/advocate step. See review-and-commit/SKILL.md
         # ("Phase 4 — skipped in diff-mode") and commands/council.md Phase 4.

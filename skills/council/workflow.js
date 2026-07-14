@@ -229,10 +229,12 @@ export async function runCouncil(runtime) {
   }
   const t = parsed.args
 
-  // Required: scope (claim|session|diff) or claim text
-  const scope = t.scope || (t.claim ? 'claim' : t.diff ? 'diff' : t.session ? 'session' : '')
+  // Required: scope (claim|session|diff|plan) or claim text
+  const scope =
+    t.scope ||
+    (t.claim ? 'claim' : t.diff ? 'diff' : t.session ? 'session' : t.plan ? 'plan' : '')
   if (!scope) {
-    return { ok: false, error: 'scope required (claim|session|diff) or claim string' }
+    return { ok: false, error: 'scope required (claim|session|diff|plan) or claim string' }
   }
 
   let degraded = false
@@ -267,8 +269,11 @@ export async function runCouncil(runtime) {
   // --- Preflight ------------------------------------------------------------
   if (typeof phase === 'function') phase('Preflight')
 
+  const planPath = t.plan || (scope === 'plan' ? t.scope_arg || t.claim : '') || ''
   const preflightArgs = ['--scope', scope]
-  if (t.claim || t.scope_arg) preflightArgs.push('--scope-arg', t.claim || t.scope_arg)
+  if (t.claim || t.scope_arg || planPath) {
+    preflightArgs.push('--scope-arg', t.claim || t.scope_arg || planPath)
+  }
   if (t.last != null) preflightArgs.push('--last', String(t.last))
   if (t.task_id) preflightArgs.push('--task-id', String(t.task_id))
   if (t.preset) preflightArgs.push('--preset', String(t.preset))
@@ -295,6 +300,13 @@ export async function runCouncil(runtime) {
   const skipPhase4 =
     plan.phases?.['4_prosecution_defense']?.skipped === true || outputShape === 'finding[]'
 
+  // Resolve extract input: plan scope reads file; others use provided text
+  let inputText = t.input_text || ''
+  if (!inputText && plan.scope === 'plan' && plan.scope_arg && existsSync(plan.scope_arg)) {
+    inputText = readFileSync(plan.scope_arg, 'utf8')
+  }
+  if (!inputText) inputText = plan.scope_arg || t.claim || ''
+
   // --- Extract --------------------------------------------------------------
   if (typeof phase === 'function') phase('Extract')
 
@@ -308,16 +320,29 @@ export async function runCouncil(runtime) {
       },
     ]
   } else {
-    const extractPrompt = loadPrompt('claim-extractor', {
-      SCOPE_TYPE: plan.scope,
-      INPUT_TEXT: t.input_text || plan.scope_arg || '',
-      CLAIM_BUDGET: String(claimBudget),
-    })
+    const extractPromptName =
+      plan.scope === 'plan' ||
+      (plan.phases?.['1_claim_extraction']?.prompt || '').includes('plan-extractor')
+        ? 'plan-extractor'
+        : 'claim-extractor'
+    const extractVars =
+      extractPromptName === 'plan-extractor'
+        ? {
+            PLAN_PATH: plan.scope_arg || planPath || '',
+            INPUT_TEXT: inputText,
+            CLAIM_BUDGET: String(claimBudget),
+          }
+        : {
+            SCOPE_TYPE: plan.scope,
+            INPUT_TEXT: inputText,
+            CLAIM_BUDGET: String(claimBudget),
+          }
+    const extractPrompt = loadPrompt(extractPromptName, extractVars)
     const extracted = await safeAgent(extractPrompt, {
       schema: ClaimsSchema,
       agentType: 'dev-team:ic4',
       phase: 'Extract',
-      label: 'claim-extractor',
+      label: extractPromptName,
     })
     if (extracted && Array.isArray(extracted.claims)) {
       claims = extracted.claims.slice(0, claimBudget)
@@ -326,7 +351,7 @@ export async function runCouncil(runtime) {
       markDegraded()
       claims = [
         {
-          claim: (t.input_text || plan.scope_arg || 'unparsed input').slice(0, 500),
+          claim: (inputText || plan.scope_arg || 'unparsed input').slice(0, 500),
           source_locator: 'self-verified:extract',
           claim_type: 'factual',
         },

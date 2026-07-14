@@ -94,8 +94,8 @@ preset selector). The argument surface:
 | `--session` | Audit a slice of the current session transcript | Supported |
 | `--session --last N` | Audit last N turns only | Supported |
 | `--diff` | Audit staged diff (review-and-commit entry path) | Supported |
-| `--plan <path>` | Audit a plan file for unverified assumptions | **Deferred — fail loud** |
-| `--from-retro <anchor-id>` | Audit a fabrication anchor from `/retro` | **Deferred — fail loud** |
+| `--plan <path>` | Audit a plan file for unverified assumptions | Supported (CDV-208) |
+| `--from-retro <anchor-id>` | Audit a fabrication anchor from `/retro` | **Deferred — fail loud** (CDV-212) |
 | `--task-id <id>` | Bind this run to an orchestrated task id | Supported |
 | `--preset <name>` | Explicit preset selector (else inferred from scope) | Supported |
 | `--workflow` | Opt-in Workflow execution path (CDV-196); orthogonal to scope | Supported |
@@ -114,15 +114,20 @@ multiple scopes. A zero-scope invocation reaches the engine as an empty
 `--scope` and MUST exit non-zero with a clear stderr message. (SPEC-013
 line 30)
 
-Deferred scopes (`--plan`, `--from-retro`) MUST be recognized by the arg
-parser and MUST fail loudly with the exact message (`<flag>` is the scope name):
+Deferred scope (`--from-retro` only, until CDV-212) MUST be recognized by the
+arg parser and MUST fail loudly with the exact message (`<flag>` is the scope name):
 
 ```
 engine.sh: --<flag> is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.
 ```
 
-…and exit non-zero. The engine MUST NOT silently accept them, treat them as
-no-ops, or fall through to another scope. (Locked decision 8.)
+…and exit non-zero (exit 3). The engine MUST NOT silently accept it, treat it as
+a no-op, or fall through to another scope. (Locked decision 8.)
+
+`--plan <path>` is live (CDV-208): missing/unreadable path → exit 2 with a clear
+stderr message; present path → preset `generic`, Phase 1 extraction via
+`skills/council/prompts/plan-extractor.md`, source locators
+`file:heading-path:line`.
 
 ### Presets
 
@@ -201,7 +206,8 @@ Orchestrated-task invocations rely on SPEC-009's `CLAUDE_TASK_ID` export
 
 Parse args → resolve scope → resolve task id (fallback chain above) →
 resolve preset (explicit or inferred) → validate mutually exclusive flags →
-fail loud on deferred scopes → fail loud on no-scope invocation.
+fail loud on deferred `--from-retro` → validate `--plan` path readable →
+fail loud on no-scope invocation.
 
 For diff-mode only: run spec-grep over the changed file paths against
 `specs/**/*.md` MUST requirements and produce an "applicable-specs" bundle.
@@ -216,8 +222,11 @@ validation + input assembly.
 ### Phase 1 — Claim Extraction
 
 **When it runs:**
-- `--session`, `--plan` (deferred), transcript-derived scopes: extraction
-  runs over the transcript slice and produces a list of load-bearing claims.
+- `--session`, transcript-derived scopes: extraction runs over the transcript
+  slice and produces a list of load-bearing claims.
+- `--plan <path>`: extraction runs over the markdown plan file via
+  `skills/council/prompts/plan-extractor.md`. Locators:
+  `<plan-file>:<heading-path>:<line>`. (SPEC-013 lines 27, 49; CDV-208.)
 - `--diff` (diff-mode): extraction runs over the diff + applicable-specs
   bundle and produces candidate **findings** (not claims-as-assertions) —
   the finding IS the assertion in diff-mode. (SPEC-013 line 48.)
@@ -229,8 +238,8 @@ validation + input assembly.
 ```
 claim := {
   claim: string,
-  source_locator: string,   // turn id / file:line / anchor id
-  claim_type: "factual" | "causal" | "recommendation"
+  source_locator: string,   // turn id / file:line / file:heading-path:line / anchor id
+  claim_type: "factual" | "causal" | "recommendation" | "behavioral"
 }
 ```
 
@@ -247,9 +256,11 @@ and confidence.
   (SPEC-013 lines 51–52.)
 
 **Implementation note:** claim extraction is performed by a Task-tool
-subagent using `skills/council/prompts/claim-extractor.md`.
-The extractor is itself blind — it sees raw transcript/diff, never prior
-narrative or prior verdicts.
+subagent. Session/diff use `skills/council/prompts/claim-extractor.md`;
+plan scope uses `skills/council/prompts/plan-extractor.md` (path from
+`phases.1_claim_extraction.prompt` in the investigation plan). Extractors
+are blind — raw transcript/diff/plan text only, never prior narrative or
+prior verdicts.
 
 ### Phase 2 — Parallel Investigation
 
@@ -814,7 +825,8 @@ prompt.
 
 Role prompt templates live at `skills/council/prompts/<name>.md`. Files:
 
-- `claim-extractor.md` — runs in Phase 1
+- `claim-extractor.md` — Phase 1 for session/diff
+- `plan-extractor.md` — Phase 1 for `--plan` (CDV-208)
 - `investigator.md` — runs in Phase 2 (one per claim per flavor)
 - `phase4-brief.md` — runs in Phase 4 (spawned twice: once as Prosecutor, once as Devil's Advocate, parameterized by role)
 - `judge.md` — delivered to the `council-judge` agent in Phase 5
@@ -827,6 +839,7 @@ substitutes variables before invoking the Task tool or the judge agent.
 | Template | Variables |
 |---|---|
 | `claim-extractor.md` | `{{SCOPE_TYPE}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
+| `plan-extractor.md` | `{{PLAN_PATH}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
 | `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}` |
 | `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
 | `phase4-brief.md` | `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
@@ -862,9 +875,9 @@ exit codes to decide whether to continue.
 | Exit | Meaning | Stderr message contract |
 |---|---|---|
 | 0 | Success | none on stderr |
-| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff)` |
+| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff\|plan)` |
 | 2 | Unknown preflight flag | `engine.sh: unknown preflight flag: <flag>` |
-| 3 | Deferred scope: `--plan` | `engine.sh: --plan is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.` |
+| 2 | Plan path missing / unreadable | `engine.sh: plan file not found or not readable: <path>` (or `--plan requires a path`) |
 | 3 | Deferred scope: `--from-retro` | `engine.sh: --from-retro is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.` |
 | 4 | Unknown preset | `engine.sh: unknown preset: <name> — known: generic, diff-mode` |
 | 5 | Empty evidence **and** no self-verify path | `engine.sh: Phase 2 produced zero evidence bundles — aborting` (after spawn failure, attempt orchestrator self-verify first — see Spawn-failure degradation; exit 5 only if still empty) |
@@ -875,28 +888,24 @@ Exit code 3 is reserved for deferred-scope fail-loud per locked decision 8.
 
 ---
 
-## Deferred to COUNCIL-002
+## Deferred / remaining backlog
 
-The following are explicitly **out of scope** for COUNCIL-001. Each MUST
-either fail loud (if user-reachable via CLI) or be a protocol-reserved no-op
-(if an internal phase).
-
-- **`--plan <path>` scope** — arg parser MUST recognize it and fail loud
-  with the COUNCIL-002 message. No plan-file ingestion, no per-assumption
-  extraction. (SPEC-013 line 27, locked decision 8.)
-- **`--from-retro <anchor-id>` scope** — arg parser MUST recognize it and
-  fail loud with the COUNCIL-002 message. `/retro` still prints the hint
-  but running the hinted command fails — this is correct, documented,
-  and expected v0.18.0 behavior. (SPEC-013 line 29, locked decision 8.)
-- **Phase 3 dynamic domain specialist** — no-op in v1. The engine MUST NOT
-  inspect claim topics or attempt agent pull. Phase 3 exists in the protocol
-  for v2 extensibility. (SPEC-013 lines 62–69.)
+- **`--from-retro <anchor-id>` scope** — still deferred (CDV-212). Arg parser
+  MUST recognize it and fail loud with the COUNCIL-002 message. `/retro`
+  still prints the hint but running the hinted command fails until CDV-212.
+  (SPEC-013 line 29, locked decision 8.)
+- **`--plan <path>` scope** — **implemented CDV-208**. Preflight requires a
+  readable path (exit 2 if missing); Phase 1 uses `plan-extractor.md`;
+  rest of pipeline claim-shape agnostic. Fixture:
+  `skills/council/fixtures/plan-scope-sample.md`.
+- **Phase 3 dynamic domain specialist** — deferred (CDV-209). The engine MUST
+  NOT inspect claim topics or attempt agent pull. (SPEC-013 lines 62–69.)
 - **Investigator tool-call caching within a run** — SHOULD in SPEC-013 line
   143; not implemented. Each investigator spawn is independent.
   *(Per-phase token usage reporting — SPEC-013 SHOULD — implemented CDV-204
   via finalize `--tokens-file`; graceful omit when harness has no tokens.)*
-- **Per-invocation preset overrides** — in COUNCIL-001, `confidence_filter_threshold`
-  and `claim_budget` are hardcoded per preset. COUNCIL-002 may expose
+- **Per-invocation preset overrides** — `confidence_filter_threshold` and
+  `claim_budget` remain hardcoded per preset unless a later ticket exposes
   CLI overrides.
 
 ---

@@ -17,6 +17,54 @@ if rg -n 'tools: ""' agents/council-judge.md >/dev/null; then echo "OK: judge to
 bash skills/council/workflow-probe.sh
 COUNCIL_WORKFLOW_FORCE_FALLBACK=1 bash skills/council/workflow-probe.sh && { echo "FAIL: force fallback"; fail=1; } || echo "OK: force fallback"
 
+# CDV-208 plan-scope preflight
+FIX_PLAN=skills/council/fixtures/plan-scope-sample.md
+if [ -f "$FIX_PLAN" ]; then
+  echo "OK: plan-scope fixture present"
+else
+  echo "FAIL: missing $FIX_PLAN"; fail=1
+fi
+if [ -f skills/council/prompts/plan-extractor.md ] \
+  && rg -q 'file:heading-path:line|heading-path' skills/council/prompts/plan-extractor.md; then
+  echo "OK: plan-extractor.md documents locator format"
+else
+  echo "FAIL: plan-extractor.md missing or no locator guidance"; fail=1
+fi
+set +e
+bash skills/council/engine.sh preflight --scope plan --scope-arg /nonexistent-cdv208-plan.md >/dev/null 2>"${TMPDIR:-/tmp}/cdv208-plan-miss.err"
+ec_miss=$?
+set -e
+if [ "$ec_miss" -eq 2 ] && rg -q 'not found|not readable|requires a path' "${TMPDIR:-/tmp}/cdv208-plan-miss.err"; then
+  echo "OK: plan missing path → exit 2"
+else
+  echo "FAIL: plan missing path exit=$ec_miss (want 2)"; fail=1
+fi
+set +e
+bash skills/council/engine.sh preflight --scope from-retro --scope-arg anchor-x >/dev/null 2>"${TMPDIR:-/tmp}/cdv208-fr.err"
+ec_fr=$?
+set -e
+if [ "$ec_fr" -eq 3 ] && rg -q 'not implemented' "${TMPDIR:-/tmp}/cdv208-fr.err"; then
+  echo "OK: from-retro still deferred exit 3"
+else
+  echo "FAIL: from-retro exit=$ec_fr (want 3)"; fail=1
+fi
+if bash skills/council/engine.sh preflight --scope plan --scope-arg "$FIX_PLAN" \
+  | jq -e '.scope=="plan" and .preset=="generic" and .phases["1_claim_extraction"].skip==false and (.phases["1_claim_extraction"].prompt|test("plan-extractor")) and (.claim_budget==10) and (.slug|test("^plan-"))' >/dev/null; then
+  echo "OK: plan preflight JSON (generic, extract, plan-extractor, slug)"
+else
+  echo "FAIL: plan preflight JSON shape"; fail=1
+fi
+if rg -n 'DEFERRED.*--plan|exits 3, deferred\)' commands/council.md >/dev/null; then
+  echo "FAIL: council.md still defers --plan"; fail=1
+else
+  echo "OK: council.md does not defer --plan"
+fi
+if rg -n 'from-retro' commands/council.md | rg -q 'DEFERRED|deferred|exits 3'; then
+  echo "OK: council.md keeps from-retro deferred"
+else
+  echo "FAIL: from-retro deferred note missing in council.md"; fail=1
+fi
+
 # CDV-206 --why preflight
 if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' --why \
   | jq -e '.why==true and .why_detail.preset and .why_detail.flavors and .why_detail.phase3_specialist and .why_detail.claim_budget and (.why_detail.preset_source=="inferred" or .why_detail.preset_source=="explicit")' >/dev/null; then

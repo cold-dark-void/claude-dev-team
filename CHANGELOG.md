@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.64.0
+- **`/council --plan <path>` (CDV-208)** — plan-file claim extraction live; plan-extractor prompt; deferred exit removed for plan (from-retro still deferred)
+
 ### v0.63.0
 - **Council per-phase token reporting (CDV-204)** — optional `--tokens-file` on finalize; Tokens stdout block + frontmatter when known; graceful omit when unavailable
 

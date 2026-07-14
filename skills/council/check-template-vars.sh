@@ -17,8 +17,8 @@
 #   - A var in the source but not in the prompt table  -> DEAD SUBSTITUTION /
 #     documented var with no backing declaration.
 #
-# Covered prompts: claim-extractor, investigator, cross-reviewer, phase4-brief,
-# judge.
+# Covered prompts: claim-extractor, plan-extractor, investigator, cross-reviewer,
+# phase4-brief, judge.
 #
 # phase4-brief.md is the merged Phase-4 template (AUDIT-P1-4C-1) that replaced
 # the former prosecutor.md + advocate.md. It is referenced in council.md TWICE
@@ -46,7 +46,7 @@ COUNCIL="$ROOT/commands/council.md"
 SKILL="$ROOT/skills/council/SKILL.md"
 PROMPT_DIR="$ROOT/skills/council/prompts"
 
-COVERED="claim-extractor investigator cross-reviewer phase4-brief judge"
+COVERED="claim-extractor plan-extractor investigator cross-reviewer phase4-brief judge"
 DEFERRED=""
 
 # Loud, unmissable note ONLY when coverage is partial by design (no-silent-caps).
