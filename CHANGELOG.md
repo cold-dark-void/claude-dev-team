@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.68.1
+- **TMPDIR-safe worktree-lib-test stderr (CDV-213)** — route suite stderr via `ERR_TMP` under `${TMPDIR:-/tmp}` instead of bare `/tmp/wt-test-err.$$`; fixes spurious 20/32 failures under sandboxed harnesses with RO `/tmp`
+
 ### v0.68.0
 - **External reviewer option (CDV-207)** — optional `--external` (codex/gemini CLI); one additive investigator slot; graceful skip if missing; review-and-commit passthrough
 

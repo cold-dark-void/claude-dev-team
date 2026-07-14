@@ -72,6 +72,7 @@ assert_dir() {
 
 # ---- Isolated fake MROOT ----------------------------------------------------
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/worktree-lib-test.XXXXXX")
+ERR_TMP="${TMPDIR:-/tmp}/wt-test-err.$$"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
@@ -87,7 +88,7 @@ run_lib() {
 }
 
 echo "== T1 status empty =="
-OUT=$(run_lib status 2>/tmp/wt-test-err.$$); RC=$?
+OUT=$(run_lib status 2>"$ERR_TMP"); RC=$?
 assert_eq "status empty exit 0" "$RC" "0"
 assert_eq "status empty stdout" "$OUT" ""
 
@@ -102,7 +103,7 @@ printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/stale-slug/.wt-lock
 mkdir -p .worktrees/none-slug
 
 export WT_LOCK_TTL_SECONDS=21600
-OUT=$(run_lib status 2>/tmp/wt-test-err.$$); RC=$?
+OUT=$(run_lib status 2>"$ERR_TMP"); RC=$?
 assert_eq "status FRESH/STALE exit 0" "$RC" "0"
 assert_contains "status has fresh FRESH" "$OUT" "fresh-slug"
 assert_contains "status FRESH state" "$OUT" "fresh-slug | feat/fresh-slug | FRESH |"
@@ -112,13 +113,13 @@ assert_not_contains "status no PID field" "$OUT" "PID"
 assert_not_contains "status no session_id" "$OUT" "session"
 
 echo "== T3 list alias =="
-LIST_OUT=$(run_lib list 2>/tmp/wt-test-err.$$); LRC=$?
+LIST_OUT=$(run_lib list 2>"$ERR_TMP"); LRC=$?
 assert_eq "list exit 0" "$LRC" "0"
 assert_eq "list == status" "$LIST_OUT" "$OUT"
 
 echo "== T4 register ok / missing =="
 mkdir -p .worktrees/reg-slug
-ROUT=$(run_lib register reg-slug 2>/tmp/wt-test-err.$$); RRC=$?
+ROUT=$(run_lib register reg-slug 2>"$ERR_TMP"); RRC=$?
 assert_eq "register ok exit 0" "$RRC" "0"
 assert_eq "register prints path" "$ROUT" "$TMP/.worktrees/reg-slug"
 assert_file "register wrote lock" ".worktrees/reg-slug/.wt-lock"
@@ -139,17 +140,17 @@ else
   PASS=$((PASS + 1)); echo "  ok  register no branch"
 fi
 
-ROUT=$(run_lib register missing-slug 2>/tmp/wt-test-err.$$); RRC=$?
+ROUT=$(run_lib register missing-slug 2>"$ERR_TMP"); RRC=$?
 assert_eq "register missing exit 1" "$RRC" "1"
 
 echo "== T5 release dirty refuses =="
 # Real worktree via ensure
-EOUT=$(run_lib ensure dirty-slug 2>/tmp/wt-test-err.$$); ERC=$?
+EOUT=$(run_lib ensure dirty-slug 2>"$ERR_TMP"); ERC=$?
 assert_eq "ensure dirty-slug exit 0" "$ERC" "0"
 assert_dir "ensure created wt" ".worktrees/dirty-slug"
 # Dirtify
 echo "dirty" > .worktrees/dirty-slug/dirty.txt
-REL_OUT=$(run_lib release dirty-slug 2>/tmp/wt-test-err.$$); RERC=$?
+REL_OUT=$(run_lib release dirty-slug 2>"$ERR_TMP"); RERC=$?
 assert_eq "release dirty exit 1" "$RERC" "1"
 assert_dir "release dirty kept dir" ".worktrees/dirty-slug"
 assert_file "release dirty kept dirty file" ".worktrees/dirty-slug/dirty.txt"
@@ -166,7 +167,7 @@ cat > .claude/tasks/live-slug.json << 'JSON'
 {"task_id":"live-slug","subject":"held","status":"in_progress","requires_council":false,"depends_on":[],"created_at":"2020-01-01T00:00:00Z"}
 JSON
 
-SWEEP=$(run_lib sweep 2>/tmp/wt-test-err.$$); SRC=$?
+SWEEP=$(run_lib sweep 2>"$ERR_TMP"); SRC=$?
 assert_eq "sweep exit 0" "$SRC" "0"
 assert_contains "sweep proposes stale-slug" "$SWEEP" "PROPOSAL stale-slug"
 assert_not_contains "sweep skips FRESH" "$SWEEP" "PROPOSAL fresh-slug"
@@ -179,12 +180,12 @@ assert_dir "sweep did not delete live" ".worktrees/live-slug"
 cat > .claude/tasks/stale-slug.json << 'JSON'
 {"task_id":"stale-slug","subject":"done","status":"completed","requires_council":false,"depends_on":[],"created_at":"2020-01-01T00:00:00Z"}
 JSON
-SWEEP2=$(run_lib sweep 2>/tmp/wt-test-err.$$); SRC2=$?
+SWEEP2=$(run_lib sweep 2>"$ERR_TMP"); SRC2=$?
 assert_eq "sweep completed still proposes" "$SRC2" "0"
 assert_contains "sweep still proposes completed-task slug" "$SWEEP2" "PROPOSAL stale-slug"
 
 # cleanup temp err
-rm -f /tmp/wt-test-err.$$ 2>/dev/null || true
+rm -f "$ERR_TMP" 2>/dev/null || true
 
 echo
 echo "Results: PASS=$PASS FAIL=$FAIL"
