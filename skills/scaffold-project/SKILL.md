@@ -548,6 +548,17 @@ project/
 - Include `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
 - Always update `specs/` if behavior changes
 - Always update `.claude/plans.md` if completing work
+
+---
+
+## Adversarial fleet degradation
+
+On rate-limit or any unusable spawn of council/refuter/review investigators
+(or prosecutor/advocate/judge): the **orchestrator** self-verifies with real
+tools. Report marker (exact): `self-verified — refuters unavailable`.
+**Never ship on implementer self-validation.** Council and `/review-and-commit`
+implement the report path; workflows (incl. future `/fix-ticket`) reuse the
+same marker + actor rule.
 ```
 
 **IMPORTANT**: Tell user to fill in the placeholder sections with actual project details.

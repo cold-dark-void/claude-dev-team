@@ -83,6 +83,12 @@ Each agent outputs findings as structured JSON with `file`, `line`, `severity`, 
 
 After every run — even when the commit proceeds — a structured action-items checklist is printed so no finding is lost.
 
+**Degraded fleet:** if specialist or judge spawns fail, the orchestrator
+self-verifies missing lenses and the review surfaces the marker
+**`self-verified — refuters unavailable`** (legacy stdout banner before
+Critical Issues; canonical council report frontmatter
+`verification_mode: self-verified`). Full runs omit the marker.
+
 ## See Also
 
 - [/wrap-ticket](wrap-ticket.md) — end-of-ticket checklist that runs review-and-commit as a final gate

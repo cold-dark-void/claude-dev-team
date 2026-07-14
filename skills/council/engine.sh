@@ -47,6 +47,7 @@ Subcommands:
 
   finalize         --plan-file P --evidence-file E --judge-output J
                    [--task-id ID] [--report-out PATH]
+                   [--verification-mode full|self-verified]
                    Renders report, writes index row.
 
   resolve-task-id  [--task-id ID]   Print resolved id (or empty line).
@@ -372,6 +373,7 @@ cmd_finalize() {
 
   local plan_file="" evidence_file="" judge_output="" task_id="" report_out=""
   local cross_review_status="" cross_review_rankings="" cross_review_scores=""
+  local verification_mode=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -383,12 +385,25 @@ cmd_finalize() {
       --cross-review-status)    cross_review_status="${2:-}"; shift 2 ;;
       --cross-review-rankings)  cross_review_rankings="${2:-}"; shift 2 ;;
       --cross-review-scores)    cross_review_scores="${2:-}"; shift 2 ;;
+      --verification-mode)      verification_mode="${2:-}"; shift 2 ;;
       *)
         echo "engine.sh: unknown finalize flag: $1" >&2
         exit 2
         ;;
     esac
   done
+
+  # Default full (happy path). Accept only full|self-verified (CDV-199).
+  if [ -z "$verification_mode" ]; then
+    verification_mode="full"
+  fi
+  case "$verification_mode" in
+    full|self-verified) ;;
+    *)
+      echo "engine.sh: --verification-mode must be full|self-verified (got: $verification_mode)" >&2
+      exit 2
+      ;;
+  esac
 
   if [ -z "$plan_file" ] || [ ! -f "$plan_file" ]; then
     echo "engine.sh: finalize requires --plan-file <path> (existing file)" >&2
@@ -497,7 +512,7 @@ cmd_finalize() {
   python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
-    "$cross_review_scores" <<'PYEOF'
+    "$cross_review_scores" "$verification_mode" <<'PYEOF'
 import json, sys, os, re
 from collections import Counter
 
@@ -514,6 +529,19 @@ task_id        = sys.argv[10] if len(sys.argv) > 10 else ""
 cross_review_status   = sys.argv[11]
 cross_review_rankings = sys.argv[12]
 cross_review_scores   = sys.argv[13]
+verification_mode     = sys.argv[14] if len(sys.argv) > 14 else "full"
+if verification_mode not in ("full", "self-verified"):
+    verification_mode = "full"
+
+# CDV-199: banner only when orchestrator self-verified after spawn failure
+if verification_mode == "self-verified":
+    verification_banner = (
+        "> **self-verified — refuters unavailable**\n"
+        "> Orchestrator performed adversarial checks after "
+        "refuter/investigator spawn failure.\n"
+    )
+else:
+    verification_banner = ""
 
 # Phase 2.5 fallbacks when flags absent
 if not cross_review_status:
@@ -734,6 +762,7 @@ fm_lines.append(f'scope: "{scope}"')
 fm_lines.append(f'preset: "{preset}"')
 fm_lines.append(f'output_shape: "{output_shape}"')
 fm_lines.append(f'created_at: "{created_at}"')
+fm_lines.append(f'verification_mode: "{verification_mode}"')
 if task_id:
     fm_lines.append(f'task_id: "{task_id}"')
 fm_lines.append("---")
@@ -766,6 +795,7 @@ subs = {
     "{{CROSS_REVIEW_STATUS}}": cross_review_status,
     "{{CROSS_REVIEW_RANKINGS}}": cross_review_rankings,
     "{{CROSS_REVIEW_SCORES}}": cross_review_scores,
+    "{{VERIFICATION_BANNER}}": verification_banner,
 }
 
 # --- Apply substitutions ---
@@ -807,6 +837,7 @@ PYEOF
   printf 'Council report: %s\n' "$rel_path"
   printf 'Scope: %s\n' "$scope"
   printf 'Preset: %s (%s)\n' "$preset" "$output_shape"
+  printf 'verification_mode=%s\n' "$verification_mode"
 
   if [ "$output_shape" = "verdict[]" ]; then
     # Verdict counts

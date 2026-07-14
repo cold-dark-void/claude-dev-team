@@ -82,6 +82,15 @@ Extracts load-bearing claims (default budget 10, highest-stakes first), investig
 ```
 Writes `.claude/council/<date>-<slug>--CDV-42.md` and appends a row to `.claude/council/index.json` so the `requires_council` TaskCompleted gate can read it.
 
+## Error handling / degraded runs
+
+If investigator, prosecutor, advocate, or judge Task spawns fail (rate-limit
+or any unusable return), the orchestrator self-verifies that role with tools
+and finalizes with `--verification-mode self-verified`. The report Summary
+shows the marker **`self-verified — refuters unavailable`** and frontmatter
+`verification_mode: self-verified`. Full (happy-path) runs omit the banner.
+Empty evidence after self-verify still aborts (engine exit 5).
+
 ## Notes
 
 - The council is a **pure auditor**: it never proposes fixes, never modifies files, never audits user-authored claims, and never runs automatically on a session or commit. Every invocation is explicit.

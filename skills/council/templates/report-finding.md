@@ -9,6 +9,7 @@
 [//]: # "{{CROSS_REVIEW_STATUS}}   — 'RAN' or 'BYPASSED (reason: <text>)'"
 [//]: # "{{CROSS_REVIEW_RANKINGS}} — per-reviewer ranking table (anonymized labels A/B/C)"
 [//]: # "{{CROSS_REVIEW_SCORES}}   — Borda score table: bundle identity, score, WEAK_EVIDENCE flag"
+[//]: # "{{VERIFICATION_BANNER}}   — empty when verification_mode=full; blockquote banner when self-verified"
 [//]: # "{{FINDINGS}}              — per-finding records grouped by severity"
 [//]: # "{{STRUCK_FINDINGS}}       — findings struck for missing tool_use_id or unsupported citation"
 [//]: # "{{SEVERITY_SUMMARY_TABLE}} — counts by severity: critical / warning / nitpick"
@@ -20,6 +21,7 @@
 
 ## Summary
 
+{{VERIFICATION_BANNER}}
 This report documents a diff-mode council run (preset `{{PRESET}}`) against
 the scope `{{SCOPE}}`. Five specialist investigators (logic, security,
 compliance, quality, simplification) gathered raw tool-call evidence; the

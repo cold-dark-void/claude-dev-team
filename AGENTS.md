@@ -218,6 +218,16 @@ to a local model via `skills/local-agent/run.sh`. **Off by default** — unset, 
 work is done by Claude as usual. PR1 ships the standalone wrapper only; orchestrated
 routing is a later phase (PR2). Governing spec: `specs/core/SPEC-019-local-agent-offload-via-opencode.md`.
 
+## Adversarial fleet degradation
+
+On rate-limit or any unusable spawn of council/refuter/review investigators
+(or prosecutor/advocate/judge): the **orchestrator** self-verifies with real
+tools. Report marker (exact): `self-verified — refuters unavailable`.
+**Never ship on implementer self-validation.** Council and `/review-and-commit`
+implement the report path (`--verification-mode self-verified`); other
+workflows (incl. future `/fix-ticket`, CDV-197) reuse the same marker + actor
+rule — do not invent a second string.
+
 ## What NOT to Do
 
 - Do not commit `.claude/settings.local.json` or `.claude/context/`

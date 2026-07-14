@@ -128,6 +128,11 @@ Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
 - **Strike enforcement** — same rule as `commands/council.md`: any line
   without a `tool_use_id`, severity outside `critical|warning|nitpick`, or
   confidence <80 → `struck_lines`; never silently drop.
+- **Spawn failure** — if any specialist or judge spawn fails or returns
+  unusable output → orchestrator self-verifies missing lenses with tools;
+  set `degraded=true`. Actor is always the orchestrator, never the
+  implementer. Protocol (single source): `skills/council/SKILL.md`
+  § Spawn-failure degradation.
 
 ## Step 5: Finalize
 
@@ -140,8 +145,13 @@ JUDGE_FILE=$(mktemp "${TMPDIR:-/tmp}/rc-judge.XXXXXX.json") \
   || { echo "review-and-commit error: mktemp failed for JUDGE_FILE"; exit 1; }
 # populate from Phase 1 / Phase 5 outputs, then:
 "$ENGINE_SH" finalize --plan-file "$PLAN_FILE" \  # lint-ok: C1
-  --evidence-file "$EVIDENCE_FILE" --judge-output "$JUDGE_FILE"
+  --evidence-file "$EVIDENCE_FILE" --judge-output "$JUDGE_FILE" \
+  ${degraded:+--verification-mode self-verified}
 ```
+
+When `degraded=true`, pass `--verification-mode self-verified` so the
+canonical report includes marker `self-verified — refuters unavailable`.
+See `skills/council/SKILL.md` § Spawn-failure degradation.
 
 Engine renders the canonical report via
 `skills/council/templates/report-finding.md` to
@@ -152,6 +162,12 @@ Engine renders the canonical report via
 Read the judge's finding[] output and print it in this exact structure. Omit
 empty sections. Every heading, label, and bracket-confidence annotation is
 load-bearing — user muscle memory depends on it.
+
+If `degraded=true`, print this exact banner line **before** `## Critical Issues`:
+
+```
+> **self-verified — refuters unavailable**
+```
 
 ```
 ## Critical Issues (Must Fix) [confidence 95-100]

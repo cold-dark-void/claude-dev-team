@@ -133,6 +133,10 @@ prompt: skills/council/prompts/claim-extractor.md
 Receive the structured claim list: `[{ claim, source_locator, claim_type }]`.
 For diff-mode the records are candidate findings `{ file, line, description }`.
 
+**Spawn failure:** if the extractor spawn fails or returns unusable output →
+orchestrator performs extraction with tools; set `degraded=true`. Protocol:
+`skills/council/SKILL.md` § Spawn-failure degradation.
+
 ### Phase 2 — Parallel Investigation
 
 For each claim from Phase 1 (or the single pasted claim), spawn at least 2
@@ -166,6 +170,12 @@ Collect evidence bundles. Required schema per bundle:
 Bundles missing `tool_use_id` are treated as "no evidence collected" for
 that claim. Do not discard them yet — pass the full set to Phase 4 and let
 the engine finalize strike accounting.
+
+**Spawn failure:** if any investigator spawn fails or returns unusable
+output → orchestrator self-verifies that claim/flavor with tools; keep
+usable peer bundles; set `degraded=true`. If all spawns fail and
+self-verify yields ≥1 bundle, continue. Protocol:
+`skills/council/SKILL.md` § Spawn-failure degradation.
 
 ### Phase 3 — Domain Specialist (DEFERRED — COUNCIL-001 no-op)
 
@@ -250,6 +260,10 @@ Pass the ranked bundle list (with WEAK_EVIDENCE flags) to Phase 4; store
 per-reviewer rankings and scores for `{{CROSS_REVIEW_RANKINGS}}` /
 `{{CROSS_REVIEW_SCORES}}`.
 
+**Spawn failure:** if cross-reviewer spawns fail → treat as Phase 2.5
+bypass with reason `"cross-review spawns failed"`; set `degraded=true` if
+not already. Protocol: `skills/council/SKILL.md` § Spawn-failure degradation.
+
 ### Phase 4 — Prosecution and Defense
 
 Runs for `verdict[]`-shape only. In `finding[]`-shape (diff-mode) Phase 4 is
@@ -302,6 +316,10 @@ each bundle.
 
 Collect: prosecutor brief, advocate brief.
 
+**Spawn failure:** if prosecutor and/or advocate spawn fails → orchestrator
+writes the missing brief(s) from evidence bundles with tools; set
+`degraded=true`. Protocol: `skills/council/SKILL.md` § Spawn-failure degradation.
+
 ### Phase 5 — Judgment
 
 Spawn the council judge via the Task tool using the agent definition at
@@ -322,6 +340,10 @@ prompt: skills/council/prompts/judge.md
 ```
 
 Receive the judge's verdict list or finding list.
+
+**Spawn failure:** if judge spawn fails → orchestrator emits judge JSON from
+evidence + briefs (do not grant tools to a spawned judge agent); set
+`degraded=true`. Protocol: `skills/council/SKILL.md` § Spawn-failure degradation.
 
 Expected schemas (canonical taxonomy/schema is normatively defined in SPEC-013; this is a quick reference):
 
@@ -359,8 +381,14 @@ ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
   --plan-file    "$PLAN_FILE" \  # lint-ok: C1
   --evidence-file "$EVIDENCE_FILE" \
   --judge-output  "$JUDGE_FILE" \
-  [--task-id      "<task_id if present>"]
+  [--task-id      "<task_id if present>"] \
+  [--verification-mode self-verified]   # when degraded=true; else omit (defaults full)
 ```
+
+When any phase set `degraded=true`, pass `--verification-mode self-verified`
+so the report surfaces the marker `self-verified — refuters unavailable`
+(frontmatter + Summary banner). See `skills/council/SKILL.md` § Spawn-failure
+degradation.
 
 The engine renders the report from the appropriate template
 (`skills/council/templates/report-verdict.md` or `report-finding.md`),
@@ -402,7 +430,10 @@ Warning: N verdict lines were struck for missing evidence — see <report path> 
 - **Judge attempts to call a tool** → structurally impossible (empty tool
   allowlist) but if it happens, the evidence-or-silence rule strikes the
   affected lines
-- **Phase 2 produces zero bundles** → engine finalize exits 5 → print stderr and exit
+- **Phase 2 produces zero bundles** → attempt orchestrator self-verify first
+  (`skills/council/SKILL.md` § Spawn-failure degradation); if still empty →
+  engine finalize exits 5 → print stderr and exit. If self-verify yields ≥1
+  bundle, continue with `--verification-mode self-verified`
 - **Index write failure** → engine finalize exits 6 → print stderr and exit
 - **Judge returned malformed output** → engine finalize exits 7 → print stderr and exit
 

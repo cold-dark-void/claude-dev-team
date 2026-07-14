@@ -60,6 +60,29 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST reject evidence bundles that lack a tool_use_id — the engine MUST treat such bundles as "no evidence collected"
 - MUST spawn at least 2 investigators per claim with distinct flavor presets (paranoid-ic + at least one other) to defeat monoculture
 
+### Spawn-failure degradation *(CDV-199)*
+
+When a required Task spawn for an investigator, cross-reviewer, prosecutor,
+advocate, specialist, or judge fails or returns unusable output (rate-limit,
+refusal, empty/malformed return — any unusable spawn, not rate-limit-only):
+
+- MUST have the **orchestrator** (the session driving `/council` or
+  `/review-and-commit`) perform that role's work with real tools — MUST NOT
+  treat the implementer's self-assertion as verification
+- MUST set report frontmatter `verification_mode: self-verified` and include
+  the exact marker string `self-verified — refuters unavailable` in the
+  report body (via finalize `--verification-mode self-verified`)
+- MUST continue finalize when self-verify yields ≥1 usable evidence bundle
+  (or equivalent role output for non-investigator phases)
+- MUST keep exit 5 when evidence is empty **and** self-verify was not
+  attempted or still produced zero bundles
+- MUST NOT invent local-agent routing for investigators (deferred; out of
+  scope for this degradation path)
+- Self-verified runs still satisfy `requires_council` when a task-bound
+  index row is written — the marker is for audit visibility, not a gate block
+
+Default (all spawns succeed): `verification_mode: full` and no banner.
+
 ### Phase 3 — Dynamic Domain Specialist *(deferred — COUNCIL-002)*
 
 > **Deferred to COUNCIL-002.** Phase 3 is permanently skipped in the current
@@ -241,6 +264,12 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 7. Run with exactly 2 investigators — verify Phase 2.5 is skipped and the report notes the bypass reason
 8. Verify: any bundle in the bottom Borda quartile is labelled `WEAK_EVIDENCE` in the report
 
+### Test 11 — Spawn-failure self-verified mode
+1. Static: `skills/council/SKILL.md` and `commands/council.md` document spawn-failure degradation with marker `self-verified — refuters unavailable`
+2. Run `engine.sh finalize` with fixtures and `--verification-mode self-verified` — report body contains the marker and frontmatter has `verification_mode: "self-verified"`
+3. Run finalize without the flag (or with `full`) — report has no marker banner and `verification_mode: "full"`
+4. Empty evidence still exits 5 when no self-verify path supplied usable bundles
+
 ---
 
 ## Validation
@@ -262,7 +291,8 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - [ ] `CLAUDE_TASK_ID` env var fallback produces the same binding as the `--task-id` flag
 - [ ] TaskCompleted gate queries `index.json` only (no filename scans) and applies to `verdict[]`-shape rows exclusively
 - [ ] `skills/council/prompts/cross-reviewer.md` exists; council.md Phase 2.5 block describes N cross-reviewers spawned with per-reviewer shuffled labels, self-exclusion, Borda-ranked bundle output to Phase 4 and Phase 5, bottom-quartile WEAK_EVIDENCE flagging, and bypass recorded when < 3 investigators
-- [ ] Test 1–10 pass against the implementation
+- [ ] Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
+- [ ] Test 1–11 pass against the implementation
 
 ---
 
@@ -283,3 +313,4 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 | 2026-06-14 | v0.35.0 (AUDIT-P1-4C-1): merged the Phase-4 `prompts/prosecutor.md` + `prompts/advocate.md` templates into one role-parameterized `prompts/phase4-brief.md` (vars: `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}`). Made the Phase-4 claim-blindness invariant explicit (line 91): both roles are BLIND to the original claim list and group evidence by the `claim_id` carried inside the bundles — fixes the v0.34.0-class literal leak where the prompt bodies declared/used `{{ORIGINAL_CLAIMS}}` that council.md never substituted, leaking the literal placeholder into the spawned subagent. Judge (Phase 5) still receives original claims — unchanged. Brief output schema (`evidence_against`/`evidence_for` + `struck_lines`) preserved byte-for-byte. |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `✅ ACTIVE`→`ACTIVE` (no emoji); reordered Version-History rows ascending by date (two stray 2026-04-09 rows were sitting after 04-26/04-28). Row content preserved verbatim. No behavioral change. |
 | 2026-06-15 | Judge cortex-inheritance reconciled to reality (AUDIT-P4.4): no cortex/memory injection is implemented in `commands/council.md` Phase-5 spawn or `engine.sh`, and the evidence-only Judge (`tools: ""`) cannot run a recall/cortex-load path itself. Relaxed the Phase-5 cortex MUST (line 97) from "MUST inherit `tech-lead`'s cortex/memory/directives load path" to OPTIONAL engine-prepended calibration the Judge MUST function without; updated the Overview line and the validation checkbox accordingly so neither asserts an unimplemented load path. The Judge's authority is the evidence bundle plus its standing behavioral rules. Aligned `agents/council-judge.md` (removed the impossible "Read SPEC-013" checklist step and the false "cortex injected by the council engine" assertion) and trimmed duplicated reasoning in `skills/council/prompts/judge.md`. No engine/spawn behavior change — docs now match the shipped evidence-only design. |
+| 2026-07-14 | CDV-199: Spawn-failure degradation MUST — on unusable investigator/specialist/prosecutor/advocate/judge Task spawn, orchestrator self-verifies with tools; finalize `--verification-mode self-verified` surfaces exact marker `self-verified — refuters unavailable` in report body + frontmatter; exit 5 only when evidence still empty after self-verify path; no local-agent investigator routing. Test 11 + validation checkbox. |

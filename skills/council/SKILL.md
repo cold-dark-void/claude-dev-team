@@ -282,6 +282,39 @@ as "no evidence collected" for that claim. The engine MUST NOT accept a
 bundle that paraphrases a tool output instead of inlining the raw blob.
 (SPEC-013 line 59.)
 
+### Spawn-failure degradation
+
+**Trigger:** any required Task spawn for Phase 1 (extractor), Phase 2
+(investigators), Phase 2.5 (cross-reviewers), Phase 4 (prosecutor/advocate),
+Phase 5 (judge), or diff-mode specialists fails or returns unusable output
+(rate-limit, refusal, empty/malformed — any unusable spawn).
+
+**Action:** the **orchestrator** (session driving `/council` or
+`/review-and-commit`) performs that role's work with real tools. Exception:
+do not grant tools to a spawned judge agent — if the judge cannot spawn,
+the orchestrator emits judge JSON itself (still tool-backed evidence only).
+
+**Actor rule (AC4):** self-verify is always the orchestrator — never the
+implementer of the code under audit. Never ship on implementer self-validation.
+
+**Partial fleet (AC5):** if some spawns succeed and others fail, keep usable
+returns; self-verify only the missing roles; still mark the run degraded.
+
+**Finalize:** when any role was self-verified, pass
+`--verification-mode self-verified` to `engine.sh finalize`. Default (all
+spawns OK) is `full` / omit the flag.
+
+**Marker (exact string):** `self-verified — refuters unavailable` — rendered
+in the report Summary banner and `verification_mode` frontmatter when
+degraded. Full runs have no banner.
+
+**Exit 5:** still applies when evidence is empty **and** no self-verify path
+produced usable bundles. Self-verify that yields ≥1 bundle continues finalize.
+
+*Traceability:* SPEC-013 Spawn-failure degradation (CDV-199). Single protocol
+home — `commands/council.md` and `skills/review-and-commit/SKILL.md` cite
+this section; do not restate a second protocol.
+
 ### Phase 2.5 — Blind Cross-Review
 
 Anonymized peer-ranking of the Phase 2 evidence bundles by the investigators
@@ -470,11 +503,13 @@ scope: "<claim | session | plan | diff | from-retro>"
 preset: "<preset-name>"
 output_shape: "<verdict[] | finding[]>"
 created_at: "<ISO-8601 UTC>"
+verification_mode: "<full | self-verified>"
 task_id: "<id>"   # present IFF task-bound
 ```
 
 The `task_id` field MUST be absent when unbound — not null, not empty
-string. (SPEC-013 line 97.)
+string. (SPEC-013 line 97.) `verification_mode` is always present: `full`
+(default) or `self-verified` (spawn-failure degradation; see above).
 
 **Report body (branches on output shape):**
 
@@ -498,11 +533,12 @@ confidence + raw evidence, a **struck-lines audit trail** section.
 Council report: <relative path>
 Scope: <scope>
 Preset: <preset> (<output_shape>)
+verification_mode=<full|self-verified>
 <verdict counts OR finding counts by severity>
 <struck lines count>
 ```
 
-(SPEC-013 line 92.)
+(SPEC-013 line 92; CDV-199 adds `verification_mode=`.)
 
 **Index writer (task-bound runs only):**
 
@@ -676,7 +712,7 @@ exit codes to decide whether to continue.
 | 3 | Deferred scope: `--plan` | `engine.sh: --plan is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.` |
 | 3 | Deferred scope: `--from-retro` | `engine.sh: --from-retro is not implemented in COUNCIL-001 (v0.18.0). Planned for COUNCIL-002. See SPEC-013.` |
 | 4 | Unknown preset | `engine.sh: unknown preset: <name> — known: generic, diff-mode` |
-| 5 | No investigators could spawn | `engine.sh: Phase 2 produced zero evidence bundles — aborting` |
+| 5 | Empty evidence **and** no self-verify path | `engine.sh: Phase 2 produced zero evidence bundles — aborting` (after spawn failure, attempt orchestrator self-verify first — see Spawn-failure degradation; exit 5 only if still empty) |
 | 6 | Index write failure | `engine.sh: failed to update .claude/council/index.json` |
 | 7 | Judge returned malformed/empty output | `engine.sh: judge output is not valid JSON and repair failed: <detail>` (also covers an empty or refused judge result, which fails JSON repair) |
 

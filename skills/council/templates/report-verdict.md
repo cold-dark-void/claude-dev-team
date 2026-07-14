@@ -11,6 +11,7 @@
 [//]: # "{{CROSS_REVIEW_STATUS}}   — 'RAN' or 'BYPASSED (reason: <text>)'"
 [//]: # "{{CROSS_REVIEW_RANKINGS}} — per-reviewer ranking table (anonymized labels A/B/C)"
 [//]: # "{{CROSS_REVIEW_SCORES}}   — Borda score table: bundle identity, score, WEAK_EVIDENCE flag"
+[//]: # "{{VERIFICATION_BANNER}}   — empty when verification_mode=full; blockquote banner when self-verified"
 [//]: # "{{PROSECUTOR_BRIEF}}      — Phase 4 prosecutor output (post-strike)"
 [//]: # "{{ADVOCATE_BRIEF}}        — Phase 4 devil's advocate output (post-strike)"
 [//]: # "{{VERDICTS}}              — per-claim verdict records from Phase 5 judge"
@@ -22,6 +23,7 @@
 
 ## Summary
 
+{{VERIFICATION_BANNER}}
 This report documents an adversarial council tribunal run against the scope
 `{{SCOPE}}` using preset `{{PRESET}}`. Investigators gathered raw tool-call
 evidence for each extracted claim; a Prosecutor and Devil's Advocate wrote
