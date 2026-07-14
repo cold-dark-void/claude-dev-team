@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.45.0
+- **`/worktree` + lib status/register/sweep (CDV-189)** — user command for status/list/release; worktree-lib gains status/list/register/sweep (FRESH/STALE age locks); lifecycle hooks remain DRAFT (Remove has no exit-2 control); 32 lib tests
+
 ### v0.44.0
 - **SPEC-026 outcomes ledger + adaptive routing (CDV-185)** — append-only `.claude/metrics/outcomes.jsonl` via `emit-outcome.sh`; assignment-time advisory from `outcome-rates.sh` (never silent reroute); orchestrate Task-class + stint-end emit; local-do escalate emit; 16 unit tests
 

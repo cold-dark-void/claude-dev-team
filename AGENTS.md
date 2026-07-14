@@ -63,6 +63,8 @@ Use the shared CLI script — subprocess only, never sourced:
 
 Full contract: `specs/core/SPEC-016-worktree-isolation.md`
 
+User-facing management: `/worktree status|list|release` (see `commands/worktree.md`).
+
 Sibling-directory worktrees (`$MROOT/../<project>-<id>`) are forbidden when this lib is in use.
 
 ## Persistent Memory Protocol

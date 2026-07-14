@@ -130,6 +130,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 
 | Command | What it does |
 |---------|-------------|
+| `/worktree` | Inspect or release plugin worktrees (`status` \| `list` \| `release <slug>`) |
 | `/backlog` | Manage project backlog items (add, close, list, init) |
 | `/release` | Bump version across all files, commit, tag, push |
 | `/release-train` | Multi-branch release queue — register, freeze, land via `/release` (SPEC-023) |
