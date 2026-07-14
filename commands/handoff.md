@@ -275,7 +275,8 @@ still current (keyed by session-uuid + last-message uuid; the cache lives under
 
 ```bash
 set +e
-CACHED_BRIEF=$("$PREPASS" cache-check --uuid "$UUID" 2>/tmp/handoff-cachecheck.err)
+CACHE_ERR="${TMPDIR:-/tmp}/handoff-cachecheck.err"
+CACHED_BRIEF=$("$PREPASS" cache-check --uuid "$UUID" 2>"$CACHE_ERR")
 CACHE_RC=$?
 set -e
 ```
@@ -288,7 +289,7 @@ Exit-code handling:
   `(served from cache — session unchanged since last handoff)`, then the brief.
 - **Exit 10 — MISS.** No cache, or the session has grown (new messages appended),
   or the cache was unreadable. Continue to Step 4 and build the brief.
-  `/tmp/handoff-cachecheck.err` explains why (e.g. `leaf changed … session has
+  `$CACHE_ERR` explains why (e.g. `leaf changed … session has
   grown`); surface it only if helpful.
 - **Any other non-zero (e.g. 1).** Environment/usage error from the engine
   (e.g. python3 missing). Print the stderr verbatim and exit non-zero.
@@ -306,11 +307,14 @@ size-decides (M2/M3), and writes a `plan.json` (plus spine/chunk files) that the
 fan-out consumes.
 
 ```bash
-WORK_DIR=$(mktemp -d /tmp/handoff.XXXXXX)   # holds plan.json, spine/chunks, sections/
+WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/handoff.XXXXXX") \
+  || { echo "handoff error: mktemp -d failed for WORK_DIR"; exit 1; }   # holds plan.json, spine/chunks, sections/
 PLAN_JSON="$WORK_DIR/plan.json"
+PREP_OUT="${TMPDIR:-/tmp}/handoff-prepare.out"
+PREP_ERR="${TMPDIR:-/tmp}/handoff-prepare.err"
 
 set +e
-"$PREPASS" prepare --uuid "$UUID" --out "$PLAN_JSON" >/tmp/handoff-prepare.out 2>/tmp/handoff-prepare.err
+"$PREPASS" prepare --uuid "$UUID" --out "$PLAN_JSON" >"$PREP_OUT" 2>"$PREP_ERR"
 PREP_RC=$?
 set -e
 ```
@@ -334,7 +338,7 @@ Exit-code handling (the engine's documented API):
   No transcript found for session uuid <UUID>. Check the uuid (e.g. via /recall or
   a transcript filename). /handoff operates on a past session's recorded transcript.
   ```
-  Surface `/tmp/handoff-prepare.err` so the user sees the engine's specific reason
+  Surface `$PREP_ERR` so the user sees the engine's specific reason
   (genuinely-not-found vs. missing python3 vs. broken shared module).
 
 After a successful `prepare`, read `plan.json` and extract the fields the fan-out
@@ -556,7 +560,8 @@ stand-alone finalize without a plan), omit it and `finalize` recomputes it.
 
 ```bash
 set +e
-BRIEF=$("$PREPASS" finalize --uuid "$UUID" --sections "$SECTIONS_DIR" --leaf "$LEAF_UUID" 2>/tmp/handoff-finalize.err)
+FIN_ERR="${TMPDIR:-/tmp}/handoff-finalize.err"
+BRIEF=$("$PREPASS" finalize --uuid "$UUID" --sections "$SECTIONS_DIR" --leaf "$LEAF_UUID" 2>"$FIN_ERR")
 FIN_RC=$?
 set -e
 ```
@@ -564,11 +569,11 @@ set -e
 Exit-code handling:
 
 - **Exit 0 — OK.** `$BRIEF` (stdout) is the merged brief. **Print it verbatim to
-  the session (M7 injection).** `/tmp/handoff-finalize.err` carries a one-line
+  the session (M7 injection).** `$FIN_ERR` carries a one-line
   summary (`sections=5 missing=N lines=… cached=…`); surface the `missing=`/
   `cached=NO` note only if any section failed or the cache could not be written
   (e.g. leaf-uuid unresolvable → brief still prints, just isn't cached).
-- **Non-zero.** Print `/tmp/handoff-finalize.err` verbatim and exit non-zero.
+- **Non-zero.** Print `$FIN_ERR` verbatim and exit non-zero.
 
 That printed brief is the deliverable: injected into the current session so the
 user continues from the prior session's converged state — root cause, dead ends,

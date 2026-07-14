@@ -91,7 +91,8 @@ ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 ## Step 3: Preflight (diff-mode preset)
 
 ```bash
-PLAN_FILE=$(mktemp /tmp/review-and-commit-plan.XXXXXX.json)
+PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/review-and-commit-plan.XXXXXX.json") \
+  || { echo "review-and-commit error: mktemp failed for PLAN_FILE"; exit 1; }
 "$ENGINE_SH" preflight --scope diff --preset diff-mode > "$PLAN_FILE"
 ```
 
@@ -129,8 +130,10 @@ Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
 ## Step 5: Finalize
 
 ```bash
-EVIDENCE_FILE=$(mktemp /tmp/rc-evidence.XXXXXX.json)
-JUDGE_FILE=$(mktemp /tmp/rc-judge.XXXXXX.json)
+EVIDENCE_FILE=$(mktemp "${TMPDIR:-/tmp}/rc-evidence.XXXXXX.json") \
+  || { echo "review-and-commit error: mktemp failed for EVIDENCE_FILE"; exit 1; }
+JUDGE_FILE=$(mktemp "${TMPDIR:-/tmp}/rc-judge.XXXXXX.json") \
+  || { echo "review-and-commit error: mktemp failed for JUDGE_FILE"; exit 1; }
 # populate from Phase 1 / Phase 5 outputs, then:
 "$ENGINE_SH" finalize --plan-file "$PLAN_FILE" \
   --evidence-file "$EVIDENCE_FILE" --judge-output "$JUDGE_FILE"

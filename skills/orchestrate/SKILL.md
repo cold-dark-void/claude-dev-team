@@ -254,17 +254,27 @@ Wait for user approval. This is the second escalation gate.
 Before creating any tasks, extract the dependency graph from the approved Tech Lead plan and reject cycles up front:
 1. For each task in the plan, note its ID (Task 1, Task 2, …) and its "Depends on:" list.
 2. Map each plan "Task N" reference to its compound key `<ISSUE-ID>-N` (the same key Step 7 uses for `task-store.sh create`), then build a JSON array: `[{"task_id": "<ISSUE-ID>-N", "depends_on": ["<ISSUE-ID>-M", ...]}, ...]`. A task with no deps gets `"depends_on": []`.
-3. Write to a temp file and run the cycle pre-gate BEFORE any TaskCreate:
+3. Write the dependency JSON to `$DAG_FILE` and run the cycle pre-gate BEFORE any TaskCreate:
    ```bash
-   bash skills/orchestrate/dag-lib.sh check-cycle /tmp/orchestrate-dag-$$.json 2>/tmp/orchestrate-cycle-err-$$.txt
-   if [ $? -eq 1 ]; then
-     CYCLE_MSG=$(cat /tmp/orchestrate-cycle-err-$$.txt)
-     rm -f /tmp/orchestrate-dag-$$.json /tmp/orchestrate-cycle-err-$$.txt
+   DAG_FILE="${TMPDIR:-/tmp}/orchestrate-dag-$$.json"
+   CYCLE_ERR="${TMPDIR:-/tmp}/orchestrate-cycle-err-$$.txt"
+   # (caller already wrote the dependency JSON into $DAG_FILE)
+   bash skills/orchestrate/dag-lib.sh check-cycle "$DAG_FILE" 2>"$CYCLE_ERR"
+   rc=$?
+   if [ "$rc" -eq 1 ]; then
+     CYCLE_MSG=$(cat "$CYCLE_ERR" 2>/dev/null || true)
+     rm -f "$DAG_FILE" "$CYCLE_ERR"
      echo "Orchestrate error: circular dependency detected: $CYCLE_MSG. Revise the task graph."
      # halt — do NOT call TaskCreate for any task
+   elif [ "$rc" -ne 0 ]; then
+     DIAG=$(cat "$CYCLE_ERR" 2>/dev/null || true)
+     rm -f "$DAG_FILE" "$CYCLE_ERR"
+     echo "Orchestrate error: cycle gate could not run (rc=$rc): $DIAG"
+     # halt — do NOT call TaskCreate for any task
    fi
+   rm -f "$DAG_FILE" "$CYCLE_ERR"
    ```
-   Do NOT call TaskCreate (or `task-store.sh create`) for any task if a cycle is detected. Clean up the temp files after the check.
+   Do NOT call TaskCreate (or `task-store.sh create`) for any task if a cycle is detected or the cycle gate could not run.
 
 For each task in the approved plan, call TaskCreate:
 

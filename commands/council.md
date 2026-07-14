@@ -79,7 +79,8 @@ The engine validates scope, resolves task-id (via `--task-id` flag →
 otherwise `generic`), and fails loudly on deferred or missing scopes.
 
 ```bash
-PLAN_FILE=$(mktemp /tmp/council-plan.XXXXXX.json)
+PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/council-plan.XXXXXX.json") \
+  || { echo "council error: mktemp failed for PLAN_FILE"; exit 1; }
 
 "$ENGINE_SH" preflight <translated-args> > "$PLAN_FILE"
 EXIT=$?

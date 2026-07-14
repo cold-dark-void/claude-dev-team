@@ -195,6 +195,10 @@ explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"
 - Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
 - No build step — this is a pure markdown/JSON plugin
 - Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/scaffold-project` emits for interactive use; `/init-team`, via `project-init`, sets the `Bash(*)` wildcard — the sandbox is the boundary — and syncs the sandbox network allowlist)
+- Temp paths in skill/command executable bash blocks MUST use `"${TMPDIR:-/tmp}/…"`
+  or plain `mktemp` / `mktemp -d` (honors `$TMPDIR`). MUST NOT hard-code bare
+  `/tmp/…` for writable files. Intentional OS mounts (e.g. bwrap `--tmpfs /tmp`
+  in SPEC-019) are exempt.
 
 ## Local-Agent Offload (OPT-IN)
 

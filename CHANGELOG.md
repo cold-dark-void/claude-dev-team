@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.3
+- **fix: TMPDIR-safe temps in orchestrate/kickoff/council/handoff (CDV-171)** — hard-coded `/tmp` paths broke under sandboxed harnesses with RO `/tmp` and writable `$TMPDIR` (false cycle-gate halt on redirect failure; empty `mktemp` paths). Cycle pre-gates now use `"${TMPDIR:-/tmp}/…"` plus explicit `rc` handling (only rc=1 = circular dependency; other non-zero = "cycle gate could not run"). Council/review-and-commit/handoff use TMPDIR-safe `mktemp` with fail-loud. AGENTS.md documents the convention.
+
 ### v0.38.2
 - **fix: ci-watch poll_ci no longer treats gh non-zero exit as poll error (CDV-170)** — `gh pr checks --json` exits 1 on failing checks and 8 when pending; the old `if ! result=$(gh …)` path mapped both to `poll_error`/`wait`, so fail→fixer/`cap` was dead code and pending forever inflated `poll_error_count`. Capture stdout + `gh_rc`, gate on `jq type==array`, classify by `bucket`. Exit 8 + non-array → `wait` without error count. SPEC-017 + SKILL.md document the contract; offline `skills/ci-watch/test-poll.sh` (PATH-mock gh) covers fail/cap/pending/poll_error/empty/AC-7.
 

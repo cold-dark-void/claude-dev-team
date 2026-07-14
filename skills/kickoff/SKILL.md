@@ -377,19 +377,28 @@ For each task, list dependencies as `Depends on: <TaskID>, <TaskID>` or `Depends
 Before creating any tasks, extract the dependency graph from the Tech Lead plan:
 1. For each task in the plan, note its ID (Task 1, Task 2, etc.) and its "Depends on:" list
 2. Build a JSON array: `[{"task_id": "TICKET-N", "depends_on": ["TICKET-M", ...]}, ...]`
-3. Write to a temp file and run:
+3. Write the dependency JSON to `$DAG_FILE` and run:
    ```bash
-   bash skills/orchestrate/dag-lib.sh check-cycle /tmp/kickoff-dag-$$.json 2>/tmp/kickoff-cycle-err-$$.txt
-   if [ $? -eq 1 ]; then
-     CYCLE_MSG=$(cat /tmp/kickoff-cycle-err-$$.txt)
-     rm -f /tmp/kickoff-dag-$$.json /tmp/kickoff-cycle-err-$$.txt
+   DAG_FILE="${TMPDIR:-/tmp}/kickoff-dag-$$.json"
+   CYCLE_ERR="${TMPDIR:-/tmp}/kickoff-cycle-err-$$.txt"
+   # (caller already wrote the dependency JSON into $DAG_FILE)
+   bash skills/orchestrate/dag-lib.sh check-cycle "$DAG_FILE" 2>"$CYCLE_ERR"
+   rc=$?
+   if [ "$rc" -eq 1 ]; then
      # $CYCLE_MSG is the detected back-edge ("cycle: <from> -> <to>"), not a full path.
+     CYCLE_MSG=$(cat "$CYCLE_ERR" 2>/dev/null || true)
+     rm -f "$DAG_FILE" "$CYCLE_ERR"
      echo "Kickoff error: circular dependency detected ($CYCLE_MSG). Revise the task graph."
      # halt — do NOT call TaskCreate for any task
+   elif [ "$rc" -ne 0 ]; then
+     DIAG=$(cat "$CYCLE_ERR" 2>/dev/null || true)
+     rm -f "$DAG_FILE" "$CYCLE_ERR"
+     echo "Kickoff error: cycle gate could not run (rc=$rc): $DIAG"
+     # halt — do NOT call TaskCreate for any task
    fi
+   rm -f "$DAG_FILE" "$CYCLE_ERR"
    ```
-   Do NOT call TaskCreate for any task if a cycle is detected.
-4. Clean up temp file after check.
+   Do NOT call TaskCreate for any task if a cycle is detected or the cycle gate could not run.
 
 Then detect quality-check mode:
 ```bash
