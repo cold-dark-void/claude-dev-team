@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.58.0
+- **SPEC-027 /incident war-room (CDV-193)** — severity triage SEV1–3; jsonl timeline; devops commander; propose-only mitigation; postmortem → backlog; no external paging
+
 ### v0.57.0
 - **SPEC-025 /epic umbrella decomposition (CDV-192)** — prompt-driven epic decompose + DAG handoff; `epic-lib.sh`; standup rollup; wrap-ticket mark-done; Linear optional
 

@@ -15,6 +15,11 @@ discipline: you must write the root cause before touching any file. Use `/debug`
 time a bug needs systematic investigation — from a quick targeted patch to a
 design-level issue that warrants a `/kickoff` handoff.
 
+> **SHOULD (SPEC-027):** if the description reads like a **production multi-service
+> live-impact** incident (outage, partial degradation across surfaces, need for
+> severity/comms/timeline), suggest switching to `/incident` — suggestion only;
+> `/debug` gates and behavior are unchanged.
+
 ## Arguments
 
 - `/debug <description>` — full mode (default): complete pipeline including spec
