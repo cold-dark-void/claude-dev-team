@@ -45,6 +45,19 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - MUST run the managed-include drift-gate before committing/tagging a release: `python3 skills/agent-memory/sync-includes.py check`. If it exits non-zero, a managed `<!-- include: -->` region has drifted from its canonical partial — MUST NOT commit or tag; fix the drift (re-expand the region to match the partial) and re-run until it exits 0. Currently single-sourced regions: the agent-memory protocol expanded across the 7 agents (`skills/agent-memory/protocol.md`), and the shared tech-lead tiered-cortex load block in `/debug` and `/refactor` Step 0 (`skills/agent-memory/cortex-load.md`).
 - The drift-gate covers only managed-include regions (markers present). It does NOT cross-check AGENTS.md against the emitted consumer template — those are intentionally distinct documents (SPEC-005), with no managed-include relationship.
 
+### Docs drift gate
+
+Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a structural sibling of the SPEC-021 skill-bash lint gate (Step 4.8). **Scope boundary:** SPEC-021 owns the *content* of fenced ```bash blocks (its C1–C4 defect classes); THIS gate owns *structural* documentation drift — index tables, roster tables, page links, and manifest description fields that can silently diverge from the `commands/`, `agents/`, `docs/`, and `.claude-plugin/` surfaces they describe. Neither gate inspects what the other owns.
+
+- **D1 — Deterministic checker CLI.** MUST ship `skills/docs-drift/check-docs-drift.sh` as a pure-subprocess CLI (bash and/or python3-stdlib only; no LLM, no network, no third-party dependency), invocable from any cwd. Exit codes: `0` = no unwaived drift, `1` = at least one unwaived finding, `64` = usage error. Each finding prints as one line `<file>: [<check-id>] <message>`; check-ids are `cmd-index`, `agent-roster`, `docs-hub`, `manifest-desc`.
+- **D2 — Command-index sync (`cmd-index`).** MUST verify the README `## Commands` index against the real command surface, bidirectionally: (a) every `commands/*.md` file has an entry in the index (no undocumented commands); (b) every `/name` entry in the index resolves to `commands/<name>.md` OR `skills/<name>/SKILL.md` (no ghost entries — skills-backed commands like `/council` and `/release` are legitimate). Internal, non-user-invoked skills (e.g. `memory-store`, `local-agent`) are NOT required to be indexed.
+- **D3 — Agent-roster sync (`agent-roster`).** MUST verify the agent roster tables against `agents/*.md` — mechanizing the existing critical rule "Do not add agents without updating the README agent roster table" (AGENTS.md "What NOT to Do"), currently enforced only by convention: (a) the AGENTS.md roster table names match `agents/*.md` basenames exactly (count + names, both directions); (b) every README roster-table row names an existing agent file, and every `agents/*.md` basename appears as a literal `` `<name>` `` token within the README Agents section (table row or internal-agents prose line).
+- **D4 — Docs-hub page sync (`docs-hub`).** MUST verify `docs/` command pages against documented commands: (a) every `docs/commands/*.md` link in README and `docs/README.md` resolves to an existing file (each documented command's claimed page exists); (b) every `docs/commands/*.md` file is linked from `docs/README.md` (no orphan pages). Commands documented only in index tables, with no page link, are NOT findings — a docs page is optional; a dead or orphaned one is drift.
+- **D5 — Manifest description sync (`manifest-desc`).** MUST verify that descriptive fields duplicated between `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` `plugins[]` — at minimum `description` — are byte-identical. Version-string sync is explicitly NOT this check: SPEC-002 rules via release Step 4 own it.
+- **D6 — Waiver token.** MUST suppress a finding in a markdown source when the offending line, or the line immediately adjacent within the same table/section, carries `<!-- drift-ok: <check-id> -->` naming that check. Waived findings MUST be counted and summarized (`N findings, M waived`) — visible, never silent. JSON manifests cannot carry comments, so `manifest-desc` findings are unwaivable by design (fix, don't waive).
+- **D7 — Release gate wiring + mandatory bite-tests.** MUST be wired as `/release` Step **4.9** (after 4.5 include, 4.6 template-var, 4.7 hook-template, 4.8 skill-bash): non-zero exit blocks commit and tag until fixed or waived, and the wiring change MUST land with the live tree scanning clean (pre-existing drift fixed or waived in the same change — the gate lands green, never red). Bite-tests are MANDATORY before wiring: for each check-id, back up the target file (`cp` to a scratch path), inject a drift, assert exit `1` naming that check-id, then restore via cp-from-backup — NEVER `git checkout` — and assert the clean tree exits `0`.
+- **D8 — MUST NOT (scope boundaries).** The checker MUST NOT inspect fenced ```bash block content (SPEC-021's lint classes), MUST NOT re-check spec structural format (SPEC-008's `check-format.sh` owns that), MUST NOT check version-string sync across the three version files (SPEC-002 / release Step 4 owns that), MUST NOT invoke any LLM or network, and MUST NOT modify any scanned file (report-only; no auto-fix).
+
 ## SHOULD
 
 - SHOULD check spec alignment as part of review (are changed behaviors still spec-compliant?)
@@ -60,12 +73,24 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - Verify changelog excludes `chore: release` commits
 - Verify `/release` aborts (no commit/tag) when `sync-includes.py check` exits non-zero (drifted managed-include region), and proceeds when it exits 0
 
+**Docs drift gate:**
+
+1. **Checker CLI (D1):** run `check-docs-drift.sh` from a non-root cwd on a clean tree → exit `0`; findings (when present) each match `<file>: [<check-id>] <message>`; no network calls, no LLM invocation.
+2. **Command index bites both ways (D2):** inject an undocumented command (create a stray `commands/zz-test.md` copy) → exit `1` with `[cmd-index]`; inject a ghost index row (`/no-such-cmd`) into the README → exit `1` with `[cmd-index]`; a skills-backed entry (`/council`) → no finding.
+3. **Roster bites (D3):** remove one row from the AGENTS.md roster table → exit `1` with `[agent-roster]`; add a ghost row naming a nonexistent agent to the README roster → exit `1` with `[agent-roster]`.
+4. **Docs hub bites (D4):** point one README command link at a nonexistent `docs/commands/` page → exit `1` with `[docs-hub]`; drop an unlinked orphan page into `docs/commands/` → exit `1` with `[docs-hub]`; a command documented in the index without any page link → no finding.
+5. **Manifest description bites (D5):** mutate one character of the `marketplace.json` `plugins[].description` → exit `1` with `[manifest-desc]`; version fields deliberately excluded (mutating only versions produces no finding from THIS gate).
+6. **Waiver (D6):** add `<!-- drift-ok: cmd-index -->` beside an injected ghost entry → exit `0`, summary reports `1 waived`; a `drift-ok: docs-hub` waiver on the same line does NOT suppress a `cmd-index` finding.
+7. **Gate wiring + restore discipline (D7):** `/release` dry run with an injected roster drift → release blocked at Step 4.9 before commit/tag; every bite-test injection above restored via cp-from-backup (assert `git status` clean afterwards; `git checkout` never invoked by the fixture harness).
+8. **Scope boundaries (D8):** a fenced-bash defect (SPEC-021 class) and a spec missing its `## Validation` section (SPEC-008 class) both produce NO finding from this checker; scanned files are byte-identical before/after a run.
+
 ## Validation
 
 - [ ] Review of clean code produces no critical findings
 - [ ] Review of code with obvious bug produces critical finding with file:line
 - [ ] Release with no commits since tag reports "Nothing to release"
 - [ ] After release: plugin.json, marketplace.json, CHANGELOG.md versions match
+- [ ] Docs drift gate: `bash skills/docs-drift/test.sh` exits 0; live tree `check-docs-drift.sh` exits 0; Step 4.9 present in `skills/release/SKILL.md`
 
 ## Open Questions
 
@@ -85,6 +110,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 | 2026-06-13 | AUDIT-P1-1B: anchored the managed-include drift-gate (`sync-includes.py check`, shipped v0.32.0 in `skills/release/SKILL.md` Step 4.5) as a Release MUST — it was previously specced nowhere. Scoped it to managed-include regions only; clarified it does NOT cross-check AGENTS.md vs the emitted template (SPEC-005 distinctness). |
 | 2026-06-22 | Doc-IA pass: changelog target moved from `README.md` to a dedicated repo-root `CHANGELOG.md`. Release MUST now writes the new `### vX.Y.Z` section to `CHANGELOG.md` and the README only points to it. `skills/release/SKILL.md` Steps 2/3a/4/5 updated accordingly. |
 | 2026-07-13 | CDV-181 / SPEC-023: Release MUST skip-if-present — when `/release` is invoked with an explicit version and CHANGELOG already has that heading with a non-empty body, skip Step 2 generation and Step 3a prepend (no duplicate heading). Enables train M5c pre-write. |
+| 2026-07-14 | CDV-188: promoted Docs drift gate (D1–D8) from ideation-wave-2 DRAFT — deterministic checker, four check-ids, waiver token, Step 4.9 release wiring, mandatory bite-tests, scope boundaries vs SPEC-021/008/002. |
 
 ## Cross-references
 
@@ -93,4 +119,5 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - SPEC-009: Ticket Workflow — orchestrate triggers review before PR creation
 - SPEC-003: Agent Role System — QA agent has veto power that review-and-commit formalizes
 - SPEC-008: Spec Management — review checks spec alignment
+- SPEC-021: Skill-bash lint gate — content-class sibling; docs-drift owns structural doc drift only
 - SPEC-023: Release Train Queue — multi-branch sequencer invokes `/release` with explicit assigned version; relies on skip-if-present for pre-written CHANGELOG headings

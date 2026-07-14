@@ -166,6 +166,18 @@ If it exits non-zero, a fenced bash block contains a known prompts-as-code defec
 (`# lint-ok: <id>` only if proven safe), re-run until exit 0.
 (Covered: commands/**/*.md, skills/**/*.md excl. skill-lint/fixtures/, agents/**/*.md, AGENTS.md; SPEC-021.)
 
+## Step 4.9: Docs-drift check (pre-commit gate)
+
+Run:
+```bash
+bash skills/docs-drift/check-docs-drift.sh
+```
+
+If it exits non-zero, structural documentation has drifted (cmd-index, agent-roster,
+docs-hub, or manifest-desc — see skills/docs-drift/SKILL.md; SPEC-010 D1–D8).
+**Do NOT commit or tag.** Fix the drift (or waive with `<!-- drift-ok: <check-id> -->`
+where allowed), re-run until exit 0.
+
 ## Step 5: Commit (one folded commit)
 
 Stage the version files **and the actual changed source files** — everything being

@@ -3,6 +3,11 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.43.0
+- **Docs-drift release gate (CDV-188)** — `skills/docs-drift` checks cmd-index, agent-roster, docs-hub, manifest-desc; wired as `/release` Step 4.9; 44 bite-tests
+- **`/check-specs --tests` Phase 3** — opt-in MUST→test coverage matrix (report-only; `--gate` not release-wired); SPEC-008/010 extensions promoted
+- **README command index** — added craft-loop, release-train, local-do rows so drift gate lands green
+
 ### v0.42.2
 - **Retro-gate S3 draft-polish exemption (CDV-184)** — clean session-created Write paths no longer score as edit loops unless a tool error or user rejection intervenes; dual-direction bite-tests + SPEC-012 update
 

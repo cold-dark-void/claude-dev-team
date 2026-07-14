@@ -112,7 +112,7 @@ MUST, MUST NOT, or SHOULD as a requirement.
 
 ### For each requirement, determine:
 
-- **Test name**: MUST follow the pattern `Test<SPEC-ID>_<Requirement>` (Go: `TestSPEC001_ValidateInput`, Python: `test_spec001_validate_input`, JS/TS: `it("SPEC-001: validates input")`). This naming convention is required — it enables filtered test runs (`-run "SPEC"`, `-k "spec"`) and traceability via `grep "SPEC-"`
+- **Test name / tag**: MUST follow the pattern `Test<SPEC-ID>_<Requirement>` (Go: `TestSPEC001_ValidateInput`, Python: `test_spec001_validate_input`, JS/TS: `it("SPEC-001: validates input")`) and the file header `Generated from <PREFIX>-<NNN>`. This is the P3-M2 tag convention (normative single definition: SPEC-008 § Spec-test coverage matrix) — `/check-specs --tests` Phase 3 recognizes these forms; revisions MUST be additive-only. Also enables filtered runs (`-run "SPEC"`, `-k "spec"`) and `grep "SPEC-"`
 - **Test type**: unit, integration, or boundary
 - **What to assert**: the expected behavior described in the requirement
 - **Source module**: which file(s) implement this (use the spec's `**Covers**:` field, or Grep for related code)
@@ -336,7 +336,7 @@ If `specs/TDD.md` exists, add a `Test Coverage` column to the spec index table:
 | `/generate-specs` | Code → Specs | Reverse-engineer specs from code |
 | `/generate-tests` | **Specs → Tests** | Generate tests from specs |
 | `/reflect-specs` | Specs ↔ Code | Audit alignment (no test generation) |
-| `/check-specs` | Specs → Code | Lightweight alignment check |
+| `/check-specs` | Specs → Code (+ opt-in Specs → Tests) | Phase 1–2 alignment; `--tests` Phase 3 COVERED/MISSING matrix via P3-M2 tags |
 | `/create-spec` | User → Spec | Guided spec authoring |
 
 Together, `/generate-specs` + `/generate-tests` form a full loop:

@@ -90,6 +90,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: fetch issue → worktree → agents → review loops → PR |
 | [`/standup`](docs/commands/standup.md) | Status snapshot: TaskList + agent context, surfaces blockers and stale tasks |
 | [`/wrap-ticket`](docs/commands/wrap-ticket.md) | Close out: verify tasks, capture learnings, update plans, remove worktree |
+| [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the built-in `/loop`/`/goal` (library, journal, refine) |
 
 ### Spec management
 
@@ -131,8 +132,10 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 |---------|-------------|
 | `/backlog` | Manage project backlog items (add, close, list, init) |
 | `/release` | Bump version across all files, commit, tag, push |
+| `/release-train` | Multi-branch release queue — register, freeze, land via `/release` (SPEC-023) |
 | `/scout-plugins` | Research new plugins, evaluate against current setup, propose enhancements |
 | [`/retro`](docs/commands/retro.md) | Review past sessions for friction patterns, propose directive adjustments |
+| `/local-do` | Offload one mechanical, machine-verifiable task to the local model |
 
 ## Quick Start
 

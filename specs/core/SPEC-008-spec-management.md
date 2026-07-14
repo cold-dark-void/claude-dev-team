@@ -259,6 +259,58 @@ This is the SINGLE normative cross-spec conflict taxonomy. `/create-spec`, `/upd
 - Consumers CITE the base BLOCKER/WARNING taxonomy; the extensions stay with the consumer that owns
   them and MUST NOT be forced onto the others.
 
+### Spec-test coverage matrix (Phase 3)
+
+Today `/check-specs` Phase 1 checks format and Phase 2 checks spec→code alignment; nothing
+verifies that each MUST has a TEST. Phase 3 adds an opt-in MUST→test traceability matrix.
+
+- **P3-M1 — Opt-in flag; inherited scope; MUSTs only.** Phase 3 MUST run only when explicitly
+  requested via the `--tests` flag (`/check-specs --tests`, `/check-specs SPEC-012 --tests`).
+  Without the flag, `/check-specs` behavior and output MUST be identical to today's Phase 1 +
+  Phase 2. Phase 3 MUST reuse the § Spec Discovery enumerator and inherit the invoking mode's
+  scope (audit: the same 3–5 specs Phase 2 sampled; validate: the single named spec) — it MUST
+  NOT define a third scope. Matrix rows are the spec's MUST requirements only (SHOULD bullets
+  are advisory and excluded).
+- **P3-M2 — Test-tag convention (single normative definition; backward compatible).** A test is
+  TAGGED to spec `<PREFIX>-<NNN>` (prefix ∈ SPEC|PERF|SAFE|COMPAT|ARCH) when EITHER (a) its
+  test name contains the spec ID with the hyphen removed or replaced by `_`, case-insensitive —
+  the exact forms `/generate-tests` already emits (Go `TestSPEC001_...`, Python
+  `test_spec001_...` / `spec_001`) — or its test description contains the literal ID (JS/TS
+  `it("SPEC-001: ...")`); OR (b) its file carries the `/generate-tests` metadata header
+  (`Generated from <PREFIX>-<NNN>`). This is the SINGLE normative tag definition: Phase 3 and
+  `/generate-tests` MUST both cite it and MUST NOT carry divergent copies. Revisions MUST be
+  additive-only — every form above MUST keep matching, so tests `/generate-tests` has already
+  emitted stay tagged without edits.
+- **P3-M3 — Framework-repo mapping.** When a test framework is detected (the canonical 5-marker
+  map, § Project-Language Markers), Phase 3 MUST locate tagged tests (P3-M2) by searching TEST
+  files only (the per-language test-file patterns `/generate-tests` uses), read them, and
+  classify each MUST requirement as exactly one of: **COVERED** — ≥1 tagged test asserts the
+  behavior (cite test name + `file:~line`); **MISSING** — no tagged test asserts it.
+- **P3-M4 — Frameworkless (self-hosting) mapping.** When no marker matches (e.g. this plugin —
+  pure markdown/JSON/bash, no test runner), Phase 3 MUST instead map each MUST to the spec's
+  own `## Test` entries that address it, and MUST verify any fixture/bite-test script an entry
+  names (e.g. `skills/spec-tooling/check-format.sh`, `sync-includes.py`) exists (Glob).
+  COVERED = ≥1 Test entry addresses the MUST and every script that entry names exists;
+  MISSING = no entry addresses it (an entry whose named script does not exist MUST NOT count as
+  COVERED).
+- **P3-M5 — Output format (reuse existing report conventions).** Phase 3 MUST emit, per spec, a
+  matrix table `| # | Requirement (truncated) | Coverage | Evidence |` with COVERED/MISSING
+  rows (evidence: test name + `file:~line` in framework mode; Test-entry number + script path in
+  frameworkless mode), followed by a summary line `Phase 3 Summary: X COVERED / Y MISSING across
+  N specs`. The Phase 3 report is APPENDED after the Phase 2 report; the Phase 1 and Phase 2
+  sections MUST be byte-identical to a run without `--tests`.
+- **P3-M6 — Report-only by default; explicit gate mode.** With `--tests` alone, Phase 3 MUST
+  exit 0 regardless of MISSING count (non-punitive rollout). A separate gate switch
+  (`--tests --gate[=N]`, threshold `N` default 0) MUST exit non-zero iff total MISSING exceeds
+  `N` — available for `/release` preflight to invoke, but this extension MUST NOT wire the gate
+  into `/release` (or any other command) by default.
+- **P3-M7 — MUST NOT duplicate Phase 2.** Phase 3 MUST NOT re-run or duplicate Phase-2
+  code-alignment logic: it MUST NOT grep product source for implementation evidence and MUST
+  NOT emit MATCH/DIFFERS/UNDOCUMENTED verdicts. COVERED/MISSING is a spec→TEST traceability
+  verdict, DISTINCT from § Code-Alignment Verdicts' spec→CODE taxonomy; the two MUST NOT be
+  conflated (a requirement can be Phase-2 MATCH yet Phase-3 MISSING, and vice versa — the
+  shared word "MISSING" answers a different question, disambiguated by the `Coverage` column).
+
 ## SHOULD
 
 - SHOULD use realistic test data in generated tests (not "test" / "123" / "foo")
@@ -290,12 +342,24 @@ This is the SINGLE normative cross-spec conflict taxonomy. `/create-spec`, `/upd
 - Verify the post-hoc alignment taxonomy (`MATCH/MISSING/DIFFERS/UNDOCUMENTED`) and update-spec's pre-write code-impact taxonomy (`CODE MATCHES/CODE CONTRADICTS/NO CODE FOUND`) are kept distinct (not conflated)
 - Verify the conflict-scan base taxonomy (`BLOCKER/WARNING`) is shared by create/update/reflect, with `TERMINOLOGY` scoped to reflect-specs and the REMOVED-dependency WARNING scoped to update-spec
 
+**Spec-test coverage matrix (Phase 3):**
+
+- Verify `/check-specs` and `/check-specs SPEC-012` WITHOUT `--tests` produce today's Phase 1 + Phase 2 output with no Phase 3 section (P3-M1)
+- Verify `/check-specs SPEC-019 --tests` emits one matrix scoped to that spec, and `/check-specs --tests` emits matrices only for the same 3–5 specs Phase 2 sampled — SHOULD bullets produce no rows (P3-M1)
+- Verify a Go test `TestSPEC001_ValidateInput`, a pytest `test_spec001_validate_input`, a jest `it("SPEC-001: validates input")`, and a file headed `Generated from SPEC-001` are all recognized as tagged to SPEC-001 — the exact forms `/generate-tests` already emits (P3-M2)
+- Verify on a framework repo (e.g. `go.mod` present) each MUST classifies as COVERED with test-name + `file:~line` evidence or MISSING, and only test files were searched (P3-M3)
+- Verify on THIS plugin (no 5-marker hit) the matrix maps MUSTs to `## Test` entries and Globs scripts they name (e.g. `skills/spec-tooling/check-format.sh`); an entry naming a nonexistent script does not count as COVERED (P3-M4)
+- Verify the Phase 3 report appends after Phase 2, uses the `| # | Requirement (truncated) | Coverage | Evidence |` table plus the `X COVERED / Y MISSING across N specs` summary, and leaves Phase 1/2 output byte-identical to a run without `--tests` (P3-M5)
+- Verify `--tests` alone exits 0 with MISSING rows present; `--tests --gate` exits non-zero at 1 MISSING; `--tests --gate=5` exits 0 at 5 MISSING and non-zero at 6 (P3-M6)
+- Verify Phase 3 greps no product source and emits no MATCH/DIFFERS/UNDOCUMENTED verdicts; a requirement can be Phase-2 MATCH and Phase-3 MISSING simultaneously without either report contradicting the other (P3-M7)
+
 ## Validation
 
 - [ ] New spec created via /create-spec has all required sections
 - [ ] TDD.md updated atomically with spec file
 - [ ] check-specs catches a deliberately malformed spec
 - [ ] generate-tests output matches project test conventions
+- [ ] Phase 3: `/check-specs SPEC-010 --tests` emits COVERED/MISSING matrix; without `--tests` no Phase 3 section; `--gate` not present in `skills/release/SKILL.md`
 
 ## Open Questions
 
@@ -310,9 +374,10 @@ This is the SINGLE normative cross-spec conflict taxonomy. `/create-spec`, `/upd
 | 2026-03-23 | Fixed cross-reference typo (was self-referencing SPEC-008 instead of SPEC-010). Clarified SPEC numbering is per-category. Removed orphaned open question about markdown source code. |
 | 2026-06-13 | SPEC-008: single-sourced spec format (9 required sections via skills/spec-tooling/spec-skeleton.md), defined lifecycle status taxonomy (INFERRED/DRAFT/ACTIVE/APPROVED/DEPRECATED, Axis A) vs report-only verify status (Axis B), canonical TDD-index columns + 2-col VH row; generate-specs output now passes check-specs Phase-1 (AUDIT-P1-5A) |
 | 2026-06-14 | SPEC-008: single-sourced the 5 spec-tooling PROCEDURES — Spec Discovery ($MROOT-anchored category-agnostic Glob, TDD=index), Source Exclusions (canonical alignment grep-exclude set via skills/spec-tooling/source-exclude.md, no skills/commands path-exclude), Project-Language Markers (5-marker map), Code-Alignment Verdicts (MATCH/MISSING/DIFFERS/UNDOCUMENTED) kept distinct from update-spec's Code-Impact Warning (CODE MATCHES/CONTRADICTS/NO CODE FOUND), Spec Conflict Scan (BLOCKER/WARNING base + TERMINOLOGY/REMOVED-dep named extensions); consumers cite, the C9 exclude data is drift-gated (AUDIT-P1-5B) |
+| 2026-07-14 | CDV-188: promoted Spec-test coverage matrix Phase 3 (P3-M1–P3-M7) from ideation-wave-2 DRAFT — opt-in `--tests`, tag convention, framework + frameworkless mapping, report-only default, optional `--gate` not wired to release. |
 
 ## Cross-references
 
 - SPEC-009: Ticket Workflow — kickoff creates/updates specs before task graph
 - SPEC-003: Agent Role System — IC5/IC4 TDD gate references specs for test traceability
-- SPEC-010: Code Review & Release — review checks spec alignment
+- SPEC-010: Code Review & Release — review checks spec alignment; docs-drift gate is sibling hygiene (not Phase 3)
