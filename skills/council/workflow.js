@@ -408,6 +408,7 @@ export async function runCouncil(runtime) {
       SOURCE_LOCATOR: claim.source_locator || claim.file || 'unknown',
       RAW_ARTIFACTS: t.raw_artifacts || plan.scope_arg || t.input_text || '',
       FLAVOR_DELTA: flavorDelta,
+      CACHE_DIR: plan.cache_dir || '',
     })
     const res = await safeAgent(prompt, {
       schema: EvidenceSchema,

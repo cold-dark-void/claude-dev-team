@@ -270,6 +270,17 @@ cmd_preflight() {
   else
     phase3_why_stub="pending (runtime classify)"
   fi
+
+  # CDV-211: per-run investigator tool-call cache under TMPDIR.
+  # Layout: $cache_dir/{reads,greps}/<sha256>.txt + manifest.json.
+  # Correctness unchanged if empty; finalize best-effort rm -rf.
+  local cache_dir run_id
+  cache_dir=$(mktemp -d "${TMPDIR:-/tmp}/council-cache-XXXXXXXX") \
+    || { echo "engine.sh: failed to create council-cache dir under TMPDIR" >&2; exit 2; }
+  run_id=$(basename -- "$cache_dir" | sed 's/^council-cache-//')
+  mkdir -p "$cache_dir/reads" "$cache_dir/greps"
+  printf '%s\n' '{"version":1,"entries":[]}' > "$cache_dir/manifest.json"
+
   jq -n \
     --arg scope "$scope" \
     --arg scope_arg "$scope_arg" \
@@ -290,6 +301,8 @@ cmd_preflight() {
     --arg mroot "$MROOT" \
     --arg phase1_prompt "$phase1_prompt" \
     --arg phase3_why_stub "$phase3_why_stub" \
+    --arg cache_dir "$cache_dir" \
+    --arg run_id "$run_id" \
     '{
       scope: $scope,
       scope_arg: $scope_arg,
@@ -307,6 +320,8 @@ cmd_preflight() {
       slug: $slug,
       report_path: $report_path,
       mroot: $mroot,
+      run_id: $run_id,
+      cache_dir: $cache_dir,
       phases: {
         "1_claim_extraction": { skip: ($scope == "claim" or $scope == "from-retro"), prompt: $phase1_prompt },
         "2_parallel_investigation": { min_flavors_per_claim: 2, prompt: "skills/council/prompts/investigator.md" },
@@ -1121,6 +1136,21 @@ for k, v in clean.items():
 if total_n is not None:
     print(f"  Total: {total_n}")
 PYEOF
+  fi
+
+  # CDV-211: best-effort discard of per-run investigator tool-call cache.
+  # Only remove dirs whose basename matches council-cache-* (preflight layout).
+  local cache_dir_cleanup
+  cache_dir_cleanup=$(jq -r '.cache_dir // empty' "$plan_file" 2>/dev/null || true)
+  if [ -n "$cache_dir_cleanup" ] && [ -d "$cache_dir_cleanup" ]; then
+    case "$(basename -- "$cache_dir_cleanup")" in
+      council-cache-*)
+        case "$cache_dir_cleanup" in
+          *..*) ;;  # refuse path traversal
+          *) rm -rf -- "$cache_dir_cleanup" 2>/dev/null || true ;;
+        esac
+        ;;
+    esac
   fi
 }
 

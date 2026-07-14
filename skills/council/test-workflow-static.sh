@@ -170,6 +170,29 @@ else
   echo "OK: SPEC-013 Phase 3 undefferred"
 fi
 
+# CDV-211: per-run investigator tool-call cache
+if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' \
+  | jq -e '.cache_dir and .run_id and (.cache_dir|test("council-cache-"))' >/dev/null; then
+  echo "OK: preflight emits cache_dir + run_id"
+else
+  echo "FAIL: preflight missing cache_dir/run_id"; fail=1
+fi
+_CDV211_PLAN=$(bash skills/council/engine.sh preflight --scope claim --scope-arg 'x')
+_CDV211_DIR=$(printf '%s' "$_CDV211_PLAN" | jq -r '.cache_dir')
+if [ -d "$_CDV211_DIR" ] && [ -d "$_CDV211_DIR/reads" ] && [ -d "$_CDV211_DIR/greps" ] \
+  && [ -f "$_CDV211_DIR/manifest.json" ]; then
+  echo "OK: preflight creates council-cache layout"
+else
+  echo "FAIL: cache dir layout missing under $_CDV211_DIR"; fail=1
+fi
+rm -rf -- "$_CDV211_DIR" 2>/dev/null || true
+if rg -n 'cache_dir|cache-first|CACHE_DIR' skills/council/prompts/investigator.md >/dev/null \
+  && rg -n 'cache_dir|CACHE_DIR|council-cache' commands/council.md >/dev/null; then
+  echo "OK: investigator + council.md document cache protocol"
+else
+  echo "FAIL: cache protocol docs missing"; fail=1
+fi
+
 # CDV-204: finalize --tokens-file (graceful Tokens block + optional FM)
 FIX_BASE=skills/council/fixtures/finalize-task-id
 TOK_BASE=skills/council/fixtures/finalize-tokens

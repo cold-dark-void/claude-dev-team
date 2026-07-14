@@ -220,6 +220,25 @@ least 2 investigator Task subagents in parallel with distinct flavor presets.
 Minimum: `paranoid-ic` flavor + at least one other (e.g. `jaded-senior`) to
 prevent monoculture. Use `plan.flavors` to determine which flavors to spawn.
 
+**Optional cache seed (CDV-211):** before spawning investigators, when
+`plan.cache_dir` is set, best-effort pre-read files named in claim
+`source_locator`s into the shared cache (reliability backstop if subagents
+ignore cache-first instructions). For each unique path-like locator (strip
+`:line` / `:heading-path:line` suffixes when present; skip non-file locators
+like turn ids / `retro:…`):
+
+```bash
+# PLAN_FILE is session-held by the orchestrating Claude (created in Step 1); not a
+# cross-fence shell export — same contract as finalize --plan-file below.
+CACHE_DIR=$(jq -r '.cache_dir // empty' "$PLAN_FILE")  # lint-ok: C1
+# for each unique file path P that exists and is readable:
+key=$(printf '%s' "$P" | sha256sum | awk '{print $1}')
+mkdir -p "$CACHE_DIR/reads"
+# only write on miss — do not overwrite peer-written entries mid-run
+[ -s "$CACHE_DIR/reads/$key.txt" ] || cat -- "$P" > "$CACHE_DIR/reads/$key.txt" 2>/dev/null || true
+```
+Empty/missing seed is fine — correctness unchanged. Do not seed narrative.
+
 Spawn pattern (one Agent per claim per flavor):
 
 ```
@@ -231,12 +250,13 @@ prompt: skills/council/prompts/investigator.md
     {{SOURCE_LOCATOR}} ← claim.source_locator
     {{RAW_ARTIFACTS}}  ← raw files / logs / diff / anchor evidence (artifacts only)
     {{FLAVOR_DELTA}}   ← contents of skills/council/flavors/<flavor>.md body
+    {{CACHE_DIR}}      ← plan.cache_dir (per-run council-cache under TMPDIR)
     # tool allowlist is fixed in the investigator prompt body (not substituted)
 ```
 
 **Blindness invariant:** do NOT pass prior assistant narrative, prior
 verdicts, or prior advocate/prosecutor output to any investigator. Raw
-artifacts only.
+artifacts only. Cache is shared across investigators of this run only.
 
 Collect evidence bundles. Required schema per bundle:
 ```
@@ -316,6 +336,7 @@ prompt: skills/council/prompts/investigator.md
     {{SOURCE_LOCATOR}}  ← winning claim.source_locator
     {{RAW_ARTIFACTS}}   ← same raw artifacts as Phase 2 for that claim
     {{FLAVOR_DELTA}}    ← domain-specialist delta (below), NOT a flavor file
+    {{CACHE_DIR}}       ← plan.cache_dir (same per-run cache as Phase 2)
 ```
 
 `{{FLAVOR_DELTA}}` body (paste verbatim; substitute `<agent>` / `<topic>`):
@@ -586,6 +607,9 @@ TOKENS_FILE="${TMPDIR:-/tmp}/council-tokens-$$.json"  # lint-ok: C1
   [--verification-mode self-verified]   # when degraded=true; else omit (defaults full)
   [--tokens-file  "$TOKENS_FILE"]       # CDV-204; omit when no file / unavailable
 ```
+
+Finalize best-effort `rm -rf` of `plan.cache_dir` (CDV-211 council-cache under
+TMPDIR). No orchestrator cleanup required.
 
 When any phase set `degraded=true`, pass `--verification-mode self-verified`
 so the report surfaces the marker `self-verified — refuters unavailable`

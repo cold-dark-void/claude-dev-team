@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.67.0
+- **Council investigator tool-call caching (CDV-211)** — per-run TMPDIR cache; preflight seed + cache-first investigator protocol; finalize cleanup
+
 ### v0.66.0
 - **Council Phase 3 domain specialist (CDV-209)** — topic-classifier prompt; pull devops/ds/qa/pm at confidence ≥0.75 (cap 1/run); skip diff-mode; SPEC-013 undefferred
 

@@ -299,6 +299,14 @@ as "no evidence collected" for that claim. The engine MUST NOT accept a
 bundle that paraphrases a tool output instead of inlining the raw blob.
 (SPEC-013 line 59.)
 
+**Intra-run tool-call cache (CDV-211; SPEC-013 SHOULD):** preflight creates
+`${TMPDIR:-/tmp}/council-cache-<run_id>/` with `reads/`, `greps/`, and
+`manifest.json`, and emits `cache_dir` + `run_id` on the investigation plan.
+Investigators receive `{{CACHE_DIR}}` and check cache files before Read/Grep;
+on miss they tool-call and write the cache. Orchestrator may seed `reads/`
+from claim source_locators before Phase 2. Finalize best-effort removes the
+dir. Empty/missing cache does not change correctness.
+
 ### Spawn-failure degradation
 
 **Trigger:** any required Task spawn for Phase 1 (extractor), Phase 2
@@ -858,7 +866,7 @@ substitutes variables before invoking the Task tool or the judge agent.
 |---|---|
 | `claim-extractor.md` | `{{SCOPE_TYPE}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
 | `plan-extractor.md` | `{{PLAN_PATH}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
-| `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}` |
+| `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}`, `{{CACHE_DIR}}` |
 | `topic-classifier.md` | `{{CLAIM_TEXT}}` |
 | `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
 | `phase4-brief.md` | `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
@@ -920,8 +928,12 @@ exit codes to decide whether to continue.
 - **Phase 3 dynamic domain specialist** — **implemented CDV-209**. Topic
   classifier + at most one of devops/ds/qa/pm when confidence ≥ 0.75; skip
   weak match and diff-mode; before Phase 2.5. (SPEC-013 Phase 3.)
-- **Investigator tool-call caching within a run** — SHOULD in SPEC-013 line
-  143; not implemented. Each investigator spawn is independent.
+- **Investigator tool-call caching within a run** — **implemented CDV-211**.
+  Preflight creates `${TMPDIR:-/tmp}/council-cache-<run_id>/` (`reads/`,
+  `greps/`, `manifest.json`) and emits `cache_dir` + `run_id` in the plan.
+  Investigators cache-first via `{{CACHE_DIR}}`; orchestrator may seed
+  `reads/` from claim locators; finalize best-effort `rm -rf`. Empty cache
+  is fine — correctness unchanged.
   *(Per-phase token usage reporting — SPEC-013 SHOULD — implemented CDV-204
   via finalize `--tokens-file`; graceful omit when harness has no tokens.)*
 - **Per-invocation preset overrides** — `confidence_filter_threshold` and
