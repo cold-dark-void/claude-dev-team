@@ -48,7 +48,8 @@ Subcommands:
   finalize         --plan-file P --evidence-file E --judge-output J
                    [--task-id ID] [--report-out PATH]
                    [--verification-mode full|self-verified]
-                   Renders report, writes index row.
+                   [--tokens-file PATH]
+                   Renders report, writes index row; optional Tokens summary.
 
   resolve-task-id  [--task-id ID]   Print resolved id (or empty line).
   report-path SLUG [--task-id ID]   Print canonical report path.
@@ -390,7 +391,7 @@ cmd_finalize() {
 
   local plan_file="" evidence_file="" judge_output="" task_id="" report_out=""
   local cross_review_status="" cross_review_rankings="" cross_review_scores=""
-  local verification_mode=""
+  local verification_mode="" tokens_file=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -403,6 +404,7 @@ cmd_finalize() {
       --cross-review-rankings)  cross_review_rankings="${2:-}"; shift 2 ;;
       --cross-review-scores)    cross_review_scores="${2:-}"; shift 2 ;;
       --verification-mode)      verification_mode="${2:-}"; shift 2 ;;
+      --tokens-file)            tokens_file="${2:-}"; shift 2 ;;
       *)
         echo "engine.sh: unknown finalize flag: $1" >&2
         exit 2
@@ -529,7 +531,7 @@ cmd_finalize() {
   python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
-    "$cross_review_scores" "$verification_mode" <<'PYEOF'
+    "$cross_review_scores" "$verification_mode" "${tokens_file:-}" <<'PYEOF'
 import json, sys, os, re
 from collections import Counter
 
@@ -547,8 +549,54 @@ cross_review_status   = sys.argv[11]
 cross_review_rankings = sys.argv[12]
 cross_review_scores   = sys.argv[13]
 verification_mode     = sys.argv[14] if len(sys.argv) > 14 else "full"
+tokens_file           = sys.argv[15] if len(sys.argv) > 15 else ""
 if verification_mode not in ("full", "self-verified"):
     verification_mode = "full"
+
+# CDV-204: optional per-phase tokens (orchestrator-owned file). Never invent 0.
+def load_usable_tokens(path):
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    source = data.get("source") or ""
+    if source == "unavailable":
+        return None
+    raw_phases = data.get("phases") or {}
+    if not isinstance(raw_phases, dict):
+        raw_phases = {}
+    clean = {}
+    for k, v in raw_phases.items():
+        if v is None:
+            continue
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            clean[str(k)] = n
+    total = data.get("total")
+    total_n = None
+    if total is not None:
+        try:
+            t = int(total)
+            if t > 0:
+                total_n = t
+        except (TypeError, ValueError):
+            total_n = None
+    if total_n is None and clean:
+        total_n = sum(clean.values())
+    if not clean and total_n is None:
+        return None
+    partial = source == "partial" or bool(data.get("partial"))
+    return {"phases": clean, "total": total_n, "partial": partial, "source": source}
+
+tokens_data = load_usable_tokens(tokens_file)
 
 # CDV-199: banner only when orchestrator self-verified after spawn failure
 if verification_mode == "self-verified":
@@ -823,8 +871,37 @@ rendered = re.sub(r'\{\{[A-Z_]+\}\}', '', rendered)
 if not task_id:
     rendered = re.sub(r'^task_id:\s*(?:""|\'\'|)\s*\n', '', rendered, count=1, flags=re.MULTILINE)
 
+# CDV-204: optional tokens_total / tokens_by_phase in frontmatter (omit when unavailable)
+if tokens_data is not None:
+    fm_lines = []
+    if tokens_data.get("total") is not None:
+        fm_lines.append(f'tokens_total: {tokens_data["total"]}')
+    if tokens_data.get("phases"):
+        fm_lines.append("tokens_by_phase:")
+        for pk, pv in tokens_data["phases"].items():
+            fm_lines.append(f"  {pk}: {pv}")
+    if fm_lines:
+        inject = "\n".join(fm_lines) + "\n"
+        # Insert after verification_mode line (always present in templates)
+        rendered, n_sub = re.subn(
+            r'(^verification_mode:\s*.+\n)',
+            r'\1' + inject,
+            rendered,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if n_sub == 0:
+            # Fallback: insert before closing --- of YAML frontmatter
+            rendered = re.sub(
+                r'(^---\n(?:.*\n)*?)(^---\n)',
+                r'\1' + inject + r'\2',
+                rendered,
+                count=1,
+                flags=re.MULTILINE,
+            )
+
 # --- Write output (atomic: tmp + rename) ---
-import tempfile, os
+import tempfile
 output = rendered.strip() + "\n"
 dir_name = os.path.dirname(output_path) or '.'
 fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
@@ -924,6 +1001,58 @@ PYEOF
   local struck_count
   struck_count=$(jq '(.struck_lines // []) | length' "$judge_output" 2>/dev/null || echo "0")
   printf '\nStruck lines: %d\n' "$struck_count"
+
+  # CDV-204: optional Tokens block (graceful omit when missing/unavailable)
+  if [ -n "$tokens_file" ] && [ -f "$tokens_file" ]; then
+    python3 - "$tokens_file" <<'PYEOF'
+import json, sys, os
+
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+source = data.get("source") or ""
+if source == "unavailable":
+    sys.exit(0)
+raw_phases = data.get("phases") or {}
+if not isinstance(raw_phases, dict):
+    raw_phases = {}
+clean = {}
+for k, v in raw_phases.items():
+    if v is None:
+        continue
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        continue
+    if n > 0:
+        clean[str(k)] = n
+total = data.get("total")
+total_n = None
+if total is not None:
+    try:
+        t = int(total)
+        if t > 0:
+            total_n = t
+    except (TypeError, ValueError):
+        total_n = None
+if total_n is None and clean:
+    total_n = sum(clean.values())
+if not clean and total_n is None:
+    sys.exit(0)
+partial = source == "partial" or bool(data.get("partial"))
+label = "Tokens (partial):" if partial else "Tokens:"
+print(f"\n{label}")
+for k, v in clean.items():
+    print(f"  {k}: {v}")
+if total_n is not None:
+    print(f"  Total: {total_n}")
+PYEOF
+  fi
 }
 
 # ---- Dispatch ---------------------------------------------------------------

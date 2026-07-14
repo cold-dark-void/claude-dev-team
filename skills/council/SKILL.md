@@ -343,6 +343,7 @@ Capability probe: `skills/council/workflow-probe.sh`.
 engine.sh finalize --plan-file P --evidence-file E --judge-output J
   [--verification-mode full|self-verified]
   [--cross-review-status …] [--cross-review-rankings …] [--cross-review-scores …]
+  [--tokens-file PATH]
 ```
 
 No dual report/index renderers. Downstream (TaskCompleted, `/retro`) cannot
@@ -370,8 +371,10 @@ retype `self-verified — refuters unavailable`. See § Spawn-failure degradatio
 arguments as a JSON-encoded string. Distinct from CDV-197 (`/fix-ticket`
 promotion); share convention only.
 
-**Token summary (SHOULD):** when the Workflow budget API is available, print
-per-run / per-phase token usage on stdout. Engine Task path may still omit.
+**Token summary (SHOULD, CDV-204):** both paths feed optional per-phase usage
+into shared finalize via `--tokens-file` (see Phase 6). Workflow may also
+surface budget API data when present; Task path is best-effort envelope scrape.
+Missing harness fields → omit Tokens block (never invent `0`).
 
 **Callers:** `commands/council.md` and `skills/review-and-commit/SKILL.md`
 honor the same opt-in + fallback. Diff-mode (`finding[]`) skips Phase 4 on
@@ -591,6 +594,22 @@ empty `{{TASK_ID}}` so the key never appears. (SPEC-013 Task Binding.)
 `verification_mode` is always present: `full` (default) or `self-verified`
 (spawn-failure degradation; see above).
 
+**Optional token frontmatter (CDV-204):** when finalize receives a usable
+`--tokens-file`, it injects additive keys (not present in the template when
+tokens are unavailable):
+
+```yaml
+tokens_total: <int>
+tokens_by_phase:
+  1_claim_extraction: <int>
+  2_parallel_investigation: <int>
+  # …
+```
+
+When the tokens file is missing, empty, `source: unavailable`, or has no
+positive phase/total ints, these keys are **omitted** entirely. Never write
+`0` as if it were measured usage. Does **not** alter `index.json` schema.
+
 **Report body (branches on output shape):**
 
 Both shapes MUST include: scope, extracted claims (or candidate findings),
@@ -616,9 +635,40 @@ Preset: <preset> (<output_shape>)
 verification_mode=<full|self-verified>
 <verdict counts OR finding counts by severity>
 <struck lines count>
+
+Tokens:                         # CDV-204; only when --tokens-file usable
+  <phase_key>: <int>
+  Total: <int>
 ```
 
-(SPEC-013 line 92; CDV-199 adds `verification_mode=`.)
+(SPEC-013 line 92; CDV-199 adds `verification_mode=`; CDV-204 optional Tokens.)
+
+**Tokens file contract (`--tokens-file`, CDV-204):**
+
+```json
+{
+  "phases": {
+    "1_claim_extraction": 2341,
+    "2_parallel_investigation": 47182,
+    "4_prosecution": 8210,
+    "4_advocate": 7943,
+    "5_judge": 12556
+  },
+  "total": 78232,
+  "source": "task_envelope"
+}
+```
+
+Graceful rules (exit 0 always for token issues — never fail the run):
+1. No `--tokens-file` → no Tokens section, no FM token keys
+2. `source: "unavailable"` or all null/≤0 → omit section (do not invent `0`)
+3. `source: "partial"` or partial phases → print known rows + Total of known;
+   header `Tokens (partial):`
+4. Task/Workflow envelope fields are **best-effort** — orchestrator fills the
+   file; finalize only accepts this simple int map
+
+`commands/council.md` collects usage after Task spawns and passes the file.
+`/metrics` (CDV-187) is a later display-only consumer of this write path.
 
 **`--why` debug (CDV-206; SPEC-013 SHOULD):** When preflight receives
 `--why`, the investigation plan sets `why: true` and includes a
@@ -641,7 +691,8 @@ verification_mode=<full|self-verified>
 - `phase3_specialist` is a stub until Phase 3 (CDV-209); post-209 it becomes
   e.g. `"devops (topic=deploy conf=0.91)"` or `"skipped (no confident match)"`.
 - `commands/council.md` Step 5 prints a short labeled block from these fields
-  after the stdout summary. No raw prompt dumps. No verdict impact.
+  after the stdout summary (after any Tokens block). No raw prompt dumps. No
+  verdict impact.
 
 **Index writer (task-bound runs only):**
 
@@ -840,10 +891,10 @@ either fail loud (if user-reachable via CLI) or be a protocol-reserved no-op
 - **Phase 3 dynamic domain specialist** — no-op in v1. The engine MUST NOT
   inspect claim topics or attempt agent pull. Phase 3 exists in the protocol
   for v2 extensibility. (SPEC-013 lines 62–69.)
-- **Per-phase token usage reporting** — SHOULD in SPEC-013 line 144; not
-  implemented.
 - **Investigator tool-call caching within a run** — SHOULD in SPEC-013 line
   143; not implemented. Each investigator spawn is independent.
+  *(Per-phase token usage reporting — SPEC-013 SHOULD — implemented CDV-204
+  via finalize `--tokens-file`; graceful omit when harness has no tokens.)*
 - **Per-invocation preset overrides** — in COUNCIL-001, `confidence_filter_threshold`
   and `claim_budget` are hardcoded per preset. COUNCIL-002 may expose
   CLI overrides.

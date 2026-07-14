@@ -415,17 +415,56 @@ Struck lines must be preserved — never silently dropped.
 ## Step 4: Finalize and persist
 
 Write collected outputs (evidence bundles, prosecutor brief, advocate brief,
-judge output, struck_lines) to temp files, then call `engine.sh finalize`:
+judge output, struck_lines) to temp files, then call `engine.sh finalize`.
+
+### Token usage collection (CDV-204; best-effort)
+
+After each Task (or Workflow agent) spawn returns, **best-effort** scrape any
+token-usage fields from the result envelope. Task envelope schema is
+**unverified** — do not hard-depend on a specific field name. When a usable
+integer is found, add it to a phase map:
+
+| Phase | Key |
+|-------|-----|
+| Claim extraction | `1_claim_extraction` |
+| Investigation (sum per claim/flavor) | `2_parallel_investigation` |
+| Cross-review | `2_5_cross_review` |
+| Prosecutor | `4_prosecution` |
+| Advocate | `4_advocate` |
+| Judge | `5_judge` |
+
+Write a tokens JSON file (orchestrator-owned) before finalize:
+
+```json
+{
+  "phases": { "1_claim_extraction": 2341, "5_judge": 12556 },
+  "total": 14897,
+  "source": "task_envelope"
+}
+```
+
+`source` values: `task_envelope` | `workflow` | `partial` | `unavailable`.
+
+- Some phases known, others missing → set `source: "partial"` and include only
+  known positive ints (never invent `0` as real usage).
+- No usable fields on any spawn → either omit the file, or write
+  `{"phases":{},"source":"unavailable"}`. Finalize exits 0 either way and
+  omits the Tokens block / frontmatter keys.
+- Do **not** change `index.json` schema for tokens (CDV-187 is a later
+  display-only consumer of the write path here).
 
 ```bash
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
+TOKENS_FILE="${TMPDIR:-/tmp}/council-tokens-$$.json"  # lint-ok: C1
+# write tokens JSON when any usable ints collected; else skip or source=unavailable
 "$ENGINE_SH" finalize \
   --plan-file    "$PLAN_FILE" \  # lint-ok: C1
   --evidence-file "$EVIDENCE_FILE" \
   --judge-output  "$JUDGE_FILE" \
   [--task-id      "<task_id if present>"] \
   [--verification-mode self-verified]   # when degraded=true; else omit (defaults full)
+  [--tokens-file  "$TOKENS_FILE"]       # CDV-204; omit when no file / unavailable
 ```
 
 When any phase set `degraded=true`, pass `--verification-mode self-verified`
@@ -436,7 +475,10 @@ degradation.
 The engine renders the report from the appropriate template
 (`skills/council/templates/report-verdict.md` or `report-finding.md`),
 writes it to `.claude/council/`, calls `skills/council/index-writer.sh`
-for task-bound runs, and prints a stdout summary.
+for task-bound runs, and prints a stdout summary. When `--tokens-file`
+carries usable data, the summary includes a `Tokens:` block and the report
+frontmatter may gain `tokens_total` / `tokens_by_phase` (omitted when
+unavailable).
 
 Capture the engine's stdout. On non-zero exit, print engine stderr verbatim
 and exit non-zero.
@@ -452,13 +494,20 @@ Preset: <preset> (<output_shape>)
 verification_mode=<full|self-verified>
 <verdict counts or finding counts by severity>
 <struck lines count>
+
+Tokens:                    # only when --tokens-file had usable data (CDV-204)
+  <phase_key>: <int>
+  Total: <int>
 ```
+
+When tokens are partial, the header is `Tokens (partial):`. When the harness
+has no token fields, the entire Tokens block is omitted (never invent `0`).
 
 ### `--why` debug block (CDV-206)
 
 If `plan.why == true`, print a short labeled debug section **after** the
-summary (never before; never dump raw prompts). Source fields from
-`plan.why_detail` (emitted by `engine.sh preflight --why`):
+summary (including any Tokens block; never before; never dump raw prompts).
+Source fields from `plan.why_detail` (emitted by `engine.sh preflight --why`):
 
 ```
 Why:

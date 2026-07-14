@@ -42,6 +42,78 @@ else
   echo "FAIL: council.md missing why_detail"; fail=1
 fi
 
+# CDV-204: finalize --tokens-file (graceful Tokens block + optional FM)
+FIX_BASE=skills/council/fixtures/finalize-task-id
+TOK_BASE=skills/council/fixtures/finalize-tokens
+TOK_OUT=$(mktemp -d)
+trap 'rm -rf "$TOK_OUT"' EXIT
+if OUT=$(bash skills/council/engine.sh finalize \
+  --plan-file "$FIX_BASE/plan-unbound.json" \
+  --evidence-file "$FIX_BASE/evidence.json" \
+  --judge-output "$FIX_BASE/judge.json" \
+  --report-out "$TOK_OUT/with.md" \
+  --tokens-file "$TOK_BASE/tokens-full.json" 2>/dev/null) \
+  && printf '%s\n' "$OUT" | rg -q '^Tokens:' \
+  && printf '%s\n' "$OUT" | rg -q 'Total: 78232' \
+  && rg -q 'tokens_total: 78232' "$TOK_OUT/with.md" \
+  && rg -q '1_claim_extraction: 2341' "$TOK_OUT/with.md"; then
+  echo "OK: finalize with tokens → Tokens block + frontmatter"
+else
+  echo "FAIL: finalize with tokens"; fail=1
+fi
+if OUT=$(bash skills/council/engine.sh finalize \
+  --plan-file "$FIX_BASE/plan-unbound.json" \
+  --evidence-file "$FIX_BASE/evidence.json" \
+  --judge-output "$FIX_BASE/judge.json" \
+  --report-out "$TOK_OUT/without.md" 2>/dev/null) \
+  && ! printf '%s\n' "$OUT" | rg -q '^Tokens' \
+  && ! rg -q 'tokens_total' "$TOK_OUT/without.md"; then
+  echo "OK: finalize without tokens-file → omit Tokens"
+else
+  echo "FAIL: finalize without tokens-file leaked Tokens"; fail=1
+fi
+if OUT=$(bash skills/council/engine.sh finalize \
+  --plan-file "$FIX_BASE/plan-unbound.json" \
+  --evidence-file "$FIX_BASE/evidence.json" \
+  --judge-output "$FIX_BASE/judge.json" \
+  --report-out "$TOK_OUT/unavail.md" \
+  --tokens-file "$TOK_BASE/tokens-unavailable.json" 2>/dev/null) \
+  && ! printf '%s\n' "$OUT" | rg -q '^Tokens' \
+  && ! rg -q 'tokens_total' "$TOK_OUT/unavail.md"; then
+  echo "OK: finalize source=unavailable → omit Tokens"
+else
+  echo "FAIL: unavailable tokens not omitted"; fail=1
+fi
+if OUT=$(bash skills/council/engine.sh finalize \
+  --plan-file "$FIX_BASE/plan-unbound.json" \
+  --evidence-file "$FIX_BASE/evidence.json" \
+  --judge-output "$FIX_BASE/judge.json" \
+  --report-out "$TOK_OUT/partial.md" \
+  --tokens-file "$TOK_BASE/tokens-partial.json" 2>/dev/null) \
+  && printf '%s\n' "$OUT" | rg -q 'Tokens \(partial\):' \
+  && printf '%s\n' "$OUT" | rg -q 'Total: 59738'; then
+  echo "OK: finalize partial tokens"
+else
+  echo "FAIL: finalize partial tokens"; fail=1
+fi
+if OUT=$(bash skills/council/engine.sh finalize \
+  --plan-file "$FIX_BASE/plan-unbound.json" \
+  --evidence-file "$FIX_BASE/evidence.json" \
+  --judge-output "$FIX_BASE/judge.json" \
+  --report-out "$TOK_OUT/zeros.md" \
+  --tokens-file "$TOK_BASE/tokens-zeros.json" 2>/dev/null) \
+  && ! printf '%s\n' "$OUT" | rg -q '^Tokens' \
+  && ! rg -q 'tokens_total' "$TOK_OUT/zeros.md"; then
+  echo "OK: finalize zeros/null phases → omit (no invented 0)"
+else
+  echo "FAIL: zeros treated as real tokens"; fail=1
+fi
+if rg -n 'tokens-file' commands/council.md >/dev/null; then
+  echo "OK: council.md documents tokens-file"
+else
+  echo "FAIL: council.md missing tokens-file"; fail=1
+fi
+
 # helpers + mock finalize
 node --input-type=module <<'JS'
 import { parseArgs, loadPrompt, runCouncil } from './skills/council/workflow.js'

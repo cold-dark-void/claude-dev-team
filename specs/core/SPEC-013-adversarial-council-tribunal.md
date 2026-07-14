@@ -207,7 +207,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 - SHOULD rank claims in extraction phase by load-bearing weight (high-stakes claims audited first when budget is tight)
 - SHOULD cache investigator tool calls within a single council run to avoid redundant file reads across claims
-- SHOULD report per-phase token usage in the summary to make cost visible
+- SHOULD report per-phase token usage in the summary to make cost visible (CDV-204: finalize `--tokens-file` with phase→int map; optional report frontmatter `tokens_total` / `tokens_by_phase`; graceful omit when harness has no tokens — never invent `0` as measured usage; does not alter `index.json` schema)
 - SHOULD support `--why` flag to print the flavor presets used and the reasoning behind domain specialist selection
 - SHOULD surface struck verdict lines (evidence-less claims by Judge/Prosecutor/Advocate) in the report as a visible audit trail, not silently dropped
 - SHOULD print a concise stdout summary by default and reserve the full report for the file
@@ -332,7 +332,8 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 ### Test 19 — Council-on-Workflow no repair layers + token summary
 1. Grep workflow.js for `PYREPAIR` / `repair_json` — expect zero hits
-2. When Workflow budget API is available, verify per-run (ideally per-phase) token usage appears in stdout summary
+2. When Workflow budget API / Task envelope tokens are available, verify per-run (ideally per-phase) token usage appears in stdout summary via finalize `--tokens-file` (`Tokens:` block; optional FM `tokens_total` / `tokens_by_phase`)
+3. When tokens file is missing, `source: unavailable`, or all null/≤0 — omit Tokens block and FM keys (exit 0; never invent `0` as real); partial phases print known rows under `Tokens (partial):`
 
 
 ---
@@ -358,6 +359,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] `skills/council/prompts/cross-reviewer.md` exists; council.md Phase 2.5 block describes N cross-reviewers spawned with per-reviewer shuffled labels, self-exclusion, Borda-ranked bundle output to Phase 4 and Phase 5, bottom-quartile WEAK_EVIDENCE flagging, and bypass recorded when < 3 investigators
 - [ ] Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
 - [ ] `--why` (CDV-206): preflight with `--why` emits `why: true` + `why_detail` (`preset`, `flavors`, `phase3_specialist`, `claim_budget`, `preset_source`); without flag `why` is not true and no debug section; `commands/council.md` Step 5 prints short labeled block after summary; no verdict impact, no raw prompt dumps
+- [ ] Token usage (CDV-204): finalize `--tokens-file` prints `Tokens:` (or `Tokens (partial):`) when usable; omits when missing/unavailable/zeros; optional FM `tokens_total`/`tokens_by_phase`; `commands/council.md` best-effort collect + pass-through; index.json unchanged
 - [ ] Test 1–11 pass against the implementation
 - [x] Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
 - [ ] Test 12–19 (Council-on-Workflow) pass against the implementation
@@ -384,3 +386,4 @@ degradation marker — never invent a second string. Distinct from CDV-197
 | 2026-07-14 | CDV-196: Council-on-Workflow execution path promoted from DRAFT to active MUSTs — opt-in `--workflow`/`COUNCIL_WORKFLOW=1`, capability probe + transparent fallback, `skills/council/workflow.js` schema-forced agent() steps, shared `engine.sh finalize`, no PYREPAIR on Workflow path, CDV-199 marker via finalize flag only, single-source prompts/flavors, args-as-JSON-string guard (shared with CDV-197). Tests 12–19. |
 | 2026-07-14 | CDV-199: Spawn-failure degradation MUST — on unusable investigator/specialist/prosecutor/advocate/judge Task spawn, orchestrator self-verifies with tools; finalize `--verification-mode self-verified` surfaces exact marker `self-verified — refuters unavailable` in report body + frontmatter; exit 5 only when evidence still empty after self-verify path; no local-agent investigator routing. Test 11 + validation checkbox. |
 | 2026-07-14 | CDV-203: Report templates own YAML frontmatter (`task_id: "{{TASK_ID}}"` + scope/preset/output_shape/created_at/verification_mode); finalize substitutes template FM as single source (no dual prepend) and strips empty `task_id` when unbound so the key is absent — not null, not `""`. |
+| 2026-07-14 | CDV-204: Per-phase token usage reporting (SHOULD) — finalize optional `--tokens-file` (phase→int map + source); stdout `Tokens:` / `Tokens (partial):` block; optional report FM `tokens_total` / `tokens_by_phase`; graceful omit when missing/unavailable/zeros (never invent measured `0`); Task path best-effort envelope scrape in `commands/council.md`; does not alter `index.json`. Test 19 aligned. |

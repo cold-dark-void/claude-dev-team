@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.63.0
+- **Council per-phase token reporting (CDV-204)** — optional `--tokens-file` on finalize; Tokens stdout block + frontmatter when known; graceful omit when unavailable
+
 ### v0.62.0
 - **`/council --why` (CDV-206)** — preflight `why_detail` + stdout debug section (preset/flavors/specialist stub); no verdict impact
 

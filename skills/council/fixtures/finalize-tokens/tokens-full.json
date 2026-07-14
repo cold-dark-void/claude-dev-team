@@ -1,0 +1,11 @@
+{
+  "phases": {
+    "1_claim_extraction": 2341,
+    "2_parallel_investigation": 47182,
+    "4_prosecution": 8210,
+    "4_advocate": 7943,
+    "5_judge": 12556
+  },
+  "total": 78232,
+  "source": "task_envelope"
+}
