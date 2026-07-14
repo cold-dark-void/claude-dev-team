@@ -69,29 +69,45 @@ print(db.execute('SELECT COUNT(*) FROM memories WHERE agent=? AND type=?', (sys.
   # Each chunk becomes its own row for better embedding granularity
   CONTENT=$(cat "$FILE")
   FILE_FAILED=false
+  FILE_INSERTED=0
+  FILE_SKIPPED=0   # non-empty content below the insert floor (fail-closed)
+  FILE_CONSIDERED=0
 
-  # Split on ## headers. If no headers, split on double-newlines. If neither, use whole file.
-  if echo "$CONTENT" | grep -q '^## '; then
-    # Split by ## headers — each section is a chunk
-    CHUNK=""
-    CHUNK_NUM=0
-    while IFS= read -r LINE; do
-      if echo "$LINE" | grep -q '^## ' && [ -n "$CHUNK" ]; then
-        # Save previous chunk
-        CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 8000)
-        if [ ${#CHUNK_TRIMMED} -gt 20 ]; then
-          if python3 -c "
+  # Insert one chunk; updates FILE_INSERTED / FILE_FAILED. Args: content string.
+  # Length floor: skip (count) non-empty chunks ≤20 chars so short noise does not
+  # become rows — but those skips MUST block source deletion (data-loss guard).
+  _migrate_chunk() {
+    local chunk_trimmed="$1"
+    FILE_CONSIDERED=$((FILE_CONSIDERED + 1))
+    if [ -z "$chunk_trimmed" ]; then
+      return 0
+    fi
+    if [ ${#chunk_trimmed} -le 20 ]; then
+      FILE_SKIPPED=$((FILE_SKIPPED + 1))
+      echo "  WARN: skipped short chunk (${#chunk_trimmed} chars ≤20) for $AGENT/$TYPE — source will be preserved"
+      return 0
+    fi
+    if python3 -c "
 import sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
 db.execute('PRAGMA busy_timeout=5000')
 db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)', (sys.argv[2], sys.argv[3], sys.argv[4]))
 db.commit()
-" "$MEMDB" "$AGENT" "$TYPE" "$CHUNK_TRIMMED"; then
-            CHUNK_NUM=$((CHUNK_NUM + 1))
-          else
-            FILE_FAILED=true
-          fi
-        fi
+" "$MEMDB" "$AGENT" "$TYPE" "$chunk_trimmed"; then
+      FILE_INSERTED=$((FILE_INSERTED + 1))
+    else
+      FILE_FAILED=true
+    fi
+  }
+
+  # Split on ## headers. If no headers, use whole file as one chunk.
+  if echo "$CONTENT" | grep -q '^## '; then
+    # Split by ## headers — each section is a chunk
+    CHUNK=""
+    while IFS= read -r LINE; do
+      if echo "$LINE" | grep -q '^## ' && [ -n "$CHUNK" ]; then
+        CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 8000)
+        _migrate_chunk "$CHUNK_TRIMMED"
         CHUNK="$LINE"
       else
         CHUNK="${CHUNK}
@@ -101,32 +117,25 @@ ${LINE}"
     # Save last chunk
     if [ -n "$CHUNK" ]; then
       CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 8000)
-      if [ ${#CHUNK_TRIMMED} -gt 20 ]; then
-        if python3 -c "
-import sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
-db.execute('PRAGMA busy_timeout=5000')
-db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)', (sys.argv[2], sys.argv[3], sys.argv[4]))
-db.commit()
-" "$MEMDB" "$AGENT" "$TYPE" "$CHUNK_TRIMMED"; then
-          CHUNK_NUM=$((CHUNK_NUM + 1))
-        else
-          FILE_FAILED=true
-        fi
-      fi
+      _migrate_chunk "$CHUNK_TRIMMED"
     fi
-    echo "  OK: $CHUNK_NUM chunks from $AGENT/$TYPE"
-    TOTAL_CHUNKS=$((TOTAL_CHUNKS + CHUNK_NUM))
+    echo "  OK: $FILE_INSERTED inserted / $FILE_CONSIDERED considered ($FILE_SKIPPED short-skipped) from $AGENT/$TYPE"
+    TOTAL_CHUNKS=$((TOTAL_CHUNKS + FILE_INSERTED))
   else
     # No ## headers — insert whole file as one chunk (capped at 5000 chars)
     CONTENT_TRIMMED=$(printf '%s' "$CONTENT" | head -c 5000)
-    if python3 -c "
+    FILE_CONSIDERED=1
+    if [ -z "$CONTENT_TRIMMED" ]; then
+      FILE_SKIPPED=$((FILE_SKIPPED + 1))
+      echo "  WARN: empty content for $AGENT/$TYPE — source will be preserved"
+    elif python3 -c "
 import sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
 db.execute('PRAGMA busy_timeout=5000')
 db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)', (sys.argv[2], sys.argv[3], sys.argv[4]))
 db.commit()
 " "$MEMDB" "$AGENT" "$TYPE" "$CONTENT_TRIMMED"; then
+      FILE_INSERTED=1
       echo "  OK: 1 chunk (no sections) from $AGENT/$TYPE"
       TOTAL_CHUNKS=$((TOTAL_CHUNKS + 1))
     else
@@ -134,8 +143,19 @@ db.commit()
     fi
   fi
 
+  # Fail-closed deletion gate (per file):
+  # - insert errors → FAILED, keep source
+  # - zero rows inserted → FAILED, keep source (never delete on empty migration)
+  # - any short-skipped non-empty content → FAILED, keep source (partial loss risk)
+  # - only full success (inserted > 0 && skipped == 0 && !failed) may delete
   if [ "$FILE_FAILED" = true ]; then
     echo "  ERROR: failed to insert some chunks for $AGENT/$TYPE"
+    FAILED=$((FAILED + 1))
+  elif [ "$FILE_INSERTED" -eq 0 ]; then
+    echo "  ERROR: zero rows inserted for $AGENT/$TYPE (considered=$FILE_CONSIDERED, short-skipped=$FILE_SKIPPED) — source preserved"
+    FAILED=$((FAILED + 1))
+  elif [ "$FILE_SKIPPED" -gt 0 ]; then
+    echo "  ERROR: $FILE_SKIPPED chunk(s) with non-empty content were skipped for $AGENT/$TYPE — source preserved (fail-closed)"
     FAILED=$((FAILED + 1))
   else
     MIGRATED=$((MIGRATED + 1))
@@ -262,10 +282,12 @@ TOTAL_ROWS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memorie
 echo ""
 echo "Validation: $TOTAL_ROWS total rows in memories table"
 
-# Delete originals only if all inserts succeeded
-if [ "$FAILED" -eq 0 ] && [ "${#MIGRATED_FILES[@]}" -gt 0 ]; then
+# Delete only fully-successful files (per-file fail-closed: MIGRATED_FILES never
+# includes zero-row or short-skipped sources). Partial batch failures keep those
+# originals but still clean up files that fully migrated.
+if [ "${#MIGRATED_FILES[@]}" -gt 0 ]; then
   echo ""
-  echo "Deleting migrated source files..."
+  echo "Deleting fully-migrated source files..."
   for FILE in "${MIGRATED_FILES[@]}"; do
     if rm "$FILE"; then
       DELETED=$((DELETED + 1))
@@ -274,9 +296,10 @@ if [ "$FAILED" -eq 0 ] && [ "${#MIGRATED_FILES[@]}" -gt 0 ]; then
     fi
   done
   echo "  Deleted $DELETED files"
-elif [ "$FAILED" -gt 0 ]; then
+fi
+if [ "$FAILED" -gt 0 ]; then
   echo ""
-  echo "WARNING: $FAILED file(s) failed to migrate. Originals preserved."
+  echo "WARNING: $FAILED file(s) failed to migrate fully. Those originals preserved."
 fi
 
 echo ""
