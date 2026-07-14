@@ -18,8 +18,7 @@ ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 SKILL="$ROOT/skills/init-orchestration/SKILL.md"
 HOOKS_DIR="$ROOT/.claude/hooks"
 
-HOOKS="task-completed stop-review memory-capture bash-compress precompact-rescue rescue-pointer"
-
+HOOKS="task-completed stop-review memory-capture bash-compress precompact-rescue rescue-pointer friction-capture"
 if [ ! -f "$SKILL" ]; then
   echo "check-hook-templates: SKILL.md not found at $SKILL" >&2
   exit 1

@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.46.0
+- **Friction telemetry ledger (CDV-186)** — `friction-capture.sh` hooks for PostToolUseFailure/PermissionDenied/StopFailure append NDJSON to `.claude/retro/friction.jsonl`; retro-gate hybrid S2 from ledger when covered; init-orch templates; no S3 retune
+
 ### v0.45.0
 - **`/worktree` + lib status/register/sweep (CDV-189)** — user command for status/list/release; worktree-lib gains status/list/register/sweep (FRESH/STALE age locks); lifecycle hooks remain DRAFT (Remove has no exit-2 control); 32 lib tests
 

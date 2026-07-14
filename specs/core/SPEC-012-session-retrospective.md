@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-07
 
-**Covers**: `commands/retro.md`, `skills/retro-gate/`, `skills/retro-subagent/`, `skills/transcript-parse/`, integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`
+**Covers**: `commands/retro.md`, `skills/retro-gate/`, `skills/retro-subagent/`, `skills/transcript-parse/`, live friction ledger hook `.claude/hooks/friction-capture.sh` (emitted by `skills/init-orchestration/`), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`
 
 ---
 
@@ -111,7 +111,35 @@ conflict-detection and holistic-rewrite guarantees.
 - MUST NOT modify `~/.claude/CLAUDE.md` or any global user configuration
 - MUST NOT modify code files, tests, or specs under any circumstance
 - MUST NOT apply any proposal without `--auto` or explicit per-proposal confirm
-- MUST NOT install real-time hooks, `Stop` hooks, or session interruption mechanisms as part of this feature
+- MUST NOT install real-time hooks, `Stop` hooks, or session interruption mechanisms as part of `/retro` itself. Live friction ledger hook wiring is owned exclusively by `/init-orchestration` (see "Live friction telemetry ledger" below) — never by `/retro`, `/kickoff`, or `/orchestrate`
+
+### Live friction telemetry ledger (CDV-186)
+
+Capture friction in real time via harness hook events `PostToolUseFailure`,
+`PermissionDenied`, and `StopFailure`, so phase-1 can use observed failure
+evidence for S2 and still observes permission/stop failures that do not always
+surface as transcript `tool_result.is_error` rows. Banked design context:
+`.claude/backlog/friction-telemetry-hooks.md`.
+
+- **M1 — Ledger capture.** A single shared handler `.claude/hooks/friction-capture.sh` MUST handle all three events (`PostToolUseFailure`, `PermissionDenied`, `StopFailure`) and MUST append exactly one NDJSON line per accepted event to `$MROOT/.claude/retro/friction.jsonl` (worktree-aware `$MROOT`, same resolution formula as Phase 4). Schema (exact keys):
+  ```json
+  {"ts":"<ISO-8601>","session_id":"<id>","event":"<PostToolUseFailure|PermissionDenied|StopFailure>","tool":"<name or empty>","path":"<optional path or omit/empty>"}
+  ```
+  `tool` and `path` MUST be empty (or `path` omitted) when the event carries none. Handler MUST extract fields best-effort from stdin hook JSON (tolerate key variants such as `tool_name` → `tool`, `file_path` → `path`); if `session_id` is missing/empty after extraction, MUST skip the append (still exit 0).
+- **M2 — No payload bodies.** Ledger lines MUST NOT contain tool outputs, tool inputs, file contents, environment-variable values, secrets, or free-text error bodies. Only the schema fields in M1. (No `brief_detail` field.)
+- **M3 — Bounded growth.** The ledger MUST be bounded by the appending handler: default **10_000 lines** OR **5 MiB**, whichever is hit first; both caps MUST be env-overridable (constants at top of handler, e.g. `FRICTION_LEDGER_MAX_LINES`, `FRICTION_LEDGER_MAX_BYTES`). On cap hit, prune oldest lines (keep newest) before or after append so the file never grows unbounded. Unbounded growth is a defect.
+- **M4 — Hybrid scoring (ledger S2 + transcript S1/S3/S4/S5).** `retro-gate` phase 1 MUST:
+  1. Resolve the target session's `session_id` (from transcript metadata / path basename / caller).
+  2. Consult `$MROOT/.claude/retro/friction.jsonl` when present.
+  3. **Covered** = ≥1 well-formed ledger row whose `session_id` matches the target. When covered: derive **S2 only** from ledger events for that session; still parse the transcript for **S1, S3, S4, S5** (and for message-id anchors those signals need).
+  4. Ledger → S2 mapping: each of the three event types counts as an error observation. Apply the same consecutive-run rule as transcript S2 (≥2 consecutive errors form one run; score = number of runs × S2 weight). Ledger has no success/user-turn reset markers — events for the session form one append-order sequence (so N≥2 events ⇒ one S2 run unless a future success marker is added). S2 `signals[].ids` MAY use synthetic anchors (`ledger:<event>:<ts>` or line refs) when no transcript message UUID exists.
+  5. **Uncovered or ambiguous** (no matching rows; ledger missing/unreadable; `session_id` unresolved; corrupt-only rows for that id) → full transcript path for **all** signals including S2 — identical to pre-CDV-186 behavior. No errors, no warnings on the graceful path.
+  6. This extension MUST NOT change scoring semantics for weights, caps, threshold, signal set (S1–S5), or `--why` output shape. MUST NOT retune S3 (CDV-184 draft-polish exemption remains authoritative).
+- **M5 — Wiring via `/init-orchestration`; graceful absence.** Hook registration for the three events MUST be emitted by `/init-orchestration` alongside existing hook templates, pointing at the same `friction-capture.sh`, with `${CLAUDE_PROJECT_DIR}`-anchored paths and no pipe operators. Live template MUST stay byte-identical to the fenced block in `skills/init-orchestration/SKILL.md` (`check-hook-templates.sh` MUST include `friction-capture`). `/retro` MUST NOT install hooks. When hooks are unwired, events are unsupported by the installed Claude Code version, or the ledger is absent/empty, the gate MUST behave exactly as today (full transcript parse, no errors, no warnings).
+- **M6 — Transcript always available.** Full transcript parsing remains required for S1/S3/S4/S5 on every path, and for S2 whenever the session is not ledger-covered (M4). Sessions predating hook install, other projects in `--all` mode, and foreign sessions MUST work without a ledger.
+- **M7 — Handlers fail open; never block.** `friction-capture.sh` MUST be lightweight: no LLM, no network, bounded runtime, exit `0` on every path including failures (one-line diagnostic to stderr). MUST NOT exit `2`. MUST NOT block or delay the observed tool/permission/stop flow. (Mirrors SPEC-018 M17.)
+
+*Adjacency (non-normative):* ledger tool-error evidence may eventually obsolete S3 draft-polish heuristics for hook-covered sessions — **out of scope for CDV-186**; do not change S3 without a separate ticket. CDV-184 fixtures MUST continue to pass.
 
 ---
 
@@ -140,6 +168,17 @@ conflict-detection and holistic-rewrite guarantees.
 - Verify `/retro` skips sessions where `/retro` was previously invoked
 - Verify `/kickoff` and `/orchestrate` print the `Consider: /retro` hint only when the gate flags their session
 
+**Live friction telemetry ledger (CDV-186):**
+
+1. **Ledger capture (M1):** feed each of the three event stdin shapes to `friction-capture.sh` → exactly one NDJSON line per event in `$MROOT/.claude/retro/friction.jsonl` with keys `ts`, `session_id`, `event`, `tool`, and optional `path` only.
+2. **No bodies (M2):** feed a failure payload containing a multi-KB canary → ledger line has no canary and no payload/body fields.
+3. **Bounded growth (M3):** append past 10k lines or 5 MiB (or lowered env caps in test) → rotation keeps newest; file stays within bound.
+4. **Hybrid S2 (M4):** session with ≥1 ledger row and ≥2 failure events → S2 from ledger; S1/S3/S4/S5 still require transcript evidence. Forced full-transcript S2 path on same session without ledger coverage still scores S2 from transcript. Weights/caps/threshold/`--why` shape unchanged.
+5. **Wiring + graceful absence (M5):** `/init-orchestration` registers all three events to `friction-capture.sh`; `check-hook-templates.sh` includes it; with no ledger, `gate.sh` matches pre-CDV-186 transcript behavior (no errors/warnings).
+6. **Fallback (M6):** session absent from ledger → full transcript S2; unresolved `session_id` → full transcript path.
+7. **Fail-open (M7):** unwritable ledger dir → handler exits 0 (never 2), one-line stderr diagnostic.
+8. **CDV-184 regression:** existing S3 draft-polish fixtures (`ac1`–`ac5`) still pass; no S3 weight/exemption changes.
+
 ---
 
 ## Validation
@@ -154,6 +193,8 @@ conflict-detection and holistic-rewrite guarantees.
 - [ ] `/retro --auto` applies proposals without prompting
 - [ ] `/kickoff` and `/orchestrate` print the `Consider: /retro` hint after a frustrating test run
 - [ ] No modifications to `AGENTS.md`, `~/.claude/CLAUDE.md`, or any code files after any `/retro` run
+- [ ] Live friction ledger implemented (M1–M7): handler, hybrid gate path, init-orch wiring, rotation, fail-open
+- [ ] CDV-184 S3 fixtures still pass
 
 ---
 
@@ -162,6 +203,7 @@ conflict-detection and holistic-rewrite guarantees.
 - Phase-1 heuristic thresholds (friction score cutoff, edit-loop window, "terse reply" char limit) will need calibration; initial values ship in the implementation and are tuned via `--why` feedback.
 - Should `/retro --all` have a per-project cap to prevent one noisy project from dominating cross-project patterns? Deferred to implementation.
 - Should there be a `/retro --dry-run` distinct from default confirm mode? Current design treats default-confirm as equivalent to dry-run-with-opt-in; revisit if users find this confusing.
+- **Hook stdin field names** for `PostToolUseFailure` / `PermissionDenied` / `StopFailure` — event *names* appear in the Claude Code hook inventory (ideation wave 2); per-field schema is **not fully verified**. Implementation MUST spike stdin shapes first and map best-effort (`session_id`, `tool`/`tool_name`, path keys); graceful skip when `session_id` absent (M1/M5/M7).
 
 ---
 
@@ -169,11 +211,13 @@ conflict-detection and holistic-rewrite guarantees.
 
 - Modifying `AGENTS.md` or global `CLAUDE.md` (too broad; each eng↔Claude interaction is project-specific)
 - Auto-application without explicit `--auto` flag
-- Real-time friction detection via hooks
+- S3 weight/exemption retune (CDV-184 stands; adjacency only)
+- Ledger supplying S1/S3/S4/S5 (hybrid is S2-only from ledger)
+- `/retro` installing or managing hooks
 - Retro'ing sessions from shared directories or other users
 - Redaction of session content before review (same trust boundary as normal Claude reads)
 - Retroactively deleting or rewriting past directives/lessons (only add or tighten)
-- Metrics dashboards or long-term friction tracking
+- Metrics dashboards or long-term friction analytics beyond the bounded ledger
 
 ---
 
@@ -186,11 +230,15 @@ conflict-detection and holistic-rewrite guarantees.
 | 2026-04-09 | Added `fabrication_anchor` classification in phase-2 and `Consider: /council --from-retro <anchor-id>` integration hint (additive, non-blocking, dedup per anchor-id) per SPEC-013. |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `🚧 NEW`→`APPROVED` (no emoji, matches TDD index); refreshed Covers (dropped `(to be created)`, added shipped `skills/retro-gate/`, `skills/retro-subagent/`, `skills/transcript-parse/`); added the shared transcript-parse seam ownership MUST so SPEC-018's "see SPEC-012" citation resolves. No behavioral change. |
 | 2026-07-14 | CDV-184: Phase-1 S3 (edit-loop) MUST exempts clean draft-polish paths (session-created via first `Write`, no intervening tool error or S1 rejection). Pre-existing paths and dirty session-created paths still score. No threshold/weight changes. |
+| 2026-07-14 | CDV-186: Promoted live friction telemetry ledger (M1–M7). Hybrid scoring: ledger supplies S2 when session covered (≥1 row); S1/S3/S4/S5 remain transcript. Schema `{ts,session_id,event,tool,path?}`. Single `friction-capture.sh` for PostToolUseFailure/PermissionDenied/StopFailure. Rotation 10k lines or 5 MiB. Wiring via `/init-orchestration` only. No S3 retune. |
 
 ---
 
 ## Cross-references
 
 - **SPEC-001: Per-Agent Directives** — `/retro` routes all team-agent proposals through `/adjust-agent` to preserve conflict detection and holistic rewrite. MUST NOT bypass. Uses the `--apply` non-interactive mode added to SPEC-001 on 2026-04-08 to support `/retro --auto`.
+- **SPEC-002: Plugin Infrastructure** — hook path hygiene (`${CLAUDE_PROJECT_DIR}`, no pipes); init-orchestration template byte-identity gate.
 - **SPEC-003: Agent Role System** — `/retro` targets the 7 behavioral agents plus plain `claude`; excludes `project-init` and `distiller`.
 - **SPEC-009: Ticket Workflow** — `/kickoff` and `/orchestrate` gain a soft-suggestion hook at completion. No behavioral change to existing ticket-workflow MUST requirements.
+- **SPEC-016: Worktree Isolation** — ledger is `$MROOT`-anchored and shared across worktrees (M1).
+- **SPEC-018: Cold Session Handoff** — fail-open / graceful-absence precedent (M17/M18) for hook handlers; PreCompact stdin `session_id` pattern.

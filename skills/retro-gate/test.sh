@@ -133,6 +133,91 @@ else
   bad "AC8: S3_WEIGHT/MIN_EDITS/WINDOW constants missing or changed"
 fi
 
+# ---- CDV-186 hybrid S2 (ledger) ----
+run_gate_env() {
+  local f="$FIX/$1"
+  shift
+  OUT=$(env "$@" bash "$GATE" "$f" 2>/dev/null)
+  RC=$?
+}
+
+# H1: transcript has no tool errors; ledger has ≥2 rows for session → S2 from ledger
+run_gate_env "hybrid-ledger-s2.jsonl" \
+  FRICTION_LEDGER="$FIX/hybrid-ledger-s2.ledger.jsonl"
+if assert_json_shape "H1"; then
+  s2c=$(signal_count S2)
+  sc=$(score_val)
+  if [ "$s2c" = "1" ] && python3 -c "import sys; sys.exit(0 if float(sys.argv[1])==2.0 else 1)" "$sc"; then
+    ok "H1 ledger-covered S2 count=1 score=2.0"
+  else
+    bad "H1: want S2=1 score=2.0; got S2=$s2c score=$sc out=$OUT"
+  fi
+  if echo "$OUT" | grep -q 'ledger:PostToolUseFailure:'; then
+    ok "H1 synthetic ledger S2 id"
+  else
+    bad "H1: missing ledger: anchor in ids: $OUT"
+  fi
+fi
+
+# H2: same transcript, no ledger → no S2 (uncovered full transcript)
+run_gate_env "hybrid-ledger-s2.jsonl" FRICTION_LEDGER="/nonexistent/friction.jsonl"
+if assert_json_shape "H2"; then
+  if has_signal S2; then
+    bad "H2: unexpected S2 without ledger: $OUT"
+  else
+    ok "H2 uncovered clean transcript no S2"
+  fi
+fi
+
+# H3: transcript has consecutive tool errors; no ledger → transcript S2
+run_gate_env "hybrid-transcript-s2.jsonl" FRICTION_LEDGER="/nonexistent/friction.jsonl"
+if assert_json_shape "H3"; then
+  s2c=$(signal_count S2)
+  if [ "$s2c" = "1" ]; then
+    ok "H3 transcript S2 when uncovered count=$s2c"
+  else
+    bad "H3: want S2=1 got $s2c out=$OUT"
+  fi
+fi
+
+# H4: covered with only 1 ledger row → S2 count 0 (run length < 2), ignores transcript errors
+ONE_ROW="$FIX/hybrid-one-row-b.ledger.jsonl"
+printf '%s\n' '{"ts":"2026-07-14T12:00:00Z","session_id":"hybrid-s2-b","event":"PostToolUseFailure","tool":"Bash","path":""}' > "$ONE_ROW"
+run_gate_env "hybrid-transcript-s2.jsonl" FRICTION_LEDGER="$ONE_ROW"
+if assert_json_shape "H4"; then
+  if has_signal S2; then
+    bad "H4: 1 ledger row should not yield S2 run: $OUT"
+  else
+    ok "H4 covered single-row suppresses transcript S2"
+  fi
+fi
+
+# H5: RETRO_FORCE_TRANSCRIPT_S2=1 ignores ledger coverage (clean transcript → no S2)
+run_gate_env "hybrid-ledger-s2.jsonl" \
+  FRICTION_LEDGER="$FIX/hybrid-ledger-s2.ledger.jsonl" \
+  RETRO_FORCE_TRANSCRIPT_S2=1
+if assert_json_shape "H5"; then
+  if has_signal S2; then
+    bad "H5: force-transcript on clean session should not S2: $OUT"
+  else
+    ok "H5 RETRO_FORCE_TRANSCRIPT_S2 uses transcript (no S2)"
+  fi
+fi
+
+# H6: force-transcript with real transcript errors still scores S2 despite 1-row ledger
+run_gate_env "hybrid-transcript-s2.jsonl" \
+  FRICTION_LEDGER="$ONE_ROW" \
+  RETRO_FORCE_TRANSCRIPT_S2=1
+if assert_json_shape "H6"; then
+  s2c=$(signal_count S2)
+  if [ "$s2c" = "1" ]; then
+    ok "H6 force-transcript keeps transcript S2 count=$s2c"
+  else
+    bad "H6: want S2=1 got $s2c out=$OUT"
+  fi
+fi
+rm -f "$ONE_ROW"
+
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

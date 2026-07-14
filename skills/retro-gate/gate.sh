@@ -7,7 +7,9 @@
 # can pipeline-grep without trapping. Schema-drift warnings go to stderr.
 #
 # Usage:    gate.sh <absolute-jsonl-path>
-# Env:      RETRO_THRESHOLD  (float, default 5.0)
+# Env:      RETRO_THRESHOLD              (float, default 5.0)
+#           FRICTION_LEDGER              (path override for live friction ledger)
+#           RETRO_FORCE_TRANSCRIPT_S2=1  (force uncovered S2 path even if ledger covered)
 #
 # Output:
 #   {"score":N,"passed":bool,"threshold":N,"signals":[
@@ -52,13 +54,26 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARSELIB_DIR="$(cd "$SCRIPT_DIR/../transcript-parse" 2>/dev/null && pwd)"
 
+# Hybrid S2 ledger path (SPEC-012 M4): default $MROOT/.claude/retro/friction.jsonl
+if [ -z "${FRICTION_LEDGER:-}" ]; then
+  if _gc=$(git rev-parse --git-common-dir 2>/dev/null); then
+    _MROOT=$(cd -- "$(dirname -- "$_gc")" && pwd) || _MROOT=""
+    if [ -n "$_MROOT" ]; then
+      FRICTION_LEDGER="$_MROOT/.claude/retro/friction.jsonl"
+    fi
+  fi
+fi
+export FRICTION_LEDGER="${FRICTION_LEDGER:-}"
+export RETRO_FORCE_TRANSCRIPT_S2="${RETRO_FORCE_TRANSCRIPT_S2:-}"
+
 python3 - "$JSONL" "$THRESHOLD" "${PARSELIB_DIR:-}" <<'PYEOF'
 import json, re, sys, os  # json: only for serializing the verdict (parse via parselib)
 
 JSONL_PATH = sys.argv[1]
 THRESHOLD = float(sys.argv[2])
 PARSELIB_DIR = sys.argv[3] if len(sys.argv) > 3 else ""
-
+LEDGER_PATH = os.environ.get("FRICTION_LEDGER") or ""
+FORCE_TRANSCRIPT_S2 = os.environ.get("RETRO_FORCE_TRANSCRIPT_S2") == "1"
 # ---- Shared parse primitives (SPEC-018 transcript-parse module) -------------
 # /retro consumes the SAME JSONL parsing seam as /handoff. We import the line
 # decoder, edit-tool helpers, meta-turn guard, and the canonical top-field set
@@ -129,6 +144,7 @@ last_tool_was_error_run_len = 0
 last_error_run_start_id = None
 known_field_seen_in_first_50 = False
 total_lines = 0
+session_id = None  # resolved from JSONL sessionId / filename stem (M4 hybrid)
 
 
 def msg_text(content):
@@ -164,6 +180,11 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
 
         if line_no < 50 and KNOWN_TOP_FIELDS & set(d.keys()):
             known_field_seen_in_first_50 = True
+
+        if session_id is None:
+            sid = d.get("sessionId") or d.get("session_id")
+            if isinstance(sid, str) and sid:
+                session_id = sid
 
         ttype = d.get("type")
         uuid = d.get("uuid") or d.get("messageId") or f"line:{line_no}"
@@ -267,8 +288,61 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
 if last_tool_was_error_run_len >= 2:
     s2_runs.append(last_error_run_start_id)
 
-# ---- S3 windowed evaluation -------------------------------------------------
-# A file scores once per distinct sliding window of S3_WINDOW assistant turns
+# ---- session_id fallback (filename stem) ------------------------------------
+if session_id is None:
+    base = os.path.basename(JSONL_PATH)
+    if base.endswith(".jsonl"):
+        session_id = base[: -len(".jsonl")]
+    elif base:
+        session_id = base
+
+# ---- Hybrid S2: ledger supplies S2 when covered (SPEC-012 M4) ---------------
+# Covered = ≥1 well-formed ledger row for session_id. When covered, S2 comes
+# only from ledger (consecutive-run rule; no success reset on ledger → N≥2
+# events form one run). Uncovered/unreadable/force → keep transcript s2_runs.
+# S1/S3/S4/S5 always remain transcript-derived regardless.
+def _ledger_s2_runs(ledger_path, sid):
+    """Return list of S2 run anchors if covered, else None (uncovered)."""
+    if not ledger_path or not sid or not os.path.isfile(ledger_path):
+        return None
+    rows = []
+    try:
+        with open(ledger_path, "r", encoding="utf-8", errors="replace") as lf:
+            for raw in lf:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    r = json.loads(raw)
+                except Exception:
+                    continue
+                if not isinstance(r, dict):
+                    continue
+                if r.get("session_id") != sid:
+                    continue
+                # well-formed: non-empty session_id + event str (M1)
+                if not isinstance(r.get("session_id"), str) or not r["session_id"]:
+                    continue
+                if not isinstance(r.get("event"), str):
+                    continue
+                rows.append(r)
+    except OSError:
+        return None  # unreadable → graceful uncovered
+    if not rows:
+        return None  # no matching rows → uncovered
+    # Covered. Append-order sequence; no success markers → one continuous run.
+    if len(rows) < 2:
+        return []  # covered but run length < 2 → zero S2 runs
+    r0 = rows[0]
+    return ["ledger:%s:%s" % (r0.get("event") or "", r0.get("ts") or "")]
+
+
+if not FORCE_TRANSCRIPT_S2:
+    _ledger_s2 = _ledger_s2_runs(LEDGER_PATH, session_id)
+    if _ledger_s2 is not None:
+        s2_runs = _ledger_s2
+
+# ---- S3 windowed evaluation -------------------------------------------------# A file scores once per distinct sliding window of S3_WINDOW assistant turns
 # that contains >= S3_MIN_EDITS edits to that file.
 # Clean draft-polish exemption (CDV-184): if the path's first edit-tool is
 # Write (session-created) and no tool_result is_error and no S1-eligible

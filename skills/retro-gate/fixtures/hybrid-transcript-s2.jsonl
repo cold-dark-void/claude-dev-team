@@ -1,0 +1,5 @@
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000201","sessionId":"hybrid-s2-b","message":{"role":"user","content":[{"type":"text","text":"run it"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000202","sessionId":"hybrid-s2-b","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"false"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000203","sessionId":"hybrid-s2-b","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"exit 1"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000204","sessionId":"hybrid-s2-b","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"false"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000205","sessionId":"hybrid-s2-b","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"exit 1"}]}}

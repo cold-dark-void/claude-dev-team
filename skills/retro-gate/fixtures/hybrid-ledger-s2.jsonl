@@ -1,0 +1,4 @@
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000101","sessionId":"hybrid-s2-a","message":{"role":"user","content":[{"type":"text","text":"do the thing"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000102","sessionId":"hybrid-s2-a","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"true"}}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000103","sessionId":"hybrid-s2-a","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"ok"}]}}
+{"type":"assistant","uuid":"00000000-0000-4000-8000-000000000104","sessionId":"hybrid-s2-a","message":{"role":"assistant","content":[{"type":"text","text":"done smoothly with no tool errors"}]}}

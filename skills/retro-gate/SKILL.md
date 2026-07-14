@@ -31,6 +31,31 @@ RETRO_THRESHOLD=7.5 bash skills/retro-gate/gate.sh /path/to/session.jsonl
 ```
 Default threshold is `5.0`.
 
+### Hybrid S2 ledger (SPEC-012 M4)
+
+When a session is **ledger-covered** (≥1 well-formed row in
+`$MROOT/.claude/retro/friction.jsonl` for that `session_id`), **S2 only** is
+derived from the ledger; **S1/S3/S4/S5 always come from the transcript**.
+Uncovered / missing / unreadable ledger → full transcript path for all signals
+(pre-CDV-186 behavior). Ledger wiring is installed by `/init-orchestration`
+only (handler: `.claude/hooks/friction-capture.sh`); `/retro` never installs hooks.
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `FRICTION_LEDGER` | `$MROOT/.claude/retro/friction.jsonl` | Ledger path override (tests) |
+| `FRICTION_LEDGER_MAX_LINES` | `10000` | Capture-side rotation (lines) |
+| `FRICTION_LEDGER_MAX_BYTES` | `5242880` | Capture-side rotation (bytes) |
+| `RETRO_FORCE_TRANSCRIPT_S2` | unset | `1` → ignore ledger coverage for S2 |
+
+Ledger line schema (no payload bodies):
+```json
+{"ts":"<ISO-8601>","session_id":"<id>","event":"<PostToolUseFailure|PermissionDenied|StopFailure>","tool":"<name or empty>","path":"<optional>"}
+```
+
+Ledger → S2: each of the three event types is an error observation; ≥2
+consecutive events in append order form one run (no success reset on ledger).
+S2 ids may be synthetic (`ledger:<event>:<ts>`).
+
 ## Output schema
 
 ```json
@@ -49,7 +74,7 @@ evidence rather than re-scanning the whole transcript.
 | #  | Name              | Detection                                                                                                          | Weight | Cap |
 |----|-------------------|--------------------------------------------------------------------------------------------------------------------|--------|-----|
 | S1 | Explicit reject   | Regex on real (non-meta) `type=user` text: `\b(revert\|stop\|wrong\|don'?t\|why did you\|no that'?s\|undo\|that'?s not\|nope)\b` | 3.0    | 3   |
-| S2 | Tool error run    | A run of >=2 consecutive `tool_result.is_error:true` blocks; reset by a successful result or a real user turn       | 2.0    | -   |
+| S2 | Tool error run    | **Transcript (default / uncovered):** a run of >=2 consecutive `tool_result.is_error:true` blocks; reset by a successful result or a real user turn. **Ledger-covered:** ≥2 ledger friction events for the session in append order (one continuous run; no success reset). Hybrid: ledger supplies S2 only when covered; see above. | 2.0    | -   |
 | S3 | Edit loop         | >=3 `Edit`/`Write`/`MultiEdit`/`NotebookEdit` tool_uses on the same `file_path` within 10 assistant turns; one score per file. **Exempt:** clean draft-polish — path whose first edit-tool is `Write` (session-created) with no intervening `tool_result.is_error` and no S1-eligible user rejection after that Write and at/before the last edit in the candidate window. Pre-existing paths and dirty session-created paths still score. | 2.5    | -   |
 | S4 | Assistant retry   | Regex on assistant text: `\b(let me try again\|let me try a different\|that didn'?t work\|actually,? let me\|sorry,? let me\|my mistake\|i'?ll try)\b` (see `S4_RE` in gate.sh) | 1.5    | 3   |
 | S5 | Terse follow-up   | Real user message of <=3 words immediately after an assistant turn >=500 chars                                       | 1.0    | 4   |
