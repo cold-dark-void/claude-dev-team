@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.5
+- **fix: orchestrate Step 8.5 single-shell CI-watch arming + define BRANCH (CDV-177)** — arming was four separate bash fences sharing vars (each fence is a fresh shell), and `$BRANCH` was never assigned, so sidecar init could run with empty mode/pr/branch. Merged into one self-contained block that re-derives roots, reads branch via `git -C "$WT_PATH"`, detects mode, draft-PR, guards empty MODE/BRANCH, then `sidecar init`. CronCreate remains a separate tool step.
+
 ### v0.38.4
 - **fix: create worktree memory dir before context.md write (CDV-173)** — session-end context snapshot wrote to `$WTROOT/.claude/memory/<agent>/context.md` without `mkdir -p`, so every fresh orchestrate worktree failed the write (`.claude/` is gitignored). Partial `protocol.md` now mkdir's first; session-start reads add `sqlite3 -cmd ".timeout 5000"` and `"${HAS_DISTILLED:-0}"`. Re-expanded via sync-includes to all 7 agents; same timeout/guard on orchestrate + memory-recall tiered reads.
 

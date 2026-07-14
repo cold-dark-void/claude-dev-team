@@ -44,7 +44,7 @@ See `sidecar.sh` (single source of truth). Fields managed by this skill:
 | `ticket_id`        | string          | sidecar.sh init                       |
 | `mode`             | `ci`/`local-test` | sidecar.sh init                     |
 | `pr_number`        | string          | sidecar.sh init (orchestrate)         |
-| `branch`           | string          | sidecar.sh init                       |
+| `branch`           | string          | sidecar.sh init (from `git -C "$WT_PATH" rev-parse --abbrev-ref HEAD` in orchestrate Step 8.5) |
 | `retry_count`      | integer         | cron prompt (inc on `fail`)           |
 | `poll_error_count` | integer         | poll.sh (inc on transient errors)     |
 | `fixer_active`     | boolean         | cron prompt (set true on fail-spawn); fixer agent + wrap-ticket clear |

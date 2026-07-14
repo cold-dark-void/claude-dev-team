@@ -574,43 +574,61 @@ Substitute `<PLUGIN>` with the resolved plugin root (`plugin-dir.sh`), not
 ## Step 8.5: Arm CI-watch after first push
 
 After the first IC agent reports a push to the remote branch (detected when the
-monitoring loop sees a new commit on the remote), arm the CI-watch loop:
+monitoring loop sees a new commit on the remote), arm the CI-watch loop.
 
-1. **Check if already armed** (idempotent guard):
-   ```bash
-   SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
-   DETECT_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/detect-mode.sh)
-   SIDECAR=$(bash "$SIDECAR_CLI" path "<TICKET-ID>")
-   [ -f "$SIDECAR" ] && exit 0   # already armed, skip
-   ```
+**Arming block** (single self-contained shell — do NOT split; each ```bash fence
+is a fresh shell so vars do not carry across fences):
 
-2. **Detect quality-check mode**:
-   ```bash
-   MODE_LINE=$(bash "$DETECT_CLI" "$WT_PATH")
-   MODE=$(echo "$MODE_LINE" | head -n1)
-   TEST_CMD=$(echo "$MODE_LINE" | sed -n 2p)
-   ```
-   If MODE is `none`: print "CI watch: no quality checks detected — skipping." and skip to Step 9.
+```bash
+# Re-derive roots (session may have compacted; do not rely on Step 0/3 vars)
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+BRANCH=$(git -C "$WT_PATH" rev-parse --abbrev-ref HEAD) || BRANCH=""
 
-3. **Create draft PR** (ci mode only):
-   In ci mode, create a draft PR immediately if one doesn't exist yet:
-   ```bash
-   PR=$(cd "$WT_PATH" && gh pr view --json number -q .number 2>/dev/null || echo "")
-   if [ -z "$PR" ]; then
-     cd "$WT_PATH" && gh pr create --draft \
-       --title "<TICKET-ID>: WIP — <issue title>" \
-       --body "Auto-draft created by CI watch for <TICKET-ID>"
-     PR=$(cd "$WT_PATH" && gh pr view --json number -q .number)
-   fi
-   ```
+SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
+DETECT_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/detect-mode.sh)
 
-4. **Init sidecar**:
-   ```bash
-   bash "$SIDECAR_CLI" init "<TICKET-ID>" "$MODE" "${PR:-}" "$BRANCH"
-   ```
+# 1. Idempotent guard — already armed, skip
+SIDECAR=$(bash "$SIDECAR_CLI" path "<TICKET-ID>")
+[ -f "$SIDECAR" ] && exit 0
 
-5. **Schedule durable cron**:
-   Call CronCreate (Claude tool) with:
+# 2. Detect quality-check mode
+MODE_LINE=$(bash "$DETECT_CLI" "$WT_PATH")
+MODE=$(echo "$MODE_LINE" | head -n1)
+TEST_CMD=$(echo "$MODE_LINE" | sed -n 2p)
+if [ "$MODE" = "none" ]; then
+  echo "CI watch: no quality checks detected — skipping."
+  exit 0   # skip to Step 9
+fi
+
+# 3. Draft PR (ci mode only)
+PR=""
+if [ "$MODE" = "ci" ]; then
+  PR=$(cd "$WT_PATH" && gh pr view --json number -q .number 2>/dev/null || echo "")
+  if [ -z "$PR" ]; then
+    cd "$WT_PATH" && gh pr create --draft \
+      --title "<TICKET-ID>: WIP — <issue title>" \
+      --body "Auto-draft created by CI watch for <TICKET-ID>"
+    PR=$(cd "$WT_PATH" && gh pr view --json number -q .number)
+  fi
+fi
+
+# Guard before init
+if [ -z "$MODE" ] || [ -z "$BRANCH" ]; then
+  echo "CI watch: abort — MODE or BRANCH empty (MODE='$MODE' BRANCH='$BRANCH')" >&2
+  exit 1
+fi
+
+# 4. Init sidecar
+bash "$SIDECAR_CLI" init "<TICKET-ID>" "$MODE" "${PR:-}" "$BRANCH"
+```
+
+5. **Schedule durable cron** (Claude CronCreate tool — not bash; runs after the
+   arming block succeeds):
+   Call CronCreate with:
    - cron: `"*/7 * * * *"` (off-minute per project convention)
    - durable: `true`
    - recurring: `true`
@@ -628,7 +646,8 @@ monitoring loop sees a new commit on the remote), arm the CI-watch loop:
    The cron prompt MUST be self-contained — it reads the sidecar and runs
    poll.sh without relying on any session context. See SKILL.md for the template.
 
-6. **Persist cron job ID**:
+6. **Persist cron job ID** (same shell session as step 5's PLUGIN resolve if
+   needed; re-resolve SIDECAR_CLI if a new shell):
    ```bash
    bash "$SIDECAR_CLI" set "<TICKET-ID>" cron_job_id "<returned-job-id>"
    ```
