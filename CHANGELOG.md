@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.42.1
+- **fix: craft-loop dogfood polish (SPEC-020)** — hold/dogfood/no-write (draft in chat, no `.claude/loops/` write); target+cadence+unit grain as one dialogue slot (L/G/G-fat presets); prefer descriptive program names; cold-start allows declared side artifacts under `.claude/loops/`; goal complete phrasing; list excludes `*.findings.md`/`*.ledger.md`; mid-dialogue product questions resume open craft slot.
+
 ### v0.42.0
 - **feat: /craft-loop loop-prompt architect (SPEC-020 / CDV-183)** — designs reviewed loop programs for Claude Code's built-in `/loop` and `/goal` (no new runtime). Modes: craft / refine / list; program template + backlog-burn & spec-sync examples; journal + indented `Answer:` decision cards; `.claude/loops/` library. SPEC-020 ACTIVE.
 

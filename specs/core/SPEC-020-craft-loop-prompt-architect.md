@@ -40,8 +40,10 @@ at creation; no contradictory requirements).
 - MUST scan the project for context relevant to the goal (affected files, available
   commands, test setup) before drafting
 - MUST run a guided dialogue — one question per message — covering at minimum: stop
-  condition, scope boundaries, risk tolerance, cadence, target (`loop` vs `goal`), and
-  program name
+  condition, scope boundaries, risk tolerance, **target + cadence + unit grain as a
+  single combined slot** (presets L / G / G-fat or custom), and program name
+- SHOULD prefer **descriptive long kebab-case** name options for non-trivial goals
+  (short aliases optional)
 - MUST draft from `program-template.md`, seeded from the closest shipped example when one
   fits
 - MUST verify the draft against the quality checklist (below) and present it in chat for
@@ -49,17 +51,23 @@ at creation; no contradictory requirements).
 - On approval, MUST write the program to `.claude/loops/<name>.md` (creating the
   directory if absent) and print the exact invocation line for the chosen target, e.g.
   `/loop Follow the loop program in .claude/loops/<name>.md exactly — one iteration per firing.`
+- On user **hold / dogfood / do not save / no-write**, MUST NOT write under
+  `.claude/loops/`; MAY leave the draft in chat and print a would-be invocation line
 - On name collision, MUST offer: overwrite, rename, or switch to refine mode
+- SHOULD answer mid-dialogue product/repo questions briefly, then resume the open craft
+  slot without restarting the full question set
 
 ### Quality checklist (applied to every draft, including the shipped examples)
 
-- Cold-start executable: the procedure references no state outside the program file and
-  its journal
+- Cold-start executable: the procedure references no state outside the program file, its
+  journal, and any **side artifacts it explicitly declares** under `.claude/loops/`
+  (e.g. `<name>.findings.md`)
 - Stop condition is objectively checkable (a fact of the repo/files, not a judgment call)
 - Journal read is the first procedure step; journal append is the last
 - Guardrails cover every destructive operation reachable from the procedure
 - Blocked-behavior is specified
-- One iteration is small enough for a single firing
+- One unit of work is small enough for a single firing (`target: loop`) or single
+  meaningful event (`target: goal`)
 
 ### Program format
 
@@ -75,15 +83,17 @@ at creation; no contradictory requirements).
   journal, continue with unblocked work, and end the loop reporting BLOCKED when no
   unblocked work remains
 - For `target: goal` programs, journaling is per meaningful event rather than per firing
+- Stop announcements MAY use `loop complete: <name>` and/or `goal complete: <name>`
+  (prefer `goal complete` when `target: goal`)
 
 ### Journal
 
 - Programs MUST journal to `.claude/loops/<name>.journal.md` using the entry schema
   `## Iteration <N> — <date>` with `Did` / `State` / `Next` / `Decisions needed` fields
-- A decision card is answered by writing an `Answer:` line beneath it (by the user
-  directly, or by a session relaying the user's decision); each firing's journal-read
-  step MUST treat cards with an `Answer:` line as resolved input, and cards without one
-  as still open
+- A decision card is answered by writing an **indented** `Answer:` line beneath it (by
+  the user directly, or by a session relaying the user's decision); each firing's
+  journal-read step MUST treat cards with an indented `Answer:` line as resolved input,
+  and cards without one as still open
 
 ### Refine mode
 
@@ -97,9 +107,11 @@ at creation; no contradictory requirements).
 
 ### List mode
 
-- MUST render a table over `.claude/loops/*.md`: name, target, status, last journal
-  activity, and open decision-card count (cards under `Decisions needed` with no recorded
-  answer)
+- MUST render a table over program files under `.claude/loops/`: name, target, status,
+  last journal activity, and open decision-card count (cards under `Decisions needed`
+  with no indented `Answer:`)
+- MUST NOT treat `*.journal.md`, `*.findings.md`, or `*.ledger.md` as programs; SHOULD
+  require program frontmatter `name:` and a `# Objective` heading
 - MUST enumerate via `find` (not shell globs), and every bash block MUST be
   self-contained (define-before-use within the block) with no history-expansion-hostile
   literals (bang characters, HTML-comment openers) in bash blocks
@@ -131,3 +143,4 @@ at creation; no contradictory requirements).
 |------|--------|
 | 2026-07-03 | Initial version — brainstormed design: architect dialogue + program library + journal convention + refine/list modes; no new runtime (built-in /loop and /goal only) |
 | 2026-07-14 | Implemented via CDV-183: status DRAFT→ACTIVE; `/craft-loop` craft/refine/list shipped. |
+| 2026-07-14 | Dogfood patch: hold/no-write; target+cadence+grain slot; descriptive names; declared side artifacts; goal complete phrasing; list excludes companions; mid-dialogue product Q resume. |

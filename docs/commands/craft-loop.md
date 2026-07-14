@@ -22,17 +22,24 @@ guessing.
 /craft-loop refine <name>   # improve a program from its run journal
 ```
 
+**Hold / dogfood:** say *hold*, *dogfood only*, *do not save*, or *no-write*
+to keep the draft in chat without writing `.claude/loops/` (protocol dogfood).
+
 ## The flow
 
 1. **Craft.** You give a rough goal; the architect scans the repo, asks
-   targeted questions one at a time (stop condition, scope, risk tolerance,
-   cadence, target, name), drafts from the shipped template and examples, and
-   presents the program for approval. Nothing is written until you approve.
+   targeted questions one at a time (stop, scope, risk, then **target +
+   cadence + unit grain** as one slot with L / G / G-fat presets, then a
+   **descriptive** program name), drafts from the shipped template and
+   examples, and presents the program for approval. Nothing is written until
+   you approve (unless you hold). Mid-dialogue product questions get a short
+   answer, then the open craft slot resumes.
 2. **Run.** You fire the printed pointer prompt, e.g.:
    `/loop Follow the loop program in .claude/loops/backlog-burn.md exactly — one iteration per firing.`
    For `target: goal` programs the skill prints a `/goal Adopt the standing
    objective…` invocation instead. Each firing re-reads the file — so you can
-   edit the program mid-run to steer the loop without restarting it.
+   edit the program mid-run to steer without restarting it. Stop announcements
+   may use `loop complete:` and/or `goal complete:`.
 3. **Answer decisions.** When the loop hits a call only you can make, it
    parks a `- [DECISION]` card in the journal and continues with unblocked
    work. Add an **indented** `Answer:` line beneath a card to resolve it
@@ -48,7 +55,10 @@ guessing.
 | Path | What |
 |------|------|
 | `.claude/loops/<name>.md` | The program — reviewed, editable, reusable |
-| `.claude/loops/<name>.journal.md` | Written by the running loop; one entry per iteration |
+| `.claude/loops/<name>.journal.md` | Written by the running loop; one entry per iteration/event |
+| `.claude/loops/<name>.findings.md` (optional) | Side artifact only if the program declares it |
+
+`list` shows **programs only** — not journals or `*.findings.md` / `*.ledger.md`.
 
 ## Guardrails
 

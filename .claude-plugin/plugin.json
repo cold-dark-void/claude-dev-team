@@ -1,12 +1,25 @@
 {
   "name": "dev-team",
-  "description": "A full AI dev team for Claude Code — PM, Tech Lead, Senior Engineer, Engineer, DevOps, QA, and Data Science agents that remember your project across sessions. Includes spec-driven development, one-command ticket orchestration, and parallel code review.",
-  "version": "0.42.0",
+  "description": "A full AI dev team for Claude Code \u2014 PM, Tech Lead, Senior Engineer, Engineer, DevOps, QA, and Data Science agents that remember your project across sessions. Includes spec-driven development, one-command ticket orchestration, and parallel code review.",
+  "version": "0.42.1",
   "author": {
     "name": "cold-dark-void"
   },
   "homepage": "https://github.com/cold-dark-void/claude-dev-team",
   "repository": "https://github.com/cold-dark-void/claude-dev-team",
   "license": "MIT",
-  "keywords": ["agents", "team", "tdd", "specs", "devops", "qa", "pm", "memory", "orchestration", "persistent", "workflow", "sqlite"]
+  "keywords": [
+    "agents",
+    "team",
+    "tdd",
+    "specs",
+    "devops",
+    "qa",
+    "pm",
+    "memory",
+    "orchestration",
+    "persistent",
+    "workflow",
+    "sqlite"
+  ]
 }

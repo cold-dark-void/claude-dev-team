@@ -21,9 +21,11 @@ created: <YYYY-MM-DD>
 # Every iteration
 
 1. Read `.claude/loops/<name>.journal.md`. Recover where the previous firing
-   stopped (last entry's `Next` field) and treat any decision card that now has
-   an indented `Answer:` line as resolved input. If the journal does not exist,
-   create it with a `# Journal — <name>` heading; this is iteration 1.
+   or meaningful event stopped (last entry's `Next` field) and treat any
+   decision card that now has an indented `Answer:` line as resolved input. If
+   the journal does not exist, create it with a `# Journal — <name>` heading;
+   this is iteration 1. Optional side artifacts (e.g. `<name>.findings.md`)
+   live only under `.claude/loops/` and only when declared in the Objective.
 2. <step>
 3. <step>
 4. Append a journal entry using the schema below. This is always the last step.
@@ -31,8 +33,9 @@ created: <YYYY-MM-DD>
 # Stop when
 
 <Objectively checkable condition — a fact of the repo or files, not a judgment
-call.> When true: announce "loop complete: <name>", append a final journal
-entry, and end the loop — do not continue iterating.
+call.> When true: announce "loop complete: <name>" (or "goal complete: <name>"
+when target is goal), append a final journal entry, and end — do not continue
+iterating.
 
 # Never
 
