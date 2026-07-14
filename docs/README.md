@@ -41,6 +41,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 | `/orchestrate` | [orchestrate](commands/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → PR |
 | `/standup` | [standup](commands/standup.md) | Status snapshot of active agent work |
 | `/wrap-ticket` | [wrap-ticket](commands/wrap-ticket.md) | Close out: verify, capture learnings, remove worktree |
+| `/craft-loop` | [craft-loop](commands/craft-loop.md) | Design reviewed loop programs for the built-in `/loop`/`/goal` (library, journal, refine) |
 
 ### Spec management
 

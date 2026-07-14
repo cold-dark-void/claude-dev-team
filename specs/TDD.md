@@ -23,6 +23,7 @@
 | SPEC-017 | Autonomous CI Watch + Task DAG | ACTIVE | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh, skills/orchestrate/dag-lib.sh, skills/ci-watch/SKILL.md, skills/ci-watch/poll.sh, skills/ci-watch/sidecar.sh, skills/ci-watch/detect-mode.sh |
 | SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012), skills/retro-gate/gate.sh (refactor) |
 | SPEC-019 | Local-Agent Offload via OpenCode | ACTIVE | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
+| SPEC-020 | Loop-Prompt Architect (/craft-loop) | ACTIVE | commands/craft-loop.md, skills/craft-loop/SKILL.md, program-template.md, examples/ |
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 
@@ -53,3 +54,4 @@
 | 2026-06-16 | SPEC-019 PR2 implemented (CDV-20): orchestrate integration (routing fork + offload-review loop), companion metrics (`emit-orch-metric.sh`), standup surface; status DRAFT→ACTIVE. |
 | 2026-07-13 | SPEC-021 implemented (CDV-180): skill-bash lint gate (C1–C4) + `/release` Step 4.8; status DRAFT→ACTIVE. |
 | 2026-07-13 | SPEC-023 implemented (CDV-181): release-train queue sequencer (train-lib + skill + command); `/release` skip-if-present; status DRAFT→ACTIVE. |
+| 2026-07-14 | SPEC-020 implemented (CDV-183): /craft-loop craft/refine/list; status DRAFT→ACTIVE. |

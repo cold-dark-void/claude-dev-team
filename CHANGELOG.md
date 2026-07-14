@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.42.0
+- **feat: /craft-loop loop-prompt architect (SPEC-020 / CDV-183)** — designs reviewed loop programs for Claude Code's built-in `/loop` and `/goal` (no new runtime). Modes: craft / refine / list; program template + backlog-burn & spec-sync examples; journal + indented `Answer:` decision cards; `.claude/loops/` library. SPEC-020 ACTIVE.
+
 ### v0.41.0
 - **feat: PreCompact auto-handoff rescue capture (SPEC-018 M12–M18 / CDV-182)** — deterministic LLM-free `PreCompact` hook writes spine+pointer artifacts to `.claude/handoff/<sid>-precompact-<seq>.md` (not M4 brief); `assemble-file` + scoped `--allow-in-progress` freshness carve-out; bounded retention (N=3); fail-open (never blocks compaction); PostCompact/SessionStart pointer surfacing; init-orchestration templates + drift gate; 29 bite-tests. Existing installs: re-run `/init-orchestration` to wire hooks.
 
