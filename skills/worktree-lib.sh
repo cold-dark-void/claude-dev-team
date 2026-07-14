@@ -133,15 +133,20 @@ cmd_ensure() {
       } >&2
 
       local answer=""
-      if [ -r /dev/tty ]; then
-        printf "[abort/steal] " >/dev/tty
-        IFS= read -r answer </dev/tty || answer=""
+      # Probe TTY by successful write, not mere -r: access() can succeed while
+      # open fails ENXIO when there is no controlling terminal (agent/setsid).
+      # Under set -e the failed open must not kill the script — gate via if.
+      # Redirect order matters: 2>/dev/null BEFORE >/dev/tty so a failed open
+      # does not leak "No such device" (bash processes redirections L→R).
+      if printf "[abort/steal] " 2>/dev/null >/dev/tty; then
+        IFS= read -r answer </dev/tty 2>/dev/null || answer=""
       else
         printf "[abort/steal] " >&2
-        # stdin closed → read returns empty → treated as abort (exit 2)
-        IFS= read -r answer || answer=""
+        # No writable controlling TTY → empty answer → abort (exit 2)
+        answer=""
       fi
 
+      # Steal only on explicit "steal"; anything else (empty, abort, garbage) → exit 2
       if [ "$answer" = "steal" ]; then
         write_lock_and_exit "$wt" "$lock"
       fi

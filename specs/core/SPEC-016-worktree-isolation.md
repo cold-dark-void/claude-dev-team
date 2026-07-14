@@ -31,8 +31,8 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST write `$MROOT/.worktrees/<slug>/.wt-lock` on success containing one line: `<epoch-seconds> <ISO-8601-UTC>` (space-separated). The lock is ADVISORY (the real holder is an LLM agent/conversation, not an OS process); AGE derived from the epoch field is authoritative. The ISO field is human-readable only
 - MUST detect existing `.wt-lock`, deciding FRESH vs STALE by age against `WT_LOCK_TTL_SECONDS` (env-overridable, default 6h / 21600s):
   - If the lock is FRESH (epoch parses and `0 <= age < TTL`, or a future/negative-age stamp treated conservatively as fresh): print collision summary to stderr (slug, branch, HEAD short SHA + commit subject, lock age in human form), then:
-    - If stdin is a TTY: prompt user (abort | steal lock). On abort exit 2 with nothing on stdout. On steal overwrite lock and exit 0 with worktree path on stdout
-    - If no TTY: still print summary, prompt, and apply same exit codes (AC-5)
+    - Probe interactive TTY by a successful write to `/dev/tty` (not mere `-r` — `access()` can succeed while open fails ENXIO with no controlling terminal). On success: prompt on `/dev/tty` (abort | steal). On explicit `steal` overwrite lock and exit 0 with path on stdout; any other/empty answer exit 2 with nothing on stdout
+    - If `/dev/tty` is not writable (no controlling TTY, e.g. agent/`setsid` with stdin closed): still print summary + prompt line to stderr, treat answer as empty, exit 2 cleanly — MUST NOT die with exit 1 / "No such device" from a bare `printf >/dev/tty` under `set -e` (AC-5)
   - If the lock is STALE (`age >= TTL`, or field 1 is unparseable — e.g. a corrupt lock or a legacy `PID TS` lock): silently overwrite lock and exit 0 with worktree path on stdout
 - MUST NOT print the worktree path on stdout for any non-zero exit
 
@@ -96,7 +96,7 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 - Verify `ensure <slug>` creates `.worktrees/<slug>`, branch `feat/<slug>`, and `.wt-lock` in `<epoch> <ISO>` format; prints absolute path; exits 0
 - Verify `ensure` against a FRESH lock (epoch = now, age < TTL): stderr shows summary, exit 2 on abort, stdout empty
 - Verify `ensure` against a STALE lock (age >= TTL, or unparseable/legacy `PID TS` format): silently overwrites, exits 0, prints path
-- Verify `ensure` no-TTY collision still prompts and honors abort (exit 2) / steal (exit 0)
+- Verify `ensure` no-TTY / unwritable `/dev/tty` collision (e.g. `setsid … </dev/null` against a FRESH lock): prompts on stderr, exits 2, stdout empty, no "No such device" on stderr
 - Verify `release` cleans `.wt-lock` + removes worktree on clean tree; exits non-zero on dirty tree without force
 - Verify orchestrate Step 3 captures stdout path correctly and halts on exit 1/2
 - Verify wrap-ticket grep does not match `WISO-10` when looking for `WISO-1`
@@ -114,7 +114,7 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 
 ## Open Questions
 
-- [ ] Should `ensure` accept a `--no-prompt` flag for fully non-interactive callers (CI)? Currently no-TTY path still prompts per AC-5; if CI proves painful, add later.
+- [ ] Should `ensure` accept a `--no-prompt` / `--steal` flag for fully non-interactive callers (CI)? Currently unwritable `/dev/tty` aborts with exit 2 (CDV-201); if CI needs reclaim without TTY, add later.
 - [ ] Should `release` support an explicit `--force` for callers that have already confirmed loss is acceptable? Out of scope for v1.
 
 ## Version History
@@ -125,6 +125,7 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 | 2026-04-29 | Exit code table corrected to match implementation (exit 1 = release error, exit 2 = abort/decline, exit 64 = usage). Added SHOULD for .wt-lock dirty-check exclusion. |
 | 2026-06-16 | CLUSTER-003/A5: caller-integration MUSTs changed from the cwd-relative `bash skills/worktree-lib.sh` to install-aware resolution via `plugin-dir.sh` (`WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)`). The cwd-relative form (and `$MROOT/skills/…`) is absent / wrong on a real cache install where the script ships in the plugin, not the user's repo. The lib still self-resolves `$MROOT` internally for worktree data paths. |
 | 2026-06-16 | Switched the lock from PID-liveness to advisory, age-based locking. The lock now holds `<epoch-seconds> <ISO-8601-UTC>`; freshness is `now - epoch` vs `WT_LOCK_TTL_SECONDS` (env-overridable, default 6h). Rationale: the holder is an LLM agent/conversation, not an OS process — `kill -0` liveness was structurally unworkable (the old code recorded `worktree-lib.sh`'s own ephemeral subprocess PID, so collision detection never fired). FRESH → prompt abort/steal; STALE (age ≥ TTL or unparseable) → silent reclaim; legacy `PID TS` locks auto-reclaim as stale. Reconciles the prior 3-field-spec (`SESSION_ID PID ISO`) vs 2-field-code (`PID ISO`) drift (CLUSTER-004). |
+| 2026-07-13 | CDV-201: FRESH-lock prompt probes TTY via successful `printf >/dev/tty` (not `-r` alone). Unwritable `/dev/tty` (no controlling TTY / ENXIO) prints prompt to stderr and exits 2 cleanly under `set -e` instead of dying exit 1 with "No such device". Steal only on explicit `steal`. |
 
 ## Cross-references
 

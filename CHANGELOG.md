@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.6
+- **fix: worktree-lib non-TTY fresh-lock aborts cleanly (CDV-201)** — `[ -r /dev/tty ]` is true without a controlling terminal; `printf >/dev/tty` then fails ENXIO under `set -e` → messy exit 1. Probe TTY by successful write (`printf 2>/dev/null >/dev/tty`); on failure take stderr path and **exit 2** (abort). Steal only on explicit `steal`. SPEC-016 documents non-TTY exit 2.
+
 ### v0.38.5
 - **fix: orchestrate Step 8.5 single-shell CI-watch arming + define BRANCH (CDV-177)** — arming was four separate bash fences sharing vars (each fence is a fresh shell), and `$BRANCH` was never assigned, so sidecar init could run with empty mode/pr/branch. Merged into one self-contained block that re-derives roots, reads branch via `git -C "$WT_PATH"`, detects mode, draft-PR, guards empty MODE/BRANCH, then `sidecar init`. CronCreate remains a separate tool step.
 
