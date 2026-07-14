@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.9
+- **fix: download-extensions hash-mismatch falls back instead of abort (CDV-175)** — call sites use `|| true`; helpers return 1 on curl/hash fail; SQL-escape embedding URL/model. Init reaches embedding_mode=fallback with exit 0.
+
 ### v0.38.8
 - **fix: migrate-md never deletes .md after partial/zero migration (CDV-172)** — short chunks (≤20 chars after strip) were dropped without incrementing `FAILED`, so zero-row or partial migrations still `rm`'d source memory files. Per-file fail-closed: only delete when every considered chunk inserted and none skipped; warn + preserve file otherwise.
 

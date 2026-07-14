@@ -153,10 +153,14 @@ download_and_extract() {
         echo "  2. Extract the .${EXT} file" >&2
         echo "  3. Place it at $dest_file" >&2
         echo "  4. Re-run /init-team" >&2
+        rm -rf "$tmpdir"
+        return 1
       fi
     else
       echo "ERROR: Failed to extract $artifact_name from $url" >&2
       echo "Fallback mode (keyword search only) will be used until this is resolved." >&2
+      rm -rf "$tmpdir"
+      return 1
     fi
   else
     echo "" >&2
@@ -170,8 +174,11 @@ download_and_extract() {
     echo "  2. Extract $base_file from the archive" >&2
     echo "  3. Place it at $dest_file" >&2
     echo "  4. Re-run /init-team" >&2
+    rm -rf "$tmpdir"
+    return 1
   fi
   rm -rf "$tmpdir"
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -196,6 +203,7 @@ download_file() {
       return 1
     fi
     echo "  [ok]   $artifact_name -> $dest_file"
+    return 0
   else
     rm -f "$dest_file"  # remove partial download
     echo "" >&2
@@ -208,6 +216,7 @@ download_file() {
     echo "  1. Download $base_file from $url" >&2
     echo "  2. Place it at $dest_file" >&2
     echo "  3. Re-run /init-team" >&2
+    return 1
   fi
 }
 
@@ -219,7 +228,9 @@ VEC_DEST="$EXT_DIR/vec0.$EXT"
 
 echo ""
 echo "=== sqlite-vec ==="
-download_and_extract "$VEC_URL" "$VEC_DEST" "sqlite-vec" "$(expected_sha256 vec0 "$PLATFORM")"
+# Download failures (network/hash) must not abort under set -e — fall through to
+# embedding_mode=fallback resolution below.
+download_and_extract "$VEC_URL" "$VEC_DEST" "sqlite-vec" "$(expected_sha256 vec0 "$PLATFORM")" || true
 
 # ---------------------------------------------------------------------------
 # Download sqlite-lembed
@@ -234,7 +245,7 @@ if [ "${OS}-${ARCH}" = "linux-aarch64" ]; then
 else
   LEMBED_URL="https://github.com/asg017/sqlite-lembed/releases/download/v${LEMBED_VERSION}/sqlite-lembed-${LEMBED_VERSION}-loadable-${PLATFORM}.tar.gz"
   LEMBED_DEST="$EXT_DIR/lembed0.$EXT"
-  download_and_extract "$LEMBED_URL" "$LEMBED_DEST" "sqlite-lembed" "$(expected_sha256 lembed0 "$PLATFORM")"
+  download_and_extract "$LEMBED_URL" "$LEMBED_DEST" "sqlite-lembed" "$(expected_sha256 lembed0 "$PLATFORM")" || true
 fi
 
 # ---------------------------------------------------------------------------
@@ -244,7 +255,7 @@ echo ""
 echo "=== all-MiniLM-L6-v2 GGUF model ==="
 MODEL_URL="https://huggingface.co/asg017/sqlite-lembed-model-examples/resolve/${MODEL_REF}/all-MiniLM-L6-v2/${MODEL_FILENAME}"
 MODEL_DEST_PATH="$MODEL_DIR/$MODEL_DEST"
-download_file "$MODEL_URL" "$MODEL_DEST_PATH" "all-MiniLM-L6-v2" "$(expected_sha256 model "$PLATFORM")"
+download_file "$MODEL_URL" "$MODEL_DEST_PATH" "all-MiniLM-L6-v2" "$(expected_sha256 model "$PLATFORM")" || true
 
 # ---------------------------------------------------------------------------
 # Migrate legacy ollama mode from v0.12.0/v0.12.1
@@ -266,9 +277,10 @@ if [ -n "${EMBEDDING_URL:-}" ]; then
   MODEL="${EMBEDDING_MODEL:-remote}"
   # Auto-detect dimensions on first use, default to 0 until then
   DIMS="${EMBEDDING_DIMENSIONS:-0}"
-  # Store URL in config for recall/search to use
+  # Store URL in config for recall/search to use (escape SQL single quotes)
   if [ -f "$MEMDB" ]; then
-    sqlite3 "$MEMDB" "INSERT OR REPLACE INTO config(key, value, updated_at) VALUES ('embedding_url', '$EMBEDDING_URL', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
+    EMBEDDING_URL_ESC=$(printf '%s' "$EMBEDDING_URL" | sed "s/'/''/g")
+    sqlite3 "$MEMDB" "INSERT OR REPLACE INTO config(key, value, updated_at) VALUES ('embedding_url', '$EMBEDDING_URL_ESC', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
   fi
 elif [ -f "$EXT_DIR/lembed0.$EXT" ] && [ -f "$MODEL_DIR/all-MiniLM-L6-v2.gguf" ]; then
   MODE="lembed"
@@ -284,9 +296,10 @@ fi
 # Store config in DB
 # ---------------------------------------------------------------------------
 if [ -f "$MEMDB" ]; then
+  MODEL_ESC=$(printf '%s' "$MODEL" | sed "s/'/''/g")
   sqlite3 "$MEMDB" \
     "UPDATE config SET value='$MODE',  updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_mode';" \
-    "UPDATE config SET value='$MODEL', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_model';" \
+    "UPDATE config SET value='$MODEL_ESC', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_model';" \
     "UPDATE config SET value='$DIMS',  updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_dimensions';"
   if [ "$MODE" != "remote" ]; then
     sqlite3 "$MEMDB" "DELETE FROM config WHERE key='embedding_url';" 2>/dev/null || true
