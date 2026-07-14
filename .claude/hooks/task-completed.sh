@@ -18,6 +18,28 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 
+# CDV-210: emit task_complete on successful completion paths only (never on exit 2).
+# Fail-open — never blocks TaskCompleted. Dual delivery with orchestrate MCP/webhook OK.
+_emit_task_complete() {
+  [ -n "${TASK_ID:-}" ] || return 0
+  local PDH="" helper="" _pdh_hit=""
+  if [ -f skills/plugin-dir.sh ]; then
+    PDH=$(pwd)
+  else
+    _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
+      -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
+      | sort -V | tail -1) || _pdh_hit=""
+    if [ -n "$_pdh_hit" ]; then
+      PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
+    fi
+  fi
+  [ -n "$PDH" ] || return 0
+  helper=$(bash "$PDH/skills/plugin-dir.sh" file skills/notify/webhook.sh 2>/dev/null) || helper=""
+  [ -n "$helper" ] && [ -f "$helper" ] || return 0
+  NOTIFY_SOURCE=task_completed NOTIFY_TASK="$TASK_ID" \
+    bash "$helper" task_complete 2>/dev/null || true
+}
+
 # === plugin JSON validation ===
 
 ERRORS=()
@@ -80,6 +102,7 @@ if [ ! -f "$TASK_META" ]; then
 fi
 if [ -z "$TASK_META" ] || [ ! -f "$TASK_META" ]; then
   # Silent pass — task pre-dates the gate or is not council-tracked
+  _emit_task_complete
   exit 0
 fi
 
@@ -94,6 +117,7 @@ except Exception:
 ' "$TASK_META" 2>/dev/null || echo "false")
 
 if [ "$REQUIRES_COUNCIL" != "true" ]; then
+  _emit_task_complete
   exit 0  # silent pass — gate not opted in
 fi
 
@@ -159,4 +183,5 @@ if [ "$MAX_VERDICT" -lt "$THRESHOLD" ]; then
 fi
 
 # Pass
+_emit_task_complete
 exit 0

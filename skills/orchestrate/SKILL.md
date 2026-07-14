@@ -1090,6 +1090,67 @@ These rules apply to YOU (the main Claude) throughout the entire flow:
 
 ---
 
+## Passive notifications (CDV-210)
+
+Tiered, fail-open progress visibility for long `/orchestrate` runs. **Never block**
+orchestration on notify failures. Unset MCP + unset `AGENT_WEBHOOK_URL` → silent
+(today's behavior). Dual delivery is OK when both MCP and webhook are available.
+
+### Tier A — MCP (human milestones)
+
+At each milestone below, if any Slack/Discord MCP tool is available
+(`mcp__slack__*` / `mcp__discord__*` or project-equivalent), post a **short**
+summary (one line + ticket/task id). Missing tools = skip. Never block.
+
+| Milestone | When |
+|-----------|------|
+| task completed | Agent spawn returns success; after `TaskUpdate(completed)` |
+| task blocked (+ reason) | Agent/task enters blocked; after `TaskUpdate(blocked)` |
+| QA pass / QA fail | Step 10 QA terminal report |
+| council finished | `/council` returns — verdict one-liner **or** findings one-liner |
+| unrecoverable error / hard stop | Orchestration cannot continue |
+
+Do **not** notify on routine progress (lint, intermediate test flakes the IC is
+fixing, CI-watch polls).
+
+### Tier B — Webhook (`AGENT_WEBHOOK_URL`)
+
+When `AGENT_WEBHOOK_URL` is set, fire the shared fail-open helper at the same
+milestones. Resolve via plugin-dir (fresh shell each fence):
+
+```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+NOTIFY=$(bash "$PDH/skills/plugin-dir.sh" file skills/notify/webhook.sh)
+# Optional context (omit empty):
+#   NOTIFY_SOURCE=orchestrate  NOTIFY_AGENT=<agent>  NOTIFY_TASK=<task_id>  NOTIFY_TICKET=<ISSUE-ID>
+NOTIFY_SOURCE=orchestrate NOTIFY_TICKET="<ISSUE-ID>" NOTIFY_TASK="<task_id>" NOTIFY_AGENT="<agent>" \
+  bash "$NOTIFY" <event> "<detail ≤500 chars>"
+```
+
+**Event enum:**
+
+| Event | Orchestrate call site |
+|-------|----------------------|
+| `task_complete` | Task completed (optional: TaskCompleted hook also emits with `source=task_completed`) |
+| `task_blocked` | Task blocked — detail = reason |
+| `qa_pass` | Step 10 QA PASS |
+| `qa_fail` | Step 10 QA FAIL — detail = short failure list |
+| `council_verdict` | Council finished with verdict[] — detail = verdict one-liner |
+| `council_findings` | Council finished with findings only — detail = findings one-liner |
+| `error` | Unrecoverable error / hard stop — detail = short cause |
+
+`scheduled_retro` remains **CDV-190-owned** (`write-scheduled-report.sh`); same
+URL is fine. Helper always exits 0 (`curl -m 5 || true`). Payload fields:
+`event`, `time` (ISO-UTC), `source`; optional `agent` / `task` / `ticket` /
+`detail` (≤500). **No secrets, transcripts, or file bodies.**
+
+### Tier C — Silent
+
+Neither MCP tools nor `AGENT_WEBHOOK_URL` → zero I/O beyond existing user-facing
+status lines.
+
+---
+
 ## Change Discipline
 
 These rules constrain how work is structured. Violating them is an escalation trigger.

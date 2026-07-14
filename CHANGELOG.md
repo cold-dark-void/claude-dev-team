@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.61.0
+- **Agent notification sink (CDV-210)** — fail-open `skills/notify/webhook.sh` + orchestrate MCP/webhook milestones; TaskCompleted success emit; silent default when `AGENT_WEBHOOK_URL` unset
+
 ### v0.60.0
 - **Handoff signal-bearing sidechain reconstruction (CDV-205)** — prepass expands sidechains with rejection/correction cues for Dead-ends; synthetic fixtures + sidechain-test; SPEC-018 M2
 
