@@ -51,7 +51,14 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 ### CI watch loop — ci mode
 
 - Each poll MUST run `gh pr checks <PR-number> --json name,state,bucket` (PR open/closed state is checked separately via `gh pr view --json state`). Pass/fail decisions MUST key off `bucket` — gh's version-stable normalization (`pass`/`skipping`/`fail`/`cancel`/`pending`); `gh pr checks --json` exposes no `conclusion` field
-- If **all checks resolve green** (every bucket is `pass` or `skipping`): MUST delete the cron job and emit one notification line:
+- **`gh pr checks` exit codes are signals, not poll errors.** Documented non-zero exits include `1` (one or more checks failed) and `8` (checks pending). poll.sh MUST capture stdout even when the exit status is non-zero and MUST NOT treat non-zero exit alone as a transient poll error
+- **Parseability gate:** stdout is parseable iff `jq` reports `type == "array"` (including the empty array `[]`). Only a non-array (or unparseable) body may increment `poll_error_count` and log `poll_error` — except when exit status is `8` and the body is not a parseable array: MUST emit `wait` **without** incrementing `poll_error_count` (pending with no usable JSON yet)
+- Classification after a parseable array (order):
+  1. empty array `[]` → treat as no checks configured → green path (`done`)
+  2. any element with bucket `fail` or `cancel` → fixer logic (below)
+  3. every element bucket `pass` or `skipping` → green path (`done`)
+  4. otherwise (pending present, no fail/cancel) → `wait` **without** incrementing `poll_error_count`
+- If **all checks resolve green** (every bucket is `pass` or `skipping`, or zero checks): MUST delete the cron job and emit one notification line:
   `CI watch: <TICKET-ID> green on <branch>. Cron deleted.`
 - If **any check fails** (bucket `fail` or `cancel`): proceed to fixer logic (see below)
 - If PR is merged or closed: MUST delete the cron and exit silently
@@ -153,6 +160,10 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
   only → `local-test`; bare project → `none` (no cron scheduled)
 - Verify `ci` mode: all checks green on first poll → cron deleted, notification emitted
 - Verify `ci` mode: one failing check → fixer spawned; retry count incremented
+- Verify `ci` mode poll.sh (PATH-mock `gh`, no live network): fail bucket → stdout `fail`;
+  fail + `retry_count >= 3` → `cap`; pending-only → `wait` and `poll_error_count` unchanged;
+  non-array stdout → `wait` + `poll_error_count++`; empty array `[]` → `done`; exit `8` with
+  non-array body → `wait` without `poll_error_count++`
 - Verify retry cap: after 3 fixer spawns, 4th failure → cron deleted, user notified, no
   fixer spawned
 - Verify fixer guard: second poll while fixer is running → no second fixer spawned
@@ -198,6 +209,7 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 | 2026-04-30 | Implemented and aligned: poll interval → `*/7` (off-minute convention); unified done notification; fixer guard via sidecar primary + task store secondary; retry cap semantics clarified (3 total spawns); resolved OQ-1 (durable:true) and OQ-2 (worktree root); status → ACTIVE |
 | 2026-06-12 | ci-mode poll: `--json name,conclusion` → `name,state,bucket` (`conclusion` was never a `gh pr checks` JSON field; the error was masked as eternal `wait` by the poll_error path). Decisions now bucket-based; skipped checks no longer block green |
 | 2026-06-16 | Aligned the local-test detection MUST to `detect-mode.sh`: a `pyproject.toml` triggers `local-test` only when it declares a `[tool.pytest.ini_options]` section (bare presence alone does not), avoiding false positives on non-test pyprojects |
+| 2026-07-14 | CDV-170: ci-mode poll MUST NOT treat `gh pr checks` exit 1/8 as poll errors; classification is parseable JSON array (`jq type==array`) + `bucket` only. Exit 8 + non-array → `wait` without `poll_error_count++`. Bite-tests via PATH-mock `gh` required |
 
 ---
 

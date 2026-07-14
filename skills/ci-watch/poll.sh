@@ -113,8 +113,16 @@ poll_ci() {
   # key off `bucket`, gh's stable normalization of check state:
   #   pass | skipping (SKIPPED/NEUTRAL) | fail (FAILURE/ERROR/TIMED_OUT/
   #   ACTION_REQUIRED) | cancel (CANCELLED) | pending (queued/in-progress).
-  local result
-  if ! result=$(gh pr checks "$pr" --json name,state,bucket 2>"$ERR_TMP"); then
+  # Capture stdout + exit status. gh exits 1 (fail) / 8 (pending) with
+  # parseable JSON — those are signals, not poll errors (SPEC-017 AC-1/7/8).
+  local result gh_rc
+  result=$(gh pr checks "$pr" --json name,state,bucket 2>"$ERR_TMP")
+  gh_rc=$?
+
+  if ! printf '%s' "$result" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    if [ "$gh_rc" -eq 8 ]; then
+      emit "wait"
+    fi
     bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
     log_event "poll_error"
     emit "wait"

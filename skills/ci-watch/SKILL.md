@@ -60,7 +60,12 @@ poll.sh <TICKET_ID>
 - **Stdout:** exactly one word from `{done, fail, cap, wait}`.
 - **Side effects:**
   - Atomic sidecar reads via `sidecar.sh`.
-  - On transient poll failure (`gh` errored, worktree missing, detect-mode none): increments `poll_error_count`; emits `wait`; logs `poll_error`.
+  - On transient poll failure: increments `poll_error_count`; emits `wait`; logs `poll_error`.
+    Transient = non-array (or unparseable) `gh pr checks` stdout that is a real error
+    (network/auth/etc.), worktree missing, or detect-mode none. **Not** transient:
+    `gh` exit 1 or 8 with a parseable JSON array (`jq type == "array"`, incl. `[]`) —
+    those are check-state signals (fail / pending). Exit 8 with non-array body is
+    pending-with-no-JSON → `wait` without `poll_error_count++`.
   - On real test/check failure with `retry_count < 3`: writes `<TICKET>.last_failure.txt` (head -c 4096 of captured output); emits `fail`.
   - On `retry_count >= 3` with a real failure: emits `cap` (does **not** rewrite last_failure.txt).
   - On `fixer_active == true`: emits `wait` immediately (guard — never spawn a second fixer concurrently).
@@ -74,13 +79,14 @@ sidecar missing         → wait (silent)
 fixer_active=true       → wait (silent)
 mode=ci:
   PR MERGED|CLOSED      → done
-  gh checks errored     → wait (poll_error_count++)
-  total checks == 0     → done
-  any bucket fail/cancel:
-      retry_count >= 3  → cap
-      else              → fail (write last_failure.txt)
-  all bucket pass/skipping → done
-  otherwise (pending)   → wait
+  gh stdout not array (jq type == "array" fails):
+    rc==8              → wait (no poll_error_count++)
+    else               → wait (poll_error_count++)
+  parseable array:
+    total==0           → done
+    any fail|cancel    → fail|cap via handle_failure
+    all pass|skipping  → done
+    else (pending)     → wait (no poll_error_count++)
 mode=local-test:
   worktree missing      → wait (poll_error_count++)
   detect-mode = none    → wait (poll_error_count++)
@@ -178,3 +184,9 @@ delete <TICKET>`) first.
 - Cycling fixer agent identity (ic5 → tech-lead on 3rd attempt) — see SPEC-017 Open Question 3.
 - Escalation after N consecutive `poll_error` events — for now they accumulate in the counter only.
 - Concurrent multi-PR watch on a single ticket.
+
+## AC-12 note (CDV-170)
+
+Repo-wide scan for `if ! …=$(gh ` traps that swallow gh exit 1/8: **only**
+`skills/ci-watch/poll.sh` (`poll_ci`) had the pattern. Report-only — no other
+scripts needed parallel fixes. The poll.sh fix is Task 1 of CDV-170.

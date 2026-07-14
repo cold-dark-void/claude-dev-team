@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.38.2
+- **fix: ci-watch poll_ci no longer treats gh non-zero exit as poll error (CDV-170)** — `gh pr checks --json` exits 1 on failing checks and 8 when pending; the old `if ! result=$(gh …)` path mapped both to `poll_error`/`wait`, so fail→fixer/`cap` was dead code and pending forever inflated `poll_error_count`. Capture stdout + `gh_rc`, gate on `jq type==array`, classify by `bucket`. Exit 8 + non-array → `wait` without error count. SPEC-017 + SKILL.md document the contract; offline `skills/ci-watch/test-poll.sh` (PATH-mock gh) covers fail/cap/pending/poll_error/empty/AC-7.
+
 ### v0.38.1
 - **fix: harden `install.sh` model-picker and command symlink (opencode)** — three robustness fixes to the v0.38.0 opencode installer, no behavior change on the happy path. (1) The `--assign-models` summary no longer re-derives unvalidated menu indices: a single `resolve_model` helper validates each 1-based choice once and the summary reads its result, so an out-of-range pick (e.g. `99`) can no longer abort the script under `set -u` on an unbound array index, and `0` no longer wraps to bash's negative index and mis-report the last model as assigned; invalid non-empty input now prints a per-tier `⚠ … stays on the session model` notice instead. (2) The prior-install cleanup now `rm -rf`s the command entry (previously it removed only a *symlink*), and the link is created with `ln -sfn`, so a stale real directory at `~/.config/opencode/commands/dev-team` is replaced rather than having the new symlink nested *inside* it. (3) When `jq` is absent the installer now prints an explicit note that it cannot read models or clear existing dev-team model pins (instead of silently leaving stale pins and falling through), and the "nothing to assign" message covers the zero-model case.
 
