@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.69.0
+- **Ship-time backlog/Linear tracking close-out** — `/orchestrate` resolves source (Linear → backlog → freeform), records plan `closes:`, and closes trackers via `skills/backlog/close.sh` on the feature worktree in the **same delivery commit** as product code; `/wrap-ticket` re-closes idempotently; SPEC-009 MUSTs + unit tests
+
 ### v0.68.1
 - **TMPDIR-safe worktree-lib-test stderr (CDV-213)** — route suite stderr via `ERR_TMP` under `${TMPDIR:-/tmp}` instead of bare `/tmp/wt-test-err.$$`; fixes spurious 20/32 failures under sandboxed harnesses with RO `/tmp`
 

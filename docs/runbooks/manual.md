@@ -253,7 +253,7 @@ Fastest path:
 /wrap-ticket ENG-123
 ```
 
-Handles: task verification, learnings capture, plans.md update, backlog items, worktree removal, Linear checklist.
+Handles: task verification, learnings capture, plans.md update, source tracker re-close (`close.sh`), deferred backlog adds, worktree removal, Linear checklist.
 
 ### Manual path
 

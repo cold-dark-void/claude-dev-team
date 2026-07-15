@@ -1,6 +1,6 @@
 # /wrap-ticket
 
-Close out a shipped ticket cleanly. Verifies all tasks are completed, extracts learnings from agent context files before they are lost, appends them to project memory, marks the plan complete, removes the worktree, and prints a Linear close-out checklist.
+Close out a shipped ticket cleanly. Verifies all tasks are completed, extracts learnings from agent context files before they are lost, appends them to project memory, marks the plan complete, **idempotently re-closes source tracking** (plan `closes:` / backlog slug via `close.sh`), removes the worktree, and prints a Linear close-out checklist.
 
 Run this after the PR is merged and released.
 
@@ -32,11 +32,12 @@ Automated:
   ✅ All 4 tasks confirmed completed
   ✅ Learnings appended to .claude/memory/claude/memory.md
   ✅ Plan marked [COMPLETED] in .claude/plans.md
+  ✅ Source tracker closed (1 backlog / Linear)
   ✅ 1 backlog item added for deferred work
   ✅ Worktree removed
 
 Manual checklist (copy to Linear comment):
-  [ ] Linear ticket moved to Done / Released
+  [ ] Linear ticket moved to Done / Released (if MCP did not already)
   [ ] PR link attached to Linear ticket
   [ ] Release version noted: v1.4.2
   [ ] Stakeholders notified (if required)
@@ -60,11 +61,11 @@ To force-close a task: TaskUpdate <task_id> status:completed
 
 ## How It Works
 
-`/wrap-ticket` runs nine steps sequentially:
+`/wrap-ticket` runs these steps sequentially:
 
-1. **Resolve worktree** — detects the ticket's worktree path via `git worktree list`. Notes it for removal in Step 8; continues even if no worktree is found.
+1. **Resolve worktree** — detects the ticket's worktree path via `git worktree list`. Notes it for removal later; continues even if no worktree is found.
 
-2. **Verify tasks** — dual-reads the **file store as authoritative** plus `TaskList`. It enumerates the ticket's task records by compound-key filename (`find .claude/tasks -name "<TICKET-ID>-*.json"`) rather than by subject, because the file store survives `/clear` while the in-session `TaskList` empties out — a TaskList-only check would vacuously pass and let Step 8 destroy a worktree whose work is still incomplete. If any file-store task is not `completed`, presents the list and asks whether to force-close or stop. If no records are found in either source, it prints "Completion could not be verified" and relies on the Step 8 uncommitted-changes backstop — it never removes the worktree on a silent vacuous pass.
+2. **Verify tasks** — dual-reads the **file store as authoritative** plus `TaskList`. It enumerates the ticket's task records by compound-key filename (`find .claude/tasks -name "<TICKET-ID>-*.json"`) rather than by subject, because the file store survives `/clear` while the in-session `TaskList` empties out — a TaskList-only check would vacuously pass and let worktree destroy run while work is incomplete. If any file-store task is not `completed`, presents the list and asks whether to force-close or stop. If no records are found in either source, it prints "Completion could not be verified" and relies on the uncommitted-changes backstop — it never removes the worktree on a silent vacuous pass.
 
 3. **Collect learnings** — reads each agent's `context.md` from the ticket's worktree and the plan file. Extracts 3-8 specific bullet points: unexpected technical discoveries, patterns worth repeating, gotchas that would trip up a future engineer, specs or docs that need updating, and work that was deferred.
 
@@ -74,11 +75,13 @@ To force-close a task: TaskUpdate <task_id> status:completed
 
 6. **Update plans index** — finds the ticket's entry in `.claude/plans.md` and updates its status to `[COMPLETED]`. Skips silently if `plans.md` does not exist.
 
-7. **Add deferred items to backlog** — any work explicitly deferred during the ticket (noted in agent context files) is surfaced and offered as backlog entries. Asks before creating them.
+7. **Source tracking close-out** — idempotently re-closes plan `closes:` backlog items (and ticket-id slug fallback) via `skills/backlog/close.sh`; attempts Linear Done when MCP is available. Safe when `/orchestrate` ship already closed trackers.
 
-8. **Remove worktree** — asks for confirmation before running `git worktree remove`. If the worktree has uncommitted changes, git will refuse and the command reports clearly without force-removing.
+8. **Add deferred items to backlog** — any work explicitly deferred during the ticket (noted in agent context files) is surfaced and offered as backlog entries. Asks before creating them.
 
-9. **Print checklist** — outputs the automated summary and a manual checklist formatted for pasting into a Linear comment.
+9. **Remove worktree** — asks for confirmation before running `git worktree remove`. If the worktree has uncommitted changes, git will refuse and the command reports clearly without force-removing.
+
+10. **Print checklist** — outputs the automated summary and a manual checklist formatted for pasting into a Linear comment.
 
 ## See Also
 

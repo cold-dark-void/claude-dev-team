@@ -392,6 +392,14 @@ Output:
    - Has unclear replacement strategy (each removed usage needs a different fix)
    ic4 excels at focused, well-scoped tasks. Wide-scope structural work burns excessive
    ic4 context (300+ messages observed). Either assign ic5, or split the task further.
+4. Tracking section on the plan (source + closes) so ship can close trackers with delivery:
+
+## Tracking
+- source: linear | backlog | freeform
+- ticket_id: <TICKET-ID>
+- closes:
+  - backlog/<slug>.md    # when ticket came from backlog, or dual-write
+  - linear:<ID>          # when Linear issue exists
 
 No schema changes or new dependencies without calling them out explicitly.
 For each task, list dependencies as `Depends on: <TaskID>, <TaskID>` or `Depends on: none` so kickoff can extract them programmatically.

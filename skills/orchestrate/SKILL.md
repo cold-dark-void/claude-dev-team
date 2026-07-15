@@ -66,19 +66,24 @@ If ISSUE-ID missing, ask:
 
 ## Step 1: Fetch issue context
 
-**Try Linear first** — check if Linear MCP tools are available (e.g. `linear_getIssue`).
+Resolve **ticket source** and a `closes:` list (persisted on the plan in Step 6).
+Order:
 
-If Linear MCP available:
-- Fetch issue by ID
-- Extract: title, description, acceptance criteria, priority, assignee, status, labels
-- Print summary to user
+1. **Linear** — if Linear MCP is available (e.g. `linear_getIssue`) and the ID
+   resolves: extract title, description, ACs, priority, assignee, status, labels.
+   Set `source=linear`. Seed `closes:` with `linear:<ISSUE-ID>`.
+2. **Backlog** — else if `.claude/backlog/<ISSUE-ID>.md` exists, or
+   `.claude/backlog.md` / item titles match the ID or slug: load Problem/Goal/Notes
+   as issue context. Set `source=backlog`. Seed `closes:` with
+   `backlog/<slug>.md` (and any additional slugs the user names).
+3. **Freeform** — else ask the user to paste title, description, ACs. Set
+   `source=freeform`, `closes: []`, and warn: no tracker will be closed at ship.
 
-If Linear MCP NOT available:
-- Ask user:
-  > "No Linear integration detected. Paste the issue details (title, description, acceptance criteria):"
-- Parse what they provide
+If Linear **and** a matching backlog item both exist, dual-write both into
+`closes:` (close local index + Linear Done at ship).
 
-Store the issue context for all subsequent agent prompts.
+Print source + closes in the Step 2 summary. Store issue context for all
+subsequent agent prompts.
 
 ---
 
@@ -234,6 +239,17 @@ Produce:
    modifies >15 callsites, or involves wide-scope structural deletion/renaming.
    ic4 excels at focused tasks; wide-scope structural work should go to ic5 or be split further.
 4. Save plan to .claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md
+5. Include a Tracking section on the plan (from Step 1; edit if multi-item):
+
+## Tracking
+- source: linear | backlog | freeform
+- ticket_id: <ISSUE-ID>
+- closes:
+  - backlog/<slug>.md
+  - linear:<ID>
+
+Many-to-one is allowed (one ticket closes multiple backlog items). Empty closes
+only for freeform.
 ```
 
 Present the plan summary to user:
@@ -941,6 +957,7 @@ Spec:    <spec path>
 Plan:    <plan path>
 Branch:  <branch name>
 Tasks:   N/N completed
+Closes:  <from plan Tracking, or "none (freeform)">
 
 Options:
 1. Create PR (I'll draft title + description)
@@ -950,10 +967,45 @@ Options:
 
 Wait for user choice.
 
+### Tracking close-out (ship DoD — orchestrator-owned)
+
+**Before** finalizing the delivery commit (PR tip commit or squash), close every
+tracker listed under plan `closes:`. Do this on the **feature worktree**
+(`--root "$WT_PATH"`) so edits land on the branch tree — not mid-flight by
+parallel ICs (avoids `backlog.md` races).
+
+```bash
+# Re-resolve PDH / MROOT / WT (fresh shell). Parse backlog slugs from plan Tracking.
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
+WT_PATH="$MROOT/.worktrees/<ISSUE-ID>"
+# Prefer worktree root for --root when present (committed tracker files on branch).
+[ -d "$WT_PATH" ] || WT_PATH=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# For each plan closes: entry of form backlog/<slug>.md (or bare slug):
+bash "$CLOSE" "<slug>" --root "$WT_PATH" --ticket "<ISSUE-ID>" --status "FIXED/CLOSED"
+bash "$CLOSE" verify "<slug>" --root "$WT_PATH" || {
+  echo "Ship blocked: backlog/<slug> still open after close" >&2
+  exit 1
+}
+```
+
+- Stage `.claude/backlog.md` + closed `.claude/backlog/<slug>.md` with the unit
+  commit / squash tree. **Same commit as product code** — no separate hygiene commit.
+- For each `linear:<ID>` (or source=linear): MCP → Done/Released + PR/SHA comment.
+  Fail-open if MCP unavailable: print a warning; do not invent Done.
+- Empty `closes:` (freeform): print `Tracking: none (freeform)` — do not block.
+- Non-empty closes that fail verify: **block ship**.
+
 ### If PR requested:
 
 ```bash
 cd <worktree-path>
+# Tracking close-out already applied on this worktree (above)
+git add -A .claude/backlog.md .claude/backlog/ 2>/dev/null || true
+git status --short
 git push -u origin <branch>
 gh pr create --title "<ISSUE-ID>: <title>" --body "$(cat <<'EOF'
 ## Summary
@@ -979,13 +1031,17 @@ EOF
 If `gh` is not available, fall back to `git push -u origin <branch>` and print the
 URL for manual PR creation.
 
-If Linear is available, update issue status and link the PR.
+If Linear is available, update issue status and link the PR (also covered by
+Tracking close-out for `linear:` entries).
 
 ### If squash merge requested (no PR):
 
-Prefer plain git — do NOT require `gh`:
+Prefer plain git — do NOT require `gh`. Apply Tracking close-out on the feature
+worktree first, then squash so tracker files are in the same commit:
 
 ```bash
+# Tracking close-out on WT_PATH already done (above); ensure those paths are
+# committed on the feature branch or present in the worktree for squash.
 cd <main-repo-path>
 git merge --squash <branch>
 git commit -m "<ISSUE-ID>: <title>
@@ -1033,9 +1089,12 @@ parallel for the same reason. Drain them one at a time.
 
 ## Step 12: Wrap up
 
-Suggest running `/wrap-ticket <ISSUE-ID>` for cleanup and learnings capture.
+Suggest running `/wrap-ticket <ISSUE-ID>` for worktree removal + learnings (tracking
+close-out should already be done at Step 11 when `closes:` was non-empty; wrap
+re-closes idempotently as a safety net).
 
-If Linear is available, update issue status to "In Review" or "Done" based on user preference.
+If Linear is available and not already Done at ship, update issue status to
+"In Review" or "Done" based on user preference.
 
 Print:
 
@@ -1054,6 +1113,7 @@ Artifacts:
   PR:      <PR URL or "not created">
   Spec:    <spec path>
   Plan:    <plan path>
+  Tracking: <closed N backlog / Linear Done | none (freeform)>
 
 Next: /wrap-ticket <ISSUE-ID> after merge
 ```
@@ -1087,6 +1147,8 @@ These rules apply to YOU (the main Claude) throughout the entire flow:
 5. **You DO keep Linear updated** (if available) at each phase transition.
 6. **You DO keep the user informed** with concise status updates at natural milestones.
 7. **You DO protect the user's time** — batch questions, don't interrupt for routine progress.
+8. **You DO close trackers with delivery** — plan `closes:` backlog items + Linear in the
+   same ship commit as product code (Step 11). Never leave close-out as optional hygiene.
 
 ---
 

@@ -2,8 +2,9 @@
 name: wrap-ticket
 description: |
     Clean up after a ticket ships — verifies all tasks completed, removes the
-    worktree, appends learnings to project memory, marks the plan complete, and
-    prints a Linear close-out checklist. Usage: /wrap-ticket <TICKET-ID>
+    worktree, appends learnings to project memory, marks the plan complete,
+    idempotently re-closes source tracking (backlog/Linear), and prints a
+    Linear close-out checklist. Usage: /wrap-ticket <TICKET-ID>
 ---
 
 # Wrap Ticket
@@ -298,6 +299,37 @@ If `plans.md` doesn't exist, skip silently.
 
 ---
 
+## Step 5.5: Source tracking close-out (idempotent)
+
+Close the **source** tracker for this ticket (the item that was delivered), not
+only deferred adds. Prefer plan `## Tracking` / `closes:`; fall back to matching
+`.claude/backlog/<TICKET-ID>.md` or index title.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
+TICKET_ID="<TICKET-ID>"
+# Prefer main tree after merge (tracker files live on master). Use WTROOT if still present.
+ROOT="$MROOT"
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# Parse closes: backlog/<slug>.md from plan if present; else try TICKET_ID as slug.
+# For each backlog slug:
+bash "$CLOSE" "<slug>" --root "$ROOT" --ticket "$TICKET_ID" --status "FIXED/CLOSED" 2>/dev/null \
+  || bash "$CLOSE" "$TICKET_ID" --root "$ROOT" --ticket "$TICKET_ID" 2>/dev/null \
+  || true
+# Linear: if MCP available and plan lists linear:<ID> (or source was linear), set Done.
+# Fail-open with a note if MCP missing.
+```
+
+Idempotent — safe when Step 11 already closed the item. Print how many backlog
+slugs closed/verified. Stage/commit tracker files only if the user wants a
+hygiene commit and ship did not already include them (exception path).
+
+---
+
 ## Step 5: Add any deferred items to backlog
 
 If learnings from Step 2 include deferred work (things descoped, follow-up tickets,
@@ -430,11 +462,12 @@ Automated:
   ✅ All N tasks confirmed completed
   ✅ Learnings appended to .claude/memory/claude/memory.md
   ✅ Plan marked [COMPLETED] in .claude/plans.md
+  ✅ Source tracker closed (N backlog / Linear) — or none (freeform)
   ✅ N backlog items added for deferred work
   ✅ Worktree removed
 
 Manual checklist (copy to Linear comment):
-  [ ] Linear ticket moved to Done / Released
+  [ ] Linear ticket moved to Done / Released (if MCP did not already)
   [ ] PR link attached to Linear ticket
   [ ] Release version noted: v<X.Y.Z>
   [ ] Stakeholders notified (if required)

@@ -134,7 +134,25 @@ Output: `Added: .claude/backlog/<slug>.md`
 
 ### Subcommand: `close <slug-or-title>`
 
-Mark a backlog item as completed.
+Mark a backlog item as completed. Prefer the deterministic CLI (shared with
+`/orchestrate` ship and `/wrap-ticket`):
+
+```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
+# ROOT = worktree/show-toplevel (committed tracker files), NOT git-common-dir
+bash "$CLOSE" <slug-or-title> \
+  [--ticket <ISSUE-ID>] [--sha <sha>] [--note <text>] \
+  [--root <path>] [--status COMPLETED|FIXED/CLOSED]
+# Gate (exit 0 closed, 1 open/missing):
+bash "$CLOSE" verify <slug-or-title> [--root <path>]
+```
+
+`close.sh` is subprocess-only. It is **idempotent** (re-close →
+`Already closed:`). Does **not** git-commit — stage/commit yourself or via
+orchestrate ship.
+
+#### Manual fallback (if CLI unavailable)
 
 #### 1. Find the item
 

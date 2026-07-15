@@ -214,7 +214,7 @@ PR scope, LOC caps, refactoring rules, and the replan gate: see
 /wrap-ticket CDV-42
 ```
 
-Handles: task verification, learnings capture, plans.md update, backlog items, worktree removal, Linear checklist.
+Handles: task verification, learnings capture, plans.md update, source tracker re-close (`close.sh`), deferred backlog adds, worktree removal, Linear checklist. (Ship-time close-out in `/orchestrate` Step 11 should already have closed plan `closes:` in the delivery commit.)
 
 For memory hygiene, see [Memory Configuration](../setup.md#memory-configuration----memory-config).
 
