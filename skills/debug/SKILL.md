@@ -3,7 +3,8 @@ name: debug
 description: |
     Phase-gated bug investigation → root-cause → fix → verify cycle.
     Enforces root-cause-before-edit, failing-test-first, holistic callsite
-    scan, and self-calibration checklist before any "done" claim.
+    scan, reopen/redesign gates (SPEC-029), multi-surface done matrix, and
+    self-calibration checklist before any "done" claim.
     Subcommands: /debug <desc> (full), /debug patch <desc> (fast path),
     /debug arch <desc> (design-first → /kickoff handoff).
 ---
@@ -19,6 +20,9 @@ design-level issue that warrants a `/kickoff` handoff.
 > live-impact** incident (outage, partial degradation across surfaces, need for
 > severity/comms/timeline), suggest switching to `/incident` — suggestion only;
 > `/debug` gates and behavior are unchanged.
+
+> **MUST (SPEC-029):** same-theme reopens, multi-UI products, and isolation-language
+> force redesign / multi-surface verification. See `## SPEC-029 gates` below.
 
 ## Arguments
 
@@ -267,6 +271,158 @@ Bug-specific context loaded:
 
 ---
 
+## SPEC-029 gates
+
+Evidence-backed additions from the May 2026 refine/isolation thrash. Apply in
+**full**, **patch**, and **arch** modes (arch: S.1 + S.6 at minimum; no fix path).
+
+> **Attribution note:** May thrash may have been gate-skipping *or* wrong
+> `targeted-patch` under SPEC-014 judgment gates. SPEC-029 makes the critical
+> signal **mechanical** (helper prints `Forced redesign: yes`). Dogfood must
+> confirm agents actually run S.1 — nothing hook-enforces it yet.
+
+### S.1 Theme key + reopen status [GATE before scope]
+
+After `$DESC` is set, derive a theme and compute reopen pressure. **Re-resolve
+paths and variables inside every fenced bash block** (blocks are separate shells;
+do not rely on env from a prior fence — skill-lint C1).
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+DESC_FOR_THEME='<paste $DESC factual bug text here — model fills before run>'
+HELPER=""
+for c in \
+  "$MROOT/skills/debug/theme-status.sh" \
+  "${CLAUDE_PLUGIN_ROOT:-}/skills/debug/theme-status.sh" \
+  ; do
+  [ -x "$c" ] && HELPER="$c" && break
+  [ -f "$c" ] && HELPER="bash $c" && break
+done
+if [ -n "$HELPER" ]; then
+  THEME_KEY=$($HELPER derive "$DESC_FOR_THEME")
+  $HELPER force-check "$THEME_KEY" "$DESC_FOR_THEME" "$MROOT"
+else
+  THEME_KEY=$(printf '%s' "$DESC_FOR_THEME" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | tr -s '-' | cut -c1-48)
+  [ -z "$THEME_KEY" ] && THEME_KEY=unthemed
+  echo "Theme: $THEME_KEY"
+  echo "Prior debug days (14d): 0"
+  echo "Forced redesign: no"
+  echo "THEME_KEY=$THEME_KEY"
+  echo "REOPEN_COUNT=0"
+  echo "FORCED_REDESIGN=no"
+fi
+```
+
+Emit the Theme status block **verbatim in session output**. Parse:
+
+- `REOPEN_COUNT` — count of **distinct calendar days** (UTC) in the last 14 days
+  with a prior `/debug` on this theme (theme log + history fallback). Unknown → 0.
+  Threshold: **≥ 2 prior days** ⇒ force redesign on the next day.
+- `FORCED_REDESIGN` — yes if REOPEN_COUNT ≥ 2 **or** `$DESC` matches isolation signals
+  (multi-word phrases preferred): `no isolation`, `missing isolation`,
+  `wrong abstraction`, `same fix everywhere`, `every backend`, `all three backends`,
+  `state machine`, `architecture`, `redesign` (case-insensitive substring)
+
+**Session variables (model memory, not shell env across fences):**
+`THEME_KEY`, `REOPEN_COUNT`, `FORCED_REDESIGN` ∈ {yes,no}, `USER_OVERRIDE` ∈ {yes,no}
+
+### S.1b Human override [escape hatch]
+
+When `FORCED_REDESIGN=yes` but the user explicitly wants a targeted patch
+(false-positive keyword, e.g. "settings redesign broke save"):
+
+1. Ask **one** question: `SPEC-029 forced redesign is active for theme <key>. Override to allow targeted-patch? (yes/no)`
+2. On user **yes**: set `USER_OVERRIDE=yes`, `FORCED_REDESIGN=no` for this run only;
+   emit `SPEC-029: user override — targeted-patch allowed` and log override (S.6
+   `outcome=override`, `forced_redesign=overridden`).
+3. On user **no** or silence: keep force active.
+4. MUST NOT invent an override without an explicit user yes in this session.
+
+### S.2 Patch mode abort on force
+
+If `$MODE` = patch **and** `$FORCED_REDESIGN` = yes **and** `$USER_OVERRIDE` ≠ yes:
+
+1. Do **not** write fix code.
+2. Emit: `SPEC-029: patch mode aborted — theme reopen/isolation force redesign.`
+3. Instruct: re-run `/debug arch $DESC` (preferred) or `/debug $DESC` (full),
+   or reply to override if intentional one-liner.
+4. Stop. (S.6 still runs with `outcome=aborted`.)
+
+### S.3 Scope override (full mode, replaces free choice when forced)
+
+When `$FORCED_REDESIGN` = yes and `$USER_OVERRIDE` ≠ yes in full mode:
+
+- MUST NOT choose `targeted-patch`
+- Choose `refactor-first` if a bounded structural change (shared helper, single store) fixes all call sites
+- Choose `escalate-to-kickoff` if new abstraction, multi-subsystem, or identity/lifecycle redesign
+- Prefer kickoff when REOPEN_COUNT ≥ 3
+
+When investigation finds the **same fix** needed in >1 top-level UI backend
+(`fyne` + `gio`, `gio` + `web`, etc.), set `$FORCED_REDESIGN=yes` even if reopen was 0
+(subject to S.1b override).
+
+### S.4 Multi-surface matrix [GATE before done — full mode]
+
+If the product has multiple UI backends (detect via AGENTS.md, build tags, or paths
+under `internal/ui/*` / similar) **and** the bug is UI-visible:
+
+Emit before any completion language:
+
+```
+Surfaces:
+  [ ] fyne: verified | not-applicable (<reason>) | blocked (<reason>)
+  [ ] gio:  ...
+  [ ] web:  ...
+  (adapt names to the project)
+```
+
+- `verified` = automated coverage for that surface **or** manual steps run this session
+- MUST NOT claim done while any surface is unmarked or `blocked`
+- Symmetry (“gio should match fyne”) is **not** verification
+
+Single-surface tools / libraries: mark others `not-applicable (no such surface)`.
+
+### S.5 Concurrent scenario [GATE with test-first]
+
+If `$DESC` or root cause involves concurrency, queue interleaving, “while in progress”,
+multi-enqueue, or completion-during-navigation:
+
+- Regression artifact MUST exercise **≥2 interleaved operations** (test, scenario YAML,
+  or documented manual script)
+- A pure unit test of a helper alone is **insufficient** — note it and add interleaving
+
+### S.6 Theme log write-back
+
+At end of full, patch, **and arch** (including aborts/overrides), append one JSON
+line (fail-open). **Re-derive every value inside this block** — do not reference
+shell variables from S.1 (C1). Substitute the angle-bracket placeholders with
+session facts before running:
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# Placeholders — model substitutes concrete values (no cross-block $VARS):
+#   THEME_KEY_VALUE, MODE_VALUE, REOPEN_COUNT_VALUE, FORCED_VALUE, SCOPE_VALUE, OUTCOME_VALUE
+# OUTCOME_VALUE ∈ fixed|escalated|aborted|not_fixed|override
+THEME_KEY_VALUE='<theme-key>'
+MODE_VALUE='<full|patch|arch>'
+REOPEN_COUNT_VALUE='<int>'
+FORCED_VALUE='<yes|no|overridden>'
+SCOPE_VALUE='<targeted-patch|refactor-first|escalate-to-kickoff|none>'
+OUTCOME_VALUE='<fixed|escalated|aborted|not_fixed|override>'
+mkdir -p "$MROOT/.claude/debug/themes"
+printf '%s\n' "{\"ts\":$(date +%s),\"theme\":\"${THEME_KEY_VALUE}\",\"mode\":\"${MODE_VALUE}\",\"reopen_count\":${REOPEN_COUNT_VALUE},\"forced_redesign\":\"${FORCED_VALUE}\",\"scope\":\"${SCOPE_VALUE}\",\"outcome\":\"${OUTCOME_VALUE}\"}" \
+  >> "$MROOT/.claude/debug/themes/${THEME_KEY_VALUE}.jsonl" 2>/dev/null \
+  || echo "WARN: theme log not writable"
+```
+
+SHOULD suggest `/handoff` when REOPEN_COUNT ≥ 1 or FORCED_REDESIGN was yes/overridden.
+
+---
+
 ## Root-cause triad
 
 Every mode's root-cause gate (full 2.2, patch P.2, arch A.2) requires the same
@@ -336,13 +492,15 @@ Do NOT ask the user to make this classification unless it is genuinely ambiguous
 
 ### 2.4 Scope decision [GATE]
 
+**Run SPEC-029 §S.1 first** if not already done. Apply §S.1b if force is active and the user may want override. Apply §S.3 when force remains yes.
+
 Choose exactly one scope and state it explicitly in the session output:
 
-- **targeted-patch** — the root cause is isolated to one place; no duplication elsewhere in the codebase.
-- **refactor-first** — the same fix pattern is needed in more than one place, OR the root cause lives in shared/core code that serves multiple callers.
-- **escalate-to-kickoff** — the fix requires a cross-subsystem refactor, an architectural decision, or a tech-lead design review.
+- **targeted-patch** — the root cause is isolated to one place; no duplication elsewhere in the codebase. **Forbidden when forced redesign is active without user override (S.1b).**
+- **refactor-first** — the same fix pattern is needed in more than one place, OR the root cause lives in shared/core code that serves multiple callers, OR SPEC-029 forced redesign with bounded structure.
+- **escalate-to-kickoff** — the fix requires a cross-subsystem refactor, an architectural decision, or a tech-lead design review (including identity/lifecycle isolation redesigns).
 
-Do NOT ask the user to make this decision. Choose based on the investigation. If the scope is genuinely unclear after full investigation, default to `targeted-patch` and document the uncertainty.
+Do NOT ask the user to make the normal scope decision. **Exception:** S.1b override question when force is active and a targeted patch may be intentional. If the scope is genuinely unclear after full investigation **and** redesign is not forced, default to `targeted-patch` and document the uncertainty. If redesign is forced (no override) and unclear, default to `escalate-to-kickoff`.
 
 **HARD GATE: No fix code may be written until the scope decision appears in the session output.**
 
@@ -351,6 +509,8 @@ If scope = `escalate-to-kickoff`: emit the `/kickoff` escalation handoff (see `#
 ---
 
 ### 2.5 Failing regression test [GATE]
+
+Apply SPEC-029 §S.5 (concurrent/interleaved scenario) when applicable.
 
 Write a test that captures the bug. Use the test runner detected in Step 0. Add this comment to the test for traceability:
 
@@ -438,7 +598,8 @@ For each hit under the cap: either address it (if trivial — same root cause, s
 
 ### 2.9 Self-calibration checklist
 
-Emit this checklist verbatim to the session output, marking each item ✓ or ✗:
+Apply SPEC-029 §S.4 (surface matrix) before marking surface items. Emit this checklist
+verbatim to the session output, marking each item ✓ or ✗:
 
 ```
 Self-calibration checklist:
@@ -448,6 +609,9 @@ Self-calibration checklist:
   [ ] Callsite grep completed — all hits addressed or documented
   [ ] Refactor committed separately before fix (if refactor path was taken)
   [ ] Manual verification completed (if non-reproducible or no test suite)
+  [ ] SPEC-029 theme status emitted; forced redesign honored or user override logged
+  [ ] SPEC-029 surface matrix complete (or n/a — single-surface project)
+  [ ] SPEC-029 concurrent scenario present (or n/a — not a concurrency bug)
 ```
 
 **If any item is ✗: do not output any language implying completion ("done", "fixed", "resolved", "complete"). Either resolve the gap or escalate.**
@@ -466,6 +630,10 @@ Emit a completion summary to the session output containing:
 - **What changed** — files touched + what each change does
 - **Regression test** — name and location
 - **Commits** — hash(es) for the refactor (if any) and the fix
+- **Theme** — `$THEME_KEY`, reopen count, forced redesign yes/no
+- **Surfaces** — matrix summary
+
+Then run SPEC-029 §S.6 theme log write-back. Suggest `/handoff` when reopen ≥ 1 or forced redesign.
 
 Then suggest:
 
@@ -476,6 +644,8 @@ Then suggest:
 ## Step 3: Patch mode
 
 > Patch mode opts out of: spec alignment check, holistic callsite scan, escalation evaluation, and refactor handling. Choose patch when you are confident the bug is isolated and a deeper investigation isn't needed. If the bug turns out to require refactor or cross-subsystem changes, **patch mode aborts** — re-run `/debug <description>` (full mode) instead.
+
+**SPEC-029:** run §S.1 immediately after mode parse. If `$FORCED_REDESIGN` = yes, execute §S.2 abort — do not continue to P.1 fix path.
 
 ### P.1 Reproduce
 
@@ -546,6 +716,9 @@ If any item ✗: do not output any completion language.
 Arch mode is for bugs whose correct fix requires a design decision. The
 deliverable is the root cause investigation, structured for `/kickoff` to
 consume as ticket text. Never write a failing test. Never apply a fix inline.
+
+**SPEC-029:** run §S.1 (theme status) after DESC is set; after handoff emit, run
+§S.6 with `outcome=escalated` (or `override` if S.1b applied).
 
 **A.1 Reproduce**
 
@@ -647,3 +820,7 @@ continue the pipeline on assumptions.
 - Do NOT skip the failing-test phase for reproducible bugs, even apparently trivial ones
 - Do NOT back-and-forth on blockers — one specific question or silence
 - Do NOT ask the user to make the scope decision or spec classification unless genuinely ambiguous after full investigation
+- Do NOT choose `targeted-patch` when SPEC-029 forced redesign is active without S.1b user override
+- Do NOT claim multi-surface UI bugs fixed without a complete surface matrix
+- Do NOT stay in patch mode when SPEC-029 forces redesign (unless S.1b override)
+- Do NOT invent a user override — require explicit yes in-session

@@ -3,12 +3,15 @@
 **Status**: APPROVED
 **Category**: core
 **Created**: 2026-04-25
+**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule)
 
 ---
 
 ## Overview
 
 Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Owns the full investigation → root-cause → fix → verify cycle autonomously. Enforces phase-gated discipline to prevent shallow diagnosis, premature "done" claims, and tech debt from un-refactored patches. Entry: `/debug [patch|arch] <description>`. Default mode is `full`.
+
+**SPEC-029** adds hard gates that were missing in the first ship: same-theme reopen → forced redesign; multi-UI surface matrix before done; interleaved regression for concurrency bugs; theme log + optional outcomes.
 
 ---
 
@@ -177,3 +180,4 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 | 2026-04-25 | Initial spec created — brainstorm: `.claude/plans/2026-04-25-brainstorm-debug-skill.md` |
 | 2026-04-26 | PM review: rewrote T1/T2/T5/T6, added T9/T10, added 5 missing ACs, resolved OQ-1 (free-form root cause with quality criteria), OQ-2 (grep-based callsite check), OQ-3 (skip+warn when no test suite), OQ-4 (separate PRs if escalated, commits otherwise), OQ-5 (two-track fallback for non-reproducible bugs), switched from --mode flags to subcommands |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `🚧 NEW`→`APPROVED` (no emoji, matches TDD index). No behavioral change. |
+| 2026-07-15 | SPEC-029 DRAFT + skill gates: reopen/redesign force, multi-surface matrix, concurrent scenario, theme log; checklist extended in `skills/debug/SKILL.md`. |

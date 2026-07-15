@@ -11,6 +11,11 @@ argument-hint: "[inline]"
 
 # Refactor
 
+> **SPEC-029:** When invoked as a handoff from `/debug` with a theme key / reopen
+> count, preserve that context in the design problem / APPROACH output — do not
+> re-diagnose the bug from zero. Prefer `inline` mode when debug already decided
+> the structural change.
+
 Design-first restructuring that preserves observable behavior. Use `/refactor` to improve internal structure (extract, rename, decouple, deduplicate); use `/debug` to fix incorrect behavior.
 
 ## Arguments

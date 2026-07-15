@@ -15,11 +15,9 @@
 | SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-and-commit, release |
 | SPEC-011 | Memory Validation | ACTIVE | commands/validate-memory.md, skills/validate-memory/SKILL.md, skills/validate-memory/reconcile-lib.sh, /memory-distill integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
-| SPEC-011 | Memory Validation | APPROVED | commands/validate-memory.md, skills/validate-memory/SKILL.md, /memory-distill integration, skills/memory-store/migrate-v3.sh |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
-| SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate, skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
-| SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md |
+| SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md, skills/debug/theme-status.sh (SPEC-029 gates) |
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, skills/orchestrate/SKILL.md, skills/wrap-ticket/SKILL.md, AGENTS.md |
 | SPEC-017 | Autonomous CI Watch + Task DAG | ACTIVE | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh, skills/orchestrate/dag-lib.sh, skills/ci-watch/SKILL.md, skills/ci-watch/poll.sh, skills/ci-watch/sidecar.sh, skills/ci-watch/detect-mode.sh |
@@ -32,9 +30,9 @@
 | SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory-export.md, commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
 | SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse) |
 | SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped), commands/local-do.md |
-| SPEC-028 | `/fix-ticket` Premise → Implement → Adversarial Refute | ACTIVE | commands/fix-ticket.md, skills/fix-ticket/SKILL.md, skills/fix-ticket/workflow.js, docs/commands/fix-ticket.md |
-
 | SPEC-027 | /incident War-Room & Postmortem | ACTIVE | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |
+| SPEC-028 | `/fix-ticket` Premise → Implement → Adversarial Refute | ACTIVE | commands/fix-ticket.md, skills/fix-ticket/SKILL.md, skills/fix-ticket/workflow.js, docs/commands/fix-ticket.md |
+| SPEC-029 | Debug Reopen & Multi-Surface Done Gates | DRAFT | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
 ## Version History
 
 | Date | Change |
@@ -70,3 +68,4 @@
 | 2026-07-14 | SPEC-011 extended (CDV-195): `/validate-memory --reconcile` cross-agent contradiction detection; schema v4 reconcile_log. |
 | 2026-07-14 | SPEC-025 implemented (CDV-192): `/epic` umbrella decompose + sequenced handoff (`epic-lib` + standup/wrap hooks); status DRAFT→ACTIVE. |
 | 2026-07-14 | SPEC-027 implemented (CDV-193): /incident war-room + postmortem (timeline + workspace); status DRAFT→ACTIVE. |
+| 2026-07-15 | SPEC-029 DRAFT: debug reopen detector + multi-surface done gates (from plugin bug/refactor eval + May refine autopsy); partial skill implementation. |

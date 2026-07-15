@@ -3,6 +3,12 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.70.0
+- **SPEC-029 debug reopen & multi-surface done gates (DRAFT)** — `/debug` forces redesign after ≥2 prior theme-days or isolation keywords; multi-UI surface matrix before done; concurrent interleaved regression; human override (logged); theme log under `.claude/debug/themes/`
+- **`theme-status.sh` helper** — derive/status/force-check/count-prior (UTC day semantics, empty-key → `unthemed`); wired from `skills/debug/SKILL.md` (C1-safe S.6 placeholders)
+- **SPEC-014 + refactor handoff** — see-also/checklist extension; `/refactor` preserves theme context on debug handoff
+- **TDD index hygiene** — SPEC-029 row after 028; drop duplicate SPEC-011/012 index lines
+
 ### v0.69.0
 - **Ship-time backlog/Linear tracking close-out** — `/orchestrate` resolves source (Linear → backlog → freeform), records plan `closes:`, and closes trackers via `skills/backlog/close.sh` on the feature worktree in the **same delivery commit** as product code; `/wrap-ticket` re-closes idempotently; SPEC-009 MUSTs + unit tests
 
