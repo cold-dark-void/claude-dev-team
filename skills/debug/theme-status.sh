@@ -3,7 +3,9 @@
 # Usage:
 #   theme-status.sh derive "bug description words..."
 #   theme-status.sh status <theme-key> [project-root]
-#   theme-status.sh append <theme-key> [project-root]   # JSON line on stdin or argv
+#   theme-status.sh append <theme-key> [project-root]          # JSON line on stdin
+#   theme-status.sh append <theme-key> <project-root> --       # JSON line on stdin (explicit)
+#   theme-status.sh append <theme-key> <project-root> '<json>' # JSON line as argv
 #   theme-status.sh force-check <theme-key> "<desc>" [project-root]
 #   theme-status.sh count-prior <theme-key> [project-root]  # prints integer only
 set -euo pipefail
@@ -131,17 +133,23 @@ status() {
 }
 
 append() {
+  # Usage:
+  #   append <key> [root]           → JSON line from stdin
+  #   append <key> <root> --        → JSON line from stdin
+  #   append <key> <root> '<json>'  → JSON line from argv (one record)
   local key="$1"
   local root="${2:-.}"
+  shift 2 || true
   local dir
   dir=$(theme_dir "$root")
   mkdir -p "$dir"
   if [[ -z "$key" ]]; then key="unthemed"; fi
   local log="$dir/${key}.jsonl"
-  if [[ "${3:-}" == "--" ]] || [[ $# -lt 3 ]]; then
+  if [[ $# -eq 0 ]] || [[ "${1:-}" == "--" ]]; then
     cat >>"$log"
   else
-    echo "$3" >>"$log"
+    # Single JSON object/line as remaining args joined (usually one arg)
+    printf '%s\n' "$*" >>"$log"
   fi
 }
 
@@ -176,7 +184,14 @@ case "$cmd" in
   derive) derive_theme "$*" ;;
   status) status "${1:-unthemed}" "${2:-.}" ;;
   count-prior) count_prior_days "${1:-unthemed}" "${2:-.}" ;;
-  append) append "${1:?theme}" "${2:-.}" "${3:-}" ;;
+  # Do NOT pass an empty $3 — that used to force echo "" and drop stdin (C1-class).
+  append)
+    if [[ $# -ge 3 ]]; then
+      append "${1:?theme}" "${2:-.}" "$3"
+    else
+      append "${1:?theme}" "${2:-.}"
+    fi
+    ;;
   force-check) force_check "${1:?theme}" "${2:-}" "${3:-.}" ;;
   *)
     echo "Usage: $0 derive|status|count-prior|append|force-check ..." >&2

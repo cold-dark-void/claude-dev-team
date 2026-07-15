@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.70.1
+- **`theme-status.sh append` stdin** — stop always-forwarding empty `$3` (was writing a blank line and dropping stdin); documented stdin / `--` / argv forms
+
 ### v0.70.0
 - **SPEC-029 debug reopen & multi-surface done gates (DRAFT)** — `/debug` forces redesign after ≥2 prior theme-days or isolation keywords; multi-UI surface matrix before done; concurrent interleaved regression; human override (logged); theme log under `.claude/debug/themes/`
 - **`theme-status.sh` helper** — derive/status/force-check/count-prior (UTC day semantics, empty-key → `unthemed`); wired from `skills/debug/SKILL.md` (C1-safe S.6 placeholders)
