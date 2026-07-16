@@ -1,6 +1,6 @@
 # SPEC-029: Debug Reopen Detector & Multi-Surface Done Gates
 
-**Status**: DRAFT  
+**Status**: ACTIVE  
 **Category**: core  
 **Created**: 2026-07-15  
 **Extends**: SPEC-014 (Debug Workflow), SPEC-015 (Refactor Workflow), SPEC-026 (outcomes)  
@@ -178,7 +178,7 @@ agents actually execute S.1 — nothing hook-enforces it yet.
 - [ ] `count-prior` uses distinct days, not `wc -l`
 - [ ] User override path documented in skill S.1b and logged
 - [ ] TDD.md index row after SPEC-028 (numeric order)
-- [ ] Remains DRAFT until dogfood on multi-surface project (`/debug` on describer)
+- [x] Dogfooded on describer via Grok `/dev-team:debug` (2026-07-16): Generate queue source-hash fix `d866c54`; queue thumb identity-reuse `8dfd578`; S.1 theme status exercised (force/override paths still residual)
 - [ ] check-format passes for this file
 - [ ] FM-5 explicitly out of scope (not gateable)
 
@@ -200,3 +200,4 @@ agents actually execute S.1 — nothing hook-enforces it yet.
 |------|--------|
 | 2026-07-15 | DRAFT from plugin eval + May autopsy |
 | 2026-07-15 | Review fixes: Validation section; REOPEN_COUNT = distinct days; human override; C1-safe S.6 placeholders; empty-key fallback; FM coverage table; arch S.6 |
+| 2026-07-16 | Status DRAFT→ACTIVE after describer dogfood (Grok `/debug` sessions; happy-path + S.1; force/override residual) |
