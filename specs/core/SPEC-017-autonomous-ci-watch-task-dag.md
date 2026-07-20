@@ -47,6 +47,14 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 - Poll interval MUST be approximately 7 minutes (`*/7 * * * *`) — an off-minute value per project convention to avoid thundering-herd at :00/:30 boundaries
 - The cron job MUST store the detected mode, PR number or branch name (as fallback), and
   retry count in its metadata so it is self-contained across restarts
+- **CronCreate `durable` is harness-aware.** MUST prefer `durable: true` when the
+  harness supports durable jobs (native Claude Code persists to
+  `.claude/scheduled_tasks.json` and survives session restart). MUST NOT hard-fail
+  when the harness rejects durable (e.g. cmux denies `durable: true` instead of
+  silently downgrading). MUST arm with `durable: false` (session-only) when the
+  tool schema/description documents durable as unavailable, or after a single
+  durable reject — then notify that the watch ends when the session ends. MUST NOT
+  require an external scheduler for the normal live-orchestrator window.
 
 ### CI watch loop — ci mode
 
@@ -195,7 +203,7 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 
 ## Open Questions
 
-- [x] ~~Should the CI-watcher cron survive a Claude Code session restart?~~ **Resolved:** Use `durable: true` on CronCreate — persists to `.claude/scheduled_tasks.json` and survives restarts.
+- [x] ~~Should the CI-watcher cron survive a Claude Code session restart?~~ **Resolved:** Prefer `durable: true` on CronCreate when supported (persists to `.claude/scheduled_tasks.json`). On harnesses that deny durable (e.g. cmux), arm session-only (`durable: false`) and surface that the watch ends with the session.
 - [x] ~~Should local-test mode run in the worktree or the main repo root?~~ **Resolved:** Worktree root — matches where implementation changes live.
 - [ ] Should fixer retries cycle to tech-lead on 3rd attempt instead of ic5? (deferred — current impl always uses ic5)
 
@@ -210,6 +218,7 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 | 2026-06-12 | ci-mode poll: `--json name,conclusion` → `name,state,bucket` (`conclusion` was never a `gh pr checks` JSON field; the error was masked as eternal `wait` by the poll_error path). Decisions now bucket-based; skipped checks no longer block green |
 | 2026-06-16 | Aligned the local-test detection MUST to `detect-mode.sh`: a `pyproject.toml` triggers `local-test` only when it declares a `[tool.pytest.ini_options]` section (bare presence alone does not), avoiding false positives on non-test pyprojects |
 | 2026-07-14 | CDV-170: ci-mode poll MUST NOT treat `gh pr checks` exit 1/8 as poll errors; classification is parseable JSON array (`jq type==array`) + `bucket` only. Exit 8 + non-array → `wait` without `poll_error_count++`. Bite-tests via PATH-mock `gh` required |
+| 2026-07-20 | Harness-aware CronCreate durable: prefer `durable: true`; on deny/unavailable (cmux) fall back to session-only once and notify — do not hard-fail arming |
 
 ---
 

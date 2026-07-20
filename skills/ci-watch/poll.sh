@@ -2,7 +2,7 @@
 #
 # ci-watch/poll.sh — One CI-watch poll cycle for <TICKET>
 #
-# Subprocess CLI invoked by a durable cron. Always exits 0 (errors are
+# Subprocess CLI invoked by the CI-watch cron. Always exits 0 (errors are
 # non-fatal and recorded in poll_error_count + the ticket log). Stdout is
 # the only contract with the cron prompt body:
 #

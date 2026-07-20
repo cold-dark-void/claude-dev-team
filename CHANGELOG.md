@@ -3,6 +3,10 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.70.2
+- **CI-watch CronCreate harness-aware durable** — prefer `durable: true` (Claude Code); on deny/unavailable (e.g. cmux rejects durable outright) arm once with `durable: false` and notify session-only. Stops avoidable denied first calls without regressing native durable watches. SPEC-017 + `skills/ci-watch` + orchestrate Step 8.5
+- **SPEC-029 DRAFT→ACTIVE** — promote after describer dogfood (docs/status only)
+
 ### v0.70.1
 - **`theme-status.sh append` stdin** — stop always-forwarding empty `$3` (was writing a blank line and dropping stdin); documented stdin / `--` / argv forms
 

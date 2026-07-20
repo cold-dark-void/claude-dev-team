@@ -697,11 +697,19 @@ fi
 bash "$SIDECAR_CLI" init "<TICKET-ID>" "$MODE" "${PR:-}" "$BRANCH"
 ```
 
-5. **Schedule durable cron** (Claude CronCreate tool — not bash; runs after the
-   arming block succeeds):
+5. **Schedule cron** (Claude CronCreate tool — not bash; runs after the arming
+   block succeeds). **Harness-aware durable** — full rule in
+   `skills/ci-watch/SKILL.md` "Durable flag (harness-aware)"; summary:
+   - Prefer `durable: true` when the harness supports it (native Claude Code
+     persists across session restart).
+   - If the CronCreate schema/description says durable is unavailable /
+     session-only only → first call with `durable: false` (avoid a denied call).
+   - Else try `durable: true`; on deny (e.g. cmux rejects durable outright,
+     does **not** silently downgrade) → retry **once** with `durable: false`.
+     Not fatal.
    Call CronCreate with:
    - cron: `"*/7 * * * *"` (off-minute per project convention)
-   - durable: `true`
+   - durable: per harness rule above (`true` preferred, `false` fallback)
    - recurring: `true`
    - prompt: the self-contained cron body from skills/ci-watch/SKILL.md
      (copy the exact template, substituting TICKET-ID, BRANCH, and `<PLUGIN>`).
@@ -726,8 +734,9 @@ SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
    bash "$SIDECAR_CLI" set "<TICKET-ID>" cron_job_id "<returned-job-id>"
    ```
 
-7. **Notify**:
-   Print: `CI watch armed for <TICKET-ID> in <MODE> mode (cron job: <job-id>).`
+7. **Notify** (include durability mode so the user knows session-close risk):
+   - durable: `CI watch armed for <TICKET-ID> in <MODE> mode (cron job: <job-id>, durable).`
+   - session-only: `CI watch armed for <TICKET-ID> in <MODE> mode (cron job: <job-id>, session-only — ends when this session ends).`
 
 ---
 

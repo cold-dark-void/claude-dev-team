@@ -1,6 +1,6 @@
 ---
 name: ci-watch
-description: Autonomous CI/test watcher — durable cron polls a ticket's PR checks (or local tests) every 7 min, spawns a fixer agent on failure (max 3), self-cleans when green.
+description: Autonomous CI/test watcher — cron polls a ticket's PR checks (or local tests) every 7 min, spawns a fixer agent on failure (max 3), self-cleans when green. Prefers durable CronCreate; falls back to session-only when the harness denies durable.
 ---
 
 # CI Watch
@@ -8,9 +8,10 @@ description: Autonomous CI/test watcher — durable cron polls a ticket's PR che
 **Not user-invoked — armed by `/orchestrate`** after the first push.
 
 Autonomous CI/test polling and recovery for a single ticket. Once armed by
-`/orchestrate` after the first push, a durable cron drives a self-contained
-poll loop until the ticket's PR is green, merged, closed, or the retry cap
-is hit. No human intervention is required for transient failures.
+`/orchestrate` after the first push, a cron drives a self-contained poll
+loop until the ticket's PR is green, merged, closed, or the retry cap is
+hit. Prefer durable CronCreate when the harness supports it; session-only
+is fine while the orchestrator session stays alive.
 
 ## Modes
 
@@ -29,7 +30,7 @@ skills/ci-watch/
 ├── SKILL.md          (this file)
 ├── detect-mode.sh    detect ci|local-test|none + test command
 ├── sidecar.sh        per-ticket JSON state CLI
-└── poll.sh           one poll cycle — invoked by durable cron
+└── poll.sh           one poll cycle — invoked by the armed cron
 ```
 
 State lives at `$MROOT/.claude/ci-watch/<TICKET>.json` plus optional
@@ -99,13 +100,39 @@ mode unknown            → wait
 
 ## Cron prompt template
 
-`/orchestrate` Step 8.5 calls `CronCreate` with `durable: true`,
-`schedule: "*/7 * * * *"`, and the following self-contained prompt
-(`<PLUGIN>`, `<MROOT>`, `<TICKET>`, `<PR>`, `<BRANCH>`, `<WT>` are substituted at
-arming time). `<PLUGIN>` is the install-aware plugin root resolved via
-`plugin-dir.sh` — the cron runs detached with the user's repo as cwd, so the
-helper scripts (which live in the plugin, not the repo) MUST be addressed by
-their resolved absolute path, never `<MROOT>/skills/…`:
+`/orchestrate` Step 8.5 calls `CronCreate` with schedule `"*/7 * * * *"` and
+the self-contained prompt below (`<PLUGIN>`, `<MROOT>`, `<TICKET>`, `<PR>`,
+`<BRANCH>`, `<WT>` are substituted at arming time). `<PLUGIN>` is the
+install-aware plugin root resolved via `plugin-dir.sh` — the cron runs
+detached with the user's repo as cwd, so the helper scripts (which live in
+the plugin, not the repo) MUST be addressed by their resolved absolute path,
+never `<MROOT>/skills/…`.
+
+### Durable flag (harness-aware)
+
+CronCreate `durable` is **not** always available:
+
+| Harness | Behavior |
+|---------|----------|
+| Claude Code (native) | `durable: true` persists to `.claude/scheduled_tasks.json` and survives session restart |
+| cmux (and similar) | `durable: true` is **denied** (not silently downgraded). Session-only crons only |
+
+**Arming rule** (canonical — also restated in orchestrate Step 8.5):
+
+1. If the CronCreate tool schema/description says durable persistence is
+   unavailable, or that all jobs are session-only → call once with
+   `durable: false`.
+2. Otherwise call with `durable: true` first.
+3. If that call is rejected with a durable-not-supported / deny message
+   (e.g. cmux: *"does not support durable Claude Code cron jobs"*) →
+   **immediately retry once** with `durable: false`. Do not treat as fatal.
+4. Notify which mode armed:
+   - durable: `CI watch armed for <TICKET> in <MODE> mode (cron job: <id>, durable).`
+   - session-only: `CI watch armed for <TICKET> in <MODE> mode (cron job: <id>, session-only — ends when this session ends).`
+
+Session-only is still the useful window while the orchestrator is live.
+For unattended overnight watching on a harness that lacks durable cron,
+use an external scheduler or re-arm after resume — out of scope for v1.
 
 ```
 You are the CI-watch poller for <TICKET>. Self-contained: do not assume
