@@ -35,6 +35,21 @@ Focus exclusively on:
 Read every changed file in full. Grep for sink functions (exec, query, log,
 marshal) across the full file, not just the diff hunks.
 
+## Optional host SAST (fail-open)
+
+If `SECURITY_SCAN` is not `0`, prefer a quick host scan before deep review:
+
+```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+SCAN=$(bash "$PDH/skills/plugin-dir.sh" file skills/security-scan/scan.sh)
+bash "$SCAN"   # always exit 0; SKIP when tools absent
+```
+
+When Semgrep/CodeQL artifacts exist, treat them as primary evidence (cite via
+tool_use_id). For each confirmed sink, **variant-search** the same pattern
+elsewhere in the repo. When scan is SKIP, LLM-only review is fine — tools are
+optional, never required. Protocol: `skills/security-scan/SKILL.md`.
+
 ## Severity classification
 
 Score each finding on the 0-100 confidence scale:

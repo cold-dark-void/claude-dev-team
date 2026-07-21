@@ -122,6 +122,10 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | [`/council`](docs/commands/council.md) | Adversarial tribunal — reality-checks a claim, session slice, or diff |
 | `/tdd-gate` | Toggle hook-based TDD enforcement — blocks Write/Edit without tests (on/off/status) |
 
+Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
+`/review-and-commit` and the council security flavor run a fail-open scan first
+(`skills/security-scan`; `SECURITY_SCAN=0` to skip). Not required to install.
+
 ### Memory & recall
 
 | Command | What it does |

@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.74.0
+- **Optional host SAST feed** — `skills/security-scan` (Semgrep / CodeQL if present; fail-open). Wired into `/review-and-commit` Step 1c + council security flavor variant analysis. `SECURITY_SCAN=0` to skip. No required deps.
+
 ### v0.73.0
 - **`/brainstorm --grill`** — one-question-at-a-time interview with recommended answers; design-tree walk; codebase answers when possible; optional CONTEXT.md Decisions write-back. Default batched mode unchanged.
 

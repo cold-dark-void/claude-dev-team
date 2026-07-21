@@ -81,6 +81,22 @@ Skip this step entirely if `--impact` was not passed. When enabled:
 If no symbols are extracted (e.g., only config/doc changes), skip silently
 and proceed without impact context.
 
+## Step 1c: Optional host SAST (fail-open)
+
+Skip entirely when `SECURITY_SCAN=0`. Otherwise run:
+
+```bash
+PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+SCAN=$(bash "$PDH/skills/plugin-dir.sh" file skills/security-scan/scan.sh)
+SCAN_LOG=$(bash "$SCAN" 2>&1) || true
+printf '%s\n' "$SCAN_LOG"
+```
+
+`scan.sh` always exits 0. When tools are missing it prints SKIP. When Semgrep
+or CodeQL produce artifacts, pass the summary (and paths) as supplementary
+context for the **security** investigator only. Never block commit because
+tools are absent. See `skills/security-scan/SKILL.md`.
+
 ## Step 2: Locate the council engine
 
 Same resolution pattern as `commands/council.md`:
