@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.78.1
+- **`/focus` evidence pillar (anti-gaslighting)** — second pillar beside action-first output: CONFIRMED/LIKELY/UNKNOWN, tool-backed causal claims, kill false smoking guns, in-session dead ends, systematic observe→hypothesize→check. Explicit vs `/debug` and `/council`. No hooks/disk.
+
 ### v0.78.0
 - **`/focus` session output shaping** — opt-in action-first replies (numbered steps, restate state, no preamble/pleasantries). Command + `skills/focus`; docs index. Inspired by ayghri/i-have-adhd (MIT); session-only, no hooks.
 

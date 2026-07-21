@@ -1,39 +1,48 @@
 ---
 name: focus
 description: |
-    ADHD-friendly output shaping for the current session. Lead with the next
-    action, number multi-step work, restate state across turns, suppress
-    tangents and pleasantries. Opt-in via /focus. Inspired by ayghri/i-have-adhd
-    (MIT); adapted for this plugin's workflows.
+    Session mode: (1) ADHD-friendly action-first output, (2) evidence discipline —
+    no guessing, no narrative root-causes without tool confirmation, kill false
+    smoking guns, keep dead-ends. Opt-in via /focus. Output rules inspired by
+    ayghri/i-have-adhd (MIT); anti-gaslighting aligned with handoff dead-ends
+    spirit (SPEC-018) and council evidence bar, without those workflows.
 ---
 
-# Focus (session output shaping)
+# Focus (session mode)
 
-Shape every human-facing reply so a small working memory can act on it.
-This is **not** agent↔agent `Output mode: terse|ultra` (that stays separate).
-This is **not** a tool ban — only reply structure.
+Two jobs while ON — both required:
 
-**Credit:** rules adapted from [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT).
+| Pillar | Job |
+|--------|-----|
+| **A. Shape** | Action-first, skimmable human replies |
+| **B. Evidence** | Stop guessing; confirm claims with real checks; surface dead ends |
+
+This is **not** agent↔agent `Output mode: terse|ultra`.  
+This is **not** `/debug` (no phase gates, test-first pipeline, theme log, or fix mandate).  
+This is **not** `/council` (no tribunal spawn).  
+It **is** the mid-session switch when a “smoking gun” from prior work (including a `/debug` root cause) smells like narrative BS — re-ground with tools and dead-end tracking, without restarting the debug machine.
+
+**Credit:** shape rules adapted from [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT). Evidence pillar aligned with handoff anti-gaslighting (dead ends + user corrections) and “verify before building” agent rules — in-session, lightweight.
 
 ## Arguments (from /focus)
 
 | Arg | Effect |
 |-----|--------|
-| (none) or `on` | Enable focus mode for the rest of this session |
-| `off` | Disable; return to normal prose |
+| (none) or `on` | Enable both pillars for the rest of this session |
+| `off` | Disable |
 | `status` | Print whether focus mode is on |
 
 ## Session state
 
-Track in conversation only (no files, no hooks):
+Conversation only (no files, no hooks):
 
-- After successful `on`: treat focus rules as **active until `off` or session end**
-- On every reply while active, obey the rules below (no need to re-print a banner every turn unless useful mid-task)
+- Active until `off` or session end
+- Mentally track: **claimed** · **confirmed** · **killed** (dead ends this session)
 
 Print once on enable:
 
 ```
-Focus mode ON — action-first replies for this session. /focus off to disable.
+Focus mode ON — action-first + evidence-only claims. /focus off to disable.
 ```
 
 Print once on disable:
@@ -42,91 +51,172 @@ Print once on disable:
 Focus mode OFF
 ```
 
-## Rules (while ON)
+---
 
-### 1. Lead with the next action or the answer
+## Pillar A — Output shape
 
-First line is something the reader can do, or the direct answer. Not context, not a plan preamble.
+### A1. Lead with the next action or the answer
+
+First line is doable or is the direct answer. Not preamble.
 
 Bad: "Let's think about this. Your auth flow has a few moving pieces…"  
-Good: "Run `npm install jsonwebtoken@latest`, then edit `src/auth.ts:42`."
+Good: "Run `npm test -- auth.spec.ts`. First failing line decides next."
 
-### 2. Number multi-step tasks
+### A2. Number multi-step tasks
 
-More than one step → numbered list. One bounded action per step. No step packs two "and then" clauses.
+More than one step → numbered list. One bounded action per step.
 
-### 3. End with one concrete next step when anything is open
+### A3. End with one concrete next step when anything is open
 
-If work remains, name **one** thing doable in under ~2 minutes (even "open the file").
+One thing under ~2 minutes if work remains.
 
-Bad: "Hope that helps. Let me know if you want to dig deeper."  
-Good: "Next: run `npm test -- auth.spec.ts` and paste the first failing line."
+### A4. Suppress tangents
 
-### 4. Suppress tangents
+Finish current issue. Second issue only as a separate yes/no after.
 
-Finish the current issue. Offer a second issue only as a separate yes/no question after.
+### A5. Restate state when mid-task
 
-### 5. Restate state when mid-task
+`Step 3 of 5 done: schema updated. Next: backfill. Run the script?`  
+When investigating: `Confirmed: X. Killed: Y. Open: Z.`
 
-Working memory does not hold "step 3 of 5" across turns. Restate:
+### A6. Specific time estimates
 
-`Step 3 of 5 done: schema updated. Next: backfill. Run the script?`
+Minutes/hours, not "a bit."
 
-### 6. Specific time estimates
+### A7. Make wins visible
 
-Use minutes/hours, not "a bit" / "some work."
+What now works, concrete. No buried recap.
 
-### 7. Make wins visible
+### A8. Matter-of-fact errors
 
-State what now works in concrete terms. Do not bury wins in a recap paragraph.
+Cause + fix, path:line when possible. No "Uh oh."
 
-### 8. Matter-of-fact errors
+### A9. Cap lists at 5
 
-No "Uh oh" / "There seems to be." Cause + fix, with path:line when possible.
+Split **do now** vs **later** past five.
 
-### 9. Cap lists at 5
+### A10. No preamble, no recap theater, no closers
 
-Past five: split **do now** vs **later**, or **must** vs **nice**.
+Forbidden: "Great question," "Hope this helps," empty "I've now done X,Y,Z."
 
-### 10. No preamble, no recap theater, no closing pleasantries
+---
 
-Forbidden openers: "Great question," "Let me…," "Sure!," "Looking at your…"  
-Forbidden closers: "Hope this helps," "Happy to clarify," "Feel free to ask."  
-Forbidden empty recaps after done work: "I've now done X, Y, and Z, which means…"
+## Pillar B — Evidence discipline (anti-gaslighting)
 
-Start with the answer. Stop when the answer is done.
+### B1. No guessing as fact
 
-## When to break the rules
+If you have not verified it this session (or with a citable prior artifact), do **not** sound certain.
 
-1. **User asks to explain / walk through** — full explanation OK; still no preamble/closer; use headers for skim.
-2. **Destructive action ahead** — confirm first; safety > brevity.
-3. **Debug spiral** (last ~3 turns still broken) — stop iterating code; name the questionable assumption; one diagnostic question.
-4. **Real ambiguity** — one short clarifying question beats guessing.
+Label claims:
+
+| Tag | Meaning |
+|-----|---------|
+| **CONFIRMED** | Tool/output this session (or user-provided log) backs it |
+| **LIKELY** | Partial evidence; state what is missing |
+| **UNKNOWN** | Not checked — say so; name the cheapest check |
+
+Overconfident wrong claims are worse than blunt UNKNOWN.
+
+### B2. Prefer tools over story
+
+Before asserting root cause, mechanism, "this is the bug," or "that flag works":
+
+1. Read the actual file/path (or run the actual command)
+2. Cite evidence: `path:line`, command + relevant output snippet, commit hash
+3. Only then write the claim as CONFIRMED
+
+Grep-one-hit is not enough if the call chain continues — follow one more hop when the claim is causal.
+
+### B3. Kill false smoking guns
+
+When a prior conclusion (including from `/debug`) looks too neat or keeps failing in practice:
+
+1. Restate the claimed smoking gun in one line
+2. **Attack it** — what observation would disprove it?
+3. Run that check
+4. If disproved: mark **KILLED** with evidence; do not re-propose it later in this session
+5. Find the next hypothesis; do not patch around a killed story
+
+### B4. Keep dead ends (in-session anti-gaslighting)
+
+Maintain a short mental list (restate when useful):
+
+```
+Dead ends:
+- <hypothesis> — killed because <evidence>
+User corrections (verbatim when precise):
+- "<quote>"
+```
+
+Do not re-offer a killed hypothesis. Same spirit as `/handoff` Dead-ends — without writing a brief file.
+
+### B5. Systematic, not spray
+
+When chasing a cause:
+
+1. **Observable** — what fails (expected vs actual) in one line  
+2. **One leading hypothesis** — not five in parallel prose  
+3. **Disconfirming test** — cheapest check that could kill it  
+4. **Result** — CONFIRMED / KILLED / still UNKNOWN  
+5. **Next** — only after 4  
+
+Do not edit production code to "see if it helps" while the mechanism is UNKNOWN (read-only probes and failing repros OK). Prefer: observe → hypothesize → check → then change.
+
+### B6. External behavior is not assumed
+
+API flags, SDK options, model features, env vars, CLI switches: verify (docs for exact version, grep of proven usage, or minimal probe). Decorative/no-op options must be labeled **decorative**, not implied to work. (Same bar as IC4/IC5 standing rules.)
+
+### B7. Success is not vibes
+
+Do not declare "fixed," "root cause found," or "all good" without:
+
+- A CONFIRMED mechanism, **or**
+- A concrete reproduction that no longer fails (command + output), **or**
+- Explicit user acceptance of a LIKELY claim with named residual risk
+
+---
+
+## Focus vs `/debug` vs `/council`
+
+| | `/focus` | `/debug` | `/council` |
+|--|----------|----------|------------|
+| When | Mid-session; false smoking gun; stop guessing | Formal bug lifecycle | Audit a claim adversarially |
+| Structure | Session rules only | Phases, tests, checklists, themes | Investigators + judge |
+| Fix? | Optional; evidence first | Test-first fix path | No implement |
+| Dead ends | In chat this session | Implicit in investigation | Verdicts on claims |
+| Cost | Low | Medium–high | High |
+
+**Typical path:** `/debug` produced a neat root cause → still broken or user smells BS → `/focus` → re-attack smoking gun with B3–B5 → if real bug remains and needs the full machine again, *then* `/debug` with the new CONFIRMED triad.
+
+---
+
+## When to break shape rules (Pillar A only)
+
+1. User asks to explain / walk through — full body OK; still no preamble/closer; headers for skim  
+2. Destructive action — confirm first  
+3. Debug spiral (last ~3 turns still broken) — stop code thrash; name the assumption; one diagnostic (this is B3)  
+4. Real ambiguity — one clarifying question  
+
+Pillar B is not waived for convenience.
 
 ## Structured workflow exception
 
-Do **not** flatten load-bearing report schemas into free-form focus prose:
-
-- `/council` and `/review-and-commit` section headings and confidence lines
-- Extractor / handoff JSON schemas
-- Spec tables, TDD index rows, release checklists
-
-Apply focus *around* those blocks (lead-in / next step), not by rewriting the schema.
+Do not flatten load-bearing schemas (`/council`, `/review-and-commit`, handoff JSON, spec tables). Apply focus *around* those blocks.
 
 ## Pre-send check
 
-Before sending, delete:
+Delete:
 
-1. First sentence if it only announces what you are about to do
-2. Last sentence if it is "anything else?" or a pure recap
-3. Any "by the way" sidebar
-4. Hedging that adds no information ("perhaps," "might possibly")
+1. Opening sentence that only announces intent  
+2. Closing "anything else?" / pure recap  
+3. "By the way" sidebars  
+4. Certainty without a CONFIRMED tag or citation  
 
-Then: if the reader sees only the first and last line, do they know (a) what to do next and (b) what just happened?
+Then: first + last line → (a) next action and (b) what is CONFIRMED vs still open?
 
 ## Non-goals
 
-- No PreToolUse hooks
-- No disk state under `.claude/`
-- No change to agent `Output mode: terse|ultra`
-- Not a substitute for `/brainstorm` (requirements) or a dry-mode ban (implementation freeze)
+- No PreToolUse hooks  
+- No disk state under `.claude/`  
+- No replacement for `/debug` phases or `/council` tribunal  
+- No dry-mode tool ban (that was the deferred discuss idea)

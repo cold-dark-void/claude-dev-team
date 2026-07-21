@@ -1,25 +1,27 @@
 ---
 name: focus
 description: >
-  ADHD-friendly session output — action-first replies, numbered steps, no
-  preamble/pleasantries. Opt-in for the rest of this session. Usage:
-  /focus [on|off|status]
+  Session mode: action-first replies + evidence discipline (no guessing, confirm
+  with tools, kill false smoking guns, keep dead-ends). Usage: /focus [on|off|status]
 argument-hint: "[on|off|status]"
 ---
 
 # /focus
 
-Enable (or disable) **focus mode** for the rest of this session. While on,
-shape every human-facing reply per `skills/focus/SKILL.md`. Session-only —
-no files, no hooks.
+Enable **focus mode** for the rest of this session. Two pillars (both on together):
+
+1. **Shape** — action-first, numbered steps, no preamble (ADHD-friendly output)
+2. **Evidence** — no narrative root-causes without confirmation; attack false smoking guns; track dead ends (anti-gaslighting in-session)
+
+Session-only — no files, no hooks. Not a full `/debug` re-run.
 
 ## Arguments
 
 | Arg | Effect |
 |-----|--------|
 | (none) or `on` | Enable focus mode |
-| `off` | Disable focus mode |
-| `status` | Report whether focus mode is on |
+| `off` | Disable |
+| `status` | Report ON/OFF |
 
 ## Step 1: Load the skill
 
@@ -29,20 +31,22 @@ Read and follow:
 skills/focus/SKILL.md
 ```
 
-(Resolve via plugin install path if needed — same PDH pattern as other skills.)
-
 ## Step 2: Apply argument
 
-- **`on` / empty** — mark focus mode active for this session; print the ON line from the skill; obey all rules on subsequent turns until `off`.
-- **`off`** — mark inactive; print OFF line; stop applying focus rules.
-- **`status`** — print `Focus mode: ON` or `Focus mode: OFF` (based on this session only). Do not change state.
+- **`on` / empty** — both pillars active until `off` or session end; print ON line from skill
+- **`off`** — inactive; print OFF line
+- **`status`** — `Focus mode: ON` or `OFF` only
 
-## Step 3: Stay in character
+## Step 3: When the user is mid-bug
 
-While ON, every reply to the user follows the skill rules (including structured-workflow exceptions). Do not re-invoke the skill file each turn unless you need to re-read the rules.
+If they came from a broken `/debug` “smoking gun” or repeated false fixes:
+
+1. Apply **Pillar B** immediately (especially B3 kill false smoking gun, B4 dead ends, B5 systematic loop)
+2. Do **not** auto-invoke `/debug` again unless investigation re-confirms a real defect that needs the formal pipeline
+3. Prefer CONFIRMED / KILLED / UNKNOWN labels in replies
 
 ## Notes
 
-- Inspired by [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT); adapted here.
-- Orthogonal to agent `Output mode: terse|ultra` (agent↔agent).
-- Orthogonal to `/brainstorm` (requirements) and any future dry-mode discuss command.
+- Shape credit: [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT)
+- Evidence spirit: handoff Dead-ends (SPEC-018), IC verify-before-build, council “no claim without evidence” — lightweight, same session
+- Orthogonal to `Output mode: terse|ultra` and to `/brainstorm`

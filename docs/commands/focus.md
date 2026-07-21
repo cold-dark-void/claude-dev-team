@@ -1,8 +1,11 @@
 # /focus
 
-ADHD-friendly **session output shaping**. Lead with the next action, number multi-step work, restate state across turns, suppress tangents and pleasantries. Opt-in for the rest of the session.
+Session mode with **two pillars**:
 
-Inspired by [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT); adapted for this plugin.
+1. **Shape** — ADHD-friendly action-first replies (numbered steps, restate state, no preamble)
+2. **Evidence** — stop guessing; confirm with tools; kill false smoking guns; keep dead ends (in-session anti-gaslighting)
+
+Opt-in for the rest of the session. No disk state, no hooks.
 
 ## Usage
 
@@ -13,49 +16,39 @@ Inspired by [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT); a
 /focus status
 ```
 
-## Arguments
+## When to use
 
-| Arg | Description |
-|-----|-------------|
-| (none) or `on` | Enable focus mode until session end or `/focus off` |
-| `off` | Disable focus mode |
-| `status` | Print whether focus mode is on (session only) |
+| Situation | Why `/focus` |
+|-----------|----------------|
+| Replies are long, buried, hard to act on | Pillar A |
+| Prior “root cause” / smoking gun keeps failing | Pillar B — attack and kill it with evidence |
+| Agent keeps guessing or re-proposing dead ends | Pillar B |
+| You want systematic checks without re-entering full `/debug` | Pillar B |
 
-## What changes
+## When *not* to use
 
-While ON, human-facing replies:
+| Situation | Use instead |
+|-----------|-------------|
+| Fresh bug, need test-first fix lifecycle | `/debug` |
+| Audit a claim adversarially with multiple investigators | `/council` |
+| Requirements / design before planning | `/brainstorm` |
+| Persist dead ends for a *new* session | `/handoff` |
 
-1. Lead with the next action or the answer (no preamble)
-2. Number multi-step tasks
-3. End with one concrete next step when work is open
-4. Suppress tangents (second issues only as a later yes/no)
-5. Restate mid-task state each turn
-6. Give specific time estimates
-7. Make wins visible in concrete terms
-8. Matter-of-fact errors (cause + fix)
-9. Cap lists at 5 (split do-now vs later)
-10. No "Great question" / "Hope this helps" theater
+## Evidence rules (summary)
 
-## What does not change
+- Label claims **CONFIRMED** / **LIKELY** / **UNKNOWN**
+- Causal claims need path:line, command output, or equivalent — not story
+- False smoking gun: restate → disconfirming check → **KILLED** with evidence → next hypothesis
+- Do not re-offer killed hypotheses this session
+- Do not declare fixed without confirmed mechanism or green repro
 
-- No tool bans (you can still edit/commit — this is prose shape only)
-- No disk state under `.claude/`
-- Agent↔agent `Output mode: terse|ultra` is separate
-- Load-bearing report schemas (`/council`, `/review-and-commit`, handoff JSON, etc.) keep their structure; focus applies around them
+## Shape rules (summary)
 
-## Examples
-
-```
-/focus
-```
-
-```
-Focus mode ON — action-first replies for this session. /focus off to disable.
-```
-
-Then a normal coding question gets an action-first answer instead of a long warm-up.
+Lead with next action; number multi-step work; one concrete next step; cap lists at 5; no “Great question” / “Hope this helps.”
 
 ## See also
 
 - Protocol: `skills/focus/SKILL.md`
-- `/brainstorm` — structured requirements before planning (different job)
+- `/debug` — formal bug pipeline
+- `/handoff` — anti-gaslighting brief for a *later* session
+- `/council` — adversarial claim tribunal
