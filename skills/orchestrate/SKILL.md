@@ -906,9 +906,38 @@ This guards against a fixer agent that exited without clearing the flag.
 
 ---
 
+## Step 9.5: Code-simplify (optional polish, before QA)
+
+After **all** IC tasks have Tech Lead **APPROVE** and **before** Step 10 QA,
+run a single behavior-preserving polish pass. Protocol:
+`skills/code-simplify/SKILL.md` (zero external deps; not a marketplace plugin).
+
+**Skip when** any of:
+- `CODE_SIMPLIFY=0` in the environment
+- Diff is docs/config-only (no runtime source)
+- Empty feature-branch diff vs merge-base
+
+**Otherwise** spawn once using the skill's spawn template (ic4-class agent,
+terse, file list from skill scope discovery, worktree `$WT_PATH`). Hard rules:
+no behavior/API/schema change; recently modified files only; fail-open.
+
+```
+Code-simplify: <done | skipped | failed-open>
+  files: <N>
+  notes: <one line>
+```
+
+Do **not** re-open the Step 9 review loop for pure polish unless the simplify
+agent reports it could not preserve behavior (then revert its edits and
+`failed-open`). Do **not** block QA on simplify failure.
+
+Then continue to Step 10.
+
+---
+
 ## Step 10: QA validation
 
-After all IC tasks pass Tech Lead review, spawn QA:
+After all IC tasks pass Tech Lead review (and Step 9.5 simplify if run), spawn QA:
 
 ```
 @qa — All implementation tasks for <ISSUE-ID> are complete and reviewed.

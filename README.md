@@ -94,7 +94,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | [`/incident`](docs/commands/incident.md) | DevOps war-room — severity triage, parallel RO threads, timeline, propose-only mitigation, postmortem (SPEC-027) |
 | [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification (`inline` subcommand) |
 | [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL kickoff → spec → implementation plan → task graph |
-| [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: fetch issue (Linear/backlog/freeform) → worktree → agents → review loops → ship with tracker close-out → PR. Optional passive progress: Slack/Discord MCP + `AGENT_WEBHOOK_URL` (fail-open JSON POSTs; unset = silent) |
+| [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: fetch issue (Linear/backlog/freeform) → worktree → agents → review loops → optional code-simplify polish → ship with tracker close-out → PR. Optional passive progress: Slack/Discord MCP + `AGENT_WEBHOOK_URL` (fail-open JSON POSTs; unset = silent). Skip polish with `CODE_SIMPLIFY=0` |
 | [`/epic`](docs/commands/epic.md) | Umbrella decompose + sequenced child handoff to `/kickoff` or `/orchestrate` |
 | [`/standup`](docs/commands/standup.md) | Status snapshot: TaskList + agent context, surfaces blockers and stale tasks |
 | [`/wrap-ticket`](docs/commands/wrap-ticket.md) | Close out: verify tasks, capture learnings, re-close source tracker, update plans, remove worktree |

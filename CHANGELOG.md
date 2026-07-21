@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.72.0
+- **Post-implement code-simplify** — optional behavior-preserving polish after Tech Lead APPROVE, before QA (`skills/code-simplify`; orchestrate Step 9.5). Recently modified files only; fail-open; skip with `CODE_SIMPLIFY=0`. Zero external deps.
+
 ### v0.71.0
 - **Living domain glossary (`CONTEXT.md`)** — committed ubiquitous language (not agent memory). Load/update protocol in `skills/domain-glossary`; wired into `/brainstorm`, `/kickoff`, project-init cortex seed, `/scaffold-project` template, AGENTS.md + docs. Zero external deps.
 

@@ -57,7 +57,8 @@ Proceed with this scope? Any adjustments?
 8. **Task graph creation** — each plan step becomes a `TaskCreate` entry with dependencies noted.
 9. **Execute and monitor** — unblocked tasks are dispatched to the recommended IC agents in the worktree. As tasks complete, blocked tasks are unblocked and dispatched. Escalation triggers are watched throughout (see below).
 10. **Tech Lead review loop** — every completed IC task gets a Tech Lead review. `REQUEST CHANGES` routes feedback back to the IC. If the same task cycles 3+ times without consensus, you are asked to break the deadlock.
-11. **QA validation** — after all IC tasks pass review, QA runs against the spec and acceptance criteria. Failures route back to the responsible IC for a fix-and-re-review cycle.
+11. **Code-simplify (optional)** — after all tasks APPROVE, one behavior-preserving polish pass on recently modified files only (`skills/code-simplify`). Skip with `CODE_SIMPLIFY=0` or empty/docs-only diff. Fail-open — never blocks QA.
+12. **QA validation** — after review (and simplify if run), QA runs against the spec and acceptance criteria. Failures route back to the responsible IC for a fix-and-re-review cycle.
 12. **Ship** — presents a diff summary; **tracking close-out** runs on the feature worktree (`skills/backlog/close.sh` for each plan `closes:` backlog item; Linear Done when MCP available) and those files ship **in the same delivery commit** as product code. Then PR/squash options. Suggests `/wrap-ticket` for worktree/learnings.
 13. **Friction check (non-blocking)** — at completion the orchestrator runs the phase-1 retro gate against the just-finished session. If the session accumulated friction signals, it prints a one-line `Consider: /retro <session-id>` hint. Never auto-runs `/retro`, never blocks completion.
 
