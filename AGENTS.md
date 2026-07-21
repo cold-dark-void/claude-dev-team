@@ -185,11 +185,22 @@ When working as a native Agent Team teammate:
 
 ### Terse Communication
 
-When spawning agents via `/orchestrate`, `/kickoff`, or manually, include
-`Output mode: terse` in the task prompt. This triggers compressed output —
-decisions, code, and blockers only, no narrative. Agents produce the same
-quality work; they just stop explaining it to an audience that doesn't need
-explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"`.
+When spawning agents via `/orchestrate`, `/kickoff`, or manually, include an
+output-mode line in the task prompt:
+
+| Prompt line | Effect |
+|-------------|--------|
+| (omit) | **normal** — full sentences OK for human-facing work |
+| `Output mode: terse` | **terse** — decisions, code, blockers only (default for agent-to-agent) |
+| `Output mode: ultra` | **ultra** — fragments; max compression; still keep code/commands/errors exact |
+
+Agents produce the same quality work; only communication verbosity changes.
+Override per-agent via `/adjust-agent <agent> "Disable terse mode"` or
+`"Default to Output mode: ultra"`.
+
+**Memory prose compress (optional):** when distilling or writing tier-0 notes,
+prefer fact-dense bullets over narrative — same substance, fewer tokens
+(`skills/memory-compress` protocol; used by `/memory-distill` when invited).
 
 ## Domain Glossary (CONTEXT.md)
 

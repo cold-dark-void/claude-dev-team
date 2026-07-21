@@ -27,6 +27,12 @@ project ubiquitous language updated by `/brainstorm` / `/kickoff` when terms
 crystallize. Agents load it for naming; it is not stored in `memory.db` and has
 no tiers. See plugin skill `domain-glossary` and the [Onboarding runbook](onboarding.md).
 
+### Related: prose compress (still memory)
+
+Optional fact-dense rewrite of verbose tier-0 notes before distillation:
+`/memory-distill --compress` or `MEMORY_COMPRESS=1` (`skills/memory-compress`).
+Does not promote tiers — only shortens prose while keeping technical facts.
+
 
 ### Tiers
 

@@ -18,11 +18,18 @@ knowledge to tier-2 core. Handles locking, batching, and status display.
 - `/memory-distill --status` -- show tier stats per agent (no distillation)
 - `/memory-distill --force` -- clear stale lock before running
 - `/memory-distill --skip-validate` -- skip pre-distill validation step
+- `/memory-distill --compress` -- fact-dense rewrite of verbose tier-0 prose first
+  (`skills/memory-compress`; also auto when `MEMORY_COMPRESS=1`)
 
 Flags can be combined: `/memory-distill --force --agent pm`
 
 Validation runs automatically before distillation (archive stale memories first,
 so they don't get distilled). Use `--skip-validate` to bypass.
+
+**Prose compress (optional):** when `--compress` or `MEMORY_COMPRESS=1`, before
+digest generation, rewrite selected raw rows into fact-dense bullets without
+losing technical substance (not a tier promotion). Protocol:
+`skills/memory-compress/SKILL.md`. Skip with `MEMORY_COMPRESS=0`.
 
 ## Step 1: Parse arguments, resolve DB
 

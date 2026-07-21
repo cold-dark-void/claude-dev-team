@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.75.0
+- **Terse intensity levels + memory prose compress** — `Output mode: terse|ultra` (AGENTS.md + 7 agents); optional `/memory-distill --compress` / `MEMORY_COMPRESS=1` via `skills/memory-compress`. Zero external deps.
+
 ### v0.74.0
 - **Optional host SAST feed** — `skills/security-scan` (Semgrep / CodeQL if present; fail-open). Wired into `/review-and-commit` Step 1c + council security flavor variant analysis. `SECURITY_SCAN=0` to skip. No required deps.
 
