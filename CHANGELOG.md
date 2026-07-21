@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.73.0
+- **`/brainstorm --grill`** — one-question-at-a-time interview with recommended answers; design-tree walk; codebase answers when possible; optional CONTEXT.md Decisions write-back. Default batched mode unchanged.
+
 ### v0.72.0
 - **Post-implement code-simplify** — optional behavior-preserving polish after Tech Lead APPROVE, before QA (`skills/code-simplify`; orchestrate Step 9.5). Recently modified files only; fail-open; skip with `CODE_SIMPLIFY=0`. Zero external deps.
 

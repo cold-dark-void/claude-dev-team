@@ -6,6 +6,8 @@ Structured Socratic design refinement. Forces requirement clarification through 
 
 ```
 /brainstorm <feature or problem description>
+/brainstorm --grill <feature or problem description>
+/brainstorm --grill
 /brainstorm
 ```
 
@@ -14,6 +16,7 @@ Structured Socratic design refinement. Forces requirement clarification through 
 | Flag / Argument | Description |
 |-----------------|-------------|
 | `<description>` | Feature or problem to brainstorm. Omit to be prompted. |
+| `--grill` | One question at a time with a recommended answer; walks the design tree until branches resolve. Default mode uses batched rounds (3–5 Qs). |
 
 ## Examples
 
@@ -27,6 +30,12 @@ Structured Socratic design refinement. Forces requirement clarification through 
 /brainstorm
 ```
 Prompts: `What feature or problem would you like to brainstorm?`
+
+**Grill mode (high-stakes design):**
+```
+/brainstorm --grill auth session model for multi-tenant orgs
+```
+One question at a time, each with a recommended answer you can accept/edit/reject. Codebase-answerable questions are resolved by reading the repo instead of asking you.
 
 **Expected synthesis output (after all rounds):**
 ```
@@ -55,15 +64,23 @@ OUT: file attachments, comments, version history
 
 ## How It Works
 
-`/brainstorm` runs a four-round Socratic interview before proposing anything. It loads Tech Lead and PM memory, the domain glossary (`CONTEXT.md` or `docs/domain/CONTEXT.md` if present), plus any relevant specs from `specs/` before starting, so questions are grounded in the actual codebase and existing constraints.
+`/brainstorm` runs a Socratic interview before proposing anything. It loads Tech Lead and PM memory, the domain glossary (`CONTEXT.md` or `docs/domain/CONTEXT.md` if present), plus any relevant specs from `specs/` before starting, so questions are grounded in the actual codebase and existing constraints.
 
-**Round 1 — Core Intent:** What problem is being solved, who has it, what does success look like, and why now? The command asks 3-5 targeted questions and waits for your answers before moving on.
+### Default mode (no flag)
 
-**Round 2 — Scope and Constraints:** What is explicitly out of scope? What are the hard constraints (timeline, tech stack, backward compatibility, performance)? What existing behavior must not change? Any regulatory or security requirements?
+Four rounds, 3–5 questions per batch:
 
-**Round 3 — Edge Cases and Integration:** Failure modes, concurrency, unexpected inputs. What other systems does this touch? What is the migration path for existing data or users? Are there known anti-patterns or past attempts that failed?
+**Round 1 — Core Intent:** What problem is being solved, who has it, what does success look like, and why now?
 
-**Round 4 — Alternatives (if still ambiguous):** Simpler alternatives, minimum viable version, what would be cut if time were halved.
+**Round 2 — Scope and Constraints:** Out of scope, hard constraints, must-not-break, regulatory/security.
+
+**Round 3 — Edge Cases and Integration:** Failure modes, concurrency, integrations, migration, past failures.
+
+**Round 4 — Alternatives (if still ambiguous):** Simpler alternatives, MVP, what to cut.
+
+### Grill mode (`--grill`)
+
+One question at a time with a **recommended answer** each turn. Walks intent → scope → constraints → edges → naming → alternatives. Reads the codebase when a question is answerable without the user. Soft-caps around 15 questions, then offers to synthesize. Confirmed irreversible choices can land under `CONTEXT.md` `## Decisions`.
 
 After all rounds, the command synthesizes your answers into a structured summary (Problem Statement, Success Criteria, Scope, Constraints, Key Risks, Open Questions, and candidate domain terms) and asks you to confirm or correct it.
 

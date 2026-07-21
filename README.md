@@ -88,7 +88,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 
 | Command | What it does |
 |---------|-------------|
-| [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement — structured questioning before planning |
+| [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement — structured questioning before planning (`--grill` for one-Q-at-a-time + recommended answers) |
 | [`/debug`](docs/commands/debug.md) | Phase-gated bug workflow — root cause → failing test → fix → verify (`patch`, `arch` subcommands) |
 | [`/fix-ticket`](docs/commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket (no auto-release) |
 | [`/incident`](docs/commands/incident.md) | DevOps war-room — severity triage, parallel RO threads, timeline, propose-only mitigation, postmortem (SPEC-027) |

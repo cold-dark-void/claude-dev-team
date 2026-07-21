@@ -3,7 +3,8 @@ name: brainstorm
 description: |
     Socratic design refinement — structured questioning that forces requirement
     clarification before any planning or implementation. Use before /kickoff for
-    complex features, or standalone for early-stage ideation.
+    complex features, or standalone for early-stage ideation. Optional --grill
+    for one-question-at-a-time interviews with recommended answers.
 ---
 
 # Brainstorm
@@ -13,11 +14,22 @@ problem before anyone writes a plan or a line of code.
 
 ## Arguments
 
-- `/brainstorm <feature or problem description>` — start brainstorming
-- `/brainstorm` — prompts for a description
+- `/brainstorm <feature or problem description>` — default mode (batched rounds)
+- `/brainstorm --grill <description>` — grill mode (one Q at a time + recommended answer)
+- `/brainstorm --grill` — grill mode; prompts for description
+- `/brainstorm` — prompts for a description (default mode)
 
-If no argument provided, ask:
+Parse flags from the argument string first. Remaining text is the description.
+If no description after flags, ask:
 > "What feature or problem would you like to brainstorm?"
+
+**Mode:**
+| Flag | Mode | Questioning style |
+|------|------|-------------------|
+| (none) | **default** | 3–5 questions per round across fixed rounds (Step 1) |
+| `--grill` | **grill** | One question at a time; walk the design tree; recommended answer each turn (Step 1-grill) |
+
+Print once at start: `Brainstorm mode: default | grill`.
 
 ---
 
@@ -91,6 +103,8 @@ Scan `specs/` for any specs related to the topic. Note constraints.
 
 ## Step 1: Understand the problem (DO NOT SKIP)
 
+**If mode is grill → use Step 1-grill instead of the default rounds below.**
+
 Before proposing anything, ask the user targeted questions across these
 dimensions. Ask 3-5 questions at a time, not all at once.
 
@@ -121,6 +135,50 @@ Wait for answers.
 - Have you considered [simpler alternative]?
 - What's the minimum viable version of this?
 - What would you cut if you had half the time?
+
+Then continue to Step 2.
+
+---
+
+## Step 1-grill: One-question interview (grill mode only)
+
+Use when `--grill` is set. Same goal as Step 1 (shared understanding before
+design options) but a **different cadence** — inspired by community grill-me
+patterns; no external dependency.
+
+### Cadence rules
+
+1. **One question at a time.** Wait for the user's answer before the next.
+2. **Always offer a recommended answer** (opinionated default) so the user can
+   accept, tweak, or reject:
+   ```
+   Q: <single question>
+   Recommended: <your best default, 1–2 sentences>
+   (accept / edit / reject)
+   ```
+3. **Walk the design tree** — resolve dependencies between decisions in order
+   (intent → scope → constraints → edge cases → naming → alternatives). Do not
+   jump to UI chrome before problem/scope is locked.
+4. **Read the codebase when a question is answerable from the repo** — do not
+   ask the user what the code already shows. State what you found and move on.
+5. **Honor the domain glossary** — if `CONTEXT.md` defines a Term, use it; if
+   the user uses an Avoid alias, map and confirm once.
+6. **Stop grilling** when every open branch is resolved (or the user says
+   "enough / proceed"). Then go to Step 2. Soft cap: if 15+ questions without
+   synthesis, offer to synthesize now.
+
+### Coverage (not a rigid script)
+
+Ensure these themes get at least one resolved decision (combine only if trivial):
+- Core intent & success criteria
+- In/out of scope
+- Hard constraints & must-not-break
+- Edge cases / failure modes
+- Integration points
+- Domain naming (candidate Terms for glossary)
+- Optional one-way decisions for `## Decisions` in CONTEXT.md
+
+Then continue to Step 2.
 
 ---
 
@@ -201,13 +259,17 @@ If the user confirmed one or more domain terms in Step 2/3, follow
 2. Create the file from the domain-glossary format if absent; otherwise merge
    new rows into `## Terms` (and optional `## Decisions` lines)
 3. Do not invent terms the user did not confirm
-4. Note the path in the brainstorm plan file and the printout below
+4. In **grill** mode, also merge user-confirmed one-way decisions into
+   `## Decisions` as `YYYY-MM-DD: <decision> — <why>` when they asked for that
+   or explicitly accepted a recommended irreversible choice
+5. Note the path in the brainstorm plan file and the printout below
 
 If no terms crystallized, skip silently (absent glossary is fine).
 
 Print:
 ```
 Brainstorm saved to: .claude/plans/<date>-brainstorm-<slug>.md
+Mode: <default|grill>
 Domain glossary: <updated CONTEXT.md path | no new terms>
 
 Next steps:
@@ -219,9 +281,11 @@ Next steps:
 
 ## Rules
 
-- NEVER propose solutions during Step 1 — questions only
-- NEVER skip rounds — even if the user says "just build it"
-- Present questions in digestible batches (3-5), not a wall of 15
+- NEVER propose full solutions during Step 1 / Step 1-grill — questions (and in
+  grill mode, recommended *answers to questions*) only until synthesis
+- NEVER skip default rounds when mode is default — even if the user says "just build it"
+- Default mode: questions in digestible batches (3-5), not a wall of 15
+- Grill mode: one question at a time; always include Recommended; soft-cap ~15 Qs
 - If the user's answers reveal the problem is simpler than expected, say so
   and suggest a simpler approach
 - If the user's answers reveal the problem is much harder, flag it and suggest
