@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.76.0
+- **Graphify companion docs** — optional structural knowledge-graph tool documented in setup + onboarding; `/review-and-commit --impact` may shell out to `graphify path/explain` when installed. Not a dependency.
+
 ### v0.75.0
 - **Terse intensity levels + memory prose compress** — `Output mode: terse|ultra` (AGENTS.md + 7 agents); optional `/memory-distill --compress` / `MEMORY_COMPRESS=1` via `skills/memory-compress`. Zero external deps.
 

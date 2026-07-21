@@ -15,6 +15,18 @@ Setup, initialization, and memory configuration for the claude-dev-team plugin.
   /plugin install dev-team
   ```
 
+### Optional companion tools (not dependencies)
+
+dev-team does **not** bundle these. Install only if you want them; everything
+above works without them.
+
+| Tool | Use with | Notes |
+|------|----------|--------|
+| **[Graphify](https://github.com/Graphify-Labs/graphify)** (`uv tool install graphifyy`) | Architecture onboarding; optional impact path before review | Local tree-sitter knowledge graph (`/graphify .`). Complements semantic agent memory — structure vs episodes. MIT. If `graphify` is on PATH, `/review-and-commit --impact` may shell out for path queries (see below). |
+| **Semgrep** | `/review-and-commit` + council security flavor | Fail-open SAST via `skills/security-scan` |
+| **CodeQL** | Same, only when a DB already exists (`CODEQL_DB_PATH`) | Never auto-creates databases |
+| Anthropic **code-simplifier** marketplace plugin | Optional alternate polish | Orchestrate already has in-plugin Step 9.5 (`skills/code-simplify`) |
+
 ---
 
 ## `/init-team` — Bootstrap Agent Memory

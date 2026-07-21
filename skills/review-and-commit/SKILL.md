@@ -78,6 +78,17 @@ Skip this step entirely if `--impact` was not passed. When enabled:
    changed-file contents). Specialists should flag callers that may break
    due to signature changes, removed functions, or altered behavior.
 
+5. **Optional Graphify path** (companion only) — if `command -v graphify`
+   succeeds and `graphify-out/graph.json` exists (or user just ran
+   `/graphify .`), for up to 5 high-degree changed symbols try:
+   ```bash
+   graphify path "<SymbolA>" "<SymbolB>" 2>/dev/null || true
+   graphify explain "<Symbol>" 2>/dev/null || true
+   ```
+   Append any useful path/explain lines under the Impact Analysis block.
+   If `graphify` is missing or the graph is absent, skip silently — never
+   install Graphify for the user. See `docs/setup.md` optional companions.
+
 If no symbols are extracted (e.g., only config/doc changes), skip silently
 and proceed without impact context.
 
