@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.79.0
+- **`/blunt` session tone** — opt-in no-sugarcoat mode: verdict-first, confidence must match evidence, disagree when warranted, not hostile. Command + `skills/blunt`; stacks with `/focus`. Session-only, no hooks.
+
 ### v0.78.1
 - **`/focus` evidence pillar (anti-gaslighting)** — second pillar beside action-first output: CONFIRMED/LIKELY/UNKNOWN, tool-backed causal claims, kill false smoking guns, in-session dead ends, systematic observe→hypothesize→check. Explicit vs `/debug` and `/council`. No hooks/disk.
 

@@ -39,6 +39,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 |---------|------|---------|
 | `/brainstorm` | [brainstorm](commands/brainstorm.md) | Socratic design refinement (`--grill` one-Q + recommended answers) |
 | `/focus` | [focus](commands/focus.md) | Session mode — action-first + evidence discipline (no guessing; false smoking guns) |
+| `/blunt` | [blunt](commands/blunt.md) | Session tone — no sugarcoat, verdict-first, certainty matches evidence |
 | `/debug` | [debug](commands/debug.md) | Phase-gated bug workflow (`patch`, `arch`; think-in-code for bulk scans) |
 | `/fix-ticket` | [fix-ticket](commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket |
 | `/incident` | [incident](commands/incident.md) | DevOps war-room — severity, timeline, propose-only mitigation, postmortem (SPEC-027) |
