@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.77.0
+- **Think-in-code bulk analysis** — IC5/Tech Lead + `/debug` prefer short aggregate scripts over mass full-file Reads for counts/inventories. Zero external deps (prompt/protocol only).
+
 ### v0.76.0
 - **Graphify companion docs** — optional structural knowledge-graph tool documented in setup + onboarding; `/review-and-commit --impact` may shell out to `graphify path/explain` when installed. Not a dependency.
 

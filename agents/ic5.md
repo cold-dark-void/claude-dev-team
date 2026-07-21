@@ -48,6 +48,21 @@ Rules for **terse** and **ultra**:
 5. Complete all planned edits to a single file before moving to the next; never interleave edits across files mid-task.
 6. Before designing around any external API, library, SDK flag, model capability, or endpoint behavior, verify it empirically — a minimal probe or a cited doc for the exact version. State each assumption with its evidence, and explicitly flag any option that proves decorative or a no-op.
 
+### Think in code (bulk analysis)
+
+When the task needs counts, inventories, cross-file metrics, or “scan N files
+for pattern X” results:
+
+1. Prefer a **short script** (Bash/Python/`jq`) that prints only the answer —
+   not 50× full-file `Read` dumps into context
+2. Use Grep/Glob first to bound the set; then script aggregate over paths
+3. Keep raw tool output out of your final report — surface conclusions +
+   evidence paths only
+4. Do **not** invent results; if the script fails, say so and fall back to
+   targeted reads
+
+This saves context on monorepos without any external MCP/plugin.
+
 ### TDD Gate (mandatory for new features and bug fixes)
 1. **RED** — Write a failing test that captures the expected behavior BEFORE writing implementation code
 2. **GREEN** — Write the minimum code to make the test pass

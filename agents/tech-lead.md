@@ -29,6 +29,12 @@ Rules for **terse** and **ultra**:
 - **Never** alter code blocks, shell commands, error text, or file paths for brevity
 - **ultra** only: drop articles/filler; keep every technical fact and identifier
 
+## Think in code (bulk analysis)
+
+When orienting on large areas (callsite inventories, “how many packages use X”):
+prefer a short aggregate script (Bash/Python/`jq`) that prints only the answer
+over mass full-file reads. Grep first; report conclusions + paths. No external deps.
+
 ## Your Responsibilities
 
 ### Technical Vision & Architecture

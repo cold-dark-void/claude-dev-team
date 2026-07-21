@@ -468,6 +468,12 @@ Do not proceed until the reproduction (or the fallback document) appears in the 
 
 Trace the full execution path. Do not stop at the first grep match. Follow the call chain back to the originating layer — the place where the defect actually lives, not the place where the symptom surfaces.
 
+**Think in code (bulk investigation):** when you need counts, inventories, or
+“does pattern X appear in N files?”, prefer a short Bash/Python/`jq` script that
+prints only the answer over dozens of full-file `Read` dumps. Grep/Glob to bound
+the set first; report conclusions + evidence paths, not raw tool floods. Same rule
+as IC5 “Think in code” — no external deps.
+
 Then write the root cause statement in free-form prose, covering all three parts of the **Root-cause triad** (see `## Root-cause triad` for the (a)/(b)/(c) contract and a model example).
 
 **HARD GATE: Do not edit, create, or delete any file before this statement appears in the session output.** Reading files for investigation is allowed. Modifying is not.
@@ -814,6 +820,7 @@ continue the pipeline on assumptions.
 
 ## Rules
 
+- Prefer scripted aggregates over bulk Read when investigating monorepo-scale patterns (think in code)
 - Do NOT edit, create, or delete any file before the root cause statement is in the session output
 - Do NOT claim completion ("done", "fixed", "resolved") before the self-calibration checklist passes
 - Do NOT apply the same fix in multiple places — that is always a refactor trigger
