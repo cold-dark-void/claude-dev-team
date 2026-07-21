@@ -18,6 +18,8 @@ If the idea is vague or complex — brainstorm first:
 
 ```
 /brainstorm
+# high-stakes design: one question at a time + recommended answers
+/brainstorm --grill multi-tenant auth session model
 ```
 
 Then when requirements are solid:
@@ -25,6 +27,9 @@ Then when requirements are solid:
 ```
 /kickoff
 ```
+
+Confirmed domain terms may land in repo-root **`CONTEXT.md`** (ubiquitous language —
+not agent memory). Prefer those names in later specs and tickets.
 
 ---
 
@@ -36,13 +41,17 @@ Then when requirements are solid:
 /brainstorm real-time collaboration on shared documents
 ```
 
-Four rounds of Socratic questioning force you to define:
+**Default mode** — four rounds of batched Socratic questions (3–5 at a time):
 - **Core intent** — what problem, who has it, why now
 - **Scope and constraints** — what's in, what's out, hard limits
 - **Edge cases** — failure modes, concurrency, integration points
 - **Alternatives** — simpler options, minimum viable version
 
-Output: a structured synthesis saved to `.claude/plans/<date>-brainstorm-<slug>.md`
+**Grill mode** (`--grill`) — one question at a time, each with a recommended answer;
+walks the same design tree; reads the codebase when it can answer without asking you.
+
+Output: a structured synthesis saved to `.claude/plans/<date>-brainstorm-<slug>.md`,
+plus optional `CONTEXT.md` glossary updates for user-confirmed terms.
 
 ```
   ## Problem Statement

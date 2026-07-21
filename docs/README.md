@@ -7,14 +7,16 @@ Everything for the **claude-dev-team** plugin. New here? Start with the
 
 | Guide | What's in it |
 |-------|--------------|
-| [Setup & Configuration](setup.md) | Prerequisites, `/init-team`, memory config, remote embeddings, troubleshooting |
-| [Onboarding](runbooks/onboarding.md) | "Just cloned the repo" → agents ready to take tickets |
-| [Idea → Plan](runbooks/idea-to-plan.md) | Turning a rough idea into a spec and an implementation plan |
-| [Orchestrate](runbooks/orchestrate.md) | Running the full lifecycle end-to-end with `/orchestrate` |
-| [Specs](runbooks/specs.md) | The spec workflow — create, audit, reflect |
-| [Memory](runbooks/memory.md) | How memory works, distillation, search, hygiene |
-| [Manual operation](runbooks/manual.md) | Driving the agents by hand, without the orchestrators |
-| [Scheduled retro](runbooks/scheduled-retro.md) | Opt-in cron for `/retro --all --auto` (reports under `.claude/retro/`) |
+| [Setup & Configuration](setup.md) | Prerequisites, **upgrading**, optional tools, `/init-team`, memory config |
+| [Onboarding](runbooks/onboarding.md) | "Just cloned the repo" → agents ready (glossary + optional Graphify) |
+| [Idea → Plan](runbooks/idea-to-plan.md) | Rough idea → brainstorm (`--grill`) → spec → plan |
+| [Orchestrate](runbooks/orchestrate.md) | Full lifecycle end-to-end with `/orchestrate` |
+| [Specs](runbooks/specs.md) | Spec workflow — create, audit, reflect |
+| [Memory](runbooks/memory.md) | Memory tiers, distillation, **prose compress**, domain glossary vs DB |
+| [Manual operation](runbooks/manual.md) | Driving agents by hand without orchestrators |
+| [Scheduled retro](runbooks/scheduled-retro.md) | Opt-in cron for `/retro --all --auto` |
+
+**What's new / upgrade path:** [CHANGELOG](../CHANGELOG.md) (newest first) · [Setup → Upgrading](setup.md#upgrading-the-plugin-existing-projects) (v0.71–v0.77: no migration; marketplace/opencode install only).
 
 ## Command reference
 
@@ -35,13 +37,13 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 
 | Command | Docs | Summary |
 |---------|------|---------|
-| `/brainstorm` | [brainstorm](commands/brainstorm.md) | Socratic design refinement before planning |
-| `/debug` | [debug](commands/debug.md) | Phase-gated bug workflow (`patch`, `arch` subcommands) |
+| `/brainstorm` | [brainstorm](commands/brainstorm.md) | Socratic design refinement (`--grill` one-Q + recommended answers) |
+| `/debug` | [debug](commands/debug.md) | Phase-gated bug workflow (`patch`, `arch`; think-in-code for bulk scans) |
 | `/fix-ticket` | [fix-ticket](commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket |
 | `/incident` | [incident](commands/incident.md) | DevOps war-room — severity, timeline, propose-only mitigation, postmortem (SPEC-027) |
 | `/refactor` | [refactor](commands/refactor.md) | Design-first restructuring, behavior-preserving (`inline`) |
-| `/kickoff` | [kickoff](commands/kickoff.md) | Parallel PM+TL kickoff → spec → plan → task graph |
-| `/orchestrate` | [orchestrate](commands/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → PR |
+| `/kickoff` | [kickoff](commands/kickoff.md) | Parallel PM+TL kickoff → spec → plan → task graph (+ domain glossary) |
+| `/orchestrate` | [orchestrate](commands/orchestrate.md) | Full lifecycle → review → optional **code-simplify** → QA → PR |
 | `/epic` | [epic](commands/epic.md) | Umbrella decompose + sequenced child handoff |
 | `/standup` | [standup](commands/standup.md) | Status snapshot of active agent work |
 | `/wrap-ticket` | [wrap-ticket](commands/wrap-ticket.md) | Close out: verify, capture learnings, remove worktree |
@@ -64,7 +66,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 
 | Command | Docs | Summary |
 |---------|------|---------|
-| `/review-and-commit` | [review-and-commit](commands/review-and-commit.md) | 5-agent parallel review, blocks on critical issues |
+| `/review-and-commit` | [review-and-commit](commands/review-and-commit.md) | 5-agent review; optional `--impact` / host SAST if Semgrep present |
 | `/blind-review` | [blind-review](commands/blind-review.md) | Multi-team blind peer review with quorum analysis |
 | `/council` | [council](commands/council.md) | Adversarial tribunal — reality-checks claims with evidence |
 | `/tdd-gate` | skill | Toggle hook-based TDD enforcement (on/off/status) |
@@ -75,7 +77,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 |---------|------|---------|
 | `/memory-search` | [memory-search](commands/memory-search.md) | Search agent memories — semantic/keyword/grep |
 | `/recall` | [recall](commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git |
-| `/memory-distill` | [memory-distill](commands/memory-distill.md) | Compress raw memories, promote high-signal to core |
+| `/memory-distill` | [memory-distill](commands/memory-distill.md) | Compress raw memories (`--compress` prose pass optional) |
 | `/memory-config` | [memory-config](commands/memory-config.md) | View/set memory configuration |
 | `/memory-stats` | skill | Memory usage statistics (counts, sizes, growth) |
 | `/memory-export` | skill | Export sanitized tier-2 memories to a committable seed pack (SPEC-024) |

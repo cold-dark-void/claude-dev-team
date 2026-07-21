@@ -30,8 +30,8 @@ The opencode install script symlinks `commands/` and generates opencode-valid ag
 | [Onboarding runbook](docs/runbooks/onboarding.md) | "Just cloned the repo" → agents ready to take tickets |
 | [Memory runbook](docs/runbooks/memory.md) | How memory works, distillation, search, hygiene |
 | [Command reference](docs/commands/) | Per-command pages (usage, flags, examples) |
-| [CHANGELOG](CHANGELOG.md) | Release history |
-
+| [CHANGELOG](CHANGELOG.md) | Release history — **start here to discover new features** |
+| [Upgrading](docs/setup.md#upgrading-the-plugin-existing-projects) | Existing projects: what to re-run (usually nothing beyond plugin update) |
 ## What You Get
 
 ### Agents

@@ -300,6 +300,24 @@ go 1.22
 A minimal CLI todo app used for dev-team plugin demos.
 ```
 
+### `CONTEXT.md` (domain glossary seed — optional but shows the feature)
+```markdown
+# Domain Glossary
+
+Project ubiquitous language for the demo.
+
+## Terms
+
+| Term | Definition | Avoid (aliases) |
+|------|------------|-----------------|
+| Task | A single todo item with id, title, done, created_at | TodoItem, Item |
+| TaskStore | JSON-backed store for Tasks | Database, Repo |
+
+## Decisions
+
+- (none yet)
+```
+
 Commit the scaffold:
 
 ```bash
@@ -312,7 +330,7 @@ Print:
 ```
 Demo project scaffolded at ${TMPDIR:-/tmp}/demo-project
 Branch: <DEMO_BRANCH>
-Files: main.go, main_test.go, go.mod, README.md
+Files: main.go, main_test.go, go.mod, README.md, CONTEXT.md
 Tests: 5 passing
 ```
 
@@ -432,6 +450,15 @@ Demo complete!
 
 What you saw:
 - <mode-specific summary of what agents did>
+- CONTEXT.md domain glossary (seeded in the demo project — agents prefer Term names)
+
+Beyond this demo (plugin v0.71+ — no migration; just update the plugin):
+- /brainstorm --grill     — one-question design interview
+- Orchestrate code-simplify polish before QA (CODE_SIMPLIFY=0 to skip)
+- /review-and-commit --impact + optional Semgrep if installed
+- /memory-distill --compress — fact-dense memory prose
+- docs/setup.md#upgrading-the-plugin-existing-projects
+- CHANGELOG.md — full release history
 
 To try this on your own project:
 - /orchestrate <TICKET-ID>    — full autopilot

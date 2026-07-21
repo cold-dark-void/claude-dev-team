@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.77.1
+- **Docs: upgrade + discovery for v0.71–v0.77** — setup Upgrading section (no migration); hub/README pointers; review/memory/idea-to-plan/demo aligned; demo seeds CONTEXT.md.
+
 ### v0.77.0
 - **Think-in-code bulk analysis** — IC5/Tech Lead + `/debug` prefer short aggregate scripts over mass full-file Reads for counts/inventories. Zero external deps (prompt/protocol only).
 

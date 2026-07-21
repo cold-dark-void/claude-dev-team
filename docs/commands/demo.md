@@ -2,6 +2,11 @@
 
 Live, interactive demo of the dev-team workflow. Scaffolds a tiny Go project in a temp worktree, injects a ticket, and runs real agents against it. Cleans up after.
 
+The demo is a **teaching pass for the core pipeline** (scope → plan → implement →
+QA), not an exhaustive tour of every plugin feature. After the demo, point users
+at [CHANGELOG](../../CHANGELOG.md) and [Setup → Upgrading](../setup.md#upgrading-the-plugin-existing-projects)
+for glossary, grill mode, code-simplify, SAST companions, etc.
+
 ## Usage
 
 ```
@@ -15,7 +20,7 @@ Live, interactive demo of the dev-team workflow. Scaffolds a tiny Go project in 
 
 | Mode | What it does | Duration |
 |------|-------------|----------|
-| `orchestrate` (default) | Full pipeline: scope → plan → implement → QA → PR-ready diff | 3-5 min |
+| `orchestrate` (default) | Full pipeline: scope → plan → implement → (optional polish) → QA → PR-ready diff | 3-5 min |
 | `kickoff` | Planning only: PM + Tech Lead → spec + task graph | 1-2 min |
 | `specs` | Spec generation: reads code → writes spec → validates against code | 1-2 min |
 

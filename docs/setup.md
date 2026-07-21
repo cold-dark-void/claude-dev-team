@@ -15,6 +15,34 @@ Setup, initialization, and memory configuration for the claude-dev-team plugin.
   /plugin install dev-team
   ```
 
+## Upgrading the plugin (existing projects)
+
+**These features (v0.71–v0.77) need no data migration.** Updating the plugin is enough
+for Claude Code marketplace installs; nothing rewrites `memory.db`.
+
+| Step | When |
+|------|------|
+| Update plugin | Claude Code: marketplace update + reinstall/`/plugin` refresh for `dev-team`. **opencode:** re-run `bash install.sh` so agent copies pick up new agent `.md` text. |
+| Re-run `/init-team` | **Not required** for this arc. Optional if you want cortex reseeded with domain-glossary awareness from a new project-init scan. |
+| Re-run `/init-orchestration` | **Not required** — no new hooks were added in v0.71–v0.77. Re-run only if your hooks drifted or you never initialized. |
+| Seed `CONTEXT.md` | Optional: add repo-root `CONTEXT.md` (template in `/scaffold-project`, format in `skills/domain-glossary`). Existing projects get it lazily when `/brainstorm` or `/kickoff` first crystallize terms. |
+| Install Semgrep / Graphify / CodeQL | Optional host tools only — skip unless you want those paths. |
+
+**How the team discovers new behavior:**
+
+1. **[CHANGELOG](../CHANGELOG.md)** — authoritative per-version list (start at `v0.71.0`)
+2. **This setup page** — optional companions + env toggles below
+3. **Command docs** under `docs/commands/` — flags (`--grill`, `--compress`, `--impact`)
+4. **Onboarding runbook** — domain glossary + Graphify steps for day-one setup
+
+| Env / flag | Default | Effect |
+|------------|---------|--------|
+| `CODE_SIMPLIFY=0` | on (unset) | Skip orchestrate post-review polish |
+| `SECURITY_SCAN=0` | on (unset) | Skip Semgrep/CodeQL pre-pass in review |
+| `MEMORY_COMPRESS=1` or `/memory-distill --compress` | off | Fact-dense rewrite of raw memories before distill |
+| `Output mode: ultra` in agent prompts | `terse` for agent-to-agent | Stronger output compression |
+| `/brainstorm --grill` | default batched mode | One-question interview with recommended answers |
+
 ### Optional companion tools (not dependencies)
 
 dev-team does **not** bundle these. Install only if you want them; everything

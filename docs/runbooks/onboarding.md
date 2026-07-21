@@ -67,6 +67,18 @@ Without this step, you can use agents individually (`@pm`, `@tech-lead`) but not
 
 ---
 
+## Step 2b — Domain glossary (optional, zero deps)
+
+Projects may keep a committed **ubiquitous language** file at repo-root `CONTEXT.md`
+(or `docs/domain/CONTEXT.md`). `/scaffold-project` seeds an empty template;
+`/brainstorm` and `/kickoff` load it and merge user-confirmed terms.
+
+This is **not** agent memory (not SQLite). It is shared vocabulary so agents stop
+reintroducing avoided aliases. Protocol: plugin skill `domain-glossary`. Absent
+file is fine until the first real term crystallizes.
+
+---
+
 ## Step 2c — Optional structural map (Graphify companion)
 
 If you want a **code knowledge graph** (call/import structure, god-nodes), install
@@ -82,19 +94,12 @@ graphify install
 
 Agent memory (SQLite) is episodic/semantic; Graphify is structural. Use both
 when monorepos make “who calls what” expensive to rediscover. Optional for
-`/review-and-commit --impact` when `graphify` is on PATH.
+`/review-and-commit --impact` when `graphify` is on PATH. Full companion list:
+[Setup → optional tools](../setup.md#optional-companion-tools-not-dependencies).
 
----
-
-## Step 2b — Domain glossary (optional, zero deps)
-
-Projects may keep a committed **ubiquitous language** file at repo-root `CONTEXT.md`
-(or `docs/domain/CONTEXT.md`). `/scaffold-project` seeds an empty template;
-`/brainstorm` and `/kickoff` load it and merge user-confirmed terms.
-
-This is **not** agent memory (not SQLite). It is shared vocabulary so agents stop
-reintroducing avoided aliases. Protocol: plugin skill `domain-glossary`. Absent
-file is fine until the first real term crystallizes.
+**Upgrading an existing project?** See
+[Setup → Upgrading](../setup.md#upgrading-the-plugin-existing-projects) — v0.71–v0.77
+need no migration; update the plugin (and re-run `install.sh` for opencode).
 
 ---
 

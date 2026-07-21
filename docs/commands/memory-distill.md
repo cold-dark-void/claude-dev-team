@@ -2,7 +2,9 @@
 Compress raw agent memories into digests and promote high-signal knowledge to core tier.
 
 ## Usage
-/memory-distill [--agent <name>] [--status] [--force]
+```
+/memory-distill [--agent <name>] [--status] [--force] [--skip-validate] [--compress]
+```
 
 ## Flags
 | Flag | Description |
@@ -11,9 +13,10 @@ Compress raw agent memories into digests and promote high-signal knowledge to co
 | `--agent <name>` | Distill a specific agent regardless of threshold |
 | `--status` | Show tier counts per agent and current config — no distillation runs |
 | `--force` | Clear a stale distillation lock before running |
+| `--skip-validate` | Skip pre-distill validation |
+| `--compress` | Fact-dense rewrite of verbose tier-0 prose first (`skills/memory-compress`; also `MEMORY_COMPRESS=1`) |
 
 Flags can be combined: `/memory-distill --force --agent pm`
-
 ## Examples
 
 Check how many raw memories each agent has accumulated:

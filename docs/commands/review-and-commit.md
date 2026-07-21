@@ -6,6 +6,9 @@ Brutally honest multi-agent review of staged and modified files. Runs 5 speciali
 
 ```
 /review-and-commit [output-path]
+/review-and-commit --impact
+/review-and-commit --impact [output-path]
+/review-and-commit --external[=codex|gemini]
 ```
 
 ## Flags
@@ -14,6 +17,12 @@ Brutally honest multi-agent review of staged and modified files. Runs 5 speciali
 |-----------------|-------------|
 | _(none)_ | Print review to conversation only |
 | `output-path` | Also write review to this file (e.g. `/tmp/review.md`) |
+| `--impact` | Blast-radius context (callers of changed symbols). If `graphify` is installed and a graph exists, may enrich with path/explain lines |
+| `--external` / `--external=codex\|gemini` | Optional external reviewer slot (graceful skip if CLI missing) |
+
+**Host SAST (optional):** if `semgrep` is on PATH (and/or CodeQL with an existing DB),
+a fail-open scan runs before investigators (`skills/security-scan`). Set
+`SECURITY_SCAN=0` to skip. Missing tools never block the review.
 
 ## Examples
 
