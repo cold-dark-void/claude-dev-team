@@ -59,6 +59,11 @@ available (after `/init-team` downloads the embedding extensions, ~29MB), and fa
 **transparently to per-agent markdown files** when it isn't. Per-worktree task progress
 always lives in `context.md`.
 
+**Domain glossary (separate):** optional committed `CONTEXT.md` (or
+`docs/domain/CONTEXT.md`) holds the project's ubiquitous language — preferred term
+names and aliases to avoid. `/brainstorm` and `/kickoff` load and update it; this is
+not agent memory and needs no extra tooling.
+
 See the **[Memory runbook](docs/runbooks/memory.md)** for storage layout, tiers, and
 distillation, and the **[Setup Guide](docs/setup.md#memory-configuration--memory-config)**
 for configuration and remote-embedding options.

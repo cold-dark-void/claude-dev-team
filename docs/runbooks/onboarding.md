@@ -67,6 +67,18 @@ Without this step, you can use agents individually (`@pm`, `@tech-lead`) but not
 
 ---
 
+## Step 2b — Domain glossary (optional, zero deps)
+
+Projects may keep a committed **ubiquitous language** file at repo-root `CONTEXT.md`
+(or `docs/domain/CONTEXT.md`). `/scaffold-project` seeds an empty template;
+`/brainstorm` and `/kickoff` load it and merge user-confirmed terms.
+
+This is **not** agent memory (not SQLite). It is shared vocabulary so agents stop
+reintroducing avoided aliases. Protocol: plugin skill `domain-glossary`. Absent
+file is fine until the first real term crystallizes.
+
+---
+
 ## Step 3 — Establish spec baseline
 
 **New project (no existing code):** Skip this step. Create specs as you build features

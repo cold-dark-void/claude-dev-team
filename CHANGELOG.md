@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.71.0
+- **Living domain glossary (`CONTEXT.md`)** — committed ubiquitous language (not agent memory). Load/update protocol in `skills/domain-glossary`; wired into `/brainstorm`, `/kickoff`, project-init cortex seed, `/scaffold-project` template, AGENTS.md + docs. Zero external deps.
+
 ### v0.70.2
 - **CI-watch CronCreate harness-aware durable** — prefer `durable: true` (Claude Code); on deny/unavailable (e.g. cmux rejects durable outright) arm once with `durable: false` and notify session-only. Stops avoidable denied first calls without regressing native durable watches. SPEC-017 + `skills/ci-watch` + orchestrate Step 8.5
 - **SPEC-029 DRAFT→ACTIVE** — promote after describer dogfood (docs/status only)

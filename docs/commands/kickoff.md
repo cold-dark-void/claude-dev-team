@@ -36,6 +36,7 @@ Kickoff complete for POC-123
 
 Spec:   specs/core/SPEC-007-csv-export.md [created]
 Plan:   .claude/plans/2026-03-15-POC-123-csv-export.md
+Glossary: no new terms
 Tasks:  3 created
 
 Task Graph:
@@ -55,15 +56,16 @@ Next: /standup to monitor progress
 
 `/kickoff` replaces the manual back-and-forth of ticket intake with a structured, parallel flow:
 
-1. **Load context** — reads AGENTS.md and memory for Claude, Tech Lead, and PM. Scans `specs/` for specs that may constrain the design.
+1. **Load context** — reads AGENTS.md, domain glossary (`CONTEXT.md` if present), and memory for Claude, Tech Lead, and PM. Scans `specs/` for specs that may constrain the design.
 2. **Three parallel agents** — PM (scope and ACs), Tech Lead (architecture orientation), and a codebase exploration agent (entry points, execution flows, patterns, dependencies) all run simultaneously without waiting for each other.
 3. **Open questions gate** — PM's scope questions are surfaced immediately. If there are more than 4 open questions the command pauses and asks you to clarify the ticket before proceeding — a vague ticket produces a bad plan.
 4. **Spec gap check** — using Tech Lead's affected-area list and PM's confirmed ACs, the command determines whether a spec exists. If not, Tech Lead writes one (saved to `specs/core/SPEC-NNN-<slug>.md`). If one exists, Tech Lead patches it for this ticket's changes only.
 5. **Spec commit** — the new or updated spec is committed before any implementation planning begins (spec-first discipline).
 6. **Implementation plan** — Tech Lead produces a step-by-step plan (saved to `.claude/plans/<date>-<TICKET-ID>-<slug>.md`) that identifies which steps are independent, which are blocked, and which agent (ic4 for extending patterns, ic5 for novel/complex work) is recommended for each.
 7. **Task graph** — each plan step becomes a `TaskCreate` call with dependencies noted. Task IDs are written back into the plan file.
-8. **Summary** — a structured output shows the full task graph and tells each agent exactly what to claim and when.
-9. **Friction check (non-blocking)** — after the summary prints, kickoff runs the phase-1 retro gate against the just-finished session. If the session accumulated friction signals, a one-line `Consider: /retro <session-id>` hint is printed. Never auto-runs `/retro`, never blocks completion.
+8. **Domain glossary write-back (conditional)** — user-confirmed project vocabulary from this kickoff is merged into `CONTEXT.md` (or existing `docs/domain/CONTEXT.md`). Absent/unchanged is fine.
+9. **Summary** — a structured output shows the full task graph and tells each agent exactly what to claim and when.
+10. **Friction check (non-blocking)** — after the summary prints, kickoff runs the phase-1 retro gate against the just-finished session. If the session accumulated friction signals, a one-line `Consider: /retro <session-id>` hint is printed. Never auto-runs `/retro`, never blocks completion.
 
 `/kickoff` covers Phase 1 (intake) and Phase 2 (planning) of the Linear-to-prod workflow. It does not create a worktree or spawn IC agents — use `/orchestrate` for the full end-to-end flow, or claim tasks manually after `/kickoff`.
 

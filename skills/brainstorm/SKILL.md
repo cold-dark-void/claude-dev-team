@@ -32,6 +32,20 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 ```
 
 - `$MROOT/AGENTS.md` (project rules)
+- Domain glossary (`skills/domain-glossary/SKILL.md` load protocol):
+  ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+if [ -f "$MROOT/CONTEXT.md" ]; then
+  cat "$MROOT/CONTEXT.md"
+elif [ -f "$MROOT/docs/domain/CONTEXT.md" ]; then
+  cat "$MROOT/docs/domain/CONTEXT.md"
+else
+  echo "No domain glossary (CONTEXT.md) yet."
+fi
+  ```
+  Prefer glossary **Term** names; map user/ticket **Avoid** aliases to the canonical term.
 - Tech Lead cortex:
   ```bash
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -136,9 +150,12 @@ OUT: <what's explicitly excluded>
 
 ## Open Questions (if any remain)
 - <unresolved question>
+
+## Domain terms (candidates)
+- **<Term>** — <definition> (avoid: <aliases>) — only terms that crystallized this session
 ```
 
-Ask the user: "Does this capture it? Anything to add or correct?"
+Ask the user: "Does this capture it? Anything to add or correct?" Include whether candidate domain terms should land in `CONTEXT.md`.
 
 ---
 
@@ -174,9 +191,24 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Save to .claude/plans/<date>-brainstorm-<slug>.md
 ```
 
+### Step 4b: Domain glossary write-back (conditional)
+
+If the user confirmed one or more domain terms in Step 2/3, follow
+`skills/domain-glossary/SKILL.md` **Update protocol**:
+
+1. Prefer `$MROOT/CONTEXT.md`; use `$MROOT/docs/domain/CONTEXT.md` only if that
+   path already exists and root `CONTEXT.md` does not
+2. Create the file from the domain-glossary format if absent; otherwise merge
+   new rows into `## Terms` (and optional `## Decisions` lines)
+3. Do not invent terms the user did not confirm
+4. Note the path in the brainstorm plan file and the printout below
+
+If no terms crystallized, skip silently (absent glossary is fine).
+
 Print:
 ```
 Brainstorm saved to: .claude/plans/<date>-brainstorm-<slug>.md
+Domain glossary: <updated CONTEXT.md path | no new terms>
 
 Next steps:
   /kickoff — to start formal planning with PM + Tech Lead
@@ -195,4 +227,6 @@ Next steps:
 - If the user's answers reveal the problem is much harder, flag it and suggest
   breaking it into phases
 - Be opinionated in your recommendation — don't present options without a clear pick
-- Reference existing specs and architecture from Step 0 context when relevant
+- Reference existing specs, architecture, and domain glossary from Step 0 when relevant
+- Prefer glossary **Term** names in the saved plan and recommendations; do not
+  reintroduce listed aliases

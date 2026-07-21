@@ -69,6 +69,10 @@ AGENTS.md contains critical project rules (threading requirements, known bugs, f
 
 ### Discovery checklist (read everything that exists):
 - Root files: `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, `CHANGELOG*`, `LICENSE`
+- Domain glossary: `CONTEXT.md` or `docs/domain/CONTEXT.md` (ubiquitous language —
+  preferred term names and aliases to avoid). If present, seed **every** agent's
+  cortex with a short "Domain language" note listing key Terms so agents do not
+  reintroduce avoided aliases. Protocol: `skills/domain-glossary/SKILL.md`.
 - Package/dependency manifests: `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, `Gemfile`, `pom.xml`, `build.gradle`, etc.
 - Config: `.env.example`, `docker-compose*.yml`, `Dockerfile*`, `*.config.*`, `tsconfig.json`, `.eslintrc*`, `jest.config.*`, `vitest.config.*`
 - CI/CD: `.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`, `.circleci/`, `Makefile`

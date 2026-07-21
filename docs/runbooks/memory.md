@@ -20,6 +20,14 @@ If `sqlite3` is unavailable, agents fall back to `.md` files at `.claude/memory/
 
 Each memory entry has an **agent** (who wrote it), a **type** (cortex, memory, lessons), and a **tier**.
 
+### Related: domain glossary (not memory)
+
+`CONTEXT.md` (or `docs/domain/CONTEXT.md`) is a **committed domain glossary** —
+project ubiquitous language updated by `/brainstorm` / `/kickoff` when terms
+crystallize. Agents load it for naming; it is not stored in `memory.db` and has
+no tiers. See plugin skill `domain-glossary` and the [Onboarding runbook](onboarding.md).
+
+
 ### Tiers
 
 | Tier | Name | What it contains | Created by |

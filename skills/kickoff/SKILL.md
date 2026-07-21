@@ -141,6 +141,21 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   fi
   ```
 - `$MROOT/AGENTS.md` (project rules)
+- Domain glossary (`skills/domain-glossary/SKILL.md` load protocol):
+  ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+if [ -f "$MROOT/CONTEXT.md" ]; then
+  cat "$MROOT/CONTEXT.md"
+elif [ -f "$MROOT/docs/domain/CONTEXT.md" ]; then
+  cat "$MROOT/docs/domain/CONTEXT.md"
+else
+  echo "No domain glossary (CONTEXT.md) yet."
+fi
+  ```
+  Prefer glossary **Term** names in ACs, specs, plans, and task subjects. If the
+  ticket uses an **Avoid** alias, map it to the canonical Term and note once.
 
 Scan `specs/` for specs likely related to the ticket (SPEC-008 `### Spec Discovery`):
 ```bash
@@ -171,7 +186,8 @@ Your job:
 1. Confirm or rewrite each acceptance criterion — make them unambiguous and testable
 2. Flag any scope questions that must be resolved before implementation starts
 3. Add any missing ACs that the ticket implies but doesn't state
-4. Output: revised AC list + list of open questions (if any)
+4. Prefer project domain-glossary terms (CONTEXT.md) when naming concepts in ACs
+5. Output: revised AC list + list of open questions (if any)
 
 Do NOT start planning implementation. Scope only.
 Return your output as this agent's final message — do NOT SendMessage to the
@@ -493,6 +509,23 @@ echo "\n## Task Map\n" >> $WTROOT/.claude/plans/<plan-file>.md
 
 ---
 
+## Step 7b: Domain glossary write-back (conditional)
+
+After the plan is written (Step 6) and before/with the final summary, if kickoff
+crystallized **user-confirmed** domain terms (new names from AC resolution,
+design choices, or explicit user answers that define project vocabulary):
+
+1. Follow `skills/domain-glossary/SKILL.md` **Update protocol**
+2. Prefer `$MROOT/CONTEXT.md` (or existing `docs/domain/CONTEXT.md`)
+3. Merge only confirmed terms; do not invent jargon
+4. If `CONTEXT.md` changed, include it when committing related plan/spec work
+   in this kickoff (same commit as the spec if Step 5 committed, or note for
+   the user to commit with implementation)
+
+If no new terms, skip silently.
+
+---
+
 ## Step 8: Print kickoff summary
 
 Print a structured summary the engineer can use as a reference:
@@ -502,6 +535,7 @@ Kickoff complete for <TICKET-ID>
 
 Spec:       specs/core/SPEC-NNN-<slug>.md [created|updated]
 Plan:       .claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md
+Glossary:   <CONTEXT.md path updated | no new terms>
 Tasks:      N created
 
 Task Graph:

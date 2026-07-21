@@ -31,6 +31,7 @@ project/
 │           └── memory.md
 ├── specs/
 │   └── TDD.md                # Living behavioral specifications
+├── CONTEXT.md                # Domain glossary (ubiquitous language; empty Terms ok)
 ├── AGENTS.md                 # Project-specific rules
 └── .gitignore                # Git ignore patterns (if needed)
 ```
@@ -437,6 +438,32 @@ specs/
 
 **IMPORTANT**: Replace `<PROJECT NAME>` with actual project name and `<TODAY'S DATE>` with today's date (YYYY-MM-DD format).
 
+### Step 5b: Create CONTEXT.md (domain glossary)
+
+Create `$PROJ_ROOT/CONTEXT.md` so the project has a committed ubiquitous-language
+file agents load during `/brainstorm` and `/kickoff` (see
+`skills/domain-glossary/SKILL.md`). Empty Terms table is fine until real names
+crystallize.
+
+```markdown
+# Domain Glossary
+
+Project ubiquitous language. Prefer these terms in code, specs, tickets, and
+agent output. Do not reintroduce avoided aliases.
+
+## Terms
+
+| Term | Definition | Avoid (aliases) |
+|------|------------|-----------------|
+| | | |
+
+## Decisions
+
+- (none yet)
+```
+
+If `$PROJ_ROOT/CONTEXT.md` already exists, skip (do not overwrite).
+
 ### Step 6: Create AGENTS.md
 
 Create `$PROJ_ROOT/AGENTS.md` with this template:
@@ -532,13 +559,19 @@ project/
 
 ---
 
+## Domain language
+
+If `CONTEXT.md` (or `docs/domain/CONTEXT.md`) exists, use its **Term** column as
+canonical names. Do not reintroduce listed aliases in code or specs.
+
 ## Before Making Changes
 
 1. ✅ Read `./specs/TDD.md` to understand current behavior
-2. ✅ Check `.claude/plans.md` for existing work
-3. ✅ Review this file for project-specific constraints
-4. ✅ Plan changes and get user approval
-5. ✅ Verify specs after implementation
+2. ✅ Read `CONTEXT.md` if present (domain glossary)
+3. ✅ Check `.claude/plans.md` for existing work
+4. ✅ Review this file for project-specific constraints
+5. ✅ Plan changes and get user approval
+6. ✅ Verify specs after implementation
 
 ---
 
@@ -601,6 +634,7 @@ Created:
   📄 .claude/memory/claude/memory.md - Claude Code's memory (project-local)
   📄 .claude/plans.md - Master plan index
   📄 specs/TDD.md - Behavioral specifications (3 starter specs)
+  📄 CONTEXT.md - Domain glossary (fill Terms as names crystallize)
   📄 AGENTS.md - Project-specific rules (NEEDS CUSTOMIZATION)
   📄 .gitignore - Git ignore patterns [if created]
 
@@ -666,6 +700,7 @@ Before completing, verify (all under `$PROJ_ROOT`):
 - [ ] $PROJ_ROOT/.claude/plans.md created
 - [ ] $PROJ_ROOT/specs/ directory exists
 - [ ] $PROJ_ROOT/specs/TDD.md created with 3 starter specs
+- [ ] $PROJ_ROOT/CONTEXT.md created (domain glossary template; skip if already present)
 - [ ] $PROJ_ROOT/AGENTS.md created
 - [ ] $PROJ_ROOT/.gitignore created or updated (if needed)
 - [ ] .gitkeep files in empty directories

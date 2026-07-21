@@ -191,6 +191,18 @@ decisions, code, and blockers only, no narrative. Agents produce the same
 quality work; they just stop explaining it to an audience that doesn't need
 explanations. Override per-agent via `/adjust-agent <agent> "Disable terse mode"`.
 
+## Domain Glossary (CONTEXT.md)
+
+When `$MROOT/CONTEXT.md` or `$MROOT/docs/domain/CONTEXT.md` exists, it is the
+project's **ubiquitous language** (committed glossary — not agent memory).
+
+- Load it before naming types, tickets, specs, or plan subjects
+- Prefer **Term** names; do not reintroduce listed **Avoid** aliases
+- Write-back only with user-confirmed terms via `/brainstorm` or `/kickoff`
+  (`skills/domain-glossary/SKILL.md`)
+
+Absent file is fine until the first real term crystallizes.
+
 ## Code Conventions
 
 - Agent `.md` files require YAML frontmatter: `name`, `description`, `tools`, `model`

@@ -55,7 +55,7 @@ OUT: file attachments, comments, version history
 
 ## How It Works
 
-`/brainstorm` runs a four-round Socratic interview before proposing anything. It loads Tech Lead and PM memory plus any relevant specs from `specs/` before starting, so questions are grounded in the actual codebase and existing constraints.
+`/brainstorm` runs a four-round Socratic interview before proposing anything. It loads Tech Lead and PM memory, the domain glossary (`CONTEXT.md` or `docs/domain/CONTEXT.md` if present), plus any relevant specs from `specs/` before starting, so questions are grounded in the actual codebase and existing constraints.
 
 **Round 1 — Core Intent:** What problem is being solved, who has it, what does success look like, and why now? The command asks 3-5 targeted questions and waits for your answers before moving on.
 
@@ -65,11 +65,11 @@ OUT: file attachments, comments, version history
 
 **Round 4 — Alternatives (if still ambiguous):** Simpler alternatives, minimum viable version, what would be cut if time were halved.
 
-After all rounds, the command synthesizes your answers into a structured summary (Problem Statement, Success Criteria, Scope, Constraints, Key Risks, Open Questions) and asks you to confirm or correct it.
+After all rounds, the command synthesizes your answers into a structured summary (Problem Statement, Success Criteria, Scope, Constraints, Key Risks, Open Questions, and candidate domain terms) and asks you to confirm or correct it.
 
 Only after you confirm does it present 2-3 design options with pros, cons, effort, and risk — each with a clear recommendation and reasoning, not a neutral menu.
 
-The full brainstorm is saved to `.claude/plans/<date>-brainstorm-<slug>.md` for use in `/kickoff`.
+The full brainstorm is saved to `.claude/plans/<date>-brainstorm-<slug>.md` for use in `/kickoff`. User-confirmed domain terms are merged into the project **domain glossary** (`CONTEXT.md` preferred, or `docs/domain/CONTEXT.md` if that path already exists) — a committed ubiquitous-language file, not agent memory. See `skills/domain-glossary/SKILL.md`.
 
 ### Rules
 
