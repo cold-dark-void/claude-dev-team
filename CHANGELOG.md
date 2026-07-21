@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.78.0
+- **`/focus` session output shaping** — opt-in action-first replies (numbered steps, restate state, no preamble/pleasantries). Command + `skills/focus`; docs index. Inspired by ayghri/i-have-adhd (MIT); session-only, no hooks.
+
 ### v0.77.1
 - **Docs: upgrade + discovery for v0.71–v0.77** — setup Upgrading section (no migration); hub/README pointers; review/memory/idea-to-plan/demo aligned; demo seeds CONTEXT.md.
 
