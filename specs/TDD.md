@@ -33,6 +33,7 @@
 | SPEC-027 | /incident War-Room & Postmortem | ACTIVE | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |
 | SPEC-028 | `/fix-ticket` Premise → Implement → Adversarial Refute | ACTIVE | commands/fix-ticket.md, skills/fix-ticket/SKILL.md, skills/fix-ticket/workflow.js, docs/commands/fix-ticket.md |
 | SPEC-029 | Debug Reopen & Multi-Surface Done Gates | ACTIVE | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
+| SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |
 ## Version History
 
 | Date | Change |
@@ -70,3 +71,4 @@
 | 2026-07-14 | SPEC-027 implemented (CDV-193): /incident war-room + postmortem (timeline + workspace); status DRAFT→ACTIVE. |
 | 2026-07-15 | SPEC-029 DRAFT: debug reopen detector + multi-surface done gates (from plugin bug/refactor eval + May refine autopsy); partial skill implementation. |
 | 2026-07-16 | SPEC-029 dogfood on describer (Grok `/debug`); status DRAFT→ACTIVE. |
+| 2026-07-21 | SPEC-030 implemented (CDT-46-C1): deterministic smoke-harness gate (tools/smoke/) + first CI (.github/workflows/smoke.yml) + `/release` Step 4.10; status DRAFT→ACTIVE. |

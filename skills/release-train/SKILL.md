@@ -129,7 +129,7 @@ bash skills/release-train/train-lib.sh set-status <branch> landing --base-sha "$
 
 #### 1c. Present branch as uncommitted tree (M4)
 
-```bash
+```bash template
 git merge --squash <branch>
 ```
 
@@ -169,7 +169,7 @@ Stop the train. No skip-and-recompute in v1.
 
 Resolve allowlisted conflicts / dual trees. File-flag form (also used by tests):
 
-```bash
+```bash template
 # M5a Spec Index
 bash skills/release-train/train-lib.sh resolve-tdd-index \
   --ours /path/ours-TDD.md --theirs /path/theirs-TDD.md --out specs/TDD.md
@@ -195,7 +195,7 @@ the squash left a clean or conflicted tree.
 
 If `assumed_version` is non-null and differs from `assigned_version`:
 
-```bash
+```bash template
 bash skills/release-train/train-lib.sh renumber <assumed> <assigned>
 ```
 
@@ -238,7 +238,7 @@ Stop. Report the `/release` error to the user.
 
 #### 1i. On success → landed
 
-```bash
+```bash template
 bash skills/release-train/train-lib.sh set-status <branch> landed --tag v<assigned>
 ```
 

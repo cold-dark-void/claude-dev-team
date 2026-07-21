@@ -474,7 +474,7 @@ Clean up the demo worktree? (y/n)
 ```
 
 If yes:
-```bash
+```bash template
 # Return to original directory first
 cd <original working directory>
 git worktree remove "${TMPDIR:-/tmp}/demo-project"

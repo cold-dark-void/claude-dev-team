@@ -227,7 +227,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Resolve the path and verify it stays within WTROOT
 # REF_PATH set by surrounding claim loop (session state across fences)
-RESOLVED=$(realpath -m "$WTROOT/$REF_PATH" 2>/dev/null \  # lint-ok: C1
+# lint-ok: C1
+RESOLVED=$(realpath -m "$WTROOT/$REF_PATH" 2>/dev/null \
   || python3 -c "import os.path; print(os.path.normpath(os.path.join('$WTROOT','$REF_PATH')))")
 case "$RESOLVED" in
   "$WTROOT"/*) ;;  # safe — inside project
@@ -256,7 +257,7 @@ relpath() {
 
 For `file_reference` claims (after path containment guard):
 
-```bash
+```bash template
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
@@ -290,7 +291,7 @@ for each claim where claim_type == "file_reference":
 
 For `symbol_reference` claims (after path containment guard):
 
-```bash
+```bash template
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
@@ -382,7 +383,7 @@ For each memory, combine its per-claim verdicts into a single staleness
 score (0-100). See `skills/validate-memory/SKILL.md` "Composite Scoring
 Formula" for the canonical reference.
 
-```bash
+```bash template
 # Per-claim points (weighted by confidence)
 BASE_POINTS={"VALID": 0, "STALE": 25, "AMBIGUOUS": 10, "CONTRADICTED": 40}
 
@@ -474,7 +475,7 @@ For each memory with score strictly greater than 80:
 
 Build a reason string summarizing per-claim verdicts for the audit log:
 
-```bash
+```bash template
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
@@ -692,7 +693,7 @@ If more than 50% of sources are stale, flag the digest for rebuild. The 50%
 threshold is fixed for v1. Use cross-multiplication to avoid bash integer
 division truncation:
 
-```bash
+```bash template
 if [ "$TOTAL_SOURCES" -eq 0 ]; then  # lint-ok: C1
   continue  # skip digests with no source references
 fi

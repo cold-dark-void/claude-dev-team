@@ -178,11 +178,23 @@ docs-hub, or manifest-desc — see skills/docs-drift/SKILL.md; SPEC-010 D1–D8)
 **Do NOT commit or tag.** Fix the drift (or waive with `<!-- drift-ok: <check-id> -->`
 where allowed), re-run until exit 0.
 
+## Step 4.10: Smoke-harness gate (pre-commit gate)
+
+Run:
+```bash
+bash tools/smoke/run.sh
+```
+
+If it exits non-zero, one or more Surfaces (commands, skills, or engine scripts) failed to
+load — frontmatter unparseable, missing `name`/`description`, or a bash block that does not
+parse. **Do NOT commit or tag.** Print the `FAIL` lines for the user, fix the broken Surface,
+then re-run until exit 0. Contract lives in SPEC-030.
+
 ## Step 5: Commit (one folded commit)
 
 Stage the version files **and the actual changed source files** — everything being
 released goes into a single commit:
-```bash
+```bash template
 git add CHANGELOG.md .claude-plugin/plugin.json .claude-plugin/marketplace.json
 git add <the source files this release changes>   # e.g. README.md, agents/, skills/, commands/
 ```

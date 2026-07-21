@@ -35,6 +35,21 @@ The commit-message format, single-folded-commit rule, and tag/push sequence are 
 hand-crafting a release commit. (The format is intentionally NOT restated here, to keep a
 single source of truth; read the skill.)
 
+## v1.0 Feature Freeze (CDT-46)
+
+Nothing lands on master except CDT-46 child-ticket work and bug fixes until the
+v1.0.0 tag is cut. This freeze covers all of the following:
+
+- `commands/` — slash command definitions
+- `skills/` — skill definitions and supporting scripts
+- `agents/*.md` — agent definitions
+- hooks — any hook scripts or hook config
+- `specs/` — specification files
+
+No net-new features, no refactors, no scope additions outside the CDT-46 epic.
+Bug fixes (any component) and CDT-46 child tickets are the only permitted changes.
+Freeze lifts automatically when the v1.0.0 tag is pushed to master.
+
 ## Agent Roster
 
 | Agent | Model | Role |

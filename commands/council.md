@@ -86,7 +86,7 @@ scopes, bad plan paths, or missing retro anchors (exit 2). `--external` never
 hard-fails solely for a missing CLI — plan.external.status is `skipped` and
 internal investigators still run.
 
-```bash
+```bash template
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/council-plan.XXXXXX.json") \

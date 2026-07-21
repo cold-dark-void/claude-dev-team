@@ -3,6 +3,15 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.80.0
+- **Smoke-harness gate (SPEC-030, CDT-46-C1)** — deterministic LLM-free load-check for every Surface: `tools/smoke/run.sh` verifies frontmatter (name+description) and `bash -n` on all fences of `commands/*.md` + `skills/*/SKILL.md`, plus `bash -n` on engine `.sh` scripts. Exit 0/1/64; dynamic discovery, no static list; 35-case bite-test suite (`tools/smoke/test.sh`) + 5 fixtures.
+- **First CI on the repo** — `.github/workflows/smoke.yml` runs the harness on push and pull_request to master.
+- **`/release` Step 4.10** — smoke harness wired as a pre-commit gate after docs-drift; non-zero aborts the release.
+- **Template-fence marker** — documentation-shape fences opt out of syntax check via ```` ```bash template ```` info string (16 fences tagged across 6 files; skill-lint C1–C4 coverage unaffected); bare broken fences still fail.
+- **Fixed pre-existing bug** — `commands/validate-memory.md`: a trailing `# lint-ok` comment defeated a line continuation, leaving an unterminated `$(...)` in live code; found by the new gate on its first full-tree run.
+- **v1.0 feature freeze declared (CDT-46)** — AGENTS.md: only CDT-46 child work and bug fixes land on master until v1.0.0 tags; covers commands, skills, agents, hooks, specs.
+- **Domain glossary** — new `CONTEXT.md` with v1 contract terms (Surface, Deprecation stub).
+
 ### v0.79.0
 - **`/blunt` session tone** — opt-in no-sugarcoat mode: verdict-first, confidence must match evidence, disagree when warranted, not hostile. Command + `skills/blunt`; stacks with `/focus`. Session-only, no hooks.
 

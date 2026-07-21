@@ -452,7 +452,7 @@ memory DB, or any credential (SPEC-019 MUST; the wrapper appends nothing).
 **Resolve helpers and the labeled savings constant** (SPEC-019 ADR AMB-2 — per-task
 ESTIMATE of Claude tokens saved, coarse planning constants, NOT measured):
 
-```bash
+```bash template
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 RUN_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/run.sh)
 EMIT_METRIC=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/emit-orch-metric.sh)
@@ -867,7 +867,7 @@ Update TaskUpdate → completed. Check if this unblocks other tasks.
 
 On every TaskUpdate that changes a task's status, the orchestrator MUST also call:
 
-```bash
+```bash template
 # Re-resolve PDH (each bash fence is a fresh shell)
 PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
 TASK_STORE=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-store.sh)
@@ -1039,7 +1039,7 @@ bash "$CLOSE" verify "<slug>" --root "$WT_PATH" || {
 
 ### If PR requested:
 
-```bash
+```bash template
 cd <worktree-path>
 # Tracking close-out already applied on this worktree (above)
 git add -A .claude/backlog.md .claude/backlog/ 2>/dev/null || true
@@ -1077,7 +1077,7 @@ Tracking close-out for `linear:` entries).
 Prefer plain git — do NOT require `gh`. Apply Tracking close-out on the feature
 worktree first, then squash so tracker files are in the same commit:
 
-```bash
+```bash template
 # Tracking close-out on WT_PATH already done (above); ensure those paths are
 # committed on the feature branch or present in the worktree for squash.
 cd <main-repo-path>
@@ -1114,7 +1114,7 @@ produces `error: could not write config file .git/config: Device or
 resource busy`. The branch ref still gets deleted but the
 `[branch "feat/X"]` config stanza orphans:
 
-```bash
+```bash template
 git worktree remove <path-1>      # call 1
 git branch -D <branch-1>          # call 2 (separate Bash invocation)
 git worktree prune                # call 3 (reaps leftover admin entries)
