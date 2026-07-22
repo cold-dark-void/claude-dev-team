@@ -1,7 +1,7 @@
-# Permission posture matrix (CDT-51 / CDT-46-C5 AC1)
+# Permission posture matrix (CDT-51 / CDT-46-C5 AC1 + CDT-75 Cell D)
 
-Live A/B/C matrix for orchestration `permissions.defaultMode` under Claude Code
-**2.1.190**. Evidence gate for AC2 template flip (Task 2). Spec anchors:
+Live A/B/C/**D** matrix for orchestration `permissions.defaultMode` under Claude
+Code **2.1.190**. Evidence gate for AC2 template flip. Spec anchors:
 SPEC-002 posture MUSTs; SPEC-005 orchestration default follows this winner.
 
 **Machine-readable last-probed CC version (CDT-59):**
@@ -9,7 +9,10 @@ SPEC-002 posture MUSTs; SPEC-005 orchestration default follows this winner.
 `tools/permission-matrix-probe.sh` on a successful run. `/doctor` check
 `matrix.cc_version` WARNs when installed `claude --version` drifts.
 
-**Task 2 consumed `## Winner`** — ship default is `dontAsk` (see `/setup orchestration` / `skills/init-orchestration`).
+**Ship default (CDT-75):** **Cell D — `auto`** + sandbox +
+`autoAllowBashIfSandboxed` + matrix allow (see `## Winner`). Prior v1.0.0–1.0.1
+shipped Cell C (`dontAsk`); that mode remains valid but makes Linear-first
+inoperative (MCP silent-deny — CDT-74).
 
 ---
 
@@ -23,7 +26,7 @@ SPEC-002 posture MUSTs; SPEC-005 orchestration default follows this winner.
 | Scratch | `${TMPDIR}/cdt-51-matrix-20260722-013805/` (throwaway; not committed) |
 | Model | `haiku` (`claude-haiku-4-5-20251001`) via `claude -p` |
 | Zero-prompt proxy | stream-json `result.permission_denials` must be `[]`; no ask/deny events |
-| Interactive TUI | **Not fully automated** — residual risk below |
+| Interactive TUI | CDT-58 (Cell C) + live auto dogfood (CDT-75) — see sections below |
 
 ### Setting keys (empirical)
 
@@ -194,19 +197,85 @@ Least → most privilege (for equal allow+sandbox):
 
 ---
 
+## Cell D (CDT-75) — `auto`
+
+Probe re-run 2026-07-22T22:27Z (`MATRIX_CELLS="C:dontAsk D:auto"`, OUTDIR
+`/tmp/cdt-75-matrix-20260722T222718Z/`, host CC **2.1.190**, model haiku).
+
+| Field | Value |
+|-------|--------|
+| `defaultMode` | `auto` |
+| Sandbox | enabled + `autoAllowBashIfSandboxed: true` |
+| Allow | same matrix set as A/B/C |
+| Core-loop zero-prompt proxy | **YES** — `permission_denials: []` |
+| Overall core loop | **PASS_ZERO_PROMPT** (mem + worktree + hook + spawn) |
+
+| Flow | Status | Evidence |
+|------|--------|----------|
+| memory_sqlite3 | PASS | 1 row |
+| worktree_ensure_release | PASS | ensure+release clean |
+| hook_execution | PASS | 3 probe fires |
+| orchestrate_spawn | PASS | Agent + Write; tools Bash×3, Agent, Write |
+
+Same-run Cell C (`dontAsk`) core loop **FAIL** with **zero tool uses** — haiku
+refused the probe preamble as a “permission boundary test” (model refusal, not
+a deny event). Prior CDT-51 Cell C **PASS_ZERO_PROMPT** still stands for the
+allow-set core loop; CDT-58 interactive Cell C also ran allow-set work with
+0 dialogs.
+
+### Safety delta — `dontAsk` vs `auto` (same allow + sandbox)
+
+Programmatic delta in the same harness (`mcp-safety-delta.tsv`):
+
+| Action | `dontAsk` (Cell C) | `auto` (Cell D) |
+|--------|--------------------|-----------------|
+| Linear MCP `list_issues` under `claude -p` | **Denied** (not on allow; deny-not-ask) | **Denied in print mode** — stream shows permission *request* converted to denial (`Claude requested permissions to use mcp__…Linear__…`) |
+| Edit/Write `.claude/settings.json` to widen allow | **Denied** (self-escalation / denyWithinAllow) | **Denied** — settings file unchanged |
+| Core matrix allow tools (Bash/Write/Agent/…) | Unprompted when model cooperates | Unprompted; Cell D core loop **PASS_ZERO_PROMPT** |
+
+**Interactive TUI (user / fable, 2026-07-22):** session switched to `auto` →
+Linear MCP worked immediately, many MCP calls, **zero prompts**, sandbox still
+on. That is the MCP evidence print-mode cannot fully reproduce (no human to
+satisfy a permission request; `auto` still evaluates, does not mean “MCP always
+auto-approved under `-p`”).
+
+**Enumerated delta (what `auto` enables vs `dontAsk`):**
+
+1. **MCP path (interactive):** tools outside the static matrix allow can be
+   evaluated and allowed under policy/sandbox instead of hard silent-deny —
+   restores Linear-first without MCP-detection machinery (CDT-74 shrinks).
+2. **Settings self-mod:** still blocked under both modes in this probe — keep
+   CDT-68 batch-approval guidance for `/setup orchestration`.
+3. **Allow-set core loop:** both modes can be zero-dialog; `auto` is not a
+   privilege upgrade to bypassPermissions (sandbox remains on).
+
+### Older Claude Code / `auto` availability
+
+On host **2.1.190**, `claude --help` lists `auto` among `--permission-mode`
+choices. Binary string presence for mode key `auto` is high (shared token).
+Hosts that predate `auto` as a mode are **unknown in this probe** (no multi-
+version install). Ship note: consumers on older CC should re-run
+`tools/permission-matrix-probe.sh` after upgrade; if `auto` is rejected by the
+CLI, fall back to Cell C and accept MCP caveats or add explicit `mcp__*` allows.
+
 ## Winner
 
-**Cell C — `dontAsk`** (with `sandbox.enabled: true`, `autoAllowBashIfSandboxed: true`,
+**Cell D — `auto`** (with `sandbox.enabled: true`, `autoAllowBashIfSandboxed: true`,
 and full matrix allow set: `Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task).
 
 | Criterion | Result |
 |-----------|--------|
-| Passing cells (zero-prompt, all 4 flows) | A, B, **C** |
-| Least privilege among passers | **C** |
-| AC2 implication | Task 2 **flipped** `/setup orchestration` (`skills/init-orchestration`) ship default from `bypassPermissions` → `dontAsk` (sandbox MUSTs kept) |
-| C7 posture-honesty flag | **Not required** (non-bypass cell passed) |
+| Core loop PASS_ZERO_PROMPT (this probe) | **D** (C model-refused same run; prior C pass retained) |
+| MCP Linear usable without allow-list surgery | **D interactive** (C deny-not-ask — CDT-58/74) |
+| Settings self-widen blocked | C and D (good) |
+| Least privilege vs bypass | D ≪ A; D is the epic's original “sandbox + auto” wording |
+| Template implication | Ship default **flips** `dontAsk` → **`auto`** (CDT-75); CDT-74 MCP-detection machinery **not** built |
+| C7 posture-honesty flag | **Not required** |
 
-### Interactive evidence (CDT-58) — 2026-07-22
+Historical: v1.0.0–1.0.1 shipped Cell C after A/B/C-only matrix (MCP never
+probed). CDT-75 corrects that miss.
+
+### Interactive evidence (CDT-58) — 2026-07-22 — Cell C
 
 Live TUI dogfood on this plugin checkout under shipped Cell C (CC **2.1.190**,
 status bar `dont ask on`). Dogfood ticket **CDT-73** (throwaway marker write).
@@ -242,35 +311,29 @@ and settings self-mod work unprompted”:
 
 ### Residual risks
 
-1. **Non-interactive proxy vs interactive TUI.** Matrix used `claude -p`; CDT-58
-   interactive TUI measured **0 dialogs** for allow-set work (see above). MCP and
-   settings self-mod remain deny-not-ask, not dialog.
-2. **Spawn fidelity.** CDT-51 used Agent tool only; CDT-58 dogfood was a slim
-   orchestrate/implement path (marker file), not a full multi-teammate TaskList /
-   SendMessage session. Team-mode edge cases still lightly evidenced.
-3. **Allow-list coupling.** Cell C pass assumes the matrix allow set
-   (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task). Ship template + brownfield
-   merge now require that full set (CDT-51 TL P0). Narrowing allow without sandbox
-   auto-allow will fail zero-prompt under `dontAsk` (deny-not-ask). MCP is not
-   in that set by design until a deliberate product allow is added.
-4. **Sandbox dependency.** Without sandbox (or on hosts without bubblewrap),
-   `autoAllowBashIfSandboxed` does not fire; `dontAsk` then depends entirely on
-   allow rules. Current ship MUST keeps sandbox on (SPEC-002).
-5. **Hook coverage.** Only PreToolUse Bash probe hook exercised in the matrix;
-   Stop / TaskCompleted / friction hooks not fired end-to-end there. CDT-58
-   friction ledger showed no new rows during dogfood.
-6. **Model / version drift.** Evidence is for host **2.1.190** + haiku probe
-   model (matrix) and interactive TUI (CDT-58). Re-run
-   `tools/permission-matrix-probe.sh` after CC upgrades before trusting the
-   winner. `/doctor` `matrix.cc_version` WARNs when `claude --version` ≠
-   `tools/permission-matrix-cc-version` (CDT-59).
+1. **Non-interactive `-p` vs interactive TUI.** Core-loop proxy is `permission_denials`
+   under print mode. MCP under `auto` may still *request* permission in `-p`
+   (becomes denial); interactive TUI is the SoT for MCP UX (CDT-75 live dogfood).
+2. **Spawn fidelity.** CDT-51 used Agent tool only; CDT-58 dogfood was slim
+   implement. Full multi-teammate TaskList/SendMessage lightly evidenced.
+3. **Allow-list coupling.** Matrix allow still required for predictable zero-prompt
+   core tools. Under Cell D (`auto`), tools outside allow are *evaluated*, not
+   always hard-denied — do not treat allow as the only gate; sandbox remains MUST.
+4. **Sandbox dependency.** Without sandbox, high-autonomy modes lose OS boundary.
+   Doctor WARNs when `bypassPermissions` / `dontAsk` / `auto` lack sandbox.
+5. **Hook coverage.** Matrix PreToolUse probe only; CDT-58 friction delta empty.
+6. **Model / version drift.** Host **2.1.190**. Re-run probe after CC upgrades.
+   `/doctor` `matrix.cc_version` WARNs on drift (CDT-59). Older CC without `auto`
+   mode: untested — re-probe before trusting ship default.
 
 ### Reproduce
 
 ```bash
-# from plugin checkout / worktree
-bash tools/permission-matrix-probe.sh "${TMPDIR:-/tmp}/cdt-51-matrix-rerun"
-# inspect results.tsv + *-stream.jsonl permission_denials
+# full A/B/C/D (default MATRIX_CELLS)
+bash tools/permission-matrix-probe.sh "${TMPDIR:-/tmp}/cdt-75-matrix-rerun"
+# C vs D only + MCP safety delta
+MATRIX_CELLS="C:dontAsk D:auto" bash tools/permission-matrix-probe.sh "${TMPDIR:-/tmp}/cdt-75-cd"
+# inspect results.tsv, mcp-safety-delta.tsv, *-stream.jsonl
 ```
 
 ---
@@ -279,9 +342,11 @@ bash tools/permission-matrix-probe.sh "${TMPDIR:-/tmp}/cdt-51-matrix-rerun"
 
 | Path | Role |
 |------|------|
-| `tools/permission-matrix-probe.sh` | Reproducible harness (committed) |
+| `tools/permission-matrix-probe.sh` | Reproducible harness A/B/C/D + MCP delta (committed) |
 | `tools/permission-matrix-cc-version` | Last-probed CC semver (doctor drift SoT) |
 | `docs/runbooks/permission-posture-matrix.md` | This evidence (committed) |
-| `/tmp/cdt-51-matrix-20260722-013805/` | Live run scratch (local only) |
+| `/tmp/cdt-51-matrix-20260722-013805/` | Original A/B/C live scratch (local) |
+| `/tmp/cdt-75-matrix-20260722T222718Z/` | Cell D + MCP delta scratch (local) |
 | `…/results.tsv` | Per-flow PASS rows |
-| `…/{A,B,C}-stream.jsonl` | stream-json traces with `permissionMode` + denials |
+| `…/mcp-safety-delta.tsv` | dontAsk vs auto MCP + settings self-edit |
+| `…/{A,B,C,D}-stream.jsonl` | stream-json traces |

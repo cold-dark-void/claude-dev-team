@@ -99,6 +99,7 @@ non-bootstrap — gating is the caller's job.
 | `settings.json` | settings |
 | `settings.agent_teams` | settings |
 | `settings.sandbox_coherence` | settings |
+| `settings.mcp_allow` | settings |
 | `deps.jq` | deps |
 | `deps.python3` | deps |
 | `deps.gh` | deps |

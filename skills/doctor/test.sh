@@ -627,7 +627,7 @@ else
   fail "T15b status=$STATUS out=$OUT"
 fi
 
-# T15c — dontAsk + sandbox on → PASS (shipped coherent posture)
+# T15c — dontAsk + sandbox on → PASS (Cell C still coherent)
 python3 - <<'PY'
 import json
 p=".claude/settings.json"
@@ -643,6 +643,78 @@ if [ "$STATUS" = "PASS" ]; then
   pass "T15c dontAsk + sandbox on → PASS"
 else
   fail "T15c status=$STATUS out=$OUT"
+fi
+
+# T15d — Cell D auto without sandbox → WARN (CDT-75)
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": False}
+d["permissions"]={"defaultMode":"auto","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(doctor --json --only settings.sandbox_coherence 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "WARN" ]; then
+  pass "T15d auto + sandbox off → WARN"
+else
+  fail "T15d status=$STATUS out=$OUT"
+fi
+
+# T15e — Cell D auto + sandbox on → PASS (shipped coherent posture CDT-75)
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"auto","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(doctor --json --only settings.sandbox_coherence 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "PASS" ]; then
+  pass "T15e auto + sandbox on → PASS"
+else
+  fail "T15e status=$STATUS out=$OUT"
+fi
+
+# T15f — CDT-74 residual: dontAsk + no mcp__* → WARN
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"dontAsk","allow":["Bash(*)","Read","Write"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(doctor --json --only settings.mcp_allow 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "WARN" ]; then
+  pass "T15f dontAsk + no mcp__* → WARN"
+else
+  fail "T15f status=$STATUS out=$OUT"
+fi
+
+# T15g — auto + no mcp__* → PASS (Cell D does not need static mcp allow)
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"auto","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(doctor --json --only settings.mcp_allow 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "PASS" ]; then
+  pass "T15g auto + no mcp__* → PASS"
+else
+  fail "T15g status=$STATUS out=$OUT"
 fi
 
 # =============================================================================

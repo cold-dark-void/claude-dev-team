@@ -255,10 +255,11 @@ without prompting for every tool call:
   Destructive commands like `rm` and `wget` still prompt. The canonical list lives in
   `skills/scaffold-project/SKILL.md` — the single source of truth.
 - **Orchestration (`/setup orchestration`)** — grants the **matrix allow set**
-  (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) under `dontAsk` with
-  sandbox enabled + `autoAllowBashIfSandboxed` (matrix winner Cell C; evidence in
-  `docs/runbooks/permission-posture-matrix.md`). The OS sandbox is the boundary;
-  `dontAsk` never prompts (allow/auto-allow run; everything else is denied).
+  (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) under `auto` with
+  sandbox enabled + `autoAllowBashIfSandboxed` (matrix winner Cell D / CDT-75;
+  evidence in `docs/runbooks/permission-posture-matrix.md`). The OS sandbox is
+  the boundary; `auto` evaluates tools within policy (Linear MCP works without
+  static `mcp__*` allow entries).
 
 Extend for your stack by adding entries (`Bash(terraform:*)`, `Bash(kubectl:*)`, …) to
 `.claude/settings.json`. Full details in the **[Setup Guide](docs/setup.md)**.

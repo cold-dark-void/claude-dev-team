@@ -3,6 +3,12 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.2
+
+- **CDT-75** — matrix Cell D (`auto` + sandbox + matrix allow): core-loop `PASS_ZERO_PROMPT`; safety delta vs `dontAsk` documented; ship orchestration default flips Cell C → **Cell D** (epic C5 “sandbox + auto”). Probe harness adds Cell D + MCP/settings delta (`tools/permission-matrix-probe.sh`).
+- **CDT-74 residual** — no MCP-server detection machinery (superseded by Cell D). Doctor WARN `settings.mcp_allow` when brownfield still on `dontAsk` with zero `mcp__*` allows. Runbook + setup/migrate/README honesty.
+- **CDT-58** — interactive Cell C evidence retained in posture matrix (0 dialogs for allow-set work; MCP silent-deny under `dontAsk`).
+
 ### v1.0.1
 
 - **CDT-67** — doctor `--gate=orchestration|team`: self-remediating FAIL rows (exact fix-it = gated `/setup` command) stay FAIL but do not block setup Step 0; bare doctor exit 2 unchanged (SPEC-022 M6c / SPEC-005).
