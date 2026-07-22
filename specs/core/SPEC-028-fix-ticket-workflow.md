@@ -1,11 +1,13 @@
 # SPEC-028: `/fix-ticket` — Premise → Implement → Adversarial Refute
 
-**Status**: ACTIVE
+**Status**: DEPRECATED
 **Category**: core
 **Created**: 2026-07-14
 **Issue**: CDV-197
 
-> **Entry Surface (CDT-46-C4):** user entry is `/debug ticket …` via `commands/debug.md` + `skills/debug/SKILL.md`. `commands/fix-ticket.md` and `skills/fix-ticket/` are one-cycle Deprecation stubs. **Full fold of this spec into SPEC-014 is W5 out of scope** — protocol MUSTs below remain authoritative for the pipeline until that fold.
+**Covers**: `/debug ticket` entry via `commands/debug.md` + `skills/debug/SKILL.md` (SPEC-014 host); `commands/fix-ticket.md` + `skills/fix-ticket/` (Deprecation stubs, protocol retained); optional `skills/fix-ticket/workflow.js`
+
+> **Entry Surface (CDT-46-C4 / CDT-52):** user entry is `/debug ticket …` via `commands/debug.md` + `skills/debug/SKILL.md` (SPEC-014 host). `commands/fix-ticket.md` and `skills/fix-ticket/` are one-cycle Deprecation stubs. **This spec is DEPRECATED (file retained)** — protocol MUSTs below remain authoritative for the `/debug ticket` pipeline until v1.1 full merge into SPEC-014.
 
 ---
 
@@ -130,5 +132,6 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 
 | Date | Change |
 |------|--------|
+| 2026-07-22 | CDT-52 / CDT-46-C6 D4: Status ACTIVE→DEPRECATED (file retained — never delete). Folded protocol home remains authoritative for `/debug ticket` pipeline until v1.1 full merge; entry Surface is `/debug ticket` via SPEC-014; Covers added (fix-ticket stubs + debug ticket entry). |
 | 2026-07-14 | Initial ACTIVE — CDV-197 productize p0-fix-workflow as `/fix-ticket` |
 | 2026-07-22 | CDT-46-C4: entry Surface moves to `/debug ticket` (SPEC-014 host). M1/M3 retargeted; command+skill become Deprecation stubs. Full SPEC-028→SPEC-014 fold deferred to W5. |

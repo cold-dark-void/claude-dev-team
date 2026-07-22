@@ -110,11 +110,11 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 ## Validation
 
 - [x] Spec reviewed and promoted to ACTIVE (CDV-185)
-- [ ] Helpers + orchestrate instrumentation land with bite-tests green
+- [x] Helpers + orchestrate instrumentation land with bite-tests green (`skills/metrics/{emit-outcome,outcome-rates,test}.sh` PASS=25; orchestrate Step-7 advisory + stint-end emit blocks present)
 - [ ] One real orchestration run emits well-formed records from stint terminals (accepted after QA, escalated; council_overturns derived from index)
 - [ ] Advisory observed with numeric rationale on a seeded ledger; cold-start silence verified on a thin ledger
-- [ ] No silent-reroute path exists — printed advisory + explicit acceptance is the only route changer
-- [ ] Display duties remain with CDV-187 (no rendering added here)
+- [x] No silent-reroute path exists — printed advisory + explicit acceptance is the only route changer (orchestrate Step-7 advisory text; static tag default)
+- [x] Display duties remain with CDV-187 / `/status metrics` (no rendering added here)
 
 ---
 
@@ -134,6 +134,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 
 | Date | Change |
 |------|--------|
+| 2026-07-22 | CDT-52 / CDT-46-C6: verify-keep ACTIVE; metrics emit/outcome-rates + orchestrate advisory present. |
 | 2026-07-03 | Initial DRAFT — ideation wave 2 |
 | 2026-07-14 | CDV-185: path-cherry-pick; OQ1–OQ6 locks; stint-end emit timing; council_overturns = index conf null or &lt; taskgate; status DRAFT→ACTIVE |
 | 2026-07-21 | CDT-46-C2: ledger-source list narrowed — `/local-do` + local-agent escalation producers removed (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Dropped `commands/local-do.md` from Covers and the local source test; `local` agent enum retained without a producer; SPEC-019 references retagged as historical format-exemplar. M8 advisory scope now ic4 ⇄ ic5 only. Status stays ACTIVE. |
