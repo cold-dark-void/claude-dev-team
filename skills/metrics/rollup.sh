@@ -5,10 +5,9 @@
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 #
 # Usage:
-#   rollup.sh [--json] [--section all|local|council|outcomes|worktree]
+#   rollup.sh [--json] [--section all|council|outcomes|worktree]
 #
 # Reads (never writes):
-#   $MROOT/.claude/local-agent/metrics.jsonl   (SPEC-019 dual-shape)
 #   $MROOT/.claude/council/index.json          (SPEC-013)
 #   $MROOT/.claude/metrics/outcomes.jsonl      (SPEC-026)
 #   $MROOT/.worktrees/* dirs + .claude/tasks/*.json (cheap counts)
@@ -20,7 +19,7 @@
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
-USAGE='Usage: rollup.sh [--json] [--section all|local|council|outcomes|worktree]'
+USAGE='Usage: rollup.sh [--json] [--section all|council|outcomes|worktree]'
 
 JSON_MODE=0
 SECTION=all
@@ -57,9 +56,9 @@ while [ $# -gt 0 ]; do
 done
 
 case "$SECTION" in
-  all|local|council|outcomes|worktree) ;;
+  all|council|outcomes|worktree) ;;
   *)
-    usage "bad section '$SECTION' (expected all|local|council|outcomes|worktree)"
+    usage "bad section '$SECTION' (expected all|council|outcomes|worktree)"
     ;;
 esac
 
@@ -83,7 +82,7 @@ resolve_mroot
 if ! command -v jq >/dev/null 2>&1; then
   if [ "$JSON_MODE" -eq 1 ]; then
     # Valid empty shell so callers can still parse.
-    printf '%s\n' '{"local_agent":null,"council":null,"outcomes":null,"worktree":null,"error":"jq not found"}'
+    printf '%s\n' '{"council":null,"outcomes":null,"worktree":null,"error":"jq not found"}'
   else
     echo "rollup: jq not found; cannot aggregate metrics (install jq)" >&2
   fi
@@ -91,59 +90,13 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # ---- empty section templates ------------------------------------------------
-empty_local='{"present":false,"run":{"n":0,"success":0,"fail":0,"fallback":0},"companion":{"n":0,"saved_est_tokens_sum":0,"escalated_n":0,"completed_local_n":0}}'
 empty_council='{"present":false,"task_ids":0,"entries":0,"verdict_buckets":{"ge80":0,"b50_79":0,"lt50":0,"null":0}}'
 empty_outcomes='{"present":false,"n":0,"by_outcome":{"accepted":0,"escalated":0,"rejected":0},"by_agent":{},"by_task_class":{}}'
 empty_worktree='{"present":false,"worktrees_n":0,"tasks":{"pending":0,"in_progress":0,"completed":0,"blocked":0,"other":0,"files_n":0}}'
 
-LOCAL_JSON="$empty_local"
 COUNCIL_JSON="$empty_council"
 OUTCOMES_JSON="$empty_outcomes"
 WORKTREE_JSON="$empty_worktree"
-
-# ---- local-agent ------------------------------------------------------------
-if want_section local; then
-  LA_FILE="$MROOT/.claude/local-agent/metrics.jsonl"
-  if [ -f "$LA_FILE" ]; then
-    LOCAL_JSON="$(
-      jq -n -R '
-        [inputs | select(length > 0) | try fromjson catch empty | select(type == "object")] as $rows
-        | ($rows | map(select(has("ticket"))) ) as $comp
-        | ($rows | map(select((has("ticket") | not) and has("outcome"))) ) as $run
-        | {
-            present: true,
-            run: {
-              n: ($run | length),
-              success: ($run | map(select(.outcome == "success")) | length),
-              fail: ($run | map(select(.outcome == "fail")) | length),
-              fallback: ($run | map(select(.outcome == "fallback")) | length)
-            },
-            companion: {
-              n: ($comp | length),
-              saved_est_tokens_sum: (
-                [$comp[].saved_est_tokens | select(type == "number")]
-                | if length == 0 then 0 else add end
-              ),
-              escalated_n: (
-                $comp
-                | map(select((.saved_est_tokens | type == "number") and .saved_est_tokens == 0))
-                | length
-              ),
-              completed_local_n: (
-                $comp
-                | map(select((.saved_est_tokens | type == "number") and .saved_est_tokens > 0))
-                | length
-              )
-            }
-          }
-      ' <"$LA_FILE" 2>/dev/null
-    )" || LOCAL_JSON="$empty_local"
-    # Empty/unparseable file still counts as present with zeros
-    if [ -z "$LOCAL_JSON" ]; then
-      LOCAL_JSON='{"present":true,"run":{"n":0,"success":0,"fail":0,"fallback":0},"companion":{"n":0,"saved_est_tokens_sum":0,"escalated_n":0,"completed_local_n":0}}'
-    fi
-  fi
-fi
 
 # ---- council ----------------------------------------------------------------
 if want_section council; then
@@ -283,12 +236,10 @@ fi
 # ---- emit -------------------------------------------------------------------
 RESULT="$(
   jq -cn \
-    --argjson local "$LOCAL_JSON" \
     --argjson council "$COUNCIL_JSON" \
     --argjson outcomes "$OUTCOMES_JSON" \
     --argjson worktree "$WORKTREE_JSON" \
     '{
-      local_agent: $local,
       council: $council,
       outcomes: $outcomes,
       worktree: $worktree
@@ -304,25 +255,6 @@ fi
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date +%s)
 echo "Metrics — all-time — $TS"
 echo ""
-
-if want_section local; then
-  echo "─── Local agent ──────────────────────────────────"
-  if [ "$(printf '%s' "$LOCAL_JSON" | jq -r '.present')" = "true" ]; then
-    printf '  run.sh: n=%s  success=%s  fail=%s  fallback=%s\n' \
-      "$(printf '%s' "$LOCAL_JSON" | jq -r '.run.n')" \
-      "$(printf '%s' "$LOCAL_JSON" | jq -r '.run.success')" \
-      "$(printf '%s' "$LOCAL_JSON" | jq -r '.run.fail')" \
-      "$(printf '%s' "$LOCAL_JSON" | jq -r '.run.fallback')"
-    printf '  companion: n=%s  saved_est_sum=%s  local_ok=%s  escalated=%s\n' \
-      "$(printf '%s' "$LOCAL_JSON" | jq -r '.companion.n')" \
-      "$(printf '%s' "$LOCAL_JSON" | jq -r '.companion.saved_est_tokens_sum')" \
-      "$(printf '%s' "$LOCAL_JSON" | jq -r '.companion.completed_local_n')" \
-      "$(printf '%s' "$LOCAL_JSON" | jq -r '.companion.escalated_n')"
-  else
-    echo "  (no local-agent metrics yet)"
-  fi
-  echo ""
-fi
 
 if want_section council; then
   echo "─── Council ──────────────────────────────────────"

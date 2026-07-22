@@ -82,7 +82,6 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | `/adjust-agent` | View and manage per-agent behavioral directives (`--apply` for non-interactive) |
 | `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` |
 | `/init-orchestration` | Enable Agent Teams: sandbox, env var, auto-memory + Stop + TaskCompleted hooks |
-| `/demo` | Interactive walkthrough — scaffolds a temp project, injects a ticket, runs the pipeline |
 
 ### Feature work
 
@@ -93,7 +92,7 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 | [`/blunt`](docs/commands/blunt.md) | Session tone — no sugarcoating, verdict-first, certainty matches evidence (opt-in; stacks with `/focus`) |
 | [`/debug`](docs/commands/debug.md) | Phase-gated bug workflow — root cause → failing test → fix → verify (`patch`, `arch` subcommands) |
 | [`/fix-ticket`](docs/commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket (no auto-release) |
-| [`/incident`](docs/commands/incident.md) | DevOps war-room — severity triage, parallel RO threads, timeline, propose-only mitigation, postmortem (SPEC-027) |
+| `/incident` | DevOps war-room — severity triage, parallel RO threads, timeline, propose-only mitigation, postmortem (SPEC-027) **(deprecated — removed at v1.0.0)** |
 | [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification (`inline` subcommand) |
 | [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL kickoff → spec → implementation plan → task graph |
 | [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: fetch issue (Linear/backlog/freeform) → worktree → agents → review loops → optional code-simplify polish → ship with tracker close-out → PR. Optional passive progress: Slack/Discord MCP + `AGENT_WEBHOOK_URL` (fail-open JSON POSTs; unset = silent). Skip polish with `CODE_SIMPLIFY=0` |
@@ -138,7 +137,7 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 | [`/memory-config`](docs/commands/memory-config.md) | View and set memory configuration (distill mode, threshold) |
 | `/memory-stats` | Show memory usage statistics (counts, sizes, growth) |
 | `/memory-export` | Export sanitized tier-2 core memories to a committable seed pack (SPEC-024) |
-| `/metrics` | Read-only all-time rollup of local-agent, council, outcomes, worktree/task counts |
+| `/metrics` | Read-only all-time rollup of council, outcomes, worktree/task counts |
 | `/validate-memory` | Cross-reference agent memories against the live codebase; `--reconcile` detects cross-agent contradictions (`--report-only` for zero writes) |
 | [`/handoff`](docs/commands/handoff.md) | Reconstruct a past session, or capture the current one, into a dense brief |
 
@@ -151,9 +150,8 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 | `/backlog` | Manage project backlog items (add, close, list, init) |
 | `/release` | Bump version across all files, commit, tag, push |
 | `/release-train` | Multi-branch release queue — register, freeze, land via `/release` (SPEC-023) |
-| `/scout-plugins` | Research new plugins, evaluate against current setup, propose enhancements |
 | [`/retro`](docs/commands/retro.md) | Review past sessions for friction patterns, propose directive adjustments ([scheduled `--all --auto` runbook](docs/runbooks/scheduled-retro.md)) |
-| `/local-do` | Offload one mechanical, machine-verifiable task to the local model |
+| `/local-do` | Offload one mechanical, machine-verifiable task to the local model **(deprecated — removed at v1.0.0)** |
 
 ## Quick Start
 

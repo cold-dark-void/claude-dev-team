@@ -91,6 +91,58 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST provide a deterministic subprocess CLI `skills/backlog/close.sh` for close + verify (idempotent; no git commit inside the script)
 - MUST resolve close/verify root as `--root` if set, else `git rev-parse --show-toplevel`, else `pwd`
 
+#### Backlog add dedup guard
+
+- MUST NOT write a silent duplicate index row for an existing slug on `/backlog add`. When the
+  generated slug already has an index row (or item file), `/backlog add` MUST either (a) append a
+  numeric suffix (`-2`, `-3`, …) to create a distinct new slug per the slug-collision rule above,
+  or (b) abort with a message naming the pre-existing slug — it MUST NOT append a second row keyed
+  to the same slug. This makes duplicate rows for one slug an invariant the index never carries by
+  construction, complementing the reconcile collapse step below (which repairs indexes that
+  predate this guard).
+
+#### Backlog reconcile (`/backlog reconcile`)
+
+The reconcile subcommand is an **idempotent** repair pass that brings the `.claude/backlog.md`
+index into agreement with the `.claude/backlog/<slug>.md` item files (and, when reachable, with
+Linear). It is a hygiene operation — it moves and removes index rows and flips item-file `Status`
+per the precedence below, but MUST NOT invent new backlog items.
+
+- MUST operate over both stores: the index (`.claude/backlog.md`) and the per-item files
+  (`.claude/backlog/<slug>.md`). It MUST resolve the root with the same rule as close/verify
+  (`--root` if set, else `git rev-parse --show-toplevel`, else `pwd`) so it edits committed
+  tracker files on the correct worktree.
+
+- **Precedence (normative).** For each index entry, the source of truth is determined as follows:
+  - **Linear reachable (primary).** When the Linear MCP is reachable AND the index entry has a
+    Linear counterpart, Linear issue state is authoritative. An index entry whose Linear issue is
+    `Done` / `Cancelled` / `Completed` (or the team's equivalent terminal state) MUST have its
+    item file `Status` set to `COMPLETED` and its index row moved to the `## Completed` section.
+  - **Linear unreachable, or no Linear counterpart (fallback).** When the Linear MCP is
+    unreachable, OR an item has no Linear counterpart, local item-file status is authoritative:
+    - Rows whose item file `Status` reads `COMPLETED` / `DONE` / `FIXED-CLOSED` (case-insensitive)
+      MUST be moved to the `## Completed` section.
+    - Index rows with **no** corresponding item file MUST be removed (dead references).
+    - Duplicate rows for one slug MUST collapse to a single row (repairs pre-guard indexes; see
+      the add dedup guard above).
+
+- **Idempotency (MUST).** A second consecutive `/backlog reconcile` run over an already-reconciled
+  store MUST produce zero changes (no row moves, no removals, no item-file `Status` writes, no diff).
+  Reconcile MUST be safe to run repeatedly.
+
+- **Linear path is best-effort (MUST).** The Linear query is best-effort: any MCP failure
+  (absent, unauthenticated, timeout, or per-issue error) MUST degrade the affected entries to the
+  local item-file fallback above, emit a single one-line notice, and continue — it MUST NOT block,
+  retry-loop, or fail the reconcile pass on Linear unavailability. This mirrors SPEC-025 M5's
+  degradation posture (best-effort Linear mirror, one-line notice, local files remain source of
+  truth). A reconcile run therefore always terminates with a consistent local index even when
+  Linear is wholly unavailable.
+
+- Reconcile is a superset-safe complement to the ship-time / wrap-ticket close-out MUSTs above:
+  those close specific items named by a plan `closes:` list; reconcile sweeps the whole index for
+  drift (dead rows, stale `PENDING` rows for items Linear has since closed, duplicates). It does
+  not replace them.
+
 ## SHOULD
 
 - SHOULD detect deferred/follow-up items from wrap-ticket learnings and offer to add backlog entries
@@ -111,6 +163,11 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - Verify backlog slug generation handles collisions
 - Verify `close.sh` closes item + moves index line; verify is idempotent; verify gate fails while PENDING
 - Verify orchestrate plan includes Tracking/closes and ship DoD runs close on feature worktree
+- Verify `/backlog add` for an existing slug never writes a second row keyed to that slug (suffixes `-2`/`-3` or aborts with a message)
+- Verify `/backlog reconcile` moves rows whose item file reads COMPLETED/DONE/FIXED-CLOSED to `## Completed`, removes index rows with no item file (dead refs), and collapses duplicate rows for one slug
+- Verify `/backlog reconcile` sets item `Status`=COMPLETED and moves the row when the Linear issue is Done/Cancelled/Completed and the MCP is reachable (Linear-SoT precedence)
+- Verify `/backlog reconcile` degrades to the local item-file fallback with a one-line notice (no block, no fail) when the Linear MCP is unreachable
+- Verify a second consecutive `/backlog reconcile` produces zero changes (idempotency)
 
 ## Validation
 
@@ -120,6 +177,8 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - [ ] Standup correctly identifies READY vs WAITING tasks
 - [ ] Wrap-ticket extracts 3-8 specific learnings
 - [ ] Ship includes backlog close in same commit when `closes:` lists backlog paths
+- [ ] `/backlog reconcile` is idempotent (second run is a no-op) and degrades cleanly with Linear absent
+- [ ] `/backlog add` on an existing slug produces no silent duplicate index row
 - [ ] `bash skills/backlog/test.sh` passes
 
 ## Open Questions
@@ -133,6 +192,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 
 | Date | Change |
 |------|--------|
+| 2026-07-21 | reconcile subcommand + Linear-SoT precedence + add dedup guard defined (CDT-46-C2). Added `/backlog reconcile` (idempotent index↔item-file repair; Linear-reachable = source of truth for terminal states, local item-file status authoritative on fallback; dead-ref removal; duplicate collapse; best-effort Linear per SPEC-025 M5) and a `/backlog add` dedup guard (no silent duplicate rows for an existing slug). Spec-only; implementation and tests follow. |
 | 2026-07-14 | Tracking close-out DoD: plan `closes:`, ship-time backlog/Linear close via `close.sh`, wrap-ticket idempotent re-close; worktree `--root` for committed tracker files. |
 | 2026-03-22 | Initial spec generated by /generate-specs |
 | 2026-03-23 | Resolved LOC cap exemption for generated code. Clarified escalation: "pause and present to user." Split LOC caps into separate implementation and generated code requirements. |
@@ -154,3 +214,4 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - SPEC-013: Adversarial Council Tribunal — `requires_council: true` task metadata gates TaskCompleted on a council verdict
 - SPEC-002: Plugin Infrastructure — owns the TaskCompleted hook script; council gate logic must be implemented in `task-completed.sh` (cross-spec follow-up required)
 - SPEC-028: `/fix-ticket` premise→implement→adversarial-refuters — ticket-workflow family member; does not absorb orchestrate lifecycle, task store, or PR automation
+- SPEC-025: Epic Umbrella Decomposition — M4 makes backlog files the `/epic` source of truth (Linear a fallback mirror) and M5 defines the best-effort/one-line-notice Linear degradation posture that `/backlog reconcile` mirrors; reconcile MUST keep the backlog index consistent with the item files those epics write

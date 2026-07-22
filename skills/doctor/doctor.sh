@@ -941,48 +941,8 @@ check_deps_jq() {
 check_deps_python3() {
   _dep_check "deps.python3" "python3" "skill-lint, handoff prepass, docs-drift unavailable"
 }
-check_deps_bwrap() {
-  _dep_check "deps.bwrap" "bwrap" "local-agent runs without OS leash (SPEC-019)"
-}
-check_deps_opencode() {
-  _dep_check "deps.opencode" "opencode" "LOCAL_AGENT offload unavailable (SPEC-019)"
-}
 check_deps_gh() {
   _dep_check "deps.gh" "gh" "ci-watch / gh-backed release steps unavailable"
-}
-
-check_deps_local_agent() {
-  local flag="${LOCAL_AGENT:-}"
-  if [ -z "$flag" ]; then
-    record "deps.local_agent" "deps" "PASS" \
-      "LOCAL_AGENT unset (offload off — informational)" ""
-    return 0
-  fi
-  if [ "$flag" = "opencode" ]; then
-    if ! have_cmd opencode; then
-      record "deps.local_agent" "deps" "WARN" \
-        "LOCAL_AGENT=opencode but opencode not on PATH — SPEC-019 fallback to Claude" \
-        "Install opencode or unset LOCAL_AGENT"
-      return 0
-    fi
-    local rc=0
-    set +e
-    opencode --version >/dev/null 2>&1
-    rc=$?
-    set -e
-    if [ "$rc" -ne 0 ]; then
-      record "deps.local_agent" "deps" "WARN" \
-        "LOCAL_AGENT=opencode but opencode --version failed — SPEC-019 fallback to Claude" \
-        "Fix opencode install or unset LOCAL_AGENT"
-    else
-      record "deps.local_agent" "deps" "PASS" \
-        "LOCAL_AGENT=opencode and opencode --version ok" ""
-    fi
-    return 0
-  fi
-  record "deps.local_agent" "deps" "WARN" \
-    "LOCAL_AGENT='$flag' (expected 'opencode' or unset)" \
-    "Set LOCAL_AGENT=opencode or unset it"
 }
 
 check_worktree_locks() {
@@ -1120,10 +1080,7 @@ register_check "settings.agent_teams" "settings" check_settings_agent_teams
 register_check "settings.sandbox_coherence" "settings" check_settings_sandbox_coherence
 register_check "deps.jq" "deps" check_deps_jq
 register_check "deps.python3" "deps" check_deps_python3
-register_check "deps.bwrap" "deps" check_deps_bwrap
-register_check "deps.opencode" "deps" check_deps_opencode
 register_check "deps.gh" "deps" check_deps_gh
-register_check "deps.local_agent" "deps" check_deps_local_agent
 register_check "worktree.locks" "worktree" check_worktree_locks
 register_check "worktree.distill_lock" "worktree" check_worktree_distill_lock
 

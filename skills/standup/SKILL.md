@@ -164,70 +164,16 @@ Use `jq '.depends_on // []'` as the default to ensure backward compatibility wit
 
 ## Step 5: Print standup report
 
-Each task row includes an optional **routing indicator** showing where the task ran:
-
-| Indicator | Meaning |
-|-----------|---------|
-| `[local]` | Task ran on the local agent — orchestrator companion record has `saved_est_tokens > 0`. |
-| `[local→escalated]` | Task started local but Claude had to take over — companion record has `saved_est_tokens == 0`. |
-| *(blank)* | No companion record for this ticket (Claude ran it normally, or the wrapper fell back). |
-
-**Signal source:** `.claude/local-agent/metrics.jsonl` contains two record types:
-
-- **`run.sh` records** — one per terminal path; fields: `ts`, `outcome`, `exit_code`,
-  `saved_est_tokens`, `spent_tokens`. No `ticket` field — these records are not keyed
-  by ticket and are ignored by the routing indicator.
-- **Orchestrator companion records** (written by `emit-orch-metric.sh`) — fields include
-  `ticket` and `saved_est_tokens` (integer). This is the sole signal source for the
-  routing indicator: `saved_est_tokens == 0` means the local agent ran but escalated to
-  Claude; any positive value means the local agent completed the task.
-
-If the file is absent, no companion record exists for the ticket, or `jq` is unavailable,
-the column is blank — best-effort and gracefully absent when the local-agent feature
-hasn't run.
-
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-# Best-effort: extract routing indicator for a given ticket from metrics.
-# Driven entirely by the orchestrator companion record (emit-orch-metric.sh),
-# which is the only record keyed by ticket. run.sh records have no ticket field
-# and are intentionally ignored here.
-# Returns "[local]", "[local→escalated]", or "" (empty = no companion record).
-METRICS="$MROOT/.claude/local-agent/metrics.jsonl"
-routing_label() {
-  local ticket="$1"
-  [ -f "$METRICS" ] || { echo ""; return; }
-  command -v jq >/dev/null 2>&1 || { echo ""; return; }
-
-  # Find the last companion record for this ticket (has .ticket field).
-  local saved
-  saved=$(jq -r --arg t "$ticket" \
-    'select(.ticket == $t) | .saved_est_tokens' \
-    "$METRICS" 2>/dev/null | tail -1)
-
-  # No companion record → blank.
-  [ -z "$saved" ] || [ "$saved" = "null" ] && { echo ""; return; }
-
-  if [ "$saved" = "0" ]; then
-    echo "[local→escalated]"
-  else
-    echo "[local]"
-  fi
-}
-```
-
 ```
 Standup — <TICKET-ID or "all tickets"> — <current time>
 
 ─── In Progress ──────────────────────────────────────────────────────
-  id:<N>  [ic4] [local]             Task 1 — cache layer (GetAllForFolder)
+  id:<N>  [ic4]             Task 1 — cache layer (GetAllForFolder)
           Last: "Wrote 3 tests, implementing GetAllForFolder now"
           Commits: feat: POC-123 — add CachedAnalysis struct (14 min ago)
           Status: ✅ on track
 
-  id:<N>  [ic5] [local→escalated]   Task 2 — export package (Exporter+impls)
+  id:<N>  [ic5]             Task 2 — export package (Exporter+impls)
           Last: "Defined Exporter interface, sent to @ic4 and @qa. Writing CSV next."
           Commits: none yet
           Status: ⚠️ STALE — no commits in 45 min, check context
@@ -241,7 +187,7 @@ Standup — <TICKET-ID or "all tickets"> — <current time>
           Waiting on: Task 1 (in_progress), Task 2 (in_progress)
 
 ─── Completed ────────────────────────────────────────────────────────
-  id:<N>  [ic4] [local]   Task 0 — spec review    ✓
+  id:<N>  [ic4]   Task 0 — spec review    ✓
 
 ─── Summary ──────────────────────────────────────────────────────────
   In progress: 2   |   Ready to claim: 1   |   Blocked: 1   |   Done: 1
@@ -253,8 +199,7 @@ Standup — <TICKET-ID or "all tickets"> — <current time>
   ⏳  Task 3 unblocks when Tasks 1+2 complete — Tech Lead should monitor
 ```
 
-Omit any section that has no tasks. Omit the routing indicator from a row when the
-signal is unavailable — do not show a blank `[]` placeholder.
+Omit any section that has no tasks.
 
 ---
 

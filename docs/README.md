@@ -31,7 +31,6 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 | `/init-orchestration` | [Setup](setup.md#init-orchestration--enable-agent-teams) | Enable Agent Teams: sandbox, env var, hooks, AGENTS.md |
 | `/scaffold-project` | skill | TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` |
 | `/adjust-agent` | skill | View/manage per-agent behavioral directives (`--apply`) |
-| `/demo` | [demo](commands/demo.md) | Interactive walkthrough of the full pipeline in a temp project |
 
 ### Feature work
 
@@ -42,7 +41,6 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 | `/blunt` | [blunt](commands/blunt.md) | Session tone — no sugarcoat, verdict-first, certainty matches evidence |
 | `/debug` | [debug](commands/debug.md) | Phase-gated bug workflow (`patch`, `arch`; think-in-code for bulk scans) |
 | `/fix-ticket` | [fix-ticket](commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket |
-| `/incident` | [incident](commands/incident.md) | DevOps war-room — severity, timeline, propose-only mitigation, postmortem (SPEC-027) |
 | `/refactor` | [refactor](commands/refactor.md) | Design-first restructuring, behavior-preserving (`inline`) |
 | `/kickoff` | [kickoff](commands/kickoff.md) | Parallel PM+TL kickoff → spec → plan → task graph (+ domain glossary) |
 | `/orchestrate` | [orchestrate](commands/orchestrate.md) | Full lifecycle → review → optional **code-simplify** → QA → PR |
@@ -93,9 +91,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 | `/doctor` | skill | Install/config diagnostics (PASS/WARN/FAIL); `--json` / `--fix`; namespaced `dev-team:doctor` |
 | `/backlog` | skill | Manage project backlog items (add, close, list, init) |
 | `/release` | skill | Bump version across all files, commit, tag, push |
-| `/scout-plugins` | skill | Research new plugins, propose enhancements |
 | `/retro` | [retro](commands/retro.md) · [scheduled runbook](runbooks/scheduled-retro.md) | Review sessions for friction, propose directive adjustments; opt-in `--all --auto` schedule |
-| `/local-do` | skill | Offload one mechanical, machine-verifiable task to the local model |
 
 ## See also
 

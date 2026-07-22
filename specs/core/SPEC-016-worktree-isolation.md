@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-28
 
-**Covers**: `skills/worktree-lib.sh`, `skills/orchestrate/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/demo/SKILL.md`, `commands/worktree.md` (CDV-189), `AGENTS.md`, `.gitignore`
+**Covers**: `skills/worktree-lib.sh`, `skills/orchestrate/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2), `commands/worktree.md` (CDV-189), `AGENTS.md`, `.gitignore`
 
 ## Overview
 
@@ -72,7 +72,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - `skills/wrap-ticket/SKILL.md` Step 6 MUST call `bash "$WT_LIB" release <slug>` as a subprocess. MUST remove any direct `git worktree remove` call targeting `.worktrees/` paths
 - `skills/wrap-ticket/SKILL.md` MUST detect both `.worktrees/<slug>` (new) and `$MROOT/../<project>-<TICKET-ID>` (legacy) worktree paths; MUST prefer the new path when both exist
 - `skills/wrap-ticket/SKILL.md` MUST anchor every `grep` for a TICKET-ID so `WISO-1` does not match `WISO-10` (use `grep -E "(^|[^A-Z0-9-])WISO-1([^0-9]|$)"` or `grep -wF`); fix everywhere wrap-ticket greps for ticket ID
-- `skills/demo/SKILL.md` MUST keep its dedicated `$TMPDIR/demo-project` path and MUST NOT depend on `worktree-lib.sh`. MUST add a 2-3 line inline check at worktree creation: if path exists, prompt user before proceeding
+- **OBSOLETE at v1.0.0 (CDT-46-C2):** `/demo` was removed (`skills/demo/SKILL.md` is now a deprecation stub); this requirement is retained one deprecation cycle as historical record only. ~~`skills/demo/SKILL.md` MUST keep its dedicated `$TMPDIR/demo-project` path and MUST NOT depend on `worktree-lib.sh`. MUST add a 2-3 line inline check at worktree creation: if path exists, prompt user before proceeding~~
 - `AGENTS.md` MUST contain a "Worktree Protocol" section that: declares `.worktrees/<slug>` as the canonical path, points to `skills/worktree-lib.sh` and SPEC-016, and states in one sentence that sibling-directory worktrees are forbidden when the lib is in use
 - `AGENTS.md` Worktree Protocol SHOULD mention `/worktree status|list|release` as the user-facing management surface once shipped
 
@@ -173,7 +173,7 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 - [ ] `orchestrate` Step 3 calls `worktree-lib.sh ensure`
 - [ ] `wrap-ticket` Step 6 calls `worktree-lib.sh release`
 - [ ] `wrap-ticket` ticket-ID greps are anchored
-- [ ] `demo` retains its inline worktree check; does not call `worktree-lib.sh`
+- [ ] ~~`demo` retains its inline worktree check; does not call `worktree-lib.sh`~~ (OBSOLETE at v1.0.0, CDT-46-C2 — `/demo` removed)
 - [ ] `status`/`list`/`register`/`sweep` subcommands exist (CDV-189)
 - [ ] `commands/worktree.md` ships with status|list|release (CDV-189)
 - [ ] Proposed extension 'Worktree lifecycle hooks' remains DRAFT until provider redesign + promotion
@@ -195,6 +195,7 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 | 2026-06-16 | Switched the lock from PID-liveness to advisory, age-based locking. The lock now holds `<epoch-seconds> <ISO-8601-UTC>`; freshness is `now - epoch` vs `WT_LOCK_TTL_SECONDS` (env-overridable, default 6h). Rationale: the holder is an LLM agent/conversation, not an OS process — `kill -0` liveness was structurally unworkable (the old code recorded `worktree-lib.sh`'s own ephemeral subprocess PID, so collision detection never fired). FRESH → prompt abort/steal; STALE (age ≥ TTL or unparseable) → silent reclaim; legacy `PID TS` locks auto-reclaim as stale. Reconciles the prior 3-field-spec (`SESSION_ID PID ISO`) vs 2-field-code (`PID ISO`) drift (CLUSTER-004). |
 | 2026-07-13 | CDV-201: FRESH-lock prompt probes TTY via successful `printf >/dev/tty` (not `-r` alone). Unwritable `/dev/tty` (no controlling TTY / ENXIO) prints prompt to stderr and exits 2 cleanly under `set -e` instead of dying exit 1 with "No such device". Steal only on explicit `steal`. |
 | 2026-07-14 | CDV-189: promoted Part 2 lib surface (`status`/`list`/`register`/`sweep`) + `/worktree` command MUSTs; lock model remains epoch FRESH\|STALE. Lifecycle hooks WLH kept DRAFT after spike: WorktreeCreate/Remove **exist** (docs + changelog, CC ≥ event-add, local 2.1.190) but Create **replaces** git and must print path; Remove has **no** exit-2 block. Dirty/FRESH enforcement stays in `release` + user command. |
+| 2026-07-21 | CDT-46-C2: `/demo` removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` → deprecation stub). Marked the demo-specific MUST and its validation checkbox OBSOLETE-at-v1.0.0 (retained one cycle as historical record, not deleted); annotated the demo Covers entry as a DEPRECATED stub. Worktree-lib/orchestrate/wrap-ticket behavior unchanged. |
 
 ## Cross-references
 

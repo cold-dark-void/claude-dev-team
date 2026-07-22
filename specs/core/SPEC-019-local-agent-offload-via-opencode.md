@@ -1,6 +1,6 @@
 # SPEC-019: Local-Agent Offload via OpenCode
 
-**Status**: ACTIVE
+**Status**: DEPRECATED
 **Category**: core
 **Created**: 2026-06-16
 
@@ -370,6 +370,7 @@ for each unblocked task:
 | 2026-06-16 | PR2 landed (CDV-20): orchestrate routing fork + offload-review loop + companion metrics (`emit-orch-metric.sh`) + standup surface implemented and passed QA; status DRAFT→ACTIVE. |
 | 2026-06-17 | CDV-21: Upgraded execution isolation from best-effort `--dir` leash to OS-enforced bubblewrap FS leash. New bind-set: `--ro-bind / /`, `--dev`/`--proc`/`--tmpfs /tmp`, `--bind` worktree rw, `--bind-try` gitdir + git-common-dir rw, `--bind-try` four XDG opencode state dirs rw; no `--unshare-net` by default. Confinement scope: worktree + git plumbing + opencode state. `--check` runs unconfined on host. Graceful degradation: absent bwrap / `LOCAL_AGENT_SANDBOX=0` / probe failure → falls back to `--dir` confinement + stderr downgrade notice; exit-code contract unchanged. FS-leash backlog item closed. |
 | 2026-07-14 | CDV-198: (1) Optional egress — `LOCAL_AGENT_NET=none` appends `--unshare-net` to bwrap candidate; default host net unchanged; probe degrades net-off then FS-off, never exit 2 from net alone; docs warn ollama/LAN/remote break; host allowlist backlog. (2) Consumers — `/debug patch` P.4 + `/refactor inline` 3.3 cite `/local-do` Steps 3–5 when flag+machine-check+mechanical; investigation/design gates and full/default modes stay Claude; forbidden-agent set unchanged. Covers list + Configuration updated. |
+| 2026-07-21 | Status ACTIVE → DEPRECATED. `/local-do` + `skills/local-agent/` surfaces and ALL local-offload references (orchestrate, debug, refactor, standup, metrics, doctor, AGENTS.md) excised at v1.0.0 (CDT-46-C2); one-cycle Deprecation stubs in place. Body preserved for one deprecation cycle. |
 
 ## Cross-references
 

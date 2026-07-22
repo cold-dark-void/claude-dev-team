@@ -318,10 +318,10 @@ else
 fi
 
 # =============================================================================
-# T5. Optional deps stripped PATH → 5 WARN 0 FAIL for deps group (on bare-ish)
+# T5. Optional deps stripped PATH → 3 WARN 0 FAIL for deps group (on bare-ish)
 # =============================================================================
 cd "$HEALTHY" || exit 1
-# Isolated bin dir: essentials only — deliberately omit jq/python3/bwrap/opencode/gh
+# Isolated bin dir: essentials only — deliberately omit jq/python3/gh
 DEPS_BIN="$TMP/bin-nodeps"
 mkdir -p "$DEPS_BIN"
 for b in bash git sqlite3 awk sed grep head tr cat chmod mkdir ls date \
@@ -340,7 +340,7 @@ d=json.load(sys.stdin)
 warns=sum(1 for c in d["checks"] if c["status"]=="WARN")
 fails=sum(1 for c in d["checks"] if c["status"]=="FAIL")
 ids={c["id"]:c for c in d["checks"]}
-need=["deps.jq","deps.python3","deps.bwrap","deps.opencode","deps.gh"]
+need=["deps.jq","deps.python3","deps.gh"]
 missing_warn=sum(1 for i in need if i in ids and ids[i]["status"]=="WARN")
 # each WARN must carry impact-ish detail
 impacts=sum(1 for i in need if i in ids and ids[i]["status"]=="WARN" and ids[i].get("detail"))
@@ -349,14 +349,14 @@ print(f"{warns} {fails} {missing_warn} {impacts}")
 # shellcheck disable=SC2086
 set -- $EVAL
 W=${1:-0}; F=${2:-0}; MW=${3:-0}; IM=${4:-0}
-if [ "$F" = "0" ] && [ "$MW" -eq 5 ] && [ "$RC" -eq 1 ]; then
-  pass "T5a stripped PATH → 5 deps WARN 0 FAIL exit 1"
+if [ "$F" = "0" ] && [ "$MW" -eq 3 ] && [ "$RC" -eq 1 ]; then
+  pass "T5a stripped PATH → 3 deps WARN 0 FAIL exit 1"
 else
   fail "T5a eval=$EVAL rc=$RC out=$OUT"
 fi
 
-if [ "${IM:-0}" -eq 5 ] && printf '%s' "$OUT" | grep -q "JSON metrics\|skill-lint\|OS leash\|LOCAL_AGENT\|ci-watch"; then
-  pass "T5b named feature impact strings on all five"
+if [ "${IM:-0}" -eq 3 ] && printf '%s' "$OUT" | grep -q "JSON metrics\|skill-lint\|ci-watch"; then
+  pass "T5b named feature impact strings on all three"
 else
   # still require Install fix-its
   if printf '%s' "$OUT" | grep -c "Install" | grep -q '[1-9]'; then

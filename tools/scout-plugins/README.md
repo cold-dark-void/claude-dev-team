@@ -1,12 +1,6 @@
----
-name: scout-plugins
-description: |
-    Research new/updated Claude Code plugins, MCP servers, and skills released in
-    the last week (or custom time window). Evaluates each against the current
-    dev-team plugin setup, identifies gaps, and proposes enhancements with priority
-    and effort. Usage: /scout-plugins or /scout-plugins 2w or /scout-plugins 30d
-argument-hint: "[time window, e.g. 1w, 2w, 30d — default: 1w]"
----
+> **Internal tool — not part of the loadable skill surface.**
+> Not discovered by the harness. Relocated from `skills/scout-plugins/` at v1.0.0 (CDT-46-C2).
+> Run manually by a human or orchestration agent when a plugin ecosystem scan is needed.
 
 # Scout Plugins
 

@@ -304,7 +304,7 @@ Before creating any tasks, extract the dependency graph from the approved Tech L
 For each task in the approved plan, finalize tagging then call TaskCreate.
 
 **`Task-class:` line (SPEC-026 M3).** Record class as a prose line (mirroring
-`Recommended agent:` / `Machine-check:`) — NOT a `task-store.sh` schema field.
+`Recommended agent:`) — NOT a `task-store.sh` schema field.
 Fixed taxonomy: `impl-extend | impl-novel | refactor | test | docs | infra | discovery`.
 Missing line ⇒ `task_class: null` at emit; null-class records are still written but
 excluded from advisory aggregation (M7).
@@ -346,18 +346,7 @@ TaskCreate:
     Recommended agent: <ic4|ic5|qa>
     Depends on: [Task IDs] or "none"
     requires_council: <true|false>   # omit = false
-    Machine-check: <shell-expr> | none   # see below
 ```
-
-**`Machine-check:` line (SPEC-019 PR2, ADR AMB-1).** When offload is in play, the
-Tech Lead records a per-task **deterministic** machine-check as a `Machine-check:
-<shell-expr>` prose line (mirroring `Recommended agent:`) — NOT a `task-store.sh`
-schema field. The expression is a single shell string runnable via `bash -c` from
-the worktree (tests, lint, `bash -n`, `jq`/JSON-validate, or a build) whose exit 0
-means "the change is correct"; it is threaded **verbatim** into the offload path's
-`run.sh --check`. Use the literal `none` for tasks with no deterministic check
-(ambiguous/novel/design). A **missing line or `none` routes the task to Claude** —
-one half of the Step 8 offload eligibility gate.
 
 After each TaskCreate succeeds and the task id is known, the orchestrator MUST call:
 
@@ -401,125 +390,7 @@ remember reading *in this concrete turn*, run `Read` first. The
 just happened; treat it as a directive to re-Read every file you intend
 to touch this turn, not a one-off retry.
 
-For each task that has no blockers, decide HOW to execute it. The default and
-fallback path is the Claude IC spawn fence below; the optional local-agent offload
-path (SPEC-019) is an **additive fork evaluated first**. The spawn fence is the
-literal `else`/default of that fork, left **verbatim** — when offload is off,
-ineligible, or exhausted, execution is byte-for-byte the pre-feature behavior.
-
-### Local-agent routing fork (SPEC-019 PR2 — additive, evaluated before the spawn fence)
-
-Before spawning the Claude IC for a ready task, evaluate this gate. **If ALL of the
-following hold, take the offload sub-block below; OTHERWISE skip it entirely and
-spawn the Claude IC via the unchanged fence that follows.**
-
-1. **Flag on:** `LOCAL_AGENT=opencode` exactly (the env opt-in; any other value or
-   unset ⇒ skip).
-2. **Eligible task type:** the task's `Recommended agent:` line marks ic4-class
-   *implementation* (extending an existing pattern), *codebase discovery/search*,
-   or *docs/boilerplate generation*. Any other type ⇒ skip.
-3. **Forbidden-agent guard (hard):** the task is NOT any of — **tech-lead**
-   (architecture/design), **ic5** (ambiguous/novel/security-sensitive), the
-   **qa-gate** final release gate, the **council judge or any council/blind-review
-   investigator**, **PM kickoff**, or **release/version-bump/commit** work. A match
-   here skips the offload branch unconditionally — these NEVER offload, even with
-   the flag set and a machine-check present.
-4. **Machine-check present:** the task description carries a `Machine-check:
-   <shell-expr>` line whose value is NOT the literal `none`. Missing or `none` ⇒
-   skip (route to Claude, per Step 7).
-5. **Preflight ok:** `run.sh` itself does the real preflight (flag match,
-   `command -v opencode`, `opencode --version` liveness) and returns exit `2` on any
-   failure — an absent/dead opencode is a transparent call-time fallback (exit 2 ⇒
-   Claude), not a hard precondition here.
-
-Skipping for any reason falls through to the Claude IC spawn fence below.
-
-#### Offload sub-block (runs only when the fork above selected offload)
-
-This is a **dedicated scoped sub-block**, NOT a rewrite of the Step-9 Tech-Lead
-review loop and NOT a modification of the spawn fence (SPEC-019 ADR AMB-5,
-protecting the central-file LOC budget per SPEC-009).
-
-**Compose a self-contained brief** (briefest sufficient — SPEC-019 SHOULD). The
-local agent has NO project memory: the brief is its sole context. Assemble: the
-task description; only the **spec MUST/SHOULD excerpts** that bound this task; the
-**file paths** it reads/edits (absolute, within the worktree); the **machine-check
-string** (the bar it must clear); and an explicit instruction to follow the **TDD
-gate** (RED → GREEN → REFACTOR for runtime-behavior changes) and stay within
-SPEC-009 LOC caps. Do **NOT** include or reference agent memory, cortex, the SQLite
-memory DB, or any credential (SPEC-019 MUST; the wrapper appends nothing).
-
-**Resolve helpers and the labeled savings constant** (SPEC-019 ADR AMB-2 — per-task
-ESTIMATE of Claude tokens saved, coarse planning constants, NOT measured):
-
-```bash template
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
-RUN_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/run.sh)
-EMIT_METRIC=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/emit-orch-metric.sh)
-# saved_est = ESTIMATE of Claude authoring tokens avoided (NOT measured):
-#   ic4-class implementation -> 8000 ; discovery/search -> 3000 ; docs/boilerplate -> 2000
-# On escalation (offload abandoned) saved_est is 0.
-SAVED_EST=<8000|3000|2000 by task type>
-MCHECK="<verbatim Machine-check: value>"
-```
-
-**Two independent attempt counters, each capped at 2** (both inherit SPEC-009's
-"stuck after 2 → escalate"). Initialize `LOCAL_ATTEMPTS=0`, `REVIEW_ATTEMPTS=0`.
-Loop:
-
-```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
-RUN_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/local-agent/run.sh)
-bash "$RUN_SH" --worktree "$WT_PATH" --brief "$BRIEF" --check "$MCHECK"  # lint-ok: C1
-RC=$?
-```
-
-Branch on `$RC`:
-
-- **exit 2 (fallback)** — flag off / opencode absent / liveness failed. Log ONE
-  notice (`Task <ID>: local-agent unavailable, running on Claude.`), then **fall
-  through to the Claude IC spawn fence below**. NO loop, NO escalation metric — this
-  is the invisible-when-off path. (Do NOT emit a `saved_est` metric here; nothing
-  was offloaded.)
-- **exit 1 (machine-check failed)** — local-iteration cap. `LOCAL_ATTEMPTS++`. If
-  `LOCAL_ATTEMPTS < 2`: fold the machine-check failure (the stderr/diagnostic) into
-  the brief and re-call `run.sh`. These iterations cost **no Claude tokens**. If
-  `LOCAL_ATTEMPTS >= 2`: **escalate** (see below).
-- **exit 0 (machine-check passed)** — trigger a **Claude diff review of the
-  worktree diff**, the same bar as Claude-authored work. **Reuse the existing
-  review mechanism — do NOT clone it:** invoke council `diff-mode` (SPEC-010), or
-  equivalently route the diff through the **Step-9 Tech-Lead review loop** body
-  (its APPROVE / REQUEST CHANGES contract). On **APPROVE** → accept; the task then
-  passes the SAME `TaskCompleted` council gate as Claude-authored work (SPEC-013;
-  set `requires_council` per the plan and export `CLAUDE_TASK_ID` exactly as for a
-  Claude IC). On **REQUEST CHANGES** → `REVIEW_ATTEMPTS++`; if `REVIEW_ATTEMPTS < 2`
-  fold the review feedback into the brief and re-call `run.sh`; if
-  `REVIEW_ATTEMPTS >= 2` (second rejected review) → **escalate**.
-
-After folding feedback into the brief on either an exit-1 retry or an exit-0
-REQUEST CHANGES retry, return to the `Loop:` `run.sh` call above and re-evaluate
-`$RC`.
-
-**Escalate** (either cap exhausted): spawn the Claude IC via the unchanged fence
-below, passing **the local agent's partial worktree diff as context** — Claude owns
-and completes the output. At this terminal handoff emit `saved_est = 0` (offload
-abandoned): `bash "$EMIT_METRIC" "<ISSUE-ID>" 0 null`. Also run **Stint-end outcome
-emit** (SPEC-026) with `STINT_AGENT=local` `STINT_OUTCOME=escalated` (see named
-block before Step 9).
-
-**Instrument every terminal outcome** (SPEC-019 ADR AMB-3 companion record; `run.sh`
-stays frozen and writes its own `saved_est_tokens: null` line — the non-null
-ESTIMATE lives ONLY on this companion record):
-
-- **accepted (review APPROVE)** → `bash "$EMIT_METRIC" "<ISSUE-ID>" "$SAVED_EST"
-  null` (`spent_review_escalation` is `null` in this version: the orchestrator has
-  no reliable per-task Claude-token meter and MUST NOT fabricate one (AMB-2 honesty
-  rule); the field exists for a future metered implementation).
-- **escalated (either cap)** → `saved_est = 0` (the escalation call shown above).
-- **fallback (exit 2)** → no companion metric; `run.sh` already logged its line.
-
-When offload accepts or escalates, the task proceeds to Step 9 / Step 10 exactly as
-a Claude-authored task would — there is no separate completion path.
+For each task that has no blockers, spawn the Claude IC via the fence below.
 
 ```
 Spawn @<agent> for Task <ID>:
@@ -794,8 +665,8 @@ bash "$EMIT" \
 
 **Call sites** (prose only — do not rewrite review/QA loop bodies):
 1. **Escalated** (`STINT_OUTCOME=escalated`): Step-8 stuck-after-2 hand-off; Step-9
-   3+-round deadloop escalate; Step-8 local-agent cap (`STINT_AGENT=local`). Emit
-   for the agent whose stint ends; counters as of hand-off.
+   3+-round deadloop escalate. Emit for the agent whose stint ends; counters as of
+   hand-off.
 2. **Accepted** (`STINT_OUTCOME=accepted`): **after** Step-10 finalizes `qa_bounces`
    for that task (QA PASS, or QA N/A with counter frozen). MUST NOT emit on Step-9
    APPROVE alone.

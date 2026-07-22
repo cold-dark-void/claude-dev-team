@@ -5,7 +5,7 @@
 | ID | Title | Status | Coverage |
 |----|-------|--------|----------|
 | SPEC-001 | Per-Agent Directives | ACTIVE | commands/adjust-agent.md, agents/*.md (directives loading) |
-| SPEC-002 | Plugin Infrastructure | INFERRED | .claude-plugin/plugin.json, marketplace.json, .claude/settings.json, hooks/task-completed.sh, skills/scout-plugins |
+| SPEC-002 | Plugin Infrastructure | INFERRED | .claude-plugin/plugin.json, marketplace.json, .claude/settings.json, hooks/task-completed.sh, tools/scout-plugins |
 | SPEC-003 | Agent Role System | INFERRED | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
 | SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, schema.sql, migrate-md.sh, migrate-v2.sh |
 | SPEC-005 | Team Bootstrap | INFERRED | agents/project-init.md, commands/init-team.md, download-extensions.sh, skills/scaffold-project, init-orchestration, demo |
@@ -22,15 +22,15 @@
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, skills/orchestrate/SKILL.md, skills/wrap-ticket/SKILL.md, AGENTS.md |
 | SPEC-017 | Autonomous CI Watch + Task DAG | ACTIVE | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh, skills/orchestrate/dag-lib.sh, skills/ci-watch/SKILL.md, skills/ci-watch/poll.sh, skills/ci-watch/sidecar.sh, skills/ci-watch/detect-mode.sh |
 | SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012), skills/retro-gate/gate.sh (refactor) |
-| SPEC-019 | Local-Agent Offload via OpenCode | ACTIVE | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
+| SPEC-019 | Local-Agent Offload via OpenCode | DEPRECATED | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
 | SPEC-020 | Loop-Prompt Architect (/craft-loop) | ACTIVE | commands/craft-loop.md, skills/craft-loop/SKILL.md, program-template.md, examples/ |
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
 | SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 | SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory-export.md, commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
 | SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse) |
-| SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped), commands/local-do.md |
-| SPEC-027 | /incident War-Room & Postmortem | ACTIVE | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |
+| SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped) |
+| SPEC-027 | /incident War-Room & Postmortem | DEPRECATED | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |
 | SPEC-028 | `/fix-ticket` Premise → Implement → Adversarial Refute | ACTIVE | commands/fix-ticket.md, skills/fix-ticket/SKILL.md, skills/fix-ticket/workflow.js, docs/commands/fix-ticket.md |
 | SPEC-029 | Debug Reopen & Multi-Surface Done Gates | ACTIVE | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
 | SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |

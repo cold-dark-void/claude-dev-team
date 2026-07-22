@@ -1,6 +1,6 @@
 ---
 name: metrics
-description: Read-only all-time rollup of local-agent, council, outcomes, and worktree/task counts
+description: Read-only all-time rollup of council, outcomes, and worktree/task counts
 ---
 
 # /metrics
@@ -13,7 +13,6 @@ Sources (read-only):
 
 | Section | Path | Spec |
 |---------|------|------|
-| `local` | `.claude/local-agent/metrics.jsonl` | SPEC-019 (dual-shape) |
 | `council` | `.claude/council/index.json` | SPEC-013 |
 | `outcomes` | `.claude/metrics/outcomes.jsonl` | SPEC-026 |
 | `worktree` | `.worktrees/*` + `.claude/tasks/*.json` | cheap counts |
@@ -25,7 +24,7 @@ hook-based session cost capture, windowing/decay, writes to any store.
 
 - `/metrics` — all sections, human tables
 - `/metrics --json` — single JSON object on stdout
-- `/metrics --section <all|local|council|outcomes|worktree>` — one section
+- `/metrics --section <all|council|outcomes|worktree>` — one section
 - Flags may combine: `/metrics --json --section outcomes`
 
 ## Step 1: Resolve rollup.sh
@@ -71,8 +70,6 @@ not open report bodies under `.claude/council/*.md`.
 
 ## Notes
 
-- **Display-only** — MUST NOT call `emit-outcome.sh`, `emit-orch-metric.sh`,
-  council index writers, or any task-store mutator.
-- **Dual-shape local-agent** — companion rows have `ticket`; run.sh rows have
-  `outcome` and lack `ticket`. Never double-count.
+- **Display-only** — MUST NOT call `emit-outcome.sh`, council index writers, or
+  any task-store mutator.
 - **All-time only** — no window filter.

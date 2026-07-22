@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `agents/project-init.md`, `commands/init-team.md`, `skills/memory-store/download-extensions.sh`, `skills/scaffold-project/SKILL.md`, `skills/init-orchestration/SKILL.md`, `skills/demo/SKILL.md`
+**Covers**: `agents/project-init.md`, `commands/init-team.md`, `skills/memory-store/download-extensions.sh`, `skills/scaffold-project/SKILL.md`, `skills/init-orchestration/SKILL.md`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2)
 
 ## Overview
 
@@ -65,6 +65,8 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - When a shared rule body is corrected in one document, the maintainer MUST reconcile the other by hand (e.g. the `SendMessage` no-addressable-parent guidance applies to consumer-spawned agents and so MUST appear in the emitted template's Team Coordination section, not only in this repo's AGENTS.md).
 
 ### Demo
+> **OBSOLETE at v1.0.0 (CDT-46-C2):** the `/demo` skill was removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` is now a deprecation stub). The requirements below are retained for one deprecation cycle as historical record; they describe behavior that no longer ships. Replacement workflow: `/setup` + `/kickoff` on a scratch repo, or `/orchestrate` directly.
+
 - MUST verify preflight checks (memory.db or memory.md exists, AGENTS.md exists)
 - MUST create temporary worktree with throwaway branch (`demo/dev-team-<timestamp>`)
 - MUST scaffold minimal but realistic Go project with passing tests
@@ -112,6 +114,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-06-13 | AUDIT-P1-1B (D4): declared this repo's AGENTS.md and the emitted consumer template intentionally DISTINCT (no managed-include single-sourcing between them; emitted files MUST stay marker-free). Pushed the `SendMessage` no-addressable-parent guidance into the emitted template's Team Coordination section (both blocks) — consumers previously lacked it, risking spawned agents DMing a non-existent parent. |
 | 2026-06-14 | AUDIT-P0.12: TaskCompleted-hook registration command changed to the worktree-safe `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"` form, matching the init-orchestration safe emitter (relative path resolved from agent cwd and failed inside worktrees). |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): reworded the Demo cleanup MUST to defer to SPEC-016's safe worktree-teardown (separate `git worktree remove` / `git branch -D` calls, never chained `&&`; prefer `worktree-lib.sh release`); added SPEC-016 cross-reference. No behavioral change. |
+| 2026-07-21 | CDT-46-C2: `/demo` removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` → deprecation stub). Marked the Demo MUST/SHOULD/Test/Validation items OBSOLETE-at-v1.0.0 (retained one cycle as historical record, not deleted); annotated the demo Covers entry as a DEPRECATED stub. Bootstrap requirements (init-team, scaffold, init-orchestration) unchanged. |
 
 ## Cross-references
 

@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.claude/settings.json`, `.claude/hooks/task-completed.sh`, `.claude/hooks/bash-compress.sh`, `.claude/hooks/memory-capture.sh`, `.claude/hooks/stop-review.sh`, `skills/scout-plugins/SKILL.md`, `skills/plugin-dir.sh`
+**Covers**: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.claude/settings.json`, `.claude/hooks/task-completed.sh`, `.claude/hooks/bash-compress.sh`, `.claude/hooks/memory-capture.sh`, `.claude/hooks/stop-review.sh`, `tools/scout-plugins/README.md`, `skills/plugin-dir.sh`
 
 ## Overview
 
@@ -186,6 +186,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-06-16 | CLUSTER-003/A5: extended the resolution-site table (11→15) to cover the subprocess-CLI helpers (worktree-lib/dag-lib/task-store/ci-watch scripts) invoked by orchestrate/wrap-ticket/standup/ci-watch. These previously used `$MROOT/skills/…` (the consumer's repo) and exited 127 on a real cache install; they now resolve through `plugin-dir.sh` like the engine/schema sites. The detached ci-watch cron prompt bakes in a `plugin-dir.sh`-resolved `<PLUGIN>` root at arming time. |
 | 2026-06-16 | Aligned the Stop-hook dedup MUST to the deployed keying: `stop-review.sh` stamps per (cwd-hash + short HEAD sha) and re-fires only when HEAD moves, not per session_id. Restated as "one reminder per project per HEAD commit". |
 | 2026-07-13 | CDV-178: stop-review MUST count any porcelain XY status except `??`/`!!` (dual-index codes MM/AM/MD/RM and merge conflicts were previously skipped by a single-side `[MADRC]` matcher). |
+| 2026-07-21 | CDT-46-C2: repointed the plugin-discovery Covers entry `skills/scout-plugins/SKILL.md` → `tools/scout-plugins/README.md` (scout-plugins relocated out of the loadable skill surface at v1.0.0; capability retained as an internal tool). |
 | 2026-06-22 | Doc-IA pass: the changelog moved out of `README.md` into a dedicated repo-root `CHANGELOG.md`. The third version-synced file is now `CHANGELOG.md`, not the README; `README.md` carries only a pointer. `/release` (SPEC-010) updated to match. |
 
 ## Cross-references

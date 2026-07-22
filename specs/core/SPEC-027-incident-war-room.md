@@ -1,6 +1,6 @@
 # SPEC-027: /incident — DevOps-Led War-Room & Postmortem
 
-**Status**: ACTIVE
+**Status**: DEPRECATED
 **Category**: core
 **Created**: 2026-07-03
 
@@ -95,6 +95,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-07-21 | DEPRECATED — /incident surface excised at v1.0.0 (CDT-46-C2); command/skill replaced by one-cycle Deprecation stubs; engine scripts deleted |
 | 2026-07-14 | ACTIVE — ship `/incident` + workspace/timeline CLIs; OQs locked; jsonl-canonical MUST |
 | 2026-07-03 | Initial DRAFT — ideation wave 2 |
 

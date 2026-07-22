@@ -3,6 +3,15 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v0.80.1
+- **v1.0-W1 surface cuts (CDT-46-C2)** — four undefended Surfaces removed with one-cycle Deprecation stubs (marketplace auto-latest makes silent removal user-visible breakage; stubs deleted at v1.1).
+- **Removed `/local-do` + `skills/local-agent` (full excision)** — the entire local-offload path is gone, not just the command: orchestrate offload fork + review loop, debug P.4 and refactor 3.3 offload blocks, standup `[local]` routing column, metrics `local_agent` rollup key + dual-shape handling, doctor `deps.bwrap`/`deps.opencode`/`deps.local_agent` checks, and the AGENTS.md opt-in section. SPEC-019 → DEPRECATED.
+- **Removed `/incident`** — war-room command + skill stubbed, engine scripts (`timeline.sh`, `workspace.sh`) deleted; devops agent reframed to a skill-independent incident-response role. SPEC-027 → DEPRECATED.
+- **Removed `/demo`** — deprecated stub for one cycle; use /setup + /kickoff on a scratch project instead. Migration table will consolidate at v1.0.0.
+- **`scout-plugins` relocated to `tools/`** — internal ecosystem-scan tool, no longer a loaded Surface (no spec, no smoke entry, no frontmatter contract).
+- **`/backlog reconcile` (SPEC-009 amendment)** — new idempotent subcommand: Linear issue state is source of truth when the MCP is reachable (verdicts passed via `--linear-verdicts`); local item-file status is the fallback. Moves stale COMPLETED rows, removes dead-reference rows, collapses duplicates; `--dry-run` supported. Fixes the CDV-214-class stale-index bug. Plus a dedup guard on `/backlog add`. 22-case deterministic test suite.
+- **Docs reconciled** — README/docs-hub rows for the four cut Surfaces removed or tagged deprecated; orphan `docs/commands/{incident,demo}.md` pages deleted; consumer specs (SPEC-002/005/016/022/026) Covers lists updated. docs-drift gate: 0 findings, 0 waived.
+
 ### v0.80.0
 - **Smoke-harness gate (SPEC-030, CDT-46-C1)** — deterministic LLM-free load-check for every Surface: `tools/smoke/run.sh` verifies frontmatter (name+description) and `bash -n` on all fences of `commands/*.md` + `skills/*/SKILL.md`, plus `bash -n` on engine `.sh` scripts. Exit 0/1/64; dynamic discovery, no static list; 35-case bite-test suite (`tools/smoke/test.sh`) + 5 fixtures.
 - **First CI on the repo** — `.github/workflows/smoke.yml` runs the harness on push and pull_request to master.

@@ -326,88 +326,19 @@ fi
 # =============================================================================
 # 11. rollup — missing sources present:false / exit 0
 # =============================================================================
-rm -rf .claude/local-agent .claude/council .claude/metrics .claude/tasks .worktrees
+rm -rf .claude/council .claude/metrics .claude/tasks .worktrees
 RC=0
 JSON=$(rollup --json) || RC=$?
 OK=$(printf '%s' "$JSON" | jq -e '
-  .local_agent.present == false
-  and .council.present == false
+  .council.present == false
   and .outcomes.present == false
   and .worktree.present == false
-  and has("local_agent") and has("council") and has("outcomes") and has("worktree")
+  and has("council") and has("outcomes") and has("worktree")
 ' >/dev/null 2>&1 && echo y || echo n)
 if [ "$RC" -eq 0 ] && [ "$OK" = "y" ]; then
   pass "11 missing sources present:false exit 0"
 else
   fail "11 missing sources rc=$RC ok=$OK json=$JSON"
-fi
-
-# =============================================================================
-# 12. rollup — dual-shape no double-count
-# =============================================================================
-rm -rf .claude/local-agent
-mkdir -p .claude/local-agent
-# 2 run rows + 1 companion
-printf '%s\n' \
-  '{"ts":1,"outcome":"success","exit_code":0,"saved_est_tokens":null,"spent_tokens":null}' \
-  '{"ts":2,"outcome":"fail","exit_code":1,"saved_est_tokens":null,"spent_tokens":null}' \
-  '{"ts":3,"ticket":"CDV-187","saved_est_tokens":1200,"spent_review_escalation":null}' \
-  > .claude/local-agent/metrics.jsonl
-JSON=$(rollup --json --section local)
-OK=$(printf '%s' "$JSON" | jq -e '
-  .local_agent.present == true
-  and .local_agent.run.n == 2
-  and .local_agent.run.success == 1
-  and .local_agent.run.fail == 1
-  and .local_agent.run.fallback == 0
-  and .local_agent.companion.n == 1
-  and .local_agent.companion.saved_est_tokens_sum == 1200
-  and .local_agent.companion.completed_local_n == 1
-  and .local_agent.companion.escalated_n == 0
-' >/dev/null 2>&1 && echo y || echo n)
-if [ "$OK" = "y" ]; then
-  pass "12a dual-shape run.n=2 companion.n=1 no double-count"
-else
-  fail "12a dual-shape json=$JSON"
-fi
-
-# companion with saved_est_tokens==0 → escalated; >0 → completed_local
-printf '%s\n' \
-  '{"ts":1,"outcome":"fallback","exit_code":2,"saved_est_tokens":null,"spent_tokens":null}' \
-  '{"ts":2,"ticket":"T-A","saved_est_tokens":0,"spent_review_escalation":null}' \
-  '{"ts":3,"ticket":"T-B","saved_est_tokens":500,"spent_review_escalation":null}' \
-  '{"ts":4,"ticket":"T-C","saved_est_tokens":null,"spent_review_escalation":null}' \
-  > .claude/local-agent/metrics.jsonl
-JSON=$(rollup --json --section local)
-OK=$(printf '%s' "$JSON" | jq -e '
-  .local_agent.run.n == 1
-  and .local_agent.run.fallback == 1
-  and .local_agent.companion.n == 3
-  and .local_agent.companion.saved_est_tokens_sum == 500
-  and .local_agent.companion.escalated_n == 1
-  and .local_agent.companion.completed_local_n == 1
-' >/dev/null 2>&1 && echo y || echo n)
-if [ "$OK" = "y" ]; then
-  pass "12b companion escalated/completed + null saved skipped in sum"
-else
-  fail "12b companion buckets json=$JSON"
-fi
-
-# row with both ticket+outcome classified as companion only
-printf '%s\n' \
-  '{"ts":1,"ticket":"X","outcome":"success","saved_est_tokens":10}' \
-  '{"ts":2,"outcome":"success","exit_code":0,"saved_est_tokens":null,"spent_tokens":null}' \
-  > .claude/local-agent/metrics.jsonl
-JSON=$(rollup --json --section local)
-OK=$(printf '%s' "$JSON" | jq -e '
-  .local_agent.run.n == 1
-  and .local_agent.companion.n == 1
-  and .local_agent.companion.saved_est_tokens_sum == 10
-' >/dev/null 2>&1 && echo y || echo n)
-if [ "$OK" = "y" ]; then
-  pass "12c ticket+outcome → companion only (no double-count)"
-else
-  fail "12c ticket+outcome dual-shape json=$JSON"
 fi
 
 # =============================================================================
@@ -523,19 +454,15 @@ fi
 # =============================================================================
 # 16. rollup — no-write guard (ledger/index mtimes byte-identity)
 # =============================================================================
-# Seed all three write-owned surfaces
-mkdir -p .claude/local-agent .claude/council .claude/metrics
-printf '%s\n' '{"ts":9,"outcome":"success","exit_code":0,"saved_est_tokens":null,"spent_tokens":null}' \
-  > .claude/local-agent/metrics.jsonl
+# Seed the write-owned surfaces
+mkdir -p .claude/council .claude/metrics
 printf '%s\n' '{"tid":[{"report_path":"r.md","max_verdict_confidence":80,"max_finding_confidence":null,"created_at":"t"}]}' \
   > .claude/council/index.json
 printf '%s\n' '{"ts":1,"ticket":"X","task_id":"Y","agent":"ic4","task_class":"test","size":"S","outcome":"accepted","review_cycles":0,"qa_bounces":0,"council_overturns":0}' \
   > .claude/metrics/outcomes.jsonl
 
-cp .claude/local-agent/metrics.jsonl "$TMP/before-la.jsonl"
 cp .claude/council/index.json "$TMP/before-ci.json"
 cp .claude/metrics/outcomes.jsonl "$TMP/before-out.jsonl"
-LA_MTIME=$(stat -c %Y .claude/local-agent/metrics.jsonl 2>/dev/null || stat -f %m .claude/local-agent/metrics.jsonl)
 CI_MTIME=$(stat -c %Y .claude/council/index.json 2>/dev/null || stat -f %m .claude/council/index.json)
 OUT_MTIME=$(stat -c %Y .claude/metrics/outcomes.jsonl 2>/dev/null || stat -f %m .claude/metrics/outcomes.jsonl)
 
@@ -545,20 +472,18 @@ RC=0
 rollup --json >/dev/null || RC=$?
 rollup >/dev/null || RC=$?
 
-LA_AFTER=$(stat -c %Y .claude/local-agent/metrics.jsonl 2>/dev/null || stat -f %m .claude/local-agent/metrics.jsonl)
 CI_AFTER=$(stat -c %Y .claude/council/index.json 2>/dev/null || stat -f %m .claude/council/index.json)
 OUT_AFTER=$(stat -c %Y .claude/metrics/outcomes.jsonl 2>/dev/null || stat -f %m .claude/metrics/outcomes.jsonl)
 
 BYTE_OK=1
-cmp -s "$TMP/before-la.jsonl" .claude/local-agent/metrics.jsonl || BYTE_OK=0
 cmp -s "$TMP/before-ci.json" .claude/council/index.json || BYTE_OK=0
 cmp -s "$TMP/before-out.jsonl" .claude/metrics/outcomes.jsonl || BYTE_OK=0
 
 if [ "$RC" -eq 0 ] && [ "$BYTE_OK" -eq 1 ] \
-  && [ "$LA_MTIME" = "$LA_AFTER" ] && [ "$CI_MTIME" = "$CI_AFTER" ] && [ "$OUT_MTIME" = "$OUT_AFTER" ]; then
+  && [ "$CI_MTIME" = "$CI_AFTER" ] && [ "$OUT_MTIME" = "$OUT_AFTER" ]; then
   pass "16 no-write guard: ledgers byte-identical + mtime unchanged"
 else
-  fail "16 no-write rc=$RC byte=$BYTE_OK mtimes $LA_MTIME/$LA_AFTER $CI_MTIME/$CI_AFTER $OUT_MTIME/$OUT_AFTER"
+  fail "16 no-write rc=$RC byte=$BYTE_OK mtimes $CI_MTIME/$CI_AFTER $OUT_MTIME/$OUT_AFTER"
 fi
 
 # =============================================================================

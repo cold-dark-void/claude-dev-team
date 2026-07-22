@@ -83,10 +83,7 @@ SKIP does not affect the exit code.
 | `settings.sandbox_coherence` | settings |
 | `deps.jq` | deps |
 | `deps.python3` | deps |
-| `deps.bwrap` | deps |
-| `deps.opencode` | deps |
 | `deps.gh` | deps |
-| `deps.local_agent` | deps |
 | `worktree.locks` | worktree |
 | `worktree.distill_lock` | worktree |
 | `plugin.resolve` | plugin |
@@ -96,7 +93,7 @@ SKIP does not affect the exit code.
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored hook path; stale wt-lock; held distilling_lock; LOCAL_AGENT set but probe fail; sandbox/bypass coherence |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored hook path; stale wt-lock; held distilling_lock; sandbox/bypass coherence |
 | **SKIP** | Probe tool for that check absent; dev-only check in consumer |
 | **PASS** | Invariant holds |
 
@@ -121,7 +118,6 @@ MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, or create memory/h
 | WT lock TTL | `WT_LOCK_TTL_SECONDS` + `worktree-lib.sh` |
 | Plugin resolve | `skills/plugin-dir.sh` subprocess |
 | schema_version expected | `skills/memory-store/schema.sql` seed |
-| LOCAL_AGENT probe | `opencode --version` (SPEC-019) |
 
 ## Naming
 
@@ -131,5 +127,5 @@ health only and does not shadow the harness command.
 
 ## Related
 
-- SPEC-022, SPEC-002, SPEC-005, SPEC-016, SPEC-019
+- SPEC-022, SPEC-002, SPEC-005, SPEC-016
 - `/init-team`, `/init-orchestration`, `/release`, `/memory-distill --force`
