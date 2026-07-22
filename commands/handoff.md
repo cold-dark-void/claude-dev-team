@@ -254,8 +254,8 @@ Proceed to Step 2 (cold mode).
 Resolve `prepass.sh` and `SKILL.md` via the canonical plugin-dir locator.
 
 ```bash
-# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (dead in Bash fences today — FR #48230; forward-compat), else dev checkout, else installed cache (pre-release-safe sort -V). Slug-free.
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
 SKILL=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/SKILL.md)
 
@@ -277,7 +277,7 @@ still current (keyed by session-uuid + last-message uuid; the cache lives under
 `.claude/handoff/cache/`, never `memory.db`).
 
 ```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
 set +e
 CACHE_ERR="${TMPDIR:-/tmp}/handoff-cachecheck.err"
@@ -312,7 +312,7 @@ size-decides (M2/M3), and writes a `plan.json` (plus spine/chunk files) that the
 fan-out consumes.
 
 ```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/handoff.XXXXXX") \
   || { echo "handoff error: mktemp -d failed for WORK_DIR"; exit 1; }   # holds plan.json, spine/chunks, sections/
@@ -566,7 +566,7 @@ leaf rule), so the M8 cache key is unchanged. If `$LEAF_UUID` is empty (e.g. a
 stand-alone finalize without a plan), omit it and `finalize` recomputes it.
 
 ```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
 set +e
 FIN_ERR="${TMPDIR:-/tmp}/handoff-finalize.err"

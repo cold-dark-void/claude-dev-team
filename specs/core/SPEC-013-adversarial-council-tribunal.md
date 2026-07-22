@@ -3,6 +3,7 @@
 **Status**: ACTIVE
 **Category**: core
 **Created**: 2026-04-09
+**Covers**: `commands/council.md`, `skills/council/`, `agents/council-judge.md`, `skills/review-and-commit/SKILL.md` (diff-mode preset consumer), `commands/council --blind.md` (DEPRECATED stub — use `/council --blind`, CDT-46-C3)
 
 ---
 
@@ -12,7 +13,7 @@
 
 The council is structured as a court: a **Prosecutor** (jaded senior) demands receipts, **Investigators** (paranoid ICs, blind and read-only) collect evidence with real tool calls, a **Devil's Advocate** (yolo IC) argues the claim is true to prevent prosecutor monoculture, a dynamic **Domain Specialist** is pulled per topic (devops/ds/etc.), and a dedicated `council-judge` agent (with an empty tool allowlist, optionally calibrated by `tech-lead`'s project cortex) serves as **Judge** — forbidden from running tools, issuing verdicts only from collected evidence.
 
-Core architecture is an engine skill (`skills/council/`) with thin command wrappers. `/council` is the generic entry. `/review-and-commit` is refactored to call the same engine with a diff-mode preset, eliminating drift between the two adversarial systems. Integration updates have been applied to SPEC-002, SPEC-009, SPEC-010, and SPEC-012.
+Core architecture is an engine skill (`skills/council/`) with thin command wrappers. `/council` is the generic entry. `/review-and-commit` is refactored to call the same engine with a diff-mode preset, eliminating drift between the two adversarial systems. `/council --blind` absorbs the former `/council --blind` multi-team peer-review engine (N unconstrained + M lens reviewers → semantic clustering → confidence-tiered findings) as a first-class scope path — Tier-1 consensus clusters emit directly as council findings with no recursive `/council` reverse-validation call. Integration updates have been applied to SPEC-002, SPEC-009, SPEC-010, and SPEC-012.
 
 Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 
@@ -27,8 +28,12 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST support `/council --plan <path>` — audit a plan file for unverified assumptions
 - MUST support `/council --diff` — audit staged diff (equivalent to `/review-and-commit` invocation path)
 - MUST support `/council --from-retro <anchor-id>` — audit a fabrication anchor surfaced by `/retro`
+- MUST support `/council --blind` — multi-team blind peer review over a codebase/path (absorbs former `/council --blind`; see Blind-review path)
+- MUST treat scope flags as mutually exclusive: exactly one of `"<claim text>"`, `--session`, `--diff`, `--plan`, `--from-retro`, or `--blind` MUST be supplied
 - MUST refuse to run with no scope argument and no prior context (must fail loudly, not guess)
-- MUST accept optional `/council --workflow` (or `COUNCIL_WORKFLOW=1`) as an execution-path selector orthogonal to scope flags — does not replace scope exclusivity rules; default remains engine.sh
+- MUST accept optional `/council --workflow` (or `COUNCIL_WORKFLOW=1`) as an execution-path selector orthogonal to tribunal scope flags (`"<claim>"|--session|--diff|--plan|--from-retro`) — does not replace scope exclusivity rules; default remains engine.sh; MUST NOT apply `--workflow` to the `--blind` path (blind uses its own execution path)
+- MUST accept blind-path parity flags only with `--blind`: `--teams N` (unconstrained reviewer count; default 3), `--lenses L1,L2,...` (lens-differentiated reviewers; default `security,contributor,spec`), `--target <path>` (narrow file scope; default full project)
+- MUST NOT accept, document, or implement a `--no-council` flag — the former blind-review reverse-validation self-call is removed (see Blind-review path)
 
 ### Engine Architecture
 - MUST implement core logic as a skill at `skills/council/` (NOT duplicated inline in commands)
@@ -180,6 +185,30 @@ investigators already cover specialist axes).
 - MUST NOT persist investigator state between runs (ephemeral only, no cortex)
 - MUST NOT gate TaskCompleted on `finding[]`-shape runs — diff-mode is code review, not a fabrication audit
 - The TaskCompleted council gate MUST apply to `verdict[]`-shape runs only; `finding[]`-shape index rows MUST be ignored by the hook
+- MUST NOT invoke `/council` (or any second council engine run) from inside a `--blind` run for reverse validation of its own clusters — the reverse-validation seam is removed (CDT-46-C3)
+
+
+### Blind-review path (`--blind`) *(CDT-46-C3)*
+
+Absorbs the former `/council --blind` multi-team peer-review engine into `/council` as a first-class **scope flag** (not an orthogonal path selector like `--workflow`). The blind path is a distinct execution path: it does **not** run tribunal Phases 1–5 (claim extraction → investigation → prosecution → judgment). Clustering + confidence tiering **is** the council verdict for this path.
+
+- MUST implement the `--blind` execution path inside `skills/council/` (engine skill) — MUST NOT maintain a parallel blind-review pipeline outside the council skill after absorption
+- MUST expose `commands/council.md` as the user entry for `/council --blind` (with parity flags); `commands/council --blind.md` remains only as a DEPRECATED one-cycle stub pointing at `/council --blind`
+- MUST spawn **N unconstrained** reviewer agents + **M lens-differentiated** reviewer agents in a **single parallel wave** (never sequential fan-out)
+  - N from `--teams` (default 3); team IDs `U1..UN`
+  - M from `--lenses` (default `security,contributor,spec`); team IDs `L-<lens>`; available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`
+  - Reviewer file list from `--target <path>` when set, else full project tracked files (excluding lockfiles/generated assets)
+- MUST namespace each finding with its team ID, discard malformed findings (missing Category/Severity/Files/Claim/Evidence — drop, do not repair), then run a **quorum analyst** that clusters findings by **semantic similarity**
+- MUST assign confidence tiers to clusters:
+  - **Tier 1** — cross-cohort (at least one unconstrained AND at least one lens team) AND ≥2 distinct teams (highest confidence)
+  - **Tier 2** — same-cohort consensus (≥2 distinct teams, not cross-cohort)
+  - **Tier 3** — single-team minority findings
+- MUST emit **Tier-1 consensus clusters directly as council findings** in the blind-path report — the clustering + tiering step **is** the verdict; MUST NOT call `/council` (or re-enter the tribunal pipeline) on Tier-1 clusters for reverse validation
+- MUST include Tier 2 and Tier 3 clusters in the report (sorted Tier 1 → 2 → 3) without escalating them through a second council pass
+- MUST write the blind-path report under `.claude/council/<YYYY-MM-DD>-<slug>.md` (worktree-aware `MROOT`; create parent if absent) with: scope/target, team manifest, tiered clusters (claim, evidence, severity, category, team count, source finding IDs), quorum summary, per-team summaries, and count of dropped malformed findings
+- MUST treat blind-path output as **findings-shaped** for gate purposes: TaskCompleted council gate MUST ignore blind-path index rows the same way it ignores `finding[]`-shape runs (blind review is multi-perspective code review, not a fabrication audit)
+- MUST fail loudly (exit non-zero with usage) when `--teams` / `--lenses` / `--target` are supplied without `--blind`, or when `--blind` is combined with another scope flag
+- When `--blind` adds or reuses prompt templates under `skills/council/prompts/`, each template's `## Variables` table remains the authoritative `{{TEMPLATE_VARIABLE}}` contract (Engine Architecture MUST) — prefer reusing existing investigator/lens variable names over inventing a parallel set
 
 
 ### Council-on-Workflow execution path *(CDV-196)*
@@ -355,13 +384,20 @@ degradation marker — never invent a second string. Distinct from CDV-197
 3. Static: `/retro` single-writer contract — `commands/retro.md` persists anchors after validation; subagent emits JSON only
 4. Live (optional): `/council --from-retro <id>` skips Phase 1 and runs Phase 2–5 against the isolated claim
 
+### Test 22 — Blind-review scope (`--blind`, CDT-46-C3)
+1. Static: `commands/council.md` documents `--blind` as a scope flag mutually exclusive with `"<claim>"|--session|--diff|--plan|--from-retro`, with parity flags `--teams|--lenses|--target`; no `--no-council` flag appears in council or blind-review surfaces
+2. Static: `commands/council --blind.md` is a DEPRECATED stub pointing at `/council --blind` (listed in Covers)
+3. Static: SPEC-013 Blind-review path requires Tier-1 clusters emit as findings with **no** recursive `/council` invocation; grep of the `--blind` engine path shows zero self-calls to `/council` or a second tribunal pipeline for reverse validation
+4. Static: combining `--blind` with another scope flag, or supplying `--teams`/`--lenses`/`--target` without `--blind`, fails loudly
+5. Live (optional): `/council --blind --teams 2 --lenses security --target skills/council/` spawns unconstrained + lens reviewers in one wave, produces a tiered report under `.claude/council/`, and does not spawn a nested tribunal run
+
 ---
 
 ## Validation
 
 - [ ] `skills/council/` skill exists with engine protocol documented
 - [ ] `commands/council.md` exists as a thin wrapper calling the engine
-- [ ] `skills/review-and-commit/SKILL.md` refactored to call the engine with `preset: diff-mode` (SPEC-010 updated via `/update-spec`)
+- [ ] `skills/review-and-commit/SKILL.md` refactored to call the engine with `preset: diff-mode` (SPEC-010 updated via `/spec update`)
 - [ ] `skills/council/flavors/` directory contains: paranoid-ic, jaded-senior, yolo-ic, plus the 5 review-and-commit specialists
 - [ ] `agents/council-judge.md` exists with `tools: ""` and judges evidence-only (no self-loaded cortex/memory; any `tech-lead` cortex calibration is optional engine-prepended context, not a required load path); engine invokes `council-judge` (not `tech-lead`) for Phase 5
 - [ ] Verdict taxonomy enforced structurally (not free-form)
@@ -370,7 +406,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] SPEC-012 updated with `/retro` → `/council` integration hint
 - [ ] SPEC-009 updated with `requires_council: true` TaskCompleted gate flag
 - [ ] SPEC-010 updated to reflect `/review-and-commit` delegation to council engine
-- [ ] Settings keys `council.feedback.fabricated_min` and `council.feedback.unverified_min` documented in `/memory-config` or equivalent
+- [ ] Settings keys `council.feedback.fabricated_min` and `council.feedback.unverified_min` documented in `/memory config` or equivalent
 - [ ] `.claude/council/index.json` exists after any task-bound run and is written atomically (tmp + rename)
 - [ ] `task_id` field appears in report frontmatter and `--<task_id>` suffix appears in filename when a run is task-bound
 - [ ] `CLAUDE_TASK_ID` env var fallback produces the same binding as the `--task-id` flag
@@ -382,11 +418,13 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] Token usage (CDV-204): finalize `--tokens-file` prints `Tokens:` (or `Tokens (partial):`) when usable; omits when missing/unavailable/zeros; optional FM `tokens_total`/`tokens_by_phase`; `commands/council.md` best-effort collect + pass-through; index.json unchanged
 - [x] Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; Test 20
 - [x] From-retro scope (CDV-212): anchor files at `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2; present → Phase 1 skip + `resolved_claim`; exit 3 deferred removed; Test 21
+- [ ] Blind-review scope (CDT-46-C3): `/council --blind` as mutually exclusive scope; parity `--teams|--lenses|--target`; N unconstrained + M lens parallel fan-out → semantic clustering → Tier 1/2/3; Tier-1 emit as findings with **no** recursive `/council`; `--no-council` removed; `commands/council --blind.md` DEPRECATED stub in Covers; Test 22
 - [ ] Test 1–11 pass against the implementation
 - [x] Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
 - [ ] Test 12–19 (Council-on-Workflow) pass against the implementation
 - [ ] Test 20 (plan scope) pass against the implementation
 - [ ] Test 21 (from-retro scope) pass against the implementation
+- [ ] Test 22 (blind-review scope) pass against the implementation
 
 ---
 
@@ -394,6 +432,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-07-21 | CDT-46-C3 (SPEC-013): `/council --blind` scope absorbs former `/blind-review` engine — N unconstrained + M lens-differentiated reviewers (parallel), semantic clustering, confidence tiers (Tier 1 cross-cohort ≥2 / Tier 2 same-cohort ≥2 / Tier 3 single-team); Tier-1 consensus clusters emit directly as council findings (reverse-validation self-call removed; no `--no-council`); parity flags `--teams|--lenses|--target`; scope mutually exclusive with `"<claim>"|--session|--diff|--plan|--from-retro`; `--workflow` does not apply; Covers adds `commands/blind-review.md` DEPRECATED stub; Test 22. Status stays ACTIVE. |
 | 2026-07-14 | CDV-209: Phase 3 dynamic domain specialist live — topic-classifier.md; engine `3_domain_specialist.deferred=false` (skip finding[]/diff-mode); classify → at most one of devops/ds/qa/pm when confidence ≥ 0.75; before Phase 2.5; why_detail runtime specialist strings; Test 8 active. |
 | 2026-07-14 | CDV-212: `/council --from-retro <anchor-id>` live — preflight loads `$MROOT/.claude/retro/anchors/<id>.json` (exit 2 if missing); preset `generic`; Phase 1 skip; `resolved_claim` in investigation plan; `/retro` single-writer after validation; exit 3 deferred residual removed. Test 21. |
 | 2026-07-14 | CDV-208: `/council --plan <path>` live — preflight requires readable path (exit 2 if missing, not exit 3); preset `generic`; Phase 1 via `skills/council/prompts/plan-extractor.md` with locator `file:heading-path:line`; fixture `skills/council/fixtures/plan-scope-sample.md`; `--from-retro` remains deferred exit 3 until CDV-212. Test 20. |

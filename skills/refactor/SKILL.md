@@ -364,7 +364,7 @@ PROPOSED APPROACH: <2-3 sentences describing the intended structural change>
 WHY INLINE REJECTED: <one of: cross-subsystem or multi-directory refactor required | architectural decision required | tech-lead design review required | callsite count exceeded threshold>
 ```
 
-**For `/update-spec` handoff (refactor reveals undocumented behavior) — emit verbatim:**
+**For `/spec update` handoff (refactor reveals undocumented behavior) — emit verbatim:**
 
 ```
 SPEC FILE: specs/core/SPEC-NNN-<slug>.md

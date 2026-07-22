@@ -32,7 +32,7 @@ ls specs/
 ```
 
 Read any specs covering the area this ticket touches — they constrain your design.
-If no `specs/` directory exists, run `/generate-specs` first (see [Setup Guide](../setup.md)).
+If no `specs/` directory exists, run `/spec generate` first (see [Setup Guide](../setup.md)).
 
 ### 1.4 Create a worktree
 
@@ -79,7 +79,7 @@ Before writing code, specs for the affected area must exist and be current.
 ```
 @tech-lead Review specs/<relevant>.md against ENG-123. Update if needed.
 # OR: write a new spec if none exists
-/generate-tests SPEC-NNN   # optional: make requirements executable
+/spec tests SPEC-NNN   # optional: make requirements executable
 git add specs/ && git commit -m "spec: ENG-123 — add/update <area> spec"
 ```
 
@@ -135,7 +135,7 @@ Fix all issues before proceeding.
 ### 4.2 Spec alignment check
 
 ```
-/reflect-specs --phase 4
+/spec reflect --phase 4
 ```
 
 Fix anything marked MISSING or DIFFERS. If implementation intentionally diverges, update the spec.
@@ -239,9 +239,9 @@ Verify ACs in prod. Check monitoring/dashboards and logs for error spikes.
 See [memory configuration](../setup.md#memory-configuration----memory-config) for distillation settings.
 
 ```bash
-/memory-distill --status   # check raw memory count
-/memory-distill            # compress raw memories into tier-1 digests
-/memory-config list        # verify settings
+/memory distill --status   # check raw memory count
+/memory distill            # compress raw memories into tier-1 digests
+/memory config list        # verify settings
 ```
 
 ---
@@ -262,7 +262,7 @@ Handles: task verification, learnings capture, plans.md update, source tracker r
 bash skills/worktree-lib.sh release ENG-123-short-description
 
 # 8.2 Spec reflection (periodic — before minor/major bumps)
-/reflect-specs
+/spec reflect
 
 # 8.3 Update project memory
 echo "\n## ENG-123 learnings\n<insight>" >> .claude/memory/claude/memory.md
@@ -276,19 +276,19 @@ echo "\n## ENG-123 learnings\n<insight>" >> .claude/memory/claude/memory.md
 
 | Phase | Skill shortcut | Manual equivalent |
 |-------|----------------|-------------------|
-| Baseline specs (legacy, once) | `/generate-specs` | Read code → write specs manually |
-| Tests from specs | `/generate-tests` | Write tests manually from MUST requirements |
+| Baseline specs (legacy, once) | `/spec generate` | Read code → write specs manually |
+| Tests from specs | `/spec tests` | Write tests manually from MUST requirements |
 | Bootstrap (once) | `/init-orchestration` | — |
 | Intake + planning | **`/kickoff ENG-123 "..."`** | `@pm` + `@tech-lead` parallel → spec → plan → `TaskCreate` |
 | Monitor progress | **`/standup ENG-123`** | `TaskList` + read agent `context.md` files |
 | Implement (parallel) | — | IC4 + IC5 `TaskUpdate` to claim; IC5 `SendMessage` interface early |
 | QA final validate | — | `@qa Run full validation, TaskUpdate completed` |
-| Spec alignment | `/reflect-specs --phase 4` | — |
+| Spec alignment | `/spec reflect --phase 4` | — |
 | Review | `/review-and-commit` | — |
 | PR | — | `gh pr create` |
 | Release | `/release patch` | — |
 | Wrap-up | **`/wrap-ticket ENG-123`** | Verify tasks → memory → plans.md → worktree remove |
-| Full health check | `/reflect-specs` (periodic) | — |
+| Full health check | `/spec reflect` (periodic) | — |
 
 ---
 

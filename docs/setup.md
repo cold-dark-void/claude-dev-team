@@ -39,7 +39,7 @@ for Claude Code marketplace installs; nothing rewrites `memory.db`.
 |------------|---------|--------|
 | `CODE_SIMPLIFY=0` | on (unset) | Skip orchestrate post-review polish |
 | `SECURITY_SCAN=0` | on (unset) | Skip Semgrep/CodeQL pre-pass in review |
-| `MEMORY_COMPRESS=1` or `/memory-distill --compress` | off | Fact-dense rewrite of raw memories before distill |
+| `MEMORY_COMPRESS=1` or `/memory distill --compress` | off | Fact-dense rewrite of raw memories before distill |
 | `Output mode: ultra` in agent prompts | `terse` for agent-to-agent | Stronger output compression |
 | `/brainstorm --grill` | default batched mode | One-question interview with recommended answers |
 
@@ -109,17 +109,17 @@ Safe to re-run (idempotent).
 
 ---
 
-## `/generate-specs` — Legacy Project Baseline
+## `/spec generate` — Legacy Project Baseline
 
 For projects with no `specs/` directory. Run once before your first ticket.
 
 ```bash
 /init-team
 /init-orchestration
-/generate-specs
+/spec generate
 ```
 
-`/generate-specs` will:
+`/spec generate` will:
 - Read every source file and map the public surface by module
 - Ask Tech Lead to group modules into 8–15 domain-level feature areas
 - Write one `MUST/SHOULD/MUST NOT` spec per domain in `specs/core/`
@@ -129,31 +129,31 @@ For projects with no `specs/` directory. Run once before your first ticket.
 
 After it runs:
 1. Review each generated spec — correct misattributed MUSTs, resolve open questions
-2. Run `/reflect-specs` to verify specs match the code
+2. Run `/spec reflect` to verify specs match the code
 3. Optionally generate tests:
    ```bash
-   /generate-tests
+   /spec tests
    ```
 4. Commit:
    ```bash
    git add specs/ tests/
-   git commit -m "spec: establish baseline specs and tests from /generate-specs + /generate-tests"
+   git commit -m "spec: establish baseline specs and tests from /spec generate + /spec tests"
    ```
 
 > Generated specs describe *what the code does*, not necessarily *what it should do*. Treat them as a hypothesis.
 
 ---
 
-## Memory Configuration — `/memory-config`
+## Memory Configuration — `/memory config`
 
 View and set memory distillation settings:
 
 ```bash
-/memory-config list                              # show current values
-/memory-config set distill_enabled true          # enable distillation
-/memory-config set distill_mode suggest          # suggest/manual/auto
-/memory-config set distill_threshold 50          # raw count trigger
-/memory-config set distill_model haiku           # compression model
+/memory config list                              # show current values
+/memory config set distill_enabled true          # enable distillation
+/memory config set distill_mode suggest          # suggest/manual/auto
+/memory config set distill_threshold 50          # raw count trigger
+/memory config set distill_model haiku           # compression model
 ```
 
 | Key | Values | Default | Description |
@@ -163,7 +163,7 @@ View and set memory distillation settings:
 | `distill_threshold` | 1–9999 | 50 | Raw memory count before suggest/auto triggers |
 | `distill_model` | model name | haiku | LLM for compression (Haiku recommended for cost) |
 
-Run `/memory-distill` to compress raw memories into digests. A good time: after wrapping a ticket, or when `--status` shows a high raw count.
+Run `/memory distill` to compress raw memories into digests. A good time: after wrapping a ticket, or when `--status` shows a high raw count.
 
 ---
 

@@ -84,7 +84,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 
 - SHOULD record advisory events themselves (printed / accepted / declined) as a distinct `{ "type": "advisory", ... }` ledger record so the advisor's own hit-rate can be tuned later without new instrumentation.
 - SHOULD surface a one-line per-agent outcome aggregate in `/standup` output. Deferred if it risks LOC/scope creep on CDV-185.
-- SHOULD keep the task-class taxonomy stable: adding a class is a spec revision via `/update-spec`, never an ad-hoc string in a TaskCreate description.
+- SHOULD keep the task-class taxonomy stable: adding a class is a spec revision via `/spec update`, never an ad-hoc string in a TaskCreate description.
 - SHOULD keep the Step-7 advisory block and the stint-end emit blocks as small, dedicated sub-blocks in `skills/orchestrate/SKILL.md` (SPEC-019's scoped sub-block precedent), protecting the central-file LOC budget.
 
 ---
@@ -122,7 +122,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 
 | Item | Status |
 |------|--------|
-| Advisory threshold defaults | **Locked OQ5** — revisit only via `/update-spec` after real ledger data |
+| Advisory threshold defaults | **Locked OQ5** — revisit only via `/spec update` after real ledger data |
 | Windowing/decay | **Deferred OQ6** — backlog until ~1k records |
 | qa/devops/ds advisories | **Deferred** — this version: ic4 ⇄ ic5 only |
 | `/metrics` rollup of `outcomes.jsonl` | **Out of scope** — CDV-187 |

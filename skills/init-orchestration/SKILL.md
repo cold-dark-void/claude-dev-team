@@ -1200,8 +1200,8 @@ If sqlite3 is available and the DB does not yet exist, initialize it:
 PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$PROJ_ROOT/.claude/memory/memory.db"
 if command -v sqlite3 &>/dev/null && [ ! -f "$MEMDB" ]; then
-  # Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
-  PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+  # Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (dead in Bash fences today — FR #48230; forward-compat), else dev checkout, else installed cache (pre-release-safe sort -V). Slug-free.
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
   SCHEMA=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/schema.sql)
   if [ -f "$SCHEMA" ]; then
     sqlite3 "$MEMDB" < "$SCHEMA"

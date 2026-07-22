@@ -93,7 +93,7 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 
 - SHOULD note which design smell the refactor addresses (duplication, coupling, fragility, illegibility) in the commit message
 - SHOULD update or create specs if the refactor reveals that existing behavior was undocumented
-- SHOULD suggest running `/check-specs` after the refactor to catch any spec drift introduced
+- SHOULD suggest running `/spec check` after the refactor to catch any spec drift introduced
 
 ---
 

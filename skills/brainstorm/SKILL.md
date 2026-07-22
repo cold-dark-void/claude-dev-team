@@ -274,7 +274,7 @@ Domain glossary: <updated CONTEXT.md path | no new terms>
 
 Next steps:
   /kickoff — to start formal planning with PM + Tech Lead
-  /create-spec — to write a behavioral spec from this brainstorm
+  /spec create — to write a behavioral spec from this brainstorm
 ```
 
 ---

@@ -44,7 +44,7 @@ Or use remote embeddings (see [Setup Guide](../setup.md#remote-embeddings)).
 ### Verify
 
 ```
-/memory-search --status
+/memory search --status
 ```
 
 You should see all agents with initial memory entries.
@@ -106,12 +106,12 @@ need no migration; update the plugin (and re-run `install.sh` for opencode).
 ## Step 3 — Establish spec baseline
 
 **New project (no existing code):** Skip this step. Create specs as you build features
-using `/create-spec` (see [Specs Runbook](specs.md)).
+using `/spec create` (see [Specs Runbook](specs.md)).
 
 **Existing project (has code, no specs):**
 
 ```
-/generate-specs
+/spec generate
 ```
 
 This reads your codebase and writes behavioral specs from what the code actually does.
@@ -132,9 +132,9 @@ for recommended settings and what each option controls.
 Run a quick smoke test:
 
 ```
-/list-specs                    # should show your specs (if any)
-/memory-search --status        # should show agents with memory
-/memory-distill --status       # should show tier counts
+/spec list                    # should show your specs (if any)
+/memory search --status        # should show agents with memory
+/memory distill --status       # should show tier counts
 ```
 
 Try a dry run with a small task:

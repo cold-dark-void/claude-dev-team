@@ -103,7 +103,7 @@ Uninitialized memory is **WARN not FAIL** — fix-it is `/init-team`.
 
 Only these repairs (idempotent; announced; TTY confirms; non-TTY applies):
 
-1. Clear held `distilling_lock` → `''` (mirrors `/memory-distill --force`)
+1. Clear held `distilling_lock` → `''` (mirrors `/memory distill --force`)
 2. Remove **STALE** (per SPEC-016 TTL) `.wt-lock` files — never worktree dirs, never FRESH locks
 3. Sweep `$MROOT/.claude/handoff/cache/*.tmp`
 
@@ -128,4 +128,4 @@ health only and does not shadow the harness command.
 ## Related
 
 - SPEC-022, SPEC-002, SPEC-005, SPEC-016
-- `/init-team`, `/init-orchestration`, `/release`, `/memory-distill --force`
+- `/init-team`, `/init-orchestration`, `/release`, `/memory distill --force`

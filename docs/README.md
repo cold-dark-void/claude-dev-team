@@ -53,35 +53,30 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 
 | Command | Docs | Summary |
 |---------|------|---------|
-| `/create-spec` | [Specs runbook](runbooks/specs.md) | Guided interview → new behavioral spec |
-| `/update-spec` | [Specs runbook](runbooks/specs.md) | Modify an existing spec with version history |
-| `/find-spec` | skill | Search specs by keyword |
-| `/list-specs` | skill | Quick status overview of all specs |
-| `/check-specs` | [Specs runbook](runbooks/specs.md) | Audit format + code alignment (MATCH/MISSING/DIFFERS) |
-| `/reflect-specs` | [Specs runbook](runbooks/specs.md) | Full health check across ALL specs, interactive |
-| `/generate-specs` | [Setup](setup.md#generate-specs--legacy-project-baseline) | Reverse-engineer specs from existing code |
-| `/generate-tests` | skill | Generate tests from specs — one per MUST requirement |
+| `/spec` | [spec](commands/spec.md) | Unified: `check` · `create` · `find` · `list` · `update` · `generate` · `tests` · `reflect` |
+| `/spec create` | [Specs runbook](runbooks/specs.md) | Guided interview → new behavioral spec |
+| `/spec update` | [Specs runbook](runbooks/specs.md) | Modify an existing spec with version history |
+| `/spec find` | skill | Search specs by keyword |
+| `/spec list` | skill | Quick status overview of all specs |
+| `/spec check` | [Specs runbook](runbooks/specs.md) | Audit format + code alignment |
+| `/reflect-specs` | [Specs runbook](runbooks/specs.md) | Full health check across ALL specs (prefer `/spec reflect`) |
+| `/generate-specs` | [Setup](setup.md#generate-specs--legacy-project-baseline) | Reverse-engineer specs from existing code (prefer `/spec generate`) |
+| `/generate-tests` | skill | Generate tests from specs (prefer `/spec tests`) |
 
 ### Code quality
 
 | Command | Docs | Summary |
 |---------|------|---------|
 | `/review-and-commit` | [review-and-commit](commands/review-and-commit.md) | 5-agent review; optional `--impact` / host SAST if Semgrep present |
-| `/blind-review` | [blind-review](commands/blind-review.md) | Multi-team blind peer review with quorum analysis |
-| `/council` | [council](commands/council.md) | Adversarial tribunal — reality-checks claims with evidence |
+| `/council` | [council](commands/council.md) | Adversarial tribunal + `--blind` multi-team peer review |
 | `/tdd-gate` | skill | Toggle hook-based TDD enforcement (on/off/status) |
 
 ### Memory & recall
 
 | Command | Docs | Summary |
 |---------|------|---------|
-| `/memory-search` | [memory-search](commands/memory-search.md) | Search agent memories — semantic/keyword/grep |
+| `/memory` | [memory](commands/memory.md) | Unified: `config` · `distill` · `export` · `search` · `stats` · `validate` |
 | `/recall` | [recall](commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git |
-| `/memory-distill` | [memory-distill](commands/memory-distill.md) | Compress raw memories (`--compress` prose pass optional) |
-| `/memory-config` | [memory-config](commands/memory-config.md) | View/set memory configuration |
-| `/memory-stats` | skill | Memory usage statistics (counts, sizes, growth) |
-| `/memory-export` | skill | Export sanitized tier-2 memories to a committable seed pack (SPEC-024) |
-| `/validate-memory` | skill | Detect stale memory references against live code |
 | `/handoff` | [handoff](commands/handoff.md) | Reconstruct a past session, or capture the current one |
 
 ### Maintenance

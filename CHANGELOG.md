@@ -3,6 +3,28 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.0-pre.3
+- **v1.0-W2 surface merges (CDT-46-C3)** — twelve standalone commands folded into unified dispatchers (`/memory`, `/spec`) or `/council --blind`. One-cycle Deprecation stubs remain until v1.1 (marketplace auto-latest makes silent removal user-visible breakage).
+- **`/memory <sub>`** — single entry for `config|distill|export|search|stats|validate` with full flag parity; six old command files are prose-only stubs.
+- **`/spec <sub>`** — single entry for `check|create|find|list|update|generate|tests|reflect`; generate/tests/reflect behavior absorbed into `skills/spec-tooling/`.
+- **`/council --blind`** — absorbs `/blind-review` (N unconstrained + M lens reviewers → clustering → confidence tiers); Tier-1 clusters emit as findings with no recursive `/council` reverse-validation; `--no-council` removed.
+- **Pre-release-safe PDH resolution (SPEC-002)** — tilde-mapped `sort -V` so final `1.0.0` outranks retained `1.0.0-pre.N` cache dirs; hardened `plugin-dir.sh` + tree-wide bootstrap stanza; `plugin-dir-test.sh` (17 cases).
+
+| Old command | New form |
+|-------------|----------|
+| `/memory-config` | `/memory config` |
+| `/memory-distill` | `/memory distill` |
+| `/memory-export` | `/memory export` |
+| `/memory-search` | `/memory search` |
+| `/memory-stats` | `/memory stats` |
+| `/validate-memory` | `/memory validate` |
+| `/check-specs` | `/spec check` |
+| `/create-spec` | `/spec create` |
+| `/find-spec` | `/spec find` |
+| `/list-specs` | `/spec list` |
+| `/update-spec` | `/spec update` |
+| `/blind-review` | `/council --blind` |
+
 ### v1.0.0-pre.2
 - **v1.0.0 pre-release line opened (CDT-46 program decision)** — version re-wire, no functional changes: the breaking W1-cuts release below is renumbered `1.0.0-pre.1` (the old `v0.80.1` tag is removed), and this content-identical republish ships as `1.0.0-pre.2`. Remaining v1.0 program waves ship as `1.0.0-pre.N`, final `1.0.0` at W6.
 

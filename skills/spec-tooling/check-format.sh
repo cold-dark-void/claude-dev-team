@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # check-format.sh — assert a spec file carries the 9 required sections (SPEC-008).
 #
-# Mechanizes the /check-specs Phase-1 "Format Compliance" checklist so dev-side CI can
-# prove a spec is structurally complete. /check-specs itself stays inline (no consumer
+# Mechanizes the /spec check Phase-1 "Format Compliance" checklist so dev-side CI can
+# prove a spec is structurally complete. /spec check itself stays inline (no consumer
 # shell-out); this CLI is OUR bootstrap proof (SPEC-008 Test row, AUDIT-P1-5A MC-6).
 #
 # Usage:

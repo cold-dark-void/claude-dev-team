@@ -39,7 +39,7 @@ Replace `<AGENT>`, `<TYPE>`, and `<CONTENT_ESCAPED>` with real values.
 
 > **Tier note:** Regular agent writes are always tier 0 (the column defaults to 0 and
 > agents do not specify it). Types `digest` and `core` with tier 1/2 are written only
-> by the `@distiller` agent during `/memory-distill`.
+> by the `@distiller` agent during `/memory distill`.
 >
 > **Host-script elevated write (SPEC-024 M5):** `import-seed-pack.sh` (invoked only from
 > `/init-team` Step 5.5) may INSERT `tier=1`, `type='digest'`, `distilled_from='[]'`, and
@@ -192,7 +192,7 @@ if [ "$DISTILL_ENABLED" = "true" ]; then
     THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
     COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='<AGENT>' AND tier=0 AND archived=FALSE;")
     if [ "$COUNT" -ge "$THRESHOLD" ]; then
-      echo "[memory] @<AGENT> has $COUNT raw memories (threshold: $THRESHOLD). Run /memory-distill to compress."
+      echo "[memory] @<AGENT> has $COUNT raw memories (threshold: $THRESHOLD). Run /memory distill to compress."
     fi
   fi
 fi

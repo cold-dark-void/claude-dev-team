@@ -103,7 +103,7 @@ if [ "$USE_DB" = "true" ]; then
   # Best-effort embedding — silently skips when extensions absent. embed-one.sh is a
   # sibling of skills/memory-store/; resolve it (dev checkout first, else installed cache).
   EMB=$( [ -f skills/memory-store/embed-one.sh ] && echo skills/memory-store/embed-one.sh \
-    || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/memory-store/embed-one.sh' 2>/dev/null | sort -V | tail -1 )
+    || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/memory-store/embed-one.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' )
   [ -n "$EMB" ] && [ -n "$MEMORY_ID" ] && bash "$EMB" "$MEMDB" "$MEMORY_ID" "$CONTENT" 2>/dev/null || true
 else
   # Fallback: append to .md (NEVER truncate — append-only contract, SPEC-004)
@@ -121,7 +121,7 @@ EOF
 ### Memory search (cross-agent)
 ```bash
 # Semantic + keyword search across ALL agents lives in skills/memory-recall (Steps 3-5).
-# Run /memory-search <query>, or follow that skill, to search other agents' memory.
+# Run /memory search <query>, or follow that skill, to search other agents' memory.
 ```
 
 ### Limits

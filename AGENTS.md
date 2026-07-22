@@ -62,7 +62,7 @@ Freeze lifts automatically when the v1.0.0 tag is pushed to master.
 | `qa` | Opus | Testing, validation, release gating |
 | `ds` | Opus | Data analysis, ML, metrics |
 | `project-init` | Sonnet | One-time memory bootstrap (via `/init-team`) |
-| `distiller` | Haiku | Memory compression specialist (invoked by `/memory-distill` only) |
+| `distiller` | Haiku | Memory compression specialist (invoked by `/memory distill` only) |
 | `council-judge` | Opus | Tool-less final arbiter for `/council` tribunals (invoked by the council engine only) |
 
 The first 7 rows are the behavioral/team agents; `project-init`, `distiller`, and
@@ -94,7 +94,7 @@ Each agent has memory stored in SQLite (preferred) or .md files (fallback):
 
 **Memory tiers** (SQLite mode, after v0.14.0):
 - Tier 0: Raw memories (written by agents during work)
-- Tier 1: Digests (LLM-compressed summaries, created by `/memory-distill`)
+- Tier 1: Digests (LLM-compressed summaries, created by `/memory distill`)
 - Tier 2: Core knowledge (promoted from digests, permanent)
 - `archived = TRUE`: consumed by distillation, excluded from all queries
 
@@ -161,9 +161,9 @@ fi
 
 Write back at end of task. Context stays per-worktree.
 
-**Memory distillation:** Run `/memory-distill` to compress raw memories (tier 0) into
+**Memory distillation:** Run `/memory distill` to compress raw memories (tier 0) into
 digests (tier 1) and promote high-signal knowledge to core (tier 2). Configure via
-`/memory-config` (keys: `distill_enabled`, `distill_mode`, `distill_threshold`, `distill_model`).
+`/memory config` (keys: `distill_enabled`, `distill_mode`, `distill_threshold`, `distill_model`).
 
 ## Per-Agent Directives
 
@@ -215,7 +215,7 @@ Override per-agent via `/adjust-agent <agent> "Disable terse mode"` or
 
 **Memory prose compress (optional):** when distilling or writing tier-0 notes,
 prefer fact-dense bullets over narrative — same substance, fewer tokens
-(`skills/memory-compress` protocol; used by `/memory-distill` when invited).
+(`skills/memory-compress` protocol; used by `/memory distill` when invited).
 
 ## Domain Glossary (CONTEXT.md)
 

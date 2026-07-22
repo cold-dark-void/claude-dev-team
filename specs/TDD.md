@@ -9,12 +9,12 @@
 | SPEC-003 | Agent Role System | INFERRED | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
 | SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, schema.sql, migrate-md.sh, migrate-v2.sh |
 | SPEC-005 | Team Bootstrap | INFERRED | agents/project-init.md, commands/init-team.md, download-extensions.sh, skills/scaffold-project, init-orchestration, demo |
-| SPEC-006 | Memory Retrieval & Search | INFERRED | skills/memory-recall/SKILL.md, commands/memory-search.md, recall.md |
-| SPEC-007 | Memory Distillation | INFERRED | agents/distiller.md, commands/memory-distill.md, memory-config.md, memory-stats.md |
-| SPEC-008 | Spec Management | INFERRED | commands/create-spec.md, update-spec.md, check-specs.md, find-spec.md, list-specs.md, skills/generate-specs, generate-tests, reflect-specs |
+| SPEC-006 | Memory Retrieval & Search | INFERRED | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
+| SPEC-007 | Memory Distillation | INFERRED | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
+| SPEC-008 | Spec Management | INFERRED | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
 | SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-and-commit, release |
-| SPEC-011 | Memory Validation | ACTIVE | commands/validate-memory.md, skills/validate-memory/SKILL.md, skills/validate-memory/reconcile-lib.sh, /memory-distill integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
+| SPEC-011 | Memory Validation | ACTIVE | commands/memory.md (`/memory validate`), skills/memory validate (stub), `/memory distill` integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
 | SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md, skills/debug/theme-status.sh (SPEC-029 gates) |
@@ -27,7 +27,7 @@
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
 | SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
-| SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory-export.md, commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
+| SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory.md (`/memory export`), commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
 | SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse) |
 | SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped) |
 | SPEC-027 | /incident War-Room & Postmortem | DEPRECATED | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |

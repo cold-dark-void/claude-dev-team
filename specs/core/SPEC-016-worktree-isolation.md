@@ -78,7 +78,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 
 ### Proposed extension — Worktree lifecycle hooks (DRAFT — **blocked by harness contract**, CDV-189 spike)
 
-> **DRAFT marker:** WLH-1–WLH-8 below remain design-only. **Not promoted.** `/check-specs` MUST exclude them from MATCH/MISSING scoring until this marker is dropped.
+> **DRAFT marker:** WLH-1–WLH-8 below remain design-only. **Not promoted.** `/spec check` MUST exclude them from MATCH/MISSING scoring until this marker is dropped.
 >
 > **CDV-189 spike (2026-07-14) — events exist, enforcement design does not fit:**
 >

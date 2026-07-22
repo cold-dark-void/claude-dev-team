@@ -15,7 +15,7 @@ Specs are the source of truth for the agent team:
 - `/kickoff` and `/orchestrate` write or update specs before any code
 - QA validates against spec MUST requirements, not ticket text
 - Tech Lead reviews against specs, not opinions
-- `/reflect-specs` catches drift between code and specs
+- `/spec reflect` catches drift between code and specs
 
 No spec = agents guessing. Bad spec = agents building the wrong thing confidently.
 
@@ -25,15 +25,15 @@ No spec = agents guessing. Bad spec = agents building the wrong thing confidentl
 
 | Task | Command | When |
 |------|---------|------|
-| Bootstrap specs for a legacy project | `/generate-specs` | Once, at project start |
-| Create a spec for a new feature | `/create-spec` | Before implementation |
-| Find a spec by keyword | `/find-spec <keyword>` | Anytime |
-| List all specs with status | `/list-specs` | Anytime |
-| Update an existing spec | `/update-spec SPEC-012` | When requirements change |
-| Validate one spec against code | `/check-specs SPEC-012` | After implementation |
-| Audit all specs (format + alignment) | `/check-specs` | Periodic health check |
-| Full system health check | `/reflect-specs` | Before releases or when drift is suspected |
-| Generate tests from specs | `/generate-tests` | After spec is stable |
+| Bootstrap specs for a legacy project | `/spec generate` | Once, at project start |
+| Create a spec for a new feature | `/spec create` | Before implementation |
+| Find a spec by keyword | `/spec find <keyword>` | Anytime |
+| List all specs with status | `/spec list` | Anytime |
+| Update an existing spec | `/spec update SPEC-012` | When requirements change |
+| Validate one spec against code | `/spec check SPEC-012` | After implementation |
+| Audit all specs (format + alignment) | `/spec check` | Periodic health check |
+| Full system health check | `/spec reflect` | Before releases or when drift is suspected |
+| Generate tests from specs | `/spec tests` | After spec is stable |
 
 ---
 
@@ -42,7 +42,7 @@ No spec = agents guessing. Bad spec = agents building the wrong thing confidentl
 If your project has no `specs/` directory:
 
 ```
-/generate-specs
+/spec generate
 ```
 
 This reads your entire codebase, groups the public surface by domain, and writes
@@ -52,19 +52,19 @@ MUST/SHOULD/MUST NOT specs from what the code *actually does*. All output is mar
 After it runs:
 
 1. **Review each spec** — correct misattributed MUSTs, resolve open questions
-2. **Validate** — `/reflect-specs` to verify specs match the code
-3. **Generate tests** (optional) — `/generate-tests` to make requirements executable
-4. **Commit** — `git add specs/ && git commit -m "spec: establish baseline from /generate-specs"`
+2. **Validate** — `/spec reflect` to verify specs match the code
+3. **Generate tests** (optional) — `/spec tests` to make requirements executable
+4. **Commit** — `git add specs/ && git commit -m "spec: establish baseline from /spec generate"`
 
-You only do this once per project. After the baseline exists, use `/create-spec` and
-`/update-spec` going forward.
+You only do this once per project. After the baseline exists, use `/spec create` and
+`/spec update` going forward.
 
 ---
 
 ## Creating a New Spec
 
 ```
-/create-spec
+/spec create
 ```
 
 Interactive interview that walks you through:
@@ -117,13 +117,13 @@ Key rules:
 ## Updating a Spec
 
 ```
-/update-spec SPEC-012
+/spec update SPEC-012
 ```
 
 Or without an ID to be prompted:
 
 ```
-/update-spec
+/spec update
 ```
 
 The update flow:
@@ -145,13 +145,13 @@ The update flow:
 
 **Search by keyword:**
 ```
-/find-spec authentication
+/spec find authentication
 ```
 Searches across titles, MUST requirements, overview, and test sections.
 
 **Quick status overview:**
 ```
-/list-specs
+/spec list
 ```
 Shows counts by category and status, recent changes, items needing attention.
 
@@ -162,7 +162,7 @@ Shows counts by category and status, recent changes, items needing attention.
 ### Single spec
 
 ```
-/check-specs SPEC-012
+/spec check SPEC-012
 ```
 
 For each MUST requirement, reports:
@@ -174,7 +174,7 @@ For each MUST requirement, reports:
 ### All specs (audit)
 
 ```
-/check-specs
+/spec check
 ```
 
 Two-phase audit:
@@ -184,7 +184,7 @@ Two-phase audit:
 ### Full health check
 
 ```
-/reflect-specs
+/spec reflect
 ```
 
 The most thorough option — checks **every** spec (not sampled), detects cross-spec conflicts,
@@ -196,13 +196,13 @@ Use before releases or when you suspect drift.
 ## Generating Tests from Specs
 
 ```
-/generate-tests
+/spec tests
 ```
 
 Or for a specific spec:
 
 ```
-/generate-tests SPEC-012
+/spec tests SPEC-012
 ```
 
 Reads MUST/SHOULD requirements and generates test files with one test case per requirement.

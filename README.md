@@ -48,7 +48,7 @@ The opencode install script symlinks `commands/` and generates opencode-valid ag
 
 The seven rows above are the behavioral/team agents you route work to. Three internal
 agents — `project-init`, `distiller`, and `council-judge` — are invoked by specific
-commands (`/init-team`, `/memory-distill`, `/council`), not directly. Every agent has
+commands (`/init-team`, `/memory distill`, `/council`), not directly. Every agent has
 persistent per-project memory.
 
 ### Memory
@@ -105,21 +105,19 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 
 | Command | What it does |
 |---------|-------------|
-| `/create-spec` | Guided interview → new behavioral spec in `specs/` |
-| `/update-spec` | Modify an existing spec with version history |
-| `/find-spec` | Search specs by keyword |
-| `/list-specs` | Quick status overview of all specs |
-| `/check-specs` | Audit spec format + code alignment (MATCH/MISSING/DIFFERS per requirement) |
-| `/reflect-specs` | Full health check — ALL specs exhaustively, cross-spec conflicts, interactive |
-| `/generate-specs` | Reverse-engineer specs from existing code (legacy project baseline) |
-| `/generate-tests` | Generate tests from specs — one test per MUST requirement, tagged with spec ID |
+| `/spec` | Unified spec management — `check`, `create`, `find`, `list`, `update`, `generate`, `tests`, `reflect` |
+| `/create-spec` | Guided interview → new behavioral spec in `specs/` **(deprecated — removed at v1.0.0)** |
+| `/update-spec` | Modify an existing spec with version history **(deprecated — removed at v1.0.0)** |
+| `/find-spec` | Search specs by keyword **(deprecated — removed at v1.0.0)** |
+| `/list-specs` | Quick status overview of all specs **(deprecated — removed at v1.0.0)** |
+| `/check-specs` | Audit spec format + code alignment (MATCH/MISSING/DIFFERS per requirement) **(deprecated — removed at v1.0.0)** |
 
 ### Code quality
 
 | Command | What it does |
 |---------|-------------|
 | [`/review-and-commit`](docs/commands/review-and-commit.md) | 5-agent parallel review with confidence scoring, blocks commit on critical issues |
-| [`/blind-review`](docs/commands/blind-review.md) | Multi-team blind peer review with quorum analysis |
+| `/blind-review` | Multi-team blind peer review with quorum analysis **(deprecated — use /council --blind)** |
 | [`/council`](docs/commands/council.md) | Adversarial tribunal — reality-checks a claim, session slice, or diff |
 | `/tdd-gate` | Toggle hook-based TDD enforcement — blocks Write/Edit without tests (on/off/status) |
 
@@ -131,14 +129,15 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 
 | Command | What it does |
 |---------|-------------|
-| [`/memory-search`](docs/commands/memory-search.md) | Search agent memories — semantic, keyword, or grep fallback |
+| `/memory` | Unified memory surface — `config`, `distill`, `export`, `search`, `stats`, `validate` |
+| `/memory-search` | Search agent memories — semantic, keyword, or grep fallback **(deprecated — removed at v1.0.0)** |
 | [`/recall`](docs/commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
-| [`/memory-distill`](docs/commands/memory-distill.md) | Compress raw memories into digests, promote high-signal to core |
-| [`/memory-config`](docs/commands/memory-config.md) | View and set memory configuration (distill mode, threshold) |
-| `/memory-stats` | Show memory usage statistics (counts, sizes, growth) |
-| `/memory-export` | Export sanitized tier-2 core memories to a committable seed pack (SPEC-024) |
+| `/memory-distill` | Compress raw memories into digests, promote high-signal to core **(deprecated — removed at v1.0.0)** |
+| `/memory-config` | View and set memory configuration (distill mode, threshold) **(deprecated — removed at v1.0.0)** |
+| `/memory-stats` | Show memory usage statistics (counts, sizes, growth) **(deprecated — removed at v1.0.0)** |
+| `/memory-export` | Export sanitized tier-2 core memories to a committable seed pack (SPEC-024) **(deprecated — removed at v1.0.0)** |
 | `/metrics` | Read-only all-time rollup of council, outcomes, worktree/task counts |
-| `/validate-memory` | Cross-reference agent memories against the live codebase; `--reconcile` detects cross-agent contradictions (`--report-only` for zero writes) |
+| `/validate-memory` | Cross-reference agent memories against the live codebase; `--reconcile` detects cross-agent contradictions (`--report-only` for zero writes) **(deprecated — removed at v1.0.0)** |
 | [`/handoff`](docs/commands/handoff.md) | Reconstruct a past session, or capture the current one, into a dense brief |
 
 ### Maintenance
@@ -213,8 +212,8 @@ DevOps ──► deploy + monitor
 ## Specs
 
 Specs live in `specs/` and are tracked in `specs/TDD.md`. QA reads them as acceptance
-criteria; the IC agents read them before implementation. Create with `/create-spec`, audit
-with `/check-specs`, and run a full health check with `/reflect-specs`. Categories:
+criteria; the IC agents read them before implementation. Create with `/spec create`, audit
+with `/spec check`, and run a full health check with `/spec reflect`. Categories:
 
 | Prefix | Category |
 |--------|----------|

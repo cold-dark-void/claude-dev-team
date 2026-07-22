@@ -630,7 +630,7 @@ check_memory_embedding_config() {
       if [ -z "$url" ]; then
         record "memory.embedding_config" "memory" "WARN" \
           "embedding_mode=remote but embedding_url empty/missing" \
-          "Set embedding_url via /memory-config or export EMBEDDING_URL"
+          "Set embedding_url via /memory config or export EMBEDDING_URL"
         return 0
       fi
       # Host in allowedDomains?
@@ -692,7 +692,7 @@ except Exception:
     *)
       record "memory.embedding_config" "memory" "WARN" \
         "unknown embedding_mode='$mode'" \
-        "Set embedding_mode to fallback|remote|lembed via /memory-config"
+        "Set embedding_mode to fallback|remote|lembed via /memory config"
       ;;
   esac
 }
@@ -1055,7 +1055,7 @@ check_worktree_distill_lock() {
   if [ -n "$holder" ]; then
     record "worktree.distill_lock" "worktree" "WARN" \
       "distilling_lock held by '$holder'" \
-      "/memory-distill --force  (or doctor --fix)"
+      "/memory distill --force  (or doctor --fix)"
   else
     record "worktree.distill_lock" "worktree" "PASS" "distilling_lock clear" ""
   fi

@@ -41,6 +41,11 @@ Two callers share this engine: `/council` (generic, verdict-shape) and
 engine is invoked from `commands/council.md` and `skills/review-and-commit/SKILL.md`;
 it is never invoked from hooks — hooks read `index.json` only.
 
+`/council --blind` is a **third entry** on the same command surface but a
+**distinct execution path** (no tribunal Phases 1–5, no `engine.sh`
+preflight/finalize): N unconstrained + M lens reviewers → semantic clustering
+→ confidence-tiered findings. See § Blind-review path.
+
 ---
 
 ## Invariants (non-negotiable)
@@ -98,9 +103,13 @@ preset selector). The argument surface:
 | `--diff` | Audit staged diff (review-and-commit entry path) | Supported |
 | `--plan <path>` | Audit a plan file for unverified assumptions | Supported (CDV-208) |
 | `--from-retro <anchor-id>` | Audit a fabrication anchor from `/retro` | Supported (CDV-212) |
+| `--blind` | Multi-team blind peer review (absorbs `/blind-review`) | Supported (CDT-46-C3) |
+| `--teams N` | Blind parity: unconstrained reviewer count (default 3) | Supported with `--blind` only |
+| `--lenses L1,L2,...` | Blind parity: lens list (default security,contributor,spec) | Supported with `--blind` only |
+| `--target <path>` | Blind parity: narrow file scope (default full project) | Supported with `--blind` only |
 | `--task-id <id>` | Bind this run to an orchestrated task id | Supported |
 | `--preset <name>` | Explicit preset selector (else inferred from scope) | Supported |
-| `--workflow` | Opt-in Workflow execution path (CDV-196); orthogonal to scope | Supported |
+| `--workflow` | Opt-in Workflow execution path (CDV-196); orthogonal to tribunal scope | Supported — **not** applied to `--blind` |
 | `--why` | Print flavors used + specialist reasoning after summary | Supported (CDV-206) |
 | `--external[=codex\|gemini]` | Optional external investigator slot (codex → gemini) | Supported (CDV-207) |
 | (no scope) | — | **Hard fail, non-zero exit** |
@@ -109,13 +118,17 @@ Env: `COUNCIL_WORKFLOW=1` is equivalent to `--workflow`.
 `COUNCIL_WORKFLOW_FORCE_FALLBACK=1` forces probe fail (tests).
 
 Scope exclusivity: exactly one of `<claim>`, `--session`, `--plan`, `--diff`,
-`--from-retro` MUST be given. `--workflow` is **not** a scope — it only
-selects the execution transport (see Workflow execution path). `commands/council.md` enforces exclusivity when
-it translates the user surface into the engine's single `--scope <name>` —
-the engine itself takes one `--scope` value, so it cannot receive (or detect)
-multiple scopes. A zero-scope invocation reaches the engine as an empty
+`--from-retro`, `--blind` MUST be given. `--teams` / `--lenses` / `--target`
+without `--blind`, or `--blind` combined with another scope, MUST fail loudly.
+There is **no** `--no-council` flag. `--workflow` is **not** a scope — it only
+selects the execution transport for tribunal paths (see Workflow execution
+path); MUST NOT apply to `--blind`. For tribunal scopes, `commands/council.md`
+translates the user surface into the engine's single `--scope <name>` — the
+engine itself takes one `--scope` value. `--blind` never reaches `engine.sh`
+preflight; it is orchestrated entirely by `commands/council.md` per §
+Blind-review path. A zero-scope invocation reaches the engine as an empty
 `--scope` and MUST exit non-zero with a clear stderr message. (SPEC-013
-line 30)
+lines 30–36, 191–211)
 
 `--plan <path>` is live (CDV-208): missing/unreadable path → exit 2 with a clear
 stderr message; present path → preset `generic`, Phase 1 extraction via
@@ -417,6 +430,119 @@ honor the same opt-in + fallback. Diff-mode (`finding[]`) skips Phase 4 on
 both paths.
 
 *Traceability:* SPEC-013 Council-on-Workflow execution path (CDV-196).
+
+### Blind-review path (`--blind`, CDT-46-C3)
+
+Absorbs the former `/blind-review` multi-team peer-review engine into
+`/council` as a first-class **scope flag**. Distinct execution path: does
+**not** run tribunal Phases 1–5, does **not** call `engine.sh`
+preflight/finalize, does **not** use Workflow. Clustering + confidence
+tiering **is** the council verdict for this path.
+
+**Entry:** `commands/council.md` Step 0.5 routes `--blind` here and skips
+Steps 1–6 tribunal. Dispatch surface + substitutions live in
+`commands/council.md` § Blind-review path.
+
+**Spawn contract:**
+- **N unconstrained** reviewers (`--teams`, default 3); team IDs `U1..UN`;
+  prompt `prompts/unconstrained-reviewer.md`
+- **M lens-differentiated** reviewers (`--lenses`, default
+  `security,contributor,spec`); team IDs `L-<lens>`; prompt
+  `prompts/lens-reviewer.md` with `{{FLAVOR_DELTA}}` = lens-delta paragraph
+  (variable name reused from investigator; value is **not** a tribunal
+  flavor file — see Lens delta library below)
+- Available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`
+- **Single parallel wave** for all N+M reviewers — never sequential fan-out
+- File list from `--target <path>` when set, else full project tracked files
+  (exclude lockfiles/generated assets)
+- After collection: namespace findings with team ID; drop malformed (missing
+  Category/Severity/Files/Claim/Evidence — no repair)
+- Spawn **one** quorum analyst (`prompts/quorum-analyst.md`) over all
+  namespaced findings → semantic clusters with tiers
+
+**Confidence tiers:**
+| Tier | Condition |
+|------|-----------|
+| 1 | Cross-cohort (≥1 unconstrained AND ≥1 lens) AND ≥2 distinct teams |
+| 2 | Same-cohort consensus (≥2 teams, not cross-cohort) |
+| 3 | Single-team minority |
+
+**SEVER Tier-1 self-recursion (mandatory):** Tier-1 consensus clusters emit
+**directly as council findings** in the blind-path report. MUST NOT invoke
+`/council`, MUST NOT re-enter the tribunal pipeline, MUST NOT reverse-validate
+via a nested council run. The former `--no-council` flag is removed — there
+is nothing to skip. Tier 2 and Tier 3 appear in the report without a second
+pass.
+
+**Report:** `.claude/council/<YYYY-MM-DD>-<slug>.md` (MROOT worktree-aware;
+create parent if absent). Contents: scope/target, team manifest, tiered
+clusters (claim, evidence, severity, category, team count, source finding
+IDs), quorum summary, per-team summaries, dropped-malformed count.
+**Output shape:** findings-shaped for gate purposes — TaskCompleted MUST
+ignore blind-path rows the same way it ignores `finding[]` (multi-perspective
+code review, not fabrication audit). Prefer unbound reports; do not write an
+index row that satisfies `requires_council`.
+
+**Hard fails:** `--teams`/`--lenses`/`--target` without `--blind`; `--blind`
+combined with another scope; unknown lens; missing target path; non-positive
+`--teams`.
+
+#### Lens delta library
+
+Inject the matching paragraph as `{{FLAVOR_DELTA}}` in `lens-reviewer.md`.
+
+**security**
+```
+You are reviewing from an attacker's perspective. Your mental model: what
+inputs are unvalidated or unescaped? Look for injection risks (SQL, shell,
+HTML/XSS, path traversal, template injection), broken authentication or
+authorization, insecure deserialization, sensitive data exposure, hardcoded
+secrets, race conditions under concurrent access, and places where the system
+silently does the wrong thing instead of failing loudly. Trust boundaries
+between components matter too. Security is your angle — but you review
+EVERYTHING, not just security-adjacent files.
+```
+
+**contributor**
+```
+You just cloned this repo and need to understand and use it. Your mental model:
+what is missing from documentation? What is inconsistent between similar
+commands or components? What would trip up someone new? Are cross-references
+between files correct? Are setup instructions complete? Is error output
+helpful? Contributor experience is your angle — but you review EVERYTHING.
+```
+
+**spec**
+```
+You are checking whether the code honours its stated contracts. "Contracts"
+means whatever the project uses to describe intended behaviour: formal spec
+files, README guarantees, OpenAPI/JSON Schema definitions, docstrings,
+inline comments that say "always", "never", "must", or "guaranteed". Your
+mental model: find the gap between what is promised and what is delivered.
+Flag missing implementations, contradictions between contract documents, and
+code behaviour that is undocumented or contradicts the stated contract.
+Contract compliance is your angle — but you review EVERYTHING.
+```
+
+**architecture**
+```
+You are evaluating design soundness. Your mental model: are abstractions at
+the right level? Are responsibilities correctly separated? Is there tight
+coupling that will cause maintenance pain? Are there design patterns that
+are applied inconsistently? Architecture is your angle — but you review
+EVERYTHING.
+```
+
+**logic**
+```
+You are hunting correctness bugs. Your mental model: off-by-ones, wrong
+operator precedence, variables used before assignment, dead code paths,
+error handling that swallows failures, race conditions, incorrect assumptions
+about data types or ranges. Logic correctness is your angle — but you review
+EVERYTHING.
+```
+
+*Traceability:* SPEC-013 Blind-review path (CDT-46-C3); Test 22.
 
 ### Phase 2.5 — Blind Cross-Review
 
@@ -874,9 +1000,13 @@ Role prompt templates live at `skills/council/prompts/<name>.md`. Files:
 - `topic-classifier.md` — Phase 3 topic classify (one per claim; CDV-209)
 - `phase4-brief.md` — runs in Phase 4 (spawned twice: once as Prosecutor, once as Devil's Advocate, parameterized by role)
 - `judge.md` — delivered to the `council-judge` agent in Phase 5
+- `unconstrained-reviewer.md` — `--blind` unconstrained teams (CDT-46-C3)
+- `lens-reviewer.md` — `--blind` lens teams (CDT-46-C3)
+- `quorum-analyst.md` — `--blind` semantic clustering (CDT-46-C3)
 
-Templates are Markdown with `{{VARIABLE}}` placeholders. `engine.sh`
-substitutes variables before invoking the Task tool or the judge agent.
+Templates are Markdown with `{{VARIABLE}}` placeholders. Tribunal templates:
+`engine.sh` / `commands/council.md` substitute before Task/judge. Blind-path
+templates: `commands/council.md` substitutes on the `--blind` path only.
 
 **Documented variables per template:**
 
@@ -889,6 +1019,9 @@ substitutes variables before invoking the Task tool or the judge agent.
 | `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
 | `phase4-brief.md` | `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
 | `judge.md` | `{{ORIGINAL_CLAIMS}}`, `{{EVIDENCE_BUNDLES}}`, `{{PROSECUTOR_BRIEF}}`, `{{ADVOCATE_BRIEF}}`, `{{OUTPUT_SHAPE}}` |
+| `unconstrained-reviewer.md` | `{{TEAM_ID}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}` |
+| `lens-reviewer.md` | `{{TEAM_ID}}`, `{{LENS_NAME}}`, `{{FLAVOR_DELTA}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}` |
+| `quorum-analyst.md` | `{{ALL_FINDINGS}}`, `{{TEAM_MANIFEST}}`, `{{UNCONSTRAINED_TEAMS}}`, `{{LENS_TEAMS}}`, `{{TOTAL_TEAMS}}` |
 
 Templates MUST NOT include `{{ASSISTANT_NARRATIVE}}` or any similar variable
 that would leak prior model output into a blind role. Enforcing this is
@@ -904,10 +1037,11 @@ primarily a code review discipline (the prompt templates are reviewed against th
 | `skills/orchestrate/task-store.sh` | Writes `.claude/tasks/<task_id>.json` with task metadata (including `requires_council: true`). The engine does NOT write to this file; the orchestrator owns it. Referenced by SPEC-009. |
 | `agents/council-judge.md` | The Judge agent invoked in Phase 5. Empty tool allowlist. |
 | `skills/review-and-commit/SKILL.md` | Calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
-| `commands/council.md` | Thin wrapper; passes CLI args through to `engine.sh` unchanged; routes opt-in Workflow path via `workflow.js`. |
-| `skills/council/workflow.js` | Optional Workflow-tool driver (CDV-196); schema-forced agent steps + shared finalize. |
-| `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate. Never calls the engine. Authoritative behavior is SPEC-002's domain — referenced here, not re-specified. |
+| `commands/council.md` | Thin wrapper; tribunal scopes → `engine.sh` + Task/Workflow; `--blind` → Blind-review path (no engine preflight). |
+| `skills/council/workflow.js` | Optional Workflow-tool driver (CDV-196); schema-forced agent steps + shared finalize. Not used by `--blind`. |
+| `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate. Never calls the engine. Authoritative behavior is SPEC-002's domain — referenced here, not re-specified. Blind-path / finding[] rows ignored. |
 | `commands/retro.md` | Prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. Persists anchors to `$MROOT/.claude/retro/anchors/<id>.json` after validation (single writer; CDV-212). |
+| `commands/blind-review.md` | DEPRECATED one-cycle stub → `/council --blind` (CDT-46-C3). |
 
 ---
 
@@ -920,7 +1054,7 @@ exit codes to decide whether to continue.
 | Exit | Meaning | Stderr message contract |
 |---|---|---|
 | 0 | Success | none on stderr |
-| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff\|plan\|from-retro)` |
+| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff\|plan\|from-retro)` (tribunal); `--blind` exclusivity / parity fails print usage from `commands/council.md` Step 0.5 |
 | 2 | Unknown preflight flag | `engine.sh: unknown preflight flag: <flag>` |
 | 2 | Plan path missing / unreadable | `engine.sh: plan file not found or not readable: <path>` (or `--plan requires a path`) |
 | 2 | Retro anchor missing / unreadable / invalid | `engine.sh: retro anchor not found: <path>` (or requires anchor-id / missing fabricated_claim_text / not valid JSON) |
@@ -960,6 +1094,10 @@ exit codes to decide whether to continue.
 - **Per-invocation preset overrides** — `confidence_filter_threshold` and
   `claim_budget` remain hardcoded per preset unless a later ticket exposes
   CLI overrides.
+- **`/council --blind`** — **implemented CDT-46-C3**. Scope flag + parity
+  `--teams|--lenses|--target`; prompts `unconstrained-reviewer`,
+  `lens-reviewer`, `quorum-analyst`; Tier-1 emit as findings (no recursive
+  `/council`); no `--no-council`. (SPEC-013 Blind-review path; Test 22.)
 
 ---
 
@@ -967,7 +1105,8 @@ exit codes to decide whether to continue.
 
 | SPEC-013 lines | Requirement | Covered in |
 |---|---|---|
-| 24–30 | Command shape & scope | Invocation Contract → CLI arguments |
+| 24–36 | Command shape & scope (incl. `--blind` exclusivity + parity) | Invocation Contract → CLI arguments |
+| Blind-review path / Test 22 | `--blind` fan-out, tiers, Tier-1 sever recursion | Blind-review path (`--blind`) |
 | 33–37 | Engine architecture (skill + thin wrapper, no parallel pipeline) | Overview, Interaction table |
 | 40–44 | Output shapes (verdict[]/finding[], tool_use_id, confidence scale) | Invariants, Presets, Phase 5 |
 | 46–52 | Phase 1 claim extraction (budget, ranking, skip rules, diff-mode enrichment) | Phase 1 |

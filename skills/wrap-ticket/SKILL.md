@@ -28,8 +28,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (dead in Bash fences today — FR #48230; forward-compat), else dev checkout, else installed cache (pre-release-safe sort -V). Slug-free.
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 ```
 
 Helper scripts (`worktree-lib.sh`, `ci-watch/sidecar.sh`) ship in the plugin,
@@ -211,7 +211,7 @@ Append a new section:
 Write back — **append-only** (matches `skills/agent-memory/protocol.md` / `skills/memory-store`
 Step 2). wrap-ticket appends ONE consolidated learnings doc per wrap; the table has no unique
 key, so `INSERT OR REPLACE` would just append a duplicate every time. Append-only is correct —
-distillation (`/memory-distill`) compresses older rows later.
+distillation (`/memory distill`) compresses older rows later.
 ```bash
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
@@ -226,7 +226,7 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   # Best-effort embedding — silently skips when extensions absent (SPEC-004:36). embed-one.sh
   # is a sibling of skills/memory-store/; resolve it (dev checkout first, else installed cache).
   EMB=$( [ -f skills/memory-store/embed-one.sh ] && echo skills/memory-store/embed-one.sh \
-    || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/memory-store/embed-one.sh' 2>/dev/null | sort -V | tail -1 )
+    || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/memory-store/embed-one.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' )
   [ -n "$EMB" ] && [ -n "$MEMORY_ID" ] && bash "$EMB" "$MEMDB" "$MEMORY_ID" "$CONTENT" 2>/dev/null || true
 else
   # Fallback: append to .md (NEVER truncate — append-only contract, SPEC-004)
@@ -237,7 +237,7 @@ fi
 ```
 
 If the memory file exceeds its SPEC-004 line limit (memory: 50 lines), note:
-`Memory file exceeds its SPEC-004 limit — run /memory-distill to compress older entries.`
+`Memory file exceeds its SPEC-004 limit — run /memory distill to compress older entries.`
 
 ---
 
@@ -265,7 +265,7 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
       for AGENT in $AGENTS_OVER; do
         echo "  Queuing distillation for @$AGENT"
       done
-      echo "Run /memory-distill to execute distillation."
+      echo "Run /memory distill to execute distillation."
     fi
   elif [ "$DISTILL_ENABLED" = "true" ] && [ "$DISTILL_MODE" = "suggest" ]; then
     THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
@@ -275,7 +275,7 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
     if [ -n "$AGENTS_OVER" ]; then
       echo "[wrap-ticket] Agents over distill threshold:"
       echo "$AGENTS_OVER"
-      echo "Run /memory-distill to compress."
+      echo "Run /memory distill to compress."
     fi
   fi
 fi
@@ -309,7 +309,7 @@ only deferred adds. Prefer plan `## Tracking` / `closes:`; fall back to matching
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
 TICKET_ID="<TICKET-ID>"
 # Prefer main tree after merge (tracker files live on master). Use WTROOT if still present.
@@ -365,7 +365,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 cd $MROOT
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 TICKET_ID="<TICKET-ID>"
 if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
   # New convention — delegate to worktree-lib.sh for lock cleanup + removal
@@ -398,7 +398,7 @@ If no worktree was found: skip silently.
 Check for an active CI-watch sidecar for this ticket:
 
 ```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
 SIDECAR_PATH=$(bash "$SIDECAR_CLI" path "$TICKET_ID" 2>/dev/null)  # lint-ok: C1
 ```
@@ -418,7 +418,7 @@ If `$SIDECAR_PATH` is non-empty and the file exists:
 3. Clean up the sidecar file (reuse `$SIDECAR_CLI` from the block above, or
    re-resolve it if running this block fresh):
    ```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
    bash "$SIDECAR_CLI" delete "$TICKET_ID"  # lint-ok: C1
    ```
@@ -437,7 +437,7 @@ fail the wrap when no epic matches.
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 EPIC_LIB="$PDH/skills/epic/epic-lib.sh"
 TICKET_ID="<TICKET-ID>"
 MARK_OUT=$(bash "$EPIC_LIB" mark-done "$TICKET_ID" 2>/dev/null || true)

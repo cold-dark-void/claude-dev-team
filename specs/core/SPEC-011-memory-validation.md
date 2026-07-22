@@ -4,13 +4,13 @@
 **Category**: core
 **Created**: 2026-03-23
 
-**Covers**: `commands/validate-memory.md`, `skills/validate-memory/SKILL.md`, `skills/validate-memory/reconcile-lib.sh`, `/memory-distill` integration (pre-distill hook), `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
+**Covers**: `/memory validate` (`commands/memory.md`), `skills/validate-memory/SKILL.md`, `skills/validate-memory/reconcile-lib.sh`, `/memory distill` integration (pre-distill hook), `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
 
 ---
 
 ## Overview
 
-Cross-references agent memories against the live codebase to detect and resolve stale references — dead files, renamed functions, shifted line numbers, outdated factual claims. Uses a multi-stage pipeline (validator proposes → tech-lead reviewer confirms → user decides ambiguous cases) with confidence scoring to minimize false positives. Runs standalone via `/validate-memory` or as an automatic pre-distill step in `/memory-distill`. Deep mode (`--deep`) rebuilds digests whose source material has gone stale. Cross-agent reconciliation (`--reconcile`) detects contradictory claims across agents' memories (not against code).
+Cross-references agent memories against the live codebase to detect and resolve stale references — dead files, renamed functions, shifted line numbers, outdated factual claims. Uses a multi-stage pipeline (validator proposes → tech-lead reviewer confirms → user decides ambiguous cases) with confidence scoring to minimize false positives. Runs standalone via `/memory validate` or as an automatic pre-distill step in `/memory distill`. Deep mode (`--deep`) rebuilds digests whose source material has gone stale. Cross-agent reconciliation (`--reconcile`) detects contradictory claims across agents' memories (not against code).
 
 ---
 
@@ -75,14 +75,14 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - MUST NOT archive digests if distiller lock is held (exit with error, try again later)
 - MUST report deep mode actions: `@<agent>: N digests checked, M rebuilt, K archived, S skipped (locked)`
 
-### `/memory-distill` Integration
-- MUST run validation as pre-distill step by default when invoked via `/memory-distill`
-- MUST support `--skip-validate` flag on `/memory-distill` to bypass pre-distill validation
+### `/memory distill` Integration
+- MUST run validation as pre-distill step by default when invoked via `/memory distill`
+- MUST support `--skip-validate` flag on `/memory distill` to bypass pre-distill validation
 - MUST complete validation before distillation begins (sequential, not parallel — garbage in prevention)
 - MUST abort distillation if validation fails with non-zero exit (do not fall through)
 - MUST run validation inside the distillation lock window (after lock acquired, before distiller spawned)
 
-### Standalone Command (`/validate-memory`)
+### Standalone Command (`/memory validate`)
 - MUST support invocation with no arguments (validate current project memories)
 - MUST support `--agent <name>` flag to validate only one agent's memories
 - MUST support `--deep` flag (digest rebuild, see above)
@@ -98,7 +98,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - MUST produce identical outcomes when run twice on an unchanged codebase (second run skips all validated entries, net changes = 0)
 
 ### Concurrency
-- MUST exit with error if `/memory-distill` holds the `distilling_lock` (do not silently skip)
+- MUST exit with error if `/memory distill` holds the `distilling_lock` (do not silently skip)
 - MUST NOT hold its own lock (validation is read-heavy with targeted writes; distillation lock is sufficient for mutual exclusion)
 
 
@@ -112,12 +112,12 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - MUST ship matching DDL in `skills/memory-store/schema.sql` for fresh DBs (`schema_version='4'`)
 
 ### Cross-Agent Memory Reconciliation (`--reconcile`)
-- MUST support `/validate-memory --reconcile` as the sole entry surface (no standalone `/memory-reconcile` command; no pre-distill auto-reconcile hook in v1)
+- MUST support `/memory validate --reconcile` as the sole entry surface (no standalone `/memory-reconcile` command; no pre-distill auto-reconcile hook in v1)
 - MUST support optional `--report-only` (with `--reconcile`) and `--agent <name>` (pairs where at least one side is that agent)
 - MUST reject combining `--deep` with `--reconcile` (error exit)
 - MUST scope to non-archived rows for behavioral agents `{pm,tech-lead,ic5,ic4,devops,qa,ds}` at all tiers 0/1/2; MUST exclude same-agent pairs, `context.md`, and internal agents (`project-init`, `distiller`, `council-judge`)
 - MUST generate candidate pairs without materializing the full cross-agent product: embeddings (sqlite-vec KNN, k=5, cosine similarity ≥ 0.55) when available; keyword/token Jaccard (≥ 0.15 on tokens len≥4) fallback otherwise
-- MUST cap judged pairs at `reconcile_pair_cap` (default 50, configurable 1–500 via `/memory-config`); MUST report cap-hit in TLDR
+- MUST cap judged pairs at `reconcile_pair_cap` (default 50, configurable 1–500 via `/memory config`); MUST report cap-hit in TLDR
 - MUST sample at most 200 memories per agent (highest tier, then newest) before keyword pairwise comparison
 - MUST skip pairs already resolved in `reconcile_log` with `action IN ('pick-survivor','merge','both-stale')` or where either memory is archived
 - MUST run LLM pair-judge only on candidate pairs (batch ≤10 pairs/call, ≤5 batches); verdict ∈ `{contradictory, consistent, unrelated}` with verbatim `claim_a`/`claim_b` quotes and confidence 0–100
@@ -173,9 +173,9 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - Verify `--force` flag re-validates everything regardless of `validated_at`
 - Verify `--deep` mode detects digests with >50% stale sources (by `archive_reason='stale'`) and rebuilds
 - Verify `--deep` aborts if distiller lock is held
-- Verify `/memory-distill` runs validation before distillation by default
-- Verify `/memory-distill` aborts on validation failure
-- Verify `--skip-validate` on `/memory-distill` bypasses validation
+- Verify `/memory distill` runs validation before distillation by default
+- Verify `/memory distill` aborts on validation failure
+- Verify `--skip-validate` on `/memory distill` bypasses validation
 - Verify rewritten memories preserve original tier, type, and distilled_from
 - Verify TLDR output format with per-agent summary
 - Verify idempotency: second run on unchanged codebase produces zero changes
@@ -203,14 +203,14 @@ Cross-references agent memories against the live codebase to detect and resolve 
 
 ## Validation
 
-- [ ] `validate-memory` with a memory referencing a deleted file archives it with `archive_reason='stale'`
-- [ ] `validate-memory` with all-clean memories reports "0 archived, 0 rewritten"
+- [ ] `/memory validate` with a memory referencing a deleted file archives it with `archive_reason='stale'`
+- [ ] `/memory validate` with all-clean memories reports "0 archived, 0 rewritten"
 - [ ] `validated_at` column exists after schema migration
 - [ ] `archive_reason` column exists after schema migration
 - [ ] `validation_log` table exists after schema migration
 - [ ] `schema_version` = "3" after migration
 - [ ] `--deep` rebuilds a digest whose sources have `archive_reason='stale'`
-- [ ] `/memory-distill` output shows validation step before distillation
+- [ ] `/memory distill` output shows validation step before distillation
 - [ ] Rewritten memory retains original tier value
 - [ ] Second run with no codebase changes: zero archives, zero rewrites
 - [ ] `--reconcile` with seeded cross-agent contradiction reports `contradictory` + verbatim quotes
@@ -223,13 +223,13 @@ Cross-references agent memories against the live codebase to detect and resolve 
 
 ## Resolved Questions
 
-- [x] ~~7-day validated_at window configurable?~~ **Yes** — `validate_window_days` config key, default 7. Settable via `/memory-config`.
+- [x] ~~7-day validated_at window configurable?~~ **Yes** — `validate_window_days` config key, default 7. Settable via `/memory config`.
 - [x] ~~50% stale-source threshold adjustable?~~ **No** — fixed at 50% for v1. Revisit if users request tuning.
 - [x] ~~Cross-project (`--scope global`) discovery?~~ **Deferred** — removed from v1 scope. Will be a follow-up ticket.
 - [x] ~~Validation log table?~~ **Yes** — `validation_log` table created in v3 migration, parity with `distillation_log`.
 - [x] ~~Schema version after migration?~~ **"3"** — guards on v2, same pattern as v1→v2 migration.
 - [x] ~~How to distinguish archive reasons?~~ **`archive_reason` column** — values: `'distilled'`, `'stale'`, `'reconciled'`, `NULL` (legacy).
-- [x] ~~Cross-agent contradiction detection?~~ **`--reconcile` on `/validate-memory`** (CDV-195) — candidate pairs + LLM pair-judge; never auto-archive; pre-distill hook DEFERRED.
+- [x] ~~Cross-agent contradiction detection?~~ **`--reconcile` on `/memory validate`** (CDV-195) — candidate pairs + LLM pair-judge; never auto-archive; pre-distill hook DEFERRED.
 - [x] ~~Standalone `/memory-reconcile`?~~ **No** — flag only (feature nickname).
 - [x] ~~Does report-only write reconcile_log?~~ **No** — zero writes.
 
@@ -241,7 +241,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - Auto-triggering without user/distill invocation
 - Validating non-code memories (process/decision notes with no checkable ground truth)
 - Adjustable deep mode threshold
-- Pre-distill auto-reconcile hook (DEFER — run `/validate-memory --reconcile` before distill when wanted)
+- Pre-distill auto-reconcile hook (DEFER — run `/memory validate --reconcile` before distill when wanted)
 - Standalone `/memory-reconcile` command
 - Auto-archive on cross-agent contradiction
 - Ground-truth adjudication inside reconcile (use `/council` via deep-audit)
@@ -256,6 +256,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 
 | Date | Change |
 |------|--------|
+| 2026-07-22 | CDT-46-C3: retarget Covers + in-body surfaces `/validate-memory` → `/memory validate`, `/memory-distill` → `/memory distill`, `/memory-config` → `/memory config` (`commands/memory.md`). Status stays ACTIVE. |
 | 2026-03-23 | Initial spec created from brainstorm session |
 | 2026-03-23 | Resolved all open questions per kickoff review. Added: archive_reason column, validation_log table, schema v3 migration, reviewer=tech-lead, non-blocking user flags, idempotency AC, concurrent run protection. Deferred --scope global. Status → APPROVED. |
 | 2026-03-23 | Added score-0 "clean pass" bucket (sets validated_at) to fix idempotency gap for truly clean memories. Threshold buckets now: 0=pass, 1-39=flag_user, 40-80=reviewer, >80=auto-archive. |

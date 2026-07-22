@@ -7,7 +7,7 @@ description: |
   to audit a shaky claim, after a debug session to verify "all green", or
   on a plan file to find unverified assumptions. Shares an engine with
   /review-and-commit (diff-mode preset).
-argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--why]'
+argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2] [--target <path>] [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--why]'
 agent: build
 ---
 
@@ -17,9 +17,11 @@ Thin wrapper around the adversarial council tribunal engine. Parses user
 arguments, invokes `skills/council/engine.sh` for deterministic scaffolding,
 then drives the LLM tribunal phases (claim extraction, parallel investigation,
 prosecution, defense, judgment) via Task tool subagent spawns — or, on opt-in,
-via the Workflow driver `skills/council/workflow.js`. Writes a structured
-report to `.claude/council/` and, for task-bound runs, appends a verdict row
-to `.claude/council/index.json`.
+via the Workflow driver `skills/council/workflow.js`. The `--blind` scope is a
+**distinct execution path** (no tribunal Phases 1–5): multi-team peer review
+with semantic clustering; protocol in `skills/council/SKILL.md` § Blind-review
+path. Writes a structured report to `.claude/council/` and, for task-bound
+tribunal runs, appends a verdict row to `.claude/council/index.json`.
 
 ## Arguments
 
@@ -28,15 +30,25 @@ to `.claude/council/index.json`.
 - `/council --diff` — audit staged diff (equivalent to /review-and-commit dispatch path)
 - `/council --plan <path>` — audit a plan file for unverified assumptions (Phase 1 uses `plan-extractor.md`)
 - `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (reads `$MROOT/.claude/retro/anchors/<id>.json`)
+- `/council --blind` — multi-team blind peer review (absorbs former `/blind-review`; CDT-46-C3)
+- `/council --blind --teams N` — N unconstrained reviewers (default: 3)
+- `/council --blind --lenses L1,L2,...` — lens reviewers (default: `security,contributor,spec`)
+- `/council --blind --target <path>` — narrow file scope (default: full project)
 - `/council --task-id <id>` — explicit task binding for verdict-to-task index entry
-- `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1`
+- `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1` — **not** applied to `--blind`
 - `/council --why` — print short debug section after summary (flavors, Phase 3 specialist reason, claim budget, preset source)
 - `/council --external` — optional external investigator slot (codex → gemini; first available). Graceful skip if none installed. Forms: `--external`, `--external=codex`, `--external=gemini`
 - `/council` — no scope, fails loudly with usage
 
 Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
-`--diff`, `--plan`, or `--from-retro` must be supplied. `--workflow`,
-`--external`, and `--why` are orthogonal to scope.
+`--diff`, `--plan`, `--from-retro`, or `--blind` must be supplied.
+`--teams` / `--lenses` / `--target` are **blind-path parity flags only** —
+supplying any without `--blind` is a hard fail. `--workflow`, `--external`,
+and `--why` are orthogonal to tribunal scopes; `--workflow` MUST NOT apply
+to `--blind`. There is **no** `--no-council` flag (Tier-1 reverse-validation
+self-call removed; CDT-46-C3).
+
+Available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`.
 
 ## Step 0: Resolve roots
 
@@ -47,11 +59,49 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ```
 
+## Step 0.5: Scope parse + `--blind` early route
+
+From the user invocation, detect scope flags and parity flags:
+
+| Flag | Effect |
+|---|---|
+| `"<claim text>"` | scope=`claim` |
+| `--session` | scope=`session` |
+| `--diff` | scope=`diff` |
+| `--plan <path>` | scope=`plan` |
+| `--from-retro <id>` | scope=`from-retro` |
+| `--blind` | scope=`blind` → **jump to [Blind-review path](#blind-review-path---blind-cdt-46-c3)** (skip Steps 1–6 tribunal) |
+| `--teams N` | blind parity only (default 3) |
+| `--lenses L1,L2,...` | blind parity only (default `security,contributor,spec`) |
+| `--target <path>` | blind parity only (default full project) |
+
+Hard fails (print usage, exit non-zero) — do **not** continue:
+
+1. Zero scope flags, or more than one of `"<claim>"|--session|--diff|--plan|--from-retro|--blind`
+2. Any of `--teams` / `--lenses` / `--target` without `--blind`
+3. Unknown lens name (not in: security, contributor, spec, architecture, logic)
+4. `--target` path missing when supplied
+5. `--teams` not a positive integer
+
+Usage string on fail:
+
+```
+Usage: /council "<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2,...] [--target <path>]
+       [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--why]
+
+Scope flags are mutually exclusive. --teams/--lenses/--target require --blind.
+Available lenses: security, contributor, spec, architecture, logic
+```
+
+When scope is `blind`, follow the Blind-review path section below and **stop**
+(do not invoke `engine.sh` preflight or tribunal phases). All other scopes
+continue at Step 1.
+
 ## Step 1: Locate the engine
 
 ```bash
-# Locate the dev-team plugin root (PDH). Dev checkout first, else installed cache (highest version). Slug-free, sort -V.
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (dead in Bash fences today — FR #48230; forward-compat), else dev checkout, else installed cache (pre-release-safe sort -V). Slug-free.
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 
 if [ ! -x "$ENGINE_SH" ]; then
@@ -87,7 +137,7 @@ hard-fails solely for a missing CLI — plan.external.status is `skipped` and
 internal investigators still run.
 
 ```bash template
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/council-plan.XXXXXX.json") \
   || { echo "council error: mktemp failed for PLAN_FILE"; exit 1; }
@@ -125,7 +175,7 @@ Opt-in detection (true iff either condition holds):
 | opt-in + probe fail | **No** — fallback Task path |
 
 ```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 USE_WORKFLOW=0
 # set USE_WORKFLOW=1 when user passed --workflow or COUNCIL_WORKFLOW=1
 if [ "${COUNCIL_WORKFLOW:-}" = "1" ] || [ "${_COUNCIL_WORKFLOW_FLAG:-}" = "1" ]; then
@@ -290,7 +340,7 @@ When `plan.external.requested == true`, after internal investigator spawns
 2. If available, invoke the helper (one slot per run, not per claim×flavor):
 
 ```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 EXT_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/external-reviewer.sh)
 # ARTIFACTS_FILE = raw claim/diff/artifacts written for this run (TMPDIR-safe)
 EXT_OUT=$(mktemp "${TMPDIR:-/tmp}/council-ext.XXXXXX.json") \
@@ -638,7 +688,7 @@ Write a tokens JSON file (orchestrator-owned) before finalize:
   display-only consumer of the write path here).
 
 ```bash
-PDH=$( [ -f skills/plugin-dir.sh ] && pwd || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sort -V | tail -1 | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 TOKENS_FILE="${TMPDIR:-/tmp}/council-tokens-$$.json"  # lint-ok: C1
 # write tokens JSON when any usable ints collected; else skip or source=unavailable
@@ -719,12 +769,240 @@ If the engine reported `struck_lines > 0`, print a one-line warning:
 Warning: N verdict lines were struck for missing evidence — see <report path> Audit Trail section.
 ```
 
+## Blind-review path (`--blind`, CDT-46-C3)
+
+Distinct execution path — **does not** run tribunal Phases 1–5, `engine.sh`
+preflight/finalize, or Workflow. Clustering + confidence tiering **is** the
+verdict. Protocol authority: `skills/council/SKILL.md` § Blind-review path.
+**SEVER Tier-1 self-recursion:** Tier-1 clusters emit as council findings
+**directly** — MUST NOT invoke `/council` (or re-enter the tribunal) on
+Tier-1 clusters. There is no `--no-council` flag.
+
+### B0 — Defaults and lens library
+
+```
+TEAMS   = N from --teams (default 3)
+LENSES  = comma list from --lenses (default security,contributor,spec)
+TARGET  = path from --target (default empty = full project)
+```
+
+Resolve each lens's `{{FLAVOR_DELTA}}` from the blind-path lens library in
+`skills/council/SKILL.md` § Blind-review path → Lens delta library
+(security, contributor, spec, architecture, logic). Unknown lens → hard fail
+(Step 0.5).
+
+### B1 — Build file list
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+if [ -n "$TARGET" ]; then
+  FILE_LIST=$(git ls-files "$MROOT/$TARGET" 2>/dev/null \
+    || find "$MROOT/$TARGET" -type f | grep -v '.git/')
+  SCOPE_NOTE="Review files under: $TARGET"
+else
+  FILE_LIST=$(git ls-files "$MROOT" 2>/dev/null \
+    | grep -vE '\.(lock|min\.js|min\.css|pb\.go|pb\.py|svg)$' \
+    | grep -v 'node_modules/' \
+    | grep -v 'dist/' \
+    | grep -v 'vendor/' )
+  SCOPE_NOTE="Review the full project (all tracked files listed below)."
+fi
+```
+
+Print brief summary:
+
+```
+Scope: <full project | $TARGET>
+Teams: $TEAMS unconstrained + M lens (<lens names>)
+Total reviewers: $((TEAMS + M))
+```
+
+### B2 — Parallel reviewer fan-out (single wave)
+
+**CRITICAL: Spawn ALL unconstrained AND lens teams in one parallel wave —
+never sequential.**
+
+**Unconstrained** — for each index `1..TEAMS`:
+
+```
+description: "Blind review unconstrained U<N>"
+subagent_type: "general-purpose"
+prompt: skills/council/prompts/unconstrained-reviewer.md
+  with substitutions:
+    {{TEAM_ID}}      ← U<N> (U1, U2, …)
+    {{FILE_LIST}}    ← FILE_LIST from B1
+    {{PROJECT_ROOT}} ← $MROOT
+    {{SCOPE_NOTE}}   ← SCOPE_NOTE from B1
+```
+
+**Lens** — for each lens in LENSES:
+
+```
+description: "Blind review lens L-<lens>"
+subagent_type: "general-purpose"
+prompt: skills/council/prompts/lens-reviewer.md
+  with substitutions:
+    {{TEAM_ID}}      ← L-<lens> (e.g. L-security)
+    {{LENS_NAME}}    ← lens name
+    {{FLAVOR_DELTA}} ← lens-delta paragraph from SKILL.md lens library
+    {{FILE_LIST}}    ← FILE_LIST from B1
+    {{PROJECT_ROOT}} ← $MROOT
+    {{SCOPE_NOTE}}   ← SCOPE_NOTE from B1
+```
+
+All reviewers: `Output mode: terse`. Collect FINDING-NNN blocks + SUMMARY
+per team.
+
+### B3 — Namespace and validate findings
+
+Prefix every FINDING-NNN with team ID (`U1-FINDING-001`,
+`L-security-FINDING-001`, …). Discard findings missing Category, Severity,
+Files, Claim, or Evidence — drop, do not repair. Count dropped.
+
+### B4 — Quorum analyst (clustering)
+
+Spawn ONE quorum analyst:
+
+```
+description: "Blind review quorum analysis"
+subagent_type: "general-purpose"
+prompt: skills/council/prompts/quorum-analyst.md
+  with substitutions:
+    {{ALL_FINDINGS}}         ← namespaced FINDING blocks (=== TEAM <id> === headers)
+    {{TEAM_MANIFEST}}        ← team IDs + type (unconstrained|lens)
+    {{UNCONSTRAINED_TEAMS}}  ← comma-separated U* IDs
+    {{LENS_TEAMS}}           ← comma-separated L-* IDs
+    {{TOTAL_TEAMS}}          ← TEAMS + M
+```
+
+Collect CLUSTER-NNN blocks (Tier 1/2/3) + QUORUM-SUMMARY.
+
+### B5 — Emit findings (no recursive council)
+
+**Tier-1 clusters → council findings directly.** Do **not** call `/council`,
+do **not** re-enter tribunal Phases 1–5, do **not** reverse-validate via a
+second council run. Clustering + tiering is the verdict for this path.
+
+Include Tier 2 and Tier 3 in the report (sorted Tier 1 → 2 → 3) without a
+second pass.
+
+### B6 — Write report
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+REPORT_DATE=$(date +%Y-%m-%d)
+SLUG="blind"
+[ -n "$TARGET" ] && SLUG="blind-$(basename "$TARGET" | tr -c 'a-zA-Z0-9' '-' | tr -s '-' | sed 's/-$//')"
+REPORT_PATH="$MROOT/.claude/council/${REPORT_DATE}-${SLUG}.md"
+mkdir -p "$MROOT/.claude/council"
+```
+
+Report body:
+
+```markdown
+# Council Blind Review — <date>
+
+**Scope:** <full project | target path>
+**Teams:** U1..UN (unconstrained), L-<lens>, ... (lens)
+**Total reviewers:** N
+**Output shape:** finding[] (gate-ignored; not a fabrication audit)
+**Tier-1 reverse-validation:** none (severed — clusters emit as findings)
+
+---
+
+## Tier 1 — Cross-cohort consensus (≥2 teams, both cohorts)
+
+### CLUSTER-001 — <Severity> — <Category>
+**Count:** N/<total> teams | **Teams:** U1, L-security
+**Claim:** <claim>
+**Evidence:** <evidence>
+**Source findings:** U1-FINDING-003, L-security-FINDING-001
+
+...
+
+---
+
+## Tier 2 — Same-cohort consensus (≥2 teams, not cross-cohort)
+
+...
+
+---
+
+## Tier 3 — Minority findings (single team)
+
+...
+
+---
+
+## Quorum Summary
+
+<QUORUM-SUMMARY>
+
+---
+
+## Per-team summaries
+
+### U1
+<SUMMARY>
+
+...
+
+---
+
+## Dropped findings
+
+N findings dropped (malformed).
+```
+
+Do **not** write an `index.json` row that would satisfy `requires_council`
+(findings-shaped / gate-ignored). Unbound report only unless a later ticket
+defines a blind index schema with null max_verdict_confidence.
+
+### B7 — Present to user
+
+```
+Blind council complete.
+
+Report: <relative path under .claude/council/>
+
+Summary:
+  Tier 1 (cross-cohort ≥2 teams): N clusters
+  Tier 2 (same-cohort ≥2 teams):  N clusters
+  Tier 3 (single team):           N clusters
+
+Top findings:
+  [CLUSTER-001] <severity> — <claim> (N/M teams)
+  ...
+  (showing top 5 Tier 1+2 only)
+
+Tier-1 reverse-validation: none (severed — clusters are findings)
+```
+
+### Blind-path rules
+
+1. You do NOT write findings — orchestrate, collect, present.
+2. All reviewer teams spawn in a single parallel wave.
+3. Quorum analyst sees all findings (not blind).
+4. **No second `/council`** on Tier 1 (or any tier).
+5. Report always written even if a team returns 0 findings or quorum yields
+   no clusters (then raw per-team summaries only).
+6. Spawn failure on a reviewer: note team as 0 findings / self-verify that
+   slot if critical; continue. Marker if needed:
+   `self-verified — refuters unavailable` (orchestrator only).
+
 ## Error Handling
 
 - **No scope and no prior context** → engine exits 2 → print usage and exit
 - **Missing/unreadable `--plan` path** → engine exits 2 → print stderr and exit
 - **Missing/unreadable `--from-retro` anchor** → engine exits 2 → print stderr
   and exit (`$MROOT/.claude/retro/anchors/<id>.json` not found)
+- **`--blind` combined with another scope** → print usage and exit (Step 0.5)
+- **`--teams` / `--lenses` / `--target` without `--blind`** → print usage and exit
+- **Unknown lens / bad `--teams` / missing `--target` path** → print usage/error and exit
 - **Unknown preset** → engine exits 4 → print stderr and exit
 - **Engine not found** → print clear error mentioning expected paths and exit
 - **Investigator returns no evidence** → legal "no evidence found" outcome;
@@ -742,7 +1020,8 @@ Warning: N verdict lines were struck for missing evidence — see <report path> 
 ## Rules
 
 - This command does NOT write code. It orchestrates Task subagents and pipes
-  their outputs through the engine.
+  their outputs through the engine (tribunal) or writes the blind-path report
+  directly.
 - Investigators MUST be blind (no prior assistant narrative passed)
 - Judge MUST NOT have any tool access (enforced by `agents/council-judge.md`)
 - Every verdict line MUST be backed by an investigator tool_use_id
@@ -752,5 +1031,6 @@ Warning: N verdict lines were struck for missing evidence — see <report path> 
 - Phase 7 (feedback memory) is invoked by the engine for `verdict[]`-shape
   runs only; the command does not call it directly
 - Missing scopes and missing retro anchors MUST fail loudly via engine exit
-  code 2 — never silently
-  substitute another behavior
+  code 2 — never silently substitute another behavior
+- `--blind`: Tier-1 clusters emit as findings with **no** recursive `/council`;
+  no `--no-council` flag; parity flags only with `--blind`

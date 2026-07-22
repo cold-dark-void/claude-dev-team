@@ -482,7 +482,7 @@ Read all spec files in `specs/` that are relevant to the affected area. Use the 
 Classify the deviation as exactly one of:
 
 - **(a) Code bug** — the spec is correct, the code violates it. Proceed to 2.4.
-- **(b) Spec gap** — the spec is actively wrong or contradicted by the observed code behavior, and the code may be intentional. STOP this debug path. Include: SPEC FILE, REQUIREMENT MISSING OR CONTRADICTED, PROPOSED ADDITION (see Escalation handoff format for exact template). Emit the `/update-spec` handoff (see `## Escalation handoff format`). Do not continue to 2.4. After `/update-spec` completes, re-run `/debug $DESC` to resume the bug investigation with the corrected spec context. The debug path is paused, not abandoned.
+- **(b) Spec gap** — the spec is actively wrong or contradicted by the observed code behavior, and the code may be intentional. STOP this debug path. Include: SPEC FILE, REQUIREMENT MISSING OR CONTRADICTED, PROPOSED ADDITION (see Escalation handoff format for exact template). Emit the `/spec update` handoff (see `## Escalation handoff format`). Do not continue to 2.4. After `/spec update` completes, re-run `/debug $DESC` to resume the bug investigation with the corrected spec context. The debug path is paused, not abandoned.
 - **(c) Intentional divergence** — the spec is silent on this behavior and the code behavior appears deliberate. Document the divergence in one sentence in the session output, then proceed to 2.4.
 
 **Important distinction:** "spec is silent" defaults to (c), not (b). Only classify as (b) when the spec is actively wrong or directly contradicted — not merely incomplete.
@@ -745,7 +745,7 @@ This format is shared by:
 - Arch mode (always)
 - Full mode when scope decision = escalate-to-kickoff
 - Full mode spec alignment check when classification = spec gap (routes to
-  `/update-spec` instead)
+  `/spec update` instead)
 
 **For `/kickoff` handoff — emit verbatim.** This is the 4-field contract `/kickoff`
 accepts as input (see `## Accepted escalation handoff (input contract)` in
@@ -761,7 +761,7 @@ PROPOSED APPROACH: <2-3 sentences describing the intended fix or refactor>
 WHY INLINE REJECTED: <one of: cross-subsystem or multi-directory refactor required | architectural decision required | tech-lead design review required | arch mode — design decision required | callsite count exceeded threshold>
 ```
 
-**For `/update-spec` handoff — emit verbatim:**
+**For `/spec update` handoff — emit verbatim:**
 
 ```
 SPEC FILE: specs/core/SPEC-NNN-<slug>.md

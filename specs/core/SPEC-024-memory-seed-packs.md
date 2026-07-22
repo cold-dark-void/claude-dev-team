@@ -8,7 +8,7 @@
 
 ## Overview
 
-Team memory is machine-local: a fresh clone or a new collaborator starts with cold agents, and `/init-team`'s project scan rediscovers only what code inspection can infer — not the hard-won decisions, gotchas, and domain vocabulary already distilled on another machine. Copying `memory.db` between machines is unsafe (absolute paths, machine config, possible secrets) and unreviewable. This spec defines **memory seed packs**: `/memory-export` writes a sanitized, provenance-tagged, deterministic pack of per-agent seed files under `.claude/memory/seed/` from each agent's distilled tier-2/core memories (plus cortex highlights in fallback mode), sized and scrubbed for human review in a PR and committed to the repo so team knowledge ships with the code. On a fresh clone, `/init-team` detects the pack and imports it as provenance-tagged tier-1 memories BEFORE the project-init scan runs, so a new machine or user starts with a warm team. Re-import is idempotent (content-hash dedupe), and seeded memories flow through the normal SPEC-011 validation pipeline, so stale seeded claims are caught against the current codebase rather than trusted forever.
+Team memory is machine-local: a fresh clone or a new collaborator starts with cold agents, and `/init-team`'s project scan rediscovers only what code inspection can infer — not the hard-won decisions, gotchas, and domain vocabulary already distilled on another machine. Copying `memory.db` between machines is unsafe (absolute paths, machine config, possible secrets) and unreviewable. This spec defines **memory seed packs**: `/memory export` writes a sanitized, provenance-tagged, deterministic pack of per-agent seed files under `.claude/memory/seed/` from each agent's distilled tier-2/core memories (plus cortex highlights in fallback mode), sized and scrubbed for human review in a PR and committed to the repo so team knowledge ships with the code. On a fresh clone, `/init-team` detects the pack and imports it as provenance-tagged tier-1 memories BEFORE the project-init scan runs, so a new machine or user starts with a warm team. Re-import is idempotent (content-hash dedupe), and seeded memories flow through the normal SPEC-011 validation pipeline, so stale seeded claims are caught against the current codebase rather than trusted forever.
 
 The pack is a **transport format, not a second memory system**. Everything about how memories are stored, tiered, retrieved, and validated stays owned by the existing memory specs; this spec owns only the export sanitization/serialization, the committable artifact layout, and the one import step wired into bootstrap.
 
@@ -25,7 +25,7 @@ The pack is a **transport format, not a second memory system**. Everything about
 
 ## MUST
 
-- **M1 — Export command & pack layout.** A new `/memory-export` command MUST write one seed file per agent to `.claude/memory/seed/<agent>.md` plus a pack manifest `.claude/memory/seed/manifest.json` (fields at minimum: pack format version, source project name, export date, per-file entry counts and content hashes). Sources: in SQLite mode, tier-2 core memories (non-archived); in fallback mode, `cortex.md` and `lessons.md` highlights. Output MUST be deterministic (stable ordering, e.g. `type, updated_at DESC, id`) so re-export produces clean, reviewable diffs; an agent with nothing exportable produces no file for that agent, and a fully empty export is a friendly no-op (no empty pack written).
+- **M1 — Export command & pack layout.** A new `/memory export` command MUST write one seed file per agent to `.claude/memory/seed/<agent>.md` plus a pack manifest `.claude/memory/seed/manifest.json` (fields at minimum: pack format version, source project name, export date, per-file entry counts and content hashes). Sources: in SQLite mode, tier-2 core memories (non-archived); in fallback mode, `cortex.md` and `lessons.md` highlights. Output MUST be deterministic (stable ordering, e.g. `type, updated_at DESC, id`) so re-export produces clean, reviewable diffs; an agent with nothing exportable produces no file for that agent, and a fully empty export is a friendly no-op (no empty pack written).
 - **M2 — Sanitization (deny-by-default).** Before an entry is written to the pack: absolute paths under the project root MUST be rewritten repo-relative; any entry still containing an absolute filesystem path, home-directory path, hostname, username, email address, session UUID, credentialed URL, or secret-like token (common key patterns and high-entropy strings) MUST be EXCLUDED from the pack — never silently half-scrubbed — and reported in the export summary by memory id with the triggering reason. Sanitization is a floor, not a substitute for the human PR review the pack is designed for.
 - **M3 — Provenance trailer.** Every exported entry MUST end with a machine-parseable provenance trailer on its own line — `[seed: project=<name> date=<YYYY-MM-DD> tier=<n> agent=<agent> hash=<sha256-12>]` — mirroring SPEC-011's `[validated: …]` trailer precedent. The hash MUST be computed over the normalized entry content EXCLUDING the trailer itself, so the trailer can be verified and used as the dedupe key (M6).
 - **M4 — Import point & mechanism.** `/init-team` MUST detect `.claude/memory/seed/manifest.json` and import the pack BEFORE the project-init agent is spawned (after DB init + extension setup in the SPEC-005 sequence), so seeded knowledge already exists when the project scan runs. Each imported entry MUST be written via the memory-store protocol (SPEC-004 write path: escaping, `busy_timeout`, retry, read-back) as `tier=1`, `type='digest'`, `distilled_from='[]'`, with the provenance trailer preserved in `content` and the parsed provenance recorded in `metadata_json`. Import MUST NOT use bespoke raw INSERTs.
@@ -42,7 +42,7 @@ The pack is a **transport format, not a second memory system**. Everything about
 ## SHOULD
 
 - SHOULD cap pack size for reviewability: a default per-agent entry cap (e.g. 40 entries, newest-first within the M1 deterministic order) with an explicit override flag, reporting how many entries were omitted by the cap.
-- SHOULD support `--agent <name>` on `/memory-export` for partial exports, and `--dry-run` to print what would be exported (including exclusions and reasons) without writing.
+- SHOULD support `--agent <name>` on `/memory export` for partial exports, and `--dry-run` to print what would be exported (including exclusions and reasons) without writing.
 - SHOULD surface a one-line warm-start summary in the `/init-team` final report (e.g. `warm start: N memories imported for M agents from pack dated <date>; K rejected`).
 - SHOULD let imported rows pick up embeddings via the normal best-effort `embed-one.sh` path so semantic search covers seeded knowledge when embeddings are configured.
 - SHOULD advise (in the export summary) committing the pack via a reviewed PR rather than direct push, since sanitization is deliberately conservative but not perfect.
@@ -51,13 +51,13 @@ The pack is a **transport format, not a second memory system**. Everything about
 
 ## Test
 
-1. **Deterministic export (M1):** with tier-2 rows present for two agents, `/memory-export` writes `.claude/memory/seed/<agent>.md` for each plus `manifest.json`; running it again with no memory changes produces byte-identical files.
+1. **Deterministic export (M1):** with tier-2 rows present for two agents, `/memory export` writes `.claude/memory/seed/<agent>.md` for each plus `manifest.json`; running it again with no memory changes produces byte-identical files.
 2. **Sanitization excludes, rewrite includes (M2):** seed one memory containing `/home/<user>/…` and a fake AWS key → excluded and listed with reasons; seed another containing only a project-root-anchored path → path rewritten repo-relative and the entry included.
 3. **Provenance trailer (M3):** every entry in a real pack ends with a parseable `[seed: …]` trailer; recomputing the hash over the trailer-stripped content reproduces `hash=<sha256-12>`.
 4. **Import before scan, via protocol (M4):** on a fresh clone containing a pack, `/init-team` imports before project-init is spawned (seeded rows exist when the scan starts); imported rows have `tier=1`, `type='digest'`, `distilled_from='[]'`, provenance in `metadata_json`, and the write path shows SPEC-004 discipline (escaped content, read-back).
 5. **Carve-out is scoped (M5):** the tier-1 writes originate from the `/init-team` host script; a behavioral agent attempting `tier>0` is still rejected/overridden per SPEC-007 — the carve-out grants nothing to agents.
 6. **Idempotent re-import (M6):** run `/init-team`, then `/init-team --refresh` → zero duplicate rows and a `skipped-duplicate` count equal to the pack size; archive one seeded row, re-run → it stays archived (`skipped-archived` increments), never resurrected.
-7. **Validation applies (M7):** imported rows have `validated_at IS NULL`; make one seeded claim stale against the codebase, run `/validate-memory` → it scores and archives per SPEC-011's normal thresholds, `archive_reason='stale'`.
+7. **Validation applies (M7):** imported rows have `validated_at IS NULL`; make one seeded claim stale against the codebase, run `/memory validate` → it scores and archives per SPEC-011's normal thresholds, `archive_reason='stale'`.
 8. **Untrusted-pack screen (M8):** hand-edit a committed pack entry to contain a secret-like token → import rejects that entry (counted in `rejected`); corrupt a manifest hash → that file is skipped with a warning and `/init-team` completes normally.
 9. **Committable pack (M9):** after export, `git check-ignore .claude/memory/seed/pm.md` exits non-zero (not ignored) while `git check-ignore .claude/memory/memory.db` still exits 0 (ignored); `git log` shows no commit authored by the export; a later `/init-team` run does not re-ignore the seed dir.
 10. **Fallback round-trip (M10):** with `sqlite3` unavailable, export from fallback `.md` files succeeds; import appends to fallback files without exceeding the line limits and reports omissions.
@@ -83,7 +83,7 @@ The pack is a **transport format, not a second memory system**. Everything about
 - ~~Pack entry format is per-agent `.md` for PR reviewability; revisit a single JSON pack only if trailer parsing proves brittle in practice.~~ **RESOLVED:** per-agent `.md` + `manifest.json` is the ship format. Single-JSON pack deferred unless trailer parsing proves brittle post-ship.
 - ~~Should SPEC-011 apply a small score modifier to seeded rows?~~ **RESOLVED:** no modifier — seeds are ordinary memories (M7). Existing age/staleness pipeline is sufficient.
 - High-entropy secret detection threshold: acceptable false-positive rate before maintainers start hand-overriding exclusions? **Ship conservative** (deny-by-default M2); no hand-override flag in v1. Tune from export-summary evidence in a later ticket if FP rate is painful.
-- ~~Whether `/memory-export` should optionally refresh/prune an existing committed pack in place.~~ **RESOLVED:** yes as default. Re-export overwrites `.claude/memory/seed/` from current non-archived tier-2 sources only — archived/removed sources disappear from the pack (deterministic M1 order makes the diff reviewable). No separate `--prune` flag.
+- ~~Whether `/memory export` should optionally refresh/prune an existing committed pack in place.~~ **RESOLVED:** yes as default. Re-export overwrites `.claude/memory/seed/` from current non-archived tier-2 sources only — archived/removed sources disappear from the pack (deterministic M1 order makes the diff reviewable). No separate `--prune` flag.
 
 ---
 
@@ -91,10 +91,11 @@ The pack is a **transport format, not a second memory system**. Everything about
 
 | Date | Change |
 |------|--------|
+| 2026-07-22 | CDT-46-C3: retarget Covers + in-body surfaces `/memory-export` → `/memory export`, `/validate-memory` → `/memory validate` (`commands/memory.md`). Status stays ACTIVE. |
 | 2026-07-14 | ACTIVE — CDV-194 implementation (export/import scripts, `/memory-export`, init-team Step 5.5) |
 | 2026-07-03 | Initial DRAFT — ideation wave 2 |
 
-**Covers**: `commands/memory-export.md`, `commands/init-team.md` (Step 5.5 import), `agents/project-init.md` (seed awareness), `skills/memory-store/{export,import}-seed-pack.sh`, `skills/memory-store/seed-common.sh`, `skills/memory-store/test-seed-pack.sh`, `skills/memory-store/SKILL.md` (M5 host-script note), `.claude/memory/seed/` (emitted pack layout: `<agent>.md` + `manifest.json`).
+**Covers**: `/memory export` (`commands/memory.md`), `commands/init-team.md` (Step 5.5 import), `agents/project-init.md` (seed awareness), `skills/memory-store/{export,import}-seed-pack.sh`, `skills/memory-store/seed-common.sh`, `skills/memory-store/test-seed-pack.sh`, `skills/memory-store/SKILL.md` (M5 host-script note), `.claude/memory/seed/` (emitted pack layout: `<agent>.md` + `manifest.json`).
 
 ## Cross-references
 
