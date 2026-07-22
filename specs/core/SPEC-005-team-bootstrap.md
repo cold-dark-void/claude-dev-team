@@ -60,13 +60,24 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - MUST create .gitkeep files in empty directories
 
 ### Orchestration Setup (brownfield — init-orchestration)
-- MUST be idempotent (safe to re-run, merge not overwrite)
+- MUST be idempotent (safe to re-run, merge not overwrite) unless an explicit force-overwrite path is invoked
 - MUST auto-detect network domains from package manifests (package.json, go.mod, requirements.txt, Cargo.toml, Gemfile) and git config
 - MUST add TaskCompleted hook with `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"`
-- MUST set `permissions.defaultMode: "bypassPermissions"` and `Bash(*)` in allow list
+- MUST set orchestration `permissions.defaultMode` and allow list to the **SPEC-002 winning least-privilege cell** (matrix-evidence-gated; may remain `bypassPermissions` + `Bash(*)` if non-bypass cells fail AC1) and MUST enable sandbox + `autoAllowBashIfSandboxed` when the winning cell requires them
 - MUST make task-completed.sh executable (chmod +x)
 - MUST seed orchestrator memory with anti-pattern learnings
 - MUST merge existing settings.json (preserve existing allow entries, merge domains)
+
+### Doctor install gate (CDT-51 / CDT-46-C5)
+- `/setup team` and `/setup orchestration` MUST hard-gate on `dev-team:doctor` (plugin doctor, not the Claude Code harness built-in `/doctor`): run the battery first; **exit ≤ 1** (PASS or WARN-only) continues; **exit 2 (FAIL) blocks** bootstrap with a clear message naming the FAIL rows and fix-it lines
+- Override flag (e.g. `--skip-doctor` / equivalent) MUST print an explicit warning that the gate was skipped, then proceed; silent skip is forbidden
+- `/setup project` MUST soft-advise only (recommend running doctor; MUST NOT block scaffold on doctor FAIL)
+- Marketplace install path MUST NOT hard-gate on doctor (no gate at marketplace install time)
+- Doctor itself remains non-bootstrap (SPEC-022) — the gate **calls** doctor; setup still owns creation
+
+### Force-overwrite disclosure (CDT-51 / CDT-46-C5)
+- When a re-run **force-overwrites** an existing managed file (settings, hooks, or other setup-owned artifacts), the path MUST print **old** summary, **new** summary, and a **restore key** (backup path or recovery handle) before replacing content
+- Forced + silent overwrite is a FAIL (no silent clobber)
 
 ### Emitted AGENTS.md Template (distinctness contract)
 - This repo's hand-tuned `AGENTS.md` and the AGENTS.md template emitted by `init-orchestration` (Step 5) are intentionally DISTINCT documents. They share rule *bodies* by convention (manual reconciliation), NOT by byte-level single-sourcing. No managed-include relationship exists or is required between them.
@@ -126,6 +137,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): reworded the Demo cleanup MUST to defer to SPEC-016's safe worktree-teardown (separate `git worktree remove` / `git branch -D` calls, never chained `&&`; prefer `worktree-lib.sh release`); added SPEC-016 cross-reference. No behavioral change. |
 | 2026-07-21 | CDT-46-C2: `/demo` removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` → deprecation stub). Marked the Demo MUST/SHOULD/Test/Validation items OBSOLETE-at-v1.0.0 (retained one cycle as historical record, not deleted); annotated the demo Covers entry as a DEPRECATED stub. Bootstrap requirements (init-team, scaffold, init-orchestration) unchanged. |
 | 2026-07-22 | CDT-46-C4: user entry unified under `/setup <project\|orchestration\|team>` (`commands/setup.md`). Covers retargeted; `commands/init-team.md` → Deprecation stub. Scaffold/init-orch/init-team behaviors remain distinct protocols (dispatcher only — no full semantic rewrite; W5 OOS). |
+| 2026-07-22 | CDT-51 / CDT-46-C5: posture + doctor-gate only — orchestration defaultMode follows SPEC-002 matrix winner; hard-gate doctor on `/setup team` + `/setup orchestration` (exit ≤1 OK; FAIL blocks; override warns); soft-advise on `/setup project`; marketplace no gate; force-overwrite old/new/restore disclosure. Status stays INFERRED (W5 promote-or-cut; no full /setup semantic rewrite). |
 
 ## Cross-references
 

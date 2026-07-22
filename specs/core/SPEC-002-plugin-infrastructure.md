@@ -37,10 +37,12 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
   - Task id absent from the index → stderr "no verdict exists" naming the blocked task id
   - Task id present but no `verdict[]`-shape row meets the threshold → stderr naming the blocked task id, the best observed `max_verdict_confidence`, and the required `council.taskgate.min_confidence` value
 - The hook MUST treat `requires_council: false` or absent as the default no-op path — no index read, no env var requirement, silent pass
-- MUST enable sandbox (`sandbox.enabled: true`) with `autoAllowBashIfSandboxed: true`
-- MUST include `Bash(*)` in permissions.allow
-- MUST set `permissions.defaultMode: "bypassPermissions"` as the shipped default
-  - RISK (acknowledged, intentional): `Bash(*)` + `bypassPermissions` grants every spawned agent unprompted arbitrary shell, contained ONLY by the OS sandbox above — running without a sandbox accepts that full-host blast radius.
+- MUST enable sandbox (`sandbox.enabled: true`) with `autoAllowBashIfSandboxed: true` — the OS sandbox is the containment boundary for orchestration (AGENTS.md: "sandbox is the boundary")
+- MUST include `Bash(*)` in permissions.allow for the orchestration posture
+- MUST ship orchestration `permissions.defaultMode` as the **least-privilege cell among those that pass** the live permission matrix (CDT-51 / CDT-46-C5). Matrix cells (Claude Code keys, verified real): **(A)** `bypassPermissions`; **(B)** `acceptEdits` + sandbox + `autoAllowBashIfSandboxed`; **(C)** `dontAsk` + sandbox. Flows that MUST pass for a cell to count: orchestrate spawn, memory sqlite3 writes, worktree ops, hook execution. Pass bar: zero prompts at least privilege among passing cells.
+  - Evidence file MUST exist and record per-cell results **before** any template or docs flip of the shipped default (path owned by the CDT-51 plan / PR).
+  - If no non-bypass cell passes, MUST retain **(A)** `bypassPermissions` and flag C7 for posture-honesty docs (do not claim a least-privilege default that was not proven).
+  - RISK (when A ships or is retained): `Bash(*)` + `bypassPermissions` grants every spawned agent unprompted arbitrary shell, contained ONLY by the OS sandbox above — running without a sandbox accepts that full-host blast radius.
 - MUST include `github.com` in sandbox network allowlist
 - MUST exclude `docker` and `docker-compose` from sandbox
 - MUST set `marketplace.json` plugin source to `"./"` (same-repo distribution)
@@ -191,6 +193,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-07-21 | CDT-46-C2: repointed the plugin-discovery Covers entry `skills/scout-plugins/SKILL.md` → `tools/scout-plugins/README.md` (scout-plugins relocated out of the loadable skill surface at v1.0.0; capability retained as an internal tool). |
 | 2026-06-22 | Doc-IA pass: the changelog moved out of `README.md` into a dedicated repo-root `CHANGELOG.md`. The third version-synced file is now `CHANGELOG.md`, not the README; `README.md` carries only a pointer. `/release` (SPEC-010) updated to match. |
 | 2026-07-21 | CDT-46-C3 Task 15 Phase A: pre-release-safe PDH resolution. Canonical bootstrap stanza gains optional guarded `CLAUDE_PLUGIN_ROOT` (dead in Bash fences today — FR #48230; forward-compat) + tilde-mapped `sort -V` (`sed 's/-pre\./~pre./' \| sort -V \| tail -1 \| sed 's/~pre\./-pre./'`) so final `1.0.0` outranks retained `1.0.0-pre.N`. Aligned tier-2 MUST to `ls \| sort -V` (was wrong "read from plugin.json"). `plugin-dir.sh` tier-2/tier-3 hardened with the same map; optional tier-0. |
+| 2026-07-22 | CDT-51 / CDT-46-C5: posture MUSTs — sandbox is the boundary; orchestration `defaultMode` is the least-privilege matrix-passing cell (A/B/C), evidence-gated before template flip; retain bypass + flag C7 if non-bypass fails. Status stays INFERRED (W5 promote-or-cut). |
 
 ## Cross-references
 

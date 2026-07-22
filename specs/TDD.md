@@ -7,8 +7,8 @@
 | SPEC-001 | Per-Agent Directives | ACTIVE | commands/adjust-agent.md, agents/*.md (directives loading) |
 | SPEC-002 | Plugin Infrastructure | INFERRED | .claude-plugin/plugin.json, marketplace.json, .claude/settings.json, hooks/task-completed.sh, tools/scout-plugins |
 | SPEC-003 | Agent Role System | INFERRED | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
-| SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, schema.sql, migrate-md.sh, migrate-v2.sh |
-| SPEC-005 | Team Bootstrap | INFERRED | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration, demo |
+| SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, schema.sql, migrate.sh, migrate-md.sh, migrate-v2/v3/v4.sh |
+| SPEC-005 | Team Bootstrap | INFERRED | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration, demo; CDT-51 doctor-gate + posture |
 | SPEC-006 | Memory Retrieval & Search | INFERRED | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
 | SPEC-007 | Memory Distillation | INFERRED | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
 | SPEC-008 | Spec Management | INFERRED | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
@@ -72,3 +72,4 @@
 | 2026-07-15 | SPEC-029 DRAFT: debug reopen detector + multi-surface done gates (from plugin bug/refactor eval + May refine autopsy); partial skill implementation. |
 | 2026-07-16 | SPEC-029 dogfood on describer (Grok `/debug`); status DRAFT→ACTIVE. |
 | 2026-07-21 | SPEC-030 implemented (CDT-46-C1): deterministic smoke-harness gate (tools/smoke/) + first CI (.github/workflows/smoke.yml) + `/release` Step 4.10; status DRAFT→ACTIVE. |
+| 2026-07-22 | CDT-51 / CDT-46-C5 kickoff: SPEC-002/005 posture + doctor-gate MUSTs; SPEC-022 M6b caller-gate; SPEC-004 migrate-test note + Covers migrate-v3/v4. No INFERRED→ACTIVE (W5). |

@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/embed-one.sh`, `skills/memory-store/migrate.sh`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`
+**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/embed-one.sh`, `skills/memory-store/migrate.sh`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`, `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
 
 ## Overview
 
@@ -72,11 +72,13 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 - Verify .md→SQLite migration chunks by `##` headers correctly
 - Verify chunk truncation at 8000 chars and skip under 20 chars
 - Verify embedding generation handles both response shapes
+- **Migrate driver (CDT-51):** automated tests MUST cover (1) **fresh** install via `schema.sql` → `schema_version=4`; (2) **≥1 real upgrade floor** v3→v4 via `migrate-v4.sh` / `migrate.sh`. Full stepwise v1→v4 is OK because `migrate-v2/v3/v4` + `schema.sql` are in-repo (no git-history archaeology). Version reads MUST be PRAGMA-poison capture-safe (plain SELECT for `schema_version`; never capture an inline `PRAGMA` result row as the version)
 
 ## Validation
 
-- [ ] `sqlite3 .claude/memory/memory.db "SELECT schema_version FROM config WHERE key='schema_version'"` returns "2"
-- [ ] Migrated memories have tier=0, archived=false
+- [ ] `sqlite3 .claude/memory/memory.db "SELECT value FROM config WHERE key='schema_version'"` returns `"4"` after fresh `schema.sql` apply
+- [ ] v3 fixture + migrate → `"4"` with no data loss on pre-seeded rows
+- [ ] Migrated memories have tier=0, archived=false (v1→v2 path)
 - [ ] context.md files remain untouched after migration
 - [ ] No .md source files deleted if any INSERT failed
 
@@ -95,6 +97,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 | 2026-04-26 | Added MUST for whole-file (no-header) chunk truncation at 5000 chars — distinct from the 8000-char ## section limit. Added PRAGMA busy_timeout=5000 to migrate-v2.sh to satisfy the "every write" requirement. |
 | 2026-06-13 | Added "Agent Session-Write Protocol (single source of truth)" MUST — the write block is defined once in skills/memory-store + the canonical skills/agent-memory/protocol.md partial; the 7 behavioral agents carry a managed-inline copy (markers, sync-includes.py byte-check at /release) and MUST NOT hand-edit it. Confirmed the cortex 100/memory 50/lessons 80/context 60 line-limits MUST is the canonical copy (AUDIT-P1-1). |
 | 2026-06-15 | Added `skills/memory-store/schema.sql` (the fresh-DB DDL — normative home for the schema) to Covers; it was orphaned. Added the `REFERENCES memories(id)` FK clause to `distillation_log.result_memory_id` (migrate-v2.sh) and `validation_log.memory_id` (migrate-v3.sh) so a migrated DB's log-table DDL matches schema.sql's fresh-create DDL exactly (`migrate-v3.sh` itself stays owned by SPEC-011) (AUDIT-P3.5a). |
+| 2026-07-22 | CDT-51 / CDT-46-C5: Covers + migrate-v3/v4; Test/Validation note for fresh + v3→v4 (full v1→v4 OK in-repo) and PRAGMA-poison-safe version capture. Status stays INFERRED (W5). migrate-v3/v4 ownership notes with SPEC-011 unchanged. |
 
 ## Cross-references
 
