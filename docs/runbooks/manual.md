@@ -236,7 +236,7 @@ Verify ACs in prod. Check monitoring/dashboards and logs for error spikes.
 
 ## Post-ship: Memory Hygiene
 
-See [memory configuration](../setup.md#memory-configuration----memory-config) for distillation settings.
+See [memory configuration](../setup.md#memory-configuration-memory-config) for distillation settings.
 
 ```bash
 /memory distill --status   # check raw memory count

@@ -3,6 +3,69 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.0
+
+- **v1.0 release (CDT-53 / CDT-46-C7)** — stability contract: tiered docs, governance files, complete migration table, reflect green, freeze lifts on this tag.
+- **Tiered Surface map** — README + docs hub: **Core / Advanced / Internal / Migration**; one-line when-to-use per Live Surface; Deprecation stubs migration-only (D2 still indexes every `commands/*.md`).
+- **Full docs-tree reconcile** — `docs/README.md` + `docs/commands/*` + runbooks accuracy-only; old primary names → hubs; stubs tombstoned with replacements.
+- **Governance** — root `LICENSE` (MIT, © 2026 cold-dark-void); `SECURITY.md` (supported 1.0.x; report via GitHub private vulnerability reporting / Security Advisories); versioning pointer → `/release` + SPEC-002.
+- **SPEC amends** — SPEC-002 MUST ship root LICENSE; SPEC-001 session boot → `agent-memory/protocol.md` (memory-recall = search only); hub-name hygiene across SPEC-003/007/009/012/013/022/024.
+- **PDH final gate** — tree-wide bare `sort -V | tail` uniformity check in `plugin-dir-test.sh` (tilde map required; intentional bare hazard assert only).
+- **AGENTS freeze** — active only until `v1.0.0` is tagged on master; section becomes historical after this release.
+- **W1–W3 Deprecation stubs** remain loadable; **scheduled deletion at v1.1**.
+- **Authoritative migration table** (below) consolidates pre.1/pre.3/pre.4 fragment tables.
+
+**Migration (old → new)** — authoritative table for W1–W3 renames, absorptions, and removals.
+All **W1–W3 Deprecation stubs** (command + skill) are **deleted at v1.1**.
+
+| Old | New / fate | Wave | Delete-at |
+|-----|------------|------|-----------|
+| `/local-do` | removed (local-agent offload excised) | W1 | v1.1 |
+| `/incident` | removed (use `/debug`; no war-room Surface) | W1 | v1.1 |
+| `/demo` | removed (use `/setup` + `/kickoff` on scratch) | W1 | v1.1 |
+| `skills/local-agent` | removed with `/local-do` | W1 | v1.1 |
+| `skills/incident` | stub; devops role independent of war-room Surface | W1 | v1.1 |
+| `skills/demo` | stub | W1 | v1.1 |
+| `/memory-config` | `/memory config` | W2 | v1.1 |
+| `/memory-distill` | `/memory distill` | W2 | v1.1 |
+| `/memory-export` | `/memory export` | W2 | v1.1 |
+| `/memory-search` | `/memory search` | W2 | v1.1 |
+| `/memory-stats` | `/memory stats` | W2 | v1.1 |
+| `/validate-memory` | `/memory validate` | W2 | v1.1 |
+| `/check-specs` | `/spec check` | W2 | v1.1 |
+| `/create-spec` | `/spec create` | W2 | v1.1 |
+| `/find-spec` | `/spec find` | W2 | v1.1 |
+| `/list-specs` | `/spec list` | W2 | v1.1 |
+| `/update-spec` | `/spec update` | W2 | v1.1 |
+| `/blind-review` | `/council --blind` | W2 | v1.1 |
+| `/reflect-specs` | `/spec reflect` | W2 | v1.1 |
+| `/generate-specs` | `/spec generate` | W2 | v1.1 |
+| `/generate-tests` | `/spec tests` | W2 | v1.1 |
+| `skills/validate-memory` | `/memory validate` (protocol via `/memory`) | W2 | v1.1 |
+| `skills/blind-review` | `/council --blind` (prompts retained for engine) | W2 | v1.1 |
+| `skills/reflect-specs` | `/spec reflect` (`skills/spec-tooling/`) | W2 | v1.1 |
+| `skills/generate-specs` | `/spec generate` (`skills/spec-tooling/`) | W2 | v1.1 |
+| `skills/generate-tests` | `/spec tests` (`skills/spec-tooling/`) | W2 | v1.1 |
+| `/focus` | `/mode focus` | W3 | v1.1 |
+| `/blunt` | `/mode blunt` | W3 | v1.1 |
+| `/metrics` | `/status metrics` | W3 | v1.1 |
+| `/fix-ticket` | `/debug ticket` | W3 | v1.1 |
+| `/init-team` | `/setup team` | W3 | v1.1 |
+| `/init-orchestration` | `/setup orchestration` | W3 | v1.1 |
+| `/scaffold-project` | `/setup project` | W3 | v1.1 |
+| `/standup` | `/status standup` | W3 | v1.1 |
+| `/worktree list\|status` | `/status worktree` (`/worktree release` remains live) | W3 | n/a (behavior moved; not a command stub) |
+| `skills/init-orchestration` | `/setup orchestration` (templates retained) | W3 | v1.1 |
+| `skills/scaffold-project` | `/setup project` | W3 | v1.1 |
+| `skills/standup` | `/status standup` (protocol retained for hub) | W3 | v1.1 |
+| `skills/fix-ticket` | `/debug ticket` (protocol retained for hub) | W3 | v1.1 |
+
+Notes:
+- **19 command Deprecation stubs** (`incident`, `local-do`, `blind-review`, `check-specs`, `create-spec`, `find-spec`, `list-specs`, `update-spec`, `memory-config`, `memory-distill`, `memory-export`, `memory-search`, `memory-stats`, `validate-memory`, `focus`, `blunt`, `metrics`, `fix-ticket`, `init-team`) + absorbed skill stubs above: remove at **v1.1**.
+- Live hubs after migration: `/memory`, `/spec`, `/mode`, `/status`, `/setup`, `/debug`, `/council`, `/worktree` (release-only).
+- Wave source: W1 = CDT-46-C2 (`1.0.0-pre.1`); W2 = CDT-46-C3 (`1.0.0-pre.3`); W3 = CDT-46-C4 (`1.0.0-pre.4`).
+- Prefer hub names always; do not hardcode Surface counts in prose (docs-drift D2 owns the index).
+
 ### v1.0.0-pre.7
 - **v1.0-W6 hygiene: de-`.claude` upstream + hook template SoT + Linear-first backlog (CDT-54 / CDT-46-C8)** — release-candidate *prose* only; version remains `-pre.7` (never `rc.*` — PDH tilde-map hazard).
 - **`.claude` never upstream** — gitignore + untrack process paths (hooks, backlog, plans, epics); `git ls-files '.claude/**'` empty except optional seed carve-out; live hooks regenerated via `/setup orchestration`.

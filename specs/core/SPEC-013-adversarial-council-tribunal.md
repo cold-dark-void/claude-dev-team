@@ -218,7 +218,7 @@ with the default `engine.sh` + Task path: same verdict/finding schemas, same
 `.claude/council/index.json` rows, same report files/naming. Judge stays tool-less
 on both paths. Transparent fallback when Workflow unavailable. Reuse CDV-199
 degradation marker — never invent a second string. Distinct from CDV-197
-(`/fix-ticket` workflow promotion) — share authoring conventions only
+(`/debug ticket` workflow promotion; former `/fix-ticket`) — share authoring conventions only
 (args-as-JSON-string guard).
 
 - MUST keep `skills/council/engine.sh` as the canonical default execution path — the Workflow path activates only on explicit opt-in (`/council --workflow` flag or `COUNCIL_WORKFLOW=1` environment variable); with neither set, behavior is byte-for-byte today's engine.sh path
@@ -454,3 +454,4 @@ degradation marker — never invent a second string. Distinct from CDV-197
 | 2026-07-14 | CDV-203: Report templates own YAML frontmatter (`task_id: "{{TASK_ID}}"` + scope/preset/output_shape/created_at/verification_mode); finalize substitutes template FM as single source (no dual prepend) and strips empty `task_id` when unbound so the key is absent — not null, not `""`. |
 | 2026-07-14 | CDV-204: Per-phase token usage reporting (SHOULD) — finalize optional `--tokens-file` (phase→int map + source); stdout `Tokens:` / `Tokens (partial):` block; optional report FM `tokens_total` / `tokens_by_phase`; graceful omit when missing/unavailable/zeros (never invent measured `0`); Task path best-effort envelope scrape in `commands/council.md`; does not alter `index.json`. Test 19 aligned. |
 | 2026-07-14 | CDV-211: Investigator tool-call caching within a run (SHOULD) — preflight creates `${TMPDIR:-/tmp}/council-cache-<run_id>/` (`reads/`, `greps/`, `manifest.json`), emits `cache_dir` + `run_id` on plan; investigator.md cache-first via `{{CACHE_DIR}}`; optional orchestrator seed from claim locators; finalize best-effort rm; empty cache correctness-neutral. |
+| 2026-07-22 | CDT-53 reflect: cross-ref `/debug ticket` (former `/fix-ticket`). Status stays ACTIVE. |

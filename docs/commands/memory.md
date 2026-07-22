@@ -180,6 +180,6 @@ Without distillation, raw counts grow and boot load balloons.
 ## See Also
 
 - [Memory runbook](../runbooks/memory.md) — tiers, hygiene, distillation workflow
-- [Setup → Memory config](../setup.md#memory-configuration----memory-config) — first-time settings
+- [Setup → Memory config](../setup.md#memory-configuration-memory-config) — first-time settings
 - [`/recall`](./recall.md) — cross-source search (sessions, memory, specs, plans, git)
 - [`/setup team`](../setup.md#setup-team--bootstrap-agent-memory) — bootstrap the memory DB

@@ -216,7 +216,7 @@ PR scope, LOC caps, refactoring rules, and the replan gate: see
 
 Handles: task verification, learnings capture, local plans.md update (write-through only — never staged), source tracker re-close (`close.sh`), deferred backlog adds (Linear preferred SoT + local write-through), worktree removal, Linear checklist. (Ship-time close-out in `/orchestrate` Step 11 should already have closed plan `closes:` against Linear; process trackers under `.claude/` are not part of the product delivery commit.)
 
-For memory hygiene, see [Memory Configuration](../setup.md#memory-configuration----memory-config).
+For memory hygiene, see [Memory Configuration](../setup.md#memory-configuration-memory-config).
 
 ---
 

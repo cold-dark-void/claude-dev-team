@@ -25,7 +25,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 ### Kickoff
 - MUST spawn three agents in parallel: PM, Tech Lead, Codebase Explorer (no sequential waiting)
 - MUST collect all three outputs before proceeding to planning
-- MUST include the line `Output mode: terse` in every agent-spawn prompt template (kickoff and orchestrate own the spawn templates) — mirrors SPEC-003 MC-4; `/reflect-specs` flags any spawn template missing it
+- MUST include the line `Output mode: terse` in every agent-spawn prompt template (kickoff and orchestrate own the spawn templates) — mirrors SPEC-003 MC-4; `/spec reflect` flags any spawn template missing it
 - MUST pause kickoff and present unresolved questions to user if PM found >4 open questions (do not plan against vague ticket)
 - MUST escalate if Tech Lead identifies breaking schema change
 - MUST write or update spec BEFORE creating task graph (spec-first principle)
@@ -217,6 +217,7 @@ per the precedence below, but MUST NOT invent new backlog items.
 | 2026-06-13 | Mirrored SPEC-003 MC-4: Kickoff/Orchestrate spawn templates MUST include `Output mode: terse`. Fixed the memory-file warn threshold — was "exceeds 150 lines", now "exceeds its SPEC-004 line limit (cortex 100/memory 50/lessons 80/context 60)", reconciling the conflict with SPEC-004:29 (AUDIT-P1-1). |
 | 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): replaced the stale 5-field task-store schema literal (no `depends_on`) with a pointer to SPEC-017's canonical 6-field schema; pointed standup READY-computation and wrap-ticket uncommitted-worktree MUSTs at their owners (SPEC-017 / SPEC-016). No behavioral change. |
 | 2026-07-14 | Cross-ref SPEC-028 (`/fix-ticket`); no behavioral change to orchestrate/kickoff/wrap-ticket. |
+| 2026-07-22 | CDT-53 reflect: spawn-template audit names `/spec reflect` (was `/reflect-specs`). Status stays ACTIVE. |
 
 ## Cross-references
 

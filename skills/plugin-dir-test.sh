@@ -6,6 +6,7 @@
 #
 # Critical: tilde-mapped sort path is load-bearing. Tests MUST prove the SORT
 # path alone (no CLAUDE_PLUGIN_ROOT) picks final 1.0.0 over 1.0.0-pre.N.
+# CDT-53-13: also greps the plugin tree for bare product `sort -V | tail` sites.
 
 set -u
 
@@ -150,6 +151,72 @@ if printf '%s' "$pdh" | grep -qF '1.0.0-pre'; then
 else
   PASS=$((PASS + 1))
   echo "  ok  stanza not a pre path"
+fi
+
+# --- CDT-53-13: tree-wide bare sort -V tilde-map uniformity gate ---
+# Product version-picks MUST use:
+#   sed 's/-pre./~pre./' | sort -V | tail -1 | sed 's/~pre./-pre./'
+# Bare sort-then-tail without the tilde map is forbidden (final 1.0.0 loses to
+# retained 1.0.0-pre.N). Allowlist: this file's intentional hazard assertion.
+echo "== tree bare sort -V uniformity =="
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+bare_hits=$(
+  python3 - "$REPO_ROOT" <<'PY'
+import os, re, sys
+root = sys.argv[1]
+roots = [os.path.join(root, d) for d in ("commands", "skills", "agents")]
+# Intentional: prove bare ranks wrong (this test file only).
+allow_substr = (
+    'bare=$(printf',
+    'hazard: bare sort -V prefers pre',
+)
+pat = re.compile(r'sort\s+-V\s*\|\s*tail')
+hits = []
+self_name = "plugin-dir-test.sh"
+for base in roots:
+    for dp, dns, fns in os.walk(base):
+        for fn in fns:
+            if not (fn.endswith(".md") or fn.endswith(".sh")):
+                continue
+            # This file hosts the intentional bare hazard + the gate itself.
+            if fn == self_name:
+                continue
+            path = os.path.join(dp, fn)
+            try:
+                lines = open(path, encoding="utf-8", errors="ignore").read().splitlines()
+            except OSError:
+                continue
+            for i, line in enumerate(lines, 1):
+                if not pat.search(line):
+                    continue
+                # Tilde-mapped pipeline on same line → OK
+                if "s/-pre" in line and "~pre" in line:
+                    continue
+                # Comments / prose (not executable pipeline) → skip
+                stripped = line.lstrip()
+                if stripped.startswith("#") or stripped.startswith("<!--"):
+                    continue
+                # Markdown prose mentioning the pipeline without running it
+                if line.strip().startswith("`") and "find " not in line and "$(" not in line:
+                    continue
+                # echo/printf diagnostic strings (not a version pick)
+                if re.match(r'''^(echo|printf)\b''', stripped):
+                    continue
+                if any(a in line for a in allow_substr):
+                    continue
+                rel = os.path.relpath(path, root)
+                hits.append(f"{rel}:{i}:{line.rstrip()}")
+if hits:
+    print("\n".join(hits))
+PY
+)
+if [ -z "$bare_hits" ]; then
+  PASS=$((PASS + 1))
+  echo "  ok  no bare product sort -V | tail sites"
+else
+  FAIL=$((FAIL + 1))
+  echo "  FAIL bare product sort -V | tail (need tilde map):"
+  printf '%s\n' "$bare_hits" | sed 's/^/    /'
 fi
 
 echo
