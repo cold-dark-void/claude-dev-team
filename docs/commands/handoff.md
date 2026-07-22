@@ -113,8 +113,9 @@ deterministic, LLM-free **rescue artifact** so context loss is not permanent
 `/handoff <session-id>` for the full brief. Artifacts are machine-local (gitignored under
 `.claude/handoff/`). If hooks are unregistered or the Claude Code version lacks
 `PreCompact`/`PostCompact`, cold + warm `/handoff` behave exactly as before (graceful
-absence). Wire hooks via `/setup orchestration` (templates + `check-hook-templates` are the
-ship gate; live `settings.json` is machine-local).
+absence). Wire hooks via `/setup orchestration` (init-orch templates are SoT;
+`check-hook-templates` is template-hygiene only — dual-copy retired CDT-54;
+live `settings.json` is machine-local).
 
 ## See Also
 

@@ -3,7 +3,7 @@ name: epic
 description: |
     Umbrella decomposition and sequenced orchestration (SPEC-025). PM+TL
     jointly decompose an epic into child tickets + cross-ticket DAG; persist
-    via backlog (Linear optional); walk ready children by handing each to
+    via Linear preferred + local write-through; walk ready children by handing each to
     /kickoff or /orchestrate. Composition layer only — never reimplements the
     ticket lifecycle. Usage: /epic <EPIC-ID> ["text"] | status | complete |
     block | unblock | --redecompose
@@ -202,7 +202,11 @@ bash "$EPIC_LIB" add-child "$EPIC_ID" \
   --problem "<problem>" --ac '<json-array-of-strings>'
 ```
 
-#### Backlog writes (M4 — source of truth)
+#### Dual-write persistence (M4 — Linear preferred + local write-through)
+
+When Linear MCP is available, create/link the Linear issue first, then **always**
+write local write-through. When MCP is down, write local only. Process trackers
+under `.claude/` MUST NOT be committed (SPEC-025 M4 / SPEC-009).
 
 Per child, write `.claude/backlog/<slug>.md` with YAML frontmatter + body:
 
@@ -251,16 +255,16 @@ Slug formula (SPEC-009 / `/backlog`): lowercase, hyphen-join, strip punctuation,
 
 Ensure backlog structure exists (`/backlog init` if missing).
 
-#### Linear best-effort (M5)
+#### Linear preferred (M5)
 
-If Linear MCP tools are available:
+If Linear MCP tools are available (preferred SoT for open work):
 
 1. Create issue: title `[<EPIC-ID>] <child title>`; description embeds local `child_id` + problem + ACs.
 2. Label `epic:<EPIC-ID>` if labels API works; else description-only.
 3. Record returned id: re-`add-child` is wrong if already added — instead note `linear_id` via a follow-up state edit only if you stored it at add-child time (`--linear-id`). Prefer creating Linear first then `add-child … --linear-id`, **or** create Linear after add-child and call `set-status` is not enough — pass `--linear-id` at add-child when known.
 
 On **any** Linear failure or MCP absence: print one line
-`Linear unavailable — continuing with backlog as source of truth`
+`Linear unavailable — continuing with local write-through only`
 and continue. **Never** block, retry-loop, or fail the epic.
 
 Then enter **Execute / Resume**.

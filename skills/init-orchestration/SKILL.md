@@ -10,8 +10,9 @@ description: >
 > **Entry:** `/setup orchestration`.
 > Discovery Surface is `/setup` — this file is **not** a primary skill.
 > Protocol body kept for skill-delegate from `commands/setup.md` (CDT-46-C4).
-> Live helpers retained: `check-hook-templates.sh` (release gate);
-> `disclose-force-overwrite.sh` (CDT-51 AC5 force-overwrite disclosure);
+> Live helpers retained: `check-hook-templates.sh` (template-internal hygiene
+> gate — extractability/shebang/`bash -n`; dual-copy live-vs-template retired
+> CDT-54); `disclose-force-overwrite.sh` (CDT-51 AC5 force-overwrite disclosure);
 > `test-orch-allowlist.sh` (CDT-51 TL P0 matrix allow ⊇ greenfield template).
 
 Bootstrap the files needed for Claude Code Agent Teams in the current project.
@@ -431,7 +432,13 @@ mkdir -p .claude/hooks
 
 **IMPORTANT — use the `Write` tool (NOT a bash heredoc) to create each hook file below.**
 
-> Each fenced hook template below is kept byte-identical to this repo's canonical live `.claude/hooks/<name>.sh`. `skills/init-orchestration/check-hook-templates.sh` enforces this (a `/release` pre-commit gate); if you change a live hook, regenerate the matching template here.
+> **Template SoT (CDT-54):** each fenced bash block below is the sole source of
+> truth for that hook body. Live `.claude/hooks/<name>.sh` is **generated** here
+> (executable, registered via Step 3 with `${CLAUDE_PROJECT_DIR}`). Dual-copy
+> byte-identity against package-tracked live hooks is not required.
+> `check-hook-templates.sh` enforces template-internal hygiene only
+> (extractability, shebang, `bash -n`) as `/release` Step 4.7. Edit templates
+> here; re-run `/setup orchestration` to regenerate live hooks.
 
 Use the `Write` tool to create `.claude/hooks/task-completed.sh` with this content:
 

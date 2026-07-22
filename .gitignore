@@ -1,6 +1,13 @@
 .worktrees
 .claude/settings.json
 .claude/settings.local.json
+# Process trackers (local write-through only — never upstream product)
+.claude/hooks/
+.claude/backlog/
+.claude/backlog.md
+.claude/plans/
+.claude/plans.md
+.claude/epics/
 .claude/context/
 .claude/memory/*
 !.claude/memory/seed/
@@ -33,3 +40,5 @@ __pycache__/
 
 # SPEC-029 local debug theme reopen logs
 .claude/debug/themes/
+.wt-lock
+.worktrees/

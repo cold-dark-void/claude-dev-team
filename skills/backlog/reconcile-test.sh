@@ -261,6 +261,89 @@ else
   fail "(g) survivor item file unchanged" "cmp differs"
 fi
 
+# --- (h) Degrade path: no --linear-verdicts → local-only; PENDING+linear_id stays PENDING ---
+Rh="$TMP/h"
+mkdir -p "$Rh/.claude/backlog"
+cat > "$Rh/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Linked open](backlog/linked-open.md) - still open in Linear [PENDING] linear:CDT-77
+- [Local done](backlog/local-done.md) - closed only locally [PENDING]
+
+## Completed
+
+EOF
+cat > "$Rh/.claude/backlog/linked-open.md" <<'EOF'
+---
+linear_id: CDT-77
+---
+
+# Linked open
+
+**Status**: PENDING
+
+## Problem
+
+open
+
+---
+
+*Added: 2026-01-01*
+EOF
+item_file "$Rh/.claude/backlog/local-done.md" "COMPLETED"
+# MCP-down / degrade: no --linear-verdicts (session would emit one-line notice; script is silent)
+out_h=$(bash "$RECONCILE" --root "$Rh")
+assert_file_match "(h) linked open stays PENDING without verdicts" "$Rh/.claude/backlog.md" 'linked-open\.md\).*\[PENDING\]'
+assert_file_match "(h) linked item Status still PENDING" "$Rh/.claude/backlog/linked-open.md" '^\*\*Status\*\*: PENDING'
+assert_file_match "(h) linked linear_id preserved" "$Rh/.claude/backlog/linked-open.md" '^linear_id: CDT-77'
+assert_file_match "(h) local COMPLETED moved" "$Rh/.claude/backlog.md" 'local-done\.md\).*\[COMPLETED\]'
+# exit 0 on degrade (local-only still succeeds)
+rc_h=0
+bash "$RECONCILE" --root "$Rh" >/dev/null || rc_h=$?
+if [ "$rc_h" -eq 0 ]; then pass "(h) degrade path exit 0"
+else fail "(h) degrade path exit 0" "rc=$rc_h"
+fi
+
+# --- (i) Write-through after Linear verdict: preserve frontmatter linear_id ---
+Ri="$TMP/i"
+mkdir -p "$Ri/.claude/backlog"
+cat > "$Ri/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Dual](backlog/dual.md) - closed in Linear [PENDING] linear:CDT-88
+
+## Completed
+
+EOF
+cat > "$Ri/.claude/backlog/dual.md" <<'EOF'
+---
+linear_id: CDT-88
+epic_parent: CDT-46
+---
+
+# Dual
+
+**Status**: PENDING
+
+## Problem
+
+shipped remotely
+
+---
+
+*Added: 2026-01-01*
+EOF
+printf 'dual\tDone\n' > "$Ri/verdicts.tsv"
+bash "$RECONCILE" --root "$Ri" --linear-verdicts "$Ri/verdicts.tsv" >/dev/null
+assert_file_match "(i) Linear verdict flips COMPLETED" "$Ri/.claude/backlog/dual.md" '^\*\*Status\*\*: COMPLETED'
+assert_file_match "(i) frontmatter linear_id preserved" "$Ri/.claude/backlog/dual.md" '^linear_id: CDT-88'
+assert_file_match "(i) frontmatter epic_parent preserved" "$Ri/.claude/backlog/dual.md" '^epic_parent: CDT-46'
+assert_file_match "(i) index moved COMPLETED" "$Ri/.claude/backlog.md" 'dual\.md\).*\[COMPLETED\]'
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

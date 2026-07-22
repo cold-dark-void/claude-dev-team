@@ -823,14 +823,15 @@ check_hooks_hygiene() {
 }
 
 check_hooks_templates_dev() {
-  # Dev-checkout only: check-hook-templates.sh
+  # Dev-checkout only: template-internal hygiene (CDT-54 dual-copy retired).
+  # Does NOT require package-tracked live .claude/hooks/*.sh.
   local is_dev=0
   if [ -f "$MROOT/skills/init-orchestration/SKILL.md" ] \
      && [ -f "$MROOT/.claude-plugin/plugin.json" ]; then
     is_dev=1
   fi
   if [ "$is_dev" -eq 0 ]; then
-    record "hooks.templates" "hooks" "SKIP" "consumer install — template drift check omitted" ""
+    record "hooks.templates" "hooks" "SKIP" "consumer install — template hygiene check omitted" ""
     return 0
   fi
   if [ ! -f "$CHECK_HOOK_TEMPLATES" ]; then
@@ -843,11 +844,11 @@ check_hooks_templates_dev() {
   rc=$?
   set -e
   if [ "$rc" -eq 0 ]; then
-    record "hooks.templates" "hooks" "PASS" "init-orch hook templates match live hooks" ""
+    record "hooks.templates" "hooks" "PASS" "init-orch hook templates extractable + bash -n clean" ""
   else
     record "hooks.templates" "hooks" "WARN" \
-      "hook template drift vs live .claude/hooks/*.sh" \
-      "Sync skills/init-orchestration/SKILL.md templates with live hooks (check-hook-templates.sh)"
+      "hook template hygiene failed (extract/shebang/bash -n)" \
+      "Fix fenced templates in skills/init-orchestration/SKILL.md (check-hook-templates.sh)"
   fi
 }
 

@@ -81,7 +81,7 @@ non-bootstrap — gating is the caller's job.
 | `memory.embedding_config` | memory |
 | `hooks.events` | hooks |
 | `hooks.hygiene` | hooks |
-| `hooks.templates` | hooks (dev-checkout only; SKIP in consumer) |
+| `hooks.templates` | hooks (dev-checkout only; template hygiene, not dual-copy; SKIP in consumer) |
 | `settings.json` | settings |
 | `settings.agent_teams` | settings |
 | `settings.sandbox_coherence` | settings |

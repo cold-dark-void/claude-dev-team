@@ -145,14 +145,27 @@ bash skills/council/check-template-vars.sh
 
 If it exits non-zero, the council template-variable contract has drifted: `commands/council.md` substitutes a variable set that no longer matches a prompt's authoritative `## Variables` table (a dead substitution or a literal `{{VAR}}` leak into the spawned subagent, per SPEC-013). **Do NOT commit or tag.** Fix `commands/council.md` (and/or the prompt's `## Variables` table) so each covered prompt's substituted set exactly equals its declared set, then re-run until it exits 0. (Covered: claim-extractor, investigator, cross-reviewer, phase4-brief, judge. Nothing is deferred — the former prosecutor/advocate templates were merged into phase4-brief.)
 
-## Step 4.7: Hook-template drift-check (pre-commit gate)
+## Step 4.7: Hook-template hygiene gate (pre-commit gate)
+
+Hook bodies SoT = fenced templates in `skills/init-orchestration/SKILL.md` only
+(SPEC-002/SPEC-005; CDT-54). Live `.claude/hooks/*.sh` are **generated** by
+`/setup orchestration` (not package product; dual-copy retired).
 
 Run:
 ```bash
 bash skills/init-orchestration/check-hook-templates.sh
 ```
 
-If it exits non-zero, a hook template emitted by `/setup orchestration` has drifted from this repo's canonical live `.claude/hooks/<name>.sh` (the gate names the drifted hook). Consumers would receive a broken/stale hook. **Do NOT commit or tag.** Re-sync the drifted template: replace the fenced ```bash block under its "create `.claude/hooks/<name>.sh` with this content:" marker in `skills/init-orchestration/SKILL.md` with the exact current content of the live hook, then re-run until it exits 0. (Covered: task-completed, stop-review, memory-capture, bash-compress.)
+Template-internal only: each managed hook must have an extractable fenced bash
+body after its "create `.claude/hooks/<name>.sh` with this content:" marker, a
+bash shebang, and pass `bash -n`. **Does not** require package-tracked live
+hooks — missing/stale `.claude/hooks/` is not a release FAIL.
+
+If it exits non-zero, fix the named template in `skills/init-orchestration/SKILL.md`
+(marker/fence/shebang/`bash -n`), then re-run until exit 0. Covered:
+task-completed, stop-review, memory-capture, bash-compress, precompact-rescue,
+rescue-pointer, friction-capture. Regenerate consumer/dev live hooks via
+`/setup orchestration`.
 
 ## Step 4.8: Skill-bash lint (pre-commit gate)
 
