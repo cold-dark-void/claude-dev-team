@@ -3,7 +3,11 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
-### v0.80.1
+### v1.0.0-pre.2
+- **v1.0.0 pre-release line opened (CDT-46 program decision)** — version re-wire, no functional changes: the breaking W1-cuts release below is renumbered `1.0.0-pre.1` (the old `v0.80.1` tag is removed), and this content-identical republish ships as `1.0.0-pre.2`. Remaining v1.0 program waves ship as `1.0.0-pre.N`, final `1.0.0` at W6.
+
+### v1.0.0-pre.1
+*(originally released as `v0.80.1`; renumbered — the old tag no longer exists)*
 - **v1.0-W1 surface cuts (CDT-46-C2)** — four undefended Surfaces removed with one-cycle Deprecation stubs (marketplace auto-latest makes silent removal user-visible breakage; stubs deleted at v1.1).
 - **Removed `/local-do` + `skills/local-agent` (full excision)** — the entire local-offload path is gone, not just the command: orchestrate offload fork + review loop, debug P.4 and refactor 3.3 offload blocks, standup `[local]` routing column, metrics `local_agent` rollup key + dual-shape handling, doctor `deps.bwrap`/`deps.opencode`/`deps.local_agent` checks, and the AGENTS.md opt-in section. SPEC-019 → DEPRECATED.
 - **Removed `/incident`** — war-room command + skill stubbed, engine scripts (`timeline.sh`, `workspace.sh`) deleted; devops agent reframed to a skill-independent incident-response role. SPEC-027 → DEPRECATED.
