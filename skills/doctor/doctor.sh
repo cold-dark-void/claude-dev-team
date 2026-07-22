@@ -915,14 +915,27 @@ elif isinstance(sb, dict):
 else:
   print("absent")
 ')
-  if [ "$mode" = "bypassPermissions" ] && [ "$sandbox_enabled" != "true" ]; then
-    record "settings.sandbox_coherence" "settings" "WARN" \
-      "defaultMode=bypassPermissions with sandbox disabled/absent (blast radius unbounded)" \
-      "Enable sandbox via /setup orchestration or drop bypassPermissions"
-  else
-    record "settings.sandbox_coherence" "settings" "PASS" \
-      "defaultMode=${mode:-unset} sandbox.enabled=${sandbox_enabled}" ""
+  # High-autonomy modes without OS sandbox lose the containment boundary
+  # (AGENTS.md: "sandbox is the boundary"). bypassPermissions = unbounded;
+  # dontAsk + Bash(*) (shipped Cell C) still auto-runs allowlisted tools.
+  if [ "$sandbox_enabled" != "true" ]; then
+    case "$mode" in
+      bypassPermissions)
+        record "settings.sandbox_coherence" "settings" "WARN" \
+          "defaultMode=bypassPermissions with sandbox disabled/absent (blast radius unbounded)" \
+          "Enable sandbox via /setup orchestration or drop bypassPermissions"
+        return 0
+        ;;
+      dontAsk)
+        record "settings.sandbox_coherence" "settings" "WARN" \
+          "defaultMode=dontAsk with sandbox disabled/absent (allowlisted tools run without OS boundary)" \
+          "Enable sandbox via /setup orchestration (shipped Cell C posture requires sandbox)"
+        return 0
+        ;;
+    esac
   fi
+  record "settings.sandbox_coherence" "settings" "PASS" \
+    "defaultMode=${mode:-unset} sandbox.enabled=${sandbox_enabled}" ""
 }
 
 _dep_check() {

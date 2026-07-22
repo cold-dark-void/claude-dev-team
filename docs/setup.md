@@ -74,6 +74,10 @@ What it does:
 - Migrates existing v1 DBs to v2 schema automatically
 - Syncs the sandbox network allowlist in `.claude/settings.json` for Agent Teams (not the Bash permission list)
 
+**Doctor hard-gate:** runs plugin **`dev-team:doctor`** first (not the Claude Code
+harness built-in `/doctor`). Exit ≤1 continues; exit 2 blocks. Override:
+`/setup team --skip-doctor` (prints WARNING, then continues).
+
 Safe to re-run — updates cortex for all agents without losing history.
 
 **Flags:**
@@ -83,6 +87,7 @@ Safe to re-run — updates cortex for all agents without losing history.
 | `--refresh` | Re-probe embedding mode and re-run migration |
 | `--migrate-only` | Only run DB schema migration, skip agent bootstrap |
 | `--no-extensions` | Skip sqlite-vec/lembed download; use keyword-only search |
+| `--skip-doctor` | Skip the `dev-team:doctor` hard-gate (WARNING required) |
 
 **What gets downloaded (~29MB):**
 - `sqlite-vec` — vector search extension
@@ -103,9 +108,18 @@ Enables multi-agent coordination. Run once per project after `/setup team`.
 
 What it does:
 - Sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `.claude/settings.json`
+- Merges orchestration posture: `defaultMode: "dontAsk"` + matrix allow set
+  (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) with sandbox enabled +
+  `autoAllowBashIfSandboxed` (matrix winner Cell C — see
+  [permission-posture-matrix](runbooks/permission-posture-matrix.md)). Distinct from
+  interactive `/setup project` (`acceptEdits` + curated Bash allowlist).
 - Wires a `TaskCompleted` quality-gate hook
 - Creates/updates `AGENTS.md` with team coordination rules
 - Seeds `.claude/memory/claude/memory.md` with baseline orchestrator rules
+
+**Doctor hard-gate:** same as `/setup team` — plugin **`dev-team:doctor`** (not
+harness `/doctor`); exit ≤1 OK; exit 2 blocks; `/setup orchestration --skip-doctor`
+override with WARNING.
 
 Safe to re-run (idempotent).
 

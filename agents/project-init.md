@@ -30,13 +30,18 @@ for agent in pm tech-lead ic5 ic4 devops qa ds; do
 done
 ```
 
-## Step 1b: Sync Agent Permissions
+## Step 1b: Team-bootstrap permissions (non-orchestration interactive)
 
-Ensure `.claude/settings.json` exists and has the full agent allowlist. This prevents permission prompts from blocking background agents. This is the orchestration posture: the `Bash(*)` wildcard is intentional — the OS sandbox, not the allowlist, is the boundary.
+Ensure `.claude/settings.json` exists with a minimal team-bootstrap allowlist so
+background agents are not blocked during cortex seeding. **This is NOT the
+orchestration posture** — orchestration (`dontAsk` + sandbox + matrix allow set)
+is owned exclusively by `/setup orchestration` (`skills/init-orchestration`).
 
-Read the existing `$MROOT/.claude/settings.json` (if any). Merge/ensure the following permissions are present. **Do not remove** any existing user-added permissions — only add missing ones.
+Read the existing `$MROOT/.claude/settings.json` (if any). Merge/ensure the
+following permissions are present. **Do not remove** any existing user-added
+permissions — only add missing ones.
 
-Required permissions:
+Team-bootstrap seed (when no orchestration markers present):
 ```json
 {
   "permissions": {
@@ -49,9 +54,20 @@ Required permissions:
 ```
 
 **Merge strategy**:
-1. If `$MROOT/.claude/settings.json` does not exist → create it with the full JSON above.
-2. If it exists → read it, add any missing entries from the `allow` list above, preserve any extra entries the user added, set `defaultMode` to `"acceptEdits"` if not already set. Write the updated file back.
-3. Report what was added (e.g., "Added 12 missing permissions to .claude/settings.json") or "Permissions already up to date".
+1. If `$MROOT/.claude/settings.json` does not exist → create it with the JSON above.
+2. If it exists → read it, add any missing entries from the `allow` list above,
+   preserve any extra entries the user added. Write the updated file back.
+3. **`defaultMode` rules (MUST — never clobber orchestration):**
+   - If `permissions.defaultMode` is **already set** → **leave it** (do not
+     overwrite `dontAsk`, `bypassPermissions`, or any other value).
+   - Only seed `defaultMode: "acceptEdits"` when **both** are true:
+     (a) `defaultMode` is missing/empty, **and**
+     (b) no orchestration markers present — markers = `sandbox.enabled: true`
+         **and** `permissions.allow` contains `"Bash(*)"` as a managed
+         orchestration entry (sandbox + Bash(*) managed together).
+   - When orchestration markers are present, never write `acceptEdits` even if
+     `defaultMode` is missing — leave mode for `/setup orchestration` to own.
+4. Report what was added (e.g., "Added Bash(*) to allowlist") or "Permissions already up to date".
 
 ## Step 2: Comprehensive Project Scan
 

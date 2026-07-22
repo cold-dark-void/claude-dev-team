@@ -63,7 +63,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - MUST be idempotent (safe to re-run, merge not overwrite) unless an explicit force-overwrite path is invoked
 - MUST auto-detect network domains from package manifests (package.json, go.mod, requirements.txt, Cargo.toml, Gemfile) and git config
 - MUST add TaskCompleted hook with `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"`
-- MUST set orchestration `permissions.defaultMode` and allow list to the **SPEC-002 winning least-privilege cell** (matrix-evidence-gated; may remain `bypassPermissions` + `Bash(*)` if non-bypass cells fail AC1) and MUST enable sandbox + `autoAllowBashIfSandboxed` when the winning cell requires them
+- MUST set orchestration `permissions.defaultMode` and allow list to the **SPEC-002 winning least-privilege cell** — shipped winner **(C)** `dontAsk` + **matrix allow set** (`Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task`) (matrix evidence: `docs/runbooks/permission-posture-matrix.md`; contingency: may retain `bypassPermissions` + matrix allow only if non-bypass cells fail AC1) and MUST enable sandbox + `autoAllowBashIfSandboxed` when the winning cell requires them. Brownfield merge MUST ensure **all** matrix allow entries are present (not only `Bash(*)`)
 - MUST make task-completed.sh executable (chmod +x)
 - MUST seed orchestrator memory with anti-pattern learnings
 - MUST merge existing settings.json (preserve existing allow entries, merge domains)
@@ -138,6 +138,8 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-07-21 | CDT-46-C2: `/demo` removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` → deprecation stub). Marked the Demo MUST/SHOULD/Test/Validation items OBSOLETE-at-v1.0.0 (retained one cycle as historical record, not deleted); annotated the demo Covers entry as a DEPRECATED stub. Bootstrap requirements (init-team, scaffold, init-orchestration) unchanged. |
 | 2026-07-22 | CDT-46-C4: user entry unified under `/setup <project\|orchestration\|team>` (`commands/setup.md`). Covers retargeted; `commands/init-team.md` → Deprecation stub. Scaffold/init-orch/init-team behaviors remain distinct protocols (dispatcher only — no full semantic rewrite; W5 OOS). |
 | 2026-07-22 | CDT-51 / CDT-46-C5: posture + doctor-gate only — orchestration defaultMode follows SPEC-002 matrix winner; hard-gate doctor on `/setup team` + `/setup orchestration` (exit ≤1 OK; FAIL blocks; override warns); soft-advise on `/setup project`; marketplace no gate; force-overwrite old/new/restore disclosure. Status stays INFERRED (W5 promote-or-cut; no full /setup semantic rewrite). |
+| 2026-07-22 | CDT-51 AC2: orchestration ship default named as matrix winner **(C)** `dontAsk` + `Bash(*)` + sandbox. Status stays INFERRED. |
+| 2026-07-22 | CDT-51 TL P0/P1: orchestration allow = full matrix set; project-init Step 1b is team-bootstrap (acceptEdits seed only when mode missing AND no orch markers) — never clobber managed orch defaultMode. Status stays INFERRED. |
 
 ## Cross-references
 

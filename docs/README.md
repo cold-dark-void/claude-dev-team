@@ -86,7 +86,7 @@ documented further in their skill (`skills/<name>/SKILL.md`) or the linked guide
 
 | Command | Docs | Summary |
 |---------|------|---------|
-| `/doctor` | skill | Install/config diagnostics (PASS/WARN/FAIL); `--json` / `--fix`; namespaced `dev-team:doctor` |
+| `/doctor` | skill | Install/config diagnostics (PASS/WARN/FAIL); `--json` / `--fix`; namespaced `dev-team:doctor` — distinct from harness `/doctor` |
 | `/worktree` | [worktree](commands/worktree.md) | Release plugin worktree (`release <slug>`); list via `/status worktree` |
 | `/backlog` | skill | Manage project backlog items (add, close, list, init) |
 | `/release` | skill | Bump version across all files, commit, tag, push |

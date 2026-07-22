@@ -589,7 +589,7 @@ else
 fi
 
 # =============================================================================
-# T15. sandbox coherence WARN
+# T15. sandbox coherence WARN (high-autonomy defaultMode without sandbox)
 # =============================================================================
 cd "$HEALTHY" || exit 1
 python3 - <<'PY'
@@ -609,6 +609,42 @@ else
   fail "T15a status=$STATUS out=$OUT"
 fi
 
+# T15b — shipped Cell C (dontAsk) without sandbox is also incoherent
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": False}
+d["permissions"]={"defaultMode":"dontAsk","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(doctor --json --only settings.sandbox_coherence 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "WARN" ]; then
+  pass "T15b dontAsk + sandbox off → WARN"
+else
+  fail "T15b status=$STATUS out=$OUT"
+fi
+
+# T15c — dontAsk + sandbox on → PASS (shipped coherent posture)
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"dontAsk","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(doctor --json --only settings.sandbox_coherence 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "PASS" ]; then
+  pass "T15c dontAsk + sandbox on → PASS"
+else
+  fail "T15c status=$STATUS out=$OUT"
+fi
+
 # =============================================================================
 # T16. Expected hooks single-sourced — init-orch still lists TaskCompleted
 # =============================================================================
@@ -616,6 +652,57 @@ if grep -q 'TaskCompleted' "$PLUGIN_ROOT/skills/init-orchestration/SKILL.md"; th
   pass "T16a init-orch still contains TaskCompleted (single-source alive)"
 else
   fail "T16a init-orch missing TaskCompleted"
+fi
+
+# =============================================================================
+# T17. Caller-gate exit contract (SPEC-022 M6b / SPEC-005)
+# Documents the contract bootstrap callers use:
+#   exit ≤1 → proceed; exit 2 → hard-block; 64 → usage (not a health FAIL)
+# =============================================================================
+# PASS fixture (healthy subset that should not FAIL)
+cd "$HEALTHY" || exit 1
+RC=0
+doctor --only deps.jq >/dev/null 2>&1 || RC=$?
+if [ "$RC" -le 1 ]; then
+  pass "T17a healthy --only deps.jq exit=$RC (≤1 → callers proceed)"
+else
+  fail "T17a expected exit ≤1 for non-FAIL run, got $RC"
+fi
+
+# FAIL fixture (version drift) → exit 2 → callers hard-block
+cd "$FAKE_PROJ" 2>/dev/null || cd "$HEALTHY" || exit 1
+# Prefer the dedicated version-drift tree from T2b when present
+if [ -d "${FAKE_PROJ:-}" ] && [ -f "${FAKE_PLUGIN:-}/skills/doctor/doctor.sh" ]; then
+  RC=0
+  bash "$FAKE_PLUGIN/skills/doctor/doctor.sh" --only version.triplet >/dev/null 2>&1 || RC=$?
+  if [ "$RC" -eq 2 ]; then
+    pass "T17b version.triplet FAIL exit=2 (callers hard-block /setup team|orchestration)"
+  else
+    fail "T17b expected exit 2 on FAIL fixture, got $RC"
+  fi
+else
+  # Reconstruct minimal FAIL: unparseable settings under HEALTHY
+  cd "$HEALTHY" || exit 1
+  printf 'not-json' > .claude/settings.json
+  RC=0
+  doctor --only settings.json >/dev/null 2>&1 || RC=$?
+  if [ "$RC" -eq 2 ]; then
+    pass "T17b settings.json FAIL exit=2 (callers hard-block)"
+  else
+    fail "T17b expected exit 2 on FAIL fixture, got $RC"
+  fi
+  # restore minimal valid settings for any later hooks (none after T17)
+  printf '%s\n' '{"permissions":{"defaultMode":"bypassPermissions","allow":["Bash(*)"]}}' > .claude/settings.json
+fi
+
+# Usage error is 64 — not treated as health FAIL by setup gates (gates use -ge 2,
+# so 64 also blocks; callers that want usage-only handling check equality).
+RC=0
+doctor --not-a-real-flag >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 64 ]; then
+  pass "T17c usage error exit=64 (documented; setup gate treats ≥2 as block)"
+else
+  fail "T17c expected exit 64 on bad flag, got $RC"
 fi
 
 # =============================================================================

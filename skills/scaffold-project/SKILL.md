@@ -44,6 +44,17 @@ project/
 
 ## Instructions
 
+### Soft advisory: recommend doctor (never block)
+
+`/setup project` MUST soft-advise only (SPEC-005 / SPEC-022 M6b). Print a
+recommendation; do **not** run a hard-gate and do **not** stop scaffold on doctor
+FAIL.
+
+```
+Recommended: after scaffold, run /doctor (plugin surface dev-team:doctor — not
+the Claude Code harness built-in /doctor) to verify install health.
+```
+
 ### Step 0: Resolve project root (single-root anchor)
 
 Resolve ONE project root and anchor **every** `.claude/` / `specs/` / `AGENTS.md` / `.gitignore` op on it. All-or-nothing — never mix absolute and relative siblings (that splits the scaffold). Use `--show-toplevel`, **not** `--git-common-dir` (common-dir would resolve a parent worktree's shared root, not the project being created).
@@ -142,7 +153,7 @@ Create `$PROJ_ROOT/.claude/settings.json` to enable autonomous agent operation (
 
 `defaultMode: "acceptEdits"` auto-approves all Read/Write/Edit operations. The Bash allow list covers common dev tools plus agent bootstrap patterns (variable assignments, compound commands, shell control flow). Customize to add/remove commands for your stack.
 
-> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use: destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those. (Orchestration mode via `/setup orchestration` instead grants `Bash(*)` under `bypassPermissions`, where the OS sandbox is the boundary.)
+> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use: destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those. (Orchestration mode via `/setup orchestration` instead grants `Bash(*)` under `dontAsk` with sandbox + `autoAllowBashIfSandboxed` — matrix winner Cell C; the OS sandbox is the boundary.)
 
 ### Step 3: Create .claude/CLAUDE.md
 

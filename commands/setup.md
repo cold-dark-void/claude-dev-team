@@ -30,22 +30,34 @@ Usage: /setup <project|orchestration|team> [flags...]
 Subs:
   project         Scaffold TDD workflow structure (AGENTS.md, specs/TDD.md,
                   .claude/plans, settings allowlist). Greenfield / add-TDD.
+                  Soft-advises dev-team:doctor (never blocks).
   orchestration   Bootstrap Agent Teams orchestration (sandbox, hooks,
-                  bypassPermissions, AGENTS.md team section). Brownfield merge.
+                  dontAsk, AGENTS.md team section). Brownfield merge.
+                  Hard-gates on dev-team:doctor (exit ≤1 OK; exit 2 blocks).
+                  Flag: --skip-doctor
   team [flags…]   Initialize team memory (SQLite DB, embedding extensions,
-                  project-init scan). Flags: --refresh --migrate-only
-                  --no-extensions
+                  project-init scan). Hard-gates on dev-team:doctor.
+                  Flags: --refresh --migrate-only --no-extensions
+                  --skip-doctor
 
 Examples:
   /setup project
   /setup orchestration
+  /setup orchestration --skip-doctor
   /setup team
   /setup team --refresh
   /setup team --migrate-only
   /setup team --no-extensions
+  /setup team --skip-doctor
 ```
 
 Unknown/missing sub → print this usage and stop. **MUST NOT** mutate project state.
+
+**Doctor gate (SPEC-005 / SPEC-022 M6b):** `/setup team` and `/setup orchestration`
+hard-gate on plugin **`dev-team:doctor`** (NOT the Claude Code harness built-in
+`/doctor`). Exit ≤1 continues; exit 2 blocks with remediation. Override:
+`--skip-doctor` prints an explicit WARNING then continues. `/setup project` is
+soft-advisory only. Marketplace install has no doctor gate.
 
 ## Routing table
 
@@ -79,6 +91,14 @@ Args: none required in the current surface (skill may accept a project name /
 directory per its own instructions). Preserve every MUST from SPEC-005 scaffold
 path (single-root `$PROJ_ROOT` via `--show-toplevel`, no silent overwrite).
 
+**Doctor — soft advisory only (MUST NOT block):** before or after scaffold,
+recommend running plugin doctor. Never hard-fail on doctor exit 2.
+
+```
+Recommended: run /doctor (plugin surface dev-team:doctor — not the Claude Code
+harness built-in /doctor) after scaffold to verify install health.
+```
+
 ---
 
 ## Sub: `orchestration` — skill-delegate → `skills/init-orchestration`
@@ -88,10 +108,19 @@ path (single-root `$PROJ_ROOT` via `--show-toplevel`, no silent overwrite).
 
 | Invocation | Maps from | Expected behavior |
 |------------|-----------|-------------------|
-| `/setup orchestration` | init-orchestration skill | Merge sandbox + hooks + `bypassPermissions` into settings; emit hook scripts; AGENTS.md team section; CLAUDE.md reference; seed orchestrator memory. Safe re-run (merge, not clobber). |
+| `/setup orchestration` | init-orchestration skill | Merge sandbox + hooks + `dontAsk` into settings; emit hook scripts; AGENTS.md team section; CLAUDE.md reference; seed orchestrator memory. Safe re-run (merge, not clobber). |
 
-Args: none in the current surface. Preserve every MUST from SPEC-005 orchestration
-path (worktree-safe hook paths, network allowlist confirm, idempotent merge).
+Args: optional `--skip-doctor` (pass through). Doctor hard-gate lives at the
+**start** of `skills/init-orchestration/SKILL.md` (before any mutation). Preserve
+every MUST from SPEC-005 orchestration path (worktree-safe hook paths, network
+allowlist confirm, idempotent merge).
+
+**Force-overwrite disclosure (SPEC-005 / CDT-51 AC5):** when orchestration
+re-run force-changes a managed settings value (especially
+`permissions.defaultMode`) or replaces a managed hook, the skill protocol
+**MUST** print old value, new value, and restore key/path before writing
+(`skills/init-orchestration/disclose-force-overwrite.sh`). Forced + silent =
+FAIL. See init-orchestration Step 3 brownfield merge.
 
 ---
 
@@ -109,10 +138,47 @@ Parse flags from remaining args after `team` (or `$ARGUMENTS` for this sub):
 - `--refresh` — re-check embedding configuration, re-check extensions, re-run migration for any new .md files
 - `--migrate-only` — only run migration, skip everything else (DB init, extensions, project-init agent)
 - `--no-extensions` — skip binary download (for air-gapped setups where the user installs extensions manually)
+- `--skip-doctor` — skip the doctor hard-gate (prints WARNING, then continues; silent skip forbidden)
 
-Flag pass-through: any combination of the three is accepted; unrecognized tokens
+Flag pass-through: any combination of the four is accepted; unrecognized tokens
 after `team` are ignored for dispatch purposes but should be reported if they
 look like flags (`--*`).
+
+### Step 0: Doctor hard-gate (before any mutation)
+
+Hard-gate on plugin **`dev-team:doctor`** (SPEC-022; NOT harness `/doctor`).
+Run before Steps 1+ mutate memory/settings. Exit ≤1 (PASS or WARN-only) continues;
+exit 2 (FAIL) **blocks** bootstrap.
+
+```bash
+# Parse --skip-doctor from remaining args (do not strip other flags)
+SKIP_DOCTOR=0
+for _a in "$@"; do
+  case "$_a" in --skip-doctor) SKIP_DOCTOR=1 ;; esac
+done
+
+if [ "$SKIP_DOCTOR" -eq 1 ]; then
+  echo "WARNING: doctor gate skipped (--skip-doctor). Proceeding without dev-team:doctor health check." >&2
+else
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+  DOCTOR_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/doctor/doctor.sh 2>/dev/null) || DOCTOR_SH=""
+  if [ -z "$DOCTOR_SH" ] || [ ! -f "$DOCTOR_SH" ]; then
+    echo "FAIL: dev-team:doctor (plugin /doctor) not found — cannot gate /setup team." >&2
+    echo "Remediation: reinstall the dev-team plugin, then re-run /setup team (or pass --skip-doctor)." >&2
+    exit 2
+  fi
+  set +e
+  bash "$DOCTOR_SH"
+  DOCTOR_RC=$?
+  set -e
+  if [ "$DOCTOR_RC" -ge 2 ]; then
+    echo "FAIL: dev-team:doctor exited $DOCTOR_RC (FAIL). /setup team blocked." >&2
+    echo "Remediation: fix FAIL rows above, re-run /doctor (plugin surface dev-team:doctor — not the Claude Code harness /doctor), then retry /setup team. Override: /setup team --skip-doctor" >&2
+    exit 2
+  fi
+  # exit 0 (PASS) or 1 (WARN-only) → continue
+fi
+```
 
 ### Step 1: Resolve project root and plugin path
 

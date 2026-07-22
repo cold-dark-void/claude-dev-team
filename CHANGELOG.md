@@ -3,6 +3,15 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.0-pre.5
+- **v1.0-W4 permission posture, doctor install gate, migrate tests (CDT-51 / CDT-46-C5)** — enterprise-credibility wave: least-privilege orchestration default, bootstrap doctor gate, and schema survival tests.
+- **Orchestration posture flip (AC1–AC2)** — live A/B/C matrix on Claude Code 2.1.190 (`docs/runbooks/permission-posture-matrix.md`); winner **Cell C `dontAsk`** + sandbox + `autoAllowBashIfSandboxed` + matrix allow set (`Bash(*)`, Read, Write, Edit, Glob, Grep, Agent, Task). Evidence before template flip; interactive `/setup project` stays `acceptEdits`.
+- **`/setup` doctor hard-gate (AC4)** — `/setup team` and `/setup orchestration` block on `dev-team:doctor` exit 2; exit ≤1 (WARN) proceeds; `--skip-doctor` prints WARNING then continues; `/setup project` soft advisory only; marketplace install ungated.
+- **Force-overwrite disclosure (AC5)** — re-run that changes managed settings (esp. `permissions.defaultMode`) prints key / old / new / restore via `disclose-force-overwrite.sh`; forced+silent = fail.
+- **DB migrate harness (AC3)** — `skills/memory-store/test-migrate.sh`: fresh `schema.sql` → v4, v3→v4 floor, full v1→v4 chain, PRAGMA-poison capture-safe reads; fixtures under `fixtures/migrate/`.
+- **Doctor sandbox coherence** — WARN when `dontAsk` or `bypassPermissions` without sandbox; project-init Step 1b relabeled team-bootstrap (never demotes managed orch `defaultMode`).
+- **Specs** — scoped MUST amendments on SPEC-002/005 (posture + doctor-gate), SPEC-022 M6b caller gate, SPEC-004 migrate notes; INFERRED status unchanged (W5 promote).
+
 ### v1.0.0-pre.4
 - **v1.0-W3 surface merges (CDT-46-C4)** — session tone, read-only status, onboarding, and ticket-fix entries unified under four hubs; five one-cycle Deprecation stubs remain until v1.1.
 - **`/mode`** — single session-tone entry for `focus|blunt [on|off|status]`, `/mode status`, `/mode off`; orthogonal focus⊥blunt stack; skill-delegate backends.

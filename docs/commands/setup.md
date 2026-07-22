@@ -6,7 +6,7 @@ Surface — do not merge their protocols.
 | Sub | Maps from | What it does |
 |-----|-----------|--------------|
 | `project` | scaffold-project skill | TDD structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/`, settings allowlist |
-| `orchestration` | init-orchestration skill | Agent Teams: sandbox, hooks, `bypassPermissions`, AGENTS.md team section |
+| `orchestration` | init-orchestration skill | Agent Teams: sandbox, hooks, `dontAsk`, AGENTS.md team section |
 | `team` | former init-team command | Memory bootstrap: SQLite DB, embedding extensions, project-init scan |
 
 Prefer this surface over the init-team / scaffold-project / init-orchestration
