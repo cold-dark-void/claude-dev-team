@@ -5,20 +5,22 @@
 **Created**: 2026-07-14
 **Issue**: CDV-197
 
+> **Entry Surface (CDT-46-C4):** user entry is `/debug ticket …` via `commands/debug.md` + `skills/debug/SKILL.md`. `commands/fix-ticket.md` and `skills/fix-ticket/` are one-cycle Deprecation stubs. **Full fold of this spec into SPEC-014 is W5 out of scope** — protocol MUSTs below remain authoritative for the pipeline until that fold.
+
 ---
 
 ## Overview
 
-`/fix-ticket` productizes the battle-tested p0 premise→implement→adversarial-refuters pipeline as a first-class plugin command. Given a ticket id and a bug premise, the orchestrator verifies the premise still holds (read-only ic5), implements the fix in a SPEC-016 worktree (ic4/ic5), spawns N adversarial qa refuters in parallel, and writes a report under `.claude/fix-ticket/`. The caller owns commit and release — the skill never touches the version triplet or runs git commit.
+The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket`) productizes a battle-tested p0 workflow. Given a ticket id and a bug premise, the orchestrator verifies the premise still holds (read-only ic5), implements the fix in a SPEC-016 worktree (ic4/ic5), spawns N adversarial qa refuters in parallel, and writes a report under `.claude/fix-ticket/`. The caller owns commit and release — the skill never touches the version triplet or runs git commit.
 
-**Authoritative path:** markdown Task-spawn protocol in `skills/fix-ticket/SKILL.md`. Optional `skills/fix-ticket/workflow.js` is a non-invoked reference asset (args-as-JSON-string guard for CDV-196 Workflow authoring conventions).
+**Authoritative path:** markdown Task-spawn protocol (historically `skills/fix-ticket/SKILL.md`; after CDT-46-C4, reachable from `/debug ticket` / `skills/debug/`). Optional `workflow.js` is a non-invoked reference asset (args-as-JSON-string guard for CDV-196 Workflow authoring conventions).
 
 **Boundaries & related specs:**
 - **SPEC-009 (ticket workflow)** — family member; does not absorb orchestrate lifecycle, task store, or PR automation.
 - **SPEC-016 (worktree isolation)** — worktrees via `worktree-lib.sh ensure <ticket-id>` when path not provided.
 - **SPEC-013 (council)** — spawn-failure degradation protocol home is `skills/council/SKILL.md` § Spawn-failure degradation (CDV-199). This spec reuses the exact marker and actor rule; it does not restate a second protocol.
 - **CDV-196** — council Workflow re-platform; out of scope. Share Workflow authoring conventions only (args-string guard).
-- **`/debug`** — investigation discipline for open-ended bugs; `/fix-ticket` assumes a known premise + fix instructions.
+- **SPEC-014 `/debug`** — hosts `ticket` mode entry (CDT-46-C4); non-ticket modes remain investigation discipline for open-ended bugs.
 
 **Out of scope:** council engine reuse / finding[] schema, task store / `requires_council`, Linear status automation, local-agent refuter tier, auto-release / version bump, auto `/review-and-commit`.
 
@@ -28,9 +30,9 @@
 
 ### Surface & invocation
 
-- **M1 — Thin command.** `commands/fix-ticket.md` MUST be a thin wrapper (args + resolve skill + invoke). Protocol MUST live in `skills/fix-ticket/SKILL.md`.
-- **M2 — YAML frontmatter.** Command and skill MUST declare `name` and `description` in YAML frontmatter for discovery.
-- **M3 — Required args.** Invocation is `/fix-ticket <ticket-id> "<bug/premise>"`. Missing ticket-id or premise MUST produce a usage error and MUST NOT spawn agents.
+- **M1 — Thin entry.** User entry is `/debug ticket` via thin `commands/debug.md` (SPEC-014). Protocol MUST live in a skill reachable from that entry (`skills/debug/` and/or retained fix-ticket protocol files). `commands/fix-ticket.md` MUST be a Deprecation stub naming `/debug ticket` for one cycle (v1.1 removal).
+- **M2 — YAML frontmatter.** Live Surfaces MUST declare `name` and `description` in YAML frontmatter for discovery (stubs included).
+- **M3 — Required args.** Invocation is `/debug ticket <ticket-id> "<bug/premise>"` (legacy `/fix-ticket …` equivalent). Missing ticket-id or premise MUST produce a usage error and MUST NOT spawn agents.
 - **M4 — Optional flags.** Skill MUST accept: `--fix "<instructions>"`, `--agent ic4|ic5` (default `ic4`), `--lenses a,b` (default `correctness,completeness`), `--worktree <path>`.
 - **M5 — Worktree placement.** When the skill creates a worktree, path MUST be under `$MROOT/.worktrees/<slug>` via `skills/worktree-lib.sh ensure` (SPEC-016). Sibling-directory worktrees MUST NOT be created.
 
@@ -129,3 +131,4 @@
 | Date | Change |
 |------|--------|
 | 2026-07-14 | Initial ACTIVE — CDV-197 productize p0-fix-workflow as `/fix-ticket` |
+| 2026-07-22 | CDT-46-C4: entry Surface moves to `/debug ticket` (SPEC-014 host). M1/M3 retargeted; command+skill become Deprecation stubs. Full SPEC-028→SPEC-014 fold deferred to W5. |

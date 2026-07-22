@@ -8,18 +8,18 @@
 | SPEC-002 | Plugin Infrastructure | INFERRED | .claude-plugin/plugin.json, marketplace.json, .claude/settings.json, hooks/task-completed.sh, tools/scout-plugins |
 | SPEC-003 | Agent Role System | INFERRED | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
 | SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, schema.sql, migrate-md.sh, migrate-v2.sh |
-| SPEC-005 | Team Bootstrap | INFERRED | agents/project-init.md, commands/init-team.md, download-extensions.sh, skills/scaffold-project, init-orchestration, demo |
+| SPEC-005 | Team Bootstrap | INFERRED | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration, demo |
 | SPEC-006 | Memory Retrieval & Search | INFERRED | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
 | SPEC-007 | Memory Distillation | INFERRED | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
 | SPEC-008 | Spec Management | INFERRED | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
-| SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, standup, wrap-ticket, backlog |
+| SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, commands/status.md (`/status` + standup), standup (tombstone), wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | INFERRED | skills/review-and-commit, release |
 | SPEC-011 | Memory Validation | ACTIVE | commands/memory.md (`/memory validate`), skills/memory validate (stub), `/memory distill` integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
-| SPEC-014 | Debug Workflow | APPROVED | skills/debug/SKILL.md, skills/debug/theme-status.sh (SPEC-029 gates) |
+| SPEC-014 | Debug Workflow | APPROVED | commands/debug.md, skills/debug/SKILL.md, skills/debug/theme-status.sh (SPEC-029 gates); fix-ticket stubs → `/debug ticket` |
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
-| SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, skills/orchestrate/SKILL.md, skills/wrap-ticket/SKILL.md, AGENTS.md |
+| SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, commands/worktree.md (release only), commands/status.md (`/status worktree`), skills/orchestrate, wrap-ticket, AGENTS.md |
 | SPEC-017 | Autonomous CI Watch + Task DAG | ACTIVE | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh, skills/orchestrate/dag-lib.sh, skills/ci-watch/SKILL.md, skills/ci-watch/poll.sh, skills/ci-watch/sidecar.sh, skills/ci-watch/detect-mode.sh |
 | SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012), skills/retro-gate/gate.sh (refactor) |
 | SPEC-019 | Local-Agent Offload via OpenCode | DEPRECATED | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
@@ -31,7 +31,7 @@
 | SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse) |
 | SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped) |
 | SPEC-027 | /incident War-Room & Postmortem | DEPRECATED | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |
-| SPEC-028 | `/fix-ticket` Premise → Implement → Adversarial Refute | ACTIVE | commands/fix-ticket.md, skills/fix-ticket/SKILL.md, skills/fix-ticket/workflow.js, docs/commands/fix-ticket.md |
+| SPEC-028 | Premise → Implement → Adversarial Refute (`/debug ticket`) | ACTIVE | `/debug ticket` entry (SPEC-014); commands/fix-ticket.md + skills/fix-ticket (stubs CDT-46-C4); workflow.js optional |
 | SPEC-029 | Debug Reopen & Multi-Surface Done Gates | ACTIVE | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
 | SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |
 ## Version History

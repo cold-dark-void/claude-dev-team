@@ -20,7 +20,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 - **SPEC-019 (local-agent offload, DEPRECATED)** was the **format exemplar** for this ledger — its `.claude/local-agent/metrics.jsonl` established the JSONL, append-only, `jq`-guarded, `null`-not-`"unknown"` conventions this spec still follows. Local-agent offload was excised at v1.0.0, so its escalation events are no longer a live ledger source; the `local` agent enum value is retained but has no producer. `outcomes.jsonl` carries routing-outcome data only.
 - **SPEC-013 (council)** owns the tribunal pipeline, the `TaskCompleted` quality gate, and the verdict index at `.claude/council/index.json`. Council overturn counts are derived **from the index only**; this spec MUST NOT write to the index, scan report `.md` files, or reimplement any verification pipeline.
 - **SPEC-003 (agent roles)** owns capability boundaries. Those stay **authoritative**: the ledger tunes routing WITHIN them and never proposes a routing that crosses one.
-- **CDV-187 (`/metrics` rollup)** is display-only over existing sources. THIS spec owns write path + schema only — MUST NOT implement dashboards or rollup tables.
+- **CDV-187 metrics rollup** is display-only over existing sources (user entry: `/status metrics` after CDT-46-C4; former `/metrics` is a Deprecation stub). THIS spec owns write path + schema only — MUST NOT implement dashboards or rollup tables.
 
 **Out of scope:** automatic/silent rerouting, changing SPEC-003 model tiers or role boundaries, `/metrics` display (CDV-187), statistical modeling beyond simple per-cell rates, per-token cost accounting (SPEC-019), cross-project ledgers, automatic kill-switches, windowing/decay, whole ideation-wave merge.
 
@@ -137,6 +137,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 | 2026-07-03 | Initial DRAFT — ideation wave 2 |
 | 2026-07-14 | CDV-185: path-cherry-pick; OQ1–OQ6 locks; stint-end emit timing; council_overturns = index conf null or &lt; taskgate; status DRAFT→ACTIVE |
 | 2026-07-21 | CDT-46-C2: ledger-source list narrowed — `/local-do` + local-agent escalation producers removed (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Dropped `commands/local-do.md` from Covers and the local source test; `local` agent enum retained without a producer; SPEC-019 references retagged as historical format-exemplar. M8 advisory scope now ic4 ⇄ ic5 only. Status stays ACTIVE. |
+| 2026-07-22 | CDT-46-C4: display entry for rollup noted as `/status metrics` (former `/metrics` Deprecation stub). Write-path ownership unchanged. |
 
 **Covers**: `skills/metrics/emit-outcome.sh`, `skills/metrics/outcome-rates.sh`, `skills/metrics/test.sh` (or equivalent bite harness), `skills/orchestrate/SKILL.md` (Step-7 advisory sub-block + stint-end emission sub-blocks), `specs/TDD.md` (index row) — planned/landing with CDV-185. Standup surface is SHOULD (optional).
 
