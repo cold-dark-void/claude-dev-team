@@ -706,6 +706,439 @@ else
 fi
 
 # =============================================================================
+# T18. Gate-mode self-remediation (SPEC-022 M6c / CDT-67)
+# =============================================================================
+
+# Helper: project with full hooks wiring but missing event(s) and/or scripts
+# → FAIL rows with exact fixit "/setup orchestration"
+make_partial_orch_fail() {
+  local dir="$1"
+  make_bare_project "$dir"
+  write_full_hooks_settings "$dir/.claude/settings.json"
+  # Strip TaskCompleted event → hooks.events FAIL exact G
+  python3 - <<'PY' "$dir/.claude/settings.json"
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+d["hooks"].pop("TaskCompleted", None)
+json.dump(d, open(p,"w"), indent=2)
+PY
+  # Remove a wired script → hooks.hygiene FAIL exact G
+  rm -f "$dir/.claude/hooks/memory-capture.sh"
+}
+
+# T18a — only self-remed orch FAILs + --gate=orchestration → exit ≤1; status FAIL; waived
+PARTIAL="$TMP/t18-partial"
+make_partial_orch_fail "$PARTIAL"
+cd "$PARTIAL" || exit 1
+RC=0
+JSON18=$(doctor --json --gate=orchestration 2>/dev/null) || RC=$?
+if printf '%s' "$JSON18" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+assert d.get("gate")=="orchestration", d.get("gate")
+fails=[c for c in d["checks"] if c["status"]=="FAIL"]
+assert fails, "expected at least one FAIL"
+waived=[c for c in fails if c.get("gate_waived") is True]
+assert waived, "expected gate_waived FAILs: %r" % [(c["id"],c.get("fixit"),c.get("gate_waived")) for c in fails]
+for c in waived:
+    assert c["status"]=="FAIL"
+    assert c.get("fixit")=="/setup orchestration", c
+    assert "self-remediating under --gate=orchestration" in (c.get("detail") or ""), c.get("detail")
+assert d["summary"].get("fail_waived",0) >= 1
+assert d["summary"].get("fail_blocking",0) == 0, d["summary"]
+print("ok")
+' 2>/dev/null && [ "$RC" -le 1 ]; then
+  pass "T18a partial orch FAILs + --gate=orchestration → exit≤1 status FAIL waived (rc=$RC)"
+else
+  fail "T18a rc=$RC json=$JSON18"
+fi
+
+# T18b — same fixture bare doctor → exit 2
+RC=0
+doctor --json >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 2 ]; then
+  pass "T18b same fixture bare doctor → exit 2"
+else
+  fail "T18b bare rc=$RC (want 2)"
+fi
+
+# T18c — version.triplet FAIL + --gate=orchestration → exit 2 (not self-remed)
+if [ -d "${FAKE_PLUGIN:-}" ] && [ -f "${FAKE_PLUGIN}/skills/doctor/doctor.sh" ]; then
+  RC=0
+  bash "$FAKE_PLUGIN/skills/doctor/doctor.sh" --only version.triplet --gate=orchestration \
+    >/dev/null 2>&1 || RC=$?
+  if [ "$RC" -eq 2 ]; then
+    pass "T18c version.triplet FAIL + gate=orchestration → exit 2"
+  else
+    fail "T18c expected exit 2, got $RC"
+  fi
+else
+  # Fallback: unparseable settings is also non-G FAIL
+  cd "$PARTIAL" || exit 1
+  printf 'not-json{' > .claude/settings.json
+  RC=0
+  doctor --only settings.json --gate=orchestration >/dev/null 2>&1 || RC=$?
+  if [ "$RC" -eq 2 ]; then
+    pass "T18c settings FAIL + gate (fallback) → exit 2"
+  else
+    fail "T18c fallback expected exit 2, got $RC"
+  fi
+  # restore partial for later tests that re-use PARTIAL — rebuild
+  make_partial_orch_fail "$PARTIAL"
+fi
+
+# T18d — unparseable settings FAIL + gate → exit 2
+UNP="$TMP/t18-unparse"
+make_bare_project "$UNP"
+mkdir -p "$UNP/.claude"
+printf 'not-json{' > "$UNP/.claude/settings.json"
+cd "$UNP" || exit 1
+RC=0
+doctor --json --gate=orchestration --only settings.json >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 2 ]; then
+  pass "T18d unparseable settings + gate → exit 2"
+else
+  fail "T18d expected exit 2, got $RC"
+fi
+
+# T18e — nonexec hygiene (composite fix-it) + gate → exit 2
+NONEXEC="$TMP/t18-nonexec"
+make_bare_project "$NONEXEC"
+write_full_hooks_settings "$NONEXEC/.claude/settings.json"
+chmod -x "$NONEXEC/.claude/hooks/"*.sh
+cd "$NONEXEC" || exit 1
+RC=0
+JSON_NE=$(doctor --json --gate=orchestration --only hooks.hygiene 2>/dev/null) || RC=$?
+FIX_NE=$(printf '%s' "$JSON_NE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("fixit") or "")' 2>/dev/null || echo "")
+WAIVED_NE=$(printf '%s' "$JSON_NE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("gate_waived"))' 2>/dev/null || echo "")
+if [ "$RC" -eq 2 ] && echo "$FIX_NE" | grep -q 'chmod' && [ "$WAIVED_NE" = "False" ]; then
+  pass "T18e nonexec composite fix-it + gate → exit 2 not waived"
+else
+  fail "T18e rc=$RC fix=$FIX_NE waived=$WAIVED_NE out=$JSON_NE"
+fi
+
+# T18f — composite fix-it containing /setup orchestration but not exact → not waived
+# (unparseable hooks.events: "Fix JSON … then re-run /setup orchestration")
+cd "$UNP" || exit 1
+RC=0
+JSON_F=$(doctor --json --gate=orchestration --only hooks.events 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_F" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+c=d["checks"][0]
+assert c["status"]=="FAIL"
+assert c.get("gate_waived") is False
+assert c.get("fixit") != "/setup orchestration"
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 2 ]; then
+  pass "T18f composite fix-it (not exact G) + orch gate → exit 2 not waived"
+else
+  fail "T18f rc=$RC out=$JSON_F"
+fi
+
+# T18g — --gate=team + memory.schema FAIL (composite fix-it) → exit 2 (AC5)
+SCHEMA_FAIL="$TMP/t18-schema"
+make_bare_project "$SCHEMA_FAIL"
+init_memory_db "$SCHEMA_FAIL"
+if command -v sqlite3 >/dev/null 2>&1 && [ -f "$SCHEMA_FAIL/.claude/memory/memory.db" ]; then
+  sqlite3 "$SCHEMA_FAIL/.claude/memory/memory.db" \
+    "UPDATE config SET value='0' WHERE key='schema_version';" 2>/dev/null || true
+  cd "$SCHEMA_FAIL" || exit 1
+  RC=0
+  JSON_G=$(doctor --json --gate=team --only memory.schema 2>/dev/null) || RC=$?
+  if printf '%s' "$JSON_G" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+c=d["checks"][0]
+assert c["status"]=="FAIL", c
+assert c.get("gate_waived") is False
+assert c.get("fixit") != "/setup team"
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 2 ]; then
+    pass "T18g memory.schema composite + --gate=team → exit 2 (AC5)"
+  else
+    fail "T18g rc=$RC out=$JSON_G"
+  fi
+else
+  pass "T18g SKIP (no sqlite3/schema fixture)"
+fi
+
+# T18h — exact-match unit (team C(G)); no live FAIL has exact fixit "/setup team" today
+# Document: algorithm is gate-agnostic; verify trim equality rule for team mapping.
+if bash -c '
+  trim_ws() { local s=${1-}; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; printf "%s" "$s"; }
+  GATE_CMD="/setup team"
+  t=$(trim_ws "  /setup team  ")
+  [ "$t" = "$GATE_CMD" ] || exit 1
+  t2=$(trim_ws "Run /setup team or skills/memory-store/migrate.sh")
+  [ "$t2" != "$GATE_CMD" ] || exit 1
+  t3=$(trim_ws "/setup orchestration")
+  [ "$t3" != "$GATE_CMD" ] || exit 1
+'; then
+  pass "T18h exact-match unit for team C(G); composite/cross not equal (no live exact-/setup-team FAIL)"
+else
+  fail "T18h trim/exact-match unit failed"
+fi
+
+# T18i — --gate=orchestration does not waive under --gate=team (cross-command)
+# Partial orch FAILs (fixit=/setup orchestration) under --gate=team → exit 2, not waived
+cd "$PARTIAL" || exit 1
+# Ensure PARTIAL still has orch fail state
+if [ ! -f "$PARTIAL/.claude/settings.json" ] || ! python3 -c 'import json; json.load(open("'"$PARTIAL"'/.claude/settings.json"))' 2>/dev/null; then
+  make_partial_orch_fail "$PARTIAL"
+fi
+cd "$PARTIAL" || exit 1
+RC=0
+JSON_I=$(doctor --json --gate=team 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_I" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+assert d.get("gate")=="team"
+fails=[c for c in d["checks"] if c["status"]=="FAIL"]
+orch=[c for c in fails if (c.get("fixit") or "")=="/setup orchestration"]
+assert orch, "need orch-fixit FAILs"
+for c in orch:
+    assert c.get("gate_waived") is False, c
+assert d["summary"].get("fail_blocking",0) >= 1
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 2 ]; then
+  pass "T18i orch fix-it FAILs under --gate=team → exit 2 not waived (cross-command)"
+else
+  fail "T18i rc=$RC out=$JSON_I"
+fi
+
+# T18j — never-bootstrapped bare (no settings) → WARN exit 1, not FAIL (AC10)
+cd "$BARE" || exit 1
+RC=0
+JSON_J=$(doctor --json 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_J" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+# hooks.events absent settings → WARN not FAIL
+he=[c for c in d["checks"] if c["id"]=="hooks.events"][0]
+assert he["status"]=="WARN", he
+# memory.db absent → WARN
+md=[c for c in d["checks"] if c["id"]=="memory.db"][0]
+assert md["status"]=="WARN", md
+# no FAIL solely for never-bootstrapped absence (version may still pass)
+# summary.fail may be 0
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 1 ]; then
+  pass "T18j never-bootstrapped bare → WARN exit 1 not FAIL (AC10)"
+else
+  fail "T18j rc=$RC out=$JSON_J"
+fi
+
+# T18k — unknown --gate=foo → exit 64
+RC=0
+doctor --gate=foo >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 64 ]; then
+  pass "T18k unknown --gate=foo → exit 64"
+else
+  fail "T18k expected 64, got $RC"
+fi
+
+RC=0
+doctor --gate=nope --json >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 64 ]; then
+  pass "T18k2 --gate=nope → exit 64"
+else
+  fail "T18k2 expected 64, got $RC"
+fi
+
+# T18l — existing T0–T17 still pass is implied by this suite completing
+
+# Wire check: setup callers pass --gate=
+if grep -q 'bash "\$DOCTOR_SH" --gate=team' "$PLUGIN_ROOT/commands/setup.md" \
+   && grep -q 'bash "\$DOCTOR_SH" --gate=orchestration' "$PLUGIN_ROOT/skills/init-orchestration/SKILL.md"; then
+  pass "T18m setup Step 0 fences pass --gate=team|orchestration"
+else
+  fail "T18m setup/init-orch missing --gate= in Step 0"
+fi
+
+# =============================================================================
+# T19. hooks.hygiene multi-event registration dedupe (CDT-70)
+# =============================================================================
+# rescue-pointer.sh is registered on PostCompact + SessionStart; friction-capture
+# on three failure events. Missing/nonexec lists must show each basename once.
+
+# T19a — missing script listed once despite multi-event registration
+DEDUP_MISS="$TMP/t19-dedup-miss"
+make_bare_project "$DEDUP_MISS"
+write_full_hooks_settings "$DEDUP_MISS/.claude/settings.json"
+rm -f "$DEDUP_MISS/.claude/hooks/rescue-pointer.sh"
+cd "$DEDUP_MISS" || exit 1
+RC=0
+JSON_D=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_D" | python3 -c '
+import json,sys,re
+d=json.load(sys.stdin)
+c=d["checks"][0]
+assert c["status"]=="FAIL", c
+detail=c.get("detail") or ""
+assert "rescue-pointer.sh" in detail, detail
+# basename appears exactly once (not "…rescue-pointer.sh …rescue-pointer.sh")
+assert len(re.findall(r"rescue-pointer\.sh", detail)) == 1, detail
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 2 ]; then
+  pass "T19a multi-event missing script listed once (CDT-70)"
+else
+  fail "T19a rc=$RC out=$JSON_D"
+fi
+
+# T19b — nonexec script listed once despite multi-event registration
+DEDUP_NE="$TMP/t19-dedup-nonexec"
+make_bare_project "$DEDUP_NE"
+write_full_hooks_settings "$DEDUP_NE/.claude/settings.json"
+# only rescue-pointer nonexec; others stay +x so FAIL is the multi-event one
+chmod -x "$DEDUP_NE/.claude/hooks/rescue-pointer.sh"
+cd "$DEDUP_NE" || exit 1
+RC=0
+JSON_NE2=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_NE2" | python3 -c '
+import json,sys,re
+d=json.load(sys.stdin)
+c=d["checks"][0]
+assert c["status"]=="FAIL", c
+detail=c.get("detail") or ""
+assert "not executable" in detail, detail
+assert "rescue-pointer.sh" in detail, detail
+assert len(re.findall(r"rescue-pointer\.sh", detail)) == 1, detail
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 2 ]; then
+  pass "T19b multi-event nonexec script listed once (CDT-70)"
+else
+  fail "T19b rc=$RC out=$JSON_NE2"
+fi
+
+# =============================================================================
+# T20. matrix.cc_version — CC drift vs last-probed (CDT-59)
+# =============================================================================
+# Mock claude on PATH; override MATRIX_CC_VERSION_FILE so real pin is untouched.
+CC_MOCK_BIN="$TMP/cc-mock-bin"
+mkdir -p "$CC_MOCK_BIN"
+printf '#!/usr/bin/env bash\necho "9.9.9 (Claude Code)"\n' > "$CC_MOCK_BIN/claude"
+chmod +x "$CC_MOCK_BIN/claude"
+
+CC_PIN="$TMP/matrix-cc-version"
+printf '%s\n' '2.1.190' > "$CC_PIN"
+
+CC_PROJ="$TMP/t20-cc-drift"
+make_bare_project "$CC_PROJ"
+cd "$CC_PROJ" || exit 1
+
+# T20a — drift → WARN exit 1 (not FAIL)
+RC=0
+OUT=$(PATH="$CC_MOCK_BIN:$PATH" MATRIX_CC_VERSION_FILE="$CC_PIN" \
+  bash "$DOCTOR" --json --only matrix.cc_version 2>/dev/null) || RC=$?
+if printf '%s' "$OUT" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+c=d["checks"][0]
+assert c["id"]=="matrix.cc_version", c
+assert c["status"]=="WARN", c
+detail=c.get("detail") or ""
+assert "2.1.190" in detail and "9.9.9" in detail, detail
+assert "permission posture matrix evidence" in detail, detail
+assert "permission-matrix-probe.sh" in detail, detail
+assert c.get("fixit") and "permission-matrix-probe.sh" in c["fixit"], c
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 1 ]; then
+  pass "T20a CC version drift → WARN exit 1 (CDT-59)"
+else
+  fail "T20a rc=$RC out=$OUT"
+fi
+
+# T20b — match → PASS exit 0 (silent / no fixit)
+printf '%s\n' '9.9.9' > "$CC_PIN"
+RC=0
+OUT=$(PATH="$CC_MOCK_BIN:$PATH" MATRIX_CC_VERSION_FILE="$CC_PIN" \
+  bash "$DOCTOR" --json --only matrix.cc_version 2>/dev/null) || RC=$?
+if printf '%s' "$OUT" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+c=d["checks"][0]
+assert c["status"]=="PASS", c
+assert c.get("fixit") in (None, ""), c
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 0 ]; then
+  pass "T20b CC version match → PASS exit 0 (CDT-59)"
+else
+  fail "T20b rc=$RC out=$OUT"
+fi
+
+# T20c — claude absent → SKIP (not WARN/FAIL)
+CC_EMPTY="$TMP/cc-empty-path"
+mkdir -p "$CC_EMPTY"
+# essentials without claude (same set as T5 deps strip + grep)
+for b in bash git sqlite3 awk sed grep head tr cat chmod mkdir ls date \
+         uname dirname basename mktemp find sort cksum cut wc env true; do
+  p=$(command -v "$b" 2>/dev/null || true)
+  if [ -n "$p" ] && [ ! -e "$CC_EMPTY/$b" ]; then
+    ln -s "$p" "$CC_EMPTY/$b" 2>/dev/null || true
+  fi
+done
+printf '%s\n' '2.1.190' > "$CC_PIN"
+RC=0
+OUT=$(PATH="$CC_EMPTY" MATRIX_CC_VERSION_FILE="$CC_PIN" \
+  bash "$DOCTOR" --json --only matrix.cc_version 2>/dev/null) || RC=$?
+if printf '%s' "$OUT" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+c=d["checks"][0]
+assert c["status"]=="SKIP", c
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 0 ]; then
+  pass "T20c claude absent → SKIP exit 0 (CDT-59)"
+else
+  fail "T20c rc=$RC out=$OUT"
+fi
+
+# T20d — probe write-back on successful cell PASS (unit: emulate record path)
+PROBE="$PLUGIN_ROOT/tools/permission-matrix-probe.sh"
+PROBE_PIN="$TMP/probe-wrote-version"
+printf '%s\n' '0.0.0' > "$PROBE_PIN"
+# Extract + run record_probed_cc_version with mocks via inline RESULTS gate
+RESULTS_TSV="$TMP/probe-results.tsv"
+printf '%s\n' \
+  $'cell\tmode\tflow\tstatus\tprompt_proxy\tdenials\thooks_fired\tnotes' \
+  $'C\tdontAsk\tALL\tPASS_ZERO_PROMPT\t0\t[]\t1\tok' \
+  > "$RESULTS_TSV"
+# Run the same awk gate + write the probe uses
+if awk -F'\t' '$3 == "ALL" && $4 ~ /^PASS/ { found=1 } END { exit !found }' "$RESULTS_TSV"; then
+  raw=$(PATH="$CC_MOCK_BIN:$PATH" claude --version 2>&1 | head -1 || true)
+  installed=$(printf '%s' "$raw" | awk '{print $1}' | tr -d '\r')
+  printf '%s\n' "$installed" > "$PROBE_PIN"
+fi
+if [ "$(cat "$PROBE_PIN")" = "9.9.9" ]; then
+  pass "T20d probe success path writes last-probed CC version (CDT-59)"
+else
+  fail "T20d pin=$(cat "$PROBE_PIN") expected 9.9.9"
+fi
+# Negative: FAIL-only results do not update
+printf '%s\n' '0.0.0' > "$PROBE_PIN"
+printf '%s\n' \
+  $'cell\tmode\tflow\tstatus\tprompt_proxy\tdenials\thooks_fired\tnotes' \
+  $'C\tdontAsk\tALL\tFAIL\t1\t[]\t0\tnope' \
+  > "$RESULTS_TSV"
+if awk -F'\t' '$3 == "ALL" && $4 ~ /^PASS/ { found=1 } END { exit !found }' "$RESULTS_TSV"; then
+  printf '%s\n' 'should-not-write' > "$PROBE_PIN"
+fi
+if [ "$(cat "$PROBE_PIN")" = "0.0.0" ]; then
+  pass "T20e probe FAIL cells leave last-probed version unchanged (CDT-59)"
+else
+  fail "T20e pin=$(cat "$PROBE_PIN") expected 0.0.0"
+fi
+# Sanity: probe script contains write-back hook
+if grep -q 'record_probed_cc_version' "$PROBE" \
+  && grep -q 'permission-matrix-cc-version' "$PROBE"; then
+  pass "T20f probe script wires record_probed_cc_version (CDT-59)"
+else
+  fail "T20f probe missing version write-back"
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

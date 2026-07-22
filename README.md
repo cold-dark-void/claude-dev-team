@@ -32,6 +32,7 @@ The opencode install script symlinks `commands/` and generates opencode-valid ag
 | [Command reference](docs/commands/) | Per-command pages (usage, flags, examples) |
 | [CHANGELOG](CHANGELOG.md) | Release history — **start here to discover new features** |
 | [Upgrading](docs/setup.md#upgrading-the-plugin-existing-projects) | Existing projects: what to re-run (usually nothing beyond plugin update) |
+| [Migrate to v1.0.0](docs/runbooks/migrate-to-v1.md) | 0.x → 1.0.0 consumer checklist (doctor, schema, hooks, stubs) |
 ## What You Get
 
 ### Agents
@@ -132,6 +133,8 @@ user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal 
 ### Migration / deprecated
 
 Stubs remain discoverable until **removed at v1.1**. Prefer the replacement now.
+
+**0.x → 1.0.0 consumer checklist:** [Migrating an existing project to v1.0.0](docs/runbooks/migrate-to-v1.md).
 
 | Command | Replacement |
 |---------|-------------|

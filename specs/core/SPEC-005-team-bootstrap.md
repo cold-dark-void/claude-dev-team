@@ -74,8 +74,11 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - **Dual-copy gate retired.** The historical dual-copy integrity check (`check-hook-templates.sh` requiring byte-identity between tracked live hooks and templates) is **retired or reduced** to template-internal checks that do **not** require tracked live files under `.claude/hooks/`. Release / doctor MUST NOT FAIL solely because package-tracked live hooks are absent (see SPEC-010 Step 4.7, SPEC-022).
 - **Regenerate after clone.** Contributors regenerating hooks MUST re-run `/setup orchestration` (or the scripted emit path it owns); editing live hooks without updating templates is a defect.
 
-### Doctor install gate (CDT-51 / CDT-46-C5)
-- `/setup team` and `/setup orchestration` MUST hard-gate on `dev-team:doctor` (plugin doctor, not the Claude Code harness built-in `/doctor`): run the battery first; **exit ≤ 1** (PASS or WARN-only) continues; **exit 2 (FAIL) blocks** bootstrap with a clear message naming the FAIL rows and fix-it lines
+### Doctor install gate (CDT-51 / CDT-46-C5 / CDT-67)
+- `/setup team` MUST invoke `dev-team:doctor` with `--gate=team` before mutation;
+  `/setup orchestration` MUST invoke with `--gate=orchestration`. Exit ≤1 continues;
+  exit 2 blocks. Self-remediating FAILs (fix-it exact match to the active sub per
+  SPEC-022 M6c) do not block. Override `--skip-doctor` unchanged (WARNING then proceed).
 - Override flag (e.g. `--skip-doctor` / equivalent) MUST print an explicit warning that the gate was skipped, then proceed; silent skip is forbidden
 - `/setup project` MUST soft-advise only (recommend running doctor; MUST NOT block scaffold on doctor FAIL)
 - Marketplace install path MUST NOT hard-gate on doctor (no gate at marketplace install time)
@@ -148,6 +151,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-07-22 | CDT-51 TL P0/P1: orchestration allow = full matrix set; project-init Step 1b is team-bootstrap (acceptEdits seed only when mode missing AND no orch markers) — never clobber managed orch defaultMode. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: amend-then-promote — Overview/Covers name sole entry `/setup` (subs project\|orchestration\|team; `/init-team` stub only); demo kept OBSOLETE/historical (not live bootstrap); drop W5/full-rewrite OOS language that blocked promote honesty; retain C5 doctor-gate + SPEC-002 posture MUSTs; Status INFERRED→ACTIVE. Evidence: Linear CDT-52. |
 | 2026-07-22 | CDT-54 / CDT-46-C8: hook template single SoT — `/setup orchestration` emits live hooks from init-orch templates; live `.claude/hooks` generated+gitignored (not package product); dual-copy `check-hook-templates` gate retired/reduced; regenerate via `/setup orchestration`. |
+| 2026-07-22 | CDT-67: doctor gate passes `--gate=<sub>` (`team` / `orchestration`); M6c self-remediation (exact fix-it match) does not block. |
 
 ## Cross-references
 

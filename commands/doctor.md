@@ -1,7 +1,7 @@
 ---
 name: doctor
 description: Diagnose dev-team plugin + project install/config health (PASS/WARN/FAIL table). Read-only by default; --fix for allowlisted repairs only.
-argument-hint: "[--json] [--fix] [--only <id|group>]"
+argument-hint: "[--json] [--fix] [--only <id|group>] [--gate=<orchestration|team>]"
 ---
 
 # /doctor
@@ -25,6 +25,7 @@ FAIL.
 | `--json` | Single JSON document on stdout |
 | `--fix` | Apply allowlisted repairs only (see below) |
 | `--only <id\|group>` | Run a subset of checks |
+| `--gate=<orchestration\|team>` | Gate-mode self-remediation (M6c / CDT-67) |
 | `-h` / `--help` | Usage |
 
 Flags may combine: `/doctor --json --only memory`.
@@ -39,17 +40,21 @@ TTY → confirm each repair. Non-TTY → apply. Second `--fix` is a no-op when c
 
 ## Exit codes
 
-| Code | Meaning |
+| Code | Meaning (bare) |
 |------|---------|
 | 0 | All executed checks PASS |
 | 1 | ≥1 WARN, no FAIL |
 | 2 | ≥1 FAIL |
 | 64 | Usage error |
 
-**Caller gate (SPEC-022 M6b):** `/setup team` and `/setup orchestration` hard-gate
-on **`dev-team:doctor`** exit codes (≤1 continue; 2 block) — not the harness
-`/doctor`. Doctor remains pure diagnostic — callers own the gate; override is
-`--skip-doctor` on those setup subs.
+Under `--gate=`: exit 2 only for **blocking** FAILs (fix-it not exactly
+`/setup <gate>`); self-remediating FAILs stay status FAIL but yield exit 1
+(with WARNs or alone). See SPEC-022 M6c.
+
+**Caller gate (SPEC-022 M6b/M6c):** `/setup team` and `/setup orchestration`
+hard-gate on **`dev-team:doctor --gate=<sub>`** (≤1 continue; 2 block) — not the
+harness `/doctor`. Doctor remains pure diagnostic — callers own the gate;
+override is `--skip-doctor` on those setup subs.
 
 ## Step 1: Resolve doctor.sh
 

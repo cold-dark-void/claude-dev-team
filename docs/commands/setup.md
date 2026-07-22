@@ -38,8 +38,11 @@ Greenfield / add-TDD scaffold. Idempotent; asks before overwrite. See
 
 ## Sub: `orchestration`
 
-Brownfield merge for Agent Teams. Safe re-run (merge, not clobber). See
-`skills/init-orchestration/SKILL.md` and
+Brownfield merge for Agent Teams. Safe re-run (merge, not clobber). **Not pure
+zero-intervention under `dontAsk`:** settings merge + `bash-compress.sh` need
+one batched explicit approval up front (CDT-68). Doctor gate uses
+`--gate=orchestration` so self-remediating FAILs do not circular-block (CDT-67).
+See `skills/init-orchestration/SKILL.md` and
 [Setup → `/setup orchestration`](../setup.md#setup-orchestration--enable-agent-teams).
 
 ## Sub: `team`

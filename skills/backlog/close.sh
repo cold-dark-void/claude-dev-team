@@ -11,7 +11,9 @@
 # ROOT = --root if set, else git rev-parse --show-toplevel, else pwd.
 # Does NOT commit — local write-through only; never stage process trackers.
 #
-# Exit: 0 ok, 1 not found / verify fail, 64 usage.
+# Exit: 0 ok (incl. Linear-only skip when no local write-through), 1 not found /
+# verify fail, 64 usage. Missing index/dir post-hygiene is calm exit 0 (CDT-63),
+# not error-shaped.
 
 set -euo pipefail
 
@@ -274,13 +276,14 @@ update_item_file() {
 }
 
 # Preserve hierarchical Pending content; only move this slug's bullet to Completed.
+# No-op (return 0) when index is absent — Linear-only / post-hygiene (CDT-63).
 update_index() {
   local slug="$1"
   local index="$ROOT/.claude/backlog.md"
   local tag found_line line_new tmp title
   local has_completed=0
 
-  [ -f "$index" ] || die 1 "no backlog index: $index"
+  [ -f "$index" ] || return 0
   tag=$(index_tag)
 
   found_line=$(grep -E "\]\(backlog/${slug}\.md\)" "$index" | head -n1 || true)
@@ -288,8 +291,11 @@ update_index() {
     title=$(head -n 1 "$ROOT/.claude/backlog/${slug}.md" | sed 's/^# *//')
     found_line="- [${title}](backlog/${slug}.md) - ${title} ${tag}"
   else
+    # Strip prior status tags. Inside a sed character class, ] must be first
+    # after ^ (i.e. [^]]) — [^\]] is parsed as "not backslash" + literal ], so
+    # FIXED/CLOSED — ID and COMPLETED — ID tags never stripped (CDT-57 dogfood).
     line_new=$(printf '%s' "$found_line" \
-      | sed -E 's/[[:space:]]*\[(PENDING|COMPLETED[^\]]*|FIXED\/CLOSED[^\]]*)\]//g' \
+      | sed -E 's/[[:space:]]*\[(PENDING|COMPLETED[^]]*|FIXED\/CLOSED[^]]*)\]//g' \
       | sed -E 's/[[:space:]]+$//')
     found_line="${line_new} ${tag}"
   fi
@@ -344,15 +350,50 @@ print_linear_bridge() {
   fi
 }
 
+# Linear-only / post-hygiene (C8 removed committed backlog index): no local
+# write-through is the EXPECTED case. Calm skip, exit 0 — never error-shaped.
+skip_linear_only() {
+  if [ -n "${BACKLOG_DEBUG:-}" ]; then
+    printf 'debug: no local backlog write-through under %s (Linear-only)\n' "$ROOT" >&2
+  else
+    printf 'No local backlog write-through — skip (Linear-only).\n'
+  fi
+  exit 0
+}
+
 cmd_close() {
   resolve_root
   local backlog_dir="$ROOT/.claude/backlog"
   local index="$ROOT/.claude/backlog.md"
-  [ -d "$backlog_dir" ] || die 1 "no backlog dir: $backlog_dir"
-  [ -f "$index" ] || die 1 "no backlog index: $index"
+
+  # Neither dir nor index: pure Linear-only / never dual-written.
+  if [ ! -d "$backlog_dir" ] && [ ! -f "$index" ]; then
+    skip_linear_only
+  fi
+
+  # Dir missing but index present is inconsistent; still can't close items.
+  if [ ! -d "$backlog_dir" ]; then
+    die 1 "no backlog dir: $backlog_dir"
+  fi
 
   local slug file rc
-  slug=$(pick_one_slug)
+  if ! slug=$(find_slugs "$QUERY"); then
+    # No matching local item. Index missing → Linear-only expected (CDT-63).
+    # Index present → real miss (item should exist for close).
+    if [ ! -f "$index" ]; then
+      skip_linear_only
+    fi
+    die 1 "no backlog item matching: $QUERY"
+  fi
+  # Ambiguity / pick-one (same rules as pick_one_slug)
+  local n
+  n=$(printf '%s\n' "$slug" | grep -c . || true)
+  if [ "${n:-0}" -gt 1 ]; then
+    printf 'error: ambiguous match for %s:\n%s\n' "$QUERY" "$slug" >&2
+    printf 'Pick one slug and re-run.\n' >&2
+    exit 64
+  fi
+  slug=$(printf '%s\n' "$slug" | head -n1)
   file="$backlog_dir/${slug}.md"
 
   set +e

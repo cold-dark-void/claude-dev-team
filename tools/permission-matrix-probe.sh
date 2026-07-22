@@ -7,18 +7,42 @@
 # Env:
 #   MATRIX_MODEL   default haiku
 #   MATRIX_TIMEOUT default 180 (seconds per cell)
+#   MATRIX_CC_VERSION_FILE  override path for last-probed CC version (CDT-59)
+#
+# On a successful matrix run (≥1 cell ALL status PASS_*), writes the installed
+# Claude Code version (first token of `claude --version`) to
+# tools/permission-matrix-cc-version so /doctor can WARN on drift.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 OUTDIR="${1:-${TMPDIR:-/tmp}/cdt-51-matrix-$$}"
 MODEL="${MATRIX_MODEL:-haiku}"
 TIMEOUT_S="${MATRIX_TIMEOUT:-180}"
+CC_VERSION_FILE="${MATRIX_CC_VERSION_FILE:-$REPO/tools/permission-matrix-cc-version}"
 mkdir -p "$OUTDIR"
 RESULTS="$OUTDIR/results.tsv"
 : > "$RESULTS"
 echo -e "cell\tmode\tflow\tstatus\tprompt_proxy\tdenials\thooks_fired\tnotes" >> "$RESULTS"
 
 log() { printf '[matrix] %s\n' "$*" >&2; }
+
+# Normalize `claude --version` → bare semver token (e.g. 2.1.190)
+normalize_cc_version() {
+  printf '%s' "${1-}" | awk '{print $1}' | tr -d '\r'
+}
+
+# Record last-probed CC version after a successful matrix run (CDT-59).
+record_probed_cc_version() {
+  local raw installed
+  raw=$(claude --version 2>&1 | head -1 || true)
+  installed=$(normalize_cc_version "$raw")
+  if [ -z "$installed" ]; then
+    log "skip recording cc version (unparseable: ${raw:-empty})"
+    return 0
+  fi
+  printf '%s\n' "$installed" > "$CC_VERSION_FILE"
+  log "recorded last-probed CC version $installed -> $CC_VERSION_FILE"
+}
 
 # --- settings templates ---
 write_settings() {
@@ -355,6 +379,13 @@ for pair in "A:bypassPermissions" "B:acceptEdits" "C:dontAsk"; do
   init_scratch "$root" "$mode"
   run_cell_claude "$cell" "$mode" "$root"
 done
+
+# CDT-59: pin last-probed CC version when ≥1 cell produced a PASS_* summary.
+if awk -F'\t' '$3 == "ALL" && $4 ~ /^PASS/ { found=1 } END { exit !found }' "$RESULTS"; then
+  record_probed_cc_version
+else
+  log "no cell PASS — leaving last-probed CC version unchanged"
+fi
 
 log "results -> $RESULTS"
 cat "$RESULTS"

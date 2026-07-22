@@ -153,7 +153,7 @@ Create `$PROJ_ROOT/.claude/settings.json` to enable autonomous agent operation (
 
 `defaultMode: "acceptEdits"` auto-approves all Read/Write/Edit operations. The Bash allow list covers common dev tools plus agent bootstrap patterns (variable assignments, compound commands, shell control flow). Customize to add/remove commands for your stack.
 
-> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use: destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those. (Orchestration mode via `/setup orchestration` instead grants `Bash(*)` under `dontAsk` with sandbox + `autoAllowBashIfSandboxed` — matrix winner Cell C; the OS sandbox is the boundary.)
+> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use: destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those. (Orchestration mode via `/setup orchestration` instead grants the **matrix allow set** — `Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task — under `dontAsk` with sandbox + `autoAllowBashIfSandboxed` — matrix winner Cell C; under `dontAsk`, non-allow tools are **denied** not prompted, so a `Bash(*)`-only list is insufficient. The OS sandbox is the boundary. See `docs/runbooks/permission-posture-matrix.md`.)
 
 ### Step 3: Create .claude/CLAUDE.md
 

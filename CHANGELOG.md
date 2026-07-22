@@ -3,6 +3,18 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.1
+
+- **CDT-67** — doctor `--gate=orchestration|team`: self-remediating FAIL rows (exact fix-it = gated `/setup` command) stay FAIL but do not block setup Step 0; bare doctor exit 2 unchanged (SPEC-022 M6c / SPEC-005).
+- **CDT-70** — `hooks.hygiene` dedupes multi-event missing/nonexec script names.
+- **CDT-59** — doctor WARN when Claude Code version drifts from last matrix probe pin (`tools/permission-matrix-cc-version`); probe updates pin on success.
+- **CDT-69** — init-orchestration Step 1 normalizes absolute hook paths under project root to `${CLAUDE_PROJECT_DIR}` with force-overwrite disclosure.
+- **CDT-68** — setup docs: batch dontAsk approvals for settings.json + bash-compress (do not eliminate permission prompts).
+- **CDT-63 / CDT-57** — `close.sh` calm Linear-only no-index path (exit 0); fix dual-tag strip on FIXED/CLOSED re-close.
+- **CDT-66** — consumer runbook `docs/runbooks/migrate-to-v1.md` (README + docs hub).
+- **CDT-62** — scaffold-project documents full Cell C matrix allow set (not Bash(*)-only).
+- **CDT-55** — marketplace 1.0.0 host evidence accepted (pre.N not re-observable; PDH tilde map verified).
+
 ### v1.0.0
 
 - **v1.0 release (CDT-53 / CDT-46-C7)** — stability contract: tiered docs, governance files, complete migration table, reflect green, freeze lifts on this tag.
