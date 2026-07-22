@@ -206,30 +206,64 @@ and full matrix allow set: `Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task).
 | AC2 implication | Task 2 **flipped** `/setup orchestration` (`skills/init-orchestration`) ship default from `bypassPermissions` → `dontAsk` (sandbox MUSTs kept) |
 | C7 posture-honesty flag | **Not required** (non-bypass cell passed) |
 
+### Interactive evidence (CDT-58) — 2026-07-22
+
+Live TUI dogfood on this plugin checkout under shipped Cell C (CC **2.1.190**,
+status bar `dont ask on`). Dogfood ticket **CDT-73** (throwaway marker write).
+
+| Field | Value |
+|-------|--------|
+| Host | `claude-dev-team` @ `192733b` / v1.0.1 posture |
+| Mode | `dontAsk` + sandbox + `autoAllowBashIfSandboxed` + matrix allow |
+| User-facing permission dialogs | **0** |
+| Friction ledger delta | **0** new `PermissionDenied` rows (pre=1 historical setup-era Edit) |
+| Outcome | `.claude/dogfood/cdt-58-marker.txt` = `CDT-58-OK` |
+
+**Silent denials observed (deny-not-ask — correct, not prompts):**
+
+| Tool / path | Result |
+|-------------|--------|
+| Linear MCP `get_issue` (CDT-73) | Denied — MCP not on matrix allow |
+| Edit `.claude/settings.json` (agent tried to widen allow for MCP) | Denied — self-escalation / denyWithinAllow |
+
+**Claim (extended, caveated):** under Cell C, an interactive implement path that
+stays inside matrix allow (Write marker under `.claude/dogfood/`) runs with
+**zero permission dialogs**. Enterprise “zero-prompt” does **not** mean “all MCP
+and settings self-mod work unprompted”:
+
+1. **MCP tools** (Linear, Slack, …) are **outside** the ship matrix allow →
+   silent deny under `dontAsk`. Feed issue text or add an explicit allow entry
+   (product decision — do not mid-run self-edit settings to chase it).
+2. **`.claude/settings.json` / permission-widening hooks** remain self-escalation
+   guards (CDT-68). Batch-approve only for `/setup orchestration`; never strip.
+3. **Full multi-teammate** Agent-Teams (TaskList / SendMessage / nested teammates)
+   was **not** required for CDT-73 marker; residual for that denser path remains
+   low-risk given same mode + allow inheritance, not re-measured here.
+
 ### Residual risks
 
-1. **Non-interactive proxy vs interactive TUI.** Matrix ran under `claude -p`
-   (print mode). Interactive sessions can surface permission UI that `-p`
-   converts to denials or auto-paths. Zero interactive prompt count was **not**
-   measured in a full TUI session. Mitigate: smoke `/setup orchestration` + one
-   real `/orchestrate` spawn under the winning mode before cutting v1.0.0.
-2. **Spawn fidelity.** Flow used the **Agent** tool (minimal multi-agent spawn),
-   not a full Agent-Teams `/orchestrate` multi-teammate session with TaskList /
-   SendMessage. Team-mode edge cases (teammate inheritance of mode, nested
-   bypass) are unproven here.
+1. **Non-interactive proxy vs interactive TUI.** Matrix used `claude -p`; CDT-58
+   interactive TUI measured **0 dialogs** for allow-set work (see above). MCP and
+   settings self-mod remain deny-not-ask, not dialog.
+2. **Spawn fidelity.** CDT-51 used Agent tool only; CDT-58 dogfood was a slim
+   orchestrate/implement path (marker file), not a full multi-teammate TaskList /
+   SendMessage session. Team-mode edge cases still lightly evidenced.
 3. **Allow-list coupling.** Cell C pass assumes the matrix allow set
    (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task). Ship template + brownfield
    merge now require that full set (CDT-51 TL P0). Narrowing allow without sandbox
-   auto-allow will fail zero-prompt under `dontAsk` (deny-not-ask).
+   auto-allow will fail zero-prompt under `dontAsk` (deny-not-ask). MCP is not
+   in that set by design until a deliberate product allow is added.
 4. **Sandbox dependency.** Without sandbox (or on hosts without bubblewrap),
    `autoAllowBashIfSandboxed` does not fire; `dontAsk` then depends entirely on
    allow rules. Current ship MUST keeps sandbox on (SPEC-002).
-5. **Hook coverage.** Only PreToolUse Bash probe hook exercised; Stop /
-   TaskCompleted / friction hooks not fired end-to-end in this matrix.
+5. **Hook coverage.** Only PreToolUse Bash probe hook exercised in the matrix;
+   Stop / TaskCompleted / friction hooks not fired end-to-end there. CDT-58
+   friction ledger showed no new rows during dogfood.
 6. **Model / version drift.** Evidence is for host **2.1.190** + haiku probe
-   model. Re-run `tools/permission-matrix-probe.sh` after CC upgrades before
-   trusting the winner. `/doctor` `matrix.cc_version` WARNs when
-   `claude --version` ≠ `tools/permission-matrix-cc-version` (CDT-59).
+   model (matrix) and interactive TUI (CDT-58). Re-run
+   `tools/permission-matrix-probe.sh` after CC upgrades before trusting the
+   winner. `/doctor` `matrix.cc_version` WARNs when `claude --version` ≠
+   `tools/permission-matrix-cc-version` (CDT-59).
 
 ### Reproduce
 
