@@ -445,7 +445,7 @@ Specs may use either format — handle both:
 ```
 Parse: lines starting with `- MUST`, `- MUST NOT`, `- SHOULD` under `## MUST` / `## SHOULD` headings.
 
-**Format B** — inline specs in `specs/TDD.md` (from `/scaffold-project`):
+**Format B** — inline specs in `specs/TDD.md` (from `/setup project`):
 ```markdown
 ### SPEC-001: Application Launch
 **MUST**: Application starts successfully and displays main interface

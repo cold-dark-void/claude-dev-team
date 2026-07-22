@@ -4,6 +4,8 @@
 
 ## Completed
 
+- [---](backlog/v1-w3-mode-status-setup-debug-merges-7-stubs.md) - --- [COMPLETED — CDT-46-C4] [COMPLETED — CDT-46-C4]
+- [---](backlog/v1-w2-memory-spec-merges-11-stubs.md) - --- [COMPLETED — CDT-46-C3]
 - [External reviewer option](backlog/external-reviewer-option.md) - Optional cross-tool review step in council engine (Codex, Gemini) [COMPLETED]
 - [COUNCIL-002 — Investigator tool-call caching](backlog/council-002-tool-call-caching.md) - Avoid redundant file reads across investigators in one run [COMPLETED]
 - [COUNCIL-002 — Phase 3 dynamic domain specialist](backlog/council-002-phase3-domain-specialist.md) - Pull devops/ds/qa/pm based on claim topic [COMPLETED]

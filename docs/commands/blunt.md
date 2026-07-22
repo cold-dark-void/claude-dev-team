@@ -1,54 +1,24 @@
 # /blunt
 
-Session **tone** mode: no sugarcoating, verdict first, certainty matches evidence. Opt-in for the rest of the session.
+> **Deprecated** — removed at v1.0.0 (CDT-46-C4). Use **[`/mode blunt`](./mode.md)** instead.
+> This page remains as a redirect until v1.1.
 
-## Usage
+Session **tone** mode: no sugarcoating, verdict first, certainty matches evidence.
 
-```
-/blunt
-/blunt on
-/blunt off
-/blunt status
-```
-
-## What changes
-
-While ON:
-
-1. **Verdict first** — judgment or answer in line one, then evidence
-2. **No sugarcoat** — bad is bad, good is good; no cushion praise
-3. **Confidence matches evidence** — verified → hard; partial → "likely… not verified…"; unchecked → "I don't know. Check: …"
-4. **Disagree when warranted** — soft non-disagreement is out when you believe the path is wrong
-5. **Not hostile** — cold and accurate; no insults
-
-## What does not change
-
-- No tool bans (still can edit/commit unless something else forbids it)
-- No disk state
-- Does not replace `/review-and-commit` or `/council`
-- Stacks with `/focus` (structure + investigation discipline)
-
-## Examples
+## Replacement
 
 ```
-/blunt
+/mode blunt
+/mode blunt on
+/mode blunt off
+/mode blunt status
 ```
 
-```
-Blunt mode ON — direct tone; certainty matches evidence. /blunt off to disable.
-```
-
-**With focus (common combo):**
-
-```
-/focus
-/blunt
-```
-
-Action-first shape + evidence loop + direct tone.
+Full reference: [`/mode`](./mode.md). Backend protocol still lives in
+`skills/blunt/SKILL.md` (skill-delegate from `/mode`). Stacks with focus when
+both are ON via `/mode`.
 
 ## See also
 
-- Protocol: `skills/blunt/SKILL.md`
-- `/focus` — action-first + evidence discipline
-- `/review-and-commit` — brutally honest *diff* review (different surface)
+- [`/mode`](./mode.md) — primary surface
+- [`/focus`](./focus.md) — deprecated; use `/mode focus`

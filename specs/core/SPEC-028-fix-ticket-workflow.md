@@ -101,7 +101,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 6. **No-checkout string (M18 / AC10):** `rg -n 'git checkout|git restore|NEVER' skills/fix-ticket/prompts/refute.md` matches.
 7. **Worktree path (M5):** without `--worktree`, ensure path is `$MROOT/.worktrees/<ticket-id>`.
 8. **No version/commit (M11–M12, M28):** implement prompt contains bans on version files and `git commit`; skill does not call `/release`.
-9. **Thin command (M1):** `commands/fix-ticket.md` points to skill; no full phase protocol restated.
+9. **Thin entry (M1):** user entry is `/debug ticket` via thin `commands/debug.md` (SPEC-014); protocol lives in a skill reachable from that entry; `commands/fix-ticket.md` is a Deprecation stub naming `/debug ticket` (no full phase protocol restated in host or stub).
 10. **Args guard (M30):** `rg "typeof args === 'string'" skills/fix-ticket/workflow.js` matches; `node --check skills/fix-ticket/workflow.js` passes.
 11. **skill-lint C1:** `bash skills/skill-lint/check-skill-bash.sh commands/fix-ticket.md skills/fix-ticket/SKILL.md` exits 0.
 12. **Docs index:** README + `docs/README.md` list `/fix-ticket`; `docs/commands/fix-ticket.md` present.

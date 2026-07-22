@@ -24,7 +24,7 @@ Unknown or missing sub prints the table and stops.
 ## Sub: `config`
 
 View and update memory distillation configuration in the SQLite `config` table
-(`.claude/memory/memory.db`). Requires `/init-team` first.
+(`.claude/memory/memory.db`). Requires `/setup team` first.
 
 ```
 /memory config list
@@ -101,7 +101,7 @@ commits, or pushes.
 | `--dry-run` | Print what would be written (including exclusions); write nothing |
 
 After export: skim for residual secrets, commit via reviewed PR. Fresh clones
-import the pack on `/init-team` (warm start). See SPEC-024.
+import the pack on `/setup team` (warm start). See SPEC-024.
 
 ## Sub: `search`
 
@@ -182,4 +182,4 @@ Without distillation, raw counts grow and boot load balloons.
 - [Memory runbook](../runbooks/memory.md) — tiers, hygiene, distillation workflow
 - [Setup → Memory config](../setup.md#memory-configuration----memory-config) — first-time settings
 - [`/recall`](./recall.md) — cross-source search (sessions, memory, specs, plans, git)
-- [`/init-team`](../setup.md#init-team--bootstrap-agent-memory) — bootstrap the memory DB
+- [`/setup team`](../setup.md#setup-team--bootstrap-agent-memory) — bootstrap the memory DB

@@ -1,13 +1,16 @@
 ---
 name: blunt
 description: |
-    Session tone mode: no sugarcoating, verdict-first, confidence must match
-    evidence. Shit is shit; good is good. Opt-in via /blunt. Orthogonal to
-    /focus (structure + investigation discipline) and to /review-and-commit
-    (commit-gate review).
+    Session tone backend for /mode blunt: no sugarcoating, verdict-first,
+    confidence must match evidence. Shit is shit; good is good. Primary entry:
+    /mode blunt [on|off|status]. /blunt is a deprecation stub (CDT-46-C4).
+    Orthogonal to /mode focus and /review-and-commit.
 ---
 
 # Blunt (session tone)
+
+> **Entry:** `/mode blunt [on|off|status]`. Live backend for `commands/mode.md`
+> (OQ6 — not a full tombstone). `/blunt` is a deprecation stub.
 
 While ON, every human-facing reply is **direct and epistemically honest**.
 
@@ -15,13 +18,13 @@ This is **tone + certainty calibration**, not tool policy and not a full review 
 
 | Mode | Axis | Job |
 |------|------|-----|
-| `/focus` | Structure + evidence loop | Action-first shape; prove claims; kill false smoking guns |
-| `/blunt` | Tone + confidence | No soft language; certainty matches evidence |
+| `/mode focus` | Structure + evidence loop | Action-first shape; prove claims; kill false smoking guns |
+| `/mode blunt` | Tone + confidence | No soft language; certainty matches evidence |
 | `/review-and-commit` | Commit gate | Multi-agent review of a diff |
 
-All three can stack. `/blunt` alone does not ban Write/Edit or force numbered steps.
+All three can stack. `/mode blunt` alone does not ban Write/Edit or force numbered steps.
 
-## Arguments (from /blunt)
+## Arguments (from /mode blunt)
 
 | Arg | Effect |
 |-----|--------|
@@ -36,7 +39,7 @@ Conversation only (no files, no hooks). Active until `off` or session end.
 Print once on enable:
 
 ```
-Blunt mode ON — direct tone; certainty matches evidence. /blunt off to disable.
+Blunt mode ON — direct tone; certainty matches evidence. /mode blunt off to disable.
 ```
 
 Print once on disable:
@@ -105,15 +108,15 @@ If several things are wrong, rank: worst first (max ~3). Do not bury the main fa
 
 ---
 
-## Interaction with `/focus`
+## Interaction with `/mode focus`
 
 | If both ON | Apply |
 |------------|--------|
-| Shape | `/focus` Pillar A (action-first, numbered steps) |
-| Investigation | `/focus` Pillar B (CONFIRMED/LIKELY/UNKNOWN, dead ends) |
+| Shape | `/mode focus` Pillar A (action-first, numbered steps) |
+| Investigation | `/mode focus` Pillar B (CONFIRMED/LIKELY/UNKNOWN, dead ends) |
 | Tone | This skill (verdict-first, no softener, confidence match) |
 
-If only `/blunt` is ON: tone rules only; normal structure OK.
+If only `/mode blunt` is ON: tone rules only; normal structure OK.
 
 ## Structured workflow exception
 

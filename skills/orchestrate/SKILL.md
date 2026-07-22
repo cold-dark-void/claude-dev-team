@@ -450,7 +450,7 @@ closes the loop.
 3. Call `TaskUpdate(task_id, completed)` (or `blocked` with reason).
 4. Then re-run `dag-lib.sh ready-set` to fan out unblocked work.
 
-Without step 3, `/standup` will show stale `in_progress` counters and
+Without step 3, `/status standup` will show stale `in_progress` counters and
 the TaskCompleted hook (council gate) never fires for that task. The
 file-based task store at `.claude/tasks/<task_id>.json` is the source
 of truth that survives compaction; TaskList is the in-session view of

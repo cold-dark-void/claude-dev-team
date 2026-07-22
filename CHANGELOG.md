@@ -3,6 +3,26 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.0-pre.4
+- **v1.0-W3 surface merges (CDT-46-C4)** — session tone, read-only status, onboarding, and ticket-fix entries unified under four hubs; five one-cycle Deprecation stubs remain until v1.1.
+- **`/mode`** — single session-tone entry for `focus|blunt [on|off|status]`, `/mode status`, `/mode off`; orthogonal focus⊥blunt stack; skill-delegate backends.
+- **`/status`** — read-only snapshot hub: bare = standup → metrics → worktree list; subs `standup`, `metrics` (flag parity via rollup.sh), `worktree`.
+- **`/setup`** — onboarding dispatcher `project|orchestration|team` (distinct protocols; bare = usage only); team flags `--refresh|--migrate-only|--no-extensions`.
+- **`/debug` host + `ticket` mode** — thin `commands/debug.md`; first-token `patch|arch|ticket`; ticket absorbs former `/fix-ticket` (SPEC-028 protocol; full fold W5 OOS).
+- **`/worktree` reduce-to-release (OQ1)** — mutate-only `release <slug>` with chat confirm; status/list moved to `/status worktree` — **not** a Deprecation stub.
+- **Five command Deprecation stubs** — `focus`, `blunt`, `metrics`, `fix-ticket`, `init-team` (prose-only; `removed at v1.0.0` / removed at v1.1).
+- **Skill tombstones** — standup, scaffold-project, init-orchestration, fix-ticket (protocol retained for hub delegates); focus/blunt remain live `/mode` backends.
+- **Docs** — README Commands + docs hub retargeted; AGENTS Worktree Protocol cites `/worktree release` + `/status worktree`; docs-drift green.
+
+| Old command | New form |
+|-------------|----------|
+| `/focus` | `/mode focus` |
+| `/blunt` | `/mode blunt` |
+| `/metrics` | `/status metrics` |
+| `/fix-ticket` | `/debug ticket` |
+| `/init-team` | `/setup team` |
+| `/worktree status\|list` | `/status worktree` (release stays `/worktree release`) |
+
 ### v1.0.0-pre.3
 - **v1.0-W2 surface merges (CDT-46-C3)** — twelve standalone commands folded into unified dispatchers (`/memory`, `/spec`) or `/council --blind`. One-cycle Deprecation stubs remain until v1.1 (marketplace auto-latest makes silent removal user-visible breakage).
 - **`/memory <sub>`** — single entry for `config|distill|export|search|stats|validate` with full flag parity; six old command files are prose-only stubs.

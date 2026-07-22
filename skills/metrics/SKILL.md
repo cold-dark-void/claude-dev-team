@@ -3,7 +3,7 @@ name: metrics
 description: >
   SPEC-026 outcomes ledger writers/readers plus CDV-187 read-only rollup.
   Helpers: emit-outcome.sh (write), outcome-rates.sh (advisory rates),
-  rollup.sh (display). User-facing entry: /metrics.
+  rollup.sh (display). User-facing entry: /status metrics.
 ---
 
 # metrics
@@ -28,7 +28,7 @@ skills/metrics/
 |------|-------|------|
 | `.claude/metrics/outcomes.jsonl` | SPEC-026 / `emit-outcome.sh` | append-only write |
 | `.claude/council/index.json` | SPEC-013 | atomic index write |
-| `/metrics` + `rollup.sh` | CDV-187 | **read-only** display |
+| `/status metrics` + `rollup.sh` | CDV-187 | **read-only** display |
 
 `rollup.sh` MUST NOT write under `.claude/`, call emit helpers, open council
 report bodies, or re-run retro-gate.

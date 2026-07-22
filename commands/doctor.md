@@ -14,7 +14,7 @@ health). This plugin command is namespaced as **`dev-team:doctor`** and covers
 plugin/project health only — it does not shadow or replace the harness command.
 
 **Read-only by default.** Never creates memory, hooks, or settings. Bootstrap
-remains `/init-team` / `/init-orchestration`. Optional deps missing → WARN, never
+remains `/setup team` / `/setup orchestration`. Optional deps missing → WARN, never
 FAIL.
 
 ## Arguments

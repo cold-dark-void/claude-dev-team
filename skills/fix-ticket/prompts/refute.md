@@ -1,7 +1,7 @@
 ---
 name: fix-ticket-refute
 description: |
-  Adversarial refuter prompt for /fix-ticket. One lens per spawn; tries to
+  Adversarial refuter prompt for /debug ticket. One lens per spawn; tries to
   break the fix. NEVER git checkout/restore/reset. Placeholders:
   {{TICKET}} {{WORKTREE}} {{BUG}} {{FIX}} {{LENS}} {{PREMISE_EVIDENCE}}
 ---

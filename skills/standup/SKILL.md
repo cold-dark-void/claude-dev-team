@@ -1,13 +1,15 @@
 ---
 name: standup
-description: |
-    Status snapshot for active agent team work — reads TaskList and each agent's
-    context.md, produces a table of who is doing what, what's blocked, and what's
-    ready to claim. Use during Phase 3 implementation to monitor parallel agent
-    progress. Usage: /standup [TICKET-ID]
+description: >
+  DEPRECATED — standup (agent-team status snapshot) was removed at v1.0.0
+  (CDT-46-C4). This stub disappears at v1.1.
 ---
 
-# Standup
+# Standup (protocol retained for /status)
+
+> **Entry:** `/status standup [TICKET-ID]` (also bare `/status` sequence).
+> Discovery Surface is `/status` — this file is **not** a primary skill.
+> Protocol body kept for skill-delegate from `commands/status.md` (CDT-46-C4).
 
 Get an instant status snapshot of active agent team work. Reads the task system and each
 agent's working memory to surface blockers, stale work, and next actions — without
@@ -15,8 +17,8 @@ interrupting agents mid-task.
 
 ## Arguments
 
-- `/standup` — show all active tasks across all tickets
-- `/standup <TICKET-ID>` — filter to tasks for a specific ticket (e.g. `POC-123`)
+- `/status standup` — show all active tasks across all tickets
+- `/status standup <TICKET-ID>` — filter to tasks for a specific ticket (e.g. `POC-123`)
 
 ---
 
@@ -257,6 +259,6 @@ Do NOT send the message automatically — surface it for the engineer to decide.
 ## Error Handling
 
 - **No tasks at all**: `No tasks found. Run /kickoff <TICKET-ID> to create a task graph.`
-- **TaskList unavailable** (orchestration not initialized): `Agent Teams not initialized. Run /init-orchestration first.`
+- **TaskList unavailable** (orchestration not initialized): `Agent Teams not initialized. Run /setup orchestration first.`
 - **context.md missing for in_progress agent**: note it but don't fail — the agent may not have written it yet
 - **Git log unavailable** (not in a git repo): skip commit staleness check, rely on context.md mtime only

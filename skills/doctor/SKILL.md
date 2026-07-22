@@ -10,7 +10,7 @@ description: >
 
 Deterministic, offline install/config health battery. Diagnoses version triplet,
 memory stack, hooks, settings, optional deps, worktree locks, and plugin
-resolution. Never bootstraps (that is `/init-team` / `/init-orchestration`).
+resolution. Never bootstraps (that is `/setup team` / `/setup orchestration`).
 
 Governing spec: `specs/core/SPEC-022-doctor-install-diagnostics.md`.
 
@@ -97,7 +97,7 @@ SKIP does not affect the exit code.
 | **SKIP** | Probe tool for that check absent; dev-only check in consumer |
 | **PASS** | Invariant holds |
 
-Uninitialized memory is **WARN not FAIL** — fix-it is `/init-team`.
+Uninitialized memory is **WARN not FAIL** — fix-it is `/setup team`.
 
 ## `--fix` allowlist
 
@@ -128,4 +128,4 @@ health only and does not shadow the harness command.
 ## Related
 
 - SPEC-022, SPEC-002, SPEC-005, SPEC-016
-- `/init-team`, `/init-orchestration`, `/release`, `/memory distill --force`
+- `/setup team`, `/setup orchestration`, `/release`, `/memory distill --force`

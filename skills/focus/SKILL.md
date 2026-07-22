@@ -1,14 +1,16 @@
 ---
 name: focus
 description: |
-    Session mode: (1) ADHD-friendly action-first output, (2) evidence discipline —
-    no guessing, no narrative root-causes without tool confirmation, kill false
-    smoking guns, keep dead-ends. Opt-in via /focus. Output rules inspired by
-    ayghri/i-have-adhd (MIT); anti-gaslighting aligned with handoff dead-ends
-    spirit (SPEC-018) and council evidence bar, without those workflows.
+    Session mode backend for /mode focus: (1) ADHD-friendly action-first output,
+    (2) evidence discipline — no guessing, no narrative root-causes without tool
+    confirmation, kill false smoking guns, keep dead-ends. Primary entry: /mode
+    focus [on|off|status]. /focus is a deprecation stub (CDT-46-C4).
 ---
 
 # Focus (session mode)
+
+> **Entry:** `/mode focus [on|off|status]`. Live backend for `commands/mode.md`
+> (OQ6 — not a full tombstone). `/focus` is a deprecation stub.
 
 Two jobs while ON — both required:
 
@@ -24,7 +26,7 @@ It **is** the mid-session switch when a “smoking gun” from prior work (inclu
 
 **Credit:** shape rules adapted from [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT). Evidence pillar aligned with handoff anti-gaslighting (dead ends + user corrections) and “verify before building” agent rules — in-session, lightweight.
 
-## Arguments (from /focus)
+## Arguments (from /mode focus)
 
 | Arg | Effect |
 |-----|--------|
@@ -42,7 +44,7 @@ Conversation only (no files, no hooks):
 Print once on enable:
 
 ```
-Focus mode ON — action-first + evidence-only claims. /focus off to disable.
+Focus mode ON — action-first + evidence-only claims. /mode focus off to disable.
 ```
 
 Print once on disable:
@@ -178,7 +180,7 @@ Do not declare "fixed," "root cause found," or "all good" without:
 
 ## Focus vs `/debug` vs `/council`
 
-| | `/focus` | `/debug` | `/council` |
+| | `/mode focus` | `/debug` | `/council` |
 |--|----------|----------|------------|
 | When | Mid-session; false smoking gun; stop guessing | Formal bug lifecycle | Audit a claim adversarially |
 | Structure | Session rules only | Phases, tests, checklists, themes | Investigators + judge |
@@ -186,7 +188,7 @@ Do not declare "fixed," "root cause found," or "all good" without:
 | Dead ends | In chat this session | Implicit in investigation | Verdicts on claims |
 | Cost | Low | Medium–high | High |
 
-**Typical path:** `/debug` produced a neat root cause → still broken or user smells BS → `/focus` → re-attack smoking gun with B3–B5 → if real bug remains and needs the full machine again, *then* `/debug` with the new CONFIRMED triad.
+**Typical path:** `/debug` produced a neat root cause → still broken or user smells BS → `/mode focus` → re-attack smoking gun with B3–B5 → if real bug remains and needs the full machine again, *then* `/debug` with the new CONFIRMED triad.
 
 ---
 

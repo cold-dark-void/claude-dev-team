@@ -152,7 +152,7 @@ Run:
 bash skills/init-orchestration/check-hook-templates.sh
 ```
 
-If it exits non-zero, a hook template emitted by `/init-orchestration` has drifted from this repo's canonical live `.claude/hooks/<name>.sh` (the gate names the drifted hook). Consumers would receive a broken/stale hook. **Do NOT commit or tag.** Re-sync the drifted template: replace the fenced ```bash block under its "create `.claude/hooks/<name>.sh` with this content:" marker in `skills/init-orchestration/SKILL.md` with the exact current content of the live hook, then re-run until it exits 0. (Covered: task-completed, stop-review, memory-capture, bash-compress.)
+If it exits non-zero, a hook template emitted by `/setup orchestration` has drifted from this repo's canonical live `.claude/hooks/<name>.sh` (the gate names the drifted hook). Consumers would receive a broken/stale hook. **Do NOT commit or tag.** Re-sync the drifted template: replace the fenced ```bash block under its "create `.claude/hooks/<name>.sh` with this content:" marker in `skills/init-orchestration/SKILL.md` with the exact current content of the live hook, then re-run until it exits 0. (Covered: task-completed, stop-review, memory-capture, bash-compress.)
 
 ## Step 4.8: Skill-bash lint (pre-commit gate)
 
@@ -206,11 +206,14 @@ Co-Authored-By trailer. No `chore: release`. No prose body:**
 ```
 <feat|fix>: vX.Y.Z — <one-line summary derived from the changelog lead bullet>
 
-Co-Authored-By: Claude <Model> (1M context) <noreply@anthropic.com>
+Co-Authored-By: <Agent-or-Model> <noreply@…>
 ```
 - `feat:` for feature releases, `fix:` for fixes/hardening — match the bump from Step 1.
 - Em-dash (`—`) between version and summary, not a hyphen.
-- `<Model>` = the model doing the work, e.g. `Claude Opus 4.8 (1M context)`. Keep the `(1M context)` suffix to match this repo's history.
+- **Honest identity** — name the agent/model actually performing the release. Do **not** hardcode Claude/Anthropic when the agent is something else (e.g. Grok, Codex, a human). Examples:
+  - `Co-Authored-By: Grok <noreply@x.ai>`
+  - `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+  - `Co-Authored-By: Claude <model> <noreply@anthropic.com>` (model-agnostic Claude form for consumer templates)
 - The CHANGELOG carries the detail; the commit subject stays one line.
 
 ## Step 6: Tag and push

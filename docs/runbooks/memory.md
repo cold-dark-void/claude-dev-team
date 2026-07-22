@@ -169,7 +169,7 @@ The quality of memory search depends on your embedding configuration:
 | Mode | How it works | Quality | Setup |
 |------|-------------|---------|-------|
 | `remote` | Calls external embedding API | Best | Set `EMBEDDING_URL` env var |
-| `lembed` | Local GGUF model (all-MiniLM-L6-v2) | Good | Default after `/init-team` |
+| `lembed` | Local GGUF model (all-MiniLM-L6-v2) | Good | Default after `/setup team` |
 | `fallback` | SQL keyword matching or grep | Basic | Automatic if no extensions |
 
 To switch to remote embeddings:
@@ -178,7 +178,7 @@ To switch to remote embeddings:
 export EMBEDDING_URL=https://api.openai.com/v1/embeddings
 export EMBEDDING_API_KEY=sk-...
 export EMBEDDING_MODEL=text-embedding-3-small
-/init-team --refresh
+/setup team --refresh
 ```
 
 Any OpenAI-compatible endpoint works (OpenAI, Azure, ollama, etc.).
@@ -205,10 +205,10 @@ Clears a lock left by a crashed distillation run.
 **Agent loading too much/wrong context:**
 Check what they're loading: `/memory distill --status`. If raw count is high, distill.
 If core memories are outdated, they can't be edited through commands — update the DB directly
-or delete and re-bootstrap with `/init-team`.
+or delete and re-bootstrap with `/setup team`.
 
 **No DB found:**
-Run `/init-team` to create it. Agents work with `.md` fallback but lose semantic search.
+Run `/setup team` to create it. Agents work with `.md` fallback but lose semantic search.
 
 ---
 

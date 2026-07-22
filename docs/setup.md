@@ -2,6 +2,8 @@
 
 Setup, initialization, and memory configuration for the claude-dev-team plugin.
 
+Primary Surface: **[`/setup`](commands/setup.md)** — `project` · `orchestration` · `team` (prefer over legacy `/init-team` / skill discovery for scaffold and orchestration).
+
 ---
 
 ## Prerequisites
@@ -23,9 +25,9 @@ for Claude Code marketplace installs; nothing rewrites `memory.db`.
 | Step | When |
 |------|------|
 | Update plugin | Claude Code: marketplace update + reinstall/`/plugin` refresh for `dev-team`. **opencode:** re-run `bash install.sh` so agent copies pick up new agent `.md` text. |
-| Re-run `/init-team` | **Not required** for this arc. Optional if you want cortex reseeded with domain-glossary awareness from a new project-init scan. |
-| Re-run `/init-orchestration` | **Not required** — no new hooks were added in v0.71–v0.77. Re-run only if your hooks drifted or you never initialized. |
-| Seed `CONTEXT.md` | Optional: add repo-root `CONTEXT.md` (template in `/scaffold-project`, format in `skills/domain-glossary`). Existing projects get it lazily when `/brainstorm` or `/kickoff` first crystallize terms. |
+| Re-run `/setup team` | **Not required** for this arc. Optional if you want cortex reseeded with domain-glossary awareness from a new project-init scan. |
+| Re-run `/setup orchestration` | **Not required** — no new hooks were added in v0.71–v0.77. Re-run only if your hooks drifted or you never initialized. |
+| Seed `CONTEXT.md` | Optional: add repo-root `CONTEXT.md` (template in `/setup project`, format in `skills/domain-glossary`). Existing projects get it lazily when `/brainstorm` or `/kickoff` first crystallize terms. |
 | Install Semgrep / Graphify / CodeQL | Optional host tools only — skip unless you want those paths. |
 
 **How the team discovers new behavior:**
@@ -57,12 +59,12 @@ above works without them.
 
 ---
 
-## `/init-team` — Bootstrap Agent Memory
+## `/setup team` — Bootstrap Agent Memory
 
 Run once per project. Reads your codebase, CI, and infra, then writes memory for all 7 agents.
 
 ```bash
-/init-team
+/setup team
 ```
 
 What it does:
@@ -91,12 +93,12 @@ If the download fails or `sqlite3` is unavailable, agents fall back to .md files
 
 ---
 
-## `/init-orchestration` — Enable Agent Teams
+## `/setup orchestration` — Enable Agent Teams
 
-Enables multi-agent coordination. Run once per project after `/init-team`.
+Enables multi-agent coordination. Run once per project after `/setup team`.
 
 ```bash
-/init-orchestration
+/setup orchestration
 ```
 
 What it does:
@@ -114,8 +116,8 @@ Safe to re-run (idempotent).
 For projects with no `specs/` directory. Run once before your first ticket.
 
 ```bash
-/init-team
-/init-orchestration
+/setup team
+/setup orchestration
 /spec generate
 ```
 
@@ -169,16 +171,16 @@ Run `/memory distill` to compress raw memories into digests. A good time: after 
 
 ## Remote Embeddings
 
-To use a remote provider instead of the bundled local model, set these env vars before `/init-team`:
+To use a remote provider instead of the bundled local model, set these env vars before `/setup team`:
 
 ```bash
 export EMBEDDING_URL=https://api.openai.com/v1/embeddings
 export EMBEDDING_API_KEY=sk-...
 export EMBEDDING_MODEL=text-embedding-3-small
-/init-team --refresh
+/setup team --refresh
 ```
 
-Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, LLMGateway, ollama, etc.). When `EMBEDDING_URL` is set, `/init-team` skips the local extension download entirely.
+Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, LLMGateway, ollama, etc.). When `EMBEDDING_URL` is set, `/setup team` skips the local extension download entirely.
 
 | Mode | Trigger | Quality |
 |------|---------|---------|
@@ -201,15 +203,15 @@ Without it, agents fall back to .md files — the plugin still works, just witho
 
 ### Extension download fails
 
-`/init-team` downloads sqlite-vec and sqlite-lembed (~29MB). If on a restricted network:
-- Use `/init-team --no-extensions` for keyword-only search
+`/setup team` downloads sqlite-vec and sqlite-lembed (~29MB). If on a restricted network:
+- Use `/setup team --no-extensions` for keyword-only search
 - Or set `EMBEDDING_URL` for remote embeddings (no local extensions needed)
 
 ### Schema migration errors
 
 If you see "table already exists" or column errors after upgrading:
-- Run `/init-team --refresh` to re-probe and re-migrate
-- Or delete `.claude/memory/memory.db` and re-run `/init-team` (loses stored memories)
+- Run `/setup team --refresh` to re-probe and re-migrate
+- Or delete `.claude/memory/memory.db` and re-run `/setup team` (loses stored memories)
 
 ### Agents not discovering commands
 

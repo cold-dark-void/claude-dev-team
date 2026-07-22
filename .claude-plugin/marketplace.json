@@ -8,7 +8,7 @@
       "name": "dev-team",
       "source": "./",
       "description": "A full AI dev team for Claude Code \u2014 PM, Tech Lead, Senior Engineer, Engineer, DevOps, QA, and Data Science agents that remember your project across sessions. Includes spec-driven development, one-command ticket orchestration, and parallel code review.",
-      "version": "1.0.0-pre.3"
+      "version": "1.0.0-pre.4"
     }
   ]
 }

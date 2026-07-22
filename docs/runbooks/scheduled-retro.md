@@ -29,7 +29,7 @@ thin webhook only if `AGENT_WEBHOOK_URL` is set (fail-open).
 |------|-----------|--------|
 | Project with Claude sessions under `~/.claude/projects/` | Yes | `--all` scans all projects |
 | dev-team plugin installed / this checkout | Yes | `skills/retro-gate/*` helpers |
-| `/init-orchestration` (friction ledger hooks) | Recommended | CDV-186 hybrid S2 when covered; schedule works without it |
+| `/setup orchestration` (friction ledger hooks) | Recommended | CDV-186 hybrid S2 when covered; schedule works without it |
 | Network / always-on daemon | No | CronCreate or OS cron only |
 
 ---

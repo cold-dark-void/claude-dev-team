@@ -1,7 +1,7 @@
 ---
 name: fix-ticket-premise
 description: |
-  Read-only premise verification prompt for /fix-ticket. Confirms the
+  Read-only premise verification prompt for /debug ticket. Confirms the
   documented bug still exists; returns structured premise including sibling
   grep. Spawned as ic5. Placeholders: {{TICKET}} {{WORKTREE}} {{BUG}}
 ---

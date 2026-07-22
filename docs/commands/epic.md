@@ -55,5 +55,5 @@ Full protocol: `skills/epic/SKILL.md`. CLI: `bash skills/epic/epic-lib.sh`.
 
 - [`/kickoff`](kickoff.md) — plan-only child handoff target
 - [`/orchestrate`](orchestrate.md) — full lifecycle child handoff target
-- [`/standup`](standup.md) — epic rollup section
+- [`/status standup`](standup.md) — epic rollup section
 - [`/wrap-ticket`](wrap-ticket.md) — child completion write-back

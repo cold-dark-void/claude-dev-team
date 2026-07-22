@@ -407,7 +407,7 @@ bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" pending
 
 ### Standup (M10)
 
-`/standup` runs `epic-lib.sh rollup` and prints `## Epics` when non-empty.
+`/status standup` runs `epic-lib.sh rollup` and prints `## Epics` when non-empty.
 Sourced from `state.json`, not prose.
 
 ### wrap-ticket (SHOULD)
