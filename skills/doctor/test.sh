@@ -308,13 +308,15 @@ PY
 RC=0
 OUT=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
 STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
-if [ "$STATUS" = "WARN" ] || [ "$STATUS" = "FAIL" ]; then
-  # unanchored may also be missing-exec path relative — either WARN or FAIL ok
+FIX_T4B=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("fixit") or "")' 2>/dev/null || echo "")
+if { [ "$STATUS" = "WARN" ] || [ "$STATUS" = "FAIL" ]; } \
+   && echo "$FIX_T4B" | grep -q "setup orchestration"; then
+  # unanchored managed may also be missing-exec path relative — either WARN or FAIL ok
   # Prefer WARN for unanchored; if script exists relative to MROOT, hygiene
   # resolves $MROOT/.claude/hooks/... so script exists — should be WARN unanchored
-  pass "T4b unanchored hook path → $STATUS"
+  pass "T4b unanchored managed hook path → $STATUS + setup fixit"
 else
-  fail "T4b expected WARN/FAIL for unanchored got $STATUS out=$OUT"
+  fail "T4b expected WARN/FAIL+setup for unanchored got $STATUS fix=$FIX_T4B out=$OUT"
 fi
 
 # =============================================================================
@@ -1208,6 +1210,207 @@ if grep -q 'record_probed_cc_version' "$PROBE" \
   pass "T20f probe script wires record_probed_cc_version (CDT-59)"
 else
   fail "T20f probe missing version write-back"
+fi
+
+# =============================================================================
+# T21. hooks.hygiene managed-only (CDT-77 / M2c″)
+# =============================================================================
+
+# T21a — clean managed only → PASS
+HYG_CLEAN="$TMP/t21-clean"
+make_bare_project "$HYG_CLEAN"
+write_full_hooks_settings "$HYG_CLEAN/.claude/settings.json"
+cd "$HYG_CLEAN" || exit 1
+RC=0
+JSON_H=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_H" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+assert c["status"]=="PASS", c
+assert c.get("fixit") in (None, ""), c
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 0 ]; then
+  pass "T21a clean managed hooks → hygiene PASS (CDT-77)"
+else
+  fail "T21a rc=$RC out=$JSON_H"
+fi
+
+# T21b — user pathless + clean managed → PASS (no permanent WARN)
+HYG_USER="$TMP/t21-user-pathless"
+make_bare_project "$HYG_USER"
+write_full_hooks_settings "$HYG_USER/.claude/settings.json"
+python3 - <<'PY' "$HYG_USER/.claude/settings.json"
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+# Append pathless user hooks (consumer pattern)
+d["hooks"]["PostToolUse"].append(
+  {"hooks":[{"type":"command","command":"go vet ./..."}]}
+)
+d["hooks"]["UserPromptSubmit"]=[
+  {"hooks":[{"type":"command","command":"cat AGENTS.md"}]}
+]
+json.dump(d, open(p,"w"), indent=2)
+PY
+cd "$HYG_USER" || exit 1
+RC=0
+JSON_H=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_H" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+assert c["status"]=="PASS", c
+assert c.get("fixit") in (None, ""), c
+detail=(c.get("detail") or "").lower()
+assert "go vet" not in detail and "agents.md" not in detail, detail
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 0 ]; then
+  pass "T21b user pathless + clean managed → PASS (CDT-77)"
+else
+  fail "T21b rc=$RC out=$JSON_H"
+fi
+
+# T21c — managed unanchored → WARN + setup fixit
+HYG_UNA="$TMP/t21-unanchored"
+make_bare_project "$HYG_UNA"
+write_full_hooks_settings "$HYG_UNA/.claude/settings.json"
+python3 - <<'PY' "$HYG_UNA/.claude/settings.json"
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+d["hooks"]["TaskCompleted"]=[{"hooks":[{"type":"command","command":"bash .claude/hooks/task-completed.sh"}]}]
+json.dump(d, open(p,"w"), indent=2)
+PY
+cd "$HYG_UNA" || exit 1
+RC=0
+JSON_H=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_H" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+assert c["status"]=="WARN", c
+fixit=c.get("fixit") or ""
+assert "setup orchestration" in fixit, fixit
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 1 ]; then
+  pass "T21c managed unanchored → WARN + setup fixit (CDT-77)"
+else
+  fail "T21c rc=$RC out=$JSON_H"
+fi
+
+# T21d — managed pipe → WARN
+HYG_PIPE="$TMP/t21-pipe"
+make_bare_project "$HYG_PIPE"
+write_full_hooks_settings "$HYG_PIPE/.claude/settings.json"
+python3 - <<'PY' "$HYG_PIPE/.claude/settings.json"
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+d["hooks"]["TaskCompleted"]=[{
+  "hooks":[{"type":"command",
+            "command":"bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh\" | tee /tmp/x"}]
+}]
+json.dump(d, open(p,"w"), indent=2)
+PY
+cd "$HYG_PIPE" || exit 1
+RC=0
+JSON_H=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_H" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+assert c["status"]=="WARN", c
+detail=c.get("detail") or ""
+assert "pipe" in detail.lower() or "|" in detail, detail
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 1 ]; then
+  pass "T21d managed pipe → WARN (CDT-77)"
+else
+  fail "T21d rc=$RC out=$JSON_H"
+fi
+
+# T21e — user custom .claude/hooks/custom.sh missing → PASS (not FAIL)
+HYG_CUSTOM="$TMP/t21-custom"
+make_bare_project "$HYG_CUSTOM"
+write_full_hooks_settings "$HYG_CUSTOM/.claude/settings.json"
+python3 - <<'PY' "$HYG_CUSTOM/.claude/settings.json"
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+d["hooks"]["Stop"].append({
+  "hooks":[{"type":"command","command":"bash .claude/hooks/custom.sh"}]
+})
+json.dump(d, open(p,"w"), indent=2)
+PY
+# deliberately do NOT create custom.sh
+cd "$HYG_CUSTOM" || exit 1
+RC=0
+JSON_H=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_H" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+assert c["status"]=="PASS", c
+assert c.get("fixit") in (None, ""), c
+detail=c.get("detail") or ""
+assert "custom.sh" not in detail, detail
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 0 ]; then
+  pass "T21e user custom.sh missing → PASS no setup-fail (CDT-77)"
+else
+  fail "T21e rc=$RC out=$JSON_H"
+fi
+
+# T21f — mixed managed unanchored + user pathless → WARN only for managed
+HYG_MIX="$TMP/t21-mixed"
+make_bare_project "$HYG_MIX"
+write_full_hooks_settings "$HYG_MIX/.claude/settings.json"
+python3 - <<'PY' "$HYG_MIX/.claude/settings.json"
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+d["hooks"]["TaskCompleted"]=[{"hooks":[{"type":"command","command":"bash .claude/hooks/task-completed.sh"}]}]
+d["hooks"]["PostToolUse"].append(
+  {"hooks":[{"type":"command","command":"go vet ./..."}]}
+)
+json.dump(d, open(p,"w"), indent=2)
+PY
+cd "$HYG_MIX" || exit 1
+RC=0
+JSON_H=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_H" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+assert c["status"]=="WARN", c
+fixit=c.get("fixit") or ""
+assert "setup orchestration" in fixit, fixit
+detail=c.get("detail") or ""
+assert "go vet" not in detail, detail
+# managed path fragment present either in detail or via unanchored status
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 1 ]; then
+  pass "T21f mixed managed unanchored + user pathless → WARN managed only (CDT-77)"
+else
+  fail "T21f rc=$RC out=$JSON_H"
+fi
+
+# T21g — managed missing script still FAIL + setup (AC4)
+HYG_MISS="$TMP/t21-missing"
+make_bare_project "$HYG_MISS"
+write_full_hooks_settings "$HYG_MISS/.claude/settings.json"
+rm -f "$HYG_MISS/.claude/hooks/task-completed.sh"
+cd "$HYG_MISS" || exit 1
+RC=0
+JSON_H=$(doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+if printf '%s' "$JSON_H" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+assert c["status"]=="FAIL", c
+detail=c.get("detail") or ""
+assert "task-completed.sh" in detail, detail
+fixit=c.get("fixit") or ""
+assert "setup orchestration" in fixit, fixit
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 2 ]; then
+  pass "T21g managed missing script → FAIL + setup (CDT-77)"
+else
+  fail "T21g rc=$RC out=$JSON_H"
 fi
 
 # =============================================================================

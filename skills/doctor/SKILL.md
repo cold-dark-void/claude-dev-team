@@ -112,7 +112,7 @@ non-bootstrap — gating is the caller's job.
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored hook path; stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions` or `dontAsk` without sandbox); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59) |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions` or `dontAsk` without sandbox); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59) |
 | **SKIP** | Probe tool for that check absent; dev-only check in consumer |
 | **PASS** | Invariant holds |
 
@@ -133,7 +133,7 @@ MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, or create memory/h
 | Expectation | Source |
 |-------------|--------|
 | Version triplet | SPEC-002 / files themselves |
-| Hook set + hygiene | `skills/init-orchestration` templates |
+| Hook set + hygiene (managed-only) | `skills/init-orchestration` templates (`EXPECTED_HOOK_SCRIPTS`) |
 | WT lock TTL | `WT_LOCK_TTL_SECONDS` + `worktree-lib.sh` |
 | Plugin resolve | `skills/plugin-dir.sh` subprocess |
 | schema_version expected | `skills/memory-store/schema.sql` seed |

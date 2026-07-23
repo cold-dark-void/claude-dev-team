@@ -488,6 +488,22 @@ for ev, entries in (d.get("hooks") or {}).items():
   fi
 }
 
+# is_managed_hook_cmd <command> → 0 if managed (CDT-77 / M2c″)
+# Managed iff first .claude/hooks/<base>.sh basename (no .sh) is in
+# EXPECTED_HOOK_SCRIPTS from parse_expected_hooks. Empty expected set → all
+# user-owned (safe degrade: no false setup fixits).
+is_managed_hook_cmd() {
+  local cmd="$1" base
+  base=$(printf '%s' "$cmd" | grep -oE '\.claude/hooks/[a-zA-Z0-9_.-]+\.sh' | head -1 || true)
+  [ -n "$base" ] || return 1
+  base=${base##*/}   # foo.sh
+  base=${base%.sh}   # foo
+  case " $EXPECTED_HOOK_SCRIPTS " in
+    *" $base "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
@@ -871,6 +887,8 @@ check_hooks_hygiene() {
   local cmd path base
   while IFS= read -r cmd || [ -n "$cmd" ]; do
     [ -n "$cmd" ] || continue
+    # Managed-only (CDT-77 / M2c″): skip user-owned pathless/custom hooks
+    is_managed_hook_cmd "$cmd" || continue
     # Pipe operator hygiene
     case "$cmd" in
       *\|*) piped="${piped:+$piped; }$cmd" ;;
