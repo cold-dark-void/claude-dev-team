@@ -14,6 +14,7 @@ description: >
 > gate — extractability/shebang/`bash -n`; dual-copy live-vs-template retired
 > CDT-54); `disclose-force-overwrite.sh` (CDT-51 AC5 force-overwrite disclosure);
 > `normalize-hook-paths.sh` (CDT-69 Step 1 absolute/relative hook-path upgrade);
+> `sweep-legacy-orphans.sh` (CDT-76 known-legacy-orphan list sweep);
 > `test-orch-allowlist.sh` (CDT-51 TL P0 matrix allow ⊇ greenfield template).
 
 Bootstrap the files needed for Claude Code Agent Teams in the current project.
@@ -1265,6 +1266,34 @@ This shared handler is registered for `PostToolUseFailure`, `PermissionDenied`, 
 
 ---
 
+### Step 4h: Sweep known legacy orphan hooks (CDT-76)
+
+After all managed hooks are written (including `bash-compress.sh`), remove
+**only** names on the known-legacy-orphan list if present and unreferenced.
+
+v1 list: `bash-compress-wrapper.sh` only. Not free-form GC.
+
+```bash
+# Re-resolve PDH / SWEEP (fresh shell — skill-lint C1)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+SWEEP=$(bash "$PDH/skills/plugin-dir.sh" file skills/init-orchestration/sweep-legacy-orphans.sh 2>/dev/null) || SWEEP=""
+PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+if [ -n "$SWEEP" ] && [ -f "$SWEEP" ]; then
+  set +e
+  bash "$SWEEP" --project-root "$PROJ_ROOT"
+  SWEEP_RC=$?
+  set -e
+  # exit 0 success (remove / warn-keep / absent); exit 2 → report error, do not abort rest of setup
+else
+  # Fallback: agent applies same eligibility + bak-force + FORCE-OVERWRITE labels for list names only
+  :
+fi
+```
+
+Capture `LEGACY-ORPHAN:` lines for Step 9. If referenced, leave file and surface WARN.
+
+---
+
 ### Step 5: Create or update AGENTS.md
 
 **If `AGENTS.md` does not exist** — create it with a full template (see below).
@@ -1558,6 +1587,7 @@ Updated:
   📄 .claude/hooks/precompact-rescue.sh — PreCompact rescue capture (SPEC-018 M12)
   📄 .claude/hooks/rescue-pointer.sh — PostCompact/SessionStart pointer surfacing (M16)
   📄 .claude/hooks/friction-capture.sh — live friction ledger (SPEC-012 M1; PostToolUseFailure/PermissionDenied/StopFailure)
+  📄 legacy orphan sweep — bash-compress-wrapper.sh: [removed → restore <path> | left (still referenced) | absent]
   📄 AGENTS.md               — team coordination rules [created/appended]
   📄 CLAUDE.md                — AGENTS.md reference [created/migrated]
   📄 .claude/memory/claude/memory.md — orchestrator rules seeded [created/updated]
@@ -1587,6 +1617,7 @@ To use Agent Teams:
 - This skill is idempotent — safe to run multiple times without clobbering existing content
 - **Not pure zero-intervention (CDT-68):** settings.json merge and `bash-compress.sh` require explicit user approval — batch both in ONE ask up front; do not strip the self-escalation guards
 - **Force-overwrite disclosure (CDT-51 AC5):** any force change of a managed settings value or hook file MUST print `key` / `old` / `new` / `restore` before the write (`disclose-force-overwrite.sh` or the fallback block). Forced + silent = FAIL
+- **Known-legacy-orphan sweep (CDT-76):** remove only names on the explicit finite list (`bash-compress-wrapper.sh` v1); silent orphan delete forbidden — always bak-force + FORCE-OVERWRITE disclose before rm, or WARN-keep when still referenced
 - The hook script exits 0 by default (pass-through) until customized
 - Agent Teams require Claude Code restart after `settings.json` changes for the env var to take effect
 - Teammates do not inherit conversation history — AGENTS.md is their primary orientation document

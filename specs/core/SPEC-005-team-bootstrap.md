@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `commands/setup.md` (single entry `/setup` with subs `project` | `orchestration` | `team`), `agents/project-init.md` (invoked by `/setup team`), `commands/init-team.md` (Deprecation stub → `/setup team`, CDT-46-C4), `skills/memory-store/download-extensions.sh`, `skills/scaffold-project/SKILL.md` (protocol retained; skill-delegate from `/setup project`, CDT-46-C4), `skills/init-orchestration/SKILL.md` (protocol retained; skill-delegate from `/setup orchestration`, CDT-46-C4), `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2; historical only)
+**Covers**: `commands/setup.md` (single entry `/setup` with subs `project` | `orchestration` | `team`), `agents/project-init.md` (invoked by `/setup team`), `commands/init-team.md` (Deprecation stub → `/setup team`, CDT-46-C4), `skills/memory-store/download-extensions.sh`, `skills/scaffold-project/SKILL.md` (protocol retained; skill-delegate from `/setup project`, CDT-46-C4), `skills/init-orchestration/SKILL.md` (protocol retained; skill-delegate from `/setup orchestration`, CDT-46-C4; Step 4h known-legacy-orphan sweep + Step 9 summary, CDT-76), `skills/init-orchestration/sweep-legacy-orphans.sh`, `skills/init-orchestration/test-sweep-legacy-orphans.sh`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2; historical only)
 
 ## Overview
 
@@ -88,6 +88,43 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - When a re-run **force-overwrites** an existing managed file (settings, hooks, or other setup-owned artifacts), the path MUST print **old** summary, **new** summary, and a **restore key** (backup path or recovery handle) before replacing content
 - Forced + silent overwrite is a FAIL (no silent clobber)
 
+### Known-legacy-orphan sweep (CDT-76)
+
+- `/setup orchestration` MUST maintain an **explicit finite** known-legacy-orphan
+  list of basenames under `.claude/hooks/`. v1 list MUST be exactly:
+  `bash-compress-wrapper.sh`. Adding names is a deliberate product change (spec +
+  list update together); free-form / glob / "delete anything unused" GC is forbidden.
+- After managed hook bodies are emitted in Step 4 (including `bash-compress.sh`),
+  the flow MUST run the orphan sweep for every name on that list. Greenfield
+  (file absent) MUST be a silent no-op for that name.
+- A listed file is **removable** only when **all** hold:
+  1. path exists at `$PROJ/.claude/hooks/<name>` (project root used for setup;
+     same root as other Step-4 emits — typically show-toplevel / cwd project),
+  2. no `hooks.*.hooks[].command` (or equivalent command string under the hooks
+     tree) in `.claude/settings.json` contains the basename as a path segment /
+     referenced script name,
+  3. no other file matching `.claude/hooks/*.sh` (excluding the candidate itself)
+     contains a reference to that basename.
+- If the file exists but is referenced by settings and/or another hook: MUST NOT
+  remove it; MUST print a WARN naming the orphan path and each referencer
+  (settings key/path and/or hook file path).
+- When removing: MUST (1) copy to
+  `.claude/hooks/<name>.bak-force-<ts>` where `<ts>` is UTC
+  `%Y%m%dT%H%M%SZ` or epoch fallback (same pattern as stop-review force path);
+  (2) print FORCE-OVERWRITE disclosure with stable labels `key:`, `old:`,
+  `new:`, `restore:` **before** delete (via `disclose-force-overwrite.sh` or
+  identical labels); (3) then delete the live file. Forced + silent delete is FAIL.
+  Suggested disclosure values:
+  - `key:`   `.claude/hooks/<name>`
+  - `old:`   `legacy orphan present (known-legacy list)`
+  - `new:`   `removed (no longer managed; inline successor owns behavior)`
+  - `restore:` the `.bak-force-<ts>` path
+- Re-run when the file is already absent MUST be a no-op (no disclose, no bak).
+- Step 9 summary MUST report each listed name's action: removed (+ restore path)
+  or left (still referenced — with reason).
+- MUST NOT alter `bash-compress.sh` template/behavior; MUST NOT delete unlisted
+  files; MUST NOT add doctor checks for this sweep (doctor OOS for CDT-76).
+
 ### Emitted AGENTS.md Template (distinctness contract)
 - This repo's hand-tuned `AGENTS.md` and the AGENTS.md template emitted by `init-orchestration` (Step 5) are intentionally DISTINCT documents. They share rule *bodies* by convention (manual reconciliation), NOT by byte-level single-sourcing. No managed-include relationship exists or is required between them.
 - MUST NOT introduce a `<!-- include: -->` managed-include relationship between this repo's `AGENTS.md` and the emitted consumer template, nor drift-check one against the other. (The `sync-includes.py` managed-include engine, SPEC-010, covers the agent-memory protocol only — not AGENTS.md.)
@@ -109,6 +146,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - SHOULD report summary at end of `/setup team` (init status, file status, permission status)
 - SHOULD ask user which additional domains to allowlist beyond auto-detected ones
 - SHOULD validate settings.json is valid JSON before writing
+- SHOULD implement the known-legacy-orphan sweep (CDT-76) as a subprocess CLI helper under `skills/init-orchestration/` (never sourced), parallel to `normalize-hook-paths.sh` / `disclose-force-overwrite.sh`
 - ~~SHOULD print teaching commentary at key decision gates in demo mode~~ (historical / OBSOLETE — demo removed)
 
 ## Test
@@ -120,6 +158,11 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - Verify `/setup orchestration` merges into existing settings.json without data loss
 - ~~Verify demo creates and cleans up worktree~~ (historical / OBSOLETE — demo removed)
 - Verify the emitted AGENTS.md template (both blocks) contains NO `<!-- include: -->` markers and that its Team Coordination section carries the `SendMessage` no-addressable-parent guidance: `! grep -q '<!-- include:' skills/init-orchestration/SKILL.md` within the two template fences, and the SendMessage peer-to-peer line is present in both
+- Test: known-legacy-orphan present + unreferenced → bak-force + FORCE-OVERWRITE labels + file gone
+- Test: known-legacy-orphan absent → no-op exit
+- Test: settings references basename → kept + WARN
+- Test: sibling hook references basename → kept + WARN
+- Test: second run after remove → no-op
 
 ## Validation
 
@@ -127,6 +170,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - [ ] All 7 directories exist under `.claude/memory/`
 - [ ] Cortex files differ across agents (diff any two)
 - [ ] settings.json is valid JSON after `/setup orchestration` merge
+- [ ] `bash skills/init-orchestration/test-sweep-legacy-orphans.sh` exits 0
 - [ ] ~~Demo worktree removed after teardown~~ (historical / OBSOLETE)
 
 ## Open Questions
@@ -153,6 +197,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-07-22 | CDT-52 / CDT-46-C6: amend-then-promote — Overview/Covers name sole entry `/setup` (subs project\|orchestration\|team; `/init-team` stub only); demo kept OBSOLETE/historical (not live bootstrap); drop W5/full-rewrite OOS language that blocked promote honesty; retain C5 doctor-gate + SPEC-002 posture MUSTs; Status INFERRED→ACTIVE. Evidence: Linear CDT-52. |
 | 2026-07-22 | CDT-54 / CDT-46-C8: hook template single SoT — `/setup orchestration` emits live hooks from init-orch templates; live `.claude/hooks` generated+gitignored (not package product); dual-copy `check-hook-templates` gate retired/reduced; regenerate via `/setup orchestration`. |
 | 2026-07-22 | CDT-67: doctor gate passes `--gate=<sub>` (`team` / `orchestration`); M6c self-remediation (exact fix-it match) does not block. |
+| 2026-07-22 | CDT-76: known-legacy-orphan sweep on /setup orchestration Step 4 — finite list (v1: bash-compress-wrapper.sh); bak-force + FORCE-OVERWRITE; ref-guard WARN; Step 9 summary. |
 
 ## Cross-references
 
