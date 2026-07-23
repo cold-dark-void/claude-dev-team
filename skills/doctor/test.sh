@@ -1414,6 +1414,203 @@ else
 fi
 
 # =============================================================================
+# T22. settings.sandbox_runtime — functional bwrap probe (CDT-78)
+# =============================================================================
+# PATH scrub: hide bwrap only (bwrap often lives in /usr/sbin AND /usr/bin|/bin).
+# Symlink essentials into an isolated bin — deliberately omit bwrap.
+NOBWRAP_BIN="$TMP/bin-nobwrap"
+mkdir -p "$NOBWRAP_BIN"
+for b in bash git python3 jq awk sed grep head tr cat chmod mkdir ls date \
+         uname dirname basename mktemp find sort cksum cut wc env true timeout \
+         kill sleep wait; do
+  p=$(command -v "$b" 2>/dev/null || true)
+  if [ -n "$p" ] && [ ! -e "$NOBWRAP_BIN/$b" ]; then
+    ln -s "$p" "$NOBWRAP_BIN/$b" 2>/dev/null || true
+  fi
+done
+# Also symlink coreutils commonly needed by doctor
+for b in printf echo test \[; do
+  p=$(command -v "$b" 2>/dev/null || true)
+  if [ -n "$p" ] && [ ! -e "$NOBWRAP_BIN/$b" ]; then
+    ln -s "$p" "$NOBWRAP_BIN/$b" 2>/dev/null || true
+  fi
+done
+
+cd "$HEALTHY" || exit 1
+
+# T22a — sandbox disabled → SKIP
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": False}
+d["permissions"]={"defaultMode":"acceptEdits","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(doctor --json --only settings.sandbox_runtime 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "SKIP" ] && [ "$RC" -le 1 ]; then
+  pass "T22a sandbox off → SKIP exit≤1 (CDT-78)"
+else
+  fail "T22a status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T22b — sandbox on + real host bwrap → PASS or WARN (never FAIL)
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"auto","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(doctor --json --only settings.sandbox_runtime 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "PASS" ] || [ "$STATUS" = "WARN" ]; then
+  if [ "$STATUS" != "FAIL" ]; then
+    pass "T22b sandbox on + real bwrap → $STATUS never FAIL (CDT-78)"
+  else
+    fail "T22b unexpected FAIL out=$OUT"
+  fi
+else
+  fail "T22b status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T22c — sandbox on + bwrap hidden → WARN (absent)
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"acceptEdits","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(PATH="$NOBWRAP_BIN" bash "$DOCTOR" --json --only settings.sandbox_runtime 2>/dev/null) || RC=$?
+EVAL=$(printf '%s' "$OUT" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+print(c["status"])
+print(c.get("detail") or "")
+' 2>/dev/null || echo "ERR")
+STATUS=$(printf '%s\n' "$EVAL" | head -1)
+DETAIL=$(printf '%s\n' "$EVAL" | tail -n +2)
+if [ "$STATUS" = "WARN" ] && [ "$RC" -eq 1 ] \
+  && printf '%s' "$DETAIL" | grep -qiE 'bwrap|absent'; then
+  pass "T22c PATH without bwrap → WARN absent (CDT-78)"
+else
+  fail "T22c status=$STATUS rc=$RC detail=$DETAIL out=$OUT"
+fi
+
+# T22d — auto + PATH scrub → high-autonomy / Cell D detail
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"auto","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(PATH="$NOBWRAP_BIN" bash "$DOCTOR" --json --only settings.sandbox_runtime 2>/dev/null) || RC=$?
+DETAIL=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("detail") or "")' 2>/dev/null || echo "")
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "WARN" ] \
+  && printf '%s' "$DETAIL" | grep -q 'auto' \
+  && printf '%s' "$DETAIL" | grep -qE 'Cell D|high-autonomy'; then
+  pass "T22d auto+scrub → high-autonomy/Cell D detail (CDT-78)"
+else
+  fail "T22d status=$STATUS detail=$DETAIL out=$OUT"
+fi
+
+# T22e — acceptEdits + PATH scrub → softer detail (no Cell D / high-autonomy)
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"acceptEdits","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(PATH="$NOBWRAP_BIN" bash "$DOCTOR" --json --only settings.sandbox_runtime 2>/dev/null) || RC=$?
+DETAIL=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("detail") or "")' 2>/dev/null || echo "")
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "WARN" ] \
+  && ! printf '%s' "$DETAIL" | grep -q 'Cell D' \
+  && ! printf '%s' "$DETAIL" | grep -q 'high-autonomy'; then
+  pass "T22e acceptEdits+scrub → soft WARN no Cell D (CDT-78)"
+else
+  fail "T22e status=$STATUS detail=$DETAIL out=$OUT"
+fi
+
+# T22f — coherence still config-only PASS while runtime WARNs (split proof)
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"auto","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+RC=0
+OUT=$(PATH="$NOBWRAP_BIN" bash "$DOCTOR" --json --only settings 2>/dev/null) || RC=$?
+EVAL=$(printf '%s' "$OUT" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+ids={c["id"]:c for c in d["checks"]}
+coh=ids.get("settings.sandbox_coherence",{}).get("status","MISSING")
+rt=ids.get("settings.sandbox_runtime",{}).get("status","MISSING")
+print(f"{coh} {rt}")
+' 2>/dev/null || echo "ERR ERR")
+set -- $EVAL
+COH=${1:-}; RT=${2:-}
+if [ "$COH" = "PASS" ] && [ "$RT" = "WARN" ]; then
+  pass "T22f coherence PASS + runtime WARN under PATH scrub (CDT-78)"
+else
+  fail "T22f coh=$COH rt=$RT out=$OUT"
+fi
+
+# T22g — never FAIL for runtime check under PATH scrub
+RC=0
+OUT=$(PATH="$NOBWRAP_BIN" bash "$DOCTOR" --json --only settings.sandbox_runtime 2>/dev/null) || RC=$?
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" != "FAIL" ] && [ "$STATUS" = "WARN" ]; then
+  pass "T22g runtime never FAIL under PATH scrub (CDT-78)"
+else
+  fail "T22g status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T22h — read-only: settings + memory.db cksum identical around runtime probe
+python3 - <<'PY'
+import json
+p=".claude/settings.json"
+d=json.load(open(p))
+d["sandbox"]={"enabled": True, "autoAllowBashIfSandboxed": True}
+d["permissions"]={"defaultMode":"auto","allow":["Bash(*)"]}
+json.dump(d, open(p,"w"), indent=2)
+PY
+S1=$(cksum .claude/settings.json | awk '{print $1" "$2}')
+D1=""
+if [ -f .claude/memory/memory.db ]; then
+  D1=$(cksum .claude/memory/memory.db | awk '{print $1" "$2}')
+fi
+RC=0
+doctor --json --only settings.sandbox_runtime >/dev/null 2>&1 || RC=$?
+S2=$(cksum .claude/settings.json | awk '{print $1" "$2}')
+D2=""
+if [ -f .claude/memory/memory.db ]; then
+  D2=$(cksum .claude/memory/memory.db | awk '{print $1" "$2}')
+fi
+if [ "$S1" = "$S2" ] && [ "$D1" = "$D2" ]; then
+  pass "T22h runtime probe read-only (settings+db cksum stable) (CDT-78)"
+else
+  fail "T22h settings $S1→$S2 db $D1→$D2"
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

@@ -99,6 +99,7 @@ non-bootstrap — gating is the caller's job.
 | `settings.json` | settings |
 | `settings.agent_teams` | settings |
 | `settings.sandbox_coherence` | settings |
+| `settings.sandbox_runtime` | settings |
 | `settings.mcp_allow` | settings |
 | `deps.jq` | deps |
 | `deps.python3` | deps |
@@ -112,7 +113,7 @@ non-bootstrap — gating is the caller's job.
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions` or `dontAsk` without sandbox); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59) |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59) |
 | **SKIP** | Probe tool for that check absent; dev-only check in consumer |
 | **PASS** | Invariant holds |
 

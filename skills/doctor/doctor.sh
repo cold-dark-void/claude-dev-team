@@ -440,6 +440,55 @@ $expr
   printf ''
 }
 
+# CDT-78: best-effort nested sandbox/container heuristic (read-only).
+# return 0 if likely already inside a sandbox/container.
+_doctor_nested_sandbox_p() {
+  [ -d /run/host ] && return 0
+  [ -e /.bubblewrap ] && return 0
+  if [ -r /proc/self/mountinfo ]; then
+    grep -qiE 'bubblewrap|bwrap' /proc/self/mountinfo 2>/dev/null && return 0
+  fi
+  return 1
+}
+
+# CDT-78: functional bwrap init probe (not PATH-only).
+# prints: ok | absent | fail:<rc> | timeout | unsupported
+# stdout token only; never throws (M10).
+_doctor_bwrap_probe() {
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    Linux) ;;
+    *) printf 'unsupported'; return 0 ;;
+  esac
+  if ! have_cmd bwrap; then printf 'absent'; return 0; fi
+  local rc=0
+  if have_cmd timeout; then
+    timeout 3 bwrap --ro-bind / / --proc /proc --dev /dev \
+      --unshare-user --unshare-pid --die-with-parent -- true \
+      >/dev/null 2>&1 || rc=$?
+  else
+    # bash fallback: background + sleep kill (still ≤3s intent)
+    bwrap --ro-bind / / --proc /proc --dev /dev \
+      --unshare-user --unshare-pid --die-with-parent -- true \
+      >/dev/null 2>&1 &
+    local pid=$!
+    local i=0
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 30 ]; do
+      sleep 0.1; i=$((i + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      printf 'timeout'; return 0
+    fi
+    wait "$pid" || rc=$?
+  fi
+  # timeout(1) uses 124 on timeout
+  if [ "$rc" -eq 0 ]; then printf 'ok'
+  elif [ "$rc" -eq 124 ]; then printf 'timeout'
+  else printf 'fail:%s' "$rc"
+  fi
+}
+
 list_settings_hook_events() {
   if [ ! -f "$SETTINGS" ]; then
     printf ''
@@ -1077,6 +1126,76 @@ else:
     "defaultMode=${mode:-unset} sandbox.enabled=${sandbox_enabled}" ""
 }
 
+# CDT-78: functional OS-sandbox runtime probe (WARN never FAIL).
+# Config coherence stays in settings.sandbox_coherence; this checks host init.
+check_settings_sandbox_runtime() {
+  if [ ! -f "$SETTINGS" ]; then
+    record "settings.sandbox_runtime" "settings" "SKIP" "settings.json absent" ""
+    return 0
+  fi
+  if ! settings_json_valid; then
+    record "settings.sandbox_runtime" "settings" "SKIP" "settings.json unparseable" ""
+    return 0
+  fi
+  local sandbox_enabled mode
+  sandbox_enabled=$(settings_get '
+sb=d.get("sandbox")
+if sb is None:
+  print("absent")
+elif isinstance(sb, dict):
+  print("true" if sb.get("enabled") else "false")
+else:
+  print("absent")
+')
+  mode=$(settings_get 'print((d.get("permissions") or {}).get("defaultMode",""))')
+  if [ "$sandbox_enabled" != "true" ]; then
+    record "settings.sandbox_runtime" "settings" "SKIP" \
+      "sandbox.enabled=${sandbox_enabled} — runtime probe skipped" ""
+    return 0
+  fi
+
+  local result nested=0
+  result=$(_doctor_bwrap_probe)
+  if _doctor_nested_sandbox_p; then nested=1; else nested=0; fi
+
+  case "$result" in
+    unsupported)
+      record "settings.sandbox_runtime" "settings" "SKIP" \
+        "bwrap probe Linux-only; host=$(uname -s 2>/dev/null || echo unknown)" ""
+      return 0
+      ;;
+    ok)
+      record "settings.sandbox_runtime" "settings" "PASS" \
+        "bwrap init ok (unshare-user+pid); defaultMode=${mode:-unset}" ""
+      return 0
+      ;;
+  esac
+
+  # WARN paths only below (never FAIL — M3-aligned host capability)
+  local high=0 detail fixit
+  case "$mode" in bypassPermissions|dontAsk|auto) high=1 ;; esac
+  fixit="Install/fix bubblewrap + unprivileged user namespaces; re-run: bash skills/doctor/doctor.sh --only settings.sandbox_runtime (outside nested session if cited)"
+
+  if [ "$result" = "absent" ]; then
+    if [ "$high" -eq 1 ]; then
+      detail="sandbox.enabled=true but bwrap absent; defaultMode=${mode} — Cell D / high-autonomy containment guarantees do not hold"
+    else
+      detail="sandbox.enabled=true but bwrap absent; OS sandbox cannot initialize"
+    fi
+  else
+    # fail:* or timeout
+    if [ "$high" -eq 1 ]; then
+      detail="sandbox.enabled=true but runtime probe failed (${result}); defaultMode=${mode} — Cell D / high-autonomy containment and zero-prompt guarantees do not hold; commands may run unsandboxed or fail init"
+    else
+      detail="sandbox.enabled=true but runtime probe failed (${result}); OS sandbox may not initialize on this host"
+    fi
+  fi
+  if [ "$nested" -eq 1 ]; then
+    detail="${detail}; nested-sandbox caveat: this shell may already be confined — re-run doctor outside the Claude Code session to confirm host health"
+  fi
+  record "settings.sandbox_runtime" "settings" "WARN" "$detail" "$fixit"
+}
+
 # CDT-74 residual: Cell C (dontAsk) without any mcp__* allow entry cannot reach
 # Linear-first surfaces. Ship default is Cell D (auto); this WARNs brownfield C.
 check_settings_mcp_allow() {
@@ -1258,6 +1377,7 @@ register_check "hooks.templates" "hooks" check_hooks_templates_dev
 register_check "settings.json" "settings" check_settings_json
 register_check "settings.agent_teams" "settings" check_settings_agent_teams
 register_check "settings.sandbox_coherence" "settings" check_settings_sandbox_coherence
+register_check "settings.sandbox_runtime" "settings" check_settings_sandbox_runtime
 register_check "settings.mcp_allow" "settings" check_settings_mcp_allow
 register_check "deps.jq" "deps" check_deps_jq
 register_check "deps.python3" "deps" check_deps_python3
