@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.5
+- **CDT-93 — event-id namespace at assemble load** — `load_events` prefixes `{stem}:{id}` so warm annotations cannot mis-target across `through_line`/`state`; Step 7 + SKILL use namespaced ids; bare ids drop with stderr; pointer index shows bare `_raw_id`; collision fixtures + assemble T18–T20.
+
 ### v1.1.4
 - **CDT-90 — spawn model cost knobs** — chunk-summarizers + warm annotation default `model: haiku`; merged miner inherits session model with opt-in `HANDOFF_MINER_MODEL`; effort optional never MUST; `HANDOFF_SPINE_TOKENS` default 120k unchanged (docs tradeoff); SPEC-018 M3e + static `spawn-model-ac-test.sh`.
 

@@ -1,8 +1,8 @@
 {
   "annotations": [
-    {"event_id": "e11", "labels": ["OPEN", "PRIORITY"], "rank": 1},
-    {"event_id": "e12", "labels": ["OPEN"], "rank": 2},
+    {"event_id": "events-thrash:e11", "labels": ["OPEN", "PRIORITY"], "rank": 1},
+    {"event_id": "events-thrash:e12", "labels": ["OPEN"], "rank": 2},
     {"event_id": "e-does-not-exist", "labels": ["INFERRED"], "rank": 0},
-    {"event_id": "e8", "labels": ["INFERRED"]}
+    {"event_id": "events-thrash:e8", "labels": ["INFERRED"]}
   ]
 }

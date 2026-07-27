@@ -1,0 +1,6 @@
+{
+  "annotations": [
+    {"event_id": "through_line:e1", "labels": ["PRIORITY"], "rank": 1},
+    {"event_id": "e1", "labels": ["BARE_TRAP"], "rank": 0}
+  ]
+}

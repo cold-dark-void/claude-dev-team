@@ -621,8 +621,56 @@ survived); finalize still runs (thin packet + git appendix OK).
 **Cold: skip entirely.**
 
 Warm: after the merged miner, build a short `EVENTS_SUMMARY_JSON` (array of
-`{id, kind, text|quote}` from both event files). Spawn **one** annotation Task
-using SKILL.md § Annotation pass.
+`{id, kind, text|quote}`) then spawn **one** annotation Task using SKILL.md §
+Annotation pass.
+
+### EVENTS_SUMMARY_JSON — namespaced ids (MUST, CDT-93)
+
+`assemble.py load_events` rewrites each on-disk miner `id` to
+`{stem}:{raw_id}` (`stem` = basename of the event file without `.json`). The
+annotation invent-guard is **exact match only** on that namespaced id — bare
+miner ids are dropped and never mis-attach.
+
+**Orchestrator MUST emit the same namespaced form in `EVENTS_SUMMARY_JSON`.**
+Do **not** pass bare miner `id` fields from the JSON files into the annotation
+Task.
+
+Algorithm (same rule as `load_events`):
+
+```
+for each *.json under $EVENTS_DIR:
+  stem = basename(file) without .json     # through_line | state | …
+  for each event in file:
+    summary row id = "${stem}:${raw_id}"  # raw_id = event.id as written on disk
+```
+
+Examples: `through_line.json` id `tl-e1` → `through_line:tl-e1`;
+`state.json` id `st-open-1` → `state:st-open-1`.
+
+**Prefer** building the summary from `assemble.load_events` so ids cannot drift:
+
+```bash
+# Re-bind pipeline vars (fresh shell — SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EVENTS_DIR="${EVENTS_DIR:-}"
+[ -n "$EVENTS_DIR" ] && [ -d "$EVENTS_DIR" ] || { echo "error: Step 7 needs EVENTS_DIR" >&2; exit 1; }
+
+EVENTS_SUMMARY_JSON=$(python3 -c '
+import json, sys
+sys.path.insert(0, "'"$PDH"'/skills/handoff")
+import assemble as a
+evs = a.load_events(sys.argv[1])
+print(json.dumps([
+    {"id": e["id"], "kind": e["kind"],
+     "text": (e.get("quote") or e.get("text") or "")[:200]}
+    for e in evs
+]))
+' "$EVENTS_DIR")
+```
+
+If inlining without `load_events`, re-apply the stem algorithm above — never
+copy bare `id` from miner JSON into the summary.
 
 Spawn contract (annotation Task):
 
@@ -640,9 +688,10 @@ WORK_DIR="${WORK_DIR:-}"
 ANNOTATIONS_FILE="$WORK_DIR/annotations.json"
 ```
 
-Substitutions: `${EVENTS_SUMMARY_JSON}`, `${ANNOTATIONS_FILE}`.
+Substitutions: `${EVENTS_SUMMARY_JSON}` (namespaced ids), `${ANNOTATIONS_FILE}`.
 
-Schema invent-guard: labels/rank only; `event_id` must exist; no new evidence.
+Schema invent-guard: labels/rank only; `event_id` MUST exact-match a namespaced
+id from the summary / `load_events` (bare miner ids dropped); no new evidence.
 On failure: omit `--annotations` and continue.
 
 Cold:

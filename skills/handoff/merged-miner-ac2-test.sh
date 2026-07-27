@@ -123,6 +123,22 @@ if grep -q 'AC2-KILL' "$SPINE" \
    && grep -q 'AC2-OPEN' "$SPINE"; then ok
 else bad "T5 spine-mineable-mini missing planted thrash cues"; fi
 
+# ---- T6: CDT-93 — load_events namespaces planted ids; union unique ----
+if python3 -c '
+import sys
+sys.path.insert(0, "'"$HERE"'")
+import assemble as a
+evs = a.load_events("'"$PLANTED"'")
+ids = [e["id"] for e in evs]
+assert len(ids) == len(set(ids)), ids
+assert all(":" in i for i in ids), ids
+stems = {i.split(":", 1)[0] for i in ids}
+assert "through_line" in stems and "state" in stems, stems
+assert {e.get("_raw_id") for e in evs} == {"p1","p2","p3","p4","p5","p6","p7"}
+print("ok")
+' 2>/dev/null | grep -q ok; then ok
+else bad "T6 planted load_events union uniqueness"; fi
+
 echo
 echo "merged-miner-ac2-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

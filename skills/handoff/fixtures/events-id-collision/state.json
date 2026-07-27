@@ -1,0 +1,12 @@
+{
+  "events": [
+    {
+      "id": "e1",
+      "kind": "open",
+      "text": "COLLISION-ST: state bare e1 is an open question",
+      "workstream": "id-ns",
+      "order": 2,
+      "timestamp": "2026-07-27T12:01:00Z"
+    }
+  ]
+}

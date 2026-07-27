@@ -314,6 +314,137 @@ if python3 "$ASM" --events "$THRASH" --session-uuid "m-omit" --out "$MODE_O" 2>/
    && ! grep -qE '^mode: (cold|warm)$' "$MODE_O"; then ok
 else bad "T16 omit mode must not invent header"; fi
 
+# ---- T17: CDT-93 display hygiene — pointer index uses _raw_id, not stem:id ----
+# State now / Through-line / kill catalog never emit event ids (render_event_line);
+# only appendix pointer index does — must strip namespace via _raw_id.
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+evs = a.load_events("'"$THRASH"'")
+assert any(":" in e["id"] and e.get("_raw_id") for e in evs), "expected namespaced ids"
+pkt = a.assemble_packet(evs, git_blob="x")
+# namespaced form must not appear in user-facing packet text
+for e in evs:
+    assert e["id"] not in pkt, "namespaced id leaked: " + e["id"]
+# raw ids appear only in pointer index lines
+assert any(line.startswith("- e4:") for line in pkt.splitlines()), pkt
+assert "### Pointers (courtesy)" in pkt
+# State now / Through-line lines are kind-bodied, not id-prefixed
+sn = pkt.split("## Through-line")[0]
+assert "- **" in sn
+assert not any(
+    line.startswith("- e") and ":" in line.split(" ", 1)[0]
+    for line in sn.splitlines()
+    if line.startswith("- e")
+)
+print("ok")
+' 2>/dev/null | grep -q ok; then ok; else bad "T17 pointer index display hygiene (_raw_id)"; fi
+
+# multi-file dir: stem namespace internal only
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+evs = a.load_events("'"$WORK"'/evdir")
+assert {e["id"] for e in evs} == {"a:a", "b:b"}
+assert {e["_raw_id"] for e in evs} == {"a", "b"}
+pkt = a.assemble_packet(evs)
+# no events with pointers in evdir → no pointer index; still no stem leak in body
+assert "a:a" not in pkt and "b:b" not in pkt
+print("ok")
+' 2>/dev/null | grep -q ok; then ok; else bad "T17b multi-file id not in packet body"; fi
+
+# ---- T18: CDT-93 AC1 — cross-file bare-id collision + namespaced annotation ----
+COLL_DIR="$FIX/events-id-collision"
+COLL_ANN="$FIX/annotations-collision.json"
+if [ -f "$COLL_DIR/through_line.json" ] && [ -f "$COLL_DIR/state.json" ] \
+   && [ -f "$COLL_ANN" ]; then ok
+else bad "T18 missing collision fixtures"; fi
+
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+evs = a.load_events("'"$COLL_DIR"'")
+ids = [e["id"] for e in evs]
+assert len(ids) == len(set(ids)), ids
+assert "through_line:e1" in ids
+assert "state:e1" in ids
+stems = {e["id"].split(":", 1)[0] for e in evs}
+assert "through_line" in stems and "state" in stems, stems
+raws = {e.get("_raw_id") for e in evs}
+assert raws == {"e1"}, raws
+# AC1: apply only happy namespaced annotation → TL labeled, state not
+happy = [{"event_id": "through_line:e1", "labels": ["PRIORITY"], "rank": 1}]
+_, applied, dropped = a.apply_annotations(evs, happy)
+assert applied == 1 and dropped == 0
+by = {e["id"]: e for e in evs}
+assert "PRIORITY" in (by["through_line:e1"].get("_labels") or [])
+assert not (by["state:e1"].get("_labels") or [])
+print("ok")
+' 2>/dev/null | grep -q ok; then ok
+else bad "T18 AC1 collision load+label"; fi
+
+# CLI packet: through_line body carries [PRIORITY]; state body does not; bare trap absent
+COLL_PKT="$WORK/collision.md"
+COLL_ERR="$WORK/collision.err"
+if python3 "$ASM" \
+    --events "$COLL_DIR" \
+    --annotations "$COLL_ANN" \
+    --session-uuid "coll-ac1" \
+    --out "$COLL_PKT" 2>"$COLL_ERR"; then ok
+else bad "T18 CLI collision assemble failed: $(head -c 200 "$COLL_ERR")"; fi
+
+if python3 -c '
+import sys
+t=open(sys.argv[1]).read()
+tl = [ln for ln in t.splitlines() if "COLLISION-TL" in ln]
+st = [ln for ln in t.splitlines() if "COLLISION-ST" in ln]
+assert tl and "[PRIORITY]" in tl[0], tl
+assert st and "[PRIORITY]" not in st[0] and "[BARE_TRAP]" not in st[0], st
+assert "[BARE_TRAP]" not in t
+print("ok")
+' "$COLL_PKT" 2>/dev/null | grep -q ok; then ok
+else bad "T18 packet label targeting"; fi
+
+# ---- T19: CDT-93 trap + happy — bare event_id dropped; namespaced lands ----
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+evs = a.load_events("'"$COLL_DIR"'")
+anns = a.load_annotations("'"$COLL_ANN"'")
+for e in evs:
+    e.pop("_labels", None)
+_, applied, dropped = a.apply_annotations(evs, anns)
+assert applied == 1, applied
+assert dropped == 1, dropped
+by = {e["id"]: e for e in evs}
+assert "PRIORITY" in (by["through_line:e1"].get("_labels") or [])
+assert "BARE_TRAP" not in (by["through_line:e1"].get("_labels") or [])
+assert not (by["state:e1"].get("_labels") or [])
+print("ok")
+' 2>"$WORK/t19.err" | grep -q ok; then ok
+else bad "T19 apply counts: $(head -c 200 "$WORK/t19.err")"; fi
+
+# stderr drop message for bare e1 (CLI path uses same annotations file)
+if grep -q 'assemble: annotation drop unknown event_id: e1' "$COLL_ERR"; then ok
+else bad "T19 missing bare drop on stderr: $(cat "$COLL_ERR")"; fi
+
+# ---- T20: CDT-93 union uniqueness after load_events on collision dir ----
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+evs = a.load_events("'"$COLL_DIR"'")
+ids = [e["id"] for e in evs]
+assert len(ids) == len(set(ids)), ids
+assert len(ids) >= 2
+print("ok")
+' 2>/dev/null | grep -q ok; then ok
+else bad "T20 union uniqueness"; fi
+
 # ---- summary ----
 echo "assemble-test: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

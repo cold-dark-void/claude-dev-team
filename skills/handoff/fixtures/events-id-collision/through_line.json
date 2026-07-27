@@ -1,0 +1,12 @@
+{
+  "events": [
+    {
+      "id": "e1",
+      "kind": "hypothesis",
+      "text": "COLLISION-TL: through_line bare e1 is a hypothesis",
+      "workstream": "id-ns",
+      "order": 1,
+      "timestamp": "2026-07-27T12:00:00Z"
+    }
+  ]
+}

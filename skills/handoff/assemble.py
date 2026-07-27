@@ -229,7 +229,9 @@ def load_events(path):
     """Load events from a JSON file or a directory of *.json files.
 
     Returns list of validated events with ``_src_index`` for stable ordering.
-    Invalid events are dropped (fail soft).
+    Each event ``id`` is namespaced as ``{stem}:{raw_id}`` where ``stem`` is
+    the source basename without ``.json``; original miner id is kept as
+    ``_raw_id`` for display hygiene. Invalid events are dropped (fail soft).
     """
     paths = []
     if os.path.isdir(path):
@@ -241,23 +243,25 @@ def load_events(path):
     else:
         raise FileNotFoundError(f"events path not found: {path}")
 
-    raw_list = []
+    out = []
+    i = 0
     for p in paths:
+        stem = os.path.splitext(os.path.basename(p))[0]
         with open(p, "r", encoding="utf-8") as fh:
             try:
                 obj = json.load(fh)
             except ValueError as e:
                 sys.stderr.write(f"assemble: skip unreadable JSON {p}: {e}\n")
                 continue
-        raw_list.extend(_extract_events_payload(obj))
-
-    out = []
-    for i, raw in enumerate(raw_list):
-        ev = validate_event(raw)
-        if ev is None:
-            continue
-        ev["_src_index"] = i
-        out.append(ev)
+        for raw in _extract_events_payload(obj):
+            ev = validate_event(raw)
+            if ev is None:
+                continue
+            ev["_raw_id"] = ev["id"]
+            ev["id"] = f"{stem}:{ev['id']}"
+            ev["_src_index"] = i
+            i += 1
+            out.append(ev)
     return out
 
 
@@ -410,6 +414,9 @@ def apply_annotations(events, annotations):
     for ann in annotations or []:
         eid = ann.get("event_id")
         if eid not in by_id:
+            sys.stderr.write(
+                f"assemble: annotation drop unknown event_id: {eid}\n"
+            )
             dropped += 1
             continue
         ev = by_id[eid]
@@ -575,18 +582,24 @@ def assemble_packet(
                 if v is None:
                     continue
                 v["_src_index"] = ev.get("_src_index", i)
+                if ev.get("_raw_id") is not None:
+                    v["_raw_id"] = ev["_raw_id"]
                 cleaned.append(v)
             else:
                 v = validate_event(raw)
                 if v is None:
                     continue
                 v["_src_index"] = raw.get("_src_index", i)
+                if raw.get("_raw_id") is not None:
+                    v["_raw_id"] = raw["_raw_id"]
                 cleaned.append(v)
         else:
             v = validate_event(raw)
             if v is None:
                 continue
             v["_src_index"] = i
+            if isinstance(raw, dict) and raw.get("_raw_id") is not None:
+                v["_raw_id"] = raw["_raw_id"]
             cleaned.append(v)
 
     ordered = order_events(cleaned)
@@ -711,13 +724,14 @@ def assemble_packet(
         lines.append("_no git snapshot_")
     lines.append("")
 
-    # courtesy pointer index
+    # courtesy pointer index — display _raw_id (strip stem namespace; CDT-93)
     ptr_index = []
     for ev in deduped:
         for p in ev.get("pointers") or []:
             tok = fmt_pointer(p)
             if tok:
-                ptr_index.append(f"- {ev['id']}: {tok}")
+                did = ev.get("_raw_id") or ev["id"]
+                ptr_index.append(f"- {did}: {tok}")
     if ptr_index:
         lines.append("### Pointers (courtesy)")
         lines.extend(ptr_index)
