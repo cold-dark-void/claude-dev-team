@@ -25,7 +25,7 @@ long session → /handoff → /branch|/fork → /compact @packet-file
 | **Warm** | bare `/handoff` | Spine-mine **this** session's live JSONL (cold-on-self) + optional annotation; **file-only** write (M10). |
 | **Help** | `/handoff --help` | Usage; exit. |
 
-Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult` strip + dedup) produces a size-adaptive **spine**. **Spine-mine** runs two LLM miners (through-line + state) in parallel over the spine (or reduced spine after chunk map), plus **deterministic git** for appendix code-state. **Assemble** (LLM-free) emits the STM packet: **State now → Through-line → appendix**. Warm may add **annotation** that can only reference existing event IDs (labels/rank — never invent evidence).
+Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult` strip + dedup) produces a size-adaptive **spine**. **Spine-mine** runs one merged LLM miner (single spine read) writing through_line + state event files over the spine (or reduced spine after chunk map), plus **deterministic git** for appendix code-state. **Assemble** (LLM-free) emits the STM packet: **State now → Through-line → appendix**. Warm may add **annotation** that can only reference existing event IDs (labels/rank — never invent evidence).
 
 **Glossary terms** (see `CONTEXT.md`): STM packet, Through-line, Compact seed, Spine-mine, State now.
 
@@ -47,11 +47,17 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
 - **M1 — Locate & assemble.** Given a session uuid, select the **canonical transcript file** — the descendant whose copied prefix is most complete (greatest max-`timestamp` among files under `~/.claude/projects/` containing that uuid) — then produce one chronologically ordered timeline by **de-duplicating copied messages on `uuid` (keep-last)** and ordering by **`(timestamp, file-position)`**. `forkedFrom` is **provenance** (`{sessionId, messageUuid}`; `messageUuid` is self-referential), NOT a cross-file pointer. Ordering MUST use timestamps, not the `parentUuid` DAG. Location + parsing MUST use the shared module (SPEC-012). *(Mechanism corrected by CDV-10 Task-1 spike.)*
 - **M2 — Deterministic pre-pass (no LLM).** Before mine: strip `toolUseResult` payloads, dedup repeated reads of the same path (retain last), collapse each `isSidechain` segment. Default: one-line outcome + optional courtesy pointer. **When signal-bearing** (cue list in `parselib.SIDECHAIN_SIGNAL_CUES`), emit condensed multi-line reconstruction (span + `hypothesis` / `killed` / `notes`, hard cap ~400 chars) — still no raw `toolUseResult`. Stats: `sidechain_runs_collapsed` + `sidechain_runs_signal`.
 - **M3 — Size-adaptive spine.** If stripped spine fits target context window, mine directly; if not, chunk at message boundaries, summarize chunks in parallel (**preserving** hypotheses, corrections, decisions, facts, opens for the through-line), then mine the reduced spine. MUST complete on oversized (≥ 60 MB) transcripts without context overflow.
-- **M3b — Spine-mine (shared engine).** Warm and cold MUST share one spine-mine pipeline: prepass → (optional chunk map) → **two LLM miners** + **deterministic git** → **assemble**. MUST NOT leave a freeform warm essay path as a dual source of truth.
-  - **Miner 1 (through-line):** emits events of kinds ⊆ {`hypothesis`, `killed`, `ruling`, `decision`, `fact`} only.
-  - **Miner 2 (state):** emits events of kinds ⊆ {`open`, `conflict`} and the M5 stated-intent-vs-git flags as `conflict` (and/or `open`) events.
+- **M3b — Spine-mine (shared engine).** Warm and cold MUST share one spine-mine pipeline: prepass → (optional chunk map) → **one LLM miner (merged)** + **deterministic git** → **assemble**. MUST NOT leave a freeform warm essay path as a dual source of truth.
+  - **Merged miner:** one Task MUST read the miner spine **once** and emit **both** event files:
+    - `through_line.json` — events of kinds ⊆ {`hypothesis`, `killed`, `ruling`, `decision`, `fact`} only.
+    - `state.json` — events of kinds ⊆ {`open`, `conflict`} only (incl. M5 stated-intent-vs-git as `conflict` and/or `open`).
+  - MUST NOT spawn two full-spine LLM miners for the same capture (duplicate spine read is a defect).
   - **Code-state:** git log/diff/status only — **no LLM miner**.
-  - Miners emit **schema-validated event JSON only** (no freeform brief sections).
+  - Miner emits **schema-validated event JSON only** (no freeform brief sections).
+  - Kind ceiling remains **seven** (M3c); file-level kind ceilings unchanged.
+  - MUST NOT split kinds across two Tasks that each re-read the full spine.
+  - Assemble input contract unchanged (directory of `*.json`, typically `through_line.json` + `state.json`).
+  - MUST NOT change user-facing `/handoff` CLI or packet section order.
 - **M3c — Event model.** Each event MUST include: `id`, `kind`, `text` or `quote`, `workstream` (default `"default"`), and order/timestamp when available. Optional courtesy `pointers[]` (never load-bearing). `fact` events SHOULD include `how_verified`. Kind ceiling is **seven**: `hypothesis`, `killed`, `ruling`, `decision`, `fact`, `open`, `conflict`.
 - **M3d — Assemble (LLM-free).** Assemble MUST: (1) **dedup** on `(kind + normalized quote/text)`; (2) emit **State now** by mechanical selection from the **tail** of the event log (latest decisions, surviving unkilled hypotheses, all opens) — **not** an LLM essay; (3) emit **Through-line** chronological events grouped by `workstream` when multiple; (4) emit **appendix** (long kill catalog if needed, git code-state, dense basics); (5) footer with advisory `packet_tokens / stripped_spine_tokens` when stats available. Packet section order is fixed: **State now → Through-line → appendix**.
 - **M4 — STM packet shape.** The artifact MUST be an **STM packet** / **compact seed** with the fixed order in M3d. Product success is measured by post-`compact @packet` continuity, not inject-density into a blank session. Freeform essay sections and slogan-thin packets (no kills/rulings/facts when thrash existed) are defects. Raw tool dumps in the packet are defects equal to slogan thinness.
@@ -133,7 +139,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 
 - [ ] Cold retroactive handoff produces STM packet file + core print
 - [ ] Warm spine-mines live JSONL (no freeform dual path)
-- [ ] Shared engine: 2 miners + git + LLM-free assemble
+- [ ] Shared engine: 1 merged miner + git + LLM-free assemble
 - [ ] State now mechanical; quotes inline; no tool dumps
 - [ ] Cache outside memory.db; M9 cold; warm mid-write carve-out scoped
 - [ ] Supersedes on re-capture; timestamped filenames
@@ -157,6 +163,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 | 2026-07-14 | PreCompact M12–M18 implemented (CDV-182) |
 | 2026-07-14 | CDV-205 sidechain signal reconstruction |
 | 2026-07-22 | CDT-54 M13 template SoT |
+| 2026-07-27 | **CDT-89:** M3b single merged miner — one Task, one spine read, both `through_line.json` + `state.json`; MUST NOT two full-spine miners; fan-out 1 Task; finalize/assemble two-file contract unchanged |
 | 2026-07-27 | **CDT-92 follow-up:** Grok step-3 cwd-newest gated when live Claude env present; `is_grok_chat_history` scoped under sessions root; dual-present discover tests |
 | 2026-07-27 | **CDT-92:** M10b Grok warm host + `chat_history`→Claude adapter; dual-host discover (explicit Grok / cwd-newest over stale Claude bridge); Test 11c |
 | 2026-07-26 | **CDT-85:** M10b session-id bridge + AC-16 honesty — `.live-session.json`, packet `mode: warm|cold`, fail (not freeform) when session id missing; warm dogfood runbook gate explicit; no AC-16 3/3 warm claim from cold-only |

@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.3
+- **CDT-89 — single merged miner** — spine-mine uses one LLM Task (one spine read) that writes both `through_line.json` + `state.json`; halves miner spine input (~50% of dual-miner baseline); SPEC-018 M3b + SKILL + command Step 6; AC1/AC2 fixture tests.
+
 ### v1.1.2
 - **Fix dual-host warm discover hijack** — Grok cwd-newest (step 3) no longer overrides a live Claude env (`CLAUDE_SESSION_ID` / non-Grok `*_TRANSCRIPT_PATH`); explicit Grok env still wins; `is_grok_chat_history` requires path under sessions root; adapter uses `mktemp`; dual-present + outside-path tests.
 

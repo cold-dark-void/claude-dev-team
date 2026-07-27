@@ -1,0 +1,47 @@
+{
+  "events": [
+    {
+      "id": "p1",
+      "kind": "hypothesis",
+      "text": "AC2-HYP: dual full-spine miners each re-read S, so cost ≈ 2×S",
+      "workstream": "mine-cost",
+      "order": 1,
+      "timestamp": "2026-07-27T00:01:00Z"
+    },
+    {
+      "id": "p2",
+      "kind": "ruling",
+      "text": "User: one merged miner only — single spine read, both event files",
+      "quote": "AC2-RULING: one merged miner only — single spine read, both event files",
+      "workstream": "mine-cost",
+      "order": 2,
+      "timestamp": "2026-07-27T00:02:00Z"
+    },
+    {
+      "id": "p3",
+      "kind": "killed",
+      "text": "dual full-spine miners waste tokens",
+      "quote": "AC2-KILL: dual full-spine miners waste tokens",
+      "workstream": "mine-cost",
+      "order": 3,
+      "timestamp": "2026-07-27T00:03:00Z"
+    },
+    {
+      "id": "p4",
+      "kind": "decision",
+      "text": "AC2-DEC: partition kinds on write into through_line.json + state.json",
+      "workstream": "mine-cost",
+      "order": 4,
+      "timestamp": "2026-07-27T00:04:00Z"
+    },
+    {
+      "id": "p5",
+      "kind": "fact",
+      "text": "AC2-FACT: through_line holds five kinds; state holds open|conflict",
+      "how_verified": "SPEC-018 M3b kind ceilings + SKILL.md partition table",
+      "workstream": "mine-cost",
+      "order": 5,
+      "timestamp": "2026-07-27T00:05:00Z"
+    }
+  ]
+}

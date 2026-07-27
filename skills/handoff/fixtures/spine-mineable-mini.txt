@@ -1,0 +1,15 @@
+# spine-mineable-mini.txt — CDT-89 AC2 planted thrash (not for live LLM in CI)
+# Optional dogfood (AC2b): feed as MINER_SPINE; expect merged miner to emit
+# the kinds documented in fixtures/events-merged-planted/.
+# CI contract: planted events-merged-planted/ → finalize → packet has kill/ruling/open.
+
+[user] We keep paying 2× spine on mine. Is that required?
+[assistant] Hypothesis AC2-HYP: dual full-spine miners each re-read S, so cost ≈ 2×S.
+[user] Ruling AC2-RULING: one merged miner only — single spine read, both event files.
+[assistant] Killed AC2-KILL: dual full-spine miners waste tokens. Partition on write instead:
+  through_line kinds = hypothesis|killed|ruling|decision|fact
+  state kinds = open|conflict
+[assistant] Decision AC2-DEC: partition kinds on write into through_line.json + state.json.
+[assistant] Fact AC2-FACT: through_line holds five kinds; state holds open|conflict.
+[user] Open AC2-OPEN: does chunked path still one-read on the reduced spine?
+[assistant] Conflict AC2-CONFLICT: prior docs said two miners vs M3b one merged miner.

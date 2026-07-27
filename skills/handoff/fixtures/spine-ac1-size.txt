@@ -1,0 +1,16 @@
+# spine-ac1-size.txt — CDT-89 AC1 synthetic spine (no private transcript)
+# Models spine-read count only: baseline miners each stream this file once (2*S);
+# merged miner streams it once (1*S). Ratio = S/(2S) = 0.50 <= 0.55.
+# S = 1024 bytes (exact; verify with: wc -c < skills/handoff/fixtures/spine-ac1-size.txt)
+# est_tokens ≈ S/4 = 256
+#
+# --- synthetic session spine body (padding to exact S) ---
+# user: investigate handoff miner cost; two full-spine miners double input
+# assistant: hypothesis: merge into one Task that writes through_line + state
+# user: lock AC1 to static size math on checked-in fixture; no live LLM
+# assistant: ruling: single spine read is the cost win; latency non-goal
+# fact: kind ceiling remains seven; assemble still loads *.json event files
+# open: optional dogfood AC2b on live warm handoff after merge lands
+# conflict: none planted — this fixture is size-only for AC1 measurement
+# pad: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# pad: xxxxxxxxxxxxxxx

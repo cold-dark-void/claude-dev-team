@@ -117,8 +117,9 @@ in entry, exit, and warm-only annotation):
    warm-only carve-out (M14).
 3. **Optional chunk map** — monster spines are chunk-summarized in parallel,
    then reduced (M3).
-4. **Two miners in one block** — through-line miner + state miner (schema
-   events only). Code-state is **git only** — no LLM miner (M3b).
+4. **One merged miner** — single Task, one spine read; writes both event
+   files (`through_line.json` + `state.json`, all 7 kinds). Code-state is
+   **git only** — no LLM miner (M3b).
 5. **Warm annotation (optional)** — labels/rank on existing event IDs only;
    never invents evidence.
 6. **Assemble (LLM-free)** — merge events into **State now → Through-line →

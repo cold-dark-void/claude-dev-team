@@ -1,0 +1,20 @@
+{
+  "events": [
+    {
+      "id": "p6",
+      "kind": "open",
+      "text": "AC2-OPEN: does chunked path still one-read on the reduced spine?",
+      "workstream": "mine-cost",
+      "order": 6,
+      "timestamp": "2026-07-27T00:06:00Z"
+    },
+    {
+      "id": "p7",
+      "kind": "conflict",
+      "text": "AC2-CONFLICT: prior docs said two miners vs M3b one merged miner",
+      "workstream": "mine-cost",
+      "order": 7,
+      "timestamp": "2026-07-27T00:07:00Z"
+    }
+  ]
+}
