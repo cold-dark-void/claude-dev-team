@@ -256,6 +256,25 @@ AC-16 warm 3/3 from cold-only dogfood, Grok-only dogfood, or unit fixtures alone
 
 ---
 
+## Cost knobs (CDT-90 — optional; do not change ship defaults during dogfood)
+
+When scoring packet quality, keep these defaults unless you are deliberately
+measuring a cheaper config:
+
+| Stage / env | Default | Dogfood note |
+|-------------|---------|--------------|
+| Chunk-summarizer + warm annotation | **`haiku`** | Cheap stages always |
+| Merged miner | **session inherit** | Opt-in only: `HANDOFF_MINER_MODEL=<tier>` |
+| `HANDOFF_SPINE_TOKENS` | **120000** | Lower → more chunking + cheaper map step, but **recall risk** |
+
+Lowering spine budget compounds savings with haiku summarizers, but can drop
+kills/rulings the map step fails to preserve. **Measure before adopting** a lower
+budget (re-score anti-relitigation on the same sessions). Do **not** lower the
+code default for AC-16 scoring runs unless the experiment is the point of the run
+— record the env override in the results notes when you do.
+
+---
+
 ## Out of scope for this runbook
 
 - CI automation of AC-16 (human gate by design)

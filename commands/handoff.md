@@ -542,8 +542,16 @@ Substitutions per Task:
 | `${REPO_ROOT}` | `$MROOT` |
 | `${SOURCE_FILES_JSON}` | `$SOURCE_FILES_JSON` |
 
-`subagent_type: "general-purpose"`. Mutually blind. On bad JSON: fallback raw
-chunk under `[chunk N summarization failed — raw text follows]` — never abort.
+Spawn contract (each chunk-summarizer Task):
+
+```
+subagent_type: "general-purpose"
+model: haiku
+# effort: optional — omit by default; never required
+```
+
+Mutually blind. On bad JSON: fallback raw chunk under
+`[chunk N summarization failed — raw text follows]` — never abort.
 
 Reduce: sort by `chunk_index`; concatenate with `<!-- chunk N -->` markers into
 `$WORK_DIR/reduced-spine.txt`; set `MINER_SPINE` to that path.
@@ -563,6 +571,23 @@ Read templates from `skills/handoff/SKILL.md`:
 **INVARIANT:** emit **one** `Task` call in **one** tool-use block. The merged
 miner reads `$MINER_SPINE` **once** and writes **both** event files. Spawning
 two full-spine miners is a defect (duplicate spine read; SPEC-018 M3b).
+
+Spawn contract (merged miner — inherit session model by default):
+
+```bash
+# Miner model tier (CDT-90): empty = session inherit
+HANDOFF_MINER_MODEL="${HANDOFF_MINER_MODEL:-}"
+# When spawning Task: if non-empty, pass model: "$HANDOFF_MINER_MODEL"
+# (tier alias only: haiku|sonnet|opus). Invalid/unknown → inherit fail-soft.
+# effort: optional — omit by default; never required
+```
+
+```
+subagent_type: "general-purpose"
+# model: omit by default (inherit session)
+# if HANDOFF_MINER_MODEL non-empty → model: <tier alias>
+# effort: optional — omit by default
+```
 
 Substitutions (no per-role `MINER=` selector):
 
@@ -597,7 +622,17 @@ survived); finalize still runs (thin packet + git appendix OK).
 
 Warm: after the merged miner, build a short `EVENTS_SUMMARY_JSON` (array of
 `{id, kind, text|quote}` from both event files). Spawn **one** annotation Task
-using SKILL.md § Annotation pass. Write to:
+using SKILL.md § Annotation pass.
+
+Spawn contract (annotation Task):
+
+```
+subagent_type: "general-purpose"
+model: haiku
+# effort: optional — omit by default; never required
+```
+
+Write to:
 
 ```bash
 # Re-bind WORK_DIR from Step 4 (fresh shell — SPEC-021 C1)
@@ -686,6 +721,12 @@ under invoker cwd when target resolved (CDT-80).
 - **Target root (CDT-80):** packet / cache / git from target session project via
   `resolve-root.sh` — not invoker cwd. Fail hard if undetermined.
 - **Orchestrator only** — no freeform brief writing; no five-extractor fan-out.
+- **Spawn model tiers (CDT-90 / M3e):** parent orchestrator (Steps 0–8 shell +
+  judgment) stays **session tier** — never force `haiku` on the parent loop.
+  Only spawned cheap stages pin model: chunk-summarizers + warm annotation →
+  `model: haiku`; merged miner inherits session unless `HANDOFF_MINER_MODEL`
+  is set (tier alias). `effort` optional on all; never required. Tier aliases
+  only (`haiku`/`sonnet`/`opus`) — never pin dated model IDs.
 - **Fan-out:** chunk-summarizers (if any) in ONE tool-use block (N-parallel);
   **1 merged miner** Task (single spine read) in ONE tool-use block. Chunk
   serialization is a defect; dual full-spine miners are a defect.

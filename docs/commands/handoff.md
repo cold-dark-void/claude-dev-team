@@ -125,6 +125,40 @@ in entry, exit, and warm-only annotation):
 6. **Assemble (LLM-free)** — merge events into **State now → Through-line →
    appendix**; write packet file. Cold prints core + path; warm prints path only.
 
+### Spawn model tiers (M3e / CDT-90)
+
+LLM fan-out uses **tier aliases only** (`haiku` / `sonnet` / `opus` style) — never
+dated model IDs. Parent/orchestrator stays at **session tier**.
+
+| Stage | Model | Notes |
+|-------|-------|--------|
+| Chunk-summarizer (map step) | **`haiku`** | Cheap extraction; N Tasks in one block when `mode=chunked` |
+| Merged miner (spine-mine) | **inherit session** | Omit `model` by default (one Task, one spine read) |
+| Annotation (warm only) | **`haiku`** | Labels/rank only; no new evidence |
+| Parent orchestrator | **session** | Shell + judgment; never force haiku |
+
+**Miner opt-in:** set `HANDOFF_MINER_MODEL` to a tier alias (e.g. `haiku`) to pin
+the merged miner. Unset/empty → inherit the session model. Do **not** force
+`model: haiku` on the miner when the env is empty.
+
+### Spine budget (`HANDOFF_SPINE_TOKENS`)
+
+`prepass.sh prepare` size-decides against `HANDOFF_SPINE_TOKENS` (default
+**120000**). Over budget → `mode=chunked` (map step + reduced spine for the
+miner). Under budget → `mode=direct` (miner reads the raw spine).
+
+| Env | Default | Role |
+|-----|---------|------|
+| `HANDOFF_SPINE_TOKENS` | `120000` | Token budget for a single spine before chunking |
+| `HANDOFF_MINER_MODEL` | *(empty)* | Opt-in miner tier; empty = session inherit |
+
+**Tradeoff:** lowering `HANDOFF_SPINE_TOKENS` compounds cost savings with the
+cheap (`haiku`) chunk-summarizers — more sessions go map/reduce instead of one
+full-spine miner read. That also raises **recall risk** (map step can drop
+load-bearing hyp/kill/ruling material). **Measure packet quality before adopting
+a lower budget** (dogfood anti-relitigation / kill catalog completeness). The
+shipped code default stays **120000** — do not lower it in-repo without evidence.
+
 ## Examples
 
 **Reconstruct a past session (cold):**

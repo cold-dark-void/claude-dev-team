@@ -127,6 +127,9 @@ Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
 Env:
   HANDOFF_SPINE_TOKENS        token budget for a single spine (default 120000).
                               Over budget -> chunked mode (split at msg boundaries).
+                              Lower compounds savings with haiku map step but
+                              raises recall risk — measure before adopting;
+                              do not lower the code default without evidence.
   HANDOFF_CACHE_MAX_ENTRIES   max cache files under .claude/handoff/cache/ (default 50).
 EOF
   exit 1
@@ -866,6 +869,7 @@ fi
 # Everything heavy happens inside python3 (streaming assemble output). We pass
 # the env + paths in; python writes plan.json and chunk/spine files itself, and
 # prints a one-line human summary to stderr.
+# Default 120000 stays; lowering is an operator opt-in (see docs/commands/handoff.md).
 HANDOFF_SPINE_TOKENS="${HANDOFF_SPINE_TOKENS:-120000}" \
 HANDOFF_CHARS_PER_TOKEN="${HANDOFF_CHARS_PER_TOKEN:-4}" \
 PREPASS_UUID="$UUID" \

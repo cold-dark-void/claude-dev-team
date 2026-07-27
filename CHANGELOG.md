@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.4
+- **CDT-90 — spawn model cost knobs** — chunk-summarizers + warm annotation default `model: haiku`; merged miner inherits session model with opt-in `HANDOFF_MINER_MODEL`; effort optional never MUST; `HANDOFF_SPINE_TOKENS` default 120k unchanged (docs tradeoff); SPEC-018 M3e + static `spawn-model-ac-test.sh`.
+
 ### v1.1.3
 - **CDT-89 — single merged miner** — spine-mine uses one LLM Task (one spine read) that writes both `through_line.json` + `state.json`; halves miner spine input (~50% of dual-miner baseline); SPEC-018 M3b + SKILL + command Step 6; AC1/AC2 fixture tests.
 

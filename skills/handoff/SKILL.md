@@ -9,8 +9,9 @@ description: |
     `commands/handoff.md` reads this file, fills substitution variables, spawns the
     merged miner in ONE tool-use block, optionally runs annotation (warm), and hands
     event JSON to `prepass.sh finalize --events` → `assemble.py` for the STM packet.
-    Implements SPEC-018 M3b–M3d (spine-mine + event model + assemble), M4 (STM packet),
-    M5 (lightweight stated-intent-vs-git), M6 (quotes admissible), M7/M10 (cold/warm).
+    Implements SPEC-018 M3b–M3e (spine-mine + event model + assemble + spawn model
+    tiers), M4 (STM packet), M5 (lightweight stated-intent-vs-git), M6 (quotes
+    admissible), M7/M10 (cold/warm).
 ---
 
 # handoff
@@ -123,6 +124,27 @@ block the whole handoff on a single bad spawn**.
 **Code-state is not a miner.** Git log/diff/status is captured deterministically
 by the orchestrator / `prepass.sh finalize` (`capture_git_state`) and passed as
 `--git-state`. There is no LLM Code-state extractor.
+
+### Spawn model tiers (M3e / CDT-90)
+
+Tier aliases only (`haiku` / `sonnet` / `opus` style) — **never** pin dated model
+IDs. `effort` on any Task is **optional** (omit by default; never required for
+correctness). The **parent/orchestrator** turn stays at **session tier** (MUST NOT
+force haiku on the parent loop).
+
+| Stage | Task count | `model` | Notes |
+|-------|------------|---------|--------|
+| Chunk-summarizer (Step 5b) | N in one block | **`haiku`** | Extraction map step |
+| Merged miner (Step 6) | **1** Task | **inherit session** (omit `model`) | Opt-in: `HANDOFF_MINER_MODEL` when non-empty (tier alias) |
+| Annotation (Step 7, warm) | 1 | **`haiku`** | Labels/rank only |
+| Parent orchestrator | — | **session** | Steps 0–8 shell + judgment; never force haiku |
+
+```bash
+# Miner model tier (CDT-90): empty = session inherit
+HANDOFF_MINER_MODEL="${HANDOFF_MINER_MODEL:-}"
+# When spawning merged-miner Task: if non-empty, pass model: "$HANDOFF_MINER_MODEL"
+# (tier alias only). Unset/empty → omit model field (inherit session).
+```
 
 ---
 
@@ -300,6 +322,20 @@ One Task reads the spine **once**, mines all seven kinds chronologically, then
 **All seven kinds (partitioned):** through-line ⊆ `hypothesis` | `killed` |
 `ruling` | `decision` | `fact` · state ⊆ `open` | `conflict`
 
+### Spawn contract (M3e)
+
+```
+subagent_type: "general-purpose"
+# model: inherit session by default (omit field)
+# if HANDOFF_MINER_MODEL is set and non-empty → model: <that tier alias>
+# effort: optional — omit by default; never required
+```
+
+Default: **omit `model`** so the miner inherits the session model. Opt-in cheap
+miner via `HANDOFF_MINER_MODEL=haiku` (or another tier alias). MUST NOT force
+`model: haiku` on the miner when the env is empty/unset. Still **one** Task, both
+event files, one spine read (CDT-89 / M3b).
+
 > ⚠ **REAL-DATA FINDING:** `thinking` blocks in real transcripts are frequently
 > **signature-only / encrypted — no plaintext**. The spine KEEPS thinking blocks,
 > but this miner MUST NOT depend on thinking-block *text*. Mine, in priority order:
@@ -403,6 +439,14 @@ OUTPUT SHAPE
 After the merged miner succeeds (or partially succeeds — at least one event file
 present), warm mode MAY run one annotation pass over the **merged event id set**
 (ids from both `through_line.json` and `state.json`). Cold mode skips this.
+
+### Spawn contract (M3e)
+
+```
+subagent_type: "general-purpose"
+model: haiku
+# effort: optional — omit by default; never required
+```
 
 ### Schema (strict invent-guard — M10 / Test 21)
 
@@ -589,6 +633,16 @@ If a chunk-summarizer fails or returns invalid JSON, substitute a fallback: incl
 raw chunk text in the reduced spine with header
 `[chunk N summarization failed — raw text follows]`. **Never abort the handoff**
 because one chunk could not be summarized.
+
+### Spawn contract (M3e)
+
+```
+subagent_type: "general-purpose"
+model: haiku
+# effort: optional — omit by default; never required
+```
+
+Each of the N Tasks uses this contract (tier alias only; never a dated model ID).
 
 ### Output schema
 

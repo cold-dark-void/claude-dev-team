@@ -58,6 +58,13 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
   - MUST NOT split kinds across two Tasks that each re-read the full spine.
   - Assemble input contract unchanged (directory of `*.json`, typically `through_line.json` + `state.json`).
   - MUST NOT change user-facing `/handoff` CLI or packet section order.
+- **M3e — Spawn model tiers (cost knobs).** Orchestrator Task spawns for spine-mine LLM stages MUST use **tier aliases only** (`haiku` / `sonnet` / `opus` style); MUST NOT pin dated model IDs.
+  - Chunk-summarizer Tasks (Step 5b) MUST set `model: haiku`.
+  - Warm annotation Task (Step 7) MUST set `model: haiku`.
+  - Merged miner Task (Step 6) MUST **inherit session model** by default (omit `model`, or document inherit). MAY set model from env **`HANDOFF_MINER_MODEL`** when non-empty (tier alias). Empty/unset = inherit.
+  - `effort` on any of these Tasks is **optional**; MUST NOT be required for correctness.
+  - The **parent/orchestrator** turn MUST remain at session tier (MUST NOT force haiku on the parent loop).
+  - `HANDOFF_SPINE_TOKENS` default remains **120000**; warm operators MAY lower via env to force earlier chunking (docs guidance only).
 - **M3c — Event model.** Each event MUST include: `id`, `kind`, `text` or `quote`, `workstream` (default `"default"`), and order/timestamp when available. Optional courtesy `pointers[]` (never load-bearing). `fact` events SHOULD include `how_verified`. Kind ceiling is **seven**: `hypothesis`, `killed`, `ruling`, `decision`, `fact`, `open`, `conflict`.
 - **M3d — Assemble (LLM-free).** Assemble MUST: (1) **dedup** on `(kind + normalized quote/text)`; (2) emit **State now** by mechanical selection from the **tail** of the event log (latest decisions, surviving unkilled hypotheses, all opens) — **not** an LLM essay; (3) emit **Through-line** chronological events grouped by `workstream` when multiple; (4) emit **appendix** (long kill catalog if needed, git code-state, dense basics); (5) footer with advisory `packet_tokens / stripped_spine_tokens` when stats available. Packet section order is fixed: **State now → Through-line → appendix**.
 - **M4 — STM packet shape.** The artifact MUST be an **STM packet** / **compact seed** with the fixed order in M3d. Product success is measured by post-`compact @packet` continuity, not inject-density into a blank session. Freeform essay sections and slogan-thin packets (no kills/rulings/facts when thrash existed) are defects. Raw tool dumps in the packet are defects equal to slogan thinness.
@@ -130,6 +137,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 21. **Annotation invent-guard (M10):** annotation referencing unknown `event_id` is dropped; no new evidence fields in annotation schema.
 22. **Cold print shape (M7):** cold stdout includes State now + Through-line and cites packet path; full appendix not required in stdout.
 23. **Target write root (M7b / CDT-80):** cold from non-repo invoker cwd for a known-project session writes under that project's `.claude/handoff/`; cache under its `cache/`; git appendix is target HEAD/status; undetermined root fails with no invoker write; worktree session → shared MROOT; invoker repo A / target B → all under B.
+24. **Spawn model tiers (M3e / CDT-90):** static contract — chunk + annotation spawn text includes `model: haiku`; miner default inherits (no forced haiku without env); parent not forced haiku; tier aliases only (no dated model IDs).
 
 **Human ship gate (CDT-79 AC-16 — not CI):** ≥3 re-captures under new contract (≥2 long-debug: multi-hypothesis thrash with kills; ≥1 multi-week: ≥2 calendar weeks or multi-child program arc); after compact `@packet`, next session does not re-propose packet-resident kills/rulings; human 3/3.
 
@@ -146,6 +154,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 - [ ] PreCompact still spine rescue only; fail-open
 - [ ] Docs: compact seed framing; no Linear dual-write; no compact-replacement claim
 - [ ] Internal legacy inject-brief / multi-extractor references swept from SPEC, skill, command, docs, tests
+- [ ] Spawn model tiers (M3e): chunk + annotation `model: haiku`; miner inherits session unless `HANDOFF_MINER_MODEL`; parent session tier; `HANDOFF_SPINE_TOKENS` default 120000
 
 ---
 
@@ -153,6 +162,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 
 | Date | Change |
 |------|--------|
+| 2026-07-27 | **CDT-90:** M3e spawn model tiers — chunk + annotation haiku; merged miner session-inherit + `HANDOFF_MINER_MODEL` opt-in; effort optional; parent stays session tier; `HANDOFF_SPINE_TOKENS` default 120000; Test 24 |
 | 2026-06-04 | Initial spec (cold handoff brainstorm) |
 | 2026-06-04 | M10 warm + M11 consolidation (CDV-10) |
 | 2026-06-04 | M1 mechanism corrected (CDV-10 GATE-1) |
