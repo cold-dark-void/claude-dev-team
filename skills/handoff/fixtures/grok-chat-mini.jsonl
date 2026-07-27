@@ -1,0 +1,7 @@
+{"type": "system", "content": "You are a test system prompt for CDT-92 fixture; must be skipped by adapter."}
+{"type": "user", "content": [{"type": "text", "text": "<system-reminder>\nProject instructions for fixture session.\n</system-reminder>"}], "synthetic_reason": "project_instructions"}
+{"type": "user", "content": [{"type": "text", "text": "Please investigate handoff warm path. Marker: CDT92-FIXTURE-PHRASE-ALPHA"}], "prompt_index": 1}
+{"type": "reasoning", "id": "rs-fixture-1", "summary": [{"type": "summary_text", "text": "Internal reasoning to skip"}], "status": "completed"}
+{"type": "assistant", "content": "Understood. Working the warm adapter path. Marker: CDT92-FIXTURE-ASSIST-BETA", "model_id": "fixture-model"}
+{"type": "assistant", "content": "I will call a tool for structure only.", "tool_calls": [{"id": "call-fixture-1", "name": "run_terminal_command", "arguments": "{\"command\": \"echo fixture-tool\"}"}], "model_id": "fixture-model"}
+{"type": "tool_result", "tool_call_id": "call-fixture-1", "content": "fixture-tool\n"}
