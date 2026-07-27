@@ -3,6 +3,12 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.3
+
+- **CDT-76** — `/setup orchestration` sweeps known-legacy orphan hook `bash-compress-wrapper.sh` after Step 4 emit: bak-force + FORCE-OVERWRITE disclose when unreferenced; WARN+keep if still referenced (SPEC-005).
+- **CDT-77** — doctor `hooks.hygiene` is **managed-only** (basename ∈ `EXPECTED_HOOK_SCRIPTS`); user pathless/custom hooks no longer permanent-WARN with a setup fix-it setup will not apply (SPEC-022 M2c″).
+- **CDT-78** — doctor `settings.sandbox_runtime`: functional bwrap init probe (WARN) when `sandbox.enabled=true`; surfaces hollow Cell D guarantees when config PASSes but OS sandbox cannot init; runbook residual #4 updated.
+
 ### v1.0.2
 
 - **CDT-75** — matrix Cell D (`auto` + sandbox + matrix allow): core-loop `PASS_ZERO_PROMPT`; safety delta vs `dontAsk` documented; ship orchestration default flips Cell C → **Cell D** (epic C5 “sandbox + auto”). Probe harness adds Cell D + MCP/settings delta (`tools/permission-matrix-probe.sh`).

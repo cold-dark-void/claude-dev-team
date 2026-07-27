@@ -320,7 +320,15 @@ and settings self-mod work unprompted”:
    core tools. Under Cell D (`auto`), tools outside allow are *evaluated*, not
    always hard-denied — do not treat allow as the only gate; sandbox remains MUST.
 4. **Sandbox dependency.** Without sandbox, high-autonomy modes lose OS boundary.
-   Doctor WARNs when `bypassPermissions` / `dontAsk` / `auto` lack sandbox.
+   Doctor `settings.sandbox_coherence` WARNs when `bypassPermissions` / `dontAsk` /
+   `auto` lack `sandbox.enabled`. **Config is not enough (CDT-78):** when
+   `sandbox.enabled=true` but the host cannot initialize the OS sandbox (bwrap /
+   user-namespace failure — observed on external consumer bootstrap: every command
+   failed sandbox init and retried unsandboxed), Cell D zero-prompt/containment
+   guarantees are hollow. Doctor `settings.sandbox_runtime` functionally probes
+   `bwrap` minimal init + `true` (WARN never FAIL; SKIP if sandbox not enabled;
+   nested-session WARN carries a caveat to re-run outside the session). Fix host
+   bwrap/userns before trusting orchestration posture.
 5. **Hook coverage.** Matrix PreToolUse probe only; CDT-58 friction delta empty.
 6. **Model / version drift.** Host **2.1.190**. Re-run probe after CC upgrades.
    `/doctor` `matrix.cc_version` WARNs on drift (CDT-59). Older CC without `auto`
