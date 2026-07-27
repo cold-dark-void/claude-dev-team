@@ -373,6 +373,115 @@ if [ -f "$CMD_HANDOFF" ] \
    && grep -q -- '--spine-tokens "$SPINE_TOKENS"' "$CMD_HANDOFF"; then ok
 else bad "T19 handoff.md missing est_tokens → SPINE_TOKENS → finalize wiring"; fi
 
+# ---- T20: CDT-88 M8b cache events write/read (stem map, raw ids) ----
+# T1 finalize with thrash + leaf → cache must include non-empty events map.
+if python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert "events" in d, "missing events key"
+ev = d["events"]
+assert isinstance(ev, dict) and ev, ev
+n = 0
+for stem, arr in ev.items():
+    assert isinstance(stem, str) and stem.strip(), stem
+    assert isinstance(arr, list) and arr, stem
+    for e in arr:
+        assert isinstance(e, dict) and "id" in e and "kind" in e, e
+        # raw miner ids only — no prior: / stem: prefix
+        eid = e["id"]
+        assert not str(eid).startswith("prior:"), eid
+        assert ":" not in str(eid) or not str(eid).startswith(stem + ":"), eid
+        assert "_generation" not in e and "_src_index" not in e
+        assert "_raw_id" not in e and "_labels" not in e
+        n += 1
+assert n >= 1, n
+# dual-read: load_prior_events namespaces prior:stem:raw
+sys.path.insert(0, sys.argv[2])
+import assemble as a
+prior = a.load_prior_events(sys.argv[1])
+assert prior and all(e["id"].startswith("prior:") for e in prior)
+assert all(e.get("_generation") == 0 for e in prior)
+assert not any("prior:prior:" in e["id"] for e in prior)
+print("ok")
+' "$CACHE" "$HERE" 2>"$WORK/t20.err" | grep -q ok; then ok
+else bad "T20 cache events write/read: $(head -c 300 "$WORK/t20.err")"; fi
+
+# ---- T21: CDT-88 empty/unusable FINALIZE_EVENTS_JSON → omit events key ----
+OMIT_SID="${SID}-omit-events"
+OMIT_PKT="$WORK/omit-packet.md"
+EMPTY_EV="$WORK/empty-events.json"
+printf '%s\n' '{}' >"$EMPTY_EV"
+set +e
+FINALIZE_EVENTS_JSON="$EMPTY_EV" \
+bash "$PREPASS" finalize \
+  --uuid "$OMIT_SID" \
+  --events "$THRASH" \
+  --git-state "$GITBLOB" \
+  --leaf "leaf-omit" \
+  --mode cold \
+  --packet-out "$OMIT_PKT" \
+  >"$WORK/t21.stdout" 2>"$WORK/t21.stderr"
+RC=$?
+set -e
+OMIT_CACHE="$HANDOFF_DIR/cache/${OMIT_SID}.json"
+if [ "$RC" -eq 0 ] && [ -f "$OMIT_CACHE" ] \
+   && python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert "events" not in d, list(d.keys())
+assert d.get("leaf_uuid")=="leaf-omit"
+assert isinstance(d.get("packet"),str) and "## State now" in d["packet"]
+print("ok")
+' "$OMIT_CACHE" 2>/dev/null | grep -q ok \
+   && grep -q 'events=omit' "$WORK/t21.stderr"; then ok
+else bad "T21 omit empty events rc=$RC cache=$(head -c 200 "$OMIT_CACHE" 2>/dev/null) err=$(head -c 200 "$WORK/t21.stderr")"; fi
+
+# null / empty list events wrapper also omits
+NULL_EV="$WORK/null-events.json"
+printf '%s\n' '{"events": null}' >"$NULL_EV"
+NULL_SID="${SID}-null-events"
+set +e
+FINALIZE_EVENTS_JSON="$NULL_EV" \
+bash "$PREPASS" finalize \
+  --uuid "$NULL_SID" \
+  --events "$THRASH" \
+  --git-state "$GITBLOB" \
+  --leaf "leaf-null" \
+  --mode cold \
+  --packet-out "$WORK/null-pkt.md" \
+  >"$WORK/t21b.stdout" 2>"$WORK/t21b.stderr"
+RC=$?
+set -e
+NULL_CACHE="$HANDOFF_DIR/cache/${NULL_SID}.json"
+if [ "$RC" -eq 0 ] && [ -f "$NULL_CACHE" ] \
+   && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert "events" not in d; print("ok")' \
+        "$NULL_CACHE" 2>/dev/null | grep -q ok; then ok
+else bad "T21 null events wrapper still has key"; fi
+
+# ---- T22: CDT-88 legacy cache without events → cache-check HIT still (dual-read) ----
+LEGACY_NOEV="${SID}-legacy-noev"
+LEGACY_NOEV_LEAF="leg-noev-leaf"
+mkdir -p "$HANDOFF_DIR/cache"
+python3 -c '
+import json, sys
+# packet-only cache (pre-M8b shape): no events key
+json.dump({
+  "leaf_uuid": sys.argv[2],
+  "packet": "## State now\n\n- **decision**: legacy no-events packet\n\n## Through-line\n\n## appendix\n",
+  "path": "/tmp/legacy-noev.md",
+  "created_at": "2026-07-01T00:00:00Z",
+}, open(sys.argv[1], "w"))
+' "$HANDOFF_DIR/cache/${LEGACY_NOEV}.json" "$LEGACY_NOEV_LEAF"
+set +e
+bash "$PREPASS" cache-check --uuid "$LEGACY_NOEV" --leaf "$LEGACY_NOEV_LEAF" \
+  >"$WORK/t22.stdout" 2>"$WORK/t22.stderr"
+RC=$?
+set -e
+if [ "$RC" -eq 0 ] \
+   && grep -q 'legacy no-events packet' "$WORK/t22.stdout" \
+   && python3 -c 'import json; d=json.load(open("'"$HANDOFF_DIR"'/cache/'"$LEGACY_NOEV"'.json")); assert "events" not in d'; then ok
+else bad "T22 legacy no-events HIT rc=$RC out=$(head -c 200 "$WORK/t22.stdout") err=$(head -c 200 "$WORK/t22.stderr")"; fi
+
 echo
 echo "finalize-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

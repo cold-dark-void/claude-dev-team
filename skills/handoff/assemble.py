@@ -29,15 +29,17 @@ unknown ids are dropped (invent-guard).
 Importable API
 --------------
   EVENT_KINDS, QUOTE_MAX, normalize_text, validate_event, load_events,
-  load_annotations, dedup_events, order_events, select_state_now,
-  assemble_packet, main
+  load_prior_events, load_annotations, dedup_events, order_events,
+  merge_events, events_for_cache, load_merged_events, load_merged_for_summary,
+  select_state_now, assemble_packet, main
 
 CLI
 ---
   python3 skills/handoff/assemble.py \\
     --events <file|dir> --git <blob> [--annotations ...] [--spine-tokens N] \\
     [--session-uuid U] [--leaf-uuid L] [--slug S] [--supersedes prior] \\
-    [--mode cold|warm] [--out packet.md]
+    [--mode cold|warm] [--prior-events PATH] [--events-out PATH] \\
+    [--out packet.md]
 """
 
 from __future__ import annotations
@@ -232,6 +234,9 @@ def load_events(path):
     Each event ``id`` is namespaced as ``{stem}:{raw_id}`` where ``stem`` is
     the source basename without ``.json``; original miner id is kept as
     ``_raw_id`` for display hygiene. Invalid events are dropped (fail soft).
+
+    Does **not** set ``_generation`` (cold path keeps default 0 for order
+    identity). Merge callers tag delta events with ``_generation=1``.
     """
     paths = []
     if os.path.isdir(path):
@@ -263,6 +268,161 @@ def load_events(path):
             i += 1
             out.append(ev)
     return out
+
+
+def _stem_map_from_prior_obj(obj):
+    """Extract stem → [raw events] from cache JSON or bare stem map.
+
+    Accepts:
+      - cache wrapper ``{"events": {stem: [...]}, ...}``
+      - bare stem map ``{stem: [...]}``
+    Returns None if shape is unusable.
+    """
+    if not isinstance(obj, dict) or not obj:
+        return None
+    if "events" in obj:
+        ev = obj["events"]
+        if isinstance(ev, dict):
+            return ev
+        # list / null / missing usable map → no prior (soft)
+        return None
+    # bare stem map: all values lists (possibly empty)
+    if all(isinstance(v, list) for v in obj.values()):
+        return obj
+    return None
+
+
+def load_prior_events(path):
+    """Load prior cumulative events from cache JSON or bare stem map.
+
+    Each event id becomes ``prior:{stem}:{raw_id}`` with ``_raw_id`` preserved,
+    ``_generation=0``, and sequential ``_src_index``. Soft-skips unreadable or
+    unusable files (returns ``[]`` + stderr).
+    """
+    if not path:
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            obj = json.load(fh)
+    except (OSError, ValueError) as e:
+        sys.stderr.write(f"assemble: prior events unreadable: {e}\n")
+        return []
+
+    stem_map = _stem_map_from_prior_obj(obj)
+    if not stem_map:
+        return []
+
+    out = []
+    i = 0
+    for stem in sorted(stem_map.keys()):
+        raws = stem_map[stem]
+        if not isinstance(raws, list):
+            continue
+        stem_s = str(stem).strip() or "default"
+        for raw in raws:
+            ev = validate_event(raw)
+            if ev is None:
+                continue
+            raw_id = ev["id"]
+            # Defensive: never double-prefix prior: on multi-hop reloads
+            if raw_id.startswith("prior:"):
+                parts = raw_id.split(":", 2)
+                if len(parts) == 3:
+                    raw_id = parts[2]
+            elif ":" in raw_id and raw_id.split(":", 1)[0] == stem_s:
+                raw_id = raw_id.split(":", 1)[1]
+            ev["_raw_id"] = raw_id
+            ev["id"] = f"prior:{stem_s}:{raw_id}"
+            ev["_generation"] = 0
+            ev["_src_index"] = i
+            i += 1
+            out.append(ev)
+    return out
+
+
+def _id_stem_raw(ev):
+    """Parse stem + raw miner id from namespaced event (CDT-93 / CDT-88).
+
+    ``prior:stem:raw`` → (stem, raw); ``stem:raw`` → (stem, raw).
+    Prefers ``_raw_id`` when set for the raw half.
+    """
+    eid = str(ev.get("id") or "")
+    raw_pref = ev.get("_raw_id")
+    parts = eid.split(":")
+    if parts and parts[0] == "prior" and len(parts) >= 3:
+        stem = parts[1]
+        raw = raw_pref if raw_pref is not None else ":".join(parts[2:])
+        return stem, str(raw)
+    if len(parts) >= 2:
+        stem = parts[0]
+        raw = raw_pref if raw_pref is not None else ":".join(parts[1:])
+        return stem, str(raw)
+    return "default", str(raw_pref if raw_pref is not None else eid)
+
+
+def events_for_cache(events):
+    """Build stem → [raw-id event dicts] for M8 cache ``events`` payload.
+
+    Strips ``prior:`` / stem id prefixes, ``_generation``, ``_src_index``,
+    ``_labels``, ``_rank``, ``_raw_id``. Emits validated public fields only.
+    """
+    by_stem = OrderedDict()
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        stem, raw_id = _id_stem_raw(ev)
+        # Rebuild public fields with bare raw id
+        public = {k: v for k, v in ev.items() if not str(k).startswith("_")}
+        public["id"] = raw_id
+        cleaned = validate_event(public)
+        if cleaned is None:
+            continue
+        by_stem.setdefault(stem, []).append(cleaned)
+    return dict(by_stem)
+
+
+def merge_events(prior, delta):
+    """Merge prior + delta: tag delta gen=1, concat → order → dedup → order.
+
+    Dedup keeps first in ordered list → prior wins on body match (verbatim).
+    When ``prior`` is empty, returns ordered+deduped ``delta`` without forcing
+    ``_generation`` (cold path order identity).
+    """
+    prior = list(prior or [])
+    delta = list(delta or [])
+    if prior:
+        for e in prior:
+            if isinstance(e, dict):
+                e.setdefault("_generation", 0)
+        for e in delta:
+            if isinstance(e, dict):
+                e["_generation"] = 1
+    combined = prior + delta
+    ordered = order_events(combined)
+    deduped = dedup_events(ordered)
+    return order_events(deduped)
+
+
+def load_merged_events(events_path, prior=None):
+    """Load miner events (+ optional prior) in the same id space as assemble.
+
+    Parameters
+    ----------
+    events_path : str
+        Miner events file or directory (``{stem}:{id}`` namespace).
+    prior : str or None
+        Path to cache JSON / stem map for ``load_prior_events``.
+    """
+    prior_evs = load_prior_events(prior) if prior else []
+    delta = load_events(events_path)
+    if prior_evs:
+        return merge_events(prior_evs, delta)
+    return delta
+
+
+def load_merged_for_summary(events_path, prior_path=None):
+    """Step 7 helper — same merge id space as assemble (alias)."""
+    return load_merged_events(events_path, prior=prior_path)
 
 
 def load_annotations(path):
@@ -326,14 +486,24 @@ def _ts_sort_key(ts):
 
 
 def order_events(events):
-    """Stable sort: order field → timestamp → input index."""
+    """Stable sort: ``_generation`` (default 0) → order field → timestamp → input index.
+
+    Generation primary keeps prior (gen 0) before delta (gen 1) even when
+    miner ``order`` restarts at 1 each delta (CDT-88). Cold path leaves gen
+    unset → all default 0 → byte-identical relative order.
+    """
 
     def key(ev):
+        gen = ev.get("_generation", 0)
+        try:
+            gen = int(gen)
+        except (TypeError, ValueError):
+            gen = 0
         if "order" in ev:
-            return (0, ev["order"], ev.get("_src_index", 0))
+            return (gen, 0, ev["order"], ev.get("_src_index", 0))
         if "timestamp" in ev:
-            return (1, _ts_sort_key(ev["timestamp"]), ev.get("_src_index", 0))
-        return (2, ev.get("_src_index", 0), 0)
+            return (gen, 1, _ts_sort_key(ev["timestamp"]), ev.get("_src_index", 0))
+        return (gen, 2, ev.get("_src_index", 0), 0)
 
     return sorted(events, key=key)
 
@@ -567,6 +737,18 @@ def assemble_packet(
     mode : str, optional
         ``cold`` or ``warm`` — CDT-85 honesty header (not freeform live-context).
     """
+    def _copy_meta(v, raw, default_src):
+        """Preserve namespace / generation meta across re-validate."""
+        if not isinstance(raw, dict):
+            v.setdefault("_src_index", default_src)
+            return v
+        v["_src_index"] = raw.get("_src_index", default_src)
+        if raw.get("_raw_id") is not None:
+            v["_raw_id"] = raw["_raw_id"]
+        if "_generation" in raw:
+            v["_generation"] = raw["_generation"]
+        return v
+
     # Validate if callers passed raw events
     cleaned = []
     for i, raw in enumerate(events or []):
@@ -581,26 +763,17 @@ def assemble_packet(
                 v = validate_event(ev)
                 if v is None:
                     continue
-                v["_src_index"] = ev.get("_src_index", i)
-                if ev.get("_raw_id") is not None:
-                    v["_raw_id"] = ev["_raw_id"]
-                cleaned.append(v)
+                cleaned.append(_copy_meta(v, ev, i))
             else:
                 v = validate_event(raw)
                 if v is None:
                     continue
-                v["_src_index"] = raw.get("_src_index", i)
-                if raw.get("_raw_id") is not None:
-                    v["_raw_id"] = raw["_raw_id"]
-                cleaned.append(v)
+                cleaned.append(_copy_meta(v, raw, i))
         else:
             v = validate_event(raw)
             if v is None:
                 continue
-            v["_src_index"] = i
-            if isinstance(raw, dict) and raw.get("_raw_id") is not None:
-                v["_raw_id"] = raw["_raw_id"]
-            cleaned.append(v)
+            cleaned.append(_copy_meta(v, raw if isinstance(raw, dict) else {}, i))
 
     ordered = order_events(cleaned)
     deduped = dedup_events(ordered)
@@ -833,6 +1006,18 @@ def build_arg_parser():
         action="store_true",
         help="Print State now + Through-line only (cold inject shape)",
     )
+    p.add_argument(
+        "--prior-events",
+        default="",
+        dest="prior_events",
+        help="Prior cache JSON (events stem map) or bare stem map for merge (CDT-88)",
+    )
+    p.add_argument(
+        "--events-out",
+        default="",
+        dest="events_out",
+        help="Write post-dedup cumulative stem-map JSON (raw ids) for M8 cache",
+    )
     return p
 
 
@@ -844,6 +1029,23 @@ def main(argv=None):
     except FileNotFoundError as e:
         sys.stderr.write(f"assemble: {e}\n")
         return 2
+
+    prior = []
+    if args.prior_events:
+        prior = load_prior_events(args.prior_events)
+        if prior:
+            events = merge_events(prior, events)
+
+    # Post-dedup list for events-out (mirrors assemble_packet pipeline)
+    if args.events_out:
+        for_cache = order_events(dedup_events(order_events(list(events))))
+        cache_map = events_for_cache(for_cache)
+        out_dir = os.path.dirname(args.events_out)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        with open(args.events_out, "w", encoding="utf-8") as fh:
+            json.dump(cache_map, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
 
     git_blob = ""
     if args.git:

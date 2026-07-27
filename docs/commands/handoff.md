@@ -21,18 +21,25 @@ dual-write.
 ```
 /handoff <session-uuid> [slug]
 /handoff [--slug <slug>]
+/handoff --full [--slug <slug>]
 /handoff --help
 ```
 
 Slug is optional (second positional or `--slug`); sanitized to `[a-z0-9-]+`;
 default `stm`.
 
+**`--full`** (warm): force a full spine re-mine, ignoring the M8 cache delta path.
+Equivalent to `HANDOFF_FULL=1`. Use when you want a clean full capture after a
+suspect packet or cache corruption. Cold already re-mines on cache miss; `--full`
+is primarily a warm re-capture control.
+
 ## Modes
 
 | Mode | Invocation | What it does |
 |------|------------|--------------|
 | **Cold** | `/handoff <session-uuid> [slug]` | Spine-mines that past session; writes the full STM packet; **prints State now + Through-line** and **cites the packet path** for appendix (M7). Cache hit serves core + path without re-mine (M8). |
-| **Warm** | bare `/handoff` or `/handoff --slug <s>` | Spine-mines **this** session's live JSONL via the same engine; **writes packet file only** (M10). Packet header includes `mode: warm` + `session: <id>` (CDT-85 / CDT-92 bridge). Not printed as primary product — you are still in the session. Works on **Claude Code and Grok** (dual-host discover). Neither host resolvable → clear fail (no freeform live-context dual path). |
+| **Warm** | bare `/handoff` or `/handoff --slug <s>` | Spine-mines **this** session's live JSONL via the same engine; **writes packet file only** (M10). Packet header includes `mode: warm` + `session: <id>` (CDT-85 / CDT-92 bridge). Not printed as primary product — you are still in the session. Works on **Claude Code and Grok** (dual-host discover). Neither host resolvable → clear fail (no freeform live-context dual path). **Re-capture** delta-mines since the last cached leaf when cumulative events exist (M8b) — miner tokens scale with growth since last capture, not full session length. |
+| **Warm full** | `/handoff --full` | Same as warm, but force full re-mine (no delta). Also `HANDOFF_FULL=1`. |
 | **Help** | `/handoff --help` | Prints usage and exits. Any unknown flag prints usage too. |
 
 The `<session-uuid>` is a UUID like `00000000-0000-4000-8000-000000000004` — one
@@ -101,29 +108,47 @@ Packet files live under the **target session project's** `.claude/handoff/`
   write).
 
 Re-capturing the same session writes a **new** file with `Supersedes: <prior>`
-(M11). Cache for cold re-invokes lives under `$MROOT/.claude/handoff/cache/`
-(outside `memory.db`). Printed packet path must match the actual write path.
+(M11). Cache for cold re-invokes and warm delta-mine lives under
+`$MROOT/.claude/handoff/cache/` (outside `memory.db`). Printed packet path must
+match the actual write path.
+
+### Warm re-capture cost (M8b)
+
+Without delta-mine, every warm re-capture re-mines the **full** session spine
+(~session-length tokens × capture count). With M8b:
+
+- Cache stores cumulative `events` (stem-grouped) alongside `leaf_uuid`.
+- Next warm bare `/handoff` auto spine-mines **only messages after** that leaf
+  when `events` are present; assemble merges prior + delta (prior survives
+  verbatim).
+- Miner / map cost tracks **delta size**, not full history.
+- Old caches without `events`, missing leaf, or `/handoff --full` → full re-mine
+  (safe fallback). Cold path is unchanged (no auto delta; may still **write**
+  `events` so the next warm can delta).
 
 ### How the pipeline works
 
 Cold and warm share one **spine-mine** engine after prepare (they differ only
-in entry, exit, and warm-only annotation):
+in entry, exit, warm-only annotation, and M8b warm delta):
 
 1. **Cache check (cold)** — unchanged session → serve cached core + path (M8).
 2. **Pre-pass** — deterministic, LLM-free: locate canonical transcript via
    shared [transcript-parse](../../skills/transcript-parse/SKILL.md), dedup
    fork copies, strip raw tool output, size-decide (M1, M2). Cold declines
    transcripts modified < 60 s ago (M9). Warm may read mid-write via a
-   warm-only carve-out (M14).
+   warm-only carve-out (M14). Warm re-capture may cut the spine after the
+   cached leaf (M8b; internal `--since-leaf` — not a user flag).
 3. **Optional chunk map** — monster spines are chunk-summarized in parallel,
-   then reduced (M3).
+   then reduced (M3). On delta path, map cost is delta-sized.
 4. **One merged miner** — single Task, one spine read; writes both event
    files (`through_line.json` + `state.json`, all 7 kinds). Code-state is
-   **git only** — no LLM miner (M3b).
-5. **Warm annotation (optional)** — labels/rank on existing event IDs only;
-   never invents evidence.
-6. **Assemble (LLM-free)** — merge events into **State now → Through-line →
-   appendix**; write packet file. Cold prints core + path; warm prints path only.
+   **git only** — no LLM miner (M3b). Delta path mines only post-leaf messages.
+5. **Warm annotation (optional)** — labels/rank on existing event IDs only
+   (including `prior:stem:id` when prior events are merged); never invents
+   evidence.
+6. **Assemble (LLM-free)** — merge prior + delta events into **State now →
+   Through-line → appendix**; write packet + cache `events` for next warm.
+   Cold prints core + path; warm prints path only.
 
 ### Spawn model tiers (M3e / CDT-90)
 
@@ -191,8 +216,21 @@ Full packet: .claude/handoff/20260723-1410-00000000-0000-4000-8000-000000000004-
 ```
 
 **Capture the current live session (warm):**
+
 ```
 /handoff
+```
+
+**Warm re-capture (delta when cache has events):** bare `/handoff` again after
+more work — miner sees only growth since last capture. Force full:
+
+```
+/handoff --full
+```
+
+**Capture the current live session with a slug (warm):**
+```
+/handoff --slug cache-race-fix
 ```
 ```
 Warm handoff written → /home/you/project/.claude/handoff/20260723-1422-abcd1234-cache-race-fix.md

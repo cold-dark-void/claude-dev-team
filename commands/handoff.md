@@ -1,7 +1,7 @@
 ---
 name: handoff
-description: Session handoff STM packet (compact seed) — cold mode (/handoff <uuid>) reconstructs a past session via shared spine-mine into State now → Through-line → appendix, prints core + path; warm mode (bare /handoff) mines this session's transcript the same way and writes a packet file only. Optional slug: second positional or --slug. Use as /compact @packet after /branch or /fork — not a compact replacement.
-argument-hint: "[<session-uuid>] [<slug>] | --slug <slug> | --help"
+description: Session handoff STM packet (compact seed) — cold mode (/handoff <uuid>) reconstructs a past session via shared spine-mine into State now → Through-line → appendix, prints core + path; warm mode (bare /handoff) mines this session's transcript the same way and writes a packet file only. Optional slug: second positional or --slug. Warm re-capture delta-mines since cached leaf unless --full. Use as /compact @packet after /branch or /fork — not a compact replacement.
+argument-hint: "[<session-uuid>] [<slug>] | --slug <slug> | --full | --help"
 agent: build
 ---
 
@@ -13,7 +13,9 @@ Cold + warm session handoff (SPEC-018, CDT-79). Produces one **STM packet**
 - **Cold** `/handoff <uuid>` — reconstruct a past session from disk; print
   State now + Through-line; cite full packet path (M7). Cache on hit (M8).
 - **Warm** bare `/handoff` — spine-mine **this** session's JSONL with mid-write
-  carve-out; write packet file only (M10). No freeform essay.
+  carve-out; write packet file only (M10). No freeform essay. Warm re-capture
+  **delta-mines** since the M8 cache leaf when cumulative `events` exist (M8b);
+  `/handoff --full` (or `HANDOFF_FULL=1`) forces a full re-mine.
 
 This command is a thin orchestrator. Heavy lifting:
 
@@ -30,10 +32,12 @@ optional warm annotation) via `Task` spawns. **It does not distill freeform brie
 | Invocation | Mode | Entry | Exit |
 |------------|------|-------|------|
 | `/handoff <session-uuid> [slug]` | cold | locate by uuid; M9 strict | print core + path; cache |
-| `/handoff` / `/handoff --slug <s>` | warm | dual-host discover (Grok\|Claude) + `--allow-in-progress` | file only; print path |
+| `/handoff` / `/handoff --slug <s>` | warm | dual-host discover (Grok\|Claude) + `--allow-in-progress`; M8b auto delta when cache has events | file only; print path |
+| `/handoff --full` | warm (full) | same as warm; ignore cache delta; full spine re-mine | file only; print path |
 | `/handoff --help` | help | — | usage, exit 0 |
 
 Shared spine-mine after prepare (AC-17). Differ only in entry + exit + warm annotation.
+`--since-leaf` is **internal** (prepare debug) — not a user CLI flag; warm auto-wires it from cache.
 
 Typical next step: `/branch` or `/fork`, then `/compact @.claude/handoff/<packet>.md`
 to seed the next session. This is a **compact seed**, not a replacement for `/compact`.
@@ -124,6 +128,9 @@ SHOW_USAGE=0
 WARM=0           # 1 → bare / no uuid (warm mode)
 UNKNOWN=""
 POSITIONAL=()
+# M8b full-force: --full or pre-set HANDOFF_FULL=1 forces full warm re-mine
+# (no auto --since-leaf). Export so Step 4 / later fences see it.
+: "${HANDOFF_FULL:=0}"
 
 set -- $ARGUMENTS
 if [ "$#" -eq 0 ]; then
@@ -132,6 +139,8 @@ else
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -h|--help) SHOW_USAGE=1; shift ;;
+      --full)
+        HANDOFF_FULL=1; shift ;;
       --slug)
         [ -n "${2:-}" ] || { echo "error: --slug requires a value" >&2; exit 1; }
         SLUG="$2"; shift 2 ;;
@@ -151,9 +160,10 @@ else
     SLUG="${POSITIONAL[1]}"
   fi
   if [ -z "$UUID" ]; then
-    WARM=1   # bare flags only (e.g. --slug foo) → warm
+    WARM=1   # bare flags only (e.g. --slug foo / --full) → warm
   fi
 fi
+export HANDOFF_FULL
 ```
 
 ### 1a. `--help` / unknown flag → usage
@@ -167,12 +177,17 @@ Usage:
   /handoff <session-uuid> [slug]   Cold: reconstruct past session; print State now
                                    + Through-line; cite full packet path.
   /handoff [--slug <slug>]         Warm: mine THIS session; write packet file only.
+                                   Re-capture delta-mines since cache leaf when
+                                   cumulative events exist (M8b).
+  /handoff --full [--slug <s>]     Warm full re-mine (ignore cache delta).
+                                   Same as HANDOFF_FULL=1.
   /handoff --help                  This help.
 
 Slug (optional): second positional or --slug. Sanitized [a-z0-9-]+; default stm.
 Packet shape: ## State now → ## Through-line → ## appendix
 Typical loop: /handoff → /branch|/fork → /compact @packet-file
 Not a Linear dual-write. Not a /compact replacement.
+--since-leaf is internal (prepare debug); not a user flag.
 ```
 
 ### 1b. Warm vs cold branch
@@ -383,11 +398,72 @@ PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
 UUID="${UUID:-}"
 HANDOFF_MODE="${HANDOFF_MODE:-cold}"
 TRANSCRIPT="${TRANSCRIPT:-}"
+HANDOFF_DIR="${HANDOFF_DIR:-}"
+HANDOFF_FULL="${HANDOFF_FULL:-0}"
+PRIOR_EVENTS_FILE=""
 if [ "$HANDOFF_MODE" = "warm" ] && [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   PREPARE_EXTRA=(--transcript "$TRANSCRIPT" --allow-in-progress)
 else
-  PREPARE_EXTRA=()          # cold: M9 strict / M14 — no --allow-in-progress
+  PREPARE_EXTRA=()          # cold: M9 strict / M14 — no --transcript, no --allow-in-progress
 fi
+
+# M8b warm auto delta-mine: when not full-force and M8 cache has leaf_uuid +
+# non-empty cumulative events → prepare --since-leaf <prior leaf> and carry
+# prior events into assemble / Step 7. Cold never auto-since-leaf (identity).
+# Cache path = $HANDOFF_DIR/cache/$UUID.json (SID = session uuid).
+# --since-leaf is internal only (not user CLI).
+if [ "$HANDOFF_MODE" = "warm" ] \
+   && [ "$HANDOFF_FULL" != "1" ] \
+   && [ -n "$HANDOFF_DIR" ] && [ -n "$UUID" ]; then
+  _CACHE_FILE="$HANDOFF_DIR/cache/${UUID}.json"
+  if [ -f "$_CACHE_FILE" ]; then
+    PRIOR_LEAF=$(PRIOR_CACHE="$_CACHE_FILE" python3 - <<'PYDELTA'
+import json, os, sys
+path = os.environ["PRIOR_CACHE"]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except (OSError, ValueError):
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+leaf = data.get("leaf_uuid") or ""
+if not isinstance(leaf, str) or not leaf.strip():
+    sys.exit(0)
+ev = data.get("events")
+if not isinstance(ev, dict) or not ev:
+    sys.exit(0)
+has = False
+for v in ev.values():
+    if isinstance(v, list) and v:
+        has = True
+        break
+if has:
+    print(leaf.strip())
+PYDELTA
+)
+    if [ -n "${PRIOR_LEAF:-}" ]; then
+      PREPARE_EXTRA+=(--since-leaf "$PRIOR_LEAF")
+      PRIOR_EVENTS_FILE="$_CACHE_FILE"
+      echo "handoff: M8b delta-mine since-leaf=$PRIOR_LEAF (prior events from cache)" >&2
+    fi
+  fi
+  unset _CACHE_FILE
+fi
+export PRIOR_EVENTS_FILE
+# finalize / assemble also read FINALIZE_PRIOR_EVENTS
+if [ -n "$PRIOR_EVENTS_FILE" ]; then
+  export FINALIZE_PRIOR_EVENTS="$PRIOR_EVENTS_FILE"
+else
+  unset FINALIZE_PRIOR_EVENTS 2>/dev/null || true
+fi
+# Full-force: clear any prior so Step 7/8 stay full-path
+if [ "$HANDOFF_FULL" = "1" ]; then
+  PRIOR_EVENTS_FILE=""
+  unset FINALIZE_PRIOR_EVENTS 2>/dev/null || true
+  export PRIOR_EVENTS_FILE=""
+fi
+
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/handoff.XXXXXX") \
   || { echo "handoff error: mktemp -d failed for WORK_DIR"; exit 1; }
 PLAN_JSON="$WORK_DIR/plan.json"
@@ -397,7 +473,8 @@ EVENTS_DIR="$WORK_DIR/events"
 mkdir -p "$EVENTS_DIR"
 
 set +e
-# Cold: prepare --uuid only (M9 strict). Warm: + --transcript + --allow-in-progress.
+# Cold: prepare --uuid only (M9 strict). Warm: + --transcript + --allow-in-progress
+# (+ optional internal --since-leaf when M8b delta eligible).
 "$PREPASS" prepare --uuid "$UUID" --out "$PLAN_JSON" "${PREPARE_EXTRA[@]}" \
   >"$PREP_OUT" 2>"$PREP_ERR"
 PREP_RC=$?
@@ -415,6 +492,52 @@ Exit-code handling:
   /handoff on the live session (warm carve-out).
   ```
 - **1 — not-found / env error.** Clear error + `$PREP_ERR`; exit non-zero.
+
+**M8b universal full fallback:** when prepare was given `--since-leaf` (warm
+delta) but the leaf was not in the timeline, prepare still emits a full spine
+with `stats.since_leaf_applied=false`. Clear prior-events merge so Step 7/8
+do not double-count (same effect as `--full`):
+
+```bash
+# Re-bind after prepare (fresh shell — SPEC-021 C1). Re-resolve prior from plan +
+# cache only — do not read FINALIZE_PRIOR_EVENTS from another fence (C1).
+PLAN_JSON="${PLAN_JSON:-}"
+UUID="${UUID:-}"
+HANDOFF_DIR="${HANDOFF_DIR:-}"
+HANDOFF_FULL="${HANDOFF_FULL:-0}"
+PRIOR_EVENTS_FILE=""
+PRIOR_LEAF=""
+if [ "$HANDOFF_FULL" != "1" ] && [ -n "$PLAN_JSON" ] && [ -f "$PLAN_JSON" ] \
+   && [ -n "$UUID" ] && [ -n "$HANDOFF_DIR" ]; then
+  _SLA=$(PLAN_JSON="$PLAN_JSON" python3 - <<'PYSLA'
+import json, os
+try:
+    st = json.load(open(os.environ["PLAN_JSON"], encoding="utf-8")).get("stats") or {}
+except (OSError, ValueError):
+    st = {}
+# since_leaf requested AND applied → keep prior; else clear (miss / cold / full)
+if st.get("since_leaf_applied") is True:
+    print("keep")
+else:
+    print("clear")
+PYSLA
+)
+  if [ "$_SLA" = "keep" ]; then
+    _CACHE_FILE="${HANDOFF_DIR%/}/cache/${UUID}.json"
+    if [ -f "$_CACHE_FILE" ]; then
+      PRIOR_EVENTS_FILE="$_CACHE_FILE"
+    fi
+  else
+    # requested since-leaf but not applied (miss→full), or no since-leaf (cold)
+    if PLAN_JSON="$PLAN_JSON" python3 -c 'import json,os,sys; st=json.load(open(os.environ["PLAN_JSON"])).get("stats") or {}; sys.exit(0 if ("since_leaf" in st or "since_leaf_applied" in st) else 1)' 2>/dev/null; then
+      echo "handoff: M8b since-leaf not applied — full re-mine; clearing prior events" >&2
+    fi
+  fi
+  unset _SLA _CACHE_FILE
+fi
+export PRIOR_EVENTS_FILE
+export PRIOR_LEAF
+```
 
 Read plan fields (no `eval` — NUL-delimited):
 
@@ -624,53 +747,63 @@ Warm: after the merged miner, build a short `EVENTS_SUMMARY_JSON` (array of
 `{id, kind, text|quote}`) then spawn **one** annotation Task using SKILL.md §
 Annotation pass.
 
-### EVENTS_SUMMARY_JSON — namespaced ids (MUST, CDT-93)
+### EVENTS_SUMMARY_JSON — merged namespaced ids (MUST, CDT-93 + M8b / CDT-88)
 
-`assemble.py load_events` rewrites each on-disk miner `id` to
-`{stem}:{raw_id}` (`stem` = basename of the event file without `.json`). The
-annotation invent-guard is **exact match only** on that namespaced id — bare
-miner ids are dropped and never mis-attach.
+`assemble.py` namespaces event ids so annotation invent-guard is **exact match
+only** — bare miner ids are dropped and never mis-attach.
 
-**Orchestrator MUST emit the same namespaced form in `EVENTS_SUMMARY_JSON`.**
+| Source | Id after load |
+|--------|----------------|
+| Miner file `S.json` id `R` | `S:R` (CDT-93) |
+| Cache prior stem `S` raw id `R` | `prior:S:R` (M8b) |
+
+**Orchestrator MUST emit the same merged namespaced form in
+`EVENTS_SUMMARY_JSON`** — prior + delta when M8b warm delta path is active.
 Do **not** pass bare miner `id` fields from the JSON files into the annotation
-Task.
+Task. Cross-gen annotation MAY target `prior:stem:id`.
 
-Algorithm (same rule as `load_events`):
-
-```
-for each *.json under $EVENTS_DIR:
-  stem = basename(file) without .json     # through_line | state | …
-  for each event in file:
-    summary row id = "${stem}:${raw_id}"  # raw_id = event.id as written on disk
-```
-
-Examples: `through_line.json` id `tl-e1` → `through_line:tl-e1`;
-`state.json` id `st-open-1` → `state:st-open-1`.
-
-**Prefer** building the summary from `assemble.load_events` so ids cannot drift:
+**MUST** build the summary via `assemble.load_merged_for_summary` /
+`load_merged_events` so ids match finalize assemble:
 
 ```bash
 # Re-bind pipeline vars (fresh shell — SPEC-021 C1)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 EVENTS_DIR="${EVENTS_DIR:-}"
+UUID="${UUID:-}"
+HANDOFF_DIR="${HANDOFF_DIR:-}"
+HANDOFF_FULL="${HANDOFF_FULL:-0}"
+PLAN_JSON="${PLAN_JSON:-}"
+# M8b prior: re-resolve from plan.stats + cache (fresh shell — C1; no FINALIZE_PRIOR_EVENTS)
+PRIOR_EVENTS_FILE=""
+if [ "$HANDOFF_FULL" != "1" ] && [ -n "$PLAN_JSON" ] && [ -f "$PLAN_JSON" ] \
+   && [ -n "$UUID" ] && [ -n "$HANDOFF_DIR" ]; then
+  if PLAN_JSON="$PLAN_JSON" python3 -c 'import json,os,sys; st=json.load(open(os.environ["PLAN_JSON"])).get("stats") or {}; sys.exit(0 if st.get("since_leaf_applied") is True else 1)' 2>/dev/null; then
+    _cf="${HANDOFF_DIR%/}/cache/${UUID}.json"
+    [ -f "$_cf" ] && PRIOR_EVENTS_FILE="$_cf"
+    unset _cf
+  fi
+fi
 [ -n "$EVENTS_DIR" ] && [ -d "$EVENTS_DIR" ] || { echo "error: Step 7 needs EVENTS_DIR" >&2; exit 1; }
 
 EVENTS_SUMMARY_JSON=$(python3 -c '
 import json, sys
 sys.path.insert(0, "'"$PDH"'/skills/handoff")
 import assemble as a
-evs = a.load_events(sys.argv[1])
+events_dir = sys.argv[1]
+prior = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
+# Merged namespaced ids: prior:{stem}:{id} + {stem}:{id} (same as assemble)
+evs = a.load_merged_for_summary(events_dir, prior_path=prior)
 print(json.dumps([
     {"id": e["id"], "kind": e["kind"],
      "text": (e.get("quote") or e.get("text") or "")[:200]}
     for e in evs
 ]))
-' "$EVENTS_DIR")
+' "$EVENTS_DIR" "${PRIOR_EVENTS_FILE:-}")
 ```
 
-If inlining without `load_events`, re-apply the stem algorithm above — never
-copy bare `id` from miner JSON into the summary.
+When `PRIOR_EVENTS_FILE` is empty, `load_merged_for_summary` degenerates to
+delta-only (`load_events`) — cold identity. Never copy bare `id` from miner JSON.
 
 Spawn contract (annotation Task):
 
@@ -688,11 +821,12 @@ WORK_DIR="${WORK_DIR:-}"
 ANNOTATIONS_FILE="$WORK_DIR/annotations.json"
 ```
 
-Substitutions: `${EVENTS_SUMMARY_JSON}` (namespaced ids), `${ANNOTATIONS_FILE}`.
+Substitutions: `${EVENTS_SUMMARY_JSON}` (merged namespaced ids, incl. `prior:…`
+when M8b), `${ANNOTATIONS_FILE}`.
 
 Schema invent-guard: labels/rank only; `event_id` MUST exact-match a namespaced
-id from the summary / `load_events` (bare miner ids dropped); no new evidence.
-On failure: omit `--annotations` and continue.
+id from the summary / `load_merged_for_summary` (bare miner ids dropped); no new
+evidence. On failure: omit `--annotations` and continue.
 
 Cold:
 
@@ -719,6 +853,19 @@ SLUG="${SLUG:-}"
 SPINE_TOKENS="${SPINE_TOKENS:-}"
 ANNOTATIONS_FILE="${ANNOTATIONS_FILE:-}"
 LEAF_UUID="${LEAF_UUID:-}"
+HANDOFF_DIR="${HANDOFF_DIR:-}"
+HANDOFF_FULL="${HANDOFF_FULL:-0}"
+PLAN_JSON="${PLAN_JSON:-}"
+# M8b prior: re-resolve from plan.stats + cache (fresh shell — C1)
+PRIOR_EVENTS_FILE=""
+if [ "$HANDOFF_FULL" != "1" ] && [ -n "$PLAN_JSON" ] && [ -f "$PLAN_JSON" ] \
+   && [ -n "$UUID" ] && [ -n "$HANDOFF_DIR" ]; then
+  if PLAN_JSON="$PLAN_JSON" python3 -c 'import json,os,sys; st=json.load(open(os.environ["PLAN_JSON"])).get("stats") or {}; sys.exit(0 if st.get("since_leaf_applied") is True else 1)' 2>/dev/null; then
+    _cf="${HANDOFF_DIR%/}/cache/${UUID}.json"
+    [ -f "$_cf" ] && PRIOR_EVENTS_FILE="$_cf"
+    unset _cf
+  fi
+fi
 [ -n "$UUID" ] && [ -n "$EVENTS_DIR" ] && [ -d "$EVENTS_DIR" ] \
   || { echo "error: finalize needs UUID + EVENTS_DIR from prior steps" >&2; exit 1; }
 
@@ -731,11 +878,18 @@ FIN_ARGS=(finalize --uuid "$UUID" --events "$EVENTS_DIR" --mode "$HANDOFF_MODE")
 if [ "$HANDOFF_MODE" = "warm" ] && [ -n "$ANNOTATIONS_FILE" ] && [ -f "$ANNOTATIONS_FILE" ]; then
   FIN_ARGS+=(--annotations "$ANNOTATIONS_FILE")
 fi
+# M8b: pass prior events so assemble merges prior+delta; events-out seeds next cache
+if [ -n "$PRIOR_EVENTS_FILE" ] && [ -f "$PRIOR_EVENTS_FILE" ]; then
+  FIN_ARGS+=(--prior-events "$PRIOR_EVENTS_FILE")
+  export FINALIZE_PRIOR_EVENTS="$PRIOR_EVENTS_FILE"
+fi
 # Cold: print State now + Through-line + path cite (default for --mode cold;
 # --print-core makes intent explicit). Warm: file-only (no --print-core).
 if [ "$HANDOFF_MODE" = "cold" ]; then
   FIN_ARGS+=(--print-core)
 fi
+# Note: prepass finalize always requests assemble --events-out when supported and
+# writes M8b cache `events` from FINALIZE_EVENTS_JSON / events-out (next warm delta).
 
 set +e
 FIN_ERR="${TMPDIR:-/tmp}/handoff-finalize.err"
@@ -784,8 +938,13 @@ under invoker cwd when target resolved (CDT-80).
 - **Never block on one bad spawn:** drop bad miner/chunk; still finalize.
 - **Cold M9 strict** — never pass `--allow-in-progress` on cold.
 - **Warm only:** `--transcript` + `--allow-in-progress` + optional annotation.
+- **M8b warm delta:** auto `--since-leaf` from cache when `events` present;
+  `--full` / `HANDOFF_FULL=1` forces full. Cold never auto-since-leaf.
+  Miss (`since_leaf_applied=false`) → full spine + clear prior events.
+  `--since-leaf` is internal only (not user CLI).
 - **No Linear dual-write.** No claim that handoff replaces `/compact`.
-- **Cache isolation (M8):** `.claude/handoff/cache/` only.
+- **Cache isolation (M8/M8b):** `.claude/handoff/cache/` only; cache may store
+  cumulative `events` stem map for next warm delta.
 
 ## Error Handling (summary)
 
@@ -793,11 +952,15 @@ under invoker cwd when target resolved (CDT-80).
 |-----------|----------|
 | `--help` / unknown flag | usage, exit 0 |
 | bare / no uuid | warm entry (1w) → shared pipeline |
+| `--full` / `HANDOFF_FULL=1` | warm full re-mine (no auto since-leaf) |
 | malformed uuid (cold) | error, exit 1 |
 | warm: neither Grok nor Claude resolvable / no JSONL | clear error (bans freeform live-context), exit 1 |
 | engine not found | error, exit 1 |
 | cache HIT (cold) | print core+path, STOP |
 | cache MISS | prepare |
+| warm cache has leaf+events (not full) | prepare `--since-leaf` + prior events merge |
+| warm since-leaf miss (`since_leaf_applied=false`) | full spine + **clear** prior events (universal full) |
+| warm cache missing/empty events | full re-mine (no crash) |
 | M9 too-fresh (cold) | refuse, exit 0 |
 | warm mid-write | prepare proceeds (`--allow-in-progress`) |
 | uuid / transcript not found | error, exit non-zero |
@@ -819,7 +982,12 @@ under invoker cwd when target resolved (CDT-80).
         ▼
 prepare  cold: --uuid only (M9 strict; PREPARE_EXTRA empty)
          warm: --uuid --transcript PATH --allow-in-progress (M14)
-        │  plan.json + spine|chunks
+         warm M8b (not --full): if cache/$SID.json has leaf_uuid + non-empty
+              events → + --since-leaf $PRIOR_LEAF; PRIOR_EVENTS_FILE=cache path
+         warm --full / HANDOFF_FULL=1: full spine (no since-leaf)
+         after prepare: if stats.since_leaf set && since_leaf_applied≠true
+              → clear PRIOR_EVENTS_FILE / FINALIZE_PRIOR_EVENTS / PRIOR_LEAF
+        │  plan.json + spine|chunks (delta-sized when M8b)
         ▼
 git capture → GIT_STATE_FILE
         ▼
@@ -828,11 +996,15 @@ git capture → GIT_STATE_FILE
 1 merged miner ONE block (spine once) → events/through_line.json + events/state.json
         ▼
 [warm?] annotation → annotations.json
+        Step 7 EVENTS_SUMMARY = load_merged_for_summary(dir, prior)
+        (ids: prior:stem:id + stem:id)
         ▼
-finalize --events --mode cold|warm [--spine-tokens S] [--print-core] [--slug] …
+finalize --events --mode cold|warm [--prior-events PRIOR] [--spine-tokens S]
+         [--print-core] [--slug] …
+        │  assemble merges prior+delta; --events-out → cache events (M8b)
         │  auto path: YYYYMMDD-HHmm-<session>-<slug>.md (local clock)
         │  auto Supersedes: newest same-session tip (skip precompact rescues)
         │
-        ├─ cold: print State now + Through-line + path; cache
-        └─ warm: write packet file only; print path
+        ├─ cold: print State now + Through-line + path; cache (+ events seed)
+        └─ warm: write packet file only; print path; cache events for next delta
 ```

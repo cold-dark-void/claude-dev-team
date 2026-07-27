@@ -445,6 +445,305 @@ print("ok")
 ' 2>/dev/null | grep -q ok; then ok
 else bad "T20 union uniqueness"; fi
 
+# ---- T21: CDT-88 load_prior_events namespaces prior:stem:id, gen=0 ----
+PRIOR_CACHE="$WORK/prior-cache.json"
+python3 -c '
+import json, sys
+path = sys.argv[1]
+json.dump({
+  "leaf_uuid": "leaf-old",
+  "events": {
+    "through_line": [
+      {"id": "p1", "kind": "decision", "text": "PRIOR decision keep me", "order": 99},
+      {"id": "p2", "kind": "fact", "text": "PRIOR fact body unique", "order": 50}
+    ],
+    "state": [
+      {"id": "s1", "kind": "open", "text": "PRIOR open item", "order": 10}
+    ]
+  }
+}, open(path, "w"))
+' "$PRIOR_CACHE"
+
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+evs = a.load_prior_events("'"$PRIOR_CACHE"'")
+ids = sorted(e["id"] for e in evs)
+assert ids == ["prior:state:s1", "prior:through_line:p1", "prior:through_line:p2"], ids
+assert all(e.get("_generation") == 0 for e in evs)
+assert {e["_raw_id"] for e in evs} == {"p1", "p2", "s1"}
+# bare stem map
+bare = a.load_prior_events  # reload via temp
+import json, tempfile, os
+p = "'"$WORK"'/prior-bare.json"
+json.dump({"ws": [{"id": "x", "kind": "open", "text": "bare"}]}, open(p, "w"))
+b = a.load_prior_events(p)
+assert len(b) == 1 and b[0]["id"] == "prior:ws:x" and b[0]["_generation"] == 0
+# missing / bad → soft empty
+assert a.load_prior_events("'"$WORK"'/no-such-prior.json") == []
+assert a.load_prior_events("") == []
+print("ok")
+' 2>"$WORK/t21.err" | grep -q ok; then ok
+else bad "T21 load_prior_events: $(head -c 300 "$WORK/t21.err")"; fi
+
+# ---- T22: CDT-88 order trap — both order=1; gen primary; State now tail=delta ----
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+# Trap: equal order fields must NOT put delta before prior (generation primary).
+prior = [{
+  "id": "prior:through_line:p1", "kind": "decision",
+  "text": "old decision", "order": 1, "_generation": 0, "_src_index": 0,
+  "_raw_id": "p1", "workstream": "default",
+}]
+delta = [{
+  "id": "through_line:d1", "kind": "decision",
+  "text": "new decision from delta", "order": 1, "_generation": 1,
+  "_src_index": 0, "_raw_id": "d1", "workstream": "default",
+}]
+ordered = a.order_events(prior + delta)
+assert ordered[0]["id"].startswith("prior:"), ordered
+assert ordered[1]["id"] == "through_line:d1", ordered
+# State now decisions from ordered log — tail is delta (latest)
+st = a.select_state_now(ordered)
+assert st["decisions"][-1]["id"] == "through_line:d1", st["decisions"]
+assert st["decisions"][0]["id"].startswith("prior:"), st["decisions"]
+# merge_events tags gen and preserves order trap
+merged = a.merge_events(
+  [{**prior[0]}],
+  [{k: v for k, v in delta[0].items() if k != "_generation"}],
+)
+assert merged[0]["id"].startswith("prior:")
+assert merged[-1]["id"] == "through_line:d1"
+st2 = a.select_state_now(merged)
+assert st2["decisions"][-1]["id"] == "through_line:d1"
+print("ok")
+' 2>"$WORK/t22.err" | grep -q ok; then ok
+else bad "T22 order trap: $(head -c 300 "$WORK/t22.err")"; fi
+
+# ---- T23: CDT-88 merge dedup keeps prior verbatim text ----
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+prior = a.load_prior_events("'"$PRIOR_CACHE"'")
+# delta restates PRIOR decision with different wording case/spacing? exact body match:
+delta = [{
+  "id": "d1", "kind": "decision",
+  "text": "PRIOR decision keep me", "order": 1,
+}]
+# namespace like load_events
+delta[0] = a.validate_event(delta[0])
+delta[0]["_raw_id"] = "d1"
+delta[0]["id"] = "through_line:d1"
+delta[0]["_src_index"] = 0
+merged = a.merge_events(prior, delta)
+# body match → one survivor, prior id kept
+hits = [e for e in merged if a.normalize_text(a.event_body(e)) == a.normalize_text("PRIOR decision keep me")]
+assert len(hits) == 1, hits
+assert hits[0]["id"] == "prior:through_line:p1", hits[0]
+assert hits[0]["text"] == "PRIOR decision keep me"
+# unique delta-only would survive; unique prior too
+assert any(e["id"] == "prior:through_line:p2" for e in merged)
+print("ok")
+' 2>"$WORK/t23.err" | grep -q ok; then ok
+else bad "T23 merge prior-wins: $(head -c 300 "$WORK/t23.err")"; fi
+
+# ---- T24: CDT-88 events-out stem map round-trip (raw ids) ----
+DELTA_DIR="$WORK/delta-ev"
+mkdir -p "$DELTA_DIR"
+python3 -c '
+import json, sys
+d = sys.argv[1]
+json.dump({"events":[
+  {"id":"d1","kind":"decision","text":"delta only decision","order":1},
+  {"id":"d2","kind":"fact","text":"PRIOR fact body unique","order":2}
+]}, open(d+"/through_line.json","w"))
+' "$DELTA_DIR"
+EVENTS_OUT="$WORK/events-out.json"
+PKT_MERGE="$WORK/merge-pkt.md"
+if python3 "$ASM" \
+    --events "$DELTA_DIR" \
+    --prior-events "$PRIOR_CACHE" \
+    --events-out "$EVENTS_OUT" \
+    --session-uuid "merge-t24" \
+    --out "$PKT_MERGE" 2>"$WORK/t24.err"; then ok
+else bad "T24 CLI merge failed: $(head -c 200 "$WORK/t24.err")"; fi
+
+if python3 -c '
+import json, sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+m = json.load(open("'"$EVENTS_OUT"'"))
+assert isinstance(m, dict)
+# stems present; raw ids only (no prior: / stem: prefix on id)
+for stem, arr in m.items():
+    assert isinstance(arr, list), stem
+    for ev in arr:
+        assert ":" not in ev["id"] or not ev["id"].startswith("prior:"), ev
+        assert not ev["id"].startswith(stem + ":"), ev
+        assert "_generation" not in ev and "_src_index" not in ev
+        assert "_raw_id" not in ev and "_labels" not in ev
+# prior fact body unique collapsed with delta restatement → one fact
+facts = [e for arr in m.values() for e in arr if e["kind"]=="fact" and "PRIOR fact" in e.get("text","")]
+assert len(facts) == 1, facts
+# round-trip: reload prior from events-out shape
+rt = a.load_prior_events("'"$EVENTS_OUT"'")  # bare stem map
+assert all(e["id"].startswith("prior:") for e in rt)
+assert all(e["_generation"] == 0 for e in rt)
+# no double prior:prior:
+assert not any("prior:prior:" in e["id"] for e in rt)
+print("ok")
+' 2>"$WORK/t24b.err" | grep -q ok; then ok
+else bad "T24 events-out shape: $(head -c 300 "$WORK/t24b.err")"; fi
+
+# packet has prior decision + delta-only decision
+if grep -q 'PRIOR decision keep me' "$PKT_MERGE" \
+   && grep -q 'delta only decision' "$PKT_MERGE"; then ok
+else bad "T24 merge packet missing prior/delta bodies"; fi
+
+# ---- T25: CDT-88 no prior → cold identity (packet match baseline thrash) ----
+# Strip captured_at (wall-clock) before compare; structure + body must match.
+BASE_A="$WORK/cold-a.md"
+BASE_B="$WORK/cold-b.md"
+python3 "$ASM" \
+    --events "$THRASH" \
+    --git "$GITBLOB" \
+    --annotations "$ANN" \
+    --spine-tokens 4000 \
+    --session-uuid "sess-thrash" \
+    --leaf-uuid "leaf-abc" \
+    --slug "thrash" \
+    --supersedes "20260720-1000-sess-thrash-stm.md" \
+    --out "$BASE_A" 2>/dev/null
+# --events-out alone must not change packet body
+python3 "$ASM" \
+    --events "$THRASH" \
+    --git "$GITBLOB" \
+    --annotations "$ANN" \
+    --spine-tokens 4000 \
+    --session-uuid "sess-thrash" \
+    --leaf-uuid "leaf-abc" \
+    --slug "thrash" \
+    --supersedes "20260720-1000-sess-thrash-stm.md" \
+    --events-out "$WORK/cold-events-out.json" \
+    --out "$BASE_B" 2>/dev/null
+if python3 -c '
+import re, sys
+def norm(p):
+    t = open(p).read()
+    t = re.sub(r"captured_at: \S+", "captured_at: <TS>", t)
+    return t
+a, b, o = sys.argv[1], sys.argv[2], sys.argv[3]
+na, nb, no = norm(a), norm(b), norm(o)
+assert na == nb, "events-out drifted packet"
+assert na == no, "cold re-run drifted from T1 thrash baseline"
+# no prior flags in CLI → no prior: ids in body (none should appear)
+assert "prior:" not in na
+print("ok")
+' "$BASE_A" "$BASE_B" "$OUT" 2>"$WORK/t25.err" | grep -q ok; then ok
+else bad "T25 cold identity drift: $(head -c 200 "$WORK/t25.err")"; fi
+
+# load_events must not force _generation
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+evs = a.load_events("'"$THRASH"'")
+assert all("_generation" not in e for e in evs), "load_events forced generation"
+# load_merged without prior == load_events ids
+m = a.load_merged_events("'"$THRASH"'")
+assert [e["id"] for e in m] == [e["id"] for e in evs]
+m2 = a.load_merged_for_summary("'"$THRASH"'")
+assert [e["id"] for e in m2] == [e["id"] for e in evs]
+print("ok")
+' 2>/dev/null | grep -q ok; then ok
+else bad "T25 load_events gen / load_merged"; fi
+
+# ---- T26: CDT-88 cross-gen ids — same bare tl-e1 → prior:… vs stem:…; invent-guard ----
+XGEN_PRIOR="$WORK/xgen-prior.json"
+XGEN_DELTA="$WORK/xgen-delta"
+mkdir -p "$XGEN_DELTA"
+python3 -c '
+import json, sys
+# Both gens bare miner id tl-e1 under through_line stem
+json.dump({
+  "leaf_uuid": "leaf-xgen",
+  "events": {
+    "through_line": [
+      {"id": "tl-e1", "kind": "decision", "text": "cross-gen PRIOR body", "order": 1}
+    ]
+  }
+}, open(sys.argv[1], "w"))
+json.dump({"events": [
+  {"id": "tl-e1", "kind": "decision", "text": "cross-gen DELTA body", "order": 1}
+]}, open(sys.argv[2] + "/through_line.json", "w"))
+' "$XGEN_PRIOR" "$XGEN_DELTA"
+
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+prior = a.load_prior_events("'"$XGEN_PRIOR"'")
+delta = a.load_events("'"$XGEN_DELTA"'")
+assert [e["id"] for e in prior] == ["prior:through_line:tl-e1"], prior
+assert [e["id"] for e in delta] == ["through_line:tl-e1"], delta
+assert prior[0]["_raw_id"] == "tl-e1" and delta[0]["_raw_id"] == "tl-e1"
+merged = a.merge_events(prior, delta)
+ids = [e["id"] for e in merged]
+assert "prior:through_line:tl-e1" in ids, ids
+assert "through_line:tl-e1" in ids, ids
+# distinct bodies → both survive dedup
+assert len(merged) == 2, merged
+# invent-guard: annotation on prior namespaced id lands; bare drops
+anns = [
+  {"event_id": "prior:through_line:tl-e1", "labels": ["FROM_PRIOR"]},
+  {"event_id": "tl-e1", "labels": ["BARE_DROP"]},
+  {"event_id": "through_line:tl-e1", "labels": ["FROM_DELTA"]},
+]
+_, applied, dropped = a.apply_annotations(merged, anns)
+assert applied == 2, applied
+assert dropped == 1, dropped
+by = {e["id"]: e for e in merged}
+assert "FROM_PRIOR" in (by["prior:through_line:tl-e1"].get("_labels") or [])
+assert "BARE_DROP" not in (by["prior:through_line:tl-e1"].get("_labels") or [])
+assert "BARE_DROP" not in (by["through_line:tl-e1"].get("_labels") or [])
+assert "FROM_DELTA" in (by["through_line:tl-e1"].get("_labels") or [])
+# load_merged_events same id space
+m2 = a.load_merged_events("'"$XGEN_DELTA"'", prior="'"$XGEN_PRIOR"'")
+assert {e["id"] for e in m2} == {"prior:through_line:tl-e1", "through_line:tl-e1"}
+print("ok")
+' 2>"$WORK/t26.err" | grep -q ok; then ok
+else bad "T26 cross-gen ids: $(head -c 400 "$WORK/t26.err")"; fi
+
+# CLI packet: both bodies present; labels via annotations file
+XGEN_ANN="$WORK/xgen-ann.json"
+python3 -c '
+import json, sys
+json.dump({"annotations": [
+  {"event_id": "prior:through_line:tl-e1", "labels": ["FROM_PRIOR"]},
+  {"event_id": "tl-e1", "labels": ["BARE_DROP"]},
+]}, open(sys.argv[1], "w"))
+' "$XGEN_ANN"
+XGEN_PKT="$WORK/xgen-pkt.md"
+XGEN_ERR="$WORK/xgen.err"
+if python3 "$ASM" \
+    --events "$XGEN_DELTA" \
+    --prior-events "$XGEN_PRIOR" \
+    --annotations "$XGEN_ANN" \
+    --session-uuid "xgen-t26" \
+    --out "$XGEN_PKT" 2>"$XGEN_ERR"; then ok
+else bad "T26 CLI xgen failed: $(head -c 200 "$XGEN_ERR")"; fi
+
+if grep -q 'cross-gen PRIOR body' "$XGEN_PKT" \
+   && grep -q 'cross-gen DELTA body' "$XGEN_PKT" \
+   && grep -q '\[FROM_PRIOR\]' "$XGEN_PKT" \
+   && ! grep -q 'BARE_DROP' "$XGEN_PKT" \
+   && grep -q 'assemble: annotation drop unknown event_id: tl-e1' "$XGEN_ERR"; then ok
+else bad "T26 packet/labels/bare-drop: $(head -c 200 "$XGEN_ERR")"; fi
+
 # ---- summary ----
 echo "assemble-test: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

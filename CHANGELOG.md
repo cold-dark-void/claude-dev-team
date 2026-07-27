@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.6
+- **CDT-88 — warm delta-mine re-capture (M8b)** — second warm mines only since prior M8 leaf when cache has cumulative `events`; assemble merges prior+delta with generation order and `prior:{stem}:{id}`; auto-delta when eligible; `--full` / `HANDOFF_FULL=1` forces full re-mine; old cache without `events` → full; cold path unchanged; since-leaf miss clears prior (R8).
+
 ### v1.1.5
 - **CDT-93 — event-id namespace at assemble load** — `load_events` prefixes `{stem}:{id}` so warm annotations cannot mis-target across `through_line`/`state`; Step 7 + SKILL use namespaced ids; bare ids drop with stderr; pointer index shows bare `_raw_id`; collision fixtures + assemble T18–T20.
 

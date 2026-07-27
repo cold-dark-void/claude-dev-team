@@ -1,0 +1,8 @@
+{"uuid": "delta-a1", "timestamp": "2026-07-14T12:00:00Z", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Stage A: start work on feature X"}]}}
+{"uuid": "delta-a2", "timestamp": "2026-07-14T12:01:00Z", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Stage A: implementing feature X part 1"}]}}
+{"uuid": "delta-a3", "timestamp": "2026-07-14T12:02:00Z", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Stage A: continue"}]}}
+{"uuid": "delta-a4", "timestamp": "2026-07-14T12:03:00Z", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Stage A: done with part 1 MARKER_PRIOR_ONLY"}]}}
+{"uuid": "delta-b1", "timestamp": "2026-07-14T12:04:00Z", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Stage B: grow session with new work MARKER_DELTA_ONLY"}]}}
+{"uuid": "delta-b2", "timestamp": "2026-07-14T12:05:00Z", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Stage B: more progress on Y"}]}}
+{"uuid": "delta-b3", "timestamp": "2026-07-14T12:06:00Z", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Stage B: finish"}]}}
+{"uuid": "delta-b4", "timestamp": "2026-07-14T12:07:00Z", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Stage B: complete MARKER_TIP"}]}}

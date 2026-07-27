@@ -52,12 +52,13 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
     - `through_line.json` — events of kinds ⊆ {`hypothesis`, `killed`, `ruling`, `decision`, `fact`} only.
     - `state.json` — events of kinds ⊆ {`open`, `conflict`} only (incl. M5 stated-intent-vs-git as `conflict` and/or `open`).
   - MUST NOT spawn two full-spine LLM miners for the same capture (duplicate spine read is a defect).
+  - **Delta spine (CDT-88):** Miner input MAY be a **delta spine** (messages after a prior leaf only — see M8b). Event files remain `through_line.json` + `state.json` over that spine. Assemble is the sole merge SoT for prior cumulative events + delta miner output. Still **one** merged miner Task (no second full-spine read, no dual miner for prior vs delta).
   - **Code-state:** git log/diff/status only — **no LLM miner**.
   - Miner emits **schema-validated event JSON only** (no freeform brief sections).
   - Kind ceiling remains **seven** (M3c); file-level kind ceilings unchanged.
   - MUST NOT split kinds across two Tasks that each re-read the full spine.
-  - Assemble input contract unchanged (directory of `*.json`, typically `through_line.json` + `state.json`).
-  - MUST NOT change user-facing `/handoff` CLI or packet section order.
+  - Assemble input contract unchanged for the delta files (directory of `*.json`, typically `through_line.json` + `state.json`); when prior events are supplied (M8b), assemble MUST merge prior + delta before State now / Through-line selection.
+  - MUST NOT change user-facing `/handoff` CLI or packet section order (internal `--since-leaf` and `--full` / `HANDOFF_FULL` are M8b).
 - **M3e — Spawn model tiers (cost knobs).** Orchestrator Task spawns for spine-mine LLM stages MUST use **tier aliases only** (`haiku` / `sonnet` / `opus` style); MUST NOT pin dated model IDs.
   - Chunk-summarizer Tasks (Step 5b) MUST set `model: haiku`.
   - Warm annotation Task (Step 7) MUST set `model: haiku`.
@@ -73,6 +74,13 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
 - **M7 — Cold output (inject core, file full).** In cold mode the command MUST: (a) write the full STM packet to `<target-MROOT>/.claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md`; (b) print **State now + Through-line** into the invoking session; (c) **cite the file path** for appendix (do not dump full appendix into the live window). The cited path MUST equal the actual write path.
 - **M7b — Target-session write root (CDT-80).** Packet path, M8 cache, and git appendix MUST resolve from the **target session's project**, never from the invoker's cwd. Cold: after the uuid is located, derive project from transcript `cwd` (preferred) via `skills/handoff/resolve-root.sh`, then `MROOT` via `git rev-parse --git-common-dir` from that cwd (worktree → shared main repo). Warm: same helper on this session's transcript. Non-git target: `HANDOFF_DIR = <project-dir>/.claude/handoff/`; git sections may be empty. If the target root cannot be determined after locate → **fail hard** (no write under invoker cwd). Invoker in repo A with target session in repo B → all artifacts under B. MUST NOT write under `$HOME/.claude/.claude/` when the target project is not `$HOME/.claude`.
 - **M8 — Result cache.** Distilled STM packet MUST be cached keyed by `(session uuid + last-message uuid)` and reused until the session grows. Cache MUST live outside `memory.db` under the target `$MROOT/.claude/handoff/cache/`.
+- **M8b — Delta-mine re-capture (CDT-88).** Warm re-capture MUST NOT re-mine the full session when a usable prior event set is available from the M8 cache.
+  - **Cache `events`:** Cache payload MAY/MUST store a cumulative **`events` stem map** after successful assemble (keys = miner stems such as `through_line`, `state`; values = post-dedup event objects with **raw miner ids**, no stem / no `prior:` prefix). Dual-read soft: absent / null / empty / unreadable `events` → treat as no prior (same soft pattern as `packet`/`brief` dual-read). Cold and full paths SHOULD still **write** `events` on finalize so the next warm re-capture can delta.
+  - **Warm delta path:** When warm re-capture finds cache `leaf_uuid` + non-empty `events` and is not full-forced, prepare MUST spine-mine **since** that cached leaf (`--since-leaf` internal/debug only — not user-facing CLI help). Stats (`est_tokens` / spine size) MUST reflect the **delta**, not the full transcript.
+  - **Assemble merge:** Assemble MUST merge prior cache events + delta miner files with generation-aware order (prior before delta) and existing `(kind, normalized body)` dedup (first wins → prior verbatim survives). Cross-gen ids: prior → `prior:{stem}:{raw_id}`; fresh → `{stem}:{raw_id}` (extends CDT-93 invent-guard). Step 7 annotation summary MUST see the **merged** namespaced event set. Prior events MUST be taken **verbatim** from cache — no re-paraphrase.
+  - **No packet parse:** MUST NOT recover events by re-parsing packet/brief markdown; events come only from the cache `events` field (or full re-mine).
+  - **Full force / fallback:** `/handoff --full` or `HANDOFF_FULL=1` MUST force full prepare/mine (ignore cache events / since-leaf). Any miss (no events, since-leaf not in timeline, prepare fail, empty unusable prior) MUST fall back to full re-mine without crash.
+  - **Cold HIT unchanged:** Cold cache-check HIT (leaf match → serve core) MUST remain byte-identical; cold MISS does not auto-apply since-leaf. M8b does not introduce M10c (reserved).
 - **M9 — Freshness guard (cold).** If the target transcript was modified < 60 s ago, cold `/handoff` MUST warn and decline to parse mid-write (SPEC-012). Default cold path MUST NOT use the mid-write carve-out.
 - **M10 — Warm mode (spine-mine self).** Bare `/handoff` MUST spine-mine **this** session's JSONL via the shared engine (not freeform rewrite from live model memory). Warm MAY run an **annotation** pass whose output schema can only reference existing event IDs (`{ event_id, labels[], rank? }`) — MUST NOT invent evidence. Event IDs for invent-guard are the **namespaced** form from assemble `load_events` (`{stem}:{raw_id}`, e.g. `through_line:tl-e1`); bare miner ids MUST NOT match (CDT-93). Warm MUST write the packet **file-only** (not print core into the still-live session as primary product). Mid-write read of **this session's** transcript is allowed via a **warm-only** carve-out (M14 pattern): drop truncated last line; fail soft; carve-out MUST NOT be reachable from cold user path.
 - **M10b — Session-id bridge + honesty (CDT-85 / CDT-92).** Warm discovery MUST resolve a live session id + transcript path for the **host in use** via `skills/handoff/discover-warm.sh`.
@@ -138,6 +146,10 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 22. **Cold print shape (M7):** cold stdout includes State now + Through-line and cites packet path; full appendix not required in stdout.
 23. **Target write root (M7b / CDT-80):** cold from non-repo invoker cwd for a known-project session writes under that project's `.claude/handoff/`; cache under its `cache/`; git appendix is target HEAD/status; undetermined root fails with no invoker write; worktree session → shared MROOT; invoker repo A / target B → all under B.
 24. **Spawn model tiers (M3e / CDT-90):** static contract — chunk + annotation spawn text includes `model: haiku`; miner default inherits (no forced haiku without env); parent not forced haiku; tier aliases only (no dated model IDs).
+25. **Delta-mine stats (M8b / CDT-88):** warm re-capture with cache `events` + grown session → prepare `--since-leaf` plan stats (`est_tokens` / `spine_msgs` / `delta_msgs`) reflect delta only (`<<` full); `full_msgs` / `since_leaf` present when cut applied.
+26. **Assemble prior+delta merge (M8b / M3b / CDT-88):** prior cache events + delta miner files → merged packet; prior bodies survive verbatim; cross-gen ids `prior:{stem}:{id}` and `{stem}:{id}`; generation order puts delta after prior for State now tail; dedup `(kind, norm body)` first-wins.
+27. **Cache events dual-read (M8b / CDT-88):** old cache without `events` (or null/empty/unreadable) → full re-mine, no crash; cache with `events` written on finalize is readable on next warm delta path.
+28. **Full force (M8b / CDT-88):** `--full` or `HANDOFF_FULL=1` forces full prepare/mine even when cache has `leaf_uuid` + `events`; cold cache-check HIT path unchanged.
 
 **Human ship gate (CDT-79 AC-16 — not CI):** ≥3 re-captures under new contract (≥2 long-debug: multi-hypothesis thrash with kills; ≥1 multi-week: ≥2 calendar weeks or multi-child program arc); after compact `@packet`, next session does not re-propose packet-resident kills/rulings; human 3/3.
 
@@ -162,6 +174,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 
 | Date | Change |
 |------|--------|
+| 2026-07-27 | **CDT-88:** M8b delta-mine re-capture — cache `events` stem map; warm spine since cached leaf when events present; assemble prior+delta merge (generation order + existing dedup); full fallback; no packet parse; `--full`/`HANDOFF_FULL`; cold HIT unchanged. M3b amend: miner MAY take delta spine; still one merged miner; assemble sole merge SoT. Tests 25–28. MUST NOT introduce M10c (reserved CDT-91) |
 | 2026-07-27 | **CDT-90:** M3e spawn model tiers — chunk + annotation haiku; merged miner session-inherit + `HANDOFF_MINER_MODEL` opt-in; effort optional; parent stays session tier; `HANDOFF_SPINE_TOKENS` default 120000; Test 24 |
 | 2026-06-04 | Initial spec (cold handoff brainstorm) |
 | 2026-06-04 | M10 warm + M11 consolidation (CDV-10) |

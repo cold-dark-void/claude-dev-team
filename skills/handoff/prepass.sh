@@ -5,6 +5,7 @@
 # Subcommands:
 #   prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
 #                          [--transcript <path>] [--allow-in-progress]
+#                          [--since-leaf <uuid>]
 #   prepass.sh cache-check --uuid <uuid>
 #   prepass.sh finalize    --uuid <uuid> --events <dir|file>
 #                          [--git-state <file>] [--annotations <file>]
@@ -36,10 +37,16 @@
 #                  multi-line reconstruction (CDV-205 / M2).
 #                  Defensive no-op when isSidechain is never True. `thinking`
 #                  blocks are KEPT, via parselib.msg_text.
-#   (e) LEAF     — the cache key (M8): uuid of the last non-null-uuid line.
+#   (e) LEAF     — the cache key (M8): uuid of the last non-null-uuid line
+#                  of the FULL assembled timeline (always the current tip).
+#   (e2) SINCE   — optional M8b `--since-leaf <uuid>`: spine/chunks from
+#                  records AFTER the last match of that uuid only. Missing
+#                  leaf → warn + full spine. Empty delta → mode=direct,
+#                  empty spine, delta_msgs=0. plan.leaf_uuid stays tip.
 #   (f) SIZE     — M3: spine_chars / CHARS_PER_TOKEN <= HANDOFF_SPINE_TOKENS
 #                  → mode="direct"; else mode="chunked", split at message
 #                  boundaries into chunks each within the token budget.
+#                  Stats est_tokens/spine_* reflect the delta when cut.
 #   (g) EMIT     — a plan.json the orchestrator and finalize
 #                  consume: {mode, leaf_uuid, source_files, spine|chunks, stats}.
 #
@@ -53,7 +60,7 @@
 #   dual-reads legacy `brief` for compatibility. Cache lives under .claude/handoff/,
 #   NEVER memory.db (M8 / spec).
 #
-# `finalize` (M3d/M7/M8) — consume miner event JSON (--events dir|file) +
+# `finalize` (M3d/M7/M8/M8b) — consume miner event JSON (--events dir|file) +
 #   deterministic git blob → call skills/handoff/assemble.py → write full STM
 #   packet under .claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md.
 #   Filename clock: local wall clock via `date +%Y%m%d-%H%M` (no Z suffix;
@@ -63,6 +70,11 @@
 #   packet for the same session under HANDOFF_DIR (exclude *-precompact-*).
 #   Cache stores full packet keyed by leaf-uuid (M8). Cold mode (default):
 #   stdout = State now + Through-line + path cite (M7); warm mode: file-only.
+#   M8b: cache MAY also store cumulative `events` stem map (through_line/state/…)
+#   so warm re-capture can delta-mine. Source: env FINALIZE_EVENTS_JSON (path to
+#   stem-map JSON), else assemble --events-out, else built from --events input.
+#   Missing/unreadable/empty events → key omitted (dual-read soft); caller full
+#   re-mines. cache-check HIT still packet||brief + leaf match only (no events).
 #
 # Exit codes (the API):
 #   0  ok            prepare: plan.json written · cache-check: HIT · finalize: packet ok
@@ -95,12 +107,14 @@ usage() {
   cat >&2 <<'EOF'
 Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
                               [--transcript <path>] [--allow-in-progress]
+                              [--since-leaf <uuid>]
        prepass.sh cache-check --uuid <uuid>
        prepass.sh finalize    --uuid <uuid> --events <dir|file>
                               [--git-state <file>] [--annotations <file>]
                               [--leaf <uuid>] [--slug <s>] [--mode cold|warm]
                               [--print-core] [--packet-out <path>]
                               [--spine-tokens N] [--supersedes <name>]
+                              [--prior-events <path>]
 
   prepare      timeline assemble + pre-pass + size-decide; emits plan.json
   cache-check  exit 0 (HIT, prints cold core + path cite) / exit 10 (MISS)
@@ -119,10 +133,15 @@ Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
   --packet-out <path> finalize: explicit packet path (else auto under .claude/handoff/)
   --spine-tokens N    finalize: stripped spine tokens for advisory footer ratio
   --supersedes <name> finalize: prior packet filename for footer
+  --prior-events <path> finalize: M8b prior cache JSON / stem map (merge before
+                      delta). Also FINALIZE_PRIOR_EVENTS env. Soft-detect.
   --transcript <path> prepare: stream exactly this file (skip locate; M12).
                       Capture path only — precompact-capture.sh.
   --allow-in-progress prepare: soften M9 freshness to warn-and-proceed (M14).
                       Capture path only; independent of --transcript.
+  --since-leaf <uuid> prepare: internal/debug (M8b). Spine = messages AFTER this
+                      uuid only. plan.leaf_uuid remains the current tip. Missing
+                      leaf → warn + full spine. Empty delta → mode=direct.
 
 Env:
   HANDOFF_SPINE_TOKENS        token budget for a single spine (default 120000).
@@ -131,6 +150,10 @@ Env:
                               raises recall risk — measure before adopting;
                               do not lower the code default without evidence.
   HANDOFF_CACHE_MAX_ENTRIES   max cache files under .claude/handoff/cache/ (default 50).
+  FINALIZE_EVENTS_JSON        finalize: path to stem-map JSON for cache M8b
+                              events field. Unset/missing/unreadable → omit key.
+  FINALIZE_PRIOR_EVENTS       finalize: path to prior events (cache JSON or bare
+                              stem map). Same as --prior-events; flag wins when both set.
 EOF
   exit 1
 }
@@ -144,7 +167,8 @@ case "$SUBCMD" in
 esac
 
 # Shared arg parse: --uuid (all), --out (prepare), finalize event/packet flags,
-# --transcript / --allow-in-progress (prepare capture path only; M12/M14).
+# --transcript / --allow-in-progress (prepare capture path only; M12/M14),
+# --since-leaf (prepare internal/debug M8b), --prior-events (finalize M8b).
 UUID=""
 OUT="plan.json"
 EVENTS=""
@@ -157,8 +181,10 @@ PRINT_CORE=""
 PACKET_OUT=""
 SPINE_TOKENS=""
 SUPERSEDES=""
+PRIOR_EVENTS=""
 TRANSCRIPT=""
 ALLOW_IN_PROGRESS=0
+SINCE_LEAF=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --uuid)
@@ -178,6 +204,11 @@ while [ $# -gt 0 ]; do
       TRANSCRIPT="${1#--transcript=}"; shift ;;
     --allow-in-progress)
       ALLOW_IN_PROGRESS=1; shift ;;
+    --since-leaf)
+      [ $# -ge 2 ] || usage
+      SINCE_LEAF="$2"; shift 2 ;;
+    --since-leaf=*)
+      SINCE_LEAF="${1#--since-leaf=}"; shift ;;
     --events)
       [ $# -ge 2 ] || usage
       EVENTS="$2"; shift 2 ;;
@@ -225,6 +256,11 @@ while [ $# -gt 0 ]; do
       SUPERSEDES="$2"; shift 2 ;;
     --supersedes=*)
       SUPERSEDES="${1#--supersedes=}"; shift ;;
+    --prior-events)
+      [ $# -ge 2 ] || usage
+      PRIOR_EVENTS="$2"; shift 2 ;;
+    --prior-events=*)
+      PRIOR_EVENTS="${1#--prior-events=}"; shift ;;
     -h|--help)
       usage ;;
     *)
@@ -232,6 +268,11 @@ while [ $# -gt 0 ]; do
       usage ;;
   esac
 done
+
+# M8b: CLI --prior-events wins; else FINALIZE_PRIOR_EVENTS env (command wire).
+if [ -z "$PRIOR_EVENTS" ] && [ -n "${FINALIZE_PRIOR_EVENTS:-}" ]; then
+  PRIOR_EVENTS="$FINALIZE_PRIOR_EVENTS"
+fi
 
 if [ -z "$UUID" ]; then
   echo "prepass.sh: --uuid is required." >&2
@@ -632,6 +673,10 @@ if [ "$SUBCMD" = "finalize" ]; then
     DO_PRINT_CORE=1
   fi
 
+  # M8b events-out temp: assemble --events-out when supported; else stem map
+  # built from --events so cold still seeds cache for next warm delta.
+  EVENTS_OUT_TMP=$(mktemp "${TMPDIR:-/tmp}/handoff-events-out.XXXXXX")
+  EVENTS_BUILT_TMP=""
   ASM_ARGS=(
     --events "$EVENTS"
     --git "$GIT_BLOB"
@@ -645,6 +690,17 @@ if [ "$SUBCMD" = "finalize" ]; then
   [ -n "$SPINE_TOKENS" ] && ASM_ARGS+=(--spine-tokens "$SPINE_TOKENS")
   [ -n "$SUPERSEDES" ] && ASM_ARGS+=(--supersedes "$SUPERSEDES")
   [ "$DO_PRINT_CORE" = "1" ] && ASM_ARGS+=(--print-core)
+  # Soft-detect M8b flags (CDT-88); unknown flags must not break cold path.
+  if python3 "$PACKET_ASSEMBLE" --help 2>&1 | grep -q -- '--events-out'; then
+    ASM_ARGS+=(--events-out "$EVENTS_OUT_TMP")
+  fi
+  if [ -n "$PRIOR_EVENTS" ] && [ -f "$PRIOR_EVENTS" ]; then
+    if python3 "$PACKET_ASSEMBLE" --help 2>&1 | grep -q -- '--prior-events'; then
+      ASM_ARGS+=(--prior-events "$PRIOR_EVENTS")
+    else
+      echo "prepass.sh: WARNING — assemble lacks --prior-events; ignoring prior ($PRIOR_EVENTS)" >&2
+    fi
+  fi
 
   set +e
   python3 "$PACKET_ASSEMBLE" "${ASM_ARGS[@]}"
@@ -654,15 +710,79 @@ if [ "$SUBCMD" = "finalize" ]; then
     rm -f "$GIT_TMP"
   fi
   if [ "$asm_rc" -ne 0 ]; then
+    rm -f "$EVENTS_OUT_TMP"
     echo "prepass.sh: assemble.py failed (rc=$asm_rc)" >&2
     exit 1
   fi
   if [ ! -f "$PACKET_PATH" ]; then
+    rm -f "$EVENTS_OUT_TMP"
     echo "prepass.sh: assemble.py did not write packet: $PACKET_PATH" >&2
     exit 1
   fi
 
+  # Resolve FINALIZE_EVENTS_JSON: caller env wins; else assemble events-out;
+  # else build stem map from --events input (cold seed for M8b).
+  if [ -z "${FINALIZE_EVENTS_JSON:-}" ]; then
+    if [ -s "$EVENTS_OUT_TMP" ]; then
+      FINALIZE_EVENTS_JSON="$EVENTS_OUT_TMP"
+    else
+      EVENTS_BUILT_TMP=$(mktemp "${TMPDIR:-/tmp}/handoff-events-built.XXXXXX")
+      if FINALIZE_EVENTS_SRC="$EVENTS" FINALIZE_EVENTS_DST="$EVENTS_BUILT_TMP" python3 - <<'PYBUILD'
+import json, os, sys
+
+src = os.environ["FINALIZE_EVENTS_SRC"]
+dst = os.environ["FINALIZE_EVENTS_DST"]
+stem_map = {}
+
+def extract(obj):
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict):
+        if isinstance(obj.get("events"), list):
+            return obj["events"]
+        if "kind" in obj or "id" in obj:
+            return [obj]
+    return []
+
+def add_file(path):
+    stem = os.path.splitext(os.path.basename(path))[0]
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            obj = json.load(fh)
+    except (OSError, ValueError):
+        return
+    events = extract(obj)
+    if events:
+        stem_map[stem] = events
+
+try:
+    if os.path.isdir(src):
+        for name in sorted(os.listdir(src)):
+            if name.endswith(".json"):
+                add_file(os.path.join(src, name))
+    elif os.path.isfile(src):
+        add_file(src)
+except OSError:
+    pass
+
+if not stem_map:
+    sys.exit(1)
+with open(dst, "w", encoding="utf-8") as fh:
+    json.dump(stem_map, fh, ensure_ascii=False)
+    fh.write("\n")
+sys.exit(0)
+PYBUILD
+      then
+        FINALIZE_EVENTS_JSON="$EVENTS_BUILT_TMP"
+      else
+        rm -f "$EVENTS_BUILT_TMP"
+        EVENTS_BUILT_TMP=""
+      fi
+    fi
+  fi
+
   # Cache full packet (M8). Field `packet` preferred; readers dual-read packet||brief.
+  # M8b: optional `events` stem map from FINALIZE_EVENTS_JSON (omit if absent).
   HANDOFF_CACHE_MAX_ENTRIES="${HANDOFF_CACHE_MAX_ENTRIES:-50}" \
   FINALIZE_UUID="$UUID" \
   FINALIZE_LEAF="$LEAF" \
@@ -670,6 +790,7 @@ if [ "$SUBCMD" = "finalize" ]; then
   FINALIZE_CACHE_FILE="$CACHE_FILE" \
   FINALIZE_PACKET_PATH="$PACKET_PATH" \
   FINALIZE_MODE="$MODE" \
+  FINALIZE_EVENTS_JSON="${FINALIZE_EVENTS_JSON:-}" \
   python3 - <<'PYEOF'
 import datetime
 import io
@@ -683,10 +804,53 @@ CACHE_DIR = os.environ["FINALIZE_CACHE_DIR"]
 CACHE_FILE = os.environ["FINALIZE_CACHE_FILE"]
 PACKET_PATH = os.environ["FINALIZE_PACKET_PATH"]
 MODE = os.environ.get("FINALIZE_MODE", "cold")
+EVENTS_JSON_PATH = os.environ.get("FINALIZE_EVENTS_JSON", "") or ""
 
 
 def warn(msg):
     sys.stderr.write("prepass.sh: " + msg + "\n")
+
+
+def load_events_stem_map(path):
+    """Load M8b stem map from FINALIZE_EVENTS_JSON. None → omit events key.
+
+    Accepts bare stem map {stem: [event, ...]} or cache-shaped {events: {...}}.
+    Unset/missing/unreadable/empty → None (backward-compatible dual-read).
+    """
+    if not path or not str(path).strip():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as e:
+        warn(f"WARNING — FINALIZE_EVENTS_JSON unreadable ({path}): {e}")
+        return None
+    if not isinstance(data, dict):
+        warn(f"WARNING — FINALIZE_EVENTS_JSON not an object ({path}); omitting events.")
+        return None
+    if isinstance(data.get("events"), dict):
+        stem_map = data["events"]
+    else:
+        # Bare stem map: values should be lists (skip non-list keys softly).
+        stem_map = {k: v for k, v in data.items() if isinstance(v, list)}
+        if not stem_map and data:
+            # Non-empty dict with no list values and no events wrapper.
+            warn(
+                f"WARNING — FINALIZE_EVENTS_JSON not a stem map ({path}); "
+                "omitting events."
+            )
+            return None
+    if not isinstance(stem_map, dict):
+        return None
+    # Drop empty lists; require ≥1 event total.
+    cleaned = {
+        k: v
+        for k, v in stem_map.items()
+        if isinstance(k, str) and k.strip() and isinstance(v, list) and v
+    }
+    if not cleaned:
+        return None
+    return cleaned
 
 
 def _cache_sort_key(path):
@@ -772,6 +936,9 @@ except OSError as e:
     warn(f"WARNING — could not read packet for cache: {e}")
     packet = None
 
+# M8b: optional cumulative events stem map (omit key when unavailable).
+events_stem_map = load_events_stem_map(EVENTS_JSON_PATH)
+
 cache_written = None
 if LEAF and packet is not None:
     try:
@@ -784,6 +951,8 @@ if LEAF and packet is not None:
             .isoformat()
             .replace("+00:00", "Z"),
         }
+        if events_stem_map is not None:
+            payload["events"] = events_stem_map
         tmp = CACHE_FILE + ".tmp"
         with io.open(tmp, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
@@ -806,12 +975,20 @@ summary = (
 )
 if cache_written:
     summary += f"  cached={cache_written}"
+    if events_stem_map is not None:
+        n_ev = sum(len(v) for v in events_stem_map.values())
+        summary += f"  events={n_ev}"
+    else:
+        summary += "  events=omit"
 else:
     summary += "  cached=NO"
 warn(summary)
 sys.exit(0)
 PYEOF
-  exit $?
+  fin_rc=$?
+  rm -f "$EVENTS_OUT_TMP"
+  [ -n "$EVENTS_BUILT_TMP" ] && rm -f "$EVENTS_BUILT_TMP"
+  exit "$fin_rc"
 fi
 
 # --- (a) LOCATE canonical file ---------------------------------------------
@@ -879,6 +1056,7 @@ PREPASS_OUT="$OUT" \
 PREPASS_ASSEMBLE="$ASSEMBLE" \
 PREPASS_PARSE_DIR="$PARSE_DIR" \
 PREPASS_SCRIPT_DIR="$SCRIPT_DIR" \
+PREPASS_SINCE_LEAF="$SINCE_LEAF" \
 python3 - <<'PYEOF'
 import io
 import json
@@ -917,6 +1095,7 @@ UUID = os.environ["PREPASS_UUID"]
 CANONICAL = os.environ["PREPASS_CANONICAL"]
 OUT = os.environ["PREPASS_OUT"]
 ASSEMBLE = os.environ["PREPASS_ASSEMBLE"]
+SINCE_LEAF = (os.environ.get("PREPASS_SINCE_LEAF") or "").strip()
 BUDGET_TOKENS = int(os.environ.get("HANDOFF_SPINE_TOKENS", "120000"))
 CHARS_PER_TOKEN = max(1, int(os.environ.get("HANDOFF_CHARS_PER_TOKEN", "4")))
 BUDGET_CHARS = BUDGET_TOKENS * CHARS_PER_TOKEN
@@ -1076,8 +1255,35 @@ if not records:
 # this value and a later finalize/cache-check recomputation agree by
 # construction. The assembled timeline already dropped null-uuid bookkeeping
 # lines; keep-last over the ordered records yields the last-message uuid.
+# ALWAYS the full-timeline tip — never the prior --since-leaf value (M8b).
 # ---------------------------------------------------------------------------
 leaf_uuid = keep_last_uuid(rec["obj"] for rec in records)
+full_msgs = len(records)
+
+# ---------------------------------------------------------------------------
+# (e2) SINCE-LEAF cut (M8b / CDT-88). Stream was full; spine may be a delta.
+# Find the LAST record whose obj.uuid == SINCE_LEAF; spine from records after
+# that index. Missing → warn + full spine. Empty delta (leaf is tip) → empty
+# spine, mode=direct later, delta_msgs=0.
+# ---------------------------------------------------------------------------
+spine_records = records
+since_leaf_applied = False
+if SINCE_LEAF:
+    cut_idx = None
+    for i, rec in enumerate(records):
+        u = rec["obj"].get("uuid")
+        if u is not None and str(u) == SINCE_LEAF:
+            cut_idx = i
+    if cut_idx is None:
+        warn(
+            f"since-leaf {SINCE_LEAF!r} not found in timeline; "
+            f"falling back to full spine"
+        )
+        spine_records = records
+        since_leaf_applied = False  # fallback — full spine
+    else:
+        spine_records = records[cut_idx + 1 :]
+        since_leaf_applied = True
 
 # ---------------------------------------------------------------------------
 # PASS 2: render each surviving message to a compact spine record. KEEP
@@ -1087,6 +1293,7 @@ leaf_uuid = keep_last_uuid(rec["obj"] for rec in records)
 # isSidechain runs: routine → one pointer line; signal-bearing (cue hit in
 # withheld msg_text) → condensed multi-line reconstruction (CDV-205 / M2).
 # Defensive no-op in real data where isSidechain is never True.
+# When --since-leaf cut applied, only spine_records (post-leaf) are rendered.
 # ---------------------------------------------------------------------------
 spine_parts = []
 deduped_reads = 0
@@ -1157,7 +1364,7 @@ def flush_sidechain(end_L):
         spine_parts.append(block)
     sidechain_buf.clear()
 
-for rec in records:
+for rec in spine_records:
     obj = rec["obj"]
     Ln = rec["L"]
     side = is_sidechain(obj)
@@ -1204,17 +1411,18 @@ for rec in records:
         block += "\n" + "\n".join(body_lines)
     spine_parts.append(block + "\n")
 
-# A sidechain run that extends to the final message.
-if in_sidechain:
-    flush_sidechain(records[-1]["L"])
+# A sidechain run that extends to the final message of the spine slice.
+if in_sidechain and spine_records:
+    flush_sidechain(spine_records[-1]["L"])
 
 spine_text = "".join(spine_parts)
 spine_chars = len(spine_text)
 est_tokens = spine_chars // CHARS_PER_TOKEN
+delta_msgs = len(spine_records)
 
 stats = {
     "raw_msgs": raw_msgs,
-    "spine_msgs": len(records),
+    "spine_msgs": delta_msgs,
     "stripped_tool_results": stripped_count,
     "stripped_bytes": stripped_bytes,
     "deduped_reads": deduped_reads,
@@ -1226,6 +1434,16 @@ stats = {
     "budget_tokens": BUDGET_TOKENS,
     "chars_per_token": CHARS_PER_TOKEN,
 }
+# M8b delta-aware stats — only when --since-leaf was requested (cold identity).
+if SINCE_LEAF:
+    stats["since_leaf"] = SINCE_LEAF
+    stats["since_leaf_applied"] = since_leaf_applied  # True=cut; False=miss→full
+    stats["delta_msgs"] = delta_msgs
+    stats["full_msgs"] = full_msgs
+    # Cheap full_est_tokens: only exact when we rendered the full spine
+    # (fallback / no cut). When cut applied, omit rather than re-render.
+    if not since_leaf_applied:
+        stats["full_est_tokens"] = est_tokens
 
 # ---------------------------------------------------------------------------
 # (f) SIZE decision (M3).
@@ -1345,18 +1563,23 @@ with io.open(OUT, "w", encoding="utf-8") as fh:
     fh.write("\n")
 
 # One-line human summary to stderr (stdout stays clean for piping the path).
+_delta_note = ""
+if SINCE_LEAF:
+    _delta_note = f"  since_leaf={SINCE_LEAF}  delta_msgs={delta_msgs}/{full_msgs}"
 if plan["mode"] == "direct":
     warn(
-        f"mode=direct  msgs={len(records)}  spine~{est_tokens}tok "
+        f"mode=direct  msgs={delta_msgs}  spine~{est_tokens}tok "
         f"(<= {BUDGET_TOKENS})  stripped={stripped_count} payloads "
         f"({stripped_bytes} B)  deduped_reads={deduped_reads}  leaf={leaf_uuid}"
+        f"{_delta_note}"
     )
 else:
     warn(
-        f"mode=chunked  msgs={len(records)}  spine~{est_tokens}tok "
+        f"mode=chunked  msgs={delta_msgs}  spine~{est_tokens}tok "
         f"(> {BUDGET_TOKENS})  chunks={len(plan['chunks'])}  "
         f"stripped={stripped_count} payloads ({stripped_bytes} B)  "
         f"deduped_reads={deduped_reads}  leaf={leaf_uuid}"
+        f"{_delta_note}"
     )
 
 # stdout: the plan path (so the orchestrator can capture it).
