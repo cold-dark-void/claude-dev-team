@@ -219,11 +219,13 @@ it warm STM. No live-context dual path.
 
 **Host selection** (implemented by `discover-warm.sh`):
 
-1. **Grok first** if a Grok source is resolvable (env / cwd newest under sessions
-   root). A **stale Claude bridge does not override Grok** — Grok wins when
-   resolvable even if `.live-session.json` still says `host: claude`.
-2. Else **Claude** (CDT-85 path).
-3. Else **fail hard** (clear diagnostic; no freeform).
+1. **Explicit Grok env** (steps 1–2) wins over Claude.
+2. **Grok cwd-newest** wins over a *stale* Claude bridge / projects-dir tip —
+   but **MUST NOT** fire when live Claude env is set (`CLAUDE_SESSION_ID`, or
+   `*_TRANSCRIPT_PATH` → real non-Grok file). Dual-host repos must not silently
+   mine yesterday's Grok session during a live Claude bare `/handoff`.
+3. Else **Claude** (CDT-85 path).
+4. Else **fail hard** (clear diagnostic; no freeform).
 
 **Grok env** (optional overrides; default cwd + `~/.grok/sessions`):
 
@@ -239,9 +241,11 @@ it warm STM. No live-context dual path.
 1. `$GROK_SESSION_ID` / `$GROK_TRANSCRIPT_PATH`, or `$SESSION_ID` naming a dir
    under `$GROK_SESSIONS_DIR` with `chat_history.jsonl`
 2. `$CLAUDE_SESSION_ID` / `$CLAUDE_TRANSCRIPT_PATH` / `$TRANSCRIPT_PATH` **only if**
-   the path is a Grok `chat_history.jsonl` under the sessions root
+   the path is a Grok `chat_history.jsonl` under the sessions root (sid from
+   parent dir of that file)
 3. Newest-mtime `chat_history.jsonl` under
-   `${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/`
+   `${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/` — **skipped** when
+   live Claude env signal is present
 4. Grok miss → Claude path below
 
 **Claude session id precedence** (when Grok miss):

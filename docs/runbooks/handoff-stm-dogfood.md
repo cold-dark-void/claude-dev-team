@@ -245,7 +245,7 @@ extra rows but does not close the gate alone.
 | Warm thesis checklist | Status |
 |-----------------------|--------|
 | Session-id bridge (discover + packet header/filename) | automated |
-| Dual-host discover (Grok wins when resolvable; stale Claude bridge no override) | automated |
+| Dual-host discover (explicit Grok / cwd-newest over stale Claude; live Claude env beats Grok cwd) | automated |
 | Fail honesty when neither host resolvable | automated |
 | Mid-write warm carve-out; cold still declines | automated |
 | Human bare `/handoff` on Claude Code → compact @packet anti-relitigation | **OPEN — human** |

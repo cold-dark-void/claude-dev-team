@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.2
+- **Fix dual-host warm discover hijack** — Grok cwd-newest (step 3) no longer overrides a live Claude env (`CLAUDE_SESSION_ID` / non-Grok `*_TRANSCRIPT_PATH`); explicit Grok env still wins; `is_grok_chat_history` requires path under sessions root; adapter uses `mktemp`; dual-present + outside-path tests.
+
 ### v1.1.1
 - **CDT-92 — Grok warm `/handoff`** — dual-host `discover-warm` (Grok wins when resolvable; Claude bridge does not override active Grok); `grok-to-claude-jsonl.py` normalizes Grok `chat_history.jsonl` to Claude-shaped spine; bare warm uses same prepare → miners → assemble path as Claude Code; SPEC-018 M10b + dogfood/docs honesty.
 

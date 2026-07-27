@@ -12,16 +12,21 @@
 #     Exit 0 on success; exit 1 with clear stderr on failure.
 #
 # Host selection (AC1 / AC3 / AC10):
-#   If a Grok source is resolvable → use Grok (ignore Claude bridge + Claude
-#   cwd-newest). Else fall through to Claude (CDT-85). If neither → fail hard.
+#   Explicit Grok env (steps 1–2) wins over Claude. Grok cwd-newest (step 3)
+#   wins over a *stale* Claude bridge / Claude projects-dir tip — but MUST NOT
+#   fire when a definitive live-Claude env signal is present (CLAUDE_SESSION_ID,
+#   or CLAUDE_TRANSCRIPT_PATH / TRANSCRIPT_PATH → real non-Grok file). Else fall
+#   through to Claude (CDT-85). If neither → fail hard.
 #
 # Grok discovery precedence (AC2):
 #   1. GROK_SESSION_ID / GROK_TRANSCRIPT_PATH, or SESSION_ID naming a dir under
 #      GROK_SESSIONS_DIR with chat_history.jsonl
 #   2. CLAUDE_SESSION_ID / CLAUDE_TRANSCRIPT_PATH / TRANSCRIPT_PATH only if the
 #      resolved path is a Grok chat_history.jsonl under sessions root
+#      (sid = parent dir of that file — not CLAUDE_SESSION_ID when mixed)
 #   3. Newest-mtime chat_history.jsonl under
 #      ${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/
+#      — SKIPPED when live Claude env signal is set (no silent hijack)
 #   4. Grok miss → Claude path
 #
 # Claude session id precedence (when Grok miss):
@@ -186,14 +191,6 @@ print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
 PY
 }
 
-# True iff path is a regular file named chat_history.jsonl (Grok source).
-is_grok_chat_history() {
-  local p="$1" base
-  [ -n "$p" ] && [ -f "$p" ] || return 1
-  base=$(basename -- "$p")
-  [ "$base" = "chat_history.jsonl" ]
-}
-
 # Abs path helper.
 abs_path() {
   local p="$1"
@@ -202,6 +199,41 @@ abs_path() {
   else
     printf '%s' "$p"
   fi
+}
+
+# True iff path is a regular file named chat_history.jsonl under GROK_SESSIONS_DIR.
+is_grok_chat_history() {
+  local p="$1" base abs root
+  [ -n "$p" ] && [ -f "$p" ] || return 1
+  base=$(basename -- "$p")
+  [ "$base" = "chat_history.jsonl" ] || return 1
+  abs=$(abs_path "$p")
+  if command -v realpath >/dev/null 2>&1; then
+    root=$(realpath -- "$GROK_SESSIONS_DIR" 2>/dev/null || printf '%s' "$GROK_SESSIONS_DIR")
+  else
+    root="$GROK_SESSIONS_DIR"
+  fi
+  # Strip trailing slash for prefix match.
+  root="${root%/}"
+  case "$abs" in
+    "$root"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Definitive live-Claude env: step-3 Grok cwd-newest must yield (no hijack).
+# Explicit Grok env (steps 1–2) still wins; only the heuristic is gated.
+live_claude_env_blocks_grok_cwd() {
+  local cand
+  if [ -n "${CLAUDE_SESSION_ID:-}" ]; then
+    return 0
+  fi
+  for cand in "${CLAUDE_TRANSCRIPT_PATH:-}" "${TRANSCRIPT_PATH:-}"; do
+    if [ -n "$cand" ] && [ -f "$cand" ] && ! is_grok_chat_history "$cand"; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 # Locate chat_history for a Grok session id under sessions root (any cwd bucket).
@@ -279,13 +311,12 @@ resolve_grok() {
     fi
   fi
 
-  # --- step 2: CLAUDE_* / TRANSCRIPT_PATH only if Grok chat_history ---
+  # --- step 2: CLAUDE_* / TRANSCRIPT_PATH only if Grok chat_history under root ---
   for cand in "${CLAUDE_TRANSCRIPT_PATH:-}" "${TRANSCRIPT_PATH:-}"; do
     if [ -n "$cand" ] && [ -f "$cand" ] && is_grok_chat_history "$cand"; then
       src=$(abs_path "$cand")
-      if [ -n "${CLAUDE_SESSION_ID:-}" ]; then
-        sid="$CLAUDE_SESSION_ID"
-      elif [ -n "${GROK_SESSION_ID:-}" ]; then
+      # Sid from Grok folder — never pair Claude env sid with a Grok source.
+      if [ -n "${GROK_SESSION_ID:-}" ]; then
         sid="$GROK_SESSION_ID"
       else
         sid=$(basename -- "$(dirname -- "$src")")
@@ -303,7 +334,10 @@ resolve_grok() {
     fi
   fi
 
-  # --- step 3: cwd newest Grok chat_history ---
+  # --- step 3: cwd newest Grok chat_history (skip if live Claude env) ---
+  if live_claude_env_blocks_grok_cwd; then
+    return 1
+  fi
   local cn_out
   if cn_out=$(grok_cwd_newest_chat_history 2>/dev/null); then
     sid=$(printf '%s\n' "$cn_out" | sed -n '1p')
@@ -320,7 +354,7 @@ resolve_grok() {
 # Adapt Grok chat_history → Claude-shaped temp file. Prints adapted path.
 adapt_grok() {
   local sid="$1" src="$2"
-  local adapter cwd out safe
+  local adapter cwd out err
   adapter="${GROK_ADAPTER:-}"
   if [ -z "$adapter" ] && [ -f "$HERE/grok-to-claude-jsonl.py" ]; then
     adapter="$HERE/grok-to-claude-jsonl.py"
@@ -333,16 +367,25 @@ adapt_grok() {
     echo "error: warm /handoff: cannot resolve cwd for Grok adapter inject" >&2
     return 1
   }
-  # Charset-safe filename component (session already guarded by caller).
-  safe=$(printf '%s' "$sid" | tr -c 'A-Za-z0-9._-' '-')
-  out="${TMPDIR:-/tmp}/handoff-grok-adapt-${safe}.jsonl"
-  if ! python3 "$adapter" --in "$src" --out "$out" --cwd "$cwd" --session-id "$sid" 2>"${TMPDIR:-/tmp}/handoff-grok-adapt.err"; then
+  # Unique temp paths (avoid fixed-name races / predictable paths).
+  out=$(mktemp "${TMPDIR:-/tmp}/handoff-grok-adapt.XXXXXX.jsonl") || {
+    echo "error: warm /handoff: mktemp failed for adapter output" >&2
+    return 1
+  }
+  err=$(mktemp "${TMPDIR:-/tmp}/handoff-grok-adapt.XXXXXX.err") || {
+    rm -f "$out"
+    echo "error: warm /handoff: mktemp failed for adapter stderr" >&2
+    return 1
+  }
+  if ! python3 "$adapter" --in "$src" --out "$out" --cwd "$cwd" --session-id "$sid" 2>"$err"; then
     echo "error: warm /handoff: Grok→Claude adapt failed for session $sid" >&2
-    if [ -s "${TMPDIR:-/tmp}/handoff-grok-adapt.err" ]; then
-      cat "${TMPDIR:-/tmp}/handoff-grok-adapt.err" >&2
+    if [ -s "$err" ]; then
+      cat "$err" >&2
     fi
+    rm -f "$out" "$err"
     return 1
   fi
+  rm -f "$err"
   [ -f "$out" ] || {
     echo "error: warm /handoff: adapter produced no output at $out" >&2
     return 1
@@ -513,10 +556,12 @@ fail_no_session() {
 error: warm /handoff could not resolve this session's id
   Warm STM = spine-mine THIS session's live JSONL (shared engine) — not a
   freeform brief from model memory / live-context.
-  Host selection: Grok if resolvable, else Claude; neither → fail (CDT-92).
+  Host selection: explicit Grok env wins; Grok cwd-newest wins over stale Claude
+  bridge; live Claude env (CLAUDE_SESSION_ID / non-Grok *_TRANSCRIPT_PATH) beats
+  Grok cwd-heuristic; else Claude; neither → fail (CDT-92).
   Grok precedence: GROK_SESSION_ID / GROK_TRANSCRIPT_PATH → CLAUDE_* only if
-  path is Grok chat_history.jsonl → newest chat_history under
-  ${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/.
+  path is Grok chat_history.jsonl under sessions root → newest chat_history under
+  ${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/ (skipped if live Claude env).
   Claude precedence: CLAUDE_SESSION_ID → SESSION_ID → .live-session.json bridge →
   basename stem of CLAUDE_TRANSCRIPT_PATH / TRANSCRIPT_PATH (*.jsonl) →
   newest *.jsonl under encoded project cwd in CLAUDE_PROJECTS_DIR.
@@ -527,7 +572,7 @@ EOF
   exit 1
 }
 
-# ---- main: Grok first (AC1/AC3), else Claude ----
+# ---- main: Grok first (explicit / non-gated), else Claude ----
 
 GROK_OUT=""
 if GROK_OUT=$(resolve_grok 2>/dev/null); then

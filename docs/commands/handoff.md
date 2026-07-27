@@ -50,12 +50,12 @@ Bare `/handoff` resolves the live host via `skills/handoff/discover-warm.sh`
 
 **Host selection:**
 
-1. **Grok first** if a Grok source is resolvable (env / cwd-newest under
-   `~/.grok/sessions`). A **stale Claude bridge does not override Grok** —
-   Grok wins when resolvable even if `.live-session.json` still says
-   `host: claude`.
-2. Else **Claude** (CDT-85 env → bridge → stem → cwd-newest).
-3. Else **fail hard** (clear diagnostic; no freeform warm STM).
+1. **Explicit Grok env** wins over Claude.
+2. **Grok cwd-newest** wins over a *stale* Claude bridge, but **yields** when
+   live Claude env is set (`CLAUDE_SESSION_ID` / non-Grok `*_TRANSCRIPT_PATH`) —
+   so dual-host repos do not mine the wrong session.
+3. Else **Claude** (CDT-85 env → bridge → stem → cwd-newest).
+4. Else **fail hard** (clear diagnostic; no freeform warm STM).
 
 **Grok env** (optional; defaults: cwd + `~/.grok/sessions`):
 `GROK_SESSION_ID`, `GROK_TRANSCRIPT_PATH`, `GROK_SESSIONS_DIR`, `GROK_CWD`.

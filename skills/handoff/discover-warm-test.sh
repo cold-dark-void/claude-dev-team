@@ -404,6 +404,107 @@ if [ "$RC" -eq 1 ] \
    && grep -qiE 'Grok|GROK_' "$WORK/t19.err"; then ok
 else bad "T19 neither host rc=$RC err=$(cat "$WORK/t19.err")"; fi
 
+# ---- T20: live CLAUDE_SESSION_ID beats Grok cwd-newest (no hijack) ----
+# Dual-present: same cwd has Grok chat_history AND resolvable Claude session.
+# Bare /handoff in live Claude must not mine yesterday's Grok tip.
+unset CLAUDE_SESSION_ID SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
+unset GROK_SESSION_ID GROK_TRANSCRIPT_PATH
+export GROK_SESSIONS_DIR="$WORK/grok-sessions-t20"
+export CLAUDE_PROJECTS_DIR="$WORK/projects-t20"
+mkdir -p "$CLAUDE_PROJECTS_DIR/proj-live" "$GROK_SESSIONS_DIR"
+G20_CWD="$WORK/fake-dual-cwd-t20"
+G20_GROK_SID="grok-sid-stale-111"
+G20_CLAUDE_SID="claude-sid-live-999"
+G20_SRC=$(install_grok_session "$G20_GROK_SID" "$G20_CWD")
+# Make Grok tip "newer" so a pure mtime heuristic would prefer it
+touch "$G20_SRC"
+CLAUDE_LIVE_TR="$CLAUDE_PROJECTS_DIR/proj-live/${G20_CLAUDE_SID}.jsonl"
+printf '{"type":"user","uuid":"live-claude-u1","message":{"role":"user","content":"LIVE-CLAUDE-SESSION"}}\n' \
+  >"$CLAUDE_LIVE_TR"
+touch -d "2020-01-01 00:00:00" "$CLAUDE_LIVE_TR" 2>/dev/null \
+  || touch -t 202001010000 "$CLAUDE_LIVE_TR"
+export CLAUDE_SESSION_ID="$G20_CLAUDE_SID"
+export GROK_CWD="$G20_CWD"
+export CLAUDE_CWD="$G20_CWD"
+export HANDOFF_BRIDGE="$WORK/bridge-t20.json"
+rm -f "$HANDOFF_BRIDGE"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t20.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+GOT_TR=$(printf '%s\n' "$OUT" | sed -n '2p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$G20_CLAUDE_SID" ] \
+   && [ "$GOT_TR" = "$CLAUDE_LIVE_TR" ] \
+   && [ "$GOT_SID" != "$G20_GROK_SID" ]; then ok
+else bad "T20 Claude env beats Grok cwd rc=$RC sid=$GOT_SID want=$G20_CLAUDE_SID tr=$GOT_TR err=$(cat "$WORK/t20.err")"; fi
+if [ -f "$HANDOFF_BRIDGE" ] && grep -q '"host": "claude"' "$HANDOFF_BRIDGE" \
+   && grep -q "\"session_id\": \"$G20_CLAUDE_SID\"" "$HANDOFF_BRIDGE"; then ok
+else bad "T20b bridge host=claude bridge=$(cat "$HANDOFF_BRIDGE" 2>/dev/null)"; fi
+unset CLAUDE_SESSION_ID GROK_CWD CLAUDE_CWD HANDOFF_BRIDGE
+
+# ---- T21: GROK_SESSION_ID still wins over CLAUDE_SESSION_ID (explicit Grok) ----
+unset CLAUDE_SESSION_ID SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
+unset GROK_TRANSCRIPT_PATH
+export GROK_SESSIONS_DIR="$WORK/grok-sessions-t21"
+export CLAUDE_PROJECTS_DIR="$WORK/projects-t21"
+mkdir -p "$CLAUDE_PROJECTS_DIR/proj-a" "$GROK_SESSIONS_DIR"
+G21_CWD="$WORK/fake-dual-cwd-t21"
+G21_GROK_SID="grok-sid-explicit-222"
+G21_CLAUDE_SID="claude-sid-also-333"
+G21_SRC=$(install_grok_session "$G21_GROK_SID" "$G21_CWD")
+printf '{"type":"user","uuid":"c21"}\n' \
+  >"$CLAUDE_PROJECTS_DIR/proj-a/${G21_CLAUDE_SID}.jsonl"
+export GROK_SESSION_ID="$G21_GROK_SID"
+export CLAUDE_SESSION_ID="$G21_CLAUDE_SID"
+export GROK_CWD="$G21_CWD"
+export HANDOFF_BRIDGE="$WORK/bridge-t21.json"
+rm -f "$HANDOFF_BRIDGE"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t21.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+GOT_TR=$(printf '%s\n' "$OUT" | sed -n '2p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$G21_GROK_SID" ] && [ -f "$GOT_TR" ] \
+   && grep -q 'CDT92-FIXTURE-PHRASE-ALPHA' "$GOT_TR"; then ok
+else bad "T21 explicit GROK_SESSION_ID wins rc=$RC sid=$GOT_SID err=$(cat "$WORK/t21.err")"; fi
+if [ -f "$HANDOFF_BRIDGE" ] && grep -q '"host": "grok"' "$HANDOFF_BRIDGE"; then ok
+else bad "T21b bridge host=grok bridge=$(cat "$HANDOFF_BRIDGE" 2>/dev/null)"; fi
+unset GROK_SESSION_ID CLAUDE_SESSION_ID GROK_CWD HANDOFF_BRIDGE
+
+# ---- T22: chat_history outside GROK_SESSIONS_DIR is not a Grok source ----
+unset CLAUDE_SESSION_ID SESSION_ID TRANSCRIPT_PATH GROK_SESSION_ID GROK_TRANSCRIPT_PATH
+export GROK_SESSIONS_DIR="$WORK/grok-sessions-t22"
+export CLAUDE_PROJECTS_DIR="$WORK/projects-t22"
+mkdir -p "$GROK_SESSIONS_DIR" "$CLAUDE_PROJECTS_DIR/proj-a"
+G22_CLAUDE_SID="claude-sid-t22"
+printf '{"type":"user","uuid":"t22"}\n' \
+  >"$CLAUDE_PROJECTS_DIR/proj-a/${G22_CLAUDE_SID}.jsonl"
+OUTSIDE="$WORK/outside-t22/chat_history.jsonl"
+mkdir -p "$(dirname "$OUTSIDE")"
+cp "$FIXTURE" "$OUTSIDE"
+export CLAUDE_TRANSCRIPT_PATH="$OUTSIDE"
+export CLAUDE_SESSION_ID="$G22_CLAUDE_SID"
+export HANDOFF_BRIDGE="$WORK/bridge-t22.json"
+rm -f "$HANDOFF_BRIDGE"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t22.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+GOT_TR=$(printf '%s\n' "$OUT" | sed -n '2p')
+# Outside path must not be accepted as Grok (no host:grok / no adapt). Claude sid wins.
+# (CLAUDE_TRANSCRIPT_PATH still wins for Claude resolve_transcript path precedence —
+# that is separate; the bug was treating any chat_history basename as Grok.)
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$G22_CLAUDE_SID" ] \
+   && ! printf '%s' "$GOT_TR" | grep -q 'handoff-grok-adapt'; then ok
+else bad "T22 outside chat_history not Grok rc=$RC sid=$GOT_SID tr=$GOT_TR err=$(cat "$WORK/t22.err")"; fi
+if [ -f "$HANDOFF_BRIDGE" ] && grep -q '"host": "claude"' "$HANDOFF_BRIDGE" \
+   && ! grep -q '"host": "grok"' "$HANDOFF_BRIDGE"; then ok
+else bad "T22b bridge host=claude bridge=$(cat "$HANDOFF_BRIDGE" 2>/dev/null)"; fi
+unset CLAUDE_TRANSCRIPT_PATH CLAUDE_SESSION_ID HANDOFF_BRIDGE
+
 # Restore defaults for cleanliness
 export CLAUDE_PROJECTS_DIR="$WORK/projects"
 export GROK_SESSIONS_DIR="$WORK/grok-sessions"

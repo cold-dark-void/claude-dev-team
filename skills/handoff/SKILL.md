@@ -525,11 +525,12 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
 - **Cold (M7):** write full packet file; print State now + Through-line; cite path
   for appendix (path MUST equal write path).
 - **Warm (M10 / CDT-92):** file-only under target `.claude/handoff/`; no primary core
-  print. Dual-host via `skills/handoff/discover-warm.sh` (Grok first if resolvable
-  — stale Claude bridge does not override — else Claude; fail hard if neither) +
-  `--allow-in-progress`. Grok stdout line 2 is Claude-shaped adapted JSONL
-  (prepare-ready); env: `GROK_SESSION_ID`, `GROK_TRANSCRIPT_PATH`,
-  `GROK_SESSIONS_DIR`, `GROK_CWD`. Command Step 1w stays thin (no host branch).
+  print. Dual-host via `skills/handoff/discover-warm.sh` (explicit Grok env wins;
+  Grok cwd-newest over stale Claude bridge; live Claude env beats Grok cwd
+  heuristic; else Claude; fail hard if neither) + `--allow-in-progress`. Grok
+  stdout line 2 is Claude-shaped adapted JSONL (prepare-ready); env:
+  `GROK_SESSION_ID`, `GROK_TRANSCRIPT_PATH`, `GROK_SESSIONS_DIR`, `GROK_CWD`.
+  Command Step 1w stays thin (no host branch).
 - **Cache (M8):** keyed by `(session uuid + leaf_uuid)` under target
   `$MROOT/.claude/handoff/cache/`.
 
