@@ -53,11 +53,12 @@ Examples:
 
 Unknown/missing sub → print this usage and stop. **MUST NOT** mutate project state.
 
-**Doctor gate (SPEC-005 / SPEC-022 M6b):** `/setup team` and `/setup orchestration`
+**Doctor gate (SPEC-005 / SPEC-022 M6b/M6c):** `/setup team` and `/setup orchestration`
 hard-gate on plugin **`dev-team:doctor`** (NOT the Claude Code harness built-in
-`/doctor`). Exit ≤1 continues; exit 2 blocks with remediation. Override:
-`--skip-doctor` prints an explicit WARNING then continues. `/setup project` is
-soft-advisory only. Marketplace install has no doctor gate.
+`/doctor`) with `--gate=team` / `--gate=orchestration`. Exit ≤1 continues (including
+self-remediating FAILs whose fix-it exactly matches the active sub); exit 2 blocks.
+Override: `--skip-doctor` prints an explicit WARNING then continues. `/setup project`
+is soft-advisory only. Marketplace install has no doctor gate.
 
 ## Routing table
 
@@ -122,6 +123,14 @@ re-run force-changes a managed settings value (especially
 (`skills/init-orchestration/disclose-force-overwrite.sh`). Forced + silent =
 FAIL. See init-orchestration Step 3 brownfield merge.
 
+**Not pure zero-intervention under `dontAsk` (CDT-68):** settings.json merge
+and writing `bash-compress.sh` are self-escalation-guarded and need explicit
+user approval. Agents **MUST** batch both approvals in **one** up-front ask
+(settings merge + bash-compress by name) — see
+`skills/init-orchestration/SKILL.md` § Permission batching. Do not strip
+`permissionDecision:"allow"` from bash-compress without evidence. Doctor
+circular self-block is fixed via `--gate=orchestration` (CDT-67).
+
 ---
 
 ## Sub: `team` — inline (former init-team command)
@@ -146,9 +155,9 @@ look like flags (`--*`).
 
 ### Step 0: Doctor hard-gate (before any mutation)
 
-Hard-gate on plugin **`dev-team:doctor`** (SPEC-022; NOT harness `/doctor`).
-Run before Steps 1+ mutate memory/settings. Exit ≤1 (PASS or WARN-only) continues;
-exit 2 (FAIL) **blocks** bootstrap.
+Hard-gate on plugin **`dev-team:doctor`** with `--gate=team` (SPEC-022 M6b/M6c; NOT
+harness `/doctor`). Run before Steps 1+ mutate memory/settings. Exit ≤1 (PASS, WARN,
+or self-remediating FAIL) continues; exit 2 (blocking FAIL) **blocks** bootstrap.
 
 ```bash
 # Parse --skip-doctor from remaining args (do not strip other flags)
@@ -168,7 +177,7 @@ else
     exit 2
   fi
   set +e
-  bash "$DOCTOR_SH"
+  bash "$DOCTOR_SH" --gate=team
   DOCTOR_RC=$?
   set -e
   if [ "$DOCTOR_RC" -ge 2 ]; then
@@ -176,7 +185,7 @@ else
     echo "Remediation: fix FAIL rows above, re-run /doctor (plugin surface dev-team:doctor — not the Claude Code harness /doctor), then retry /setup team. Override: /setup team --skip-doctor" >&2
     exit 2
   fi
-  # exit 0 (PASS) or 1 (WARN-only) → continue
+  # exit 0 (PASS) or 1 (WARN / self-remediating under --gate=team) → continue
 fi
 ```
 
@@ -392,10 +401,34 @@ fi
 
 For each host, check if it's already in the allowlist. If not, add it.
 
-**IMPORTANT:** `.claude/settings.json` is protected by the sandbox. The bash command
-below will be blocked on first attempt. When it fails with a sandbox/permission error,
-**retry with `dangerouslyDisableSandbox: true`** — the user will be prompted once to
-approve. This is the expected flow for zero-intervention setup.
+**IMPORTANT — not pure zero-intervention under `dontAsk` (CDT-68):** two layers
+can block settings writes, not just the sandbox:
+
+1. **Sandbox** — `.claude/settings.json` is sandbox-protected. On sandbox deny,
+   retry with `dangerouslyDisableSandbox: true` (user approves once per command).
+2. **Permission classifier under `dontAsk`** — writes to `settings.json` (Edit or
+   jq-via-Bash) and emitting `bash-compress.sh` (its `permissionDecision:"allow"`
+   reads as permission-widening) are self-escalation-guarded. Generic "approve
+   edits" is often rejected; the user must **explicitly** approve these by name.
+
+**Batch approvals up front (MUST):** before any settings merge or hook emit,
+ask the user **once** for both approvals together, e.g.:
+
+```
+This bootstrap needs two explicit approvals (dontAsk self-escalation guards —
+not removable without losing the guard):
+  1. Merge into .claude/settings.json (sandbox + hooks + dontAsk posture)
+  2. Write .claude/hooks/bash-compress.sh (PreToolUse; permissionDecision:allow
+     on noisy test/build rewrites only)
+Approve both so the rest of /setup can run without mid-run denials?
+```
+
+Do **not** discover these mid-run as separate denials. Do **not** strip
+`permissionDecision:"allow"` from bash-compress without evidence the CC
+re-check on rewritten commands is gone (it exists for CC 2.1.116+).
+
+Temp paths in any bypass-retry snippet: use `"${TMPDIR:-/tmp}/…"` (or
+`mktemp`) — bare `$TMPDIR` is unset outside the sandbox.
 
 ```bash
 if command -v jq &>/dev/null; then

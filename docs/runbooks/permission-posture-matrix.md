@@ -4,6 +4,11 @@ Live A/B/C matrix for orchestration `permissions.defaultMode` under Claude Code
 **2.1.190**. Evidence gate for AC2 template flip (Task 2). Spec anchors:
 SPEC-002 posture MUSTs; SPEC-005 orchestration default follows this winner.
 
+**Machine-readable last-probed CC version (CDT-59):**
+`tools/permission-matrix-cc-version` — single-line semver, written by
+`tools/permission-matrix-probe.sh` on a successful run. `/doctor` check
+`matrix.cc_version` WARNs when installed `claude --version` drifts.
+
 **Task 2 consumed `## Winner`** — ship default is `dontAsk` (see `/setup orchestration` / `skills/init-orchestration`).
 
 ---
@@ -223,7 +228,8 @@ and full matrix allow set: `Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task).
    TaskCompleted / friction hooks not fired end-to-end in this matrix.
 6. **Model / version drift.** Evidence is for host **2.1.190** + haiku probe
    model. Re-run `tools/permission-matrix-probe.sh` after CC upgrades before
-   trusting the winner.
+   trusting the winner. `/doctor` `matrix.cc_version` WARNs when
+   `claude --version` ≠ `tools/permission-matrix-cc-version` (CDT-59).
 
 ### Reproduce
 
@@ -240,6 +246,7 @@ bash tools/permission-matrix-probe.sh "${TMPDIR:-/tmp}/cdt-51-matrix-rerun"
 | Path | Role |
 |------|------|
 | `tools/permission-matrix-probe.sh` | Reproducible harness (committed) |
+| `tools/permission-matrix-cc-version` | Last-probed CC semver (doctor drift SoT) |
 | `docs/runbooks/permission-posture-matrix.md` | This evidence (committed) |
 | `/tmp/cdt-51-matrix-20260722-013805/` | Live run scratch (local only) |
 | `…/results.tsv` | Per-flow PASS rows |

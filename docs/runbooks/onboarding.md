@@ -97,9 +97,9 @@ when monorepos make “who calls what” expensive to rediscover. Optional for
 `/review-and-commit --impact` when `graphify` is on PATH. Full companion list:
 [Setup → optional tools](../setup.md#optional-companion-tools-not-dependencies).
 
-**Upgrading an existing project?** See
-[Setup → Upgrading](../setup.md#upgrading-the-plugin-existing-projects) — v0.71–v0.77
-need no migration; update the plugin (and re-run `install.sh` for opencode).
+**Upgrading an existing project?** 0.x → **1.0.0:**
+[Migrate to v1.0.0](migrate-to-v1.md). Minor arc v0.71–v0.77:
+[Setup → Upgrading](../setup.md#upgrading-the-plugin-existing-projects).
 
 ---
 

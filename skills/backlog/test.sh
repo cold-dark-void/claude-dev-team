@@ -143,6 +143,29 @@ c=$(grep -c 'FIXED/CLOSED' "$R1/.claude/backlog/sort-dropdown.md" || true)
 if [ "$c" -ge 1 ]; then pass "idempotent keeps closed status"
 else fail "idempotent keeps closed status" "count=$c"
 fi
+# Index row must carry exactly one status tag after re-close (tag-strip sed must work
+# with FIXED/CLOSED — ticket payload; [^\]] inside sed character classes is wrong).
+idx_line=$(grep -E '\]\(backlog/sort-dropdown\.md\)' "$R1/.claude/backlog.md" | head -n1 || true)
+tag_n=$(printf '%s\n' "$idx_line" | grep -oE '\[(PENDING|COMPLETED[^]]*|FIXED/CLOSED[^]]*)\]' | wc -l | tr -d ' ')
+if [ "$tag_n" = "1" ]; then pass "idempotent index single status tag"
+else fail "idempotent index single status tag" "tags=$tag_n line=$idx_line"
+fi
+assert_file_match "idempotent index keeps FIXED/CLOSED tag" "$R1/.claude/backlog.md" \
+  'sort-dropdown\.md\).*\[FIXED/CLOSED — BHR-1\]'
+assert_file_nomatch "idempotent index no dual FIXED/CLOSED" "$R1/.claude/backlog.md" \
+  'sort-dropdown\.md\).*\[FIXED/CLOSED[^]]*\][^\n]*\[FIXED/CLOSED'
+
+# Re-close already-FIXED/CLOSED item with default COMPLETED: strip old tag, one new tag.
+bash "$CLOSE" sort-dropdown --root "$R1" >/dev/null
+idx_line=$(grep -E '\]\(backlog/sort-dropdown\.md\)' "$R1/.claude/backlog.md" | head -n1 || true)
+tag_n=$(printf '%s\n' "$idx_line" | grep -oE '\[(PENDING|COMPLETED[^]]*|FIXED/CLOSED[^]]*)\]' | wc -l | tr -d ' ')
+if [ "$tag_n" = "1" ]; then pass "retag index single status tag"
+else fail "retag index single status tag" "tags=$tag_n line=$idx_line"
+fi
+assert_file_match "retag index COMPLETED only" "$R1/.claude/backlog.md" \
+  'sort-dropdown\.md\).*\[COMPLETED\]'
+assert_file_nomatch "retag index drops FIXED/CLOSED" "$R1/.claude/backlog.md" \
+  'sort-dropdown\.md\).*FIXED/CLOSED'
 
 # --- close by title fragment ---
 R2="$TMP/r2"
@@ -252,6 +275,103 @@ if printf '%s\n' "$out6" | grep -qE '^linear_id:'; then
   fail "local-only no linear_id bridge" "unexpected bridge in: $out6"
 else
   pass "local-only no linear_id bridge"
+fi
+
+# --- CDT-63: Linear-only / no local write-through (post-hygiene) — calm exit 0 ---
+R7="$TMP/r7-empty"
+mkdir -p "$R7"   # no .claude/backlog or backlog.md
+set +e
+out7=$(bash "$CLOSE" CDT-63 --root "$R7" --ticket CDT-63 --status FIXED/CLOSED 2>&1)
+rc7=$?
+set -e
+if [ "$rc7" -eq 0 ]; then pass "linear-only no write-through exit 0"
+else fail "linear-only no write-through exit 0" "rc=$rc7 out=$out7"
+fi
+if printf '%s\n' "$out7" | grep -qiE '^error:'; then
+  fail "linear-only no error-shaped output" "got=$out7"
+else
+  pass "linear-only no error-shaped output"
+fi
+if printf '%s\n' "$out7" | grep -qiE 'no backlog (dir|index)'; then
+  fail "linear-only no error-looking backlog msg" "got=$out7"
+else
+  pass "linear-only no error-looking backlog msg"
+fi
+
+# dir present, index absent, no matching item — still expected Linear-only skip
+R8="$TMP/r8-no-index"
+mkdir -p "$R8/.claude/backlog"
+set +e
+out8=$(bash "$CLOSE" CDT-99 --root "$R8" --ticket CDT-99 2>&1)
+rc8=$?
+set -e
+if [ "$rc8" -eq 0 ]; then pass "no-index empty dir exit 0"
+else fail "no-index empty dir exit 0" "rc=$rc8 out=$out8"
+fi
+if printf '%s\n' "$out8" | grep -qiE '^error:'; then
+  fail "no-index empty dir no error:" "got=$out8"
+else
+  pass "no-index empty dir no error:"
+fi
+
+# index present + item missing remains a real error (not Linear-only skip)
+R9="$TMP/r9-index-only"
+mkdir -p "$R9/.claude/backlog"
+cat > "$R9/.claude/backlog.md" <<'EOF'
+# Fixture
+
+## Pending
+
+## Completed
+EOF
+set +e
+out9=$(bash "$CLOSE" no-such-item --root "$R9" 2>&1)
+rc9=$?
+set -e
+if [ "$rc9" -eq 1 ]; then pass "index exists missing item still exit 1"
+else fail "index exists missing item still exit 1" "rc=$rc9 out=$out9"
+fi
+if printf '%s\n' "$out9" | grep -qE 'no backlog item matching'; then
+  pass "index exists missing item message"
+else
+  fail "index exists missing item message" "got=$out9"
+fi
+
+# item file present without index — close item, skip index, exit 0
+R10="$TMP/r10-orphan-item"
+mkdir -p "$R10/.claude/backlog"
+cat > "$R10/.claude/backlog/orphan.md" <<'EOF'
+# Orphan
+
+**Status**: PENDING
+
+## Problem
+
+x
+
+## Goal
+
+y
+
+---
+
+*Added: 2026-07-01*
+EOF
+set +e
+out10=$(bash "$CLOSE" orphan --root "$R10" --ticket CDT-1 --status FIXED/CLOSED 2>&1)
+rc10=$?
+set -e
+if [ "$rc10" -eq 0 ]; then pass "orphan item no-index exit 0"
+else fail "orphan item no-index exit 0" "rc=$rc10 out=$out10"
+fi
+assert_file_match "orphan item closed without index" "$R10/.claude/backlog/orphan.md" 'Status\*\*: FIXED/CLOSED \(CDT-1\)'
+if printf '%s\n' "$out10" | grep -qE '^Closed:'; then pass "orphan item closed stdout"
+else fail "orphan item closed stdout" "got=$out10"
+fi
+if printf '%s\n' "$out10" | grep -qiE '^error:'; then
+  fail "orphan item no error:" "got=$out10"
+else
+  pass "orphan item no error:"
 fi
 
 echo

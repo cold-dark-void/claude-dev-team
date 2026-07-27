@@ -8,7 +8,7 @@
 | SPEC-002 | Plugin Infrastructure | ACTIVE | .claude-plugin/plugin.json, marketplace.json, settings (install-time); hook template SoT in skills/init-orchestration (live `.claude/hooks` generated, not package product — CDT-54); tools/scout-plugins |
 | SPEC-003 | Agent Role System | ACTIVE | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
 | SPEC-004 | Memory Storage & Migration | ACTIVE | skills/memory-store/SKILL.md, schema.sql, migrate.sh, migrate-md.sh, migrate-v2/v3/v4.sh |
-| SPEC-005 | Team Bootstrap | ACTIVE | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration (emit hooks from templates — CDT-54), demo; doctor-gate + posture |
+| SPEC-005 | Team Bootstrap | ACTIVE | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration (emit hooks from templates — CDT-54), demo; doctor-gate `--gate=<sub>` (CDT-67 M6c) + posture |
 | SPEC-006 | Memory Retrieval & Search | ACTIVE | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
 | SPEC-007 | Memory Distillation | ACTIVE | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
 | SPEC-008 | Spec Management | ACTIVE | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
@@ -25,7 +25,7 @@
 | SPEC-019 | Local-Agent Offload via OpenCode | DEPRECATED | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
 | SPEC-020 | Loop-Prompt Architect (/craft-loop) | ACTIVE | commands/craft-loop.md, skills/craft-loop/SKILL.md, program-template.md, examples/ |
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
-| SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh |
+| SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh; M6c `--gate=` self-remediation (CDT-67) |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 | SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory.md (`/memory export`), commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
 | SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse) |
@@ -75,3 +75,4 @@
 | 2026-07-16 | SPEC-029 dogfood on describer (Grok `/debug`); status DRAFT→ACTIVE. |
 | 2026-07-21 | SPEC-030 implemented (CDT-46-C1): deterministic smoke-harness gate (tools/smoke/) + first CI (.github/workflows/smoke.yml) + `/release` Step 4.10; status DRAFT→ACTIVE. |
 | 2026-07-22 | CDT-51 / CDT-46-C5 kickoff: SPEC-002/005 posture + doctor-gate MUSTs; SPEC-022 M6b caller-gate; SPEC-004 migrate-test note + Covers migrate-v3/v4. No INFERRED→ACTIVE (W5). |
+| 2026-07-22 | CDT-67: SPEC-022 M6c gate-mode self-remediation (`--gate=orchestration|team`); SPEC-005 doctor gate passes `--gate=<sub>`. |

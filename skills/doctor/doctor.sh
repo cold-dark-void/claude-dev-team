@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # doctor.sh — install & config diagnostics (SPEC-022 / CDV-191)
 #
-# Usage: doctor.sh [--json] [--fix] [--only <id|group>] [-h|--help]
+# Usage: doctor.sh [--json] [--fix] [--only <id|group>] [--gate=<orchestration|team>] [-h|--help]
 # Exit: 0 all PASS · 1 ≥1 WARN no FAIL · 2 ≥1 FAIL · 64 usage
+# Under --gate: self-remediating FAILs (exact fixit match) do not contribute to exit 2 (SPEC-022 M6c)
 #
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 # Read-only by default. --fix applies only the allowlisted repairs.
@@ -16,6 +17,7 @@ PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 JSON_MODE=0
 FIX_MODE=0
 ONLY_FILTER=""
+GATE=""
 USAGE_ERR=0
 
 # ---------------------------------------------------------------------------
@@ -23,14 +25,18 @@ USAGE_ERR=0
 # ---------------------------------------------------------------------------
 usage() {
   cat <<'EOF' >&2
-Usage: doctor.sh [--json] [--fix] [--only <check-id|group>] [-h|--help]
+Usage: doctor.sh [--json] [--fix] [--only <check-id|group>] [--gate=<orchestration|team>] [-h|--help]
 
   --json              Emit single JSON document on stdout (diagnostics on stderr)
   --fix               Apply allowlisted repairs only (distilling_lock, STALE .wt-lock, handoff *.tmp)
   --only <id|group>   Run a subset of checks
+  --gate=<orchestration|team>
+                      Gate-mode self-remediation (CDT-67 / M6c): FAILs whose
+                      fixit exactly equals /setup <gate> stay FAIL but do not
+                      count toward exit 2 (exit 1 when only waived FAILs/WARNs)
   -h, --help          Show this help
 
-Exit codes: 0=all PASS  1=WARN only  2=FAIL  64=usage
+Exit codes: 0=all PASS  1=WARN only (or waived FAILs under --gate)  2=FAIL  64=usage
 EOF
 }
 
@@ -45,6 +51,35 @@ while [ $# -gt 0 ]; do
         break
       fi
       ONLY_FILTER="$2"
+      shift 2
+      ;;
+    --gate=*)
+      GATE=${1#--gate=}
+      case "$GATE" in
+        orchestration|team) ;;
+        *)
+          echo "doctor: invalid --gate value: $GATE (want orchestration|team)" >&2
+          USAGE_ERR=1
+          break
+          ;;
+      esac
+      shift
+      ;;
+    --gate)
+      if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+        echo "doctor: --gate requires an argument (orchestration|team)" >&2
+        USAGE_ERR=1
+        break
+      fi
+      GATE="$2"
+      case "$GATE" in
+        orchestration|team) ;;
+        *)
+          echo "doctor: invalid --gate value: $GATE (want orchestration|team)" >&2
+          USAGE_ERR=1
+          break
+          ;;
+      esac
       shift 2
       ;;
     -h|--help) usage; exit 0 ;;
@@ -97,6 +132,7 @@ CHECK_GROUPS=()
 CHECK_STATUSES=()
 CHECK_DETAILS=()
 CHECK_FIXITS=()
+CHECK_GATE_WAIVED=()  # parallel: 0|1 when --gate set and FAIL self-remediating
 
 # Registration table: id|group|fn  (populated then filtered/run)
 REG_IDS=()
@@ -117,6 +153,26 @@ record() {
   CHECK_STATUSES+=("$status")
   CHECK_DETAILS+=("$detail")
   CHECK_FIXITS+=("$fixit")
+  CHECK_GATE_WAIVED+=(0)
+}
+
+# Trim leading/trailing whitespace (exact-match gate waive — M6c)
+trim_ws() {
+  local s=${1-}
+  # leading
+  s="${s#"${s%%[![:space:]]*}"}"
+  # trailing
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+# Exact fixit match for active gate command (no substring/contains)
+fixit_matches_gate() {
+  local fixit="$1" gate_cmd="$2"
+  [ -n "$gate_cmd" ] || return 1
+  local t
+  t=$(trim_ws "$fixit")
+  [ "$t" = "$gate_cmd" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -477,6 +533,51 @@ check_version_triplet() {
   fi
 }
 
+# CDT-59 — WARN when installed Claude Code ≠ last matrix-probed version.
+# SoT: tools/permission-matrix-cc-version (updated by permission-matrix-probe.sh).
+# Override path via MATRIX_CC_VERSION_FILE (tests).
+check_matrix_cc_version() {
+  local ver_file="${MATRIX_CC_VERSION_FILE:-$PLUGIN_ROOT/tools/permission-matrix-cc-version}"
+  local probed raw installed
+
+  if ! have_cmd claude; then
+    record "matrix.cc_version" "version" "SKIP" \
+      "claude CLI absent — cannot compare to last-probed matrix version" ""
+    return 0
+  fi
+
+  if [ ! -f "$ver_file" ]; then
+    record "matrix.cc_version" "version" "SKIP" \
+      "last-probed version file missing ($ver_file)" ""
+    return 0
+  fi
+
+  probed=$(sed -n '/^[[:space:]]*#/d;/^[[:space:]]*$/d;s/^[[:space:]]*//;s/[[:space:]]*$//;p;q' "$ver_file")
+  if [ -z "$probed" ]; then
+    record "matrix.cc_version" "version" "WARN" \
+      "last-probed CC version file empty — re-run tools/permission-matrix-probe.sh" \
+      "bash tools/permission-matrix-probe.sh"
+    return 0
+  fi
+
+  raw=$(claude --version 2>&1 | head -1 || true)
+  installed=$(printf '%s' "$raw" | awk '{print $1}' | tr -d '\r')
+  if [ -z "$installed" ]; then
+    record "matrix.cc_version" "version" "SKIP" \
+      "claude --version unparseable: ${raw:-empty}" ""
+    return 0
+  fi
+
+  if [ "$installed" = "$probed" ]; then
+    record "matrix.cc_version" "version" "PASS" \
+      "claude $installed matches last-probed matrix version" ""
+  else
+    record "matrix.cc_version" "version" "WARN" \
+      "permission posture matrix evidence is from CC $probed; you are on $installed — re-run tools/permission-matrix-probe.sh" \
+      "bash tools/permission-matrix-probe.sh"
+  fi
+}
+
 check_plugin_resolve() {
   local rel="skills/doctor/doctor.sh"
   local resolved="" rc=0
@@ -794,6 +895,19 @@ check_hooks_hygiene() {
     fi
   done <<< "$cmds"
 
+  # Multi-event registration can list the same path N times — unique before record (CDT-70)
+  # Intentional word-split: tokens are space-joined relative paths (no spaces in paths).
+  if [ -n "$missing_script" ]; then
+    # shellcheck disable=SC2086
+    missing_script=$(printf '%s\n' $missing_script | sort -u | tr '\n' ' ')
+    missing_script=${missing_script% }
+  fi
+  if [ -n "$nonexec" ]; then
+    # shellcheck disable=SC2086
+    nonexec=$(printf '%s\n' $nonexec | sort -u | tr '\n' ' ')
+    nonexec=${nonexec% }
+  fi
+
   # Severity: missing script = FAIL; unanchored/pipe = WARN; nonexec = FAIL (can't run)
   if [ -n "$missing_script" ]; then
     record "hooks.hygiene" "hooks" "FAIL" \
@@ -1079,6 +1193,7 @@ check_worktree_distill_lock() {
 # Register all checks
 # ---------------------------------------------------------------------------
 register_check "version.triplet" "version" check_version_triplet
+register_check "matrix.cc_version" "version" check_matrix_cc_version
 register_check "plugin.resolve" "plugin" check_plugin_resolve
 register_check "memory.sqlite3" "memory" check_memory_sqlite3
 register_check "memory.db" "memory" check_memory_db
@@ -1222,32 +1337,59 @@ while [ $i -lt ${#REG_IDS[@]} ]; do
 done
 
 # ---------------------------------------------------------------------------
-# Summarize
+# Summarize + gate-mode self-remediation (SPEC-022 M6c / CDT-67)
 # ---------------------------------------------------------------------------
 N_PASS=0 N_WARN=0 N_FAIL=0 N_SKIP=0
+N_FAIL_BLOCK=0 N_FAIL_WAIVED=0
+GATE_CMD=""
+case "$GATE" in
+  orchestration) GATE_CMD="/setup orchestration" ;;
+  team) GATE_CMD="/setup team" ;;
+esac
+
 i=0
 while [ $i -lt ${#CHECK_IDS[@]} ]; do
   case "${CHECK_STATUSES[$i]}" in
     PASS) N_PASS=$((N_PASS + 1)) ;;
     WARN) N_WARN=$((N_WARN + 1)) ;;
-    FAIL) N_FAIL=$((N_FAIL + 1)) ;;
+    FAIL)
+      N_FAIL=$((N_FAIL + 1))
+      if [ -n "$GATE_CMD" ] && fixit_matches_gate "${CHECK_FIXITS[$i]}" "$GATE_CMD"; then
+        CHECK_GATE_WAIVED[$i]=1
+        N_FAIL_WAIVED=$((N_FAIL_WAIVED + 1))
+        # Annotate detail for human+JSON honesty (status stays FAIL)
+        CHECK_DETAILS[$i]="${CHECK_DETAILS[$i]} [self-remediating under --gate=${GATE}]"
+      else
+        N_FAIL_BLOCK=$((N_FAIL_BLOCK + 1))
+      fi
+      ;;
     SKIP) N_SKIP=$((N_SKIP + 1)) ;;
   esac
   i=$((i + 1))
 done
 
 EXIT_CODE=0
-if [ "$N_FAIL" -gt 0 ]; then
-  EXIT_CODE=2
-elif [ "$N_WARN" -gt 0 ]; then
-  EXIT_CODE=1
+if [ -n "$GATE" ]; then
+  # Under --gate: blocking FAILs → 2; WARN or waived-only FAIL → 1; clear → 0
+  if [ "$N_FAIL_BLOCK" -gt 0 ]; then
+    EXIT_CODE=2
+  elif [ "$N_WARN" -gt 0 ] || [ "$N_FAIL_WAIVED" -gt 0 ]; then
+    EXIT_CODE=1
+  fi
+else
+  # Bare doctor (M6): any FAIL → 2
+  if [ "$N_FAIL" -gt 0 ]; then
+    EXIT_CODE=2
+  elif [ "$N_WARN" -gt 0 ]; then
+    EXIT_CODE=1
+  fi
 fi
 
 # ---------------------------------------------------------------------------
 # Render
 # ---------------------------------------------------------------------------
 render_human() {
-  echo "dev-team doctor  plugin=${PLUGIN_VERSION:-unknown}  tier=${RESOLVED_TIER}  mroot=$MROOT"
+  echo "dev-team doctor  plugin=${PLUGIN_VERSION:-unknown}  tier=${RESOLVED_TIER}  mroot=$MROOT${GATE:+  gate=$GATE}"
   echo "----------------------------------------------------------------"
   local i=0
   while [ $i -lt ${#CHECK_IDS[@]} ]; do
@@ -1261,16 +1403,24 @@ render_human() {
     i=$((i + 1))
   done
   echo "----------------------------------------------------------------"
-  printf '%d pass / %d warn / %d fail / %d skip\n' "$N_PASS" "$N_WARN" "$N_FAIL" "$N_SKIP"
+  if [ -n "$GATE" ] && [ "$N_FAIL_WAIVED" -gt 0 ]; then
+    printf '%d pass / %d warn / %d fail (%d self-remediating under --gate=%s) / %d skip\n' \
+      "$N_PASS" "$N_WARN" "$N_FAIL" "$N_FAIL_WAIVED" "$GATE" "$N_SKIP"
+  else
+    printf '%d pass / %d warn / %d fail / %d skip\n' "$N_PASS" "$N_WARN" "$N_FAIL" "$N_SKIP"
+  fi
 }
 
 render_json() {
-  # Pure-bash JSON for AC18 (no jq required)
+  # Pure-bash JSON for AC18 (no jq required); additive fields under --gate only
   local i first=1
   printf '{'
   printf '"doctor_schema":"%s",' "$(json_escape "$DOCTOR_SCHEMA")"
   printf '"plugin_version":"%s",' "$(json_escape "${PLUGIN_VERSION:-}")"
   printf '"resolved_tier":"%s",' "$(json_escape "$RESOLVED_TIER")"
+  if [ -n "$GATE" ]; then
+    printf '"gate":"%s",' "$(json_escape "$GATE")"
+  fi
   printf '"checks":['
   i=0
   while [ $i -lt ${#CHECK_IDS[@]} ]; do
@@ -1281,26 +1431,30 @@ render_json() {
     printf '"group":"%s",' "$(json_escape "${CHECK_GROUPS[$i]}")"
     printf '"status":"%s",' "$(json_escape "${CHECK_STATUSES[$i]}")"
     printf '"detail":"%s",' "$(json_escape "${CHECK_DETAILS[$i]}")"
-    if [ "${CHECK_STATUSES[$i]}" = "PASS" ] || [ "${CHECK_STATUSES[$i]}" = "SKIP" ]; then
-      # fixit null on PASS; SKIP also null
-      if [ -z "${CHECK_FIXITS[$i]}" ]; then
-        printf '"fixit":null'
-      else
-        printf '"fixit":"%s"' "$(json_escape "${CHECK_FIXITS[$i]}")"
-      fi
+    if [ -z "${CHECK_FIXITS[$i]}" ]; then
+      printf '"fixit":null'
     else
-      if [ -z "${CHECK_FIXITS[$i]}" ]; then
-        printf '"fixit":null'
+      printf '"fixit":"%s"' "$(json_escape "${CHECK_FIXITS[$i]}")"
+    fi
+    # Additive: gate_waived only when --gate is active
+    if [ -n "$GATE" ]; then
+      if [ "${CHECK_GATE_WAIVED[$i]:-0}" -eq 1 ]; then
+        printf ',"gate_waived":true'
       else
-        printf '"fixit":"%s"' "$(json_escape "${CHECK_FIXITS[$i]}")"
+        printf ',"gate_waived":false'
       fi
     fi
     printf '}'
     i=$((i + 1))
   done
   printf '],'
-  printf '"summary":{"pass":%d,"warn":%d,"fail":%d,"skip":%d}' \
-    "$N_PASS" "$N_WARN" "$N_FAIL" "$N_SKIP"
+  if [ -n "$GATE" ]; then
+    printf '"summary":{"pass":%d,"warn":%d,"fail":%d,"fail_waived":%d,"fail_blocking":%d,"skip":%d}' \
+      "$N_PASS" "$N_WARN" "$N_FAIL" "$N_FAIL_WAIVED" "$N_FAIL_BLOCK" "$N_SKIP"
+  else
+    printf '"summary":{"pass":%d,"warn":%d,"fail":%d,"skip":%d}' \
+      "$N_PASS" "$N_WARN" "$N_FAIL" "$N_SKIP"
+  fi
   printf '}\n'
 }
 

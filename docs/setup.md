@@ -19,6 +19,10 @@ Primary Surface: **[`/setup`](commands/setup.md)** — `project` · `orchestrati
 
 ## Upgrading the plugin (existing projects)
 
+**0.x → 1.0.0:** follow the consumer checklist
+[Migrate to v1.0.0](runbooks/migrate-to-v1.md) (doctor, schema v4, re-run
+`/setup orchestration`, stub renames before v1.1).
+
 **These features (v0.71–v0.77) need no data migration.** Updating the plugin is enough
 for Claude Code marketplace installs; nothing rewrites `memory.db`.
 
@@ -117,9 +121,16 @@ What it does:
 - Creates/updates `AGENTS.md` with team coordination rules
 - Seeds `.claude/memory/claude/memory.md` with baseline orchestrator rules
 
-**Doctor hard-gate:** same as `/setup team` — plugin **`dev-team:doctor`** (not
-harness `/doctor`); exit ≤1 OK; exit 2 blocks; `/setup orchestration --skip-doctor`
-override with WARNING.
+**Doctor hard-gate:** same as `/setup team` — plugin **`dev-team:doctor`** with
+`--gate=orchestration` (not harness `/doctor`); exit ≤1 OK (including
+self-remediating FAILs whose fix-it is this sub — CDT-67); exit 2 blocks;
+`/setup orchestration --skip-doctor` override with WARNING.
+
+**Not pure zero-intervention under `dontAsk` (CDT-68):** settings.json merge and
+writing `bash-compress.sh` still need explicit user approval (self-escalation
+guards). The agent should batch both in one ask up front — see
+`skills/init-orchestration/SKILL.md` § Permission batching. Do not remove the
+guards to chase zero prompts.
 
 Safe to re-run (idempotent).
 

@@ -325,8 +325,10 @@ bash "$CLOSE" "<slug>" --root "$ROOT" --ticket "$TICKET_ID" --status "FIXED/CLOS
 ```
 
 Idempotent — safe when Step 11 already closed the item. Print how many backlog
-slugs closed/verified. Local write-through stays on disk only — **MUST NOT**
-stage or commit `.claude/backlog*` / `.claude/plans*` as product (SPEC-009).
+slugs closed/verified. When no local write-through exists (Linear-only /
+post-hygiene), `close.sh` exits 0 with a calm skip line — not `error:`-shaped
+(CDT-63). Local write-through stays on disk only — **MUST NOT** stage or commit
+`.claude/backlog*` / `.claude/plans*` as product (SPEC-009).
 
 ---
 

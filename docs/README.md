@@ -14,6 +14,7 @@ exists; skills-backed Surfaces without a page still appear here.
 |-------|--------------|
 | [Setup & Configuration](setup.md) | Prerequisites, **upgrading**, optional tools, `/setup`, memory config |
 | [Onboarding](runbooks/onboarding.md) | "Just cloned the repo" → agents ready (glossary + optional Graphify) |
+| [Migrate to v1.0.0](runbooks/migrate-to-v1.md) | 0.x → 1.0.0 consumer checklist (doctor, schema, hooks, stubs) |
 | [Idea → Plan](runbooks/idea-to-plan.md) | Rough idea → brainstorm (`--grill`) → spec → plan |
 | [Orchestrate](runbooks/orchestrate.md) | Full lifecycle end-to-end with `/orchestrate` |
 | [Specs](runbooks/specs.md) | Spec workflow — create, audit, reflect |
@@ -22,7 +23,7 @@ exists; skills-backed Surfaces without a page still appear here.
 | [Scheduled retro](runbooks/scheduled-retro.md) | Opt-in cron for `/retro --all --auto` |
 | [Permission posture matrix](runbooks/permission-posture-matrix.md) | C8 evidence — `dontAsk` ship default (pin Claude Code 2.1.190) |
 
-**What's new / upgrade path:** [CHANGELOG](../CHANGELOG.md) (newest first) · [Setup → Upgrading](setup.md#upgrading-the-plugin-existing-projects).
+**What's new / upgrade path:** [CHANGELOG](../CHANGELOG.md) (newest first) · [Migrate to v1.0.0](runbooks/migrate-to-v1.md) · [Setup → Upgrading](setup.md#upgrading-the-plugin-existing-projects).
 
 ## Command reference
 
@@ -80,6 +81,7 @@ user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal 
 ### Migration / deprecated
 
 Stubs remain discoverable until **removed at v1.1**. Prefer the replacement now.
+Full checklist: [Migrate to v1.0.0](runbooks/migrate-to-v1.md).
 Authoritative old→new table: [CHANGELOG v1.0.0 Migration](../CHANGELOG.md#v100).
 
 | Command | Docs | Replacement |

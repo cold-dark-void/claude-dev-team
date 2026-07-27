@@ -13,9 +13,47 @@ description: >
 > Live helpers retained: `check-hook-templates.sh` (template-internal hygiene
 > gate — extractability/shebang/`bash -n`; dual-copy live-vs-template retired
 > CDT-54); `disclose-force-overwrite.sh` (CDT-51 AC5 force-overwrite disclosure);
+> `normalize-hook-paths.sh` (CDT-69 Step 1 absolute/relative hook-path upgrade);
 > `test-orch-allowlist.sh` (CDT-51 TL P0 matrix allow ⊇ greenfield template).
 
 Bootstrap the files needed for Claude Code Agent Teams in the current project.
+
+## Permission batching under `dontAsk` (CDT-68 — read before mutating)
+
+`/setup orchestration` is **not pure zero-intervention**. After posture lands
+(`defaultMode: "dontAsk"` + sandbox), two self-escalation-guarded paths still
+require **explicit user approval** — by design; do not remove the guards:
+
+| Path | Why it prompts |
+|------|----------------|
+| Merge / write `.claude/settings.json` | Self-modification of project permissions/hooks (Edit or jq-via-Bash); also sandbox-protected |
+| Write `.claude/hooks/bash-compress.sh` | Emitted body uses `permissionDecision:"allow"` on noisy test/build rewrites — classifier treats as permission-widening; generic "approve edits" is often rejected |
+
+**MUST batch both approvals in ONE ask up front** (before Step 3 settings write
+and before Step 4d bash-compress emit). Example:
+
+```
+This /setup orchestration needs two explicit approvals (dontAsk self-escalation
+guards — intentional; not removable without losing the guard):
+  1. Merge into .claude/settings.json (sandbox + hooks + dontAsk + matrix allow)
+  2. Write .claude/hooks/bash-compress.sh (PreToolUse; permissionDecision:allow
+     bounded to the hardcoded NOISY test/build allowlist)
+Approve both so bootstrap can finish without mid-run denials?
+```
+
+Also: sandbox denials on settings writes still need
+`dangerouslyDisableSandbox: true` on the retry command (separate from the
+permission classifier). Temp paths in bypass-retry snippets MUST use
+`"${TMPDIR:-/tmp}/…"` or `mktemp` — bare `$TMPDIR` is often unset outside
+the sandbox.
+
+**Do not** strip `permissionDecision:"allow"` from bash-compress without
+strong evidence the CC re-check on rewritten commands is gone (kept for
+CC 2.1.116+). Prefer docs + batch ask over weakening the hook.
+
+**Doctor circular gate (CDT-67):** Step 0 uses `dev-team:doctor --gate=orchestration`
+so self-remediating FAILs whose fix-it is exactly `/setup orchestration` exit ≤1
+instead of blocking the bootstrap that would fix them.
 
 ## What Gets Created / Updated
 
@@ -42,11 +80,12 @@ project/
 
 ### Step 0: Doctor hard-gate (before any mutation)
 
-Hard-gate on plugin **`dev-team:doctor`** (SPEC-005 / SPEC-022 M6b). This is the
-plugin doctor surface — **not** the Claude Code harness built-in `/doctor`.
-Exit ≤1 (PASS or WARN-only) continues; exit 2 (FAIL) **blocks** bootstrap.
-Override: `--skip-doctor` prints an explicit WARNING then continues (silent skip
-forbidden). Marketplace install has no gate.
+Hard-gate on plugin **`dev-team:doctor`** with `--gate=orchestration`
+(SPEC-005 / SPEC-022 M6b/M6c). This is the plugin doctor surface — **not** the
+Claude Code harness built-in `/doctor`. Exit ≤1 (PASS, WARN, or self-remediating
+FAIL whose fix-it is exactly `/setup orchestration`) continues; exit 2 (blocking
+FAIL) **blocks** bootstrap. Override: `--skip-doctor` prints an explicit WARNING
+then continues (silent skip forbidden). Marketplace install has no gate.
 
 Parse `--skip-doctor` from remaining args passed through from `/setup orchestration`.
 
@@ -70,7 +109,7 @@ else
     exit 2
   fi
   set +e
-  bash "$DOCTOR_SH"
+  bash "$DOCTOR_SH" --gate=orchestration
   DOCTOR_RC=$?
   set -e
   if [ "$DOCTOR_RC" -ge 2 ]; then
@@ -79,7 +118,7 @@ else
     # STOP — do not mutate settings/hooks/AGENTS.md
     exit 2
   fi
-  # exit 0 (PASS) or 1 (WARN-only) → continue to Step 1
+  # exit 0 (PASS) or 1 (WARN / self-remediating under --gate=orchestration) → continue to Step 1
 fi
 ```
 
@@ -106,11 +145,45 @@ Fix: remove '| <cmd>' from each. Example: 'go vet ./... 2>&1 | head -20' → 'go
 Restart required after fixing.
 ```
 
-2. **Worktree-unsafe relative paths** — commands of the form `bash .claude/hooks/<name>.sh` resolve from the agent's cwd, not the project root. Inside a git worktree (which doesn't share `.claude/`) every Bash tool call fails with "No such file or directory". Auto-rewrite these to use `${CLAUDE_PROJECT_DIR}`:
+2. **Worktree-unsafe / non-portable hook paths** — two legacy forms never match the managed template and leave doctor `hooks.hygiene` WARN forever if not upgraded:
+
+   - **Relative** — `bash .claude/hooks/<name>.sh` resolves from the agent's cwd, not the project root. Inside a git worktree (which doesn't share `.claude/`) every Bash tool call fails with "No such file or directory".
+   - **Absolute under project root** — `bash /abs/path/to/proj/.claude/hooks/<name>.sh` (or the same path quoted) works only while the project stays at that path; doctor treats it as un-anchored (`hooks.hygiene` WARN). Match when the path is `$MROOT/.claude/hooks/<name>.sh` **or** ends with `/.claude/hooks/<name>.sh` and is under the project root.
+
+   Auto-rewrite **both** forms to the managed `${CLAUDE_PROJECT_DIR}` form:
 ```
-bash .claude/hooks/X.sh  →  bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/X.sh"
+bash .claude/hooks/X.sh
+bash /abs/path/to/proj/.claude/hooks/X.sh
+bash "/abs/path/to/proj/.claude/hooks/X.sh"
+  →  bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/X.sh"
 ```
-Apply this rewrite for every hook command matching the relative pattern. Note this in the Step 9 summary as an upgrade applied.
+   Leave alone: already-anchored commands, and absolute paths **outside** the project root (user-owned hooks).
+
+   This **changes** an existing managed hook value → **MUST** disclose first (SPEC-005 / CDT-51 AC5; forced + silent = FAIL). Prefer the helper (install-aware PDH, same formula as Step 0):
+
+```bash
+# Re-resolve DISCLOSE / NORMALIZE (each fenced bash block is a fresh shell — skill-lint C1)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+NORMALIZE=$(bash "$PDH/skills/plugin-dir.sh" file skills/init-orchestration/normalize-hook-paths.sh 2>/dev/null) || NORMALIZE=""
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+SETTINGS="${MROOT}/.claude/settings.json"
+if [ -n "$NORMALIZE" ] && [ -f "$NORMALIZE" ] && [ -f "$SETTINGS" ]; then
+  set +e
+  bash "$NORMALIZE" --settings "$SETTINGS" --project-root "$MROOT"
+  NORM_RC=$?
+  set -e
+  # exit 0 → rewrote + disclosed each change; exit 1 → already normalized (no-op)
+  # Helper prints FORCE-OVERWRITE key/old/new/restore per change (via disclose-force-overwrite.sh)
+else
+  # Fallback: agent rewrites matching commands and MUST print the same labels per change
+  # before writing settings.json (use disclose-force-overwrite.sh --key/--old/--new/--restore)
+  :
+fi
+```
+
+   Apply for every matching hook command. Note absolute-path and relative-path rewrites in the Step 9 summary as upgrades applied.
 
 If any upgrade keys are missing, proceed through the relevant steps to add them. Report what was upgraded in the Step 9 summary.
 
@@ -201,6 +274,10 @@ If user picks option 2, add to `.claude/settings.json` sandbox filesystem sectio
 ---
 
 ### Step 3: Write .claude/settings.json
+
+**Precondition (CDT-68):** confirm the user already approved the settings merge
+in the up-front batch ask (see **Permission batching under `dontAsk`**). If not,
+ask now (settings merge + bash-compress by name) before writing.
 
 Using the `allowedDomains` list from Step 2, write the settings file.
 
@@ -792,6 +869,10 @@ chmod +x .claude/hooks/memory-capture.sh
 ---
 
 ### Step 4d: Create .claude/hooks/bash-compress.sh
+
+**Precondition (CDT-68):** `bash-compress.sh` must be covered by the up-front
+batch approval (name the hook explicitly). Its `permissionDecision:"allow"` is
+intentional (bounded NOISY allowlist only) — do not remove without evidence.
 
 Use the `Write` tool to create `.claude/hooks/bash-compress.sh` with this content:
 
@@ -1430,12 +1511,13 @@ db.commit()
 
 ### Step 8: Validate
 
-Run the hook manually to confirm it passes. Use file redirection — NOT a pipe (`echo '{}' | bash ...` poisons the session):
+Run the hook manually to confirm it passes. Use file redirection — NOT a pipe (`echo '{}' | bash ...` poisons the session). Temp paths MUST use `${TMPDIR:-/tmp}` (bare `$TMPDIR` is often unset outside the sandbox):
 ```bash
-printf '{}' > "$TMPDIR/hook-test-$$"
-bash .claude/hooks/task-completed.sh < "$TMPDIR/hook-test-$$"
+_HOOK_TEST="${TMPDIR:-/tmp}/hook-test-$$"
+printf '{}' > "$_HOOK_TEST"
+bash .claude/hooks/task-completed.sh < "$_HOOK_TEST"
 echo "Hook exit code: $?"
-rm -f "$TMPDIR/hook-test-$$"
+rm -f "$_HOOK_TEST"
 ```
 
 Validate settings.json is still valid JSON:
@@ -1501,7 +1583,9 @@ To use Agent Teams:
 ## Important Notes
 
 - This skill is idempotent — safe to run multiple times without clobbering existing content
+- **Not pure zero-intervention (CDT-68):** under `dontAsk`, settings.json merge and `bash-compress.sh` require explicit user approval — batch both in ONE ask up front; do not strip the self-escalation guards
 - **Force-overwrite disclosure (CDT-51 AC5):** any force change of a managed settings value or hook file MUST print `key` / `old` / `new` / `restore` before the write (`disclose-force-overwrite.sh` or the fallback block). Forced + silent = FAIL
 - The hook script exits 0 by default (pass-through) until customized
 - Agent Teams require Claude Code restart after `settings.json` changes for the env var to take effect
 - Teammates do not inherit conversation history — AGENTS.md is their primary orientation document
+- Temp paths in any bypass-retry or validation snippet: `"${TMPDIR:-/tmp}/…"` or `mktemp`
