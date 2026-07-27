@@ -1,9 +1,15 @@
 ---
 name: scaffold-project
-description: Scaffolds a new project with TDD workflow structure including .claude/plans/, specs/TDD.md, AGENTS.md, and .gitignore. Use when creating new projects, setting up project templates, initializing TDD workflow, or preparing AI agent collaboration structure.
+description: >
+  DEPRECATED — scaffold-project (TDD project scaffold) was removed at v1.0.0
+  (CDT-46-C4). This stub disappears at v1.1.
 ---
 
-# Scaffold Project with TDD Workflow
+# Scaffold Project with TDD Workflow (protocol retained for /setup)
+
+> **Entry:** `/setup project`.
+> Discovery Surface is `/setup` — this file is **not** a primary skill.
+> Protocol body kept for skill-delegate from `commands/setup.md` (CDT-46-C4).
 
 This skill sets up a complete project structure for AI agent collaboration using the TDD.md specification workflow.
 
@@ -136,7 +142,7 @@ Create `$PROJ_ROOT/.claude/settings.json` to enable autonomous agent operation (
 
 `defaultMode: "acceptEdits"` auto-approves all Read/Write/Edit operations. The Bash allow list covers common dev tools plus agent bootstrap patterns (variable assignments, compound commands, shell control flow). Customize to add/remove commands for your stack.
 
-> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use: destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those. (Orchestration mode via `/init-orchestration` instead grants `Bash(*)` under `bypassPermissions`, where the OS sandbox is the boundary.)
+> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use: destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those. (Orchestration mode via `/setup orchestration` instead grants `Bash(*)` under `bypassPermissions`, where the OS sandbox is the boundary.)
 
 ### Step 3: Create .claude/CLAUDE.md
 
@@ -590,7 +596,7 @@ On rate-limit or any unusable spawn of council/refuter/review investigators
 (or prosecutor/advocate/judge): the **orchestrator** self-verifies with real
 tools. Report marker (exact): `self-verified — refuters unavailable`.
 **Never ship on implementer self-validation.** Council and `/review-and-commit`
-implement the report path; workflows (incl. future `/fix-ticket`) reuse the
+implement the report path; workflows (incl. future `/debug ticket`) reuse the
 same marker + actor rule.
 ```
 

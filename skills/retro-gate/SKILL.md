@@ -37,7 +37,7 @@ When a session is **ledger-covered** (≥1 well-formed row in
 `$MROOT/.claude/retro/friction.jsonl` for that `session_id`), **S2 only** is
 derived from the ledger; **S1/S3/S4/S5 always come from the transcript**.
 Uncovered / missing / unreadable ledger → full transcript path for all signals
-(pre-CDV-186 behavior). Ledger wiring is installed by `/init-orchestration`
+(pre-CDV-186 behavior). Ledger wiring is installed by `/setup orchestration`
 only (handler: `.claude/hooks/friction-capture.sh`); `/retro` never installs hooks.
 
 | Env | Default | Purpose |

@@ -417,7 +417,7 @@ retype `self-verified — refuters unavailable`. See § Spawn-failure degradatio
 
 **Args guard (shared with CDV-197):**
 `typeof args === 'string' ? JSON.parse(args) : args` — Workflow may deliver
-arguments as a JSON-encoded string. Distinct from CDV-197 (`/fix-ticket`
+arguments as a JSON-encoded string. Distinct from CDV-197 (`/debug ticket`
 promotion); share convention only.
 
 **Token summary (SHOULD, CDV-204):** both paths feed optional per-phase usage
@@ -843,7 +843,7 @@ Graceful rules (exit 0 always for token issues — never fail the run):
    file; finalize only accepts this simple int map
 
 `commands/council.md` collects usage after Task spawns and passes the file.
-`/metrics` (CDV-187) is a later display-only consumer of this write path.
+`/status metrics` (CDV-187) is a later display-only consumer of this write path.
 
 **`--why` debug (CDV-206; SPEC-013 SHOULD):** When preflight receives
 `--why`, the investigation plan sets `why: true` and includes a

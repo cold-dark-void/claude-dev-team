@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-28
 
-**Covers**: `skills/worktree-lib.sh`, `skills/orchestrate/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2), `commands/worktree.md` (CDV-189), `AGENTS.md`, `.gitignore`
+**Covers**: `skills/worktree-lib.sh`, `skills/orchestrate/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2), `commands/worktree.md` (reduced: `release` only, CDT-46-C4), `commands/status.md` (`/status worktree` read-only list, CDT-46-C4), `AGENTS.md`, `.gitignore`
 
 ## Overview
 
@@ -60,11 +60,20 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST NOT remove worktrees, branches, or locks
 - MUST exit 0 after printing proposals (including zero candidates)
 
-### `/worktree` user command (CDV-189)
-- MUST provide a user-invocable command `commands/worktree.md` with subcommands: `status` | `list` | `release <slug>`
-- `status`/`list` MUST shell out to `worktree-lib.sh status` (plugin-dir resolved)
+### `/worktree` user command (CDV-189; reduced CDT-46-C4)
+
+- MUST provide a user-invocable command `commands/worktree.md` as a **reduced mutate-only** Surface (NOT a Deprecation stub)
+- MUST support only the mutating action: `release <slug>`
 - `release <slug>` MUST ask for **chat confirmation** before calling `worktree-lib.sh release <slug>`; on decline, MUST NOT call release
 - MUST reuse lib dirty-tree refusal; MUST NOT force-remove
+- `status` / `list` args on `/worktree` MUST print usage pointing to `/status worktree` and MUST NOT invoke `worktree-lib.sh status` (read-only listing moved to `/status`)
+- bare or unknown args MUST print usage: `release <slug>` + pointer to `/status worktree`
+
+### `/status worktree` read-only views (CDT-46-C4)
+
+- MUST provide worktree **status|list** display via `/status worktree` (see also SPEC-009 Standup entry under `/status`)
+- `/status worktree` MUST shell out to `worktree-lib.sh status` (plugin-dir resolved) — same lib semantics as former `/worktree status|list`
+- `/status` (and its worktree sub) MUST NOT call `worktree-lib.sh release` or otherwise mutate worktrees, locks, or branches
 
 ### Caller integration
 - Callers MUST resolve `worktree-lib.sh` through `plugin-dir.sh` (install-aware: the script ships in the plugin, not the user's repo) — emit the canonical bootstrap stanza (SPEC-002) to set `$PDH`, then `WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)`. MUST NOT invoke the cwd-relative form `bash skills/worktree-lib.sh` (absent on a real install) nor `$MROOT/skills/worktree-lib.sh` (resolves to the user's repo, not the plugin)
@@ -74,7 +83,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - `skills/wrap-ticket/SKILL.md` MUST anchor every `grep` for a TICKET-ID so `WISO-1` does not match `WISO-10` (use `grep -E "(^|[^A-Z0-9-])WISO-1([^0-9]|$)"` or `grep -wF`); fix everywhere wrap-ticket greps for ticket ID
 - **OBSOLETE at v1.0.0 (CDT-46-C2):** `/demo` was removed (`skills/demo/SKILL.md` is now a deprecation stub); this requirement is retained one deprecation cycle as historical record only. ~~`skills/demo/SKILL.md` MUST keep its dedicated `$TMPDIR/demo-project` path and MUST NOT depend on `worktree-lib.sh`. MUST add a 2-3 line inline check at worktree creation: if path exists, prompt user before proceeding~~
 - `AGENTS.md` MUST contain a "Worktree Protocol" section that: declares `.worktrees/<slug>` as the canonical path, points to `skills/worktree-lib.sh` and SPEC-016, and states in one sentence that sibling-directory worktrees are forbidden when the lib is in use
-- `AGENTS.md` Worktree Protocol SHOULD mention `/worktree status|list|release` as the user-facing management surface once shipped
+- `AGENTS.md` Worktree Protocol SHOULD mention `/worktree release <slug>` (mutate) and `/status worktree` (read-only list) as the user-facing surfaces
 
 ### Proposed extension — Worktree lifecycle hooks (DRAFT — **blocked by harness contract**, CDV-189 spike)
 
@@ -174,8 +183,8 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 - [ ] `wrap-ticket` Step 6 calls `worktree-lib.sh release`
 - [ ] `wrap-ticket` ticket-ID greps are anchored
 - [ ] ~~`demo` retains its inline worktree check; does not call `worktree-lib.sh`~~ (OBSOLETE at v1.0.0, CDT-46-C2 — `/demo` removed)
-- [ ] `status`/`list`/`register`/`sweep` subcommands exist (CDV-189)
-- [ ] `commands/worktree.md` ships with status|list|release (CDV-189)
+- [ ] `status`/`list`/`register`/`sweep` subcommands exist on the **lib** (CDV-189)
+- [ ] `commands/worktree.md` is reduce-to-release only; listing is `/status worktree` (CDT-46-C4)
 - [ ] Proposed extension 'Worktree lifecycle hooks' remains DRAFT until provider redesign + promotion
 
 ## Open Questions
@@ -196,6 +205,7 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 | 2026-07-13 | CDV-201: FRESH-lock prompt probes TTY via successful `printf >/dev/tty` (not `-r` alone). Unwritable `/dev/tty` (no controlling TTY / ENXIO) prints prompt to stderr and exits 2 cleanly under `set -e` instead of dying exit 1 with "No such device". Steal only on explicit `steal`. |
 | 2026-07-14 | CDV-189: promoted Part 2 lib surface (`status`/`list`/`register`/`sweep`) + `/worktree` command MUSTs; lock model remains epoch FRESH\|STALE. Lifecycle hooks WLH kept DRAFT after spike: WorktreeCreate/Remove **exist** (docs + changelog, CC ≥ event-add, local 2.1.190) but Create **replaces** git and must print path; Remove has **no** exit-2 block. Dirty/FRESH enforcement stays in `release` + user command. |
 | 2026-07-21 | CDT-46-C2: `/demo` removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` → deprecation stub). Marked the demo-specific MUST and its validation checkbox OBSOLETE-at-v1.0.0 (retained one cycle as historical record, not deleted); annotated the demo Covers entry as a DEPRECATED stub. Worktree-lib/orchestrate/wrap-ticket behavior unchanged. |
+| 2026-07-22 | CDT-46-C4: `/worktree` reduced to mutate-only `release <slug>` (chat confirm retained). Read-only status\|list moves to `/status worktree`. `/worktree` is NOT a Deprecation stub. AGENTS Worktree Protocol SHOULD cite both surfaces. Lib `status`/`list`/`register`/`sweep` unchanged. |
 
 ## Cross-references
 

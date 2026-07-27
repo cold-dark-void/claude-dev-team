@@ -1,75 +1,12 @@
 ---
 name: metrics
-description: Read-only all-time rollup of council, outcomes, and worktree/task counts
+description: >
+  DEPRECATED — /metrics (read-only observability rollup) was removed at v1.0.0
+  (CDT-46-C4). This stub disappears at v1.1.
 ---
 
-# /metrics
+/metrics has been removed as of v1.0.0.
 
-Display-only observability rollup across plugin metric surfaces. **Never writes**
-to any ledger, index, task store, or DB. Aggregation is owned exclusively by
-`skills/metrics/rollup.sh` — agents MUST NOT hand-aggregate JSONL/index files.
+For the read-only observability rollup, use /status metrics instead.
 
-Sources (read-only):
-
-| Section | Path | Spec |
-|---------|------|------|
-| `council` | `.claude/council/index.json` | SPEC-013 |
-| `outcomes` | `.claude/metrics/outcomes.jsonl` | SPEC-026 |
-| `worktree` | `.worktrees/*` + `.claude/tasks/*.json` | cheap counts |
-
-Out of scope: retro friction / gate re-score, full CDV-204 token reporting,
-hook-based session cost capture, windowing/decay, writes to any store.
-
-## Arguments
-
-- `/metrics` — all sections, human tables
-- `/metrics --json` — single JSON object on stdout
-- `/metrics --section <all|council|outcomes|worktree>` — one section
-- Flags may combine: `/metrics --json --section outcomes`
-
-## Step 1: Resolve rollup.sh
-
-Install-aware resolution via `plugin-dir.sh` (script ships in the plugin, not
-necessarily the project tree):
-
-```bash
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
-ROLLUP_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/rollup.sh)
-
-if [ -z "$ROLLUP_SH" ] || [ ! -f "$ROLLUP_SH" ]; then
-  echo "error: skills/metrics/rollup.sh not found in the installed plugin cache" >&2
-  exit 1
-fi
-```
-
-## Step 2: Invoke rollup (pass-through flags)
-
-Forward any user-supplied `--json` / `--section` args unchanged. Do not re-parse
-or re-aggregate:
-
-```bash
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
-ROLLUP_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/rollup.sh)
-bash "$ROLLUP_SH" "$@"
-```
-
-Exit contract (from `rollup.sh`):
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success or partial (missing sources / no jq → section degrade, still 0) |
-| 64 | Usage error (unknown flag / bad section) |
-
-Fail-open per section: a missing ledger or index zeros that section with
-`present: false` and does not fail the command.
-
-## Step 3: Present output
-
-Print the script's stdout as-is (human tables or JSON). Do not reformat, and do
-not open report bodies under `.claude/council/*.md`.
-
-## Notes
-
-- **Display-only** — MUST NOT call `emit-outcome.sh`, council index writers, or
-  any task-store mutator.
-- **All-time only** — no window filter.
+This stub will be removed at v1.1.

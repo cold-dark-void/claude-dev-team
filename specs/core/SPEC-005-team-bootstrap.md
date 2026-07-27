@@ -4,13 +4,23 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `agents/project-init.md`, `commands/init-team.md`, `skills/memory-store/download-extensions.sh`, `skills/scaffold-project/SKILL.md`, `skills/init-orchestration/SKILL.md`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2)
+**Covers**: `agents/project-init.md`, `commands/setup.md` (`/setup team|project|orchestration`), `commands/init-team.md` (Deprecation stub → `/setup team`, CDT-46-C4), `skills/memory-store/download-extensions.sh`, `skills/scaffold-project/SKILL.md` (tombstone or delegated from `/setup project`, CDT-46-C4), `skills/init-orchestration/SKILL.md` (tombstone or delegated from `/setup orchestration`, CDT-46-C4), `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2)
 
 ## Overview
 
 Everything needed to get the dev-team running in a new or existing project. Includes SQLite DB initialization, extension downloads, project scanning, cortex file generation for all 7 agents, project scaffolding (TDD structure for greenfield), orchestration setup (sandbox, permissions, hooks for brownfield), and an interactive demo mode. All bootstrap operations are idempotent.
 
+**User-facing entry (CDT-46-C4):** `/setup <project|orchestration|team>` is the single onboarding dispatcher. The three flows remain **behaviorally distinct** (greenfield scaffold vs brownfield orchestration vs team memory bootstrap) — only the entry Surface is unified. Full semantic rewrite of bootstrap flows is out of scope for this wave (W5 if needed).
+
 ## MUST
+
+### `/setup` dispatcher entry (CDT-46-C4)
+
+- MUST provide user-invocable `commands/setup.md` with subs: `project` | `orchestration` | `team`
+- MUST map: `project` → former scaffold-project behavior; `orchestration` → former init-orchestration behavior; `team` → former init-team behavior (flag pass-through: `--refresh`, `--migrate-only`, `--no-extensions`)
+- bare `/setup` or unknown sub MUST print usage and MUST NOT mutate project state
+- MUST keep the three flows as separate protocols (no merged greenfield/brownfield/team logic) — dispatcher only
+- `commands/init-team.md` MUST be a one-cycle Deprecation stub pointing to `/setup team` (removed at v1.1)
 
 ### Team Initialization (init-team)
 - MUST use `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE` for DB initialization (idempotent)
@@ -115,6 +125,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-06-14 | AUDIT-P0.12: TaskCompleted-hook registration command changed to the worktree-safe `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"` form, matching the init-orchestration safe emitter (relative path resolved from agent cwd and failed inside worktrees). |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): reworded the Demo cleanup MUST to defer to SPEC-016's safe worktree-teardown (separate `git worktree remove` / `git branch -D` calls, never chained `&&`; prefer `worktree-lib.sh release`); added SPEC-016 cross-reference. No behavioral change. |
 | 2026-07-21 | CDT-46-C2: `/demo` removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` → deprecation stub). Marked the Demo MUST/SHOULD/Test/Validation items OBSOLETE-at-v1.0.0 (retained one cycle as historical record, not deleted); annotated the demo Covers entry as a DEPRECATED stub. Bootstrap requirements (init-team, scaffold, init-orchestration) unchanged. |
+| 2026-07-22 | CDT-46-C4: user entry unified under `/setup <project\|orchestration\|team>` (`commands/setup.md`). Covers retargeted; `commands/init-team.md` → Deprecation stub. Scaffold/init-orch/init-team behaviors remain distinct protocols (dispatcher only — no full semantic rewrite; W5 OOS). |
 
 ## Cross-references
 

@@ -61,7 +61,7 @@ Freeze lifts automatically when the v1.0.0 tag is pushed to master.
 | `devops` | Sonnet | CI/CD, infrastructure, deployments |
 | `qa` | Opus | Testing, validation, release gating |
 | `ds` | Opus | Data analysis, ML, metrics |
-| `project-init` | Sonnet | One-time memory bootstrap (via `/init-team`) |
+| `project-init` | Sonnet | One-time memory bootstrap (via `/setup team`) |
 | `distiller` | Haiku | Memory compression specialist (invoked by `/memory distill` only) |
 | `council-judge` | Opus | Tool-less final arbiter for `/council` tribunals (invoked by the council engine only) |
 
@@ -78,7 +78,9 @@ Use the shared CLI script — subprocess only, never sourced:
 
 Full contract: `specs/core/SPEC-016-worktree-isolation.md`
 
-User-facing management: `/worktree status|list|release` (see `commands/worktree.md`).
+User-facing management:
+- Release: `/worktree release <slug>` (see `commands/worktree.md`)
+- List/status: `/status worktree` (see `commands/status.md`)
 
 Sibling-directory worktrees (`$MROOT/../<project>-<id>`) are forbidden when this lib is in use.
 
@@ -86,7 +88,7 @@ Sibling-directory worktrees (`$MROOT/../<project>-<id>`) are forbidden when this
 
 Each agent has memory stored in SQLite (preferred) or .md files (fallback):
 
-**SQLite mode** (after `/init-team`):
+**SQLite mode** (after `/setup team`):
 - Single DB at `.claude/memory/memory.db` (shared across worktrees)
 - Agents read/write via `sqlite3` CLI
 - Semantic search via sqlite-vec embeddings
@@ -243,7 +245,7 @@ Absent file is fine until the first real term crystallizes.
 - Both directories are functionally equivalent to Claude Code's plugin loader — the split is organizational only
 - Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
 - No build step — this is a pure markdown/JSON plugin
-- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/scaffold-project` emits for interactive use; `/init-team`, via `project-init`, sets the `Bash(*)` wildcard — the sandbox is the boundary — and syncs the sandbox network allowlist)
+- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/setup project` emits for interactive use; `/setup team`, via `project-init`, sets the `Bash(*)` wildcard — the sandbox is the boundary — and syncs the sandbox network allowlist)
 - Temp paths in skill/command executable bash blocks MUST use `"${TMPDIR:-/tmp}/…"`
   or plain `mktemp` / `mktemp -d` (honors `$TMPDIR`). MUST NOT hard-code bare
   `/tmp/…` for writable files. Intentional OS mounts (e.g. bwrap `--tmpfs /tmp`
@@ -256,7 +258,7 @@ On rate-limit or any unusable spawn of council/refuter/review investigators
 tools. Report marker (exact): `self-verified — refuters unavailable`.
 **Never ship on implementer self-validation.** Council and `/review-and-commit`
 implement the report path (`--verification-mode self-verified`); other
-workflows (incl. `/fix-ticket`) reuse the same marker + actor
+workflows (incl. `/debug ticket`) reuse the same marker + actor
 rule — do not invent a second string.
 
 ## What NOT to Do

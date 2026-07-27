@@ -1,7 +1,7 @@
 ---
 name: fix-ticket-implement
 description: |
-  Implement phase prompt for /fix-ticket. Applies the verified fix in a
+  Implement phase prompt for /debug ticket. Applies the verified fix in a
   worktree under hard constraints (no version files, no git commit). Placeholders:
   {{TICKET}} {{WORKTREE}} {{BUG}} {{FIX}} {{AGENT}} {{PREMISE_JSON}}
 ---

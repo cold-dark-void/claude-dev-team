@@ -23,7 +23,7 @@ For detailed command reference, see [Setup Guide](../setup.md).
 ## Step 1 — Bootstrap agent memory
 
 ```
-/init-team
+/setup team
 ```
 
 What happens:
@@ -36,7 +36,7 @@ Safe to re-run anytime.
 
 **On restricted networks:**
 ```
-/init-team --no-extensions    # keyword search only, no download
+/setup team --no-extensions    # keyword search only, no download
 ```
 
 Or use remote embeddings (see [Setup Guide](../setup.md#remote-embeddings)).
@@ -54,7 +54,7 @@ You should see all agents with initial memory entries.
 ## Step 2 — Enable Agent Teams
 
 ```
-/init-orchestration
+/setup orchestration
 ```
 
 What happens:
@@ -70,7 +70,7 @@ Without this step, you can use agents individually (`@pm`, `@tech-lead`) but not
 ## Step 2b — Domain glossary (optional, zero deps)
 
 Projects may keep a committed **ubiquitous language** file at repo-root `CONTEXT.md`
-(or `docs/domain/CONTEXT.md`). `/scaffold-project` seeds an empty template;
+(or `docs/domain/CONTEXT.md`). `/setup project` seeds an empty template;
 `/brainstorm` and `/kickoff` load it and merge user-confirmed terms.
 
 This is **not** agent memory (not SQLite). It is shared vocabulary so agents stop

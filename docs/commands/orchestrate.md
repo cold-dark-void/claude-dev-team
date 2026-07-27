@@ -86,5 +86,5 @@ Routine issues (test failures, lint, formatting, implementation choices within s
 - [`/kickoff`](./kickoff.md) — planning phase only (no worktree, no agents)
 - [`/wrap-ticket`](./wrap-ticket.md) — close out after the PR is merged
 - [`/brainstorm`](./brainstorm.md) — Socratic refinement before formal planning
-- [`/standup`](./standup.md) — monitor in-progress task state
+- [`/status standup`](./status.md) — monitor in-progress task state
 - [`/retro`](./retro.md) — review the just-finished session for friction patterns (suggested at completion when the gate fires)

@@ -26,7 +26,7 @@ The opencode install script symlinks `commands/` and generates opencode-valid ag
 | Guide | What's in it |
 |-------|--------------|
 | **[Documentation hub](docs/README.md)** | Index of every command, runbook, and guide — start here |
-| [Setup & Configuration](docs/setup.md) | Prerequisites, `/init-team`, memory config, remote embeddings, troubleshooting |
+| [Setup & Configuration](docs/setup.md) | Prerequisites, `/setup`, memory config, remote embeddings, troubleshooting |
 | [Onboarding runbook](docs/runbooks/onboarding.md) | "Just cloned the repo" → agents ready to take tickets |
 | [Memory runbook](docs/runbooks/memory.md) | How memory works, distillation, search, hygiene |
 | [Command reference](docs/commands/) | Per-command pages (usage, flags, examples) |
@@ -48,14 +48,14 @@ The opencode install script symlinks `commands/` and generates opencode-valid ag
 
 The seven rows above are the behavioral/team agents you route work to. Three internal
 agents — `project-init`, `distiller`, and `council-judge` — are invoked by specific
-commands (`/init-team`, `/memory distill`, `/council`), not directly. Every agent has
+commands (`/setup team`, `/memory distill`, `/council`), not directly. Every agent has
 persistent per-project memory.
 
 ### Memory
 
 Each agent remembers what it learns about your project, so the team stops re-reading the
 codebase from scratch every session. Storage is **SQLite with semantic search** when
-available (after `/init-team` downloads the embedding extensions, ~29MB), and falls back
+available (after `/setup team` downloads the embedding extensions, ~29MB), and falls back
 **transparently to per-agent markdown files** when it isn't. Per-worktree task progress
 always lives in `context.md`.
 
@@ -78,26 +78,29 @@ Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glanc
 
 | Command | What it does |
 |---------|-------------|
-| `/init-team` | Bootstrap all 7 agents' memory for the current project |
+| [`/setup`](docs/commands/setup.md) | Onboarding dispatcher — `project` (TDD scaffold) · `orchestration` (Agent Teams) · `team` (memory bootstrap) |
+| `/init-team` | Bootstrap all 7 agents' memory for the current project **(deprecated — use /setup team)** |
 | `/adjust-agent` | View and manage per-agent behavioral directives (`--apply` for non-interactive) |
-| `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` |
-| `/init-orchestration` | Enable Agent Teams: sandbox, env var, auto-memory + Stop + TaskCompleted hooks |
+| `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` (prefer `/setup project`) |
+| `/init-orchestration` | Enable Agent Teams: sandbox, env var, auto-memory + Stop + TaskCompleted hooks (prefer `/setup orchestration`) |
 
 ### Feature work
 
 | Command | What it does |
 |---------|-------------|
 | [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement — structured questioning before planning (`--grill` for one-Q-at-a-time + recommended answers) |
-| [`/focus`](docs/commands/focus.md) | Session mode — action-first replies **+** evidence discipline (no guessing; kill false smoking guns; dead ends) |
-| [`/blunt`](docs/commands/blunt.md) | Session tone — no sugarcoating, verdict-first, certainty matches evidence (opt-in; stacks with `/focus`) |
-| [`/debug`](docs/commands/debug.md) | Phase-gated bug workflow — root cause → failing test → fix → verify (`patch`, `arch` subcommands) |
-| [`/fix-ticket`](docs/commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket (no auto-release) |
+| [`/mode`](docs/commands/mode.md) | Session modes — `focus` (action-first + evidence) · `blunt` (tone + confidence); orthogonal stack; `status` / `off` |
+| [`/focus`](docs/commands/focus.md) | Session mode — action-first replies **+** evidence discipline **(deprecated — use /mode focus)** |
+| [`/blunt`](docs/commands/blunt.md) | Session tone — no sugarcoating, verdict-first, certainty matches evidence **(deprecated — use /mode blunt)** |
+| [`/debug`](docs/commands/debug.md) | Phase-gated bug workflow — root cause → failing test → fix → verify (`patch`, `arch`); ticket pipeline (`ticket`) |
+| [`/fix-ticket`](docs/commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket **(deprecated — use /debug ticket)** |
 | `/incident` | DevOps war-room — severity triage, parallel RO threads, timeline, propose-only mitigation, postmortem (SPEC-027) **(deprecated — removed at v1.0.0)** |
 | [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification (`inline` subcommand) |
 | [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL kickoff → spec → implementation plan → task graph |
 | [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: fetch issue (Linear/backlog/freeform) → worktree → agents → review loops → optional code-simplify polish → ship with tracker close-out → PR. Optional passive progress: Slack/Discord MCP + `AGENT_WEBHOOK_URL` (fail-open JSON POSTs; unset = silent). Skip polish with `CODE_SIMPLIFY=0` |
 | [`/epic`](docs/commands/epic.md) | Umbrella decompose + sequenced child handoff to `/kickoff` or `/orchestrate` |
-| [`/standup`](docs/commands/standup.md) | Status snapshot: TaskList + agent context, surfaces blockers and stale tasks |
+| [`/status`](docs/commands/status.md) | Read-only snapshot hub — bare = standup → metrics → worktrees; subs `standup` · `metrics` · `worktree` |
+| [`/standup`](docs/commands/standup.md) | Status snapshot: TaskList + agent context **(prefer /status standup)** |
 | [`/wrap-ticket`](docs/commands/wrap-ticket.md) | Close out: verify tasks, capture learnings, re-close source tracker, update plans, remove worktree |
 | [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the built-in `/loop`/`/goal` (library, journal, refine) |
 
@@ -136,7 +139,7 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 | `/memory-config` | View and set memory configuration (distill mode, threshold) **(deprecated — removed at v1.0.0)** |
 | `/memory-stats` | Show memory usage statistics (counts, sizes, growth) **(deprecated — removed at v1.0.0)** |
 | `/memory-export` | Export sanitized tier-2 core memories to a committable seed pack (SPEC-024) **(deprecated — removed at v1.0.0)** |
-| `/metrics` | Read-only all-time rollup of council, outcomes, worktree/task counts |
+| `/metrics` | Read-only all-time rollup of council, outcomes, worktree/task counts **(deprecated — use /status metrics)** |
 | `/validate-memory` | Cross-reference agent memories against the live codebase; `--reconcile` detects cross-agent contradictions (`--report-only` for zero writes) **(deprecated — removed at v1.0.0)** |
 | [`/handoff`](docs/commands/handoff.md) | Reconstruct a past session, or capture the current one, into a dense brief |
 
@@ -145,7 +148,7 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 | Command | What it does |
 |---------|-------------|
 | `/doctor` | Install/config diagnostics (PASS/WARN/FAIL); read-only default; `--fix` allowlist only (`dev-team:doctor` — distinct from harness `/doctor`) |
-| `/worktree` | Inspect or release plugin worktrees (`status` \| `list` \| `release <slug>`) |
+| [`/worktree`](docs/commands/worktree.md) | Release a plugin worktree (`release <slug>`); for listing use `/status worktree` |
 | `/backlog` | Manage project backlog items (add, close, list, init) |
 | `/release` | Bump version across all files, commit, tag, push |
 | `/release-train` | Multi-branch release queue — register, freeze, land via `/release` (SPEC-023) |
@@ -154,20 +157,20 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 
 ## Quick Start
 
-> **Heads up**: `/init-team` downloads sqlite-vec, sqlite-lembed, and an embedding model
+> **Heads up**: `/setup team` downloads sqlite-vec, sqlite-lembed, and an embedding model
 > (~29MB) for semantic memory search — 1–2 minutes, needs internet. On a restricted or
-> air-gapped network, use `/init-team --no-extensions` for keyword-only search.
+> air-gapped network, use `/setup team --no-extensions` for keyword-only search.
 
 **New project:**
 ```
-/scaffold-project          # Sets up AGENTS.md, specs/TDD.md, .claude/plans/
-/init-team                 # Bootstraps all agent memories from your codebase
-/init-orchestration        # Enable Agent Teams: env var + quality-gate hook + AGENTS.md
+/setup project             # Sets up AGENTS.md, specs/TDD.md, .claude/plans/
+/setup team                # Bootstraps all agent memories from your codebase
+/setup orchestration       # Enable Agent Teams: env var + quality-gate hook + AGENTS.md
 ```
 
 **Existing project:**
 ```
-/init-team                 # Run once — reads AGENTS.md, code, CI, infra, writes per-agent memory
+/setup team                # Run once — reads AGENTS.md, code, CI, infra, writes per-agent memory
 ```
 
 **Starting a task:**
@@ -181,7 +184,7 @@ implement, review, PR), use `/orchestrate POC-123`.
 You can also invoke agents directly (`Use the ic5 subagent to implement: …`) or just
 describe the task — Claude routes to the right agent based on their descriptions.
 
-> `/scaffold-project` and `/init-orchestration` generate a local `.claude/settings.json`
+> `/setup project` and `/setup orchestration` generate a local `.claude/settings.json`
 > that pre-approves common operations so agents run without permission prompts.
 > See [Autonomy & Permissions](#autonomy--permissions) below.
 
@@ -227,16 +230,16 @@ See the **[Specs runbook](docs/runbooks/specs.md)** for the full workflow.
 
 ## Autonomy & Permissions
 
-`.claude/settings.json` is generated locally — by `/scaffold-project` for interactive/solo
-work, or by `/init-orchestration` for Agent Teams — and is **gitignored, not shipped with
+`.claude/settings.json` is generated locally — by `/setup project` for interactive/solo
+work, or by `/setup orchestration` for Agent Teams — and is **gitignored, not shipped with
 the plugin**. It pre-approves common operations so agents run without prompting for every
 tool call:
 
-- **Interactive (`/scaffold-project`)** — `defaultMode: "acceptEdits"` plus a curated Bash
+- **Interactive (`/setup project`)** — `defaultMode: "acceptEdits"` plus a curated Bash
   allowlist (dev tools, agent-bootstrap patterns, read-only utilities, `sqlite3`, `curl`).
   Destructive commands like `rm` and `wget` still prompt. The canonical list lives in
   `skills/scaffold-project/SKILL.md` — the single source of truth.
-- **Orchestration (`/init-orchestration`)** — grants `Bash(*)` under `bypassPermissions`,
+- **Orchestration (`/setup orchestration`)** — grants `Bash(*)` under `bypassPermissions`,
   where the OS sandbox, not the allowlist, is the boundary.
 
 Extend for your stack by adding entries (`Bash(terraform:*)`, `Bash(kubectl:*)`, …) to

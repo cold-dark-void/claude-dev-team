@@ -60,5 +60,5 @@ The output groups findings by type (Sessions, Agent Memory, Specs, Plans, Commit
 ## See Also
 
 - [`/memory search`](memory.md) — search only agent memory (SQLite semantic or keyword)
-- [/standup](standup.md) — see what agents are working on right now
+- [/status standup](standup.md) — see what agents are working on right now
 - [/wrap-ticket](wrap-ticket.md) — captures learnings so future recalls find them

@@ -1,9 +1,16 @@
 ---
 name: init-orchestration
-description: Bootstrap Agent Teams orchestration for any project. Enables bubblewrap sandbox with auto-detected network allowlist, bypassPermissions for zero-prompt agents, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, and PostToolUse + Stop + TaskCompleted hooks. Creates/updates AGENTS.md with team coordination rules and CLAUDE.md as reference. Run once per project. Safe to re-run — existing files are merged, not overwritten.
+description: >
+  DEPRECATED — init-orchestration (Agent Teams bootstrap) was removed at v1.0.0
+  (CDT-46-C4). This stub disappears at v1.1.
 ---
 
-# Init Orchestration
+# Init Orchestration (protocol retained for /setup)
+
+> **Entry:** `/setup orchestration`.
+> Discovery Surface is `/setup` — this file is **not** a primary skill.
+> Protocol body kept for skill-delegate from `commands/setup.md` (CDT-46-C4).
+> Live helper retained: `check-hook-templates.sh` (release gate).
 
 Bootstrap the files needed for Claude Code Agent Teams in the current project.
 
@@ -284,7 +291,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 > "no sandbox" (or on a platform where bubblewrap is unavailable) accept that
 > blast radius: any agent — including one steered by injected transcript/issue
 > content — can run any command on the host. Combined with the network-downloaded
-> embedding extensions (`/init-team`), this also means unprompted native-code
+> embedding extensions (`/setup team`), this also means unprompted native-code
 > loading. This is a deliberate zero-friction-orchestration trade-off; keep the
 > sandbox enabled unless you fully trust every task source.
 
@@ -1232,7 +1239,7 @@ fi
 ```markdown
 # Project Memory
 
-## Orchestrator rules (seeded by /init-orchestration)
+## Orchestrator rules (seeded by /setup orchestration)
 
 - When acting as orchestrator/coordinator, NEVER implement code directly — not even "quick fixes" for broken agent output. Always create a task and assign to an IC agent.
 - After each agent phase completes, create an explicit "validate and debug" task before starting the next phase. Quality gaps between defined tasks are where bugs hide.
@@ -1263,7 +1270,7 @@ import sqlite3, sys, datetime
 db = sqlite3.connect(sys.argv[1])
 db.execute('PRAGMA busy_timeout=5000')
 db.execute('DELETE FROM memories WHERE agent=? AND type=? AND content LIKE ?',
-           ('claude', 'memory', '%seeded by /init-orchestration%'))
+           ('claude', 'memory', '%seeded by /setup orchestration%'))
 db.execute('INSERT INTO memories(agent, type, content, updated_at) VALUES (?, ?, ?, ?)',
            ('claude', 'memory', sys.argv[2], datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')))
 db.commit()

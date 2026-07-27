@@ -138,12 +138,12 @@ assert d.get("doctor_schema")=="1"
 # memory.db should be WARN
 mem=[c for c in d["checks"] if c["id"]=="memory.db"][0]
 assert mem["status"]=="WARN", mem
-assert "/init-team" in (mem.get("fixit") or "")
+assert "/setup team" in (mem.get("fixit") or "")
 # no FAIL for memory.db alone — count FAILs that are memory-related
 # version.triplet may PASS (plugin install healthy)
 print("ok")
 ' 2>/dev/null; then
-  pass "T1a bare memory.db WARN + fix-it /init-team"
+  pass "T1a bare memory.db WARN + fix-it /setup team"
 else
   fail "T1a bare memory JSON: $JSON1"
 fi
@@ -290,8 +290,8 @@ RC=0
 OUT=$(doctor --json --only hooks.events 2>/dev/null) || RC=$?
 STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
 FIX=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("fixit") or "")' 2>/dev/null || echo "")
-if [ "$STATUS" = "FAIL" ] && [ "$RC" -eq 2 ] && echo "$FIX" | grep -q init-orchestration; then
-  pass "T4a missing TaskCompleted → FAIL + /init-orchestration"
+if [ "$STATUS" = "FAIL" ] && [ "$RC" -eq 2 ] && echo "$FIX" | grep -q "setup orchestration"; then
+  pass "T4a missing TaskCompleted → FAIL + /setup orchestration"
 else
   fail "T4a status=$STATUS rc=$RC fix=$FIX out=$OUT"
 fi

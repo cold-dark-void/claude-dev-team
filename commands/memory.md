@@ -85,7 +85,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 if [ ! -f "$MEMDB" ]; then
-  echo "Error: memory DB not found. Run /init-team first."
+  echo "Error: memory DB not found. Run /setup team first."
   exit 1
 fi
 ```
@@ -248,7 +248,7 @@ fi
 
 if [ "$USE_DB" = "false" ]; then
   echo "Distillation requires SQLite memory backend."
-  echo "Run /init-team to initialize the database."
+  echo "Run /setup team to initialize the database."
   # Stop here
 fi
 ```
@@ -538,7 +538,7 @@ bash "$EXPORT_SH" $ARGUMENTS "$MROOT"
 
 1. Skim `.claude/memory/seed/*.md` for residual secrets/paths (sanitization is a floor).
 2. Commit via a **reviewed PR** — do not push unreviewed packs.
-3. On a fresh clone, `/init-team` imports the pack before project-init (warm start).
+3. On a fresh clone, `/setup team` imports the pack before project-init (warm start).
 
 See SPEC-024 for layout, sanitization rules, and import semantics.
 
@@ -580,7 +580,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 if [ ! -f "$MEMDB" ]; then
-  echo "Memory DB: not initialized (run /init-team first)"
+  echo "Memory DB: not initialized (run /setup team first)"
   exit 0
 fi
 
@@ -640,7 +640,7 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 If no DB or no sqlite3:
 ```
 Memory stats unavailable — no SQLite DB found.
-Run /init-team to initialize.
+Run /setup team to initialize.
 ```
 
 ## Step 3: Gather and display stats
@@ -802,7 +802,7 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 
 if [ ! -f "$MEMDB" ] || ! command -v sqlite3 &>/dev/null; then
   echo "Error: memory DB not found at $MEMDB"
-  echo "Run /init-team to initialize the database."
+  echo "Run /setup team to initialize the database."
   # Stop here (exit 1)
 fi
 ```
@@ -1554,7 +1554,7 @@ DETAIL:
   [id=71] "Config loader reads from configs/base.ya..." | score: 0 | action: pass
     [VALID  95%] File configs/base.yaml exists
     [VALID  80%] Falls back to env vars — confirmed at config.go:88
-  [id=88] "Team standup runs via /standup command" | skipped (no checkable claims)
+  [id=88] "Team standup runs via /status standup command" | skipped (no checkable claims)
 ```
 
 Each detail entry includes:

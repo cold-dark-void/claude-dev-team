@@ -42,7 +42,7 @@ Replace `<AGENT>`, `<TYPE>`, and `<CONTENT_ESCAPED>` with real values.
 > by the `@distiller` agent during `/memory distill`.
 >
 > **Host-script elevated write (SPEC-024 M5):** `import-seed-pack.sh` (invoked only from
-> `/init-team` Step 5.5) may INSERT `tier=1`, `type='digest'`, `distilled_from='[]'`, and
+> `/setup team` Step 5.5) may INSERT `tier=1`, `type='digest'`, `distilled_from='[]'`, and
 > a provenance `metadata_json` seed object. This is a narrow host-script carve-out —
 > behavioral agents remain forbidden from setting `tier > 0`. See also SPEC-007.
 

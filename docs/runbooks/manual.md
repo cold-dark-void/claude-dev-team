@@ -111,7 +111,7 @@ git add specs/ && git commit -m "spec: ENG-123 — add/update <area> spec"
 ### 3.2 Monitor and unblock
 
 ```
-/standup ENG-123
+/status standup ENG-123
 ```
 
 When resuming: `cat .claude/memory/ic4/context.md` (etc.) to reload agent context.
@@ -278,9 +278,9 @@ echo "\n## ENG-123 learnings\n<insight>" >> .claude/memory/claude/memory.md
 |-------|----------------|-------------------|
 | Baseline specs (legacy, once) | `/spec generate` | Read code → write specs manually |
 | Tests from specs | `/spec tests` | Write tests manually from MUST requirements |
-| Bootstrap (once) | `/init-orchestration` | — |
+| Bootstrap (once) | `/setup orchestration` | — |
 | Intake + planning | **`/kickoff ENG-123 "..."`** | `@pm` + `@tech-lead` parallel → spec → plan → `TaskCreate` |
-| Monitor progress | **`/standup ENG-123`** | `TaskList` + read agent `context.md` files |
+| Monitor progress | **`/status standup ENG-123`** | `TaskList` + read agent `context.md` files |
 | Implement (parallel) | — | IC4 + IC5 `TaskUpdate` to claim; IC5 `SendMessage` interface early |
 | QA final validate | — | `@qa Run full validation, TaskUpdate completed` |
 | Spec alignment | `/spec reflect --phase 4` | — |

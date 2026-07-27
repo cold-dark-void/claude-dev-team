@@ -49,7 +49,7 @@ Parallel work ready:
   @ic4: claim Task 2 via TaskUpdate, start immediately
   @qa:  claim Task 3 after Task 1 + Task 2 complete
 
-Next: /standup to monitor progress
+Next: /status standup to monitor progress
 ```
 
 ## How It Works
@@ -73,6 +73,6 @@ Next: /standup to monitor progress
 
 - [`/orchestrate`](./orchestrate.md) — full lifecycle including worktree, IC agents, review, and PR
 - [`/brainstorm`](./brainstorm.md) — Socratic refinement to use before kickoff on complex features
-- [`/standup`](./standup.md) — monitor task progress after kickoff
+- [`/status standup`](./status.md) — monitor task progress after kickoff
 - [`/wrap-ticket`](./wrap-ticket.md) — close out after the PR is merged
 - [`/retro`](./retro.md) — review the just-finished session for friction patterns (suggested at completion when the gate fires)

@@ -17,7 +17,7 @@ MEMDIR="$MROOT/.claude/memory"
 # Verify DB exists
 if [ ! -f "$MEMDB" ]; then
   echo "ERROR: memory.db not found at $MEMDB"
-  echo "Run /init-team first to create the database."
+  echo "Run /setup team first to create the database."
   exit 1
 fi
 

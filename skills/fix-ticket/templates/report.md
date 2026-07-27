@@ -36,7 +36,7 @@ created_at: {{CREATED_AT}}
 ## Next steps (caller owns)
 
 1. Review the worktree diff: `cd {{WORKTREE}} && git diff`
-2. Address any failed lenses, then re-run `/fix-ticket` or fix manually
+2. Address any failed lenses, then re-run `/debug ticket` or fix manually
 3. When satisfied: `/review-and-commit` (optional) then commit
 4. Version/release when ready: `/release` (skill does **not** bump versions)
 

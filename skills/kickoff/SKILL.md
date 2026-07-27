@@ -550,7 +550,7 @@ Parallel work ready:
   @ic5: claim Task 2 via TaskUpdate, start immediately — SendMessage interface to @ic4 and @qa early
   @qa:  claim Task 4 via TaskUpdate, start after @ic5 defines the interface
 
-Next: /standup to monitor progress
+Next: /status standup to monitor progress
 ```
 
 ---

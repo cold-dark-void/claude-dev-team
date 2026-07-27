@@ -1,15 +1,18 @@
 ---
 name: fix-ticket
-description: |
-  Premise→implement→adversarial-refuters pipeline for a known bug ticket.
-  Verifies the premise still holds, implements in a SPEC-016 worktree, spawns
-  N qa refuters in parallel, writes .claude/fix-ticket/ report. Never commits
-  or bumps versions. Usage: /fix-ticket <ticket-id> "<bug>" [--fix "..."]
+description: >
+  DEPRECATED — fix-ticket (premise→implement→refuters pipeline) was removed at
+  v1.0.0 (CDT-46-C4). This stub disappears at v1.1.
 ---
 
-# fix-ticket
+# fix-ticket (protocol retained for /debug ticket)
 
-Protocol for `/fix-ticket` (SPEC-028). Orchestrator-driven Task-spawn pipeline:
+> **Entry:** `/debug ticket <ticket-id> "<bug/premise>" […]`.
+> Discovery Surface is `/debug` — this file is **not** a primary skill.
+> Protocol body + `prompts/` + `templates/` kept for skill-delegate from
+> `skills/debug/SKILL.md` ticket mode (CDT-46-C4).
+
+Protocol for `/debug ticket` (SPEC-028). Orchestrator-driven Task-spawn pipeline:
 
 **premise verify (ic5) → implement in worktree (ic4/ic5) → N adversarial refuters (qa) → orchestrator review + report**
 
@@ -34,7 +37,7 @@ Governing spec: `specs/core/SPEC-028-fix-ticket-workflow.md`.
 Missing ticket-id or premise → usage error, no spawn.
 
 ```
-Usage: /fix-ticket <ticket-id> "<bug/premise>" [--fix "<instructions>"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]
+Usage: /debug ticket <ticket-id> "<bug/premise>" [--fix "<instructions>"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]
 ```
 
 ---
@@ -80,7 +83,7 @@ Validate:
 ```bash
 # After parse into shell vars (orchestrator may hold vars in session; re-check):
 if [ -z "${TICKET:-}" ] || [ -z "${BUG:-}" ]; then
-  echo "Usage: /fix-ticket <ticket-id> \"<bug/premise>\" [--fix \"...\"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]" >&2
+  echo "Usage: /debug ticket <ticket-id> \"<bug/premise>\" [--fix \"...\"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]" >&2
   exit 64
 fi
 AGENT="${AGENT:-ic4}"

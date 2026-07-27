@@ -3,15 +3,19 @@
 **Status**: APPROVED
 **Category**: core
 **Created**: 2026-04-25
-**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule)
+**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule); SPEC-028 (`ticket` mode protocol — fold OOS until W5)
+
+**Covers**: `commands/debug.md` (CDT-46-C4), `skills/debug/SKILL.md`, `skills/debug/theme-status.sh` (SPEC-029 gates); `commands/fix-ticket.md` + `skills/fix-ticket/` (Deprecation stubs → `/debug ticket`, CDT-46-C4)
 
 ---
 
 ## Overview
 
-Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Owns the full investigation → root-cause → fix → verify cycle autonomously. Enforces phase-gated discipline to prevent shallow diagnosis, premature "done" claims, and tech debt from un-refactored patches. Entry: `/debug [patch|arch] <description>`. Default mode is `full`.
+Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Owns the full investigation → root-cause → fix → verify cycle autonomously. Enforces phase-gated discipline to prevent shallow diagnosis, premature "done" claims, and tech debt from un-refactored patches. Entry: `/debug [patch|arch|ticket] …`. Default mode is `full`.
 
 **SPEC-029** adds hard gates that were missing in the first ship: same-theme reopen → forced redesign; multi-UI surface matrix before done; interleaved regression for concurrency bugs; theme log + optional outcomes.
+
+**CDT-46-C4:** thin host `commands/debug.md` ships; mode `ticket` absorbs the former `/fix-ticket` entry (SPEC-028 protocol retained; full SPEC-028→014 fold is W5 out of scope).
 
 ---
 
@@ -19,10 +23,25 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 ### Entry & Mode Selection
 
-- MUST support three invocation forms: `/debug <description>` (full), `/debug patch <description>` (fast path), `/debug arch <description>` (design-first)
-- MUST load AGENTS.md, relevant specs, recent git log, and existing tests for the affected area before beginning any investigation — all before outputting any root cause analysis
+- MUST ship thin user-invocable host `commands/debug.md` that resolves and follows `skills/debug/SKILL.md` (plugin-dir aware)
+- MUST support four first-token modes (case-sensitive exact match on first arg token):
+  - `/debug <description>` → mode `full` (default; entire arg string is the description)
+  - `/debug patch <description>` → fast path
+  - `/debug arch <description>` → design-first
+  - `/debug ticket <ticket-id> "<bug/premise>" [flags…]` → premise→implement→adversarial-refuters (SPEC-028 pipeline)
+- MUST parse mode as: if first token is exactly `patch`, `arch`, or `ticket`, that token is the mode and the remainder is mode-specific args; otherwise mode is `full` and the entire argument string is the description
+- MUST load AGENTS.md, relevant specs, recent git log, and existing tests for the affected area before beginning any investigation — all before outputting any root cause analysis (`full`/`patch`/`arch` only; `ticket` follows SPEC-028 phase order)
 - MUST read any `.claude/plans/` file for the affected area if one exists
 - MUST proceed without error if AGENTS.md does not exist
+
+### `ticket` mode (CDT-46-C4; protocol home SPEC-028)
+
+- MUST accept: `/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]`
+- Missing ticket-id or premise MUST produce a usage error and MUST NOT spawn agents
+- MUST execute the SPEC-028 pipeline with full behavioral parity (premise verify → implement in worktree → N qa refuters → report under `.claude/fix-ticket/`)
+- MUST NOT commit, version-bump, or run `/release` (`ticket` mode; caller owns ship)
+- `full` / `patch` / `arch` gates in this spec and SPEC-029 MUST remain unchanged for non-`ticket` modes
+- `commands/fix-ticket.md` and `skills/fix-ticket/SKILL.md` MUST be one-cycle Deprecation stubs pointing to `/debug ticket` (removed at v1.1). Protocol body MAY live under `skills/debug/` or remain reachable from the debug skill; stub files remain for discovery
 
 ### Investigation (all modes)
 
@@ -152,6 +171,13 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 1. Run `/debug arch <description>`
 2. Verify: skill writes root cause statement, then escalates to `/kickoff` — does NOT write a failing test, does NOT apply a fix inline
 
+### T11: `ticket` mode entry (CDT-46-C4)
+1. Run `/debug ticket` with missing ticket-id or premise
+2. Verify: usage error; no agent spawn
+3. Run `/debug ticket <id> "<premise>"` with a known holding premise (or mock)
+4. Verify: SPEC-028 pipeline phases execute (or skill-delegate reaches the same protocol); no commit/version mutation
+5. Verify: `commands/debug.md` exists and is the user entry; `commands/fix-ticket.md` is a Deprecation stub naming `/debug ticket`
+
 ---
 
 ## Validation
@@ -170,6 +196,9 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 - [ ] Blockers produce exactly one specific question
 - [ ] No test suite → warning + reproduction scenario document
 - [ ] Refactor committed before fix when refactor path chosen
+- [ ] `commands/debug.md` thin host ships; first-token modes include `ticket`
+- [ ] `/debug ticket` missing args → usage, no spawn; no commit/version on green path
+- [ ] `/fix-ticket` command + skill are Deprecation stubs → `/debug ticket`
 
 ---
 
@@ -181,3 +210,4 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 | 2026-04-26 | PM review: rewrote T1/T2/T5/T6, added T9/T10, added 5 missing ACs, resolved OQ-1 (free-form root cause with quality criteria), OQ-2 (grep-based callsite check), OQ-3 (skip+warn when no test suite), OQ-4 (separate PRs if escalated, commits otherwise), OQ-5 (two-track fallback for non-reproducible bugs), switched from --mode flags to subcommands |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `🚧 NEW`→`APPROVED` (no emoji, matches TDD index). No behavioral change. |
 | 2026-07-15 | SPEC-029 DRAFT + skill gates: reopen/redesign force, multi-surface matrix, concurrent scenario, theme log; checklist extended in `skills/debug/SKILL.md`. |
+| 2026-07-22 | CDT-46-C4: Covers + thin `commands/debug.md` host; first-token modes add `ticket` (absorbs `/fix-ticket` entry; SPEC-028 protocol parity; full fold W5 OOS). T11 + validation checkboxes. |

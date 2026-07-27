@@ -524,7 +524,7 @@ check_memory_db() {
   else
     record "memory.db" "memory" "WARN" \
       "memory.db absent — project not bootstrapped (or .md-only mode)" \
-      "/init-team"
+      "/setup team"
   fi
 }
 
@@ -534,7 +534,7 @@ check_memory_schema() {
     return 0
   fi
   if [ ! -f "$MEMDB" ]; then
-    record "memory.schema" "memory" "SKIP" "memory.db absent — schema check deferred until /init-team" ""
+    record "memory.schema" "memory" "SKIP" "memory.db absent — schema check deferred until /setup team" ""
     return 0
   fi
   local expected actual
@@ -544,7 +544,7 @@ check_memory_schema() {
   if [ -z "$actual" ]; then
     record "memory.schema" "memory" "FAIL" \
       "schema_version missing in config (expected $expected)" \
-      "Run /init-team or skills/memory-store/migrate.sh"
+      "Run /setup team or skills/memory-store/migrate.sh"
     return 0
   fi
   if [ "$actual" = "$expected" ]; then
@@ -552,7 +552,7 @@ check_memory_schema() {
   else
     record "memory.schema" "memory" "FAIL" \
       "schema_version=$actual expected=$expected" \
-      "Run bash skills/memory-store/migrate.sh (or /init-team)"
+      "Run bash skills/memory-store/migrate.sh (or /setup team)"
   fi
 }
 
@@ -581,7 +581,7 @@ check_memory_ext_vec() {
   else
     record "memory.ext.vec" "memory" "WARN" \
       "vec0 not loadable — semantic search degraded to keyword" \
-      "/init-team (downloads extensions) or install vec0 under .claude/memory/extensions/"
+      "/setup team (downloads extensions) or install vec0 under .claude/memory/extensions/"
   fi
 }
 
@@ -597,7 +597,7 @@ check_memory_ext_lembed() {
   else
     record "memory.ext.lembed" "memory" "WARN" \
       "lembed0 not loadable — local GGUF embeddings unavailable" \
-      "/init-team or install lembed0 under .claude/memory/extensions/"
+      "/setup team or install lembed0 under .claude/memory/extensions/"
   fi
 }
 
@@ -662,7 +662,7 @@ except Exception:
       if [ "$found" -eq 0 ]; then
         record "memory.embedding_config" "memory" "WARN" \
           "embedding_mode=remote URL host '$host' not in sandbox.network.allowedDomains" \
-          "Add $host to sandbox.network.allowedDomains via /init-orchestration"
+          "Add $host to sandbox.network.allowedDomains via /setup orchestration"
       else
         record "memory.embedding_config" "memory" "PASS" \
           "embedding_mode=remote url host '$host' allowlisted" ""
@@ -686,7 +686,7 @@ except Exception:
       else
         record "memory.embedding_config" "memory" "WARN" \
           "embedding_mode=lembed but $detail" \
-          "/init-team (downloads lembed + GGUF model)"
+          "/setup team (downloads lembed + GGUF model)"
       fi
       ;;
     *)
@@ -701,13 +701,13 @@ check_hooks_events() {
   if [ ! -f "$SETTINGS" ]; then
     record "hooks.events" "hooks" "WARN" \
       "settings.json absent — hooks not wired" \
-      "/init-orchestration"
+      "/setup orchestration"
     return 0
   fi
   if ! settings_json_valid; then
     record "hooks.events" "hooks" "FAIL" \
       "settings.json unparseable — cannot verify hooks" \
-      "Fix JSON in .claude/settings.json then re-run /init-orchestration"
+      "Fix JSON in .claude/settings.json then re-run /setup orchestration"
     return 0
   fi
 
@@ -717,7 +717,7 @@ check_hooks_events() {
   if [ "$has_hooks" != "1" ]; then
     record "hooks.events" "hooks" "WARN" \
       "hooks key absent in settings.json" \
-      "/init-orchestration"
+      "/setup orchestration"
     return 0
   fi
 
@@ -743,7 +743,7 @@ check_hooks_events() {
   if [ -n "$missing" ]; then
     record "hooks.events" "hooks" "FAIL" \
       "missing hook event(s): $missing" \
-      "/init-orchestration"
+      "/setup orchestration"
   else
     record "hooks.events" "hooks" "PASS" \
       "all expected hook events present ($(echo "$EXPECTED_HOOK_EVENTS" | wc -w | tr -d ' '))" ""
@@ -798,25 +798,25 @@ check_hooks_hygiene() {
   if [ -n "$missing_script" ]; then
     record "hooks.hygiene" "hooks" "FAIL" \
       "hook script(s) missing: $missing_script" \
-      "/init-orchestration"
+      "/setup orchestration"
     return 0
   fi
   if [ -n "$nonexec" ]; then
     record "hooks.hygiene" "hooks" "FAIL" \
       "hook script(s) not executable: $nonexec" \
-      "chmod +x $nonexec (or re-run /init-orchestration)"
+      "chmod +x $nonexec (or re-run /setup orchestration)"
     return 0
   fi
   if [ -n "$piped" ]; then
     record "hooks.hygiene" "hooks" "WARN" \
       "hook command(s) contain pipe '|': $piped" \
-      "Remove pipes from hook commands (sandbox-poisoning); re-run /init-orchestration"
+      "Remove pipes from hook commands (sandbox-poisoning); re-run /setup orchestration"
     return 0
   fi
   if [ -n "$unanchored" ]; then
     record "hooks.hygiene" "hooks" "WARN" \
       "hook command(s) not \${CLAUDE_PROJECT_DIR}-anchored" \
-      "/init-orchestration (rewrites worktree-unsafe paths)"
+      "/setup orchestration (rewrites worktree-unsafe paths)"
     return 0
   fi
   record "hooks.hygiene" "hooks" "PASS" "hook commands anchored, no pipes, scripts present+exec" ""
@@ -855,7 +855,7 @@ check_settings_json() {
   if [ ! -f "$SETTINGS" ]; then
     record "settings.json" "settings" "WARN" \
       "settings.json absent" \
-      "/init-orchestration"
+      "/setup orchestration"
     return 0
   fi
   if settings_json_valid; then
@@ -876,7 +876,7 @@ check_settings_agent_teams() {
   if [ ! -f "$SETTINGS" ]; then
     record "settings.agent_teams" "settings" "WARN" \
       "memory.db exists but settings.json absent (no CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)" \
-      "/init-orchestration"
+      "/setup orchestration"
     return 0
   fi
   if ! settings_json_valid; then
@@ -891,7 +891,7 @@ check_settings_agent_teams() {
   else
     record "settings.agent_teams" "settings" "WARN" \
       "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS absent while memory.db exists" \
-      "/init-orchestration"
+      "/setup orchestration"
   fi
 }
 
@@ -918,7 +918,7 @@ else:
   if [ "$mode" = "bypassPermissions" ] && [ "$sandbox_enabled" != "true" ]; then
     record "settings.sandbox_coherence" "settings" "WARN" \
       "defaultMode=bypassPermissions with sandbox disabled/absent (blast radius unbounded)" \
-      "Enable sandbox via /init-orchestration or drop bypassPermissions"
+      "Enable sandbox via /setup orchestration or drop bypassPermissions"
   else
     record "settings.sandbox_coherence" "settings" "PASS" \
       "defaultMode=${mode:-unset} sandbox.enabled=${sandbox_enabled}" ""

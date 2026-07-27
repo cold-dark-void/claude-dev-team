@@ -152,7 +152,7 @@ download_and_extract() {
         echo "  1. Download the archive from $url" >&2
         echo "  2. Extract the .${EXT} file" >&2
         echo "  3. Place it at $dest_file" >&2
-        echo "  4. Re-run /init-team" >&2
+        echo "  4. Re-run /setup team" >&2
         rm -rf "$tmpdir"
         return 1
       fi
@@ -173,7 +173,7 @@ download_and_extract() {
     echo "  1. Download $(basename "$url") from $url" >&2
     echo "  2. Extract $base_file from the archive" >&2
     echo "  3. Place it at $dest_file" >&2
-    echo "  4. Re-run /init-team" >&2
+    echo "  4. Re-run /setup team" >&2
     rm -rf "$tmpdir"
     return 1
   fi
@@ -215,7 +215,7 @@ download_file() {
     base_file=$(basename "$dest_file")
     echo "  1. Download $base_file from $url" >&2
     echo "  2. Place it at $dest_file" >&2
-    echo "  3. Re-run /init-team" >&2
+    echo "  3. Re-run /setup team" >&2
     return 1
   fi
 }
@@ -305,7 +305,7 @@ if [ -f "$MEMDB" ]; then
     sqlite3 "$MEMDB" "DELETE FROM config WHERE key='embedding_url';" 2>/dev/null || true
   fi
 else
-  echo "  WARNING: $MEMDB not found — skipping config update (run /init-team to create it first)."
+  echo "  WARNING: $MEMDB not found — skipping config update (run /setup team to create it first)."
 fi
 
 # ---------------------------------------------------------------------------
