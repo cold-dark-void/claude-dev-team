@@ -5,15 +5,15 @@
 | ID | Title | Status | Coverage |
 |----|-------|--------|----------|
 | SPEC-001 | Per-Agent Directives | ACTIVE | commands/adjust-agent.md, agents/*.md (directives loading) |
-| SPEC-002 | Plugin Infrastructure | INFERRED | .claude-plugin/plugin.json, marketplace.json, .claude/settings.json, hooks/task-completed.sh, tools/scout-plugins |
-| SPEC-003 | Agent Role System | INFERRED | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
-| SPEC-004 | Memory Storage & Migration | INFERRED | skills/memory-store/SKILL.md, schema.sql, migrate.sh, migrate-md.sh, migrate-v2/v3/v4.sh |
-| SPEC-005 | Team Bootstrap | INFERRED | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration, demo; CDT-51 doctor-gate + posture |
-| SPEC-006 | Memory Retrieval & Search | INFERRED | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
-| SPEC-007 | Memory Distillation | INFERRED | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
-| SPEC-008 | Spec Management | INFERRED | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
-| SPEC-009 | Ticket Workflow | INFERRED | skills/kickoff, orchestrate, brainstorm, commands/status.md (`/status` + standup), standup (tombstone), wrap-ticket, backlog |
-| SPEC-010 | Code Review & Release | INFERRED | skills/review-and-commit, release |
+| SPEC-002 | Plugin Infrastructure | ACTIVE | .claude-plugin/plugin.json, marketplace.json, .claude/settings.json, hooks/task-completed.sh, tools/scout-plugins |
+| SPEC-003 | Agent Role System | ACTIVE | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
+| SPEC-004 | Memory Storage & Migration | ACTIVE | skills/memory-store/SKILL.md, schema.sql, migrate.sh, migrate-md.sh, migrate-v2/v3/v4.sh |
+| SPEC-005 | Team Bootstrap | ACTIVE | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration, demo; CDT-51 doctor-gate + posture |
+| SPEC-006 | Memory Retrieval & Search | ACTIVE | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
+| SPEC-007 | Memory Distillation | ACTIVE | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
+| SPEC-008 | Spec Management | ACTIVE | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
+| SPEC-009 | Ticket Workflow | ACTIVE | skills/kickoff, orchestrate, brainstorm, commands/status.md (`/status` + standup), standup (tombstone), wrap-ticket, backlog |
+| SPEC-010 | Code Review & Release | ACTIVE | skills/review-and-commit, release |
 | SPEC-011 | Memory Validation | ACTIVE | commands/memory.md (`/memory validate`), skills/memory validate (stub), `/memory distill` integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
 | SPEC-013 | Adversarial Council Tribunal | ACTIVE | skills/council/ (engine), commands/council.md, skills/review-and-commit/SKILL.md (preset refactor), /retro + TaskCompleted hooks |
@@ -31,13 +31,14 @@
 | SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse) |
 | SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped) |
 | SPEC-027 | /incident War-Room & Postmortem | DEPRECATED | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |
-| SPEC-028 | Premise → Implement → Adversarial Refute (`/debug ticket`) | ACTIVE | `/debug ticket` entry (SPEC-014); commands/fix-ticket.md + skills/fix-ticket (stubs CDT-46-C4); workflow.js optional |
+| SPEC-028 | Premise → Implement → Adversarial Refute (`/debug ticket`) | DEPRECATED | `/debug ticket` entry (SPEC-014); commands/fix-ticket.md + skills/fix-ticket (stubs CDT-46-C4); workflow.js optional |
 | SPEC-029 | Debug Reopen & Multi-Surface Done Gates | ACTIVE | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
 | SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-07-22 | CDT-52 / CDT-46-C6: promote SPEC-002–010 INFERRED→ACTIVE (file headers); SPEC-028 ACTIVE→DEPRECATED (protocol retained for `/debug ticket`); SPEC-026 verify-keep ACTIVE. |
 | 2026-03-16 | SPEC-001 drafted and implemented (v0.15.0) |
 | 2026-03-22 | Initial spec baseline generated by /generate-specs (SPEC-002 through SPEC-010) |
 | 2026-03-23 | SPEC-001 reformatted for /reflect-specs compliance; all specs reviewed and updated |

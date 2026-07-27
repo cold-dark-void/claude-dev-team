@@ -3,6 +3,16 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.0-pre.6
+- **v1.0-W5 INFERRED promote-or-cut + PM/TL cortex pin (CDT-52 / CDT-46-C6)** — stability-contract wave: zero INFERRED specs remaining on kept v1 Surfaces; cortexes pinned to pre.6 for C7 kickoff.
+- **SPEC-002…010 → ACTIVE** — human-reviewed tri-state disposition (promote-as-is | amend-then-promote | cut); VH evidence rows; TDD index Status synced; final format check clean.
+- **SPEC-005 /setup honesty** — Overview/Covers reworked for sole entry `/setup` (`project|orchestration|team`); C5 doctor-gate + posture MUSTs retained; demo historical only.
+- **SPEC-028 → DEPRECATED (retained)** — protocol home for `/debug ticket` until v1.1; SPEC-014 fold note; file not deleted.
+- **SPEC-026 verify-keep** — ACTIVE confirmed (metrics emit/outcome-rates + orchestrate advisory).
+- **Restores `skills/memory-recall`** — agent-internal recall protocol over-stubbed in pre.3 (C3); full body restored; session-read SoT remains `agent-memory/protocol.md`.
+- **PDH bare `sort -V` bugfix** — `task-completed.sh`, `precompact-rescue.sh`, and init-orchestration hook templates use pre-safe tilde map; `check-hook-templates` green.
+- **Local dogfood passenger (CDT-51 residue)** — host `.claude/settings.json` flipped to `dontAsk` + full matrix allow (gitignored; not in release tree). Documented on Linear CDT-51/52.
+
 ### v1.0.0-pre.5
 - **v1.0-W4 permission posture, doctor install gate, migrate tests (CDT-51 / CDT-46-C5)** — enterprise-credibility wave: least-privilege orchestration default, bootstrap doctor gate, and schema survival tests.
 - **Orchestration posture flip (AC1–AC2)** — live A/B/C matrix on Claude Code 2.1.190 (`docs/runbooks/permission-posture-matrix.md`); winner **Cell C `dontAsk`** + sandbox + `autoAllowBashIfSandboxed` + matrix allow set (`Bash(*)`, Read, Write, Edit, Glob, Grep, Agent, Task). Evidence before template flip; interactive `/setup project` stays `acceptEdits`.

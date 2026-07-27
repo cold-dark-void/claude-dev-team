@@ -13,8 +13,9 @@
 
   The ONLY per-agent substitution is `<AGENT>`. `<TYPE>`/`<CONTENT>`/`<content>`/
   `<context>` are write-time placeholders the agent fills (identical across all agents).
-  Contracts: write protocol per SPEC-004 + skills/memory-store; read per SPEC-006 +
-  skills/memory-recall Step 2; line limits per SPEC-004.
+  Contracts: write protocol per SPEC-004 + skills/memory-store; session-read SoT is
+  this file (SPEC-006); cross-agent search per skills/memory-recall Steps 3–5;
+  line limits per SPEC-004.
 
   Each bash fence re-resolves path vars — fences are separate shells (SPEC-021 C1).
 -->

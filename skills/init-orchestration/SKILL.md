@@ -468,7 +468,7 @@ _emit_task_complete() {
   else
     _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
       -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
-      | sort -V | tail -1) || _pdh_hit=""
+      | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./') || _pdh_hit=""
     if [ -n "$_pdh_hit" ]; then
       PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
     fi
@@ -863,7 +863,7 @@ if [ -f skills/plugin-dir.sh ]; then
 else
   _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
     -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
-    | sort -V | tail -1) || _pdh_hit=""
+    | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./') || _pdh_hit=""
   if [ -n "$_pdh_hit" ]; then
     PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
   fi

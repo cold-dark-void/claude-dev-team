@@ -3,7 +3,7 @@
 **Status**: APPROVED
 **Category**: core
 **Created**: 2026-04-25
-**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule); SPEC-028 (`ticket` mode protocol — fold OOS until W5)
+**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule); SPEC-028 (`ticket` mode protocol home — DEPRECATED retained; full MUST fold into 014 deferred to v1.1)
 
 **Covers**: `commands/debug.md` (CDT-46-C4), `skills/debug/SKILL.md`, `skills/debug/theme-status.sh` (SPEC-029 gates); `commands/fix-ticket.md` + `skills/fix-ticket/` (Deprecation stubs → `/debug ticket`, CDT-46-C4)
 
@@ -15,7 +15,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 **SPEC-029** adds hard gates that were missing in the first ship: same-theme reopen → forced redesign; multi-UI surface matrix before done; interleaved regression for concurrency bugs; theme log + optional outcomes.
 
-**CDT-46-C4:** thin host `commands/debug.md` ships; mode `ticket` absorbs the former `/fix-ticket` entry (SPEC-028 protocol retained; full SPEC-028→014 fold is W5 out of scope).
+**CDT-46-C4 / CDT-52:** thin host `commands/debug.md` ships; user entry for ticket mode is `/debug ticket` (SPEC-014 host). SPEC-028 remains the protocol home (now DEPRECATED, file retained); full fold of MUSTs into 014 deferred to v1.1 — no full rewrite of the debug skill.
 
 ---
 
@@ -206,6 +206,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 | Date | Change |
 |------|--------|
+| 2026-07-22 | CDT-52 / CDT-46-C6: fold note — SPEC-028 cut to DEPRECATED (retained); ticket-mode protocol home stays SPEC-028 until v1.1; entry remains `/debug ticket` / SPEC-014 host; no full MUST rewrite. |
 | 2026-04-25 | Initial spec created — brainstorm: `.claude/plans/2026-04-25-brainstorm-debug-skill.md` |
 | 2026-04-26 | PM review: rewrote T1/T2/T5/T6, added T9/T10, added 5 missing ACs, resolved OQ-1 (free-form root cause with quality criteria), OQ-2 (grep-based callsite check), OQ-3 (skip+warn when no test suite), OQ-4 (separate PRs if escalated, commits otherwise), OQ-5 (two-track fallback for non-reproducible bugs), switched from --mode flags to subcommands |
 | 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Status `🚧 NEW`→`APPROVED` (no emoji, matches TDD index). No behavioral change. |
