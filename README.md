@@ -70,90 +70,99 @@ for configuration and remote-embedding options.
 
 ## Commands
 
-Full per-command docs live in **[`docs/commands/`](docs/commands/)**. At a glance:
+The command index below is exhaustive (docs-drift `cmd-index` checked). Full
+per-command docs live in **[`docs/commands/`](docs/commands/)** when a page exists;
+skills-backed Surfaces without a page still appear here.
 
-> **opencode**: Commands are namespaced under `/dev-team/` (e.g., `/dev-team/handoff`, `/dev-team/recall`). Claude Code uses the bare command name (e.g., `/handoff`, `/recall`).
+> **opencode**: Commands are namespaced under `/dev-team/` (e.g., `/dev-team/handoff`).
+> Claude Code uses the bare name (e.g., `/handoff`).
 
-### Setup (run once per project)
+### Core
 
-| Command | What it does |
+First-ticket lifecycle: install → health → plan → execute → review → ship.
+
+| Command | When to use |
 |---------|-------------|
-| [`/setup`](docs/commands/setup.md) | Onboarding dispatcher — `project` (TDD scaffold) · `orchestration` (Agent Teams) · `team` (memory bootstrap) |
-| `/init-team` | Bootstrap all 7 agents' memory for the current project **(deprecated — use /setup team)** |
-| `/adjust-agent` | View and manage per-agent behavioral directives (`--apply` for non-interactive) |
-| `/scaffold-project` | Create TDD workflow structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/` (prefer `/setup project`) |
-| `/init-orchestration` | Enable Agent Teams: sandbox, env var, auto-memory + Stop + TaskCompleted hooks (prefer `/setup orchestration`) |
+| [`/setup`](docs/commands/setup.md) | Onboard a project — `project` · `orchestration` · `team` |
+| `/doctor` | Diagnose install/config health (PASS/WARN/FAIL); read-only default, `--fix` allowlist |
+| [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL planning → spec → implementation plan → task graph |
+| [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → ship/PR |
+| [`/debug`](docs/commands/debug.md) | Phase-gated bug fix (`patch`/`arch`) or ticket pipeline (`ticket`) |
+| [`/council`](docs/commands/council.md) | Adversarial tribunal — reality-check a claim, session slice, or diff |
+| `/release` | Bump version (CHANGELOG + plugin JSON), commit, tag, push |
+| [`/status`](docs/commands/status.md) | Read-only hub — bare = standup→metrics→worktrees; subs `standup` · `metrics` · `worktree` |
+| [`/memory`](docs/commands/memory.md) | Unified memory — `config` · `distill` · `export` · `search` · `stats` · `validate` |
+| [`/spec`](docs/commands/spec.md) | Unified specs — `check` · `create` · `find` · `list` · `update` · `generate` · `tests` · `reflect` |
 
-### Feature work
+### Advanced
 
-| Command | What it does |
+Program / multi-ticket work, session tuning, and quality gates.
+
+| Command | When to use |
 |---------|-------------|
-| [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement — structured questioning before planning (`--grill` for one-Q-at-a-time + recommended answers) |
-| [`/mode`](docs/commands/mode.md) | Session modes — `focus` (action-first + evidence) · `blunt` (tone + confidence); orthogonal stack; `status` / `off` |
-| [`/focus`](docs/commands/focus.md) | Session mode — action-first replies **+** evidence discipline **(deprecated — use /mode focus)** |
-| [`/blunt`](docs/commands/blunt.md) | Session tone — no sugarcoating, verdict-first, certainty matches evidence **(deprecated — use /mode blunt)** |
-| [`/debug`](docs/commands/debug.md) | Phase-gated bug workflow — root cause → failing test → fix → verify (`patch`, `arch`); ticket pipeline (`ticket`) |
-| [`/fix-ticket`](docs/commands/fix-ticket.md) | Premise→implement→adversarial refuters for a known bug ticket **(deprecated — use /debug ticket)** |
-| `/incident` | DevOps war-room — severity triage, parallel RO threads, timeline, propose-only mitigation, postmortem (SPEC-027) **(deprecated — removed at v1.0.0)** |
-| [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification (`inline` subcommand) |
-| [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL kickoff → spec → implementation plan → task graph |
-| [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: fetch issue (Linear/backlog/freeform) → worktree → agents → review loops → optional code-simplify polish → ship with tracker close-out → PR. Optional passive progress: Slack/Discord MCP + `AGENT_WEBHOOK_URL` (fail-open JSON POSTs; unset = silent). Skip polish with `CODE_SIMPLIFY=0` |
-| [`/epic`](docs/commands/epic.md) | Umbrella decompose + sequenced child handoff to `/kickoff` or `/orchestrate` |
-| [`/status`](docs/commands/status.md) | Read-only snapshot hub — bare = standup → metrics → worktrees; subs `standup` · `metrics` · `worktree` |
-| [`/standup`](docs/commands/standup.md) | Status snapshot: TaskList + agent context **(prefer /status standup)** |
-| [`/wrap-ticket`](docs/commands/wrap-ticket.md) | Close out: verify tasks, capture learnings, re-close source tracker, update plans, remove worktree |
-| [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the built-in `/loop`/`/goal` (library, journal, refine) |
-
-### Spec management
-
-| Command | What it does |
-|---------|-------------|
-| `/spec` | Unified spec management — `check`, `create`, `find`, `list`, `update`, `generate`, `tests`, `reflect` |
-| `/create-spec` | Guided interview → new behavioral spec in `specs/` **(deprecated — removed at v1.0.0)** |
-| `/update-spec` | Modify an existing spec with version history **(deprecated — removed at v1.0.0)** |
-| `/find-spec` | Search specs by keyword **(deprecated — removed at v1.0.0)** |
-| `/list-specs` | Quick status overview of all specs **(deprecated — removed at v1.0.0)** |
-| `/check-specs` | Audit spec format + code alignment (MATCH/MISSING/DIFFERS per requirement) **(deprecated — removed at v1.0.0)** |
-
-### Code quality
-
-| Command | What it does |
-|---------|-------------|
-| [`/review-and-commit`](docs/commands/review-and-commit.md) | 5-agent parallel review with confidence scoring, blocks commit on critical issues |
-| `/blind-review` | Multi-team blind peer review with quorum analysis **(deprecated — use /council --blind)** |
-| [`/council`](docs/commands/council.md) | Adversarial tribunal — reality-checks a claim, session slice, or diff |
-| `/tdd-gate` | Toggle hook-based TDD enforcement — blocks Write/Edit without tests (on/off/status) |
+| [`/epic`](docs/commands/epic.md) | Decompose an umbrella into sequenced children for `/kickoff` or `/orchestrate` |
+| `/backlog` | Manage backlog items (Linear-first dual-write when MCP is up) |
+| [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement before planning (`--grill` for one-Q-at-a-time) |
+| [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the host `/loop`/`/goal` |
+| `/release-train` | Multi-branch release queue — register, freeze, land via `/release` |
+| [`/retro`](docs/commands/retro.md) | Scan past sessions for friction; propose directive adjustments ([runbook](docs/runbooks/scheduled-retro.md)) |
+| [`/handoff`](docs/commands/handoff.md) | Reconstruct a past session (or capture current) into a dense brief |
+| [`/recall`](docs/commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
+| [`/mode`](docs/commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
+| `/adjust-agent` | View/manage per-agent standing directives (`--apply` for non-interactive) |
+| [`/worktree`](docs/commands/worktree.md) | Release a plugin worktree (`release <slug>`); list via `/status worktree` |
+| `/ci-watch` | Poll PR checks / local tests and spawn a fixer (armed by `/orchestrate`) |
+| [`/review-and-commit`](docs/commands/review-and-commit.md) | Multi-specialist review with confidence scoring; blocks commit on criticals |
+| [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification |
+| `/tdd-gate` | Toggle hook TDD enforcement — blocks Write/Edit without tests (`on`/`off`/`status`) |
+| [`/wrap-ticket`](docs/commands/wrap-ticket.md) | Close out: verify tasks, capture learnings, re-close tracker, drop worktree |
 
 Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 `/review-and-commit` and the council security flavor run a fail-open scan first
 (`skills/security-scan`; `SECURITY_SCAN=0` to skip). Not required to install.
 
-### Memory & recall
+### Internal
 
-| Command | What it does |
+Agent protocols (`agent-memory`, `memory-store`, `memory-recall`), council/orchestrate
+engines, gates (`docs-drift`, `skill-lint`, …), and `tools/` helpers are **not**
+user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal agents
+`project-init`, `distiller`, and `council-judge` are reached only via `/setup team`,
+`/memory distill`, and `/council`.
+
+### Migration / deprecated
+
+Stubs remain discoverable until **removed at v1.1**. Prefer the replacement now.
+
+| Command | Replacement |
 |---------|-------------|
-| `/memory` | Unified memory surface — `config`, `distill`, `export`, `search`, `stats`, `validate` |
-| `/memory-search` | Search agent memories — semantic, keyword, or grep fallback **(deprecated — removed at v1.0.0)** |
-| [`/recall`](docs/commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
-| `/memory-distill` | Compress raw memories into digests, promote high-signal to core **(deprecated — removed at v1.0.0)** |
-| `/memory-config` | View and set memory configuration (distill mode, threshold) **(deprecated — removed at v1.0.0)** |
-| `/memory-stats` | Show memory usage statistics (counts, sizes, growth) **(deprecated — removed at v1.0.0)** |
-| `/memory-export` | Export sanitized tier-2 core memories to a committable seed pack (SPEC-024) **(deprecated — removed at v1.0.0)** |
-| `/metrics` | Read-only all-time rollup of council, outcomes, worktree/task counts **(deprecated — use /status metrics)** |
-| `/validate-memory` | Cross-reference agent memories against the live codebase; `--reconcile` detects cross-agent contradictions (`--report-only` for zero writes) **(deprecated — removed at v1.0.0)** |
-| [`/handoff`](docs/commands/handoff.md) | Reconstruct a past session, or capture the current one, into a dense brief |
+| `/init-team` | `/setup team` — removed at v1.1 |
+| `/init-orchestration` | `/setup orchestration` — removed at v1.1 |
+| `/scaffold-project` | `/setup project` — removed at v1.1 |
+| [`/focus`](docs/commands/focus.md) | `/mode focus` — removed at v1.1 |
+| [`/blunt`](docs/commands/blunt.md) | `/mode blunt` — removed at v1.1 |
+| `/metrics` | `/status metrics` — removed at v1.1 |
+| [`/standup`](docs/commands/standup.md) | `/status standup` — removed at v1.1 |
+| [`/fix-ticket`](docs/commands/fix-ticket.md) | `/debug ticket` — removed at v1.1 |
+| `/blind-review` | `/council --blind` — removed at v1.1 |
+| `/create-spec` | `/spec create` — removed at v1.1 |
+| `/update-spec` | `/spec update` — removed at v1.1 |
+| `/find-spec` | `/spec find` — removed at v1.1 |
+| `/list-specs` | `/spec list` — removed at v1.1 |
+| `/check-specs` | `/spec check` — removed at v1.1 |
+| `/generate-specs` | `/spec generate` — removed at v1.1 |
+| `/generate-tests` | `/spec tests` — removed at v1.1 |
+| `/reflect-specs` | `/spec reflect` — removed at v1.1 |
+| `/memory-config` | `/memory config` — removed at v1.1 |
+| `/memory-distill` | `/memory distill` — removed at v1.1 |
+| `/memory-export` | `/memory export` — removed at v1.1 |
+| `/memory-search` | `/memory search` — removed at v1.1 |
+| `/memory-stats` | `/memory stats` — removed at v1.1 |
+| `/validate-memory` | `/memory validate` — removed at v1.1 |
+| `/incident` | removed (no war-room Surface; use devops role + `/debug`) — removed at v1.1 |
+| `/demo` | removed (use `/setup` + `/kickoff` on scratch) — removed at v1.1 |
+| `/local-do` | removed (local-agent offload excised) — removed at v1.1 |
 
-### Maintenance
-
-| Command | What it does |
-|---------|-------------|
-| `/doctor` | Install/config diagnostics (PASS/WARN/FAIL); read-only default; `--fix` allowlist only (`dev-team:doctor` — distinct from harness `/doctor`) |
-| [`/worktree`](docs/commands/worktree.md) | Release a plugin worktree (`release <slug>`); for listing use `/status worktree` |
-| `/backlog` | Manage project backlog items (add, close, list, init) |
-| `/release` | Bump version across all files, commit, tag, push |
-| `/release-train` | Multi-branch release queue — register, freeze, land via `/release` (SPEC-023) |
-| [`/retro`](docs/commands/retro.md) | Review past sessions for friction patterns, propose directive adjustments ([scheduled `--all --auto` runbook](docs/runbooks/scheduled-retro.md)) |
-| `/local-do` | Offload one mechanical, machine-verifiable task to the local model **(deprecated — removed at v1.0.0)** |
+`/worktree list` and `/worktree status` moved to `/status worktree`; live mutate path is `/worktree release <slug>` only.
 
 ## Quick Start
 
@@ -230,10 +239,13 @@ See the **[Specs runbook](docs/runbooks/specs.md)** for the full workflow.
 
 ## Autonomy & Permissions
 
-`.claude/settings.json` is generated locally — by `/setup project` for interactive/solo
-work, or by `/setup orchestration` for Agent Teams — and is **gitignored, not shipped with
-the plugin**. It pre-approves common operations so agents run without prompting for every
-tool call:
+Process state under `.claude/` (settings, hooks, plans, memory, backlog, …) is **local
+runtime only** — gitignored and **never committed as product delivery** (never upstream).
+Each machine regenerates it via `/setup`.
+
+`.claude/settings.json` is written by `/setup project` (interactive/solo) or
+`/setup orchestration` (Agent Teams). It pre-approves common operations so agents run
+without prompting for every tool call:
 
 - **Interactive (`/setup project`)** — `defaultMode: "acceptEdits"` plus a curated Bash
   allowlist (dev tools, agent-bootstrap patterns, read-only utilities, `sqlite3`, `curl`).
@@ -247,6 +259,10 @@ tool call:
 
 Extend for your stack by adding entries (`Bash(terraform:*)`, `Bash(kubectl:*)`, …) to
 `.claude/settings.json`. Full details in the **[Setup Guide](docs/setup.md)**.
+
+**Plugin contributors:** live `.claude/hooks/*.sh` are generated, not package-tracked.
+Edit the fenced templates in `skills/init-orchestration/SKILL.md` (sole source of truth),
+then re-run `/setup orchestration` to regenerate hooks locally.
 
 ## Adding to a Team
 
@@ -322,6 +338,16 @@ Contract: `specs/core/SPEC-013-adversarial-council-tribunal.md`.
 
 See **[CHANGELOG.md](CHANGELOG.md)**. Maintained by the `/release` skill.
 
+## Versioning
+
+Plugin version is kept in lockstep across `plugin.json`, `marketplace.json`,
+and `CHANGELOG.md`. Use **`/release`** to bump, commit, tag, and push — do not
+edit those three files by hand. Contract: [SPEC-002](specs/core/SPEC-002-plugin-infrastructure.md).
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+## Security
+
+Supported versions and vulnerability reporting: [SECURITY.md](SECURITY.md).

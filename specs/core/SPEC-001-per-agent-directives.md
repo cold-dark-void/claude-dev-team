@@ -24,7 +24,7 @@ Persistent behavioral instructions for individual agents — project-specific st
 - MUST load directives BEFORE memory during session start — load order: (1) directives, (2) memory, (3) context
 - MUST frame directives as "standing orders for this project" that take priority over agent reasoning and memory
 - MUST NOT error when the file is absent or empty — use `cat ... 2>/dev/null` or equivalent silent fallback
-- MUST use ~3 lines of bash for loading, consistent across all 7 agents — placed after path resolution, before memory loading. The canonical directives-load-then-memory sequence lives in the managed-inline agent memory protocol (`skills/agent-memory/protocol.md`, "load directives (before memory)" then the tiered read of `skills/memory-recall` Step 2); see SPEC-006.
+- MUST use ~3 lines of bash for loading, consistent across all 7 agents — placed after path resolution, before memory loading. The canonical directives-load-then-memory sequence lives in the managed-inline agent memory protocol (`skills/agent-memory/protocol.md`: load directives before memory, then the session-boot tiered read). Session-start tiered read is owned by `skills/agent-memory/protocol.md` only; `skills/memory-recall` owns cross-agent search (Steps 3–5), not session-start Step 2. See SPEC-006.
 - MUST NOT allow agent to override directives via its own reasoning — framing and load-first positioning are the enforcement mechanisms
 
 ### /adjust-agent Command
@@ -39,12 +39,12 @@ Persistent behavioral instructions for individual agents — project-specific st
 - MUST be idempotent: same prompt on same state produces same result (no duplicates, no drift)
 - MUST support a non-interactive `--apply` flag: `/adjust-agent <agent> --apply <prompt>` skips user prompting and applies the adjustment directly — but on conflict detection MUST refuse the write and exit with a clear error (fail-fast, never silently resolve). Enables automation callers (e.g. `/retro --auto`) to request directive updates without bypassing conflict safety.
 
-### /init-team Integration
-- MUST output hint about `/adjust-agent` after init-team completes bootstrap
+### /setup team Integration
+- MUST output hint about `/adjust-agent` after `/setup team` completes bootstrap
 
 ### .gitignore Coverage
 - MUST ensure `.gitignore` covers `directives.md` files (verify existing `.claude/memory/` patterns are sufficient; add explicit entry if not)
-- MUST check coverage in `/init-team` and in `/adjust-agent` when creating a new directives file
+- MUST check coverage in `/setup team` and in `/adjust-agent` when creating a new directives file
 
 ### Directive A/B trial loop (CDV-200)
 
@@ -120,6 +120,8 @@ None — all ACs confirmed by user. OQ-2 (agent-filtered session scoring) deferr
 | 2026-06-13 | Cross-referenced the canonical directives-load-then-memory sequence to the managed-inline agent memory protocol (skills/agent-memory/protocol.md) and SPEC-006 Step 2 tiered read (AUDIT-P1-1). |
 | 2026-07-03 | Proposed extension (DRAFT): Directive A/B trial loop — ideation wave 2 |
 | 2026-07-14 | CDV-200: promoted Directive A/B trial loop M1–M8 from DRAFT to shipped MUST; helpers `trial-meta.sh` / `trial-review.sh`; audit `directive-history.jsonl`. |
+| 2026-07-22 | CDT-53: session-boot tiered read pointer → `skills/agent-memory/protocol.md` only; `memory-recall` owns cross-agent search Steps 3–5 (not session-start Step 2). |
+| 2026-07-22 | CDT-53 reflect: `/init-team` integration → `/setup team`. Status stays ACTIVE. |
 
 ## Cross-references
 

@@ -13,7 +13,7 @@ The memory compression and lifecycle management layer. Compresses raw tier-0 mem
 ## MUST
 
 ### Tier Access Control
-- MUST NOT allow regular agents to set tier 1 or 2 (only @distiller may set tier > 0; host-script exception: `/init-team` seed import via `import-seed-pack.sh` writes tier-1 digests per SPEC-024 M5)
+- MUST NOT allow regular agents to set tier 1 or 2 (only @distiller may set tier > 0; host-script exception: `/setup team` seed import via `import-seed-pack.sh` writes tier-1 digests per SPEC-024 M5)
 - MUST check distillation threshold after each memory write when `distill_enabled=true` (skip check entirely when false)
 
 ### Distiller Agent
@@ -97,6 +97,7 @@ The memory compression and lifecycle management layer. Compresses raw tier-0 mem
 | 2026-03-23 | Moved tier access control and threshold check here from SPEC-004 (belongs with distillation, not storage). Moved summary format to SHOULD. |
 | 2026-04-26 | Terminology: "boot load" → "session-start load" to align with SPEC-006's "session start" terminology. |
 | 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): trimmed the verbatim `PRAGMA busy_timeout=5000` MUST restatement to defer to SPEC-004's write-path contract (SPEC-004 is the single source). No behavioral change. |
+| 2026-07-22 | CDT-53 reflect: seed-import host exception names `/setup team` (was `/init-team`). Status stays ACTIVE. |
 
 ## Cross-references
 

@@ -39,7 +39,7 @@ The core concept of the plugin: a FAANG-style team of 7 specialized AI agents wi
 - The 7 behavioral agents MUST carry the memory protocol (path resolution / directives-load / tiered read / append-only write / search / line-limits) as a MANAGED-INLINE include region sourced from the canonical `skills/agent-memory/protocol.md` partial (between `<!-- include: skills/agent-memory/protocol.md agent=X -->` / `<!-- /include -->` markers), drift-checked byte-identical against the partial by `skills/agent-memory/sync-includes.py` at `/release`. Agents MUST NOT hand-maintain divergent copies — the block stays inline for portability (D2), single-sourced via the release-time check. See SPEC-004 (write) and SPEC-006 (read) for the protocol contracts.
 
 ### Agent-Spawn Templates (MC-4)
-- Every agent-spawn prompt template in skills that dispatch agents MUST include the line `Output mode: terse` so spawned agents communicate in agent-to-agent terse mode (`/reflect-specs` flags any spawn template missing it).
+- Every agent-spawn prompt template in skills that dispatch agents MUST include the line `Output mode: terse` so spawned agents communicate in agent-to-agent terse mode (`/spec reflect` flags any spawn template missing it).
 
 ### Directives (adjust-agent)
 - MUST support per-agent directives for exactly the 7 behavioral agents (pm, tech-lead, ic5, ic4, devops, qa, ds) per SPEC-001 — see SPEC-001 for the storage-path, numbered-list, surface-conflicts, holistic-rewrite, and standing-orders contract
@@ -86,6 +86,7 @@ The core concept of the plugin: a FAANG-style team of 7 specialized AI agents wi
 | 2026-03-23 | Resolved TDD gate exemption. Removed duplicate line limits (now in SPEC-004 only). Clarified directive renumbering on rewrite. |
 | 2026-06-13 | Added MC-4 MUST: every agent-spawn prompt template MUST include `Output mode: terse`. Added managed-inline include MUST: the 7 agents carry the memory protocol as a drift-checked include region (skills/agent-memory/protocol.md) and MUST NOT hand-maintain divergent copies (AUDIT-P1-1). |
 | 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): trimmed the Directives subsection to a pointer at SPEC-001 (was restating SPEC-001's storage-path/numbered-list/surface-conflicts/holistic-rewrite/standing-orders contract verbatim); added SPEC-001 cross-reference. No behavioral change. |
+| 2026-07-22 | CDT-53 reflect: spawn-template audit names `/spec reflect` (was `/reflect-specs`). Status stays ACTIVE. |
 
 ## Cross-references
 

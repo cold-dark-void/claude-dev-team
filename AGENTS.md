@@ -37,8 +37,10 @@ single source of truth; read the skill.)
 
 ## v1.0 Feature Freeze (CDT-46)
 
-Nothing lands on master except CDT-46 child-ticket work and bug fixes until the
-v1.0.0 tag is cut. This freeze covers all of the following:
+**Active only until `v1.0.0` is tagged on master; once that tag exists, this freeze is lifted (section becomes historical).**
+
+While active: nothing lands on master except CDT-46 child-ticket work and bug
+fixes. Scope while freeze is active:
 
 - `commands/` — slash command definitions
 - `skills/` — skill definitions and supporting scripts
@@ -46,9 +48,9 @@ v1.0.0 tag is cut. This freeze covers all of the following:
 - hooks — any hook scripts or hook config
 - `specs/` — specification files
 
-No net-new features, no refactors, no scope additions outside the CDT-46 epic.
-Bug fixes (any component) and CDT-46 child tickets are the only permitted changes.
-Freeze lifts automatically when the v1.0.0 tag is pushed to master.
+No net-new features, no refactors, no scope additions outside the CDT-46 epic
+while the freeze is active. Bug fixes (any component) and CDT-46 child tickets
+are the only permitted changes until the freeze lifts.
 
 ## Agent Roster
 

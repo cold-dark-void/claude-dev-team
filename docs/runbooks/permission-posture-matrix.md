@@ -4,7 +4,7 @@ Live A/B/C matrix for orchestration `permissions.defaultMode` under Claude Code
 **2.1.190**. Evidence gate for AC2 template flip (Task 2). Spec anchors:
 SPEC-002 posture MUSTs; SPEC-005 orchestration default follows this winner.
 
-**Task 2 consumed `## Winner`** — ship default is `dontAsk` (see init-orchestration).
+**Task 2 consumed `## Winner`** — ship default is `dontAsk` (see `/setup orchestration` / `skills/init-orchestration`).
 
 ---
 
@@ -198,7 +198,7 @@ and full matrix allow set: `Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task).
 |-----------|--------|
 | Passing cells (zero-prompt, all 4 flows) | A, B, **C** |
 | Least privilege among passers | **C** |
-| AC2 implication | Task 2 **flipped** `init-orchestration` ship default from `bypassPermissions` → `dontAsk` (sandbox MUSTs kept) |
+| AC2 implication | Task 2 **flipped** `/setup orchestration` (`skills/init-orchestration`) ship default from `bypassPermissions` → `dontAsk` (sandbox MUSTs kept) |
 | C7 posture-honesty flag | **Not required** (non-bypass cell passed) |
 
 ### Residual risks
