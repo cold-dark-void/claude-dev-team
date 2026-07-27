@@ -18,11 +18,12 @@ description: >
 
 Bootstrap the files needed for Claude Code Agent Teams in the current project.
 
-## Permission batching under `dontAsk` (CDT-68 — read before mutating)
+## Permission batching (CDT-68 — read before mutating)
 
 `/setup orchestration` is **not pure zero-intervention**. After posture lands
-(`defaultMode: "dontAsk"` + sandbox), two self-escalation-guarded paths still
-require **explicit user approval** — by design; do not remove the guards:
+(`defaultMode: "auto"` Cell D + sandbox; see matrix winner), two self-escalation-
+guarded paths still require **explicit user approval** — by design; do not remove
+the guards:
 
 | Path | Why it prompts |
 |------|----------------|
@@ -33,9 +34,9 @@ require **explicit user approval** — by design; do not remove the guards:
 and before Step 4d bash-compress emit). Example:
 
 ```
-This /setup orchestration needs two explicit approvals (dontAsk self-escalation
+This /setup orchestration needs two explicit approvals (settings self-mod
 guards — intentional; not removable without losing the guard):
-  1. Merge into .claude/settings.json (sandbox + hooks + dontAsk + matrix allow)
+  1. Merge into .claude/settings.json (sandbox + hooks + auto + matrix allow)
   2. Write .claude/hooks/bash-compress.sh (PreToolUse; permissionDecision:allow
      bounded to the hardcoded NOISY test/build allowlist)
 Approve both so bootstrap can finish without mid-run denials?
@@ -410,23 +411,24 @@ Using the `allowedDomains` list from Step 2, write the settings file.
       "Agent",
       "Task"
     ],
-    "defaultMode": "dontAsk"
+    "defaultMode": "auto"
   }
 }
 ```
 
-> **RISK (intentional posture — matrix winner Cell C).** `defaultMode: "dontAsk"` +
-> matrix allow set (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) + sandbox
-> (`enabled` + `autoAllowBashIfSandboxed`) is the shipped orchestration posture
-> (CDT-51 AC1 evidence: `docs/runbooks/permission-posture-matrix.md`). `dontAsk`
-> never prompts: tools on the allowlist (or auto-allowed by the sandbox) run
-> unprompted; everything else is **denied** (not asked). Under `dontAsk`, a
-> bare `Bash(*)`-only allowlist fails zero-prompt for non-Bash tools — the full
-> matrix set is required. The OS sandbox is the containment boundary for
-> `Bash(*)`. Users who disable the sandbox (or run where bubblewrap is
-> unavailable) lose that boundary — keep sandbox enabled unless you fully trust
-> every task source. (Interactive/solo path is separate: `/setup project` uses
-> `acceptEdits` + a curated Bash allowlist, not this wildcard.)
+> **RISK (intentional posture — matrix winner Cell D / CDT-75).** `defaultMode:
+> "auto"` + matrix allow set (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) +
+> sandbox (`enabled` + `autoAllowBashIfSandboxed`) is the shipped orchestration
+> posture (evidence: `docs/runbooks/permission-posture-matrix.md` `## Winner`).
+> `auto` evaluates tools within policy/sandbox — allow-set core tools and
+> (interactively) MCP such as Linear can run without a static `mcp__*` allow
+> entry. It is **not** `bypassPermissions`: sandbox remains the OS boundary for
+> Bash; settings self-mod and other high-risk paths can still deny or prompt.
+> Keep the full matrix allow set so core tools stay predictable. Users who
+> disable the sandbox lose that boundary. (Solo path: `/setup project` uses
+> `acceptEdits` + curated Bash allowlist.) Historical Cell C (`dontAsk`)
+> hard-denies non-allow tools (MCP silent-deny — CDT-74); do not re-ship it as
+> default without re-proving Linear-first.
 
 **If `settings.json` already exists** — read it, then merge in the missing keys:
 - Add `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }` if `env` key is absent
@@ -436,7 +438,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 - `PreCompact`/`PostCompact`/`SessionStart` require a Claude Code version that supports those hook events; on older versions the entries are inert (graceful absence — SPEC-018 M18)
 - `PostToolUseFailure`/`PermissionDenied`/`StopFailure` wire the shared friction ledger handler (SPEC-012 M1/M5); on older CC versions that lack an event the entry is inert (graceful absence). All three point at the same `friction-capture.sh`.
 - Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists: ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`; merge new domains into existing `allowedDomains` (no duplicates); preserve any existing `filesystem` overrides
-- Ensure `permissions.allow` contains **every** entry from the greenfield template allow list above (matrix set: `Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task`) — add any missing entries; preserve any other existing allow entries. Ensure `permissions.defaultMode` matches the **managed orchestration defaultMode** from the greenfield template block above (read that template value, then write it — currently `"dontAsk"`; do not hard-code a second diverging copy). Add or update as needed (including flipping a prior `bypassPermissions` / other mode to the managed value)
+- Ensure `permissions.allow` contains **every** entry from the greenfield template allow list above (matrix set: `Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task`) — add any missing entries; preserve any other existing allow entries. Ensure `permissions.defaultMode` matches the **managed orchestration defaultMode** from the greenfield template block above (read that template value, then write it — currently `"auto"` Cell D / CDT-75; do not hard-code a second diverging copy). Add or update as needed (including flipping a prior `bypassPermissions` / `dontAsk` / other mode to the managed value)
 - **Force-overwrite disclosure (SPEC-005 / CDT-51 AC5):** when a re-run **changes** an existing managed value (especially `permissions.defaultMode`, `sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`), you **MUST** print old value, new value, and restore key/path **before** writing. Forced + silent = FAIL. Use the helper below (or print the same labeled block). Adding a missing key is not a force-overwrite (no disclosure required).
 - Write the merged result back as valid JSON
 
@@ -457,7 +459,7 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 DISCLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/init-orchestration/disclose-force-overwrite.sh 2>/dev/null) || DISCLOSE=""
 SETTINGS=".claude/settings.json"
 # NEW_DEFAULT_MODE = value of permissions.defaultMode in the greenfield template above
-# (currently dontAsk / Cell C winner — re-read the template if it changes)
+# (currently auto / Cell D winner — re-read the template if it changes)
 NEW_DEFAULT_MODE="<new defaultMode value from greenfield template>"
 
 # permissions.defaultMode — primary AC5 path
@@ -1547,7 +1549,7 @@ Print a summary of what was done:
 ✅ Agent Teams orchestration initialized!
 
 Updated:
-  📄 .claude/settings.json   — sandbox + dontAsk + matrix allow (Bash(*)+Read/Write/Edit/Glob/Grep/Agent/Task) + PreToolUse + PostToolUse + Stop + TaskCompleted + PreCompact + PostCompact + SessionStart + PostToolUseFailure + PermissionDenied + StopFailure hooks
+  📄 .claude/settings.json   — sandbox + auto (Cell D) + matrix allow (Bash(*)+Read/Write/Edit/Glob/Grep/Agent/Task) + PreToolUse + PostToolUse + Stop + TaskCompleted + PreCompact + PostCompact + SessionStart + PostToolUseFailure + PermissionDenied + StopFailure hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
@@ -1583,7 +1585,7 @@ To use Agent Teams:
 ## Important Notes
 
 - This skill is idempotent — safe to run multiple times without clobbering existing content
-- **Not pure zero-intervention (CDT-68):** under `dontAsk`, settings.json merge and `bash-compress.sh` require explicit user approval — batch both in ONE ask up front; do not strip the self-escalation guards
+- **Not pure zero-intervention (CDT-68):** settings.json merge and `bash-compress.sh` require explicit user approval — batch both in ONE ask up front; do not strip the self-escalation guards
 - **Force-overwrite disclosure (CDT-51 AC5):** any force change of a managed settings value or hook file MUST print `key` / `old` / `new` / `restore` before the write (`disclose-force-overwrite.sh` or the fallback block). Forced + silent = FAIL
 - The hook script exits 0 by default (pass-through) until customized
 - Agent Teams require Claude Code restart after `settings.json` changes for the env var to take effect

@@ -86,19 +86,19 @@ Alternatively: `/setup team --migrate-only` (runs the same driver, then exits).
    `sort -V | tail`. With `1.0.0-pre.N` dirs still in the cache, that can pick a
    **stale** pre-release engine. Regeneration installs the pre-release-safe
    tilde-map stanza (`sed 's/-pre\./~pre./' | sort -V | …`).
-2. **Permission posture flip** — orchestration default moves from
-   `bypassPermissions` → **Cell C**: `dontAsk` + sandbox enabled +
-   `autoAllowBashIfSandboxed` + matrix allow set. Re-runs print
-   key / old / new / restore disclosure. **Re-set `bypassPermissions` afterward
-   only if you intentionally want it** (and keep sandbox coherent — doctor WARNs
-   otherwise). Matrix evidence:
+2. **Permission posture flip** — orchestration default moves to **Cell D**:
+   `auto` + sandbox enabled + `autoAllowBashIfSandboxed` + matrix allow set
+   (CDT-75; epic C5 wording was “sandbox + auto”). v1.0.0–1.0.1 shipped Cell C
+   (`dontAsk`); re-run `/setup orchestration` to flip and get Linear MCP working
+   without MCP allow-list surgery. Re-runs print key / old / new / restore
+   disclosure. Matrix evidence:
    [permission-posture-matrix](permission-posture-matrix.md).
 
 If only self-remediating hooks FAILs blocked you historically: re-run setup on
 v1.0.1+ (gate-aware). If genuine FAILs remain: fix them or `/setup orchestration
 --skip-doctor`, then `/doctor` again. Non-orchestration projects can skip this step.
 
-**dontAsk batch approvals:** under Cell C, settings.json merge and writing
+**Setup batch approvals (CDT-68):** settings.json merge and writing
 `bash-compress.sh` may require **one** explicit user approval up front (not mid-run
 denials). Do not remove those prompts — they are self-escalation guards; batch them.
 

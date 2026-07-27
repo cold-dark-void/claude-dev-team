@@ -1032,7 +1032,7 @@ else:
 ')
   # High-autonomy modes without OS sandbox lose the containment boundary
   # (AGENTS.md: "sandbox is the boundary"). bypassPermissions = unbounded;
-  # dontAsk + Bash(*) (shipped Cell C) still auto-runs allowlisted tools.
+  # dontAsk / auto (Cell C/D) still need the OS boundary for Bash(*).
   if [ "$sandbox_enabled" != "true" ]; then
     case "$mode" in
       bypassPermissions)
@@ -1044,13 +1044,46 @@ else:
       dontAsk)
         record "settings.sandbox_coherence" "settings" "WARN" \
           "defaultMode=dontAsk with sandbox disabled/absent (allowlisted tools run without OS boundary)" \
-          "Enable sandbox via /setup orchestration (shipped Cell C posture requires sandbox)"
+          "Enable sandbox via /setup orchestration (Cell C posture requires sandbox)"
+        return 0
+        ;;
+      auto)
+        record "settings.sandbox_coherence" "settings" "WARN" \
+          "defaultMode=auto with sandbox disabled/absent (policy evaluation without OS boundary)" \
+          "Enable sandbox via /setup orchestration (shipped Cell D / CDT-75 requires sandbox)"
         return 0
         ;;
     esac
   fi
   record "settings.sandbox_coherence" "settings" "PASS" \
     "defaultMode=${mode:-unset} sandbox.enabled=${sandbox_enabled}" ""
+}
+
+# CDT-74 residual: Cell C (dontAsk) without any mcp__* allow entry cannot reach
+# Linear-first surfaces. Ship default is Cell D (auto); this WARNs brownfield C.
+check_settings_mcp_allow() {
+  if [ ! -f "$SETTINGS" ]; then
+    record "settings.mcp_allow" "settings" "SKIP" "settings.json absent" ""
+    return 0
+  fi
+  if ! settings_json_valid; then
+    record "settings.mcp_allow" "settings" "SKIP" "settings.json unparseable" ""
+    return 0
+  fi
+  local mode has_mcp
+  mode=$(settings_get 'print((d.get("permissions") or {}).get("defaultMode",""))')
+  has_mcp=$(settings_get '
+allow=(d.get("permissions") or {}).get("allow") or []
+print("yes" if any(isinstance(x,str) and x.startswith("mcp__") for x in allow) else "no")
+')
+  if [ "$mode" = "dontAsk" ] && [ "$has_mcp" = "no" ]; then
+    record "settings.mcp_allow" "settings" "WARN" \
+      "defaultMode=dontAsk with zero mcp__* allow entries — Linear MCP is silent-deny (CDT-74)" \
+      "Re-run /setup orchestration to adopt Cell D (auto), or add mcp__<server>__* to permissions.allow"
+    return 0
+  fi
+  record "settings.mcp_allow" "settings" "PASS" \
+    "defaultMode=${mode:-unset} mcp_allow=${has_mcp}" ""
 }
 
 _dep_check() {
@@ -1207,6 +1240,7 @@ register_check "hooks.templates" "hooks" check_hooks_templates_dev
 register_check "settings.json" "settings" check_settings_json
 register_check "settings.agent_teams" "settings" check_settings_agent_teams
 register_check "settings.sandbox_coherence" "settings" check_settings_sandbox_coherence
+register_check "settings.mcp_allow" "settings" check_settings_mcp_allow
 register_check "deps.jq" "deps" check_deps_jq
 register_check "deps.python3" "deps" check_deps_python3
 register_check "deps.gh" "deps" check_deps_gh

@@ -112,9 +112,9 @@ Enables multi-agent coordination. Run once per project after `/setup team`.
 
 What it does:
 - Sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `.claude/settings.json`
-- Merges orchestration posture: `defaultMode: "dontAsk"` + matrix allow set
+- Merges orchestration posture: `defaultMode: "auto"` + matrix allow set
   (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) with sandbox enabled +
-  `autoAllowBashIfSandboxed` (matrix winner Cell C — see
+  `autoAllowBashIfSandboxed` (matrix winner Cell D / CDT-75 — see
   [permission-posture-matrix](runbooks/permission-posture-matrix.md)). Distinct from
   interactive `/setup project` (`acceptEdits` + curated Bash allowlist).
 - Wires a `TaskCompleted` quality-gate hook
@@ -126,9 +126,9 @@ What it does:
 self-remediating FAILs whose fix-it is this sub — CDT-67); exit 2 blocks;
 `/setup orchestration --skip-doctor` override with WARNING.
 
-**Not pure zero-intervention under `dontAsk` (CDT-68):** settings.json merge and
-writing `bash-compress.sh` still need explicit user approval (self-escalation
-guards). The agent should batch both in one ask up front — see
+**Not pure zero-intervention (CDT-68):** settings.json merge and writing
+`bash-compress.sh` still need explicit user approval (self-escalation guards).
+The agent should batch both in one ask up front — see
 `skills/init-orchestration/SKILL.md` § Permission batching. Do not remove the
 guards to chase zero prompts.
 

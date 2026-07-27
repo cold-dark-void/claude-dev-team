@@ -39,18 +39,18 @@ assert_file "SKILL.md exists" "$SKILL"
 assert_file "project-init.md exists" "$PROJECT_INIT"
 
 # ---------- Extract greenfield permissions.allow block from SKILL.md ----------
-# Pull the first fenced ```json ... ``` that contains "defaultMode": "dontAsk"
+# Pull the first fenced ```json ... ``` that contains "defaultMode": "auto" (Cell D)
 # and collect quoted allow entries between "allow": [ and the closing ].
 echo "-- greenfield template ⊇ matrix set"
 
 TEMPLATE_ALLOW=$(python3 - "$SKILL" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
-# Find json fence containing dontAsk defaultMode (greenfield orch template)
+# Find json fence containing auto defaultMode (greenfield orch template, CDT-75)
 blocks = re.findall(r"```json\n(.*?)```", text, flags=re.S)
 chosen = None
 for b in blocks:
-    if '"defaultMode": "dontAsk"' in b and '"allow"' in b:
+    if '"defaultMode": "auto"' in b and '"allow"' in b:
         chosen = b
         break
 if not chosen:
