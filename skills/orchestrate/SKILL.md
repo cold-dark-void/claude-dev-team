@@ -891,7 +891,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
 WT_PATH="$MROOT/.worktrees/<ISSUE-ID>"
-# Prefer worktree root for --root when present (committed tracker files on branch).
+# Prefer worktree root for --root when present (local write-through on branch tree).
 [ -d "$WT_PATH" ] || WT_PATH=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # For each plan closes: entry of form backlog/<slug>.md (or bare slug):
 bash "$CLOSE" "<slug>" --root "$WT_PATH" --ticket "<ISSUE-ID>" --status "FIXED/CLOSED"
@@ -901,19 +901,19 @@ bash "$CLOSE" verify "<slug>" --root "$WT_PATH" || {
 }
 ```
 
-- Stage `.claude/backlog.md` + closed `.claude/backlog/<slug>.md` with the unit
-  commit / squash tree. **Same commit as product code** — no separate hygiene commit.
+- Close local write-through (item Status + index) on disk; **MUST NOT** stage or
+  commit `.claude/backlog*` / `.claude/plans*` into the product delivery commit
+  (process trackers never upstream — SPEC-009 / CDT-54).
 - For each `linear:<ID>` (or source=linear): MCP → Done/Released + PR/SHA comment.
   Fail-open if MCP unavailable: print a warning; do not invent Done.
 - Empty `closes:` (freeform): print `Tracking: none (freeform)` — do not block.
-- Non-empty closes that fail verify: **block ship**.
+- Non-empty closes that fail verify on local write-through: **block ship**.
 
 ### If PR requested:
 
 ```bash template
 cd <worktree-path>
-# Tracking close-out already applied on this worktree (above)
-git add -A .claude/backlog.md .claude/backlog/ 2>/dev/null || true
+# Tracking close-out already applied on this worktree (above) — status only; do NOT git add .claude/backlog*
 git status --short
 git push -u origin <branch>
 gh pr create --title "<ISSUE-ID>: <title>" --body "$(cat <<'EOF'
@@ -946,11 +946,11 @@ Tracking close-out for `linear:` entries).
 ### If squash merge requested (no PR):
 
 Prefer plain git — do NOT require `gh`. Apply Tracking close-out on the feature
-worktree first, then squash so tracker files are in the same commit:
+worktree first (local write-through + Linear Done), then squash **product code only**:
 
 ```bash template
-# Tracking close-out on WT_PATH already done (above); ensure those paths are
-# committed on the feature branch or present in the worktree for squash.
+# Tracking close-out on WT_PATH already done (above) — status flips only; do NOT
+# include .claude/backlog* or .claude/plans* in the squash tree.
 cd <main-repo-path>
 git merge --squash <branch>
 git commit -m "<ISSUE-ID>: <title>
@@ -1056,8 +1056,9 @@ These rules apply to YOU (the main Claude) throughout the entire flow:
 5. **You DO keep Linear updated** (if available) at each phase transition.
 6. **You DO keep the user informed** with concise status updates at natural milestones.
 7. **You DO protect the user's time** — batch questions, don't interrupt for routine progress.
-8. **You DO close trackers with delivery** — plan `closes:` backlog items + Linear in the
-   same ship commit as product code (Step 11). Never leave close-out as optional hygiene.
+8. **You DO close trackers at ship** — plan `closes:` local write-through + Linear Done
+   (Step 11). Never leave close-out as optional hygiene. **Never** stage process trackers
+   (`.claude/backlog*`, `.claude/plans*`) into the product commit.
 
 ---
 

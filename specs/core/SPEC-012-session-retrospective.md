@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-07
 
-**Covers**: `commands/retro.md`, `skills/retro-gate/` (incl. `write-scheduled-report.sh`, `scheduled-lock.sh`, `trial-meta.sh`, `trial-review.sh`), `skills/retro-subagent/`, `skills/transcript-parse/`, live friction ledger hook `.claude/hooks/friction-capture.sh` (emitted by `skills/init-orchestration/`), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`, schedule scaffold `docs/runbooks/scheduled-retro.md`
+**Covers**: `commands/retro.md`, `skills/retro-gate/` (incl. `write-scheduled-report.sh`, `scheduled-lock.sh`, `trial-meta.sh`, `trial-review.sh`), `skills/retro-subagent/`, `skills/transcript-parse/`, friction-capture hook template in `skills/init-orchestration/` (emitted to project `.claude/hooks/friction-capture.sh` by `/setup orchestration` — not dual-copy tracked), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`, schedule scaffold `docs/runbooks/scheduled-retro.md`
 
 ---
 
@@ -145,7 +145,7 @@ surface as transcript `tool_result.is_error` rows. Banked design context:
   4. Ledger → S2 mapping: each of the three event types counts as an error observation. Apply the same consecutive-run rule as transcript S2 (≥2 consecutive errors form one run; score = number of runs × S2 weight). Ledger has no success/user-turn reset markers — events for the session form one append-order sequence (so N≥2 events ⇒ one S2 run unless a future success marker is added). S2 `signals[].ids` MAY use synthetic anchors (`ledger:<event>:<ts>` or line refs) when no transcript message UUID exists.
   5. **Uncovered or ambiguous** (no matching rows; ledger missing/unreadable; `session_id` unresolved; corrupt-only rows for that id) → full transcript path for **all** signals including S2 — identical to pre-CDV-186 behavior. No errors, no warnings on the graceful path.
   6. This extension MUST NOT change scoring semantics for weights, caps, threshold, signal set (S1–S5), or `--why` output shape. MUST NOT retune S3 (CDV-184 draft-polish exemption remains authoritative).
-- **M5 — Wiring via `/init-orchestration`; graceful absence.** Hook registration for the three events MUST be emitted by `/init-orchestration` alongside existing hook templates, pointing at the same `friction-capture.sh`, with `${CLAUDE_PROJECT_DIR}`-anchored paths and no pipe operators. Live template MUST stay byte-identical to the fenced block in `skills/init-orchestration/SKILL.md` (`check-hook-templates.sh` MUST include `friction-capture`). `/retro` MUST NOT install hooks. When hooks are unwired, events are unsupported by the installed Claude Code version, or the ledger is absent/empty, the gate MUST behave exactly as today (full transcript parse, no errors, no warnings).
+- **M5 — Wiring via `/setup orchestration` (init-orch templates); graceful absence.** Hook registration for the three events MUST be emitted by `/setup orchestration` / init-orchestration alongside existing hook templates, pointing at the same `friction-capture.sh`, with `${CLAUDE_PROJECT_DIR}`-anchored paths and no pipe operators. **Template SoT (CDT-54):** the friction-capture body is owned solely by the fenced template in `skills/init-orchestration/SKILL.md` (or extracted package-path hook under that skill); live `.claude/hooks/friction-capture.sh` is **generated** at setup, not a second tracked source. Dual-copy byte-identity against package-tracked live hooks is **not** required (`check-hook-templates` dual-copy gate retired/reduced per SPEC-002/SPEC-005). `/retro` MUST NOT install hooks. When hooks are unwired, events are unsupported by the installed Claude Code version, or the ledger is absent/empty, the gate MUST behave exactly as today (full transcript parse, no errors, no warnings).
 - **M6 — Transcript always available.** Full transcript parsing remains required for S1/S3/S4/S5 on every path, and for S2 whenever the session is not ledger-covered (M4). Sessions predating hook install, other projects in `--all` mode, and foreign sessions MUST work without a ledger.
 - **M7 — Handlers fail open; never block.** `friction-capture.sh` MUST be lightweight: no LLM, no network, bounded runtime, exit `0` on every path including failures (one-line diagnostic to stderr). MUST NOT exit `2`. MUST NOT block or delay the observed tool/permission/stop flow. (Mirrors SPEC-018 M17.)
 
@@ -212,7 +212,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 2. **No bodies (M2):** feed a failure payload containing a multi-KB canary → ledger line has no canary and no payload/body fields.
 3. **Bounded growth (M3):** append past 10k lines or 5 MiB (or lowered env caps in test) → rotation keeps newest; file stays within bound.
 4. **Hybrid S2 (M4):** session with ≥1 ledger row and ≥2 failure events → S2 from ledger; S1/S3/S4/S5 still require transcript evidence. Forced full-transcript S2 path on same session without ledger coverage still scores S2 from transcript. Weights/caps/threshold/`--why` shape unchanged.
-5. **Wiring + graceful absence (M5):** `/init-orchestration` registers all three events to `friction-capture.sh`; `check-hook-templates.sh` includes it; with no ledger, `gate.sh` matches pre-CDV-186 transcript behavior (no errors/warnings).
+5. **Wiring + graceful absence (M5):** `/setup orchestration` registers all three events to emitted `friction-capture.sh` from the init-orch template SoT; dual-copy live-vs-template gate not required; with no ledger, `gate.sh` matches pre-CDV-186 transcript behavior (no errors/warnings).
 6. **Fallback (M6):** session absent from ledger → full transcript S2; unresolved `session_id` → full transcript path.
 7. **Fail-open (M7):** unwritable ledger dir → handler exits 0 (never 2), one-line stderr diagnostic.
 8. **CDV-184 regression:** existing S3 draft-polish fixtures (`ac1`–`ac5`) still pass; no S3 weight/exemption changes.
@@ -293,13 +293,14 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 | 2026-07-14 | CDV-190: scheduled `--all --auto` report (`scheduled-YYYY-MM-DDTHHMMSSZ.md`) + `scheduled.lock` (2h TTL) + retention (last 12) + runbook scaffold (CronCreate / OS cron); optional fail-open `AGENT_WEBHOOK_URL`; Filter 1/2 untouched; CDV-210 full sink out of scope |
 | 2026-07-14 | CDV-200: Directive A/B trial loop — default trial tag on NEW team-agent applies; trial-review step (gate baseline vs in-trial → KEEP/REVERT); outcomes via `/adjust-agent` only; no silent auto-revert; audit `directive-history.jsonl`; covers `trial-meta.sh` / `trial-review.sh` (SPEC-001 M1–M8) |
 | 2026-07-14 | CDV-212: fabrication anchors persisted to `$MROOT/.claude/retro/anchors/<id>.json` after validation (single writer `commands/retro.md`); schema includes session_id/source_jsonl_path/created_at for `/council --from-retro` load path (SPEC-013). |
+| 2026-07-22 | CDT-54 / CDT-46-C8: M5 friction-capture SoT = init-orch templates only; live hook generated by `/setup orchestration`; dual-copy `check-hook-templates` not required; Covers retargeted. |
 
 ---
 
 ## Cross-references
 
 - **SPEC-001: Per-Agent Directives** — `/retro` routes all team-agent proposals through `/adjust-agent` to preserve conflict detection and holistic rewrite. MUST NOT bypass. Uses the `--apply` non-interactive mode added to SPEC-001 on 2026-04-08 to support `/retro --auto`. Trial loop M1–M8 (CDV-200): NEW applies carry trial metadata; trial-review KEEP/REVERT also route exclusively through `/adjust-agent`.
-- **SPEC-002: Plugin Infrastructure** — hook path hygiene (`${CLAUDE_PROJECT_DIR}`, no pipes); init-orchestration template byte-identity gate.
+- **SPEC-002: Plugin Infrastructure** — hook path hygiene (`${CLAUDE_PROJECT_DIR}`, no pipes); hook template single SoT (CDT-54); dual-copy live gate retired.
 - **SPEC-003: Agent Role System** — `/retro` targets the 7 behavioral agents plus plain `claude`; excludes `project-init` and `distiller`.
 - **SPEC-009: Ticket Workflow** — `/kickoff` and `/orchestrate` gain a soft-suggestion hook at completion. No behavioral change to existing ticket-workflow MUST requirements.
 - **SPEC-016: Worktree Isolation** — ledger is `$MROOT`-anchored and shared across worktrees (M1).

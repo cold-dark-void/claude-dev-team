@@ -312,7 +312,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
 TICKET_ID="<TICKET-ID>"
-# Prefer main tree after merge (tracker files live on master). Use WTROOT if still present.
+# Prefer main tree after merge (local write-through lives at MROOT). Use WTROOT if still present.
 ROOT="$MROOT"
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Parse closes: backlog/<slug>.md from plan if present; else try TICKET_ID as slug.
@@ -325,8 +325,8 @@ bash "$CLOSE" "<slug>" --root "$ROOT" --ticket "$TICKET_ID" --status "FIXED/CLOS
 ```
 
 Idempotent — safe when Step 11 already closed the item. Print how many backlog
-slugs closed/verified. Stage/commit tracker files only if the user wants a
-hygiene commit and ship did not already include them (exception path).
+slugs closed/verified. Local write-through stays on disk only — **MUST NOT**
+stage or commit `.claude/backlog*` / `.claude/plans*` as product (SPEC-009).
 
 ---
 

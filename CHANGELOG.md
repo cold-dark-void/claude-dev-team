@@ -3,6 +3,14 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.0.0-pre.7
+- **v1.0-W6 hygiene: de-`.claude` upstream + hook template SoT + Linear-first backlog (CDT-54 / CDT-46-C8)** — release-candidate *prose* only; version remains `-pre.7` (never `rc.*` — PDH tilde-map hazard).
+- **`.claude` never upstream** — gitignore + untrack process paths (hooks, backlog, plans, epics); `git ls-files '.claude/**'` empty except optional seed carve-out; live hooks regenerated via `/setup orchestration`.
+- **Hook template single SoT** — `check-hook-templates` is template-internal (extract + `bash -n`); dual-copy live↔template gate retired; release Step 4.7 + doctor `hooks.templates` aligned.
+- **Backlog Linear-first + mandatory write-through** — add/list/close prefer Linear when MCP up; always dual-write local files; MCP-down fail-open; `--linear-verdicts` retained; ship/wrap **never** stage trackers into product commits.
+- **SPEC amends** — SPEC-002/005/009/010/012/018/022/025 (M4/M5 Linear preferred; local C\<n\> keys canonical); policy prose in AGENTS, epic, orchestrate, scaffold, wrap-ticket.
+- **OQ4 migrate** — reconcile + map PENDING before untrack; no silent loss.
+
 ### v1.0.0-pre.6
 - **v1.0-W5 INFERRED promote-or-cut + PM/TL cortex pin (CDT-52 / CDT-46-C6)** — stability-contract wave: zero INFERRED specs remaining on kept v1 Surfaces; cortexes pinned to pre.6 for C7 kickoff.
 - **SPEC-002…010 → ACTIVE** — human-reviewed tri-state disposition (promote-as-is | amend-then-promote | cut); VH evidence rows; TDD index Status synced; final format check clean.

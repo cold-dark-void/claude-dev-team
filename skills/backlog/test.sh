@@ -181,6 +181,79 @@ else
   fi
 fi
 
+# --- write-through: preserve linear_id frontmatter + emit bridge line ---
+R5="$TMP/r5"
+mkdir -p "$R5/.claude/backlog"
+cat > "$R5/.claude/backlog.md" <<'EOF'
+# Fixture - Backlog Index
+
+## Pending
+
+- [Linked](backlog/linked-item.md) - has Linear id [PENDING] linear:CDT-99
+
+## Completed
+
+EOF
+cat > "$R5/.claude/backlog/linked-item.md" <<'EOF'
+---
+linear_id: CDT-99
+epic_parent: CDT-46
+---
+
+# Linked
+
+**Status**: PENDING
+
+## Problem
+
+Dual-write fixture.
+
+## Goal
+
+Close preserves linkage.
+
+---
+
+*Added: 2026-07-01*
+EOF
+out5=$(bash "$CLOSE" linked-item --root "$R5" --ticket CDT-99 --status FIXED/CLOSED)
+# stdout: Closed line + linear_id bridge for session Linear Done
+if printf '%s\n' "$out5" | grep -qE '^Closed: \.claude/backlog/linked-item\.md$'; then
+  pass "write-through close stdout"
+else
+  fail "write-through close stdout" "got=$out5"
+fi
+if printf '%s\n' "$out5" | grep -qE '^linear_id: CDT-99$'; then
+  pass "write-through linear_id bridge"
+else
+  fail "write-through linear_id bridge" "got=$out5"
+fi
+assert_file_match "write-through preserves linear_id" "$R5/.claude/backlog/linked-item.md" '^linear_id: CDT-99'
+assert_file_match "write-through preserves epic_parent" "$R5/.claude/backlog/linked-item.md" '^epic_parent: CDT-46'
+assert_file_match "write-through status FIXED/CLOSED" "$R5/.claude/backlog/linked-item.md" 'Status\*\*: FIXED/CLOSED \(CDT-99\)'
+assert_file_match "write-through index completed" "$R5/.claude/backlog.md" 'linked-item\.md\).*FIXED/CLOSED'
+# idempotent re-close still emits linear_id bridge
+out5b=$(bash "$CLOSE" linked-item --root "$R5" --ticket CDT-99 --status FIXED/CLOSED)
+if printf '%s\n' "$out5b" | grep -qE '^Already closed:'; then pass "write-through idempotent"
+else fail "write-through idempotent" "got=$out5b"
+fi
+if printf '%s\n' "$out5b" | grep -qE '^linear_id: CDT-99$'; then
+  pass "write-through idempotent linear_id bridge"
+else
+  fail "write-through idempotent linear_id bridge" "got=$out5b"
+fi
+
+# --- local-only close (no linear_id frontmatter) — no bridge line ---
+R6="$TMP/r6"
+setup_fixture "$R6"
+out6=$(bash "$CLOSE" dark-mode --root "$R6")
+assert_eq "local-only stdout single line" "Closed: .claude/backlog/dark-mode.md" "$out6"
+if printf '%s\n' "$out6" | grep -qE '^linear_id:'; then
+  fail "local-only no linear_id bridge" "unexpected bridge in: $out6"
+else
+  pass "local-only no linear_id bridge"
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

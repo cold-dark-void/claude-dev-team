@@ -10,6 +10,8 @@
 
 The main delivery pipeline from idea to shipped code. Covers Socratic design refinement (brainstorm), parallel PM + Tech Lead kickoff with spec-first planning, end-to-end orchestration with agent dispatch and review loops, status monitoring (standup), ticket wrap-up with learnings extraction, and backlog management for deferred work.
 
+**Backlog posture (CDT-54 / CDT-46-C8):** when the Linear MCP is available, backlog add/list/close are **Linear-first** (Linear preferred SoT for open work); local `.claude/backlog*` files are a **mandatory write-through cache** on every path (always dual-write when MCP up; local-only + one-line notice when MCP down). Process trackers under `.claude/` are never committed as product.
+
 ## MUST
 
 ### Brainstorm
@@ -54,10 +56,10 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST resolve `$MROOT` with the worktree-aware formula: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)` — task metadata is shared across worktrees
 - MUST resolve ticket source at intake when possible: `linear` (MCP hit), `backlog` (`.claude/backlog/<slug>.md` or index match), or `freeform` (paste)
 - MUST record a plan Tracking section with `source`, `ticket_id`, and `closes:` (zero or more `backlog/<slug>.md` and/or `linear:<ID>` entries); many-to-one closes allowed
-- MUST close every plan `closes:` backlog item (item file Status + index line) as part of ship, on the feature worktree, in the **same delivery commit** as product code — not a separate optional hygiene commit
+- MUST close every plan `closes:` backlog item (item file Status + index line via write-through) as part of ship on the feature worktree — local status flip only; MUST NOT stage or commit `.claude/backlog*` into the product delivery commit (CDT-54)
 - MUST attempt Linear Done (or equivalent) when `closes:` lists `linear:<ID>` or source is linear and Linear MCP is available; fail-open with a warning if MCP is unavailable
-- MUST NOT block ship on empty `closes:` (freeform); MUST block ship if a non-empty backlog close fails verify
-- MUST use worktree root (`git rev-parse --show-toplevel` or explicit `--root`) when editing committed backlog files for close-out — not `git-common-dir` alone
+- MUST NOT block ship on empty `closes:` (freeform); MUST block ship if a non-empty backlog close fails verify on local write-through
+- MUST use worktree root (`git rev-parse --show-toplevel` or explicit `--root`) when editing local backlog write-through files for close-out — not `git-common-dir` alone
 
 ### Standup / `/status` (CDT-46-C4 entry)
 - User entry for the standup snapshot is `/status` (bare) and `/status standup [TICKET-ID]` via `commands/status.md`. There is no `commands/standup.md`.
@@ -84,16 +86,19 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST idempotently re-close source tracking from the plan `closes:` list (or ticket-id backlog slug fallback) via `skills/backlog/close.sh` — safety net when ship close-out was skipped
 
 ### Backlog
-- MUST auto-initialize backlog structure if missing (silently for add/close)
+- MUST auto-initialize local backlog structure if missing (silently for add/close) — local files are a **mandatory write-through cache**, not optional
 - MUST generate slug from title: lowercase, hyphen-joined, stripped punctuation, max ~50 chars
 - MUST append -2, -3 etc. on slug collision
-- MUST use format: `.claude/backlog.md` (index) + `.claude/backlog/<slug>.md` (items)
+- MUST use format: `.claude/backlog.md` (index) + `.claude/backlog/<slug>.md` (items) for local write-through
 - MUST track status: PENDING or COMPLETED
 - MUST include Problem, Goal, Notes sections in item files
 - MUST search case-insensitive for close target (slug or title)
 - MUST ask user to clarify if multiple matches on close
 - MUST provide a deterministic subprocess CLI `skills/backlog/close.sh` for close + verify (idempotent; no git commit inside the script)
 - MUST resolve close/verify root as `--root` if set, else `git rev-parse --show-toplevel`, else `pwd`
+- **Linear-first when MCP reachable (CDT-54).** `/backlog add` MUST create (or link) a Linear issue first when the Linear MCP is available, then **always** dual-write the local index + item with Linear id linkage. `/backlog list` MUST prefer Linear open issues as the preferred SoT for open work when MCP is up, presenting local files as write-through. `/backlog close` MUST mark the Linear issue terminal when MCP is up **and** always flip local item + index to COMPLETED.
+- **MCP-down fail-open.** When Linear MCP is absent or errors, add/list/close MUST degrade to local-only semantics, emit a single one-line notice, and MUST NOT block, retry-loop, or hard-fail the Surface.
+- **MUST NOT commit process trackers.** Skills/commands MUST NOT stage or commit `.claude/backlog*`, `.claude/plans*`, or other process state under `.claude/` as product delivery (v1.0 invariant: `.claude` process state never upstream). Local write-through remains on disk only.
 
 #### Backlog add dedup guard
 
@@ -114,8 +119,8 @@ per the precedence below, but MUST NOT invent new backlog items.
 
 - MUST operate over both stores: the index (`.claude/backlog.md`) and the per-item files
   (`.claude/backlog/<slug>.md`). It MUST resolve the root with the same rule as close/verify
-  (`--root` if set, else `git rev-parse --show-toplevel`, else `pwd`) so it edits committed
-  tracker files on the correct worktree.
+  (`--root` if set, else `git rev-parse --show-toplevel`, else `pwd`) so it edits the local
+  write-through / on-disk process state on the correct worktree (not `git-common-dir` alone).
 
 - **Precedence (normative).** For each index entry, the source of truth is determined as follows:
   - **Linear reachable (primary).** When the Linear MCP is reachable AND the index entry has a
@@ -138,9 +143,10 @@ per the precedence below, but MUST NOT invent new backlog items.
   (absent, unauthenticated, timeout, or per-issue error) MUST degrade the affected entries to the
   local item-file fallback above, emit a single one-line notice, and continue — it MUST NOT block,
   retry-loop, or fail the reconcile pass on Linear unavailability. This mirrors SPEC-025 M5's
-  degradation posture (best-effort Linear mirror, one-line notice, local files remain source of
-  truth). A reconcile run therefore always terminates with a consistent local index even when
-  Linear is wholly unavailable.
+  degradation posture (Linear preferred when reachable; local write-through always; one-line notice
+  on MCP fail). A reconcile run therefore always terminates with a consistent local index even when
+  Linear is wholly unavailable. Bash engines MUST retain the `--linear-verdicts` bridge (session
+  builds verdicts via MCP; scripts never call MCP).
 
 - Reconcile is a superset-safe complement to the ship-time / wrap-ticket close-out MUSTs above:
   those close specific items named by a plan `closes:` list; reconcile sweeps the whole index for
@@ -180,7 +186,7 @@ per the precedence below, but MUST NOT invent new backlog items.
 - [ ] Orchestrate creates PR within LOC caps
 - [ ] Standup correctly identifies READY vs WAITING tasks
 - [ ] Wrap-ticket extracts 3-8 specific learnings
-- [ ] Ship includes backlog close in same commit when `closes:` lists backlog paths
+- [ ] Ship closes backlog write-through + Linear Done without staging `.claude/backlog*` into product commits
 - [ ] `/backlog reconcile` is idempotent (second run is a no-op) and degrades cleanly with Linear absent
 - [ ] `/backlog add` on an existing slug produces no silent duplicate index row
 - [ ] `bash skills/backlog/test.sh` passes
@@ -200,6 +206,8 @@ per the precedence below, but MUST NOT invent new backlog items.
 | 2026-07-21 | reconcile subcommand + Linear-SoT precedence + add dedup guard defined (CDT-46-C2). Added `/backlog reconcile` (idempotent index↔item-file repair; Linear-reachable = source of truth for terminal states, local item-file status authoritative on fallback; dead-ref removal; duplicate collapse; best-effort Linear per SPEC-025 M5) and a `/backlog add` dedup guard (no silent duplicate rows for an existing slug). Spec-only; implementation and tests follow. |
 | 2026-07-22 | CDT-46-C4: standup user entry moves to `/status` / `/status standup`; bare `/status` sequences standup→metrics→worktree views (read-only). Covers add `commands/status.md`; metrics flag parity under `/status metrics`. |
 | 2026-07-14 | Tracking close-out DoD: plan `closes:`, ship-time backlog/Linear close via `close.sh`, wrap-ticket idempotent re-close; worktree `--root` for committed tracker files. |
+| 2026-07-22 | CDT-54 / CDT-46-C8: Linear-first add/list/close when MCP up + mandatory local write-through; MCP-down fail-open; process trackers never committed; ship closes local+Linear without staging backlog into product commits; retain `--linear-verdicts` bridge |
+| 2026-07-22 | CDT-54 TL review: Overview Linear-first + write-through; reconcile root = local on-disk write-through (not "committed trackers"); SPEC-025 cross-ref aligned to M4/M5 |
 | 2026-03-22 | Initial spec generated by /generate-specs |
 | 2026-03-23 | Resolved LOC cap exemption for generated code. Clarified escalation: "pause and present to user." Split LOC caps into separate implementation and generated code requirements. |
 | 2026-04-09 | Added opt-in `requires_council: true` task metadata + council gate MUSTs in Orchestrate section, per SPEC-013. Gate is per-task opt-in; default min confidence 80 via `council.taskgate.min_confidence`. |
@@ -220,4 +228,4 @@ per the precedence below, but MUST NOT invent new backlog items.
 - SPEC-013: Adversarial Council Tribunal — `requires_council: true` task metadata gates TaskCompleted on a council verdict
 - SPEC-002: Plugin Infrastructure — owns the TaskCompleted hook script; council gate logic must be implemented in `task-completed.sh` (cross-spec follow-up required)
 - SPEC-028: `/fix-ticket` premise→implement→adversarial-refuters — ticket-workflow family member; does not absorb orchestrate lifecycle, task store, or PR automation
-- SPEC-025: Epic Umbrella Decomposition — M4 makes backlog files the `/epic` source of truth (Linear a fallback mirror) and M5 defines the best-effort/one-line-notice Linear degradation posture that `/backlog reconcile` mirrors; reconcile MUST keep the backlog index consistent with the item files those epics write
+- SPEC-025: Epic Umbrella Decomposition — M4/M5: Linear preferred when MCP up; mandatory local write-through always; local `<EPIC-ID>-C<n>` IDs remain canonical orchestration keys; MCP-down fail-open with one-line notice. `/backlog reconcile` mirrors that posture; reconcile MUST keep the local write-through index consistent with the item files those epics write

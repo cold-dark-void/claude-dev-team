@@ -6,9 +6,10 @@
 #            [--status COMPLETED|FIXED/CLOSED]
 #   close.sh verify <slug-or-title> [--root PATH]
 #
-# Edits committed tracker files under ROOT/.claude/backlog/ and ROOT/.claude/backlog.md.
+# Edits local write-through under ROOT/.claude/backlog/ and ROOT/.claude/backlog.md
+# (never committed as product — process trackers stay on disk only).
 # ROOT = --root if set, else git rev-parse --show-toplevel, else pwd.
-# Does NOT commit — caller stages.
+# Does NOT commit — local write-through only; never stage process trackers.
 #
 # Exit: 0 ok, 1 not found / verify fail, 64 usage.
 
@@ -150,6 +151,22 @@ item_status_value() {
   local file="$1"
   grep -m1 -E '^\*\*Status\*\*:' "$file" 2>/dev/null \
     | sed 's/^\*\*Status\*\*:[[:space:]]*//' || true
+}
+
+# Extract linear_id from YAML frontmatter (session bridge for Linear Done; no MCP here).
+item_linear_id() {
+  local file="$1"
+  awk '
+    BEGIN { in_fm=0 }
+    NR==1 && /^---[[:space:]]*$/ { in_fm=1; next }
+    in_fm && /^---[[:space:]]*$/ { exit }
+    in_fm && /^linear_id:[[:space:]]*/ {
+      sub(/^linear_id:[[:space:]]*/, "")
+      gsub(/[[:space:]]+$/, "")
+      print
+      exit
+    }
+  ' "$file" 2>/dev/null || true
 }
 
 pick_one_slug() {
@@ -317,6 +334,16 @@ update_index() {
   mv "$tmp" "$index"
 }
 
+# Print linear_id bridge line when present (session marks Linear Done; bash-only here).
+print_linear_bridge() {
+  local file="$1"
+  local lid
+  lid=$(item_linear_id "$file")
+  if [ -n "$lid" ]; then
+    printf 'linear_id: %s\n' "$lid"
+  fi
+}
+
 cmd_close() {
   resolve_root
   local backlog_dir="$ROOT/.claude/backlog"
@@ -335,6 +362,7 @@ cmd_close() {
   if [ "$rc" -eq 2 ]; then
     update_index "$slug" || true
     printf 'Already closed: .claude/backlog/%s.md\n' "$slug"
+    print_linear_bridge "$file"
     exit 0
   elif [ "$rc" -ne 0 ]; then
     die 1 "failed to update item: $file"
@@ -342,6 +370,7 @@ cmd_close() {
 
   update_index "$slug"
   printf 'Closed: .claude/backlog/%s.md\n' "$slug"
+  print_linear_bridge "$file"
   exit 0
 }
 

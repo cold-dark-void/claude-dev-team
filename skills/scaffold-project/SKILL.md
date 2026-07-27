@@ -233,8 +233,8 @@ _Plans older than 2 weeks. See `plans/archive/` for detailed documentation._
 | **Start new task** | 1. Check `AGENTS.md` for project rules<br>2. Read `./specs/TDD.md` for current behaviors<br>3. Check `.claude/plans.md` for existing work<br>4. Create new `<YYYY-MM-DD>-title.md` plan |
 | **Before coding** | 1. Read `./specs/TDD.md`<br>2. Draft new specs if adding features<br>3. Get user approval on spec changes |
 | **After changes** | 1. Verify affected specs still pass<br>2. Update TDD.md version history<br>3. Mark specs as ✅/❌ |
-| **Before commit** | ⚠️ **CRITICAL**: Check and update `specs/` and `.claude/plans.md` |
-| **Task complete** | 1. Verify all specs pass<br>2. Update status in `.claude/plans.md` to [COMPLETED] |
+| **Before commit** | ⚠️ **CRITICAL**: Check and update `specs/` (process plans stay local — never commit) |
+| **Task complete** | 1. Verify all specs pass<br>2. Update status in `.claude/plans.md` to [COMPLETED] (local only) |
 
 ---
 
@@ -243,7 +243,7 @@ _Plans older than 2 weeks. See `plans/archive/` for detailed documentation._
 - Plans use date-based naming: `YYYY-MM-DD-descriptive-title.md`
 - Archive completed plans older than 2 weeks
 - Update this index when creating/completing plans
-- Plans.md is committed to git (contains project history)
+- Plans/backlog under `.claude/` are process trackers — local write-through only; never commit
 ```
 
 ### Step 5: Create TDD.md
@@ -597,7 +597,8 @@ canonical names. Do not reintroduce listed aliases in code or specs.
 - Write clear, descriptive commit messages
 - Include `Co-Authored-By: Claude <model> <noreply@anthropic.com>`
 - Always update `specs/` if behavior changes
-- Always update `.claude/plans.md` if completing work
+- Update `.claude/plans.md` / backlog on disk when completing work — **never**
+  stage process trackers (`.claude/plans*`, `.claude/backlog*`) into product commits
 
 ---
 
@@ -618,17 +619,8 @@ same marker + actor rule.
 If `$PROJ_ROOT/.gitignore` doesn't exist, create it with:
 
 ```gitignore
-# Claude Code - AI agent working directory
-# Ignore by default (user-specific files)
+# Claude Code - AI agent working directory (process state — never commit)
 .claude/
-
-# But allow project-wide plans and specs (using negation)
-!.claude/plans.md
-!.claude/plans/
-!.claude/plans/**
-
-# Context files are session-specific, don't commit
-.claude/context/
 
 # Specs are in ./specs/ (NOT in .claude/), committed normally
 ```
@@ -673,12 +665,12 @@ Next steps:
    - .claude/plans/<YYYY-MM-DD>-initial-setup.md
    - Add entry to .claude/plans.md
 
-4. 📝 Commit the scaffold:
-   - git add specs/ AGENTS.md
-   - git add -f .claude/plans.md
+4. 📝 Commit the scaffold (product files only — not process trackers):
+   - git add specs/ AGENTS.md CONTEXT.md
    - git commit -m "Initial project scaffold with TDD workflow
 
 Co-Authored-By: Claude <model> <noreply@anthropic.com>"
+   # Do NOT git add .claude/plans* or .claude/backlog* (local write-through only)
 
 💡 Tip: Read ~/.claude/CLAUDE.md for full workflow documentation
 💡 The 3 starter specs are examples - customize them for your project!

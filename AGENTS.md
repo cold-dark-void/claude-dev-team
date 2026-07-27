@@ -264,6 +264,9 @@ rule — do not invent a second string.
 ## What NOT to Do
 
 - Do not commit `.claude/settings.local.json` or `.claude/context/`
+- Do not commit process trackers (`.claude/backlog*`, `.claude/plans*`, or other
+  process state under `.claude/`) as product delivery — Linear preferred SoT when
+  MCP is up; local write-through always; never stage trackers into delivery commits
 - Do not modify plugin.json version without also updating README.md and marketplace.json
 - Do not add agents without updating the README agent roster table
 - Do not create new files unless clearly necessary

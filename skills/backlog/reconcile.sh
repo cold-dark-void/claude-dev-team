@@ -18,7 +18,7 @@
 #     file Status is set to COMPLETED and the row moved to ## Completed. This script does NOT call MCP.
 #
 # ROOT = --root if set, else git rev-parse --show-toplevel, else pwd.
-# Does NOT commit — caller stages.
+# Does NOT commit — local write-through only; never stage process trackers.
 #
 # Exit: 0 ok (reconciled or already clean), 1 error (no index/dir), 64 usage.
 
