@@ -45,9 +45,9 @@ substitutes `${...}` placeholders, and spawns both miners **in one tool-use bloc
 Never invoked by humans.
 
 Warm and cold share this spine-mine engine (M3b / M10): same miners, same event
-schema, same assemble. They differ only in entry (uuid locate vs self-transcript
-+ mid-write carve-out) and exit (cold print core + path; warm file-only) plus
-optional warm annotation.
+schema, same assemble. They differ only in entry (uuid locate vs dual-host
+`discover-warm.sh` self-transcript + mid-write carve-out; CDT-92 Grok|Claude)
+and exit (cold print core + path; warm file-only) plus optional warm annotation.
 
 ---
 
@@ -515,7 +515,7 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   ratio, session id, Supersedes).
 
 - **Packet headers (fixed order):** `## State now` → `## Through-line` → `## appendix`
-- **Mode header (M10b / CDT-85):** packet meta includes `mode: cold|warm` + `session: <id>` when finalize passes `--mode` (always for prepass finalize). Warm discovery writes `.live-session.json` bridge; missing session id fails honestly (no freeform dual path).
+- **Mode header (M10b / CDT-85):** packet meta includes `mode: cold|warm` + `session: <id>` when finalize passes `--mode` (always for prepass finalize). Warm discovery writes `.live-session.json` bridge (`host: grok|claude`); missing session id fails honestly (no freeform dual path).
 - **Filename (M11):** `<target-MROOT>/.claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md`
   — local wall clock; slug `[a-z0-9-]+` ≤40 (fallback `stm`); same-minute
   re-capture appends `-N`. Auto `Supersedes: <prior-basename>` on re-capture
@@ -524,8 +524,12 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   never invoker cwd.
 - **Cold (M7):** write full packet file; print State now + Through-line; cite path
   for appendix (path MUST equal write path).
-- **Warm (M10):** file-only under target `.claude/handoff/`; no primary core print.
-  Session JSONL via `skills/handoff/discover-warm.sh` + `--allow-in-progress`.
+- **Warm (M10 / CDT-92):** file-only under target `.claude/handoff/`; no primary core
+  print. Dual-host via `skills/handoff/discover-warm.sh` (Grok first if resolvable
+  — stale Claude bridge does not override — else Claude; fail hard if neither) +
+  `--allow-in-progress`. Grok stdout line 2 is Claude-shaped adapted JSONL
+  (prepare-ready); env: `GROK_SESSION_ID`, `GROK_TRANSCRIPT_PATH`,
+  `GROK_SESSIONS_DIR`, `GROK_CWD`. Command Step 1w stays thin (no host branch).
 - **Cache (M8):** keyed by `(session uuid + leaf_uuid)` under target
   `$MROOT/.claude/handoff/cache/`.
 

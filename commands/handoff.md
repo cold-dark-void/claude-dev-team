@@ -30,7 +30,7 @@ warm annotation) via `Task` spawns. **It does not distill freeform briefs.**
 | Invocation | Mode | Entry | Exit |
 |------------|------|-------|------|
 | `/handoff <session-uuid> [slug]` | cold | locate by uuid; M9 strict | print core + path; cache |
-| `/handoff` / `/handoff --slug <s>` | warm | this-session JSONL + `--allow-in-progress` | file only; print path |
+| `/handoff` / `/handoff --slug <s>` | warm | dual-host discover (Grok\|Claude) + `--allow-in-progress` | file only; print path |
 | `/handoff --help` | help | — | usage, exit 0 |
 
 Shared spine-mine after prepare (AC-17). Differ only in entry + exit + warm annotation.
@@ -194,19 +194,57 @@ case "$UUID" in
 esac
 ```
 
-### 1w. Warm entry — resolve this session's JSONL (M10 / CDT-85)
+### 1w. Warm entry — resolve this session's JSONL (M10 / CDT-85 / CDT-92)
 
 Warm uses the **same** spine-mine engine as cold. Resolve session id + transcript
 via `skills/handoff/discover-warm.sh`, then prepare with `--transcript` +
 `--allow-in-progress` (warm carve-out only — **never** forward
 `--allow-in-progress` on cold).
 
-**Honesty (CDT-85):** warm STM is **only** spine-mine of live JSONL. On discover
-failure (common on Grok / non-Claude hosts with no `CLAUDE_SESSION_ID`): **stop**
-with the script's diagnostic. **MUST NOT** freeform-write a packet from live
-model memory and call it warm STM. No live-context dual path.
+**Dual-host (CDT-92):** bare `/handoff` works on **Claude Code and Grok**.
+`discover-warm.sh` picks the host and returns a prepare-ready path:
 
-**Session id precedence** (implemented by `discover-warm.sh`):
+| Host | Line 1 (stdout) | Line 2 (stdout) | Bridge `host` |
+|------|-----------------|-----------------|---------------|
+| **Grok** | session id | Claude-shaped adapted JSONL under `${TMPDIR}` (adapter normalizes Grok `chat_history.jsonl`) | `grok` (source path = raw chat_history) |
+| **Claude** | session id | live `*.jsonl` under projects dir | `claude` |
+
+Command 1w stays thin: DISCOVER → `SESSION_ID` + `TRANSCRIPT` → `PREPARE_EXTRA`.
+No host branching in this fence — discover already normalizes.
+
+**Honesty (CDT-85 / CDT-92):** warm STM is **only** spine-mine of live JSONL.
+On discover failure (neither host resolvable): **stop** with the script's
+diagnostic. **MUST NOT** freeform-write a packet from live model memory and call
+it warm STM. No live-context dual path.
+
+**Host selection** (implemented by `discover-warm.sh`):
+
+1. **Grok first** if a Grok source is resolvable (env / cwd newest under sessions
+   root). A **stale Claude bridge does not override Grok** — Grok wins when
+   resolvable even if `.live-session.json` still says `host: claude`.
+2. Else **Claude** (CDT-85 path).
+3. Else **fail hard** (clear diagnostic; no freeform).
+
+**Grok env** (optional overrides; default cwd + `~/.grok/sessions`):
+
+| Env | Role |
+|-----|------|
+| `GROK_SESSION_ID` | Grok session id |
+| `GROK_TRANSCRIPT_PATH` | path to `chat_history.jsonl` |
+| `GROK_SESSIONS_DIR` | sessions root (default `~/.grok/sessions`) |
+| `GROK_CWD` | live cwd for urlencode lookup (default: `pwd`) |
+
+**Grok discovery precedence** (when Grok is tried):
+
+1. `$GROK_SESSION_ID` / `$GROK_TRANSCRIPT_PATH`, or `$SESSION_ID` naming a dir
+   under `$GROK_SESSIONS_DIR` with `chat_history.jsonl`
+2. `$CLAUDE_SESSION_ID` / `$CLAUDE_TRANSCRIPT_PATH` / `$TRANSCRIPT_PATH` **only if**
+   the path is a Grok `chat_history.jsonl` under the sessions root
+3. Newest-mtime `chat_history.jsonl` under
+   `${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/`
+4. Grok miss → Claude path below
+
+**Claude session id precedence** (when Grok miss):
 
 1. `$CLAUDE_SESSION_ID` if set and non-empty
 2. `$SESSION_ID` if set (some harnesses)
@@ -214,11 +252,13 @@ model memory and call it warm STM. No live-context dual path.
 4. Basename stem of `$CLAUDE_TRANSCRIPT_PATH` / `$TRANSCRIPT_PATH` when `*.jsonl`
 5. Newest `*.jsonl` under encoded project cwd in `$CLAUDE_PROJECTS_DIR` (Claude
    Code session-id bridge when env is empty)
-6. Interpreting Claude MAY export a visible conversation/metadata uuid into
-   `CLAUDE_SESSION_ID` before discovery — do not invent one in freeform prose
-7. Else fail with clear diagnostic (non-Claude / Grok: use cold `/handoff <uuid>`)
+6. Interpreting host MAY export a visible conversation/metadata id into
+   `GROK_SESSION_ID` or `CLAUDE_SESSION_ID` before discovery — do not invent one
+   in freeform prose
+7. Else fail with clear diagnostic (export host env, or cold `/handoff <uuid>` on
+   a disk transcript)
 
-**Transcript path precedence:**
+**Claude transcript path precedence** (when Grok miss):
 
 1. `$CLAUDE_TRANSCRIPT_PATH` if set and file exists
 2. `$TRANSCRIPT_PATH` if set and file exists
@@ -231,7 +271,8 @@ model memory and call it warm STM. No live-context dual path.
 
 On success, discover writes a **session-id bridge**
 (`$HANDOFF_DIR/.live-session.json` or `$HANDOFF_BRIDGE`) with `session_id` +
-`transcript_path` so later cold/re-capture of the same session can supersede
+`transcript_path` (SOURCE path — Grok `chat_history` or Claude jsonl) +
+`host: grok|claude` so later cold/re-capture of the same session can supersede
 (filename + packet header already carry the id; finalize also emits
 `mode: warm` + `session: <id>`).
 
@@ -240,18 +281,21 @@ On success, discover writes a **session-id bridge**
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 DISCOVER=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/discover-warm.sh)
-# Prefer: if the interpreting Claude sees a session uuid in context/metadata
-# and env is empty, export CLAUDE_SESSION_ID=<uuid> here before discovery.
-# Never invent a freeform "STM packet" when discover fails.
+# Optional host env before discovery (do not invent freeform packets on fail):
+#   Grok:   export GROK_SESSION_ID=…  and/or GROK_TRANSCRIPT_PATH=…
+#           (also GROK_SESSIONS_DIR, GROK_CWD)
+#   Claude: export CLAUDE_SESSION_ID=… when metadata shows a uuid and env empty
 set +e
 DISC_OUT=$(bash "$DISCOVER" 2>"${TMPDIR:-/tmp}/handoff-discover.err")
 DISC_RC=$?
 set -e
 if [ "$DISC_RC" -ne 0 ]; then
   cat "${TMPDIR:-/tmp}/handoff-discover.err" >&2
-  # CDT-85: hard stop — no live-context freeform dual path
+  # CDT-85 / CDT-92: hard stop — no live-context freeform dual path
   exit 1
 fi
+# discover stdout: <session_id>\n<transcript_path_for_prepare>
+# (Grok: line 2 already Claude-shaped adapted JSONL under TMPDIR)
 SESSION_ID=$(printf '%s\n' "$DISC_OUT" | sed -n '1p')
 TRANSCRIPT=$(printf '%s\n' "$DISC_OUT" | sed -n '2p')
 UUID="$SESSION_ID"   # engine --uuid for cache key / packet naming / Supersedes
@@ -653,7 +697,7 @@ under invoker cwd when target resolved (CDT-80).
 | `--help` / unknown flag | usage, exit 0 |
 | bare / no uuid | warm entry (1w) → shared pipeline |
 | malformed uuid (cold) | error, exit 1 |
-| warm: no session id / no JSONL | clear error (bans freeform live-context), exit 1 |
+| warm: neither Grok nor Claude resolvable / no JSONL | clear error (bans freeform live-context), exit 1 |
 | engine not found | error, exit 1 |
 | cache HIT (cold) | print core+path, STOP |
 | cache MISS | prepare |
@@ -669,10 +713,11 @@ under invoker cwd when target resolved (CDT-80).
 
 ```
 [cold] cache-check → HIT? print core+path STOP
-[warm] discover-warm.sh → session id + JSONL + .live-session.json bridge
-        (CLAUDE_SESSION_ID → SESSION_ID → bridge → transcript stem →
-         cwd-newest; CLAUDE_TRANSCRIPT_PATH → bridge path → stem → locate)
-        fail hard if unresolved (no freeform live-context)
+[warm] discover-warm.sh → session id + prepare-ready JSONL + bridge
+        (Grok first if resolvable — stale Claude bridge does not override;
+         else Claude CDT-85 path; neither → fail hard, no freeform)
+        Grok env: GROK_SESSION_ID / GROK_TRANSCRIPT_PATH / GROK_SESSIONS_DIR / GROK_CWD
+        Grok line2: adapted Claude-shaped JSONL (TMPDIR); bridge host=grok|claude
         │
         ▼
 prepare  cold: --uuid only (M9 strict; PREPARE_EXTRA empty)
