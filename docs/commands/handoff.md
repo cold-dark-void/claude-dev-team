@@ -1,68 +1,123 @@
 # /handoff
 
-Session handoff (SPEC-018). Reconstructs the hard-won state of a session — the root cause it converged on, the hypotheses it killed, the verbatim user corrections, the git code-state, open threads, and established basics — into one dense, pointer-bearing brief. It transfers *convergence*, not just *what changed* (git already has that), so a fresh session starts from the answer instead of re-deriving it. Two modes: **cold** reconstructs a *past* session from disk and injects the brief into the current one; **warm** captures the *current* live session to a file for a future one.
+Session handoff (SPEC-018, CDT-79). Produces one **STM packet** (short-term
+working memory / **compact seed**): a noise-stripped, jury-style evidence
+artifact so a fresh or post-compact session continues from outcomes, kills, and
+user rulings without re-litigating dead ends.
+
+Packet section order is fixed: **State now → Through-line → appendix**.
+
+**Primary consumer loop:**
+
+```
+long session → /handoff → /branch|/fork → /compact @packet-file
+```
+
+This is a **compact seed**, not a replacement for `/compact`. Not a Linear
+dual-write.
 
 ## Usage
 
 ```
-/handoff <session-uuid>
-/handoff
+/handoff <session-uuid> [slug]
+/handoff [--slug <slug>]
 /handoff --help
 ```
+
+Slug is optional (second positional or `--slug`); sanitized to `[a-z0-9-]+`;
+default `stm`.
 
 ## Modes
 
 | Mode | Invocation | What it does |
 |------|------------|--------------|
-| **Cold** | `/handoff <session-uuid>` | Reconstructs that past session from its recorded transcript and **injects** the brief into THIS session (M7). Survives `/compact`, multiday gaps, and multi-fork transcripts. |
-| **Warm** | `/handoff` (no args) | Captures the **current** live session into the same five-section brief and **writes** it to `.claude/handoff/<session-id>-<slug>.md` (M10). Not injected — you are still in the session. |
+| **Cold** | `/handoff <session-uuid> [slug]` | Spine-mines that past session; writes the full STM packet; **prints State now + Through-line** and **cites the packet path** for appendix (M7). Cache hit serves core + path without re-mine (M8). |
+| **Warm** | bare `/handoff` or `/handoff --slug <s>` | Spine-mines **this** session's live JSONL via the same engine; **writes packet file only** (M10). Packet header includes `mode: warm` + `session: <id>` (CDT-85 bridge). Not printed as primary product — you are still in the session. Missing session id → clear fail (no freeform live-context dual path; common on non-Claude hosts). |
 | **Help** | `/handoff --help` | Prints usage and exits. Any unknown flag prints usage too. |
 
-The `<session-uuid>` is a UUID like `00000000-0000-4000-8000-000000000004` — one surfaced by [`/recall`](./recall.md) or visible in a transcript filename.
+The `<session-uuid>` is a UUID like `00000000-0000-4000-8000-000000000004` — one
+surfaced by [`/recall`](./recall.md) or visible in a transcript filename.
 
-### The five-section brief
+### The STM packet
 
-Both modes produce the same five labeled sections, in this fixed order:
+Both modes produce the same packet shape, fixed order:
 
 | Section | Contents |
 |---------|----------|
-| **Convergence** | The current correct mental model / root cause the session landed on, stated operationally ("X happens because Y; the fix is Z"). If still open, the leading hypothesis. |
-| **Dead-ends** | The anti-gaslighting payload: rejected hypotheses and why each was killed, plus user corrections quoted **verbatim** — so the new session never re-proposes them. |
-| **Code-state** | What `git` actually shows (diff/log/status): changed files, recent relevant commits, staged/uncommitted state. Ground truth, independent of what the transcript claimed. |
-| **Open-threads & conflicts** | Unfinished tasks, unanswered questions, contradictions, plus a lightweight heuristic flag for stated intents with no matching change in git (M5 — a flag to verify, not a verdict). |
-| **Basics** | Established context a newcomer needs: what is being built, vocabulary, hard constraints (quoted verbatim), environment, conventions. |
+| **State now** | Mechanical selection from the **tail** of the event log: latest decisions, surviving unkilled hypotheses, all opens. Not a freeform essay. |
+| **Through-line** | Chronological evidence events (hypothesis / killed / ruling / decision / fact), grouped by `workstream` when multiple. Short-verbatim user rulings and kill reasons inline (M6). |
+| **appendix** | Longer kill catalog if needed, deterministic git code-state, dense basics, conflict/open catalog, courtesy pointers. |
 
-Every non-trivial claim carries a drill-down pointer — `transcript:L<n>`, `commit:<hash>`, or `file:path:symbol` — never a raw tool-output dump (M6).
+Product success is measured by post-`/compact @packet` continuity — not by how
+much text is dumped into a blank session.
 
-### How cold mode works
+- Quotes and kill reasons are **load-bearing** when short; raw tool dumps are
+  defects (M6).
+- Pointers (`transcript:L*`, `commit:`, `file:`) are **courtesy** drill-downs,
+  never required to understand a claim.
+- Stated-intent vs git mismatches surface as lightweight `conflict`/`open`
+  events (M5) — deep audit is [`/council`](./council.md).
 
-Cold mode is robust against `/compact`, multiday gaps, and 70 MB+ multi-fork "monster" transcripts because the heavy lifting is split between a deterministic engine and a parallel LLM fan-out:
+Packet files live under the **target session project's** `.claude/handoff/`
+(not the invoker's cwd — CDT-80):
 
-1. **Cache check** — if an unchanged session was already handed off, the cached brief is served and the command stops (M8).
-2. **Pre-pass** — a deterministic, LLM-free stage locates the canonical transcript via the shared [transcript-parse](../../skills/transcript-parse/SKILL.md) seam, dedups copied fork messages, strips raw tool output, and size-decides (M1, M2). Transcripts modified < 60 s ago are declined as in-progress (M9).
-3. **Fan-out of five extractors** — five specialized subagents (Convergence / Dead-ends / Code-state / Open-threads / Basics) run **in parallel, in one block**, each producing one section. Monster transcripts are first chunked and summarized, then reduced (M3).
-4. **Finalize** — the engine merges the sections into the bounded brief (≤ ~400 lines), prints it into the session, and writes the cache.
+```
+<target-MROOT>/.claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md
+```
 
-A second `/handoff` on the same unchanged session is a single cheap cache hit — no re-distillation.
+- **Cold** `/handoff <uuid>` resolves the project from the located transcript
+  (session `cwd`, then git-common-dir). Invoking from `~/.claude` or `/tmp`
+  still writes under the target repo (e.g. `…/claude-dev-team/.claude/handoff/`),
+  never `~/.claude/.claude/handoff/`.
+- **Warm** bare `/handoff` uses this live session's project MROOT.
+- Worktree sessions share the main repo MROOT via `git-common-dir`.
+- Non-git target: `HANDOFF_DIR = <project-dir>/.claude/handoff/`; git appendix
+  may be empty. If the target root cannot be determined → fail hard (no invoker
+  write).
+
+Re-capturing the same session writes a **new** file with `Supersedes: <prior>`
+(M11). Cache for cold re-invokes lives under `$MROOT/.claude/handoff/cache/`
+(outside `memory.db`). Printed packet path must match the actual write path.
+
+### How the pipeline works
+
+Cold and warm share one **spine-mine** engine after prepare (they differ only
+in entry, exit, and warm-only annotation):
+
+1. **Cache check (cold)** — unchanged session → serve cached core + path (M8).
+2. **Pre-pass** — deterministic, LLM-free: locate canonical transcript via
+   shared [transcript-parse](../../skills/transcript-parse/SKILL.md), dedup
+   fork copies, strip raw tool output, size-decide (M1, M2). Cold declines
+   transcripts modified < 60 s ago (M9). Warm may read mid-write via a
+   warm-only carve-out (M14).
+3. **Optional chunk map** — monster spines are chunk-summarized in parallel,
+   then reduced (M3).
+4. **Two miners in one block** — through-line miner + state miner (schema
+   events only). Code-state is **git only** — no LLM miner (M3b).
+5. **Warm annotation (optional)** — labels/rank on existing event IDs only;
+   never invents evidence.
+6. **Assemble (LLM-free)** — merge events into **State now → Through-line →
+   appendix**; write packet file. Cold prints core + path; warm prints path only.
 
 ## Examples
 
-**Reconstruct a past session and start from its conclusion:**
+**Reconstruct a past session (cold):**
 ```
 /handoff 00000000-0000-4000-8000-000000000004
 ```
-Builds the brief and injects it. Expected output (abridged):
+Prints State now + Through-line and cites the full packet path. Expected
+shape (abridged):
 ```
-## Convergence
-The flake was a TOCTOU race in `cache.go:Get`, not the mutex (`transcript:L1840`).
-Fix landed in `commit:a1b2c3d`.
+## State now
+- decision: Fix TOCTOU race in `cache.go:Get` (not the mutex)
+- open: confirm pool stats under load
 
-## Dead-ends
-### Rejected hypotheses
-- Lock contention in the pool — killed: pprof showed no blocking (`transcript:L902`).
-### User corrections (verbatim)
-- > "no, it's not the mutex, we already ruled that out" (`transcript:L1210`) — overruled the lock hypothesis.
-...
+## Through-line
+- hypothesis: lock contention in the pool
+- killed: pprof showed no blocking — "no, it's not the mutex, we already ruled that out"
+- decision: race is TOCTOU in Get; fix landed
+
+Full packet: .claude/handoff/20260723-1410-00000000-0000-4000-8000-000000000004-stm.md
 ```
 
 **Serve from cache (re-invoking on an unchanged session):**
@@ -71,19 +126,25 @@ Fix landed in `commit:a1b2c3d`.
 ```
 ```
 (served from cache — session unchanged since last handoff)
-## Convergence
+## State now
 ...
 ```
 
-**Capture the current live session for the next one:**
+**Capture the current live session (warm):**
 ```
 /handoff
 ```
 ```
-Warm handoff written → /home/you/project/.claude/handoff/abcd1234-cache-race-fix.md
+Warm handoff written → /home/you/project/.claude/handoff/20260723-1422-abcd1234-cache-race-fix.md
 ```
 
-**In-progress session is declined (freshness guard):**
+Typical next step after warm:
+```
+/branch
+/compact @.claude/handoff/20260723-1422-abcd1234-cache-race-fix.md
+```
+
+**In-progress session is declined (cold freshness guard):**
 ```
 /handoff 00000000-0000-4000-8000-000000000004
 ```
@@ -103,14 +164,14 @@ deterministic, LLM-free **rescue artifact** so context loss is not permanent
 |------|--------|
 | **When** | `PreCompact` fires for both manual and auto compaction (matcher-less registration) |
 | **Writes** | `<repo>/.claude/handoff/<session-id>-precompact-<seq>.md` — spine snapshot + `[L<n>]` drill-down pointers |
-| **Not** | The five-section M4 brief (that still needs a model; cold `/handoff <uuid>` remains the quality path) |
+| **Not** | An STM packet (State now / Through-line / appendix quality needs spine-mine; cold `/handoff <uuid>` remains the quality path) |
 | **Surfacing** | `PostCompact` / `SessionStart` print a one-line pointer (path + `/handoff <uuid>` suggestion); SessionStart consumes the marker; body is never dumped into context |
-| **Retention** | Keep newest N per session (default 3, env `HANDOFF_PRECOMPACT_MAX_PER_SESSION`); only `*-precompact-*.md` |
+| **Retention** | Keep newest N per session (default 3, env `HANDOFF_PRECOMPACT_MAX_PER_SESSION`); only `*-precompact-*.md` — STM packets and M8 cache are untouched |
 | **Fail-open** | Capture failure → one stderr line + exit 0; never blocks compaction (never exit 2) |
 | **Timeout** | Soft prepare timeout default 30 s (`HANDOFF_PRECOMPACT_TIMEOUT`); spine tail-cap default 2 MB (`HANDOFF_PRECOMPACT_SPINE_BYTES`) |
 
 **Recovery:** after compaction (or on the next session start) follow the pointer and run
-`/handoff <session-id>` for the full brief. Artifacts are machine-local (gitignored under
+`/handoff <session-id>` for the full STM packet. Artifacts are machine-local (gitignored under
 `.claude/handoff/`). If hooks are unregistered or the Claude Code version lacks
 `PreCompact`/`PostCompact`, cold + warm `/handoff` behave exactly as before (graceful
 absence). Wire hooks via `/setup orchestration` (init-orch templates are SoT;

@@ -6,21 +6,26 @@
 #   prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
 #                          [--transcript <path>] [--allow-in-progress]
 #   prepass.sh cache-check --uuid <uuid>
-#   prepass.sh finalize    --uuid <uuid> --sections <dir>
+#   prepass.sh finalize    --uuid <uuid> --events <dir|file>
+#                          [--git-state <file>] [--annotations <file>]
+#                          [--leaf <uuid>] [--slug <s>] [--mode cold|warm]
+#                          [--print-core] [--packet-out <path>]
+#                          [--spine-tokens N] [--supersedes <name>]
 #
-# Capture-path flags (SPEC-018 M12/M14) — passed only by
-# skills/handoff/precompact-capture.sh:
+# Capture-path flags (SPEC-018 M12/M14) — warm self-mine + PreCompact only:
 #   --transcript <path>     skip M1 locate; stream exactly this file
 #   --allow-in-progress     soften M9 guard to warn-and-proceed
+# Passed by: skills/handoff/precompact-capture.sh and warm /handoff
+# (commands/handoff.md Step 1w). Cold user path MUST NOT forward either flag.
 # Independent: --transcript alone still enforces M9.
 #
 # `prepare` — what it does (no LLM — this is the deterministic stage
-# that feeds the extractor subagents):
+# that feeds the spine-mine miners):
 #   (a) LOCATE   — resolve the canonical transcript file via the shared module
 #                  (skills/transcript-parse/assemble.py locate).
 #   (b) FRESHNESS — M9 guard via the shared freshness.sh; if the file was
 #                  modified < 60 s ago (in-progress) we REFUSE: clear message,
-#                  exit 9, no partial brief.
+#                  exit 9, no partial spine.
 #   (c) ASSEMBLE — get the ordered, deduped timeline (assemble.py assemble),
 #                  streamed; the 87 MB+ raw file is never read by us.
 #   (d) PRE-PASS — M2: strip top-level `toolUseResult` payloads (where the bulk
@@ -28,9 +33,9 @@
 #                  (keep last, leave a pointer for the superseded ones), and
 #                  collapse contiguous `isSidechain` runs: routine → 1-line
 #                  pointer; signal-bearing (cue hit in withheld text) → condensed
-#                  multi-line reconstruction for Dead-ends (CDV-205 / M2).
+#                  multi-line reconstruction (CDV-205 / M2).
 #                  Defensive no-op when isSidechain is never True. `thinking`
-#                  blocks are KEPT (M4-b), via parselib.msg_text.
+#                  blocks are KEPT, via parselib.msg_text.
 #   (e) LEAF     — the cache key (M8): uuid of the last non-null-uuid line.
 #   (f) SIZE     — M3: spine_chars / CHARS_PER_TOKEN <= HANDOFF_SPINE_TOKENS
 #                  → mode="direct"; else mode="chunked", split at message
@@ -41,22 +46,28 @@
 # `cache-check` (M8) — recompute the current leaf-uuid (same logic as
 #   `prepare`: the last surviving message of the assembled timeline), then look
 #   up <REPO>/.claude/handoff/cache/<uuid>.json. If it exists AND its stored
-#   leaf_uuid equals the current leaf-uuid, print the cached brief and exit 0
+#   leaf_uuid equals the current leaf-uuid, print the cold core shape
+#   (State now + Through-line + packet path cite when known) and exit 0
 #   (HIT — the session has not grown). Otherwise exit 10 (MISS — never built,
-#   or new messages were appended). The cache lives under .claude/handoff/,
-#   NEVER memory.db, so it cannot intersect the memory write-path (M8 / spec).
+#   or new messages were appended). Cache payload field is `packet` (STM markdown);
+#   dual-reads legacy `brief` for compatibility. Cache lives under .claude/handoff/,
+#   NEVER memory.db (M8 / spec).
 #
-# `finalize` (M6/M7/M8) — merge the five extractor section JSONs (M4:
-#   Convergence / Dead-ends / Code-state / Open-threads+conflicts / Basics) from
-#   --sections <dir> into ONE dense markdown brief: five labeled sections, every
-#   non-trivial claim carrying a drill-down pointer (M6), no raw tool output,
-#   total <= 400 lines. Then write the cache file (keyed by leaf-uuid, M8) and
-#   print the brief to stdout (cold-mode injection, M7).
+# `finalize` (M3d/M7/M8) — consume miner event JSON (--events dir|file) +
+#   deterministic git blob → call skills/handoff/assemble.py → write full STM
+#   packet under .claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md.
+#   Filename clock: local wall clock via `date +%Y%m%d-%H%M` (no Z suffix;
+#   not UTC-forced — matches existing handoff artifacts).
+#   Slug: sanitized to [a-z0-9-]+, ≤40, fallback `stm` (M11).
+#   Supersedes (M11): when --supersedes unset, auto-discover newest prior
+#   packet for the same session under HANDOFF_DIR (exclude *-precompact-*).
+#   Cache stores full packet keyed by leaf-uuid (M8). Cold mode (default):
+#   stdout = State now + Through-line + path cite (M7); warm mode: file-only.
 #
 # Exit codes (the API):
-#   0  ok            prepare: plan.json written · cache-check: HIT · finalize: brief printed
+#   0  ok            prepare: plan.json written · cache-check: HIT · finalize: packet ok
 #   9  too-fresh     transcript modified < 60 s ago (M9) — declined  [prepare]
-#   10 cache-miss    no cached brief, or session has grown (M8)        [cache-check]
+#   10 cache-miss    no cached packet, or session has grown (M8)       [cache-check]
 #   1  not-found     uuid not in any transcript, or usage / environment error
 #
 # Runtime: python3 only (already required by retro-gate + the shared module).
@@ -70,7 +81,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # skills/handoff/ -> skills/transcript-parse/
 PARSE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../transcript-parse" 2>/dev/null && pwd || true)
 
-ASSEMBLE="$PARSE_DIR/assemble.py"
+ASSEMBLE="$PARSE_DIR/assemble.py"           # transcript timeline assemble (prepare)
+PACKET_ASSEMBLE="$SCRIPT_DIR/assemble.py"   # STM packet assemble (finalize, CDT-79)
 FRESHNESS="$PARSE_DIR/freshness.sh"
 
 # --- python3 guard ----------------------------------------------------------
@@ -84,27 +96,38 @@ usage() {
 Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
                               [--transcript <path>] [--allow-in-progress]
        prepass.sh cache-check --uuid <uuid>
-       prepass.sh finalize    --uuid <uuid> --sections <dir> [--leaf <uuid>]
+       prepass.sh finalize    --uuid <uuid> --events <dir|file>
+                              [--git-state <file>] [--annotations <file>]
+                              [--leaf <uuid>] [--slug <s>] [--mode cold|warm]
+                              [--print-core] [--packet-out <path>]
+                              [--spine-tokens N] [--supersedes <name>]
 
-  prepare      assemble + pre-pass + size-decide; emits plan.json (+ spine/chunks)
-  cache-check  exit 0 (HIT, prints cached brief) / exit 10 (MISS) keyed by leaf-uuid
-  finalize     merge 5 section JSONs -> dense brief; write cache; print brief
+  prepare      timeline assemble + pre-pass + size-decide; emits plan.json
+  cache-check  exit 0 (HIT, prints cold core + path cite) / exit 10 (MISS)
+  finalize     miner events + git → STM packet via assemble.py; cache; cold print
 
   --uuid     <uuid>   session uuid (required for all subcommands)
   --out      <path>   prepare: where to write the plan JSON (default: ./plan.json)
-  --sections <dir>    finalize: dir holding the 5 extractor section JSONs
-  --leaf     <uuid>   finalize: the leaf-uuid (M8 cache key) prepare already
-                      computed; passing it skips a full transcript re-stream.
-                      Omitted -> finalize recomputes it via assemble.py.
+  --events   <path>   finalize: events JSON file OR dir of miner *.json outputs
+  --git-state <file>  finalize: pre-captured git blob (else capture now, read-only)
+  --annotations <file> finalize: warm annotations JSON (optional)
+  --leaf     <uuid>   finalize/cache-check: leaf-uuid (M8 cache key) from prepare;
+                      skip re-stream. Omitted -> recompute via transcript assemble.
+  --slug     <s>      finalize: packet filename slug (default: stm)
+  --mode     cold|warm  finalize: cold=print core+path (default); warm=file-only
+  --print-core        finalize: force State now + Through-line stdout (cold default)
+  --packet-out <path> finalize: explicit packet path (else auto under .claude/handoff/)
+  --spine-tokens N    finalize: stripped spine tokens for advisory footer ratio
+  --supersedes <name> finalize: prior packet filename for footer
   --transcript <path> prepare: stream exactly this file (skip locate; M12).
                       Capture path only — precompact-capture.sh.
   --allow-in-progress prepare: soften M9 freshness to warn-and-proceed (M14).
                       Capture path only; independent of --transcript.
 
 Env:
-  HANDOFF_SPINE_TOKENS   token budget for a single spine (default 120000).
-                         Over budget -> chunked mode (split at msg boundaries).
-  HANDOFF_BRIEF_MAX_LINES brief line cap (default 400; M3/M4 bound).
+  HANDOFF_SPINE_TOKENS        token budget for a single spine (default 120000).
+                              Over budget -> chunked mode (split at msg boundaries).
+  HANDOFF_CACHE_MAX_ENTRIES   max cache files under .claude/handoff/cache/ (default 50).
 EOF
   exit 1
 }
@@ -117,12 +140,20 @@ case "$SUBCMD" in
   *) echo "prepass.sh: unknown subcommand: $SUBCMD" >&2; usage ;;
 esac
 
-# Shared arg parse: --uuid (all), --out (prepare), --sections + --leaf (finalize),
+# Shared arg parse: --uuid (all), --out (prepare), finalize event/packet flags,
 # --transcript / --allow-in-progress (prepare capture path only; M12/M14).
 UUID=""
 OUT="plan.json"
-SECTIONS=""
+EVENTS=""
+GIT_STATE=""
+ANNOTATIONS=""
 LEAF_ARG=""
+SLUG_ARG=""
+MODE="cold"
+PRINT_CORE=""
+PACKET_OUT=""
+SPINE_TOKENS=""
+SUPERSEDES=""
 TRANSCRIPT=""
 ALLOW_IN_PROGRESS=0
 while [ $# -gt 0 ]; do
@@ -144,16 +175,53 @@ while [ $# -gt 0 ]; do
       TRANSCRIPT="${1#--transcript=}"; shift ;;
     --allow-in-progress)
       ALLOW_IN_PROGRESS=1; shift ;;
-    --sections)
+    --events)
       [ $# -ge 2 ] || usage
-      SECTIONS="$2"; shift 2 ;;
-    --sections=*)
-      SECTIONS="${1#--sections=}"; shift ;;
+      EVENTS="$2"; shift 2 ;;
+    --events=*)
+      EVENTS="${1#--events=}"; shift ;;
+    --git-state)
+      [ $# -ge 2 ] || usage
+      GIT_STATE="$2"; shift 2 ;;
+    --git-state=*)
+      GIT_STATE="${1#--git-state=}"; shift ;;
+    --annotations)
+      [ $# -ge 2 ] || usage
+      ANNOTATIONS="$2"; shift 2 ;;
+    --annotations=*)
+      ANNOTATIONS="${1#--annotations=}"; shift ;;
     --leaf)
       [ $# -ge 2 ] || usage
       LEAF_ARG="$2"; shift 2 ;;
     --leaf=*)
       LEAF_ARG="${1#--leaf=}"; shift ;;
+    --slug)
+      [ $# -ge 2 ] || usage
+      SLUG_ARG="$2"; shift 2 ;;
+    --slug=*)
+      SLUG_ARG="${1#--slug=}"; shift ;;
+    --mode)
+      [ $# -ge 2 ] || usage
+      MODE="$2"; shift 2 ;;
+    --mode=*)
+      MODE="${1#--mode=}"; shift ;;
+    --print-core)
+      PRINT_CORE=1; shift ;;
+    --packet-out)
+      [ $# -ge 2 ] || usage
+      PACKET_OUT="$2"; shift 2 ;;
+    --packet-out=*)
+      PACKET_OUT="${1#--packet-out=}"; shift ;;
+    --spine-tokens)
+      [ $# -ge 2 ] || usage
+      SPINE_TOKENS="$2"; shift 2 ;;
+    --spine-tokens=*)
+      SPINE_TOKENS="${1#--spine-tokens=}"; shift ;;
+    --supersedes)
+      [ $# -ge 2 ] || usage
+      SUPERSEDES="$2"; shift 2 ;;
+    --supersedes=*)
+      SUPERSEDES="${1#--supersedes=}"; shift ;;
     -h|--help)
       usage ;;
     *)
@@ -184,18 +252,144 @@ if [ ! -f "$ASSEMBLE" ]; then
   exit 1
 fi
 
-# --- shared: resolve repo root + cache path (M8) ----------------------------
-# Cache lives under <REPO>/.claude/handoff/cache/, resolved via git-common-dir
-# (worktree-aware: all worktrees share one .git common dir, hence one cache).
-# It MUST NOT live in memory.db — this keeps the brief cache off the memory
-# write-path and out of staleness scans (SPEC-018 M8 + Overview boundary).
-resolve_repo_root() {
-  _gc=$(git rev-parse --git-common-dir 2>/dev/null) || { pwd; return; }
-  ( cd -- "$(dirname -- "$_gc")" 2>/dev/null && pwd ) || pwd
+# --- shared: resolve TARGET session root + cache path (M8 / CDT-80) ---------
+# Packet + M8 cache live under <TARGET_MROOT>/.claude/handoff/cache/, NOT the
+# invoker's cwd. Worktree sessions share one cache via git-common-dir.
+# MUST NOT live in memory.db (SPEC-018 M8).
+# HANDOFF_DIR env override: isolated tests / command Step 0 export.
+RESOLVE_ROOT="$SCRIPT_DIR/resolve-root.sh"
+HANDOFF_DIR_FROM_ENV=0
+if [ -n "${HANDOFF_DIR:-}" ]; then
+  HANDOFF_DIR_FROM_ENV=1
+fi
+REPO_ROOT="${REPO_ROOT:-}"
+PROJECT_DIR="${PROJECT_DIR:-}"
+if [ "$HANDOFF_DIR_FROM_ENV" = "1" ]; then
+  CACHE_DIR="$HANDOFF_DIR/cache"
+  CACHE_FILE="$CACHE_DIR/$UUID.json"
+else
+  HANDOFF_DIR=""
+  CACHE_DIR=""
+  CACHE_FILE=""
+fi
+
+# ensure_target_roots [transcript]
+# Resolve REPO_ROOT / HANDOFF_DIR / CACHE_* from target session.
+# Returns 0 on success, 1 if undetermined. Never falls back to invoker pwd (AC4).
+# Callers that write (cache-check / finalize) MUST exit 1 on failure.
+ensure_target_roots() {
+  # Entire body under set +e: a bare `return 1` with set -e aborts the script
+  # (bash ERR-exit treats failing return as fatal). Callers re-enable set -e
+  # and use `ensure_target_roots || exit 1` for fail-hard write paths.
+  set +e
+  local tr="${1:-}"
+  local out mroot hdir pdir rc
+  if [ "$HANDOFF_DIR_FROM_ENV" = "1" ]; then
+    if [ -z "$REPO_ROOT" ] && [ -n "$tr" ] && [ -f "$tr" ] && [ -x "$RESOLVE_ROOT" ]; then
+      if out=$(bash "$RESOLVE_ROOT" --transcript "$tr" 2>/dev/null); then
+        PROJECT_DIR=$(printf '%s\n' "$out" | sed -n '1p')
+        REPO_ROOT=$(printf '%s\n' "$out" | sed -n '2p')
+      fi
+    fi
+    CACHE_DIR="$HANDOFF_DIR/cache"
+    CACHE_FILE="$CACHE_DIR/$UUID.json"
+    return 0
+  fi
+  if [ ! -x "$RESOLVE_ROOT" ]; then
+    echo "prepass.sh: resolve-root.sh not found at $RESOLVE_ROOT" >&2
+    return 1
+  fi
+  if [ -n "$tr" ] && [ -f "$tr" ]; then
+    out=$(bash "$RESOLVE_ROOT" --transcript "$tr" 2>/dev/null)
+    rc=$?
+  else
+    out=$(bash "$RESOLVE_ROOT" --uuid "$UUID" 2>/dev/null)
+    rc=$?
+  fi
+  if [ "${rc:-1}" -ne 0 ] || [ -z "$out" ]; then
+    echo "prepass.sh: cannot resolve target handoff root for uuid $UUID (no invoker-cwd fallback; CDT-80 AC4)" >&2
+    return 1
+  fi
+  pdir=$(printf '%s\n' "$out" | sed -n '1p')
+  mroot=$(printf '%s\n' "$out" | sed -n '2p')
+  hdir=$(printf '%s\n' "$out" | sed -n '3p')
+  if [ -z "$mroot" ] || [ -z "$hdir" ]; then
+    echo "prepass.sh: resolve-root returned empty MROOT/HANDOFF_DIR" >&2
+    return 1
+  fi
+  PROJECT_DIR="$pdir"
+  REPO_ROOT="$mroot"
+  HANDOFF_DIR="$hdir"
+  CACHE_DIR="$HANDOFF_DIR/cache"
+  CACHE_FILE="$CACHE_DIR/$UUID.json"
+  return 0
 }
-REPO_ROOT=$(resolve_repo_root)
-CACHE_DIR="$REPO_ROOT/.claude/handoff/cache"
-CACHE_FILE="$CACHE_DIR/$UUID.json"
+
+# capture_git_state — deterministic appendix code-state blob (SPEC-018 AC-8).
+# Read-only git from TARGET REPO_ROOT; no LLM. Writes text to $1.
+# Non-git target: empty sections (git -C fails soft).
+capture_git_state() {
+  local out="$1"
+  local root="${REPO_ROOT:-}"
+  {
+    echo "### git log --oneline -n 30"
+    if [ -n "$root" ]; then
+      git -C "$root" log --oneline -n 30 2>/dev/null || true
+    fi
+    echo
+    echo "### git status --porcelain"
+    if [ -n "$root" ]; then
+      git -C "$root" status --porcelain 2>/dev/null || true
+    fi
+    echo
+    echo "### git diff --stat HEAD"
+    if [ -n "$root" ]; then
+      git -C "$root" diff --stat HEAD 2>/dev/null || true
+    fi
+    echo
+    echo "### git diff --stat"
+    if [ -n "$root" ]; then
+      git -C "$root" diff --stat 2>/dev/null || true
+    fi
+  } >"$out"
+}
+
+# sanitize_slug — M11: [a-z0-9-]+ only, ≤40 chars; empty → stm
+sanitize_slug() {
+  local s="$1"
+  s=$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9-]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')
+  s=$(printf '%s' "$s" | cut -c1-40)
+  [ -n "$s" ] || s="stm"
+  printf '%s' "$s"
+}
+
+# discover_supersedes <handoff_dir> <session_uuid> [exclude_basename]
+# Newest prior packet for this session (mtime, then filename desc). Prints
+# basename only; empty if none. Skips PreCompact rescues named
+# <session_id>-precompact-<n>.md (not STM packets) and optional exclude.
+discover_supersedes() {
+  local dir="$1" uuid="$2" exclude="${3:-}"
+  local f m base best_m=-1 best_base=""
+  [ -d "$dir" ] || return 0
+  # Null-delimited; uuid charset is session-id safe (caller-owned).
+  while IFS= read -r -d '' f; do
+    base=$(basename -- "$f")
+    # Rescue artifacts only: exact "${uuid}-precompact-*" (no YYYYMMDD-HHmm prefix).
+    # Do NOT match session ids that merely contain the substring "precompact".
+    case "$base" in
+      "${uuid}-precompact-"*) continue ;;
+    esac
+    [ -n "$exclude" ] && [ "$base" = "$exclude" ] && continue
+    m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+    if [ "$m" -gt "$best_m" ] || { [ "$m" -eq "$best_m" ] && [ "$base" \> "$best_base" ]; }; then
+      best_m=$m
+      best_base=$base
+    fi
+  done < <(find "$dir" -maxdepth 1 -type f -name "*-${uuid}-*.md" -print0 2>/dev/null)
+  if [ -n "$best_base" ]; then
+    printf '%s' "$best_base"
+  fi
+}
 
 # compute_leaf — recompute the current leaf-uuid for UUID by streaming the
 # assembled (timestamp-ordered) timeline and applying the shared keep_last_uuid
@@ -259,51 +453,78 @@ PYEOF
 # SUBCOMMAND: cache-check (M8)
 # ===========================================================================
 # Recompute the current leaf-uuid, compare it to the leaf-uuid stored in the
-# cache file. Match -> print cached brief, exit 0 (HIT). Otherwise exit 10
-# (MISS: never built, grown session, or unreadable cache).
+# cache file. Match -> print cold core (State now + Through-line) + path cite,
+# exit 0 (HIT). Otherwise exit 10 (MISS: never built, grown session, or bad cache).
 if [ "$SUBCMD" = "cache-check" ]; then
+  # Target root first (CDT-80) — cache lives under target MROOT, not invoker cwd.
+  if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+    ensure_target_roots "$TRANSCRIPT" || { set -e; exit 1; }
+  else
+    ensure_target_roots || { set -e; exit 1; }
+  fi
+  set -e
   if [ ! -f "$CACHE_FILE" ]; then
     echo "prepass.sh: cache MISS (no cache file: $CACHE_FILE)" >&2
     exit 10
   fi
-  set +e
-  CUR_LEAF=$(compute_leaf)
-  leaf_rc=$?
-  set -e
-  if [ "$leaf_rc" -ne 0 ] || [ -z "$CUR_LEAF" ]; then
-    # Can't determine the current leaf (uuid vanished / assemble failed) ->
-    # we cannot honor the cache safely; treat as a miss so the caller rebuilds.
-    echo "prepass.sh: cache MISS (cannot recompute leaf-uuid for $UUID)" >&2
-    exit 10
+  # Optional --leaf: orchestrator/tests pass prepare's leaf to skip re-stream.
+  if [ -n "$LEAF_ARG" ]; then
+    CUR_LEAF="$LEAF_ARG"
+  else
+    set +e
+    CUR_LEAF=$(compute_leaf)
+    leaf_rc=$?
+    set -e
+    if [ "$leaf_rc" -ne 0 ] || [ -z "$CUR_LEAF" ]; then
+      # Can't determine the current leaf (uuid vanished / assemble failed) ->
+      # we cannot honor the cache safely; treat as a miss so the caller rebuilds.
+      echo "prepass.sh: cache MISS (cannot recompute leaf-uuid for $UUID)" >&2
+      exit 10
+    fi
   fi
-  # Compare stored leaf vs current leaf and, on match, stream the cached brief.
-  # All cache I/O is confined to $CACHE_FILE under .claude/handoff/ — no memory.db.
-  CACHE_FILE="$CACHE_FILE" CUR_LEAF="$CUR_LEAF" python3 - <<'PYEOF'
+  # Dual-read packet (preferred) / brief (legacy). All I/O under $CACHE_FILE.
+  CACHE_FILE="$CACHE_FILE" CUR_LEAF="$CUR_LEAF" \
+  PACKET_ASSEMBLE="$PACKET_ASSEMBLE" python3 - <<'PYEOF'
 import json, os, sys
 
 cache_file = os.environ["CACHE_FILE"]
 cur_leaf = os.environ["CUR_LEAF"]
+sys.path.insert(0, os.path.dirname(os.environ["PACKET_ASSEMBLE"]))
+from assemble import extract_core  # noqa: E402
+
 try:
     with open(cache_file, "r", encoding="utf-8") as fh:
         data = json.load(fh)
 except (OSError, ValueError) as e:
     sys.stderr.write(f"prepass.sh: cache MISS (unreadable cache: {e})\n")
     sys.exit(10)
-stored_leaf = data.get("leaf_uuid") if isinstance(data, dict) else None
-brief = data.get("brief") if isinstance(data, dict) else None
+if not isinstance(data, dict):
+    sys.stderr.write("prepass.sh: cache MISS (cache file not a JSON object)\n")
+    sys.exit(10)
+stored_leaf = data.get("leaf_uuid")
+# Prefer STM packet field; dual-read legacy `brief` (pre-CDT-79).
+packet = data.get("packet")
+if not isinstance(packet, str) or not packet.strip():
+    packet = data.get("brief")
+path = data.get("path") if isinstance(data.get("path"), str) else ""
 if not stored_leaf or stored_leaf != cur_leaf:
     sys.stderr.write(
         f"prepass.sh: cache MISS (leaf changed: stored={stored_leaf} "
         f"current={cur_leaf}; session has grown)\n"
     )
     sys.exit(10)
-if not isinstance(brief, str) or not brief.strip():
-    sys.stderr.write("prepass.sh: cache MISS (cache file has no brief)\n")
+if not isinstance(packet, str) or not packet.strip():
+    sys.stderr.write("prepass.sh: cache MISS (cache file has no packet/brief)\n")
     sys.exit(10)
-# HIT — emit the cached brief verbatim (M7 injection on re-invocation).
-sys.stdout.write(brief)
-if not brief.endswith("\n"):
-    sys.stdout.write("\n")
+# HIT — cold core shape (M7): State now + Through-line; cite path for appendix.
+if "## State now" in packet or "## Through-line" in packet:
+    core = extract_core(packet)
+else:
+    # Legacy five-section brief: emit as-is (compat).
+    core = packet if packet.endswith("\n") else packet + "\n"
+sys.stdout.write(core if core.endswith("\n") else core + "\n")
+if path.strip():
+    sys.stdout.write(f"Full packet (appendix): {path.strip()}\n")
 sys.stderr.write(f"prepass.sh: cache HIT (leaf={cur_leaf}) -> {cache_file}\n")
 sys.exit(0)
 PYEOF
@@ -311,29 +532,41 @@ PYEOF
 fi
 
 # ===========================================================================
-# SUBCOMMAND: finalize (M4 merge / M6 pointers / M7 print / M8 cache)
+# SUBCOMMAND: finalize (M3d assemble / M7 cold print / M8 cache)
 # ===========================================================================
-# Read the 5 extractor section JSONs from --sections <dir>, merge into ONE
-# dense markdown brief (5 labeled sections, pointer-bearing, no raw tool
-# output, <= line cap), recompute the leaf-uuid for the cache key, write the
-# cache file, and print the brief to stdout.
+# Miner event JSON + deterministic git → skills/handoff/assemble.py → STM packet
+# file + cache. Cold stdout = State now + Through-line + path cite (not full appendix).
 if [ "$SUBCMD" = "finalize" ]; then
-  if [ -z "$SECTIONS" ]; then
-    echo "prepass.sh: finalize requires --sections <dir>." >&2
+  if [ -z "$EVENTS" ]; then
+    echo "prepass.sh: finalize requires --events <dir|file>." >&2
     usage
   fi
-  if [ ! -d "$SECTIONS" ]; then
-    echo "prepass.sh: --sections dir not found: $SECTIONS" >&2
+  if [ ! -e "$EVENTS" ]; then
+    echo "prepass.sh: --events path not found: $EVENTS" >&2
     exit 1
   fi
-  # Resolve the leaf-uuid (M8 cache key). FAST PATH: `prepare` already computed
-  # it and the orchestrator passes it via --leaf, so we skip a full ~87 MB
-  # assemble.py re-stream on the common cold path. FALLBACK: when --leaf is
-  # absent (a stand-alone finalize), recompute it via compute_leaf(). Either way
-  # the value is the same keep-last leaf rule (leafrule.py), so the cache key is
-  # identical whichever path produced it. A finalize with no resolvable leaf
-  # still produces a brief but cannot be cached — we warn and skip the write
-  # rather than poison the cache with a null key.
+  if [ ! -f "$PACKET_ASSEMBLE" ]; then
+    echo "prepass.sh: packet assemble not found at $PACKET_ASSEMBLE" >&2
+    exit 1
+  fi
+  case "$MODE" in
+    cold|warm) ;;
+    *)
+      echo "prepass.sh: --mode must be cold or warm (got: $MODE)" >&2
+      exit 1 ;;
+  esac
+
+  # Target handoff root (CDT-80). HANDOFF_DIR env (tests / command Step 0) wins;
+  # else resolve from --transcript or locate --uuid. Fail hard if undetermined.
+  if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+    ensure_target_roots "$TRANSCRIPT" || { set -e; exit 1; }
+  else
+    ensure_target_roots || { set -e; exit 1; }
+  fi
+  set -e
+
+  # Resolve leaf-uuid (M8). Fast path: orchestrator passes --leaf from prepare.
+  # Fallback: recompute via compute_leaf(). No leaf → packet still written, not cached.
   if [ -n "$LEAF_ARG" ]; then
     LEAF="$LEAF_ARG"
   else
@@ -342,18 +575,98 @@ if [ "$SUBCMD" = "finalize" ]; then
     leaf_rc=$?
     set -e
     if [ "$leaf_rc" -ne 0 ] || [ -z "$LEAF" ]; then
-      echo "prepass.sh: WARNING — cannot recompute leaf-uuid for $UUID; brief will print but NOT be cached." >&2
+      echo "prepass.sh: WARNING — cannot recompute leaf-uuid for $UUID; packet will write but NOT be cached." >&2
       LEAF=""
     fi
   fi
 
-  HANDOFF_BRIEF_MAX_LINES="${HANDOFF_BRIEF_MAX_LINES:-400}" \
+  # Git blob: use provided file or capture deterministically into a temp.
+  GIT_TMP=""
+  if [ -n "$GIT_STATE" ]; then
+    if [ ! -f "$GIT_STATE" ]; then
+      echo "prepass.sh: --git-state file not found: $GIT_STATE" >&2
+      exit 1
+    fi
+    GIT_BLOB="$GIT_STATE"
+  else
+    GIT_TMP=$(mktemp "${TMPDIR:-/tmp}/handoff-git.XXXXXX")
+    capture_git_state "$GIT_TMP"
+    GIT_BLOB="$GIT_TMP"
+  fi
+
+  # Slug + packet path (M11): .claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md
+  # Clock = local wall time (no Z). Slug charset [a-z0-9-]+ via sanitize_slug.
+  # Same-minute re-capture: never overwrite — append -N before .md (M11 new file).
+  SLUG=$(sanitize_slug "${SLUG_ARG:-stm}")
+  if [ -n "$PACKET_OUT" ]; then
+    PACKET_PATH="$PACKET_OUT"
+  else
+    TS=$(date +%Y%m%d-%H%M)   # local wall clock; not UTC-forced
+    mkdir -p "$HANDOFF_DIR"
+    PACKET_PATH="$HANDOFF_DIR/${TS}-${UUID}-${SLUG}.md"
+    if [ -e "$PACKET_PATH" ]; then
+      n=2
+      while [ -e "$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-${n}.md" ]; do
+        n=$((n + 1))
+      done
+      PACKET_PATH="$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-${n}.md"
+    fi
+  fi
+  PACKET_DIR=$(dirname -- "$PACKET_PATH")
+  mkdir -p "$PACKET_DIR"
+
+  # Supersedes (M11): explicit --supersedes wins; else newest same-session tip.
+  # Scan HANDOFF_DIR even when --packet-out is set (warm re-capture tip).
+  if [ -z "$SUPERSEDES" ]; then
+    SUPERSEDES=$(discover_supersedes "$HANDOFF_DIR" "$UUID" "$(basename -- "$PACKET_PATH")")
+  fi
+
+  # Cold default prints core; warm is file-only unless --print-core forced.
+  DO_PRINT_CORE=0
+  if [ "$PRINT_CORE" = "1" ]; then
+    DO_PRINT_CORE=1
+  elif [ "$MODE" = "cold" ]; then
+    DO_PRINT_CORE=1
+  fi
+
+  ASM_ARGS=(
+    --events "$EVENTS"
+    --git "$GIT_BLOB"
+    --session-uuid "$UUID"
+    --slug "$SLUG"
+    --mode "$MODE"
+    --out "$PACKET_PATH"
+  )
+  [ -n "$LEAF" ] && ASM_ARGS+=(--leaf-uuid "$LEAF")
+  [ -n "$ANNOTATIONS" ] && ASM_ARGS+=(--annotations "$ANNOTATIONS")
+  [ -n "$SPINE_TOKENS" ] && ASM_ARGS+=(--spine-tokens "$SPINE_TOKENS")
+  [ -n "$SUPERSEDES" ] && ASM_ARGS+=(--supersedes "$SUPERSEDES")
+  [ "$DO_PRINT_CORE" = "1" ] && ASM_ARGS+=(--print-core)
+
+  set +e
+  python3 "$PACKET_ASSEMBLE" "${ASM_ARGS[@]}"
+  asm_rc=$?
+  set -e
+  if [ -n "$GIT_TMP" ]; then
+    rm -f "$GIT_TMP"
+  fi
+  if [ "$asm_rc" -ne 0 ]; then
+    echo "prepass.sh: assemble.py failed (rc=$asm_rc)" >&2
+    exit 1
+  fi
+  if [ ! -f "$PACKET_PATH" ]; then
+    echo "prepass.sh: assemble.py did not write packet: $PACKET_PATH" >&2
+    exit 1
+  fi
+
+  # Cache full packet (M8). Field `packet` preferred; readers dual-read packet||brief.
   HANDOFF_CACHE_MAX_ENTRIES="${HANDOFF_CACHE_MAX_ENTRIES:-50}" \
-  FINALIZE_SECTIONS="$SECTIONS" \
   FINALIZE_UUID="$UUID" \
   FINALIZE_LEAF="$LEAF" \
   FINALIZE_CACHE_DIR="$CACHE_DIR" \
   FINALIZE_CACHE_FILE="$CACHE_FILE" \
+  FINALIZE_PACKET_PATH="$PACKET_PATH" \
+  FINALIZE_MODE="$MODE" \
   python3 - <<'PYEOF'
 import datetime
 import io
@@ -361,12 +674,12 @@ import json
 import os
 import sys
 
-SECTIONS = os.environ["FINALIZE_SECTIONS"]
 UUID = os.environ["FINALIZE_UUID"]
 LEAF = os.environ["FINALIZE_LEAF"] or None
 CACHE_DIR = os.environ["FINALIZE_CACHE_DIR"]
 CACHE_FILE = os.environ["FINALIZE_CACHE_FILE"]
-MAX_LINES = max(1, int(os.environ.get("HANDOFF_BRIEF_MAX_LINES", "400")))
+PACKET_PATH = os.environ["FINALIZE_PACKET_PATH"]
+MODE = os.environ.get("FINALIZE_MODE", "cold")
 
 
 def warn(msg):
@@ -374,12 +687,7 @@ def warn(msg):
 
 
 def _cache_sort_key(path):
-    """Chronological sort key (oldest first): payload created_at, else mtime.
-
-    created_at is ISO-8601 'Z' (lexically chronological). A file lacking a
-    parseable created_at falls back to its filesystem mtime so it still orders
-    deterministically; a fully unreadable file sorts oldest (evicted first).
-    """
+    """Chronological sort key (oldest first): payload created_at, else mtime."""
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -401,18 +709,7 @@ def _cache_sort_key(path):
 
 
 def prune_cache(cache_dir, current_file):
-    """Bound the handoff cache so it never grows without limit (M8 follow-up).
-
-    Keep the newest HANDOFF_CACHE_MAX_ENTRIES briefs (default 50) by created_at
-    and delete the rest, oldest first. The entry just written (current_file) is
-    NEVER evicted. Orphan '*.tmp' files (from a crashed finalize) are swept too.
-
-    A cached brief is a *derived* memoization of the session transcript, not the
-    source — an evicted brief is simply rebuilt on the next cache MISS, so this
-    never loses recoverable context. All I/O is confined to cache_dir; memory.db
-    is never touched. Best-effort: every failure warns and is swallowed so cache
-    pruning can never break the brief that was already produced.
-    """
+    """Bound handoff cache (M8 follow-up). Keep newest N; never evict current."""
     raw = os.environ.get("HANDOFF_CACHE_MAX_ENTRIES", "50")
     try:
         max_entries = int(raw)
@@ -432,20 +729,20 @@ def prune_cache(cache_dir, current_file):
             path = os.path.join(cache_dir, name)
             if name.endswith(".tmp"):
                 try:
-                    os.remove(path)  # orphan from a crashed finalize
+                    os.remove(path)
                 except OSError:
                     pass
                 continue
             if not name.endswith(".json"):
                 continue
             if os.path.abspath(path) == current:
-                continue  # never evict the entry we just wrote
+                continue
             entries.append((_cache_sort_key(path), path))
 
-        keep_others = max(0, max_entries - 1)  # the current entry holds one slot
+        keep_others = max(0, max_entries - 1)
         if len(entries) <= keep_others:
-            return  # under the cap — stay silent
-        entries.sort(key=lambda e: e[0])  # oldest first
+            return
+        entries.sort(key=lambda e: e[0])
         victims = entries[: len(entries) - keep_others]
         pruned = 0
         for _key, path in victims:
@@ -453,162 +750,33 @@ def prune_cache(cache_dir, current_file):
                 os.remove(path)
                 pruned += 1
             except FileNotFoundError:
-                pass  # a concurrent worktree pruned it first
+                pass
             except OSError as e:
                 warn(f"cache prune: could not remove {path}: {e}")
         if pruned:
             warn(
-                f"cache prune: removed {pruned} old brief(s), kept <= "
+                f"cache prune: removed {pruned} old packet cache(s), kept <= "
                 f"{max_entries} (HANDOFF_CACHE_MAX_ENTRIES)."
             )
     except OSError as e:
         warn(f"cache prune: skipped ({e}).")
 
 
-# The five M4 sections, in canonical brief order. Each entry is
-# (section enum, rendered "## heading", accepted filename stems). The enum and
-# the canonical filename stem are the UNDERSCORE spellings the extractors
-# actually Write (SKILL.md "Section enum <-> heading <-> file" + commands/handoff.md
-# Step 6 table). The heading column is the SINGLE SOURCE the warm template in
-# commands/handoff.md renders the same bare "## <Heading>" from — warm and cold
-# MUST render identically. Each stem list is the canonical underscore stem plus
-# ONE slug-tolerant hyphen fallback, so a stray "dead-ends.json" still loads.
-SECTION_SPEC = [
-    ("convergence", "Convergence", ["convergence"]),
-    ("dead_ends", "Dead-ends", ["dead_ends", "dead-ends"]),
-    ("code_state", "Code-state", ["code_state", "code-state"]),
-    ("open_threads", "Open-threads & conflicts",
-     ["open_threads", "open-threads"]),
-    ("basics", "Basics", ["basics"]),
-]
+try:
+    with open(PACKET_PATH, "r", encoding="utf-8") as fh:
+        packet = fh.read()
+except OSError as e:
+    warn(f"WARNING — could not read packet for cache: {e}")
+    packet = None
 
-
-def load_section(stems):
-    """Find and parse the section JSON for the given accepted stems.
-
-    Returns (data_dict_or_None, note). Tolerant: a missing or malformed
-    section never aborts the merge (one bad extractor spawn must not sink the
-    whole brief — landmine in the plan); we record a placeholder instead.
-    """
-    for stem in stems:
-        path = os.path.join(SECTIONS, stem + ".json")
-        if os.path.isfile(path):
-            try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    obj = json.load(fh)
-                if isinstance(obj, dict):
-                    return obj, None
-                return None, f"(section file {os.path.basename(path)} was not a JSON object)"
-            except (OSError, ValueError) as e:
-                return None, f"(section file {os.path.basename(path)} unreadable: {e})"
-    return None, "(no section file found — extractor produced no output)"
-
-
-def fmt_pointer(p):
-    """Render one pointer object to an inline drill-down token (M6).
-
-    Accepts the contract shape {type, ref, note}. type in
-    {transcript, commit, file}; we normalize to transcript:Lx / commit:<hash> /
-    file:<symbol>, appending the optional note in parens.
-    """
-    if not isinstance(p, dict):
-        # Allow a bare string pointer too (already-formatted).
-        return str(p).strip()
-    ptype = (p.get("type") or "").strip().lower()
-    ref = str(p.get("ref") or "").strip()
-    note = str(p.get("note") or "").strip()
-    if not ref:
-        token = ""
-    elif ptype == "transcript":
-        # ref may already be "L123" or just "123".
-        r = ref if ref.lower().startswith("l") else "L" + ref
-        token = f"transcript:{r}"
-    elif ptype == "commit":
-        token = f"commit:{ref}"
-    elif ptype == "file":
-        token = f"file:{ref}"
-    else:
-        token = ref  # unknown type: pass the ref through rather than drop it
-    if note:
-        return f"{token} ({note})" if token else f"({note})"
-    return token
-
-
-def render_pointers(pointers):
-    """Return a compact ' — ptr1, ptr2' suffix, or '' if none."""
-    if not isinstance(pointers, list):
-        return ""
-    toks = [t for t in (fmt_pointer(p) for p in pointers) if t]
-    if not toks:
-        return ""
-    return "  ↳ " + ", ".join(toks)
-
-
-def section_block(heading, data, note):
-    """Render one '## heading' block from a section's {content, pointers}.
-
-    M6: the section's pointers are attached as a drill-down line beneath the
-    content so every non-trivial claim is traceable. No raw tool output is
-    emitted — only the extractor's already-distilled markdown + pointer tokens.
-    """
-    out = [f"## {heading}"]
-    if data is None:
-        out.append(f"_{note}_")
-        out.append("")
-        return out
-    content = data.get("content")
-    if isinstance(content, str) and content.strip():
-        out.append(content.strip())
-    else:
-        out.append("_(extractor returned no content for this section)_")
-    ptr_line = render_pointers(data.get("pointers"))
-    if ptr_line:
-        out.append("")
-        out.append(ptr_line)
-    out.append("")
-    return out
-
-
-# --- assemble the brief ----------------------------------------------------
-lines = []
-lines.append(f"# Session handoff brief — {UUID}")
-if LEAF:
-    lines.append(f"_leaf-uuid: {LEAF}_")
-lines.append("")
-
-missing = []
-for key, heading, stems in SECTION_SPEC:
-    data, note = load_section(stems)
-    if data is None:
-        missing.append(key)
-    lines.extend(section_block(heading, data, note))
-
-# --- enforce the line cap (M3/M4 bound: <= MAX_LINES) ----------------------
-# We truncate whole trailing lines and leave a visible marker rather than
-# silently shipping an over-budget brief. Sections are ordered by importance
-# (Convergence/Dead-ends first), so truncation sheds the least-critical tail.
-truncated = False
-if len(lines) > MAX_LINES:
-    truncated = True
-    keep = MAX_LINES - 1  # reserve one line for the marker
-    lines = lines[:keep]
-    lines.append(
-        f"_[brief truncated to {MAX_LINES} lines — drill into pointers above for the full record]_"
-    )
-
-brief = "\n".join(lines).rstrip() + "\n"
-brief_line_count = brief.count("\n")
-
-# --- write the cache (M8) --------------------------------------------------
-# Path: <REPO>/.claude/handoff/cache/<uuid>.json — NEVER memory.db. Keyed by
-# leaf_uuid so cache-check can detect a grown session. Skip when leaf unknown.
 cache_written = None
-if LEAF:
+if LEAF and packet is not None:
     try:
         os.makedirs(CACHE_DIR, exist_ok=True)
         payload = {
             "leaf_uuid": LEAF,
-            "brief": brief,
+            "packet": packet,
+            "path": os.path.abspath(PACKET_PATH),
             "created_at": datetime.datetime.now(datetime.timezone.utc)
             .isoformat()
             .replace("+00:00", "Z"),
@@ -617,34 +785,28 @@ if LEAF:
         with io.open(tmp, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
             fh.write("\n")
-        os.replace(tmp, CACHE_FILE)  # atomic publish
+        os.replace(tmp, CACHE_FILE)
         cache_written = CACHE_FILE
     except OSError as e:
         warn(f"WARNING — could not write cache {CACHE_FILE}: {e}")
-else:
-    warn("leaf-uuid unknown — brief printed but not cached (M8 key missing).")
+elif not LEAF:
+    warn("leaf-uuid unknown — packet written but not cached (M8 key missing).")
 
-# --- bound the cache size (retention policy) -------------------------------
-# Keep .claude/handoff/cache/ from growing without limit. Safe because each
-# cache file is a derived memoization of its transcript, not the source: an
-# evicted brief is simply rebuilt on the next cache MISS.
 if cache_written:
     prune_cache(CACHE_DIR, CACHE_FILE)
 
-# --- print the brief to stdout (M7 cold-mode injection) --------------------
-sys.stdout.write(brief)
-
-# One-line human summary to stderr (stdout stays the brief, clean for capture).
-summary = f"finalize  sections=5  missing={len(missing)}  lines={brief_line_count}/{MAX_LINES}"
-if truncated:
-    summary += "  [TRUNCATED]"
+# Summary on stderr only (stdout owned by assemble --print-core or silent warm).
+lines = packet.count("\n") if packet else 0
+summary = (
+    f"finalize  mode={MODE}  packet={os.path.abspath(PACKET_PATH)}  "
+    f"lines={lines}"
+)
 if cache_written:
     summary += f"  cached={cache_written}"
 else:
     summary += "  cached=NO"
-if missing:
-    summary += f"  missing_sections={','.join(missing)}"
 warn(summary)
+sys.exit(0)
 PYEOF
   exit $?
 fi
@@ -672,6 +834,12 @@ else
     exit 1
   fi
 fi
+
+# Target root after locate (CDT-80). Prepare does not write packets — soft on
+# undetermined (fixtures / synthetic transcripts without cwd). Finalize/cache
+# fail hard. Never invent invoker cwd as write root.
+ensure_target_roots "$CANONICAL" || true
+set -e
 
 # --- (b) FRESHNESS guard (M9) ----------------------------------------------
 # freshness.sh: exit 0 ok, exit 9 too-fresh (it prints its own warning), exit 1

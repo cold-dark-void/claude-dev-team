@@ -1,0 +1,4 @@
+abc1234 feat: example commit
+def5678 fix: example fix
+ M skills/handoff/assemble.py
+?? skills/handoff/fixtures/events-thrash.json

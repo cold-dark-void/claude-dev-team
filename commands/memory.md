@@ -36,7 +36,7 @@ Subs:
 | `export` | Inline | former `/memory-export` |
 | `search` | Skill-delegate | `skills/memory-recall/SKILL.md` (+ `--status` inline) |
 | `stats` | Inline | former `/memory-stats` |
-| `validate` | Skill-delegate + host pipeline | `skills/validate-memory/SKILL.md` + absorbed `/validate-memory` steps |
+| `validate` | Host pipeline in this command | absorbed `/validate-memory` steps (v1.1: no separate skill stub) |
 
 ---
 
@@ -524,7 +524,8 @@ human PR review and commit — this command **never** git-adds, commits, or push
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 EXPORT_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/export-seed-pack.sh)
 if [ -z "$EXPORT_SH" ] || [ ! -f "$EXPORT_SH" ]; then
   echo "ERROR: could not resolve export-seed-pack.sh"
@@ -762,10 +763,10 @@ Safe to share — no memory content included.
 Cross-reference agent memories against the live codebase; `--reconcile`
 detects cross-agent contradictions.
 
-**Skill-delegate:** prompt templates, claim/verdict taxonomies, composite scoring,
-batching limits, and pair-judge contracts live in `skills/validate-memory/SKILL.md` —
-load those sections when steps below reference them. The host pipeline (steps below)
-is the absorbed behavior from the former `/validate-memory` command.
+**Host pipeline:** steps below are the absorbed behavior from the former
+`/validate-memory` command (skill stub deleted at v1.1.0). Prompt-template
+section names referenced below are historical labels — follow the inline
+instructions in each step.
 
 Cross-reference agent memories against the live codebase to detect and resolve
 stale references — dead files, renamed functions, shifted line numbers,

@@ -1,0 +1,130 @@
+{
+  "events": [
+    {
+      "id": "e1",
+      "kind": "hypothesis",
+      "text": "Race in cache-check leaf uuid comparison",
+      "workstream": "cache",
+      "order": 1,
+      "timestamp": "2026-07-20T10:00:00Z"
+    },
+    {
+      "id": "e2",
+      "kind": "hypothesis",
+      "text": "Prepass drops sidechain signal cues",
+      "workstream": "sidechain",
+      "order": 2,
+      "timestamp": "2026-07-20T10:05:00Z"
+    },
+    {
+      "id": "e3",
+      "kind": "hypothesis",
+      "text": "ForkedFrom messageUuid is a cross-file pointer",
+      "workstream": "assemble",
+      "order": 3,
+      "timestamp": "2026-07-20T10:10:00Z"
+    },
+    {
+      "id": "e4",
+      "kind": "ruling",
+      "text": "User: stop treating messageUuid as cross-file — it is self-referential",
+      "quote": "stop treating messageUuid as cross-file — it is self-referential",
+      "workstream": "assemble",
+      "order": 4,
+      "timestamp": "2026-07-20T10:15:00Z",
+      "pointers": [{"type": "transcript", "ref": "L1204", "note": "user correction"}]
+    },
+    {
+      "id": "e5",
+      "kind": "killed",
+      "text": "ForkedFrom messageUuid is a cross-file pointer",
+      "quote": "killed: messageUuid is self-ref, not a pointer across files",
+      "workstream": "assemble",
+      "order": 5,
+      "timestamp": "2026-07-20T10:16:00Z"
+    },
+    {
+      "id": "e5-dup",
+      "kind": "killed",
+      "text": "ForkedFrom messageUuid is a cross-file pointer",
+      "quote": "killed: messageUuid is self-ref, not a pointer across files",
+      "workstream": "assemble",
+      "order": 6,
+      "timestamp": "2026-07-20T10:16:30Z"
+    },
+    {
+      "id": "e6",
+      "kind": "hypothesis",
+      "text": "Token budget hard-fail is required for packet size",
+      "workstream": "packet",
+      "order": 7
+    },
+    {
+      "id": "e7",
+      "kind": "killed",
+      "text": "Token budget hard-fail is required for packet size",
+      "quote": "no hard core-token MUST — footer ratio is advisory only",
+      "workstream": "packet",
+      "order": 8
+    },
+    {
+      "id": "e8",
+      "kind": "decision",
+      "text": "Adopt event-log mine + LLM-free assemble with State now from tail",
+      "workstream": "packet",
+      "order": 9
+    },
+    {
+      "id": "e9",
+      "kind": "decision",
+      "text": "Warm path is cold-on-self + annotation only (no freeform dual path)",
+      "workstream": "warm",
+      "order": 10
+    },
+    {
+      "id": "e10",
+      "kind": "fact",
+      "text": "forkedFrom is always a dict {sessionId, messageUuid}",
+      "how_verified": "transcript empirics on monster session 587827b5",
+      "workstream": "assemble",
+      "order": 11,
+      "pointers": [{"type": "file", "ref": "skills/transcript-parse/parselib.py"}]
+    },
+    {
+      "id": "e11",
+      "kind": "open",
+      "text": "Does PreCompact rescue need a packet-shaped upgrade later?",
+      "workstream": "precompact",
+      "order": 12
+    },
+    {
+      "id": "e12",
+      "kind": "open",
+      "text": "Slug resolution when first decision text is empty",
+      "workstream": "packet",
+      "order": 13
+    },
+    {
+      "id": "e13",
+      "kind": "conflict",
+      "text": "Stated intent 'no freeform warm' vs residual five-section finalize path in prepass",
+      "workstream": "warm",
+      "order": 14
+    },
+    {
+      "id": "e14",
+      "kind": "ruling",
+      "text": "User: keep PreCompact as spine rescue only — not an STM packet",
+      "quote": "keep PreCompact as spine rescue only — not an STM packet",
+      "workstream": "precompact",
+      "order": 15
+    },
+    {
+      "id": "e15",
+      "kind": "hypothesis",
+      "text": "Race in cache-check leaf uuid comparison",
+      "workstream": "cache",
+      "order": 16
+    }
+  ]
+}

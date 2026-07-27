@@ -107,7 +107,7 @@ Program / multi-ticket work, session tuning, and quality gates.
 | [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the host `/loop`/`/goal` |
 | `/release-train` | Multi-branch release queue — register, freeze, land via `/release` |
 | [`/retro`](docs/commands/retro.md) | Scan past sessions for friction; propose directive adjustments ([runbook](docs/runbooks/scheduled-retro.md)) |
-| [`/handoff`](docs/commands/handoff.md) | Reconstruct a past session (or capture current) into a dense brief |
+| [`/handoff`](docs/commands/handoff.md) | STM packet / compact seed (State now → Through-line → appendix); cold print core + path, warm file-only |
 | [`/recall`](docs/commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
 | [`/mode`](docs/commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
 | `/adjust-agent` | View/manage per-agent standing directives (`--apply` for non-interactive) |
@@ -130,40 +130,21 @@ user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal 
 `project-init`, `distiller`, and `council-judge` are reached only via `/setup team`,
 `/memory distill`, and `/council`.
 
-### Migration / deprecated
+### Migration (historical)
 
-Stubs remain discoverable until **removed at v1.1**. Prefer the replacement now.
+**W1–W3 deprecation command stubs were deleted in v1.1.0.** Use the live hubs only.
 
-**0.x → 1.0.0 consumer checklist:** [Migrating an existing project to v1.0.0](docs/runbooks/migrate-to-v1.md).
+**0.x → 1.0.0 consumer checklist:** [Migrating an existing project to v1.0.0](docs/runbooks/migrate-to-v1.md). Full old→new table: [CHANGELOG v1.0.0](CHANGELOG.md).
 
-| Command | Replacement |
-|---------|-------------|
-| `/init-team` | `/setup team` — removed at v1.1 |
-| `/init-orchestration` | `/setup orchestration` — removed at v1.1 |
-| `/scaffold-project` | `/setup project` — removed at v1.1 |
-| [`/focus`](docs/commands/focus.md) | `/mode focus` — removed at v1.1 |
-| [`/blunt`](docs/commands/blunt.md) | `/mode blunt` — removed at v1.1 |
-| `/metrics` | `/status metrics` — removed at v1.1 |
-| [`/standup`](docs/commands/standup.md) | `/status standup` — removed at v1.1 |
-| [`/fix-ticket`](docs/commands/fix-ticket.md) | `/debug ticket` — removed at v1.1 |
-| `/blind-review` | `/council --blind` — removed at v1.1 |
-| `/create-spec` | `/spec create` — removed at v1.1 |
-| `/update-spec` | `/spec update` — removed at v1.1 |
-| `/find-spec` | `/spec find` — removed at v1.1 |
-| `/list-specs` | `/spec list` — removed at v1.1 |
-| `/check-specs` | `/spec check` — removed at v1.1 |
-| `/generate-specs` | `/spec generate` — removed at v1.1 |
-| `/generate-tests` | `/spec tests` — removed at v1.1 |
-| `/reflect-specs` | `/spec reflect` — removed at v1.1 |
-| `/memory-config` | `/memory config` — removed at v1.1 |
-| `/memory-distill` | `/memory distill` — removed at v1.1 |
-| `/memory-export` | `/memory export` — removed at v1.1 |
-| `/memory-search` | `/memory search` — removed at v1.1 |
-| `/memory-stats` | `/memory stats` — removed at v1.1 |
-| `/validate-memory` | `/memory validate` — removed at v1.1 |
-| `/incident` | removed (no war-room Surface; use devops role + `/debug`) — removed at v1.1 |
-| `/demo` | removed (use `/setup` + `/kickoff` on scratch) — removed at v1.1 |
-| `/local-do` | removed (local-agent offload excised) — removed at v1.1 |
+| Old command | Use instead |
+|-------------|-------------|
+| `/init-team` · `/init-orchestration` · `/scaffold-project` | `/setup team` · `/setup orchestration` · `/setup project` |
+| `/focus` · `/blunt` | `/mode focus` · `/mode blunt` |
+| `/metrics` · `/standup` | `/status metrics` · `/status standup` |
+| `fix-ticket` · `blind-review` (deleted stubs) | `/debug ticket` · `/council --blind` |
+| `/create-spec` · `/update-spec` · `/find-spec` · `/list-specs` · `/check-specs` · `/generate-specs` · `/generate-tests` · `/reflect-specs` | `/spec <sub>` |
+| `/memory-config` · `/memory-distill` · `/memory-export` · `/memory-search` · `/memory-stats` · `/validate-memory` | `/memory <sub>` |
+| `/incident` · `/demo` · `/local-do` | removed (use `/debug` / `/setup`+`/kickoff` / normal IC flow) |
 
 `/worktree list` and `/worktree status` moved to `/status worktree`; live mutate path is `/worktree release <slug>` only.
 

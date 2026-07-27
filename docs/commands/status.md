@@ -59,5 +59,5 @@ Does **not** release — for removal use [`/worktree release`](./worktree.md).
 ## See also
 
 - [`/worktree`](./worktree.md) — mutate residual (`release` only)
-- Legacy: [`/standup`](./standup.md) (prefer this surface)
+- Legacy `/standup` command stub deleted at v1.1.0 — use `/status standup`
 - Protocol: `skills/standup/SKILL.md`, `skills/metrics/rollup.sh`

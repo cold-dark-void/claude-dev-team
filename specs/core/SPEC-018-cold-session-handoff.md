@@ -1,102 +1,130 @@
-# SPEC-018: Session Handoff (Cold + Warm)
+# SPEC-018: Session Handoff (STM Packet)
 
-**Status**: ACTIVE
-**Category**: core
-**Created**: 2026-06-04
+**Status**: ACTIVE  
+**Category**: core  
+**Created**: 2026-06-04  
+**Rework**: 2026-07-23 (CDT-79) — STM packet / compact seed (replaces prior inject-brief M4)
 
 ---
 
 ## Overview
 
-A cold, retroactive session-handoff command — `/handoff <session-uuid>` — that reconstructs the hard-won state of a past session into a dense brief injected into a fresh session, so the user never restarts from scratch or re-explains basics after `/compact`, multiday, or multi-fork sessions.
+A session-handoff Surface — `/handoff` — that produces a **STM packet** (short-term working memory): a noise-stripped, jury-style **evidence** artifact so a fresh or post-compact session continues from outcomes, kills, and user rulings without re-litigating dead ends or dumping noise into Linear.
 
-The command has **two modes**: **cold** (`/handoff <uuid>`, primary) reconstructs a past session after the fact from disk — including 70 MB+ multi-fork "monster" transcripts; **warm** (bare `/handoff`) captures the *current* live session before it dies. The warm path supersedes and replaces the former personal `~/.claude/skills/handoff` skill, which is removed as part of this work. The core value is transferring **convergence**: not just *what changed* (git has that), but the *root cause reached* and — critically — the **rejected hypotheses and user corrections**, so the new session does not re-propose dead ends and re-waste context ("anti-gaslighting").
+**Primary consumer loop (compact seed):**
 
-Design: a deterministic, LLM-free pre-pass (fork-tree assembly + `toolUseResult` stripping + dedup) feeds a size-adaptive spine, over which **specialized extractor subagents** run in parallel (Convergence / Dead-ends / Code-state / Open-threads / Basics) and merge into a thin, pointer-bearing brief. Because the extractors are subagents, the command also models the "offload tool I/O to subagents" discipline it exists to support.
+```
+long session → /handoff → /branch|/fork → /compact @packet-file
+```
 
-**Boundaries & related specs (conflict scan, 2026-06-04):**
-- **SPEC-012 (`/retro`)** also parses `~/.claude/projects/*.jsonl`. Transcript location + fork-tree traversal + the deterministic pre-pass MUST be a shared, read-only parsing module consumed by both — not duplicated. This spec also adopts SPEC-012's in-progress freshness guard (skip transcripts modified < 60 s ago).
-- **SPEC-006 (`/recall`)** is the discovery counterpart (cross-session search → `claude --resume`); this spec is single-session *distillation*. `/handoff` may be invoked on a uuid surfaced by `/recall`.
-- **SPEC-013 (`/council`)** owns adversarial claim verification. This spec MUST NOT reimplement that pipeline; M5 is a lightweight stated-intent-vs-git flag only, and deep auditing is delegated to `/council`.
-- **Memory (SPEC-004/006/007/011)**: when reading agent memory as a source, use SPEC-006 retrieval. The result cache MUST live outside `memory.db` so it does not intersect the memory write-path or staleness scans.
+**Modes:**
 
-**Out of scope (future phases):** smarter chunk-boundary heuristics, cache-eviction policy beyond growth-invalidation, and the Prong-1 tool-offload `AGENTS.md` convention.
+| Mode | Invocation | Behavior |
+|------|------------|----------|
+| **Cold** | `/handoff <session-uuid>` | Spine-mine past session JSONL; write STM packet file; **print State now + Through-line** into the invoking session and **cite the file path for appendix** (M7). |
+| **Warm** | bare `/handoff` | Spine-mine **this** session's live JSONL (cold-on-self) + optional annotation; **file-only** write (M10). |
+| **Help** | `/handoff --help` | Usage; exit. |
+
+Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult` strip + dedup) produces a size-adaptive **spine**. **Spine-mine** runs two LLM miners (through-line + state) in parallel over the spine (or reduced spine after chunk map), plus **deterministic git** for appendix code-state. **Assemble** (LLM-free) emits the STM packet: **State now → Through-line → appendix**. Warm may add **annotation** that can only reference existing event IDs (labels/rank — never invent evidence).
+
+**Glossary terms** (see `CONTEXT.md`): STM packet, Through-line, Compact seed, Spine-mine, State now.
+
+**Boundaries & related specs:**
+
+- **SPEC-012 (`/retro`)** — shared `transcript-parse` for locate/assemble/freshness; no private re-parse.
+- **SPEC-006 (`/recall`)** — discovery peer (uuid search); not dual SoT for packet content.
+- **SPEC-013 (`/council`)** — M5 is lightweight intent-vs-git flag only; no adversarial pipeline.
+- **Memory (SPEC-004/006/007/011)** — packet cache and files live under `.claude/handoff/`, **outside** `memory.db`.
+
+**Out of scope (v1 / CDT-79):** PreCompact emitting full STM packet (rescue remains spine snapshot); auto-handoff-before-every-compact; `/recall` ranking of packets; option C deterministic cue-prepass as primary mine; lifetime archive / memory-distill validation; harness `/compact` replacement claim; Linear dual-write of packet content.
 
 ---
 
 ## MUST
 
-- **M1 — Locate & assemble.** Given a session uuid, select the **canonical transcript file** — the descendant whose copied prefix is most complete (greatest max-`timestamp` among files under `~/.claude/projects/` containing that uuid) — then produce one chronologically ordered timeline by **de-duplicating copied messages on `uuid` (keep-last)** and ordering by **`(timestamp, file-position)`**. `forkedFrom` is **provenance** (`{sessionId, messageUuid}`; `messageUuid` is self-referential), NOT a cross-file pointer: the fork's chosen-path prefix is already copied into the file, so no cross-file message-walk is required, and ancestor-only branches (paths forked away from) are intentionally excluded. Ordering MUST use timestamps, not the `parentUuid` DAG (multi-root/branchy due to copy duplication). Location + parsing MUST use the shared module (see SPEC-012), not a private re-implementation. *(Mechanism corrected by CDV-10 Task-1 spike against real 72 MB transcripts.)*
-- **M2 — Deterministic pre-pass (no LLM).** Before any distillation: strip `toolUseResult` payloads, dedup repeated reads of the same path (retain the last), and collapse each `isSidechain` segment. Default: one-line outcome plus a `transcript:L<n>` pointer. **When signal-bearing** (any single case-insensitive substring hit from the closed cue list in `parselib.SIDECHAIN_SIGNAL_CUES` over withheld sidechain `msg_text`), emit a condensed multi-line reconstruction (span header + `hypothesis` / `killed` / `notes`, hard cap ~400 chars) instead of the one-liner — still no raw `toolUseResult`. Stats: `sidechain_runs_collapsed` (noise) + `sidechain_runs_signal`. Defensive until production schemas emit `isSidechain:true`; synthetic fixtures gate the path.
-- **M3 — Size-adaptive distillation.** If the stripped spine fits the target context window, distill directly; if it exceeds it, chunk at message boundaries, summarize chunks in parallel (preserving hypotheses, corrections, and decisions), then distill the reduced spine. MUST complete on oversized (≥ 60 MB) transcripts without context overflow.
-- **M4 — Required brief sections.** The brief MUST contain, clearly delineated: (a) **Convergence** — the current correct mental model / root cause; (b) **Dead-ends** — rejected hypotheses, why each was killed, and user corrections quoted **verbatim**; (c) **Code-state** — derived from `git` (diff/log); (d) **Open-threads & conflicts**; (e) **Basics** — established context, vocabulary, and constraints.
-- **M5 — Stated-intent vs git flag (lightweight).** The brief MUST flag mismatches between intentions stated in the transcript (e.g. "will extract X", "TODO X") and the actual git state. This is a heuristic flag only — it MUST NOT implement an adversarial verification pipeline; deep claim auditing is delegated to `/council` (SPEC-013).
-- **M6 — Pointers, not dumps.** Every non-trivial claim in the brief MUST carry a drill-down pointer (`transcript:L<n>`, `commit:<hash>`, or `file:symbol`). The brief MUST NOT inline raw tool output.
-- **M7 — Inject into current session (cold mode).** In cold mode the brief MUST be emitted into the invoking session's context (output), not solely written to a file the user must separately open. (Warm mode persists a file instead — see M10.)
-- **M8 — Result cache.** The distilled brief MUST be cached keyed by (session uuid + last-message uuid) and reused on re-invocation until the underlying session has grown (new messages appended). The cache MUST be stored outside `memory.db` (e.g. under `.claude/handoff/`), isolated from the memory write-path.
-- **M9 — Freshness guard.** If the target transcript was modified < 60 s ago (in-progress), the command MUST warn and decline to parse mid-write rather than produce a partial brief (consistent with SPEC-012).
-- **M10 — Warm mode (live capture).** A bare `/handoff` (no uuid) MUST capture the *current* live session into the same five-section brief (M4) from live context — no transcript parsing or fork-walk. In warm mode the brief MUST be written to `<repo>/.claude/handoff/<session-id>-<slug>.md` for a future session to consume (the user is still in the live session), NOT injected.
-- **M11 — Consolidation.** The plugin `/handoff` MUST supersede the personal `~/.claude/skills/handoff` skill; that skill MUST be removed (leaving a one-line deprecation pointer to the plugin command). Warm mode MUST preserve that skill's density rules and anti-patterns (no chronological narration; link by `file:symbol`; quote user constraints verbatim).
-- **MUST NOT** require any action to have been taken during the original session — it operates **retroactively** on existing transcripts.
+### Pipeline (shared)
+
+- **M1 — Locate & assemble.** Given a session uuid, select the **canonical transcript file** — the descendant whose copied prefix is most complete (greatest max-`timestamp` among files under `~/.claude/projects/` containing that uuid) — then produce one chronologically ordered timeline by **de-duplicating copied messages on `uuid` (keep-last)** and ordering by **`(timestamp, file-position)`**. `forkedFrom` is **provenance** (`{sessionId, messageUuid}`; `messageUuid` is self-referential), NOT a cross-file pointer. Ordering MUST use timestamps, not the `parentUuid` DAG. Location + parsing MUST use the shared module (SPEC-012). *(Mechanism corrected by CDV-10 Task-1 spike.)*
+- **M2 — Deterministic pre-pass (no LLM).** Before mine: strip `toolUseResult` payloads, dedup repeated reads of the same path (retain last), collapse each `isSidechain` segment. Default: one-line outcome + optional courtesy pointer. **When signal-bearing** (cue list in `parselib.SIDECHAIN_SIGNAL_CUES`), emit condensed multi-line reconstruction (span + `hypothesis` / `killed` / `notes`, hard cap ~400 chars) — still no raw `toolUseResult`. Stats: `sidechain_runs_collapsed` + `sidechain_runs_signal`.
+- **M3 — Size-adaptive spine.** If stripped spine fits target context window, mine directly; if not, chunk at message boundaries, summarize chunks in parallel (**preserving** hypotheses, corrections, decisions, facts, opens for the through-line), then mine the reduced spine. MUST complete on oversized (≥ 60 MB) transcripts without context overflow.
+- **M3b — Spine-mine (shared engine).** Warm and cold MUST share one spine-mine pipeline: prepass → (optional chunk map) → **two LLM miners** + **deterministic git** → **assemble**. MUST NOT leave a freeform warm essay path as a dual source of truth.
+  - **Miner 1 (through-line):** emits events of kinds ⊆ {`hypothesis`, `killed`, `ruling`, `decision`, `fact`} only.
+  - **Miner 2 (state):** emits events of kinds ⊆ {`open`, `conflict`} and the M5 stated-intent-vs-git flags as `conflict` (and/or `open`) events.
+  - **Code-state:** git log/diff/status only — **no LLM miner**.
+  - Miners emit **schema-validated event JSON only** (no freeform brief sections).
+- **M3c — Event model.** Each event MUST include: `id`, `kind`, `text` or `quote`, `workstream` (default `"default"`), and order/timestamp when available. Optional courtesy `pointers[]` (never load-bearing). `fact` events SHOULD include `how_verified`. Kind ceiling is **seven**: `hypothesis`, `killed`, `ruling`, `decision`, `fact`, `open`, `conflict`.
+- **M3d — Assemble (LLM-free).** Assemble MUST: (1) **dedup** on `(kind + normalized quote/text)`; (2) emit **State now** by mechanical selection from the **tail** of the event log (latest decisions, surviving unkilled hypotheses, all opens) — **not** an LLM essay; (3) emit **Through-line** chronological events grouped by `workstream` when multiple; (4) emit **appendix** (long kill catalog if needed, git code-state, dense basics); (5) footer with advisory `packet_tokens / stripped_spine_tokens` when stats available. Packet section order is fixed: **State now → Through-line → appendix**.
+- **M4 — STM packet shape.** The artifact MUST be an **STM packet** / **compact seed** with the fixed order in M3d. Product success is measured by post-`compact @packet` continuity, not inject-density into a blank session. Freeform essay sections and slogan-thin packets (no kills/rulings/facts when thrash existed) are defects. Raw tool dumps in the packet are defects equal to slogan thinness.
+- **M5 — Stated-intent vs git flag (lightweight).** The packet MUST flag mismatches between intentions stated in the transcript and actual git state (as `conflict`/`open` events). Heuristic only — MUST NOT implement adversarial verification; deep audit is `/council` (SPEC-013).
+- **M6 — Quotes admissible, dumps not (partial inversion of prior M6).** User `ruling` and `killed` reasons MUST appear **short-verbatim inline** in the packet (≤ ~200 chars; longer → load-bearing clause + summary). A claim that is only true if a `transcript:L*` pointer resolves is a **defect** (pointers rot on the days–months STM horizon). Pointers (`transcript:L`, `commit:`, `file:`) are **courtesy** drill-downs, never load-bearing. MUST NOT inline raw tool output / `toolUseResult`.
+- **M7 — Cold output (inject core, file full).** In cold mode the command MUST: (a) write the full STM packet to `<target-MROOT>/.claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md`; (b) print **State now + Through-line** into the invoking session; (c) **cite the file path** for appendix (do not dump full appendix into the live window). The cited path MUST equal the actual write path.
+- **M7b — Target-session write root (CDT-80).** Packet path, M8 cache, and git appendix MUST resolve from the **target session's project**, never from the invoker's cwd. Cold: after the uuid is located, derive project from transcript `cwd` (preferred) via `skills/handoff/resolve-root.sh`, then `MROOT` via `git rev-parse --git-common-dir` from that cwd (worktree → shared main repo). Warm: same helper on this session's transcript. Non-git target: `HANDOFF_DIR = <project-dir>/.claude/handoff/`; git sections may be empty. If the target root cannot be determined after locate → **fail hard** (no write under invoker cwd). Invoker in repo A with target session in repo B → all artifacts under B. MUST NOT write under `$HOME/.claude/.claude/` when the target project is not `$HOME/.claude`.
+- **M8 — Result cache.** Distilled STM packet MUST be cached keyed by `(session uuid + last-message uuid)` and reused until the session grows. Cache MUST live outside `memory.db` under the target `$MROOT/.claude/handoff/cache/`.
+- **M9 — Freshness guard (cold).** If the target transcript was modified < 60 s ago, cold `/handoff` MUST warn and decline to parse mid-write (SPEC-012). Default cold path MUST NOT use the mid-write carve-out.
+- **M10 — Warm mode (spine-mine self).** Bare `/handoff` MUST spine-mine **this** session's JSONL via the shared engine (not freeform rewrite from live model memory). Warm MAY run an **annotation** pass whose output schema can only reference existing event IDs (`{ event_id, labels[], rank? }`) — MUST NOT invent evidence. Warm MUST write the packet **file-only** (not print core into the still-live session as primary product). Mid-write read of **this session's** transcript is allowed via a **warm-only** carve-out (M14 pattern): drop truncated last line; fail soft; carve-out MUST NOT be reachable from cold user path.
+- **M10b — Session-id bridge + honesty (CDT-85).** Warm discovery MUST resolve a live session id + transcript path (env → bridge file → transcript stem → cwd-newest under encoded project dir) and MUST fail with a clear diagnostic when unresolved — including on non-Claude/Grok hosts without `CLAUDE_SESSION_ID`. MUST NOT freeform-write a live-context brief and score it as warm STM. On success, warm MUST: (a) write/update a session-id bridge (`.live-session.json` under target handoff dir when resolvable); (b) emit packet header/footer `mode: warm` and `session: <id>`; (c) use that id in the filename so later cold/re-capture can `Supersedes:` the same session tip. AC-16 human 3/3 MUST NOT be claimed from cold-only dogfood or unit fixtures alone; warm thesis requires Claude Code bare-`/handoff` anti-relitigation (see dogfood runbook).
+- **M11 — Filename, slug, Supersedes.** Packet files MUST use `<YYYYMMDD-HHmm>-<session-id>-<slug>.md` under `.claude/handoff/`. Slug: optional user arg; else sanitized first decision/open text (≤40 chars); else `stm`. When the same session is re-captured, write a **new** file and set header `Supersedes: <prior-filename>` so the living tip is unambiguous (one-file default with versioned names).
+- **M11b — Unclear landing.** If the session did not land a root cause, the packet MUST NOT invent one. Prefer evidence trail + `open` events; optional `INFERRED` **label** on an existing event via annotation only.
+- **M11c — No Linear dual-write.** The handoff path MUST NOT write STM packet content into Linear. Epic/backlog work remains separate Surfaces.
+- **M11d — Docs claim boundary.** v1 MUST NOT claim full harness `/compact` replacement. Position: compact-prep STM / compact seed.
+- **MUST NOT** require any action during the original session for cold mode — cold operates **retroactively** on existing transcripts.
 
 ### Extension — PreCompact auto-handoff
 
-Goal: make context loss structurally impossible — capture a rescue artifact BEFORE any compaction (auto or manual) via the harness `PreCompact` hook, whose stdin JSON carries `session_id`, `transcript_path`, and `hook_event_name`. Hooks run shell commands, not model turns, so this path is deterministic by construction.
+Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook. Hooks run shell commands, not model turns — deterministic by construction.
 
-- **M12 — Deterministic rescue capture (LLM-free).** A `PreCompact` hook (both `manual` and `auto` matchers) MUST invoke a capture script (e.g. `skills/handoff/precompact-capture.sh`) that runs the existing deterministic pre-pass machinery (`prepass.sh` / the shared `skills/transcript-parse` module) against the live `transcript_path` from the hook's stdin JSON — no canonical-file search needed (M1's locate step is skipped; the hook names the exact live file) — and writes a rescue artifact to `<repo>/.claude/handoff/<session-id>-precompact-<seq>.md` (`<seq>` monotonically increasing per session). The artifact is a **spine snapshot + drill-down pointers** (M6 discipline), explicitly **NOT** the five-section M4 brief: M4 quality is unreachable without a model. It is raw material for a later cold `/handoff <uuid>`, which remains the canonical quality path.
-- **M13 — Registration + template emission (template SoT, CDT-54).** The hook MUST be registered in `.claude/settings.json` under `PreCompact` AND emitted by the `/setup orchestration` / init-orchestration template set. Canonical PreCompact rescue body lives in the init-orch template SoT only; live `.claude/hooks/*` (or settings-registered command path) is **generated** at setup — dual-copy byte-identity against package-tracked live hooks is **not** required (`check-hook-templates` dual-copy gate retired/reduced per SPEC-002/SPEC-005). The emitted command MUST follow the existing hook hygiene rules: `${CLAUDE_PROJECT_DIR}`-anchored path (worktree-safe), no pipe operators.
-- **M14 — Scoped freshness-guard carve-out.** A PreCompact capture is by definition mid-write, so the capture path MUST bypass the M9 <60s freshness guard via an explicit, narrowly scoped mechanism (e.g. an `--allow-in-progress` flag on the shared guard/pre-pass, passed ONLY by `precompact-capture.sh`) and MUST tolerate a truncated final JSONL line by dropping it. The default guard behavior for cold `/handoff` and `/retro` MUST remain unchanged — the carve-out MUST NOT be reachable from any user-invoked path.
-- **M15 — Bounded retention.** Keep at most N rescue artifacts per session (default 3, override `HANDOFF_PRECOMPACT_MAX_PER_SESSION`), pruning oldest-first on each capture — mirroring the M8 cache-eviction precedent (`HANDOFF_CACHE_MAX_ENTRIES`). Pruning MUST only ever touch `*-precompact-*.md` artifacts; warm briefs (M10) and the cold-result cache (M8) are separate namespaces and MUST NOT be pruned by this path.
-- **M16 — Surfacing (pointer, not dump).** After a capture, the post-compacted session (and/or the next session, via `PostCompact` and/or `SessionStart` hook output) MUST be told a rescue artifact exists: a one-line pointer carrying the artifact path and the suggested recovery invocation (`/handoff <uuid>`). Pointer injection only — the artifact content MUST NOT be dumped into context (M6 discipline).
-- **M17 — Failure isolation (never block compaction).** The hook MUST NEVER block compaction: on ANY capture failure (parse error, missing repo, missing `python3`, timeout, disk full) it logs a one-line diagnostic to stderr and exits `0`. It MUST NOT exit `2` (which blocks the operation), and its runtime MUST be bounded (soft timeout on oversized transcripts → give up, log, exit `0`).
-- **M18 — MUST NOT (hard boundaries).** The hook path MUST NOT invoke any LLM; MUST NOT write into `memory.db` (artifacts live under `.claude/handoff/`, consistent with M8 isolation); MUST NOT replace cold `/handoff` — the artifact supplements it, never substitutes for the M4 brief. When `PreCompact`/`PostCompact` hooks are unsupported by the installed Claude Code version or simply not wired, the plugin MUST behave exactly as today (graceful absence — no errors, no degraded `/handoff` behavior).
+- **M12 — Deterministic rescue capture (LLM-free).** A `PreCompact` hook MUST invoke capture (e.g. `skills/handoff/precompact-capture.sh`) against live `transcript_path` from hook stdin JSON and write `<session-id>-precompact-<seq>.md` under `.claude/handoff/`. The artifact is a **spine snapshot + drill-down pointers** — **explicitly NOT an STM packet** (State now / Through-line / appendix quality requires spine-mine). It is raw material for later cold `/handoff <uuid>`.
+- **M13 — Registration + template emission (template SoT).** Hook registered under `PreCompact` and emitted by `/setup orchestration` template set. `${CLAUDE_PROJECT_DIR}`-anchored; no pipe operators in emitted command.
+- **M14 — Scoped freshness-guard carve-out.** PreCompact capture and **warm self-mine** may bypass M9 mid-write via explicit `--allow-in-progress` (or equivalent) scoped to those paths only. MUST tolerate truncated final JSONL line (drop it). Cold user path MUST remain declined under M9. Warm carve-out applies only to reading **this session's** transcript.
+- **M15 — Bounded retention.** At most N precompact artifacts per session (default 3); prune oldest-first; MUST NOT prune warm/cold STM packets or M8 cache by this path.
+- **M16 — Surfacing (pointer, not dump).** Post-compact / next session: one-line pointer to rescue path + suggest `/handoff <uuid>`. MUST NOT dump rescue body into context.
+- **M17 — Failure isolation.** Capture failure MUST exit `0`, never block compaction; bounded runtime; stderr diagnostic only.
+- **M18 — MUST NOT.** Hook path MUST NOT invoke LLM; MUST NOT write `memory.db`; MUST NOT replace cold/warm STM packet quality. Graceful absence if hooks unsupported.
 
 ---
 
 ## Test
 
-1. **Multi-fork assembly (M1):** invoke on a known multi-fork uuid; assert the brief reflects a fact from the copied early-fork prefix (e.g. a root-session message surviving into the descendant file) — proves dedup + timestamp ordering of the canonical file.
-2. **Single-file session (M1):** invoke on a session with no forks; assert success.
-3. **Pre-pass strips bloat (M2, M6):** assert the brief contains none of a known large `toolUseResult` payload string from the source transcript.
-4. **Monster completes (M3):** invoke on the ~72 MB (and growing) `vibes-project` session; assert it completes without context overflow and the brief is bounded (≤ ~400 lines).
-5. **Required sections (M4):** assert all five sections present; assert ≥ 1 verbatim user correction appears under Dead-ends.
-6. **Pointers resolve (M6):** pick 3 pointers from the brief; assert each resolves to a real transcript line / commit / symbol.
-7. **Conflict flag (M5):** seed a session where a stated intent was never committed; assert it appears under Open-threads & conflicts.
-8. **Cache (M8):** invoke twice → second is served from cache (no re-distill); append a message to the session → next invoke re-distills.
-9. **Not-found (robustness):** invoke with an unknown uuid → clear error, no crash.
-10. **Freshness guard (M9):** invoke on a transcript modified < 60 s ago → warns, does not parse.
-11. **Warm mode (M10):** run bare `/handoff` in a live session → writes a five-section brief to `.claude/handoff/<session-id>-<slug>.md`; no uuid required; not injected.
-12. **Consolidation (M11):** after install, `~/.claude/skills/handoff` is removed/deprecated and bare `/handoff` covers the warm path.
+1. **Multi-fork assembly (M1):** cold on multi-fork uuid; packet reflects fact from copied early-fork prefix.
+2. **Single-file session (M1):** cold succeeds on no-fork session.
+3. **Pre-pass strips bloat (M2, M6):** packet contains none of a known large `toolUseResult` string.
+4. **Monster completes (M3):** cold on ~72 MB transcript completes without context overflow; packet has State now + Through-line leading content.
+5. **STM packet sections (M4):** assert fixed order headers present: State now, Through-line, appendix (or equivalent labeled headings); assert ≥1 verbatim user `ruling` or `killed` reason inline when source session has thrash.
+6. **Quotes load-bearing (M6):** pick 3 inline rulings/kills; assert claim text is present in packet body without requiring pointer resolution.
+7. **Conflict flag (M5):** session with stated intent never committed → `conflict`/`open` in packet.
+8. **Cache (M8):** invoke twice → second cache hit; append message → re-mine.
+9. **Not-found:** unknown uuid → clear error, no crash.
+10. **Freshness guard (M9):** cold on transcript modified <60s → warn, decline.
+11. **Warm mode (M10):** bare `/handoff` runs spine-mine on live session file (not freeform-only); writes timestamped STM packet under `.claude/handoff/`; file-only.
+11b. **Session-id bridge (M10b / CDT-85):** discover writes `.live-session.json`; packet has `mode: warm` + `session: <id>`; missing session id → clear fail (no freeform dual path); filename id enables Supersedes.
+12. **Supersedes (M11):** second warm capture same session → new filename + `Supersedes:` header pointing at prior.
+13. **PreCompact rescue (M12):** capture produces spine snapshot; MUST NOT claim to be an STM packet — assert rescue is spine-form / recover pointer present.
+14. **Registration (M13):** settings + template emit present after setup.
+15. **Carve-out scoped (M14):** warm/precompact succeed mid-write; cold still declines.
+16. **Retention (M15):** N+2 precompacts → only newest N; STM packets untouched.
+17. **Surfacing (M16):** pointer only after compact.
+18. **Fail-open (M17):** capture failure → exit 0.
+19. **Hard boundaries (M18):** no LLM / no memory.db on hook path.
+20. **Signal-bearing sidechain (M2, CDV-205):** fixtures → spine signal vs noise as today (`sidechain-test.sh`).
+21. **Annotation invent-guard (M10):** annotation referencing unknown `event_id` is dropped; no new evidence fields in annotation schema.
+22. **Cold print shape (M7):** cold stdout includes State now + Through-line and cites packet path; full appendix not required in stdout.
+23. **Target write root (M7b / CDT-80):** cold from non-repo invoker cwd for a known-project session writes under that project's `.claude/handoff/`; cache under its `cache/`; git appendix is target HEAD/status; undetermined root fails with no invoker write; worktree session → shared MROOT; invoker repo A / target B → all under B.
 
-**Extension — PreCompact auto-handoff:**
-
-13. **Rescue capture (M12):** simulate a `PreCompact` event (feed the stdin JSON with a real `transcript_path` to `precompact-capture.sh`) → a `<session-id>-precompact-<seq>.md` artifact appears under `.claude/handoff/`, contains spine pointers, contains none of the five M4 section headers, and no model was invoked (deterministic runtime only).
-14. **Registration + emission (M13):** `.claude/settings.json` carries the `PreCompact` entry (both matchers covered); hook body present after `/setup orchestration` emit from template SoT (no dual-copy live-vs-template requirement); the emitted command uses `${CLAUDE_PROJECT_DIR}` and contains no pipes.
-15. **Carve-out is scoped (M14):** the capture succeeds on a transcript modified <60s ago (with a truncated final line dropped), while a plain cold `/handoff <uuid>` on the same file still declines per M9.
-16. **Retention (M15):** trigger N+2 captures for one session → only the newest N artifacts remain; warm briefs and cache entries for the same session are untouched.
-17. **Surfacing (M16):** after a capture + compaction, the session (or next session start) receives a one-line pointer with the artifact path and `/handoff <uuid>` suggestion — and the artifact body is NOT injected.
-18. **Fail-open (M17):** force a capture failure (e.g. unreadable transcript) → hook exits `0`, compaction proceeds, one-line diagnostic on stderr; never exit `2`.
-19. **Hard boundaries + graceful absence (M18):** no LLM call and no `memory.db` write occur on the hook path; with the hook unregistered (or on a Claude Code version without `PreCompact`), `/handoff` cold + warm behavior is byte-for-byte today's behavior.
-20. **Signal-bearing sidechain reconstruction (M2, CDV-205):** synthetic `skills/handoff/fixtures/sidechain-signal.jsonl` → spine contains a `sidechain signal` block with `killed:` and a cue substring, no raw `toolUseResult`; synthetic `sidechain-noise.jsonl` → one-line `sidechain run collapsed` only (no `killed:`). Machine-check: `bash skills/handoff/sidechain-test.sh`.
+**Human ship gate (CDT-79 AC-16 — not CI):** ≥3 re-captures under new contract (≥2 long-debug: multi-hypothesis thrash with kills; ≥1 multi-week: ≥2 calendar weeks or multi-child program arc); after compact `@packet`, next session does not re-propose packet-resident kills/rulings; human 3/3.
 
 ---
 
 ## Validation
 
-- [ ] Works retroactively on an existing session with no prior handoff
-- [ ] Multi-fork timeline assembled correctly (early-fork fact present)
-- [ ] 62 MB monster completes; brief bounded
-- [ ] All five brief sections present; ≥1 verbatim correction captured
-- [ ] Drill-down pointers resolve to real transcript lines / commits / symbols
-- [ ] Stated-intent-vs-git mismatches flagged
-- [ ] Cache hit on re-run; invalidated when the session grows
-- [ ] No raw tool output appears in the brief
-- [ ] Cache stored outside `memory.db`
-- [ ] uuid-not-found and in-progress (<60s) cases handled gracefully
-- [ ] Transcript parsing reuses the shared module (no duplication of SPEC-012 logic)
-- [ ] Bare `/handoff` writes a warm five-section brief from live context
-- [ ] Personal `~/.claude/skills/handoff` removed/deprecated; plugin `/handoff` covers cold + warm
-- [x] PreCompact auto-handoff implemented and promoted (M12–M18; DRAFT marker dropped)
+- [ ] Cold retroactive handoff produces STM packet file + core print
+- [ ] Warm spine-mines live JSONL (no freeform dual path)
+- [ ] Shared engine: 2 miners + git + LLM-free assemble
+- [ ] State now mechanical; quotes inline; no tool dumps
+- [ ] Cache outside memory.db; M9 cold; warm mid-write carve-out scoped
+- [ ] Supersedes on re-capture; timestamped filenames
+- [ ] PreCompact still spine rescue only; fail-open
+- [ ] Docs: compact seed framing; no Linear dual-write; no compact-replacement claim
+- [ ] Internal legacy inject-brief / multi-extractor references swept from SPEC, skill, command, docs, tests
 
 ---
 
@@ -104,13 +132,16 @@ Goal: make context loss structurally impossible — capture a rescue artifact BE
 
 | Date | Change |
 |------|--------|
-| 2026-06-04 | Initial spec created (from brainstorm `.claude/plans/2026-06-04-brainstorm-cold-session-handoff.md`; conflict-scanned vs SPEC-001..017) |
-| 2026-06-04 | CDV-10 kickoff: added M10 (warm live-capture mode) + M11 (consolidation / replace personal skill) per user "full consolidation" decision; warm fold-in moved from out-of-scope to in-scope |
-| 2026-06-04 | CDV-10 Task-1 spike (GATE-1): corrected M1 mechanism — `forkedFrom` is provenance, not a cross-file pointer; forks copy the prefix → assembly = locate canonical file + dedup-by-uuid keep-last + timestamp order (no cross-file walk); `isSidechain` collapse is a defensive no-op (never True in real data) |
-| 2026-06-05 | Implemented via CDV-10 (Tasks 1-14): status NEW→ACTIVE |
-| 2026-06-05 | Cache-eviction shipped (v0.30.1, HOFF-EVICT): `prepass.sh finalize` now bounds `.claude/handoff/cache/` — count-cap by `created_at` (HANDOFF_CACHE_MAX_ENTRIES, default 50), never evicts the just-written entry, sweeps orphan `*.tmp`; a cached brief is a derived memoization so eviction loses no recoverable context |
-| 2026-06-15 | Editorial hygiene (AUDIT-P3.5b): Category `Core`→`core` (lowercase, matches SPEC-008 category list and all other specs/core). No behavioral change. |
-| 2026-07-03 | Proposed extension (DRAFT): PreCompact auto-handoff — ideation wave 2 |
-| 2026-07-14 | PreCompact auto-handoff implemented (M12–M18, CDV-182); DRAFT dropped |
-| 2026-07-14 | CDV-205: M2 deeper sidechain reconstruction — signal-bearing runs emit condensed multi-line outcome (cue list in `parselib.SIDECHAIN_SIGNAL_CUES`); noise stays one-line; Test 20 + `sidechain-test.sh`; removed "deeper sidechain reconstruction" from out-of-scope |
-| 2026-07-22 | CDT-54 / CDT-46-C8: M13 PreCompact SoT = init-orch templates; live hooks generated by `/setup orchestration`; dual-copy `check-hook-templates` not required |
+| 2026-06-04 | Initial spec (cold handoff brainstorm) |
+| 2026-06-04 | M10 warm + M11 consolidation (CDV-10) |
+| 2026-06-04 | M1 mechanism corrected (CDV-10 GATE-1) |
+| 2026-06-05 | Implemented CDV-10; ACTIVE |
+| 2026-06-05 | Cache eviction (HOFF-EVICT) |
+| 2026-06-15 | Editorial hygiene AUDIT-P3.5b |
+| 2026-07-03 | PreCompact extension DRAFT |
+| 2026-07-14 | PreCompact M12–M18 implemented (CDV-182) |
+| 2026-07-14 | CDV-205 sidechain signal reconstruction |
+| 2026-07-22 | CDT-54 M13 template SoT |
+| 2026-07-26 | **CDT-85:** M10b session-id bridge + AC-16 honesty — `.live-session.json`, packet `mode: warm|cold`, fail (not freeform) when session id missing; warm dogfood runbook gate explicit; no AC-16 3/3 warm claim from cold-only |
+| 2026-07-26 | **CDT-80:** M7b target-session write root — packet/cache/git from target project via `resolve-root.sh`, not invoker cwd; fail hard if undetermined |
+| 2026-07-23 | **CDT-79 major rework:** STM packet / compact seed; spine-mine; event assemble; State now; M4/M6/M7/M10/M11 rewrite; M14 warm carve-out; five-section brief retired; PreCompact remains spine rescue |

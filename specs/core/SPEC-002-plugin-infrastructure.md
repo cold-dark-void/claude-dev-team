@@ -80,15 +80,24 @@ Note: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set during bootstrap —
 
 ### `plugin-dir.sh` CLI contract
 
-- MUST be a pure subprocess CLI — `bash skills/plugin-dir.sh <cmd> <relpath>` only; MUST NOT require sourcing; MUST NOT mutate the caller's shell
-- MUST support: `file <relpath>` (resolve+print an absolute path to a plugin file/dir), `dir <relpath>` (alias: print the parent dir of the resolved relpath)
-- Resolution order (4-tier; load-bearing path is pre-release-safe `sort -V`):
-  0. **Optional `CLAUDE_PLUGIN_ROOT` (dead in Bash-tool fences today — forward-compat only):** if `[ -n "$CLAUDE_PLUGIN_ROOT" ]` and `$CLAUDE_PLUGIN_ROOT/<relpath>` exists, print it. Claude Code documents this var for hooks/MCP/LSP only; it is NOT exported into Bash-tool fences (open FR anthropics/claude-code#48230). Guarded so an empty/unset value never short-circuits later tiers.
-  1. **Dev-checkout fast path:** if `$MROOT/<relpath>` exists (resolve `$MROOT` via the worktree-aware formula), print it
-  2. **Versioned cache:** `~/.claude/plugins/cache/<slug>/dev-team/<VER>/<relpath>` where `<VER>` is the highest versioned subdir under `…/dev-team/` via `ls | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'` (NOT `plugin.json` — version dirs are the source of truth). The tilde map is load-bearing: plain `sort -V` ranks `1.0.0-pre.N` *above* final `1.0.0`, so retained pre-release cache dirs would win after a final ships; mapping `-pre.` → `~pre.` makes GNU version-sort treat pre-releases as lower than the release, then the trailing `sed` unmaps.
-  3. **Find fallback:** `find ~/.claude/plugins/cache -path "*/dev-team/*/<relpath>" | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'` — MUST use the same pre-release-safe pipeline (highest *release-preferring* version); MUST NOT use glob-first-match or bare `sort -V | tail -1`
-- MUST print ONLY the resolved absolute path to stdout on success; all diagnostics to stderr; stdout empty on non-zero exit
-- MUST exit: `0` = resolved, `3` = not found (no tier matched), `64` = usage error (missing/unknown subcommand or empty relpath)
+- MUST be a pure subprocess CLI — `bash skills/plugin-dir.sh <cmd> [relpath]` only; MUST NOT require sourcing; MUST NOT mutate the caller's shell
+- MUST support:
+  - `file <relpath>` — resolve+print an absolute path to a plugin file/dir
+  - `dir <relpath>` — print the parent dir of the resolved relpath
+  - `root` — print the resolved plugin root (directory containing `skills/plugin-dir.sh`)
+  - `verify` — dogfood/operator gate: print `root`, `tier`, `version`, `stm_marker` on stdout; exit `0` when STM (or no handoff prepass), exit `2` when a legacy root is resolved while a same-version (or preferred) STM peer exists, exit `3` not found
+- Resolution order (CDT-82; load-bearing path is pre-release-safe `sort -V`):
+  0. **Optional `CLAUDE_PLUGIN_ROOT` (operator force path + FR #48230 forward-compat):** if `[ -n "$CLAUDE_PLUGIN_ROOT" ]` and `$CLAUDE_PLUGIN_ROOT/<relpath>` exists, print it. Claude Code documents this var for hooks/MCP/LSP only; it is NOT exported into Bash-tool fences by default. Operators MAY set it to a worktree or marketplace root to pin PDH without reinstall or "delete the entire cache" (AC-3 / AC-8).
+  1. **Dev worktree (`git rev-parse --show-toplevel`):** if `$WTROOT/<relpath>` exists, print it. MUST prefer show-toplevel over git-common-dir so a linked `feat/*` worktree is not silently shadowed by the main checkout (which may still ship legacy handoff).
+  2. **Dev main checkout (`git-common-dir` → `$MROOT`):** if `$MROOT/<relpath>` exists (and tier 1 did not already return), print it.
+  3. **Marketplace clone vs versioned cache (same-version STM preference):**
+     - **Marketplace:** first `~/.claude/plugins/marketplaces/*/` that has both `skills/plugin-dir.sh` and `agents/pm.md` (slug-free dev-team signature) and contains `<relpath>`.
+     - **Versioned cache:** `~/.claude/plugins/cache/<slug>/dev-team/<VER>/<relpath>` where `<VER>` is the highest versioned subdir via `ls | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'` (tilde map is load-bearing).
+     - **Version compare:** pick the higher version. **Same version string:** MUST prefer an STM source (`skills/handoff/prepass.sh` advertises `--events`) over a legacy source (`--sections` five-extractor) — MUST NOT silently soft-continue on frozen cache when marketplace/dev has STM (AC-2). When flavors match, prefer marketplace over cache. Diagnostics for a same-version shadow skip MUST name both roots on stderr.
+  4. **Find fallback:** `find ~/.claude/plugins/cache -path "*/dev-team/*/<relpath>" | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'` — MUST use the same pre-release-safe pipeline; MUST NOT use glob-first-match or bare `sort -V | tail -1`
+- **STM marker:** `stm` = prepass has `--events`; `legacy` = prepass has `--sections` only; `none` / `unknown` otherwise. `verify` prints this before any AC-16 scoring (AC-4 / AC-6).
+- MUST print ONLY the resolved absolute path to stdout on success for `file`/`dir`/`root`; all diagnostics to stderr; stdout empty on non-zero exit for those subcommands. `verify` is multi-line status on stdout.
+- MUST exit: `0` = resolved / verify OK, `2` = verify shadow/legacy gate fail, `3` = not found, `64` = usage error
 - The marketplace slug MUST be defined in exactly one place in this script (no per-caller hardcoded `cold-dark-void`)
 
 ### Locating `plugin-dir.sh` itself
@@ -98,13 +107,13 @@ The locator cannot locate itself: the collapsed form `bash skills/plugin-dir.sh 
 - Every skill/command site that resolves plugin files at runtime MUST emit the canonical bootstrap stanza below VERBATIM (byte-for-byte identical across all sites), then resolve all further plugin files through `$PDH/skills/plugin-dir.sh`:
 
 ```bash
-# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (dead in Bash fences today — FR #48230; forward-compat), else dev checkout, else installed cache (pre-release-safe sort -V). Slug-free.
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (pre-release-safe sort -V). CDT-82: marketplace before same-version cache.
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 ```
 
-- Resolution order of the stanza: (0) **guarded `CLAUDE_PLUGIN_ROOT`** — only when non-empty *and* `$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh` exists (dead code in Bash-tool fences today; do not rely on it in tests); (1) **dev-checkout fast path** — `[ -f skills/plugin-dir.sh ] && pwd` (cwd is `$MROOT` when dogfooding this repo); (2) **slug-free pre-release-safe cache search** — `find … -path '*/dev-team/*/skills/plugin-dir.sh' | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'` selects the highest *release-preferring* cached version, and the two `xargs -r dirname` strip `.../skills/plugin-dir.sh` → `.../skills` → `.../<VER>` = PDH (the plugin root). `-r` guards the not-found case so PDH ends empty rather than `/`.
-- The bootstrap MUST be slug-free (searches `*/dev-team/*`, not `cold-dark-void`) and MUST use the pre-release-safe `sed | sort -V | sed` pipeline — the single sanctioned cache-search algorithm (D3), identical to the lib's own tier-2/tier-3.
-- If `$PDH` is empty (no env root, no dev checkout, no install), `bash "$PDH/skills/plugin-dir.sh"` runs `bash /skills/plugin-dir.sh` → file-not-found → non-zero, empty stdout. The site's existing fail-mode (hard/warn/soft) then triggers exactly as today. This introduces no new failure path.
+- Resolution order of the stanza: (0) **guarded `CLAUDE_PLUGIN_ROOT`** — only when non-empty *and* `$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh` exists (operator force; also FR #48230 forward-compat); (1) **cwd dev/worktree** — `[ -f skills/plugin-dir.sh ] && pwd`; (2) **marketplace clone** — first `~/.claude/plugins/marketplaces/*/` with `skills/plugin-dir.sh` + `agents/pm.md` (slug-free; prefers live marketplace content over a frozen same-version cache — CDT-82); (3) **slug-free pre-release-safe cache search** — `find … -path '*/dev-team/*/skills/plugin-dir.sh' | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'` + two `xargs -r dirname` → PDH. `-r` guards the not-found case so PDH ends empty rather than `/`.
+- The bootstrap MUST be slug-free (marketplace via signature files; cache via `*/dev-team/*`) and MUST use the pre-release-safe `sed | sort -V | sed` pipeline for the cache tier — the single sanctioned cache-search algorithm (D3).
+- If `$PDH` is empty (no env root, no dev checkout, no marketplace, no install), `bash "$PDH/skills/plugin-dir.sh"` runs `bash /skills/plugin-dir.sh` → file-not-found → non-zero, empty stdout. The site's existing fail-mode (hard/warn/soft) then triggers exactly as today. This introduces no new failure path.
 
 ### Project-root resolution — authoritative formulas
 
@@ -124,6 +133,7 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 
 - MUST NOT source `plugin-dir.sh` (subprocess only, matches `worktree-lib.sh` / `gate.sh` precedent)
 - MUST NOT use glob-first-match resolution anywhere — `sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'` is the single sanctioned version-resolution algorithm (D3); bare `sort -V | tail -1` without the tilde map is forbidden (pre-releases would outrank finals)
+- MUST NOT treat "delete the entire plugin cache" as the sole fix for same-version marketplace/dev vs cache drift (CDT-82 AC-8); PDH preference + `CLAUDE_PLUGIN_ROOT` force are the supported remedies
 
 ### Caller integration
 
@@ -154,13 +164,16 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 - Verify TaskCompleted hook exits 2 on malformed JSON, exits 0 on valid JSON
 - Verify hook skips validation when files are missing (no false failures)
 - Verify settings.json contains required sandbox, permissions, and hook entries
-- `plugin-dir.sh` resolved-in-dev — with cwd = this repo checkout, `file <relpath>` returns the dev-checkout path (`$MROOT/<relpath>`), exits 0
+- `plugin-dir.sh` resolved-in-dev — with cwd = this repo checkout (or linked worktree), `file <relpath>` returns the **show-toplevel** path (`$WTROOT/<relpath>`), exits 0
 - `plugin-dir.sh` resolved-from-cache — no dev checkout for the relpath, one cached version: `file <relpath>` returns the cached path, exits 0
 - `plugin-dir.sh` two-versions-picks-highest — two cached versions present: `file <relpath>` resolves the path under the **highest** version (pre-release-safe `sort -V`), never glob-first
 - `plugin-dir.sh` final-outranks-prerelease — synthetic cache with both `1.0.0` and `1.0.0-pre.N`, **no** `CLAUDE_PLUGIN_ROOT` set: `file <relpath>` resolves under `1.0.0` (proves the tilde-mapped sort path alone; env var must not mask the test)
 - `plugin-dir.sh` not-found — no tier matches: exit 3, stdout empty
 - `plugin-dir.sh` slug-defined-once — the marketplace slug literal appears in exactly one place in the script
-- Consumer-mode resolution — no dev checkout present (cwd is a foreign project), two plugin versions cached: the bootstrap stanza + `plugin-dir.sh` together resolve the requested file from the **highest release-preferring** cached version; PDH is non-empty and slug-free
+- `plugin-dir.sh` same-version-stm-over-legacy (CDT-82) — synthetic HOME with marketplace `1.0.3` STM (`--events`) and cache `1.0.3` legacy (`--sections`): `file skills/handoff/prepass.sh` resolves marketplace; stderr names both roots; `verify` exits 0 with `stm_marker=stm`
+- `plugin-dir.sh` higher-cache-beats-marketplace — cache `1.0.4` + marketplace `1.0.3`: resolves cache `1.0.4`
+- `plugin-dir.sh` force-root — `CLAUDE_PLUGIN_ROOT` pins resolve even when marketplace STM exists
+- Consumer-mode resolution — no dev checkout present (cwd is a foreign project), two plugin versions cached: the bootstrap stanza + `plugin-dir.sh` together resolve the requested file from the **highest release-preferring** cached version (or marketplace when same-version STM); PDH is non-empty and slug-free
 - Project-root formulas — bootstrap skills (scaffold-project, init-orchestration Step 7) keep ALL `.claude/` ops on one root (`$PROJ_ROOT` via `show-toplevel || pwd`); no op mixes that absolute root with relative siblings; shared-`.claude/` accessors and emitted hooks use the git-common-dir form
 - Subprocess-CLI helper resolution — the caller SKILLs (orchestrate, kickoff, wrap-ticket, standup, ci-watch) resolve every plugin helper (`worktree-lib.sh`, `dag-lib.sh`, `task-store.sh`, `ci-watch/*.sh`) through `plugin-dir.sh`; no helper is invoked as bare `bash skills/…` or `bash "$MROOT/skills/…"` (which would resolve to the consumer's repo and exit 127 on a real install)
 
@@ -204,6 +217,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed amend-then-promote INFERRED→ACTIVE; fixed bare sort-V PDH sites to pre-safe tilde map (task-completed + precompact-rescue + init-orch templates); call-site table setup.md; evidence: Linear CDT-52 + /spec check exit-0. |
 | 2026-07-22 | CDT-54 / CDT-46-C8: hook template single SoT in init-orchestration; live `.claude/hooks` generated+gitignored (not package product); `.claude` process state never upstream (seed carve-out only); dual-copy `check-hook-templates` gate retired or reduced accordingly |
 | 2026-07-22 | CDT-53: MUST root `LICENSE` (MIT text, © 2026 cold-dark-void matching `plugin.json` `author.name`); Covers += `LICENSE`, `SECURITY.md`. |
+| 2026-07-26 | CDT-82: PDH must not silently prefer frozen same-version cache over marketplace/dev STM. Resolution gains show-toplevel worktree tier, marketplace-vs-cache same-version STM preference (`--events` over `--sections`), `root`/`verify` subcommands, `CLAUDE_PLUGIN_ROOT` as operator force (no full reinstall / delete-cache-only). Bootstrap stanza: marketplace clone before cache. |
 
 ## Cross-references
 

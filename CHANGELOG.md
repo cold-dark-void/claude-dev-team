@@ -3,6 +3,17 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.0
+
+- **CDT-79 — STM packet /handoff** — rework cold/warm handoff from five-section inject brief to **STM packet** compact seed (`State now → Through-line → appendix`); shared spine-mine (2 LLM miners + git), LLM-free `assemble.py`, warm = cold-on-self + event_id-only annotation; SPEC-018 rewrite + docs/runbook.
+- **CDT-80** — packet/cache/git root from **target session** project (not invoker cwd); `resolve-root.sh` + fail-hard when undetermined.
+- **CDT-81** — assemble normalizes transcript refs (no `transcript:Ltranscript:L` double-prefix).
+- **CDT-82** — PDH prefers marketplace/dev over same-version cache; worktree uses show-toplevel; dogfood PDH verify gate.
+- **CDT-83** — production path passes prepare `stats.est_tokens` as `stripped_spine_tokens` for advisory ratio footer.
+- **CDT-84** — skill-lint C1: self-contained bash fences in `commands/handoff.md`.
+- **CDT-85** — warm session-id bridge + hard fail (no freeform live-context pretending to be STM); AC-16 human dogfood remains open for Claude Code warm score.
+- **v1.1 contract** — W1–W3 deprecation **command stubs deleted**; pure stub skills removed (`local-agent`, `demo`, `incident`, `blind-review`, `generate-*`, `reflect-specs`, empty `validate-memory`/`memory-compress` stubs). Protocol-retained backends kept: `init-orchestration`, `scaffold-project`, `standup`, `fix-ticket`.
+
 ### v1.0.3
 
 - **CDT-76** — `/setup orchestration` sweeps known-legacy orphan hook `bash-compress-wrapper.sh` after Step 4 emit: bak-force + FORCE-OVERWRITE disclose when unreferenced; WARN+keep if still referenced (SPEC-005).

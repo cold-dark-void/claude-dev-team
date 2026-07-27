@@ -150,7 +150,8 @@ User corrections (verbatim when precise):
 - "<quote>"
 ```
 
-Do not re-offer a killed hypothesis. Same spirit as `/handoff` Dead-ends — without writing a brief file.
+Do not re-offer a killed hypothesis. Same spirit as `/handoff` STM packet kills
+(Through-line / appendix kill catalog) — without writing a packet file.
 
 ### B5. Systematic, not spray
 

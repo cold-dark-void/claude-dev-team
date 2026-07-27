@@ -5,9 +5,9 @@
 # Deterministic and LLM-free by construction: bash + python3 + the existing
 # prepass/transcript-parse machinery. Writes a rescue artifact
 #   <repo>/.claude/handoff/<session-id>-precompact-<seq>.md
-# — a spine snapshot + drill-down pointers, explicitly NOT the five-section M4
-# brief (M4 quality needs a model; this is raw material for a later cold
-# `/handoff <uuid>`, which stays the canonical quality path).
+# — a spine snapshot + drill-down pointers, explicitly NOT an STM packet
+# (State now / Through-line / appendix needs spine-mine; this is raw material
+# for a later cold `/handoff <uuid>`, the canonical quality path).
 #
 # FAIL-OPEN CONTRACT (M17): ALWAYS exits 0. Never exits 2 (2 would block the
 # compaction). Every failure logs ONE stderr line and exits 0. Runtime is
@@ -138,7 +138,7 @@ head = [
     f"- spine_msgs: {stats.get('spine_msgs', '?')}  stripped_tool_results: "
     f"{stats.get('stripped_tool_results', '?')}  est_tokens: {stats.get('est_tokens', '?')}",
     f"- recover: run `/handoff {sid}` in a fresh session — the cold path builds the",
-    "  full five-section brief; this artifact is deterministic raw material, NOT the brief.",
+    "  STM packet; this artifact is deterministic raw material, NOT an STM packet.",
 ]
 if truncated:
     head.append(f"- NOTE: spine tail-kept at ~{cap} bytes; the full record is the transcript above.")

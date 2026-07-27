@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # precompact-test.sh — SPEC-018 M12–M18 bite-tests (spec tests 13–19).
+# CDT-79-8: rescue is spine snapshot only — never require STM packet shape.
 # Run: bash skills/handoff/precompact-test.sh
+#
+# Env residuals (OK to SKIP, not suite regressions):
+#   T11b/c/d, T12*  — need .claude/hooks/rescue-pointer.sh (init-orchestration)
+#   T13             — need .claude/hooks/precompact-rescue.sh
+#   T14             — need .claude/settings.json on this machine
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -12,9 +18,10 @@ FRESHNESS="$ROOT/skills/transcript-parse/freshness.sh"
 RESCUE_HOOK="$ROOT/.claude/hooks/precompact-rescue.sh"
 POINTER_HOOK="$ROOT/.claude/hooks/rescue-pointer.sh"
 
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIP=0
 ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
+skip() { SKIP=$((SKIP+1)); echo "SKIP $*"; }
 
 SID="00000000-0000-4000-8000-00000000cafe"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/precompact-test.XXXXXX")
@@ -76,9 +83,14 @@ if bash "$PREPASS" prepare --uuid "$SID" --transcript "$TR" --allow-in-progress 
    && grep -qv 'FIXTURE_TOOL_PAYLOAD_XYZ' "$SP"; then ok
 else bad "T6 prepare --transcript --allow-in-progress: spine built, payload stripped"; fi
 
-# ---- T7: carve-out unreachable from user-invoked paths (M14, static) ----
-if grep -q 'allow-in-progress' "$ROOT/commands/handoff.md" "$ROOT/commands/retro.md" 2>/dev/null; then
-  bad "T7 carve-out flag leaked into a user-invoked command"; else ok; fi
+# ---- T7: carve-out scoped (M14, static) — warm ok; cold + /retro must not ----
+# Warm bare /handoff intentionally passes --allow-in-progress (M10/M14 CDT-79).
+# Cold PREPARE_EXTRA stays empty; /retro must never mention the flag.
+if grep -q 'allow-in-progress' "$ROOT/commands/retro.md" 2>/dev/null; then
+  bad "T7 carve-out flag leaked into /retro"; else ok; fi
+if grep -q 'PREPARE_EXTRA=()' "$ROOT/commands/handoff.md" \
+   && grep -q 'PREPARE_EXTRA=(--transcript "$TRANSCRIPT" --allow-in-progress)' "$ROOT/commands/handoff.md"; then ok
+else bad "T7 handoff must keep cold PREPARE_EXTRA empty and warm carve-out only"; fi
 
 # ---- T8: capture happy path on a MID-WRITE transcript (M12/M14, spec test 13/15) ----
 touch "$TR"
@@ -87,9 +99,15 @@ ART="$HDIR/${SID}-precompact-001.md"
 if [ "$RC" -eq 0 ] && [ -f "$ART" ] && grep -q '\[L1\]' "$ART" \
    && grep -q "/handoff $SID" "$ART" && grep -q 'trigger: manual' "$ART"; then ok
 else bad "T8 capture: artifact with pointers + recovery line (rc=$RC)"; fi
-for H in '## Convergence' '## Dead-ends' '## Code-state' '## Open-threads' '## Basics'; do
-  if grep -q "^$H" "$ART" 2>/dev/null; then bad "T8b artifact must NOT contain M4 heading: $H"; else ok; fi
+# M12: spine snapshot — MUST NOT claim STM packet sections (nor retired M4 headings)
+for H in '## State now' '## Through-line' '## appendix' \
+         '## Convergence' '## Dead-ends' '## Code-state' '## Open-threads' '## Basics'; do
+  if grep -q "^$H" "$ART" 2>/dev/null; then bad "T8b artifact must NOT contain packet/legacy heading: $H"; else ok; fi
 done
+if grep -qiE 'STM packet|compact seed' "$ART" 2>/dev/null \
+   && ! grep -qiE 'NOT (an? )?(STM packet|the brief|compact seed)|raw material' "$ART" 2>/dev/null; then
+  bad "T8b2 artifact claims STM packet quality"
+else ok; fi
 if grep -q 'FIXTURE_TOOL_PAYLOAD_XYZ' "$ART" 2>/dev/null; then
   bad "T8c artifact must not carry raw toolUseResult payload"; else ok; fi
 
@@ -101,10 +119,10 @@ if [ "$RC" -eq 2 ]; then bad "T9b MUST NEVER exit 2"; else ok; fi
 ( cd "$REPO" && printf 'not json at all' | bash "$CAPTURE" 2>/dev/null ); RC=$?
 if [ "$RC" -eq 0 ]; then ok; else bad "T9c garbage stdin: exit 0 (rc=$RC)"; fi
 
-# ---- T10: retention N=3, warm brief + cache untouched (M15, spec test 16) ----
+# ---- T10: retention N=3, warm STM packet + cache untouched (M15, spec test 16) ----
 mkdir -p "$HDIR/cache"
-printf 'warm brief sentinel\n' > "$HDIR/${SID}-warm-test.md"
-printf '{"leaf_uuid":"u4","brief":"x"}\n' > "$HDIR/cache/${SID}.json"
+printf 'warm packet sentinel\n' > "$HDIR/${SID}-warm-test.md"
+printf '{"leaf_uuid":"u4","packet":"x","path":"/tmp/x.md"}\n' > "$HDIR/cache/${SID}.json"
 for i in 1 2 3 4; do touch "$TR"; ( cd "$REPO" && hook_json auto \
   | HANDOFF_PRECOMPACT_MAX_PER_SESSION=3 bash "$CAPTURE" 2>/dev/null ); done
 N=$(find "$HDIR" -maxdepth 1 -name "${SID}-precompact-*.md" | wc -l)
@@ -112,29 +130,37 @@ if [ "$N" -eq 3 ] && [ -f "$HDIR/${SID}-precompact-005.md" ] \
    && [ ! -f "$HDIR/${SID}-precompact-001.md" ]; then ok
 else bad "T10 retention: want newest 3 of 5 (have $N)"; fi
 if [ -f "$HDIR/${SID}-warm-test.md" ] && [ -f "$HDIR/cache/${SID}.json" ]; then ok
-else bad "T10b prune touched a warm brief or the M8 cache"; fi
+else bad "T10b prune touched a warm STM packet or the M8 cache"; fi
 
 # ---- T11/T12: surfacing pointer, not dump (M16, spec test 17) ----
 MARKER="$HDIR/.rescue-pointer.json"
 if [ -f "$MARKER" ]; then ok; else bad "T11 marker missing after capture"; fi
-PTR_OUT=$( cd "$REPO" && printf '{"hook_event_name":"PostCompact"}' | bash "$POINTER_HOOK" 2>/dev/null )
-if printf '%s' "$PTR_OUT" | grep -q "precompact-005" \
-   && printf '%s' "$PTR_OUT" | grep -q "/handoff $SID" && [ -f "$MARKER" ]; then ok
-else bad "T11b PostCompact: pointer line printed, marker kept"; fi
-SS_OUT=$( cd "$REPO" && printf '{"hook_event_name":"SessionStart"}' | bash "$POINTER_HOOK" 2>/dev/null )
-if printf '%s' "$SS_OUT" | grep -q "/handoff $SID" && [ ! -f "$MARKER" ]; then ok
-else bad "T11c SessionStart: pointer printed, marker consumed"; fi
-SS2=$( cd "$REPO" && printf '{"hook_event_name":"SessionStart"}' | bash "$POINTER_HOOK" 2>/dev/null )
-if [ -z "$SS2" ]; then ok; else bad "T11d second SessionStart must print nothing"; fi
-if printf '%s' "$PTR_OUT" | grep -q 'the real bug is in the parser'; then
-  bad "T12 surfacing dumped artifact content"; else ok; fi
-if [ "$(printf '%s\n' "$PTR_OUT" | wc -l)" -le 2 ]; then ok; else bad "T12b pointer must be ~1 line"; fi
+if [ ! -f "$POINTER_HOOK" ]; then
+  skip "T11b–T12b (rescue-pointer.sh absent — run init-orchestration /setup)"
+else
+  PTR_OUT=$( cd "$REPO" && printf '{"hook_event_name":"PostCompact"}' | bash "$POINTER_HOOK" 2>/dev/null )
+  if printf '%s' "$PTR_OUT" | grep -q "precompact-005" \
+     && printf '%s' "$PTR_OUT" | grep -q "/handoff $SID" && [ -f "$MARKER" ]; then ok
+  else bad "T11b PostCompact: pointer line printed, marker kept"; fi
+  SS_OUT=$( cd "$REPO" && printf '{"hook_event_name":"SessionStart"}' | bash "$POINTER_HOOK" 2>/dev/null )
+  if printf '%s' "$SS_OUT" | grep -q "/handoff $SID" && [ ! -f "$MARKER" ]; then ok
+  else bad "T11c SessionStart: pointer printed, marker consumed"; fi
+  SS2=$( cd "$REPO" && printf '{"hook_event_name":"SessionStart"}' | bash "$POINTER_HOOK" 2>/dev/null )
+  if [ -z "$SS2" ]; then ok; else bad "T11d second SessionStart must print nothing"; fi
+  if printf '%s' "$PTR_OUT" | grep -q 'the real bug is in the parser'; then
+    bad "T12 surfacing dumped artifact content"; else ok; fi
+  if [ "$(printf '%s\n' "$PTR_OUT" | wc -l)" -le 2 ]; then ok; else bad "T12b pointer must be ~1 line"; fi
+fi
 
 # ---- T13: shim graceful absence (M18, spec test 19) ----
-mkdir -p "$WORK/norepo" "$WORK/nohome"
-( cd "$WORK/norepo" && printf '%s' "$(hook_json)" \
-  | HOME="$WORK/nohome" CLAUDE_PROJECT_DIR="$WORK/norepo" bash "$RESCUE_HOOK" 2>"$WORK/shim.err" ); RC=$?
-if [ "$RC" -eq 0 ]; then ok; else bad "T13 shim without plugin must exit 0 (rc=$RC)"; fi
+if [ ! -f "$RESCUE_HOOK" ]; then
+  skip "T13 (precompact-rescue.sh absent — run init-orchestration /setup)"
+else
+  mkdir -p "$WORK/norepo" "$WORK/nohome"
+  ( cd "$WORK/norepo" && printf '%s' "$(hook_json)" \
+    | HOME="$WORK/nohome" CLAUDE_PROJECT_DIR="$WORK/norepo" bash "$RESCUE_HOOK" 2>"$WORK/shim.err" ); RC=$?
+  if [ "$RC" -eq 0 ]; then ok; else bad "T13 shim without plugin must exit 0 (rc=$RC)"; fi
+fi
 
 # ---- T14: registration + templates (M13, spec test 14) ----
 SETTINGS="$ROOT/.claude/settings.json"
@@ -154,11 +180,11 @@ sys.exit(1 if (bad or not cmds) else 0)
 PY
   then ok; else bad "T14b new hook commands: no pipes + CLAUDE_PROJECT_DIR-anchored"; fi
 else
-  echo "SKIP T14 (.claude/settings.json absent on this machine)"
+  skip "T14 (.claude/settings.json absent on this machine)"
 fi
 if bash "$ROOT/skills/init-orchestration/check-hook-templates.sh" >/dev/null 2>&1; then ok
 else bad "T14c check-hook-templates.sh must pass"; fi
 
 echo "---"
-echo "precompact tests: $PASS passed, $FAIL failed"
+echo "precompact tests: $PASS passed, $FAIL failed, $SKIP skipped"
 [ "$FAIL" -eq 0 ]

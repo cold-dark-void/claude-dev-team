@@ -11,10 +11,11 @@
 #   9  — file was modified < 60 s ago (in-progress); skip it
 #   1  — usage error or file not found
 #
-# SCOPED CARVE-OUT (SPEC-018 M14): a PreCompact capture is by definition
-# mid-write. Passed EXCLUSIVELY by skills/handoff/precompact-capture.sh via
-# prepass.sh prepare --allow-in-progress. No user-invoked path (/handoff cold,
-# /retro) passes it — default guard behavior (exit 9) is unchanged.
+# SCOPED CARVE-OUT (SPEC-018 M14): mid-write reads for PreCompact capture and
+# warm /handoff self-mine. Passed only by:
+#   - skills/handoff/precompact-capture.sh → prepass prepare --allow-in-progress
+#   - warm bare /handoff (commands/handoff.md Step 1w PREPARE_EXTRA)
+# Cold /handoff <uuid> and /retro MUST NOT pass it — default exit 9 unchanged.
 #
 # Cross-platform mtime: Linux `stat -c %Y` / macOS `stat -f %m`.
 # Mirrors the 60 s guard in commands/retro.md (Filter 1).

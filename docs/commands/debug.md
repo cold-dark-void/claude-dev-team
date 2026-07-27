@@ -101,5 +101,5 @@ Only when every item is `✓` does the skill emit a completion summary and sugge
 - [`/refactor`](./refactor.md) — design-first restructuring; `/debug` hands off to `/refactor inline` when scope is `refactor-first`
 - [`/kickoff`](./kickoff.md) — planning handoff target for `arch` mode and `escalate-to-kickoff` scope
 - [`/wrap-ticket`](./wrap-ticket.md) — close out after the fix PR is merged
-- [`/fix-ticket`](./fix-ticket.md) — deprecated stub; use `/debug ticket`
+- Legacy `/fix-ticket` command stub deleted at v1.1.0 — use `/debug ticket`
 - Protocol: `skills/debug/SKILL.md`; ticket contract: SPEC-028

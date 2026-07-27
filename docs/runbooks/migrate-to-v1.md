@@ -66,7 +66,7 @@ cp -a "$MROOT/.claude/memory/memory.db" \
   "$MROOT/.claude/memory/memory.db.bak-$(date +%Y%m%d)"
 
 # Resolve plugin root, then chain v2→v3→v4 (content survives; idempotent)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 bash "$PDH/skills/memory-store/migrate.sh" "$MROOT"
 ```
 
@@ -104,10 +104,10 @@ denials). Do not remove those prompts — they are self-escalation guards; batch
 
 ---
 
-## 5. Command invocations — deadline **v1.1**
+## 5. Command invocations — **deleted at v1.1.0**
 
-Deprecation **stubs still redirect** in v1.0.x, then are **deleted at v1.1**.
-Update CI, project docs, and custom skills **now**.
+Deprecation stubs redirected in v1.0.x and were **removed in v1.1.0**.
+Update CI, project docs, and custom skills if any still call old names.
 
 Full table: [CHANGELOG v1.0.0 Migration](../../CHANGELOG.md#v100). Headlines:
 

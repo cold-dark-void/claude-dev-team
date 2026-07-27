@@ -64,16 +64,14 @@ bare=$(printf '1.0.0-pre.4\n1.0.0\n' | sort -V | tail -1)
 assert_eq "hazard: bare sort -V prefers pre" "$bare" "1.0.0-pre.4"
 
 # --- resolve: dev checkout ---
-# MROOT is worktree-aware (git-common-dir) — from a linked worktree the
-# shared main checkout wins when the relpath exists there.
+# CDT-82: prefer show-toplevel (worktree) so feat/* dogfood is not shadowed
+# by the main checkout via git-common-dir (master may still be legacy handoff).
 echo "== dev-checkout =="
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 out=$(bash "$LIB" file skills/plugin-dir.sh)
 rc=$?
 assert_rc "dev file rc" "$rc" 0
-assert_eq "dev file path" "$out" "$MROOT/skills/plugin-dir.sh"
+assert_eq "dev file path" "$out" "$WTROOT/skills/plugin-dir.sh"
 
 # --- resolve: synthetic cache, NO CLAUDE_PLUGIN_ROOT (sort path alone) ---
 echo "== cache sort path (no CLAUDE_PLUGIN_ROOT) =="
@@ -137,12 +135,14 @@ echo "== bootstrap stanza sort path =="
 mkdir -p "$CACHE_ROOT/1.0.0/skills" "$CACHE_ROOT/1.0.0-pre.9/skills"
 : > "$CACHE_ROOT/1.0.0/skills/plugin-dir.sh"
 : > "$CACHE_ROOT/1.0.0-pre.9/skills/plugin-dir.sh"
+# Canonical stanza (CDT-82): force → cwd → marketplace clone → cache ver_pick
+PDH_STANZA='PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf "%s\n" "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf "%s\n" "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path "*/dev-team/*/skills/plugin-dir.sh" 2>/dev/null | sed "s/-pre\./~pre./" | sort -V | tail -1 | sed "s/~pre\./-pre./" | xargs -r dirname | xargs -r dirname )'
 pdh=$(
   cd "$FOREIGN" &&
-  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash -c '
-    PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf "%s\n" "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path "*/dev-team/*/skills/plugin-dir.sh" 2>/dev/null | sed "s/-pre\./~pre./" | sort -V | tail -1 | sed "s/~pre\./-pre./" | xargs -r dirname | xargs -r dirname )
-    printf "%s\n" "$PDH"
-  '
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash -c "
+    $PDH_STANZA
+    printf '%s\n' \"\$PDH\"
+  "
 )
 assert_contains "stanza picks final PDH" "$pdh" "/1.0.0"
 if printf '%s' "$pdh" | grep -qF '1.0.0-pre'; then
@@ -152,6 +152,148 @@ else
   PASS=$((PASS + 1))
   echo "  ok  stanza not a pre path"
 fi
+
+# --- CDT-82: same-version marketplace STM vs cache legacy ---
+echo "== CDT-82 same-version STM over legacy cache =="
+# Fresh HOME so leftover 1.0.0-pre dirs do not interfere.
+rm -rf "$TMP/home"
+CACHE_ROOT="$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team"
+MP_ROOT="$TMP/home/.claude/plugins/marketplaces/cold-dark-void"
+mkdir -p "$CACHE_ROOT/1.0.3/skills/handoff" "$CACHE_ROOT/1.0.3/.claude-plugin"
+mkdir -p "$MP_ROOT/skills/handoff" "$MP_ROOT/.claude-plugin" "$MP_ROOT/agents" "$MP_ROOT/skills"
+
+# Marketplace signature files (slug-free bootstrap discovery).
+: > "$MP_ROOT/skills/plugin-dir.sh"
+: > "$MP_ROOT/agents/pm.md"
+printf '%s\n' '{"name":"dev-team","version":"1.0.3"}' > "$MP_ROOT/.claude-plugin/plugin.json"
+printf '%s\n' '{"name":"dev-team","version":"1.0.3"}' > "$CACHE_ROOT/1.0.3/.claude-plugin/plugin.json"
+
+# Legacy cache: --sections only (five-extractor).
+cat > "$CACHE_ROOT/1.0.3/skills/handoff/prepass.sh" <<'LEG'
+#!/usr/bin/env bash
+# prepass.sh finalize --uuid <u> --sections <dir>
+case "$1" in
+  --sections) ;;
+esac
+LEG
+# Marketplace STM: --events (CDT-79).
+cat > "$MP_ROOT/skills/handoff/prepass.sh" <<'STM'
+#!/usr/bin/env bash
+# prepass.sh finalize --uuid <u> --events <dir|file>
+case "$1" in
+  --events) ;;
+esac
+STM
+# Mirror probe into both so file resolve can hit either.
+printf 'legacy\n' > "$CACHE_ROOT/1.0.3/skills/handoff/prepass.sh.tag"
+printf 'stm\n' > "$MP_ROOT/skills/handoff/prepass.sh.tag"
+# Also need plugin-dir.sh under cache for bootstrap cache tier.
+mkdir -p "$CACHE_ROOT/1.0.3/skills"
+: > "$CACHE_ROOT/1.0.3/skills/plugin-dir.sh"
+
+out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file skills/handoff/prepass.sh 2>"$TMP/stderr-shadow"
+)
+rc=$?
+assert_rc "CDT-82 same-ver prefer STM rc" "$rc" 0
+assert_contains "CDT-82 path is marketplace" "$out" "/marketplaces/cold-dark-void/"
+if printf '%s' "$out" | grep -qF '/cache/'; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL CDT-82 must not pick cache: [$out]"
+else
+  PASS=$((PASS + 1))
+  echo "  ok  CDT-82 not a cache path"
+fi
+assert_contains "CDT-82 stderr names shadow" "$(cat "$TMP/stderr-shadow")" "same-version shadow"
+if grep -q -- '--events' "$out" && ! grep -q -- '--sections' "$out"; then
+  PASS=$((PASS + 1))
+  echo "  ok  CDT-82 content is STM file"
+else
+  FAIL=$((FAIL + 1))
+  echo "  FAIL CDT-82 content is STM file: $(head -3 "$out" | tr '\n' ' ')"
+fi
+
+# verify subcommand: marketplace STM → OK
+v_out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" verify 2>/dev/null
+)
+v_rc=$?
+assert_rc "CDT-82 verify STM rc" "$v_rc" 0
+assert_contains "CDT-82 verify marker stm" "$v_out" "stm_marker=stm"
+assert_contains "CDT-82 verify OK STM" "$v_out" "OK STM"
+
+# Force path: CLAUDE_PLUGIN_ROOT wins even if it is the legacy cache (operator choice).
+out=$(
+  cd "$FOREIGN" &&
+  env CLAUDE_PLUGIN_ROOT="$CACHE_ROOT/1.0.3" HOME="$TMP/home" bash "$LIB" file skills/handoff/prepass.sh 2>/dev/null
+)
+rc=$?
+assert_rc "CDT-82 force root rc" "$rc" 0
+assert_contains "CDT-82 force uses cache root" "$out" "/cache/cold-dark-void/dev-team/1.0.3/"
+
+# Bootstrap stanza prefers marketplace over same-version cache.
+pdh=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash -c "
+    $PDH_STANZA
+    printf '%s\n' \"\$PDH\"
+  "
+)
+assert_contains "CDT-82 stanza marketplace" "$pdh" "/marketplaces/cold-dark-void"
+
+# Higher cache version still beats older marketplace (not a same-version shadow).
+mkdir -p "$CACHE_ROOT/1.0.4/skills/handoff" "$CACHE_ROOT/1.0.4/.claude-plugin" "$CACHE_ROOT/1.0.4/skills"
+printf '%s\n' '{"name":"dev-team","version":"1.0.4"}' > "$CACHE_ROOT/1.0.4/.claude-plugin/plugin.json"
+cat > "$CACHE_ROOT/1.0.4/skills/handoff/prepass.sh" <<'C14'
+#!/usr/bin/env bash
+# 1.0.4 cache also STM
+# --events
+C14
+: > "$CACHE_ROOT/1.0.4/skills/plugin-dir.sh"
+out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file skills/handoff/prepass.sh 2>/dev/null
+)
+rc=$?
+assert_rc "CDT-82 higher cache wins rc" "$rc" 0
+assert_contains "CDT-82 higher cache path" "$out" "/1.0.4/"
+
+# verify fails when only legacy cache is visible (no marketplace STM) — soft WARN OK
+rm -rf "$TMP/home/.claude/plugins/marketplaces"
+rm -rf "$CACHE_ROOT/1.0.4"
+# leave 1.0.3 legacy only
+out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file skills/handoff/prepass.sh 2>/dev/null
+)
+assert_contains "CDT-82 legacy-only path cache" "$out" "/1.0.3/"
+v_out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" verify 2>/dev/null
+)
+v_rc=$?
+assert_rc "CDT-82 verify legacy-only rc (warn, not fail)" "$v_rc" 0
+assert_contains "CDT-82 verify legacy warn" "$v_out" "legacy"
+
+# verify FAIL when marketplace STM exists but force picks legacy (operator can force;
+# verify still reports resolved marker — force is intentional). Rebuild MP + force.
+mkdir -p "$MP_ROOT/skills/handoff" "$MP_ROOT/.claude-plugin" "$MP_ROOT/agents" "$MP_ROOT/skills"
+: > "$MP_ROOT/skills/plugin-dir.sh"
+: > "$MP_ROOT/agents/pm.md"
+printf '%s\n' '{"name":"dev-team","version":"1.0.3"}' > "$MP_ROOT/.claude-plugin/plugin.json"
+cat > "$MP_ROOT/skills/handoff/prepass.sh" <<'STM'
+#!/usr/bin/env bash
+# --events
+STM
+# Without force, verify OK stm
+v_rc=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" verify >/dev/null 2>&1
+  echo $?
+)
+assert_eq "CDT-82 verify recovers STM" "$v_rc" "0"
 
 # --- CDT-53-13: tree-wide bare sort -V tilde-map uniformity gate ---
 # Product version-picks MUST use:

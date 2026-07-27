@@ -5,8 +5,8 @@ Everything for the **claude-dev-team** plugin. New here? Start with the
 
 The command index below mirrors the tiered layout in the
 [project README Commands](../README.md#commands) section (Core / Advanced /
-Internal / Migration). Full per-command pages live under `commands/` when one
-exists; skills-backed Surfaces without a page still appear here.
+Internal / Migration-historical). Full per-command pages live under `commands/`
+when one exists; skills-backed Surfaces without a page still appear here.
 
 ## Guides
 
@@ -59,7 +59,7 @@ Program / multi-ticket work, session tuning, and quality gates.
 | `/craft-loop` | [craft-loop](commands/craft-loop.md) | Design reviewed loop programs for the host `/loop`/`/goal` |
 | `/release-train` | skill | Multi-branch release queue — register, freeze, land via `/release` |
 | `/retro` | [retro](commands/retro.md) · [scheduled runbook](runbooks/scheduled-retro.md) | Scan past sessions for friction; propose directive adjustments |
-| `/handoff` | [handoff](commands/handoff.md) | Reconstruct a past session (or capture current) into a dense brief |
+| `/handoff` | [handoff](commands/handoff.md) | STM packet / compact seed (State now → Through-line → appendix); cold print core + path, warm file-only |
 | `/recall` | [recall](commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
 | `/mode` | [mode](commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
 | `/adjust-agent` | skill | View/manage per-agent standing directives (`--apply` for non-interactive) |
@@ -78,40 +78,22 @@ user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal 
 `project-init`, `distiller`, and `council-judge` are reached only via `/setup team`,
 `/memory distill`, and `/council`.
 
-### Migration / deprecated
+### Migration (historical)
 
-Stubs remain discoverable until **removed at v1.1**. Prefer the replacement now.
+**W1–W3 deprecation command stubs were deleted in v1.1.0.** Use the live hubs only.
 Full checklist: [Migrate to v1.0.0](runbooks/migrate-to-v1.md).
 Authoritative old→new table: [CHANGELOG v1.0.0 Migration](../CHANGELOG.md#v100).
 
-| Command | Docs | Replacement |
-|---------|------|-------------|
-| `/init-team` | — | `/setup team` |
-| `/init-orchestration` | — | `/setup orchestration` |
-| `/scaffold-project` | — | `/setup project` |
-| `/focus` | [focus](commands/focus.md) | `/mode focus` |
-| `/blunt` | [blunt](commands/blunt.md) | `/mode blunt` |
-| `/metrics` | — | `/status metrics` |
-| `/standup` | [standup](commands/standup.md) | `/status standup` |
-| `/fix-ticket` | [fix-ticket](commands/fix-ticket.md) | `/debug ticket` |
-| `/blind-review` | — | `/council --blind` |
-| `/create-spec` | — | `/spec create` |
-| `/update-spec` | — | `/spec update` |
-| `/find-spec` | — | `/spec find` |
-| `/list-specs` | — | `/spec list` |
-| `/check-specs` | — | `/spec check` |
-| `/generate-specs` | — | `/spec generate` ([legacy baseline](setup.md#spec-generate-legacy-project-baseline)) |
-| `/generate-tests` | — | `/spec tests` |
-| `/reflect-specs` | — | `/spec reflect` |
-| `/memory-config` | — | `/memory config` ([setup](setup.md#memory-configuration-memory-config)) |
-| `/memory-distill` | — | `/memory distill` |
-| `/memory-export` | — | `/memory export` |
-| `/memory-search` | — | `/memory search` |
-| `/memory-stats` | — | `/memory stats` |
-| `/validate-memory` | — | `/memory validate` |
-| `/incident` | — | removed (no war-room Surface; use devops role + `/debug`) |
-| `/demo` | — | removed (use `/setup` + `/kickoff` on scratch) |
-| `/local-do` | — | removed (local-agent offload excised) |
+| Old command | Use instead |
+|-------------|-------------|
+| `/init-team` · `/init-orchestration` · `/scaffold-project` | `/setup team` · `/setup orchestration` · `/setup project` |
+| `/focus` · `/blunt` | `/mode focus` · `/mode blunt` |
+| `/metrics` · `/standup` | `/status metrics` · `/status standup` |
+| `/fix-ticket` | `/debug ticket` |
+| `/blind-review` | `/council --blind` |
+| `/create-spec` · `/update-spec` · `/find-spec` · `/list-specs` · `/check-specs` · `/generate-specs` · `/generate-tests` · `/reflect-specs` | `/spec <sub>` |
+| `/memory-config` · `/memory-distill` · `/memory-export` · `/memory-search` · `/memory-stats` · `/validate-memory` | `/memory <sub>` |
+| `/incident` · `/demo` · `/local-do` | removed (use `/debug` / `/setup`+`/kickoff` / normal IC flow) |
 
 `/worktree list` and `/worktree status` moved to `/status worktree`; live mutate path is `/worktree release <slug>` only.
 

@@ -21,7 +21,7 @@
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, commands/worktree.md (release only), commands/status.md (`/status worktree`), skills/orchestrate, wrap-ticket, AGENTS.md |
 | SPEC-017 | Autonomous CI Watch + Task DAG | ACTIVE | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh, skills/orchestrate/dag-lib.sh, skills/ci-watch/SKILL.md, skills/ci-watch/poll.sh, skills/ci-watch/sidecar.sh, skills/ci-watch/detect-mode.sh |
-| SPEC-018 | Session Handoff (cold + warm) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012), skills/retro-gate/gate.sh (refactor) |
+| SPEC-018 | Session Handoff (STM packet) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012); CDT-79 STM packet / spine-mine rework |
 | SPEC-019 | Local-Agent Offload via OpenCode | DEPRECATED | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
 | SPEC-020 | Loop-Prompt Architect (/craft-loop) | ACTIVE | commands/craft-loop.md, skills/craft-loop/SKILL.md, program-template.md, examples/ |
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
@@ -70,6 +70,7 @@
 | 2026-07-14 | SPEC-028 renumbered from colliding SPEC-025 (CDV-197): `/fix-ticket` workflow; CDV-192 owns SPEC-025 for `/epic`. |
 | 2026-07-14 | SPEC-011 extended (CDV-195): `/validate-memory --reconcile` cross-agent contradiction detection; schema v4 reconcile_log. |
 | 2026-07-14 | SPEC-025 implemented (CDV-192): `/epic` umbrella decompose + sequenced handoff (`epic-lib` + standup/wrap hooks); status DRAFT→ACTIVE. |
+| 2026-07-23 | SPEC-018 major rewrite (CDT-79): five-section inject brief → STM packet / compact seed; shared spine-mine (2 miners + git + assemble); State now; M4/M6/M7/M10/M11 rewrite; M14 warm mid-write carve-out; PreCompact remains spine rescue |
 | 2026-07-14 | SPEC-027 implemented (CDV-193): /incident war-room + postmortem (timeline + workspace); status DRAFT→ACTIVE. |
 | 2026-07-15 | SPEC-029 DRAFT: debug reopen detector + multi-surface done gates (from plugin bug/refactor eval + May refine autopsy); partial skill implementation. |
 | 2026-07-16 | SPEC-029 dogfood on describer (Grok `/debug`); status DRAFT→ACTIVE. |
