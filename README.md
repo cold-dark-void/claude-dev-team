@@ -239,8 +239,11 @@ tool call:
   allowlist (dev tools, agent-bootstrap patterns, read-only utilities, `sqlite3`, `curl`).
   Destructive commands like `rm` and `wget` still prompt. The canonical list lives in
   `skills/scaffold-project/SKILL.md` — the single source of truth.
-- **Orchestration (`/setup orchestration`)** — grants `Bash(*)` under `bypassPermissions`,
-  where the OS sandbox, not the allowlist, is the boundary.
+- **Orchestration (`/setup orchestration`)** — grants the **matrix allow set**
+  (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) under `dontAsk` with
+  sandbox enabled + `autoAllowBashIfSandboxed` (matrix winner Cell C; evidence in
+  `docs/runbooks/permission-posture-matrix.md`). The OS sandbox is the boundary;
+  `dontAsk` never prompts (allow/auto-allow run; everything else is denied).
 
 Extend for your stack by adding entries (`Bash(terraform:*)`, `Bash(kubectl:*)`, …) to
 `.claude/settings.json`. Full details in the **[Setup Guide](docs/setup.md)**.

@@ -46,6 +46,11 @@ TTY → confirm each repair. Non-TTY → apply. Second `--fix` is a no-op when c
 | 2 | ≥1 FAIL |
 | 64 | Usage error |
 
+**Caller gate (SPEC-022 M6b):** `/setup team` and `/setup orchestration` hard-gate
+on **`dev-team:doctor`** exit codes (≤1 continue; 2 block) — not the harness
+`/doctor`. Doctor remains pure diagnostic — callers own the gate; override is
+`--skip-doctor` on those setup subs.
+
 ## Step 1: Resolve doctor.sh
 
 Install-aware resolution via `plugin-dir.sh` (script ships in the plugin, not

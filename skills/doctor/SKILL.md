@@ -48,6 +48,10 @@ doctor.sh [--json] [--fix] [--only <check-id|group>] [-h|--help]
 
 SKIP does not affect the exit code.
 
+**Caller gate (SPEC-022 M6b):** bootstrap surfaces MAY treat exit ≤1 as proceed
+and exit 2 as block (`/setup team`, `/setup orchestration`). Doctor itself stays
+non-bootstrap — gating is the caller's job.
+
 ### JSON schema (`doctor_schema: "1"`)
 
 ```
@@ -93,7 +97,7 @@ SKIP does not affect the exit code.
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored hook path; stale wt-lock; held distilling_lock; sandbox/bypass coherence |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored hook path; stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions` or `dontAsk` without sandbox) |
 | **SKIP** | Probe tool for that check absent; dev-only check in consumer |
 | **PASS** | Invariant holds |
 

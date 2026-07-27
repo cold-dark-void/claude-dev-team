@@ -10,7 +10,9 @@ description: >
 > **Entry:** `/setup orchestration`.
 > Discovery Surface is `/setup` — this file is **not** a primary skill.
 > Protocol body kept for skill-delegate from `commands/setup.md` (CDT-46-C4).
-> Live helper retained: `check-hook-templates.sh` (release gate).
+> Live helpers retained: `check-hook-templates.sh` (release gate);
+> `disclose-force-overwrite.sh` (CDT-51 AC5 force-overwrite disclosure);
+> `test-orch-allowlist.sh` (CDT-51 TL P0 matrix allow ⊇ greenfield template).
 
 Bootstrap the files needed for Claude Code Agent Teams in the current project.
 
@@ -36,6 +38,49 @@ project/
 ```
 
 ## Instructions
+
+### Step 0: Doctor hard-gate (before any mutation)
+
+Hard-gate on plugin **`dev-team:doctor`** (SPEC-005 / SPEC-022 M6b). This is the
+plugin doctor surface — **not** the Claude Code harness built-in `/doctor`.
+Exit ≤1 (PASS or WARN-only) continues; exit 2 (FAIL) **blocks** bootstrap.
+Override: `--skip-doctor` prints an explicit WARNING then continues (silent skip
+forbidden). Marketplace install has no gate.
+
+Parse `--skip-doctor` from remaining args passed through from `/setup orchestration`.
+
+```bash
+# Parse --skip-doctor from remaining args (do not strip other flags)
+SKIP_DOCTOR=0
+for _a in "$@"; do
+  case "$_a" in --skip-doctor) SKIP_DOCTOR=1 ;; esac
+done
+
+if [ "$SKIP_DOCTOR" -eq 1 ]; then
+  echo "WARNING: doctor gate skipped (--skip-doctor). Proceeding without dev-team:doctor health check." >&2
+else
+  # Locate plugin root (PDH) — same install-aware formula as /doctor
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+  DOCTOR_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/doctor/doctor.sh 2>/dev/null) || DOCTOR_SH=""
+  if [ -z "$DOCTOR_SH" ] || [ ! -f "$DOCTOR_SH" ]; then
+    echo "FAIL: dev-team:doctor (plugin /doctor) not found — cannot gate /setup orchestration." >&2
+    echo "Remediation: reinstall the dev-team plugin, then re-run /setup orchestration (or pass --skip-doctor)." >&2
+    # STOP — do not mutate settings/hooks/AGENTS.md
+    exit 2
+  fi
+  set +e
+  bash "$DOCTOR_SH"
+  DOCTOR_RC=$?
+  set -e
+  if [ "$DOCTOR_RC" -ge 2 ]; then
+    echo "FAIL: dev-team:doctor exited $DOCTOR_RC (FAIL). /setup orchestration blocked." >&2
+    echo "Remediation: fix FAIL rows above, re-run /doctor (plugin surface dev-team:doctor — not the Claude Code harness /doctor), then retry /setup orchestration. Override: /setup orchestration --skip-doctor" >&2
+    # STOP — do not mutate settings/hooks/AGENTS.md
+    exit 2
+  fi
+  # exit 0 (PASS) or 1 (WARN-only) → continue to Step 1
+fi
+```
 
 ### Step 1: Inventory what exists
 
@@ -278,22 +323,32 @@ Using the `allowedDomains` list from Step 2, write the settings file.
   },
   "permissions": {
     "allow": [
-      "Bash(*)"
+      "Bash(*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Agent",
+      "Task"
     ],
-    "defaultMode": "bypassPermissions"
+    "defaultMode": "dontAsk"
   }
 }
 ```
 
-> **RISK (intentional posture).** `defaultMode: "bypassPermissions"` + `Bash(*)`
-> means every spawned agent gets unprompted, arbitrary shell with no per-command
-> approval. The ONLY containment is the OS sandbox above. Users who run with
-> "no sandbox" (or on a platform where bubblewrap is unavailable) accept that
-> blast radius: any agent — including one steered by injected transcript/issue
-> content — can run any command on the host. Combined with the network-downloaded
-> embedding extensions (`/setup team`), this also means unprompted native-code
-> loading. This is a deliberate zero-friction-orchestration trade-off; keep the
-> sandbox enabled unless you fully trust every task source.
+> **RISK (intentional posture — matrix winner Cell C).** `defaultMode: "dontAsk"` +
+> matrix allow set (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) + sandbox
+> (`enabled` + `autoAllowBashIfSandboxed`) is the shipped orchestration posture
+> (CDT-51 AC1 evidence: `docs/runbooks/permission-posture-matrix.md`). `dontAsk`
+> never prompts: tools on the allowlist (or auto-allowed by the sandbox) run
+> unprompted; everything else is **denied** (not asked). Under `dontAsk`, a
+> bare `Bash(*)`-only allowlist fails zero-prompt for non-Bash tools — the full
+> matrix set is required. The OS sandbox is the containment boundary for
+> `Bash(*)`. Users who disable the sandbox (or run where bubblewrap is
+> unavailable) lose that boundary — keep sandbox enabled unless you fully trust
+> every task source. (Interactive/solo path is separate: `/setup project` uses
+> `acceptEdits` + a curated Bash allowlist, not this wildcard.)
 
 **If `settings.json` already exists** — read it, then merge in the missing keys:
 - Add `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }` if `env` key is absent
@@ -303,8 +358,66 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 - `PreCompact`/`PostCompact`/`SessionStart` require a Claude Code version that supports those hook events; on older versions the entries are inert (graceful absence — SPEC-018 M18)
 - `PostToolUseFailure`/`PermissionDenied`/`StopFailure` wire the shared friction ledger handler (SPEC-012 M1/M5); on older CC versions that lack an event the entry is inert (graceful absence). All three point at the same `friction-capture.sh`.
 - Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists: ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`; merge new domains into existing `allowedDomains` (no duplicates); preserve any existing `filesystem` overrides
-- Ensure `permissions.allow` contains `"Bash(*)"` and `permissions.defaultMode` is `"bypassPermissions"` — add or update as needed, but preserve any other existing allow entries
+- Ensure `permissions.allow` contains **every** entry from the greenfield template allow list above (matrix set: `Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task`) — add any missing entries; preserve any other existing allow entries. Ensure `permissions.defaultMode` matches the **managed orchestration defaultMode** from the greenfield template block above (read that template value, then write it — currently `"dontAsk"`; do not hard-code a second diverging copy). Add or update as needed (including flipping a prior `bypassPermissions` / other mode to the managed value)
+- **Force-overwrite disclosure (SPEC-005 / CDT-51 AC5):** when a re-run **changes** an existing managed value (especially `permissions.defaultMode`, `sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`), you **MUST** print old value, new value, and restore key/path **before** writing. Forced + silent = FAIL. Use the helper below (or print the same labeled block). Adding a missing key is not a force-overwrite (no disclosure required).
 - Write the merged result back as valid JSON
+
+#### Force-overwrite disclosure helper (managed settings)
+
+Locate the helper (install-aware PDH, same formula as Step 0):
+
+```bash
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+DISCLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/init-orchestration/disclose-force-overwrite.sh 2>/dev/null) || DISCLOSE=""
+```
+
+For each managed key that will change, run **before** the write. Read the new defaultMode from the greenfield template in this skill (not a second hard-coded string):
+
+```bash
+# Re-resolve DISCLOSE (each fenced bash block is a fresh shell — skill-lint C1)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+DISCLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/init-orchestration/disclose-force-overwrite.sh 2>/dev/null) || DISCLOSE=""
+SETTINGS=".claude/settings.json"
+# NEW_DEFAULT_MODE = value of permissions.defaultMode in the greenfield template above
+# (currently dontAsk / Cell C winner — re-read the template if it changes)
+NEW_DEFAULT_MODE="<new defaultMode value from greenfield template>"
+
+# permissions.defaultMode — primary AC5 path
+if [ -n "$DISCLOSE" ] && [ -f "$DISCLOSE" ]; then
+  set +e
+  bash "$DISCLOSE" \
+    --settings "$SETTINGS" \
+    --key permissions.defaultMode \
+    --new "$NEW_DEFAULT_MODE" \
+    --backup-dir .claude
+  DISC_RC=$?
+  set -e
+  # exit 0 → disclosed (force write ok); exit 1 → already matches (no-op)
+else
+  # Fallback: agent MUST print the same labels if helper missing
+  OLD_DM=$(python3 -c "import json; d=json.load(open('$SETTINGS')); print(d.get('permissions',{}).get('defaultMode',''))" 2>/dev/null || true)
+  if [ -n "$OLD_DM" ] && [ "$OLD_DM" != "$NEW_DEFAULT_MODE" ]; then
+    cat <<EOF
+FORCE-OVERWRITE: managed value will be replaced
+  key:     permissions.defaultMode
+  old:     ${OLD_DM}
+  new:     ${NEW_DEFAULT_MODE}
+  restore: permissions.defaultMode  (set back to: ${OLD_DM})
+EOF
+  fi
+fi
+
+# sandbox.enabled / sandbox.autoAllowBashIfSandboxed — same disclosure if forcing true over a different value
+for _sk in sandbox.enabled:true sandbox.autoAllowBashIfSandboxed:true; do
+  _key="${_sk%%:*}"
+  _new="${_sk#*:}"
+  if [ -n "$DISCLOSE" ] && [ -f "$DISCLOSE" ]; then
+    bash "$DISCLOSE" --settings "$SETTINGS" --key "$_key" --new "$_new" --backup-dir .claude || true
+  fi
+done
+```
+
+Disclosure block labels are fixed (`key:`, `old:`, `new:`, `restore:`) so re-runs never silently clobber. The `restore:` line is either a backup path under `.claude/settings.force-*.json` or the exact setting key plus previous value.
 
 ---
 
@@ -581,7 +694,34 @@ Then make it executable:
 chmod +x .claude/hooks/stop-review.sh
 ```
 
-**Re-running on an existing install**: if `.claude/hooks/stop-review.sh` already exists and contains `exit 2` (the legacy blocking version) or references `SESSION_ID` for its stamp key, overwrite it with the content above. Sweep stale stamps with `find .claude -maxdepth 1 -name '.stop-review-*' -delete`.
+**Re-running on an existing install**: if `.claude/hooks/stop-review.sh` already exists and contains `exit 2` (the legacy blocking version) or references `SESSION_ID` for its stamp key, **force-overwrite** it with the content above — but **MUST** disclose first (SPEC-005 / CDT-51 AC5; forced + silent = FAIL):
+
+```bash
+# Re-resolve DISCLOSE (each fenced bash block is a fresh shell — skill-lint C1)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+DISCLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/init-orchestration/disclose-force-overwrite.sh 2>/dev/null) || DISCLOSE=""
+HOOK=".claude/hooks/stop-review.sh"
+if [ -f "$HOOK" ] && grep -qE 'exit 2|SESSION_ID' "$HOOK" 2>/dev/null; then
+  ts=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || date +%s)
+  bak=".claude/hooks/stop-review.sh.bak-force-${ts}"
+  cp -p -- "$HOOK" "$bak" 2>/dev/null || cp -p "$HOOK" "$bak"
+  if [ -n "$DISCLOSE" ] && [ -f "$DISCLOSE" ]; then
+    bash "$DISCLOSE" --key "$HOOK" --old "legacy-blocking-or-SESSION_ID-stamp" \
+      --new "non-blocking self-review (current template)" --restore "$bak"
+  else
+    cat <<EOF
+FORCE-OVERWRITE: managed value will be replaced
+  key:     ${HOOK}
+  old:     legacy-blocking-or-SESSION_ID-stamp
+  new:     non-blocking self-review (current template)
+  restore: ${bak}
+EOF
+  fi
+  # then Write the template content above over $HOOK
+fi
+```
+
+Sweep stale stamps with `find .claude -maxdepth 1 -name '.stop-review-*' -delete`.
 
 ---
 
@@ -1318,7 +1458,7 @@ Print a summary of what was done:
 ✅ Agent Teams orchestration initialized!
 
 Updated:
-  📄 .claude/settings.json   — sandbox + bypassPermissions + PreToolUse + PostToolUse + Stop + TaskCompleted + PreCompact + PostCompact + SessionStart + PostToolUseFailure + PermissionDenied + StopFailure hooks
+  📄 .claude/settings.json   — sandbox + dontAsk + matrix allow (Bash(*)+Read/Write/Edit/Glob/Grep/Agent/Task) + PreToolUse + PostToolUse + Stop + TaskCompleted + PreCompact + PostCompact + SessionStart + PostToolUseFailure + PermissionDenied + StopFailure hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
@@ -1354,6 +1494,7 @@ To use Agent Teams:
 ## Important Notes
 
 - This skill is idempotent — safe to run multiple times without clobbering existing content
+- **Force-overwrite disclosure (CDT-51 AC5):** any force change of a managed settings value or hook file MUST print `key` / `old` / `new` / `restore` before the write (`disclose-force-overwrite.sh` or the fallback block). Forced + silent = FAIL
 - The hook script exits 0 by default (pass-through) until customized
 - Agent Teams require Claude Code restart after `settings.json` changes for the env var to take effect
 - Teammates do not inherit conversation history — AGENTS.md is their primary orientation document
