@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.1
+- **CDT-92 — Grok warm `/handoff`** — dual-host `discover-warm` (Grok wins when resolvable; Claude bridge does not override active Grok); `grok-to-claude-jsonl.py` normalizes Grok `chat_history.jsonl` to Claude-shaped spine; bare warm uses same prepare → miners → assemble path as Claude Code; SPEC-018 M10b + dogfood/docs honesty.
+
 ### v1.1.0
 
 - **CDT-79 — STM packet /handoff** — rework cold/warm handoff from five-section inject brief to **STM packet** compact seed (`State now → Through-line → appendix`); shared spine-mine (2 LLM miners + git), LLM-free `assemble.py`, warm = cold-on-self + event_id-only annotation; SPEC-018 rewrite + docs/runbook.

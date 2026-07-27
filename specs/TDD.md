@@ -21,7 +21,7 @@
 | SPEC-015 | Refactor Workflow | APPROVED | skills/refactor/SKILL.md |
 | SPEC-016 | Worktree Isolation | ACTIVE | skills/worktree-lib.sh, commands/worktree.md (release only), commands/status.md (`/status worktree`), skills/orchestrate, wrap-ticket, AGENTS.md |
 | SPEC-017 | Autonomous CI Watch + Task DAG | ACTIVE | skills/orchestrate/SKILL.md, skills/kickoff/SKILL.md, skills/standup/SKILL.md, skills/wrap-ticket/SKILL.md, skills/orchestrate/task-store.sh, skills/orchestrate/dag-lib.sh, skills/ci-watch/SKILL.md, skills/ci-watch/poll.sh, skills/ci-watch/sidecar.sh, skills/ci-watch/detect-mode.sh |
-| SPEC-018 | Session Handoff (STM packet) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012); CDT-79 STM packet / spine-mine rework |
+| SPEC-018 | Session Handoff (STM packet) | ACTIVE | skills/handoff/, commands/handoff.md, skills/transcript-parse/ (consumed; owned by SPEC-012); CDT-79 STM packet / spine-mine rework; CDT-92 Grok warm: `grok-to-claude-jsonl.py` + `grok-to-claude-jsonl-test.sh`, dual-host `discover-warm.sh` + `discover-warm-test.sh` (Grok precedence / stale Claude bridge), fixtures/grok-chat-mini.jsonl |
 | SPEC-019 | Local-Agent Offload via OpenCode | DEPRECATED | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
 | SPEC-020 | Loop-Prompt Architect (/craft-loop) | ACTIVE | commands/craft-loop.md, skills/craft-loop/SKILL.md, program-template.md, examples/ |
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
@@ -38,6 +38,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-07-27 | CDT-92: SPEC-018 coverage — Grok warm adapter + dual-host discover tests (M10b / Test 11c) |
 | 2026-07-22 | CDT-54 / CDT-46-C8 Task 1: coverage notes — SPEC-002/005 hook template SoT (live hooks not package product); SPEC-010 Step 4.7 dual-copy retired/reduced. Spec contract amends: 002/005/009/010/012/018/022/025. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: promote SPEC-002–010 INFERRED→ACTIVE (file headers); SPEC-028 ACTIVE→DEPRECATED (protocol retained for `/debug ticket`); SPEC-026 verify-keep ACTIVE. |
 | 2026-03-16 | SPEC-001 drafted and implemented (v0.15.0) |

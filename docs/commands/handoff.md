@@ -32,11 +32,36 @@ default `stm`.
 | Mode | Invocation | What it does |
 |------|------------|--------------|
 | **Cold** | `/handoff <session-uuid> [slug]` | Spine-mines that past session; writes the full STM packet; **prints State now + Through-line** and **cites the packet path** for appendix (M7). Cache hit serves core + path without re-mine (M8). |
-| **Warm** | bare `/handoff` or `/handoff --slug <s>` | Spine-mines **this** session's live JSONL via the same engine; **writes packet file only** (M10). Packet header includes `mode: warm` + `session: <id>` (CDT-85 bridge). Not printed as primary product — you are still in the session. Missing session id → clear fail (no freeform live-context dual path; common on non-Claude hosts). |
+| **Warm** | bare `/handoff` or `/handoff --slug <s>` | Spine-mines **this** session's live JSONL via the same engine; **writes packet file only** (M10). Packet header includes `mode: warm` + `session: <id>` (CDT-85 / CDT-92 bridge). Not printed as primary product — you are still in the session. Works on **Claude Code and Grok** (dual-host discover). Neither host resolvable → clear fail (no freeform live-context dual path). |
 | **Help** | `/handoff --help` | Prints usage and exits. Any unknown flag prints usage too. |
 
 The `<session-uuid>` is a UUID like `00000000-0000-4000-8000-000000000004` — one
 surfaced by [`/recall`](./recall.md) or visible in a transcript filename.
+
+### Warm discover — Grok vs Claude (CDT-92)
+
+Bare `/handoff` resolves the live host via `skills/handoff/discover-warm.sh`
+(command fence stays thin — no host branch after discover):
+
+| Host | Session id | Transcript for prepare | Bridge `host` |
+|------|------------|------------------------|---------------|
+| **Grok** | Grok session id | Claude-shaped **adapted** JSONL under `${TMPDIR}` (from raw `chat_history.jsonl`) | `grok` (bridge stores **source** `chat_history` path) |
+| **Claude** | Claude session id | live `*.jsonl` under projects dir | `claude` |
+
+**Host selection:**
+
+1. **Grok first** if a Grok source is resolvable (env / cwd-newest under
+   `~/.grok/sessions`). A **stale Claude bridge does not override Grok** —
+   Grok wins when resolvable even if `.live-session.json` still says
+   `host: claude`.
+2. Else **Claude** (CDT-85 env → bridge → stem → cwd-newest).
+3. Else **fail hard** (clear diagnostic; no freeform warm STM).
+
+**Grok env** (optional; defaults: cwd + `~/.grok/sessions`):
+`GROK_SESSION_ID`, `GROK_TRANSCRIPT_PATH`, `GROK_SESSIONS_DIR`, `GROK_CWD`.
+
+Shared spine-mine after prepare is unchanged (M3b). Packet still lands under
+the **target** project MROOT (CDT-80).
 
 ### The STM packet
 

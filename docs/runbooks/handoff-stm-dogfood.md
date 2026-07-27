@@ -10,9 +10,10 @@ human 3/3 only after real sessions.
 
 **Status:** protocol ready · **human 3/3 dogfood OPEN** (do not claim pass without live runs).
 
-**Warm thesis (CDT-85):** automated session-id bridge + mode header landed;
-**AC-16 warm is NOT 3/3** until a human runs bare `/handoff` on **Claude Code**
-(not Grok) and scores anti-relitigation. See [Warm dogfood](#warm-dogfood-cdt-85)
+**Warm thesis (CDT-85 / CDT-92):** dual-host discover + session-id bridge + mode
+header landed (Claude and Grok automated paths). **AC-16 warm is NOT 3/3** until
+a human runs bare `/handoff` on **Claude Code** and scores anti-relitigation
+(Grok unit/dogfood alone does not close AC-16). See [Warm dogfood](#warm-dogfood-cdt-85)
 below. Cold-only dogfood ≠ full product thesis.
 
 ---
@@ -184,23 +185,37 @@ bridge for later cold re-capture / `Supersedes:`.
 ### Automated coverage (shipped — not a human 3/3 substitute)
 
 ```bash
-bash skills/handoff/discover-warm-test.sh   # bridge write/read, cwd-newest, fail honesty
-bash skills/handoff/finalize-test.sh        # warm file-only + mode:warm header
-bash skills/handoff/assemble-test.sh        # mode cold|warm|omit
-bash skills/handoff/precompact-test.sh      # M14 carve-out scoped (warm ok / cold decline)
+bash skills/handoff/grok-to-claude-jsonl-test.sh  # CDT-92 adapter (Grok → Claude-shaped)
+bash skills/handoff/discover-warm-test.sh         # dual-host: Grok first, stale Claude bridge no override, Claude regression, fail honesty
+bash skills/handoff/finalize-test.sh              # warm file-only + mode:warm header
+bash skills/handoff/assemble-test.sh              # mode cold|warm|omit
+bash skills/handoff/precompact-test.sh            # M14 carve-out scoped (warm ok / cold decline)
 ```
 
-### Remaining human gate (Claude Code only)
+### Grok warm note (CDT-92)
 
-Grok / non-Claude hosts typically lack `CLAUDE_SESSION_ID` → discover **fails
-honestly** (no freeform live-context dual path). Warm product thesis requires
-a real Claude Code session.
+Grok bare `/handoff` is a **supported automated path**: discover resolves
+`chat_history.jsonl` under `~/.grok/sessions/<urlenc-cwd>/<id>/`, adapts to
+Claude-shaped JSONL, then shared spine-mine. Optional env: `GROK_SESSION_ID`,
+`GROK_TRANSCRIPT_PATH`, `GROK_SESSIONS_DIR`, `GROK_CWD`. When Grok is resolvable
+it **wins over a stale Claude bridge**. Neither host → fail hard (still no
+freeform dual path).
+
+Grok automated green ≠ AC-16 human 3/3. Score anti-relitigation on Claude Code
+for the human gate below. PDH verify still applies before any scoring run.
+
+### Remaining human gate (Claude Code — AC-16 warm)
+
+Warm product thesis for AC-16 still requires a real **Claude Code** session
+(anti-relitigation after compact @packet). Grok dogfood may be recorded as
+extra rows but does not close the gate alone.
 
 **Exact remaining steps (operator):**
 
-1. Open a **Claude Code** session in this repo (feat/CDT-79 or released plugin
-   with CDT-85). Prefer a long-debug thrash session with ≥1 kill + user ruling.
-2. PDH verify: `bash skills/plugin-dir.sh verify` → `stm_marker=stm`.
+1. Open a **Claude Code** session in this repo (feat/CDT-92 or released plugin
+   with CDT-85/CDT-92). Prefer a long-debug thrash session with ≥1 kill + user ruling.
+2. **PDH verify (MUST):** `bash skills/plugin-dir.sh verify` → `stm_marker=stm`
+   (same gate as cold — see §0 above).
 3. If env is empty, export before bare handoff (optional when cwd-newest works):
    ```bash
    export CLAUDE_SESSION_ID=<uuid-from-transcript-filename>
@@ -214,7 +229,7 @@ a real Claude Code session.
    - Packet under **target** `$MROOT/.claude/handoff/`
    - Header meta includes `mode: warm` and `session: <same-id>`
    - Filename contains that session id
-   - Bridge file `$MROOT/.claude/handoff/.live-session.json` present
+   - Bridge file `$MROOT/.claude/handoff/.live-session.json` present (`host: claude`)
    - Fixed sections: `## State now` → `## Through-line` → `## appendix`
    - Mid-write during active chat still succeeds (warm M14 carve-out)
 6. Compact seed loop:
@@ -230,13 +245,14 @@ a real Claude Code session.
 | Warm thesis checklist | Status |
 |-----------------------|--------|
 | Session-id bridge (discover + packet header/filename) | automated |
-| Fail honesty when no session id (Grok) | automated |
+| Dual-host discover (Grok wins when resolvable; stale Claude bridge no override) | automated |
+| Fail honesty when neither host resolvable | automated |
 | Mid-write warm carve-out; cold still declines | automated |
 | Human bare `/handoff` on Claude Code → compact @packet anti-relitigation | **OPEN — human** |
 | AC-16 3/3 including warm | **NOT claimed** |
 
 **Do not** score freeform live-context essays as warm STM. **Do not** claim
-AC-16 warm 3/3 from cold-only dogfood or unit fixtures alone.
+AC-16 warm 3/3 from cold-only dogfood, Grok-only dogfood, or unit fixtures alone.
 
 ---
 
@@ -244,10 +260,10 @@ AC-16 warm 3/3 from cold-only dogfood or unit fixtures alone.
 
 - CI automation of AC-16 (human gate by design)
 - Claiming pass from unit fixtures alone (`events-thrash.json`, assemble tests) — PDH `plugin-dir-test.sh` is a separate CDT-82 gate, not a substitute for human 3/3
-- Claiming AC-16 warm 3/3 without Claude Code bare-`/handoff` anti-relitigation (CDT-85)
+- Claiming AC-16 warm 3/3 without Claude Code bare-`/handoff` anti-relitigation (CDT-85); Grok automated path alone is insufficient (CDT-92)
 - Linear dual-write of packet content (M11c)
 - Treating PreCompact rescue as ship-quality STM
-- Freeform live-context briefs scored as warm STM when discover fails
+- Freeform live-context briefs scored as warm STM when discover fails (neither host)
 - “Fix” = delete entire `~/.claude/plugins/cache` (CDT-82 AC-8 forbids this as sole remedy; use PDH preference or `CLAUDE_PLUGIN_ROOT`)
 
 ---

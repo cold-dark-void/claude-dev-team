@@ -62,7 +62,21 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
 - **M8 — Result cache.** Distilled STM packet MUST be cached keyed by `(session uuid + last-message uuid)` and reused until the session grows. Cache MUST live outside `memory.db` under the target `$MROOT/.claude/handoff/cache/`.
 - **M9 — Freshness guard (cold).** If the target transcript was modified < 60 s ago, cold `/handoff` MUST warn and decline to parse mid-write (SPEC-012). Default cold path MUST NOT use the mid-write carve-out.
 - **M10 — Warm mode (spine-mine self).** Bare `/handoff` MUST spine-mine **this** session's JSONL via the shared engine (not freeform rewrite from live model memory). Warm MAY run an **annotation** pass whose output schema can only reference existing event IDs (`{ event_id, labels[], rank? }`) — MUST NOT invent evidence. Warm MUST write the packet **file-only** (not print core into the still-live session as primary product). Mid-write read of **this session's** transcript is allowed via a **warm-only** carve-out (M14 pattern): drop truncated last line; fail soft; carve-out MUST NOT be reachable from cold user path.
-- **M10b — Session-id bridge + honesty (CDT-85).** Warm discovery MUST resolve a live session id + transcript path (env → bridge file → transcript stem → cwd-newest under encoded project dir) and MUST fail with a clear diagnostic when unresolved — including on non-Claude/Grok hosts without `CLAUDE_SESSION_ID`. MUST NOT freeform-write a live-context brief and score it as warm STM. On success, warm MUST: (a) write/update a session-id bridge (`.live-session.json` under target handoff dir when resolvable); (b) emit packet header/footer `mode: warm` and `session: <id>`; (c) use that id in the filename so later cold/re-capture can `Supersedes:` the same session tip. AC-16 human 3/3 MUST NOT be claimed from cold-only dogfood or unit fixtures alone; warm thesis requires Claude Code bare-`/handoff` anti-relitigation (see dogfood runbook).
+- **M10b — Session-id bridge + honesty (CDT-85 / CDT-92).** Warm discovery MUST resolve a live session id + transcript path for the **host in use** via `skills/handoff/discover-warm.sh`.
+
+  **Host selection:** When a Grok source is resolvable for the live cwd, warm MUST use Grok and MUST NOT prefer a stale Claude bridge or Claude projects-dir tip (CDT-92). When only Claude is resolvable, Claude path (CDT-85) is unchanged. When neither resolves → fail clear; MUST NOT freeform-write live-context as warm STM. (Hosts without either Grok or Claude session resolution still fail honestly — not "Grok always fails.")
+
+  **Grok discovery precedence (when Grok path active):**
+  (1) Grok/session env (`GROK_SESSION_ID` / `GROK_TRANSCRIPT_PATH` / non-empty `SESSION_ID` that names a dir under `GROK_SESSIONS_DIR`);
+  (2) `CLAUDE_SESSION_ID` / `CLAUDE_TRANSCRIPT_PATH` / `TRANSCRIPT_PATH` **only if** the path is a Grok `chat_history.jsonl` under sessions root;
+  (3) newest-mtime `chat_history.jsonl` under `${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/`;
+  (4) else Grok miss (fall through to Claude discovery or hard fail).
+
+  **Claude discovery precedence:** unchanged from CDT-85 (env → bridge → stem → cwd-newest under `CLAUDE_PROJECTS_DIR`) but **skipped** when Grok already resolved.
+
+  **Grok normalize:** Before prepare, Grok `chat_history` MUST be adapted to Claude-shaped JSONL (user/assistant `message.role`, synthetic `uuid`, injected `cwd` for M7b resolve-root). Shared spine-mine after prepare is unchanged (M3b).
+
+  On success, warm MUST: (a) write/update a session-id bridge (`.live-session.json` under target handoff dir when resolvable) with the resolved host session id + **source** transcript path (Grok `chat_history` or Claude jsonl) and `host: grok|claude`; (b) emit packet header/footer `mode: warm` and `session: <id>`; (c) use that id in the filename so later cold/re-capture can `Supersedes:` the same session tip. AC-16 human 3/3 MUST NOT be claimed from cold-only dogfood, Grok-only dogfood, or unit fixtures alone; warm thesis still requires Claude Code bare-`/handoff` anti-relitigation (see dogfood runbook).
 - **M11 — Filename, slug, Supersedes.** Packet files MUST use `<YYYYMMDD-HHmm>-<session-id>-<slug>.md` under `.claude/handoff/`. Slug: optional user arg; else sanitized first decision/open text (≤40 chars); else `stm`. When the same session is re-captured, write a **new** file and set header `Supersedes: <prior-filename>` so the living tip is unambiguous (one-file default with versioned names).
 - **M11b — Unclear landing.** If the session did not land a root cause, the packet MUST NOT invent one. Prefer evidence trail + `open` events; optional `INFERRED` **label** on an existing event via annotation only.
 - **M11c — No Linear dual-write.** The handoff path MUST NOT write STM packet content into Linear. Epic/backlog work remains separate Surfaces.
@@ -97,6 +111,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 10. **Freshness guard (M9):** cold on transcript modified <60s → warn, decline.
 11. **Warm mode (M10):** bare `/handoff` runs spine-mine on live session file (not freeform-only); writes timestamped STM packet under `.claude/handoff/`; file-only.
 11b. **Session-id bridge (M10b / CDT-85):** discover writes `.live-session.json`; packet has `mode: warm` + `session: <id>`; missing session id → clear fail (no freeform dual path); filename id enables Supersedes.
+11c. **Grok warm (M10b / CDT-92):** fixture `chat_history` → adapter spine contains known phrase; discover prefers Grok over stale Claude bridge; prepare exit 0; packet under target MROOT; bridge `session_id` = Grok id (`host: grok`). Neither host → fail hard. Claude-only path still green when no Grok. Coverage: `skills/handoff/grok-to-claude-jsonl-test.sh`, `skills/handoff/discover-warm-test.sh` (Grok cases).
 12. **Supersedes (M11):** second warm capture same session → new filename + `Supersedes:` header pointing at prior.
 13. **PreCompact rescue (M12):** capture produces spine snapshot; MUST NOT claim to be an STM packet — assert rescue is spine-form / recover pointer present.
 14. **Registration (M13):** settings + template emit present after setup.
@@ -142,6 +157,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 | 2026-07-14 | PreCompact M12–M18 implemented (CDV-182) |
 | 2026-07-14 | CDV-205 sidechain signal reconstruction |
 | 2026-07-22 | CDT-54 M13 template SoT |
+| 2026-07-27 | **CDT-92:** M10b Grok warm host + `chat_history`→Claude adapter; dual-host discover (Grok wins when resolvable; stale Claude bridge must not win); Test 11c |
 | 2026-07-26 | **CDT-85:** M10b session-id bridge + AC-16 honesty — `.live-session.json`, packet `mode: warm|cold`, fail (not freeform) when session id missing; warm dogfood runbook gate explicit; no AC-16 3/3 warm claim from cold-only |
 | 2026-07-26 | **CDT-80:** M7b target-session write root — packet/cache/git from target project via `resolve-root.sh`, not invoker cwd; fail hard if undetermined |
 | 2026-07-23 | **CDT-79 major rework:** STM packet / compact seed; spine-mine; event assemble; State now; M4/M6/M7/M10/M11 rewrite; M14 warm carve-out; five-section brief retired; PreCompact remains spine rescue |
