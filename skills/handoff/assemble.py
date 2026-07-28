@@ -317,6 +317,7 @@ def load_prior_events(path):
 
     out = []
     i = 0
+    seen_ids = set()
     for stem in sorted(stem_map.keys()):
         raws = stem_map[stem]
         if not isinstance(raws, list):
@@ -334,8 +335,21 @@ def load_prior_events(path):
                     raw_id = parts[2]
             elif ":" in raw_id and raw_id.split(":", 1)[0] == stem_s:
                 raw_id = raw_id.split(":", 1)[1]
-            ev["_raw_id"] = raw_id
-            ev["id"] = f"prior:{stem_s}:{raw_id}"
+            base_id = f"prior:{stem_s}:{raw_id}"
+            final_id = base_id
+            final_raw = raw_id
+            if base_id in seen_ids:
+                n = 2
+                while f"{base_id}#{n}" in seen_ids:
+                    n += 1
+                final_id = f"{base_id}#{n}"
+                final_raw = f"{raw_id}#{n}"
+                sys.stderr.write(
+                    f"assemble: prior id collision: {base_id} -> {final_id}\n"
+                )
+            seen_ids.add(final_id)
+            ev["_raw_id"] = final_raw
+            ev["id"] = final_id
             ev["_generation"] = 0
             ev["_src_index"] = i
             i += 1

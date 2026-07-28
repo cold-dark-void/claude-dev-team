@@ -784,6 +784,150 @@ if python3 "$ASM" --events "$THRASH" --session-uuid "light-off" --mode warm --ou
    && grep -q '^mode: warm$' "$LIGHT_OFF"; then ok
 else bad "T27 bare warm must omit light meta"; fi
 
+# ---- T28: CDT-94 gen-3 prior id collision — load-time #N uniquify (RED before T1) ----
+# Fixture mimics post–gen-2 events_for_cache: two through_line rows share raw id tl-e1
+# with distinct bodies; state stem has a unique raw (non-collision pocket).
+G3_PRIOR="$WORK/g3-prior.json"
+G3_NOCOLL="$WORK/g3-nocoll.json"
+G3_MULTI="$WORK/g3-multi.json"
+python3 -c '
+import json, sys
+# poisoned gen-3 cache: duplicate raw tl-e1 under through_line + unique state id
+json.dump({
+  "leaf_uuid": "leaf-g3",
+  "events": {
+    "through_line": [
+      {"id": "tl-e1", "kind": "decision", "text": "gen1 prior body", "order": 1},
+      {"id": "tl-e1", "kind": "decision", "text": "gen2 delta body", "order": 1}
+    ],
+    "state": [
+      {"id": "s-unique", "kind": "open", "text": "unique state body", "order": 1}
+    ]
+  }
+}, open(sys.argv[1], "w"))
+# AC5: single-row prior — no collision, no #N, no collision stderr
+json.dump({
+  "events": {
+    "through_line": [
+      {"id": "tl-e1", "kind": "decision", "text": "solo prior body", "order": 1}
+    ]
+  }
+}, open(sys.argv[2], "w"))
+# AC8 multi-hop: raws already include a #2 form plus another bare collision
+json.dump({
+  "events": {
+    "through_line": [
+      {"id": "tl-e1", "kind": "decision", "text": "hop body A", "order": 1},
+      {"id": "tl-e1#2", "kind": "decision", "text": "hop body B", "order": 1},
+      {"id": "tl-e1", "kind": "decision", "text": "hop body C", "order": 1}
+    ]
+  }
+}, open(sys.argv[3], "w"))
+' "$G3_PRIOR" "$G3_NOCOLL" "$G3_MULTI"
+
+if python3 -c '
+import io, sys
+sys.path.insert(0, "'"$HERE"'")
+import assemble as a
+
+# --- AC1/AC3: dual raw tl-e1 → unique ids + stderr diagnostic ---
+err = io.StringIO()
+_old = sys.stderr
+sys.stderr = err
+try:
+    prior = a.load_prior_events("'"$G3_PRIOR"'")
+finally:
+    sys.stderr = _old
+err_s = err.getvalue()
+
+# load order: stems sorted → state first, then through_line
+tl = [e for e in prior if e["id"].startswith("prior:through_line:")]
+st = [e for e in prior if e["id"].startswith("prior:state:")]
+assert len(tl) == 2, ("want 2 through_line rows", [e["id"] for e in prior])
+assert [e["id"] for e in tl] == [
+    "prior:through_line:tl-e1",
+    "prior:through_line:tl-e1#2",
+], [e["id"] for e in tl]
+assert [e.get("_raw_id") for e in tl] == ["tl-e1", "tl-e1#2"], [e.get("_raw_id") for e in tl]
+assert tl[0]["text"] == "gen1 prior body" and tl[1]["text"] == "gen2 delta body"
+assert len({e["id"] for e in prior}) == len(prior), ("ids not unique", [e["id"] for e in prior])
+
+# stderr non-empty; collision token + #2
+assert err_s.strip(), "expected non-empty stderr on collision"
+assert "collision" in err_s.lower() or "prior id" in err_s.lower(), err_s
+assert "#2" in err_s, err_s
+assert "assemble:" in err_s, err_s
+
+# --- AC2: annotation targeting — base hits first body only; #2 hits second only ---
+anns = [
+    {"event_id": "prior:through_line:tl-e1", "labels": ["L_BASE"], "rank": 1},
+    {"event_id": "prior:through_line:tl-e1#2", "labels": ["L_HASH2"], "rank": 2},
+    {"event_id": "tl-e1", "labels": ["BARE_DROP"]},
+]
+_, applied, dropped = a.apply_annotations(prior, anns)
+assert applied == 2, applied
+assert dropped == 1, dropped
+by = {e["id"]: e for e in prior}
+assert "L_BASE" in (by["prior:through_line:tl-e1"].get("_labels") or [])
+assert "L_HASH2" not in (by["prior:through_line:tl-e1"].get("_labels") or [])
+assert "L_HASH2" in (by["prior:through_line:tl-e1#2"].get("_labels") or [])
+assert "L_BASE" not in (by["prior:through_line:tl-e1#2"].get("_labels") or [])
+# by_id must retain both bodies (no last-wins collapse)
+assert by["prior:through_line:tl-e1"]["text"] == "gen1 prior body"
+assert by["prior:through_line:tl-e1#2"]["text"] == "gen2 delta body"
+
+# --- AC5 non-collision pocket: unique raw loads without #n; no collision stderr ---
+assert len(st) == 1 and st[0]["id"] == "prior:state:s-unique"
+assert st[0].get("_raw_id") == "s-unique"
+assert "#n" not in st[0]["id"] and not st[0]["id"].endswith("#2")
+
+err2 = io.StringIO()
+sys.stderr = err2
+try:
+    solo = a.load_prior_events("'"$G3_NOCOLL"'")
+finally:
+    sys.stderr = _old
+err2_s = err2.getvalue()
+assert [e["id"] for e in solo] == ["prior:through_line:tl-e1"], [e["id"] for e in solo]
+assert solo[0].get("_raw_id") == "tl-e1"
+assert "collision" not in err2_s.lower(), err2_s
+
+# --- AC8 multi-hop: tl-e1, tl-e1#2, tl-e1 → …#3 for third ---
+err3 = io.StringIO()
+sys.stderr = err3
+try:
+    multi = a.load_prior_events("'"$G3_MULTI"'")
+finally:
+    sys.stderr = _old
+err3_s = err3.getvalue()
+mids = [e["id"] for e in multi]
+assert mids == [
+    "prior:through_line:tl-e1",
+    "prior:through_line:tl-e1#2",
+    "prior:through_line:tl-e1#3",
+], mids
+assert [e.get("_raw_id") for e in multi] == ["tl-e1", "tl-e1#2", "tl-e1#3"]
+assert len(set(mids)) == 3
+assert err3_s.strip() and ("#3" in err3_s or "collision" in err3_s.lower()), err3_s
+# soft: re-cache + reload still unique (events_for_cache may re-poison raws; load re-uniquifies)
+cached = a.events_for_cache(multi)
+import json, tempfile, os
+p = "'"$WORK"'/g3-recache.json"
+json.dump({"events": cached}, open(p, "w"))
+err4 = io.StringIO()
+sys.stderr = err4
+try:
+    again = a.load_prior_events(p)
+finally:
+    sys.stderr = _old
+aids = [e["id"] for e in again]
+assert len(aids) == len(set(aids)), ("multi-hop re-load not unique", aids)
+assert len(aids) == 3, aids
+
+print("ok")
+' 2>"$WORK/t28.err" | grep -q ok; then ok
+else bad "T28 gen-3 prior id collision: $(head -c 500 "$WORK/t28.err")"; fi
+
 # ---- summary ----
 echo "assemble-test: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

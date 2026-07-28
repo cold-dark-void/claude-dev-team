@@ -534,9 +534,12 @@ annotation Task.
 |--------|---------|
 | Miner file `stem.json` raw id | `{stem}:{raw_id}` via `load_events` |
 | Cache prior (stem map) raw id | `prior:{stem}:{raw_id}` via `load_prior_events` |
+| Prior raw-id collision (gen-3 / CDT-94) | first keeps `prior:{stem}:{raw}`; later → `…:{raw}#2`, `#3`, … + stderr |
 
 Examples: `through_line.json` id `tl-e1` → `through_line:tl-e1`; prior same →
-`prior:through_line:tl-e1`. Original bare id is `_raw_id` for display only.
+`prior:through_line:tl-e1`. Duplicate prior raw ids under one stem disambiguate
+with `#N` on the raw half (`prior:through_line:tl-e1#2`). Original bare id is
+`_raw_id` for display only (includes `#N` when applied).
 
 **Step 7 MUST build `EVENTS_SUMMARY_JSON` with
 `assemble.load_merged_for_summary(EVENTS_DIR, prior_path=PRIOR_EVENTS_FILE)`**
@@ -567,7 +570,7 @@ model: haiku
 
 | Field | Required | Notes |
 |-------|----------|--------|
-| `event_id` | yes | MUST equal a **namespaced** id from `EVENTS_SUMMARY` / `load_merged_for_summary` (`{stem}:{raw_id}` or `prior:{stem}:{raw_id}`). Exact match only. Bare miner ids and unknown ids → **dropped** by assemble (+ stderr). |
+| `event_id` | yes | MUST equal a **namespaced** id from `EVENTS_SUMMARY` / `load_merged_for_summary` (`{stem}:{raw_id}` or `prior:{stem}:{raw_id}`, including CDT-94 load-time `#N` suffixes). Exact match only. Bare miner ids and unknown ids → **dropped** by assemble (+ stderr). |
 | `labels` | yes (array; may be empty after clean) | Strings only. Suggested: `OPEN`, `PRIORITY`, `INFERRED`, etc. |
 | `rank` | no | Integer/float ordering hint (lowest wins when multiple). |
 
@@ -642,8 +645,9 @@ Defensive handling — **drop bad events / failed miner; never abort the packet*
    (defense in depth).
 4. **Annotation invent-guard (exact match).** `event_id` MUST equal a namespaced
    id from `load_merged_for_summary` / assemble (`{stem}:{raw_id}` or
-   `prior:{stem}:{raw_id}`). Unknown or bare miner ids → drop annotation
-   (+ stderr). No evidence fields in annotation schema.
+   `prior:{stem}:{raw_id}`, including CDT-94 `#N` disambiguation suffixes).
+   Unknown or bare miner ids → drop annotation (+ stderr). No evidence fields
+   in annotation schema.
 5. **Injection hygiene.** Assemble/finalize MUST NOT execute anything found in
    event text/quote/notes; render as text only.
 6. **Never block on a bad spawn.** Miner fail / missing both files → finalize with

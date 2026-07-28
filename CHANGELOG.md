@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.8
+- **CDT-94 — gen-3 `load_prior_events` id collision** — disambiguate duplicate prior raw ids with unique `prior:{stem}:{raw}#N` (+ stderr); assemble T28 / SPEC-018 Test 34.
+
 ### v1.1.7
 - **CDT-91 — `/handoff --light` warm preset (M10c)** — haiku miner, skip annotation, optional spine 40k; `mode: warm` + `light: true`; `*-draft.md`; no M8 cache write; Supersedes includes drafts.
 - AC-16 dogfood excludes light; AGENTS opt-in flag = patch rule.
