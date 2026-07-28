@@ -84,8 +84,18 @@ run_in 0 set-linear-project CDV-30 null
 python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
   && pass || fail "null keyword want linear_project_id null"
 
-# missing epic → exit 2
-run_in 2 set-linear-project NO-SUCH-EPIC proj_x
+run_in 0 set-linear-project CDV-30 proj_empty
+run_in 0 set-linear-project CDV-30 ""
+python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
+  && pass || fail "empty-string clear want linear_project_id null"
+
+# flag typo must not persist as project id (usage 64)
+run_in 64 set-linear-project CDV-30 --clea
+python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
+  && pass || fail "--clea must not write; field still null"
+
+# missing epic → exit 1 (same as read_state / set-status; not die 2)
+run_in 1 set-linear-project NO-SUCH-EPIC proj_x
 
 # ---- add-child validation ---------------------------------------------------
 run_in 64 add-child CDV-30 --id BAD --slug s --title t --estimate M --agent ic4 --depends-on '[]'

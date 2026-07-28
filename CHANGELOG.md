@@ -3,6 +3,10 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.2.1
+- **CDT-64 follow-up — set-linear-project exit codes + M12 protocol harden** — missing epic now exits **1** (same as `read_state`/`set-status`; was inverted **2**); reject unknown flags like `--clea` (usage 64, no silent id write); empty-string clear + typo tests.
+- **M12 protocol** — client-side exact-equality filter after `list_projects` query prefilter + cursor pagination; resolve Linear team once up front for project create and child issues; pin multi-hit advisory string.
+
 ### v1.2.0
 - **CDT-64 — `/epic` Linear Project per epic (M12)** — on approved decompose, best-effort create/link one Linear Project named exactly the epic title; attach dual-written children; record `linear_project_id` in `state.json`; fail-open reuses M5 notice; resume/redecompose idempotent (no bare-resume create when null).
 - **epic-lib** — nullable `linear_project_id` + `set-linear-project` / `--clear`; show/rollup surface the field; no network/MCP in bash.

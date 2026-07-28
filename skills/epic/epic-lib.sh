@@ -240,15 +240,24 @@ cmd_set_status() {
 cmd_set_linear_project() {
   # set-linear-project <EPIC-ID> <PROJECT-ID>|null|--clear
   # Persists only — never calls Linear MCP/network.
+  # Exit codes: 1 = not found (same as read_state / set-status); 2 reserved for
+  # "already exists" elsewhere; 64 = usage / invalid flag.
   local epic_id="${1:-}" raw="${2:-}"
   [ -n "$epic_id" ] || die 64 "set-linear-project: missing <EPIC-ID>"
   [ $# -ge 2 ] || die 64 "set-linear-project: missing <PROJECT-ID>|null|--clear"
 
-  epic_paths "$epic_id"
-  [ -f "$STATE" ] || die 2 "set-linear-project: epic not found: $epic_id"
+  # Reject flag typos (e.g. --clea) that would otherwise be stored as project ids.
+  case "$raw" in
+    -*)
+      case "$raw" in
+        --clear) ;;
+        *) die 64 "set-linear-project: unknown flag $raw (use PROJECT-ID|null|--clear)" ;;
+      esac
+      ;;
+  esac
 
   local st
-  st=$(cat "$STATE")
+  st=$(read_state "$epic_id")   # die 1 if epic missing
 
   case "$raw" in
     ""|null|--clear)
