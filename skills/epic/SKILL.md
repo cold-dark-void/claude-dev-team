@@ -271,27 +271,28 @@ before or with child issue dual-write:
 1. **MCP down** → print M5 notice (below); skip project; local path only (AC7).
 2. **MCP up** — resolve **exactly one** project named the epic `title` **exactly**
    (AC2; no `EPIC-ID` prefix, no fuzzy match):
-   - **Resolve team once up front** (OQ2 / M12.3): before `list_projects` /
-     `save_project` / child `save_issue`, resolve the Linear team that will be
-     used for **both** project create and child issue create (e.g. known team
-     from workspace/session context, or `list_teams` when ambiguous). Cache that
-     team id/name and pass it to every subsequent `save_project` / `save_issue`
-     in this approve path. If team cannot be resolved → fail-open (M5 notice);
-     skip project create (no hard-fail) and continue local; child issue path
-     still fail-opens independently if it needs a team later.
    - Call `list_projects` with `query` = epic title (substring search is fine as
      a prefilter). **Then filter client-side** to projects whose **name equals
      the epic title exactly** (string equality — not substring/prefix). Ignore
      near-matches (e.g. title + `" v2"`). If the tool paginates (default limit
      often 50), page with the cursor until no more results or an exact match is
      found — do not stop at the first page if zero exact survivors remain.
+     Listing and linking need **no team** — never gate this step on team
+     resolution (only `save_project` requires a team).
    - **≥1 exact survivor** → **link** the first exact survivor; do **not** create
      (AC3). If **multiple** exact-name survivors → still link the first, and print
      exactly: `Multiple Linear projects named '<title>' — linking first hit`
      (OQ3; this is a multi-hit advisory, **not** a second M5 fail-open string).
-   - **Zero exact survivors** → `save_project` with `name` = epic title and
-     `team` / `addTeams` = the team resolved above. If team was unknown → already
-     fail-opened; do not invent a team.
+   - **Zero exact survivors → create.** First **resolve the Linear team once**
+     (OQ2 / M12.3) — the team used for **both** `save_project` and child
+     `save_issue` (known team from workspace/session context, or `list_teams`
+     when ambiguous). Cache that team id/name and pass it to every subsequent
+     `save_project` / `save_issue` in this approve path; resolve it **once**, not
+     per child. Then `save_project` with `name` = epic title and
+     `team` / `addTeams` = that team. If the team cannot be resolved → fail-open
+     (M5 notice); skip **create only**, leave `linear_project_id` null, continue
+     local. Never invent a team. The child issue path still fail-opens
+     independently if it needs a team later.
    - On **any** project list/create failure → M5 notice; continue local; leave
      `linear_project_id` null (AC6).
 3. **On success** — record id (atomic):

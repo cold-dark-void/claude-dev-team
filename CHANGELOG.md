@@ -3,6 +3,11 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.2.3
+- **CDT-64 review fix — team resolution no longer gates project link** — M12.2/M12.3 + skill A.6: search and link need no team (only `save_project` does), so an epic whose project already exists still links when the team is unresolvable; team resolved **once** on the create branch and reused for every child `save_issue`; team-unknown now skips create only. P2 lock restated.
+- **SPEC-025 M12** — drop stray blank line that rendered the 1–10 requirement list loose from item 4.
+- **epic-lib** — flatten `set-linear-project` nested flag `case` into one case; behavior unchanged (`--clear`/`null`/empty clear; `--clea`/`-x` → usage 64). Tests 96/0.
+
 ### v1.2.2
 - **CDT-64 test coverage** — lock rollup `linear_project_id` (set + null); pre-v1.2.0 legacy state (field absent) via show/rollup `// null` + set creates field; project-field assertions are jq-only (no python3).
 

@@ -37,9 +37,8 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 - **M11 — Composition, not forking (MUST NOT).** `/epic` MUST NOT: write code or spawn IC agents directly; run its own review loops; re-implement kickoff/orchestrate internals; create or remove worktrees; or store epic children in SPEC-017's `.claude/tasks/` store. The epic layer ends at decomposition, sequencing, handoff, and state tracking — everything below is owned by SPEC-009/SPEC-016/SPEC-017.
 - **M12 — Linear Project per epic (best-effort; CDT-64 / F10).** On **approved** new decomposition (and on approved `--redecompose` when `linear_project_id` is still null), when the Linear MCP is available, `/epic` MUST create or link **exactly one** Linear Project associated with the epic **before or with** child dual-write, subject to fail-open (M5):
   1. **Name:** project name MUST equal the epic `title` field exactly (no `EPIC-ID` prefix, no fuzzy rename).
-  2. **Link-before-create:** session MUST search Linear (e.g. `list_projects` query by title as a prefilter) and then **filter client-side for exact string equality** on project name (not substring/prefix). On ≥1 exact survivor, **link** the first and MUST NOT create a second project. If multiple exact-name survivors exist, link the first and emit a one-line multi-hit advisory; MUST NOT create. Pagination: when the list tool is capped, session MUST page until no further results or an exact match is found.
-  3. **Create:** only when no exact-name survivor exists. Session MUST **resolve the Linear team once up front** (before project create and before child `save_issue`) and use that same team for both `save_project` and child issue create. If team is unknown, fail-open (M5) — no project create attempt that would hard-fail.
-
+  2. **Link-before-create:** session MUST search Linear (e.g. `list_projects` query by title as a prefilter) and then **filter client-side for exact string equality** on project name (not substring/prefix). On ≥1 exact survivor, **link** the first and MUST NOT create a second project. If multiple exact-name survivors exist, link the first and emit a one-line multi-hit advisory; MUST NOT create. Pagination: when the list tool is capped, session MUST page until no further results or an exact match is found. Search and link MUST NOT be gated on team resolution — only project *create* requires a team.
+  3. **Create:** only when no exact-name survivor exists. Before creating, session MUST **resolve the Linear team once** and use that same team for both `save_project` and every child `save_issue` in this approve path (resolved once, not per child). If team is unknown, fail-open (M5) — skip create only, leave `linear_project_id` null, and never invent a team; a project linked under M12.2 is unaffected.
   4. **Attach:** every dual-written child Linear issue MUST be attached to that project (e.g. `save_issue` with `project`). Attach failure for one child is fail-open for that child only (keep `linear_project_id`, continue remaining children).
   5. **Record:** returned project id MUST be stored as `state.json` `linear_project_id` (atomic write). Local child IDs remain canonical orchestration keys.
   6. **MCP down / project path failure:** no Linear project side effects required; local write-through proceeds; one M5 notice line (reuse — do not invent a second fail-open string).
@@ -102,7 +101,7 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 | ID | Resolution |
 |----|------------|
 | P1 / OQ1 | **Project name = epic `title` exactly** — no fuzzy match, no `EPIC-ID` prefix. |
-| P2 / OQ2 | **Resolve team once up front**; same team for `save_project` and child `save_issue`; if team unknown → fail-open (M5), no hard-fail create. |
+| P2 / OQ2 | **Resolve team once** on the create branch only (search/link needs no team); same team for `save_project` and every child `save_issue`; if team unknown → fail-open (M5), skip create, no hard-fail. |
 | P3 / OQ3 | **Multiple exact-name survivors → link first + multi-hit advisory; never create.** Client-side exact equality after query prefilter. |
 | P4 / OQ4 | **No project create on bare resume when `linear_project_id` is null**; create/link only on new approved decompose, or approved `--redecompose` when id still null. |
 | P5 / OQ5 | **Partial attach fail-open per child**; keep `linear_project_id`; continue other children. |
@@ -145,6 +144,7 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 | 2026-07-22 | CDT-54 / CDT-46-C8: M4/M5 + L2 — Linear preferred when MCP up; mandatory local write-through; process trackers never committed; local child IDs still canonical keys |
 | 2026-07-28 | CDT-64 / F10: M12 Linear Project per epic (exact-title create/link, attach children, `linear_project_id`); M3/M5/M6/M9 extended; fail-open reuses M5 notice; P1–P8 locks; labels retained |
 | 2026-07-28 | CDT-64 follow-up: M12.2 client-side exact-equality filter + pagination; M12.3 resolve team once up front; set-linear-project not-found = exit 1 |
+| 2026-07-28 | CDT-64 review fix: team resolution moved to the create branch only (search/link never gated on team, so an existing project still links when team is unresolvable); P2 restated |
 
 **Covers**: `commands/epic.md`, `skills/epic/SKILL.md`, `skills/epic/epic-lib.sh`, `skills/epic/test.sh`, `skills/orchestrate/dag-lib.sh` (reused — `check-cycle`), `skills/standup/SKILL.md` (epic rollup, M10), `skills/wrap-ticket/SKILL.md` (child-completion write-back, SHOULD).
 

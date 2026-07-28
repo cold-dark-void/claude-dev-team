@@ -248,12 +248,8 @@ cmd_set_linear_project() {
 
   # Reject flag typos (e.g. --clea) that would otherwise be stored as project ids.
   case "$raw" in
-    -*)
-      case "$raw" in
-        --clear) ;;
-        *) die 64 "set-linear-project: unknown flag $raw (use PROJECT-ID|null|--clear)" ;;
-      esac
-      ;;
+    --clear) ;;
+    -*) die 64 "set-linear-project: unknown flag $raw (use PROJECT-ID|null|--clear)" ;;
   esac
 
   local st
