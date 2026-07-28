@@ -178,8 +178,9 @@ Present:
 1. Per-child summary (five fields + slug)
 2. Wave plan: `bash …/epic-lib.sh waves` after a dry-run structure, or format from DAG levels
 3. Soft >8-children warning if applicable
+4. **SHOULD (M12 / OQ8):** Linear project intent — will create or link a Linear Project named **exactly** the epic title (no `EPIC-ID` prefix). Informational only; not AC-gating.
 
-User may edit/merge/remove children. On **decline**: exit, zero disk side effects.
+User may edit/merge/remove children. On **decline**: exit, **zero** disk side effects **and zero** Linear project create/link attempts (AC12 / M3).
 
 On **approve** continue A.6.
 
@@ -198,19 +199,22 @@ EPIC_ID="<EPIC-ID>"
 TITLE="<epic title>"
 MODE="<kickoff|orchestrate>"
 bash "$EPIC_LIB" init "$EPIC_ID" --title "$TITLE" --mode "$MODE"
-# per child:
+# linear_project_id starts null; set after M12 project resolve (below)
+# per child (after Linear project + issue when MCP up — prefer --linear-id at add time):
 bash "$EPIC_LIB" add-child "$EPIC_ID" \
   --id "${EPIC_ID}-C<n>" --slug "<slug>" --title "<title>" \
   --estimate S|M|L --agent ic4|ic5 \
   --depends-on '<json-array>' \
   --problem "<problem>" --ac '<json-array-of-strings>'
+  # optional: --linear-id "<LINEAR-ISSUE-ID>"
 ```
 
 #### Dual-write persistence (M4 — Linear preferred + local write-through)
 
-When Linear MCP is available, create/link the Linear issue first, then **always**
-write local write-through. When MCP is down, write local only. Process trackers
-under `.claude/` MUST NOT be committed (SPEC-025 M4 / SPEC-009).
+When Linear MCP is available, resolve Linear project (M12) and create/link each
+Linear issue first, then **always** write local write-through. When MCP is down,
+write local only. Process trackers under `.claude/` MUST NOT be committed
+(SPEC-025 M4 / SPEC-009).
 
 Per child, write `.claude/backlog/<slug>.md` with YAML frontmatter + body:
 
@@ -259,17 +263,62 @@ Slug formula (SPEC-009 / `/backlog`): lowercase, hyphen-join, strip punctuation,
 
 Ensure backlog structure exists (`/backlog init` if missing).
 
-#### Linear preferred (M5)
+#### Linear Project per epic (M12) — before/with child dual-write
 
-If Linear MCP tools are available (preferred SoT for open work):
+Session owns Linear MCP; `epic-lib.sh` never calls MCP (M12.9). After `init`,
+before or with child issue dual-write:
 
-1. Create issue: title `[<EPIC-ID>] <child title>`; description embeds local `child_id` + problem + ACs.
-2. Label `epic:<EPIC-ID>` if labels API works; else description-only.
-3. Record returned id: re-`add-child` is wrong if already added — instead note `linear_id` via a follow-up state edit only if you stored it at add-child time (`--linear-id`). Prefer creating Linear first then `add-child … --linear-id`, **or** create Linear after add-child and call `set-status` is not enough — pass `--linear-id` at add-child when known.
+1. **MCP down** → print M5 notice (below); skip project; local path only (AC7).
+2. **MCP up** — resolve **exactly one** project named the epic `title` **exactly**
+   (AC2; no `EPIC-ID` prefix, no fuzzy match):
+   - Call `list_projects` (filter/query by name as the tool allows).
+   - **Exact title match** → **link** first hit; do **not** create (AC3). If
+     multiple exact-name hits → link first list hit + one-line multi-hit notice;
+     still no create (OQ3).
+   - **No exact match** → `save_project` with `name` = epic title and `team` =
+     **same team** used for child `save_issue` (OQ2). If team unknown → fail-open
+     (M5 notice); no hard-fail create attempt.
+   - On **any** project list/create failure → M5 notice; continue local; leave
+     `linear_project_id` null (AC6).
+3. **On success** — record id (atomic):
+   ```bash
+   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+   EPIC_LIB="$PDH/skills/epic/epic-lib.sh"
+   EPIC_ID="<EPIC-ID>"
+   PROJECT_ID="<LINEAR-PROJECT-ID>"
+   bash "$EPIC_LIB" set-linear-project "$EPIC_ID" "$PROJECT_ID"
+   ```
+   `show` / `rollup` surface `linear_project_id` when non-null.
 
-On **any** Linear failure or MCP absence: print one line
+#### Linear preferred (M5) — child issues + project attach
+
+If Linear MCP tools are available (preferred SoT for open work), **per child**:
+
+1. Create issue via `save_issue`: title `[<EPIC-ID>] <child title>`; description
+   embeds local `child_id` + problem + ACs.
+2. **Attach to project (M12 / AC4):** when `linear_project_id` is non-null, pass
+   `project` = that id on `save_issue`. Attach failure for one child is fail-open
+   for **that child only** — keep `linear_project_id`, continue remaining children
+   (OQ5); print M5 notice for the failed attach if useful, do not retry-loop.
+3. **Label (AC11):** `epic:<EPIC-ID>` if labels API works; else description-only.
+   Project does **not** replace labels.
+4. Record returned issue id: prefer Linear first then
+   `add-child … --linear-id`, **or** pass `--linear-id` at add-child when known.
+   Re-`add-child` is wrong if already added; `set-status` alone does not store
+   `linear_id`.
+
+Then always local backlog item + index row + `add-child` (with `--linear-id`
+when known).
+
+On **any** Linear failure or MCP absence (issue create/link, project
+create/link, or child-to-project attach): print **exactly** one line
+
 `Linear unavailable — continuing with local write-through only`
-and continue. **Never** block, retry-loop, or fail the epic.
+
+and continue. **Never** block, retry-loop, or fail the epic. Reuse this single
+M5 string for project failures too (OQ7 / M5) — do not invent a second fail-open
+string.
 
 Then enter **Execute / Resume**.
 
@@ -292,6 +341,15 @@ bash "$EPIC_LIB" waves "$EPIC_ID"
 ```
 
 Print counts by status + ready set + wave plan. **No re-decomposition.** No duplicate backlog/Linear.
+
+**Linear project on resume (M12 / AC8 / OQ4):**
+
+- If `linear_project_id` is **non-null** (`show` / state): do **not**
+  `list_projects` / `save_project`; do **not** re-attach existing children
+  (no attach storm).
+- If `linear_project_id` is **null**: do **not** create or link a project on
+  bare resume — create/link only on new approved decompose, or approved
+  `--redecompose` when id is still null.
 
 ### B.2 Ready set → first child (stable id sort)
 
@@ -405,14 +463,23 @@ bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" pending
 
 ---
 
-## Mode E — `--redecompose` (M9)
+## Mode E — `--redecompose` (M9 + M12)
 
 1. Require explicit `--redecompose` flag.
 2. Require user **yes** confirmation. Without confirmation: **no-op**.
 3. Preserve completed children records (never delete/alter completed).
 4. Re-run PM∥TL for non-completed only; re-merge; full-graph `check-cycle`.
 5. On approve: update/replace non-completed children in state + backlog; do not duplicate backlog for unchanged completed children.
-6. Linear: best-effort only for new/changed children.
+6. **Linear project (M12 / AC9):**
+   - If `linear_project_id` is **non-null**: **reuse** it — do not create/list a
+     second project; id stays stable. Attach **only new/changed** children to
+     that project on dual-write (no re-attach of unchanged/completed children).
+   - If `linear_project_id` is **null** and MCP is up after approve: run the
+     A.6 M12 create/link path **once**, then
+     `set-linear-project`; attach new/changed dual-written children.
+   - Project/attach failures → same M5 one-liner; local continues.
+7. Linear issues: best-effort only for new/changed children (`save_issue` with
+   `project` when id known + `epic:<EPIC-ID>` labels — AC11).
 
 ---
 
@@ -445,8 +512,11 @@ child `id` or `linear_id`). Unknown ticket → exit 0, no fail.
 | No EPIC-ID | Ask; do not guess |
 | Decompose without text | Prompt for epic text |
 | Cycle in DAG | Halt; zero writes; name back-edge |
-| Decline approval | Exit; zero writes |
-| Linear fail / absent | One-line notice; continue |
+| Decline approval | Exit; zero writes **including** zero Linear project create/link (AC12) |
+| Linear fail / absent (issue, project, or attach) | Exactly: `Linear unavailable — continuing with local write-through only`; continue local (M5/M12) |
+| Project multi-hit exact name | Link first list hit + one-line notice; do not create (OQ3) |
+| Child attach fail | Keep `linear_project_id`; continue other children (OQ5) |
+| Bare resume + null project id | Do not create/link project (OQ4) |
 | No ready children | Report rollup; stop cleanly |
 | Confirm handoff = n | Exit; child stays pending (or revert in_progress if already set — prefer confirm **before** set-status) |
 

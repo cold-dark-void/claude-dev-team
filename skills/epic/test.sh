@@ -56,6 +56,37 @@ python3 -c "import json; d=json.load(open('$STATE')); assert d['epic_id']=='CDV-
 run_in 0 exists CDV-30
 run_in 2 init CDV-30 --title "dup" --mode orchestrate   # refuse if exists
 
+# ---- linear_project_id (CDT-64 / SPEC-025 M12) ------------------------------
+# After init: field present and null
+python3 -c "import json; d=json.load(open('$STATE')); assert 'linear_project_id' in d; assert d['linear_project_id'] is None" \
+  && pass || fail "init linear_project_id want null"
+
+# set → overwrite → --clear → null
+run_in 0 set-linear-project CDV-30 proj_abc
+LP=$(python3 -c "import json; print(json.load(open('$STATE'))['linear_project_id'])")
+[ "$LP" = "proj_abc" ] && pass || fail "set-linear-project want proj_abc got $LP"
+
+run_in 0 set-linear-project CDV-30 proj_xyz
+LP=$(python3 -c "import json; print(json.load(open('$STATE'))['linear_project_id'])")
+[ "$LP" = "proj_xyz" ] && pass || fail "overwrite want proj_xyz got $LP"
+
+# show surfaces field when set
+run_in 0 show CDV-30
+echo "$OUT" | jq -e '.linear_project_id=="proj_xyz"' >/dev/null && pass || fail "show linear_project_id when set"
+
+run_in 0 set-linear-project CDV-30 --clear
+python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
+  && pass || fail "--clear want linear_project_id null"
+
+# null keyword and empty also clear
+run_in 0 set-linear-project CDV-30 proj_again
+run_in 0 set-linear-project CDV-30 null
+python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
+  && pass || fail "null keyword want linear_project_id null"
+
+# missing epic → exit 2
+run_in 2 set-linear-project NO-SUCH-EPIC proj_x
+
 # ---- add-child validation ---------------------------------------------------
 run_in 64 add-child CDV-30 --id BAD --slug s --title t --estimate M --agent ic4 --depends-on '[]'
 run_in 64 add-child CDV-30 --id CDV-30-C1 --slug s --title t --estimate X --agent ic4 --depends-on '[]'

@@ -21,6 +21,7 @@ Commands:
             --agent ic4|ic5 --depends-on '["…"]'
             [--linear-id L] [--problem P] [--ac '["…"]']
   set-status <EPIC-ID> <CHILD-ID> pending|in_progress|completed|blocked
+  set-linear-project <EPIC-ID> <PROJECT-ID>|null|--clear
   mark-done <TICKET-ID>
   ready-set <EPIC-ID>
   check-cycle <json-file|->
@@ -139,7 +140,7 @@ cmd_init() {
     --arg title "$title" \
     --arg mode "$mode" \
     --arg ts "$ts" \
-    '{epic_id:$id,title:$title,created_at:$ts,updated_at:$ts,execution_mode:$mode,children:[]}')
+    '{epic_id:$id,title:$title,created_at:$ts,updated_at:$ts,execution_mode:$mode,linear_project_id:null,children:[]}')
   write_state "$epic_id" "$json"
   printf '%s\n' "$STATE"
 }
@@ -236,6 +237,31 @@ cmd_set_status() {
   echo "$st" | jq -c --arg id "$child_id" '.children[] | select(.id==$id)'
 }
 
+cmd_set_linear_project() {
+  # set-linear-project <EPIC-ID> <PROJECT-ID>|null|--clear
+  # Persists only — never calls Linear MCP/network.
+  local epic_id="${1:-}" raw="${2:-}"
+  [ -n "$epic_id" ] || die 64 "set-linear-project: missing <EPIC-ID>"
+  [ $# -ge 2 ] || die 64 "set-linear-project: missing <PROJECT-ID>|null|--clear"
+
+  epic_paths "$epic_id"
+  [ -f "$STATE" ] || die 2 "set-linear-project: epic not found: $epic_id"
+
+  local st
+  st=$(cat "$STATE")
+
+  case "$raw" in
+    ""|null|--clear)
+      st=$(echo "$st" | jq '.linear_project_id = null')
+      ;;
+    *)
+      st=$(echo "$st" | jq --arg v "$raw" '.linear_project_id = $v')
+      ;;
+  esac
+  write_state "$epic_id" "$st"
+  echo "$st" | jq -c '{linear_project_id}'
+}
+
 cmd_mark_done() {
   local ticket="${1:-}"
   [ -n "$ticket" ] || die 64 "mark-done: missing <TICKET-ID>"
@@ -306,6 +332,7 @@ cmd_show() {
   echo "$st" | jq --arg ready "$ready" --arg waves "$waves" '
     {
       epic_id, title, execution_mode, created_at, updated_at,
+      linear_project_id: (.linear_project_id // null),
       counts: {
         pending: ([.children[] | select(.status=="pending")] | length),
         in_progress: ([.children[] | select(.status=="in_progress")] | length),
@@ -348,6 +375,7 @@ cmd_rollup() {
     echo "$st" | jq -c --arg ready "${ready:-}" --arg waves "${waves:-}" '
       {
         epic_id, title, execution_mode,
+        linear_project_id: (.linear_project_id // null),
         counts: {
           pending: ([.children[] | select(.status=="pending")] | length),
           in_progress: ([.children[] | select(.status=="in_progress")] | length),
@@ -458,6 +486,7 @@ case "$SUBCMD" in
   init)        cmd_init "$@" ;;
   add-child)   cmd_add_child "$@" ;;
   set-status)  cmd_set_status "$@" ;;
+  set-linear-project) cmd_set_linear_project "$@" ;;
   mark-done)   cmd_mark_done "$@" ;;
   ready-set)   cmd_ready_set "$@" ;;
   check-cycle) cmd_check_cycle "$@" ;;

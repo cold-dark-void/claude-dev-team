@@ -3,6 +3,11 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.2.0
+- **CDT-64 — `/epic` Linear Project per epic (M12)** — on approved decompose, best-effort create/link one Linear Project named exactly the epic title; attach dual-written children; record `linear_project_id` in `state.json`; fail-open reuses M5 notice; resume/redecompose idempotent (no bare-resume create when null).
+- **epic-lib** — nullable `linear_project_id` + `set-linear-project` / `--clear`; show/rollup surface the field; no network/MCP in bash.
+- **SPEC-025** — M12 + M3/M5/M6/M9 extensions; P1–P8 locks; skill A.6/B/E protocol + command thin pointer; schema/CLI tests (PASS=78).
+
 ### v1.1.8
 - **CDT-94 — gen-3 `load_prior_events` id collision** — disambiguate duplicate prior raw ids with unique `prior:{stem}:{raw}#N` (+ stderr); assemble T28 / SPEC-018 Test 34.
 

@@ -4,8 +4,9 @@ description: |
     Umbrella decomposition + sequenced child orchestration (SPEC-025). PM+TL
     decompose an epic into child tickets with a cross-ticket DAG; walk ready
     children via /kickoff or /orchestrate. Composition only — PM mandatory per
-    child; Linear optional. Usage: /epic <EPIC-ID> ["text"] | status | complete
-    | block | unblock | --redecompose
+    child; Linear optional (Project create/link best-effort — SPEC-025 M12 /
+    skill A.6). Usage: /epic <EPIC-ID> ["text"] | status | complete | block
+    | unblock | --redecompose
 argument-hint: "<EPIC-ID> [\"text\"] | status | complete | block | unblock | --redecompose"
 ---
 
