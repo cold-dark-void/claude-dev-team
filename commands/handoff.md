@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: Session handoff STM packet (compact seed) — cold mode (/handoff <uuid>) reconstructs a past session via shared spine-mine into State now → Through-line → appendix, prints core + path; warm mode (bare /handoff) mines this session's transcript the same way and writes a packet file only. Optional slug: second positional or --slug. Warm re-capture delta-mines since cached leaf unless --full. Use as /compact @packet after /branch or /fork — not a compact replacement.
-argument-hint: "[<session-uuid>] [<slug>] | --slug <slug> | --full | --help"
+argument-hint: "[<session-uuid>] [<slug>] | --slug <slug> | --full | --light | --help"
 agent: build
 ---
 
@@ -34,9 +34,11 @@ optional warm annotation) via `Task` spawns. **It does not distill freeform brie
 | `/handoff <session-uuid> [slug]` | cold | locate by uuid; M9 strict | print core + path; cache |
 | `/handoff` / `/handoff --slug <s>` | warm | dual-host discover (Grok\|Claude) + `--allow-in-progress`; M8b auto delta when cache has events | file only; print path |
 | `/handoff --full` | warm (full) | same as warm; ignore cache delta; full spine re-mine | file only; print path |
+| `/handoff --light` | warm (light) | same spine-mine; haiku miner (if unset) + skip annotation + spine 40k (if unset); **no** M8 cache write | `*-draft.md` + light nudge |
 | `/handoff --help` | help | — | usage, exit 0 |
 
 Shared spine-mine after prepare (AC-17). Differ only in entry + exit + warm annotation.
+`--light` is **warm-only** preset sugar (M10c) — still mines; cold + `--light` → usage fail.
 `--since-leaf` is **internal** (prepare debug) — not a user CLI flag; warm auto-wires it from cache.
 
 Typical next step: `/branch` or `/fork`, then `/compact @.claude/handoff/<packet>.md`
@@ -126,11 +128,13 @@ UUID=""          # non-empty → cold mode
 SLUG=""          # optional; finalize default "stm" if empty (Q7)
 SHOW_USAGE=0
 WARM=0           # 1 → bare / no uuid (warm mode)
+LIGHT=0          # 1 → M10c light warm preset (--light)
 UNKNOWN=""
 POSITIONAL=()
 # M8b full-force: --full or pre-set HANDOFF_FULL=1 forces full warm re-mine
 # (no auto --since-leaf). Export so Step 4 / later fences see it.
 : "${HANDOFF_FULL:=0}"
+: "${HANDOFF_LIGHT:=0}"
 
 set -- $ARGUMENTS
 if [ "$#" -eq 0 ]; then
@@ -141,6 +145,9 @@ else
       -h|--help) SHOW_USAGE=1; shift ;;
       --full)
         HANDOFF_FULL=1; shift ;;
+      --light)
+        # M10c light warm preset (CDT-91): HANDOFF_LIGHT + LIGHT for later steps
+        HANDOFF_LIGHT=1; LIGHT=1; shift ;;
       --slug)
         [ -n "${2:-}" ] || { echo "error: --slug requires a value" >&2; exit 1; }
         SLUG="$2"; shift 2 ;;
@@ -160,10 +167,47 @@ else
     SLUG="${POSITIONAL[1]}"
   fi
   if [ -z "$UUID" ]; then
-    WARM=1   # bare flags only (e.g. --slug foo / --full) → warm
+    WARM=1   # bare flags only (e.g. --slug foo / --full / --light) → warm
   fi
 fi
 export HANDOFF_FULL
+
+# M10c: --light is warm-only (AC-2). Cold uuid + --light → usage fail, exit 1.
+if [ "$LIGHT" = "1" ] && [ "$WARM" != "1" ]; then
+  echo "error: --light is warm-only (use bare /handoff --light; not with a session uuid)" >&2
+  echo "" >&2
+  cat >&2 <<'USAGE'
+/handoff — session handoff STM packet (compact seed)
+
+Usage:
+  /handoff <session-uuid> [slug]   Cold: reconstruct past session; print State now
+                                   + Through-line; cite full packet path.
+  /handoff [--slug <slug>]         Warm: mine THIS session; write packet file only.
+                                   Re-capture delta-mines since cache leaf when
+                                   cumulative events exist (M8b).
+  /handoff --full [--slug <s>]     Warm full re-mine (ignore cache delta).
+                                   Same as HANDOFF_FULL=1.
+  /handoff --light [--slug <s>]    Warm light preset (M10c): reduced-cost mine,
+                                   no annotation; *-draft.md; no M8 cache write.
+                                   Warm-only — not valid with a session uuid.
+  /handoff --help                  This help.
+USAGE
+  exit 1
+fi
+
+# M10c light knobs (only when unset — honor operator env):
+# haiku miner, lower spine budget, skip annotation Task.
+if [ "$LIGHT" = "1" ]; then
+  export HANDOFF_LIGHT=1
+  export HANDOFF_MINER_MODEL="${HANDOFF_MINER_MODEL:-haiku}"
+  export HANDOFF_SPINE_TOKENS="${HANDOFF_SPINE_TOKENS:-40000}"
+  export SKIP_ANNOTATION=1
+  export LIGHT=1
+else
+  export HANDOFF_LIGHT="${HANDOFF_LIGHT:-0}"
+  export LIGHT=0
+  export SKIP_ANNOTATION="${SKIP_ANNOTATION:-0}"
+fi
 ```
 
 ### 1a. `--help` / unknown flag → usage
@@ -181,11 +225,15 @@ Usage:
                                    cumulative events exist (M8b).
   /handoff --full [--slug <s>]     Warm full re-mine (ignore cache delta).
                                    Same as HANDOFF_FULL=1.
+  /handoff --light [--slug <s>]    Warm light preset (M10c): reduced-cost mine,
+                                   no annotation; *-draft.md; no M8 cache write.
+                                   Warm-only — not valid with a session uuid.
   /handoff --help                  This help.
 
 Slug (optional): second positional or --slug. Sanitized [a-z0-9-]+; default stm.
 Packet shape: ## State now → ## Through-line → ## appendix
 Typical loop: /handoff → /branch|/fork → /compact @packet-file
+Light mid-session: /handoff --light → bare /handoff before session end (full tip).
 Not a Linear dual-write. Not a /compact replacement.
 --since-leaf is internal (prepare debug); not a user flag.
 ```
@@ -432,6 +480,9 @@ if not isinstance(leaf, str) or not leaf.strip():
     sys.exit(0)
 ev = data.get("events")
 if not isinstance(ev, dict) or not ev:
+    sys.exit(0)
+# M10c defense (CDT-91): light:true cache → no-prior (primary path never writes this)
+if data.get("light") in (True, 1, "true", "1"):
     sys.exit(0)
 has = False
 for v in ev.values():
@@ -742,8 +793,26 @@ survived); finalize still runs (thin packet + git appendix OK).
 ## Step 7: Annotation pass (warm only)
 
 **Cold: skip entirely.**
+**Light / `SKIP_ANNOTATION=1` / `HANDOFF_LIGHT=1`: skip entirely** (M10c) —
+set `ANNOTATIONS_FILE=""` and continue to Step 8 (no annotation Task).
 
-Warm: after the merged miner, build a short `EVENTS_SUMMARY_JSON` (array of
+```bash
+# Re-bind light flags (fresh shell — SPEC-021 C1)
+SKIP_ANNOTATION="${SKIP_ANNOTATION:-0}"
+HANDOFF_LIGHT="${HANDOFF_LIGHT:-0}"
+LIGHT="${LIGHT:-0}"
+if [ "$SKIP_ANNOTATION" = "1" ] || [ "$HANDOFF_LIGHT" = "1" ] || [ "$LIGHT" = "1" ]; then
+  ANNOTATIONS_FILE=""
+  # skip annotation Task — go to Step 8
+  true
+else
+  : # warm full path below
+fi
+```
+
+When light/skip: do **not** build `EVENTS_SUMMARY_JSON` or spawn annotation.
+
+Warm (not light): after the merged miner, build a short `EVENTS_SUMMARY_JSON` (array of
 `{id, kind, text|quote}`) then spawn **one** annotation Task using SKILL.md §
 Annotation pass.
 
@@ -855,6 +924,8 @@ ANNOTATIONS_FILE="${ANNOTATIONS_FILE:-}"
 LEAF_UUID="${LEAF_UUID:-}"
 HANDOFF_DIR="${HANDOFF_DIR:-}"
 HANDOFF_FULL="${HANDOFF_FULL:-0}"
+HANDOFF_LIGHT="${HANDOFF_LIGHT:-0}"
+LIGHT="${LIGHT:-0}"
 PLAN_JSON="${PLAN_JSON:-}"
 # M8b prior: re-resolve from plan.stats + cache (fresh shell — C1)
 PRIOR_EVENTS_FILE=""
@@ -878,6 +949,11 @@ FIN_ARGS=(finalize --uuid "$UUID" --events "$EVENTS_DIR" --mode "$HANDOFF_MODE")
 if [ "$HANDOFF_MODE" = "warm" ] && [ -n "$ANNOTATIONS_FILE" ] && [ -f "$ANNOTATIONS_FILE" ]; then
   FIN_ARGS+=(--annotations "$ANNOTATIONS_FILE")
 fi
+# M10c light (CDT-91): wire --light + HANDOFF_LIGHT into finalize (no cache; -draft)
+if [ "$HANDOFF_LIGHT" = "1" ] || [ "$LIGHT" = "1" ]; then
+  FIN_ARGS+=(--light)
+  export HANDOFF_LIGHT=1
+fi
 # M8b: pass prior events so assemble merges prior+delta; events-out seeds next cache
 if [ -n "$PRIOR_EVENTS_FILE" ] && [ -f "$PRIOR_EVENTS_FILE" ]; then
   FIN_ARGS+=(--prior-events "$PRIOR_EVENTS_FILE")
@@ -889,7 +965,8 @@ if [ "$HANDOFF_MODE" = "cold" ]; then
   FIN_ARGS+=(--print-core)
 fi
 # Note: prepass finalize always requests assemble --events-out when supported and
-# writes M8b cache `events` from FINALIZE_EVENTS_JSON / events-out (next warm delta).
+# writes M8b cache `events` from FINALIZE_EVENTS_JSON / events-out (next warm delta)
+# — except M10c light, which skips the cache write entirely.
 
 set +e
 FIN_ERR="${TMPDIR:-/tmp}/handoff-finalize.err"
@@ -900,7 +977,13 @@ set -e
 
 - **Exit 0.**
   - **Cold:** print `$OUT` (core + path) to the session (M7).
-  - **Warm:** `$OUT` may be empty; surface packet path from `$FIN_ERR`
+  - **Warm light** (`HANDOFF_LIGHT=1` / `--light`): `$OUT` may be empty; surface
+    packet path from `$FIN_ERR` (`packet=…`) or finalize stderr — print exact:
+    ```
+    Light handoff written → <path>
+    Note: light preset (not AC-16-scored). Run bare /handoff before session end for a full tip + delta chain.
+    ```
+  - **Warm (full):** `$OUT` may be empty; surface packet path from `$FIN_ERR`
     (`packet=…`) or finalize stderr summary — print
     `Warm handoff written → <path>` (M10 file-only).
 - **Non-zero.** Print `$FIN_ERR`; exit non-zero.
@@ -938,13 +1021,20 @@ under invoker cwd when target resolved (CDT-80).
 - **Never block on one bad spawn:** drop bad miner/chunk; still finalize.
 - **Cold M9 strict** — never pass `--allow-in-progress` on cold.
 - **Warm only:** `--transcript` + `--allow-in-progress` + optional annotation.
-- **M8b warm delta:** auto `--since-leaf` from cache when `events` present;
-  `--full` / `HANDOFF_FULL=1` forces full. Cold never auto-since-leaf.
-  Miss (`since_leaf_applied=false`) → full spine + clear prior events.
-  `--since-leaf` is internal only (not user CLI).
+- **M10c light** (`--light` / `HANDOFF_LIGHT=1`): warm-only; `mode: warm` +
+  `light: true` (not a third mode enum); knobs if unset (`HANDOFF_MINER_MODEL=haiku`,
+  `HANDOFF_SPINE_TOKENS=40000`, `SKIP_ANNOTATION=1`); no annotation Task; finalize
+  `--light` → `*-draft.md` + **no** M8 cache write; honesty exact:
+  `light preset: reduced-cost mine, no annotation; not AC-16-scored.`
+  (still mines — not freeform). MUST NOT say "UNMINED". Cold + `--light` →
+  usage fail. Full contract: `skills/handoff/SKILL.md` § M10c.
+- **M8b warm delta:** auto `--since-leaf` from cache when `events` present and
+  cache is not `light: true`; `--full` / `HANDOFF_FULL=1` forces full. Cold
+  never auto-since-leaf. Miss (`since_leaf_applied=false`) → full spine +
+  clear prior events. `--since-leaf` is internal only (not user CLI).
 - **No Linear dual-write.** No claim that handoff replaces `/compact`.
 - **Cache isolation (M8/M8b):** `.claude/handoff/cache/` only; cache may store
-  cumulative `events` stem map for next warm delta.
+  cumulative `events` stem map for next warm delta. Light never writes cache.
 
 ## Error Handling (summary)
 
@@ -953,6 +1043,8 @@ under invoker cwd when target resolved (CDT-80).
 | `--help` / unknown flag | usage, exit 0 |
 | bare / no uuid | warm entry (1w) → shared pipeline |
 | `--full` / `HANDOFF_FULL=1` | warm full re-mine (no auto since-leaf) |
+| `--light` (warm) | light preset: skip annotation; finalize `--light`; draft + nudge |
+| cold uuid + `--light` | usage fail, exit 1 |
 | malformed uuid (cold) | error, exit 1 |
 | warm: neither Grok nor Claude resolvable / no JSONL | clear error (bans freeform live-context), exit 1 |
 | engine not found | error, exit 1 |
@@ -983,7 +1075,8 @@ under invoker cwd when target resolved (CDT-80).
 prepare  cold: --uuid only (M9 strict; PREPARE_EXTRA empty)
          warm: --uuid --transcript PATH --allow-in-progress (M14)
          warm M8b (not --full): if cache/$SID.json has leaf_uuid + non-empty
-              events → + --since-leaf $PRIOR_LEAF; PRIOR_EVENTS_FILE=cache path
+              events AND not light:true → + --since-leaf $PRIOR_LEAF;
+              PRIOR_EVENTS_FILE=cache path (empty events / light:true → no-prior)
          warm --full / HANDOFF_FULL=1: full spine (no since-leaf)
          after prepare: if stats.since_leaf set && since_leaf_applied≠true
               → clear PRIOR_EVENTS_FILE / FINALIZE_PRIOR_EVENTS / PRIOR_LEAF
@@ -995,16 +1088,20 @@ git capture → GIT_STATE_FILE
         ▼
 1 merged miner ONE block (spine once) → events/through_line.json + events/state.json
         ▼
-[warm?] annotation → annotations.json
+[warm && !light?] annotation → annotations.json
         Step 7 EVENTS_SUMMARY = load_merged_for_summary(dir, prior)
         (ids: prior:stem:id + stem:id)
+        light / SKIP_ANNOTATION: ANNOTATIONS_FILE="" (skip Task)
         ▼
 finalize --events --mode cold|warm [--prior-events PRIOR] [--spine-tokens S]
-         [--print-core] [--slug] …
+         [--print-core] [--slug] [--light] …
         │  assemble merges prior+delta; --events-out → cache events (M8b)
+        │  light: --light → light:true meta + honesty; auto path *-draft.md;
+        │         NO M8 cache write (session bridge still OK)
         │  auto path: YYYYMMDD-HHmm-<session>-<slug>.md (local clock)
         │  auto Supersedes: newest same-session tip (skip precompact rescues)
         │
         ├─ cold: print State now + Through-line + path; cache (+ events seed)
+        ├─ warm light: write *-draft.md; light completion nudge; no cache
         └─ warm: write packet file only; print path; cache events for next delta
 ```

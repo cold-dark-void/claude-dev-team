@@ -22,6 +22,7 @@ dual-write.
 /handoff <session-uuid> [slug]
 /handoff [--slug <slug>]
 /handoff --full [--slug <slug>]
+/handoff --light [--slug <slug>]
 /handoff --help
 ```
 
@@ -33,6 +34,15 @@ Equivalent to `HANDOFF_FULL=1`. Use when you want a clean full capture after a
 suspect packet or cache corruption. Cold already re-mines on cache miss; `--full`
 is primarily a warm re-capture control.
 
+**`--light`** (warm-only, M10c): reduced-cost mid-session snapshot over the **same**
+spine-mine pipeline (prepare → miner → assemble) — not freeform live-context.
+Cold + `--light` is a usage error. Packet stays `mode: warm` with meta
+`light: true`; filename gets a `-draft` suffix; **no** M8 cache write (so a light
+capture cannot poison the next full delta). Honesty line (exact):
+`light preset: reduced-cost mine, no annotation; not AC-16-scored.`
+Host-agnostic: same dual-host discover as bare warm (Claude + Grok). See
+[Light preset](#light-preset-m10c) and [cost knobs](#spawn-model-tiers-m3e--cdt-90).
+
 ## Modes
 
 | Mode | Invocation | What it does |
@@ -40,6 +50,7 @@ is primarily a warm re-capture control.
 | **Cold** | `/handoff <session-uuid> [slug]` | Spine-mines that past session; writes the full STM packet; **prints State now + Through-line** and **cites the packet path** for appendix (M7). Cache hit serves core + path without re-mine (M8). |
 | **Warm** | bare `/handoff` or `/handoff --slug <s>` | Spine-mines **this** session's live JSONL via the same engine; **writes packet file only** (M10). Packet header includes `mode: warm` + `session: <id>` (CDT-85 / CDT-92 bridge). Not printed as primary product — you are still in the session. Works on **Claude Code and Grok** (dual-host discover). Neither host resolvable → clear fail (no freeform live-context dual path). **Re-capture** delta-mines since the last cached leaf when cumulative events exist (M8b) — miner tokens scale with growth since last capture, not full session length. |
 | **Warm full** | `/handoff --full` | Same as warm, but force full re-mine (no delta). Also `HANDOFF_FULL=1`. |
+| **Warm light** | `/handoff --light` | **Light preset (M10c):** warm-only cost sugar on the shared spine-mine (still mines). When operator env is unset: miner `haiku`, skip annotation, spine budget `40000`. Writes `*-draft.md` with `light: true`; **no** M8 cache write; not AC-16-scored. Host-agnostic (Claude + Grok via existing discover). Run bare `/handoff` before session end for a full tip + delta chain. |
 | **Help** | `/handoff --help` | Prints usage and exits. Any unknown flag prints usage too. |
 
 The `<session-uuid>` is a UUID like `00000000-0000-4000-8000-000000000004` — one
@@ -125,6 +136,31 @@ Without delta-mine, every warm re-capture re-mines the **full** session spine
 - Old caches without `events`, missing leaf, or `/handoff --full` → full re-mine
   (safe fallback). Cold path is unchanged (no auto delta; may still **write**
   `events` so the next warm can delta).
+- **Light** (`--light`) may **read** a prior full cache for delta-mine but
+  **never writes** `cache/$SID.json`, so it cannot poison the next full warm's
+  leaf. Mid-session cheap snapshots: `/handoff --light`; end-of-session tip:
+  bare `/handoff`.
+
+### Light preset (M10c)
+
+`/handoff --light [--slug <s>]` is **preset sugar only** over the shared
+spine-mine pipeline — same stages as bare warm, retuned cost knobs. It is
+**not** a freeform live-context path and does **not** add a third `mode` enum
+value (`mode` stays `warm`; lightness is `light: true` only).
+
+| Knob | Light (when env unset) | Bare warm default |
+|------|------------------------|-------------------|
+| `HANDOFF_MINER_MODEL` | `haiku` | empty → session inherit |
+| Annotation (warm Step 7) | **skipped** | haiku annotation |
+| `HANDOFF_SPINE_TOKENS` | `40000` | `120000` |
+| M8 cache write | **skipped** | write `cache/$SID.json` |
+| Packet path | `…-<slug>-draft.md` | `…-<slug>.md` |
+
+Operator-set env always wins (preset only fills when unset). Honesty wording is
+exact: `light preset: reduced-cost mine, no annotation; not AC-16-scored.`
+Do not treat light packets as AC-16-scored product (see the
+[dogfood runbook](../runbooks/handoff-stm-dogfood.md)). Host-agnostic — Claude
+and Grok both resolve via existing warm discover; no host-specific light path.
 
 ### How the pipeline works
 
@@ -177,12 +213,20 @@ miner). Under budget → `mode=direct` (miner reads the raw spine).
 | `HANDOFF_SPINE_TOKENS` | `120000` | Token budget for a single spine before chunking |
 | `HANDOFF_MINER_MODEL` | *(empty)* | Opt-in miner tier; empty = session inherit |
 
+**Cost knobs summary:** bare warm inherits the table above. **`--light`** is the
+opt-in reduced-cost preset ([Light preset](#light-preset-m10c)): forces
+`HANDOFF_MINER_MODEL=haiku` and `HANDOFF_SPINE_TOKENS=40000` when those env vars
+are unset, skips annotation, writes a `-draft` packet, and skips M8 cache write.
+Bare-warm defaults are unchanged when `--light` is omitted.
+
 **Tradeoff:** lowering `HANDOFF_SPINE_TOKENS` compounds cost savings with the
 cheap (`haiku`) chunk-summarizers — more sessions go map/reduce instead of one
 full-spine miner read. That also raises **recall risk** (map step can drop
 load-bearing hyp/kill/ruling material). **Measure packet quality before adopting
 a lower budget** (dogfood anti-relitigation / kill catalog completeness). The
 shipped code default stays **120000** — do not lower it in-repo without evidence.
+Light's optional `40000` is preset-only (operator env honored; bare warm stays
+120k).
 
 ## Examples
 
@@ -226,6 +270,16 @@ more work — miner sees only growth since last capture. Force full:
 
 ```
 /handoff --full
+```
+
+**Cheap mid-session snapshot (warm light):**
+
+```
+/handoff --light
+```
+```
+Light handoff written → /home/you/project/.claude/handoff/20260723-1422-abcd1234-stm-draft.md
+Note: light preset (not AC-16-scored). Run bare /handoff before session end for a full tip + delta chain.
 ```
 
 **Capture the current live session with a slug (warm):**

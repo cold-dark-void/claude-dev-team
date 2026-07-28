@@ -29,6 +29,7 @@ Three files must have matching versions (SPEC-002):
 sections to it (the changelog was moved out of the README in v0.37.4).
 
 Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
+New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor.
 
 The commit-message format, single-folded-commit rule, and tag/push sequence are owned by
 `skills/release/SKILL.md` (the authoritative `/release` contract) — follow it rather than

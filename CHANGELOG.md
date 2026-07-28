@@ -3,6 +3,11 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.1.7
+- **CDT-91 — `/handoff --light` warm preset (M10c)** — haiku miner, skip annotation, optional spine 40k; `mode: warm` + `light: true`; `*-draft.md`; no M8 cache write; Supersedes includes drafts.
+- AC-16 dogfood excludes light; AGENTS opt-in flag = patch rule.
+- Honesty: light preset is a reduced-cost mine path (not UNMINED freeform).
+
 ### v1.1.6
 - **CDT-88 — warm delta-mine re-capture (M8b)** — second warm mines only since prior M8 leaf when cache has cumulative `events`; assemble merges prior+delta with generation order and `prior:{stem}:{id}`; auto-delta when eligible; `--full` / `HANDOFF_FULL=1` forces full re-mine; old cache without `events` → full; cold path unchanged; since-leaf miss clears prior (R8).
 

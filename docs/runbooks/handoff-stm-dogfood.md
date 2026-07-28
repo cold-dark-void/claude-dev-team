@@ -158,6 +158,12 @@ or ruling was re-proposed (quote + packet line).
 PreCompact rescue files (`*-precompact-*.md`) are **not** STM packets — spine
 snapshot only; cold `/handoff <uuid>` remains the quality path.
 
+**Light packets (M10c / CDT-91) — AC-16 exclusion (same class as PreCompact):**
+`/handoff --light` / `HANDOFF_LIGHT=1` warm drafts (`*-draft.md`, header
+`light: true`, honesty `not AC-16-scored`) are **reduced-cost mine tips**, not
+ship-quality STM. **Do not score light as AC-16.** Use bare full warm `/handoff`
+(no `--light`) for any session you intend to put in the results table.
+
 ---
 
 ## Results (live fill)
@@ -266,6 +272,7 @@ measuring a cheaper config:
 | Chunk-summarizer + warm annotation | **`haiku`** | Cheap stages always |
 | Merged miner | **session inherit** | Opt-in only: `HANDOFF_MINER_MODEL=<tier>` |
 | `HANDOFF_SPINE_TOKENS` | **120000** | Lower → more chunking + cheaper map step, but **recall risk** |
+| `/handoff --light` / `HANDOFF_LIGHT` | **off** | Warm-only cost preset (haiku miner if unset, skip annotation, spine 40k if unset, `*-draft.md`, no M8 cache). **Not AC-16-scored** — measure cost only; re-capture full tip before dogfood |
 
 Lowering spine budget compounds savings with haiku summarizers, but can drop
 kills/rulings the map step fails to preserve. **Measure before adopting** a lower
@@ -282,6 +289,7 @@ code default for AC-16 scoring runs unless the experiment is the point of the ru
 - Claiming AC-16 warm 3/3 without Claude Code bare-`/handoff` anti-relitigation (CDT-85); Grok automated path alone is insufficient (CDT-92)
 - Linear dual-write of packet content (M11c)
 - Treating PreCompact rescue as ship-quality STM
+- Scoring light packets (`--light` / `*-draft.md` / `light: true`) as AC-16 — **do not score light as AC-16** (M10c; same exclusion class as PreCompact)
 - Freeform live-context briefs scored as warm STM when discover fails (neither host)
 - “Fix” = delete entire `~/.claude/plugins/cache` (CDT-82 AC-8 forbids this as sole remedy; use PDH preference or `CLAUDE_PLUGIN_ROOT`)
 

@@ -38,7 +38,7 @@ CLI
   python3 skills/handoff/assemble.py \\
     --events <file|dir> --git <blob> [--annotations ...] [--spine-tokens N] \\
     [--session-uuid U] [--leaf-uuid L] [--slug S] [--supersedes prior] \\
-    [--mode cold|warm] [--prior-events PATH] [--events-out PATH] \\
+    [--mode cold|warm] [--light] [--prior-events PATH] [--events-out PATH] \\
     [--out packet.md]
 """
 
@@ -54,6 +54,9 @@ from collections import OrderedDict
 # ---------------------------------------------------------------------------
 # Event schema constants (shared with miners / tests)
 # ---------------------------------------------------------------------------
+
+# CDT-91 M10c — exact honesty line for light warm preset (MUST NOT say UNMINED)
+LIGHT_HONESTY = "light preset: reduced-cost mine, no annotation; not AC-16-scored."
 
 EVENT_KINDS = frozenset(
     {
@@ -717,6 +720,7 @@ def assemble_packet(
     supersedes=None,
     captured_at=None,
     mode=None,
+    light=False,
 ):
     """Build full STM packet markdown string.
 
@@ -736,6 +740,10 @@ def assemble_packet(
         ISO timestamp; default now UTC.
     mode : str, optional
         ``cold`` or ``warm`` — CDT-85 honesty header (not freeform live-context).
+    light : bool, optional
+        CDT-91 M10c light preset marker. When True, emit ``light: true`` in
+        header/footer meta and the exact LIGHT_HONESTY line. Does not invent
+        a third mode value (mode stays cold|warm as passed).
     """
     def _copy_meta(v, raw, default_src):
         """Preserve namespace / generation meta across re-validate."""
@@ -807,9 +815,12 @@ def assemble_packet(
         m = mode.strip().lower()
         if m in ("cold", "warm"):
             mode_norm = m
+    light_on = bool(light)
     meta_bits = []
     if mode_norm:
         meta_bits.append(f"mode: {mode_norm}")
+    if light_on:
+        meta_bits.append("light: true")
     if leaf_uuid:
         meta_bits.append(f"leaf-uuid: {leaf_uuid}")
     if session_uuid:
@@ -916,6 +927,8 @@ def assemble_packet(
     lines.append("---")
     if mode_norm:
         lines.append(f"mode: {mode_norm}")
+    if light_on:
+        lines.append("light: true")
     lines.append(f"session: {session_uuid or '—'}")
     lines.append(f"captured_at: {captured_at}")
     if leaf_uuid:
@@ -937,6 +950,8 @@ def assemble_packet(
             lines.append(f"packet_tokens: {packet_tokens} (advisory)")
     else:
         lines.append(f"packet_tokens: {packet_tokens} (advisory)")
+    if light_on:
+        lines.append(LIGHT_HONESTY)
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -999,6 +1014,11 @@ def build_arg_parser():
         default="",
         choices=["", "cold", "warm"],
         help="Capture mode for packet header honesty (CDT-85); empty = omit",
+    )
+    p.add_argument(
+        "--light",
+        action="store_true",
+        help="CDT-91 M10c light preset: emit light: true meta + honesty line",
     )
     p.add_argument("--out", default="", help="Write packet markdown here (else stdout)")
     p.add_argument(
@@ -1073,6 +1093,7 @@ def main(argv=None):
         slug=args.slug or None,
         supersedes=args.supersedes or None,
         mode=args.mode or None,
+        light=bool(args.light),
     )
 
     if args.out:

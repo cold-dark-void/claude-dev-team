@@ -67,7 +67,8 @@
 #   not UTC-forced — matches existing handoff artifacts).
 #   Slug: sanitized to [a-z0-9-]+, ≤40, fallback `stm` (M11).
 #   Supersedes (M11): when --supersedes unset, auto-discover newest prior
-#   packet for the same session under HANDOFF_DIR (exclude *-precompact-*).
+#   packet for the same session under HANDOFF_DIR (include *-draft.md light
+#   tips; exclude <session_id>-precompact-* rescues only).
 #   Cache stores full packet keyed by leaf-uuid (M8). Cold mode (default):
 #   stdout = State now + Through-line + path cite (M7); warm mode: file-only.
 #   M8b: cache MAY also store cumulative `events` stem map (through_line/state/…)
@@ -114,7 +115,7 @@ Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
                               [--leaf <uuid>] [--slug <s>] [--mode cold|warm]
                               [--print-core] [--packet-out <path>]
                               [--spine-tokens N] [--supersedes <name>]
-                              [--prior-events <path>]
+                              [--prior-events <path>] [--light]
 
   prepare      timeline assemble + pre-pass + size-decide; emits plan.json
   cache-check  exit 0 (HIT, prints cold core + path cite) / exit 10 (MISS)
@@ -135,6 +136,9 @@ Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
   --supersedes <name> finalize: prior packet filename for footer
   --prior-events <path> finalize: M8b prior cache JSON / stem map (merge before
                       delta). Also FINALIZE_PRIOR_EVENTS env. Soft-detect.
+  --light             finalize: M10c light preset (CDT-91). Auto packet path
+                      ends -draft.md; skip M8 cache write+prune; pass --light
+                      to assemble when supported. Also HANDOFF_LIGHT=1.
   --transcript <path> prepare: stream exactly this file (skip locate; M12).
                       Capture path only — precompact-capture.sh.
   --allow-in-progress prepare: soften M9 freshness to warn-and-proceed (M14).
@@ -150,6 +154,7 @@ Env:
                               raises recall risk — measure before adopting;
                               do not lower the code default without evidence.
   HANDOFF_CACHE_MAX_ENTRIES   max cache files under .claude/handoff/cache/ (default 50).
+  HANDOFF_LIGHT               finalize: 1/true → same as --light (M10c).
   FINALIZE_EVENTS_JSON        finalize: path to stem-map JSON for cache M8b
                               events field. Unset/missing/unreadable → omit key.
   FINALIZE_PRIOR_EVENTS       finalize: path to prior events (cache JSON or bare
@@ -168,7 +173,8 @@ esac
 
 # Shared arg parse: --uuid (all), --out (prepare), finalize event/packet flags,
 # --transcript / --allow-in-progress (prepare capture path only; M12/M14),
-# --since-leaf (prepare internal/debug M8b), --prior-events (finalize M8b).
+# --since-leaf (prepare internal/debug M8b), --prior-events (finalize M8b),
+# --light / HANDOFF_LIGHT (finalize M10c light preset, CDT-91).
 UUID=""
 OUT="plan.json"
 EVENTS=""
@@ -185,6 +191,7 @@ PRIOR_EVENTS=""
 TRANSCRIPT=""
 ALLOW_IN_PROGRESS=0
 SINCE_LEAF=""
+LIGHT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --uuid)
@@ -261,6 +268,8 @@ while [ $# -gt 0 ]; do
       PRIOR_EVENTS="$2"; shift 2 ;;
     --prior-events=*)
       PRIOR_EVENTS="${1#--prior-events=}"; shift ;;
+    --light)
+      LIGHT=1; HANDOFF_LIGHT=1; shift ;;
     -h|--help)
       usage ;;
     *)
@@ -273,6 +282,11 @@ done
 if [ -z "$PRIOR_EVENTS" ] && [ -n "${FINALIZE_PRIOR_EVENTS:-}" ]; then
   PRIOR_EVENTS="$FINALIZE_PRIOR_EVENTS"
 fi
+
+# M10c: --light sets HANDOFF_LIGHT=1; env alone also enables light finalize.
+case "${HANDOFF_LIGHT:-}" in
+  1|true|TRUE|yes|YES) LIGHT=1; HANDOFF_LIGHT=1 ;;
+esac
 
 if [ -z "$UUID" ]; then
   echo "prepass.sh: --uuid is required." >&2
@@ -409,8 +423,9 @@ sanitize_slug() {
 
 # discover_supersedes <handoff_dir> <session_uuid> [exclude_basename]
 # Newest prior packet for this session (mtime, then filename desc). Prints
-# basename only; empty if none. Skips PreCompact rescues named
-# <session_id>-precompact-<n>.md (not STM packets) and optional exclude.
+# basename only; empty if none. Includes light *-draft.md tips (M10c);
+# skips PreCompact rescues named <session_id>-precompact-<n>.md (not STM
+# packets) and optional exclude.
 discover_supersedes() {
   local dir="$1" uuid="$2" exclude="${3:-}"
   local f m base best_m=-1 best_base=""
@@ -641,19 +656,32 @@ if [ "$SUBCMD" = "finalize" ]; then
   # Slug + packet path (M11): .claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md
   # Clock = local wall time (no Z). Slug charset [a-z0-9-]+ via sanitize_slug.
   # Same-minute re-capture: never overwrite — append -N before .md (M11 new file).
+  # M10c light (CDT-91): auto path uses -draft.md so drafts triage; collision
+  # keeps -draft as stable token: …-draft-N.md (not …-N-draft.md).
   SLUG=$(sanitize_slug "${SLUG_ARG:-stm}")
   if [ -n "$PACKET_OUT" ]; then
     PACKET_PATH="$PACKET_OUT"
   else
     TS=$(date +%Y%m%d-%H%M)   # local wall clock; not UTC-forced
     mkdir -p "$HANDOFF_DIR"
-    PACKET_PATH="$HANDOFF_DIR/${TS}-${UUID}-${SLUG}.md"
-    if [ -e "$PACKET_PATH" ]; then
-      n=2
-      while [ -e "$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-${n}.md" ]; do
-        n=$((n + 1))
-      done
-      PACKET_PATH="$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-${n}.md"
+    if [ "$LIGHT" = "1" ]; then
+      PACKET_PATH="$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-draft.md"
+      if [ -e "$PACKET_PATH" ]; then
+        n=2
+        while [ -e "$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-draft-${n}.md" ]; do
+          n=$((n + 1))
+        done
+        PACKET_PATH="$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-draft-${n}.md"
+      fi
+    else
+      PACKET_PATH="$HANDOFF_DIR/${TS}-${UUID}-${SLUG}.md"
+      if [ -e "$PACKET_PATH" ]; then
+        n=2
+        while [ -e "$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-${n}.md" ]; do
+          n=$((n + 1))
+        done
+        PACKET_PATH="$HANDOFF_DIR/${TS}-${UUID}-${SLUG}-${n}.md"
+      fi
     fi
   fi
   PACKET_DIR=$(dirname -- "$PACKET_PATH")
@@ -701,6 +729,13 @@ if [ "$SUBCMD" = "finalize" ]; then
       echo "prepass.sh: WARNING — assemble lacks --prior-events; ignoring prior ($PRIOR_EVENTS)" >&2
     fi
   fi
+  # M10c light (CDT-91): pass --light when assemble supports it (T2); soft-detect
+  # so finalize stays green if assemble lands later.
+  if [ "$LIGHT" = "1" ]; then
+    if python3 "$PACKET_ASSEMBLE" --help 2>&1 | grep -q -- '--light'; then
+      ASM_ARGS+=(--light)
+    fi
+  fi
 
   set +e
   python3 "$PACKET_ASSEMBLE" "${ASM_ARGS[@]}"
@@ -718,6 +753,16 @@ if [ "$SUBCMD" = "finalize" ]; then
     rm -f "$EVENTS_OUT_TMP"
     echo "prepass.sh: assemble.py did not write packet: $PACKET_PATH" >&2
     exit 1
+  fi
+
+  # M10c light (CDT-91): skip entire M8 cache write + prune. Packet already
+  # written; do not create/overwrite cache/$SID.json (anti-poison for delta).
+  if [ "$LIGHT" = "1" ]; then
+    rm -f "$EVENTS_OUT_TMP"
+    [ -n "$EVENTS_BUILT_TMP" ] && rm -f "$EVENTS_BUILT_TMP"
+    lines=$(wc -l <"$PACKET_PATH" | tr -d ' ')
+    echo "prepass.sh: finalize  mode=${MODE}  light=1  packet=$(cd "$(dirname -- "$PACKET_PATH")" && pwd)/$(basename -- "$PACKET_PATH")  lines=${lines}  cached=NO" >&2
+    exit 0
   fi
 
   # Resolve FINALIZE_EVENTS_JSON: caller env wins; else assemble events-out;
@@ -783,6 +828,7 @@ PYBUILD
 
   # Cache full packet (M8). Field `packet` preferred; readers dual-read packet||brief.
   # M8b: optional `events` stem map from FINALIZE_EVENTS_JSON (omit if absent).
+  # Bare warm only — light path exits above before this block.
   HANDOFF_CACHE_MAX_ENTRIES="${HANDOFF_CACHE_MAX_ENTRIES:-50}" \
   FINALIZE_UUID="$UUID" \
   FINALIZE_LEAF="$LEAF" \

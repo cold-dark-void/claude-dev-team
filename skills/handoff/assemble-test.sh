@@ -744,6 +744,46 @@ if grep -q 'cross-gen PRIOR body' "$XGEN_PKT" \
    && grep -q 'assemble: annotation drop unknown event_id: tl-e1' "$XGEN_ERR"; then ok
 else bad "T26 packet/labels/bare-drop: $(head -c 200 "$XGEN_ERR")"; fi
 
+# ---- T27: CDT-91 light preset — meta light:true + honesty; mode stays warm ----
+LIGHT_HONESTY='light preset: reduced-cost mine, no annotation; not AC-16-scored.'
+LIGHT_PKT="$WORK/light-warm.md"
+LIGHT_OFF="$WORK/light-off.md"
+if python3 "$ASM" --events "$THRASH" --session-uuid "light-s" --leaf-uuid "light-leaf" \
+     --mode warm --light --out "$LIGHT_PKT" 2>/dev/null \
+   && grep -qE '^_mode: warm · light: true' "$LIGHT_PKT" \
+   && grep -q 'light: true' "$LIGHT_PKT" \
+   && grep -qF "$LIGHT_HONESTY" "$LIGHT_PKT" \
+   && grep -q '^mode: warm$' "$LIGHT_PKT" \
+   && ! grep -qE 'mode: warm-light|UNMINED' "$LIGHT_PKT"; then ok
+else bad "T27 light warm meta+honesty"; fi
+
+# API: light=True on cold mode still keeps mode:cold (assemble does not invent warm-light)
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+evs = a.load_events("'"$THRASH"'")
+pkt = a.assemble_packet(evs, mode="cold", light=True, session_uuid="lc", leaf_uuid="ll")
+assert "mode: cold" in pkt
+assert "light: true" in pkt
+assert a.LIGHT_HONESTY in pkt
+assert "warm-light" not in pkt
+assert "UNMINED" not in pkt
+# bare (no light): no light meta / honesty
+pkt0 = a.assemble_packet(evs, mode="warm", session_uuid="w0")
+assert "light: true" not in pkt0
+assert a.LIGHT_HONESTY not in pkt0
+print("ok")
+' 2>/dev/null | grep -q ok; then ok
+else bad "T27 light API mode preserve + bare omit"; fi
+
+# CLI without --light must not emit light markers
+if python3 "$ASM" --events "$THRASH" --session-uuid "light-off" --mode warm --out "$LIGHT_OFF" 2>/dev/null \
+   && ! grep -q 'light: true' "$LIGHT_OFF" \
+   && ! grep -qF "$LIGHT_HONESTY" "$LIGHT_OFF" \
+   && grep -q '^mode: warm$' "$LIGHT_OFF"; then ok
+else bad "T27 bare warm must omit light meta"; fi
+
 # ---- summary ----
 echo "assemble-test: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

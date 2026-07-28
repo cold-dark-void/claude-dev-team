@@ -80,7 +80,7 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
   - **Assemble merge:** Assemble MUST merge prior cache events + delta miner files with generation-aware order (prior before delta) and existing `(kind, normalized body)` dedup (first wins → prior verbatim survives). Cross-gen ids: prior → `prior:{stem}:{raw_id}`; fresh → `{stem}:{raw_id}` (extends CDT-93 invent-guard). Step 7 annotation summary MUST see the **merged** namespaced event set. Prior events MUST be taken **verbatim** from cache — no re-paraphrase.
   - **No packet parse:** MUST NOT recover events by re-parsing packet/brief markdown; events come only from the cache `events` field (or full re-mine).
   - **Full force / fallback:** `/handoff --full` or `HANDOFF_FULL=1` MUST force full prepare/mine (ignore cache events / since-leaf). Any miss (no events, since-leaf not in timeline, prepare fail, empty unusable prior) MUST fall back to full re-mine without crash.
-  - **Cold HIT unchanged:** Cold cache-check HIT (leaf match → serve core) MUST remain byte-identical; cold MISS does not auto-apply since-leaf. M8b does not introduce M10c (reserved).
+  - **Cold HIT unchanged:** Cold cache-check HIT (leaf match → serve core) MUST remain byte-identical; cold MISS does not auto-apply since-leaf. M10c light preset: see M10c (CDT-91). M8b full path unchanged for bare warm.
 - **M9 — Freshness guard (cold).** If the target transcript was modified < 60 s ago, cold `/handoff` MUST warn and decline to parse mid-write (SPEC-012). Default cold path MUST NOT use the mid-write carve-out.
 - **M10 — Warm mode (spine-mine self).** Bare `/handoff` MUST spine-mine **this** session's JSONL via the shared engine (not freeform rewrite from live model memory). Warm MAY run an **annotation** pass whose output schema can only reference existing event IDs (`{ event_id, labels[], rank? }`) — MUST NOT invent evidence. Event IDs for invent-guard are the **namespaced** form from assemble `load_events` (`{stem}:{raw_id}`, e.g. `through_line:tl-e1`); bare miner ids MUST NOT match (CDT-93). Warm MUST write the packet **file-only** (not print core into the still-live session as primary product). Mid-write read of **this session's** transcript is allowed via a **warm-only** carve-out (M14 pattern): drop truncated last line; fail soft; carve-out MUST NOT be reachable from cold user path.
 - **M10b — Session-id bridge + honesty (CDT-85 / CDT-92).** Warm discovery MUST resolve a live session id + transcript path for the **host in use** via `skills/handoff/discover-warm.sh`.
@@ -98,7 +98,35 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
   **Grok normalize:** Before prepare, Grok `chat_history` MUST be adapted to Claude-shaped JSONL (user/assistant `message.role`, synthetic `uuid`, injected `cwd` for M7b resolve-root). Shared spine-mine after prepare is unchanged (M3b).
 
   On success, warm MUST: (a) write/update a session-id bridge (`.live-session.json` under target handoff dir when resolvable) with the resolved host session id + **source** transcript path (Grok `chat_history` or Claude jsonl) and `host: grok|claude`; (b) emit packet header/footer `mode: warm` and `session: <id>`; (c) use that id in the filename so later cold/re-capture can `Supersedes:` the same session tip. AC-16 human 3/3 MUST NOT be claimed from cold-only dogfood, Grok-only dogfood, or unit fixtures alone; warm thesis still requires Claude Code bare-`/handoff` anti-relitigation (see dogfood runbook).
-- **M11 — Filename, slug, Supersedes.** Packet files MUST use `<YYYYMMDD-HHmm>-<session-id>-<slug>.md` under `.claude/handoff/`. Slug: optional user arg; else sanitized first decision/open text (≤40 chars); else `stm`. When the same session is re-captured, write a **new** file and set header `Supersedes: <prior-filename>` so the living tip is unambiguous (one-file default with versioned names).
+- **M10c — Light warm preset (CDT-91).** `/handoff --light` is a **warm-only cost preset** over the shared spine-mine pipeline (prepare → miner → assemble). It is **not** freeform live-context and MUST NOT reintroduce a dual path when discover fails (M10 / M10b still apply).
+
+  **MUST:**
+  1. Accept `--light` only on warm entry (bare `/handoff` / `--slug` / with other warm flags). Cold `/handoff <uuid> --light` MUST fail with usage.
+  2. Keep packet `mode: warm` (two-value contract CDT-85). Carry lightness solely via meta **`light: true`** in header and footer. MUST NOT add a third mode enum value (e.g. `warm-light`).
+  3. Run prepare → merged miner → assemble (same engine). Preset knobs:
+     - merged miner: `HANDOFF_MINER_MODEL=haiku` when unset by operator;
+     - **skip** warm annotation entirely;
+     - MAY lower `HANDOFF_SPINE_TOKENS` to **40000** when unset (MUST NOT change the bare-warm code default of **120000**).
+  4. Write packet filename with **`-draft`** suffix: `<YYYYMMDD-HHmm>-<session-id>-<slug>-draft.md`.
+  5. Emit honesty wording (exact):  
+     `light preset: reduced-cost mine, no annotation; not AC-16-scored.`  
+     MUST NOT say "UNMINED".
+  6. On light finalize: MUST **not** write or overwrite `$HANDOFF_DIR/cache/<session-id>.json` (M8). Session bridge `.live-session.json` MAY still update (M10b).
+  7. Include light drafts in `Supersedes` discovery (M11). Later full warm capture MUST be able to `Supersedes:` a prior light draft tip. PreCompact rescues remain excluded.
+  8. After light write, surface a completion nudge that bare `/handoff` is needed for AC-16-quality tip + intact delta chain.
+  9. Remain host-agnostic (Claude + Grok via existing discover-warm).
+
+  **MUST NOT:**
+  1. Write freeform live-context as a light STM packet.
+  2. Write M8 cache from light (primary anti-poison path).
+  3. Claim AC-16 scoring credit for light packets (runbook exclude).
+  4. Change bare `/handoff` defaults (miner inherit, annotation on, spine 120k, cache write on).
+  5. Implement gen-3 `events_for_cache` collision fixes under this claim (reserved separate ticket).
+
+  **SHOULD:**
+  1. Defense-in-depth: if a cache entry is ever present with `light: true` or empty events, warm delta gate treats it as no-prior (same soft path as missing events).
+  2. Document light as opt-in sugar in `docs/commands/handoff.md` + dogfood runbook cost section.
+- **M11 — Filename, slug, Supersedes.** Packet files MUST use `<YYYYMMDD-HHmm>-<session-id>-<slug>.md` under `.claude/handoff/`. Light warm (M10c) MUST append `-draft` before `.md` (`<YYYYMMDD-HHmm>-<session-id>-<slug>-draft.md`). Slug: optional user arg; else sanitized first decision/open text (≤40 chars); else `stm`. When the same session is re-captured, write a **new** file and set header `Supersedes: <prior-filename>` so the living tip is unambiguous (one-file default with versioned names). Light drafts are eligible Supersedes tips (M10c); PreCompact rescues remain excluded.
 - **M11b — Unclear landing.** If the session did not land a root cause, the packet MUST NOT invent one. Prefer evidence trail + `open` events; optional `INFERRED` **label** on an existing event via annotation only.
 - **M11c — No Linear dual-write.** The handoff path MUST NOT write STM packet content into Linear. Epic/backlog work remains separate Surfaces.
 - **M11d — Docs claim boundary.** v1 MUST NOT claim full harness `/compact` replacement. Position: compact-prep STM / compact seed.
@@ -150,8 +178,13 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 26. **Assemble prior+delta merge (M8b / M3b / CDT-88):** prior cache events + delta miner files → merged packet; prior bodies survive verbatim; cross-gen ids `prior:{stem}:{id}` and `{stem}:{id}`; generation order puts delta after prior for State now tail; dedup `(kind, norm body)` first-wins.
 27. **Cache events dual-read (M8b / CDT-88):** old cache without `events` (or null/empty/unreadable) → full re-mine, no crash; cache with `events` written on finalize is readable on next warm delta path.
 28. **Full force (M8b / CDT-88):** `--full` or `HANDOFF_FULL=1` forces full prepare/mine even when cache has `leaf_uuid` + `events`; cold cache-check HIT path unchanged.
+29. **Light warm finalize (M10c / CDT-91):** Light warm finalize writes `*-draft.md` with `mode: warm` + `light: true`; cache file absent or unchanged (byte-identical if pre-existing full entry).
+30. **Light does not poison delta (M10c / CDT-91):** Full capture → light re-capture → `cache/$SID.json` byte-identical → next bare warm prepares with `--since-leaf` = full leaf (delta path).
+31. **Light gates + bare defaults (M10c / CDT-91):** Cold + `--light` → usage fail; bare warm defaults unchanged when `--light` omitted.
+32. **Supersedes light draft (M10c / M11 / CDT-91):** `discover_supersedes`: light draft is eligible tip; full second capture `Supersedes: <draft basename>`; precompact still skipped.
+33. **Light cache defense (M10c / CDT-91):** Defense: cache with `light: true` OR empty events → `PRIOR_LEAF` empty (no `--since-leaf`) even if `leaf_uuid` present.
 
-**Human ship gate (CDT-79 AC-16 — not CI):** ≥3 re-captures under new contract (≥2 long-debug: multi-hypothesis thrash with kills; ≥1 multi-week: ≥2 calendar weeks or multi-child program arc); after compact `@packet`, next session does not re-propose packet-resident kills/rulings; human 3/3.
+**Human ship gate (CDT-79 AC-16 — not CI):** ≥3 re-captures under new contract (≥2 long-debug: multi-hypothesis thrash with kills; ≥1 multi-week: ≥2 calendar weeks or multi-child program arc); after compact `@packet`, next session does not re-propose packet-resident kills/rulings; human 3/3. Light packets (M10c) are excluded from AC-16 scoring.
 
 ---
 
@@ -167,6 +200,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 - [ ] Docs: compact seed framing; no Linear dual-write; no compact-replacement claim
 - [ ] Internal legacy inject-brief / multi-extractor references swept from SPEC, skill, command, docs, tests
 - [ ] Spawn model tiers (M3e): chunk + annotation `model: haiku`; miner inherits session unless `HANDOFF_MINER_MODEL`; parent session tier; `HANDOFF_SPINE_TOKENS` default 120000
+- [ ] M10c light: warm-only, no cache write, markers, supersedes draft, defense gates
 
 ---
 
@@ -174,7 +208,8 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 
 | Date | Change |
 |------|--------|
-| 2026-07-27 | **CDT-88:** M8b delta-mine re-capture — cache `events` stem map; warm spine since cached leaf when events present; assemble prior+delta merge (generation order + existing dedup); full fallback; no packet parse; `--full`/`HANDOFF_FULL`; cold HIT unchanged. M3b amend: miner MAY take delta spine; still one merged miner; assemble sole merge SoT. Tests 25–28. MUST NOT introduce M10c (reserved CDT-91) |
+| 2026-07-27 | **CDT-91:** M10c light warm preset — haiku miner + no annotation + optional spine 40k; `light: true` meta; `-draft` file; **no M8 cache write**; Supersedes includes drafts; AC-16 exclude; patch 1.1.7. Tests 29–33 |
+| 2026-07-27 | **CDT-88:** M8b delta-mine re-capture — cache `events` stem map; warm spine since cached leaf when events present; assemble prior+delta merge (generation order + existing dedup); full fallback; no packet parse; `--full`/`HANDOFF_FULL`; cold HIT unchanged. M3b amend: miner MAY take delta spine; still one merged miner; assemble sole merge SoT. Tests 25–28. M10c light preset claimed under CDT-91 |
 | 2026-07-27 | **CDT-90:** M3e spawn model tiers — chunk + annotation haiku; merged miner session-inherit + `HANDOFF_MINER_MODEL` opt-in; effort optional; parent stays session tier; `HANDOFF_SPINE_TOKENS` default 120000; Test 24 |
 | 2026-06-04 | Initial spec (cold handoff brainstorm) |
 | 2026-06-04 | M10 warm + M11 consolidation (CDV-10) |

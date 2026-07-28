@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # finalize-test.sh — CDT-79-3/8 prepass finalize / cache STM packet (SPEC-018 M3d/M7/M8/M11).
 # Coverage: cold core+path (T2), cache packet field (T3), HIT serves packet (T4),
-# Supersedes second capture (T11), no legacy section-assembly finalize (T9).
+# Supersedes second capture (T11), no legacy section-assembly finalize (T9),
+# light draft Supersedes tip (T26 / CDT-91 M10c test 32).
 # Run: bash skills/handoff/finalize-test.sh
 set -u
 
@@ -481,6 +482,140 @@ if [ "$RC" -eq 0 ] \
    && grep -q 'legacy no-events packet' "$WORK/t22.stdout" \
    && python3 -c 'import json; d=json.load(open("'"$HANDOFF_DIR"'/cache/'"$LEGACY_NOEV"'.json")); assert "events" not in d'; then ok
 else bad "T22 legacy no-events HIT rc=$RC out=$(head -c 200 "$WORK/t22.stdout") err=$(head -c 200 "$WORK/t22.stderr")"; fi
+
+# ---- T23: CDT-91 M10c light finalize → *-draft.md packet, no M8 cache ----
+# Auto path (no --packet-out): ends with -draft.md; cache/$SID.json absent.
+LIGHT_SID="${SID}-light"
+set +e
+bash "$PREPASS" finalize \
+  --uuid "$LIGHT_SID" \
+  --events "$THRASH" \
+  --git-state "$GITBLOB" \
+  --leaf "leaf-light-001" \
+  --slug light-stm \
+  --mode warm \
+  --light \
+  >"$WORK/t23.stdout" 2>"$WORK/t23.stderr"
+RC=$?
+set -e
+LIGHT_DRAFT=""
+for f in "$HANDOFF_DIR"/*-"${LIGHT_SID}"-*-draft.md; do
+  [ -f "$f" ] && LIGHT_DRAFT="$f" && break
+done
+LIGHT_CACHE="$HANDOFF_DIR/cache/${LIGHT_SID}.json"
+if [ "$RC" -eq 0 ] && [ -n "$LIGHT_DRAFT" ] && [ -f "$LIGHT_DRAFT" ] \
+   && [ ! -e "$LIGHT_CACHE" ] \
+   && grep -q '## State now' "$LIGHT_DRAFT" \
+   && grep -q 'cached=NO' "$WORK/t23.stderr" \
+   && grep -q 'light=1' "$WORK/t23.stderr"; then ok
+else bad "T23 light draft/no-cache rc=$RC draft=${LIGHT_DRAFT:-none} cache_exists=$([ -e "$LIGHT_CACHE" ] && echo y || echo n) err=$(head -c 300 "$WORK/t23.stderr")"; fi
+# basename must end with -draft.md (stable triage token)
+if [ -n "$LIGHT_DRAFT" ] && basename -- "$LIGHT_DRAFT" | grep -qE -- '-draft\.md$'; then ok
+else bad "T23 draft basename not *-draft.md: $(basename -- "${LIGHT_DRAFT:-}")"; fi
+
+# ---- T24: HANDOFF_LIGHT=1 env alone enables light (no --light flag) ----
+LIGHT_ENV_SID="${SID}-light-env"
+set +e
+HANDOFF_LIGHT=1 bash "$PREPASS" finalize \
+  --uuid "$LIGHT_ENV_SID" \
+  --events "$THRASH" \
+  --git-state "$GITBLOB" \
+  --leaf "leaf-light-env" \
+  --slug light-env \
+  --mode warm \
+  >"$WORK/t24.stdout" 2>"$WORK/t24.stderr"
+RC=$?
+set -e
+LIGHT_ENV_DRAFT=""
+for f in "$HANDOFF_DIR"/*-"${LIGHT_ENV_SID}"-*-draft.md; do
+  [ -f "$f" ] && LIGHT_ENV_DRAFT="$f" && break
+done
+LIGHT_ENV_CACHE="$HANDOFF_DIR/cache/${LIGHT_ENV_SID}.json"
+if [ "$RC" -eq 0 ] && [ -n "$LIGHT_ENV_DRAFT" ] && [ -f "$LIGHT_ENV_DRAFT" ] \
+   && [ ! -e "$LIGHT_ENV_CACHE" ]; then ok
+else bad "T24 HANDOFF_LIGHT=1 rc=$RC draft=${LIGHT_ENV_DRAFT:-none} cache_exists=$([ -e "$LIGHT_ENV_CACHE" ] && echo y || echo n) err=$(head -c 200 "$WORK/t24.stderr")"; fi
+
+# ---- T25: bare warm (no light) still writes cache (regression vs T23) ----
+WARM_SID="${SID}-warm-reg"
+set +e
+bash "$PREPASS" finalize \
+  --uuid "$WARM_SID" \
+  --events "$THRASH" \
+  --git-state "$GITBLOB" \
+  --leaf "leaf-warm-reg" \
+  --slug warm-reg \
+  --mode warm \
+  --packet-out "$WORK/warm-reg.md" \
+  >"$WORK/t25.stdout" 2>"$WORK/t25.stderr"
+RC=$?
+set -e
+WARM_CACHE="$HANDOFF_DIR/cache/${WARM_SID}.json"
+if [ "$RC" -eq 0 ] && [ -f "$WORK/warm-reg.md" ] && [ -f "$WARM_CACHE" ]; then ok
+else bad "T25 bare warm cache regression rc=$RC packet=$([ -f "$WORK/warm-reg.md" ] && echo y || echo n) cache=$([ -f "$WARM_CACHE" ] && echo y || echo n) err=$(head -c 200 "$WORK/t25.stderr")"; fi
+
+# ---- T26: CDT-91 / SPEC-018 test 32 — light draft eligible Supersedes tip ----
+# discover_supersedes includes …-draft.md (unlike precompact rescues).
+# 1) light draft path is eligible tip for same session uuid
+# 2) full second capture sets Supersedes: <draft basename>
+# 3) precompact still skipped (planted rescue must not win)
+SD_SID="cdt91-supersedes-draft"
+set +e
+bash "$PREPASS" finalize \
+  --uuid "$SD_SID" \
+  --events "$THRASH" \
+  --git-state "$GITBLOB" \
+  --leaf "leaf-sd-draft" \
+  --slug draft-tip \
+  --mode warm \
+  --light \
+  >"$WORK/t26a.stdout" 2>"$WORK/t26a.stderr"
+RC1=$?
+set -e
+SD_DRAFT=""
+for f in "$HANDOFF_DIR"/*-"${SD_SID}"-*-draft.md; do
+  [ -f "$f" ] && SD_DRAFT="$f" && break
+done
+# Plant precompact rescue that must NOT become tip (same exclusion as T12)
+printf '# rescue\n' >"$HANDOFF_DIR/${SD_SID}-precompact-1.md"
+sleep 1
+set +e
+bash "$PREPASS" finalize \
+  --uuid "$SD_SID" \
+  --events "$THRASH" \
+  --git-state "$GITBLOB" \
+  --leaf "leaf-sd-full" \
+  --slug full-tip \
+  --mode warm \
+  >"$WORK/t26b.stdout" 2>"$WORK/t26b.stderr"
+RC2=$?
+set -e
+SD_FULL=""
+for f in "$HANDOFF_DIR"/*-"${SD_SID}"-full-tip.md; do
+  [ -f "$f" ] || continue
+  [ "$f" = "$SD_DRAFT" ] && continue
+  SD_FULL="$f"
+done
+# Collision path: full-tip.md vs full-tip-N.md
+if [ -z "$SD_FULL" ]; then
+  for f in "$HANDOFF_DIR"/*-"${SD_SID}"-full-tip*.md; do
+    [ -f "$f" ] || continue
+    case "$(basename -- "$f")" in
+      *-draft.md|*-draft-*.md) continue ;;
+    esac
+    SD_FULL="$f"
+  done
+fi
+SD_DRAFT_BASE=$(basename -- "${SD_DRAFT:-}")
+SUP_LINE=$(grep '^Supersedes:' "$SD_FULL" 2>/dev/null | head -1 || true)
+if [ "$RC1" -eq 0 ] && [ "$RC2" -eq 0 ] \
+   && [ -n "$SD_DRAFT" ] && [ -f "$SD_DRAFT" ] \
+   && basename -- "$SD_DRAFT" | grep -qE -- '-draft\.md$' \
+   && [ -n "$SD_FULL" ] && [ -f "$SD_FULL" ] \
+   && [ "$SUP_LINE" = "Supersedes: $SD_DRAFT_BASE" ] \
+   && ! printf '%s' "$SUP_LINE" | grep -q precompact; then ok
+else
+  bad "T26 light draft supersedes rc1=$RC1 rc2=$RC2 draft=${SD_DRAFT:-none} full=${SD_FULL:-none} supersedes=$SUP_LINE"
+fi
 
 echo
 echo "finalize-test: $PASS passed, $FAIL failed"

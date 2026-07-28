@@ -11,7 +11,8 @@ description: |
     event JSON to `prepass.sh finalize --events` → `assemble.py` for the STM packet.
     Implements SPEC-018 M3b–M3e (spine-mine + event model + assemble + spawn model
     tiers), M4 (STM packet), M5 (lightweight stated-intent-vs-git), M6 (quotes
-    admissible), M7/M10 (cold/warm), M8b (warm delta-mine + prior event merge).
+    admissible), M7/M10 (cold/warm), M8b (warm delta-mine + prior event merge),
+    M10c (light warm preset — CDT-91).
 ---
 
 # handoff
@@ -51,6 +52,7 @@ Warm and cold share this spine-mine engine (M3b / M10): same merged miner, same
 event schema, same assemble. They differ only in entry (uuid locate vs dual-host
 `discover-warm.sh` self-transcript + mid-write carve-out; CDT-92 Grok|Claude)
 and exit (cold print core + path; warm file-only) plus optional warm annotation.
+`--light` / M10c is warm-only cost sugar over the same engine (still mines).
 
 ---
 
@@ -86,22 +88,25 @@ SPAWN 1 MERGED MINER IN ONE TOOL-USE BLOCK   ◄── THIS FILE   (the fan-out 
         │  writes ${EVENTS_DIR}/state.json         (2 kinds)
         │  (miner sees delta spine only when M8b; does NOT re-read prior)
         ▼
-[ warm only ] annotation pass (labels/rank on **merged namespaced** event_ids)
+[ warm only, not light ] annotation pass (labels/rank on **merged namespaced** event_ids)
         │  → ${ANNOTATIONS_FILE}
         │  ids = {stem}:{raw_id} and prior:{stem}:{raw_id} when prior present
+        │  light (M10c): SKIP entirely (SKIP_ANNOTATION / HANDOFF_LIGHT)
         ▼
 deterministic git capture (read-only; no LLM) → git-state blob
         ▼
 prepass.sh finalize --uuid <u> --events ${EVENTS_DIR} \
     [--prior-events <cache.json>] [--git-state <blob>] [--annotations <file>] \
-    [--leaf <uuid>] [--slug <s>] [--mode cold|warm] [--print-core]
+    [--leaf <uuid>] [--slug <s>] [--mode cold|warm] [--light] [--print-core]
         │  → assemble: load_prior (prior:stem:id, gen=0) + load_events (stem:id, gen=1)
         │  → merge · order by generation · dedup · invent-guard · State now
         │  → --events-out → cache cumulative events (raw ids) for next warm delta
+        │    (light: no M8 cache write at all)
         │  → STM packet: ## State now → ## Through-line → ## appendix
         ▼
 cold: print State now + Through-line + cite packet path (M7); write cache (M8/M8b)
 warm: file-only write under .claude/handoff/ (M10); cache events for next delta
+warm light: *-draft.md; mode: warm + light: true; no cache write
 ```
 
 ### M8b — warm delta-mine (protocol)
@@ -129,6 +134,52 @@ session length, when the M8 cache holds cumulative events.
 - `--since-leaf` is **internal/debug only** (not a user CLI flag).
 - Step 7 summary MUST use `assemble.load_merged_for_summary(dir, prior=…)` so
   annotation can target both gens (including `prior:stem:id`).
+- Cache with `light: true` or empty `events` → treat as no-prior (defense; primary
+  light path never writes cache).
+
+### M10c — light warm preset (protocol)
+
+`/handoff --light` / `HANDOFF_LIGHT=1` is a **warm-only cost preset** over the
+shared spine-mine pipeline (prepare → merged miner → assemble). Still mines —
+not freeform live-context; not a dual path when discover fails (M10 / M10b).
+
+| Knob | Light default (only if operator-unset) | Bare warm default |
+|------|----------------------------------------|-------------------|
+| `HANDOFF_MINER_MODEL` | `haiku` | inherit session (omit `model`) |
+| Annotation (Step 7) | **skip** (`SKIP_ANNOTATION=1`) | haiku annotation Task |
+| `HANDOFF_SPINE_TOKENS` | **40000** (optional lower; MUST NOT change bare default) | **120000** |
+| M8 cache write | **none** (no create/overwrite of `cache/<sid>.json`) | write cumulative `events` |
+| Packet filename | `…-<slug>-draft.md` | `…-<slug>.md` |
+| Mode meta | `mode: warm` + `light: true` (header + footer) | `mode: warm` only |
+| Honesty line (exact) | `light preset: reduced-cost mine, no annotation; not AC-16-scored.` | (none / normal warm) |
+| AC-16 human gate | **excluded** | eligible |
+
+**Markers (assemble / finalize `--light`):**
+
+- Packet meta keeps the two-value mode contract: **`mode: warm`** (never a third
+  enum such as `warm-light`).
+- Lightness is sole extra meta: **`light: true`** in header and footer.
+- Honesty footer MUST be exactly:
+  `light preset: reduced-cost mine, no annotation; not AC-16-scored.`
+  MUST NOT say that mining was skipped or invent alternate honesty strings.
+
+**Filename (M11):**
+`<YYYYMMDD-HHmm>-<session-id>-<slug>-draft.md` under target `.claude/handoff/`.
+Collision: `…-draft-N.md` (keep `-draft` as stable token). Light drafts are
+eligible `Supersedes` tips; PreCompact rescues remain excluded.
+
+**Orchestrator contract:**
+
+1. Warm-only — cold uuid + `--light` → usage fail (command Step 0).
+2. Preset knobs apply **only when unset** — honor operator env overrides.
+3. Do **not** build `EVENTS_SUMMARY_JSON` or spawn annotation under light.
+4. Finalize with `--light` / `HANDOFF_LIGHT=1` → draft path + skip M8 write/prune.
+5. Session bridge `.live-session.json` MAY still update (M10b).
+6. After write, nudge bare `/handoff` before session end for AC-16 tip + delta chain.
+7. Host-agnostic (Claude + Grok via existing `discover-warm.sh`).
+
+**MUST NOT:** freeform live-context as light packet; write M8 cache from light;
+claim AC-16 credit for light; change bare-warm defaults when `--light` omitted.
 
 ---
 
@@ -167,8 +218,8 @@ force haiku on the parent loop).
 | Stage | Task count | `model` | Notes |
 |-------|------------|---------|--------|
 | Chunk-summarizer (Step 5b) | N in one block | **`haiku`** | Extraction map step |
-| Merged miner (Step 6) | **1** Task | **inherit session** (omit `model`) | Opt-in: `HANDOFF_MINER_MODEL` when non-empty (tier alias) |
-| Annotation (Step 7, warm) | 1 | **`haiku`** | Labels/rank only |
+| Merged miner (Step 6) | **1** Task | **inherit session** (omit `model`) | Opt-in: `HANDOFF_MINER_MODEL` when non-empty (tier alias). **Light (M10c):** sets `HANDOFF_MINER_MODEL=haiku` if unset |
+| Annotation (Step 7, warm) | 1 | **`haiku`** | Labels/rank only. **Light:** skip (no Task) |
 | Parent orchestrator | — | **session** | Steps 0–8 shell + judgment; never force haiku |
 
 ```bash
@@ -473,7 +524,9 @@ OUTPUT SHAPE
 
 After the merged miner succeeds (or partially succeeds — at least one event file
 present), warm mode MAY run one annotation pass over the **merged namespaced
-event id set** (prior + delta when M8b). Cold mode skips this.
+event id set** (prior + delta when M8b). Cold mode skips this. **Light (M10c /
+`SKIP_ANNOTATION=1` / `HANDOFF_LIGHT=1`): skip entirely** — no summary build, no
+annotation Task.
 
 **Namespace seam (CDT-93 + M8b / CDT-88):**
 
@@ -616,7 +669,7 @@ Boundary between this skill (LLM fan-out) and deterministic assemble:
 prepass.sh finalize --uuid <u> --events <dir|file> \
   [--prior-events <cache-or-stem-map>] \
   [--git-state <file>] [--annotations <file>] [--leaf <uuid>] \
-  [--slug <s>] [--mode cold|warm] [--print-core]
+  [--slug <s>] [--mode cold|warm] [--light] [--print-core]
 ```
 
   which calls `skills/handoff/assemble.py`:
@@ -626,14 +679,19 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   mechanical **State now** (latest decisions, surviving unkilled hypotheses, all
   opens) · chronological **Through-line** (group by workstream when >1) ·
   **appendix** (kill catalog, facts, git, pointer index) · footer (advisory token
-  ratio, session id, Supersedes) · `--events-out` stem map for M8b cache write.
+  ratio, session id, Supersedes) · `--events-out` stem map for M8b cache write
+  (skipped on light) · `--light` → `light: true` meta + exact honesty line.
 
 - **Packet headers (fixed order):** `## State now` → `## Through-line` → `## appendix`
 - **Mode header (M10b / CDT-85):** packet meta includes `mode: cold|warm` + `session: <id>` when finalize passes `--mode` (always for prepass finalize). Warm discovery writes `.live-session.json` bridge (`host: grok|claude`); missing session id fails honestly (no freeform dual path).
+- **Light markers (M10c / CDT-91):** `mode: warm` + `light: true` (header + footer);
+  honesty exact: `light preset: reduced-cost mine, no annotation; not AC-16-scored.`
 - **Filename (M11):** `<target-MROOT>/.claude/handoff/<YYYYMMDD-HHmm>-<session-id>-<slug>.md`
   — local wall clock; slug `[a-z0-9-]+` ≤40 (fallback `stm`); same-minute
-  re-capture appends `-N`. Auto `Supersedes: <prior-basename>` on re-capture
-  (newest same-session tip; skips `<session_id>-precompact-*` rescues).
+  re-capture appends `-N`. Light: append `-draft` before `.md`
+  (`…-<slug>-draft.md`). Auto `Supersedes: <prior-basename>` on re-capture
+  (newest same-session tip; includes light drafts; skips
+  `<session_id>-precompact-*` rescues).
   Write root from **target session** via `skills/handoff/resolve-root.sh` (CDT-80),
   never invoker cwd.
 - **Cold (M7):** write full packet file; print State now + Through-line; cite path
@@ -645,10 +703,13 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   stdout line 2 is Claude-shaped adapted JSONL (prepare-ready); env:
   `GROK_SESSION_ID`, `GROK_TRANSCRIPT_PATH`, `GROK_SESSIONS_DIR`, `GROK_CWD`.
   Command Step 1w stays thin (no host branch).
+- **Warm light (M10c):** same warm entry/exit shape; draft filename; no M8 cache;
+  skip annotation; see `### M10c — light warm preset` above.
 - **Cache (M8 / M8b):** keyed by `(session uuid + leaf_uuid)` under target
   `$MROOT/.claude/handoff/cache/<sid>.json`. Payload MAY include cumulative
   `events` stem map (raw miner ids) for warm delta-mine. Cold cache-check HIT
   still serves core only; missing/empty `events` → full re-mine next warm.
+  **Light never writes or overwrites this cache.**
 - **Full-force:** `/handoff --full` or `HANDOFF_FULL=1` — full spine, no prior merge.
 - **Internal only:** prepare `--since-leaf` (orchestrator auto-wires from cache;
   not a user-facing `/handoff` flag).
@@ -851,8 +912,9 @@ does not hinge on them.
 | Template | Section heading in this file | Output path / shape |
 |----------|------------------------------|---------------------|
 | Merged miner | `## Merged miner` | `${EVENTS_DIR}/through_line.json` + `${EVENTS_DIR}/state.json` → each `{events:[…]}` |
-| Annotation (warm) | `## Annotation pass (warm only)` | `${ANNOTATIONS_FILE}` → `{annotations:[…]}` |
+| Annotation (warm) | `## Annotation pass (warm only)` | `${ANNOTATIONS_FILE}` → `{annotations:[…]}` (skipped under light) |
 | Chunk-summarizer | `## Chunk-Summarizer` | per-chunk JSON → reduced spine |
+| Light preset (M10c) | `### M10c — light warm preset` | knobs + markers; no separate Task template |
 | SECURITY block | `## SECURITY` | embedded in every LLM task |
 | Common miner preamble | `## Common miner preamble` | embedded in merged miner |
-| Finalize CLI | `## Merge contract handoff` | `prepass.sh finalize --events …` |
+| Finalize CLI | `## Merge contract handoff` | `prepass.sh finalize --events …` [optional `--light`] |
