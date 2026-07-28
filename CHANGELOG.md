@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.2.2
+- **CDT-64 test coverage** — lock rollup `linear_project_id` (set + null); pre-v1.2.0 legacy state (field absent) via show/rollup `// null` + set creates field; project-field assertions are jq-only (no python3).
+
 ### v1.2.1
 - **CDT-64 follow-up — set-linear-project exit codes + M12 protocol harden** — missing epic now exits **1** (same as `read_state`/`set-status`; was inverted **2**); reject unknown flags like `--clea` (usage 64, no silent id write); empty-string clear + typo tests.
 - **M12 protocol** — client-side exact-equality filter after `list_projects` query prefilter + cursor pagination; resolve Linear team once up front for project create and child issues; pin multi-hit advisory string.

@@ -57,46 +57,66 @@ run_in 0 exists CDV-30
 run_in 2 init CDV-30 --title "dup" --mode orchestrate   # refuse if exists
 
 # ---- linear_project_id (CDT-64 / SPEC-025 M12) ------------------------------
-# After init: field present and null
-python3 -c "import json; d=json.load(open('$STATE')); assert 'linear_project_id' in d; assert d['linear_project_id'] is None" \
+# After init: field present and null (jq only — no python3)
+jq -e '.linear_project_id == null' "$STATE" >/dev/null \
   && pass || fail "init linear_project_id want null"
 
 # set → overwrite → --clear → null
 run_in 0 set-linear-project CDV-30 proj_abc
-LP=$(python3 -c "import json; print(json.load(open('$STATE'))['linear_project_id'])")
-[ "$LP" = "proj_abc" ] && pass || fail "set-linear-project want proj_abc got $LP"
+jq -e '.linear_project_id == "proj_abc"' "$STATE" >/dev/null \
+  && pass || fail "set-linear-project want proj_abc"
 
 run_in 0 set-linear-project CDV-30 proj_xyz
-LP=$(python3 -c "import json; print(json.load(open('$STATE'))['linear_project_id'])")
-[ "$LP" = "proj_xyz" ] && pass || fail "overwrite want proj_xyz got $LP"
+jq -e '.linear_project_id == "proj_xyz"' "$STATE" >/dev/null \
+  && pass || fail "overwrite want proj_xyz"
 
 # show surfaces field when set
 run_in 0 show CDV-30
 echo "$OUT" | jq -e '.linear_project_id=="proj_xyz"' >/dev/null && pass || fail "show linear_project_id when set"
 
 run_in 0 set-linear-project CDV-30 --clear
-python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
+jq -e '.linear_project_id == null' "$STATE" >/dev/null \
   && pass || fail "--clear want linear_project_id null"
 
 # null keyword and empty also clear
 run_in 0 set-linear-project CDV-30 proj_again
 run_in 0 set-linear-project CDV-30 null
-python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
+jq -e '.linear_project_id == null' "$STATE" >/dev/null \
   && pass || fail "null keyword want linear_project_id null"
 
 run_in 0 set-linear-project CDV-30 proj_empty
 run_in 0 set-linear-project CDV-30 ""
-python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
+jq -e '.linear_project_id == null' "$STATE" >/dev/null \
   && pass || fail "empty-string clear want linear_project_id null"
 
 # flag typo must not persist as project id (usage 64)
 run_in 64 set-linear-project CDV-30 --clea
-python3 -c "import json; assert json.load(open('$STATE'))['linear_project_id'] is None" \
+jq -e '.linear_project_id == null' "$STATE" >/dev/null \
   && pass || fail "--clea must not write; field still null"
 
 # missing epic → exit 1 (same as read_state / set-status; not die 2)
 run_in 1 set-linear-project NO-SUCH-EPIC proj_x
 
+# pre-v1.2.0 legacy state: field *absent* (not null) — show/rollup // null; set creates field
+run_in 0 init CDV-LEG --title "Legacy" --mode kickoff
+LEGSTATE="$TMPROOT/.claude/epics/CDV-LEG/state.json"
+jq 'del(.linear_project_id)' "$LEGSTATE" > "${LEGSTATE}.tmp" && mv "${LEGSTATE}.tmp" "$LEGSTATE"
+jq -e 'has("linear_project_id") | not' "$LEGSTATE" >/dev/null \
+  && pass || fail "legacy fixture must omit linear_project_id key"
+run_in 0 show CDV-LEG
+echo "$OUT" | jq -e '.linear_project_id == null' >/dev/null \
+  && pass || fail "show on legacy-absent field want null via // null"
+run_in 0 add-child CDV-LEG --id CDV-LEG-C1 --slug leg --title "Leg child" --estimate S --agent ic4 \
+  --depends-on '[]' --problem "p" --ac '["a"]'
+ROLL_LEG=$(EPIC_ROOT="$TMPROOT" bash "$LIB" rollup)
+echo "$ROLL_LEG" | jq -e 'select(.epic_id=="CDV-LEG") | .linear_project_id == null' >/dev/null \
+  && pass || fail "rollup on legacy-absent field want null"
+run_in 0 set-linear-project CDV-LEG proj_from_legacy
+jq -e '.linear_project_id == "proj_from_legacy"' "$LEGSTATE" >/dev/null \
+  && pass || fail "set on legacy state creates linear_project_id field"
+run_in 0 show CDV-LEG
+echo "$OUT" | jq -e '.linear_project_id=="proj_from_legacy"' >/dev/null \
+  && pass || fail "show after set-on-legacy"
 # ---- add-child validation ---------------------------------------------------
 run_in 64 add-child CDV-30 --id BAD --slug s --title t --estimate M --agent ic4 --depends-on '[]'
 run_in 64 add-child CDV-30 --id CDV-30-C1 --slug s --title t --estimate X --agent ic4 --depends-on '[]'
@@ -177,6 +197,15 @@ echo "$ROLL" | jq -e 'select(.epic_id=="CDV-DONE")' >/dev/null && fail "rollup i
 run_in 0 set-status CDV-30 CDV-30-C3 pending
 ROLL=$(EPIC_ROOT="$TMPROOT" bash "$LIB" rollup)
 echo "$ROLL" | jq -e 'select(.epic_id=="CDV-30")' >/dev/null && pass || fail "rollup missing CDV-30 with pending"
+
+# rollup surfaces linear_project_id when set (and null when not)
+run_in 0 set-linear-project CDV-ACTIVE proj_rollup
+ROLL=$(EPIC_ROOT="$TMPROOT" bash "$LIB" rollup)
+echo "$ROLL" | jq -e 'select(.epic_id=="CDV-ACTIVE") | .linear_project_id=="proj_rollup"' >/dev/null \
+  && pass || fail "rollup linear_project_id when set"
+# CDV-30 was cleared earlier → null key present in rollup object
+echo "$ROLL" | jq -e 'select(.epic_id=="CDV-30") | .linear_project_id == null' >/dev/null \
+  && pass || fail "rollup linear_project_id null when cleared"
 
 # ---- cycle gate via dag-lib (no reimpl in epic-lib) --------------------------
 # assert epic-lib has no COLOR/DFS cycle reimplementation
