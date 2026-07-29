@@ -9,13 +9,18 @@
 #   reconcile.sh [--root PATH] [--dry-run] [--linear-verdicts FILE]
 #
 # LOCAL pass (always):
-#   - Rows whose item file Status is COMPLETED/DONE/FIXED-CLOSED (case-insensitive) → move to ## Completed.
+#   - Rows whose item file Status is COMPLETED/DONE/FIXED-CLOSED (case-insensitive) → PRUNED
+#     (item file deleted, index row dropped). Linear (when linked) or git/commit history is the
+#     durable record for done work — the local write-through is a disposable cache, not an archive.
 #   - Index rows with no corresponding item file → REMOVED (dead references).
 #   - Duplicate rows for one slug → collapse to a single row (keep the first/most-informative).
+#   - Item files with NO index row at all (orphans — never dual-written, or predate this convention)
+#     → pruned when their own Status is already terminal; otherwise left untouched and reported,
+#     since deleting unindexed OPEN work would be a silent loss.
 # LINEAR pass (when --linear-verdicts FILE given):
 #   - FILE is a TSV/JSON of slug→terminal-state, resolved by the CALLING Claude session (which has MCP).
-#     Slugs listed as terminal (Done/Cancelled/Completed) take PRECEDENCE over local status: the item
-#     file Status is set to COMPLETED and the row moved to ## Completed. This script does NOT call MCP.
+#     Slugs listed as terminal (Done/Cancelled/Completed) take PRECEDENCE over local status: the row
+#     is pruned the same as a locally-terminal item. This script does NOT call MCP.
 #
 # ROOT = --root if set, else git rev-parse --show-toplevel, else pwd.
 # Does NOT commit — local write-through only; never stage process trackers.
@@ -81,6 +86,22 @@ item_status_value() {
     | sed 's/^\*\*Status\*\*:[[:space:]]*//' || true
 }
 
+# Read linear_id from YAML frontmatter, when present (report-only here; no MCP calls).
+item_linear_id() {
+  local file="$1"
+  awk '
+    BEGIN { in_fm=0 }
+    NR==1 && /^---[[:space:]]*$/ { in_fm=1; next }
+    in_fm && /^---[[:space:]]*$/ { exit }
+    in_fm && /^linear_id:[[:space:]]*/ {
+      sub(/^linear_id:[[:space:]]*/, "")
+      gsub(/[[:space:]]+$/, "")
+      print
+      exit
+    }
+  ' "$file" 2>/dev/null || true
+}
+
 # Extract the slug from an index row of the form: - [Title](backlog/<slug>.md) - ... [TAG]
 row_slug() {
   printf '%s' "$1" | sed -n 's/.*](backlog\/\([^)]*\)\.md).*/\1/p'
@@ -133,37 +154,6 @@ load_verdicts() {
   fi
 }
 
-# Set an item file's Status to COMPLETED and append a Closed footer (idempotent — skips if already closed).
-close_item_file() {
-  local file="$1" reason="$2"
-  [ -f "$file" ] || return 0
-  local st today tmp
-  st=$(item_status_value "$file")
-  if is_closed_status "$st"; then
-    return 0
-  fi
-  today=$(date +%Y-%m-%d)
-  tmp=$(mktemp "${TMPDIR:-/tmp}/backlog-reconcile-item.XXXXXX")
-  awk -v today="$today" -v reason="$reason" '
-    BEGIN { status_done=0; has_closed=0 }
-    /^\*\*Status\*\*:/ {
-      print "**Status**: COMPLETED"
-      status_done=1
-      next
-    }
-    /^\*Closed:/ { has_closed=1 }
-    { print }
-    END {
-      if (!status_done) print "**Status**: COMPLETED"
-      if (!has_closed) {
-        print ""
-        printf "*Closed: %s (reconcile: %s)*\n", today, reason
-      }
-    }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
-
 # ---- main -----------------------------------------------------------------
 
 resolve_root
@@ -179,14 +169,14 @@ declare -a ACTIONS=()
 
 # For each unique slug in the index, decide its terminal disposition:
 #   MISSING  → row(s) removed (dead ref)
-#   COMPLETE → row moved to ## Completed, item file closed (local or Linear verdict)
+#   COMPLETE → row + item file PRUNED (deleted)
 #   PENDING  → row stays in ## Pending
 # Duplicate rows for one slug always collapse to the first-seen row.
 #
 # We rebuild the index deterministically:
 #   header (everything before the first ## Pending/## Completed section is preserved verbatim),
 #   then ## Pending with surviving pending rows in first-seen order,
-#   then ## Completed with surviving completed rows in first-seen order.
+#   then an (empty, after pruning) ## Completed section for schema stability.
 
 # Collect ordered unique slugs + first-seen row text, and detect duplicates/dead refs.
 declare -A SEEN=()          # slug -> 1 once its first row is recorded
@@ -214,46 +204,45 @@ for slug in "${SLUG_ORDER[@]}"; do
     ACTIONS+=("remove dead-ref row for '$slug' (no item file)")
     continue
   fi
+  lid=$(item_linear_id "$item")
+  lid_suffix="${lid:+ [linear_id: $lid]}"
   if [ -n "${VERDICT_SLUGS[$slug]:-}" ]; then
     DISPOSITION["$slug"]="completed"
-    if ! is_closed_status "$(item_status_value "$item")"; then
-      ACTIONS+=("close '$slug' + move to Completed (Linear verdict: terminal)")
-    fi
+    ACTIONS+=("prune '$slug' (Linear verdict: terminal)${lid_suffix}")
     continue
   fi
   st=$(item_status_value "$item")
   if is_closed_status "$st"; then
     DISPOSITION["$slug"]="completed"
-    # Only a move if it wasn't already recorded under Completed — detected below via section.
-    ACTIONS+=("ensure '$slug' under Completed (item Status=${st:-COMPLETED})")
+    ACTIONS+=("prune '$slug' (item Status=${st:-COMPLETED})${lid_suffix}")
   else
     DISPOSITION["$slug"]="pending"
   fi
 done
 
-# Determine which slugs currently sit under ## Completed so we can suppress no-op "move" noise
-# and, more importantly, so idempotency holds: a row already Completed with a closed item stays put.
-declare -A ALREADY_COMPLETED=()
-awk '
-  /^## Completed[[:space:]]*$/ { sec="c"; next }
-  /^## [A-Za-z]/ { sec=""; next }
-  sec=="c" && /\]\(backlog\// {
-    if (match($0, /\]\(backlog\/[^)]*\.md\)/)) {
-      s=substr($0, RSTART, RLENGTH)
-      sub(/^\]\(backlog\//, "", s); sub(/\.md\)$/, "", s)
-      print s
-    }
-  }
-' "$INDEX" > "${TMPDIR:-/tmp}/backlog-reconcile-completed.$$" 2>/dev/null || true
-while IFS= read -r s; do
-  [ -n "$s" ] && ALREADY_COMPLETED["$s"]=1
-done < "${TMPDIR:-/tmp}/backlog-reconcile-completed.$$"
-rm -f "${TMPDIR:-/tmp}/backlog-reconcile-completed.$$"
-
-# Refine ACTIONS: a "completed" slug already under ## Completed with a closed item is a no-op.
-# Rebuild a clean planned-action list for reporting/change-detection.
-PLANNED=()
-for a in "${ACTIONS[@]}"; do PLANNED+=("$a"); done
+# Orphan scan: item files on disk with NO index row at all — invisible to the index-driven
+# pass above (a distinct failure mode from a dead-ref index row). A closed-status orphan is
+# safe to prune (nothing points to it; Linear or git/commit history already has the record).
+# An open/unrecognized-status orphan is reported only, never deleted — silently discarding
+# un-shipped work with no other record of it would violate "no silent loss".
+declare -a ORPHAN_PRUNE=()
+declare -a ORPHAN_KEEP=()
+for item in "$BACKLOG_DIR"/*.md; do
+  [ -f "$item" ] || continue
+  oslug=$(basename "$item" .md)
+  [ -n "${SEEN[$oslug]:-}" ] && continue
+  ost=$(item_status_value "$item")
+  if is_closed_status "$ost"; then
+    ORPHAN_PRUNE+=("$oslug")
+    ACTIONS+=("prune orphan '$oslug' (no index row; item Status=${ost:-COMPLETED})")
+  else
+    ORPHAN_KEEP+=("$oslug")
+    olid=$(item_linear_id "$item")
+    printf -v omsg "ORPHAN not pruned (no index row, status=%s): %s%s — needs manual triage (/backlog add or delete)" \
+      "${ost:-unrecognized}" "$oslug" "${olid:+ [linear_id: $olid]}"
+    ACTIONS+=("$omsg")
+  fi
+done
 
 # Rewrite the index. Header = lines before the first "## Pending" or "## Completed".
 HEADER_TMP=$(mktemp "${TMPDIR:-/tmp}/backlog-reconcile-hdr.XXXXXX")
@@ -281,53 +270,42 @@ NEW_INDEX=$(mktemp "${TMPDIR:-/tmp}/backlog-reconcile-idx.XXXXXX")
     [ "${DISPOSITION[$slug]}" = "pending" ] || continue
     retag_row "${ROW_TEXT[$slug]}" "[PENDING]"; printf '\n'
   done
+  # Completed items are pruned, not listed — Linear/commit history is the durable record.
+  # Header kept (empty) for schema stability / manual future use.
   printf '\n## Completed\n\n'
-  for slug in "${SLUG_ORDER[@]}"; do
-    [ "${DISPOSITION[$slug]}" = "completed" ] || continue
-    retag_row "${ROW_TEXT[$slug]}" "[COMPLETED]"; printf '\n'
-  done
 } > "$NEW_INDEX"
 rm -f "$HEADER_TMP"
 
-# Change detection: compare rebuilt index to current, and check whether any item file
-# would flip to closed. Used to report "no changes" and to keep dry-run honest.
+# Change detection: compare rebuilt index to current, used to report "no changes" and to keep
+# dry-run honest.
 INDEX_CHANGED=0
 if ! diff -q "$INDEX" "$NEW_INDEX" >/dev/null 2>&1; then
   INDEX_CHANGED=1
 fi
 
-# Item-file writes that would happen (completed slugs whose item isn't yet closed).
-declare -a ITEM_WRITES=()
+# All prunes (index-driven "completed" slugs + orphan-driven prunes) — these delete the item file.
+declare -a PRUNE_SLUGS=()
 for slug in "${SLUG_ORDER[@]}"; do
   [ "${DISPOSITION[$slug]}" = "completed" ] || continue
-  item="$BACKLOG_DIR/${slug}.md"
-  if ! is_closed_status "$(item_status_value "$item")"; then
-    ITEM_WRITES+=("$slug")
-  fi
+  PRUNE_SLUGS+=("$slug")
 done
+PRUNE_SLUGS+=("${ORPHAN_PRUNE[@]}")
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#ITEM_WRITES[@]} -eq 0 ]; then
+  if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#PRUNE_SLUGS[@]} -eq 0 ] && [ ${#ORPHAN_KEEP[@]} -eq 0 ]; then
     printf 'reconcile (dry-run): no changes — index already consistent.\n'
   else
     printf 'reconcile (dry-run): planned actions:\n'
-    if [ ${#PLANNED[@]} -gt 0 ]; then
-      for a in "${PLANNED[@]}"; do printf '  - %s\n' "$a"; done
-    fi
-    for slug in "${ITEM_WRITES[@]}"; do
-      printf '  - set item Status=COMPLETED: .claude/backlog/%s.md\n' "$slug"
-    done
+    for a in "${ACTIONS[@]}"; do printf '  - %s\n' "$a"; done
     [ "$INDEX_CHANGED" -eq 1 ] && printf '  - rewrite index: .claude/backlog.md\n'
   fi
   rm -f "$NEW_INDEX"
   exit 0
 fi
 
-# Apply: close item files, then swap the index in.
-for slug in "${ITEM_WRITES[@]}"; do
-  reason="local"
-  [ -n "${VERDICT_SLUGS[$slug]:-}" ] && reason="linear"
-  close_item_file "$BACKLOG_DIR/${slug}.md" "$reason"
+# Apply: prune item files (index-driven + orphan), then swap the index in.
+for slug in "${PRUNE_SLUGS[@]}"; do
+  rm -f "$BACKLOG_DIR/${slug}.md"
 done
 
 if [ "$INDEX_CHANGED" -eq 1 ]; then
@@ -336,11 +314,10 @@ else
   rm -f "$NEW_INDEX"
 fi
 
-if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#ITEM_WRITES[@]} -eq 0 ]; then
+if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#PRUNE_SLUGS[@]} -eq 0 ] && [ ${#ORPHAN_KEEP[@]} -eq 0 ]; then
   printf 'reconcile: no changes — index already consistent.\n'
 else
-  printf 'reconcile: applied %d action(s).\n' "$(( ${#PLANNED[@]} + ${#ITEM_WRITES[@]} ))"
-  for a in "${PLANNED[@]}"; do printf '  - %s\n' "$a"; done
-  for slug in "${ITEM_WRITES[@]}"; do printf '  - closed item: .claude/backlog/%s.md\n' "$slug"; done
+  printf 'reconcile: applied %d action(s).\n' "${#ACTIONS[@]}"
+  for a in "${ACTIONS[@]}"; do printf '  - %s\n' "$a"; done
 fi
 exit 0

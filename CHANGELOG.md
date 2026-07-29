@@ -3,6 +3,12 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.2.4
+- **Backlog reconcile now prunes, not archives** — `/backlog reconcile` deletes a terminal item's file and drops its index row (local `Status:` or a `--linear-verdicts` hit), instead of moving it into a `## Completed` section that never got swept. The local write-through is a disposable cache; Linear (when linked) or git/commit history is the durable record for done work.
+- **Orphan item-file detection** — `reconcile.sh` now also scans `.claude/backlog/` directly for item files with no index row at all (previously invisible to both `list` and `reconcile`, since the scan only ever ran index→disk). Closed-status orphans are pruned; open/unrecognized-status orphans are reported (`ORPHAN not pruned`) and left untouched — never silently deleted, never auto-added to the index.
+- **`close.sh` intentionally unchanged** — still moves a closed item into `## Completed` as a transient staging area, because `orchestrate`/`wrap-ticket` call `close.sh verify` immediately after close as a ship gate; deleting there would break that check. Pruning stays isolated to the standalone `reconcile.sh` sweep.
+- Rewrote `reconcile-test.sh` for the new behavior (9 cases updated + a new orphan-handling case), and updated SPEC-009's normative reconcile MUSTs to match. Fixes the local `.claude/backlog/` directory accumulating stale/shipped items indefinitely despite Linear being the source of truth.
+
 ### v1.2.3
 - **CDT-64 review fix — team resolution no longer gates project link** — M12.2/M12.3 + skill A.6: search and link need no team (only `save_project` does), so an epic whose project already exists still links when the team is unresolvable; team resolved **once** on the create branch and reused for every child `save_issue`; team-unknown now skips create only. P2 lock restated.
 - **SPEC-025 M12** — drop stray blank line that rendered the 1–10 requirement list loose from item 4.

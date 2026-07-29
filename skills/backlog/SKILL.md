@@ -292,9 +292,14 @@ Linear: <Done <ID> | skipped (no id) | unreachable (local only)>
 
 Idempotent repair pass that brings `.claude/backlog.md` (the index) into agreement with the
 `.claude/backlog/<slug>.md` item files — and, when the Linear MCP is reachable, with Linear's
-terminal issue states. It is a hygiene operation: it moves/removes index rows and flips item-file
-`Status`, but **never invents new items**. See `specs/core/SPEC-009-ticket-workflow.md`
-§"Backlog reconcile".
+terminal issue states. It is a hygiene operation: it removes/prunes index rows and item files, but
+**never invents new items**. See `specs/core/SPEC-009-ticket-workflow.md` §"Backlog reconcile".
+
+The local write-through is a **disposable cache**, not an archive — once an item is terminal
+(locally or in Linear), reconcile **deletes** its item file and drops its index row entirely.
+Linear (when linked) or git/commit history is the durable record for done work; nothing is ever
+retained on disk under a `## Completed` section (the header stays, for schema stability, but stays
+empty after a clean reconcile).
 
 Run the deterministic CLI (subprocess-only; does **not** git-commit — and MUST NOT stage):
 
@@ -309,11 +314,20 @@ bash "$RECON" [--root <path>] [--dry-run] [--linear-verdicts <file>]
 #### What it does (LOCAL pass — always)
 
 - Rows whose **item file** `Status` reads `COMPLETED` / `DONE` / `FIXED-CLOSED` (case-insensitive)
-  → moved to `## Completed`, re-tagged `[COMPLETED]`.
+  → **pruned**: item file deleted, index row dropped entirely (not moved/archived).
 - Index rows with **no corresponding item file** (dead references) → **removed**.
 - **Duplicate** rows for one slug → collapsed to a single row (first-seen kept).
-- The index is rebuilt deterministically: header/preamble preserved verbatim, surviving rows
-  emitted in first-seen order under `## Pending` then `## Completed`.
+- **Orphan item files** — files under `.claude/backlog/` with **no index row at all** (never
+  dual-written via `add`, or predating this convention) → if the item's own `Status` is already
+  terminal, **pruned** the same as a completed indexed row (nothing points to it; Linear or
+  git/commit history already has the record). If the status is open/unrecognized, the file is
+  **left untouched** and reported as `ORPHAN not pruned` — deleting un-tracked, un-shipped work
+  with no other record of it would be a silent loss. It is never auto-added to the index either
+  (that would be inventing a new item); a human decides — `/backlog add` to track it properly, or
+  delete it if it's stale.
+- The index is rebuilt deterministically: header/preamble preserved verbatim, surviving **pending**
+  rows emitted in first-seen order under `## Pending`; `## Completed` stays present but empty
+  (pruned rows are never re-listed there).
 
 #### Precedence — Linear is source of truth when reachable
 
@@ -325,8 +339,8 @@ contract):
    index row), resolve its issue state. Write a verdicts file mapping slug → terminal-state for the
    entries Linear reports as `Done` / `Cancelled` / `Completed` (or the team's equivalent terminal
    state), and pass it via `--linear-verdicts`. These verdicts **take precedence over local
-   item-file status** (Linear = SoT): the script sets the item `Status` to `COMPLETED` and moves
-   the row to `## Completed`.
+   item-file status** (Linear = SoT): the script prunes the item — deletes the file, drops the
+   index row — the same as a locally-terminal item.
 2. **Without the flag** (or for slugs absent from the verdicts file), reconcile falls back to pure
    **local item-file status** per the LOCAL pass above.
 3. **MCP failure is best-effort** (SPEC-025 M5 posture): if the Linear MCP is absent,
@@ -344,7 +358,9 @@ terminal.
 #### Idempotency & dry-run
 
 - **Idempotent**: a second consecutive `reconcile` over an already-reconciled store makes **zero
-  changes** (no row moves, no removals, no item-file writes, no diff). Safe to run repeatedly.
+  changes** (no row removals, no item-file deletions, no diff). Safe to run repeatedly. Open-status
+  orphans keep being reported each run (they're not a change, just a standing notice) until a
+  human resolves them.
 - **`--dry-run`**: prints the planned actions and writes nothing. Use it to preview before
   applying.
 

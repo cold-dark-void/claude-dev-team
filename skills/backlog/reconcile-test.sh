@@ -67,7 +67,7 @@ EOF
 
 echo "== reconcile.sh tests =="
 
-# --- (a) Stale row: index PENDING but item file COMPLETED -> moved to Completed, item unchanged ---
+# --- (a) Stale row: index PENDING but item file COMPLETED -> pruned (deleted, row dropped) ---
 Ra="$TMP/a"
 mkdir -p "$Ra/.claude/backlog"
 cat > "$Ra/.claude/backlog.md" <<'EOF'
@@ -83,23 +83,15 @@ cat > "$Ra/.claude/backlog.md" <<'EOF'
 EOF
 item_file "$Ra/.claude/backlog/stale.md" "COMPLETED"
 item_file "$Ra/.claude/backlog/live.md" "PENDING"
-cp "$Ra/.claude/backlog/stale.md" "$Ra/stale.snap"
 bash "$RECONCILE" --root "$Ra" >/dev/null
-# Row is now under ## Completed carrying [COMPLETED].
-assert_file_match "(a) stale row tagged COMPLETED" "$Ra/.claude/backlog.md" 'stale\.md\).*\[COMPLETED\]'
-assert_file_nomatch "(a) stale row no longer PENDING" "$Ra/.claude/backlog.md" 'stale\.md\).*\[PENDING\]'
-# Confirm it physically sits below the ## Completed header (not just tagged).
-if awk '/^## Completed/{c=1} c && /stale\.md/{found=1} END{exit !found}' "$Ra/.claude/backlog.md"; then
-  pass "(a) stale row under ## Completed section"
+# Completed item is pruned outright: row removed entirely (no ## Completed archive), file deleted.
+assert_file_nomatch "(a) stale row removed from index" "$Ra/.claude/backlog.md" 'stale\.md'
+if [ ! -f "$Ra/.claude/backlog/stale.md" ]; then
+  pass "(a) stale item file pruned (deleted)"
 else
-  fail "(a) stale row under ## Completed section" "not found below header"
+  fail "(a) stale item file pruned (deleted)" "file still exists"
 fi
-# Item file already COMPLETED -> byte-identical (reconcile must not rewrite a closed item).
-if cmp -s "$Ra/.claude/backlog/stale.md" "$Ra/stale.snap"; then
-  pass "(a) item file otherwise unchanged"
-else
-  fail "(a) item file otherwise unchanged" "$(diff "$Ra/stale.snap" "$Ra/.claude/backlog/stale.md" | head -5)"
-fi
+assert_file_match "(a) live sibling stays PENDING" "$Ra/.claude/backlog.md" 'live\.md\).*\[PENDING\]'
 
 # --- (b) Dead reference: index row with no item file -> removed ---
 Rb="$TMP/b"
@@ -158,6 +150,11 @@ EOF
 item_file "$Rd/.claude/backlog/keep.md" "PENDING"
 item_file "$Rd/.claude/backlog/drop.md" "COMPLETED"
 bash "$RECONCILE" --root "$Rd" >/dev/null       # first run: reconciles drift
+if [ ! -f "$Rd/.claude/backlog/drop.md" ]; then
+  pass "(d) drop item file pruned on first run"
+else
+  fail "(d) drop item file pruned on first run" "file still exists"
+fi
 cp "$Rd/.claude/backlog.md" "$Rd/idx.snap"      # snapshot the reconciled index
 out_d=$(bash "$RECONCILE" --root "$Rd")          # second run
 assert_out_match "(d) second run says no changes" "$out_d" 'no changes'
@@ -184,10 +181,14 @@ EOF
 item_file "$Re/.claude/backlog/shipped.md" "PENDING"
 item_file "$Re/.claude/backlog/working.md" "PENDING"
 printf 'shipped\tDone\n' > "$Re/verdicts.tsv"
-bash "$RECONCILE" --root "$Re" --linear-verdicts "$Re/verdicts.tsv" >/dev/null
-assert_file_match "(e) linear-closed row moved to COMPLETED" "$Re/.claude/backlog.md" 'shipped\.md\).*\[COMPLETED\]'
-assert_file_match "(e) item Status flipped COMPLETED" "$Re/.claude/backlog/shipped.md" '^\*\*Status\*\*: COMPLETED'
-assert_file_match "(e) linear reason footer" "$Re/.claude/backlog/shipped.md" '\(reconcile: linear\)'
+out_e=$(bash "$RECONCILE" --root "$Re" --linear-verdicts "$Re/verdicts.tsv")
+assert_file_nomatch "(e) linear-closed row pruned from index" "$Re/.claude/backlog.md" 'shipped\.md'
+if [ ! -f "$Re/.claude/backlog/shipped.md" ]; then
+  pass "(e) linear-closed item file pruned (deleted)"
+else
+  fail "(e) linear-closed item file pruned (deleted)" "file still exists"
+fi
+assert_out_match "(e) prune reason cites Linear verdict" "$out_e" "prune 'shipped'.*Linear verdict"
 # Non-verdict local-pending sibling untouched.
 assert_file_match "(e) unrelated slug stays PENDING" "$Re/.claude/backlog.md" 'working\.md\).*\[PENDING\]'
 assert_file_match "(e) unrelated item Status unchanged" "$Re/.claude/backlog/working.md" '^\*\*Status\*\*: PENDING'
@@ -260,6 +261,13 @@ if cmp -s "$Rg/.claude/backlog/survivor.md" "$Rg/survivor.snap"; then
 else
   fail "(g) survivor item file unchanged" "cmp differs"
 fi
+# Closer (DONE) is pruned — file deleted, row gone entirely (not archived under Completed).
+if [ ! -f "$Rg/.claude/backlog/closer.md" ]; then
+  pass "(g) closer item file pruned (deleted)"
+else
+  fail "(g) closer item file pruned (deleted)" "file still exists"
+fi
+assert_file_nomatch "(g) closer row removed from index" "$Rg/.claude/backlog.md" 'closer\.md'
 
 # --- (h) Degrade path: no --linear-verdicts → local-only; PENDING+linear_id stays PENDING ---
 Rh="$TMP/h"
@@ -298,7 +306,12 @@ out_h=$(bash "$RECONCILE" --root "$Rh")
 assert_file_match "(h) linked open stays PENDING without verdicts" "$Rh/.claude/backlog.md" 'linked-open\.md\).*\[PENDING\]'
 assert_file_match "(h) linked item Status still PENDING" "$Rh/.claude/backlog/linked-open.md" '^\*\*Status\*\*: PENDING'
 assert_file_match "(h) linked linear_id preserved" "$Rh/.claude/backlog/linked-open.md" '^linear_id: CDT-77'
-assert_file_match "(h) local COMPLETED moved" "$Rh/.claude/backlog.md" 'local-done\.md\).*\[COMPLETED\]'
+assert_file_nomatch "(h) local COMPLETED pruned from index" "$Rh/.claude/backlog.md" 'local-done\.md'
+if [ ! -f "$Rh/.claude/backlog/local-done.md" ]; then
+  pass "(h) local COMPLETED item file pruned (deleted)"
+else
+  fail "(h) local COMPLETED item file pruned (deleted)" "file still exists"
+fi
 # exit 0 on degrade (local-only still succeeds)
 rc_h=0
 bash "$RECONCILE" --root "$Rh" >/dev/null || rc_h=$?
@@ -338,11 +351,61 @@ shipped remotely
 *Added: 2026-01-01*
 EOF
 printf 'dual\tDone\n' > "$Ri/verdicts.tsv"
-bash "$RECONCILE" --root "$Ri" --linear-verdicts "$Ri/verdicts.tsv" >/dev/null
-assert_file_match "(i) Linear verdict flips COMPLETED" "$Ri/.claude/backlog/dual.md" '^\*\*Status\*\*: COMPLETED'
-assert_file_match "(i) frontmatter linear_id preserved" "$Ri/.claude/backlog/dual.md" '^linear_id: CDT-88'
-assert_file_match "(i) frontmatter epic_parent preserved" "$Ri/.claude/backlog/dual.md" '^epic_parent: CDT-46'
-assert_file_match "(i) index moved COMPLETED" "$Ri/.claude/backlog.md" 'dual\.md\).*\[COMPLETED\]'
+out_i=$(bash "$RECONCILE" --root "$Ri" --linear-verdicts "$Ri/verdicts.tsv")
+if [ ! -f "$Ri/.claude/backlog/dual.md" ]; then
+  pass "(i) Linear-verdict item pruned (deleted, frontmatter and all)"
+else
+  fail "(i) Linear-verdict item pruned (deleted, frontmatter and all)" "file still exists"
+fi
+assert_file_nomatch "(i) index row removed" "$Ri/.claude/backlog.md" 'dual\.md'
+# Even though the file is gone, the prune log names the slug's linear_id for traceability.
+assert_out_match "(i) prune log cites linear_id for traceability" "$out_i" 'CDT-88'
+
+# --- (j) Orphan item files: no index row at all ---
+Rj="$TMP/j"
+mkdir -p "$Rj/.claude/backlog"
+cat > "$Rj/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+## Completed
+
+EOF
+# Closed-status orphan: never dual-written / predates the index — safe to prune.
+item_file "$Rj/.claude/backlog/orphan-done.md" "COMPLETED"
+# Open-status orphan: real un-tracked work — must NOT be silently deleted.
+item_file "$Rj/.claude/backlog/orphan-open.md" "PARTIAL"
+cp "$Rj/.claude/backlog/orphan-open.md" "$Rj/orphan-open.snap"
+out_j=$(bash "$RECONCILE" --root "$Rj")
+if [ ! -f "$Rj/.claude/backlog/orphan-done.md" ]; then
+  pass "(j) closed-status orphan pruned (deleted)"
+else
+  fail "(j) closed-status orphan pruned (deleted)" "file still exists"
+fi
+if [ -f "$Rj/.claude/backlog/orphan-open.md" ]; then
+  pass "(j) open-status orphan NOT deleted (no silent loss)"
+else
+  fail "(j) open-status orphan NOT deleted (no silent loss)" "file was deleted"
+fi
+if cmp -s "$Rj/.claude/backlog/orphan-open.md" "$Rj/orphan-open.snap"; then
+  pass "(j) open-status orphan file byte-unchanged"
+else
+  fail "(j) open-status orphan file byte-unchanged" "cmp differs"
+fi
+assert_out_match "(j) open-status orphan reported for manual triage" "$out_j" 'ORPHAN not pruned.*orphan-open'
+# Orphans never get an invented index row (reconcile MUST NOT invent new backlog items).
+assert_file_nomatch "(j) orphan-done never gets an index row" "$Rj/.claude/backlog.md" 'orphan-done\.md'
+assert_file_nomatch "(j) orphan-open never gets an index row" "$Rj/.claude/backlog.md" 'orphan-open\.md'
+# Idempotent: second run over the surviving open orphan reports it again (still needs triage),
+# not silently swallowed, but changes nothing on disk.
+cp "$Rj/.claude/backlog/orphan-open.md" "$Rj/orphan-open.snap2"
+bash "$RECONCILE" --root "$Rj" >/dev/null
+if cmp -s "$Rj/.claude/backlog/orphan-open.md" "$Rj/orphan-open.snap2"; then
+  pass "(j) open-status orphan stable across repeated reconcile"
+else
+  fail "(j) open-status orphan stable across repeated reconcile" "cmp differs"
+fi
 
 echo
 echo "Results: $PASS passed, $FAIL failed"

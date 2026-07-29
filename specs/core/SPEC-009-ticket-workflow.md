@@ -114,30 +114,43 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 
 The reconcile subcommand is an **idempotent** repair pass that brings the `.claude/backlog.md`
 index into agreement with the `.claude/backlog/<slug>.md` item files (and, when reachable, with
-Linear). It is a hygiene operation — it moves and removes index rows and flips item-file `Status`
-per the precedence below, but MUST NOT invent new backlog items.
+Linear). It is a hygiene operation — it removes dead/duplicate index rows and **prunes** terminal
+items, but MUST NOT invent new backlog items. The local write-through is a disposable cache, not
+an archive: Linear (when linked) or git/commit history is the durable record for done work, so
+reconcile never retains a `## Completed` archive on disk — terminal items are deleted, not moved.
 
 - MUST operate over both stores: the index (`.claude/backlog.md`) and the per-item files
-  (`.claude/backlog/<slug>.md`). It MUST resolve the root with the same rule as close/verify
-  (`--root` if set, else `git rev-parse --show-toplevel`, else `pwd`) so it edits the local
-  write-through / on-disk process state on the correct worktree (not `git-common-dir` alone).
+  (`.claude/backlog/<slug>.md`), **including item files with no corresponding index row**
+  (orphans — never dual-written via `add`, or predating this convention). It MUST resolve the
+  root with the same rule as close/verify (`--root` if set, else `git rev-parse --show-toplevel`,
+  else `pwd`) so it edits the local write-through / on-disk process state on the correct worktree
+  (not `git-common-dir` alone).
 
 - **Precedence (normative).** For each index entry, the source of truth is determined as follows:
   - **Linear reachable (primary).** When the Linear MCP is reachable AND the index entry has a
     Linear counterpart, Linear issue state is authoritative. An index entry whose Linear issue is
-    `Done` / `Cancelled` / `Completed` (or the team's equivalent terminal state) MUST have its
-    item file `Status` set to `COMPLETED` and its index row moved to the `## Completed` section.
+    `Done` / `Cancelled` / `Completed` (or the team's equivalent terminal state) MUST be **pruned**
+    — item file deleted, index row dropped.
   - **Linear unreachable, or no Linear counterpart (fallback).** When the Linear MCP is
     unreachable, OR an item has no Linear counterpart, local item-file status is authoritative:
     - Rows whose item file `Status` reads `COMPLETED` / `DONE` / `FIXED-CLOSED` (case-insensitive)
-      MUST be moved to the `## Completed` section.
+      MUST be **pruned** (item file deleted, index row dropped).
     - Index rows with **no** corresponding item file MUST be removed (dead references).
     - Duplicate rows for one slug MUST collapse to a single row (repairs pre-guard indexes; see
       the add dedup guard above).
 
+- **Orphan item files (normative).** A file under `.claude/backlog/` with no index row at all MUST
+  be classified by its own `Status`:
+  - Terminal status → pruned (deleted), same as a completed indexed row.
+  - Open or unrecognized status → left untouched on disk and reported (e.g. `ORPHAN not pruned`).
+    MUST NOT be deleted (would silently discard un-shipped work with no other record) and MUST NOT
+    be auto-added to the index (would be inventing a new item) — resolution is a human decision
+    (`/backlog add` to track it properly, or delete it manually if it's stale).
+
 - **Idempotency (MUST).** A second consecutive `/backlog reconcile` run over an already-reconciled
-  store MUST produce zero changes (no row moves, no removals, no item-file `Status` writes, no diff).
-  Reconcile MUST be safe to run repeatedly.
+  store MUST produce zero changes (no row removals, no item-file deletions, no diff) other than
+  re-reporting any still-unresolved open orphans (a notice, not a state change). Reconcile MUST be
+  safe to run repeatedly.
 
 - **Linear path is best-effort (MUST).** The Linear query is best-effort: any MCP failure
   (absent, unauthenticated, timeout, or per-issue error) MUST degrade the affected entries to the
@@ -174,9 +187,10 @@ per the precedence below, but MUST NOT invent new backlog items.
 - Verify `close.sh` closes item + moves index line; verify is idempotent; verify gate fails while PENDING
 - Verify orchestrate plan includes Tracking/closes and ship DoD runs close on feature worktree
 - Verify `/backlog add` for an existing slug never writes a second row keyed to that slug (suffixes `-2`/`-3` or aborts with a message)
-- Verify `/backlog reconcile` moves rows whose item file reads COMPLETED/DONE/FIXED-CLOSED to `## Completed`, removes index rows with no item file (dead refs), and collapses duplicate rows for one slug
-- Verify `/backlog reconcile` sets item `Status`=COMPLETED and moves the row when the Linear issue is Done/Cancelled/Completed and the MCP is reachable (Linear-SoT precedence)
+- Verify `/backlog reconcile` prunes (deletes item file + drops index row) rows whose item file reads COMPLETED/DONE/FIXED-CLOSED, removes index rows with no item file (dead refs), and collapses duplicate rows for one slug
+- Verify `/backlog reconcile` prunes an item when the Linear issue is Done/Cancelled/Completed and the MCP is reachable (Linear-SoT precedence)
 - Verify `/backlog reconcile` degrades to the local item-file fallback with a one-line notice (no block, no fail) when the Linear MCP is unreachable
+- Verify `/backlog reconcile` prunes a closed-status orphan item file (no index row) and leaves an open/unrecognized-status orphan untouched and reported, never inventing an index row for it
 - Verify a second consecutive `/backlog reconcile` produces zero changes (idempotency)
 
 ## Validation
@@ -218,6 +232,7 @@ per the precedence below, but MUST NOT invent new backlog items.
 | 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): replaced the stale 5-field task-store schema literal (no `depends_on`) with a pointer to SPEC-017's canonical 6-field schema; pointed standup READY-computation and wrap-ticket uncommitted-worktree MUSTs at their owners (SPEC-017 / SPEC-016). No behavioral change. |
 | 2026-07-14 | Cross-ref SPEC-028 (`/fix-ticket`); no behavioral change to orchestrate/kickoff/wrap-ticket. |
 | 2026-07-22 | CDT-53 reflect: spawn-template audit names `/spec reflect` (was `/reflect-specs`). Status stays ACTIVE. |
+| 2026-07-28 | Reconcile now PRUNES terminal items (deletes item file + drops index row) instead of moving them to `## Completed` — local write-through is a disposable cache, Linear/git history is the durable record. Added orphan-file scan (item files with no index row): terminal-status orphans pruned, open/unrecognized-status orphans reported and left untouched (never auto-indexed, never silently deleted). Fixes CDT-54's local backlog never actually shrinking despite Linear being SoT. |
 
 ## Cross-references
 
