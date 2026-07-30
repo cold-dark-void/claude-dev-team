@@ -3,6 +3,10 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.2.5
+- **Fix `close.sh` line-merge corruption** — `update_item_file`'s awk replacement dropped the trailing newline after the rewritten `**Status**:` line (command substitution strips it, and the awk `printf` never re-added one), silently merging whatever line came immediately after onto the Status line. Every existing test fixture — and the skill's own canonical item template — has a blank line right after `**Status**:`, so an empty `print` happened to emit a bare newline and mask the bug; a file with content on the very next line (no blank line) got corrupted. Found while closing a legacy-format backlog item. Fixed by switching the awk replacement from `printf "%s", ns` to `print ns` (which always terminates with exactly one newline), applied to both the status-line and closed-footer writes.
+- Added a regression test (`test.sh`) covering the no-blank-line-after-Status case so this can't silently reappear. 45/45 backlog tests pass; skill-lint and docs-drift clean.
+
 ### v1.2.4
 - **Backlog reconcile now prunes, not archives** — `/backlog reconcile` deletes a terminal item's file and drops its index row (local `Status:` or a `--linear-verdicts` hit), instead of moving it into a `## Completed` section that never got swept. The local write-through is a disposable cache; Linear (when linked) or git/commit history is the durable record for done work.
 - **Orphan item-file detection** — `reconcile.sh` now also scans `.claude/backlog/` directly for item files with no index row at all (previously invisible to both `list` and `reconcile`, since the scan only ever ran index→disk). Closed-status orphans are pruned; open/unrecognized-status orphans are reported (`ORPHAN not pruned`) and left untouched — never silently deleted, never auto-added to the index.

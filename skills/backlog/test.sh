@@ -167,6 +167,39 @@ assert_file_match "retag index COMPLETED only" "$R1/.claude/backlog.md" \
 assert_file_nomatch "retag index drops FIXED/CLOSED" "$R1/.claude/backlog.md" \
   'sort-dropdown\.md\).*FIXED/CLOSED'
 
+# --- no-blank-line-after-Status: content immediately follows **Status**: (no canonical blank line) ---
+# Regression for a bug where command substitution stripped build_status_line's trailing
+# newline and the awk replacement printf'd it without one, silently merging the next line
+# onto the Status line. The canonical template always has a blank line after Status, which
+# masked this (an empty `print` still emits a bare newline) — this fixture has none.
+Rnb="$TMP/rnb"
+mkdir -p "$Rnb/.claude/backlog"
+cat > "$Rnb/.claude/backlog.md" <<'EOF'
+# Fixture
+
+## Pending
+
+- [No blank](backlog/no-blank.md) - status has no trailing blank line [PENDING]
+
+## Completed
+
+EOF
+cat > "$Rnb/.claude/backlog/no-blank.md" <<'EOF'
+# No blank
+
+**Status**: PARTIAL (something)
+**Priority**: P0
+**Source**: test
+
+## Problem
+
+x
+EOF
+bash "$CLOSE" no-blank --root "$Rnb" >/dev/null
+assert_file_match "no-blank-line: Status line clean" "$Rnb/.claude/backlog/no-blank.md" '^\*\*Status\*\*: COMPLETED$'
+assert_file_match "no-blank-line: Priority line intact on its own line" "$Rnb/.claude/backlog/no-blank.md" '^\*\*Priority\*\*: P0$'
+assert_file_nomatch "no-blank-line: no merged line" "$Rnb/.claude/backlog/no-blank.md" 'COMPLETED\*\*Priority\*\*'
+
 # --- close by title fragment ---
 R2="$TMP/r2"
 setup_fixture "$R2"

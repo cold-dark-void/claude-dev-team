@@ -257,17 +257,17 @@ update_item_file() {
   awk -v ns="$new_status" -v cl="$closed_line" '
     BEGIN { status_done=0; has_closed=0 }
     /^\*\*Status\*\*:/ {
-      printf "%s", ns
+      print ns
       status_done=1
       next
     }
     /^\*Closed:/ { has_closed=1 }
     { print }
     END {
-      if (!status_done) printf "%s", ns
+      if (!status_done) print ns
       if (!has_closed) {
         print ""
-        printf "%s", cl
+        print cl
       }
     }
   ' "$file" > "$tmp"
