@@ -34,10 +34,12 @@
 | SPEC-028 | Premise → Implement → Adversarial Refute (`/debug ticket`) | DEPRECATED | `/debug ticket` entry (SPEC-014); commands/fix-ticket.md + skills/fix-ticket (stubs CDT-46-C4); workflow.js optional |
 | SPEC-029 | Debug Reopen & Multi-Surface Done Gates | ACTIVE | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
 | SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |
+| SPEC-031 | Escalation Gate & Universal Worktree Isolation | DRAFT | skills/refactor/SKILL.md (contract home), skills/debug/SKILL.md, skills/review-and-commit/SKILL.md, skills/code-simplify/SKILL.md, skills/init-orchestration/SKILL.md (hook template) + check-hook-templates.sh, commands/setup.md, AGENTS.md |
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-07-31 | CDT-98: SPEC-031 DRAFT created (Escalation gate + universal worktree isolation + graduated PreToolUse hook); SPEC-015 amended (current-branch commit mandate retired, plans-file exemption closed, no-user-input MUSTs scoped to approach decision) |
 | 2026-07-28 | CDT-94: SPEC-018 M8b gen-3 load uniqueness — `assemble-test.sh` T28 (Test 34); `#N` prior-id disambiguation + stderr |
 | 2026-07-27 | CDT-91: SPEC-018 M10c coverage — light preset Tests 29–33 (`light-preset-test.sh`, `light-gates-test.sh`, `finalize-test.sh` T26, `light-defense-test.sh`, `light-static-test.sh`) |
 | 2026-07-27 | CDT-88: SPEC-018 M8b coverage — delta-mine Tests 25–28 (`delta-prepare-test.sh`, `assemble-test.sh` T21–T26, `finalize-test.sh` T20–T22, `--full`/`HANDOFF_FULL`) |

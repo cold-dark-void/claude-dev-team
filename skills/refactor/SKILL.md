@@ -20,8 +20,8 @@ Design-first restructuring that preserves observable behavior. Use `/refactor` t
 
 ## Arguments
 
-- `/refactor <description>` — default: design problem → approach decision → coverage check → implement → validate → checklist
-- `/refactor inline <description>` — inline: approach pre-decided by `/debug` (scope=refactor-first) or `/orchestrate`; skips design problem and approach decision, keeps coverage check and validation
+- `/refactor <description>` — default: design problem → approach decision → **Escalation gate** → coverage check → implement → validate → checklist
+- `/refactor inline <description>` — inline: approach pre-decided by `/debug` (scope=refactor-first) or `/orchestrate`; skips design problem and approach decision, keeps the **Escalation gate**, coverage check, and validation
 
 **Parser rule**: if the first token of arguments equals `inline` (case-sensitive, exact match), that word becomes the mode and the remainder is the description. Otherwise mode = `default` and the full argument string is the description.
 
@@ -162,6 +162,24 @@ ls "$MROOT/.claude/plans/" 2>/dev/null | grep -iF -e "keyword1" -e "keyword2" -e
 
 Read matches in full. No matches → "No existing plans matched — proceeding fresh."
 
+**Plan-file exemption check** (SPEC-031 § Closing the self-satisfiable plan-file exemption): a matched plan's mere existence is never authorization to skip `/kickoff`. The plan file itself is never a ticket — it can only carry a *reference* to one, scoped to its Tracking section (SPEC-009):
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+RAW_FILE='<matched-file>'
+SAFE_FILE=$(printf '%s' "$RAW_FILE" | tr -cd 'A-Za-z0-9_.-')
+TRACKING=$(awk '/^## Tracking/{f=1;next} /^## /{f=0} f' "$MROOT/.claude/plans/$SAFE_FILE" 2>/dev/null)
+printf '%s\n' "$TRACKING" | grep -E '^\s*-?\s*(ticket_id|closes):'
+BACKLOG_REF=$(printf '%s\n' "$TRACKING" | grep -oE 'backlog/[A-Za-z0-9_-]+\.md' | head -1)
+[ -n "$BACKLOG_REF" ] && [ -f "$MROOT/.claude/$BACKLOG_REF" ] && echo "resolved: $BACKLOG_REF"
+```
+
+- **The Tracking section carries `ticket_id:` or a `closes:` entry naming `linear:<ID>` or `backlog/<slug>.md`, that reference resolves (the named backlog item file exists on disk — see `BACKLOG_REF` check above; a `linear:<ID>` reference is taken on the string alone), and the file was not written by this run** → the *referenced* ticket-id — not the plan file — satisfies the ticket requirement in 2.2a.1's routing test. The plan file is only the carrier of that reference.
+- **No such reference, an unresolved `backlog/<slug>.md` reference (item file absent — e.g. `closes: backlog/nonexistent.md`), or the file was written during this run** → the plan does not qualify, regardless of its contents. Never skip `/kickoff` merely because a `.claude/plans/` file exists.
+- Do not use file timestamps, mtime, or invocation-time comparisons to decide whether a plan predates this run — timestamp checks are explicitly out of scope. Resolving a referenced backlog item's existence is a content check, not a timestamp check, and is in scope.
+
 **b. Recent git log for affected path (when identifiable from `$DESC`):**
 
 ```bash
@@ -244,7 +262,7 @@ Example format (model, not template — adapt to the actual smell):
 - (a) Scope is bounded to the stated affected area
 - (b) No two structural patterns (e.g. extract-function vs. introduce-abstraction) would both legitimately apply
 
-State the chosen approach in one sentence and proceed to 2.3.
+State the chosen approach in one sentence and proceed to 2.2a.
 
 **Present 2-3 options and wait for user approval when:**
 - (a) Multiple valid approaches exist (extract helper vs. inline-and-restructure vs. introduce abstraction)
@@ -252,7 +270,167 @@ State the chosen approach in one sentence and proceed to 2.3.
 
 Format options as a short numbered list. Do not start work until the user selects one.
 
-**Do NOT ask when one clear path exists.**
+**Do NOT ask when one clear path exists.** This applies to the *approach* question only — it never exempts the edit go-ahead in 2.2a, which is asked on every run.
+
+---
+
+### 2.2a Escalation gate [GATE]
+
+Runs after the approach is settled (2.2) and before the coverage check (2.3). Mandatory on **every** invocation of `/refactor`, in both modes, including runs whose scope is a single line. There is no size threshold below which this gate is skipped, and no flag, mode, or environment variable that bypasses it.
+
+**The approach decision and the edit go-ahead are two different questions.** 2.2 decides *how* the code should change and keeps its auto-pick behavior — when exactly one approach applies, it is stated, not asked. This gate decides *whether editing may begin at all*, and it is always asked. Auto-picking an approach is never authorization to edit.
+
+Work through 2.2a.1 → 2.2a.5 in order.
+
+#### 2.2a.1 Ticket-weight routing test
+
+Test the chosen approach against the canonical `WHY INLINE REJECTED` reasons — the same set emitted by `## Escalation handoff format`. Do not invent new reasons:
+
+- `cross-subsystem or multi-directory refactor required`
+- `architectural decision required`
+- `tech-lead design review required`
+- `callsite count exceeded threshold`
+
+- **Any one reason applies → escalating.** Do not implement the change under this workflow; the run routes to a real ticket. A `.claude/plans/` file is not itself a ticket; a ticket-id it references may satisfy this routing test only if Step 1b's plan-file exemption check qualifies it.
+- **No reason applies → bounded.** Lightweight inline confirm, no ticket. Bounded work does not acquire ticket ceremony.
+
+Record the reason that fired verbatim — it becomes the `WHY INLINE REJECTED:` field of the handoff.
+
+#### 2.2a.2 Workstream split check
+
+Applied on every run to the approach chosen in 2.2 (or stated in 3.1). A **workstream split** requires all three criteria to hold:
+
+1. **Independently shippable/testable** — each piece can land and be verified on its own.
+2. **No shared file edits** — the pieces do not both modify the same file.
+3. **No sequencing dependency** — neither piece has to land before the other.
+
+- **All three hold → route to `/epic`** for decomposition into child tickets. A confirmed split is never bounded inline work, and it is never bundled into a single `/kickoff` ticket.
+- **Any criterion fails → not a split.** Partially-separable work is one ticket; the 2.2a.1 routing decision stands unchanged.
+
+#### 2.2a.3 Edit go-ahead [ALWAYS ASK]
+
+Ask the user for permission to begin editing, then stop and wait:
+
+> Escalation gate — routing: `<bounded | /kickoff | /epic>`. Approach: `<one sentence>`. May I begin editing files?
+
+- Asked on **every** run, with no auto-satisfied branch. Trivial scope, an obvious approach, and an unambiguous 2.2 decision are not reasons to skip it.
+- A go-ahead from an earlier run, an earlier ticket, or an upstream command (`/debug`, `/orchestrate`) does NOT satisfy this run's go-ahead.
+- Anything other than an affirmative answer halts the run. Do not proceed on silence or on an ambiguous reply.
+- On an escalating route the go-ahead authorizes emitting the handoff and routing — not editing files here. Escalated work is implemented by the command it routes to.
+
+#### 2.2a.4 Worktree
+
+All file modification for this run happens inside `$MROOT/.worktrees/<slug>`, in both modes, with no exception for trivial or single-line changes. There is no current-branch direct-edit path. Create or reuse it via the SPEC-016 caller-integration form: run the wiring block in **§ 2.4 § Worktree wiring** as-is — it is the single operational copy of the `plugin-dir.sh` resolution, slug sanitization, and `ensure` exit-code handling required by SPEC-031 § Universal worktree isolation. Resolve the worktree path and record it in the outcome block.
+
+> Creating the worktree is git plumbing, not a file modification of the refactor — it runs before the outcome block below and is not gated by it.
+
+The wiring block's fence also arms `.claude/hooks/escalation-gate.sh` for this run (SPEC-031 § Armed-marker contract, `skills/init-orchestration/SKILL.md` Step 4i) — this happens as the fence's last step, right after `ensure` succeeds, and before the outcome block below.
+
+#### 2.2a.5 Gate outcome
+
+Emit before any file is touched:
+
+```
+Escalation gate:
+  Routing:       [bounded — inline | escalating — /kickoff | escalating — /epic]
+  Reason:        [no escalation reason applies | <WHY INLINE REJECTED value, verbatim>]
+  Workstream:    [single | split — N independently shippable ideas]
+  Edit go-ahead: [granted | withheld — run halted]
+  Worktree:      <path under $MROOT/.worktrees/>
+```
+
+**HARD GATE: do not edit, create, or delete any file until this block appears in the session output with a granted go-ahead.** Reading and investigation are permitted before the gate; modification is not.
+
+Then continue by routing:
+
+- **bounded** → proceed to 2.3. The worktree and armed marker from 2.2a.4 stay in place; they're consumed and released at the 2.4/3.3 bounded exit (§ 2.4 § Bounded exit paths), not here.
+- **escalating — `/kickoff`** or **escalating — `/epic`** → this run implements nothing in the worktree from 2.2a.4. Release it and disarm the marker first, in a **fresh shell** — `$SLUG`/`$WT_LIB`/`$PDH` from 2.2a.4's fence do not survive into a new bash invocation. Derive the slug as the basename of the path recorded on the outcome block's `Worktree:` line above:
+
+  ```bash
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  WT_PATH='<the path recorded on the outcome block Worktree: line above>'
+  SLUG=$(basename "$WT_PATH")
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+  WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+  bash "$WT_LIB" release "$SLUG" || {
+    echo "worktree release failed for $SLUG — halting before handoff, do not proceed to /kickoff or /epic with an orphaned worktree still present" >&2
+    exit 1
+  }
+  rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
+  ```
+
+  Call `worktree-lib.sh release` **directly** here, not `/worktree release <slug>` — that command's own Step 3.3 ("Chat confirmation (required)") would add a third ask beyond 2.2a.3 and the post-`/kickoff` confirmation below, which SPEC-031 § Auto-chain forbids. The lib call is non-interactive and refuses only on a dirty tree, which never applies here — escalating routes never edit a file in the worktree (the HARD GATE above).
+
+  Then, per the specific route:
+
+  - **`/kickoff`** → emit the 4-field handoff verbatim (see `## Escalation handoff format`). `/kickoff`'s contract requires `<TICKET-ID> "<ticket text>"`. `/backlog add`'s own "Ask for details (brief)" substep (`skills/backlog/SKILL.md` § Subcommand: add → substep 3) is an unconditional user-facing ask with no documented caller-pre-supply path, and its dedup guard can abort on collision — both are asks this chain cannot afford. Bypass the command the same way the release step bypasses `/worktree release`: write the backlog record directly.
+
+    > Writing this backlog record is bookkeeping under `.claude/`, not a file modification of the refactor — the worktree from § 2.2a.4 is already released by this point (there is no worktree left to isolate into), so § 2.4's universal worktree isolation, which governs refactor edits under `$MROOT/.worktrees/`, does not apply to this write.
+
+    ```bash
+    _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+      && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+      || MROOT=$(pwd)
+    WT_PATH='<the path recorded on the outcome block Worktree: line above>'
+    BSLUG=$(basename "$WT_PATH" | tr 'A-Z' 'a-z')
+    mkdir -p "$MROOT/.claude/backlog"
+    [ -f "$MROOT/.claude/backlog.md" ] || printf '# %s - Backlog Index\n\n## Pending\n\n## Completed\n' "$(basename "$MROOT")" > "$MROOT/.claude/backlog.md"
+    N=1
+    CAND="$BSLUG"
+    while [ -f "$MROOT/.claude/backlog/$CAND.md" ] || grep -qE "\]\(backlog/${CAND}\.md\)" "$MROOT/.claude/backlog.md" 2>/dev/null; do
+      N=$((N + 1))
+      CAND="${BSLUG}-${N}"
+    done
+    BSLUG="$CAND"
+    TITLE='<short title from ROOT CAUSE>'
+    {
+      printf '# %s\n\n**Status**: PENDING\n\n' "$TITLE"
+      printf '## Problem\n\n%s\n\n' '<ROOT CAUSE text>'
+      printf '## Goal\n\n%s\n\n' '<PROPOSED APPROACH text>'
+      printf '## Implementation Notes\n\n\n## Affects\n\n%s\n\n' '<AFFECTED FILES, one per line>'
+      printf '## Effort\n\n\n## Notes\n\nOpened by the /refactor escalation gate auto-chain, SPEC-031 Auto-chain.\n\n---\n\n*Added: %s*\n' "$(date -u +%Y-%m-%d)"
+    } > "$MROOT/.claude/backlog/$BSLUG.md"
+    awk -v row="- [$TITLE](backlog/$BSLUG.md) - <one-line summary from ROOT CAUSE> [PENDING]" \
+      '{print} /^## Pending$/ && done==0 {print row; done=1}' \
+      "$MROOT/.claude/backlog.md" > "$MROOT/.claude/backlog.md.tmp" && mv "$MROOT/.claude/backlog.md.tmp" "$MROOT/.claude/backlog.md"
+    printf 'TICKET-ID: %s\n' "$BSLUG"
+    ```
+
+    This is local-only (no Linear MCP call — that stays inside `/backlog add`'s own contract, which this gate does not reproduce). `<TICKET-ID>` is `$BSLUG`; no Linear issue is required for the `backlog` source. The `while` loop suffixes on a same-run collision instead of asking, matching `/backlog add`'s own dedup "(a) Suffix" branch, never its "(b) Abort" branch — an abort there would be a third ask. Then invoke `/kickoff <TICKET-ID> "<handoff>"` **in-session**; do not tell the user to run it manually. The 4-field handoff text itself has no field for this (`skills/kickoff/SKILL.md` § Accepted escalation handoff (input contract) fixes it at exactly four fields) — so along with the invocation, separately instruct `/kickoff` that `<TICKET-ID>` (`$BSLUG`) is a backlog slug it must close: at its Step 6 (`skills/kickoff/SKILL.md` Step 6, `## Tracking` format), it MUST write `source: backlog`, `ticket_id: $BSLUG`, `closes: backlog/$BSLUG.md` into the plan's `## Tracking` section — not leave the `linear | backlog | freeform` placeholder unresolved. This is the field `/wrap-ticket` Step 5.5 keys off to find and close the item later — it reads it from the plan file's `closes:` list, never from the handoff text. When `/kickoff` completes, ask **one** confirmation — "Proceed to `/orchestrate`?" — and stop and wait. On an affirmative answer, invoke `/orchestrate` **in-session** through to a PR, with no further per-stage confirmation. Anything other than affirmative halts the chain (SPEC-031 § Auto-chain).
+  - **`/epic`** → `## Escalation handoff format`'s 4-field block is scoped to `/kickoff`/`/spec update` (its own heading says so) and requires a canonical `WHY INLINE REJECTED` value — which has no legal value when this route is reached solely via 2.2a.2's split confirmation with no 2.2a.1 reason (exactly the case this route exists to cover). Compose the payload from that section's ROOT CAUSE / AFFECTED FILES / PROPOSED APPROACH fields (cited, not restated), plus:
+    - 2.2a.1 recorded a reason → include `WHY INLINE REJECTED` verbatim, same as the `/kickoff` case above.
+    - 2.2a.1 returned "no reason applies" → omit `WHY INLINE REJECTED`; state the 2.2a.2 split confirmation (N independently shippable ideas) as the routing justification instead. `/epic`'s own contract (`commands/epic.md` Args: `<EPIC-ID> "<text>"`) does not require the `/kickoff`-scoped canonical vocabulary.
+
+    `EPIC-ID` is not simply the released worktree's `$SLUG` reused verbatim: that slug comes from 3-5 words of `$DESC` and is deliberately collision-prone (the reason `ensure` has its own FRESH-lock collision prompt) — and by this point the worktree is already released, so that guard is gone. `/epic`'s dispatch is a bare `exists` file check (`skills/epic/epic-lib.sh` `cmd_exists`: `[ -f "$MROOT/.claude/epics/<EPIC-ID>/state.json" ]`); reusing a colliding slug would silently **resume** an unrelated prior epic instead of decomposing this one. Check first and suffix on a hit — same deterministic no-ask pattern as the backlog dedup above:
+
+    ```bash
+    _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+      && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+      || MROOT=$(pwd)
+    # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+    PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+    EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+    [ -n "$EPIC_LIB" ] && [ -f "$EPIC_LIB" ] || {
+      echo "epic-lib.sh did not resolve — cannot verify epic-id collision, would silently resume an unrelated epic" >&2
+      exit 1
+    }
+    WT_PATH='<the path recorded on the outcome block Worktree: line above>'
+    BASE=$(basename "$WT_PATH")
+    N=1
+    CAND="$BASE"
+    while bash "$EPIC_LIB" exists "$CAND"; do
+      N=$((N + 1))
+      CAND="${BASE}-${N}"
+    done
+    printf 'EPIC-ID: %s\n' "$CAND"
+    ```
+
+    Invoke `/epic <EPIC-ID> "<payload>"` **in-session**, using the printed `EPIC-ID`. `/epic` owns each child ticket's own `/kickoff`/`/orchestrate` execution and creates/links its own Linear Project (`skills/epic/SKILL.md`, M12) — this gate's auto-chain responsibility ends at the in-session invocation.
+
+On either escalating route, stop implementing under this workflow. The edit go-ahead (2.2a.3) and the post-`/kickoff` confirmation are the only two asks in the chain — the worktree release, the backlog write, and the `/epic` collision check all call the underlying mechanism directly rather than the asking command; no confirmation is inserted between `/kickoff` and `/orchestrate`'s own internal stages.
 
 ---
 
@@ -271,17 +449,117 @@ Execute the first branch that applies:
 
 ### 2.4 Implement
 
-Apply the structural change. Touch only what the design problem identified.
+Every file modification for this run happens inside the worktree resolved at 2.2a.4, in both modes, with no exception for trivial or single-line changes. **There is no current-branch direct-edit path and no current-branch direct-commit path** — "a single commit in the session branch is acceptable" is retired (SPEC-031 § Universal worktree isolation, amending SPEC-015).
+
+#### Worktree wiring
+
+This is the single operational copy of the wiring. 2.2a.4 executes it at gate time — before the 2.3 coverage check, so characterization tests are written inside the worktree too — and 3.3 reuses it unchanged.
+
+Derive `$SLUG` from `$DESC`: first 3-5 meaningful words (strip articles/prepositions), joined with `-`, then sanitized. `worktree-lib.sh` **validates** `^[A-Za-z0-9_-]+$` and exits 64 on a bad slug — it does not sanitize on the caller's behalf. Sanitization precedent: the `plan)` slug arm of `cmd_preflight()` in `skills/council/engine.sh`.
+
+The SPEC-002 bootstrap stanza below is byte-verbatim and resolves `$PDH`; `worktree-lib.sh` is then resolved through `plugin-dir.sh`. Never use the cwd-relative `bash skills/worktree-lib.sh …` (absent on a real install) or `$MROOT/skills/worktree-lib.sh` (resolves to the user's repo) — SPEC-016 § Caller integration forbids both.
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+RAW_SLUG='<3-5 meaningful words from $DESC, hyphen-joined>'
+SLUG=$(printf '%s' "$RAW_SLUG" | tr -c 'A-Za-z0-9_-' '-' | sed 's/^-*//;s/-*$//;s/--*/-/g' | cut -c1-48)
+printf '%s' "$SLUG" | grep -Eq '^[A-Za-z0-9_-]+$' || {
+  echo "Slug sanitization yielded nothing usable from the description — ask the user for a slug" >&2
+  exit 64
+}
+WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+WT_PATH=$(bash "$WT_LIB" ensure "$SLUG") || {
+  EXIT=$?
+  if [ "$EXIT" -eq 2 ]; then
+    echo "Worktree unavailable — collision prompt aborted, or no controlling TTY to prompt on. Halting cleanly." >&2
+  elif [ "$EXIT" -eq 64 ]; then
+    echo "worktree-lib.sh usage error, check slug" >&2
+  fi
+  exit "$EXIT"
+}
+printf 'Worktree: %s\n' "$WT_PATH"
+
+# SPEC-031 arming (CDT-98 T15): write the marker .claude/hooks/escalation-gate.sh
+# reads (skills/init-orchestration/SKILL.md Step 4i). Appended after `ensure`
+# succeeds, same shell as $SLUG/$WT_PATH above — not part of the ensure/exit-code
+# logic itself. No hook-style stdin gives a running skill its own session_id, so
+# this falls back through the live platform env var, then the two names
+# skills/handoff/discover-warm.sh already treats as equivalent fallbacks for
+# warm-session resolution; agent_id has no such source and defaults to "main"
+# (same default the hook itself uses for a null agent_id).
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+ARM_SID="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-${SESSION_ID:-}}}"
+ARMED_DIR="$MROOT/.claude/escalation-gate/armed"
+mkdir -p "$ARMED_DIR"
+{
+  printf 'slug=%s\n' "$SLUG"
+  printf 'worktree=%s\n' "$WT_PATH"
+  printf 'session_id=%s\n' "$ARM_SID"
+  printf 'agent_id=%s\n' "${CLAUDE_AGENT_ID:-main}"
+  printf 'armed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$ARMED_DIR/$SLUG.marker"
+```
+
+`ensure` creates branch `feat/<slug>` and prints the absolute worktree path to stdout on success only. Exit-code handling:
+
+| Exit | Meaning | Action |
+|---|---|---|
+| `0` | path on stdout | capture as `$WT_PATH`, record it in the 2.2a.5 outcome block, proceed |
+| `1` | unexpected git/filesystem error | surface the lib's stderr verbatim and halt |
+| `2` | worktree unavailable | halt cleanly, no error framing |
+| `64` | invalid slug — caller bug | surface `worktree-lib.sh usage error, check slug` and halt |
+
+Exit `2` has two causes and they are indistinguishable from the exit code alone: the user answered anything other than `steal` at a FRESH-lock collision prompt, **or** there was no controlling TTY so the prompt silently aborted (SPEC-016 AC-5). Do not report it as a deliberate user abort. Handle it non-interactively: state both causes, and offer either re-running with a different slug or releasing the worktree via `/worktree release <slug>`.
+
+#### Apply the change
+
+Apply the structural change inside `$WT_PATH`. Touch only what the design problem identified.
 
 - **No new features.** Refactor adds no new capability.
 - **No bug fixes.** Find a bug → note it, continue the refactor without fixing it. The bug goes to a separate `/debug` after this lands.
 - **No behavior changes.** Inputs and outputs of every public function are identical before and after.
 
 **Commit discipline:**
+- Commit on `feat/<slug>` from inside the worktree. Never commit to the branch the session started on.
 - Default prefix `refactor:`; if AGENTS.md specifies a different convention, use that and note the override.
 - Mention the design smell addressed (duplication, coupling, fragility, illegibility) in the commit body.
 
 **No-mixing rule:** the commit contains ONLY structural refactor changes. A commit mixing refactor with feature/bug-fix work is rejected regardless of files touched.
+
+#### Bounded exit paths
+
+Bounded (non-escalated) work ends at exactly one of two exits, both from the worktree, taken **after** 2.5 validation passes. A worktree is never the final state of a completed run (SPEC-031 § Bounded exit paths).
+
+Check for a remote from inside the worktree:
+
+```bash
+git remote -v
+```
+
+| Exit | Applies when | Steps |
+|---|---|---|
+| **(a) branch → PR** — standard | a remote exists and the user has not asked for linear history | push `feat/<slug>`, open the PR, then release the worktree via `/worktree release <slug>` once merged |
+| **(b) squash merge after review** | **required fallback** when no remote exists; also chosen whenever the user prefers a clean linear master history | review the diff, squash-merge `feat/<slug>` onto the base branch, then release the worktree via `/worktree release <slug>` |
+
+Both exits also delete the armed marker from 2.2a.4, right after the `/worktree release <slug>` call in the Steps column above, in a **fresh shell** — `$SLUG` from 2.2a.4's fence does not survive into a new bash invocation. Derive it the same way 2.2a.5's escalating routes do, from the outcome block's recorded `Worktree:` path:
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WT_PATH='<the path recorded on the outcome block Worktree: line>'
+SLUG=$(basename "$WT_PATH")
+rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
+```
+
+The marker lives at `$MROOT` level, not inside `$MROOT/.worktrees/<slug>/`, precisely so `.claude/hooks/escalation-gate.sh` can read it without entering the worktree (it never does); `/worktree release` removing the worktree directory does not touch it, so it needs this explicit delete.
+
+Exit (b) is a first-class option, not a degraded one — do not narrow this to a PR-only rule.
+
+Escalated routes do not use either exit: they leave via 2.2a.5 and are implemented by the command they route to. Escalated work never terminates in a direct commit here.
 
 ---
 
@@ -301,13 +579,19 @@ Then emit the self-calibration checklist verbatim — see `## Self-calibration c
 
 ## Step 3: Inline mode
 
-Invoked when an upstream command (`/debug` scope=refactor-first, or `/orchestrate`) has already decided the approach. Skips design problem and approach decision; keeps coverage check and validation.
+Invoked when an upstream command (`/debug` scope=refactor-first, or `/orchestrate`) has already decided the approach. Skips design problem and approach decision; keeps the Escalation gate, coverage check, and validation.
 
 ### 3.1 Approach preamble
 
 State the approach in one sentence before touching any file. Required even though no design-problem gate applies — inline mode was called because the approach is already decided externally, but the session record must show what is about to happen.
 
 Example: "Inline refactor: extracting validation from `auth/handler.go` HandleLogin into `auth/validate.go:ValidateCredentials` per upstream `/debug` handoff."
+
+### 3.1a Escalation gate [GATE]
+
+Run **§ 2.2a in full** — routing test (2.2a.1), workstream split check (2.2a.2), edit go-ahead (2.2a.3), worktree (2.2a.4), outcome block (2.2a.5) — before the coverage check. The gate text is not restated here; 2.2a is the single operational copy.
+
+Inline mode skips **only** the approach re-decision (2.2), because `/debug` (scope=refactor-first) or `/orchestrate` already decided the approach upstream. It does not skip this gate. Apply the routing test to the pre-decided approach stated in 3.1, and ask the edit go-ahead exactly as 2.2a.3 specifies — an upstream command's decision to hand off is not the user's go-ahead to edit.
 
 ### 3.2 Coverage check [GATE]
 
@@ -323,6 +607,10 @@ Same four branches as 2.3:
 
 Same rules as 2.4 + 2.5: structural changes only, no feature/bug-fix mixing, `refactor:` prefix (or AGENTS.md override), full suite passes, explicit "no observable behavior was changed" statement.
 
+**Worktree**: identical to 2.4 — every edit and every commit happens inside the worktree resolved at 3.1a, on `feat/<slug>`, never on the current branch. Inline mode gets no trivial-case exception; worktrees are cheap. Run the wiring block in **§ 2.4 § Worktree wiring** as-is (it is the single operational copy, not restated here), including its slug sanitization and its `0/1/2/64` exit-code handling. Derive `$SLUG` from the pre-decided description stated in 3.1 rather than from `$DESC`.
+
+**Bounded exit paths**: both exits in **§ 2.4 § Bounded exit paths** apply unchanged — (a) branch → PR when a remote exists, (b) squash merge after review as the required fallback with no remote, or whenever the user prefers linear history. Take the exit after validation passes; do not leave the worktree as the run's final state.
+
 Then emit the self-calibration checklist with the first item marked `[N/A — inline mode]`.
 
 ---
@@ -334,6 +622,9 @@ Emit verbatim before any completion language ("done", "complete", "refactored", 
 ```
 Self-calibration checklist:
   [ ] Design problem written before any file was edited (default mode)
+  [ ] Escalation gate outcome block appeared before any file was edited (§ 2.2a.5 / § 3.1a)
+  [ ] Worktree isolation was used for every edit — no edit made on the current/session branch (§ 2.2a.4, § 2.4 Worktree wiring)
+  [ ] Escalation gate ran on this invocation — not skipped, regardless of scope (§ 2.2a)
   [ ] Characterization tests written and passing on original code (if coverage was thin)
   [ ] All tests pass after refactor
   [ ] No feature or bug-fix changes mixed into this refactor
@@ -374,10 +665,6 @@ PROPOSED ADDITION: <draft MUST/SHOULD line>
 
 After emitting either handoff: stop modifying files. The caller decides routing.
 
-### Escalation ladder
-
-Escalate to `/kickoff` when affected files span >1 top-level directory, or approach requires an architectural decision, or tech-lead review warranted. `/kickoff` may then escalate to `/orchestrate`. Never skip `/kickoff` unless a `.claude/plans/` file already exists.
-
 ---
 
 ## Blockers
@@ -389,7 +676,9 @@ Surface a genuine blocker as exactly one specific question stating precisely wha
 ## Rules
 
 - MUST NOT touch any file before the design problem statement appears in the session output (default mode)
-- MUST NOT ask the user for an approach decision when one clear, unambiguous path exists
+- MUST NOT ask the user for an approach decision (§ 2.2) when one clear, unambiguous path exists — this exemption is scoped to the approach decision only and never extends to the edit go-ahead (§ 2.2a.3), which is asked on every run with no exceptions
+- MUST NOT edit, create, or delete any file before the Escalation gate outcome block appears in the session output with a granted go-ahead (§ 2.2a.5)
+- MUST use worktree isolation for every file modification, in both modes and regardless of scope — there is no current-branch direct-edit path (§ 2.2a.4, § 2.4 Worktree wiring)
 - MUST NOT begin implementation before characterization tests pass on the ORIGINAL code (when coverage was thin)
 - MUST NOT mix refactor changes with feature or bug-fix changes — neither in the same commit nor the same PR
 - MUST NOT claim completion ("done", "complete", "refactored") before the self-calibration checklist passes

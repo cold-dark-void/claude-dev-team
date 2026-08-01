@@ -22,7 +22,7 @@ Bootstrap the files needed for Claude Code Agent Teams in the current project.
 ## Permission batching (CDT-68 — read before mutating)
 
 `/setup orchestration` is **not pure zero-intervention**. After posture lands
-(`defaultMode: "auto"` Cell D + sandbox; see matrix winner), two self-escalation-
+(`defaultMode: "auto"` Cell D + sandbox; see matrix winner), three self-escalation-
 guarded paths still require **explicit user approval** — by design; do not remove
 the guards:
 
@@ -30,17 +30,29 @@ the guards:
 |------|----------------|
 | Merge / write `.claude/settings.json` | Self-modification of project permissions/hooks (Edit or jq-via-Bash); also sandbox-protected |
 | Write `.claude/hooks/bash-compress.sh` | Emitted body uses `permissionDecision:"allow"` on noisy test/build rewrites — classifier treats as permission-widening; generic "approve edits" is often rejected |
+| Write `.claude/hooks/escalation-gate.sh` | A `PreToolUse` hook that can **BLOCK** (exit 2) a matched `Write`/`Edit`/`NotebookEdit` call is a material behavior change (SPEC-031) — disclose before install, not just in the skill body |
 
-**MUST batch both approvals in ONE ask up front** (before Step 3 settings write
-and before Step 4d bash-compress emit). Example:
+**MUST batch all three approvals in ONE ask up front** (before Step 3 settings
+write, before Step 4d bash-compress emit, and before Step 4i escalation-gate
+emit). Include the honest-limits framing for escalation-gate.sh in the same
+ask — the user approving installation should see "NOT tamper-proof" at
+install time, not only buried in Step 4i. Example:
 
 ```
-This /setup orchestration needs two explicit approvals (settings self-mod
+This /setup orchestration needs three explicit approvals (settings self-mod
 guards — intentional; not removable without losing the guard):
   1. Merge into .claude/settings.json (sandbox + hooks + auto + matrix allow)
   2. Write .claude/hooks/bash-compress.sh (PreToolUse; permissionDecision:allow
      bounded to the hardcoded NOISY test/build allowlist)
-Approve both so bootstrap can finish without mid-run denials?
+  3. Write .claude/hooks/escalation-gate.sh (PreToolUse; WARNs on out-of-worktree
+     writes, BLOCKs only when the current run armed it). NOT tamper-proof:
+     Bash-issued writes (sed -i, heredocs, git apply, git commit) bypass it
+     entirely; the same agent it constrains writes its own armed marker, so it
+     detects drift in a compliant run but does not defend against a
+     non-compliant one; only Write/Edit/NotebookEdit are gated, no other write
+     path; and path matching falls back to unnormalized `..` traversal when
+     `realpath` is unavailable. See SPEC-031 § Hook contract — honest limits.
+Approve all three so bootstrap can finish without mid-run denials?
 ```
 
 Also: sandbox denials on settings writes still need
@@ -70,7 +82,8 @@ project/
 │   │   ├── bash-compress.sh           # Output compression — rewrites noisy commands inline (created)
 │   │   ├── precompact-rescue.sh       # PreCompact rescue capture (SPEC-018 M12)
 │   │   ├── rescue-pointer.sh          # PostCompact/SessionStart pointer surfacing (M16)
-│   │   └── friction-capture.sh        # Live friction ledger (SPEC-012 M1; PostToolUseFailure/PermissionDenied/StopFailure)
+│   │   ├── friction-capture.sh        # Live friction ledger (SPEC-012 M1; PostToolUseFailure/PermissionDenied/StopFailure)
+│   │   └── escalation-gate.sh         # Worktree-isolation gate (SPEC-031; PreToolUse Write/Edit/NotebookEdit — warns, blocks only when armed)
 │   └── memory/
 │       └── claude/
 │           └── memory.md      # Orchestrator rules seeded (created or appended)
@@ -302,6 +315,15 @@ Using the `allowedDomains` list from Step 2, write the settings file.
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-compress.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/escalation-gate.sh\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -438,12 +460,80 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 - If `env` key exists but lacks `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, add it to the existing `env` object
 - Add the `PreToolUse`, `PostToolUse`, `Stop`, `TaskCompleted`, `PreCompact`, `PostCompact`, `SessionStart`, `PostToolUseFailure`, `PermissionDenied`, and `StopFailure` hooks entries if `hooks` key is absent
 - If `hooks` key exists but lacks any of `PreToolUse`, `PostToolUse`, `Stop`, `TaskCompleted`, `PreCompact`, `PostCompact`, `SessionStart`, `PostToolUseFailure`, `PermissionDenied`, or `StopFailure`, add the missing ones
+- **`PreToolUse` merges at the array level, not the event-key level** — every other event above is satisfied by "add the key if absent". `PreToolUse` is not: this skill contributes **two** entries (`bash-compress`, `escalation-gate`) and `/tdd-gate on` contributes a third into the *same* array. Apply the append rule below **per entry**; never replace an existing non-empty `PreToolUse` array wholesale
 - `PreCompact`/`PostCompact`/`SessionStart` require a Claude Code version that supports those hook events; on older versions the entries are inert (graceful absence — SPEC-018 M18)
 - `PostToolUseFailure`/`PermissionDenied`/`StopFailure` wire the shared friction ledger handler (SPEC-012 M1/M5); on older CC versions that lack an event the entry is inert (graceful absence). All three point at the same `friction-capture.sh`.
 - Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists: ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`; merge new domains into existing `allowedDomains` (no duplicates); preserve any existing `filesystem` overrides
 - Ensure `permissions.allow` contains **every** entry from the greenfield template allow list above (matrix set: `Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task`) — add any missing entries; preserve any other existing allow entries. Ensure `permissions.defaultMode` matches the **managed orchestration defaultMode** from the greenfield template block above (read that template value, then write it — currently `"auto"` Cell D / CDT-75; do not hard-code a second diverging copy). Add or update as needed (including flipping a prior `bypassPermissions` / `dontAsk` / other mode to the managed value)
 - **Force-overwrite disclosure (SPEC-005 / CDT-51 AC5):** when a re-run **changes** an existing managed value (especially `permissions.defaultMode`, `sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`), you **MUST** print old value, new value, and restore key/path **before** writing. Forced + silent = FAIL. Use the helper below (or print the same labeled block). Adding a missing key is not a force-overwrite (no disclosure required).
 - Write the merged result back as valid JSON
+
+#### `PreToolUse` array append rule (SPEC-031)
+
+**The rule.** For each managed `PreToolUse` entry, in order:
+
+1. If `hooks.PreToolUse` is **absent**, create it as an array holding that one entry.
+2. If it **exists and is an array**, **append** the entry — preserving every element
+   already there, whoever wrote it.
+3. Before appending, **dedup by identity = `matcher` + the entry's set of `command`
+   strings**. If an element with the same identity is already present, append nothing.
+   Matching on `matcher` alone would wrongly collapse two different hooks that share a
+   matcher; matching on `command` alone would wrongly collapse the same script
+   registered under two matchers.
+4. If it exists but is **not** an array (hand-malformed settings), wrap the existing
+   value in a one-element array first, then apply 2–3. Never discard it.
+
+**Why dedup rather than blind append.** Verified on Claude Code v2.1.212: multiple
+`PreToolUse` entries all execute for a matching tool call, and any one of them exiting
+`2` blocks the call. A duplicate entry is therefore *wasteful, not harmful* — it runs the
+same script twice. Dedup keeps re-runs of `/setup orchestration` idempotent; it is not
+load-bearing for correctness.
+
+**Coexistence with `/tdd-gate on`.** `/tdd-gate on` Step 4b writes its own entry into
+this same array and `/tdd-gate off` removes only the element referencing `tdd-gate.sh`.
+Both directions are safe **because both sides append and remove element-wise**. Install
+order does not matter:
+
+- `/setup orchestration` first, `/tdd-gate on` second → tdd-gate appends a third element;
+  `bash-compress` and `escalation-gate` are untouched.
+- `/tdd-gate on` first, `/setup orchestration` second → the rule above appends to the
+  array that already holds tdd-gate's element; tdd-gate's element is untouched.
+
+The two never collide on the dedup key: tdd-gate's entry carries **no** `matcher` (it
+self-filters on `tool_name` inside the script), so its identity is `("", [tdd-gate.sh])`
+— distinct from `("Write|Edit|NotebookEdit", [escalation-gate.sh])`.
+
+**Implementation.** Apply once per managed entry (`bash-compress`, `escalation-gate`):
+
+```bash
+SETTINGS=".claude/settings.json"
+[ -f "$SETTINGS" ] || printf '%s\n' '{}' > "$SETTINGS"
+
+# One managed PreToolUse entry. Repeat this block per entry, changing ENTRY only.
+# ${CLAUDE_PROJECT_DIR} is deliberately literal in the stored JSON — Claude Code
+# expands it at hook-run time, so single quotes here are correct.
+ENTRY='{"matcher":"Write|Edit|NotebookEdit","hooks":[{"type":"command","command":"bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/escalation-gate.sh\""}]}'
+
+if command -v jq >/dev/null 2>&1; then
+  jq --argjson entry "$ENTRY" '
+    def hookkey: [(.matcher // ""), ((.hooks // []) | map(.command // "") | sort)];
+    .hooks.PreToolUse = (
+      ((.hooks.PreToolUse // []) | if type == "array" then . else [.] end) as $arr
+      | if any($arr[]; hookkey == ($entry | hookkey))
+        then $arr
+        else $arr + [$entry]
+        end
+    )
+  ' "$SETTINGS" > "${SETTINGS}.tmp" && mv "${SETTINGS}.tmp" "$SETTINGS" \
+    && echo "PreToolUse: entry present in $SETTINGS"
+else
+  echo "WARNING: jq not found — append this entry to hooks.PreToolUse in $SETTINGS by hand:"
+  printf '%s\n' "$ENTRY"
+fi
+```
+
+`jq` writes to `${SETTINGS}.tmp` and `mv`s only on success, so a jq failure leaves the
+existing `settings.json` intact rather than truncating it.
 
 #### Force-overwrite disclosure helper (managed settings)
 
@@ -1300,6 +1390,239 @@ Capture `LEGACY-ORPHAN:` lines for Step 9. If referenced, leave file and surface
 
 ---
 
+### Step 4i: Create .claude/hooks/escalation-gate.sh (SPEC-031)
+
+Backs the Escalation gate's universal worktree isolation (`skills/refactor/SKILL.md`
+§ 2.2a — the contract home; this step does not restate the gate). Numbered after the
+Step 4h sweep so that step's identifier stays stable; ordering within Step 4 does not
+matter, the sweep only touches its known-legacy-orphan list.
+
+**Precondition (CDT-68 / SPEC-031):** confirm the user already approved writing
+this hook — honest-limits framing included — in the up-front batch ask (see
+**Permission batching**). A blocking hook is a material behavior change; if not
+already approved, ask now (name `escalation-gate.sh` explicitly) before writing.
+
+**Honest limits — this hook is NOT tamper-proof.** State this wherever it is
+disclosed; do not describe it as "enforcement the model cannot regress". Four
+specific respects (SPEC-031 § Hook contract — honest limits):
+
+1. **Bash bypasses it entirely.** A `PreToolUse` hook matching file-editing tools
+   never observes `sed -i`, heredoc redirection, `git apply`, or `git commit` issued
+   through the `Bash` tool.
+2. **The arming actor is the enforced actor.** The same agent that executes the skill
+   writes the armed marker and performs the edit, so the hook cannot verify that a
+   user was actually asked for the edit go-ahead. It catches drift *inside a compliant
+   run*; it does not defend against a non-compliant one.
+3. **Coverage is tool-name-scoped.** Only `Write`, `Edit`, and `NotebookEdit` are
+   gated. Any future or unlisted write path is ungated until added here.
+4. **Path matching is textual, and normalization is best-effort.** Targets are compared
+   as strings after `realpath -m` normalization. Where `realpath` is unavailable the raw
+   path is used and `..` traversal is not normalized away, so a target such as
+   `$MROOT/.worktrees/../src/a.go` reads as an in-worktree write and is not gated.
+
+**Enforcement levels.** WARN (exit 0, stderr hint) fires whenever the hook is
+installed and a matched write targets a non-allowlisted path outside
+`$MROOT/.worktrees/`. HARD BLOCK (exit 2) fires only when a live skill-written armed
+marker carries a `session_id` matching the request's — i.e. only for the run that
+armed it. Every other path, and every internal error, exits 0.
+
+**Allowlist — never gated at either level.** Enumerated explicitly in the script, not
+inferred: any path under `.git/`, `.claude/`, `specs/`, `docs/`, or `.github/`, and
+any file whose name ends in `.md`, `.txt`, or `.rst` (this covers `CHANGELOG.md` and
+`README.md`), plus bare `LICENSE`/`NOTICE`. Rationale: these are the surfaces a run
+legitimately touches in the main checkout — plan files, spec updates, and the
+orchestration config itself — and gating them would make the WARN level pure noise.
+
+**Armed-marker contract (the seam `skills/refactor/SKILL.md` § 2.2a.4/2.2a.5 writes).**
+Markers live in `$MROOT/.claude/escalation-gate/armed/` as `<slug>.marker`, one per
+armed run, containing `key=value` lines:
+
+```
+slug=<worktree slug>
+worktree=<absolute path to $MROOT/.worktrees/<slug>>
+session_id=<session_id of the run that armed the gate>
+agent_id=<agent_id of the arming agent, or "main" for the top-level session>
+armed_at=<ISO-8601 UTC>
+```
+
+`session_id=` is **required** — it is what scopes the BLOCK to one run. `slug=` is read
+for the block message; the rest is for humans and for `/status worktree`. The skill arms
+after the gate outcome block is emitted and **disarms by deleting the marker** when the
+run reaches a PR, a squash merge, or a halt. A marker older than 8 hours is treated as
+leaked and ignored, so a crashed run degrades to WARN rather than hard-blocking the
+repository forever.
+
+**Why BLOCK keys on `session_id` and WARN keys on `agent_id`.** The same verified
+platform fact justifies both, in opposite directions: `PreToolUse` fires inside
+subagents carrying the **parent** `session_id`, with the child distinguished only by
+`agent_id`. So `session_id` is exactly the run scope — it covers the arming agent plus
+every subagent it spawns, and excludes concurrent unrelated sessions, which this
+repository runs as the norm. A repo-global BLOCK keyed on marker existence alone would
+stop an unrelated session's writes and tell it to delete another run's marker. The WARN
+latch wants the opposite grain: keyed on `agent_id` so each orchestrated IC gets its own
+attempt counter instead of collapsing into one. **BLOCK requires a live marker whose
+`session_id` matches the request's `.session_id`; anything else — no marker, no match,
+either side absent — degrades to WARN.**
+
+The hook is registered for `PreToolUse` with matcher `Write|Edit|NotebookEdit`.
+`MultiEdit` is deliberately absent — it is not a registered tool in current Claude
+Code, so listing it would be decorative. Writing the `settings.json` entry (and its
+coexistence with `/tdd-gate on`, which writes into the same `PreToolUse` array) is
+Step 3's concern, not this step's — see Step 3 § **`PreToolUse` array append rule
+(SPEC-031)**.
+
+Use the `Write` tool to create `.claude/hooks/escalation-gate.sh` with this content:
+
+```bash
+#!/usr/bin/env bash
+# escalation-gate.sh — PreToolUse hook backing SPEC-031 worktree isolation.
+#
+# WARN  (exit 0): installed, not armed for this run. A Write/Edit/NotebookEdit
+#                 to a non-allowlisted path outside $MROOT/.worktrees/ prints a
+#                 hint on stderr; the write proceeds.
+# BLOCK (exit 2): a live armed marker under
+#                 $MROOT/.claude/escalation-gate/armed/ carries a session_id
+#                 matching this request's. The same write is refused with stderr
+#                 feedback to the agent.
+#
+# NOT TAMPER-PROOF. Bash-issued writes (sed -i, heredocs, git apply, git commit)
+# are never observed. The armed marker is written by the same agent this hook
+# constrains, so it cannot verify a user was actually asked. Drift detector
+# inside a compliant run — not a control. See SPEC-031 § honest limits.
+#
+# FAIL-OPEN: absent jq, unreadable stdin, unresolvable MROOT, missing marker
+# directory, or any unexpected condition exits 0. Only the armed-for-this-run +
+# outside condition ever exits 2.
+
+set -u
+
+allow() { exit 0; }
+
+# jq absent -> fail open (same convention as bash-compress.sh / memory-capture.sh)
+command -v jq >/dev/null 2>&1 || allow
+
+# Stage stdin to a file and query it. NEVER cap the read: a Write payload's
+# `content` field routinely exceeds any fixed cap, and a truncated body makes jq
+# fail -> fail-open -> the gate silently skips exactly the large generated file
+# it exists to catch.
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/escgate.XXXXXX" 2>/dev/null) || allow
+trap 'rm -rf "$WORKDIR"' EXIT
+IN="$WORKDIR/stdin.json"
+cat > "$IN" 2>/dev/null || allow
+[ -s "$IN" ] || allow
+
+TOOL_NAME=$(jq -r '.tool_name // empty' "$IN" 2>/dev/null) || allow
+case "$TOOL_NAME" in
+  Write|Edit|NotebookEdit) ;;
+  *) allow ;;
+esac
+
+# NotebookEdit supplies notebook_path, NOT file_path (verified CC v2.1.212) —
+# a file_path-only read lets every notebook write pass silently.
+TARGET=$(jq -r '.tool_input.notebook_path // .tool_input.file_path // empty' "$IN" 2>/dev/null) || allow
+[ -n "$TARGET" ] || allow
+
+_eg_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd -- "$(dirname -- "$_eg_gc")" && pwd) \
+  || MROOT="${CLAUDE_PROJECT_DIR:-}"
+{ [ -n "$MROOT" ] && [ -d "$MROOT" ]; } || allow
+
+case "$TARGET" in
+  /*) ;;
+  *) TARGET="${CLAUDE_PROJECT_DIR:-$PWD}/$TARGET" ;;
+esac
+
+# Normalize before any prefix match: $MROOT/.worktrees/../src/a.go would
+# otherwise match the .worktrees/ allow pattern and escape the gate. -m works on
+# paths that do not exist yet (Write creates them). Where realpath is absent the
+# raw path is used and `..` traversal stays unnormalized — documented limit.
+if command -v realpath >/dev/null 2>&1; then
+  _eg_n=$(realpath -m -- "$TARGET" 2>/dev/null) && [ -n "$_eg_n" ] && TARGET="$_eg_n"
+  _eg_r=$(realpath -m -- "$MROOT" 2>/dev/null) && [ -n "$_eg_r" ] && MROOT="$_eg_r"
+fi
+
+# Inside the worktree tree — the compliant destination, never gated.
+case "$TARGET" in
+  "$MROOT"/.worktrees/*) allow ;;
+esac
+
+# Explicit allowlist, enumerated (SPEC-031): never gated at either level.
+case "$TARGET" in
+  */.git/*|*/.claude/*|*/specs/*|*/docs/*|*/.github/*) allow ;;
+esac
+case "${TARGET##*/}" in
+  *.md|*.txt|*.rst|LICENSE|NOTICE) allow ;;
+esac
+
+# Armed markers: $MROOT/.claude/escalation-gate/armed/<slug>.marker, written by
+# the skill at gate time and deleted by it at run end. -mmin -480 ignores markers
+# leaked by a crashed run so a stale file degrades to WARN, not a permanent block.
+#
+# BLOCK is scoped to ONE RUN via session_id, not to the repository. PreToolUse
+# fires inside subagents carrying the PARENT session_id, so session_id covers the
+# arming agent and everything it spawns while excluding concurrent unrelated
+# sessions — which would otherwise be blocked and told to delete another run's
+# marker. No session_id on either side => no match => WARN.
+SESSION_ID=$(jq -r '.session_id // empty' "$IN" 2>/dev/null) || SESSION_ID=""
+ARMED_DIR="$MROOT/.claude/escalation-gate/armed"
+ARMED_MARKER=""
+if [ -n "$SESSION_ID" ] && [ -d "$ARMED_DIR" ]; then
+  find "$ARMED_DIR" -maxdepth 1 -type f -name '*.marker' -mmin -480 \
+    > "$WORKDIR/markers" 2>/dev/null || true
+  while IFS= read -r _eg_m; do
+    [ -n "$_eg_m" ] && [ -f "$_eg_m" ] || continue
+    _eg_s=$(sed -n 's/^session_id=//p' "$_eg_m" 2>/dev/null | head -1)
+    if [ -n "$_eg_s" ] && [ "$_eg_s" = "$SESSION_ID" ]; then
+      ARMED_MARKER="$_eg_m"
+      break
+    fi
+  done < "$WORKDIR/markers"
+fi
+
+if [ -n "$ARMED_MARKER" ]; then
+  SLUG=$(sed -n 's/^slug=//p' "$ARMED_MARKER" 2>/dev/null | head -1)
+  {
+    echo "Escalation gate BLOCK: $TOOL_NAME targets $TARGET"
+    echo "This run is armed${SLUG:+ for slug '$SLUG'}; all file modification belongs in $MROOT/.worktrees/${SLUG:-<slug>}/."
+    echo "Redo the edit against the worktree path, or end the run (which removes $ARMED_MARKER)."
+  } >&2
+  exit 2
+fi
+
+# WARN. Latch keys on agent_id, NOT session_id — the same platform fact used
+# above, at the opposite grain: a session-keyed latch would collapse every
+# orchestrated IC into one counter. Null agent_id = top-level session.
+AGENT_KEY=$(jq -r '.agent_id // "main"' "$IN" 2>/dev/null) || AGENT_KEY="main"
+[ -n "$AGENT_KEY" ] || AGENT_KEY="main"
+AGENT_KEY=$(printf '%s' "$AGENT_KEY" | tr -c 'A-Za-z0-9_-' '_' | cut -c1-64)
+
+MROOT_HASH=$(printf '%s' "$MROOT" | cksum | cut -d' ' -f1)
+LATCH="${TMPDIR:-/tmp}/claude-escgate-${MROOT_HASH}-${AGENT_KEY}"
+
+COUNT=$(cat "$LATCH" 2>/dev/null || echo 0)
+case "$COUNT" in ''|*[!0-9]*) COUNT=0 ;; esac
+COUNT=$((COUNT + 1))
+printf '%s' "$COUNT" > "$LATCH" 2>/dev/null || true
+
+if [ "$COUNT" -eq 1 ]; then
+  {
+    echo "Escalation gate: $TOOL_NAME targets $TARGET, outside $MROOT/.worktrees/."
+    echo "SPEC-031 puts all file modification in a worktree. Not blocking."
+  } >&2
+else
+  echo "Escalation gate: edit #$COUNT outside .worktrees/ — $TARGET" >&2
+fi
+
+exit 0
+```
+
+Then make it executable:
+```bash
+chmod +x .claude/hooks/escalation-gate.sh
+```
+
+---
+
 ### Step 5: Create or update AGENTS.md
 
 **If `AGENTS.md` does not exist** — create it with a full template (see below).
@@ -1622,7 +1945,7 @@ To use Agent Teams:
 ## Important Notes
 
 - This skill is idempotent — safe to run multiple times without clobbering existing content
-- **Not pure zero-intervention (CDT-68):** settings.json merge and `bash-compress.sh` require explicit user approval — batch both in ONE ask up front; do not strip the self-escalation guards
+- **Not pure zero-intervention (CDT-68):** settings.json merge, `bash-compress.sh`, and `escalation-gate.sh` require explicit user approval — batch all three in ONE ask up front, escalation-gate.sh's honest-limits framing included; do not strip the self-escalation guards
 - **Force-overwrite disclosure (CDT-51 AC5):** any force change of a managed settings value or hook file MUST print `key` / `old` / `new` / `restore` before the write (`disclose-force-overwrite.sh` or the fallback block). Forced + silent = FAIL
 - **Known-legacy-orphan sweep (CDT-76):** remove only names on the explicit finite list (`bash-compress-wrapper.sh` v1); silent orphan delete forbidden — always bak-force + FORCE-OVERWRITE disclose before rm, or WARN-keep when still referenced
 - The hook script exits 0 by default (pass-through) until customized

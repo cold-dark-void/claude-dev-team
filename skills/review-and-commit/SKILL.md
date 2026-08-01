@@ -272,13 +272,104 @@ specific `file:line`, fixes are concrete.
 
 ## Step 7: Commit Gate
 
+Commit mechanics only — Steps 1-6 (review logic, specialists, confidence
+filtering) are unaffected. Cites `skills/refactor/SKILL.md` § 2.2a
+Escalation gate; per SPEC-031 D1 contract-home doctrine, that logic is not
+restated here.
+
+### 7.1 Findings block
+
 - Any **Critical Issues** or **Compliance Violations** → do NOT commit; tell
   the user exactly what must be fixed. (Matches diff-mode preset
-  `commit_gate_blocks_on: [critical, compliance]`.)
-- Design / Nitpicks / Simplification only → ask
-  "Proceed with commit despite findings? (y/n)"
-- Clean or user-confirmed → `git commit` with a conventional message
-  explaining *why* the change was made.
+  `commit_gate_blocks_on: [critical, compliance]`.) Halt here — do not
+  continue to 7.2-7.4.
+
+### 7.2 Worktree check [CHECK ONLY — NEVER CREATE]
+
+Same destination requirement as `skills/refactor/SKILL.md` § 2.2a.4 — all
+commits happen inside `$MROOT/.worktrees/<slug>`, there is no current-branch
+direct-commit path — but the *mechanism* differs and does not transfer.
+§ 2.2a.4 creates a worktree **before** any editing, so a fresh checkout is
+correct there. This command runs **after** editing: Step 1 read the diff of
+whatever is checked out right now, and Steps 2-6 reviewed *that* diff.
+`worktree-lib.sh ensure` produces a clean checkout at the branch point, which
+would not contain the reviewed changes at all. So this step never creates a
+worktree — it only checks where the reviewed diff already lives:
+
+- **cwd is already inside `$MROOT/.worktrees/`** → check passes. The reviewed
+  diff already lives under worktree isolation and nothing needs migrating.
+  Note that this confirms only that cwd is *somewhere inside* a worktree, not
+  that it is the worktree root — cwd may be any subdirectory of it. 7.4's
+  disarm therefore resolves the root with `git rev-parse --show-toplevel`
+  rather than reading cwd. Continue to 7.3.
+- **cwd is not inside `$MROOT/.worktrees/`** → **HALT**. Do not create a
+  worktree, do not commit, do not continue to 7.3-7.4. Report that the
+  reviewed changes were made outside worktree isolation and give the user
+  this recovery path, then stop and let them run it:
+
+  1. `git stash push -u` here, to save the reviewed changes.
+  2. Create or reuse the worktree via `worktree-lib.sh ensure <slug>` in the
+     SPEC-016 caller-integration form — run the wiring block in
+     `skills/refactor/SKILL.md` § 2.4 § Worktree wiring as-is (the single
+     operational copy of the `plugin-dir.sh` resolution, slug sanitization,
+     and `ensure` exit-code handling; not restated here). That block derives
+     `$SLUG` from `$DESC`, which this command does not have; supply `$DESC`
+     here as the ticket ID when the reviewed change has one, else the current
+     branch name, else a 3-5 word description of the reviewed change. The
+     block's own sanitization then applies unchanged.
+  3. `git stash pop` inside that worktree, to restore the changes there.
+  4. Re-run `/review-and-commit` from inside the worktree.
+
+  The re-run reviews the same diff in its isolated home and reaches 7.2 with
+  the check passing.
+
+### 7.3 Ticket-weight routing
+
+Test the reviewed diff against the same `WHY INLINE REJECTED` reasons used
+by `skills/refactor/SKILL.md` § 2.2a.1 — do not invent new reasons. Any one
+reason applies → do not commit here; emit the 4-field handoff verbatim
+(see `## Escalation handoff format` in `skills/refactor/SKILL.md`) and
+route to `/kickoff` with a real ticket. No reason applies → bounded,
+continue to 7.4.
+
+### 7.4 Commit confirm [ALWAYS ASK]
+
+Ask the user before ANY commit, then stop and wait:
+
+> Commit gate — routing: `<bounded | /kickoff>`. Findings: `<N critical, M
+> design, K nitpick>`. May I commit?
+
+- Asked on **every** run, with no auto-satisfied branch. Trivial scope, a
+  clean review, and an unambiguous 7.3 routing decision are not reasons to
+  skip it.
+- A go-ahead from an earlier run, an earlier ticket, or an upstream command
+  (`/debug`, `/orchestrate`) does NOT satisfy this run's go-ahead — this
+  matters here because `/orchestrate` calls `/review-and-commit` directly,
+  and its own "may I edit files" grant does not cover this commit.
+- Anything other than an affirmative answer halts the run. Do not proceed
+  on silence or on an ambiguous reply.
+- On affirmative and bounded routing → `git commit` with a conventional
+  message explaining *why* the change was made.
+- After that commit succeeds, disarm the escalation-gate marker for the
+  worktree just committed in — the commit consumed it. Same shape as the
+  disarm in `skills/refactor/SKILL.md` § 2.4 § Bounded exit paths, in a
+  **fresh shell**. Derive the slug from the worktree **root**, not from cwd —
+  7.2 established only that cwd is somewhere *inside* the worktree, so from a
+  subdirectory `basename "$(pwd)"` would name the subdirectory and silently
+  delete nothing while the real marker stays armed. `--show-toplevel` returns
+  the worktree root at any depth:
+
+  ```bash
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  SLUG=$(basename "$(git rev-parse --show-toplevel)")
+  rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
+  ```
+
+  `rm -f` is idempotent: a run whose worktree was never armed removes
+  nothing and still exits 0. Do not release the worktree here — that is the
+  caller's bounded-exit decision, not this command's.
 
 ## Step 8: Action Items
 

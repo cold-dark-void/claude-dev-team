@@ -21,7 +21,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 SKILL="$ROOT/skills/init-orchestration/SKILL.md"
 
-HOOKS="task-completed stop-review memory-capture bash-compress precompact-rescue rescue-pointer friction-capture"
+HOOKS="task-completed stop-review memory-capture bash-compress precompact-rescue rescue-pointer friction-capture escalation-gate"
 if [ ! -f "$SKILL" ]; then
   echo "check-hook-templates: SKILL.md not found at $SKILL" >&2
   exit 1

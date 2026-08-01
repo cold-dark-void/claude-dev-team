@@ -123,13 +123,19 @@ re-run force-changes a managed settings value (especially
 (`skills/init-orchestration/disclose-force-overwrite.sh`). Forced + silent =
 FAIL. See init-orchestration Step 3 brownfield merge.
 
-**Not pure zero-intervention under `dontAsk` (CDT-68):** settings.json merge
-and writing `bash-compress.sh` are self-escalation-guarded and need explicit
-user approval. Agents **MUST** batch both approvals in **one** up-front ask
-(settings merge + bash-compress by name) — see
-`skills/init-orchestration/SKILL.md` § Permission batching. Do not strip
-`permissionDecision:"allow"` from bash-compress without evidence. Doctor
-circular self-block is fixed via `--gate=orchestration` (CDT-67).
+**Not pure zero-intervention under `dontAsk` (CDT-68):** settings.json merge,
+writing `bash-compress.sh`, and writing `escalation-gate.sh` (SPEC-031's
+blocking `PreToolUse` hook) are self-escalation-guarded and need explicit
+user approval. Agents **MUST** batch all three approvals in **one** up-front
+ask (settings merge + bash-compress + escalation-gate by name), including
+escalation-gate.sh's honest-limits framing — it is **not tamper-proof**: Bash
+bypasses it, the arming actor is the enforced actor, coverage is
+tool-name-scoped, and path matching falls back to unnormalized `..`
+traversal when `realpath` is unavailable — see
+`skills/init-orchestration/SKILL.md` § Permission batching, and SPEC-031
+§ Hook contract — honest limits. Do not strip `permissionDecision:"allow"`
+from bash-compress without evidence. Doctor circular self-block is fixed via
+`--gate=orchestration` (CDT-67).
 
 ---
 
@@ -419,8 +425,8 @@ can block settings writes, not just the sandbox:
    reads as permission-widening) are self-escalation-guarded. Generic "approve
    edits" is often rejected; the user must **explicitly** approve these by name.
 
-**Batch approvals up front (MUST):** before any settings merge or hook emit,
-ask the user **once** for both approvals together, e.g.:
+**Batch approvals up front (MUST):** before this `team`-path settings merge or
+hook emit, ask the user **once** for both approvals together, e.g.:
 
 ```
 This bootstrap needs two explicit approvals (dontAsk self-escalation guards —

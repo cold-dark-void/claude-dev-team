@@ -75,9 +75,16 @@ The first 7 rows are the behavioral/team agents; `project-init`, `distiller`, an
 
 All plugin-managed worktrees MUST be created at `.worktrees/<slug>` inside the project root.
 
-Use the shared CLI script — subprocess only, never sourced:
-- Create: `bash skills/worktree-lib.sh ensure <slug>` (prints path on stdout)
-- Remove: `bash skills/worktree-lib.sh release <slug>`
+Use the shared CLI script — subprocess only, never sourced. Callers MUST resolve it through `plugin-dir.sh` (install-aware; the script ships in the plugin, not the user's repo) — NOT the cwd-relative `bash skills/worktree-lib.sh` (absent on a real install) and NOT `$MROOT/skills/worktree-lib.sh` (resolves to the user's repo, not the plugin):
+
+```bash
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (pre-release-safe sort -V). CDT-82: marketplace before same-version cache.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+```
+- Create: `bash "$WT_LIB" ensure <slug>` (prints path on stdout)
+- Remove: `bash "$WT_LIB" release <slug>`
 
 Full contract: `specs/core/SPEC-016-worktree-isolation.md`
 

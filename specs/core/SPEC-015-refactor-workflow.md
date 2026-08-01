@@ -16,8 +16,8 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 
 ### Entry & Mode Selection
 
-- MUST support two invocation forms: `/refactor <description>` (default) and `/refactor inline <description>` (approach pre-decided — skips design proposal and approval gate)
-- MUST output the approach being implemented (one sentence) before modifying any file in inline mode — even though no design problem gate or approval gate applies.
+- MUST support two invocation forms: `/refactor <description>` (default) and `/refactor inline <description>` (approach pre-decided — skips the design proposal and the **approach** approval gate; the Escalation gate's edit go-ahead still runs)
+- MUST output the approach being implemented (one sentence) before modifying any file in inline mode — even though no design problem gate or **approach** approval gate applies. The Escalation gate (SPEC-031) still applies in full.
 - MUST load AGENTS.md, relevant specs, recent git log, and all code in the affected area before outputting any design analysis
 - MUST read any `.claude/plans/` file for the affected area if one exists
 - MUST proceed without error if AGENTS.md does not exist
@@ -29,9 +29,27 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 
 ### Approach Decision (default mode only)
 
-- MUST proceed without presenting options or requesting user input when there is exactly one approach that satisfies: (a) scope is bounded to the stated affected area, and (b) no two valid structural patterns (e.g., extract-function vs. introduce-abstraction) would both apply. MUST state the chosen approach in one sentence in the session output before implementing.
+> **Scope of these requirements (CDT-98):** every "without requesting user input" / "MUST NOT ask" rule in this section governs the **approach decision only** — which structural pattern to apply. It does NOT govern the **edit go-ahead**, which is a separate, always-asked question owned by the Escalation gate (SPEC-031). Auto-picking an approach is never authorization to begin editing.
+
+- MUST proceed without presenting **approach options** or requesting user input **on the approach decision** when there is exactly one approach that satisfies: (a) scope is bounded to the stated affected area, and (b) no two valid structural patterns (e.g., extract-function vs. introduce-abstraction) would both apply. MUST state the chosen approach in one sentence in the session output before implementing.
 - MUST present 2-3 options and wait for user approval when: (a) multiple valid refactoring approaches exist, or (b) the depth or scope of the refactor is genuinely ambiguous (e.g. extract one function vs. restructure the whole module)
-- MUST NOT ask the user for a decision when there is one clear, unambiguous approach
+- MUST NOT ask the user for an **approach** decision when there is one clear, unambiguous approach. This exemption does not extend to the Escalation gate's edit go-ahead.
+
+### Escalation Gate (all modes) [GATE]
+
+The full gate contract — edit go-ahead, ticket-weight routing, workstream split, universal worktree isolation, exit paths, auto-chain, and the backing hook — is owned by **SPEC-031**. The requirements below are the `/refactor`-specific bindings; SPEC-031 governs where they conflict.
+
+- MUST execute the Escalation gate as a numbered inline step between the approach decision (2.2) and the coverage check (2.3) in default mode, and immediately after the approach preamble (3.1) in inline mode. MUST NOT carry it as a trailing "Escalation ladder" appendix.
+- MUST obtain an explicit user edit go-ahead before the first file modification, on every run, with no auto-satisfied branch and no size threshold that skips it.
+- MUST carry the operational gate text exactly once, in `skills/refactor/SKILL.md` (contract home, SPEC-002 D1). `/debug`, `/review-and-commit`, and `/code-simplify` MUST cite it and MUST NOT restate it.
+- In inline mode, MUST skip only the approach re-decision; the edit go-ahead and ticket-weight routing still run in full.
+
+### Worktree Isolation (all modes)
+
+- MUST perform all file modification inside `$MROOT/.worktrees/<slug>` in both default and inline mode, with no exception for trivial or single-line changes
+- MUST create or reuse the worktree via the SPEC-016 caller-integration form: emit the SPEC-002 canonical bootstrap stanza byte-verbatim, then `WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)`, then `bash "$WT_LIB" ensure "$SLUG"`. MUST NOT use the cwd-relative form `bash skills/worktree-lib.sh …` nor `$MROOT/skills/…`
+- MUST sanitize any slug derived from `$DESC` before calling `ensure` — the lib validates (`^[A-Za-z0-9_-]+$`, else exit 64) and does not sanitize for the caller
+- MUST handle `ensure` exit codes distinctly: `0` proceed with the path from stdout, `1` surface stderr and halt, `2` halt cleanly (user aborted collision), `64` halt and report a caller bug
 
 ### Coverage Check (all modes) [GATE]
 
@@ -60,10 +78,14 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
   ```
   Self-calibration checklist:
     [ ] Design problem written before any file was edited (default mode)
+    [ ] Escalation gate outcome block appeared before any file was edited (§ 2.2a.5 / § 3.1a)
+    [ ] Worktree isolation was used for every edit — no edit made on the current/session branch (§ 2.2a.4, § 2.4 Worktree wiring)
+    [ ] Escalation gate ran on this invocation — not skipped, regardless of scope (§ 2.2a)
     [ ] Characterization tests written and passing on original code (if coverage was thin)
     [ ] All tests pass after refactor
     [ ] No feature or bug-fix changes mixed into this refactor
   ```
+- The three Escalation-gate items above are the verification surface for SPEC-031's gate and worktree requirements. MUST NOT be dropped to restore the pre-CDT-98 four-item block.
 - MUST NOT output any language implying completion ("done", "complete", "refactored") until the checklist passes
 - In inline mode, the 'Design problem written' item MUST be marked `[N/A — inline mode]`. All other items apply in both modes.
 
@@ -79,13 +101,17 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 - MUST pass refactor context to `/kickoff` as structured issue text: (1) design problem statement, (2) affected files/modules, (3) proposed approach, (4) why inline resolution was rejected. The canonical field layout and the shared `WHY INLINE REJECTED` vocabulary are single-sourced in the `/kickoff` accepted-handoff input contract (`skills/kickoff/SKILL.md` § Accepted escalation handoff); `/debug` and `/refactor` MUST emit that vocabulary verbatim so the two producers do not diverge.
 - MUST NOT continue modifying files after triggering escalation
 - MUST escalate to `/orchestrate` (via `/kickoff`) when scope is large, clear, and requires multiple agents
-- MUST NOT escalate directly to `/orchestrate` without `/kickoff` first unless a `.claude/plans/` file for this work already exists
+- MUST NOT escalate directly to `/orchestrate` without `/kickoff` first. The sole exemption is a `.claude/plans/` file that carries a **ticket-id reference** in its Tracking section (`ticket_id:` or a `closes:` entry naming `linear:<ID>` or `backlog/<slug>.md`, per SPEC-009). A plan file's mere existence does NOT qualify, and a plan file written by the current run NEVER qualifies regardless of contents (CDT-98; timestamp/mtime checks are explicitly out of scope)
+- MUST route to `/epic` instead of a single `/kickoff` ticket when the chosen approach decomposes into 2+ independently shippable ideas — all three criteria required: independently shippable/testable, no shared file edits, no sequencing dependency (SPEC-031 workstream split)
+- On an escalating routing decision, MUST emit the 4-field handoff and invoke `/kickoff` in-session; after `/kickoff` completes, one user confirmation authorizes the run through `/orchestrate` to a PR without a manual restart per stage
 
 ### Commit discipline (all modes)
 
 - MUST commit the refactor as a standalone commit separate from any feature or bug-fix work
 - MUST use `refactor:` commit message prefix as the default; note in session output if project conventions (AGENTS.md) specify a different format.
-- MUST use a separate PR when the work is escalated or when the refactor touches multiple subsystems; otherwise a single commit in the current session branch is acceptable
+- MUST end bounded (non-escalated) work at one of exactly two exits, both from the worktree: (a) branch → **PR** (standard), or (b) **squash merge after review** when no remote exists or the user prefers linear history. Exit (b) MUST remain available (CDT-98)
+- MUST end escalated work as `/kickoff` → `/orchestrate` → PR; escalated work MUST NOT terminate in a direct commit
+- **RETIRED (CDT-98):** ~~otherwise a single commit in the current session branch is acceptable~~ — the current-branch direct-commit path is removed; see Worktree Isolation above
 
 ---
 
@@ -100,7 +126,10 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 ## MUST NOT
 
 - MUST NOT touch any file before the design problem statement exists in session output (default mode)
-- MUST NOT ask the user for an approach decision when one clear path exists
+- MUST NOT touch any file before the Escalation gate's outcome (edit go-ahead, routing decision, worktree path) exists in session output (all modes)
+- MUST NOT ask the user for an **approach** decision when one clear path exists — this does not exempt the always-asked edit go-ahead
+- MUST NOT provide any flag, mode, or environment variable that skips the edit go-ahead or the worktree requirement
+- MUST NOT edit or commit on the current branch in either mode
 - MUST NOT begin refactoring before characterization tests pass on the original code (when coverage was thin)
 - MUST NOT mix refactor changes with feature or bug-fix changes
 - MUST NOT claim completion before the self-calibration checklist passes
@@ -134,13 +163,29 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 
 ### T6: `inline` subcommand
 1. Run `/refactor inline <description>` (simulating a handoff from `/debug`)
-2. Verify: no design problem statement step, no options/approval gate
-3. Verify: coverage check still runs; characterization tests written if needed
+2. Verify: no design problem statement step, no options/**approach** approval gate
+3. Verify: the Escalation gate still runs in full — edit go-ahead asked, routing decided, worktree created
+4. Verify: coverage check still runs; characterization tests written if needed
 
 ### T7: Escalation path
 1. Run `/refactor` on a change requiring cross-subsystem restructuring
 2. Verify: skill escalates to `/kickoff` with structured context (design problem, affected files, proposed approach, why inline rejected)
 3. Verify: no further file modifications after escalation
+
+### T10: Escalation gate fires inline (CDT-98)
+1. Run `/refactor` on a bounded change where 2.2 auto-picks the approach without asking
+2. Verify: the approach is auto-picked AND the edit go-ahead is still asked
+3. Verify: gate output (go-ahead, routing decision, worktree path) precedes any file modification
+
+### T11: Universal worktree, both modes (CDT-98)
+1. Run `/refactor` and `/refactor inline` on one-line changes
+2. Verify: both create or reuse `$MROOT/.worktrees/<slug>`; neither edits the current branch
+
+### T12: Plan-file exemption closed (CDT-98)
+1. Place a `.claude/plans/` file with no ticket-id reference in its Tracking section
+2. Verify: the gate does NOT skip `/kickoff`
+3. Add a `ticket_id:` reference; verify the exemption now qualifies
+4. Verify: a plan file written by the current run never qualifies
 
 ### T8: Self-calibration gate
 1. Run `/refactor`, then verify the checklist is emitted verbatim before any completion language
@@ -156,14 +201,20 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 
 - [ ] `/refactor` loads AGENTS.md and relevant specs before touching anything
 - [ ] Design problem statement (what/why/what-achieved) appears before any file is modified (default mode)
-- [ ] Skill proceeds without asking user when one clear approach exists
+- [ ] Skill proceeds without asking user **for the approach decision (§ 2.2)** when one clear approach exists — the Escalation gate's edit go-ahead (§ 2.2a.3) is still asked on that run
 - [ ] Options presented and approval waited when scope is ambiguous
 - [ ] Characterization tests written and confirmed passing on original code when coverage is thin
 - [ ] All tests pass after refactor before completion language
-- [ ] Self-calibration checklist emitted verbatim before any "done" claim
-- [ ] `inline` subcommand skips design statement and approval gate, keeps coverage check
+- [ ] Self-calibration checklist emitted verbatim before any "done" claim, including the three Escalation-gate items
+- [ ] `inline` subcommand skips design statement and the **approach** approval gate, keeps coverage check and the full Escalation gate (edit go-ahead included)
 - [ ] Escalation to `/kickoff` includes all 4 required context fields
 - [ ] No feature or bug-fix changes mixed into refactor commit
+- [ ] Escalation gate runs inline (2.2→2.3 default, after 3.1 inline); edit go-ahead asked every run
+- [ ] Both modes work inside `.worktrees/<slug>`; no current-branch edit or commit path remains
+- [ ] Worktree calls use the SPEC-016 PDH-resolved form with slug sanitization and exit-code handling
+- [ ] Squash-merge-after-review exit remains available alongside the PR exit
+- [ ] Plan-file exemption requires a ticket-id reference; no timestamp logic present
+- [ ] Gate text appears exactly once (contract home); siblings cite only
 
 ---
 
@@ -173,3 +224,4 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 |------|--------|
 | 2026-04-26 | Initial spec created — design locked in conversation context (no separate brainstorm file) |
 | 2026-04-26 | PM review: rewrote 4 ACs, added 6 new ACs, resolved OQ-1 (inline preamble required), OQ-2 (greenfield in scope), OQ-3 (refactor: prefix default), OQ-4 (commit level), OQ-5 (behavioral or file-existence proxy) |
+| 2026-07-31 | CDT-98: added Escalation Gate + Worktree Isolation sections (SPEC-031 owns the full contract); retired the current-session-branch commit mandate in favor of PR / squash-merge-after-review exits; closed the self-satisfiable `.claude/plans/` exemption (ticket-id reference required, no timestamp checks); disambiguated the no-user-input MUSTs to approach-decision only; added workstream-split routing to `/epic` and in-session `/kickoff` auto-chain; added T10-T12 and 6 validation rows |

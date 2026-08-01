@@ -19,6 +19,13 @@ this is a **MIT-owned protocol** inside dev-team — no marketplace install requ
 | `/orchestrate` | After **all** IC tasks have Tech Lead **APPROVE** (Step 9), **before** Step 10 QA |
 | Manual | User asks to simplify recent work; or after a large IC implement outside orchestrate |
 
+Manual invocation (outside `/orchestrate`, which already supplies a worktree)
+must pass the same Escalation gate as `/refactor` — see
+`skills/refactor/SKILL.md` § 2.2a Escalation gate. That gate's worktree wiring arms
+`.claude/hooks/escalation-gate.sh` as its last step, so a manual run MUST disarm it at
+every terminal point — see `## Escalation-gate disarm (manual path)`. Runs under
+`/orchestrate` never arm it here and have nothing to disarm.
+
 Skip when:
 - Diff is docs/config-only with no runtime code
 - User set `CODE_SIMPLIFY=0` in the environment for this session
@@ -100,3 +107,28 @@ Code-simplify: <done | skipped | failed-open>
 ```
 
 On `failed-open` or `skipped`, proceed to QA unchanged.
+
+## Escalation-gate disarm (manual path)
+
+Applies only to a manual run that passed the Escalation gate above; `/orchestrate` runs
+skip this section entirely. The armed marker outlives the run unless it is deleted — an
+armed run that ends without this fence leaves the session blocked on every write outside
+`$MROOT/.worktrees/` until the marker's leak-expiry.
+
+Run it at every terminal point: the `done` output contract above, and equally the
+`skipped`, `failed-open`, and hard-constraint-4 revert-and-report outcomes. Fresh shell —
+`$SLUG`/`$WT_PATH` from the gate's arming fence do not survive into a new bash
+invocation, so derive the slug from the path recorded on the gate outcome block's
+`Worktree:` line:
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WT_PATH='<the path recorded on the gate outcome block Worktree: line>'
+SLUG=$(basename "$WT_PATH")
+rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
+```
+
+The marker lives at `$MROOT` level, not inside `$MROOT/.worktrees/<slug>/`, so releasing
+or removing the worktree never deletes it — this explicit delete is the only disarm.

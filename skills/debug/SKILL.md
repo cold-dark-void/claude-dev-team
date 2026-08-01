@@ -25,7 +25,7 @@ design-level issue that warrants a `/kickoff` handoff. Entry host:
 ## Arguments
 
 - `/debug <description>` — full mode (default): complete pipeline including spec
-  alignment check, callsite grep, escalation ladder, and self-calibration checklist
+  alignment check, callsite grep, escalation gate, and self-calibration checklist
 - `/debug patch <description>` — fast path: root cause → failing test → fix →
   validate; skips spec alignment, callsite grep, escalation, and refactor handling
 - `/debug arch <description>` — design-first: investigation stops at root cause,
@@ -535,6 +535,37 @@ If scope = `escalate-to-kickoff`: emit the `/kickoff` escalation handoff (see `#
 
 ---
 
+### 2.4a Escalation gate [GATE]
+
+Full contract: `skills/refactor/SKILL.md` § 2.2a Escalation gate. Cited here, not
+restated (SPEC-031 contract-home doctrine — contract home is `/refactor`).
+
+**Routing mapping** — the 2.4 scope decision above already performs the ticket-weight
+test; map its outcome onto the gate's canonical routing values (§ 2.2a.3) rather than
+re-running the test:
+- `targeted-patch` → `bounded`
+- `refactor-first` → `bounded` (routes through `/refactor inline` at 2.6, before the fix)
+- `escalate-to-kickoff` → `/kickoff` (already stopped above; gate does not run)
+
+**Edit go-ahead** — ask exactly as specified in `skills/refactor/SKILL.md` § 2.2a.3,
+using the mapped routing value and the 2.4 scope statement as the Approach field.
+
+**Workstream-split check** — apply per `skills/refactor/SKILL.md` § 2.2a.2.
+
+**Worktree** — create or reuse via the SPEC-016 caller-integration form exactly as
+`skills/refactor/SKILL.md` § 2.2a.4 implements it — do not re-derive.
+
+**HARD GATE:** same as `skills/refactor/SKILL.md` § 2.2a.5 Gate outcome — do not edit,
+create, or delete any file until that outcome block appears in the session output with a
+granted go-ahead.
+
+**Disarm** — the worktree wiring arms the escalation-gate marker as its last step. Every
+terminal point reachable from here — 2.10 done, 2.6's `/refactor inline` failure halt,
+2.8's callsite-cap escalation, 2.9's escalate-on-✗ — MUST disarm it (see
+`## Escalation-gate disarm`).
+
+---
+
 ### 2.5 Failing regression test [GATE]
 
 Apply SPEC-029 §S.5 (concurrent/interleaved scenario) when applicable.
@@ -580,6 +611,8 @@ Commit issuance is delegated entirely to `/refactor inline` — do not issue a `
 
 Run `/refactor inline <description>` with the above context. Do not proceed to 2.7 until `/refactor inline` reports its self-calibration checklist as passing.
 
+If `/refactor inline` does not reach a passing checklist, this run halts here — disarm the escalation gate (see `## Escalation-gate disarm`) before stopping. `/refactor inline` runs its own § 2.2a gate and derives its slug from the 3.1 approach sentence, so it arms and disarms a **separately slugged** marker; nothing it does deletes the marker 2.4a armed for this run.
+
 If the refactor completes successfully, continue to 2.7 (fix).
 
 ---
@@ -615,7 +648,7 @@ grep -rn "<keyword1>" "$WTROOT" --include="*.<ext>"
 grep -rn "<keyword2>" "$WTROOT" --include="*.<ext>"
 ```
 
-**Cap:** if grep returns more than 10 hits across all keywords, do NOT investigate each one. Escalate to `/kickoff` with the grep output as evidence of refactor scope. Emit the handoff (see `## Escalation handoff format`) and stop.
+**Cap:** if grep returns more than 10 hits across all keywords, do NOT investigate each one. Escalate to `/kickoff` with the grep output as evidence of refactor scope. Emit the handoff (see `## Escalation handoff format`), disarm the escalation gate (see `## Escalation-gate disarm`), and stop.
 
 > If escalating after a fix was already committed in 2.7, keep WHY INLINE REJECTED to the canonical vocabulary and put the commit hash in the PROPOSED APPROACH field; instruct `/kickoff` to treat the grep results as additional scope, not as the primary unfixed bug.
 
@@ -641,7 +674,7 @@ Self-calibration checklist:
   [ ] SPEC-029 concurrent scenario present (or n/a — not a concurrency bug)
 ```
 
-**If any item is ✗: do not output any language implying completion ("done", "fixed", "resolved", "complete"). Either resolve the gap or escalate.**
+**If any item is ✗: do not output any language implying completion ("done", "fixed", "resolved", "complete"). Either resolve the gap or escalate.** Escalating ends this run — disarm the escalation gate (see `## Escalation-gate disarm`) before emitting the handoff.
 
 For items that are not applicable to this run (e.g. the refactor item when scope = targeted-patch), mark them ✓ with a parenthetical note: `✓ (n/a — targeted-patch)`.
 
@@ -660,6 +693,9 @@ Emit a completion summary to the session output containing:
 - **Theme** — `$THEME_KEY`, reopen count, forced redesign yes/no
 - **Surfaces** — matrix summary
 
+Then disarm the escalation gate (see `## Escalation-gate disarm`) — this is the normal
+full-mode terminus and the marker is still armed from 2.4a.
+
 Then run SPEC-029 §S.6 theme log write-back. Suggest `/handoff` when reopen ≥ 1 or forced redesign.
 
 Then suggest:
@@ -671,6 +707,11 @@ Then suggest:
 ## Step 3: Patch mode
 
 > Patch mode opts out of: spec alignment check, holistic callsite scan, escalation evaluation, and refactor handling. Choose patch when you are confident the bug is isolated and a deeper investigation isn't needed. If the bug turns out to require refactor or cross-subsystem changes, **patch mode aborts** — re-run `/debug <description>` (full mode) instead.
+>
+> "Escalation evaluation" above means the full-mode 2.4 scope-decision triad, which patch
+> mode has no step for. It does NOT exempt patch mode from the mandatory Escalation gate
+> at P.2a below — that gate runs on every invocation, per `skills/refactor/SKILL.md`
+> § 2.2a.
 
 **SPEC-029:** run §S.1 immediately after mode parse. If `$FORCED_REDESIGN` = yes, execute §S.2 abort — do not continue to P.1 fix path.
 
@@ -683,6 +724,34 @@ Describe the bug briefly: what was expected, what actually happened, and what tr
 Write the root cause before touching any file. The statement must cover all three parts of the **Root-cause triad** (see `## Root-cause triad`): (a) what specifically fails, (b) why it fails, (c) the originating layer — not the symptom layer.
 
 HARD GATE: do not edit, create, or delete any file before this statement appears in the session output.
+
+### P.2a Escalation gate [GATE]
+
+Full contract: `skills/refactor/SKILL.md` § 2.2a Escalation gate. Cited here, not
+restated.
+
+**Routing** — patch mode's premise is a confidently bounded fix (routing = `bounded`);
+the existing P.4 abort clause ("if the fix reveals... requires a refactor, stop here")
+substitutes for re-running the ticket-weight test mid-flight — no separate routing step
+is added here.
+
+**Edit go-ahead** — ask exactly as specified in `skills/refactor/SKILL.md` § 2.2a.3,
+using `bounded` as the routing value and the P.1 bug description as the Approach field.
+
+**Workstream-split check** — apply per `skills/refactor/SKILL.md` § 2.2a.2. A confirmed
+split aborts patch mode: re-run `/debug <description>` (full mode).
+
+**Worktree** — create or reuse via the SPEC-016 caller-integration form exactly as
+`skills/refactor/SKILL.md` § 2.2a.4 implements it — do not re-derive.
+
+**HARD GATE:** same as `skills/refactor/SKILL.md` § 2.2a.5 Gate outcome — do not edit,
+create, or delete any file until that outcome block appears in the session output with a
+granted go-ahead.
+
+**Disarm** — the worktree wiring arms the escalation-gate marker as its last step. Every
+terminal point reachable from here — P.4's abort back to full mode, P.5's completion, and
+P.5's escalate-on-✗ — MUST disarm it (see `## Escalation-gate disarm`). A workstream split
+confirmed above aborts before the worktree is created, so it has nothing to disarm.
 
 ### P.3 Failing regression test [GATE]
 
@@ -700,7 +769,7 @@ GATE: do not write any fix code before this test exists and is confirmed failing
 
 ### P.4 Fix
 
-Implement the minimal fix. Run the regression test — it must pass. Run the full test suite — all tests must pass. If the fix reveals that the same pattern exists elsewhere or requires a refactor, **stop here**: patch mode aborts, re-run `/debug <description>` (full mode).
+Implement the minimal fix. Run the regression test — it must pass. Run the full test suite — all tests must pass. If the fix reveals that the same pattern exists elsewhere or requires a refactor, **stop here**: patch mode aborts, re-run `/debug <description>` (full mode). Disarm the escalation gate (see `## Escalation-gate disarm`) before stopping — the re-run arms its own marker and the abandoned one would otherwise block the session.
 
 ### P.5 Self-calibration checklist
 
@@ -714,7 +783,12 @@ Self-calibration checklist (patch mode):
   [ ] Manual verification completed (if non-reproducible bug or no test suite)
 ```
 
-If any item ✗: do not output any completion language.
+If any item ✗: do not output any completion language. Either resolve the gap or escalate
+— escalating ends this run, so disarm the escalation gate (see
+`## Escalation-gate disarm`) before emitting the handoff.
+
+When every item is ✓ this run is complete — disarm the escalation gate (see
+`## Escalation-gate disarm`) as the last step.
 
 ---
 
@@ -883,12 +957,40 @@ PROPOSED ADDITION: <draft MUST/SHOULD/MUST NOT line to add>
 After emitting either handoff, the skill stops modifying files. The user (or
 orchestration layer) routes the handoff to the appropriate command.
 
-### Escalation ladder
+`/kickoff` may then escalate the handoff further to `/orchestrate` on its own judgment —
+`/kickoff` makes that call, not this skill. See `specs/core/SPEC-031-escalation-gate.md`
+§ Closing the self-satisfiable plan-file exemption and `skills/refactor/SKILL.md`
+§ Step 1b, "Plan-file exemption check" for the operational copy. Do not restate that
+logic here.
 
-When handing off to `/kickoff`, note that large/clear-scoped work may then escalate
-further to `/orchestrate` (full agent pipeline, worktree, PR). `/kickoff` makes this
-call — do not attempt to jump to `/orchestrate` directly unless a `.claude/plans/`
-file for this work already exists from a prior planning session.
+---
+
+## Escalation-gate disarm
+
+The worktree wiring that 2.4a / P.2a delegate to (`skills/refactor/SKILL.md` § 2.4
+§ Worktree wiring) arms `.claude/hooks/escalation-gate.sh` as its last step. The armed
+marker outlives the run unless it is deleted — an armed run that ends without this fence
+leaves the session blocked on every write outside `$MROOT/.worktrees/` until the marker's
+leak-expiry.
+
+Run this at **every** terminal point reachable after the gate armed: normal completion
+(2.10, P.5 all-✓) and every halt or abort (2.6 `/refactor inline` failure, 2.8
+callsite-cap escalation, 2.9 escalate-on-✗, P.4 refactor abort, P.5 escalate-on-✗).
+Fresh shell — `$SLUG`/`$WT_PATH` from the arming fence do not survive into a new
+bash invocation, so derive the slug from the path recorded on the gate outcome block's
+`Worktree:` line:
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WT_PATH='<the path recorded on the gate outcome block Worktree: line>'
+SLUG=$(basename "$WT_PATH")
+rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
+```
+
+The marker lives at `$MROOT` level, not inside `$MROOT/.worktrees/<slug>/`, so releasing
+or removing the worktree never deletes it — this explicit delete is the only disarm.
 
 ---
 
@@ -909,6 +1011,7 @@ continue the pipeline on assumptions.
 - Prefer scripted aggregates over bulk Read when investigating monorepo-scale patterns (think in code)
 - Do NOT edit, create, or delete any file before the root cause statement is in the session output (`full`/`patch`/`arch`)
 - Do NOT claim completion ("done", "fixed", "resolved") before the self-calibration checklist passes (`full`/`patch`)
+- Do NOT end an armed run — completion or abort — without the escalation-gate disarm (`## Escalation-gate disarm`)
 - Do NOT apply the same fix in multiple places — that is always a refactor trigger
 - Do NOT skip the failing-test phase for reproducible bugs, even apparently trivial ones
 - Do NOT back-and-forth on blockers — one specific question or silence
