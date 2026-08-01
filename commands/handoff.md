@@ -284,9 +284,10 @@ it warm STM. No live-context dual path.
 
 1. **Explicit Grok env** (steps 1–2) wins over Claude.
 2. **Grok cwd-newest** wins over a *stale* Claude bridge / projects-dir tip —
-   but **MUST NOT** fire when live Claude env is set (`CLAUDE_SESSION_ID`, or
-   `*_TRANSCRIPT_PATH` → real non-Grok file). Dual-host repos must not silently
-   mine yesterday's Grok session during a live Claude bare `/handoff`.
+   but **MUST NOT** fire when live Claude env is set (`CLAUDE_CODE_SESSION_ID`,
+   `CLAUDE_SESSION_ID`, or `*_TRANSCRIPT_PATH` → real non-Grok file). Dual-host
+   repos must not silently mine yesterday's Grok session during a live Claude
+   bare `/handoff`.
 3. Else **Claude** (CDT-85 path).
 4. Else **fail hard** (clear diagnostic; no freeform).
 
@@ -313,16 +314,18 @@ it warm STM. No live-context dual path.
 
 **Claude session id precedence** (when Grok miss):
 
-1. `$CLAUDE_SESSION_ID` if set and non-empty
-2. `$SESSION_ID` if set (some harnesses)
-3. Bridge file `$HANDOFF_BRIDGE` or `$HANDOFF_DIR/.live-session.json` (`session_id`)
-4. Basename stem of `$CLAUDE_TRANSCRIPT_PATH` / `$TRANSCRIPT_PATH` when `*.jsonl`
-5. Newest `*.jsonl` under encoded project cwd in `$CLAUDE_PROJECTS_DIR` (Claude
+1. `$CLAUDE_CODE_SESSION_ID` if set and non-empty (the var Claude Code actually
+   exports)
+2. `$CLAUDE_SESSION_ID` if set and non-empty
+3. `$SESSION_ID` if set (some harnesses)
+4. Bridge file `$HANDOFF_BRIDGE` or `$HANDOFF_DIR/.live-session.json` (`session_id`)
+5. Basename stem of `$CLAUDE_TRANSCRIPT_PATH` / `$TRANSCRIPT_PATH` when `*.jsonl`
+6. Newest `*.jsonl` under encoded project cwd in `$CLAUDE_PROJECTS_DIR` (Claude
    Code session-id bridge when env is empty)
-6. Interpreting host MAY export a visible conversation/metadata id into
-   `GROK_SESSION_ID` or `CLAUDE_SESSION_ID` before discovery — do not invent one
-   in freeform prose
-7. Else fail with clear diagnostic (export host env, or cold `/handoff <uuid>` on
+7. Interpreting host MAY export a visible conversation/metadata id into
+   `GROK_SESSION_ID` or `CLAUDE_CODE_SESSION_ID` / `CLAUDE_SESSION_ID` before
+   discovery — do not invent one in freeform prose
+8. Else fail with clear diagnostic (export host env, or cold `/handoff <uuid>` on
    a disk transcript)
 
 **Claude transcript path precedence** (when Grok miss):
@@ -351,7 +354,7 @@ DISCOVER=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/discover-warm.sh
 # Optional host env before discovery (do not invent freeform packets on fail):
 #   Grok:   export GROK_SESSION_ID=…  and/or GROK_TRANSCRIPT_PATH=…
 #           (also GROK_SESSIONS_DIR, GROK_CWD)
-#   Claude: export CLAUDE_SESSION_ID=… when metadata shows a uuid and env empty
+#   Claude: export CLAUDE_CODE_SESSION_ID=… when metadata shows a uuid and env empty
 set +e
 DISC_OUT=$(bash "$DISCOVER" 2>"${TMPDIR:-/tmp}/handoff-discover.err")
 DISC_RC=$?

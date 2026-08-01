@@ -16,7 +16,7 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/discover-warm-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 # Isolate env so ambient session vars / live Grok sessions cannot leak.
-unset CLAUDE_SESSION_ID SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
+unset CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
 unset GROK_SESSION_ID GROK_TRANSCRIPT_PATH GROK_CWD CLAUDE_CWD
 unset HANDOFF_BRIDGE HANDOFF_DIR
 export CLAUDE_PROJECTS_DIR="$WORK/projects"
@@ -504,6 +504,84 @@ if [ -f "$HANDOFF_BRIDGE" ] && grep -q '"host": "claude"' "$HANDOFF_BRIDGE" \
    && ! grep -q '"host": "grok"' "$HANDOFF_BRIDGE"; then ok
 else bad "T22b bridge host=claude bridge=$(cat "$HANDOFF_BRIDGE" 2>/dev/null)"; fi
 unset CLAUDE_TRANSCRIPT_PATH CLAUDE_SESSION_ID HANDOFF_BRIDGE
+
+# =====================================================================
+# CDT-104 — CLAUDE_CODE_SESSION_ID precedence
+# =====================================================================
+
+# ---- T23: CLAUDE_CODE_SESSION_ID alone resolves Claude session ----
+unset CLAUDE_SESSION_ID SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
+unset GROK_SESSION_ID GROK_TRANSCRIPT_PATH GROK_CWD CLAUDE_CWD HANDOFF_BRIDGE HANDOFF_DIR
+export CLAUDE_PROJECTS_DIR="$WORK/projects"
+export GROK_SESSIONS_DIR="$WORK/grok-sessions-empty-t23"
+mkdir -p "$GROK_SESSIONS_DIR"
+export CLAUDE_CODE_SESSION_ID="$SID"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t23.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+GOT_TR=$(printf '%s\n' "$OUT" | sed -n '2p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$SID" ] && [ "$GOT_TR" = "$NEW" ]; then ok
+else bad "T23 CLAUDE_CODE_SESSION_ID alone rc=$RC sid=$GOT_SID tr=$GOT_TR err=$(cat "$WORK/t23.err")"; fi
+unset CLAUDE_CODE_SESSION_ID
+
+# ---- T24: CLAUDE_CODE_SESSION_ID beats CLAUDE_SESSION_ID when both set ----
+unset SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
+unset GROK_SESSION_ID GROK_TRANSCRIPT_PATH GROK_CWD CLAUDE_CWD HANDOFF_BRIDGE HANDOFF_DIR
+export CLAUDE_PROJECTS_DIR="$WORK/projects"
+export GROK_SESSIONS_DIR="$WORK/grok-sessions-empty-t24"
+mkdir -p "$GROK_SESSIONS_DIR"
+export CLAUDE_CODE_SESSION_ID="$SID"
+export CLAUDE_SESSION_ID="other-should-lose-t24"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t24.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$SID" ]; then ok
+else bad "T24 precedence CLAUDE_CODE_SESSION_ID wins got=$GOT_SID err=$(cat "$WORK/t24.err")"; fi
+unset CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID
+
+# ---- T25: CLAUDE_CODE_SESSION_ID alone blocks Grok cwd-newest hijack ----
+# Regression clone of T20 with CLAUDE_CODE_SESSION_ID instead of
+# CLAUDE_SESSION_ID: the CDT-92 anti-hijack gate was dead in live Claude Code
+# sessions because it only checked CLAUDE_SESSION_ID.
+unset CLAUDE_SESSION_ID SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
+unset GROK_SESSION_ID GROK_TRANSCRIPT_PATH CLAUDE_CODE_SESSION_ID
+export GROK_SESSIONS_DIR="$WORK/grok-sessions-t25"
+export CLAUDE_PROJECTS_DIR="$WORK/projects-t25"
+mkdir -p "$CLAUDE_PROJECTS_DIR/proj-live" "$GROK_SESSIONS_DIR"
+G25_CWD="$WORK/fake-dual-cwd-t25"
+G25_GROK_SID="grok-sid-stale-t25"
+G25_CLAUDE_SID="claude-sid-live-t25"
+G25_SRC=$(install_grok_session "$G25_GROK_SID" "$G25_CWD")
+# Make Grok tip "newer" so a pure mtime heuristic would prefer it
+touch "$G25_SRC"
+CLAUDE_LIVE_TR="$CLAUDE_PROJECTS_DIR/proj-live/${G25_CLAUDE_SID}.jsonl"
+printf '{"type":"user","uuid":"live-claude-u1","message":{"role":"user","content":"LIVE-CLAUDE-SESSION"}}\n' \
+  >"$CLAUDE_LIVE_TR"
+touch -d "2020-01-01 00:00:00" "$CLAUDE_LIVE_TR" 2>/dev/null \
+  || touch -t 202001010000 "$CLAUDE_LIVE_TR"
+export CLAUDE_CODE_SESSION_ID="$G25_CLAUDE_SID"
+export GROK_CWD="$G25_CWD"
+export CLAUDE_CWD="$G25_CWD"
+export HANDOFF_BRIDGE="$WORK/bridge-t25.json"
+rm -f "$HANDOFF_BRIDGE"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t25.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+GOT_TR=$(printf '%s\n' "$OUT" | sed -n '2p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$G25_CLAUDE_SID" ] \
+   && [ "$GOT_TR" = "$CLAUDE_LIVE_TR" ] \
+   && [ "$GOT_SID" != "$G25_GROK_SID" ]; then ok
+else bad "T25 CLAUDE_CODE_SESSION_ID beats Grok cwd rc=$RC sid=$GOT_SID want=$G25_CLAUDE_SID tr=$GOT_TR err=$(cat "$WORK/t25.err")"; fi
+if [ -f "$HANDOFF_BRIDGE" ] && grep -q '"host": "claude"' "$HANDOFF_BRIDGE" \
+   && grep -q "\"session_id\": \"$G25_CLAUDE_SID\"" "$HANDOFF_BRIDGE"; then ok
+else bad "T25b bridge host=claude bridge=$(cat "$HANDOFF_BRIDGE" 2>/dev/null)"; fi
+unset CLAUDE_CODE_SESSION_ID GROK_CWD CLAUDE_CWD HANDOFF_BRIDGE
 
 # Restore defaults for cleanliness
 export CLAUDE_PROJECTS_DIR="$WORK/projects"

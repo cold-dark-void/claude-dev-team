@@ -14,9 +14,9 @@
 # Host selection (AC1 / AC3 / AC10):
 #   Explicit Grok env (steps 1–2) wins over Claude. Grok cwd-newest (step 3)
 #   wins over a *stale* Claude bridge / Claude projects-dir tip — but MUST NOT
-#   fire when a definitive live-Claude env signal is present (CLAUDE_SESSION_ID,
-#   or CLAUDE_TRANSCRIPT_PATH / TRANSCRIPT_PATH → real non-Grok file). Else fall
-#   through to Claude (CDT-85). If neither → fail hard.
+#   fire when a definitive live-Claude env signal is present (CLAUDE_CODE_SESSION_ID
+#   or CLAUDE_SESSION_ID, or CLAUDE_TRANSCRIPT_PATH / TRANSCRIPT_PATH → real
+#   non-Grok file). Else fall through to Claude (CDT-85). If neither → fail hard.
 #
 # Grok discovery precedence (AC2):
 #   1. GROK_SESSION_ID / GROK_TRANSCRIPT_PATH, or SESSION_ID naming a dir under
@@ -30,12 +30,13 @@
 #   4. Grok miss → Claude path
 #
 # Claude session id precedence (when Grok miss):
-#   1. $CLAUDE_SESSION_ID (non-empty)
-#   2. $SESSION_ID (non-empty)
-#   3. Bridge file ($HANDOFF_BRIDGE or $HANDOFF_DIR/.live-session.json) session_id
-#   4. Basename stem of $CLAUDE_TRANSCRIPT_PATH / $TRANSCRIPT_PATH when *.jsonl
-#   5. Newest-mtime *.jsonl under encoded project dir for live cwd (Claude bridge)
-#   6. fail — clear diagnostic; never freeform live-context
+#   1. $CLAUDE_CODE_SESSION_ID (non-empty) — the var Claude Code actually exports
+#   2. $CLAUDE_SESSION_ID (non-empty)
+#   3. $SESSION_ID (non-empty)
+#   4. Bridge file ($HANDOFF_BRIDGE or $HANDOFF_DIR/.live-session.json) session_id
+#   5. Basename stem of $CLAUDE_TRANSCRIPT_PATH / $TRANSCRIPT_PATH when *.jsonl
+#   6. Newest-mtime *.jsonl under encoded project dir for live cwd (Claude bridge)
+#   7. fail — clear diagnostic; never freeform live-context
 #
 # Claude transcript path precedence:
 #   1. $CLAUDE_TRANSCRIPT_PATH if set and is a regular file
@@ -225,7 +226,7 @@ is_grok_chat_history() {
 # Explicit Grok env (steps 1–2) still wins; only the heuristic is gated.
 live_claude_env_blocks_grok_cwd() {
   local cand
-  if [ -n "${CLAUDE_SESSION_ID:-}" ]; then
+  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || [ -n "${CLAUDE_SESSION_ID:-}" ]; then
     return 0
   fi
   for cand in "${CLAUDE_TRANSCRIPT_PATH:-}" "${TRANSCRIPT_PATH:-}"; do
@@ -422,6 +423,10 @@ cwd_newest_jsonl() {
 }
 
 resolve_session_id() {
+  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+    printf '%s' "$CLAUDE_CODE_SESSION_ID"
+    return 0
+  fi
   if [ -n "${CLAUDE_SESSION_ID:-}" ]; then
     printf '%s' "$CLAUDE_SESSION_ID"
     return 0
@@ -557,16 +562,18 @@ error: warm /handoff could not resolve this session's id
   Warm STM = spine-mine THIS session's live JSONL (shared engine) — not a
   freeform brief from model memory / live-context.
   Host selection: explicit Grok env wins; Grok cwd-newest wins over stale Claude
-  bridge; live Claude env (CLAUDE_SESSION_ID / non-Grok *_TRANSCRIPT_PATH) beats
-  Grok cwd-heuristic; else Claude; neither → fail (CDT-92).
+  bridge; live Claude env (CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID / non-Grok
+  *_TRANSCRIPT_PATH) beats Grok cwd-heuristic; else Claude; neither → fail (CDT-92).
   Grok precedence: GROK_SESSION_ID / GROK_TRANSCRIPT_PATH → CLAUDE_* only if
   path is Grok chat_history.jsonl under sessions root → newest chat_history under
   ${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/ (skipped if live Claude env).
-  Claude precedence: CLAUDE_SESSION_ID → SESSION_ID → .live-session.json bridge →
-  basename stem of CLAUDE_TRANSCRIPT_PATH / TRANSCRIPT_PATH (*.jsonl) →
-  newest *.jsonl under encoded project cwd in CLAUDE_PROJECTS_DIR.
+  Claude precedence: CLAUDE_CODE_SESSION_ID → CLAUDE_SESSION_ID → SESSION_ID →
+  .live-session.json bridge → basename stem of CLAUDE_TRANSCRIPT_PATH /
+  TRANSCRIPT_PATH (*.jsonl) → newest *.jsonl under encoded project cwd in
+  CLAUDE_PROJECTS_DIR.
   Use cold /handoff <uuid> on a disk transcript, or export host session env
-  (GROK_SESSION_ID / CLAUDE_SESSION_ID / *_TRANSCRIPT_PATH) before bare /handoff.
+  (GROK_SESSION_ID / CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID / *_TRANSCRIPT_PATH)
+  before bare /handoff.
   Do NOT call freeform live-context output a warm STM packet (CDT-85 / AC-16).
 EOF
   exit 1

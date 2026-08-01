@@ -70,8 +70,9 @@ Bare `/handoff` resolves the live host via `skills/handoff/discover-warm.sh`
 
 1. **Explicit Grok env** wins over Claude.
 2. **Grok cwd-newest** wins over a *stale* Claude bridge, but **yields** when
-   live Claude env is set (`CLAUDE_SESSION_ID` / non-Grok `*_TRANSCRIPT_PATH`) —
-   so dual-host repos do not mine the wrong session.
+   live Claude env is set (`CLAUDE_CODE_SESSION_ID` / `CLAUDE_SESSION_ID` /
+   non-Grok `*_TRANSCRIPT_PATH`) — so dual-host repos do not mine the wrong
+   session.
 3. Else **Claude** (CDT-85 env → bridge → stem → cwd-newest).
 4. Else **fail hard** (clear diagnostic; no freeform warm STM).
 
