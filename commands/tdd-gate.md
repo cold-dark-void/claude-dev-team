@@ -271,4 +271,7 @@ TDD Gate: DISABLED
 - Graduated enforcement tracks attempts per file per session via `$TMPDIR`
   counter files. Counter resets on new session. First attempt is a hint (exit 0),
   second is a warning (exit 0), third+ is a block (exit 2).
-- Does not interfere with `/setup orchestration` hooks — they use different events
+- Coexists with `/setup orchestration` hooks — both write into the same `PreToolUse`
+  array, but both sides append and remove element-wise and dedup by `matcher` + command
+  set, so neither clobbers the other in either install order (see
+  `skills/init-orchestration/SKILL.md` § "`PreToolUse` array append rule (SPEC-031)")
