@@ -324,7 +324,7 @@ All file modification for this run happens inside `$MROOT/.worktrees/<slug>`, in
 
 > Creating the worktree is git plumbing, not a file modification of the refactor — it runs before the outcome block below and is not gated by it.
 
-The wiring block's fence also arms `.claude/hooks/escalation-gate.sh` for this run (SPEC-031 § Armed-marker contract, `skills/init-orchestration/SKILL.md` Step 4i) — this happens as the fence's last step, right after `ensure` succeeds, and before the outcome block below.
+The wiring block creates or reuses the worktree **only** — it does not arm the escalation-gate marker. Under SPEC-031's arm-on-escalate, disarm-at-handoff-completion model (§ Armed-marker lifecycle), the marker is written only when the run commits to an escalating route (§ 2.2a.5), never at worktree-creation time and never on a bounded route. A bounded run therefore edits inside its worktree unarmed and sees the hook's WARN level only, never a BLOCK.
 
 #### 2.2a.5 Gate outcome
 
@@ -343,8 +343,8 @@ Escalation gate:
 
 Then continue by routing:
 
-- **bounded** → proceed to 2.3. The worktree and armed marker from 2.2a.4 stay in place; they're consumed and released at the 2.4/3.3 bounded exit (§ 2.4 § Bounded exit paths), not here.
-- **escalating — `/kickoff`** or **escalating — `/epic`** → this run implements nothing in the worktree from 2.2a.4. Release it and disarm the marker first, in a **fresh shell** — `$SLUG`/`$WT_LIB`/`$PDH` from 2.2a.4's fence do not survive into a new bash invocation. Derive the slug as the basename of the path recorded on the outcome block's `Worktree:` line above:
+- **bounded** → proceed to 2.3. The worktree from 2.2a.4 stays in place; it is consumed and released at the 2.4/3.3 bounded exit (§ 2.4 § Bounded exit paths), not here. A bounded run is never armed — the marker is written only on an escalating route (below), so bounded edits inside the worktree see the hook's WARN level only, never a BLOCK, and there is nothing to disarm at the bounded exit.
+- **escalating — `/kickoff`** or **escalating — `/epic`** → this run implements nothing in the worktree from 2.2a.4. First **arm** the escalation-gate marker for this run — run the **§ Escalation-gate arm** block — at the point the run commits to escalate, *before* the release below, so the session stays guarded across the whole handoff window even if release itself fails (SPEC-031 § Armed-marker lifecycle). Then release the worktree, in a **fresh shell** — `$SLUG`/`$WT_LIB`/`$PDH` from 2.2a.4's fence do not survive into a new bash invocation. Derive the slug as the basename of the path recorded on the outcome block's `Worktree:` line above:
 
   ```bash
   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -359,8 +359,9 @@ Then continue by routing:
     echo "worktree release failed for $SLUG — halting before handoff, do not proceed to /kickoff or /epic with an orphaned worktree still present" >&2
     exit 1
   }
-  rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
   ```
+
+  The marker is armed before this release deliberately: if release fails the run halts here without ever invoking the downstream command, the handoff window never closed, and the marker is correctly left for the hook's 8-hour leak-expiry backstop rather than deleted through a release-conditioned path. The single success-path disarm is gated on downstream-command success, not on this release succeeding (SPEC-031 § Armed-marker lifecycle).
 
   Call `worktree-lib.sh release` **directly** here, not `/worktree release <slug>` — that command's own Step 3.3 ("Chat confirmation (required)") would add a third ask beyond 2.2a.3 and the post-`/kickoff` confirmation below, which SPEC-031 § Auto-chain forbids. The lib call is non-interactive and refuses only on a dirty tree, which never applies here — escalating routes never edit a file in the worktree (the HARD GATE above).
 
@@ -399,7 +400,7 @@ Then continue by routing:
     printf 'TICKET-ID: %s\n' "$BSLUG"
     ```
 
-    This is local-only (no Linear MCP call — that stays inside `/backlog add`'s own contract, which this gate does not reproduce). `<TICKET-ID>` is `$BSLUG`; no Linear issue is required for the `backlog` source. The `while` loop suffixes on a same-run collision instead of asking, matching `/backlog add`'s own dedup "(a) Suffix" branch, never its "(b) Abort" branch — an abort there would be a third ask. Then invoke `/kickoff <TICKET-ID> "<handoff>"` **in-session**; do not tell the user to run it manually. The 4-field handoff text itself has no field for this (`skills/kickoff/SKILL.md` § Accepted escalation handoff (input contract) fixes it at exactly four fields) — so along with the invocation, separately instruct `/kickoff` that `<TICKET-ID>` (`$BSLUG`) is a backlog slug it must close: at its Step 6 (`skills/kickoff/SKILL.md` Step 6, `## Tracking` format), it MUST write `source: backlog`, `ticket_id: $BSLUG`, `closes: backlog/$BSLUG.md` into the plan's `## Tracking` section — not leave the `linear | backlog | freeform` placeholder unresolved. This is the field `/wrap-ticket` Step 5.5 keys off to find and close the item later — it reads it from the plan file's `closes:` list, never from the handoff text. When `/kickoff` completes, ask **one** confirmation — "Proceed to `/orchestrate`?" — and stop and wait. On an affirmative answer, invoke `/orchestrate` **in-session** through to a PR, with no further per-stage confirmation. Anything other than affirmative halts the chain (SPEC-031 § Auto-chain).
+    This is local-only (no Linear MCP call — that stays inside `/backlog add`'s own contract, which this gate does not reproduce). `<TICKET-ID>` is `$BSLUG`; no Linear issue is required for the `backlog` source. The `while` loop suffixes on a same-run collision instead of asking, matching `/backlog add`'s own dedup "(a) Suffix" branch, never its "(b) Abort" branch — an abort there would be a third ask. Then invoke `/kickoff <TICKET-ID> "<handoff>"` **in-session**; do not tell the user to run it manually. The 4-field handoff text itself has no field for this (`skills/kickoff/SKILL.md` § Accepted escalation handoff (input contract) fixes it at exactly four fields) — so along with the invocation, separately instruct `/kickoff` that `<TICKET-ID>` (`$BSLUG`) is a backlog slug it must close: at its Step 6 (`skills/kickoff/SKILL.md` Step 6, `## Tracking` format), it MUST write `source: backlog`, `ticket_id: $BSLUG`, `closes: backlog/$BSLUG.md` into the plan's `## Tracking` section — not leave the `linear | backlog | freeform` placeholder unresolved. This is the field `/wrap-ticket` Step 5.5 keys off to find and close the item later — it reads it from the plan file's `closes:` list, never from the handoff text. This route's work here ends at the in-session `/kickoff` invocation; the disarm and the post-`/kickoff` confirmation are handled at the convergent step below.
   - **`/epic`** → `## Escalation handoff format`'s 4-field block is scoped to `/kickoff`/`/spec update` (its own heading says so) and requires a canonical `WHY INLINE REJECTED` value — which has no legal value when this route is reached solely via 2.2a.2's split confirmation with no 2.2a.1 reason (exactly the case this route exists to cover). Compose the payload from that section's ROOT CAUSE / AFFECTED FILES / PROPOSED APPROACH fields (cited, not restated), plus:
     - 2.2a.1 recorded a reason → include `WHY INLINE REJECTED` verbatim, same as the `/kickoff` case above.
     - 2.2a.1 returned "no reason applies" → omit `WHY INLINE REJECTED`; state the 2.2a.2 split confirmation (N independently shippable ideas) as the routing justification instead. `/epic`'s own contract (`commands/epic.md` Args: `<EPIC-ID> "<text>"`) does not require the `/kickoff`-scoped canonical vocabulary.
@@ -430,7 +431,14 @@ Then continue by routing:
 
     Invoke `/epic <EPIC-ID> "<payload>"` **in-session**, using the printed `EPIC-ID`. `/epic` owns each child ticket's own `/kickoff`/`/orchestrate` execution and creates/links its own Linear Project (`skills/epic/SKILL.md`, M12) — this gate's auto-chain responsibility ends at the in-session invocation.
 
-On either escalating route, stop implementing under this workflow. The edit go-ahead (2.2a.3) and the post-`/kickoff` confirmation are the only two asks in the chain — the worktree release, the backlog write, and the `/epic` collision check all call the underlying mechanism directly rather than the asking command; no confirmation is inserted between `/kickoff` and `/orchestrate`'s own internal stages.
+On either escalating route, stop implementing under this workflow. Once the downstream command (`/kickoff` or `/epic`) has returned successfully having created its ticket / plan / task-graph, **disarm** the marker exactly once — run the **§ Escalation-gate disarm** block. This is the single disarm call site in the whole skill; both escalate sub-routes converge on it, and it is gated on **downstream-command success, not on the earlier worktree release** (SPEC-031 § Armed-marker lifecycle). Producing the ticket+plan+task-graph is the real end of the window the marker guards, so the marker comes down there and `/orchestrate` then proceeds under its own discipline. There is no other disarm anywhere in this skill: bounded exits never armed, and every abnormal termination (release fails, `/kickoff`/`/epic` fails, session killed, user aborts before completion) leaves the handoff window legitimately open and correctly falls to the hook's 8-hour leak-expiry backstop rather than a scattered happy-path delete.
+
+Then, per route:
+
+- **`/kickoff`** → after the disarm, ask **one** confirmation — "Proceed to `/orchestrate`?" — and stop and wait. On an affirmative answer, invoke `/orchestrate` **in-session** through to a PR, with no further per-stage confirmation. Anything other than affirmative halts the chain.
+- **`/epic`** → the disarm is this route's last step here; `/epic` owns each child ticket's own `/kickoff`/`/orchestrate` execution.
+
+The edit go-ahead (2.2a.3) and the post-`/kickoff` confirmation are the only two asks in the chain — the arm, the worktree release, the backlog write, the disarm, and the `/epic` collision check all call the underlying mechanism directly rather than the asking command; no confirmation is inserted between `/kickoff` and `/orchestrate`'s own internal stages (SPEC-031 § Auto-chain).
 
 ---
 
@@ -479,29 +487,9 @@ WT_PATH=$(bash "$WT_LIB" ensure "$SLUG") || {
   exit "$EXIT"
 }
 printf 'Worktree: %s\n' "$WT_PATH"
-
-# SPEC-031 arming (CDT-98 T15): write the marker .claude/hooks/escalation-gate.sh
-# reads (skills/init-orchestration/SKILL.md Step 4i). Appended after `ensure`
-# succeeds, same shell as $SLUG/$WT_PATH above — not part of the ensure/exit-code
-# logic itself. No hook-style stdin gives a running skill its own session_id, so
-# this falls back through the live platform env var, then the two names
-# skills/handoff/discover-warm.sh already treats as equivalent fallbacks for
-# warm-session resolution; agent_id has no such source and defaults to "main"
-# (same default the hook itself uses for a null agent_id).
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-ARM_SID="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-${SESSION_ID:-}}}"
-ARMED_DIR="$MROOT/.claude/escalation-gate/armed"
-mkdir -p "$ARMED_DIR"
-{
-  printf 'slug=%s\n' "$SLUG"
-  printf 'worktree=%s\n' "$WT_PATH"
-  printf 'session_id=%s\n' "$ARM_SID"
-  printf 'agent_id=%s\n' "${CLAUDE_AGENT_ID:-main}"
-  printf 'armed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-} > "$ARMED_DIR/$SLUG.marker"
 ```
+
+This block creates or reuses the worktree **only** — it writes no escalation-gate marker. Arming is decoupled from worktree creation under SPEC-031's arm-on-escalate model: the marker is written solely on the escalate-and-auto-chain route (§ 2.2a.5, via the § Escalation-gate arm block), so a bounded run that runs this wiring is never armed.
 
 `ensure` creates branch `feat/<slug>` and prints the absolute worktree path to stdout on success only. Exit-code handling:
 
@@ -544,18 +532,7 @@ git remote -v
 | **(a) branch → PR** — standard | a remote exists and the user has not asked for linear history | push `feat/<slug>`, open the PR, then release the worktree via `/worktree release <slug>` once merged |
 | **(b) squash merge after review** | **required fallback** when no remote exists; also chosen whenever the user prefers a clean linear master history | review the diff, squash-merge `feat/<slug>` onto the base branch, then release the worktree via `/worktree release <slug>` |
 
-Both exits also delete the armed marker from 2.2a.4, right after the `/worktree release <slug>` call in the Steps column above, in a **fresh shell** — `$SLUG` from 2.2a.4's fence does not survive into a new bash invocation. Derive it the same way 2.2a.5's escalating routes do, from the outcome block's recorded `Worktree:` path:
-
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-WT_PATH='<the path recorded on the outcome block Worktree: line>'
-SLUG=$(basename "$WT_PATH")
-rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
-```
-
-The marker lives at `$MROOT` level, not inside `$MROOT/.worktrees/<slug>/`, precisely so `.claude/hooks/escalation-gate.sh` can read it without entering the worktree (it never does); `/worktree release` removing the worktree directory does not touch it, so it needs this explicit delete.
+Bounded exits carry **no** disarm step. A bounded run never armed the escalation-gate marker — arming happens only on the escalate-and-auto-chain route (§ 2.2a.5), and the single disarm is completion-gated there (SPEC-031 § Armed-marker lifecycle). There is nothing to delete at either bounded exit.
 
 Exit (b) is a first-class option, not a degraded one — do not narrow this to a PR-only rule.
 
@@ -635,6 +612,47 @@ In inline mode, mark the first item `[N/A — inline mode]`. Other items apply i
 **Rule: if any item is ✗, do not output completion language. Either resolve the gap or escalate.**
 
 Items not applicable to this run (e.g. characterization-test item when coverage was already adequate): mark `✓ (n/a — <reason>)`.
+
+---
+
+## Escalation-gate arm
+
+Single operational copy of the arm step (SPEC-031 § Armed-marker lifecycle). Invoked **only** from § 2.2a.5's escalating routes, at the point the run commits to escalate and *before* the worktree release, so the session is guarded across the whole handoff window even if release fails. Never invoked on a bounded route, never at worktree-creation time, and never on an escalate route that emits a handoff and stops (there is no continuation window to guard).
+
+Runs in a **fresh shell** — derive the slug as the basename of the path recorded on the outcome block's `Worktree:` line. No hook-style stdin gives a running skill its own `session_id`, so this falls back through the live platform env var, then the two names `skills/handoff/discover-warm.sh` already treats as equivalent fallbacks for warm-session resolution; `agent_id` has no such source and defaults to `main` (the same default the hook uses for a null `agent_id`). The marker lives at `$MROOT/.claude/escalation-gate/armed/<slug>.marker`, above the worktree tree, so releasing/removing the worktree never touches it.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WT_PATH='<the path recorded on the outcome block Worktree: line above>'
+SLUG=$(basename "$WT_PATH")
+ARM_SID="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-${SESSION_ID:-}}}"
+ARMED_DIR="$MROOT/.claude/escalation-gate/armed"
+mkdir -p "$ARMED_DIR"
+{
+  printf 'slug=%s\n' "$SLUG"
+  printf 'worktree=%s\n' "$WT_PATH"
+  printf 'session_id=%s\n' "$ARM_SID"
+  printf 'agent_id=%s\n' "${CLAUDE_AGENT_ID:-main}"
+  printf 'armed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$ARMED_DIR/$SLUG.marker"
+```
+
+## Escalation-gate disarm
+
+Single operational copy of the disarm step, and the **only** disarm call site in this skill (SPEC-031 § Armed-marker lifecycle). Invoked exactly once, from the convergent point in § 2.2a.5 both escalate sub-routes reach: **immediately after the downstream command (`/kickoff` or `/epic`) returns successfully** having created its ticket / plan / task-graph, before the post-`/kickoff` `/orchestrate` confirmation. Gated on **downstream-command success, not worktree-release success** — if the pre-handoff release failed the run already halted before invoking the downstream command, and the marker is left for the hook's 8-hour leak-expiry backstop rather than deleted here. Bounded exits and emit-and-stop escalate routes never armed, so they never reach this block.
+
+Runs in a **fresh shell** — derive the slug as the basename of the recorded `Worktree:` path; the arm block's `$SLUG` does not survive into a new bash invocation.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WT_PATH='<the path recorded on the outcome block Worktree: line above>'
+SLUG=$(basename "$WT_PATH")
+rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
+```
 
 ---
 

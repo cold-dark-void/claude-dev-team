@@ -45,7 +45,8 @@ guards — intentional; not removable without losing the guard):
   2. Write .claude/hooks/bash-compress.sh (PreToolUse; permissionDecision:allow
      bounded to the hardcoded NOISY test/build allowlist)
   3. Write .claude/hooks/escalation-gate.sh (PreToolUse; WARNs on out-of-worktree
-     writes, BLOCKs only when the current run armed it). NOT tamper-proof:
+     writes, BLOCKs only when the run is armed — armed only on an
+     escalate-and-auto-chain handoff, disarmed when it completes). NOT tamper-proof:
      Bash-issued writes (sed -i, heredocs, git apply, git commit) bypass it
      entirely; the same agent it constrains writes its own armed marker, so it
      detects drift in a compliant run but does not defend against a
@@ -294,7 +295,7 @@ If user picks option 2, add to `.claude/settings.json` sandbox filesystem sectio
 
 **Precondition (CDT-68):** confirm the user already approved the settings merge
 in the up-front batch ask (see **Permission batching under `dontAsk`**). If not,
-ask now (settings merge + bash-compress by name) before writing.
+ask now (settings merge + bash-compress + escalation-gate by name) before writing.
 
 Using the `allowedDomains` list from Step 2, write the settings file.
 
@@ -1428,12 +1429,20 @@ installed and a matched write targets a non-allowlisted path outside
 marker carries a `session_id` matching the request's — i.e. only for the run that
 armed it. Every other path, and every internal error, exits 0.
 
-**Allowlist — never gated at either level.** Enumerated explicitly in the script, not
-inferred: any path under `.git/`, `.claude/`, `specs/`, `docs/`, or `.github/`, and
-any file whose name ends in `.md`, `.txt`, or `.rst` (this covers `CHANGELOG.md` and
-`README.md`), plus bare `LICENSE`/`NOTICE`. Rationale: these are the surfaces a run
-legitimately touches in the main checkout — plan files, spec updates, and the
-orchestration config itself — and gating them would make the WARN level pure noise.
+**Allowlist — never gated (except the armed tamper carve-out below).** Enumerated
+explicitly in the script, not inferred: any path under `.git/`, `.claude/`, `specs/`,
+`docs/`, or `.github/`, and any file whose name ends in `.md`, `.txt`, or `.rst` (this
+covers `CHANGELOG.md` and `README.md`), plus bare `LICENSE`/`NOTICE`. Rationale: these are
+the surfaces a run legitimately touches in the main checkout — plan files, spec updates,
+and the orchestration config itself — and gating them would make the WARN level pure noise.
+
+**Control-plane tamper carve-out (SPEC-031).** One narrow exception runs **before** the
+broad `.claude/**` allowlist: when this run is armed, a `Write`/`Edit`/`NotebookEdit` to a
+file that governs the gate — `$MROOT/.claude/hooks/*`, `$MROOT/.claude/settings.json`,
+`$MROOT/.claude/settings.local.json`, or `$MROOT/.claude/escalation-gate/*` — BLOCKs (exit
+2), so an armed run cannot self-clear the gate by writing its own marker, the hook script,
+or settings. Unarmed runs are unaffected. The broad `*.md`/`*.txt` doc exemption is kept
+deliberately (finding #15 is closed by this carve-out, not by narrowing the exemption).
 
 **Armed-marker contract (the seam `skills/refactor/SKILL.md` § 2.2a.4/2.2a.5 writes).**
 Markers live in `$MROOT/.claude/escalation-gate/armed/` as `<slug>.marker`, one per
@@ -1448,11 +1457,15 @@ armed_at=<ISO-8601 UTC>
 ```
 
 `session_id=` is **required** — it is what scopes the BLOCK to one run. `slug=` is read
-for the block message; the rest is for humans and for `/status worktree`. The skill arms
-after the gate outcome block is emitted and **disarms by deleting the marker** when the
-run reaches a PR, a squash merge, or a halt. A marker older than 8 hours is treated as
-leaked and ignored, so a crashed run degrades to WARN rather than hard-blocking the
-repository forever.
+for the block message; the rest is for humans and for `/status worktree`. Per
+SPEC-031 § Armed-marker lifecycle the skill arms the marker **only on an
+escalate-and-auto-chain handoff** (a run that has committed to `/kickoff` or `/epic` and
+continues in-session) — never on a bounded run — and **disarms with exactly one
+success-path call** immediately after that downstream command returns having created its
+ticket/plan/task-graph. The `-mmin -480` (8-hour) leak-expiry is an
+**abnormal-termination backstop**, not the primary reclaim path: a killed session or a
+failed/aborted handoff legitimately leaves the guarded window open, so the marker degrades
+to WARN at expiry rather than hard-blocking the repository forever.
 
 **Why BLOCK keys on `session_id` and WARN keys on `agent_id`.** The same verified
 platform fact justifies both, in opposite directions: `PreToolUse` fires inside
@@ -1548,23 +1561,22 @@ case "$TARGET" in
   "$MROOT"/.worktrees/*) allow ;;
 esac
 
-# Explicit allowlist, enumerated (SPEC-031): never gated at either level.
-case "$TARGET" in
-  */.git/*|*/.claude/*|*/specs/*|*/docs/*|*/.github/*) allow ;;
-esac
-case "${TARGET##*/}" in
-  *.md|*.txt|*.rst|LICENSE|NOTICE) allow ;;
-esac
-
-# Armed markers: $MROOT/.claude/escalation-gate/armed/<slug>.marker, written by
-# the skill at gate time and deleted by it at run end. -mmin -480 ignores markers
-# leaked by a crashed run so a stale file degrades to WARN, not a permanent block.
+# Resolve armed state up front: BOTH the tamper-surface carve-out below and the
+# general out-of-worktree BLOCK need it, and the carve-out MUST run BEFORE the
+# broad .claude/** allowlist so an armed run cannot self-clear the gate by writing
+# the files that govern it.
+#
+# Markers live at $MROOT/.claude/escalation-gate/armed/<slug>.marker. Under
+# SPEC-031 § Armed-marker lifecycle the skill arms one ONLY on an
+# escalate-and-auto-chain handoff and disarms it once at handoff completion;
+# -mmin -480 is the abnormal-termination backstop (a leaked marker degrades to
+# WARN at 8h rather than blocking forever), not the primary reclaim path.
 #
 # BLOCK is scoped to ONE RUN via session_id, not to the repository. PreToolUse
 # fires inside subagents carrying the PARENT session_id, so session_id covers the
 # arming agent and everything it spawns while excluding concurrent unrelated
-# sessions — which would otherwise be blocked and told to delete another run's
-# marker. No session_id on either side => no match => WARN.
+# sessions — which would otherwise be blocked. No session_id on either side =>
+# no match => WARN.
 SESSION_ID=$(jq -r '.session_id // empty' "$IN" 2>/dev/null) || SESSION_ID=""
 ARMED_DIR="$MROOT/.claude/escalation-gate/armed"
 ARMED_MARKER=""
@@ -1581,25 +1593,70 @@ if [ -n "$SESSION_ID" ] && [ -d "$ARMED_DIR" ]; then
   done < "$WORKDIR/markers"
 fi
 
+# Control-plane tamper surface (SPEC-031): checked BEFORE the broad .claude/**
+# allowlist. When this run is armed, a write to a file that governs the gate —
+# the hook script, settings[.local].json, or the armed-marker dir — is drift and
+# BLOCKs, even though .claude/** is otherwise exempt. Unarmed runs are wholly
+# unaffected: this gates only when a live matching marker exists.
+if [ -n "$ARMED_MARKER" ]; then
+  case "$TARGET" in
+    "$MROOT"/.claude/hooks/*|"$MROOT"/.claude/settings.json|"$MROOT"/.claude/settings.local.json|"$MROOT"/.claude/escalation-gate/*)
+      SLUG=$(sed -n 's/^slug=//p' "$ARMED_MARKER" 2>/dev/null | head -1)
+      {
+        echo "Escalation gate BLOCK: $TOOL_NAME targets control-plane file $TARGET"
+        echo "This run is armed${SLUG:+ for slug '$SLUG'}; the gate's own config (hook, settings, marker dir) is off-limits while armed."
+        echo "Redo the edit against the worktree path; the marker clears when the escalation handoff completes."
+      } >&2
+      exit 2 ;;
+  esac
+fi
+
+# Explicit allowlist, enumerated (SPEC-031): never gated at either level. The
+# broad *.md/*.txt doc exemption is retained deliberately — SPEC-031 closes
+# finding #15 via the tamper carve-out above, NOT by narrowing this exemption
+# (armed escalate runs legitimately write plan/spec .md files).
+case "$TARGET" in
+  */.git/*|*/.claude/*|*/specs/*|*/docs/*|*/.github/*) allow ;;
+esac
+case "${TARGET##*/}" in
+  *.md|*.txt|*.rst|LICENSE|NOTICE) allow ;;
+esac
+
+# General out-of-worktree BLOCK for an armed run: any non-allowlisted path
+# outside the worktree tree is drift back toward the origin incident.
 if [ -n "$ARMED_MARKER" ]; then
   SLUG=$(sed -n 's/^slug=//p' "$ARMED_MARKER" 2>/dev/null | head -1)
   {
     echo "Escalation gate BLOCK: $TOOL_NAME targets $TARGET"
     echo "This run is armed${SLUG:+ for slug '$SLUG'}; all file modification belongs in $MROOT/.worktrees/${SLUG:-<slug>}/."
-    echo "Redo the edit against the worktree path, or end the run (which removes $ARMED_MARKER)."
+    echo "Redo the edit against the worktree path; the marker clears when the escalation handoff completes."
   } >&2
   exit 2
 fi
 
-# WARN. Latch keys on agent_id, NOT session_id — the same platform fact used
-# above, at the opposite grain: a session-keyed latch would collapse every
-# orchestrated IC into one counter. Null agent_id = top-level session.
+# WARN. Latch keys on agent_id (a session-keyed-only latch would collapse every
+# orchestrated IC into one counter) AND folds in a session_id hash so the count
+# is per-session-per-agent, not global-per-agent across unrelated sessions for
+# the TMPDIR lifetime (SPEC-031). Falls back to the agent-only key when no
+# session_id is present. Null agent_id = top-level session.
 AGENT_KEY=$(jq -r '.agent_id // "main"' "$IN" 2>/dev/null) || AGENT_KEY="main"
 [ -n "$AGENT_KEY" ] || AGENT_KEY="main"
 AGENT_KEY=$(printf '%s' "$AGENT_KEY" | tr -c 'A-Za-z0-9_-' '_' | cut -c1-64)
 
 MROOT_HASH=$(printf '%s' "$MROOT" | cksum | cut -d' ' -f1)
-LATCH="${TMPDIR:-/tmp}/claude-escgate-${MROOT_HASH}-${AGENT_KEY}"
+if [ -n "$SESSION_ID" ]; then
+  SESS_HASH=$(printf '%s' "$SESSION_ID" | cksum | cut -d' ' -f1)
+  LATCH="${TMPDIR:-/tmp}/claude-escgate-${MROOT_HASH}-${SESS_HASH}-${AGENT_KEY}"
+else
+  LATCH="${TMPDIR:-/tmp}/claude-escgate-${MROOT_HASH}-${AGENT_KEY}"
+fi
+
+# Symlink guard (CWE-59/377): the latch lives at a predictable path in a shared
+# TMPDIR; a pre-planted symlink there would make the count-write clobber the link
+# target. Remove a pre-existing symlink before the read/write. The residual
+# TOCTOU of the reject-then-write shape is accepted — the latch is a
+# non-security-critical WARN counter, consistent with the hook's fail-open posture.
+[ -L "$LATCH" ] && rm -f "$LATCH" 2>/dev/null
 
 COUNT=$(cat "$LATCH" 2>/dev/null || echo 0)
 case "$COUNT" in ''|*[!0-9]*) COUNT=0 ;; esac

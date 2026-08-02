@@ -559,11 +559,6 @@ using the mapped routing value and the 2.4 scope statement as the Approach field
 create, or delete any file until that outcome block appears in the session output with a
 granted go-ahead.
 
-**Disarm** — the worktree wiring arms the escalation-gate marker as its last step. Every
-terminal point reachable from here — 2.10 done, 2.6's `/refactor inline` failure halt,
-2.8's callsite-cap escalation, 2.9's escalate-on-✗ — MUST disarm it (see
-`## Escalation-gate disarm`).
-
 ---
 
 ### 2.5 Failing regression test [GATE]
@@ -611,7 +606,7 @@ Commit issuance is delegated entirely to `/refactor inline` — do not issue a `
 
 Run `/refactor inline <description>` with the above context. Do not proceed to 2.7 until `/refactor inline` reports its self-calibration checklist as passing.
 
-If `/refactor inline` does not reach a passing checklist, this run halts here — disarm the escalation gate (see `## Escalation-gate disarm`) before stopping. `/refactor inline` runs its own § 2.2a gate and derives its slug from the 3.1 approach sentence, so it arms and disarms a **separately slugged** marker; nothing it does deletes the marker 2.4a armed for this run.
+If `/refactor inline` does not reach a passing checklist, this run halts here.
 
 If the refactor completes successfully, continue to 2.7 (fix).
 
@@ -648,7 +643,7 @@ grep -rn "<keyword1>" "$WTROOT" --include="*.<ext>"
 grep -rn "<keyword2>" "$WTROOT" --include="*.<ext>"
 ```
 
-**Cap:** if grep returns more than 10 hits across all keywords, do NOT investigate each one. Escalate to `/kickoff` with the grep output as evidence of refactor scope. Emit the handoff (see `## Escalation handoff format`), disarm the escalation gate (see `## Escalation-gate disarm`), and stop.
+**Cap:** if grep returns more than 10 hits across all keywords, do NOT investigate each one. Escalate to `/kickoff` with the grep output as evidence of refactor scope. Emit the handoff (see `## Escalation handoff format`) and stop.
 
 > If escalating after a fix was already committed in 2.7, keep WHY INLINE REJECTED to the canonical vocabulary and put the commit hash in the PROPOSED APPROACH field; instruct `/kickoff` to treat the grep results as additional scope, not as the primary unfixed bug.
 
@@ -674,7 +669,7 @@ Self-calibration checklist:
   [ ] SPEC-029 concurrent scenario present (or n/a — not a concurrency bug)
 ```
 
-**If any item is ✗: do not output any language implying completion ("done", "fixed", "resolved", "complete"). Either resolve the gap or escalate.** Escalating ends this run — disarm the escalation gate (see `## Escalation-gate disarm`) before emitting the handoff.
+**If any item is ✗: do not output any language implying completion ("done", "fixed", "resolved", "complete"). Either resolve the gap or escalate.**
 
 For items that are not applicable to this run (e.g. the refactor item when scope = targeted-patch), mark them ✓ with a parenthetical note: `✓ (n/a — targeted-patch)`.
 
@@ -692,9 +687,6 @@ Emit a completion summary to the session output containing:
 - **Commits** — hash(es) for the refactor (if any) and the fix
 - **Theme** — `$THEME_KEY`, reopen count, forced redesign yes/no
 - **Surfaces** — matrix summary
-
-Then disarm the escalation gate (see `## Escalation-gate disarm`) — this is the normal
-full-mode terminus and the marker is still armed from 2.4a.
 
 Then run SPEC-029 §S.6 theme log write-back. Suggest `/handoff` when reopen ≥ 1 or forced redesign.
 
@@ -748,11 +740,6 @@ split aborts patch mode: re-run `/debug <description>` (full mode).
 create, or delete any file until that outcome block appears in the session output with a
 granted go-ahead.
 
-**Disarm** — the worktree wiring arms the escalation-gate marker as its last step. Every
-terminal point reachable from here — P.4's abort back to full mode, P.5's completion, and
-P.5's escalate-on-✗ — MUST disarm it (see `## Escalation-gate disarm`). A workstream split
-confirmed above aborts before the worktree is created, so it has nothing to disarm.
-
 ### P.3 Failing regression test [GATE]
 
 If no test suite was detected in Step 0b, skip this sub-step with an explicit warning and produce a reproduction scenario document (conditions, trigger steps, expected vs actual) as substitute. The GATE is satisfied by the documented fallback.
@@ -769,7 +756,7 @@ GATE: do not write any fix code before this test exists and is confirmed failing
 
 ### P.4 Fix
 
-Implement the minimal fix. Run the regression test — it must pass. Run the full test suite — all tests must pass. If the fix reveals that the same pattern exists elsewhere or requires a refactor, **stop here**: patch mode aborts, re-run `/debug <description>` (full mode). Disarm the escalation gate (see `## Escalation-gate disarm`) before stopping — the re-run arms its own marker and the abandoned one would otherwise block the session.
+Implement the minimal fix. Run the regression test — it must pass. Run the full test suite — all tests must pass. If the fix reveals that the same pattern exists elsewhere or requires a refactor, **stop here**: patch mode aborts, re-run `/debug <description>` (full mode).
 
 ### P.5 Self-calibration checklist
 
@@ -783,12 +770,9 @@ Self-calibration checklist (patch mode):
   [ ] Manual verification completed (if non-reproducible bug or no test suite)
 ```
 
-If any item ✗: do not output any completion language. Either resolve the gap or escalate
-— escalating ends this run, so disarm the escalation gate (see
-`## Escalation-gate disarm`) before emitting the handoff.
+If any item ✗: do not output any completion language. Either resolve the gap or escalate.
 
-When every item is ✓ this run is complete — disarm the escalation gate (see
-`## Escalation-gate disarm`) as the last step.
+When every item is ✓ this run is complete.
 
 ---
 
@@ -965,35 +949,6 @@ logic here.
 
 ---
 
-## Escalation-gate disarm
-
-The worktree wiring that 2.4a / P.2a delegate to (`skills/refactor/SKILL.md` § 2.4
-§ Worktree wiring) arms `.claude/hooks/escalation-gate.sh` as its last step. The armed
-marker outlives the run unless it is deleted — an armed run that ends without this fence
-leaves the session blocked on every write outside `$MROOT/.worktrees/` until the marker's
-leak-expiry.
-
-Run this at **every** terminal point reachable after the gate armed: normal completion
-(2.10, P.5 all-✓) and every halt or abort (2.6 `/refactor inline` failure, 2.8
-callsite-cap escalation, 2.9 escalate-on-✗, P.4 refactor abort, P.5 escalate-on-✗).
-Fresh shell — `$SLUG`/`$WT_PATH` from the arming fence do not survive into a new
-bash invocation, so derive the slug from the path recorded on the gate outcome block's
-`Worktree:` line:
-
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-WT_PATH='<the path recorded on the gate outcome block Worktree: line>'
-SLUG=$(basename "$WT_PATH")
-rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
-```
-
-The marker lives at `$MROOT` level, not inside `$MROOT/.worktrees/<slug>/`, so releasing
-or removing the worktree never deletes it — this explicit delete is the only disarm.
-
----
-
 ## Blockers
 
 If you encounter a genuine blocker — a runtime value you cannot determine, a file
@@ -1011,7 +966,6 @@ continue the pipeline on assumptions.
 - Prefer scripted aggregates over bulk Read when investigating monorepo-scale patterns (think in code)
 - Do NOT edit, create, or delete any file before the root cause statement is in the session output (`full`/`patch`/`arch`)
 - Do NOT claim completion ("done", "fixed", "resolved") before the self-calibration checklist passes (`full`/`patch`)
-- Do NOT end an armed run — completion or abort — without the escalation-gate disarm (`## Escalation-gate disarm`)
 - Do NOT apply the same fix in multiple places — that is always a refactor trigger
 - Do NOT skip the failing-test phase for reproducible bugs, even apparently trivial ones
 - Do NOT back-and-forth on blockers — one specific question or silence

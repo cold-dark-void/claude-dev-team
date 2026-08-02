@@ -3,6 +3,15 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.3.4
+- **CDT-102 — escalation-gate marker lifecycle: arm-on-escalate, disarm-at-handoff-completion** — closes 16 findings from CDT-98's adversarial council review. The marker is now armed only on the escalate-and-auto-chain route (`/kickoff`/`/epic`), never at worktree creation and never on bounded runs; disarm is a single success-path call at handoff completion instead of scattered happy-path calls, closing the disarm-gap class (findings #1, #2, #12) by construction. The 8h leak-expiry TTL is demoted from primary reclaim to an abnormal-termination backstop.
+- **Allowlist tamper-surface carve-out** — an armed run can no longer self-disarm by writing the hook script, `settings.json`, or the marker directory before the broad `.claude/**` allowlist exempts it (finding #4); the broad `*.md`/`*.txt` doc exemption is retained deliberately, closing finding #15 without narrowing it.
+- **WARN-latch hardened** — session-scoped (finding #3, was bleeding across unrelated sessions) and symlink-guarded (finding #5, CWE-59/377).
+- **Sibling skills reconciled** — `skills/debug/SKILL.md` and `skills/code-simplify/SKILL.md` had dead arm/disarm apparatus removed (neither ever arms under the new model); `skills/review-and-commit/SKILL.md` gained a proper D1 citation (finding #8) and had its dead disarm block removed (finding #11, since it never arms either).
+- New `skills/init-orchestration/escalation-gate-test.sh` (40 tests) — this hook previously had no dedicated test harness. `.gitignore` gains the missing `.claude/escalation-gate/` entry (finding #7); the `/setup orchestration` fallback-ask string now names all three hooks (finding #14).
+- Amended: `specs/core/SPEC-031-escalation-gate.md`.
+- Deferred to backlog: finding #6 (theoretical plan-file slug `..`-traversal, low confidence, read-only). Dropped: finding #9, already resolved by CDT-99.
+
 ### v1.3.3
 - **CDT-100 — fix stale `/tdd-gate` doc claim about hook non-interference** — `commands/tdd-gate.md:274` claimed `/tdd-gate`'s `PreToolUse` hook doesn't interfere with `/setup orchestration` hooks because they "use different events" — false; both register into the same `PreToolUse` array. The conclusion (no interference) was correct, but the stated reason invited a future clobbering merge if someone trusted the "different events" claim while adding a third `PreToolUse` hook. Replaced with the real mechanism: both sides append/remove element-wise and dedup by matcher + command set (see `skills/init-orchestration/SKILL.md` § "`PreToolUse` array append rule (SPEC-031)"), so neither clobbers the other regardless of install order.
 

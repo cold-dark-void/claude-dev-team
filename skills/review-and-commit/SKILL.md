@@ -298,10 +298,7 @@ worktree — it only checks where the reviewed diff already lives:
 
 - **cwd is already inside `$MROOT/.worktrees/`** → check passes. The reviewed
   diff already lives under worktree isolation and nothing needs migrating.
-  Note that this confirms only that cwd is *somewhere inside* a worktree, not
-  that it is the worktree root — cwd may be any subdirectory of it. 7.4's
-  disarm therefore resolves the root with `git rev-parse --show-toplevel`
-  rather than reading cwd. Continue to 7.3.
+  Continue to 7.3.
 - **cwd is not inside `$MROOT/.worktrees/`** → **HALT**. Do not create a
   worktree, do not commit, do not continue to 7.3-7.4. Report that the
   reviewed changes were made outside worktree isolation and give the user
@@ -339,37 +336,20 @@ Ask the user before ANY commit, then stop and wait:
 > Commit gate — routing: `<bounded | /kickoff>`. Findings: `<N critical, M
 > design, K nitpick>`. May I commit?
 
-- Asked on **every** run, with no auto-satisfied branch. Trivial scope, a
-  clean review, and an unambiguous 7.3 routing decision are not reasons to
-  skip it.
-- A go-ahead from an earlier run, an earlier ticket, or an upstream command
-  (`/debug`, `/orchestrate`) does NOT satisfy this run's go-ahead — this
-  matters here because `/orchestrate` calls `/review-and-commit` directly,
-  and its own "may I edit files" grant does not cover this commit.
-- Anything other than an affirmative answer halts the run. Do not proceed
-  on silence or on an ambiguous reply.
+The always-ask discipline is `skills/refactor/SKILL.md` § 2.2a.3's — asked on
+every run with no auto-satisfied branch, no earlier-run/earlier-ticket/upstream
+go-ahead satisfies it, and anything other than an affirmative halts the run
+(SPEC-031 owns these rules per D1 contract-home; not restated here). One
+command-specific note: `/orchestrate` calls `/review-and-commit` directly, and
+its own "may I edit files" grant does not cover this commit.
+
 - On affirmative and bounded routing → `git commit` with a conventional
   message explaining *why* the change was made.
-- After that commit succeeds, disarm the escalation-gate marker for the
-  worktree just committed in — the commit consumed it. Same shape as the
-  disarm in `skills/refactor/SKILL.md` § 2.4 § Bounded exit paths, in a
-  **fresh shell**. Derive the slug from the worktree **root**, not from cwd —
-  7.2 established only that cwd is somewhere *inside* the worktree, so from a
-  subdirectory `basename "$(pwd)"` would name the subdirectory and silently
-  delete nothing while the real marker stays armed. `--show-toplevel` returns
-  the worktree root at any depth:
 
-  ```bash
-  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-    || MROOT=$(pwd)
-  SLUG=$(basename "$(git rev-parse --show-toplevel)")
-  rm -f "$MROOT/.claude/escalation-gate/armed/$SLUG.marker"
-  ```
-
-  `rm -f` is idempotent: a run whose worktree was never armed removes
-  nothing and still exits 0. Do not release the worktree here — that is the
-  caller's bounded-exit decision, not this command's.
+No escalation-gate disarm runs here: under SPEC-031's arm-on-escalate model the
+worktree this command operates in is never armed (bounded runs don't arm;
+escalate runs release their worktree and hand off before review-and-commit would
+run), so there is no marker to disarm.
 
 ## Step 8: Action Items
 
