@@ -74,7 +74,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 - MUST implement the fix after the failing test exists
 - MUST keep refactor and fix as separate concerns — if a refactor is required, it is completed and committed before fix code is written
-- MUST use separate PRs for refactor and fix when the work is escalated; otherwise separate commits in the same session for easy bisect/revert
+- MUST use separate PRs for refactor and fix when the work is escalated; otherwise separate ordered commits on the **same branch** — refactor commit before fix commit — for easy bisect/revert, achieved by `/refactor inline` reusing `/debug`'s caller-supplied worktree rather than self-creating a second branch (see SPEC-015 § Worktree Isolation)
 
 ### Holistic Callsite Check (`full` mode)
 
@@ -235,6 +235,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 | Date | Change |
 |------|--------|
+| 2026-08-02 | CDT-103: § Fix reworded — bounded refactor+fix are now "separate ordered commits on the **same branch** (refactor before fix)", achieved by `/refactor inline` reusing `/debug`'s caller-supplied worktree rather than self-creating a second branch (see SPEC-015 § Worktree Isolation). Restores the git-bisect ordering the prose already claimed. |
 | 2026-08-02 | CDT-101: escalate-to-kickoff (full § 2.4) and `arch` (A.3) paths now run the workstream-split check before emitting the handoff; a confirmed split routes to `/epic` (SPEC-031 § Workstream split, cited not restated). ACs 99/104 + T6/T10 + validation reconciled from `/kickoff`-only to `/kickoff`-or-`/epic`. Added T12/T13. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: fold note — SPEC-028 cut to DEPRECATED (retained); ticket-mode protocol home stays SPEC-028 until v1.1; entry remains `/debug ticket` / SPEC-014 host; no full MUST rewrite. |
 | 2026-04-25 | Initial spec created — brainstorm: `.claude/plans/2026-04-25-brainstorm-debug-skill.md` |

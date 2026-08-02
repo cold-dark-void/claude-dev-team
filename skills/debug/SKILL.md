@@ -605,7 +605,7 @@ Skip this sub-step entirely if scope = `targeted-patch`.
 
 ---
 
-**Commit ordering note:** the refactor commit (from `/refactor inline`) must land before the fix commit. This preserves git bisect usefulness — the fix commit should be the first commit where the regression test from 2.5 passes.
+**Commit ordering note:** the refactor commit (from `/refactor inline`) must land before the fix commit, and both land on the **same branch** — the worktree/branch this run already resolved at § 2.4a. This preserves git bisect usefulness — the fix commit should be the first commit where the regression test from 2.5 passes. The single-branch ordering is achieved by passing that worktree into `/refactor inline` via `--worktree` (below), so `/refactor inline` reuses this branch instead of self-creating a second one (SPEC-015 § Worktree Isolation).
 
 If scope = `refactor-first`, emit the `/refactor inline` handoff and stop modifying files until it completes:
 
@@ -616,11 +616,11 @@ AFFECTED FILES:
 CONTEXT: pre-fix refactor — fix will follow in 2.7 after /refactor inline completes
 ```
 
-The APPROACH sentence above is the inline description argument. Pass it as: `/refactor inline <APPROACH sentence>`. The structured block above is session record only — do not pass the whole block as the argument.
+The APPROACH sentence above is the inline description argument. Pass it as: `/refactor inline --worktree <WT_PATH> <APPROACH sentence>`, where `<WT_PATH>` is the worktree this run already resolved at § 2.4a — the path recorded on that gate's § 2.2a.5 outcome block `Worktree:` line. Supplying `--worktree` makes `/refactor inline` reuse this branch and skip its own bounded exit (no squash-merge, no PR, no worktree release — SPEC-015 § Worktree Isolation / § Commit discipline EXCEPTION), so the refactor commit lands on **this** branch, ahead of the 2.7 fix commit. The structured block above is session record only — do not pass the whole block as the argument.
 
 Commit issuance is delegated entirely to `/refactor inline` — do not issue a `git commit` for the refactor in this step.
 
-Run `/refactor inline <description>` with the above context. Do not proceed to 2.7 until `/refactor inline` reports its self-calibration checklist as passing.
+Run `/refactor inline --worktree <WT_PATH> <description>` with the above context. Do not proceed to 2.7 until `/refactor inline` reports its self-calibration checklist as passing.
 
 If `/refactor inline` does not reach a passing checklist, this run halts here.
 
@@ -628,7 +628,7 @@ If the refactor completes successfully, continue to 2.7 (fix).
 
 ---
 
-If this work is escalated to `/kickoff`, the refactor and fix become separate PRs; in an inline session they are separate commits in the same branch.
+If this work is escalated to `/kickoff`, the refactor and fix become separate PRs; in an inline session they are separate ordered commits on the same branch — the branch of the worktree this run resolved at § 2.4a and passed to `/refactor inline` via `--worktree` (SPEC-015 § Worktree Isolation), refactor commit before fix commit.
 
 ---
 

@@ -50,6 +50,8 @@ The full gate contract — edit go-ahead, ticket-weight routing, workstream spli
 - MUST create or reuse the worktree via the SPEC-016 caller-integration form: emit the SPEC-002 canonical bootstrap stanza byte-verbatim, then `WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)`, then `bash "$WT_LIB" ensure "$SLUG"`. MUST NOT use the cwd-relative form `bash skills/worktree-lib.sh …` nor `$MROOT/skills/…`
 - MUST sanitize any slug derived from `$DESC` before calling `ensure` — the lib validates (`^[A-Za-z0-9_-]+$`, else exit 64) and does not sanitize for the caller
 - MUST handle `ensure` exit codes distinctly: `0` proceed with the path from stdout, `1` surface stderr and halt, `2` halt cleanly (user aborted collision), `64` halt and report a caller bug
+- In inline mode, MUST accept an optional caller-supplied worktree path (the `/debug` scope=refactor-first handoff supplies its own resolved worktree). When one is supplied, MUST reuse that worktree and its branch — MUST NOT call `ensure` or derive its own `$SLUG`, and MUST commit the refactor onto the caller's branch — so the refactor and the caller's subsequent fix land as ordered commits on a single branch (CDT-103)
+- When no worktree is supplied (default mode, or an inline caller that passes none), MUST self-create the worktree via the form above and own its own bounded exit as before — this fallback is unchanged
 
 ### Coverage Check (all modes) [GATE]
 
@@ -110,6 +112,7 @@ The full gate contract — edit go-ahead, ticket-weight routing, workstream spli
 - MUST commit the refactor as a standalone commit separate from any feature or bug-fix work
 - MUST use `refactor:` commit message prefix as the default; note in session output if project conventions (AGENTS.md) specify a different format.
 - MUST end bounded (non-escalated) work at one of exactly two exits, both from the worktree: (a) branch → **PR** (standard), or (b) **squash merge after review** when no remote exists or the user prefers linear history. Exit (b) MUST remain available (CDT-98)
+- EXCEPTION (CDT-103): in inline mode with a caller-supplied worktree, MUST NOT take either bounded exit — no PR, no squash-merge, no worktree release. The caller (`/debug`) owns the exit and lands the shared branch after its own fix commit; taking a bounded exit here would split the refactor onto a separately-merged branch and break the ordered-commit / bisect guarantee (SPEC-014 § Fix)
 - MUST end escalated work as `/kickoff` → `/orchestrate` → PR; escalated work MUST NOT terminate in a direct commit
 - **RETIRED (CDT-98):** ~~otherwise a single commit in the current session branch is acceptable~~ — the current-branch direct-commit path is removed; see Worktree Isolation above
 
@@ -225,3 +228,4 @@ The full gate contract — edit go-ahead, ticket-weight routing, workstream spli
 | 2026-04-26 | Initial spec created — design locked in conversation context (no separate brainstorm file) |
 | 2026-04-26 | PM review: rewrote 4 ACs, added 6 new ACs, resolved OQ-1 (inline preamble required), OQ-2 (greenfield in scope), OQ-3 (refactor: prefix default), OQ-4 (commit level), OQ-5 (behavioral or file-existence proxy) |
 | 2026-07-31 | CDT-98: added Escalation Gate + Worktree Isolation sections (SPEC-031 owns the full contract); retired the current-session-branch commit mandate in favor of PR / squash-merge-after-review exits; closed the self-satisfiable `.claude/plans/` exemption (ticket-id reference required, no timestamp checks); disambiguated the no-user-input MUSTs to approach-decision only; added workstream-split routing to `/epic` and in-session `/kickoff` auto-chain; added T10-T12 and 6 validation rows |
+| 2026-08-02 | CDT-103: § Worktree Isolation — inline mode MUST accept an optional caller-supplied worktree; when supplied MUST reuse it + its branch (no `ensure`/`$SLUG`) and commit onto that branch, else self-create as before. § Commit discipline EXCEPTION — with a caller-supplied worktree, take NEITHER bounded exit (no PR/squash/release); the caller (`/debug`) owns the exit, giving refactor+fix ordered commits on one branch (see SPEC-014 § Fix). |
