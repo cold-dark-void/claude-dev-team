@@ -27,6 +27,20 @@ expect_no_finding() { # expect_no_finding <check-id>
   else PASS=$((PASS+1)); fi
 }
 
+VACUITY="canonical stanza not resolvable"
+
+expect_vacuity() { # expect_vacuity <fail-msg> — C5 must refuse a missing canonical
+  if echo "$OUT" | grep -q "$VACUITY"; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); echo "FAIL: $1"; echo "$OUT" | tail -3
+  fi
+}
+
+expect_no_vacuity() { # expect_no_vacuity <fail-msg> — canonical resolved cleanly
+  if echo "$OUT" | grep -q "$VACUITY"; then
+    FAIL=$((FAIL+1)); echo "FAIL: $1"; echo "$OUT" | tail -3
+  else PASS=$((PASS+1)); fi
+}
+
 # T1: clean fixture exits 0; bad flag exits 64
 run_lint 0 "$FIX/clean.md"
 run_lint 64 --no-such-flag
@@ -126,6 +140,90 @@ else
   PASS=$((PASS+1))  # skip if chmod ineffective (e.g. root)
 fi
 rm -f "$UNREAD"
+
+# T8: C5 — PDH bootstrap-stanza drift against SPEC-002's canonical fenced block
+SPEC002="$REPO_ROOT/specs/core/SPEC-002-plugin-infrastructure.md"
+CANON=$(grep -m1 '^PDH=\$( {' "$SPEC002")
+[ -n "$CANON" ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: no canonical stanza in $SPEC002"; }
+DECOY='PDH=$( { decoy-block-that-is-not-the-canonical-stanza; } )'
+C3W='# lint-ok: C3 — marketplace */ for-loop + -f guarded'
+
+# 1. Mutated-byte fixture bites; C3 waiver does not suppress C5; C5 waiver does
+run_lint 1 "$FIX/c5-pdh-drift.md"
+expect_finding C5 "c5-pdh-drift.md:9"
+[ "$(echo "$OUT" | grep -c '\[C5\]')" -eq 1 ] && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: expected exactly 1 unwaived C5, got:"; echo "$OUT" | grep '\[C5\]'
+}
+
+# 2. Indentation tolerance: canonical at 0/2/4-space indent → no C5
+T8A=$(mktemp -d)
+{ printf '```bash\n%s\n%s\n```\n' "$C3W" "$CANON"
+  printf '```bash\n  %s\n  %s\n```\n' "$C3W" "$CANON"
+  printf '```bash\n    %s\n    %s\n```\n' "$C3W" "$CANON"; } > "$T8A/indent.md"
+run_lint 0 "$T8A/indent.md"
+expect_no_finding C5
+
+# 3. Anchor bite-test: SPEC-002 holds MORE THAN ONE fenced bash block. Anchoring on
+#    "first block in the file" would extract the decoy and compare every emission
+#    against garbage while still exiting 0. Decoys sit both before and after the
+#    canonical section here; a correct heading anchor ignores both.
+T8B=$(mktemp -d)
+mkdir -p "$T8B/specs/core" "$T8B/commands"
+{ printf '# SPEC-002\n\n## Overview\n\n```bash\n%s\n```\n\n' "$DECOY"
+  printf '### Locating `plugin-dir.sh` itself\n\n```bash\n# canonical\n%s\n```\n\n' "$CANON"
+  printf '### Caller integration\n\n```bash\n%s\n```\n' "$DECOY"; } \
+  > "$T8B/specs/core/SPEC-002-plugin-infrastructure.md"
+printf '```bash\n%s\n%s\n```\n' "$C3W" "$CANON" > "$T8B/commands/site.md"
+run_lint 0 --root "$T8B"
+expect_no_finding C5
+expect_no_vacuity "heading anchor did not resolve past the decoy blocks"
+
+# 4. Vacuous-gate guard: canonical unresolvable + a live PDH stanza → loud non-zero,
+#    never a silent pass. Three ways to break it, each must be distinct and fatal.
+for BREAK in missing-spec broken-heading no-fence; do
+  T8C=$(mktemp -d)
+  mkdir -p "$T8C/specs/core" "$T8C/commands"
+  printf '```bash\n%s\n%s\n```\n' "$C3W" "$CANON" > "$T8C/commands/site.md"
+  case "$BREAK" in
+    broken-heading)
+      printf '### Finding plugin-dir.sh\n\n```bash\n%s\n```\n' "$CANON" \
+        > "$T8C/specs/core/SPEC-002-plugin-infrastructure.md" ;;
+    no-fence)
+      printf '### Locating `plugin-dir.sh` itself\n\nProse only, no fenced block.\n' \
+        > "$T8C/specs/core/SPEC-002-plugin-infrastructure.md" ;;
+  esac
+  run_lint 1 --root "$T8C"
+  expect_vacuity "$BREAK did not report an unresolvable canonical"
+  rm -rf "$T8C"
+done
+
+# 5. A `# lint-ok: C5` waiver must NOT rescue an unresolvable canonical (that would
+#    re-hide the vacuity the guard exists to expose)
+T8D=$(mktemp -d)
+mkdir -p "$T8D/commands"
+printf '```bash\n# lint-ok: C3,C5\n%s\n```\n' "$CANON" > "$T8D/commands/site.md"
+run_lint 1 --root "$T8D"
+expect_vacuity "C5 waiver silenced the vacuous-gate guard"
+rm -rf "$T8D"
+
+# 6. Exclusions: the locator and its test harness are exempt (they cannot bootstrap
+#    themselves / hold a deliberately re-quoted copy). Control proves the test bites.
+#    Fenced-md bodies in .sh paths: the file-list form scans any path handed to it.
+T8E=$(mktemp -d)
+mkdir -p "$T8E/skills"
+printf '```bash\n%s\n%s\n```\n' "$C3W" "${CANON/| sort -V |/| sort |}" > "$T8E/skills/plugin-dir.sh"
+cp "$T8E/skills/plugin-dir.sh" "$T8E/skills/plugin-dir-test.sh"
+cp "$T8E/skills/plugin-dir.sh" "$T8E/skills/other.sh"
+run_lint 0 --root "$REPO_ROOT" "$T8E/skills/plugin-dir.sh" "$T8E/skills/plugin-dir-test.sh"
+expect_no_finding C5
+run_lint 1 --root "$REPO_ROOT" "$T8E/skills/other.sh"
+expect_finding C5 "other.sh"
+rm -rf "$T8E" "$T8A" "$T8B"
+
+# 7. Live-tree baseline: zero UNWAIVED C5 on the real tree (gate lands green)
+OUT=$(bash "$LINT" --root "$REPO_ROOT" 2>&1); RC=$?
+expect_no_finding C5
+expect_no_vacuity "live tree cannot resolve the SPEC-002 canonical stanza"
 
 echo "---"
 echo "skill-lint tests: $PASS passed, $FAIL failed"

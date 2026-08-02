@@ -3,7 +3,8 @@ name: skill-lint
 description: |
     Deterministic, LLM-free linter for fenced bash blocks in plugin .md files
     (SPEC-021). Checks: C1 cross-block variable scope, C2 zsh history-expansion
-    hazard, C3 zsh-fatal unguarded glob, C4 captured inline-PRAGMA sqlite poison.
+    hazard, C3 zsh-fatal unguarded glob, C4 captured inline-PRAGMA sqlite poison,
+    C5 PDH bootstrap-stanza drift.
     Run by /release as a pre-commit gate (Step 4.8). Not user-invoked directly;
     run manually via: bash skills/skill-lint/check-skill-bash.sh [FILE...]
 ---
@@ -30,6 +31,16 @@ Exit codes: 0 clean, 1 unwaived findings, 64 usage error.
 | C2 | History-expansion-hazardous bang sequences / HTML-comment openers in heredocs and quoted strings (zsh mangles them) | Author the content via the Write tool, or build the char as chr(33) |
 | C3 | Unquoted glob that aborts the block under zsh when it matches nothing | Iterate via find -maxdepth 1 -name, or guard existence |
 | C4 | Command substitution capturing sqlite3 with a leading inline PRAGMA assignment (emits a value row on sqlite >= 3.51.2) | sqlite3 -cmd ".timeout N", or drop the inline PRAGMA |
+| C5 | A `PDH=$(` line that is not byte-identical (after leading-whitespace strip) to SPEC-002's canonical bootstrap stanza | Copy the stanza verbatim from SPEC-002 "Locating `plugin-dir.sh` itself" |
+
+C5 reads its canonical text from `specs/core/SPEC-002-plugin-infrastructure.md` at
+runtime, anchored on that section heading — SPEC-002 holds more than one fenced bash
+block, so a "first block in the file" anchor would compare every emission against the
+wrong text and still exit 0. If the canonical block cannot be located or parsed while a
+`PDH=$(` line exists in the scan set, the run exits non-zero with `error: [C5] canonical
+stanza not resolvable — …` on stderr. That error is unwaivable by design: a waiver there
+would re-hide the vacuity the guard exists to expose. `skills/plugin-dir.sh` (cannot
+bootstrap itself) and `skills/plugin-dir-test.sh` (deliberate re-quoted copy) are exempt.
 
 ## Waivers
 

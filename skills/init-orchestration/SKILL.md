@@ -645,12 +645,13 @@ _emit_task_complete() {
   [ -n "${TASK_ID:-}" ] || return 0
   local PDH="" helper="" _pdh_hit=""
   if [ -f skills/plugin-dir.sh ]; then
-    PDH=$(pwd)
+    PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)
   else
     _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
       -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
       | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./') || _pdh_hit=""
     if [ -n "$_pdh_hit" ]; then
+      # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)
       PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
     fi
   fi
@@ -1045,12 +1046,13 @@ set -u
 # cache version. Same bootstrap as /orchestrate and init-orchestration Step 7.
 PDH=""
 if [ -f skills/plugin-dir.sh ]; then
-  PDH=$(pwd)
+  PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)
 else
   _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
     -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
     | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./') || _pdh_hit=""
   if [ -n "$_pdh_hit" ]; then
+    # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)
     PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
   fi
 fi

@@ -137,25 +137,45 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 
 ### Caller integration
 
-Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lines above), then the collapsed resolution call(s). Each site's existing fail-mode is preserved exactly. This covers BOTH plugin-data files (`schema.sql`, `agents/`, engine `*.sh`) AND the subprocess-CLI helpers (`worktree-lib.sh`, `dag-lib.sh`, `task-store.sh`, `ci-watch/*.sh`) — both ship in the plugin, not the user's repo, so neither may be addressed as `$MROOT/skills/…`. All 15 call sites:
+Every site first emits the canonical bootstrap stanza above (**one comment line + one `PDH=` assignment** — not two `PDH=` lines), then the collapsed resolution call(s). Each site's existing fail-mode is preserved exactly. This covers BOTH plugin-data files (`schema.sql`, `agents/`, engine `*.sh`) AND the subprocess-CLI helpers (`worktree-lib.sh`, `dag-lib.sh`, `task-store.sh`, `ci-watch/*.sh`) — both ship in the plugin, not the user's repo, so neither may be addressed as `$MROOT/skills/…`.
+
+**The table below is a caller-family fail-mode map, NOT an exhaustive site inventory.** It is grouped by caller family so each row documents a distinct fail-mode decision; it deliberately does not enumerate every stanza emission. Completeness is owned mechanically by SPEC-021 **C5** (`pdh-stanza`), which asserts byte-identity of every emission against the canonical fenced block above — do not treat a missing row as permission to diverge, and do not hand-count rows to audit coverage.
+
+Authoritative inventory is re-derived, never trusted from this document:
+
+```bash
+grep -rc --exclude-dir=fixtures '^ *PDH=\$( {' --include='*.md' --include='*.sh' commands skills agents | grep -v ':0$'
+```
+
+Measured at **v1.3.0: 26 caller files, 110 emissions, all byte-identical** (`grep -rh --exclude-dir=fixtures … | sed 's/^ *//' | sort -u | wc -l` → `1`). Both commands exclude `fixtures/` directories (e.g. `skills/skill-lint/fixtures/c5-pdh-drift.md`, a deliberately-drifted stanza copy used to bite-test SPEC-021 C5) — without the exclusion the raw grep over-counts to 27 files / 112 emissions / 2 variants. Earlier revisions of this table claimed 11, then 15, while the real surface grew unchecked — the counts above are a dated measurement, not a contract. Caller families:
 
 | # | Site | Collapsed form (after the `PDH=…` stanza) | Fail-mode |
 |---|------|-------------------------------------------|-----------|
-| 1 | `commands/retro.md` (assemble.py / freshness.sh) | `ASSEMBLE=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/assemble.py)`; `FRESHNESS=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/freshness.sh)` | soft |
-| 2 | `commands/retro.md` (gate.sh) | `GATE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/gate.sh)` | hard |
-| 3 | `commands/council.md` (engine.sh) | `ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)` | hard |
-| 4 | `commands/setup.md` (team sub / PDH; memory-store dir) | `PLUGIN_DIR=$(bash "$PDH/skills/plugin-dir.sh" dir skills/memory-store/schema.sql)` | warn+continue |
-| 5 | `commands/adjust-agent.md` (agents dir) | `PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)` | soft |
-| 6 | `commands/handoff.md` (prepass.sh / SKILL.md) | `PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)`; `SKILL=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/SKILL.md)` | hard |
-| 7 | `skills/kickoff/SKILL.md` (retro-gate hint, dag-lib.sh, task-store.sh, ci-watch/detect-mode.sh) | `bash "$PDH/skills/retro-gate/hint.sh" 2>/dev/null \|\| true`; `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; `TASK_STORE=$(… file skills/orchestrate/task-store.sh)`; `DETECT_CLI=$(… file skills/ci-watch/detect-mode.sh)` | soft (hint) / hard (cycle+store) |
-| 8 | `skills/orchestrate/SKILL.md` (retro-gate hint) | `bash "$PDH/skills/retro-gate/hint.sh" 2>/dev/null \|\| true` (hint self-locates gate.sh) | soft |
-| 9 | `skills/review-and-commit/SKILL.md` (engine.sh) | `ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)` | hard |
-| 10 | `skills/scaffold-project/SKILL.md` (schema.sql) | `SCHEMA=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/schema.sql)` (replaces glob-first) | guarded |
-| 11 | `skills/init-orchestration/SKILL.md` (schema.sql) | `SCHEMA=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/schema.sql)` (replaces glob-first; WAL probe retained) | guarded |
-| 12 | `skills/orchestrate/SKILL.md` (worktree-lib.sh, dag-lib.sh, task-store.sh, ci-watch/sidecar.sh, ci-watch/detect-mode.sh) | `WT_LIB=$(… file skills/worktree-lib.sh)`; `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; `TASK_STORE=$(… file skills/orchestrate/task-store.sh)`; `SIDECAR_CLI=$(… file skills/ci-watch/sidecar.sh)`; `DETECT_CLI=$(… file skills/ci-watch/detect-mode.sh)`; then `bash "$WT_LIB" …` etc. | hard (exit codes preserved) |
-| 13 | `skills/wrap-ticket/SKILL.md` (worktree-lib.sh, ci-watch/sidecar.sh) | `WT_LIB=$(… file skills/worktree-lib.sh)`; `SIDECAR_CLI=$(… file skills/ci-watch/sidecar.sh)` | soft (cleanup never halts) |
-| 14 | `skills/standup/SKILL.md` (dag-lib.sh) | `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; then `bash "$DAG_LIB" ready-set` / `status-of` | soft |
-| 15 | `skills/orchestrate/SKILL.md` Step 8.5 → ci-watch cron prompt (poll.sh, sidecar.sh, task-store.sh) | arming-time `PLUGIN=$(… dir skills/ci-watch/poll.sh \| xargs dirname \| xargs dirname)`; the detached cron prompt then addresses helpers as `<PLUGIN>/skills/…` (it cannot re-run the bootstrap stanza; the data-file read keeps `<MROOT>`) | self-contained prompt |
+| 1 | `commands/retro.md` — transcript-parse | `ASSEMBLE=$(… file skills/transcript-parse/assemble.py)`; `FRESHNESS=$(… file skills/transcript-parse/freshness.sh)`; `FRESHGATE=$(… file skills/transcript-parse/freshness-gate.sh)` | soft |
+| 2 | `commands/retro.md` — retro-gate | `GATE_SH=$(… file skills/retro-gate/gate.sh)`; the scheduled/trial helpers (`scheduled-lock.sh`, `trial-meta.sh`, `trial-review.sh`, `write-scheduled-report.sh`) resolve with `2>/dev/null \|\| true` | hard (gate) / soft (scheduled+trial) |
+| 3 | `commands/council.md` | `ENGINE_SH=$(… file skills/council/engine.sh)`; `EXT=$(… file skills/council/external-reviewer.sh)`; `PROBE=$(… file skills/council/workflow-probe.sh)` | hard |
+| 4 | `commands/setup.md` | `PLUGIN_DIR=$(… dir skills/memory-store/schema.sql)`; `IMPORT=$(… file skills/memory-store/import-seed-pack.sh)`; `SEED=$(… file skills/memory-store/seed-common.sh 2>/dev/null \|\| true)`; `DOCTOR=$(… file skills/doctor/doctor.sh 2>/dev/null)` | warn+continue (dir) / soft (seed, doctor) |
+| 5 | `commands/adjust-agent.md` | `PLUGIN_AGENTS=$(… dir agents/pm.md)` | soft |
+| 6 | `commands/handoff.md` | `PREPASS=$(… file skills/handoff/prepass.sh)`; `SKILL=$(… file skills/handoff/SKILL.md)`; `DISCOVER=$(… file skills/handoff/discover-warm.sh)`; `RESOLVE=$(… file skills/handoff/resolve-root.sh)` | hard |
+| 7 | `commands/debug.md` + `skills/debug/SKILL.md` | `DEBUG_SKILL=$(… file skills/debug/SKILL.md)`; ticket pipeline resolves `skills/fix-ticket/SKILL.md` by both `file` and `dir` | hard |
+| 8 | `commands/doctor.md` | `DOCTOR=$(… file skills/doctor/doctor.sh)` | hard |
+| 9 | `commands/memory.md` | `EXPORT=$(… file skills/memory-store/export-seed-pack.sh)` | hard |
+| 10 | `commands/status.md` | `ROLLUP=$(… file skills/metrics/rollup.sh)`; `WT_LIB=$(… file skills/worktree-lib.sh)` | hard |
+| 11 | `commands/worktree.md` | `WT_LIB=$(… file skills/worktree-lib.sh)` | hard |
+| 12 | `commands/epic.md` + `skills/epic/SKILL.md` | `EPIC_LIB="$PDH/skills/epic/epic-lib.sh"` (bare concat, not `file`-resolved); `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)` | silent-fallback (dispatch's `if bash "$EPIC_LIB" exists …` swallows a resolution failure into the `else` branch, routing to DECOMPOSE) / hard (`status`/`complete`/`block`/`unblock` — bare bash-exec failure surfaces). The CDT-98 collision guard lives in the `/refactor` caller (row 19: `skills/refactor/SKILL.md`'s `[ -n "$EPIC_LIB" ] && [ -f "$EPIC_LIB" ] \|\| exit 1` before it hands an EPIC-ID to `/epic`), not in `/epic` itself |
+| 13 | `skills/kickoff/SKILL.md` | `bash "$PDH/skills/retro-gate/hint.sh" 2>/dev/null \|\| true`; `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; `TASK_STORE=$(… file skills/orchestrate/task-store.sh)`; `DETECT_CLI=$(… file skills/ci-watch/detect-mode.sh)` | soft (hint) / hard (cycle+store) |
+| 14 | `skills/orchestrate/SKILL.md` | `WT_LIB`, `DAG_LIB`, `TASK_STORE`, `SIDECAR_CLI`, `DETECT_CLI`, plus `skills/metrics/emit-outcome.sh`, `skills/metrics/outcome-rates.sh`, `skills/notify/webhook.sh`, `skills/backlog/close.sh`; retro-gate hint self-locates | hard (exit codes preserved) / soft (hint, metrics, notify) |
+| 15 | `skills/orchestrate/SKILL.md` Step 8.5 → ci-watch cron prompt | arming-time `PLUGIN=$(… dir skills/ci-watch/poll.sh \| xargs dirname \| xargs dirname)`; the detached cron prompt then addresses helpers as `<PLUGIN>/skills/…` (it cannot re-run the bootstrap stanza; the data-file read keeps `<MROOT>`) | self-contained prompt |
+| 16 | `skills/wrap-ticket/SKILL.md` | `WT_LIB=$(… file skills/worktree-lib.sh)`; `SIDECAR_CLI=$(… file skills/ci-watch/sidecar.sh)`; `CLOSE=$(… file skills/backlog/close.sh)` | soft (cleanup never halts) |
+| 17 | `skills/standup/SKILL.md` | `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; `TASK_DAG=$(… file skills/task-dag.sh)`; then `ready-set` / `status-of` | soft |
+| 18 | `skills/review-and-commit/SKILL.md` | `ENGINE_SH=$(… file skills/council/engine.sh)`; `SCAN=$(… file skills/security-scan/scan.sh)` | hard (engine) / fail-open (scan) |
+| 19 | `skills/refactor/SKILL.md` (CDT-98) | `WT_LIB=$(… file skills/worktree-lib.sh)`; `EPIC_LIB=$(… file skills/epic/epic-lib.sh)` | hard (worktree release failure halts before handoff) |
+| 20 | `skills/ci-watch/SKILL.md` | `SIDECAR_CLI=$(… file skills/ci-watch/sidecar.sh)` | soft |
+| 21 | `skills/backlog/SKILL.md` | `CLOSE=$(… file skills/backlog/close.sh)`; `RECON=$(… file skills/backlog/reconcile.sh)` | hard (bare invoke) |
+| 22 | `skills/security-scan/SKILL.md` + `skills/council/flavors/security.md` | `SCAN=$(… file skills/security-scan/scan.sh)` | fail-open (always exit 0; SKIP when host tools absent) |
+| 23 | `skills/init-orchestration/SKILL.md` | `SCHEMA=$(… file skills/memory-store/schema.sql)` (replaces glob-first; WAL probe retained); aux helpers (`normalize-hook-paths.sh`, `sweep-legacy-orphans.sh`, `disclose-force-overwrite.sh`, `handoff/precompact-capture.sh`, `notify/webhook.sh`, `doctor.sh`) resolve with `2>/dev/null` | guarded (schema) / soft (aux) |
+| 24 | `skills/scaffold-project/SKILL.md` | `SCHEMA=$(… file skills/memory-store/schema.sql)` (replaces glob-first) | guarded |
+| 25 | `skills/fix-ticket/SKILL.md` | `WT_LIB=$(… file skills/worktree-lib.sh)`; `dir skills/fix-ticket/SKILL.md` for the pipeline root | hard |
 
 ## Test
 
@@ -175,6 +195,7 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 - `plugin-dir.sh` force-root — `CLAUDE_PLUGIN_ROOT` pins resolve even when marketplace STM exists
 - Consumer-mode resolution — no dev checkout present (cwd is a foreign project), two plugin versions cached: the bootstrap stanza + `plugin-dir.sh` together resolve the requested file from the **highest release-preferring** cached version (or marketplace when same-version STM); PDH is non-empty and slug-free
 - Project-root formulas — bootstrap skills (scaffold-project, init-orchestration Step 7) keep ALL `.claude/` ops on one root (`$PROJ_ROOT` via `show-toplevel || pwd`); no op mixes that absolute root with relative siblings; shared-`.claude/` accessors and emitted hooks use the git-common-dir form
+- Bootstrap-stanza byte-identity — every `PDH=$( {` emission under `commands/`, `skills/`, `agents/` is byte-identical to the canonical fenced block above after leading-whitespace strip (enforced by SPEC-021 C5; `sort -u` over all emissions yields exactly one variant)
 - Subprocess-CLI helper resolution — the caller SKILLs (orchestrate, kickoff, wrap-ticket, standup, ci-watch) resolve every plugin helper (`worktree-lib.sh`, `dag-lib.sh`, `task-store.sh`, `ci-watch/*.sh`) through `plugin-dir.sh`; no helper is invoked as bare `bash skills/…` or `bash "$MROOT/skills/…"` (which would resolve to the consumer's repo and exit 127 on a real install)
 
 ## Validation
@@ -218,6 +239,8 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 | 2026-07-22 | CDT-54 / CDT-46-C8: hook template single SoT in init-orchestration; live `.claude/hooks` generated+gitignored (not package product); `.claude` process state never upstream (seed carve-out only); dual-copy `check-hook-templates` gate retired or reduced accordingly |
 | 2026-07-22 | CDT-53: MUST root `LICENSE` (MIT text, © 2026 cold-dark-void matching `plugin.json` `author.name`); Covers += `LICENSE`, `SECURITY.md`. |
 | 2026-07-26 | CDT-82: PDH must not silently prefer frozen same-version cache over marketplace/dev STM. Resolution gains show-toplevel worktree tier, marketplace-vs-cache same-version STM preference (`--events` over `--sections`), `root`/`verify` subcommands, `CLAUDE_PLUGIN_ROOT` as operator force (no full reinstall / delete-cache-only). Bootstrap stanza: marketplace clone before cache. |
+| 2026-08-01 | CDT-99: caller-integration table reconciled. Measured surface was 26 files / 110 emissions against a stale "All 15 call sites" claim (11→15→unbounded); the table's unit was also wrong — rows are hand-curated caller families, never mechanical sites. Table redefined as a non-exhaustive fail-mode map (25 families), gained an inline re-derivation command and a dated measurement, and the "2 `PDH=` lines" miscount was fixed (stanza is 1 comment + 1 assignment). Completeness delegated to SPEC-021 C5 (`pdh-stanza`) byte-identity check. |
+| 2026-08-01 | CDT-99 verification pass: row 12 (`commands/epic.md` + `skills/epic/SKILL.md`) fail-mode was wrong — claimed a hard collision guard that does not exist at that site (`EPIC_LIB` is bare-concatenated, never `file`-resolved, and the dispatch `if bash "$EPIC_LIB" exists …` swallows a resolution failure into DECOMPOSE). The actual CDT-98 guard lives in the `/refactor` caller (row 19), which pre-validates `epic-lib.sh` before handing `/epic` an EPIC-ID. Corrected row 12 to describe the silent-fallback accurately; rows 8–11, 19, 21, 22 verified accurate against source, no change. |
 
 ## Cross-references
 
@@ -227,3 +250,4 @@ Every site below first emits the canonical bootstrap stanza (the 2 `PDH=…` lin
 - SPEC-013: Adversarial Council Tribunal — defines council verdicts, confidence taxonomy, and `requires_council` opt-in; TaskCompleted hook enforces verdict gate
 - SPEC-009: Ticket Workflow — orchestrated tasks MAY set `requires_council: true` metadata, enforced by this spec's hook
 - SPEC-016: Worktree Isolation — subprocess-CLI precedent (`worktree-lib.sh`); `plugin-dir.sh` mirrors its contract shape and `$MROOT` worktree-aware resolution formula
+- SPEC-021: Skill-Bash Lint Gate — owns **C5 (`pdh-stanza`)**, the mechanical byte-identity check over every emission of this spec's canonical bootstrap stanza. This spec defines the canonical text and the caller-family fail-modes; C5 enforces that no site diverges. Completeness of the caller-integration table is C5's job, not the table's.

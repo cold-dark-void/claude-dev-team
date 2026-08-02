@@ -16,8 +16,13 @@ ENV_ALLOW = {"HOME", "PATH", "PWD", "TMPDIR", "OLDPWD", "CLAUDE_PROJECT_DIR"}
 FENCE_RE = re.compile(r"^\s*(`{3,})(.*)$")
 
 
-def extract_blocks(text):
-    """Yield (first_content_line_1based, [lines]) for top-level ```bash fences.
+def scan_fences(text):
+    """Return (bash_blocks, fenced_mask).
+
+    bash_blocks: [(first_content_line_1based, [lines])] for top-level ```bash
+    fences. fenced_mask: set of 1-based line numbers inside ANY fence (of any
+    language), fence delimiters included — lets callers tell a markdown heading
+    from a `#` shell comment.
 
     CommonMark rules: a closing fence has >= opener's backticks and NO info
     string. While a fence is open, a backticked line WITH an info string is
@@ -28,6 +33,7 @@ def extract_blocks(text):
     is exactly ``bash`` (Q5).
     """
     blocks = []
+    mask = set()
     open_ticks = 0
     is_bash = False
     buf = []
@@ -41,7 +47,9 @@ def extract_blocks(text):
                 is_bash = bool(info) and info.split()[0] == "bash"
                 buf = []
                 start = i + 1
+                mask.add(i)
         else:
+            mask.add(i)
             if m and len(m.group(1)) >= open_ticks and not m.group(2).strip():
                 if is_bash:
                     blocks.append((start, buf))
@@ -49,11 +57,15 @@ def extract_blocks(text):
                 is_bash = False
             elif is_bash:
                 buf.append(line)
-    return blocks
+    return blocks, mask
+
+
+def extract_blocks(text):
+    return scan_fences(text)[0]
 
 
 CHECKS = []  # list of (check_id, fn(block_lines, add)) — per-block checks
-CHECKS_FILE = []  # list of fn(blocks, add_abs) — file-level checks (C1)
+CHECKS_FILE = []  # list of fn(path, blocks, add_abs) — file-level checks (C1, C5)
 
 # --- C4: captured inline-PRAGMA sqlite poison ---
 
@@ -227,7 +239,7 @@ def _block_defs_uses(block_lines):
     return defs, uses
 
 
-def check_c1_file(blocks, add_abs):
+def check_c1_file(_path, blocks, add_abs):
     """blocks: [(start_line, lines)]. Flag uses defined only in a sibling block."""
     per_block = [(_start, _block_defs_uses(lines)) for _start, lines in blocks]
     all_defs = set().union(*[d for _s, (d, _u) in per_block]) if per_block else set()
@@ -241,6 +253,113 @@ def check_c1_file(blocks, add_abs):
 
 
 CHECKS_FILE.append(check_c1_file)
+
+# --- C5: PDH bootstrap-stanza drift (file-level) ---
+#
+# The canonical stanza is READ FROM SPEC-002 AT RUNTIME. It is deliberately not
+# duplicated here: a second literal copy is itself the drift class C5 exists to
+# prevent. Resolution failure is never a silent pass — see VACUOUS below.
+
+SPEC002_REL = "specs/core/SPEC-002-plugin-infrastructure.md"
+# Anchor on the section HEADING, not "first fenced block in the file": SPEC-002
+# holds more than one fenced bash block (the canonical stanza here, plus the
+# inventory re-derivation command further down). Anchoring on the first block
+# would compare every emission against the wrong text and still exit 0.
+CANON_HEADING_RE = re.compile(r"^(#{1,6})\s+Locating\s+`?plugin-dir\.sh`?\s+itself\s*$")
+ATX_HEADING_RE = re.compile(r"^(#{1,6})\s")
+PDH_LINE_RE = re.compile(r"^\s*PDH=\$\(")
+# The locator cannot bootstrap itself; the test harness holds a deliberately
+# re-quoted copy for `bash -c`. Both are standalone .sh files (outside the .md
+# scan set), asserted here rather than assumed.
+C5_EXCLUDE_SUFFIXES = ("skills/plugin-dir.sh", "skills/plugin-dir-test.sh")
+
+CANON_ROOTS = []  # search roots for SPEC-002, set by main()
+CANON_CACHE = []  # memoized (stanza, error)
+VACUOUS = []  # distinct unresolvable-canonical reasons; forces non-zero exit
+
+
+def _extract_canonical(roots):
+    """Return (stanza, None) or (None, reason). Never (None, None)."""
+    tried = []
+    for root in roots:
+        path = os.path.join(root, SPEC002_REL)
+        tried.append(path)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError as e:
+            return None, f"{path} is unreadable: {e}"
+        lines = text.splitlines()
+        blocks, fenced = scan_fences(text)
+        heads = []
+        for n, ln in enumerate(lines, 1):
+            hm = CANON_HEADING_RE.match(ln)
+            if hm and n not in fenced:
+                heads.append((n, hm))
+        if len(heads) != 1:
+            return None, (f'{path} has {len(heads)} sections matching the heading '
+                          '"Locating `plugin-dir.sh` itself" (expected exactly 1)')
+        start, head = heads[0]
+        depth = len(head.group(1))
+        end = len(lines) + 1
+        for n, ln in enumerate(lines[start:], start + 1):
+            hm = ATX_HEADING_RE.match(ln)
+            if hm and n not in fenced and len(hm.group(1)) <= depth:
+                end = n
+                break
+        section = [b for b in blocks if start < b[0] < end]
+        if not section:
+            return None, (f'{path} section "Locating `plugin-dir.sh` itself" '
+                          f"(lines {start}-{end - 1}) contains no fenced bash block")
+        _s, body = section[0]
+        stanzas = [ln for ln in body if PDH_LINE_RE.match(ln)]
+        if len(stanzas) != 1:
+            return None, (f"{path} canonical fenced block holds {len(stanzas)} "
+                          "`PDH=$(` lines (expected exactly 1)")
+        return stanzas[0].lstrip(), None
+    return None, "SPEC-002 not found at any of: " + ", ".join(tried)
+
+
+def canonical_stanza():
+    if not CANON_CACHE:
+        CANON_CACHE.append(_extract_canonical(CANON_ROOTS or [os.getcwd()]))
+    return CANON_CACHE[0]
+
+
+def _first_diff_col(actual, canon):
+    for i, (a, b) in enumerate(zip(actual, canon)):
+        if a != b:
+            return i + 1
+    return min(len(actual), len(canon)) + 1
+
+
+def check_c5_file(path, blocks, add_abs):
+    norm = path.replace(os.sep, "/")
+    if any(norm.endswith(sfx) for sfx in C5_EXCLUDE_SUFFIXES):
+        return
+    for start, block_lines in blocks:
+        for i, line in enumerate(block_lines):
+            if not PDH_LINE_RE.match(line):
+                continue
+            canon, err = canonical_stanza()
+            if err:
+                # Fail loudly: a PDH stanza exists but nothing to compare it to.
+                if err not in VACUOUS:
+                    VACUOUS.append(err)
+                return
+            actual = line.lstrip()
+            if actual == canon:
+                continue
+            add_abs(start + i, "C5",
+                    "PDH bootstrap stanza is not byte-identical to the SPEC-002 "
+                    f"canonical block (first difference at column {_first_diff_col(actual, canon)}) "
+                    "— copy the stanza verbatim from SPEC-002 "
+                    '"Locating `plugin-dir.sh` itself"')
+
+
+CHECKS_FILE.append(check_c5_file)
 
 
 def lint_file(path):
@@ -275,7 +394,7 @@ def lint_file(path):
             "waived": False,
         })
     for fn in CHECKS_FILE:
-        fn(blocks, add_abs)
+        fn(path, blocks, add_abs)
 
     apply_waivers(findings, src_lines)
     return findings
@@ -328,19 +447,30 @@ def main(argv):
         code = e.code if isinstance(e.code, int) else 64
         return 0 if code == 0 else 64
 
+    root = args.root
+    if not root:
+        try:
+            root = subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+        except (subprocess.CalledProcessError, OSError):
+            root = os.getcwd()
+
+    # this file lives at <checkout>/skills/skill-lint/lint.py
+    own_checkout = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+
+    CANON_CACHE.clear()
+    VACUOUS.clear()
+    # An explicit --root pins the search: a fallback would let a broken test
+    # tree silently resolve its canonical from the real checkout.
+    CANON_ROOTS[:] = [root] if args.root else [root, own_checkout, os.getcwd()]
+
     if args.files:
         targets = args.files
         explicit = True
     else:
-        root = args.root
-        if not root:
-            try:
-                root = subprocess.run(
-                    ["git", "rev-parse", "--show-toplevel"],
-                    capture_output=True, text=True, check=True,
-                ).stdout.strip()
-            except (subprocess.CalledProcessError, OSError):
-                root = os.getcwd()
         targets = discover(root)
         explicit = False
 
@@ -370,7 +500,10 @@ def main(argv):
         for f in unwaived:
             print(f"{f['path']}:{f['line']}: [{f['check']}] {f['message']}")
         print(f"{len(findings)} findings, {waived_n} waived")
-    return 1 if unwaived else 0
+    for reason in VACUOUS:
+        # Unwaivable by construction: a waiver here would re-hide the vacuity.
+        print(f"error: [C5] canonical stanza not resolvable — {reason}", file=sys.stderr)
+    return 1 if (unwaived or VACUOUS) else 0
 
 
 if __name__ == "__main__":

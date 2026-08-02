@@ -48,6 +48,7 @@ Out of Scope.
 - MUST flag **C2 (zsh history-expansion hazard)**: a `!` immediately followed by a word character inside a heredoc body or quoted string within a bash block, and any `<!--` literal anywhere in a bash block — excluding `!=` comparisons, `[ ! ` / `if ! ` / `while ! ` negations, `#!` shebangs, and `$!`. The finding message MUST name the remedy (author the content via the Write tool, or build `!` as `chr(33)`)
 - MUST flag **C3 (zsh-fatal unguarded glob)**: an unquoted glob pattern used as a `for`-loop word list or command argument with no surrounding no-match guard, where an empty match aborts the block under zsh. The finding message MUST name the remedy (`find -maxdepth 1 -name` iteration or an explicit existence check). Residual false positives after the fixture-defined safe idioms (`find -name`, `case` arms, `[[ … ]]`, quoted globs) MUST be handled by `# lint-ok: C3` waivers at adoption — do not weaken the check to chase zero FPs.
 - MUST flag **C4 (captured inline-PRAGMA sqlite poison)**: command substitution `$( sqlite3 ... )` where the SQL string begins with `PRAGMA <name>=<value>;` followed by further statements. The finding message MUST name the remedy (`sqlite3 -cmd ".timeout N"` or a plain statement without the inline PRAGMA). Uncaptured heredoc/multi-line sqlite3 invocations MUST NOT be flagged
+- MUST flag **C5 (PDH bootstrap-stanza drift)**: a line inside a fenced bash block matching `^\s*PDH=\$\(` that is not byte-identical, after leading-whitespace strip, to the canonical bootstrap stanza defined by SPEC-002 ("Locating `plugin-dir.sh` itself"). The canonical text MUST be read at runtime from SPEC-002's fenced block — the single source of truth — and MUST NOT be duplicated as a literal in `lint.py` (a second copy is itself the drift class this check exists to prevent). The check MUST fail with a distinct message when the canonical block cannot be located or parsed from SPEC-002 (a silent pass would make the gate vacuous). The finding message MUST name the remedy (copy the stanza verbatim from SPEC-002) and MUST report the first differing column. `skills/plugin-dir.sh` (the locator cannot bootstrap itself) and `skills/plugin-dir-test.sh` (holds a deliberately re-quoted double-quote copy for `bash -c` execution) MUST be excluded; both are standalone `.sh` files already outside this linter's scan set. Rationale: SPEC-002 mandates the stanza be emitted "VERBATIM (byte-for-byte identical across all sites)", a MUST that 110 emissions across 26 files currently satisfy with nothing enforcing it — exactly the "documented as a lesson, still recurs" pattern this spec exists to convert into permanent enforcement (the retro.md `$PDH` incident is already in the C1 lesson corpus)
 
 ### Waivers
 
@@ -85,6 +86,11 @@ Out of Scope.
 ## Test
 
 - [x] Defect fixture per check class (C1, C2, C3, C4) → exit 1, finding line names the correct check-id and source line number
+- [x] C5 defect fixture: a stanza with one mutated byte (e.g. `sort -V` → bare `sort`) → exit 1 naming `C5` and the first differing column
+- [x] C5 whitespace tolerance: the same canonical stanza indented 2 and 4 spaces (both occur live) → no finding
+- [x] C5 vacuous-gate guard: SPEC-002 absent or its fenced block unparseable → non-zero with a distinct "canonical stanza not resolvable" message, never a silent pass
+- [x] C5 live-tree baseline: no-arg run over the real tree reports zero C5 findings (all 110 emissions across 26 files byte-identical at v1.3.0)
+- [x] C5 heading anchor: a SPEC-002 holding decoy fenced bash blocks both before and after the canonical section still resolves the canonical stanza (a "first fenced block in the file" anchor would compare every emission against the decoy and still exit 0 — vacuous, and invisible)
 - [x] Clean fixture → exit 0, no findings
 - [x] Fixture with a `# lint-ok: C3` waiver on the offending line → exit 0, summary reports 1 waived
 - [x] Waiver for C3 on a line that also trips C2 → C2 finding still reported (exit 1)
@@ -103,6 +109,7 @@ Out of Scope.
 ## Validation
 
 - [x] All bite-tests above pass (each gate class proven to bite, not just run clean)
+- [x] C5 lands green: live tree reports zero C5 findings at wiring time, and the check is proven to bite via the mutated-byte fixture
 - [x] Initial adoption pass complete: live tree scans clean; every waiver reviewed as genuinely safe
 - [ ] Gate step added to `skills/release/SKILL.md` and exercised by one real release
 - [x] Spec reviewed and promoted to ACTIVE
@@ -114,10 +121,11 @@ Out of Scope.
 | 2026-07-03 | Initial version (DRAFT). ID 021: SPEC-020 is allocated to /craft-loop on its own feature branch. |
 | 2026-07-13 | CDV-180: codify Q1 fixtures-exclude, Q3 skip/all-missing→64, Q4 declare/local/readonly, Q5 first info-string token; Covers + lint.py/test.sh |
 | 2026-07-13 | CDV-180 implemented (Tasks T0–T11): skills/skill-lint C1–C4 + waivers + fixtures/test.sh; adoption pass live-clean; `/release` Step 4.8 wired; status DRAFT→ACTIVE. Remaining: first real release exercises gate (~0.39.0). |
+| 2026-08-01 | CDT-99: added **C5 (PDH bootstrap-stanza drift)** — byte-identity of every `PDH=$(` emission against SPEC-002's canonical fenced block, with the canonical text read from SPEC-002 at runtime (no second literal). Homed here rather than as docs-drift D9 because SPEC-010 D8 bars that checker from fenced-bash content, which is where every stanza lives. |
 
 ## Cross-references
 
-- SPEC-002 — plugin infrastructure; hook-template drift gate precedent (gate owned by domain spec, hosted by /release)
+- SPEC-002 — plugin infrastructure; hook-template drift gate precedent (gate owned by domain spec, hosted by /release). Also owns the **canonical PDH bootstrap stanza** that C5 reads as its single source of truth, and the caller-family fail-mode table whose completeness C5 now guarantees
 - SPEC-008 — spec format contract; owns `check-format.sh` and any table/format checks (see Out of Scope)
 - SPEC-010 — code review & release; `/release` is the host of this gate's invocation step
 - SPEC-013 — council template-var drift gate precedent
