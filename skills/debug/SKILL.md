@@ -531,7 +531,20 @@ Do NOT ask the user to make the normal scope decision. **Exception:** S.1b overr
 
 **HARD GATE: No fix code may be written until the scope decision appears in the session output.**
 
-If scope = `escalate-to-kickoff`: emit the `/kickoff` escalation handoff (see `## Escalation handoff format`) and stop. Do not proceed to 2.5.
+If scope = `escalate-to-kickoff`: **first run the workstream-split check** per
+`skills/refactor/SKILL.md` § 2.2a.2 (cited, not restated) against the escalate approach,
+**before emitting any handoff** (SPEC-031 § Workstream split — the check runs on every
+run, escalate paths included):
+
+- **No split confirmed** → emit the `/kickoff` escalation handoff (see `## Escalation handoff format`) and stop. Do not proceed to 2.5.
+- **Split confirmed** (2+ independently shippable, non-shared-file, non-sequenced
+  workstreams) → do not bundle into a single `/kickoff` ticket (SPEC-031 § Workstream split
+  precedence — split outranks a single `/kickoff` bundle). Create the worktree via
+  `skills/refactor/SKILL.md` § 2.2a.4's wiring, then route to `/epic` via that skill's
+  § 2.2a.5 `/epic` sub-route — arm → release worktree → invoke `/epic` in-session → disarm —
+  citing, not restating, its arm/disarm mechanics and `/epic` payload composition. This is
+  the single debug route that arms (SPEC-031 § Armed-marker lifecycle); it disarms at
+  `/epic` completion. Then stop; do not proceed to 2.5.
 
 ---
 
@@ -545,7 +558,10 @@ test; map its outcome onto the gate's canonical routing values (§ 2.2a.3) rathe
 re-running the test:
 - `targeted-patch` → `bounded`
 - `refactor-first` → `bounded` (routes through `/refactor inline` at 2.6, before the fix)
-- `escalate-to-kickoff` → `/kickoff` (already stopped above; gate does not run)
+- `escalate-to-kickoff` → resolved on the 2.4 escalate branch above, which runs the
+  § 2.2a.2 workstream-split check *before* emitting any handoff: no split → `/kickoff`
+  (emit-and-stop, unchanged); confirmed split → `/epic` via § 2.2a.5. Either outcome has
+  already stopped at 2.4, so this gate step does not re-run for the escalate scope.
 
 **Edit go-ahead** — ask exactly as specified in `skills/refactor/SKILL.md` § 2.2a.3,
 using the mapped routing value and the 2.4 scope statement as the Approach field.
@@ -803,18 +819,32 @@ layer.
 HARD GATE: no file edits, no test writes, no fix code before this statement
 exists in the session output.
 
-**A.3 Mandatory /kickoff escalation**
+**A.3 Mandatory escalation**
 
 After the root cause statement, STOP. Do not write a failing test. Do not
 implement a fix.
 
-Emit the `/kickoff` escalation handoff (see `## Escalation handoff format`),
-setting the WHY-INLINE-REJECTED field to "arch mode — design decision required".
+**Workstream-split check (before emitting any handoff)** — run the split check per
+`skills/refactor/SKILL.md` § 2.2a.2 (cited, not restated) against the proposed approach
+(SPEC-031 § Workstream split — runs on every run, arch path included):
+
+- **No split confirmed** → emit the `/kickoff` escalation handoff (see `## Escalation handoff format`),
+  setting the WHY-INLINE-REJECTED field to "arch mode — design decision required".
+- **Split confirmed** (2+ independently shippable, non-shared-file, non-sequenced
+  workstreams) → route to `/epic` via `skills/refactor/SKILL.md` § 2.2a.5's `/epic`
+  sub-route — arm → invoke `/epic` in-session → disarm — citing, not restating, its
+  arm/disarm mechanics and `/epic` payload composition. Compose the `/epic` payload with
+  § 2.2a.5's no-canonical-reason form: no 2.2a.1 escalation reason applies on a split-only
+  arch route, so omit `WHY INLINE REJECTED` and state the split confirmation (N
+  independently shippable ideas) as the routing justification. **Skip § 2.2a.5's
+  worktree-release sub-step** — arch mode creates no worktree anywhere in Step 4 (no
+  `ensure` call), so there is nothing to release; that sub-step is a no-op here. Arm/disarm
+  still apply (SPEC-031 § Armed-marker lifecycle), disarming at `/epic` completion.
 
 Arch mode never attempts an inline fix. The root cause investigation is the
-deliverable. Hand it to `/kickoff` for planning.
+deliverable. Hand it to `/kickoff` (or `/epic` on a confirmed split) for planning.
 
-Before emitting the handoff, verify all four fields are populated:
+Before emitting the `/kickoff` handoff, verify all four fields are populated:
   [ ] ROOT CAUSE: populated with the written statement from A.2
   [ ] AFFECTED FILES: bullet list of files/modules
   [ ] PROPOSED APPROACH: 2-3 sentences
@@ -911,8 +941,9 @@ to that protocol. Do not restate phase bodies here.
 ## Escalation handoff format
 
 This format is shared by:
-- Arch mode (always)
-- Full mode when scope decision = escalate-to-kickoff
+- Arch mode (A.3) — `/kickoff` handoff by default, or an `/epic` payload on a confirmed split
+- Full mode when scope decision = escalate-to-kickoff — `/kickoff` by default, or an `/epic`
+  payload on a confirmed split
 - Full mode spec alignment check when classification = spec gap (routes to
   `/spec update` instead)
 
@@ -929,6 +960,15 @@ AFFECTED FILES:
 PROPOSED APPROACH: <2-3 sentences describing the intended fix or refactor>
 WHY INLINE REJECTED: <one of: cross-subsystem or multi-directory refactor required | architectural decision required | tech-lead design review required | arch mode — design decision required | callsite count exceeded threshold>
 ```
+
+**For `/epic` handoff (confirmed workstream split) — compose per contract home, do not
+restate.** When the full-mode escalate branch (§ 2.4) or arch A.3 confirms a 2+-way split
+and routes to `/epic`, the payload is composed per `skills/refactor/SKILL.md` § 2.2a.5's
+`/epic` sub-route: the ROOT CAUSE / AFFECTED FILES / PROPOSED APPROACH fields from the
+4-field block above, and — on a split-only route with no canonical escalation reason —
+`WHY INLINE REJECTED` is **omitted**, with the split confirmation (N independently shippable
+ideas) stated as the routing justification instead. § 2.2a.5 is the operational copy of that
+composition logic; do not restate it here.
 
 **For `/spec update` handoff — emit verbatim:**
 

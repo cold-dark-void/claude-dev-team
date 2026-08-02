@@ -324,6 +324,19 @@ indefinitely (origin findings: `skills/refactor/SKILL.md` release-fail-skips-dis
     every disarm call site, and debug's own `## Escalation-gate disarm` section, and add
     **no** arm or disarm. Leaving debug on the old model would diverge from the contract
     home and leave debug bounded runs armed with no disarm (a block regression until expiry).
+    - **CDT-101 (new decision — expands debug's sibling-fix scope per this section's pin).**
+      `skills/debug/SKILL.md` MUST run the workstream-split check (§ 2.2a.2, cited) on the
+      `escalate-to-kickoff` (full § 2.4) and `arch` (A.3) paths *before* the escalation handoff
+      is emitted, and route a confirmed split to `/epic` via § 2.2a.5's existing `/epic`
+      sub-route rather than bundling into `/kickoff` (§ Workstream split precedence). Arm-model
+      consequence: the `/epic` sub-route auto-chains `/epic` in-session, so **debug arms on this
+      one route** (the split-confirmed `/epic` escalate path) and disarms at `/epic` completion
+      — the single documented exception to CDT-102's "all of debug emit-and-stop / arms
+      nothing." The `/kickoff` (non-split) path is unchanged: still emit-and-stop, still arms
+      nothing. Arch mode's `/epic` route creates no worktree (Step 4 has no `ensure` call), so
+      § 2.2a.5's worktree-release sub-step is a no-op there; arm/disarm still apply. Debug cites
+      § 2.2a.2 / § 2.2a.5 — no restatement, and no arm/disarm mechanics authored in debug
+      (those stay in the contract home).
   - `skills/review-and-commit/SKILL.md` — worktree + ticket-weight routing + an
     unconditional commit prompt (a clean review currently commits to the current branch
     with no prompt at all). **CDT-102**: (E1) §7.4's restatement of the always-ask contract
@@ -559,4 +572,5 @@ indefinitely (origin findings: `skills/refactor/SKILL.md` release-fail-skips-dis
 | Date | Change |
 |------|--------|
 | 2026-07-31 | Initial spec created (CDT-98) — Escalation gate contract, universal worktree isolation, graduated PreToolUse hook with normative honest-limits, sibling citation rule, sequencing. External behaviors verified live on Claude Code v2.1.212 (multi-entry PreToolUse, notebook_path, parent session_id + agent_id, transcript_path). |
+| 2026-08-02 | CDT-101: authorize debug's escalate/arch split-check placement fix (D1 new-decision pin). Debug now runs the § 2.2a.2 split check before its escalate-to-kickoff (§ 2.4) and arch (A.3) handoffs and routes a confirmed split to `/epic` via § 2.2a.5. Narrow amendment to CDT-102's "all of debug arms nothing": debug arms on exactly one route — the split-confirmed `/epic` auto-chain — disarming at `/epic` completion; the `/kickoff` non-split path stays emit-and-stop/never-arm. Arch `/epic` route: worktree-release is a no-op (no worktree created); arm/disarm still apply. Contract-home text (refactor § 2.2a.2 / § 2.2a.5, arm/disarm blocks) unchanged — cited only. |
 | 2026-08-02 | CDT-102 council follow-ups. Marker lifecycle changed to **arm-on-escalate, disarm-at-handoff-completion** (arming decoupled from worktree creation and confined to the escalate-and-auto-chain route; bounded runs unarmed/WARN-only; exactly one success-path disarm right after `/kickoff`/`/epic` completes; 8h leak-expiry demoted to an abnormal-termination backstop) — closes the disarm-gap class by removing the scattered-happy-path fan-out. Escalate routes that emit-and-stop (all of `debug`) arm nothing. Added control-plane tamper-surface carve-out ahead of the allowlist (hook script, settings[.local].json, armed-marker dir) closing the armed self-disarm hole (#4/#15); doc `*.md` exemption retained deliberately. Warn-latch session-scoped + symlink-hardened (#3/#5). Sibling ripple pre-scoped: `debug` arm/disarm pure removal, `review-and-commit` §7.4 citation + dead-disarm removal. |

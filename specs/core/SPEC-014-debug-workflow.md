@@ -96,12 +96,26 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 ### Escalation (`full` and `arch` modes)
 
-- MUST escalate to `/kickoff` when: refactor scope spans multiple subsystems, an architectural decision is required, or the fix requires a tech-lead design review
+- MUST escalate to `/kickoff` when: refactor scope spans multiple subsystems, an
+  architectural decision is required, or the fix requires a tech-lead design review —
+  **unless the workstream-split check (SPEC-031 § Workstream split; operational copy
+  `skills/refactor/SKILL.md` § 2.2a.2) confirms a 2+-way split, in which case MUST route
+  to `/epic` instead of `/kickoff` (split outranks a single `/kickoff` bundle — SPEC-031
+  § Workstream split precedence).**
+- MUST run the workstream-split check **before emitting any escalation handoff**, on the
+  `escalate-to-kickoff` (full mode § 2.4) and `arch`-mode (A.3) paths as well as bounded
+  paths — the check is never skipped on the escalate/arch paths (SPEC-031 § Workstream
+  split: the check runs on every run). A confirmed split routes to `/epic`; no split
+  preserves the `/kickoff` handoff unchanged.
 - MUST pass investigation findings to `/kickoff` as structured issue text containing: (1) root cause statement, (2) list of affected files/modules, (3) proposed approach, (4) why inline resolution was rejected. The canonical field layout and the shared `WHY INLINE REJECTED` vocabulary are single-sourced in the `/kickoff` accepted-handoff input contract (`skills/kickoff/SKILL.md` § Accepted escalation handoff); `/debug` and `/refactor` MUST emit that vocabulary verbatim so the two producers do not diverge.
 - MUST NOT continue modifying files after triggering escalation
 - MUST escalate to `/orchestrate` (via `/kickoff`) when scope is large, clear, and requires multiple agents
 - MUST NOT escalate directly to `/orchestrate` without `/kickoff` first unless a `.claude/plans/` file for the work already exists
-- MUST escalate to `/kickoff` in `arch` mode regardless of scope — never attempt an inline fix
+- MUST escalate in `arch` mode regardless of scope — never attempt an inline fix — routing
+  to `/kickoff` by default, or to `/epic` when the workstream-split check (SPEC-031
+  § Workstream split) confirms a split (arch mode creates no worktree, so the `/epic`
+  sub-route's worktree-release step is a no-op; arm/disarm still apply per SPEC-031
+  § Armed-marker lifecycle)
 
 ---
 
@@ -133,7 +147,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 ### T2: Multi-site pattern detection
 1. Run `/debug` on a bug where the same fix is needed in 3 places
 2. Verify: scope decision appears as explicit written output before any fix code
-3. Verify: the skill does NOT apply identical fixes independently — chooses a shared abstraction or escalates to `/kickoff`
+3. Verify: the skill does NOT apply identical fixes independently — chooses a shared abstraction or escalates to `/kickoff` (or `/epic` when the split check confirms a 2+-way split)
 
 ### T3: Failing test first
 1. Run `/debug` on any reproducible bug
@@ -152,7 +166,8 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 ### T6: Escalation path
 1. Run `/debug` on a bug requiring cross-subsystem refactor
 2. Verify: skill escalates to `/kickoff` with structured context (root cause, affected files, proposed approach, why inline rejected)
-3. Verify: no further file modifications after escalation is triggered
+3. Verify: the split check runs before the handoff is emitted; a confirmed split routes to `/epic`, a non-split routes to `/kickoff` unchanged
+4. Verify: no further file modifications after escalation is triggered
 
 ### T7: `patch` subcommand fast path
 1. Run `/debug patch <description>`
@@ -169,7 +184,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 ### T10: `arch` subcommand
 1. Run `/debug arch <description>`
-2. Verify: skill writes root cause statement, then escalates to `/kickoff` — does NOT write a failing test, does NOT apply a fix inline
+2. Verify: skill writes root cause statement, then escalates — to `/kickoff`, or to `/epic` if the split check confirms a split — does NOT write a failing test, does NOT apply a fix inline
 
 ### T11: `ticket` mode entry (CDT-46-C4)
 1. Run `/debug ticket` with missing ticket-id or premise
@@ -177,6 +192,19 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 3. Run `/debug ticket <id> "<premise>"` with a known holding premise (or mock)
 4. Verify: SPEC-028 pipeline phases execute (or skill-delegate reaches the same protocol); no commit/version mutation
 5. Verify: `commands/debug.md` exists and is the user entry; `commands/fix-ticket.md` is a Deprecation stub naming `/debug ticket`
+
+### T12: Escalate-path split routes to `/epic`
+1. Run `/debug` on a bug whose escalate-to-kickoff approach decomposes into 2+
+   independently shippable, non-shared-file, non-sequenced workstreams
+2. Verify: the workstream-split check runs before any handoff is emitted
+3. Verify: routing goes to `/epic` (not `/kickoff`); a single-workstream escalate still
+   routes to `/kickoff` unchanged
+
+### T13: Arch-mode split routes to `/epic`
+1. Run `/debug arch` on an approach that confirms a 2+-way split
+2. Verify: split check runs before the A.3 handoff; routes to `/epic`; a non-split arch
+   run routes to `/kickoff` exactly as before; no worktree is created/released in either
+   arch case
 
 ---
 
@@ -191,8 +219,9 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 - [ ] Same-pattern detection triggers refactor path (not multi-site patch)
 - [ ] Spec alignment check runs in `full` mode, skipped in `patch` mode
 - [ ] Spec-gap classification produces `/update-spec` handoff without asking user
-- [ ] Escalation to `/kickoff` includes structured context (4 required fields)
-- [ ] `arch` subcommand always escalates to `/kickoff`, never fixes inline
+- [ ] Escalation to `/kickoff` (or `/epic` on a confirmed split) includes structured context (4 required fields)
+- [ ] `arch` subcommand always escalates (`/kickoff`, or `/epic` on a confirmed split), never fixes inline
+- [ ] Escalate-path (full) and arch-mode split checks run before the handoff; confirmed split → `/epic`, non-split → `/kickoff` unchanged
 - [ ] Blockers produce exactly one specific question
 - [ ] No test suite → warning + reproduction scenario document
 - [ ] Refactor committed before fix when refactor path chosen
@@ -206,6 +235,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 | Date | Change |
 |------|--------|
+| 2026-08-02 | CDT-101: escalate-to-kickoff (full § 2.4) and `arch` (A.3) paths now run the workstream-split check before emitting the handoff; a confirmed split routes to `/epic` (SPEC-031 § Workstream split, cited not restated). ACs 99/104 + T6/T10 + validation reconciled from `/kickoff`-only to `/kickoff`-or-`/epic`. Added T12/T13. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: fold note — SPEC-028 cut to DEPRECATED (retained); ticket-mode protocol home stays SPEC-028 until v1.1; entry remains `/debug ticket` / SPEC-014 host; no full MUST rewrite. |
 | 2026-04-25 | Initial spec created — brainstorm: `.claude/plans/2026-04-25-brainstorm-debug-skill.md` |
 | 2026-04-26 | PM review: rewrote T1/T2/T5/T6, added T9/T10, added 5 missing ACs, resolved OQ-1 (free-form root cause with quality criteria), OQ-2 (grep-based callsite check), OQ-3 (skip+warn when no test suite), OQ-4 (separate PRs if escalated, commits otherwise), OQ-5 (two-track fallback for non-reproducible bugs), switched from --mode flags to subcommands |
