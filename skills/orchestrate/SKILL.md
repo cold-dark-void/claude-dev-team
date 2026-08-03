@@ -974,6 +974,10 @@ git commit -m "<ISSUE-ID>: <title>
 Co-Authored-By: Claude <model> <noreply@anthropic.com>"
 ```
 
+**Honest identity** — replace `<model>` with the agent/model actually performing this commit. Do **not** hardcode Claude/Anthropic when the agent is something else (e.g. Grok, Codex, a human). Examples:
+- `Co-Authored-By: Grok <noreply@x.ai>`
+- `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+
 Only use `gh pr merge --squash` if the user explicitly created a PR and `gh` is
 available. Plain `git merge --squash` is the default merge path.
 

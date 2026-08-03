@@ -159,6 +159,10 @@ git commit -m "feat: ENG-123 — <short description>
 Co-Authored-By: Claude <model> <noreply@anthropic.com>"
 ```
 
+**Honest identity** — replace `<model>` with the agent/model actually performing this commit. Do **not** hardcode Claude/Anthropic when the agent is something else (e.g. Grok, Codex, a human). Examples:
+- `Co-Authored-By: Grok <noreply@x.ai>`
+- `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+
 ---
 
 ## Phase 5 — Pull Request

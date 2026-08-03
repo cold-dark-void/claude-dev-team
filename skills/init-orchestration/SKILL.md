@@ -1792,6 +1792,10 @@ When working as a native Agent Team teammate:
 
 Replace all `[bracketed]` and `<ANGLE BRACKET>` placeholders with actual values.
 
+When emitting this, replace `<model>` with the agent/model actually performing this commit. Do **not** hardcode Claude/Anthropic when the agent is something else (e.g. Grok, Codex, a human). Examples:
+- `Co-Authored-By: Grok <noreply@x.ai>`
+- `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+
 #### Team Coordination section only (appending to existing AGENTS.md)
 
 ```markdown
