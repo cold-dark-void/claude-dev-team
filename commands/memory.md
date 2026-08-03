@@ -36,7 +36,7 @@ Subs:
 | `export` | Inline | former `/memory-export` |
 | `search` | Skill-delegate | `skills/memory-recall/SKILL.md` (+ `--status` inline) |
 | `stats` | Inline | former `/memory-stats` |
-| `validate` | Host pipeline in this command | absorbed `/validate-memory` steps (v1.1: no separate skill stub) |
+| `validate` | Skill-delegate + host pipeline | `skills/validate-memory/SKILL.md` + absorbed `/validate-memory` steps |
 
 ---
 
@@ -763,10 +763,10 @@ Safe to share — no memory content included.
 Cross-reference agent memories against the live codebase; `--reconcile`
 detects cross-agent contradictions.
 
-**Host pipeline:** steps below are the absorbed behavior from the former
-`/validate-memory` command (skill stub deleted at v1.1.0). Prompt-template
-section names referenced below are historical labels — follow the inline
-instructions in each step.
+**Skill-delegate:** prompt templates, claim/verdict taxonomies, composite scoring,
+batching limits, and pair-judge contracts live in `skills/validate-memory/SKILL.md` —
+load those sections when steps below reference them. The host pipeline (steps below)
+is the absorbed behavior from the former `/validate-memory` command.
 
 Cross-reference agent memories against the live codebase to detect and resolve
 stale references — dead files, renamed functions, shifted line numbers,
@@ -906,12 +906,12 @@ assertions about the codebase. This replaces the previous regex-based
 extraction with semantic claim understanding.
 
 Read the claim extractor prompt template from
-`skills/memory validate/SKILL.md` section "Claim Extractor Prompt Template".
+`skills/validate-memory/SKILL.md` section "Claim Extractor Prompt Template".
 
 ### Step 3.1: Batch memories for extraction
 
 Collect all eligible memories from Step 2 into batches, sized per the
-"Claim extraction" row of `skills/memory validate/SKILL.md` section "Batching
+"Claim extraction" row of `skills/validate-memory/SKILL.md` section "Batching
 Limits". For each memory, prepare a JSON object:
 
 ```json
@@ -941,7 +941,7 @@ block).
 
 ### Step 3.3: Validate extraction results
 
-For each returned result, enforce all six rules in `skills/memory validate/SKILL.md`
+For each returned result, enforce all six rules in `skills/validate-memory/SKILL.md`
 section "Claim Extractor Prompt Template" → "Validation rules (command-enforced)".
 That includes the "Maximum 8 claims per memory" cap (rule 6): truncate extractions
 that exceed it. The `claim_type` values it references are the six terms in the
@@ -970,7 +970,7 @@ Verify each claim against the live codebase. Tier A (bash, no LLM cost) for
 structural references, Tier B (LLM investigator) for semantic claims.
 
 Both tiers produce per-claim verdicts using the same taxonomy — see
-`skills/memory validate/SKILL.md` section "Verdict Taxonomy" for the four
+`skills/validate-memory/SKILL.md` section "Verdict Taxonomy" for the four
 verdicts (`VALID`, `STALE`, `CONTRADICTED`, `AMBIGUOUS`) and their score points.
 
 Each verdict carries a `confidence` score (0-100) and an `evidence` string.
@@ -1118,12 +1118,12 @@ for each claim where claim_type == "symbol_reference":
 
 For `line_content`, `behavioral`, `architectural`, and `configuration` claims.
 
-Read the investigator prompt template from `skills/memory validate/SKILL.md`
+Read the investigator prompt template from `skills/validate-memory/SKILL.md`
 section "Investigator Prompt Template".
 
 1. Collect all Tier B claims from all memories.
 2. Batch claims per the "Tier B investigation" row of
-   `skills/memory validate/SKILL.md` section "Batching Limits".
+   `skills/validate-memory/SKILL.md` section "Batching Limits".
 3. For each batch, substitute `{{CLAIMS_TO_VERIFY}}` with the JSON array of
    claims and spawn a Task subagent (`subagent_type: "general-purpose"`).
 4. Spawn all investigation batches in parallel.
@@ -1132,7 +1132,7 @@ section "Investigator Prompt Template".
    next run (do NOT set `validated_at`, so they retain highest processing
    priority).
 
-Validate returned verdicts per the rules in `skills/memory validate/SKILL.md`
+Validate returned verdicts per the rules in `skills/validate-memory/SKILL.md`
 section "Investigator Prompt Template" → "Validation rules (command-enforced)".
 
 Claims with no returned verdict (missing from output or malformed) default to
@@ -1141,7 +1141,7 @@ Claims with no returned verdict (missing from output or malformed) default to
 ## Step 5: Composite scoring
 
 For each memory, combine its per-claim verdicts into a single staleness
-score (0-100). See `skills/memory validate/SKILL.md` "Composite Scoring
+score (0-100). See `skills/validate-memory/SKILL.md` "Composite Scoring
 Formula" for the canonical reference.
 
 ```bash template
@@ -1179,7 +1179,7 @@ SCORE=$(( raw_score + age_mod + tier_mod ))
 ```
 
 For why the score averages across claims (and worked examples), see
-`skills/memory validate/SKILL.md` section "Composite Scoring Formula".
+`skills/validate-memory/SKILL.md` section "Composite Scoring Formula".
 
 ## Step 6: Triage by threshold
 
@@ -1574,8 +1574,8 @@ Each detail entry includes:
 
 Runs only when `RECONCILE=true` after Step 1 guards. Skips Steps 2–11
 (codebase claim pipeline). Contracts and pair-judge prompt live in
-`skills/memory validate/SKILL.md` (Reconcile Candidate Contract, Pair-Judge
-Prompt Template). Host library: `skills/memory validate/reconcile-lib.sh`.
+`skills/validate-memory/SKILL.md` (Reconcile Candidate Contract, Pair-Judge
+Prompt Template). Host library: `skills/validate-memory/reconcile-lib.sh`.
 
 ## Step R1: Candidate pair generation (no LLM)
 
@@ -1590,11 +1590,11 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 # Plugin root: prefer WTROOT when it contains the skill; else walk from this
 # command file's known install layout.
 PLUGIN_ROOT="$WTROOT"
-if [ ! -f "$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh" ]; then
+if [ ! -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ]; then
   # Fallback: installed plugin path from CLAUDE_PLUGIN_ROOT if set
   PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
 fi
-RECONCILE_LIB="$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
 PAIRS_FILE=$(mktemp "${TMPDIR:-/tmp}/reconcile-pairs.XXXXXX")
 AGENT_ARGS=()
 if [ -n "${TARGET_AGENT:-}" ]; then
@@ -1633,7 +1633,7 @@ Path-containment: N/A (no filesystem paths from untrusted claim text in R1).
 
 ## Step R2: LLM pair-judge
 
-Read `skills/memory validate/SKILL.md` section **Pair-Judge Prompt Template**.
+Read `skills/validate-memory/SKILL.md` section **Pair-Judge Prompt Template**.
 
 1. Load pairs from `$PAIRS_FILE` (JSONL → JSON array).
 2. Batch ≤10 pairs per call, max 5 batches (Batching Limits table).
@@ -1699,8 +1699,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
 bash "$RECONCILE_LIB" resolve-pick "$MEMDB" "$WINNER_ID" "$LOSER_ID" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
 # Archives loser with archive_reason='reconciled'; logs pick-survivor
@@ -1718,8 +1718,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
 bash "$RECONCILE_LIB" resolve-merge "$MEMDB" "$WINNER_ID" "$LOSER_ID" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$MERGED_CONTENT" "$REASON"
 # UPDATE winner content (preserve tier/type/distilled_from); tag [reconciled: YYYY-MM-DD];
@@ -1735,8 +1735,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
 bash "$RECONCILE_LIB" resolve-both-stale "$MEMDB" "$ID_A" "$ID_B" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
 ```
@@ -1750,8 +1750,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
 bash "$RECONCILE_LIB" resolve-skip "$MEMDB" "$ID_A" "$ID_B" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
 # Log only — pair may reappear on a later run (skip is not a resolved action)
@@ -1766,8 +1766,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/memory validate/reconcile-lib.sh"
+[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
 bash "$RECONCILE_LIB" resolve-deep-audit "$MEMDB" "$ID_A" "$ID_B" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
 # Prints: /council "claim_a vs claim_b"
