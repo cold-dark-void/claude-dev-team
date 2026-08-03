@@ -266,14 +266,43 @@ If the user confirmed one or more domain terms in Step 2/3, follow
 
 If no terms crystallized, skip silently (absent glossary is fine).
 
+### Step 4c: Backlog write-back (conditional)
+
+If the user confirmed the Step 2/3 synthesis and is **not** proceeding straight
+to `/kickoff` in this same session, offer to track it:
+
+> "File this as a backlog/Linear item now? (Y/n — skip if you're running
+> /kickoff right away)"
+
+If yes, follow `skills/backlog/SKILL.md` § **Programmatic write-back
+protocol**, **direct-write** convention, Linear-first mode, with:
+
+- Title: the Problem Statement's first sentence (or a short imperative title
+  derived from it)
+- Problem: the Step 2 Problem Statement + Scope (IN/OUT)
+- Goal: the Step 2 Success Criteria
+- Notes: the chosen Option from Step 3 (name + one-line rationale), if the
+  user picked one
+- Affects: leave blank (not yet scoped to files)
+
+Per that protocol's **Self-contained content** rule, inline the actual
+synthesis text above in the ticket — the saved plan file path from Step 4 is
+an optional *supplementary* cross-reference in `## Notes`, never the sole
+content (a plan file is only readable on this checkout; the ticket is not).
+
+If the user declines, or answers "no" because `/kickoff` is next, skip
+silently — the plan file alone is sufficient when `/kickoff` runs in the same
+session.
+
 Print:
 ```
 Brainstorm saved to: .claude/plans/<date>-brainstorm-<slug>.md
 Mode: <default|grill>
 Domain glossary: <updated CONTEXT.md path | no new terms>
+Backlog/Linear: <ticket-id + Linear URL | local-only slug | not filed>
 
 Next steps:
-  /kickoff — to start formal planning with PM + Tech Lead
+  /kickoff <ticket-id> — to start formal planning with PM + Tech Lead
   /spec create — to write a behavioral spec from this brainstorm
 ```
 
@@ -294,3 +323,6 @@ Next steps:
 - Reference existing specs, architecture, and domain glossary from Step 0 when relevant
 - Prefer glossary **Term** names in the saved plan and recommendations; do not
   reintroduce listed aliases
+- ALWAYS offer backlog/Linear write-back (Step 4c) once the user accepts the
+  synthesis, unless `/kickoff` runs immediately in the same session — accepted
+  scope must not evaporate into a plan file with no tracked-work visibility

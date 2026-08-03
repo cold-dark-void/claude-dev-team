@@ -127,6 +127,17 @@ Ask the user one question:
 
 If they provide content, use it. If they press Enter/skip, use placeholder text.
 
+**Self-contained content (REQUIRED)** — whatever problem/goal text is gathered
+here becomes the Linear description verbatim (Step 4) and the local item's
+Problem/Goal (Step 5). It MUST stand alone: inline the actual substance, never
+a bare pointer to a local-only file path (a worktree-relative path,
+`.claude/plans/**`, `.claude/backlog/**`, or any path only this checkout has).
+Linear is read by teammates and agents with no access to this machine's disk.
+A local path MAY be added as a supplementary cross-reference after the
+inlined substance — never as a replacement for it. (Origin: CDT-111 — a
+Linear issue was created pointing solely at a local `.claude/plans/**` file,
+unreadable by anyone without that exact checkout.)
+
 #### 4. Linear-first create (when MCP reachable)
 
 If Linear MCP tools are available:
@@ -214,6 +225,50 @@ Linear: <LINEAR-ID | none (local-only)>
 ```
 
 **MUST NOT** `git add` / commit the write-through files as product.
+
+---
+
+### Programmatic write-back (non-interactive callers)
+
+For skills that need to write a backlog item without the interactive prompts
+in `add` above — Step 3's ask, Step 2a's "(b) Abort" branch — e.g. an
+escalation-gate auto-chain, or a command's `--auto` mode. This is not a
+fourth subcommand; it is `add`'s Steps 1/2/2a/4/5/6/7 run with content
+pre-supplied and two choices fixed, so non-interactive callers reuse the same
+mechanics instead of forking their own (SPEC-002 D1: this section is the one
+operational copy — callers cite it, never restate or reimplement it).
+
+**Content pre-supply** — the caller passes title, problem, and goal text
+directly; Step 3's ask is skipped. The **Self-contained content** requirement
+from Step 3 applies without exception: the caller MUST pass the actual
+substance, never a bare local-file pointer.
+
+**Dedup resolution is fixed to (a) Suffix** — Step 2a's "(b) Abort" branch is
+unavailable here: there is no user turn to report a collision to and wait on.
+Walk `-2`, `-3`, … until both the item file and the index row are free, then
+continue with that slug. Never abort.
+
+**MCP mode is a caller-declared choice, not an availability fallback**:
+- **Linear-first (default)** — same as `add` Step 4: create in Linear when MCP
+  is reachable, dual-write local with `linear_id`; on MCP-down/error, the same
+  one-line fail-open notice and local-only continuation.
+- **`--local-only`** — skip Step 4 entirely regardless of MCP reachability;
+  write local-only, no `linear_id`. Reserved for callers with a documented
+  reason to avoid an MCP round-trip mid-chain (e.g. a tightly scoped
+  escalation-gate write where Linear latency/failure would stall an unrelated
+  gate). The calling skill's own contract MUST state that reason — never
+  default to `--local-only` silently.
+
+**Calling conventions** — a caller picks one; both reuse the rules above
+rather than restating them:
+1. **Print-and-confirm** — print `Run: /backlog add "<title>"` and stop; a
+   human decides whether/when to run it.
+2. **Direct write** — perform Steps 1/2/2a/(4)/5/6/7 in-session, no user turn.
+
+Known citing callers: `skills/brainstorm/SKILL.md` Step 4c (convention 1 or
+2, Linear-first), `skills/refactor/SKILL.md` § 2.2a.5 (convention 2,
+`--local-only`), `commands/retro.md` `--auto` mode (convention 2,
+Linear-first).
 
 ---
 

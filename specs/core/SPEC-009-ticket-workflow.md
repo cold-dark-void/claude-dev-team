@@ -21,6 +21,10 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST wait for user answers before advancing to next round (4 rounds total)
 - MUST be opinionated in recommendation (not neutral between design options)
 - MUST save results to `.claude/plans/<date>-brainstorm-<slug>.md`
+- MUST offer backlog/Linear write-back once the user accepts the synthesis,
+  unless `/kickoff` runs immediately in the same session, per
+  `skills/backlog/SKILL.md` § Programmatic write-back protocol — accepted
+  scope MUST NOT evaporate into a plan file with no tracked-work visibility
 
 ### Kickoff
 - MUST create or reuse a worktree via `worktree-lib.sh ensure <TICKET-ID>` (SPEC-016 caller-integration form) **after context load and before spawning the PM/Tech Lead/Explorer agents**, capturing `$WT_PATH` — mirroring `/orchestrate`'s Step 3→4 ordering. The slug MUST be the bare `<TICKET-ID>`. Exit-code handling MUST match `/orchestrate` Step 3 (`0` proceed, `1`/`2`/`64` HALT); MUST NOT silently proceed without a worktree
@@ -105,6 +109,8 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - **Linear-first when MCP reachable (CDT-54).** `/backlog add` MUST create (or link) a Linear issue first when the Linear MCP is available, then **always** dual-write the local index + item with Linear id linkage. `/backlog list` MUST prefer Linear open issues as the preferred SoT for open work when MCP is up, presenting local files as write-through. `/backlog close` MUST mark the Linear issue terminal when MCP is up **and** always flip local item + index to COMPLETED.
 - **MCP-down fail-open.** When Linear MCP is absent or errors, add/list/close MUST degrade to local-only semantics, emit a single one-line notice, and MUST NOT block, retry-loop, or hard-fail the Surface.
 - **MUST NOT commit process trackers.** Skills/commands MUST NOT stage or commit `.claude/backlog*`, `.claude/plans*`, or other process state under `.claude/` as product delivery (v1.0 invariant: `.claude` process state never upstream). Local write-through remains on disk only.
+- **MUST inline self-contained content in Linear descriptions.** `/backlog add` MUST inline the actual problem/goal substance in the Linear description — never a bare pointer to a local-only file path (a worktree-relative path, `.claude/plans/**`, `.claude/backlog/**`). Linear is read by teammates and agents with no access to the authoring checkout's disk. A local path MAY be added as a supplementary cross-reference after the inlined substance, never as a substitute for it (origin: CDT-111 — a Linear issue was created pointing solely at a local `.claude/plans/**` file).
+- **MUST provide a non-interactive write-back path (contract home).** `skills/backlog/SKILL.md` § Programmatic write-back protocol is the contract home (SPEC-002 D1) for any skill that needs to write a backlog item without a user turn: content pre-supplied (skipping the interactive ask), dedup guard fixed to suffix (the abort branch is unavailable non-interactively), and MCP mode either Linear-first (default) or a caller-declared `--local-only`. Citing callers MUST NOT reimplement this logic independently. Known callers: `skills/brainstorm/SKILL.md` Step 4c, `skills/refactor/SKILL.md` § 2.2a.5 (`--local-only`, SPEC-031), `commands/retro.md` `--auto` mode (SPEC-012).
 
 #### Backlog add dedup guard
 
@@ -198,6 +204,8 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify `/backlog reconcile` degrades to the local item-file fallback with a one-line notice (no block, no fail) when the Linear MCP is unreachable
 - Verify `/backlog reconcile` prunes a closed-status orphan item file (no index row) and leaves an open/unrecognized-status orphan untouched and reported, never inventing an index row for it
 - Verify a second consecutive `/backlog reconcile` produces zero changes (idempotency)
+- Verify brainstorm offers backlog/Linear write-back after synthesis is confirmed (unless `/kickoff` runs immediately), and that a filed item's Linear description contains inlined synthesis text, not only a local plan-file path
+- Verify the Programmatic write-back protocol's non-interactive callers (refactor auto-chain, retro `--auto`) never hit an interactive ask and never silently write a duplicate slug row on collision (suffix, not abort)
 
 ## Validation
 
@@ -212,6 +220,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - [ ] `/backlog reconcile` is idempotent (second run is a no-op) and degrades cleanly with Linear absent
 - [ ] `/backlog add` on an existing slug produces no silent duplicate index row
 - [ ] `bash skills/backlog/test.sh` passes
+- [ ] Brainstorm Step 4c offers backlog/Linear write-back; a filed Linear description is self-contained (no bare local-file pointer)
 
 ## Open Questions
 
@@ -224,6 +233,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-08-03 | Backlog write-back consolidation. Added `skills/backlog/SKILL.md` § Programmatic write-back protocol as the SPEC-002 D1 contract home for non-interactive backlog writes (content pre-supply, dedup fixed to suffix, caller-declared Linear-first/`--local-only`), replacing two independent forks (`skills/refactor/SKILL.md` § 2.2a.5's bespoke inline mkdir/printf/awk, and `commands/retro.md` `--auto` mode's ambiguous direct invocation). Added brainstorm Step 4c (offer backlog/Linear write-back on accepted synthesis) and a MUST that Linear descriptions inline actual substance, never a bare local-only file path — origin: CDT-111, a Linear issue created pointing solely at a local `.claude/plans/**` file unreadable without that checkout. |
 | 2026-08-02 | CDT-105: kickoff worktree isolation + resumable-state exit. `/kickoff` now `ensure`s a worktree (bare `<TICKET-ID>` slug) after context load, before the PM/TL spawn, and commits its spec/plan/CONTEXT.md inside `$WT_PATH` on `feat/<TICKET-ID>` — never on master. Fixes the origin defect (standalone `/kickoff` committing straight to master: CDT-104 a049044, CDT-99 0fdf420). Worktree left in place (no `release`) as a documented resumable handoff — the deliberate exception to SPEC-031's implementation-capable-scoped bounded-exit rule. Task graph stays `$MROOT`-anchored. Spec-visibility-until-merge is the intended trade, stated in the summary. SPEC-016 owns the caller-integration form; this spec owns the lifecycle/exit contract. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |
 | 2026-07-21 | reconcile subcommand + Linear-SoT precedence + add dedup guard defined (CDT-46-C2). Added `/backlog reconcile` (idempotent index↔item-file repair; Linear-reachable = source of truth for terminal states, local item-file status authoritative on fallback; dead-ref removal; duplicate collapse; best-effort Linear per SPEC-025 M5) and a `/backlog add` dedup guard (no silent duplicate rows for an existing slug). Spec-only; implementation and tests follow. |

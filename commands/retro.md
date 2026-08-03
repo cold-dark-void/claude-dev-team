@@ -1392,15 +1392,18 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
     printf '%s: %s directive(s) currently (run the command above to update)\n' "<target>" "$COUNT"
     ```
     Increment `APPLIED`.
-  - If `target` is **`plugin`**: add `proposed_text` to the project backlog via
-    `/backlog add`. Print the command for the user to confirm — do NOT auto-invoke:
+  - If `target` is **`plugin`**: add `proposed_text` to the project backlog.
+    Default mode uses `skills/backlog/SKILL.md` § Programmatic write-back
+    protocol's **print-and-confirm** convention — print the command for the
+    user to confirm, do NOT auto-invoke:
     ```
     Plugin improvement identified:
       <proposed_text>
     Run: /backlog add "<proposed_text>"
     ```
-    Increment `APPLIED`. In `--auto` mode, invoke `/backlog add "<proposed_text>"`
-    directly and print `[auto-added] plugin backlog: <proposed_text>`.
+    Increment `APPLIED`. In `--auto` mode, use that protocol's **direct-write**
+    convention instead (Linear-first; title = problem = goal = `proposed_text`;
+    dedup fixed to suffix) and print `[auto-added] plugin backlog: <proposed_text>`.
   - If `target` is **`claude`**: append `proposed_text` to
     `$MROOT/.claude/memory/claude/lessons.md`. Create the file and parent
     directory if absent:
@@ -1495,7 +1498,9 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
       → Added to manual follow-up list.
     ```
 
-- If `target` is **`plugin`**: invoke `/backlog add "<proposed_text>"` directly.
+- If `target` is **`plugin`**: use `skills/backlog/SKILL.md` § Programmatic
+  write-back protocol, **direct-write** convention (Linear-first; title =
+  problem = goal = `proposed_text`; dedup fixed to suffix).
   Print `[auto-added] plugin backlog: <proposed_text>`. Increment `APPLIED`.
 
 - If `target` is **`claude`**: append directly to

@@ -375,40 +375,19 @@ Then continue by routing:
 
   Then, per the specific route:
 
-  - **`/kickoff`** → emit the 4-field handoff verbatim (see `## Escalation handoff format`). `/kickoff`'s contract requires `<TICKET-ID> "<ticket text>"`. `/backlog add`'s own "Ask for details (brief)" substep (`skills/backlog/SKILL.md` § Subcommand: add → substep 3) is an unconditional user-facing ask with no documented caller-pre-supply path, and its dedup guard can abort on collision — both are asks this chain cannot afford. Bypass the command the same way the release step bypasses `/worktree release`: write the backlog record directly.
+  - **`/kickoff`** → emit the 4-field handoff verbatim (see `## Escalation handoff format`). `/kickoff`'s contract requires `<TICKET-ID> "<ticket text>"`. Obtain that ticket-id by following `skills/backlog/SKILL.md` § **Programmatic write-back protocol**, **direct-write** convention, `--local-only` mode — this chain cannot afford `add`'s interactive "Ask for details" substep or its dedup "(b) Abort" branch, which is exactly what that protocol's content-pre-supply and suffix-fixed dedup rules exist for.
 
     > Writing this backlog record is bookkeeping under `.claude/`, not a file modification of the refactor — the worktree from § 2.2a.4 is already released by this point (there is no worktree left to isolate into), so § 2.4's universal worktree isolation, which governs refactor edits under `$MROOT/.worktrees/`, does not apply to this write.
 
-    ```bash
-    _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-      && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-      || MROOT=$(pwd)
-    WT_PATH='<the path recorded on the outcome block Worktree: line above>'
-    BSLUG=$(basename "$WT_PATH" | tr 'A-Z' 'a-z')
-    mkdir -p "$MROOT/.claude/backlog"
-    [ -f "$MROOT/.claude/backlog.md" ] || printf '# %s - Backlog Index\n\n## Pending\n\n## Completed\n' "$(basename "$MROOT")" > "$MROOT/.claude/backlog.md"
-    N=1
-    CAND="$BSLUG"
-    while [ -f "$MROOT/.claude/backlog/$CAND.md" ] || grep -qE "\]\(backlog/${CAND}\.md\)" "$MROOT/.claude/backlog.md" 2>/dev/null; do
-      N=$((N + 1))
-      CAND="${BSLUG}-${N}"
-    done
-    BSLUG="$CAND"
-    TITLE='<short title from ROOT CAUSE>'
-    {
-      printf '# %s\n\n**Status**: PENDING\n\n' "$TITLE"
-      printf '## Problem\n\n%s\n\n' '<ROOT CAUSE text>'
-      printf '## Goal\n\n%s\n\n' '<PROPOSED APPROACH text>'
-      printf '## Implementation Notes\n\n\n## Affects\n\n%s\n\n' '<AFFECTED FILES, one per line>'
-      printf '## Effort\n\n\n## Notes\n\nOpened by the /refactor escalation gate auto-chain, SPEC-031 Auto-chain.\n\n---\n\n*Added: %s*\n' "$(date -u +%Y-%m-%d)"
-    } > "$MROOT/.claude/backlog/$BSLUG.md"
-    awk -v row="- [$TITLE](backlog/$BSLUG.md) - <one-line summary from ROOT CAUSE> [PENDING]" \
-      '{print} /^## Pending$/ && done==0 {print row; done=1}' \
-      "$MROOT/.claude/backlog.md" > "$MROOT/.claude/backlog.md.tmp" && mv "$MROOT/.claude/backlog.md.tmp" "$MROOT/.claude/backlog.md"
-    printf 'TICKET-ID: %s\n' "$BSLUG"
-    ```
+    Supply the protocol with:
+    - Base slug: the basename of the path recorded on the outcome block's `Worktree:` line above, lowercased
+    - Title: short title from ROOT CAUSE
+    - Problem: ROOT CAUSE text
+    - Goal: PROPOSED APPROACH text
+    - Affects: AFFECTED FILES, one per line
+    - Notes: `Opened by the /refactor escalation gate auto-chain, SPEC-031 Auto-chain.`
 
-    This is local-only (no Linear MCP call — that stays inside `/backlog add`'s own contract, which this gate does not reproduce). `<TICKET-ID>` is `$BSLUG`; no Linear issue is required for the `backlog` source. The `while` loop suffixes on a same-run collision instead of asking, matching `/backlog add`'s own dedup "(a) Suffix" branch, never its "(b) Abort" branch — an abort there would be a third ask. Then invoke `/kickoff <TICKET-ID> "<handoff>"` **in-session**; do not tell the user to run it manually. The 4-field handoff text itself has no field for this (`skills/kickoff/SKILL.md` § Accepted escalation handoff (input contract) fixes it at exactly four fields) — so along with the invocation, separately instruct `/kickoff` that `<TICKET-ID>` (`$BSLUG`) is a backlog slug it must close: at its Step 6 (`skills/kickoff/SKILL.md` Step 6, `## Tracking` format), it MUST write `source: backlog`, `ticket_id: $BSLUG`, `closes: backlog/$BSLUG.md` into the plan's `## Tracking` section — not leave the `linear | backlog | freeform` placeholder unresolved. This is the field `/wrap-ticket` Step 5.5 keys off to find and close the item later — it reads it from the plan file's `closes:` list, never from the handoff text. This route's work here ends at the in-session `/kickoff` invocation; the disarm and the post-`/kickoff` confirmation are handled at the convergent step below.
+    `--local-only` here is deliberate, not a silent default: this route reproduces none of `/backlog add`'s own Linear contract, and an MCP round-trip mid-auto-chain risks stalling an unrelated gate on Linear latency/failure. `<TICKET-ID>` is the protocol's resulting (possibly suffixed) slug; no Linear issue is required for the `backlog` source. Then invoke `/kickoff <TICKET-ID> "<handoff>"` **in-session**; do not tell the user to run it manually. The 4-field handoff text itself has no field for this (`skills/kickoff/SKILL.md` § Accepted escalation handoff (input contract) fixes it at exactly four fields) — so along with the invocation, separately instruct `/kickoff` that `<TICKET-ID>` is a backlog slug it must close: at its Step 6 (`skills/kickoff/SKILL.md` Step 6, `## Tracking` format), it MUST write `source: backlog`, `ticket_id: <TICKET-ID>`, `closes: backlog/<TICKET-ID>.md` into the plan's `## Tracking` section — not leave the `linear | backlog | freeform` placeholder unresolved. This is the field `/wrap-ticket` Step 5.5 keys off to find and close the item later — it reads it from the plan file's `closes:` list, never from the handoff text. This route's work here ends at the in-session `/kickoff` invocation; the disarm and the post-`/kickoff` confirmation are handled at the convergent step below.
   - **`/epic`** → `## Escalation handoff format`'s 4-field block is scoped to `/kickoff`/`/spec update` (its own heading says so) and requires a canonical `WHY INLINE REJECTED` value — which has no legal value when this route is reached solely via 2.2a.2's split confirmation with no 2.2a.1 reason (exactly the case this route exists to cover). Compose the payload from that section's ROOT CAUSE / AFFECTED FILES / PROPOSED APPROACH fields (cited, not restated), plus:
     - 2.2a.1 recorded a reason → include `WHY INLINE REJECTED` verbatim, same as the `/kickoff` case above.
     - 2.2a.1 returned "no reason applies" → omit `WHY INLINE REJECTED`; state the 2.2a.2 split confirmation (N independently shippable ideas) as the routing justification instead. `/epic`'s own contract (`commands/epic.md` Args: `<EPIC-ID> "<text>"`) does not require the `/kickoff`-scoped canonical vocabulary.

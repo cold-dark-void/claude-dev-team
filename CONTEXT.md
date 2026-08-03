@@ -16,3 +16,4 @@ agent output. Do not reintroduce avoided aliases.
 | State now | Deterministic packet header from tail of event log: latest decisions, unkilled hypotheses, opens | freeform Convergence essay |
 | Escalation gate | Enforced checkpoint before any implementation-capable skill edits a file, deciding ticket/worktree/PR weight | escalation ladder (as synonym once gate lands) |
 | Workstream split | A chosen approach decomposing into 2+ independently shippable ideas, routing to /epic child tickets instead of a single /kickoff ticket | bundled ticket, mega-PR |
+| Autopilot mode | Opt-in `--autopilot[=<bump>]` on /orchestrate, /kickoff, /epic: gates self-answered with logged decision cards + one council-judge pass at ship; escalates to human only on defined blocking conditions | automagic, unattended mode |
