@@ -22,8 +22,8 @@ MVC="$3"    # max_verdict_confidence  — integer or literal "null"
 MFC="$4"    # max_finding_confidence  — integer or literal "null"
 
 # ---- Validate task_id (path traversal prevention) ----------------------------
-if [ -n "$TASK_ID" ] && ! printf '%s' "$TASK_ID" | grep -qE '^[a-zA-Z0-9._-]+$'; then
-  echo "error: task_id must match [a-zA-Z0-9._-]+, got: $TASK_ID" >&2
+if [ -n "$TASK_ID" ] && ! [[ "$TASK_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+  printf 'error: task_id must match [a-zA-Z0-9._-]+, got: %q\n' "$TASK_ID" >&2
   exit 1
 fi
 

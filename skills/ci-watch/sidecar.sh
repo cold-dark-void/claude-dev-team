@@ -35,8 +35,8 @@ usage() {
 }
 
 validate_ticket_id() {
-  if ! printf '%s' "$1" | grep -qE '^[A-Za-z0-9_-]+$'; then
-    echo "error: ticket_id must match [A-Za-z0-9_-]+ (no dots — a dotted ID cannot get a worktree), got: $1" >&2
+  if ! [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    printf 'error: ticket_id must match [A-Za-z0-9_-]+ (no dots — a dotted ID cannot get a worktree), got: %q\n' "$1" >&2
     exit 2
   fi
 }

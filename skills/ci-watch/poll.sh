@@ -24,7 +24,7 @@ if [ -z "$TICKET" ]; then
   echo "wait"
   exit 0
 fi
-if ! printf '%s' "$TICKET" | grep -qE '^[A-Za-z0-9_-]+$'; then
+if ! [[ "$TICKET" =~ ^[A-Za-z0-9_-]+$ ]]; then
   echo "wait"
   exit 0
 fi

@@ -89,7 +89,7 @@ cmd_resolve_task_id() {
 # Reject any value containing path traversal characters.
 validate_path_component() {
   local label="$1" value="$2"
-  if ! printf '%s' "$value" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+  if ! [[ "$value" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     echo "engine.sh: invalid $label: must match [a-zA-Z0-9._-]+" >&2
     exit 2
   fi
