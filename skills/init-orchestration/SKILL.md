@@ -1043,8 +1043,12 @@ Use the `Write` tool to create `.claude/hooks/precompact-rescue.sh` with this co
 # Locator: skills/plugin-dir.sh (product lock — not an ad-hoc third locator).
 set -u
 
-# Resolve plugin root (PDH): dev-checkout cwd fast path, else highest installed
-# cache version. Same bootstrap as /orchestrate and init-orchestration Step 7.
+# Resolve plugin root (PDH) — hook-runtime bootstrap, not the caller-site stanza.
+# Two tiers only: (a) PDH=$(pwd) when skills/plugin-dir.sh exists in cwd (dev
+# checkout), else (b) highest-version match under the installed plugin cache.
+# Narrower than the canonical 4-tier caller-site stanza because hooks run detached
+# with no session context — CLAUDE_PLUGIN_ROOT and the marketplace-clone tier are
+# unreachable here.
 PDH=""
 if [ -f skills/plugin-dir.sh ]; then
   PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)

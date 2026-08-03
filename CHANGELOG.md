@@ -3,6 +3,11 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.3.11
+- **CDT-107 — hook-runtime PDH resolver comment no longer claims false parity with the canonical bootstrap** — `skills/init-orchestration/SKILL.md`'s hook-runtime PDH resolver was commented as "Same bootstrap as `/orchestrate` and init-orchestration Step 7," but the resolver has only 2 tiers (dev-checkout fast path, else highest-installed-cache-version) where the canonical caller-site stanza has 4 (`CLAUDE_PLUGIN_ROOT` → cwd dev checkout → marketplace clone → installed cache) — and "Step 7" isn't a PDH resolver at all, it's an unrelated `PROJ_ROOT` project-bootstrap step. The construct itself was always correct (already properly waived by skill-lint's C5 check as distinct from the caller-site stanza) — only the comment was misleading.
+- **Fix** — reworded the comment to state the resolver's actual 2-tier contract and explain why it's legitimately narrower (hooks run detached, with no session context, so `CLAUDE_PLUGIN_ROOT` and the marketplace-clone tier are unreachable), anchored to the phrasing already used at the site's own C5 waiver comments. Comment-only — bash logic untouched.
+- This closes out the CDT-98 follow-up arc (CDT-99 through CDT-109).
+
 ### v1.3.10
 - **CDT-109 — bare `<model>` commit trailers now carry honest-identity framing at every emit site** — five templates across four files emitted `Co-Authored-By: Claude <model> <noreply@anthropic.com>` with no adjacent instruction that `<model>` is a fill-in-the-blank, not literal text. This already landed unsubstituted, verbatim, in two real production commits during dogfooding. `skills/release/SKILL.md` already carried the correct "Honest identity" framing with worked examples — it just wasn't mirrored anywhere else.
 - **Fix** — added the same framing (instruction to substitute the real agent/model identity, plus the same two worked examples reused verbatim) at `skills/orchestrate/SKILL.md`'s squash-merge template, `skills/scaffold-project/SKILL.md` (two sites), `skills/init-orchestration/SKILL.md`, and `docs/runbooks/manual.md` (found during Tech Lead review of the first four sites and folded into this same release). Every insertion sits outside its fence; the `<model>` placeholder itself is unchanged everywhere.
