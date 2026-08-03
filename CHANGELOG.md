@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.3.16
+- **Fix — `commands/spec.md` dead fallback prose removed (×3)** — the `generate`/`tests`/`reflect` subs each carried a conditional "Task 6 alignment" fallback block pointing at `skills/generate-specs`, `skills/generate-tests`, `skills/reflect-specs` — all three were fully absorbed into `skills/spec-tooling` long ago (it documents all three modes), so the fallback branches were permanently unreachable dead documentation referencing deleted files. Removed; no behavior change. Found while building the `skill-ref` docs-drift guard (shipping separately).
+
 ### v1.3.15
 - **Fix — `skills/memory-compress` restored, non-functional since v1.1.0** — same defect and same root-cause commit (CDT-46-C3) as `skills/validate-memory` fixed in v1.3.14: `commands/memory.md` was born already delegating `/memory distill --compress` / `MEMORY_COMPRESS=1` to `skills/memory-compress/SKILL.md` in the same commit that stubbed-then-deleted that file. Restored verbatim from git history (56 lines, self-contained prose skill, no engine dependencies) with one stale `/memory-distill` → `/memory distill` naming update. Found while building the `skill-ref` docs-drift guard (shipping separately).
 

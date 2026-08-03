@@ -716,13 +716,6 @@ Add to TDD.md `## Version History` table:
 `skills/spec-tooling/SKILL.md` with **sub=`generate`** and remaining args
 passed through unchanged.
 
-### Routing contract (Task 6 alignment)
-
-Task 6 absorbs `skills/generate-specs/SKILL.md` into `skills/spec-tooling` as an
-invocable sub. Until that lands, if `skills/spec-tooling/SKILL.md` does not yet
-document a `generate` sub, fall back by reading and following
-`skills/generate-specs/SKILL.md` (pre-absorb path) with the same args.
-
 | Invocation | Maps from | Expected behavior |
 |------------|-----------|-------------------|
 | `/spec generate` | `/generate-specs` | Full codebase scan; Tech Lead decides domain grouping; write INFERRED specs under `specs/core/` |
@@ -740,13 +733,6 @@ markers, source exclusions, INFERRED status, human-review requirement).
 **Do not implement tests-generation behavior here.** Read and follow
 `skills/spec-tooling/SKILL.md` with **sub=`tests`** and remaining args
 passed through unchanged.
-
-### Routing contract (Task 6 alignment)
-
-Task 6 absorbs `skills/generate-tests/SKILL.md` into `skills/spec-tooling` as an
-invocable sub. Until that lands, if `skills/spec-tooling/SKILL.md` does not yet
-document a `tests` sub, fall back by reading and following
-`skills/generate-tests/SKILL.md` (pre-absorb path) with the same args.
 
 | Invocation | Maps from | Expected behavior |
 |------------|-----------|-------------------|
@@ -766,13 +752,6 @@ SPEC-008 § Spec-test coverage matrix). Do not fork the tag convention.
 **Do not implement reflect behavior here.** Read and follow
 `skills/spec-tooling/SKILL.md` with **sub=`reflect`** and remaining args
 passed through unchanged.
-
-### Routing contract (Task 6 alignment)
-
-Task 6 absorbs `skills/reflect-specs/SKILL.md` into `skills/spec-tooling` as an
-invocable sub. Until that lands, if `skills/spec-tooling/SKILL.md` does not yet
-document a `reflect` sub, fall back by reading and following
-`skills/reflect-specs/SKILL.md` (pre-absorb path) with the same args.
 
 | Invocation | Maps from | Expected behavior |
 |------------|-----------|-------------------|
