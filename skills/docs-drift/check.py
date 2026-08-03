@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""SPEC-010 docs-drift checker: structural docs consistency (D1–D8).
+"""SPEC-010 docs-drift checker: structural docs consistency (D1–D9).
 
 Exit codes: 0 = no unwaived findings, 1 = unwaived findings, 64 = usage error.
 Finding format: <file>: [<check-id>] <message>
-Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc
+Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc | skill-ref
 """
 from __future__ import annotations
 
@@ -34,6 +34,12 @@ BT_TOKEN_RE = re.compile(r"`([a-z0-9-]+)`")
 
 # Markdown links: [text](path) — capture path, strip anchors
 MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+# Literal skills/<name>/<file> path mentions (prose or embedded in bash),
+# e.g. `skills/validate-memory/SKILL.md` or "$PLUGIN_ROOT/skills/x/y.sh"
+SKILL_PATH_RE = re.compile(
+    r"skills/([a-z0-9][a-z0-9_-]*)/([A-Za-z0-9_./-]+\.(?:md|sh|py))"
+)
 
 
 def resolve_root(explicit: str | None) -> str:
@@ -515,12 +521,49 @@ def check_manifest_desc(root: str, f: Findings) -> None:
             )
 
 
+def check_skill_ref(root: str, f: Findings) -> None:
+    """D9: every skills/<name>/<file> literal path mentioned in commands/*.md
+    (prose or embedded in a bash fence) must resolve to a real file — catches
+    a command left delegating to a skill that was stubbed or deleted (the
+    validate-memory class of bug: CDT-46-C3 stubbed a skill a dispatcher was
+    still delegating to, in the same commit).
+    """
+    cmd_dir = os.path.join(root, "commands")
+    if not os.path.isdir(cmd_dir):
+        return
+    for name in sorted(os.listdir(cmd_dir)):
+        if not name.endswith(".md"):
+            continue
+        cmd_path = os.path.join(cmd_dir, name)
+        text = read_text(cmd_path)
+        if text is None:
+            continue
+        src_lines = text.splitlines()
+        seen: dict[str, int] = {}
+        for ln, line in enumerate(src_lines, 1):
+            for m in SKILL_PATH_RE.finditer(line):
+                skill_name, filename = m.group(1), m.group(2)
+                rel_path = f"skills/{skill_name}/{filename}"
+                if rel_path not in seen:
+                    seen[rel_path] = ln
+        for rel_path, ln in sorted(seen.items()):
+            if not os.path.isfile(os.path.join(root, rel_path)):
+                f.add(
+                    cmd_path,
+                    "skill-ref",
+                    f"references {rel_path} which does not exist",
+                    line=ln,
+                    src_lines=src_lines,
+                )
+
+
 def run_checks(root: str) -> list[dict]:
     f = Findings(root)
     check_cmd_index(root, f)
     check_agent_roster(root, f)
     check_docs_hub(root, f)
     check_manifest_desc(root, f)
+    check_skill_ref(root, f)
     return f.items
 
 

@@ -249,6 +249,38 @@ expect_no_finding manifest-desc
 restore "$MINI/.claude-plugin/plugin.json"
 
 # ---------------------------------------------------------------------------
+# T4b skill-ref (D9)
+# ---------------------------------------------------------------------------
+# demo.md has no skill-ref mentions yet — clean baseline
+run_check 0 --root "$MINI"
+expect_no_finding skill-ref
+
+# (a) dangling reference → finding
+backup "$MINI/commands/demo.md"
+printf '%s\n' "See skills/no-such-skill/SKILL.md for details." >> "$MINI/commands/demo.md"
+run_check 1 --root "$MINI"
+expect_finding skill-ref
+echo "$OUT" | grep -q "no-such-skill" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: skill-ref should name no-such-skill"
+}
+restore "$MINI/commands/demo.md"
+
+# (b) reference to a real skill file → no finding
+backup "$MINI/commands/demo.md"
+printf '%s\n' "See skills/hello/SKILL.md for details." >> "$MINI/commands/demo.md"
+run_check 0 --root "$MINI"
+expect_no_finding skill-ref
+restore "$MINI/commands/demo.md"
+
+# (c) reference embedded in a fenced bash block is checked identically
+backup "$MINI/commands/demo.md"
+printf '%s\n' '```bash' 'F=$(bash skills/plugin-dir.sh file skills/no-such-skill/run.sh)' '```' \
+  >> "$MINI/commands/demo.md"
+run_check 1 --root "$MINI"
+expect_finding skill-ref
+restore "$MINI/commands/demo.md"
+
+# ---------------------------------------------------------------------------
 # T5 waiver (D6)
 # ---------------------------------------------------------------------------
 backup "$MINI/README.md"
@@ -349,6 +381,15 @@ OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
   && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live manifest-desc inject"; echo "$OUT" | head -8; }
 restore "$REPO_ROOT/.claude-plugin/marketplace.json"
 
+# skill-ref: inject a dangling skills/<name>/<file> mention into a real command
+backup "$REPO_ROOT/commands/memory.md"
+printf '%s\n' "See skills/zz-docs-drift-bite-skill/SKILL.md for details." \
+  >> "$REPO_ROOT/commands/memory.md"
+OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+[ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[skill-ref\]' && echo "$OUT" | grep -q 'zz-docs-drift-bite-skill' \
+  && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live skill-ref inject"; echo "$OUT" | head -8; }
+restore "$REPO_ROOT/commands/memory.md"
+
 # ---------------------------------------------------------------------------
 # T7 restore discipline: no inject artifacts; harness never used git checkout
 # ---------------------------------------------------------------------------
@@ -373,6 +414,12 @@ if ! cmp -s "$REPO_ROOT/AGENTS.md" <(cd "$REPO_ROOT" && git show HEAD:AGENTS.md 
   grep -q '`distiller`' "$REPO_ROOT/AGENTS.md" && PASS=$((PASS+1)) || {
     FAIL=$((FAIL+1)); echo "FAIL: AGENTS.md missing distiller after restore"
   }
+else
+  PASS=$((PASS+1))
+fi
+# commands/memory.md must not carry the skill-ref inject line after restore
+if grep -q 'zz-docs-drift-bite-skill' "$REPO_ROOT/commands/memory.md" 2>/dev/null; then
+  FAIL=$((FAIL+1)); echo "FAIL: commands/memory.md still carries skill-ref inject after restore"
 else
   PASS=$((PASS+1))
 fi

@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.3.18
+- **New `docs-drift` check: `skill-ref` (SPEC-010 D9)** — every literal `skills/<name>/<file>` path mentioned in `commands/*.md` (prose or embedded in a bash fence) must resolve to a real file. This is the deterministic guard for the exact defect class fixed in v1.3.14/v1.3.15: a command left delegating to a skill that was stubbed, renamed, or deleted. Wired automatically through the existing `/release` Step 4.9 and CI job — no new wiring needed, same script. Lands on an already-clean tree (v1.3.15–v1.3.17 fixed every pre-existing dangling reference this check would have flagged) — no waivers needed. 55/55 `docs-drift` bite-tests pass, including 3 new `skill-ref` cases (dangling ref, live ref, ref inside a bash fence) plus a live-tree inject/restore bite.
+
 ### v1.3.17
 - **Fix — `commands/retro.md` `GATE_SH` resolved to the wrong script (×2 sites)** — unrelated to the CDT-46-C3 class: Step 3b and Step 4c re-derived `$GATE_SH` in a fresh bash block (shell vars don't persist across blocks) but pointed it at a `skills/transcript-parse/freshness-gate.sh` that never existed, instead of `skills/retro-gate/gate.sh` (used correctly at Step 3a and consistent with the downstream `score`/`passed`/`threshold` JSON parsing and `FRICTION_SIGNALS_JSON` usage). Traced the actual call-site contract before fixing — a naive rename to the similarly-named `freshness.sh` would have "fixed" the dangling reference while shipping the wrong tool. Found while building the `skill-ref` docs-drift guard (shipping separately).
 
