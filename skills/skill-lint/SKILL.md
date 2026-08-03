@@ -5,8 +5,10 @@ description: |
     (SPEC-021). Checks: C1 cross-block variable scope, C2 zsh history-expansion
     hazard, C3 zsh-fatal unguarded glob, C4 captured inline-PRAGMA sqlite poison,
     C5 PDH bootstrap-stanza drift.
-    Run by /release as a pre-commit gate (Step 4.8). Not user-invoked directly;
-    run manually via: bash skills/skill-lint/check-skill-bash.sh [FILE...]
+    Run by /release as a pre-commit gate (Step 4.8), and also by CI
+    (.github/workflows/smoke.yml, job `skill-lint`) on every push/PR to master —
+    same invocation, same exit contract. Not user-invoked directly; run manually
+    via: bash skills/skill-lint/check-skill-bash.sh [FILE...]
 ---
 
 # skill-lint

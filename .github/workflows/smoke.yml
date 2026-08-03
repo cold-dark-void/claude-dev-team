@@ -12,3 +12,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash tools/smoke/run.sh
+
+  skill-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash skills/skill-lint/check-skill-bash.sh
+
+  docs-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash skills/docs-drift/check-docs-drift.sh

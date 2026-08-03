@@ -35,6 +35,7 @@
 | SPEC-029 | Debug Reopen & Multi-Surface Done Gates | ACTIVE | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
 | SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |
 | SPEC-031 | Escalation Gate & Universal Worktree Isolation | DRAFT | skills/refactor/SKILL.md (contract home), skills/debug/SKILL.md, skills/review-and-commit/SKILL.md, skills/code-simplify/SKILL.md, skills/init-orchestration/SKILL.md (hook template) + check-hook-templates.sh, commands/setup.md, AGENTS.md |
+| SPEC-032 | CI Linter Parity Gate | ACTIVE | .github/workflows/smoke.yml (linter jobs only), skills/skill-lint/SKILL.md (CI-caller note only), skills/docs-drift/SKILL.md (CI-caller note only), skills/release/SKILL.md (referenced, unchanged) |
 ## Version History
 
 | Date | Change |

@@ -5,7 +5,9 @@ description: |
     Checks: cmd-index (README ## Commands ↔ commands/*.md), agent-roster
     (AGENTS.md + README ↔ agents/*.md), docs-hub (docs/commands links/orphans),
     manifest-desc (plugin.json description == marketplace plugins[].description).
-    Wired by /release as Step 4.9 after T3. Run manually via:
+    Wired by /release as Step 4.9 after T3, and also by CI
+    (.github/workflows/smoke.yml, job `docs-drift`) on every push/PR to master —
+    same invocation, same exit contract. Run manually via:
     bash skills/docs-drift/check-docs-drift.sh [--root DIR]
 ---
 
