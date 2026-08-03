@@ -23,6 +23,12 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST save results to `.claude/plans/<date>-brainstorm-<slug>.md`
 
 ### Kickoff
+- MUST create or reuse a worktree via `worktree-lib.sh ensure <TICKET-ID>` (SPEC-016 caller-integration form) **after context load and before spawning the PM/Tech Lead/Explorer agents**, capturing `$WT_PATH` — mirroring `/orchestrate`'s Step 3→4 ordering. The slug MUST be the bare `<TICKET-ID>`. Exit-code handling MUST match `/orchestrate` Step 3 (`0` proceed, `1`/`2`/`64` HALT); MUST NOT silently proceed without a worktree
+- MUST perform **all** spec creation/commit, plan-file writes, and domain-glossary (CONTEXT.md) write-back inside `$WT_PATH` — on branch `feat/<TICKET-ID>` — never on the invoking session's current branch and never at `$MROOT`. The spec commit MUST target `$WT_PATH/specs` (`git -C "$WT_PATH"`), closing the origin defect where `/kickoff` committed the spec straight to master (CDT-104, CDT-99)
+- MUST leave the worktree **in place** as documented resumable state at kickoff exit; MUST NOT call `worktree-lib.sh release`. The kickoff worktree is the planning handoff artifact — a later `/orchestrate <TICKET-ID>` reuses the same-slug tree, or a human resumes from it. This is the deliberate exception to SPEC-031's bounded-exit "never leave a worktree as final state", which is scoped to implementation-capable skills that ship code; `/kickoff` ships spec+plan only
+- MUST print `$WT_PATH` and the branch name in the kickoff summary, plus an explicit resume line (e.g. "Resume with `/orchestrate <TICKET-ID>` to implement, or `cd` into the worktree")
+- The TaskCreate task graph and `task-store.sh` writes stay `$MROOT`-anchored (`.claude/tasks/…`) — shared cross-worktree bookkeeping by design (SPEC-017), unaffected by the worktree-scoped spec/plan commit
+- A ticket spec committed only on `feat/<TICKET-ID>` is not visible to `/spec check` on master until the branch merges — this is the intended trade of worktree isolation, not a regression, and the kickoff summary SHOULD state it once
 - MUST spawn three agents in parallel: PM, Tech Lead, Codebase Explorer (no sequential waiting)
 - MUST collect all three outputs before proceeding to planning
 - MUST include the line `Output mode: terse` in every agent-spawn prompt template (kickoff and orchestrate own the spawn templates) — mirrors SPEC-003 MC-4; `/spec reflect` flags any spawn template missing it
@@ -197,6 +203,8 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 - [ ] Brainstorm output saved to `.claude/plans/<date>-brainstorm-<slug>.md`
 - [ ] Kickoff produces spec + task graph
+- [ ] Kickoff creates/reuses a worktree (bare `<TICKET-ID>` slug) before the PM/TL spawn and commits spec/plan/CONTEXT.md inside `$WT_PATH` on `feat/<TICKET-ID>` — never on master/current branch
+- [ ] Kickoff leaves the worktree in place (no `release`) and prints `$WT_PATH` + branch + resume line
 - [ ] Orchestrate creates PR within LOC caps
 - [ ] Standup correctly identifies READY vs WAITING tasks
 - [ ] Wrap-ticket extracts 3-8 specific learnings
@@ -216,6 +224,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-08-02 | CDT-105: kickoff worktree isolation + resumable-state exit. `/kickoff` now `ensure`s a worktree (bare `<TICKET-ID>` slug) after context load, before the PM/TL spawn, and commits its spec/plan/CONTEXT.md inside `$WT_PATH` on `feat/<TICKET-ID>` — never on master. Fixes the origin defect (standalone `/kickoff` committing straight to master: CDT-104 a049044, CDT-99 0fdf420). Worktree left in place (no `release`) as a documented resumable handoff — the deliberate exception to SPEC-031's implementation-capable-scoped bounded-exit rule. Task graph stays `$MROOT`-anchored. Spec-visibility-until-merge is the intended trade, stated in the summary. SPEC-016 owns the caller-integration form; this spec owns the lifecycle/exit contract. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |
 | 2026-07-21 | reconcile subcommand + Linear-SoT precedence + add dedup guard defined (CDT-46-C2). Added `/backlog reconcile` (idempotent index↔item-file repair; Linear-reachable = source of truth for terminal states, local item-file status authoritative on fallback; dead-ref removal; duplicate collapse; best-effort Linear per SPEC-025 M5) and a `/backlog add` dedup guard (no silent duplicate rows for an existing slug). Spec-only; implementation and tests follow. |
 | 2026-07-22 | CDT-46-C4: standup user entry moves to `/status` / `/status standup`; bare `/status` sequences standup→metrics→worktree views (read-only). Covers add `commands/status.md`; metrics flag parity under `/status metrics`. |

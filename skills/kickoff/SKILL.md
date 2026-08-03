@@ -63,7 +63,6 @@ producer (or user) to re-emit it before planning.
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ```
 
 If TICKET-ID or ticket text are missing, ask:
@@ -167,6 +166,52 @@ ls $MROOT/specs/core/ 2>/dev/null || ls $MROOT/specs/ 2>/dev/null
 
 Read any spec whose filename or title matches keywords from the ticket text.
 Note which specs are relevant — they constrain the design.
+
+---
+
+## Step 1b: Create branch and worktree
+
+A git worktree is an additional working tree linked to the same repository — it lets
+all spec/plan/CONTEXT.md work land on the ticket branch in isolation, never on the
+invoking session's branch. This step is **mandatory**: without it, standalone
+`/kickoff <TICKET-ID>` commits the spec straight to whatever branch the session is on
+(the master-commit defect CDT-105 closes). Mirrors `/orchestrate` Step 3 exactly.
+
+```bash
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (pre-release-safe sort -V). CDT-82: marketplace before same-version cache.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+SLUG="<TICKET-ID>"  # MUST be the bare ticket ID exactly (e.g. "CDV-42") — no truncation
+                    # or sanitization from the description. A later /orchestrate <TICKET-ID>
+                    # reuses THIS tree via ensure's same-slug path; any altered slug would
+                    # fork a second worktree.
+WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+WT_PATH=$(bash "$WT_LIB" ensure "$SLUG") || {
+  EXIT=$?
+  if [ "$EXIT" -eq 2 ]; then
+    echo "Worktree setup aborted by user." >&2
+  elif [ "$EXIT" -eq 64 ]; then
+    echo "worktree-lib.sh usage error, check slug" >&2
+  fi
+  exit "$EXIT"
+}
+```
+
+`worktree-lib.sh` creates the branch `feat/<TICKET-ID>` automatically and prints the
+absolute worktree path to stdout — captured in `WT_PATH`. Use `$WT_PATH` everywhere
+downstream that WRITES the spec, plan, or CONTEXT.md.
+
+- **Exit 0**: proceed — `$WT_PATH` holds the worktree path.
+- **Exit 1** (unexpected error): git/filesystem failure in the lib; stderr has details; HALT.
+- **Exit 2** (user aborted / no TTY): halt cleanly, no error framing.
+- **Exit 64** (usage error): halt; report "worktree-lib.sh usage error, check slug".
+
+Do **NOT** silently proceed on any non-zero exit — a single downstream path left
+pointing at `$MROOT` reintroduces the master-commit defect with no visible error.
+
+Each later `bash` fence is a fresh shell (SPEC-021 C1), so `$WT_PATH` does not survive
+across fences. Every subsequent step that needs it re-derives
+`WT_PATH="$MROOT/.worktrees/<TICKET-ID>"` at the top of its own fence.
 
 ---
 
@@ -344,6 +389,16 @@ is decorative/no-op, so the design never quietly relies on an unverified behavio
 
 ## Step 5: Write or update spec (spec-first)
 
+**Spawned-agent path contract (MUST).** The Tech Lead agent runs in its own session
+and does NOT inherit `$WT_PATH` — for a standalone `/kickoff` its cwd is `$MROOT` or
+the invoking worktree, NOT `.worktrees/<TICKET-ID>`. Before sending any prompt below,
+the orchestrator MUST substitute the **resolved absolute path** captured in Step 1b for
+every `<WT_PATH>` token (e.g. `/home/you/repo/.worktrees/CDV-42`) — or spawn the agent
+with cwd set to that path. The agent MUST save to that absolute path, never relative to
+its own cwd. If the spec is written to the wrong tree, the `git -C "$WT_PATH" add specs/`
+below finds nothing and commits an empty/failed spec while the real file sits elsewhere
+— the exact seam CDT-105 closes.
+
 ### If spec needs to be created:
 
 ```
@@ -353,16 +408,21 @@ is decorative/no-op, so the design never quietly relies on an unverified behavio
 - Relevant cross-refs: <existing specs>
 
 Follow the SPEC-008 format contract (required sections, status taxonomy, index columns).
-Save to specs/core/SPEC-NNN-<slug>.md.
+Save to <WT_PATH>/specs/core/SPEC-NNN-<slug>.md — <WT_PATH> is the absolute worktree
+path from Step 1b (on feat/<TICKET-ID>); write to it as an absolute path, not relative
+to your cwd.
 Cross-reference any specs that constrain this one.
 ```
 
-Determine the next SPEC number:
+Determine the next SPEC number (read from the worktree — same content as master at
+branch creation, plus any spec already written on this branch in a prior partial run):
 ```bash
+# Re-derive working root + worktree (fresh shell — SPEC-021 C1)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-ls $MROOT/specs/core/ | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
+WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+ls "$WT_PATH/specs/core/" | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
 # increment by 1
 ```
 
@@ -374,19 +434,25 @@ Add/modify only what this ticket changes. Do not remove existing requirements
 unless they are directly contradicted.
 ```
 
-Wait for Tech Lead to write/update the spec. Then commit it:
+Wait for Tech Lead to write/update the spec. Then commit it **inside the worktree** so
+it lands on `feat/<TICKET-ID>`, never on the invoking branch:
 
 ```bash
+# Re-derive working root + worktree (fresh shell — SPEC-021 C1)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-git add $MROOT/specs/
-git commit -m "spec: <TICKET-ID> — add/update <feature area> spec"
+WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+git -C "$WT_PATH" add specs/
+git -C "$WT_PATH" commit -m "spec: <TICKET-ID> — add/update <feature area> spec"
 ```
 
 ---
 
 ## Step 6: Implementation plan + task graph
+
+The Step 5 **Spawned-agent path contract** applies here too: substitute the resolved
+absolute Step 1b worktree path for `<WT_PATH>` before sending, or spawn with that cwd.
 
 ```
 @tech-lead Produce the implementation plan for <TICKET-ID>.
@@ -396,7 +462,9 @@ Spec: <spec file path>
 Affected files (your earlier assessment): <list>
 
 Output:
-1. Step-by-step plan saved to $WTROOT/.claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md
+1. Step-by-step plan saved to <WT_PATH>/.claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md
+   — <WT_PATH> is the absolute worktree path from Step 1b (same branch as the spec,
+   feat/<TICKET-ID>); write to it as an absolute path, not relative to your cwd
 2. Task graph — which steps are independent (can run in parallel) and which have dependencies
 3. For each step: recommended agent (ic4 for well-defined/extending patterns, ic5 for novel/complex),
    and what interface/contract it exposes that other steps depend on.
@@ -460,12 +528,12 @@ Then detect quality-check mode:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
 # Re-resolve PDH (each bash fence is a fresh shell)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 DETECT_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/detect-mode.sh)
-QC_MODE=$(bash "$DETECT_CLI" "$WTROOT" | head -n1)
+QC_MODE=$(bash "$DETECT_CLI" "$WT_PATH" | head -n1)
 ```
 
 Read the plan Tech Lead produced. For each step, issue a TaskCreate:
@@ -499,14 +567,15 @@ bash "$TASK_STORE" create "<TICKET-ID>-<task_id>" "<subject>" <requires_council>
 
 Create all tasks. Note their assigned IDs.
 
-Then update the plan file to include the task IDs:
+Then update the plan file (in the worktree) to include the task IDs:
 ```bash
+# Re-derive working root + worktree (fresh shell — SPEC-021 C1)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
 # Append task map to bottom of plan file
-echo "\n## Task Map\n" >> $WTROOT/.claude/plans/<plan-file>.md
+echo "\n## Task Map\n" >> $WT_PATH/.claude/plans/<plan-file>.md
 # For each task: "- Task N (id:<ID>): <title> [depends on: ...]"
 ```
 
@@ -519,11 +588,25 @@ crystallized **user-confirmed** domain terms (new names from AC resolution,
 design choices, or explicit user answers that define project vocabulary):
 
 1. Follow `skills/domain-glossary/SKILL.md` **Update protocol**
-2. Prefer `$MROOT/CONTEXT.md` (or existing `docs/domain/CONTEXT.md`)
+2. The **orchestrator itself** writes this back (not a spawned agent), so it already
+   holds the resolved Step 1b path — write into the **worktree** at that absolute path:
+   prefer `$WT_PATH/CONTEXT.md` (or existing `$WT_PATH/docs/domain/CONTEXT.md`) — never
+   `$MROOT/CONTEXT.md`. An immediate `$MROOT` CONTEXT.md commit is itself a
+   direct-to-master commit, the exact defect CDT-105 closes. Terms crystallized in a
+   kickoff are tied to that ticket's spec, so they share its branch lifecycle
+   (visibility-until-merge — intended, not a regression).
 3. Merge only confirmed terms; do not invent jargon
-4. If `CONTEXT.md` changed, include it when committing related plan/spec work
-   in this kickoff (same commit as the spec if Step 5 committed, or note for
-   the user to commit with implementation)
+4. If `CONTEXT.md` changed, commit it inside `$WT_PATH` on `feat/<TICKET-ID>` —
+   coupled with the Step 5 spec commit (same worktree, same branch):
+   ```bash
+   # Re-derive working root + worktree (fresh shell — SPEC-021 C1)
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+     && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+     || MROOT=$(pwd)
+   WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+   git -C "$WT_PATH" add CONTEXT.md   # or docs/domain/CONTEXT.md, wherever it lives
+   git -C "$WT_PATH" commit -m "context: <TICKET-ID> — crystallized glossary terms"
+   ```
 
 If no new terms, skip silently.
 
@@ -536,8 +619,10 @@ Print a structured summary the engineer can use as a reference:
 ```
 Kickoff complete for <TICKET-ID>
 
-Spec:       specs/core/SPEC-NNN-<slug>.md [created|updated]
-Plan:       .claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md
+Worktree:   <WT_PATH>
+Branch:     feat/<TICKET-ID>
+Spec:       specs/core/SPEC-NNN-<slug>.md [created|updated]  (on feat/<TICKET-ID>)
+Plan:       .claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md  (on feat/<TICKET-ID>)
 Glossary:   <CONTEXT.md path updated | no new terms>
 Tasks:      N created
 
@@ -546,15 +631,24 @@ Task Graph:
   id:<N> Task 2 — <title>     → <ic5>        [ready to claim]
   id:<N> Task 3 — <title>     → <ic4>        [blocked by Task 1, Task 2]
   id:<N> Task 4 — QA tests    → qa           [ready after Task 2 interface defined]
-Quality check: <ci|local-test|none>  (detected via skills/ci-watch/detect-mode.sh $WTROOT)
+Quality check: <ci|local-test|none>  (detected via skills/ci-watch/detect-mode.sh $WT_PATH)
 
 Parallel work ready:
   @ic4: claim Task 1 via TaskUpdate, start immediately
   @ic5: claim Task 2 via TaskUpdate, start immediately — SendMessage interface to @ic4 and @qa early
   @qa:  claim Task 4 via TaskUpdate, start after @ic5 defines the interface
 
+Resume with /orchestrate <TICKET-ID> to implement, or cd into the worktree directly.
 Next: /status standup to monitor progress
 ```
+
+The spec, plan, and CONTEXT.md live on `feat/<TICKET-ID>` and are only visible on
+that branch until it merges (`/spec check` on master won't see them yet) — this is the
+intended visibility-until-merge trade, not a regression.
+
+The worktree is left in place as resumable state: `/kickoff` **never** calls
+`worktree-lib.sh release`. Its lifecycle is owned later by `/orchestrate <TICKET-ID>`
+(reuses the same tree) or `/wrap-ticket <TICKET-ID>` (removes it at ship).
 
 ---
 
@@ -581,7 +675,12 @@ Rules:
 
 ## Error Handling
 
-- **No git repo**: use `pwd` as MROOT; warn that worktree isolation won't work
+- **No git repo**: HARD ERROR — halt. Step 1b's `worktree-lib.sh ensure` requires
+  `git -C "$MROOT" worktree add` and will fail without a repo. There is no coherent
+  degraded mode that both skips worktree creation and avoids committing to the current
+  branch, so do NOT fall back to `pwd`/`$MROOT` — that reintroduces the master-commit
+  defect CDT-105 closes. Print `/kickoff requires a git repository for worktree isolation.`
+  and stop.
 - **PM finds too many ambiguities (>4 open questions)**: pause and tell the user to clarify the ticket in Linear before proceeding — do not plan against a vague ticket
 - **Tech Lead identifies a breaking schema change**: pause and flag to the user; suggest DevOps involvement before creating tasks
 - **No specs/ directory**: create `specs/core/` and note it in the summary; this ticket is the first spec
