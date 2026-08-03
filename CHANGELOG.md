@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.3.17
+- **Fix — `commands/retro.md` `GATE_SH` resolved to the wrong script (×2 sites)** — unrelated to the CDT-46-C3 class: Step 3b and Step 4c re-derived `$GATE_SH` in a fresh bash block (shell vars don't persist across blocks) but pointed it at a `skills/transcript-parse/freshness-gate.sh` that never existed, instead of `skills/retro-gate/gate.sh` (used correctly at Step 3a and consistent with the downstream `score`/`passed`/`threshold` JSON parsing and `FRICTION_SIGNALS_JSON` usage). Traced the actual call-site contract before fixing — a naive rename to the similarly-named `freshness.sh` would have "fixed" the dangling reference while shipping the wrong tool. Found while building the `skill-ref` docs-drift guard (shipping separately).
+
 ### v1.3.16
 - **Fix — `commands/spec.md` dead fallback prose removed (×3)** — the `generate`/`tests`/`reflect` subs each carried a conditional "Task 6 alignment" fallback block pointing at `skills/generate-specs`, `skills/generate-tests`, `skills/reflect-specs` — all three were fully absorbed into `skills/spec-tooling` long ago (it documents all three modes), so the fallback branches were permanently unreachable dead documentation referencing deleted files. Removed; no behavior change. Found while building the `skill-ref` docs-drift guard (shipping separately).
 
