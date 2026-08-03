@@ -3,6 +3,11 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.3.8
+- **CDT-106 — `epic-lib.sh` resolution restored to `plugin-dir.sh`, matching its documented contract** — `commands/epic.md:34`'s prose claimed `EPIC_LIB` was resolved via `plugin-dir.sh`, but the code at line 43 (and 10 more sites in `skills/epic/SKILL.md`) did a bare `$PDH` concat instead, losing `plugin-dir.sh`'s exit-3 not-found signal — the same defect class as CDT-99's row-12 finding, where a silently-swallowed bad path can route `/epic` into its DECOMPOSE branch instead of failing loudly.
+- **Fix** — all 11 sites now resolve via `EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)`, matching the `DAG_LIB=` reference pattern already used alongside it in `SKILL.md`. Mechanical, behavior-unchanged on the happy path; on a broken install, `/epic` now hard-fails with a diagnostic instead of silently falling through.
+- No spec change — mechanical conformance to SPEC-002's existing `plugin-dir.sh` contract, not new behavior.
+
 ### v1.3.7
 - **CDT-105 — `/kickoff` now creates a worktree before writing specs, closing a reproducible master-branch pollution bug** — `/kickoff`'s Step 5 ("Write or update spec") committed directly with `git add specs/ && git commit`, with no worktree-creation step anywhere earlier in its protocol. Since `/kickoff` explicitly supports standalone invocation, this landed the commit on whatever branch the session happened to be on — reproduced twice landing straight on master (CDT-104's `a049044`, CDT-99's `0fdf420`), both caught and manually relocated by hand after the fact.
 - **Fix** — a new Step 1b creates a worktree (`worktree-lib.sh ensure <TICKET-ID>`, bare slug) immediately after context load and before the PM+Tech Lead spawn, mirroring `/orchestrate`'s own Step 3→4 ordering. Every downstream write — the spec commit, the plan file, the CONTEXT.md domain-glossary write-back — now targets that worktree. The worktree is deliberately left in place at `/kickoff`'s own exit (no `release` call) as a documented resumable handoff: `/kickoff` ships spec+plan, not code, so SPEC-031's bounded-exit rule (scoped to implementation-capable skills) doesn't apply here. A later `/orchestrate <TICKET-ID>` transparently reuses the same-slug tree.
