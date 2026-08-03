@@ -21,6 +21,8 @@ bash install.sh
 
 The opencode install script symlinks `commands/` and generates opencode-valid agent files (Claude Code's string `tools:` field is stripped — opencode rejects it) into your opencode config directory (`~/.config/opencode/`). Re-run `bash install.sh` after editing an agent. Skills are added via `opencode.json` `skills.paths`.
 
+Use `--dry-run` to preview every change without writing anything (`bash install.sh --dry-run`, also supported by `uninstall.sh`). The script auto-detects opencode (binary on PATH or an existing config dir) and skips cleanly with a warning if neither is found. It also warns if your opencode agent tree is nearing the ~100-agent cap. Uninstall with `bash uninstall.sh`.
+
 ## Documentation
 
 | Guide | What's in it |
@@ -269,6 +271,10 @@ add the marketplace entry to a settings file you **do** commit:
 ### opencode
 
 For opencode, clone the repo and run `bash install.sh` to install into your opencode config directory (commands are symlinked; agents are copied with the Claude Code `tools:` field stripped, since opencode rejects it — re-run after editing an agent). Commands are accessible as `/dev-team/<command-name>` (e.g., `/dev-team/handoff`, `/dev-team/recall`).
+
+`bash install.sh --dry-run` prints every planned change (removals, dirs, symlink, model-pin reset, agent copies) and writes nothing — exits 0. Both scripts auto-detect opencode first: if neither an `opencode` binary on PATH nor an existing config dir is found, install skips with a warning instead of writing into a dead config dir. Install also warns when the opencode agent tree has 100+ agent `.md` files, since opencode may silently ignore agents past that point.
+
+Uninstall with `bash uninstall.sh` (removes the `commands/dev-team` symlink and generated `agents/dev-team` dir); `bash uninstall.sh --dry-run` prints `would remove: <path>` / `not found: <path>` per target and removes nothing.
 
 For skills, add your clone's `skills/` directory to `opencode.json` (skills are
 **not** symlinked by `install.sh` — they are loaded in place from the clone):

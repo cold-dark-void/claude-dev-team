@@ -24,26 +24,57 @@ CMD_DIR="$OPCODE_DIR/commands"
 # Parse flags. Default: agents inherit the session model (any prior dev-team
 # pins are cleared). --assign-models opts into the interactive per-tier picker.
 # --reset is an explicit alias for the default (clear pins → inherit).
+# --dry-run prints every planned mutation and executes none (exit 0).
 ASSIGN_MODELS=false
+DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     --assign-models) ASSIGN_MODELS=true ;;
     --reset)         ASSIGN_MODELS=false ;;
+    --dry-run)       DRY_RUN=true ;;
   esac
 done
+
+# Route every filesystem mutation through run(): in dry-run, print the command
+# instead of executing it. Only works for argv-form commands (no redirection or
+# &&) — the jq rewrites and agent-copy loop are gated with explicit $DRY_RUN
+# blocks below.
+run() { if $DRY_RUN; then printf '[dry-run] %s\n' "$*"; else "$@"; fi; }
+
+# opencode auto-detect (AC2): "present" = binary on PATH OR config dir exists
+# (OR, not AND — a first-time install has the binary but no config dir yet).
+# If BOTH are absent, warn and skip all writes (exit 0). --dry-run still prints
+# its full plan below (dry-run is diagnostic, always runs to completion).
+if ! command -v opencode >/dev/null 2>&1 && [ ! -d "$OPCODE_DIR" ]; then
+  echo "Warning: opencode not detected (no 'opencode' on PATH and $OPCODE_DIR does not exist)."
+  echo "Skipping install — nothing was written."
+  $DRY_RUN || exit 0
+fi
+
+# Capacity warning (AC3): count agent .md files recursively across the whole
+# opencode agent tree; opencode may silently ignore agents beyond ~100. Fires in
+# both normal and dry-run mode; guarded so an absent agents/ dir can't error the
+# count under `set -o pipefail`.
+if [ -d "$OPCODE_DIR/agents" ]; then
+  agent_count=$(find "$OPCODE_DIR/agents" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$agent_count" -ge 100 ]; then
+    echo "Warning: $agent_count agent files under $OPCODE_DIR/agents/ — approaching the 100-agent cap;"
+    echo "         opencode may silently ignore agents beyond the cap."
+  fi
+fi
 
 # Remove any prior install (older symlink, or a previously generated dir).
 # rm -rf the command entry too — if a real directory somehow exists there,
 # `ln -sf` would create the link *inside* it ($CMD_DIR/dev-team/commands)
 # rather than replacing it.
-rm -rf "$OPCODE_DIR/agents/dev-team"
-rm -rf "$CMD_DIR/dev-team"
+run rm -rf "$OPCODE_DIR/agents/dev-team"
+run rm -rf "$CMD_DIR/dev-team"
 
-mkdir -p "$AGENT_DIR" "$CMD_DIR"
+run mkdir -p "$AGENT_DIR" "$CMD_DIR"
 
 # Commands: symlink unchanged (opencode accepts `agent: build` and $ARGUMENTS).
 # -n so an existing symlink-to-dir is replaced, not dereferenced into.
-ln -sfn "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
+run ln -sfn "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
 
 # Discover available models from opencode.json (all providers, sorted)
 config_file="$OPCODE_DIR/opencode.json"
@@ -57,7 +88,11 @@ if [ -f "$config_file" ]; then
     for a in ic4 qa devops pm tech-lead ic5 ds; do
       reset_filter="$reset_filter | del(.agent[\"$a\"])"
     done
-    jq "$reset_filter" "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+    if $DRY_RUN; then
+      echo "[dry-run] would update opencode.json model pins (clear prior dev-team assignments)"
+    else
+      jq "$reset_filter" "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+    fi
   else
     echo "Note: 'jq' not found — cannot read models or clear existing dev-team model pins in"
     echo "      $config_file. Install jq to manage per-tier assignments; any existing pins are"
@@ -72,7 +107,11 @@ if [ -f "$config_file" ]; then
   # Prompt only when the user opted in (--assign-models), there's a real choice
   # (>1 model), and we're on a TTY (so CI / piped installs never block). Every
   # other case falls through to inherit the session model.
-  if $ASSIGN_MODELS && [ ${#available_models[@]} -gt 1 ] && [ -t 0 ]; then
+  if $DRY_RUN && $ASSIGN_MODELS; then
+    # AC6: never touch the TTY in dry-run — skip the picker and the jq apply.
+    echo "[dry-run] would prompt for model tiers (haiku/sonnet/opus) — skipped in dry-run"
+    echo ""
+  elif $ASSIGN_MODELS && [ ${#available_models[@]} -gt 1 ] && [ -t 0 ]; then
     echo "Available models in your opencode.json:"
     printf '  %s\n' "${available_models[@]}"
     echo ""
@@ -193,11 +232,20 @@ fi
 # Internal agents (council-judge/project-init/distiller) are installed too —
 # they're excluded only from the model-tier menu above (their model isn't
 # switched per-provider), so they inherit the session model.
-for f in "$SCRIPT_DIR"/agents/*.md; do
-  grep -v -E '^\s*(tools|model):' "$f" > "$AGENT_DIR/$(basename "$f")"
-done
+if $DRY_RUN; then
+  n=$(find "$SCRIPT_DIR/agents" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  echo "[dry-run] would generate $n opencode agent copies into $AGENT_DIR/"
+else
+  for f in "$SCRIPT_DIR"/agents/*.md; do
+    grep -v -E '^\s*(tools|model):' "$f" > "$AGENT_DIR/$(basename "$f")"
+  done
+fi
 
-echo "Installed claude-dev-team for opencode"
+if $DRY_RUN; then
+  echo "[dry-run] no changes made. Plan for claude-dev-team (opencode):"
+else
+  echo "Installed claude-dev-team for opencode"
+fi
 echo "  Agents:   $AGENT_DIR/ (generated from $SCRIPT_DIR/agents, tools: + model: stripped)"
 echo "  Commands: $CMD_DIR/dev-team -> $SCRIPT_DIR/commands"
 echo ""
