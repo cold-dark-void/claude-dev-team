@@ -29,6 +29,9 @@
 # Release-train queue + lock (SPEC-023)
 .claude/release-train/
 
+# Autopilot per-ticket decision cards (SPEC-033)
+.claude/autopilot/
+
 # Memory store binaries and database (auto-generated)
 .claude/memory/extensions/
 .claude/memory/models/

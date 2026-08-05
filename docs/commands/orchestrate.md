@@ -14,6 +14,7 @@ End-to-end issue orchestrator. Fetches issue context, creates a worktree, spawns
 | Flag / Argument | Description |
 |-----------------|-------------|
 | `<ISSUE-ID>` | Linear ticket ID (e.g. `CDV-42`) **or** local backlog slug. Omit to be prompted. |
+| `[--autopilot[=<bump>]]` | Optional. Enable autopilot for this run (CDT-111-C4); bare flag or `AUTOPILOT=1` env = enabled with no bump, `--autopilot=<patch\|minor\|major>` also sets the bump. Flag wins over env. |
 
 ## Examples
 

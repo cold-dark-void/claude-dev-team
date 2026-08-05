@@ -18,6 +18,10 @@ and task graph ready for IC agents to claim.
 - `/kickoff <TICKET-ID> "<ticket text>"` — ticket ID and full ticket text inline
 - `/kickoff <TICKET-ID>` — prompts for ticket text
 - `/kickoff` — prompts for both
+- `[--autopilot[=<bump>]]` — optional, any position: enable autopilot for this run
+  (CDT-111-C4). Bare `--autopilot` or `AUTOPILOT=1` env = enabled, bump `null`;
+  `--autopilot=<patch|minor|major>` also sets the bump. Flag wins over env. See
+  `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot detection".
 
 ---
 
@@ -68,6 +72,28 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 If TICKET-ID or ticket text are missing, ask:
 > "Ticket ID (e.g. POC-123):"
 > "Paste the full ticket text (title, description, acceptance criteria):"
+
+### Autopilot detection (CDT-111-C4)
+
+Resolve autopilot enablement once, at run start — every gated checkpoint below
+(Step 3, Step 4b, Error Handling) reuses these values by reference. `/kickoff` has
+no stint loop, so `ITER` stays `0` for the whole run.
+
+```bash
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (pre-release-safe sort -V). CDT-82: marketplace before same-version cache.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
+AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>
+AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
+AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
+RUN_START_EPOCH=$(date +%s)
+RUN_ID="kickoff-<TICKET-ID>-$RUN_START_EPOCH"    # S3-derivable per C3 §2
+ITER=0                                              # ++ once per stint
+```
+
+Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
+`RUN_START_EPOCH` / `ITER` below means these values, carried forward from this step.
 
 ---
 
@@ -301,6 +327,18 @@ before any design decisions are made.
 
 ## Step 3: Resolve open questions
 
+**Autopilot:** if PM has open questions and `AUTOPILOT_ON` (Step 0), skip the
+interactive prompt below. Build the C3 §2 envelope
+`{ workflow:"kickoff", ticket_id:<TICKET-ID>, gate:"scope-confirm", run_id:RUN_ID,
+iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
+<PM's open questions as the issue-text-sufficiency signal> }` and call
+`skills/autopilot/self-answer.md`'s procedure (expected: BC1 → `halt`). On `halt`,
+print the FINAL-#4 one-line message and return control:
+```
+scope-confirm halt: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), continue below unchanged.
+
 Present PM's open questions to the user:
 
 ```
@@ -374,6 +412,19 @@ Evidence (command output, file:line, or doc URL). Never guess: UNKNOWN is the
 required answer when you cannot prove it. Do not SendMessage the orchestrator;
 return the table as your final message.
 ```
+
+**Autopilot:** if `AUTOPILOT_ON` (Step 0) and any assumption a confirmed AC depends
+on returns `IGNORED`, `DECORATIVE`, or `UNKNOWN`, skip the interactive pause below.
+Build the C3 §2 envelope
+`{ workflow:"kickoff", ticket_id:<TICKET-ID>, gate:"scope-confirm", run_id:RUN_ID,
+iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
+<the verification table as the signal> }` and call
+`skills/autopilot/self-answer.md`'s procedure (expected: BC8 → `halt`). On `halt`,
+print the FINAL-#4 one-line message and return control:
+```
+scope-confirm halt: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off, or every assumption `HONORED`), continue below unchanged.
 
 Present the table to the user, then gate:
 - Every assumption a **confirmed AC depends on** that returns `IGNORED`, `DECORATIVE`,
@@ -681,7 +732,21 @@ Rules:
   branch, so do NOT fall back to `pwd`/`$MROOT` — that reintroduces the master-commit
   defect CDT-105 closes. Print `/kickoff requires a git repository for worktree isolation.`
   and stop.
+- **PM finds too many ambiguities (>4 open questions), autopilot ON** (`AUTOPILOT_ON`
+  from Step 0): skip the pause below. Build the C3 §2 envelope
+  `{ workflow:"kickoff", ticket_id:<TICKET-ID>, gate:"scope-confirm", run_id:RUN_ID,
+  iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
+  <open-question count/text as the complexity signal> }` and call
+  `skills/autopilot/self-answer.md`'s procedure (expected: BC1 → `halt`); on `halt`,
+  print `scope-confirm halt: <rationale> — card: <card-file-path>` and return control.
 - **PM finds too many ambiguities (>4 open questions)**: pause and tell the user to clarify the ticket in Linear before proceeding — do not plan against a vague ticket
+- **Tech Lead identifies a breaking schema change, autopilot ON** (`AUTOPILOT_ON` from
+  Step 0): skip the pause below. Build the C3 §2 envelope
+  `{ workflow:"kickoff", ticket_id:<TICKET-ID>, gate:"scope-confirm", run_id:RUN_ID,
+  iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
+  <the breaking-schema flag as the destructive-op signal> }` and call
+  `skills/autopilot/self-answer.md`'s procedure (expected: BC3 → `halt`); on `halt`,
+  print `scope-confirm halt: <rationale> — card: <card-file-path>` and return control.
 - **Tech Lead identifies a breaking schema change**: pause and flag to the user; suggest DevOps involvement before creating tasks
 - **No specs/ directory**: create `specs/core/` and note it in the summary; this ticket is the first spec
 - **Ticket text is too short to plan from**: ask the user to paste the full ticket including ACs

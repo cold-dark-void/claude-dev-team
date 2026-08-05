@@ -87,6 +87,42 @@ fi
 
 ---
 
+## Step 0.5: Autopilot enablement (CDT-111-C4)
+
+Resolve autopilot **once** at run start, before any gate. `--autopilot[=<bump>]`
+on the invocation or `AUTOPILOT=1` in the environment enables it; the flag wins
+over the env and is the **only** channel that carries a `<bump>` (SPEC-033 M2 /
+C4 FINAL #3). A malformed `--autopilot=<bump>` (bump ∉ {patch,minor,major}, incl.
+empty `--autopilot=`) is a hard error (exit 64) — never a silent fall-through to
+off (R7). `bump` is unused by `/epic` (which never ships, M11) but is still
+resolved+carried so the seed block is identical across `/orchestrate`,
+`/kickoff`, `/epic`.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
+AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>
+AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
+AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
+RUN_START_EPOCH=$(date +%s)
+RUN_ID="epic-<EPIC-ID>-$RUN_START_EPOCH"    # S3-derivable per C3 §2
+ITER=0                                      # ++ once per stint
+```
+
+Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` / `ITER` /
+`RUN_START_EPOCH` below means these values, carried forward from this step (fresh
+shells do not carry them; the orchestrator holds them as session-local run state). Each
+mapped gate — **A.5** (atomic scope+plan) and **B.3** (per child) — consults
+`AUTOPILOT_ON` to choose the autopilot branch or the existing human prompt.
+**A.6** defaults `MODE=orchestrate` under autopilot. **B.5 completion is NEVER
+autopilot-answered (SPEC-033 N8) — it stays a human/lifecycle attestation.**
+
+---
+
 ## Mode A — Decompose
 
 ### A.1 Soft prechecks (SHOULD)
@@ -180,6 +216,28 @@ Present:
 3. Soft >8-children warning if applicable
 4. **SHOULD (M12 / OQ8):** Linear project intent — will create or link a Linear Project named **exactly** the epic title (no `EPIC-ID` prefix). Informational only; not AC-gating.
 
+**Autopilot (CDT-111-C4 — SPEC-033 M3 / M5c):** when `AUTOPILOT_ON=true`
+(§Step 0.5), do **not** wait for the user. Make **one atomic** `scope-confirm`
+engine call covering scope **and** plan together — `/epic` has no separate
+plan-approve gate (M5c); the single A.5 verdict is both. Invoke
+`skills/autopilot/self-answer.md` with the C3 §2 envelope: `{ workflow:"epic",
+ticket_id:<EPIC-ID>, gate:"scope-confirm", run_id:RUN_ID, iteration:ITER,
+run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, <scope signals:
+epic-text sufficiency evidence, destructive-op flags, complexity signals> }`.
+Consume `{ decision, blocking_condition, confidence, rationale }` and act per the
+C4 Decision→action map:
+
+- `proceed` → continue to **A.6** exactly as the human **approve** path would.
+- `halt` → print the one-line message
+  `scope-confirm halt: <rationale> — card: <card-path>` and **return** with
+  **zero** disk side effects **and zero** Linear project create/link attempts —
+  identical no-side-effect semantics to the human **decline** path below
+  (AC12 / M3). No notify transport (that is C6/C7).
+- any other decision follows the shared C4 Decision→action map (e.g.
+  `reroute-epic` → same one-line message, then hand to `/epic` decompose).
+
+Otherwise (autopilot off) the existing human gate applies **unchanged**:
+
 User may edit/merge/remove children. On **decline**: exit, **zero** disk side effects **and zero** Linear project create/link attempts (AC12 / M3).
 
 On **approve** continue A.6.
@@ -187,6 +245,11 @@ On **approve** continue A.6.
 ### A.6 Persist (only after approve)
 
 Ask once for execution mode if not yet known: `kickoff` | `orchestrate`.
+
+**Autopilot (CDT-111-C4 — SPEC-033 M5d / FINAL #5):** when `AUTOPILOT_ON=true`
+(§Step 0.5), **skip the ask** and default `MODE=orchestrate` without prompting.
+The ask above applies only when autopilot is off. (A.6 makes no engine call — it
+is purely a function of the A.5 verdict.)
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -392,6 +455,25 @@ Hand off <CHILD-ID> via /<execution_mode>? (y/n)
 
 - `n` → exit cleanly; state unchanged for that child.
 - `y` → continue.
+
+**Autopilot (CDT-111-C4 — SPEC-033 M5):** when `AUTOPILOT_ON=true` (§Step 0.5),
+do **not** print the `(y/n)` prompt. For **each** child popped off the ready set,
+make **one** `scope-confirm` engine call via `skills/autopilot/self-answer.md`
+with the C3 §2 envelope — `ticket_id` = **that child's** `<CHILD-ID>`:
+`{ workflow:"epic", ticket_id:<CHILD-ID>, gate:"scope-confirm", run_id:RUN_ID,
+iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
+<scope signals: child issue-text sufficiency, destructive-op flags, complexity> }`.
+Consume `{ decision, blocking_condition, confidence, rationale }` and act:
+
+- `proceed` → continue to **B.4** (status → in_progress + handoff) exactly as the
+  human `y` path would.
+- `halt` → print `scope-confirm halt: <rationale> — card: <card-path>` and
+  **return**; that child's state is **unchanged** (no `set-status`), identical to
+  the human `n` path (preserves AC10: confirm before `set-status`). No notify
+  transport (C6/C7).
+- any other decision follows the shared C4 Decision→action map (e.g.
+  `reroute-epic` → same one-line message, then hand that child to `/epic`
+  decompose per M11 self-reroute).
 
 ### B.4 Status → in_progress + handoff (M7, M8)
 

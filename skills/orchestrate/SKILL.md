@@ -17,6 +17,10 @@ happens in agent worktrees.
 
 - `/orchestrate <ISSUE-ID>` — fetch from Linear or prompt for context
 - `/orchestrate` — prompts for issue ID
+- `[--autopilot[=<bump>]]` — optional, any position: enable autopilot for this run
+  (CDT-111-C4). Bare `--autopilot` or `AUTOPILOT=1` env = enabled, bump `null`;
+  `--autopilot=<patch|minor|major>` also sets the bump. Flag wins over env. See
+  `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot detection".
 
 ---
 
@@ -62,6 +66,70 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 
 If ISSUE-ID missing, ask:
 > "Issue ID (e.g. CDV-1):"
+
+### Autopilot detection (CDT-111-C4)
+
+Resolve autopilot enablement once, at run start — every gated checkpoint below
+(Step 2 scope-confirm, Step 6 plan-approve, Step 11 ship-choice) reuses these values
+by reference. `ITER` starts at `0` and increments once per orchestration stint.
+
+```bash
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (pre-release-safe sort -V). CDT-82: marketplace before same-version cache.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
+AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>
+AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
+AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
+AP_SOURCE=$(jq -r .source <<<"$AP_JSON")            # flag | env | none
+
+# Resume detection (CDT-111-C8): only when THIS invocation gave neither
+# --autopilot nor AUTOPILOT= (flag/env always win over recorded state).
+RESUMING=false
+if [ "$AP_SOURCE" = none ]; then
+  RS=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/resume-state.sh)
+  RS_JSON=$(bash "$RS" "<ISSUE-ID>")
+  if [ "$(jq -r .found <<<"$RS_JSON")" = true ]; then
+    REC_ON=$(jq -r '.autopilot_on // "null"' <<<"$RS_JSON")
+    if [ "$REC_ON" != null ]; then
+      AUTOPILOT_ON=$REC_ON
+      AUTOPILOT_BUMP=$(jq -r '.autopilot_bump // "null"' <<<"$RS_JSON")
+      RESUMING=true
+      PLAN_PATH=$(jq -r .plan <<<"$RS_JSON")
+      if [ "$AUTOPILOT_ON" = true ]; then
+        echo "resuming <ISSUE-ID> in recorded autopilot mode (bump=$AUTOPILOT_BUMP) — plan: $PLAN_PATH"
+      else
+        echo "resuming <ISSUE-ID> — recorded state: autopilot off — plan: $PLAN_PATH"
+      fi
+    fi
+  fi
+fi
+
+# RUN_START_EPOCH: synthetic on resume so BC6's wall-clock cap measures active
+# execution time only — pause duration must never count (SPEC-033 M9a).
+NOW=$(date +%s)
+if [ "$RESUMING" = true ]; then
+  ACCUM=$(bash "$RS" --accumulated "<ISSUE-ID>")   # $RS resolved above, same script
+  if [ "$ACCUM" -gt 0 ]; then
+    RUN_START_EPOCH=$(( NOW - ACCUM ))
+  else
+    RUN_START_EPOCH=$NOW
+  fi
+else
+  RUN_START_EPOCH=$NOW
+fi
+RUN_ID="orchestrate-<ISSUE-ID>-$RUN_START_EPOCH"    # S3-derivable per C3 §2
+ITER=0                                              # ++ once per stint
+```
+
+On a fresh `/orchestrate <ISSUE-ID>`, an existing `.claude/plans/*-<ISSUE-ID>-*.md`
+seeds autopilot state only when no `--autopilot`/`AUTOPILOT=1` was given on this
+invocation (flag/env win over recorded state — `parse-flags.sh`'s own precedence,
+`source=="none"` is the signal). Pause time is excluded from BC6 via the synthetic
+epoch (SPEC-033 M9a, CDT-111-C8).
+
+Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
+`RUN_START_EPOCH` / `ITER` below means these values, carried forward from this step.
 
 ---
 
@@ -112,6 +180,28 @@ My assessment:
 
 Proceed with this scope? Any adjustments?
 ```
+
+**Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the
+C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"scope-confirm",
+run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
+autopilot_bump:AUTOPILOT_BUMP, <issue-text sufficiency evidence, destructive-op flags,
+and the complexity signals from the assessment above> }` and call
+`skills/autopilot/self-answer.md`'s procedure for `{decision, blocking_condition,
+confidence, rationale}` (exactly one `decided_by:"auto"` card is appended). Act on
+`decision`:
+- `proceed` → continue to Step 3 exactly as the user's "yes" would.
+- `reroute-epic` → print the one-line message below, hand off to `/epic` decompose, and
+  return control.
+  The `/epic` decompose invocation MUST carry the autopilot state forward — pass
+  `--autopilot[=<bump>]` (or `AUTOPILOT=1`); `/epic` Step 0.5 resolves its OWN autopilot state
+  independently and does NOT inherit the caller's (SPEC-033 M11a).
+- `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
+  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  return control:
+```
+scope-confirm <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), the user-confirmation gate below applies unchanged.
 
 Wait for user confirmation before proceeding. This is the first escalation gate.
 
@@ -249,9 +339,19 @@ Produce:
 - closes:
   - backlog/<slug>.md
   - linear:<ID>
+- autopilot_on: <true|false>
+- autopilot_bump: <patch|minor|major|null>
 
 Many-to-one is allowed (one ticket closes multiple backlog items). Empty closes
-only for freeform.
+only for freeform. `autopilot_on`/`autopilot_bump` MUST always be written, on
+autopilot and non-autopilot runs alike — substitute the Step-0 resolved
+`AUTOPILOT_ON`/`AUTOPILOT_BUMP` values (recording `autopilot_on: false`
+explicitly on a non-autopilot run is a symmetric "remember it was NOT
+autopilot" record, not just a true-case field). `autopilot_bump` is `null`
+when autopilot is off, or when on in bare/pr-mode. pr-vs-merge is always
+derived from bump (null→pr, else→merge) — do NOT record a separate field
+(SPEC-033 M9a / CDT-111-C8 AC1). This is `resume-state.sh`'s Step-0 resume
+detection read surface (CDT-111-C8).
 ```
 
 Present the plan summary to user:
@@ -268,6 +368,28 @@ Dependencies: Task 3 blocked by Task 1+2
 
 Approve this plan? Want changes?
 ```
+
+**Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here — this is the
+autopilot-only `plan-approve` branch; when autopilot is off nothing changes and the
+existing approval gate below fires as the sole gate. Build the C3 §2 envelope
+`{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
+iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
+<per-task {file paths present?, verification step present?}, projected LOC / per-file
+size, task-graph shape, destructive-op flags> }` and call
+`skills/autopilot/self-answer.md`'s procedure. Act on `decision`:
+- `approve` → continue to Step 7 exactly as the user's approval would.
+- `reroute-epic` → print the one-line message below, hand off to `/epic` decompose, and
+  return control.
+  The `/epic` decompose invocation MUST carry the autopilot state forward — pass
+  `--autopilot[=<bump>]` (or `AUTOPILOT=1`); `/epic` Step 0.5 resolves its OWN autopilot state
+  independently and does NOT inherit the caller's (SPEC-033 M11a).
+- `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
+  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  return control:
+```
+plan-approve <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), the user-approval gate below applies unchanged.
 
 Wait for user approval. This is the second escalation gate.
 
@@ -488,9 +610,88 @@ and spawn any newly-unblocked tasks.
 - **Agent stuck after 2 genuine attempts** — present what was tried, ask for guidance.
   Before re-routing: run **Stint-end outcome emit** with `STINT_OUTCOME=escalated`
   for the agent whose stint is ending (counters as of hand-off).
+
+**Autopilot — agent stuck after 2 attempts:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the
+user here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new
+gate enum value.) The Stint-end outcome emit above still fires unchanged first. Build the C3 §2
+envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
+iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, <trigger signal:
+"agent stuck after 2 genuine attempts; what was tried: <summary>" — an unresolved
+product/architecture decision autopilot cannot self-answer (BC1)> }` and call
+`skills/autopilot/self-answer.md`'s procedure for `{decision, blocking_condition, confidence,
+rationale}` (exactly one `decided_by:"auto"` card is appended; expected `blocking_condition = 1`).
+Act on `decision`:
+- `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
+  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  return control:
+```
+plan-approve <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), the escalation above applies unchanged.
+
 - **Scope creep detected** — agent discovers work not in the plan; ask user whether to expand scope or defer to backlog
+
+**Autopilot — scope creep detected:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here.
+(Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate enum
+value.) Build the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
+gate:"plan-approve", run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
+autopilot_bump:AUTOPILOT_BUMP, <scope-creep signal: the out-of-plan work the agent discovered,
+evaluated against the SPEC-033 M10 complexity-overflow criteria> }` and call
+`skills/autopilot/self-answer.md`'s procedure (exactly one `decided_by:"auto"` card is appended).
+Act on `decision`:
+- `reroute-epic` (BC5 — meets M10 overflow) → print the one-line message below; hand this ticket's
+  **remaining + newly-discovered scope** to `/epic` decompose per SPEC-033 M11 / M11a(b), and
+  return control. **Already-completed/shipped task state is NOT rolled back** (M11a(b)); completed
+  commits stay committed and become inputs to the decomposed epic. The `/epic` decompose invocation
+  MUST carry the autopilot state forward — pass `--autopilot[=<bump>]` (or `AUTOPILOT=1`) so `/epic`
+  Step 0.5 re-enables autopilot; `/epic` resolves its OWN autopilot state independently and does NOT
+  inherit the caller's (SPEC-033 M11a(a)).
+- `halt` (BC1 — scope-creep that is NOT an overflow) → emit `task_blocked` (detail = the
+  one-line message below) via **Passive notifications → Tier B** (fail-open; § below), then
+  print the one-line message below and return control:
+```
+plan-approve <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), the escalation above applies unchanged.
+
 - **Ambiguous requirement** — agent can't resolve from spec/ACs alone
+
+**Autopilot — ambiguous requirement:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here.
+(Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate enum
+value.) Build the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
+gate:"plan-approve", run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
+autopilot_bump:AUTOPILOT_BUMP, <trigger signal: "requirement unresolvable from spec/ACs alone" —
+an unresolved product/architecture decision autopilot cannot self-answer (BC1)> }` and call
+`skills/autopilot/self-answer.md`'s procedure for `{decision, blocking_condition, confidence,
+rationale}` (exactly one `decided_by:"auto"` card is appended; expected `blocking_condition = 1`).
+Act on `decision`:
+- `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
+  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  return control:
+```
+plan-approve <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), the escalation above applies unchanged.
+
 - **Breaking change discovered** — schema migration, API contract change, dependency bump
+
+**Autopilot — breaking change discovered:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user
+here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate
+enum value.) Build the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
+gate:"plan-approve", run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
+autopilot_bump:AUTOPILOT_BUMP, <trigger signal: "breaking change discovered (schema migration /
+API contract / dep bump) — **discovery**, a required human decision, not a destructive action
+being taken now (BC1, not BC3)"> }` and call `skills/autopilot/self-answer.md`'s procedure for
+`{decision, blocking_condition, confidence, rationale}` (exactly one `decided_by:"auto"` card is
+appended; expected `blocking_condition = 1`). Act on `decision`:
+- `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
+  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  return control:
+```
+plan-approve <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), the escalation above applies unchanged.
+
 - **Agent disagreement** — IC and Tech Lead can't align after review rounds (see Step 9)
 
 ### DO NOT escalate:
@@ -741,6 +942,23 @@ Escalate to user. Do NOT let it loop further. Before re-assigning or pausing the
 current agent, run **Stint-end outcome emit** with `STINT_OUTCOME=escalated` for
 the agent whose stint is ending (counters as of hand-off).
 
+**Autopilot — deadloop (3+ review rounds):** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user
+here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate
+enum value.) The Stint-end outcome emit above still fires unchanged first. Build the C3 §2 envelope
+`{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
+iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, <trigger signal:
+"IC↔TL 3+ review rounds without consensus" — an unresolved product/architecture decision autopilot
+cannot self-answer (BC1)> }` and call `skills/autopilot/self-answer.md`'s procedure for
+`{decision, blocking_condition, confidence, rationale}` (exactly one `decided_by:"auto"` card is
+appended; expected `blocking_condition = 1`). Act on `decision`:
+- `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
+  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  return control:
+```
+plan-approve <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), the escalation above applies unchanged.
+
 ### After Tech Lead approves:
 
 Update TaskUpdate → completed. Check if this unblocks other tasks.
@@ -887,6 +1105,45 @@ Options:
 3. I need to review manually first
 ```
 
+**Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the C3 §2
+envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"ship-choice",
+run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
+autopilot_bump:AUTOPILOT_BUMP, <the Step-10b spec-alignment result, QA PASS/FAIL, the
+session-local `qa_bounces` count (BC2), and ship-action irreversibility (protected-branch
+merge / force-push)> }` and call `skills/autopilot/self-answer.md`'s procedure — it records
+the clean answer as **card #1** (`blocking_condition = null` on a clean `pr`/`merge`).
+
+**Council interposition (AC1 — SPEC-033 M14).** On a clean `pr` **or** `merge` card #1, run
+`skills/autopilot/ship-gate-council.md`'s procedure **before any ship action** — on **both**
+branches, not merge-only. That pass appends **card #2** (same `run_id`) and yields the
+**post-council effective decision**: council **agree** (conf ≥ 80, non-degraded) keeps card #1's
+`pr`/`merge`; **disagree / degraded / total-fail** forces `halt` (BC7). On a card #1 already
+`halt`/`reroute-epic`, the council pass is **skipped** (ship-gate-council.md §2) and the
+effective decision is card #1's.
+
+Act on the **post-council effective decision**:
+- `pr` → take Option 1 (Create PR) above exactly as the user's choice would; emit `task_complete`
+  (detail = `shipped (PR): <PR URL>`) via **Passive notifications → Tier B** (fail-open; § below),
+  then STOP — no `/release` (Tracking close-out below runs in its existing pre-delivery order).
+  [PR-stop]
+- `merge` → run `skills/autopilot/end-state.md`'s release-end-state sequence: deterministic BC3
+  push-target check (N3a) → `git merge --squash <branch>` (stage only, **no** `git commit`) →
+  `/release <AUTOPILOT_BUMP>` (the sole commit + tag + push). Does **not** route through the
+  interactive "If squash merge requested" block below (`autopilot_bump != null` is engine-guaranteed).
+  On `/release` success (end-state.md §6 closeout done), emit `task_complete` (detail =
+  `released <bump>/<tag>`) via **Passive notifications → Tier B** (fail-open; § below).
+- `halt` / `reroute-epic` → print the one-line message below and return control; on `halt`
+  **only**, first emit `task_blocked` (detail = the one-line message below) via **Passive
+  notifications → Tier B** (fail-open; § below) — `reroute-epic` does NOT notify-blocked;
+  `reroute-epic` additionally hands off to `/epic` decompose:
+  The `/epic` decompose invocation MUST carry the autopilot state forward — pass
+  `--autopilot[=<bump>]` (or `AUTOPILOT=1`); `/epic` Step 0.5 resolves its OWN autopilot state
+  independently and does NOT inherit the caller's (SPEC-033 M11a).
+```
+ship-choice <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off), the user-choice gate below applies unchanged.
+
 Wait for user choice.
 
 ### Tracking close-out (ship DoD — orchestrator-owned)
@@ -895,6 +1152,12 @@ Wait for user choice.
 tracker listed under plan `closes:`. Do this on the **feature worktree**
 (`--root "$WT_PATH"`) so edits land on the branch tree — not mid-flight by
 parallel ICs (avoids `backlog.md` races).
+
+**Autopilot release-path exception (AC5, CDT-111-C9):** on the autopilot `merge` → `/release`
+path **only**, this close-out runs **after** `/release` succeeds (per `skills/autopilot/end-state.md`
+§6) — not before — so trackers stay open if `/release` aborts at a pre-commit gate (nothing
+shipped). Every other path (interactive PR, interactive squash, autopilot `pr`) keeps the
+before-commit ordering below, unchanged.
 
 ```bash
 # Re-resolve PDH / MROOT / WT (fresh shell). Parse backlog slugs from plan Tracking.
@@ -1189,6 +1452,9 @@ Whenever the approach changes materially — new dependencies discovered, scope 
 2. Spawn Tech Lead to replan.
 3. Present updated plan to user for approval.
 4. Only resume after user confirms.
+5. When regenerating the plan file, re-write the `## Tracking` `autopilot_on`/
+   `autopilot_bump` lines with the current run's Step-0 values (same rule as
+   Step 6 — CDT-111-C8 AC1; never drop them on replan).
 
 This applies even if the change seems small. Small deviations compound.
 
