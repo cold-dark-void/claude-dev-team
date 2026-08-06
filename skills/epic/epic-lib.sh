@@ -24,6 +24,8 @@ Commands:
              [--outcome "…"]   # optional; completed|blocked only; ≤200 chars, 1 line
   set-linear-project <EPIC-ID> <PROJECT-ID>|null|--clear
   set-last-seed <EPIC-ID> <path>|null|--clear
+  build-seed <EPIC-ID> [--next <CHILD-ID>] [--out path]
+  validate-seed <path>
   mark-done <TICKET-ID>
   ready-set <EPIC-ID>
   check-cycle <json-file|->
@@ -561,6 +563,216 @@ cmd_exists() {
   [ -f "$STATE" ]
 }
 
+# ---- CDT-127 / SPEC-025 M13: between-child seed (mechanical STM subset) -----
+
+# Render seed markdown from state JSON on stdin.
+# Args: <next-child-id> <generated_at> <waves-line>
+_seed_render() {
+  local next_id="$1" gen_at="$2" waves="$3"
+  jq -r --arg next "$next_id" --arg ts "$gen_at" --arg waves "$waves" '
+    def ready_ids:
+      (.children as $all
+       | ($all | map({key:.id, value:.status}) | from_entries) as $stmap
+       | [$all[]
+          | select(.status == "pending")
+          | select(all(.depends_on[]?; ($stmap[.] // "missing") == "completed"))
+          | .id]
+       | sort | join(", "));
+    def count_line:
+      "pending=\([.children[] | select(.status=="pending")] | length)"
+      + " in_progress=\([.children[] | select(.status=="in_progress")] | length)"
+      + " completed=\([.children[] | select(.status=="completed")] | length)"
+      + " blocked=\([.children[] | select(.status=="blocked")] | length)"
+      + " total=\(.children | length)";
+    def in_prog_line:
+      ([.children[] | select(.status=="in_progress") | .id] | join(", ")) as $x
+      | if $x == "" then "(none)" else $x end;
+    def blocker_bullets:
+      [.children[] | select(.status=="blocked")
+       | "  - \(.id)"
+         + (if (.outcome_summary // "") != "" then " — \(.outcome_summary)" else "" end)];
+    def completed_lines:
+      [.children[] | select(.status=="completed")
+       | "- \(.id) completed — \(.outcome_summary // "")"];
+    def last_completed:
+      ([.children[] | select(.status=="completed") | .id] | last // "none");
+    def open_blockers:
+      [.children[] | select(.status=="blocked")
+       | "- \(.id) blocked — \(.outcome_summary // "")"
+         + "\n  problem: \(.problem // "")"];
+    . as $s
+    | ($s.children[] | select(.id == $next)) as $n
+    | [
+        "# Epic seed: \($s.epic_id)",
+        "epic_id: \($s.epic_id)",
+        "mode: \($s.execution_mode)",
+        "generated_at: \($ts)",
+        "last_completed: \(last_completed)",
+        "next_child: \($next)",
+        "",
+        "## State now",
+        "- counts: \(count_line)",
+        "- ready: \(if ready_ids == "" then "(none)" else ready_ids end)",
+        "- in_progress: \(in_prog_line)",
+        "- blockers:",
+        (if (blocker_bullets | length) == 0 then "  (none)"
+         else (blocker_bullets | join("\n")) end),
+        "- last_seed_path: \($s.last_seed_path // "null")",
+        "",
+        "## Through-line",
+        (if (completed_lines | length) == 0 then "- (none)"
+         else (completed_lines | join("\n")) end),
+        "waves: \($waves)",
+        "",
+        "## appendix",
+        "### Next: \($next)",
+        "- title: \($n.title // "")",
+        "- problem: \($n.problem // "")",
+        "- acceptance_criteria: \($n.acceptance_criteria // [] | tostring)",
+        "- estimate: \($n.estimate // "")",
+        "- agent: \($n.agent // "")",
+        "- depends_on: \($n.depends_on // [] | tostring)",
+        "- execution_mode: \($s.execution_mode)",
+        "",
+        "### Open blockers",
+        (if (open_blockers | length) == 0 then "(none)"
+         else (open_blockers | join("\n")) end),
+        ""
+      ] | join("\n")
+  '
+}
+
+cmd_build_seed() {
+  # build-seed <EPIC-ID> [--next <CHILD-ID>] [--out path]
+  # Mechanical STM-shaped packet from state.json (SPEC-025 M13.3). No handoff mine.
+  # Fail-closed: missing state / zero children / no next → exit 1, no file.
+  local epic_id="${1:-}"
+  [ -n "$epic_id" ] || die 64 "build-seed: missing <EPIC-ID>"
+  shift
+
+  local next_arg="" out_arg=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --next)
+        [ $# -ge 2 ] || die 64 "build-seed: --next needs a value"
+        next_arg="$2"; shift 2
+        ;;
+      --next=*)
+        next_arg="${1#--next=}"; shift
+        ;;
+      --out)
+        [ $# -ge 2 ] || die 64 "build-seed: --out needs a value"
+        out_arg="$2"; shift 2
+        ;;
+      --out=*)
+        out_arg="${1#--out=}"; shift
+        ;;
+      -*)
+        die 64 "build-seed: unknown flag $1"
+        ;;
+      *)
+        die 64 "build-seed: unexpected arg: $1"
+        ;;
+    esac
+  done
+
+  local st
+  st=$(read_state "$epic_id")   # die 1 if missing
+
+  local nchildren
+  nchildren=$(echo "$st" | jq '.children | length')
+  if [ "$nchildren" -eq 0 ]; then
+    die 1 "build-seed: epic has zero children"
+  fi
+
+  local next_id
+  if [ -n "$next_arg" ]; then
+    next_id="$next_arg"
+    if ! echo "$st" | jq -e --arg id "$next_id" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
+      die 1 "build-seed: --next child not found: $next_id"
+    fi
+  else
+    next_id=$(cmd_ready_set "$epic_id" | head -n1 || true)
+    [ -n "$next_id" ] || die 1 "build-seed: no ready child (pass --next)"
+  fi
+
+  local last_completed gen_at waves body
+  last_completed=$(echo "$st" | jq -r '[.children[] | select(.status=="completed") | .id] | last // "none"')
+  gen_at=$(iso_now)
+  waves=$(cmd_waves "$epic_id" 2>/dev/null || true)
+  [ -n "$waves" ] || waves="(none)"
+
+  body=$(echo "$st" | _seed_render "$next_id" "$gen_at" "$waves") || die 1 "build-seed: render failed"
+  [ -n "$body" ] || die 1 "build-seed: empty render"
+
+  epic_paths "$epic_id"
+  local seeds_dir out_path tmp abs
+  seeds_dir="$EPIC_DIR/seeds"
+  mkdir -p "$seeds_dir"
+
+  if [ -n "$out_arg" ]; then
+    out_path="$out_arg"
+    mkdir -p "$(dirname "$out_path")"
+  else
+    local stamp prev_tag
+    stamp=$(date -u +%Y%m%d-%H%M)
+    prev_tag="$last_completed"
+    [ -n "$prev_tag" ] || prev_tag="none"
+    out_path="$seeds_dir/${stamp}-${prev_tag}-to-${next_id}.md"
+  fi
+
+  tmp="${out_path}.tmp.$$"
+  printf '%s\n' "$body" > "$tmp"
+  # fail-closed: refuse to land a seed that would not validate
+  # subshell so validate-seed die/exit does not skip tmp cleanup
+  if ! ( cmd_validate_seed "$tmp" >/dev/null 2>&1 ); then
+    rm -f "$tmp"
+    die 1 "build-seed: rendered seed failed validation"
+  fi
+  mv "$tmp" "$out_path"
+
+  if command -v realpath >/dev/null 2>&1; then
+    abs=$(realpath "$out_path")
+  else
+    abs=$(cd "$(dirname "$out_path")" && pwd)/$(basename "$out_path")
+  fi
+
+  # record last_seed_path (status remains sole SoT — seed is advisory)
+  st=$(echo "$st" | jq --arg v "$abs" '.last_seed_path = $v')
+  write_state "$epic_id" "$st"
+
+  printf '%s\n' "$abs"
+}
+
+cmd_validate_seed() {
+  # validate-seed <path>
+  # Exit 0 if required M13.3 markers present; 1 if empty/corrupt/missing sections.
+  local path="${1:-}"
+  [ -n "$path" ] || die 64 "validate-seed: missing <path>"
+  [ -f "$path" ] || die 1 "validate-seed: not found: $path"
+  [ -s "$path" ] || die 1 "validate-seed: empty: $path"
+
+  grep -qE '^## State now' "$path" \
+    || die 1 "validate-seed: missing ## State now"
+  grep -qE '^## Through-line' "$path" \
+    || die 1 "validate-seed: missing ## Through-line"
+  grep -qE '^## appendix' "$path" \
+    || die 1 "validate-seed: missing ## appendix"
+
+  # epic_id: … or Epic: … with non-empty id
+  if ! grep -qE '^(epic_id:|Epic:)[[:space:]]*[^[:space:]]+' "$path"; then
+    die 1 "validate-seed: missing epic_id:/Epic: marker with id"
+  fi
+
+  # next_child: … or ### Next: … with child id
+  if ! grep -qE '^next_child:[[:space:]]*[^[:space:]]+' "$path" \
+    && ! grep -qE '^### Next:[[:space:]]*[^[:space:]]+' "$path"; then
+    die 1 "validate-seed: missing next_child:/### Next: marker with id"
+  fi
+
+  return 0
+}
+
 # ---- dispatch ---------------------------------------------------------------
 
 [ $# -lt 1 ] && usage
@@ -572,6 +784,8 @@ case "$SUBCMD" in
   set-status)  cmd_set_status "$@" ;;
   set-linear-project) cmd_set_linear_project "$@" ;;
   set-last-seed) cmd_set_last_seed "$@" ;;
+  build-seed)  cmd_build_seed "$@" ;;
+  validate-seed) cmd_validate_seed "$@" ;;
   mark-done)   cmd_mark_done "$@" ;;
   ready-set)   cmd_ready_set "$@" ;;
   check-cycle) cmd_check_cycle "$@" ;;
