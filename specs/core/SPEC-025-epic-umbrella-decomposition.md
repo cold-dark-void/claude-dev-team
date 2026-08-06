@@ -12,13 +12,17 @@ Umbrella tickets ("build feature X across N surfaces") have no first-class path 
 
 Execution mode walks the DAG: each ready child (all dependencies completed) is handed off to the existing single-ticket pipeline — `/kickoff` for plan-only, `/orchestrate` for full lifecycle. `/epic` is a **composition layer**: it sequences and hands off; it never re-implements the ticket lifecycle beneath it. The standing lesson from umbrella orchestrations — *PM kickoff is mandatory for every child ticket; skipping PM for "obvious" tickets misses false premises* (session fc046db3; `skills/orchestrate/SKILL.md` "PM kickoff is mandatory for every ticket") — is promoted to a MUST here.
 
-**Boundaries & related specs (conflict scan, 2026-07-03):**
+**Context discipline (CDT-127):** Multi-child Mode B MUST NOT grow live context with the full history of every prior child's plan/review/QA/TL. Primary mechanism is **per-child session isolation** (hard context cut between children) with an epic seed built as a **SPEC-018 STM-shaped packet** (mechanical strict subset from `state.json` is the MVP path). A secondary **between-children context guardrail** warns and forces the same boundary when estimated context crosses a threshold. Mid-child spikes, council tiering (CDT-126), concurrent waves, and wall-clock/stint budgets (SPEC-033 OQ2) are out of scope.
+
+**Boundaries & related specs (conflict scan, 2026-07-03; CDT-127 addendum 2026-08-06):**
 - **SPEC-009 (ticket workflow)** owns the single-ticket lifecycle end to end — brainstorm, kickoff, orchestrate gates, LOC caps, escalation rules, wrap-ticket, and the backlog file format (`.claude/backlog.md` index + `.claude/backlog/<slug>.md` items). `/epic` COMPOSES that lifecycle — one full SPEC-009 pass per child — and MUST NOT fork or re-implement any of it. Children are persisted through SPEC-009's backlog conventions; per-child gates (>4-open-questions pause, 2-attempt escalation, LOC caps) apply unchanged inside each child's run.
 - **SPEC-017 (task DAG)** owns WITHIN-ticket DAGs: the `.claude/tasks/` store schema, the `depends_on` field semantics, `dag-lib.sh` primitives, and standup READY computation for tasks. The epic DAG is ACROSS tickets and lives in a separate store (`.claude/epics/<EPIC-ID>/state.json`). This spec MUST reuse `dag-lib.sh` conventions where sane — the store-independent `check-cycle` subcommand is invoked literally; `depends_on` naming and ready-set semantics (ready ⟺ every dependency `completed`) are mirrored — and MUST NOT write epic children into `.claude/tasks/` or extend the SPEC-017 task-store schema.
 - **SPEC-003 (agent roles)** owns role boundaries and model tiers: PM owns the what/why per child (problem statements, acceptance criteria — never technical decisions); Tech Lead owns architecture, decomposition mechanics, estimates, and the dependency DAG. Decomposition spawns follow MC-4 (`Output mode: terse`). This spec adds no agent and modifies no agent definition.
 - **SPEC-016 (worktree isolation)** owns worktree creation/teardown, which happens inside each child's own `/orchestrate` run via `worktree-lib.sh`. `/epic` itself MUST NOT create or remove worktrees.
+- **SPEC-018 (cold-session handoff)** owns STM packet shape (State now → Through-line → appendix), warm/cold/light mine paths, and PreCompact rescues. Epic between-child seeds MUST reuse that shape (or a documented strict subset assembled mechanically from `state.json`) — no parallel freeform "epic brief" format. Epic context discipline does **not** claim full harness `/compact` replacement (SPEC-018 M11d).
+- **SPEC-033 (autopilot)** owns scope-confirm self-answer at A.5/B.3. Context boundary is **not** a new gate enum; under autopilot it is silent mechanical. Failures surface a decision card only when seed/handoff fails (fail-closed). Wall-clock/stint budget (SPEC-033 OQ2) remains deferred and distinct.
 
-**Out of scope:** cross-epic dependencies; parallel (concurrent) orchestration of multiple children within a wave (default is sequential); automatic DAG re-planning on child failure; Linear→local sync-back (webhooks), including project-id sync-back; retrofill of `linear_project_id` for epics created before project support; Linear milestones/initiatives/project health updates; delete/archive of Linear projects; placing an epic parent/umbrella Linear issue on the project (children only); a Workflow-tool deterministic wave-walker (deferred — prompt-driven walker is the MVP).
+**Out of scope:** cross-epic dependencies; parallel (concurrent) orchestration of multiple children within a wave (default is sequential); automatic DAG re-planning on child failure; Linear→local sync-back (webhooks), including project-id sync-back; retrofill of `linear_project_id` for epics created before project support; Linear milestones/initiatives/project health updates; delete/archive of Linear projects; placing an epic parent/umbrella Linear issue on the project (children only); a Workflow-tool deterministic wave-walker (deferred — prompt-driven walker is the MVP); **within-child** context budgets during a single `/orchestrate` run; council tiering (CDT-126 — complementary cost control at council layer only); dollar savings SLAs; mid-child forced boundaries; replacing SPEC-018 packet format.
 
 ---
 
@@ -29,7 +33,7 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 - **M3 — Approval gate before persistence.** The full decomposition (children with all five fields, the DAG, and the wave plan) MUST be presented to the user for approval before any write occurs (no backlog file, no Linear issue, no Linear project, no state file). The user may edit, merge, or remove children at this gate; on decline, `/epic` exits with zero side effects — including zero Linear project create/link attempts.
 - **M4 — Dual-write persistence (Linear preferred + local write-through).** On approval, each child MUST be persisted per SPEC-009 backlog dual-write rules: when the Linear MCP is available, create (or link) the Linear issue first and **always** write the local write-through (`.claude/backlog/<slug>.md` item + `.claude/backlog.md` index row) carrying the five M1 fields plus epic parent ID, `depends_on`, and Linear linkage; when MCP is down, write local only with a one-line notice. Child IDs MUST use the form `<EPIC-ID>-C<n>` (e.g. `CDV-30-C2`) — the `C` infix prevents collision with SPEC-017's within-ticket compound task keys (`<ISSUE-ID>-<task_id>`, e.g. `CDV-30-2`). Process trackers MUST NOT be committed to git (v1.0 invariant: `.claude` process state never upstream).
 - **M5 — Linear preferred SoT when reachable; local IDs remain canonical keys.** When the Linear MCP is available, Linear issue state is preferred for open/closed status of dual-written children (reconcile/write paths per SPEC-009); `/epic` MUST record returned Linear identifiers in the epic state file. The local `<EPIC-ID>-C<n>` ID remains the **canonical orchestration key** in `state.json` and handoffs. When the MCP is absent or any Linear call fails (issue create/link, project create/link, or child-to-project attach), `/epic` MUST emit the single existing M5 one-line notice and continue on local write-through — it MUST NOT block, retry-loop, or fail the epic on Linear unavailability. Epic labels (e.g. `epic:<EPIC-ID>`) remain best-effort on child issues; a Linear Project MUST NOT replace labels.
-- **M6 — Durable epic state file.** Epic state MUST live at `$MROOT/.claude/epics/<EPIC-ID>/state.json` ($MROOT resolved with the worktree-aware formula, so state is shared across worktrees), containing at minimum: epic ID, title, created timestamp, execution mode (`kickoff` | `orchestrate`), **`linear_project_id` (nullable string — Linear Project id when known, else `null`)**, and per child: ID, backlog slug, title, estimate, recommended agent, `depends_on`, `status` (`pending` | `in_progress` | `completed` | `blocked`), and `linear_id` (nullable). Writes MUST be atomic (write-to-tmp + rename, mirroring the SPEC-009 task-store discipline), and the file MUST be updated on every child status transition and when `linear_project_id` is first recorded.
+- **M6 — Durable epic state file.** Epic state MUST live at `$MROOT/.claude/epics/<EPIC-ID>/state.json` ($MROOT resolved with the worktree-aware formula, so state is shared across worktrees), containing at minimum: epic ID, title, created timestamp, execution mode (`kickoff` | `orchestrate`), **`linear_project_id` (nullable string — Linear Project id when known, else `null`)**, and per child: ID, backlog slug, title, estimate, recommended agent, `depends_on`, `status` (`pending` | `in_progress` | `completed` | `blocked`), and `linear_id` (nullable). Writes MUST be atomic (write-to-tmp + rename, mirroring the SPEC-009 task-store discipline), and the file MUST be updated on every child status transition and when `linear_project_id` is first recorded. **CDT-127 (optional additive fields — status remains sole status SoT):** top-level `last_seed_path` (nullable string path to the latest between-child seed under `$MROOT/.claude/epics/<EPIC-ID>/seeds/` or `.claude/handoff/`); per-child `outcome_summary` (nullable string, ≤1 line, set on `completed` / useful on `blocked`). Readers MUST tolerate absence of these fields (legacy states).
 - **M7 — Execution walks the DAG by composition.** In execution mode, `/epic` MUST hand each ready child to the existing single-ticket pipeline — `/kickoff <child-id> "<child text>"` (plan-only) or `/orchestrate` (full lifecycle), chosen once per epic and recorded in state.json. It MUST NOT hand off a child whose `depends_on` contains any non-completed child. Children within a wave run sequentially by default. A child transitions to `completed` only when its own SPEC-009 lifecycle finishes (ticket wrapped / PR shipped) — never merely because its kickoff produced a plan.
 - **M8 — PM kickoff is mandatory for every child.** Every child handoff MUST include the PM kickoff pass — no exceptions for "obvious" children, docs-only children, or children whose spec the Tech Lead authored during decomposition. PM validates acceptance criteria independently and regularly catches false premises that would break implementation (the fc046db3 lesson). The `/epic` handoff path MUST NOT expose any option that skips PM.
 - **M9 — Resumable across sessions.** Re-invoking `/epic <EPIC-ID>` when `state.json` exists MUST resume: print the epic rollup (children by state) and continue at the next ready child — no re-decomposition and no duplicate backlog/Linear issue or Linear project writes (see M12 for project-id stability). Re-decomposition MUST require an explicit `--redecompose` flag plus user confirmation, and even then MUST NOT delete or alter the records of already-completed children.
@@ -47,6 +51,30 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
   9. **Session ownership:** Linear MCP calls (list/create project, attach issues) are session-owned — bash engines (`epic-lib.sh`) MUST NOT call Linear MCP; they only persist ids the session supplies (same bridge pattern as SPEC-009 backlog).
   10. **OOS for this MUST:** epic parent/umbrella issue on the project; retrofill of pre-existing epics; milestones/initiatives; project health; delete/archive projects; Linear→local project sync.
 
+- **M13 — Between-child context discipline (CDT-127).** Mode B MUST enforce a **hard context boundary** between sequential children so cost/context scales with the **current** child, not cumulative epic history.
+
+  1. **When (default on).** Boundary applies in multi-child Mode B when the epic has **≥2 children** and the walker is about to start child **N+1** after child **N** has left the active handoff (completed, blocked-with-no-ready-successor path still OK to seed; never skip blocked deps — M7). **Single-child epics:** no mandatory boundary. Boundary is **between children only** (MVP) — not mid-`/orchestrate`. Debug opt-out: `--no-context-discipline` (or `EPIC_NO_CONTEXT_DISCIPLINE=1`) MUST be documented; default remains on.
+
+  2. **Primary mechanism = A (per-child isolation / hard cut).** After child N's lifecycle step that returns control to the epic walker, and before B.3/B.4 for the next ready child, the walker MUST:
+     - (a) Persist authoritative child status via `epic-lib` only (M6/M7 — **no dual status SoT**).
+     - (b) **Build an epic seed packet** (see M13.3) and record `last_seed_path` when the optional field is implemented.
+     - (c) **Hard-cut live context** so prior children's plan/review/QA/TL/council transcripts are **not** retained as live context for N+1. Allowed live inputs after the cut: compact epic seed + `state.json` rollup (`show`/`waves`/`ready-set`) + optional prior seed path. Protocol preference: new session / harness branch-fork seeded with `@<seed-path>` when available; **degrade** to same-session `/compact` (or equivalent) then load only `@seed` + state rollup when branch/new-session is unavailable. Continuing the Mode B loop **inline while still holding prior child transcripts as live context** is a MUST NOT when discipline is on.
+     - (d) Resume next child only from seed + state (M9-correct: no re-decomposition, no duplicate tracking).
+
+  3. **Seed shape (SPEC-018 reuse / strict subset).** Between-child seed MUST be an STM-shaped packet (headers in order: `## State now`, `## Through-line`, `## appendix` — SPEC-018 M4) or a documented **mechanical strict subset** of that shape. MVP production path: **deterministic assembly from `state.json`** (no requirement to spine-mine the whole multi-child transcript). Full `/handoff` warm mine MAY be used when available but MUST NOT be required for the boundary to succeed. Seed MUST include: epic id; wave/ready rollup from state; completed-child outcomes as **status + ≤1-line summary each**; next-child handoff payload (problem, ACs, estimate, agent, deps, execution mode); open epic-level blockers (`blocked` children + reasons if present). Seed MUST NOT include prior full review/council/QA transcripts or freeform parallel "epic brief" prose outside the STM shape. Packet files live under `$MROOT/.claude/epics/<EPIC-ID>/seeds/` (preferred) or project `.claude/handoff/` with epic id in the filename — process state, never committed.
+
+  4. **Fail-closed.** If seed build or validation fails (empty, missing required sections, unreadable path), the walker MUST **not** start the next child. Emit a one-line halt (`context-discipline: seed failed — <reason>`) and leave next child `pending` (confirm-before-`in_progress` preserved — no `set-status in_progress` without a valid seed when a boundary is required). Autopilot: decision card only on this failure path; success path is silent mechanical (not a new SPEC-033 gate enum).
+
+  5. **Secondary mechanism = C (guardrail).** Between children only, if estimated live context is **≥ ~400k tokens** or **≥ 50% of the model window** (document both; measurement may be dogfood/manual until free telemetry), the walker MUST **warn and force** the M13.2 boundary. Guardrail alone is insufficient as primary (warn-without-cut = fail). Mid-child guardrail = OOS.
+
+  6. **Scaling target (AC2).** For an epic with ≥3 sequential children, peak per-turn context (or cache-read proxy) on child N MUST NOT grow linearly with N. Design target: child-N peak ≤ child-1 peak × (1+ε) with **ε = 0.5**. CI proves seed **shape** and protocol presence; AC2 peak metric is **dogfood/manual** until free token telemetry exists (document method + pass/fail in plan/skill measurement note).
+
+  7. **Kickoff mode.** Boundary still applies between children; completion remains user/lifecycle attestation (`/epic complete` or resume confirm) — never auto-complete on plan alone (M7).
+
+  8. **M11 preserved.** Boundary, seed assembly, and guardrail are epic composition concerns. They MUST NOT spawn IC agents, create worktrees, write `.claude/tasks/`, or re-implement `/kickoff`/`/orchestrate` internals. Prefer epic-owned seed CLI + existing handoff shape; do not fork orchestrate for the boundary.
+
+  9. **Non-goals vs CDT-126.** Council `--tier light` reduces **council** cost inside a child; it does **not** replace M13 epic-walker context cuts. No shared implementation requirement.
+
 ---
 
 ## SHOULD
@@ -58,6 +86,10 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 - SHOULD print a compact wave plan at approval and on resume (e.g. `Wave 1: C1, C2 → Wave 2: C3 → Wave 3: C4`).
 - SHOULD update the mirrored Linear child issues at child status transitions when the MCP is available (same best-effort posture as M5).
 - SHOULD surface Linear project intent at the approval gate (e.g. will create/link Linear project named exactly as the epic title) — informational only; not AC-gating and not required for approval.
+- SHOULD set per-child `outcome_summary` (≤1 line) when marking `completed` (and optionally `blocked`) so seeds stay informative without re-reading child sessions.
+- SHOULD record `last_seed_path` after every successful between-child seed write.
+- SHOULD prefer mechanical `build-seed` over full warm spine-mine for between-child boundaries (cheaper, deterministic, fail-closed friendly).
+- SHOULD document measurement procedure for AC2 (what proxy, where logged, ε=0.5 pass rule) in `skills/epic/SKILL.md` Mode B.
 
 ---
 
@@ -76,6 +108,13 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 11. **No forking (M11):** a full epic run shows `/epic` itself wrote no code, spawned no IC agents, created no worktrees, and wrote nothing under `.claude/tasks/` (entries there belong only to the children's own orchestrations).
 12. **Linear Project create/link (M12 / AC1–AC4, AC11):** on approved new decompose with MCP up, exactly one project is created or linked by **exact** epic title; all dual-written children attach to it; epic labels still applied. Exact-name match → link only (no second create). *Protocol in SKILL; state field + CLI in `test.sh`; live MCP manual.*
 13. **Redecompose project stability (M12 / AC9):** with non-null `linear_project_id`, approved `--redecompose` attaches only new/changed children to that project; id unchanged. Bare resume with null project id does not create a project.
+14. **Context boundary default (M13):** multi-child Mode B (≥2 children) protocol in `skills/epic/SKILL.md` requires boundary before starting child N+1; single-child path has no mandatory boundary; `--no-context-discipline` documented as debug opt-out only.
+15. **Seed shape (M13.3):** `build-seed` (or equivalent) from fixture `state.json` with ≥2 children → packet has State now / Through-line / appendix (or documented subset markers), epic id, rollup, completed outcomes (status+1-line), next handoff payload, blockers; MUST NOT embed full review/council transcript fixtures.
+16. **Fail-closed (M13.4):** corrupt/empty seed → non-zero / halt line; next child not `in_progress`.
+17. **No dual SoT (M13.2a):** status transitions only via `epic-lib` status commands; seed is advisory narrative, not status authority.
+18. **Guardrail secondary (M13.5):** protocol documents 400k / 50%-window thresholds and forces boundary (not warn-only).
+19. **M11 still holds under M13:** boundary path spawns no ICs, creates no worktrees, writes no `.claude/tasks/`.
+20. **CDT-126 non-goal note:** SKILL/spec states council tiering is complementary, not a substitute for M13.
 
 ---
 
@@ -91,6 +130,12 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 - [x] `/standup` epic rollup reflects `state.json`, not prose *(Step 5.5 + rollup bite-tests)*
 - [x] No epic-child records in `.claude/tasks/`; child IDs carry the `-C<n>` infix *(ID scheme tests)*
 - [x] `dag-lib.sh check-cycle` reused literally (no duplicated cycle-detection code) *(wrapper + grep gate)*
+- [ ] Between-child context boundary default-on for multi-child Mode B (M13 / CDT-127)
+- [ ] Mechanical STM-shaped seed from state.json; fail-closed validation (M13.3–M13.4)
+- [ ] Optional `last_seed_path` + `outcome_summary`; status remains sole SoT (M6 additive)
+- [ ] Guardrail secondary documents 400k / 50% window; forces boundary (M13.5)
+- [ ] AC2 ε=0.5 measurement note (dogfood/manual until free telemetry)
+- [ ] CDT-126 non-goal note present; M11/M7/M8 preserved under boundary
 
 ---
 
@@ -126,12 +171,29 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 | OQ1 | Kickoff-mode completion: user confirms at next `/epic` resume, **or** `/epic complete <child-id>`. Not auto. |
 | OQ6 | `status=blocked` via `/epic block\|unblock` thin wrappers over `set-status`. |
 
+### Resolved (CDT-127 — context discipline)
+
+| ID | Resolution |
+|----|------------|
+| CDT-127-OQ1 | **Primary A** (per-child hard context cut) + **secondary C** (threshold warn→force boundary). B (compact-only) not primary. |
+| CDT-127-OQ2 | Prefer SPEC-018 loop: seed packet → branch/new session when available → degrade to `/compact` + `@seed`. |
+| CDT-127-OQ3 | **Between children only** (MVP). Mid-child OOS. |
+| CDT-127-OQ4 | **ε = 0.5** for AC2; guardrail **~400k tokens** or **50% window** (document both; dogfood/manual OK). |
+| CDT-127-OQ5 | Autopilot: **silent mechanical** boundary; decision card only on seed failure. Not a new SPEC-033 gate. |
+| CDT-127-OQ6 | Epic-owned boundary + seed CLI; **do not fork** `/orchestrate` unless proven required. |
+| CDT-127-OQ7 | Optional `last_seed_path` + per-child `outcome_summary`; **status** remains sole SoT. |
+| CDT-127-OQ8 | Default **on**; `--no-context-discipline` / `EPIC_NO_CONTEXT_DISCIPLINE=1` debug opt-out. |
+| CDT-127-OQ9 | CI = seed shape fixtures; AC2 peak = dogfood/manual until free telemetry. |
+| CDT-127-OQ10 | SPEC-033 OQ2 (wall-clock/stint) stays deferred — distinct from context discipline. |
+
 ### Deferred
 
 - **Within-wave concurrency:** multiplies worktrees/review/attention. Sequential-within-wave default; revisit after first real multi-wave epic.
 - **Deterministic wave-walker via the Workflow tool:** GA on paid plans only. Any adoption MUST keep the prompt-driven walker as universal fallback.
 - **Failed child policy:** dependents stay non-ready (current); interactive DAG edit deferred.
 - **Linear issue parent-child linking:** still deferred — flat child issues + epic label; M12 Linear **Project** grouping is independent of issue hierarchy.
+- **Mid-child context boundary / within-orchestrate budget:** future ticket; not M13 MVP.
+- **Automated AC2 telemetry in CI:** blocked on free per-turn token/cache-read metrics from the harness.
 
 ---
 
@@ -145,8 +207,9 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 | 2026-07-28 | CDT-64 / F10: M12 Linear Project per epic (exact-title create/link, attach children, `linear_project_id`); M3/M5/M6/M9 extended; fail-open reuses M5 notice; P1–P8 locks; labels retained |
 | 2026-07-28 | CDT-64 follow-up: M12.2 client-side exact-equality filter + pagination; M12.3 resolve team once up front; set-linear-project not-found = exit 1 |
 | 2026-07-28 | CDT-64 review fix: team resolution moved to the create branch only (search/link never gated on team, so an existing project still links when team is unresolvable); P2 restated |
+| 2026-08-06 | **CDT-127:** M13 between-child context discipline (primary A + secondary C); M6 optional `last_seed_path` / `outcome_summary`; SPEC-018 seed shape; ε=0.5; fail-closed; CDT-126 non-goal; OQ1–OQ10 locked |
 
-**Covers**: `commands/epic.md`, `skills/epic/SKILL.md`, `skills/epic/epic-lib.sh`, `skills/epic/test.sh`, `skills/orchestrate/dag-lib.sh` (reused — `check-cycle`), `skills/standup/SKILL.md` (epic rollup, M10), `skills/wrap-ticket/SKILL.md` (child-completion write-back, SHOULD).
+**Covers**: `commands/epic.md`, `skills/epic/SKILL.md`, `skills/epic/epic-lib.sh`, `skills/epic/test.sh`, `skills/orchestrate/dag-lib.sh` (reused — `check-cycle`), `skills/standup/SKILL.md` (epic rollup, M10), `skills/wrap-ticket/SKILL.md` (child-completion write-back, SHOULD). CDT-127 also touches epic seed CLI under `skills/epic/` (build-seed / validate-seed) and cites SPEC-018 shape without forking handoff internals.
 
 ---
 
@@ -156,5 +219,8 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 - **SPEC-017** — Autonomous CI Watch + Task DAG: owner of within-ticket DAGs and the `.claude/tasks/` store; `check-cycle` reused literally; `depends_on`/ready-set semantics mirrored at the epic layer.
 - **SPEC-003** — Agent Role System: PM owns what/why per child, Tech Lead owns decomposition + DAG; MC-4 terse-spawn rule applies to decomposition spawns.
 - **SPEC-016** — Worktree Isolation: worktrees are created/removed only inside each child's own lifecycle; `/epic` never touches them.
+- **SPEC-018** — Cold-session handoff: STM packet shape reused (or mechanical strict subset) for between-child epic seeds; no dual freeform brief; no claim of full `/compact` replacement.
+- **SPEC-033** — Autopilot policy: A.5/B.3 gates unchanged; M13 boundary is not a new gate enum.
+- **CDT-126** — Council tiering: complementary child-level council cost control; not a substitute for M13.
 - **Backlog item**: `.claude/backlog/epic-umbrella-decomposition.md` — the banked source of this spec.
 - **Standing lesson**: `skills/orchestrate/SKILL.md` "PM kickoff is mandatory for every ticket" — promoted to M8.

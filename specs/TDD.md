@@ -28,7 +28,7 @@
 | SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh; M6c `--gate=` self-remediation (CDT-67) |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 | SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory.md (`/memory export`), commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
-| SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse) |
+| SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse); M13 context-discipline seed Tests 14–20 (CDT-127 — build-seed/validate-seed bite-tests) |
 | SPEC-026 | Review-Outcome Ledger & Adaptive Agent Routing | ACTIVE | skills/metrics/emit-outcome.sh, skills/metrics/outcome-rates.sh, skills/metrics/test.sh, skills/orchestrate/SKILL.md (scoped) |
 | SPEC-027 | /incident War-Room & Postmortem | DEPRECATED | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |
 | SPEC-028 | Premise → Implement → Adversarial Refute (`/debug ticket`) | DEPRECATED | `/debug ticket` entry (SPEC-014); commands/fix-ticket.md + skills/fix-ticket (stubs CDT-46-C4); workflow.js optional |
@@ -40,6 +40,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-08-06 | CDT-127: SPEC-025 M13 coverage — Tests 14–20 (boundary default, seed shape, fail-closed, no dual SoT, guardrail secondary, M11 hold, CDT-126 non-goal); M6 additive `last_seed_path`/`outcome_summary` |
 | 2026-07-31 | CDT-98: SPEC-031 DRAFT created (Escalation gate + universal worktree isolation + graduated PreToolUse hook); SPEC-015 amended (current-branch commit mandate retired, plans-file exemption closed, no-user-input MUSTs scoped to approach decision) |
 | 2026-07-28 | CDT-94: SPEC-018 M8b gen-3 load uniqueness — `assemble-test.sh` T28 (Test 34); `#N` prior-id disambiguation + stderr |
 | 2026-07-27 | CDT-91: SPEC-018 M10c coverage — light preset Tests 29–33 (`light-preset-test.sh`, `light-gates-test.sh`, `finalize-test.sh` T26, `light-defense-test.sh`, `light-static-test.sh`) |
