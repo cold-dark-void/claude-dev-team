@@ -3,6 +3,9 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.5.2
+- **Fix — remote embedding model fell back to empty instead of the DB config** — `skills/memory-store/embed-one.sh`, `skills/memory-store/migrate-md.sh`, and `skills/memory-recall/SKILL.md` all read `EMBED_MODEL` as `${EMBEDDING_MODEL:-}`, so when the `EMBEDDING_MODEL` env var was unset the model name silently went empty instead of falling back to the durable `embedding_model` value already stored in `config`. All three now resolve `EMBED_MODEL` as env-if-set-else-DB-config, matching how `EMBED_URL` was already resolved. `skills/memory-recall/SKILL.md`'s remote-embedding docs section updated to describe the same precedence.
+
 ### v1.5.1
 - **CDT-127 — Epic orchestration context discipline (SPEC-025 M13)** — multi-child Mode B `/epic` walks hard-cut live context between children so cost scales with the active child (+ compact seed), not the whole epic transcript (the CDT-111 cache-read blowup class). Default **on** for ≥2 children; debug opt-out `--no-context-discipline` / `EPIC_NO_CONTEXT_DISCIPLINE=1`; single-child exempt.
   - **Primary A + secondary C** — mechanical SPEC-018-shaped seed from `state.json` via `epic-lib build-seed` / `validate-seed` (fail-closed before next child); optional `last_seed_path` + per-child `outcome_summary` (status remains sole SoT). Secondary guardrail forces the same boundary at ~400k tokens or 50% of the model window (between children only).

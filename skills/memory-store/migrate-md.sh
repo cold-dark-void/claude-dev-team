@@ -185,6 +185,8 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
     EMBED_MODEL="${EMBEDDING_MODEL:-}"
     if [ "$EMBED_MODE" = "remote" ]; then
       EMBED_URL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
+      # Env overrides DB; DB is durable source when env unset.
+      [ -n "$EMBED_MODEL" ] || EMBED_MODEL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';" 2>/dev/null)
     fi
 
     while read -r MEM_ID; do

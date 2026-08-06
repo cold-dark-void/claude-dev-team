@@ -128,8 +128,10 @@ elif [ "$EMBED_MODE" = "remote" ] && \
      [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
   EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';")
   EMBED_KEY="${EMBEDDING_API_KEY:-}"
-  EMBED_MODEL="${EMBEDDING_MODEL:-}"
+  # Env overrides DB; DB is the durable source when env is unset.
+  EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")}"
   VEC_TABLE="vec_memories_${DIMS}"
+
 
   # Build curl args — auth header via config file to avoid leaking in ps aux
   CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
@@ -282,8 +284,9 @@ EOSQL
 - Distance is cosine distance: lower = more similar, 0 = identical.
 - To convert to similarity percentage: `(1 - distance) * 100`.
 - `lembed()` takes the **model file path** (GGUF) as its first argument, not a model name.
-- For remote embedding providers, the URL and optional API key are read from the DB config
-  and the `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` environment variables respectively.
+- For remote embedding providers, the URL is read from the DB config (`embedding_url`).
+  Model: `EMBEDDING_MODEL` env if set, else config `embedding_model`. Optional
+  `EMBEDDING_API_KEY` for authenticated providers.
 - `jq` is required for remote embedding extraction and request building.
 - Vec0 virtual tables (`vec_memories_384`, `vec_memories_768`) are only accessible when
   the sqlite-vec extension is loaded. Always guard vec0 operations with an extension

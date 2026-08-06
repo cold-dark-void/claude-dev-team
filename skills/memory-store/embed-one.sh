@@ -69,7 +69,9 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   command -v curl >/dev/null 2>&1 || exit 0
   command -v jq   >/dev/null 2>&1 || exit 0
   EMBED_KEY="${EMBEDDING_API_KEY:-}"
-  EMBED_MODEL="${EMBEDDING_MODEL:-}"
+  # Env overrides DB; DB is the durable source when env is unset (local ollama, etc.).
+  EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';" 2>/dev/null)}"
+
 
   # Build curl args — auth header via config file to avoid leaking in ps aux.
   CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
