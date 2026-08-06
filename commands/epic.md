@@ -5,9 +5,10 @@ description: |
     decompose an epic into child tickets with a cross-ticket DAG; walk ready
     children via /kickoff or /orchestrate. Composition only — PM mandatory per
     child; Linear optional (Project create/link best-effort — SPEC-025 M12 /
-    skill A.6). Usage: /epic <EPIC-ID> ["text"] | status | complete | block
-    | unblock | --redecompose
-argument-hint: "<EPIC-ID> [\"text\"] [--autopilot[=<bump>]] | status | complete | block | unblock | --redecompose"
+    skill A.6). Multi-child Mode B applies between-child context discipline
+    (M13) by default. Usage: /epic <EPIC-ID> ["text"] | status | complete |
+    block | unblock | --redecompose | [--no-context-discipline]
+argument-hint: "<EPIC-ID> [\"text\"] [--autopilot[=<bump>]] [--no-context-discipline] | status | complete | block | unblock | --redecompose"
 ---
 
 # /epic
@@ -29,6 +30,7 @@ Governing spec: `specs/core/SPEC-025-epic-umbrella-decomposition.md`.
 | `block <EPIC-ID> <CHILD-ID>` | Mark child blocked |
 | `unblock <EPIC-ID> <CHILD-ID>` | Mark child pending |
 | `[--autopilot[=<bump>]]` | (with decompose/resume) self-answer A.5/B.3 scope gates (SPEC-033 / CDT-111-C4). Flag beats `AUTOPILOT=1` env; `<bump>` ∈ {patch,minor,major} borrowed from `/release`, unused by `/epic` (never ships). B.5 completion is never self-answered (N8) |
+| `[--no-context-discipline]` | Debug opt-out of Mode B between-child context discipline (SPEC-025 M13). Also `EPIC_NO_CONTEXT_DISCIPLINE=1`. Default **on** for multi-child (≥2) Mode B; single-child epics exempt. Protocol: `skills/epic/SKILL.md` Mode B M13 — do not improvise here. |
 
 ## Routing
 
