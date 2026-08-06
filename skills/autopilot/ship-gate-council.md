@@ -205,6 +205,22 @@ independent peer investigator/refuter survived, surfaced by report frontmatter
 `confidence < 80` disagreement**: `decision = halt`, `blocking_condition = 7`, `bump = null`
 — **regardless of that self-verified run's own reported confidence** (M14(d)).
 
+### Open design — infra vs evidentiary (CDT-134)
+
+M14(d) currently cannot distinguish pure spawn/infra flakiness (early investigator
+returned strong tool-backed bundles; later roles never spawned) from genuine
+evidentiary gaps. **Do not implement a ship-clearing “infra-degraded” path here
+without a SPEC-033 revision and adversarial review.** Safe interim:
+
+- Keep the halt + `confidence = 0` (this section).
+- Prefer reducing spawn flakiness (CDT-133 named-agent preference).
+- After human review, resume shipping only via explicit human override
+  (`/orchestrate <id> --resume-ship=<bump>` — CDT-135), never by auto-clearing BC7.
+
+Any future “infra-degraded” classification MUST still require: ≥1 independent
+investigator with usable bundles; spawn-fail markers only on later roles; **human
+confirm** before ship — never self-answer past BC7.
+
 **Write `confidence = 0` on this card.** Do **not** write the self-verified run's reported
 confidence value. That value may itself be `≥ 80`, and because this is a
 `blocking_condition = 7` card, `append-card.sh` cross-field invariant (b) hard-rejects

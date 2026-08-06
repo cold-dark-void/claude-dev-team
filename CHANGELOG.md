@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.13
+- **CDT-134 — M14(d) infra-vs-evidentiary design note (no behavior change)** — document open design for a future "infra-degraded" class without implementing ship-clearing. Safe interim: keep BC7 halt + confidence=0; reduce spawn flakiness (CDT-133); human override only via `--resume-ship` (CDT-135).
+
 ### v1.5.12
 - **CDT-133 — Prefer named dev-team agents for council Task spawns** — investigators/phase-4/brief writers/extractors/blind reviewers prefer `dev-team:ic5`/`ic4` over bare `general-purpose` (dogfood: named agents 9/9 final output vs GP flaky). Fallback chain retained. Completion: final-message JSON required; max 2 re-requests before spawn-failure degradation.
 
