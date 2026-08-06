@@ -414,11 +414,42 @@ run_in 1 build-seed M13-Z
     [ "$NSEED" -eq 0 ] && pass || fail "zero-child build-seed wrote seed files"
   }
 
-# Soft protocol greps (T5/T6 SKILL may land later — do not fail suite)
-if [ -f "$HERE/SKILL.md" ]; then
-  if grep -qE 'build-seed|context.discipline|M13' "$HERE/SKILL.md" 2>/dev/null; then
-    pass  # soft: SKILL already mentions M13 surface
+# ---- Protocol greps (CDT-127 T6 / SPEC-025 M8,M11,M13) -----------------------
+SKILL="$HERE/SKILL.md"
+CMD="$HERE/../../commands/epic.md"
+[ -f "$SKILL" ] || fail "skills/epic/SKILL.md missing"
+
+if [ -f "$SKILL" ]; then
+  # M8: no skip-PM path (mandatory PM; no enablement flag)
+  grep -q 'no skip-PM path' "$SKILL" \
+    && pass || fail "SKILL missing 'no skip-PM path' (M8)"
+  if grep -nE -- '--skip-pm|SKIP_PM=|skip_pm' "$SKILL" ${CMD:+"$CMD"} 2>/dev/null; then
+    fail "skip-PM enablement path still present (M8)"
+  else
+    pass
   fi
+
+  # M13 present + fail-closed halt string
+  grep -q 'M13' "$SKILL" \
+    && pass || fail "SKILL missing M13"
+  grep -q 'context-discipline: seed failed' "$SKILL" \
+    && pass || fail "SKILL missing fail-closed string 'context-discipline: seed failed'"
+
+  # Guardrail + measurement + CDT-126 non-goal (M13.5 / AC2 / M13.9)
+  grep -q '400k' "$SKILL" \
+    && pass || fail "SKILL missing 400k guardrail threshold"
+  grep -qE 'ε[[:space:]]*=[[:space:]]*0\.5' "$SKILL" \
+    && pass || fail "SKILL missing ε = 0.5 measurement target"
+  grep -q 'CDT-126 non-goal' "$SKILL" \
+    && pass || fail "SKILL missing CDT-126 non-goal note"
+
+  # No dual status SoT + M11 still holds under M13
+  grep -q 'no dual status SoT' "$SKILL" \
+    && pass || fail "SKILL missing no dual status SoT (M13.2a)"
+  grep -q 'M11 under M13' "$SKILL" \
+    && pass || fail "SKILL missing 'M11 under M13' preservation note"
+  grep -q 'What /epic MUST NOT do (M11)' "$SKILL" \
+    && pass || fail "SKILL missing M11 MUST NOT section"
 fi
 
 echo ""
