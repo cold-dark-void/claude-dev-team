@@ -3,6 +3,12 @@
 All notable changes to **claude-dev-team**, newest first.
 This file is maintained by the `/release` skill — do not edit version headings by hand.
 
+### v1.5.3
+- **CDT-124 — Fix `retro-gate/gate.sh` S5 false positives on terse approval tokens** — after a long assistant turn (≥500 chars), a short user reply is scored as friction signal S5 unless it's on the `is_approval` allowlist. `"approve"`/`"accept"` were missing from that allowlist and got misclassified as friction. Added.
+- **New single-token `"y"` guard** — a bare `"y"` message (word count exactly 1) is now treated as approval too, but only as the *whole* message: `"y tho"` and `"y not"` still register S5, since those are real pushback that happens to start with `y`. The `y` check tests the whole message instead of joining the allowlist, which matches any word in a <=3-word message — that separation is what keeps it from swallowing genuine short-form friction.
+- New regression fixture `skills/retro-gate/fixtures/s5-approval-tokens.jsonl` + `skills/retro-gate/test.sh` case covering `y`/`approve`/`accept` suppression and confirming `y tho`/`y not` still fire S5.
+- `skills/retro-gate/SKILL.md` updated to document the `is_approval` allowlist and correct two stale claims (trailing-only strip → leading/trailing; "immediately after" → no reset on user turns).
+
 ### v1.5.2
 - **Fix — remote embedding model fell back to empty instead of the DB config** — `skills/memory-store/embed-one.sh`, `skills/memory-store/migrate-md.sh`, and `skills/memory-recall/SKILL.md` all read `EMBED_MODEL` as `${EMBEDDING_MODEL:-}`, so when the `EMBEDDING_MODEL` env var was unset the model name silently went empty instead of falling back to the durable `embedding_model` value already stored in `config`. All three now resolve `EMBED_MODEL` as env-if-set-else-DB-config, matching how `EMBED_URL` was already resolved. `skills/memory-recall/SKILL.md`'s remote-embedding docs section updated to describe the same precedence.
 

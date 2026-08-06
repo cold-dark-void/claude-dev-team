@@ -268,7 +268,11 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                 is_approval = bool(word_set & {
                     "waive","ok","okay","yes","sure","proceed","done","approved",
                     "ship","merge","lgtm","ack","go","yep","yup","fine","agreed",
+                    "approve","accept",
                 })
+                # "y" only as a whole message — "y tho" / "y not" are real friction.
+                if words == 1 and "y" in word_set:
+                    is_approval = True
                 if (
                     last_assistant_len >= S5_LONG_ASSISTANT_CHARS
                     and 0 < words <= S5_TERSE_USER_WORDS

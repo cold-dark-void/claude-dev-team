@@ -219,6 +219,32 @@ fi
 rm -f "$ONE_ROW"
 
 echo "----"
+
+# ---- CDT-124: S5 approval-token allowlist ----
+# One long assistant turn (>500 chars) followed by 5 short user turns.
+# "y", "approve", "accept, anyting else?" are approval tokens → suppressed.
+# "y tho", "y not" are NOT bare "y" → still register S5.
+run_gate "s5-approval-tokens.jsonl"
+if assert_json_shape "S5-tok"; then
+  s5c=$(signal_count S5)
+  if [ "$s5c" = "2" ]; then
+    ok "S5-tok approval tokens suppressed, y-tho/y-not still fire S5=2"
+  else
+    bad "S5-tok: want S5=2 (only y-tho/y-not); got S5=$s5c out=$OUT"
+  fi
+  if has_signal S5 && echo "$OUT" | grep -q '000605' && echo "$OUT" | grep -q '000606'; then
+    ok "S5-tok ids are the y-tho/y-not turns"
+  else
+    bad "S5-tok: expected ids for y-tho (…605) and y-not (…606): $OUT"
+  fi
+  if echo "$OUT" | grep -q '000602\|000603\|000604'; then
+    bad "S5-tok: approval-token turns (y/approve/accept) leaked into S5 ids: $OUT"
+  else
+    ok "S5-tok approval-token turns absent from S5 ids"
+  fi
+fi
+
+echo "----"
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
   exit 1

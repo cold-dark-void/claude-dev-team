@@ -77,7 +77,7 @@ evidence rather than re-scanning the whole transcript.
 | S2 | Tool error run    | **Transcript (default / uncovered):** a run of >=2 consecutive `tool_result.is_error:true` blocks; reset by a successful result or a real user turn. **Ledger-covered:** ≥2 ledger friction events for the session in append order (one continuous run; no success reset). Hybrid: ledger supplies S2 only when covered; see above. | 2.0    | -   |
 | S3 | Edit loop         | >=3 `Edit`/`Write`/`MultiEdit`/`NotebookEdit` tool_uses on the same `file_path` within 10 assistant turns; one score per file. **Exempt:** clean draft-polish — path whose first edit-tool is `Write` (session-created) with no intervening `tool_result.is_error` and no S1-eligible user rejection after that Write and at/before the last edit in the candidate window. Pre-existing paths and dirty session-created paths still score. | 2.5    | -   |
 | S4 | Assistant retry   | Regex on assistant text: `\b(let me try again\|let me try a different\|that didn'?t work\|actually,? let me\|sorry,? let me\|my mistake\|i'?ll try)\b` (see `S4_RE` in gate.sh) | 1.5    | 3   |
-| S5 | Terse follow-up   | Real user message of <=3 words immediately after an assistant turn >=500 chars                                       | 1.0    | 4   |
+| S5 | Terse follow-up   | Real user message of <=3 words after the most recent assistant turn of >=500 chars, excluding slash-command invocations and approval acknowledgements (see below) | 1.0    | 4   |
 
 `score = sum(weight * min(count, cap))`. Sessions are flagged when
 `score >= RETRO_THRESHOLD`.
@@ -102,6 +102,23 @@ S5. Slash-command loads, skill instructions, and `<local-command-caveat>`
 wrappers all arrive on the user channel and routinely contain words like
 "stop", "don't", "wrong" inside plugin documentation. Without this guard the
 gate trips on every session that loads a skill.
+
+S5 also treats short approval as engaged, not disengaged — a terse "ok" is a
+green light, not friction. A message suppresses S5 if its word set intersects
+this 19-token allowlist (case-insensitive, leading/trailing `.,!?` stripped): `waive`,
+`ok`, `okay`, `yes`, `sure`, `proceed`, `done`, `approved`, `ship`, `merge`,
+`lgtm`, `ack`, `go`, `yep`, `yup`, `fine`, `agreed`, `approve`, `accept`.
+Separately, a message that is the single bare token `y` is always treated as
+approval — but only when `y` is the *entire* message, via a whole-message
+check, not a word-set membership check. `y` is deliberately kept out of the
+19-token allowlist above: that allowlist matches on **any** word in the
+message, and `y` is common enough as an ordinary word (not just an
+abbreviation for "yes") that folding it in would false-suppress real friction
+— "y tho" and "y not" would both wrongly count as approval. The whole-message
+check keeps `y` narrow: only a lone `y` (optionally with leading/trailing
+`.,!?`) suppresses S5; "y" as one word among several does not. Slash-command
+invocations (message starts with `/`, after stripping leading whitespace) are
+excluded from S5 independently of both approval checks.
 
 Tool-result blocks (which also live inside `type=user` messages) are never
 treated as user input.
