@@ -21,6 +21,9 @@
   **always `auto`** (§3f). Arg order is the writer's frozen 13-arg contract:
   `<workflow> <ticket_id> <gate> <decision> <decided_by> <bump|null> <confidence>
   <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale>`.
+  Every fixture below uses that 13-arg form: the writer's two optional trailing args
+  (`<council_tier> <grading_reason>`, CDT-126) belong to the M14 council card alone
+  (`ship-gate-council.md` §6), which this engine never writes.
 
 **Shared symbols.** `NOW` = wall-clock epoch at engine run. `RS` = `run_start_epoch`. Where a
 fixture is within budget it uses `RS = NOW-60` (`wall_clock_s = 60`); `run_id = ap-<RS>`;

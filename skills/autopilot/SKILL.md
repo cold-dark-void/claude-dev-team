@@ -300,6 +300,8 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
   "bump": "patch | minor | major | null",
   "confidence": 0,
   "blocking_condition": null,
+  "council_tier": null,
+  "grading_reason": null,
   "rationale": "<one-line why>",
   "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700 },
   "actor": "orchestrator"
@@ -337,6 +339,14 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
   mirrors the council convention.
 - `blocking_condition` is `null` for a clean answer, or the M6 ordinal (**1–8**) for a
   halt/reroute.
+- `council_tier` (**CDT-126**) records which council pipeline the M14 ship-gate pass ran —
+  `skip | light | full`, the vocabulary SPEC-013's **Council tiering** section owns (this
+  SKILL MUST NOT define a second one, N4). `grading_reason` records *why* that tier was
+  selected, in one line, under the same redaction obligation as `rationale`. Both are
+  non-null **only** on the M14 council card (the second `ship-choice` card, M14(c)) and
+  `null` on every other card, card #1 included. Both are **additive and nullable**, so
+  `schema_version` stays `1` and pre-CDT-126 cards remain valid (absent key ≡ `null`).
+  `skills/autopilot/ship-gate-council.md` §3a/§6 is the procedure that populates them.
 - `rationale` is a one-line summary and MUST NOT contain secrets, credentials, tokens, keys,
   or PII. Any evidence quoted from the repo, specs, or memory (e.g. the S2 resolution attempt)
   MUST be **redacted or summarized**, never copied verbatim into the card.
@@ -356,7 +366,8 @@ not redefine it — the schema and field semantics live only in the block above.
 skills/autopilot/append-card.sh \
   <workflow> <ticket_id> <gate> <decision> <decided_by> \
   <bump|null> <confidence> <blocking_condition|null> \
-  <run_id> <iteration> <wall_clock_s> <actor> <rationale>
+  <run_id> <iteration> <wall_clock_s> <actor> <rationale> \
+  [<council_tier|null> <grading_reason|null>]   # CDT-126; argc 13 or 15, never 14
 
 # Dump every card for a ticket as a JSON array (for downstream evidence readers).
 # No cards yet -> "[]" + exit 0; bad args / jq-absent -> exit 64.
@@ -370,7 +381,13 @@ Contract notes (writer):
 - `iteration_cap` / `wall_clock_cap_s` are resolved from `AUTOPILOT_ITERATION_CAP` /
   `AUTOPILOT_WALLCLOCK_CAP` (defaults 25 / 2700) — the single source for the M9 defaults.
 - Enforced M13 invariants: `bump` non-null **only** when `gate=ship-choice`; `confidence` < 80
-  **required** when `blocking_condition=7`. `rationale` rejects newlines/control chars
-  (semantic secret-scrubbing remains the caller's obligation, M13).
+  **required** when `blocking_condition=7`; `council_tier`/`grading_reason` non-null **only**
+  when `gate=ship-choice` (CDT-126 — deliberately weaker than M13's prose rule, which scopes
+  them to the M14 card alone; see `ship-gate-council.md` §6 for why the writer cannot tell
+  the two ship-choice cards apart). `rationale` and `grading_reason` reject newlines/control
+  chars (semantic secret-scrubbing remains the caller's obligation, M13).
+- Reader-side (CDT-126): `read-cards.sh` backfills absent `council_tier`/`grading_reason` as
+  explicit `null`s in their frozen position (M13 absent ≡ null) and re-checks the same
+  ship-choice invariant, exiting 64 on a ledger that violates it.
 - Path `$MROOT/.claude/autopilot/<ticket_id>.jsonl`; sequential per-ticket-file appends (no
   flock — a single JSON line is < PIPE_BUF, so concurrent same-file appends stay whole).

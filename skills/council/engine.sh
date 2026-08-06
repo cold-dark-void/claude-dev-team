@@ -45,6 +45,7 @@ Subcommands:
   preflight        [--scope claim|session|diff|plan|from-retro] [--scope-arg V]
                    [--last N] [--task-id ID] [--preset NAME] [--why]
                    [--external[=codex|gemini]]
+                   [--tier light|full] [--grading-reason TEXT]
                    Emits investigation-plan JSON on stdout.
 
   finalize         --plan-file P --evidence-file E --judge-output J
@@ -134,6 +135,7 @@ cmd_preflight() {
   local preset_source="inferred"
   local resolved_claim="" anchor_file=""
   local external="false" external_prefer="auto"
+  local council_tier="" grading_reason=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -143,6 +145,11 @@ cmd_preflight() {
       --task-id)   task_id="${2:-}"; shift 2 ;;
       --preset)    preset="${2:-}"; preset_source="explicit"; shift 2 ;;
       --why)       why="true"; shift ;;
+      # CDT-126: tier resolved by the caller (commands/council.md Step 1.5 —
+      # grading, or an externally-supplied DRI/ship-gate tier). The engine
+      # never grades; it only consumes the resolved value.
+      --tier)           council_tier="${2:-}"; shift 2 ;;
+      --grading-reason) grading_reason="${2:-}"; shift 2 ;;
       # CDV-207: optional external investigator (codex/gemini). Forms:
       #   --external | --external=codex|gemini | --external codex|gemini
       --external)
@@ -175,6 +182,29 @@ cmd_preflight() {
       exit 2
       ;;
   esac
+
+  # CDT-126 tier validation. `skip` short-circuits the whole run at the call
+  # site and must never reach the engine; anything else is a caller bug, and
+  # the caller has already fail-closed to `full` before invoking us (SPEC-013
+  # § Council tiering, Fail-closed contract), so coercing here would mask it.
+  case "$council_tier" in
+    light|full) ;;
+    "")
+      council_tier="full"
+      [ -n "$grading_reason" ] || grading_reason="ungraded: no tier supplied (default full)"
+      ;;
+    skip)
+      echo "engine.sh: --tier skip is resolved by the caller — the run must not reach preflight" >&2
+      exit 2
+      ;;
+    *)
+      echo "engine.sh: invalid --tier value: $council_tier (want light|full)" >&2
+      exit 2
+      ;;
+  esac
+  if [ -z "$grading_reason" ]; then
+    grading_reason="externally supplied tier (no grading_reason given)"
+  fi
 
   # No-scope invocation → usage error (exit 2)
   if [ -z "$scope" ]; then
@@ -254,6 +284,14 @@ cmd_preflight() {
       exit 4 ;;
   esac
 
+  # CDT-126 light flavor subsets (SPEC-013 § Council tiering). `generic` is
+  # already exactly the 2 distinct flavors light requires, so it is unchanged;
+  # `diff-mode` keeps the two correctness/safety axes and drops the three
+  # polish axes.
+  if [ "$council_tier" = "light" ] && [ "$preset" = "diff-mode" ]; then
+    flavors='["logic","security"]'
+  fi
+
   local claim_budget=10  # SPEC-013 "per-run claim budget (default: 10 claims)", hardcoded in v1
   local slug
   case "$scope" in
@@ -292,11 +330,34 @@ cmd_preflight() {
   # commands/council.md overwrites the printed value after runtime classify (CDV-209).
   # from-retro: resolved_claim is fabricated_claim_text; scope_arg remains anchor-id.
   # Phase 3 skip for finding[] (diff-mode): flavors already cover specialist axes.
-  local phase3_why_stub
+  # CDT-126 adds a second, independent skip condition: council_tier == light.
+  local phase3_skip_reason="" phase3_why_stub
   if [ "$output_shape" = "finding[]" ]; then
+    phase3_skip_reason="diff-mode (finding[] flavors cover specialist axes)"
     phase3_why_stub="skipped (diff-mode)"
+  elif [ "$council_tier" = "light" ]; then
+    phase3_skip_reason="council_tier: light"
+    phase3_why_stub="skipped (council_tier: light)"
   else
     phase3_why_stub="pending (runtime classify)"
+  fi
+
+  # CDT-126: Phase 4 is keyed off TWO independent conditions — the
+  # pre-existing finding[]-shape skip AND council_tier == light. Phase 5's
+  # brief inputs and Phase 6's brief report sections follow the same key
+  # (SPEC-013 Phases 4/5/6): when Phase 4 did not run, the Judge receives
+  # claims + evidence bundles only and no brief is synthesized or stubbed.
+  # Empty reason == Phase 4 runs, matching the Phase 3 block just above.
+  local phase4_skip_reason=""
+  if [ "$output_shape" = "finding[]" ]; then
+    phase4_skip_reason="finding[]-shape preset"
+  fi
+  if [ "$council_tier" = "light" ]; then
+    if [ -n "$phase4_skip_reason" ]; then
+      phase4_skip_reason="${phase4_skip_reason}; council_tier: light"
+    else
+      phase4_skip_reason="council_tier: light"
+    fi
   fi
 
   # CDV-211: per-run investigator tool-call cache under TMPDIR.
@@ -365,6 +426,10 @@ cmd_preflight() {
     --arg mroot "$MROOT" \
     --arg phase1_prompt "$phase1_prompt" \
     --arg phase3_why_stub "$phase3_why_stub" \
+    --arg council_tier "$council_tier" \
+    --arg grading_reason "$grading_reason" \
+    --arg phase3_skip_reason "$phase3_skip_reason" \
+    --arg phase4_skip_reason "$phase4_skip_reason" \
     --arg cache_dir "$cache_dir" \
     --arg run_id "$run_id" \
     --argjson external "$external_json" \
@@ -376,6 +441,8 @@ cmd_preflight() {
       task_id: $task_id,
       preset: $preset,
       output_shape: $output_shape,
+      council_tier: $council_tier,
+      grading_reason: $grading_reason,
       flavors: $flavors,
       external: $external,
       spec_grep: ($spec_grep == "true"),
@@ -392,24 +459,36 @@ cmd_preflight() {
         "1_claim_extraction": { skip: ($scope == "claim" or $scope == "from-retro"), prompt: $phase1_prompt },
         "2_parallel_investigation": { min_flavors_per_claim: 2, prompt: "skills/council/prompts/investigator.md" },
         # Phase 3 (CDV-209): topic classify → at most one team-agent specialist.
-        # Runs before Phase 2.5. Skipped for finding[] (diff-mode).
+        # Runs before Phase 2.5. Skipped for finding[] (diff-mode) and at
+        # council_tier: light (CDT-126).
         "3_domain_specialist": (
-          if $output_shape == "finding[]"
-          then { deferred: false, skipped: true, reason: "diff-mode (finding[] flavors cover specialist axes)", confidence_threshold: 0.75, max_specialists_per_run: 1, classifier_prompt: "skills/council/prompts/topic-classifier.md", specialist_prompt: "skills/council/prompts/investigator.md" }
+          if $phase3_skip_reason != ""
+          then { deferred: false, skipped: true, reason: $phase3_skip_reason, confidence_threshold: 0.75, max_specialists_per_run: 1, classifier_prompt: "skills/council/prompts/topic-classifier.md", specialist_prompt: "skills/council/prompts/investigator.md" }
           else { deferred: false, skipped: false, confidence_threshold: 0.75, max_specialists_per_run: 1, classifier_prompt: "skills/council/prompts/topic-classifier.md", specialist_prompt: "skills/council/prompts/investigator.md", agents: ["devops", "ds", "qa", "pm"] }
           end
         ),
-        # Phase 4 runs only for verdict[]-shape presets (claim/session/plan/from-retro/generic).
+        # Phase 4 runs for verdict[]-shape presets at council_tier: full.
         # finding[]-shape (diff-mode) routes specialist findings straight to the
         # judge — there is no prosecutor/advocate step. See review-and-commit/SKILL.md
         # ("Phase 4 — skipped in diff-mode") and commands/council.md Phase 4.
+        # council_tier: light skips it too (CDT-126) — a second, independent
+        # condition, not a restatement of the shape one.
         "4_prosecution_defense": (
-          if $output_shape == "verdict[]"
+          if $phase4_skip_reason == ""
           then { prosecutor: { prompt: "skills/council/prompts/phase4-brief.md", role: "Prosecutor", evidence_field: "evidence_against", flavor: "jaded-senior" }, advocate: { prompt: "skills/council/prompts/phase4-brief.md", role: "Devil\u0027s Advocate", evidence_field: "evidence_for", flavor: "yolo-ic" } }
-          else { skipped: true, reason: "finding[]-shape preset" }
+          else { skipped: true, reason: $phase4_skip_reason }
           end
         ),
-        "5_judgment": { agent: "council-judge", prompt: "skills/council/prompts/judge.md" },
+        # Judge inputs: claims + evidence bundles ALWAYS; the two Phase-4 briefs
+        # only when Phase 4 ran. A skipped Phase 4 is never papered over with a
+        # synthesized, stubbed, or empty-string brief (SPEC-013 Phase 5).
+        "5_judgment": (
+          { agent: "council-judge", prompt: "skills/council/prompts/judge.md" }
+          + (if $phase4_skip_reason == ""
+             then { inputs: ["claims", "evidence_bundles", "prosecutor_brief", "advocate_brief"] }
+             else { inputs: ["claims", "evidence_bundles"], briefs_omitted: true, briefs_omitted_reason: $phase4_skip_reason }
+             end)
+        ),
         "6_finalize": { invoke: "engine.sh finalize --plan-file <p> --evidence-file <e> --judge-output <j>" }
       }
     }
@@ -418,6 +497,8 @@ cmd_preflight() {
           why_detail: {
             preset: $preset,
             flavors: $flavors,
+            council_tier: $council_tier,
+            grading_reason: $grading_reason,
             phase3_specialist: $phase3_why_stub,
             claim_budget: $claim_budget,
             preset_source: $preset_source,
@@ -597,6 +678,24 @@ cmd_finalize() {
   plan_task_id=$(jq -r '.task_id // ""' "$plan_file")
   plan_report_path=$(jq -r '.report_path' "$plan_file")
 
+  # CDT-126: the plan is the sole carrier of the tier — preflight resolved it,
+  # finalize only records it (frontmatter + index row). Plans written before
+  # tiering landed have neither key; those runs are `full` by definition.
+  local council_tier grading_reason
+  council_tier=$(jq -r '.council_tier // "full"' "$plan_file")
+  grading_reason=$(jq -r '.grading_reason // ""' "$plan_file")
+  # Coerce here, once, so the report and the index row cannot disagree: the
+  # renderer used to fail closed to "full" on its own while index-writer.sh
+  # hard-rejected the same raw value, which wrote a report claiming "full" and
+  # then aborted the run with exit 6 and no index row.
+  case "$council_tier" in
+    light|full) ;;
+    *)
+      echo "engine.sh: plan carries an invalid council_tier ($council_tier) — failing closed to full" >&2
+      council_tier="full"
+      ;;
+  esac
+
   # task-id on finalize overrides plan's task-id if given
   if [ -z "$task_id" ]; then
     task_id="$plan_task_id"
@@ -682,7 +781,8 @@ cmd_finalize() {
   python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
-    "$cross_review_scores" "$verification_mode" "${tokens_file:-}" <<'PYEOF'
+    "$cross_review_scores" "$verification_mode" "${tokens_file:-}" \
+    "$council_tier" "$grading_reason" <<'PYEOF'
 import json, sys, os, re
 from collections import Counter
 
@@ -701,8 +801,16 @@ cross_review_rankings = sys.argv[12]
 cross_review_scores   = sys.argv[13]
 verification_mode     = sys.argv[14] if len(sys.argv) > 14 else "full"
 tokens_file           = sys.argv[15] if len(sys.argv) > 15 else ""
+council_tier          = sys.argv[16] if len(sys.argv) > 16 else "full"
+grading_reason        = sys.argv[17] if len(sys.argv) > 17 else ""
 if verification_mode not in ("full", "self-verified"):
     verification_mode = "full"
+
+def yaml_dq(s):
+    """Escape a value for a double-quoted YAML scalar. grading_reason can carry
+    LLM-authored triage text, so quotes and newlines must not escape the field."""
+    return (s.replace("\\", "\\\\").replace('"', '\\"')
+             .replace("\r", " ").replace("\n", " "))
 
 # CDV-204: optional per-phase tokens (orchestrator-owned file). Never invent 0.
 def load_usable_tokens(path):
@@ -845,14 +953,39 @@ for b in bundles:
 evidence_bundles_md = "\n".join(bundle_lines) if bundle_lines else "_No evidence bundles._"
 
 # --- Format briefs ---
+# Phase-4-conditional (SPEC-013 Phases 5/6): when Phase 4 did not run there is
+# no brief to render, and an empty or synthesized one is forbidden — the report
+# records the skip and its reason in its place.
 def format_brief(text):
     if not text:
         return "_Brief not provided._"
     lines = text.strip().splitlines()
     return "\n".join(f"> {ln}" for ln in lines)
 
-prosecutor_brief_md = format_brief(prosecutor_brief)
-advocate_brief_md = format_brief(advocate_brief)
+phase4_plan = (plan.get("phases") or {}).get("4_prosecution_defense") or {}
+phase4_skipped = bool(phase4_plan.get("skipped"))
+phase4_skip_reason = phase4_plan.get("reason") or "not recorded"
+
+# Phase 3's skip needs the same visible audit trail as Phase 2.5's bypass note
+# (SPEC-013 Council tiering), so it gets its own rendered status line. Finalize
+# only knows whether the phase was eligible — whether a specialist was actually
+# pulled is a runtime decision, so an eligible run says exactly that.
+phase3_plan = (plan.get("phases") or {}).get("3_domain_specialist") or {}
+if phase3_plan.get("skipped"):
+    phase3_status_md = f"SKIPPED (reason: {phase3_plan.get('reason') or 'not recorded'})"
+else:
+    phase3_status_md = "ELIGIBLE (runtime classify)"
+
+if phase4_skipped:
+    brief_skip_md = (
+        f"_Phase 4 skipped, reason: {phase4_skip_reason} — no brief was "
+        "produced and none was synthesized._"
+    )
+    prosecutor_brief_md = brief_skip_md
+    advocate_brief_md = brief_skip_md
+else:
+    prosecutor_brief_md = format_brief(prosecutor_brief)
+    advocate_brief_md = format_brief(advocate_brief)
 
 # --- Format verdicts / findings ---
 if output_shape == "verdict[]":
@@ -999,6 +1132,9 @@ subs = {
     "{{ACTION_ITEMS}}": action_items_md,
     "{{TASK_ID}}": task_id,
     "{{VERIFICATION_MODE}}": verification_mode,
+    "{{COUNCIL_TIER}}": council_tier,
+    "{{GRADING_REASON}}": yaml_dq(grading_reason),
+    "{{PHASE3_SPECIALIST_STATUS}}": phase3_status_md,
     "{{CROSS_REVIEW_STATUS}}": cross_review_status,
     "{{CROSS_REVIEW_RANKINGS}}": cross_review_rankings,
     "{{CROSS_REVIEW_SCORES}}": cross_review_scores,
@@ -1010,12 +1146,17 @@ subs = {
 # legitimate prose/headings). The dynamic value rendered into {{VERDICT_SUMMARY_TABLE}}
 # / {{SEVERITY_SUMMARY_TABLE}} / {{STRUCK_*}} fully replaces what the section needs,
 # so there is no static example/fallback content left to strip post-substitution.
-rendered = template
-for var, val in subs.items():
-    rendered = rendered.replace(var, val)
-
-# Strip any remaining {{VAR}} that weren't in our map (safety net)
-rendered = re.sub(r'\{\{[A-Z_]+\}\}', '', rendered)
+#
+# ONE non-recursive pass, never a per-var chain of str.replace: substituted text
+# is scanned once and its output is never re-scanned. A sequential chain lets a
+# value substituted early carry a literal `{{LATER_VAR}}` that a later iteration
+# then expands — with untrusted values (grading_reason is free text from the
+# tier-triage model) that is a template-injection primitive, and it landed raw,
+# multi-line and unescaped inside the YAML frontmatter fences. Unknown
+# placeholders resolve to "" here, which also folds in the old safety-net strip.
+# The class carries digits: the pre-existing [A-Z_]+ silently skipped names like
+# {{PHASE3_SPECIALIST_STATUS}}, leaking them into the report verbatim.
+rendered = re.sub(r'\{\{[A-Z0-9_]+\}\}', lambda m: subs.get(m.group(0), ''), template)
 
 # Unbound runs: remove empty task_id key entirely (not null, not "")
 # Template carries `task_id: "{{TASK_ID}}"`; after empty sub it is `task_id: ""`.
@@ -1067,7 +1208,7 @@ PYEOF
       echo "engine.sh: index-writer.sh not executable at $INDEX_WRITER" >&2
       exit 6
     fi
-    if ! "$INDEX_WRITER" "$task_id" "$plan_report_path" "$max_verdict_confidence" "$max_finding_confidence" >&2; then
+    if ! "$INDEX_WRITER" "$task_id" "$plan_report_path" "$max_verdict_confidence" "$max_finding_confidence" "$council_tier" "$grading_reason" >&2; then
       echo "engine.sh: failed to update .claude/council/index.json" >&2
       exit 6
     fi
@@ -1078,6 +1219,12 @@ PYEOF
   printf 'Council report: %s\n' "$rel_path"
   printf 'Scope: %s\n' "$scope"
   printf 'Preset: %s (%s)\n' "$preset" "$output_shape"
+  # Tier line only when the run was NOT full: `full` keeps today's stdout
+  # byte-identical (SPEC-013 § Council tiering), and a light run is exactly the
+  # case a reader needs told about.
+  if [ "$council_tier" != "full" ]; then
+    printf 'council_tier=%s (%s)\n' "$council_tier" "$grading_reason"
+  fi
   printf 'verification_mode=%s\n' "$verification_mode"
 
   if [ "$output_shape" = "verdict[]" ]; then

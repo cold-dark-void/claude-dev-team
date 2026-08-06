@@ -157,8 +157,12 @@ protocol: `skills/council/SKILL.md` § Workflow execution path — do not restat
 
 Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
 
-- **Phase 1** — the 5 specialist flavors ARE the investigators. Spawn 5 Task
-  subagents in one message (parallel), one per flavor from
+- **Phase 1** — this call site's `engine.sh preflight` invocation (Step 3) does
+  not pass `--tier`, so it always resolves `council_tier: full` (CDT-126 —
+  tiering is not wired into `/review-and-commit`; see `commands/council.md`
+  Step 1.5 for the tiered `/council --diff` path). Spawn one Task subagent per
+  full-tier flavor in one message (parallel) — `logic, security, compliance,
+  quality, simplification` — from
   `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`,
   using `skills/council/prompts/investigator.md`. Pass full diff, full
   changed-file contents, applicable-specs bundle, impact context from
@@ -379,8 +383,11 @@ ConcreteQueue directly" is); ordered BLOCKER → COMPLIANCE → DESIGN → NITPI
 
 ## Notes
 
-- Thin wrapper over `skills/council/SKILL.md` with `preset: diff-mode`. The
-  5 specialists load from `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`.
+- Thin wrapper over `skills/council/SKILL.md` with `preset: diff-mode`, always
+  at `council_tier: full` (CDT-126 — this call site does not thread
+  `--council-tier`; see `commands/council.md` for the tiered path). The
+  full-tier flavor set loads from
+  `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`.
 - **Phase 7 feedback memory is DISABLED** for diff-mode
   (`feedback_memory_enabled: false`). A code bug is not a claim fabrication;
   conflating them would poison agent directives. See SPEC-013 line 105,

@@ -167,9 +167,9 @@ deliberately does **not** reproduce M13's enum members, numeric bounds, or chars
   passes `null` (M13 field contract; backstopped by `append-card.sh` cross-field invariant (a)).
 - **`merge` ⇒ bump supplied** *(engine-only enforced — no writer backstop)*. The engine emits
   `decision=merge` only when `autopilot_bump != null` (M2 / N3). `append-card.sh` has **no**
-  guard tying `merge` to a non-null bump (only two real cross-field invariants exist in that
-  script — (a) and (b) below), so nothing downstream catches a merge-without-bump slip; the
-  engine is the sole enforcer. The bump satisfies explicit ship intent for `merge`; it never
+  guard tying `merge` to a non-null bump — its cross-field invariants are (a), (b) below and
+  (c) `council_tier`/`grading_reason` non-null ⇒ `gate=ship-choice`, none of which cover it —
+  so nothing downstream catches a merge-without-bump slip; the engine is the sole enforcer. The bump satisfies explicit ship intent for `merge`; it never
   exempts BC3.
 - **A BC7 card carries sub-threshold confidence** *(writer-enforced)*. The engine routes to
   BC7 only when the agent's confidence is genuinely below the M6/M13 threshold, so

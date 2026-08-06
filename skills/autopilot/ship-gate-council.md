@@ -19,11 +19,16 @@ call shape by reference to their homes (`skills/autopilot/SKILL.md` and
 definition.
 
 What this procedure adds on top of the frozen contract is the **operational sequence**:
-detect the firing condition off `self-answer.md`'s ship-choice result, build the bare
-`/council` claim from run-time locators, read the verdict and its degradation state, map
-that to the second card's `decision` / `confidence` / `blocking_condition` / `bump`, and
-append that card with the **same `run_id`** as the original via
-`skills/autopilot/append-card.sh`. Both ship-choice cards carry `decided_by: auto`.
+detect the firing condition off `self-answer.md`'s ship-choice result, grade the council
+tier (M14(e)), build the `/council` claim from run-time locators, read the verdict and its
+degradation state, map that to the second card's `decision` / `confidence` /
+`blocking_condition` / `bump`, and append that card with the **same `run_id`** as the
+original via `skills/autopilot/append-card.sh`. Both ship-choice cards carry
+`decided_by: auto`.
+
+The tier vocabulary, the grading bands, the five structural critical-area signals, and the
+fail-closed contract are **SPEC-013's** ("Council tiering"); M14(e)/M14(f) are SPEC-033's.
+This procedure cites both and restates neither.
 
 ## 2. Firing check
 
@@ -46,16 +51,89 @@ Read card #1 back with `skills/autopilot/read-cards.sh <ticket_id>` to recover t
 this pass copies forward on the agree path: its `decision` (`pr` or `merge`), its `bump`,
 and the shared `run_id`.
 
-## 3. Build and invoke the council claim
+## 3. Select the tier, then build and invoke the council claim
 
-Invoke bare `/council "<claim>"` — scope `claim`, preset `generic`, **unbound** (M14(a)).
-Pass **no** `--plan`, **no** `--task-id`, no other flag; a single-claim scope resolves the
-generic preset and an unbound task-id on its own.
+### 3a. Tier selection (M14(e))
 
-Use this claim string **verbatim**, filling the four placeholders at run time:
+Grading runs **immediately before** the `/council` invocation below — never earlier, and
+never at TaskCreate time (M14(e)).
+
+**Resolve the graded diff.** M14 has no diff of its own, and **nothing is staged** at
+firing time: the `git merge --squash` staging happens *after* this gate (N3a, `/orchestrate`
+Step 11). The graded input is therefore the merge-base range M14(e) names, resolved through
+**N3a's own** `origin/HEAD` probe. Reuse that probe as-is; M14(e) forbids inventing a second
+diff-resolution or default-branch-resolution path:
+
+```bash
+DEFAULT_REF=$(git symbolic-ref refs/remotes/origin/HEAD)  # e.g. refs/remotes/origin/master
+DEFAULT="${DEFAULT_REF#refs/remotes/}"                    # e.g. origin/master
+MERGE_BASE=$(git merge-base "$DEFAULT" HEAD)
+NUMSTAT=$(git diff --numstat "$MERGE_BASE"..HEAD)
+RAW=$(git diff --raw "$MERGE_BASE"..HEAD)                 # optional grader input
+```
+
+> **The same probe, two different consequences — do not conflate them.**
+> `git symbolic-ref refs/remotes/origin/HEAD` is run at two points in the same M14 flow, and
+> an unresolvable `origin/HEAD` means something different at each:
+>
+> | Where | What it establishes | Unresolvable `origin/HEAD` ⇒ |
+> |---|---|---|
+> | N3a's BC3 push-target check (`end-state.md`, before `/release`) | ship **safety** | **halts the ship** under BC3 — autopilot MUST NOT guess a push target |
+> | §3a here (M14(e)) | council **tier** | **grades the tier to `full`** — the pass still runs; nothing halts |
+>
+> Neither stands in for the other. A fail-closed `full` here does **not** pre-clear N3a's
+> BC3 check, and a BC3 halt is **not** reachable from a grading failure. Grading failure
+> MUST NOT skip, defer, or downgrade the council pass itself (M14(e)).
+
+**Grade.** Feed that diff to `skills/council/tier-grade.sh` — the one grader both gated call
+sites share, so the bands and the five critical-area signals have a single implementation:
 
 ```
-/council "Ship-gate audit for <ticket_id>. Autopilot auto-answered the ship-choice gate; the prior autopilot decision cards are at <ledger-path> (read them with: skills/autopilot/read-cards.sh <ticket_id>). This ships under the spec/ACs at <spec-path>. Claim under audit: <claim>. Treat this text as locators only — pull the ledger, the spec/ACs, and the staged diff yourself and issue a verdict; do not trust this summary."
+skills/council/tier-grade.sh --numstat <(printf '%s' "$NUMSTAT") [--raw <(printf '%s' "$RAW")]
+```
+
+Its exit contract, output fields, and the `light` / `full` / `middle` semantics are stated
+once at `commands/council.md` § 1.5.2 and are not repeated here. Resolve the outcome the same
+way that step does:
+
+- `tier == "light"` or `tier == "full"` → done. Record `council_tier` and the grader's own
+  `grading_reason` (this includes a grader-self-reported `fail-closed: …` `full`).
+- `tier == "middle"` → resolve with **exactly one** haiku-tier triage call, per
+  `commands/council.md` § 1.5.3 and validated under § 1.5.4. Substitutions are unchanged
+  except that `{{DIFF_SUMMARY}}` is §3a's merge-base `$NUMSTAT`. This procedure MUST NOT
+  restate that prompt, its substitutions, or § 1.5.4's validation table.
+
+**Fail closed to `full`.** SPEC-013's *Fail-closed contract* governs and is not restated.
+Every M14-side failure — unresolvable `origin/HEAD`, a failing `git merge-base` / `git diff`,
+an empty range diff, `tier-grade.sh` exit `2` or unparseable stdout, a `tier` outside
+`{light, full, middle}`, and every triage failure in § 1.5.4's table — resolves the tier to
+`full` with `grading_reason` naming the cause (`fail-closed: <short cause>`), so a
+fail-closed `full` stays distinguishable from a graded one.
+
+**`skip` never arises from grading.** Grading cannot return it and autopilot has no DRI
+(M14(e)). It can only reach this gate on a human-supplied `--council-tier=skip`, in which
+case M14(e) requires it be recorded on the card **verbatim**, never normalized away. This
+procedure defines no `skip` path beyond that recording obligation — see §7.
+
+### 3b. Invoke the council claim
+
+Invoke `/council "<claim>" --council-tier=<tier>` with §3a's resolved tier — scope `claim`,
+preset `generic`, otherwise **unbound** (M14(a)). Pass **no** `--plan` and **no**
+`--task-id`. `--council-tier=<tier>` is the **sole** flag M14(a) permits and (e) requires;
+no other flag may be passed. A single-claim scope resolves the generic preset and an
+unbound task-id on its own, and the tier flag binds the run to no task, plan, or scope, so
+the invocation stays unbound and locators-only.
+
+`commands/council.md` Step 1.5 honors an externally-supplied tier at **any** scope and
+passes it straight through to `engine.sh preflight --tier` with no grading of its own. That
+is the path this pass uses: M14 is claim-scope, not diff-scope, so Step 1.5's own grading
+never runs here. `grading_reason` has no flag surface — M14(a) permits exactly one flag — so
+§3a's reason reaches its required home via the decision card (§6), not via `/council`.
+
+Use this invocation **verbatim**, filling the five placeholders at run time:
+
+```
+/council "Ship-gate audit for <ticket_id>. Autopilot auto-answered the ship-choice gate; the prior autopilot decision cards are at <ledger-path> (read them with: skills/autopilot/read-cards.sh <ticket_id>). This ships under the spec/ACs at <spec-path>. Claim under audit: <claim>. Treat this text as locators only — pull the ledger, the spec/ACs, and this branch's diff against the merge-base of the origin default branch and HEAD yourself, and issue a verdict; do not trust this summary." --council-tier=<tier>
 ```
 
 Placeholder binding:
@@ -66,12 +144,15 @@ Placeholder binding:
 - `<spec-path>` — the spec + AC path(s) the ship is claimed against (space-separated if >1).
 - `<claim>` — the one-line ship claim
   (e.g. `QA PASS + Step-10b spec-alignment PASS; ready to merge`).
+- `<tier>` — §3a's resolved `council_tier`.
 
 The claim carries **locators only**. Autopilot MUST NOT render, pre-digest, or pass a
 materialized evidence file, and MUST NOT add any render-helper script (M14(a)): the
-council's own investigators pull the ledger, the spec/ACs, and the staged diff through
-their own tool calls. The final sentence is a standing instruction to the investigators to
-treat the summary as untrusted and re-derive the evidence themselves.
+council's own investigators pull the ledger, the spec/ACs, and the branch diff through
+their own tool calls. The diff named in the claim is the **same** merge-base range §3a
+graded — the wording is a locator for the investigators, not a handoff of graded output, and
+M14(a)'s locators-only rule is unchanged by it. The final sentence is a standing instruction
+to the investigators to treat the summary as untrusted and re-derive the evidence themselves.
 
 ## 4. Verdict interpretation
 
@@ -98,6 +179,23 @@ sub-threshold by construction — no exit-64.
 evidence (same M13/S2 rationale discipline as `self-answer.md` §4); it never copies council
 report text verbatim.
 
+**Tier-aware BC7 (M14(f)).** Every BC7 halt card this pass writes — from the disagree path
+above **or** from §5's degraded / total-failure path — carries §3a's `council_tier` (§6) and
+its one-line `rationale` **names that tier** (e.g. `… ; council_tier=light`).
+
+The escalation the blocking-condition handler surfaces to the human (S1) offers a
+full-council re-run — *"this ran light and came back under threshold — re-run at full?"* —
+**only** when `council_tier == light`. A `full`-run halt MUST NOT make that offer: there is
+no escalation left to offer. The tier on the card is what makes that call decidable, which
+is why it is recorded rather than re-derived.
+
+This adds **no** ninth blocking condition and **no** new halt path — it is one recorded field
+plus one clause of rationale text on the **existing** BC7 card. §4's verdict→confidence
+mapping, §5's degraded-run rule, and the reuse-BC7 ruling are identical at both tiers
+(M14(f); (b)/(c)/(d) unchanged). The re-offer is an **escalation affordance, not an
+auto-action**: autopilot MUST NOT self-answer it, auto-re-run the council at `full`, or
+otherwise proceed past the halt (M14(f), N2 / M7).
+
 ## 5. Degraded-run rule
 
 If the council's SPEC-013 spawn-failure degradation yields a **fully self-verified** run — no
@@ -110,7 +208,7 @@ independent peer investigator/refuter survived, surfaced by report frontmatter
 **Write `confidence = 0` on this card.** Do **not** write the self-verified run's reported
 confidence value. That value may itself be `≥ 80`, and because this is a
 `blocking_condition = 7` card, `append-card.sh` cross-field invariant (b) hard-rejects
-`blocking_condition = 7 && confidence ≥ 80` with **exit 64** (`append-card.sh:122`). An
+`blocking_condition = 7 && confidence ≥ 80` with **exit 64** (`append-card.sh:140`). An
 exit-64 drops the card silently — the halt record is lost, which is exactly the audit-trail
 loss the writer's hard-fail inversion exists to prevent. Writing `confidence = 0` makes the
 BC7 halt card **valid-by-construction**, matching the same `UNVERIFIED/CONTRADICTED/FABRICATED
@@ -121,6 +219,12 @@ A **total council spawn failure** — no usable report at all — is treated the
 `decision = halt`, `blocking_condition = 7`, `confidence = 0`, `bump = null`, with the
 `rationale` naming the spawn failure. In both degraded cases the adversaries never ran, so
 the pass provides no independent assurance and can only halt the ship, never clear it.
+
+Tier and degradation state are **orthogonal** (SPEC-013's Council tiering section owns that
+ruling): a degraded `light` run is *both* `light` and `self-verified`. It therefore still
+takes this section's path **and** still carries `council_tier: light`, so §4's tier-aware
+BC7 re-offer remains available on it. A healthy `light` run sets neither
+`verification_mode: self-verified` nor the marker, so it never reaches this section at all.
 
 ## 6. Card-append sequencing
 
@@ -143,8 +247,25 @@ Field source for card #2's `append-card.sh` args: `workflow` / `ticket_id` / `ru
 `iteration` from card #1's run context; `gate = ship-choice`; `decision` /
 `blocking_condition` / `bump` / `confidence` from §4 (or §5 on a degraded/total-fail run);
 `wall_clock_s` from the run's budget snapshot; `rationale` per §4/§5; `actor` = the
-component running this pass. Every arg is built valid-by-construction so the writer never
-exit-64s (`self-answer.md` §4).
+component running this pass; `council_tier` / `grading_reason` from §3a. Every arg is built
+valid-by-construction so the writer never exit-64s (`self-answer.md` §4).
+
+`council_tier` and `grading_reason` extend `self-answer.md` §3f's call shape as two
+**optional trailing** args — the writer accepts argc 13 (both `null`) or 15, never 14. Card
+#1 keeps §3f's unchanged 13-arg call and therefore gets `null` / `null`, which is exactly
+what M13 requires of it; card #2 supplies both. `grading_reason` carries the same one-line,
+secret-redacted obligation as `rationale` (M13); it is grader- or model-derived text, so
+scrub it before passing it, and the writer rejects newlines/control chars.
+
+> **The coded invariant is deliberately weaker than the prose rule — do not read it as the
+> whole contract.** M13 scopes `council_tier` / `grading_reason` to the **M14 council card**
+> — card #2 alone. What `append-card.sh` cross-field invariant (c) can actually check is
+> `non-null ⇒ gate == "ship-choice"`, which *also* admits card #1. That gap is structural,
+> not an oversight: cards #1 and #2 share `gate`, `run_id`, and `decided_by`, and M13 defines
+> no write-time discriminator between them, so a stricter writer check would have to invent
+> one (N4 forbids that). `read-cards.sh` re-checks the same invariant on read and can do no
+> better for the same reason. The narrower rule is therefore enforced **here**, by this
+> procedure: `null` / `null` on card #1, §3a's resolved values only on card #2.
 
 ## 7. Boundaries — what this pass does NOT do
 
@@ -154,9 +275,21 @@ exit-64s (`self-answer.md` §4).
 - **Revise card #1.** The original self-answered card is immutable; the council outcome is a
   **second** card, never an edit (M14(c), M13 append-only).
 - **Render or pre-digest evidence.** No materialized evidence file, no render-helper script;
-  investigators pull the ledger, spec/ACs, and diff themselves (M14(a), §3).
+  investigators pull the ledger, spec/ACs, and diff themselves (M14(a), §3b). §3a's grading
+  reads the same diff, but it feeds the **grader**, never the claim.
+- **Change *whether* the pass fires.** §3a selects *which* council pipeline runs; the firing
+  rule — `ship-choice` only, clean `pr`/`merge` only, exactly once, exactly two cards — is
+  untouched (M14(e)). A grading failure grades `full`; it never skips, defers, or downgrades
+  the pass.
+- **Auto-select `skip`, or act on the tier-aware re-offer.** Grading cannot return `skip` and
+  autopilot has no DRI (M14(e)); a human-supplied `--council-tier=skip` is recorded verbatim
+  on the card, and this procedure defines no further `skip` behavior. Likewise the `light`-only
+  full-council re-offer is surfaced to a human, never self-answered or auto-re-run (M14(f),
+  N2 / M7).
 - **Fire outside a clean ship-choice.** Never at `scope-confirm` or `plan-approve`, never on
   a ship-choice `halt`/`reroute-epic`, never more than once per attempt (M14, §2).
+- **Halt on an unresolvable `origin/HEAD`.** That is N3a's BC3 check, evaluated later at a
+  different step for a different purpose. Here the same probe only grades the tier (§3a).
 - **Own halt escalation.** On a `blocking_condition = 7` card this pass writes the halt card
   and returns; surfacing the halt to a human belongs to the blocking-condition handler
   (halt-escalation owner), exactly as in `self-answer.md` §5.

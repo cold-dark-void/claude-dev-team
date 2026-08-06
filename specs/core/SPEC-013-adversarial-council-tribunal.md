@@ -50,6 +50,252 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST require every `finding` to carry a `tool_use_id` citing the Read/Grep that observed the cited `file:line` — evidence-or-silence applied to findings as to verdicts
 - MUST treat confidence as a single 0–100 scale across both shapes; threshold semantics are declared per shape (diff-mode findings filter <80 at emission; verdicts carry confidence for downstream feedback-memory and TaskCompleted gates)
 
+### Council tiering *(CDT-126)*
+
+Tiering selects **which pipeline runs** for a council invocation — never **whether** a gate
+fires. `requires_council` semantics (Integration Hooks / Task-ID Plumbing) are unchanged, and
+tier selection MUST run immediately before the gated call, never at TaskCreate time. It applies
+to the two *gated* call sites — the orchestrated task gate (`requires_council: true`, claim
+scope) and SPEC-033 M14's autopilot ship gate. Of those two, only the ship gate grades
+automatically; the task gate takes its tier from the explicit `--council-tier` override and
+otherwise runs `full` (see Grading). Manual `/council` invocations at any scope are unaffected
+and run `full` unless given that same override.
+
+#### Tier vocabulary
+
+- MUST define exactly three tiers: `council_tier ∈ skip | light | full`
+- MUST NOT auto-select `skip` — grading MUST NOT be capable of returning it. `skip` is reachable
+  only through an explicit per-run DRI flag
+- **The `--council-tier` flag does NOT carry the same legal vocabulary on every surface.**
+  `council_tier` has exactly three *logical* values, but `skip` is a **resolution the caller
+  performs**, never an instruction the council engine executes — so it is not legal everywhere
+  the flag is accepted. The three surfaces MUST be:
+
+  | Surface | Legal values | `skip` behavior |
+  |---|---|---|
+  | `/orchestrate --council-tier=` | `skip \| light \| full` | short-circuits: **no `/council` invocation, no engine run, no report** |
+  | `/council --council-tier=` | `light \| full` **only** | MUST hard-fail loudly at argument parse — `skip` is never legal here |
+  | `engine.sh --tier` | `light \| full` (absent → `full`) | MUST refuse and exit non-zero — a `skip` run must never reach preflight |
+
+  A caller wanting `skip` MUST short-circuit **before ever invoking `/council`**, and its own
+  orchestrating procedure MUST record the audit trail directly (see Recording the tier). The
+  `/council` hard-fail is the earlier, louder rejection point; the engine's refusal is the
+  independent backstop if that is ever bypassed. Neither MUST silently coerce `skip` to another
+  tier — a coerced `skip` would run a council the DRI explicitly declined
+- MUST define `full` as today's pipeline with **no behavioral change**: same phases, same flavor
+  sets, same prompts, same investigator and Judge behavior, same stdout summary. A `full` run
+  after this section spawns exactly the roles, in exactly the order, that it spawned before it.
+  The guarantee is over **behavior**, not over serialized artifacts: report frontmatter and the
+  `index.json` row **do** gain the two additive `council_tier` / `grading_reason` keys on
+  *every* run including `full`, per Recording the tier below. An ungraded `full` run records
+  `council_tier: full` with a `grading_reason` naming it as the default rather than a graded
+  result, so a defaulted `full` stays distinguishable from a graded one — the same
+  distinguishability the Fail-closed contract requires
+- MUST define `light` as **exactly 2 investigators with distinct flavor presets (Phase 2) plus
+  the Phase 5 Judge**; Phase 3 (Dynamic Domain Specialist) and Phase 4 (Prosecution & Defense)
+  MUST be skipped, and the report MUST record the skip and its reason (`council_tier: light`)
+  as a visible audit trail, in the same manner as Phase 2.5's documented bypass note
+- MUST select light flavor subsets per preset:
+
+  | Preset | `full` flavors | `light` flavors |
+  |---|---|---|
+  | `generic` | `paranoid-ic`, `jaded-senior` | `paranoid-ic`, `jaded-senior` (unchanged — already exactly 2) |
+  | `diff-mode` | `logic`, `security`, `compliance`, `quality`, `simplification` | `logic`, `security` |
+
+  Light `diff-mode` keeps the two correctness/safety axes and drops the three polish axes. It is
+  reachable only via an explicit `--council-tier=light` on a `--diff` invocation, since no call
+  site grades `--diff` automatically (see Grading).
+
+> **Naming note.** Command Shape & Scope MUST NOT "accept, document, or implement a
+> `--no-council` flag". `--council-tier=skip` is a single uniform tier vocabulary and does not
+> resurrect that forbidden token.
+
+> **`diff-mode` flavor clarification (not a new violation).** Phase 2's "paranoid-ic + at least
+> one other" parenthetical is generic-preset-specific; `diff-mode` already carries none of the
+> `paranoid-ic` flavor today. The operative requirement — ≥ 2 investigators with distinct
+> flavors — is what light `diff-mode` satisfies.
+
+#### `light` rescopes no Phase-2 or Phase-2.5 MUST
+
+`light`'s investigator count of **2** is forced by two existing requirements rather than chosen
+freely, and it threads both without amendment:
+
+- Phase 2's "MUST spawn at least 2 investigators per claim with distinct flavor presets
+  (paranoid-ic + at least one other) to defeat monoculture" is satisfied **verbatim** at 2. No
+  Phase-2 MUST is rescoped and the monoculture defense is not weakened.
+- Phase 2.5's "MUST skip Phase 2.5 when fewer than 3 investigators participate" is **not**
+  tripped at 2, so blind cross-review self-skips with no new logic and no new bypass reason.
+
+At 1 investigator a live MUST would have to be rescoped; at 3 Phase 2.5 would fire and spawn a
+cross-review round that erases the saving.
+
+**Skipping Phase 4 does require scoping, and that scoping is done in place.** `light` is the
+first `verdict[]`-shape run with no Phase 4 — diff-mode's Phase-4 skip existed only in
+`engine.sh` preflight and `skills/review-and-commit/SKILL.md`, never in this contract — so three
+requirements are scoped at their own homes rather than restated here:
+
+- Phase 4's "MUST spawn exactly one Prosecutor and one Devil's Advocate" now reads *per council
+  run **in which Phase 4 runs***, with the run/skip condition stated in the Phase 4 preamble
+- Phase 5's "MUST pass the Judge: original claims, evidence bundles, Prosecutor brief, Devil's
+  Advocate brief" now makes the two **brief inputs Phase-4-conditional**: at `light` the Judge
+  receives claims + evidence bundles only, and the engine MUST NOT synthesize or stub an absent
+  brief
+- Phase 2.5's bypass destination now reads *the next phase that runs* — Phase 5 when Phase 4 is
+  itself skipped — instead of an unconditional "proceed directly to Phase 4"
+- Phase 6's report-contents requirement makes the two briefs Phase-4-conditional on the same
+  terms, recording the skip and its reason in their place rather than an empty brief section
+
+No other MUST anywhere in this spec changes, and the Phase-4 skip introduces no new violation.
+
+#### `council_tier` is orthogonal to `verification_mode`
+
+- MUST keep `verification_mode` a strict two-value enum (`full | self-verified`) meaning exactly
+  what Spawn-failure degradation (CDV-199) defines today
+- MUST NOT fold `council_tier` into `verification_mode`, widen that enum with a tier value, or
+  derive either field from the other — they answer different questions:
+
+  | Field | Question | Values |
+  |---|---|---|
+  | `council_tier` | Which roles did the run *intend* to run? | `skip \| light \| full` |
+  | `verification_mode` | Did the intended roles *actually* run? | `full \| self-verified` |
+
+  The fields are genuinely orthogonal: a **light run whose Judge spawn fails** is *both* `light`
+  **and** `self-verified`. A single widened enum cannot express that state, so widening would be
+  a type error — the same conflation SPEC-033 M13 already refuses when it keeps the gate
+  `decision` separate from the council `verdict`.
+
+- Consequently a *healthy* `light` run MUST NOT set `verification_mode: self-verified` and MUST
+  NOT emit the marker `self-verified — refuters unavailable`; a *degraded* `light` run still MUST
+  set both, exactly as a degraded `full` run does. Downstream consumers keying on
+  `verification_mode` (SPEC-033 M14(d), both report templates, `workflow.js`) need no change
+
+#### Grading
+
+Grading bands a diff the call site already resolves. It introduces **no new diff-resolution
+concept**: the grader is fed the `--numstat` of a diff whose resolution mechanism is already
+specified elsewhere.
+
+**Exactly one call site grades automatically.** Tier selection reaches every other site through
+the explicit `--council-tier` override, which short-circuits grading entirely. Note the two
+override values behave differently: `light`/`full` pass straight through to the engine as the
+run's tier, whereas `skip` never reaches `/council` or the engine at all (Tier vocabulary) — it
+is resolved by the caller, which records the index row itself with no council run:
+
+| Call site | Tier source | Diff the grader bands |
+|---|---|---|
+| Autopilot ship gate (SPEC-033 M14(e)) | **automatic grading** | `git diff --numstat $(git merge-base <default> HEAD)..HEAD`, with `<default>` from SPEC-033 N3a's `git symbolic-ref refs/remotes/origin/HEAD` resolution, reused at the same step |
+| Orchestrated task gate (`requires_council: true`) | `--council-tier` override only; **`full`** when absent | n/a — this gate runs **claim scope**, not `--diff` |
+| Manual `/council` (any scope, including `--diff`) | `--council-tier` override only; **`full`** when absent | n/a — no grading |
+
+Two consequences worth stating so they are not mistaken for oversights:
+
+- The **task gate runs claim scope, never `--diff`.** `--diff` resolves `preset: diff-mode`,
+  which is `finding[]`-shape and always writes `max_verdict_confidence: null` — a row the
+  SPEC-002 TaskCompleted hook can never accept, so `--diff` at that gate would deadlock every
+  `requires_council: true` task. Claim scope is `verdict[]`-shape and carries a real Judge
+  confidence. Tiering applies there unchanged, sourced from the override rather than grading.
+- **Manual `/council --diff` runs `full` unconditionally.** This is the "manual invocations are
+  unaffected and run `full`" rule at the top of this section, not a special case: automatic
+  grading is scoped to the one gate above.
+
+Grader inputs are `files` (changed-file count) and `loc` (added + deleted). Bands — **normative
+here; SPEC-033 M14(e) cites this table rather than restating it**:
+
+- **clear-low → `light`** — `files ≤ 5` **AND** `loc ≤ 100` **AND** no critical-area signal
+- **clear-high → `full`** — `files > 20` **OR** `loc > 600` **OR** any critical-area signal
+- **ambiguous middle** — MUST resolve via exactly one haiku-tier triage call returning
+  `{tier, reason, risk_signals[]}` with `tier ∈ {light, full}`
+
+The bands are deliberately conservative (narrow `light` band); expect one tuning pass once
+`council_tier` telemetry accumulates.
+
+**Critical-area signals** MUST be computed structurally — MUST NOT be a hardcoded literal path
+list:
+
+1. **Spec / contract file** — path contains a `specs/` segment, **or** basename matches
+   `SPEC-*.md`, **or** the file carries YAML frontmatter with a `status:` key
+2. **Executable** — the post-image begins with `#!`, or `git diff --raw` reports mode `100755`
+3. **High fan-in** — the changed file's basename is referenced by ≥ 5 other tracked files
+   (`git grep -l -F <basename> | wc -l`) — computed per run, never hardcoded
+4. **Deletion-heavy executable** — more than 30 deleted lines in a file matching signal 2
+5. **Test removal** — net-negative LOC in a file matching `*test*`, `*_test.*`, or `test_*`
+
+Signal 3 is the only costly probe, so its scope is capped per band. It MUST run in **both** the
+clear-low and the ambiguous-middle band:
+
+- **clear-low candidates** — MUST run, capped at **5 files**. The clear-low band is `files ≤ 5`
+  by definition, so this costs at most 5 `git grep`s — cheaper than the middle band's cap, which
+  this section already accepts as reasonable cost
+- **ambiguous-middle candidates** — MUST run, capped at **20 files**
+- Exceeding either cap MUST be treated as a critical-area hit (fail-closed)
+
+Running signal 3 at clear-low is **required for the band definitions to mean what they say**:
+clear-low is defined as "no critical-area signal", which cannot hold if a critical-area signal
+was never evaluated. Skipping the probe there would let a 3-LOC change to a high-fan-in file
+grade `light` unprobed — leaving the grader blind to precisely the semantic risk the `files`/`loc`
+thresholds cannot see, which is the "rules-only, blind to semantics" outcome this design rejects.
+
+#### Fail-closed contract
+
+- MUST resolve to `full` on **any** grading failure: missing `jq`, git failure, empty or
+  unresolvable diff, unresolvable `origin/HEAD`, grader non-zero exit — and, for the triage
+  call, invalid JSON, a missing `tier` key, `tier ∉ {light, full}`, timeout, or non-zero exit
+- MUST record the failure in the run's `grading_reason` so a fail-closed `full` stays
+  distinguishable from a graded `full`
+
+> This deliberately **inverts** SPEC-026 M9's fail-open precedent, and the inversion is
+> intentional rather than an inconsistency. M9 fails open because a metrics failure must never
+> block real work. Here, failing open would silently *weaken a verification gate* — the opposite
+> risk direction, hence the opposite default.
+
+#### Recording the tier
+
+- MUST record `council_tier` and `grading_reason` in the report frontmatter alongside the
+  existing `scope` / `preset` / `output_shape` / `created_at` / `verification_mode` keys (Task
+  Binding & Verdict Index) — declared in the report templates' own frontmatter block and
+  substituted by finalize, never prepended as a second block. This applies to `light` and `full`
+  runs; a `skip` produces **no report at all**, so there is no frontmatter to carry
+- MUST record `council_tier` and `grading_reason` on the `.claude/council/index.json` row,
+  extending the row shape to `{ "report_path", "max_verdict_confidence",
+  "max_finding_confidence", "created_at", "council_tier", "grading_reason" }`. `index.json` is
+  SPEC-013's file (SPEC-026 M10 forbids other writers), so this row is SPEC-013's to extend —
+  one owner, one spec
+- The index row is therefore the **only** surface carrying all three tier values. `light`/`full`
+  rows are written by `engine.sh` finalize after a real run; a `skip` row is written by the
+  short-circuiting caller itself through that **same** one owning writer, with an empty
+  `report_path` and null confidences, and a `grading_reason` naming the DRI decision. The
+  index-row `council_tier` vocabulary is thus `skip | light | full`, wider than either the
+  `/council` or `engine.sh` flag surface — deliberately, because the row must be able to record
+  a decision that no council run produced
+- MUST NOT extend the `task-store.sh` task record with the tier: that schema is read by the
+  SPEC-002 TaskCompleted hook, so extending it would drag SPEC-002 into scope for a field the
+  index row already carries at the correct moment — immediately before the gated call
+- The autopilot ship gate additionally records the tier on its decision card (SPEC-033 M13 /
+  M14(e)); that surface is SPEC-033's, not this spec's
+
+#### Execution-path scope
+
+- The Council-on-Workflow execution path (CDV-196) is **`full`-only**. When `--workflow` /
+  `COUNCIL_WORKFLOW=1` is set **and** the resolved tier is `light`, the run MUST fall back to
+  `engine.sh` through the **existing** transparent-fallback seam rather than silently upgrading
+  the run to `full` or forking tiering behavior into `workflow.js`. This preserves strict output
+  parity — a consumer must never be able to tell which path produced a run — without a second
+  tiering implementation
+- The tier-driven fallback MUST emit its own one-line stderr notice,
+  `council: council_tier=light unsupported on the Workflow path; falling back to engine.sh`, and
+  MUST NOT reuse CDV-196's availability notice (`council: Workflow unavailable; falling back to
+  engine.sh`), which would be **false** here: the Workflow tool *is* available; only the tier is
+  unsupported. A distinct string is required rather than forbidden — CDV-196's "never invent a
+  parallel string" rule scopes the CDV-199 self-verified degradation marker, not this seam
+
+#### Cross-reference — CDT-122 (unchanged by this ticket)
+
+`finding[]`-shape runs write `max_verdict_confidence: null` and the SPEC-002 TaskCompleted hook
+ignores those rows, so task-gate `diff-mode` runs do not today satisfy `requires_council`. That
+is **CDT-122**, a pre-existing bug filed separately. Tiering **neither fixes nor worsens it**:
+`light` and `full` diff-mode runs write the same `max_verdict_confidence: null` as before.
+Recorded here so a future reader does not mistake tiering for the cause.
+
 ### Phase 1 — Claim Extraction
 - MUST run a claim-extraction pass before investigation when scope is `--session`, `--plan`, or transcript-derived
 - MUST enrich diff-mode raw input with the applicable-specs grep output (from diff-mode intake) before claim extraction runs; diff-mode claim extraction extracts candidate findings from the diff, not claims-as-assertions
@@ -115,11 +361,18 @@ investigators already cover specialist axes).
 - MUST aggregate per-reviewer rankings via Borda count into a consensus quality score per bundle
 - MUST pass evidence bundles to Phase 4 (Prosecution & Defense) and Phase 5 (Judgment) ordered by Borda consensus rank, not submission order
 - MUST flag bundles in the bottom Borda quartile as `WEAK_EVIDENCE` in the report
-- MUST skip Phase 2.5 when fewer than 3 investigators participate (minimum for meaningful cross-ranking); proceed directly to Phase 4 and note the bypass reason in the report
+- MUST skip Phase 2.5 when fewer than 3 investigators participate (minimum for meaningful cross-ranking); proceed directly to the next phase that runs — Phase 4 normally, or **Phase 5 when Phase 4 is itself skipped** (`finding[]`-shape presets, or `council_tier: light`) — and note the bypass reason in the report
 - SHOULD record each reviewer's per-bundle rankings in the report as a visible audit trail
 
 ### Phase 4 — Prosecution & Defense
-- MUST spawn exactly one Prosecutor and one Devil's Advocate per council run
+
+Phase 4 runs for `verdict[]`-shape presets at `council_tier: full`. It is **skipped** for
+`finding[]`-shape presets (diff-mode — the flavor investigators already cover both roles' axes;
+this skip was previously implementation-only in `engine.sh` preflight and
+`skills/review-and-commit/SKILL.md`, and is stated at spec level here) and at `council_tier: light`
+(Council tiering). The requirements below govern Phase 4 **whenever it runs**.
+
+- MUST spawn exactly one Prosecutor and one Devil's Advocate per council run in which Phase 4 runs
 - MUST pass both the evidence bundles from investigators, NOT the original claims — the Prosecutor and Devil's Advocate are BLIND to the original claim list and operate on evidence alone; each role groups bundles by the `claim_id` carried inside the bundles, never by a separately supplied claims list (the Judge in Phase 5 still receives the original claims — that seam is unchanged)
 - MUST require Prosecutor to produce a brief listing each claim (by the `claim_id` in the bundles), the evidence against it, and a requested verdict
 - MUST require Devil's Advocate to produce a brief listing each claim (by the `claim_id` in the bundles), the evidence supporting it, and a requested verdict
@@ -128,7 +381,7 @@ investigators already cover specialist axes).
 ### Phase 5 — Judgment
 - MUST route judgment to a dedicated `council-judge` agent defined at `agents/council-judge.md`; the `council-judge` agent MUST declare an empty tool allowlist in its YAML frontmatter. The Judge's authority is the evidence bundle plus its standing behavioral rules. The engine MAY prepend `tech-lead`'s project cortex to the Judge invocation for plausibility calibration, but this is OPTIONAL — the Judge is by-design evidence-only (empty tool allowlist, cannot run a recall/cortex-load path itself), so it MUST function correctly with no cortex injected
 - MUST forbid the Judge from running any tool (Read, Grep, Bash, MCP, Write, Edit) — enforced structurally via tool allowlist
-- MUST pass the Judge: original claims, evidence bundles, Prosecutor brief, Devil's Advocate brief
+- MUST pass the Judge: original claims and evidence bundles **always**; the Prosecutor brief and Devil's Advocate brief **whenever Phase 4 ran**. The two brief inputs are **Phase-4-conditional**: when Phase 4 is skipped (`finding[]`-shape presets, or `council_tier: light`) the Judge receives claims + evidence bundles only, and the report MUST record the absent briefs as part of the Phase-4 skip note. The engine MUST NOT synthesize, stub, or empty-string a brief the run never produced
 - MUST require, for `verdict[]`-shape presets, the Judge to produce a per-claim verdict from the fixed taxonomy: `VERIFIED | PARTIALLY_VERIFIED | UNVERIFIED | CONTRADICTED | FABRICATED`
 - MUST require, for `finding[]`-shape presets, the Judge to emit findings from the fixed severity taxonomy `critical | warning | nitpick` — the Judge's job in diff-mode is to dedupe, cross-check citations, and strike unsupported findings, not to verdict-ify claims
 - MUST require a 0–100 confidence score on each verdict or finding
@@ -137,7 +390,7 @@ investigators already cover specialist axes).
 
 ### Phase 6 — Report & Persistence
 - MUST write a report to `.claude/council/<YYYY-MM-DD>-<slug>.md` (create parent dir if absent)
-- MUST include in the report: scope, extracted claims, investigator flavors used, evidence bundles, Prosecutor brief, Devil's Advocate brief, per-claim verdict or per-finding entry with confidence and raw evidence
+- MUST include in the report: scope, extracted claims, investigator flavors used, evidence bundles, per-claim verdict or per-finding entry with confidence and raw evidence — plus the Prosecutor brief and Devil's Advocate brief **whenever Phase 4 ran**. Like the Phase 5 Judge inputs, the two briefs are **Phase-4-conditional**: when Phase 4 is skipped (`finding[]`-shape presets, or `council_tier: light`) the report MUST record the skip and its reason in their place, and MUST NOT emit an empty or synthesized brief section
 - MUST branch the report template on output shape: `verdict[]` presets emit a verdict summary by taxonomy (session/plan/claim scopes); `finding[]` presets emit a findings summary by severity (diff scope)
 - MUST print a summary to stdout with verdict counts by taxonomy (or finding counts by severity for `finding[]`-shape presets) and a path to the full report
 - MUST resolve the project root with the worktree-aware formula: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
@@ -418,6 +671,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] Token usage (CDV-204): finalize `--tokens-file` prints `Tokens:` (or `Tokens (partial):`) when usable; omits when missing/unavailable/zeros; optional FM `tokens_total`/`tokens_by_phase`; `commands/council.md` best-effort collect + pass-through; index.json unchanged
 - [x] Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; Test 20
 - [x] From-retro scope (CDV-212): anchor files at `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2; present → Phase 1 skip + `resolved_claim`; exit 3 deferred removed; Test 21
+- [ ] Council tiering (CDT-126): `council_tier ∈ skip|light|full` with `skip` never auto-selected (DRI flag only) and **per-surface** legal vocabularies stated explicitly — `/orchestrate` accepts all three (`skip` short-circuits: no `/council`, no engine run, no report), `/council` and `engine.sh` accept only `light|full` and MUST hard-fail on `skip` rather than coerce it, and the `index.json` row is the one surface carrying all three (a `skip` row written by the short-circuiting caller through the same owning writer, empty `report_path`, null confidences); `light` = exactly 2 distinct-flavor investigators + Phase 5 Judge, Phase 3/Phase 4 skipped; Phase 4 spawn MUST scoped to runs in which Phase 4 runs, Phase 5 brief inputs and Phase 6 report briefs Phase-4-conditional (no synthesized/stubbed briefs), Phase 2.5 bypass targets the next phase that runs; `full` behaviorally unchanged (same phases/flavors/prompts/stdout — *not* byte-identical artifacts: frontmatter + index rows gain the two additive keys on every run, ungraded `full` recording a default `grading_reason`); `verification_mode` still a two-value enum (not folded); bands + 5 structural critical-area signals with the fan-in probe running in both the clear-low (cap 5) and middle (cap 20) bands; grading fails closed to `full` with the failure in `grading_reason`; `council_tier`/`grading_reason` in report frontmatter and `index.json` rows; Workflow path `full`-only via existing fallback seam
 - [ ] Blind-review scope (CDT-46-C3): `/council --blind` as mutually exclusive scope; parity `--teams|--lenses|--target`; N unconstrained + M lens parallel fan-out → semantic clustering → Tier 1/2/3; Tier-1 emit as findings with **no** recursive `/council`; `--no-council` removed; `commands/council --blind.md` DEPRECATED stub in Covers; Test 22
 - [ ] Test 1–11 pass against the implementation
 - [x] Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
@@ -455,3 +709,4 @@ degradation marker — never invent a second string. Distinct from CDV-197
 | 2026-07-14 | CDV-204: Per-phase token usage reporting (SHOULD) — finalize optional `--tokens-file` (phase→int map + source); stdout `Tokens:` / `Tokens (partial):` block; optional report FM `tokens_total` / `tokens_by_phase`; graceful omit when missing/unavailable/zeros (never invent measured `0`); Task path best-effort envelope scrape in `commands/council.md`; does not alter `index.json`. Test 19 aligned. |
 | 2026-07-14 | CDV-211: Investigator tool-call caching within a run (SHOULD) — preflight creates `${TMPDIR:-/tmp}/council-cache-<run_id>/` (`reads/`, `greps/`, `manifest.json`), emits `cache_dir` + `run_id` on plan; investigator.md cache-first via `{{CACHE_DIR}}`; optional orchestrator seed from claim locators; finalize best-effort rm; empty cache correctness-neutral. |
 | 2026-07-22 | CDT-53 reflect: cross-ref `/debug ticket` (former `/fix-ticket`). Status stays ACTIVE. |
+| 2026-08-05 | CDT-126: added **Council tiering** — `council_tier ∈ skip \| light \| full` selected immediately before a gated call at the two gated sites (task gate, SPEC-033 M14 ship gate); `skip` never auto-selected (explicit DRI `--council-tier=` flag only, and not the forbidden `--no-council` token). The flag's legal vocabulary is stated **per surface** rather than as one flat list, because it genuinely differs: `/orchestrate --council-tier=` takes `skip\|light\|full` and resolves `skip` by short-circuiting (no `/council` invocation, no engine run, no report); `/council --council-tier=` and `engine.sh --tier` take **only** `light\|full` and MUST hard-fail loudly on `skip` rather than coerce it — a coerced `skip` would run a council the DRI explicitly declined. `skip` is a resolution the *caller* performs, never an instruction the engine executes. The `index.json` row is the single surface carrying all three values, since a `skip` row (empty `report_path`, null confidences, `grading_reason` naming the DRI decision) is written by the short-circuiting caller through that same one owning writer; `full` is **behaviorally** unchanged — same phases, flavor sets, prompts, investigator/Judge behavior and stdout — but deliberately **not** byte-identical in its serialized artifacts, since report frontmatter and the `index.json` row gain the two additive `council_tier`/`grading_reason` keys on *every* run including `full` (an ungraded `full` records a `grading_reason` naming it as the default, keeping a defaulted `full` distinguishable from a graded one); `light` = exactly 2 distinct-flavor investigators + Phase 5 Judge with Phase 3 and Phase 4 skipped — 2 satisfies Phase 2's ≥2-distinct-flavor MUST verbatim and stays under Phase 2.5's <3 skip trigger, so **no** Phase-2/2.5 MUST is rescoped; light flavor subsets per preset (`generic` unchanged; `diff-mode` → `logic`+`security`). Skipping Phase 4 **did** require scoping — done in place, not restated: Phase 4's "exactly one Prosecutor and one Devil's Advocate" is now scoped to runs in which Phase 4 runs (with a preamble stating the `finding[]`-shape and `light` skips — the diff-mode skip was previously implementation-only in `engine.sh` preflight + `review-and-commit/SKILL.md` and is now contract-level, a free drift cleanup); Phase 5's Judge inputs make the Prosecutor/Devil's-Advocate **briefs Phase-4-conditional** (at `light` the Judge gets claims + bundles only; synthesizing or stubbing an absent brief is forbidden); Phase 6's report-contents requirement makes the same two briefs conditional (skip + reason recorded in their place, never an empty brief section); Phase 2.5's bypass now proceeds to *the next phase that runs* — Phase 5 when Phase 4 is itself skipped — instead of an unconditional "directly to Phase 4". `council_tier` declared **orthogonal** to `verification_mode`, which stays a strict two-value enum (a degraded light run is both `light` and `self-verified` — a widened enum could not express it, and SPEC-033 M14(d) therefore needs no change); **automatic** grading is scoped to exactly one call site — the M14 autopilot ship gate (merge-base diff); the orchestrated task gate runs **claim scope** (not `--diff`, which is `finding[]`-shape and would deadlock `requires_council` forever on a null `max_verdict_confidence`) and takes its tier from the explicit `--council-tier` override, defaulting to `full`; manual `/council` at any scope, `--diff` included, runs `full` unless given that override. Grading bands (`files`/`loc` clear-low → light, clear-high → full, ambiguous middle → one triage call) plus 5 structural critical-area signals (no literal path list), with the costly fan-in probe (signal 3) MUST-run in **both** the clear-low band (cap 5 files — the band is `files ≤ 5` by definition) and the ambiguous-middle band (cap 20), since clear-low's own "no critical-area signal" clause cannot hold if the signal was never evaluated; fail-closed to `full` on every grading failure with the reason recorded, deliberately inverting SPEC-026 M9's fail-open precedent; `council_tier` + `grading_reason` added to report frontmatter and the `index.json` row (SPEC-013's file per SPEC-026 M10 — `task-store.sh` deliberately not extended); Council-on-Workflow path is `full`-only via the existing transparent-fallback seam, under its own distinct stderr notice (`council_tier=light unsupported on the Workflow path`) — reusing CDV-196's "Workflow unavailable" string would be false, since the tool is available and only the tier is unsupported; cross-reference recording that **CDT-122 is neither fixed nor worsened** by tiering. Status stays ACTIVE. |

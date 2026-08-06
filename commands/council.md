@@ -7,7 +7,7 @@ description: |
   to audit a shaky claim, after a debug session to verify "all green", or
   on a plan file to find unverified assumptions. Shares an engine with
   /review-and-commit (diff-mode preset).
-argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2] [--target <path>] [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--why]'
+argument-hint: '"<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2] [--target <path>] [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--council-tier=<light|full>] [--why]'
 agent: build
 ---
 
@@ -38,6 +38,7 @@ tribunal runs, appends a verdict row to `.claude/council/index.json`.
 - `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1` — **not** applied to `--blind`
 - `/council --why` — print short debug section after summary (flavors, Phase 3 specialist reason, claim budget, preset source)
 - `/council --external` — optional external investigator slot (codex → gemini; first available). Graceful skip if none installed. Forms: `--external`, `--external=codex`, `--external=gemini`
+- `/council --council-tier=<light|full>` — externally-supplied tier override (CDT-126, SPEC-013 § Council tiering). Honored at **any** scope; this command never auto-grades on its own (§ 1.5.1) — this flag passes straight through to `engine.sh preflight --tier`. Callers: the autopilot ship gate (`skills/autopilot/ship-gate-council.md`, M14(e)) and the orchestrated task gate (`skills/orchestrate/SKILL.md`, `requires_council: true` tasks). `skip` is **not** a legal value here — a caller wanting `skip` MUST short-circuit before ever invoking `/council` (SPEC-013 § Council tiering; `engine.sh` independently refuses `--tier skip`) — see Hard fails below.
 - `/council` — no scope, fails loudly with usage
 
 Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
@@ -74,6 +75,7 @@ From the user invocation, detect scope flags and parity flags:
 | `--teams N` | blind parity only (default 3) |
 | `--lenses L1,L2,...` | blind parity only (default `security,contributor,spec`) |
 | `--target <path>` | blind parity only (default full project) |
+| `--council-tier=<light\|full>` | orthogonal flag, not a scope selector (CDT-126) — captured here as `$COUNCIL_TIER_FLAG` so a malformed value fails at the earliest point, same as the scope/blind checks below; consumed at § 1.5 |
 
 Hard fails (print usage, exit non-zero) — do **not** continue:
 
@@ -82,14 +84,22 @@ Hard fails (print usage, exit non-zero) — do **not** continue:
 3. Unknown lens name (not in: security, contributor, spec, architecture, logic)
 4. `--target` path missing when supplied
 5. `--teams` not a positive integer
+6. `--council-tier` present with a value not in `{light, full}` — this includes `skip`:
+   `skip` is a legal `council_tier` vocabulary member (SPEC-013 § Council tiering) but is
+   **never a legal value on a `/council` invocation** — a caller wanting `skip` MUST
+   short-circuit before ever invoking `/council` at all (its own orchestrating procedure
+   records the audit trail directly; `commands/council.md` never runs). `engine.sh`
+   independently refuses `--tier skip` if this were ever bypassed — this hard fail is the
+   earlier, loud rejection point.
 
 Usage string on fail:
 
 ```
 Usage: /council "<claim>" | --session [--last N] | --diff | --plan <path> | --from-retro <id> | --blind [--teams N] [--lenses L1,L2,...] [--target <path>]
-       [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--why]
+       [--task-id <id>] [--workflow] [--external[=codex|gemini]] [--council-tier=<light|full>] [--why]
 
 Scope flags are mutually exclusive. --teams/--lenses/--target require --blind.
+--council-tier accepts only light or full (never skip — short-circuit before invoking /council).
 Available lenses: security, contributor, spec, architecture, logic
 ```
 
@@ -111,6 +121,195 @@ if [ ! -x "$ENGINE_SH" ]; then
 fi
 ```
 
+## Step 1.5: Council tiering (CDT-126)
+
+An externally-supplied `--council-tier=<light|full>` (the DRI override) —
+Step 0.5 already parsed and validated it into `$COUNCIL_TIER_FLAG`,
+hard-failing loudly on any value outside `{light, full}` before this step
+ever runs, so nothing further to validate here — is honored at **any**
+scope and passes straight through to `--tier` (Step 2) with no grading run
+at all. This is how BOTH the autopilot ship gate's claim-scope M14(e)
+grading (`ship-gate-council.md` §3a/§3b, Task 5) and the task-gate's own
+`--council-tier` flag (`skills/orchestrate/SKILL.md`, Task 6) reach
+`engine.sh`. `skip` is not a legal value of `$COUNCIL_TIER_FLAG` — Step 0.5
+rejects it before Step 1, and a caller wanting `skip` never invokes
+`/council` in the first place (its own procedure records the audit trail
+directly; see the Arguments section above).
+
+### 1.5.1 — This command does not auto-grade
+
+Every scope this command resolves on its own — including `--diff` — runs
+`full` unconditionally unless `$COUNCIL_TIER_FLAG` says otherwise (the
+passthrough above). Tiering applies only at the two gated call sites, never
+automatically to a hand-typed `/council` invocation (SPEC-013 § Council
+tiering: "Manual `/council` invocations outside those two sites are
+unaffected and run `full`"). `--diff` **used to** auto-grade here; that
+auto-trigger is removed because the task gate does not use it — it binds to
+**claim** scope, not `--diff` (`skills/orchestrate/SKILL.md` § council gate:
+`--diff` resolves `finding[]`-shape output, which can never satisfy
+`requires_council`) — which left a hand-typed `/council --diff` with no
+`--council-tier` flag as the auto-trigger's only remaining caller, outside
+this ticket's declared scope. A hand-typed `/council --diff
+--council-tier=light` is unaffected by this — that is the explicit DRI
+passthrough above, not automatic grading.
+
+§§ 1.5.2–1.5.4 below are **not** something this command runs for its own
+`--diff` scope any more — they define the shared `tier-grade.sh` +
+triage-call grading *procedure* itself, kept here at these exact section
+numbers because `ship-gate-council.md` §3a/§3b (M14, Task 5) cites them
+rather than duplicating them: that file resolves its **own** diff (a
+merge-base range) and calls the same grader + triage call independently,
+then supplies the *result* back here as `$COUNCIL_TIER_FLAG` — the
+passthrough paragraph above is how that result actually reaches
+`engine.sh`.
+
+### 1.5.2 — Invoke the deterministic grader
+
+A caller grading a diff (currently `ship-gate-council.md` §3a; this
+command's own `--diff` scope no longer does — § 1.5.1) resolves its own
+diff's `--numstat` / `--raw` text (e.g. `ship-gate-council.md` §3a's
+merge-base range — `$NUMSTAT` / `$RAW` below are the caller's own values,
+not something this command computes), then calls
+`skills/council/tier-grade.sh` (CDT-126 Task 2; located via the same PDH
+mechanism as `$ENGINE_SH` in Step 1):
+
+```
+tier-grade.sh --numstat <(printf '%s' "$NUMSTAT") [--raw <(printf '%s' "$RAW")]
+```
+
+**Exit contract:** the script exits `0` with a JSON object on stdout in
+**every** case except a CLI usage error (missing/bad flags), which exits `2`
+with no JSON. Internal failures — missing `jq`, git failure, empty or
+unresolvable diff, unparseable numstat — do **not** raise a non-zero exit;
+they self-report by emitting `tier:"full"`, `band:"fail-closed"`, and a
+`grading_reason` starting with `"fail-closed: "` directly in the JSON body.
+Treat exit `2` (or no parseable stdout at all — e.g. the script binary
+itself failed to run) as a grading failure (§ 1.5.4); otherwise **trust the
+JSON's own `tier` field**, including a self-reported `full`.
+
+Output JSON fields this step consumes:
+
+```
+tier              "light" | "full" | "middle"
+band              "clear-low" | "clear-high" | "middle" | "fail-closed"
+files             int — changed-file count
+loc               int — added + deleted
+grading_reason    short string, e.g. "clear-low (files=3<=5, loc=40<=100, no critical-area signal)"
+                  or "fail-closed: jq not found in PATH"
+critical_signals  array of {signal, name, file, why} — signals that FIRED
+                  (always [] when tier=="middle": a non-empty result would
+                  already have routed to "full" upstream of the middle band)
+fanin_probed      bool — whether the costly signal-3 fan-in probe ran. It
+                  runs in both the clear-low candidate band (cap 5) and the
+                  middle band (cap 20) — skipped only when clear-high was
+                  already resolved by another signal or by size. Always
+                  true when tier=="middle" (that band is only reached via
+                  the probe), but the probe is not exclusive to it
+```
+
+- `tier == "light"` or `tier == "full"` → grading resolved (deterministically
+  or already fail-closed — both self-report via `tier` directly). Record
+  `council_tier=<tier>`, `grading_reason=<grading_reason>`. **Stop — do not
+  invoke triage.**
+- `tier == "middle"` → continue to § 1.5.3 (one triage call).
+- `tier` missing, or any other value, or exit `2` / unparseable stdout →
+  grading failure → fail closed (§ 1.5.4).
+
+### 1.5.3 — Ambiguous middle: one haiku-tier triage call
+
+Spawn **exactly one** Task subagent (never retried, per SPEC-013's "exactly
+one haiku-tier triage call"):
+
+```
+description: "Council tier triage"
+subagent_type: "general-purpose"
+model: haiku
+prompt: skills/council/prompts/tier-triage.md
+  with substitutions:
+    {{FILES_CHANGED}}  ← tier-grade.sh output `files`
+    {{LOC_CHANGED}}    ← tier-grade.sh output `loc`
+    {{GRADING_REASON}} ← tier-grade.sh output `grading_reason`
+    {{DIFF_SUMMARY}}   ← the caller's same `--numstat` text fed to
+                         tier-grade.sh in § 1.5.2 above (raw, capped at 200
+                         lines / 8000 chars; truncate with a "... (N more
+                         files)" marker, never silently drop)
+```
+
+`critical_signals` and `fanin_probed` are NOT substituted — both are
+structurally constant (`[]` / `true`) whenever `tier=="middle"`, so
+`tier-triage.md`'s own prompt body states that invariant in prose instead of
+passing always-identical values as if they were per-run data.
+
+Parse the response as a single-line JSON object.
+
+### 1.5.4 — Validation + fail-closed contract
+
+Validate before trusting (SPEC-013 § Council tiering, Fail-closed contract —
+inverts SPEC-026 M9's fail-open precedent by design: a graded failure here
+would silently weaken a verification gate). Every row below is a grading
+failure and MUST resolve to `full`:
+
+| Failure | Detected at |
+|---|---|
+| `tier-grade.sh` exit `2` (usage error), or no parseable stdout at all | § 1.5.2 |
+| `tier-grade.sh` stdout JSON missing the `tier` key, or `tier` outside `{"light","full","middle"}` | § 1.5.2 |
+| Triage spawn failed, timed out, or returned no output | § 1.5.3 |
+| Triage output is not valid single-line JSON | § 1.5.4 |
+| Triage output missing the `tier` key | § 1.5.4 |
+| `tier` present but `tier ∉ {"light","full"}` (includes `"middle"`, `"skip"`, any other value) | § 1.5.4 |
+
+Note `tier-grade.sh` reporting its own internal failure (`tier:"full"`,
+`band:"fail-closed"`) is **not** in this table — that is the grader
+correctly fail-closing itself; the caller just passes its `tier`/
+`grading_reason` through unchanged (§ 1.5.2). This table is for failures the
+*caller* must detect because the grader/triage call could not self-report.
+
+On any row above: set `council_tier="full"` and `grading_reason="fail-closed:
+<short cause>"` (e.g. `"fail-closed: tier-grade.sh exit 2"`, `"fail-closed:
+triage returned invalid JSON"`, `"fail-closed: triage tier out of range"`).
+Do not retry the triage call.
+
+On success: `council_tier=<validated tier>`, `grading_reason=<triage's own
+"reason" field, truncated to 200 chars>`. A malformed `reason` or
+`risk_signals` on an otherwise-valid `tier` does NOT trigger fail-closed —
+those two fields are informational only (see `tier-triage.md` § Validation
+rules). `grading_reason` here is still raw, untrusted text: whichever caller
+uses this procedure MUST NOT have the interpreting Claude literal-interpolate
+it into shell source — a stray `"` / `` ` `` / `$` would already have broken
+out of any quoted string by the time a post-assignment sanitizer runs, so
+sanitizing after the fact cannot undo that. Load it through a safe channel
+instead: write it to a file via the Write tool (a non-shell channel), then
+`$(cat -- "$file")` to read it back as data, never as re-parsed shell syntax
+— the same pattern this file already uses for `PLAN_FILE` / `EVIDENCE_FILE` /
+`JUDGE_FILE`. `ship-gate-council.md` §6 records `grading_reason` on its own
+decision card this way, not via this command's CLI — see § 1.5.5.
+
+### 1.5.5 — Downstream consumption (not this step's job)
+
+`council_tier` reaches this command's `engine.sh preflight --tier <value>`
+call (Step 2) only via `$COUNCIL_TIER_FLAG` — never via §§ 1.5.2–1.5.4's
+grading procedure, which this command does not invoke on itself (§ 1.5.1).
+The two suppliers of that flag:
+
+- The autopilot ship gate's M14(e) claim-scope grading (**Task 5**) —
+  `grading_reason` from that grading is recorded on the M14 decision card by
+  `ship-gate-council.md` §6, not passed to `/council`'s CLI (M14(a) permits
+  exactly one flag: `--council-tier=<tier>`).
+- The task-gate `--council-tier` DRI override plumbing (**Task 6**) — no
+  `grading_reason` companion either; the task gate does not grade its own
+  claim-scope diff (`skills/orchestrate/SKILL.md` § council gate: "Building a
+  second, claim-scope grading path here would duplicate logic Task 3 already
+  scoped to `--diff` — not done in this fix").
+
+Because neither supplier ever passes `grading_reason` over this command's
+CLI, `engine.sh preflight` never receives `--grading-reason` from here —
+omitting it is correct, not an oversight: `engine.sh` itself synthesizes a
+safe default (`"externally supplied tier (no grading_reason given)"`) when
+the flag is absent.
+
+This step defines the contract those tasks wire against; it does not itself
+change Step 2–4 behavior.
+
 ## Step 2: Preflight
 
 Translate the user CLI surface into the engine's `preflight` flags, then invoke
@@ -129,6 +328,7 @@ it. The engine does NOT accept the user-facing scope flags (`--session`,
 | `--task-id <id>` | `--task-id <id>` (passthrough) |
 | `--why` | `--why` (passthrough) |
 | `--external` / `--external=codex\|gemini` | `--external` / `--external=<tool>` (passthrough; CDV-207) |
+| `$COUNCIL_TIER_FLAG` set (Step 0.5) | `--tier "$COUNCIL_TIER"` (CDT-126) |
 
 The engine validates scope, resolves task-id (via `--task-id` flag →
 `CLAUDE_TASK_ID` env → unbound), resolves preset (`--scope diff` → `diff-mode`,
@@ -136,6 +336,28 @@ The engine validates scope, resolves task-id (via `--task-id` flag →
 scopes, bad plan paths, or missing retro anchors (exit 2). `--external` never
 hard-fails solely for a missing CLI — plan.external.status is `skipped` and
 internal investigators still run.
+
+At any scope, `$COUNCIL_TIER_FLAG` (Step 0.5's already-validated
+`--council-tier` value) passes through as a `--tier` preflight arg.
+`$COUNCIL_TIER_FLAG` is always exactly `light` or `full` — Step 0.5 already
+rejected any other value before this command got this far — so it carries no
+injection risk and needs no sanitization. `--grading-reason` is deliberately
+**not** passed — see § 1.5.5 for why (no live supplier ever populates it over
+this CLI; `engine.sh` synthesizes its own safe default when the flag is
+omitted):
+
+```bash
+# CDT-126: assign the externally-supplied tier as real shell state, here,
+# BEFORE Step 2.5's Workflow-fallback guard reads ${COUNCIL_TIER:-full}.
+# When $COUNCIL_TIER_FLAG is empty (no --council-tier on this invocation),
+# skip this line — COUNCIL_TIER stays unset and Step 2.5's default is the
+# correct, ungraded-full behavior.
+COUNCIL_TIER="$COUNCIL_TIER_FLAG"
+```
+
+The engine rejects `--tier skip` (exit 2): `skip` short-circuits at the call
+site (Step 0.5 / the caller's own procedure) and must never reach preflight.
+Omitting `--tier` entirely runs `full`, as manual `/council` invocations do.
 
 ```bash template
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -175,6 +397,14 @@ Opt-in detection (true iff either condition holds):
 | `--workflow` present | **Yes** if probe ok |
 | `COUNCIL_WORKFLOW=1` | **Yes** if probe ok |
 | opt-in + probe fail | **No** — fallback Task path |
+| opt-in + `council_tier=light` (Step 1.5) | **No** — fallback Task path, own notice (CDT-126) |
+
+The Workflow execution path is `full`-only (SPEC-013 § Execution-path scope).
+A `light` run takes the **existing** transparent-fallback seam below rather
+than silently upgrading itself to `full` or forking tiering into
+`workflow.js`. It emits its own notice — reusing CDV-196's
+`Workflow unavailable` string would be false here, because the tool *is*
+available and only the tier is unsupported.
 
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -191,7 +421,20 @@ if [ "$USE_WORKFLOW" = "1" ]; then
     USE_WORKFLOW=0
   fi
 fi
+# CDT-126: tier-driven fallback. Distinct from the availability notice above —
+# the Workflow tool is available; only council_tier=light is unsupported there.
+# COUNCIL_TIER is session-held by the orchestrating Claude (assigned in Step 2);
+# not a cross-fence shell export — same contract as PLAN_FILE above.
+if [ "$USE_WORKFLOW" = "1" ] && [ "${COUNCIL_TIER:-full}" = "light" ]; then  # lint-ok: C1
+  echo "council: council_tier=light unsupported on the Workflow path; falling back to engine.sh" >&2
+  USE_WORKFLOW=0
+fi
 ```
+
+`COUNCIL_TIER` is assigned in Step 2, from `$COUNCIL_TIER_FLAG` (Step 0.5's
+already-validated `--council-tier` value) — the same variable passed to
+`engine.sh preflight --tier`; unset means no `--council-tier` was supplied,
+i.e. an ungraded `full` run.
 
 When `USE_WORKFLOW=1`, drive the tribunal via `skills/council/workflow.js`
 (Workflow tool / `agent()` schema steps). Pass the same scope payload as JSON
@@ -379,12 +622,13 @@ Plan fields: `phases.3_domain_specialist` (`deferred: false`,
 `classifier_prompt`, `specialist_prompt`).
 
 **Skip entirely (no classify, no spawn) when:**
-- `plan.phases.3_domain_specialist.skipped == true` (diff-mode / `finding[]`
-  — five flavor investigators already cover specialist axes), OR
+- `plan.phases.3_domain_specialist.skipped == true` — set by the engine for
+  diff-mode / `finding[]` (the flavor investigators already cover specialist
+  axes) and for `council_tier: light` (CDT-126), OR
 - `plan.output_shape == "finding[]"`
 
-Record runtime reason for `--why`:
-`skipped (diff-mode)`.
+Record runtime reason for `--why`: `skipped (<plan reason>)` — i.e.
+`skipped (diff-mode)` or `skipped (council_tier: light)`.
 
 **Otherwise — classify every claim:**
 
@@ -547,11 +791,16 @@ not already. Protocol: `skills/council/SKILL.md` § Spawn-failure degradation.
 
 ### Phase 4 — Prosecution and Defense
 
-Runs for `verdict[]`-shape only. In `finding[]`-shape (diff-mode) Phase 4 is
-skipped — the plan emits `4_prosecution_defense: {skipped: true}` and
-specialist findings route straight to the Judge (Phase 5). See
-`skills/review-and-commit/SKILL.md`. For `verdict[]`-shape, spawn exactly one
-Prosecutor and one Devil's Advocate in parallel:
+Run **iff** `plan.phases.4_prosecution_defense.skipped` is absent/false. The
+engine sets `{skipped: true, reason: <why>}` on two independent conditions:
+`finding[]`-shape (diff-mode — specialist findings route straight to the
+Judge; see `skills/review-and-commit/SKILL.md`) and `council_tier: light`
+(CDT-126). When skipped, produce **no** brief — Phase 5 and the report record
+the absence (below); never write one from the bundles to fill the gap. That
+substitution is reserved for a *spawn failure* in a run where Phase 4 was
+supposed to run.
+
+Otherwise spawn exactly one Prosecutor and one Devil's Advocate in parallel:
 
 ```
 Prosecutor:
@@ -615,10 +864,18 @@ prompt: skills/council/prompts/judge.md
     {{ORIGINAL_CLAIMS}}   ← original claim list from Phase 1 (verbatim records)
     {{EVIDENCE_BUNDLES}}  ← Borda-ranked evidence bundles from Phase 2.5
                            (or Phase 2 if Phase 2.5 was bypassed)
-    {{PROSECUTOR_BRIEF}}  ← prosecutor brief (post Phase 4)
-    {{ADVOCATE_BRIEF}}    ← advocate brief (post Phase 4)
+    {{PROSECUTOR_BRIEF}}  ← prosecutor brief (post Phase 4) when Phase 4 ran; else the
+                            literal marker "NOT RUN — Phase 4 skipped (reason: <plan
+                            .phases.4_prosecution_defense.reason>)"
+    {{ADVOCATE_BRIEF}}    ← advocate brief (post Phase 4) when Phase 4 ran; else the same
+                            "NOT RUN — Phase 4 skipped (reason: …)" marker
     {{OUTPUT_SHAPE}}      ← plan.output_shape ("verdict[]" or "finding[]")
 ```
+
+Claims and evidence bundles reach the Judge on **every** run; the two briefs
+are Phase-4-conditional (SPEC-013 Phase 5). An absent brief is marked `NOT
+RUN`, never empty-stringed, stubbed, or reconstructed — `plan.phases
+.5_judgment.inputs` lists what this run actually carries.
 
 Receive the judge's verdict list or finding list.
 
@@ -654,6 +911,11 @@ Struck lines must be preserved — never silently dropped.
 
 Write collected outputs (evidence bundles, prosecutor brief, advocate brief,
 judge output, struck_lines) to temp files, then call `engine.sh finalize`.
+
+When Phase 4 was skipped, **omit** the `prosecutor_brief` / `advocate_brief`
+keys from the evidence file rather than writing `""`. Finalize reads the skip
+and its reason from the plan and records them in the report's brief sections.
+The tier itself needs no finalize flag — it travels on the plan file.
 
 ### Token usage collection (CDV-204; best-effort)
 
@@ -733,6 +995,7 @@ Print the engine's stdout summary verbatim. It will contain:
 Council report: <relative path>
 Scope: <scope>
 Preset: <preset> (<output_shape>)
+council_tier=<tier> (<grading_reason>)   # CDT-126; only when tier != full
 verification_mode=<full|self-verified>
 <verdict counts or finding counts by severity>
 <struck lines count>
@@ -744,6 +1007,8 @@ Tokens:                    # only when --tokens-file had usable data (CDV-204)
 
 When tokens are partial, the header is `Tokens (partial):`. When the harness
 has no token fields, the entire Tokens block is omitted (never invent `0`).
+The `council_tier=` line appears only for a `light` (non-`full`) run, keeping
+`full`'s stdout byte-identical to pre-CDT-126 behavior.
 
 ### `--why` debug block (CDV-206)
 

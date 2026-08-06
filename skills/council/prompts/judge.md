@@ -70,6 +70,13 @@ ADVOCATE_BRIEF (post-strike):
 {{ADVOCATE_BRIEF}}
 <<<END_ADVOCATE>>>
 
+Either brief block may instead hold the marker `NOT RUN — Phase 4 skipped
+(reason: <why>)`. Phase 4 does not run for finding[]-shape presets or at
+council_tier: light. A marker means the brief does not exist — judge from
+ORIGINAL_CLAIMS and EVIDENCE_BUNDLES alone. Do NOT reconstruct the missing
+brief, do not infer what it would have argued, and do not lower confidence
+merely because it is absent.
+
 PROCEDURE
 ---------
 1. Branch on OUTPUT_SHAPE.
@@ -145,8 +152,8 @@ For finding[]:
 |---|---|
 | `{{ORIGINAL_CLAIMS}}` | engine — Phase 1 output |
 | `{{EVIDENCE_BUNDLES}}` | engine — post-strike Phase 2 bundles |
-| `{{PROSECUTOR_BRIEF}}` | engine — post-strike Phase 4 prosecutor output |
-| `{{ADVOCATE_BRIEF}}` | engine — post-strike Phase 4 advocate output |
+| `{{PROSECUTOR_BRIEF}}` | engine — post-strike Phase 4 prosecutor output, or the `NOT RUN — Phase 4 skipped` marker when Phase 4 did not run (never empty, never reconstructed) |
+| `{{ADVOCATE_BRIEF}}` | engine — post-strike Phase 4 advocate output, or the `NOT RUN — Phase 4 skipped` marker when Phase 4 did not run (never empty, never reconstructed) |
 | `{{OUTPUT_SHAPE}}` | preset — literal `verdict[]` or `finding[]` |
 
 ## Output schema (branched on OUTPUT_SHAPE)

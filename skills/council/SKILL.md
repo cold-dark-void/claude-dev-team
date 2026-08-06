@@ -184,6 +184,17 @@ resolution emits into the plan, not a file format:
   fabrication), `confidence_filter_threshold: 80` (SPEC-013 line 44,
   SPEC-010 line 24).
 
+**Light-tier flavor subsets (CDT-126).** `--tier light` narrows `flavor_list`
+only; every other preset field is untouched:
+
+| Preset | `full` flavors | `light` flavors |
+|---|---|---|
+| `generic` | `paranoid-ic`, `jaded-senior` | unchanged — already exactly the 2 distinct flavors Phase 2 requires |
+| `diff-mode` | `logic`, `security`, `compliance`, `quality`, `simplification` | `logic`, `security` — the two correctness/safety axes; the three polish axes drop |
+
+Prosecutor/advocate flavors are not subset because `light` does not run Phase 4
+at all.
+
 ### Task-id resolution
 
 Fallback chain, evaluated left-to-right (SPEC-013 lines 119–120):
@@ -218,9 +229,14 @@ Orchestrated-task invocations rely on SPEC-009's `CLAUDE_TASK_ID` export
 ### Phase 0 — Intake
 
 Parse args → resolve scope → resolve task id (fallback chain above) →
-resolve preset (explicit or inferred) → validate mutually exclusive flags →
+resolve preset (explicit or inferred) → validate `--tier` (CDT-126; absent =
+`full`) → validate mutually exclusive flags →
 validate `--plan` path readable → load `--from-retro` anchor JSON (missing →
 exit 2) → fail loud on no-scope invocation.
+
+The engine never *grades* — `commands/council.md` Step 1.5 resolves the tier
+and passes it in as `--tier` / `--grading-reason`. Phase 0 only records it and
+lets it select the flavor subset and the Phase 3 / Phase 4 skips.
 
 For diff-mode only: run spec-grep over the changed file paths against
 `specs/**/*.md` MUST requirements and produce an "applicable-specs" bundle.
@@ -380,6 +396,7 @@ only on explicit opt-in.
 | neither `--workflow` nor `COUNCIL_WORKFLOW=1` | engine.sh + Task path only (byte-for-byte today) |
 | `--workflow` **or** `COUNCIL_WORKFLOW=1` | capability probe → Workflow path if available |
 | opt-in + probe fail / Workflow unavailable | stderr `council: Workflow unavailable; falling back to engine.sh` → Task path; **not** a degraded report (`verification_mode: full`) |
+| opt-in + `council_tier: light` (CDT-126) | stderr `council: council_tier=light unsupported on the Workflow path; falling back to engine.sh` → Task path. The Workflow path is `full`-only; a distinct string is required because the tool *is* available and only the tier is unsupported. Never a silent upgrade to `full`, and no tiering fork inside `workflow.js` |
 | `COUNCIL_WORKFLOW_FORCE_FALLBACK=1` | forces probe fail (test harness) |
 
 **Driver:** `skills/council/workflow.js` (schemas in `workflow-schemas.js`).
@@ -592,14 +609,16 @@ bundles (when pulled) join the set before cross-review.
 
 ### Phase 3 — Domain Specialist (CDV-209)
 
-**Status:** Live for `verdict[]`-shape runs. Skipped in `finding[]` (diff-mode).
+**Status:** Live for `verdict[]`-shape runs at `council_tier: full`. Skipped in
+`finding[]` (diff-mode) and at `council_tier: light` (CDT-126).
 
 **When:** After Phase 2, **before** Phase 2.5. Plan key
 `phases.3_domain_specialist`: `deferred: false`, `confidence_threshold: 0.75`,
 `max_specialists_per_run: 1`, `classifier_prompt` →
 `skills/council/prompts/topic-classifier.md`, `specialist_prompt` →
 `skills/council/prompts/investigator.md`. Diff-mode plan sets
-`skipped: true` with reason `diff-mode (finding[] flavors cover specialist axes)`.
+`skipped: true` with reason `diff-mode (finding[] flavors cover specialist axes)`;
+a `light` `verdict[]` plan sets `skipped: true` with reason `council_tier: light`.
 
 **Classify:** one cheap Task per claim (`topic-classifier.md`, `{{CLAIM_TEXT}}`
 only). Output `{topic, confidence, agent}` with
@@ -621,11 +640,20 @@ only). Output `{topic, confidence, agent}` with
 
 ### Phase 4 — Prosecution & Defense
 
-**Applies to `verdict[]`-shape runs only.** In `finding[]`-shape runs
-(diff-mode), Phase 4 is **skipped** — specialist findings route directly to
-the Judge with no prosecutor/advocate step (the engine's investigation plan
-emits `4_prosecution_defense: {skipped: true}` for that shape). See
-`skills/review-and-commit/SKILL.md` ("Phase 4 — skipped in diff-mode").
+**Applies to `verdict[]`-shape runs at `council_tier: full`.** Phase 4 is
+**skipped** on two independent conditions, and the plan JSON emits
+`4_prosecution_defense: {skipped: true, reason: <why>}` in either case:
+
+| Condition | `reason` |
+|---|---|
+| `finding[]`-shape preset (diff-mode) — specialist findings route directly to the Judge | `finding[]-shape preset` |
+| `council_tier: light` (CDT-126) | `council_tier: light` |
+| both (a `light` diff-mode run) | `finding[]-shape preset; council_tier: light` |
+
+See `skills/review-and-commit/SKILL.md` ("Phase 4 — skipped in diff-mode").
+When Phase 4 is skipped there is no brief: Phase 5's Judge inputs and Phase 6's
+report sections are Phase-4-conditional (below), and the engine never
+synthesizes, stubs, or empty-strings a brief the run did not produce.
 
 **Spawn contract (verdict[]-shape):**
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
@@ -657,12 +685,18 @@ Devil's Advocate).
 forbidden from running tools via `tools: ""` in YAML frontmatter. (SPEC-013
 lines 79–80, 86.)
 
-**Engine passes to the Judge:**
-1. Original claims (the list from Phase 1, not narrative summaries)
-2. Evidence bundles (all bundles from Phase 2 + optional Phase 3 specialist)
-3. Prosecutor brief (post-strike)
-4. Devil's Advocate brief (post-strike)
+**Engine passes to the Judge** (plan key `phases.5_judgment.inputs` is the
+authoritative per-run list):
+1. Original claims (the list from Phase 1, not narrative summaries) — **always**
+2. Evidence bundles (all bundles from Phase 2 + optional Phase 3 specialist) — **always**
+3. Prosecutor brief (post-strike) — **only when Phase 4 ran**
+4. Devil's Advocate brief (post-strike) — **only when Phase 4 ran**
 5. Output shape flag (`verdict[]` or `finding[]`, from the active preset)
+
+Items 3–4 are Phase-4-conditional. When Phase 4 was skipped the plan drops
+them from `inputs` and sets `briefs_omitted: true` plus
+`briefs_omitted_reason`; the Judge receives claims + bundles only. Passing an
+empty, placeholder, or reconstructed brief in their place is forbidden.
 
 **Engine expects from the Judge:**
 
@@ -749,8 +783,20 @@ preset: "{{PRESET}}"
 output_shape: "verdict[]"   # or "finding[]" hard-coded per template
 created_at: "{{TIMESTAMP}}"
 verification_mode: "{{VERIFICATION_MODE}}"
+council_tier: "{{COUNCIL_TIER}}"
+grading_reason: "{{GRADING_REASON}}"
 task_id: "{{TASK_ID}}"
 ```
+
+**Substitution is ONE non-recursive pass** (`re.sub` over
+`\{\{[A-Z0-9_]+\}\}`, unknown names → `""`) — never a per-var chain of
+`str.replace`. Several substituted values are untrusted (`grading_reason` is
+free text from the tier-triage model; the cross-review values come from
+subagents), and a sequential chain lets a value substituted early carry a
+literal `{{LATER_VAR}}` that a later iteration expands — a template-injection
+primitive that put attacker-chosen multi-line content raw inside the YAML
+fences. Values bound for a quoted FM scalar are additionally escaped
+(`yaml_dq`: backslash, quote, CR/LF).
 
 After substitution (bound):
 
@@ -807,6 +853,7 @@ confidence + raw evidence, a **struck-lines audit trail** section.
 Council report: <relative path>
 Scope: <scope>
 Preset: <preset> (<output_shape>)
+council_tier=<tier> (<grading_reason>)   # CDT-126; only when tier != full
 verification_mode=<full|self-verified>
 <verdict counts OR finding counts by severity>
 <struck lines count>
@@ -816,7 +863,9 @@ Tokens:                         # CDV-204; only when --tokens-file usable
   Total: <int>
 ```
 
-(SPEC-013 line 92; CDV-199 adds `verification_mode=`; CDV-204 optional Tokens.)
+(SPEC-013 line 92; CDV-199 adds `verification_mode=`; CDV-204 optional Tokens;
+CDT-126 adds `council_tier=` — printed only when the run graded to `light`,
+never for `full`, keeping `full`'s stdout byte-identical.)
 
 **Tokens file contract (`--tokens-file`, CDV-204):**
 
@@ -888,9 +937,16 @@ Index row schema (produced by `index-writer.sh`):
   "report_path": "<absolute or MROOT-relative path>",
   "max_verdict_confidence": <int 0..100 | null>,
   "max_finding_confidence": <int 0..100 | null>,
-  "created_at": "<ISO-8601 UTC>"
+  "created_at": "<ISO-8601 UTC>",
+  "council_tier": "light | full",
+  "grading_reason": "<why that tier was selected>"
 }
 ```
+
+`council_tier` / `grading_reason` (CDT-126) come from the plan JSON that
+`preflight` emitted; finalize passes them to `index-writer.sh` as argv 5 and 6.
+They are orthogonal to `verification_mode` — the tier says which roles the run
+*intended* to run, `verification_mode` says whether they actually ran.
 
 Per-shape population rule:
 - `verdict[]` runs: `max_verdict_confidence` = `max(confidence)` across all
@@ -1003,6 +1059,7 @@ Role prompt templates live at `skills/council/prompts/<name>.md`. Files:
 - `unconstrained-reviewer.md` — `--blind` unconstrained teams (CDT-46-C3)
 - `lens-reviewer.md` — `--blind` lens teams (CDT-46-C3)
 - `quorum-analyst.md` — `--blind` semantic clustering (CDT-46-C3)
+- `tier-triage.md` — ambiguous-middle council-tier triage, `--diff` scope only (CDT-126)
 
 Templates are Markdown with `{{VARIABLE}}` placeholders. Tribunal templates:
 `engine.sh` / `commands/council.md` substitute before Task/judge. Blind-path
@@ -1022,6 +1079,7 @@ templates: `commands/council.md` substitutes on the `--blind` path only.
 | `unconstrained-reviewer.md` | `{{TEAM_ID}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}` |
 | `lens-reviewer.md` | `{{TEAM_ID}}`, `{{LENS_NAME}}`, `{{FLAVOR_DELTA}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}` |
 | `quorum-analyst.md` | `{{ALL_FINDINGS}}`, `{{TEAM_MANIFEST}}`, `{{UNCONSTRAINED_TEAMS}}`, `{{LENS_TEAMS}}`, `{{TOTAL_TEAMS}}` |
+| `tier-triage.md` | `{{FILES_CHANGED}}`, `{{LOC_CHANGED}}`, `{{GRADING_REASON}}`, `{{DIFF_SUMMARY}}` |
 
 Templates MUST NOT include `{{ASSISTANT_NARRATIVE}}` or any similar variable
 that would leak prior model output into a blind role. Enforcing this is
@@ -1056,6 +1114,7 @@ exit codes to decide whether to continue.
 | 0 | Success | none on stderr |
 | 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff\|plan\|from-retro)` (tribunal); `--blind` exclusivity / parity fails print usage from `commands/council.md` Step 0.5 |
 | 2 | Unknown preflight flag | `engine.sh: unknown preflight flag: <flag>` |
+| 2 | `--tier` outside `light\|full` | `engine.sh: invalid --tier value: <v> (want light\|full)`; `skip` gets its own line — `engine.sh: --tier skip is resolved by the caller — the run must not reach preflight`. The caller has already fail-closed to `full` before invoking (SPEC-013 Fail-closed contract), so coercing here would mask a broken caller |
 | 2 | Plan path missing / unreadable | `engine.sh: plan file not found or not readable: <path>` (or `--plan requires a path`) |
 | 2 | Retro anchor missing / unreadable / invalid | `engine.sh: retro anchor not found: <path>` (or requires anchor-id / missing fabricated_claim_text / not valid JSON) |
 | 3 | Reserved | (unused after CDV-212; no deferred scopes remain) |

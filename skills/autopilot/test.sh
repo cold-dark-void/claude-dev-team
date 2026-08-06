@@ -20,7 +20,14 @@
 #
 # Covers CDT-111-C4 T1 cases (v)-(ad) for parse-flags.sh: flag-only, flag+bump,
 # env-only, flag+env both set (flag wins), illegal bump, empty bump, off,
-# unset, and 3-key JSON shape.
+# unset, and 4-key JSON shape (CDT-126 adds council_tier).
+#
+# Covers CDT-126 T5 cases (an)-(ap) for the council_tier/grading_reason card
+# fields: 15-arg append + frozen key position, argc-14 / bad-enum / invariant-(c)
+# / control-char rejections, and reader backfill + invariant-(c) hard-fail.
+#
+# Covers CDT-126 T6 cases (aq)-(au) for parse-flags.sh --council-tier: tier
+# resolves independently of --autopilot, absent → null, illegal/bare → 64.
 #
 # Covers CDT-111-C8 T1 cases (ae)-(aj) for resume-state.sh: not-found, found
 # with recorded on/bump state, found off-recorded, found pre-feature (no
@@ -68,7 +75,7 @@ ledger() { echo "$AUTODIR/$1.jsonl"; }
 # order: workflow ticket gate decision decided_by bump confidence blocking run_id iter wall actor rationale
 
 # =============================================================================
-# (a) happy-path append → rc 0, 1 line, jq . parses, 15 keys, type/schema/ts
+# (a) happy-path append → rc 0, 1 line, jq . parses, 17 keys, type/schema/ts
 # =============================================================================
 reset
 RC=$(rc_of bash "$APPEND" orchestrate CDT-111 ship-choice merge auto patch 90 null run-1 3 120 orchestrator "ship it")
@@ -80,11 +87,13 @@ else
   fail "a1 rc=$RC lines=${LINES:-?} (want 0/1, jq-parseable)"
 fi
 KEYS_OK=$(jq -e '
-  (keys_unsorted | length) == 15
+  (keys_unsorted | length) == 17
   and has("schema_version") and has("type") and has("ts") and has("run_id")
   and has("workflow") and has("ticket_id") and has("gate") and has("decision")
   and has("decided_by") and has("bump") and has("confidence")
-  and has("blocking_condition") and has("rationale") and has("budget") and has("actor")
+  and has("blocking_condition") and has("council_tier") and has("grading_reason")
+  and has("rationale") and has("budget") and has("actor")
+  and .council_tier == null and .grading_reason == null
   and .schema_version == 1 and .type == "autopilot_decision"
   and (.ts | test("^[0-9T:-]+Z$"))
   and (.budget | (has("iteration") and has("iteration_cap")
@@ -92,7 +101,7 @@ KEYS_OK=$(jq -e '
   and .budget.iteration_cap == 25 and .budget.wall_clock_cap_s == 2700
 ' "$L" >/dev/null 2>&1 && echo y || echo n)
 if [ "$KEYS_OK" = "y" ]; then
-  pass "a2 all 15 keys + type/schema_version/ts-shape + default budget caps"
+  pass "a2 all 17 keys + type/schema_version/ts-shape + default budget caps"
 else
   fail "a2 schema mismatch: $(cat "$L" 2>/dev/null)"
 fi
@@ -394,17 +403,18 @@ else
 fi
 
 # =============================================================================
-# (ad) parse-flags.sh: JSON shape has all 3 keys
+# (ad) parse-flags.sh: JSON shape has all 4 keys (CDT-126 adds council_tier)
 # =============================================================================
 OUT=$(bash "$PARSE" --autopilot=patch 2>/dev/null)
 if echo "$OUT" | jq -e '
-  (keys_unsorted | length) == 3
-  and has("enabled") and has("bump") and has("source")
+  (keys_unsorted | length) == 4
+  and has("enabled") and has("bump") and has("source") and has("council_tier")
 ' >/dev/null 2>&1; then
-  pass "ad parse-flags JSON shape has all 3 keys"
+  pass "ad parse-flags JSON shape has all 4 keys"
 else
   fail "ad JSON shape mismatch: $OUT"
 fi
+
 
 # =============================================================================
 # (ae) resume-state.sh: no matching plan → {"found":false}
@@ -545,6 +555,105 @@ if [ "$RC" -eq 0 ] && [ "$OUT" = "300" ]; then
 else
   fail "am rc=$RC out=$OUT (want 300)"
 fi
+
+# =============================================================================
+# (an) CDT-126: 15-arg ship-choice card carries council_tier/grading_reason
+#      in the frozen M13 position (after blocking_condition, before rationale)
+# =============================================================================
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-T ship-choice halt auto null 0 7 run-1 2 20 orch \
+  "council disagreed (council_tier=light)" light "clear-low (files=3, loc=40)")
+L=$(ledger CDT-T)
+TIER_OK=$(jq -e '
+  .council_tier == "light" and .grading_reason == "clear-low (files=3, loc=40)"
+  and (keys_unsorted | index("council_tier")) == (keys_unsorted | index("blocking_condition")) + 1
+  and (keys_unsorted | index("rationale")) == (keys_unsorted | index("grading_reason")) + 1
+' "$L" >/dev/null 2>&1 && echo y || echo n)
+if [ "$RC" -eq 0 ] && [ "$TIER_OK" = "y" ]; then
+  pass "an 15-arg append: tier fields present in frozen M13 key order"
+else
+  fail "an rc=$RC keys=$(cat "$L" 2>/dev/null)"
+fi
+
+# =============================================================================
+# (ao) CDT-126: writer rejections — argc 14, bad tier enum, invariant (c),
+#      control-char grading_reason
+# =============================================================================
+reset
+expect_rc 64 "ao1 argc=14 (tier without reason) → 64" \
+  bash "$APPEND" orchestrate CDT-T ship-choice pr auto patch 90 null run-1 1 10 orch "r" light
+expect_rc 64 "ao2 council_tier='bogus' → 64" \
+  bash "$APPEND" orchestrate CDT-T ship-choice pr auto patch 90 null run-1 1 10 orch "r" bogus "why"
+expect_rc 64 "ao3 invariant (c): tier on plan-approve → 64" \
+  bash "$APPEND" orchestrate CDT-T plan-approve proceed auto null 70 null run-1 1 10 orch "r" light "why"
+expect_rc 64 "ao4 control-char grading_reason → 64" \
+  bash "$APPEND" orchestrate CDT-T ship-choice pr auto patch 90 null run-1 1 10 orch "r" light "$(printf 'a\nb')"
+
+# =============================================================================
+# (ap) CDT-126: reader backfills absent tier keys as explicit nulls (M13
+#      absent ≡ null) and hard-fails invariant (c) on a corrupt ledger
+# =============================================================================
+reset
+mkdir -p "$AUTODIR"
+LEGACY=$(ledger CDT-LEG)
+echo '{"schema_version":1,"type":"autopilot_decision","gate":"ship-choice","blocking_condition":null,"rationale":"old","actor":"orch"}' > "$LEGACY"
+RC=0
+OUT=$(bash "$READ" CDT-LEG 2>/dev/null) || RC=$?
+BACKFILL_OK=$(printf '%s' "$OUT" | jq -e '
+  (.[0] | has("council_tier")) and (.[0].council_tier == null)
+  and (.[0] | has("grading_reason")) and (.[0].grading_reason == null)
+  and (.[0] | keys_unsorted | index("council_tier"))
+      == (.[0] | keys_unsorted | index("blocking_condition")) + 1
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$RC" -eq 0 ] && [ "$BACKFILL_OK" = "y" ]; then
+  pass "ap1 reader backfills absent tier keys as nulls in frozen position"
+else
+  fail "ap1 rc=$RC out=$OUT"
+fi
+
+CORRUPT=$(ledger CDT-COR)
+echo '{"schema_version":1,"type":"autopilot_decision","gate":"plan-approve","blocking_condition":null,"council_tier":"light","grading_reason":"x","rationale":"r","actor":"orch"}' > "$CORRUPT"
+expect_rc 64 "ap2 reader rejects tier on a non-ship-choice card → 64" bash "$READ" CDT-COR
+
+# =============================================================================
+# (aq) parse-flags.sh: --council-tier=light → council_tier:light, autopilot unaffected
+# =============================================================================
+OUT=$(bash "$PARSE" --council-tier=light 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.council_tier == "light" and .enabled == false and .bump == null and .source == "none"' >/dev/null 2>&1; then
+  pass "aq parse-flags --council-tier=light → council_tier:light, autopilot untouched"
+else
+  fail "aq rc=$RC out=$OUT (want council_tier:light, enabled:false/bump:null/source:none)"
+fi
+
+# =============================================================================
+# (ar) parse-flags.sh: --autopilot=minor --council-tier=skip → both resolve independently
+# =============================================================================
+OUT=$(bash "$PARSE" --autopilot=minor --council-tier=skip 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.enabled == true and .bump == "minor" and .source == "flag" and .council_tier == "skip"' >/dev/null 2>&1; then
+  pass "ar parse-flags --autopilot=minor --council-tier=skip → both flags resolve independently"
+else
+  fail "ar rc=$RC out=$OUT (want enabled:true/bump:minor/source:flag/council_tier:skip)"
+fi
+
+# =============================================================================
+# (as) parse-flags.sh: no --council-tier → council_tier:null
+# =============================================================================
+OUT=$(bash "$PARSE" --autopilot 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.council_tier == null' >/dev/null 2>&1; then
+  pass "as parse-flags no --council-tier → council_tier:null"
+else
+  fail "as rc=$RC out=$OUT (want council_tier:null)"
+fi
+
+# =============================================================================
+# (at) parse-flags.sh: illegal tier (--council-tier=bogus) → exit 64
+# =============================================================================
+expect_rc 64 "at parse-flags illegal tier --council-tier=bogus → 64" bash "$PARSE" --council-tier=bogus
+
+# =============================================================================
+# (au) parse-flags.sh: bare --council-tier (no value) → exit 64
+# =============================================================================
+expect_rc 64 "au parse-flags bare --council-tier (no value) → 64" bash "$PARSE" --council-tier
 
 # =============================================================================
 # Summary

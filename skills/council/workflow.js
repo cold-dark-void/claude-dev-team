@@ -278,6 +278,13 @@ export async function runCouncil(runtime) {
   if (t.task_id) preflightArgs.push('--task-id', String(t.task_id))
   if (t.preset) preflightArgs.push('--preset', String(t.preset))
   if (t.why) preflightArgs.push('--why')
+  // CDT-126: forward the already-resolved tier, same as every other flag here.
+  // Dropping it would re-grade a graded `full` run as "ungraded" in its report
+  // and index row, breaking output parity between this path and engine.sh on
+  // byte-identical input. The Workflow path is `full`-only (light falls back
+  // before dispatch), so this forwards a value — it forks no tiering logic.
+  if (t.council_tier) preflightArgs.push('--tier', String(t.council_tier))
+  if (t.grading_reason) preflightArgs.push('--grading-reason', String(t.grading_reason))
 
   const pre = runEngine('preflight', preflightArgs)
   if (pre.status !== 0) {
@@ -299,6 +306,12 @@ export async function runCouncil(runtime) {
   const skipExtract = plan.phases?.['1_claim_extraction']?.skip === true
   const skipPhase4 =
     plan.phases?.['4_prosecution_defense']?.skipped === true || outputShape === 'finding[]'
+  // Marker the Judge sees in place of a brief that was never produced — built
+  // from the plan's own reason, never a hardcoded shape sentinel (judge.md
+  // § Variables; SPEC-013 Phase 5 forbids synthesizing an absent brief).
+  const phase4SkipMarker = `NOT RUN — Phase 4 skipped (reason: ${
+    plan.phases?.['4_prosecution_defense']?.reason || 'not recorded'
+  })`
 
   // Resolve extract input: plan scope reads file; others use provided text
   let inputText = t.input_text || ''
@@ -568,8 +581,8 @@ export async function runCouncil(runtime) {
   const judgePrompt = loadPrompt('judge', {
     ORIGINAL_CLAIMS: JSON.stringify(claims, null, 2),
     EVIDENCE_BUNDLES: formatBundlesForPrompt(orderedBundles),
-    PROSECUTOR_BRIEF: prosecutorBrief || '_skipped (finding[] shape)_',
-    ADVOCATE_BRIEF: advocateBrief || '_skipped (finding[] shape)_',
+    PROSECUTOR_BRIEF: prosecutorBrief || phase4SkipMarker,
+    ADVOCATE_BRIEF: advocateBrief || phase4SkipMarker,
     OUTPUT_SHAPE: outputShape,
   })
 
@@ -622,10 +635,12 @@ export async function runCouncil(runtime) {
   // --- Finalize handoff -----------------------------------------------------
   if (typeof phase === 'function') phase('Finalize')
 
+  // Omit the brief keys entirely when Phase 4 did not run — an empty string is
+  // the stub SPEC-013 Phase 6 forbids. Finalize reads the skip and its reason
+  // off the plan and records those in the report's brief sections.
   const evidenceDoc = {
     bundles: orderedBundles,
-    prosecutor_brief: prosecutorBrief,
-    advocate_brief: advocateBrief,
+    ...(skipPhase4 ? {} : { prosecutor_brief: prosecutorBrief, advocate_brief: advocateBrief }),
     extracted_claims: claims,
     struck_lines: struck,
   }

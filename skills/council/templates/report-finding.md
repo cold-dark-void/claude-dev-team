@@ -6,6 +6,7 @@
 [//]: # "{{DIFF_SUMMARY}}          — paths and line counts of the diff under review"
 [//]: # "{{APPLICABLE_SPECS}}      — list of spec files matched by spec-grep intake"
 [//]: # "{{INVESTIGATOR_FLAVORS}}  — comma-separated list of flavor ids used"
+[//]: # "{{PHASE3_SPECIALIST_STATUS}} — 'ELIGIBLE (runtime classify)' or 'SKIPPED (reason: <text>)'"
 [//]: # "{{CROSS_REVIEW_STATUS}}   — 'RAN' or 'BYPASSED (reason: <text>)'"
 [//]: # "{{CROSS_REVIEW_RANKINGS}} — per-reviewer ranking table (anonymized labels A/B/C)"
 [//]: # "{{CROSS_REVIEW_SCORES}}   — Borda score table: bundle identity, score, WEAK_EVIDENCE flag"
@@ -17,6 +18,8 @@
 [//]: # "{{ACTION_ITEMS}}          — checklist by severity (BLOCKERs first, then DESIGN, then NITPICK)"
 [//]: # "{{COMPLETION_TIME}}       — wall-clock duration of the full council run"
 [//]: # "{{VERIFICATION_MODE}}     — full | self-verified (CDV-199 degradation)"
+[//]: # "{{COUNCIL_TIER}}          — light | full (CDT-126 tiering; orthogonal to verification_mode)"
+[//]: # "{{GRADING_REASON}}        — why that tier was selected, incl. 'fail-closed: …' causes"
 
 ---
 scope: "{{SCOPE}}"
@@ -24,6 +27,8 @@ preset: "{{PRESET}}"
 output_shape: "finding[]"
 created_at: "{{TIMESTAMP}}"
 verification_mode: "{{VERIFICATION_MODE}}"
+council_tier: "{{COUNCIL_TIER}}"
+grading_reason: "{{GRADING_REASON}}"
 task_id: "{{TASK_ID}}"
 ---
 
@@ -33,8 +38,9 @@ task_id: "{{TASK_ID}}"
 
 {{VERIFICATION_BANNER}}
 This report documents a diff-mode council run (preset `{{PRESET}}`) against
-the scope `{{SCOPE}}`. Five specialist investigators (logic, security,
-compliance, quality, simplification) gathered raw tool-call evidence; the
+the scope `{{SCOPE}}` at council tier `{{COUNCIL_TIER}}`. The specialist
+investigators for this run (`{{INVESTIGATOR_FLAVORS}}`)
+gathered raw tool-call evidence; the
 Council Judge deduplicated and cross-checked citations, striking findings
 without `tool_use_id` backing. Commit gate status: **{{COMMIT_GATE_STATUS}}**.
 See Findings for per-finding detail and Audit Trail for struck items.
@@ -134,6 +140,9 @@ present.
 | Field | Value |
 |---|---|
 | Completion time | {{COMPLETION_TIME}} |
+| Council tier | `{{COUNCIL_TIER}}` |
+| Investigator flavors | `{{INVESTIGATOR_FLAVORS}}` |
+| Phase 3 (domain specialist) | {{PHASE3_SPECIALIST_STATUS}} |
 | Report shape | `finding[]` |
 | Confidence filter | ≥80 (diff-mode) |
 | Engine | `skills/council/engine.sh` |

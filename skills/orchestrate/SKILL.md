@@ -21,6 +21,14 @@ happens in agent worktrees.
   (CDT-111-C4). Bare `--autopilot` or `AUTOPILOT=1` env = enabled, bump `null`;
   `--autopilot=<patch|minor|major>` also sets the bump. Flag wins over env. See
   `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot detection".
+- `[--council-tier=<skip|light|full>]` — optional, any position: DRI-supplied
+  override for every `requires_council: true` task-gate council run in this
+  orchestration (CDT-126, SPEC-013 § Council tiering). Scoped like `--autopilot`
+  itself — resolved once at Step 0, applies for the whole run. No env-var
+  equivalent and never auto-selected; omitting it runs every task-gate council
+  call at `full` (`commands/council.md` does not auto-grade any scope it
+  resolves on its own — Task 3's F-A fix). See Step 0 "Council tier
+  detection" and Step 9 "Council gate for `requires_council: true` tasks".
 
 ---
 
@@ -82,6 +90,11 @@ AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malform
 AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
 AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
 AP_SOURCE=$(jq -r .source <<<"$AP_JSON")            # flag | env | none
+# CDT-126: DRI --council-tier=<skip|light|full> override, resolved once for
+# the whole run from the same parse-flags.sh call — no precedence interaction
+# with --autopilot, no resume-state seeding (unlike AUTOPILOT_ON/BUMP, this
+# is not persisted; a resumed run without the flag re-resolves to null).
+COUNCIL_TIER_OVERRIDE=$(jq -r '.council_tier // "null"' <<<"$AP_JSON")
 
 # Resume detection (CDT-111-C8): only when THIS invocation gave neither
 # --autopilot nor AUTOPILOT= (flag/env always win over recorded state).
@@ -129,7 +142,8 @@ invocation (flag/env win over recorded state — `parse-flags.sh`'s own preceden
 epoch (SPEC-033 M9a, CDT-111-C8).
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
-`RUN_START_EPOCH` / `ITER` below means these values, carried forward from this step.
+`RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` below means these values,
+carried forward from this step.
 
 ---
 
@@ -541,9 +555,40 @@ is no addressable parent named 'main' or 'orchestrator'; symbolic addressing
 will fail. The orchestrator reads your output directly from this spawn return."
 ```
 
+**When this task's `requires_council: true`** (Step 7) **and `COUNCIL_TIER_OVERRIDE` (Step 0) is not `skip`**, append to the spawn prompt above, before the "When done" line. The council run MUST use **claim scope, not `--diff`** — `--diff` resolves `preset: diff-mode`, which is `finding[]`-shape and always writes `max_verdict_confidence: null` (SPEC-013 Output Shapes; `index.json` row shape). The SPEC-002 TaskCompleted hook only clears `requires_council: true` against a non-null `max_verdict_confidence` at or above `council.taskgate.min_confidence` — a `finding[]`-shape row can never satisfy it, so `--diff` at this call site would deadlock every `requires_council: true` task forever. Claim scope (`generic` preset) is `verdict[]`-shape and carries a real confidence from the Judge's verdict, and tiering still applies there exactly as elsewhere (`--tier light` → `paranoid-ic` + `jaded-senior` only, Phase 3/4 skipped, Judge gets claims + evidence bundles only — 3 spawns vs. `full`'s 5-9, the same ~2-3× saving as the rest of this ticket).
+
+Compose `<CLAIM>` as a single testable sentence asserting the task is correctly, completely implemented — drawn from the task's own subject/description (Step 7), e.g. `"<ISSUE-ID> Task <N> ('<subject>') is fully implemented per its task description: <one-line summary>."` Investigators have full tool access and verify the claim against the actual repo state; the claim only needs to be a concrete, falsifiable assertion, not a proof.
+
+With `<COMMAND>` resolved by the orchestrator at spawn time (not left as a placeholder for the agent):
+
+- `COUNCIL_TIER_OVERRIDE` is `light` or `full` → `<COMMAND>` =
+  `/council "<CLAIM>" --task-id <task_id> --council-tier=<light|full>`
+- `COUNCIL_TIER_OVERRIDE` is the literal string `"null"` (no `--council-tier` on this run —
+  Step 0's `jq -r '.council_tier // "null"'` renders parse-flags.sh's JSON `null` as the
+  4-character string `"null"`, not empty/unset; same idiom as `AUTOPILOT_BUMP` two lines
+  above it in Step 0) → `<COMMAND>` = `/council "<CLAIM>" --task-id <task_id>`
+  — this runs at `full`: `commands/council.md` Step 1.5.1 does not auto-grade any scope it
+  resolves on its own (the diff-scope auto-grading trigger was removed entirely — Task 3's
+  F-A fix; §§ 1.5.2–1.5.4's grading procedure now runs only for a caller that grades its own
+  diff and supplies the result externally, e.g. `ship-gate-council.md`'s M14(e) pass). Building
+  a second, task-gate-side grading path here would duplicate that same shared procedure — not
+  done in this fix; the task-gate site simply has no external-tier supplier of its own beyond
+  the DRI's `--council-tier` flag.
+
+```
+Before reporting done, run:
+  <COMMAND>
+Your task will not be marked complete without a qualifying council verdict.
+```
+
+When `COUNCIL_TIER_OVERRIDE == skip`, do NOT append this instruction and do NOT
+export `CLAUDE_TASK_ID` for a council purpose — Step 9's council-gate block
+handles `skip` entirely on the orchestrator side, without ever invoking
+`/council` for this task.
+
 Whenever the orchestrator invokes `/council` as part of a task's orchestration steps (e.g., a task with `requires_council: true` that requires a council verdict before completion), the orchestrator MUST export `CLAUDE_TASK_ID=<task_id>` in the subprocess environment of that `/council` invocation. This is the ambient task-id transport SPEC-013 Phase 6 uses for verdict-to-task binding via the fallback chain `--task-id` flag → `CLAUDE_TASK_ID` env → unbound (SPEC-009, the `CLAUDE_TASK_ID` export MUST; SPEC-013 Task-ID Plumbing). The hook path (SPEC-002 TaskCompleted) resolves its task id from stdin JSON and does NOT share this fallback chain — the two paths are independent.
 
-The orchestrator MAY also export `CLAUDE_TASK_ID=<task_id>` when spawning regular IC agents for a task; this is useful when the agent itself invokes `/council` mid-task as a self-review.
+The orchestrator MUST export `CLAUDE_TASK_ID=<task_id>` when spawning an IC agent for a task with `requires_council: true` and `COUNCIL_TIER_OVERRIDE != skip` (per the spawn-prompt addendum above) — this is the case where the agent itself invokes `/council` mid-task as a self-review, and the export is how that run binds to the right index row.
 
 ### PM kickoff is mandatory for every ticket
 
@@ -960,6 +1005,128 @@ plan-approve <decision>: <rationale> — card: <card-file-path>
 Otherwise (autopilot off), the escalation above applies unchanged.
 
 ### After Tech Lead approves:
+
+**Council gate for `requires_council: true` tasks (CDT-126).** Before calling
+`TaskUpdate(task_id, completed)` for a task whose Step 7 `TaskCreate` description
+carried `requires_council: true`, a qualifying `.claude/council/index.json` entry
+MUST already exist for that task's compound `task_id` — otherwise the SPEC-002
+TaskCompleted hook blocks completion (SPEC-009; SPEC-013 Task-ID Plumbing).
+"Qualifying" means a **`verdict[]`-shape** entry (non-null `max_verdict_confidence`
+at or above `council.taskgate.min_confidence`) — the hook has no path that accepts
+a `finding[]`-shape row (`max_verdict_confidence: null` by construction; this is
+why Step 8's spawn instruction above uses claim scope, never `--diff`). Tiering
+changes **which** council pipeline runs, never **whether** the gate fires
+(SPEC-013 § Council tiering) — this block does not change that. Skip this block
+entirely for tasks without `requires_council: true`.
+
+Branch on `COUNCIL_TIER_OVERRIDE` (Step 0 — resolved once per run from
+`--council-tier=<skip|light|full>` on this `/orchestrate` invocation; never
+auto-selected):
+
+- **`skip`** — the DRI forced this run to skip council entirely. Do NOT invoke
+  `/council` at all for this task — no grading, no tribunal spawn, nothing (the
+  short-circuit happens here, before any council invocation, per SPEC-013 §
+  Council tiering's `skip` vocabulary). The orchestrator itself records an
+  audit-trail row directly via `index-writer.sh` — the single owning surface
+  for `.claude/council/index.json` (SPEC-013 "Recording the tier"; SPEC-026
+  M10 forbids other writers):
+  ```bash
+  # Re-resolve PDH (each bash fence is a fresh shell)
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+  INDEX_WRITER=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/index-writer.sh)
+  bash "$INDEX_WRITER" "<ISSUE-ID>-<task_id>" "" null null skip \
+    "skip: DRI --council-tier=skip on /orchestrate <ISSUE-ID> (run_id=<RUN_ID>)"
+  ```
+  `<RUN_ID>` here is Step 0's resolved value (this is a fresh shell — a
+  cross-block bash variable would be empty; substitute the literal text
+  the same way `<ISSUE-ID>` / `<task_id>` are substituted elsewhere).
+
+  **This row does NOT and structurally cannot satisfy `requires_council: true`**
+  — `skip` never produces a verdict, so `max_verdict_confidence` stays `null`
+  exactly as an ungraded `finding[]` row would, and the hook rejects it the same
+  way. This is not routed around: AC6 (SPEC-013 § Council tiering) requires
+  tiering to change *which* pipeline runs, never *whether* the gate fires, so
+  the orchestrator MUST NOT clear `requires_council` on the task record to force
+  completion through — that would be exactly the AC6 violation the ticket
+  forbids. `skip` and `requires_council: true` are a **structural incompatibility**
+  on the same task, and HALT before `TaskUpdate(completed)` — the DRI has to
+  resolve it, not the orchestrator.
+
+  **This is a genuine off-triad checkpoint (SPEC-033 M8 mapping; no new gate
+  enum value, no ninth blocking condition) and maps to BC1** — an unresolved
+  configuration conflict only a human can settle (drop `--council-tier=skip`
+  for this task, or confirm `requires_council: true` isn't actually needed and
+  remove it from the task record). It follows the same shape as every other
+  off-triad halt in this file (e.g. Step 8's "Ambiguous requirement"):
+
+  **Autopilot — skip/requires_council incompatibility:** if `AUTOPILOT_ON`
+  (Step 0), do NOT wait for the user here. (Off-triad checkpoint; canonical
+  gate = `plan-approve` — SPEC-033 M8 mapping; no new gate enum value.) Build
+  the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
+  gate:"plan-approve", run_id:RUN_ID, iteration:ITER,
+  run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, <trigger
+  signal: "task <task_id> has requires_council: true but this run carries
+  --council-tier=skip; skip never produces a verdict, so the gate can never be
+  satisfied for this task as configured — an unresolved configuration conflict
+  autopilot cannot self-answer (BC1)"> }` and call
+  `skills/autopilot/self-answer.md`'s procedure for `{decision,
+  blocking_condition, confidence, rationale}` (exactly one `decided_by:"auto"`
+  card is appended; expected `blocking_condition = 1`, and it MUST be recorded
+  as `1` on the card — this conflict has no `proceed`/`reroute-epic` resolution,
+  only `halt`). Act on `decision`:
+  - `halt` → emit `task_blocked` (detail = the one-line message below) via
+    **Passive notifications → Tier B** (fail-open; § below), then print the
+    one-line message below and return control:
+  ```
+  plan-approve <decision>: <rationale> — card: <card-file-path>
+  ```
+  Otherwise (autopilot off), print this and wait for the user:
+  ```
+  Task <task_id> has requires_council: true, but this run carries
+  --council-tier=skip. These are incompatible: skip never produces a council
+  verdict, so the gate can never be satisfied for this task as configured.
+
+  Resolve by either:
+    1. Re-running this task's completion without --council-tier=skip (drop the
+       DRI override for the rest of this run), or
+    2. Confirming with the Tech Lead that requires_council: true is not actually
+       needed for this task and removing it from the task record.
+  ```
+  Do not proceed to `TaskUpdate(completed)` until the conflict is resolved
+  (either path above).
+- **`light` or `full`** — an externally-supplied tier. The IC agent's Step 8
+  spawn prompt already carries the instruction to invoke
+  `/council "<CLAIM>" --task-id <task_id> --council-tier=<light|full>`
+  (claim scope — see Step 8; never `--diff`) as part of finishing the task.
+  The `<light|full>` there is the literal resolved value, substituted by the
+  orchestrator at spawn time — same discipline as Step 8's own `<COMMAND>`
+  and as `<RUN_ID>` above. A spawn prompt is prose handed to an agent, not a
+  bash fence, so writing the shell variable name `$COUNCIL_TIER_OVERRIDE`
+  literally into it would never expand; the agent would pass `/council` the
+  four-character flag value `$COUNCIL_TIER_OVERRIDE`, which
+  `commands/council.md` hard-fail #6 rejects outright. `commands/council.md`
+  Step 1.5 honors the supplied tier at any scope and passes it straight
+  through to `--tier` with no grading run (Task 3's "any scope" path — do not
+  duplicate that grading logic here). Confirm a `verdict[]`-shape index entry
+  exists before proceeding to `TaskUpdate(completed)`.
+- **the literal string `"null"`** (no `--council-tier` on this run — Step 0's
+  `jq -r '.council_tier // "null"'` renders parse-flags.sh's JSON `null` as
+  the 4-character string `"null"`, not empty/unset; same idiom as
+  `AUTOPILOT_BUMP`, and a test here MUST be `[ "$COUNCIL_TIER_OVERRIDE" = "null" ]`,
+  never an emptiness check) — the IC agent's spawn prompt instructs a plain
+  `/council "<CLAIM>" --task-id <task_id>` invocation (claim scope), which
+  runs at `full` (`commands/council.md` Step 1.5.1 does not
+  auto-grade any scope it resolves on its own — the diff-scope auto-grading
+  trigger was removed entirely, Task 3's F-A fix; see Step 8). Confirm the
+  index entry exists before proceeding to `TaskUpdate(completed)`.
+
+In the `light`/`full`/`"null"` branches the orchestrator MUST have exported
+`CLAUDE_TASK_ID=<task_id>` in the IC agent's subprocess environment at spawn
+time (Step 8) so the council run binds to the correct index row (SPEC-013
+Task-ID Plumbing). A missing or below-threshold verdict is not a new blocking
+mechanism — it surfaces through this same Step 9 Tech Lead review loop, same
+as any other incomplete task (SPEC-013 § Council tiering; no new gate).
 
 Update TaskUpdate → completed. Check if this unblocks other tasks.
 **Do NOT** emit an outcomes-ledger record here — wait for Step-10 QA terminal (OQ4).

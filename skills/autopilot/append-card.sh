@@ -7,13 +7,19 @@
 # Usage:
 #   append-card.sh <workflow> <ticket_id> <gate> <decision> <decided_by> \
 #                  <bump|null> <confidence> <blocking_condition|null> \
-#                  <run_id> <iteration> <wall_clock_s> <actor> <rationale>
+#                  <run_id> <iteration> <wall_clock_s> <actor> <rationale> \
+#                  [<council_tier|null> <grading_reason|null>]
 #
 # Appends ONE JSONL decision card to $MROOT/.claude/autopilot/<ticket_id>.jsonl
 # with the M13-frozen key order:
 #   { schema_version, type, ts, run_id, workflow, ticket_id, gate, decision,
-#     decided_by, bump, confidence, blocking_condition, rationale, budget, actor }
+#     decided_by, bump, confidence, blocking_condition, council_tier,
+#     grading_reason, rationale, budget, actor }
 #   budget = { iteration, iteration_cap, wall_clock_s, wall_clock_cap_s }
+#
+# CDT-126: council_tier / grading_reason are additive + nullable, so argc 13 is
+# still legal and means both are null (schema_version stays 1). Argc is 13 or
+# 15 — never 14; supplying one without the other is a usage error.
 #
 # DELIBERATE INVERSION of metrics/emit-outcome.sh best-effort semantics:
 # this writer HARD-FAILS (exit 64) on EVERY failure mode — malformed args,
@@ -29,7 +35,7 @@
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
-USAGE='Usage: append-card.sh <workflow> <ticket_id> <gate> <decision> <decided_by> <bump|null> <confidence> <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale>'
+USAGE='Usage: append-card.sh <workflow> <ticket_id> <gate> <decision> <decided_by> <bump|null> <confidence> <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale> [<council_tier|null> <grading_reason|null>]'
 
 die() {
   echo "error: $1" >&2
@@ -38,7 +44,10 @@ die() {
 }
 
 # ---- Usage ------------------------------------------------------------------
-[ $# -ne 13 ] && die "append-card.sh requires exactly 13 arguments (got $#)"
+case $# in
+  13|15) ;;
+  *) die "append-card.sh requires 13 or 15 arguments (got $#)" ;;
+esac
 
 WORKFLOW="$1"
 TICKET_ID="$2"
@@ -53,6 +62,8 @@ ITERATION="${10}"
 WALL_CLOCK_S="${11}"
 ACTOR="${12}"
 RATIONALE="${13}"
+COUNCIL_TIER="${14:-null}"
+GRADING_REASON="${15:-null}"
 
 # ---- Required non-empty string fields ---------------------------------------
 [ -z "$TICKET_ID" ] && die "ticket_id must not be empty"
@@ -89,6 +100,12 @@ case "$BUMP" in
   *) die "invalid bump '$BUMP' (expected patch|minor|major|null)" ;;
 esac
 
+# council_tier vocabulary is SPEC-013's (Council tiering), not this spec's (M13/N4).
+case "$COUNCIL_TIER" in
+  skip|light|full|null) ;;
+  *) die "invalid council_tier '$COUNCIL_TIER' (expected skip|light|full|null)" ;;
+esac
+
 # ---- Numeric-range guards ---------------------------------------------------
 # confidence: integer 0..100
 case "$CONFIDENCE" in
@@ -122,6 +139,16 @@ fi
 if [ "$BLOCKING_CONDITION" = "7" ] && [ "$CONFIDENCE" -ge 80 ]; then
   die "blocking_condition=7 requires confidence < 80 (got $CONFIDENCE)"
 fi
+# (c) council_tier / grading_reason non-null ONLY on a ship-choice card (CDT-126).
+# Deliberately weaker than M13's prose rule, which scopes them to the M14 council
+# card (ship-choice card #2) alone. Cards #1 and #2 share gate/run_id/decided_by
+# and M13 defines no write-time discriminator, so a stricter writer check would
+# have to invent one (N4). The narrower rule is enforced by the caller —
+# skills/autopilot/ship-gate-council.md §6, which passes null/null on card #1.
+if { [ "$COUNCIL_TIER" != "null" ] || [ "$GRADING_REASON" != "null" ]; } \
+   && [ "$GATE" != "ship-choice" ]; then
+  die "council_tier/grading_reason require gate=ship-choice (got '$GATE')"
+fi
 
 # ---- rationale control-char guard -------------------------------------------
 # Reject any newline / control character (secret-scrubbing is the caller's job).
@@ -130,6 +157,10 @@ fi
 # the whole string — newlines included — so it catches \n as well as \t etc.
 if [[ "$RATIONALE" =~ [[:cntrl:]] ]]; then
   die "rationale must not contain newlines or control characters"
+fi
+# grading_reason carries the same one-line + redaction obligation as rationale (M13).
+if [[ "$GRADING_REASON" =~ [[:cntrl:]] ]]; then
+  die "grading_reason must not contain newlines or control characters"
 fi
 
 # ---- jq guard (HARD FAIL — divergence from emit-outcome.sh) ------------------
@@ -162,6 +193,8 @@ WALL_CLOCK_CAP_S=${AUTOPILOT_WALLCLOCK_CAP:-2700}
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 bump_json=$(json_str_or_null "$BUMP")
+council_tier_json=$(json_str_or_null "$COUNCIL_TIER")
+grading_reason_json=$(json_str_or_null "$GRADING_REASON")
 
 # ---- Emit (HARD FAIL on mkdir/jq/write) -------------------------------------
 resolve_mroot
@@ -188,6 +221,8 @@ if ! jq -cn \
   --argjson bump "$bump_json" \
   --argjson confidence "$CONFIDENCE" \
   --argjson blocking_condition "$BLOCKING_CONDITION" \
+  --argjson council_tier "$council_tier_json" \
+  --argjson grading_reason "$grading_reason_json" \
   --arg rationale "$RATIONALE" \
   --argjson iteration "$ITERATION" \
   --argjson iteration_cap "$ITERATION_CAP" \
@@ -207,6 +242,8 @@ if ! jq -cn \
     bump: $bump,
     confidence: $confidence,
     blocking_condition: $blocking_condition,
+    council_tier: $council_tier,
+    grading_reason: $grading_reason,
     rationale: $rationale,
     budget: {
       iteration: $iteration,

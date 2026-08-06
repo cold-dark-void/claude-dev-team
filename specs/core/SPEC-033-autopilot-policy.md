@@ -351,6 +351,8 @@ target.
     "bump": "patch | minor | major | null",
     "confidence": 0,
     "blocking_condition": null,
+    "council_tier": null,
+    "grading_reason": null,
     "rationale": "<one-line why>",
     "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700 },
     "actor": "orchestrator"
@@ -384,6 +386,20 @@ target.
   - `confidence` (0–100) backs BC7; a card with `decision:"halt"` and `blocking_condition:7` MUST
     carry `confidence` below the threshold. Threshold default 80 mirrors the council convention.
   - `blocking_condition` is `null` for a clean answer, or the M6 ordinal (1–8) for a halt/reroute.
+  - `council_tier` (**CDT-126**) records which council pipeline the M14 ship-gate pass was run
+    at — `skip | light | full`, the vocabulary SPEC-013's **Council tiering** section owns. It is
+    non-null **only** on the M14 council card (the second `ship-choice` card, M14(c)) and MUST be
+    `null` on every other card, including the original `ship-choice` card #1. This spec MUST NOT
+    define a second tier vocabulary (N4) — the values are SPEC-013's.
+  - `grading_reason` (**CDT-126**) is a one-line record of *why* that tier was selected (band hit,
+    triage-call reason, DRI flag, or the fail-closed cause). Same nullability rule as
+    `council_tier`, and the same redaction obligation as `rationale`.
+  - Both CDT-126 fields are **additive and nullable**, so `schema_version` stays `1`: the `type` +
+    `schema_version` discriminator envelope is unchanged, readers that pin `schema_version == 1`
+    keep parsing, and cards written before this amendment remain valid (absent key ≡ `null`).
+    `skills/autopilot/append-card.sh`'s cross-field invariants need extending to cover them
+    (`council_tier`/`grading_reason` non-null ⟹ `gate == "ship-choice"`); that writer change is a
+    wiring child's work, not this contract's.
   - `rationale` is a one-line summary and MUST NOT contain secrets, credentials, tokens, keys, or
     PII. Any evidence quoted from the repo, specs, or memory (e.g. the S2 resolution attempt) MUST
     be **redacted or summarized**, never copied verbatim into the card.
@@ -406,7 +422,10 @@ target.
     `confidence` is self-reported or council-derived. For the `ship-choice` gate it is now
     **council-derived**; `scope-confirm` and `plan-approve` keep OQ3's original self-reported
     latitude. Autopilot MUST invoke bare `/council "<claim>"` (scope `claim`, preset `generic`,
-    **unbound** — **no** `--plan`, **no** `--task-id`, no other flag). The claim string carries
+    **unbound** — **no** `--plan`, **no** `--task-id`). The **sole** permitted flag is
+    `--council-tier=<tier>`, required by **(e)**: it selects which council pipeline runs and
+    does **not** bind the run to a task, a plan, or any other scope, so it leaves this bullet's
+    unbound-and-locators-only intent intact. No other flag may be passed. The claim string carries
     **locators only**: `ticket_id`, the decision-card ledger path (for
     `skills/autopilot/read-cards.sh`), the spec/AC path(s), and a one-line ship claim.
     Investigators pull all evidence themselves via their own tool calls; autopilot MUST NOT
@@ -452,6 +471,71 @@ target.
     same: `halt`, BC7, `confidence = 0`, rationale naming the spawn failure. An adversarial
     ship-gate whose adversaries never ran provides **no** independent assurance; the council
     verdict can only push a ship **down** to a BC7 halt, **never** raise it above BC7.
+
+  - **(e) Tier selection at the ship gate (CDT-126).** Before invoking the M14 pass, autopilot
+    MUST select a council tier per SPEC-013's **Council tiering** section and pass it on the
+    invocation (`--council-tier=<tier>`). Grading MUST run immediately before the `/council`
+    call, never earlier.
+
+    - **Grading input.** The graded diff MUST be
+      `git diff --numstat $(git merge-base <default> HEAD)..HEAD`, where `<default>` is resolved
+      with `git symbolic-ref refs/remotes/origin/HEAD` — **the exact mechanism N3a already
+      mandates at this same step**. Autopilot MUST reuse that resolution and MUST NOT invent a
+      second diff-resolution or default-branch-resolution path. M14 has **no** pre-existing
+      staged diff and no diff computation of its own (see the correction note below), which is
+      why the graded input is named here.
+    - **Bands live in SPEC-013.** The band thresholds (`files`/`loc` clear-low → `light`,
+      clear-high → `full`, ambiguous middle → one triage call) and the five structural
+      critical-area signals are **normative in SPEC-013's Council tiering section**. This bullet
+      MUST NOT restate them (SPEC-002 D1 / M12 / N4); the only M14-specific element is the
+      graded diff above.
+    - **Fail closed.** SPEC-013's **Fail-closed contract** governs; this bullet adds only the
+      M14-specific input failure: an **unresolvable `origin/HEAD`** counts as a grading failure
+      and therefore resolves the tier to `full`, consistent with N3a's own fail-closed stance on
+      the same resolution. Note the two differ in consequence and must not be conflated — N3a's
+      unresolvable `origin/HEAD` **halts the ship** under BC3; here it merely **grades the
+      council pass to `full`**. Grading failure MUST NOT skip, defer, or downgrade the council
+      pass itself.
+    - **`skip` is unreachable here.** Per SPEC-013's Tier vocabulary, grading cannot return
+      `skip`. The M14-specific consequence: autopilot has no DRI, so at this gate `skip` can
+      only arrive from an explicit human-supplied `--council-tier=skip` on the run — and MUST
+      then be recorded verbatim on the card rather than normalized away.
+    - **Recording.** The selected tier and its reason MUST be written to the M14 council card's
+      `council_tier` / `grading_reason` fields (M13).
+    - **The firing rule is unchanged.** (e) changes *which* council pipeline runs, never
+      *whether* the pass runs: M14's "only at `ship-choice`, only on a clean `pr`/`merge`
+      answer, exactly once per attempt, exactly two cards" all stand.
+
+    > **Latent-doc correction for the wiring child.** `skills/autopilot/ship-gate-council.md` §3
+    > currently instructs council investigators to pull "the staged diff" themselves. At M14
+    > firing time **nothing is staged**: the `git merge --squash` staging happens *after* the
+    > gate (N3a; `/orchestrate` Step 11). The child that edits that file MUST correct the §3
+    > claim-string wording to the merge-base diff named above. The correction is to the
+    > *locator* wording only — M14(a)'s locators-only rule (no materialized evidence file, no
+    > render-helper script) is unchanged.
+    >
+    > The same §3 also states "Pass **no** `--plan`, **no** `--task-id`, **no other flag**",
+    > which the M14(a) amendment above supersedes: `--council-tier=<tier>` is now the one
+    > permitted flag and (e) requires it. The wiring child MUST correct that sentence in the
+    > same pass, or the procedure will forbid the flag its own contract mandates.
+
+  - **(f) Tier-aware BC7 halt (CDT-126).** When the M14 pass produces a BC7 halt (per (b) or
+    (d)), the halt card MUST carry the run's `council_tier`, and the halt `rationale` MUST name
+    it. The escalation surfaced to the human (S1) MUST offer a full-council re-run — *"this ran
+    light and came back under threshold — re-run at full?"* — **only** when the halt came from a
+    `light` run; a `full`-run halt MUST NOT make that offer, because no escalation remains.
+
+    - This introduces **no ninth blocking condition and no new halt path** — M6's set of eight
+      is still complete. It is one recorded field plus one line of rationale text on the
+      **existing** card, and (b), (c), and (d) are unchanged: the verdict→confidence mapping,
+      the reuse-BC7 ruling, and the degraded-run rule apply identically at both tiers.
+    - A **degraded `light`** run still takes (d)'s path (`halt`, BC7, `confidence = 0`, rationale
+      citing `self-verified — refuters unavailable`); its tier is still `light`, so the re-offer
+      is still available. The tier and the degradation state are orthogonal — SPEC-013's Council
+      tiering section is the home of that orthogonality ruling.
+    - The re-offer is an **escalation affordance, not an auto-action**. Autopilot MUST NOT
+      self-answer it, auto-re-run the council at `full`, or otherwise proceed past the halt (N2 /
+      M7) — a BC7 halt still requires a human.
 
 ---
 
@@ -529,3 +613,12 @@ target.
 - OQ3 — Whether `confidence` is self-reported by the answering agent or derived from a council
   micro-check — the schema accommodates either. **Resolved for `ship-choice` by M14
   (council-derived); remains self-reported for `scope-confirm` / `plan-approve`.**
+
+---
+
+## Version History
+
+| Date | Change |
+|------|--------|
+| 2026-08-04 | Initial contract (CDT-111-C1) — mode activation (M1–M2), per-gate checklists + per-command checkpoint mapping (M3–M5), eight blocking conditions (M6–M8), run-budget defaults (M9), complexity-overflow reroute (M10–M11), contract home (M12), decision-card schema (M13), MUST NOTs N1–N8. Amended within the same DRAFT cycle by later CDT-111 children: C2 (card writer/reader paths), C5 (AC7 / M14 council ship gate), C6 (M11a reroute safety + state carry-forward), C7 (OQ1 notify transport), C8 (M9a resume wall-clock basis), C9 (N3a deterministic BC3 push-target check). *(This table itself was added 2026-08-05 by CDT-126 — the section was missing; the rows above reconstruct the DRAFT cycle that predates it.)* |
+| 2026-08-05 | CDT-126: council tiering at the autopilot ship gate. **M14(e)** — tier selection before the M14 pass: graded input is `git diff --numstat $(git merge-base <default> HEAD)..HEAD` with `<default>` from `git symbolic-ref refs/remotes/origin/HEAD`, reusing N3a's existing mechanism at the same step rather than inventing one; bands, critical-area signals, the fail-closed contract and the `skip`-unreachability rule are all cited from SPEC-013's Council tiering section, never restated (SPEC-002 D1 / M12 / N4) — (e) keeps only the M14-specific deltas: the graded diff, the fact that an unresolvable `origin/HEAD` grades to `full` here whereas N3a's own unresolvable `origin/HEAD` **halts the ship** under BC3 (same probe, different consequence — not to be conflated), and that autopilot has no DRI so `skip` can only arrive human-supplied; **M14(a)** amended to carve out `--council-tier=<tier>` as the sole permitted flag on the otherwise-unbound `/council` invocation, resolving its contradiction with (e)'s requirement to pass it; firing rule (`ship-choice` only, clean `pr`/`merge` only, exactly once, exactly two cards) unchanged. Includes a correction note for the wiring child: `skills/autopilot/ship-gate-council.md` §3's "the staged diff" is wrong — nothing is staged at M14 firing time (the `git merge --squash` happens after the gate), so M14 has no pre-existing diff of its own, and its "no other flag" sentence is superseded by the M14(a) carve-out — both to be corrected in the same pass. **M14(f)** — tier-aware BC7: the halt card carries `council_tier` and the rationale names it; the full-council re-offer is made only from a `light` halt, and is an escalation affordance autopilot MUST NOT self-answer. No ninth blocking condition, no new halt path; (b)/(c)/(d) unchanged. **M13** — decision card gains nullable `council_tier` + `grading_reason`, non-null only on the M14 council card; `schema_version` stays `1` (additive + nullable, discriminator envelope unchanged); `append-card.sh` cross-field invariants to be extended by the wiring child. Status stays DRAFT. |

@@ -8,6 +8,7 @@
 [//]: # "{{CLAIMS_AUDITED}}        — actual number of claims investigated"
 [//]: # "{{EXTRACTED_CLAIMS}}      — structured claim list from Phase 1"
 [//]: # "{{EVIDENCE_BUNDLES}}      — raw evidence bundles from Phase 2 investigators"
+[//]: # "{{PHASE3_SPECIALIST_STATUS}} — 'ELIGIBLE (runtime classify)' or 'SKIPPED (reason: <text>)'"
 [//]: # "{{CROSS_REVIEW_STATUS}}   — 'RAN' or 'BYPASSED (reason: <text>)'"
 [//]: # "{{CROSS_REVIEW_RANKINGS}} — per-reviewer ranking table (anonymized labels A/B/C)"
 [//]: # "{{CROSS_REVIEW_SCORES}}   — Borda score table: bundle identity, score, WEAK_EVIDENCE flag"
@@ -19,6 +20,8 @@
 [//]: # "{{VERDICT_SUMMARY_TABLE}} — counts by taxonomy: VERIFIED/PARTIALLY_VERIFIED/UNVERIFIED/CONTRADICTED/FABRICATED"
 [//]: # "{{COMPLETION_TIME}}       — wall-clock duration of the full council run"
 [//]: # "{{VERIFICATION_MODE}}     — full | self-verified (CDV-199 degradation)"
+[//]: # "{{COUNCIL_TIER}}          — light | full (CDT-126 tiering; orthogonal to verification_mode)"
+[//]: # "{{GRADING_REASON}}        — why that tier was selected, incl. 'fail-closed: …' causes"
 
 ---
 scope: "{{SCOPE}}"
@@ -26,6 +29,8 @@ preset: "{{PRESET}}"
 output_shape: "verdict[]"
 created_at: "{{TIMESTAMP}}"
 verification_mode: "{{VERIFICATION_MODE}}"
+council_tier: "{{COUNCIL_TIER}}"
+grading_reason: "{{GRADING_REASON}}"
 task_id: "{{TASK_ID}}"
 ---
 
@@ -35,9 +40,11 @@ task_id: "{{TASK_ID}}"
 
 {{VERIFICATION_BANNER}}
 This report documents an adversarial council tribunal run against the scope
-`{{SCOPE}}` using preset `{{PRESET}}`. Investigators gathered raw tool-call
-evidence for each extracted claim; a Prosecutor and Devil's Advocate wrote
-adversarial briefs over that evidence; the Council Judge — structurally
+`{{SCOPE}}` using preset `{{PRESET}}` at council tier `{{COUNCIL_TIER}}`.
+Investigators gathered raw tool-call evidence for each extracted claim; when
+Phase 4 ran, a Prosecutor and Devil's Advocate wrote adversarial briefs over
+that evidence (the Prosecutor Brief and Devil's Advocate Brief sections below
+record this run's status); the Council Judge — structurally
 forbidden from running tools — issued verdicts from the fixed taxonomy.
 See the Verdicts section for per-claim outcomes and the Audit Trail for any
 lines struck for missing or unsupported evidence.
@@ -56,7 +63,9 @@ lines struck for missing or unsupported evidence.
 |---|---|
 | Scope | `{{SCOPE}}` |
 | Preset | `{{PRESET}}` |
+| Council tier | `{{COUNCIL_TIER}}` |
 | Investigator flavors | `{{INVESTIGATOR_FLAVORS}}` |
+| Phase 3 (domain specialist) | {{PHASE3_SPECIALIST_STATUS}} |
 | Claim budget | {{CLAIM_BUDGET}} |
 | Claims audited | {{CLAIMS_AUDITED}} |
 | Timestamp | `{{TIMESTAMP}}` |
