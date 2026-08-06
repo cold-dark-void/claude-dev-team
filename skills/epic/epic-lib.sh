@@ -21,7 +21,9 @@ Commands:
             --agent ic4|ic5 --depends-on '["…"]'
             [--linear-id L] [--problem P] [--ac '["…"]']
   set-status <EPIC-ID> <CHILD-ID> pending|in_progress|completed|blocked
+             [--outcome "…"]   # optional; completed|blocked only; ≤200 chars, 1 line
   set-linear-project <EPIC-ID> <PROJECT-ID>|null|--clear
+  set-last-seed <EPIC-ID> <path>|null|--clear
   mark-done <TICKET-ID>
   ready-set <EPIC-ID>
   check-cycle <json-file|->
@@ -219,20 +221,67 @@ cmd_add_child() {
 }
 
 cmd_set_status() {
+  # set-status <EPIC-ID> <CHILD-ID> <status> [--outcome "…"]
+  # Optional --outcome only with completed|blocked: ≤200 chars, newlines→spaces, 1 line
+  # written to children[].outcome_summary. 3-arg path unchanged when --outcome omitted.
   local epic_id="${1:-}" child_id="${2:-}" status="${3:-}"
   [ -n "$epic_id" ] || die 64 "set-status: missing <EPIC-ID>"
   [ -n "$child_id" ] || die 64 "set-status: missing <CHILD-ID>"
+  [ -n "$status" ] || die 64 "set-status: missing status"
   case "$status" in
     pending|in_progress|completed|blocked) ;;
     *) die 64 "set-status: status must be pending|in_progress|completed|blocked" ;;
   esac
+  shift 3
+
+  local outcome="" have_outcome=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --outcome)
+        [ $# -ge 2 ] || die 64 "set-status: --outcome requires a value"
+        outcome="$2"
+        have_outcome=1
+        shift 2
+        ;;
+      --outcome=*)
+        outcome="${1#--outcome=}"
+        have_outcome=1
+        shift
+        ;;
+      -*)
+        die 64 "set-status: unknown flag $1"
+        ;;
+      *)
+        die 64 "set-status: unexpected arg: $1"
+        ;;
+    esac
+  done
+
+  if [ "$have_outcome" -eq 1 ]; then
+    case "$status" in
+      completed|blocked) ;;
+      *) die 64 "set-status: --outcome only allowed with completed|blocked" ;;
+    esac
+    # newlines → spaces; collapse runs of whitespace; trim ends → 1 line
+    outcome=$(printf '%s' "$outcome" | tr '\n\r' '  ' | sed -e 's/[[:space:]]\{1,\}/ /g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    if [ "${#outcome}" -gt 200 ]; then
+      die 64 "set-status: --outcome must be ≤200 chars (got ${#outcome})"
+    fi
+  fi
+
   local st
   st=$(read_state "$epic_id")
   if ! echo "$st" | jq -e --arg id "$child_id" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
     die 1 "set-status: child not found: $child_id"
   fi
-  st=$(echo "$st" | jq --arg id "$child_id" --arg s "$status" \
-    '(.children[] | select(.id==$id) | .status) = $s')
+  if [ "$have_outcome" -eq 1 ]; then
+    st=$(echo "$st" | jq --arg id "$child_id" --arg s "$status" --arg o "$outcome" \
+      '(.children[] | select(.id==$id) | .status) = $s
+       | (.children[] | select(.id==$id) | .outcome_summary) = $o')
+  else
+    st=$(echo "$st" | jq --arg id "$child_id" --arg s "$status" \
+      '(.children[] | select(.id==$id) | .status) = $s')
+  fi
   write_state "$epic_id" "$st"
   echo "$st" | jq -c --arg id "$child_id" '.children[] | select(.id==$id)'
 }
@@ -265,6 +314,34 @@ cmd_set_linear_project() {
   esac
   write_state "$epic_id" "$st"
   echo "$st" | jq -c '{linear_project_id}'
+}
+
+cmd_set_last_seed() {
+  # set-last-seed <EPIC-ID> <path>|null|--clear
+  # Top-level last_seed_path (CDT-127 / SPEC-025 M6 additive). Persists only.
+  # Exit codes: 1 = epic not found; 64 = usage / invalid flag.
+  local epic_id="${1:-}" raw="${2:-}"
+  [ -n "$epic_id" ] || die 64 "set-last-seed: missing <EPIC-ID>"
+  [ $# -ge 2 ] || die 64 "set-last-seed: missing <path>|null|--clear"
+
+  case "$raw" in
+    --clear) ;;
+    -*) die 64 "set-last-seed: unknown flag $raw (use path|null|--clear)" ;;
+  esac
+
+  local st
+  st=$(read_state "$epic_id")
+
+  case "$raw" in
+    ""|null|--clear)
+      st=$(echo "$st" | jq '.last_seed_path = null')
+      ;;
+    *)
+      st=$(echo "$st" | jq --arg v "$raw" '.last_seed_path = $v')
+      ;;
+  esac
+  write_state "$epic_id" "$st"
+  echo "$st" | jq -c '{last_seed_path}'
 }
 
 cmd_mark_done() {
@@ -338,6 +415,7 @@ cmd_show() {
     {
       epic_id, title, execution_mode, created_at, updated_at,
       linear_project_id: (.linear_project_id // null),
+      last_seed_path: (.last_seed_path // null),
       counts: {
         pending: ([.children[] | select(.status=="pending")] | length),
         in_progress: ([.children[] | select(.status=="in_progress")] | length),
@@ -381,6 +459,7 @@ cmd_rollup() {
       {
         epic_id, title, execution_mode,
         linear_project_id: (.linear_project_id // null),
+        last_seed_path: (.last_seed_path // null),
         counts: {
           pending: ([.children[] | select(.status=="pending")] | length),
           in_progress: ([.children[] | select(.status=="in_progress")] | length),
@@ -492,6 +571,7 @@ case "$SUBCMD" in
   add-child)   cmd_add_child "$@" ;;
   set-status)  cmd_set_status "$@" ;;
   set-linear-project) cmd_set_linear_project "$@" ;;
+  set-last-seed) cmd_set_last_seed "$@" ;;
   mark-done)   cmd_mark_done "$@" ;;
   ready-set)   cmd_ready_set "$@" ;;
   check-cycle) cmd_check_cycle "$@" ;;
