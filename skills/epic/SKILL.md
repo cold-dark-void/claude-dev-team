@@ -233,11 +233,12 @@ Consume `{ decision, blocking_condition, confidence, rationale }` and act per th
 C4 Decision→action map:
 
 - `proceed` → continue to **A.6** exactly as the human **approve** path would.
-- `halt` → print the one-line message
-  `scope-confirm halt: <rationale> — card: <card-path>` and **return** with
-  **zero** disk side effects **and zero** Linear project create/link attempts —
-  identical no-side-effect semantics to the human **decline** path below
-  (AC12 / M3). No notify transport (that is C6/C7).
+- `halt` → emit `task_blocked` (detail = the one-line message) via **Passive
+  notifications → Tier B** (fail-open; § Passive notifications), then print the
+  one-line message `scope-confirm halt: <rationale> — card: <card-path>` and
+  **return** with **zero** disk side effects **and zero** Linear project
+  create/link attempts — identical no-side-effect semantics to the human
+  **decline** path below (AC12 / M3).
 - any other decision follows the shared C4 Decision→action map (e.g.
   `reroute-epic` → same one-line message, then hand to `/epic` decompose).
 
@@ -403,6 +404,11 @@ and continue. **Never** block, retry-loop, or fail the epic. Reuse this single
 M5 string for project failures too (OQ7 / M5) — do not invent a second fail-open
 string.
 
+**Notify-on-done (CDT-123):** after successful A.6 persist (decompose approved and
+written), emit `task_complete` (detail = `epic decompose complete: <EPIC-ID>`) via
+**Passive notifications → Tier B** (fail-open; § Passive notifications). Skip if the
+run halted at A.5.
+
 Then enter **Execute / Resume**.
 
 ---
@@ -477,10 +483,11 @@ Consume `{ decision, blocking_condition, confidence, rationale }` and act:
 
 - `proceed` → continue to **B.4** (status → in_progress + handoff) exactly as the
   human `y` path would.
-- `halt` → print `scope-confirm halt: <rationale> — card: <card-path>` and
-  **return**; that child's state is **unchanged** (no `set-status`), identical to
-  the human `n` path (preserves AC10: confirm before `set-status`). No notify
-  transport (C6/C7).
+- `halt` → emit `task_blocked` (detail = the one-line message) via **Passive
+  notifications → Tier B** (fail-open; § Passive notifications), then print
+  `scope-confirm halt: <rationale> — card: <card-path>` and **return**; that
+  child's state is **unchanged** (no `set-status`), identical to the human `n`
+  path (preserves AC10: confirm before `set-status`).
 - any other decision follows the shared C4 Decision→action map (e.g.
   `reroute-epic` → same one-line message, then hand that child to `/epic`
   decompose per M11 self-reroute).
@@ -708,6 +715,28 @@ child `id` or `linear_id`). Unknown ticket → exit 0, no fail.
 | M13 seed build/validate fail | Exactly: `context-discipline: seed failed — <reason>`; next child stays `pending`; no `in_progress` without valid seed when boundary required |
 
 Confirm **before** `set-status in_progress` so `n` leaves state unchanged (AC10).
+
+---
+
+## Passive notifications (CDT-123 / CDV-210 Tier B)
+
+Same fail-open webhook sink as `/orchestrate` (`skills/notify/webhook.sh`). Never
+block `/epic` on notify failure. Unset `AGENT_WEBHOOK_URL` → silent.
+
+At each site that says **Passive notifications → Tier B**, run (fresh shell):
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+NOTIFY=$(bash "$PDH/skills/plugin-dir.sh" file skills/notify/webhook.sh)
+NOTIFY_SOURCE=epic NOTIFY_TICKET="<EPIC-ID or CHILD-ID>" \
+  bash "$NOTIFY" <event> "<detail ≤500 chars>"
+```
+
+| Event | Epic call site |
+|-------|----------------|
+| `task_blocked` | Autopilot halt at A.5 (atomic scope+plan) or B.3 (per-child handoff) |
+| `task_complete` | Successful A.6 persist after approve; optional: epic all-children completed |
 
 ---
 

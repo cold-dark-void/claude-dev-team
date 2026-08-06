@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.9
+- **CDT-123 — Notify-on-blocked/done for /kickoff and /epic** — wired the same `skills/notify/webhook.sh` Tier B fail-open pattern as CDT-111-C7/`/orchestrate`: `task_blocked` on autopilot halts (kickoff OQ/API-verify/>4-OQ/breaking-schema; epic A.5 + B.3), `task_complete` on successful kickoff summary and epic A.6 persist. Unset `AGENT_WEBHOOK_URL` remains silent.
+
 ### v1.5.8
 - **CDT-125 — S3 edit-loop requires struggle evidence** — `retro-gate/gate.sh` S3 no longer fires on error-free multi-edit streaks (multi-section doc authoring on existing or new files). S3 now requires an intervening `tool_result is_error` or S1 user rejection inside the edit window. Supersedes the Write-only clean draft-polish exemption (still covered). AC3 fixture flipped to expect S3=0; AC4/AC5 still require S3 with error/S1.
 

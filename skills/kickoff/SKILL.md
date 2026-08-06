@@ -333,7 +333,9 @@ interactive prompt below. Build the C3 §2 envelope
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
 <PM's open questions as the issue-text-sufficiency signal> }` and call
 `skills/autopilot/self-answer.md`'s procedure (expected: BC1 → `halt`). On `halt`,
-print the FINAL-#4 one-line message and return control:
+emit `task_blocked` (detail = the one-line message) via **Passive notifications →
+Tier B** (fail-open; § below), then print the FINAL-#4 one-line message and return
+control:
 ```
 scope-confirm halt: <rationale> — card: <card-file-path>
 ```
@@ -420,7 +422,9 @@ Build the C3 §2 envelope
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
 <the verification table as the signal> }` and call
 `skills/autopilot/self-answer.md`'s procedure (expected: BC8 → `halt`). On `halt`,
-print the FINAL-#4 one-line message and return control:
+emit `task_blocked` (detail = the one-line message) via **Passive notifications →
+Tier B** (fail-open; § below), then print the FINAL-#4 one-line message and return
+control:
 ```
 scope-confirm halt: <rationale> — card: <card-file-path>
 ```
@@ -693,6 +697,11 @@ Resume with /orchestrate <TICKET-ID> to implement, or cd into the worktree direc
 Next: /status standup to monitor progress
 ```
 
+**Notify-on-done (CDT-123):** after printing the summary above (successful kickoff
+completion, no early halt), emit `task_complete` (detail =
+`kickoff complete: <TICKET-ID>`) via **Passive notifications → Tier B** (fail-open;
+§ below). Do not notify when the run halted earlier under autopilot.
+
 The spec, plan, and CONTEXT.md live on `feat/<TICKET-ID>` and are only visible on
 that branch until it merges (`/spec check` on master won't see them yet) — this is the
 intended visibility-until-merge trade, not a regression.
@@ -738,7 +747,9 @@ Rules:
   iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
   <open-question count/text as the complexity signal> }` and call
   `skills/autopilot/self-answer.md`'s procedure (expected: BC1 → `halt`); on `halt`,
-  print `scope-confirm halt: <rationale> — card: <card-file-path>` and return control.
+  emit `task_blocked` (detail = the one-line message) via **Passive notifications →
+  Tier B** (fail-open; § below), then print `scope-confirm halt: <rationale> — card:
+  <card-file-path>` and return control.
 - **PM finds too many ambiguities (>4 open questions)**: pause and tell the user to clarify the ticket in Linear before proceeding — do not plan against a vague ticket
 - **Tech Lead identifies a breaking schema change, autopilot ON** (`AUTOPILOT_ON` from
   Step 0): skip the pause below. Build the C3 §2 envelope
@@ -746,7 +757,33 @@ Rules:
   iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
   <the breaking-schema flag as the destructive-op signal> }` and call
   `skills/autopilot/self-answer.md`'s procedure (expected: BC3 → `halt`); on `halt`,
-  print `scope-confirm halt: <rationale> — card: <card-file-path>` and return control.
+  emit `task_blocked` (detail = the one-line message) via **Passive notifications →
+  Tier B** (fail-open; § below), then print `scope-confirm halt: <rationale> — card:
+  <card-file-path>` and return control.
 - **Tech Lead identifies a breaking schema change**: pause and flag to the user; suggest DevOps involvement before creating tasks
 - **No specs/ directory**: create `specs/core/` and note it in the summary; this ticket is the first spec
 - **Ticket text is too short to plan from**: ask the user to paste the full ticket including ACs
+
+---
+
+## Passive notifications (CDT-123 / CDV-210 Tier B)
+
+Same fail-open webhook sink as `/orchestrate` (`skills/notify/webhook.sh`). Never
+block kickoff on notify failure. Unset `AGENT_WEBHOOK_URL` → silent.
+
+At each site above that says **Passive notifications → Tier B**, run (fresh shell):
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+NOTIFY=$(bash "$PDH/skills/plugin-dir.sh" file skills/notify/webhook.sh)
+NOTIFY_SOURCE=kickoff NOTIFY_TICKET="<TICKET-ID>" \
+  bash "$NOTIFY" <event> "<detail ≤500 chars>"
+```
+
+| Event | Kickoff call site |
+|-------|-------------------|
+| `task_blocked` | Autopilot halt at Step 3 OQ, Step 4b API-verify, >4 OQ, breaking-schema |
+| `task_complete` | Step 8 kickoff summary printed successfully |
+
+Tier A (MCP human milestones) is optional; same milestones as table if MCP available.
