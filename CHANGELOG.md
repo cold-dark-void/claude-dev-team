@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.7
+- **CDT-122 — TaskCompleted council gate: compound keys + finding[] confidence** — index lookup now mirrors task-metadata compound-key fallback (bare TaskUpdate id `7` resolves rows under `CDT-…-7`); `finding[]` rows with `max_finding_confidence` pass the gate the same as `verdict[]` `max_verdict_confidence` (diff-mode `requires_council` IC reviews no longer structurally blocked). SoT: task-completed template in `skills/init-orchestration/SKILL.md`; SPEC-002 updated. Re-run `/setup orchestration` to regenerate live consumer hooks.
+
 ### v1.5.6
 - **CDT-128 — tier-grade.sh quality debt (confirmed pair)** — `fail_closed()` sanitizes all `[[:cntrl:]]` (not just \\`/"/LF/TAB) so a CR in a path cannot emit invalid JSON; `post_image_head()` strips NUL before capture so binary blobs no longer spam bash "NUL" warnings under command substitution. Regression tests for both. Re-triage of the other delta-review nits: FILES==0 guard still useful defense-in-depth; middle-band REASON overwrite is intentional for LOC_UNAVAILABLE; sha all-zero guard stays; leftover nits deferred.
 

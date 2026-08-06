@@ -763,34 +763,70 @@ if [ ! -f "$INDEX" ]; then
   exit 2
 fi
 
-# Look up task in index; find max verdict confidence; ignore finding[]-shape rows (max_verdict_confidence: null)
-MAX_VERDICT=$(python3 -c '
+# Look up task in index. CDT-122:
+#  (1) compound-key fallback (mirror task-metadata) — bare TaskUpdate ids like "7"
+#      resolve to rows under "CDT-111-C1-7" when that is the indexed key;
+#  (2) finding[]-shape rows (max_verdict_confidence null, max_finding_confidence set)
+#      count as a pass signal for diff-mode / requires_council IC reviews.
+COMPOUND_KEY=""
+_meta_base=$(basename -- "$TASK_META" .json 2>/dev/null || true)
+if [ -n "$_meta_base" ] && [ "$_meta_base" != "$TASK_ID" ]; then
+  COMPOUND_KEY="$_meta_base"
+fi
+MAX_CONF=$(python3 -c '
 import json, sys
 task_id = sys.argv[1]
 index_path = sys.argv[2]
+compound = sys.argv[3] if len(sys.argv) > 3 else ""
 try:
     data = json.load(open(index_path))
-    rows = data.get(task_id, [])
+    def as_rows(key):
+        v = data.get(key)
+        return list(v) if isinstance(v, list) else []
+    rows = as_rows(task_id)
+    if not rows and compound:
+        rows = as_rows(compound)
+    if not rows:
+        for k, v in data.items():
+            if not isinstance(v, list):
+                continue
+            if k == task_id or (task_id and k.endswith("-" + task_id)):
+                rows.extend(v)
     if not rows:
         print("NO_TASK_IN_INDEX")
         sys.exit(0)
-    verdict_rows = [r for r in rows if r.get("max_verdict_confidence") is not None]
-    if not verdict_rows:
-        print("NO_VERDICT_ROWS")
+    scores = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        vc = r.get("max_verdict_confidence")
+        fc = r.get("max_finding_confidence")
+        if vc is not None:
+            try:
+                scores.append(int(vc))
+            except (TypeError, ValueError):
+                pass
+        elif fc is not None:
+            try:
+                scores.append(int(fc))
+            except (TypeError, ValueError):
+                pass
+    if not scores:
+        print("NO_CONFIDENCE_ROWS")
     else:
-        print(max(r["max_verdict_confidence"] for r in verdict_rows))
-except Exception as e:
+        print(max(scores))
+except Exception:
     print("PARSE_ERROR", file=sys.stderr)
     print("PARSE_ERROR")
-' "$TASK_ID" "$INDEX" 2>/dev/null || echo "PARSE_ERROR")
+' "$TASK_ID" "$INDEX" "$COMPOUND_KEY" 2>/dev/null || echo "PARSE_ERROR")
 
-case "$MAX_VERDICT" in
+case "$MAX_CONF" in
   NO_TASK_IN_INDEX)
     echo "TaskCompleted council gate: no council verdict for task $TASK_ID (task not found in index)" >&2
     exit 2
     ;;
-  NO_VERDICT_ROWS)
-    echo "TaskCompleted council gate: no verdict[]-shape council run for task $TASK_ID (only finding[] rows or no rows)" >&2
+  NO_CONFIDENCE_ROWS)
+    echo "TaskCompleted council gate: no confidence rows for task $TASK_ID (need verdict[] max_verdict_confidence or finding[] max_finding_confidence)" >&2
     exit 2
     ;;
   PARSE_ERROR)
@@ -799,9 +835,9 @@ case "$MAX_VERDICT" in
     ;;
 esac
 
-# Numeric comparison — MAX_VERDICT is an integer at this point
-if [ "$MAX_VERDICT" -lt "$THRESHOLD" ]; then
-  echo "TaskCompleted council gate: max verdict confidence $MAX_VERDICT below threshold $THRESHOLD for task $TASK_ID" >&2
+# Numeric comparison — MAX_CONF is an integer at this point
+if [ "$MAX_CONF" -lt "$THRESHOLD" ]; then
+  echo "TaskCompleted council gate: max confidence $MAX_CONF below threshold $THRESHOLD for task $TASK_ID" >&2
   exit 2
 fi
 
