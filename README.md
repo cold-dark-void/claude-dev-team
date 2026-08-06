@@ -11,6 +11,8 @@ A FAANG-style AI dev team plugin for [Claude Code](https://claude.ai/claude-code
 /plugin install dev-team
 ```
 
+`dev-team` tracks the **stable** channel — a `stable` branch promoted from `master` after a soak period. Want changes the moment they ship instead? Install `dev-team-edge` (same plugin, tracks `master` directly) from the same marketplace.
+
 ### opencode
 
 ```bash
