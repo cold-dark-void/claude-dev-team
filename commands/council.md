@@ -470,7 +470,7 @@ Use the prompt path from `plan.phases.1_claim_extraction.prompt` (session/diff
 
 ```
 description: "Extract claims from session"
-subagent_type: "general-purpose"
+subagent_type: "dev-team:ic4"   # CDT-133 prefer named; fallback general-purpose
 prompt: skills/council/prompts/claim-extractor.md
   with substitutions:
     {{SCOPE_TYPE}}   ← plan.scope
@@ -484,7 +484,7 @@ prompt: skills/council/prompts/claim-extractor.md
 
 ```
 description: "Extract claims from plan"
-subagent_type: "general-purpose"
+subagent_type: "dev-team:ic4"   # CDT-133 prefer named; fallback general-purpose
 prompt: skills/council/prompts/plan-extractor.md
   with substitutions:
     {{PLAN_PATH}}    ← plan.scope_arg (path as given to --plan)
@@ -544,7 +544,7 @@ Spawn pattern (one Agent per claim per flavor):
 
 ```
 description: "Investigate claim <N> (<flavor>)"
-subagent_type: "general-purpose"
+subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback ic4 → general-purpose → Explore
 prompt: skills/council/prompts/investigator.md
   with substitutions:
     {{CLAIM_TEXT}}     ← claim.claim (verbatim)
@@ -636,7 +636,7 @@ For each claim from Phase 1, spawn a cheap classifier Task (parallel OK):
 
 ```
 description: "Classify claim topic for domain specialist"
-subagent_type: "general-purpose"
+subagent_type: "dev-team:ic4"   # CDT-133 prefer named; fallback general-purpose
 prompt: skills/council/prompts/topic-classifier.md
   with substitutions:
     {{CLAIM_TEXT}}  ← claim.claim (verbatim)
@@ -745,7 +745,7 @@ labeled with their personal shuffled mapping:
 
 ```
 description: "Cross-review evidence bundles for claim <claim-id>"
-subagent_type: "general-purpose"
+subagent_type: "dev-team:ic4"   # CDT-133 prefer named; fallback general-purpose
 prompt: skills/council/prompts/cross-reviewer.md
   with substitutions:
     {{CLAIM_TEXT}}    ← claim.claim (verbatim)
@@ -805,7 +805,7 @@ Otherwise spawn exactly one Prosecutor and one Devil's Advocate in parallel:
 ```
 Prosecutor:
   description: "Prosecute claims against evidence"
-  subagent_type: "general-purpose"
+  subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
   prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
       {{ROLE}}             ← "Prosecutor"
@@ -822,7 +822,7 @@ Prosecutor:
 
 Devil's Advocate:
   description: "Defend claims with evidence"
-  subagent_type: "general-purpose"
+  subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
   prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
       {{ROLE}}             ← "Devil's Advocate"
@@ -1098,7 +1098,7 @@ never sequential.**
 
 ```
 description: "Blind review unconstrained U<N>"
-subagent_type: "general-purpose"
+subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
 prompt: skills/council/prompts/unconstrained-reviewer.md
   with substitutions:
     {{TEAM_ID}}      ← U<N> (U1, U2, …)
@@ -1111,7 +1111,7 @@ prompt: skills/council/prompts/unconstrained-reviewer.md
 
 ```
 description: "Blind review lens L-<lens>"
-subagent_type: "general-purpose"
+subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
 prompt: skills/council/prompts/lens-reviewer.md
   with substitutions:
     {{TEAM_ID}}      ← L-<lens> (e.g. L-security)
@@ -1137,7 +1137,7 @@ Spawn ONE quorum analyst:
 
 ```
 description: "Blind review quorum analysis"
-subagent_type: "general-purpose"
+subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
 prompt: skills/council/prompts/quorum-analyst.md
   with substitutions:
     {{ALL_FINDINGS}}         ← namespaced FINDING blocks (=== TEAM <id> === headers)

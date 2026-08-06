@@ -297,7 +297,12 @@ prior verdicts.
 
 **Spawn contract:**
 - Spawn investigators via the Task tool with
-  `subagent_type: "general-purpose"` (or `"Explore"` for code-heavy claims).
+  **`subagent_type: "dev-team:ic5"` preferred** (CDT-133 — named `dev-team:*`
+  agents delivered final output more reliably than bare `general-purpose` in
+  dogfood). Fallback chain on spawn failure/refusal of the named type:
+  `dev-team:ic4` → `general-purpose` → `"Explore"` (code-heavy claims may start
+  at Explore). Always inject the investigator prompt template + flavor delta;
+  never rely on the agent definition's default persona alone.
 - **Minimum 2 investigators per claim with distinct flavor presets** (e.g.
   `paranoid-ic` + one other) to defeat monoculture. (SPEC-013 line 60.)
 - One task per claim per flavor — investigators MUST spawn in parallel
@@ -305,6 +310,10 @@ prior verdicts.
 - Investigators MUST NOT receive prior assistant narrative, prior verdicts,
   or prior advocate/prosecutor output. They see raw artifacts only.
   (SPEC-013 line 56.)
+- Completion discipline (all council Task spawns): prompt MUST end with an
+  explicit instruction to return the required JSON as the **final message**
+  (not only via SendMessage/mailbox). Re-request at most twice on empty output
+  before treating as spawn failure (degradation protocol).
 
 **Tool allowlist (read-only):**
 `Read`, `Grep`, `Glob`, `Bash` for read commands only, MCP query tools.
@@ -572,7 +581,8 @@ not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
 
 **Spawn contract:**
 - For N investigators, spawn N cross-reviewers via the Task tool
-  (`subagent_type: "general-purpose"`), in parallel.
+  (`subagent_type: "dev-team:ic4"` preferred; fallback `general-purpose` —
+  CDT-133), in parallel.
 - Each reviewer sees every bundle **EXCEPT its own** (self-exclusion) — never
   investigator identities, prior narrative, or prior verdicts. (SPEC-013
   lines 80–82.)
@@ -658,7 +668,8 @@ synthesizes, stubs, or empty-strings a brief the run did not produce.
 **Spawn contract (verdict[]-shape):**
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
   **one** Devil's Advocate (flavor: `yolo-ic`) per council run, in parallel.
-  (SPEC-013 line 72.)
+  (SPEC-013 line 72.) Prefer `subagent_type: "dev-team:ic5"` (CDT-133);
+  fallback `general-purpose`.
 - Both roles are **BLIND to the original claims.** They receive **ONLY the
   evidence bundles** — not the original claim list, not the prior narrative,
   not each other's output. Each role reconstructs the set of claims under

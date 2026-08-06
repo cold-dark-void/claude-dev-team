@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.12
+- **CDT-133 — Prefer named dev-team agents for council Task spawns** — investigators/phase-4/brief writers/extractors/blind reviewers prefer `dev-team:ic5`/`ic4` over bare `general-purpose` (dogfood: named agents 9/9 final output vs GP flaky). Fallback chain retained. Completion: final-message JSON required; max 2 re-requests before spawn-failure degradation.
+
 ### v1.5.11
 - **CDT-135 — Resume ship after BC7 override** — `/orchestrate <ISSUE-ID> --resume-ship[=<bump>]` (or in-session `resume ship <bump>`) runs one human-confirmed sequence: end-state `/release <bump>` then `/wrap-ticket`. BC7 halt now prints the resume hint. Autopilot MUST NOT self-answer the confirm step.
 
