@@ -4,3 +4,5 @@
 {"type":"user","uuid":"00000000-0000-4000-8000-000000000604","message":{"role":"user","content":[{"type":"text","text":"accept, anyting else?"}]}}
 {"type":"user","uuid":"00000000-0000-4000-8000-000000000605","message":{"role":"user","content":[{"type":"text","text":"y tho"}]}}
 {"type":"user","uuid":"00000000-0000-4000-8000-000000000606","message":{"role":"user","content":[{"type":"text","text":"y not"}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000607","message":{"role":"user","content":[{"type":"text","text":"dont accept"}]}}
+{"type":"user","uuid":"00000000-0000-4000-8000-000000000608","message":{"role":"user","content":[{"type":"text","text":"no, accept"}]}}

@@ -105,14 +105,18 @@ gate trips on every session that loads a skill.
 
 S5 also treats short approval as engaged, not disengaged — a terse "ok" is a
 green light, not friction. A message suppresses S5 if its word set intersects
-this 19-token allowlist (case-insensitive, leading/trailing `.,!?` stripped): `waive`,
-`ok`, `okay`, `yes`, `sure`, `proceed`, `done`, `approved`, `ship`, `merge`,
-`lgtm`, `ack`, `go`, `yep`, `yup`, `fine`, `agreed`, `approve`, `accept`.
-Separately, a message that is the single bare token `y` is always treated as
-approval — but only when `y` is the *entire* message, via a whole-message
-check, not a word-set membership check. `y` is deliberately kept out of the
-19-token allowlist above: that allowlist matches on **any** word in the
-message, and `y` is common enough as an ordinary word (not just an
+this 19-token allowlist (case-insensitive, leading/trailing `.,!?` stripped,
+apostrophes removed so `don't` → `dont`): `waive`, `ok`, `okay`, `yes`, `sure`,
+`proceed`, `done`, `approved`, `ship`, `merge`, `lgtm`, `ack`, `go`, `yep`,
+`yup`, `fine`, `agreed`, `approve`, `accept` — **unless** the same message also
+contains a negation token (CDT-129): `dont`, `no`, `not`, `never`, `stop`,
+`wrong`, `nope`, `nah`, `hold`, `wait`, `cancel`, `reject`, `denied`. So
+`"accept, anything else?"` stays approval, while `"dont accept"` / `"no, accept"`
+still register S5. Separately, a message that is the single bare token `y` is
+always treated as approval — but only when `y` is the *entire* message, via a
+whole-message check, not a word-set membership check. `y` is deliberately kept
+out of the 19-token allowlist above: that allowlist matches on **any** word in
+the message, and `y` is common enough as an ordinary word (not just an
 abbreviation for "yes") that folding it in would false-suppress real friction
 — "y tho" and "y not" would both wrongly count as approval. The whole-message
 check keeps `y` narrow: only a lone `y` (optionally with leading/trailing

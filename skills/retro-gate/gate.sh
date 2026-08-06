@@ -264,12 +264,24 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                 # notifications (XML-tagged command/task messages) and plain
                 # slash command invocations that represent user approval/delegation
                 words = len(text.split())
-                word_set = {w.lower().strip(".,!?") for w in text.split()}
+                # Strip punctuation; collapse apostrophes so don't → dont (CDT-129).
+                word_set = {
+                    w.lower().strip(".,!?").replace("'", "")
+                    for w in text.split()
+                }
                 is_approval = bool(word_set & {
                     "waive","ok","okay","yes","sure","proceed","done","approved",
                     "ship","merge","lgtm","ack","go","yep","yup","fine","agreed",
                     "approve","accept",
                 })
+                # CDT-129: any-word approval tokens must not suppress friction when a
+                # negation co-occurs ("dont accept", "no, accept"). Bare "accept" /
+                # "accept, anything else?" stay approvals (no negation word).
+                if is_approval and (word_set & {
+                    "dont","no","not","never","stop","wrong","nope","nah",
+                    "hold","wait","cancel","reject","denied",
+                }):
+                    is_approval = False
                 # "y" only as a whole message — "y tho" / "y not" are real friction.
                 if words == 1 and "y" in word_set:
                     is_approval = True

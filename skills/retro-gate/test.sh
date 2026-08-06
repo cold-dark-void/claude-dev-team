@@ -221,27 +221,29 @@ rm -f "$ONE_ROW"
 
 echo "----"
 
-# ---- CDT-124: S5 approval-token allowlist ----
-# One long assistant turn (>500 chars) followed by 5 short user turns.
-# "y", "approve", "accept, anyting else?" are approval tokens → suppressed.
-# "y tho", "y not" are NOT bare "y" → still register S5.
+# ---- CDT-124 + CDT-129: S5 approval-token allowlist ----
+# One long assistant turn (>500 chars) followed by short user turns.
+# Suppressed: "y", "approve", "accept, anyting else?"
+# Fire S5: "y tho", "y not" (not bare y)
+# Fire S5: "dont accept", "no, accept" (negation + approval — CDT-129)
 run_gate "s5-approval-tokens.jsonl"
 if assert_json_shape "S5-tok"; then
   s5c=$(signal_count S5)
-  if [ "$s5c" = "2" ]; then
-    ok "S5-tok approval tokens suppressed, y-tho/y-not still fire S5=2"
+  if [ "$s5c" = "4" ]; then
+    ok "S5-tok friction=4 (y-tho/y-not + dont-accept/no-accept)"
   else
-    bad "S5-tok: want S5=2 (only y-tho/y-not); got S5=$s5c out=$OUT"
+    bad "S5-tok: want S5=4; got S5=$s5c out=$OUT"
   fi
-  if has_signal S5 && echo "$OUT" | grep -q '000605' && echo "$OUT" | grep -q '000606'; then
-    ok "S5-tok ids are the y-tho/y-not turns"
+  if has_signal S5 && echo "$OUT" | grep -q '000605' && echo "$OUT" | grep -q '000606' \
+     && echo "$OUT" | grep -q '000607' && echo "$OUT" | grep -q '000608'; then
+    ok "S5-tok ids include y-tho/y-not/dont-accept/no-accept"
   else
-    bad "S5-tok: expected ids for y-tho (…605) and y-not (…606): $OUT"
+    bad "S5-tok: expected ids …605…608: $OUT"
   fi
   if echo "$OUT" | grep -q '000602\|000603\|000604'; then
-    bad "S5-tok: approval-token turns (y/approve/accept) leaked into S5 ids: $OUT"
+    bad "S5-tok: pure approval turns (y/approve/accept) leaked into S5 ids: $OUT"
   else
-    ok "S5-tok approval-token turns absent from S5 ids"
+    ok "S5-tok pure approval turns absent from S5 ids"
   fi
 fi
 

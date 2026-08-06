@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.14
+- **CDT-129 — S5 approval tokens do not suppress negated friction** — `approve`/`accept` (and other any-word allowlist tokens) no longer suppress S5 when a negation co-occurs (`dont accept`, `no, accept`). Bare `approve`/`accept` and `accept, anything else?` still suppress. Apostrophes normalized (`don't` → `dont`). Fixture + tests updated.
+
 ### v1.5.13
 - **CDT-134 — M14(d) infra-vs-evidentiary design note (no behavior change)** — document open design for a future "infra-degraded" class without implementing ship-clearing. Safe interim: keep BC7 halt + confidence=0; reduce spawn flakiness (CDT-133); human override only via `--resume-ship` (CDT-135).
 
