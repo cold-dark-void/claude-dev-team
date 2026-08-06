@@ -457,14 +457,15 @@ PY
       .claude-plugin/plugin.json > "$tmp"
     mv "$tmp" .claude-plugin/plugin.json
   fi
+  # marketplace.json: only renumber an existing version field — never invent one (CDT-131)
   if [ -f .claude-plugin/marketplace.json ]; then
     local tmp
     tmp=$(mktemp "${TMPDIR:-/tmp}/rt-mp.XXXXXX")
     jq --arg a "$assumed" --arg v "$assigned" '
       if .plugins then
-        .plugins |= map(if .version == $a then .version = $v else . end)
+        .plugins |= map(if has("version") and .version == $a then .version = $v else . end)
       else . end
-      | if .version == $a then .version = $v else . end
+      | if has("version") and .version == $a then .version = $v else . end
     ' .claude-plugin/marketplace.json > "$tmp"
     mv "$tmp" .claude-plugin/marketplace.json
   fi
@@ -751,11 +752,14 @@ cmd_resolve_json() {
   else
     die 1 "resolve-json: missing $plugin"
   fi
+  # marketplace.json: update version only if already present — never invent (CDT-131)
   if [ -f "$market" ]; then
     local tmp
     tmp=$(mktemp "${TMPDIR:-/tmp}/rt-mp.XXXXXX")
     jq --arg v "$assigned" '
-      if .plugins then .plugins |= map(.version = $v) else . end
+      if .plugins then
+        .plugins |= map(if has("version") then .version = $v else . end)
+      else . end
       | if has("version") then .version = $v else . end
     ' "$market" > "$tmp"
     mv "$tmp" "$market"

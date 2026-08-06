@@ -927,7 +927,7 @@ to that protocol. Do not restate phase bodies here.
 ### T.3 Ticket-mode invariants (non-negotiable)
 
 - **MUST NOT** `git commit` / `git add` / `git checkout` / `git reset` in the pipeline
-- **MUST NOT** edit version triplet (`.claude-plugin/plugin.json`, `marketplace.json`)
+- **MUST NOT** edit the version pair (`.claude-plugin/plugin.json`, `CHANGELOG.md` headings)
   or run `/release`
 - **MUST NOT** invent a second degradation marker — on unusable refuter spawn use
   exact string `self-verified — refuters unavailable` (actor = orchestrator;

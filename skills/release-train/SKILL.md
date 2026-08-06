@@ -199,8 +199,9 @@ If `assumed_version` is non-null and differs from `assigned_version`:
 bash skills/release-train/train-lib.sh renumber <assumed> <assigned>
 ```
 
-Touches only CHANGELOG headings + the two JSON version fields on the **working
-tree** (never the source branch).
+Touches CHANGELOG headings + `plugin.json` version on the **working tree**
+(never the source branch). `marketplace.json` is only renumbered if a version
+field is already present (CDT-131 — do not invent one).
 
 Ensure exactly one `### v<assigned>` CHANGELOG heading with a non-empty body
 before continuing (M5c / skip-if-present contract).
@@ -221,8 +222,8 @@ Because the train pre-wrote the CHANGELOG heading, `/release` uses
 `skills/release/SKILL.md`. Do **not** pass bare `/release` (auto-detect would
 mis-fire mid-train).
 
-`/release` owns: remaining triplet sync, drift gates, single folded commit, tag,
-push.
+`/release` owns: remaining version-pair sync, drift gates, single folded commit,
+tag, push.
 
 #### 1h. On `/release` failure → restore + blocked
 

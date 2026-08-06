@@ -43,7 +43,7 @@ Focus exclusively on:
 - Every rule extracted from AGENTS.md — validate the diff does not violate
   it
 - Every rule from CLAUDE.md files — validate compliance
-- Version file sync (plugin.json, marketplace.json, README.md)
+- Version pair sync (plugin.json + CHANGELOG.md; marketplace is not versioned)
 - File size constraints (no file > 1k lines)
 - PR size constraints (~1k LOC soft cap, 2k hard cap)
 - Memory file line limits if agent memory files are changed

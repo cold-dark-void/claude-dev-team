@@ -20,10 +20,13 @@ commands/        # Single-file slash command definitions (.md)
 
 ## Release Rules — MUST follow on every commit
 
-Three files must have matching versions (SPEC-002):
+Two files must have matching versions (SPEC-002):
 1. `CHANGELOG.md` — add a `### vX.Y.Z` section at the top (newest first)
 2. `.claude-plugin/plugin.json` — `"version"` field
-3. `.claude-plugin/marketplace.json` — `"version"` field inside `plugins[]`
+
+`marketplace.json` does **not** carry a per-plugin version — install channels
+pin via git refs (`stable` / `master` on `source.ref`). Description sync with
+`plugin.json` is still required (docs-drift `manifest-desc`).
 
 `README.md` carries only a pointer to `CHANGELOG.md` — do NOT add version
 sections to it (the changelog was moved out of the README in v0.37.4).
@@ -277,6 +280,6 @@ rule — do not invent a second string.
 - Do not commit process trackers (`.claude/backlog*`, `.claude/plans*`, or other
   process state under `.claude/`) as product delivery — Linear preferred SoT when
   MCP is up; local write-through always; never stage trackers into delivery commits
-- Do not modify plugin.json version without also updating README.md and marketplace.json
+- Do not modify plugin.json version without also updating CHANGELOG.md (use `/release`)
 - Do not add agents without updating the README agent roster table
 - Do not create new files unless clearly necessary

@@ -199,9 +199,10 @@ cp "$SCHEMA_SQL" "$FAKE_PLUGIN/skills/memory-store/schema.sql"
 # minimal init-orch with hooks JSON for parser
 cp "$PLUGIN_ROOT/skills/init-orchestration/SKILL.md" \
   "$FAKE_PLUGIN/skills/init-orchestration/SKILL.md"
+# CDT-131: drift is plugin.json vs CHANGELOG (marketplace is not version-synced)
 printf '%s\n' '{"name":"dev-team","version":"9.9.9"}' \
   > "$FAKE_PLUGIN/.claude-plugin/plugin.json"
-printf '%s\n' '{"name":"x","plugins":[{"name":"dev-team","version":"1.0.0"}]}' \
+printf '%s\n' '{"name":"x","plugins":[{"name":"dev-team","description":"x","source":{"source":"github","repo":"x/y","ref":"master"}}]}' \
   > "$FAKE_PLUGIN/.claude-plugin/marketplace.json"
 printf '%s\n' '# Changelog' '### v2.0.0' '- note' > "$FAKE_PLUGIN/CHANGELOG.md"
 

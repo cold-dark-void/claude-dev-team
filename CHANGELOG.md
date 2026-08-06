@@ -1,7 +1,15 @@
 # Changelog
 
 All notable changes to **claude-dev-team**, newest first.
-This file is maintained by the `/release` skill — do not edit version headings by hand.
+Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
+Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
+via skip-if-present when `/release` is given an explicit version — do not invent a
+second heading for the same version.
+
+### v1.5.4
+- **CDT-131 — Version sync is a pair, not a triplet** — practice since `9f3ea07` only bumps `CHANGELOG.md` + `plugin.json`; `marketplace.json` pins install channels via git refs (`stable`/`master`) and no longer carries `plugins[].version`. Docs and contracts now match: `skills/release/SKILL.md`, `AGENTS.md`, `README.md` Versioning, SPEC-002 / SPEC-010 / SPEC-022 / SPEC-023, release-train renumber/M5d (update marketplace version only if already present — never invent one).
+- **`/doctor` version check** — `version.triplet` check id kept for callers, semantics are pair-only (`plugin.json` ↔ `CHANGELOG`). Fixes a standing FAIL on healthy checkouts after the marketplace field was removed.
+- **CHANGELOG header** — documents skip-if-present for pre-written headings (release-train M5c / orchestrate) instead of forbidding all hand-written headings.
 
 ### v1.5.3
 - **CDT-124 — Fix `retro-gate/gate.sh` S5 false positives on terse approval tokens** — after a long assistant turn (≥500 chars), a short user reply is scored as friction signal S5 unless it's on the `is_approval` allowlist. `"approve"`/`"accept"` were missing from that allowlist and got misclassified as friction. Added.

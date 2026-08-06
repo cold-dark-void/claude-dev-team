@@ -14,9 +14,10 @@ The foundational layer that makes dev-team a valid Claude Code plugin. Defines t
 
 ## MUST
 
-- MUST maintain three version-synced files: `plugin.json`, `marketplace.json`, and `CHANGELOG.md` — all three MUST contain semantically identical versions (format may differ: `X.Y.Z` in JSON fields, `vX.Y.Z` in changelog headings and git tags). The changelog lives in `CHANGELOG.md` (repo root); `README.md` carries only a pointer to it and is not a version-synced file.
-- MUST use semantic versioning (MAJOR.MINOR.PATCH) for all version fields
-- MUST use format: no `v` prefix in plugin.json/marketplace.json version fields, `v` prefix for git tags and `CHANGELOG.md` changelog headings
+- MUST maintain a **version pair**: `plugin.json` `"version"` and `CHANGELOG.md` latest `### vX.Y.Z` heading — both MUST be semantically identical (format may differ: `X.Y.Z` in JSON, `vX.Y.Z` in changelog headings and git tags). The changelog lives in `CHANGELOG.md` (repo root); `README.md` carries only a pointer to it and is not a version-synced file.
+- MUST NOT require a per-plugin `"version"` field in `marketplace.json`. Install channels pin via git refs on `source.ref` (e.g. `stable` / `master`). Description fields duplicated on `marketplace.json` `plugins[]` MUST still match `plugin.json` (docs-drift `manifest-desc` / SPEC-010 D5).
+- MUST use semantic versioning (MAJOR.MINOR.PATCH) for the version pair
+- MUST use format: no `v` prefix in `plugin.json` version field, `v` prefix for git tags and `CHANGELOG.md` changelog headings
 - MUST include a `TaskCompleted` hook in `.claude/settings.json` that runs `bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"`
 - MUST validate both `plugin.json` and `marketplace.json` as parseable JSON before allowing task completion (exit code 2 on failure)
 - MUST send hook error output to stderr, not stdout
@@ -180,7 +181,7 @@ Measured at **v1.3.0: 26 caller files, 110 emissions, all byte-identical** (`gre
 ## Test
 
 - Verify `plugin.json` and `marketplace.json` parse as valid JSON
-- Verify version strings are semantically identical across all three files (accounting for `v` prefix difference)
+- Verify version strings are semantically identical across the version pair (`plugin.json` ↔ `CHANGELOG.md` heading, accounting for `v` prefix difference); `marketplace.json` MUST NOT be required to carry `plugins[].version`
 - Verify TaskCompleted hook exits 2 on malformed JSON, exits 0 on valid JSON
 - Verify hook skips validation when files are missing (no false failures)
 - Verify settings.json contains required sandbox, permissions, and hook entries
@@ -202,7 +203,7 @@ Measured at **v1.3.0: 26 caller files, 110 emissions, all byte-identical** (`gre
 
 - [ ] `python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"` succeeds
 - [ ] `python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"` succeeds
-- [ ] Version in plugin.json == version in marketplace.json == version in CHANGELOG.md changelog heading (ignoring `v` prefix)
+- [ ] Version in plugin.json == version in CHANGELOG.md changelog heading (ignoring `v` prefix); marketplace.json has no required version field
 - [ ] `bash .claude/hooks/task-completed.sh` exits 0 with valid JSON files
 
 ## Open Questions
@@ -241,6 +242,7 @@ Measured at **v1.3.0: 26 caller files, 110 emissions, all byte-identical** (`gre
 | 2026-07-26 | CDT-82: PDH must not silently prefer frozen same-version cache over marketplace/dev STM. Resolution gains show-toplevel worktree tier, marketplace-vs-cache same-version STM preference (`--events` over `--sections`), `root`/`verify` subcommands, `CLAUDE_PLUGIN_ROOT` as operator force (no full reinstall / delete-cache-only). Bootstrap stanza: marketplace clone before cache. |
 | 2026-08-01 | CDT-99: caller-integration table reconciled. Measured surface was 26 files / 110 emissions against a stale "All 15 call sites" claim (11→15→unbounded); the table's unit was also wrong — rows are hand-curated caller families, never mechanical sites. Table redefined as a non-exhaustive fail-mode map (25 families), gained an inline re-derivation command and a dated measurement, and the "2 `PDH=` lines" miscount was fixed (stanza is 1 comment + 1 assignment). Completeness delegated to SPEC-021 C5 (`pdh-stanza`) byte-identity check. |
 | 2026-08-01 | CDT-99 verification pass: row 12 (`commands/epic.md` + `skills/epic/SKILL.md`) fail-mode was wrong — claimed a hard collision guard that does not exist at that site (`EPIC_LIB` is bare-concatenated, never `file`-resolved, and the dispatch `if bash "$EPIC_LIB" exists …` swallows a resolution failure into DECOMPOSE). The actual CDT-98 guard lives in the `/refactor` caller (row 19), which pre-validates `epic-lib.sh` before handing `/epic` an EPIC-ID. Corrected row 12 to describe the silent-fallback accurately; rows 8–11, 19, 21, 22 verified accurate against source, no change. |
+| 2026-08-06 | CDT-131: version sync is a **pair** (`plugin.json` + `CHANGELOG.md`), not a triplet. `marketplace.json` pins install channels via git refs (`source.ref`) and MUST NOT require `plugins[].version` (removed at 9f3ea07). Description sync remains via docs-drift `manifest-desc`. |
 | 2026-08-02 | CDT-105: row 13 (`skills/kickoff/SKILL.md`) gains `WT_LIB=$(… file skills/worktree-lib.sh)` — `/kickoff` becomes a `worktree-lib.sh` create-caller (`ensure <TICKET-ID>` before the PM+TL spawn), with hard fail-mode (halts on `ensure` exit 1/2/64). Behavioral contract in SPEC-016 (caller-integration) + SPEC-009 (lifecycle). |
 
 ## Cross-references

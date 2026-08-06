@@ -557,11 +557,13 @@ is_managed_hook_cmd() {
 # Checks
 # ---------------------------------------------------------------------------
 
+# CDT-131: version pair (plugin.json ↔ CHANGELOG). Check id stays
+# version.triplet for --only / caller stability; semantics are pair-only.
+# marketplace.json is not version-synced (git-ref install channels).
 check_version_triplet() {
   local pj="$PLUGIN_ROOT/.claude-plugin/plugin.json"
-  local mj="$PLUGIN_ROOT/.claude-plugin/marketplace.json"
   local cl="$PLUGIN_ROOT/CHANGELOG.md"
-  local v_p v_m v_c
+  local v_p v_c
 
   if [ ! -f "$pj" ]; then
     record "version.triplet" "version" "FAIL" \
@@ -571,29 +573,28 @@ check_version_triplet() {
   fi
 
   v_p=$(parse_plugin_json_version "$pj")
-  v_m=$(parse_marketplace_version "$mj")
   v_c=$(parse_changelog_version "$cl")
 
-  if [ "$v_p" = "__PARSE_ERROR__" ] || [ "$v_m" = "__PARSE_ERROR__" ]; then
+  if [ "$v_p" = "__PARSE_ERROR__" ]; then
     record "version.triplet" "version" "FAIL" \
-      "unparseable plugin JSON (plugin=$v_p marketplace=$v_m)" \
-      "Fix JSON in .claude-plugin/plugin.json and marketplace.json"
+      "unparseable plugin.json (plugin=$v_p)" \
+      "Fix JSON in .claude-plugin/plugin.json"
     return 0
   fi
 
-  if [ -z "$v_p" ] || [ -z "$v_m" ] || [ -z "$v_c" ]; then
+  if [ -z "$v_p" ] || [ -z "$v_c" ]; then
     record "version.triplet" "version" "FAIL" \
-      "version missing: plugin.json='$v_p' marketplace.json='$v_m' CHANGELOG='$v_c'" \
+      "version missing: plugin.json='$v_p' CHANGELOG='$v_c'" \
       "Run /release (dev) or update the plugin (consumer)"
     return 0
   fi
 
-  if [ "$v_p" = "$v_m" ] && [ "$v_p" = "$v_c" ]; then
+  if [ "$v_p" = "$v_c" ]; then
     record "version.triplet" "version" "PASS" \
-      "plugin.json=marketplace.json=CHANGELOG=$v_p" ""
+      "plugin.json=CHANGELOG=$v_p (version pair)" ""
   else
     record "version.triplet" "version" "FAIL" \
-      "version drift: plugin.json=$v_p marketplace.json=$v_m CHANGELOG=$v_c" \
+      "version drift: plugin.json=$v_p CHANGELOG=$v_c" \
       "Run /release (dev checkout) or update the plugin (consumer)"
   fi
 }

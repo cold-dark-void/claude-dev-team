@@ -1,15 +1,15 @@
 ---
 name: release
 description: |
-    Bump version across all required files (CHANGELOG.md, plugin.json,
-    marketplace.json), commit, tag, and push. Use when releasing any version of
-    this plugin. Ensures all three version files stay in sync — never skips any
-    of them.
+    Bump version across the required pair (CHANGELOG.md, plugin.json), commit,
+    tag, and push. Use when releasing any version of this plugin. Ensures the
+    two version surfaces stay in sync — never skips either. marketplace.json is
+    not versioned (git-ref install channels).
 ---
 
 # Release
 
-Bumps the version in all required files, then folds the release into a SINGLE
+Bumps the version in the required pair, then folds the release into a SINGLE
 commit (the actual change + the version bump together), tags, and pushes.
 
 This repo uses **one commit per release**: the work being released is usually
@@ -93,9 +93,9 @@ If version was auto-detected or bump-keyword → never skip (always generate).
 Used by the release train (SPEC-023): train M5c pre-writes the assigned-version
 heading; `/release <assigned_version>` verifies rather than duplicates.
 
-## Step 3: Bump all three version files
+## Step 3: Bump the version pair
 
-**CRITICAL — all three must be updated. Never skip any.**
+**CRITICAL — both must be updated. Never skip either.**
 
 ### 3a. `CHANGELOG.md`
 If skip-if-present matched in Step 2: verify the heading exists with a non-empty
@@ -115,15 +115,17 @@ normal source file in Step 5, not as the changelog target.)
 ### 3b. `.claude-plugin/plugin.json`
 Update `"version"` field to new version string.
 
-### 3c. `.claude-plugin/marketplace.json`
-Update `"version"` field inside the `plugins[]` array to new version string.
+### 3c. `.claude-plugin/marketplace.json` — do **not** set a version field
 
-## Step 4: Verify all three match
+Install channels pin via `source.ref` (`stable` / `master`). Do **not** reintroduce
+`plugins[].version`. Description sync with `plugin.json` remains a docs-drift concern
+(`manifest-desc`), not a release version step.
 
-Read all three files and confirm the version string is identical in:
+## Step 4: Verify the version pair matches
+
+Confirm the version string is identical in:
 - `CHANGELOG.md` changelog heading (`### vX.Y.Z`)
 - `.claude-plugin/plugin.json` `"version"` field
-- `.claude-plugin/marketplace.json` `"version"` field inside `plugins[]`
 
 If any mismatch: fix before proceeding.
 
@@ -208,8 +210,9 @@ then re-run until exit 0. Contract lives in SPEC-030.
 Stage the version files **and the actual changed source files** — everything being
 released goes into a single commit:
 ```bash template
-git add CHANGELOG.md .claude-plugin/plugin.json .claude-plugin/marketplace.json
+git add CHANGELOG.md .claude-plugin/plugin.json
 git add <the source files this release changes>   # e.g. README.md, agents/, skills/, commands/
+# marketplace.json only if this release actually changed descriptions/refs — not for version
 ```
 Then check `git status --short`: confirm nothing intended is left unstaged and that
 no unrelated/untracked files were swept in.

@@ -8,7 +8,7 @@ description: >
 
 # doctor
 
-Deterministic, offline install/config health battery. Diagnoses version triplet,
+Deterministic, offline install/config health battery. Diagnoses version pair,
 memory stack, hooks, settings, optional deps, worktree locks, and plugin
 resolution. Never bootstraps (that is `/setup team` / `/setup orchestration`).
 

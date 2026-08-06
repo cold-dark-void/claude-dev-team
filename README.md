@@ -333,9 +333,10 @@ See **[CHANGELOG.md](CHANGELOG.md)**. Maintained by the `/release` skill.
 
 ## Versioning
 
-Plugin version is kept in lockstep across `plugin.json`, `marketplace.json`,
-and `CHANGELOG.md`. Use **`/release`** to bump, commit, tag, and push — do not
-edit those three files by hand. Contract: [SPEC-002](specs/core/SPEC-002-plugin-infrastructure.md).
+Plugin version is kept in lockstep across `plugin.json` and `CHANGELOG.md`.
+`marketplace.json` pins install channels via git refs (`stable` / `master`), not
+a version field. Use **`/release`** to bump, commit, tag, and push — do not edit
+the version pair by hand. Contract: [SPEC-002](specs/core/SPEC-002-plugin-infrastructure.md).
 
 ## License
 

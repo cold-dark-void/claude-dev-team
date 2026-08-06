@@ -32,8 +32,9 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - MUST support optional file path argument to save review report; the engine still writes the canonical `.claude/council/<YYYY-MM-DD>-<slug>.md` report, and `/review-and-commit` copies that canonical file to the user-supplied path after the engine returns
 
 ### Release
-- MUST update all three files per SPEC-002 version sync rules: CHANGELOG.md changelog, plugin.json version, marketplace.json version — never skip any
-- MUST verify version strings are semantically identical across all three files before committing
+- MUST update the version pair per SPEC-002: CHANGELOG.md changelog heading and plugin.json version — never skip either
+- MUST NOT reintroduce or require a `marketplace.json` `plugins[].version` field (channels pin via git refs)
+- MUST verify version strings are semantically identical across the version pair before committing
 - MUST NOT proceed if no commits exist since last tag ("Nothing to release")
 - MUST auto-detect version bump: minor if any `feat:` commits since last tag, else patch
 - MUST support explicit version: `/release [patch|minor|major|vX.Y.Z]`
@@ -41,7 +42,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - MUST exclude `chore: release` commits from changelog generation
 - MUST group related commits into single changelog bullets (not one line per commit)
 - MUST add new changelog section at the top of the changelog in `CHANGELOG.md` (repo root), directly under the file header. The README MUST NOT carry changelog entries — only a pointer to `CHANGELOG.md`.
-- MUST, when invoked with an **explicit** version `X.Y.Z` / `vX.Y.Z`, if `CHANGELOG.md` already contains a top-level heading `### vX.Y.Z` or `### X.Y.Z` with a non-empty body (at least one non-empty line under it before the next `### ` heading): **skip** changelog generation (Step 2) and **skip** prepending a new section (Step 3a); verify the existing section and proceed to triplet sync of JSON files if needed. MUST NOT create a duplicate heading for that version. If the heading exists but the body is empty, treat as missing and generate as usual. If the version was auto-detected or a bump keyword (`patch`/`minor`/`major`), never skip — always generate. Cross-ref: SPEC-023 train M5c pre-writes this heading; the train invokes `/release` with the explicit assigned version (**skip-if-present**).
+- MUST, when invoked with an **explicit** version `X.Y.Z` / `vX.Y.Z`, if `CHANGELOG.md` already contains a top-level heading `### vX.Y.Z` or `### X.Y.Z` with a non-empty body (at least one non-empty line under it before the next `### ` heading): **skip** changelog generation (Step 2) and **skip** prepending a new section (Step 3a); verify the existing section and proceed to version-pair sync of `plugin.json` if needed. MUST NOT create a duplicate heading for that version. If the heading exists but the body is empty, treat as missing and generate as usual. If the version was auto-detected or a bump keyword (`patch`/`minor`/`major`), never skip — always generate. Cross-ref: SPEC-023 train M5c pre-writes this heading; the train invokes `/release` with the explicit assigned version (**skip-if-present**).
 - MUST run the managed-include drift-gate before committing/tagging a release: `python3 skills/agent-memory/sync-includes.py check`. If it exits non-zero, a managed `<!-- include: -->` region has drifted from its canonical partial — MUST NOT commit or tag; fix the drift (re-expand the region to match the partial) and re-run until it exits 0. Currently single-sourced regions: the agent-memory protocol expanded across the 7 agents (`skills/agent-memory/protocol.md`), and the shared tech-lead tiered-cortex load block in `/debug` and `/refactor` Step 0 (`skills/agent-memory/cortex-load.md`).
 - The drift-gate covers only managed-include regions (markers present). It does NOT cross-check AGENTS.md against the emitted consumer template — those are intentionally distinct documents (SPEC-005), with no managed-include relationship.
 - **Step 4.7 — Hook-template gate (CDT-54 / CDT-46-C8).** Historical dual-copy Step 4.7 (`check-hook-templates.sh` requiring byte-identity between package-tracked live `.claude/hooks/*.sh` and init-orch templates) is **retired or reduced**. After CDT-54: hook bodies SoT = `skills/init-orchestration` templates only (SPEC-002/SPEC-005); live hooks are generated+gitignored. `/release` MUST NOT hard-fail solely because package-tracked live hooks are absent. Any residual Step 4.7 check MUST be template-internal only (e.g. extractability / hygiene of fenced bodies) and MUST NOT require dual-copy live files. Implementation of the reduced/removed gate is Task 2 of CDT-54 — this MUST is the contract.
@@ -57,7 +58,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - **D5 — Manifest description sync (`manifest-desc`).** MUST verify that descriptive fields duplicated between `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` `plugins[]` — at minimum `description` — are byte-identical. Version-string sync is explicitly NOT this check: SPEC-002 rules via release Step 4 own it.
 - **D6 — Waiver token.** MUST suppress a finding in a markdown source when the offending line, or the line immediately adjacent within the same table/section, carries `<!-- drift-ok: <check-id> -->` naming that check. Waived findings MUST be counted and summarized (`N findings, M waived`) — visible, never silent. JSON manifests cannot carry comments, so `manifest-desc` findings are unwaivable by design (fix, don't waive).
 - **D7 — Release gate wiring + mandatory bite-tests.** MUST be wired as `/release` Step **4.9** (after 4.5 include, 4.6 template-var, 4.7 hook-template *reduced/retired per CDT-54*, 4.8 skill-bash): non-zero exit blocks commit and tag until fixed or waived, and the wiring change MUST land with the live tree scanning clean (pre-existing drift fixed or waived in the same change — the gate lands green, never red). Bite-tests are MANDATORY before wiring: for each check-id, back up the target file (`cp` to a scratch path), inject a drift, assert exit `1` naming that check-id, then restore via cp-from-backup — NEVER `git checkout` — and assert the clean tree exits `0`.
-- **D8 — MUST NOT (scope boundaries).** The checker MUST NOT inspect fenced ```bash block content (SPEC-021's lint classes), MUST NOT re-check spec structural format (SPEC-008's `check-format.sh` owns that), MUST NOT check version-string sync across the three version files (SPEC-002 / release Step 4 owns that), MUST NOT invoke any LLM or network, and MUST NOT modify any scanned file (report-only; no auto-fix).
+- **D8 — MUST NOT (scope boundaries).** The checker MUST NOT inspect fenced ```bash block content (SPEC-021's lint classes), MUST NOT re-check spec structural format (SPEC-008's `check-format.sh` owns that), MUST NOT check version-string sync across the version pair (SPEC-002 / release Step 4 owns that), MUST NOT invoke any LLM or network, and MUST NOT modify any scanned file (report-only; no auto-fix).
 - **D9 — Skill-reference liveness (`skill-ref`).** MUST verify every literal `skills/<name>/<file>` path (`.md`/`.sh`/`.py`) mentioned anywhere in `commands/*.md` — prose or embedded in a fenced bash block — resolves to a real file on disk. Catches a command left delegating to a skill file that was stubbed, renamed, or deleted (the CDT-46-C3 class of defect: a single commit both created a dispatcher delegating to a skill AND stubbed that same skill, and the collision shipped silently because nothing checked it — `/memory validate` was non-functional from v1.1.0 through v1.3.13 as a result). Only checks that the path *exists*; does not evaluate whether the file is a functional skill vs. an intentional deprecation stub (many stubs, e.g. `skills/fix-ticket/SKILL.md`, retain full operational content for delegate use and are legitimate — liveness is the only mechanical signal available without content heuristics).
 
 ## SHOULD
@@ -70,7 +71,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - Verify review spawns 5 sub-agents and collects structured JSON findings
 - Verify confidence scoring discards findings below 80
 - Verify commit blocked on critical issues
-- Verify release updates all three version files identically
+- Verify release updates the version pair identically (`plugin.json` + `CHANGELOG.md`)
 - Verify release auto-detects patch vs minor from commit messages
 - Verify changelog excludes `chore: release` commits
 - Verify `/release` aborts (no commit/tag) when `sync-includes.py check` exits non-zero (drifted managed-include region), and proceeds when it exits 0
@@ -92,7 +93,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - [ ] Review of clean code produces no critical findings
 - [ ] Review of code with obvious bug produces critical finding with file:line
 - [ ] Release with no commits since tag reports "Nothing to release"
-- [ ] After release: plugin.json, marketplace.json, CHANGELOG.md versions match
+- [ ] After release: plugin.json and CHANGELOG.md versions match
 - [ ] Docs drift gate: `bash skills/docs-drift/test.sh` exits 0; live tree `check-docs-drift.sh` exits 0; Step 4.9 present in `skills/release/SKILL.md`
 
 ## Open Questions
@@ -117,6 +118,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 | 2026-06-22 | Doc-IA pass: changelog target moved from `README.md` to a dedicated repo-root `CHANGELOG.md`. Release MUST now writes the new `### vX.Y.Z` section to `CHANGELOG.md` and the README only points to it. `skills/release/SKILL.md` Steps 2/3a/4/5 updated accordingly. |
 | 2026-07-13 | CDV-181 / SPEC-023: Release MUST skip-if-present — when `/release` is invoked with an explicit version and CHANGELOG already has that heading with a non-empty body, skip Step 2 generation and Step 3a prepend (no duplicate heading). Enables train M5c pre-write. |
 | 2026-07-14 | CDV-188: promoted Docs drift gate (D1–D8) from ideation-wave-2 DRAFT — deterministic checker, four check-ids, waiver token, Step 4.9 release wiring, mandatory bite-tests, scope boundaries vs SPEC-021/008/002. |
+| 2026-08-06 | CDT-131: Release MUST is a version **pair** (CHANGELOG + plugin.json); marketplace.json no longer carries/requires `plugins[].version`. |
 
 ## Cross-references
 
