@@ -311,6 +311,28 @@ for i in "${!PATHS[@]}"; do
     fi
   fi
 
+  # CDT-132: tiny content-only edits to paths already at mode 100755 must not
+  # alone force clear-high full council. Mode flips (chmod), renames (R*),
+  # shebang-only signal 2, and material LOC (>= clear-low band) still fire.
+  if [ -n "$exec_why" ]; then
+    case "$exec_why" in
+      *'100755'*)
+        _srcm="${SRCMODE[$p]:-}"
+        _dstm="${DSTMODE[$p]:-}"
+        _st="${STATUS[$p]:-}"
+        _floc=$((a + d))
+        case "$_st" in
+          R*|C*) ;;  # rename/copy of executable stays critical
+          *)
+            if [ "$_srcm" = "$_dstm" ] && [ "$_floc" -lt "$BAND_LOW_LOC" ]; then
+              exec_why=""
+            fi
+            ;;
+        esac
+        ;;
+    esac
+  fi
+
   [ -z "$spec_why" ] || add_signal 1 spec-contract "$p" "$spec_why"
   [ -z "$exec_why" ] || add_signal 2 executable "$p" "$exec_why"
 

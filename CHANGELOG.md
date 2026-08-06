@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.10
+- **CDT-132 — executable signal respects material LOC** — `tier-grade.sh` signal 2 (mode 100755) no longer forces `council_tier=full` for tiny content-only edits to already-executable files (`< BAND_LOW_LOC` LOC, mode unchanged). Mode flips, renames/copies of executables, shebang-only detection, and material LOC still fire clear-high. Addresses 63-LOC ship-gate over-grade class from CDT-124.
+
 ### v1.5.9
 - **CDT-123 — Notify-on-blocked/done for /kickoff and /epic** — wired the same `skills/notify/webhook.sh` Tier B fail-open pattern as CDT-111-C7/`/orchestrate`: `task_blocked` on autopilot halts (kickoff OQ/API-verify/>4-OQ/breaking-schema; epic A.5 + B.3), `task_complete` on successful kickoff summary and epic A.6 persist. Unset `AGENT_WEBHOOK_URL` remains silent.
 
