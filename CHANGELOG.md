@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.6
+- **CDT-128 — tier-grade.sh quality debt (confirmed pair)** — `fail_closed()` sanitizes all `[[:cntrl:]]` (not just \\`/"/LF/TAB) so a CR in a path cannot emit invalid JSON; `post_image_head()` strips NUL before capture so binary blobs no longer spam bash "NUL" warnings under command substitution. Regression tests for both. Re-triage of the other delta-review nits: FILES==0 guard still useful defense-in-depth; middle-band REASON overwrite is intentional for LOC_UNAVAILABLE; sha all-zero guard stays; leftover nits deferred.
+
 ### v1.5.5
 - **CDT-130 — Wire `skills/retro-gate/test.sh` into CI** — added a fourth independent job `retro-gate` on `.github/workflows/smoke.yml` (push/PR to master), running `bash skills/retro-gate/test.sh` byte-identical to local runs. Closes the SPEC-012 gap where friction-heuristic regressions were manual-only; same pattern as CDT-96 for `skill-lint` / `docs-drift` (no `needs:` chaining).
 

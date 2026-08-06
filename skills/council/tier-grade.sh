@@ -60,9 +60,21 @@ FANIN_PROBED=false
 # command, so it stays usable with an empty PATH.
 fail_closed() {
   trap - ERR
-  local reason="$1"
-  reason="${reason//\\/ }"; reason="${reason//\"/ }"
-  reason="${reason//$'\n'/ }"; reason="${reason//$'\t'/ }"
+  # JSON-safe reason with builtins only (must work with empty PATH).
+  # Strip \ and " for the printf template; strip all [[:cntrl:]] (CR/LF/TAB/NUL/…)
+  # so a numstat/raw path cannot break the emitted object (CDT-128).
+  local reason="$1" out="" i c
+  reason="${reason//\\/ }"
+  reason="${reason//\"/ }"
+  for ((i = 0; i < ${#reason}; i++)); do
+    c="${reason:i:1}"
+    if [[ "$c" =~ [[:cntrl:]] ]]; then
+      out+=" "
+    else
+      out+="$c"
+    fi
+  done
+  reason="$out"
   printf '{"tier":"full","band":"fail-closed","files":%d,"loc":%d,"added":%d,"deleted":%d,"grading_reason":"fail-closed: %s","critical_signals":[],"fanin_probed":%s}\n' \
     "$FILES" "$LOC" "$ADDED" "$DELETED" "$reason" "$FANIN_PROBED"
   exit 0
@@ -247,11 +259,13 @@ fi
 # back to the working-tree file, which is the post-image for an unstaged diff and the
 # only option when --raw was not supplied.
 post_image_head() {
+  # Strip NUL before capture — bash command substitution warns on every binary
+  # blob that contains \0 (CDT-128). Prefer blob from --raw when present.
   local p="$1" sha="${DSTSHA[$1]:-}"
   if [ -n "$sha" ] && [ -n "${sha//0/}" ]; then
-    git cat-file blob "$sha" 2>/dev/null | head -n 100 || true
+    git cat-file blob "$sha" 2>/dev/null | tr -d '\0' | head -n 100 || true
   elif [ -f "$p" ]; then
-    head -n 100 -- "$p" 2>/dev/null || true
+    tr -d '\0' <"$p" 2>/dev/null | head -n 100 || true
   fi
 }
 

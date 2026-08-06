@@ -475,5 +475,46 @@ else
   echo "OK: fail_closed() is jq-free"
 fi
 
+# CDT-128: fail_closed sanitizes all [[:cntrl:]] so CR cannot break JSON.
+printf 'not-tabs-line\rwith-cr\n' > "$TMP/cr.numstat"
+OUT="$(cd "$REPO" && bash "$TG" --numstat "$TMP/cr.numstat" 2>/dev/null)"; RC=$?
+if printf '%s' "$OUT" | jq -e . >/dev/null 2>&1; then
+  expect_rc0 "fail-closed CR-in-reason still exit 0"
+  expect "fail-closed: CR in reason still valid JSON" \
+    '.tier=="full" and .band=="fail-closed" and (.grading_reason|test("^fail-closed:"))'
+else
+  echo "FAIL: CR in fail-closed reason broke JSON: $OUT"; fail=1
+fi
+
+# CDT-128: post_image_head strips NUL so binary blobs do not warn under capture.
+BIN="$TMP/nul-bin"
+mkdir -p "$BIN"
+# shellcheck disable=SC2016
+printf '#!/bin/sh\nprintf "x\\0y\\n"\n' > "$BIN/tool"
+chmod +x "$BIN/tool"
+git -C "$BIN" init -q
+git -C "$BIN" config user.email t@t
+git -C "$BIN" config user.name t
+git -C "$BIN" add tool
+git -C "$BIN" commit -qm init >/dev/null
+# Force binary with embedded NUL into a committed blob
+printf 'abc\0def\nline2\n' > "$BIN/tool"
+git -C "$BIN" add tool
+git -C "$BIN" commit -qm nul >/dev/null
+git -C "$BIN" diff --numstat HEAD~1 HEAD > "$TMP/nul.numstat"
+git -C "$BIN" diff --raw HEAD~1 HEAD > "$TMP/nul.raw"
+ERRF="$TMP/nul.err"
+OUT="$(cd "$BIN" && bash "$TG" --numstat "$TMP/nul.numstat" --raw "$TMP/nul.raw" 2>"$ERRF")"; RC=$?
+if grep -q 'warning:.*NUL' "$ERRF" 2>/dev/null || grep -qi 'null byte' "$ERRF" 2>/dev/null; then
+  echo "FAIL: NUL warning on stderr: $(cat "$ERRF")"; fail=1
+else
+  echo "OK: binary post-image with NUL emits no bash NUL warning"
+fi
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e . >/dev/null 2>&1; then
+  expect "binary-with-NUL still grades (exit 0 JSON)" 'type=="object" and has("tier")'
+else
+  echo "FAIL: binary-with-NUL grade rc=$RC out=$OUT"; fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES PRESENT"; fi
 exit "$fail"
