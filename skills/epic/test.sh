@@ -267,6 +267,160 @@ run_in 0 init CDV-ORCH --title "orch" --mode orchestrate
 MODE=$(EPIC_ROOT="$TMPROOT" bash "$LIB" show CDV-ORCH | jq -r '.execution_mode')
 [ "$MODE" = "orchestrate" ] && pass || fail "mode orchestrate got $MODE"
 
+# ---- M13 context discipline (CDT-127 / SPEC-025) -----------------------------
+# Mechanical seed shape + fail-closed validate; status remains sole SoT.
+
+run_in 0 init M13-E --title "M13 seed epic" --mode kickoff
+run_in 0 add-child M13-E --id M13-E-C1 --slug m13a --title "M13 A" --estimate S --agent ic4 \
+  --depends-on '[]' --problem "m13-p1" --ac '["m13-ac1"]'
+run_in 0 add-child M13-E --id M13-E-C2 --slug m13b --title "M13 B" --estimate M --agent ic5 \
+  --depends-on '["M13-E-C1"]' --problem "m13-p2" --ac '["m13-ac2"]'
+
+# outcome_summary round-trip via set-status --outcome
+run_in 0 set-status M13-E M13-E-C1 completed --outcome "shipped M13 base"
+M13STATE="$TMPROOT/.claude/epics/M13-E/state.json"
+jq -e '.children[] | select(.id=="M13-E-C1") | .outcome_summary == "shipped M13 base"' "$M13STATE" >/dev/null \
+  && pass || fail "outcome_summary not persisted on completed"
+# show surfaces outcome_summary
+run_in 0 show M13-E
+echo "$OUT" | jq -e '.children[] | select(.id=="M13-E-C1") | .outcome_summary == "shipped M13 base"' >/dev/null \
+  && pass || fail "show outcome_summary round-trip"
+# --outcome rejected on pending/in_progress
+run_in 64 set-status M13-E M13-E-C2 pending --outcome "nope"
+run_in 64 set-status M13-E M13-E-C2 in_progress --outcome "nope"
+
+# build-seed happy path: STM headers + epic_id + next_child; writes last_seed_path
+run_in 0 build-seed M13-E
+SEED_PATH=$(echo "$OUT" | tail -n1)
+[ -f "$SEED_PATH" ] && pass || fail "build-seed did not write file: $SEED_PATH"
+# headers in order (State now → Through-line → appendix)
+awk '
+  /^## State now$/ { s=NR }
+  /^## Through-line$/ { t=NR }
+  /^## appendix$/ { a=NR }
+  END { exit (s && t && a && s < t && t < a) ? 0 : 1 }
+' "$SEED_PATH" && pass || fail "seed headers missing or out of order"
+grep -qE '^epic_id:[[:space:]]*M13-E' "$SEED_PATH" && pass || fail "seed missing epic_id: M13-E"
+grep -qE '^next_child:[[:space:]]*M13-E-C2' "$SEED_PATH" && pass || fail "seed missing next_child: M13-E-C2"
+grep -qE '^### Next:[[:space:]]*M13-E-C2' "$SEED_PATH" && pass || fail "seed missing ### Next: M13-E-C2"
+grep -q 'shipped M13 base' "$SEED_PATH" && pass || fail "seed missing completed outcome_summary"
+# validate-seed accepts good packet
+run_in 0 validate-seed "$SEED_PATH"
+# last_seed_path recorded
+jq -e --arg p "$SEED_PATH" '.last_seed_path == $p' "$M13STATE" >/dev/null \
+  && pass || fail "build-seed did not set last_seed_path"
+run_in 0 show M13-E
+echo "$OUT" | jq -e --arg p "$SEED_PATH" '.last_seed_path == $p' >/dev/null \
+  && pass || fail "show last_seed_path after build-seed"
+
+# build-seed MUST NOT mark next child in_progress (status remains sole SoT)
+STAT=$(jq -r '.children[] | select(.id=="M13-E-C2") | .status' "$M13STATE")
+[ "$STAT" = "pending" ] && pass || fail "build-seed mutated next status want pending got $STAT"
+# C1 remains completed
+STAT=$(jq -r '.children[] | select(.id=="M13-E-C1") | .status' "$M13STATE")
+[ "$STAT" = "completed" ] && pass || fail "build-seed mutated C1 status want completed got $STAT"
+
+# validate-seed rejects empty / missing header / missing file
+EMPTY_SEED=$(mktemp "${TMPDIR:-/tmp}/epic-empty-seed.XXXXXX")
+: > "$EMPTY_SEED"
+run_in 1 validate-seed "$EMPTY_SEED"
+rm -f "$EMPTY_SEED"
+run_in 1 validate-seed "$TMPROOT/no-such-seed.md"
+# missing ## State now (other markers present)
+BAD_SEED=$(mktemp "${TMPDIR:-/tmp}/epic-bad-seed.XXXXXX")
+cat > "$BAD_SEED" <<'EOF'
+epic_id: M13-E
+next_child: M13-E-C2
+## Through-line
+- (none)
+## appendix
+### Next: M13-E-C2
+EOF
+run_in 1 validate-seed "$BAD_SEED"
+# missing ## Through-line
+cat > "$BAD_SEED" <<'EOF'
+epic_id: M13-E
+next_child: M13-E-C2
+## State now
+- counts: total=0
+## appendix
+### Next: M13-E-C2
+EOF
+run_in 1 validate-seed "$BAD_SEED"
+# missing ## appendix
+cat > "$BAD_SEED" <<'EOF'
+epic_id: M13-E
+next_child: M13-E-C2
+## State now
+- counts: total=0
+## Through-line
+- (none)
+EOF
+run_in 1 validate-seed "$BAD_SEED"
+# missing epic_id / next markers
+cat > "$BAD_SEED" <<'EOF'
+## State now
+- counts: total=0
+## Through-line
+- (none)
+## appendix
+### Next: M13-E-C2
+EOF
+run_in 1 validate-seed "$BAD_SEED"
+cat > "$BAD_SEED" <<'EOF'
+epic_id: M13-E
+## State now
+- counts: total=0
+## Through-line
+- (none)
+## appendix
+no next marker
+EOF
+run_in 1 validate-seed "$BAD_SEED"
+rm -f "$BAD_SEED"
+
+# legacy state without last_seed_path still show/rollup
+run_in 0 init M13-LEG --title "M13 legacy" --mode kickoff
+run_in 0 add-child M13-LEG --id M13-LEG-C1 --slug leg --title "Leg" --estimate S --agent ic4 \
+  --depends-on '[]' --problem "p" --ac '["a"]'
+LEG13="$TMPROOT/.claude/epics/M13-LEG/state.json"
+jq 'del(.last_seed_path) | .children |= map(del(.outcome_summary))' "$LEG13" > "${LEG13}.tmp" \
+  && mv "${LEG13}.tmp" "$LEG13"
+jq -e 'has("last_seed_path") | not' "$LEG13" >/dev/null \
+  && pass || fail "legacy fixture must omit last_seed_path"
+run_in 0 show M13-LEG
+echo "$OUT" | jq -e '.last_seed_path == null' >/dev/null \
+  && pass || fail "show on legacy-absent last_seed_path want null"
+echo "$OUT" | jq -e '.children[0] | has("outcome_summary") | not or .outcome_summary == null' >/dev/null \
+  && pass || fail "show tolerates missing outcome_summary"
+ROLL_M13=$(EPIC_ROOT="$TMPROOT" bash "$LIB" rollup)
+echo "$ROLL_M13" | jq -e 'select(.epic_id=="M13-LEG") | .last_seed_path == null' >/dev/null \
+  && pass || fail "rollup on legacy-absent last_seed_path want null"
+# set-last-seed creates field on legacy
+run_in 0 set-last-seed M13-LEG /tmp/fake-seed.md
+jq -e '.last_seed_path == "/tmp/fake-seed.md"' "$LEG13" >/dev/null \
+  && pass || fail "set-last-seed on legacy creates last_seed_path"
+run_in 0 set-last-seed M13-LEG --clear
+jq -e '.last_seed_path == null' "$LEG13" >/dev/null \
+  && pass || fail "set-last-seed --clear want null"
+
+# build-seed fail-closed: zero children → exit 1, no seed file
+run_in 0 init M13-Z --title "zero kids" --mode kickoff
+run_in 1 build-seed M13-Z
+[ ! -d "$TMPROOT/.claude/epics/M13-Z/seeds" ] \
+  && pass || {
+    # dir may exist empty; require no .md
+    NSEED=$(find "$TMPROOT/.claude/epics/M13-Z/seeds" -name '*.md' 2>/dev/null | wc -l)
+    [ "$NSEED" -eq 0 ] && pass || fail "zero-child build-seed wrote seed files"
+  }
+
+# Soft protocol greps (T5/T6 SKILL may land later — do not fail suite)
+if [ -f "$HERE/SKILL.md" ]; then
+  if grep -qE 'build-seed|context.discipline|M13' "$HERE/SKILL.md" 2>/dev/null; then
+    pass  # soft: SKILL already mentions M13 surface
+  fi
+fi
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
