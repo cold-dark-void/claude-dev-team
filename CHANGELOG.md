@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.11
+- **CDT-135 — Resume ship after BC7 override** — `/orchestrate <ISSUE-ID> --resume-ship[=<bump>]` (or in-session `resume ship <bump>`) runs one human-confirmed sequence: end-state `/release <bump>` then `/wrap-ticket`. BC7 halt now prints the resume hint. Autopilot MUST NOT self-answer the confirm step.
+
 ### v1.5.10
 - **CDT-132 — executable signal respects material LOC** — `tier-grade.sh` signal 2 (mode 100755) no longer forces `council_tier=full` for tiny content-only edits to already-executable files (`< BAND_LOW_LOC` LOC, mode unchanged). Mode flips, renames/copies of executables, shebang-only detection, and material LOC still fire clear-high. Addresses 63-LOC ship-gate over-grade class from CDT-124.
 

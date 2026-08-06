@@ -29,6 +29,10 @@ happens in agent worktrees.
   call at `full` (`commands/council.md` does not auto-grade any scope it
   resolves on its own — Task 3's F-A fix). See Step 0 "Council tier
   detection" and Step 9 "Council gate for `requires_council: true` tasks".
+- `[--resume-ship[=<patch|minor|major>]]` — optional (CDT-135): after a human
+  overrides a BC7 ship-choice halt, run the **single confirmed ship sequence**
+  (release end-state + wrap) without re-running the full orchestration. See
+  Step 11 § Resume ship after BC7 override.
 
 ---
 
@@ -1309,9 +1313,63 @@ Act on the **post-council effective decision**:
 ```
 ship-choice <decision>: <rationale> — card: <card-file-path>
 ```
+On a **BC7 / ship-choice `halt`**, also print the resume hint (CDT-135):
+```
+Ship halted (BC7). To finish shipping after human review without re-running the
+full ticket, use:
+  /orchestrate <ISSUE-ID> --resume-ship=<patch|minor|major>
+or reply "resume ship <patch|minor|major>" in this session (same sequence).
+Does NOT auto-bypass BC7 — you must explicitly confirm.
+```
 Otherwise (autopilot off), the user-choice gate below applies unchanged.
 
 Wait for user choice.
+
+### Resume ship after BC7 override (CDT-135)
+
+**When:** A prior ship-choice halt (typically BC7 after M14 council disagree /
+degraded / spawn-fail) left the work ready to ship, the human has reviewed and
+**explicitly** wants to finish shipping, and re-running full PM/TL/IC is waste.
+
+**Entry (either):**
+1. `/orchestrate <ISSUE-ID> --resume-ship[=<patch|minor|major>]`
+2. In-session after a BC7 halt: user says `resume ship` / `resume ship patch`
+   (etc.)
+
+**Bump resolution:** explicit `=<bump>` wins; else plan Tracking `autopilot_bump`
+if non-null; else ask once (`patch` recommended for fix trains). Invalid bump →
+error, no ship actions.
+
+**MUST NOT:** re-run scope-confirm / plan-approve / IC implementation / M14
+council as if starting fresh; invent a bump; skip the human confirmation line
+below; force-push or ship without `/release`.
+
+**Confirmed sequence (one orchestrated path — replace ad-hoc `/release` then
+`/wrap-ticket`):**
+
+1. Print plan summary: branch, worktree, proposed bump, last ship-choice card
+   path (`$MROOT/.claude/autopilot/<ISSUE-ID>.jsonl` if present).
+2. Ask once: `Proceed with release <bump> + wrap-ticket <ISSUE-ID>? (y/n)` —
+   **required**; autopilot MUST NOT self-answer this confirmation (human
+   override of a safety halt).
+3. On `n` / empty: stop; no side effects.
+4. On `y`:
+   - If worktree still present: run `skills/autopilot/end-state.md` release
+     path for the chosen bump (squash-stage → `/release <bump>` → tracking
+     close-out per that file's §6).
+   - Else if already on master/main with clean tree after a prior partial
+     release: run `/release <bump>` only if version files still need the bump;
+     otherwise skip to wrap.
+   - Then `/wrap-ticket <ISSUE-ID>` (idempotent close-out + worktree release).
+5. Emit `task_complete` (detail = `resume-ship released <bump>`) via Passive
+   notifications Tier B (fail-open).
+6. Append one decision card to the ticket ledger if append-card is available:
+   `gate=ship-choice`, `decision=merge`, `decided_by=user`,
+   `blocking_condition=null`, rationale
+   `human override of BC7 via --resume-ship` (never rewrite prior halt cards).
+
+**Failure:** any `/release` pre-commit gate fail → stop; leave wrap for later;
+print the failing gate.
 
 ### Tracking close-out (ship DoD — orchestrator-owned)
 
