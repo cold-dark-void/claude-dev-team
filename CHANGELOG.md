@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.5
+- **CDT-130 — Wire `skills/retro-gate/test.sh` into CI** — added a fourth independent job `retro-gate` on `.github/workflows/smoke.yml` (push/PR to master), running `bash skills/retro-gate/test.sh` byte-identical to local runs. Closes the SPEC-012 gap where friction-heuristic regressions were manual-only; same pattern as CDT-96 for `skill-lint` / `docs-drift` (no `needs:` chaining).
+
 ### v1.5.4
 - **CDT-131 — Version sync is a pair, not a triplet** — practice since `9f3ea07` only bumps `CHANGELOG.md` + `plugin.json`; `marketplace.json` pins install channels via git refs (`stable`/`master`) and no longer carries `plugins[].version`. Docs and contracts now match: `skills/release/SKILL.md`, `AGENTS.md`, `README.md` Versioning, SPEC-002 / SPEC-010 / SPEC-022 / SPEC-023, release-train renumber/M5d (update marketplace version only if already present — never invent one).
 - **`/doctor` version check** — `version.triplet` check id kept for callers, semantics are pair-only (`plugin.json` ↔ `CHANGELOG`). Fixes a standing FAIL on healthy checkouts after the marketplace field was removed.

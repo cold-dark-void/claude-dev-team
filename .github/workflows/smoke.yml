@@ -24,3 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash skills/docs-drift/check-docs-drift.sh
+
+  # CDT-130 — SPEC-012 retro-gate friction heuristics (parity with CDT-96 CI wiring)
+  retro-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash skills/retro-gate/test.sh
