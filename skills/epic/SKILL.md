@@ -39,9 +39,14 @@ worktrees). Override root for tests: `EPIC_ROOT`.
 | `/epic complete <ID> <CHILD>` | Manual complete (kickoff-mode children) |
 | `/epic block <ID> <CHILD> [reason]` | Mark child blocked |
 | `/epic unblock <ID> <CHILD>` | Mark child pending again |
+| `/epic … --no-context-discipline` | Debug opt-out of M13 between-child boundary (default **on**) |
 
 Execution mode (`kickoff` | `orchestrate`) is chosen **once** at first execute
 and stored in `state.json` (L7).
+
+**Context discipline (M13 / CDT-127):** default **on** for multi-child Mode B.
+Debug opt-out: `--no-context-discipline` **or** `EPIC_NO_CONTEXT_DISCIPLINE=1`.
+Single-child epics: no mandatory boundary. See **B.6**.
 
 ---
 
@@ -420,6 +425,11 @@ bash "$EPIC_LIB" waves "$EPIC_ID"
 
 Print counts by status + ready set + wave plan. **No re-decomposition.** No duplicate backlog/Linear.
 
+**Resume seed (M13):** if `show` surfaces non-null `last_seed_path`, print
+`@<last_seed_path>` and treat that seed as the live context source for the
+next child (plus `show`/`waves`/`ready-set` rollup). Do **not** re-mine prior
+child transcripts.
+
 **Linear project on resume (M12 / AC8 / OQ4):**
 
 - If `linear_project_id` is **non-null** (`show` / state): do **not**
@@ -516,9 +526,86 @@ Do **not** reimplement their internals here.
 | `orchestrate` | Child lifecycle finishes (typically `/wrap-ticket` calls `mark-done`) |
 | `kickoff` | User confirms at next resume, **or** `/epic complete <ID> <CHILD>` — never auto on plan file alone |
 
-After a child is completed, loop B.1 (next ready) or exit if user stops.
+Prefer optional `--outcome "<≤1 line>"` on `set-status … completed|blocked`
+(Mode D) so seeds carry status+summary without re-reading child sessions.
+
+After a child leaves the active handoff (`completed`, or `blocked` with no
+ready successor to start mid-path), **before** the next B.3: run **B.6** when
+discipline applies. Then loop B.1 / B.2 (next ready) or exit if user stops.
 
 Never mark `completed` merely because kickoff produced a plan (M7).
+**Kickoff mode:** M13 boundary still applies between children; completion
+attestation is unchanged (user/`/epic complete` — never auto on plan alone).
+
+### B.6 Between-child context discipline (M13 / CDT-127)
+
+**When (default on):** epic has **≥2 children**, discipline not opted out
+(`--no-context-discipline` / `EPIC_NO_CONTEXT_DISCIPLINE=1`), and walker is about
+to start child **N+1** after child **N** left the active handoff. **Between
+children only** — not mid-`/orchestrate`. Single-child: skip. **Blocked:**
+seed is still OK; `ready-set` continues to respect deps (M7 — never skip
+blocked deps).
+
+**Primary = hard cut (A).** After status write via `epic-lib` only (status =
+sole SoT; seed is advisory narrative — **no dual status SoT**):
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+NEXT="<next ready CHILD-ID or omit --next for auto>"
+# Prefer mechanical build-seed (records last_seed_path on success):
+SEED_PATH=$(bash "$EPIC_LIB" build-seed "$EPIC_ID" --next "$NEXT") || {
+  echo "context-discipline: seed failed — build-seed failed"
+  # halt: do NOT set-status in_progress on next child; leave pending
+  return
+}
+bash "$EPIC_LIB" validate-seed "$SEED_PATH" || {
+  echo "context-discipline: seed failed — validate-seed failed"
+  return
+}
+echo "@$SEED_PATH"
+```
+
+**Fail-closed:** any build/validate failure → print exact one-liner
+`context-discipline: seed failed — <reason>`, **do not** start next child, leave
+next `pending` (confirm-before-`in_progress` preserved). Reason = CLI stderr /
+short cause (empty, missing sections, unreadable path).
+
+**Hard-cut degrade ladder** (after valid seed; before next B.3/B.4):
+
+1. **Prefer:** new session / harness branch-fork seeded with `@<seed-path>` +
+   state rollup only.
+2. **Fallback:** same-session `/compact` (or equivalent), then load only
+   `@seed` + `show`/`waves`/`ready-set`.
+3. **MUST NOT** continue Mode B **inline while prior child plan/review/QA/TL/council
+   transcripts remain live context** when discipline is on.
+
+Allowed live inputs after cut: compact epic seed + `state.json` rollup + optional
+prior seed path. Resume next child only from seed + state (no re-decomposition).
+
+**Secondary = guardrail (C).** Between children only: if estimated live context is
+**≥ ~400k tokens** or **≥ 50% of the model window**, **warn and force** the same
+M13 hard-cut (not warn-only). Estimation: session heuristic / human dogfood until
+free telemetry. Mid-child guardrail = OOS. Guardrail alone is never the primary.
+
+**Autopilot:** boundary is **silent mechanical** on success — **not** a new
+SPEC-033 gate enum. Decision card **only** on seed-fail halt path.
+
+**M11 under M13:** boundary / seed / guardrail spawn no ICs, create no worktrees,
+write no `.claude/tasks/`, do not re-implement kickoff/orchestrate.
+
+**CDT-126 non-goal:** council `--tier light` reduces **council** cost inside a
+child; it does **not** replace M13 epic-walker context cuts.
+
+**Measurement (AC2/AC3):** design target child-N peak ≤ child-1 peak × (1+**ε**)
+with **ε = 0.5** (peak per-turn context or cache-read proxy; ≥3 sequential
+children). **CI = seed shape + protocol presence only.** Peak/cache-read =
+**dogfood/manual** until free token telemetry (log method + pass/fail per run).
 
 ---
 
@@ -550,10 +637,10 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
 CHILD_ID="<CHILD-ID>"
-# complete
-bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" completed
+# complete (optional --outcome "≤1 line" for seed outcomes)
+bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" completed --outcome "<summary>"
 # block
-bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" blocked
+bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" blocked --outcome "<reason>"
 # unblock
 bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" pending
 ```
@@ -599,6 +686,8 @@ child `id` or `linear_id`). Unknown ticket → exit 0, no fail.
 - Create/remove worktrees
 - Store children in `.claude/tasks/`
 - Expose any option that skips PM on child handoff
+- Treat seed packets as status authority (status SoT = `epic-lib` / `state.json` only)
+- Inline next-child handoff while prior child transcripts remain live context when M13 discipline is on
 
 ---
 
@@ -616,6 +705,7 @@ child `id` or `linear_id`). Unknown ticket → exit 0, no fail.
 | Bare resume + null project id | Do not create/link project (OQ4) |
 | No ready children | Report rollup; stop cleanly |
 | Confirm handoff = n | Exit; child stays pending (or revert in_progress if already set — prefer confirm **before** set-status) |
+| M13 seed build/validate fail | Exactly: `context-discipline: seed failed — <reason>`; next child stays `pending`; no `in_progress` without valid seed when boundary required |
 
 Confirm **before** `set-status in_progress` so `n` leaves state unchanged (AC10).
 
