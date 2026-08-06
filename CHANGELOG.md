@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.5.8
+- **CDT-125 — S3 edit-loop requires struggle evidence** — `retro-gate/gate.sh` S3 no longer fires on error-free multi-edit streaks (multi-section doc authoring on existing or new files). S3 now requires an intervening `tool_result is_error` or S1 user rejection inside the edit window. Supersedes the Write-only clean draft-polish exemption (still covered). AC3 fixture flipped to expect S3=0; AC4/AC5 still require S3 with error/S1.
+
 ### v1.5.7
 - **CDT-122 — TaskCompleted council gate: compound keys + finding[] confidence** — index lookup now mirrors task-metadata compound-key fallback (bare TaskUpdate id `7` resolves rows under `CDT-…-7`); `finding[]` rows with `max_finding_confidence` pass the gate the same as `verdict[]` `max_verdict_confidence` (diff-mode `requires_council` IC reviews no longer structurally blocked). SoT: task-completed template in `skills/init-orchestration/SKILL.md`; SPEC-002 updated. Re-run `/setup orchestration` to regenerate live consumer hooks.
 

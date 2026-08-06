@@ -346,12 +346,13 @@ if not FORCE_TRANSCRIPT_S2:
     if _ledger_s2 is not None:
         s2_runs = _ledger_s2
 
-# ---- S3 windowed evaluation -------------------------------------------------# A file scores once per distinct sliding window of S3_WINDOW assistant turns
-# that contains >= S3_MIN_EDITS edits to that file.
-# Clean draft-polish exemption (CDV-184): if the path's first edit-tool is
-# Write (session-created) and no tool_result is_error and no S1-eligible
-# rejection falls strictly after that creating Write and at/before the last
-# edit-tool in the candidate window, the path does not contribute to S3.
+# ---- S3 windowed evaluation -------------------------------------------------
+# A file scores once per distinct sliding window of S3_WINDOW assistant turns
+# that contains >= S3_MIN_EDITS edits to that file AND struggle evidence
+# (CDT-125 / CDV-184 supersession): at least one tool_result is_error or
+# S1-eligible user rejection strictly after the window's first edit and at/before
+# the last edit. Error-free multi-section authoring (Edit×N or Write+Edit) is
+# normal work, not an edit loop — do not fire S3 without that struggle signal.
 def _intervening(seqs, after_seq, until_seq):
     return any(after_seq < s <= until_seq for s in seqs)
 
@@ -359,19 +360,19 @@ s3_hits = []  # list of (file_path, anchor_msg_id)
 for fp, edits in s3_files.items():
     if len(edits) < S3_MIN_EDITS:
         continue
-    create_seq = edits[0][3]
-    first_tool = s3_first_tool.get(fp, edits[0][2])
     for i in range(len(edits) - S3_MIN_EDITS + 1):
         window = edits[i : i + S3_MIN_EDITS]
         if window[-1][0] - window[0][0] > S3_WINDOW:
             continue
+        first_seq = window[0][3]
         last_seq = window[-1][3]
-        if first_tool == "Write" and not (
-            _intervening(tool_error_seqs, create_seq, last_seq)
-            or _intervening(s1_event_seqs, create_seq, last_seq)
+        if not (
+            _intervening(tool_error_seqs, first_seq, last_seq)
+            or _intervening(s1_event_seqs, first_seq, last_seq)
         ):
-            # Clean session-created path — fully exempt (not just first Write).
-            break
+            # Clean multi-edit window — skip this window; try later windows
+            # that may include struggle (error/S1 after an earlier clean streak).
+            continue
         s3_hits.append((fp, window[0][1]))
         break
     # One score per distinct file regardless of how many windows match.

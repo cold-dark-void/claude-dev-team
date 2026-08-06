@@ -95,14 +95,15 @@ if assert_json_shape "AC2"; then
   fi
 fi
 
-# ---- AC3: pre-existing Edit×3 → S3 ----
+# ---- AC3: pre-existing Edit×3 without struggle → no S3 (CDT-125) ----
+# Multi-section doc authoring on an existing file is not an edit loop.
 run_gate "ac3-preexisting-thrash.jsonl"
 if assert_json_shape "AC3"; then
   s3c=$(signal_count S3)
-  if [ "$s3c" -ge 1 ] 2>/dev/null; then
-    ok "AC3 pre-existing thrash S3 count=$s3c"
+  if [ "$s3c" = "0" ] 2>/dev/null; then
+    ok "AC3 pre-existing clean multi-edit S3=0 (CDT-125)"
   else
-    bad "AC3: expected S3 present: $OUT"
+    bad "AC3: expected no S3 on error-free multi-edit: $OUT"
   fi
 fi
 
