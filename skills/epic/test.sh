@@ -1128,7 +1128,11 @@ fi
   if [ -n "$C5_TMP" ] && [ -d "$C5_TMP/.git" ]; then
     git -C "$C5_TMP" config user.email "test@example.com"
     git -C "$C5_TMP" config user.name "Test"
-    git -C "$C5_TMP" commit --allow-empty -q -m "init"
+    # Mirror product ignores so porcelain dirty ≠ integration tree / epic state
+    # (CDT-170 abort gate uses status --porcelain; real repos ignore these)
+    printf '%s\n' '.worktrees/' '.claude/epics/' >"$C5_TMP/.gitignore"
+    git -C "$C5_TMP" add .gitignore
+    git -C "$C5_TMP" commit -q -m "init"
     # Ensure master exists as default (some git use main)
     if ! git -C "$C5_TMP" show-ref --verify --quiet refs/heads/master; then
       git -C "$C5_TMP" branch -M master 2>/dev/null || true
@@ -1318,14 +1322,30 @@ fi
     [ "$(git -C "$C5_TMP" rev-parse HEAD)" = "$PRE_HO" ] \
       && pass || fail "c5-9 handoff must not commit"
     git -C "$C5_TMP" diff --cached --quiet && fail "c5-9 expected staged index" || pass
-    # --abort restores clean
-    run_c5 0 seal CDV-C5-HO --abort
+    # CDT-170: staged seal = porcelain dirty → bare --abort refuses
+    set +e
+    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort 2>&1)
+    RC=$?
+    set -e
+    [ "$RC" -eq 1 ] && pass || fail "c5-9 staged bare abort want rc=1 got $RC out=$OUT"
+    echo "$OUT" | grep -q 'dirty' && echo "$OUT" | grep -q 'refuse' \
+      && pass || fail "c5-9 staged bare abort message (out=$OUT)"
+    git -C "$C5_TMP" diff --cached --quiet && fail "c5-9 bare abort wiped staged" || pass
+    # intentional wipe of seal stage uses --force
+    run_c5 0 seal CDV-C5-HO --abort --force
     echo "$OUT" | jq -e '.aborted==true and .sealed==false' >/dev/null \
-      && pass || fail "c5-9 abort JSON (out=$OUT)"
+      && pass || fail "c5-9 abort --force JSON (out=$OUT)"
     git -C "$C5_TMP" diff --quiet && git -C "$C5_TMP" diff --cached --quiet \
-      && pass || fail "c5-9 abort left dirty"
+      && pass || fail "c5-9 abort --force left dirty"
     jq -e '(.sealed // false)==false' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json" >/dev/null \
       && pass || fail "c5-9 abort must not seal"
+
+    # (c5-d2) clean bare abort → rc=0 (tree already clean after force)
+    run_c5 0 seal CDV-C5-HO --abort
+    echo "$OUT" | jq -e '.aborted==true and .sealed==false' >/dev/null \
+      && pass || fail "c5-d2 clean abort JSON (out=$OUT)"
+    git -C "$C5_TMP" status --porcelain | grep -q . \
+      && fail "c5-d2 clean abort dirtied tree" || pass
 
     # re-stage then --complete (simulates post-/release)
     run_c5 0 seal CDV-C5-HO
@@ -1337,6 +1357,63 @@ fi
     jq -e '.sealed==true' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json" >/dev/null \
       && pass || fail "c5-9 state sealed"
     run_c5 0 assert-release-allowed CDV-C5-HO
+
+    # ---- c5-abort-dirty (CDT-170): porcelain dirty gate on seal --abort ----
+    # c5-d2 clean abort: above. c5-d6: c5-6 hook-fail + c5-9 force/clean still pass.
+
+    # (c5-d1) dirty bare abort → refuse; WIP preserved; sealed unchanged
+    printf 'wip-content\n' >"$C5_TMP/wip.txt"
+    WIP_SHA=$(git -C "$C5_TMP" hash-object wip.txt)
+    SEALED_BEFORE=$(jq -r '.sealed // false' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json")
+    set +e
+    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort 2>&1)
+    RC=$?
+    set -e
+    [ "$RC" -eq 1 ] && pass || fail "c5-d1 dirty bare abort rc=$RC out=$OUT"
+    echo "$OUT" | grep -q 'dirty' && echo "$OUT" | grep -q 'refuse' \
+      && pass || fail "c5-d1 stderr dirty+refuse (out=$OUT)"
+    [ -f "$C5_TMP/wip.txt" ] && pass || fail "c5-d1 wip.txt wiped on bare abort"
+    [ "$(git -C "$C5_TMP" hash-object wip.txt)" = "$WIP_SHA" ] \
+      && pass || fail "c5-d1 wip content mutated"
+    [ "$(jq -r '.sealed // false' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json")" = "$SEALED_BEFORE" ] \
+      && pass || fail "c5-d1 sealed flipped"
+
+    # (c5-d3) dirty + --abort --force → wipe; rc=0
+    set +e
+    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort --force 2>&1)
+    RC=$?
+    set -e
+    [ "$RC" -eq 0 ] && pass || fail "c5-d3 abort --force rc=$RC out=$OUT"
+    echo "$OUT" | jq -e '(.aborted==true or .reason=="already_sealed")' >/dev/null \
+      && pass || fail "c5-d3 force JSON (out=$OUT)"
+    [ ! -f "$C5_TMP/wip.txt" ] && pass || fail "c5-d3 force left wip.txt"
+    git -C "$C5_TMP" status --porcelain | grep -q . \
+      && fail "c5-d3 force left dirty porcelain" || pass
+
+    # (c5-d4) already_sealed + dirty bare abort → rc=1; no wipe; sealed still true
+    jq -e '.sealed==true' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json" >/dev/null \
+      && pass || fail "c5-d4 precondition sealed=true"
+    printf 'wip-sealed\n' >"$C5_TMP/wip-sealed.txt"
+    set +e
+    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort 2>&1)
+    RC=$?
+    set -e
+    [ "$RC" -eq 1 ] && pass || fail "c5-d4 already_sealed dirty abort rc=$RC out=$OUT"
+    echo "$OUT" | grep -q 'dirty' && echo "$OUT" | grep -q 'refuse' \
+      && pass || fail "c5-d4 stderr dirty+refuse (out=$OUT)"
+    [ -f "$C5_TMP/wip-sealed.txt" ] && pass || fail "c5-d4 wiped wip-sealed.txt"
+    jq -e '.sealed==true' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json" >/dev/null \
+      && pass || fail "c5-d4 sealed no longer true"
+    # cleanup dirty for later cases
+    rm -f "$C5_TMP/wip-sealed.txt"
+
+    # (c5-d5) --force without --abort → 64
+    run_c5 64 seal CDV-C5-HO --force
+    echo "$OUT" | grep -q 'force only valid with --abort' \
+      && pass || fail "c5-d5 force-alone message (out=$OUT)"
+    run_c5 64 seal CDV-C5-HO --complete --force
+    echo "$OUT" | grep -q 'force only valid with --abort' \
+      && pass || fail "c5-d5 complete+force message (out=$OUT)"
 
     # (c5-10) seal --complete without release_bump → 64
     run_c5 64 seal CDV-C5-OFF --complete

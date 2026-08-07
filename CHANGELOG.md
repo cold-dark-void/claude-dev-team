@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.6
+- **Gate `seal --abort` on dirty main (CDT-170)** — bare `--abort` refuses non-empty `git status --porcelain` on main (exit 1, zero `reset`/`clean`, WIP preserved, including `already_sealed`); `--abort --force` MAY wipe; squash/hook same-invocation recovery still ungated; handoff `on_failure` and B.7 failure fence use `--force` after staged seal. SPEC-025 M14 C5 + tests (`c5-abort-dirty`).
+
 ### v1.7.5
 - **Align TaskCompleted dual-shape gate docs with CDT-122 (CDT-183)** — SPEC-013 no longer forbids `finding[]`/`max_finding_confidence` rows; SPEC-002 L30 matches L36 dual-shape; orchestrate + council skill/command drop the false "finding[] deadlock" story. Claim-scope remains the orchestrated task-gate **policy**; live hook/template behavior unchanged.
 

@@ -37,7 +37,7 @@ Commands:
   ensure-ticket-worktree <TICKET-ID>
   assert-release-allowed <ticket-or-epic>
   seal-ready <EPIC-ID>
-  seal <EPIC-ID> [--dry-run|--complete|--abort]
+  seal <EPIC-ID> [--dry-run|--complete|--abort [--force]]
   build-seed <EPIC-ID> [--next <CHILD-ID>] [--out path]
   validate-seed <path>
   mark-done <TICKET-ID>
@@ -853,29 +853,38 @@ cmd_seal_ready() {
 }
 
 # Reset squash-stage on main (merge --squash has no MERGE_HEAD).
+# Callers: abort (after dirty gate), squash-fail, hook-fail recovery (AC6).
 _seal_reset_main() {
   local main="$1"
   git -C "$main" reset --hard >/dev/null 2>&1 || true
   git -C "$main" clean -fd >/dev/null 2>&1 || true
 }
 
+# True (return 0) when main-repo checkout has non-empty porcelain (CDT-170).
+_seal_main_is_dirty() {
+  local main="$1"
+  [ -n "$(git -C "$main" status --porcelain 2>/dev/null)" ]
+}
+
 cmd_seal() {
-  # seal <EPIC-ID> [--dry-run|--complete|--abort]
-  # End-of-epic seal composition (CDT-141-C5 / M14):
+  # seal <EPIC-ID> [--dry-run|--complete|--abort [--force]]
+  # End-of-epic seal composition (CDT-141-C5 / M14 / CDT-170):
   #   default     — preflight → squash-stage on master/main →
   #                 EPIC_SEAL_RELEASE_HOOK (tests) or handoff JSON for /release
   #   --dry-run   — readiness + plan only; zero git / state writes
   #   --complete  — set sealed=true after successful /release (atomic)
-  #   --abort     — reset --hard main; leave sealed=false
+  #   --abort     — reset --hard main only if clean (or with --force); leave sealed=false
+  #   --force     — only with --abort; MAY wipe dirty main WIP
   # Without release_bump: exit 0 skipped (no epic seal path).
   # Already sealed: exit 0 already_sealed (runs once).
   # Failure: sealed stays false; main restored clean (no partial tag/push from us).
-  local epic_id="" mode="run"
+  local epic_id="" mode="run" force=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --dry-run) mode=dry-run; shift ;;
       --complete) mode=complete; shift ;;
       --abort) mode=abort; shift ;;
+      --force) force=1; shift ;;
       -*)
         die 64 "seal: unknown flag $1"
         ;;
@@ -887,14 +896,20 @@ cmd_seal() {
     esac
   done
   [ -n "$epic_id" ] || die 64 "seal: missing <EPIC-ID>"
+  if [ "$force" -eq 1 ] && [ "$mode" != "abort" ]; then
+    die 64 "seal: --force only valid with --abort"
+  fi
 
   local st
   st=$(read_state "$epic_id")
   _seal_eval_ready "$st"
 
-  # ---- --abort: always safe cleanup on main ----
+  # ---- --abort: cleanup on main (dirty gate unless --force; CDT-170) ----
   if [ "$mode" = "abort" ]; then
     if _seal_main_repo; then
+      if _seal_main_is_dirty "$SEAL_MAIN" && [ "$force" -eq 0 ]; then
+        die 1 "seal: main working tree dirty — refuse abort (use --abort --force to wipe)"
+      fi
       _seal_reset_main "$SEAL_MAIN"
     fi
     # ensure sealed remains false (do not flip true)
@@ -1075,7 +1090,7 @@ cmd_seal() {
       env:{EPIC_ALLOW_SEAL_RELEASE:"1", EPIC_ID:$id, EPIC_RELEASE_END:$id, EPIC_RELEASE_BUMP:$rb},
       handoff:("/release "+$rb),
       next:["EPIC_ALLOW_SEAL_RELEASE=1 /release "+$rb,"bash epic-lib seal "+$id+" --complete"],
-      on_failure:("bash epic-lib seal "+$id+" --abort")
+      on_failure:("bash epic-lib seal "+$id+" --abort --force")
     }'
 }
 
