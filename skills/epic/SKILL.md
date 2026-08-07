@@ -991,9 +991,10 @@ When MCP is **up**:
    - Prefer exact `linear_id` match (identifier or UUID as stored)
    - Else M4.1 title / `child_id`-in-description match
 4. **statusType → local status** (session maps before apply):
-   - `completed` / done → `completed`
+   - `completed` / done → `completed` (Linear Done only — not In Review)
    - `canceled` → `blocked`
-   - `started` → `in_progress`
+   - `started` → `in_progress` (covers **In Progress** and **In Review** —
+     review is still open work for epic walkers; do not treat as completed)
    - else (`unstarted`, backlog, triage, …) → `pending`
 5. Build verdicts JSON (TMPDIR):
 

@@ -167,7 +167,8 @@ Order:
    `source=freeform`, `closes: []`, and warn: no tracker will be closed at ship.
 
 If Linear **and** a matching backlog item both exist, dual-write both into
-`closes:` (close local index + Linear Done at ship).
+`closes:` (close local index at ship; Linear ticket status per **Linear lifecycle**
+below — Done only when work is on master / wrap).
 
 Print source + closes in the Step 2 summary. Store issue context for all
 subsequent agent prompts.
@@ -1434,18 +1435,43 @@ below; force-push or ship without `/release`.
 **Failure:** any `/release` pre-commit gate fail → stop; leave wrap for later;
 print the failing gate.
 
+### Linear lifecycle (status truth — master is Done)
+
+Linear issue status must match **where the code lives**, not “implementation
+finished in a worktree”:
+
+| Phase | Linear status | When |
+|-------|---------------|------|
+| Work started | **In Progress** | Step 3 (already) |
+| PR open / not on master | **In Review** | PR-stop, draft/ready PR, release=end child left on integration branch |
+| Landed on master + close-out | **Done** (or team Released) | Squash/merge to master succeeds, `/release` succeeds, **or** `/wrap-ticket` after merge |
+
+**MUST NOT** set Linear to **Done** when the only ship action was open a PR,
+push a feature branch, or finish IC/QA while changes are still off master.
+That was a footgun: tickets looked Done while master lacked the code.
+
+Local backlog write-through (`close.sh`) may still flip **local** COMPLETED at
+ship (process cache). Linear terminal state is **master-land / wrap**, not PR-open.
+
 ### Tracking close-out (ship DoD — orchestrator-owned)
 
 **Before** finalizing the delivery commit (PR tip commit or squash), close every
-tracker listed under plan `closes:`. Do this on the **feature worktree**
-(`--root "$WT_PATH"`) so edits land on the branch tree — not mid-flight by
-parallel ICs (avoids `backlog.md` races).
+**local** tracker listed under plan `closes:` (`backlog/<slug>.md`). Do this on
+the **feature worktree** (`--root "$WT_PATH"`) so edits land on the branch tree
+— not mid-flight by parallel ICs (avoids `backlog.md` races).
+
+**Linear** (`linear:<ID>` / source=linear) is **path-dependent** (see table above):
+- **PR-stop / autopilot `pr` / release=end PR-only:** MCP → **In Review** + PR URL
+  comment. **MUST NOT** Done.
+- **Master land** (interactive squash onto master, autopilot `merge` after
+  `/release` success, resume-ship after release): MCP → **Done** + PR/SHA comment.
+- Fail-open if MCP unavailable: print a warning; do not invent Done or In Review.
 
 **Autopilot release-path exception (AC5, CDT-111-C9):** on the autopilot `merge` → `/release`
 path **only**, this close-out runs **after** `/release` succeeds (per `skills/autopilot/end-state.md`
 §6) — not before — so trackers stay open if `/release` aborts at a pre-commit gate (nothing
 shipped). Every other path (interactive PR, interactive squash, autopilot `pr`) keeps the
-before-commit ordering below, unchanged.
+before-commit ordering below for **local** backlog; Linear follows the lifecycle table.
 
 ```bash
 # Re-resolve PDH / MROOT / WT (fresh shell). Parse backlog slugs from plan Tracking.
@@ -1471,8 +1497,9 @@ bash "$CLOSE" verify "<slug>" --root "$WT_PATH" || {
 - Close local write-through (item Status + index) on disk; **MUST NOT** stage or
   commit `.claude/backlog*` / `.claude/plans*` into the product delivery commit
   (process trackers never upstream — SPEC-009 / CDT-54).
-- For each `linear:<ID>` (or source=linear): MCP → Done/Released + PR/SHA comment.
-  Fail-open if MCP unavailable: print a warning; do not invent Done.
+- For each `linear:<ID>` (or source=linear): apply **Linear lifecycle** for this
+  ship path (**In Review** on PR-stop; **Done** only after master land). Comment
+  with PR URL and/or SHA when known. Fail-open if MCP unavailable.
 - Empty `closes:` (freeform): print `Tracking: none (freeform)` — do not block.
 - Non-empty closes that fail verify on local write-through: **block ship**.
 
@@ -1507,8 +1534,8 @@ EOF
 If `gh` is not available, fall back to `git push -u origin <branch>` and print the
 URL for manual PR creation.
 
-If Linear is available, update issue status and link the PR (also covered by
-Tracking close-out for `linear:` entries).
+If Linear is available: set status to **In Review** (not Done), attach/link the
+PR, comment with PR URL. Covered by Tracking close-out PR-stop branch.
 
 ### If squash merge requested (no PR):
 
@@ -1518,7 +1545,8 @@ release=end message; master unchanged. Prefer PR-stop or leave work on the
 integration branch until epic seal (C5).
 
 Prefer plain git — do NOT require `gh`. Apply Tracking close-out on the feature
-worktree first (local write-through + Linear Done), then squash **product code only**:
+worktree first (local write-through; Linear **Done** only after squash commit on
+master succeeds — if squash fails, leave Linear at In Progress/In Review):
 
 ```bash template
 # CDT-141-C4 precheck (re-resolve if fresh shell)
@@ -1594,12 +1622,12 @@ parallel for the same reason. Drain them one at a time.
 
 ## Step 12: Wrap up
 
-Suggest running `/wrap-ticket <ISSUE-ID>` for worktree removal + learnings (tracking
-close-out should already be done at Step 11 when `closes:` was non-empty; wrap
-re-closes idempotently as a safety net).
+Suggest running `/wrap-ticket <ISSUE-ID>` for worktree removal + learnings.
+- **After PR-stop:** Linear should be **In Review**; wrap after **merge** sets **Done**.
+- **After master land:** Linear should already be **Done**; wrap re-applies Done
+  idempotently (safety net) + local re-close.
 
-If Linear is available and not already Done at ship, update issue status to
-"In Review" or "Done" based on user preference.
+Do **not** set Done from preference while code is still off master.
 
 Print:
 
@@ -1618,9 +1646,9 @@ Artifacts:
   PR:      <PR URL or "not created">
   Spec:    <spec path>
   Plan:    <plan path>
-  Tracking: <closed N backlog / Linear Done | none (freeform)>
+  Tracking: <closed N backlog | Linear In Review (PR) | Linear Done (on master) | none (freeform)>
 
-Next: /wrap-ticket <ISSUE-ID> after merge
+Next: /wrap-ticket <ISSUE-ID> after merge (sets Linear Done if still In Review)
 ```
 
 ---
@@ -1653,9 +1681,11 @@ These rules apply to YOU (the main Claude) throughout the entire flow:
 5. **You DO keep Linear updated** (if available) at each phase transition.
 6. **You DO keep the user informed** with concise status updates at natural milestones.
 7. **You DO protect the user's time** — batch questions, don't interrupt for routine progress.
-8. **You DO close trackers at ship** — plan `closes:` local write-through + Linear Done
-   (Step 11). Never leave close-out as optional hygiene. **Never** stage process trackers
-   (`.claude/backlog*`, `.claude/plans*`) into the product commit.
+8. **You DO close trackers at ship** — plan `closes:` local write-through always;
+   Linear **In Review** on PR-stop, Linear **Done** only when on master (Step 11
+   lifecycle). Wrap re-Dones as safety net. Never leave close-out as optional hygiene.
+   **Never** stage process trackers (`.claude/backlog*`, `.claude/plans*`) into the
+   product commit.
 
 ---
 

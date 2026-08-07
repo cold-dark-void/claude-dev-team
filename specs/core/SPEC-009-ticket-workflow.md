@@ -67,7 +67,13 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST resolve ticket source at intake when possible: `linear` (MCP hit), `backlog` (`.claude/backlog/<slug>.md` or index match), or `freeform` (paste)
 - MUST record a plan Tracking section with `source`, `ticket_id`, and `closes:` (zero or more `backlog/<slug>.md` and/or `linear:<ID>` entries); many-to-one closes allowed
 - MUST close every plan `closes:` backlog item (item file Status + index line via write-through) as part of ship on the feature worktree — local status flip only; MUST NOT stage or commit `.claude/backlog*` into the product delivery commit (CDT-54)
-- MUST attempt Linear Done (or equivalent) when `closes:` lists `linear:<ID>` or source is linear and Linear MCP is available; fail-open with a warning if MCP is unavailable
+- MUST close local backlog write-through for plan `closes:` backlog entries at ship (item Status + index via `close.sh`); fail-open Linear separately
+- **Linear lifecycle (status truth = code location):**
+  - **In Progress** when work starts (orchestrate worktree)
+  - **In Review** when a PR is opened or ship is PR-stop / not yet on master — MUST NOT mark **Done** while changes exist only on a feature/integration branch
+  - **Done** (or team Released) only when work is on **master/main** (successful squash/merge/`/release`) **or** at `/wrap-ticket` after merge (idempotent re-Done safety net)
+- MUST attempt Linear **In Review** (not Done) on PR-stop when `closes:` lists `linear:<ID>` or source is linear and MCP is available; fail-open with a warning if MCP is unavailable
+- MUST attempt Linear **Done** on master-land ship paths and on wrap-ticket when MCP is available; fail-open with a warning if MCP is unavailable
 - MUST NOT block ship on empty `closes:` (freeform); MUST block ship if a non-empty backlog close fails verify on local write-through
 - MUST use worktree root (`git rev-parse --show-toplevel` or explicit `--root`) when editing local backlog write-through files for close-out — not `git-common-dir` alone
 
@@ -94,6 +100,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST use `INSERT OR REPLACE` when writing back to DB memory
 - MUST preserve SQL escaping for single quotes in DB writes
 - MUST idempotently re-close source tracking from the plan `closes:` list (or ticket-id backlog slug fallback) via `skills/backlog/close.sh` — safety net when ship close-out was skipped
+- MUST attempt Linear **Done** when MCP is available and a Linear id is known (plan `linear:<ID>`, ticket id, or backlog `linear_id`) — this is the primary terminal for PR-stop tickets left In Review; fail-open if MCP unavailable
 
 ### Backlog
 - MUST auto-initialize local backlog structure if missing (silently for add/close) — local files are a **mandatory write-through cache**, not optional
@@ -216,7 +223,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - [ ] Orchestrate creates PR within LOC caps
 - [ ] Standup correctly identifies READY vs WAITING tasks
 - [ ] Wrap-ticket extracts 3-8 specific learnings
-- [ ] Ship closes backlog write-through + Linear Done without staging `.claude/backlog*` into product commits
+- [ ] Ship closes backlog write-through; Linear In Review on PR-stop / Done on master-land; wrap Done safety net; no staging `.claude/backlog*` into product commits
 - [ ] `/backlog reconcile` is idempotent (second run is a no-op) and degrades cleanly with Linear absent
 - [ ] `/backlog add` on an existing slug produces no silent duplicate index row
 - [ ] `bash skills/backlog/test.sh` passes
@@ -227,6 +234,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - [x] ~~Should orchestrate's LOC caps apply to generated code?~~ **Resolved: No** — caps apply to hand-written implementation only. Generated code (specs, tests) is exempt.
 - [ ] Is the 30-minute staleness threshold for standup appropriate for all project sizes?
 - [x] ~~Should wrap-ticket automatically close the Linear issue, or just suggest it?~~ **Resolved: attempt Done when MCP available (fail-open); checklist remains for manual verify. Backlog close is automatic via close.sh.**
+- [x] ~~Done at PR-open?~~ **No — Linear In Review until master; Done at master-land or wrap (post-merge).**
 - [ ] Should kickoff auto-invoke brainstorm when ticket text is <50 words (too vague)?
 
 ## Version History
@@ -252,6 +260,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 | 2026-07-14 | Cross-ref SPEC-028 (`/fix-ticket`); no behavioral change to orchestrate/kickoff/wrap-ticket. |
 | 2026-07-22 | CDT-53 reflect: spawn-template audit names `/spec reflect` (was `/reflect-specs`). Status stays ACTIVE. |
 | 2026-07-28 | Reconcile now PRUNES terminal items (deletes item file + drops index row) instead of moving them to `## Completed` — local write-through is a disposable cache, Linear/git history is the durable record. Added orphan-file scan (item files with no index row): terminal-status orphans pruned, open/unrecognized-status orphans reported and left untouched (never auto-indexed, never silently deleted). Fixes CDT-54's local backlog never actually shrinking despite Linear being SoT. |
+| 2026-08-07 | Linear lifecycle: In Progress → In Review (PR-stop / off-master) → Done only on master-land or `/wrap-ticket` post-merge. PR-open MUST NOT set Done. |
 
 ## Cross-references
 

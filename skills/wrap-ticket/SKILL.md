@@ -12,7 +12,8 @@ description: |
 Close out a shipped ticket cleanly. Checks the task system, captures learnings before
 context is lost, removes the worktree, and leaves the project in a clean state.
 
-Run this after the PR is merged and released.
+Run this after the PR is merged and released. **Linear Done lives here** (or at
+orchestrate master-land) — not at PR-open. PR-stop leaves Linear **In Review**.
 
 ## Arguments
 
@@ -333,14 +334,28 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 bash "$CLOSE" "<slug>" --root "$ROOT" --ticket "$TICKET_ID" --status "FIXED/CLOSED" 2>/dev/null \
   || bash "$CLOSE" "$TICKET_ID" --root "$ROOT" --ticket "$TICKET_ID" 2>/dev/null \
   || true
-# Linear: if MCP available and plan lists linear:<ID> (or source was linear), set Done.
-# Fail-open with a note if MCP missing.
+# Linear terminal (Done): owner surface when wrap runs after merge.
+# SPEC-009: Done = on master / wrap — not PR-open. Orchestrate PR-stop leaves
+# Linear at In Review; this step promotes to Done.
 ```
 
-Idempotent — safe when Step 11 already closed the item. Print how many backlog
-slugs closed/verified. When no local write-through exists (Linear-only /
-post-hygiene), `close.sh` exits 0 with a calm skip line — not `error:`-shaped
-(CDT-63). Local write-through stays on disk only — **MUST NOT** stage or commit
+**Linear Done at wrap (required when MCP up):**
+
+1. Resolve Linear id from plan `closes: linear:<ID>`, issue id = `TICKET_ID`, or
+   backlog item `linear_id` frontmatter.
+2. If MCP up: `save_issue` state → **Done** (or team Released equivalent) + short
+   comment (merged / wrap + SHA or release tag if known). Fail-open one line if
+   MCP errors: `Linear unreachable — local close only.`
+3. If already Done: no-op (idempotent).
+4. If still In Progress and no merge evidence: still set Done only when wrap is
+   intentionally run post-ship (wrap contract = after merge); do not set Done
+   mid-flight for open PRs you are not wrapping.
+
+Idempotent — safe when Step 11 already closed the item **and** when Linear was
+left In Review at PR-stop. Print how many backlog slugs closed/verified + Linear
+status. When no local write-through exists (Linear-only / post-hygiene),
+`close.sh` exits 0 with a calm skip line — not `error:`-shaped (CDT-63). Local
+write-through stays on disk only — **MUST NOT** stage or commit
 `.claude/backlog*` / `.claude/plans*` as product (SPEC-009).
 
 ---
@@ -529,7 +544,8 @@ Automated:
   ✅ Worktree removed
 
 Manual checklist (copy to Linear comment):
-  [ ] Linear ticket moved to Done / Released (if MCP did not already)
+  [ ] Linear ticket Done (wrap sets this when MCP up; verify if fail-open)
+  [ ] PR was In Review until merge — not Done-before-master
   [ ] PR link attached to Linear ticket
   [ ] Release version noted: v<X.Y.Z>
   [ ] Stakeholders notified (if required)

@@ -144,12 +144,17 @@ For **this autopilot merge path only**, the "Tracking close-out (ship DoD)" bloc
 `/release` aborts at one of its pre-commit gates (§5), the release never commits, so the trackers
 **stay open** (correct — nothing shipped; closing them would falsely mark a ship that never
 happened). Only once `/release` has committed, tagged, and pushed does autopilot close the
-`closes:` trackers (local backlog write-through + Linear Done) exactly as that block specifies.
+`closes:` trackers (local backlog write-through + Linear **Done** — this path lands on
+master, so Done is correct per SPEC-009 Linear lifecycle) exactly as that block specifies.
 
-Every other path keeps the block's **before-commit** ordering unchanged: interactive PR,
-interactive squash (its own `git commit`), and the autopilot `pr` (PR-stop) path all close
-trackers before finalizing the delivery commit, as they do today. This procedure reorders the
-closeout for the autopilot merge path **only** and does not move or alter the interactive block.
+Every other path keeps the block's **before-commit** ordering for **local** backlog;
+**Linear** is path-dependent (SPEC-009 / orchestrate Step 11 lifecycle):
+- autopilot **`pr` (PR-stop):** Linear → **In Review** only (MUST NOT Done)
+- interactive squash after commit on master: Linear → **Done**
+- this merge/`/release` path: Linear → **Done** after `/release` succeeds
+
+This procedure reorders the closeout for the autopilot merge path **only** and does not
+move or alter the interactive block.
 
 ## 6.5 Dirty-tree cleanup when `/release` aborts at a gate (AC5)
 

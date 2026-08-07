@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.6.3
+- **Linear lifecycle: Done only on master / wrap** — PR-stop and off-master ship set Linear **In Review** (not Done); **Done** only after squash/merge/`/release` lands on master, or `/wrap-ticket` post-merge (idempotent). Fixes Done-before-master footgun. SPEC-009 + orchestrate Step 11 + wrap-ticket + end-state + epic sync status map (In Review stays open for walkers).
+
 ### v1.6.2
 - **M15 `/epic sync` — refresh stale `state.json` from Linear** — explicit `sync <EPIC-ID> [--dry-run]`: inventory parented issues, fill null `linear_id`/`linear_project_id`, pull status forward; never re-open `completed`; orphans report-only (no auto-add); MCP down → M5 notice + zero mutation. Mechanical `epic-lib sync-apply` (session owns MCP); resume tip only (no auto-sync). SPEC-025 M15 + skill Mode F + commands/docs + tests.
 
