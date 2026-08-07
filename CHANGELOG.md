@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.3
+- **Fix standup WAITING fence path (CDT-168)** — `skills/standup/SKILL.md` Step 4 WAITING-dep status resolves `skills/orchestrate/dag-lib.sh` (which implements `status-of`) instead of nonexistent `skills/task-dag.sh`. SPEC-002 resolution-site table row 17 drops the phantom `TASK_DAG` path; single `DAG_LIB` for both `ready-set` and `status-of` (soft fail-mode unchanged).
+
 ### v1.7.2
 - **Fix vec0 extension path in `/memory validate --reconcile` (CDT-172)** — `skills/validate-memory/reconcile-lib.sh` no longer double-`dirname`s `memory.db` into nested `.claude/.claude/memory/extensions`. Derives `ext_dir` as sibling-of-memdb (`$(dirname "$MEMDB")/extensions`), matching `embed-one.sh` / `download-extensions.sh`, so KNN can load an installed `vec0` instead of silently falling back to keyword. Regression tests cover path-correct → `method=embed`, absent / nested-wrong-path → `method=keyword`.
 
