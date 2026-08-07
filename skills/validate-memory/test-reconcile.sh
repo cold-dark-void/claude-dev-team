@@ -361,6 +361,96 @@ print(bad)
   fi
 }
 
+# ---- T15: path-correct — vec0 at sibling-of-memdb → method=embed (AC-1/2/3)
+{
+  R="$TMP/ext_ok"
+  make_v4_db "$R"
+  DB="$R/.claude/memory/memory.db"
+  seed_contradiction "$DB"
+  sqlite3 "$DB" <<'SQL'
+INSERT OR REPLACE INTO config(key,value) VALUES
+  ('embedding_mode','lembed'),
+  ('embedding_dimensions','384');
+CREATE TABLE IF NOT EXISTS vec_memories_384 (memory_id INTEGER, embedding BLOB);
+SQL
+  SUFFIX=so
+  [ "$(uname -s)" = "Darwin" ] && SUFFIX=dylib
+  mkdir -p "$R/.claude/memory/extensions"
+  : >"$R/.claude/memory/extensions/vec0.$SUFFIX"
+  OUTF="$TMP/ext_ok.jsonl"
+  META=$(bash "$LIB" candidates "$DB" --out "$OUTF" 2>&1)
+  RC=$?
+  METHOD=$(echo "$META" | grep RECONCILE_META | sed -n 's/.*method=\([^ ]*\).*/\1/p')
+  NESTED_TOUCHED=0
+  [ -e "$R/.claude/.claude" ] && NESTED_TOUCHED=1
+  if [ "$RC" = "0" ] && [ "$METHOD" = "embed" ] && [ "$NESTED_TOUCHED" = "0" ]; then
+    pass "path-correct: vec0 at memory/extensions → method=embed"
+  else
+    fail "path-correct (rc=$RC method=$METHOD nested=$NESTED_TOUCHED meta=$META)"
+  fi
+}
+
+# ---- T16: path-absent — eligible embed config, no vec0 → method=keyword (AC-4)
+{
+  R="$TMP/ext_absent"
+  make_v4_db "$R"
+  DB="$R/.claude/memory/memory.db"
+  seed_contradiction "$DB"
+  sqlite3 "$DB" <<'SQL'
+INSERT OR REPLACE INTO config(key,value) VALUES
+  ('embedding_mode','lembed'),
+  ('embedding_dimensions','384');
+CREATE TABLE IF NOT EXISTS vec_memories_384 (memory_id INTEGER, embedding BLOB);
+SQL
+  OUTF="$TMP/ext_absent.jsonl"
+  META=$(bash "$LIB" candidates "$DB" --out "$OUTF" 2>&1)
+  RC=$?
+  METHOD=$(echo "$META" | grep RECONCILE_META | sed -n 's/.*method=\([^ ]*\).*/\1/p')
+  if [ "$RC" = "0" ] && [ "$METHOD" = "keyword" ]; then
+    pass "path-absent: no vec0 → method=keyword"
+  else
+    fail "path-absent (rc=$RC method=$METHOD meta=$META)"
+  fi
+}
+
+# ---- T17: path-nested-only — dummy only at .claude/.claude/... → keyword (AC-5)
+{
+  R="$TMP/ext_nested"
+  make_v4_db "$R"
+  DB="$R/.claude/memory/memory.db"
+  seed_contradiction "$DB"
+  sqlite3 "$DB" <<'SQL'
+INSERT OR REPLACE INTO config(key,value) VALUES
+  ('embedding_mode','lembed'),
+  ('embedding_dimensions','384');
+CREATE TABLE IF NOT EXISTS vec_memories_384 (memory_id INTEGER, embedding BLOB);
+SQL
+  SUFFIX=so
+  [ "$(uname -s)" = "Darwin" ] && SUFFIX=dylib
+  mkdir -p "$R/.claude/.claude/memory/extensions"
+  : >"$R/.claude/.claude/memory/extensions/vec0.$SUFFIX"
+  # correct path must NOT exist
+  rm -f "$R/.claude/memory/extensions/vec0.$SUFFIX" 2>/dev/null || true
+  OUTF="$TMP/ext_nested.jsonl"
+  META=$(bash "$LIB" candidates "$DB" --out "$OUTF" 2>&1)
+  RC=$?
+  METHOD=$(echo "$META" | grep RECONCILE_META | sed -n 's/.*method=\([^ ]*\).*/\1/p')
+  if [ "$RC" = "0" ] && [ "$METHOD" = "keyword" ]; then
+    pass "path-nested-only: wrong .claude/.claude path ignored → keyword"
+  else
+    fail "path-nested-only (rc=$RC method=$METHOD meta=$META)"
+  fi
+}
+
+# ---- T18: static — no mroot_guess / double-dirname of memdb (AC-2)
+{
+  if grep -E 'mroot_guess|dirname "\$\(dirname' "$LIB" >/dev/null 2>&1; then
+    fail "static: mroot_guess or double-dirname still in reconcile-lib"
+  else
+    pass "static: no mroot_guess / double-dirname of memdb"
+  fi
+}
+
 # ---- summary --------------------------------------------------------------
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

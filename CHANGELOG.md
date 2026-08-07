@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.2
+- **Fix vec0 extension path in `/memory validate --reconcile` (CDT-172)** — `skills/validate-memory/reconcile-lib.sh` no longer double-`dirname`s `memory.db` into nested `.claude/.claude/memory/extensions`. Derives `ext_dir` as sibling-of-memdb (`$(dirname "$MEMDB")/extensions`), matching `embed-one.sh` / `download-extensions.sh`, so KNN can load an installed `vec0` instead of silently falling back to keyword. Regression tests cover path-correct → `method=embed`, absent / nested-wrong-path → `method=keyword`.
+
 ### v1.7.1
 - **Fix stale "DEPRECATED / disappears at v1.1" discovery copy on protocol-retained backends** — `skills/{init-orchestration,scaffold-project,standup,fix-ticket}` frontmatter + hub/docs/spec wording now describe them as permanent internal skill-delegate backends for `/setup`, `/status standup`, and `/debug ticket` (v1.1 deleted the old slash commands, not these bodies). Stops skill discovery from advertising a removal that was never supposed to happen.
 

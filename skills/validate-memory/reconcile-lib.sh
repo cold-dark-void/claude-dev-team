@@ -186,10 +186,12 @@ cmd_candidates() {
     has_vec=$(sqlite3 -cmd ".timeout 5000" "$memdb" \
       "SELECT 1 FROM sqlite_master WHERE type='table' AND name='$vec_table' LIMIT 1;" 2>/dev/null || true)
     if [ "$has_vec" = "1" ]; then
-      # Try embedding KNN path — requires vec0 extension at MROOT/extensions
-      local mroot_guess
-      mroot_guess=$(dirname "$(dirname "$memdb")")
-      local ext_dir="$mroot_guess/.claude/memory/extensions"
+      # Try embedding KNN path — vec0 is sibling-of-memdb:
+      #   MEMDB=<root>/.claude/memory/memory.db
+      #   → ext_dir=<root>/.claude/memory/extensions  (same formula as embed-one.sh)
+      local mem_dir
+      mem_dir=$(dirname "$memdb")
+      local ext_dir="$mem_dir/extensions"
       local ext_suffix=so
       [ "$(uname -s)" = "Darwin" ] && ext_suffix=dylib
       if [ -f "$ext_dir/vec0.$ext_suffix" ]; then
