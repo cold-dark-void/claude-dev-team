@@ -9,8 +9,9 @@ Surface — do not merge their protocols.
 | `orchestration` | init-orchestration skill | Agent Teams: sandbox, hooks, `dontAsk`, AGENTS.md team section |
 | `team` | former init-team command | Memory bootstrap: SQLite DB, embedding extensions, project-init scan |
 
-Prefer this surface over the init-team / scaffold-project / init-orchestration
-discovery paths (deprecated stubs or skill tombstones as of v1.0.0).
+Prefer this surface. Old slash names (`/init-team`, `/scaffold-project`,
+`/init-orchestration`) were removed at v1.1; scaffold and orchestration
+protocol lives under `skills/` as permanent skill-delegate backends.
 
 ## Usage
 

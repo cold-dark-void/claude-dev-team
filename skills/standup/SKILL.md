@@ -1,15 +1,16 @@
 ---
 name: standup
 description: >
-  DEPRECATED — standup (agent-team status snapshot) was removed at v1.0.0
-  (CDT-46-C4). This stub disappears at v1.1.
+  Internal protocol for /status standup — agent-team task snapshot (TaskList +
+  file-store reconcile). Not a user entry; invoke via /status standup.
 ---
 
-# Standup (protocol retained for /status)
+# Standup (backend for `/status standup`)
 
 > **Entry:** `/status standup [TICKET-ID]` (also bare `/status` sequence).
-> Discovery Surface is `/status` — this file is **not** a primary skill.
-> Protocol body kept for skill-delegate from `commands/status.md` (CDT-46-C4).
+> This file is the skill-delegate backend for `commands/status.md` — not a
+> primary slash command. The old `/standup` command was removed at v1.1; this
+> protocol body is permanent (v1.1 contract: protocol-retained backends).
 
 Get an instant status snapshot of active agent team work. Reads the task system and each
 agent's working memory to surface blockers, stale work, and next actions — without

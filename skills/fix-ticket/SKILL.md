@@ -1,16 +1,17 @@
 ---
 name: fix-ticket
 description: >
-  DEPRECATED — fix-ticket (premise→implement→refuters pipeline) was removed at
-  v1.0.0 (CDT-46-C4). This stub disappears at v1.1.
+  Internal protocol for /debug ticket — premise→implement→refuters pipeline
+  (SPEC-028). Not a user entry; invoke via /debug ticket.
 ---
 
-# fix-ticket (protocol retained for /debug ticket)
+# fix-ticket (backend for `/debug ticket`)
 
 > **Entry:** `/debug ticket <ticket-id> "<bug/premise>" […]`.
-> Discovery Surface is `/debug` — this file is **not** a primary skill.
-> Protocol body + `prompts/` + `templates/` kept for skill-delegate from
-> `skills/debug/SKILL.md` ticket mode (CDT-46-C4).
+> This file is the skill-delegate backend for ticket mode — not a primary
+> slash command. The old `/fix-ticket` command was removed at v1.1; protocol
+> body + `prompts/` + `templates/` are permanent (v1.1 contract: protocol-retained
+> backends; host is `skills/debug/SKILL.md` ticket mode).
 
 Protocol for `/debug ticket` (SPEC-028). Orchestrator-driven Task-spawn pipeline:
 

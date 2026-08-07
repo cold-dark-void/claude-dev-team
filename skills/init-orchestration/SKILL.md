@@ -1,16 +1,17 @@
 ---
 name: init-orchestration
 description: >
-  DEPRECATED — init-orchestration (Agent Teams bootstrap) was removed at v1.0.0
-  (CDT-46-C4). This stub disappears at v1.1.
+  Internal protocol for /setup orchestration — Agent Teams bootstrap (settings,
+  hooks, AGENTS.md seed). Not a user entry; invoke via /setup orchestration.
 ---
 
-# Init Orchestration (protocol retained for /setup)
+# Init Orchestration (backend for `/setup orchestration`)
 
 > **Entry:** `/setup orchestration`.
-> Discovery Surface is `/setup` — this file is **not** a primary skill.
-> Protocol body kept for skill-delegate from `commands/setup.md` (CDT-46-C4).
-> Live helpers retained: `check-hook-templates.sh` (template-internal hygiene
+> This file is the skill-delegate backend for `commands/setup.md` — not a
+> primary slash command. The old `/init-orchestration` command was removed at
+> v1.1; this protocol body is permanent (v1.1 contract: protocol-retained backends).
+> Live helpers: `check-hook-templates.sh` (template-internal hygiene
 > gate — extractability/shebang/`bash -n`; dual-copy live-vs-template retired
 > CDT-54); `disclose-force-overwrite.sh` (CDT-51 AC5 force-overwrite disclosure);
 > `normalize-hook-paths.sh` (CDT-69 Step 1 absolute/relative hook-path upgrade);

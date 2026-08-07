@@ -5,7 +5,7 @@
 **Created**: 2026-07-14
 **Issue**: CDV-197
 
-**Covers**: `/debug ticket` entry via `commands/debug.md` + `skills/debug/SKILL.md` (SPEC-014 host); `commands/fix-ticket.md` + `skills/fix-ticket/` (Deprecation stubs, protocol retained); optional `skills/fix-ticket/workflow.js`
+**Covers**: `/debug ticket` entry via `commands/debug.md` + `skills/debug/SKILL.md` (SPEC-014 host); `skills/fix-ticket/` (internal skill-delegate backend; old `/fix-ticket` command removed at v1.1); optional `skills/fix-ticket/workflow.js`
 
 > **Entry Surface (CDT-46-C4 / CDT-52):** user entry is `/debug ticket …` via `commands/debug.md` + `skills/debug/SKILL.md` (SPEC-014 host). `commands/fix-ticket.md` and `skills/fix-ticket/` are one-cycle Deprecation stubs. **This spec is DEPRECATED (file retained)** — protocol MUSTs below remain authoritative for the `/debug ticket` pipeline until v1.1 full merge into SPEC-014.
 

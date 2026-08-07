@@ -858,8 +858,8 @@ If any item is unchecked, continue investigation until it can be populated.
 Premise→implement→adversarial-refuters pipeline for a **known** bug ticket.
 Behavioral home remains `specs/core/SPEC-028-fix-ticket-workflow.md` (full
 fold into SPEC-014 is W5 OOS). This mode **delegates** to
-`skills/fix-ticket/SKILL.md` (+ prompts/templates) — discovery DEPRECATED
-(CDT-46-C4 T8) but protocol body retained for this skill-delegate path.
+`skills/fix-ticket/SKILL.md` (+ prompts/templates) — permanent internal
+backend for this skill-delegate path (old `/fix-ticket` command removed at v1.1).
 
 **Does NOT run:** Steps 0b–0c, SPEC-029 gates, full/patch/arch pipelines,
 theme log, root-cause triad, or self-calibration checklist from this skill.

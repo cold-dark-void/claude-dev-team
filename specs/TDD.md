@@ -12,7 +12,7 @@
 | SPEC-006 | Memory Retrieval & Search | ACTIVE | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
 | SPEC-007 | Memory Distillation | ACTIVE | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
 | SPEC-008 | Spec Management | ACTIVE | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
-| SPEC-009 | Ticket Workflow | ACTIVE | skills/kickoff, orchestrate, brainstorm, commands/status.md (`/status` + standup), standup (tombstone), wrap-ticket, backlog |
+| SPEC-009 | Ticket Workflow | ACTIVE | skills/kickoff, orchestrate, brainstorm, commands/status.md (`/status` + standup), skills/standup (backend), wrap-ticket, backlog |
 | SPEC-010 | Code Review & Release | ACTIVE | skills/review-and-commit, release (Step 4.7 dual-copy hook gate retired/reduced — CDT-54) |
 | SPEC-011 | Memory Validation | ACTIVE | commands/memory.md (`/memory validate`), skills/memory validate (stub), `/memory distill` integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |

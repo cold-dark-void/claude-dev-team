@@ -64,8 +64,8 @@ is soft-advisory only. Marketplace install has no doctor gate.
 
 | `<sub>` | Strategy | Source / target |
 |---------|----------|-----------------|
-| `project` | **skill-delegate** | `skills/scaffold-project/SKILL.md` (protocol retained; discovery DEPRECATED) |
-| `orchestration` | **skill-delegate** | `skills/init-orchestration/SKILL.md` (protocol retained; discovery DEPRECATED) |
+| `project` | **skill-delegate** | `skills/scaffold-project/SKILL.md` (internal backend) |
+| `orchestration` | **skill-delegate** | `skills/init-orchestration/SKILL.md` (internal backend) |
 | `team` | **inline** | former `commands/init-team.md` body; flags pass through |
 
 The three protocols stay distinct (greenfield scaffold vs brownfield orchestration

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.1
+- **Fix stale "DEPRECATED / disappears at v1.1" discovery copy on protocol-retained backends** — `skills/{init-orchestration,scaffold-project,standup,fix-ticket}` frontmatter + hub/docs/spec wording now describe them as permanent internal skill-delegate backends for `/setup`, `/status standup`, and `/debug ticket` (v1.1 deleted the old slash commands, not these bodies). Stops skill discovery from advertising a removal that was never supposed to happen.
+
 ### v1.7.0
 - **`/bug-hunt` full stages 1–4 (CDT-97 epic)** — productized July bug-hunt playbook as a first-class surface: discover → refute/confirm → findings plan + proceed-gated backlog materialize → phased `/orchestrate`|`/epic` handoff with user locks. Thin `commands/bug-hunt.md` + `skills/bug-hunt/` protocol; process under `.claude/bug-hunt/` (gitignored). Static suite `skills/bug-hunt/test.sh` (206 checks).
 - **SPEC-034 bug-hunt product contract (CDT-97-C1 / CDT-140)** — DRAFT core spec locks surface, stages/locks, finding model (`locator`/`severity`/`description`/`evidence`/`status`), floor filter, composition boundaries, phase-done metrics, when-to-use matrix, non-goals; runtime add-ons M31–M48 (discover-refute, materialize, stage-4 handoff) + Covers for command/skill.

@@ -1,15 +1,16 @@
 ---
 name: scaffold-project
 description: >
-  DEPRECATED — scaffold-project (TDD project scaffold) was removed at v1.0.0
-  (CDT-46-C4). This stub disappears at v1.1.
+  Internal protocol for /setup project — TDD project scaffold (AGENTS.md,
+  specs/TDD.md, settings allowlist). Not a user entry; invoke via /setup project.
 ---
 
-# Scaffold Project with TDD Workflow (protocol retained for /setup)
+# Scaffold Project with TDD Workflow (backend for `/setup project`)
 
 > **Entry:** `/setup project`.
-> Discovery Surface is `/setup` — this file is **not** a primary skill.
-> Protocol body kept for skill-delegate from `commands/setup.md` (CDT-46-C4).
+> This file is the skill-delegate backend for `commands/setup.md` — not a
+> primary slash command. The old `/scaffold-project` command was removed at
+> v1.1; this protocol body is permanent (v1.1 contract: protocol-retained backends).
 
 This skill sets up a complete project structure for AI agent collaboration using the TDD.md specification workflow.
 

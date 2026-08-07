@@ -17,7 +17,7 @@ Engines stay live (do not re-implement aggregation here):
 
 | Engine | Path |
 |--------|------|
-| Standup logic | `skills/standup/SKILL.md` (protocol retained; discovery DEPRECATED) |
+| Standup logic | `skills/standup/SKILL.md` (internal backend) |
 | Metrics rollup | `skills/metrics/rollup.sh` |
 | Worktree list | `skills/worktree-lib.sh status` |
 
@@ -80,11 +80,11 @@ constraints apply to every step.
 
 Pass-through: optional `TICKET-ID` only. No flags on the current surface.
 
-Standup discovery is DEPRECATED (CDT-46-C4 T8) but the protocol body is retained
-as the skill-delegate backend — do not pure-stub it. Behavior parity with
-`skills/standup/SKILL.md` MUST hold (TaskList + file-store reconcile, context.md
-mtime staleness, READY via `dag-lib.sh ready-set`, epic rollup, escalation
-surface only — never auto-send).
+User entry is `/status standup` only (old `/standup` command removed at v1.1).
+`skills/standup/SKILL.md` is the permanent skill-delegate backend — do not
+pure-stub or delete it. Behavior parity with that skill MUST hold (TaskList +
+file-store reconcile, context.md mtime staleness, READY via `dag-lib.sh ready-set`,
+epic rollup, escalation surface only — never auto-send).
 
 Standup is **read-only**: MUST NOT call `TaskUpdate`, `TaskCreate`, SendMessage,
 or any task-store mutator. Surface suggested actions; do not execute them.
@@ -194,4 +194,4 @@ surface stderr if it occurs.
 - **No `release`** — this command must not invoke worktree release or any
   force-remove path. Release lives on `/worktree` only.
 - Engines stay live: `rollup.sh`, `worktree-lib.sh`, and standup protocol body
-  under `skills/standup/SKILL.md` (discovery DEPRECATED; skill-delegate retained).
+  under `skills/standup/SKILL.md` (internal skill-delegate backend).

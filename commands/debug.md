@@ -57,6 +57,6 @@ Read `$SKILL` and execute it end-to-end with the user arguments unchanged.
 ## Notes
 
 - Protocol body: `skills/debug/SKILL.md`
-- Ticket pipeline assets (protocol retained; discovery DEPRECATED): `skills/fix-ticket/`
+- Ticket pipeline assets (internal backend for `/debug ticket`): `skills/fix-ticket/`
 - Specs: `specs/core/SPEC-014-debug-workflow.md`, `SPEC-028-fix-ticket-workflow.md`, `SPEC-029`
 - Docs: `docs/commands/debug.md`
