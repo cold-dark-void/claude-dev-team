@@ -168,7 +168,7 @@ Measured at **v1.3.0: 26 caller files, 110 emissions, all byte-identical** (`gre
 | 14 | `skills/orchestrate/SKILL.md` | `WT_LIB`, `DAG_LIB`, `TASK_STORE`, `SIDECAR_CLI`, `DETECT_CLI`, plus `skills/metrics/emit-outcome.sh`, `skills/metrics/outcome-rates.sh`, `skills/notify/webhook.sh`, `skills/backlog/close.sh`; retro-gate hint self-locates | hard (exit codes preserved) / soft (hint, metrics, notify) |
 | 15 | `skills/orchestrate/SKILL.md` Step 8.5 → ci-watch cron prompt | arming-time `PLUGIN=$(… dir skills/ci-watch/poll.sh \| xargs dirname \| xargs dirname)`; the detached cron prompt then addresses helpers as `<PLUGIN>/skills/…` (it cannot re-run the bootstrap stanza; the data-file read keeps `<MROOT>`) | self-contained prompt |
 | 16 | `skills/wrap-ticket/SKILL.md` | `WT_LIB=$(… file skills/worktree-lib.sh)`; `SIDECAR_CLI=$(… file skills/ci-watch/sidecar.sh)`; `CLOSE=$(… file skills/backlog/close.sh)` | soft (cleanup never halts) |
-| 17 | `skills/standup/SKILL.md` | `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; `TASK_DAG=$(… file skills/task-dag.sh)`; then `ready-set` / `status-of` | soft |
+| 17 | `skills/standup/SKILL.md` | `DAG_LIB=$(… file skills/orchestrate/dag-lib.sh)`; then `ready-set` / `status-of` | soft |
 | 18 | `skills/review-and-commit/SKILL.md` | `ENGINE_SH=$(… file skills/council/engine.sh)`; `SCAN=$(… file skills/security-scan/scan.sh)` | hard (engine) / fail-open (scan) |
 | 19 | `skills/refactor/SKILL.md` (CDT-98) | `WT_LIB=$(… file skills/worktree-lib.sh)`; `EPIC_LIB=$(… file skills/epic/epic-lib.sh)` | hard (worktree release failure halts before handoff) |
 | 20 | `skills/ci-watch/SKILL.md` | `SIDECAR_CLI=$(… file skills/ci-watch/sidecar.sh)` | soft |
