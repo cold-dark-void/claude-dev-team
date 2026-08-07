@@ -20,6 +20,62 @@ committed separately, and it does NOT create a standalone `chore: release` commi
 
 **Usage**: `/release [patch|minor|major|vX.Y.Z]`
 
+## Step 0: Epic release=end precheck (CDT-141-C4)
+
+**Before any version-file edit, commit, tag, or push**, hard-fail mid-epic
+`/release` when durable epic state has `release_bump` set and seal is not done.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+
+# Resolve ticket-or-epic (first non-empty wins):
+# 1) explicit ticket from session / orchestrate ISSUE-ID
+# 2) EPIC_RELEASE_END env (B.4 handoff sets epic id when release_bump set)
+# 3) EPIC_ID env
+# 4) branch: feat/epic-<ID> or feat/<CHILD-ID>
+# 5) cwd under .worktrees/epic-<ID> or .worktrees/<CHILD>
+REF="${RELEASE_TICKET:-}"
+[ -n "$REF" ] || REF="${EPIC_RELEASE_END:-}"
+[ -n "$REF" ] || REF="${EPIC_ID:-}"
+if [ -z "$REF" ]; then
+  BR=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  case "$BR" in
+    feat/epic-*) REF="${BR#feat/epic-}" ;;
+    feat/*)      REF="${BR#feat/}" ;;
+  esac
+fi
+if [ -z "$REF" ]; then
+  WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  base=$(basename "$WTROOT")
+  case "$base" in
+    epic-*) REF="${base#epic-}" ;;
+    *)      REF="$base" ;;
+  esac
+fi
+
+if [ -n "$REF" ] && [ "$REF" != "master" ] && [ "$REF" != "main" ] && [ "$REF" != "HEAD" ]; then
+  bash "$EPIC_LIB" assert-release-allowed "$REF" || {
+    # exit 64 — user-visible: "epic <ID> is in release=end mode until seal (CDT-141)"
+    # HALT: zero version bump, tag, push, or version-file change
+    exit 64
+  }
+fi
+```
+
+- **Halt** on exit 64: print the helper's stderr as-is; do **not** edit
+  `CHANGELOG.md` / `plugin.json`, do not commit/tag/push.
+- **Allow** when: no epic context; epic has `release_bump` null/absent; or
+  `sealed=true` (post-C5). C5 seal path may set `EPIC_ALLOW_SEAL_RELEASE=1`.
+- Guard reads **durable** `$MROOT/.claude/epics/<ID>/state.json` only — holds
+  across resume sessions while mode is active.
+
+Then continue to Step 1.
+
 ## Step 1: Determine new version
 
 Read `.claude-plugin/plugin.json` to get the current `"version"` field.

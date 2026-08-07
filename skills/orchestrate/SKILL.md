@@ -230,33 +230,55 @@ Wait for user confirmation before proceeding. This is the first escalation gate.
 A git worktree is an additional working tree linked to the same repository — it lets
 agents work on the issue branch in isolation without disturbing the main checkout.
 
+**CDT-141-C3 / epic shared integration:** when this ticket is an epic child of a
+`--worktree` epic (or `EPIC_INTEGRATION_PATH` is set to an existing integration
+tree), do **not** open a per-child worktree off master. Route through
+`epic-lib ensure-ticket-worktree` — it prints the shared path and skips
+`worktree-lib ensure <child-slug>`. Default (no epic shared tree): same as today.
+
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
-SLUG="<ISSUE-ID>"   # MUST be the bare issue ID exactly as-is (e.g. "CDV-42")
-                    # wrap-ticket detects the worktree at .worktrees/<ISSUE-ID> using
-                    # this exact value — a longer slug will break detection
-WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
-WT_PATH=$(bash "$WT_LIB" ensure "$SLUG") || {
+SLUG="<ISSUE-ID>"   # bare issue ID (e.g. "CDV-42" or "CDT-141-C3")
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+# Prefer ensure-ticket-worktree: shared integration when epic child + worktree_enabled,
+# else worktree-lib ensure <SLUG>. Honors EPIC_INTEGRATION_PATH from epic B.4 handoff.
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "$SLUG") || {
   EXIT=$?
   if [ "$EXIT" -eq 2 ]; then
     echo "Worktree setup aborted by user." >&2
   elif [ "$EXIT" -eq 64 ]; then
-    echo "worktree-lib.sh usage error, check slug" >&2
+    echo "ensure-ticket-worktree / worktree-lib usage error, check slug" >&2
   fi
   exit "$EXIT"
 }
+# Record whether this run is on a shared epic tree (for cleanup + re-derive).
+CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$SLUG")
+USE_SHARED=$(jq -r '.use_shared // false' <<<"$CHILD_WT")
+INT_SLUG=$(jq -r '.integration_slug // empty' <<<"$CHILD_WT")
 ```
 
-`worktree-lib.sh` creates the branch `feat/<SLUG>` automatically and prints the
-absolute worktree path to stdout — that value is captured in `WT_PATH`. Use
-`$WT_PATH` everywhere downstream that references the worktree location.
+When `USE_SHARED=true`: `$WT_PATH` is the epic integration path
+(`.worktrees/epic-<EPIC-ID>`), branch `feat/epic-<EPIC-ID>`. **Zero** new
+per-child trees. Child commits land on the integration branch.
 
-- **Exit 1** (unexpected error): git or filesystem failure in the lib; stderr will have details; halt.
+When `USE_SHARED=false`: same as pre-C3 — `worktree-lib` creates `feat/<SLUG>`
+and prints `.worktrees/<SLUG>`.
+
+- **Exit 1** (unexpected error): git or filesystem failure; stderr will have details; halt.
 - **Exit 2** (user aborted): halt cleanly.
-- **Exit 64** (usage error): unexpected — surface "worktree-lib.sh usage error, check slug" to stderr.
+- **Exit 64** (usage error): surface usage error to stderr.
 
-The worktree path comes from the lib's stdout (`$WT_PATH`) — all agent work happens there.
+Use `$WT_PATH` everywhere downstream. On later fences, re-derive:
+
+```bash
+# Shared epic child: resolve again (do NOT hardcode .worktrees/<ISSUE-ID>)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<ISSUE-ID>")
+# or, if USE_SHARED was true: WT_PATH=$(jq -r .integration_path <<<"$(bash "$EPIC_LIB" resolve-child-worktree "<ISSUE-ID>")")
+```
 
 If Linear is available, update issue status to "In Progress".
 
@@ -784,7 +806,10 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
-WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+# CDT-141-C3: shared epic children live under epic-<ID>, not .worktrees/<TICKET-ID>
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<TICKET-ID>" 2>/dev/null) \
+  || WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
 BRANCH=$(git -C "$WT_PATH" rev-parse --abbrev-ref HEAD) || BRANCH=""
 
 SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
@@ -1276,6 +1301,38 @@ Options:
 3. I need to review manually first
 ```
 
+### Epic release=end ship guard (CDT-141-C4)
+
+When this ticket is under an epic with durable `release_bump` set (release=end)
+and seal is not done, **forbid** mid-child squash-to-master and `/release`.
+Master must stay clean until end-of-epic seal (C5).
+
+```bash
+# Re-resolve PDH (fresh shell)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+RELEASE_END_BLOCKED=false
+_ASSERT_ERR=$(mktemp "${TMPDIR:-/tmp}/epic-assert-rel.XXXXXX")
+if ! bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" 2>"$_ASSERT_ERR"; then
+  RELEASE_END_BLOCKED=true
+  cat "$_ASSERT_ERR" >&2 || true
+fi
+rm -f "$_ASSERT_ERR"
+```
+
+When `RELEASE_END_BLOCKED=true`:
+
+- **Allowed:** Option 1 Create PR (PR-stop); Option 2/3 review; work stays on
+  the integration branch (`feat/epic-<EPIC-ID>`). Child wrap via `/wrap-ticket`
+  (does not release the integration tree — C3).
+- **Forbidden:** autopilot `merge` → end-state squash + `/release`; interactive
+  "If squash merge requested"; `--resume-ship` release path; any land onto
+  master/main. Print the assert message and **halt** those paths — master
+  unchanged, no version bump/tag/push.
+- Without `--release` on the parent epic (`release_bump` null/absent): assert
+  exits 0 — per-child release/merge unchanged.
+
 **Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the C3 §2
 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"ship-choice",
 run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
@@ -1297,7 +1354,10 @@ Act on the **post-council effective decision**:
   (detail = `shipped (PR): <PR URL>`) via **Passive notifications → Tier B** (fail-open; § below),
   then STOP — no `/release` (Tracking close-out below runs in its existing pre-delivery order).
   [PR-stop]
-- `merge` → run `skills/autopilot/end-state.md`'s release-end-state sequence: deterministic BC3
+- `merge` → **CDT-141-C4:** if `RELEASE_END_BLOCKED=true`, do **not** run end-state;
+  print `epic <ID> is in release=end mode until seal (CDT-141)` (from assert stderr),
+  emit `task_blocked` via Tier B (fail-open), and return — master unchanged. Else run
+  `skills/autopilot/end-state.md`'s release-end-state sequence: deterministic BC3
   push-target check (N3a) → `git merge --squash <branch>` (stage only, **no** `git commit`) →
   `/release <AUTOPILOT_BUMP>` (the sole commit + tag + push). Does **not** route through the
   interactive "If squash merge requested" block below (`autopilot_bump != null` is engine-guaranteed).
@@ -1347,6 +1407,9 @@ below; force-push or ship without `/release`.
 **Confirmed sequence (one orchestrated path — replace ad-hoc `/release` then
 `/wrap-ticket`):**
 
+0. **CDT-141-C4:** run `assert-release-allowed <ISSUE-ID>` first. On exit 64
+   (release=end mid-flight): print the message, **stop** — no squash, no
+   `/release`, master unchanged. (Seal is C5; resume-ship is not a seal.)
 1. Print plan summary: branch, worktree, proposed bump, last ship-choice card
    path (`$MROOT/.claude/autopilot/<ISSUE-ID>.jsonl` if present).
 2. Ask once: `Proceed with release <bump> + wrap-ticket <ISSUE-ID>? (y/n)` —
@@ -1392,7 +1455,9 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
-WT_PATH="$MROOT/.worktrees/<ISSUE-ID>"
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<ISSUE-ID>" 2>/dev/null) \
+  || WT_PATH="$MROOT/.worktrees/<ISSUE-ID>"
 # Prefer worktree root for --root when present (local write-through on branch tree).
 [ -d "$WT_PATH" ] || WT_PATH=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # For each plan closes: entry of form backlog/<slug>.md (or bare slug):
@@ -1447,10 +1512,20 @@ Tracking close-out for `linear:` entries).
 
 ### If squash merge requested (no PR):
 
+**CDT-141-C4:** if `RELEASE_END_BLOCKED=true` (or `assert-release-allowed
+<ISSUE-ID>` exits 64), **halt** — do not squash onto master; print the
+release=end message; master unchanged. Prefer PR-stop or leave work on the
+integration branch until epic seal (C5).
+
 Prefer plain git — do NOT require `gh`. Apply Tracking close-out on the feature
 worktree first (local write-through + Linear Done), then squash **product code only**:
 
 ```bash template
+# CDT-141-C4 precheck (re-resolve if fresh shell)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || exit 64
 # Tracking close-out on WT_PATH already done (above) — status flips only; do NOT
 # include .claude/backlog* or .claude/plans* in the squash tree.
 cd <main-repo-path>
@@ -1473,15 +1548,29 @@ available. Plain `git merge --squash` is the default merge path.
 
 ## Worktree cleanup
 
-**Prefer `worktree-lib.sh release <slug>`** — it handles EBUSY retry, branch
-deletion, and orphaned config-section cleanup in the right order. Use it
-instead of running `git worktree remove` + `git branch -D` by hand:
+**CDT-141-C3:** when this ticket used a **shared epic integration** worktree
+(`USE_SHARED=true` / `resolve-child-worktree.skip_release`), **MUST NOT** call
+`worktree-lib release` on the child slug **or** the `epic-<EPIC-ID>` integration
+slug — other children still need the tree. Prefer `/wrap-ticket <ISSUE-ID>` which
+also skips release when shared. Integration tree lifecycle is epic-owned (C5 seal
+/ end-of-epic), not per-child wrap.
+
+**Prefer `worktree-lib.sh release <slug>`** only for **non-shared** per-ticket
+trees — it handles EBUSY retry, branch deletion, and orphaned config-section
+cleanup. Use it instead of running `git worktree remove` + `git branch -D` by hand:
 
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
-WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
-bash "$WT_LIB" release "$SLUG"  # lint-ok: C1
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+SLUG="<ISSUE-ID>"
+CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$SLUG")
+if [ "$(jq -r '.skip_release // false' <<<"$CHILD_WT")" = "true" ]; then
+  echo "Shared epic integration worktree — skipping release of $SLUG / integration slug"
+else
+  WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+  bash "$WT_LIB" release "$SLUG"
+fi
 ```
 
 If you must do it by hand (squash-merge case where the lib refuses on

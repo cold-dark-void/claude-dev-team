@@ -203,41 +203,53 @@ invoking session's branch. This step is **mandatory**: without it, standalone
 `/kickoff <TICKET-ID>` commits the spec straight to whatever branch the session is on
 (the master-commit defect CDT-105 closes). Mirrors `/orchestrate` Step 3 exactly.
 
+**CDT-141-C3:** epic children under `--worktree` share the epic integration tree —
+use `ensure-ticket-worktree` (skips per-child ensure when shared). Default path
+unchanged.
+
 ```bash
 # Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (pre-release-safe sort -V). CDT-82: marketplace before same-version cache.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
-SLUG="<TICKET-ID>"  # MUST be the bare ticket ID exactly (e.g. "CDV-42") — no truncation
-                    # or sanitization from the description. A later /orchestrate <TICKET-ID>
-                    # reuses THIS tree via ensure's same-slug path; any altered slug would
-                    # fork a second worktree.
-WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
-WT_PATH=$(bash "$WT_LIB" ensure "$SLUG") || {
+SLUG="<TICKET-ID>"  # bare ticket ID exactly (e.g. "CDV-42" or "CDT-141-C3")
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+# Shared epic integration when applicable; else worktree-lib ensure <SLUG>.
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "$SLUG") || {
   EXIT=$?
   if [ "$EXIT" -eq 2 ]; then
     echo "Worktree setup aborted by user." >&2
   elif [ "$EXIT" -eq 64 ]; then
-    echo "worktree-lib.sh usage error, check slug" >&2
+    echo "ensure-ticket-worktree / worktree-lib usage error, check slug" >&2
   fi
   exit "$EXIT"
 }
+CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$SLUG")
+USE_SHARED=$(jq -r '.use_shared // false' <<<"$CHILD_WT")
 ```
 
-`worktree-lib.sh` creates the branch `feat/<TICKET-ID>` automatically and prints the
-absolute worktree path to stdout — captured in `WT_PATH`. Use `$WT_PATH` everywhere
-downstream that WRITES the spec, plan, or CONTEXT.md.
+When `USE_SHARED=true`: path is `.worktrees/epic-<EPIC-ID>` / branch
+`feat/epic-<EPIC-ID>` — **no** per-child tree. When false: `feat/<TICKET-ID>` as
+before. Use `$WT_PATH` everywhere downstream that WRITES the spec, plan, or CONTEXT.md.
 
 - **Exit 0**: proceed — `$WT_PATH` holds the worktree path.
-- **Exit 1** (unexpected error): git/filesystem failure in the lib; stderr has details; HALT.
+- **Exit 1** (unexpected error): git/filesystem failure; stderr has details; HALT.
 - **Exit 2** (user aborted / no TTY): halt cleanly, no error framing.
-- **Exit 64** (usage error): halt; report "worktree-lib.sh usage error, check slug".
+- **Exit 64** (usage error): halt; report usage error.
 
 Do **NOT** silently proceed on any non-zero exit — a single downstream path left
 pointing at `$MROOT` reintroduces the master-commit defect with no visible error.
 
 Each later `bash` fence is a fresh shell (SPEC-021 C1), so `$WT_PATH` does not survive
-across fences. Every subsequent step that needs it re-derives
-`WT_PATH="$MROOT/.worktrees/<TICKET-ID>"` at the top of its own fence.
+across fences. Re-derive via `ensure-ticket-worktree` (handles shared vs per-child):
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<TICKET-ID>")
+```
+
+Do **not** hardcode `.worktrees/<TICKET-ID>` when the ticket may be an epic shared child (that path will not exist — use ensure-ticket-worktree).
 
 ---
 
@@ -476,7 +488,11 @@ branch creation, plus any spec already written on this branch in a prior partial
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+# CDT-141-C3: shared epic path or per-ticket
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<TICKET-ID>")
 ls "$WT_PATH/specs/core/" | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
 # increment by 1
 ```
@@ -497,7 +513,11 @@ it lands on `feat/<TICKET-ID>`, never on the invoking branch:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+# CDT-141-C3: shared epic path or per-ticket
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<TICKET-ID>")
 git -C "$WT_PATH" add specs/
 git -C "$WT_PATH" commit -m "spec: <TICKET-ID> — add/update <feature area> spec"
 ```
@@ -583,7 +603,11 @@ Then detect quality-check mode:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+# CDT-141-C3: shared epic path or per-ticket
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<TICKET-ID>")
 # Re-resolve PDH (each bash fence is a fresh shell)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
@@ -628,7 +652,11 @@ Then update the plan file (in the worktree) to include the task IDs:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+# CDT-141-C3: shared epic path or per-ticket
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<TICKET-ID>")
 # Append task map to bottom of plan file
 echo "\n## Task Map\n" >> $WT_PATH/.claude/plans/<plan-file>.md
 # For each task: "- Task N (id:<ID>): <title> [depends on: ...]"
@@ -658,7 +686,11 @@ design choices, or explicit user answers that define project vocabulary):
    _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
      && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
      || MROOT=$(pwd)
-   WT_PATH="$MROOT/.worktrees/<TICKET-ID>"
+   # CDT-141-C3: shared epic path or per-ticket
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<TICKET-ID>")
    git -C "$WT_PATH" add CONTEXT.md   # or docs/domain/CONTEXT.md, wherever it lives
    git -C "$WT_PATH" commit -m "context: <TICKET-ID> — crystallized glossary terms"
    ```
@@ -675,9 +707,9 @@ Print a structured summary the engineer can use as a reference:
 Kickoff complete for <TICKET-ID>
 
 Worktree:   <WT_PATH>
-Branch:     feat/<TICKET-ID>
-Spec:       specs/core/SPEC-NNN-<slug>.md [created|updated]  (on feat/<TICKET-ID>)
-Plan:       .claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md  (on feat/<TICKET-ID>)
+Branch:     <feat/<TICKET-ID> | feat/epic-<EPIC-ID> when shared>
+Spec:       specs/core/SPEC-NNN-<slug>.md [created|updated]  (on worktree branch)
+Plan:       .claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md  (on worktree branch)
 Glossary:   <CONTEXT.md path updated | no new terms>
 Tasks:      N created
 
@@ -707,8 +739,9 @@ that branch until it merges (`/spec check` on master won't see them yet) — thi
 intended visibility-until-merge trade, not a regression.
 
 The worktree is left in place as resumable state: `/kickoff` **never** calls
-`worktree-lib.sh release`. Its lifecycle is owned later by `/orchestrate <TICKET-ID>`
-(reuses the same tree) or `/wrap-ticket <TICKET-ID>` (removes it at ship).
+`worktree-lib.sh release`. Per-ticket trees: lifecycle owned later by
+`/orchestrate <TICKET-ID>` or `/wrap-ticket <TICKET-ID>`. Shared epic integration
+trees: **not** released on child wrap (CDT-141-C3) — epic seal / end-of-epic owns them.
 
 ---
 

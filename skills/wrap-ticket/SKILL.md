@@ -38,13 +38,23 @@ not the user's repo, so they are resolved through `bash "$PDH/skills/plugin-dir.
 file <relpath>`. Each SKILL bash block runs as a fresh shell, so the later
 cleanup blocks re-emit this stanza.
 
-Detect the ticket's worktree path — prefer the new convention, fall back to legacy:
+Detect the ticket's worktree path — prefer epic shared integration (CDT-141-C3),
+then per-ticket convention, then legacy sibling:
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 TICKET_ID="<TICKET-ID>"
-if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$TICKET_ID" 2>/dev/null || true)
+SKIP_RELEASE=$(jq -r '.skip_release // false' <<<"${CHILD_WT:-{}}")
+USE_SHARED=$(jq -r '.use_shared // false' <<<"${CHILD_WT:-{}}")
+if [ "$USE_SHARED" = "true" ]; then
+  # Epic shared integration tree — learnings path only; Step 6 MUST NOT release it
+  WORKTREE_PATH=$(jq -r '.integration_path // empty' <<<"$CHILD_WT")
+elif [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
   # New convention: $MROOT/.worktrees/<TICKET-ID>
   WORKTREE_PATH="$MROOT/.worktrees/$TICKET_ID"
 else
@@ -57,7 +67,8 @@ fi
 ```
 
 `$WORKTREE_PATH` is used in all downstream steps. If empty, no worktree was found —
-continue; it may already have been removed.
+continue; it may already have been removed. `$SKIP_RELEASE=true` means this ticket
+ran on a shared epic integration tree — Step 6 must not delete it.
 
 ---
 
@@ -355,7 +366,37 @@ If yes: create backlog entries for each.
 
 ## Step 6: Remove the worktree
 
-If a worktree was found in Step 0:
+**CDT-141-C3 critical:** if this ticket is an epic child on a **shared integration**
+worktree (`resolve-child-worktree.skip_release=true`), **MUST NOT** release or
+delete the integration slug (`epic-<EPIC-ID>`) or any path under it. Other children
+still accumulate there. Print a one-liner and skip to Step 6.5:
+
+```
+Shared epic integration worktree — skipping release for <TICKET-ID>
+(integration: <path>; removed only at epic seal / end-of-epic)
+```
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TICKET_ID="<TICKET-ID>"
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$TICKET_ID" 2>/dev/null || true)
+if [ "$(jq -r '.skip_release // false' <<<"${CHILD_WT:-{}}")" = "true" ]; then
+  INT_PATH=$(jq -r '.integration_path // empty' <<<"$CHILD_WT")
+  echo "Shared epic integration worktree — skipping release for $TICKET_ID"
+  echo "(integration: $INT_PATH; removed only at epic seal / end-of-epic)"
+  # MUST NOT: worktree-lib release epic-* or child slug; MUST NOT git worktree remove
+else
+  # Non-shared: existing per-ticket release path
+  :
+fi
+```
+
+If **not** shared and a worktree was found in Step 0:
 
 ```
 About to remove worktree at <path>.
@@ -363,7 +404,7 @@ This cannot be undone. The branch feat/<TICKET-ID>-* has already been merged.
 Proceed? (y/n)
 ```
 
-If yes:
+If yes (and `skip_release` is false):
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -372,8 +413,14 @@ cd $MROOT
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 TICKET_ID="<TICKET-ID>"
+# Re-check skip_release (fresh shell) — never release integration slug
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+if [ "$(bash "$EPIC_LIB" resolve-child-worktree "$TICKET_ID" 2>/dev/null | jq -r '.skip_release // false')" = "true" ]; then
+  echo "Shared epic integration — skip release"
+else
 if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
   # New convention — delegate to worktree-lib.sh for lock cleanup + removal
+  # NEVER pass integration_slug (epic-<ID>) here for a child wrap
   WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
   bash "$WT_LIB" release "$TICKET_ID"
 else
@@ -382,8 +429,15 @@ else
     | grep "^worktree " \
     | sed 's/^worktree //' \
     | grep -wF "$TICKET_ID" | head -1)
-  git worktree remove "$WORKTREE_PATH"
-  git branch -D "feat/$TICKET_ID" 2>/dev/null || true
+  # Guard: refuse if path is an epic integration tree
+  case "$WORKTREE_PATH" in
+    */.worktrees/epic-*) echo "Refusing to remove epic integration path: $WORKTREE_PATH"; ;;
+    *)
+      git worktree remove "$WORKTREE_PATH"
+      git branch -D "feat/$TICKET_ID" 2>/dev/null || true
+      ;;
+  esac
+fi
 fi
 ```
 

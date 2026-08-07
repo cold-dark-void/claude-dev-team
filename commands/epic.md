@@ -7,8 +7,9 @@ description: |
     child; Linear optional (Project create/link best-effort — SPEC-025 M12 /
     skill A.6). Multi-child Mode B applies between-child context discipline
     (M13) by default. Usage: /epic <EPIC-ID> ["text"] | status | complete |
-    block | unblock | --redecompose | [--no-context-discipline]
-argument-hint: "<EPIC-ID> [\"text\"] [--autopilot[=<bump>]] [--no-context-discipline] | status | complete | block | unblock | --redecompose"
+    block | unblock | --redecompose | [--no-context-discipline] |
+    [--worktree] [--release <bump>]
+argument-hint: "<EPIC-ID> [\"text\"] [--worktree] [--release <bump>] [--autopilot[=<bump>]] [--no-context-discipline] | status | complete | block | unblock | --redecompose"
 ---
 
 # /epic
@@ -29,7 +30,9 @@ Governing spec: `specs/core/SPEC-025-epic-umbrella-decomposition.md`.
 | `complete <EPIC-ID> <CHILD-ID>` | Manual complete (kickoff-mode) |
 | `block <EPIC-ID> <CHILD-ID>` | Mark child blocked |
 | `unblock <EPIC-ID> <CHILD-ID>` | Mark child pending |
-| `[--autopilot[=<bump>]]` | (with decompose/resume) self-answer A.5/B.3 scope gates (SPEC-033 / CDT-111-C4). Flag beats `AUTOPILOT=1` env; `<bump>` ∈ {patch,minor,major} borrowed from `/release`, unused by `/epic` (never ships). B.5 completion is never self-answered (N8) |
+| `[--worktree]` | (decompose/execute/resume/`--redecompose` only) Epic integration-worktree mode (SPEC-025 M14 / CDT-141). Bare flag only — value forms hard-fail (exit 64). Persists `worktree_enabled=true` on init; C2 ensures `epic-<ID>` tree. Resume: omit flags → honor store + same tree (C6); flags that conflict with state → exit 64. Illegal on `status` \| `complete` \| `block` \| `unblock`. |
+| `[--release <bump>]` | (with `--worktree` only) End-of-epic release bump intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` accepted alias. Alone / bare / `each`\|`end` / without `--worktree` → exit 64, zero side effects. Persists `release_bump` on init. Resume omit honors store (no silent clear); mismatch → 64 (C6). After last child completed: Mode B.7 seal once (squash → one `/release <bump>` → `sealed=true`; C5). Without this flag: no epic seal path. Orthogonal to `--autopilot`. |
+| `[--autopilot[=<bump>]]` | (with decompose/resume) self-answer A.5/B.3 scope gates (SPEC-033 / CDT-111-C4). Flag beats `AUTOPILOT=1` env; `<bump>` ∈ {patch,minor,major} borrowed from `/release`, unused by `/epic` (never ships). B.5 completion is never self-answered (N8). Independent of `--worktree`/`--release`. |
 | `[--no-context-discipline]` | Debug opt-out of Mode B between-child context discipline (SPEC-025 M13). Also `EPIC_NO_CONTEXT_DISCIPLINE=1`. Default **on** for multi-child (≥2) Mode B; single-child epics exempt. Protocol: `skills/epic/SKILL.md` Mode B M13 — do not improvise here. |
 
 ## Routing
@@ -60,7 +63,15 @@ bash "$EPIC_LIB" exists "$EPIC_ID"
    confirm-before-handoff, handoff to `/kickoff` or `/orchestrate`).
 
 4. **Do not** improvise ticket lifecycle here. **Do not** skip PM on any child
-   handoff. **Do not** write epic children into `.claude/tasks/`.
+   handoff. **Do not** write epic children into `.claude/tasks/`. **M11/M14:**
+   composition only — carve-out is ensure/route one `epic-<ID>` integration
+   worktree + seal composition; no per-child WT create, no `/release` reimpl.
+
+### Hard-fail (M14)
+
+Illegal flag combos exit **64** with zero side effects (see SPEC-025 M14
+illegal list / `skills/epic/parse-flags.sh`). Rejected public names: `--bump`,
+`--land`, `--seal`, `--worktree` mode enums, `--release each|end`.
 
 ## Handoff shape (no PM skip)
 

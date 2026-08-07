@@ -6,7 +6,7 @@ description: |
     via Linear preferred + local write-through; walk ready children by handing each to
     /kickoff or /orchestrate. Composition layer only — never reimplements the
     ticket lifecycle. Usage: /epic <EPIC-ID> ["text"] | status | complete |
-    block | unblock | --redecompose
+    block | unblock | --redecompose | [--worktree] [--release <bump>]
 ---
 
 # Epic — Umbrella Decomposition & Sequenced Orchestration
@@ -15,7 +15,10 @@ Governing spec: `specs/core/SPEC-025-epic-umbrella-decomposition.md`.
 
 **Composition rule (M11):** `/epic` ends at the handoff string. It does **not**
 inline kickoff/orchestrate steps, spawn IC agents, write application code,
-create worktrees, or write epic children into `.claude/tasks/`.
+create **per-child** worktrees, or write epic children into `.claude/tasks/`.
+**M14 carve-out:** MAY ensure/route one integration worktree (`epic-<ID>`) and
+compose end-of-epic seal; MUST NOT re-implement full orchestrate lifecycle or
+`/release` version/tag/push.
 
 Mechanical CLI (subprocess only, never source):
 
@@ -39,6 +42,8 @@ worktrees). Override root for tests: `EPIC_ROOT`.
 | `/epic complete <ID> <CHILD>` | Manual complete (kickoff-mode children) |
 | `/epic block <ID> <CHILD> [reason]` | Mark child blocked |
 | `/epic unblock <ID> <CHILD>` | Mark child pending again |
+| `/epic … --worktree` | (decompose/execute/resume/`--redecompose` only) Enable epic integration-worktree mode (SPEC-025 M14 / CDT-141). Bare flag only — value forms hard-fail (exit 64). Persists `worktree_enabled=true` on init when set. After init (and on resume when state enabled): ensure **one** integration worktree `epic-<EPIC-ID>` (C2). On resume: omit to honor store; present must match state or exit 64 (C6). Illegal on `status` \| `complete` \| `block` \| `unblock`. |
+| `/epic … --release <bump>` | (with `--worktree` only) End-of-epic release bump intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` accepted alias. Alone / bare / `each`\|`end` / without `--worktree` → exit 64, zero side effects. Persists `release_bump` on init. Resume: omit honors store (no silent clear); mismatch → 64 (C6). After last child: Mode B.7 seal once (squash → one `/release <bump>` → `sealed=true`; C5). Without this flag: no epic seal. Orthogonal to `--autopilot`. |
 | `/epic … --no-context-discipline` | Debug opt-out of M13 between-child boundary (default **on**) |
 
 Execution mode (`kickoff` | `orchestrate`) is chosen **once** at first execute
@@ -91,6 +96,101 @@ fi
 - else → **Decompose mode** (needs epic text)
 
 ---
+
+## Step 0.4: Worktree / release flags (CDT-141 / SPEC-025 M14)
+
+Locked contract: SPEC-025 M14 CLI table, semantics, illegal combos, done-when
+1–7, non-public API. Parse **once** at run start, **before** any
+state/Linear/backlog/worktree side effects. Own parser — **not**
+`skills/autopilot/parse-flags.sh`.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_PARSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/parse-flags.sh)
+EPIC_ID="<EPIC-ID>"
+# Resume (state exists): honor store / hard-fail conflict (C6). New decompose: pure parse.
+if bash "$EPIC_LIB" exists "$EPIC_ID"; then
+  EPIC_FLAGS=$(bash "$EPIC_LIB" resolve-resume-flags "$EPIC_ID" -- "$@") \
+    || { echo "$EPIC_FLAGS" >&2; exit 64; }
+else
+  EPIC_FLAGS=$(bash "$EPIC_PARSE" "$@") || { echo "$EPIC_FLAGS" >&2; exit 64; }
+fi
+WORKTREE_ENABLED=$(jq -r .worktree_enabled <<<"$EPIC_FLAGS")
+RELEASE_BUMP=$(jq -r '.release_bump // "null"' <<<"$EPIC_FLAGS")   # literal null or patch|minor|major
+```
+
+Rules (hard-fail exit **64**, zero side effects):
+- bare `--worktree` only; `--worktree=*` rejected
+- `--release <bump>` (space canonical) or `--release=<bump>`; bump ∈ {patch,minor,major}
+- `--release` without `--worktree` → 64; bare/empty/`each`/`end` → 64
+- rejected surface: `--bump`, `--land`, `--seal`
+- duplicate `--worktree` or `--release` → 64
+- flags illegal with first positional `status` | `complete` | `block` | `unblock`
+- allowed on decompose / execute-resume / `--redecompose` only
+
+### Resume flag-vs-state policy (CDT-141-C6) — hard-fail, no silent downgrade
+
+When `state.json` **exists** (execute/resume / re-invoke same epic):
+
+| CLI M14 flags | Policy |
+|---------------|--------|
+| **Omitted** (`--worktree` / `--release` absent) | **Honor store**: effective modes = `state.worktree_enabled // false` and `state.release_bump // null`. End-of-epic release intent (non-null `release_bump`) is **never** cleared by a bare resume. |
+| **Present and match** state | OK — same modes; continue. |
+| **Present and conflict** with state | **Exit 64**, zero side effects. No silent enable/disable of worktree, no silent change or clear of `release_bump` (no downgrade of end-release mode). |
+
+Defaults path (never used `--worktree`/`--release` at init — keys absent) + flags omitted → `false`/`null`; resume unchanged. Do **not** re-decompose; do **not** require pasting a prior handoff string for tree/branch continuity — B.1 `ensure-integration-worktree` reuses the recorded `epic-<ID>` path/branch from state.
+
+On **new** `init` when `WORKTREE_ENABLED=true`, pass modes into epic-lib so state
+records them (omit keys when both default — AC6/AC7):
+
+```bash
+# Re-resolve roots + flags (fresh shell — SPEC-021 C1). Modes from Step 0.4 parse result.
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+TITLE="<epic title>"
+MODE="<kickoff|orchestrate>"
+WORKTREE_ENABLED="<true|false>"   # from Step 0.4
+RELEASE_BUMP="<null|patch|minor|major>"  # from Step 0.4
+INIT_EXTRA=()
+if [ "$WORKTREE_ENABLED" = true ]; then
+  INIT_EXTRA+=(--worktree-enabled true)
+  if [ "$RELEASE_BUMP" != "null" ] && [ -n "$RELEASE_BUMP" ]; then
+    INIT_EXTRA+=(--release-bump "$RELEASE_BUMP")
+  fi
+fi
+bash "$EPIC_LIB" init "$EPIC_ID" --title "$TITLE" --mode "$MODE" "${INIT_EXTRA[@]}"
+```
+
+**C2 integration worktree (when `worktree_enabled`):** after successful `init`
+(and on Mode B resume when state has `worktree_enabled=true`), call:
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+bash "$EPIC_LIB" ensure-integration-worktree "$EPIC_ID"
+```
+
+Creates or reuses exactly one worktree at `$MROOT/.worktrees/epic-<EPIC-ID>`
+(branch `feat/epic-<EPIC-ID>` via worktree-lib). Records
+`integration_slug` / `integration_path` / `integration_branch` on state.
+When `worktree_enabled` is false/absent: no-op exit 0. Re-invoke reuses the
+same tree (no second integration worktree). Carry `WORKTREE_ENABLED` /
+`RELEASE_BUMP` as session-local run state (from resolve-resume-flags on resume).
 
 ## Step 0.5: Autopilot enablement (CDT-111-C4)
 
@@ -267,7 +367,18 @@ EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
 TITLE="<epic title>"
 MODE="<kickoff|orchestrate>"
-bash "$EPIC_LIB" init "$EPIC_ID" --title "$TITLE" --mode "$MODE"
+WORKTREE_ENABLED="<true|false>"   # from Step 0.4 session state
+RELEASE_BUMP="<null|patch|minor|major>"  # from Step 0.4 session state
+INIT_EXTRA=()
+if [ "$WORKTREE_ENABLED" = true ]; then
+  INIT_EXTRA+=(--worktree-enabled true)
+  if [ "$RELEASE_BUMP" != "null" ] && [ -n "$RELEASE_BUMP" ]; then
+    INIT_EXTRA+=(--release-bump "$RELEASE_BUMP")
+  fi
+fi
+bash "$EPIC_LIB" init "$EPIC_ID" --title "$TITLE" --mode "$MODE" "${INIT_EXTRA[@]}"
+# CDT-141-C2: one integration worktree when worktree_enabled (no-op otherwise)
+bash "$EPIC_LIB" ensure-integration-worktree "$EPIC_ID"
 # linear_project_id starts null; set after M12 project resolve (below)
 # per child (after Linear project + issue when MCP up — prefer --linear-id at add time):
 bash "$EPIC_LIB" add-child "$EPIC_ID" \
@@ -425,11 +536,17 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
+# CDT-141-C2/C6: reuse/ensure same integration WT when state.worktree_enabled (no-op if false)
+# Modes already resolved in Step 0.4 (honor store / conflict 64). No handoff paste needed.
+bash "$EPIC_LIB" ensure-integration-worktree "$EPIC_ID"
 bash "$EPIC_LIB" show "$EPIC_ID"
 bash "$EPIC_LIB" waves "$EPIC_ID"
 ```
 
 Print counts by status + ready set + wave plan. **No re-decomposition.** No duplicate backlog/Linear.
+When `show` surfaces non-null `integration_path`, note the epic integration
+worktree (operator continuity — same path/branch as prior session; CDT-141-C6).
+Children share it (CDT-141-C3): B.4 handoff + `ensure-ticket-worktree`.
 
 **Resume seed (M13):** if `show` surfaces non-null `last_seed_path`, print
 `@<last_seed_path>` and treat that seed as the live context source for the
@@ -459,7 +576,7 @@ READY=$(bash "$EPIC_LIB" ready-set "$EPIC_ID")
 CHILD=$(printf '%s\n' "$READY" | head -1)
 ```
 
-If empty: print `No ready children` (all done, or waiting on in_progress/blocked deps). If all completed: celebrate and stop. If only blocked/in_progress remain: report and stop.
+If empty: print `No ready children` (all done, or waiting on in_progress/blocked deps). If all completed: run **B.7** seal path when `release_bump` is set, then celebrate and stop. If only blocked/in_progress remain: report and stop.
 
 ### B.3 Confirm each handoff (L5)
 
@@ -504,6 +621,11 @@ EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
 CHILD_ID="<CHILD-ID>"
 bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" in_progress
+# CDT-141-C3: surface shared integration path for handoff (no-op fields when disabled)
+CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$CHILD_ID")
+USE_SHARED=$(jq -r '.use_shared // false' <<<"$CHILD_WT")
+INT_PATH=$(jq -r '.integration_path // empty' <<<"$CHILD_WT")
+INT_BRANCH=$(jq -r '.integration_branch // empty' <<<"$CHILD_WT")
 ```
 
 **Handoff template — PM kickoff is mandatory. There is no skip-PM path.**
@@ -523,6 +645,54 @@ Output mode: terse for agent spawns.
 PM kickoff is mandatory — do not skip."
 ```
 
+**When `use_shared=true` (epic `--worktree` / `worktree_enabled` + integration path set) — append to the handoff payload and export for the child run:**
+
+```
+Epic integration worktree: <INT_PATH>
+Epic integration branch: <INT_BRANCH>
+EPIC_INTEGRATION_PATH=<INT_PATH>
+
+Do NOT create a per-child worktree (no feat/<CHILD-ID>, no .worktrees/<CHILD-ID>).
+Work only in the epic integration tree above. Child commits land on <INT_BRANCH>.
+/wrap-ticket for this child MUST NOT release the integration worktree.
+```
+
+Export `EPIC_INTEGRATION_PATH=<INT_PATH>` in the environment of the `/kickoff` or
+`/orchestrate` invocation when shared. Child Step 3 / 1b calls
+`epic-lib ensure-ticket-worktree` which skips per-child `worktree-lib ensure`.
+
+**CDT-141-C4 — when durable `release_bump` is non-null (release=end):** also
+export and append:
+
+```
+EPIC_RELEASE_END=<EPIC-ID>
+release=end: mid-child /release and master-merge are FORBIDDEN until epic seal (CDT-141).
+Ship child via PR-stop or leave commits on the integration branch only.
+```
+
+```bash
+# From show / state (durable — resume-safe); re-resolve (fresh shell — C1)
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+RB=$(bash "$EPIC_LIB" show "$EPIC_ID" | jq -r '.release_bump // empty')
+if [ -n "$RB" ] && [ "$RB" != "null" ]; then
+  export EPIC_RELEASE_END="$EPIC_ID"
+fi
+```
+
+`/release` Step 0 and orchestrate Step 11 call
+`epic-lib assert-release-allowed <ticket-or-epic>` (exit 64 + message while
+mid-flight). Without `--release` on the epic, omit this block.
+
+When `use_shared=false` (default / no `--worktree`): omit the shared-WT block;
+per-child worktree behavior is unchanged. Still export `EPIC_RELEASE_END` when
+`release_bump` is set (release=end always couples to `--worktree` at parse time).
+
 Invoke the existing `/kickoff` or `/orchestrate` command with that payload.
 Do **not** reimplement their internals here.
 
@@ -539,6 +709,7 @@ Prefer optional `--outcome "<≤1 line>"` on `set-status … completed|blocked`
 After a child leaves the active handoff (`completed`, or `blocked` with no
 ready successor to start mid-path), **before** the next B.3: run **B.6** when
 discipline applies. Then loop B.1 / B.2 (next ready) or exit if user stops.
+When the loop finds **all children completed**, run **B.7** (end-of-epic seal).
 
 Never mark `completed` merely because kickoff produced a plan (M7).
 **Kickoff mode:** M13 boundary still applies between children; completion
@@ -616,6 +787,95 @@ children). **CI = seed shape + protocol presence only.** Peak/cache-read =
 
 ---
 
+### B.7 End-of-epic seal (CDT-141-C5 / M14)
+
+Runs **once** after the **last** child reaches `completed`, and **only** when
+durable `release_bump` is non-null (epic was started with `--worktree --release
+<bump>`). Without `--release`, there is **no** epic seal path — children ship
+as today (per-child `/release` / merge unchanged).
+
+Mechanical CLI (subprocess only):
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+
+# Pure check (ready=false when no release_bump / incomplete / already sealed)
+bash "$EPIC_LIB" seal-ready "$EPIC_ID"
+# Optional plan only:
+# bash "$EPIC_LIB" seal "$EPIC_ID" --dry-run
+```
+
+**When `seal-ready` reports `ready=true`:**
+
+1. **Squash-stage** integration onto master/main (no commit):
+   ```bash
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+bash "$EPIC_LIB" seal "$EPIC_ID"
+   # stdout: staged=true, handoff="/release <bump>", env.EPIC_ALLOW_SEAL_RELEASE=1
+   ```
+2. **Exactly one** `/release <release_bump>` (bump from durable state — not a
+   separate `--bump` flag). `/release` remains the ship-of-record (version
+   pair + single fold-commit + tag/push). Export for the single invocation:
+   ```bash
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+RB=$(bash "$EPIC_LIB" show "$EPIC_ID" | jq -r .release_bump)
+   export EPIC_ALLOW_SEAL_RELEASE=1
+   export EPIC_ID EPIC_RELEASE_END="$EPIC_ID"
+   # Then invoke skills/release/SKILL.md with /release $RB  (once)
+   ```
+3. **On `/release` success** — mark sealed atomically:
+   ```bash
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+bash "$EPIC_LIB" seal "$EPIC_ID" --complete
+   ```
+4. **On `/release` or squash failure** — restore clean master, leave
+   `sealed=false` (no partial tag/push from seal; master not half-shipped):
+   ```bash
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+bash "$EPIC_LIB" seal "$EPIC_ID" --abort
+   ```
+
+**Invariants:**
+- Seal path runs **once** (`sealed=true` → further `seal` is `already_sealed` no-op).
+- Master receives epic delivery **only** at seal (C4 forbids mid-epic land).
+- Exactly one versioned release commit for the epic (`/release` contract).
+- `EPIC_SEAL_RELEASE_HOOK` (tests only) may stand in for `/release`; production
+  orchestrator always uses `/release` as SoT.
+
+**When `release_bump` is null/absent:** `seal` / `seal-ready` skip (`reason=
+no_release_bump`) — zero squash, zero `/release` from epic.
+
+
 ## Mode C — Status
 
 ```bash
@@ -690,11 +950,21 @@ child `id` or `linear_id`). Unknown ticket → exit 0, no fail.
 
 - Write application code or spawn IC agents directly
 - Run review loops
-- Create/remove worktrees
+- Create/remove **per-child** worktrees (or any worktree outside the M14 integration carve-out)
 - Store children in `.claude/tasks/`
 - Expose any option that skips PM on child handoff
 - Treat seed packets as status authority (status SoT = `epic-lib` / `state.json` only)
 - Inline next-child handoff while prior child transcripts remain live context when M13 discipline is on
+
+**M11 carve-out (CDT-141-C2/C3/C5 / M14):** when `worktree_enabled`, `/epic` **MAY**
+ensure **exactly one** integration worktree (`epic-<EPIC-ID>` via
+`ensure-integration-worktree` → worktree-lib) and **route** child handoffs into
+it (`resolve-child-worktree` / `ensure-ticket-worktree` + B.4 template). At
+end-of-epic with `release_bump` set, **MAY** run **B.7** seal composition
+(`seal-ready` / `seal` → squash-stage + one `/release` + `sealed=true`). Still
+MUST NOT create per-child worktrees, remove worktrees (including the integration
+tree on child wrap), re-implement kickoff/orchestrate WT lifecycle, or fork
+`/release`'s version/tag/push contract.
 
 ---
 
@@ -710,6 +980,11 @@ child `id` or `linear_id`). Unknown ticket → exit 0, no fail.
 | Project multi-hit exact name | Link first exact survivor; print exactly `Multiple Linear projects named '<title>' — linking first hit`; do not create (OQ3) |
 | Child attach fail | Keep `linear_project_id`; continue other children (OQ5) |
 | Bare resume + null project id | Do not create/link project (OQ4) |
+| Resume M14 flags omitted | Honor stored `worktree_enabled` / `release_bump` (C6); ensure same integration tree |
+| Resume M14 flags conflict with state | Exit **64**, zero side effects; no silent mode change/downgrade (C6) |
+| All children completed + `release_bump` set | **B.7** seal once: squash-stage → one `/release <bump>` → `sealed=true` (C5) |
+| Seal failure | `seal --abort`; `sealed` stays false; master clean; no partial tag/push (C5) |
+| No `release_bump` at end | No epic seal path (C5) |
 | No ready children | Report rollup; stop cleanly |
 | Confirm handoff = n | Exit; child stays pending (or revert in_progress if already set — prefer confirm **before** set-status) |
 | M13 seed build/validate fail | Exactly: `context-discipline: seed failed — <reason>`; next child stays `pending`; no `in_progress` without valid seed when boundary required |

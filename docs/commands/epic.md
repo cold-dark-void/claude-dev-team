@@ -4,10 +4,13 @@ Umbrella decomposition and sequenced orchestration over the single-ticket
 pipeline (`/kickoff` / `/orchestrate`). PM and Tech Lead jointly split an epic
 into child tickets with a cross-ticket dependency DAG; approved children land
 in the backlog (Linear optional); execution walks ready children one at a time
-with a confirm-before-handoff gate. **Composition only** — never reimplements
-the ticket lifecycle.
+with a confirm-before-handoff gate. **Composition only** (SPEC-025 M11) — never
+reimplements the ticket lifecycle. **M14 carve-out:** may ensure one integration
+worktree (`epic-<ID>`) and compose end-of-epic seal; does not re-implement
+orchestrate WT lifecycle or `/release` version contract.
 
-Governing spec: `specs/core/SPEC-025-epic-umbrella-decomposition.md`.
+Governing spec: `specs/core/SPEC-025-epic-umbrella-decomposition.md` (M14 CLI
+table, illegal combos, done-when 1–7, non-public API).
 Full protocol: `skills/epic/SKILL.md`. CLI: `bash skills/epic/epic-lib.sh`.
 
 ## Usage
@@ -15,6 +18,8 @@ Full protocol: `skills/epic/SKILL.md`. CLI: `bash skills/epic/epic-lib.sh`.
 ```
 /epic <EPIC-ID> "<epic text>"
 /epic <EPIC-ID>
+/epic <EPIC-ID> --worktree
+/epic <EPIC-ID> --worktree --release <patch|minor|major>
 /epic status [<EPIC-ID>]
 /epic --redecompose <EPIC-ID> "<text>"
 /epic complete <EPIC-ID> <CHILD-ID>
@@ -31,21 +36,43 @@ Full protocol: `skills/epic/SKILL.md`. CLI: `bash skills/epic/epic-lib.sh`.
 | `status` | Print rollup from `state.json` |
 | `--redecompose` | Re-plan non-completed children (requires confirmation) |
 | `complete` / `block` / `unblock` | Manual child status transitions |
+| `--worktree` | (decompose/execute/resume/`--redecompose` only) Integration-worktree mode (SPEC-025 M14). Bare boolean only. Ensures one `$MROOT/.worktrees/epic-<ID>` tree; all children share it. Resume omit → honor store. Illegal on `status`/`complete`/`block`/`unblock`. |
+| `--release <bump>` | (with `--worktree` only) End-of-epic release intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` alias. After last child: seal once → one `/release <bump>` → `sealed=true`. Without this flag: no epic seal. |
+
+### Hard-fail rules (exit 64, zero side effects)
+
+- `--release` without `--worktree`; bare/empty/`each`/`end` bump; illegal bump
+- `--worktree=*` / value forms; duplicate flags
+- Flags on `status` \| `complete` \| `block` \| `unblock`
+- Resume flags that conflict with durable state (no silent downgrade)
+
+**Not public surface:** `--bump`, `--land`, `--seal` flags; `--worktree` mode
+enums; `--release each|end`. (Internal `epic-lib seal` / `seal-ready` are
+mechanical subcommands, not `/epic` flags.)
 
 ## Behavior summary
 
 1. **Decompose** (no existing state): parallel PM + TL (`Output mode: terse`),
    merge five fields per child, `dag-lib.sh check-cycle`, user approval, then
-   backlog + `state.json` (+ best-effort Linear).
+   backlog + `state.json` (+ best-effort Linear). Optional M14 flags persist
+   `worktree_enabled` / `release_bump`.
 2. **Execute / resume** (state exists): rollup → `ready-set` → confirm → hand
    off to recorded mode (`kickoff` \| `orchestrate`) with **mandatory PM**.
-3. **Standup**: active epics appear under `## Epics` via `epic-lib.sh rollup`.
-4. **wrap-ticket**: marks matching child `completed` via `mark-done` (soft).
+   With `--worktree`: children use the shared `epic-<ID>` tree.
+3. **Mid-epic forbid (release=end):** when `release_bump` set and not sealed,
+   `/release` and master-merge hard-fail (exit 64) until seal.
+4. **Seal (CDT-141-C5):** when epic used `--worktree --release <bump>` and all
+   children are completed, Mode B.7 runs once: `seal-ready` / `seal` squash-stage
+   → one `/release <bump>` → `sealed=true`. Without `--release`, no seal path.
+5. **Standup**: active epics appear under `## Epics` via `epic-lib.sh rollup`.
+6. **wrap-ticket**: marks matching child `completed` via `mark-done` (soft);
+   MUST NOT release the integration worktree slug.
 
 ## Examples
 
 ```
 /epic CDV-30 "Ship feature X across API, CLI, and docs"
+/epic CDV-30 --worktree --release minor
 /epic CDV-30
 /epic status CDV-30
 /epic complete CDV-30 CDV-30-C1
@@ -55,5 +82,6 @@ Full protocol: `skills/epic/SKILL.md`. CLI: `bash skills/epic/epic-lib.sh`.
 
 - [`/kickoff`](kickoff.md) — plan-only child handoff target
 - [`/orchestrate`](orchestrate.md) — full lifecycle child handoff target
+- [`/release`](release.md) — sole ship-of-record at seal
 - [`/status standup`](status.md) — epic rollup section
 - [`/wrap-ticket`](wrap-ticket.md) — child completion write-back

@@ -40,6 +40,24 @@ This sequence fires **only** on a **post-council effective `merge`** decision �
   §4–§5). No council agreement ⇒ no release.
 - It fires **exactly once** per shipped ticket — one squash-stage, one `/release`.
 
+## 2.5 Epic release=end precheck (CDT-141-C4)
+
+**Before** BC3 / squash / `/release`, forbid mid-epic land when durable epic
+state has `release_bump` set and seal is not done:
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || {
+  # stderr: epic <ID> is in release=end mode until seal (CDT-141)
+  # HALT: no squash, no /release, master unchanged
+  return
+}
+```
+
+When the ticket is not under a release=end epic, assert exits 0 (unchanged path).
+
 ## 3. Deterministic BC3 push-target check (AC2 — SPEC-033 N3a)
 
 Before any staging, resolve the push target **mechanically** and evaluate BC3. N3a makes BC3's

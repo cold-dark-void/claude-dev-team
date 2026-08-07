@@ -6,6 +6,12 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.6.0
+- **CDT-141 — `/epic --worktree` + `--release <bump>` (one master commit)** — locked CLI for epic integration worktree + end-of-epic seal: bare `--worktree` and `--release patch|minor|major` (space or `=`), illegal combos exit 64 with zero side effects, durable `worktree_enabled`/`release_bump` on epic state.
+- **Integration worktree + shared child tree** — `ensure-integration-worktree` creates/reuses `.worktrees/epic-<ID>` (`feat/epic-<ID>`); `ensure-ticket-worktree` routes children into the shared tree (no per-child worktrees); wrap-ticket must not release the integration slug.
+- **Mid-epic release forbid + seal** — `assert-release-allowed` hard-fails mid-epic `/release` and master-merge when `release_bump` is set; `seal`/`seal-ready` squash-stage then one `/release <bump>` with `EPIC_ALLOW_SEAL_RELEASE`; resume honors stored modes or conflicts at exit 64.
+- **SPEC-025 M14 + surface docs + 457 bite-tests** — full CLI/semantics/illegal/done-when tables; commands/skill/docs hub updated; `skills/epic/test.sh` covers parse through seal.
+
 ### v1.5.14
 - **CDT-129 — S5 approval tokens do not suppress negated friction** — `approve`/`accept` (and other any-word allowlist tokens) no longer suppress S5 when a negation co-occurs (`dont accept`, `no, accept`). Bare `approve`/`accept` and `accept, anything else?` still suppress. Apostrophes normalized (`don't` → `dont`). Fixture + tests updated.
 
