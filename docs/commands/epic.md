@@ -25,6 +25,7 @@ Full protocol: `skills/epic/SKILL.md`. CLI: `bash skills/epic/epic-lib.sh`.
 /epic complete <EPIC-ID> <CHILD-ID>
 /epic block <EPIC-ID> <CHILD-ID>
 /epic unblock <EPIC-ID> <CHILD-ID>
+/epic sync <EPIC-ID> [--dry-run]
 ```
 
 ## Flags / arguments
@@ -36,14 +37,15 @@ Full protocol: `skills/epic/SKILL.md`. CLI: `bash skills/epic/epic-lib.sh`.
 | `status` | Print rollup from `state.json` |
 | `--redecompose` | Re-plan non-completed children (requires confirmation) |
 | `complete` / `block` / `unblock` | Manual child status transitions |
-| `--worktree` | (decompose/execute/resume/`--redecompose` only) Integration-worktree mode (SPEC-025 M14). Bare boolean only. Ensures one `$MROOT/.worktrees/epic-<ID>` tree; all children share it. Resume omit → honor store. Illegal on `status`/`complete`/`block`/`unblock`. |
+| `sync [--dry-run]` | Refresh existing `state.json` from Linear (M15) when stale — fill null `linear_id`/project, pull status forward, never re-open `completed`; orphans report-only. Illegal with `--worktree`/`--release`. |
+| `--worktree` | (decompose/execute/resume/`--redecompose` only) Integration-worktree mode (SPEC-025 M14). Bare boolean only. Ensures one `$MROOT/.worktrees/epic-<ID>` tree; all children share it. Resume omit → honor store. Illegal on `status`/`complete`/`block`/`unblock`/`sync`. |
 | `--release <bump>` | (with `--worktree` only) End-of-epic release intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` alias. After last child: seal once → one `/release <bump>` → `sealed=true`. Without this flag: no epic seal. |
 
 ### Hard-fail rules (exit 64, zero side effects)
 
 - `--release` without `--worktree`; bare/empty/`each`/`end` bump; illegal bump
 - `--worktree=*` / value forms; duplicate flags
-- Flags on `status` \| `complete` \| `block` \| `unblock`
+- Flags on `status` \| `complete` \| `block` \| `unblock` \| `sync`
 - Resume flags that conflict with durable state (no silent downgrade)
 
 **Not public surface:** `--bump`, `--land`, `--seal` flags; `--worktree` mode
@@ -67,6 +69,8 @@ mechanical subcommands, not `/epic` flags.)
 5. **Standup**: active epics appear under `## Epics` via `epic-lib.sh rollup`.
 6. **wrap-ticket**: marks matching child `completed` via `mark-done` (soft);
    MUST NOT release the integration worktree slug.
+7. **Sync (M15):** `/epic sync <ID>` pulls Linear status/`linear_id` into local
+   state when it may be stale; never re-decomposes or creates issues.
 
 ## Examples
 

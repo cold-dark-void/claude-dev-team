@@ -41,6 +41,7 @@ Commands:
   build-seed <EPIC-ID> [--next <CHILD-ID>] [--out path]
   validate-seed <path>
   mark-done <TICKET-ID>
+  sync-apply <EPIC-ID> --verdicts FILE [--dry-run]
   ready-set <EPIC-ID>
   check-cycle <json-file|->
   show <EPIC-ID>
@@ -1516,6 +1517,255 @@ cmd_validate_seed() {
   return 0
 }
 
+cmd_sync_apply() {
+  # sync-apply <EPIC-ID> --verdicts FILE [--dry-run]
+  # Session-owned Linear inventory → verdicts JSON; this command only mutates
+  # state.json (no MCP). SPEC-025 M15.
+  #
+  # Verdicts shape:
+  # {
+  #   "linear_project_id": "<id>" | null,   # optional; set only when local is null
+  #   "children": [
+  #     { "id":"<EPIC>-C<n>", "status":"pending|in_progress|completed|blocked"?,
+  #       "linear_id":"<LIN>"?, "outcome_summary":"<≤200 chars>"? }
+  #   ],
+  #   "orphans": [...],           # pass-through report only
+  #   "unmatched_local": [...]    # pass-through report only
+  # }
+  #
+  # Rules:
+  # - Unknown child id → skip + conflict
+  # - linear_id: fill when local null/empty; match → no-op; mismatch → conflict skip
+  # - status: no-op if same; never downgrade completed → non-completed (no_downgrade_completed)
+  # - outcome_summary only with completed|blocked when status is applied or already that status
+  # - linear_project_id: fill when local null; mismatch non-null → conflict skip
+  # - never deletes/reorders children; never re-decomposes
+  # Exit: 0 ok (including all no-ops), 1 missing epic/verdicts/invalid JSON, 64 usage
+  local epic_id="" verdicts="" dry=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --verdicts)
+        [ $# -ge 2 ] || die 64 "sync-apply: --verdicts requires a file"
+        verdicts="$2"
+        shift 2
+        ;;
+      --verdicts=*)
+        verdicts="${1#--verdicts=}"
+        shift
+        ;;
+      --dry-run)
+        dry=1
+        shift
+        ;;
+      -*)
+        die 64 "sync-apply: unknown flag $1"
+        ;;
+      *)
+        if [ -z "$epic_id" ]; then
+          epic_id="$1"
+          shift
+        else
+          die 64 "sync-apply: unexpected arg $1"
+        fi
+        ;;
+    esac
+  done
+  [ -n "$epic_id" ] || die 64 "sync-apply: missing <EPIC-ID>"
+  [ -n "$verdicts" ] || die 64 "sync-apply: --verdicts FILE required"
+  [ -f "$verdicts" ] || die 1 "sync-apply: verdicts file not found: $verdicts"
+
+  if ! jq -e 'type == "object"' "$verdicts" >/dev/null 2>&1; then
+    die 1 "sync-apply: verdicts must be a JSON object"
+  fi
+  if ! jq -e '(.children | type) == "array"' "$verdicts" >/dev/null 2>&1; then
+    die 1 "sync-apply: verdicts.children must be a JSON array"
+  fi
+
+  local st
+  st=$(read_state "$epic_id")
+
+  local applied_json="[]" skipped_json="[]" conflicts_json="[]"
+  local v_proj child_id v_status v_lin v_out
+  local local_status local_lin local_proj local_out
+  local action_row
+
+  # ---- project id (optional) ----
+  if jq -e 'has("linear_project_id")' "$verdicts" >/dev/null 2>&1; then
+    v_proj=$(jq -r '.linear_project_id // empty' "$verdicts")
+    # empty / null JSON → treat as "no set request" when literal null
+    if jq -e '.linear_project_id == null' "$verdicts" >/dev/null 2>&1; then
+      : # ignore null project requests (never clear via sync)
+    elif [ -n "$v_proj" ]; then
+      local_proj=$(echo "$st" | jq -r '.linear_project_id // empty')
+      if [ -z "$local_proj" ] || [ "$local_proj" = "null" ]; then
+        st=$(echo "$st" | jq --arg v "$v_proj" '.linear_project_id = $v')
+        action_row=$(jq -cn --arg a fill_linear_project --arg v "$v_proj" \
+          '{action:$a, linear_project_id:$v}')
+        applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
+      elif [ "$local_proj" = "$v_proj" ]; then
+        action_row=$(jq -cn --arg a project_id_unchanged --arg v "$v_proj" \
+          '{action:$a, linear_project_id:$v}')
+        skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+      else
+        action_row=$(jq -cn --arg a project_id_mismatch \
+          --arg local "$local_proj" --arg remote "$v_proj" \
+          '{action:$a, local:$local, remote:$remote}')
+        conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
+      fi
+    fi
+  fi
+
+  # ---- children ----
+  local n i
+  n=$(jq '.children | length' "$verdicts")
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    child_id=$(jq -r --argjson i "$i" '.children[$i].id // empty' "$verdicts")
+    if [ -z "$child_id" ]; then
+      action_row=$(jq -cn --argjson i "$i" '{action:"missing_child_id", index:$i}')
+      conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
+      i=$((i + 1))
+      continue
+    fi
+    if ! echo "$st" | jq -e --arg id "$child_id" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
+      action_row=$(jq -cn --arg a unknown_child --arg id "$child_id" '{action:$a, id:$id}')
+      conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
+      i=$((i + 1))
+      continue
+    fi
+
+    local_status=$(echo "$st" | jq -r --arg id "$child_id" \
+      '.children[] | select(.id==$id) | .status')
+    local_lin=$(echo "$st" | jq -r --arg id "$child_id" \
+      '.children[] | select(.id==$id) | .linear_id // empty')
+
+    # linear_id fill
+    if jq -e --argjson i "$i" '.children[$i] | has("linear_id")' "$verdicts" >/dev/null 2>&1 \
+      && ! jq -e --argjson i "$i" '.children[$i].linear_id == null' "$verdicts" >/dev/null 2>&1; then
+      v_lin=$(jq -r --argjson i "$i" '.children[$i].linear_id // empty' "$verdicts")
+      if [ -n "$v_lin" ]; then
+        if [ -z "$local_lin" ] || [ "$local_lin" = "null" ]; then
+          st=$(echo "$st" | jq --arg id "$child_id" --arg v "$v_lin" \
+            '(.children[] | select(.id==$id) | .linear_id) = $v')
+          action_row=$(jq -cn --arg a fill_linear_id --arg id "$child_id" --arg v "$v_lin" \
+            '{action:$a, id:$id, linear_id:$v}')
+          applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
+          local_lin="$v_lin"
+        elif [ "$local_lin" = "$v_lin" ]; then
+          action_row=$(jq -cn --arg a linear_id_unchanged --arg id "$child_id" --arg v "$v_lin" \
+            '{action:$a, id:$id, linear_id:$v}')
+          skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+        else
+          action_row=$(jq -cn --arg a linear_id_mismatch --arg id "$child_id" \
+            --arg local "$local_lin" --arg remote "$v_lin" \
+            '{action:$a, id:$id, local:$local, remote:$remote}')
+          conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
+        fi
+      fi
+    fi
+
+    # status
+    if jq -e --argjson i "$i" '.children[$i] | has("status")' "$verdicts" >/dev/null 2>&1 \
+      && ! jq -e --argjson i "$i" '.children[$i].status == null' "$verdicts" >/dev/null 2>&1; then
+      v_status=$(jq -r --argjson i "$i" '.children[$i].status // empty' "$verdicts")
+      case "$v_status" in
+        pending|in_progress|completed|blocked)
+          if [ "$local_status" = "$v_status" ]; then
+            action_row=$(jq -cn --arg a status_unchanged --arg id "$child_id" --arg s "$v_status" \
+              '{action:$a, id:$id, status:$s}')
+            skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+          elif [ "$local_status" = "completed" ] && [ "$v_status" != "completed" ]; then
+            action_row=$(jq -cn --arg a no_downgrade_completed --arg id "$child_id" \
+              --arg local "$local_status" --arg remote "$v_status" \
+              '{action:$a, id:$id, local:$local, remote:$remote}')
+            skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+          else
+            st=$(echo "$st" | jq --arg id "$child_id" --arg s "$v_status" \
+              '(.children[] | select(.id==$id) | .status) = $s')
+            action_row=$(jq -cn --arg a set_status --arg id "$child_id" \
+              --arg from "$local_status" --arg to "$v_status" \
+              '{action:$a, id:$id, from:$from, to:$to}')
+            applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
+            local_status="$v_status"
+          fi
+          ;;
+        *)
+          action_row=$(jq -cn --arg a invalid_status --arg id "$child_id" --arg s "$v_status" \
+            '{action:$a, id:$id, status:$s}')
+          conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
+          ;;
+      esac
+    fi
+
+    # outcome_summary (only when terminal status)
+    if jq -e --argjson i "$i" '.children[$i] | has("outcome_summary")' "$verdicts" >/dev/null 2>&1 \
+      && ! jq -e --argjson i "$i" '.children[$i].outcome_summary == null' "$verdicts" >/dev/null 2>&1; then
+      v_out=$(jq -r --argjson i "$i" '.children[$i].outcome_summary // empty' "$verdicts")
+      v_out=$(printf '%s' "$v_out" | tr '\n\r' '  ' | sed -e 's/[[:space:]]\{1,\}/ /g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+      if [ "${#v_out}" -gt 200 ]; then
+        v_out="${v_out:0:200}"
+      fi
+      case "$local_status" in
+        completed|blocked)
+          if [ -n "$v_out" ]; then
+            local_out=$(echo "$st" | jq -r --arg id "$child_id" \
+              '.children[] | select(.id==$id) | .outcome_summary // empty')
+            if [ "$local_out" = "$v_out" ]; then
+              action_row=$(jq -cn --arg a outcome_unchanged --arg id "$child_id" \
+                '{action:$a, id:$id}')
+              skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+            else
+              st=$(echo "$st" | jq --arg id "$child_id" --arg o "$v_out" \
+                '(.children[] | select(.id==$id) | .outcome_summary) = $o')
+              action_row=$(jq -cn --arg a set_outcome --arg id "$child_id" \
+                '{action:$a, id:$id}')
+              applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
+            fi
+          fi
+          ;;
+        *)
+          action_row=$(jq -cn --arg a outcome_skipped_nonterminal --arg id "$child_id" \
+            --arg s "$local_status" '{action:$a, id:$id, status:$s}')
+          skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+          ;;
+      esac
+    fi
+
+    i=$((i + 1))
+  done
+
+  local orphans unmatched
+  orphans=$(jq -c '.orphans // []' "$verdicts")
+  unmatched=$(jq -c '.unmatched_local // []' "$verdicts")
+
+  if [ "$dry" -eq 0 ]; then
+    # Only write when something applied (avoid noisy updated_at on pure no-op)
+    if [ "$(echo "$applied_json" | jq 'length')" -gt 0 ]; then
+      write_state "$epic_id" "$st"
+    fi
+  fi
+
+  jq -cn \
+    --arg epic "$epic_id" \
+    --argjson dry "$([ "$dry" -eq 1 ] && echo true || echo false)" \
+    --argjson applied "$applied_json" \
+    --argjson skipped "$skipped_json" \
+    --argjson conflicts "$conflicts_json" \
+    --argjson orphans "$orphans" \
+    --argjson unmatched "$unmatched" \
+    '{
+      epic_id:$epic,
+      dry_run:$dry,
+      applied:$applied,
+      skipped:$skipped,
+      conflicts:$conflicts,
+      orphans:$orphans,
+      unmatched_local:$unmatched,
+      applied_count:($applied|length),
+      conflict_count:($conflicts|length)
+    }'
+}
+
 # ---- dispatch ---------------------------------------------------------------
 
 [ $# -lt 1 ] && usage
@@ -1537,6 +1787,7 @@ case "$SUBCMD" in
   build-seed)  cmd_build_seed "$@" ;;
   validate-seed) cmd_validate_seed "$@" ;;
   mark-done)   cmd_mark_done "$@" ;;
+  sync-apply)  cmd_sync_apply "$@" ;;
 
   ready-set)   cmd_ready_set "$@" ;;
   check-cycle) cmd_check_cycle "$@" ;;

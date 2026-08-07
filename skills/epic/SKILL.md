@@ -6,7 +6,7 @@ description: |
     via Linear preferred + local write-through; walk ready children by handing each to
     /kickoff or /orchestrate. Composition layer only — never reimplements the
     ticket lifecycle. Usage: /epic <EPIC-ID> ["text"] | status | complete |
-    block | unblock | --redecompose | [--worktree] [--release <bump>]
+    block | unblock | sync | --redecompose | [--worktree] [--release <bump>]
 ---
 
 # Epic — Umbrella Decomposition & Sequenced Orchestration
@@ -42,6 +42,7 @@ worktrees). Override root for tests: `EPIC_ROOT`.
 | `/epic complete <ID> <CHILD>` | Manual complete (kickoff-mode children) |
 | `/epic block <ID> <CHILD> [reason]` | Mark child blocked |
 | `/epic unblock <ID> <CHILD>` | Mark child pending again |
+| `/epic sync <ID> [--dry-run]` | Refresh local `state.json` from Linear (M15) when state may be stale |
 | `/epic … --worktree` | (decompose/execute/resume/`--redecompose` only) Enable epic integration-worktree mode (SPEC-025 M14 / CDT-141). Bare flag only — value forms hard-fail (exit 64). Persists `worktree_enabled=true` on init when set. After init (and on resume when state enabled): ensure **one** integration worktree `epic-<EPIC-ID>` (C2). On resume: omit to honor store; present must match state or exit 64 (C6). Illegal on `status` \| `complete` \| `block` \| `unblock`. |
 | `/epic … --release <bump>` | (with `--worktree` only) End-of-epic release bump intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` accepted alias. Alone / bare / `each`\|`end` / without `--worktree` → exit 64, zero side effects. Persists `release_bump` on init. Resume: omit honors store (no silent clear); mismatch → 64 (C6). After last child: Mode B.7 seal once (squash → one `/release <bump>` → `sealed=true`; C5). Without this flag: no epic seal. Orthogonal to `--autopilot`. |
 | `/epic … --no-context-discipline` | Debug opt-out of M13 between-child boundary (default **on**) |
@@ -91,6 +92,7 @@ fi
 
 - `status` → **Status mode**
 - `complete` / `block` / `unblock` → thin wrappers over `epic-lib.sh`
+- `sync` → **Mode F — Sync** (Linear → local; requires state)
 - `--redecompose` → **Redecompose mode** (requires confirm)
 - else if `exists` → **Execute / Resume**
 - else → **Decompose mode** (needs epic text)
@@ -130,7 +132,7 @@ Rules (hard-fail exit **64**, zero side effects):
 - `--release` without `--worktree` → 64; bare/empty/`each`/`end` → 64
 - rejected surface: `--bump`, `--land`, `--seal`
 - duplicate `--worktree` or `--release` → 64
-- flags illegal with first positional `status` | `complete` | `block` | `unblock`
+- flags illegal with first positional `status` | `complete` | `block` | `unblock` | `sync`
 - allowed on decompose / execute-resume / `--redecompose` only
 
 ### Resume flag-vs-state policy (CDT-141-C6) — hard-fail, no silent downgrade
@@ -591,6 +593,11 @@ When `show` surfaces non-null `integration_path`, note the epic integration
 worktree (operator continuity — same path/branch as prior session; CDT-141-C6).
 Children share it (CDT-141-C3): B.4 handoff + `ensure-ticket-worktree`.
 
+**Stale-state tip (M15):** when Linear MCP is up and state has any child
+`linear_id` **or** any null `linear_id`, print one soft line (not a gate):
+`Tip: /epic sync <EPIC-ID> refreshes status/linear_id from Linear when state may be stale`
+Do **not** auto-run sync on every resume (M9 no surprise mutations).
+
 **Resume seed (M13):** if `show` surfaces non-null `last_seed_path`, print
 `@<last_seed_path>` and treat that seed as the live context source for the
 next child (plus `show`/`waves`/`ready-set` rollup). Do **not** re-mine prior
@@ -957,6 +964,102 @@ bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" pending
 
 ---
 
+## Mode F — `/epic sync <EPIC-ID> [--dry-run]` (M15)
+
+**When:** local `$MROOT/.claude/epics/<EPIC-ID>/state.json` exists but may be
+**stale** vs Linear (status closed in Linear, null `linear_id`, wrong project id,
+orphans under parent). **Not** re-decomposition (use `--redecompose`).
+
+**Requires:** `exists` → else print `No state for epic <ID> — nothing to sync`
+and stop (exit non-zero / return). Illegal with `--worktree` / `--release`
+(parse-flags exit 64).
+
+### F.1 Inventory (session-owned MCP)
+
+When Linear MCP is **down**: print M5 one-liner
+`Linear unavailable — continuing with local write-through only`, then stop with
+**zero** `state.json` mutation (sync has nothing to pull).
+
+When MCP is **up**:
+
+1. `list_issues parentId=<EPIC-ID>` — page until exhausted; same survivor filter
+   as M4.1 (not `canceled`). Fields: `id`, `title`, `description`, `status`,
+   `statusType`, `projectId` / identifier as available.
+2. Optional: if `linear_project_id` is null, resolve project by exact epic
+   `title` (M12.2 link-only rules) — do **not** create a project on sync.
+3. **Map** each local child to ≤1 Linear survivor:
+   - Prefer exact `linear_id` match (identifier or UUID as stored)
+   - Else M4.1 title / `child_id`-in-description match
+4. **statusType → local status** (session maps before apply):
+   - `completed` / done → `completed`
+   - `canceled` → `blocked`
+   - `started` → `in_progress`
+   - else (`unstarted`, backlog, triage, …) → `pending`
+5. Build verdicts JSON (TMPDIR):
+
+```json
+{
+  "linear_project_id": "<optional when local null and known>",
+  "children": [
+    { "id": "<EPIC-ID>-C1", "linear_id": "CDT-…", "status": "completed",
+      "outcome_summary": "optional ≤1 line from Linear title/state" }
+  ],
+  "orphans": [{ "linear_id": "…", "title": "…" }],
+  "unmatched_local": ["<EPIC-ID>-C3"]
+}
+```
+
+- **orphans:** Linear survivors with no local child map (report only — never
+  auto-add children; that needs approve/`--redecompose`)
+- **unmatched_local:** local children with null `linear_id` and no unique match
+
+### F.2 Apply (mechanical)
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+VERDICTS="${TMPDIR:-/tmp}/epic-sync-verdicts-$$.json"
+# write F.1 verdicts into $VERDICTS
+# DRY_RUN=1 when user passed --dry-run
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  bash "$EPIC_LIB" sync-apply "$EPIC_ID" --verdicts "$VERDICTS" --dry-run
+else
+  bash "$EPIC_LIB" sync-apply "$EPIC_ID" --verdicts "$VERDICTS"
+fi
+rm -f "$VERDICTS"
+```
+
+**`sync-apply` invariants (epic-lib, no MCP):**
+
+| Rule | Behavior |
+|------|----------|
+| Fill `linear_id` | Only when local null/empty |
+| `linear_id` mismatch | Conflict; leave local |
+| Status same | Skip |
+| Status forward | Apply (e.g. pending→completed) |
+| `completed` → non-completed | **Skip** (`no_downgrade_completed`) — never re-open wrapped work |
+| `linear_project_id` | Fill only when local null; never clear; mismatch → conflict |
+| Unknown child / invalid status | Conflict skip |
+| Orphans | Report only |
+| `--dry-run` | Report planned actions; **zero** disk write |
+
+Print the JSON report (applied / skipped / conflicts / orphans). On conflicts or
+orphans, tell the user: orphans need manual map or `--redecompose`; mismatches
+need human fix.
+
+**Autopilot:** `/epic sync` is not a SPEC-033 gate; if invoked under autopilot,
+apply the same safe rules (no force reopen, no create, no auto-add orphans).
+
+**Does NOT:** create Linear issues, re-decompose, delete children, attach-storm
+all children to a project, or run Mode B handoff.
+
+---
+
 ## Mode E — `--redecompose` (M9 + M12)
 
 1. Require explicit `--redecompose` flag.
@@ -1026,6 +1129,9 @@ tree on child wrap), re-implement kickoff/orchestrate WT lifecycle, or fork
 | Linear fail / absent (issue, project, or attach) | Exactly: `Linear unavailable — continuing with local write-through only`; continue local (M5/M12) |
 | Linear inventory fail (M4.1) | M5 notice; **skip Linear child creates**; local write-through only (no silent duplicates) |
 | Linear parent has ≥1 non-canceled child (M4.1) | Adopt unique map (zero creates) **or** HALT with exact line `HALT: Linear already has N child issue(s) under <EPIC-ID> — adopt or confirm force-create; refusing duplicate create`; autopilot never force-creates |
+| `/epic sync` no state | Report nothing to sync; stop |
+| `/epic sync` MCP down | M5 notice; zero state mutation |
+| `/epic sync` stale local | `sync-apply` fills null `linear_id` / project id; pulls status forward; never downgrades `completed`; orphans report-only |
 | Project multi-hit exact name | Link first exact survivor; print exactly `Multiple Linear projects named '<title>' — linking first hit`; do not create (OQ3) |
 | Child attach fail | Keep `linear_project_id`; continue other children (OQ5) |
 | Bare resume + null project id | Do not create/link project (OQ4) |

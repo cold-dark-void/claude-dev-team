@@ -23,7 +23,7 @@
 #   --release each|end                      -> exit 64
 #   --bump / --land / --seal (any form)     -> exit 64
 #   duplicate --worktree or --release       -> exit 64
-#   flags with status|complete|block|unblock (first non-flag positional)
+#   flags with status|complete|block|unblock|sync (first non-flag positional)
 #                                           -> exit 64
 #
 # Prints ONE compact JSON object on exit 0:
@@ -135,7 +135,7 @@ if [ "$REL_SEEN" = true ]; then
 fi
 
 case "$first_positional" in
-  status|complete|block|unblock)
+  status|complete|block|unblock|sync)
     if [ "$WT_SEEN" = true ] || [ "$REL_SEEN" = true ]; then
       die "--worktree/--release not valid with $first_positional"
     fi

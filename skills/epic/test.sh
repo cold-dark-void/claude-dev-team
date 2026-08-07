@@ -571,6 +571,7 @@ expect_rc 64 "pf11b dup --release" bash "$PARSE" --worktree --release patch --re
 # (pf12) restricted subcommands
 expect_rc 64 "pf12 status --worktree" bash "$PARSE" status CDT-1 --worktree
 expect_rc 64 "pf12b complete --release" bash "$PARSE" complete CDT-1 CDT-1-C1 --worktree --release patch
+expect_rc 64 "pf12c sync --worktree" bash "$PARSE" sync CDT-1 --worktree
 expect_rc 64 "pf12c block --worktree" bash "$PARSE" block X Y --worktree
 expect_rc 64 "pf12d unblock --worktree" bash "$PARSE" unblock X Y --worktree
 
@@ -1439,6 +1440,110 @@ grep -q 'CDT-141-C5: seal' "$HERE/test.sh" \
 # single-release invariant in c5-7
 grep -q 'exactly 1 release commit' "$HERE/test.sh" \
   && pass || fail "c7-6 missing single-release assert"
+
+# ---- M15 /epic sync: sync-apply (Linear→local, session supplies verdicts) ----
+echo ""
+echo "=== M15 sync-apply ==="
+SYNC_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-sync-XXXXXX")
+export EPIC_ROOT="$SYNC_ROOT"
+bash "$LIB" init SYNC-E --title "Sync epic" --mode orchestrate >/dev/null
+bash "$LIB" add-child SYNC-E --id SYNC-E-C1 --slug c1 --title "Child one" \
+  --estimate S --agent ic4 --depends-on '[]' >/dev/null
+bash "$LIB" add-child SYNC-E --id SYNC-E-C2 --slug c2 --title "Child two" \
+  --estimate M --agent ic5 --depends-on '["SYNC-E-C1"]' --linear-id "LIN-C2" >/dev/null
+
+# (s1) dry-run: fill linear_id + set completed; no write
+V1=$(mktemp "${TMPDIR:-/tmp}/epic-sync-v1.XXXXXX")
+cat >"$V1" <<'JSON'
+{
+  "linear_project_id": "proj-abc",
+  "children": [
+    { "id": "SYNC-E-C1", "linear_id": "LIN-C1", "status": "completed", "outcome_summary": "done via Linear" },
+    { "id": "SYNC-E-C2", "status": "in_progress" }
+  ],
+  "orphans": [{ "linear_id": "LIN-ORPH", "title": "orphan" }],
+  "unmatched_local": []
+}
+JSON
+OUT=$(bash "$LIB" sync-apply SYNC-E --verdicts "$V1" --dry-run)
+echo "$OUT" | jq -e '.dry_run==true and .applied_count>=3' >/dev/null \
+  && pass || fail "s1 dry-run applied_count: $OUT"
+STAT=$(bash "$LIB" show SYNC-E | jq -r '.children[] | select(.id=="SYNC-E-C1") | .status')
+[ "$STAT" = "pending" ] && pass || fail "s1 dry-run must not write status got $STAT"
+LID=$(bash "$LIB" show SYNC-E | jq -r '.children[] | select(.id=="SYNC-E-C1") | .linear_id // "null"')
+[ "$LID" = "null" ] && pass || fail "s1 dry-run must not fill linear_id got $LID"
+PROJ=$(bash "$LIB" show SYNC-E | jq -r '.linear_project_id // "null"')
+[ "$PROJ" = "null" ] && pass || fail "s1 dry-run must not set project got $PROJ"
+echo "$OUT" | jq -e '.orphans | length == 1' >/dev/null \
+  && pass || fail "s1 orphans pass-through"
+
+# (s2) apply for real
+OUT=$(bash "$LIB" sync-apply SYNC-E --verdicts "$V1")
+echo "$OUT" | jq -e '.dry_run==false and .applied_count>=3' >/dev/null \
+  && pass || fail "s2 apply count: $OUT"
+STAT=$(bash "$LIB" show SYNC-E | jq -r '.children[] | select(.id=="SYNC-E-C1") | .status')
+[ "$STAT" = "completed" ] && pass || fail "s2 C1 completed got $STAT"
+LID=$(bash "$LIB" show SYNC-E | jq -r '.children[] | select(.id=="SYNC-E-C1") | .linear_id')
+[ "$LID" = "LIN-C1" ] && pass || fail "s2 C1 linear_id got $LID"
+OUTC=$(bash "$LIB" show SYNC-E | jq -r '.children[] | select(.id=="SYNC-E-C1") | .outcome_summary')
+[ "$OUTC" = "done via Linear" ] && pass || fail "s2 outcome got $OUTC"
+STAT=$(bash "$LIB" show SYNC-E | jq -r '.children[] | select(.id=="SYNC-E-C2") | .status')
+[ "$STAT" = "in_progress" ] && pass || fail "s2 C2 in_progress got $STAT"
+PROJ=$(bash "$LIB" show SYNC-E | jq -r '.linear_project_id')
+[ "$PROJ" = "proj-abc" ] && pass || fail "s2 project got $PROJ"
+
+# (s3) idempotent re-apply → mostly skipped, applied_count 0
+OUT=$(bash "$LIB" sync-apply SYNC-E --verdicts "$V1")
+echo "$OUT" | jq -e '.applied_count==0' >/dev/null \
+  && pass || fail "s3 idempotent apply: $OUT"
+
+# (s4) no_downgrade_completed: Linear reopened → skip
+V2=$(mktemp "${TMPDIR:-/tmp}/epic-sync-v2.XXXXXX")
+cat >"$V2" <<'JSON'
+{ "children": [ { "id": "SYNC-E-C1", "status": "pending" } ] }
+JSON
+OUT=$(bash "$LIB" sync-apply SYNC-E --verdicts "$V2")
+echo "$OUT" | jq -e '[.skipped[] | select(.action=="no_downgrade_completed")] | length == 1' >/dev/null \
+  && pass || fail "s4 no_downgrade: $OUT"
+STAT=$(bash "$LIB" show SYNC-E | jq -r '.children[] | select(.id=="SYNC-E-C1") | .status')
+[ "$STAT" = "completed" ] && pass || fail "s4 C1 still completed got $STAT"
+
+# (s5) linear_id mismatch conflict
+V3=$(mktemp "${TMPDIR:-/tmp}/epic-sync-v3.XXXXXX")
+cat >"$V3" <<'JSON'
+{ "children": [ { "id": "SYNC-E-C2", "linear_id": "LIN-OTHER" } ] }
+JSON
+OUT=$(bash "$LIB" sync-apply SYNC-E --verdicts "$V3")
+echo "$OUT" | jq -e '[.conflicts[] | select(.action=="linear_id_mismatch")] | length == 1' >/dev/null \
+  && pass || fail "s5 linear_id_mismatch: $OUT"
+LID=$(bash "$LIB" show SYNC-E | jq -r '.children[] | select(.id=="SYNC-E-C2") | .linear_id')
+[ "$LID" = "LIN-C2" ] && pass || fail "s5 C2 linear_id unchanged got $LID"
+
+# (s6) unknown child → conflict
+V4=$(mktemp "${TMPDIR:-/tmp}/epic-sync-v4.XXXXXX")
+cat >"$V4" <<'JSON'
+{ "children": [ { "id": "SYNC-E-C99", "status": "completed" } ] }
+JSON
+OUT=$(bash "$LIB" sync-apply SYNC-E --verdicts "$V4")
+echo "$OUT" | jq -e '[.conflicts[] | select(.action=="unknown_child")] | length == 1' >/dev/null \
+  && pass || fail "s6 unknown_child: $OUT"
+
+# (s7) usage / missing file
+expect_rc 64 "s7 missing verdicts" bash "$LIB" sync-apply SYNC-E
+expect_rc 1 "s7 missing file" bash "$LIB" sync-apply SYNC-E --verdicts /no/such/file.json
+expect_rc 1 "s7 missing epic" env EPIC_ROOT="$SYNC_ROOT" bash "$LIB" sync-apply NOPE --verdicts "$V1"
+
+# (s8) protocol presence
+if [ -f "$SKILL" ]; then
+  grep -q 'Mode F' "$SKILL" && grep -q 'sync-apply' "$SKILL" \
+    && pass || fail "s8 SKILL missing Mode F / sync-apply"
+  grep -q '/epic sync' "$SKILL" \
+    && pass || fail "s8 SKILL missing /epic sync"
+fi
+
+rm -f "$V1" "$V2" "$V3" "$V4"
+rm -rf "$SYNC_ROOT"
+unset EPIC_ROOT
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
