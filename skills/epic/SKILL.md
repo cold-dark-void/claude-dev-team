@@ -488,10 +488,51 @@ before or with child issue dual-write:
 
 #### Linear preferred (M5) — child issues + project attach
 
-If Linear MCP tools are available (preferred SoT for open work), **per child**:
+If Linear MCP tools are available (preferred SoT for open work):
+
+##### M4.1 Link-before-create (inventory → adopt | create | halt)
+
+**Before any child `save_issue` create**, inventory existing parented children
+(SPEC-025 M4.1). Session-owned MCP only (`epic-lib` never calls Linear).
+
+1. **Inventory:** `list_issues` with `parentId=<EPIC-ID>`, page until exhausted
+   (`limit` 50–250 + `cursor`). Request fields at least: `id`, `title`,
+   `description`, `status`, `statusType`, `projectId` (identifier/url as available).
+   Prefer `includeArchived=false`. **Survivors** = rows whose `statusType` is
+   **not** `canceled` (include completed/done; drop canceled).
+2. **Inventory failure** (tool error / unusable response) → print the single M5
+   notice below; **skip all Linear child creates** for this approve path; continue
+   local write-through only. Prefer missing Linear links over silent duplicates.
+3. **Zero survivors → create path** (per-child steps below).
+4. **≥1 survivor → adopt path — MUST NOT create a second child set:**
+   - **Match** each proposed local child to ≤1 survivor, in order:
+     1. Description embeds `child_id: <EPIC-ID>-C<n>` or the bare local id
+     2. Unique exact match on **normalized title**: lowercase; strip leading
+        `[<EPIC-ID>]`, `E<n>:`, `C<n>:`, `<EPIC-ID>-C<n>` (optional trailing
+        punctuation/space)
+     3. If `|survivors| == |proposed|` and a collision-free case-insensitive
+        unique title map exists (normalized short titles), use it
+   - **Full unique map:** for each pair, record Linear id as `linear_id`;
+     best-effort attach to `linear_project_id` when set and missing; best-effort
+     `epic:<EPIC-ID>` label; optional description patch to embed `child_id` if
+     absent (fail-open). **Zero** `save_issue` creates. Local backlog + index +
+     `add-child … --linear-id` as usual. Print one advisory line:
+     `Adopted N existing Linear child(ren) under <EPIC-ID> — no new issues created`
+   - **Ambiguous / partial map:** print **exactly**:
+     `HALT: Linear already has N child issue(s) under <EPIC-ID> — adopt or confirm force-create; refusing duplicate create`
+     Then list survivors (`id` + title) and proposed children. **Zero** Linear
+     child creates. Human may: supply adopt map, **explicit** force-create
+     override, or abort. **Autopilot:** full unique map → adopt (silent except
+     the advisory); ambiguous → emit `task_blocked` (Tier B) and **return** —
+     MUST NOT force-create under autopilot.
+
+##### Create path (only when zero inventory survivors, or explicit force-create)
+
+**Per child:**
 
 1. Create issue via `save_issue`: title `[<EPIC-ID>] <child title>`; description
-   embeds local `child_id` + problem + ACs.
+   embeds local `child_id` + problem + ACs. (Parent-edge on **create** remains
+   deferred — M12 project + label group children; M4.1 only *reads* parentId.)
 2. **Attach to project (M12 / AC4):** when `linear_project_id` is non-null, pass
    `project` = that id on `save_issue`. Attach failure for one child is fail-open
    for **that child only** — keep `linear_project_id`, continue remaining children
@@ -507,13 +548,15 @@ Then always local backlog item + index row + `add-child` (with `--linear-id`
 when known).
 
 On **any** Linear failure or MCP absence (issue create/link, project
-create/link, or child-to-project attach): print **exactly** one line
+create/link, or child-to-project attach) — **except** M4.1 ambiguous halt,
+which is intentional stop: print **exactly** one line
 
 `Linear unavailable — continuing with local write-through only`
 
-and continue. **Never** block, retry-loop, or fail the epic. Reuse this single
-M5 string for project failures too (OQ7 / M5) — do not invent a second fail-open
-string.
+and continue. **Never** block, retry-loop, or fail the epic on transport/MCP
+errors. Reuse this single M5 string for project failures too (OQ7 / M5) — do not
+invent a second fail-open string. M4.1 ambiguous halt uses its own HALT line
+above (not the M5 transport string).
 
 **Notify-on-done (CDT-123):** after successful A.6 persist (decompose approved and
 written), emit `task_complete` (detail = `epic decompose complete: <EPIC-ID>`) via
@@ -929,8 +972,12 @@ bash "$EPIC_LIB" set-status "$EPIC_ID" "$CHILD_ID" pending
      A.6 M12 create/link path **once**, then
      `set-linear-project`; attach new/changed dual-written children.
    - Project/attach failures → same M5 one-liner; local continues.
-7. Linear issues: best-effort only for new/changed children (`save_issue` with
-   `project` when id known + `epic:<EPIC-ID>` labels — AC11).
+7. Linear issues: best-effort only for new/changed children. **M4.1 first:**
+   inventory `list_issues(parentId=<EPIC-ID>)`; adopt unique map for children
+   that already exist; **create only** for proposed children with no survivor
+   match when the overall map is non-ambiguous (or after explicit force-create).
+   Never blind-create a full second set when parent already has survivors.
+   `save_issue` with `project` when id known + `epic:<EPIC-ID>` labels — AC11.
 
 ---
 
@@ -977,6 +1024,8 @@ tree on child wrap), re-implement kickoff/orchestrate WT lifecycle, or fork
 | Cycle in DAG | Halt; zero writes; name back-edge |
 | Decline approval | Exit; zero writes **including** zero Linear project create/link (AC12) |
 | Linear fail / absent (issue, project, or attach) | Exactly: `Linear unavailable — continuing with local write-through only`; continue local (M5/M12) |
+| Linear inventory fail (M4.1) | M5 notice; **skip Linear child creates**; local write-through only (no silent duplicates) |
+| Linear parent has ≥1 non-canceled child (M4.1) | Adopt unique map (zero creates) **or** HALT with exact line `HALT: Linear already has N child issue(s) under <EPIC-ID> — adopt or confirm force-create; refusing duplicate create`; autopilot never force-creates |
 | Project multi-hit exact name | Link first exact survivor; print exactly `Multiple Linear projects named '<title>' — linking first hit`; do not create (OQ3) |
 | Child attach fail | Keep `linear_project_id`; continue other children (OQ5) |
 | Bare resume + null project id | Do not create/link project (OQ4) |

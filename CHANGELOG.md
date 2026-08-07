@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.6.1
+- **M4.1 link-before-create for `/epic` dual-write** — before any child `save_issue` create, inventory `list_issues(parentId=<EPIC-ID>)`; adopt a unique title/`child_id` map (zero creates), HALT on ambiguous parented children (refuse silent second set), create only when zero survivors; inventory failure skips Linear creates (local continues). Autopilot never force-creates. SPEC-025 M4.1 + skill protocol + presence tests (CDT-141 dogfood: E1–E7 already under parent when local state empty).
+
 ### v1.6.0
 - **CDT-141 — `/epic --worktree` + `--release <bump>` (one master commit)** — locked CLI for epic integration worktree + end-of-epic seal: bare `--worktree` and `--release patch|minor|major` (space or `=`), illegal combos exit 64 with zero side effects, durable `worktree_enabled`/`release_bump` on epic state.
 - **Integration worktree + shared child tree** — `ensure-integration-worktree` creates/reuses `.worktrees/epic-<ID>` (`feat/epic-<ID>`); `ensure-ticket-worktree` routes children into the shared tree (no per-child worktrees); wrap-ticket must not release the integration slug.

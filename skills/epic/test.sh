@@ -479,6 +479,17 @@ if [ -f "$SKILL" ]; then
     && pass || fail "A.6 init fence missing INIT_EXTRA/--worktree-enabled"
   echo "$A6_BLOCK" | grep -q 'ensure-integration-worktree' \
     && pass || fail "A.6 missing ensure-integration-worktree after init"
+  # M4.1 link-before-create: inventory parent children; adopt/halt; no blind create
+  grep -q 'M4.1 Link-before-create' "$SKILL" \
+    && pass || fail "SKILL missing M4.1 Link-before-create section"
+  grep -q 'parentId' "$SKILL" \
+    && pass || fail "SKILL missing list_issues parentId inventory (M4.1)"
+  grep -q 'refusing duplicate create' "$SKILL" \
+    && pass || fail "SKILL missing M4.1 HALT duplicate-create line"
+  grep -q 'Adopted N existing Linear child' "$SKILL" \
+    && pass || fail "SKILL missing M4.1 adopt advisory line"
+  grep -q 'MUST NOT force-create under autopilot' "$SKILL" \
+    && pass || fail "SKILL missing M4.1 autopilot no force-create"
   # B.1 resume must ensure when state enabled
   B1_BLOCK=$(awk '/^### B\.1 Rollup/,/^### B\.2 /' "$SKILL")
   echo "$B1_BLOCK" | grep -q 'ensure-integration-worktree' \
