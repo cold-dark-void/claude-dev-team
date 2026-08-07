@@ -6,6 +6,14 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.0
+- **`/bug-hunt` full stages 1–4 (CDT-97 epic)** — productized July bug-hunt playbook as a first-class surface: discover → refute/confirm → findings plan + proceed-gated backlog materialize → phased `/orchestrate`|`/epic` handoff with user locks. Thin `commands/bug-hunt.md` + `skills/bug-hunt/` protocol; process under `.claude/bug-hunt/` (gitignored). Static suite `skills/bug-hunt/test.sh` (206 checks).
+- **SPEC-034 bug-hunt product contract (CDT-97-C1 / CDT-140)** — DRAFT core spec locks surface, stages/locks, finding model (`locator`/`severity`/`description`/`evidence`/`status`), floor filter, composition boundaries, phase-done metrics, when-to-use matrix, non-goals; runtime add-ons M31–M48 (discover-refute, materialize, stage-4 handoff) + Covers for command/skill.
+- **Stages 1–2 discover + refute (CDT-97-C2 / CDT-136)** — path scope + `--severity-floor` (default `nitpick`, loud fail); SPEC-013 blind-compose multi-perspective discover; ≥2-flavor investigator refute; confirmed-actionable report + SHOULD findings.json intermediate.
+- **Stage 3 findings plan + bh-* backlog materialize (CDT-97-C3 / CDT-138)** — load C2 artifacts; plan at `…-plan.md`; M8 proceed (`--proceed` or typed token) before any create; SPEC-009 programmatic dual-write only; self-contained bh-quality bodies; plan↔item linkage; M22 phase-done; zero-actionable clean path.
+- **Stage 4 phased handoff + locks (CDT-97-C4 / CDT-139)** — severity-band phase plan (critical→warning→nitpick); per-phase handoff templates; M18 route (`/orchestrate` default; `/epic` when ≥2 phases ∧ ≥2 items); M9 start-phase-0 and between-phase locks; emit-only pasteable commands (never auto-spawn/fix); M23 handoff phase-done + resume identity.
+- **Surface + docs (CDT-97-C5 / CDT-137)** — full args (`materialize` / `handoff` / `--proceed` / `--start-phase`); docs/commands page (when-to-use, stages, outputs, locks, non-goals, smoke); README + docs hub Core index.
+
 ### v1.6.3
 - **Linear lifecycle: Done only on master / wrap** — PR-stop and off-master ship set Linear **In Review** (not Done); **Done** only after squash/merge/`/release` lands on master, or `/wrap-ticket` post-merge (idempotent). Fixes Done-before-master footgun. SPEC-009 + orchestrate Step 11 + wrap-ticket + end-state + epic sync status map (In Review stays open for walkers).
 

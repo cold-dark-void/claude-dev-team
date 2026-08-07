@@ -45,5 +45,8 @@ __pycache__/
 
 # SPEC-029 local debug theme reopen logs
 .claude/debug/themes/
+
+# Bug-hunt stages 1–2 reports + findings JSON (SPEC-034 M25/M31 — process artifacts)
+.claude/bug-hunt/
 .wt-lock
 .worktrees/

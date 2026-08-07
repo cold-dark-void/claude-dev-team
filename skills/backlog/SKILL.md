@@ -268,7 +268,8 @@ rather than restating them:
 Known citing callers: `skills/brainstorm/SKILL.md` Step 4c (convention 1 or
 2, Linear-first), `skills/refactor/SKILL.md` § 2.2a.5 (convention 2,
 `--local-only`), `commands/retro.md` `--auto` mode (convention 2,
-Linear-first).
+Linear-first), `skills/bug-hunt/SKILL.md` S3e (convention 2 Direct write,
+Linear-first; M8 proceed-gated).
 
 ---
 

@@ -36,10 +36,15 @@
 | SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |
 | SPEC-031 | Escalation Gate & Universal Worktree Isolation | DRAFT | skills/refactor/SKILL.md (contract home), skills/debug/SKILL.md, skills/review-and-commit/SKILL.md, skills/code-simplify/SKILL.md, skills/init-orchestration/SKILL.md (hook template) + check-hook-templates.sh, commands/setup.md, AGENTS.md |
 | SPEC-032 | CI Linter Parity Gate | ACTIVE | .github/workflows/smoke.yml (linter jobs only), skills/skill-lint/SKILL.md (CI-caller note only), skills/docs-drift/SKILL.md (CI-caller note only), skills/release/SKILL.md (referenced, unchanged) |
+| SPEC-034 | Bug-Hunt Workflow | DRAFT | `commands/bug-hunt.md`, `skills/bug-hunt/*` (stages 1–2 — CDT-136; stage-3 materialize — CDT-138 M38–M41; stage-4 phased handoff — CDT-139 M42–M48; Status DRAFT) |
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-07 | CDT-139: SPEC-034 stage-4 runtime M42–M48 + Tests T22–T26; Covers stages 1–4 handoff (Status remains DRAFT) |
+| 2026-08-07 | CDT-138: SPEC-034 stage-3 runtime M38–M41 + Tests T18–T21; Covers stages 1–3 (handoff still uncovered; Status remains DRAFT) |
+| 2026-08-06 | CDT-136: SPEC-034 Covers → stages 1–2 runtime paths; additive M31–M34 + Tests T12–T16 (Status remains DRAFT) |
+| 2026-08-06 | CDT-140: SPEC-034 DRAFT created — bug-hunt product contract |
 | 2026-08-06 | CDT-127: SPEC-025 M13 coverage — Tests 14–20 (boundary default, seed shape, fail-closed, no dual SoT, guardrail secondary, M11 hold, CDT-126 non-goal); M6 additive `last_seed_path`/`outcome_summary` |
 | 2026-07-31 | CDT-98: SPEC-031 DRAFT created (Escalation gate + universal worktree isolation + graduated PreToolUse hook); SPEC-015 amended (current-branch commit mandate retired, plans-file exemption closed, no-user-input MUSTs scoped to approach decision) |
 | 2026-07-28 | CDT-94: SPEC-018 M8b gen-3 load uniqueness — `assemble-test.sh` T28 (Test 34); `#N` prior-id disambiguation + stderr |

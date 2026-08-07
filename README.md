@@ -93,6 +93,7 @@ First-ticket lifecycle: install → health → plan → execute → review → s
 | [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL planning → spec → implementation plan → task graph |
 | [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → ship/PR |
 | [`/debug`](docs/commands/debug.md) | Phase-gated bug fix (`patch`/`arch`) or ticket pipeline (`ticket`) |
+| [`/bug-hunt`](docs/commands/bug-hunt.md) | Unknown-defect discovery — discover → refute → plan + proceed-gated materialize → phase handoff emit-only (stages 1–4) |
 | [`/council`](docs/commands/council.md) | Adversarial tribunal — reality-check a claim, session slice, or diff |
 | `/release` | Bump version (CHANGELOG + plugin JSON), commit, tag, push |
 | [`/status`](docs/commands/status.md) | Read-only hub — bare = standup→metrics→worktrees; subs `standup` · `metrics` · `worktree` |
