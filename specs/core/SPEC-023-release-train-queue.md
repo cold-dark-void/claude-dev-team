@@ -35,7 +35,7 @@ The train is a **sequencer, not a releaser**. It owns queue state, ordering, slo
 - **M9 — Dry-run.** A `--dry-run` invocation MUST print the computed landing order, per-slot version assignments, per-entry renumbering plan (assumed → assigned), and predicted conflict classes per entry — with ZERO mutation: no git state change, no version-file edit, no tag, and no change to entry `status` in `queue.json`. Dry-run may compute an ephemeral plan without setting `frozen=true` or writing status (`freeze --print-only`).
 - **M10 — MUST NOT reimplement /release internals.** The train MUST NOT contain its own implementation of commit-message formatting, changelog-entry generation, version-pair sync/verification, drift gates, or tag/push sequencing. `train-lib.sh` MUST NOT invoke `git tag`, `git push`, or `git commit`. If `/release`'s contract changes, the train inherits the change by invocation, not by copy (single source of truth per SPEC-010 / AGENTS.md).
 - **M11 — MUST NOT mutate queued branches; serialize everything.** The train MUST NOT commit to, rebase, renumber, or otherwise rewrite the queued source branches themselves — renumbering happens only on the merged working tree on master; branches stay untouched for their owners. Entries MUST land strictly sequentially, inheriting SPEC-016's serialized-`git worktree`-operations rule; the train MUST NOT run two landings, or a landing plus any other train git operation, concurrently.
-- **M12 — CLI surface.** Mechanical operations MUST be exposed as a subprocess-only CLI: `bash skills/release-train/train-lib.sh <cmd> …` (never sourced). Commands:
+- **M12 — CLI surface.** Mechanical operations MUST be exposed as a subprocess-only CLI (never sourced). Callers MUST resolve `train-lib.sh` install-aware via `plugin-dir.sh` (`TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)` then `bash "$TRAIN_LIB" <cmd> …`) — never a bare cwd-relative `bash skills/release-train/…` path (marketplace/cache installs). Commands:
   - `init` — ensure dir + empty `queue.json` if missing
   - `register <branch> [--bump minor|patch] [--assumed <ver>|null]`
   - `list` — JSON queue to stdout
@@ -61,7 +61,7 @@ The train is a **sequencer, not a releaser**. It owns queue state, ordering, slo
 - SHOULD detect dead entries at train start (branch deleted, or already fully contained in master) and prompt to drop them rather than failing mid-train.
 - SHOULD print a one-line summary after each landing (`<branch> → vX.Y.Z (tag pushed)`) and a final train summary table.
 - SHOULD suggest the per-branch follow-up (`/wrap-ticket`, branch deletion) after a successful landing, without performing it — cleanup stays with SPEC-016/SPEC-009 flows.
-- SHOULD keep the pre-resolution helpers in a subprocess CLI (`bash skills/release-train/train-lib.sh <cmd>`, matching the `worktree-lib.sh` / `task-store.sh` precedent) so the union-append logic is deterministically testable without an LLM in the loop.
+- SHOULD keep the pre-resolution helpers in a subprocess CLI (`bash "$TRAIN_LIB" <cmd>` after plugin-dir resolve, matching the `worktree-lib.sh` / `task-store.sh` precedent) so the union-append logic is deterministically testable without an LLM in the loop.
 
 ## Test
 
@@ -112,6 +112,7 @@ The train is a **sequencer, not a releaser**. It owns queue state, ordering, slo
 | 2026-07-13 | CDV-181: lock v1 OQs; M12–M15 CLI/precond/lock/status; CHANGELOG skip-if-present contract; implement train-lib + skill + command; status DRAFT→ACTIVE |
 | 2026-07-22 | CDT-54 / CDT-46-C8: cross-ref only — SPEC-010 Step 4.7 dual-copy hook-template gate retired/reduced (no train behavior change) |
 | 2026-08-06 | CDT-131: renumber/M5d treat marketplace version as optional (update only if present; never invent). Master version source is the pair (CHANGELOG + plugin.json). |
+| 2026-08-07 | CDT-171: M12 + SHOULD — callers MUST resolve train-lib via plugin-dir.sh (install-aware); subprocess-only contract unchanged. |
 
 **Covers**: `commands/release-train.md` (user entrypoint: register/list/drop/start/dry-run/status), `skills/release-train/SKILL.md` (train protocol: ordering, slot assignment, landing loop), `skills/release-train/train-lib.sh` (subprocess CLI: queue.json state ops + mechanical M5a–d pre-resolvers), `skills/release/SKILL.md` (Step 2–3a skip-if-present only; consumed per entry), `.gitignore` (`.claude/release-train/`).
 

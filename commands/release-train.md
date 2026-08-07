@@ -11,8 +11,8 @@ argument-hint: "register <branch> | list | drop <branch> | start | dry-run | sta
 # /release-train
 
 Thin entrypoint for the release-train skill. Full protocol:
-`skills/release-train/SKILL.md`. Mechanical CLI:
-`bash skills/release-train/train-lib.sh <cmd> …`.
+`skills/release-train/SKILL.md`. Mechanical CLI: resolve `train-lib.sh` via
+`plugin-dir.sh`, then `bash "$TRAIN_LIB" <cmd> …` (subprocess only).
 
 ## Args
 
@@ -27,21 +27,25 @@ Thin entrypoint for the release-train skill. Full protocol:
 ## Routing
 
 1. Resolve plugin/skill paths; prefer cwd repo root (`git rev-parse --show-toplevel`).
-2. Ensure queue dir: `bash skills/release-train/train-lib.sh init`
+2. Ensure queue dir: resolve TRAIN_LIB (below) then `bash "$TRAIN_LIB" init`
 3. Dispatch:
 
 ```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+
 # register
-bash skills/release-train/train-lib.sh register "$BRANCH" --bump "${BUMP:-minor}"
+bash "$TRAIN_LIB" register "$BRANCH" --bump "${BUMP:-minor}"
 
 # list / status
-bash skills/release-train/train-lib.sh list
+bash "$TRAIN_LIB" list
 
 # drop
-bash skills/release-train/train-lib.sh drop "$BRANCH"
+bash "$TRAIN_LIB" drop "$BRANCH"
 
 # dry-run (no freeze write; no status changes)
-bash skills/release-train/train-lib.sh freeze --print-only
+bash "$TRAIN_LIB" freeze --print-only
 
 # start — follow skills/release-train/SKILL.md landing loop end-to-end
 # including AGENT STEP: /release <assigned_version> per entry

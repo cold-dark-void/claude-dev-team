@@ -14,7 +14,7 @@ description: |
 Sequencer for shipping several ready branches that race the same next version
 and touch the same hot files. **Not a releaser** — all commit/tag/push go
 through `/release <assigned_version>` (SPEC-010). Mechanical state lives in
-`bash skills/release-train/train-lib.sh` (subprocess only).
+`train-lib.sh` (subprocess only; resolve via `plugin-dir.sh` — see fences below).
 
 **Usage**: `/release-train {register,list,drop,start,dry-run,status} …`
 
@@ -43,7 +43,10 @@ Before the landing loop:
 Check with:
 
 ```bash
-bash skills/release-train/train-lib.sh preflight
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" preflight
 ```
 
 Exit 0 and stdout `ok` means clean on master/main. Non-zero prints `wrong-branch:…` and/or `dirty`.
@@ -51,11 +54,14 @@ Exit 0 and stdout `ok` means clean on master/main. Non-zero prints `wrong-branch
 ## Register / list / drop
 
 ```bash
-bash skills/release-train/train-lib.sh init
-bash skills/release-train/train-lib.sh register feat/foo --bump minor
-bash skills/release-train/train-lib.sh register feat/bar --bump patch --assumed 0.40.0
-bash skills/release-train/train-lib.sh list
-bash skills/release-train/train-lib.sh drop feat/bar
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" init
+bash "$TRAIN_LIB" register feat/foo --bump minor
+bash "$TRAIN_LIB" register feat/bar --bump patch --assumed 0.40.0
+bash "$TRAIN_LIB" list
+bash "$TRAIN_LIB" drop feat/bar
 ```
 
 - `register` requires the branch ref to exist (`git rev-parse --verify`).
@@ -68,7 +74,10 @@ bash skills/release-train/train-lib.sh drop feat/bar
 Detect assumed version:
 
 ```bash
-bash skills/release-train/train-lib.sh detect-assumed feat/foo
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" detect-assumed feat/foo
 ```
 
 ## Dry-run (M9)
@@ -76,13 +85,19 @@ bash skills/release-train/train-lib.sh detect-assumed feat/foo
 **Never** writes status transitions or freezes permanently for dry-run alone.
 
 ```bash
-bash skills/release-train/train-lib.sh freeze --print-only
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" freeze --print-only
 ```
 
 If already frozen:
 
 ```bash
-bash skills/release-train/train-lib.sh show-plan
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" show-plan
 ```
 
 Print order, assigned versions, assumed→assigned renumber plan, and note that
@@ -95,9 +110,12 @@ statuses unchanged after dry-run.
 ### 0. Lock and freeze
 
 ```bash
-bash skills/release-train/train-lib.sh acquire-lock
-bash skills/release-train/train-lib.sh freeze
-bash skills/release-train/train-lib.sh show-plan
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" acquire-lock
+bash "$TRAIN_LIB" freeze
+bash "$TRAIN_LIB" show-plan
 ```
 
 Always `release-lock` on every exit path (success, block, user abort).
@@ -105,7 +123,10 @@ Always `release-lock` on every exit path (success, block, user abort).
 Optional order override:
 
 ```bash
-bash skills/release-train/train-lib.sh freeze --order feat/a,feat/b
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" freeze --order feat/a,feat/b
 ```
 
 ### 1. For each entry in `order` where `status != landed`
@@ -115,7 +136,10 @@ bash skills/release-train/train-lib.sh freeze --order feat/a,feat/b
 For each earlier entry with `status=landed` and a recorded `tag`:
 
 ```bash
-bash skills/release-train/train-lib.sh verify-tag vX.Y.Z
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" verify-tag vX.Y.Z
 ```
 
 If verify fails, stop and report — do not re-release.
@@ -123,8 +147,11 @@ If verify fails, stop and report — do not re-release.
 #### 1b. Mark landing; record base
 
 ```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
 BASE=$(git rev-parse HEAD)
-bash skills/release-train/train-lib.sh set-status <branch> landing --base-sha "$BASE"
+bash "$TRAIN_LIB" set-status <branch> landing --base-sha "$BASE"
 ```
 
 #### 1c. Present branch as uncommitted tree (M4)
@@ -155,12 +182,15 @@ git diff --name-only --diff-filter=U
 If **any** other path is conflicted → **M6 halt**:
 
 ```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
 BASE=$(git rev-parse HEAD)   # or the base_sha recorded at landing start
 # Prefer queue base_sha when present:
-# BASE=$(bash skills/release-train/train-lib.sh list | jq -r --arg b '<branch>' '.entries[]|select(.branch==$b)|.base_sha')
-bash skills/release-train/train-lib.sh restore "$BASE"
-bash skills/release-train/train-lib.sh set-status <branch> blocked --paths path1,path2
-bash skills/release-train/train-lib.sh release-lock
+# BASE=$(bash "$TRAIN_LIB" list | jq -r --arg b '<branch>' '.entries[]|select(.branch==$b)|.base_sha')
+bash "$TRAIN_LIB" restore "$BASE"
+bash "$TRAIN_LIB" set-status <branch> blocked --paths path1,path2
+bash "$TRAIN_LIB" release-lock
 ```
 
 Stop the train. No skip-and-recompute in v1.
@@ -170,22 +200,25 @@ Stop the train. No skip-and-recompute in v1.
 Resolve allowlisted conflicts / dual trees. File-flag form (also used by tests):
 
 ```bash template
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
 # M5a Spec Index
-bash skills/release-train/train-lib.sh resolve-tdd-index \
+bash "$TRAIN_LIB" resolve-tdd-index \
   --ours /path/ours-TDD.md --theirs /path/theirs-TDD.md --out specs/TDD.md
 
 # M5b Version-History (same or other spec files)
-bash skills/release-train/train-lib.sh resolve-vh \
+bash "$TRAIN_LIB" resolve-vh \
   --ours /path/ours.md --theirs /path/theirs.md --out specs/TDD.md
 
 # M5c CHANGELOG — single heading for assigned version; body from branch
-bash skills/release-train/train-lib.sh resolve-changelog <assigned> \
+bash "$TRAIN_LIB" resolve-changelog <assigned> \
   --branch-file /path/branch-CHANGELOG.md \
   --master-file /path/master-CHANGELOG.md \
   --out CHANGELOG.md
 
 # M5d version JSON
-bash skills/release-train/train-lib.sh resolve-json <assigned>
+bash "$TRAIN_LIB" resolve-json <assigned>
 ```
 
 Obtain ours/theirs via `git show <base>:path` and `git show <branch>:path` when
@@ -196,7 +229,10 @@ the squash left a clean or conflicted tree.
 If `assumed_version` is non-null and differs from `assigned_version`:
 
 ```bash template
-bash skills/release-train/train-lib.sh renumber <assumed> <assigned>
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" renumber <assumed> <assigned>
 ```
 
 Touches CHANGELOG headings + `plugin.json` version on the **working tree**
@@ -228,11 +264,14 @@ tag, push.
 #### 1h. On `/release` failure → restore + blocked
 
 ```bash
-BASE=$(bash skills/release-train/train-lib.sh list | jq -r --arg b '<branch>' \
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+BASE=$(bash "$TRAIN_LIB" list | jq -r --arg b '<branch>' \
   '.entries[] | select(.branch==$b) | .base_sha')
-bash skills/release-train/train-lib.sh restore "$BASE"
-bash skills/release-train/train-lib.sh set-status <branch> blocked
-bash skills/release-train/train-lib.sh release-lock
+bash "$TRAIN_LIB" restore "$BASE"
+bash "$TRAIN_LIB" set-status <branch> blocked
+bash "$TRAIN_LIB" release-lock
 ```
 
 Stop. Report the `/release` error to the user.
@@ -240,7 +279,10 @@ Stop. Report the `/release` error to the user.
 #### 1i. On success → landed
 
 ```bash template
-bash skills/release-train/train-lib.sh set-status <branch> landed --tag v<assigned>
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" set-status <branch> landed --tag v<assigned>
 ```
 
 Print summary line: `<branch> → v<assigned> (tag pushed)`.
@@ -250,7 +292,10 @@ Continue to the next non-landed entry.
 ### 2. After the loop
 
 ```bash
-bash skills/release-train/train-lib.sh release-lock
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
+bash "$TRAIN_LIB" release-lock
 ```
 
 Print final train summary table from `list`. Suggest per-branch follow-up
@@ -289,7 +334,11 @@ Advisory lock: `.claude/release-train/train.lock`.
 
 ## Tests
 
+Run from plugin root (or resolve test scripts via `plugin-dir.sh`):
+
 ```bash
-bash skills/release-train/test.sh
-bash skills/release-train/test-integration.sh
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+bash "$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/test.sh)"
+bash "$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/test-integration.sh)"
 ```
