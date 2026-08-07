@@ -504,10 +504,12 @@ pass.
 create parent if absent). Contents: scope/target, team manifest, tiered
 clusters (claim, evidence, severity, category, team count, source finding
 IDs), quorum summary, per-team summaries, dropped-malformed count.
-**Output shape:** findings-shaped for gate purposes — TaskCompleted MUST
-ignore blind-path rows the same way it ignores `finding[]` (multi-perspective
-code review, not fabrication audit). Prefer unbound reports; do not write an
-index row that satisfies `requires_council`.
+**Output shape:** findings-shaped for presentation; TaskCompleted MUST treat
+blind-path runs as **gate-ignored** — prefer unbound reports (no `task_id` /
+no qualifying index row). Reason is unbound / no qualifying row / both-null
+conf, **not** "the hook ignores `finding[]`" (tribunal `finding[]` rows with
+non-null `max_finding_confidence` are dual-shape pass signals per SPEC-002).
+Do not write an index row that satisfies `requires_council`.
 
 **Hard fails:** `--teams`/`--lenses`/`--target` without `--blind`; `--blind`
 combined with another scope; unknown lens; missing target path; non-positive
@@ -966,11 +968,14 @@ Per-shape population rule:
   unstruck findings; `max_verdict_confidence = null`. (SPEC-013 line 102.)
 
 The TaskCompleted hook (SPEC-002) reads this index as its single source of
-truth and ignores rows with `max_verdict_confidence: null` when gating.
-Finding-shape runs therefore never satisfy a `requires_council: true` gate —
-diff-mode is code review, not a fabrication audit. (SPEC-013 lines 122,
-135–136.) The hook's behavior is authoritative in SPEC-002; this SKILL does
-not re-specify it.
+truth and applies a **dual-shape** pass: non-null `max_verdict_confidence`
+**or** null verdict conf + non-null `max_finding_confidence`, with effective
+score ≥ `council.taskgate.min_confidence`. A task-bound `finding[]` row
+therefore **can** satisfy `requires_council: true` when finding conf clears
+the threshold (CDT-122). Product task-gate policy still prefers claim scope
+(`/council "<CLAIM>"`); `--diff` is not the orchestrated default. Rows with
+both confidences null still fail. Full algorithm is authoritative in
+SPEC-002; this SKILL does not re-specify it.
 
 **Hard rule:** The engine MUST NOT fall back to filename scanning of
 `.claude/council/*.md` if the index is missing or unreadable. A missing
@@ -1108,7 +1113,7 @@ primarily a code review discipline (the prompt templates are reviewed against th
 | `skills/review-and-commit/SKILL.md` | Calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
 | `commands/council.md` | Thin wrapper; tribunal scopes → `engine.sh` + Task/Workflow; `--blind` → Blind-review path (no engine preflight). |
 | `skills/council/workflow.js` | Optional Workflow-tool driver (CDV-196); schema-forced agent steps + shared finalize. Not used by `--blind`. |
-| `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate. Never calls the engine. Authoritative behavior is SPEC-002's domain — referenced here, not re-specified. Blind-path / finding[] rows ignored. |
+| `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate (dual-shape: verdict conf **or** finding conf — SPEC-002). Never calls the engine. Blind-path rows remain gate-ignored (unbound / no qualifying row / both-null); `finding[]` is **not** blanket-ignored. |
 | `commands/retro.md` | Prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. Persists anchors to `$MROOT/.claude/retro/anchors/<id>.json` after validation (single writer; CDV-212). |
 | `commands/blind-review.md` | DEPRECATED one-cycle stub → `/council --blind` (CDT-46-C3). |
 
@@ -1189,7 +1194,7 @@ exit codes to decide whether to continue.
 | 122–130 | Phase 7 feedback memory (verdict[]-only, thresholds, routing, settings keys) | Phase 7 |
 | 131–135 | Integration hooks (retro hint, requires_council, no global enable) | Interaction table |
 | 136–144 | Task-ID plumbing (fallback chain, command-path only, post-replan clarification) | Task-id resolution |
-| 145–157 | Scope exclusions (no writes, no fixes, not automatic, verdict[]-only gate) | Invariants, Phase 7 |
+| 145–157 | Scope exclusions (no writes, no fixes, not automatic, dual-shape gate + claim-scope policy) | Invariants, Phase 6, Phase 7 |
 
 Every MUST in SPEC-013 traces to a section above. If a future edit to
 SPEC-013 adds a MUST without a corresponding section here, that is a bug in

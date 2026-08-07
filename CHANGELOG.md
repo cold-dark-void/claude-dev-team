@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.5
+- **Align TaskCompleted dual-shape gate docs with CDT-122 (CDT-183)** — SPEC-013 no longer forbids `finding[]`/`max_finding_confidence` rows; SPEC-002 L30 matches L36 dual-shape; orchestrate + council skill/command drop the false "finding[] deadlock" story. Claim-scope remains the orchestrated task-gate **policy**; live hook/template behavior unchanged.
+
 ### v1.7.4
 - **Fix release-train install paths (CDT-171)** — `commands/release-train.md` and `skills/release-train/SKILL.md` resolve `train-lib.sh` via `plugin-dir.sh` (PDH bootstrap) instead of cwd-relative `bash skills/release-train/…`, so marketplace/cache installs work. SPEC-023 M12 requires install-aware resolve; `train-lib.sh` behavior unchanged.
 

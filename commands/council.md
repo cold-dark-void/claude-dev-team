@@ -144,14 +144,18 @@ passthrough above). Tiering applies only at the two gated call sites, never
 automatically to a hand-typed `/council` invocation (SPEC-013 § Council
 tiering: "Manual `/council` invocations outside those two sites are
 unaffected and run `full`"). `--diff` **used to** auto-grade here; that
-auto-trigger is removed because the task gate does not use it — it binds to
-**claim** scope, not `--diff` (`skills/orchestrate/SKILL.md` § council gate:
-`--diff` resolves `finding[]`-shape output, which can never satisfy
-`requires_council`) — which left a hand-typed `/council --diff` with no
-`--council-tier` flag as the auto-trigger's only remaining caller, outside
-this ticket's declared scope. A hand-typed `/council --diff
---council-tier=light` is unaffected by this — that is the explicit DRI
-passthrough above, not automatic grading.
+auto-trigger is removed because the orchestrated task gate binds **claim**
+scope by product policy, not `--diff` (`skills/orchestrate/SKILL.md` §
+council gate: claim audit prefers `verdict[]` / `generic`; `--diff` is not
+the task-gate default). The SPEC-002 TaskCompleted hook is dual-shape — a
+task-bound `finding[]` row with non-null `max_finding_confidence` at or
+above threshold **can** pass the gate — so the ban on `--diff` at the task
+gate is policy (claim audit), not structural impossibility. Removing the
+auto-trigger left a hand-typed `/council --diff` with no `--council-tier`
+flag as the auto-trigger's only remaining caller, outside this ticket's
+declared scope. A hand-typed `/council --diff --council-tier=light` is
+unaffected by this — that is the explicit DRI passthrough above, not
+automatic grading.
 
 §§ 1.5.2–1.5.4 below are **not** something this command runs for its own
 `--diff` scope any more — they define the shared `tier-grade.sh` +

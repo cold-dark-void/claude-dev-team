@@ -582,7 +582,7 @@ is no addressable parent named 'main' or 'orchestrator'; symbolic addressing
 will fail. The orchestrator reads your output directly from this spawn return."
 ```
 
-**When this task's `requires_council: true`** (Step 7) **and `COUNCIL_TIER_OVERRIDE` (Step 0) is not `skip`**, append to the spawn prompt above, before the "When done" line. The council run MUST use **claim scope, not `--diff`** — `--diff` resolves `preset: diff-mode`, which is `finding[]`-shape and always writes `max_verdict_confidence: null` (SPEC-013 Output Shapes; `index.json` row shape). The SPEC-002 TaskCompleted hook only clears `requires_council: true` against a non-null `max_verdict_confidence` at or above `council.taskgate.min_confidence` — a `finding[]`-shape row can never satisfy it, so `--diff` at this call site would deadlock every `requires_council: true` task forever. Claim scope (`generic` preset) is `verdict[]`-shape and carries a real confidence from the Judge's verdict, and tiering still applies there exactly as elsewhere (`--tier light` → `paranoid-ic` + `jaded-senior` only, Phase 3/4 skipped, Judge gets claims + evidence bundles only — 3 spawns vs. `full`'s 5-9, the same ~2-3× saving as the rest of this ticket).
+**When this task's `requires_council: true`** (Step 7) **and `COUNCIL_TIER_OVERRIDE` (Step 0) is not `skip`**, append to the spawn prompt above, before the "When done" line. The council run MUST use **claim scope, not `--diff`** — **by product policy** (claim / fabrication audit), not because `finding[]` is unusable at the gate. `--diff` resolves `preset: diff-mode` (`finding[]`-shape: writes `max_finding_confidence` with `max_verdict_confidence: null` — SPEC-013 Output Shapes; `index.json` row shape). The SPEC-002 TaskCompleted hook is **dual-shape**: it clears `requires_council: true` against a non-null `max_verdict_confidence` **or** null-verdict + non-null `max_finding_confidence` at or above `council.taskgate.min_confidence`. Manual `/council --diff --task-id X` **can** pass if finding conf ≥ threshold; orchestrated task-gate still **MUST NOT** use `--diff` (claim-audit policy). Claim scope (`generic` preset) is `verdict[]`-shape and carries confidence from the Judge's verdict — the task-gate command — and tiering still applies there exactly as elsewhere (`--tier light` → `paranoid-ic` + `jaded-senior` only, Phase 3/4 skipped, Judge gets claims + evidence bundles only — 3 spawns vs. `full`'s 5-9, the same ~2-3× saving as the rest of this ticket).
 
 Compose `<CLAIM>` as a single testable sentence asserting the task is correctly, completely implemented — drawn from the task's own subject/description (Step 7), e.g. `"<ISSUE-ID> Task <N> ('<subject>') is fully implemented per its task description: <one-line summary>."` Investigators have full tool access and verify the claim against the actual repo state; the claim only needs to be a concrete, falsifiable assertion, not a proof.
 
@@ -1041,13 +1041,14 @@ Otherwise (autopilot off), the escalation above applies unchanged.
 carried `requires_council: true`, a qualifying `.claude/council/index.json` entry
 MUST already exist for that task's compound `task_id` — otherwise the SPEC-002
 TaskCompleted hook blocks completion (SPEC-009; SPEC-013 Task-ID Plumbing).
-"Qualifying" means a **`verdict[]`-shape** entry (non-null `max_verdict_confidence`
-at or above `council.taskgate.min_confidence`) — the hook has no path that accepts
-a `finding[]`-shape row (`max_verdict_confidence: null` by construction; this is
-why Step 8's spawn instruction above uses claim scope, never `--diff`). Tiering
-changes **which** council pipeline runs, never **whether** the gate fires
-(SPEC-013 § Council tiering) — this block does not change that. Skip this block
-entirely for tasks without `requires_council: true`.
+"Qualifying" means a **dual-shape** entry: non-null `max_verdict_confidence` **or**
+null-verdict + non-null `max_finding_confidence`, at or above
+`council.taskgate.min_confidence` (SPEC-002). Step 8 still requires **claim scope**
+(never `--diff`) at this call site by product policy (claim audit) — claim-shape
+rows are what orchestrated spawns write. Tiering changes **which** council
+pipeline runs, never **whether** the gate fires (SPEC-013 § Council tiering) —
+this block does not change that. Skip this block entirely for tasks without
+`requires_council: true`.
 
 Branch on `COUNCIL_TIER_OVERRIDE` (Step 0 — resolved once per run from
 `--council-tier=<skip|light|full>` on this `/orchestrate` invocation; never
@@ -1073,15 +1074,15 @@ auto-selected):
   the same way `<ISSUE-ID>` / `<task_id>` are substituted elsewhere).
 
   **This row does NOT and structurally cannot satisfy `requires_council: true`**
-  — `skip` never produces a verdict, so `max_verdict_confidence` stays `null`
-  exactly as an ungraded `finding[]` row would, and the hook rejects it the same
-  way. This is not routed around: AC6 (SPEC-013 § Council tiering) requires
-  tiering to change *which* pipeline runs, never *whether* the gate fires, so
-  the orchestrator MUST NOT clear `requires_council` on the task record to force
-  completion through — that would be exactly the AC6 violation the ticket
-  forbids. `skip` and `requires_council: true` are a **structural incompatibility**
-  on the same task, and HALT before `TaskUpdate(completed)` — the DRI has to
-  resolve it, not the orchestrator.
+  — `skip` never produces a verdict or findings, so **both** `max_verdict_confidence`
+  and `max_finding_confidence` stay `null`, and the dual-shape hook rejects both-null
+  conf (same as any empty-conf row). This is not routed around: AC6 (SPEC-013 §
+  Council tiering) requires tiering to change *which* pipeline runs, never *whether*
+  the gate fires, so the orchestrator MUST NOT clear `requires_council` on the task
+  record to force completion through — that would be exactly the AC6 violation the
+  ticket forbids. `skip` and `requires_council: true` are a **structural
+  incompatibility** on the same task, and HALT before `TaskUpdate(completed)` — the
+  DRI has to resolve it, not the orchestrator.
 
   **This is a genuine off-triad checkpoint (SPEC-033 M8 mapping; no new gate
   enum value, no ninth blocking condition) and maps to BC1** — an unresolved

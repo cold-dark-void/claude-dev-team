@@ -189,14 +189,19 @@ is resolved by the caller, which records the index row itself with no council ru
 
 Two consequences worth stating so they are not mistaken for oversights:
 
-- The **task gate runs claim scope, never `--diff`.** `--diff` resolves `preset: diff-mode`,
-  which is `finding[]`-shape and always writes `max_verdict_confidence: null` — a row the
-  SPEC-002 TaskCompleted hook can never accept, so `--diff` at that gate would deadlock every
-  `requires_council: true` task. Claim scope is `verdict[]`-shape and carries a real Judge
-  confidence. Tiering applies there unchanged, sourced from the override rather than grading.
+- The **task gate runs claim scope by product policy, never `--diff`.** Orchestrated
+  `requires_council: true` gates audit model-authored claims (`verdict[]`-shape, real Judge
+  confidence). `--diff` resolves `preset: diff-mode` (`finding[]`-shape, writes
+  `max_finding_confidence` with `max_verdict_confidence: null`). The SPEC-002 TaskCompleted
+  hook is dual-shape and **would** accept a qualifying finding-confidence row, but product
+  policy forbids `--diff` at the task gate because that gate is a claim audit, not code
+  review. Tiering applies on the claim path unchanged, sourced from the override rather than
+  grading.
 - **Manual `/council --diff` runs `full` unconditionally.** This is the "manual invocations are
   unaffected and run `full`" rule at the top of this section, not a special case: automatic
-  grading is scoped to the one gate above.
+  grading is scoped to the one gate above. A manual `/council --diff --task-id X` that writes a
+  qualifying `max_finding_confidence` **can** satisfy the dual-shape hook (CDT-122); orchestrate
+  still instructs claim scope.
 
 Grader inputs are `files` (changed-file count) and `loc` (added + deleted). Bands — **normative
 here; SPEC-033 M14(e) cites this table rather than restating it**:
@@ -288,13 +293,16 @@ thresholds cannot see, which is the "rules-only, blind to semantics" outcome thi
   unsupported. A distinct string is required rather than forbidden — CDV-196's "never invent a
   parallel string" rule scopes the CDV-199 self-verified degradation marker, not this seam
 
-#### Cross-reference — CDT-122 (unchanged by this ticket)
+#### Cross-reference — CDT-122 (resolved)
 
-`finding[]`-shape runs write `max_verdict_confidence: null` and the SPEC-002 TaskCompleted hook
-ignores those rows, so task-gate `diff-mode` runs do not today satisfy `requires_council`. That
-is **CDT-122**, a pre-existing bug filed separately. Tiering **neither fixes nor worsens it**:
-`light` and `full` diff-mode runs write the same `max_verdict_confidence: null` as before.
-Recorded here so a future reader does not mistake tiering for the cause.
+**CDT-122 is resolved.** The SPEC-002 TaskCompleted hook accepts either confidence shape
+(non-null `max_verdict_confidence` **or** null verdict conf + non-null `max_finding_confidence`;
+full algorithm deferred to SPEC-002). `finding[]`-shape / diff-mode runs still write
+`max_verdict_confidence: null` and a real `max_finding_confidence` — those rows are no longer
+structurally ignored. Tiering **neither invents nor reverts** that dual-shape contract:
+`light` and `full` diff-mode runs write the same confidence columns as before; only the hook
+acceptance rule changed (CDT-122), not tier selection. Product task-gate policy still prefers
+claim scope (see Council tiering consequences above).
 
 ### Phase 1 — Claim Extraction
 - MUST run a claim-extraction pass before investigation when scope is `--session`, `--plan`, or transcript-derived
@@ -403,7 +411,7 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - The engine MUST append a new index entry at the end of every task-bound council run, after the report file is written
 - The verdict index MUST be the single source of truth queried by the SPEC-002 TaskCompleted hook — the hook MUST NOT scan `.claude/council/*.md` report files directly
 - The engine MUST update the index atomically via write-to-tmp + rename (`.claude/council/index.json.tmp` → `.claude/council/index.json`) so a concurrent hook read never observes a partial write
-- `finding[]`-shape runs MUST still populate `max_finding_confidence` in the index row but MUST leave `max_verdict_confidence` as `null` (the hook ignores findings-shape rows when gating)
+- `finding[]`-shape runs MUST still populate `max_finding_confidence` in the index row but MUST leave `max_verdict_confidence` as `null`; the SPEC-002 TaskCompleted hook accepts **either** shape (verdict conf **or** finding conf) — full dual-shape algorithm deferred to SPEC-002
 
 ### Phase 7 — Learning Loop (Feedback Memory)
 - MUST scope Phase 7 to `verdict[]`-shape presets only; `finding[]`-shape presets (e.g., diff-mode) MUST NOT trigger feedback memory writes — a code bug is not a fabrication
@@ -423,7 +431,7 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - `/council` MUST accept an optional `--task-id <id>` flag to explicitly bind a run to a specific orchestrated task
 - The engine MUST resolve the active task id via the fallback chain: `--task-id <id>` flag → `CLAUDE_TASK_ID` environment variable → unbound
 - Orchestrated-task council invocations MUST set `CLAUDE_TASK_ID=<id>` in the spawned council subprocess environment so ambient detection works even when the flag is omitted
-- `task-completed.sh` MUST look up the completing task's id in `.claude/council/index.json` and apply `council.taskgate.min_confidence` to the maximum `max_verdict_confidence` across that task's entries — deferring to SPEC-002 for the authoritative hook behavior; this bullet exists only to name the index as the lookup surface
+- `task-completed.sh` MUST look up the completing task's id in `.claude/council/index.json` and apply `council.taskgate.min_confidence` to the dual-shape effective score (non-null `max_verdict_confidence` **or** null-verdict + non-null `max_finding_confidence` across that task's entries) — full algorithm deferred to SPEC-002; this bullet exists only to name the index as the lookup surface
 - When `requires_council: true` is declared on a task but no entry exists in `.claude/council/index.json` for that task id, the index miss is the canonical "no verdict exists" signal the SPEC-002 hook MUST fail on
 - The engine MUST NOT fall back to filename pattern scanning when the index is missing or unreadable — a missing index is a hard miss, never a soft miss
 - The `/council` command task-id fallback chain (`--task-id` flag → `CLAUDE_TASK_ID` env → unbound) applies only to direct command invocations; the SPEC-002 TaskCompleted hook uses its own stdin-based task-id resolution per SPEC-002 hook contract and does NOT participate in this fallback chain — the two paths are independent
@@ -436,8 +444,7 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - MUST NOT replace `/retro` or `/orchestrate` — council composes with them
 - MUST NOT register council members in `init-team` bootstrap
 - MUST NOT persist investigator state between runs (ephemeral only, no cortex)
-- MUST NOT gate TaskCompleted on `finding[]`-shape runs — diff-mode is code review, not a fabrication audit
-- The TaskCompleted council gate MUST apply to `verdict[]`-shape runs only; `finding[]`-shape index rows MUST be ignored by the hook
+- The TaskCompleted council gate is **dual-shape** per SPEC-002 (accepts non-null `max_verdict_confidence` **or** null-verdict + non-null `max_finding_confidence`). Product orchestrated-task gate policy still uses **claim** scope (`verdict[]` / `generic`) by default — not because finding conf is unusable, but because that gate is a claim audit. Blind-path runs remain gate-ignored (prefer unbound / no qualifying index row; both-null conf fails)
 - MUST NOT invoke `/council` (or any second council engine run) from inside a `--blind` run for reverse validation of its own clusters — the reverse-validation seam is removed (CDT-46-C3)
 
 
@@ -459,7 +466,7 @@ Absorbs the former `/council --blind` multi-team peer-review engine into `/counc
 - MUST emit **Tier-1 consensus clusters directly as council findings** in the blind-path report — the clustering + tiering step **is** the verdict; MUST NOT call `/council` (or re-enter the tribunal pipeline) on Tier-1 clusters for reverse validation
 - MUST include Tier 2 and Tier 3 clusters in the report (sorted Tier 1 → 2 → 3) without escalating them through a second council pass
 - MUST write the blind-path report under `.claude/council/<YYYY-MM-DD>-<slug>.md` (worktree-aware `MROOT`; create parent if absent) with: scope/target, team manifest, tiered clusters (claim, evidence, severity, category, team count, source finding IDs), quorum summary, per-team summaries, and count of dropped malformed findings
-- MUST treat blind-path output as **findings-shaped** for gate purposes: TaskCompleted council gate MUST ignore blind-path index rows the same way it ignores `finding[]`-shape runs (blind review is multi-perspective code review, not a fabrication audit)
+- MUST treat blind-path output as **gate-ignored** for TaskCompleted purposes: blind runs prefer unbound reports (no `task_id` / no qualifying index row for the completing task). A skip-style row with both confidences null still fails the dual-shape gate if bound; blind review is multi-perspective code review, not a fabrication audit
 - MUST fail loudly (exit non-zero with usage) when `--teams` / `--lenses` / `--target` are supplied without `--blind`, or when `--blind` is combined with another scope flag
 - When `--blind` adds or reuses prompt templates under `skills/council/prompts/`, each template's `## Variables` table remains the authoritative `{{TEMPLATE_VARIABLE}}` contract (Engine Architecture MUST) — prefer reusing existing investigator/lens variable names over inventing a parallel set
 
@@ -564,7 +571,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 7. Set `council.taskgate.min_confidence` below the run's `max_verdict_confidence`, invoke `task-completed.sh` with `CLAUDE_TASK_ID=$TID`, verify exit code 0
 8. Set `council.taskgate.min_confidence` above the run's `max_verdict_confidence`, invoke `task-completed.sh` with `CLAUDE_TASK_ID=$TID`, verify exit code 2 and stderr naming the blocked task id
 9. Invoke `task-completed.sh` with `CLAUDE_TASK_ID=unknown-task`, verify the index-miss path fails with a clear "no verdict exists" stderr message
-10. Run `/council --diff` (findings shape) bound to a separate task id, verify the resulting index row has `max_verdict_confidence: null` and the hook does NOT treat it as a qualifying verdict
+10. Run `/council --diff` (findings shape) bound to a separate task id; verify the index row has `max_verdict_confidence: null` and non-null `max_finding_confidence`. With finding conf ≥ `council.taskgate.min_confidence`, `task-completed.sh` exits 0; with finding conf below threshold, exit 2. (Product orchestrated-task gate still scopes to claim/`verdict[]` by policy — orthogonal to dual-shape acceptance.)
 11. Unset `--task-id` and rerun with `CLAUDE_TASK_ID=$TID` exported — verify the env fallback produces the same task-bound report path and index entry as step 3
 12. Run plain `/council "<claim>"` with no flag and no env var — verify the report filename has no `--<task_id>` suffix and the index is not updated
 
@@ -663,7 +670,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] `.claude/council/index.json` exists after any task-bound run and is written atomically (tmp + rename)
 - [ ] `task_id` field appears in report frontmatter and `--<task_id>` suffix appears in filename when a run is task-bound
 - [ ] `CLAUDE_TASK_ID` env var fallback produces the same binding as the `--task-id` flag
-- [ ] TaskCompleted gate queries `index.json` only (no filename scans) and applies to `verdict[]`-shape rows exclusively
+- [ ] TaskCompleted gate queries `index.json` only (no filename scans) and applies the dual-shape confidence rule (SPEC-002 / CDT-122)
 - [ ] `skills/council/prompts/cross-reviewer.md` exists; council.md Phase 2.5 block describes N cross-reviewers spawned with per-reviewer shuffled labels, self-exclusion, Borda-ranked bundle output to Phase 4 and Phase 5, bottom-quartile WEAK_EVIDENCE flagging, and bypass recorded when < 3 investigators
 - [ ] Spawn-failure degradation: `engine.sh finalize --verification-mode self-verified` writes marker `self-verified — refuters unavailable` + frontmatter `verification_mode`; default/full omits banner; protocol in SKILL.md + commands
 - [ ] `--why` (CDV-206): preflight with `--why` emits `why: true` + `why_detail` (`preset`, `flavors`, `phase3_specialist`, `claim_budget`, `preset_source`); without flag `why` is not true and no debug section; `commands/council.md` Step 5 prints short labeled block after summary; no verdict impact, no raw prompt dumps
@@ -686,6 +693,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-08-07 | CDT-183: Align TaskCompleted gate contract with dual-shape CDT-122 (SPEC-002 SoT + live hook). Council tiering: task gate claim scope is **policy**, not structural impossibility of finding conf; drop "can never accept / deadlock forever". CDT-122 cross-ref marked **resolved**. Phase 6 / Task-ID Plumbing: hook accepts either confidence shape (algorithm deferred to SPEC-002). Scope Exclusions: remove "MUST NOT gate on finding[]" / verdict[]-only; dual-shape + claim policy + blind still gate-ignored. Blind-path: gate-ignored via unbound / no qualifying index row (not "same as ignoring finding[]"). Validation checkbox updated. Historical Version History rows left intact. Status stays ACTIVE. |
 | 2026-07-21 | CDT-46-C3 (SPEC-013): `/council --blind` scope absorbs former `/blind-review` engine — N unconstrained + M lens-differentiated reviewers (parallel), semantic clustering, confidence tiers (Tier 1 cross-cohort ≥2 / Tier 2 same-cohort ≥2 / Tier 3 single-team); Tier-1 consensus clusters emit directly as council findings (reverse-validation self-call removed; no `--no-council`); parity flags `--teams|--lenses|--target`; scope mutually exclusive with `"<claim>"|--session|--diff|--plan|--from-retro`; `--workflow` does not apply; Covers adds `commands/blind-review.md` DEPRECATED stub; Test 22. Status stays ACTIVE. |
 | 2026-07-14 | CDV-209: Phase 3 dynamic domain specialist live — topic-classifier.md; engine `3_domain_specialist.deferred=false` (skip finding[]/diff-mode); classify → at most one of devops/ds/qa/pm when confidence ≥ 0.75; before Phase 2.5; why_detail runtime specialist strings; Test 8 active. |
 | 2026-07-14 | CDV-212: `/council --from-retro <anchor-id>` live — preflight loads `$MROOT/.claude/retro/anchors/<id>.json` (exit 2 if missing); preset `generic`; Phase 1 skip; `resolved_claim` in investigation plan; `/retro` single-writer after validation; exit 3 deferred residual removed. Test 21. |
