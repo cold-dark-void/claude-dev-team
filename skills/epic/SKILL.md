@@ -28,6 +28,8 @@ bash skills/epic/epic-lib.sh <cmd> …
 
 State lives at `$MROOT/.claude/epics/<EPIC-ID>/state.json` (shared across
 worktrees). Override root for tests: `EPIC_ROOT`.
+Writers serialize via exclusive flock on `$MROOT/.claude/epics/.lock`
+(SPEC-025 M6); readers unlocked.
 
 ---
 

@@ -97,16 +97,40 @@ epic_paths() {
   validate_epic_id "$id"
   resolve_mroot
   EPICS_DIR="$MROOT/.claude/epics"
+  # Global exclusive lock for state RMW (SPEC-025 M6 / CDT-165).
+  # Production: $MROOT/.claude/epics/.lock
+  # Tests (EPIC_ROOT set): $EPIC_ROOT/.claude/epics/.lock
+  EPICS_LOCK="$EPICS_DIR/.lock"
   EPIC_DIR="$EPICS_DIR/$id"
   STATE="$EPIC_DIR/state.json"
 }
+
+# ---- Concurrency (SPEC-025 M6) ----------------------------------------------
+# EPICS_LOCK serializes all state.json mutators across epics (global flock).
+# write_state is an unlocked atomic publish helper (tmp+mv) — callers MUST hold
+# EPICS_LOCK around full RMW so concurrent processes cannot lose fields.
+# Do NOT flock inside write_state (same-process multi-fd self-deadlock risk).
+# Readers (read_state / show / ready-set / …) stay unlocked — stale complete
+# JSON is OK (AC5).
+#
+# Mutator critical section pattern (block forever; append-open so flock fd
+# never truncates the lock file):
+#   mkdir -p "$EPICS_DIR"
+#   (
+#     flock -x 9
+#     st=$(cat "$STATE")   # or empty for init
+#     # pure in-memory mutate
+#     write_state "$epic_id" "$st"
+#   ) 9>>"$EPICS_LOCK"
+#
+# Hold lock for state RMW only — never across Linear MCP, worktree-lib, or git.
 
 iso_now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
 read_state() {
-  # read_state <EPIC-ID> → stdout JSON
+  # read_state <EPIC-ID> → stdout JSON (unlocked; AC5)
   epic_paths "$1"
   [ -f "$STATE" ] || die 1 "no state for epic: $1 ($STATE)"
   cat "$STATE"
@@ -114,9 +138,12 @@ read_state() {
 
 write_state() {
   # write_state <EPIC-ID> <json-string>
+  # Unlocked publish: same-dir tmp + jq validate + stamp + mv (AC4).
+  # Callers that RMW MUST wrap read+mutate+write_state under EPICS_LOCK
+  # (see Concurrency block above). No flock here — avoids nested deadlock.
   local id="$1" json="$2"
   epic_paths "$id"
-  mkdir -p "$EPIC_DIR"
+  mkdir -p "$EPICS_DIR" "$EPIC_DIR"
   local tmp
   # same-dir tmp for atomic rename on one FS
   tmp="$EPIC_DIR/state.json.tmp.$$"
@@ -187,9 +214,6 @@ cmd_init() {
   fi
 
   epic_paths "$epic_id"
-  if [ -f "$STATE" ]; then
-    die 2 "init: state already exists: $STATE"
-  fi
   local ts json
   ts=$(iso_now)
   if [ "$wt_set" = true ] || [ "$rel_set" = true ]; then
@@ -221,7 +245,15 @@ cmd_init() {
       --arg ts "$ts" \
       '{epic_id:$id,title:$title,created_at:$ts,updated_at:$ts,execution_mode:$mode,linear_project_id:null,children:[]}')
   fi
-  write_state "$epic_id" "$json"
+  # Exists-check + first write under EPICS_LOCK (SPEC-025 M6)
+  mkdir -p "$EPICS_DIR"
+  (
+    flock -x 9
+    if [ -f "$STATE" ]; then
+      die 2 "init: state already exists: $STATE"
+    fi
+    write_state "$epic_id" "$json"
+  ) 9>>"$EPICS_LOCK"
   printf '%s\n' "$STATE"
 }
 
@@ -267,11 +299,6 @@ cmd_add_child() {
   fi
 
   local st child linear_json
-  st=$(read_state "$epic_id")
-  if echo "$st" | jq -e --arg id "$cid" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
-    die 2 "add-child: child already exists: $cid"
-  fi
-
   if [ -n "$linear_id" ]; then
     linear_json=$(jq -cn --arg v "$linear_id" '$v')
   else
@@ -293,9 +320,19 @@ cmd_add_child() {
       depends_on:$deps, status:"pending", linear_id:$lin,
       problem:$problem, acceptance_criteria:$ac
     }')
-  st=$(echo "$st" | jq --argjson c "$child" '.children += [$c]')
-  write_state "$epic_id" "$st"
-  echo "$st" | jq -c --arg id "$cid" '.children[] | select(.id==$id)'
+
+  epic_paths "$epic_id"
+  mkdir -p "$EPICS_DIR"
+  (
+    flock -x 9
+    st=$(read_state "$epic_id")
+    if echo "$st" | jq -e --arg id "$cid" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
+      die 2 "add-child: child already exists: $cid"
+    fi
+    st=$(echo "$st" | jq --argjson c "$child" '.children += [$c]')
+    write_state "$epic_id" "$st"
+    echo "$st" | jq -c --arg id "$cid" '.children[] | select(.id==$id)'
+  ) 9>>"$EPICS_LOCK"
 }
 
 cmd_set_status() {
@@ -347,21 +384,26 @@ cmd_set_status() {
     fi
   fi
 
+  epic_paths "$epic_id"
+  mkdir -p "$EPICS_DIR"
   local st
-  st=$(read_state "$epic_id")
-  if ! echo "$st" | jq -e --arg id "$child_id" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
-    die 1 "set-status: child not found: $child_id"
-  fi
-  if [ "$have_outcome" -eq 1 ]; then
-    st=$(echo "$st" | jq --arg id "$child_id" --arg s "$status" --arg o "$outcome" \
-      '(.children[] | select(.id==$id) | .status) = $s
-       | (.children[] | select(.id==$id) | .outcome_summary) = $o')
-  else
-    st=$(echo "$st" | jq --arg id "$child_id" --arg s "$status" \
-      '(.children[] | select(.id==$id) | .status) = $s')
-  fi
-  write_state "$epic_id" "$st"
-  echo "$st" | jq -c --arg id "$child_id" '.children[] | select(.id==$id)'
+  (
+    flock -x 9
+    st=$(read_state "$epic_id")
+    if ! echo "$st" | jq -e --arg id "$child_id" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
+      die 1 "set-status: child not found: $child_id"
+    fi
+    if [ "$have_outcome" -eq 1 ]; then
+      st=$(echo "$st" | jq --arg id "$child_id" --arg s "$status" --arg o "$outcome" \
+        '(.children[] | select(.id==$id) | .status) = $s
+         | (.children[] | select(.id==$id) | .outcome_summary) = $o')
+    else
+      st=$(echo "$st" | jq --arg id "$child_id" --arg s "$status" \
+        '(.children[] | select(.id==$id) | .status) = $s')
+    fi
+    write_state "$epic_id" "$st"
+    echo "$st" | jq -c --arg id "$child_id" '.children[] | select(.id==$id)'
+  ) 9>>"$EPICS_LOCK"
 }
 
 cmd_set_linear_project() {
@@ -379,19 +421,23 @@ cmd_set_linear_project() {
     -*) die 64 "set-linear-project: unknown flag $raw (use PROJECT-ID|null|--clear)" ;;
   esac
 
+  epic_paths "$epic_id"
+  mkdir -p "$EPICS_DIR"
   local st
-  st=$(read_state "$epic_id")   # die 1 if epic missing
-
-  case "$raw" in
-    ""|null|--clear)
-      st=$(echo "$st" | jq '.linear_project_id = null')
-      ;;
-    *)
-      st=$(echo "$st" | jq --arg v "$raw" '.linear_project_id = $v')
-      ;;
-  esac
-  write_state "$epic_id" "$st"
-  echo "$st" | jq -c '{linear_project_id}'
+  (
+    flock -x 9
+    st=$(read_state "$epic_id")   # die 1 if epic missing
+    case "$raw" in
+      ""|null|--clear)
+        st=$(echo "$st" | jq '.linear_project_id = null')
+        ;;
+      *)
+        st=$(echo "$st" | jq --arg v "$raw" '.linear_project_id = $v')
+        ;;
+    esac
+    write_state "$epic_id" "$st"
+    echo "$st" | jq -c '{linear_project_id}'
+  ) 9>>"$EPICS_LOCK"
 }
 
 cmd_set_last_seed() {
@@ -407,19 +453,23 @@ cmd_set_last_seed() {
     -*) die 64 "set-last-seed: unknown flag $raw (use path|null|--clear)" ;;
   esac
 
+  epic_paths "$epic_id"
+  mkdir -p "$EPICS_DIR"
   local st
-  st=$(read_state "$epic_id")
-
-  case "$raw" in
-    ""|null|--clear)
-      st=$(echo "$st" | jq '.last_seed_path = null')
-      ;;
-    *)
-      st=$(echo "$st" | jq --arg v "$raw" '.last_seed_path = $v')
-      ;;
-  esac
-  write_state "$epic_id" "$st"
-  echo "$st" | jq -c '{last_seed_path}'
+  (
+    flock -x 9
+    st=$(read_state "$epic_id")
+    case "$raw" in
+      ""|null|--clear)
+        st=$(echo "$st" | jq '.last_seed_path = null')
+        ;;
+      *)
+        st=$(echo "$st" | jq --arg v "$raw" '.last_seed_path = $v')
+        ;;
+    esac
+    write_state "$epic_id" "$st"
+    echo "$st" | jq -c '{last_seed_path}'
+  ) 9>>"$EPICS_LOCK"
 }
 
 cmd_ensure_integration_worktree() {
@@ -432,7 +482,7 @@ cmd_ensure_integration_worktree() {
   [ -n "$epic_id" ] || die 64 "ensure-integration-worktree: missing <EPIC-ID>"
   [ $# -eq 1 ] || die 64 "ensure-integration-worktree: unexpected args"
 
-  local st wt_enabled slug branch existing_path path
+  local st wt_enabled slug branch existing_path path reused=false
   st=$(read_state "$epic_id")
   wt_enabled=$(echo "$st" | jq -r '.worktree_enabled // false')
 
@@ -448,44 +498,52 @@ cmd_ensure_integration_worktree() {
 
   if [ -n "$existing_path" ] && [ -d "$existing_path" ]; then
     # Already recorded + on disk — reuse without worktree-lib ensure (avoids FRESH prompt).
-    # Heal missing slug/branch keys if partial.
+    path="$existing_path"
+    reused=true
+  else
+    [ -f "$WT_LIB" ] || die 1 "ensure-integration-worktree: worktree-lib not found: $WT_LIB"
+
+    # Subprocess only — never source. worktree-lib outside EPICS_LOCK (OQ2).
+    local errf erc=0
+    errf=$(mktemp "${TMPDIR:-/tmp}/epic-wt-ensure.XXXXXX")
+    set +e
+    path=$(bash "$WT_LIB" ensure "$slug" 2>"$errf")
+    erc=$?
+    set -e
+    if [ "$erc" -ne 0 ] || [ -z "$path" ]; then
+      local diag
+      diag=$(tr '\n' ' ' <"$errf" | sed 's/[[:space:]]*$//')
+      rm -f "$errf"
+      die "${erc:-1}" "ensure-integration-worktree: worktree-lib ensure failed for $slug (rc=$erc)${diag:+: $diag}"
+    fi
+    rm -f "$errf"
+
+    # Normalize path (strip trailing newline/whitespace)
+    path=$(printf '%s' "$path" | tr -d '\r' | sed 's/[[:space:]]*$//')
+    [ -n "$path" ] || die 1 "ensure-integration-worktree: empty path from worktree-lib"
+    [ -d "$path" ] || die 1 "ensure-integration-worktree: path not a directory: $path"
+    reused=false
+  fi
+
+  # State RMW under EPICS_LOCK — re-read then set integration_* (SPEC-025 M6)
+  epic_paths "$epic_id"
+  mkdir -p "$EPICS_DIR"
+  (
+    flock -x 9
+    st=$(read_state "$epic_id")
+    # Prefer still-valid recorded path under lock (heal race with concurrent ensure)
+    existing_path=$(echo "$st" | jq -r '.integration_path // empty')
+    if [ -n "$existing_path" ] && [ -d "$existing_path" ]; then
+      path="$existing_path"
+      reused=true
+    fi
     st=$(echo "$st" | jq \
-      --arg s "$slug" --arg p "$existing_path" --arg b "$branch" \
+      --arg s "$slug" --arg p "$path" --arg b "$branch" \
       '.integration_slug = $s | .integration_path = $p | .integration_branch = $b')
     write_state "$epic_id" "$st"
-    echo "$st" | jq -c \
-      '{worktree_enabled:true,integration_slug,integration_path,integration_branch,reused:true}'
-    return 0
-  fi
-
-  [ -f "$WT_LIB" ] || die 1 "ensure-integration-worktree: worktree-lib not found: $WT_LIB"
-
-  # Subprocess only — never source. worktree-lib resolves MROOT from git CWD.
-  local errf erc=0
-  errf=$(mktemp "${TMPDIR:-/tmp}/epic-wt-ensure.XXXXXX")
-  set +e
-  path=$(bash "$WT_LIB" ensure "$slug" 2>"$errf")
-  erc=$?
-  set -e
-  if [ "$erc" -ne 0 ] || [ -z "$path" ]; then
-    local diag
-    diag=$(tr '\n' ' ' <"$errf" | sed 's/[[:space:]]*$//')
-    rm -f "$errf"
-    die "${erc:-1}" "ensure-integration-worktree: worktree-lib ensure failed for $slug (rc=$erc)${diag:+: $diag}"
-  fi
-  rm -f "$errf"
-
-  # Normalize path (strip trailing newline/whitespace)
-  path=$(printf '%s' "$path" | tr -d '\r' | sed 's/[[:space:]]*$//')
-  [ -n "$path" ] || die 1 "ensure-integration-worktree: empty path from worktree-lib"
-  [ -d "$path" ] || die 1 "ensure-integration-worktree: path not a directory: $path"
-
-  st=$(echo "$st" | jq \
-    --arg s "$slug" --arg p "$path" --arg b "$branch" \
-    '.integration_slug = $s | .integration_path = $p | .integration_branch = $b')
-  write_state "$epic_id" "$st"
-  echo "$st" | jq -c \
-    '{worktree_enabled:true,integration_slug,integration_path,integration_branch,reused:false}'
+    echo "$st" | jq -c --argjson reused "$([ "$reused" = true ] && echo true || echo false)" \
+      '{worktree_enabled:true,integration_slug,integration_path,integration_branch,reused:$reused}'
+  ) 9>>"$EPICS_LOCK"
 }
 
 cmd_resolve_resume_flags() {
@@ -938,6 +996,7 @@ cmd_seal() {
 
   # ---- --complete: mark sealed after /release succeeded ----
   if [ "$mode" = "complete" ]; then
+    # Preflight from unlocked snapshot; re-check under lock before write
     if [ -z "$SEAL_RB" ] || [ "$SEAL_RB" = "null" ]; then
       die 64 "seal --complete: no release_bump (no seal path without --release)"
     fi
@@ -949,10 +1008,28 @@ cmd_seal() {
     if [ "$SEAL_INCOMPLETE" -gt 0 ] || [ "$SEAL_TOTAL" -eq 0 ]; then
       die 64 "seal --complete: not all children completed"
     fi
-    st=$(echo "$st" | jq '.sealed = true')
-    write_state "$epic_id" "$st"
-    jq -nc --arg id "$epic_id" --arg rb "$SEAL_RB" \
-      '{epic_id:$id, sealed:true, already_sealed:false, release_bump:$rb}'
+    epic_paths "$epic_id"
+    mkdir -p "$EPICS_DIR"
+    (
+      flock -x 9
+      st=$(read_state "$epic_id")
+      _seal_eval_ready "$st"
+      if [ -z "$SEAL_RB" ] || [ "$SEAL_RB" = "null" ]; then
+        die 64 "seal --complete: no release_bump (no seal path without --release)"
+      fi
+      if [ "$SEAL_SEALED" = "true" ]; then
+        jq -nc --arg id "$epic_id" --arg rb "$SEAL_RB" \
+          '{epic_id:$id, sealed:true, already_sealed:true, release_bump:$rb}'
+        exit 0
+      fi
+      if [ "$SEAL_INCOMPLETE" -gt 0 ] || [ "$SEAL_TOTAL" -eq 0 ]; then
+        die 64 "seal --complete: not all children completed"
+      fi
+      st=$(echo "$st" | jq '.sealed = true')
+      write_state "$epic_id" "$st"
+      jq -nc --arg id "$epic_id" --arg rb "$SEAL_RB" \
+        '{epic_id:$id, sealed:true, already_sealed:false, release_bump:$rb}'
+    ) 9>>"$EPICS_LOCK"
     return 0
   fi
 
@@ -1055,10 +1132,15 @@ cmd_seal() {
       # sealed stays false
       die 1 "seal: release hook failed (rc=$hook_rc) — master restored, sealed=false"
     fi
-    # Success → sealed=true atomically
-    st=$(read_state "$epic_id")
-    st=$(echo "$st" | jq '.sealed = true')
-    write_state "$epic_id" "$st"
+    # Success → sealed=true under EPICS_LOCK (git/hook work already outside lock)
+    epic_paths "$epic_id"
+    mkdir -p "$EPICS_DIR"
+    (
+      flock -x 9
+      st=$(read_state "$epic_id")
+      st=$(echo "$st" | jq '.sealed = true')
+      write_state "$epic_id" "$st"
+    ) 9>>"$EPICS_LOCK"
     local master_after
     master_after=$(git -C "$main" rev-parse HEAD)
     jq -nc \
@@ -1111,8 +1193,11 @@ cmd_mark_done() {
   [ -n "$ticket" ] || die 64 "mark-done: missing <TICKET-ID>"
   resolve_mroot
   local epics_dir="$MROOT/.claude/epics"
+  local EPICS_DIR="$epics_dir"
+  local EPICS_LOCK="$EPICS_DIR/.lock"
   [ -d "$epics_dir" ] || exit 0
 
+  # RO find scan outside lock; per-epic RMW under EPICS_LOCK (re-read under lock)
   local found=0
   local state_file epic_id st
   while IFS= read -r state_file; do
@@ -1123,13 +1208,23 @@ cmd_mark_done() {
       '.children[] | select(.id==$t or .linear_id==$t)' "$state_file" >/dev/null 2>&1; then
       continue
     fi
-    st=$(jq --arg t "$ticket" \
-      '(.children[] | select(.id==$t or .linear_id==$t) | .status) = "completed"' \
-      "$state_file")
-    write_state "$epic_id" "$st"
+    mkdir -p "$EPICS_DIR"
+    (
+      flock -x 9
+      epic_paths "$epic_id"
+      [ -f "$STATE" ] || exit 0
+      if ! jq -e --arg t "$ticket" \
+        '.children[] | select(.id==$t or .linear_id==$t)' "$STATE" >/dev/null 2>&1; then
+        exit 0
+      fi
+      st=$(jq --arg t "$ticket" \
+        '(.children[] | select(.id==$t or .linear_id==$t) | .status) = "completed"' \
+        "$STATE")
+      write_state "$epic_id" "$st"
+      echo "$st" | jq -c --arg t "$ticket" \
+        '.children[] | select(.id==$t or .linear_id==$t)'
+    ) 9>>"$EPICS_LOCK"
     found=1
-    echo "$st" | jq -c --arg t "$ticket" \
-      '.children[] | select(.id==$t or .linear_id==$t)'
   done < <(find "$epics_dir" -mindepth 2 -maxdepth 2 -name state.json -type f 2>/dev/null | sort)
 
   # soft no-op if unknown (wrap-ticket)
@@ -1508,9 +1603,14 @@ cmd_build_seed() {
     abs=$(cd "$(dirname "$out_path")" && pwd)/$(basename "$out_path")
   fi
 
-  # record last_seed_path (status remains sole SoT — seed is advisory)
-  st=$(echo "$st" | jq --arg v "$abs" '.last_seed_path = $v')
-  write_state "$epic_id" "$st"
+  # record last_seed_path under EPICS_LOCK (seed file already published outside lock)
+  mkdir -p "$EPICS_DIR"
+  (
+    flock -x 9
+    st=$(read_state "$epic_id")
+    st=$(echo "$st" | jq --arg v "$abs" '.last_seed_path = $v')
+    write_state "$epic_id" "$st"
+  ) 9>>"$EPICS_LOCK"
 
   printf '%s\n' "$abs"
 }
@@ -1608,189 +1708,196 @@ cmd_sync_apply() {
     die 1 "sync-apply: verdicts.children must be a JSON array"
   fi
 
-  local st
-  st=$(read_state "$epic_id")
+  # Verdicts parse/validate above stays outside lock; full state RMW under flock
+  epic_paths "$epic_id"
+  mkdir -p "$EPICS_DIR"
+  (
+    flock -x 9
+    # note: plain subshell — no `local` (bash allows local only in functions)
 
-  local applied_json="[]" skipped_json="[]" conflicts_json="[]"
-  local v_proj child_id v_status v_lin v_out
-  local local_status local_lin local_proj local_out
-  local action_row
+    st=$(read_state "$epic_id")
 
-  # ---- project id (optional) ----
-  if jq -e 'has("linear_project_id")' "$verdicts" >/dev/null 2>&1; then
-    v_proj=$(jq -r '.linear_project_id // empty' "$verdicts")
-    # empty / null JSON → treat as "no set request" when literal null
-    if jq -e '.linear_project_id == null' "$verdicts" >/dev/null 2>&1; then
-      : # ignore null project requests (never clear via sync)
-    elif [ -n "$v_proj" ]; then
-      local_proj=$(echo "$st" | jq -r '.linear_project_id // empty')
-      if [ -z "$local_proj" ] || [ "$local_proj" = "null" ]; then
-        st=$(echo "$st" | jq --arg v "$v_proj" '.linear_project_id = $v')
-        action_row=$(jq -cn --arg a fill_linear_project --arg v "$v_proj" \
-          '{action:$a, linear_project_id:$v}')
-        applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
-      elif [ "$local_proj" = "$v_proj" ]; then
-        action_row=$(jq -cn --arg a project_id_unchanged --arg v "$v_proj" \
-          '{action:$a, linear_project_id:$v}')
-        skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
-      else
-        action_row=$(jq -cn --arg a project_id_mismatch \
-          --arg local "$local_proj" --arg remote "$v_proj" \
-          '{action:$a, local:$local, remote:$remote}')
-        conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
-      fi
-    fi
-  fi
+    applied_json="[]"
+    skipped_json="[]"
+    conflicts_json="[]"
+    v_proj="" child_id="" v_status="" v_lin="" v_out=""
+    local_status="" local_lin="" local_proj="" local_out=""
+    action_row=""
 
-  # ---- children ----
-  local n i
-  n=$(jq '.children | length' "$verdicts")
-  i=0
-  while [ "$i" -lt "$n" ]; do
-    child_id=$(jq -r --argjson i "$i" '.children[$i].id // empty' "$verdicts")
-    if [ -z "$child_id" ]; then
-      action_row=$(jq -cn --argjson i "$i" '{action:"missing_child_id", index:$i}')
-      conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
-      i=$((i + 1))
-      continue
-    fi
-    if ! echo "$st" | jq -e --arg id "$child_id" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
-      action_row=$(jq -cn --arg a unknown_child --arg id "$child_id" '{action:$a, id:$id}')
-      conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
-      i=$((i + 1))
-      continue
-    fi
-
-    local_status=$(echo "$st" | jq -r --arg id "$child_id" \
-      '.children[] | select(.id==$id) | .status')
-    local_lin=$(echo "$st" | jq -r --arg id "$child_id" \
-      '.children[] | select(.id==$id) | .linear_id // empty')
-
-    # linear_id fill
-    if jq -e --argjson i "$i" '.children[$i] | has("linear_id")' "$verdicts" >/dev/null 2>&1 \
-      && ! jq -e --argjson i "$i" '.children[$i].linear_id == null' "$verdicts" >/dev/null 2>&1; then
-      v_lin=$(jq -r --argjson i "$i" '.children[$i].linear_id // empty' "$verdicts")
-      if [ -n "$v_lin" ]; then
-        if [ -z "$local_lin" ] || [ "$local_lin" = "null" ]; then
-          st=$(echo "$st" | jq --arg id "$child_id" --arg v "$v_lin" \
-            '(.children[] | select(.id==$id) | .linear_id) = $v')
-          action_row=$(jq -cn --arg a fill_linear_id --arg id "$child_id" --arg v "$v_lin" \
-            '{action:$a, id:$id, linear_id:$v}')
+    # ---- project id (optional) ----
+    if jq -e 'has("linear_project_id")' "$verdicts" >/dev/null 2>&1; then
+      v_proj=$(jq -r '.linear_project_id // empty' "$verdicts")
+      # empty / null JSON → treat as "no set request" when literal null
+      if jq -e '.linear_project_id == null' "$verdicts" >/dev/null 2>&1; then
+        : # ignore null project requests (never clear via sync)
+      elif [ -n "$v_proj" ]; then
+        local_proj=$(echo "$st" | jq -r '.linear_project_id // empty')
+        if [ -z "$local_proj" ] || [ "$local_proj" = "null" ]; then
+          st=$(echo "$st" | jq --arg v "$v_proj" '.linear_project_id = $v')
+          action_row=$(jq -cn --arg a fill_linear_project --arg v "$v_proj" \
+            '{action:$a, linear_project_id:$v}')
           applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
-          local_lin="$v_lin"
-        elif [ "$local_lin" = "$v_lin" ]; then
-          action_row=$(jq -cn --arg a linear_id_unchanged --arg id "$child_id" --arg v "$v_lin" \
-            '{action:$a, id:$id, linear_id:$v}')
+        elif [ "$local_proj" = "$v_proj" ]; then
+          action_row=$(jq -cn --arg a project_id_unchanged --arg v "$v_proj" \
+            '{action:$a, linear_project_id:$v}')
           skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
         else
-          action_row=$(jq -cn --arg a linear_id_mismatch --arg id "$child_id" \
-            --arg local "$local_lin" --arg remote "$v_lin" \
-            '{action:$a, id:$id, local:$local, remote:$remote}')
+          action_row=$(jq -cn --arg a project_id_mismatch \
+            --arg local "$local_proj" --arg remote "$v_proj" \
+            '{action:$a, local:$local, remote:$remote}')
           conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
         fi
       fi
     fi
 
-    # status
-    if jq -e --argjson i "$i" '.children[$i] | has("status")' "$verdicts" >/dev/null 2>&1 \
-      && ! jq -e --argjson i "$i" '.children[$i].status == null' "$verdicts" >/dev/null 2>&1; then
-      v_status=$(jq -r --argjson i "$i" '.children[$i].status // empty' "$verdicts")
-      case "$v_status" in
-        pending|in_progress|completed|blocked)
-          if [ "$local_status" = "$v_status" ]; then
-            action_row=$(jq -cn --arg a status_unchanged --arg id "$child_id" --arg s "$v_status" \
-              '{action:$a, id:$id, status:$s}')
-            skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
-          elif [ "$local_status" = "completed" ] && [ "$v_status" != "completed" ]; then
-            action_row=$(jq -cn --arg a no_downgrade_completed --arg id "$child_id" \
-              --arg local "$local_status" --arg remote "$v_status" \
-              '{action:$a, id:$id, local:$local, remote:$remote}')
+    # ---- children ----
+    n=$(jq '.children | length' "$verdicts")
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      child_id=$(jq -r --argjson i "$i" '.children[$i].id // empty' "$verdicts")
+      if [ -z "$child_id" ]; then
+        action_row=$(jq -cn --argjson i "$i" '{action:"missing_child_id", index:$i}')
+        conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
+        i=$((i + 1))
+        continue
+      fi
+      if ! echo "$st" | jq -e --arg id "$child_id" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
+        action_row=$(jq -cn --arg a unknown_child --arg id "$child_id" '{action:$a, id:$id}')
+        conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
+        i=$((i + 1))
+        continue
+      fi
+
+      local_status=$(echo "$st" | jq -r --arg id "$child_id" \
+        '.children[] | select(.id==$id) | .status')
+      local_lin=$(echo "$st" | jq -r --arg id "$child_id" \
+        '.children[] | select(.id==$id) | .linear_id // empty')
+
+      # linear_id fill
+      if jq -e --argjson i "$i" '.children[$i] | has("linear_id")' "$verdicts" >/dev/null 2>&1 \
+        && ! jq -e --argjson i "$i" '.children[$i].linear_id == null' "$verdicts" >/dev/null 2>&1; then
+        v_lin=$(jq -r --argjson i "$i" '.children[$i].linear_id // empty' "$verdicts")
+        if [ -n "$v_lin" ]; then
+          if [ -z "$local_lin" ] || [ "$local_lin" = "null" ]; then
+            st=$(echo "$st" | jq --arg id "$child_id" --arg v "$v_lin" \
+              '(.children[] | select(.id==$id) | .linear_id) = $v')
+            action_row=$(jq -cn --arg a fill_linear_id --arg id "$child_id" --arg v "$v_lin" \
+              '{action:$a, id:$id, linear_id:$v}')
+            applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
+            local_lin="$v_lin"
+          elif [ "$local_lin" = "$v_lin" ]; then
+            action_row=$(jq -cn --arg a linear_id_unchanged --arg id "$child_id" --arg v "$v_lin" \
+              '{action:$a, id:$id, linear_id:$v}')
             skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
           else
-            st=$(echo "$st" | jq --arg id "$child_id" --arg s "$v_status" \
-              '(.children[] | select(.id==$id) | .status) = $s')
-            action_row=$(jq -cn --arg a set_status --arg id "$child_id" \
-              --arg from "$local_status" --arg to "$v_status" \
-              '{action:$a, id:$id, from:$from, to:$to}')
-            applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
-            local_status="$v_status"
+            action_row=$(jq -cn --arg a linear_id_mismatch --arg id "$child_id" \
+              --arg local "$local_lin" --arg remote "$v_lin" \
+              '{action:$a, id:$id, local:$local, remote:$remote}')
+            conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
           fi
-          ;;
-        *)
-          action_row=$(jq -cn --arg a invalid_status --arg id "$child_id" --arg s "$v_status" \
-            '{action:$a, id:$id, status:$s}')
-          conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
-          ;;
-      esac
-    fi
-
-    # outcome_summary (only when terminal status)
-    if jq -e --argjson i "$i" '.children[$i] | has("outcome_summary")' "$verdicts" >/dev/null 2>&1 \
-      && ! jq -e --argjson i "$i" '.children[$i].outcome_summary == null' "$verdicts" >/dev/null 2>&1; then
-      v_out=$(jq -r --argjson i "$i" '.children[$i].outcome_summary // empty' "$verdicts")
-      v_out=$(printf '%s' "$v_out" | tr '\n\r' '  ' | sed -e 's/[[:space:]]\{1,\}/ /g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-      if [ "${#v_out}" -gt 200 ]; then
-        v_out="${v_out:0:200}"
+        fi
       fi
-      case "$local_status" in
-        completed|blocked)
-          if [ -n "$v_out" ]; then
-            local_out=$(echo "$st" | jq -r --arg id "$child_id" \
-              '.children[] | select(.id==$id) | .outcome_summary // empty')
-            if [ "$local_out" = "$v_out" ]; then
-              action_row=$(jq -cn --arg a outcome_unchanged --arg id "$child_id" \
-                '{action:$a, id:$id}')
+
+      # status
+      if jq -e --argjson i "$i" '.children[$i] | has("status")' "$verdicts" >/dev/null 2>&1 \
+        && ! jq -e --argjson i "$i" '.children[$i].status == null' "$verdicts" >/dev/null 2>&1; then
+        v_status=$(jq -r --argjson i "$i" '.children[$i].status // empty' "$verdicts")
+        case "$v_status" in
+          pending|in_progress|completed|blocked)
+            if [ "$local_status" = "$v_status" ]; then
+              action_row=$(jq -cn --arg a status_unchanged --arg id "$child_id" --arg s "$v_status" \
+                '{action:$a, id:$id, status:$s}')
+              skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+            elif [ "$local_status" = "completed" ] && [ "$v_status" != "completed" ]; then
+              action_row=$(jq -cn --arg a no_downgrade_completed --arg id "$child_id" \
+                --arg local "$local_status" --arg remote "$v_status" \
+                '{action:$a, id:$id, local:$local, remote:$remote}')
               skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
             else
-              st=$(echo "$st" | jq --arg id "$child_id" --arg o "$v_out" \
-                '(.children[] | select(.id==$id) | .outcome_summary) = $o')
-              action_row=$(jq -cn --arg a set_outcome --arg id "$child_id" \
-                '{action:$a, id:$id}')
+              st=$(echo "$st" | jq --arg id "$child_id" --arg s "$v_status" \
+                '(.children[] | select(.id==$id) | .status) = $s')
+              action_row=$(jq -cn --arg a set_status --arg id "$child_id" \
+                --arg from "$local_status" --arg to "$v_status" \
+                '{action:$a, id:$id, from:$from, to:$to}')
               applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
+              local_status="$v_status"
             fi
-          fi
-          ;;
-        *)
-          action_row=$(jq -cn --arg a outcome_skipped_nonterminal --arg id "$child_id" \
-            --arg s "$local_status" '{action:$a, id:$id, status:$s}')
-          skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
-          ;;
-      esac
+            ;;
+          *)
+            action_row=$(jq -cn --arg a invalid_status --arg id "$child_id" --arg s "$v_status" \
+              '{action:$a, id:$id, status:$s}')
+            conflicts_json=$(echo "$conflicts_json" | jq --argjson r "$action_row" '. + [$r]')
+            ;;
+        esac
+      fi
+
+      # outcome_summary (only when terminal status)
+      if jq -e --argjson i "$i" '.children[$i] | has("outcome_summary")' "$verdicts" >/dev/null 2>&1 \
+        && ! jq -e --argjson i "$i" '.children[$i].outcome_summary == null' "$verdicts" >/dev/null 2>&1; then
+        v_out=$(jq -r --argjson i "$i" '.children[$i].outcome_summary // empty' "$verdicts")
+        v_out=$(printf '%s' "$v_out" | tr '\n\r' '  ' | sed -e 's/[[:space:]]\{1,\}/ /g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        if [ "${#v_out}" -gt 200 ]; then
+          v_out="${v_out:0:200}"
+        fi
+        case "$local_status" in
+          completed|blocked)
+            if [ -n "$v_out" ]; then
+              local_out=$(echo "$st" | jq -r --arg id "$child_id" \
+                '.children[] | select(.id==$id) | .outcome_summary // empty')
+              if [ "$local_out" = "$v_out" ]; then
+                action_row=$(jq -cn --arg a outcome_unchanged --arg id "$child_id" \
+                  '{action:$a, id:$id}')
+                skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+              else
+                st=$(echo "$st" | jq --arg id "$child_id" --arg o "$v_out" \
+                  '(.children[] | select(.id==$id) | .outcome_summary) = $o')
+                action_row=$(jq -cn --arg a set_outcome --arg id "$child_id" \
+                  '{action:$a, id:$id}')
+                applied_json=$(echo "$applied_json" | jq --argjson r "$action_row" '. + [$r]')
+              fi
+            fi
+            ;;
+          *)
+            action_row=$(jq -cn --arg a outcome_skipped_nonterminal --arg id "$child_id" \
+              --arg s "$local_status" '{action:$a, id:$id, status:$s}')
+            skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+            ;;
+        esac
+      fi
+
+      i=$((i + 1))
+    done
+
+    orphans=$(jq -c '.orphans // []' "$verdicts")
+    unmatched=$(jq -c '.unmatched_local // []' "$verdicts")
+
+    if [ "$dry" -eq 0 ]; then
+      # Only write when something applied (avoid noisy updated_at on pure no-op)
+      if [ "$(echo "$applied_json" | jq 'length')" -gt 0 ]; then
+        write_state "$epic_id" "$st"
+      fi
     fi
 
-    i=$((i + 1))
-  done
-
-  local orphans unmatched
-  orphans=$(jq -c '.orphans // []' "$verdicts")
-  unmatched=$(jq -c '.unmatched_local // []' "$verdicts")
-
-  if [ "$dry" -eq 0 ]; then
-    # Only write when something applied (avoid noisy updated_at on pure no-op)
-    if [ "$(echo "$applied_json" | jq 'length')" -gt 0 ]; then
-      write_state "$epic_id" "$st"
-    fi
-  fi
-
-  jq -cn \
-    --arg epic "$epic_id" \
-    --argjson dry "$([ "$dry" -eq 1 ] && echo true || echo false)" \
-    --argjson applied "$applied_json" \
-    --argjson skipped "$skipped_json" \
-    --argjson conflicts "$conflicts_json" \
-    --argjson orphans "$orphans" \
-    --argjson unmatched "$unmatched" \
-    '{
-      epic_id:$epic,
-      dry_run:$dry,
-      applied:$applied,
-      skipped:$skipped,
-      conflicts:$conflicts,
-      orphans:$orphans,
-      unmatched_local:$unmatched,
-      applied_count:($applied|length),
-      conflict_count:($conflicts|length)
-    }'
+    jq -cn \
+      --arg epic "$epic_id" \
+      --argjson dry "$([ "$dry" -eq 1 ] && echo true || echo false)" \
+      --argjson applied "$applied_json" \
+      --argjson skipped "$skipped_json" \
+      --argjson conflicts "$conflicts_json" \
+      --argjson orphans "$orphans" \
+      --argjson unmatched "$unmatched" \
+      '{
+        epic_id:$epic,
+        dry_run:$dry,
+        applied:$applied,
+        skipped:$skipped,
+        conflicts:$conflicts,
+        orphans:$orphans,
+        unmatched_local:$unmatched,
+        applied_count:($applied|length),
+        conflict_count:($conflicts|length)
+      }'
+  ) 9>>"$EPICS_LOCK"
 }
 
 # ---- dispatch ---------------------------------------------------------------

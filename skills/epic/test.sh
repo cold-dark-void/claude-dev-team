@@ -1691,10 +1691,85 @@ unset EPIC_ROOT
   rm -rf "$CS_TMP"
 }
 
+# ---- M6 concurrent RMW flock (CDT-165 / SPEC-025 AC1+AC7) --------------------
+echo ""
+echo "=== M6 concurrent state RMW (CDT-165) ==="
+# regression: pre-CDT-165 unlocked RMW lost updates under concurrent mutators
+# (last-write-wins drops C2 or C1 status/outcome when set-status ∥ add-child).
+RACE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-race-XXXXXX")
+export EPIC_ROOT="$RACE_ROOT"
+
+bash "$LIB" init CDV-RACE --title "Race epic" --mode kickoff >/dev/null
+bash "$LIB" add-child CDV-RACE --id CDV-RACE-C1 --slug base --title "Base" \
+  --estimate S --agent ic4 --depends-on '[]' >/dev/null
+
+# Pair A: set-status C1 completed + outcome  ∥  add-child C2
+EPIC_ROOT="$RACE_ROOT" bash "$LIB" set-status CDV-RACE CDV-RACE-C1 completed \
+  --outcome "from-A" >"$RACE_ROOT/out-a.txt" 2>&1 &
+pid_a=$!
+EPIC_ROOT="$RACE_ROOT" bash "$LIB" add-child CDV-RACE --id CDV-RACE-C2 --slug peer \
+  --title "Peer" --estimate M --agent ic5 --depends-on '[]' \
+  >"$RACE_ROOT/out-b.txt" 2>&1 &
+pid_b=$!
+rc_a=0; wait "$pid_a" || rc_a=$?
+rc_b=0; wait "$pid_b" || rc_b=$?
+
+[ "$rc_a" -eq 0 ] && pass || fail "race set-status rc=$rc_a: $(head -c 200 "$RACE_ROOT/out-a.txt")"
+[ "$rc_b" -eq 0 ] && pass || fail "race add-child C2 rc=$rc_b: $(head -c 200 "$RACE_ROOT/out-b.txt")"
+
+STATE_RACE="$RACE_ROOT/.claude/epics/CDV-RACE/state.json"
+jq -e '.children[] | select(.id=="CDV-RACE-C1") | .status=="completed"' "$STATE_RACE" >/dev/null \
+  && pass || fail "race: C1 status not completed (lost update)"
+jq -e --arg id CDV-RACE-C1 \
+  '.children[] | select(.id==$id) | .outcome_summary=="from-A"' "$STATE_RACE" >/dev/null \
+  && pass || fail "race: C1 outcome missing (lost update)"
+jq -e '[.children[].id] | index("CDV-RACE-C2") != null' "$STATE_RACE" >/dev/null \
+  && pass || fail "race: C2 missing from children (lost update)"
+
+# Stress: three concurrent pure mutators — project + seed path + C3
+EPIC_ROOT="$RACE_ROOT" bash "$LIB" set-linear-project CDV-RACE proj-race \
+  >"$RACE_ROOT/out-c.txt" 2>&1 &
+pid_c=$!
+EPIC_ROOT="$RACE_ROOT" bash "$LIB" set-last-seed CDV-RACE /tmp/seed-race.md \
+  >"$RACE_ROOT/out-d.txt" 2>&1 &
+pid_d=$!
+EPIC_ROOT="$RACE_ROOT" bash "$LIB" add-child CDV-RACE --id CDV-RACE-C3 --slug third \
+  --title "Third" --estimate S --agent ic4 --depends-on '[]' \
+  >"$RACE_ROOT/out-e.txt" 2>&1 &
+pid_e=$!
+rc_c=0; wait "$pid_c" || rc_c=$?
+rc_d=0; wait "$pid_d" || rc_d=$?
+rc_e=0; wait "$pid_e" || rc_e=$?
+
+[ "$rc_c" -eq 0 ] && pass || fail "race set-linear-project rc=$rc_c: $(head -c 200 "$RACE_ROOT/out-c.txt")"
+[ "$rc_d" -eq 0 ] && pass || fail "race set-last-seed rc=$rc_d: $(head -c 200 "$RACE_ROOT/out-d.txt")"
+[ "$rc_e" -eq 0 ] && pass || fail "race add-child C3 rc=$rc_e: $(head -c 200 "$RACE_ROOT/out-e.txt")"
+
+jq -e '.linear_project_id=="proj-race"' "$STATE_RACE" >/dev/null \
+  && pass || fail "race: linear_project_id lost"
+jq -e '.last_seed_path=="/tmp/seed-race.md"' "$STATE_RACE" >/dev/null \
+  && pass || fail "race: last_seed_path lost"
+jq -e '[.children[].id] | index("CDV-RACE-C3") != null' "$STATE_RACE" >/dev/null \
+  && pass || fail "race: C3 missing (lost update)"
+# Prior fields still present after stress
+jq -e '.children[] | select(.id=="CDV-RACE-C1") | .status=="completed"' "$STATE_RACE" >/dev/null \
+  && pass || fail "race stress: C1 status lost"
+jq -e '[.children[].id] | index("CDV-RACE-C2") != null' "$STATE_RACE" >/dev/null \
+  && pass || fail "race stress: C2 lost"
+N_RACE=$(jq '.children | length' "$STATE_RACE")
+[ "$N_RACE" -eq 3 ] && pass || fail "race: expected 3 children got $N_RACE"
+
+# EPICS_LOCK created; no publish tmp leftovers
+[ -f "$RACE_ROOT/.claude/epics/.lock" ] && pass || fail "race: EPICS_LOCK missing at .claude/epics/.lock"
+LEFTOVER=$(find "$RACE_ROOT/.claude/epics" -name 'state.json.tmp.*' 2>/dev/null | wc -l)
+[ "$LEFTOVER" -eq 0 ] && pass || fail "race: tmp leftovers $LEFTOVER"
+
+rm -rf "$RACE_ROOT"
+unset EPIC_ROOT
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
   exit 1
 fi
 exit 0
-
