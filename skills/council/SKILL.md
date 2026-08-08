@@ -967,6 +967,11 @@ Per-shape population rule:
 - `finding[]` runs: `max_finding_confidence` = `max(confidence)` across all
   unstruck findings; `max_verdict_confidence = null`. (SPEC-013 line 102.)
 
+**Index confidence normalization (CDT-181):** engine max pipelines end with
+`| floor` so argv is integer text; `index-writer.sh` also floors float argv
+defense-in-depth. Stored row conf fields are **int 0..100 or null only** —
+never float. (SPEC-013 Index confidence normalization / CDT-181.)
+
 The TaskCompleted hook (SPEC-002) reads this index as its single source of
 truth and applies a **dual-shape** pass: non-null `max_verdict_confidence`
 **or** null verdict conf + non-null `max_finding_confidence`, with effective

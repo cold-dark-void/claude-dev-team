@@ -244,5 +244,149 @@ grep_file "council.md emits the tier-specific Workflow fallback notice" \
 ok "the tier fallback does not reuse CDV-196's availability string" \
   bash -c "! grep -n 'council_tier' '$CMD' | grep -q 'Workflow unavailable'"
 
+# ---- CDT-181: floor-normalize confidence (index-writer + engine) -------------
+# All successful index writes run inside $REPO so the shared MROOT index is
+# never touched. Unique task ids; cleanup is automatic when $REPO is removed.
+echo 'report' > "$TMP/r181.md"
+IDX_CLEANUP_KEYS=()
+
+# Helper: assert index row conf is JSON number equal to expected floor int
+assert_conf() {  # assert_conf <label> <task_id> <field> <want_int|null>
+  local label="$1" tid="$2" field="$3" want="$4"
+  local idx="$REPO/.claude/council/index.json"
+  if [ "$want" = "null" ]; then
+    if jq -e --arg t "$tid" --arg f "$field" '.[$t][0][$f] == null' "$idx" >/dev/null 2>&1; then
+      echo "OK: $label"
+    else
+      echo "FAIL: $label (want null)"; jq -c --arg t "$tid" '.[$t][0]' "$idx" 2>/dev/null; fail=1
+    fi
+  else
+    if jq -e --arg t "$tid" --arg f "$field" --argjson w "$want" \
+         '.[$t][0][$f] == $w and (.[$t][0][$f]|type)=="number" and (.[$t][0][$f]|floor)==.[$t][0][$f]' \
+         "$idx" >/dev/null 2>&1; then
+      echo "OK: $label"
+    else
+      echo "FAIL: $label (want number $want)"; jq -c --arg t "$tid" '.[$t][0]' "$idx" 2>/dev/null; fail=1
+    fi
+  fi
+}
+
+# index-writer direct: float → floor int, type number (AC2/AC3/AC5/AC8)
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" CDT-181-iw-90 "$TMP/r181.md" 90.7 null full "cdt-181" >/dev/null 2>&1
+) && assert_conf "index-writer 90.7 → mvc=90 type number" CDT-181-iw-90 max_verdict_confidence 90 \
+  || { echo "FAIL: index-writer 90.7 write"; fail=1; }
+IDX_CLEANUP_KEYS+=(CDT-181-iw-90)
+
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" CDT-181-iw-100 "$TMP/r181.md" 100.3 null full "cdt-181" >/dev/null 2>&1
+) && assert_conf "index-writer 100.3 → mvc=100 type number" CDT-181-iw-100 max_verdict_confidence 100 \
+  || { echo "FAIL: index-writer 100.3 write"; fail=1; }
+IDX_CLEANUP_KEYS+=(CDT-181-iw-100)
+
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" CDT-181-iw-oob "$TMP/r181.md" 101.2 null full "cdt-181" >/dev/null 2>&1
+)
+ok "index-writer 101.2 → reject (floor 101 OOB)" test $? -eq 1
+ok "index-writer 101.2 did not create index key" \
+  bash -c "! jq -e 'has(\"CDT-181-iw-oob\")' '$REPO/.claude/council/index.json' >/dev/null 2>&1"
+
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" CDT-181-iw-mfc "$TMP/r181.md" null 87.5 full "cdt-181" >/dev/null 2>&1
+) && assert_conf "index-writer null 87.5 → mfc=87 type number" CDT-181-iw-mfc max_finding_confidence 87 \
+  || { echo "FAIL: index-writer finding float write"; fail=1; }
+assert_conf "index-writer null 87.5 → mvc stays null" CDT-181-iw-mfc max_verdict_confidence null
+IDX_CLEANUP_KEYS+=(CDT-181-iw-mfc)
+
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" CDT-181-iw-int "$TMP/r181.md" 50 null full "cdt-181" >/dev/null 2>&1
+) && assert_conf "index-writer int 50 unchanged type number" CDT-181-iw-int max_verdict_confidence 50 \
+  || { echo "FAIL: index-writer int 50 write"; fail=1; }
+IDX_CLEANUP_KEYS+=(CDT-181-iw-int)
+
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" CDT-181-iw-nn "$TMP/r181.md" null null full "cdt-181" >/dev/null 2>&1
+) && assert_conf "index-writer null null → mvc null" CDT-181-iw-nn max_verdict_confidence null \
+  || { echo "FAIL: index-writer null null write"; fail=1; }
+assert_conf "index-writer null null → mfc null" CDT-181-iw-nn max_finding_confidence null
+IDX_CLEANUP_KEYS+=(CDT-181-iw-nn)
+
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" CDT-181-iw-abc "$TMP/r181.md" abc null full "cdt-181" >/dev/null 2>&1
+)
+ok "index-writer abc → reject" test $? -eq 1
+
+# engine max | floor unit (T2 / AC2) — pure jq, matches engine.sh expressions
+ok "engine jq floor: verdict max 90.7 → 90" \
+  bash -c '[ "$(echo "{\"verdicts\":[{\"confidence\":90.7},{\"confidence\":40}]}" \
+    | jq "[(.verdicts // [])[] | .confidence // 0] | max // 0 | floor")" = "90" ]'
+ok "engine jq floor: finding max 87.5 → 87" \
+  bash -c '[ "$(echo "{\"findings\":[{\"confidence\":87.5}]}" \
+    | jq "[(.findings // [])[] | .confidence // 0] | max // 0 | floor")" = "87" ]'
+ok "engine jq floor: int 100 unchanged" \
+  bash -c '[ "$(echo "{\"verdicts\":[{\"confidence\":100}]}" \
+    | jq "[(.verdicts // [])[] | .confidence // 0] | max // 0 | floor")" = "100" ]'
+
+# finalize task-bound with float judge confidence (AC1/AC8)
+printf '%s\n' '{"verdicts":[{"claim_id":"c1","claim":"float conf","verdict":"VERIFIED","confidence":90.7,"evidence_blob":"x"}],"struck_lines":[]}' \
+  > "$TMP/judge-float.json"
+(
+  cd "$REPO" || exit 1
+  bash "$ENGINE" preflight --scope claim --scope-arg "float conf" --tier light \
+    --grading-reason "cdt-181 float conf" --task-id CDT-181-fin-float > plan-float.json
+  bash "$ENGINE" finalize --plan-file plan-float.json --evidence-file "$FIX/evidence.json" \
+    --judge-output "$TMP/judge-float.json" --task-id CDT-181-fin-float >/dev/null 2>&1
+) || { echo "FAIL: task-bound finalize with float judge conf exited non-zero"; fail=1; }
+IDX_CLEANUP_KEYS+=(CDT-181-fin-float)
+assert_conf "finalize float 90.7 → index mvc=90 type number" CDT-181-fin-float max_verdict_confidence 90
+if jq -e '.["CDT-181-fin-float"][0].report_path | type=="string" and length>0' \
+     "$REPO/.claude/council/index.json" >/dev/null 2>&1; then
+  RPATH=$(jq -r '.["CDT-181-fin-float"][0].report_path' "$REPO/.claude/council/index.json")
+  if [ -f "$RPATH" ]; then
+    echo "OK: finalize float conf wrote report at index report_path"
+  else
+    echo "FAIL: report_path missing on disk: $RPATH"; fail=1
+  fi
+else
+  echo "FAIL: finalize float conf missing report_path"; fail=1
+fi
+
+# unbound finalize: no index write (AC7)
+BEFORE_KEYS=$(jq -c 'keys | sort' "$REPO/.claude/council/index.json" 2>/dev/null || echo '[]')
+bash "$ENGINE" preflight --scope claim --scope-arg "unbound" --tier light \
+  --grading-reason "cdt-181 unbound" > "$TMP/plan-unbound-181.json"
+# strip task_id if any
+jq 'del(.task_id) | .task_id = ""' "$TMP/plan-unbound-181.json" > "$TMP/plan-unbound-181b.json"
+(
+  cd "$REPO" || exit 1
+  bash "$ENGINE" finalize --plan-file "$TMP/plan-unbound-181b.json" \
+    --evidence-file "$FIX/evidence.json" --judge-output "$FIX/judge.json" \
+    --report-out "$TMP/unbound-181.md" >/dev/null 2>&1
+)
+ok "unbound finalize exit 0" test $? -eq 0
+AFTER_KEYS=$(jq -c 'keys | sort' "$REPO/.claude/council/index.json" 2>/dev/null || echo '[]')
+ok "unbound finalize adds no index keys" test "$BEFORE_KEYS" = "$AFTER_KEYS"
+ok "unbound finalize still wrote report" test -f "$TMP/unbound-181.md"
+
+# Best-effort: drop CDT-181 keys from shared MROOT index if any leaked
+# (success path uses $REPO only; this is defense-in-depth)
+_gc=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null) \
+  && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || _MROOT="$ROOT"
+SHARED_IDX="$_MROOT/.claude/council/index.json"
+if [ -f "$SHARED_IDX" ]; then
+  for k in "${IDX_CLEANUP_KEYS[@]}" CDT-181-iw-oob CDT-181-iw-abc; do
+    jq --arg k "$k" 'del(.[$k])' "$SHARED_IDX" > "$SHARED_IDX.tmp" 2>/dev/null \
+      && mv "$SHARED_IDX.tmp" "$SHARED_IDX" || true
+  done
+fi
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES PRESENT"; fi
 exit "$fail"

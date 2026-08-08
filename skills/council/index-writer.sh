@@ -19,10 +19,17 @@ fi
 
 TASK_ID="$1"
 REPORT_PATH="$2"
-MVC="$3"    # max_verdict_confidence  — integer or literal "null"
-MFC="$4"    # max_finding_confidence  — integer or literal "null"
+MVC="$3"    # max_verdict_confidence  — JSON number (int|float) or literal "null"
+MFC="$4"    # max_finding_confidence  — JSON number (int|float) or literal "null"
 TIER="$5"   # council_tier (CDT-126)  — light | full | skip
 REASON="$6" # grading_reason (CDT-126) — free text, may be empty
+
+# ---- Dependency check -------------------------------------------------------
+# jq required early: confidence floor-normalize (CDT-181) + atomic index write.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "error: jq is required but not found in PATH" >&2
+  exit 1
+fi
 
 # ---- Validate task_id (path traversal prevention) ----------------------------
 if [ -n "$TASK_ID" ] && ! [[ "$TASK_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
@@ -30,18 +37,31 @@ if [ -n "$TASK_ID" ] && ! [[ "$TASK_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
   exit 1
 fi
 
-# ---- Validate confidence args -----------------------------------------------
+# ---- Validate confidence args (CDT-181: floor-normalize) --------------------
+# Accept null, or a JSON number (int/float, optional leading -). Floor via jq;
+# require the floored integer in 0..100; write int string back into named var
+# for --argjson. Non-numeric / OOB-after-floor → stderr + exit 1 (no index mutate).
 validate_confidence() {
-  local val="$1" label="$2"
-  if [ "$val" != "null" ]; then
-    if ! [[ "$val" =~ ^[0-9]+$ ]] || [ "$val" -lt 0 ] || [ "$val" -gt 100 ]; then
-      echo "error: $label must be an integer 0-100 or 'null', got: $val" >&2
-      exit 1
-    fi
+  local -n _vc_ref="$1"
+  local label="$2"
+  local val="$_vc_ref"
+  if [ "$val" = "null" ]; then
+    return 0
   fi
+  local floored
+  if ! floored=$(jq -n --argjson n "$val" '$n | floor' 2>/dev/null); then
+    echo "error: $label must be a JSON number 0-100 or 'null', got: $val" >&2
+    exit 1
+  fi
+  # floor always yields an integer JSON number; re-check range as bash int
+  if ! [[ "$floored" =~ ^-?[0-9]+$ ]] || [ "$floored" -lt 0 ] || [ "$floored" -gt 100 ]; then
+    echo "error: $label must be in 0-100 after floor, got: $val (floor=$floored)" >&2
+    exit 1
+  fi
+  _vc_ref="$floored"
 }
-validate_confidence "$MVC" "max_verdict_confidence"
-validate_confidence "$MFC" "max_finding_confidence"
+validate_confidence MVC "max_verdict_confidence"
+validate_confidence MFC "max_finding_confidence"
 
 # ---- Validate council_tier ---------------------------------------------------
 # light|full come from an actual engine.sh finalize run; grading can never
@@ -58,12 +78,6 @@ case "$TIER" in
     exit 1
     ;;
 esac
-
-# ---- Dependency check -------------------------------------------------------
-if ! command -v jq >/dev/null 2>&1; then
-  echo "error: jq is required but not found in PATH" >&2
-  exit 1
-fi
 
 # ---- Resolve MROOT (worktree-aware) -----------------------------------------
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \

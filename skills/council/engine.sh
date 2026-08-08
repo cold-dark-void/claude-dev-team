@@ -761,12 +761,12 @@ cmd_finalize() {
   if [ "$output_shape" = "verdict[]" ]; then
     verdict_count=$(jq '(.verdicts // []) | length' "$judge_output")
     if [ "$verdict_count" -gt 0 ]; then
-      max_verdict_confidence=$(jq '[(.verdicts // [])[] | .confidence // 0] | max // 0' "$judge_output")
+      max_verdict_confidence=$(jq '[(.verdicts // [])[] | .confidence // 0] | max // 0 | floor' "$judge_output")
     fi
   else
     finding_count=$(jq '(.findings // []) | length' "$judge_output")
     if [ "$finding_count" -gt 0 ]; then
-      max_finding_confidence=$(jq '[(.findings // [])[] | .confidence // 0] | max // 0' "$judge_output")
+      max_finding_confidence=$(jq '[(.findings // [])[] | .confidence // 0] | max // 0 | floor' "$judge_output")
     fi
   fi
 

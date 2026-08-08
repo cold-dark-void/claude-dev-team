@@ -4,7 +4,9 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
-second heading for the same version.
+second heading for the same version.### v1.7.13
+- **Index-writer confidence floor-normalize (CDT-181)** — accept JSON number conf (int/float), floor to 0..100 via jq before index write; non-numeric / OOB fail closed without mutate; engine/tests + SPEC-013 note.
+
 ### v1.7.12
 - **Shared terminal-status classifier for close/reconcile (CDT-160)** — one `skills/backlog/terminal-status.sh is-closed` matcher (token-boundary, not unanchored substring); wires `close.sh` + `reconcile.sh`; DONE/CANCELLED parity for verify/Already-closed/prune; write surface still COMPLETED|FIXED/CLOSED only; unit+integration tests (87+59) + SPEC-009/SKILL.md.
 
