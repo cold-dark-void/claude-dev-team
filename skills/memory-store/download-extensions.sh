@@ -52,6 +52,13 @@ MODEL_REF="7a7bac37782986fe1d4f213de771a8a3d9170b35"
 #
 # To regenerate after a version/ref bump: curl the asset and sha256sum it,
 # e.g.  curl -fSL "$URL" | sha256sum   (model: download to a file, then sha256sum).
+# For extensions this table alone is NOT enough — a version bump MUST also
+# regenerate the extracted-member table below (expected_member_sha256): verify
+# the new tarball against ITS pin above first, then extract and sha256sum the
+# member, e.g.
+#   w=$(mktemp -d "${TMPDIR:-/tmp}/dl-ext.XXXXXX")
+#   curl -fSL -o "$w/a.tar.gz" "$URL" && sha256sum "$w/a.tar.gz"  # compare to pin above
+#   tar -xzf "$w/a.tar.gz" -C "$w" && find "$w" -type f ! -name a.tar.gz -exec sha256sum {} +
 # Note: sqlite-lembed v0.0.1-alpha.8 publishes no linux-aarch64 build, so that
 # (artifact,platform) combo is intentionally absent and skipped upstream.
 # ---------------------------------------------------------------------------
@@ -66,6 +73,26 @@ expected_sha256() {
     lembed0:macos-x86_64) echo "8e0669d772aca64e4ad5fc18ecbdb4afe95976a7a6fa0ca8d12f294eab72eb02" ;;
     lembed0:macos-aarch64) echo "1ba6a2b5cc06e9f664bfdc01310ae0de3f3f9112015b694c9e035b2e840f0b87" ;;
     model:*)              echo "71f1d177171468fb5f186c07019e303015aea17af275a67767760bba7be8d2e6" ;;
+    *)                    echo "" ;;  # no pinned hash → caller must fail closed
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Pinned SHA-256 of the extracted extension member (the .so/.dylib itself, not
+# the tarball). Checked both when re-verifying a present file and BEFORE `mv`
+# of a freshly extracted member into place (CDT-173). No `model:*` entry — the
+# model is not extracted; its existing pin above is already the file's own.
+# ---------------------------------------------------------------------------
+expected_member_sha256() {
+  # $1 = artifact (vec0|lembed0), $2 = platform
+  case "$1:$2" in
+    vec0:linux-x86_64)    echo "f285c46d5496fe7571be40ab40c0b151d091892c141f89a503e02392e0961233" ;;
+    vec0:linux-aarch64)   echo "b5785a6964c83e94256697b8ecdf515cb75616b7f5bb6e519c810e4f2dc4f387" ;;
+    vec0:macos-x86_64)    echo "12b9a80036ec5b5210ced90a0031ba8ab4139e4bbf1e2f361d4953f05588d2e9" ;;
+    vec0:macos-aarch64)   echo "0dcce2c74747968076eab4b0f9974498ead859f7674b28d5551e1f551ddf8fe2" ;;
+    lembed0:linux-x86_64) echo "aa896d7c87636b6245281a97646b607b69054c09663d47c41653fd34ceffb3cf" ;;
+    lembed0:macos-x86_64) echo "e4277f32bb623d95218ec13db4bf2e70509e61aa2c4da84b37d9459a1c71a82b" ;;
+    lembed0:macos-aarch64) echo "af84d62dd1ca9ea9f935cbeac04f315c85fd0cc7df40f6a0e92b5286ff03d969" ;;
     *)                    echo "" ;;  # no pinned hash → caller must fail closed
   esac
 }
@@ -119,10 +146,15 @@ download_and_extract() {
   local dest_file="$2"   # full path where the extracted file should land
   local artifact_name="$3"  # human-readable name for error messages
   local expected_hash="$4"  # pinned SHA-256 of the .tar.gz (verified before extract)
+  local expected_member="$5"  # pinned SHA-256 of the extracted .so/.dylib
 
   if [ -f "$dest_file" ]; then
-    echo "  [skip] $artifact_name already present: $dest_file"
-    return 0
+    if verify_sha256 "$dest_file" "$expected_member" "$artifact_name (present file)"; then
+      echo "  [skip] $artifact_name already present (verified): $dest_file"
+      return 0
+    fi
+    echo "  Present $artifact_name failed verification — deleting and re-downloading." >&2
+    rm -f "$dest_file"
   fi
 
   echo "  Downloading $artifact_name from $url ..."
@@ -142,6 +174,11 @@ download_and_extract() {
       local extracted
       extracted=$(find "$tmpdir" -maxdepth 2 -type f ! -name 'archive.tar.gz' | head -1)
       if [ -n "$extracted" ]; then
+        if ! verify_sha256 "$extracted" "$expected_member" "$artifact_name extracted member"; then
+          echo "Fallback mode (keyword search only) will be used until this is resolved." >&2
+          rm -rf "$tmpdir"
+          return 1
+        fi
         mv "$extracted" "$dest_file"
         echo "  [ok]   $artifact_name -> $dest_file"
       else
@@ -191,8 +228,12 @@ download_file() {
   local expected_hash="$4"  # pinned SHA-256 of the downloaded file (verified before use)
 
   if [ -f "$dest_file" ]; then
-    echo "  [skip] $artifact_name already present: $dest_file"
-    return 0
+    if verify_sha256 "$dest_file" "$expected_hash" "$artifact_name (present file)"; then
+      echo "  [skip] $artifact_name already present (verified): $dest_file"
+      return 0
+    fi
+    echo "  Present $artifact_name failed verification — deleting and re-downloading." >&2
+    rm -f "$dest_file"
   fi
 
   echo "  Downloading $artifact_name from $url ..."
@@ -230,7 +271,8 @@ echo ""
 echo "=== sqlite-vec ==="
 # Download failures (network/hash) must not abort under set -e — fall through to
 # embedding_mode=fallback resolution below.
-download_and_extract "$VEC_URL" "$VEC_DEST" "sqlite-vec" "$(expected_sha256 vec0 "$PLATFORM")" || true
+download_and_extract "$VEC_URL" "$VEC_DEST" "sqlite-vec" \
+  "$(expected_sha256 vec0 "$PLATFORM")" "$(expected_member_sha256 vec0 "$PLATFORM")" || true
 
 # ---------------------------------------------------------------------------
 # Download sqlite-lembed
@@ -245,7 +287,8 @@ if [ "${OS}-${ARCH}" = "linux-aarch64" ]; then
 else
   LEMBED_URL="https://github.com/asg017/sqlite-lembed/releases/download/v${LEMBED_VERSION}/sqlite-lembed-${LEMBED_VERSION}-loadable-${PLATFORM}.tar.gz"
   LEMBED_DEST="$EXT_DIR/lembed0.$EXT"
-  download_and_extract "$LEMBED_URL" "$LEMBED_DEST" "sqlite-lembed" "$(expected_sha256 lembed0 "$PLATFORM")" || true
+  download_and_extract "$LEMBED_URL" "$LEMBED_DEST" "sqlite-lembed" \
+    "$(expected_sha256 lembed0 "$PLATFORM")" "$(expected_member_sha256 lembed0 "$PLATFORM")" || true
 fi
 
 # ---------------------------------------------------------------------------

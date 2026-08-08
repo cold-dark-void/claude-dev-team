@@ -33,7 +33,8 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 
 ### Extension Downloads
 - MUST detect platform via `uname -s` and `uname -m` (support linux-x86_64, linux-aarch64, macos-x86_64, macos-aarch64)
-- MUST skip downloads if files already exist (idempotent)
+- MUST skip the download only when the destination file already exists AND verifies against its pinned SHA-256 (idempotent); a present file that mismatches its pin, has no pinned hash, or cannot be hashed (no `sha256sum`/`shasum`) MUST be deleted and re-downloaded — a present-but-unverified artifact is never used (fail closed, CDT-173)
+- MUST pin the SHA-256 of both the downloaded artifact (extension `.tar.gz`, verified pre-extraction; model `.gguf`) and the extracted extension member (`.so`/`.dylib`), and MUST verify the extracted member against its pin before moving it into place
 - MUST skip lembed on linux-aarch64 (no published binary)
 - MUST NOT block on download failures — fall back to keyword-only mode
 - MUST resolve embedding mode in priority order: remote (EMBEDDING_URL set) → lembed (extension + GGUF present) → fallback (keyword only)
@@ -152,7 +153,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 ## Test
 
 - Verify `/setup team` is idempotent (run twice, no errors, no duplicates)
-- Verify extension downloads skip existing files
+- Verify extension downloads skip an existing file only when it matches its pinned SHA-256; a tampered/corrupt present `vec0.so` / `lembed0.so` / `.gguf` is deleted and re-downloaded, and when re-download is impossible the run still lands `embedding_mode=fallback` with exit 0
 - Verify project-init creates 7 distinct cortex files with role-specific content
 - Verify `/setup project` (scaffold-project) creates directory structure without overwriting existing files
 - Verify `/setup orchestration` merges into existing settings.json without data loss
@@ -198,6 +199,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-07-22 | CDT-54 / CDT-46-C8: hook template single SoT — `/setup orchestration` emits live hooks from init-orch templates; live `.claude/hooks` generated+gitignored (not package product); dual-copy `check-hook-templates` gate retired/reduced; regenerate via `/setup orchestration`. |
 | 2026-07-22 | CDT-67: doctor gate passes `--gate=<sub>` (`team` / `orchestration`); M6c self-remediation (exact fix-it match) does not block. |
 | 2026-07-22 | CDT-76: known-legacy-orphan sweep on /setup orchestration Step 4 — finite list (v1: bash-compress-wrapper.sh); bak-force + FORCE-OVERWRITE; ref-guard WARN; Step 9 summary. |
+| 2026-08-08 | CDT-173: present-file SHA-256 re-verification. The unconditional `[skip] already present` short-circuit in `download_and_extract()` / `download_file()` skipped integrity checking entirely, so a tampered or corrupt on-disk `vec0.so` / `lembed0.so` / `.gguf` was `.load`ed forever (partial regression of the CLUSTER-010 fail-closed guarantee). Skip is now conditional on the present file matching its pin; mismatch/unverifiable deletes and re-downloads. Adds a second pinned table for the **extracted member** (`.so`/`.dylib`) alongside the existing tarball pins — a sidecar hash file was rejected as a self-attesting anchor (an attacker who can write the binary can write the sidecar) and because it would break the documented hand-place-the-file recovery path. Member pin also closes a latent defect: the post-extract `find … \| head -1` could `mv` a stray tarball member (LICENSE/README) into place with the tarball hash still matching. No change to SPEC-005's no-block-on-failure guarantee — helpers return non-zero, call sites keep `\|\| true`, top level never `exit 1`. |
 
 ## Cross-references
 
