@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.16
+- **Council finalize strikes missing `tool_use_id` (CDT-178)** — finalize packaging partitions findings/bundles with blank/absent/whitespace `tool_use_id` into the struck audit trail (append-merge, never silent drop); unstruck-only commit gate, severity tables, action items, and `max_*_confidence` via finalize-meta sidecar; regression `test-finalize-missing-tid.sh` (29 asserts) + SKILL strike clarifier.
+
 ### v1.7.15
 - **TaskCompleted index isolate scores (CDT-163)** — resolve at most one council index key (exact → preferred compound only → unique suffix); multi-key max-merge removed; preferred miss / multi-suffix hard-fail exit 2; SPEC-002 + template + B6–B10 tests. Live hooks: re-run `/setup orchestration`.
 

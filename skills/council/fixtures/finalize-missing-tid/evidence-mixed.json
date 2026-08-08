@@ -1,0 +1,37 @@
+[
+  {
+    "tool_use_id": "external:codex:deadbeef",
+    "raw_blob": "valid external bundle body",
+    "file_line": "skills/council/engine.sh:945",
+    "reproducible_command": "rg tool_use_id skills/council/engine.sh"
+  },
+  {
+    "tool_use_id": "tu-valid",
+    "raw_blob": "valid native tool_use_id bundle",
+    "file_line": "skills/council/engine.sh:1026",
+    "reproducible_command": "sed -n '1020,1035p' skills/council/engine.sh"
+  },
+  {
+    "tool_use_id": "unknown",
+    "raw_blob": "literal unknown is a valid tid — must not strike",
+    "file_line": "skills/council/engine.sh:1",
+    "reproducible_command": "true"
+  },
+  {
+    "raw_blob": "missing tool_use_id key entirely",
+    "file_line": "skills/council/engine.sh:2",
+    "reproducible_command": "true"
+  },
+  {
+    "tool_use_id": "",
+    "raw_blob": "empty string tool_use_id",
+    "file_line": "skills/council/engine.sh:3",
+    "reproducible_command": "true"
+  },
+  {
+    "tool_use_id": "   ",
+    "raw_blob": "whitespace-only tool_use_id",
+    "file_line": "skills/council/engine.sh:4",
+    "reproducible_command": "true"
+  }
+]

@@ -1,0 +1,34 @@
+{
+  "findings": [
+    {
+      "file": "skills/council/engine.sh",
+      "line": 10,
+      "severity": "critical",
+      "category": "security",
+      "description": "all-struck critical missing tid",
+      "suggestion": "n/a",
+      "confidence": 99
+    },
+    {
+      "file": "skills/council/engine.sh",
+      "line": 11,
+      "severity": "warning",
+      "category": "quality",
+      "description": "all-struck warning empty tid",
+      "suggestion": "n/a",
+      "confidence": 80,
+      "tool_use_id": ""
+    },
+    {
+      "file": "skills/council/engine.sh",
+      "line": 12,
+      "severity": "nitpick",
+      "category": "style",
+      "description": "all-struck nitpick whitespace tid",
+      "suggestion": "n/a",
+      "confidence": 30,
+      "tool_use_id": "   "
+    }
+  ],
+  "struck_lines": []
+}

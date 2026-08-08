@@ -1,0 +1,44 @@
+{
+  "findings": [
+    {
+      "file": "skills/council/engine.sh",
+      "line": 945,
+      "severity": "warning",
+      "category": "correctness",
+      "description": "valid high-conf warning with tool_use_id — must remain unstruck",
+      "suggestion": "keep packaging strike for blank tids only",
+      "confidence": 85,
+      "tool_use_id": "external:codex:deadbeef"
+    },
+    {
+      "file": "skills/council/engine.sh",
+      "line": 2,
+      "severity": "critical",
+      "category": "security",
+      "description": "critical finding missing tool_use_id — must be struck and must not block gate",
+      "suggestion": "strike missing tid",
+      "confidence": 99
+    },
+    {
+      "file": "skills/council/engine.sh",
+      "line": 3,
+      "severity": "warning",
+      "category": "quality",
+      "description": "finding with empty tool_use_id — must be struck",
+      "suggestion": "strike empty tid",
+      "confidence": 70,
+      "tool_use_id": ""
+    },
+    {
+      "file": "skills/council/engine.sh",
+      "line": 4,
+      "severity": "nitpick",
+      "category": "style",
+      "description": "finding with whitespace-only tool_use_id — must be struck",
+      "suggestion": "strike whitespace tid",
+      "confidence": 40,
+      "tool_use_id": "   "
+    }
+  ],
+  "struck_lines": ["judge pre-strike"]
+}

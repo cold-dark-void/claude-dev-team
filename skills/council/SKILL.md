@@ -334,9 +334,12 @@ evidence_bundle := {
 ```
 
 **Validation (strike rule):** Bundles missing `tool_use_id` MUST be treated
-as "no evidence collected" for that claim. The engine MUST NOT accept a
-bundle that paraphrases a tool output instead of inlining the raw blob.
-(SPEC-013 line 59.)
+as "no evidence collected" for that claim. Absent, `null`, empty, or
+whitespace-only `tool_use_id` counts as missing (after strip). Engine-generated
+strike reasons APPEND to pre-existing `struck_lines` (never replace).
+Strike-and-continue (exit 0); do not invent IDs; do not exit 7 for missing tid.
+The engine MUST NOT accept a bundle that paraphrases a tool output instead of
+inlining the raw blob. (SPEC-013 line 59.)
 
 **Intra-run tool-call cache (CDV-211; SPEC-013 SHOULD):** preflight creates
 `${TMPDIR:-/tmp}/council-cache-<run_id>/` with `reads/`, `greps/`, and
@@ -755,7 +758,10 @@ with a severity outside the three-term set MUST be struck. (SPEC-013 lines
 - Any line whose quoted citation does not appear verbatim in the provided
   raw blob MUST be struck.
 - Any line missing a `tool_use_id` (for findings) MUST be struck. (SPEC-013
-  line 43.)
+  line 43.) Absent, `null`, empty, or whitespace-only `tool_use_id` counts as
+  missing (after strip). Engine-generated strike reasons APPEND to pre-existing
+  `struck_lines` (never replace). Strike-and-continue (exit 0); do not invent
+  IDs; do not exit 7 for missing tid.
 - Any line making a factual assertion not traceable to any evidence bundle
   MUST be struck.
 - Struck lines MUST be preserved in an "audit trail" section of the report,

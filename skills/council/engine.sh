@@ -755,20 +755,9 @@ cmd_finalize() {
     fi
   fi
 
-  # Compute max confidence for the index row.
-  local max_verdict_confidence="null" max_finding_confidence="null"
-  local verdict_count=0 finding_count=0
-  if [ "$output_shape" = "verdict[]" ]; then
-    verdict_count=$(jq '(.verdicts // []) | length' "$judge_output")
-    if [ "$verdict_count" -gt 0 ]; then
-      max_verdict_confidence=$(jq '[(.verdicts // [])[] | .confidence // 0] | max // 0 | floor' "$judge_output")
-    fi
-  else
-    finding_count=$(jq '(.findings // []) | length' "$judge_output")
-    if [ "$finding_count" -gt 0 ]; then
-      max_finding_confidence=$(jq '[(.findings // [])[] | .confidence // 0] | max // 0 | floor' "$judge_output")
-    fi
-  fi
+  # max_*_confidence + struck_count come from finalize-meta.json after render
+  # (unstruck-only; CDT-178). Pre-python all-items max would desync the index.
+  # Confidence ints via Python int() (floor-compatible with CDT-181 index-writer).
 
   # Ensure parent dir exists
   mkdir -p "$(dirname "$plan_report_path")"
@@ -900,14 +889,36 @@ else:
 # Judge emits {verdicts: [...], struck_lines: [...]} or {findings: [...], struck_lines: [...]}
 if isinstance(judge_raw, dict):
     judge_items = judge_raw.get("verdicts", judge_raw.get("findings", []))
-    # struck_lines from judge output take precedence over evidence file
+    # Append judge struck_lines to evidence trail (never replace; CDT-178)
     judge_struck = judge_raw.get("struck_lines", [])
     if judge_struck:
-        struck_lines_raw = judge_struck
+        if not isinstance(struck_lines_raw, list):
+            struck_lines_raw = []
+        if isinstance(judge_struck, list):
+            struck_lines_raw = list(struck_lines_raw) + list(judge_struck)
+        else:
+            struck_lines_raw = list(struck_lines_raw) + [judge_struck]
 elif isinstance(judge_raw, list):
     judge_items = judge_raw
 else:
     judge_items = []
+
+if not isinstance(struck_lines_raw, list):
+    struck_lines_raw = []
+
+# CDT-178: absent/null/non-string/whitespace-only tool_use_id → missing.
+# Literal "unknown", external:…, self-verify-… with non-empty strip → valid.
+def missing_tool_use_id(obj):
+    if not isinstance(obj, dict):
+        return True
+    v = obj.get("tool_use_id", None)
+    if v is None:
+        return True
+    if not isinstance(v, str):
+        return True
+    return v.strip() == ""
+
+engine_strikes = []
 
 # --- Plan metadata ---
 flavors = plan.get("flavors", [])
@@ -916,7 +927,6 @@ if isinstance(flavors, list):
 else:
     flavors_str = str(flavors)
 claim_budget = str(plan.get("claim_budget", 10))
-claims_audited = str(len(judge_items))
 completion_time = plan.get("completion_time", "N/A")
 
 # --- Format extracted claims ---
@@ -939,10 +949,16 @@ else:
         claims_lines.append(f"{i}. **factual** — {claim_text}")
     extracted_claims_md = "\n".join(claims_lines) if claims_lines else "_No claims extracted._"
 
-# --- Format evidence bundles ---
+# --- Format evidence bundles (unstruck only; missing tid → engine strike) ---
 bundle_lines = []
 for b in bundles:
-    tid = b.get("tool_use_id", "unknown")
+    if missing_tool_use_id(b):
+        fl = b.get("file_line", "") if isinstance(b, dict) else ""
+        engine_strikes.append(
+            f"evidence bundle missing tool_use_id (file_line={fl})"
+        )
+        continue
+    tid = b.get("tool_use_id")
     raw = b.get("raw_blob", "")
     fl = b.get("file_line", "")
     cmd = b.get("reproducible_command", "")
@@ -987,10 +1003,12 @@ else:
     prosecutor_brief_md = format_brief(prosecutor_brief)
     advocate_brief_md = format_brief(advocate_brief)
 
-# --- Format verdicts / findings ---
+# --- Format verdicts / findings (unstruck only for finding[] tid strikes) ---
 if output_shape == "verdict[]":
+    # No finding-tid strike this ticket; all verdicts remain unstruck body.
+    unstruck_items = list(judge_items) if isinstance(judge_items, list) else []
     verdict_lines = []
-    for v in judge_items:
+    for v in unstruck_items:
         cid = v.get("claim_id", "?")
         claim = v.get("claim", "")
         verd = v.get("verdict", "UNVERIFIED")
@@ -1005,7 +1023,7 @@ if output_shape == "verdict[]":
     verdicts_md = "\n".join(verdict_lines) if verdict_lines else "_No verdicts._"
 
     # Verdict summary table
-    counts = Counter(v.get("verdict", "UNVERIFIED") for v in judge_items)
+    counts = Counter(v.get("verdict", "UNVERIFIED") for v in unstruck_items)
     # verdict taxonomy authority: SPEC-013 (Output Shapes)
     taxonomy = ["VERIFIED", "PARTIALLY_VERIFIED", "UNVERIFIED", "CONTRADICTED", "FABRICATED"]
     table_lines = ["| Taxonomy | Count |", "|---|---|"]
@@ -1013,9 +1031,20 @@ if output_shape == "verdict[]":
         table_lines.append(f"| {t} | {counts.get(t, 0)} |")
     verdict_summary_table_md = "\n".join(table_lines)
 else:
-    # finding[] shape
+    # finding[] shape — partition missing tool_use_id (CDT-178)
+    unstruck_items = []
+    for f in (judge_items if isinstance(judge_items, list) else []):
+        if missing_tool_use_id(f):
+            fl = f.get("file", "") if isinstance(f, dict) else ""
+            ln = f.get("line", "") if isinstance(f, dict) else ""
+            engine_strikes.append(
+                f"finding missing tool_use_id (file={fl} line={ln})"
+            )
+            continue
+        unstruck_items.append(f)
+
     finding_lines = []
-    for f in judge_items:
+    for f in unstruck_items:
         fl = f.get("file", "")
         ln = f.get("line", "")
         sev = f.get("severity", "warning")
@@ -1032,13 +1061,19 @@ else:
         finding_lines.append(f"Confidence: {conf}/100 | tool_use_id: `{tid}`\n")
     verdicts_md = "\n".join(finding_lines) if finding_lines else "_No findings._"
 
-    # Severity summary table
-    counts = Counter(f.get("severity", "warning") for f in judge_items)
+    # Severity summary table (unstruck only)
+    counts = Counter(f.get("severity", "warning") for f in unstruck_items)
     sev_taxonomy = ["critical", "warning", "nitpick"]
     table_lines = ["| Severity | Count |", "|---|---|"]
     for s in sev_taxonomy:
         table_lines.append(f"| {s} | {counts.get(s, 0)} |")
     verdict_summary_table_md = "\n".join(table_lines)
+
+# CLAIMS_AUDITED over unstruck body only (finding[] after tid strike)
+claims_audited = str(len(unstruck_items))
+
+# Merge: pre_existing (evidence + judge) + engine_strikes (append, never replace)
+struck_lines_raw = list(struck_lines_raw) + engine_strikes
 
 # --- Format struck lines ---
 if struck_lines_raw:
@@ -1052,15 +1087,15 @@ applicable_specs = plan.get("applicable_specs", "_None matched._")
 if isinstance(applicable_specs, list):
     applicable_specs = "\n".join(f"- `{s}`" for s in applicable_specs)
 
-# Commit gate status for finding[] shape
+# Commit gate status for finding[] shape (unstruck only)
 commit_gate = "PASSED"
 if output_shape == "finding[]":
-    for f in judge_items:
+    for f in unstruck_items:
         if f.get("severity") == "critical" or f.get("category") == "compliance":
             commit_gate = "BLOCKED"
             break
 
-# Action items for finding[] shape.
+# Action items for finding[] shape (unstruck only).
 # Label + sort order is category-then-severity to match review-and-commit/SKILL.md
 # (Step 8): BLOCKER -> COMPLIANCE -> DESIGN -> NITPICK. A compliance finding
 # (any severity) gets the COMPLIANCE label and sorts to rank 1, EXCEPT a
@@ -1087,7 +1122,7 @@ def action_label(f):
     return label_map.get(f.get("severity", "warning"), "NITPICK")
 
 action_lines = []
-for f in sorted(judge_items, key=action_rank):
+for f in sorted(unstruck_items, key=action_rank):
     fl = f.get("file", "")
     ln = f.get("line", "")
     desc = f.get("description", "")
@@ -1200,7 +1235,49 @@ fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
 with os.fdopen(fd, 'w') as f:
     f.write(output)
 os.rename(tmp_path, output_path)
+
+# CDT-178: sidecar meta for bash index/stdout (unstruck conf + merged struck)
+def _as_int_conf(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+if output_shape == "verdict[]":
+    unstruck_verdict_count = len(unstruck_items)
+    unstruck_finding_count = 0
+    confs = [_as_int_conf(v.get("confidence")) for v in unstruck_items]
+    max_verdict_confidence = max(confs) if confs else None
+    max_finding_confidence = None
+else:
+    unstruck_finding_count = len(unstruck_items)
+    unstruck_verdict_count = 0
+    confs = [_as_int_conf(f.get("confidence")) for f in unstruck_items]
+    max_finding_confidence = max(confs) if confs else None
+    max_verdict_confidence = None
+
+meta = {
+    "struck_count": len(struck_lines_raw),
+    "max_verdict_confidence": max_verdict_confidence,
+    "max_finding_confidence": max_finding_confidence,
+    "unstruck_finding_count": unstruck_finding_count,
+    "unstruck_verdict_count": unstruck_verdict_count,
+}
+meta_path = output_path + ".finalize-meta.json"
+with open(meta_path, "w") as mf:
+    json.dump(meta, mf)
+    mf.write("\n")
 PYEOF
+
+  # Read finalize-meta for index conf + struck count (unstruck-only; CDT-178)
+  local max_verdict_confidence="null" max_finding_confidence="null"
+  local struck_count=0
+  local meta_path="${plan_report_path}.finalize-meta.json"
+  if [ -f "$meta_path" ]; then
+    max_verdict_confidence=$(jq -r 'if .max_verdict_confidence == null then "null" else .max_verdict_confidence end' "$meta_path")
+    max_finding_confidence=$(jq -r 'if .max_finding_confidence == null then "null" else .max_finding_confidence end' "$meta_path")
+    struck_count=$(jq -r '.struck_count // 0' "$meta_path")
+  fi
 
   # Call index-writer.sh ONLY when task-bound
   if [ -n "$task_id" ]; then
@@ -1262,23 +1339,37 @@ for v in data:
 PYEOF
     fi
   else
-    # Finding counts by severity
+    # Finding counts by severity — unstruck only (jq twin of missing_tool_use_id)
+    # Present non-empty string after strip; null/non-string/blank → missing.
     local f_critical f_warning f_nitpick
-    f_critical=$(jq '[(.findings // [])[] | select(.severity=="critical")] | length' "$judge_output")
-    f_warning=$(jq '[(.findings // [])[] | select(.severity=="warning")] | length' "$judge_output")
-    f_nitpick=$(jq '[(.findings // [])[] | select(.severity=="nitpick")] | length' "$judge_output")
+    f_critical=$(jq '[(.findings // [])[] | select((.tool_use_id != null) and (.tool_use_id | type == "string") and ((.tool_use_id | gsub("^[[:space:]]+|[[:space:]]+$";"")) | length > 0) and .severity=="critical")] | length' "$judge_output")
+    f_warning=$(jq '[(.findings // [])[] | select((.tool_use_id != null) and (.tool_use_id | type == "string") and ((.tool_use_id | gsub("^[[:space:]]+|[[:space:]]+$";"")) | length > 0) and .severity=="warning")] | length' "$judge_output")
+    f_nitpick=$(jq '[(.findings // [])[] | select((.tool_use_id != null) and (.tool_use_id | type == "string") and ((.tool_use_id | gsub("^[[:space:]]+|[[:space:]]+$";"")) | length > 0) and .severity=="nitpick")] | length' "$judge_output")
     printf 'critical: %d  warning: %d  nitpick: %d\n' \
       "$f_critical" "$f_warning" "$f_nitpick"
 
-    # Needs-attention block: critical and warning findings
+    # Needs-attention block: critical and warning findings (unstruck only)
     local attention_count=$(( f_critical + f_warning ))
     if [ "$attention_count" -gt 0 ]; then
       printf '\n\xe2\x9a\xa0 Needs attention (%d):\n' "$attention_count"
       python3 - "$judge_output" <<'PYEOF'
 import json, sys
+
+def missing_tool_use_id(obj):
+    if not isinstance(obj, dict):
+        return True
+    v = obj.get("tool_use_id", None)
+    if v is None:
+        return True
+    if not isinstance(v, str):
+        return True
+    return v.strip() == ""
+
 raw = json.load(open(sys.argv[1]))
 data = raw.get("findings", raw) if isinstance(raw, dict) else raw
 for f in data:
+    if missing_tool_use_id(f):
+        continue
     sev = f.get("severity", "")
     if sev not in ("critical", "warning"):
         continue
@@ -1295,9 +1386,7 @@ PYEOF
     fi
   fi
 
-  # Struck lines count from judge output
-  local struck_count
-  struck_count=$(jq '(.struck_lines // []) | length' "$judge_output" 2>/dev/null || echo "0")
+  # Struck lines count from finalize-meta (merged trail incl engine strikes)
   printf '\nStruck lines: %d\n' "$struck_count"
 
   # CDV-204: optional Tokens block (graceful omit when missing/unavailable)
