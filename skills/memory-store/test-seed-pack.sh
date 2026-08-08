@@ -314,6 +314,170 @@ assert_eq "M11 exit 0" "$RC" "0"
 assert_eq "M11 silent" "$OUT" ""
 rm -rf "$FIX"
 
+# ---------- 11. CDT-176 M8: SQL-injection-shaped agent id (DB mode) ----------
+echo "-- M8 CDT-176 SQL injection agent id (DB mode)"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt176a.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Chose SQLite over Postgres for local agent memory simplicity."
+bash "$EXPORT" --agent ic5 "$FIX" >/dev/null
+# Payload must match the 6-column insert_db VALUES(...) so execution actually
+# reaches the DROP — a column-count-mismatch payload aborts on the first
+# statement before ever touching the table, which would make this case pass
+# "by accident". rejected=1 alone is not a safety signal here: this payload
+# class can report rejected=1 even after damage already happened, since the
+# rejection can come from a post-DROP read-back failure — assert schema/row
+# state too.
+NEWAGENT="x','digest','c','{}',1,'[]');DROP/**/TABLE/**/memories;--"
+python3 - "$FIX/.claude/memory/seed/ic5.md" "$NEWAGENT" <<'PY'
+import re, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+new_agent = sys.argv[2]
+lines = p.read_text().rstrip("\n").split("\n")
+lines[-1] = re.sub(r"agent=\S+", "agent=" + new_agent, lines[-1])
+p.write_text("\n".join(lines) + "\n")
+PY
+python3 - "$FIX/.claude/memory/seed/manifest.json" "ic5.md" <<'PY'
+import hashlib, json, pathlib, sys
+mp = pathlib.Path(sys.argv[1]); fname = sys.argv[2]
+m = json.loads(mp.read_text())
+m["files"][fname]["content_hash"] = hashlib.sha256((mp.parent / fname).read_bytes()).hexdigest()
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+SCHEMA_BEFORE=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT sql FROM sqlite_master WHERE type='table' AND name='memories';")
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT-176 SQLi exit 0" "$RC" "0"
+assert_contains "CDT-176 SQLi rejected=1" "$OUT" "rejected=1"
+assert_contains "CDT-176 SQLi imported=0" "$OUT" "imported=0"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories;")
+assert_eq "CDT-176 SQLi zero rows" "$CNT" "0"
+SCHEMA_AFTER=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT sql FROM sqlite_master WHERE type='table' AND name='memories';")
+assert_eq "CDT-176 SQLi schema untouched" "$SCHEMA_AFTER" "$SCHEMA_BEFORE"
+rm -rf "$FIX"
+
+# ---------- 12. CDT-176 M8: path-traversal-shaped agent id (DB mode) ----------
+echo "-- M8 CDT-176 traversal agent id (DB mode)"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt176b.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "Ship the smallest PR that proves the MUST."
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+NEWAGENT="../../../../tmp/evil"
+python3 - "$FIX/.claude/memory/seed/pm.md" "$NEWAGENT" <<'PY'
+import re, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+new_agent = sys.argv[2]
+lines = p.read_text().rstrip("\n").split("\n")
+lines[-1] = re.sub(r"agent=\S+", "agent=" + new_agent, lines[-1])
+p.write_text("\n".join(lines) + "\n")
+PY
+python3 - "$FIX/.claude/memory/seed/manifest.json" "pm.md" <<'PY'
+import hashlib, json, pathlib, sys
+mp = pathlib.Path(sys.argv[1]); fname = sys.argv[2]
+m = json.loads(mp.read_text())
+m["files"][fname]["content_hash"] = hashlib.sha256((mp.parent / fname).read_bytes()).hexdigest()
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT-176 traversal-db exit 0" "$RC" "0"
+assert_contains "CDT-176 traversal-db rejected=1" "$OUT" "rejected=1"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories;")
+assert_eq "CDT-176 traversal-db zero rows" "$CNT" "0"
+rm -rf "$FIX"
+
+# ---------- 13. CDT-176 M8: path-traversal-shaped agent id (fallback mode) ----------
+echo "-- M8 CDT-176 traversal agent id (fallback mode)"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt176c.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "devops" "CI uses GitHub Actions with matrix for linux/macos."
+bash "$EXPORT" --agent devops "$FIX" >/dev/null
+NEWAGENT="../../../../tmp/evil"
+python3 - "$FIX/.claude/memory/seed/devops.md" "$NEWAGENT" <<'PY'
+import re, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+new_agent = sys.argv[2]
+lines = p.read_text().rstrip("\n").split("\n")
+lines[-1] = re.sub(r"agent=\S+", "agent=" + new_agent, lines[-1])
+p.write_text("\n".join(lines) + "\n")
+PY
+python3 - "$FIX/.claude/memory/seed/manifest.json" "devops.md" <<'PY'
+import hashlib, json, pathlib, sys
+mp = pathlib.Path(sys.argv[1]); fname = sys.argv[2]
+m = json.loads(mp.read_text())
+m["files"][fname]["content_hash"] = hashlib.sha256((mp.parent / fname).read_bytes()).hexdigest()
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+rm -f "$FIX/.claude/memory/memory.db"
+# Assert directly on the specific file the exploit's insert_fallback() would
+# write to (dir/lessons.md), not a directory-listing diff — a listing diff
+# resolves through a shared /tmp path and risks collision with other parallel
+# jobs sharing /tmp.
+EXPLOIT_TARGET=$(python3 -c "import os,sys; print(os.path.normpath(sys.argv[1]))" "$FIX/.claude/memory/../../../../tmp/evil/lessons.md")
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT-176 traversal-fb exit 0" "$RC" "0"
+assert_contains "CDT-176 traversal-fb rejected=1" "$OUT" "rejected=1"
+if [ -e "$EXPLOIT_TARGET" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL CDT-176 traversal-fb wrote to $EXPLOIT_TARGET"
+else
+  PASS=$((PASS + 1)); echo "  ok  CDT-176 traversal-fb no write to $EXPLOIT_TARGET"
+fi
+rm -rf "$FIX"
+
+# ---------- 14. CDT-176 M8: apostrophe non-member agent id (DB mode) ----------
+echo "-- M8 CDT-176 apostrophe non-member agent id"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt176d.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "qa" "Always run bite tests before marking task complete."
+bash "$EXPORT" --agent qa "$FIX" >/dev/null
+NEWAGENT="o'brien"
+python3 - "$FIX/.claude/memory/seed/qa.md" "$NEWAGENT" <<'PY'
+import re, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+new_agent = sys.argv[2]
+lines = p.read_text().rstrip("\n").split("\n")
+lines[-1] = re.sub(r"agent=\S+", "agent=" + new_agent, lines[-1])
+p.write_text("\n".join(lines) + "\n")
+PY
+python3 - "$FIX/.claude/memory/seed/manifest.json" "qa.md" <<'PY'
+import hashlib, json, pathlib, sys
+mp = pathlib.Path(sys.argv[1]); fname = sys.argv[2]
+m = json.loads(mp.read_text())
+m["files"][fname]["content_hash"] = hashlib.sha256((mp.parent / fname).read_bytes()).hexdigest()
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT-176 apostrophe exit 0" "$RC" "0"
+assert_contains "CDT-176 apostrophe rejected=1" "$OUT" "rejected=1"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories;")
+assert_eq "CDT-176 apostrophe zero rows" "$CNT" "0"
+rm -rf "$FIX"
+
+# ---------- 15. CDT-176 M8: valid canonical agent regression ----------
+echo "-- M8 CDT-176 valid agent regression"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt176e.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic4" "Follow existing patterns in skills/ before inventing new ones."
+bash "$EXPORT" --agent ic4 "$FIX" >/dev/null
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+assert_contains "CDT-176 valid imported=1" "$OUT" "imported=1"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories;")
+assert_eq "CDT-176 valid one row" "$CNT" "1"
+rm -rf "$FIX"
+
 # ---------- unit: content hash stable ----------
 echo "-- unit helpers"
 H1=$(seed_content_hash "hello world")
