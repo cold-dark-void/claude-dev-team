@@ -144,6 +144,11 @@ insert_fallback() {
   local target="$dir/lessons.md"
   local limit=80
 
+  if [ -L "$dir" ] || [ -L "$target" ]; then
+    warn "symlink at fallback target for $agent — omitted"
+    return 2
+  fi
+
   mkdir -p "$dir"
   local existing=0
   if [ -f "$target" ]; then
@@ -208,8 +213,21 @@ dedupe_lookup() {
 # Split agent file into entries on \n---\n
 process_agent_file() {
   local fname="$1" expected_hash="$2"
-  local fpath="$SEED_DIR/$fname"
   local agent="${fname%.md}"
+
+  if [ "$agent" = "$fname" ] || ! seed_is_valid_agent "$agent"; then
+    warn "manifest key '$fname' is not <agent>.md for a roster agent ($(seed_agents)) — file skipped"
+    REJECTED=$((REJECTED + 1))
+    return 0
+  fi
+
+  local fpath="$SEED_DIR/$fname"
+
+  if [ -L "$fpath" ]; then
+    warn "pack file $fname is a symlink — skipped"
+    REJECTED=$((REJECTED + 1))
+    return 0
+  fi
 
   if [ ! -f "$fpath" ]; then
     warn "missing file $fname — skipped"
@@ -270,6 +288,12 @@ print(lines[-1] if lines else "")
     SEED_PROJECT=""; SEED_DATE=""; SEED_TIER=""; SEED_AGENT=""; SEED_HASH=""
     if ! seed_parse_trailer "$trailer_line"; then
       warn "unparseable trailer in $fname — entry rejected"
+      REJECTED=$((REJECTED + 1))
+      continue
+    fi
+
+    if ! seed_is_valid_agent "$SEED_AGENT"; then
+      warn "trailer agent '$SEED_AGENT' in $fname is not a roster agent ($(seed_agents)) — entry rejected"
       REJECTED=$((REJECTED + 1))
       continue
     fi

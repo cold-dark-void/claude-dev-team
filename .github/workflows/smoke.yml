@@ -31,3 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash skills/retro-gate/test.sh
+
+  # CDT-174 — SPEC-024 seed pack export/import bite tests (parity with retro-gate CI wiring)
+  seed-pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash skills/memory-store/test-seed-pack.sh

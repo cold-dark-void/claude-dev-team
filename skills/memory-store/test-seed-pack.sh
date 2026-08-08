@@ -487,6 +487,148 @@ assert_eq "hash len 12" "${#H1}" "12"
 T=$(seed_trailer "proj" "2026-07-14" 2 "ic5" "$H1")
 assert_contains "trailer form" "$T" "[seed: project=proj date=2026-07-14 tier=2 agent=ic5 hash=$H1]"
 
+# ---------- 11. M12/CDT-174 (a): non-roster manifest key → traversal skipped, valid file still imported ----------
+echo "-- M12 (a) non-roster manifest key"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m12a.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Chose SQLite over Postgres for local agent memory simplicity."
+bash "$EXPORT" --agent ic5 "$FIX" >/dev/null
+CANARY_DIR="${TMPDIR:-/tmp}/seed-test-m12a-canary.$$"
+mkdir -p "$CANARY_DIR"
+printf '%s\nSENTINEL_M12A\n[seed: project=evil date=2026-01-01 tier=2 agent=ic5 hash=000000000000]\n' "pwned" > "$CANARY_DIR/pwned.md"
+python3 - "$FIX/.claude/memory/seed" "$FIX/.claude/memory/seed/manifest.json" "$CANARY_DIR/pwned.md" <<'PY'
+import json, os, sys, hashlib
+seed_dir, mp, canary = sys.argv[1], sys.argv[2], sys.argv[3]
+rel = os.path.relpath(canary, start=seed_dir)
+m = json.load(open(mp))
+h = hashlib.sha256(open(canary, "rb").read()).hexdigest()
+m["files"][rel] = {"content_hash": h, "count": 1}
+json.dump(m, open(mp, "w"), sort_keys=True, indent=2)
+open(mp, "a").write("\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "M12a exit 0" "$RC" "0"
+assert_contains "M12a roster warning" "$OUT" "not <agent>.md for a roster agent"
+assert_contains "M12a valid file still imported" "$OUT" "imported=1"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE content LIKE '%SENTINEL_M12A%';")
+assert_eq "M12a sentinel not imported" "$CNT" "0"
+rm -rf "$FIX" "$CANARY_DIR"
+
+# ---------- 12. M12/CDT-174 (b): non-roster trailer agent → fallback write blocked ----------
+echo "-- M12 (b) non-roster trailer agent (fallback mode)"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m12b.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Chose SQLite over Postgres for local agent memory simplicity."
+bash "$EXPORT" --agent ic5 "$FIX" >/dev/null
+CANARY_DIR="${TMPDIR:-/tmp}/seed-test-m12b-canary.$$"
+mkdir -p "$CANARY_DIR"
+python3 - "$FIX/.claude/memory" "$FIX/.claude/memory/seed/ic5.md" "$FIX/.claude/memory/seed/manifest.json" "$CANARY_DIR" <<'PY'
+import hashlib, json, os, re, sys
+memory_dir, entry_path, mp, canary = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+rel = os.path.relpath(canary, start=memory_dir)
+text = open(entry_path, encoding="utf-8").read()
+lines = text.rstrip("\n").split("\n")
+trailer = lines[-1]
+new_trailer = re.sub(r"agent=\S+", f"agent={rel}", trailer)
+open(entry_path, "w", encoding="utf-8").write("\n".join(lines[:-1]) + "\n" + new_trailer + "\n")
+m = json.load(open(mp))
+fh = hashlib.sha256(open(entry_path, "rb").read()).hexdigest()
+m["files"]["ic5.md"]["content_hash"] = fh
+json.dump(m, open(mp, "w"), sort_keys=True, indent=2)
+open(mp, "a").write("\n")
+PY
+rm -f "$FIX/.claude/memory/memory.db"
+mkdir -p "$FIX/.claude/memory/ic5"
+: > "$FIX/.claude/memory/ic5/lessons.md"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "M12b exit 0" "$RC" "0"
+assert_contains "M12b imported=0" "$OUT" "imported=0"
+assert_contains "M12b rejected=1" "$OUT" "rejected=1"
+assert_contains "M12b roster warning" "$OUT" "not a roster agent"
+if [ -f "$CANARY_DIR/lessons.md" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL M12b canary lessons.md was created outside fixture"
+else
+  PASS=$((PASS + 1)); echo "  ok  M12b canary lessons.md not created"
+fi
+rm -rf "$FIX" "$CANARY_DIR"
+
+# ---------- 13. M12/CDT-174 (c): symlink at read sink → not imported ----------
+echo "-- M12 (c) symlink at pack read sink"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m12c.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "qa" "Always run bite tests before marking task complete."
+bash "$EXPORT" --agent qa "$FIX" >/dev/null
+CANARY_DIR="${TMPDIR:-/tmp}/seed-test-m12c-canary.$$"
+mkdir -p "$CANARY_DIR"
+printf '%s\nSENTINEL_M12C\n[seed: project=evil date=2026-01-01 tier=2 agent=qa hash=000000000000]\n' "pwned" > "$CANARY_DIR/outside.md"
+# qa.md already exists from export; replace it with a symlink to the canary file
+# (roster-valid filename, so Guard 1 passes and Guard 1b is what fires)
+rm -f "$FIX/.claude/memory/seed/qa.md"
+ln -s "$CANARY_DIR/outside.md" "$FIX/.claude/memory/seed/qa.md"
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "M12c exit 0" "$RC" "0"
+assert_contains "M12c symlink warning" "$OUT" "is a symlink"
+assert_contains "M12c rejected=1" "$OUT" "rejected=1"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE content LIKE '%SENTINEL_M12C%';")
+assert_eq "M12c sentinel not imported" "$CNT" "0"
+rm -rf "$FIX" "$CANARY_DIR"
+
+# ---------- 14. M12/CDT-174 (d): symlink at fallback write sink → outside target untouched ----------
+echo "-- M12 (d) symlink at fallback write sink"
+CANARY_DIR="${TMPDIR:-/tmp}/seed-test-m12d-canary.$$"
+mkdir -p "$CANARY_DIR/dir"
+printf '%s\n' "outside lessons content" > "$CANARY_DIR/lessons.md"
+SUM_BEFORE_DIR=$(find "$CANARY_DIR/dir" -type f | sort | xargs -r sha256sum 2>/dev/null)
+SUM_BEFORE_FILE=$(sha256sum "$CANARY_DIR/lessons.md")
+
+# (d1) .claude/memory/ic5 itself is a symlink to an outside dir
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m12d1.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Fallback write-sink probe entry one."
+bash "$EXPORT" --agent ic5 "$FIX" >/dev/null
+rm -f "$FIX/.claude/memory/memory.db"
+ln -s "$CANARY_DIR/dir" "$FIX/.claude/memory/ic5"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "M12d1 exit 0" "$RC" "0"
+assert_contains "M12d1 symlink warning" "$OUT" "symlink at fallback target"
+rm -rf "$FIX"
+
+# (d2) .claude/memory/ic5/lessons.md itself is a symlink to an outside file
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m12d2.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Fallback write-sink probe entry two."
+bash "$EXPORT" --agent ic5 "$FIX" >/dev/null
+rm -f "$FIX/.claude/memory/memory.db"
+mkdir -p "$FIX/.claude/memory/ic5"
+ln -s "$CANARY_DIR/lessons.md" "$FIX/.claude/memory/ic5/lessons.md"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "M12d2 exit 0" "$RC" "0"
+assert_contains "M12d2 symlink warning" "$OUT" "symlink at fallback target"
+rm -rf "$FIX"
+
+SUM_AFTER_DIR=$(find "$CANARY_DIR/dir" -type f | sort | xargs -r sha256sum 2>/dev/null)
+SUM_AFTER_FILE=$(sha256sum "$CANARY_DIR/lessons.md")
+assert_eq "M12d outside dir untouched" "$SUM_AFTER_DIR" "$SUM_BEFORE_DIR"
+assert_eq "M12d outside lessons.md untouched" "$SUM_AFTER_FILE" "$SUM_BEFORE_FILE"
+rm -rf "$CANARY_DIR"
+
 echo ""
 echo "=== results: pass=$PASS fail=$FAIL ==="
 if [ "$FAIL" -gt 0 ]; then
