@@ -8,7 +8,7 @@
 
 ## Overview
 
-Defines a canonical, collision-safe worktree convention for the plugin. Any skill or agent that needs an isolated worktree for implementation work MUST go through `skills/worktree-lib.sh` — a pure subprocess CLI that creates worktrees at `$MROOT/.worktrees/<slug>`, manages an advisory age-gated lock (`.wt-lock`: `<epoch> <ISO>`), and handles stale-lock recovery. Eliminates the previous pattern of skills improvising sibling-directory paths (`$MROOT/../<project>-<TICKET-ID>`) which collided across parallel runs.
+Defines a canonical, collision-safe worktree convention for the plugin. Any skill or agent that needs an isolated worktree for implementation work MUST go through `skills/worktree-lib.sh` — a pure subprocess CLI that creates worktrees at `$MROOT/.worktrees/<slug>`, manages an advisory age-gated lock (`.wt-lock`: `<epoch> <ISO>`), and handles stale-lock recovery with dirty-tree and live-task guards (CDT-162). Eliminates the previous pattern of skills improvising sibling-directory paths (`$MROOT/../<project>-<TICKET-ID>`) which collided across parallel runs.
 
 ## MUST
 
@@ -22,7 +22,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST be a pure subprocess CLI — invoked as `bash "$WT_LIB" <cmd> <args>` where `$WT_LIB` is the install-aware path resolved via `plugin-dir.sh` (see Caller integration); MUST NOT require sourcing; MUST NOT mutate the caller's shell
 - MUST support subcommands: `ensure <slug>`, `release <slug>`, `status` (alias `list`), `register <slug>`, and `sweep` (see subcommand sections). Unknown subcommands exit 64
 - MUST resolve `$MROOT` internally using the worktree-aware formula above
-- MUST exit with: `0` = success, `1` = release error / missing worktree, `2` = user aborted on collision prompt, `64` = usage error
+- MUST exit with: `0` = success, `1` = safety/error (including `release` blocked on missing worktree or dirty tree; `ensure` STALE reclaim refused for dirty tree or live task; `register` missing dir), `2` = user aborted on collision prompt, `64` = usage error
 
 ### `ensure <slug>` semantics
 - MUST create the worktree at `$MROOT/.worktrees/<slug>` if absent
@@ -33,13 +33,19 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
   - If the lock is FRESH (epoch parses and `0 <= age < TTL`, or a future/negative-age stamp treated conservatively as fresh): print collision summary to stderr (slug, branch, HEAD short SHA + commit subject, lock age in human form), then:
     - Probe interactive TTY by a successful write to `/dev/tty` (not mere `-r` — `access()` can succeed while open fails ENXIO with no controlling terminal). On success: prompt on `/dev/tty` (abort | steal). On explicit `steal` overwrite lock and exit 0 with path on stdout; any other/empty answer exit 2 with nothing on stdout
     - If `/dev/tty` is not writable (no controlling TTY, e.g. agent/`setsid` with stdin closed): still print summary + prompt line to stderr, treat answer as empty, exit 2 cleanly — MUST NOT die with exit 1 / "No such device" from a bare `printf >/dev/tty` under `set -e` (AC-5)
-  - If the lock is STALE (`age >= TTL`, or field 1 is unparseable — e.g. a corrupt lock or a legacy `PID TS` lock): silently overwrite lock and exit 0 with worktree path on stdout
+  - If the lock is STALE (`age >= TTL`, or field 1 is unparseable — e.g. a corrupt lock or a legacy `PID TS` lock): before overwriting the lock, MUST apply reclaim guards (CDT-162). Order is not mandated; both checks MUST run when applicable:
+    1. **Dirty-tree guard** — if the worktree has uncommitted changes under the **same dirty definition as `release`** (`git -C <wt> status --porcelain`, excluding only the exact path `.wt-lock` via porcelain filter): MUST NOT overwrite `.wt-lock`; MUST print a clear reason on stderr (e.g. uncommitted changes block reclaim); MUST leave stdout empty; MUST exit `1`. No FRESH-style steal prompt for dirty STALE in this ticket.
+    2. **Live-task guard** — if `slug_has_live_task <slug>` is true (same predicate as `sweep`: `$MROOT/.claude/tasks/*.json` with status `pending`/`in_progress`/`blocked` whose compound key or content references the slug): MUST NOT overwrite `.wt-lock`; MUST print a clear reason on stderr (e.g. live task blocks reclaim); MUST leave stdout empty; MUST exit `1`.
+    3. **Eligible reclaim** — if the tree is clean under that dirty definition **and** no live task references the slug: MUST overwrite `.wt-lock` and exit `0` with the worktree path on stdout (stderr diagnostics such as a reclaim notice are allowed; path remains stdout-only on success).
 - MUST NOT print the worktree path on stdout for any non-zero exit
+- FRESH collision/steal path MUST remain unchanged by CDT-162 (no new dirty/live-task gates on FRESH)
+- The no-lock + existing-directory path (stamp lock only) is **out of scope** for CDT-162 and MUST keep current behavior
 
 ### `release <slug>` semantics
 - MUST remove `$MROOT/.worktrees/<slug>/.wt-lock`
 - MUST run `git worktree remove "$MROOT/.worktrees/<slug>"`
-- MUST exit non-zero with a clear stderr message if the worktree has uncommitted changes; MUST NOT force-remove
+- MUST exit non-zero (exit `1`) with a clear stderr message if the worktree has uncommitted changes; MUST NOT force-remove
+- Dirty definition for `release` (and for `ensure` STALE reclaim): `git -C <wt> status --porcelain` output with lines matching the exact bookkeeping path `.wt-lock` excluded; any remaining line means dirty
 - MUST exit 0 on clean removal
 
 ### `status` / `list` semantics (CDV-189)
@@ -121,12 +127,14 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - SHOULD include the slug, branch, HEAD short SHA, commit subject, and lock age (human form, e.g. "held 12m ago") in the collision summary so the user can decide informed
 - SHOULD derive freshness from lock age (`now - epoch` vs `WT_LOCK_TTL_SECONDS`); there is no live holder process to probe, so age is the only signal
 - SHOULD treat absent `$MROOT` resolution as a fatal error and exit non-zero with a clear message
-- SHOULD exclude `.wt-lock` from the dirty-tree check in `release` (it is bookkeeping, not user content)
+- SHOULD exclude `.wt-lock` from the dirty-tree check in `release` and in `ensure` STALE reclaim (it is bookkeeping, not user content)
+- SHOULD share one dirty-tree helper between `release` and `ensure` STALE reclaim so the porcelain filter cannot drift
 
 ## MUST NOT
 
 - MUST NOT source `worktree-lib.sh`; subprocess invocation only (matches `task-store.sh`, `gate.sh` precedent)
 - MUST NOT silently reuse a worktree whose lock is still FRESH (age < `WT_LOCK_TTL_SECONDS`); MUST prompt (abort/steal) instead
+- MUST NOT overwrite a STALE `.wt-lock` when the worktree is dirty (release-equivalent porcelain) or when `slug_has_live_task` is true (CDT-162)
 - MUST NOT delete or `--force` a worktree with uncommitted changes
 - MUST NOT run parallel `git worktree` operations — already documented in AGENTS.md; this spec inherits that constraint
 
@@ -144,23 +152,28 @@ Example:
 1718521234 2026-06-16T06:34:41Z
 ```
 
-Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared against `WT_LOCK_TTL_SECONDS`. Field 2 (ISO timestamp) is human-readable only. The lock is advisory: it records *when* a worktree was claimed, not *who* holds it (the holder is an LLM agent/conversation, not a checkable OS process). Legacy `<SESSION_ID> <PID> <ISO>` locks have a non-numeric field 1 and are auto-reclaimed as stale.
+Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared against `WT_LOCK_TTL_SECONDS`. Field 2 (ISO timestamp) is human-readable only. The lock is advisory: it records *when* a worktree was claimed, not *who* holds it (the holder is an LLM agent/conversation, not a checkable OS process). Legacy `<SESSION_ID> <PID> <ISO>` locks have a non-numeric field 1 and classify as STALE; reclaim still requires a clean tree and no live task (CDT-162).
 
 ## Exit code contract
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success — worktree ready, path on stdout |
-| 1 | `release` error — missing worktree or uncommitted changes block removal |
-| 2 | User aborted on prompt (live lock collision declined or no answer given) |
+| 1 | Safety/error — `release` missing worktree or dirty tree; `ensure` STALE reclaim refused (dirty tree or live task); `register` missing dir |
+| 2 | User aborted on prompt (FRESH lock collision declined or no answer given) |
 | 64 | Usage error — missing slug or unknown subcommand |
 | non-zero (other) | Fatal error |
+
+Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → clean halt; MUST NOT treat a non-zero exit as success or consume a path from stdout.
 
 ## Test
 
 - Verify `ensure <slug>` creates `.worktrees/<slug>`, branch `feat/<slug>`, and `.wt-lock` in `<epoch> <ISO>` format; prints absolute path; exits 0
 - Verify `ensure` against a FRESH lock (epoch = now, age < TTL): stderr shows summary, exit 2 on abort, stdout empty
-- Verify `ensure` against a STALE lock (age >= TTL, or unparseable/legacy `PID TS` format): silently overwrites, exits 0, prints path
+- Verify `ensure` against a **clean** STALE lock (age >= TTL, or unparseable/legacy `PID TS` format) with **no** live task: overwrites lock, exits 0, prints path (AC-3 / AC-9)
+- Verify `ensure` against a **dirty** STALE lock: does **not** overwrite lock, exit 1, empty stdout, stderr reason (AC-1 / AC-2 / AC-4 / AC-9)
+- Verify `ensure` against a **clean** STALE lock with a **live** task (`pending`/`in_progress`/`blocked` referencing slug): does **not** overwrite lock, exit 1, empty stdout, stderr reason (AC-5 / AC-9)
+- Verify `ensure` FRESH path unchanged (collision summary + abort/steal / no-TTY exit 2) (AC-8 / AC-9)
 - Verify `ensure` no-TTY / unwritable `/dev/tty` collision (e.g. `setsid … </dev/null` against a FRESH lock): prompts on stderr, exits 2, stdout empty, no "No such device" on stderr
 - Verify `release` cleans `.wt-lock` + removes worktree on clean tree; exits non-zero on dirty tree without force
 - Verify orchestrate Step 3 captures stdout path correctly and halts on exit 1/2
@@ -208,6 +221,7 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 | 2026-07-21 | CDT-46-C2: `/demo` removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` → deprecation stub). Marked the demo-specific MUST and its validation checkbox OBSOLETE-at-v1.0.0 (retained one cycle as historical record, not deleted); annotated the demo Covers entry as a DEPRECATED stub. Worktree-lib/orchestrate/wrap-ticket behavior unchanged. |
 | 2026-07-22 | CDT-46-C4: `/worktree` reduced to mutate-only `release <slug>` (chat confirm retained). Read-only status\|list moves to `/status worktree`. `/worktree` is NOT a Deprecation stub. AGENTS Worktree Protocol SHOULD cite both surfaces. Lib `status`/`list`/`register`/`sweep` unchanged. |
 | 2026-08-02 | CDT-105: added `skills/kickoff/SKILL.md` as a create-caller. `/kickoff` MUST `ensure <TICKET-ID>` after context load and before the PM+TL spawn (mirroring orchestrate Step 3→4), commit its spec/plan/task work inside `$WT_PATH` (never `$MROOT`), and MUST NOT `release` at exit — the worktree is a resumable planning handoff (SPEC-009). Bare-`<TICKET-ID>` slug makes a later `/orchestrate <TICKET-ID>` reuse the same tree. Fixes the origin defect where standalone `/kickoff` committed the spec straight to master (CDT-104 a049044, CDT-99 0fdf420). No producer holds a live worktree at `/kickoff` handoff time (refactor releases first; debug creates none), so no double-create/orphan. |
+| 2026-08-07 | CDT-162: `ensure` STALE reclaim is no longer unconditional. Dirty STALE (release-equivalent porcelain, excl `.wt-lock`) and STALE with a live task (`slug_has_live_task`) MUST refuse reclaim — no lock overwrite, empty stdout, exit `1`. Clean STALE with no live task still overwrites lock and exits 0 with path. FRESH path and no-lock+existing-dir path unchanged. Exit-code table: exit `1` is shared safety/error for release and ensure STALE guards. |
 
 ## Cross-references
 

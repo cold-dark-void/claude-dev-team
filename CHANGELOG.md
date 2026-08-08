@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.8
+- **Refuse STALE ensure reclaim when dirty or live task (CDT-162)** — `worktree-lib ensure` no longer overwrites a STALE `.wt-lock` on dirty trees or when `slug_has_live_task`; shared `is_worktree_dirty` with `release`; SPEC-016 STALE MUST + T7/T8/T9 tests (clean reclaim / dirty refuse / live-task refuse).
+
 ### v1.7.7
 - **EPIC-ID path charset guard (CDT-169)** — `epic-lib` rejects ids outside `^[A-Za-z0-9_-]+$` (exit 64) in `epic_paths` and `assert-release-allowed` before any `.claude/epics/` path join; SPEC-025 M6 MUST + charset bite-tests (`../` and peers).
 

@@ -11,7 +11,9 @@
 # The real holder of a worktree is an LLM agent/conversation, not an OS process
 # with a checkable PID, so the lock is ADVISORY and keyed on AGE: a lock younger
 # than WT_LOCK_TTL_SECONDS is FRESH (prompt before reuse); older (or unparseable)
-# is STALE (silently reclaimed on ensure; proposed on sweep).
+# is STALE. ensure reclaims STALE only when the tree is clean (release porcelain)
+# and no live task references the slug; otherwise refuses with exit 1. sweep
+# proposes STALE worktrees with no live task (never deletes).
 #
 # Stdout discipline: ensure/register print ONLY the absolute worktree path on
 # success. status/list print listing rows. sweep prints PROPOSAL lines (or nothing).
@@ -20,8 +22,8 @@
 set -euo pipefail
 
 # Lock time-to-live: a lock younger than this is treated as FRESH (held by an
-# active agent); older is STALE and silently reclaimed. Env-overridable; falls
-# back to 6h on a non-numeric value.
+# active agent); older is STALE (reclaimable when clean + no live task).
+# Env-overridable; falls back to 6h on a non-numeric value.
 WT_LOCK_TTL_SECONDS="${WT_LOCK_TTL_SECONDS:-21600}"
 [[ "$WT_LOCK_TTL_SECONDS" =~ ^[0-9]+$ ]] || WT_LOCK_TTL_SECONDS=21600
 
@@ -174,6 +176,17 @@ slug_has_live_task() {
   return 1
 }
 
+# is_worktree_dirty <wt>
+# exit 0 if porcelain dirty after excluding .wt-lock; 1 if clean.
+# Shared by release and ensure STALE reclaim (filter must not drift).
+is_worktree_dirty() {
+  local wt="$1" dirty
+  # Filter out .wt-lock — bookkeeping, not user content.
+  # Porcelain format: "XY <path>" — strip the lock entry by exact-path match.
+  dirty=$(git -C "$wt" status --porcelain 2>/dev/null | awk '$0 !~ /^.. \.wt-lock$/' || true)
+  [ -n "$dirty" ]
+}
+
 # validate_slug <cmd> <slug>
 validate_slug() {
   local cmd="$1" slug="$2"
@@ -238,7 +251,17 @@ cmd_ensure() {
       exit 2
     fi
 
-    # STALE lock (age >= TTL, or unparseable/legacy format) — reclaim it.
+    # STALE lock (age >= TTL, or unparseable/legacy format) — reclaim only
+    # when clean and no live task (CDT-162). Dirty first so operators see
+    # uncommitted work when both guards would apply.
+    if is_worktree_dirty "$wt"; then
+      echo "ensure: uncommitted changes in $wt — refusing STALE reclaim" >&2
+      exit 1
+    fi
+    if slug_has_live_task "$slug"; then
+      echo "ensure: live task references $slug — refusing STALE reclaim" >&2
+      exit 1
+    fi
     if [ "$age" -ge 0 ]; then
       echo "stale lock (age $(( age / 3600 ))h >= $(( WT_LOCK_TTL_SECONDS / 3600 ))h TTL) — reclaiming" >&2
     else
@@ -276,11 +299,7 @@ cmd_release() {
     exit 1
   fi
 
-  local dirty
-  # Filter out .wt-lock — it's our bookkeeping file, not user content.
-  # Porcelain format: "XY <path>" — strip the lock entry by exact-path match.
-  dirty=$(git -C "$wt" status --porcelain 2>/dev/null | awk '$0 !~ /^.. \.wt-lock$/' || true)
-  if [ -n "$dirty" ]; then
+  if is_worktree_dirty "$wt"; then
     echo "release: uncommitted changes in $wt — refusing to remove" >&2
     exit 1
   fi

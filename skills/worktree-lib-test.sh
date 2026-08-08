@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# worktree-lib-test.sh — bite-tests for worktree-lib.sh (CDV-189 Part 2)
+# worktree-lib-test.sh — bite-tests for worktree-lib.sh (CDV-189 Part 2, CDT-162)
 #
 # Machine-check: bash skills/worktree-lib-test.sh  (exit 0)
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -183,6 +183,72 @@ JSON
 SWEEP2=$(run_lib sweep 2>"$ERR_TMP"); SRC2=$?
 assert_eq "sweep completed still proposes" "$SRC2" "0"
 assert_contains "sweep still proposes completed-task slug" "$SWEEP2" "PROPOSAL stale-slug"
+
+# ---- CDT-162: ensure STALE reclaim guards ---------------------------------
+NOW=$(date +%s)
+OLD=$(( NOW - 86400 ))
+
+echo "== T7 ensure STALE clean reclaim =="
+EOUT=$(run_lib ensure ens-clean 2>"$ERR_TMP"); ERC=$?
+assert_eq "ensure ens-clean create exit 0" "$ERC" "0"
+assert_eq "ensure ens-clean path" "$EOUT" "$TMP/.worktrees/ens-clean"
+printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/ens-clean/.wt-lock
+LOCK_STALE=$(cat .worktrees/ens-clean/.wt-lock)
+EOUT=$(run_lib ensure ens-clean 2>"$ERR_TMP"); ERC=$?
+assert_eq "ensure STALE clean exit 0" "$ERC" "0"
+assert_eq "ensure STALE clean path" "$EOUT" "$TMP/.worktrees/ens-clean"
+LOCK_AFTER=$(cat .worktrees/ens-clean/.wt-lock)
+if [ "$LOCK_AFTER" != "$LOCK_STALE" ]; then
+  PASS=$((PASS + 1)); echo "  ok  ensure STALE clean lock rewritten"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL ensure STALE clean lock unchanged: $LOCK_AFTER"
+fi
+EPOCH_AFTER=$(awk '{print $1}' .worktrees/ens-clean/.wt-lock)
+if [[ "$EPOCH_AFTER" =~ ^[0-9]+$ ]] && [ "$EPOCH_AFTER" -ge $((NOW - 120)) ]; then
+  PASS=$((PASS + 1)); echo "  ok  ensure STALE clean lock epoch fresh"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL ensure STALE clean lock epoch: $EPOCH_AFTER"
+fi
+
+echo "== T8 ensure STALE dirty refuse =="
+EOUT=$(run_lib ensure ens-dirty 2>"$ERR_TMP"); ERC=$?
+assert_eq "ensure ens-dirty create exit 0" "$ERC" "0"
+printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/ens-dirty/.wt-lock
+LOCK_STALE=$(cat .worktrees/ens-dirty/.wt-lock)
+echo "dirt" > .worktrees/ens-dirty/dirty.txt
+EOUT=$(run_lib ensure ens-dirty 2>"$ERR_TMP"); ERC=$?
+ERR=$(cat "$ERR_TMP" 2>/dev/null || true)
+assert_eq "ensure STALE dirty exit 1" "$ERC" "1"
+assert_eq "ensure STALE dirty empty stdout" "$EOUT" ""
+assert_eq "ensure STALE dirty lock unchanged" "$(cat .worktrees/ens-dirty/.wt-lock)" "$LOCK_STALE"
+if [ -n "$ERR" ]; then
+  PASS=$((PASS + 1)); echo "  ok  ensure STALE dirty stderr non-empty"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL ensure STALE dirty stderr empty"
+fi
+assert_contains "ensure STALE dirty reason" "$ERR" "refusing STALE reclaim"
+rm -f .worktrees/ens-dirty/dirty.txt
+
+echo "== T9 ensure STALE live-task refuse =="
+EOUT=$(run_lib ensure ens-live 2>"$ERR_TMP"); ERC=$?
+assert_eq "ensure ens-live create exit 0" "$ERC" "0"
+printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/ens-live/.wt-lock
+LOCK_STALE=$(cat .worktrees/ens-live/.wt-lock)
+mkdir -p .claude/tasks
+cat > .claude/tasks/ens-live.json << 'JSON'
+{"task_id":"ens-live","subject":"held","status":"in_progress","requires_council":false,"depends_on":[],"created_at":"2020-01-01T00:00:00Z"}
+JSON
+EOUT=$(run_lib ensure ens-live 2>"$ERR_TMP"); ERC=$?
+ERR=$(cat "$ERR_TMP" 2>/dev/null || true)
+assert_eq "ensure STALE live exit 1" "$ERC" "1"
+assert_eq "ensure STALE live empty stdout" "$EOUT" ""
+assert_eq "ensure STALE live lock unchanged" "$(cat .worktrees/ens-live/.wt-lock)" "$LOCK_STALE"
+if [ -n "$ERR" ]; then
+  PASS=$((PASS + 1)); echo "  ok  ensure STALE live stderr non-empty"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL ensure STALE live stderr empty"
+fi
+assert_contains "ensure STALE live reason" "$ERR" "live task"
 
 # cleanup temp err
 rm -f "$ERR_TMP" 2>/dev/null || true
