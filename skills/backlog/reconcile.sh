@@ -178,7 +178,8 @@ declare -a ACTIONS=()
 declare -A SEEN=()          # slug -> 1 once its first row is recorded
 declare -A ROW_TEXT=()      # slug -> first-seen row text
 declare -a SLUG_ORDER=()    # slugs in first-seen order
-declare -A DISPOSITION=()   # slug -> pending|completed|missing
+declare -A DISPOSITION=()   # slug -> pending|completed|missing|invalid
+declare -a INVALID_SLUGS=() # slugs that failed the charset guard
 
 while IFS= read -r line; do
   slug=$(row_slug "$line")
@@ -194,6 +195,12 @@ done < "$INDEX"
 
 # Classify each unique slug.
 for slug in "${SLUG_ORDER[@]}"; do
+  if [[ ! "$slug" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    DISPOSITION["$slug"]="invalid"
+    INVALID_SLUGS+=("$slug")
+    ACTIONS+=("INVALID slug not reconciled (only [A-Za-z0-9_-] allowed): $slug — row kept, no file touched; needs manual triage")
+    continue
+  fi
   item="$BACKLOG_DIR/${slug}.md"
   if [ ! -f "$item" ]; then
     DISPOSITION["$slug"]="missing"
@@ -263,8 +270,10 @@ NEW_INDEX=$(mktemp "${TMPDIR:-/tmp}/backlog-reconcile-idx.XXXXXX")
   sed -e :a -e '/^[[:space:]]*$/{$d;N;ba}' "$HEADER_TMP"
   printf '\n## Pending\n\n'
   for slug in "${SLUG_ORDER[@]}"; do
-    [ "${DISPOSITION[$slug]}" = "pending" ] || continue
-    retag_row "${ROW_TEXT[$slug]}" "[PENDING]"; printf '\n'
+    case "${DISPOSITION[$slug]}" in
+      pending) retag_row "${ROW_TEXT[$slug]}" "[PENDING]"; printf '\n' ;;
+      invalid) printf '%s\n' "${ROW_TEXT[$slug]}" ;;
+    esac
   done
   # Completed items are pruned, not listed — Linear/commit history is the durable record.
   # Header kept (empty) for schema stability / manual future use.
@@ -288,7 +297,7 @@ done
 PRUNE_SLUGS+=("${ORPHAN_PRUNE[@]}")
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#PRUNE_SLUGS[@]} -eq 0 ] && [ ${#ORPHAN_KEEP[@]} -eq 0 ]; then
+  if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#PRUNE_SLUGS[@]} -eq 0 ] && [ ${#ORPHAN_KEEP[@]} -eq 0 ] && [ ${#INVALID_SLUGS[@]} -eq 0 ]; then
     printf 'reconcile (dry-run): no changes — index already consistent.\n'
   else
     printf 'reconcile (dry-run): planned actions:\n'
@@ -310,7 +319,7 @@ else
   rm -f "$NEW_INDEX"
 fi
 
-if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#PRUNE_SLUGS[@]} -eq 0 ] && [ ${#ORPHAN_KEEP[@]} -eq 0 ]; then
+if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#PRUNE_SLUGS[@]} -eq 0 ] && [ ${#ORPHAN_KEEP[@]} -eq 0 ] && [ ${#INVALID_SLUGS[@]} -eq 0 ]; then
   printf 'reconcile: no changes — index already consistent.\n'
 else
   printf 'reconcile: applied %d action(s).\n' "${#ACTIONS[@]}"

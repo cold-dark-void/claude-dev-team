@@ -513,6 +513,58 @@ else
 fi
 assert_file_nomatch "(m) Done-verdict row removed" "$Rm/.claude/backlog.md" 'done-via-linear\.md'
 
+# --- (n) CDT-175 Slug charset guard: path-escape row must not touch FS outside backlog dir ---
+Rn="$TMP/n"
+mkdir -p "$Rn/.claude/backlog"
+mkdir -p "$TMP/canary"
+item_file "$TMP/canary/pwned.md" "COMPLETED"
+cp "$TMP/canary/pwned.md" "$TMP/canary/pwned.snap"
+HOSTILE_ROW='- [Hostile](backlog/../../../canary/pwned.md) - x [PENDING]'
+cat > "$Rn/.claude/backlog.md" <<EOF
+# Backlog
+
+## Pending
+
+$HOSTILE_ROW
+- [Live](backlog/live.md) - normal item [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rn/.claude/backlog/live.md" "PENDING"
+rc_n1=0
+out_n1=$(bash "$RECONCILE" --root "$Rn") || rc_n1=$?
+if [ "$rc_n1" -eq 0 ]; then pass "(n) exit 0 with invalid slug present"
+else fail "(n) exit 0 with invalid slug present" "rc=$rc_n1"
+fi
+if [ -f "$TMP/canary/pwned.md" ]; then
+  pass "(n) canary file outside backlog dir survives (no path escape)"
+else
+  fail "(n) canary file outside backlog dir survives (no path escape)" "canary file was deleted"
+fi
+if cmp -s "$TMP/canary/pwned.md" "$TMP/canary/pwned.snap"; then
+  pass "(n) canary file byte-unchanged"
+else
+  fail "(n) canary file byte-unchanged" "cmp differs"
+fi
+if grep -qxF -- "$HOSTILE_ROW" "$Rn/.claude/backlog.md"; then
+  pass "(n) hostile row still present verbatim in rewritten index"
+else
+  fail "(n) hostile row still present verbatim in rewritten index" "row altered or missing"
+fi
+assert_out_match "(n) INVALID slug notice printed" "$out_n1" 'INVALID slug not reconciled'
+assert_file_match "(n) valid sibling row still reconciles (stays PENDING)" "$Rn/.claude/backlog.md" 'live\.md\).*\[PENDING\]'
+cp "$Rn/.claude/backlog.md" "$Rn/idx.snap1"
+out_n2=$(bash "$RECONCILE" --root "$Rn")
+if cmp -s "$Rn/.claude/backlog.md" "$Rn/idx.snap1"; then
+  pass "(n) second run: index byte-identical (idempotent)"
+else
+  fail "(n) second run: index byte-identical (idempotent)" "cmp differs"
+fi
+assert_out_match "(n) second run repeats INVALID slug notice" "$out_n2" 'INVALID slug not reconciled'
+out_n3=$(bash "$RECONCILE" --root "$Rn" --dry-run)
+assert_out_match "(n) dry-run reports INVALID slug" "$out_n3" 'INVALID slug not reconciled'
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

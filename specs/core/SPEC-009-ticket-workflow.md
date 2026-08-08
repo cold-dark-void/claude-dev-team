@@ -197,6 +197,24 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
     - Duplicate rows for one slug MUST collapse to a single row (repairs pre-guard indexes; see
       the add dedup guard above).
 
+- **Slug charset validation (normative).** A slug parsed out of an index row is untrusted input —
+  it is a substring of a file the repo (or a synced/imported index) controls, and reconcile turns it
+  into a path under `.claude/backlog/`. Before a slug is used to construct any path, and therefore
+  before any existence check, item-file read, or delete, reconcile MUST validate it against
+  `^[A-Za-z0-9_-]+$` — the same charset `skills/worktree-lib.sh` `validate_slug()` enforces for
+  worktree slugs. A slug that fails MUST NOT reach the filesystem: no `-f` test, no read, no `rm`.
+  Its row MUST survive in the rebuilt index and MUST be reported in the run's action list, in the
+  style of the `ORPHAN not pruned` notice. An invalid row is specifically **not** a dead reference:
+  reconcile never looked for its item file, so it has no evidence either way, and dropping the row
+  would discard a possibly-real item on the strength of data it just rejected. This closes a path
+  escape — `../../../../etc/foo` is a syntactically valid index-row slug that would otherwise
+  resolve outside `.claude/backlog/` and be passed to `rm`.
+  The guard belongs only where a slug becomes a path. Index bookkeeping over the raw string
+  (duplicate detection, first-seen row text, re-emission) touches no filesystem and stays unguarded.
+  Slugs read from `--linear-verdicts` need no guard either — they are lookup keys that can mark an
+  already-indexed slug terminal but can never introduce a path — and orphan-scan slugs are derived
+  from real directory entries, so they cannot escape by construction.
+
 - **Orphan item files (normative).** A file under `.claude/backlog/` with no index row at all MUST
   be classified by its own `Status`:
   - Terminal status → pruned (deleted), same as a completed indexed row.
@@ -208,7 +226,9 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - **Idempotency (MUST).** A second consecutive `/backlog reconcile` run over an already-reconciled
   store MUST produce zero changes (no row removals, no item-file deletions, no diff) other than
   re-reporting any still-unresolved open orphans (a notice, not a state change). Reconcile MUST be
-  safe to run repeatedly.
+  safe to run repeatedly. A row rejected by slug charset validation re-reports its skip notice on
+  every run for the same reason: like an unresolved open orphan it is a notice, not a state change,
+  and does not violate this MUST — the store cannot converge until a human repairs the row.
 
 - **Linear path is best-effort (MUST).** The Linear query is best-effort: any MCP failure
   (absent, unauthenticated, timeout, or per-issue error) MUST degrade the affected entries to the
@@ -254,6 +274,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify `/backlog reconcile` degrades to the local item-file fallback with a one-line notice (no block, no fail) when the Linear MCP is unreachable
 - Verify `/backlog reconcile` prunes a closed-status orphan item file (no index row) and leaves an open/unrecognized-status orphan untouched and reported, never inventing an index row for it
 - Verify a second consecutive `/backlog reconcile` produces zero changes (idempotency)
+- Verify `/backlog reconcile` performs no filesystem operation for an index row whose slug is not `^[A-Za-z0-9_-]+$` (e.g. a `../`-traversal slug): no existence check, no read, no delete inside or outside `.claude/backlog/`; the row survives in the rebuilt index, the skip is reported, and the run still exits 0
 - Verify brainstorm offers backlog/Linear write-back after synthesis is confirmed (unless `/kickoff` runs immediately), and that a filed item's Linear description contains inlined synthesis text, not only a local plan-file path
 - Verify the Programmatic write-back protocol's non-interactive callers (refactor auto-chain, retro `--auto`) never hit an interactive ask and never silently write a duplicate slug row on collision (suffix, not abort)
 
@@ -305,6 +326,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 | 2026-07-28 | Reconcile now PRUNES terminal items (deletes item file + drops index row) instead of moving them to `## Completed` — local write-through is a disposable cache, Linear/git history is the durable record. Added orphan-file scan (item files with no index row): terminal-status orphans pruned, open/unrecognized-status orphans reported and left untouched (never auto-indexed, never silently deleted). Fixes CDT-54's local backlog never actually shrinking despite Linear being SoT. |
 | 2026-08-07 | Linear lifecycle: In Progress → In Review (PR-stop / off-master) → Done only on master-land or `/wrap-ticket` post-merge. PR-open MUST NOT set Done. |
 | 2026-08-07 | CDT-167: TaskCompleted flat/compound meta resolution is shadow-safe (any-true gate; bare stub MUST NOT shadow compound `requires_council: true`). Orchestrate MUST keep compound keys on update-status; invent policy owned by SPEC-017. |
+| 2026-08-07 | CDT-175: index-row slugs are untrusted. Reconcile MUST validate `^[A-Za-z0-9_-]+$` (mirroring `worktree-lib.sh` `validate_slug()`) before a slug becomes a path, so a `backlog/../../..` row can never reach the existence check or `rm`. Invalid rows are skipped and reported — never pruned, and never dropped as dead refs (reconcile never looked for the file, so it has no evidence). The recurring skip notice is idempotency-safe under the open-orphan precedent. `--linear-verdicts` slugs (lookup-only) and orphan-scan slugs (directory-derived) need no guard. |
 | 2026-08-07 | CDT-160: shared backlog terminal-status classification. One matcher (`skills/backlog/terminal-status.sh`) used by `close.sh` + `reconcile.sh`; token set COMPLETED/DONE/FIXED{/, -, space}CLOSED/CLOSED/CANCELLED|CANCELED; token-match (not unanchored substring); write surface `--status COMPLETED|FIXED/CLOSED` unchanged; DONE/CANCELLED parity for verify + Already-closed + prune. |
 
 ## Cross-references
