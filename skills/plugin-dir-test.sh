@@ -135,8 +135,9 @@ echo "== bootstrap stanza sort path =="
 mkdir -p "$CACHE_ROOT/1.0.0/skills" "$CACHE_ROOT/1.0.0-pre.9/skills"
 : > "$CACHE_ROOT/1.0.0/skills/plugin-dir.sh"
 : > "$CACHE_ROOT/1.0.0-pre.9/skills/plugin-dir.sh"
-# Canonical stanza (CDT-82): force → cwd → marketplace clone → cache ver_pick
-PDH_STANZA='PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf "%s\n" "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf "%s\n" "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path "*/dev-team/*/skills/plugin-dir.sh" 2>/dev/null | sed "s/-pre\./~pre./" | sort -V | tail -1 | sed "s/~pre\./-pre./" | xargs -r dirname | xargs -r dirname )'
+# Canonical stanza (CDT-82 + CDT-166): force → cwd → marketplace → cache path_ver_pick
+# Cache arm ranks by /dev-team/<VER>/ segment (not full-path sort -V).
+PDH_STANZA='PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf "%s\n" "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf "%s\n" "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path "*/dev-team/*/skills/plugin-dir.sh" 2>/dev/null | awk -F/ '\''{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}'\'' | sort -t $'\''\t'\'' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )'
 pdh=$(
   cd "$FOREIGN" &&
   env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash -c "
@@ -294,6 +295,106 @@ v_rc=$(
   echo $?
 )
 assert_eq "CDT-82 verify recovers STM" "$v_rc" "0"
+
+# --- CDT-166: multi-slug / multi-path / stanza path_ver_pick ---
+echo "== CDT-166 multi-slug path_ver_pick =="
+# Fresh HOME: empty marketplace, two cache slugs where full-path sort -V loses.
+rm -rf "$TMP/home"
+CACHE_BASE="$TMP/home/.claude/plugins/cache"
+PROBE_MS="skills/.pdh-multislug-probe"
+# zzz-wins-path: lower VER, wins naïve full-path sort -V (slug lexically high).
+# aaa-loses-path: higher VER, loses naïve sort (slug lexically low).
+mkdir -p "$CACHE_BASE/zzz-wins-path/dev-team/0.50.0/skills"
+mkdir -p "$CACHE_BASE/aaa-loses-path/dev-team/2.0.0/skills"
+printf 'probe-0.50.0\n' > "$CACHE_BASE/zzz-wins-path/dev-team/0.50.0/$PROBE_MS"
+printf 'probe-2.0.0\n' > "$CACHE_BASE/aaa-loses-path/dev-team/2.0.0/$PROBE_MS"
+
+# Hazard: naïve full-path tilde-map sort -V picks lower VER under zzz-*.
+naive=$(
+  find "$CACHE_BASE" -path "*/dev-team/*/$PROBE_MS" 2>/dev/null \
+    | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'
+)
+assert_contains "hazard multi-slug full-path sort picks 0.50.0" "$naive" "/0.50.0/"
+
+out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file "$PROBE_MS"
+)
+rc=$?
+assert_rc "CDT-166 multi-slug rc" "$rc" 0
+assert_contains "CDT-166 multi-slug path has /2.0.0/" "$out" "/2.0.0/"
+if printf '%s' "$out" | grep -qF '/0.50.0/'; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL CDT-166 multi-slug must not pick lower VER: [$out]"
+else
+  PASS=$((PASS + 1))
+  echo "  ok  CDT-166 multi-slug not lower VER path"
+fi
+assert_eq "CDT-166 multi-slug content" "$(cat "$out")" "probe-2.0.0"
+
+# AC-3: multi-path final vs pre across slugs
+echo "== CDT-166 multi-path final-over-pre =="
+rm -rf "$TMP/home"
+mkdir -p "$CACHE_BASE/slug-a/dev-team/1.0.0-pre.9/skills"
+mkdir -p "$CACHE_BASE/slug-b/dev-team/1.0.0/skills"
+PROBE_FP="skills/.pdh-finalpre-probe"
+printf 'pre\n' > "$CACHE_BASE/slug-a/dev-team/1.0.0-pre.9/$PROBE_FP"
+printf 'final\n' > "$CACHE_BASE/slug-b/dev-team/1.0.0/$PROBE_FP"
+out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file "$PROBE_FP"
+)
+rc=$?
+assert_rc "CDT-166 multi-path final rc" "$rc" 0
+assert_contains "CDT-166 multi-path path has /1.0.0/" "$out" "/1.0.0/"
+if printf '%s' "$out" | grep -qF '1.0.0-pre'; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL CDT-166 multi-path must not pick pre: [$out]"
+else
+  PASS=$((PASS + 1))
+  echo "  ok  CDT-166 multi-path not a pre path"
+fi
+assert_eq "CDT-166 multi-path content" "$(cat "$out")" "final"
+
+# Equal-VER tie: prefer cold-dark-void over lexically later slug
+echo "== CDT-166 equal-VER cold-dark-void prefer =="
+rm -rf "$TMP/home"
+PROBE_EQ="skills/.pdh-eqver-probe"
+mkdir -p "$CACHE_BASE/zzz-other/dev-team/1.2.3/skills"
+mkdir -p "$CACHE_BASE/cold-dark-void/dev-team/1.2.3/skills"
+printf 'zzz\n' > "$CACHE_BASE/zzz-other/dev-team/1.2.3/$PROBE_EQ"
+printf 'cdv\n' > "$CACHE_BASE/cold-dark-void/dev-team/1.2.3/$PROBE_EQ"
+out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file "$PROBE_EQ"
+)
+rc=$?
+assert_rc "CDT-166 equal-VER rc" "$rc" 0
+assert_contains "CDT-166 equal-VER prefers cold-dark-void" "$out" "/cache/cold-dark-void/dev-team/1.2.3/"
+assert_eq "CDT-166 equal-VER content" "$(cat "$out")" "cdv"
+
+# AC-6: stanza alone multi-slug → highest VER PDH
+echo "== CDT-166 stanza multi-slug =="
+rm -rf "$TMP/home"
+mkdir -p "$CACHE_BASE/zzz-wins-path/dev-team/0.50.0/skills"
+mkdir -p "$CACHE_BASE/aaa-loses-path/dev-team/2.0.0/skills"
+: > "$CACHE_BASE/zzz-wins-path/dev-team/0.50.0/skills/plugin-dir.sh"
+: > "$CACHE_BASE/aaa-loses-path/dev-team/2.0.0/skills/plugin-dir.sh"
+pdh=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash -c "
+    $PDH_STANZA
+    printf '%s\n' \"\$PDH\"
+  "
+)
+assert_contains "CDT-166 stanza multi-slug /2.0.0" "$pdh" "/2.0.0"
+if printf '%s' "$pdh" | grep -qF '/0.50.0'; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL CDT-166 stanza multi-slug must not pick lower VER: [$pdh]"
+else
+  PASS=$((PASS + 1))
+  echo "  ok  CDT-166 stanza multi-slug not lower VER"
+fi
 
 # --- CDT-53-13: tree-wide bare sort -V tilde-map uniformity gate ---
 # Product version-picks MUST use:

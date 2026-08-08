@@ -211,7 +211,7 @@ rm -rf "$T8D"
 #    Fenced-md bodies in .sh paths: the file-list form scans any path handed to it.
 T8E=$(mktemp -d)
 mkdir -p "$T8E/skills"
-printf '```bash\n%s\n%s\n```\n' "$C3W" "${CANON/| sort -V |/| sort |}" > "$T8E/skills/plugin-dir.sh"
+printf '```bash\n%s\n%s\n```\n' "$C3W" "${CANON/k1,1V -k2,2n/k1,1n -k2,2n}" > "$T8E/skills/plugin-dir.sh"
 cp "$T8E/skills/plugin-dir.sh" "$T8E/skills/plugin-dir-test.sh"
 cp "$T8E/skills/plugin-dir.sh" "$T8E/skills/other.sh"
 run_lint 0 --root "$REPO_ROOT" "$T8E/skills/plugin-dir.sh" "$T8E/skills/plugin-dir-test.sh"

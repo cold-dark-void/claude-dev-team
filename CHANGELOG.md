@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.17
+- **plugin-dir version-segment ranking (CDT-166)** — tier-4 `find|path_ver_pick` ranks by `/dev-team/<VER>/` (not full abs path); equal VER prefers `cold-dark-void`; bootstrap PDH stanza C5 mass-update + multi-slug tests; SPEC-002.
+
 ### v1.7.16
 - **Council finalize strikes missing `tool_use_id` (CDT-178)** — finalize packaging partitions findings/bundles with blank/absent/whitespace `tool_use_id` into the struck audit trail (append-merge, never silent drop); unstruck-only commit gate, severity tables, action items, and `max_*_confidence` via finalize-meta sidecar; regression `test-finalize-missing-tid.sh` (29 asserts) + SKILL strike clarifier.
 

@@ -23,7 +23,8 @@
 #      Pick highest version (pre-release-safe). Same version string: prefer STM
 #      source (marketplace/dev) over legacy cache — never silently soft-continue
 #      on frozen legacy five-extractor when marketplace/dev has --events (AC-2).
-#   4. Find fallback: find … -path '*/dev-team/*/<relpath>' | ver_pick
+#   4. Find fallback: find … -path '*/dev-team/*/<relpath>' | path_ver_pick
+#      (rank by /dev-team/<VER>/ segment, not full-path ver_pick — CDT-166)
 #
 # Stdout discipline (file/dir/root): prints ONLY the resolved absolute path on success.
 # verify: multi-line status on stdout. Diagnostics to stderr. Stdout empty on fail
@@ -39,6 +40,23 @@ SLUG="cold-dark-void"
 # releases above retained pre-release dirs, then unmap. Load-bearing.
 ver_pick() {
   sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'
+}
+
+# Rank full absolute paths by the segment after /dev-team/ (not full-path sort -V).
+# stdin: paths; stdout: single winner (or empty). Equal VER prefers /cache/$SLUG/dev-team/.
+path_ver_pick() {
+  awk -F/ -v slug="$SLUG" '
+    {
+      ver = ""
+      for (i = 1; i <= NF; i++)
+        if ($i == "dev-team" && i < NF) { ver = $(i + 1); break }
+      if (ver == "") next
+      m = ver
+      gsub(/-pre\./, "~pre.", m)
+      p = ($0 ~ ("/cache/" slug "/dev-team/")) ? 1 : 0
+      print m "\t" p "\t" $0
+    }
+  ' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3
 }
 
 # Compare two version strings: echo -1 / 0 / 1 (a<b / a==b / a>b) via ver_pick.
@@ -186,7 +204,7 @@ resolve() {
     fi
   done < <(marketplace_roots)
 
-  local team_root ver cache_path cache_root=""
+  local team_root ver cache_path="" cache_root=""
   team_root=$(cache_team_root)
   ver=""
   if [ -d "$team_root" ]; then
@@ -254,10 +272,10 @@ resolve() {
     return 0
   fi
 
-  # Tier 4: find fallback — highest version wins (pre-release-safe ver_pick).
+  # Tier 4: find fallback — highest /dev-team/<VER>/ segment (path_ver_pick; CDT-166).
   local hit=""
   if [ -d "$cache" ]; then
-    hit=$(find "$cache" -path "*/dev-team/*/$rel" 2>/dev/null | ver_pick) || hit=""
+    hit=$(find "$cache" -path "*/dev-team/*/$rel" 2>/dev/null | path_ver_pick) || hit=""
   fi
   if [ -n "$hit" ]; then
     emit_path "$hit" "find"
