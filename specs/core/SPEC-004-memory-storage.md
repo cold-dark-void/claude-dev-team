@@ -39,6 +39,12 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 - MUST handle both OpenAI (`.data[0].embedding`) and Ollama (`.embeddings[0]`) response shapes for remote mode
 - MUST skip embedding gracefully if extensions or config unavailable (write memory without vector)
 
+#### SQL safety in the embedding write path (CDT-164)
+- MUST apply the SQLite Write Path escaping rule ("MUST escape single quotes in all SQL content") to EVERY shell-expanded value interpolated into a SQL string literal in the embedding write path — including the embedding model name (`EMBED_MODEL`), not only memory content
+- MUST apply any `:-default` fallback BEFORE escaping, so an empty model name still resolves to the documented default and that default is itself SQL-safe
+- MUST NOT reuse the SQL-escaped form as the value sent to the embedding provider — the JSON request body carries the RAW model name via `jq --arg`; doubling quotes there would corrupt the provider request. The escaped form is SQL-only
+- MUST NOT reject, validate-by-charset, or skip embedding solely because the model name contains a quote — `embed-one.sh` is best-effort and always exits 0, so quote handling is escaping, not validation. This deliberately differs from `EMBEDDING` and `DIMS`, which are network-derived (a vector literal and a table identifier respectively) and MAY be rejected
+
 ### Schema Migration (v1 → v2)
 - MUST check `schema_version` before any changes (exit 0 if already v2, exit 1 if not v1)
 - MUST execute all schema changes in a single transaction (atomic, no partial states)
@@ -62,6 +68,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 
 - SHOULD use heredoc for SQL content to avoid shell escaping issues
 - SHOULD embed migrated content automatically when extensions are available
+- SHOULD word failure warnings for multi-statement SQL batches to account for sqlite3 aborting every REMAINING statement after a parse error while earlier statements in the same batch stay committed — such a warning SHOULD NOT name one specific statement as the failure when the true outcome is partial
 
 ## Test
 
@@ -72,6 +79,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 - Verify .md→SQLite migration chunks by `##` headers correctly
 - Verify chunk truncation at 8000 chars and skip under 20 chars
 - Verify embedding generation handles both response shapes
+- **Model-name SQL safety (CDT-164):** verify an embedding model name containing a single quote round-trips into `embedding_meta.model` verbatim and does not abort the sqlite batch. Manual verification is acceptable — no `.sh` test harness exists in this repo and none is introduced by CDT-164
 - **Migrate driver (CDT-51):** automated tests MUST cover (1) **fresh** install via `schema.sql` → `schema_version=4`; (2) **≥1 real upgrade floor** v3→v4 via `migrate-v4.sh` / `migrate.sh`. Full stepwise v1→v4 is OK because `migrate-v2/v3/v4` + `schema.sql` are in-repo (no git-history archaeology). Version reads MUST be PRAGMA-poison capture-safe (plain SELECT for `schema_version`; never capture an inline `PRAGMA` result row as the version)
 
 ## Validation
@@ -81,6 +89,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 - [ ] Migrated memories have tier=0, archived=false (v1→v2 path)
 - [ ] context.md files remain untouched after migration
 - [ ] No .md source files deleted if any INSERT failed
+- [ ] With `embedding_mode=remote`, a model name containing an apostrophe (e.g. `o'brien-embed`) yields `embedding_meta.model = o'brien-embed` verbatim, a matching `vec_memories_<dims>` row, and an updated `config.embedding_dimensions` — no orphaned vector row (CDT-164)
 
 ## Open Questions
 
@@ -98,6 +107,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 | 2026-04-26 | Added MUST for whole-file (no-header) chunk truncation at 5000 chars — distinct from the 8000-char ## section limit. Added PRAGMA busy_timeout=5000 to migrate-v2.sh to satisfy the "every write" requirement. |
 | 2026-06-13 | Added "Agent Session-Write Protocol (single source of truth)" MUST — the write block is defined once in skills/memory-store + the canonical skills/agent-memory/protocol.md partial; the 7 behavioral agents carry a managed-inline copy (markers, sync-includes.py byte-check at /release) and MUST NOT hand-edit it. Confirmed the cortex 100/memory 50/lessons 80/context 60 line-limits MUST is the canonical copy (AUDIT-P1-1). |
 | 2026-06-15 | Added `skills/memory-store/schema.sql` (the fresh-DB DDL — normative home for the schema) to Covers; it was orphaned. Added the `REFERENCES memories(id)` FK clause to `distillation_log.result_memory_id` (migrate-v2.sh) and `validation_log.memory_id` (migrate-v3.sh) so a migrated DB's log-table DDL matches schema.sql's fresh-create DDL exactly (`migrate-v3.sh` itself stays owned by SPEC-011) (AUDIT-P3.5a). |
+| 2026-08-07 | CDT-164: added "SQL safety in the embedding write path" MUST block — `EMBED_MODEL` MUST be single-quote-escaped before interpolation into the `embedding_meta` INSERT in `embed-one.sh` (it was raw, violating the existing SQLite Write Path MUST at the top of this spec). An apostrophe in the model name aborted the remaining statements in the sqlite batch, leaving an orphaned `vec_memories_<dims>` row with no `embedding_meta` and skipping the `embedding_dimensions` UPDATE. Escaping is SQL-only — the provider JSON body keeps the raw name via `jq --arg`. Added SHOULD on partial-batch warning wording. `migrate-md.sh` carries the same defect at its `embedding_meta` INSERT; tracked separately as CDT-190, NOT fixed here. |
 | 2026-07-22 | CDT-51 / CDT-46-C5: Covers + migrate-v3/v4; Test/Validation note for fresh + v3→v4 (full v1→v4 OK in-repo) and PRAGMA-poison-safe version capture. Status stays INFERRED (W5). migrate-v3/v4 ownership notes with SPEC-011 unchanged. |
 
 ## Cross-references

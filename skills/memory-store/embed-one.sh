@@ -126,13 +126,15 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
     "CREATE VIRTUAL TABLE IF NOT EXISTS ${VEC_TABLE} USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);" 2>/dev/null || true
 
-  # Insert embedding. Warn (don't swallow) if the vec store fails despite vec0.
-  sqlite3 "$MEMDB" <<EOSQL 2>/dev/null || echo "embed-one: vec store failed — remote embedding computed but NOT stored for memory $MEMORY_ID." >&2
+  # Insert embedding. sqlite3 aborts the remainder of a multi-statement batch on a
+  # parse error, so a failure here may be partial (e.g. the vec row already committed).
+  EMBED_MODEL_ESC=$(printf '%s' "${EMBED_MODEL:-remote}" | sed "s/'/''/g")
+  sqlite3 "$MEMDB" <<EOSQL 2>/dev/null || echo "embed-one: sqlite write batch failed for memory $MEMORY_ID — vector and/or its embedding_meta row may be missing; semantic search may be incomplete." >&2
 .load $EXT_DIR/vec0
 INSERT INTO ${VEC_TABLE}(memory_id, embedding)
   VALUES ($MEMORY_ID, '$EMBEDDING');
 INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table)
-  VALUES ($MEMORY_ID, '${EMBED_MODEL:-remote}', $DIMS, '$VEC_TABLE');
+  VALUES ($MEMORY_ID, '$EMBED_MODEL_ESC', $DIMS, '$VEC_TABLE');
 UPDATE config SET value='$DIMS', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_dimensions';
 EOSQL
 fi

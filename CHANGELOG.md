@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.18
+- **Escape EMBED_MODEL before SQL interpolation (CDT-164)** — `embed-one.sh`'s remote-embed path interpolated `EMBED_MODEL` raw into a SQL `VALUES` literal (SPEC-004 SQL-safety MUST violation); an apostrophe in the model name aborted the sqlite batch mid-write, leaving an orphaned `vec_memories_<dims>` row with no `embedding_meta` and a stale `embedding_dimensions`. Fixed by mirroring the file's existing `CONTENT_ESC` quote-doubling pattern into a new `EMBED_MODEL_ESC`, used only in the SQL literal — the provider JSON body still keeps the raw name via `jq --arg`; also corrected a misleading partial-batch warning. `migrate-md.sh` carries the same defect at its own `embedding_meta` INSERT, tracked separately as CDT-190 (not fixed here). SPEC-004 updated with the governing MUST/MUST NOT block.
+
 ### v1.7.17
 - **plugin-dir version-segment ranking (CDT-166)** — tier-4 `find|path_ver_pick` ranks by `/dev-team/<VER>/` (not full abs path); equal VER prefers `cold-dark-void`; bootstrap PDH stanza C5 mass-update + multi-slug tests; SPEC-002.
 
