@@ -810,16 +810,16 @@ if [ ! -f "$INDEX" ]; then
   exit 2
 fi
 
-# Look up task in index. CDT-122:
-#  (1) compound-key fallback (mirror task-metadata) — bare TaskUpdate ids like "7"
-#      resolve to rows under "CDT-111-C1-7" when that is the indexed key;
-#  (2) finding[]-shape rows (max_verdict_confidence null, max_finding_confidence set)
-#      count as a pass signal for diff-mode / requires_council IC reviews.
+# Look up task in index. CDT-163 isolate scores (template SoT; regen live hooks via
+# /setup orchestration — AC10). Resolve at most ONE index key; never union/extend
+# scores across ≥2 keys. Dual-shape conf (CDT-122) unchanged under that single key.
+# Order: exact T → distinct preferred compound P only → unique suffix of bare T.
 COMPOUND_KEY=""
 _meta_base=$(basename -- "$TASK_META" .json 2>/dev/null || true)
 if [ -n "$_meta_base" ] && [ "$_meta_base" != "$TASK_ID" ]; then
   COMPOUND_KEY="$_meta_base"
 fi
+# stderr from python must reach the hook (AMBIGUOUS_SUFFIX names T + colliding keys)
 MAX_CONF=$(python3 -c '
 import json, sys
 task_id = sys.argv[1]
@@ -830,15 +830,35 @@ try:
     def as_rows(key):
         v = data.get(key)
         return list(v) if isinstance(v, list) else []
-    rows = as_rows(task_id)
-    if not rows and compound:
-        rows = as_rows(compound)
-    if not rows:
+    # CDT-163 isolate: at most one key; MUST NOT rows.extend across keys
+    resolved = None
+    if isinstance(data.get(task_id), list):
+        resolved = task_id
+    elif compound and compound != task_id:
+        # Preferred compound only — missing → no verdict; never open suffix scan
+        resolved = compound
+    else:
+        matches = []
         for k, v in data.items():
             if not isinstance(v, list):
                 continue
             if k == task_id or (task_id and k.endswith("-" + task_id)):
-                rows.extend(v)
+                matches.append(k)
+        if len(matches) == 0:
+            print("NO_TASK_IN_INDEX")
+            sys.exit(0)
+        if len(matches) == 1:
+            resolved = matches[0]
+        else:
+            keys_s = ", ".join(sorted(matches))
+            print(
+                "TaskCompleted council gate: ambiguous index suffix for bare id %s — colliding keys: %s"
+                % (task_id, keys_s),
+                file=sys.stderr,
+            )
+            print("AMBIGUOUS_SUFFIX")
+            sys.exit(0)
+    rows = as_rows(resolved) if resolved is not None else []
     if not rows:
         print("NO_TASK_IN_INDEX")
         sys.exit(0)
@@ -865,7 +885,7 @@ try:
 except Exception:
     print("PARSE_ERROR", file=sys.stderr)
     print("PARSE_ERROR")
-' "$TASK_ID" "$INDEX" "$COMPOUND_KEY" 2>/dev/null || echo "PARSE_ERROR")
+' "$TASK_ID" "$INDEX" "$COMPOUND_KEY" || echo "PARSE_ERROR")
 
 case "$MAX_CONF" in
   NO_TASK_IN_INDEX)
@@ -878,6 +898,10 @@ case "$MAX_CONF" in
     ;;
   PARSE_ERROR)
     echo "TaskCompleted council gate: failed to parse council index $INDEX for task $TASK_ID" >&2
+    exit 2
+    ;;
+  AMBIGUOUS_SUFFIX)
+    echo "TaskCompleted council gate: ambiguous index suffix for task $TASK_ID (multiple suffix-matching keys; refuse multi-key max-merge)" >&2
     exit 2
     ;;
 esac

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# task-store-test.sh — CDT-167 regression for task-store invent + TaskCompleted
-# shadow-safe meta (AC1/AC2/AC4/AC5/AC6; SPEC-002 / SPEC-017).
+# task-store-test.sh — CDT-167 + CDT-163 regression for task-store invent +
+# TaskCompleted shadow-safe meta and index isolate scores
+# (CDT-167 AC1/AC2/AC4/AC5/AC6; CDT-163 AC3/AC4/AC5/AC7/AC8; SPEC-002).
 #
 # Machine-check: bash skills/orchestrate/task-store-test.sh  (exit 0)
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -8,6 +9,7 @@
 # (A) task-store invent — temp git repo as MROOT via git-common-dir
 # (B) hook shadow-safe — extract task-completed body from
 #     skills/init-orchestration/SKILL.md (same marker as check-hook-templates)
+#     CDT-163 B6/B7/B9/B10: isolate preferred + unique-suffix; no multi-key max-merge
 
 set -u
 
@@ -48,6 +50,15 @@ assert_file_present() {
     PASS=$((PASS + 1)); echo "  ok  $name"
   else
     FAIL=$((FAIL + 1)); echo "  FAIL $name: missing $path"
+  fi
+}
+
+assert_contains() {
+  local name="$1" haystack="$2" needle="$3"
+  if printf '%s' "$haystack" | grep -qF -- "$needle"; then
+    PASS=$((PASS + 1)); echo "  ok  $name"
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing [$needle] in [$haystack]"
   fi
 }
 
@@ -221,7 +232,7 @@ write_meta "$REPO" "7.json" "7" false
 run_hook "$REPO" "7"
 assert_eq "B4 all-false → exit 0" "$RC" "0"
 
-# --- B5 optional: qualifying index under compound key → exit 0 ---
+# --- B5 AC5: preferred compound ≥ thr → exit 0 (CDT-163 regression) ---
 REPO=$(new_repo b5)
 write_meta "$REPO" "CDT-111-C1-7.json" "CDT-111-C1-7" true
 write_meta "$REPO" "7.json" "7" false
@@ -231,7 +242,77 @@ jq -n '{
   ]
 }' > "$REPO/.claude/council/index.json"
 run_hook "$REPO" "7"
-assert_eq "B5 qualifying compound-key index → exit 0" "$RC" "0"
+assert_eq "B5 AC5 preferred compound ≥ thr → exit 0" "$RC" "0"
+
+# --- B6 AC3: preferred CDT-B-7 missing; only sibling CDT-A-7@95 → exit 2 ---
+# Isolate: preferred miss MUST NOT borrow sibling score (multi-key merge bug).
+REPO=$(new_repo b6)
+write_meta "$REPO" "CDT-B-7.json" "CDT-B-7" true
+write_meta "$REPO" "7.json" "7" false
+jq -n '{
+  "CDT-A-7": [
+    {"max_verdict_confidence": 95, "max_finding_confidence": null}
+  ]
+}' > "$REPO/.claude/council/index.json"
+run_hook "$REPO" "7"
+assert_eq "B6 AC3 preferred miss + sibling@95 → exit 2 (no borrow)" "$RC" "2"
+
+# --- B7 AC4: preferred CDT-B-7@50 + sibling CDT-A-7@95 thr80 → exit 2 ---
+# Preferred key only; sibling high conf MUST NOT clear low preferred.
+REPO=$(new_repo b7)
+write_meta "$REPO" "CDT-B-7.json" "CDT-B-7" true
+write_meta "$REPO" "7.json" "7" false
+jq -n '{
+  "CDT-B-7": [
+    {"max_verdict_confidence": 50, "max_finding_confidence": null}
+  ],
+  "CDT-A-7": [
+    {"max_verdict_confidence": 95, "max_finding_confidence": null}
+  ]
+}' > "$REPO/.claude/council/index.json"
+run_hook "$REPO" "7"
+assert_eq "B7 AC4 preferred@50 + sibling@95 thr80 → exit 2" "$RC" "2"
+
+# --- B8 AC6 (optional): exact bare index key "7" only → exit 0 ---
+REPO=$(new_repo b8)
+write_meta "$REPO" "7.json" "7" true
+jq -n '{
+  "7": [
+    {"max_verdict_confidence": 90, "max_finding_confidence": null}
+  ]
+}' > "$REPO/.claude/council/index.json"
+run_hook "$REPO" "7"
+assert_eq "B8 AC6 exact bare index key → exit 0" "$RC" "0"
+
+# --- B9 AC7: no distinct preferred; unique suffix endswith(-7) ≥ thr → exit 0 ---
+# Bare meta only → COMPOUND_KEY empty; single suffix key is the unique fallback.
+REPO=$(new_repo b9)
+write_meta "$REPO" "7.json" "7" true
+jq -n '{
+  "CDT-ONLY-7": [
+    {"max_verdict_confidence": 90, "max_finding_confidence": null}
+  ]
+}' > "$REPO/.claude/council/index.json"
+run_hook "$REPO" "7"
+assert_eq "B9 AC7 unique suffix key ≥ thr → exit 0" "$RC" "0"
+
+# --- B10 AC8: no preferred; two suffix keys CDT-A-7 + CDT-B-7 → exit 2 ---
+# MUST NOT max-merge; stderr names bare id + both colliding keys.
+REPO=$(new_repo b10)
+write_meta "$REPO" "7.json" "7" true
+jq -n '{
+  "CDT-A-7": [
+    {"max_verdict_confidence": 95, "max_finding_confidence": null}
+  ],
+  "CDT-B-7": [
+    {"max_verdict_confidence": 95, "max_finding_confidence": null}
+  ]
+}' > "$REPO/.claude/council/index.json"
+run_hook "$REPO" "7"
+assert_eq "B10 AC8 multi-suffix no max-merge → exit 2" "$RC" "2"
+assert_contains "B10 AC8 stderr names bare id 7" "$(cat "$HOOK_ERR")" "7"
+assert_contains "B10 AC8 stderr names CDT-A-7" "$(cat "$HOOK_ERR")" "CDT-A-7"
+assert_contains "B10 AC8 stderr names CDT-B-7" "$(cat "$HOOK_ERR")" "CDT-B-7"
 
 # =============================================================================
 echo ""

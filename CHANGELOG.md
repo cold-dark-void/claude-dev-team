@@ -4,7 +4,12 @@ All notable changes to **claude-dev-team**, newest first.
 Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
-second heading for the same version.### v1.7.14
+second heading for the same version.
+
+### v1.7.15
+- **TaskCompleted index isolate scores (CDT-163)** — resolve at most one council index key (exact → preferred compound only → unique suffix); multi-key max-merge removed; preferred miss / multi-suffix hard-fail exit 2; SPEC-002 + template + B6–B10 tests. Live hooks: re-run `/setup orchestration`.
+
+### v1.7.14
 - **Docs dead links + D10 docs-page-links (CDT-180)** — retarget `docs/commands/epic.md` `/release` → `skills/release/SKILL.md` and `mode.md` legacy focus/blunt to in-page anchors; add docs-drift `docs-page-links` check (SPEC-010 D10) with bite-tests so relative `*.md` hrefs under `docs/commands/` fail closed.
 
 ### v1.7.13
