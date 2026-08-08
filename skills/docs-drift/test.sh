@@ -281,6 +281,47 @@ expect_finding skill-ref
 restore "$MINI/commands/demo.md"
 
 # ---------------------------------------------------------------------------
+# T4c docs-page-links (D10)
+# ---------------------------------------------------------------------------
+# peer page so a live relative link resolves; register in docs hub (no orphan)
+printf '%s\n' "# demo-peer" > "$MINI/docs/commands/demo-peer.md"
+# dedicated bak — nested backup()/restore() overwrites $BAK
+DOCS_README_BAK="$SCRATCH/mini_docs_readme_t4c.bak"
+cp -a "$MINI/docs/README.md" "$DOCS_README_BAK"
+python3 - <<PY
+from pathlib import Path
+p = Path("$MINI/docs/README.md")
+p.write_text(p.read_text() + "| \`/demo-peer\` | [demo-peer](commands/demo-peer.md) |\n")
+PY
+# (a) valid relative .md link → no docs-page-links finding
+backup "$MINI/docs/commands/demo.md"
+printf '%s\n' "See also: [peer](./demo-peer.md)." >> "$MINI/docs/commands/demo.md"
+run_check 0 --root "$MINI"
+expect_no_finding docs-page-links
+restore "$MINI/docs/commands/demo.md"
+
+# (b) dead relative ./zz-nope.md → finding
+backup "$MINI/docs/commands/demo.md"
+printf '%s\n' "See also: [nope](./zz-nope.md)." >> "$MINI/docs/commands/demo.md"
+run_check 1 --root "$MINI"
+expect_finding docs-page-links
+echo "$OUT" | grep -q "zz-nope" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: docs-page-links should name zz-nope"
+}
+restore "$MINI/docs/commands/demo.md"
+
+# (c) fragment stripped — path-only existence (live peer + #anchor)
+backup "$MINI/docs/commands/demo.md"
+printf '%s\n' "See also: [peer](./demo-peer.md#section)." >> "$MINI/docs/commands/demo.md"
+run_check 0 --root "$MINI"
+expect_no_finding docs-page-links
+restore "$MINI/docs/commands/demo.md"
+
+# cleanup peer + hub (leave mini clean for later bites)
+rm -f "$MINI/docs/commands/demo-peer.md"
+cp -a "$DOCS_README_BAK" "$MINI/docs/README.md"
+
+# ---------------------------------------------------------------------------
 # T5 waiver (D6)
 # ---------------------------------------------------------------------------
 backup "$MINI/README.md"
@@ -390,6 +431,24 @@ OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
   && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live skill-ref inject"; echo "$OUT" | head -8; }
 restore "$REPO_ROOT/commands/memory.md"
 
+# docs-page-links: (a) dead relative ./zz-nope.md under docs/commands
+backup "$REPO_ROOT/docs/commands/status.md"
+printf '%s\n' "See also: [nope](./zz-nope.md)." >> "$REPO_ROOT/docs/commands/status.md"
+OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+[ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[docs-page-links\]' && echo "$OUT" | grep -q 'zz-nope' \
+  && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live docs-page-links dead inject"; echo "$OUT" | head -8; }
+restore "$REPO_ROOT/docs/commands/status.md"
+
+# docs-page-links: (b) valid relative .md link → no finding for that href
+backup "$REPO_ROOT/docs/commands/status.md"
+printf '%s\n' "See also: [debug](./debug.md)." >> "$REPO_ROOT/docs/commands/status.md"
+OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && ! echo "$OUT" | grep -q '\[docs-page-links\].*debug\.md' \
+  && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: live docs-page-links valid link should be clean"; echo "$OUT" | head -8
+}
+restore "$REPO_ROOT/docs/commands/status.md"
+
 # ---------------------------------------------------------------------------
 # T7 restore discipline: no inject artifacts; harness never used git checkout
 # ---------------------------------------------------------------------------
@@ -420,6 +479,12 @@ fi
 # commands/memory.md must not carry the skill-ref inject line after restore
 if grep -q 'zz-docs-drift-bite-skill' "$REPO_ROOT/commands/memory.md" 2>/dev/null; then
   FAIL=$((FAIL+1)); echo "FAIL: commands/memory.md still carries skill-ref inject after restore"
+else
+  PASS=$((PASS+1))
+fi
+# docs/commands/status.md must not carry docs-page-links inject lines after restore
+if grep -qE 'zz-nope|\./debug\.md' "$REPO_ROOT/docs/commands/status.md" 2>/dev/null; then
+  FAIL=$((FAIL+1)); echo "FAIL: docs/commands/status.md still carries docs-page-links inject after restore"
 else
   PASS=$((PASS+1))
 fi

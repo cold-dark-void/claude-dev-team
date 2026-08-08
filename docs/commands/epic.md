@@ -86,6 +86,6 @@ mechanical subcommands, not `/epic` flags.)
 
 - [`/kickoff`](kickoff.md) — plan-only child handoff target
 - [`/orchestrate`](orchestrate.md) — full lifecycle child handoff target
-- [`/release`](release.md) — sole ship-of-record at seal
+- [`/release`](../../skills/release/SKILL.md) — sole ship-of-record at seal
 - [`/status standup`](status.md) — epic rollup section
 - [`/wrap-ticket`](wrap-ticket.md) — child completion write-back

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""SPEC-010 docs-drift checker: structural docs consistency (D1–D9).
+"""SPEC-010 docs-drift checker: structural docs consistency (D1–D10).
 
 Exit codes: 0 = no unwaived findings, 1 = unwaived findings, 64 = usage error.
 Finding format: <file>: [<check-id>] <message>
-Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc | skill-ref
+Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc | skill-ref | docs-page-links
 """
 from __future__ import annotations
 
@@ -557,6 +557,48 @@ def check_skill_ref(root: str, f: Findings) -> None:
                 )
 
 
+def check_docs_page_links(root: str, f: Findings) -> None:
+    """D10: relative *.md links in docs/commands/**/*.md must resolve on disk.
+
+    Path-only (fragment/query stripped). Out of scope: http(s), mailto, bare
+    #anchor, non-.md paths, absolute /... paths. D6 waivers apply.
+    """
+    docs_cmd_dir = os.path.join(root, "docs", "commands")
+    if not os.path.isdir(docs_cmd_dir):
+        return
+    pages: list[str] = []
+    for dirpath, _dirnames, filenames in os.walk(docs_cmd_dir):
+        for name in filenames:
+            if name.endswith(".md") and os.path.isfile(os.path.join(dirpath, name)):
+                pages.append(os.path.join(dirpath, name))
+    for page_path in sorted(pages):
+        text = read_text(page_path)
+        if text is None:
+            continue
+        src_lines = text.splitlines()
+        for ln, line in enumerate(src_lines, 1):
+            for m in MD_LINK_RE.finditer(line):
+                href = _normalize_link(m.group(1))
+                if href is None:
+                    continue
+                # Absolute site/path links are out of scope
+                if href.startswith("/"):
+                    continue
+                if not href.endswith(".md"):
+                    continue
+                abs_target = os.path.normpath(
+                    os.path.join(os.path.dirname(page_path), href)
+                )
+                if not os.path.isfile(abs_target):
+                    f.add(
+                        page_path,
+                        "docs-page-links",
+                        f"dead relative md link: {href}",
+                        line=ln,
+                        src_lines=src_lines,
+                    )
+
+
 def run_checks(root: str) -> list[dict]:
     f = Findings(root)
     check_cmd_index(root, f)
@@ -564,6 +606,7 @@ def run_checks(root: str) -> list[dict]:
     check_docs_hub(root, f)
     check_manifest_desc(root, f)
     check_skill_ref(root, f)
+    check_docs_page_links(root, f)
     return f.items
 
 

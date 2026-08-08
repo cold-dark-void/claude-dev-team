@@ -69,4 +69,4 @@ Only the blunt switch changes; focus is untouched. Stacks with focus when both O
 - Protocol backends: `skills/focus/SKILL.md`, `skills/blunt/SKILL.md`
 - [`/debug`](./debug.md) — formal bug pipeline (not a session mode)
 - [`/council`](./council.md) — adversarial claim tribunal
-- Legacy stubs: [`/focus`](./focus.md), [`/blunt`](./blunt.md)
+- Legacy stubs: `/focus` → [`/mode focus`](#sub-focus); `/blunt` → [`/mode blunt`](#sub-blunt)

@@ -1,11 +1,12 @@
 ---
 name: docs-drift
 description: |
-    Deterministic, LLM-free structural docs-consistency checker (SPEC-010 D1–D9).
+    Deterministic, LLM-free structural docs-consistency checker (SPEC-010 D1–D10).
     Checks: cmd-index (README ## Commands ↔ commands/*.md), agent-roster
     (AGENTS.md + README ↔ agents/*.md), docs-hub (docs/commands links/orphans),
     manifest-desc (plugin.json description == marketplace plugins[].description),
-    skill-ref (every skills/<name>/<file> path mentioned in commands/*.md exists).
+    skill-ref (every skills/<name>/<file> path mentioned in commands/*.md exists),
+    docs-page-links (relative *.md hrefs in docs/commands/*.md resolve on disk).
     Wired by /release as Step 4.9 after T3, and also by CI
     (.github/workflows/smoke.yml, job `docs-drift`) on every push/PR to master —
     same invocation, same exit contract. Run manually via:
@@ -18,7 +19,7 @@ Structural documentation drift gate — sibling of SPEC-021 skill-bash lint
 (content of fenced bash) and SPEC-008 check-format (spec structure). This gate
 owns index tables, roster tables, page links, and manifest description fields.
 
-Governing spec: `specs/core/SPEC-010-code-review-release.md` (D1–D9).
+Governing spec: `specs/core/SPEC-010-code-review-release.md` (D1–D10).
 
 ## Usage
 
@@ -44,6 +45,7 @@ Trailing summary always printed:
 | `docs-hub` | Every `docs/commands/*.md` link in README / `docs/README.md` resolves; every `docs/commands/*.md` file is linked from `docs/README.md` (no orphans). Index-only commands without a docs page are fine. |
 | `manifest-desc` | `.claude-plugin/plugin.json` `description` byte-identical to each `marketplace.json` `plugins[].description`. Version sync is NOT this check (SPEC-002). |
 | `skill-ref` | Every literal `skills/<name>/<file>` path (`.md`/`.sh`/`.py`) mentioned in `commands/*.md` — prose or embedded in a bash fence — resolves to a real file. Catches a command left delegating to a skill that was stubbed, renamed, or deleted. Existence-only; does not judge whether a hit is a legitimate deprecation stub. |
+| `docs-page-links` | Every relative `*.md` link in `docs/commands/*.md` resolves on disk (fragment/query stripped; path only). Out of scope: `http(s)`, `mailto:`, bare `#anchor`, non-`.md`, absolute `/…`. D6 waivers apply. |
 
 ## Waivers
 
