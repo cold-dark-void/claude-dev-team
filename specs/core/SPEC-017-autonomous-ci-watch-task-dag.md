@@ -114,6 +114,28 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 - MUST NOT break backward compatibility — existing task files without `depends_on` MUST
   be treated as `depends_on: []` (no dependencies)
 
+### task-store.sh invent / update-status policy (CDT-167)
+
+Contract home for **writes** to `.claude/tasks/` (reads / TaskCompleted gate: SPEC-002).
+
+- **`create`** invents (or upserts) `$MROOT/.claude/tasks/<task_id>.json` with the caller-supplied
+  `requires_council` (`true`|`false`). Orchestrators MUST use compound keys
+  `<ISSUE-ID>-<n>` (SPEC-009).
+- **`update-status <task_id> <status>`** when `$MROOT/.claude/tasks/<task_id>.json` **exists**:
+  MUST update only `status`, preserving all other fields (including `requires_council`).
+- **`update-status <task_id> <status>`** when the exact dest file is **missing** — invent rules:
+  1. Let `matches` = all existing files matching `$MROOT/.claude/tasks/*-<task_id>.json`
+     (literal `-` + bare id suffix before `.json`).
+  2. If `|matches| == 1`: MUST update `status` on that compound file (do **not** create a bare
+     `<task_id>.json`).
+  3. If `|matches| > 1`: MUST fail closed (non-zero exit, stderr naming the ambiguity) —
+     MUST NOT invent a bare stub and MUST NOT pick one compound arbitrarily.
+  4. If `|matches| == 0`: MAY invent a bare stub at `<task_id>.json` with
+     `requires_council: false`, subject `(auto-created stub)`, empty `depends_on`, and the
+     requested status (session resume / pre-gate path).
+- MUST NOT invent a bare `<task_id>.json` with `requires_council: false` while any
+  `*-<task_id>.json` compound match exists (would shadow the council gate — AC2).
+
 ### /kickoff — task graph population
 
 - /kickoff Step 7 MUST extract dependency information from Tech Lead's plan and pass it
@@ -179,6 +201,13 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 - Verify task-store.sh: `create CDV-1-4 "subject" false "CDV-1-2:CDV-1-3"` writes
   `depends_on: ["CDV-1-2","CDV-1-3"]`; `create CDV-1-1 "subject" false ""` writes
   `depends_on: []`
+- Verify CDT-167 invent policy: with only `CDT-111-C1-7.json` present,
+  `update-status 7 completed` updates that compound file and does **not** create `7.json`;
+  with two `*-7.json` files present, `update-status 7 …` exits non-zero; with no matches,
+  invent bare stub is allowed
+- Verify CDT-167 shadow-safe gate (TaskCompleted template / extracted hook body): compound
+  `requires_council: true` + bare stub `requires_council: false` + bare task_id → gate
+  applies (exit 2 when index lacks qualifying verdict); pure-missing still exit 0
 - Verify backward compat: task file without `depends_on` field → treated as `[]`
 - Verify circular dep detection in /kickoff: A→B→A halts with error before any TaskCreate
 - Verify /orchestrate fans out Task 1 and Task 2 in parallel when both have empty
@@ -219,6 +248,7 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 | 2026-06-16 | Aligned the local-test detection MUST to `detect-mode.sh`: a `pyproject.toml` triggers `local-test` only when it declares a `[tool.pytest.ini_options]` section (bare presence alone does not), avoiding false positives on non-test pyprojects |
 | 2026-07-14 | CDV-170: ci-mode poll MUST NOT treat `gh pr checks` exit 1/8 as poll errors; classification is parseable JSON array (`jq type==array`) + `bucket` only. Exit 8 + non-array → `wait` without `poll_error_count++`. Bite-tests via PATH-mock `gh` required |
 | 2026-07-20 | Harness-aware CronCreate durable: prefer `durable: true`; on deny/unavailable (cmux) fall back to session-only once and notify — do not hard-fail arming |
+| 2026-08-07 | CDT-167: task-store `update-status` invent policy — no bare false stub when compound `*-<id>.json` exists (single match → update compound; multi → fail closed; zero → bare stub ok). Write-side complement to SPEC-002 shadow-safe TaskCompleted reads. |
 
 ---
 

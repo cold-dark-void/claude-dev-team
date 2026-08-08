@@ -5,6 +5,9 @@ Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` heading
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
+### v1.7.11
+- **Bare-id task-store stub cannot shadow compound council meta (CDT-167)** — `update-status` invents bare `rc:false` only when no `*-<id>.json` exists (unique compound → redirect update; multi → fail closed); TaskCompleted template uses any-true over flat∪suffix candidates so historical bare stubs no longer silent-pass; SPEC-002/009/017 + `task-store-test.sh` (22 cases). Live hooks: re-run `/setup orchestration`.
+
 
 ### v1.7.10
 - **Epic state.json RMW flock (CDT-165)** — `epic-lib` serializes all `state.json` mutators with exclusive `flock` on `.claude/epics/.lock` covering full read-modify-write (re-read under lock); `write_state` stays unlocked tmp+mv; compound cmds keep external I/O outside the lock; concurrent bite-test + SPEC-025 M6 MUST.

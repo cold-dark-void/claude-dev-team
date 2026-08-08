@@ -13,6 +13,19 @@
 # <requires_council>: literal "true" or "false"
 # <new_status>:       pending | in_progress | completed | blocked
 #
+# Invent / update-status policy (CDT-167 / SPEC-017):
+#   create          — invents (or upserts) <task_id>.json with caller-supplied
+#                     requires_council. Orchestrators MUST use compound keys
+#                     (e.g. CDT-111-C1-7), never bare numeric IDs alone.
+#   update-status   — when exact dest exists: status-only jq (preserve all other
+#                     fields including requires_council).
+#                   — when exact dest missing:
+#                       1 match of *-<task_id>.json → update that compound file
+#                       >1 matches               → fail closed (exit 1; list)
+#                       0 matches                → invent bare stub rc:false
+#   MUST NOT invent a bare <task_id>.json with requires_council:false while any
+#   *-<task_id>.json compound match exists (would shadow the council gate).
+#
 # Exits 0 on success, non-zero on failure (message on stderr).
 # Atomic tmp+rename, global flock on .claude/tasks/.lock (simpler than
 # per-task locks; write contention on this store is negligible since each
@@ -129,30 +142,56 @@ cmd_update_status() {
   esac
 
   local dest="$TASKS_DIR/${task_id}.json"
-  local tmp="$TASKS_DIR/${task_id}.json.tmp"
+  local invented=0
 
   (
     flock -x 9
 
     if [ ! -f "$dest" ]; then
-      # Auto-create a stub if task file is missing (e.g. after session pause/resume)
-      local ts
-      ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      jq -n \
-        --arg tid "$task_id" \
-        --arg s   "$new_status" \
-        --arg ts  "$ts" \
-        '{task_id: $tid, subject: "(auto-created stub)", requires_council: false, depends_on: [], created_at: $ts, status: $s}' \
-        > "$tmp"
-      mv "$tmp" "$dest"
-      echo "warning: task file not found, created stub: $dest" >&2
-    else
+      # CDT-167: shadow-safe invent — prefer unique compound *-<task_id>.json
+      # over inventing bare dest with requires_council:false.
+      local matches=()
+      local f
+      shopt -s nullglob
+      matches=( "$TASKS_DIR"/*-"${task_id}".json )
+      shopt -u nullglob
+
+      local n=${#matches[@]}
+      if [ "$n" -gt 1 ]; then
+        echo "error: update-status: ambiguous bare id '$task_id' matches $n compound files:" >&2
+        for f in "${matches[@]}"; do
+          printf '  %s\n' "$f" >&2
+        done
+        echo "error: use the full compound task_id (or resolve the ambiguity)" >&2
+        exit 1
+      elif [ "$n" -eq 1 ]; then
+        dest="${matches[0]}"
+      else
+        # No compound match — invent bare stub (resume path OK)
+        local ts tmp
+        ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        tmp="${dest}.tmp"
+        jq -n \
+          --arg tid "$task_id" \
+          --arg s   "$new_status" \
+          --arg ts  "$ts" \
+          '{task_id: $tid, subject: "(auto-created stub)", requires_council: false, depends_on: [], created_at: $ts, status: $s}' \
+          > "$tmp"
+        mv "$tmp" "$dest"
+        echo "warning: task file not found, created stub: $dest" >&2
+        invented=1
+      fi
+    fi
+
+    if [ "$invented" -eq 0 ]; then
+      local tmp="${dest}.tmp"
       jq --arg s "$new_status" '.status = $s' "$dest" > "$tmp"
       mv "$tmp" "$dest"
     fi
-  ) 9>"$LOCK"
 
-  echo "updated: $dest (status=$new_status)" >&2
+    # Print using resolved dest (may be compound path after redirect)
+    echo "updated: $dest (status=$new_status)" >&2
+  ) 9>"$LOCK"
 }
 
 # ---- Dispatch ---------------------------------------------------------------

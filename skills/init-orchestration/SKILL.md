@@ -715,34 +715,80 @@ if [ -z "$TASK_ID" ]; then
   exit 0
 fi
 
-# Read task metadata
-# Support both legacy flat key (1.json) and compound key (TICKET-1.json).
-# TaskCreate resets integers to 1 each new process; compound keys prevent
-# cross-run collisions. Fallback: pick most-recently-modified *-<ID>.json.
+# Read task metadata — shadow-safe candidate set (CDT-167 / SPEC-002).
+# Candidates = flat <T>.json (if present) ∪ all *-<T>.json (nullglob-safe).
+# effective_requires_council = any candidate requires_council true (AC1, AC6).
+# MUST NOT short-circuit on first flat false when a compound true exists.
+# Live hooks need `/setup orchestration` re-run after pull (template SoT / CDT-54).
 TASKS_DIR="$MROOT/.claude/tasks"
-TASK_META="${TASKS_DIR}/${TASK_ID}.json"
-if [ ! -f "$TASK_META" ]; then
-  TASK_META=$(ls -t "${TASKS_DIR}/"*"-${TASK_ID}.json" 2>/dev/null | head -1 || true)
+CANDIDATES=()
+if [ -f "${TASKS_DIR}/${TASK_ID}.json" ]; then
+  CANDIDATES+=("${TASKS_DIR}/${TASK_ID}.json")
 fi
-if [ -z "$TASK_META" ] || [ ! -f "$TASK_META" ]; then
-  # Silent pass — task pre-dates the gate or is not council-tracked
+_prev_nullglob=
+shopt -q nullglob && _prev_nullglob=1
+shopt -s nullglob
+for _cand in "${TASKS_DIR}/"*"-${TASK_ID}.json"; do
+  CANDIDATES+=("$_cand")
+done
+if [ -z "$_prev_nullglob" ]; then
+  shopt -u nullglob
+fi
+unset _prev_nullglob _cand
+
+if [ ${#CANDIDATES[@]} -eq 0 ]; then
+  # Silent pass — pure-missing (AC5); task pre-dates the gate or is not tracked
   _emit_task_complete
   exit 0
 fi
 
-# Parse requires_council
-REQUIRES_COUNCIL=$(python3 -c '
-import json, sys
-try:
-    data = json.load(open(sys.argv[1]))
-    print("true" if data.get("requires_council", False) else "false")
-except Exception:
+# Scan all candidates for any-true; prefer true compound over true flat for TASK_META.
+# Output: line1 = true|false, line2 = preferred meta path (empty if none true).
+META_SCAN=$(python3 -c '
+import json, os, sys
+task_id = sys.argv[1]
+true_compound = None
+true_flat = None
+for path in sys.argv[2:]:
+    try:
+        data = json.load(open(path))
+        rc = bool(data.get("requires_council", False))
+    except Exception:
+        continue
+    if not rc:
+        continue
+    stem = os.path.basename(path)
+    if stem.endswith(".json"):
+        stem = stem[:-5]
+    if stem == task_id:
+        if true_flat is None:
+            true_flat = path
+    else:
+        if true_compound is None:
+            true_compound = path
+if true_compound is not None:
+    print("true")
+    print(true_compound)
+elif true_flat is not None:
+    print("true")
+    print(true_flat)
+else:
     print("false")
-' "$TASK_META" 2>/dev/null || echo "false")
+    print("")
+' "$TASK_ID" "${CANDIDATES[@]}" 2>/dev/null || printf '%s\n' "false" "")
+
+REQUIRES_COUNCIL=$(printf '%s\n' "$META_SCAN" | sed -n '1p')
+TASK_META=$(printf '%s\n' "$META_SCAN" | sed -n '2p')
 
 if [ "$REQUIRES_COUNCIL" != "true" ]; then
   _emit_task_complete
-  exit 0  # silent pass — gate not opted in
+  exit 0  # silent pass — no candidate opted into the gate
+fi
+
+# Prefer true candidate path for COMPOUND_KEY derivation below (index gate).
+# If python omitted path somehow, fall back to first candidate that is -f.
+if [ -z "$TASK_META" ] || [ ! -f "$TASK_META" ]; then
+  TASK_META="${CANDIDATES[0]}"
 fi
 
 # Read threshold from settings.json (default 80)

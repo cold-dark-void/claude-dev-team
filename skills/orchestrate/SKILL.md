@@ -1172,7 +1172,7 @@ TASK_STORE=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-store
 bash "$TASK_STORE" update-status <ISSUE-ID>-<task_id> <new_status>
 ```
 
-Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009, the task-store write/update/no-delete-after-completion MUSTs); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
+Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). **MUST** pass the compound key — bare TaskCreate integers are non-native (CDT-167: unique compound is redirected, multi-match fails closed; historical bare stubs are handled by shadow-safe TaskCompleted, not invent). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009, the task-store write/update/no-delete-after-completion MUSTs); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
 
 ### Defensive CI-watch cleanup
 
