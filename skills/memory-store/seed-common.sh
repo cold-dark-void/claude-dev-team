@@ -6,6 +6,7 @@
 #
 # Functions:
 #   seed_agents
+#   seed_is_valid_agent <name>
 #   seed_normalize_content <text>
 #   seed_content_hash <text>          # 12-char sha256 of normalized content (no trailer)
 #   seed_trailer project date tier agent hash
@@ -19,6 +20,17 @@ set -u
 
 seed_agents() {
   printf '%s\n' "pm tech-lead ic5 ic4 devops qa ds"
+}
+
+# Membership test against the canonical agent allowlist. Pack-supplied
+# agent ids are untrusted and reach both SQL and filesystem paths, so
+# they MUST pass this before either (SPEC-024 M8, CDT-176).
+seed_is_valid_agent() {
+  local candidate="${1-}" a
+  for a in $(seed_agents); do
+    [ "$candidate" = "$a" ] && return 0
+  done
+  return 1
 }
 
 # Normalize: strip CR, rstrip each line, drop trailing blank lines, single trailing NL.

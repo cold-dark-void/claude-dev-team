@@ -94,6 +94,8 @@ insert_db() {
   local agent="$1" content="$2" meta_json="$3"
   local escaped meta_esc memory_id rc
 
+  seed_is_valid_agent "$agent" || return 1
+
   escaped=$(printf '%s' "$content" | sed "s/'/''/g")
   meta_esc=$(printf '%s' "$meta_json" | sed "s/'/''/g")
 
@@ -136,9 +138,12 @@ FALLBACK_LIMITS_lessons=80
 
 insert_fallback() {
   local agent="$1" content="$2"
+  seed_is_valid_agent "$agent" || return 1
+
   local dir="$MROOT/.claude/memory/$agent"
   local target="$dir/lessons.md"
   local limit=80
+
   mkdir -p "$dir"
   local existing=0
   if [ -f "$target" ]; then
@@ -328,6 +333,12 @@ print(json.dumps({
     # Prefer trailer agent if present and non-empty
     if [ -n "$SEED_AGENT" ]; then
       target_agent="$SEED_AGENT"
+    fi
+
+    if ! seed_is_valid_agent "$target_agent"; then
+      warn "invalid agent id in $fname (agent=${target_agent:0:40}) — entry rejected"
+      REJECTED=$((REJECTED + 1))
+      continue
     fi
 
     if [ "$USE_DB" = true ]; then
