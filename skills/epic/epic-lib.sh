@@ -58,6 +58,17 @@ die() {
   exit "$rc"
 }
 
+# validate_epic_id <id>  — die 64 if empty or outside allowlist (CDT-169)
+validate_epic_id() {
+  local id="${1:-}"
+  if [ -z "$id" ]; then
+    die 64 "missing <EPIC-ID>"
+  fi
+  if [[ ! "$id" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    die 64 "invalid epic id (only [A-Za-z0-9_-] allowed): $id"
+  fi
+}
+
 if ! command -v jq >/dev/null 2>&1; then
   die 1 "jq is required but not found in PATH"
 fi
@@ -83,7 +94,7 @@ resolve_mroot() {
 epic_paths() {
   # epic_paths <EPIC-ID>
   local id="${1:-}"
-  [ -n "$id" ] || die 64 "missing <EPIC-ID>"
+  validate_epic_id "$id"
   resolve_mroot
   EPICS_DIR="$MROOT/.claude/epics"
   EPIC_DIR="$EPICS_DIR/$id"
@@ -698,6 +709,7 @@ cmd_assert_release_allowed() {
   local ref="${1:-}"
   [ -n "$ref" ] || die 64 "assert-release-allowed: missing <ticket-or-epic>"
   [ $# -eq 1 ] || die 64 "assert-release-allowed: unexpected args"
+  validate_epic_id "$ref"
 
   # C5 seal invocation may temporarily allow the end-of-epic /release.
   if [ "${EPIC_ALLOW_SEAL_RELEASE:-}" = "1" ]; then

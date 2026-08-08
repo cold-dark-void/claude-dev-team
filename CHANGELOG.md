@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.7
+- **EPIC-ID path charset guard (CDT-169)** — `epic-lib` rejects ids outside `^[A-Za-z0-9_-]+$` (exit 64) in `epic_paths` and `assert-release-allowed` before any `.claude/epics/` path join; SPEC-025 M6 MUST + charset bite-tests (`../` and peers).
+
 ### v1.7.6
 - **Gate `seal --abort` on dirty main (CDT-170)** — bare `--abort` refuses non-empty `git status --porcelain` on main (exit 1, zero `reset`/`clean`, WIP preserved, including `already_sealed`); `--abort --force` MAY wipe; squash/hook same-invocation recovery still ungated; handoff `on_failure` and B.7 failure fence use `--force` after staged seal. SPEC-025 M14 C5 + tests (`c5-abort-dirty`).
 

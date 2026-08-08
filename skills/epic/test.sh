@@ -1622,6 +1622,75 @@ rm -f "$V1" "$V2" "$V3" "$V4"
 rm -rf "$SYNC_ROOT"
 unset EPIC_ROOT
 
+# ---- CDT-169: EPIC-ID charset (AC2–AC8) ------------------------------------
+{
+  CS_TMP=$(mktemp -d "${TMPDIR:-/tmp}/epic-charset.XXXXXX")
+  run_cs() {
+    local want="$1"; shift
+    set +e
+    OUT=$(EPIC_ROOT="$CS_TMP" bash "$LIB" "$@" 2>&1)
+    RC=$?
+    set -e
+    if [ "$RC" -eq "$want" ]; then pass
+    else fail "cs exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
+    fi
+  }
+
+  # Soft stderr lock (AC8): invalid + allowlist pattern
+  assert_cs_reject() {
+    local label="$1"; shift
+    run_cs 64 "$@"
+    echo "$OUT" | grep -qi 'invalid' \
+      && pass || fail "cs $label missing 'invalid' (out=$OUT)"
+    echo "$OUT" | grep -qE '\[A-Za-z0-9_-\]|allowed' \
+      && pass || fail "cs $label missing allowlist (out=$OUT)"
+  }
+
+  BAD_IDS=('../' '../../' 'foo/../bar' '..' '.' '/tmp/x' '/' 'has space')
+
+  # (cs-1) read paths reject (AC5, AC9)
+  for bad in "${BAD_IDS[@]}"; do
+    assert_cs_reject "show:$bad" show "$bad"
+    assert_cs_reject "exists:$bad" exists "$bad"
+    assert_cs_reject "ready-set:$bad" ready-set "$bad"
+  done
+
+  # (cs-2) write path rejects before FS side effects (AC3)
+  mkdir -p "$CS_TMP/.claude/epics"
+  before=$(find "$CS_TMP/.claude/epics" -mindepth 1 2>/dev/null | sort || true)
+  for bad in "${BAD_IDS[@]}"; do
+    assert_cs_reject "init:$bad" init "$bad" --title "x" --mode kickoff
+  done
+  after=$(find "$CS_TMP/.claude/epics" -mindepth 1 2>/dev/null | sort || true)
+  [ "$before" = "$after" ] \
+    && pass || fail "cs init created paths under epics (after=$after)"
+
+  # (cs-3) empty id → 64 (cmd-level missing; AC5)
+  run_cs 64 show ""
+  echo "$OUT" | grep -qi 'missing' \
+    && pass || fail "cs empty show want missing (out=$OUT)"
+  run_cs 64 exists ""
+  run_cs 64 init "" --title "x" --mode kickoff
+
+  # (cs-4) assert-release-allowed bypass also allowlisted (AC4)
+  assert_cs_reject "assert:../evil" assert-release-allowed '../evil'
+  assert_cs_reject "assert:.." assert-release-allowed '..'
+  assert_cs_reject "assert:/tmp/x" assert-release-allowed '/tmp/x'
+  # valid unknown ticket still allow (unchanged happy path for charset)
+  run_cs 0 assert-release-allowed CDT-169-C99
+
+  # (cs-5) happy path valid ids (AC6)
+  for good in CDT-169 EPIC-001 epic_demo-1; do
+    run_cs 0 init "$good" --title "ok $good" --mode kickoff
+    run_cs 0 exists "$good"
+    run_cs 0 show "$good"
+    echo "$OUT" | jq -e --arg id "$good" '.epic_id==$id' >/dev/null \
+      && pass || fail "cs show $good shape (out=$OUT)"
+  done
+
+  rm -rf "$CS_TMP"
+}
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
