@@ -9,7 +9,8 @@
 #   reconcile.sh [--root PATH] [--dry-run] [--linear-verdicts FILE]
 #
 # LOCAL pass (always):
-#   - Rows whose item file Status is COMPLETED/DONE/FIXED-CLOSED (case-insensitive) → PRUNED
+#   - Rows whose item file Status is terminal per shared classifier terminal-status.sh
+#     (COMPLETED/DONE/FIXED*/CLOSED/CANCELLED/…; case-insensitive token-match) → PRUNED
 #     (item file deleted, index row dropped). Linear (when linked) or git/commit history is the
 #     durable record for done work — the local write-through is a disposable cache, not an archive.
 #   - Index rows with no corresponding item file → REMOVED (dead references).
@@ -67,16 +68,11 @@ resolve_root() {
   ROOT=$(pwd)
 }
 
-# Uppercase + normalize a status string, then classify as terminal (closed) or not.
-# Local item-file terminals: COMPLETED, DONE, FIXED-CLOSED, FIXED/CLOSED (any case, trailing noise ok).
-# Linear terminal states (used when classifying --linear-verdicts entries): also CANCELLED/CANCELED.
+# Shared terminal classifier (CDT-160) — contract lives in terminal-status.sh (SPEC-009).
+# Blank-state-in-verdicts short-circuit stays at load_verdicts call sites (not here).
+_TS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/terminal-status.sh"
 is_closed_status() {
-  local s
-  s=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
-  case "$s" in
-    *COMPLETED*|*DONE*|*FIXED-CLOSED*|*FIXED/CLOSED*|*FIXED*CLOSED*|*CLOSED*|*CANCELLED*|*CANCELED*) return 0 ;;
-    *) return 1 ;;
-  esac
+  bash "$_TS" is-closed "$1"
 }
 
 # Read **Status**: value from an item file (first hit), trimmed.

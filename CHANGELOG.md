@@ -5,6 +5,9 @@ Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` heading
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
+### v1.7.12
+- **Shared terminal-status classifier for close/reconcile (CDT-160)** — one `skills/backlog/terminal-status.sh is-closed` matcher (token-boundary, not unanchored substring); wires `close.sh` + `reconcile.sh`; DONE/CANCELLED parity for verify/Already-closed/prune; write surface still COMPLETED|FIXED/CLOSED only; unit+integration tests (87+59) + SPEC-009/SKILL.md.
+
 ### v1.7.11
 - **Bare-id task-store stub cannot shadow compound council meta (CDT-167)** — `update-status` invents bare `rc:false` only when no `*-<id>.json` exists (unique compound → redirect update; multi → fail closed); TaskCompleted template uses any-true over flat∪suffix candidates so historical bare stubs no longer silent-pass; SPEC-002/009/017 + `task-store-test.sh` (22 cases). Live hooks: re-run `/setup orchestration`.
 

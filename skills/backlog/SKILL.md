@@ -295,6 +295,15 @@ bash "$CLOSE" verify <slug-or-title> [--root <path>]
 `close.sh` is subprocess-only, bash-only (no MCP). It is **idempotent**
 (re-close → `Already closed:`). Does **not** git-commit or stage.
 
+**Terminal classification** (verify + idempotent re-close) uses the shared
+classifier `skills/backlog/terminal-status.sh` — single definition of truth
+(SPEC-009 / CDT-160). Closed when status is (case-insensitive, token-match
+not bare substring; trailing noise OK): `COMPLETED`, `DONE`,
+`FIXED/CLOSED` | `FIXED-CLOSED` | `FIXED CLOSED`, `CLOSED`,
+`CANCELLED` | `CANCELED`. Open: `PENDING`, `DEFERRED`, empty. Write path
+`--status` is unchanged: only `COMPLETED|FIXED/CLOSED` (do not invent new
+write values for close).
+
 #### Session Linear close (before or after local CLI)
 
 1. Resolve the item (slug/title match). Read `linear_id` from YAML frontmatter
@@ -369,8 +378,12 @@ bash "$RECON" [--root <path>] [--dry-run] [--linear-verdicts <file>]
 
 #### What it does (LOCAL pass — always)
 
-- Rows whose **item file** `Status` reads `COMPLETED` / `DONE` / `FIXED-CLOSED` (case-insensitive)
-  → **pruned**: item file deleted, index row dropped entirely (not moved/archived).
+- Rows whose **item file** `Status` is terminal per shared classifier
+  `skills/backlog/terminal-status.sh` (token-match, not bare substring;
+  case-insensitive; trailing noise OK) — AC2 set: `COMPLETED`, `DONE`,
+  `FIXED/CLOSED` | `FIXED-CLOSED` | `FIXED CLOSED`, `CLOSED`,
+  `CANCELLED` | `CANCELED` — → **pruned**: item file deleted, index row
+  dropped entirely (not moved/archived). (`UNDONE` stays open.)
 - Index rows with **no corresponding item file** (dead references) → **removed**.
 - **Duplicate** rows for one slug → collapsed to a single row (first-seen kept).
 - **Orphan item files** — files under `.claude/backlog/` with **no index row at all** (never
@@ -511,7 +524,7 @@ linear_id: <LINEAR-ID>   # optional; set when dual-written with Linear
 
 # <TITLE>
 
-**Status**: PENDING | COMPLETED | DEFERRED
+**Status**: PENDING | COMPLETED | DONE | FIXED/CLOSED | FIXED-CLOSED | FIXED CLOSED | CLOSED | CANCELLED | CANCELED | DEFERRED
 
 ## Problem
 
@@ -542,6 +555,12 @@ Optional: any other relevant context. Items may also add ad-hoc sections as need
 *Added: YYYY-MM-DD*
 *Closed: YYYY-MM-DD*   ← only when completed
 ```
+
+Readable terminal statuses (close/reconcile classify via
+`skills/backlog/terminal-status.sh`): `COMPLETED`, `DONE`,
+`FIXED/CLOSED` | `FIXED-CLOSED` | `FIXED CLOSED`, `CLOSED`,
+`CANCELLED` | `CANCELED`. Write path still emits only
+`COMPLETED` | `FIXED/CLOSED`.
 
 Epic children may carry additional frontmatter (`epic_parent`, `child_id`,
 `depends_on`, `estimate`, `agent`) per SPEC-025 — preserve those fields on close.

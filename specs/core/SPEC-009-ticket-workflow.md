@@ -119,6 +119,43 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - **MUST inline self-contained content in Linear descriptions.** `/backlog add` MUST inline the actual problem/goal substance in the Linear description — never a bare pointer to a local-only file path (a worktree-relative path, `.claude/plans/**`, `.claude/backlog/**`). Linear is read by teammates and agents with no access to the authoring checkout's disk. A local path MAY be added as a supplementary cross-reference after the inlined substance, never as a substitute for it (origin: CDT-111 — a Linear issue was created pointing solely at a local `.claude/plans/**` file).
 - **MUST provide a non-interactive write-back path (contract home).** `skills/backlog/SKILL.md` § Programmatic write-back protocol is the contract home (SPEC-002 D1) for any skill that needs to write a backlog item without a user turn: content pre-supplied (skipping the interactive ask), dedup guard fixed to suffix (the abort branch is unavailable non-interactively), and MCP mode either Linear-first (default) or a caller-declared `--local-only`. Citing callers MUST NOT reimplement this logic independently. Known callers: `skills/brainstorm/SKILL.md` Step 4c, `skills/refactor/SKILL.md` § 2.2a.5 (`--local-only`, SPEC-031), `commands/retro.md` `--auto` mode (SPEC-012).
 
+#### Backlog terminal status classification (CDT-160)
+
+Shared closed/open classification for local item-file `**Status**` values and for
+`--linear-verdicts` state strings consumed by reconcile. Contract home for the
+matcher is `skills/backlog/terminal-status.sh` (SPEC-002 D1); `close.sh` and
+`reconcile.sh` MUST use that single definition — MUST NOT maintain a second
+inline copy.
+
+- **MUST** classify a status string as **closed** (terminal) iff, after
+  case-fold to uppercase and trim of leading/trailing whitespace, it **token-matches**
+  one of:
+  - `COMPLETED`
+  - `DONE`
+  - `FIXED/CLOSED` | `FIXED-CLOSED` | `FIXED CLOSED`
+  - `CLOSED`
+  - `CANCELLED` | `CANCELED`
+- **Token-match (normative).** The status MUST begin with a terminal token above;
+  the token boundary is end-of-string **or** a character that is not
+  `[A-Z0-9]` (so trailing noise such as ` (CDT-99)`, ` — note`, or a parenthetical
+  is allowed). Unanchored substring match is **forbidden** (e.g. `UNDONE` MUST
+  stay open; it must not match `DONE`).
+- **MUST** treat the following as **open** (not closed): `PENDING`, `DEFERRED`,
+  empty/blank item-file status, and any unrecognized string. (Reconcile's
+  separate rule that a **blank state in `--linear-verdicts`** means terminal
+  remains unchanged — that short-circuit lives in `reconcile.sh` **before** the
+  shared matcher is consulted.)
+- **Parity (MUST).** For any non-blank status string, `close.sh` (verify +
+  re-close idempotency path) and `reconcile.sh` (local prune + verdicts
+  classification) MUST return the same closed/open boolean.
+- **Write surface (MUST NOT expand).** `close.sh --status` remains
+  `COMPLETED|FIXED/CLOSED` only. Classification of `DONE` / `CANCELLED` /
+  `CANCELED` / bare `CLOSED` is read-side only (verify, Already-closed, prune) —
+  close MUST NOT emit those tokens as the written `**Status**` line.
+- **Idempotency (MUST).** When item `**Status**` is already closed per the
+  shared matcher, `close.sh` MUST print `Already closed:` and exit 0 without
+  rewriting; `close.sh verify` MUST exit 0.
+
 #### Backlog add dedup guard
 
 - MUST NOT write a silent duplicate index row for an existing slug on `/backlog add`. When the
@@ -152,8 +189,10 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
     — item file deleted, index row dropped.
   - **Linear unreachable, or no Linear counterpart (fallback).** When the Linear MCP is
     unreachable, OR an item has no Linear counterpart, local item-file status is authoritative:
-    - Rows whose item file `Status` reads `COMPLETED` / `DONE` / `FIXED-CLOSED` (case-insensitive)
-      MUST be **pruned** (item file deleted, index row dropped).
+    - Rows whose item file `Status` is **closed** per §"Backlog terminal status
+      classification" (including `COMPLETED` / `DONE` / `FIXED-CLOSED` /
+      `FIXED/CLOSED` / `CLOSED` / `CANCELLED` / `CANCELED`, case-insensitive,
+      token-match) MUST be **pruned** (item file deleted, index row dropped).
     - Index rows with **no** corresponding item file MUST be removed (dead references).
     - Duplicate rows for one slug MUST collapse to a single row (repairs pre-guard indexes; see
       the add dedup guard above).
@@ -204,9 +243,13 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify wrap-ticket blocks on in-progress tasks
 - Verify backlog slug generation handles collisions
 - Verify `close.sh` closes item + moves index line; verify is idempotent; verify gate fails while PENDING
+- Verify `close.sh verify` exits 0 for item Status DONE / CANCELLED / CANCELED / FIXED/CLOSED (with optional trailing noise); exits non-zero for PENDING / DEFERRED / UNDONE
+- Verify re-close of an already-DONE (or CANCELLED) item prints `Already closed:` and does not rewrite Status
+- Verify `close.sh --status` rejects values other than COMPLETED|FIXED/CLOSED (write surface unchanged)
+- Verify shared matcher unit cases: each AC2 terminal token closed; UNDONE and other substring false-positives open
 - Verify orchestrate plan includes Tracking/closes and ship DoD runs close on feature worktree
 - Verify `/backlog add` for an existing slug never writes a second row keyed to that slug (suffixes `-2`/`-3` or aborts with a message)
-- Verify `/backlog reconcile` prunes (deletes item file + drops index row) rows whose item file reads COMPLETED/DONE/FIXED-CLOSED, removes index rows with no item file (dead refs), and collapses duplicate rows for one slug
+- Verify `/backlog reconcile` prunes (deletes item file + drops index row) rows whose item file is closed per shared terminal classification (COMPLETED/DONE/FIXED-CLOSED/CANCELLED/…), removes index rows with no item file (dead refs), and collapses duplicate rows for one slug
 - Verify `/backlog reconcile` prunes an item when the Linear issue is Done/Cancelled/Completed and the MCP is reachable (Linear-SoT precedence)
 - Verify `/backlog reconcile` degrades to the local item-file fallback with a one-line notice (no block, no fail) when the Linear MCP is unreachable
 - Verify `/backlog reconcile` prunes a closed-status orphan item file (no index row) and leaves an open/unrecognized-status orphan untouched and reported, never inventing an index row for it
@@ -262,6 +305,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 | 2026-07-28 | Reconcile now PRUNES terminal items (deletes item file + drops index row) instead of moving them to `## Completed` — local write-through is a disposable cache, Linear/git history is the durable record. Added orphan-file scan (item files with no index row): terminal-status orphans pruned, open/unrecognized-status orphans reported and left untouched (never auto-indexed, never silently deleted). Fixes CDT-54's local backlog never actually shrinking despite Linear being SoT. |
 | 2026-08-07 | Linear lifecycle: In Progress → In Review (PR-stop / off-master) → Done only on master-land or `/wrap-ticket` post-merge. PR-open MUST NOT set Done. |
 | 2026-08-07 | CDT-167: TaskCompleted flat/compound meta resolution is shadow-safe (any-true gate; bare stub MUST NOT shadow compound `requires_council: true`). Orchestrate MUST keep compound keys on update-status; invent policy owned by SPEC-017. |
+| 2026-08-07 | CDT-160: shared backlog terminal-status classification. One matcher (`skills/backlog/terminal-status.sh`) used by `close.sh` + `reconcile.sh`; token set COMPLETED/DONE/FIXED{/, -, space}CLOSED/CLOSED/CANCELLED|CANCELED; token-match (not unanchored substring); write surface `--status COMPLETED|FIXED/CLOSED` unchanged; DONE/CANCELLED parity for verify + Already-closed + prune. |
 
 ## Cross-references
 

@@ -407,6 +407,112 @@ else
   fail "(j) open-status orphan stable across repeated reconcile" "cmp differs"
 fi
 
+# --- (k) Local CANCELLED / CANCELED terminal prune (CDT-160 AC4) ---
+# Mirror (g) DONE closer: Status CANCELLED|CANCELED → file deleted, row gone; PENDING sibling stays.
+Rk="$TMP/k"
+mkdir -p "$Rk/.claude/backlog"
+cat > "$Rk/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Cancelled UK](backlog/cancelled-uk.md) - dropped [PENDING]
+- [Canceled US](backlog/canceled-us.md) - dropped [PENDING]
+- [Still open](backlog/still-open.md) - stays [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rk/.claude/backlog/cancelled-uk.md" "CANCELLED"
+item_file "$Rk/.claude/backlog/canceled-us.md" "CANCELED"
+item_file "$Rk/.claude/backlog/still-open.md" "PENDING"
+bash "$RECONCILE" --root "$Rk" >/dev/null
+if [ ! -f "$Rk/.claude/backlog/cancelled-uk.md" ]; then
+  pass "(k) local CANCELLED item file pruned (deleted)"
+else
+  fail "(k) local CANCELLED item file pruned (deleted)" "file still exists"
+fi
+if [ ! -f "$Rk/.claude/backlog/canceled-us.md" ]; then
+  pass "(k) local CANCELED item file pruned (deleted)"
+else
+  fail "(k) local CANCELED item file pruned (deleted)" "file still exists"
+fi
+assert_file_nomatch "(k) CANCELLED row removed from index" "$Rk/.claude/backlog.md" 'cancelled-uk\.md'
+assert_file_nomatch "(k) CANCELED row removed from index" "$Rk/.claude/backlog.md" 'canceled-us\.md'
+assert_file_match "(k) PENDING sibling stays open" "$Rk/.claude/backlog.md" 'still-open\.md\).*\[PENDING\]'
+assert_file_match "(k) PENDING item Status unchanged" "$Rk/.claude/backlog/still-open.md" '^\*\*Status\*\*: PENDING'
+
+# --- (l) Linear Cancelled / Canceled verdicts prune PENDING local (CDT-160 AC4) ---
+Rl="$TMP/l"
+mkdir -p "$Rl/.claude/backlog"
+cat > "$Rl/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Lin cancel UK](backlog/lin-cancel-uk.md) - cancelled in Linear [PENDING]
+- [Lin cancel US](backlog/lin-cancel-us.md) - canceled in Linear [PENDING]
+- [Lin open](backlog/lin-open.md) - no verdict [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rl/.claude/backlog/lin-cancel-uk.md" "PENDING"
+item_file "$Rl/.claude/backlog/lin-cancel-us.md" "PENDING"
+item_file "$Rl/.claude/backlog/lin-open.md" "PENDING"
+# Mixed case as Linear MCP may emit (is_closed_status is case-insensitive).
+printf 'lin-cancel-uk\tCancelled\nlin-cancel-us\tCanceled\n' > "$Rl/verdicts.tsv"
+out_l=$(bash "$RECONCILE" --root "$Rl" --linear-verdicts "$Rl/verdicts.tsv")
+if [ ! -f "$Rl/.claude/backlog/lin-cancel-uk.md" ]; then
+  pass "(l) Linear Cancelled verdict item pruned (deleted)"
+else
+  fail "(l) Linear Cancelled verdict item pruned (deleted)" "file still exists"
+fi
+if [ ! -f "$Rl/.claude/backlog/lin-cancel-us.md" ]; then
+  pass "(l) Linear Canceled verdict item pruned (deleted)"
+else
+  fail "(l) Linear Canceled verdict item pruned (deleted)" "file still exists"
+fi
+assert_file_nomatch "(l) Cancelled row removed from index" "$Rl/.claude/backlog.md" 'lin-cancel-uk\.md'
+assert_file_nomatch "(l) Canceled row removed from index" "$Rl/.claude/backlog.md" 'lin-cancel-us\.md'
+assert_out_match "(l) prune reason cites Linear for Cancelled" "$out_l" "prune 'lin-cancel-uk'.*Linear verdict"
+assert_out_match "(l) prune reason cites Linear for Canceled" "$out_l" "prune 'lin-cancel-us'.*Linear verdict"
+assert_file_match "(l) non-verdict sibling stays PENDING" "$Rl/.claude/backlog.md" 'lin-open\.md\).*\[PENDING\]'
+assert_file_match "(l) non-verdict item Status still PENDING" "$Rl/.claude/backlog/lin-open.md" '^\*\*Status\*\*: PENDING'
+
+# --- (m) Non-terminal Linear verdict (UNDONE) does not prune; PENDING stays open ---
+Rm="$TMP/m"
+mkdir -p "$Rm/.claude/backlog"
+cat > "$Rm/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Not terminal](backlog/not-terminal.md) - UNDONE is open [PENDING]
+- [Done via Linear](backlog/done-via-linear.md) - Done still prunes [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rm/.claude/backlog/not-terminal.md" "PENDING"
+item_file "$Rm/.claude/backlog/done-via-linear.md" "PENDING"
+printf 'not-terminal\tUNDONE\ndone-via-linear\tDone\n' > "$Rm/verdicts.tsv"
+bash "$RECONCILE" --root "$Rm" --linear-verdicts "$Rm/verdicts.tsv" >/dev/null
+if [ -f "$Rm/.claude/backlog/not-terminal.md" ]; then
+  pass "(m) UNDONE Linear verdict does NOT prune item"
+else
+  fail "(m) UNDONE Linear verdict does NOT prune item" "file was deleted"
+fi
+assert_file_match "(m) UNDONE verdict slug stays PENDING in index" "$Rm/.claude/backlog.md" 'not-terminal\.md\).*\[PENDING\]'
+assert_file_match "(m) UNDONE item Status still PENDING" "$Rm/.claude/backlog/not-terminal.md" '^\*\*Status\*\*: PENDING'
+# Control: Done verdict still prunes (existing DONE path remains green under same run).
+if [ ! -f "$Rm/.claude/backlog/done-via-linear.md" ]; then
+  pass "(m) Done Linear verdict still prunes (DONE path green)"
+else
+  fail "(m) Done Linear verdict still prunes (DONE path green)" "file still exists"
+fi
+assert_file_nomatch "(m) Done-verdict row removed" "$Rm/.claude/backlog.md" 'done-via-linear\.md'
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

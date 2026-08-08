@@ -17,6 +17,11 @@
 
 set -euo pipefail
 
+_TS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/terminal-status.sh"
+is_closed_status() {
+  bash "$_TS" is-closed "$1"
+}
+
 USAGE='Usage: close.sh <slug-or-title> [options]
        close.sh verify <slug-or-title> [--root PATH]
 Options: --ticket ID  --sha SHA  --note TEXT  --root PATH
@@ -81,15 +86,6 @@ resolve_root() {
     return 0
   fi
   ROOT=$(pwd)
-}
-
-is_closed_status() {
-  local s
-  s=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
-  case "$s" in
-    *COMPLETED*|*FIXED/CLOSED*|*FIXED*CLOSED*|*CLOSED*) return 0 ;;
-    *) return 1 ;;
-  esac
 }
 
 # Prints matching slugs (one per line). Exit 1 if none.

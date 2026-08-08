@@ -4,6 +4,7 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CLOSE="$HERE/close.sh"
+TS="$HERE/terminal-status.sh"
 PASS=0
 FAIL=0
 
@@ -15,6 +16,18 @@ assert_eq() {
   if [ "$want" = "$got" ]; then pass "$name"
   else fail "$name" "want='$want' got='$got'"
   fi
+}
+
+# Assert terminal-status.sh is-closed exit code (0 closed / 1 open / 64 usage).
+assert_ts_rc() {
+  local name="$1" want_rc="$2"
+  shift 2
+  local rc
+  set +e
+  bash "$TS" "$@" >/dev/null 2>&1
+  rc=$?
+  set -e
+  assert_eq "$name" "$want_rc" "$rc"
 }
 
 assert_file_match() {
@@ -106,6 +119,42 @@ y
 *Closed: 2026-02-01*
 EOF
 }
+
+echo "== terminal-status.sh unit tests (CDT-160) =="
+
+# Closed terminals (AC2 / AC5 token-match)
+assert_ts_rc "ts COMPLETED closed" 0 is-closed COMPLETED
+assert_ts_rc "ts completed closed" 0 is-closed completed
+assert_ts_rc "ts COMPLETED (CDT-1) closed" 0 is-closed "COMPLETED (CDT-1)"
+assert_ts_rc "ts DONE closed" 0 is-closed DONE
+assert_ts_rc "ts done closed" 0 is-closed done
+assert_ts_rc "ts DONE — note closed" 0 is-closed "DONE — note"
+assert_ts_rc "ts DONE (CDT-1) closed" 0 is-closed "DONE (CDT-1)"
+assert_ts_rc "ts FIXED/CLOSED closed" 0 is-closed "FIXED/CLOSED"
+assert_ts_rc "ts FIXED-CLOSED closed" 0 is-closed "FIXED-CLOSED"
+assert_ts_rc "ts FIXED CLOSED closed" 0 is-closed "FIXED CLOSED"
+assert_ts_rc "ts FIXED/CLOSED (BHR-1) closed" 0 is-closed "FIXED/CLOSED (BHR-1)"
+assert_ts_rc "ts FIXED/CLOSED (X) closed" 0 is-closed "FIXED/CLOSED (X)"
+assert_ts_rc "ts CLOSED closed" 0 is-closed CLOSED
+assert_ts_rc "ts CANCELLED closed" 0 is-closed CANCELLED
+assert_ts_rc "ts CANCELED closed" 0 is-closed CANCELED
+assert_ts_rc "ts Canceled closed" 0 is-closed Canceled
+
+# Open / non-terminals (AC2 / AC5)
+assert_ts_rc "ts PENDING open" 1 is-closed PENDING
+assert_ts_rc "ts DEFERRED open" 1 is-closed DEFERRED
+assert_ts_rc "ts empty open" 1 is-closed ""
+assert_ts_rc "ts UNDONE open" 1 is-closed UNDONE
+assert_ts_rc "ts NOT DONE open" 1 is-closed "NOT DONE"
+assert_ts_rc "ts PRECOMPLETED open" 1 is-closed PRECOMPLETED
+assert_ts_rc "ts FIXED/CLOSEDX open" 1 is-closed FIXED/CLOSEDX
+assert_ts_rc "ts FIXED-CLOSEDX open" 1 is-closed FIXED-CLOSEDX
+assert_ts_rc "ts FIXED CLOSEDX open" 1 is-closed "FIXED CLOSEDX"
+
+# Usage errors
+assert_ts_rc "ts missing status usage" 64 is-closed
+assert_ts_rc "ts no args usage" 64
+assert_ts_rc "ts unknown cmd usage" 64 not-a-cmd x
 
 echo "== close.sh tests =="
 
@@ -406,6 +455,110 @@ if printf '%s\n' "$out10" | grep -qiE '^error:'; then
 else
   pass "orphan item no error:"
 fi
+
+# --- CDT-160 T6: close integration — terminal-status parity (AC3–AC5, AC7) ---
+# Helper: single-item fixture with given **Status** value (no index needed for verify/re-close).
+mk_status_item() {
+  local root="$1" slug="$2" status="$3"
+  mkdir -p "$root/.claude/backlog"
+  cat > "$root/.claude/backlog/${slug}.md" <<EOF
+# ${slug}
+
+**Status**: ${status}
+
+## Problem
+
+x
+
+## Goal
+
+y
+
+---
+
+*Added: 2026-07-01*
+EOF
+}
+
+assert_verify_rc() {
+  local name="$1" root="$2" slug="$3" want_rc="$4"
+  local rc
+  set +e
+  bash "$CLOSE" verify "$slug" --root "$root" >/dev/null 2>&1
+  rc=$?
+  set -e
+  assert_eq "$name" "$want_rc" "$rc"
+}
+
+# 1–2: DONE → verify 0; re-close → Already closed; status stays DONE (not rewritten)
+RT="$TMP/rt-done"
+mk_status_item "$RT" done-item "DONE"
+assert_verify_rc "close DONE verify exit 0" "$RT" done-item 0
+set +e
+out_done=$(bash "$CLOSE" done-item --root "$RT" 2>&1)
+rc_done=$?
+set -e
+if [ "$rc_done" -eq 0 ]; then pass "close DONE re-close exit 0"
+else fail "close DONE re-close exit 0" "rc=$rc_done out=$out_done"
+fi
+if printf '%s\n' "$out_done" | grep -qE '^Already closed:'; then
+  pass "close DONE re-close Already closed"
+else
+  fail "close DONE re-close Already closed" "got=$out_done"
+fi
+assert_file_match "close DONE re-close keeps DONE status" \
+  "$RT/.claude/backlog/done-item.md" '^\*\*Status\*\*: DONE$'
+assert_file_nomatch "close DONE re-close not rewritten to COMPLETED" \
+  "$RT/.claude/backlog/done-item.md" 'COMPLETED'
+
+# 3a: CANCELLED verify + re-close
+RT="$TMP/rt-cancelled"
+mk_status_item "$RT" cancelled-item "CANCELLED"
+assert_verify_rc "close CANCELLED verify exit 0" "$RT" cancelled-item 0
+set +e
+out_can=$(bash "$CLOSE" cancelled-item --root "$RT" 2>&1)
+rc_can=$?
+set -e
+if [ "$rc_can" -eq 0 ] && printf '%s\n' "$out_can" | grep -qE '^Already closed:'; then
+  pass "close CANCELLED re-close Already closed"
+else
+  fail "close CANCELLED re-close Already closed" "rc=$rc_can out=$out_can"
+fi
+assert_file_match "close CANCELLED keeps CANCELLED" \
+  "$RT/.claude/backlog/cancelled-item.md" '^\*\*Status\*\*: CANCELLED$'
+
+# 3b: CANCELED (US) verify exit 0
+RT="$TMP/rt-canceled"
+mk_status_item "$RT" canceled-item "CANCELED"
+assert_verify_rc "close CANCELED verify exit 0" "$RT" canceled-item 0
+
+# 4: UNDONE stays open (substring guard AC5)
+RT="$TMP/rt-undone"
+mk_status_item "$RT" undone-item "UNDONE"
+assert_verify_rc "close UNDONE verify exit 1" "$RT" undone-item 1
+
+# 5: PENDING open
+RT="$TMP/rt-pending"
+mk_status_item "$RT" pending-item "PENDING"
+assert_verify_rc "close PENDING verify exit 1" "$RT" pending-item 1
+
+# 6: write --status still rejects DONE (AC7)
+RT="$TMP/rt-write-done"
+mk_status_item "$RT" write-item "PENDING"
+set +e
+out_wd=$(bash "$CLOSE" write-item --root "$RT" --status DONE 2>&1)
+rc_wd=$?
+set -e
+if [ "$rc_wd" -eq 64 ]; then pass "close --status DONE rejected exit 64"
+else fail "close --status DONE rejected exit 64" "rc=$rc_wd out=$out_wd"
+fi
+assert_file_match "close --status DONE leaves item PENDING" \
+  "$RT/.claude/backlog/write-item.md" '^\*\*Status\*\*: PENDING$'
+
+# 7: trailing noise FIXED/CLOSED (CDT-9) verify exit 0
+RT="$TMP/rt-fixed-noise"
+mk_status_item "$RT" fixed-noise "FIXED/CLOSED (CDT-9)"
+assert_verify_rc "close FIXED/CLOSED (CDT-9) verify exit 0" "$RT" fixed-noise 0
 
 echo
 echo "Results: $PASS passed, $FAIL failed"
