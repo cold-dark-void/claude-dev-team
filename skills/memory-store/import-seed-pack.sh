@@ -353,12 +353,17 @@ print(json.dumps({
 }, sort_keys=True, separators=(",", ":")))
 ')
 
-    local target_agent="$agent"
-    # Prefer trailer agent if present and non-empty
-    if [ -n "$SEED_AGENT" ]; then
-      target_agent="$SEED_AGENT"
-    fi
+    # seed_parse_trailer's regex requires agent=<non-space>+, so a parsed
+    # SEED_AGENT is always non-empty (an empty one fails parsing and was
+    # already rejected above) — there is no fallback to the filename-derived
+    # $agent. SEED_AGENT was roster-checked at the trailer gate above (CDT-174).
+    # A trailer naming a roster agent OTHER than its own file is not rejected
+    # here; that is CDT-193, tracked separately.
+    local target_agent="$SEED_AGENT"
 
+    # Backstop only — unreachable via the path above. Retained so that any
+    # future change to trailer parsing or target selection cannot reach the
+    # SQL/filesystem sinks unvalidated (CDT-176).
     if ! seed_is_valid_agent "$target_agent"; then
       warn "invalid agent id in $fname (agent=${target_agent:0:40}) — entry rejected"
       REJECTED=$((REJECTED + 1))
