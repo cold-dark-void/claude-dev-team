@@ -276,12 +276,22 @@ cmd_ensure() {
   fi
 
   mkdir -p "$MROOT/.worktrees"
-  # Atomic: create branch + worktree in one git call when branch is absent,
-  # so a worktree-add failure never leaves an orphan branch behind.
+  # Atomic preference: -b when branch absent. Both arms via git_retry 3 200
+  # (CDT-161). Re-probe after failed -b so sticky -b is never used once the
+  # branch exists (partial add can create the ref then EBUSY on config).
   if git -C "$MROOT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1; then
-    git -C "$MROOT" worktree add "$wt" "$branch" >&2
+    git_retry 3 200 -C "$MROOT" worktree add "$wt" "$branch"
   else
-    git -C "$MROOT" worktree add -b "$branch" "$wt" >&2
+    local _add_rc=0
+    git_retry 3 200 -C "$MROOT" worktree add -b "$branch" "$wt" || _add_rc=$?
+    if [ "$_add_rc" -ne 0 ]; then
+      if git -C "$MROOT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1 \
+         && [ ! -e "$wt" ]; then
+        git_retry 3 200 -C "$MROOT" worktree add "$wt" "$branch" || exit $?
+      else
+        exit "$_add_rc"
+      fi
+    fi
   fi
 
   write_lock_and_exit "$wt" "$lock"

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.9
+- **Retry ensure create-path worktree add on EBUSY (CDT-161)** — `cmd_ensure` wraps both `git worktree add` arms in `git_retry 3 200` (parity with release); failed `-b` re-probes branch and falls back to plain add; tests pin AC-1 (RETRY_ADD≥3 + re-probe) and AC-3/4 EBUSY shim; SPEC-016 MUST + Test + VH.
+
 ### v1.7.8
 - **Refuse STALE ensure reclaim when dirty or live task (CDT-162)** — `worktree-lib ensure` no longer overwrites a STALE `.wt-lock` on dirty trees or when `slug_has_live_task`; shared `is_worktree_dirty` with `release`; SPEC-016 STALE MUST + T7/T8/T9 tests (clean reclaim / dirty refuse / live-task refuse).
 

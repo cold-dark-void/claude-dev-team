@@ -27,6 +27,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 ### `ensure <slug>` semantics
 - MUST create the worktree at `$MROOT/.worktrees/<slug>` if absent
 - MUST create branch `feat/<slug>` if absent; MUST reuse the branch if it already exists
+- MUST route create-path `git worktree add` (both existing-branch and `-b` new-branch arms) through `git_retry 3 200` (same budget as `release` mutators) so EBUSY-class `.git/config` races do not fail a single bare `git worktree add` (CDT-161). On create-path failure after a partial `-b` that left `refs/heads/feat/<slug>` without a usable worktree dir, MUST re-probe the branch and retry via plain `git_retry 3 200 worktree add <path> <branch>` (MUST NOT sticky-retry `-b` after the branch exists). Exhausted/non-retryable failures MUST propagate `git_retry`'s non-zero rc with empty stdout and MUST NOT write a success lock
 - MUST print the absolute worktree path to stdout on success (and only on success)
 - MUST write `$MROOT/.worktrees/<slug>/.wt-lock` on success containing one line: `<epoch-seconds> <ISO-8601-UTC>` (space-separated). The lock is ADVISORY (the real holder is an LLM agent/conversation, not an OS process); AGE derived from the epoch field is authoritative. The ISO field is human-readable only
 - MUST detect existing `.wt-lock`, deciding FRESH vs STALE by age against `WT_LOCK_TTL_SECONDS` (env-overridable, default 6h / 21600s):
@@ -169,6 +170,7 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 ## Test
 
 - Verify `ensure <slug>` creates `.worktrees/<slug>`, branch `feat/<slug>`, and `.wt-lock` in `<epoch> <ISO>` format; prints absolute path; exits 0
+- Verify `ensure` create-path has no bare `git worktree add` (both arms invoke `git_retry 3 200`); optional: EBUSY within budget → exit 0 + path + lock; exhausted EBUSY → non-zero, empty stdout, no success lock (CDT-161)
 - Verify `ensure` against a FRESH lock (epoch = now, age < TTL): stderr shows summary, exit 2 on abort, stdout empty
 - Verify `ensure` against a **clean** STALE lock (age >= TTL, or unparseable/legacy `PID TS` format) with **no** live task: overwrites lock, exits 0, prints path (AC-3 / AC-9)
 - Verify `ensure` against a **dirty** STALE lock: does **not** overwrite lock, exit 1, empty stdout, stderr reason (AC-1 / AC-2 / AC-4 / AC-9)
@@ -222,6 +224,7 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 | 2026-07-22 | CDT-46-C4: `/worktree` reduced to mutate-only `release <slug>` (chat confirm retained). Read-only status\|list moves to `/status worktree`. `/worktree` is NOT a Deprecation stub. AGENTS Worktree Protocol SHOULD cite both surfaces. Lib `status`/`list`/`register`/`sweep` unchanged. |
 | 2026-08-02 | CDT-105: added `skills/kickoff/SKILL.md` as a create-caller. `/kickoff` MUST `ensure <TICKET-ID>` after context load and before the PM+TL spawn (mirroring orchestrate Step 3→4), commit its spec/plan/task work inside `$WT_PATH` (never `$MROOT`), and MUST NOT `release` at exit — the worktree is a resumable planning handoff (SPEC-009). Bare-`<TICKET-ID>` slug makes a later `/orchestrate <TICKET-ID>` reuse the same tree. Fixes the origin defect where standalone `/kickoff` committed the spec straight to master (CDT-104 a049044, CDT-99 0fdf420). No producer holds a live worktree at `/kickoff` handoff time (refactor releases first; debug creates none), so no double-create/orphan. |
 | 2026-08-07 | CDT-162: `ensure` STALE reclaim is no longer unconditional. Dirty STALE (release-equivalent porcelain, excl `.wt-lock`) and STALE with a live task (`slug_has_live_task`) MUST refuse reclaim — no lock overwrite, empty stdout, exit `1`. Clean STALE with no live task still overwrites lock and exits 0 with path. FRESH path and no-lock+existing-dir path unchanged. Exit-code table: exit `1` is shared safety/error for release and ensure STALE guards. |
+| 2026-08-07 | CDT-161: ensure create-path MUST use `git_retry 3 200` for both `worktree add` arms (parity with release mutators); re-probe branch after failed `-b` so sticky `-b` is not used once `feat/<slug>` exists; no new exit-code contract (passthrough `git_retry` rc). |
 
 ## Cross-references
 

@@ -184,11 +184,129 @@ SWEEP2=$(run_lib sweep 2>"$ERR_TMP"); SRC2=$?
 assert_eq "sweep completed still proposes" "$SRC2" "0"
 assert_contains "sweep still proposes completed-task slug" "$SWEEP2" "PROPOSAL stale-slug"
 
+echo "== T7 ensure git_retry (CDT-161) =="
+# AC-1 static: every worktree add in cmd_ensure must use git_retry 3 200
+ENSURE_BODY=$(awk '
+  /^cmd_ensure\(\)/ { p=1; next }
+  /^cmd_[a-z_]+\(\)/ { if (p) exit }
+  p { print }
+' "$LIB")
+RETRY_ADD=0
+BARE_ADD=0
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  # Comments may mention worktree add — only code lines with the phrase
+  case "$line" in
+    *'#'*) continue ;;
+  esac
+  printf '%s' "$line" | grep -q 'worktree add' || continue
+  if printf '%s' "$line" | grep -q 'git_retry 3 200'; then
+    RETRY_ADD=$((RETRY_ADD + 1))
+  else
+    BARE_ADD=$((BARE_ADD + 1))
+  fi
+done <<EOF
+$ENSURE_BODY
+EOF
+assert_eq "AC-1 no bare worktree add in cmd_ensure" "$BARE_ADD" "0"
+# Require 3: existing-branch arm + -b arm + plain fallback after re-probe
+if [ "$RETRY_ADD" -ge 3 ]; then
+  PASS=$((PASS + 1))
+  echo "  ok  AC-1 git_retry 3 200 worktree add count>=3 ($RETRY_ADD)"
+else
+  FAIL=$((FAIL + 1))
+  echo "  FAIL AC-1 git_retry 3 200 worktree add count>=3: got=$RETRY_ADD"
+fi
+# Re-probe path pin: capture -b rc via _add_rc, gate plain fallback on ! -e wt
+if printf '%s\n' "$ENSURE_BODY" | grep -q '_add_rc' \
+   && printf '%s\n' "$ENSURE_BODY" | grep -qF '[ ! -e "$wt" ]'; then
+  PASS=$((PASS + 1))
+  echo "  ok  AC-1 re-probe fallback pattern present"
+else
+  FAIL=$((FAIL + 1))
+  echo "  FAIL AC-1 re-probe fallback pattern missing (_add_rc + ! -e wt)"
+fi
+
+# AC-3/4 runtime: PATH git shim fails first N worktree-add with EBUSY, then real git.
+# Skip only if REAL_GIT cannot be resolved before PATH override.
+REAL_GIT=$(command -v git || true)
+if [ -n "$REAL_GIT" ] && [ -x "$REAL_GIT" ]; then
+  SHIMDIR=$(mktemp -d "${TMPDIR:-/tmp}/wt-git-shim.XXXXXX")
+  COUNTER_FILE="$SHIMDIR/add-count"
+  cat > "$SHIMDIR/git" <<'SHIM'
+#!/usr/bin/env bash
+# Forward all git; on worktree add fail first FAIL_N times with EBUSY (CDT-161).
+is_add=0
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "worktree" ] && [ "$a" = "add" ]; then
+    is_add=1
+    break
+  fi
+  prev=$a
+done
+if [ "$is_add" -eq 1 ]; then
+  n=0
+  if [ -n "${COUNTER_FILE:-}" ] && [ -f "$COUNTER_FILE" ]; then
+    n=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
+  fi
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  if [ "$n" -lt "${FAIL_N:-0}" ]; then
+    echo $((n + 1)) > "$COUNTER_FILE"
+    echo "fatal: could not create worktree: Device or resource busy" >&2
+    exit 1
+  fi
+fi
+exec "$REAL_GIT" "$@"
+SHIM
+  chmod +x "$SHIMDIR/git"
+  # Expand env into shim (heredoc was quoted — inject via wrapper env)
+  # REAL_GIT / COUNTER_FILE / FAIL_N read from environment by shim.
+
+  run_lib_shim() {
+    PATH="$SHIMDIR:$PATH" REAL_GIT="$REAL_GIT" COUNTER_FILE="$COUNTER_FILE" \
+      FAIL_N="$FAIL_N" bash "$LIB" "$@"
+  }
+
+  # AC-3: N=2 (< budget 3) → ensure succeeds, path + lock
+  FAIL_N=2
+  echo 0 > "$COUNTER_FILE"
+  E3OUT=$(run_lib_shim ensure ebusy-ok 2>"$ERR_TMP"); E3RC=$?
+  assert_eq "AC-3 EBUSY within budget exit 0" "$E3RC" "0"
+  assert_eq "AC-3 stdout path" "$E3OUT" "$TMP/.worktrees/ebusy-ok"
+  assert_dir "AC-3 worktree dir" ".worktrees/ebusy-ok"
+  assert_file "AC-3 lock written" ".worktrees/ebusy-ok/.wt-lock"
+
+  # AC-4: N=5 (≥ budget 3) → non-zero, empty stdout, no success lock
+  FAIL_N=5
+  echo 0 > "$COUNTER_FILE"
+  E4OUT=$(run_lib_shim ensure ebusy-fail 2>"$ERR_TMP"); E4RC=$?
+  if [ "$E4RC" -ne 0 ]; then
+    PASS=$((PASS + 1))
+    echo "  ok  AC-4 exhausted EBUSY non-zero (rc=$E4RC)"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  FAIL AC-4 exhausted EBUSY non-zero: got rc=0"
+  fi
+  assert_eq "AC-4 empty stdout" "$E4OUT" ""
+  if [ ! -f ".worktrees/ebusy-fail/.wt-lock" ]; then
+    PASS=$((PASS + 1))
+    echo "  ok  AC-4 no success lock"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  FAIL AC-4 no success lock: lock present"
+  fi
+
+  rm -rf "$SHIMDIR"
+else
+  echo "  skip AC-3/4 runtime (git not found for shim)"
+fi
+
 # ---- CDT-162: ensure STALE reclaim guards ---------------------------------
 NOW=$(date +%s)
 OLD=$(( NOW - 86400 ))
 
-echo "== T7 ensure STALE clean reclaim =="
+echo "== T8 ensure STALE clean reclaim =="
 EOUT=$(run_lib ensure ens-clean 2>"$ERR_TMP"); ERC=$?
 assert_eq "ensure ens-clean create exit 0" "$ERC" "0"
 assert_eq "ensure ens-clean path" "$EOUT" "$TMP/.worktrees/ens-clean"
@@ -210,7 +328,7 @@ else
   FAIL=$((FAIL + 1)); echo "  FAIL ensure STALE clean lock epoch: $EPOCH_AFTER"
 fi
 
-echo "== T8 ensure STALE dirty refuse =="
+echo "== T9 ensure STALE dirty refuse =="
 EOUT=$(run_lib ensure ens-dirty 2>"$ERR_TMP"); ERC=$?
 assert_eq "ensure ens-dirty create exit 0" "$ERC" "0"
 printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/ens-dirty/.wt-lock
@@ -229,7 +347,7 @@ fi
 assert_contains "ensure STALE dirty reason" "$ERR" "refusing STALE reclaim"
 rm -f .worktrees/ens-dirty/dirty.txt
 
-echo "== T9 ensure STALE live-task refuse =="
+echo "== T10 ensure STALE live-task refuse =="
 EOUT=$(run_lib ensure ens-live 2>"$ERR_TMP"); ERC=$?
 assert_eq "ensure ens-live create exit 0" "$ERC" "0"
 printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/ens-live/.wt-lock
