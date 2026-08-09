@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.30
+- **Release staged-path hard gate (CDT-189)** — `/release` Step 5 now runs `skills/release/check-staged-paths.sh` after intentional `git add` and before `git commit`. Allowed staged set = version pair (`CHANGELOG.md`, `.claude-plugin/plugin.json`) ∪ `--intended` product paths ∪ optional `--allow-extra`. Foreign staged paths → exit 1 (list every path), no commit/tag/push; unstaged/untracked dirty is ignored. SPEC-010 S1–S9; `skills/release/test.sh` 17 cases.
+
 ### v1.7.29
 - **Escape EMBED_MODEL in migrate-md.sh SQL (CDT-190)** — same class as CDT-164/`embed-one.sh`: after model resolution (outside the per-row loop), apply `:-all-MiniLM-L6-v2` then single-quote-double into `EMBED_MODEL_ESC` for the `embedding_meta` INSERT only; provider body still gets the raw name via `jq --arg`. SPEC-004 Version History records the fix.
 

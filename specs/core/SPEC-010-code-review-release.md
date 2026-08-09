@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`
+**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/test.sh`
 
 ## Overview
 
@@ -47,6 +47,24 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - The drift-gate covers only managed-include regions (markers present). It does NOT cross-check AGENTS.md against the emitted consumer template — those are intentionally distinct documents (SPEC-005), with no managed-include relationship.
 - **Step 4.7 — Hook-template gate (CDT-54 / CDT-46-C8).** Historical dual-copy Step 4.7 (`check-hook-templates.sh` requiring byte-identity between package-tracked live `.claude/hooks/*.sh` and init-orch templates) is **retired or reduced**. After CDT-54: hook bodies SoT = `skills/init-orchestration` templates only (SPEC-002/SPEC-005); live hooks are generated+gitignored. `/release` MUST NOT hard-fail solely because package-tracked live hooks are absent. Any residual Step 4.7 check MUST be template-internal only (e.g. extractability / hygiene of fenced bodies) and MUST NOT require dual-copy live files. Implementation of the reduced/removed gate is Task 2 of CDT-54 — this MUST is the contract.
 
+### Staged-path hard gate (CDT-189)
+
+Fail-closed gate so foreign index noise cannot ride the folded release commit. **Single SoT:** this subsection + `skills/release/SKILL.md` Step 5 wiring. MUST NOT dual-write a second contract home (CDT-187 may pre-warn only; CDT-188 one-commit policy is out of scope).
+
+- **S1 — Deterministic checker CLI.** MUST ship `skills/release/check-staged-paths.sh` as pure-subprocess bash (no LLM, no network). Invocable from any cwd when run inside a git work tree. Exit codes: `0` = staged ⊆ allowed; `1` = policy fail (foreign staged path(s)); `64` = usage error (missing args / invalid flag / not a git repo as applicable).
+- **S2 — Allowed set.** `allowed = {CHANGELOG.md, .claude-plugin/plugin.json} ∪ intended ∪ allow-extra` where `intended` and `allow-extra` are exact repo-relative path strings supplied by the caller. Version pair is always in `allowed` even if omitted from CLI args (AC-3).
+- **S3 — Staged set.** MUST read **only** `git diff --cached --name-only` (optionally `-z` for safety). MUST NOT consult unstaged working tree or untracked files for pass/fail (AC-6).
+- **S4 — Gate predicate.** Pass iff every staged path is an exact string match in `allowed`. No globs, no directory prefix expansion, no recursive dir membership. Empty staged set → pass (caller may still fail later for "nothing to release"; out of this gate's scope).
+- **S5 — Fail message (AC-1, AC-10).** On policy fail print a header that names the **staged-path hard gate**, list **every** foreign staged path (one per line), and state that commit/tag/push MUST NOT proceed. MUST NOT `git reset` / unstage / modify the index (AC-7).
+- **S6 — CLI shape.**
+  ```
+  check-staged-paths.sh --intended PATH [PATH...] [--allow-extra PATH...]
+  ```
+  `--intended` flag required (zero additional product paths allowed so pair-only release works). `--allow-extra` optional, zero or more. Unknown flags / missing `--intended` → exit 64.
+- **S7 — Release wiring.** MUST be invoked from `/release` Step 5 **after** intentional `git add` of version pair + intended product paths, **before** `git commit`. Skill builds `--intended` from the same path list it just staged (ticket product files; version pair may be omitted from the flag because always-allowed). Multi-ticket only: pass `--allow-extra` for additional paths. Non-zero exit → **Do NOT commit or tag or push**.
+- **S8 — Tests.** MUST land `skills/release/test.sh` covering: pair+allowed OK; pair+foreign FAIL; allow-extra OK; unstaged dirty OK for this gate; usage (missing `--intended` → 64) — in a temp git repo (never mutate the live index as the test subject).
+- **S9 — MUST NOT.** Auto-unstage; treat unstaged dirty as fail; allow directory/glob intended entries; invent allowlist from `git status` dirty set; reimplement one-commit policy (CDT-188) or orchestrate pre-check (CDT-187).
+
 ### Docs drift gate
 
 Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a structural sibling of the SPEC-021 skill-bash lint gate (Step 4.8). **Scope boundary:** SPEC-021 owns the *content* of fenced ```bash blocks (its C1–C4 defect classes); THIS gate owns *structural* documentation drift — index tables, roster tables, page links, and manifest description fields that can silently diverge from the `commands/`, `agents/`, `docs/`, and `.claude-plugin/` surfaces they describe. Neither gate inspects what the other owns.
@@ -76,6 +94,13 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - Verify release auto-detects patch vs minor from commit messages
 - Verify changelog excludes `chore: release` commits
 - Verify `/release` aborts (no commit/tag) when `sync-includes.py check` exits non-zero (drifted managed-include region), and proceeds when it exits 0
+- Verify staged-path hard gate via `bash skills/release/test.sh` (AC-9 cases; exit 0 when green)
+
+**Staged-path hard gate:**
+
+1. **Checker CLI (S1–S6):** pair + intended staged → exit `0`; pair + foreign staged → exit `1`, output names staged-path hard gate + every foreign path + no commit/tag/push; unstaged dirty ignored; `--allow-extra` admits extra staged path; missing `--intended` / bad flag → exit `64`.
+2. **No index mutation (S5/S9):** script never runs `git reset` / unstage / commit / tag / push.
+3. **Step 5 wiring (S7):** after intentional `git add`, before `git commit`; non-zero → no commit/tag/push.
 
 **Docs drift gate:**
 
@@ -97,6 +122,8 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - [ ] Release with no commits since tag reports "Nothing to release"
 - [ ] After release: plugin.json and CHANGELOG.md versions match
 - [ ] Docs drift gate: `bash skills/docs-drift/test.sh` exits 0; live tree `check-docs-drift.sh` exits 0; Step 4.9 present in `skills/release/SKILL.md`
+- [ ] Staged-path hard gate: `bash skills/release/test.sh` exits 0; foreign staged → exit 1, lists every foreign path, no commit/tag/push
+- [ ] Step 5 wiring: `check-staged-paths.sh` after intentional `git add`, before `git commit` in `skills/release/SKILL.md`
 
 ## Open Questions
 
@@ -108,6 +135,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 
 | Date | Change |
 |------|--------|
+| 2026-08-09 | CDT-189: staged-path hard gate (S1–S9) — `check-staged-paths.sh` index-only allowlist (version pair ∪ intended ∪ `--allow-extra`); exit 0/1/64; fail-closed no auto-reset; Step 5 post-add pre-commit; Covers + `skills/release/test.sh`. |
 | 2026-08-07 | CDT-180: D10 `docs-page-links` — relative `*.md` hrefs in `docs/commands/*.md` must resolve (path only; fragment stripped). D1 check-id list extended; D2–D9 unchanged. Docs-side sibling of D9. |
 | 2026-08-03 | D9 added: `skill-ref` check — every `skills/<name>/<file>` path referenced from `commands/*.md` must exist. Direct response to discovering `/memory validate` was non-functional since v1.1.0 (CDT-46-C3 stubbed `skills/validate-memory` in the same commit that created a dispatcher delegating to it). Landed alongside restoring `skills/validate-memory` and `skills/memory-compress` (same defect class, same commit) and fixing two independent dangling refs (`commands/spec.md` dead Task-6 fallback prose ×3, `commands/retro.md` `GATE_SH` mis-resolved to a nonexistent `freshness-gate.sh` instead of `skills/retro-gate/gate.sh`). |
 | 2026-07-22 | CDT-54 / CDT-46-C8: Step 4.7 dual-copy hook-template gate retired/reduced — templates SoT; no release FAIL for missing package-tracked live hooks; D7 step order note updated. |

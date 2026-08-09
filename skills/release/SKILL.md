@@ -273,6 +273,33 @@ git add <the source files this release changes>   # e.g. README.md, agents/, ski
 Then check `git status --short`: confirm nothing intended is left unstaged and that
 no unrelated/untracked files were swept in.
 
+### Staged-path hard gate (SPEC-010 S7; CDT-189)
+
+**After** intentional `git add` above, **before** `git commit`: run the fail-closed
+index allowlist. Do **not** reimplement the gate in prose — call the script.
+
+```bash template
+# PDH from Step 0 (re-resolve with the same PDH one-liner if this shell is fresh)
+CHECK_STAGED=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-staged-paths.sh)
+# --intended = every path this release intentionally staged (same set as the git add
+# above). Prefer listing the version pair explicitly; the script always allows them
+# even if omitted. Product paths are required for pass when staged.
+# Multi-ticket ships only: append --allow-extra PATH [PATH...] for extra product paths.
+bash "$CHECK_STAGED" \
+  --intended CHANGELOG.md .claude-plugin/plugin.json \
+             <the source files this release changes>
+# e.g. multi-ticket: bash "$CHECK_STAGED" --intended ... --allow-extra other/ticket/file.md
+```
+
+- **Exit 0** — staged ⊆ allowed; proceed to commit.
+- **Non-zero** (exit 1 foreign path(s), or 64 usage) — **hard-stop**. Print the
+  script's stderr as-is. **Do NOT commit, tag, or push.** Fix the index (unstage
+  foreign paths or add legitimate paths to `--intended` / `--allow-extra`) and
+  re-run the gate until exit 0. The script never mutates the index.
+- **`--allow-extra PATH...`** — intentional multi-ticket / multi-arc ships only;
+  admits additional staged paths beyond this ticket's product set. Do not use it
+  to paper over accidental staging.
+
 Commit message — **type-prefixed subject with the version inline, plus a
 Co-Authored-By trailer. No `chore: release`. No prose body:**
 ```
