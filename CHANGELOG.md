@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.27
+- **Seed-pack trailer must match file agent (CDT-193 / SPEC-024 M13)** — after CDT-174/176 roster allowlists, import still trusted a well-formed trailer `agent=` for the write sink, so `pm.md` could declare `agent=tech-lead` and store content under the wrong agent. Import now requires exact equality between the trailer `agent=` and the manifest filename stem after M12 roster checks and before hash/sanitize/insert; mismatches reject with a warning that names both ids, increment `rejected`, and never rebind to either agent (DB or fallback). `export-seed-pack.sh` unchanged (already writes matching pairs). SPEC-024 gains normative **M13**; `test-seed-pack.sh` adds M13a–d (SQLite cross-agent, fallback cross-agent, match regression, partial-file match+mismatch); suite 91/0.
+
 ### v1.7.26
 - **close.sh slug charset guard before path construction (CDT-192)** — same `^[A-Za-z0-9_-]+$` guard as CDT-175/`reconcile.sh`/`worktree-lib validate_slug` at every site that builds `.claude/backlog/<slug>.md` (`find_slugs` direct match, dir-scan basename, index-link resolve, verify, close, update_index). Invalid/traversal-only hits fail closed non-zero with no filesystem ops outside the backlog dir; free-text title QUERY still works when it resolves to a valid slug. Regression tests (hostile index + outside canary + valid sibling under hostile index); SPEC-009 normative block + Version History.
 

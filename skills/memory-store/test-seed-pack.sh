@@ -629,6 +629,160 @@ assert_eq "M12d outside dir untouched" "$SUM_AFTER_DIR" "$SUM_BEFORE_DIR"
 assert_eq "M12d outside lessons.md untouched" "$SUM_AFTER_FILE" "$SUM_BEFORE_FILE"
 rm -rf "$CANARY_DIR"
 
+# ---------- 15. M13/CDT-193 (a): cross-agent trailer → rejected, zero rows either agent (SQLite) ----------
+echo "-- M13 (a) cross-agent trailer (SQLite)"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m13a.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "Acceptance criteria live in specs/ MUST section only."
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+python3 - "$FIX/.claude/memory/seed/pm.md" "tech-lead" <<'PY'
+import re, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+new_agent = sys.argv[2]
+lines = p.read_text().rstrip("\n").split("\n")
+lines[-1] = re.sub(r"agent=\S+", "agent=" + new_agent, lines[-1])
+p.write_text("\n".join(lines) + "\n")
+PY
+python3 - "$FIX/.claude/memory/seed/manifest.json" "pm.md" <<'PY'
+import hashlib, json, pathlib, sys
+mp = pathlib.Path(sys.argv[1]); fname = sys.argv[2]
+m = json.loads(mp.read_text())
+m["files"][fname]["content_hash"] = hashlib.sha256((mp.parent / fname).read_bytes()).hexdigest()
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "M13a exit 0" "$RC" "0"
+assert_contains "M13a rejected=1" "$OUT" "rejected=1"
+assert_contains "M13a imported=0" "$OUT" "imported=0"
+assert_contains "M13a warn trailer id" "$OUT" "agent='tech-lead'"
+assert_contains "M13a warn file id" "$OUT" "agent='pm'"
+CNT_PM=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='pm';")
+CNT_TL=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead';")
+assert_eq "M13a zero rows pm" "$CNT_PM" "0"
+assert_eq "M13a zero rows tech-lead" "$CNT_TL" "0"
+rm -rf "$FIX"
+
+# ---------- 16. M13/CDT-193 (b): cross-agent trailer → no write either agent dir (fallback) ----------
+echo "-- M13 (b) cross-agent trailer (fallback)"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m13b.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "Acceptance criteria live in specs/ MUST section only."
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+python3 - "$FIX/.claude/memory/seed/pm.md" "tech-lead" <<'PY'
+import re, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+new_agent = sys.argv[2]
+lines = p.read_text().rstrip("\n").split("\n")
+lines[-1] = re.sub(r"agent=\S+", "agent=" + new_agent, lines[-1])
+p.write_text("\n".join(lines) + "\n")
+PY
+python3 - "$FIX/.claude/memory/seed/manifest.json" "pm.md" <<'PY'
+import hashlib, json, pathlib, sys
+mp = pathlib.Path(sys.argv[1]); fname = sys.argv[2]
+m = json.loads(mp.read_text())
+m["files"][fname]["content_hash"] = hashlib.sha256((mp.parent / fname).read_bytes()).hexdigest()
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+rm -f "$FIX/.claude/memory/memory.db"
+mkdir -p "$FIX/.claude/memory/pm" "$FIX/.claude/memory/tech-lead"
+: > "$FIX/.claude/memory/pm/lessons.md"
+: > "$FIX/.claude/memory/tech-lead/lessons.md"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "M13b exit 0" "$RC" "0"
+assert_contains "M13b rejected=1" "$OUT" "rejected=1"
+assert_contains "M13b imported=0" "$OUT" "imported=0"
+assert_eq "M13b pm lessons empty" "$(cat "$FIX/.claude/memory/pm/lessons.md")" ""
+assert_eq "M13b tech-lead lessons empty" "$(cat "$FIX/.claude/memory/tech-lead/lessons.md")" ""
+rm -rf "$FIX"
+
+# ---------- 17. M13/CDT-193 (c): matching trailer still imports (export-shaped regression) ----------
+echo "-- M13 (c) matching trailer regression"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m13c.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic4" "Follow existing patterns in skills/ before inventing new ones."
+bash "$EXPORT" --agent ic4 "$FIX" >/dev/null
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+assert_contains "M13c imported=1" "$OUT" "imported=1"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='ic4';")
+assert_eq "M13c one row ic4" "$CNT" "1"
+rm -rf "$FIX"
+
+# ---------- 18. M13/CDT-193 (d): partial file — match imports, mismatch rejects ----------
+echo "-- M13 (d) partial match+mismatch in one file"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m13d.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "Ship the smallest PR that proves the MUST."
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "Acceptance criteria live in specs/ MUST section only."
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+# Second entry: rebind trailer agent to tech-lead; leave first entry matching.
+python3 - "$FIX/.claude/memory/seed/pm.md" "tech-lead" <<'PY'
+import re, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+new_agent = sys.argv[2]
+text = p.read_text(encoding="utf-8")
+# Split on lines that are exactly ---
+parts, buf = [], []
+for line in text.splitlines(keepends=True):
+    if line.rstrip("\r\n") == "---":
+        parts.append("".join(buf))
+        buf = []
+    else:
+        buf.append(line)
+parts.append("".join(buf))
+entries = [p for p in parts if p.strip()]
+if len(entries) < 2:
+    raise SystemExit(f"expected >=2 entries, got {len(entries)}")
+# rewrite last non-empty line (trailer) of second entry only
+elines = entries[1].rstrip("\n").split("\n")
+elines[-1] = re.sub(r"agent=\S+", "agent=" + new_agent, elines[-1])
+entries[1] = "\n".join(elines) + "\n"
+p.write_text("---\n".join(e if e.endswith("\n") else e + "\n" for e in entries))
+PY
+python3 - "$FIX/.claude/memory/seed/manifest.json" "pm.md" <<'PY'
+import hashlib, json, pathlib, sys
+mp = pathlib.Path(sys.argv[1]); fname = sys.argv[2]
+m = json.loads(mp.read_text())
+m["files"][fname]["content_hash"] = hashlib.sha256((mp.parent / fname).read_bytes()).hexdigest()
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "M13d exit 0" "$RC" "0"
+# imported≥1 and rejected≥1 (counts may be exact 1/1)
+IMP=$(printf '%s' "$OUT" | sed -n 's/.*imported=\([0-9][0-9]*\).*/\1/p' | head -1)
+REJ=$(printf '%s' "$OUT" | sed -n 's/.*rejected=\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ "${IMP:-0}" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  M13d imported>=1 (got $IMP)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL M13d imported>=1: got=[$IMP] out=[$OUT]"
+fi
+if [ "${REJ:-0}" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  M13d rejected>=1 (got $REJ)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL M13d rejected>=1: got=[$REJ] out=[$OUT]"
+fi
+assert_contains "M13d mismatch warn" "$OUT" "agent='tech-lead'"
+CNT_PM=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='pm';")
+CNT_TL=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='tech-lead';")
+if [ "$CNT_PM" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  M13d match landed under pm (got $CNT_PM)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL M13d match under pm: got=[$CNT_PM]"
+fi
+assert_eq "M13d zero rows tech-lead" "$CNT_TL" "0"
+rm -rf "$FIX"
+
 echo ""
 echo "=== results: pass=$PASS fail=$FAIL ==="
 if [ "$FAIL" -gt 0 ]; then

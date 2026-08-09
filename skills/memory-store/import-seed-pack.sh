@@ -298,6 +298,13 @@ print(lines[-1] if lines else "")
       continue
     fi
 
+    # M13 / CDT-193: trailer agent must equal manifest-file agent (reject, never rebind)
+    if [ "$SEED_AGENT" != "$agent" ]; then
+      warn "trailer agent='$SEED_AGENT' does not match file agent='$agent' in $fname — entry rejected"
+      REJECTED=$((REJECTED + 1))
+      continue
+    fi
+
     body_no_trailer=$(seed_strip_trailer "$raw")
     body_no_trailer=$(seed_normalize_content "$body_no_trailer")
 
@@ -356,9 +363,8 @@ print(json.dumps({
     # seed_parse_trailer's regex requires agent=<non-space>+, so a parsed
     # SEED_AGENT is always non-empty (an empty one fails parsing and was
     # already rejected above) — there is no fallback to the filename-derived
-    # $agent. SEED_AGENT was roster-checked at the trailer gate above (CDT-174).
-    # A trailer naming a roster agent OTHER than its own file is not rejected
-    # here; that is CDT-193, tracked separately.
+    # $agent. SEED_AGENT was roster-checked (CDT-174) and match-gated to equal
+    # $agent (M13 / CDT-193) above; target_agent is proven equal to file stem.
     local target_agent="$SEED_AGENT"
 
     # Backstop only — unreachable via the path above. Retained so that any
