@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/test.sh`
+**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/test.sh`
 
 ## Overview
 
@@ -49,7 +49,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 
 ### Staged-path hard gate (CDT-189)
 
-Fail-closed gate so foreign index noise cannot ride the folded release commit. **Single SoT:** this subsection + `skills/release/SKILL.md` Step 5 wiring. MUST NOT dual-write a second contract home (CDT-187 may pre-warn only; CDT-188 one-commit policy is out of scope).
+Fail-closed gate so foreign index noise cannot ride the folded release commit. **Single SoT:** this subsection + `skills/release/SKILL.md` Step 5 wiring. MUST NOT dual-write a second contract home (CDT-187 may pre-warn only; ship-history one-commit policy lives in the **Ship-history cleanliness** subsection below — this gate does not reimplement it).
 
 - **S1 — Deterministic checker CLI.** MUST ship `skills/release/check-staged-paths.sh` as pure-subprocess bash (no LLM, no network). Invocable from any cwd when run inside a git work tree. Exit codes: `0` = staged ⊆ allowed; `1` = policy fail (foreign staged path(s)); `64` = usage error (missing args / invalid flag / not a git repo as applicable).
 - **S2 — Allowed set.** `allowed = {CHANGELOG.md, .claude-plugin/plugin.json} ∪ intended ∪ allow-extra` where `intended` and `allow-extra` are exact repo-relative path strings supplied by the caller. Version pair is always in `allowed` even if omitted from CLI args (AC-3).
@@ -63,7 +63,41 @@ Fail-closed gate so foreign index noise cannot ride the folded release commit. *
   `--intended` flag required (zero additional product paths allowed so pair-only release works). `--allow-extra` optional, zero or more. Unknown flags / missing `--intended` → exit 64.
 - **S7 — Release wiring.** MUST be invoked from `/release` Step 5 **after** intentional `git add` of version pair + intended product paths, **before** `git commit`. Skill builds `--intended` from the same path list it just staged (ticket product files; version pair may be omitted from the flag because always-allowed). Multi-ticket only: pass `--allow-extra` for additional paths. Non-zero exit → **Do NOT commit or tag or push**.
 - **S8 — Tests.** MUST land `skills/release/test.sh` covering: pair+allowed OK; pair+foreign FAIL; allow-extra OK; unstaged dirty OK for this gate; usage (missing `--intended` → 64) — in a temp git repo (never mutate the live index as the test subject).
-- **S9 — MUST NOT.** Auto-unstage; treat unstaged dirty as fail; allow directory/glob intended entries; invent allowlist from `git status` dirty set; reimplement one-commit policy (CDT-188) or orchestrate pre-check (CDT-187).
+- **S9 — MUST NOT.** Auto-unstage; treat unstaged dirty as fail; allow directory/glob intended entries; invent allowlist from `git status` dirty set; reimplement ship-history one-commit policy (CDT-188 H1–H12) or orchestrate pre-check (CDT-187).
+
+### Ship-history cleanliness gate (CDT-188)
+
+Fail-closed **one-commit-per-tag** policy for the ship window. **Single SoT for the dirty predicate:** this subsection. Callers (`skills/release/SKILL.md`, `skills/orchestrate/SKILL.md` Step 11/12, `skills/autopilot/end-state.md`) **cite** these H-clauses — MUST NOT fork a second predicate definition. CDT-189 owns index allowlist only; CDT-187 pre-warn only — neither reimplements H1–H12.
+
+**Ship window W.** Per **ship invocation** (not a mega-squash of concurrent tickets). W = commits **and** annotated/lightweight tags whose targets are strictly after `ship-start` tip — the SHA recorded at the first release/squash action of this ship (interactive squash-commit, end-state squash-stage, or `/release` entry). Callers pass `--since <ship-start-sha>`. Empty W (no tags after since) with clean ancestry → pass (nothing shipped in W yet). Release-train multi-version is OK when **each** tag in W has exactly one fold commit (AC-4 train carve-out).
+
+**Dirty classes (D1–D4).** History is **dirty** iff any of:
+- **D1 — multi-commit-per-tag.** For any release tag `vX.Y.Z` (or `X.Y.Z`) whose target is in W: more than one non-merge commit lies in the half-open range `(prev_release_tag, this_tag]` where `prev_release_tag` is the nearest older `v*` tag ancestor (or `ship-start` if none). Equivalent: commits-per-tag ≠ 1 for any tag in W.
+- **D2 — subject / CHANGELOG mismatch.** For each tag `vX.Y.Z` in W: the sole fold commit's subject must match `^(feat|fix): v?X\.Y\.Z — ` and the summary after the em-dash MUST equal the **lead bullet text** of the matching `### vX.Y.Z` / `### X.Y.Z` section in `CHANGELOG.md` at that commit (strip leading `- ` / `**` / trailing ` — …` detail; compare bold lead if present). Missing CHANGELOG section or empty body → dirty.
+- **D3 — repair-class commits in W.** Any non-merge commit in W whose subject matches repair patterns: `^fixup!`, `^squash!`, `^WIP\b`, `^wip\b`, `^temp\b`, `^TMP\b`, `^chore:\s*repair\b`, `^chore:\s*retag\b`, or a second `feat:|fix:` release-shaped subject for a version already tagged in W (interactive double-commit hazard: squash delivery commit + later `/release` fold for the same version).
+- **D4 — tag retarget.** For any tag name in W that also exists on `refs/remotes/origin/*` tracking (when `origin` is configured): local tag object SHA ≠ remote-advertised tag SHA for the same name (or local tag points at a commit that is not an ancestor of current branch tip while a prior local reflog entry shows a different target created in this ship). When origin is absent / unreachable, D4 remote half is skipped (not dirty solely for offline); local double-move within W still dirty if two distinct SHAs were tagged with the same name in this ship (detect via `git reflog show <tag>` when available, else best-effort: fail if `git rev-parse <tag>` ≠ recorded expected SHA passed via `--expect-tag TAG=SHA` optional multi-arg).
+
+**Clean** ⇔ none of D1–D4 in W. End-state invariant (AC-4): N release tags in W → N fold commits; each subject matches its CHANGELOG lead.
+
+- **H1 — Deterministic checker CLI.** MUST ship `skills/release/check-ship-history.sh` as pure-subprocess bash (no LLM, no network, no ref mutation). Invocable from any cwd inside a git work tree. Exit codes: `0` = clean; `1` = dirty (one or more of D1–D4); `64` = usage / not a git repo / unresolvable `--since`.
+- **H2 — CLI shape.**
+  ```
+  check-ship-history.sh --since <ship-start-sha> [--changelog PATH] [--expect-tag TAG=SHA ...]
+  ```
+  `--since` required (full or abbrev SHA; MUST resolve via `git rev-parse`). `--changelog` defaults to `CHANGELOG.md` at repo root. `--expect-tag` optional, repeatable, for D4 local expected targets. Unknown flags / missing `--since` → exit 64.
+- **H3 — Evidence output (dirty).** On exit 1 print a header that includes the exact token `history dirty — rewrite needed`, then list every finding as one line: `D<n>: <short evidence>` (tag name, SHAs, subject, expected lead). MUST print enough for a human to plan a rewrite; MUST NOT auto-rewrite, force-push, delete tags, or reset.
+- **H4 — Clean output.** On exit 0 print one summary line: tag count in W and `clean` (or equivalent). No force-push advice on clean.
+- **H5 — Proactive gate (AC-1, AC-5).** Callers MUST run the checker **before** claiming ship success — specifically before Linear/backlog **Done**, before printing `Orchestration complete`, and before any success claim that a release is shipped. MUST NOT wait for a human to say "squash commits!". Prefer run **after** the fold commit is created and **before** `git tag` + `git push` when the commit is still local (linearize-before-tag); when tags/commits are already pushed, still run — dirty → halt path (H7/H8), never silent repair.
+- **H6 — Release wiring.** `/release` MUST:
+  1. Record `ship-start=$(git rev-parse HEAD)` at skill entry (before any commit), or accept an ambient `SHIP_START_SHA` when the caller (end-state / train / orchestrate) already opened W.
+  2. After Step 5 fold commit succeeds and **before** Step 6 tag+push when possible: if W already contains prior tags/commits from this ship that fail H, halt (do not tag).
+  3. After Step 6 tag (local) and **before** treating the release as done: run `check-ship-history.sh --since <ship-start>` (include the new tag). Non-zero → **Do NOT** claim success; follow H7/H8. Prefer not pushing tags until clean; if push already happened, still halt Done claims.
+- **H7 — Interactive rewrite path (AC-2).** When dirty and the session is **not** autopilot: print dirty evidence (H3); propose a rewrite plan (which commits to fold, which tags to move); **require explicit user confirm** before any `git rebase` / `git commit --amend` / tag delete+recreate / `git push --force-with-lease`. On decline or no answer → halt; leave refs unchanged. MUST NOT force-push without that confirm.
+- **H8 — Autopilot halt path (AC-3).** When dirty and autopilot is on: MUST NOT silent force-push, amend, or retag. MUST halt with the exact phrase `history dirty — rewrite needed` plus H3 evidence. MUST NOT set Linear/backlog Done, MUST NOT print Orchestration complete / ship success. Resume only after human confirms a rewrite (interactive H7) or history becomes clean.
+- **H9 — End-state / orchestrate cite-not-fork (AC-6).** `skills/autopilot/end-state.md` and `skills/orchestrate/SKILL.md` Step 11 (ship) / Step 12 (wrap-up complete banner) MUST invoke or require a clean `check-ship-history.sh` result for any master-land / `/release` success path, citing SPEC-010 H1–H12. MUST NOT restate D1–D4 logic in those files. Step 12 MUST NOT print `Orchestration complete` on dirty (AC-7).
+- **H10 — Linearize preference.** When dirty is detected **before** tag+push, callers SHOULD fold/linearize first (interactive confirm or human-driven), then re-run the checker to green, then tag+push. Post-push dirty piles → H7/H8 halt only (no silent force).
+- **H11 — Tests.** MUST extend `skills/release/test.sh` (or a dedicated `skills/release/test-ship-history.sh` invoked from it) with temp-repo fixtures: clean 1-tag/1-commit → 0; D1 multi-commit under one tag → 1 + `history dirty — rewrite needed`; D2 subject≠CHANGELOG lead → 1; D3 fixup/WIP/double release-shaped → 1; D4 mismatched `--expect-tag` → 1; missing `--since` → 64; train-shaped two tags each with one commit → 0. Never mutate the live repo as the test subject.
+- **H12 — MUST NOT (scope).** Rewrite outside W; mega-squash concurrent tickets into one fold when they have distinct tags; reimplement CDT-189 staged-path allowlist; reimplement CDT-187 orchestrate pre-check; silent force-push under autopilot; claim Done/complete on partial or dirty history; dual-write a second dirty-predicate home outside this subsection.
 
 ### Docs drift gate
 
@@ -95,12 +129,20 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - Verify changelog excludes `chore: release` commits
 - Verify `/release` aborts (no commit/tag) when `sync-includes.py check` exits non-zero (drifted managed-include region), and proceeds when it exits 0
 - Verify staged-path hard gate via `bash skills/release/test.sh` (AC-9 cases; exit 0 when green)
+- Verify ship-history gate via `bash skills/release/test.sh` (or `test-ship-history.sh`): D1–D4 dirty → exit 1 + `history dirty — rewrite needed`; clean 1:1 and train multi-tag → exit 0
 
 **Staged-path hard gate:**
 
 1. **Checker CLI (S1–S6):** pair + intended staged → exit `0`; pair + foreign staged → exit `1`, output names staged-path hard gate + every foreign path + no commit/tag/push; unstaged dirty ignored; `--allow-extra` admits extra staged path; missing `--intended` / bad flag → exit `64`.
 2. **No index mutation (S5/S9):** script never runs `git reset` / unstage / commit / tag / push.
 3. **Step 5 wiring (S7):** after intentional `git add`, before `git commit`; non-zero → no commit/tag/push.
+
+**Ship-history cleanliness gate:**
+
+1. **Checker CLI (H1–H4):** clean 1 tag / 1 fold → exit `0`; D1 multi-commit under one tag → exit `1`, stdout/stderr contains `history dirty — rewrite needed` and a `D1:` line; D2 subject≠lead → `D2:`; D3 fixup → `D3:`; D4 expect-tag mismatch → `D4:`; missing `--since` → `64`.
+2. **No ref mutation (H3/H12):** script never runs `git commit` / `tag` / `push` / `rebase` / `reset` / `tag -d`.
+3. **Wiring (H5–H9):** `/release` records ship-start and runs checker before success claim; orchestrate Step 11/12 + end-state cite H, no Done/complete on dirty; autopilot never force-pushes on dirty.
+4. **Train carve-out:** two sequential tags each with exactly one fold commit → exit `0`.
 
 **Docs drift gate:**
 
@@ -124,6 +166,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - [ ] Docs drift gate: `bash skills/docs-drift/test.sh` exits 0; live tree `check-docs-drift.sh` exits 0; Step 4.9 present in `skills/release/SKILL.md`
 - [ ] Staged-path hard gate: `bash skills/release/test.sh` exits 0; foreign staged → exit 1, lists every foreign path, no commit/tag/push
 - [ ] Step 5 wiring: `check-staged-paths.sh` after intentional `git add`, before `git commit` in `skills/release/SKILL.md`
+- [ ] Ship-history gate: `check-ship-history.sh` D1–D4 fixtures green; `/release` + end-state + orchestrate Step 11/12 cite H without forking predicate; autopilot dirty → exact halt phrase, no Done
 
 ## Open Questions
 
@@ -135,6 +178,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 
 | Date | Change |
 |------|--------|
+| 2026-08-09 | CDT-188: ship-history cleanliness gate (H1–H12) — dirty D1–D4 (multi-commit-per-tag, subject/CHANGELOG mismatch, repair-class, tag retarget); window W per ship; `check-ship-history.sh`; interactive confirm rewrite vs autopilot halt `history dirty — rewrite needed`; cite-not-fork from release/orchestrate/end-state; no Done/complete on dirty. |
 | 2026-08-09 | CDT-189: staged-path hard gate (S1–S9) — `check-staged-paths.sh` index-only allowlist (version pair ∪ intended ∪ `--allow-extra`); exit 0/1/64; fail-closed no auto-reset; Step 5 post-add pre-commit; Covers + `skills/release/test.sh`. |
 | 2026-08-07 | CDT-180: D10 `docs-page-links` — relative `*.md` hrefs in `docs/commands/*.md` must resolve (path only; fragment stripped). D1 check-id list extended; D2–D9 unchanged. Docs-side sibling of D9. |
 | 2026-08-03 | D9 added: `skill-ref` check — every `skills/<name>/<file>` path referenced from `commands/*.md` must exist. Direct response to discovering `/memory validate` was non-functional since v1.1.0 (CDT-46-C3 stubbed `skills/validate-memory` in the same commit that created a dispatcher delegating to it). Landed alongside restoring `skills/validate-memory` and `skills/memory-compress` (same defect class, same commit) and fixing two independent dangling refs (`commands/spec.md` dead Task-6 fallback prose ×3, `commands/retro.md` `GATE_SH` mis-resolved to a nonexistent `freshness-gate.sh` instead of `skills/retro-gate/gate.sh`). |

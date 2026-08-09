@@ -87,10 +87,25 @@ On a BC3 halt: write the BC3 halt card via `append-card.sh` (call shape per `sel
 no `/release`**. A passing check is the ship-*safety* guarantee of the intent/safety/assurance
 triad N3a defines; all three must hold before the sequence continues.
 
+## 3.5 Capture ship-start SHA (SPEC-010 H6 / H9; CDT-188)
+
+**Before** squash-stage (§4), open ship window W on the main-repo path. Pass this
+SHA into `/release` as ambient `SHIP_START_SHA` so Step 0.5 does not re-open W
+after the fold. Cite SPEC-010 H — do **not** restate D1–D4.
+
+```bash
+cd <main-repo-path>
+SHIP_START_SHA=$(git rev-parse HEAD)
+export SHIP_START_SHA
+# /release Step 0.5 honors ambient SHIP_START_SHA (same value for check-ship-history
+# --since). Do not re-record after squash-stage or fold commit.
+```
+
 ## 4. Squash-stage — NO commit (AC3/AC4)
 
-With BC3 clear, stage the squash on the main-repo path **without committing**, and treat an
-unresolved merge conflict as a hard stop:
+With BC3 clear **and** `SHIP_START_SHA` recorded (§3.5), stage the squash on the
+main-repo path **without committing**, and treat an unresolved merge conflict as
+a hard stop:
 
 ```bash
 cd <main-repo-path>
@@ -122,36 +137,74 @@ this path is `/release`'s single fold-commit (§5).
 ## 5. Delegate the ship to `/release <bump>` (AC3/AC10)
 
 Invoke `/release` with the bump carried forward from card #1 (copied through the council-agree
-path; `ship-gate-council.md` §4):
+path; `ship-gate-council.md` §4). Ensure `SHIP_START_SHA` from §3.5 is exported in the
+environment so `/release` Step 0.5 reuses W:
 
 ```
-/release <AUTOPILOT_BUMP>
+SHIP_START_SHA=<from §3.5> /release <AUTOPILOT_BUMP>
 ```
 
 `/release` is the repo's **single ship-of-record**: it folds the squash-staged working tree
 **and** the three version files into **one** `feat|fix: vX.Y.Z — <summary>` commit, tags it, and
 pushes to the origin default branch (`skills/release/SKILL.md` lines 11–19, Step 5 commit + Step
-6 tag/push — the one-commit-per-release contract). This procedure adds **no** second commit, tag,
-or push and does **not** duplicate `/release`'s pre-commit gates (Steps 4.5–4.10: include-drift,
-council template-vars, hook-template hygiene, skill-bash lint, docs-drift, smoke). Those gates
-are `/release`'s own; if any fails, `/release` aborts before committing and nothing ships (§6),
-and this sequence resets the squash-staged tree on that abort path (§6.5).
+5.5 ship-history + Step 6 tag/push — the one-commit-per-release contract). This procedure adds
+**no** second commit, tag, or push and does **not** duplicate `/release`'s pre-commit gates
+(Steps 4.5–4.10: include-drift, council template-vars, hook-template hygiene, skill-bash lint,
+docs-drift, smoke) or its ship-history gate (Step 5.5 / SPEC-010 H). Those gates are
+`/release`'s own; if any fails, `/release` aborts before claiming success and nothing ships as
+Done (§6), and this sequence resets the squash-staged tree on a pre-commit abort path (§6.5).
 
-## 6. Tracking closeout — AFTER `/release` succeeds (AC5)
+## 5.5 Post-`/release` ship-history re-check (SPEC-010 H5/H8/H9; CDT-188)
+
+**After** `/release` reports success (committed/tagged/pushed) and **before** §6 tracking
+closeout (Linear **Done**, local backlog close, `task_complete` ship success): require a clean
+`check-ship-history.sh` for W. Cite SPEC-010 H1–H12 — **do not** fork D1–D4 here.
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1). Cross-block env does not carry:
+# substitute the literal SHA recorded in §3.5 (same discipline as orchestrate <RUN_ID>).
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+CHECK_SHIP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-ship-history.sh)
+SHIP_START_SHA="<SHIP_START_SHA>"   # literal from §3.5 — required
+[ -n "$SHIP_START_SHA" ] && [ "$SHIP_START_SHA" != "<SHIP_START_SHA>" ] || {
+  echo "end-state: SHIP_START_SHA unset — re-run §3.5" >&2
+  return 1
+}
+bash "$CHECK_SHIP" --since "$SHIP_START_SHA" || {
+  # Autopilot path (H8): exact halt; no Done / trackers / success claim
+  echo "history dirty — rewrite needed"
+  # print checker evidence (already on stdout/stderr); write halt card if available
+  # MUST NOT: Linear Done, backlog close, Orchestration complete, task_complete ship
+  return 1
+}
+```
+
+- **Exit 0** — clean; continue to §6 closeout.
+- **Non-zero / dirty (H8):** halt with the exact phrase `history dirty — rewrite needed`
+  plus checker evidence. **MUST NOT** set Linear/backlog **Done**, **MUST NOT** close
+  `closes:` trackers, **MUST NOT** claim ship success. No silent force-push / amend / retag.
+  Resume only after human confirms a rewrite (interactive H7 via `/release` or manual) or
+  history becomes clean on re-check.
+
+## 6. Tracking closeout — AFTER `/release` succeeds **and** ship-history is clean (AC5)
 
 For **this autopilot merge path only**, the "Tracking close-out (ship DoD)" block in
-`/orchestrate` Step 11 runs **after** `/release` succeeds — not before the delivery commit. If
-`/release` aborts at one of its pre-commit gates (§5), the release never commits, so the trackers
-**stay open** (correct — nothing shipped; closing them would falsely mark a ship that never
-happened). Only once `/release` has committed, tagged, and pushed does autopilot close the
-`closes:` trackers (local backlog write-through + Linear **Done** — this path lands on
-master, so Done is correct per SPEC-009 Linear lifecycle) exactly as that block specifies.
+`/orchestrate` Step 11 runs **after** `/release` succeeds **and** §5.5 ship-history is
+clean — not before the delivery commit. If `/release` aborts at one of its pre-commit gates
+(§5), or §5.5 is dirty, the trackers **stay open** (correct — nothing may be claimed Done;
+closing them would falsely mark a clean ship). Only once `/release` has committed, tagged,
+and pushed **and** `check-ship-history.sh --since $SHIP_START_SHA` exits 0 does autopilot
+close the `closes:` trackers (local backlog write-through + Linear **Done** — this path
+lands on master, so Done is correct per SPEC-009 Linear lifecycle) exactly as that block
+specifies.
 
 Every other path keeps the block's **before-commit** ordering for **local** backlog;
 **Linear** is path-dependent (SPEC-009 / orchestrate Step 11 lifecycle):
 - autopilot **`pr` (PR-stop):** Linear → **In Review** only (MUST NOT Done)
 - interactive squash after commit on master: Linear → **Done**
-- this merge/`/release` path: Linear → **Done** after `/release` succeeds
+- this merge/`/release` path: Linear → **Done** after `/release` succeeds **and**
+  §5.5 ship-history is clean (dirty → halt, trackers stay open)
 
 This procedure reorders the closeout for the autopilot merge path **only** and does not
 move or alter the interactive block.

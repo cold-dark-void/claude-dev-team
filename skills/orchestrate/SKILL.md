@@ -1360,11 +1360,16 @@ Act on the **post-council effective decision**:
   print `epic <ID> is in release=end mode until seal (CDT-141)` (from assert stderr),
   emit `task_blocked` via Tier B (fail-open), and return — master unchanged. Else run
   `skills/autopilot/end-state.md`'s release-end-state sequence: deterministic BC3
-  push-target check (N3a) → `git merge --squash <branch>` (stage only, **no** `git commit`) →
-  `/release <AUTOPILOT_BUMP>` (the sole commit + tag + push). Does **not** route through the
-  interactive "If squash merge requested" block below (`autopilot_bump != null` is engine-guaranteed).
-  On `/release` success (end-state.md §6 closeout done), emit `task_complete` (detail =
-  `released <bump>/<tag>`) via **Passive notifications → Tier B** (fail-open; § below).
+  push-target check (N3a) → record `SHIP_START_SHA` → `git merge --squash <branch>`
+  (stage only, **no** `git commit`) → `/release <AUTOPILOT_BUMP>` (the sole commit +
+  tag + push) → §5.5 ship-history clean check (SPEC-010 H; cite, do not restate D1–D4).
+  Does **not** route through the interactive "If squash merge requested" block below
+  (`autopilot_bump != null` is engine-guaranteed).
+  On `/release` success **and** end-state §5.5 clean (§6 closeout done), emit
+  `task_complete` (detail = `released <bump>/<tag>`) via **Passive notifications →
+  Tier B** (fail-open; § below). On dirty ship-history (H8): halt with exact
+  `history dirty — rewrite needed`; **MUST NOT** Linear/backlog Done, **MUST NOT**
+  print Orchestration complete / ship success.
 - `halt` / `reroute-epic` → print the one-line message below and return control; on `halt`
   **only**, first emit `task_blocked` (detail = the one-line message below) via **Passive
   notifications → Tier B** (fail-open; § below) — `reroute-epic` does NOT notify-blocked;
@@ -1445,14 +1450,21 @@ finished in a worktree”:
 |-------|---------------|------|
 | Work started | **In Progress** | Step 3 (already) |
 | PR open / not on master | **In Review** | PR-stop, draft/ready PR, release=end child left on integration branch |
-| Landed on master + close-out | **Done** (or team Released) | Squash/merge to master succeeds, `/release` succeeds, **or** `/wrap-ticket` after merge |
+| Landed on master + close-out | **Done** (or team Released) | Squash/merge to master succeeds, `/release` succeeds, **and** ship-history clean (SPEC-010 H), **or** `/wrap-ticket` after merge |
 
 **MUST NOT** set Linear to **Done** when the only ship action was open a PR,
 push a feature branch, or finish IC/QA while changes are still off master.
 That was a footgun: tickets looked Done while master lacked the code.
 
+**MUST NOT** set Linear to **Done** when ship-history is dirty (SPEC-010 H5/H8/H9):
+run `check-ship-history.sh --since $SHIP_START` (or ambient `SHIP_START_SHA`) and
+require exit 0 before any master-land Done. Dirty → exact halt
+`history dirty — rewrite needed`; trackers stay open. Cite SPEC-010 H — do not
+restate D1–D4.
+
 Local backlog write-through (`close.sh`) may still flip **local** COMPLETED at
-ship (process cache). Linear terminal state is **master-land / wrap**, not PR-open.
+ship (process cache) only when ship-history is clean on master-land paths.
+Linear terminal state is **master-land / wrap**, not PR-open.
 
 ### Tracking close-out (ship DoD — orchestrator-owned)
 
@@ -1465,14 +1477,18 @@ the **feature worktree** (`--root "$WT_PATH"`) so edits land on the branch tree
 - **PR-stop / autopilot `pr` / release=end PR-only:** MCP → **In Review** + PR URL
   comment. **MUST NOT** Done.
 - **Master land** (interactive squash onto master, autopilot `merge` after
-  `/release` success, resume-ship after release): MCP → **Done** + PR/SHA comment.
+  `/release` success **and** ship-history clean, resume-ship after release):
+  MCP → **Done** + PR/SHA comment. **Requires** clean
+  `check-ship-history.sh` (SPEC-010 H5/H9) first — see ship-history gate below.
 - Fail-open if MCP unavailable: print a warning; do not invent Done or In Review.
 
 **Autopilot release-path exception (AC5, CDT-111-C9):** on the autopilot `merge` → `/release`
-path **only**, this close-out runs **after** `/release` succeeds (per `skills/autopilot/end-state.md`
-§6) — not before — so trackers stay open if `/release` aborts at a pre-commit gate (nothing
-shipped). Every other path (interactive PR, interactive squash, autopilot `pr`) keeps the
+path **only**, this close-out runs **after** `/release` succeeds **and** end-state §5.5
+ship-history is clean (per `skills/autopilot/end-state.md` §6) — not before — so trackers
+stay open if `/release` aborts at a pre-commit gate or history is dirty (nothing claimed
+Done). Every other path (interactive PR, interactive squash, autopilot `pr`) keeps the
 before-commit ordering below for **local** backlog; Linear follows the lifecycle table.
+Master-land paths still require the ship-history gate before Linear **Done**.
 
 ```bash
 # Re-resolve PDH / MROOT / WT (fresh shell). Parse backlog slugs from plan Tracking.
@@ -1573,6 +1589,38 @@ Co-Authored-By: Claude <model> <noreply@anthropic.com>"
 Only use `gh pr merge --squash` if the user explicitly created a PR and `gh` is
 available. Plain `git merge --squash` is the default merge path.
 
+### Ship-history gate before master-land Done (SPEC-010 H5/H7–H9; CDT-188)
+
+On **any master-land path** (interactive squash onto master, autopilot `merge` /
+end-state after `/release`, resume-ship after release) **before** Linear **Done**,
+local backlog terminal close that implies ship success, or Step 12
+`Orchestration complete`:
+
+1. Ensure `SHIP_START` / `SHIP_START_SHA` is known (end-state §3.5 /
+   `/release` Step 0.5; for interactive squash-only without `/release`, record
+   `SHIP_START=$(git rev-parse HEAD)` on the main-repo path **before** the
+   squash commit).
+2. Run the install-aware checker (cite SPEC-010 H — **do not** restate D1–D4):
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+CHECK_SHIP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-ship-history.sh)
+SHIP_START="${SHIP_START:-${SHIP_START_SHA:-}}"
+[ -n "$SHIP_START" ] || { echo "orchestrate: SHIP_START unset for master-land gate" >&2; exit 64; }
+bash "$CHECK_SHIP" --since "$SHIP_START"
+```
+
+3. **Exit 0** — proceed with Linear Done / closeout / Step 12 complete banner.
+4. **Exit 1 dirty:**
+   - **Autopilot on (H8):** halt with exact `history dirty — rewrite needed`
+     plus checker evidence. **MUST NOT** Done, **MUST NOT** `Orchestration
+     complete`, **MUST NOT** silent force-push.
+   - **Interactive (H7):** print evidence + rewrite plan; require explicit user
+     confirm before rewrite/force-push; on decline → halt (refs unchanged).
+5. **PR-stop paths** skip this gate (no master land / no Done claim).
+
 ---
 
 ## Worktree cleanup
@@ -1630,7 +1678,22 @@ Suggest running `/wrap-ticket <ISSUE-ID>` for worktree removal + learnings.
 
 Do **not** set Done from preference while code is still off master.
 
-Print:
+### Ship-history before `Orchestration complete` (SPEC-010 H5/H9; CDT-188)
+
+On **master-land** paths (interactive squash, autopilot `merge`/`/release`,
+resume-ship), **before** printing the `Orchestration complete` banner:
+
+- Require a clean `check-ship-history.sh --since $SHIP_START` result (same
+  install-aware resolve as Step 11 ship-history gate; cite SPEC-010 H — do
+  **not** restate D1–D4).
+- **Dirty (H8 autopilot / H7 interactive):** print exact
+  `history dirty — rewrite needed` (+ evidence). **MUST NOT** print
+  `Orchestration complete`. **MUST NOT** claim Linear Done if not already
+  blocked at Step 11. Halt; leave rewrite to human confirm (H7) or clean re-check.
+- **PR-stop:** may print the banner with Tracking `Linear In Review (PR)` —
+  ship-history gate does not apply (no master land).
+
+Print (master-land only when ship-history clean; PR-stop always OK):
 
 ```
 Orchestration complete for <ISSUE-ID>

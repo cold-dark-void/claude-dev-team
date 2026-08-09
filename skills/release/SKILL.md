@@ -74,6 +74,32 @@ fi
 - Guard reads **durable** `$MROOT/.claude/epics/<ID>/state.json` only — holds
   across resume sessions while mode is active.
 
+Then continue to Step 0.5.
+
+## Step 0.5: Record ship-start SHA (SPEC-010 H6)
+
+**Before any version-file edit, commit, tag, or push**, open ship window W:
+
+```bash
+# Ambient SHIP_START_SHA from end-state / train / orchestrate wins when set
+# (caller already opened W). Else record HEAD tip now (before any commit).
+if [ -n "${SHIP_START_SHA:-}" ]; then
+  SHIP_START=$(git rev-parse --verify "$SHIP_START_SHA^{commit}" 2>/dev/null) || {
+    echo "release: unresolvable ambient SHIP_START_SHA=$SHIP_START_SHA" >&2
+    exit 64
+  }
+else
+  SHIP_START=$(git rev-parse HEAD)
+fi
+export SHIP_START
+# Carry into later fences (agent session state) — each bash fence re-reads env
+# or re-derives; do not hardcode a SHA into the skill text.
+```
+
+- `SHIP_START` is the sole `--since` value for `check-ship-history.sh` in this
+  `/release` (SPEC-010 H1–H12 — cite, do not restate D1–D4).
+- Do **not** re-record after the fold commit (that would empty W).
+
 Then continue to Step 1.
 
 ## Step 1: Determine new version
@@ -317,10 +343,63 @@ Co-Authored-By: <Agent-or-Model> <noreply@…>
   - `Co-Authored-By: Claude <model> <noreply@anthropic.com>` (model-agnostic Claude form for consumer templates)
 - The CHANGELOG carries the detail; the commit subject stays one line.
 
+After the fold commit succeeds, continue to Step 5.5 **before** tagging.
+
+## Step 5.5: Ship-history cleanliness gate (SPEC-010 H5–H10; CDT-188)
+
+**After** Step 5 fold commit, **before** Step 6 `git tag` + push, and again
+**after** the local tag exists (include the new tag in W). Cite SPEC-010 H —
+**do not** restate D1–D4 here. Resolve the checker install-aware (plugin-dir);
+re-resolve PDH in this fence (skill-lint C1).
+
+```bash template
+# Fresh shell — re-resolve PDH + SHIP_START (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+CHECK_SHIP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-ship-history.sh)
+# SHIP_START from Step 0.5 (or ambient SHIP_START_SHA). Fail closed if missing.
+SHIP_START="${SHIP_START:-${SHIP_START_SHA:-}}"
+[ -n "$SHIP_START" ] || { echo "release: SHIP_START unset — re-run Step 0.5" >&2; exit 64; }
+# Pre-tag (optional but preferred H10): catch prior dirty in W before creating the tag.
+# After local tag: re-run with --expect-tag vX.Y.Z=$(git rev-parse HEAD) so D4 has a pin.
+bash "$CHECK_SHIP" --since "$SHIP_START"
+# post-tag form (Step 6, after git tag vX.Y.Z, before push / success claim):
+# bash "$CHECK_SHIP" --since "$SHIP_START" --expect-tag "vX.Y.Z=$(git rev-parse HEAD)"
+```
+
+- **Exit 0** — clean; proceed to tag (pre-tag) or push / success claim (post-tag).
+- **Exit 1 (dirty)** — print the script's evidence as-is (includes exact token
+  `history dirty — rewrite needed`). **Do NOT** claim release success, set
+  Linear/backlog Done, or print a ship-success line.
+  - **Autopilot / `AUTOPILOT_ON` / end-state context (H8):** **halt** with the
+    exact phrase `history dirty — rewrite needed` plus H3 evidence. MUST NOT
+    silent force-push, amend, retag, or force-push. Leave refs as-is.
+  - **Interactive (H7):** print dirty evidence; propose a rewrite plan (which
+    commits to fold, which tags to move); **require explicit user confirm**
+    before any `git rebase` / `git commit --amend` / tag delete+recreate /
+    `git push --force-with-lease`. On decline or no answer → halt; leave refs
+    unchanged. After a confirmed rewrite, re-run the checker until exit 0,
+    then continue (H10 linearize-before-tag when still pre-push).
+- **Exit 64** — usage / unresolvable `--since`: hard-stop; fix invocation; do
+  not tag/push/claim success.
+- Prefer **not** pushing tags until clean (H5/H10). If push already happened
+  and the re-check is dirty → still H7/H8 halt; never silent repair.
+
 ## Step 6: Tag and push
+
+**Only after Step 5.5 is clean (or interactive rewrite re-checked clean):**
 
 ```bash
 git tag vX.Y.Z
+```
+
+**Immediately after the local tag**, re-run Step 5.5's checker with
+`--expect-tag "vX.Y.Z=$(git rev-parse HEAD)"` (same PDH / `CHECK_SHIP` /
+`SHIP_START` resolve). Dirty → H7/H8; **do not push**, do not claim success.
+
+When clean:
+
+```bash
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git push origin "$BRANCH" --tags
 ```
@@ -331,3 +410,7 @@ git push origin <branch> --tags
 ```
 
 Confirm with: `git log --oneline -3` and `git tag --list 'v*' | tail -3`
+
+**Success claim:** only after the post-tag (and post-push if already pushed)
+ship-history check is exit 0. Dirty after push still forbids Done / "released"
+claims (H5/H8).

@@ -199,6 +199,29 @@ expect_rc 0 "pair-only --intended (no paths)"
 rm -rf "$REPO"
 
 # ---------------------------------------------------------------------------
+# CDT-188 H11: ship-history cleanliness (separate harness, same PASS/FAIL rollup)
+# ---------------------------------------------------------------------------
+SHIP_HARNESS="$HERE/test-ship-history.sh"
+if [ ! -f "$SHIP_HARNESS" ]; then
+  fail "missing test-ship-history.sh"
+else
+  SHIP_OUT=""
+  SHIP_RC=0
+  SHIP_OUT=$(bash "$SHIP_HARNESS" 2>&1) && SHIP_RC=0 || SHIP_RC=$?
+  printf '%s\n' "$SHIP_OUT"
+  # Parse child PASS/FAIL counts from last summary line
+  SHIP_P=$(printf '%s\n' "$SHIP_OUT" | sed -n 's/.*PASS=\([0-9]*\).*/\1/p' | tail -1)
+  SHIP_F=$(printf '%s\n' "$SHIP_OUT" | sed -n 's/.*FAIL=\([0-9]*\).*/\1/p' | tail -1)
+  SHIP_P=${SHIP_P:-0}
+  SHIP_F=${SHIP_F:-0}
+  PASS=$((PASS + SHIP_P))
+  FAIL=$((FAIL + SHIP_F))
+  if [ "$SHIP_RC" -ne 0 ] && [ "$SHIP_F" -eq 0 ]; then
+    fail "test-ship-history.sh exit $SHIP_RC without FAIL count"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

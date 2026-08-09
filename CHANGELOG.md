@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.32
+- **Ship-history cleanliness gate (CDT-188)** — `check-ship-history.sh` enforces one-commit-per-tag (D1–D4) in ship window W; dirty prints exact `history dirty — rewrite needed`. Wired into `/release` (Step 0.5/5.5), autopilot end-state (§3.5/§5.5), and `/orchestrate` Step 11–12 so Done / Orchestration complete cannot claim while fixup noise remains. Interactive rewrite needs confirm before force-push; autopilot halts (no silent force). SPEC-010 H1–H12 owns the predicate (cite-not-fork). H11 fixtures: 33 ship-history + staged-path suite green.
+
 ### v1.7.31
 - **skill-lint C1 on release Step 5 staged-path fence (CDT-189 follow-up)** — re-resolve `PDH` inside the Step 5 `check-staged-paths.sh` bash block (fresh shell; SPEC-021 C1). Unblocks smoke `skill-lint` after v1.7.30.
 
