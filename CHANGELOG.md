@@ -1,7 +1,10 @@
 # Changelog
 
 All notable changes to **claude-dev-team**, newest first.
-Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
+Authoritative version history. Prefer **`/release`** to add `### v1.7.29
+- **Escape EMBED_MODEL in migrate-md.sh SQL (CDT-190)** — same class as CDT-164/`embed-one.sh`: after model resolution (outside the per-row loop), apply `:-all-MiniLM-L6-v2` then single-quote-double into `EMBED_MODEL_ESC` for the `embedding_meta` INSERT only; provider body still gets the raw name via `jq --arg`. SPEC-004 Version History records the fix.
+
+### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.

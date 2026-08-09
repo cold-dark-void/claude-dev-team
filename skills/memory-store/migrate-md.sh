@@ -188,6 +188,8 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
       # Env overrides DB; DB is durable source when env unset.
       [ -n "$EMBED_MODEL" ] || EMBED_MODEL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';" 2>/dev/null)
     fi
+    # Apply :-default before escaping (SPEC-004 / CDT-164). SQL-only — jq --arg keeps raw EMBED_MODEL.
+    EMBED_MODEL_ESC=$(printf '%s' "${EMBED_MODEL:-all-MiniLM-L6-v2}" | sed "s/'/''/g")
 
     while read -r MEM_ID; do
       # Validate MEM_ID is numeric (defense in depth)
@@ -258,7 +260,7 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
       # Insert embedding
       sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
         "INSERT INTO ${VEC_TABLE}(memory_id, embedding) VALUES ($MEM_ID, '$EMBEDDING');" \
-        "INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table) VALUES ($MEM_ID, '${EMBED_MODEL:-all-MiniLM-L6-v2}', $DIMS, '$VEC_TABLE');" \
+        "INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table) VALUES ($MEM_ID, '$EMBED_MODEL_ESC', $DIMS, '$VEC_TABLE');" \
         2>/dev/null || { echo "  WARN: vec insert failed for chunk $MEM_ID"; continue; }
 
       EMBEDDED_COUNT=$((EMBEDDED_COUNT + 1))
