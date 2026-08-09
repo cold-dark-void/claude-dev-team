@@ -51,6 +51,29 @@ Read card #1 back with `skills/autopilot/read-cards.sh <ticket_id>` to recover t
 this pass copies forward on the agree path: its `decision` (`pr` or `merge`), its `bump`,
 and the shared `run_id`.
 
+### 2a. Process-stamp pre-flight (SPEC-033 M14(a) CDT-185)
+
+**Before** §3 tier selection and **before** any `/council` invocation, run the **process-stamp
+pre-flight** against the M14(a) stamp shape (SPEC-033 owns the shape — cite-not-fork; do not
+restate enums as a second home). Re-read the ledger with `read-cards.sh` and verify card #1
+matches the stamp shape in **SPEC-033 M14(a)** (CDT-185).
+
+On **stamp fail** (missing/empty ledger, `read-cards.sh` exit ≠ 0, no matching card #1, or any
+shape-field mismatch):
+
+1. **Skip `/council` entirely** — no rubber-stamp of a missing process trail.
+2. **Do not take the agree path.**
+3. Append card #2 via `append-card.sh` as a BC7 halt: `decision = halt`,
+   `blocking_condition = 7`, `confidence = 0`, `bump = null`,
+   `council_tier = null`, `grading_reason = null` (no council ran — stamp fail
+   skips `/council`), same `run_id` as card #1 (or a fresh halt card if card #1 is
+   unreadable — still BC7, conf=0, tiers null), with `rationale` naming the stamp
+   failure (e.g. `process-stamp fail: <cause>`).
+4. Return; halt escalation is the BC handler's job (§7).
+
+On **stamp pass**, continue to §3. Process is pre-cleared; the claim under audit is
+**technical-only** (M14(a) CDT-185 narrow claim — §3b).
+
 ## 3. Select the tier, then build and invoke the council claim
 
 ### 3a. Tier selection (M14(e))
@@ -142,17 +165,24 @@ Placeholder binding:
 - `<ledger-path>` — `$MROOT/.claude/autopilot/<ticket_id>.jsonl` (the decision-card ledger
   `read-cards.sh` / `append-card.sh` operate on).
 - `<spec-path>` — the spec + AC path(s) the ship is claimed against (space-separated if >1).
-- `<claim>` — the one-line ship claim
-  (e.g. `QA PASS + Step-10b spec-alignment PASS; ready to merge`).
+- `<claim>` — the one-line **technical-only** ship claim under audit (SPEC-033 M14(a)
+  CDT-185 narrow claim). Example shape:
+  `branch implements ACs at <spec-path> for <ticket_id> (merge-base..HEAD)`.
+  The claim MUST state technical readiness only (diff vs cited ACs/spec). It MUST NOT assert
+  process outcomes in the claim body. Process was pre-cleared by §2a stamps; re-asserting it
+  here is the compound-claim failure mode M14(a) CDT-185 closed. Locators stay in the
+  envelope (`ticket_id`, ledger path, spec paths, merge-base diff wording) — they are
+  locators, not process assertions.
 - `<tier>` — §3a's resolved `council_tier`.
 
 The claim carries **locators only**. Autopilot MUST NOT render, pre-digest, or pass a
-materialized evidence file, and MUST NOT add any render-helper script (M14(a)): the
-council's own investigators pull the ledger, the spec/ACs, and the branch diff through
-their own tool calls. The diff named in the claim is the **same** merge-base range §3a
-graded — the wording is a locator for the investigators, not a handoff of graded output, and
-M14(a)'s locators-only rule is unchanged by it. The final sentence is a standing instruction
-to the investigators to treat the summary as untrusted and re-derive the evidence themselves.
+materialized evidence file, MUST NOT inject RAW_ARTIFACTS or any other claim-body evidence
+payload, and MUST NOT add any render-helper script (M14(a) CDT-185): the council's own
+investigators pull the ledger, the spec/ACs, and the branch diff through their own tool
+calls. The diff named in the claim is the **same** merge-base range §3a graded — the wording
+is a locator for the investigators, not a handoff of graded output, and M14(a)'s
+locators-only rule is unchanged by it. The final sentence is a standing instruction to the
+investigators to treat the summary as untrusted and re-derive the evidence themselves.
 
 ## 4. Verdict interpretation
 
@@ -312,3 +342,10 @@ scrub it before passing it, and the writer rejects newlines/control chars.
 - **Raise a ship above BC7.** The council verdict can only confirm card #1's clean answer or
   push it **down** to a BC7 halt; it can never clear a halt or lift confidence past the
   M6/M13 threshold on its own (M14(b), (d)).
+- **Agree without process stamps.** MUST NOT take the agree path when §2a stamp pre-flight
+  fails (SPEC-033 M14(a) CDT-185). Stamp fail → skip `/council`, BC7 halt, conf=0.
+- **Put process assertions in the council claim when stamps clear process.** After stamps
+  pass, the claim under audit is **technical-only**; MUST NOT re-assert process outcomes in
+  the claim body (M14(a) CDT-185 narrow claim).
+- **Apply stamp/claim rules outside M14 ship-gate.** Process-stamp + narrow-claim rules are
+  **M14 ship-gate only** (M14(a) CDT-185 scope); no other `/council` caller inherits them.

@@ -427,10 +427,61 @@ target.
     does **not** bind the run to a task, a plan, or any other scope, so it leaves this bullet's
     unbound-and-locators-only intent intact. No other flag may be passed. The claim string carries
     **locators only**: `ticket_id`, the decision-card ledger path (for
-    `skills/autopilot/read-cards.sh`), the spec/AC path(s), and a one-line ship claim.
-    Investigators pull all evidence themselves via their own tool calls; autopilot MUST NOT
-    render, pre-digest, or pass a materialized evidence file, and MUST NOT add any
-    render-helper script.
+    `skills/autopilot/read-cards.sh`), the spec/AC path(s), and a one-line **technical** ship
+    claim (**CDT-185** — see process-stamp / narrow-claim rules below). Investigators pull all
+    evidence themselves via their own tool calls; autopilot MUST NOT render, pre-digest, or pass
+    a materialized evidence file, MUST NOT add any render-helper script, and MUST NOT inject
+    RAW_ARTIFACTS or any other claim-body evidence payload. Locators-only is unchanged by the
+    stamp split.
+
+    - **Process stamps + narrow claim (CDT-185; Option 3).** Root failure mode: a compound
+      ship claim that re-asserted process outcomes (e.g. `QA PASS`, `Step-10b … PASS`) for the
+      council to re-prove produced systematic `PARTIALLY_VERIFIED` ~sub-80 → BC7, because those
+      process facts live in the self-answer trail, not in code/spec evidence the investigators
+      can re-derive. Fix: **pre-clear process via card #1 stamps; council audits technical
+      readiness only.** Scope is **M14 ship-gate only** — no other `/council` caller inherits
+      this stamp/claim rule.
+
+      1. **Stamp set = clean ship-choice card #1.** The sole process stamp is the original
+         self-answered `ship-choice` card in `$MROOT/.claude/autopilot/<ticket_id>.jsonl`,
+         read via `skills/autopilot/read-cards.sh <ticket_id>`. QA PASS and Step-10b
+         spec-alignment PASS are **implied by** the self-answer engine having written that
+         clean card (M4 ship-choice checklist already ran). **No** Tech-Lead APPROVE token
+         and **no** second process artifact is required or permitted as a stamp.
+
+      2. **Stamp shape (normative).** Autopilot MUST treat card #1 as stamped iff **all** hold:
+         - `gate == "ship-choice"`
+         - `decision ∈ {pr, merge}`
+         - `blocking_condition == null`
+         - `decided_by == "auto"`
+         - `council_tier == null` **and** `grading_reason == null` (M13: those fields are
+           non-null only on the M14 council card #2)
+         - it is the **first** `ship-choice` card for this attempt's `run_id` in ledger order
+           (the original self-answer card that triggered M14 firing — M14(c))
+
+      3. **Stamp pre-flight (MUST, fail-closed).** Before invoking `/council` and before any
+         agree path, autopilot MUST re-read the ledger with `read-cards.sh` and verify the
+         stamp shape above. On stamp fail (missing/empty ledger, `read-cards.sh` exit ≠ 0,
+         no matching card #1, or any shape field mismatch): autopilot MUST **not** invoke
+         `/council`, MUST **not** take the agree path, and MUST append card #2 as
+         `decision = halt`, `blocking_condition = 7`, `confidence = 0`, `bump = null`, with
+         `rationale` naming the stamp failure. This **reuses BC7** (M14(c)) — missing process
+         evidence is self-uncertainty about the ship answer — and MUST NOT introduce a ninth
+         BC. Autopilot MUST NOT rubber-stamp a missing process trail by running council on a
+         process-compound claim or by agreeing without stamps.
+
+      4. **Narrow claim (when stamps pass).** The one-line ship claim under audit MUST be
+         **technical-only**: whether the branch diff (the merge-base range named in **(e)**)
+         implements the cited ACs/spec. The claim MUST NOT assert process outcomes
+         (`QA PASS`, `Step-10b … PASS`, TL approve, or equivalent process language). Process
+         is pre-cleared by the stamp; the council audits technical readiness only. Locators
+         (`ticket_id`, ledger path, spec/AC paths) remain in the claim envelope as before —
+         they are locators, not process assertions.
+
+      5. **Technical still blocks.** Stamp success does **not** pre-clear the council. A
+         technical disagree / `UNVERIFIED` / `CONTRADICTED` / `FABRICATED` / sub-80 confidence
+         still maps through **(b)** to BC7 halt. **(d)** (degraded / self-verified) is
+         **unchanged**.
 
   - **(b) Verdict → confidence → BC mapping (normative).** The council's per-claim verdict
     maps to the second `ship-choice` card as follows. First set `confidence`:
@@ -622,3 +673,4 @@ target.
 |------|--------|
 | 2026-08-04 | Initial contract (CDT-111-C1) — mode activation (M1–M2), per-gate checklists + per-command checkpoint mapping (M3–M5), eight blocking conditions (M6–M8), run-budget defaults (M9), complexity-overflow reroute (M10–M11), contract home (M12), decision-card schema (M13), MUST NOTs N1–N8. Amended within the same DRAFT cycle by later CDT-111 children: C2 (card writer/reader paths), C5 (AC7 / M14 council ship gate), C6 (M11a reroute safety + state carry-forward), C7 (OQ1 notify transport), C8 (M9a resume wall-clock basis), C9 (N3a deterministic BC3 push-target check). *(This table itself was added 2026-08-05 by CDT-126 — the section was missing; the rows above reconstruct the DRAFT cycle that predates it.)* |
 | 2026-08-05 | CDT-126: council tiering at the autopilot ship gate. **M14(e)** — tier selection before the M14 pass: graded input is `git diff --numstat $(git merge-base <default> HEAD)..HEAD` with `<default>` from `git symbolic-ref refs/remotes/origin/HEAD`, reusing N3a's existing mechanism at the same step rather than inventing one; bands, critical-area signals, the fail-closed contract and the `skip`-unreachability rule are all cited from SPEC-013's Council tiering section, never restated (SPEC-002 D1 / M12 / N4) — (e) keeps only the M14-specific deltas: the graded diff, the fact that an unresolvable `origin/HEAD` grades to `full` here whereas N3a's own unresolvable `origin/HEAD` **halts the ship** under BC3 (same probe, different consequence — not to be conflated), and that autopilot has no DRI so `skip` can only arrive human-supplied; **M14(a)** amended to carve out `--council-tier=<tier>` as the sole permitted flag on the otherwise-unbound `/council` invocation, resolving its contradiction with (e)'s requirement to pass it; firing rule (`ship-choice` only, clean `pr`/`merge` only, exactly once, exactly two cards) unchanged. Includes a correction note for the wiring child: `skills/autopilot/ship-gate-council.md` §3's "the staged diff" is wrong — nothing is staged at M14 firing time (the `git merge --squash` happens after the gate), so M14 has no pre-existing diff of its own, and its "no other flag" sentence is superseded by the M14(a) carve-out — both to be corrected in the same pass. **M14(f)** — tier-aware BC7: the halt card carries `council_tier` and the rationale names it; the full-council re-offer is made only from a `light` halt, and is an escalation affordance autopilot MUST NOT self-answer. No ninth blocking condition, no new halt path; (b)/(c)/(d) unchanged. **M13** — decision card gains nullable `council_tier` + `grading_reason`, non-null only on the M14 council card; `schema_version` stays `1` (additive + nullable, discriminator envelope unchanged); `append-card.sh` cross-field invariants to be extended by the wiring child. Status stays DRAFT. |
+| 2026-08-09 | CDT-185: M14(a) process stamps + narrow claim (Option 3). Before `/council`, autopilot MUST pre-flight **process stamps** = clean ship-choice **card #1** via `read-cards.sh` (stamp shape: `gate=ship-choice`, `decision∈{pr,merge}`, `blocking_condition=null`, `decided_by=auto`, `council_tier`/`grading_reason` null, first ship-choice card for `run_id`). QA/Step-10b implied by self-answer; **no** TL APPROVE stamp. Stamp fail → refuse agree path, no `/council`, card #2 BC7 halt `confidence=0` (reuse BC7, not a 9th BC). Stamp pass → one-line claim is **technical-only** (merge-base diff vs ACs/spec); MUST NOT re-assert process outcomes in the claim body. Locators-only / no RAW_ARTIFACTS injection preserved. M14(b)/(c)/(d)/(e)/(f) mapping and degraded-run rule unchanged; technical disagree still BC7. Scope: M14 ship-gate only. Procedure home: `skills/autopilot/ship-gate-council.md` §3b (wiring child). Status stays DRAFT. |

@@ -33,6 +33,11 @@
 # with recorded on/bump state, found off-recorded, found pre-feature (no
 # autopilot_on line), multi-match newest-mtime wins, bad ISSUE-ID, and
 # accumulated-mode 0/1/N-card max.
+#
+# Covers CDT-185 T2 cases (av)-(bd) for M14(a) process-stamp predicate +
+# static claim contract on ship-gate-council.md: stamp happy path, fail-closed
+# matrix (missing/empty/BC7/halt/user/non-null-tier), and §3b technical-only
+# claim / no RAW_ARTIFACTS.
 
 set -u
 
@@ -42,6 +47,7 @@ READ="$SCRIPT_DIR/read-cards.sh"
 BUDGET="$SCRIPT_DIR/budget-check.sh"
 PARSE="$SCRIPT_DIR/parse-flags.sh"
 RESUME="$SCRIPT_DIR/resume-state.sh"
+SHIP_GATE="$SCRIPT_DIR/ship-gate-council.md"
 
 PASS=0
 FAIL=0
@@ -50,6 +56,33 @@ fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
 
 # rc N of a command without tripping anything; prints nothing.
 rc_of() { local rc=0; "$@" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+
+# M14(a) CDT-185 process-stamp predicate (SPEC-033 stamp shape).
+# Reads ledger via read-cards.sh; exit 0 = stamp pass, 1 = fail.
+# Shape on first ship-choice card for its run_id:
+#   gate=ship-choice, decision∈{pr,merge}, blocking_condition=null,
+#   decided_by=auto, council_tier=null, grading_reason=null.
+process_stamps_ok() {
+  local ticket=$1 out rc=0
+  out=$(bash "$READ" "$ticket" 2>/dev/null) || rc=$?
+  [ "$rc" -eq 0 ] || return 1
+  printf '%s' "$out" | jq -e '
+    length > 0
+    and (
+      (map(select(.gate == "ship-choice")) | .[0]) as $c
+      | $c != null
+      and ($c.decision == "pr" or $c.decision == "merge")
+      and $c.blocking_condition == null
+      and $c.decided_by == "auto"
+      and $c.council_tier == null
+      and $c.grading_reason == null
+      and (
+        ([.[] | select(.gate == "ship-choice" and .run_id == $c.run_id)] | .[0])
+        == $c
+      )
+    )
+  ' >/dev/null 2>&1
+}
 
 # expect_rc <want> <desc> <cmd...>
 expect_rc() {
@@ -654,6 +687,148 @@ expect_rc 64 "at parse-flags illegal tier --council-tier=bogus → 64" bash "$PA
 # (au) parse-flags.sh: bare --council-tier (no value) → exit 64
 # =============================================================================
 expect_rc 64 "au parse-flags bare --council-tier (no value) → 64" bash "$PARSE" --council-tier
+
+# =============================================================================
+# (av) CDT-185: stamp predicate happy — clean ship-choice card #1 → PASS
+# =============================================================================
+reset
+bash "$APPEND" orchestrate CDT-185 ship-choice merge auto patch 90 null run-1 1 10 orch \
+  "clean ship" >/dev/null 2>&1
+if process_stamps_ok CDT-185; then
+  pass "av stamp predicate happy: clean merge card #1 → PASS"
+else
+  fail "av stamp predicate happy expected PASS; cards=$(bash "$READ" CDT-185 2>/dev/null)"
+fi
+
+# also pr decision stamps
+reset
+bash "$APPEND" orchestrate CDT-185 ship-choice pr auto patch 90 null run-1 1 10 orch \
+  "clean pr" >/dev/null 2>&1
+if process_stamps_ok CDT-185; then
+  pass "av2 stamp predicate happy: clean pr card #1 → PASS"
+else
+  fail "av2 stamp predicate happy pr expected PASS"
+fi
+
+# =============================================================================
+# (aw) CDT-185: stamp fail — missing ledger → fail
+# =============================================================================
+reset
+if process_stamps_ok CDT-185-MISSING; then
+  fail "aw missing ledger expected stamp FAIL"
+else
+  pass "aw stamp fail-closed: missing ledger → FAIL"
+fi
+
+# =============================================================================
+# (ax) CDT-185: stamp fail — empty ledger [] → fail
+# =============================================================================
+reset
+mkdir -p "$AUTODIR"
+: > "$(ledger CDT-185-EMPTY)"
+if process_stamps_ok CDT-185-EMPTY; then
+  fail "ax empty ledger expected stamp FAIL"
+else
+  pass "ax stamp fail-closed: empty [] → FAIL"
+fi
+
+# =============================================================================
+# (ay) CDT-185: stamp fail — halt card #1 with blocking_condition=7 → fail
+# =============================================================================
+reset
+bash "$APPEND" orchestrate CDT-185 ship-choice halt auto null 0 7 run-1 1 10 orch \
+  "bc7 halt" >/dev/null 2>&1
+if process_stamps_ok CDT-185; then
+  fail "ay BC7 halt card #1 expected stamp FAIL"
+else
+  pass "ay stamp fail-closed: blocking_condition=7 → FAIL"
+fi
+
+# =============================================================================
+# (az) CDT-185: stamp fail — decision=halt (non-clean) → fail
+# =============================================================================
+reset
+# halt with null BC still fails decision∈{pr,merge}
+bash "$APPEND" orchestrate CDT-185 ship-choice halt auto null 50 null run-1 1 10 orch \
+  "halt no bc" >/dev/null 2>&1
+if process_stamps_ok CDT-185; then
+  fail "az decision=halt expected stamp FAIL"
+else
+  pass "az stamp fail-closed: decision=halt → FAIL"
+fi
+
+# =============================================================================
+# (ba) CDT-185: stamp fail — decided_by=user → fail
+# =============================================================================
+reset
+bash "$APPEND" orchestrate CDT-185 ship-choice merge user patch 90 null run-1 1 10 orch \
+  "human merge" >/dev/null 2>&1
+if process_stamps_ok CDT-185; then
+  fail "ba decided_by=user expected stamp FAIL"
+else
+  pass "ba stamp fail-closed: decided_by=user → FAIL"
+fi
+
+# =============================================================================
+# (bb) CDT-185: stamp fail — non-null council_tier on first ship-choice → fail
+# =============================================================================
+reset
+bash "$APPEND" orchestrate CDT-185 ship-choice merge auto patch 90 null run-1 1 10 orch \
+  "tier on card1" light "clear-low (files=1, loc=10)" >/dev/null 2>&1
+if process_stamps_ok CDT-185; then
+  fail "bb non-null council_tier on card #1 expected stamp FAIL"
+else
+  pass "bb stamp fail-closed: non-null council_tier on first ship-choice → FAIL"
+fi
+
+# =============================================================================
+# (bc) CDT-185: static claim contract — §3b technical-only / no process phrases
+# =============================================================================
+if [ ! -f "$SHIP_GATE" ]; then
+  fail "bc ship-gate-council.md missing at $SHIP_GATE"
+else
+  # Extract §3b block (### 3b … next ## heading) for claim-template scoping.
+  SEC3B=$(awk '
+    /^### 3b\./ { grab=1 }
+    grab && /^## / && !/^### / { exit }
+    grab { print }
+  ' "$SHIP_GATE")
+  if [ -z "$SEC3B" ]; then
+    fail "bc could not extract §3b from ship-gate-council.md"
+  else
+    HAS_TECH=$(printf '%s' "$SEC3B" | grep -E -q 'technical-only|narrow claim|process.stamp|process stamp' && echo y || echo n)
+    HAS_QA=$(printf '%s' "$SEC3B" | grep -F -q 'QA PASS' && echo y || echo n)
+    HAS_10B=$(printf '%s' "$SEC3B" | grep -F -q 'Step-10b' && echo y || echo n)
+    HAS_RAW=$(printf '%s' "$SEC3B" | grep -E -q 'MUST NOT inject RAW_ARTIFACTS|MUST NOT.*RAW_ARTIFACTS' && echo y || echo n)
+    if [ "$HAS_TECH" = "y" ]; then
+      pass "bc1 §3b has technical-only / narrow-claim / process-stamp language"
+    else
+      fail "bc1 §3b missing technical-only/narrow-claim/process-stamp language"
+    fi
+    if [ "$HAS_QA" = "n" ] && [ "$HAS_10B" = "n" ]; then
+      pass "bc2 §3b claim template has no QA PASS / Step-10b process assertions"
+    else
+      fail "bc2 §3b still contains process phrases (QA PASS=$HAS_QA Step-10b=$HAS_10B)"
+    fi
+    if [ "$HAS_RAW" = "y" ]; then
+      pass "bc3 §3b forbids RAW_ARTIFACTS injection"
+    else
+      fail "bc3 §3b missing RAW_ARTIFACTS forbid"
+    fi
+  fi
+fi
+
+# =============================================================================
+# (bd) CDT-185: procedure cites stamp pre-flight + M14(a) CDT-185
+# =============================================================================
+if [ -f "$SHIP_GATE" ] \
+  && grep -q 'Process-stamp pre-flight' "$SHIP_GATE" \
+  && grep -q 'CDT-185' "$SHIP_GATE" \
+  && grep -q 'Agree without process stamps' "$SHIP_GATE"; then
+  pass "bd ship-gate-council.md cites stamp pre-flight + CDT-185 + §7 stamp boundary"
+else
+  fail "bd procedure missing stamp pre-flight / CDT-185 / §7 stamp boundary"
+fi
 
 # =============================================================================
 # Summary
