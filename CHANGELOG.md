@@ -1,13 +1,13 @@
 # Changelog
 
 All notable changes to **claude-dev-team**, newest first.
-Authoritative version history. Prefer **`/release`** to add `### v1.7.29
-- **Escape EMBED_MODEL in migrate-md.sh SQL (CDT-190)** — same class as CDT-164/`embed-one.sh`: after model resolution (outside the per-row loop), apply `:-all-MiniLM-L6-v2` then single-quote-double into `EMBED_MODEL_ESC` for the `embedding_meta` INSERT only; provider body still gets the raw name via `jq --arg`. SPEC-004 Version History records the fix.
-
-### vX.Y.Z` headings.
+Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
+
+### v1.7.29
+- **Escape EMBED_MODEL in migrate-md.sh SQL (CDT-190)** — same class as CDT-164/`embed-one.sh`: after model resolution (outside the per-row loop), apply `:-all-MiniLM-L6-v2` then single-quote-double into `EMBED_MODEL_ESC` for the `embedding_meta` INSERT only; provider body still gets the raw name via `jq --arg`. SPEC-004 Version History records the fix.
 
 ### v1.7.28
 - **Seed-pack manifest side-channel integrity + empty content_hash hard reject (CDT-194)** — a `files` key containing newline or TAB split the tab-delimited `FILE_LIST` so the hash field emptied and `[ -n "$expected_hash" ]` skipped verification. Preparse now rejects non-exact roster keys and control-char keys before the side channel is written; empty/missing `content_hash` is a hard reject; side channel uses `|` so empty middle fields survive bash IFS. SPEC-024 M8/M12 wording (trailer roster → M8; symlink warn ≠ roster). Tests CDT194a–e; suite 114/0.
