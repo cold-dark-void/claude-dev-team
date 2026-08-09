@@ -47,7 +47,7 @@ PACK_PROJECT=""
 
 warn() { echo "WARNING: import-seed-pack: $*" >&2; }
 
-# Parse manifest; print "agent.md\thash\tcount" lines; set PACK_* via side channel file.
+# Parse manifest; print "agent.md|hash|count" lines; set PACK_* via side channel file.
 META_FILE=$(mktemp "${TMPDIR:-/tmp}/seed-import-meta.XXXXXX")
 FILE_LIST=$(mktemp "${TMPDIR:-/tmp}/seed-import-files.XXXXXX")
 trap 'rm -f "$META_FILE" "$FILE_LIST"' EXIT
@@ -55,6 +55,8 @@ trap 'rm -f "$META_FILE" "$FILE_LIST"' EXIT
 if ! python3 - "$MANIFEST" "$META_FILE" "$FILE_LIST" <<'PY'
 import json, sys
 manifest_path, meta_path, files_path = sys.argv[1], sys.argv[2], sys.argv[3]
+# Must match seed_agents() in seed-common.sh
+SEED_AGENTS = frozenset({"pm", "tech-lead", "ic5", "ic4", "devops", "qa", "ds"})
 try:
     with open(manifest_path, encoding="utf-8") as f:
         m = json.load(f)
@@ -64,17 +66,40 @@ except Exception as e:
 if not isinstance(m, dict) or "files" not in m or not isinstance(m["files"], dict):
     print("missing files map", file=sys.stderr)
     sys.exit(1)
-with open(meta_path, "w", encoding="utf-8") as mf:
-    mf.write(f"date={m.get('export_date','')}\n")
-    mf.write(f"project={m.get('project','')}\n")
-    mf.write(f"format_version={m.get('format_version','')}\n")
+reject_preparse = 0
 with open(files_path, "w", encoding="utf-8") as ff:
     for fname, info in sorted(m["files"].items()):
         if not isinstance(info, dict):
             continue
+        # CDT-194 / M12: exact roster key only; no newline/TAB side-channel into TSV
+        if (
+            not isinstance(fname, str)
+            or "\n" in fname
+            or "\t" in fname
+            or not fname.endswith(".md")
+            or fname[:-3] not in SEED_AGENTS
+            or fname != f"{fname[:-3]}.md"
+        ):
+            reject_preparse += 1
+            safe = repr(fname) if isinstance(fname, str) else type(fname).__name__
+            print(
+                f"WARNING: import-seed-pack: manifest key {safe} is not <agent>.md "
+                f"for a roster agent (pm tech-lead ic5 ic4 devops qa ds) — file skipped",
+                file=sys.stderr,
+            )
+            continue
         h = info.get("content_hash", "")
+        if h is None:
+            h = ""
+        elif not isinstance(h, str):
+            h = str(h)
         c = info.get("count", 0)
-        ff.write(f"{fname}\t{h}\t{c}\n")
+        ff.write(f"{fname}|{h}|{c}\n")
+with open(meta_path, "w", encoding="utf-8") as mf:
+    mf.write(f"date={m.get('export_date','')}\n")
+    mf.write(f"project={m.get('project','')}\n")
+    mf.write(f"format_version={m.get('format_version','')}\n")
+    mf.write(f"reject_preparse={reject_preparse}\n")
 PY
 then
   warn "malformed manifest.json — skipping pack"
@@ -87,6 +112,7 @@ while IFS= read -r line; do
   case "$line" in
     date=*) PACK_DATE="${line#date=}" ;;
     project=*) PACK_PROJECT="${line#project=}" ;;
+    reject_preparse=*) REJECTED=$((REJECTED + ${line#reject_preparse=})) ;;
   esac
 done < "$META_FILE"
 
@@ -237,8 +263,13 @@ process_agent_file() {
 
   local actual
   actual=$(seed_file_sha256 "$fpath")
-  if [ -n "$expected_hash" ] && [ "$actual" != "$expected_hash" ]; then
-    warn "content hash mismatch for $fname — skipped"
+  # CDT-194 / M8: empty/missing content_hash is a hard reject (no soft-skip)
+  if [ -z "$expected_hash" ] || [ "$actual" != "$expected_hash" ]; then
+    if [ -z "$expected_hash" ]; then
+      warn "missing or empty content_hash for $fname — skipped"
+    else
+      warn "content hash mismatch for $fname — skipped"
+    fi
     REJECTED=$((REJECTED + 1))
     return 0
   fi
@@ -405,7 +436,7 @@ print(json.dumps({
   fi
 }
 
-while IFS=$'\t' read -r fname fhash fcount; do
+while IFS='|' read -r fname fhash fcount; do
   [ -z "$fname" ] && continue
   process_agent_file "$fname" "$fhash"
 done < "$FILE_LIST"

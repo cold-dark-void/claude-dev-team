@@ -783,6 +783,176 @@ fi
 assert_eq "M13d zero rows tech-lead" "$CNT_TL" "0"
 rm -rf "$FIX"
 
+
+# ---------- 19. M12/CDT-194 (a): newline in manifest key + sibling still imports ----------
+echo "-- CDT-194 (a) newline key side-channel"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt194a.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Chose SQLite over Postgres for local agent memory simplicity."
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "Acceptance criteria live in specs/ MUST section only."
+bash "$EXPORT" --limit 40 "$FIX" >/dev/null
+# Inject hostile key with embedded newline + stale/empty hash that would free-pass if split
+python3 - "$FIX/.claude/memory/seed/manifest.json" <<'PY'
+import json, pathlib, sys
+mp = pathlib.Path(sys.argv[1])
+m = json.loads(mp.read_text())
+# Key that if TSV-split would leave a roster-looking fname with empty hash free-pass
+m["files"]["ic5.md\nevil"] = {"content_hash": "", "count": 1}
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT194a exit 0" "$RC" "0"
+REJ=$(printf '%s' "$OUT" | sed -n 's/.*rejected=\([0-9][0-9]*\).*/\1/p' | head -1)
+IMP=$(printf '%s' "$OUT" | sed -n 's/.*imported=\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ "${REJ:-0}" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  CDT194a rejected>=1 (got $REJ)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL CDT194a rejected>=1: got=[$REJ] out=[$OUT]"
+fi
+if [ "${IMP:-0}" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  CDT194a sibling imported>=1 (got $IMP)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL CDT194a sibling imported>=1: got=[$IMP] out=[$OUT]"
+fi
+assert_contains "CDT194a roster/key warn" "$OUT" "not <agent>.md for a roster agent"
+# No free import of smuggled content under a bogus agent
+CNT_EVIL=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='evil';" 2>/dev/null || echo 0)
+assert_eq "CDT194a no evil agent rows" "$CNT_EVIL" "0"
+rm -rf "$FIX"
+
+# ---------- 20. M12/CDT-194 (b): TAB in manifest key → rejected ----------
+echo "-- CDT-194 (b) TAB key side-channel"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt194b.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Chose SQLite over Postgres for local agent memory simplicity."
+bash "$EXPORT" --agent ic5 "$FIX" >/dev/null
+python3 - "$FIX/.claude/memory/seed/manifest.json" <<'PY'
+import json, pathlib, sys
+mp = pathlib.Path(sys.argv[1])
+m = json.loads(mp.read_text())
+m["files"]["ic5.md\tevil"] = {"content_hash": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "count": 1}
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT194b exit 0" "$RC" "0"
+REJ=$(printf '%s' "$OUT" | sed -n 's/.*rejected=\([0-9][0-9]*\).*/\1/p' | head -1)
+IMP=$(printf '%s' "$OUT" | sed -n 's/.*imported=\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ "${REJ:-0}" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  CDT194b rejected>=1 (got $REJ)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL CDT194b rejected>=1: got=[$REJ] out=[$OUT]"
+fi
+if [ "${IMP:-0}" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  CDT194b valid sibling imported (got $IMP)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL CDT194b valid sibling imported: got=[$IMP] out=[$OUT]"
+fi
+assert_contains "CDT194b key warn" "$OUT" "not <agent>.md for a roster agent"
+rm -rf "$FIX"
+
+# ---------- 21. M8/CDT-194 (c): empty content_hash → file rejected ----------
+echo "-- CDT-194 (c) empty content_hash"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt194c.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Chose SQLite over Postgres for local agent memory simplicity."
+bash "$EXPORT" --agent ic5 "$FIX" >/dev/null
+python3 - "$FIX/.claude/memory/seed/manifest.json" <<'PY'
+import json, pathlib, sys
+mp = pathlib.Path(sys.argv[1])
+m = json.loads(mp.read_text())
+m["files"]["ic5.md"]["content_hash"] = ""
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT194c exit 0" "$RC" "0"
+assert_contains "CDT194c rejected=1" "$OUT" "rejected=1"
+assert_contains "CDT194c imported=0" "$OUT" "imported=0"
+assert_contains "CDT194c empty-hash warn" "$OUT" "missing or empty content_hash"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='ic5';")
+assert_eq "CDT194c zero rows from empty-hash file" "$CNT" "0"
+rm -rf "$FIX"
+
+# ---------- 22. M8/CDT-194 (d): missing content_hash field → rejected ----------
+echo "-- CDT-194 (d) missing content_hash field"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt194d.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Chose SQLite over Postgres for local agent memory simplicity."
+bash "$EXPORT" --agent ic5 "$FIX" >/dev/null
+python3 - "$FIX/.claude/memory/seed/manifest.json" <<'PY'
+import json, pathlib, sys
+mp = pathlib.Path(sys.argv[1])
+m = json.loads(mp.read_text())
+m["files"]["ic5.md"].pop("content_hash", None)
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT194d exit 0" "$RC" "0"
+assert_contains "CDT194d rejected=1" "$OUT" "rejected=1"
+assert_contains "CDT194d imported=0" "$OUT" "imported=0"
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='ic5';")
+assert_eq "CDT194d zero rows from missing-hash file" "$CNT" "0"
+rm -rf "$FIX"
+
+# ---------- 23. M8/M12/CDT-194 (e): bad empty-hash key + valid sibling partial success ----------
+echo "-- CDT-194 (e) empty-hash reject + valid sibling import"
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cdt194e.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "Chose SQLite over Postgres for local agent memory simplicity."
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "Acceptance criteria live in specs/ MUST section only."
+bash "$EXPORT" --limit 40 "$FIX" >/dev/null
+python3 - "$FIX/.claude/memory/seed/manifest.json" <<'PY'
+import json, pathlib, sys
+mp = pathlib.Path(sys.argv[1])
+m = json.loads(mp.read_text())
+# Empty hash on ic5 only; leave pm valid
+if "ic5.md" in m["files"]:
+    m["files"]["ic5.md"]["content_hash"] = ""
+mp.write_text(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" "$FIX" 2>&1)
+RC=$?
+set -e
+assert_eq "CDT194e exit 0" "$RC" "0"
+IMP=$(printf '%s' "$OUT" | sed -n 's/.*imported=\([0-9][0-9]*\).*/\1/p' | head -1)
+REJ=$(printf '%s' "$OUT" | sed -n 's/.*rejected=\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ "${IMP:-0}" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  CDT194e imported>=1 (got $IMP)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL CDT194e imported>=1: got=[$IMP] out=[$OUT]"
+fi
+if [ "${REJ:-0}" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  CDT194e rejected>=1 (got $REJ)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL CDT194e rejected>=1: got=[$REJ] out=[$OUT]"
+fi
+CNT_PM=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='pm';")
+CNT_IC5=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='ic5';")
+if [ "$CNT_PM" -ge 1 ]; then
+  PASS=$((PASS + 1)); echo "  ok  CDT194e pm sibling in DB (got $CNT_PM)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL CDT194e pm sibling in DB: got=[$CNT_PM]"
+fi
+assert_eq "CDT194e ic5 not imported" "$CNT_IC5" "0"
+rm -rf "$FIX"
+
 echo ""
 echo "=== results: pass=$PASS fail=$FAIL ==="
 if [ "$FAIL" -gt 0 ]; then

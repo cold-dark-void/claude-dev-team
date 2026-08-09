@@ -1,7 +1,10 @@
 # Changelog
 
 All notable changes to **claude-dev-team**, newest first.
-Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
+Authoritative version history. Prefer **`/release`** to add `### v1.7.28
+- **Seed-pack manifest side-channel integrity + empty content_hash hard reject (CDT-194)** — a `files` key containing newline or TAB split the tab-delimited `FILE_LIST` so the hash field emptied and `[ -n "$expected_hash" ]` skipped verification. Preparse now rejects non-exact roster keys and control-char keys before the side channel is written; empty/missing `content_hash` is a hard reject; side channel uses `|` so empty middle fields survive bash IFS. SPEC-024 M8/M12 wording (trailer roster → M8; symlink warn ≠ roster). Tests CDT194a–e; suite 114/0.
+
+### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
