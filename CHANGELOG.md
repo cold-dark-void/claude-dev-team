@@ -1,13 +1,13 @@
 # Changelog
 
 All notable changes to **claude-dev-team**, newest first.
-Authoritative version history. Prefer **`/release`** to add `### v1.7.28
-- **Seed-pack manifest side-channel integrity + empty content_hash hard reject (CDT-194)** — a `files` key containing newline or TAB split the tab-delimited `FILE_LIST` so the hash field emptied and `[ -n "$expected_hash" ]` skipped verification. Preparse now rejects non-exact roster keys and control-char keys before the side channel is written; empty/missing `content_hash` is a hard reject; side channel uses `|` so empty middle fields survive bash IFS. SPEC-024 M8/M12 wording (trailer roster → M8; symlink warn ≠ roster). Tests CDT194a–e; suite 114/0.
-
-### vX.Y.Z` headings.
+Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
+
+### v1.7.28
+- **Seed-pack manifest side-channel integrity + empty content_hash hard reject (CDT-194)** — a `files` key containing newline or TAB split the tab-delimited `FILE_LIST` so the hash field emptied and `[ -n "$expected_hash" ]` skipped verification. Preparse now rejects non-exact roster keys and control-char keys before the side channel is written; empty/missing `content_hash` is a hard reject; side channel uses `|` so empty middle fields survive bash IFS. SPEC-024 M8/M12 wording (trailer roster → M8; symlink warn ≠ roster). Tests CDT194a–e; suite 114/0.
 
 ### v1.7.27
 - **Seed-pack trailer must match file agent (CDT-193 / SPEC-024 M13)** — after CDT-174/176 roster allowlists, import still trusted a well-formed trailer `agent=` for the write sink, so `pm.md` could declare `agent=tech-lead` and store content under the wrong agent. Import now requires exact equality between the trailer `agent=` and the manifest filename stem after M12 roster checks and before hash/sanitize/insert; mismatches reject with a warning that names both ids, increment `rejected`, and never rebind to either agent (DB or fallback). `export-seed-pack.sh` unchanged (already writes matching pairs). SPEC-024 gains normative **M13**; `test-seed-pack.sh` adds M13a–d (SQLite cross-agent, fallback cross-agent, match regression, partial-file match+mismatch); suite 91/0.
