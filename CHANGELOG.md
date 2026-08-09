@@ -1,7 +1,10 @@
 # Changelog
 
 All notable changes to **claude-dev-team**, newest first.
-Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
+Authoritative version history. Prefer **`/release`** to add `### v1.7.25
+- **TaskCompleted multi-true compound preference is lex-asc basename (CDT-186)** — when bare task id `T` matches ≥2 task-meta compounds with `requires_council: true`, preferred basename `P` for isolate index lookup is `min(stems)` (lexicographic ascending), not first-in-glob order. Flat true still loses to any true compound. No multi-key score union (CDT-163). SPEC-002 + init-orchestration META_SCAN template + B11/B11b/B12 regression tests.
+
+### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.

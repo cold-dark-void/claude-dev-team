@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# task-store-test.sh — CDT-167 + CDT-163 regression for task-store invent +
-# TaskCompleted shadow-safe meta and index isolate scores
-# (CDT-167 AC1/AC2/AC4/AC5/AC6; CDT-163 AC3/AC4/AC5/AC7/AC8; SPEC-002).
+# task-store-test.sh — CDT-167 + CDT-163 + CDT-186 regression for task-store invent +
+# TaskCompleted shadow-safe meta, index isolate scores, multi-true lex-min preferred
+# (CDT-167 AC1/AC2/AC4/AC5/AC6; CDT-163 AC3/AC4/AC5/AC7/AC8; CDT-186 multi-true P; SPEC-002).
 #
 # Machine-check: bash skills/orchestrate/task-store-test.sh  (exit 0)
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -10,6 +10,7 @@
 # (B) hook shadow-safe — extract task-completed body from
 #     skills/init-orchestration/SKILL.md (same marker as check-hook-templates)
 #     CDT-163 B6/B7/B9/B10: isolate preferred + unique-suffix; no multi-key max-merge
+#     CDT-186 B11/B12: multi-true compounds → lex-min preferred basename
 
 set -u
 
@@ -313,6 +314,43 @@ assert_eq "B10 AC8 multi-suffix no max-merge → exit 2" "$RC" "2"
 assert_contains "B10 AC8 stderr names bare id 7" "$(cat "$HOOK_ERR")" "7"
 assert_contains "B10 AC8 stderr names CDT-A-7" "$(cat "$HOOK_ERR")" "CDT-A-7"
 assert_contains "B10 AC8 stderr names CDT-B-7" "$(cat "$HOOK_ERR")" "CDT-B-7"
+
+# --- B11 CDT-186: two true compounds → preferred = lex-min stem AAA-ticket-7 ---
+# Create ZZZ first then AAA (filesystem order must not affect preferred P).
+REPO=$(new_repo b11)
+write_meta "$REPO" "ZZZ-ticket-7.json" "ZZZ-ticket-7" true
+write_meta "$REPO" "AAA-ticket-7.json" "AAA-ticket-7" true
+jq -n '{
+  "AAA-ticket-7": [
+    {"max_verdict_confidence": 95, "max_finding_confidence": null}
+  ]
+}' > "$REPO/.claude/council/index.json"
+run_hook "$REPO" "7"
+assert_eq "B11 CDT-186 multi-true lex-min AAA preferred ≥ thr → exit 0" "$RC" "0"
+
+# Reverse create order (AAA then ZZZ) — still prefer AAA-ticket-7.
+REPO=$(new_repo b11b)
+write_meta "$REPO" "AAA-ticket-7.json" "AAA-ticket-7" true
+write_meta "$REPO" "ZZZ-ticket-7.json" "ZZZ-ticket-7" true
+jq -n '{
+  "AAA-ticket-7": [
+    {"max_verdict_confidence": 95, "max_finding_confidence": null}
+  ]
+}' > "$REPO/.claude/council/index.json"
+run_hook "$REPO" "7"
+assert_eq "B11b CDT-186 reverse create order still AAA preferred → exit 0" "$RC" "0"
+
+# --- B12 CDT-186: only non-preferred key has conf → exit 2 (isolate uses AAA) ---
+REPO=$(new_repo b12)
+write_meta "$REPO" "ZZZ-ticket-7.json" "ZZZ-ticket-7" true
+write_meta "$REPO" "AAA-ticket-7.json" "AAA-ticket-7" true
+jq -n '{
+  "ZZZ-ticket-7": [
+    {"max_verdict_confidence": 95, "max_finding_confidence": null}
+  ]
+}' > "$REPO/.claude/council/index.json"
+run_hook "$REPO" "7"
+assert_eq "B12 CDT-186 only non-preferred ZZZ@95 → exit 2 (isolate AAA)" "$RC" "2"
 
 # =============================================================================
 echo ""

@@ -743,11 +743,12 @@ if [ ${#CANDIDATES[@]} -eq 0 ]; then
 fi
 
 # Scan all candidates for any-true; prefer true compound over true flat for TASK_META.
+# Multi-true compounds (CDT-186): preferred P = lex-asc min stem (basename without .json).
 # Output: line1 = true|false, line2 = preferred meta path (empty if none true).
 META_SCAN=$(python3 -c '
 import json, os, sys
 task_id = sys.argv[1]
-true_compound = None
+true_compounds = []  # (stem, path) for requires_council true and stem != task_id
 true_flat = None
 for path in sys.argv[2:]:
     try:
@@ -764,11 +765,11 @@ for path in sys.argv[2:]:
         if true_flat is None:
             true_flat = path
     else:
-        if true_compound is None:
-            true_compound = path
-if true_compound is not None:
+        true_compounds.append((stem, path))
+if true_compounds:
+    true_compounds.sort(key=lambda x: x[0])  # lex-asc basename; deterministic multi-true
     print("true")
-    print(true_compound)
+    print(true_compounds[0][1])
 elif true_flat is not None:
     print("true")
     print(true_flat)
