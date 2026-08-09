@@ -197,18 +197,27 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
     - Duplicate rows for one slug MUST collapse to a single row (repairs pre-guard indexes; see
       the add dedup guard above).
 
-- **Slug charset validation (normative).** A slug parsed out of an index row is untrusted input —
-  it is a substring of a file the repo (or a synced/imported index) controls, and reconcile turns it
-  into a path under `.claude/backlog/`. Before a slug is used to construct any path, and therefore
-  before any existence check, item-file read, or delete, reconcile MUST validate it against
-  `^[A-Za-z0-9_-]+$` — the same charset `skills/worktree-lib.sh` `validate_slug()` enforces for
-  worktree slugs. A slug that fails MUST NOT reach the filesystem: no `-f` test, no read, no `rm`.
-  Its row MUST survive in the rebuilt index and MUST be reported in the run's action list, in the
-  style of the `ORPHAN not pruned` notice. An invalid row is specifically **not** a dead reference:
-  reconcile never looked for its item file, so it has no evidence either way, and dropping the row
-  would discard a possibly-real item on the strength of data it just rejected. This closes a path
-  escape — `../../../../etc/foo` is a syntactically valid index-row slug that would otherwise
-  resolve outside `.claude/backlog/` and be passed to `rm`.
+- **Slug charset validation (normative).** A slug parsed out of an index row (or otherwise used to
+  build a path under `.claude/backlog/`) is untrusted input — it is a substring of a file the repo
+  (or a synced/imported index) controls. Before a slug is used to construct any path, and therefore
+  before any existence check, item-file read, write, or delete, both `reconcile.sh` and `close.sh`
+  MUST validate it against `^[A-Za-z0-9_-]+$` — the same charset `skills/worktree-lib.sh`
+  `validate_slug()` enforces for worktree slugs. A slug that fails MUST NOT reach the filesystem:
+  no `-f` test, no read, no write, no `rm`/`mv`.
+  For **reconcile**: its row MUST survive in the rebuilt index and MUST be reported in the run's
+  action list, in the style of the `ORPHAN not pruned` notice. An invalid row is specifically
+  **not** a dead reference: reconcile never looked for its item file, so it has no evidence either
+  way, and dropping the row would discard a possibly-real item on the strength of data it just
+  rejected. This closes a path escape — `../../../../etc/foo` is a syntactically valid index-row
+  slug that would otherwise resolve outside `.claude/backlog/` and be passed to `rm`.
+  For **close.sh**: the same charset MUST be enforced at every site that builds
+  `.claude/backlog/<slug>.md` (direct QUERY basename match, index-link resolution in `find_slugs`,
+  verify path, close main path, and `update_index` item-file read). Free-text QUERY used only for
+  title/substring search may contain spaces and is not itself a slug — guard the *resolved* slug
+  before path use. When no path-safe match exists (including when the only index hit is a traversal
+  slug), close/verify MUST fail closed with a non-zero exit and an error naming the rejection (or
+  "no backlog item matching"); they MUST NOT open, write, or otherwise touch paths outside
+  `.claude/backlog/`.
   The guard belongs only where a slug becomes a path. Index bookkeeping over the raw string
   (duplicate detection, first-seen row text, re-emission) touches no filesystem and stays unguarded.
   Slugs read from `--linear-verdicts` need no guard either — they are lookup keys that can mark an
@@ -275,6 +284,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify `/backlog reconcile` prunes a closed-status orphan item file (no index row) and leaves an open/unrecognized-status orphan untouched and reported, never inventing an index row for it
 - Verify a second consecutive `/backlog reconcile` produces zero changes (idempotency)
 - Verify `/backlog reconcile` performs no filesystem operation for an index row whose slug is not `^[A-Za-z0-9_-]+$` (e.g. a `../`-traversal slug): no existence check, no read, no delete inside or outside `.claude/backlog/`; the row survives in the rebuilt index, the skip is reported, and the run still exits 0
+- Verify `close.sh` (close + verify) performs no filesystem operation for a traversal-shaped or otherwise non-`^[A-Za-z0-9_-]+$` resolved slug (e.g. index row `backlog/../../../canary/pwned.md` matched by title): no path construction that escapes `.claude/backlog/`; canary outside backlog untouched; non-zero exit / clear error; valid sibling slug still closes and verifies
 - Verify brainstorm offers backlog/Linear write-back after synthesis is confirmed (unless `/kickoff` runs immediately), and that a filed item's Linear description contains inlined synthesis text, not only a local plan-file path
 - Verify the Programmatic write-back protocol's non-interactive callers (refactor auto-chain, retro `--auto`) never hit an interactive ask and never silently write a duplicate slug row on collision (suffix, not abort)
 
@@ -327,6 +337,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 | 2026-08-07 | Linear lifecycle: In Progress → In Review (PR-stop / off-master) → Done only on master-land or `/wrap-ticket` post-merge. PR-open MUST NOT set Done. |
 | 2026-08-07 | CDT-167: TaskCompleted flat/compound meta resolution is shadow-safe (any-true gate; bare stub MUST NOT shadow compound `requires_council: true`). Orchestrate MUST keep compound keys on update-status; invent policy owned by SPEC-017. |
 | 2026-08-07 | CDT-175: index-row slugs are untrusted. Reconcile MUST validate `^[A-Za-z0-9_-]+$` (mirroring `worktree-lib.sh` `validate_slug()`) before a slug becomes a path, so a `backlog/../../..` row can never reach the existence check or `rm`. Invalid rows are skipped and reported — never pruned, and never dropped as dead refs (reconcile never looked for the file, so it has no evidence). The recurring skip notice is idempotency-safe under the open-orphan precedent. `--linear-verdicts` slugs (lookup-only) and orphan-scan slugs (directory-derived) need no guard. |
+| 2026-08-09 | CDT-192: close.sh path-building slugs are untrusted. The same `^[A-Za-z0-9_-]+$` charset (mirroring CDT-175 / `worktree-lib.sh` `validate_slug()`) MUST be enforced at every site that builds `.claude/backlog/<slug>.md` (find_slugs direct match, index-link resolve, verify, close, update_index). When the only resolved hit is traversal-shaped or otherwise invalid, close/verify fail closed non-zero with no filesystem ops outside the backlog dir — a canary outside backlog stays untouched. Free-text title QUERY remains allowed when it does not resolve to a path-escape slug. |
 | 2026-08-07 | CDT-160: shared backlog terminal-status classification. One matcher (`skills/backlog/terminal-status.sh`) used by `close.sh` + `reconcile.sh`; token set COMPLETED/DONE/FIXED{/, -, space}CLOSED/CLOSED/CANCELLED|CANCELED; token-match (not unanchored substring); write surface `--status COMPLETED|FIXED/CLOSED` unchanged; DONE/CANCELLED parity for verify + Already-closed + prune. |
 
 ## Cross-references

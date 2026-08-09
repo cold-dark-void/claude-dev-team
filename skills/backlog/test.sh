@@ -560,6 +560,119 @@ RT="$TMP/rt-fixed-noise"
 mk_status_item "$RT" fixed-noise "FIXED/CLOSED (CDT-9)"
 assert_verify_rc "close FIXED/CLOSED (CDT-9) verify exit 0" "$RT" fixed-noise 0
 
+# --- CDT-192: slug charset guard — path-escape index slug must not touch FS outside backlog ---
+Rh="$TMP/hostile-slug"
+mkdir -p "$Rh/.claude/backlog"
+mkdir -p "$TMP/canary"
+cat > "$TMP/canary/pwned.md" <<'EOF'
+# pwned
+
+**Status**: COMPLETED
+
+## Problem
+
+canary
+
+## Goal
+
+untouched
+
+---
+
+*Added: 2026-07-01*
+EOF
+cp "$TMP/canary/pwned.md" "$TMP/canary/pwned.snap"
+HOSTILE_ROW='- [Hostile](backlog/../../../canary/pwned.md) - x [PENDING]'
+cat > "$Rh/.claude/backlog.md" <<EOF
+# Backlog
+
+## Pending
+
+$HOSTILE_ROW
+- [Live](backlog/live.md) - normal item [PENDING]
+
+## Completed
+
+EOF
+cat > "$Rh/.claude/backlog/live.md" <<'EOF'
+# Live
+
+**Status**: PENDING
+
+## Problem
+
+x
+
+## Goal
+
+y
+
+---
+
+*Added: 2026-07-01*
+EOF
+
+# Close by hostile title fragment: must not resolve to traversal path / touch canary
+set +e
+out_h1=$(bash "$CLOSE" Hostile --root "$Rh" 2>&1)
+rc_h1=$?
+set -e
+if [ "$rc_h1" -ne 0 ]; then pass "hostile title close rejects (non-zero)"
+else fail "hostile title close rejects (non-zero)" "rc=0 out=$out_h1"
+fi
+if [ -f "$TMP/canary/pwned.md" ]; then
+  pass "hostile close: canary outside backlog survives"
+else
+  fail "hostile close: canary outside backlog survives" "canary deleted"
+fi
+if cmp -s "$TMP/canary/pwned.md" "$TMP/canary/pwned.snap"; then
+  pass "hostile close: canary byte-unchanged"
+else
+  fail "hostile close: canary byte-unchanged" "cmp differs"
+fi
+if grep -qxF -- "$HOSTILE_ROW" "$Rh/.claude/backlog.md"; then
+  pass "hostile close: hostile index row untouched"
+else
+  fail "hostile close: hostile index row untouched" "row altered or missing"
+fi
+
+# verify with traversal-shaped QUERY (basename → pwned; no pwned.md in backlog → miss)
+set +e
+out_h2=$(bash "$CLOSE" verify '../../../canary/pwned' --root "$Rh" 2>&1)
+rc_h2=$?
+set -e
+if [ "$rc_h2" -ne 0 ]; then pass "verify traversal query non-zero"
+else fail "verify traversal query non-zero" "rc=0 out=$out_h2"
+fi
+if cmp -s "$TMP/canary/pwned.md" "$TMP/canary/pwned.snap"; then
+  pass "verify traversal: canary byte-unchanged"
+else
+  fail "verify traversal: canary byte-unchanged" "cmp differs"
+fi
+
+# Valid sibling still closes (happy path under hostile index)
+set +e
+out_h3=$(bash "$CLOSE" live --root "$Rh" 2>&1)
+rc_h3=$?
+set -e
+if [ "$rc_h3" -eq 0 ] && printf '%s\n' "$out_h3" | grep -qE '^Closed:'; then
+  pass "valid sibling close under hostile index"
+else
+  fail "valid sibling close under hostile index" "rc=$rc_h3 out=$out_h3"
+fi
+assert_file_match "valid sibling item COMPLETED" "$Rh/.claude/backlog/live.md" 'Status\*\*: COMPLETED'
+assert_file_match "valid sibling index completed" "$Rh/.claude/backlog.md" 'live\.md\).*\[COMPLETED\]'
+if [ -f "$TMP/canary/pwned.md" ] && cmp -s "$TMP/canary/pwned.md" "$TMP/canary/pwned.snap"; then
+  pass "valid sibling close: canary still untouched"
+else
+  fail "valid sibling close: canary still untouched" "canary missing or changed"
+fi
+if bash "$CLOSE" verify live --root "$Rh" >/dev/null 2>&1; then
+  pass "valid sibling verify closed"
+else
+  fail "valid sibling verify closed" "verify failed"
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

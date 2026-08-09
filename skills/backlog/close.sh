@@ -33,6 +33,19 @@ die() {
   exit "$rc"
 }
 
+# Charset for path-safe slugs — same as worktree-lib validate_slug / reconcile (CDT-175).
+# Guard every path built from a slug; free-text QUERY (title search) is not a slug.
+valid_slug() {
+  [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]]
+}
+
+require_valid_slug() {
+  local slug="$1"
+  if ! valid_slug "$slug"; then
+    die 1 "invalid slug (only [A-Za-z0-9_-] allowed): $slug"
+  fi
+}
+
 MODE="close"
 if [ "${1:-}" = "verify" ]; then
   MODE="verify"
@@ -100,7 +113,8 @@ find_slugs() {
   q_base=${q_base#backlog/}
   q_lc=$(printf '%s' "$q_base" | tr '[:upper:]' '[:lower:]')
 
-  if [ -f "$backlog_dir/${q_base}.md" ]; then
+  # Direct path match only when q_base is a path-safe slug (never construct from ../ etc.).
+  if valid_slug "$q_base" && [ -f "$backlog_dir/${q_base}.md" ]; then
     printf '%s\n' "$q_base"
     return 0
   fi
@@ -109,6 +123,7 @@ find_slugs() {
     for f in "$backlog_dir"/*.md; do
       [ -f "$f" ] || continue
       slug=$(basename "$f" .md)
+      valid_slug "$slug" || continue
       title=$(head -n 1 "$f" 2>/dev/null | sed 's/^# *//')
       slug_lc=$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]')
       title_lc=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]')
@@ -125,6 +140,8 @@ find_slugs() {
     while IFS= read -r line; do
       slug=$(printf '%s' "$line" | sed -n 's/.*](backlog\/\([^)]*\)\.md).*/\1/p')
       [ -n "$slug" ] || continue
+      # Index-row slug is untrusted — reject before any path construction (CDT-192).
+      valid_slug "$slug" || continue
       [ -f "$backlog_dir/${slug}.md" ] || continue
       title=$(head -n 1 "$backlog_dir/${slug}.md" 2>/dev/null | sed 's/^# *//')
       slug_lc=$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]')
@@ -188,6 +205,7 @@ cmd_verify() {
 
   local slug file st
   slug=$(pick_one_slug)
+  require_valid_slug "$slug"
   file="$backlog_dir/${slug}.md"
   [ -f "$file" ] || die 1 "missing item file: $file"
   st=$(item_status_value "$file")
@@ -279,6 +297,7 @@ update_index() {
   local tag found_line line_new tmp title
   local has_completed=0
 
+  require_valid_slug "$slug"
   [ -f "$index" ] || return 0
   tag=$(index_tag)
 
@@ -390,6 +409,7 @@ cmd_close() {
     exit 64
   fi
   slug=$(printf '%s\n' "$slug" | head -n1)
+  require_valid_slug "$slug"
   file="$backlog_dir/${slug}.md"
 
   set +e

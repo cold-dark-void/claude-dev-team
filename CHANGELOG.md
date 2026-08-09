@@ -1,13 +1,16 @@
 # Changelog
 
 All notable changes to **claude-dev-team**, newest first.
-Authoritative version history. Prefer **`/release`** to add `### v1.7.25
-- **TaskCompleted multi-true compound preference is lex-asc basename (CDT-186)** — when bare task id `T` matches ≥2 task-meta compounds with `requires_council: true`, preferred basename `P` for isolate index lookup is `min(stems)` (lexicographic ascending), not first-in-glob order. Flat true still loses to any true compound. No multi-key score union (CDT-163). SPEC-002 + init-orchestration META_SCAN template + B11/B11b/B12 regression tests.
-
-### vX.Y.Z` headings.
+Authoritative version history. Prefer **`/release`** to add `### vX.Y.Z` headings.
 Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kept
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
+
+### v1.7.26
+- **close.sh slug charset guard before path construction (CDT-192)** — same `^[A-Za-z0-9_-]+$` guard as CDT-175/`reconcile.sh`/`worktree-lib validate_slug` at every site that builds `.claude/backlog/<slug>.md` (`find_slugs` direct match, dir-scan basename, index-link resolve, verify, close, update_index). Invalid/traversal-only hits fail closed non-zero with no filesystem ops outside the backlog dir; free-text title QUERY still works when it resolves to a valid slug. Regression tests (hostile index + outside canary + valid sibling under hostile index); SPEC-009 normative block + Version History.
+
+### v1.7.25
+- **TaskCompleted multi-true compound preference is lex-asc basename (CDT-186)** — when bare task id `T` matches ≥2 task-meta compounds with `requires_council: true`, preferred basename `P` for isolate index lookup is `min(stems)` (lexicographic ascending), not first-in-glob order. Flat true still loses to any true compound. No multi-key score union (CDT-163). SPEC-002 + init-orchestration META_SCAN template + B11/B11b/B12 regression tests.
 
 ### v1.7.24
 - **Ship-gate process stamps + technical-only claim (CDT-185)** — M14 ship-gate no longer compounds process assertions (QA PASS / Step-10b) into the council claim. Autopilot pre-flights process stamps = clean ship-choice card #1 via `read-cards.sh` (stamp shape in SPEC-033 M14(a)); stamp fail skips `/council` and records card #2 BC7 conf=0 (reuse BC7, not a 9th BC). Stamp pass → technical-only claim under audit (merge-base diff vs ACs/spec); locators-only / no RAW_ARTIFACTS injection preserved. M14(d) degraded path unchanged. Procedure: `skills/autopilot/ship-gate-council.md` §2a/§3b/§7. Contract tests in `skills/autopilot/test.sh` (av–bd); suite 84/0.
