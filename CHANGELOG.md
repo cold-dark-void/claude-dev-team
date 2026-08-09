@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.31
+- **skill-lint C1 on release Step 5 staged-path fence (CDT-189 follow-up)** — re-resolve `PDH` inside the Step 5 `check-staged-paths.sh` bash block (fresh shell; SPEC-021 C1). Unblocks smoke `skill-lint` after v1.7.30.
+
 ### v1.7.30
 - **Release staged-path hard gate (CDT-189)** — `/release` Step 5 now runs `skills/release/check-staged-paths.sh` after intentional `git add` and before `git commit`. Allowed staged set = version pair (`CHANGELOG.md`, `.claude-plugin/plugin.json`) ∪ `--intended` product paths ∪ optional `--allow-extra`. Foreign staged paths → exit 1 (list every path), no commit/tag/push; unstaged/untracked dirty is ignored. SPEC-010 S1–S9; `skills/release/test.sh` 17 cases.
 

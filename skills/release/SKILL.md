@@ -279,7 +279,9 @@ no unrelated/untracked files were swept in.
 index allowlist. Do **not** reimplement the gate in prose — call the script.
 
 ```bash template
-# PDH from Step 0 (re-resolve with the same PDH one-liner if this shell is fresh)
+# Fresh shell — re-resolve PDH (SPEC-021 C1; same one-liner as Step 0)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 CHECK_STAGED=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-staged-paths.sh)
 # --intended = every path this release intentionally staged (same set as the git add
 # above). Prefer listing the version pair explicitly; the script always allows them
