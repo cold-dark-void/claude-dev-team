@@ -198,12 +198,15 @@ same tree (no second integration worktree). Carry `WORKTREE_ENABLED` /
 
 ## Step 0.5: Autopilot enablement (CDT-111-C4)
 
-Resolve autopilot **once** at run start, before any gate. `--autopilot[=<bump>]`
+Resolve autopilot **once** at run start, before any gate. `--autopilot[=<token>]`
 on the invocation or `AUTOPILOT=1` in the environment enables it; the flag wins
-over the env and is the **only** channel that carries a `<bump>` (SPEC-033 M2 /
-C4 FINAL #3). A malformed `--autopilot=<bump>` (bump ∉ {patch,minor,major}, incl.
-empty `--autopilot=`) is a hard error (exit 64) — never a silent fall-through to
-off (R7). `bump` is unused by `/epic` (which never ships, M11) but is still
+over the env and is the **only** channel that carries a ship-intent token
+(SPEC-033 M2 / C4 FINAL #3). Tokens: `{patch,minor,major}` (release) or `master`
+(**land-no-release** token spelling — land target is worktree baseline / origin
+default, not necessarily a branch named `master`). A malformed
+`--autopilot=<token>` (token ∉ {patch,minor,major,master}, incl. empty
+`--autopilot=`) is a hard error (exit 64) — never a silent fall-through to off
+(R7). Token is unused by `/epic` (which never ships, M11) but is still
 resolved+carried so the seed block is identical across `/orchestrate`,
 `/kickoff`, `/epic`.
 

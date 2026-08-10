@@ -37,11 +37,20 @@ than guessing (SPEC-033 M6/M7). It never proceeds past a hard block on its own.
 
 - **Opt-in, default off.** Inactive unless requested via the `--autopilot` argument
   or `AUTOPILOT=1` in the environment. Inactive ⇒ gates fully human-interactive.
-- **Bump vocabulary is borrowed, not owned.** `--autopilot=<bump>` MAY carry a
-  `/release` token (`patch` | `minor` | `major`). Autopilot treats it as a *reference*
-  to the `/release` vocabulary and MUST NOT define, extend, or reinterpret bump
-  semantics. Absent a token, autopilot MUST NOT auto-release; the default ship action
-  is bounded by the `ship-choice` checklist below.
+- **Ship-intent tokens: borrowed release bumps + one land-no-release sentinel (M2 /
+  CDT-195).** `--autopilot=<token>` MAY carry either:
+  1. a `/release` bump token (`patch` | `minor` | `major`) — **release** ship intent; or
+  2. the non-release ship-intent sentinel `master` — **land-no-release** (squash-land onto
+     the worktree baseline with **no** `/release`).
+  For (1), autopilot treats the token as a *reference* to the `/release` vocabulary and
+  MUST NOT redefine those bump semantics. For (2), `master` is a **flag-only ship-intent
+  sentinel**, not a `/release` version: the decision-card records `bump:"master"`; the CLI
+  spelling remains `=master`; and autopilot MUST NOT pass `master` to `/release`. Land git
+  target under `master` is the worktree **baseline** (typically `origin/HEAD`), **not** a
+  hard-coded ref literally named `master`. Env (`AUTOPILOT=1`) enables autopilot only and
+  MUST NEVER carry a bump or sentinel — tokens are **flag-only**. Absent a token, autopilot
+  MUST NOT auto-release and MUST NOT auto land-no-release; the default ship action is
+  bounded by the `ship-choice` checklist below (SPEC-033 M2 — cite, do not fork).
 
 ---
 
@@ -82,10 +91,23 @@ that don't apply to this gate — so it agrees with the "8 blocking conditions" 
 *(orchestrate Step 11; waits on "Options: 1 Create PR / 2 Show diff / 3 Review manually")*
 
 `pr` (Create PR) is the reviewable, reversible option. A squash-merge (`merge`) MUST
-NOT be auto-selected unless `--autopilot=<bump>` was supplied (explicit ship intent).
-The `merge` decision-card value maps to `/orchestrate`'s separate **"If squash merge
-requested"** branch (Step 11's later squash path), **not** a numbered option in the
-Step-11 menu (which offers only Create PR / Show diff / Review manually).
+NOT be auto-selected unless `--autopilot=<token>` was supplied with a **non-null**
+ship-intent token (`patch` | `minor` | `major` | `master`) — explicit ship intent
+(SPEC-033 M4). **Non-null token ⇒ `decision=merge`** (including `master`). Release vs
+land-no-release is an **end-state branch on token class**, not a different ship-choice
+`decision` — three terminals after a clean ship-choice:
+
+| Terminal | Trigger | End path |
+|---|---|---|
+| **pr** | `autopilot_bump = null` → `decision=pr` | Create PR; stop (no land) |
+| **land-no-release** | `decision=merge` + `bump=master` | N3a → squash → interactive-shape `git commit` on baseline → non-force `git push` baseline → **no** `/release` (no version/tag/CHANGELOG) → ship-history → Done |
+| **release** | `decision=merge` + `bump ∈ {patch, minor, major}` | N3a → squash-stage → `/release <bump>` → ship-history → Done |
+
+Self-answer / ship-choice records only `pr` or `merge` (+ card `bump`); dual land path
+lives in `skills/autopilot/end-state.md` (SPEC-033 N3a). The `merge` decision-card value
+maps to `/orchestrate`'s separate **"If squash merge requested"** branch (Step 11's later
+squash path), **not** a numbered option in the Step-11 menu (which offers only Create PR /
+Show diff / Review manually).
 
 *(Evaluate in the canonical BC1→BC8 ordinal order, first-match-wins — dropping BCs
 that don't apply to this gate — so it agrees with the "8 blocking conditions" section.)*
@@ -93,17 +115,19 @@ that don't apply to this gate — so it agrees with the "8 blocking conditions" 
 1. Did Step-10b spec-alignment pass (else **BC1** — a code/AC mismatch is a now-provably-
    unresolved scope/plan question) **and** did QA reach PASS (**BC2** not already tripped)? → else halt.
 2. Is the ship action more irreversible than a PR (direct merge to a protected branch,
-   force-push)? → **BC3**. **BC3 is evaluated UNCONDITIONALLY, even when `--autopilot=<bump>`
-   was supplied** — the bump flag only satisfies "explicit ship intent" for `decision=merge`;
-   it **never** exempts BC3. A protected-branch merge / force-push still halts.
+   force-push)? → **BC3**. **BC3 is evaluated UNCONDITIONALLY, even when `--autopilot=<token>`
+   was supplied** — the token only satisfies "explicit ship intent" for `decision=merge`;
+   it **never** exempts BC3. Force-push still BC3. Intentional baseline land under
+   `=master` or a release token is authorized only when the N3a mechanical check passes
+   (same safety as release land — not a false halt merely because default is protected).
 3. Budget (**BC6**) and confidence (**BC7**).
 
 See `skills/autopilot/ship-gate-council.md` for the mandatory council pass that gates every
 clean ship-choice answer (SPEC-033 M14).
 
-See `skills/autopilot/end-state.md` for the release-end-state execution sequence (BC3
-deterministic push-target check + squash-stage + `/release`), gated behind `--autopilot=<bump>`
-(N3/N3a).
+See `skills/autopilot/end-state.md` for the dual land end-state sequences (BC3
+deterministic push-target check + squash-stage, then **release** via `/release` **or**
+**land-no-release** without `/release`), gated behind `--autopilot=<token>` (N3/N3a).
 
 ---
 
@@ -297,7 +321,7 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
   "gate": "scope-confirm | plan-approve | ship-choice",
   "decision": "proceed | approve | pr | merge | reroute-epic | halt",
   "decided_by": "auto | user",
-  "bump": "patch | minor | major | null",
+  "bump": "patch | minor | major | master | null",
   "confidence": 0,
   "blocking_condition": null,
   "council_tier": null,
@@ -332,8 +356,10 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
   `decision` (the answer itself) and to `actor` (which component *wrote* the card) — all three
   coexist. This matches the SPEC-001 M7 precedent, whose `directive-history.jsonl` already uses
   `decided_by ∈ user | auto` for exactly this user-vs-auto provenance.
-- `bump` is non-null **only** on a `ship-choice` card and MUST hold a `/release` token (M2);
-  it MUST NOT introduce a bump value outside that vocabulary.
+- `bump` is non-null **only** on a `ship-choice` card. Allowed non-null values are the
+  `/release` tokens (`patch` | `minor` | `major`) **or** the land-no-release sentinel
+  `master` (M2 / CDT-195). `master` is **not** a release version and MUST NOT be passed to
+  `/release`. It MUST NOT introduce a bump value outside that vocabulary.
 - `confidence` (0–100) backs **BC7**; a card with `decision:"halt"` and
   `blocking_condition:7` MUST carry `confidence` below the threshold. Threshold default 80
   mirrors the council convention.

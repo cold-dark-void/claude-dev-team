@@ -36,7 +36,7 @@ This is the contract C4 wires callers against. It is frozen; C3 does not touch c
   run_id:            "<stable per-run id, S3-derivable from start-epoch>",
   iteration:         <int, orchestrator-tracked session-local stint count>,
   run_start_epoch:   <int, unix epoch of run start>,
-  autopilot_bump:    "patch" | "minor" | "major" | null,
+  autopilot_bump:    "patch" | "minor" | "major" | "master" | null,
   <gate-specific signals>   // see below
 }
 ```
@@ -121,9 +121,18 @@ BC8 fires only in `/kickoff`'s pre-spec phase; BC2 only in the `ship-choice` IC/
 ### e. Map the outcome to a decision
 - **Clean** (no BC fired) → the gate's default answer per M4:
   `scope-confirm → proceed`, `plan-approve → approve`, `ship-choice → pr`. `ship-choice`
-  yields `merge` **only** when `autopilot_bump != null` (explicit ship intent, M2/N3);
-  BC3 is still evaluated unconditionally and a protected-branch merge / force-push still
-  halts. `blocking_condition = null`.
+  yields `merge` **only** when `autopilot_bump != null` — includes release tokens
+  (`patch` | `minor` | `major`) **and** the land-no-release sentinel `master` (explicit
+  ship intent, M2/N3). `autopilot_bump = null` → `decision = pr`. Self-answer chooses
+  **only** `pr` vs `merge`; it does **not** call `/release` and does **not** branch
+  release vs land-no-release — that is **end-state's** job on the recorded `bump`
+  (`skills/autopilot/end-state.md`, SPEC-033 N3a). `blocking_condition = null`.
+- **BC3 judgment (N3a alignment).** BC3 is still evaluated **unconditionally** even when
+  a non-null token is supplied — the token never exempts BC3. **Force-push still BC3.**
+  Intentional baseline land under `master` **or** a release token is **not** a false halt
+  merely because the default branch is protected: that land is authorized ship intent when
+  the N3a mechanical push-target check would clear (same safety as release land). Raw
+  self-selected protected-branch mutation outside that contract still matches BC3.
 - **BC5** → `reroute-epic` (self-reroute; non-blocking, reversible — hand to `/epic`
   decompose and continue autonomously per M11). `blocking_condition = 5`.
 - **BC1 / BC2 / BC3 / BC4 / BC6 / BC7 / BC8** → `halt` (hard-blocking, M7).
@@ -166,11 +175,14 @@ deliberately does **not** reproduce M13's enum members, numeric bounds, or chars
 - **`bump` non-null only on `ship-choice`** *(writer-enforced)*. For the other gates the engine
   passes `null` (M13 field contract; backstopped by `append-card.sh` cross-field invariant (a)).
 - **`merge` ⇒ bump supplied** *(engine-only enforced — no writer backstop)*. The engine emits
-  `decision=merge` only when `autopilot_bump != null` (M2 / N3). `append-card.sh` has **no**
-  guard tying `merge` to a non-null bump — its cross-field invariants are (a), (b) below and
+  `decision=merge` only when `autopilot_bump != null` (M2 / N3) — value may be a `/release`
+  token **or** the land-no-release sentinel `master` (M13). Card `bump` copies
+  `autopilot_bump` as-is (incl. `"master"`). `append-card.sh` has **no** guard tying `merge`
+  to a non-null bump — its cross-field invariants are (a), (b) below and
   (c) `council_tier`/`grading_reason` non-null ⇒ `gate=ship-choice`, none of which cover it —
-  so nothing downstream catches a merge-without-bump slip; the engine is the sole enforcer. The bump satisfies explicit ship intent for `merge`; it never
-  exempts BC3.
+  so nothing downstream catches a merge-without-bump slip; the engine is the sole enforcer.
+  The bump satisfies explicit ship intent for `merge`; it never exempts BC3. Self-answer does
+  **not** invoke `/release` for any bump value (incl. `master`) — end-state owns that branch.
 - **A BC7 card carries sub-threshold confidence** *(writer-enforced)*. The engine routes to
   BC7 only when the agent's confidence is genuinely below the M6/M13 threshold, so
   `append-card.sh` cross-field invariant (b) holds by construction.

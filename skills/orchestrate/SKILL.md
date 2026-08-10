@@ -17,10 +17,15 @@ happens in agent worktrees.
 
 - `/orchestrate <ISSUE-ID>` — fetch from Linear or prompt for context
 - `/orchestrate` — prompts for issue ID
-- `[--autopilot[=<bump>]]` — optional, any position: enable autopilot for this run
-  (CDT-111-C4). Bare `--autopilot` or `AUTOPILOT=1` env = enabled, bump `null`;
-  `--autopilot=<patch|minor|major>` also sets the bump. Flag wins over env. See
-  `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot detection".
+- `[--autopilot[=<token>]]` — optional, any position: enable autopilot for this run
+  (CDT-111-C4 / SPEC-033 / CDT-195). Bare `--autopilot` or `AUTOPILOT=1` env =
+  enabled, bump `null` (PR-stop default at ship-choice);
+  `--autopilot=<patch|minor|major>` = release ship intent (merge → end-state
+  §5-release); `--autopilot=master` = **land-no-release** (merge → end-state §5b;
+  token spelling only — land target is worktree baseline / origin default, not
+  necessarily a branch named `master`; **MUST NOT** pass `master` to `/release`).
+  Flag wins over env. See `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot
+  detection".
 - `[--council-tier=<skip|light|full>]` — optional, any position: DRI-supplied
   override for every `requires_council: true` task-gate council run in this
   orchestration (CDT-126, SPEC-013 § Council tiering). Scoped like `--autopilot`
@@ -29,10 +34,12 @@ happens in agent worktrees.
   call at `full` (`commands/council.md` does not auto-grade any scope it
   resolves on its own — Task 3's F-A fix). See Step 0 "Council tier
   detection" and Step 9 "Council gate for `requires_council: true` tasks".
-- `[--resume-ship[=<patch|minor|major>]]` — optional (CDT-135): after a human
-  overrides a BC7 ship-choice halt, run the **single confirmed ship sequence**
-  (release end-state + wrap) without re-running the full orchestration. See
-  Step 11 § Resume ship after BC7 override.
+- `[--resume-ship[=<patch|minor|major|master>]]` — optional (CDT-135 / SPEC-033 /
+  CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
+  confirmed ship sequence** (end-state land path + wrap) without re-running the
+  full orchestration. Bare re-reads plan/card mode; explicit `=master|patch|minor|major`
+  overrides. `=master` resumes land-no-release (token spelling; land target is
+  worktree baseline). See Step 11 § Resume ship after BC7 override.
 
 ---
 
@@ -381,7 +388,7 @@ Produce:
   - backlog/<slug>.md
   - linear:<ID>
 - autopilot_on: <true|false>
-- autopilot_bump: <patch|minor|major|null>
+- autopilot_bump: <patch|minor|major|master|null>
 
 Many-to-one is allowed (one ticket closes multiple backlog items). Empty closes
 only for freeform. `autopilot_on`/`autopilot_bump` MUST always be written, on
@@ -389,8 +396,9 @@ autopilot and non-autopilot runs alike — substitute the Step-0 resolved
 `AUTOPILOT_ON`/`AUTOPILOT_BUMP` values (recording `autopilot_on: false`
 explicitly on a non-autopilot run is a symmetric "remember it was NOT
 autopilot" record, not just a true-case field). `autopilot_bump` is `null`
-when autopilot is off, or when on in bare/pr-mode. pr-vs-merge is always
-derived from bump (null→pr, else→merge) — do NOT record a separate field
+when autopilot is off, or when on in bare/pr-mode; may be `master` (land-no-release
+sentinel, CDT-195) or a release token. pr-vs-merge is always derived from bump
+(null→pr, else→merge — includes `master`) — do NOT record a separate field
 (SPEC-033 M9a / CDT-111-C8 AC1). This is `resume-state.sh`'s Step-0 resume
 detection read surface (CDT-111-C8).
 ```
@@ -1306,8 +1314,10 @@ Options:
 ### Epic release=end ship guard (CDT-141-C4)
 
 When this ticket is under an epic with durable `release_bump` set (release=end)
-and seal is not done, **forbid** mid-child squash-to-master and `/release`.
-Master must stay clean until end-of-epic seal (C5).
+and seal is not done, **forbid** mid-child land onto the baseline — including
+`/release` **and** land-no-release (`--autopilot=master` / end-state §5b).
+`assert-release-allowed` still runs first. Baseline must stay clean until
+end-of-epic seal (C5).
 
 ```bash
 # Re-resolve PDH (fresh shell)
@@ -1328,12 +1338,12 @@ When `RELEASE_END_BLOCKED=true`:
 - **Allowed:** Option 1 Create PR (PR-stop); Option 2/3 review; work stays on
   the integration branch (`feat/epic-<EPIC-ID>`). Child wrap via `/wrap-ticket`
   (does not release the integration tree — C3).
-- **Forbidden:** autopilot `merge` → end-state squash + `/release`; interactive
-  "If squash merge requested"; `--resume-ship` release path; any land onto
-  master/main. Print the assert message and **halt** those paths — master
-  unchanged, no version bump/tag/push.
+- **Forbidden:** autopilot `merge` → end-state (release **or** land-no-release);
+  interactive "If squash merge requested"; `--resume-ship` any land path; any
+  land onto master/main. Print the assert message and **halt** those paths —
+  baseline unchanged, no version bump/tag/push, no land-no-release commit.
 - Without `--release` on the parent epic (`release_bump` null/absent): assert
-  exits 0 — per-child release/merge unchanged.
+  exits 0 — per-child release/merge/land-no-release unchanged.
 
 **Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the C3 §2
 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"ship-choice",
@@ -1358,18 +1368,28 @@ Act on the **post-council effective decision**:
   [PR-stop]
 - `merge` → **CDT-141-C4:** if `RELEASE_END_BLOCKED=true`, do **not** run end-state;
   print `epic <ID> is in release=end mode until seal (CDT-141)` (from assert stderr),
-  emit `task_blocked` via Tier B (fail-open), and return — master unchanged. Else run
-  `skills/autopilot/end-state.md`'s release-end-state sequence: deterministic BC3
-  push-target check (N3a) → record `SHIP_START_SHA` → `git merge --squash <branch>`
-  (stage only, **no** `git commit`) → `/release <AUTOPILOT_BUMP>` (the sole commit +
-  tag + push) → §5.5 ship-history clean check (SPEC-010 H; cite, do not restate D1–D4).
-  Does **not** route through the interactive "If squash merge requested" block below
-  (`autopilot_bump != null` is engine-guaranteed).
-  On `/release` success **and** end-state §5.5 clean (§6 closeout done), emit
-  `task_complete` (detail = `released <bump>/<tag>`) via **Passive notifications →
-  Tier B** (fail-open; § below). On dirty ship-history (H8): halt with exact
-  `history dirty — rewrite needed`; **MUST NOT** Linear/backlog Done, **MUST NOT**
-  print Orchestration complete / ship success.
+  emit `task_blocked` via Tier B (fail-open), and return — baseline unchanged
+  (release **and** land-no-release forbidden mid-epic). Else run
+  `skills/autopilot/end-state.md` (shared preflight then branch on
+  `AUTOPILOT_BUMP` — SPEC-033 N3a / CDT-195):
+  deterministic BC3 push-target check (N3a) → record `SHIP_START_SHA` →
+  `git merge --squash <branch>` (stage only) → then:
+  - **`AUTOPILOT_BUMP` ∈ {patch, minor, major}** → **§5-release:** still **no**
+    `git commit` here → `/release <AUTOPILOT_BUMP>` (sole commit + tag + push).
+    **NEVER** pass `master` to `/release`.
+  - **`AUTOPILOT_BUMP` = master** → **§5-land-no-release:** interactive-shape
+    `git commit` + non-force `git push origin <baseline>` — **MUST NOT** invoke
+    `/release`, version files, tag, or CHANGELOG.
+  Then §5.5 ship-history clean check (SPEC-010 H; cite, do not restate D1–D4)
+  and §6 closeout. Does **not** route through the interactive "If squash merge
+  requested" block below (`autopilot_bump != null` is engine-guaranteed).
+  On land success **and** end-state §5.5 clean (§6 closeout done), emit
+  `task_complete` via **Passive notifications → Tier B** (fail-open; § below):
+  - release path: detail = `released <bump>/<tag>`
+  - land-no-release: detail = `landed master (no release)`
+  On dirty ship-history (H8): halt with exact `history dirty — rewrite needed`;
+  **MUST NOT** Linear/backlog Done, **MUST NOT** print Orchestration complete /
+  ship success.
 - `halt` / `reroute-epic` → print the one-line message below and return control; on `halt`
   **only**, first emit `task_blocked` (detail = the one-line message below) via **Passive
   notifications → Tier B** (fail-open; § below) — `reroute-epic` does NOT notify-blocked;
@@ -1380,66 +1400,79 @@ Act on the **post-council effective decision**:
 ```
 ship-choice <decision>: <rationale> — card: <card-file-path>
 ```
-On a **BC7 / ship-choice `halt`**, also print the resume hint (CDT-135):
+On a **BC7 / ship-choice `halt`**, also print the resume hint (CDT-135; CDT-195):
 ```
 Ship halted (BC7). To finish shipping after human review without re-running the
 full ticket, use:
-  /orchestrate <ISSUE-ID> --resume-ship=<patch|minor|major>
-or reply "resume ship <patch|minor|major>" in this session (same sequence).
-Does NOT auto-bypass BC7 — you must explicitly confirm.
+  /orchestrate <ISSUE-ID> --resume-ship=<patch|minor|major|master>
+or reply "resume ship <patch|minor|major|master>" in this session (same sequence).
+Bare --resume-ship re-reads plan/card mode. Does NOT auto-bypass BC7 — you must
+explicitly confirm (path-aware: release vs land-no-release).
 ```
 Otherwise (autopilot off), the user-choice gate below applies unchanged.
 
 Wait for user choice.
 
-### Resume ship after BC7 override (CDT-135)
+### Resume ship after BC7 override (CDT-135; CDT-195)
 
 **When:** A prior ship-choice halt (typically BC7 after M14 council disagree /
 degraded / spawn-fail) left the work ready to ship, the human has reviewed and
 **explicitly** wants to finish shipping, and re-running full PM/TL/IC is waste.
 
 **Entry (either):**
-1. `/orchestrate <ISSUE-ID> --resume-ship[=<patch|minor|major>]`
-2. In-session after a BC7 halt: user says `resume ship` / `resume ship patch`
-   (etc.)
+1. `/orchestrate <ISSUE-ID> --resume-ship[=<patch|minor|major|master>]`
+2. In-session after a BC7 halt: user says `resume ship` / `resume ship patch` /
+   `resume ship master` (etc.)
 
-**Bump resolution:** explicit `=<bump>` wins; else plan Tracking `autopilot_bump`
-if non-null; else ask once (`patch` recommended for fix trains). Invalid bump →
-error, no ship actions.
+**Bump resolution (context-aware):** explicit `=<token>` wins and overrides
+recorded mode; else plan Tracking `autopilot_bump` / last ship-choice card bump
+if non-null (bare re-read); else ask once (`patch` recommended for fix trains;
+`master` only when land-no-release is intentional). Invalid token → error, no
+ship actions. Tokens ∈ {patch, minor, major, master}.
 
 **MUST NOT:** re-run scope-confirm / plan-approve / IC implementation / M14
 council as if starting fresh; invent a bump; skip the human confirmation line
-below; force-push or ship without `/release`.
+below; force-push; pass `master` to `/release`; force release path when token
+is `master` (or force land-no-release when token is a release bump).
 
-**Confirmed sequence (one orchestrated path — replace ad-hoc `/release` then
+**Confirmed sequence (one orchestrated path — replace ad-hoc land then
 `/wrap-ticket`):**
 
 0. **CDT-141-C4:** run `assert-release-allowed <ISSUE-ID>` first. On exit 64
    (release=end mid-flight): print the message, **stop** — no squash, no
-   `/release`, master unchanged. (Seal is C5; resume-ship is not a seal.)
-1. Print plan summary: branch, worktree, proposed bump, last ship-choice card
-   path (`$MROOT/.claude/autopilot/<ISSUE-ID>.jsonl` if present).
-2. Ask once: `Proceed with release <bump> + wrap-ticket <ISSUE-ID>? (y/n)` —
-   **required**; autopilot MUST NOT self-answer this confirmation (human
-   override of a safety halt).
+   `/release`, no land-no-release, baseline unchanged. (Seal is C5; resume-ship
+   is not a seal. Mid-epic land-no-release forbidden too.)
+1. Print plan summary: branch, worktree, proposed token, land path name
+   (`release <bump>` vs `land-no-release`), last ship-choice card path
+   (`$MROOT/.claude/autopilot/<ISSUE-ID>.jsonl` if present).
+2. Ask once with **path-aware** confirm (**required**; autopilot MUST NOT
+   self-answer this confirmation — human override of a safety halt):
+   - release token: `Proceed with release <bump> + wrap-ticket <ISSUE-ID>? (y/n)`
+   - `master`: `Proceed with land-no-release (commit+push baseline, no /release)
+     + wrap-ticket <ISSUE-ID>? (y/n)`
 3. On `n` / empty: stop; no side effects.
 4. On `y`:
-   - If worktree still present: run `skills/autopilot/end-state.md` release
-     path for the chosen bump (squash-stage → `/release <bump>` → tracking
-     close-out per that file's §6).
-   - Else if already on master/main with clean tree after a prior partial
-     release: run `/release <bump>` only if version files still need the bump;
-     otherwise skip to wrap.
+   - If worktree still present: run `skills/autopilot/end-state.md` for the
+     chosen token (shared preflight → §5-release **or** §5-land-no-release →
+     §5.5 → tracking close-out per that file's §6).
+   - Else if already on baseline with clean tree after a prior partial land:
+     - release token: run `/release <bump>` only if version files still need
+       the bump; otherwise skip to wrap.
+     - `master`: **MUST NOT** run `/release`; if commit already pushed, skip
+       to wrap; if staged-only leftover, halt for human.
    - Then `/wrap-ticket <ISSUE-ID>` (idempotent close-out + worktree release).
-5. Emit `task_complete` (detail = `resume-ship released <bump>`) via Passive
-   notifications Tier B (fail-open).
+5. Emit `task_complete` via Passive notifications Tier B (fail-open):
+   - release: detail = `resume-ship released <bump>`
+   - land-no-release: detail = `resume-ship landed master (no release)`
 6. Append one decision card to the ticket ledger if append-card is available:
    `gate=ship-choice`, `decision=merge`, `decided_by=user`,
-   `blocking_condition=null`, rationale
-   `human override of BC7 via --resume-ship` (never rewrite prior halt cards).
+   `blocking_condition=null`, `bump=<resolved token>`, rationale notes path
+   (`human override of BC7 via --resume-ship` + `release` or `land-no-release`)
+   (never rewrite prior halt cards).
 
-**Failure:** any `/release` pre-commit gate fail → stop; leave wrap for later;
-print the failing gate.
+**Failure:** any land abort (`/release` pre-commit gate, land-no-release
+commit/push fail, ship-history dirty) → stop; leave wrap for later; print the
+failing gate / evidence.
 
 ### Linear lifecycle (status truth — master is Done)
 
@@ -1450,7 +1483,7 @@ finished in a worktree”:
 |-------|---------------|------|
 | Work started | **In Progress** | Step 3 (already) |
 | PR open / not on master | **In Review** | PR-stop, draft/ready PR, release=end child left on integration branch |
-| Landed on master + close-out | **Done** (or team Released) | Squash/merge to master succeeds, `/release` succeeds, **and** ship-history clean (SPEC-010 H), **or** `/wrap-ticket` after merge |
+| Landed on master + close-out | **Done** (or team Released) | Squash/merge to baseline succeeds (interactive, release `/release`, **or** land-no-release commit+push), **and** ship-history clean (SPEC-010 H), **or** `/wrap-ticket` after land |
 
 **MUST NOT** set Linear to **Done** when the only ship action was open a PR,
 push a feature branch, or finish IC/QA while changes are still off master.
@@ -1476,19 +1509,21 @@ the **feature worktree** (`--root "$WT_PATH"`) so edits land on the branch tree
 **Linear** (`linear:<ID>` / source=linear) is **path-dependent** (see table above):
 - **PR-stop / autopilot `pr` / release=end PR-only:** MCP → **In Review** + PR URL
   comment. **MUST NOT** Done.
-- **Master land** (interactive squash onto master, autopilot `merge` after
-  `/release` success **and** ship-history clean, resume-ship after release):
-  MCP → **Done** + PR/SHA comment. **Requires** clean
+- **Master land** (interactive squash onto baseline, autopilot `merge` after
+  release **or** land-no-release success **and** ship-history clean, resume-ship
+  after either land path): MCP → **Done** + PR/SHA comment. **Requires** clean
   `check-ship-history.sh` (SPEC-010 H5/H9) first — see ship-history gate below.
 - Fail-open if MCP unavailable: print a warning; do not invent Done or In Review.
 
-**Autopilot release-path exception (AC5, CDT-111-C9):** on the autopilot `merge` → `/release`
-path **only**, this close-out runs **after** `/release` succeeds **and** end-state §5.5
-ship-history is clean (per `skills/autopilot/end-state.md` §6) — not before — so trackers
-stay open if `/release` aborts at a pre-commit gate or history is dirty (nothing claimed
-Done). Every other path (interactive PR, interactive squash, autopilot `pr`) keeps the
-before-commit ordering below for **local** backlog; Linear follows the lifecycle table.
-Master-land paths still require the ship-history gate before Linear **Done**.
+**Autopilot land-path exception (AC5, CDT-111-C9; CDT-195):** on the autopilot
+`merge` → end-state path (release **or** land-no-release) **only**, this close-out
+runs **after** the land succeeds **and** end-state §5.5 ship-history is clean
+(per `skills/autopilot/end-state.md` §6) — not before — so trackers stay open if
+`/release` aborts at a pre-commit gate, land-no-release commit/push fails, or
+history is dirty (nothing claimed Done). Every other path (interactive PR,
+interactive squash, autopilot `pr`) keeps the before-commit ordering below for
+**local** backlog; Linear follows the lifecycle table. Master-land paths still
+require the ship-history gate before Linear **Done**.
 
 ```bash
 # Re-resolve PDH / MROOT / WT (fresh shell). Parse backlog slugs from plan Tracking.
@@ -1591,15 +1626,15 @@ available. Plain `git merge --squash` is the default merge path.
 
 ### Ship-history gate before master-land Done (SPEC-010 H5/H7–H9; CDT-188)
 
-On **any master-land path** (interactive squash onto master, autopilot `merge` /
-end-state after `/release`, resume-ship after release) **before** Linear **Done**,
-local backlog terminal close that implies ship success, or Step 12
-`Orchestration complete`:
+On **any master-land path** (interactive squash onto baseline, autopilot `merge`
+end-state after release **or** land-no-release, resume-ship after either land)
+**before** Linear **Done**, local backlog terminal close that implies ship
+success, or Step 12 `Orchestration complete`:
 
 1. Ensure `SHIP_START` / `SHIP_START_SHA` is known (end-state §3.5 /
-   `/release` Step 0.5; for interactive squash-only without `/release`, record
-   `SHIP_START=$(git rev-parse HEAD)` on the main-repo path **before** the
-   squash commit).
+   `/release` Step 0.5; for interactive squash-only or land-no-release without
+   `/release`, record `SHIP_START=$(git rev-parse HEAD)` on the main-repo path
+   **before** the squash commit).
 2. Run the install-aware checker (cite SPEC-010 H — **do not** restate D1–D4):
 
 ```bash
@@ -1680,8 +1715,9 @@ Do **not** set Done from preference while code is still off master.
 
 ### Ship-history before `Orchestration complete` (SPEC-010 H5/H9; CDT-188)
 
-On **master-land** paths (interactive squash, autopilot `merge`/`/release`,
-resume-ship), **before** printing the `Orchestration complete` banner:
+On **master-land** paths (interactive squash, autopilot `merge` release **or**
+land-no-release, resume-ship), **before** printing the `Orchestration complete`
+banner:
 
 - Require a clean `check-ship-history.sh --since $SHIP_START` result (same
   install-aware resolve as Step 11 ship-history gate; cite SPEC-010 H — do

@@ -231,6 +231,30 @@ governing rule; the checklist steps are that same order with the gaps removed.
 - **Card**:
   `append-card.sh orchestrate CDT-200 ship-choice merge auto patch 90 null ap-<RS> 7 <NOW-RS> orchestrator "<rationale: squash-merge to non-protected branch, explicit patch bump>"`
 
+### F13 — clean ship-choice → merge with `autopilot_bump=master` (land-no-release sentinel)
+
+- **Envelope**: `workflow=orchestrate, gate=ship-choice, iteration=7, RS=NOW-60,
+  autopilot_bump=master`.
+- **Gate signals**: Step-10b = PASS; `qa_bounces=0`; ship-action = **intentional baseline
+  land** under the land-no-release sentinel (squash-stage onto the worktree baseline /
+  `origin/HEAD` default; **no force-push**). N3a mechanical push-target check would clear —
+  not a raw self-selected protected-branch mutation, so BC3 does **not** match merely because
+  the default branch is protected (§3e BC3 / N3a). Within budget; confidence 90.
+- **BC walk** (ship-choice {1,2,3,6,7}): BC1/BC2 clear; **BC3 clears** (N3a-aligned
+  intentional baseline land, no force-push — evaluated unconditionally, no match); BC6/BC7
+  clear. No match → default answer. §3e: `autopilot_bump=master != null` ⇒ **`decision=merge`**
+  with card `bump=master`. Self-answer does **not** imply `/release` — `master` is a
+  land-no-release sentinel (M2); release vs land-no-release is end-state's branch on token
+  class, not a different ship-choice decision.
+- **Expected**: `decision=merge, blocking_condition=null, confidence=90, bump=master`.
+- **Writer preconditions exercised**: invariant (a) `bump non-null ⇒ gate=ship-choice` (holds);
+  engine invariant `merge ⇒ bump supplied` (holds — `master`). No release implication on the
+  card or decision.
+- **Required case**: CDT-195 master sentinel clean path (F11 null→pr and F12 patch→merge stay
+  intact).
+- **Card**:
+  `append-card.sh orchestrate CDT-200 ship-choice merge auto master 90 null ap-<RS> 7 <NOW-RS> orchestrator "<rationale: land-no-release sentinel master, decision=merge, no /release>"`
+
 ---
 
 ## Group C — edge fixture the procedure does not cover (documents a gap, not a pass)
@@ -257,18 +281,18 @@ governing rule; the checklist steps are that same order with the gaps removed.
 
 ## Walkthrough results (live-run evidence — verified, not asserted)
 
-**A. Fixture-to-procedure trace.** Each of F1–F12 was walked against `self-answer.md` §3a–§3f:
+**A. Fixture-to-procedure trace.** Each of F1–F13 was walked against `self-answer.md` §3a–§3f:
 the input-envelope receipt (§3a), the budget call (§3b), signal gathering (§3c), the BC1→BC8
 first-match-wins ordinal walk (§3d), the outcome→decision mapping (§3e), and the one-card side
 effect (§3f). Every fixture's target outcome is the **genuine first match** in canonical ordinal
 order after dropping inapplicable BCs — confirmed BC-by-BC in each fixture's *BC walk* block
-above. `decided_by=auto` on all 12 (clean, halt, and reroute alike) per §3f.
+above. `decided_by=auto` on all 13 (clean, halt, and reroute alike) per §3f.
 
 **B. `budget-check.sh` behavior (ran `skills/autopilot/budget-check.sh` directly):**
 
 | Input | stdout `reason` / `breached` / `blocking_condition` | exit | Feeds |
 |---|---|---|---|
-| `3  NOW-60`   | `none` / `false` / `null` | 0  | F9–F12, clean paths |
+| `3  NOW-60`   | `none` / `false` / `null` | 0  | F9–F13, clean paths |
 | `25 NOW-60`   | `iteration` / `true` / `6` | 6 | **F6** |
 | `AUTOPILOT_ITERATION_CAP=2 5 NOW-60` | `iteration` / `true` / `6` | 6 | F6 env-override variant |
 | `3  NOW-3000` | `wall_clock` / `true` / `6` | 6 | F6 wall-clock variant |
@@ -289,6 +313,7 @@ stdout** — confirming the FE gap. (`jq-1.8.1` present.)
 | F10 `plan-approve approve … null 88 null` | exit 0 |
 | F11 `ship-choice pr … null 90 null` | exit 0 |
 | F12 `ship-choice merge … patch 90 null` | exit 0 |
+| F13 `ship-choice merge … master 90 null` | exit 0 (writer accepts `master` bump) |
 | F7 `scope-confirm halt … null 65 7` | exit 0 |
 | F3 `ship-choice halt … minor 85 3` | exit 0 |
 | F6 `plan-approve halt … null 90 6` | exit 0 |
@@ -298,7 +323,7 @@ stdout** — confirming the FE gap. (`jq-1.8.1` present.)
 | **probe** `merge` with `bump=null` | **exit 0** (writer has **no** merge⇒bump guard) |
 
 Every positive fixture card is constructible with **no writer exit-64** → the engine's
-valid-by-construction claim (§4, R6) holds for all 12 fixtures. The two negatives confirm the
+valid-by-construction claim (§4, R6) holds for all 13 fixtures. The two negatives confirm the
 writer's cross-field guards match the two the engine promises to honor.
 
 ---
@@ -339,8 +364,8 @@ writer's cross-field guards match the two the engine promises to honor.
 
 ## QA verdict on the fixtures
 
-All **12** functional fixtures (F1–F12) are **genuinely reachable** per the written procedure and
-produce **writer-valid cards** (live-verified, § Walkthrough B/C). The edge fixture **FE** is an
-intentionally-documented **gap**, not a pass. The fixture set is the acceptance bar for
-`self-answer.md`; the three gaps above are handed to Tech Lead's Task-4 review. Gap 1 is the one
-worth gating on before commit.
+All **13** functional fixtures (F1–F13) are **genuinely reachable** per the written procedure and
+produce **writer-valid cards** (live-verified, § Walkthrough B/C; F13 requires writer bump enum
+accepting `master` per CDT-195 / M13). The edge fixture **FE** is an intentionally-documented
+**gap**, not a pass. The fixture set is the acceptance bar for `self-answer.md`; the three gaps
+above are handed to Tech Lead's Task-4 review. Gap 1 is the one worth gating on before commit.

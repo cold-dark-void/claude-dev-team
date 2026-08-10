@@ -18,9 +18,11 @@ and task graph ready for IC agents to claim.
 - `/kickoff <TICKET-ID> "<ticket text>"` — ticket ID and full ticket text inline
 - `/kickoff <TICKET-ID>` — prompts for ticket text
 - `/kickoff` — prompts for both
-- `[--autopilot[=<bump>]]` — optional, any position: enable autopilot for this run
-  (CDT-111-C4). Bare `--autopilot` or `AUTOPILOT=1` env = enabled, bump `null`;
-  `--autopilot=<patch|minor|major>` also sets the bump. Flag wins over env. See
+- `[--autopilot[=<token>]]` — optional, any position: enable autopilot for this run
+  (CDT-111-C4 / SPEC-033). Bare `--autopilot` or `AUTOPILOT=1` env = enabled, bump `null`;
+  `--autopilot=<patch|minor|major>` = release ship intent; `--autopilot=master` =
+  **land-no-release** (token spelling only — land target is worktree baseline / origin
+  default, not necessarily a branch named `master`). Flag wins over env. See
   `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot detection".
 
 ---

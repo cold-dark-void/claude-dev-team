@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.35
+- **`--autopilot=master` land-no-release (CDT-195)** — third ship terminal: flag-only sentinel `bump:"master"` squash-lands onto the worktree baseline / `origin/HEAD` without PR or `/release` (commit + non-force push; ship-history + Done). Release path (`=patch|minor|major`) and bare PR-stop unchanged. SPEC-033 M2/M4/M13/N3a + `parse-flags`/`append-card`/`resume-state` enum, self-answer F13, end-state §5b dual branch, orchestrate Step 11/resume-ship context-aware.
+
 ### v1.7.34
 - **skill-lint C1 on /retro multi-host Step 2 (CDT-156 CI)** — re-parse `MODE`/`EXPLICIT_SID`/`HOST` at start of discovery fence; split multi-name `local` into separate lines so C1 sees `_sid`/`_src` defs. Unblocks CI `skill-lint` after v1.7.33 (3 unwaived C1 findings).
 

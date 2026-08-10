@@ -22,8 +22,9 @@
 #   no flag, AUTOPILOT in {1,true}            -> enabled/null/source=env
 #   no flag, AUTOPILOT unset/0/other          -> disabled/null/source=none
 #
-# Bump vocabulary is borrowed from /release (SPEC-033 M2) — only membership in
-# {patch,minor,major} is checked here; this script does not define/extend it.
+# Bump vocabulary: /release tokens {patch,minor,major} plus land-no-release
+# sentinel master (SPEC-033 M2 / CDT-195). master is flag-only ship intent —
+# never a /release version; env NEVER carries it.
 #
 # --council-tier=<skip|light|full> — CDT-126, SPEC-013 § Council tiering.
 # DRI-only override, per-run, never auto-selected, no env-var equivalent
@@ -36,12 +37,12 @@
 #                                       -> exit 64
 #
 # Prints ONE compact JSON object to stdout (always, on exit 0):
-#   {"enabled":true|false,"bump":"patch|minor|major"|null,"source":"flag|env|none",
+#   {"enabled":true|false,"bump":"patch|minor|major|master"|null,"source":"flag|env|none",
 #    "council_tier":"skip|light|full"|null}
 #
 # Exit codes:
 #   0   parsed OK (enabled true or false)
-#  64   malformed --autopilot=<bump> (bump not in {patch,minor,major}, incl. empty --autopilot=)
+#  64   malformed --autopilot=<bump> (bump not in {patch,minor,major,master}, incl. empty --autopilot=)
 #       or malformed --council-tier (value not in {skip,light,full}, incl. bare/empty)
 
 set -euo pipefail
@@ -95,13 +96,13 @@ done
 if [ "$FLAG_SEEN" = true ]; then
   if [ "$FLAG_HAS_EQ" = true ]; then
     case "$FLAG_BUMP" in
-      patch|minor|major)
+      patch|minor|major|master)
         ENABLED=true
         BUMP="$FLAG_BUMP"
         SOURCE="flag"
         ;;
       *)
-        die "--autopilot=$FLAG_BUMP: bump must be one of patch, minor, major"
+        die "--autopilot=$FLAG_BUMP: bump must be one of patch, minor, major, master"
         ;;
     esac
   else

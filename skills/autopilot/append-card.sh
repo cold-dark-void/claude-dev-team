@@ -96,8 +96,8 @@ case "$DECIDED_BY" in
 esac
 
 case "$BUMP" in
-  patch|minor|major|null) ;;
-  *) die "invalid bump '$BUMP' (expected patch|minor|major|null)" ;;
+  patch|minor|major|master|null) ;;
+  *) die "invalid bump '$BUMP' (expected patch|minor|major|master|null)" ;;
 esac
 
 # council_tier vocabulary is SPEC-013's (Council tiering), not this spec's (M13/N4).

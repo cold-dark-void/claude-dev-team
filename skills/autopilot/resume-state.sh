@@ -15,14 +15,14 @@
 # skill-bash-lint clean). No match → {"found":false}. On a match, parses the
 # plan's `## Tracking` section for:
 #   - autopilot_on: true|false      (absent on a pre-C8 plan → autopilot_on:null)
-#   - autopilot_bump: patch|minor|major|null
+#   - autopilot_bump: patch|minor|major|master|null
 # Multiple matches (shouldn't happen given worktree-lib.sh's collision
 # handling, but defensive) → most recently modified file wins.
 #
 # stdout (one compact JSON line, exit 0):
 #   no match:                 {"found":false}
 #   match, no recorded state: {"found":true,"plan":"<path>","autopilot_on":null,"autopilot_bump":null}
-#   match, recorded state:    {"found":true,"plan":"<path>","autopilot_on":true|false,"autopilot_bump":"patch"|"minor"|"major"|null}
+#   match, recorded state:    {"found":true,"plan":"<path>","autopilot_on":true|false,"autopilot_bump":"patch"|"minor"|"major"|"master"|null}
 #
 # ---- Accumulated mode ----------------------------------------------------------
 # Delegates to read-cards.sh <ISSUE-ID> (never reimplements card JSON parsing)
@@ -136,7 +136,7 @@ case "$AUTOPILOT_ON_RAW" in
 esac
 
 case "$AUTOPILOT_BUMP_RAW" in
-  patch|minor|major) AUTOPILOT_BUMP_JSON="\"$AUTOPILOT_BUMP_RAW\"" ;;
+  patch|minor|major|master) AUTOPILOT_BUMP_JSON="\"$AUTOPILOT_BUMP_RAW\"" ;;
   *) AUTOPILOT_BUMP_JSON="null" ;;
 esac
 

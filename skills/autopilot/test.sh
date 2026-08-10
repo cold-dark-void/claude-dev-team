@@ -38,6 +38,11 @@
 # static claim contract on ship-gate-council.md: stamp happy path, fail-closed
 # matrix (missing/empty/BC7/halt/user/non-null-tier), and §3b technical-only
 # claim / no RAW_ARTIFACTS.
+#
+# Covers CDT-195 T2 cases (be)-(bj) for bump=master sentinel: parse accept
+# =master; illegal/empty list all four; env cannot set master; append-card
+# accepts master on ship-choice / rejects on non-ship-choice; resume-state
+# round-trip master.
 
 set -u
 
@@ -828,6 +833,113 @@ if [ -f "$SHIP_GATE" ] \
   pass "bd ship-gate-council.md cites stamp pre-flight + CDT-185 + §7 stamp boundary"
 else
   fail "bd procedure missing stamp pre-flight / CDT-185 / §7 stamp boundary"
+fi
+
+# =============================================================================
+# (be) CDT-195: parse-flags --autopilot=master → enabled,master,flag
+# =============================================================================
+OUT=$(bash "$PARSE" --autopilot=master 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.enabled == true and .bump == "master" and .source == "flag"' >/dev/null 2>&1; then
+  pass "be parse-flags --autopilot=master → enabled:true, bump:master, source:flag"
+else
+  fail "be rc=$RC out=$OUT (want enabled:true/bump:master/source:flag)"
+fi
+
+# =============================================================================
+# (bf) CDT-195: illegal/empty bump still 64; error lists patch,minor,major,master
+# =============================================================================
+ERR=$(bash "$PARSE" --autopilot=huge 2>&1 >/dev/null) || true
+RC=$(rc_of bash "$PARSE" --autopilot=huge)
+if [ "$RC" -eq 64 ] \
+  && echo "$ERR" | grep -q 'patch' \
+  && echo "$ERR" | grep -q 'minor' \
+  && echo "$ERR" | grep -q 'major' \
+  && echo "$ERR" | grep -q 'master'; then
+  pass "bf1 parse-flags illegal bump → 64 and error lists patch,minor,major,master"
+else
+  fail "bf1 rc=$RC err=$ERR (want 64 + four legal tokens)"
+fi
+ERR=$(bash "$PARSE" --autopilot= 2>&1 >/dev/null) || true
+RC=$(rc_of bash "$PARSE" --autopilot=)
+if [ "$RC" -eq 64 ] \
+  && echo "$ERR" | grep -q 'patch' \
+  && echo "$ERR" | grep -q 'minor' \
+  && echo "$ERR" | grep -q 'major' \
+  && echo "$ERR" | grep -q 'master'; then
+  pass "bf2 parse-flags empty bump → 64 and error lists patch,minor,major,master"
+else
+  fail "bf2 rc=$RC err=$ERR (want 64 + four legal tokens)"
+fi
+
+# =============================================================================
+# (bg) CDT-195: env AUTOPILOT never carries master (only 1|true enable)
+# =============================================================================
+OUT=$(AUTOPILOT=master bash "$PARSE" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.enabled == false and .bump == null and .source == "none"' >/dev/null 2>&1; then
+  pass "bg1 parse-flags AUTOPILOT=master → disabled (env cannot set master)"
+else
+  fail "bg1 rc=$RC out=$OUT (want enabled:false/bump:null/source:none)"
+fi
+OUT=$(AUTOPILOT=1 bash "$PARSE" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.enabled == true and .bump == null and .source == "env"' >/dev/null 2>&1; then
+  pass "bg2 parse-flags AUTOPILOT=1 still → enabled,null,env (regression)"
+else
+  fail "bg2 rc=$RC out=$OUT (want enabled:true/bump:null/source:env)"
+fi
+
+# =============================================================================
+# (bh) CDT-195: release tokens still accepted (=patch|minor|major) + bare flag
+# =============================================================================
+for tok in patch minor major; do
+  OUT=$(bash "$PARSE" --autopilot="$tok" 2>/dev/null); RC=$?
+  if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e --arg t "$tok" '.enabled == true and .bump == $t and .source == "flag"' >/dev/null 2>&1; then
+    pass "bh1 parse-flags --autopilot=$tok → bump:$tok (regression)"
+  else
+    fail "bh1 --autopilot=$tok rc=$RC out=$OUT"
+  fi
+done
+OUT=$(bash "$PARSE" --autopilot 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.enabled == true and .bump == null and .source == "flag"' >/dev/null 2>&1; then
+  pass "bh2 parse-flags bare --autopilot → enabled,null,flag (regression)"
+else
+  fail "bh2 rc=$RC out=$OUT (want enabled:true/bump:null/source:flag)"
+fi
+
+# =============================================================================
+# (bi) CDT-195: append-card accepts master on ship-choice; rejects on non-ship
+# =============================================================================
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-195 ship-choice merge auto master 90 null run-1 1 10 orch "land-no-release")
+L=$(ledger CDT-195)
+if [ "$RC" -eq 0 ] && [ -f "$L" ] \
+  && jq -e '.[0].bump == "master" and .[0].gate == "ship-choice"' < <(jq -s . "$L") >/dev/null 2>&1; then
+  pass "bi1 append-card bump=master on ship-choice → 0, card bump:master"
+else
+  fail "bi1 rc=$RC ledger=$(cat "$L" 2>/dev/null)"
+fi
+expect_rc 64 "bi2 append-card bump=master on gate=scope-confirm → 64" \
+  bash "$APPEND" orchestrate CDT-195 scope-confirm proceed auto master 90 null run-1 1 10 orch "bad"
+
+# =============================================================================
+# (bj) CDT-195: resume-state autopilot_bump: master → JSON "master"
+# =============================================================================
+reset
+PLANDIR="$TMP/.claude/plans"
+rm -rf "$PLANDIR"
+mkdir -p "$PLANDIR"
+cat > "$PLANDIR/2026-08-10-CDT-195RS-plan.md" <<'EOF'
+# plan
+## Tracking
+- source: linear
+- ticket_id: CDT-195RS
+- autopilot_on: true
+- autopilot_bump: master
+EOF
+OUT=$(bash "$RESUME" CDT-195RS 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.found == true and .autopilot_on == true and .autopilot_bump == "master"' >/dev/null 2>&1; then
+  pass "bj resume-state autopilot_bump: master → bump:master"
+else
+  fail "bj rc=$RC out=$OUT (want found:true/on:true/bump:master)"
 fi
 
 # =============================================================================
