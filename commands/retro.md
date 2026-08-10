@@ -231,6 +231,47 @@ ENCODED=$(echo "$MROOT" | sed 's|/|-|g')
 PROJECT_DIR="$HOME/.claude/projects/$ENCODED"
 GROK_SESSIONS_ROOT="${GROK_SESSIONS_DIR:-$HOME/.grok/sessions}"
 
+# Re-parse Step 1 args (each fence is a fresh shell — skill-lint C1).
+MODE="single"
+EXPLICIT_SID=""
+HOST=""
+HOST_EXPLICIT=0
+_PREV_HOST=0
+for arg in $ARGUMENTS; do
+  if [ "$_PREV_HOST" = "1" ]; then
+    case "$arg" in
+      claude|grok|all) HOST="$arg"; HOST_EXPLICIT=1; _PREV_HOST=0; continue ;;
+      *) echo "error: --host expects claude|grok|all, got: $arg" >&2; exit 1 ;;
+    esac
+  fi
+  case "$arg" in
+    --all)  MODE="all" ;;
+    --auto) ;;
+    --why)  ;;
+    --host) _PREV_HOST=1 ;;
+    --host=*)
+      _hv="${arg#--host=}"
+      case "$_hv" in
+        claude|grok|all) HOST="$_hv"; HOST_EXPLICIT=1 ;;
+        *) echo "error: --host expects claude|grok|all, got: $_hv" >&2; exit 1 ;;
+      esac
+      ;;
+    --*) ;;
+    *) EXPLICIT_SID="$arg" ;;
+  esac
+done
+if [ "$_PREV_HOST" = "1" ]; then
+  echo "error: --host requires a value (claude|grok|all)" >&2
+  exit 1
+fi
+if [ "$MODE" = "all" ] && [ "$HOST_EXPLICIT" = "0" ]; then
+  HOST="all"
+fi
+if [ "$MODE" = "all" ] && [ -n "$EXPLICIT_SID" ]; then
+  echo "error: --all and <session-id> are mutually exclusive" >&2
+  exit 1
+fi
+
 _mtime_of() {
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
 }
@@ -252,7 +293,9 @@ _claude_uuid_ok() {
 _locate_one() {
   # $1=host $2=optional sid → path
   # hosts.py always gets HOST_CWD (live WTROOT) so Grok buckets match session layout.
-  local _h="$1" _sid="${2:-}"
+  # Separate local lines so skill-lint C1 sees both names (multi-assign only captures first).
+  local _h="$1"
+  local _sid="${2:-}"
   if [ -f "$HOSTS_PY" ] && command -v python3 >/dev/null 2>&1; then
     if [ -n "$_sid" ]; then
       python3 "$HOSTS_PY" locate --host "$_h" --session-id "$_sid" --cwd "$HOST_CWD" 2>/dev/null || true
@@ -458,7 +501,8 @@ HOST_CWD="${WTROOT:-$(pwd)}"
 
 _session_id_from_source() {
   # $1=host $2=source_path
-  local _h="$1" _src="$2"
+  local _h="$1"
+  local _src="$2"
   if [ "$_h" = "grok" ]; then
     # …/<sid>/chat_history.jsonl → sid
     basename "$(dirname "$_src")"
@@ -470,7 +514,10 @@ _session_id_from_source() {
 _normalize_feed() {
   # $1=host $2=source $3=session_id → gate path on stdout
   # --cwd is live HOST_CWD (Grok session metadata / bucket parity).
-  local _h="$1" _src="$2" _sid="$3"
+  # Separate local lines so skill-lint C1 sees each name (multi-assign only captures first).
+  local _h="$1"
+  local _src="$2"
+  local _sid="$3"
   if [ -f "$HOSTS_PY" ] && command -v python3 >/dev/null 2>&1; then
     python3 "$HOSTS_PY" normalize --host "$_h" --source "$_src" --cwd "$HOST_CWD" \
       --session-id "$_sid" --mode scoring 2>/dev/null || true
