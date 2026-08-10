@@ -18,7 +18,9 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/grok-adapt-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 SID="019f-cdt92-fixture-session"
-CWD="/home/malcolm/vibes/claude-dev-team/.worktrees/CDT-92"
+# Use $WORK so resolve-root T9 does not depend on a deleted worktree path.
+CWD="$WORK/project"
+mkdir -p "$CWD"
 OUT="$WORK/claude-shaped.jsonl"
 
 # ---- T0: script + fixture present ----

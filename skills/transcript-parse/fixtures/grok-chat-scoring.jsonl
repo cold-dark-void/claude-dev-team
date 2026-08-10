@@ -1,0 +1,14 @@
+{"type": "system", "content": "System prompt — must be skipped by scoring normalize."}
+{"type": "user", "content": [{"type": "text", "text": "<system-reminder>\nFixture project instructions.\n</system-reminder>"}], "synthetic_reason": "project_instructions"}
+{"type": "user", "content": [{"type": "text", "text": "Implement the feature. Marker: CDT156-SCORING-USER"}], "prompt_index": 1}
+{"type": "reasoning", "id": "rs-scoring-1", "summary": [{"type": "summary_text", "text": "Internal reasoning to skip"}], "status": "completed"}
+{"type": "backend_tool_call", "id": "btc-skip-1", "name": "internal", "arguments": "{}"}
+{"type": "assistant", "content": "Writing a new module then editing. Marker: CDT156-SCORING-ASSIST", "tool_calls": [{"id": "call-write-1", "name": "write", "arguments": "{\"file_path\": \"/home/proj/src/new_mod.py\", \"content\": \"# new\\n\"}"}, {"id": "call-sr-1", "name": "search_replace", "arguments": "{\"file_path\": \"/home/proj/src/legacy.py\", \"old_string\": \"a\", \"new_string\": \"b\"}"}], "model_id": "fixture-model"}
+{"type": "tool_result", "tool_call_id": "call-write-1", "content": "exit: 0\nwrote /home/proj/src/new_mod.py\n"}
+{"type": "tool_result", "tool_call_id": "call-sr-1", "content": "exit: 0\nupdated /home/proj/src/legacy.py\n"}
+{"type": "assistant", "content": "Running a failing command.", "tool_calls": [{"id": "call-bash-err", "name": "run_terminal_command", "arguments": "{\"command\": \"false\"}"}], "model_id": "fixture-model"}
+{"type": "tool_result", "tool_call_id": "call-bash-err", "content": "exit: 1\ncommand failed\n"}
+{"type": "assistant", "content": "Retry ok.", "tool_calls": [{"id": "call-bash-ok", "name": "run_terminal_command", "arguments": "{\"command\": \"true\"}"}], "model_id": "fixture-model"}
+{"type": "tool_result", "tool_call_id": "call-bash-ok", "content": "exit: 0\n"}
+{"type": "assistant", "content": "Tool without exit line is not an S2 error.", "tool_calls": [{"id": "call-read-1", "name": "read_file", "arguments": "{\"target_file\": \"/home/proj/src/legacy.py\"}"}], "model_id": "fixture-model"}
+{"type": "tool_result", "tool_call_id": "call-read-1", "content": "print('legacy')\n"}

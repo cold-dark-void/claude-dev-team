@@ -1,19 +1,28 @@
 ---
 name: transcript-parse
-description: Shared read-only parsing seam for Claude Code session transcripts (~/.claude/projects/*.jsonl). Locates a session's canonical file, assembles a deduped chronological timeline, exposes parse primitives, and guards against mid-write files. Consumed by /handoff (SPEC-018) and /retro (SPEC-012).
+description: Shared read-only parsing seam for host session transcripts (Claude ~/.claude/projects/*.jsonl; Grok ~/.grok/sessions/**/chat_history.jsonl). Locates a session's canonical file, host-normalizes to a gate-feed timeline, assembles a deduped chronological timeline, exposes parse primitives, and guards against mid-write files. Consumed by /handoff (SPEC-018) and /retro (SPEC-012).
 ---
 
 # transcript-parse — shared transcript parsing seam
 
-This skill is the **single source of truth** for reading Claude Code session
-transcripts. Both `/handoff` (SPEC-018) and `/retro` (SPEC-012) parse the same
-`~/.claude/projects/*/*.jsonl` files; that location + fork-assembly + parse
-primitives + freshness logic MUST live here once, not be duplicated per command
+This skill is the **single source of truth** for reading host session
+transcripts. Both `/handoff` (SPEC-018) and `/retro` (SPEC-012) share locate +
+parse primitives + freshness here once, not duplicated per command
 (SPEC-018 M1; SPEC-012 boundary).
 
-**Design rule — parse only, never score.** This module *locates* and *orders*
-messages and *flattens* fields. It does NOT score signals, distil, summarize,
-or rank. Consumers own all of that:
+**Hosts (CDT-156 MVP):**
+- **claude** — `~/.claude/projects/<dash-encoded-cwd>/*.jsonl` (default; score-compatible)
+- **grok** — `${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/<sid>/chat_history.jsonl`
+
+**Adapter contract (CDT-156):** each host provides `locate` + `normalize` → a
+**Claude-shaped JSONL gate feed** (stable `uuid` turn_ids, nested
+`message.content`, user-wrapped `tool_result` with `is_error` when applicable).
+`/retro` scores only the feed; it does not re-parse raw Grok layout. Handoff
+MAY keep a skip-tool_result consumer path without requiring a SPEC-018 rewrite.
+
+**Design rule — parse / normalize only, never score.** This module *locates*,
+*normalizes host layouts*, *orders* messages, and *flattens* fields. It does
+NOT score signals, distil, summarize, or rank. Consumers own all of that:
 
 - `/retro` gate keeps its S1–S5 scoring local; it imports the flatten/field
   primitives but deliberately uses its **own** thinking-block policy (gate
@@ -26,13 +35,97 @@ or rank. Consumers own all of that:
 
 | File | Status | Provides | Consumers |
 |------|--------|----------|-----------|
-| `assemble.py` | **present** | CLI `locate` + `assemble` + `assemble-file` | handoff prepass, retro Step 2 location, PreCompact capture |
+| `assemble.py` | **present** | CLI `locate` + `assemble` + `assemble-file` (Claude-only) | handoff prepass, retro Step 2 location, PreCompact capture |
+| `hosts.py` | **present** (CDT-156) | Multi-host `locate`/`normalize` + CLI; `HOSTS=("claude","grok")` | retro discovery Step 2; handoff MAY wrap |
+| `discover-host.sh` | **present** (CDT-156 T5) | Dual-host auto-detect: env pins → newest mtime; stdout `host=… session_id=… path=… source=…` | optional helper (same precedence as retro Step 2a); T4 inlines `hosts.py locate` equivalently |
+| `grok_normalize.py` | **present** (CDT-156 T3) | Grok chat_history → Claude-shaped JSONL (`scoring` / `handoff`) | `hosts.normalize(host=grok)`; T8 handoff wrap |
 | `parselib.py` | **present** | importable parse primitives | handoff prepass, retro gate |
 | `freshness.sh` | **present** | 60 s mid-write guard (+ M14 carve-out) | handoff (M9), retro Filter-1, PreCompact (M14) |
 
 Runtime: `python3` only (already required by retro-gate). No other deps. Every
 entry point degrades with a clear error and a non-zero exit if `python3` is
 absent — it must never traceback on a foreign or half-written file.
+
+---
+
+## `hosts.py` — multi-host adapter registry (CDT-156) — PRESENT
+
+Single importable + CLI surface for host-scoped locate and normalize. `/retro`
+MUST call this (not re-implement host discovery). Claude is score-compatible
+identity; Grok locate is cwd-bucket (T2); Grok normalize is present (T3).
+
+### Importable API
+
+```python
+HOSTS = ("claude", "grok")
+
+def locate(
+    host: str,
+    session_id: str | None,
+    cwd: str,
+    *,
+    sessions_dir: str | None = None,
+) -> str | None:
+    """Absolute source transcript path, or None if missing."""
+
+def normalize(
+    host: str,
+    source_path: str,
+    *,
+    cwd: str,
+    session_id: str,
+    mode: str = "scoring",  # "scoring" | "handoff"
+) -> str:
+    """Absolute Claude-shaped gate-feed path."""
+```
+
+| Host | `locate` | `normalize` |
+|------|----------|-------------|
+| `claude` | `session_id` set → `assemble.locate(uuid)` (fork-aware, all projects); `session_id is None` → newest-mtime `*.jsonl` under `~/.claude/projects/<dash-encoded-cwd>/` | **identity** — returns `abspath(source_path)` for both modes (no score change) |
+| `grok` | cwd-bucket under `GROK_SESSIONS_DIR`/`urlencode(cwd)`: by-id or newest `chat_history.jsonl`; honors `GROK_TRANSCRIPT_PATH` when under root | **present** — `grok_normalize.normalize_to_file` → TMPDIR Claude-shaped JSONL; scoring keeps `tool_result` + name map; handoff skips `tool_result` |
+
+`sessions_dir` overrides the host root (Claude: projects dir; Grok: sessions
+dir). Unknown `host` / `mode` → `ValueError`.
+
+### CLI
+
+```
+hosts.py locate   --host claude|grok [--session-id SID] --cwd DIR [--sessions-dir DIR]
+hosts.py normalize --host claude|grok --source PATH --cwd DIR --session-id SID [--mode scoring|handoff]
+```
+
+- `locate` success → absolute path on stdout, exit 0; not found → stderr + exit 1;
+  unknown host / not implemented → stderr + exit 2.
+- `normalize` success → absolute feed path on stdout, exit 0.
+
+Verification:
+`python3 -c "from hosts import locate, normalize, HOSTS; assert 'claude' in HOSTS"`
+from this skill directory.
+
+---
+
+## `discover-host.sh` — dual-host auto-detect (CDT-156 T5) — PRESENT
+
+Thin shell helper over `hosts.py locate` for SPEC-012 auto-detect / OQ2 when
+`--host` is omitted. `commands/retro.md` Step 2a inlines the same precedence
+via `hosts.py locate` (T4); this script is the extractable equivalent for tests
+and other callers.
+
+```
+discover-host.sh [--cwd DIR] [--env-check]
+# stdout: host=<claude|grok> session_id=… path=… source=…
+# exit 0 found; 1 none; 2 usage/missing python3
+```
+
+Precedence:
+1. `GROK_SESSION_ID` / `GROK_TRANSCRIPT_PATH` when resolvable
+2. Claude env (`CLAUDE_CODE_SESSION_ID` | `CLAUDE_SESSION_ID` |
+   `CLAUDE_TRANSCRIPT_PATH` | `TRANSCRIPT_PATH`) when resolvable
+3. Newest mtime across Claude project dir + Grok cwd bucket for `--cwd`
+   (`source=mtime`). Skipped when `--env-check` (env pins only).
+
+Test overrides: `CLAUDE_PROJECTS_DIR`, `GROK_SESSIONS_DIR`.
+Verify: `bash skills/transcript-parse/discover-host-test.sh` (dual-host trees).
 
 ---
 
@@ -227,10 +320,29 @@ file → **exit 9**; same + `--allow-in-progress` → **exit 0**.
   spine or chunk manifest. `source_files` is the single canonical file (no
   cross-file engine).
 - **/retro**: gate.sh imports `parselib` primitives (keeps its own
-  thinking-skip + S1–S5 scoring local); `retro.md` Step 2 repoints location to
-  `assemble.py locate` and Filter-1 freshness to `freshness.sh check`. No
-  behavior change to retro scores — that seam is what proves this module is
-  genuinely shared.
+  thinking-skip + S1–S5 scoring local); `retro.md` Step 2 resolves host →
+  adapter `locate` + `normalize` → `gate.sh` on the Claude-shaped feed;
+  Filter-1 freshness via `freshness.sh check` on the **source** path (Claude
+  JSONL or Grok `chat_history.jsonl`). Claude default remains score-compatible
+  with pre-CDT-156 fixtures.
+
+### Grok normalize notes (scoring path, CDT-156)
+
+Implemented in `grok_normalize.py` (called from `hosts.normalize(host="grok")`).
+
+- Skip `system` / `reasoning` / `backend_tool_call` for the gate feed.
+- Preserve `tool_result` as **user** lines with
+  `content: [{type:tool_result, tool_use_id, is_error, content}]`.
+- `is_error: true` only when body matches `exit:\s*N` with **N ≠ 0** (MVP S2;
+  optional space after colon matches live Grok `exit: 0` / `exit: 1`).
+- Map `write` → `Write`, `search_replace` → `Edit` for S3 (scoring mode only);
+  other tool names pass through; path keys already often `file_path`.
+- Stable turn_id: `<safe-session>-L<n>`; `sessionId` = Grok session dir id;
+  timestamp preserved or synthetic order-preserving ISO.
+- Output path: unique file under `$TMPDIR` (or system temp) for `gate.sh`.
+- Handoff mode (`mode=handoff`) omits tool_result (CDT-92 spine parity; T8 may
+  wrap `skills/handoff/grok-to-claude-jsonl.py`). Fixture:
+  `fixtures/grok-chat-scoring.jsonl`.
 
 ## Landmines (cross-cutting)
 

@@ -248,6 +248,50 @@ if assert_json_shape "S5-tok"; then
 fi
 
 echo "----"
+
+# ---- CDT-156 T6 / AC12: Grok raw fixture → normalize → gate passed:true ----
+# Raw Grok chat_history with S1 rejection + ≥2 consecutive exit:N≠0 (S2).
+# Weights unchanged: S1=3.0 + S2=2.0 → score 5.0 ≥ threshold.
+GROK_RAW="$FIX/grok-friction-s1-s2.jsonl"
+TP_DIR=$(CDPATH= cd -- "$HERE/../transcript-parse" && pwd)
+if [ ! -f "$GROK_RAW" ]; then
+  bad "Grok-AC12: missing fixture $GROK_RAW"
+elif [ ! -f "$TP_DIR/grok_normalize.py" ]; then
+  bad "Grok-AC12: missing grok_normalize.py under $TP_DIR"
+else
+  GROK_NORM=$(mktemp "${TMPDIR:-/tmp}/grok-friction-norm.XXXXXX.jsonl")
+  set +e
+  python3 "$TP_DIR/grok_normalize.py" \
+    --in "$GROK_RAW" \
+    --out "$GROK_NORM" \
+    --cwd /home/proj \
+    --session-id cdt156-friction \
+    --mode scoring >/dev/null 2>"${TMPDIR:-/tmp}/grok-norm.err"
+  NRC=$?
+  set -e
+  if [ "$NRC" -ne 0 ]; then
+    bad "Grok-AC12: normalize exit $NRC err=$(cat "${TMPDIR:-/tmp}/grok-norm.err" 2>/dev/null)"
+  else
+    OUT=$(bash "$GATE" "$GROK_NORM" 2>/dev/null)
+    RC=$?
+    if assert_json_shape "Grok-AC12"; then
+      sc=$(score_val)
+      pv=$(passed_val)
+      s1c=$(signal_count S1)
+      s2c=$(signal_count S2)
+      # Expect S1 + S2 both present; score ≥ threshold (default 5.0)
+      if [ "$pv" = "true" ] && [ "$s1c" -ge 1 ] && [ "$s2c" -ge 1 ] \
+         && python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) >= 5.0 else 1)" "$sc"; then
+        ok "Grok-AC12 normalize→gate passed=true S1=$s1c S2=$s2c score=$sc"
+      else
+        bad "Grok-AC12: want passed=true S1≥1 S2≥1 score≥5; got passed=$pv S1=$s1c S2=$s2c score=$sc out=$OUT"
+      fi
+    fi
+  fi
+  rm -f "$GROK_NORM"
+fi
+
+echo "----"
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
   exit 1

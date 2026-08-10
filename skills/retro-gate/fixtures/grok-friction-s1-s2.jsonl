@@ -1,0 +1,9 @@
+{"type": "system", "content": "Skip me — not gate-relevant."}
+{"type": "user", "content": "Please fix the failing module and ship the change. Marker: CDT156-FRICTION-USER"}
+{"type": "assistant", "content": "Running tests first.", "tool_calls": [{"id": "call-fail-1", "name": "run_terminal_command", "arguments": "{\"command\": \"false\"}"}], "model_id": "fixture-model"}
+{"type": "tool_result", "tool_call_id": "call-fail-1", "content": "exit: 1\nbash: tests failed\n"}
+{"type": "assistant", "content": "Retrying the same command.", "tool_calls": [{"id": "call-fail-2", "name": "run_terminal_command", "arguments": "{\"command\": \"false\"}"}], "model_id": "fixture-model"}
+{"type": "tool_result", "tool_call_id": "call-fail-2", "content": "exit: 1\nbash: tests failed again\n"}
+{"type": "user", "content": "that's not what I asked for"}
+{"type": "assistant", "content": "Acknowledged; switching strategy.", "tool_calls": [{"id": "call-write-ok", "name": "write", "arguments": "{\"file_path\": \"/home/proj/src/fix.py\", \"content\": \"# fix\\n\"}"}], "model_id": "fixture-model"}
+{"type": "tool_result", "tool_call_id": "call-write-ok", "content": "exit: 0\nwrote /home/proj/src/fix.py\n"}

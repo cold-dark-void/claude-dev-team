@@ -10,11 +10,12 @@
 
 ## Overview
 
-`/retro` reviews past Claude sessions to find friction patterns ("frustrating
-sessions") and proposes concrete behavioral adjustments targeted at the
-correct actor — either a team agent (pm, tech-lead, ic5, ic4, devops, qa, ds)
-via the existing `/adjust-agent` flow, or plain Claude itself via
-project-local lessons at `$MROOT/.claude/memory/claude/lessons.md`.
+`/retro` reviews past host sessions (Claude Code and, as of CDT-156, Grok) to
+find friction patterns ("frustrating sessions") and proposes concrete
+behavioral adjustments targeted at the correct actor — either a team agent
+(pm, tech-lead, ic5, ic4, devops, qa, ds) via the existing `/adjust-agent`
+flow, or plain Claude itself via project-local lessons at
+`$MROOT/.claude/memory/claude/lessons.md`.
 
 Design is two-phase to avoid wasting tokens on smooth sessions:
 1. **Phase 1 — Gate**: cheap heuristic grep of session JSONL(s) for friction
@@ -38,20 +39,41 @@ conflict-detection and holistic-rewrite guarantees.
 ## MUST
 
 ### Command Shape
-- MUST support `/retro` (default: last session in current project)
+- MUST support `/retro` (default: last session in current project for the selected host)
 - MUST support `/retro <session-id>` (specific session)
-- MUST support `/retro --all` (all projects under `~/.claude/projects/`, cross-session pattern mining)
+- MUST support `/retro --all` (cross-session pattern mining; host scope per multi-host rules below)
 - MUST support `/retro --auto` (skip confirm UI, apply all proposals)
 - MUST support `/retro --why` (print which phase-1 gate signals matched, for heuristic calibration)
+- MUST support `/retro --host claude|grok|all` (CDT-156). When `--host` is omitted, auto-detect per multi-host rules. When `--all` is set and `--host` is omitted, MUST treat as `--host all`.
 - MUST exit in under 5 seconds on smooth sessions (gate-only path, no subagent spawn)
 
 ### Session Discovery
-- Transcript location, canonical-file selection, fork-tree assembly, parse primitives, and the in-progress freshness guard are owned by the shared read-only parsing seam `skills/transcript-parse/` (`assemble.py` locate/assemble, `parselib.py` parse primitives, `freshness.sh` 60 s mid-write guard, plus `SKILL.md`). `/retro` and `/handoff` (SPEC-018) MUST both consume this single module — neither MUST re-implement transcript parsing privately. `/retro` owns only its own friction scoring on top of the shared primitives.
-- MUST read session JSONL files from `~/.claude/projects/<encoded-project-path>/` for current-project mode
-- MUST default to the most recently modified `.jsonl` file when no `<session-id>` given
-- MUST NOT read in-progress JSONL files (skip files modified within the last 60 seconds)
-- MUST NOT read sessions from other users or shared directories outside `~/.claude/projects/`
-- MUST skip sessions where `/retro` was itself invoked (prevent retro-of-retros loops)
+- Transcript location, canonical-file selection, fork-tree assembly, host adapters (locate + normalize), parse primitives, and the in-progress freshness guard are owned by the shared read-only parsing seam `skills/transcript-parse/` (`assemble.py` locate/assemble, host adapter surface, `parselib.py` parse primitives, `freshness.sh` 60 s mid-write guard, plus `SKILL.md`). `/retro` and `/handoff` (SPEC-018) MUST both consume this single module — neither MUST re-implement transcript parsing privately. `/retro` owns only its own friction scoring on top of the shared primitives.
+- **Claude host:** MUST read session JSONL files from `~/.claude/projects/<encoded-project-path>/` (dash-encoded absolute path, existing Claude Code layout).
+- **Grok host (CDT-156):** MUST read from `${GROK_SESSIONS_DIR:-$HOME/.grok/sessions}/<urlencode(cwd)>/<session-id>/chat_history.jsonl` where `cwd` is the live project directory for the invocation (MVP: exact cwd bucket only — full MROOT+worktree fan-out is non-MVP).
+- MUST default to the most recently modified candidate session for the selected host(s) when no `<session-id>` given (Claude: newest `*.jsonl` under the project dir; Grok: newest `chat_history.jsonl` under the cwd bucket).
+- When both hosts are eligible and no env pin selects a host (auto-detect with dual recent sessions), MUST prefer the newest mtime across hosts (OQ2).
+- Auto-detect pins (when `--host` omitted, non-`--all`): prefer `GROK_SESSION_ID` / `GROK_TRANSCRIPT_PATH` (or path layout under `GROK_SESSIONS_DIR`) when set and resolvable; else Claude env/project layout; else newest-mtime across both hosts for the current cwd.
+- MUST NOT silently fall back to Claude when `--host grok` is explicit and no Grok session is found — MUST print a clear error and exit non-smooth discovery failure (no gate-on-wrong-host).
+- MUST NOT read in-progress session files (skip files modified within the last 60 seconds via `freshness.sh` — Filter-1 applies to both Claude JSONL and Grok `chat_history.jsonl`).
+- MUST NOT read sessions from other users or shared directories outside the allowed host roots: `~/.claude/projects/` and `${GROK_SESSIONS_DIR:-$HOME/.grok/sessions}/` (and env overrides that still resolve under those roots).
+- MUST skip sessions where `/retro` was itself invoked (prevent retro-of-retros loops — Filter-2; host-agnostic).
+
+### Multi-host adapters (CDT-156)
+
+- **Adapter contract.** `skills/transcript-parse/` MUST expose a host adapter surface with at least: `locate(host, session_id|None, cwd) → source_path` and `normalize(host, source_path, …) → gate-feed path` (or stream). Hosts in MVP: `claude` (default, score-compatible identity/near-identity path) and `grok`.
+- **Gate feed shape.** Normalize MUST produce a **Claude-shaped JSONL timeline** (or equivalent intermediate that `gate.sh` already understands) so phase-1 scoring remains in `skills/retro-gate/gate.sh` without forking weights, caps, threshold, or signal set. Preferred: preserve `tool_result` blocks for retro scoring; handoff MAY continue to skip tool results on its own consumer path (SPEC-018 non-goal for this ticket — no multi-host handoff rewrite required).
+- **Stable turn ids.** Every emitted timeline line that the gate can cite MUST carry a stable `uuid` (turn_id). Grok: deterministic `<session-id>-L<n>` (or equivalent charset-safe scheme) stable across re-runs of the same source file order. Phase-2 citations and `signals[].ids` MUST use these turn_ids (AC8).
+- **Grok normalize mapping (scoring path):**
+  - Skip `system` and `reasoning` (and other non-scoring bookkeeping) for the gate feed.
+  - Map `user` / `assistant` with nested `message.content` Claude shape.
+  - Map `assistant.tool_calls` → `tool_use` blocks; map tool names for edit signals: `write` → `Write`, `search_replace` → `Edit` (other names MAY pass through unchanged).
+  - Map `tool_result` into the timeline (user-wrapped `tool_result` blocks as Claude does, or equivalent structure `gate.sh` already scores). Set `is_error: true` iff the result body matches an **`exit:N` with N ≠ 0** pattern (OQ5 — only this rule for MVP S2 on Grok). Success / missing exit line → not error.
+  - Mark Grok synthetic/system-injected user lines (`synthetic_reason` or equivalent) as `isMeta: true` so S1/S5 skip them.
+  - Inject `sessionId` from the Grok session directory id (not the basename `chat_history`).
+- **Grok S2 ledger:** Grok sessions MUST use the **uncovered** transcript S2 path (no Grok friction-ledger parity in MVP — OOS).
+- **Claude regression:** Default Claude host path MUST keep existing `retro-gate` fixture `passed` / `score` / per-signal counts (AC2). MUST NOT retune S1–S5 weights, caps, or threshold in this ticket.
+- **Apply path:** Phase-3/4 confirm/apply, trial-review, and scheduled-report writers MUST remain host-agnostic once a session is gated (AC9).
 
 ### Phase 1 — Friction Gate (heuristic)
 - MUST compute a friction score for each candidate session using signals including (but not limited to):
@@ -206,6 +228,16 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 - Verify `/retro` skips sessions where `/retro` was previously invoked
 - Verify `/kickoff` and `/orchestrate` print the `Consider: /retro` hint only when the gate flags their session
 
+**Multi-host adapters (CDT-156):**
+
+1. **Adapter seam:** locate+normalize for `claude` and `grok` live under `skills/transcript-parse/`; gate consumes only the normalized feed.
+2. **Claude regression:** `skills/retro-gate/test.sh` (and hybrid fixtures) remain green with identical score / passed / S1–S5 counts.
+3. **Grok locate:** cwd-bucket newest + explicit `--host grok <session-id>`; missing explicit Grok → clear error, no Claude fallback.
+4. **Grok normalize:** tool_result preserved; `exit:N≠0` → `is_error`; `write`/`search_replace` → `Write`/`Edit`; stable turn_ids; system/reasoning skipped.
+5. **Grok friction fixture:** synthetic `chat_history` that yields `passed: true` with S1 and/or S2/S3 as designed; not a Claude stub path.
+6. **CLI:** `--host` documented in `commands/retro.md` + `docs/commands/retro.md` + `argument-hint`.
+7. **Filters:** Filter-1 (60s) + Filter-2 (retro-of-retro) apply to Grok sources.
+
 **Live friction telemetry ledger (CDV-186):**
 
 1. **Ledger capture (M1):** feed each of the three event stdin shapes to `friction-capture.sh` → exactly one NDJSON line per event in `$MROOT/.claude/retro/friction.jsonl` with keys `ts`, `session_id`, `event`, `tool`, and optional `path` only.
@@ -250,6 +282,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 - [ ] **AC4** Schedule scaffold runbook present (CronCreate primary + OS cron fallback); opt-in only
 - [ ] **AC5** Optional `AGENT_WEBHOOK_URL` fail-open only (no CDV-210 sink)
 - [ ] **AC7** `scheduled.lock` TTL 2h blocks concurrent second run; cleared on exit
+- [ ] **CDT-156** Multi-host: `--host` + Grok locate/normalize; Claude score regression green; Grok friction fixture `passed:true`; SPEC + transcript-parse SKILL boundary updated
 
 ---
 
@@ -259,6 +292,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 - Should `/retro --all` have a per-project cap to prevent one noisy project from dominating cross-project patterns? Deferred to implementation.
 - Should there be a `/retro --dry-run` distinct from default confirm mode? Current design treats default-confirm as equivalent to dry-run-with-opt-in; revisit if users find this confusing.
 - **Hook stdin field names** for `PostToolUseFailure` / `PermissionDenied` / `StopFailure` — event *names* appear in the Claude Code hook inventory (ideation wave 2); per-field schema is **not fully verified**. Implementation MUST spike stdin shapes first and map best-effort (`session_id`, `tool`/`tool_name`, path keys); graceful skip when `session_id` absent (M1/M5/M7).
+- **CDT-156 resolved product defaults:** intermediate Claude-shaped feed with tool_result (OQ1); dual-host newest mtime (OQ2); bare `--all` ⇒ `--host all` (OQ3); cwd-bucket only for Grok MVP (OQ4); S2 Grok = `exit:N≠0` only (OQ5); extract shared locate/normalize into transcript-parse without handoff regression (OQ6).
 
 ---
 
@@ -277,6 +311,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 - Auto-arming cron on `/setup team` or `/setup orchestration` without explicit opt-in
 - Reprocess-window optimization ("sessions since last scheduled report")
 - Report-only scheduled mode that skips `--auto` apply
+- **CDT-156 OOS:** Codex / Cursor hosts; Grok friction-ledger parity; SPEC-018 multi-host rewrite; S1–S5 weight retune; full MROOT+all-worktree Grok scan (nice-to-have)
 
 ---
 
@@ -284,6 +319,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 
 | Date | Change |
 |------|--------|
+| 2026-08-10 | **CDT-156:** Multi-host transcript adapters (Claude + Grok MVP). Adapter seam in transcript-parse (locate+normalize → Claude-shaped gate feed); `--host claude\|grok\|all` + auto-detect; Grok cwd-bucket discovery; Grok S2 via `exit:N≠0`; S3 tool-name map write/search_replace; amend Session Discovery allowed roots; Claude score regression required; handoff multi-host rewrite OOS. |
 | 2026-04-07 | Initial spec created from brainstorm `.claude/plans/2026-04-07-brainstorm-retro.md` |
 | 2026-04-08 | Added `--apply` routing MUSTs after kickoff revealed `/adjust-agent` had no non-interactive mode. Resolved by extending SPEC-001 rather than bypassing it. |
 | 2026-04-09 | Added `fabrication_anchor` classification in phase-2 and `Consider: /council --from-retro <anchor-id>` integration hint (additive, non-blocking, dedup per anchor-id) per SPEC-013. |
@@ -305,4 +341,4 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 - **SPEC-003: Agent Role System** — `/retro` targets the 7 behavioral agents plus plain `claude`; excludes `project-init` and `distiller`.
 - **SPEC-009: Ticket Workflow** — `/kickoff` and `/orchestrate` gain a soft-suggestion hook at completion. No behavioral change to existing ticket-workflow MUST requirements.
 - **SPEC-016: Worktree Isolation** — ledger is `$MROOT`-anchored and shared across worktrees (M1).
-- **SPEC-018: Cold Session Handoff** — fail-open / graceful-absence precedent (M17/M18) for hook handlers; PreCompact stdin `session_id` pattern.
+- **SPEC-018: Cold Session Handoff** — fail-open / graceful-absence precedent (M17/M18) for hook handlers; PreCompact stdin `session_id` pattern. Shared transcript-parse seam (CDT-156): Grok locate/normalize may be extracted here for reuse; **handoff multi-host rewrite is not required** by CDT-156 — handoff MAY keep skip-tool_result consumer behavior.

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.33
+- **Multi-host /retro adapters Claude+Grok MVP (CDT-156)** — `transcript-parse` host adapter surface (`hosts.py` locate/normalize): Claude identity path + Grok cwd-bucket discovery (`chat_history.jsonl`) with scoring normalize (tool_result + `write`→Write / `search_replace`→Edit + `exit:N≠0` → `is_error`). `/retro --host claude|grok|all` with auto-detect and live `HOST_CWD` (WTROOT); Filter-1 freshness on source; no Claude fallback on explicit Grok miss. SPEC-012 multi-host MUSTS amended; Claude gate weights unchanged; Grok friction fixture + locate/normalize suites green; handoff `grok-to-claude-jsonl` thin wrapper `mode=handoff`.
+
 ### v1.7.32
 - **Ship-history cleanliness gate (CDT-188)** — `check-ship-history.sh` enforces one-commit-per-tag (D1–D4) in ship window W; dirty prints exact `history dirty — rewrite needed`. Wired into `/release` (Step 0.5/5.5), autopilot end-state (§3.5/§5.5), and `/orchestrate` Step 11–12 so Done / Orchestration complete cannot claim while fixup noise remains. Interactive rewrite needs confirm before force-push; autopilot halts (no silent force). SPEC-010 H1–H12 owns the predicate (cite-not-fork). H11 fixtures: 33 ship-history + staged-path suite green.
 
