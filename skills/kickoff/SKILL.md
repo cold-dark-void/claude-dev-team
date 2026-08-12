@@ -670,7 +670,8 @@ echo "\n## Task Map\n" >> $WT_PATH/.claude/plans/<plan-file>.md
 
 After the plan is written (Step 6) and before/with the final summary, if kickoff
 crystallized **user-confirmed** domain terms (new names from AC resolution,
-design choices, or explicit user answers that define project vocabulary):
+design choices, explicit user answers, **or** a prior brainstorm plan's
+`## Domain glossary delta` for this ticket):
 
 1. Follow `skills/domain-glossary/SKILL.md` **Update protocol**
 2. The **orchestrator itself** writes this back (not a spawned agent), so it already
@@ -679,7 +680,10 @@ design choices, or explicit user answers that define project vocabulary):
    `$MROOT/CONTEXT.md`. An immediate `$MROOT` CONTEXT.md commit is itself a
    direct-to-master commit, the exact defect CDT-105 closes. Terms crystallized in a
    kickoff are tied to that ticket's spec, so they share its branch lifecycle
-   (visibility-until-merge — intended, not a regression).
+   (visibility-until-merge — intended, not a regression). If `$MROOT/CONTEXT.md` is
+   dirty from a pre-worktree brainstorm that still wrote the file, **promote** those
+   rows into `$WT_PATH` then restore MROOT (`git -C "$MROOT" checkout -- CONTEXT.md`)
+   after the worktree commit — same as `/orchestrate` Step 3b.
 3. Merge only confirmed terms; do not invent jargon
 4. If `CONTEXT.md` changed, commit it inside `$WT_PATH` on `feat/<TICKET-ID>` —
    coupled with the Step 5 spec commit (same worktree, same branch):

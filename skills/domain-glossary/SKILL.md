@@ -62,7 +62,9 @@ Rules:
 - **One row per term** — short definition; list aliases the team must not use
 - **Update in place** — merge new terms; do not wipe existing rows without user OK
 - **User-confirmed only** — never write speculative or agent-only jargon
-- **Commit with the feature** when the glossary changed during a ticket/kickoff
+- **Commit with the feature** when the glossary changed during a ticket/kickoff —
+  never leave a durable uncommitted `CONTEXT.md` dirt on the main checkout
+  (`$MROOT`) while the ticket's specs/code live on a worktree branch
 
 ## Load protocol (session / skill start)
 
@@ -94,13 +96,24 @@ After terms crystallize (brainstorm synthesis confirmed, kickoff ACs/design lock
 
 1. List candidate terms: name, definition, aliases to avoid
 2. Confirm with the user if any term is new or renames an existing one
-3. Create the preferred path if missing:
-   - Prefer `$MROOT/CONTEXT.md` unless the repo already uses `docs/domain/`
-4. Merge rows into `## Terms` (and optional `## Decisions` lines)
-5. Print which terms were added/updated
+3. Choose **write target** by lifecycle (first match wins):
+   | Situation | Write path | Commit |
+   |-----------|------------|--------|
+   | Ticket worktree exists (`$WT_PATH` from kickoff/orchestrate) | `$WT_PATH/CONTEXT.md` (or `docs/domain/` under WT if that layout is already used) | **Required** on `feat/<TICKET-ID>` with the spec/plan — same branch lifecycle (CDT-105: never direct-to-master) |
+   | Session already inside a `.worktrees/<slug>` checkout | that tree's `CONTEXT.md` | **Required** on the current feature branch |
+   | Pre-ticket brainstorm only (no worktree yet) | **Do not** leave uncommitted dirt on `$MROOT/CONTEXT.md` — record a `## Domain glossary delta` in the brainstorm plan only; kickoff/orchestrate promote + commit |
+4. Merge rows into `## Terms` (and optional `## Decisions` lines) at the chosen path
+5. Print which terms were added/updated and where they will ship
 
-Do **not** auto-commit from this skill alone — kickoff/brainstorm callers decide
-whether to include `CONTEXT.md` in a commit with related work.
+**MUST NOT:**
+- Write glossary terms only to `$MROOT` then ship the feature without them
+- Exclude `CONTEXT.md` from squash/PR land "because master is dirty"
+- Treat master-tree dirt as a substitute for a feature-branch commit
+
+Do **not** auto-commit from this skill alone — callers (`/kickoff` Step 7b,
+`/orchestrate` Step 3b/6b, `/brainstorm` Step 4b) own when to `git add` /
+`git commit`. When a ticket worktree exists, those callers **MUST** commit
+`CONTEXT.md` on the feature branch with related work.
 
 ## What this is not
 

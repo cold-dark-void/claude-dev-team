@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.7.36
+- **CONTEXT.md glossary ships on the feature branch, not dirty master** — brainstorm Step 4b records a plan `## Domain glossary delta` and commits only inside a ticket worktree (no durable uncommitted `$MROOT` dirt). `/orchestrate` Step 3b promotes MROOT/plan deltas into `$WT_PATH` + commits `context: <id>`; Step 6b mirrors kickoff 7b; squash/land glossary gate forbids excluding `CONTEXT.md` or leaving master-only dirt. `domain-glossary` + kickoff 7b document promote-and-restore. Fixes the XYZ-323 class failure (specs on worktree, glossary stuck dirty on master).
+
 ### v1.7.35
 - **`--autopilot=master` land-no-release (CDT-195)** — third ship terminal: flag-only sentinel `bump:"master"` squash-lands onto the worktree baseline / `origin/HEAD` without PR or `/release` (commit + non-force push; ship-history + Done). Release path (`=patch|minor|major`) and bare PR-stop unchanged. SPEC-033 M2/M4/M13/N3a + `parse-flags`/`append-card`/`resume-state` enum, self-answer F13, end-state §5b dual branch, orchestrate Step 11/resume-ship context-aware.
 

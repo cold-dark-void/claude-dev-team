@@ -252,17 +252,39 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ### Step 4b: Domain glossary write-back (conditional)
 
 If the user confirmed one or more domain terms in Step 2/3, follow
-`skills/domain-glossary/SKILL.md` **Update protocol**:
+`skills/domain-glossary/SKILL.md` **Update protocol** with this brainstorm-specific
+path rule (closes the "dirty CONTEXT on master, clean specs in worktree" footgun):
 
-1. Prefer `$MROOT/CONTEXT.md`; use `$MROOT/docs/domain/CONTEXT.md` only if that
-   path already exists and root `CONTEXT.md` does not
-2. Create the file from the domain-glossary format if absent; otherwise merge
-   new rows into `## Terms` (and optional `## Decisions` lines)
+1. **Always** record confirmed terms (and grill-mode decisions) in the brainstorm
+   plan under a `## Domain glossary delta` section — this is the handoff SoT for
+   `/kickoff` and `/orchestrate` even when no file is written yet.
+2. Resolve write target:
+   ```bash
+   WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+     && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+     || MROOT=$(pwd)
+   # Ticket worktree if checkout is under .worktrees/ or WTROOT != MROOT
+   ```
+   - **Inside a ticket worktree** (`$WTROOT` contains `/.worktrees/` or
+     `$WTROOT != $MROOT`): merge into `$WTROOT/CONTEXT.md` (or existing
+     `docs/domain/CONTEXT.md` under that tree). Then **commit on the feature
+     branch**:
+     ```bash
+     # Fresh shell — re-resolve (SPEC-021 C1)
+     WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+     git -C "$WTROOT" add CONTEXT.md   # or docs/domain/CONTEXT.md
+     git -C "$WTROOT" commit -m "context: brainstorm — crystallized glossary terms"
+     ```
+   - **Main checkout only** (no worktree yet): **MUST NOT** leave durable
+     uncommitted dirt on `$MROOT/CONTEXT.md`. Keep the delta in the plan only.
+     Print: `Domain glossary: plan delta only — /kickoff or /orchestrate will
+     commit CONTEXT.md on feat/<id> with the spec (never leave dirty on master).`
 3. Do not invent terms the user did not confirm
-4. In **grill** mode, also merge user-confirmed one-way decisions into
-   `## Decisions` as `YYYY-MM-DD: <decision> — <why>` when they asked for that
-   or explicitly accepted a recommended irreversible choice
-5. Note the path in the brainstorm plan file and the printout below
+4. In **grill** mode, also record user-confirmed one-way decisions as
+   `YYYY-MM-DD: <decision> — <why>` in the plan delta (and in the worktree
+   file when writing under rule 2)
+5. Note the plan-delta path (and any committed worktree path) in the printout
 
 If no terms crystallized, skip silently (absent glossary is fine).
 
@@ -298,7 +320,7 @@ Print:
 ```
 Brainstorm saved to: .claude/plans/<date>-brainstorm-<slug>.md
 Mode: <default|grill>
-Domain glossary: <updated CONTEXT.md path | no new terms>
+Domain glossary: <committed $WTROOT/CONTEXT.md | plan delta only (no master dirt) | no new terms>
 Backlog/Linear: <ticket-id + Linear URL | local-only slug | not filed>
 
 Next steps:
@@ -326,3 +348,5 @@ Next steps:
 - ALWAYS offer backlog/Linear write-back (Step 4c) once the user accepts the
   synthesis, unless `/kickoff` runs immediately in the same session — accepted
   scope must not evaporate into a plan file with no tracked-work visibility
+- **Never** leave uncommitted `CONTEXT.md` dirt on `$MROOT` as a substitute for
+  a feature-branch commit — plan delta → kickoff/orchestrate promote (Step 4b)

@@ -290,6 +290,52 @@ WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<ISSUE-ID>")
 
 If Linear is available, update issue status to "In Progress".
 
+### Step 3b: Promote domain glossary into the worktree (mandatory when dirty)
+
+After `$WT_PATH` exists, **before** Step 4 spawns, close the brainstorm→master-dirt
+footgun (`CONTEXT.md` written on `$MROOT` while specs/code land on `feat/<id>`):
+
+1. Resolve glossary paths (first hit): `$MROOT/CONTEXT.md` else
+   `$MROOT/docs/domain/CONTEXT.md`. Same relative path under `$WT_PATH`.
+2. Collect crystallized terms from (any of):
+   - uncommitted `$MROOT` glossary dirt (`git -C "$MROOT" status --porcelain` on
+     that path)
+   - any recent brainstorm plan under `$MROOT/.claude/plans/` with a
+     `## Domain glossary delta` section for this ticket/slug
+3. If nothing to promote → print `Glossary: none to promote` and continue.
+4. If terms exist: merge them into `$WT_PATH/CONTEXT.md` (or
+   `$WT_PATH/docs/domain/CONTEXT.md` if that layout is already used). Follow
+   `skills/domain-glossary/SKILL.md` merge rules (user-confirmed only, no wipe).
+5. Commit **on the feature branch** inside the worktree (same lifecycle as the
+   forthcoming spec — CDT-105; never commit glossary on `$MROOT` master here):
+   ```bash
+   # Re-derive (fresh shell — SPEC-021 C1)
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+     && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+     || MROOT=$(pwd)
+   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+   EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+   WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<ISSUE-ID>")
+   git -C "$WT_PATH" add CONTEXT.md   # or docs/domain/CONTEXT.md
+   git -C "$WT_PATH" status --porcelain -- CONTEXT.md docs/domain/CONTEXT.md | grep -q . && \
+     git -C "$WT_PATH" commit -m "context: <ISSUE-ID> — crystallized glossary terms"
+   ```
+6. After a successful worktree commit that absorbed `$MROOT` dirt: restore the
+   main checkout so master is not left dirty with the same terms:
+   ```bash
+   # Fresh shell — re-resolve MROOT (SPEC-021 C1)
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+     && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+     || MROOT=$(pwd)
+   git -C "$MROOT" checkout -- CONTEXT.md 2>/dev/null || true
+   git -C "$MROOT" checkout -- docs/domain/CONTEXT.md 2>/dev/null || true
+   ```
+   Only when the promoted content was committed on `$WT_PATH`. If promote failed,
+   leave MROOT dirt and **halt ship later** until fixed — do not silently drop terms.
+
+Print: `Glossary: promoted to $WT_PATH and committed | none to promote | blocked: <reason>`.
+
 ---
 
 ## Step 4: Parallel PM + Tech Lead kickoff
@@ -441,6 +487,32 @@ plan-approve <decision>: <rationale> — card: <card-file-path>
 Otherwise (autopilot off), the user-approval gate below applies unchanged.
 
 Wait for user approval. This is the second escalation gate.
+
+### Step 6b: Domain glossary write-back on the worktree (conditional)
+
+Mirror `/kickoff` Step 7b. After the plan is approved (or auto-approved), if this
+run crystallized **user-confirmed** domain terms (AC resolution, design choices,
+or Step 3b-missed plan delta):
+
+1. Write into **`$WT_PATH/CONTEXT.md`** (never `$MROOT/CONTEXT.md`) per
+   `skills/domain-glossary/SKILL.md`
+2. Commit on `feat/<ISSUE-ID>` (or shared epic branch) — couple with the Step 6
+   spec commit when both change in the same turn:
+   ```bash
+   # Fresh shell — re-derive WT (SPEC-021 C1)
+   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+   EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+   WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<ISSUE-ID>")
+   git -C "$WT_PATH" add CONTEXT.md specs/
+   git -C "$WT_PATH" commit -m "spec+context: <ISSUE-ID> — <feature area> + glossary"
+   ```
+   or a dedicated `context: <ISSUE-ID> — crystallized glossary terms` if specs
+   already committed.
+3. If no new terms, skip silently.
+
+**MUST NOT** leave glossary as uncommitted dirt on the main tree while the
+feature branch carries only specs/code.
 
 ---
 
@@ -1600,6 +1672,21 @@ Prefer plain git — do NOT require `gh`. Apply Tracking close-out on the featur
 worktree first (local write-through; Linear **Done** only after squash commit on
 master succeeds — if squash fails, leave Linear at In Progress/In Review):
 
+**Glossary ship gate (before squash):**
+1. If this ticket crystallized glossary terms, `CONTEXT.md` (or
+   `docs/domain/CONTEXT.md`) **MUST** already be committed on the feature branch
+   (`git -C "$WT_PATH" log --oneline "$MERGE_BASE"..HEAD -- CONTEXT.md
+   docs/domain/CONTEXT.md`). If missing but terms exist in plan delta / MROOT
+   dirt → run Step 3b/6b now, then continue. **Do not** land without them.
+2. **MUST NOT** deliberately exclude `CONTEXT.md` from the land (no
+   "leave dirty on main" / "grep CONTEXT and unstage" patterns). Squash of the
+   feature branch already includes branch commits; uncommitted MROOT dirt is
+   **not** a substitute and **must not** be left as the only copy after ship.
+3. After a successful land that included glossary commits, main checkout should
+   be clean for `CONTEXT.md` (Step 3b already restored MROOT; re-check with a
+   fresh shell: resolve MROOT then
+   `git -C "$MROOT" status --porcelain -- CONTEXT.md`).
+
 ```bash template
 # CDT-141-C4 precheck (re-resolve if fresh shell)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -1608,6 +1695,8 @@ EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || exit 64
 # Tracking close-out on WT_PATH already done (above) — status flips only; do NOT
 # include .claude/backlog* or .claude/plans* in the squash tree.
+# Glossary: feature branch CONTEXT.md commits land with the squash — never
+# strip them; never rely on uncommitted main-checkout CONTEXT.md instead.
 cd <main-repo-path>
 git merge --squash <branch>
 git commit -m "<ISSUE-ID>: <title>
@@ -1786,6 +1875,9 @@ These rules apply to YOU (the main Claude) throughout the entire flow:
    lifecycle). Wrap re-Dones as safety net. Never leave close-out as optional hygiene.
    **Never** stage process trackers (`.claude/backlog*`, `.claude/plans*`) into the
    product commit.
+9. **You DO ship glossary with the feature** — `CONTEXT.md` write-back belongs on
+   `$WT_PATH` and lands with the ticket (Steps 3b/6b + ship glossary gate). Never
+   leave crystallized terms as uncommitted dirt on `$MROOT` while specs/code ship.
 
 ---
 
