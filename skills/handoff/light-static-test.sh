@@ -76,6 +76,74 @@ else
   bad "T4 handoff.md Rules M10c light summary incomplete"
 fi
 
+# ---- T5 (CDT-199): LIGHT.md thin profile exists ----
+LIGHT="$HERE/LIGHT.md"
+if [ -f "$LIGHT" ]; then ok
+else bad "T5 skills/handoff/LIGHT.md missing"; fi
+
+# ---- T6: --light branch cites LIGHT.md; does not require full SKILL Read ----
+if grep -qE 'skills/handoff/LIGHT\.md|handoff/LIGHT\.md' "$CMD" \
+  && grep -qE 'LIGHT_PROFILE|Read \$LIGHT_PROFILE' "$CMD"; then
+  ok
+else
+  bad "T6 commands/handoff.md --light path must cite LIGHT.md / LIGHT_PROFILE"
+fi
+
+# Light dispatch must forbid a required full SKILL.md load
+if grep -qE 'MUST NOT Read.*skills/handoff/SKILL\.md|MUST NOT Read \$SKILL' "$CMD"; then
+  ok
+else
+  bad "T6b command light path must MUST NOT Read full SKILL.md"
+fi
+
+# ---- T7: LIGHT.md is not a required-load of SKILL.md or commands/handoff.md ----
+# Negated mentions ("MUST NOT Read …") are allowed; a required Read is not.
+if [ -f "$LIGHT" ]; then
+  REQ_SKILL=$(grep -nE 'Read[[:space:]].*skills/handoff/SKILL\.md|Read[[:space:]]+\$SKILL' "$LIGHT" 2>/dev/null \
+    | grep -vE 'MUST NOT|Do \*\*not\*\*|do \*\*not\*\*|do not Read|Do not Read' || true)
+  REQ_CMD=$(grep -nE 'Read[[:space:]].*commands/handoff\.md' "$LIGHT" 2>/dev/null \
+    | grep -vE 'MUST NOT|Do \*\*not\*\*|do \*\*not\*\*|do not Read|Do not Read' || true)
+  if [ -z "$REQ_SKILL" ] && [ -z "$REQ_CMD" ]; then
+    ok
+  else
+    bad "T7 LIGHT.md instructs required Read of SKILL.md or commands/handoff.md"
+  fi
+else
+  bad "T7 skipped — LIGHT.md missing"
+fi
+
+# ---- T8: LIGHT.md carries M10c knobs + honesty + skip annotation + miner template ----
+if [ -f "$LIGHT" ] \
+  && grep -qF "$HONESTY" "$LIGHT" \
+  && grep -q 'HANDOFF_MINER_MODEL' "$LIGHT" \
+  && grep -q 'SKIP_ANNOTATION' "$LIGHT" \
+  && grep -qiE 'skip.*annotation|no annotation' "$LIGHT" \
+  && grep -q 'light: true' "$LIGHT" \
+  && grep -qE 'through_line\.json' "$LIGHT" \
+  && grep -q 'MERGED MINER' "$LIGHT"; then
+  ok
+else
+  bad "T8 LIGHT.md missing M10c knobs / honesty / miner template / skip-annotation"
+fi
+
+# ---- T9: LIGHT.md keeps Product surfaces + Open ship gaps (CDT-198 / C2) ----
+if [ -f "$LIGHT" ] \
+  && grep -q 'Product surfaces' "$LIGHT" \
+  && grep -q 'Open ship gaps' "$LIGHT" \
+  && grep -q 'facet' "$LIGHT"; then
+  ok
+else
+  bad "T9 LIGHT.md must keep Product surfaces / Open ship gaps (assemble C2)"
+fi
+
+# ---- T10: Step 2 light branch resolves LIGHT.md not SKILL.md ----
+if awk '/^## Step 2: Locate the engine/,/^## Step 3:/' "$CMD" \
+    | grep -qE 'skills/handoff/LIGHT\.md'; then
+  ok
+else
+  bad "T10 Step 2 must resolve skills/handoff/LIGHT.md on the light branch"
+fi
+
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   exit 0

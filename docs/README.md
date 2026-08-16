@@ -38,6 +38,7 @@ First-ticket lifecycle: install → health → plan → execute → review → s
 |---------|------|-------------|
 | `/setup` | [setup](commands/setup.md) · [Setup guide](setup.md) | Onboard a project — `project` · `orchestration` · `team` |
 | `/doctor` | skill | Diagnose install/config health (PASS/WARN/FAIL); read-only default, `--fix` allowlist |
+| `/audit` | [audit](commands/audit.md) | Instruction-stack inventory + skill-size WARN; approve-then-apply |
 | `/kickoff` | [kickoff](commands/kickoff.md) | Parallel PM+TL planning → spec → plan → task graph |
 | `/orchestrate` | [orchestrate](commands/orchestrate.md) · [runbook](runbooks/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → ship/PR |
 | `/debug` | [debug](commands/debug.md) | Phase-gated bug fix (`patch`/`arch`) or ticket pipeline (`ticket`) |

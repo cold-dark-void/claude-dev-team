@@ -8,7 +8,10 @@ agent: build
 # /handoff
 
 Cold + warm session handoff (SPEC-018, CDT-79). Produces one **STM packet**
-(compact seed): **State now → Through-line → appendix**.
+(compact seed): **State now → Through-line → appendix**. State now
+MUST include **Product surfaces** (primary UX + unfinished /
+do-not-treat-as-product) and **Open ship gaps** (CDT-198 / M3d) — compact-seed
+core, not appendix-only.
 
 - **Cold** `/handoff <uuid>` — reconstruct a past session from disk; print
   State now + Through-line; cite full packet path (M7). Cache on hit (M8).
@@ -20,7 +23,8 @@ Cold + warm session handoff (SPEC-018, CDT-79). Produces one **STM packet**
 This command is a thin orchestrator. Heavy lifting:
 
 - `skills/handoff/prepass.sh` — `prepare` / `cache-check` / `finalize` (deterministic)
-- `skills/handoff/SKILL.md` — merged miner + chunk-summarizer + annotation templates
+- `skills/handoff/SKILL.md` — merged miner + chunk-summarizer + annotation (bare /handoff)
+- `skills/handoff/LIGHT.md` — `--light` only: M10c knobs + miner/chunk templates (no annotation)
 - `skills/handoff/assemble.py` — LLM-free merge via `finalize --events`
 
 The command (a) resolves paths, (b) parses args, (c) runs engine stages, and
@@ -210,6 +214,17 @@ else
 fi
 ```
 
+### 1d. Light dispatch (M10c / CDT-199)
+
+When `LIGHT=1` / `HANDOFF_LIGHT=1` (knobs already exported above):
+
+- Resolve and **Read `$LIGHT_PROFILE`** (`skills/handoff/LIGHT.md`) only — Step 2.
+- **MUST NOT** Read `skills/handoff/SKILL.md`.
+- **MUST NOT** Read `commands/handoff.md` as a second required load.
+- Skip Step 7 annotation. Continue 0 / 1w / 4 / 5 / 6 / 8 with LIGHT.md templates.
+
+Bare `/handoff` (no `--light`) MAY still Read the full skill.
+
 ### 1a. `--help` / unknown flag → usage
 
 If `SHOW_USAGE=1`, print (unknown-flag note first if `$UNKNOWN` set) and exit 0:
@@ -232,6 +247,7 @@ Usage:
 
 Slug (optional): second positional or --slug. Sanitized [a-z0-9-]+; default stm.
 Packet shape: ## State now → ## Through-line → ## appendix
+State now includes Product surfaces (primary UX + unfinished / do-not-treat-as-product) and Open ship gaps (required; assemble fail-closed if headings missing).
 Typical loop: /handoff → /branch|/fork → /compact @packet-file
 Light mid-session: /handoff --light → bare /handoff before session end (full tip).
 Not a Linear dual-write. Not a /compact replacement.
@@ -402,7 +418,14 @@ for same-session re-capture (M11); filename clock is local `YYYYMMDD-HHmm`.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 PREPASS=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/prepass.sh)
-SKILL=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/SKILL.md)
+HANDOFF_LIGHT="${HANDOFF_LIGHT:-0}"
+LIGHT="${LIGHT:-0}"
+if [ "$HANDOFF_LIGHT" = "1" ] || [ "$LIGHT" = "1" ]; then
+  LIGHT_PROFILE=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/LIGHT.md)
+  # Read $LIGHT_PROFILE only (M10c / CDT-199). MUST NOT Read skills/handoff/SKILL.md.
+else
+  SKILL=$(bash "$PDH/skills/plugin-dir.sh" file skills/handoff/SKILL.md)
+fi
 
 if [ ! -x "$PREPASS" ]; then
   echo "error: skills/handoff/prepass.sh not found in the installed plugin cache" >&2
@@ -410,7 +433,10 @@ if [ ! -x "$PREPASS" ]; then
 fi
 ```
 
-Read `$SKILL` for miner / chunk-summarizer / annotation templates (Steps 5–7).
+When light: **Read `$LIGHT_PROFILE`** for miner / chunk-summarizer templates.
+**MUST NOT** Read `skills/handoff/SKILL.md`. Skip annotation (Step 7).
+Otherwise: Read `$SKILL` for miner / chunk-summarizer / annotation templates
+(Steps 5–7).
 
 ---
 
@@ -707,7 +733,8 @@ Skip chunk-summarizers. Proceed to Step 6.
 ### 5b. `mode == "chunked"` — map → reduce
 
 Read chunks; spawn **all N chunk-summarizers in ONE tool-use block** (SKILL.md
-fan-out invariant). Template: `skills/handoff/SKILL.md` § Chunk-Summarizer.
+fan-out invariant). Template: light → `skills/handoff/LIGHT.md` § Chunk-Summarizer
+(already Read); else `skills/handoff/SKILL.md` § Chunk-Summarizer.
 
 Substitutions per Task:
 
@@ -740,7 +767,9 @@ intent cues) — feeds the merged miner.
 
 ## Step 6: Spawn 1 merged miner — FAN-OUT INVARIANT (one block)
 
-Read templates from `skills/handoff/SKILL.md`:
+Read templates from `$LIGHT_PROFILE` (`skills/handoff/LIGHT.md`) when light —
+**MUST NOT** Read `skills/handoff/SKILL.md` on the light path. Else Read
+`skills/handoff/SKILL.md`:
 
 - § Merged miner — all 7 kinds, partition on write
 - § Common miner preamble + § SECURITY
@@ -1030,7 +1059,8 @@ under invoker cwd when target resolved (CDT-80).
   `--light` → `*-draft.md` + **no** M8 cache write; honesty exact:
   `light preset: reduced-cost mine, no annotation; not AC-16-scored.`
   (still mines — not freeform). MUST NOT say "UNMINED". Cold + `--light` →
-  usage fail. Full contract: `skills/handoff/SKILL.md` § M10c.
+  usage fail. Full contract: `skills/handoff/LIGHT.md` (light path) or
+  `skills/handoff/SKILL.md` § M10c (bare /handoff).
 - **M8b warm delta:** auto `--since-leaf` from cache when `events` present and
   cache is not `light: true`; `--full` / `HANDOFF_FULL=1` forces full. Cold
   never auto-since-leaf. Miss (`since_leaf_applied=false`) → full spine +

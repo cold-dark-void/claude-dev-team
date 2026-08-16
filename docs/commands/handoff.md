@@ -88,7 +88,7 @@ Both modes produce the same packet shape, fixed order:
 
 | Section | Contents |
 |---------|----------|
-| **State now** | Mechanical selection from the **tail** of the event log: latest decisions, surviving unkilled hypotheses, all opens. Not a freeform essay. |
+| **State now** | Mechanical selection from the **tail** of the event log: **Product surfaces** (primary UX + unfinished / do-not-treat-as-product), **Open ship gaps**, latest decisions, surviving unkilled hypotheses, all opens. Not a freeform essay. Both Product surfaces and Open ship gaps are required in this core (appendix-only is a defect). |
 | **Through-line** | Chronological evidence events (hypothesis / killed / ruling / decision / fact), grouped by `workstream` when multiple. Short-verbatim user rulings and kill reasons inline (M6). |
 | **appendix** | Longer kill catalog if needed, deterministic git code-state, dense basics, conflict/open catalog, courtesy pointers. |
 
@@ -239,8 +239,15 @@ Prints State now + Through-line and cites the full packet path. Expected
 shape (abridged):
 ```
 ## State now
-- decision: Fix TOCTOU race in `cache.go:Get` (not the mutex)
-- open: confirm pool stats under load
+### Product surfaces
+- **primary**: cache CLI
+- **unfinished / do-not-treat-as-product**: _unspecified_
+### Open ship gaps
+- **open**: confirm pool stats under load
+### Decisions
+- **decision**: Fix TOCTOU race in `cache.go:Get` (not the mutex)
+### Open
+- **open**: confirm pool stats under load
 
 ## Through-line
 - hypothesis: lock contention in the pool

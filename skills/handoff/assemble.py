@@ -13,6 +13,8 @@ Pipeline (deterministic, stdlib only):
         │
         ▼
   State now (mechanical tail selection)
+    · Product surfaces (primary UX + unfinished / do-not-treat-as-product)
+    · Open ship gaps
     · latest decisions (soft cap DECISION_CAP)
     · surviving (unkilled) hypotheses
     · all opens
@@ -31,7 +33,8 @@ Importable API
   EVENT_KINDS, QUOTE_MAX, normalize_text, validate_event, load_events,
   load_prior_events, load_annotations, dedup_events, order_events,
   merge_events, events_for_cache, load_merged_events, load_merged_for_summary,
-  select_state_now, assemble_packet, main
+  select_state_now, state_now_contract_ok, ensure_state_now_contract,
+  assemble_packet, AssembleError, main
 
 CLI
 ---
@@ -74,11 +77,20 @@ EVENT_KINDS = frozenset(
 MINER1_KINDS = frozenset({"hypothesis", "killed", "ruling", "decision", "fact"})
 MINER2_KINDS = frozenset({"open", "conflict"})
 
+# CDT-198 — optional miner tags (not new kinds; ceiling stays 7)
+EVENT_FACETS = frozenset({"product_surface", "ship_gap"})
+SURFACE_CLASSES = frozenset({"primary", "unfinished", "not_product"})
+REQUIRED_STATE_NOW_HEADINGS = ("### Product surfaces", "### Open ship gaps")
+
 REQUIRED_EVENT_FIELDS = frozenset({"id", "kind"})  # plus text-or-quote
 QUOTE_MAX = 200
 DECISION_CAP = 5  # soft advisory cap for State now decisions
 DEFAULT_WORKSTREAM = "default"
 SECTION_HEADERS = ("## State now", "## Through-line", "## appendix")
+
+
+class AssembleError(ValueError):
+    """Packet failed a mechanical assemble contract (not an LLM essay)."""
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +192,14 @@ def validate_event(raw):
     hv = raw.get("how_verified")
     if isinstance(hv, str) and hv.strip():
         out["how_verified"] = hv.strip()
+
+    facet = raw.get("facet")
+    if isinstance(facet, str) and facet.strip() in EVENT_FACETS:
+        out["facet"] = facet.strip()
+
+    sc = raw.get("surface_class")
+    if isinstance(sc, str) and sc.strip() in SURFACE_CLASSES:
+        out["surface_class"] = sc.strip()
 
     return out
 
@@ -556,8 +576,11 @@ def _killed_norms(events):
 def select_state_now(events, decision_cap=DECISION_CAP):
     """Mechanical State now selection from ordered event log (AC-5 / M3d).
 
-    Returns dict with keys decisions, hypotheses, opens — each a list of events
-    (chronological within bucket; decisions are the *latest* N).
+    Returns dict with keys decisions, hypotheses, opens,
+    product_surfaces_primary, product_surfaces_unfinished, ship_gaps —
+    each a list of events (chronological within bucket; decisions are the
+    *latest* N). Surfaces/gaps are selected by miner ``facet`` tags, not
+    by inventing names from free text.
     """
     killed = _killed_norms(events)
 
@@ -577,11 +600,59 @@ def select_state_now(events, decision_cap=DECISION_CAP):
 
     opens = [e for e in events if e.get("kind") == "open"]
 
+    primary = []
+    unfinished = []
+    for e in events:
+        if e.get("facet") != "product_surface":
+            continue
+        if e.get("surface_class") == "primary":
+            primary.append(e)
+        else:
+            # unfinished | not_product | missing class → do-not-treat-as-product
+            unfinished.append(e)
+
+    ship_gaps = [e for e in events if e.get("facet") == "ship_gap"]
+
     return {
         "decisions": decisions,
         "hypotheses": hyps,
         "opens": opens,
+        "product_surfaces_primary": primary,
+        "product_surfaces_unfinished": unfinished,
+        "ship_gaps": ship_gaps,
     }
+
+
+def state_now_slice(packet_md):
+    """Return the ``## State now`` block up to ``## Through-line`` (or EOF)."""
+    if not packet_md:
+        return ""
+    i = packet_md.find("## State now")
+    if i < 0:
+        return ""
+    j = packet_md.find("## Through-line")
+    return packet_md[i:j] if j >= 0 else packet_md[i:]
+
+
+def state_now_contract_ok(packet_md):
+    """True iff both required subsections appear inside State now (CDT-198).
+
+    Appendix-only headings do not count. Missing State now / Through-line
+    markers fail closed.
+    """
+    sn = state_now_slice(packet_md)
+    if not sn:
+        return False
+    return all(h in sn for h in REQUIRED_STATE_NOW_HEADINGS)
+
+
+def ensure_state_now_contract(packet_md):
+    """Raise AssembleError if State now lacks required subsections."""
+    if not state_now_contract_ok(packet_md):
+        raise AssembleError(
+            "assemble: State now missing required Product surfaces or Open ship gaps"
+        )
+    return packet_md
 
 
 # ---------------------------------------------------------------------------
@@ -846,6 +917,30 @@ def assemble_packet(
     # --- State now ---
     lines.append("## State now")
     lines.append("")
+    lines.append("### Product surfaces")
+    if state["product_surfaces_primary"]:
+        for ev in state["product_surfaces_primary"]:
+            lines.append(
+                f"- **primary**: {_display_body(ev)}{_label_suffix(ev)}"
+            )
+    else:
+        lines.append("- **primary**: _unspecified_")
+    if state["product_surfaces_unfinished"]:
+        for ev in state["product_surfaces_unfinished"]:
+            lines.append(
+                "- **unfinished / do-not-treat-as-product**: "
+                f"{_display_body(ev)}{_label_suffix(ev)}"
+            )
+    else:
+        lines.append("- **unfinished / do-not-treat-as-product**: _unspecified_")
+    lines.append("")
+    lines.append("### Open ship gaps")
+    if state["ship_gaps"]:
+        for ev in state["ship_gaps"]:
+            lines.append(render_event_line(ev))
+    else:
+        lines.append("_unspecified_")
+    lines.append("")
     lines.append("### Decisions")
     if state["decisions"]:
         for ev in state["decisions"]:
@@ -967,7 +1062,9 @@ def assemble_packet(
     if light_on:
         lines.append(LIGHT_HONESTY)
 
-    return "\n".join(lines).rstrip() + "\n"
+    packet = "\n".join(lines).rstrip() + "\n"
+    ensure_state_now_contract(packet)
+    return packet
 
 
 def extract_core(packet_md):
@@ -1097,18 +1194,22 @@ def main(argv=None):
             sys.stderr.write(f"assemble: annotations unreadable: {e}\n")
             return 2
 
-    packet = assemble_packet(
-        events,
-        git_blob=git_blob,
-        annotations=annotations,
-        spine_tokens=args.spine_tokens,
-        session_uuid=args.session_uuid or None,
-        leaf_uuid=args.leaf_uuid or None,
-        slug=args.slug or None,
-        supersedes=args.supersedes or None,
-        mode=args.mode or None,
-        light=bool(args.light),
-    )
+    try:
+        packet = assemble_packet(
+            events,
+            git_blob=git_blob,
+            annotations=annotations,
+            spine_tokens=args.spine_tokens,
+            session_uuid=args.session_uuid or None,
+            leaf_uuid=args.leaf_uuid or None,
+            slug=args.slug or None,
+            supersedes=args.supersedes or None,
+            mode=args.mode or None,
+            light=bool(args.light),
+        )
+    except AssembleError as e:
+        sys.stderr.write(f"{e}\n")
+        return 1
 
     if args.out:
         out_dir = os.path.dirname(args.out)

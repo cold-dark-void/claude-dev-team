@@ -33,28 +33,21 @@ sections to it (the changelog was moved out of the README in v0.37.4).
 
 Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
 New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor.
+Enforced on `master`: `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). A new `commands/*.md` on a patch bump MUST NOT commit.
 
 The commit-message format, single-folded-commit rule, and tag/push sequence are owned by
 `skills/release/SKILL.md` (the authoritative `/release` contract) — follow it rather than
 hand-crafting a release commit. (The format is intentionally NOT restated here, to keep a
 single source of truth; read the skill.)
 
-## v1.0 Feature Freeze (CDT-46)
+## v1.0 Feature Freeze (CDT-46) — historical
 
-**Active only until `v1.0.0` is tagged on master; once that tag exists, this freeze is lifted (section becomes historical).**
+Lifted: `v1.0.0` is tagged on master. This section is historical and does **not**
+bind master (CDT-46-only + bugfixes is no longer a live landing rule).
 
-While active: nothing lands on master except CDT-46 child-ticket work and bug
-fixes. Scope while freeze is active:
-
-- `commands/` — slash command definitions
-- `skills/` — skill definitions and supporting scripts
-- `agents/*.md` — agent definitions
-- hooks — any hook scripts or hook config
-- `specs/` — specification files
-
-No net-new features, no refactors, no scope additions outside the CDT-46 epic
-while the freeze is active. Bug fixes (any component) and CDT-46 child tickets
-are the only permitted changes until the freeze lifts.
+While the freeze was active (pre-`v1.0.0`): only CDT-46 child-ticket work and bug
+fixes landed on master. Scope then was `commands/`, `skills/`, `agents/*.md`,
+hooks, and `specs/`.
 
 ## Agent Roster
 

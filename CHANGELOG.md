@@ -6,6 +6,13 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.8.0
+- **`/audit` instruction-stack Surface (CDT-200/201)** — new `/audit` command: read-only inventory of CLAUDE.md/AGENTS.md/directives + skill-size WARN (30KB); `apply` is approve-then-apply on instruction-stack files only with mechanical evidence. Dual-host Grok user-global `~/.grok/AGENTS.md`/`CLAUDE.md`; `--yes` covers `~/.claude` and `~/.grok`; `--from-session --json` stdout is one JSON document (locate on stderr); MROOT via `git -C --cwd` (no invoker-cwd leak); apply uses `realpath` so a symlink into `skills/**` is refused. SPEC-035. `/doctor` pointer. No `reinit`.
+- **Master bump-class hook** — `githooks/pre-commit` + `check-bump-class.sh`: a new `commands/*.md` on master / `/release` requires minor or major, not patch. CI `bump-class` job. SPEC-010 B1–B6.
+- **STM Product surfaces + Open ship gaps (CDT-198)** — assemble fail-closed unless both headings appear in State now (cold/warm/light). Miner facets; `_unspecified_` when untagged.
+- **Orchestrate router + `/handoff --light` thin profile (CDT-199)** — `skills/orchestrate/SKILL.md` is a 50-line router; phase bodies in `steps/*.md`. Light path Reads `LIGHT.md` only (not full SKILL).
+- **CDT-46 freeze marked historical (CDT-197)** — `v1.0.0` is tagged; AGENTS.md no longer binds master to CDT-46-only.
+
 ### v1.7.36
 - **CONTEXT.md glossary ships on the feature branch, not dirty master** — brainstorm Step 4b records a plan `## Domain glossary delta` and commits only inside a ticket worktree (no durable uncommitted `$MROOT` dirt). `/orchestrate` Step 3b promotes MROOT/plan deltas into `$WT_PATH` + commits `context: <id>`; Step 6b mirrors kickoff 7b; squash/land glossary gate forbids excluding `CONTEXT.md` or leaving master-only dirt. `domain-glossary` + kickoff 7b document promote-and-restore. Fixes the XYZ-323 class failure (specs on worktree, glossary stuck dirty on master).
 

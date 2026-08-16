@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # assemble-test.sh — SPEC-018 M3c/M3d STM packet assemble (CDT-79-2 / CDT-79-8).
 # Coverage: invent-guard (T4), section order State now→Through-line→appendix (T1),
-# print-core shape (T11), Supersedes header (T7).
+# print-core shape (T11), Supersedes header (T7), Product surfaces + Open ship
+# gaps in State now (T29–T31 / CDT-198).
 # Run: bash skills/handoff/assemble-test.sh
 set -u
 
@@ -927,6 +928,155 @@ assert len(aids) == 3, aids
 print("ok")
 ' 2>"$WORK/t28.err" | grep -q ok; then ok
 else bad "T28 gen-3 prior id collision: $(head -c 500 "$WORK/t28.err")"; fi
+
+# ---- T29: CDT-198 / M3d — Product surfaces + Open ship gaps required in State now ----
+# Thrash packet (no tagged facets) MUST still carry both subsection headings in
+# the State now slice (before ## Through-line). Appendix-only = fail.
+if python3 -c '
+import sys
+sys.path.insert(0, "'"$HERE"'")
+import assemble as a
+t = open("'"$OUT"'").read()
+i = t.find("## State now")
+j = t.find("## Through-line")
+k = t.find("## appendix")
+assert 0 <= i < j < k, (i, j, k)
+sn = t[i:j]
+ap = t[k:]
+assert "### Product surfaces" in sn, "Product surfaces missing from State now"
+assert "### Open ship gaps" in sn, "Open ship gaps missing from State now"
+assert "### Product surfaces" not in ap or sn.count("### Product surfaces") >= 1
+# headings must not appear only after Through-line
+assert t.find("### Product surfaces") < j
+assert t.find("### Open ship gaps") < j
+assert a.state_now_contract_ok(t)
+print("ok")
+' 2>"$WORK/t29.err" | grep -q ok; then ok
+else bad "T29 thrash State now required sections: $(head -c 400 "$WORK/t29.err")"; fi
+
+# T29b: appendix-only / missing headings are not a valid packet
+if python3 -c '
+import sys
+sys.path.insert(0, "'"$HERE"'")
+import assemble as a
+missing = "# STM\n\n## State now\n\n### Decisions\n\n## Through-line\n\n## appendix\n"
+assert a.state_now_contract_ok(missing) is False
+appendix_only = (
+    "# STM\n\n## State now\n\n### Decisions\n\n## Through-line\n\n"
+    "## appendix\n\n### Product surfaces\n\n### Open ship gaps\n"
+)
+assert a.state_now_contract_ok(appendix_only) is False
+empty = ""
+assert a.state_now_contract_ok(empty) is False
+print("ok")
+' 2>"$WORK/t29b.err" | grep -q ok; then ok
+else bad "T29b contract rejects missing/appendix-only: $(head -c 400 "$WORK/t29b.err")"; fi
+
+# T29c: assemble MUST NOT emit a packet that fails the contract (raises)
+if python3 -c '
+import sys
+sys.path.insert(0, "'"$HERE"'")
+import assemble as a
+# helper used by assemble_packet — stripped md is a defect
+try:
+    a.ensure_state_now_contract("# STM\n## State now\n## Through-line\n## appendix\n")
+except a.AssembleError:
+    print("ok")
+else:
+    raise SystemExit("expected AssembleError on missing sections")
+' 2>"$WORK/t29c.err" | grep -q ok; then ok
+else bad "T29c ensure_state_now_contract: $(head -c 400 "$WORK/t29c.err")"; fi
+
+# ---- T30: fixture names primary + non-product → both strings in State now ----
+PS_DIR="$FIX/events-product-surfaces"
+PS_PKT="$WORK/product-surfaces.md"
+PS_CORE="$WORK/product-surfaces.core"
+if [ -f "$PS_DIR/through_line.json" ] && [ -f "$PS_DIR/state.json" ]; then ok
+else bad "T30 missing events-product-surfaces fixture"; fi
+
+if python3 "$ASM" \
+    --events "$PS_DIR" \
+    --git "$GITBLOB" \
+    --session-uuid "sess-surfaces" \
+    --mode cold \
+    --out "$PS_PKT" \
+    --print-core >"$PS_CORE" 2>"$WORK/t30.err"; then ok
+else bad "T30 CLI assemble fixture failed: $(head -c 300 "$WORK/t30.err")"; fi
+
+if python3 -c '
+import sys
+sys.path.insert(0, "'"$HERE"'")
+import assemble as a
+pkt = open("'"$PS_PKT"'").read()
+core = open("'"$PS_CORE"'").read()
+sn = pkt.split("## Through-line")[0]
+ap = pkt.split("## appendix", 1)[-1]
+primary = "match --ui SPA"
+nonprod = "Fyne desktop"
+gap = "settings persistence unshipped"
+assert primary in sn, sn
+assert nonprod in sn, sn
+assert gap in sn, sn
+# compact-seed core (print-core / extract_core) carries both strings
+assert primary in core and nonprod in core, core
+assert "## appendix" not in core
+# appendix-only would fail: strings must not live only after Through-line
+assert pkt.find(primary) < pkt.find("## Through-line")
+assert pkt.find(nonprod) < pkt.find("## Through-line")
+assert a.state_now_contract_ok(pkt)
+# mechanical select
+evs = a.load_events("'"$PS_DIR"'")
+st = a.select_state_now(evs)
+prim = " ".join(a.event_body(e) for e in st["product_surfaces_primary"])
+unf = " ".join(a.event_body(e) for e in st["product_surfaces_unfinished"])
+gaps = " ".join(a.event_body(e) for e in st["ship_gaps"])
+assert primary in prim
+assert nonprod in unf
+assert gap in gaps
+# facet survives validate + cache round-trip (M8b)
+cached = a.events_for_cache(evs)
+flat = [e for arr in cached.values() for e in arr]
+assert any(e.get("facet") == "product_surface" and e.get("surface_class") == "primary" for e in flat)
+assert any(e.get("facet") == "product_surface" and e.get("surface_class") == "unfinished" for e in flat)
+assert any(e.get("facet") == "ship_gap" for e in flat)
+assert len(a.EVENT_KINDS) == 7
+print("ok")
+' 2>"$WORK/t30b.err" | grep -q ok; then ok
+else bad "T30 fixture strings in State now: $(head -c 400 "$WORK/t30b.err")"; fi
+
+# ---- T31: light path same fixture + honesty line unchanged (M10c / CDT-198) ----
+LIGHT_HONESTY='light preset: reduced-cost mine, no annotation; not AC-16-scored.'
+PS_LIGHT="$WORK/product-surfaces-light.md"
+if python3 "$ASM" \
+    --events "$PS_DIR" \
+    --git "$GITBLOB" \
+    --session-uuid "sess-surfaces-light" \
+    --mode warm \
+    --light \
+    --out "$PS_LIGHT" 2>"$WORK/t31.err"; then ok
+else bad "T31 light assemble failed: $(head -c 300 "$WORK/t31.err")"; fi
+
+if python3 -c '
+import sys
+sys.path.insert(0, "'"$HERE"'")
+import assemble as a
+pkt = open("'"$PS_LIGHT"'").read()
+sn = pkt.split("## Through-line")[0]
+assert "### Product surfaces" in sn
+assert "### Open ship gaps" in sn
+assert "match --ui SPA" in sn
+assert "Fyne desktop" in sn
+assert "settings persistence unshipped" in sn
+assert "light: true" in pkt
+assert a.LIGHT_HONESTY in pkt
+assert a.LIGHT_HONESTY == "light preset: reduced-cost mine, no annotation; not AC-16-scored."
+assert "UNMINED" not in pkt
+assert a.state_now_contract_ok(pkt)
+# header order unchanged
+assert pkt.find("## State now") < pkt.find("## Through-line") < pkt.find("## appendix")
+print("ok")
+' 2>"$WORK/t31b.err" | grep -q ok; then ok
+else bad "T31 light State now + honesty: $(head -c 400 "$WORK/t31b.err")"; fi
 
 # ---- summary ----
 echo "assemble-test: $PASS passed, $FAIL failed"

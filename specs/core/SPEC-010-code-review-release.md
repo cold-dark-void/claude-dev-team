@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/test.sh`
+**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/check-bump-class.sh`, `skills/release/test.sh`, `githooks/pre-commit`
 
 ## Overview
 
@@ -64,6 +64,19 @@ Fail-closed gate so foreign index noise cannot ride the folded release commit. *
 - **S7 — Release wiring.** MUST be invoked from `/release` Step 5 **after** intentional `git add` of version pair + intended product paths, **before** `git commit`. Skill builds `--intended` from the same path list it just staged (ticket product files; version pair may be omitted from the flag because always-allowed). Multi-ticket only: pass `--allow-extra` for additional paths. Non-zero exit → **Do NOT commit or tag or push**.
 - **S8 — Tests.** MUST land `skills/release/test.sh` covering: pair+allowed OK; pair+foreign FAIL; allow-extra OK; unstaged dirty OK for this gate; usage (missing `--intended` → 64) — in a temp git repo (never mutate the live index as the test subject).
 - **S9 — MUST NOT.** Auto-unstage; treat unstaged dirty as fail; allow directory/glob intended entries; invent allowlist from `git status` dirty set; reimplement ship-history one-commit policy (CDT-188 H1–H12) or orchestrate pre-check (CDT-187).
+
+### Bump-class gate (new command surface)
+
+Fail-closed: a newly added `commands/*.md` is a new user-facing Surface and MUST
+ship as **minor or major**, never patch (AGENTS.md versioning). This is the
+1.7.37 class of defect (`/audit` tagged as a patch).
+
+- **B1 — Deterministic checker CLI.** MUST ship `skills/release/check-bump-class.sh` as pure-subprocess bash (no LLM, no network). Exit codes: `0` = ok (no new command file, or bump is minor/major); `1` = new `commands/*.md` with patch / unchanged / unreadable version; `64` = usage / not a git repo. Modes: default = worktree+index+untracked vs `HEAD` (or `--against REF`); `--cached` = index vs HEAD (pre-commit); `--commit REV` = that commit vs its parent (CI).
+- **B2 — Predicate.** Collect added paths matching `commands/*.md` (`--diff-filter=A`, plus untracked in default mode). If the set is empty → pass. Else read `plugin.json` `"version"` at the old ref and the new tree; classify the pair as `major` / `minor` / `patch` / `none` / `invalid`. Pass iff class ∈ {`minor`, `major`}. Edits or deletes of existing command files MUST NOT trip the gate.
+- **B3 — Fail message.** On policy fail print `bump-class:`, list every new command path, print `old -> new (class)`, cite AGENTS.md, and state commit/tag/push MUST NOT proceed. MUST NOT mutate the index.
+- **B4 — Wiring.** `/release` Step 4.11 MUST run the checker and hard-stop on non-zero. `githooks/pre-commit` MUST run `--cached` when the branch is `master` or `main` (no-op on feature branches). CI on push/PR to master MUST run `--commit HEAD` (and the fixture suite). `/release` Step 0.6 MUST set `core.hooksPath=githooks` when `githooks/pre-commit` exists.
+- **B5 — Tests.** MUST ship `skills/release/test-bump-class.sh` in temp repos: new command + patch → 1; new command + minor/major → 0; edit existing + patch → 0; `--commit` and `--cached` variants; usage → 64.
+- **B6 — MUST NOT.** Enforce on feature branches; treat skill-only additions (no `commands/*.md`) as a Surface; allow a feature-line `/release patch` to add a new command file (new Surface always minor/major).
 
 ### Ship-history cleanliness gate (CDT-188)
 
@@ -130,6 +143,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - Verify `/release` aborts (no commit/tag) when `sync-includes.py check` exits non-zero (drifted managed-include region), and proceeds when it exits 0
 - Verify staged-path hard gate via `bash skills/release/test.sh` (AC-9 cases; exit 0 when green)
 - Verify ship-history gate via `bash skills/release/test.sh` (or `test-ship-history.sh`): D1–D4 dirty → exit 1 + `history dirty — rewrite needed`; clean 1:1 and train multi-tag → exit 0
+- Verify bump-class gate via `bash skills/release/test-bump-class.sh`: new `commands/*.md` + patch → 1; + minor/major → 0
 
 **Staged-path hard gate:**
 
@@ -178,6 +192,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 
 | Date | Change |
 |------|--------|
+| 2026-08-16 | Bump-class gate (B1–B6): new `commands/*.md` requires minor/major; `check-bump-class.sh` + `githooks/pre-commit` on master + `/release` Step 4.11 + CI. |
 | 2026-08-09 | CDT-188: ship-history cleanliness gate (H1–H12) — dirty D1–D4 (multi-commit-per-tag, subject/CHANGELOG mismatch, repair-class, tag retarget); window W per ship; `check-ship-history.sh`; interactive confirm rewrite vs autopilot halt `history dirty — rewrite needed`; cite-not-fork from release/orchestrate/end-state; no Done/complete on dirty. |
 | 2026-08-09 | CDT-189: staged-path hard gate (S1–S9) — `check-staged-paths.sh` index-only allowlist (version pair ∪ intended ∪ `--allow-extra`); exit 0/1/64; fail-closed no auto-reset; Step 5 post-add pre-commit; Covers + `skills/release/test.sh`. |
 | 2026-08-07 | CDT-180: D10 `docs-page-links` — relative `*.md` hrefs in `docs/commands/*.md` must resolve (path only; fragment stripped). D1 check-id list extended; D2–D9 unchanged. Docs-side sibling of D9. |

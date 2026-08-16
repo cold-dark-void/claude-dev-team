@@ -100,6 +100,24 @@ export SHIP_START
   `/release` (SPEC-010 H1–H12 — cite, do not restate D1–D4).
 - Do **not** re-record after the fold commit (that would empty W).
 
+Then continue to Step 0.6.
+
+## Step 0.6: Install master bump-class hook
+
+This repo ships `githooks/pre-commit` so `git commit` on `master` cannot land a
+new `commands/*.md` on a patch bump (the 1.7.37 class). Install if present:
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+INSTALL_HOOKS=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/install-git-hooks.sh)
+if [ -f githooks/pre-commit ] && [ -f "$INSTALL_HOOKS" ]; then
+  bash "$INSTALL_HOOKS" || exit 1
+fi
+```
+
+Feature branches are not gated (no version bump until `/release` on master).
+
 Then continue to Step 1.
 
 ## Step 1: Determine new version
@@ -128,7 +146,9 @@ tracked by a single spec), you **MAY** hold the entire arc under one minor line:
 
 - The **first** release in the arc opens the minor (e.g. SPEC-019 PR1 → 0.37.0).
 - Subsequent increments of the **same** arc take **patch** bumps via an explicit
-  `/release patch`, even though they add capability.
+  `/release patch`, even though they add capability. A **new** `commands/*.md`
+  file is always a new Surface and **MUST** be minor or major (bump-class gate);
+  feature-line patch is same-surface only.
 - **Keep the `feat:` commit prefix** on those increments — the subject describes
   the change honestly; the patch bump reflects the feature-line policy, not a
   downgrade of the change to a fix. Do **not** relabel feature increments as `fix:`.
@@ -286,6 +306,22 @@ If it exits non-zero, one or more Surfaces (commands, skills, or engine scripts)
 load — frontmatter unparseable, missing `name`/`description`, or a bash block that does not
 parse. **Do NOT commit or tag.** Print the `FAIL` lines for the user, fix the broken Surface,
 then re-run until exit 0. Contract lives in SPEC-030.
+
+## Step 4.11: Bump-class gate (new command surface)
+
+A newly added `commands/*.md` requires `plugin.json` to bump **minor or major**.
+Patch (or unchanged) is a hard fail — this is the 1.7.37 class of defect.
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+CHECK_BUMP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-bump-class.sh)
+bash "$CHECK_BUMP" || exit 1
+```
+
+Non-zero → **Do NOT commit, tag, or push.** Bump minor (or major) and re-run.
+Edits to existing `commands/*.md` do not trip the gate.
 
 ## Step 5: Commit (one folded commit)
 

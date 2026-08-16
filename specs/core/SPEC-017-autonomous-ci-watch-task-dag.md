@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-30
 
-**Covers**: `skills/orchestrate/SKILL.md`, `skills/kickoff/SKILL.md`, `skills/standup/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/orchestrate/task-store.sh`, `skills/orchestrate/dag-lib.sh`, `skills/ci-watch/SKILL.md`, `skills/ci-watch/poll.sh`, `skills/ci-watch/sidecar.sh`, `skills/ci-watch/detect-mode.sh`
+**Covers**: `skills/orchestrate/SKILL.md` (router) + `skills/orchestrate/steps/*.md` (CDT-199), `skills/kickoff/SKILL.md`, `skills/standup/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/orchestrate/task-store.sh`, `skills/orchestrate/dag-lib.sh`, `skills/ci-watch/SKILL.md`, `skills/ci-watch/poll.sh`, `skills/ci-watch/sidecar.sh`, `skills/ci-watch/detect-mode.sh`
 
 ---
 

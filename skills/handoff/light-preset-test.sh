@@ -201,6 +201,60 @@ EMPTY_LEAF=$(read_prior_leaf "$WORK/cache-empty-ev.json")
 if [ -z "$EMPTY_LEAF" ]; then ok
 else bad "AC3 empty events must yield empty PRIOR_LEAF got='$EMPTY_LEAF'"; fi
 
+# =====================================================================
+# AC4: CDT-198 — light draft State now includes Product surfaces +
+#      Open ship gaps; fixture primary + non-product strings present;
+#      honesty line unchanged; header order unchanged
+# =====================================================================
+PS_DIR="$FIX/events-product-surfaces"
+AC4_SID="cdt198-light-surfaces"
+AC4_LEAF="leaf-light-surfaces"
+set +e
+bash "$PREPASS" finalize \
+  --uuid "$AC4_SID" \
+  --events "$PS_DIR" \
+  --git-state "$GITBLOB" \
+  --leaf "$AC4_LEAF" \
+  --slug light-surfaces \
+  --mode warm \
+  --light \
+  >"$WORK/ac4.stdout" 2>"$WORK/ac4.stderr"
+RC4=$?
+set -e
+
+AC4_DRAFT=""
+for f in "$HANDOFF_DIR"/*-"${AC4_SID}"-*-draft.md; do
+  [ -f "$f" ] && AC4_DRAFT="$f" && break
+done
+
+if [ "$RC4" -eq 0 ] && [ -n "$AC4_DRAFT" ] && [ -f "$AC4_DRAFT" ]; then ok
+else bad "AC4 light finalize rc=$RC4 draft=${AC4_DRAFT:-none} err=$(head -c 300 "$WORK/ac4.stderr")"; fi
+
+if [ -n "$AC4_DRAFT" ] && python3 -c '
+import sys
+t = open(sys.argv[1]).read()
+i = t.find("## State now")
+j = t.find("## Through-line")
+k = t.find("## appendix")
+assert 0 <= i < j < k, (i, j, k)
+sn = t[i:j]
+assert "### Product surfaces" in sn, sn
+assert "### Open ship gaps" in sn, sn
+assert "match --ui SPA" in sn, sn
+assert "Fyne desktop" in sn, sn
+assert "settings persistence unshipped" in sn, sn
+# not appendix-only
+assert t.find("match --ui SPA") < j
+assert t.find("Fyne desktop") < j
+print("ok")
+' "$AC4_DRAFT" 2>"$WORK/ac4b.err" | grep -q ok; then ok
+else bad "AC4 State now missing surfaces/gaps: $(head -c 400 "$WORK/ac4b.err")"; fi
+
+if [ -n "$AC4_DRAFT" ] && grep -qF "$LIGHT_HONESTY" "$AC4_DRAFT" \
+   && grep -qE '^_mode: warm · light: true' "$AC4_DRAFT" \
+   && ! grep -qE 'UNMINED|warm-light' "$AC4_DRAFT"; then ok
+else bad "AC4 honesty/mode drifted (draft=${AC4_DRAFT:-none})"; fi
+
 echo
 echo "light-preset-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

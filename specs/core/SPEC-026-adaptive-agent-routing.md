@@ -85,7 +85,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 - SHOULD record advisory events themselves (printed / accepted / declined) as a distinct `{ "type": "advisory", ... }` ledger record so the advisor's own hit-rate can be tuned later without new instrumentation.
 - SHOULD surface a one-line per-agent outcome aggregate in `/standup` output. Deferred if it risks LOC/scope creep on CDV-185.
 - SHOULD keep the task-class taxonomy stable: adding a class is a spec revision via `/spec update`, never an ad-hoc string in a TaskCreate description.
-- SHOULD keep the Step-7 advisory block and the stint-end emit blocks as small, dedicated sub-blocks in `skills/orchestrate/SKILL.md` (SPEC-019's scoped sub-block precedent), protecting the central-file LOC budget.
+- SHOULD keep the Step-7 advisory block and the stint-end emit blocks as small, dedicated sub-blocks in `skills/orchestrate/steps/07-tasks.md` and `skills/orchestrate/steps/08-execute.md` (router + per-step files, CDT-199; SPEC-019's scoped sub-block precedent), protecting the always-on `SKILL.md` LOC budget.
 
 ---
 
@@ -140,7 +140,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 | 2026-07-21 | CDT-46-C2: ledger-source list narrowed — `/local-do` + local-agent escalation producers removed (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Dropped `commands/local-do.md` from Covers and the local source test; `local` agent enum retained without a producer; SPEC-019 references retagged as historical format-exemplar. M8 advisory scope now ic4 ⇄ ic5 only. Status stays ACTIVE. |
 | 2026-07-22 | CDT-46-C4: display entry for rollup noted as `/status metrics` (former `/metrics` Deprecation stub). Write-path ownership unchanged. |
 
-**Covers**: `skills/metrics/emit-outcome.sh`, `skills/metrics/outcome-rates.sh`, `skills/metrics/test.sh` (or equivalent bite harness), `skills/orchestrate/SKILL.md` (Step-7 advisory sub-block + stint-end emission sub-blocks), `specs/TDD.md` (index row) — planned/landing with CDV-185. Standup surface is SHOULD (optional).
+**Covers**: `skills/metrics/emit-outcome.sh`, `skills/metrics/outcome-rates.sh`, `skills/metrics/test.sh` (or equivalent bite harness), `skills/orchestrate/steps/07-tasks.md` (Step-7 advisory) + `skills/orchestrate/steps/08-execute.md` (stint-end emit; SKILL.md is the CDT-199 router), `specs/TDD.md` (index row) — planned/landing with CDV-185. Standup surface is SHOULD (optional).
 
 ## Cross-references
 

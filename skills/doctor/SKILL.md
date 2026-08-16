@@ -149,3 +149,4 @@ health only and does not shadow the harness command.
 
 - SPEC-022, SPEC-002, SPEC-005, SPEC-016
 - `/setup team`, `/setup orchestration`, `/release`, `/memory distill --force`
+- `/audit` — instruction-stack inventory (not install health)

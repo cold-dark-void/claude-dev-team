@@ -32,6 +32,16 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash skills/retro-gate/test.sh
 
+  # Bump-class: new commands/*.md cannot land as a patch (1.7.37 class)
+  bump-class:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - run: bash skills/release/test-bump-class.sh
+      - run: bash skills/release/check-bump-class.sh --commit HEAD
+
   # CDT-174 — SPEC-024 seed pack export/import bite tests (parity with retro-gate CI wiring)
   seed-pack:
     runs-on: ubuntu-latest

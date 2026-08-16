@@ -93,4 +93,5 @@ Print the script's stdout as-is (human table or JSON). Do not reformat.
   mutate `memory.db` (except `--fix` distilling_lock clear), or call network.
 - **Worktree-aware** — resolves `$MROOT` via `git rev-parse --git-common-dir`.
 - Check-id table and severity rules: `skills/doctor/SKILL.md`.
+- Instruction-stack hygiene (CLAUDE.md, AGENTS.md, directives) is `/audit`, not this battery.
 - Future `/release` preflight adoption is deferred (SPEC-010 revision).

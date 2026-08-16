@@ -1,0 +1,31 @@
+{
+  "events": [
+    {
+      "id": "ps-primary",
+      "kind": "fact",
+      "text": "match --ui SPA",
+      "facet": "product_surface",
+      "surface_class": "primary",
+      "workstream": "ui",
+      "order": 1,
+      "how_verified": "user stated primary UX"
+    },
+    {
+      "id": "ps-fyne",
+      "kind": "fact",
+      "text": "Fyne desktop",
+      "facet": "product_surface",
+      "surface_class": "unfinished",
+      "workstream": "ui",
+      "order": 2,
+      "how_verified": "user: do-not-treat-as-product"
+    },
+    {
+      "id": "tl-dec",
+      "kind": "decision",
+      "text": "Keep SPA as the shipped UX",
+      "workstream": "ui",
+      "order": 3
+    }
+  ]
+}

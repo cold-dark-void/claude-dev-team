@@ -12,7 +12,8 @@ description: |
     Implements SPEC-018 M3b–M3e (spine-mine + event model + assemble + spawn model
     tiers), M4 (STM packet), M5 (lightweight stated-intent-vs-git), M6 (quotes
     admissible), M7/M10 (cold/warm), M8b (warm delta-mine + prior event merge),
-    M10c (light warm preset — CDT-91).
+    M10c (light warm preset — CDT-91), M3d Product surfaces + Open ship gaps
+    (CDT-198).
 ---
 
 # handoff
@@ -44,9 +45,11 @@ path — `skills/handoff/precompact-capture.sh` (engine) + `.claude/hooks/precom
 
 ## Who calls this
 
-`commands/handoff.md` (cold + warm orchestrator). The command reads this file,
-substitutes `${...}` placeholders, and spawns the merged miner **in one tool-use
-block** (a single `Task`). Never invoked by humans.
+`commands/handoff.md` (cold + warm orchestrator). The command reads this file
+on **bare /handoff** (not `--light`), substitutes `${...}` placeholders, and
+spawns the merged miner **in one tool-use block** (a single `Task`). `--light`
+reads `skills/handoff/LIGHT.md` only (CDT-199) — never this file. Never
+invoked by humans.
 
 Warm and cold share this spine-mine engine (M3b / M10): same merged miner, same
 event schema, same assemble. They differ only in entry (uuid locate vs dual-host
@@ -65,7 +68,10 @@ and exit (cold print core + path; warm file-only) plus optional warm annotation.
   those facets in a **single spine read** (cost cut vs dual full-spine miners),
   without freeform brief essays or dual SoT paths.
 - Assemble is mechanical (State now from the event-log tail) so the packet never
-  invents a root cause the session did not land (M11b).
+  invents a root cause the session did not land (M11b). State now MUST include
+  **Product surfaces** (primary UX + unfinished / do-not-treat-as-product) and
+  **Open ship gaps** (CDT-198) — assemble synthesizes `_unspecified_` when the
+  miner tagged nothing; it MUST NOT invent surface names.
 - A separate skill file lets us iterate on prompts without touching the command
   scaffold or `prepass.sh` / `assemble.py`.
 
@@ -100,6 +106,7 @@ prepass.sh finalize --uuid <u> --events ${EVENTS_DIR} \
     [--leaf <uuid>] [--slug <s>] [--mode cold|warm] [--light] [--print-core]
         │  → assemble: load_prior (prior:stem:id, gen=0) + load_events (stem:id, gen=1)
         │  → merge · order by generation · dedup · invent-guard · State now
+        │    (Product surfaces + Open ship gaps required; facet-tagged events)
         │  → --events-out → cache cumulative events (raw ids) for next warm delta
         │    (light: no M8 cache write at all)
         │  → STM packet: ## State now → ## Through-line → ## appendix
@@ -276,7 +283,9 @@ fences) — one per file under `${EVENTS_DIR}`:
       "order": 0,
       "timestamp": "optional ISO",
       "pointers": [{"type": "transcript|commit|file", "ref": "…", "note": "…"}],
-      "how_verified": "optional; SHOULD for fact"
+      "how_verified": "optional; SHOULD for fact",
+      "facet": "optional product_surface|ship_gap (CDT-198)",
+      "surface_class": "optional primary|unfinished|not_product"
     }
   ]
 }
@@ -297,6 +306,8 @@ object. Prefer the `{ "events": [...] }` wrapper for clarity.
 | `timestamp` | no | ISO-ish string when available from spine. |
 | `pointers` | no | Courtesy only (M6) — never load-bearing. Shape `{type, ref, note?}`. For `type:"transcript"`, `ref` is **bare** `L<n>` (or digits); assemble emits a single `transcript:L<n>`. Already-prefixed `transcript:L<n>` is accepted and **not** double-prefixed (CDT-81). |
 | `how_verified` | no | SHOULD on `fact` events. |
+| `facet` | no | CDT-198. `product_surface` or `ship_gap`. Assemble selects these into required State now subsections. Invalid values dropped (event kept). |
+| `surface_class` | no | CDT-198. With `facet=product_surface`: `primary` or `unfinished` / `not_product` (alias). Missing class → unfinished / do-not-treat-as-product. |
 
 ### Kind ceilings (one miner, two files)
 
@@ -384,11 +395,14 @@ Write TWO files with the Write tool (both required):
   1. ${EVENTS_DIR}/through_line.json — single line, kinds ⊆ hypothesis|killed|ruling|decision|fact
   2. ${EVENTS_DIR}/state.json        — single line, kinds ⊆ open|conflict
 Each file is strict JSON, no prose, no markdown fences. Schema per file:
-{"events":[{"id":"...","kind":"...","text":"...","quote":"...","workstream":"default","order":0,"timestamp":"...","pointers":[{"type":"transcript|commit|file","ref":"...","note":"..."}],"how_verified":"..."}]}
+{"events":[{"id":"...","kind":"...","text":"...","quote":"...","workstream":"default","order":0,"timestamp":"...","pointers":[{"type":"transcript|commit|file","ref":"...","note":"..."}],"how_verified":"...","facet":"product_surface|ship_gap","surface_class":"primary|unfinished|not_product"}]}
 You MAY also return both lines (or a thin ack) as your reply for debugging; on-disk
 files are the contract for finalize. Partition kinds on write — never put open|
 conflict in through_line.json or through-line kinds in state.json. Invalid kinds
 are dropped by assemble. Quotes / load-bearing verbatim text ≤ ~200 chars.
+Optional `facet`/`surface_class` tag Product surfaces (`fact` + product_surface)
+and Open ship gaps (`open` + ship_gap) for State now (CDT-198). Do not invent
+surface names the session never used.
 ```
 
 ---
@@ -503,6 +517,20 @@ PROCEDURE — state kinds (→ state.json)
    d. Phrase as a flag to VERIFY, not a verdict. False positives are expected.
    ⚠ DO NOT invoke /council. DO NOT spawn investigators. DO NOT build an adversarial
    pipeline. Lightweight regex + git-state comparison ONLY (SPEC-018 M5 / SPEC-013).
+10b. PRODUCT SURFACES (required State now field, CDT-198) — through_line.json:
+   Scan for what the session named as the **primary UX / shipped product** vs
+   **unfinished / do-not-treat-as-product** (prototype, alt UI, abandoned
+   desktop, "not the product"). Each named surface → kind `fact` with
+   `facet: "product_surface"` and `surface_class: "primary"` or `"unfinished"`
+   (`"not_product"` allowed as alias). `text` = the surface name **verbatim as
+   the session used it** (e.g. `match --ui SPA` vs `Fyne`). MUST NOT invent a
+   product name the session never used. If the session never named either
+   class, omit the tag — assemble will emit `_unspecified_` (do not fabricate).
+10c. OPEN SHIP GAPS (required State now field, CDT-198) — state.json:
+   Unshipped product work (missing feature, unreleased persistence, "not
+   shipped yet") → kind `open` with `facet: "ship_gap"`. Not every open
+   question is a ship gap — only unfinished **product** work. Omit the tag
+   when none exist; assemble still emits the heading.
 
 WRITE RULES
 11. Do NOT invent events. Empty `events: []` is valid for either file if that
@@ -653,7 +681,13 @@ Defensive handling — **drop bad events / failed miner; never abort the packet*
 6. **Never block on a bad spawn.** Miner fail / missing both files → finalize with
    empty events dir (+ git). One file present → finalize with that partition only.
    Zero events → still write a thin packet with git appendix if available (prefer
-   honesty over silence).
+   honesty over silence). Thin packets MUST still carry State now
+   `### Product surfaces` + `### Open ship gaps` (assemble `_unspecified_` when
+   no tagged events). A packet missing either heading is invalid — assemble
+   MUST NOT emit it.
+7. **Product surfaces / Open ship gaps (CDT-198).** Assemble selects `facet`
+   tags only. MUST NOT invent surface names. Light (M10c) uses the same
+   assemble path — no annotation required for the field.
 
 ---
 
@@ -680,8 +714,9 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   load_prior (`prior:stem:id`, gen=0) when `--prior-events` / `FINALIZE_PRIOR_EVENTS` ·
   load_events (`stem:id`) · merge · order by `_generation` ·
   validate · drop invalid · dedup `(kind + normalize(text|quote))` ·
-  mechanical **State now** (latest decisions, surviving unkilled hypotheses, all
-  opens) · chronological **Through-line** (group by workstream when >1) ·
+  mechanical **State now** (Product surfaces + Open ship gaps required, then
+  latest decisions, surviving unkilled hypotheses, all opens) · chronological
+  **Through-line** (group by workstream when >1) ·
   **appendix** (kill catalog, facts, git, pointer index) · footer (advisory token
   ratio, session id, Supersedes) · `--events-out` stem map for M8b cache write
   (skipped on light) · `--light` → `light: true` meta + exact honesty line.
@@ -718,7 +753,8 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
 - **Internal only:** prepare `--since-leaf` (orchestrator auto-wires from cache;
   not a user-facing `/handoff` flag).
 
-**Invariants both sides rely on:** seven-kind event ceiling; `{events:[…]}` load
+**Invariants both sides rely on:** seven-kind event ceiling; optional
+`facet`/`surface_class` (CDT-198; not kinds); `{events:[…]}` load
 shape; annotation `{event_id, labels[], rank?}`; no five-section section JSON;
 finalize/assemble still consume a directory of `*.json` (typically both event
 files); M8b prior merge is optional and cold-path identical when omitted.
@@ -814,6 +850,8 @@ is a defect:
 | Decisions (incl. tentative) | State now + Through-line | through-line kinds |
 | Facts / constraints / vocabulary | Standing context as `fact` | through-line kinds |
 | Open questions / blockers | State now opens | state kinds |
+| Product surfaces (primary UX + unfinished / not-product) | State now Product surfaces | through-line `fact` + `facet=product_surface` |
+| Open ship gaps (unshipped product work) | State now Open ship gaps | state `open` + `facet=ship_gap` |
 | Intent-vs-git cues ("I'll implement…", TODOs) | M5 flags | state kinds |
 | Sidechain outcomes (collapse or signal-bearing) | hyp/kill signal | through-line kinds |
 
@@ -875,6 +913,9 @@ PROCEDURE
    d. Every DECISION (including tentative) + pointer.
    e. FACTS / constraints / vocabulary the session established.
    f. OPEN questions, blockers, unfinished TODOs (for state partition).
+   f2. PRODUCT SURFACES named in this chunk (primary UX vs unfinished /
+      do-not-treat-as-product) — verbatim names; do not invent.
+   f3. OPEN SHIP GAPS (unshipped product work) vs generic questions.
    g. Stated-intent cues useful for M5 ("I'll implement X", "TODO Y").
    h. SIDECHAIN outcomes (one-line or signal-bearing multi-line) + pointer.
 3. Omit: raw tool outputs, repetitive reads, "Understood" boilerplate.
@@ -890,6 +931,8 @@ CONTENT SHAPE (summary field, markdown, dense):
   - "### Decisions" — bullets + pointers
   - "### Facts / constraints" — bullets + pointers
   - "### Open questions / blockers / intents" — bullets + pointers
+  - "### Product surfaces" — primary vs unfinished / not-product (verbatim)
+  - "### Open ship gaps" — unshipped product work
   Omit a heading if empty in this chunk.
 ```
 

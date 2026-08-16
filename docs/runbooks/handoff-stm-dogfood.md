@@ -149,7 +149,7 @@ or ruling was re-proposed (quote + packet line).
 | Check | Expect |
 |-------|--------|
 | Shape | Three sections only: State now, Through-line, appendix |
-| State now | Latest decisions, surviving hypotheses, opens (mechanical) |
+| State now | Product surfaces (primary + unfinished/not-product), Open ship gaps, latest decisions, surviving hypotheses, opens (mechanical) |
 | Through-line | Chronological evidence: hypothesis → kill/ruling/decision/fact |
 | appendix | Kill catalog, facts, git code-state, pointer index |
 | No tool dumps | No raw `toolUseResult` blobs |

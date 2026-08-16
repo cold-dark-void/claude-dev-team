@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Master-only: refuse a new commands/*.md Surface on a patch / no bump.
+# Installed via `git config core.hooksPath githooks` (skills/release/install-git-hooks.sh).
+set -euo pipefail
+
+ROOT=$(git rev-parse --show-toplevel)
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+case "$BRANCH" in
+  master|main) ;;
+  *) exit 0 ;;
+esac
+
+CHECK="$ROOT/skills/release/check-bump-class.sh"
+if [ ! -f "$CHECK" ]; then
+  echo "pre-commit: skills/release/check-bump-class.sh missing" >&2
+  exit 1
+fi
+exec bash "$CHECK" --cached

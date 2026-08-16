@@ -1,0 +1,12 @@
+{
+  "events": [
+    {
+      "id": "sg-persist",
+      "kind": "open",
+      "text": "settings persistence unshipped",
+      "facet": "ship_gap",
+      "workstream": "ui",
+      "order": 4
+    }
+  ]
+}
