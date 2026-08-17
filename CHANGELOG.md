@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.8.3
+- **Ship/land rules in the plugin, not personal memory** — AGENTS.md: no FF-merge of epic children onto master; `--autopilot=patch|minor|major` on a BC5 `/epic` reroute is seal-intent; a false patch tag for a new Surface is folded away. `/orchestrate` Step 11 forbids mid-epic `git merge --ff-only` onto master. `/release` documents fold+delete+retag.
+
 ### v1.8.2
 - **`/wrap-ticket` prunes remote `feat/` branches** — after local worktree release, `git push origin --delete feat/<ticket>` and `feat/epic-<ticket>` (fail-open). Local remove alone left remotes behind.
 

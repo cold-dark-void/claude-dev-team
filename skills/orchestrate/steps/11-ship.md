@@ -44,7 +44,15 @@ fi
 rm -f "$_ASSERT_ERR"
 ```
 
+**MUST NOT** `git merge --ff-only` / `git merge` an epic child onto master
+so the next worktree can fast-forward. That is a worktree-base problem, not
+a master problem. Mid-epic land is forbidden when `release_bump` is set
+(CDT-141-C4) **and** when this run's `--autopilot=patch|minor|major` was
+carried into `/epic` as seal-intent (CDT-196). Leave commits on
+`feat/<child>` or the epic integration branch until one `/release` fold.
+
 When `RELEASE_END_BLOCKED=true`:
+
 
 - **Allowed:** Option 1 Create PR (PR-stop); Option 2/3 review; work stays on
   the integration branch (`feat/epic-<EPIC-ID>`). Child wrap via `/wrap-ticket`

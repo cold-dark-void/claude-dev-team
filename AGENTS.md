@@ -35,6 +35,12 @@ Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
 New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor.
 Enforced on `master`: `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). A new `commands/*.md` on a patch bump MUST NOT commit.
 
+**Ship / land (plugin-wide — not personal memory):**
+- Never FF-merge epic children onto master so the next worktree can fast-forward. Work stays on `feat/<ticket>` or the epic integration branch. Master moves only at epic seal / one `/release` fold.
+- `--autopilot=patch|minor|major` on `/orchestrate` that **BC5-reroutes to `/epic`** is **seal-intent**. `/epic` MUST persist that bump as `release_bump` (with `--worktree`) and MUST NOT land each child. Token is not unused.
+- A new Surface shipped as a patch tag: fold into the minor, delete the patch tag, retag, force-push. Do not leave the false patch in history. Do not offer TL blockers as a "follow-up patch" when the bump was already wrong.
+- If you FF'd and **did not push**: `git reset --hard origin/master`. Leave commits on feature branches.
+
 The commit-message format, single-folded-commit rule, and tag/push sequence are owned by
 `skills/release/SKILL.md` (the authoritative `/release` contract) — follow it rather than
 hand-crafting a release commit. (The format is intentionally NOT restated here, to keep a
@@ -276,3 +282,6 @@ rule — do not invent a second string.
 - Do not modify plugin.json version without also updating CHANGELOG.md (use `/release`)
 - Do not add agents without updating the README agent roster table
 - Do not create new files unless clearly necessary
+- Do not land a lesson only in `.claude/memory/claude/lessons.md` when the
+  failure is a plugin skill/command/gate defect — patch the plugin (CDT-111)
+- Do not FF-merge epic children onto master (see Release Rules — Ship / land)

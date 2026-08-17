@@ -152,6 +152,9 @@ tracked by a single spec), you **MAY** hold the entire arc under one minor line:
 - **Keep the `feat:` commit prefix** on those increments — the subject describes
   the change honestly; the patch bump reflects the feature-line policy, not a
   downgrade of the change to a fix. Do **not** relabel feature increments as `fix:`.
+- A **new** `commands/*.md` is never a feature-line patch (bump-class gate).
+  If a new Surface was already tagged as a patch: fold into the minor, delete
+  the patch tag, retag, force-push. Do not leave the false patch in history.
 - Because the commits are `feat:`, the no-args auto-detect would choose `minor`
   (opening a new line). To stay on the current line you **must** pass `patch`
   explicitly; passing nothing (`/release`) is also valid — it just opens a new
