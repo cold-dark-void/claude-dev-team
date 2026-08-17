@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.8.2
+- **`/wrap-ticket` prunes remote `feat/` branches** — after local worktree release, `git push origin --delete feat/<ticket>` and `feat/epic-<ticket>` (fail-open). Local remove alone left remotes behind.
+
 ### v1.8.1
 - **Grok `/retro` gate sees real user text** — unwrap `<user_query>` before S1/S5 word-count and regex; S1 lexicon adds `wtf` / `fuck(ing)` / `why merge` / `why would you`. Weights/caps/threshold unchanged. Fixture Grok-UQ score 7.0. SPEC-012.
 

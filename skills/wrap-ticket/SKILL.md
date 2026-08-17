@@ -454,6 +454,9 @@ else
   esac
 fi
 fi
+# Prune remotes when content is on master (local worktree release is not enough).
+git push origin --delete "feat/$TICKET_ID" 2>/dev/null || true
+git push origin --delete "feat/epic-$TICKET_ID" 2>/dev/null || true
 ```
 
 If the worktree has uncommitted changes, `worktree-lib.sh release` (or `git worktree
