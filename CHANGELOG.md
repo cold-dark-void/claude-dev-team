@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.8.1
+- **Grok `/retro` gate sees real user text** — unwrap `<user_query>` before S1/S5 word-count and regex; S1 lexicon adds `wtf` / `fuck(ing)` / `why merge` / `why would you`. Weights/caps/threshold unchanged. Fixture Grok-UQ score 7.0. SPEC-012.
+
 ### v1.8.0
 - **`/audit` instruction-stack Surface (CDT-200/201)** — new `/audit` command: read-only inventory of CLAUDE.md/AGENTS.md/directives + skill-size WARN (30KB); `apply` is approve-then-apply on instruction-stack files only with mechanical evidence. Dual-host Grok user-global `~/.grok/AGENTS.md`/`CLAUDE.md`; `--yes` covers `~/.claude` and `~/.grok`; `--from-session --json` stdout is one JSON document (locate on stderr); MROOT via `git -C --cwd` (no invoker-cwd leak); apply uses `realpath` so a symlink into `skills/**` is refused. SPEC-035. `/doctor` pointer. No `reinit`.
 - **Master bump-class hook** — `githooks/pre-commit` + `check-bump-class.sh`: a new `commands/*.md` on master / `/release` requires minor or major, not patch. CI `bump-class` job. SPEC-010 B1–B6.

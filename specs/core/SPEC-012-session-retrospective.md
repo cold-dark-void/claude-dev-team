@@ -70,6 +70,7 @@ conflict-detection and holistic-rewrite guarantees.
   - Map `assistant.tool_calls` → `tool_use` blocks; map tool names for edit signals: `write` → `Write`, `search_replace` → `Edit` (other names MAY pass through unchanged).
   - Map `tool_result` into the timeline (user-wrapped `tool_result` blocks as Claude does, or equivalent structure `gate.sh` already scores). Set `is_error: true` iff the result body matches an **`exit:N` with N ≠ 0** pattern (OQ5 — only this rule for MVP S2 on Grok). Success / missing exit line → not error.
   - Mark Grok synthetic/system-injected user lines (`synthetic_reason` or equivalent) as `isMeta: true` so S1/S5 skip them.
+  - Unwrap `<user_query>…</user_query>` (Grok host wrap) before S1/S5 word-count and regex. The wrap tags MUST NOT count as words and MUST NOT classify the turn as a system notification.
   - Inject `sessionId` from the Grok session directory id (not the basename `chat_history`).
 - **Grok S2 ledger:** Grok sessions MUST use the **uncovered** transcript S2 path (no Grok friction-ledger parity in MVP — OOS).
 - **Claude regression:** Default Claude host path MUST keep existing `retro-gate` fixture `passed` / `score` / per-signal counts (AC2). MUST NOT retune S1–S5 weights, caps, or threshold in this ticket.
@@ -77,7 +78,7 @@ conflict-detection and holistic-rewrite guarantees.
 
 ### Phase 1 — Friction Gate (heuristic)
 - MUST compute a friction score for each candidate session using signals including (but not limited to):
-  - User messages containing: `revert`, `stop`, `no that's wrong`, `why did you`, `don't`, `wrong`
+  - User messages containing: `revert`, `stop`, `no that's wrong`, `why did you`, `why would you`, `why merge`, `don't`, `wrong`, `wtf`, `fuck`/`fucking`
   - Consecutive tool errors on the same file or command
   - Repeated edit-tool uses (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) on the same path within a short window (≥ 3 uses in ≤ 10 assistant turns), **except** a clean draft-polish path: a path whose first edit-tool in the session is `Write` (session-created) and that has no intervening tool error (`tool_result.is_error: true`) and no intervening S1-eligible real user rejection after that creating `Write` and at or before the last edit-tool in the candidate window. Clean draft-polish paths MUST NOT contribute to the S3 (edit-loop) score. Pre-existing paths (first edit-tool is not `Write`) and session-created paths with intervening tool error or S1 rejection remain eligible for S3
   - "let me try again" / retry-loop patterns from the assistant
@@ -319,6 +320,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 
 | Date | Change |
 |------|--------|
+| 2026-08-16 | CDT-196: unwrap Grok `<user_query>` before S1/S5; S1 lexicon adds `wtf` / `fuck(ing)` / `why merge` / `why would you`. Weights/caps/threshold unchanged. |
 | 2026-08-10 | **CDT-156:** Multi-host transcript adapters (Claude + Grok MVP). Adapter seam in transcript-parse (locate+normalize → Claude-shaped gate feed); `--host claude\|grok\|all` + auto-detect; Grok cwd-bucket discovery; Grok S2 via `exit:N≠0`; S3 tool-name map write/search_replace; amend Session Discovery allowed roots; Claude score regression required; handoff multi-host rewrite OOS. |
 | 2026-04-07 | Initial spec created from brainstorm `.claude/plans/2026-04-07-brainstorm-retro.md` |
 | 2026-04-08 | Added `--apply` routing MUSTs after kickoff revealed `/adjust-agent` had no non-interactive mode. Resolved by extending SPEC-001 rather than bypassing it. |

@@ -249,6 +249,24 @@ fi
 
 echo "----"
 
+# ---- CDT-196: Grok <user_query> wrap + S1 rage lexicon ----
+# Wrapped "PATCH!? WTF" is 4 tokens; unwrap → 2 words (S5) + wtf (S1).
+# Second turn "fucking" is a second S1. Score ≥ 6.
+run_gate "grok-user-query-s1.jsonl"
+if assert_json_shape "Grok-UQ"; then
+  sc=$(score_val)
+  pv=$(passed_val)
+  s1c=$(signal_count S1)
+  if [ "$pv" = "true" ] && [ "$s1c" -ge 2 ] \
+     && python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) >= 6.0 else 1)" "$sc"; then
+    ok "Grok-UQ unwrap+S1 rage passed=true S1=$s1c score=$sc"
+  else
+    bad "Grok-UQ: want passed=true S1≥2 score≥6; got passed=$pv S1=$s1c score=$sc out=$OUT"
+  fi
+fi
+
+echo "----"
+
 # ---- CDT-156 T6 / AC12: Grok raw fixture → normalize → gate passed:true ----
 # Raw Grok chat_history with S1 rejection + ≥2 consecutive exit:N≠0 (S2).
 # Weights unchanged: S1=3.0 + S2=2.0 → score 5.0 ≥ threshold.

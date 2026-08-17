@@ -102,7 +102,8 @@ except Exception:
 # S1: explicit user rejection — strongest signal. Word-bounded to avoid
 # matching "stopwatch", "wrongful", etc. Case-insensitive.
 S1_RE = re.compile(
-    r"\b(revert|stop|wrong|don'?t|why did you|no that'?s|undo|that'?s not|nope)\b",
+    r"\b(revert|stop|wrong|don'?t|why did you|why would you|why merge|"
+    r"no that'?s|undo|that'?s not|nope|wtf|fuck(?:ing)?)\b",
     re.IGNORECASE,
 )
 # S4: assistant self-corrective retry phrasing.
@@ -225,6 +226,16 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
             # produced false positives during calibration.
             meta = is_meta(d)  # parselib.is_meta — same bool(d.get("isMeta"))
             text = msg_text(content)
+            # Grok scoring wrap: strip <user_query> so S1/S5 see real words
+            # (tags inflated "PATCH!? WTF" to 4 words and missed S5).
+            if isinstance(text, str):
+                _uq = re.search(
+                    r"<user_query>\s*(.*?)\s*</user_query>",
+                    text,
+                    re.DOTALL | re.IGNORECASE,
+                )
+                if _uq:
+                    text = _uq.group(1).strip()
 
             # tool_result blocks live inside user messages
             had_tool_result = False
