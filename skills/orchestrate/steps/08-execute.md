@@ -175,9 +175,10 @@ Act on `decision`:
   **remaining + newly-discovered scope** to `/epic` decompose per SPEC-033 M11 / M11a(b), and
   return control. **Already-completed/shipped task state is NOT rolled back** (M11a(b)); completed
   commits stay committed and become inputs to the decomposed epic. The `/epic` decompose invocation
-  MUST carry the autopilot state forward — pass `--autopilot[=<bump>]` (or `AUTOPILOT=1`) so `/epic`
-  Step 0.5 re-enables autopilot; `/epic` resolves its OWN autopilot state independently and does NOT
-  inherit the caller's (SPEC-033 M11a(a)).
+  MUST carry the autopilot state forward — pass `--autopilot[=<bump>]` (or `AUTOPILOT=1`)
+  so `/epic` Step 0.5 re-enables autopilot. When `<bump>` ∈ {patch,minor,major},
+  also pass `--worktree --release <bump>` (seal-intent; MUST NOT land each child
+  on master). `/epic` persists that bump as `release_bump` (SPEC-033 M11a / CDT-196).
 - `halt` (BC1 — scope-creep that is NOT an overflow) → emit `task_blocked` (detail = the
   one-line message below) via **Passive notifications → Tier B** (fail-open; § below), then
   print the one-line message below and return control:

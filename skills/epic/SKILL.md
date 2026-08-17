@@ -206,9 +206,11 @@ over the env and is the **only** channel that carries a ship-intent token
 default, not necessarily a branch named `master`). A malformed
 `--autopilot=<token>` (token ∉ {patch,minor,major,master}, incl. empty
 `--autopilot=`) is a hard error (exit 64) — never a silent fall-through to off
-(R7). Token is unused by `/epic` (which never ships, M11) but is still
-resolved+carried so the seed block is identical across `/orchestrate`,
-`/kickoff`, `/epic`.
+(R7). Token is unused by `/epic` as a *ship executor* (M11 — `/epic` never
+`/release`s mid-child) but **is** seal-intent when ∈ {patch,minor,major}:
+persist `release_bump` + enable worktree (BC5 / CDT-196). Do **not** treat
+the token as unused for land policy. Resolved+carried so the seed block is
+identical across `/orchestrate`, `/kickoff`, `/epic`.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -232,6 +234,13 @@ mapped gate — **A.5** (atomic scope+plan) and **B.3** (per child) — consults
 `AUTOPILOT_ON` to choose the autopilot branch or the existing human prompt.
 **A.6** defaults `MODE=orchestrate` under autopilot. **B.5 completion is NEVER
 autopilot-answered (SPEC-033 N8) — it stays a human/lifecycle attestation.**
+
+**BC5 seal-intent (CDT-196):** when `AUTOPILOT_BUMP` ∈ {`patch`,`minor`,`major`}
+and Step 0.4 left `RELEASE_BUMP` null, set `RELEASE_BUMP=$AUTOPILOT_BUMP` and
+`WORKTREE_ENABLED=true` before A.6 `init`. Child handoffs then get
+`EPIC_RELEASE_END` (B.4). MUST NOT `git merge --ff-only` / merge a child onto
+master. One `/release <bump>` at B.7 only. `--autopilot=master` does **not**
+set `release_bump` (land-no-release is not a version seal).
 
 ---
 
@@ -632,6 +641,10 @@ CHILD=$(printf '%s\n' "$READY" | head -1)
 ```
 
 If empty: print `No ready children` (all done, or waiting on in_progress/blocked deps). If all completed: run **B.7** seal path when `release_bump` is set, then celebrate and stop. If only blocked/in_progress remain: report and stop.
+
+When a child completes and `ready-set` is still non-empty: **continue Mode B**
+(next B.3) in the same run unless the user stopped or a blocking gate fired.
+Do **not** end the epic after the first shipped child.
 
 ### B.3 Confirm each handoff (L5)
 

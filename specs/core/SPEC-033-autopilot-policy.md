@@ -326,12 +326,16 @@ target.
 
   - **(a) Autopilot-state carry-forward (caller's obligation).** On any `reroute-epic`, the hand-off
     to `/epic` decompose MUST propagate autopilot enablement — the invocation MUST carry
-    `--autopilot[=<bump>]` (or set `AUTOPILOT=1`). `/epic` **Step 0.5** resolves its own autopilot
-    state **independently** from its own args/env and does **not** inherit the caller's session
-    state; absent the explicit flag/env, `/epic` falls back to interactive human gates, silently
-    breaking the unattended run. Carrying the state forward is the **caller's** (the wiring's)
-    responsibility, **not** the `self-answer.md` engine's — the engine writes the `reroute-epic`
-    card and returns (self-answer.md §5). Applies to **every** reroute-epic hand-off site.
+    `--autopilot[=<bump>]` (or set `AUTOPILOT=1`). When `<bump>` ∈ {patch,minor,major},
+    the caller MUST also pass `--worktree --release <bump>` (seal-intent). `/epic`
+    **Step 0.5** resolves its own autopilot state **independently** from its own args/env
+    and does **not** inherit the caller's session state; it MUST persist a release
+    token as `release_bump` + `worktree_enabled` so children cannot land on master
+    (CDT-196). Absent the explicit flag/env, `/epic` falls back to interactive human
+    gates, silently breaking the unattended run. Carrying the state forward is the
+    **caller's** (the wiring's) responsibility, **not** the `self-answer.md` engine's —
+    the engine writes the `reroute-epic` card and returns (self-answer.md §5). Applies
+    to **every** reroute-epic hand-off site.
 
   - **(b) Mid-execution reroute is delta-only — no rollback.** When BC5 fires at a checkpoint
     reached **after** code has already shipped for one or more completed tasks (the Step-8
@@ -724,6 +728,7 @@ target.
 
 | Date | Change |
 |------|--------|
+| 2026-08-16 | CDT-196: M11a(a) BC5 carry-forward MUST pass `--worktree --release <bump>` when bump is patch/minor/major; `/epic` persists `release_bump` so children cannot land on master. |
 | 2026-08-04 | Initial contract (CDT-111-C1) — mode activation (M1–M2), per-gate checklists + per-command checkpoint mapping (M3–M5), eight blocking conditions (M6–M8), run-budget defaults (M9), complexity-overflow reroute (M10–M11), contract home (M12), decision-card schema (M13), MUST NOTs N1–N8. Amended within the same DRAFT cycle by later CDT-111 children: C2 (card writer/reader paths), C5 (AC7 / M14 council ship gate), C6 (M11a reroute safety + state carry-forward), C7 (OQ1 notify transport), C8 (M9a resume wall-clock basis), C9 (N3a deterministic BC3 push-target check). *(This table itself was added 2026-08-05 by CDT-126 — the section was missing; the rows above reconstruct the DRAFT cycle that predates it.)* |
 | 2026-08-05 | CDT-126: council tiering at the autopilot ship gate. **M14(e)** — tier selection before the M14 pass: graded input is `git diff --numstat $(git merge-base <default> HEAD)..HEAD` with `<default>` from `git symbolic-ref refs/remotes/origin/HEAD`, reusing N3a's existing mechanism at the same step rather than inventing one; bands, critical-area signals, the fail-closed contract and the `skip`-unreachability rule are all cited from SPEC-013's Council tiering section, never restated (SPEC-002 D1 / M12 / N4) — (e) keeps only the M14-specific deltas: the graded diff, the fact that an unresolvable `origin/HEAD` grades to `full` here whereas N3a's own unresolvable `origin/HEAD` **halts the ship** under BC3 (same probe, different consequence — not to be conflated), and that autopilot has no DRI so `skip` can only arrive human-supplied; **M14(a)** amended to carve out `--council-tier=<tier>` as the sole permitted flag on the otherwise-unbound `/council` invocation, resolving its contradiction with (e)'s requirement to pass it; firing rule (`ship-choice` only, clean `pr`/`merge` only, exactly once, exactly two cards) unchanged. Includes a correction note for the wiring child: `skills/autopilot/ship-gate-council.md` §3's "the staged diff" is wrong — nothing is staged at M14 firing time (the `git merge --squash` happens after the gate), so M14 has no pre-existing diff of its own, and its "no other flag" sentence is superseded by the M14(a) carve-out — both to be corrected in the same pass. **M14(f)** — tier-aware BC7: the halt card carries `council_tier` and the rationale names it; the full-council re-offer is made only from a `light` halt, and is an escalation affordance autopilot MUST NOT self-answer. No ninth blocking condition, no new halt path; (b)/(c)/(d) unchanged. **M13** — decision card gains nullable `council_tier` + `grading_reason`, non-null only on the M14 council card; `schema_version` stays `1` (additive + nullable, discriminator envelope unchanged); `append-card.sh` cross-field invariants to be extended by the wiring child. Status stays DRAFT. |
 | 2026-08-09 | CDT-185: M14(a) process stamps + narrow claim (Option 3). Before `/council`, autopilot MUST pre-flight **process stamps** = clean ship-choice **card #1** via `read-cards.sh` (stamp shape: `gate=ship-choice`, `decision∈{pr,merge}`, `blocking_condition=null`, `decided_by=auto`, `council_tier`/`grading_reason` null, first ship-choice card for `run_id`). QA/Step-10b implied by self-answer; **no** TL APPROVE stamp. Stamp fail → refuse agree path, no `/council`, card #2 BC7 halt `confidence=0` (reuse BC7, not a 9th BC). Stamp pass → one-line claim is **technical-only** (merge-base diff vs ACs/spec); MUST NOT re-assert process outcomes in the claim body. Locators-only / no RAW_ARTIFACTS injection preserved. M14(b)/(c)/(d)/(e)/(f) mapping and degraded-run rule unchanged; technical disagree still BC7. Scope: M14 ship-gate only. Procedure home: `skills/autopilot/ship-gate-council.md` §3b (wiring child). Status stays DRAFT. |

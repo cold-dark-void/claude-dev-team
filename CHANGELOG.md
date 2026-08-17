@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.8.4
+- **BC5 `--autopilot=patch|minor|major` is epic seal-intent** — `/orchestrate` reroute to `/epic` passes `--worktree --release <bump>`. `/epic` persists `release_bump` so children cannot land on master; one `/release` at B.7. Continue Mode B after the first shipped child. SPEC-033 M11a(a).
+
 ### v1.8.3
 - **Ship/land rules in the plugin, not personal memory** — AGENTS.md: no FF-merge of epic children onto master; `--autopilot=patch|minor|major` on a BC5 `/epic` reroute is seal-intent; a false patch tag for a new Surface is folded away. `/orchestrate` Step 11 forbids mid-epic `git merge --ff-only` onto master. `/release` documents fold+delete+retag.
 

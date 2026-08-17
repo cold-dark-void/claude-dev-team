@@ -72,8 +72,9 @@ size, task-graph shape, destructive-op flags> }` and call
 - `reroute-epic` → print the one-line message below, hand off to `/epic` decompose, and
   return control.
   The `/epic` decompose invocation MUST carry the autopilot state forward — pass
-  `--autopilot[=<bump>]` (or `AUTOPILOT=1`); `/epic` Step 0.5 resolves its OWN autopilot state
-  independently and does NOT inherit the caller's (SPEC-033 M11a).
+  `--autopilot[=<bump>]` (or `AUTOPILOT=1`). When `<bump>` ∈ {patch,minor,major},
+  also pass `--worktree --release <bump>` (seal-intent; MUST NOT land each child
+  on master). `/epic` persists that bump as `release_bump` (SPEC-033 M11a / CDT-196).
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
   notifications → Tier B** (fail-open; § below), then print the one-line message below and
   return control:

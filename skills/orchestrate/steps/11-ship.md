@@ -114,8 +114,9 @@ Act on the **post-council effective decision**:
   notifications → Tier B** (fail-open; § below) — `reroute-epic` does NOT notify-blocked;
   `reroute-epic` additionally hands off to `/epic` decompose:
   The `/epic` decompose invocation MUST carry the autopilot state forward — pass
-  `--autopilot[=<bump>]` (or `AUTOPILOT=1`); `/epic` Step 0.5 resolves its OWN autopilot state
-  independently and does NOT inherit the caller's (SPEC-033 M11a).
+  `--autopilot[=<bump>]` (or `AUTOPILOT=1`). When `<bump>` ∈ {patch,minor,major},
+  also pass `--worktree --release <bump>` (seal-intent; MUST NOT land each child
+  on master). `/epic` persists that bump as `release_bump` (SPEC-033 M11a / CDT-196).
 ```
 ship-choice <decision>: <rationale> — card: <card-file-path>
 ```
