@@ -20,7 +20,7 @@
 #
 # Covers CDT-111-C4 T1 cases (v)-(ad) for parse-flags.sh: flag-only, flag+bump,
 # env-only, flag+env both set (flag wins), illegal bump, empty bump, off,
-# unset, and 4-key JSON shape (CDT-126 adds council_tier).
+# unset, and 5-key JSON shape (CDT-126 adds council_tier; CDT-206 adds tier).
 #
 # Covers CDT-126 T5 cases (an)-(ap) for the council_tier/grading_reason card
 # fields: 15-arg append + frozen key position, argc-14 / bad-enum / invariant-(c)
@@ -43,6 +43,10 @@
 # =master; illegal/empty list all four; env cannot set master; append-card
 # accepts master on ship-choice / rejects on non-ship-choice; resume-state
 # round-trip master.
+#
+# Covers CDT-206 T1 cases (bk)-(cc) for parse-flags.sh --tier: omit → null,
+# light|standard|full accepted, independent of --council-tier/--autopilot,
+# malformed/duplicate/bare/space/case → 64, mixed argv with --resume-ship.
 
 set -u
 
@@ -441,14 +445,15 @@ else
 fi
 
 # =============================================================================
-# (ad) parse-flags.sh: JSON shape has all 4 keys (CDT-126 adds council_tier)
+# (ad) parse-flags.sh: JSON shape has all 5 keys (CDT-206 adds tier)
 # =============================================================================
 OUT=$(bash "$PARSE" --autopilot=patch 2>/dev/null)
 if echo "$OUT" | jq -e '
-  (keys_unsorted | length) == 4
+  (keys_unsorted | length) == 5
   and has("enabled") and has("bump") and has("source") and has("council_tier")
+  and has("tier")
 ' >/dev/null 2>&1; then
-  pass "ad parse-flags JSON shape has all 4 keys"
+  pass "ad parse-flags JSON shape has all 5 keys"
 else
   fail "ad JSON shape mismatch: $OUT"
 fi
@@ -940,6 +945,129 @@ if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.found == true and .autopilot_on == t
   pass "bj resume-state autopilot_bump: master → bump:master"
 else
   fail "bj rc=$RC out=$OUT (want found:true/on:true/bump:master)"
+fi
+
+# =============================================================================
+# (bk) CDT-206: no --tier → tier:null, exit 0
+# =============================================================================
+OUT=$(bash "$PARSE" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e 'has("tier") and .tier == null' >/dev/null 2>&1; then
+  pass "bk parse-flags no --tier → tier:null"
+else
+  fail "bk rc=$RC out=$OUT (want has(tier) and tier:null, rc=0)"
+fi
+
+# =============================================================================
+# (bl) CDT-206: --tier=light → tier:light
+# =============================================================================
+OUT=$(bash "$PARSE" --tier=light 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.tier == "light"' >/dev/null 2>&1; then
+  pass "bl parse-flags --tier=light → tier:light"
+else
+  fail "bl rc=$RC out=$OUT (want tier:light)"
+fi
+
+# =============================================================================
+# (bm) CDT-206: --tier=standard → tier:standard
+# =============================================================================
+OUT=$(bash "$PARSE" --tier=standard 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.tier == "standard"' >/dev/null 2>&1; then
+  pass "bm parse-flags --tier=standard → tier:standard"
+else
+  fail "bm rc=$RC out=$OUT (want tier:standard)"
+fi
+
+# =============================================================================
+# (bn) CDT-206: --tier=full → tier:full
+# =============================================================================
+OUT=$(bash "$PARSE" --tier=full 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.tier == "full"' >/dev/null 2>&1; then
+  pass "bn parse-flags --tier=full → tier:full"
+else
+  fail "bn rc=$RC out=$OUT (want tier:full)"
+fi
+
+# =============================================================================
+# (bo) CDT-206: --tier=light --council-tier=full → independent
+# =============================================================================
+OUT=$(bash "$PARSE" --tier=light --council-tier=full 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.tier == "light" and .council_tier == "full"' >/dev/null 2>&1; then
+  pass "bo parse-flags --tier=light --council-tier=full → independent"
+else
+  fail "bo rc=$RC out=$OUT (want tier:light, council_tier:full)"
+fi
+
+# =============================================================================
+# (bp) CDT-206: --council-tier=light --tier=full → reverse independence
+# =============================================================================
+OUT=$(bash "$PARSE" --council-tier=light --tier=full 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.tier == "full" and .council_tier == "light"' >/dev/null 2>&1; then
+  pass "bp parse-flags --council-tier=light --tier=full → reverse independence"
+else
+  fail "bp rc=$RC out=$OUT (want tier:full, council_tier:light)"
+fi
+
+# =============================================================================
+# (bq) CDT-206: --autopilot=minor --tier=standard --council-tier=skip → all three independent
+# =============================================================================
+OUT=$(bash "$PARSE" --autopilot=minor --tier=standard --council-tier=skip 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.enabled == true and .bump == "minor" and .source == "flag" and .tier == "standard" and .council_tier == "skip"' >/dev/null 2>&1; then
+  pass "bq parse-flags --autopilot=minor --tier=standard --council-tier=skip → all three independent"
+else
+  fail "bq rc=$RC out=$OUT (want enabled:true/bump:minor/source:flag/tier:standard/council_tier:skip)"
+fi
+
+# =============================================================================
+# (br)–(bu) CDT-206: illegal --tier values → exit 64
+# =============================================================================
+expect_rc 64 "br parse-flags illegal --tier=skip → 64" bash "$PARSE" --tier=skip
+expect_rc 64 "bs parse-flags illegal --tier=bogus → 64" bash "$PARSE" --tier=bogus
+expect_rc 64 "bt parse-flags illegal --tier=std → 64" bash "$PARSE" --tier=std
+expect_rc 64 "bu parse-flags illegal --tier=max → 64" bash "$PARSE" --tier=max
+
+# =============================================================================
+# (bv) CDT-206: empty --tier= → exit 64
+# =============================================================================
+expect_rc 64 "bv parse-flags empty --tier= → 64" bash "$PARSE" --tier=
+
+# =============================================================================
+# (bw) CDT-206: bare --tier → exit 64
+# =============================================================================
+expect_rc 64 "bw parse-flags bare --tier (no value) → 64" bash "$PARSE" --tier
+
+# =============================================================================
+# (bx) CDT-206: space form --tier light (two argv) → exit 64
+# =============================================================================
+expect_rc 64 "bx parse-flags space form --tier light → 64" bash "$PARSE" --tier light
+
+# =============================================================================
+# (by) CDT-206: --tier=LIGHT (case) → exit 64
+# =============================================================================
+expect_rc 64 "by parse-flags --tier=LIGHT → 64" bash "$PARSE" --tier=LIGHT
+
+# =============================================================================
+# (bz) CDT-206: --tier=Full (case) → exit 64
+# =============================================================================
+expect_rc 64 "bz parse-flags --tier=Full → 64" bash "$PARSE" --tier=Full
+
+# =============================================================================
+# (ca) CDT-206: duplicate --tier=full --tier=full → exit 64
+# =============================================================================
+expect_rc 64 "ca parse-flags duplicate --tier=full --tier=full → 64" bash "$PARSE" --tier=full --tier=full
+
+# =============================================================================
+# (cb) CDT-206: duplicate --tier=light --tier=standard → exit 64
+# =============================================================================
+expect_rc 64 "cb parse-flags duplicate --tier=light --tier=standard → 64" bash "$PARSE" --tier=light --tier=standard
+
+# =============================================================================
+# (cc) CDT-206: mixed argv --autopilot --tier=full --council-tier=light --resume-ship
+# =============================================================================
+OUT=$(bash "$PARSE" CDT-206 --autopilot --tier=full --council-tier=light --resume-ship 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.tier == "full" and .council_tier == "light" and .enabled == true and .bump == null and .source == "flag"' >/dev/null 2>&1; then
+  pass "cc parse-flags mixed argv --tier=full; other flags unchanged; --resume-ship ignored"
+else
+  fail "cc rc=$RC out=$OUT (want tier:full, council_tier:light, enabled:true/bump:null/source:flag)"
 fi
 
 # =============================================================================
