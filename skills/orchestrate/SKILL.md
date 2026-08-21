@@ -20,12 +20,14 @@ in agent worktrees. Phase bodies live in `steps/` — this file is the router.
 - `[--autopilot[=<token>]]` — SPEC-033 / CDT-195; full contract: `steps/00-resolve.md`
 - `[--council-tier=<skip|light|full>]` — CDT-126; `steps/00-resolve.md` + `steps/09-review.md`
 - `[--resume-ship[=<patch|minor|major|master>]]` — CDT-135/195; `steps/11-ship.md`
-- `[--tier=<light|standard|full>]` — CDT-206; `steps/00-resolve.md`
+- `[--tier=<light|standard|full>]` — CDT-206; `steps/00-resolve.md` + `steps/02-scope.md`
 
-| `--tier` | Steps | C1 behavior |
-|----------|-------|-------------|
-| omit / `standard` / `full` | 0–12 | today's pipeline |
-| `light` | 0–12 | same steps; spawn cuts in later children |
+| `--tier` | Steps | pipeline |
+|----------|-------|----------|
+| omit / `standard` / `full` | 0–12 | today's pipeline (`full` = `standard`) |
+| `light` | 0–12 | scoper-planner; skip DAG; one IC4; single-pass TL; no council default; wrap-lite |
+
+No `--tier`: Step 2 auto-sizes S→light / M→standard / L→full (cheap signals, no extra spawn). Explicit `--tier` wins.
 
 ## Load protocol
 

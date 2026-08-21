@@ -2,6 +2,10 @@
 
 ## Step 2: Evaluate issue and confirm scope with user
 
+When `[ "$ORCH_TIER" = "null" ]` (no `--tier` on this run): classify S/M/L from cheap signals with NO extra agent spawn: AC count, estimated files touched, bugfix-vs-feature shape, diff-size guess. Mapping: S → light, M → standard, L → full. Classification failure or missing signals → propose `standard`. Show proposed tier + one-line rationale in THIS same gate (not a new gate). Autopilot `proceed` uses the proposed tier unless overridden. Decision-card records proposed + selected. After confirm/override, bind `ORCH_TIER=<selected>` (`light` / `standard` / `full`).
+
+When `--tier` was explicit (`light` / `standard` / `full` already bound in Step 0): skip classification; the flag wins. Still show the resolved tier in the gate for visibility.
+
 Present the issue summary:
 
 ```
@@ -21,19 +25,21 @@ My assessment:
 - Complexity: <simple | moderate | complex>
 - Estimated agents needed: <list>
 - Likely affected areas: <educated guess from issue text + project memory>
+- Proposed tier: <light|standard|full> (<S|M|L> — <one-line rationale>)
+  (when `--tier` was explicit: Resolved tier: <value> (flag) — skip Proposed)
 
-Proceed with this scope? Any adjustments?
+Proceed with this scope? Any adjustments? Confirm or override the tier.
 ```
 
 **Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the
 C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"scope-confirm",
 run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
 autopilot_bump:AUTOPILOT_BUMP, <issue-text sufficiency evidence, destructive-op flags,
-and the complexity signals from the assessment above> }` and call
+and the complexity signals from the assessment above, proposed_tier, selected_tier> }` and call
 `skills/autopilot/self-answer.md`'s procedure for `{decision, blocking_condition,
 confidence, rationale}` (exactly one `decided_by:"auto"` card is appended). Act on
 `decision`:
-- `proceed` → continue to Step 3 exactly as the user's "yes" would.
+- `proceed` → continue to Step 3 exactly as the user's "yes" would. Use the proposed tier unless overridden. Bind `ORCH_TIER=<selected>`.
 - `reroute-epic` → print the one-line message below, hand off to `/epic` decompose, and
   return control.
   The `/epic` decompose invocation MUST carry the autopilot state forward — pass

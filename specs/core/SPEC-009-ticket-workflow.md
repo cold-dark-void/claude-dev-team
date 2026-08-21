@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`
+**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`
 
 ## Overview
 
@@ -99,11 +99,37 @@ Pipeline cost tier for `/orchestrate`. This subsection is the contract home.
 - MUST NOT add `commands/orchestrate.md` (skill-only Surface; router-static T7)
 - MUST NOT document `--tier` on `/kickoff`. Kickoff MAY parse the token because it shares `parse-flags.sh`. Kickoff MUST ignore a present unused `.tier`. A malformed `--tier` on kickoff MUST still exit 64
 - MUST NOT extend `skills/epic/parse-flags.sh`. MUST NOT change `skills/council/engine.sh --tier` vocabulary (`light|full`)
-- MUST list `--tier=light|standard|full` in `skills/orchestrate/SKILL.md` and include a per-tier router table. `standard` and `full` rows = current steps 0–12. `light` row = the same steps in this child, with an explicit note that spawn cuts land in later children. The file MUST stay ≤80 lines
-- MUST document `--tier` in `docs/commands/orchestrate.md` Flags table. The row states: pipeline cost tier; omit/`standard`/`full` = current pipeline; `light` accepted now, spawn cuts later; independent of `--council-tier`
-- **Identity (omit / `standard` / `full`).** MUST run today's Step 0–12 sequence, the same step files, the same spawn sites, and the same SPEC-033 gates and gate actors when `--tier` is omitted or set to `standard` or `full`. Those three cases have identical behavior. The resolved value (`null` / `standard` / `full`) is the recorded tier for the run
-- **Identity (`light` in this child).** MUST accept `--tier=light` and record `"tier":"light"`. This child MUST NOT change spawn counts, skip steps, drop agents, or change who approves gates. Later children own light-path spawn cuts
+- MUST list `--tier=light|standard|full` in `skills/orchestrate/SKILL.md` and include a per-tier router table. `standard` and `full` rows = current steps 0–12. `light` row = scoper-planner, skip DAG, one IC4, single-pass TL, no council default, wrap-lite. The file MUST stay ≤80 lines
+- MUST document `--tier` in `docs/commands/orchestrate.md` Flags table. The row states: pipeline cost tier; `standard`/`full` = current pipeline; `light` step map; no `--tier` auto-sizes at Step 2; explicit `--tier` wins; independent of `--council-tier`
+- **Identity (`standard` / `full`).** MUST run today's Step 0–12 sequence, the same step files, the same spawn sites, and the same SPEC-033 gates and gate actors when `--tier=standard` or `--tier=full`. Those two cases have identical behavior. `full` is identical to `standard`
+- **Identity (omit).** MUST NOT coerce omit to `"standard"` at parse time (`"tier": null`). Step 2 MUST auto-size when `[ "$ORCH_TIER" = "null" ]` (CDT-210). After the gate, the selected tier is the run's pipeline
+- Light-path step branches MUST test exactly `[ "$ORCH_TIER" = "light" ]`. MUST NOT use `!= "null"` or `!= "full"` (that would cut omit and standard)
 - MUST NOT change SPEC-033 gate ownership, checklists, or BC halt/escalate. MUST NOT edit SPEC-033
+
+#### Orchestrate `--tier` light path (CDT-207 / CDT-208 / CDT-209)
+
+When `[ "$ORCH_TIER" = "light" ]` (explicit `--tier=light` or auto-size S):
+
+- MUST spawn exactly one scoper-planner at Steps 4–6 (confirms ACs and writes a short plan). MUST NOT parallel-spawn PM+TL. MUST NOT spawn a separate TL design pass (CDT-207)
+- MUST still surface open questions at Step 5. MUST still fire SPEC-033 `plan-approve` at Step 6. MUST still write the plan artifact with Tracking (CDT-207)
+- MUST skip DAG/task-store at Step 7. MUST create one task. MUST spawn exactly one ic4 at low effort at Step 8. That task MUST NOT set `requires_council` (CDT-208)
+- MUST run a single-pass TL diff review at Step 9 with max one rework, then APPROVE or escalate. MUST NOT use the 3-round deadloop as the default (CDT-209)
+- MUST default to no council spawn on light. MUST skip simplify 9.5. MUST NOT spawn a separate `@qa` — the IC runs tests and pastes output (CDT-209)
+- `--council-tier=skip|light|full` MUST override the tier's council default when both flags are given: EFFECTIVE = `COUNCIL_TIER_OVERRIDE` when that value is not the string `"null"`; else if `[ "$ORCH_TIER" = "light" ]` then skip council; else today's behavior (CDT-209)
+- MUST skip Step 12b friction/retro on light. MUST still print orchestration complete and suggest `/wrap-ticket` (CDT-209)
+- MUST NOT change Steps 3 and 11 (worktree + ship, including M14 ship-gate) (CDT-209)
+- MUST keep SPEC-033 gates (`scope-confirm`, `plan-approve`, `ship-choice`) and gate actors (CDT-209)
+
+#### Orchestrate auto-size at scope-confirm (CDT-210)
+
+When `[ "$ORCH_TIER" = "null" ]` (no `--tier`):
+
+- MUST classify S/M/L at the existing Step 2 `scope-confirm` gate from cheap signals (AC count, estimated files touched, bugfix-vs-feature shape, diff-size guess) with NO extra agent spawn
+- MUST show proposed tier + one-line rationale in that same gate (not a new gate)
+- Mapping MUST be S → light, M → standard, L → full
+- Explicit `--tier` MUST skip classification and win
+- Autopilot `proceed` MUST use the proposed tier unless overridden. Decision-card MUST record proposed + selected
+- Classification failure or missing signals MUST propose `standard`
 
 ### Standup / `/status` (CDT-46-C4 entry)
 - User entry for the standup snapshot is `/status` (bare) and `/status standup [TICKET-ID]` via `commands/status.md`. There is no `commands/standup.md`.
@@ -321,11 +347,13 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify malformed `--tier` exits 64 with stderr and no success JSON: unknown (`skip`, `bogus`, `std`, `max`), empty `--tier=`, bare `--tier`, space form `--tier light`, case (`LIGHT`, `Full`), duplicate `--tier` / `--tier=*` even when values match
 - Verify `--tier=<value>` is accepted in any argv position mixed with `--autopilot` / `--council-tier` / `--resume-ship`
 - Verify `bash skills/autopilot/test.sh` passes
-- Verify `skills/orchestrate/SKILL.md` lists `--tier=light|standard|full`, includes a per-tier table (`standard`/`full` = steps 0–12; `light` = same steps, spawn cuts later), and stays ≤80 lines
-- Verify `bash skills/orchestrate/router-static-test.sh` passes; T7 still requires `commands/orchestrate.md` absent; T6 MUST NOT needle bare `--tier`
-- Verify `docs/commands/orchestrate.md` Flags table documents `--tier` with omit/`standard`/`full` = current pipeline, `light` accepted now / cuts later, independent of `--council-tier`
+- Verify `skills/orchestrate/SKILL.md` lists `--tier=light|standard|full`, includes a per-tier table (`standard`/`full` = steps 0–12; `light` = scoper-planner, skip DAG, one IC4, single-pass TL, no council default, wrap-lite), and stays ≤80 lines
+- Verify `bash skills/orchestrate/router-static-test.sh` passes; T7 still requires `commands/orchestrate.md` absent; T6 MUST NOT needle bare `--tier`; T10 allows `[ "$ORCH_TIER" = "light" ]` only in 02-scope / 04–10 / 12-wrap and forbids `!=`; T11 else-branch still has PM+TL, DAG, QA spawn, 3-round deadloop
+- Verify `docs/commands/orchestrate.md` Flags table documents `--tier` with `standard`/`full` = current pipeline, `light` step map, no `--tier` auto-size at Step 2, independent of `--council-tier`
 - Verify Step 0 binds `.tier` from the same `parse-flags.sh` call and a parse 64 halt occurs before fetch/worktree/spawns
 - Verify `skills/kickoff/SKILL.md` does not document `--tier`; kickoff still runs when `.tier` is present and unused
+- Verify light path: 04 scoper-planner; 07 skip DAG; 08 one `@ic4`; 09 single-pass; 10 no `@qa` spawn; 12 skip 12b (`router-static-test.sh` T12)
+- Verify Step 2 auto-size when `[ "$ORCH_TIER" = "null" ]`: S → light, M → standard, L → full; classify-fail → standard; explicit `--tier` skips classify
 
 ## Validation
 
@@ -342,9 +370,9 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - [ ] `bash skills/backlog/test.sh` passes
 - [ ] Brainstorm Step 4c offers backlog/Linear write-back; a filed Linear description is self-contained (no bare local-file pointer)
 - [ ] `/orchestrate --tier` parse: omit → JSON `tier` null; `light|standard|full` accepted; malformed → exit 64 before pipeline start (`bash skills/autopilot/test.sh`)
-- [ ] `--tier` identity: omit/`standard`/`full` run today's Step 0–12; `light` records only in this child; SPEC-033 gates unchanged
-- [ ] Orchestrate router lists `--tier` + per-tier table; SKILL.md ≤80 lines; no `commands/orchestrate.md` (`bash skills/orchestrate/router-static-test.sh`)
-- [ ] `docs/commands/orchestrate.md` Flags table documents `--tier` (pipeline cost tier; independent of `--council-tier`)
+- [ ] `--tier` identity: `standard`/`full` run today's Step 0–12; omit auto-sizes at Step 2; `light` runs the light path; SPEC-033 gates unchanged
+- [ ] Orchestrate router lists `--tier` + per-tier table (light = scoper-planner / skip DAG / one IC4 / single-pass TL / no council default / wrap-lite); SKILL.md ≤80 lines; no `commands/orchestrate.md` (`bash skills/orchestrate/router-static-test.sh`)
+- [ ] `docs/commands/orchestrate.md` Flags table documents `--tier` (pipeline cost tier; auto-size; independent of `--council-tier`)
 
 ## Open Questions
 
@@ -358,6 +386,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | CDT-207–210 (epic CDT-205): light-path MUSTs (scoper-planner; skip DAG + one IC4; single-pass TL / no council default / QA-fold / wrap-lite; `--council-tier` override) and auto-size at Step 2 scope-confirm (S→light / M→standard / L→full; explicit `--tier` wins; classify-fail → standard). Branch test is exactly `[ "$ORCH_TIER" = "light" ]`. MUST NOT edit SPEC-033. |
 | 2026-08-21 | CDT-206: `/orchestrate --tier=light\|standard\|full` pipeline cost tier. Parse in `skills/autopilot/parse-flags.sh` (JSON key `tier`, five-key stdout, omit → null, no env, no resume persist, duplicate/`=`-only hard-fail 64). Independent of `--council-tier`. Identity: omit/`standard`/`full` = today's Step 0–12 and SPEC-033 gate actors; `light` records only in this child (spawn cuts later). Skill-only Surface (no `commands/orchestrate.md`). MUST NOT edit SPEC-033. |
 | 2026-08-03 | Backlog write-back consolidation. Added `skills/backlog/SKILL.md` § Programmatic write-back protocol as the SPEC-002 D1 contract home for non-interactive backlog writes (content pre-supply, dedup fixed to suffix, caller-declared Linear-first/`--local-only`), replacing two independent forks (`skills/refactor/SKILL.md` § 2.2a.5's bespoke inline mkdir/printf/awk, and `commands/retro.md` `--auto` mode's ambiguous direct invocation). Added brainstorm Step 4c (offer backlog/Linear write-back on accepted synthesis) and a MUST that Linear descriptions inline actual substance, never a bare local-only file path — origin: CDT-111, a Linear issue created pointing solely at a local `.claude/plans/**` file unreadable without that checkout. |
 | 2026-08-02 | CDT-105: kickoff worktree isolation + resumable-state exit. `/kickoff` now `ensure`s a worktree (bare `<TICKET-ID>` slug) after context load, before the PM/TL spawn, and commits its spec/plan/CONTEXT.md inside `$WT_PATH` on `feat/<TICKET-ID>` — never on master. Fixes the origin defect (standalone `/kickoff` committing straight to master: CDT-104 a049044, CDT-99 0fdf420). Worktree left in place (no `release`) as a documented resumable handoff — the deliberate exception to SPEC-031's implementation-capable-scoped bounded-exit rule. Task graph stays `$MROOT`-anchored. Spec-visibility-until-merge is the intended trade, stated in the summary. SPEC-016 owns the caller-integration form; this spec owns the lifecycle/exit contract. |

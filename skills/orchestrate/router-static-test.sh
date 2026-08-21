@@ -117,15 +117,16 @@ fi
 if grep -qE -- '--tier=<?light\|standard\|full>?' "$SKILL"; then ok
 else bad "T8 SKILL.md missing --tier=light|standard|full (or equivalent Arguments line)"; fi
 
-# ---- T9: per-tier table + light spawn-cuts/later-children (SPEC-009 CDT-206) ----
-# standard and full near a markdown table; light row notes spawn cuts / later children.
+# ---- T9: per-tier table + light step map (SPEC-009 CDT-210) ----
+# standard and full near a markdown table; light row names the real light path.
 if grep -E '^\|' "$SKILL" | grep -q 'standard' \
   && grep -E '^\|' "$SKILL" | grep -q 'full' \
   && grep -E '^\|' "$SKILL" | grep -qiE 'light' \
-  && grep -E '^\|' "$SKILL" | grep -iE 'light' | grep -qiE 'spawn[[:space:]-]*cuts|later[[:space:]-]*child'; then
+  && grep -E '^\|' "$SKILL" | grep -iE 'light' | grep -qiE 'scoper-planner' \
+  && grep -E '^\|' "$SKILL" | grep -iE 'light' | grep -qiE 'skip DAG|one IC4|single-pass'; then
   ok
 else
-  bad "T9 SKILL.md missing per-tier table (standard/full/light + light spawn-cuts/later-children)"
+  bad "T9 SKILL.md missing per-tier table (standard/full/light + light step map)"
 fi
 
 # ---- T10: ORCH_TIER binding + light-branch form (SPEC-009 CDT-207+) ----
@@ -238,6 +239,12 @@ if ! grep -qi 'do not spawn `@qa`' "$STEPS/10-qa.md" && ! grep -qi 'do not spawn
 fi
 if ! grep -qi 'skip Step 12b' "$STEPS/12-wrap.md"; then
   t12_fail="$t12_fail 12 missing wrap-lite"
+fi
+if ! grep -Fq '[ "$ORCH_TIER" = "null" ]' "$STEPS/02-scope.md"; then
+  t12_fail="$t12_fail 02 missing null-test"
+fi
+if ! grep -q 'S → light' "$STEPS/02-scope.md"; then
+  t12_fail="$t12_fail 02 missing S→light"
 fi
 if [ -z "$t12_fail" ]; then ok
 else bad "T12 light-branch:$t12_fail"; fi
