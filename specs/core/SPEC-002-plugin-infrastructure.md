@@ -182,7 +182,7 @@ Measured at **v1.3.0: 26 caller files, 110 emissions, all byte-identical** (`gre
 | 3 | `commands/council.md` | `ENGINE_SH=$(… file skills/council/engine.sh)`; `EXT=$(… file skills/council/external-reviewer.sh)`; `PROBE=$(… file skills/council/workflow-probe.sh)` | hard |
 | 4 | `commands/setup.md` | `PLUGIN_DIR=$(… dir skills/memory-store/schema.sql)`; `IMPORT=$(… file skills/memory-store/import-seed-pack.sh)`; `SEED=$(… file skills/memory-store/seed-common.sh 2>/dev/null \|\| true)`; `DOCTOR=$(… file skills/doctor/doctor.sh 2>/dev/null)` | warn+continue (dir) / soft (seed, doctor) |
 | 5 | `commands/adjust-agent.md` | `PLUGIN_AGENTS=$(… dir agents/pm.md)` | soft |
-| 6 | `commands/handoff.md` | `PREPASS=$(… file skills/handoff/prepass.sh)`; `SKILL=$(… file skills/handoff/SKILL.md)`; `DISCOVER=$(… file skills/handoff/discover-warm.sh)`; `RESOLVE=$(… file skills/handoff/resolve-root.sh)` | hard |
+| 6 | `commands/handoff.md` | `PREPASS=$(… file skills/handoff/prepass.sh)`; `DISCOVER=$(… file skills/handoff/discover-warm.sh)`; `RESOLVE=$(… file skills/handoff/resolve-root.sh)`; skill path `SKILL=$(… file skills/handoff/SKILL.md)` / `LIGHT_PROFILE=$(… file skills/handoff/LIGHT.md)` for spawn payload and in-session fallback (parent **path-resolves**; **Read** of SKILL/LIGHT is fallback-only, not the `mode=direct` stub path) | hard |
 | 7 | `commands/debug.md` + `skills/debug/SKILL.md` | `DEBUG_SKILL=$(… file skills/debug/SKILL.md)`; ticket pipeline resolves `skills/fix-ticket/SKILL.md` by both `file` and `dir` | hard |
 | 8 | `commands/doctor.md` | `DOCTOR=$(… file skills/doctor/doctor.sh)` | hard |
 | 9 | `commands/memory.md` | `EXPORT=$(… file skills/memory-store/export-seed-pack.sh)` | hard |

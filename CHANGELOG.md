@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.9.3
+- **`/handoff` detached orchestrator (CDT-204)** — parent stub parse/discover/prepare then one background agent Reads the skill from disk and IS the miner (INLINE) plus bare-warm annotation; chunked/no-spawn stays in-session; `--miner-model` applies to that agent; command ≤12000 bytes.
+
 ### v1.9.2
 - **`/handoff` `--miner-model` flag with host-neutral tiers (CDT-203)** — CLI `--miner-model` / `--miner-model=` exports alias as given; `fast|balanced|max` resolve at spawn (Claude map, Grok identity, `max` inherit); print-only advisory; dual-home SKILL+LIGHT table. SPEC-018 Test 24/31.
 

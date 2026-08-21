@@ -9,15 +9,42 @@ ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 CMD="$ROOT/commands/handoff.md"
 ASM="$HERE/assemble.py"
 SPEC="$ROOT/specs/core/SPEC-018-cold-session-handoff.md"
+SKILL="$HERE/SKILL.md"
+LIGHT="$HERE/LIGHT.md"
 HONESTY='light preset: reduced-cost mine, no annotation; not AC-16-scored.'
+
+# First ```bash fence under "## Step 1: Parse arguments" (light-gates contract).
+extract_step1_fence() {
+  awk '
+    /^## Step 1: Parse arguments/ { want=1; next }
+    want && /^```bash[[:space:]]*$/ { on=1; next }
+    on && /^```[[:space:]]*$/ { exit }
+    on { print }
+  ' "$CMD"
+}
+
+# Heading contract (CDT-204 T2): ## Orchestrator spawn / ## In-session fallback
+section() {
+  local file="$1" pat="$2"
+  awk -v pat="$pat" '
+    BEGIN { on=0; level=0 }
+    /^#{2,6}[[:space:]]/ {
+      match($0, /^#+/)
+      lvl = RLENGTH
+      if (on && lvl <= level) exit
+      if (!on && $0 ~ pat) { on=1; level=lvl; print; next }
+    }
+    on { print }
+  ' "$file"
+}
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 
 # ---- T-pre: fixtures present ----
-if [ -f "$CMD" ] && [ -f "$ASM" ] && [ -f "$SPEC" ]; then ok
-else bad "T-pre missing CMD/ASM/SPEC"; fi
+if [ -f "$CMD" ] && [ -f "$ASM" ] && [ -f "$SPEC" ] && [ -f "$SKILL" ] && [ -f "$LIGHT" ]; then ok
+else bad "T-pre missing CMD/ASM/SPEC/SKILL/LIGHT"; fi
 
 # ---- T0: commands/handoff.md pins HANDOFF_MINER_MODEL haiku default for light ----
 # Exact light-knob export under LIGHT=1 branch (honor operator env when set).
@@ -28,13 +55,18 @@ else
   bad "T0 handoff.md missing light HANDOFF_MINER_MODEL=haiku default"
 fi
 
-# ---- T1: SKIP_ANNOTATION / skip annotation for light ----
-if grep -qE 'export SKIP_ANNOTATION=1' "$CMD" \
-  && grep -qiE 'Light / `SKIP_ANNOTATION=1` / `HANDOFF_LIGHT=1`: skip entirely' "$CMD" \
-  && grep -qE 'if \[ "\$SKIP_ANNOTATION" = "1" \] \|\| \[ "\$HANDOFF_LIGHT" = "1" \] \|\| \[ "\$LIGHT" = "1" \]' "$CMD"; then
+# ---- T1: SKIP_ANNOTATION / skip annotation — parse fence + SKILL/LIGHT (not Step 7 body) ----
+FENCE_FILE=$(mktemp "${TMPDIR:-/tmp}/light-static-step1.XXXXXX")
+trap 'rm -f "$FENCE_FILE"' EXIT
+extract_step1_fence >"$FENCE_FILE"
+if grep -qE 'export SKIP_ANNOTATION=1' "$FENCE_FILE" \
+  && grep -q 'SKIP_ANNOTATION' "$SKILL" \
+  && grep -qiE 'skip entirely|skip annotation|no annotation' "$SKILL" \
+  && grep -q 'SKIP_ANNOTATION' "$LIGHT" \
+  && grep -qiE 'skip entirely|skip annotation|no annotation' "$LIGHT"; then
   ok
 else
-  bad "T1 handoff.md missing SKIP_ANNOTATION / light skip-annotation gate"
+  bad "T1 SKIP_ANNOTATION must export in parse fence and skip-annotation live in SKILL/LIGHT"
 fi
 
 # ---- T2: honesty string present; no UNMINED for light path ----
@@ -67,33 +99,34 @@ else
   bad "T3 SPEC-018 M10c section incomplete"
 fi
 
-# ---- T4: handoff.md Rules mention M10c light knobs ----
-if grep -qE '\*\*M10c light\*\*' "$CMD" \
+# ---- T4: M10c home = stub one-liner and/or LIGHT.md (honesty exact) ----
+if grep -qE 'M10c' "$CMD" \
   && grep -q 'SKIP_ANNOTATION' "$CMD" \
-  && grep -qiE 'never claim freeform/unmined|MUST NOT say "UNMINED"|never claim.*unmined' "$CMD"; then
+  && grep -qF "$HONESTY" "$LIGHT" \
+  && grep -qiE 'MUST NOT.*UNMINED|never claim.*unmined' "$LIGHT"; then
   ok
 else
-  bad "T4 handoff.md Rules M10c light summary incomplete"
+  bad "T4 M10c one-liner in CMD + LIGHT.md honesty/UNMINED home incomplete"
 fi
 
 # ---- T5 (CDT-199): LIGHT.md thin profile exists ----
-LIGHT="$HERE/LIGHT.md"
 if [ -f "$LIGHT" ]; then ok
 else bad "T5 skills/handoff/LIGHT.md missing"; fi
 
-# ---- T6: --light branch cites LIGHT.md; does not require full SKILL Read ----
-if grep -qE 'skills/handoff/LIGHT\.md|handoff/LIGHT\.md' "$CMD" \
-  && grep -qE 'LIGHT_PROFILE|Read \$LIGHT_PROFILE' "$CMD"; then
+# ---- T6: spawn prompt / fallback pointer names LIGHT.md ----
+SPAWN_SEC=$(section "$CMD" 'Orchestrator spawn')
+FALLBACK=$(section "$CMD" 'In-session fallback')
+if printf '%s\n%s\n' "$SPAWN_SEC" "$FALLBACK" | grep -qE 'LIGHT\.md|LIGHT_PROFILE'; then
   ok
 else
-  bad "T6 commands/handoff.md --light path must cite LIGHT.md / LIGHT_PROFILE"
+  bad "T6 spawn prompt / in-session fallback must name LIGHT.md"
 fi
 
-# Light dispatch must forbid a required full SKILL.md load
+# T6b: parent --light direct path MUST NOT required-Read SKILL (keep)
 if grep -qE 'MUST NOT Read.*skills/handoff/SKILL\.md|MUST NOT Read \$SKILL' "$CMD"; then
   ok
 else
-  bad "T6b command light path must MUST NOT Read full SKILL.md"
+  bad "T6b parent --light direct path must MUST NOT Read full SKILL.md"
 fi
 
 # ---- T7: LIGHT.md is not a required-load of SKILL.md or commands/handoff.md ----
@@ -146,7 +179,6 @@ fi
 
 # ---- T11 (CDT-201 / Test 37): ruling-context + product_surface negatives ----
 # LIGHT.md AND SKILL.md (byte-same examples; CDT-199: light never Reads SKILL).
-SKILL="$HERE/SKILL.md"
 if [ -f "$LIGHT" ] && [ -f "$SKILL" ]; then
   if grep -qF '"B Y"' "$LIGHT" && grep -qF '"B Y"' "$SKILL"; then
     ok

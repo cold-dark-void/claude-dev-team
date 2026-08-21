@@ -368,11 +368,14 @@ if printf '%s' "$UFOOT" | grep -Eq '^packet_tokens: [0-9]+ \(advisory\)$' \
 else bad "T18 unavailable footer shape: $UFOOT"; fi
 
 # ---- T19: production path wires plan.json est_tokens → --spine-tokens (AC6) ----
+# T2 stub: parent no longer inlines FIN_ARGS. Spawn payload names
+# HANDOFF_SPINE_TOKENS; prepass.sh finalize still forwards the flag.
 if [ -f "$CMD_HANDOFF" ] \
-   && grep -q 'stats.get("est_tokens")\|est_tokens' "$CMD_HANDOFF" \
-   && grep -q 'SPINE_TOKENS' "$CMD_HANDOFF" \
-   && grep -q -- '--spine-tokens "$SPINE_TOKENS"' "$CMD_HANDOFF"; then ok
-else bad "T19 handoff.md missing est_tokens → SPINE_TOKENS → finalize wiring"; fi
+   && grep -q 'est_tokens' "$CMD_HANDOFF" \
+   && grep -q 'HANDOFF_SPINE_TOKENS=…' "$CMD_HANDOFF" \
+   && grep -q 'HANDOFF_SPINE_TOKENS' "$HERE/SKILL.md" \
+   && grep -q -- '--spine-tokens "$SPINE_TOKENS"' "$PREPASS"; then ok
+else bad "T19 missing est_tokens / spawn HANDOFF_SPINE_TOKENS / prepass --spine-tokens wiring"; fi
 
 # ---- T20: CDT-88 M8b cache events write/read (stem map, raw ids) ----
 # T1 finalize with thrash + leaf → cache must include non-empty events map.

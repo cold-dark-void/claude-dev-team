@@ -95,8 +95,10 @@ else bad "T2 missing STM headers"; fi
 
 # ---- T3: packet retains planted killed / ruling / open markers ----
 # Markers are unique substrings from events-merged-planted (mine-path contract).
+# ruling: assemble event_body prefers text over quote (M6); share a substring
+# present in both planted fields so the packet match cannot miss.
 need_kill='AC2-KILL: dual full-spine miners waste tokens'
-need_ruling='AC2-RULING: one merged miner only'
+need_ruling='one merged miner only'
 need_open='AC2-OPEN: does chunked path still one-read'
 if grep -Fq "$need_kill" "$PACKET"; then ok
 else bad "T3 packet missing killed marker"; fi

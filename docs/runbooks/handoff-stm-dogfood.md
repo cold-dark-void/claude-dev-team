@@ -99,6 +99,7 @@ Contract: [SPEC-002](../../specs/core/SPEC-002-plugin-infrastructure.md) §`plug
 - Cold mode preferred for past sessions (prints **State now + Through-line**,
   cites full packet path for appendix).
 - Warm (`/handoff` bare) only for the live session mid-work.
+- Default `plan.mode=direct` detaches the mine to one background agent (parent does not load SKILL; `--miner-model` is that agent's `model:`); packet completion is **one-turn lag** (chunked or spawn-unavailable falls back in-session).
 - Confirm packet headers in fixed order:
   `## State now` → `## Through-line` → `## appendix`
 - Confirm kill catalog / rulings appear in Through-line or appendix (not freeform
@@ -269,8 +270,8 @@ measuring a cheaper config:
 
 | Stage / env | Default | Dogfood note |
 |-------------|---------|--------------|
-| Chunk-summarizer + warm annotation | **`haiku`** | Cheap stages always |
-| Merged miner | **session inherit** | Opt-in: `--miner-model <fast|balanced|max|alias>` or `HANDOFF_MINER_MODEL=<tier>` |
+| Chunk-summarizer + warm annotation | **`haiku`** | Cheap stages on in-session fallback only (chunk never on detach) |
+| Merged miner | **session inherit** | Opt-in: `--miner-model <fast|balanced|max|alias>` or `HANDOFF_MINER_MODEL=<tier>` (pins the detached agent on `mode=direct`) |
 | `HANDOFF_SPINE_TOKENS` | **120000** | Lower → more chunking + cheaper map step, but **recall risk** |
 | `/handoff --light` / `HANDOFF_LIGHT` | **off** | Warm-only cost preset (haiku miner if unset, skip annotation, spine 40k if unset, `*-draft.md`, no M8 cache). **Not AC-16-scored** — measure cost only; re-capture full tip before dogfood |
 

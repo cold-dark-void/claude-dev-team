@@ -1,78 +1,56 @@
 ---
 name: handoff
 description: |
-    Spine-mine extraction protocol for `/handoff` (cold + warm). Defines the
-    orchestration flow, the single merged-miner fan-out invariant (1 Task, one
-    spine read), event JSON schemas, Merged miner prompt template (all 7 kinds
-    partitioned into through_line.json + state.json), warm annotation schema, and
-    the event-preserving chunk-summarizer map step. Not user-invoked.
-    `commands/handoff.md` reads this file, fills substitution variables, spawns the
-    merged miner in ONE tool-use block, optionally runs annotation (warm), and hands
-    event JSON to `prepass.sh finalize --events` → `assemble.py` for the STM packet.
-    Implements SPEC-018 M3b–M3e (spine-mine + event model + assemble + spawn model
-    tiers), M4 (STM packet), M5 (lightweight stated-intent-vs-git), M6 (quotes
-    admissible), M7/M10 (cold/warm), M8b (warm delta-mine + prior event merge),
-    M10c (light warm preset — CDT-91), M3d Product surfaces + Open ship gaps
-    (CDT-198), M3b/M3c/M6 miner ruling-context + product_surface negatives +
-    optional wrapper summary (CDT-201).
+    Spine-mine extraction protocol for `/handoff` (cold + warm). Fan-out:
+    one merged-miner actor (INLINE detached or 1 Task in-session), one spine
+    read, both event files. Event JSON schemas, Merged miner prompt (7 kinds →
+    through_line.json + state.json), warm annotation, event-preserving
+    chunk-summarizer (in-session only). Not user-invoked. Parent stub on
+    `mode=direct` MUST NOT Read this file; the detached agent MUST Read it from
+    disk. In-session fallback parent MAY Read it. `--light` uses LIGHT.md only.
+    Implements SPEC-018 M3b–M3e, M4–M8b, M10/M10c, M19.
 ---
 
 # handoff
 
-The distillation half of the `/handoff` pipeline (SPEC-018). After the
-deterministic, LLM-free `prepass.sh prepare` stage assembles a fork-deduped,
-`toolUseResult`-stripped, size-bounded **spine** (and, for oversized monsters, a
-set of pre-summarized chunks reduced back into a spine), this skill specifies how
-to convert that spine into an **STM packet** (compact seed): **State now →
-Through-line → appendix**.
+Distillation half of `/handoff` (SPEC-018). After `prepass.sh prepare` builds a
+fork-deduped, `toolUseResult`-stripped **spine** (chunk-reduced when oversized),
+this skill converts it to an **STM packet**: **State now → Through-line →
+appendix**.
 
-It does that with **one merged LLM miner** that reads the spine once and writes
-**both** event files (`through_line.json` + `state.json`), plus **deterministic
-git** for appendix code-state (no LLM), merged by LLM-free
-`skills/handoff/assemble.py` via `prepass.sh finalize --events`. Warm mode may add
-an **annotation** pass that only labels existing event IDs.
+**One merged LLM miner** reads the spine once and writes both event files, plus
+**deterministic git** (no LLM), merged by `assemble.py` via `prepass.sh finalize
+--events`. Warm MAY add an **annotation** pass that only labels existing event IDs.
 
-This file is the single source of truth for the fan-out: miner prompt templates,
-event/annotation JSON schemas, the chunk-summarizer preserve contract, and the
-merge boundary `finalize` / `assemble.py` consume.
+SoT for miner templates, event/annotation schemas, chunk-summarizer preserve
+contract, and the finalize/assemble merge boundary.
 
-**Related (not this skill):** PreCompact auto-rescue is a separate deterministic
-path — `skills/handoff/precompact-capture.sh` (engine) + `.claude/hooks/precompact-rescue.sh`
-/ `rescue-pointer.sh`. It writes a **spine snapshot** under
-`.claude/handoff/*-precompact-*.md` (M12–M18), **not** an STM packet. See
-`docs/commands/handoff.md` § Rescue artifacts and `bash skills/handoff/precompact-test.sh`.
+**Related (not this skill):** PreCompact rescue is deterministic —
+`precompact-capture.sh` + hooks write a **spine snapshot** (`*-precompact-*.md`,
+M12–M18), **not** an STM packet. See `docs/commands/handoff.md` § Rescue artifacts.
 
 ---
 
 ## Who calls this
 
-`commands/handoff.md` (cold + warm orchestrator). The command reads this file
-on **bare /handoff** (not `--light`), substitutes `${...}` placeholders, and
-spawns the merged miner **in one tool-use block** (a single `Task`). `--light`
-reads `skills/handoff/LIGHT.md` only (CDT-199) — never this file. Never
-invoked by humans.
+Parent stub (`commands/handoff.md`) on `plan.mode=direct` MUST NOT Read this
+file. The **detached agent MUST Read it from disk** and execute git / miner /
+annotation / finalize. In-session fallback (`mode=chunked` or host cannot spawn)
+parent MAY Read it. `--light` uses `skills/handoff/LIGHT.md` only — never this
+file. Never invoked by humans.
 
-Warm and cold share this spine-mine engine (M3b / M10): same merged miner, same
-event schema, same assemble. They differ only in entry (uuid locate vs dual-host
-`discover-warm.sh` self-transcript + mid-write carve-out; CDT-92 Grok|Claude)
-and exit (cold print core + path; warm file-only) plus optional warm annotation.
-`--light` / M10c is warm-only cost sugar over the same engine (still mines).
+Warm and cold share this spine-mine engine (M3b / M10): same miner, schema,
+assemble. They differ in entry (uuid vs `discover-warm.sh`) and exit (cold print
+core + path; warm file-only) plus optional warm annotation. `--light` / M10c is
+warm-only cost sugar (still mines).
 
 ---
 
 ## Why it exists
 
-- `prepass.sh` is fast and deterministic but produces only a flattened spine; it
-  cannot say which hypotheses were *killed*, which user rulings are load-bearing,
-  or which threads remain open.
-- One merged miner with a hard seven-kind ceiling and a strict event schema extracts
-  those facets in a **single spine read** (cost cut vs dual full-spine miners),
-  without freeform brief essays or dual SoT paths.
-- Assemble is mechanical (State now from the event-log tail) so the packet never
-  invents a root cause the session did not land (M11b). State now MUST include
-  **Product surfaces** (primary UX + unfinished / do-not-treat-as-product) and
-  **Open ship gaps** (CDT-198) — assemble synthesizes `_unspecified_` when the
-  miner tagged nothing; it MUST NOT invent surface names.
+One merged miner (seven-kind ceiling, one spine read) extracts kills, rulings,
+and opens that `prepass.sh` cannot. Assemble is mechanical (M11b); Product
+surfaces + Open ship gaps are required (CDT-198; `_unspecified_` if untagged).
 
 ---
 
@@ -113,6 +91,7 @@ prepass.sh finalize --uuid <u> --events ${EVENTS_DIR} \
 cold: print State now + Through-line + cite packet path (M7); write cache (M8/M8b)
 warm: file-only write under .claude/handoff/ (M10); cache events for next delta
 warm light: *-draft.md; mode: warm + light: true; no cache write
+M19: mode=direct → detached agent IS miner INLINE; chunked/no-spawn → in-session Tasks
 ```
 
 ### M8b — warm delta-mine (protocol)
@@ -191,37 +170,50 @@ claim AC-16 credit for light; change bare-warm defaults when `--light` omitted.
 
 ## Fan-out INVARIANT (do not violate)
 
-> **The orchestrator MUST spawn the merged miner as a SINGLE `Task` in a SINGLE
-> tool-use block** (one `Task` tool call in one assistant message). Spawning two
-> full-spine LLM miners for the same capture is a defect (duplicate spine read;
-> SPEC-018 M3b). Chunk-summarizers still fan out as N Tasks in one block (below).
+> **One merged-miner actor per capture** (SPEC-018 M3b). Detached: this agent IS
+> the miner (INLINE; Write both files; one spine read; MUST NOT nest Task).
+> In-session: spawn as a SINGLE `Task` in a SINGLE tool-use block. Two full-spine
+> LLM miners (or INLINE plus a miner Task) is a defect. Chunk-summarizers fan out
+> as N Tasks in one block (**in-session only**).
 
-The merged miner sees the spine once (and may see a shared git-state blob for M5).
-It does **not** receive prior narrative or the assembled packet. Cross-file
-reconciliation of events happens only in `assemble.py` (dedup + State now
-selection).
+The miner sees the spine once (optional shared git-state blob for M5). It does
+**not** receive prior narrative or the assembled packet. Cross-file event
+reconciliation is `assemble.py` only (dedup + State now selection).
 
-If the miner spawn fails or returns invalid JSON / missing files, the orchestrator
-proceeds with whatever event files survived (or an empty `EVENTS_DIR`) — **never
-block the whole handoff on a single bad spawn**.
+If the miner actor fails or returns invalid JSON / missing files, proceed with
+whatever event files survived (or an empty `EVENTS_DIR`) — **never block the
+whole handoff on a single bad spawn**.
 
 **Code-state is not a miner.** Git log/diff/status is captured deterministically
 by the orchestrator / `prepass.sh finalize` (`capture_git_state`) and passed as
 `--git-state`. There is no LLM Code-state extractor.
 
+### Execution modes (M19)
+
+Parent parse + (warm) discover + resolve-root + cheap gates + **prepare**, then
+branch on `plan.mode` **before** any skill Read or miner/annotation/chunk spawn.
+
+| Path | Skill Read | Miner | Annotation (bare warm) | Chunk map |
+|------|------------|-------|------------------------|-----------|
+| Detached (`mode=direct`, host can spawn) | **Agent MUST Read this file from disk.** Parent stub MUST NOT. | **INLINE** — this agent IS the miner (Write both event files; one spine read). MUST NOT nest Task. | **INLINE** after miner (same agent; `assemble.load_merged_for_summary`; Write annotations file). Light/cold skip. | **Never.** Detached agent MUST NOT enter `## Chunk-Summarizer`. |
+| In-session fallback (`mode=chunked` or host cannot spawn) | Parent MAY Read this file | **one** miner Task (today) | **one** haiku Task | Parallel N haiku in one block. Serialization is a defect. |
+
+INLINE plus a miner Task on the same capture is a duplicate-spine-read defect (M3b). Agent MUST NOT re-run `discover-warm.sh`. Parent spawns **exactly one** background agent on the detached path.
+
 ### Spawn model tiers (M3e / CDT-90)
 
 Canonical `fast|balanced|max` at spawn (else passthrough) — **never** pin dated model
 IDs. `effort` on any Task is **optional** (omit by default; never required for
-correctness). The **parent/orchestrator** turn stays at **session tier** (MUST NOT
-force haiku on the parent loop).
+correctness). The **parent stub** stays at **session tier** (MUST NOT force haiku
+on the parent loop). Detached agent's `model:` is the miner tier (below).
 
 | Stage | Task count | `model` | Notes |
 |-------|------------|---------|--------|
-| Chunk-summarizer (Step 5b) | N in one block | **`haiku`** | Extraction map step |
-| Merged miner (Step 6) | **1** Task | **inherit session** (omit `model`) | Opt-in: `--miner-model` / `HANDOFF_MINER_MODEL` (`fast\|balanced\|max` or alias). **Light (M10c):** `haiku` if unset |
-| Annotation (Step 7, warm) | 1 | **`haiku`** | Labels/rank only. **Light:** skip (no Task) |
-| Parent orchestrator | — | **session** | Steps 0–8 shell + judgment; never force haiku |
+| Chunk-summarizer (Step 5b) | N in one block | **`haiku`** | In-session fallback only |
+| Merged miner (Step 6, in-session) | **1** Task | **inherit session** (omit `model`) | Opt-in: `--miner-model` / `HANDOFF_MINER_MODEL` (`fast\|balanced\|max` or alias). **Light (M10c):** `haiku` if unset |
+| Annotation (Step 7, in-session warm) | 1 | **`haiku`** | Labels/rank only. **Light:** skip (no Task) |
+| Parent stub | — | **session** | Parse/discover/prepare/branch; never force haiku |
+| Detached orchestrator agent | 1 | miner tier (`HANDOFF_MINER_MODEL`) | IS miner (+ annotation if bare warm) |
 
 ```bash
 # Miner model (CDT-90 / CDT-203): empty = inherit
@@ -234,9 +226,9 @@ HANDOFF_MINER_MODEL="${HANDOFF_MINER_MODEL:-}"
 
 ## Input contract
 
-The calling command MUST provide the following before the merged miner Task spawn.
-There is no per-role `MINER=` selector — one Task owns all seven kinds and both
-output files.
+The miner actor (INLINE detached or in-session Task) MUST have the following
+before mining. There is no per-role `MINER=` selector — one actor owns all seven
+kinds and both output files.
 
 | Variable | Type | Description |
 |----------|------|-------------|
@@ -416,7 +408,7 @@ raw or namespaced). Missing summary is OK.
 
 ## Merged miner (through_line.json + state.json)
 
-One Task reads the spine **once**, mines all seven kinds chronologically, then
+One actor reads the spine **once**, mines all seven kinds chronologically, then
 **partitions on write**:
 
 - `${EVENTS_DIR}/through_line.json` — chronological evidence trail: hypotheses,
@@ -431,6 +423,11 @@ One Task reads the spine **once**, mines all seven kinds chronologically, then
 
 ### Spawn contract (M3e)
 
+**Detached** (this file executed by the detached agent): do the miner procedure
+**in this turn**. Write both event files. One spine read. MUST NOT nest Task.
+
+**In-session** (chunked / no-spawn fallback): spawn one miner Task as today:
+
 ```
 subagent_type: "general-purpose"
 # model: inherit session by default (omit field)
@@ -439,7 +436,7 @@ subagent_type: "general-purpose"
 ```
 
 Default: **omit `model`** so the miner inherits the session model. Opt-in: exact `fast|balanced|max` → host cell; else passthrough. MUST NOT force
-`model: haiku` when unset. Still **one** Task, both event files, one spine read (CDT-89 / M3b).
+`model: haiku` when unset. Still **one** actor (INLINE or Task), both event files, one spine read (CDT-89 / M3b).
 
 | Canonical | Claude | Grok |
 |-----------|--------|------|
@@ -584,6 +581,10 @@ present), warm mode MAY run one annotation pass over the **merged namespaced
 event id set** (prior + delta when M8b). Cold mode skips this. **Light (M10c /
 `SKIP_ANNOTATION=1` / `HANDOFF_LIGHT=1`): skip entirely** — no summary build, no
 annotation Task.
+
+**Detached bare-warm:** INLINE after miner (same agent; build `EVENTS_SUMMARY_JSON`
+via `assemble.load_merged_for_summary`; Write annotations file). MUST NOT nest Task.
+**In-session:** one haiku Task (spawn contract below). Light/cold skip unchanged.
 
 **Namespace seam (CDT-93 + M8b / CDT-88):**
 
@@ -794,22 +795,22 @@ files); M8b prior merge is optional and cold-path identical when omitted.
 Changing the event schema requires updating this file **and**
 `assemble.py` / tests together.
 
-The orchestrator (`commands/handoff.md`) is the only component that (a) decides
-`EVENTS_DIR` and M8b prior eligibility, (b) spawns the merged miner in ONE block
-(single Task), (c) builds Step 7 merged summary + optionally runs annotation,
-(d) calls `finalize` with `--prior-events` when set once miner files exist (or
-after a bounded wait, proceeding with whatever events survived).
+Parent does parse / discover / prepare / branch. Detached agent does git / miner
+/ annotation / finalize. In-session fallback parent MAY do git / miner Task /
+annotation Task / finalize after Reading this file.
 
 ---
 
 ## Chunk-Summarizer (M3 size-adaptive map step)
+
+**In-session only.** Detached agent never enters this section.
 
 ### When it runs
 
 `prepass.sh prepare` emits `plan.json` with `mode: "chunked"` when the stripped
 spine exceeds the target context window. In that case `plan.chunks` is an array of
 pre-split chunk files (split by `prepass.sh`, preferring user-turn boundaries).
-The orchestrator MUST run chunk-summarizers **before** spawning the merged miner:
+The in-session orchestrator MUST run chunk-summarizers **before** the miner actor:
 
 ```
 [ mode == "chunked" ]
@@ -826,8 +827,8 @@ SPAWN 1 MERGED MINER IN ONE TOOL-USE BLOCK
    miner sees the reduced spine once, not the raw chunks
 ```
 
-When `mode == "direct"`, skip chunk-summarizers; the merged miner runs over the raw
-spine.
+When `mode == "direct"`, skip chunk-summarizers; the miner runs over the raw spine.
+Detached path is always `mode=direct` — never this section.
 
 ### Fan-out invariant
 
@@ -971,30 +972,8 @@ CONTENT SHAPE (summary field, markdown, dense):
 
 ---
 
-## Signal sources when `thinking` is empty (summary)
+Signal sources when thinking is empty: miner REAL-DATA block above (user text → assistant text → plaintext thinking bonus → sidechain).
 
-Real transcripts often carry **signature-only / encrypted `thinking` blocks**.
-The merged miner and chunk-summarizers MUST NOT depend on thinking plaintext:
+## Template name index
 
-1. **User text** — primary source of rulings, corrections, constraints.
-2. **Assistant text** — hypotheses proposed and abandoned (cue phrases).
-3. **Thinking** — bonus only if plaintext happens to exist.
-4. **Sidechain** — routine collapse or signal-bearing reconstruction
-   (`hypothesis` / `killed` / `notes`); abandoned sidechains are kills.
-
-The spine keeps thinking blocks so the bonus path remains available; correctness
-does not hinge on them.
-
----
-
-## Template name index (for command orchestrator)
-
-| Template | Section heading in this file | Output path / shape |
-|----------|------------------------------|---------------------|
-| Merged miner | `## Merged miner` | `${EVENTS_DIR}/through_line.json` + `${EVENTS_DIR}/state.json` → each `{events:[…]}` |
-| Annotation (warm) | `## Annotation pass (warm only)` | `${ANNOTATIONS_FILE}` → `{annotations:[…]}` (skipped under light) |
-| Chunk-summarizer | `## Chunk-Summarizer` | per-chunk JSON → reduced spine |
-| Light preset (M10c) | `### M10c — light warm preset` | knobs + markers; no separate Task template |
-| SECURITY block | `## SECURITY` | embedded in every LLM task |
-| Common miner preamble | `## Common miner preamble` | embedded in merged miner |
-| Finalize CLI | `## Merge contract handoff` | `prepass.sh finalize --events …` [optional `--light`] |
+Merged miner → `## Merged miner`; annotation → `## Annotation pass`; chunk-summarizer (in-session only) → `## Chunk-Summarizer`; SECURITY + preamble embed in miner; finalize → `## Merge contract handoff`.

@@ -1,16 +1,19 @@
 # /handoff --light profile (M10c / CDT-199)
 
-Thin warm-only execution profile. **Read this file only** for `--light` templates
-and knobs.
+Thin warm-only execution profile.
 
-- **MUST NOT** Read `skills/handoff/SKILL.md`.
-- **MUST NOT** Read `commands/handoff.md` as a second required load (the slash
-  command is already in context from parse).
-- Bare `/handoff` (no `--light`) MAY still load the full skill.
+- **Parent** `--light` + `mode=direct` MUST NOT Read this file.
+- **Detached agent MUST Read this file from disk** and execute git / miner /
+  finalize (skip annotation).
+- In-session `--light` chunked (or no-spawn host): parent MAY Read this file
+  only. Still MUST NOT Read `skills/handoff/SKILL.md`.
+- **MUST NOT** Read `commands/handoff.md` as a second required load.
+- Bare `/handoff` (no `--light`) uses `SKILL.md`, not this file.
 
-Pipeline light actually runs: **prepare → miner (chunk if needed) → assemble
-`--light`**. **Skip annotation** entirely (`SKIP_ANNOTATION=1`). Still mines —
-not freeform. Product surfaces + Open ship gaps stay required (assemble C2).
+Pipeline light actually runs: **prepare → miner (chunk if needed, in-session
+only) → assemble `--light`**. **Skip annotation** entirely (`SKIP_ANNOTATION=1`).
+Still mines — not freeform. Product surfaces + Open ship gaps stay required
+(assemble C2).
 
 ## M10c knobs (honor operator env when already set)
 
@@ -31,19 +34,31 @@ claim AC-16. After write, nudge: bare `/handoff` before session end.
 
 ## Light pipeline (after command parse + knobs)
 
-Command Steps 0 (resolve-root), 1w (discover-warm), 4 (prepare + git), 5
-(spine / chunks), 6 (one merged miner), 8 (finalize `--light`) stay in the
-already-injected command. This file supplies **templates only** for Steps 5–6
-and the M10c finalize contract.
+Parent does parse / discover / prepare / branch. Detached agent does git / miner
+/ finalize. In-session fallback parent MAY Read this file only (MUST NOT Read
+`SKILL.md`) and run git / miner Task / finalize.
 
-1. Warm discover + resolve-root (command 1w / 0). Fail hard on discover miss —
+### Execution modes (M19)
+
+Parent parse + (warm) discover + resolve-root + cheap gates + **prepare**, then
+branch on `plan.mode` **before** any skill Read or miner/chunk spawn. Light
+**skips annotation**. Miner `model: haiku` when `HANDOFF_MINER_MODEL` unset.
+
+| Path | Skill Read | Miner | Annotation | Chunk map |
+|------|------------|-------|------------|-----------|
+| Detached (`mode=direct`, host can spawn) | **Agent MUST Read this file from disk.** Parent stub MUST NOT. | **INLINE** — this agent IS the miner (Write both event files; one spine read). MUST NOT nest Task. `model: haiku` when unset. | **skip** | **Never.** Detached agent MUST NOT enter `## Chunk-Summarizer`. |
+| In-session fallback (`mode=chunked` or host cannot spawn) | Parent MAY Read this file only (MUST NOT Read `SKILL.md`) | **one** miner Task (`model: haiku` when unset) | **skip** | Parallel N haiku in one block. Serialization is a defect. |
+
+INLINE plus a miner Task on the same capture is a duplicate-spine-read defect (M3b). Agent MUST NOT re-run `discover-warm.sh`.
+
+1. Warm discover + resolve-root (parent). Fail hard on discover miss —
    no freeform live-context packet.
 2. Prepare (`prepass.sh prepare` + `--allow-in-progress`). Skip cold cache-check.
    Light cache is never a prior source (`light: true` → no `--since-leaf`).
-3. If `mode == "chunked"`: spawn N chunk-summarizers (template below) in ONE
-   tool-use block; reduce to `MINER_SPINE`. Direct: `MINER_SPINE=$SPINE`.
-4. Spawn **1** merged miner (template below) in ONE tool-use block.
-   `model: haiku` when `HANDOFF_MINER_MODEL=haiku` (light default if unset).
+3. If `mode == "chunked"` (in-session only): spawn N chunk-summarizers (template
+   below) in ONE tool-use block; reduce to `MINER_SPINE`. Direct: `MINER_SPINE=$SPINE`.
+4. Miner: **INLINE** on detach (this turn, both event files, one spine read, MUST
+   NOT nest Task). In-session: spawn **1** miner Task. `model: haiku` when unset.
 5. **Skip annotation.** `ANNOTATIONS_FILE=""`. Do not build `EVENTS_SUMMARY_JSON`.
 6. `prepass.sh finalize --mode warm --light` (no `--annotations`). Draft path;
    no M8 cache. Print:
@@ -187,7 +202,7 @@ raw or namespaced). Missing summary is OK.
 
 ## Merged miner (through_line.json + state.json)
 
-One Task reads the spine **once**, mines all seven kinds chronologically, then
+One actor reads the spine **once**, mines all seven kinds chronologically, then
 **partitions on write**:
 
 - `${EVENTS_DIR}/through_line.json` — chronological evidence trail: hypotheses,
@@ -202,6 +217,13 @@ One Task reads the spine **once**, mines all seven kinds chronologically, then
 
 ### Spawn contract (M3e)
 
+**Detached** (this file executed by the detached agent): do the miner procedure
+**in this turn**. Write both event files. One spine read. MUST NOT nest Task.
+Background agent `model:` is miner tier (`haiku` when `HANDOFF_MINER_MODEL` unset).
+
+**In-session** (chunked / no-spawn fallback): spawn one miner Task as today;
+`model: haiku` when unset.
+
 ```
 subagent_type: "general-purpose"
 # model: inherit session by default (omit field)
@@ -209,8 +231,7 @@ subagent_type: "general-purpose"
 # effort: optional — omit by default; never required
 ```
 
-Default: **omit `model`** so the miner inherits the session model. Opt-in: exact `fast|balanced|max` → host cell; else passthrough. MUST NOT force
-`model: haiku` when unset. Still **one** Task, both event files, one spine read (CDT-89 / M3b).
+Default (light): `model: haiku` when `HANDOFF_MINER_MODEL` unset. Opt-in: exact `fast|balanced|max` → host cell; else passthrough. Still **one** actor (INLINE or Task), both event files, one spine read (CDT-89 / M3b).
 
 | Canonical | Claude | Grok |
 |-----------|--------|------|
@@ -350,12 +371,15 @@ OUTPUT SHAPE
 
 ## Chunk-Summarizer (M3 size-adaptive map step)
 
+**In-session only.** Detached agent never enters this section. Chunk templates
+below are used only on in-session fallback.
+
 ### When it runs
 
 `prepass.sh prepare` emits `plan.json` with `mode: "chunked"` when the stripped
 spine exceeds the target context window. In that case `plan.chunks` is an array of
 pre-split chunk files (split by `prepass.sh`, preferring user-turn boundaries).
-The orchestrator MUST run chunk-summarizers **before** spawning the merged miner:
+The in-session orchestrator MUST run chunk-summarizers **before** the miner actor:
 
 ```
 [ mode == "chunked" ]
@@ -372,8 +396,8 @@ SPAWN 1 MERGED MINER IN ONE TOOL-USE BLOCK
    miner sees the reduced spine once, not the raw chunks
 ```
 
-When `mode == "direct"`, skip chunk-summarizers; the merged miner runs over the raw
-spine.
+When `mode == "direct"`, skip chunk-summarizers; the miner runs over the raw spine.
+Detached path is always `mode=direct` — never this section.
 
 ### Fan-out invariant
 

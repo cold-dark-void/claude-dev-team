@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# spawn-model-ac-test.sh — CDT-90 / CDT-203 static contract for SPEC-018 M3e spawn model tiers.
+# spawn-model-ac-test.sh — CDT-90 / CDT-203 / CDT-204 static contract for SPEC-018 M3e.
+# CDT-204: T0/T1/AC7e → CMD in-session fallback + SKILL; T3/AC7a–c → orchestrator-spawn.
 # Greps committed prompt/docs only (no network, no LLM, no cost metrics).
 # Run: bash skills/handoff/spawn-model-ac-test.sh
 set -u
@@ -42,22 +43,26 @@ has_active_haiku() {
 if [ -f "$CMD" ] && [ -f "$SKILL" ] && [ -f "$PREPASS" ]; then ok
 else bad "T-pre missing CMD/SKILL/PREPASS"; fi
 
-# ---- T0: commands/handoff.md Step 5b / chunk-summarizer pins model: haiku ----
-SEC5B=$(section "$CMD" '### 5b[.]|Step 5b')
-if printf '%s\n' "$SEC5B" | grep -qE 'chunk-summarizer|chunked' \
-  && printf '%s\n' "$SEC5B" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku[[:space:]]*$'; then
+# T2 heading contract (CDT-204): CMD in-session fallback pointer + orchestrator-spawn.
+#   ## In-session fallback  — chunk/annotation model: haiku (T0/T1/T8/AC7e)
+#   ## Orchestrator spawn   — background agent model: (T3/AC7a–c)
+FALLBACK=$(section "$CMD" 'In-session fallback')
+SPAWN_SEC=$(section "$CMD" 'Orchestrator spawn')
+
+# ---- T0: CMD in-session fallback / chunk-summarizer pins model: haiku ----
+if printf '%s\n' "$FALLBACK" | grep -qE 'chunk-summarizer|chunked' \
+  && printf '%s\n' "$FALLBACK" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku[[:space:]]*$'; then
   ok
 else
-  bad "T0 Step 5b/chunk path missing active model: haiku in $CMD"
+  bad "T0 in-session fallback missing active model: haiku (chunk) in $CMD"
 fi
 
-# ---- T1: commands/handoff.md Step 7 / annotation pins model: haiku ----
-SEC7=$(section "$CMD" '^## Step 7:')
-if printf '%s\n' "$SEC7" | grep -qiE 'annotation' \
-  && printf '%s\n' "$SEC7" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku[[:space:]]*$'; then
+# ---- T1: CMD in-session fallback / annotation pins model: haiku ----
+if printf '%s\n' "$FALLBACK" | grep -qiE 'annotation' \
+  && printf '%s\n' "$FALLBACK" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku[[:space:]]*$'; then
   ok
 else
-  bad "T1 Step 7/annotation path missing active model: haiku in $CMD"
+  bad "T1 in-session fallback missing active model: haiku (annotation) in $CMD"
 fi
 
 # ---- T2: SKILL.md ≥2 active model: haiku (chunk + annotation spawn contracts) ----
@@ -73,13 +78,13 @@ else
 fi
 
 # ---- T3: miner inherits; HANDOFF_MINER_MODEL opt-in; no unconditional haiku ----
-SEC6=$(section "$CMD" '^## Step 6:')
-if printf '%s\n' "$SEC6" | grep -q 'HANDOFF_MINER_MODEL' \
-  && printf '%s\n' "$SEC6" | grep -qiE 'inherit' \
-  && ! printf '%s\n' "$SEC6" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku[[:space:]]*$'; then
+# CMD home is orchestrator-spawn (background agent model:), not Step 6 miner Task.
+if printf '%s\n' "$SPAWN_SEC" | grep -q 'HANDOFF_MINER_MODEL' \
+  && printf '%s\n' "$SPAWN_SEC" | grep -qiE 'inherit' \
+  && ! printf '%s\n' "$SPAWN_SEC" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku[[:space:]]*$'; then
   ok
 else
-  bad "T3 miner path must document HANDOFF_MINER_MODEL + inherit; no active model: haiku default"
+  bad "T3 orchestrator-spawn must document HANDOFF_MINER_MODEL + inherit; no active model: haiku default"
 fi
 
 if grep -q 'HANDOFF_MINER_MODEL' "$SKILL" \
@@ -150,48 +155,48 @@ else
   bad "T8 cheap stages lost model: haiku pin in CMD and/or SKILL"
 fi
 
-# ---- AC7: host-neutral fast|balanced|max at spawn (Step 6 + SKILL + LIGHT) ----
-# Reuse SEC6 from T3; cheap-stage haiku pins must stay (T0/T1/T2/T8).
-if [ -z "${SEC6:-}" ]; then
-  SEC6=$(section "$CMD" '^## Step 6:')
+# ---- AC7: host-neutral fast|balanced|max at spawn (orchestrator-spawn + SKILL + LIGHT) ----
+# Reuse SPAWN_SEC from T3; cheap-stage haiku pins must stay (T0/T1/T2/T8).
+if [ -z "${SPAWN_SEC:-}" ]; then
+  SPAWN_SEC=$(section "$CMD" 'Orchestrator spawn')
 fi
 if [ -f "$LIGHT" ] \
-   && printf '%s\n' "$SEC6" | grep -qF 'fast|balanced|max' \
+   && printf '%s\n' "$SPAWN_SEC" | grep -qF 'fast|balanced|max' \
    && grep -qF 'fast|balanced|max' "$SKILL" \
    && grep -qF 'fast|balanced|max' "$LIGHT"; then
   ok
 else
-  bad "AC7a Step 6 + SKILL + LIGHT must mention fast|balanced|max"
+  bad "AC7a orchestrator-spawn + SKILL + LIGHT must mention fast|balanced|max"
 fi
 
-# Claude: fast→haiku, balanced→sonnet, max inherit/omit (table in SKILL/LIGHT; Step 6 prose or cite)
+# Claude: fast→haiku, balanced→sonnet, max inherit/omit (table in SKILL/LIGHT; spawn prose or cite)
 if grep -qE '`fast`[[:space:]]*\|[[:space:]]*`haiku`' "$SKILL" \
    && grep -qE '`balanced`[[:space:]]*\|[[:space:]]*`sonnet`' "$SKILL" \
    && grep -qE '`max`[[:space:]]*\|[[:space:]]*inherit' "$SKILL" \
    && grep -qE '`fast`[[:space:]]*\|[[:space:]]*`haiku`' "$LIGHT" \
    && grep -qE '`balanced`[[:space:]]*\|[[:space:]]*`sonnet`' "$LIGHT" \
    && grep -qE '`max`[[:space:]]*\|[[:space:]]*inherit' "$LIGHT" \
-   && printf '%s\n' "$SEC6" | grep -qE 'fast[[:space:]]*(→|->)[[:space:]]*`?haiku`?|`fast`[[:space:]]*\|[[:space:]]*`haiku`' \
-   && printf '%s\n' "$SEC6" | grep -qE 'balanced[[:space:]]*(→|->)[[:space:]]*`?sonnet`?|`balanced`[[:space:]]*\|[[:space:]]*`sonnet`' \
-   && printf '%s\n' "$SEC6" | grep -qiE 'max.*(inherit|omit)|omit.*max'; then
+   && printf '%s\n' "$SPAWN_SEC" | grep -qE 'fast[[:space:]]*(→|->)[[:space:]]*`?haiku`?|`fast`[[:space:]]*\|[[:space:]]*`haiku`' \
+   && printf '%s\n' "$SPAWN_SEC" | grep -qE 'balanced[[:space:]]*(→|->)[[:space:]]*`?sonnet`?|`balanced`[[:space:]]*\|[[:space:]]*`sonnet`' \
+   && printf '%s\n' "$SPAWN_SEC" | grep -qiE 'max.*(inherit|omit)|omit.*max'; then
   ok
 else
-  bad "AC7b Claude map missing (fast→haiku, balanced→sonnet, max inherit/omit) in Step 6/SKILL/LIGHT"
+  bad "AC7b Claude map missing (fast→haiku, balanced→sonnet, max inherit/omit) in orchestrator-spawn/SKILL/LIGHT"
 fi
 
 # Grok identity (fast→fast); passthrough; fail-soft inherit
 if grep -qE '`fast` \(identity\)' "$SKILL" \
    && grep -qE '`fast` \(identity\)' "$LIGHT" \
-   && printf '%s\n' "$SEC6" | grep -qiE 'identity|fast[[:space:]]*(→|->)[[:space:]]*`?fast`?' \
+   && printf '%s\n' "$SPAWN_SEC" | grep -qiE 'identity|fast[[:space:]]*(→|->)[[:space:]]*`?fast`?' \
    && grep -qiE 'passthrough|pass-through|pass as-is|pass through' "$SKILL" \
    && grep -qiE 'passthrough|pass-through|pass as-is|pass through' "$LIGHT" \
-   && printf '%s\n' "$SEC6" | grep -qiE 'passthrough|pass-through|pass as-is|pass through' \
+   && printf '%s\n' "$SPAWN_SEC" | grep -qiE 'passthrough|pass-through|pass as-is|pass through' \
    && grep -qi 'fail-soft' "$SKILL" \
    && grep -qi 'fail-soft' "$LIGHT" \
-   && printf '%s\n' "$SEC6" | grep -qi 'fail-soft'; then
+   && printf '%s\n' "$SPAWN_SEC" | grep -qi 'fail-soft'; then
   ok
 else
-  bad "AC7c Grok identity / passthrough / fail-soft inherit missing in Step 6/SKILL/LIGHT"
+  bad "AC7c Grok identity / passthrough / fail-soft inherit missing in orchestrator-spawn/SKILL/LIGHT"
 fi
 
 # No dated Grok/spark pins as Task model: values (prose "never pin" mentions OK)
@@ -204,19 +209,19 @@ else
 fi
 
 if has_active_haiku "$CMD" && has_active_haiku "$SKILL" \
-   && printf '%s\n' "$SEC5B" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku' \
-   && printf '%s\n' "$SEC7" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku'; then
+   && printf '%s\n' "$FALLBACK" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku'; then
   ok
 else
-  bad "AC7e chunk/annotation must keep active model: haiku (T0/T1/T2/T8 lock)"
+  bad "AC7e chunk/annotation must keep active model: haiku on in-session fallback + SKILL (T0/T1/T2/T8 lock)"
 fi
 
 # ---- AC8: advisory after successful prepare (print-only; exact lines + skip) ----
-if grep -qF 'fast tier is likely sufficient for this mine' "$CMD" \
-   && grep -qF 'keep session tier' "$CMD"; then
+# Live printer: non-comment echo/print( of both exact strings (comments do not count).
+if grep -vE '^[[:space:]]*#' "$CMD" | grep -F 'fast tier is likely sufficient for this mine' | grep -qE 'echo|print\(' \
+   && grep -vE '^[[:space:]]*#' "$CMD" | grep -F 'keep session tier' | grep -qE 'echo|print\('; then
   ok
 else
-  bad "AC8a commands/handoff.md missing exact advisory strings"
+  bad "AC8a commands/handoff.md missing live echo/print of exact advisory strings"
 fi
 
 if grep -q '30000' "$CMD" \

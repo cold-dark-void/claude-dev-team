@@ -44,10 +44,13 @@ capture cannot poison the next full delta). Honesty line (exact):
 Host-agnostic: same dual-host discover as bare warm (Claude + Grok). See
 [Light preset](#light-preset-m10c) and [cost knobs](#spawn-model-tiers-m3e--cdt-90).
 
-**`--miner-model`** (M3e / CDT-203): pin the merged miner to a host-neutral
-tier or a passthrough alias. Combine with `--light`, `--full`, or a cold uuid.
-Not a third mode. Does not skip annotation, change M8 cache, or change
-`HANDOFF_SPINE_TOKENS`. See [Spawn model tiers](#spawn-model-tiers-m3e--cdt-90).
+**`--miner-model`** (M3e / CDT-203 / CDT-204): pin the miner actor to a
+host-neutral tier or a passthrough alias. On default `plan.mode=direct` this
+is the **one background agent's** `model:`. On in-session fallback it is the
+miner Task. Combine with `--light`, `--full`, or a cold uuid. Not a third
+mode. Does not skip annotation, change M8 cache, or change
+`HANDOFF_SPINE_TOKENS`. No new detach flag — detach is the default when the
+spine fits. See [Spawn model tiers](#spawn-model-tiers-m3e--cdt-90).
 
 ## Modes
 
@@ -58,6 +61,28 @@ Not a third mode. Does not skip annotation, change M8 cache, or change
 | **Warm full** | `/handoff --full` | Same as warm, but force full re-mine (no delta). Also `HANDOFF_FULL=1`. |
 | **Warm light** | `/handoff --light` | **Light preset (M10c):** warm-only cost sugar on the shared spine-mine (still mines). When `--miner-model` and operator env are unset: miner `haiku`, skip annotation, spine budget `40000`. Writes `*-draft.md` with `light: true`; **no** M8 cache write; not AC-16-scored. Host-agnostic (Claude + Grok via existing discover). Run bare `/handoff` before session end for a full tip + delta chain. |
 | **Help** | `/handoff --help` | Prints usage and exits. Any unknown flag prints usage too. |
+
+### Detached orchestrator (M19)
+
+Parent stub: parse → (warm) `discover-warm.sh` → resolve-root → cheap gates →
+**prepare** → read `plan.mode` **then** branch. **No new CLI flag.**
+
+| `plan.mode` / host | Path | Parent skill Read | Miner |
+|--------------------|------|-------------------|-------|
+| `direct` + can spawn | **Detach** (default) | MUST NOT | One background agent IS the miner (INLINE). `--miner-model` is this agent's `model:`. |
+| `chunked` | **In-session fallback** | MAY | Parallel N haiku chunks + one miner Task |
+| host cannot spawn | same in-session fallback | MAY | Same pipeline; MUST NOT fail the capture |
+
+Detach is **one-turn lag:** the mined JSONL is as written at parent
+prepare/spawn time. The `/handoff` turn itself is absent — same as
+`--allow-in-progress`.
+
+**Cold HIT:** serve State now + Through-line + path **in-session** (no spawn).
+**Cold MISS:** the background agent's final report contains the M7 core + path;
+the parent **relays** that report into the invoking session.
+
+The parent stub stays at **session tier**. On `mode=direct` the parent does not
+load `SKILL.md` / `LIGHT.md`; the detached agent Reads the skill from disk.
 
 The `<session-uuid>` is a UUID like `00000000-0000-4000-8000-000000000004` — one
 surfaced by [`/recall`](./recall.md) or visible in a transcript filename.
@@ -158,7 +183,7 @@ value (`mode` stays `warm`; lightness is `light: true` only).
 | Knob | Light (when env unset) | Bare warm default |
 |------|------------------------|-------------------|
 | `HANDOFF_MINER_MODEL` | `haiku` | empty → session inherit |
-| Annotation (warm Step 7) | **skipped** | haiku annotation |
+| Annotation (bare warm) | **skipped** | INLINE on detach; haiku Task on fallback |
 | `HANDOFF_SPINE_TOKENS` | `40000` | `120000` |
 | M8 cache write | **skipped** | write `cache/$SID.json` |
 | Packet path | `…-<slug>-draft.md` | `…-<slug>.md` |
@@ -174,43 +199,54 @@ and Grok both resolve via existing warm discover; no host-specific light path.
 ### How the pipeline works
 
 Cold and warm share one **spine-mine** engine after prepare (they differ only
-in entry, exit, warm-only annotation, and M8b warm delta):
+in entry, exit, warm-only annotation, and M8b warm delta). Parent always does
+parse + (warm) discover + resolve-root + cheap gates + prepare, then branches
+on `plan.mode`:
 
-1. **Cache check (cold)** — unchanged session → serve cached core + path (M8).
+1. **Cache check (cold)** — unchanged session → serve cached core + path
+   **in-session** (M8). No spawn.
 2. **Pre-pass** — deterministic, LLM-free: locate canonical transcript via
    shared [transcript-parse](../../skills/transcript-parse/SKILL.md), dedup
    fork copies, strip raw tool output, size-decide (M1, M2). Cold declines
    transcripts modified < 60 s ago (M9). Warm may read mid-write via a
    warm-only carve-out (M14). Warm re-capture may cut the spine after the
    cached leaf (M8b; internal `--since-leaf` — not a user flag).
-3. **Optional chunk map** — monster spines are chunk-summarized in parallel,
-   then reduced (M3). On delta path, map cost is delta-sized.
-4. **One merged miner** — single Task, one spine read; writes both event
-   files (`through_line.json` + `state.json`, all 7 kinds). Code-state is
-   **git only** — no LLM miner (M3b). Delta path mines only post-leaf messages.
-5. **Warm annotation (optional)** — labels/rank on existing event IDs only
-   (including `prior:stem:id` when prior events are merged); never invents
-   evidence.
-6. **Assemble (LLM-free)** — merge prior + delta events into **State now →
+3. **`plan.mode=direct` (default, host can spawn)** — one background agent.
+   Parent MUST NOT Read SKILL/LIGHT. Agent IS the miner (INLINE, one spine
+   read) and IS annotation on bare warm. Agent MUST NOT nest Task.
+   `--miner-model` applies to this agent. Cold MISS: agent reports M7 core +
+   path; parent relays it. Warm: path only (+ light nudge).
+4. **`plan.mode=chunked` or spawn unavailable** — in-session fallback.
+   Parent MAY Read the skill. Parallel N haiku chunk-summarizers (one
+   tool-use block) + one miner Task + annotation Task if bare warm +
+   finalize. MUST NOT fail the capture because detach was unavailable.
+5. **Assemble (LLM-free)** — merge prior + delta events into **State now →
    Through-line → appendix**; write packet + cache `events` for next warm.
-   Cold prints core + path; warm prints path only.
+   Cold prints core + path (HIT in-session; MISS via agent relay); warm
+   prints path only.
+
+Code-state is **git only** — no LLM miner (M3b). Delta path mines only
+post-leaf messages.
 
 ### Spawn model tiers (M3e / CDT-90)
 
 LLM fan-out uses **tier aliases only** (`haiku` / `sonnet` / `opus` style) — never
-dated model IDs. Parent/orchestrator stays at **session tier**.
+dated model IDs. Parent stub stays at **session tier**.
 
 | Stage | Model | Notes |
 |-------|-------|--------|
-| Chunk-summarizer (map step) | **`haiku`** | Cheap extraction; N Tasks in one block when `mode=chunked` |
-| Merged miner (spine-mine) | **inherit session** | Omit `model` by default (one Task, one spine read) |
-| Annotation (warm only) | **`haiku`** | Labels/rank only; no new evidence |
-| Parent orchestrator | **session** | Shell + judgment; never force haiku |
+| Chunk-summarizer (map step) | **`haiku`** | **In-session fallback only** (`mode=chunked` or spawn unavailable). N Tasks in one block. Detached agent never runs this. |
+| Merged miner (in-session fallback) | **inherit session** | Omit `model` by default (one Task, one spine read). `--miner-model` applies here on this path. |
+| Annotation (in-session, bare warm) | **`haiku`** | Labels/rank only; no new evidence. Light/cold skip. |
+| Parent stub | **session** | Parse / discover / prepare / branch. Never force haiku. MUST NOT Read SKILL on `mode=direct`. |
+| Detached orchestrator agent | miner tier (`HANDOFF_MINER_MODEL`) | Default `mode=direct`. IS miner (+ annotation if bare warm). `--miner-model` is this agent's `model:`. |
 
-**Miner opt-in (CDT-203):** `/handoff --miner-model <fast|balanced|max|alias>`
-exports the alias as given into `HANDOFF_MINER_MODEL`. You may still set the env
-directly. Empty/unset with no flag → inherit the session model. The flag does
-not retarget chunk-summarizer or annotation (those stay `haiku`).
+**Miner opt-in (CDT-203 / CDT-204):** `/handoff --miner-model <fast|balanced|max|alias>`
+exports the alias as given into `HANDOFF_MINER_MODEL`. On `mode=direct` this
+pins the **one background agent's** `model:`. On in-session fallback it pins
+the miner Task. You may still set the env directly. Empty/unset with no flag →
+inherit the session model. The flag does not retarget chunk-summarizer or
+annotation (those stay `haiku` on fallback).
 
 **Precedence:** **flag > operator env > light preset > inherit**.
 
@@ -244,8 +280,9 @@ set.
 ### Spine budget (`HANDOFF_SPINE_TOKENS`)
 
 `prepass.sh prepare` size-decides against `HANDOFF_SPINE_TOKENS` (default
-**120000**). Over budget → `mode=chunked` (map step + reduced spine for the
-miner). Under budget → `mode=direct` (miner reads the raw spine).
+**120000**). Over budget → `mode=chunked` (**in-session fallback**: map step +
+reduced spine for the miner). Under budget → `mode=direct` (**detach**: one
+background agent mines the raw spine).
 
 | Env | Default | Role |
 |-----|---------|------|
@@ -274,8 +311,8 @@ Light's optional `40000` is preset-only (operator env honored; bare warm stays
 ```
 /handoff 00000000-0000-4000-8000-000000000004
 ```
-Prints State now + Through-line and cites the full packet path. Expected
-shape (abridged):
+On cache MISS the parent relays M7 (State now + Through-line + path) from
+the background agent. Expected shape (abridged):
 ```
 ## State now
 ### Product surfaces
@@ -296,7 +333,8 @@ shape (abridged):
 Full packet: .claude/handoff/20260723-1410-00000000-0000-4000-8000-000000000004-stm.md
 ```
 
-**Serve from cache (re-invoking on an unchanged session):**
+**Serve from cache (re-invoking on an unchanged session):** cache HIT is
+in-session (no background agent).
 ```
 /handoff 00000000-0000-4000-8000-000000000004
 ```
