@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# spawn-model-ac-test.sh — CDT-90 static contract for SPEC-018 M3e spawn model tiers.
+# spawn-model-ac-test.sh — CDT-90 / CDT-203 static contract for SPEC-018 M3e spawn model tiers.
 # Greps committed prompt/docs only (no network, no LLM, no cost metrics).
 # Run: bash skills/handoff/spawn-model-ac-test.sh
 set -u
@@ -8,6 +8,7 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 CMD="$ROOT/commands/handoff.md"
 SKILL="$HERE/SKILL.md"
+LIGHT="$HERE/LIGHT.md"
 PREPASS="$HERE/prepass.sh"
 SPEC="$ROOT/specs/core/SPEC-018-cold-session-handoff.md"
 
@@ -147,6 +148,92 @@ if has_active_haiku "$CMD" && has_active_haiku "$SKILL"; then
   ok
 else
   bad "T8 cheap stages lost model: haiku pin in CMD and/or SKILL"
+fi
+
+# ---- AC7: host-neutral fast|balanced|max at spawn (Step 6 + SKILL + LIGHT) ----
+# Reuse SEC6 from T3; cheap-stage haiku pins must stay (T0/T1/T2/T8).
+if [ -z "${SEC6:-}" ]; then
+  SEC6=$(section "$CMD" '^## Step 6:')
+fi
+if [ -f "$LIGHT" ] \
+   && printf '%s\n' "$SEC6" | grep -qF 'fast|balanced|max' \
+   && grep -qF 'fast|balanced|max' "$SKILL" \
+   && grep -qF 'fast|balanced|max' "$LIGHT"; then
+  ok
+else
+  bad "AC7a Step 6 + SKILL + LIGHT must mention fast|balanced|max"
+fi
+
+# Claude: fast→haiku, balanced→sonnet, max inherit/omit (table in SKILL/LIGHT; Step 6 prose or cite)
+if grep -qE '`fast`[[:space:]]*\|[[:space:]]*`haiku`' "$SKILL" \
+   && grep -qE '`balanced`[[:space:]]*\|[[:space:]]*`sonnet`' "$SKILL" \
+   && grep -qE '`max`[[:space:]]*\|[[:space:]]*inherit' "$SKILL" \
+   && grep -qE '`fast`[[:space:]]*\|[[:space:]]*`haiku`' "$LIGHT" \
+   && grep -qE '`balanced`[[:space:]]*\|[[:space:]]*`sonnet`' "$LIGHT" \
+   && grep -qE '`max`[[:space:]]*\|[[:space:]]*inherit' "$LIGHT" \
+   && printf '%s\n' "$SEC6" | grep -qE 'fast[[:space:]]*(→|->)[[:space:]]*`?haiku`?|`fast`[[:space:]]*\|[[:space:]]*`haiku`' \
+   && printf '%s\n' "$SEC6" | grep -qE 'balanced[[:space:]]*(→|->)[[:space:]]*`?sonnet`?|`balanced`[[:space:]]*\|[[:space:]]*`sonnet`' \
+   && printf '%s\n' "$SEC6" | grep -qiE 'max.*(inherit|omit)|omit.*max'; then
+  ok
+else
+  bad "AC7b Claude map missing (fast→haiku, balanced→sonnet, max inherit/omit) in Step 6/SKILL/LIGHT"
+fi
+
+# Grok identity (fast→fast); passthrough; fail-soft inherit
+if grep -qE '`fast` \(identity\)' "$SKILL" \
+   && grep -qE '`fast` \(identity\)' "$LIGHT" \
+   && printf '%s\n' "$SEC6" | grep -qiE 'identity|fast[[:space:]]*(→|->)[[:space:]]*`?fast`?' \
+   && grep -qiE 'passthrough|pass-through|pass as-is|pass through' "$SKILL" \
+   && grep -qiE 'passthrough|pass-through|pass as-is|pass through' "$LIGHT" \
+   && printf '%s\n' "$SEC6" | grep -qiE 'passthrough|pass-through|pass as-is|pass through' \
+   && grep -qi 'fail-soft' "$SKILL" \
+   && grep -qi 'fail-soft' "$LIGHT" \
+   && printf '%s\n' "$SEC6" | grep -qi 'fail-soft'; then
+  ok
+else
+  bad "AC7c Grok identity / passthrough / fail-soft inherit missing in Step 6/SKILL/LIGHT"
+fi
+
+# No dated Grok/spark pins as Task model: values (prose "never pin" mentions OK)
+PIN_GROK=$(grep -nE '^[[:space:]]*model:[[:space:]]*(spark-llama|grok-4)' \
+  "$CMD" "$SKILL" "$LIGHT" 2>/dev/null || true)
+if [ -z "$PIN_GROK" ]; then
+  ok
+else
+  bad "AC7d spark-llama / grok-4 dated pin as model:"$'\n'"$PIN_GROK"
+fi
+
+if has_active_haiku "$CMD" && has_active_haiku "$SKILL" \
+   && printf '%s\n' "$SEC5B" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku' \
+   && printf '%s\n' "$SEC7" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku'; then
+  ok
+else
+  bad "AC7e chunk/annotation must keep active model: haiku (T0/T1/T2/T8 lock)"
+fi
+
+# ---- AC8: advisory after successful prepare (print-only; exact lines + skip) ----
+if grep -qF 'fast tier is likely sufficient for this mine' "$CMD" \
+   && grep -qF 'keep session tier' "$CMD"; then
+  ok
+else
+  bad "AC8a commands/handoff.md missing exact advisory strings"
+fi
+
+if grep -q '30000' "$CMD" \
+   && grep -q 'est_tokens' "$CMD" \
+   && grep -q 'mode==direct' "$CMD" \
+   && grep -q 'chunked' "$CMD"; then
+  ok
+else
+  bad "AC8b commands/handoff.md must mention 30000 / est_tokens / mode==direct / chunked"
+fi
+
+if grep -qiE 'prepare fail|prepare failed' "$CMD" \
+   && grep -qiE 'missing.*token|tokens missing|non-numeric' "$CMD" \
+   && grep -qE 'cache-HIT' "$CMD"; then
+  ok
+else
+  bad "AC8c commands/handoff.md missing no-advisory conditions (prepare fail / missing tokens / cache-HIT)"
 fi
 
 echo "PASS=$PASS FAIL=$FAIL"

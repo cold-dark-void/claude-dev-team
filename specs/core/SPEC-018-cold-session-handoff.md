@@ -60,13 +60,26 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
   - MUST NOT split kinds across two Tasks that each re-read the full spine.
   - Assemble input contract unchanged for the delta files (directory of `*.json`, typically `through_line.json` + `state.json`); when prior events are supplied (M8b), assemble MUST merge prior + delta before State now / Through-line selection.
   - MUST NOT change user-facing `/handoff` CLI or packet section order (internal `--since-leaf` and `--full` / `HANDOFF_FULL` are M8b).
-- **M3e — Spawn model tiers (cost knobs).** Orchestrator Task spawns for spine-mine LLM stages MUST use **tier aliases only** (`haiku` / `sonnet` / `opus` style); MUST NOT pin dated model IDs.
+- **M3e — Spawn model tiers (cost knobs).** Orchestrator Task spawns for spine-mine LLM stages MUST use **tier aliases only**; MUST NOT pin dated model IDs (no `claude-*-20YY`, no `grok-4.x`, no `spark-llama`).
   - Chunk-summarizer Tasks (Step 5b) MUST set `model: haiku`.
   - Warm annotation Task (Step 7) MUST set `model: haiku`.
-  - Merged miner Task (Step 6) MUST **inherit session model** by default (omit `model`, or document inherit). MAY set model from env **`HANDOFF_MINER_MODEL`** when non-empty (tier alias). Empty/unset = inherit.
+  - `--miner-model` MUST NOT retarget chunk-summarizer or annotation. Grok cheap-stage host mapping is **out of scope** (CDT-203); tests keep the literal `model: haiku` pin.
+  - Merged miner Task (Step 6) MUST **inherit session model** by default (omit `model`, or document inherit). MAY set model from env **`HANDOFF_MINER_MODEL`** when non-empty. Empty/unset = inherit.
+  - **CLI (CDT-203):** `/handoff --miner-model <alias>` and `--miner-model=<alias>` MUST parse in `commands/handoff.md` Step 1 and export `HANDOFF_MINER_MODEL` as the **alias as given** (MUST NOT resolve at parse). Valid on warm, `--light`, `--full`, and cold. Not a third mode. MUST NOT skip annotation, change M8 cache behavior, or change `HANDOFF_SPINE_TOKENS`.
+  - Missing value (`--miner-model` with no following token, `--miner-model=`, `--miner-model` followed by another flag) MUST print `error: --miner-model requires a value` on stderr and exit 1. MUST NOT fall through to unknown-flag help (exit 0).
+  - Precedence: **flag > operator env > light preset > inherit**. M10c still sets `HANDOFF_MINER_MODEL=haiku` only when unset.
+  - Canonical host-neutral aliases (exact lowercase only): `fast` | `balanced` | `max`. Resolve at **spawn** (Step 6), using session-bridge `host: grok|claude`. Cold / missing / unknown host → **claude** table. Mapping: `fast` → Claude `haiku` / Grok `fast` (identity); `balanced` → Claude `sonnet` / Grok `balanced` (identity); `max` → inherit (omit `model`) on both hosts.
+  - Grok cells MUST be identity. MUST NOT pin dated Grok slugs. Host reject of `fast`/`balanced` → existing fail-soft inherit; if the host later accepts those aliases, identity already works.
+  - Any other non-empty value (including `haiku`/`sonnet`/`opus`, mixed case, unknown) MUST pass through as Task `model:` as-is. Host reject → omit `model` (fail-soft inherit). Unknown alias MUST NOT be a parse error. Want opus → `--miner-model opus` (passthrough). `max` is inherit, never opus.
+  - **Advisory (after successful Step 4 prepare):** MUST print exactly one stdout line from `plan.mode` + `stats.est_tokens`:
+    - `mode==direct` AND `est_tokens < 30000` → `fast tier is likely sufficient for this mine`
+    - `mode==chunked` OR (`mode==direct` AND `est_tokens >= 30000`) → `keep session tier`
+    MUST NOT print when prepare failed, no `plan.json`, or tokens missing / non-numeric / ≤0. MUST NOT run on cold cache-HIT (no prepare). MUST NOT mutate `HANDOFF_MINER_MODEL`. Prints even if `--miner-model` is already set.
+  - Dual-home: `skills/handoff/SKILL.md` and `skills/handoff/LIGHT.md` M3e merged-miner spawn-contract sections MUST carry the same tier table + host-resolution + fail-soft note.
   - `effort` on any of these Tasks is **optional**; MUST NOT be required for correctness.
   - The **parent/orchestrator** turn MUST remain at session tier (MUST NOT force haiku on the parent loop).
   - `HANDOFF_SPINE_TOKENS` default remains **120000**; warm operators MAY lower via env to force earlier chunking (docs guidance only).
+  - MUST NOT change `prepass.sh`, `assemble.py`, or `discover-warm.sh` behavior.
 - **M3c — Event model.** Each event MUST include: `id`, `kind`, `text` or `quote`, `workstream` (default `"default"`), and order/timestamp when available. Optional courtesy `pointers[]` (never load-bearing). `fact` events SHOULD include `how_verified`. Kind ceiling is **seven**: `hypothesis`, `killed`, `ruling`, `decision`, `fact`, `open`, `conflict`. Optional miner tags (not kinds): `facet` ∈ {`product_surface`, `ship_gap`} and `surface_class` ∈ {`primary`, `unfinished`, `not_product`} (`not_product` ≡ unfinished / do-not-treat-as-product). Product surfaces SHOULD be emitted as `fact` + `facet=product_surface`; Open ship gaps as `open` + `facet=ship_gap`. Assemble selects by `facet` — MUST NOT add kinds. Miner JSON files MAY carry an optional wrapper string `summary` beside `events` (`{"summary":"…","events":[…]}`). `summary` is **not** an event and **not** a kind; MUST NOT be written into the M8 `events` stem map. Chunk-summarizer JSON `summary` is a different field (unchanged). Event-object shape, seven-kind ceiling, and two-file partition are unchanged. If both miner files set `summary`, assemble MUST use `through_line.json` only.
 - **M3d — Assemble (LLM-free).** Assemble MUST stay LLM-free and MUST:
   - **(1) Dedup** **before** section selection (CDT-202), in this order: **(a)** exact `(kind + normalized quote/text)` first-wins (any length; first event’s original display text); **(b)** same-kind strict prefix-collapse when the shorter punct-stripped normalized body is ≥40 chars — keep the longer original display body; the survivor occupies the earliest post-order event (`id`, facet, labels, section); chains A⊂B⊂C collapse to one (longest body, earliest of the chain); **(c)** `open`/`conflict` only: if a `conflict` body equals or is a prefix/superstring of an `open` under the same ≥40 rule (exact or prefix), drop every matching `conflict`, keep the `open` (even if the conflict body is longer), and emit one `assemble:` stderr line that names both; MUST NOT generalize (c) to other kind pairs. Compare key: `event_body` (quote else text) → `normalize_text` (casefold + whitespace collapse); prefix/cross-kind then rstrip whitespace and ASCII `.?!;:,`. Prefix is a STRICT prefix of that string — MUST NOT mid-body substring or fuzzy match. Same-kind prefix-collapse MUST NOT emit stderr.
@@ -119,7 +132,7 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
   1. Accept `--light` only on warm entry (bare `/handoff` / `--slug` / with other warm flags). Cold `/handoff <uuid> --light` MUST fail with usage.
   2. Keep packet `mode: warm` (two-value contract CDT-85). Carry lightness solely via meta **`light: true`** in header and footer. MUST NOT add a third mode enum value (e.g. `warm-light`).
   3. Run prepare → merged miner → assemble (same engine). Preset knobs:
-     - merged miner: `HANDOFF_MINER_MODEL=haiku` when unset by operator;
+     - merged miner: `HANDOFF_MINER_MODEL=haiku` when unset by operator **and** `--miner-model` not set (flag wins; M3e);
      - **skip** warm annotation entirely;
      - MAY lower `HANDOFF_SPINE_TOKENS` to **40000** when unset (MUST NOT change the bare-warm code default of **120000**).
   4. Write packet filename with **`-draft`** suffix: `<YYYYMMDD-HHmm>-<session-id>-<slug>-draft.md`.
@@ -188,7 +201,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 21. **Annotation invent-guard (M10 / CDT-93):** annotation `event_id` must exact-match a namespaced load id (`{stem}:{raw_id}` or `prior:{stem}:{raw_id}`, including CDT-94 `#N` suffixes); unknown or bare miner ids are dropped; no new evidence fields in annotation schema.
 22. **Cold print shape (M7):** cold stdout includes State now + Through-line and cites packet path; full appendix not required in stdout.
 23. **Target write root (M7b / CDT-80):** cold from non-repo invoker cwd for a known-project session writes under that project's `.claude/handoff/`; cache under its `cache/`; git appendix is target HEAD/status; undetermined root fails with no invoker write; worktree session → shared MROOT; invoker repo A / target B → all under B.
-24. **Spawn model tiers (M3e / CDT-90):** static contract — chunk + annotation spawn text includes `model: haiku`; miner default inherits (no forced haiku without env); parent not forced haiku; tier aliases only (no dated model IDs).
+24. **Spawn model tiers (M3e / CDT-90 / CDT-203):** static contract — chunk + annotation spawn text includes `model: haiku`; miner default inherits (no forced haiku without env); parent not forced haiku; no dated model IDs. CLI `--miner-model` / `--miner-model=` export the alias as given; missing value exit 1 (`error: --miner-model requires a value`); `--light` override; flag > env > light > inherit; unknown alias passthrough (not a parse error). Spawn resolution: exact lowercase `fast|balanced|max` via bridge `host` (cold/missing → claude); Claude `fast`→`haiku`, `balanced`→`sonnet`, `max`→omit; Grok identity; else pass-through; host reject → fail-soft inherit. Advisory after successful prepare: exact `fast tier is likely sufficient for this mine` vs `keep session tier`; skip on missing/non-numeric/≤0 tokens, prepare fail, or cold cache-HIT. Coverage: `skills/handoff/spawn-model-ac-test.sh` (Test 24), `skills/handoff/light-gates-test.sh` parse cases (Test 31).
 25. **Delta-mine stats (M8b / CDT-88):** warm re-capture with cache `events` + grown session → prepare `--since-leaf` plan stats (`est_tokens` / `spine_msgs` / `delta_msgs`) reflect delta only (`<<` full); `full_msgs` / `since_leaf` present when cut applied.
 26. **Assemble prior+delta merge (M8b / M3b / CDT-88):** prior cache events + delta miner files → merged packet; identical bodies survive verbatim (prior); cross-gen ids `prior:{stem}:{id}` and `{stem}:{id}`; generation order puts delta after prior for State now tail; dedup identical `(kind, norm body)` first-wins; prefix-near-dups follow M3d (1) keep-longer at earliest/prior position (CDT-202).
 27. **Cache events dual-read (M8b / CDT-88):** old cache without `events` (or null/empty/unreadable) → full re-mine, no crash; cache with `events` written on finalize is readable on next warm delta path.
@@ -221,7 +234,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 - [ ] PreCompact still spine rescue only; fail-open
 - [ ] Docs: compact seed framing; no Linear dual-write; no compact-replacement claim
 - [ ] Internal legacy inject-brief / multi-extractor references swept from SPEC, skill, command, docs, tests
-- [ ] Spawn model tiers (M3e): chunk + annotation `model: haiku`; miner inherits session unless `HANDOFF_MINER_MODEL`; parent session tier; `HANDOFF_SPINE_TOKENS` default 120000
+- [ ] Spawn model tiers (M3e): chunk + annotation `model: haiku`; miner inherits session unless `HANDOFF_MINER_MODEL` / `--miner-model`; canonical `fast|balanced|max` resolve at spawn; parent session tier; `HANDOFF_SPINE_TOKENS` default 120000
 - [ ] M10c light: warm-only, no cache write, markers, supersedes draft, defense gates
 
 ---
@@ -230,6 +243,7 @@ Goal: capture a rescue artifact BEFORE compaction via harness `PreCompact` hook.
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | **CDT-203:** M3e CLI `--miner-model`; host-neutral `fast\|balanced\|max` resolve at spawn (Claude map; Grok identity; `max`→inherit); passthrough + fail-soft; advisory after prepare; flag > env > light > inherit; Test 24/31 |
 | 2026-08-21 | **CDT-202:** M3d (1) exact first-wins then same-kind prefix-collapse (≥40) then open/conflict cross-kind drop; M3d (4) leftover Kill catalog `_none not already shown above_` vs `_none_`; M8b prefix keep-longer at prior position; Test 38 |
 | 2026-08-20 | **CDT-201:** M3d single-section remainder assemble; drop Pointers index; optional provenance-constrained `### Where we are` (wrapper `summary` + invent-guard, M11b); M6 ruling prefers `text`; M3b miner-prompt ruling-context + product_surface negatives; Test 37 |
 | 2026-08-16 | **CDT-198:** M3c optional `facet`/`surface_class` (kind ceiling stays 7); M3d/M4 require **Product surfaces** + **Open ship gaps** inside State now on every packet including M10c light; assemble fail-closed if headings missing; Test 36 |

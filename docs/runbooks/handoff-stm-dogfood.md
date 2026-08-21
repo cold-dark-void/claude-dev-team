@@ -270,7 +270,7 @@ measuring a cheaper config:
 | Stage / env | Default | Dogfood note |
 |-------------|---------|--------------|
 | Chunk-summarizer + warm annotation | **`haiku`** | Cheap stages always |
-| Merged miner | **session inherit** | Opt-in only: `HANDOFF_MINER_MODEL=<tier>` |
+| Merged miner | **session inherit** | Opt-in: `--miner-model <fast|balanced|max|alias>` or `HANDOFF_MINER_MODEL=<tier>` |
 | `HANDOFF_SPINE_TOKENS` | **120000** | Lower → more chunking + cheaper map step, but **recall risk** |
 | `/handoff --light` / `HANDOFF_LIGHT` | **off** | Warm-only cost preset (haiku miner if unset, skip annotation, spine 40k if unset, `*-draft.md`, no M8 cache). **Not AC-16-scored** — measure cost only; re-capture full tip before dogfood |
 

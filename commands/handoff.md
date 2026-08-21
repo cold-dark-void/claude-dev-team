@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: Session handoff STM packet (compact seed) — cold mode (/handoff <uuid>) reconstructs a past session via shared spine-mine into State now → Through-line → appendix, prints core + path; warm mode (bare /handoff) mines this session's transcript the same way and writes a packet file only. Optional slug: second positional or --slug. Warm re-capture delta-mines since cached leaf unless --full. Use as /compact @packet after /branch or /fork — not a compact replacement.
-argument-hint: "[<session-uuid>] [<slug>] | --slug <slug> | --full | --light | --help"
+argument-hint: "[<session-uuid>] [<slug>] | --slug <slug> | --full | --light | --miner-model | --help"
 agent: build
 ---
 
@@ -133,6 +133,7 @@ SLUG=""          # optional; finalize default "stm" if empty (Q7)
 SHOW_USAGE=0
 WARM=0           # 1 → bare / no uuid (warm mode)
 LIGHT=0          # 1 → M10c light warm preset (--light)
+MINER_MODEL_FLAG=""  # --miner-model alias as given (CDT-203); empty = no flag
 UNKNOWN=""
 POSITIONAL=()
 # M8b full-force: --full or pre-set HANDOFF_FULL=1 forces full warm re-mine
@@ -157,6 +158,13 @@ else
         SLUG="$2"; shift 2 ;;
       --slug=*)
         SLUG="${1#--slug=}"; shift ;;
+      --miner-model)
+        case "${2:-}" in ""|-*) echo "error: --miner-model requires a value" >&2; exit 1 ;; esac
+        MINER_MODEL_FLAG="$2"; shift 2 ;;
+      --miner-model=*)
+        MINER_MODEL_FLAG="${1#--miner-model=}"
+        [ -n "$MINER_MODEL_FLAG" ] || { echo "error: --miner-model requires a value" >&2; exit 1; }
+        shift ;;
       --*)
         UNKNOWN="$1"; SHOW_USAGE=1; shift ;;
       *)
@@ -194,10 +202,14 @@ Usage:
   /handoff --light [--slug <s>]    Warm light preset (M10c): reduced-cost mine,
                                    no annotation; *-draft.md; no M8 cache write.
                                    Warm-only — not valid with a session uuid.
+  /handoff --miner-model <fast|balanced|max|alias>
   /handoff --help                  This help.
 USAGE
   exit 1
 fi
+
+# CDT-203: export alias as given before light knobs (flag > env > light :-haiku).
+[ -n "${MINER_MODEL_FLAG:-}" ] && export HANDOFF_MINER_MODEL="$MINER_MODEL_FLAG"
 
 # M10c light knobs (only when unset — honor operator env):
 # haiku miner, lower spine budget, skip annotation Task.
@@ -243,6 +255,7 @@ Usage:
   /handoff --light [--slug <s>]    Warm light preset (M10c): reduced-cost mine,
                                    no annotation; *-draft.md; no M8 cache write.
                                    Warm-only — not valid with a session uuid.
+  /handoff --miner-model <fast|balanced|max|alias>
   /handoff --help                  This help.
 
 Slug (optional): second positional or --slug. Sanitized [a-z0-9-]+; default stm.
@@ -573,6 +586,26 @@ Exit-code handling:
   ```
 - **1 — not-found / env error.** Clear error + `$PREP_ERR`; exit non-zero.
 
+**Miner-tier advisory (CDT-203, print-only).** Re-read `plan.mode` + `stats.est_tokens` (C1). Skip: prepare failed / no `plan.json` / missing non-numeric ≤0 tokens / cold cache-HIT. Do not mutate `HANDOFF_MINER_MODEL`.
+```bash
+# mode==direct AND est_tokens < 30000 → fast tier is likely sufficient for this mine
+# mode==chunked OR (mode==direct AND est_tokens >= 30000) → keep session tier
+PLAN_JSON="${PLAN_JSON:-}"
+[ -n "$PLAN_JSON" ] && [ -f "$PLAN_JSON" ] && PLAN_JSON="$PLAN_JSON" python3 - <<'PY'
+import json, os, sys
+try:
+    p = json.load(open(os.environ["PLAN_JSON"], encoding="utf-8"))
+    et = (p.get("stats") if isinstance(p.get("stats"), dict) else {}).get("est_tokens")
+    n = int(et) if type(et) in (int, float) else int(str(et).strip())
+    mode = p.get("mode") or ""
+except (OSError, ValueError, TypeError):
+    sys.exit(0)
+if n <= 0: sys.exit(0)
+if mode == "chunked" or (mode == "direct" and n >= 30000): print("keep session tier")
+elif mode == "direct" and n < 30000: print("fast tier is likely sufficient for this mine")
+PY
+```
+
 **M8b universal full fallback:** when prepare was given `--since-leaf` (warm
 delta) but the leaf was not in the timeline, prepare still emits a full spine
 with `stats.since_leaf_applied=false`. Clear prior-events merge so Step 7/8
@@ -778,20 +811,22 @@ Read templates from `$LIGHT_PROFILE` (`skills/handoff/LIGHT.md`) when light —
 miner reads `$MINER_SPINE` **once** and writes **both** event files. Spawning
 two full-spine miners is a defect (duplicate spine read; SPEC-018 M3b).
 
-Spawn contract (merged miner — inherit session model by default):
+Spawn contract (merged miner — inherit session model by default). Host from `$HANDOFF_DIR/.live-session.json` `host` (warm 1w); missing/unknown/`""` → `claude`.
 
 ```bash
-# Miner model tier (CDT-90): empty = session inherit
+# Miner model (CDT-90 / CDT-203): empty = inherit. Table: SKILL.md / LIGHT.md.
 HANDOFF_MINER_MODEL="${HANDOFF_MINER_MODEL:-}"
-# When spawning Task: if non-empty, pass model: "$HANDOFF_MINER_MODEL"
-# (tier alias only: haiku|sonnet|opus). Invalid/unknown → inherit fail-soft.
+# Exact fast|balanced|max at spawn. Host HANDOFF_DIR/.live-session.json host; missing/unknown/"" → claude.
+# Claude: fast→haiku, balanced→sonnet, max inherit (omit model). Grok identity (fast→fast).
+# Else non-empty → pass as-is (passthrough). Else omit model. Host reject → inherit fail-soft.
 # effort: optional — omit by default; never required
 ```
 
 ```
 subagent_type: "general-purpose"
 # model: omit by default (inherit session)
-# if HANDOFF_MINER_MODEL non-empty → model: <tier alias>
+# if HANDOFF_MINER_MODEL is exact fast|balanced|max → host cell (max omit)
+# elif HANDOFF_MINER_MODEL non-empty → model: <alias as-is> (passthrough)
 # effort: optional — omit by default
 ```
 
@@ -1042,9 +1077,9 @@ under invoker cwd when target resolved (CDT-80).
 - **Spawn model tiers (CDT-90 / M3e):** parent orchestrator (Steps 0–8 shell +
   judgment) stays **session tier** — never force `haiku` on the parent loop.
   Only spawned cheap stages pin model: chunk-summarizers + warm annotation →
-  `model: haiku`; merged miner inherits session unless `HANDOFF_MINER_MODEL`
-  is set (tier alias). `effort` optional on all; never required. Tier aliases
-  only (`haiku`/`sonnet`/`opus`) — never pin dated model IDs.
+  `model: haiku`; merged miner inherits unless `HANDOFF_MINER_MODEL` is set.
+  Exact `fast|balanced|max` → host cell; else passthrough; empty → omit.
+  `effort` optional; never required. Never pin dated model IDs.
 - **Fan-out:** chunk-summarizers (if any) in ONE tool-use block (N-parallel);
   **1 merged miner** Task (single spine read) in ONE tool-use block. Chunk
   serialization is a defect; dual full-spine miners are a defect.

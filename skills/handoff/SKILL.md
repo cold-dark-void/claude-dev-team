@@ -196,11 +196,6 @@ claim AC-16 credit for light; change bare-warm defaults when `--light` omitted.
 > full-spine LLM miners for the same capture is a defect (duplicate spine read;
 > SPEC-018 M3b). Chunk-summarizers still fan out as N Tasks in one block (below).
 
-This mirrors `skills/council/SKILL.md` Phase 2 ("investigators MUST spawn in
-parallel within a single message, subject to Task-tool concurrency limits") for
-the **chunk-summarizer** stage only. Miner parallelism is retired: cost (one spine
-read) is the primary claim; latency is a non-goal.
-
 The merged miner sees the spine once (and may see a shared git-state blob for M5).
 It does **not** receive prior narrative or the assembled packet. Cross-file
 reconciliation of events happens only in `assemble.py` (dedup + State now
@@ -216,7 +211,7 @@ by the orchestrator / `prepass.sh finalize` (`capture_git_state`) and passed as
 
 ### Spawn model tiers (M3e / CDT-90)
 
-Tier aliases only (`haiku` / `sonnet` / `opus` style) — **never** pin dated model
+Canonical `fast|balanced|max` at spawn (else passthrough) — **never** pin dated model
 IDs. `effort` on any Task is **optional** (omit by default; never required for
 correctness). The **parent/orchestrator** turn stays at **session tier** (MUST NOT
 force haiku on the parent loop).
@@ -224,15 +219,15 @@ force haiku on the parent loop).
 | Stage | Task count | `model` | Notes |
 |-------|------------|---------|--------|
 | Chunk-summarizer (Step 5b) | N in one block | **`haiku`** | Extraction map step |
-| Merged miner (Step 6) | **1** Task | **inherit session** (omit `model`) | Opt-in: `HANDOFF_MINER_MODEL` when non-empty (tier alias). **Light (M10c):** sets `HANDOFF_MINER_MODEL=haiku` if unset |
+| Merged miner (Step 6) | **1** Task | **inherit session** (omit `model`) | Opt-in: `--miner-model` / `HANDOFF_MINER_MODEL` (`fast\|balanced\|max` or alias). **Light (M10c):** `haiku` if unset |
 | Annotation (Step 7, warm) | 1 | **`haiku`** | Labels/rank only. **Light:** skip (no Task) |
 | Parent orchestrator | — | **session** | Steps 0–8 shell + judgment; never force haiku |
 
 ```bash
-# Miner model tier (CDT-90): empty = session inherit
+# Miner model (CDT-90 / CDT-203): empty = inherit
 HANDOFF_MINER_MODEL="${HANDOFF_MINER_MODEL:-}"
-# When spawning merged-miner Task: if non-empty, pass model: "$HANDOFF_MINER_MODEL"
-# (tier alias only). Unset/empty → omit model field (inherit session).
+# Exact fast|balanced|max → host cell; else passthrough; empty → omit
+# max inherit. Host reject → fail-soft inherit. Never dated IDs.
 ```
 
 ---
@@ -439,14 +434,20 @@ One Task reads the spine **once**, mines all seven kinds chronologically, then
 ```
 subagent_type: "general-purpose"
 # model: inherit session by default (omit field)
-# if HANDOFF_MINER_MODEL is set and non-empty → model: <that tier alias>
+# if HANDOFF_MINER_MODEL is exact fast|balanced|max → host cell; else passthrough
 # effort: optional — omit by default; never required
 ```
 
-Default: **omit `model`** so the miner inherits the session model. Opt-in cheap
-miner via `HANDOFF_MINER_MODEL=haiku` (or another tier alias). MUST NOT force
-`model: haiku` on the miner when the env is empty/unset. Still **one** Task, both
-event files, one spine read (CDT-89 / M3b).
+Default: **omit `model`** so the miner inherits the session model. Opt-in: exact `fast|balanced|max` → host cell; else passthrough. MUST NOT force
+`model: haiku` when unset. Still **one** Task, both event files, one spine read (CDT-89 / M3b).
+
+| Canonical | Claude | Grok |
+|-----------|--------|------|
+| `fast` | `haiku` | `fast` (identity) |
+| `balanced` | `sonnet` | `balanced` (identity) |
+| `max` | inherit (omit `model`) | inherit (omit `model`) |
+
+Resolve exact-lowercase `fast|balanced|max` at spawn. Host from `.live-session.json` `host: grok|claude`; missing/unknown/cold → claude. `max` = inherit (omit `model`). Passthrough any other non-empty alias. Host reject → fail-soft inherit. Never dated IDs (`spark-llama`, `grok-4.x`, dated Claude).
 
 > ⚠ **REAL-DATA FINDING:** `thinking` blocks in real transcripts are frequently
 > **signature-only / encrypted — no plaintext**. The spine KEEPS thinking blocks,

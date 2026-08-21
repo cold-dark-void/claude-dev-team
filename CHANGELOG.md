@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.9.2
+- **`/handoff` `--miner-model` flag with host-neutral tiers (CDT-203)** — CLI `--miner-model` / `--miner-model=` exports alias as given; `fast|balanced|max` resolve at spawn (Claude map, Grok identity, `max` inherit); print-only advisory; dual-home SKILL+LIGHT table. SPEC-018 Test 24/31.
+
 ### v1.9.1
 - **`/handoff` packet dedup residuals + Kill-catalog wording (CDT-202)** — same-kind prefix-collapse (≥40) after exact first-wins; open/conflict twin drop; leftover Kill catalog `_none not already shown above_`. Dual-home miner rule. SPEC-018 Test 38.
 

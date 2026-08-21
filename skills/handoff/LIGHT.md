@@ -16,7 +16,7 @@ not freeform. Product surfaces + Open ship gaps stay required (assemble C2).
 
 | Knob | Light default (only if unset) |
 |------|-------------------------------|
-| `HANDOFF_MINER_MODEL` | `haiku` |
+| `HANDOFF_MINER_MODEL` | `haiku` (`--miner-model` wins) |
 | Annotation | **skip** (`SKIP_ANNOTATION=1`) |
 | `HANDOFF_SPINE_TOKENS` | `40000` |
 | M8 cache write | **none** |
@@ -70,7 +70,7 @@ not freeform live-context; not a dual path when discover fails (M10 / M10b).
 
 | Knob | Light default (only if operator-unset) | Bare warm default |
 |------|----------------------------------------|-------------------|
-| `HANDOFF_MINER_MODEL` | `haiku` | inherit session (omit `model`) |
+| `HANDOFF_MINER_MODEL` | `haiku` (`--miner-model` wins) | inherit session (omit `model`) |
 | Annotation (Step 7) | **skip** (`SKIP_ANNOTATION=1`) | haiku annotation Task |
 | `HANDOFF_SPINE_TOKENS` | **40000** (optional lower; MUST NOT change bare default) | **120000** |
 | M8 cache write | **none** (no create/overwrite of `cache/<sid>.json`) | write cumulative `events` |
@@ -205,14 +205,20 @@ One Task reads the spine **once**, mines all seven kinds chronologically, then
 ```
 subagent_type: "general-purpose"
 # model: inherit session by default (omit field)
-# if HANDOFF_MINER_MODEL is set and non-empty → model: <that tier alias>
+# if HANDOFF_MINER_MODEL is exact fast|balanced|max → host cell; else passthrough
 # effort: optional — omit by default; never required
 ```
 
-Default: **omit `model`** so the miner inherits the session model. Opt-in cheap
-miner via `HANDOFF_MINER_MODEL=haiku` (or another tier alias). MUST NOT force
-`model: haiku` on the miner when the env is empty/unset. Still **one** Task, both
-event files, one spine read (CDT-89 / M3b).
+Default: **omit `model`** so the miner inherits the session model. Opt-in: exact `fast|balanced|max` → host cell; else passthrough. MUST NOT force
+`model: haiku` when unset. Still **one** Task, both event files, one spine read (CDT-89 / M3b).
+
+| Canonical | Claude | Grok |
+|-----------|--------|------|
+| `fast` | `haiku` | `fast` (identity) |
+| `balanced` | `sonnet` | `balanced` (identity) |
+| `max` | inherit (omit `model`) | inherit (omit `model`) |
+
+Resolve exact-lowercase `fast|balanced|max` at spawn. Host from `.live-session.json` `host: grok|claude`; missing/unknown/cold → claude. `max` = inherit (omit `model`). Passthrough any other non-empty alias. Host reject → fail-soft inherit. Never dated IDs (`spark-llama`, `grok-4.x`, dated Claude).
 
 > ⚠ **REAL-DATA FINDING:** `thinking` blocks in real transcripts are frequently
 > **signature-only / encrypted — no plaintext**. The spine KEEPS thinking blocks,
