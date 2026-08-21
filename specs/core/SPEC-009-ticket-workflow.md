@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`
+**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`
 
 ## Overview
 
@@ -76,6 +76,34 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST attempt Linear **Done** on master-land ship paths and on wrap-ticket when MCP is available; fail-open with a warning if MCP is unavailable
 - MUST NOT block ship on empty `closes:` (freeform); MUST block ship if a non-empty backlog close fails verify on local write-through
 - MUST use worktree root (`git rev-parse --show-toplevel` or explicit `--root`) when editing local backlog write-through files for close-out — not `git-common-dir` alone
+
+#### Orchestrate `--tier` (CDT-206)
+
+Pipeline cost tier for `/orchestrate`. This subsection is the contract home.
+`--tier` is independent of SPEC-013 `--council-tier`.
+
+- MUST accept `--tier=light|standard|full` on `/orchestrate` in any argument position
+- MUST use the `=` form only (`--tier=<value>`)
+- MUST parse `--tier` in `skills/autopilot/parse-flags.sh`
+- MUST print JSON key `tier`. MUST NOT reuse key `council_tier` for this flag
+- MUST print exactly five JSON keys on success: `enabled`, `bump`, `source`, `council_tier`, `tier`
+- MUST set `"tier": null` when `--tier` is absent. MUST NOT coerce omit to `"standard"` or `"full"`
+- MUST set `"tier"` to `"light"`, `"standard"`, or `"full"` when the flag is well-formed
+- MUST exit 64, write the error to stderr, and print no success JSON when `--tier` is malformed
+- MUST NOT start the `/orchestrate` pipeline after that parse failure. Step 0 MUST halt before fetch, worktree, or spawns (`parse-flags.sh || exit 64` in `steps/00-resolve.md`)
+- Malformed includes: unknown values (`skip`, `bogus`, `std`, `max`); empty `--tier=`; bare `--tier`; space form `--tier light`; case variants (`LIGHT`, `Full`); any second `--tier` or `--tier=*` token, even when values match
+- MUST parse `--tier` independently of `--council-tier`. `--tier=light` MUST NOT set `council_tier`. `--council-tier=light` MUST NOT set `tier`. Both flags MAY appear on one invocation. `--council-tier` vocabulary and errors stay unchanged
+- MUST bind `.tier` once in `skills/orchestrate/steps/00-resolve.md` from the same `parse-flags.sh` call as `--council-tier`. MUST carry the resolved value for the run
+- MUST NOT add an environment variable for `--tier`
+- MUST NOT persist `--tier` in `resume-state.sh`. A resume without `--tier` MUST re-resolve `"tier": null`
+- MUST NOT add `commands/orchestrate.md` (skill-only Surface; router-static T7)
+- MUST NOT document `--tier` on `/kickoff`. Kickoff MAY parse the token because it shares `parse-flags.sh`. Kickoff MUST ignore a present unused `.tier`. A malformed `--tier` on kickoff MUST still exit 64
+- MUST NOT extend `skills/epic/parse-flags.sh`. MUST NOT change `skills/council/engine.sh --tier` vocabulary (`light|full`)
+- MUST list `--tier=light|standard|full` in `skills/orchestrate/SKILL.md` and include a per-tier router table. `standard` and `full` rows = current steps 0–12. `light` row = the same steps in this child, with an explicit note that spawn cuts land in later children. The file MUST stay ≤80 lines
+- MUST document `--tier` in `docs/commands/orchestrate.md` Flags table. The row states: pipeline cost tier; omit/`standard`/`full` = current pipeline; `light` accepted now, spawn cuts later; independent of `--council-tier`
+- **Identity (omit / `standard` / `full`).** MUST run today's Step 0–12 sequence, the same step files, the same spawn sites, and the same SPEC-033 gates and gate actors when `--tier` is omitted or set to `standard` or `full`. Those three cases have identical behavior. The resolved value (`null` / `standard` / `full`) is the recorded tier for the run
+- **Identity (`light` in this child).** MUST accept `--tier=light` and record `"tier":"light"`. This child MUST NOT change spawn counts, skip steps, drop agents, or change who approves gates. Later children own light-path spawn cuts
+- MUST NOT change SPEC-033 gate ownership, checklists, or BC halt/escalate. MUST NOT edit SPEC-033
 
 ### Standup / `/status` (CDT-46-C4 entry)
 - User entry for the standup snapshot is `/status` (bare) and `/status standup [TICKET-ID]` via `commands/status.md`. There is no `commands/standup.md`.
@@ -260,6 +288,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - SHOULD suggest specific actions in standup (e.g., "ic5 Task 2 looks stale — check context or SendMessage")
 - SHOULD group standup output by status: in_progress, pending/ready, pending/blocked, completed
 - SHOULD adjust brainstorm complexity assessment based on user answers
+- SHOULD add a `--council-tier` row to the `docs/commands/orchestrate.md` Flags table (CDT-206 docs backfill; `--tier` row is MUST above)
 
 ## Test
 
@@ -287,6 +316,16 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify `close.sh` (close + verify) performs no filesystem operation for a traversal-shaped or otherwise non-`^[A-Za-z0-9_-]+$` resolved slug (e.g. index row `backlog/../../../canary/pwned.md` matched by title): no path construction that escapes `.claude/backlog/`; canary outside backlog untouched; non-zero exit / clear error; valid sibling slug still closes and verifies
 - Verify brainstorm offers backlog/Linear write-back after synthesis is confirmed (unless `/kickoff` runs immediately), and that a filed item's Linear description contains inlined synthesis text, not only a local plan-file path
 - Verify the Programmatic write-back protocol's non-interactive callers (refactor auto-chain, retro `--auto`) never hit an interactive ask and never silently write a duplicate slug row on collision (suffix, not abort)
+- Verify `parse-flags.sh` omit → `"tier": null`; `--tier=light|standard|full` → matching string; 5-key JSON (`enabled`, `bump`, `source`, `council_tier`, `tier`)
+- Verify `--tier` is independent of `--council-tier` and `--autopilot` on one invocation (`--tier=light` does not set `council_tier`; reverse also holds)
+- Verify malformed `--tier` exits 64 with stderr and no success JSON: unknown (`skip`, `bogus`, `std`, `max`), empty `--tier=`, bare `--tier`, space form `--tier light`, case (`LIGHT`, `Full`), duplicate `--tier` / `--tier=*` even when values match
+- Verify `--tier=<value>` is accepted in any argv position mixed with `--autopilot` / `--council-tier` / `--resume-ship`
+- Verify `bash skills/autopilot/test.sh` passes
+- Verify `skills/orchestrate/SKILL.md` lists `--tier=light|standard|full`, includes a per-tier table (`standard`/`full` = steps 0–12; `light` = same steps, spawn cuts later), and stays ≤80 lines
+- Verify `bash skills/orchestrate/router-static-test.sh` passes; T7 still requires `commands/orchestrate.md` absent; T6 MUST NOT needle bare `--tier`
+- Verify `docs/commands/orchestrate.md` Flags table documents `--tier` with omit/`standard`/`full` = current pipeline, `light` accepted now / cuts later, independent of `--council-tier`
+- Verify Step 0 binds `.tier` from the same `parse-flags.sh` call and a parse 64 halt occurs before fetch/worktree/spawns
+- Verify `skills/kickoff/SKILL.md` does not document `--tier`; kickoff still runs when `.tier` is present and unused
 
 ## Validation
 
@@ -302,6 +341,10 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - [ ] `/backlog add` on an existing slug produces no silent duplicate index row
 - [ ] `bash skills/backlog/test.sh` passes
 - [ ] Brainstorm Step 4c offers backlog/Linear write-back; a filed Linear description is self-contained (no bare local-file pointer)
+- [ ] `/orchestrate --tier` parse: omit → JSON `tier` null; `light|standard|full` accepted; malformed → exit 64 before pipeline start (`bash skills/autopilot/test.sh`)
+- [ ] `--tier` identity: omit/`standard`/`full` run today's Step 0–12; `light` records only in this child; SPEC-033 gates unchanged
+- [ ] Orchestrate router lists `--tier` + per-tier table; SKILL.md ≤80 lines; no `commands/orchestrate.md` (`bash skills/orchestrate/router-static-test.sh`)
+- [ ] `docs/commands/orchestrate.md` Flags table documents `--tier` (pipeline cost tier; independent of `--council-tier`)
 
 ## Open Questions
 
@@ -315,6 +358,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | CDT-206: `/orchestrate --tier=light\|standard\|full` pipeline cost tier. Parse in `skills/autopilot/parse-flags.sh` (JSON key `tier`, five-key stdout, omit → null, no env, no resume persist, duplicate/`=`-only hard-fail 64). Independent of `--council-tier`. Identity: omit/`standard`/`full` = today's Step 0–12 and SPEC-033 gate actors; `light` records only in this child (spawn cuts later). Skill-only Surface (no `commands/orchestrate.md`). MUST NOT edit SPEC-033. |
 | 2026-08-03 | Backlog write-back consolidation. Added `skills/backlog/SKILL.md` § Programmatic write-back protocol as the SPEC-002 D1 contract home for non-interactive backlog writes (content pre-supply, dedup fixed to suffix, caller-declared Linear-first/`--local-only`), replacing two independent forks (`skills/refactor/SKILL.md` § 2.2a.5's bespoke inline mkdir/printf/awk, and `commands/retro.md` `--auto` mode's ambiguous direct invocation). Added brainstorm Step 4c (offer backlog/Linear write-back on accepted synthesis) and a MUST that Linear descriptions inline actual substance, never a bare local-only file path — origin: CDT-111, a Linear issue created pointing solely at a local `.claude/plans/**` file unreadable without that checkout. |
 | 2026-08-02 | CDT-105: kickoff worktree isolation + resumable-state exit. `/kickoff` now `ensure`s a worktree (bare `<TICKET-ID>` slug) after context load, before the PM/TL spawn, and commits its spec/plan/CONTEXT.md inside `$WT_PATH` on `feat/<TICKET-ID>` — never on master. Fixes the origin defect (standalone `/kickoff` committing straight to master: CDT-104 a049044, CDT-99 0fdf420). Worktree left in place (no `release`) as a documented resumable handoff — the deliberate exception to SPEC-031's implementation-capable-scoped bounded-exit rule. Task graph stays `$MROOT`-anchored. Spec-visibility-until-merge is the intended trade, stated in the summary. SPEC-016 owns the caller-integration form; this spec owns the lifecycle/exit contract. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |
@@ -347,7 +391,8 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - SPEC-010: Code Review & Release — orchestrate triggers review before PR
 - SPEC-007: Memory Distillation — wrap-ticket checks distillation threshold
 - SPEC-004: Memory Storage — wrap-ticket writes learnings through storage layer
-- SPEC-013: Adversarial Council Tribunal — `requires_council: true` task metadata gates TaskCompleted on a council verdict
+- SPEC-013: Adversarial Council Tribunal — `requires_council: true` task metadata gates TaskCompleted on a council verdict; `--council-tier` / `engine.sh --tier` vocabulary is independent of `/orchestrate --tier`
+- SPEC-033: Autopilot Policy — `/orchestrate --tier` MUST NOT change gate ownership, checklists, or BC halt/escalate; this spec MUST NOT edit SPEC-033
 - SPEC-002: Plugin Infrastructure — owns the TaskCompleted hook script; council gate logic must be implemented in `task-completed.sh` (cross-spec follow-up required)
 - SPEC-028: `/fix-ticket` premise→implement→adversarial-refuters — ticket-workflow family member; does not absorb orchestrate lifecycle, task store, or PR automation
 - SPEC-025: Epic Umbrella Decomposition — M4/M5: Linear preferred when MCP up; mandatory local write-through always; local `<EPIC-ID>-C<n>` IDs remain canonical orchestration keys; MCP-down fail-open with one-line notice. `/backlog reconcile` mirrors that posture; reconcile MUST keep the local write-through index consistent with the item files those epics write
