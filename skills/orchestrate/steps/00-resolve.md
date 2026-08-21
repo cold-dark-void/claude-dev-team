@@ -24,8 +24,8 @@
 - `[--tier=<light|standard|full>]` — optional, any position: pipeline cost
   tier (CDT-206 / SPEC-009). `=` form only. No env. Not resume-seeded.
   Independent of `--council-tier`. Omit records `ORCH_TIER` as the literal
-  string `"null"`; test with `[ "$ORCH_TIER" = "null" ]`. This child records
-  only — later steps MUST NOT skip or drop spawn sites on `ORCH_TIER=light`.
+  string `"null"`; test with `[ "$ORCH_TIER" = "null" ]`. Later steps MAY
+  branch on `[ "$ORCH_TIER" = "light" ]` only.
 - `[--resume-ship[=<patch|minor|major|master>]]` — optional (CDT-135 / SPEC-033 /
   CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
   confirmed ship sequence** (end-state land path + wrap) without re-running the
@@ -100,8 +100,8 @@ COUNCIL_TIER_OVERRIDE=$(jq -r '.council_tier // "null"' <<<"$AP_JSON")
 # for the whole run from the same parse-flags.sh call — independent of
 # --council-tier, no env, no resume-state seeding (unlike AUTOPILOT_ON/BUMP;
 # a resumed run without the flag re-resolves to the 4-character string "null").
-# Identity test: [ "$ORCH_TIER" = "null" ] — never emptiness. This child
-# records only; Steps 1–12 MUST NOT skip, drop spawn sites, or branch on it.
+# Identity test: [ "$ORCH_TIER" = "null" ] — never emptiness. Later steps
+# MAY branch on [ "$ORCH_TIER" = "light" ] only.
 ORCH_TIER=$(jq -r '.tier // "null"' <<<"$AP_JSON")
 
 # Resume detection (CDT-111-C8): only when THIS invocation gave neither

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.10.1
+- **`/orchestrate --tier=light` scoper-planner (CDT-207)** — light: one scoper-planner spawn (steps 4–6); no parallel PM+TL; no second TL design; plan-approve stays; questions still surface; standard/full unchanged.
+
 ### v1.10.0
 - **`/orchestrate --tier=light|standard|full` (CDT-206)** — parse-flags 5th JSON key; omit/standard/full identity with today's pipeline; unknown/empty/duplicate `--tier` hard-fail; `--council-tier` independent; SKILL router table + docs flags; T10/T11 spawn-identity lock. Light spawn cuts land in later 1.10.x patches.
 
