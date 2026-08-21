@@ -149,9 +149,9 @@ or ruling was re-proposed (quote + packet line).
 | Check | Expect |
 |-------|--------|
 | Shape | Three sections only: State now, Through-line, appendix |
-| State now | Product surfaces (primary + unfinished/not-product), Open ship gaps, latest decisions, surviving hypotheses, opens (mechanical) |
-| Through-line | Chronological evidence: hypothesis → kill/ruling/decision/fact |
-| appendix | Kill catalog, facts, git code-state, pointer index |
+| State now | May lead with `### Where we are` (omit if summary missing/invalid). Then Product surfaces (primary + unfinished/not-product), Open ship gaps, latest decisions, surviving hypotheses, opens (mechanical) |
+| Through-line | Remainder after State now occupancy: hypothesis → kill/ruling/decision/fact (`_no events_` if empty) |
+| appendix | Leftover kill catalog and facts, git code-state. No `### Pointers (courtesy)` heading. Inline `↳` stays |
 | No tool dumps | No raw `toolUseResult` blobs |
 | No legacy brief | No `## Convergence` / `## Dead-ends` / `## Code-state` / `## Open-threads` / `## Basics` as packet sections |
 

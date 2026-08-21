@@ -1,0 +1,11 @@
+{
+  "events": [
+    {
+      "id": "ns-open",
+      "kind": "open",
+      "text": "AC12 untagged open without wrapper summary",
+      "workstream": "packet",
+      "order": 2
+    }
+  ]
+}

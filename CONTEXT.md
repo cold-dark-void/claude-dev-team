@@ -13,7 +13,7 @@ agent output. Do not reintroduce avoided aliases.
 | Through-line | Ordered believed→tried→killed→decided→open (plus verified facts) without tool dumps | chronological tool narrative |
 | Compact seed | File intended as primary context after fork/compact `@file` | inject brief, cold-only dump |
 | Spine-mine | Extract through-line events from session JSONL on disk (warm or cold shared engine) | memory rewrite, freeform warm summary |
-| State now | Deterministic packet header from tail of event log: Product surfaces, Open ship gaps, latest decisions, unkilled hypotheses, opens | freeform Convergence essay |
+| State now | Deterministic packet header from tail of event log: optional provenance-constrained `### Where we are`; Product surfaces, Open ship gaps, latest decisions, unkilled hypotheses, opens | freeform Convergence essay |
 | Product surfaces | Named primary UX plus unfinished / do-not-treat-as-product; required STM State now field | UI notes, implied surface |
 | Open ship gaps | Unshipped product work called out in STM State now (not every open question) | leftover TODOs (as a substitute for the section) |
 | Escalation gate | Enforced checkpoint before any implementation-capable skill edits a file, deciding ticket/worktree/PR weight | escalation ladder (as synonym once gate lands) |

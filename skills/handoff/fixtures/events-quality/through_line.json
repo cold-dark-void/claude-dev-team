@@ -1,0 +1,55 @@
+{
+  "summary": "Picked goja {through_line:tl-ruling}. Cache kill landed {through_line:tl-kill}.",
+  "events": [
+    {
+      "id": "tl-ruling",
+      "kind": "ruling",
+      "text": "picked goja — option 1 of 3",
+      "quote": "1",
+      "workstream": "assemble",
+      "order": 1,
+      "pointers": [{"type": "transcript", "ref": "L42", "note": "user pick"}]
+    },
+    {
+      "id": "tl-kill",
+      "kind": "killed",
+      "text": "goja was too slow",
+      "quote": "killed: goja too slow is false",
+      "workstream": "cache",
+      "order": 2
+    },
+    {
+      "id": "tl-surf",
+      "kind": "fact",
+      "text": "match --ui SPA quality-surface",
+      "facet": "product_surface",
+      "surface_class": "primary",
+      "workstream": "ui",
+      "order": 3,
+      "how_verified": "user named UX",
+      "pointers": [{"type": "file", "ref": "skills/handoff/assemble.py", "note": "surface"}]
+    },
+    {
+      "id": "tl-dec",
+      "kind": "decision",
+      "text": "Ship SPA as the primary UX (quality)",
+      "workstream": "ui",
+      "order": 4
+    },
+    {
+      "id": "tl-hyp",
+      "kind": "hypothesis",
+      "text": "Remainder grouping needs two workstreams (quality)",
+      "workstream": "assemble",
+      "order": 5
+    },
+    {
+      "id": "tl-fact",
+      "kind": "fact",
+      "text": "forkedFrom is a dict not a pointer (quality-fact)",
+      "how_verified": "transcript empirics",
+      "workstream": "assemble",
+      "order": 6
+    }
+  ]
+}

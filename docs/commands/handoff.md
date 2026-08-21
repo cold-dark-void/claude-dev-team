@@ -88,17 +88,17 @@ Both modes produce the same packet shape, fixed order:
 
 | Section | Contents |
 |---------|----------|
-| **State now** | Mechanical selection from the **tail** of the event log: **Product surfaces** (primary UX + unfinished / do-not-treat-as-product), **Open ship gaps**, latest decisions, surviving unkilled hypotheses, all opens. Not a freeform essay. Both Product surfaces and Open ship gaps are required in this core (appendix-only is a defect). |
-| **Through-line** | Chronological evidence events (hypothesis / killed / ruling / decision / fact), grouped by `workstream` when multiple. Short-verbatim user rulings and kill reasons inline (M6). |
-| **appendix** | Longer kill catalog if needed, deterministic git code-state, dense basics, conflict/open catalog, courtesy pointers. |
+| **State now** | May lead with optional provenance-constrained `### Where we are` (omit when the miner `summary` is missing or invalid). Then mechanical selection from the **tail** of the event log: **Product surfaces** (primary UX + unfinished / do-not-treat-as-product), **Open ship gaps**, latest decisions, surviving unkilled hypotheses, all opens. Not a freeform essay. Both Product surfaces and Open ship gaps are required in this core (appendix-only is a defect). |
+| **Through-line** | Remainder after State now occupancy (hypothesis / killed / ruling / decision / fact). Group by `workstream` only when that remainder has more than one workstream. Empty remainder keeps the heading and emits `_no events_`. Short-verbatim user rulings and kill reasons inline (M6). |
+| **appendix** | Leftover kill catalog and facts (events shown in neither State now nor Through-line), deterministic git code-state. No `### Pointers (courtesy)` heading. Inline `↳` stays. |
 
 Product success is measured by post-`/compact @packet` continuity — not by how
 much text is dumped into a blank session.
 
 - Quotes and kill reasons are **load-bearing** when short; raw tool dumps are
   defects (M6).
-- Pointers (`transcript:L*`, `commit:`, `file:`) are **courtesy** drill-downs,
-  never required to understand a claim.
+- Pointers (`transcript:L*`, `commit:`, `file:`) are **courtesy** drill-downs
+  (inline `↳` on event bullets). Never required to understand a claim.
 - Stated-intent vs git mismatches surface as lightweight `conflict`/`open`
   events (M5) — deep audit is [`/council`](./council.md).
 

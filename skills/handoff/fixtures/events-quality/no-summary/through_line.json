@@ -1,0 +1,11 @@
+{
+  "events": [
+    {
+      "id": "ns-dec",
+      "kind": "decision",
+      "text": "AC12 JSON without summary still assembles",
+      "workstream": "packet",
+      "order": 1
+    }
+  ]
+}

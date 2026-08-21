@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.9.0
+- **`/handoff` STM packet quality (CDT-201)** — each event renders in exactly one section (State now → Through-line remainder → leftover appendix). Drop appendix Pointers index. Optional provenance-constrained `### Where we are` from miner `summary` with invent-guard. Ruling prefers `text`. Dual-home miner negatives for `facet: product_surface`. SPEC-018 Test 37.
+
 ### v1.8.4
 - **BC5 `--autopilot=patch|minor|major` is epic seal-intent** — `/orchestrate` reroute to `/epic` passes `--worktree --release <bump>`. `/epic` persists `release_bump` so children cannot land on master; one `/release` at B.7. Continue Mode B after the first shipped child. SPEC-033 M11a(a).
 

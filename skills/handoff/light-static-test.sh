@@ -144,6 +144,36 @@ else
   bad "T10 Step 2 must resolve skills/handoff/LIGHT.md on the light branch"
 fi
 
+# ---- T11 (CDT-201 / Test 37): ruling-context + product_surface negatives ----
+# LIGHT.md AND SKILL.md (byte-same examples; CDT-199: light never Reads SKILL).
+SKILL="$HERE/SKILL.md"
+if [ -f "$LIGHT" ] && [ -f "$SKILL" ]; then
+  if grep -qF '"B Y"' "$LIGHT" && grep -qF '"B Y"' "$SKILL"; then
+    ok
+  else
+    bad "T11 ruling negative \"B Y\" missing from LIGHT.md or SKILL.md"
+  fi
+  if grep -qF 'picked goja' "$LIGHT" && grep -qF 'picked goja' "$SKILL"; then
+    ok
+  else
+    bad "T11 ruling positive picked goja missing from LIGHT.md or SKILL.md"
+  fi
+  if grep -qF 'not Product surfaces' "$LIGHT" \
+    && grep -qF 'not Product surfaces' "$SKILL"; then
+    ok
+  else
+    bad "T11 'not Product surfaces' missing from LIGHT.md or SKILL.md"
+  fi
+  if grep -qE 'CDT-198|XYZ-336' "$LIGHT" && grep -qE 'CDT-198|XYZ-336' "$SKILL" \
+    && grep -qF 'XYZ-336' "$LIGHT" && grep -qF 'XYZ-336' "$SKILL"; then
+    ok
+  else
+    bad "T11 ticket-ID negative (CDT-198 / XYZ-336) missing from LIGHT.md or SKILL.md"
+  fi
+else
+  bad "T11 skipped — LIGHT.md or SKILL.md missing"
+fi
+
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   exit 0

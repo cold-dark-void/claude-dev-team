@@ -1,0 +1,20 @@
+{
+  "events": [
+    {
+      "id": "sg-persist",
+      "kind": "open",
+      "text": "settings persistence unshipped (quality-gap)",
+      "facet": "ship_gap",
+      "workstream": "ui",
+      "order": 10,
+      "pointers": [{"type": "transcript", "ref": "L88", "note": "gap"}]
+    },
+    {
+      "id": "op-untagged",
+      "kind": "open",
+      "text": "untagged open stays under Open (quality)",
+      "workstream": "packet",
+      "order": 11
+    }
+  ]
+}

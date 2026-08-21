@@ -13,7 +13,8 @@ description: |
     tiers), M4 (STM packet), M5 (lightweight stated-intent-vs-git), M6 (quotes
     admissible), M7/M10 (cold/warm), M8b (warm delta-mine + prior event merge),
     M10c (light warm preset — CDT-91), M3d Product surfaces + Open ship gaps
-    (CDT-198).
+    (CDT-198), M3b/M3c/M6 miner ruling-context + product_surface negatives +
+    optional wrapper summary (CDT-201).
 ---
 
 # handoff
@@ -273,6 +274,7 @@ fences) — one per file under `${EVENTS_DIR}`:
 
 ```json
 {
+  "summary": "optional; omit OK",
   "events": [
     {
       "id": "e1",
@@ -292,7 +294,11 @@ fences) — one per file under `${EVENTS_DIR}`:
 ```
 
 Also accepted by `assemble.py load_events`: a bare event array, or a single event
-object. Prefer the `{ "events": [...] }` wrapper for clarity.
+object. Prefer the `{ "events": [...] }` wrapper for clarity. Optional wrapper
+`"summary":"…"` beside `events` (M3c / CDT-201). Prompt: restate cited events
+only; each sentence MUST contain `{<id>}` using miner raw ids (assemble accepts
+raw or namespaced). Missing summary is OK. `summary` is not an event and not a
+kind; MUST NOT be written into the M8 `events` stem map.
 
 ### Field rules (M3c)
 
@@ -301,7 +307,7 @@ object. Prefer the `{ "events": [...] }` wrapper for clarity.
 | `id` | yes | Stable string unique within the miner's emit set (e.g. `tl-e3`, `st-open-1`). |
 | `kind` | yes | One of seven kinds only (ceiling). File-scoped subsets below. |
 | `text` or `quote` | yes (at least one non-empty) | Load-bearing body. Prefer `quote` for `ruling` / `killed` when verbatim. |
-| `workstream` | no | Defaults to `"default"`. Group Through-line when >1 distinct value. |
+| `workstream` | no | Defaults to `"default"`. Group Through-line remainder when remainder has >1 distinct value. |
 | `order` | no | Integer preferred; assemble sorts by `(order \| timestamp \| input index)`. |
 | `timestamp` | no | ISO-ish string when available from spine. |
 | `pointers` | no | Courtesy only (M6) — never load-bearing. Shape `{type, ref, note?}`. For `type:"transcript"`, `ref` is **bare** `L<n>` (or digits); assemble emits a single `transcript:L<n>`. Already-prefixed `transcript:L<n>` is accepted and **not** double-prefixed (CDT-81). |
@@ -324,6 +330,9 @@ Assemble also dedups on `(kind + normalize(quote|text))`.
 - User `ruling` and `killed` reasons MUST appear **short-verbatim** in `quote` (or
   `text`) when the spine has them: ≤ **~200** chars. Longer → load-bearing clause
   verbatim + brief summary of the rest.
+- For `kind=ruling`, `text` MUST carry the question plus the pick. Bare picks
+  (`"1"`, `"y"`, `"B Y"`) MUST NOT be the sole ruling body. POSITIVE:
+  `text: "picked goja — option 1 of 3"`; `quote` MAY stay `"1"`.
 - MUST NOT inline raw tool output / `toolUseResult`.
 - Pointers (`transcript:L`, `commit:`, `file:`) are courtesy drill-downs. A claim
   that is only true if a pointer resolves is a defect on the STM horizon.
@@ -332,8 +341,10 @@ Assemble also dedups on `(kind + normalize(quote|text))`.
 
 If the session did **not** land a root cause, the miner MUST NOT invent one. Prefer
 evidence trail (`hypothesis` / `killed` / `ruling` / `fact`) plus `open` events.
-Optional `INFERRED` **label** on an existing event is annotation-only (warm) —
-never a new evidence field on the event itself.
+Optional wrapper `summary` restates cited events only (id-cite invent-guard) —
+MUST NOT smuggle an invented root cause. Optional `INFERRED` **label** on an
+existing event is annotation-only (warm) — never a new evidence field on the
+event itself.
 
 ---
 
@@ -395,7 +406,7 @@ Write TWO files with the Write tool (both required):
   1. ${EVENTS_DIR}/through_line.json — single line, kinds ⊆ hypothesis|killed|ruling|decision|fact
   2. ${EVENTS_DIR}/state.json        — single line, kinds ⊆ open|conflict
 Each file is strict JSON, no prose, no markdown fences. Schema per file:
-{"events":[{"id":"...","kind":"...","text":"...","quote":"...","workstream":"default","order":0,"timestamp":"...","pointers":[{"type":"transcript|commit|file","ref":"...","note":"..."}],"how_verified":"...","facet":"product_surface|ship_gap","surface_class":"primary|unfinished|not_product"}]}
+{"summary":"optional omit OK","events":[{"id":"...","kind":"...","text":"...","quote":"...","workstream":"default","order":0,"timestamp":"...","pointers":[{"type":"transcript|commit|file","ref":"...","note":"..."}],"how_verified":"...","facet":"product_surface|ship_gap","surface_class":"primary|unfinished|not_product"}]}
 You MAY also return both lines (or a thin ack) as your reply for debugging; on-disk
 files are the contract for finalize. Partition kinds on write — never put open|
 conflict in through_line.json or through-line kinds in state.json. Invalid kinds
@@ -403,6 +414,9 @@ are dropped by assemble. Quotes / load-bearing verbatim text ≤ ~200 chars.
 Optional `facet`/`surface_class` tag Product surfaces (`fact` + product_surface)
 and Open ship gaps (`open` + ship_gap) for State now (CDT-198). Do not invent
 surface names the session never used.
+Optional wrapper `"summary"` beside `events` (CDT-201). Restate cited events
+only; each sentence MUST contain `{<id>}` using miner raw ids (assemble accepts
+raw or namespaced). Missing summary is OK.
 ```
 
 ---
@@ -482,8 +496,12 @@ PROCEDURE — through-line kinds (→ through_line.json)
      quote = WHY it was killed (evidence / user overrule), ≤200 chars verbatim when
              the kill reason is a user or assistant statement.
    Distinguish in text/quote phrasing: disproved-by-evidence vs overruled-by-user.
-4. ruling — user corrections / explicit settlements. quote = VERBATIM user substring
-   ≤200 chars (load-bearing clause if longer). Mandatory when the session has any.
+4. ruling — user corrections / explicit settlements. Mandatory when the session has any.
+   `text` MUST carry the question plus the pick. A bare pick MUST NOT be the sole
+   ruling body.
+   NEGATIVE (do not emit as sole body): text/quote: "1" / "y" / "B Y"
+   POSITIVE: text: "picked goja — option 1 of 3"; quote MAY stay "1"
+   quote = VERBATIM user substring ≤200 chars (load-bearing clause if longer).
 5. decision — conclusions the session adopted (fix, approach, API choice). Not a
    synonym for "root cause invented" — only what was actually decided.
 6. fact — durable standing context (constraints, vocabulary, environment) the next
@@ -526,6 +544,10 @@ PROCEDURE — state kinds (→ state.json)
    the session used it** (e.g. `match --ui SPA` vs `Fyne`). MUST NOT invent a
    product name the session never used. If the session never named either
    class, omit the tag — assemble will emit `_unspecified_` (do not fabricate).
+   Constraints and ticket IDs are not Product surfaces. NEGATIVE: "no deleting
+   Fyne in this program"; `CDT-198` / `XYZ-336`. Constraints → `fact`/`decision`
+   without `facet=product_surface`. Ticket IDs → `open`/`decision`/`ship_gap`.
+   POSITIVE: named UX (`match --ui SPA`).
 10c. OPEN SHIP GAPS (required State now field, CDT-198) — state.json:
    Unshipped product work (missing feature, unreleased persistence, "not
    shipped yet") → kind `open` with `facet: "ship_gap"`. Not every open
@@ -540,10 +562,14 @@ WRITE RULES
     can address either set without collision.
 14. MUST use the Write tool for both files (on-disk files are finalize's contract).
     Reply MAY echo both single-line JSON objects or a thin ack.
+15. OPTIONAL wrapper `"summary"` beside `events` (CDT-201). Restate cited events
+    only. Each sentence MUST contain `{<id>}` using miner raw ids. Missing OK.
+    MUST NOT invent a root cause. If both files set it, assemble uses
+    through_line.json only.
 
 OUTPUT SHAPE
-  ${EVENTS_DIR}/through_line.json → {"events":[ ... only the five through-line kinds ... ]}
-  ${EVENTS_DIR}/state.json        → {"events":[ ... only open | conflict ... ]}
+  ${EVENTS_DIR}/through_line.json → {"summary":"optional omit OK","events":[ ... only the five through-line kinds ... ]}
+  ${EVENTS_DIR}/state.json        → {"summary":"optional omit OK","events":[ ... only open | conflict ... ]}
 ```
 
 ---
@@ -714,10 +740,12 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   load_prior (`prior:stem:id`, gen=0) when `--prior-events` / `FINALIZE_PRIOR_EVENTS` ·
   load_events (`stem:id`) · merge · order by `_generation` ·
   validate · drop invalid · dedup `(kind + normalize(text|quote))` ·
-  mechanical **State now** (Product surfaces + Open ship gaps required, then
-  latest decisions, surviving unkilled hypotheses, all opens) · chronological
-  **Through-line** (group by workstream when >1) ·
-  **appendix** (kill catalog, facts, git, pointer index) · footer (advisory token
+  mechanical **State now** (optional ### Where we are from wrapper summary;
+  Product surfaces + Open ship gaps required, then latest decisions, surviving
+  unkilled hypotheses, untagged opens) · **Through-line** = remainder (events
+  not rendered in State now; group by workstream only when remainder has >1) ·
+  **appendix** (kill catalog / facts leftover after Through-line, git; no Pointers
+  index) · footer (advisory token
   ratio, session id, Supersedes) · `--events-out` stem map for M8b cache write
   (skipped on light) · `--light` → `light: true` meta + exact honesty line.
 
@@ -754,7 +782,8 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   not a user-facing `/handoff` flag).
 
 **Invariants both sides rely on:** seven-kind event ceiling; optional
-`facet`/`surface_class` (CDT-198; not kinds); `{events:[…]}` load
+`facet`/`surface_class` (CDT-198; not kinds); optional wrapper `summary`
+(CDT-201; not an event); `{events:[…]}` load
 shape; annotation `{event_id, labels[], rank?}`; no five-section section JSON;
 finalize/assemble still consume a directory of `*.json` (typically both event
 files); M8b prior merge is optional and cold-path identical when omitted.

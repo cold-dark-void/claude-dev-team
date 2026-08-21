@@ -57,7 +57,8 @@ Honesty footer MUST be exactly:
 
 Thin packets still require State now `### Product surfaces` + `### Open ship
 gaps` (assemble `_unspecified_` when the miner tagged nothing). Do not invent
-surface names.
+surface names. **Through-line** = remainder of State now occupancy. Appendix
+has no Pointers index.
 
 ---
 
@@ -139,7 +140,11 @@ specified below (or the chunk-summary JSON for summarizers).
 
 ## Common miner preamble
 
-Prepended to the merged miner template (include in the spawn):
+Prepended to the merged miner template (include in the spawn). Optional wrapper
+`"summary":"…"` beside `events` (`{"summary":"…","events":[…]}`). Prompt:
+restate cited events only; each sentence MUST contain `{<id>}` using miner raw
+ids (assemble accepts raw or namespaced). Missing summary is OK. `summary` is
+not an event and not a kind.
 
 ```
 INPUTS
@@ -165,7 +170,7 @@ Write TWO files with the Write tool (both required):
   1. ${EVENTS_DIR}/through_line.json — single line, kinds ⊆ hypothesis|killed|ruling|decision|fact
   2. ${EVENTS_DIR}/state.json        — single line, kinds ⊆ open|conflict
 Each file is strict JSON, no prose, no markdown fences. Schema per file:
-{"events":[{"id":"...","kind":"...","text":"...","quote":"...","workstream":"default","order":0,"timestamp":"...","pointers":[{"type":"transcript|commit|file","ref":"...","note":"..."}],"how_verified":"...","facet":"product_surface|ship_gap","surface_class":"primary|unfinished|not_product"}]}
+{"summary":"optional omit OK","events":[{"id":"...","kind":"...","text":"...","quote":"...","workstream":"default","order":0,"timestamp":"...","pointers":[{"type":"transcript|commit|file","ref":"...","note":"..."}],"how_verified":"...","facet":"product_surface|ship_gap","surface_class":"primary|unfinished|not_product"}]}
 You MAY also return both lines (or a thin ack) as your reply for debugging; on-disk
 files are the contract for finalize. Partition kinds on write — never put open|
 conflict in through_line.json or through-line kinds in state.json. Invalid kinds
@@ -173,6 +178,9 @@ are dropped by assemble. Quotes / load-bearing verbatim text ≤ ~200 chars.
 Optional `facet`/`surface_class` tag Product surfaces (`fact` + product_surface)
 and Open ship gaps (`open` + ship_gap) for State now (CDT-198). Do not invent
 surface names the session never used.
+Optional wrapper `"summary"` beside `events` (CDT-201). Restate cited events
+only; each sentence MUST contain `{<id>}` using miner raw ids (assemble accepts
+raw or namespaced). Missing summary is OK.
 ```
 
 ---
@@ -252,8 +260,12 @@ PROCEDURE — through-line kinds (→ through_line.json)
      quote = WHY it was killed (evidence / user overrule), ≤200 chars verbatim when
              the kill reason is a user or assistant statement.
    Distinguish in text/quote phrasing: disproved-by-evidence vs overruled-by-user.
-4. ruling — user corrections / explicit settlements. quote = VERBATIM user substring
-   ≤200 chars (load-bearing clause if longer). Mandatory when the session has any.
+4. ruling — user corrections / explicit settlements. Mandatory when the session has any.
+   `text` MUST carry the question plus the pick. A bare pick MUST NOT be the sole
+   ruling body.
+   NEGATIVE (do not emit as sole body): text/quote: "1" / "y" / "B Y"
+   POSITIVE: text: "picked goja — option 1 of 3"; quote MAY stay "1"
+   quote = VERBATIM user substring ≤200 chars (load-bearing clause if longer).
 5. decision — conclusions the session adopted (fix, approach, API choice). Not a
    synonym for "root cause invented" — only what was actually decided.
 6. fact — durable standing context (constraints, vocabulary, environment) the next
@@ -296,6 +308,10 @@ PROCEDURE — state kinds (→ state.json)
    the session used it** (e.g. `match --ui SPA` vs `Fyne`). MUST NOT invent a
    product name the session never used. If the session never named either
    class, omit the tag — assemble will emit `_unspecified_` (do not fabricate).
+   Constraints and ticket IDs are not Product surfaces. NEGATIVE: "no deleting
+   Fyne in this program"; `CDT-198` / `XYZ-336`. Constraints → `fact`/`decision`
+   without `facet=product_surface`. Ticket IDs → `open`/`decision`/`ship_gap`.
+   POSITIVE: named UX (`match --ui SPA`).
 10c. OPEN SHIP GAPS (required State now field, CDT-198) — state.json:
    Unshipped product work (missing feature, unreleased persistence, "not
    shipped yet") → kind `open` with `facet: "ship_gap"`. Not every open
@@ -310,10 +326,14 @@ WRITE RULES
     can address either set without collision.
 14. MUST use the Write tool for both files (on-disk files are finalize's contract).
     Reply MAY echo both single-line JSON objects or a thin ack.
+15. OPTIONAL wrapper `"summary"` beside `events` (CDT-201). Restate cited events
+    only. Each sentence MUST contain `{<id>}` using miner raw ids. Missing OK.
+    MUST NOT invent a root cause. If both files set it, assemble uses
+    through_line.json only.
 
 OUTPUT SHAPE
-  ${EVENTS_DIR}/through_line.json → {"events":[ ... only the five through-line kinds ... ]}
-  ${EVENTS_DIR}/state.json        → {"events":[ ... only open | conflict ... ]}
+  ${EVENTS_DIR}/through_line.json → {"summary":"optional omit OK","events":[ ... only the five through-line kinds ... ]}
+  ${EVENTS_DIR}/state.json        → {"summary":"optional omit OK","events":[ ... only open | conflict ... ]}
 ```
 
 ---

@@ -13,13 +13,14 @@ Pipeline (deterministic, stdlib only):
         │
         ▼
   State now (mechanical tail selection)
+    · optional ### Where we are (wrapper summary, invent-guard)
     · Product surfaces (primary UX + unfinished / do-not-treat-as-product)
     · Open ship gaps
     · latest decisions (soft cap DECISION_CAP)
     · surviving (unkilled) hypotheses
-    · all opens
-  Through-line (chronological; group by workstream when >1)
-  appendix (kill catalog, facts, git, pointer index)
+    · untagged opens
+  Through-line (remainder of State now occupancy; group by workstream when remainder >1)
+  appendix (kill catalog / facts leftover after Through-line, git)
         │
         ▼
   markdown: ## State now → ## Through-line → ## appendix
@@ -53,6 +54,14 @@ import json
 import os
 import sys
 from collections import OrderedDict
+
+from packet_quality import (
+    WHERE_WE_ARE_HEADING,
+    load_wrapper_summary,
+    occupied_ids,
+    remainder_events,
+    validate_summary,
+)
 
 # ---------------------------------------------------------------------------
 # Event schema constants (shared with miners / tests)
@@ -580,11 +589,16 @@ def select_state_now(events, decision_cap=DECISION_CAP):
     product_surfaces_primary, product_surfaces_unfinished, ship_gaps —
     each a list of events (chronological within bucket; decisions are the
     *latest* N). Surfaces/gaps are selected by miner ``facet`` tags, not
-    by inventing names from free text.
+    by inventing names from free text. Opens exclude ``facet=ship_gap``;
+    decisions/hypotheses exclude ``facet=product_surface``.
     """
     killed = _killed_norms(events)
 
-    decisions = [e for e in events if e.get("kind") == "decision"]
+    decisions = [
+        e
+        for e in events
+        if e.get("kind") == "decision" and e.get("facet") != "product_surface"
+    ]
     # latest decisions: take from tail
     if decision_cap is not None and decision_cap >= 0:
         decisions = decisions[-decision_cap:]
@@ -593,12 +607,19 @@ def select_state_now(events, decision_cap=DECISION_CAP):
     for e in events:
         if e.get("kind") != "hypothesis":
             continue
+        if e.get("facet") == "product_surface":
+            continue
         n = normalize_text(event_body(e))
         if n and n in killed:
             continue  # killed — exclude from State now
         hyps.append(e)
 
-    opens = [e for e in events if e.get("kind") == "open"]
+    opens = [
+        e
+        for e in events
+        if e.get("kind") == "open"
+        and e.get("facet") not in ("ship_gap", "product_surface")
+    ]
 
     primary = []
     unfinished = []
@@ -748,16 +769,33 @@ def _label_suffix(ev):
     return " " + " ".join(f"[{lab}]" for lab in labels)
 
 
+def _pointer_suffix(ev):
+    """Inline courtesy ``↳`` line when ``pointers[]`` is non-empty."""
+    ptrs = ev.get("pointers")
+    if not isinstance(ptrs, list) or not ptrs:
+        return ""
+    toks = [t for t in (fmt_pointer(p) for p in ptrs) if t]
+    if not toks:
+        return ""
+    return "\n  ↳ " + ", ".join(toks)
+
+
 def _display_body(ev):
     """Body for markdown; enforce QUOTE_MAX on ruling/killed (and any quote)."""
     kind = ev.get("kind")
-    # Prefer quote for ruling/killed when present
-    if kind in ("ruling", "killed") and isinstance(ev.get("quote"), str) and ev["quote"].strip():
-        body = ev["quote"]
-    elif isinstance(ev.get("quote"), str) and ev["quote"].strip():
-        body = ev["quote"]
+    text = ev.get("text")
+    quote = ev.get("quote")
+    text_ok = isinstance(text, str) and text.strip()
+    quote_ok = isinstance(quote, str) and quote.strip()
+    # ruling: prefer non-empty text, else quote (AC10 / M6)
+    if kind == "ruling":
+        body = text if text_ok else (quote if quote_ok else (text or ""))
+    elif kind == "killed" and quote_ok:
+        body = quote
+    elif quote_ok:
+        body = quote
     else:
-        body = ev.get("text") or ""
+        body = text or ""
     # Cap inline load-bearing text
     if kind in ("ruling", "killed") or (isinstance(ev.get("quote"), str) and ev.get("quote") == body):
         body = truncate_quote(body, QUOTE_MAX)
@@ -774,11 +812,7 @@ def render_event_line(ev, bullet="-"):
     hv = ev.get("how_verified")
     if hv and kind == "fact":
         line += f" _(verified: {hv})_"
-    ptrs = ev.get("pointers")
-    if isinstance(ptrs, list) and ptrs:
-        toks = [t for t in (fmt_pointer(p) for p in ptrs) if t]
-        if toks:
-            line += "\n  ↳ " + ", ".join(toks)
+    line += _pointer_suffix(ev)
     return line
 
 
@@ -806,6 +840,7 @@ def assemble_packet(
     captured_at=None,
     mode=None,
     light=False,
+    summary=None,
 ):
     """Build full STM packet markdown string.
 
@@ -829,6 +864,9 @@ def assemble_packet(
         CDT-91 M10c light preset marker. When True, emit ``light: true`` in
         header/footer meta and the exact LIGHT_HONESTY line. Does not invent
         a third mode value (mode stays cold|warm as passed).
+    summary : str, optional
+        Miner wrapper summary. Valid → first State now ``### Where we are``.
+        Invalid/missing → omit heading; does not occupy event ids.
     """
     def _copy_meta(v, raw, default_src):
         """Preserve namespace / generation meta across re-validate."""
@@ -876,6 +914,8 @@ def assemble_packet(
     apply_annotations(deduped, annotations or [])
 
     state = select_state_now(deduped)
+    occ = occupied_ids(state)
+    remainder = remainder_events(deduped, occ)
     if captured_at is None:
         captured_at = (
             datetime.datetime.now(datetime.timezone.utc)
@@ -917,11 +957,20 @@ def assemble_packet(
     # --- State now ---
     lines.append("## State now")
     lines.append("")
+    if summary is not None:
+        ok, prose, reason = validate_summary(summary, deduped)
+        if ok:
+            lines.append(WHERE_WE_ARE_HEADING)
+            lines.append(prose)
+            lines.append("")
+        else:
+            sys.stderr.write(f"assemble: omit summary: {reason}\n")
     lines.append("### Product surfaces")
     if state["product_surfaces_primary"]:
         for ev in state["product_surfaces_primary"]:
             lines.append(
                 f"- **primary**: {_display_body(ev)}{_label_suffix(ev)}"
+                f"{_pointer_suffix(ev)}"
             )
     else:
         lines.append("- **primary**: _unspecified_")
@@ -929,7 +978,7 @@ def assemble_packet(
         for ev in state["product_surfaces_unfinished"]:
             lines.append(
                 "- **unfinished / do-not-treat-as-product**: "
-                f"{_display_body(ev)}{_label_suffix(ev)}"
+                f"{_display_body(ev)}{_label_suffix(ev)}{_pointer_suffix(ev)}"
             )
     else:
         lines.append("- **unfinished / do-not-treat-as-product**: _unspecified_")
@@ -966,19 +1015,19 @@ def assemble_packet(
         lines.append("_none_")
     lines.append("")
 
-    # --- Through-line ---
+    # --- Through-line (remainder of State now occupancy) ---
     lines.append("## Through-line")
     lines.append("")
     workstreams = OrderedDict()
-    for ev in deduped:
+    for ev in remainder:
         ws = ev.get("workstream") or DEFAULT_WORKSTREAM
         workstreams.setdefault(ws, []).append(ev)
 
-    if len(workstreams) <= 1:
-        for ev in deduped:
+    if not remainder:
+        lines.append("_no events_")
+    elif len(workstreams) <= 1:
+        for ev in remainder:
             lines.append(render_event_line(ev))
-        if not deduped:
-            lines.append("_no events_")
     else:
         for ws, evs in workstreams.items():
             lines.append(f"### {ws}")
@@ -987,11 +1036,18 @@ def assemble_packet(
             lines.append("")
     lines.append("")
 
-    # --- appendix ---
+    # --- appendix (leftover after State now + Through-line) ---
     lines.append("## appendix")
     lines.append("")
 
-    kills = [e for e in deduped if e.get("kind") == "killed"]
+    shown = set(occ)
+    for ev in remainder:
+        eid = ev.get("id")
+        if eid is not None and str(eid).strip() != "":
+            shown.add(eid)
+    leftover = remainder_events(deduped, shown)
+
+    kills = [e for e in leftover if e.get("kind") == "killed"]
     lines.append("### Kill catalog")
     if kills:
         for ev in kills:
@@ -1000,7 +1056,7 @@ def assemble_packet(
         lines.append("_none_")
     lines.append("")
 
-    facts = [e for e in deduped if e.get("kind") == "fact"]
+    facts = [e for e in leftover if e.get("kind") == "fact"]
     if facts:
         lines.append("### Facts")
         for ev in facts:
@@ -1016,19 +1072,6 @@ def assemble_packet(
     else:
         lines.append("_no git snapshot_")
     lines.append("")
-
-    # courtesy pointer index — display _raw_id (strip stem namespace; CDT-93)
-    ptr_index = []
-    for ev in deduped:
-        for p in ev.get("pointers") or []:
-            tok = fmt_pointer(p)
-            if tok:
-                did = ev.get("_raw_id") or ev["id"]
-                ptr_index.append(f"- {did}: {tok}")
-    if ptr_index:
-        lines.append("### Pointers (courtesy)")
-        lines.extend(ptr_index)
-        lines.append("")
 
     # --- footer ---
     body_so_far = "\n".join(lines)
@@ -1161,6 +1204,8 @@ def main(argv=None):
         sys.stderr.write(f"assemble: {e}\n")
         return 2
 
+    summary = load_wrapper_summary(args.events)
+
     prior = []
     if args.prior_events:
         prior = load_prior_events(args.prior_events)
@@ -1206,6 +1251,7 @@ def main(argv=None):
             supersedes=args.supersedes or None,
             mode=args.mode or None,
             light=bool(args.light),
+            summary=summary,
         )
     except AssembleError as e:
         sys.stderr.write(f"{e}\n")

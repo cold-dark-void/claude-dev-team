@@ -1,0 +1,11 @@
+{
+  "events": [
+    {
+      "id": "dup-dec",
+      "kind": "decision",
+      "text": "Keep SPA; duplication fixture has no through-line remainder",
+      "workstream": "ui",
+      "order": 1
+    }
+  ]
+}

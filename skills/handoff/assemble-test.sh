@@ -69,11 +69,11 @@ t=open(sys.argv[1]).read()
 q="killed: messageUuid is self-ref, not a pointer across files"
 print(t.count(q))
 ' "$OUT")
-if [ "$KILL_N" -ge 1 ] && [ "$KILL_N" -le 2 ]; then
-  # once in Through-line + once in Kill catalog = 2 max
+if [ "$KILL_N" -eq 1 ]; then
+  # single-section: Through-line remainder only (not also Kill catalog)
   ok
 else
-  bad "T2 dedup kill quote count=$KILL_N (want 1-2)"
+  bad "T2 dedup kill quote count=$KILL_N (want 1)"
 fi
 
 # python-level: dedup_events collapses to one
@@ -146,7 +146,7 @@ assert "OPEN" in (evs[0].get("_labels") or [])
 print("ok")
 ' 2>/dev/null | grep -q ok; then ok; else bad "T4 apply_annotations counts"; fi
 
-# ---- T5: quote cap 200 ----
+# ---- T5: quote cap 200; ruling prefers text (CDT-201 AC10) ----
 if python3 -c '
 import sys
 sys.path.insert(0,"'"$HERE"'")
@@ -159,12 +159,17 @@ assert a.truncate_quote("short")=="short"
 ev={"id":"r1","kind":"ruling","quote":"Q"*300,"text":"t","workstream":"default","_src_index":0}
 ev=a.validate_event(ev)
 pkt=a.assemble_packet([ev])
-# rendered body must not contain 201+ consecutive Q
 import re
 assert not re.search(r"Q{201,}", pkt), "over-cap quote leaked"
-assert "Q"*50 in pkt  # still present truncated
+assert "t" in pkt
+assert "Q"*50 not in pkt  # ruling uses text, not quote
+# quote-only ruling still truncates
+ev2=a.validate_event({"id":"r2","kind":"ruling","quote":"Q"*300,"workstream":"default"})
+pkt2=a.assemble_packet([ev2])
+assert not re.search(r"Q{201,}", pkt2)
+assert "Q"*50 in pkt2
 print("ok")
-' 2>/dev/null | grep -q ok; then ok; else bad "T5 quote cap"; fi
+' 2>/dev/null | grep -q ok; then ok; else bad "T5 quote cap / ruling text"; fi
 
 # ---- T6: footer ratio when spine_tokens provided ----
 if grep -q 'packet_tokens / stripped_spine_tokens: ' "$OUT" \
@@ -201,9 +206,29 @@ assert "nope" not in pkt
 print("ok")
 ' 2>/dev/null | grep -q ok; then ok; else bad "T9 validate/drop"; fi
 
-# ---- T10: multi-workstream through-line groups ----
-if grep -q '### cache' "$OUT" && grep -q '### assemble' "$OUT"; then ok
-else bad "T10 workstream groups missing"; fi
+# ---- T10: remainder workstream groups only when remainder >1 workstream ----
+# Thrash occupancy may leave a single remainder workstream; grouping is
+# remainder-only (CDT-201). Do not grep the thrash packet for ### cache.
+if python3 -c '
+import sys
+sys.path.insert(0,"'"$HERE"'")
+import assemble as a
+two = a.assemble_packet([
+  {"id":"d1","kind":"decision","text":"dec stays in state"},
+  {"id":"k1","kind":"killed","quote":"kill cache body","workstream":"cache"},
+  {"id":"k2","kind":"killed","quote":"kill assemble body","workstream":"assemble"},
+])
+tl = two.split("## Through-line", 1)[1].split("## appendix", 1)[0]
+assert "### cache" in tl and "### assemble" in tl, tl
+one = a.assemble_packet([
+  {"id":"d1","kind":"decision","text":"dec stays in state"},
+  {"id":"k1","kind":"killed","quote":"only one remainder ws","workstream":"cache"},
+])
+tl1 = one.split("## Through-line", 1)[1].split("## appendix", 1)[0]
+assert "### cache" not in tl1
+assert "only one remainder ws" in tl1
+print("ok")
+' 2>/dev/null | grep -q ok; then ok; else bad "T10 remainder workstream groups"; fi
 
 # ---- T11: --print-core omits appendix body ----
 CORE="$WORK/core.md"
@@ -315,9 +340,8 @@ if python3 "$ASM" --events "$THRASH" --session-uuid "m-omit" --out "$MODE_O" 2>/
    && ! grep -qE '^mode: (cold|warm)$' "$MODE_O"; then ok
 else bad "T16 omit mode must not invent header"; fi
 
-# ---- T17: CDT-93 display hygiene — pointer index uses _raw_id, not stem:id ----
-# State now / Through-line / kill catalog never emit event ids (render_event_line);
-# only appendix pointer index does — must strip namespace via _raw_id.
+# ---- T17: CDT-201 display hygiene — no Pointers index; namespaced ids MUST NOT leak ----
+# State now / Through-line / appendix never emit event ids (render_event_line).
 if python3 -c '
 import sys
 sys.path.insert(0,"'"$HERE"'")
@@ -325,13 +349,9 @@ import assemble as a
 evs = a.load_events("'"$THRASH"'")
 assert any(":" in e["id"] and e.get("_raw_id") for e in evs), "expected namespaced ids"
 pkt = a.assemble_packet(evs, git_blob="x")
-# namespaced form must not appear in user-facing packet text
 for e in evs:
     assert e["id"] not in pkt, "namespaced id leaked: " + e["id"]
-# raw ids appear only in pointer index lines
-assert any(line.startswith("- e4:") for line in pkt.splitlines()), pkt
-assert "### Pointers (courtesy)" in pkt
-# State now / Through-line lines are kind-bodied, not id-prefixed
+assert "### Pointers (courtesy)" not in pkt
 sn = pkt.split("## Through-line")[0]
 assert "- **" in sn
 assert not any(
@@ -340,7 +360,7 @@ assert not any(
     if line.startswith("- e")
 )
 print("ok")
-' 2>/dev/null | grep -q ok; then ok; else bad "T17 pointer index display hygiene (_raw_id)"; fi
+' 2>/dev/null | grep -q ok; then ok; else bad "T17 no Pointers heading / no namespaced id leak"; fi
 
 # multi-file dir: stem namespace internal only
 if python3 -c '

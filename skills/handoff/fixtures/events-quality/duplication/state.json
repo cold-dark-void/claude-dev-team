@@ -1,0 +1,13 @@
+{
+  "events": [
+    {
+      "id": "dup-gap",
+      "kind": "open",
+      "text": "QUALITY-DUP-GAP: settings persistence unshipped — same body used to render under Open ship gaps and Open and Through-line",
+      "facet": "ship_gap",
+      "workstream": "ui",
+      "order": 2,
+      "pointers": [{"type": "transcript", "ref": "L201", "note": "dup-gap"}]
+    }
+  ]
+}
