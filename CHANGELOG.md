@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.10.4
+- **`/orchestrate` auto-size `--tier` at scope-confirm (CDT-210)** — no `--tier`: Step 2 classifies S→light / M→standard / L→full from cheap signals; explicit `--tier` wins; Autopilot records proposed+selected.
+
 ### v1.10.3
 - **`/orchestrate --tier=light` review/QA-fold/wrap-lite (CDT-209)** — light: single-pass TL; max one rework; skip council default (`--council-tier` still overrides); IC pastes tests; wrap-lite skips 12b. SPEC-033 gates stay.
 

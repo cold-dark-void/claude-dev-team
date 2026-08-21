@@ -15,7 +15,7 @@ End-to-end issue orchestrator. Fetches issue context, creates a worktree, spawns
 |-----------------|-------------|
 | `<ISSUE-ID>` | Linear ticket ID (e.g. `CDV-42`) **or** local backlog slug. Omit to be prompted. |
 | `[--autopilot[=<token>]]` | Optional. Enable autopilot for this run (CDT-111-C4 / SPEC-033); bare flag or `AUTOPILOT=1` env = enabled with no ship-intent token. `--autopilot=<patch\|minor\|major>` = release ship intent; `--autopilot=master` = **land-no-release** (token spelling only — land target is worktree baseline / origin default, not necessarily a branch named `master`). Flag wins over env. |
-| `[--tier=<light\|standard\|full>]` | Pipeline cost tier (CDT-206 / SPEC-009). Omit / `standard` / `full` = current Step 0–12 pipeline. `light` is accepted now; spawn cuts land in later children. Independent of `--council-tier`. |
+| `[--tier=<light\|standard\|full>]` | Pipeline cost tier (CDT-206 / SPEC-009). `standard` / `full` = current Step 0–12 pipeline. `light` = scoper-planner, skip DAG, one IC4, single-pass TL, no council default, wrap-lite. No `--tier`: Step 2 auto-sizes S→light, M→standard, L→full (cheap signals, no extra spawn) in the existing scope-confirm gate; explicit `--tier` wins. Independent of `--council-tier`. |
 | `[--council-tier=<skip\|light\|full>]` | DRI council-pipeline override (CDT-126 / SPEC-013). Independent of `--tier`. |
 
 `/orchestrate --tier` is the pipeline cost tier. `--council-tier` and `/council --tier` are the council pipeline. They are independent.
