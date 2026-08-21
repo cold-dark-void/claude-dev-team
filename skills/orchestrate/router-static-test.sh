@@ -112,6 +112,22 @@ else
   ok
 fi
 
+# ---- T8: SKILL.md lists --tier=light|standard|full (SPEC-009 CDT-206) ----
+# Accept --tier=light|standard|full or --tier=<light|standard|full> on the Arguments line.
+if grep -qE -- '--tier=<?light\|standard\|full>?' "$SKILL"; then ok
+else bad "T8 SKILL.md missing --tier=light|standard|full (or equivalent Arguments line)"; fi
+
+# ---- T9: per-tier table + light spawn-cuts/later-children (SPEC-009 CDT-206) ----
+# standard and full near a markdown table; light row notes spawn cuts / later children.
+if grep -E '^\|' "$SKILL" | grep -q 'standard' \
+  && grep -E '^\|' "$SKILL" | grep -q 'full' \
+  && grep -E '^\|' "$SKILL" | grep -qiE 'light' \
+  && grep -E '^\|' "$SKILL" | grep -iE 'light' | grep -qiE 'spawn[[:space:]-]*cuts|later[[:space:]-]*child'; then
+  ok
+else
+  bad "T9 SKILL.md missing per-tier table (standard/full/light + light spawn-cuts/later-children)"
+fi
+
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   exit 0
