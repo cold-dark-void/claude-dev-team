@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.10.2
+- **`/orchestrate --tier=light` skip DAG, one IC4 (CDT-208)** — light: no DAG/task-store; one IC4 spawn at low effort; standard/full Step 7–8 unchanged.
+
 ### v1.10.1
 - **`/orchestrate --tier=light` scoper-planner (CDT-207)** — light: one scoper-planner spawn (steps 4–6); no parallel PM+TL; no second TL design; plan-approve stays; questions still surface; standard/full unchanged.
 

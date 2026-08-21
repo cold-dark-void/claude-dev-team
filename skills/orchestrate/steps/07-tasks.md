@@ -2,6 +2,10 @@
 
 ## Step 7: Create task graph
 
+When `[ "$ORCH_TIER" = "light" ]`: skip DAG and task-store. One task. MUST NOT set `requires_council` (council default is skip; override is Step 9). Do not run `dag-lib.sh` / `task-store.sh` / the TaskCreate loop below. Continue to Step 8.
+
+Otherwise (omit / `standard` / `full`):
+
 Before creating any tasks, extract the dependency graph from the approved Tech Lead plan and reject cycles up front:
 1. For each task in the plan, note its ID (Task 1, Task 2, …) and its "Depends on:" list.
 2. Map each plan "Task N" reference to its compound key `<ISSUE-ID>-N` (the same key Step 7 uses for `task-store.sh create`), then build a JSON array: `[{"task_id": "<ISSUE-ID>-N", "depends_on": ["<ISSUE-ID>-M", ...]}, ...]`. A task with no deps gets `"depends_on": []`.

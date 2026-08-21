@@ -214,15 +214,21 @@ fi
 if [ -z "$t11_fail" ]; then ok
 else bad "T11 spawn-site identity:$t11_fail"; fi
 
-# ---- T12: light-branch exact test (grows per child; C2 = steps 4–6) ----
+# ---- T12: light-branch exact test (grows per child; C2–C3 = steps 4–8) ----
 t12_fail=""
-for f in 04-kickoff.md 05-questions.md 06-design.md; do
+for f in 04-kickoff.md 05-questions.md 06-design.md 07-tasks.md 08-execute.md; do
   if ! grep -Fq '[ "$ORCH_TIER" = "light" ]' "$STEPS/$f"; then
     t12_fail="$t12_fail $f"
   fi
 done
 if ! grep -qi 'scoper-planner' "$STEPS/04-kickoff.md"; then
   t12_fail="$t12_fail 04 missing scoper-planner"
+fi
+if ! grep -qi 'skip DAG' "$STEPS/07-tasks.md" && ! grep -qi 'skip DAG and task-store' "$STEPS/07-tasks.md"; then
+  t12_fail="$t12_fail 07 missing skip DAG"
+fi
+if ! grep -q 'Spawn @ic4' "$STEPS/08-execute.md"; then
+  t12_fail="$t12_fail 08 missing Spawn @ic4"
 fi
 if [ -z "$t12_fail" ]; then ok
 else bad "T12 light-branch:$t12_fail"; fi
