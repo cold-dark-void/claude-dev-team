@@ -49,6 +49,10 @@ Next: /wrap-ticket <ISSUE-ID> after merge (sets Linear Done if still In Review)
 
 ---
 
+When `[ "$ORCH_TIER" = "light" ]`: skip Step 12b friction/retro. Still print `Orchestration complete` (banner above) and suggest `/wrap-ticket`.
+
+Otherwise (omit / `standard` / `full`):
+
 ## Step 12b: Friction check (non-blocking)
 
 Before exiting, check the just-completed orchestration session for friction
