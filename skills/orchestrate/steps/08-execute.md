@@ -2,6 +2,26 @@
 
 ## Step 8: Execute — spawn agents and monitor
 
+When `[ "$ORCH_TIER" = "light" ]`: **You still do NOT write code.** Spawn exactly one `@ic4` at low effort for the single task. No DAG ready-set fan-out. No task-store graph. Do not append the `requires_council` council instruction (that task MUST NOT set `requires_council`). Then monitor that one agent. Escalation triggers, CI-watch 8.5, and stint-end still apply. Skip the multi-agent spawn loop and DAG-aware fan-out below.
+
+```
+Spawn @ic4 for the single light-tier task (low effort):
+"<task description>
+
+Output mode: terse
+
+Work in worktree: <path>
+Spec: <spec path>
+Plan: <plan path>
+
+When done, mark your task completed via TaskUpdate. Return your final report as
+this agent invocation's output — do NOT SendMessage to the orchestrator. There
+is no addressable parent named 'main' or 'orchestrator'; symbolic addressing
+will fail. The orchestrator reads your output directly from this spawn return."
+```
+
+Otherwise (omit / `standard` / `full`):
+
 **CRITICAL: You do NOT write code. You orchestrate.** This rule survives
 session compaction and `claude --resume`. If you find yourself reaching
 for `Edit` or `Write` on a project file after a long session — stop.
