@@ -2,6 +2,10 @@
 
 ## Step 9: Tech Lead review loop
 
+When `[ "$ORCH_TIER" = "light" ]`: single-pass TL diff review (same Check against / Evaluate as the spawn below). Max one rework (one REQUEST CHANGES → IC fix → re-review). Then APPROVE or escalate. Do not use the 3-round deadloop as the default. Skip Step 9.5 code-simplify. Council EFFECTIVE: if `COUNCIL_TIER_OVERRIDE` is not the string `"null"`, use that value (`skip|light|full`) — `--tier=light --council-tier=full` runs council; `--tier=light --council-tier=skip` skips. Else (override is `"null"`): no council spawn. After APPROVE: TaskUpdate completed. Skip `task-store.sh update-status` when no task-store file. Defensive CI-watch cleanup still applies if a ci-fixer task exists.
+
+Otherwise (omit / `standard` / `full`):
+
 As each IC task completes, trigger a Tech Lead review:
 
 ```

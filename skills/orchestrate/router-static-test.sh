@@ -214,9 +214,9 @@ fi
 if [ -z "$t11_fail" ]; then ok
 else bad "T11 spawn-site identity:$t11_fail"; fi
 
-# ---- T12: light-branch exact test (grows per child; C2–C3 = steps 4–8) ----
+# ---- T12: light-branch exact test (C2–C4 = steps 4–10 + 12) ----
 t12_fail=""
-for f in 04-kickoff.md 05-questions.md 06-design.md 07-tasks.md 08-execute.md; do
+for f in 04-kickoff.md 05-questions.md 06-design.md 07-tasks.md 08-execute.md 09-review.md 10-qa.md 12-wrap.md; do
   if ! grep -Fq '[ "$ORCH_TIER" = "light" ]' "$STEPS/$f"; then
     t12_fail="$t12_fail $f"
   fi
@@ -229,6 +229,15 @@ if ! grep -qi 'skip DAG' "$STEPS/07-tasks.md" && ! grep -qi 'skip DAG and task-s
 fi
 if ! grep -q 'Spawn @ic4' "$STEPS/08-execute.md"; then
   t12_fail="$t12_fail 08 missing Spawn @ic4"
+fi
+if ! grep -qi 'single-pass' "$STEPS/09-review.md"; then
+  t12_fail="$t12_fail 09 missing single-pass"
+fi
+if ! grep -qi 'do not spawn `@qa`' "$STEPS/10-qa.md" && ! grep -qi 'do not spawn @qa' "$STEPS/10-qa.md"; then
+  t12_fail="$t12_fail 10 missing no-qa-spawn"
+fi
+if ! grep -qi 'skip Step 12b' "$STEPS/12-wrap.md"; then
+  t12_fail="$t12_fail 12 missing wrap-lite"
 fi
 if [ -z "$t12_fail" ]; then ok
 else bad "T12 light-branch:$t12_fail"; fi
