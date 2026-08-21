@@ -2,6 +2,10 @@
 
 ## Step 6: Tech Lead designs approach
 
+When `[ "$ORCH_TIER" = "light" ]`: do not spawn Tech Lead for a second design pass. The scoper-planner already wrote `.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` with Tracking (Step 4). Skip the `@tech-lead — ACs are confirmed` spawn below. Present that plan summary. SPEC-033 `plan-approve` still fires — the Autopilot self-answer block below stays. Then Step 6b.
+
+Otherwise (omit / `standard` / `full`):
+
 Feed confirmed ACs + Tech Lead's orientation to Tech Lead:
 
 ```

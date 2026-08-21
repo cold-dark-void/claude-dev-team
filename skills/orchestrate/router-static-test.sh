@@ -128,29 +128,58 @@ else
   bad "T9 SKILL.md missing per-tier table (standard/full/light + light spawn-cuts/later-children)"
 fi
 
-# ---- T10: no pipeline branch on ORCH_TIER (SPEC-009 § Orchestrate --tier) ----
-# Binding lives only in 00-resolve.md. Later steps MUST NOT mention ORCH_TIER
-# (no skip/drop-spawn branches on light). Fail with the named file.
+# ---- T10: ORCH_TIER binding + light-branch form (SPEC-009 CDT-207+) ----
+# Binding lives in 00-resolve.md. Later children MAY branch on exactly
+# `[ "$ORCH_TIER" = "light" ]` in allowed step files. NEVER `!=`.
+# Allow: 02-scope.md, 04–10, 12-wrap.md.
+# FORBID: 01-fetch.md, 03-worktree.md, 11-ship.md.
+# 02-scope.md may also use `[ "$ORCH_TIER" = "null" ]` (C5 auto-size) or ORCH_TIER=.
 t10_fail=""
 if ! grep -q 'ORCH_TIER=' "$STEPS/00-resolve.md"; then
   t10_fail="$t10_fail 00-resolve.md missing ORCH_TIER="
 fi
-t10_leaked=""
+t10_allow='02-scope.md 04-kickoff.md 05-questions.md 06-design.md 07-tasks.md 08-execute.md 09-review.md 10-qa.md 12-wrap.md'
+t10_forbid='01-fetch.md 03-worktree.md 11-ship.md'
+for f in $t10_forbid; do
+  if grep -q 'ORCH_TIER' "$STEPS/$f"; then
+    t10_fail="$t10_fail FORBID:$f"
+  fi
+done
 for f in "$STEPS"/*.md; do
   base=$(basename "$f")
   [ "$base" = "00-resolve.md" ] && continue
+  case " $t10_allow " in
+    *" $base "*) continue ;;
+  esac
   if grep -q 'ORCH_TIER' "$f"; then
-    t10_leaked="$t10_leaked $base"
+    t10_fail="$t10_fail leaked:$base"
   fi
 done
-if [ -n "$t10_leaked" ]; then
-  t10_fail="$t10_fail leaked:$t10_leaked"
-fi
+for f in $t10_allow; do
+  path="$STEPS/$f"
+  grep -q 'ORCH_TIER' "$path" || continue
+  if grep 'ORCH_TIER' "$path" | grep -q '!='; then
+    t10_fail="$t10_fail $f has !="
+  fi
+  while IFS= read -r line; do
+    echo "$line" | grep -q 'ORCH_TIER' || continue
+    case "$line" in
+      *'[ "$ORCH_TIER" = "light" ]'*) continue ;;
+    esac
+    if [ "$f" = "02-scope.md" ]; then
+      case "$line" in
+        *'[ "$ORCH_TIER" = "null" ]'*) continue ;;
+        *ORCH_TIER=*) continue ;;
+      esac
+    fi
+    t10_fail="$t10_fail $f bad-form"
+  done < "$path"
+done
 if [ -z "$t10_fail" ]; then ok
 else bad "T10$t10_fail"; fi
 
-# ---- T11: spawn-site identity (SPEC-009 C1 — today's pipeline still present) ----
-# Do not invent ORCH_TIER=light skip branches. Assert spawn SITES unchanged.
+# ---- T11: spawn-site identity (omit/standard/full else-branch) ----
+# Else/default sections MUST still contain today's spawn sites.
 t11_fail=""
 for n in 0 1 2 3 4 5 6 7 8 9 10 11 12; do
   if ! grep -qE "^\\| $n \\|" "$SKILL"; then
@@ -176,8 +205,27 @@ fi
 if ! grep -qi 'Tech Lead review' "$STEPS/09-review.md"; then
   t11_fail="$t11_fail | 09-review.md missing Tech Lead review"
 fi
+if ! grep -q 'check-cycle' "$STEPS/07-tasks.md"; then
+  t11_fail="$t11_fail | 07-tasks.md missing DAG check-cycle"
+fi
+if ! grep -q 'reviewed 3+ times' "$STEPS/09-review.md"; then
+  t11_fail="$t11_fail | 09-review.md missing 3-round deadloop"
+fi
 if [ -z "$t11_fail" ]; then ok
 else bad "T11 spawn-site identity:$t11_fail"; fi
+
+# ---- T12: light-branch exact test (grows per child; C2 = steps 4–6) ----
+t12_fail=""
+for f in 04-kickoff.md 05-questions.md 06-design.md; do
+  if ! grep -Fq '[ "$ORCH_TIER" = "light" ]' "$STEPS/$f"; then
+    t12_fail="$t12_fail $f"
+  fi
+done
+if ! grep -qi 'scoper-planner' "$STEPS/04-kickoff.md"; then
+  t12_fail="$t12_fail 04 missing scoper-planner"
+fi
+if [ -z "$t12_fail" ]; then ok
+else bad "T12 light-branch:$t12_fail"; fi
 
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
