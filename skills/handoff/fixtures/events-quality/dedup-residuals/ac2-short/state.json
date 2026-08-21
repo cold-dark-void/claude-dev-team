@@ -1,0 +1,18 @@
+{
+  "events": [
+    {
+      "id": "op-short",
+      "kind": "open",
+      "text": "Need a short prefix under forty chars.",
+      "workstream": "handoff",
+      "order": 1
+    },
+    {
+      "id": "op-long",
+      "kind": "open",
+      "text": "Need a short prefix under forty chars plus more.",
+      "workstream": "handoff",
+      "order": 2
+    }
+  ]
+}

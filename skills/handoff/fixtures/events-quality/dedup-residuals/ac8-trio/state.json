@@ -1,0 +1,27 @@
+{
+  "events": [
+    {
+      "id": "sg-short",
+      "kind": "open",
+      "text": "Out of scope still: light-as-default, PDH orchestrator-cost cut.",
+      "facet": "ship_gap",
+      "workstream": "handoff",
+      "order": 1
+    },
+    {
+      "id": "sg-long",
+      "kind": "open",
+      "text": "Out of scope still: light-as-default, PDH orchestrator-cost cut. Say if you want those filed.",
+      "facet": "ship_gap",
+      "workstream": "handoff",
+      "order": 2
+    },
+    {
+      "id": "cf-long",
+      "kind": "conflict",
+      "text": "Out of scope still: light-as-default, PDH orchestrator-cost cut. Say if you want those filed.",
+      "workstream": "handoff",
+      "order": 3
+    }
+  ]
+}

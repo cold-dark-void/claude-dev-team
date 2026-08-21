@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# assemble-quality-test.sh — SPEC-018 Test 37 / CDT-201 packet quality.
-# Coverage: AC1–AC8, AC10 display, AC12, AC13 SHOULD (advisory).
+# assemble-quality-test.sh — SPEC-018 Test 37 + Test 38 / CDT-202 packet quality.
+# Coverage: Test 37 AC1–AC8, AC10, AC12, AC13 SHOULD; Test 38 AC1–AC8
+# prefix-collapse + leftover Kill placeholder (CDT-202).
 # Run: bash skills/handoff/assemble-quality-test.sh
 set -u
 
@@ -9,6 +10,7 @@ ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 ASM="$HERE/assemble.py"
 FIX="$HERE/fixtures"
 QFIX="$FIX/events-quality"
+DFIX="$QFIX/dedup-residuals"
 GITBLOB="$FIX/git-state.txt"
 PQ="$HERE/packet_quality.py"
 
@@ -24,12 +26,28 @@ copy_quality() {
   cp "$QFIX/through_line.json" "$QFIX/state.json" "$1/"
 }
 
+# Sole non-blank lines under ### Kill catalog before next ###.
+kc_lines() {
+  python3 -c '
+import sys
+p = open(sys.argv[1]).read()
+s = p.split("## appendix", 1)[1].split("### Kill catalog", 1)[1].split("###", 1)[0]
+print("\n".join(x.strip() for x in s.splitlines() if x.strip()))
+' "$1"
+}
+
 # ---- T0: fixtures + imports ----
 if [ -f "$ASM" ] && [ -f "$PQ" ]; then ok; else bad "T0 missing assemble/packet_quality"; fi
 if [ -f "$QFIX/through_line.json" ] && [ -f "$QFIX/state.json" ]; then ok
 else bad "T0 missing events-quality through_line/state"; fi
 if [ -f "$QFIX/no-summary/through_line.json" ] && [ -f "$QFIX/duplication/state.json" ]; then ok
 else bad "T0 missing no-summary/duplication fixtures"; fi
+_t0m=
+for _d in ac1-prefix ac2-short ac4-twin ac5-distinct ac6-crosskind ac7-zero-killed ac8-trio; do
+  [ -f "$DFIX/$_d/state.json" ] && [ -f "$DFIX/$_d/through_line.json" ] || _t0m="$_t0m $_d"
+done
+if [ -z "$_t0m" ]; then ok; else bad "T0 missing dedup-residuals:$_t0m"; fi
+unset _t0m _d
 if python3 -c "
 import sys
 sys.path.insert(0, '$HERE')
@@ -151,7 +169,9 @@ import assemble as a
 pkt = open('$QPKT').read()
 ap = pkt.split('## appendix', 1)[1]
 assert '### Kill catalog' in ap
-assert '_none_' in ap.split('### Kill catalog', 1)[1].split('###', 1)[0]
+kc = ap.split('### Kill catalog', 1)[1].split('###', 1)[0]
+kcl = [ln.strip() for ln in kc.splitlines() if ln.strip()]
+assert kcl == ['_none not already shown above_'], kcl
 assert '### Facts' not in ap
 assert '### Pointers (courtesy)' not in pkt
 evs = a.load_events('$QFIX')
@@ -454,6 +474,212 @@ else
   echo "WARN: AC13 SHOULD 50% skipped (no ratio file, advisory)"
   ok
 fi
+
+# ---- Test 38 / CDT-202: prefix-collapse + leftover Kill placeholder ----
+NONE='_none_'
+NONE_SHOWN='_none not already shown above_'
+SHORT_OPEN='Out of scope still: light-as-default, PDH orchestrator-cost cut.'
+LONG_OPEN='Out of scope still: light-as-default, PDH orchestrator-cost cut. Say if you want those filed.'
+AC2_SHORT='Need a short prefix under forty chars.'
+AC2_LONG='Need a short prefix under forty chars plus more.'
+AC5_OPEN='Untagged open for AC5 distinct, no conflict twin'
+AC5_CF='Conflict: miner vs assemble on leftover wording'
+AC6_BODY='Same body must survive across killed and hypothesis'
+AC7_OPEN='AC7 zero killed events anywhere in the assembled set'
+
+for case in ac1-prefix ac2-short ac4-twin ac5-distinct ac6-crosskind ac7-zero-killed ac8-trio; do
+  if python3 "$ASM" --events "$DFIX/$case" --git "$GITBLOB" \
+      --session-uuid "sess-$case" --mode cold \
+      --out "$WORK/$case.md" 2>"$WORK/$case.err"; then ok
+  else bad "T38 CLI $case: $(head -c 160 "$WORK/$case.err")"; fi
+done
+
+# AC1: same-kind prefix ≥40 → one ship-gap bullet, longer body, earliest id
+if python3 -c "
+pkt = open('$WORK/ac1-prefix.md').read()
+sn = pkt.split('## Through-line')[0]
+gaps = sn.split('### Open ship gaps', 1)[1].split('### Decisions', 1)[0]
+bullets = [ln for ln in gaps.splitlines() if ln.startswith('- **')]
+assert len(bullets) == 1, bullets
+assert '$LONG_OPEN' in bullets[0]
+assert pkt.count('$LONG_OPEN') == 1
+assert 'Say if you want those filed.' in gaps
+assert '- **conflict**:' not in pkt
+print('ok')
+" 2>"$WORK/t38-ac1.err" | grep -q ok; then ok
+else bad "T38 AC1 prefix-collapse: $(head -c 300 "$WORK/t38-ac1.err")"; fi
+
+# AC1: same-kind prefix MUST NOT emit assemble: stderr
+if ! grep -q 'assemble:' "$WORK/ac1-prefix.err"; then ok
+else bad "T38 AC1 prefix stderr: $(head -c 200 "$WORK/ac1-prefix.err")"; fi
+
+# AC1 leftover Kill: killed already in Through-line
+if [ "$(kc_lines "$WORK/ac1-prefix.md")" = "$NONE_SHOWN" ]; then ok
+else bad "T38 AC1 leftover placeholder: $(kc_lines "$WORK/ac1-prefix.md")"; fi
+
+# State now empty placeholders unchanged (not leftover wording)
+if python3 -c "
+pkt = open('$WORK/ac1-prefix.md').read()
+sn = pkt.split('## Through-line')[0]
+for h in ('### Decisions', '### Hypotheses (alive)', '### Open'):
+    rest = sn.rsplit(h, 1)[-1]
+    # ### Open is last; rsplit on ### Open ship gaps is earlier
+    if h == '### Open':
+        rest = sn.rsplit('### Open', 1)[-1]
+    body = rest.split('###', 1)[0] if h != '### Open' else rest
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    assert lines == ['_none_'], (h, lines)
+print('ok')
+" 2>"$WORK/t38-ph.err" | grep -q ok; then ok
+else bad "T38 State now placeholders: $(head -c 300 "$WORK/t38-ph.err")"; fi
+
+# AC2: punct-stripped shorter ≤39 → both survive
+if python3 -c "
+pkt = open('$WORK/ac2-short.md').read()
+sn = pkt.split('## Through-line')[0]
+opens = sn.rsplit('### Open', 1)[-1]
+assert '$AC2_SHORT' in opens
+assert '$AC2_LONG' in opens
+assert opens.count('- **open**:') == 2
+print('ok')
+" 2>"$WORK/t38-ac2.err" | grep -q ok; then ok
+else bad "T38 AC2 short prefix: $(head -c 300 "$WORK/t38-ac2.err")"; fi
+
+# AC4: conflict twin of open dropped; open once
+if python3 -c "
+pkt = open('$WORK/ac4-twin.md').read()
+assert pkt.count('$LONG_OPEN') == 1
+assert '- **conflict**:' not in pkt
+sn = pkt.split('## Through-line')[0]
+gaps = sn.split('### Open ship gaps', 1)[1].split('### Decisions', 1)[0]
+assert '$LONG_OPEN' in gaps
+print('ok')
+" 2>"$WORK/t38-ac4.err" | grep -q ok; then ok
+else bad "T38 AC4 twin drop: $(head -c 300 "$WORK/t38-ac4.err")"; fi
+
+# AC4 stderr: one assemble: line containing conflict and open
+if python3 -c "
+err = open('$WORK/ac4-twin.err').read()
+hits = [ln for ln in err.splitlines()
+        if 'assemble:' in ln and 'conflict' in ln and 'open' in ln]
+assert len(hits) == 1, hits
+print('ok')
+" 2>"$WORK/t38-ac4e.err" | grep -q ok; then ok
+else bad "T38 AC4 stderr: $(head -c 200 "$WORK/ac4-twin.err") $(head -c 200 "$WORK/t38-ac4e.err")"; fi
+
+# AC5: distinct conflict (no open twin) still renders + unrelated open
+if python3 -c "
+pkt = open('$WORK/ac5-distinct.md').read()
+assert '$AC5_OPEN' in pkt
+assert '$AC5_CF' in pkt
+assert '- **conflict**:' in pkt
+sn = pkt.split('## Through-line')[0]
+opens = sn.rsplit('### Open', 1)[-1]
+assert '$AC5_OPEN' in opens
+tl = pkt.split('## Through-line', 1)[1].split('## appendix', 1)[0]
+assert '$AC5_CF' in tl
+print('ok')
+" 2>"$WORK/t38-ac5.err" | grep -q ok; then ok
+else bad "T38 AC5 distinct conflict: $(head -c 300 "$WORK/t38-ac5.err")"; fi
+
+# AC6: same body killed+hypothesis MUST NOT collapse (not open/conflict)
+if python3 -c "
+pkt = open('$WORK/ac6-crosskind.md').read()
+body = '$AC6_BODY'
+assert pkt.count(body) == 2
+assert '- **hypothesis**:' in pkt
+assert '- **killed**:' in pkt
+print('ok')
+" 2>"$WORK/t38-ac6.err" | grep -q ok; then ok
+else bad "T38 AC6 cross-kind keep: $(head -c 300 "$WORK/t38-ac6.err")"; fi
+
+# AC7: ≥1 killed shown elsewhere → leftover exact already-shown (ac1)
+if [ "$(kc_lines "$WORK/ac1-prefix.md")" = "$NONE_SHOWN" ]; then ok
+else bad "T38 AC7 killed-elsewhere: $(kc_lines "$WORK/ac1-prefix.md")"; fi
+
+# AC7: zero killed → exact _none_ (not already-shown substring)
+if [ "$(kc_lines "$WORK/ac7-zero-killed.md")" = "$NONE" ]; then ok
+else bad "T38 AC7 zero-killed: $(kc_lines "$WORK/ac7-zero-killed.md")"; fi
+
+if python3 -c "
+pkt = open('$WORK/ac7-zero-killed.md').read()
+assert '$AC7_OPEN' in pkt
+assert '- **killed**:' not in pkt
+ap = pkt.split('## appendix', 1)[1]
+assert '### Facts' not in ap
+print('ok')
+" 2>"$WORK/t38-ac7.err" | grep -q ok; then ok
+else bad "T38 AC7 zero packet: $(head -c 300 "$WORK/t38-ac7.err")"; fi
+
+# AC8: v1.9.0 trio + through_line killed
+if python3 -c "
+pkt = open('$WORK/ac8-trio.md').read()
+sn = pkt.split('## Through-line')[0]
+gaps = sn.split('### Open ship gaps', 1)[1].split('### Decisions', 1)[0]
+bullets = [ln for ln in gaps.splitlines() if ln.startswith('- **')]
+assert len(bullets) == 1, bullets
+assert '$LONG_OPEN' in bullets[0]
+assert pkt.count('$LONG_OPEN') == 1
+assert '- **conflict**:' not in pkt
+tl = pkt.split('## Through-line', 1)[1].split('## appendix', 1)[0]
+assert 'killed: ac8 trio kill already in through-line' in tl
+print('ok')
+" 2>"$WORK/t38-ac8.err" | grep -q ok; then ok
+else bad "T38 AC8 trio: $(head -c 300 "$WORK/t38-ac8.err")"; fi
+
+if [ "$(kc_lines "$WORK/ac8-trio.md")" = "$NONE_SHOWN" ]; then ok
+else bad "T38 AC8 leftover placeholder: $(kc_lines "$WORK/ac8-trio.md")"; fi
+
+# packet_dedup unit bites — import FAIL until T2 is expected (tests-first)
+if python3 -c "
+import io, sys
+sys.path.insert(0, '$HERE')
+import packet_dedup as d
+assert d.PREFIX_MIN == 40
+assert d.PUNCT_STRIP == '.?!;:,'
+assert d.NONE == '_none_'
+assert d.NONE_ALREADY_SHOWN == '_none not already shown above_'
+SHORT = '''$SHORT_OPEN'''
+LONG = '''$LONG_OPEN'''
+ps, pl = d.punct_strip_norm(SHORT), d.punct_strip_norm(LONG)
+assert len(ps) >= 40
+assert pl.startswith(ps) and pl != ps
+a = [
+  {'id': '1', 'kind': 'open', 'text': SHORT, 'order': 1},
+  {'id': '2', 'kind': 'open', 'text': LONG, 'order': 2},
+]
+assert len(d.exact_dedup(a)) == 2
+pc = d.prefix_collapse(list(a))
+assert len(pc) == 1 and pc[0]['id'] == '1' and pc[0]['text'] == LONG
+s39, s39l = '''$AC2_SHORT''', '''$AC2_LONG'''
+assert len(d.punct_strip_norm(s39)) <= 39
+b = [{'id': '1', 'kind': 'open', 'text': s39}, {'id': '2', 'kind': 'open', 'text': s39l}]
+assert len(d.prefix_collapse(b)) == 2
+err = io.StringIO()
+tw = [{'id': 'o', 'kind': 'open', 'text': LONG}, {'id': 'c', 'kind': 'conflict', 'text': LONG}]
+out = d.drop_open_conflict_twins(tw, err=err)
+assert [e['kind'] for e in out] == ['open']
+e = err.getvalue()
+assert 'assemble:' in e and 'conflict' in e and 'open' in e
+err2 = io.StringIO()
+trio = [
+  {'id': 's', 'kind': 'open', 'text': SHORT, 'facet': 'ship_gap'},
+  {'id': 'l', 'kind': 'open', 'text': LONG, 'facet': 'ship_gap'},
+  {'id': 'c', 'kind': 'conflict', 'text': LONG},
+]
+col = d.collapse_events(trio, err=err2)
+assert len(col) == 1 and col[0]['kind'] == 'open' and col[0]['text'] == LONG
+assert 'assemble:' in err2.getvalue()
+assert d.kill_catalog_placeholder([], [{'kind': 'killed'}]) == d.NONE_ALREADY_SHOWN
+assert d.kill_catalog_placeholder([], [{'kind': 'open'}]) == d.NONE
+kh = [
+  {'id': 'h', 'kind': 'hypothesis', 'text': 'same body xx'},
+  {'id': 'k', 'kind': 'killed', 'text': 'same body xx'},
+]
+assert len(d.collapse_events(kh)) == 2
+print('ok')
+" 2>"$WORK/t38-unit.err" | grep -q ok; then ok
+else bad "T38 packet_dedup units: $(head -c 300 "$WORK/t38-unit.err")"; fi
 
 # ---- summary ----
 echo "assemble-quality-test: $PASS passed, $FAIL failed"

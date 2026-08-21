@@ -1,0 +1,12 @@
+{
+  "events": [
+    {
+      "id": "tl-kill",
+      "kind": "killed",
+      "text": "ac1 kill name",
+      "quote": "killed: ac1 leftover empty because through-line already showed this kill",
+      "workstream": "handoff",
+      "order": 3
+    }
+  ]
+}

@@ -174,6 +174,25 @@ else
   bad "T11 skipped — LIGHT.md or SKILL.md missing"
 fi
 
+# ---- T11b (CDT-202 / Test 38 AC9): conflict/open dual-home miner rule ----
+# LIGHT.md AND SKILL.md (byte-same paragraph; CDT-199: light never Reads SKILL).
+if [ -f "$LIGHT" ] && [ -f "$SKILL" ]; then
+  if grep -qF 'Never emit the same statement under two kinds' "$LIGHT" \
+    && grep -qF 'Never emit the same statement under two kinds' "$SKILL"; then
+    ok
+  else
+    bad "T11b dual-home 'Never emit the same statement under two kinds' missing"
+  fi
+  if grep -qF 'When unsure between `open` and `conflict`, choose `open`.' "$LIGHT" \
+    && grep -qF 'When unsure between `open` and `conflict`, choose `open`.' "$SKILL"; then
+    ok
+  else
+    bad "T11b dual-home 'When unsure between open and conflict, choose open.' missing"
+  fi
+else
+  bad "T11b skipped — LIGHT.md or SKILL.md missing"
+fi
+
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   exit 0

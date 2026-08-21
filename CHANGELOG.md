@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.9.1
+- **`/handoff` packet dedup residuals + Kill-catalog wording (CDT-202)** — same-kind prefix-collapse (≥40) after exact first-wins; open/conflict twin drop; leftover Kill catalog `_none not already shown above_`. Dual-home miner rule. SPEC-018 Test 38.
+
 ### v1.9.0
 - **`/handoff` STM packet quality (CDT-201)** — each event renders in exactly one section (State now → Through-line remainder → leftover appendix). Drop appendix Pointers index. Optional provenance-constrained `### Where we are` from miner `summary` with invent-guard. Ruling prefers `text`. Dual-home miner negatives for `facet: product_surface`. SPEC-018 Test 37.
 

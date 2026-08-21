@@ -1,0 +1,19 @@
+{
+  "events": [
+    {
+      "id": "hyp-same",
+      "kind": "hypothesis",
+      "text": "Same body must survive across killed and hypothesis",
+      "workstream": "handoff",
+      "order": 1
+    },
+    {
+      "id": "kill-same",
+      "kind": "killed",
+      "text": "Same body must survive across killed and hypothesis",
+      "quote": "Same body must survive across killed and hypothesis",
+      "workstream": "handoff",
+      "order": 2
+    }
+  ]
+}

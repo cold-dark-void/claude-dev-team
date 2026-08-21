@@ -73,8 +73,6 @@ and exit (cold print core + path; warm file-only) plus optional warm annotation.
   **Product surfaces** (primary UX + unfinished / do-not-treat-as-product) and
   **Open ship gaps** (CDT-198) — assemble synthesizes `_unspecified_` when the
   miner tagged nothing; it MUST NOT invent surface names.
-- A separate skill file lets us iterate on prompts without touching the command
-  scaffold or `prepass.sh` / `assemble.py`.
 
 ---
 
@@ -136,8 +134,8 @@ session length, when the M8 cache holds cumulative events.
 | Cache prior (stem `S`, raw id `R`) | `prior:S:R` (`_generation=0`) |
 | Miner file `S.json` id `R` | `S:R` (`_generation=1` when prior present) |
 
-- Dedup key remains `(kind, normalize(body))` — **not** id — so re-stated facts
-  collapse against prior verbatim (first wins = prior).
+- Dedup is M3d (1) three-pass: exact `(kind, normalize(body))` first-wins (prior
+  verbatim), then same-kind prefix-collapse (≥40), then open/conflict drop — not id.
 - Prior events are **verbatim** — never re-paraphrased.
 - `--since-leaf` is **internal/debug only** (not a user CLI flag).
 - Step 7 summary MUST use `assemble.load_merged_for_summary(dir, prior=…)` so
@@ -323,7 +321,7 @@ kind; MUST NOT be written into the M8 `events` stem map.
 | Merged miner (state partition) | `state.json` | `open`, `conflict` |
 
 Invalid kind / missing required fields → **drop that event** (fail soft; never invent).
-Assemble also dedups on `(kind + normalize(quote|text))`.
+Assemble also applies M3d (1) three-pass: exact first-wins, prefix-collapse ≥40, open/conflict drop.
 
 ### Quote discipline (M6)
 
@@ -518,6 +516,10 @@ PROCEDURE — state kinds (→ state.json)
 9. Collect CONFLICTS: self-contradictions in the spine (decision reversed without
    clear final), or two constraints in tension. Each → kind "conflict". Pointer both
    sides when possible.
+   One source statement → one event. Never emit the same statement under two kinds.
+   `conflict` requires two identifiable sides in tension (cite both when possible);
+   deferred/out-of-scope work with no opposing constraint is `open`, not `conflict`.
+   When unsure between `open` and `conflict`, choose `open`.
 10. M5 — STATED-INTENT vs GIT (lightweight heuristic ONLY):
    a. Scan spine for stated intentions (case-insensitive cues): "will <verb>",
       "going to", "next (I'?ll| we)", "TODO", "we should",
@@ -739,7 +741,8 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   which calls `skills/handoff/assemble.py`:
   load_prior (`prior:stem:id`, gen=0) when `--prior-events` / `FINALIZE_PRIOR_EVENTS` ·
   load_events (`stem:id`) · merge · order by `_generation` ·
-  validate · drop invalid · dedup `(kind + normalize(text|quote))` ·
+  validate · drop invalid · M3d (1) three-pass (exact first-wins, then
+  same-kind prefix-collapse ≥40, then open/conflict drop) ·
   mechanical **State now** (optional ### Where we are from wrapper summary;
   Product surfaces + Open ship gaps required, then latest decisions, surviving
   unkilled hypotheses, untagged opens) · **Through-line** = remainder (events

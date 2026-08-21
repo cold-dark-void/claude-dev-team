@@ -282,6 +282,10 @@ PROCEDURE — state kinds (→ state.json)
 9. Collect CONFLICTS: self-contradictions in the spine (decision reversed without
    clear final), or two constraints in tension. Each → kind "conflict". Pointer both
    sides when possible.
+   One source statement → one event. Never emit the same statement under two kinds.
+   `conflict` requires two identifiable sides in tension (cite both when possible);
+   deferred/out-of-scope work with no opposing constraint is `open`, not `conflict`.
+   When unsure between `open` and `conflict`, choose `open`.
 10. M5 — STATED-INTENT vs GIT (lightweight heuristic ONLY):
    a. Scan spine for stated intentions (case-insensitive cues): "will <verb>",
       "going to", "next (I'?ll| we)", "TODO", "we should",

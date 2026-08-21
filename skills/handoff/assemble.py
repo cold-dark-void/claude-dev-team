@@ -55,6 +55,13 @@ import os
 import sys
 from collections import OrderedDict
 
+from packet_dedup import (
+    collapse_events,
+    event_body,
+    exact_dedup as dedup_events,
+    kill_catalog_placeholder,
+    normalize_text,
+)
 from packet_quality import (
     WHERE_WE_ARE_HEADING,
     load_wrapper_summary,
@@ -105,26 +112,6 @@ class AssembleError(ValueError):
 # ---------------------------------------------------------------------------
 # Normalize / validate
 # ---------------------------------------------------------------------------
-
-
-def normalize_text(s):
-    """Whitespace-collapse + casefold for dedup keys only (display keeps original)."""
-    if s is None:
-        return ""
-    return " ".join(str(s).split()).casefold()
-
-
-def event_body(ev):
-    """Load-bearing body: prefer quote when set, else text."""
-    if not isinstance(ev, dict):
-        return ""
-    q = ev.get("quote")
-    if isinstance(q, str) and q.strip():
-        return q
-    t = ev.get("text")
-    if isinstance(t, str) and t.strip():
-        return t
-    return ""
 
 
 def truncate_quote(s, max_len=QUOTE_MAX):
@@ -445,7 +432,7 @@ def merge_events(prior, delta):
                 e["_generation"] = 1
     combined = prior + delta
     ordered = order_events(combined)
-    deduped = dedup_events(ordered)
+    deduped = collapse_events(ordered, err=sys.stderr)
     return order_events(deduped)
 
 
@@ -502,27 +489,6 @@ def load_git_blob(path):
 # ---------------------------------------------------------------------------
 # Dedup + order
 # ---------------------------------------------------------------------------
-
-
-def dedup_key(ev):
-    body = event_body(ev)
-    return (ev.get("kind", ""), normalize_text(body))
-
-
-def dedup_events(events):
-    """Collapse duplicates on (kind + normalize(quote|text)); keep first (chrono)."""
-    seen = set()
-    out = []
-    for ev in events:
-        k = dedup_key(ev)
-        if k in seen:
-            continue
-        if not k[1]:
-            # empty body should already be filtered; skip defensively
-            continue
-        seen.add(k)
-        out.append(ev)
-    return out
 
 
 def _ts_sort_key(ts):
@@ -907,7 +873,7 @@ def assemble_packet(
             cleaned.append(_copy_meta(v, raw if isinstance(raw, dict) else {}, i))
 
     ordered = order_events(cleaned)
-    deduped = dedup_events(ordered)
+    deduped = collapse_events(ordered, err=sys.stderr)
     # re-order after dedup (stable; order preserved)
     deduped = order_events(deduped)
 
@@ -1053,7 +1019,7 @@ def assemble_packet(
         for ev in kills:
             lines.append(render_event_line(ev))
     else:
-        lines.append("_none_")
+        lines.append(kill_catalog_placeholder(kills, deduped))
     lines.append("")
 
     facts = [e for e in leftover if e.get("kind") == "fact"]
@@ -1214,7 +1180,7 @@ def main(argv=None):
 
     # Post-dedup list for events-out (mirrors assemble_packet pipeline)
     if args.events_out:
-        for_cache = order_events(dedup_events(order_events(list(events))))
+        for_cache = order_events(collapse_events(order_events(list(events)), err=sys.stderr))
         cache_map = events_for_cache(for_cache)
         out_dir = os.path.dirname(args.events_out)
         if out_dir:

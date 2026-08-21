@@ -1,0 +1,18 @@
+{
+  "events": [
+    {
+      "id": "op-distinct",
+      "kind": "open",
+      "text": "Untagged open for AC5 distinct, no conflict twin",
+      "workstream": "handoff",
+      "order": 1
+    },
+    {
+      "id": "cf-distinct",
+      "kind": "conflict",
+      "text": "Conflict: miner vs assemble on leftover wording",
+      "workstream": "handoff",
+      "order": 2
+    }
+  ]
+}

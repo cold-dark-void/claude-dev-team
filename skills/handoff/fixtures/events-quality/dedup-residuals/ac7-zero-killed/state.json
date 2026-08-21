@@ -1,0 +1,11 @@
+{
+  "events": [
+    {
+      "id": "op-only",
+      "kind": "open",
+      "text": "AC7 zero killed events anywhere in the assembled set",
+      "workstream": "handoff",
+      "order": 1
+    }
+  ]
+}
