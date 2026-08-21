@@ -21,6 +21,11 @@
   call at `full` (`commands/council.md` does not auto-grade any scope it
   resolves on its own — Task 3's F-A fix). See Step 0 "Council tier
   detection" and Step 9 "Council gate for `requires_council: true` tasks".
+- `[--tier=<light|standard|full>]` — optional, any position: pipeline cost
+  tier (CDT-206 / SPEC-009). `=` form only. No env. Not resume-seeded.
+  Independent of `--council-tier`. Omit records `ORCH_TIER` as the literal
+  string `"null"`; test with `[ "$ORCH_TIER" = "null" ]`. This child records
+  only — later steps MUST NOT skip or drop spawn sites on `ORCH_TIER=light`.
 - `[--resume-ship[=<patch|minor|major|master>]]` — optional (CDT-135 / SPEC-033 /
   CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
   confirmed ship sequence** (end-state land path + wrap) without re-running the
@@ -82,7 +87,7 @@ by reference. `ITER` starts at `0` and increments once per orchestration stint.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
-AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>
+AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump> or --tier
 AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
 AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
 AP_SOURCE=$(jq -r .source <<<"$AP_JSON")            # flag | env | none
@@ -91,6 +96,13 @@ AP_SOURCE=$(jq -r .source <<<"$AP_JSON")            # flag | env | none
 # with --autopilot, no resume-state seeding (unlike AUTOPILOT_ON/BUMP, this
 # is not persisted; a resumed run without the flag re-resolves to null).
 COUNCIL_TIER_OVERRIDE=$(jq -r '.council_tier // "null"' <<<"$AP_JSON")
+# CDT-206: DRI --tier=<light|standard|full> pipeline cost tier, resolved once
+# for the whole run from the same parse-flags.sh call — independent of
+# --council-tier, no env, no resume-state seeding (unlike AUTOPILOT_ON/BUMP;
+# a resumed run without the flag re-resolves to the 4-character string "null").
+# Identity test: [ "$ORCH_TIER" = "null" ] — never emptiness. This child
+# records only; Steps 1–12 MUST NOT skip, drop spawn sites, or branch on it.
+ORCH_TIER=$(jq -r '.tier // "null"' <<<"$AP_JSON")
 
 # Resume detection (CDT-111-C8): only when THIS invocation gave neither
 # --autopilot nor AUTOPILOT= (flag/env always win over recorded state).
@@ -138,7 +150,7 @@ invocation (flag/env win over recorded state — `parse-flags.sh`'s own preceden
 epoch (SPEC-033 M9a, CDT-111-C8).
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
-`RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` below means these values,
-carried forward from this step.
+`RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` / `ORCH_TIER` below means
+these values, carried forward from this step.
 
 ---

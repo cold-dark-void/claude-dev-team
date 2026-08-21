@@ -20,6 +20,12 @@ in agent worktrees. Phase bodies live in `steps/` — this file is the router.
 - `[--autopilot[=<token>]]` — SPEC-033 / CDT-195; full contract: `steps/00-resolve.md`
 - `[--council-tier=<skip|light|full>]` — CDT-126; `steps/00-resolve.md` + `steps/09-review.md`
 - `[--resume-ship[=<patch|minor|major|master>]]` — CDT-135/195; `steps/11-ship.md`
+- `[--tier=<light|standard|full>]` — CDT-206; `steps/00-resolve.md`
+
+| `--tier` | Steps | C1 behavior |
+|----------|-------|-------------|
+| omit / `standard` / `full` | 0–12 | today's pipeline |
+| `light` | 0–12 | same steps; spawn cuts in later children |
 
 ## Load protocol
 
@@ -35,7 +41,7 @@ The monolith is gone from this always-on path.
 
 | Step | File | What |
 |------|------|------|
-| 0 | `00-resolve.md` | Roots, memory, autopilot, council-tier, resume |
+| 0 | `00-resolve.md` | Roots, memory, autopilot, council-tier, tier, resume |
 | 1 | `01-fetch.md` | Linear / backlog / freeform |
 | 2 | `02-scope.md` | Scope-confirm gate |
 | 3 | `03-worktree.md` | Branch, worktree, glossary 3b |

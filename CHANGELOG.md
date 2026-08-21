@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.10.0
+- **`/orchestrate --tier=light|standard|full` (CDT-206)** — parse-flags 5th JSON key; omit/standard/full identity with today's pipeline; unknown/empty/duplicate `--tier` hard-fail; `--council-tier` independent; SKILL router table + docs flags; T10/T11 spawn-identity lock. Light spawn cuts land in later 1.10.x patches.
+
 ### v1.9.3
 - **`/handoff` detached orchestrator (CDT-204)** — parent stub parse/discover/prepare then one background agent Reads the skill from disk and IS the miner (INLINE) plus bare-warm annotation; chunked/no-spawn stays in-session; `--miner-model` applies to that agent; command ≤12000 bytes.
 
