@@ -86,6 +86,10 @@ bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || {
 
 When the ticket is not under a release=end epic, assert exits 0 (unchanged path).
 
+Mid-epic incomplete-child callout (SPEC-025 M16 / CDT-158): `/release` Step 0
+after assert succeeds — cite only; this file does not invoke `gap-callout`.
+Land-no-release is out of scope for the callout.
+
 ## 3. Deterministic BC3 push-target check (AC2 — SPEC-033 N3a)
 
 Before any staging, resolve the push/land target **mechanically** and evaluate BC3. N3a makes

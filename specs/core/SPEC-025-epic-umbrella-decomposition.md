@@ -169,6 +169,8 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
       - **MUST NOT:** wipe unrelated main WIP via bare `seal --abort`; accept `--force` except as companion to `--abort`; use exit **64** for dirty refuse (that is exit **1**).
   14. **Surface docs (C7).** `commands/epic.md`, `docs/commands/epic.md`, and `skills/epic/SKILL.md` MUST document both public flags, hard-fail rules, seal path, and M11 carve-outs. They MUST NOT advertise non-public names as flags.
 
+- **M16 — Mid-epic release gap callout (CDT-158).** When `release_bump` is null/absent (per-child `/release` allowed), `epic-lib gap-callout <ticket-or-epic>` MUST print a **warn-only** stdout notice if any child **other than** the shipping ref has `status != completed`. Membership: `_find_parent_epic_for_ticket` (child `id` or `linear_id`) or epic `state.json` dir. Charset same as M6 / `assert-release-allowed` (`^[A-Za-z0-9_-]+$`; invalid → exit **64** before path join). Unknown / no epic → empty stdout, exit 0. Needles when triggered: `mid-epic ship`; `incomplete:` then one `id` + `title` per incomplete child; `includes:` one line (completed children + shipping child titles from state — shipping `in_progress`/`pending` counts as includes); `pending:` one line (incomplete excluding shipping, titles from state); `partial product:`. Titles from state only — no LLM prose. Incomplete children MUST NOT change exit (0). No confirm. All-complete or last remaining child → empty stdout, exit 0. C4 still exits **64** under `release_bump` set; MUST NOT mix this callout into that message. `/release` Step 0 MUST run `gap-callout` after `assert-release-allowed` rc 0 and print stdout as-is, before any version-file edit. Not a SPEC-033 gate. Land-no-release (`bump=master`) is out of scope. Autopilot inherits via `/release` Step 0 (`end-state.md` cites that step only — no duplicate helper).
+
 ---
 
 ## SHOULD
@@ -215,6 +217,7 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 24. **M14 seal single release (C5 / done-when 1–2):** fixture seal invokes release path once → `sealed=true`; mid-epic seal refused; no `release_bump` → no seal path. Dirty main + bare `--abort` refuses (exit 1, WIP preserved); `--abort --force` may wipe; squash/hook fail recovery still cleans seal-owned stage. *test.sh c5 + c5-abort-dirty + existing c5-6/c5-9 + `EPIC_SEAL_RELEASE_HOOK`.*
 25. **M14 resume (C6 / done-when 5):** flags omitted honor store; conflict → 64; same integration path reused. *test.sh c6.*
 26. **M11 under M14:** docs state composition carve-out (ensure integration WT + seal only); no re-implement of full orchestrate lifecycle. *Protocol greps in test.sh.*
+27. **M16 mid-epic gap callout (CDT-158):** `gap-callout` with C1 completed / C2 pending prints needles + C2 id/title, rc 0; all-complete / last remaining / unknown empty rc 0; `linear_id` lookup; charset 64 before path join; `/release` Step 0 greps `gap-callout`. *test.sh g1–g10.*
 
 ---
 
@@ -320,6 +323,7 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 | 2026-08-07 | **CDT-141-C7:** M14 formal CLI table, semantics, illegal combos, done-when 1–7, non-public API; M11 carve-out wording; surface docs + regression greps; Test 21–26 |
 | 2026-08-07 | **CDT-170:** C5 abort dirty gate — bare `--abort` refuses non-empty porcelain on main (exit 1); `--abort --force` MAY reset+clean; same-invocation squash/hook recovery unchanged |
 | 2026-08-08 | **CDT-169:** M6 EPIC-ID charset allowlist `^[A-Za-z0-9_-]+$`; exit 64 before FS side effects; covers `epic_paths` + `assert-release-allowed` path join |
+| 2026-08-21 | **CDT-158 / M16:** `gap-callout` warn-only mid-epic incomplete-child + functional-gap notice; `/release` Step 0 prints after assert rc 0; C4 64 message unchanged |
 
 **Covers**: `commands/epic.md`, `docs/commands/epic.md`, `skills/epic/SKILL.md`, `skills/epic/epic-lib.sh`, `skills/epic/parse-flags.sh`, `skills/epic/test.sh`, `skills/orchestrate/dag-lib.sh` (reused — `check-cycle`), `skills/standup/SKILL.md` (epic rollup, M10), `skills/wrap-ticket/SKILL.md` (child-completion write-back, SHOULD). CDT-127 also touches epic seed CLI under `skills/epic/` (build-seed / validate-seed) and cites SPEC-018 shape without forking handoff internals.
 

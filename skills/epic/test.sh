@@ -1691,6 +1691,162 @@ unset EPIC_ROOT
   rm -rf "$CS_TMP"
 }
 
+# ---- CDT-158 / SPEC-025 M16: gap-callout (mid-epic ship warn) ---------------
+{
+  GAP_TMP=$(mktemp -d "${TMPDIR:-/tmp}/epic-gap.XXXXXX")
+  GAP_ERR=$(mktemp "${TMPDIR:-/tmp}/epic-gap-err.XXXXXX")
+  run_gap() {
+    local want="$1"; shift
+    set +e
+    OUT=$(EPIC_ROOT="$GAP_TMP" bash "$LIB" "$@" 2>"$GAP_ERR")
+    RC=$?
+    ERR=$(cat "$GAP_ERR")
+    set -e
+    if [ "$RC" -eq "$want" ]; then pass
+    else fail "gap exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 400; echo
+      echo "  err: $ERR" | head -c 200; echo
+    fi
+  }
+  assert_needles() {
+    local label="$1"
+    echo "$OUT" | grep -q 'mid-epic ship' \
+      && pass || fail "$label missing 'mid-epic ship' (out=$OUT)"
+    echo "$OUT" | grep -q 'incomplete:' \
+      && pass || fail "$label missing 'incomplete:' (out=$OUT)"
+    echo "$OUT" | grep -q 'includes:' \
+      && pass || fail "$label missing 'includes:' (out=$OUT)"
+    echo "$OUT" | grep -q 'pending:' \
+      && pass || fail "$label missing 'pending:' (out=$OUT)"
+    echo "$OUT" | grep -q 'partial product:' \
+      && pass || fail "$label missing 'partial product:' (out=$OUT)"
+  }
+
+  # (g1) usage
+  run_gap 64 gap-callout
+  run_gap 64 gap-callout A B
+
+  # (g2) unknown ticket / no epic → empty stdout, rc 0
+  run_gap 0 gap-callout CDT-GAP-UNKNOWN
+  [ -z "$OUT" ] && pass || fail "g2 unknown stdout not empty (out=$OUT)"
+  [ -z "$ERR" ] && pass || fail "g2 unknown stderr not empty (err=$ERR)"
+
+  # fixture: C1 completed, C2 pending (per-child release path; no release_bump)
+  run_gap 0 init CDT-GAP --title "gap epic" --mode orchestrate
+  run_gap 0 add-child CDT-GAP --id CDT-GAP-C1 --slug g1 --title "Child one complete" \
+    --estimate S --agent ic4 --depends-on '[]' --problem p --ac '["a"]'
+  run_gap 0 add-child CDT-GAP --id CDT-GAP-C2 --slug g2 --title "Child two pending" \
+    --estimate S --agent ic4 --depends-on '["CDT-GAP-C1"]' --problem p --ac '["a"]'
+  run_gap 0 set-status CDT-GAP CDT-GAP-C1 completed
+  STATE_BEFORE=$(cat "$GAP_TMP/.claude/epics/CDT-GAP/state.json")
+
+  # (g3) C1 completed / C2 pending, shipping C1 → callout + rc 0
+  run_gap 0 gap-callout CDT-GAP-C1
+  assert_needles "g3"
+  echo "$OUT" | grep -q 'CDT-GAP-C2' \
+    && pass || fail "g3 missing C2 id (out=$OUT)"
+  echo "$OUT" | grep -q 'Child two pending' \
+    && pass || fail "g3 missing C2 title (out=$OUT)"
+  echo "$OUT" | grep 'includes:' | grep -q 'Child one complete' \
+    && pass || fail "g3 includes missing C1 title (out=$OUT)"
+  echo "$OUT" | grep 'pending:' | grep -q 'Child two pending' \
+    && pass || fail "g3 pending missing C2 title (out=$OUT)"
+  echo "$OUT" | grep 'pending:' | grep -q 'Child one complete' \
+    && fail "g3 pending must not list shipping C1 (out=$OUT)" || pass
+
+  # (g3b) epic-dir lookup (same fixture)
+  run_gap 0 gap-callout CDT-GAP
+  assert_needles "g3b epic-id"
+  echo "$OUT" | grep -q 'CDT-GAP-C2' \
+    && pass || fail "g3b missing C2 id (out=$OUT)"
+
+  # (g3c) read-only — state unchanged
+  STATE_AFTER=$(cat "$GAP_TMP/.claude/epics/CDT-GAP/state.json")
+  [ "$STATE_BEFORE" = "$STATE_AFTER" ] \
+    && pass || fail "g3c gap-callout mutated state.json"
+
+  # (g4) linear_id lookup of completed C1
+  jq '(.children[] | select(.id=="CDT-GAP-C1") | .linear_id) = "LIN-GAP-1"' \
+    "$GAP_TMP/.claude/epics/CDT-GAP/state.json" >"$GAP_TMP/gap-lin.tmp"
+  mv "$GAP_TMP/gap-lin.tmp" "$GAP_TMP/.claude/epics/CDT-GAP/state.json"
+  run_gap 0 gap-callout LIN-GAP-1
+  assert_needles "g4 linear_id"
+  echo "$OUT" | grep -q 'CDT-GAP-C2' \
+    && pass || fail "g4 missing C2 id via linear_id (out=$OUT)"
+  echo "$OUT" | grep -q 'Child two pending' \
+    && pass || fail "g4 missing C2 title via linear_id (out=$OUT)"
+
+  # (g5) last remaining child (C2 pending, all others completed) → empty
+  run_gap 0 gap-callout CDT-GAP-C2
+  [ -z "$OUT" ] && pass || fail "g5 last-remaining stdout not empty (out=$OUT)"
+  [ "$RC" -eq 0 ] && pass || fail "g5 last-remaining rc=$RC"
+
+  # (g6) shipping in_progress counts as includes
+  run_gap 0 set-status CDT-GAP CDT-GAP-C1 in_progress
+  run_gap 0 gap-callout CDT-GAP-C1
+  assert_needles "g6 in_progress-shipping"
+  echo "$OUT" | grep 'includes:' | grep -q 'Child one complete' \
+    && pass || fail "g6 includes missing in_progress shipping (out=$OUT)"
+  echo "$OUT" | grep 'pending:' | grep -q 'Child two pending' \
+    && pass || fail "g6 pending missing C2 (out=$OUT)"
+  echo "$OUT" | grep 'pending:' | grep -q 'Child one complete' \
+    && fail "g6 pending must not list shipping (out=$OUT)" || pass
+
+  # (g7) all-complete → empty stdout rc 0
+  run_gap 0 set-status CDT-GAP CDT-GAP-C1 completed
+  run_gap 0 set-status CDT-GAP CDT-GAP-C2 completed
+  run_gap 0 gap-callout CDT-GAP-C1
+  [ -z "$OUT" ] && pass || fail "g7 all-complete C1 stdout not empty (out=$OUT)"
+  run_gap 0 gap-callout CDT-GAP
+  [ -z "$OUT" ] && pass || fail "g7 all-complete epic stdout not empty (out=$OUT)"
+
+  # (g8) charset reject 64 before path join (same allowlist as assert)
+  run_gap 64 gap-callout '../evil'
+  echo "$ERR" | grep -qi 'invalid' \
+    && pass || fail "g8 missing 'invalid' (err=$ERR)"
+  echo "$ERR" | grep -qE '\[A-Za-z0-9_-\]|allowed' \
+    && pass || fail "g8 missing allowlist (err=$ERR)"
+  run_gap 64 gap-callout '..'
+  echo "$ERR" | grep -qi 'invalid' \
+    && pass || fail "g8 .. missing invalid (err=$ERR)"
+  run_gap 64 gap-callout '/tmp/x'
+  echo "$ERR" | grep -qi 'invalid' \
+    && pass || fail "g8 /tmp/x missing invalid (err=$ERR)"
+  # no path created from invalid id
+  [ ! -e "$GAP_TMP/.claude/epics/../evil" ] \
+    && pass || fail "g8 path joined before charset reject"
+
+  # (g9) C4 still 64 under release_bump — callout not mixed into that message
+  run_gap 0 init CDT-GAP-END --title "end" --mode orchestrate \
+    --worktree-enabled true --release-bump minor
+  run_gap 0 add-child CDT-GAP-END --id CDT-GAP-END-C1 --slug e1 --title "E1" \
+    --estimate S --agent ic4 --depends-on '[]' --problem p --ac '["a"]'
+  run_gap 0 add-child CDT-GAP-END --id CDT-GAP-END-C2 --slug e2 --title "E2" \
+    --estimate S --agent ic4 --depends-on '[]' --problem p --ac '["a"]'
+  run_gap 0 set-status CDT-GAP-END CDT-GAP-END-C1 completed
+  set +e
+  C4_OUT=$(EPIC_ROOT="$GAP_TMP" bash "$LIB" assert-release-allowed CDT-GAP-END-C1 2>&1)
+  C4_RC=$?
+  set -e
+  [ "$C4_RC" -eq 64 ] && pass || fail "g9 C4 rc=$C4_RC want 64"
+  echo "$C4_OUT" | grep -q 'epic CDT-GAP-END is in release=end mode until seal (CDT-141)' \
+    && pass || fail "g9 C4 message drifted (out=$C4_OUT)"
+  echo "$C4_OUT" | grep -q 'mid-epic ship' \
+    && fail "g9 callout mixed into C4 message (out=$C4_OUT)" || pass
+  echo "$C4_OUT" | grep -q 'partial product:' \
+    && fail "g9 partial-product mixed into C4 (out=$C4_OUT)" || pass
+  # gap-callout itself still 0 + needles (orthogonal to C4)
+  run_gap 0 gap-callout CDT-GAP-END-C1
+  assert_needles "g9 gap under release_bump"
+
+  # (g10) /release Step 0 wires gap-callout
+  REL_SKILL="$HERE/../release/SKILL.md"
+  grep -q 'gap-callout' "$REL_SKILL" \
+    && pass || fail "g10 skills/release/SKILL.md missing gap-callout"
+
+  rm -f "$GAP_ERR"
+  rm -rf "$GAP_TMP"
+}
+
 # ---- M6 concurrent RMW flock (CDT-165 / SPEC-025 AC1+AC7) --------------------
 echo ""
 echo "=== M6 concurrent state RMW (CDT-165) ==="

@@ -64,6 +64,10 @@ if [ -n "$REF" ] && [ "$REF" != "master" ] && [ "$REF" != "main" ] && [ "$REF" !
     # HALT: zero version bump, tag, push, or version-file change
     exit 64
   }
+  # SPEC-025 M16 / CDT-158: warn-only incomplete-child gap callout (not a gate).
+  # Print stdout as-is; empty when all-complete / last remaining / unknown.
+  # MUST NOT mix into the C4 64 message above. Continue regardless of incomplete.
+  bash "$EPIC_LIB" gap-callout "$REF"
 fi
 ```
 
@@ -71,6 +75,10 @@ fi
   `CHANGELOG.md` / `plugin.json`, do not commit/tag/push.
 - **Allow** when: no epic context; epic has `release_bump` null/absent; or
   `sealed=true` (post-C5). C5 seal path may set `EPIC_ALLOW_SEAL_RELEASE=1`.
+- **Callout** (M16): after assert rc 0, print `gap-callout` stdout as-is
+  (warn-only; incomplete children do not halt). Empty when all-complete / last
+  remaining child / unknown. Not a SPEC-033 gate. Do **not** mix into C4's 64
+  message. Land-no-release (`bump=master`) is out of scope for this callout.
 - Guard reads **durable** `$MROOT/.claude/epics/<ID>/state.json` only — holds
   across resume sessions while mode is active.
 

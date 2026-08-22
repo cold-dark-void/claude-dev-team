@@ -9,6 +9,7 @@
 # into that tree via ensure-ticket-worktree (C3). C4: assert-release-allowed
 # forbids mid-epic /release and master-merge when release_bump is set until seal.
 # C5: seal-ready + seal (squash-stage → one /release <bump> → sealed=true).
+# M16 (CDT-158): gap-callout — warn-only mid-epic incomplete-child notice.
 # Resume reuses same tree; flag vs state conflict hard-fails (C6).
 # Cycle detection reuses skills/orchestrate/dag-lib.sh check-cycle literally.
 #
@@ -36,6 +37,7 @@ Commands:
   resolve-child-worktree <TICKET-ID>
   ensure-ticket-worktree <TICKET-ID>
   assert-release-allowed <ticket-or-epic>
+  gap-callout <ticket-or-epic>
   seal-ready <EPIC-ID>
   seal <EPIC-ID> [--dry-run|--complete|--abort [--force]]
   build-seed <EPIC-ID> [--next <CHILD-ID>] [--out path]
@@ -807,6 +809,56 @@ cmd_assert_release_allowed() {
 
   # Mid-flight: release_bump set, seal not done — forbid /release + master merge
   die 64 "epic $epic_id is in release=end mode until seal (CDT-141)"
+}
+
+# ---- CDT-158 / SPEC-025 M16: mid-epic incomplete-child gap callout ----------
+
+cmd_gap_callout() {
+  # gap-callout <ticket-or-epic>
+  # Warn-only: stdout notice when any child other than the shipping ref is
+  # not completed. Empty stdout + exit 0 for unknown / all-complete / last
+  # remaining child. Never mutates state. Incomplete never changes exit (0).
+  # Charset same as assert-release-allowed (64 before path join).
+  local ref="${1:-}"
+  [ -n "$ref" ] || die 64 "gap-callout: missing <ticket-or-epic>"
+  [ $# -eq 1 ] || die 64 "gap-callout: unexpected args"
+  validate_epic_id "$ref"
+
+  local st=""
+  resolve_mroot
+
+  if [ -f "$MROOT/.claude/epics/$ref/state.json" ]; then
+    st=$(cat "$MROOT/.claude/epics/$ref/state.json")
+  else
+    _find_parent_epic_for_ticket "$ref"
+    if [ "$_RCW_FOUND" -eq 1 ]; then
+      st="$_RCW_STATE_JSON"
+    else
+      return 0
+    fi
+  fi
+
+  local shipping_id n_other
+  shipping_id=$(printf '%s\n' "$st" | jq -r --arg t "$ref" \
+    '([.children[]? | select(.id==$t or .linear_id==$t) | .id] | first) // empty')
+
+  n_other=$(printf '%s\n' "$st" | jq -r --arg sid "$shipping_id" \
+    '[.children[]? | select(.status != "completed" and .id != $sid)] | length')
+  [ "${n_other:-0}" -gt 0 ] || return 0
+
+  printf '%s\n' "$st" | jq -r --arg sid "$shipping_id" '
+    def titles(xs): [xs[] | .title] | join(", ");
+    (.children // []) as $ch |
+    ($ch | map(select(.status != "completed"))) as $inc |
+    ($inc | map(select(.id != $sid))) as $pend |
+    ($ch | map(select(.status == "completed" or .id == $sid))) as $incl |
+    "mid-epic ship: remaining children are out of this tag",
+    "incomplete:",
+    ($inc[] | "\(.id) \(.title)"),
+    "includes: \(titles($incl))",
+    "pending: \(titles($pend))",
+    "partial product: this tag is not the full epic"
+  '
 }
 
 # ---- CDT-141-C5: end-of-epic seal (squash → one /release <bump>) ------------
@@ -1916,6 +1968,7 @@ case "$SUBCMD" in
   resolve-child-worktree) cmd_resolve_child_worktree "$@" ;;
   ensure-ticket-worktree) cmd_ensure_ticket_worktree "$@" ;;
   assert-release-allowed) cmd_assert_release_allowed "$@" ;;
+  gap-callout) cmd_gap_callout "$@" ;;
   seal-ready)  cmd_seal_ready "$@" ;;
   seal)        cmd_seal "$@" ;;
   build-seed)  cmd_build_seed "$@" ;;

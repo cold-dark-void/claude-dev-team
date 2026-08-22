@@ -62,7 +62,10 @@ mechanical subcommands, not `/epic` flags.)
    off to recorded mode (`kickoff` \| `orchestrate`) with **mandatory PM**.
    With `--worktree`: children use the shared `epic-<ID>` tree.
 3. **Mid-epic forbid (release=end):** when `release_bump` set and not sealed,
-   `/release` and master-merge hard-fail (exit 64) until seal.
+   `/release` and master-merge hard-fail (exit 64) until seal. When
+   `release_bump` is null/absent, `/release` Step 0 prints a warn-only
+   mid-epic ship gap callout if other children are still incomplete (M16;
+   not a hard fail).
 4. **Seal (CDT-141-C5):** when epic used `--worktree --release <bump>` and all
    children are completed, Mode B.7 runs once: `seal-ready` / `seal` squash-stage
    → one `/release <bump>` → `sealed=true`. Without `--release`, no seal path.

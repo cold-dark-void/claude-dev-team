@@ -757,6 +757,11 @@ fi
 `epic-lib assert-release-allowed <ticket-or-epic>` (exit 64 + message while
 mid-flight). Without `--release` on the epic, omit this block.
 
+**Mid-epic ship hygiene (M16 / CDT-158):** when `release_bump` is null/absent,
+`/release` Step 0 runs `epic-lib gap-callout` after assert succeeds (warn-only
+incomplete-child + functional-gap notice; incomplete does **not** block). When
+`release_bump` is set, C4 still 64 — do not mix the callout into that message.
+
 When `use_shared=false` (default / no `--worktree`): omit the shared-WT block;
 per-child worktree behavior is unchanged. Still export `EPIC_RELEASE_END` when
 `release_bump` is set (release=end always couples to `--worktree` at parse time).

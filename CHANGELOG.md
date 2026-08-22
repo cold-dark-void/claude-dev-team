@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.10.5
+- **Mid-epic `/release` gap callout (CDT-158)** — when `release_bump` is null, `epic-lib gap-callout` prints incomplete child ids/titles plus includes/pending before the version bump; warn-only (does not block). C4 `release=end` 64 path is unchanged.
+
 ### v1.10.4
 - **`/orchestrate` auto-size `--tier` at scope-confirm (CDT-210)** — no `--tier`: Step 2 classifies S→light / M→standard / L→full from cheap signals; explicit `--tier` wins; Autopilot records proposed+selected.
 
