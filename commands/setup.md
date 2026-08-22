@@ -114,7 +114,8 @@ harness built-in /doctor) after scaffold to verify install health.
 Args: optional `--skip-doctor` (pass through). Doctor hard-gate lives at the
 **start** of `skills/init-orchestration/SKILL.md` (before any mutation). Preserve
 every MUST from SPEC-005 orchestration path (worktree-safe hook paths, network
-allowlist confirm, idempotent merge).
+allowlist confirm, idempotent merge). Step 2 detects commit signing
+(`commit.gpgsign` / `tag.gpgsign`) and offers a sandbox allowlist merge.
 
 **Force-overwrite disclosure (SPEC-005 / CDT-51 AC5):** when orchestration
 re-run force-changes a managed settings value (especially

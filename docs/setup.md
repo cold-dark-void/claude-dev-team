@@ -120,6 +120,7 @@ What it does:
 - Wires a `TaskCompleted` quality-gate hook
 - Creates/updates `AGENTS.md` with team coordination rules
 - Seeds `.claude/memory/claude/memory.md` with baseline orchestrator rules
+- Step 2 detects commit signing (`commit.gpgsign` / `tag.gpgsign`) and offers a sandbox allowlist merge
 
 **Doctor hard-gate:** same as `/setup team` — plugin **`dev-team:doctor`** with
 `--gate=orchestration` (not harness `/doctor`); exit ≤1 OK (including

@@ -16,7 +16,8 @@ description: >
 > CDT-54); `disclose-force-overwrite.sh` (CDT-51 AC5 force-overwrite disclosure);
 > `normalize-hook-paths.sh` (CDT-69 Step 1 absolute/relative hook-path upgrade);
 > `sweep-legacy-orphans.sh` (CDT-76 known-legacy-orphan list sweep);
-> `test-orch-allowlist.sh` (CDT-51 TL P0 matrix allow ⊇ greenfield template).
+> `test-orch-allowlist.sh` (CDT-51 TL P0 matrix allow ⊇ greenfield template);
+> `signing-sandbox.sh` (CDT-211 commit-signing sandbox allowlist).
 
 Bootstrap the files needed for Claude Code Agent Teams in the current project.
 
@@ -284,10 +285,35 @@ If user picks option 1 (default), append this to the orchestrator memory content
 If user picks option 2, add to `.claude/settings.json` sandbox filesystem section:
 ```json
 "filesystem": {
-  "write": {
-    "allowOnly": ["~/.cache/go-build"]
-  }
+  "allowWrite": ["~/.cache/go-build"]
 }
+```
+
+#### Commit signing sandbox (CDT-211)
+
+Detect ON iff `git config --bool --get commit.gpgsign` OR `tag.gpgsign`. `gpg.format` selects paths only (`openpgp` default; `x509` same paths; `ssh` does not add `~/.ssh`). OFF → skip; no mutations. ON → offer options (default 1). Apply as merge-after Step 3; do not bake `~/.gnupg` or `git` into the greenfield template.
+
+1. Recommended: unique-append `sandbox.filesystem.allowWrite` `~/.gnupg`; macOS unique-append `sandbox.network.allowUnixSockets` `~/.gnupg/S.gpg-agent` (ssh: also `$SSH_AUTH_SOCK` when set); Linux/WSL2 set `sandbox.network.allowAllUnixSockets: true` (disclose Linux socket blast radius). If `/run/user/$(id -u)` exists, unique-append `/run/user/$(id -u)/gnupg` to `.claude/settings.local.json` allowWrite only — never a UID path in committed `settings.json`.
+2. Unique-append `git` to `sandbox.excludedCommands`.
+3. `git config --local commit.gpgsign false` + remote-signature warning (not default).
+
+Re-run: same detect; no-op if mitigated (`~/.gnupg` in allowWrite AND platform socket keys, OR `git` in excludedCommands); else unique-append; preserve other filesystem keys. Adding a missing key is not force-overwrite. Flipping `allowAllUnixSockets` false→true MUST disclose (CDT-51 AC5).
+
+```bash
+# Re-resolve SIGNING (each fenced bash block is a fresh shell — skill-lint C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+SIGNING=$(bash "$PDH/skills/plugin-dir.sh" file skills/init-orchestration/signing-sandbox.sh 2>/dev/null) || SIGNING=""
+SETTINGS=".claude/settings.json"
+SETTINGS_LOCAL=".claude/settings.local.json"
+if [ -n "$SIGNING" ] && [ -f "$SIGNING" ]; then
+  set +e
+  bash "$SIGNING" detect
+  SIGN_RC=$?
+  set -e
+  # exit 0 → ON (prompt options 1/2/3, default 1, then apply); exit 1 → OFF skip
+  # bash "$SIGNING" apply --option N --settings "$SETTINGS" --settings-local "$SETTINGS_LOCAL"
+fi
 ```
 
 ---
@@ -465,7 +491,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 - **`PreToolUse` merges at the array level, not the event-key level** — every other event above is satisfied by "add the key if absent". `PreToolUse` is not: this skill contributes **two** entries (`bash-compress`, `escalation-gate`) and `/tdd-gate on` contributes a third into the *same* array. Apply the append rule below **per entry**; never replace an existing non-empty `PreToolUse` array wholesale
 - `PreCompact`/`PostCompact`/`SessionStart` require a Claude Code version that supports those hook events; on older versions the entries are inert (graceful absence — SPEC-018 M18)
 - `PostToolUseFailure`/`PermissionDenied`/`StopFailure` wire the shared friction ledger handler (SPEC-012 M1/M5); on older CC versions that lack an event the entry is inert (graceful absence). All three point at the same `friction-capture.sh`.
-- Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists: ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`; merge new domains into existing `allowedDomains` (no duplicates); preserve any existing `filesystem` overrides
+- Add `sandbox` block if absent (`enabled: true`, `autoAllowBashIfSandboxed: true`, `excludedCommands: ["docker", "docker-compose"]`, `network.allowedDomains` from Step 2). If `sandbox` exists: ensure `enabled` is `true` and `autoAllowBashIfSandboxed` is `true`; merge new domains into existing `allowedDomains` (no duplicates); preserve any existing `filesystem` overrides. Signing options apply as merge-after via `signing-sandbox.sh` (do not add `~/.gnupg` to the greenfield template)
 - Ensure `permissions.allow` contains **every** entry from the greenfield template allow list above (matrix set: `Bash(*)`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Agent`, `Task`) — add any missing entries; preserve any other existing allow entries. Ensure `permissions.defaultMode` matches the **managed orchestration defaultMode** from the greenfield template block above (read that template value, then write it — currently `"auto"` Cell D / CDT-75; do not hard-code a second diverging copy). Add or update as needed (including flipping a prior `bypassPermissions` / `dontAsk` / other mode to the managed value)
 - **Force-overwrite disclosure (SPEC-005 / CDT-51 AC5):** when a re-run **changes** an existing managed value (especially `permissions.defaultMode`, `sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`), you **MUST** print old value, new value, and restore key/path **before** writing. Forced + silent = FAIL. Use the helper below (or print the same labeled block). Adding a missing key is not a force-overwrite (no disclosure required).
 - Write the merged result back as valid JSON
@@ -2085,6 +2111,7 @@ Print a summary of what was done:
 Updated:
   📄 .claude/settings.json   — sandbox + auto (Cell D) + matrix allow (Bash(*)+Read/Write/Edit/Glob/Grep/Agent/Task) + PreToolUse + PostToolUse + Stop + TaskCompleted + PreCompact + PostCompact + SessionStart + PostToolUseFailure + PermissionDenied + StopFailure hooks
       Sandbox: enabled, autoAllowBash, network: [list of configured domains]
+      Signing: [skipped | allowWrite ~/.gnupg | excludedCommands git | local gpgsign false]
   📄 .claude/hooks/task-completed.sh — quality-gate hook (customize for your project)
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
   📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit to tier-0)
