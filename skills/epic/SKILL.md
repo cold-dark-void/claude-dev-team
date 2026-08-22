@@ -640,11 +640,9 @@ READY=$(bash "$EPIC_LIB" ready-set "$EPIC_ID")
 CHILD=$(printf '%s\n' "$READY" | head -1)
 ```
 
-If empty: print `No ready children` (all done, or waiting on in_progress/blocked deps). If all completed: run **B.7** seal path when `release_bump` is set, then celebrate and stop. If only blocked/in_progress remain: report and stop.
+If empty: print `No ready children` (all done, or waiting on in_progress/blocked deps). If all completed: run **B.7** seal path when `release_bump` is set, then celebrate and stop. If only blocked/in_progress remain: report and stop. **B.7** MUST NOT run while ready-set is non-empty.
 
-When a child completes and `ready-set` is still non-empty: **continue Mode B**
-(next B.3) in the same run unless the user stopped or a blocking gate fired.
-Do **not** end the epic after the first shipped child.
+Same-run continue while `ready-set` is non-empty lives in **B.5** (`AUTOPILOT_ON`) — not this empty-set stop.
 
 ### B.3 Confirm each handoff (L5)
 
@@ -780,9 +778,32 @@ Prefer optional `--outcome "<≤1 line>"` on `set-status … completed|blocked`
 (Mode D) so seeds carry status+summary without re-reading child sessions.
 
 After a child leaves the active handoff (`completed`, or `blocked` with no
-ready successor to start mid-path), **before** the next B.3: run **B.6** when
-discipline applies. Then loop B.1 / B.2 (next ready) or exit if user stops.
-When the loop finds **all children completed**, run **B.7** (end-of-epic seal).
+mid-path successor) and `epic-lib ready-set` is non-empty: continue Mode B
+in the **same run**. Order: **B.6** (if M13 applies) → **B.1** → **B.2** →
+**B.3** (SPEC-033 M5e self-answer when `AUTOPILOT_ON=true`) → **B.4**.
+**Continue (`AUTOPILOT_ON`):** MUST NOT require a new `/epic` invocation.
+Do **not** end the epic after the first shipped child. Interactive Mode B
+still uses B.3 `y/n` (`n` stops). Continue is the walker loop only after
+the child `/kickoff` or `/orchestrate` lifecycle returns (M11 — no IC
+inline, no inlined SPEC-009).
+
+**Stops (unchanged — no new stop).** Walker stops only on: B.3 human `n` or
+autopilot `halt`; empty ready-set; all children `completed` (then **B.7**
+iff durable `release_bump` set); only `blocked`/`in_progress` remain; M13
+`context-discipline: seed failed — <reason>`; user interrupt.
+
+**B.7 MUST NOT run while ready-set is non-empty.** After each child, print
+B.1 rollup (`show` / `waves` / `ready-set`) including remaining ready ids.
+MUST NOT celebrate, run B.7, or claim epic Done / Orchestration complete
+while any child is not `completed`.
+
+**M13:** ≥2 children + discipline on → seed+validate still runs between
+children (B.6); fail-closed. Continue the walker loop ≠ continue inline
+with prior child transcripts (existing MUST NOT).
+
+**N8:** `AUTOPILOT_ON` does not mark kickoff-mode children `completed`.
+Continue waits for wrap-ticket / orchestrate lifecycle (A.6 default remains
+`orchestrate`). B.5 completion is NEVER autopilot-answered (SPEC-033 N8).
 
 Never mark `completed` merely because kickoff produced a plan (M7).
 **Kickoff mode:** M13 boundary still applies between children; completion
@@ -862,7 +883,8 @@ children). **CI = seed shape + protocol presence only.** Peak/cache-read =
 
 ### B.7 End-of-epic seal (CDT-141-C5 / M14)
 
-Runs **once** after the **last** child reaches `completed`, and **only** when
+Runs **once** after the **last** child reaches `completed` (all children
+`completed` — MUST NOT run while ready-set is non-empty), and **only** when
 durable `release_bump` is non-null (epic was started with `--worktree --release
 <bump>`). Without `--release`, there is **no** epic seal path — children ship
 as today (per-child `/release` / merge unchanged).

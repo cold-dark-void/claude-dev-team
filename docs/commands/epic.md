@@ -61,6 +61,9 @@ mechanical subcommands, not `/epic` flags.)
 2. **Execute / resume** (state exists): rollup → `ready-set` → confirm → hand
    off to recorded mode (`kickoff` \| `orchestrate`) with **mandatory PM**.
    With `--worktree`: children use the shared `epic-<ID>` tree.
+   `--autopilot`: Mode B keeps walking until B.3 halt/`n`, empty ready-set,
+   all children completed (B.7 iff `release_bump`), only blocked/in_progress,
+   M13 seed-fail, or user interrupt — not after the first shipped child.
 3. **Mid-epic forbid (release=end):** when `release_bump` set and not sealed,
    `/release` and master-merge hard-fail (exit 64) until seal. When
    `release_bump` is null/absent, `/release` Step 0 prints a warn-only

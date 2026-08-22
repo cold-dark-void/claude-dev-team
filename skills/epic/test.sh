@@ -507,6 +507,75 @@ if [ -f "$SKILL" ]; then
     && pass || fail "SKILL Arguments missing --release"
 fi
 
+# ---- CDT-159 / SPEC-025 M7: AUTOPILOT_ON continue Mode B while ready-set ----
+# Protocol greps only (AC6). Operational home = SKILL B.5, not B.2 empty-set.
+SKILL="$HERE/SKILL.md"
+CMD="$HERE/../../commands/epic.md"
+SPEC="$HERE/../../specs/core/SPEC-025-epic-umbrella-decomposition.md"
+DOCS_EPIC="$HERE/../../docs/commands/epic.md"
+B5_BLOCK=$(awk '/^### B\.5 Completion/,/^### B\.6 /' "$SKILL")
+B2_BLOCK=$(awk '/^### B\.2 /, /^### B\.3 /' "$SKILL")
+M7_BLOCK=$(awk '/^\- \*\*M7 —/,/^\- \*\*M8 —/' "$SPEC")
+
+# (a) B.5 / AUTOPILOT_ON + ready-set + same run + first-shipped-child phrase
+echo "$B5_BLOCK" | grep -q 'AUTOPILOT_ON' \
+  && pass || fail "CDT-159 B.5 missing AUTOPILOT_ON"
+echo "$B5_BLOCK" | grep -q 'ready-set' \
+  && pass || fail "CDT-159 B.5 missing ready-set"
+echo "$B5_BLOCK" | grep -q 'same run' \
+  && pass || fail "CDT-159 B.5 missing same-run continue"
+echo "$B5_BLOCK" | grep -qF 'Do **not** end the epic after the first shipped child' \
+  && pass || fail "CDT-159 B.5 missing first-shipped-child phrase"
+echo "$B5_BLOCK" | grep -q 'new `/epic`' \
+  && pass || fail "CDT-159 B.5 missing no-new-/epic (same-run, no reinvoke)"
+
+# (b) stop list in B.5 (unchanged stops; no new stop)
+echo "$B5_BLOCK" | grep -qE 'B\.3' \
+  && echo "$B5_BLOCK" | grep -qE 'halt' \
+  && echo "$B5_BLOCK" | grep -qE '`n`' \
+  && pass || fail "CDT-159 B.5 stop list missing B.3 halt/n"
+echo "$B5_BLOCK" | grep -q 'empty ready-set' \
+  && pass || fail "CDT-159 B.5 stop list missing empty ready-set"
+echo "$B5_BLOCK" | grep -qE 'all children `completed`' \
+  && echo "$B5_BLOCK" | grep -q 'B.7' \
+  && pass || fail "CDT-159 B.5 stop list missing B.7 only when all completed"
+echo "$B5_BLOCK" | grep -q 'context-discipline: seed failed' \
+  && pass || fail "CDT-159 B.5 stop list missing M13 seed-fail string"
+echo "$B5_BLOCK" | grep -q 'MUST NOT run while ready-set' \
+  && pass || fail "CDT-159 B.5 missing B.7 MUST NOT while ready-set non-empty"
+# B.2 keeps empty-set / blocked-only / all-done stops
+echo "$B2_BLOCK" | grep -q 'No ready children' \
+  && pass || fail "CDT-159 B.2 missing empty ready-set stop"
+echo "$B2_BLOCK" | grep -q 'blocked/in_progress' \
+  && pass || fail "CDT-159 B.2 missing blocked/in_progress-only stop"
+
+# (c) commands/epic.md --autopilot row: walk until those stops
+if [ -f "$CMD" ]; then
+  AP_ROW=$(grep -E '^\| `\[--autopilot' "$CMD")
+  echo "$AP_ROW" | grep -q 'keeps walking' \
+    && pass || fail "CDT-159 commands/epic.md --autopilot row missing keeps walking"
+  echo "$AP_ROW" | grep -q 'ready-set' \
+    && pass || fail "CDT-159 commands/epic.md --autopilot row missing ready-set"
+else
+  fail "CDT-159 commands/epic.md missing"
+fi
+
+# docs execute summary + SPEC-025 M7 (AC7/AC8)
+if [ -f "$DOCS_EPIC" ]; then
+  grep -q 'keeps walking' "$DOCS_EPIC" \
+    && pass || fail "CDT-159 docs/commands/epic.md missing keeps walking"
+else
+  fail "CDT-159 docs/commands/epic.md missing"
+fi
+echo "$M7_BLOCK" | grep -q 'same run' \
+  && pass || fail "CDT-159 SPEC-025 M7 missing same-run continue"
+echo "$M7_BLOCK" | grep -q 'SPEC-033' \
+  && pass || fail "CDT-159 SPEC-025 M7 missing SPEC-033 cite"
+echo "$M7_BLOCK" | grep -q 'N8' \
+  && pass || fail "CDT-159 SPEC-025 M7 missing N8 cite"
+echo "$M7_BLOCK" | grep -q 'M5e' \
+  && pass || fail "CDT-159 SPEC-025 M7 missing M5e cite"
+
 # ---- CDT-141-C1 / M14: parse-flags.sh --------------------------------------
 if [ -f "$PARSE" ]; then pass; else fail "parse-flags.sh missing"; fi
 bash -n "$PARSE" && pass || fail "parse-flags.sh bash -n"

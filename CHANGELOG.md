@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.10.7
+- **/epic --autopilot continues Mode B while ready-set is non-empty (CDT-159)** — after a child leaves handoff, the walker continues B.6→B.1→B.2→B.3→B.4 in the same run; it does not end after the first shipped child. Stops unchanged (B.3 halt/`n`, empty ready-set, all completed then B.7, blocked-only, M13 seed-fail). Operational home is SKILL B.5. Protocol greps in `skills/epic/test.sh`.
+
 ### v1.10.6
 - **/wrap-ticket prune merged remote feat/* after ship (CDT-157)** — Step 6.x constructs `feat/<T>` (and epic/child names) then deletes only allowlisted remotes that are ancestor-or-cherry-safe; leftover notice otherwise; fail-open `remote prune failed:`; never `master`/`main`/`stable`/`--force`. Replaces silent `git push --delete || true`.
 
