@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# retro-gate/test.sh — CDV-184 S3 draft-polish bite-tests (AC1–AC5 + AC9).
+# retro-gate/test.sh — CDV-184 S3 draft-polish bite-tests (AC1–AC5 + AC8) +
+# CDT-212 S5 local S1–S4 co-occurrence.
 # Run: bash skills/retro-gate/test.sh
 set -u
 
@@ -229,16 +230,20 @@ echo "----"
 run_gate "s5-approval-tokens.jsonl"
 if assert_json_shape "S5-tok"; then
   s5c=$(signal_count S5)
-  if [ "$s5c" = "4" ]; then
-    ok "S5-tok friction=4 (y-tho/y-not + dont-accept/no-accept)"
+  if [ "$s5c" = "1" ]; then
+    ok "S5-tok friction=1 (dont-accept via same-turn S1)"
   else
-    bad "S5-tok: want S5=4; got S5=$s5c out=$OUT"
+    bad "S5-tok: want S5=1; got S5=$s5c out=$OUT"
   fi
-  if has_signal S5 && echo "$OUT" | grep -q '000605' && echo "$OUT" | grep -q '000606' \
-     && echo "$OUT" | grep -q '000607' && echo "$OUT" | grep -q '000608'; then
-    ok "S5-tok ids include y-tho/y-not/dont-accept/no-accept"
+  if has_signal S5 && echo "$OUT" | grep -q '000607'; then
+    ok "S5-tok ids include dont-accept"
   else
-    bad "S5-tok: expected ids …605…608: $OUT"
+    bad "S5-tok: expected id …607: $OUT"
+  fi
+  if echo "$OUT" | grep -q '000605\|000606\|000608'; then
+    bad "S5-tok: isolated y-tho/y-not/no-accept leaked into S5 ids: $OUT"
+  else
+    ok "S5-tok isolated y-tho/y-not/no-accept absent from S5 ids"
   fi
   if echo "$OUT" | grep -q '000602\|000603\|000604'; then
     bad "S5-tok: pure approval turns (y/approve/accept) leaked into S5 ids: $OUT"
@@ -307,6 +312,86 @@ else
     fi
   fi
   rm -f "$GROK_NORM"
+fi
+
+echo "----"
+
+# ---- CDT-212: S5 scores only with local transcript S1–S4 co-occurrence ----
+# Isolated S5 (no S1–S4 in the preceding exchange) contributes 0.
+run_gate "s5-only.jsonl"
+if assert_json_shape "S5-only"; then
+  s5c=$(signal_count S5)
+  sc=$(score_val)
+  pv=$(passed_val)
+  if [ "$s5c" = "0" ] && ! has_signal S5 \
+     && python3 -c "import sys; sys.exit(0 if float(sys.argv[1])==0.0 else 1)" "$sc" \
+     && [ "$pv" = "false" ]; then
+    ok "S5-only isolated candidates score=0 passed=false omit S5"
+  else
+    bad "S5-only: want S5 omitted score=0 passed=false; got S5=$s5c score=$sc passed=$pv out=$OUT"
+  fi
+fi
+
+# ee104182: scoring S3 then three later isolated terse turns in new exchanges.
+# Session-level co-occur (keep S5 because S3 exists anywhere) is a FAIL.
+run_gate "s5-ee104182-profile.jsonl"
+if assert_json_shape "S5-ee104182"; then
+  s3c=$(signal_count S3)
+  s5c=$(signal_count S5)
+  sc=$(score_val)
+  pv=$(passed_val)
+  if [ "$s3c" = "1" ] && [ "$s5c" = "0" ] && ! has_signal S5 \
+     && python3 -c "import sys; sys.exit(0 if float(sys.argv[1])==2.5 else 1)" "$sc" \
+     && [ "$pv" = "false" ]; then
+    ok "S5-ee104182 S3=1 S5=0 score=2.5 passed=false"
+  else
+    bad "S5-ee104182: want S3=1 S5=0 score=2.5 passed=false; got S3=$s3c S5=$s5c score=$sc passed=$pv out=$OUT"
+  fi
+fi
+
+# Local co-occur keeps S5: same-turn S1, exchange S4, transcript S2, scoring S3.
+run_gate "s5-local-cooccur.jsonl"
+if assert_json_shape "S5-local"; then
+  s1c=$(signal_count S1)
+  s2c=$(signal_count S2)
+  s3c=$(signal_count S3)
+  s4c=$(signal_count S4)
+  s5c=$(signal_count S5)
+  if [ "$s1c" -ge 1 ] && [ "$s2c" = "1" ] && [ "$s3c" = "1" ] && [ "$s4c" -ge 1 ] \
+     && [ "$s5c" = "4" ]; then
+    ok "S5-local S1/S2/S3/S4 present S5=4"
+  else
+    bad "S5-local: want S1>=1 S2=1 S3=1 S4>=1 S5=4; got S1=$s1c S2=$s2c S3=$s3c S4=$s4c S5=$s5c out=$OUT"
+  fi
+  if echo "$OUT" | grep -q '000851' && echo "$OUT" | grep -q '000854' \
+     && echo "$OUT" | grep -q '000862' && echo "$OUT" | grep -q '000872'; then
+    ok "S5-local ids include same-turn S1, S4, S2, S3 S5s"
+  else
+    bad "S5-local: expected S5 ids …851 …854 …862 …872: $OUT"
+  fi
+fi
+
+# Ledger-covered S2 still scores; isolated S5s MUST NOT unlock from ledger S2.
+run_gate_env "s5-ledger-isolated.jsonl" \
+  FRICTION_LEDGER="$FIX/s5-ledger-isolated.ledger.jsonl"
+if assert_json_shape "S5-ledger"; then
+  s2c=$(signal_count S2)
+  s5c=$(signal_count S5)
+  sc=$(score_val)
+  pv=$(passed_val)
+  if [ "$s2c" = "1" ] && [ "$s5c" = "0" ] && ! has_signal S5 \
+     && python3 -c "import sys; sys.exit(0 if float(sys.argv[1])==2.0 else 1)" "$sc" \
+     && [ "$pv" = "false" ]; then
+    ok "S5-ledger S2=1 S5=0 score=2.0 passed=false"
+  else
+    bad "S5-ledger: want S2=1 S5=0 score=2.0 passed=false; got S2=$s2c S5=$s5c score=$sc passed=$pv out=$OUT"
+  fi
+fi
+
+if grep -q 'S5_WEIGHT, S5_CAP = 1.0, 4' "$GATE"; then
+  ok "S5 tunables unchanged"
+else
+  bad "S5: S5_WEIGHT/S5_CAP constants missing or changed"
 fi
 
 echo "----"

@@ -82,7 +82,7 @@ conflict-detection and holistic-rewrite guarantees.
   - Consecutive tool errors on the same file or command
   - Repeated edit-tool uses (`Write` / `Edit` / `MultiEdit` / `NotebookEdit`) on the same path within a short window (≥ 3 uses in ≤ 10 assistant turns), **except** a clean draft-polish path: a path whose first edit-tool in the session is `Write` (session-created) and that has no intervening tool error (`tool_result.is_error: true`) and no intervening S1-eligible real user rejection after that creating `Write` and at or before the last edit-tool in the candidate window. Clean draft-polish paths MUST NOT contribute to the S3 (edit-loop) score. Pre-existing paths (first edit-tool is not `Write`) and session-created paths with intervening tool error or S1 rejection remain eligible for S3
   - "let me try again" / retry-loop patterns from the assistant
-  - Terse user replies (≤ 3 words) immediately following long assistant turns (> 500 chars)
+  - Terse user replies (≤ 3 words) immediately following long assistant turns (> 500 chars). An S5 candidate (length / approval / slash / meta guards unchanged — CDT-124 / CDT-129) MUST score only when a scored **transcript** S1–S4 signal overlaps its preceding exchange `(L0, L]`: `L` is the candidate JSONL line; `L0` is the previous `type=user` that is not a `tool_result` wrapper and not `isMeta` (`-1` if none). Inclusive of `L` so same-turn S1 counts. Isolated S5 (no overlapping scored transcript S1–S4) MUST contribute 0 and MUST be omitted from `signals[]` / `--why` when the filtered count is 0. Ledger S2 (`ledger:` ids, no line) MUST NOT unlock S5. Apply `S5_CAP` after this filter. Weights, caps, and threshold MUST NOT change.
 - MUST exit with "smooth, nothing to retro" when score is below threshold — MUST NOT spawn a subagent
 - MUST NOT invent findings when the gate rejects a session (no phase-2 fallback on rejection)
 - MUST print matched signals when `--why` flag is set
@@ -320,6 +320,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | CDT-212: Phase-1 S5 scores only with local transcript S1–S4 co-occurrence in the preceding exchange `(L0, L]`. Isolated S5 contributes 0 and is omitted from `signals[]`. Ledger S2 does not unlock S5. Candidate filters (CDT-124/129) and weights/caps/threshold unchanged. |
 | 2026-08-16 | CDT-196: unwrap Grok `<user_query>` before S1/S5; S1 lexicon adds `wtf` / `fuck(ing)` / `why merge` / `why would you`. Weights/caps/threshold unchanged. |
 | 2026-08-10 | **CDT-156:** Multi-host transcript adapters (Claude + Grok MVP). Adapter seam in transcript-parse (locate+normalize → Claude-shaped gate feed); `--host claude\|grok\|all` + auto-detect; Grok cwd-bucket discovery; Grok S2 via `exit:N≠0`; S3 tool-name map write/search_replace; amend Session Discovery allowed roots; Claude score regression required; handoff multi-host rewrite OOS. |
 | 2026-04-07 | Initial spec created from brainstorm `.claude/plans/2026-04-07-brainstorm-retro.md` |

@@ -99,3 +99,4 @@
 | 2026-07-21 | SPEC-030 implemented (CDT-46-C1): deterministic smoke-harness gate (tools/smoke/) + first CI (.github/workflows/smoke.yml) + `/release` Step 4.10; status DRAFT→ACTIVE. |
 | 2026-07-22 | CDT-51 / CDT-46-C5 kickoff: SPEC-002/005 posture + doctor-gate MUSTs; SPEC-022 M6b caller-gate; SPEC-004 migrate-test note + Covers migrate-v3/v4. No INFERRED→ACTIVE (W5). |
 | 2026-07-22 | CDT-67: SPEC-022 M6c gate-mode self-remediation (`--gate=orchestration|team`); SPEC-005 doctor gate passes `--gate=<sub>`. |
+| 2026-08-22 | CDT-212: SPEC-012 S5 co-occurrence — S5 scores iff a scored transcript S1–S4 overlaps the preceding exchange; isolated S5 omitted; ledger S2 does not unlock S5. |

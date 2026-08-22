@@ -137,6 +137,11 @@ s3_files = {}
 s3_first_tool = {}                 # file_path -> name of first edit-tool in session
 tool_error_seqs = []               # monotonic positions of tool_result is_error
 s1_event_seqs = []                 # monotonic positions of S1-eligible rejections
+s4_event_seqs = []                 # assistant line_no per S4 hit
+s5_candidates = []                 # (uuid, line_no L, L0) before co-occur filter
+s2_transcript_error_lines = []     # error line lists for scored transcript S2 runs
+current_error_lines = []
+last_real_user_line = -1           # previous non-wrapper, non-meta user line
 
 assistant_turn_idx = -1
 last_assistant_len = 0
@@ -201,6 +206,7 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
             # S4: retry phrases
             for _ in S4_RE.findall(text):
                 s4_hits.append(uuid)
+                s4_event_seqs.append(line_no)
 
             # Walk content blocks for tool_use (S2 baseline + S3 edit-loop)
             if isinstance(content, list):
@@ -247,14 +253,17 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                     is_err = bool(b.get("is_error"))
                     if is_err:
                         tool_error_seqs.append(line_no)
+                        current_error_lines.append(line_no)
                         if last_tool_was_error_run_len == 0:
                             last_error_run_start_id = uuid
                         last_tool_was_error_run_len += 1
                     else:
                         if last_tool_was_error_run_len >= 2:
                             s2_runs.append(last_error_run_start_id)
+                            s2_transcript_error_lines.append(list(current_error_lines))
                         last_tool_was_error_run_len = 0
                         last_error_run_start_id = None
+                        current_error_lines = []
 
             if not had_tool_result and isinstance(text, str) and text and not meta:
                 # Real human user turn (not a tool_result wrapper, not meta,
@@ -304,16 +313,20 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                     and not text.lstrip().startswith("/")
                     and not is_approval
                 ):
-                    s5_hits.append(uuid)
+                    s5_candidates.append((uuid, line_no, last_real_user_line))
+                last_real_user_line = line_no
                 # Reset error run on real user input
                 if last_tool_was_error_run_len >= 2:
                     s2_runs.append(last_error_run_start_id)
+                    s2_transcript_error_lines.append(list(current_error_lines))
                 last_tool_was_error_run_len = 0
                 last_error_run_start_id = None
+                current_error_lines = []
 
 # Flush a trailing error run at EOF.
 if last_tool_was_error_run_len >= 2:
     s2_runs.append(last_error_run_start_id)
+    s2_transcript_error_lines.append(list(current_error_lines))
 
 # ---- session_id fallback (filename stem) ------------------------------------
 if session_id is None:
@@ -380,6 +393,7 @@ def _intervening(seqs, after_seq, until_seq):
     return any(after_seq < s <= until_seq for s in seqs)
 
 s3_hits = []  # list of (file_path, anchor_msg_id)
+s3_windows = []  # (first_seq, last_seq) of scoring windows (CDT-125 survivors)
 for fp, edits in s3_files.items():
     if len(edits) < S3_MIN_EDITS:
         continue
@@ -397,8 +411,28 @@ for fp, edits in s3_files.items():
             # that may include struggle (error/S1 after an earlier clean streak).
             continue
         s3_hits.append((fp, window[0][1]))
+        s3_windows.append((first_seq, last_seq))
         break
     # One score per distinct file regardless of how many windows match.
+
+# ---- S5 co-occurrence (CDT-212) --------------------------------------------
+# Candidate S5 at line L scores iff a scored transcript S1–S4 overlaps the
+# preceding exchange (L0, L]. L0 is the previous non-wrapper, non-meta user
+# line (-1 if none). Ledger S2 (no line) MUST NOT unlock S5. Cap after filter.
+def _s5_unlocked(L0, L):
+    if any(L0 < s <= L for s in s1_event_seqs):
+        return True
+    for err_lines in s2_transcript_error_lines:
+        if any(L0 < e < L for e in err_lines):
+            return True
+    for first_seq, last_seq in s3_windows:
+        if first_seq < L and last_seq > L0:
+            return True
+    if any(L0 < s < L for s in s4_event_seqs):
+        return True
+    return False
+
+s5_hits = [uuid for uuid, L, L0 in s5_candidates if _s5_unlocked(L0, L)]
 
 # ---- Scoring ----------------------------------------------------------------
 def capped(n, cap):

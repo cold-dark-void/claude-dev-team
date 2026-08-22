@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.10.9
+- **retro-gate S5 scores only with local S1–S4 co-occurrence (CDT-212)** — Isolated terse follow-ups no longer push a session over the friction threshold. An S5 candidate scores iff a scored transcript S1–S4 overlaps the preceding exchange `(L0, L]`. Isolated S5 is omitted from `signals[]`. Ledger S2 does not unlock S5. Regression: ee104182 profile is S3=1 S5=0 score=2.5, not passed. Weights/caps/threshold and CDT-124/129 candidate filters are unchanged.
+
 ### v1.10.8
 - **GPG-signed commits work under `/setup orchestration` sandbox (CDT-211)** — Step 2 detects `commit.gpgsign` / `tag.gpgsign` and default-merges `sandbox.filesystem.allowWrite` `~/.gnupg` (Linux `allowAllUnixSockets`; UID runtime dir only in `settings.local.json`). Go snippet uses `allowWrite`. Helper `signing-sandbox.sh` + tests.
 

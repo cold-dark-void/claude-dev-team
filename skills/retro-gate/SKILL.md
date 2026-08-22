@@ -77,7 +77,7 @@ evidence rather than re-scanning the whole transcript.
 | S2 | Tool error run    | **Transcript (default / uncovered):** a run of >=2 consecutive `tool_result.is_error:true` blocks; reset by a successful result or a real user turn. **Ledger-covered:** ≥2 ledger friction events for the session in append order (one continuous run; no success reset). Hybrid: ledger supplies S2 only when covered; see above. | 2.0    | -   |
 | S3 | Edit loop         | >=3 `Edit`/`Write`/`MultiEdit`/`NotebookEdit` tool_uses on the same `file_path` within 10 assistant turns; one score per file. **Exempt:** clean draft-polish — path whose first edit-tool is `Write` (session-created) with no intervening `tool_result.is_error` and no S1-eligible user rejection after that Write and at/before the last edit in the candidate window. Pre-existing paths and dirty session-created paths still score. | 2.5    | -   |
 | S4 | Assistant retry   | Regex on assistant text: `\b(let me try again\|let me try a different\|that didn'?t work\|actually,? let me\|sorry,? let me\|my mistake\|i'?ll try)\b` (see `S4_RE` in gate.sh) | 1.5    | 3   |
-| S5 | Terse follow-up   | Real user message of <=3 words after the most recent assistant turn of >=500 chars, excluding slash-command invocations and approval acknowledgements (see below) | 1.0    | 4   |
+| S5 | Terse follow-up   | Real user message of <=3 words after the most recent assistant turn of >=500 chars, excluding slash-command invocations and approval acknowledgements (see below). **Scores only** when a scored transcript S1–S4 overlaps the preceding exchange `(L0, L]` (CDT-212): `L0` = previous non-wrapper, non-meta `type=user` (`-1` if none). Isolated S5 contributes 0 and is omitted from `signals[]` / `--why` when the filtered count is 0. Ledger S2 does not unlock S5. Cap applies after this filter. Candidate detection (CDT-124/129) is unchanged. | 1.0    | 4   |
 
 `score = sum(weight * min(count, cap))`. Sessions are flagged when
 `score >= RETRO_THRESHOLD`.
@@ -91,7 +91,10 @@ evidence rather than re-scanning the whole transcript.
   in healthy refactors.
 - **S3 + S2** triggers (4.5+). Thrashing while errors compound is friction.
 - **All weak signals together** (S4 + S5 capped) ≈ 8.5, which trips the gate
-  only when retries and disengaged user turns both pile up.
+  only when retries and disengaged user turns both pile up **in overlapping
+  exchanges**. Isolated S5 never stacks with a distant sub-threshold S3
+  (CDT-212): a scoring S3 (2.5) plus later terse follow-ups in new exchanges
+  stays at 2.5.
 
 The bar is intentionally "two independent signals or one very strong one."
 
@@ -112,7 +115,9 @@ apostrophes removed so `don't` → `dont`): `waive`, `ok`, `okay`, `yes`, `sure`
 contains a negation token (CDT-129): `dont`, `no`, `not`, `never`, `stop`,
 `wrong`, `nope`, `nah`, `hold`, `wait`, `cancel`, `reject`, `denied`. So
 `"accept, anything else?"` stays approval, while `"dont accept"` / `"no, accept"`
-still register S5. Separately, a message that is the single bare token `y` is
+still register as S5 **candidates** (not approval-suppressed). Scoring still
+requires local S1–S4 (CDT-212): `"dont accept"` keeps S5 via same-turn S1;
+`"no, accept"` drops unless another scored S1–S4 overlaps that exchange. Separately, a message that is the single bare token `y` is
 always treated as approval — but only when `y` is the *entire* message, via a
 whole-message check, not a word-set membership check. `y` is deliberately kept
 out of the 19-token allowlist above: that allowlist matches on **any** word in
@@ -214,7 +219,7 @@ bash skills/retro-gate/scheduled-lock.sh release <mroot>   # always 0 (fail-open
 ### Tests
 
 ```
-bash skills/retro-gate/test.sh                      # gate / hybrid / S3
+bash skills/retro-gate/test.sh                      # gate / hybrid / S3 / S5
 bash skills/retro-gate/write-scheduled-report-test.sh
 bash skills/retro-gate/scheduled-lock-test.sh
 bash skills/retro-gate/scheduled-retro-test.sh
