@@ -48,3 +48,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash skills/memory-store/test-seed-pack.sh
+
+  # CDT-157 — wrap-ticket remote feat prune (allowlist + cherry/ancestor)
+  prune-remote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash skills/wrap-ticket/prune-remote-test.sh

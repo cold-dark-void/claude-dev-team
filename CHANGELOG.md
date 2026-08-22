@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.10.6
+- **/wrap-ticket prune merged remote feat/* after ship (CDT-157)** — Step 6.x constructs `feat/<T>` (and epic/child names) then deletes only allowlisted remotes that are ancestor-or-cherry-safe; leftover notice otherwise; fail-open `remote prune failed:`; never `master`/`main`/`stable`/`--force`. Replaces silent `git push --delete || true`.
+
 ### v1.10.5
 - **Mid-epic `/release` gap callout (CDT-158)** — when `release_bump` is null, `epic-lib gap-callout` prints incomplete child ids/titles plus includes/pending before the version bump; warn-only (does not block). C4 `release=end` 64 path is unchanged.
 

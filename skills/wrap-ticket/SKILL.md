@@ -454,9 +454,6 @@ else
   esac
 fi
 fi
-# Prune remotes when content is on master (local worktree release is not enough).
-git push origin --delete "feat/$TICKET_ID" 2>/dev/null || true
-git push origin --delete "feat/epic-$TICKET_ID" 2>/dev/null || true
 ```
 
 If the worktree has uncommitted changes, `worktree-lib.sh release` (or `git worktree
@@ -467,6 +464,58 @@ Check <path> and either commit or discard before retrying.
 ```
 
 If no worktree was found: skip silently.
+
+---
+
+## Step 6.x: Prune remote feat branches
+
+After local worktree release, prune matching remote `feat/` names. Construct
+candidates only — do not scan `origin/feat/*` and do not glob `feat/T*`.
+
+Candidates for ticket `T`:
+- Always `feat/T`.
+- If `epic-lib exists T`: also `feat/epic-T`. When wrapping that epic, also
+  `feat/<child.id>` and `feat/<child.linear_id>` (skip empty / duplicates).
+- If a known `linear_id` differs from `T`: also `feat/<linear_id>`.
+- Child wrap (`skip_release=true`): prune `feat/<child>` only. Do **not** pass
+  `--epic`. Do **not** add parent `feat/epic-<parent>`.
+
+Delete a name only when it is allowlisted **and** safe versus the merge base
+(`origin/HEAD`, else `origin/master` / `origin/main`, else local `master` /
+`main`): `git merge-base --is-ancestor` **or** `git cherry` with no `+` lines
+(squash-equivalent). Unique `+` commits print `leftover: feat/X (<reason>)` and
+are not deleted. Never `git push --force`. Never delete a protected name.
+
+Network / `git push` / missing-origin failures print one line
+`remote prune failed: …`. The helper exits 0. Wrap continues. Already-gone or
+never-pushed remotes are a silent skip. Do **not** wrap the helper in
+`2>/dev/null || true`.
+
+Resolve the helper through `plugin-dir.sh` (install-aware; not `$MROOT/skills/`).
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+cd "$MROOT"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+TICKET_ID="<TICKET-ID>"
+PRUNE=$(bash "$PDH/skills/plugin-dir.sh" file skills/wrap-ticket/prune-remote.sh)
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$TICKET_ID" 2>/dev/null || true)
+SKIP_RELEASE=$(jq -r '.skip_release // false' <<<"${CHILD_WT:-{}}")
+EPIC_FLAG=""
+if [ "$SKIP_RELEASE" != "true" ] && [ -f "$EPIC_LIB" ] && bash "$EPIC_LIB" exists "$TICKET_ID" 2>/dev/null; then
+  EPIC_FLAG="--epic"
+fi
+if [ -n "$PRUNE" ] && [ -f "$PRUNE" ]; then
+  bash "$PRUNE" prune "$TICKET_ID" $EPIC_FLAG
+fi
+```
+
+Print every `pruned:` / `leftover:` / `remote prune failed:` line in the Step 7
+checklist. Missing helper: skip silently (cleanup never halts).
 
 ---
 
@@ -545,6 +594,7 @@ Automated:
   ✅ Source tracker closed (N backlog / Linear) — or none (freeform)
   ✅ N backlog items added for deferred work
   ✅ Worktree removed
+  ✅ Remote feat prune: pruned / leftover / fail-open as printed
 
 Manual checklist (copy to Linear comment):
   [ ] Linear ticket Done (wrap sets this when MCP up; verify if fail-open)

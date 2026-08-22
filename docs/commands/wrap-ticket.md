@@ -1,6 +1,6 @@
 # /wrap-ticket
 
-Close out a shipped ticket cleanly. Verifies all tasks are completed, extracts learnings from agent context files before they are lost, appends them to project memory, marks the plan complete, **idempotently re-closes source tracking** (plan `closes:` / backlog slug via `close.sh`), removes the worktree, and prints a Linear close-out checklist.
+Close out a shipped ticket cleanly. Verifies all tasks are completed, extracts learnings from agent context files before they are lost, appends them to project memory, marks the plan complete, **idempotently re-closes source tracking** (plan `closes:` / backlog slug via `close.sh`), removes the worktree, prunes matching remote `feat/` branches, and prints a Linear close-out checklist.
 
 Run this after the PR is merged and released.
 
@@ -35,6 +35,7 @@ Automated:
   ✅ Source tracker closed (1 backlog / Linear)
   ✅ 1 backlog item added for deferred work
   ✅ Worktree removed
+  ✅ Remote feat prune: pruned / leftover / fail-open as printed
 
 Manual checklist (copy to Linear comment):
   [ ] Linear ticket moved to Done / Released (if MCP did not already)
@@ -81,7 +82,9 @@ To force-close a task: TaskUpdate <task_id> status:completed
 
 9. **Remove worktree** — asks for confirmation before running `git worktree remove`. If the worktree has uncommitted changes, git will refuse and the command reports clearly without force-removing.
 
-10. **Print checklist** — outputs the automated summary and a manual checklist formatted for pasting into a Linear comment.
+10. **Prune remote feat branches** — constructs `feat/<TICKET-ID>` (and epic/child names when you wrap an epic). Deletes a remote only when the name is allowlisted and merged (ancestor or squash-equivalent). Unique commits print `leftover: feat/<id>`. Network errors print `remote prune failed:` and wrap continues. Child wrap does not prune parent `feat/epic-<parent>`.
+
+11. **Print checklist** — outputs the automated summary and a manual checklist formatted for pasting into a Linear comment. Report prune, leftover, and fail-open lines here.
 
 ## See Also
 

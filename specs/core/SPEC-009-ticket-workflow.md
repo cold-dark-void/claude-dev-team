@@ -155,6 +155,7 @@ When `[ "$ORCH_TIER" = "null" ]` (no `--tier`):
 - MUST preserve SQL escaping for single quotes in DB writes
 - MUST idempotently re-close source tracking from the plan `closes:` list (or ticket-id backlog slug fallback) via `skills/backlog/close.sh` — safety net when ship close-out was skipped
 - MUST attempt Linear **Done** when MCP is available and a Linear id is known (plan `linear:<ID>`, ticket id, or backlog `linear_id`) — this is the primary terminal for PR-stop tickets left In Review; fail-open if MCP unavailable
+- MUST attempt remote `feat/` prune at wrap Step 6.x via `skills/wrap-ticket/prune-remote.sh` (allowlist + `merge-base --is-ancestor` or `git cherry` with no `+`); fail-open one line `remote prune failed:`; MUST NOT delete protected names (`master`/`main`/`stable`/`develop`/`HEAD`) or use `--force`; MUST NOT enumerate `origin/feat/*` (construct names only). Child wrap (`skip_release`) MUST NOT add parent `feat/epic-<parent>`
 
 ### Backlog
 - MUST auto-initialize local backlog structure if missing (silently for add/close) — local files are a **mandatory write-through cache**, not optional
@@ -325,6 +326,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify orchestrate exempts generated code from LOC caps
 - Verify standup detects stale tasks (mtime > 30min)
 - Verify wrap-ticket blocks on in-progress tasks
+- Verify `bash skills/wrap-ticket/prune-remote-test.sh` (allowlist accept/reject; FF ancestor and squash cherry would-delete; unique `+` leftover; SKILL 6.x `plugin-dir.sh file skills/wrap-ticket/prune-remote.sh`; naive `--delete || true` pair gone)
 - Verify backlog slug generation handles collisions
 - Verify `close.sh` closes item + moves index line; verify is idempotent; verify gate fails while PENDING
 - Verify `close.sh verify` exits 0 for item Status DONE / CANCELLED / CANCELED / FIXED/CLOSED (with optional trailing noise); exits non-zero for PENDING / DEFERRED / UNDONE
@@ -386,6 +388,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | CDT-157: wrap Step 6.x prunes remote `feat/*` when allowlisted and ancestor-or-cherry-safe; leftover notice otherwise; fail-open; no `origin/feat/*` scan. `worktree-lib.sh` stays local-release only. |
 | 2026-08-21 | CDT-207–210 (epic CDT-205): light-path MUSTs (scoper-planner; skip DAG + one IC4; single-pass TL / no council default / QA-fold / wrap-lite; `--council-tier` override) and auto-size at Step 2 scope-confirm (S→light / M→standard / L→full; explicit `--tier` wins; classify-fail → standard). Branch test is exactly `[ "$ORCH_TIER" = "light" ]`. MUST NOT edit SPEC-033. |
 | 2026-08-21 | CDT-206: `/orchestrate --tier=light\|standard\|full` pipeline cost tier. Parse in `skills/autopilot/parse-flags.sh` (JSON key `tier`, five-key stdout, omit → null, no env, no resume persist, duplicate/`=`-only hard-fail 64). Independent of `--council-tier`. Identity: omit/`standard`/`full` = today's Step 0–12 and SPEC-033 gate actors; `light` records only in this child (spawn cuts later). Skill-only Surface (no `commands/orchestrate.md`). MUST NOT edit SPEC-033. |
 | 2026-08-03 | Backlog write-back consolidation. Added `skills/backlog/SKILL.md` § Programmatic write-back protocol as the SPEC-002 D1 contract home for non-interactive backlog writes (content pre-supply, dedup fixed to suffix, caller-declared Linear-first/`--local-only`), replacing two independent forks (`skills/refactor/SKILL.md` § 2.2a.5's bespoke inline mkdir/printf/awk, and `commands/retro.md` `--auto` mode's ambiguous direct invocation). Added brainstorm Step 4c (offer backlog/Linear write-back on accepted synthesis) and a MUST that Linear descriptions inline actual substance, never a bare local-only file path — origin: CDT-111, a Linear issue created pointing solely at a local `.claude/plans/**` file unreadable without that checkout. |
