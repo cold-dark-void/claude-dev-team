@@ -423,12 +423,12 @@ def _s5_unlocked(L0, L):
     if any(L0 < s <= L for s in s1_event_seqs):
         return True
     for err_lines in s2_transcript_error_lines:
-        if any(L0 < e < L for e in err_lines):
+        if any(L0 < e <= L for e in err_lines):
             return True
     for first_seq, last_seq in s3_windows:
         if first_seq < L and last_seq > L0:
             return True
-    if any(L0 < s < L for s in s4_event_seqs):
+    if any(L0 < s <= L for s in s4_event_seqs):
         return True
     return False
 

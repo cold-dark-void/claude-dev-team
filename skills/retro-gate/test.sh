@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # retro-gate/test.sh — CDV-184 S3 draft-polish bite-tests (AC1–AC5 + AC8) +
-# CDT-212 S5 local S1–S4 co-occurrence.
+# CDT-212 S5 local S1–S4 co-occurrence + CDT-213 S2/S4 inclusive (L0, L].
 # Run: bash skills/retro-gate/test.sh
 set -u
 
@@ -388,10 +388,44 @@ if assert_json_shape "S5-ledger"; then
   fi
 fi
 
-if grep -q 'S5_WEIGHT, S5_CAP = 1.0, 4' "$GATE"; then
+# CDT-213 AC1: S2/S4 share S1's inclusive (L0, L] in _s5_unlocked.
+# Predicate fixture in test.sh — not a JSONL with S2/S4 on the S5 user line
+# (collectors forbid that collision). Same-turn S1 (s5-local-cooccur …851)
+# remains the only JSONL s == L case. Do not add mixed tool_result+text JSONL.
+s2_incl=$(grep -cF 'L0 < e <= L' "$GATE" || true)
+s14_incl=$(grep -cF 'L0 < s <= L' "$GATE" || true)
+s2_excl=$(grep -cF 'L0 < e < L' "$GATE" || true)
+s4_excl=$(grep -cF 'L0 < s < L' "$GATE" || true)
+if [ "$s2_incl" = "1" ] && [ "$s14_incl" = "2" ] \
+   && [ "$s2_excl" = "0" ] && [ "$s4_excl" = "0" ]; then
+  ok "AC1 S2/S4 inclusive (L0, L] (e<=L x1, s<=L x2, exclusive x0)"
+else
+  bad "AC1: want L0 < e <= L x1, L0 < s <= L x2, exclusive x0; got e<=$s2_incl s<=$s14_incl e<$s2_excl s<$s4_excl"
+fi
+
+# Inclusive-bound predicate: e==L / s==L is in (L0, L]; exclusive (L0, L) misses.
+if python3 -c '
+L0, L = 10, 20
+assert any(L0 < e <= L for e in [20])
+assert not any(L0 < e < L for e in [20])
+assert any(L0 < s <= L for s in [20])
+assert not any(L0 < s < L for s in [20])
+assert 15 < L and 25 > L0
+'; then
+  ok "AC1 predicate fixture (L0, L] includes e==L and s==L"
+else
+  bad "AC1 predicate fixture failed"
+fi
+
+if grep -q 'S5_WEIGHT, S5_CAP = 1.0, 4' "$GATE" \
+   && grep -q 'S1_WEIGHT, S1_CAP = 3.0, 3' "$GATE" \
+   && grep -q 'S2_WEIGHT          = 2.0' "$GATE" \
+   && grep -q 'S3_WEIGHT, S3_MIN_EDITS, S3_WINDOW = 2.5, 3, 10' "$GATE" \
+   && grep -q 'S4_WEIGHT, S4_CAP = 1.5, 3' "$GATE" \
+   && grep -q 'RETRO_THRESHOLD:-5.0' "$GATE"; then
   ok "S5 tunables unchanged"
 else
-  bad "S5: S5_WEIGHT/S5_CAP constants missing or changed"
+  bad "S5: S1–S5 weight/cap or RETRO_THRESHOLD 5.0 missing or changed"
 fi
 
 echo "----"
