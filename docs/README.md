@@ -22,6 +22,7 @@ when one exists; skills-backed Surfaces without a page still appear here.
 | [Manual operation](runbooks/manual.md) | Driving agents by hand without orchestrators |
 | [Scheduled retro](runbooks/scheduled-retro.md) | Opt-in cron for `/retro --all --auto` |
 | [Permission posture matrix](runbooks/permission-posture-matrix.md) | C8 evidence — `dontAsk` ship default (pin Claude Code 2.1.190) |
+| [Transcript mirror](commands/transcript-mirror.md) | Opt-in Stop + SessionEnd recorder; live compressed session record |
 
 **What's new / upgrade path:** [CHANGELOG](../CHANGELOG.md) (newest first) · [Migrate to v1.0.0](runbooks/migrate-to-v1.md) · [Setup → Upgrading](setup.md#upgrading-the-plugin-existing-projects).
 

@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"n":1,"bytes":12}}
+{"jsonrpc":"2.0","method":"session/update","params":{"n":2,"bytes":40}}
+{"jsonrpc":"2.0","id":1,"result":{"ok":true}}

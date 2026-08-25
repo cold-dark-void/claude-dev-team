@@ -27,3 +27,12 @@ agent output. Do not reintroduce avoided aliases.
 | Context audit | Read-only inventory of the instruction stack plus skill-size WARN; writes are a separate approve-then-apply step | doctor alone |
 | Approve-then-apply | Explicit user approval before any instruction-stack write; never silent rewrite | auto-fix, silent rewrite |
 | Mechanical evidence | Two cited passages plus counts and a date/mtime-vs-tag or spec quote | I-know-best, feels stale |
+| Transcript mirror | Live per-session compressed record (`main.md` + channel sidecars) | live log, shadow transcript |
+| Meaning channel | User + assistant text; retained spine of the transcript mirror | clean text |
+| Channel sidecar | Per-kind cold-storage file referenced from `main.md` via `@ref` | attachment |
+
+## Decisions
+
+- 2026-08-23: Transcript-mirror storage root is global `~/.claude/transcript/<sid>/`, not `$MROOT` — identity is the session, not the repo.
+- 2026-08-23: Compact seed MUST NOT extend to `main.md` — that term stays with STM packet / `/handoff`.
+- 2026-08-23: Transcript-mirror enablement is hook registration itself (default off; never in default `/setup orchestration`).

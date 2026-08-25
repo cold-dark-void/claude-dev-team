@@ -1,0 +1,6 @@
+{"type":"user","content":"rewind user one","prompt_index":1}
+{"type":"assistant","content":"rewind asst one"}
+{"type":"user","content":"rewind user two","prompt_index":2}
+{"type":"assistant","content":"rewind asst two"}
+{"type":"user","content":"rewind user three","prompt_index":3}
+{"type":"assistant","content":"rewind asst three"}

@@ -1,0 +1,2 @@
+{"uuid":"p-u1","type":"user","message":{"role":"user","content":[{"type":"text","text":"parent user turn"}]}}
+{"uuid":"p-a1","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"parent assistant turn"}]}}

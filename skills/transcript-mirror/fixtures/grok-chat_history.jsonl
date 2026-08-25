@@ -1,0 +1,6 @@
+{"type":"user","content":[{"type":"text","text":"<system-reminder>\nGrok project instructions.\n</system-reminder>"}],"synthetic_reason":"project_instructions"}
+{"type":"user","content":[{"type":"text","text":"hello from grok fixture café"}],"prompt_index":1}
+{"type":"reasoning","id":"rs-empty","summary":"","status":"completed"}
+{"type":"assistant","content":"hi from grok 日本語","model_id":"fixture"}
+{"type":"assistant","content":"calling a tool","tool_calls":[{"id":"c1","name":"run_terminal_command","arguments":"{}"}],"model_id":"fixture"}
+{"type":"tool_result","tool_call_id":"c1","content":"ok\n"}

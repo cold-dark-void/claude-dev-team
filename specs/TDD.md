@@ -38,10 +38,12 @@
 | SPEC-032 | CI Linter Parity Gate | ACTIVE | .github/workflows/smoke.yml (linter jobs only), skills/skill-lint/SKILL.md (CI-caller note only), skills/docs-drift/SKILL.md (CI-caller note only), skills/release/SKILL.md (referenced, unchanged) |
 | SPEC-034 | Bug-Hunt Workflow | DRAFT | `commands/bug-hunt.md`, `skills/bug-hunt/*` (stages 1–2 — CDT-136; stage-3 materialize — CDT-138 M38–M41; stage-4 phased handoff — CDT-139 M42–M48; Status DRAFT) |
 | SPEC-035 | Context Audit (`/audit`) | DRAFT | `commands/audit.md`, `skills/audit/*`, `docs/commands/audit.md` (CDT-200) |
+| SPEC-036 | Transcript Mirror | DRAFT | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220) |
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-25 | CDT-220: SPEC-036 DRAFT — transcript mirror v1 (recorder + transcript-sync; not a slash Surface) |
 | 2026-08-21 | CDT-204: SPEC-018 M19 detached orchestrator — `detached-stub-test.sh` + `detached-packet-test.sh` (Test 39); Test 24 retarget to orchestrator-spawn `model:` |
 | 2026-08-21 | CDT-203: SPEC-018 M3e `--miner-model` + host-neutral `fast|balanced|max` — `spawn-model-ac-test.sh` (Test 24), `light-gates-test.sh` parse (Test 31) |
 | 2026-08-21 | CDT-202: SPEC-018 M3d/M8b prefix-collapse + leftover Kill placeholder — `packet_dedup.py` + `assemble-quality-test.sh` (Test 38), `light-static-test.sh` T11 dual-home |

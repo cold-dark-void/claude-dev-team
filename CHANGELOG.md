@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.11.0
+- **Transcript mirror (SPEC-036 / CDT-220)** — opt-in Stop + SessionEnd recorder writes the meaning channel to `~/.claude/transcript/<sid>/main.md` with lossless channel sidecars (`thinking` / `tool_result` / `injection`). Hook path is bash+jq (fail-open, uuid/`h:` cursor). `transcript-sync` is the cron/on-demand backstop (`hosts.py` locate). Not a slash command and not an STM packet / compact seed. Default `/setup orchestration` Stop array is unchanged.
+
 ### v1.10.10
 - **retro-gate S5 unlock: S2/S4 use inclusive (L0, L] (CDT-213)** — `_s5_unlocked` S2/S4 now share S1's `L0 < s <= L`. Isolated S5 still omitted. Ledger S2 still does not unlock S5. S3 window overlap unchanged. Weights/caps/threshold and CDT-124/129 candidate filters unchanged.
 

@@ -1,0 +1,6 @@
+{"uuid":"c-meta","type":"user","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"<system-reminder>hidden meta reminder</system-reminder>"}]}}
+{"uuid":"c-u1","type":"user","message":{"role":"user","content":[{"type":"text","text":"<command-name>status</command-name>\n<command-args></command-args>\n<command-message>status</command-message>\n<user_query>hello from claude fixture</user_query>"}]}}
+{"uuid":"c-a1","type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"","signature":"sig-only"},{"type":"text","text":"I'll look that up."},{"type":"tool_use","id":"tu1","name":"Read","input":{"path":"foo.txt"}}]}}
+{"uuid":"c-tr1","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"file contents here"}]}}
+{"uuid":"c-tr2","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1b","content":"more tool output"}]}}
+{"uuid":"c-a2","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done with claude fixture."}]}}

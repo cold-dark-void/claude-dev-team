@@ -1,0 +1,4 @@
+{"uuid":"p-u1","type":"user","message":{"role":"user","content":[{"type":"text","text":"parent user turn"}]},"forkedFrom":{"sessionId":"tm-parent","messageUuid":"p-u1"}}
+{"uuid":"p-a1","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"parent assistant turn"}]}}
+{"uuid":"c-u2","type":"user","message":{"role":"user","content":[{"type":"text","text":"child-only user turn"}]}}
+{"uuid":"c-a2","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"child-only assistant turn"}]}}

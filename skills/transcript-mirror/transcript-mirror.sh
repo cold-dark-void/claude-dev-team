@@ -1,0 +1,374 @@
+#!/usr/bin/env bash
+# transcript-mirror.sh — Stop/SessionEnd recorder (SPEC-036 M2–M9).
+# Meaning channel → main.md; channel sidecars: thinking/ tool_result/ injection/.
+# bash + jq only. Fail-open: always exit 0; never decision:block.
+# Manual: transcript-mirror.sh --transcript FILE --sid SID
+set -uo pipefail
+
+ROOT="${TRANSCRIPT_MIRROR_ROOT:-$HOME/.claude/transcript}"
+ERRLOG="$ROOT/.errors.log"
+
+log_err() {
+  mkdir -p "$ROOT" 2>/dev/null || true
+  printf '%s %s\n' "$(date -Is 2>/dev/null || date)" "$*" >> "$ERRLOG" 2>/dev/null || true
+}
+
+# Identity of one JSONL record: non-null string .uuid, else h:+SHA-256(jq -S -c).
+# Always prints one line so ident file rows match source rows.
+ident_line() {
+  local line="$1" uuid="" hash=""
+  if [ -z "$line" ]; then
+    printf '\n'
+    return 0
+  fi
+  uuid=$(printf '%s\n' "$line" | jq -r 'if (.uuid | type == "string" and length > 0) then .uuid else empty end' 2>/dev/null) || uuid=""
+  if [ -n "$uuid" ]; then
+    printf '%s\n' "$uuid"
+    return 0
+  fi
+  hash=$(printf '%s\n' "$line" | jq -S -c . 2>/dev/null | sha256sum | awk '{print $1}') || hash=""
+  if [ -n "$hash" ]; then
+    printf 'h:%s\n' "$hash"
+  else
+    printf '\n'
+  fi
+}
+
+index_idents() {
+  local src="$1" dest="$2" line
+  : > "$dest"
+  while IFS= read -r line || [ -n "$line" ]; do
+    ident_line "$line" >> "$dest"
+  done < "$src"
+}
+
+sha_file() {
+  [ -f "$1" ] && sha256sum "$1" | awk '{print $1}'
+}
+
+write_cursor() {
+  local dest="$1" ident="$2" path="$3" mainf="$4" h=""
+  [ -n "$ident" ] || return 0
+  h=$(sha_file "$mainf")
+  printf '%s\t%s\t%s\n' "$ident" "$path" "$h" > "$dest/cursor.tmp" && mv "$dest/cursor.tmp" "$dest/cursor"
+}
+
+# Consecutive @tool_result-only lines → keep first (M8). Blanks do not break a run
+# and are dropped while the run is open (match drop_leading_tr on append).
+collapse_tr() {
+  awk '
+    /^> @tool_result\// { if (tr) next; tr=1; print; next }
+    /^[ \t]*$/ { if (tr) next; print; next }
+    { tr=0; print }
+  '
+}
+
+drop_leading_tr() {
+  awk '
+    BEGIN { skip=1 }
+    skip && (/^> @tool_result\// || /^[ \t]*$/) { next }
+    { skip=0; print }
+  '
+}
+
+last_nonblank() {
+  awk 'NF { l=$0 } END { print l }' "$1" 2>/dev/null
+}
+
+JQ_COMMON='
+  def pad: ("00000" + tostring)[-6:];
+  def textof(c): if (c|type)=="string" then c
+    else ([c[]? | select(type=="object" and .type=="text") | .text] | join("\n\n")) end;
+  def cleanuser(t): t
+    | gsub("(?s)<system-reminder>.*?</system-reminder>"; "")
+    | gsub("(?s)<command-(message|name|args)>.*?</command-(message|name|args)>"; "")
+    | gsub("</?user_query>"; "")
+    | gsub("\n{3,}"; "\n\n") | sub("^\\s+"; "") | sub("\\s+$"; "");
+  def injparts(t): [t | scan("(?s)<system-reminder>.*?</system-reminder>|(?s)<command-(?:message|name|args)>.*?</command-(?:message|name|args)>|(?s)<user_query>.*?</user_query>")];
+  def blocks(c; k): [c | if type=="array" then .[] | select(type=="object" and .type==k) else empty end];
+  def thinktext(th):
+    [th[] | if ((.thinking | type)=="string" and (.thinking|length)>0) then .thinking
+            else "(signature-only, no plaintext)" end] | join("\n\n");
+  def reasontext(m):
+    (if (m.summary | type)=="string" and (m.summary|length)>0 then m.summary
+     elif (m.summary | type)=="array" then
+       ([m.summary[]? | if type=="object" then (.text // .summary_text // "") else tostring end] | join("\n\n"))
+     else "" end)
+    | if length>0 then . else "(encrypted reasoning, no plaintext)" end;
+'
+
+# Emit main.md tick + sidecar TSV into DEST. START is 1-based first source line.
+# SKIPJSON is a JSON object of stringified line numbers to skip (parent prefix).
+# jq/base64 stderr is discarded; callers log_err one line on failure (M4).
+emit_tick() {
+  local src="$1" dest="$2" start="$3" skipjson="$4"
+  local off=$((start - 1)) slice part
+  slice="$dest/.slice.jsonl"
+  part="$dest/.main.part"
+  tail -n +"$start" "$src" > "$slice" || true
+
+  jq -R -r --argjson off "$off" --argjson skip "$skipjson" "$JQ_COMMON"'
+    [., input_line_number] as [$raw, $rel]
+    | ($raw | try fromjson catch empty) as $m
+    | (($off + $rel) | pad) as $ln
+    | (($off + $rel) | tostring) as $lns
+    | select($skip[$lns] | not)
+    | select($m.type? == "user" or $m.type? == "assistant")
+    | ($m.message.content // $m.content // "") as $c
+    | if $m.isMeta == true or ($m.type == "user" and $m.synthetic_reason != null) then empty
+      elif $m.type == "user" then
+        (textof($c)) as $t | (cleanuser($t)) as $clean
+        | (blocks($c; "tool_result") | length > 0) as $htr
+        | (injparts($t) | length > 0) as $hinj
+        | ( (if $htr then "> @tool_result/L\($ln).txt\n" else "" end)
+          + (if ($clean|length) > 0 then
+               "\n## user\n"
+               + (if $hinj then "\n> @injection/L\($ln).txt\n" else "" end)
+               + "\n" + $clean + "\n"
+             else "" end) )
+      else
+        (textof($c)) as $t
+        | (blocks($c; "thinking") | length > 0) as $hth
+        | (((blocks($c; "tool_use") | map(.name))
+            + [$m.tool_calls[]? | .function.name // .name // "tool"]) | unique) as $tools
+        | if ($t|length) > 0 or $hth or ($tools|length) > 0 then
+            "\n## assistant\n"
+            + (if $hth then "\n> @thinking/L\($ln).txt\n" else "" end)
+            + (if ($t|length) > 0 then "\n" + $t + "\n" else "" end)
+            + (if ($tools|length) > 0 then "> @tool_result/L\($ln)-call.txt\n" else "" end)
+          else empty end
+      end
+    | select(length > 0)
+  ' "$slice" > "$part.raw" 2>/dev/null || return 1
+
+  collapse_tr < "$part.raw" > "$part"
+
+  jq -R -r --argjson off "$off" --argjson skip "$skipjson" "$JQ_COMMON"'
+    [., input_line_number] as [$raw, $rel]
+    | ($raw | try fromjson catch empty) as $m
+    | (($off + $rel) | pad) as $ln
+    | (($off + $rel) | tostring) as $lns
+    | select($skip[$lns] | not)
+    | select($m.type? == "user" or $m.type? == "assistant"
+             or $m.type? == "tool_result" or $m.type? == "reasoning" or $m.type? == "system")
+    | ($m.message.content // $m.content // "") as $c
+    | if $m.isMeta == true or $m.type == "system"
+         or ($m.type == "user" and $m.synthetic_reason != null) then
+        "injection/L\($ln).txt\t\(textof($c) | @base64)"
+      elif $m.type == "tool_result" then
+        "tool_result/L\($ln).txt\t\($c | tostring | @base64)"
+      elif $m.type == "reasoning" then
+        "thinking/L\($ln).txt\t\(reasontext($m) | @base64)"
+      elif $m.type == "user" then
+        (textof($c)) as $t
+        | ( (blocks($c; "tool_result")) as $tr
+            | if ($tr|length) > 0 then "tool_result/L\($ln).txt\t\($tr | tostring | @base64)" else empty end ),
+          ( (injparts($t)) as $inj
+            | if ($inj|length) > 0 then "injection/L\($ln).txt\t\($inj | join("\n\n") | @base64)" else empty end )
+      else
+        ( (blocks($c; "thinking")) as $th
+          | if ($th|length) > 0 then "thinking/L\($ln).txt\t\(thinktext($th) | @base64)" else empty end ),
+        ( ((blocks($c; "tool_use")) + ($m.tool_calls // [])) as $tu
+          | if ($tu|length) > 0 then "tool_result/L\($ln)-call.txt\t\($tu | tostring | @base64)" else empty end )
+      end
+  ' "$slice" 2>/dev/null | while IFS=$'\t' read -r rel b64; do
+    [ -n "$rel" ] || continue
+    printf '%s' "$b64" | base64 -d > "$dest/$rel" 2>/dev/null || log_err "sidecar write failed: $rel"
+  done
+  return 0
+}
+
+ensure_meta() {
+  local dir="$1" tp="$2" parent="$3"
+  if [ ! -f "$dir/meta" ]; then
+    printf 'source: %s\nstarted_mirror: %s\n' "$tp" "$(date -Is 2>/dev/null || date)" > "$dir/meta"
+  fi
+  if [ -n "$parent" ] && ! grep -q '^parent:' "$dir/meta" 2>/dev/null; then
+    printf 'parent: %s\n' "$parent" >> "$dir/meta"
+  fi
+}
+
+# Parent-covered identities: parent source records through parent cursor identity.
+parent_skip_json() {
+  local parent="$1" start="$2" idents="$3" work="$4"
+  local pdir="$ROOT/$parent" pident="" psrc="" pl=0
+  if [ -z "$parent" ] || [ ! -d "$pdir" ] || [ ! -f "$pdir/cursor" ]; then
+    printf '{}'
+    return 0
+  fi
+  IFS=$'\t' read -r pident psrc _ < "$pdir/cursor" || true
+  if [ -z "$pident" ]; then
+    printf '{}'
+    return 0
+  fi
+  if [ -f "$psrc" ]; then
+    index_idents "$psrc" "$work/p.idents"
+    pl=$(awk -v id="$pident" '$0==id { n=NR } END { print n+0 }' "$work/p.idents")
+    if [ "$pl" -gt 0 ]; then
+      head -n "$pl" "$work/p.idents" | grep -v '^$' > "$work/parent.idents" || true
+    fi
+  else
+    printf '%s\n' "$pident" > "$work/parent.idents"
+  fi
+  if [ ! -s "$work/parent.idents" ]; then
+    printf '{}'
+    return 0
+  fi
+  awk -v start="$start" 'NR==FNR { if (NF) s[$0]=1; next }
+    FNR>=start && s[$0] { print FNR }' "$work/parent.idents" "$idents" > "$work/skip_lines" || true
+  if [ -s "$work/skip_lines" ]; then
+    jq -R '{(.):true}' "$work/skip_lines" | jq -s 'add // {}'
+  else
+    printf '{}'
+  fi
+}
+
+main() {
+  local SID="" TP="" STDIN="" EVENT="" REASON="" AGENT="" CWD="" RECON=0 PARENT=""
+
+  if [ "${1:-}" = "--transcript" ]; then
+    TP="${2:-}"; shift 2
+    [ -n "$TP" ] || return 0
+    [ "${1:-}" = "--sid" ] && SID="${2:-}"
+  else
+    if [ -t 0 ]; then
+      return 0
+    fi
+    STDIN=$(cat 2>/dev/null || true)
+    [ -n "$STDIN" ] || return 0
+    EVENT=$(jq -r '.hook_event_name // .hookEventName // empty' <<<"$STDIN" 2>/dev/null) || EVENT=""
+    SID=$(jq -r '.session_id // .sessionId // empty' <<<"$STDIN" 2>/dev/null) || SID=""
+    TP=$(jq -r '.transcript_path // .transcriptPath // empty' <<<"$STDIN" 2>/dev/null) || TP=""
+    CWD=$(jq -r '.cwd // empty' <<<"$STDIN" 2>/dev/null) || CWD=""
+    REASON=$(jq -r '.reason // empty' <<<"$STDIN" 2>/dev/null) || REASON=""
+    AGENT=$(jq -r '.agent_id // .agentId // .agent_type // .agentType // empty' <<<"$STDIN" 2>/dev/null) || AGENT=""
+    [ "$EVENT" = "SubagentStop" ] && return 0
+    [ -n "$AGENT" ] && return 0
+    case "$EVENT" in ""|Stop|SessionEnd) ;; *) return 0 ;; esac
+    if [ "$EVENT" != "SessionEnd" ]; then
+      case "$REASON" in ""|end_turn|channel_closed|shutdown) ;; *) return 0 ;; esac
+    fi
+    if [ -z "$TP" ]; then
+      SID="${SID:-${GROK_SESSION_ID:-}}"
+      [ -n "$SID" ] || return 0
+      local base enc
+      base="${GROK_SESSIONS_DIR:-$HOME/.grok/sessions}"
+      enc=$(jq -rn --arg s "${CWD:-$PWD}" '$s|@uri') || return 0
+      TP="$base/$enc/$SID/chat_history.jsonl"
+      RECON=1
+    fi
+  fi
+
+  case "$TP" in
+    *updates.jsonl)
+      [ -f "$(dirname "$TP")/chat_history.jsonl" ] && TP="$(dirname "$TP")/chat_history.jsonl" ;;
+  esac
+  [ -n "$SID" ] || SID=$(basename "${TP%.jsonl}")
+  case "$SID" in
+    ""|*[!A-Za-z0-9._-]*|*..*) [ "$RECON" -eq 1 ] && return 0; log_err "bad sid=$SID"; return 0 ;;
+  esac
+  if [ ! -f "$TP" ]; then
+    [ "$RECON" -eq 1 ] && return 0
+    log_err "no transcript: sid=$SID tp=$TP"
+    return 0
+  fi
+
+  command -v jq >/dev/null 2>&1 || { log_err "jq missing"; return 0; }
+
+  local DIR="$ROOT/$SID"
+  mkdir -p "$DIR/thinking" "$DIR/tool_result" "$DIR/injection" || { log_err "mkdir failed: $DIR"; return 0; }
+
+  PARENT=$(jq -r 'select(.forkedFrom.sessionId | type == "string" and length > 0) | .forkedFrom.sessionId' "$TP" 2>/dev/null | head -1) || PARENT=""
+  case "$PARENT" in ""|null|NULL) PARENT="" ;; esac
+  ensure_meta "$DIR" "$TP" "$PARENT"
+
+  local WORK
+  WORK=$(mktemp -d "${TMPDIR:-/tmp}/tmirror.XXXXXX") || { log_err "mktemp failed"; return 0; }
+  # shellcheck disable=SC2064
+  trap "rm -rf '$WORK'" RETURN
+
+  index_idents "$TP" "$WORK/idents"
+  local nlines last_ident found=0 need_rebuild=0 cur_id="" cur_src="" cur_hash="" main_hash=""
+  nlines=$(wc -l < "$WORK/idents" | tr -d ' ')
+  last_ident=$(awk 'NF { x=$0 } END { print x }' "$WORK/idents")
+  [ -n "$nlines" ] || nlines=0
+
+  if [ -f "$DIR/cursor" ]; then
+    IFS=$'\t' read -r cur_id cur_src cur_hash < "$DIR/cursor" || true
+    main_hash=$(sha_file "$DIR/main.md")
+    if [ "$cur_src" != "$TP" ] || [ -z "$cur_id" ]; then
+      need_rebuild=1
+    elif [ -n "$cur_hash" ] && [ "$cur_hash" != "$main_hash" ]; then
+      need_rebuild=1
+    else
+      found=$(awk -v id="$cur_id" '$0==id { n=NR } END { print n+0 }' "$WORK/idents")
+      [ "$found" -gt 0 ] || need_rebuild=1
+    fi
+  elif [ -s "$DIR/main.md" ]; then
+    need_rebuild=1
+  fi
+
+  if [ "$need_rebuild" -eq 0 ] && [ "$found" -ge "$nlines" ]; then
+    return 0
+  fi
+
+  local START=1
+  [ "$need_rebuild" -eq 0 ] && [ "$found" -gt 0 ] && START=$((found + 1))
+
+  local SKIP
+  SKIP=$(parent_skip_json "$PARENT" "$START" "$WORK/idents" "$WORK") || SKIP='{}'
+  [ -n "$SKIP" ] || SKIP='{}'
+
+  if [ "$need_rebuild" -eq 1 ]; then
+    local NEW="$WORK/out"
+    mkdir -p "$NEW/thinking" "$NEW/tool_result" "$NEW/injection" || { log_err "mkdir new failed"; return 0; }
+    emit_tick "$TP" "$NEW" 1 "$SKIP" || { log_err "jq failed: sid=$SID"; return 0; }
+    printf '# transcript mirror — %s\n' "$SID" > "$NEW/main.md"
+    if [ -s "$NEW/.main.part" ]; then
+      if ! { cat "$NEW/.main.part" >> "$NEW/main.md"; } 2>/dev/null; then
+        log_err "rebuild write failed: sid=$SID"
+        return 0
+      fi
+    fi
+    printf 'source: %s\nstarted_mirror: %s\n' "$TP" "$(date -Is 2>/dev/null || date)" > "$NEW/meta"
+    [ -n "$PARENT" ] && printf 'parent: %s\n' "$PARENT" >> "$NEW/meta"
+    write_cursor "$NEW" "$last_ident" "$TP" "$NEW/main.md"
+    rm -f "$NEW/.slice.jsonl" "$NEW/.main.part" "$NEW/.main.part.raw"
+    # Sibling of $DIR — never under $WORK (RETURN trap rm -rf would drop the live sid).
+    local BAK="$ROOT/$SID.bak.$$"
+    mv "$DIR" "$BAK" || { log_err "rebuild mv old failed: sid=$SID"; return 0; }
+    if ! mv "$NEW" "$DIR"; then
+      mv "$BAK" "$DIR" 2>/dev/null || true
+      log_err "rebuild swap failed: sid=$SID"
+      return 0
+    fi
+    rm -rf "$BAK"
+    return 0
+  fi
+
+  emit_tick "$TP" "$DIR" "$START" "$SKIP" || { log_err "jq failed: sid=$SID"; return 0; }
+  if [ -s "$DIR/.main.part" ]; then
+    local part="$DIR/.main.part"
+    if [ -f "$DIR/main.md" ]; then
+      case "$(last_nonblank "$DIR/main.md")" in
+        '> @tool_result/'*) drop_leading_tr < "$part" > "$part.trimmed" && mv "$part.trimmed" "$part" ;;
+      esac
+    else
+      printf '# transcript mirror — %s\n' "$SID" > "$DIR/main.md"
+    fi
+    if [ -s "$part" ]; then
+      if ! { cat "$part" >> "$DIR/main.md"; } 2>/dev/null; then
+        log_err "append failed: sid=$SID"
+        return 0
+      fi
+    fi
+  elif [ ! -f "$DIR/main.md" ]; then
+    printf '# transcript mirror — %s\n' "$SID" > "$DIR/main.md"
+  fi
+  rm -f "$DIR/.slice.jsonl" "$DIR/.main.part" "$DIR/.main.part.raw" "$DIR/.main.part.trimmed"
+  write_cursor "$DIR" "$last_ident" "$TP" "$DIR/main.md"
+  return 0
+}
+
+main "$@" || log_err "unexpected failure rc=$?"
+exit 0
