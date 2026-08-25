@@ -198,22 +198,62 @@ def recorder_registered(cwd: str) -> bool:
 
 
 def cwd_sessions(cwd: str) -> list[tuple[str, str]]:
-    """Newest per host via hosts.locate (never-mirrored cwd sessions)."""
+    """All cwd-bucket sessions: enumerate files, locate by sid (never locate None)."""
     found: list[tuple[str, str]] = []
+    seen: set[str] = set()
     if _hosts is None or not cwd:
         return found
-    for host in getattr(_hosts, "HOSTS", ()):
+
+    def add_located(host: str, sid: str) -> None:
+        if not sid or sid in seen:
+            return
         try:
-            path = _hosts.locate(host, None, cwd)
+            path = _hosts.locate(host, sid, cwd)
         except Exception as e:
-            _warn(f"locate host={host} newest failed: {e}")
-            continue
+            _warn(f"locate host={host} sid={sid} failed: {e}")
+            return
         if not path:
-            continue
-        path = resolve_transcript(path)
-        sid = sid_from_path(path)
-        if sid:
-            found.append((sid, path))
+            return
+        seen.add(sid)
+        found.append((sid, resolve_transcript(path)))
+
+    try:
+        pdir = _hosts.claude_project_dir(cwd)
+    except Exception as e:
+        _warn(f"claude_project_dir failed: {e}")
+        pdir = ""
+    if pdir and os.path.isdir(pdir):
+        try:
+            names = os.listdir(pdir)
+        except OSError as e:
+            _warn(f"cannot list {pdir}: {e}")
+            names = []
+        for name in sorted(names):
+            if not name.endswith(".jsonl"):
+                continue
+            if not os.path.isfile(os.path.join(pdir, name)):
+                continue
+            add_located("claude", name[: -len(".jsonl")])
+
+    try:
+        bucket = _hosts.grok_cwd_bucket(cwd)
+    except Exception as e:
+        _warn(f"grok_cwd_bucket failed: {e}")
+        bucket = ""
+    if bucket and os.path.isdir(bucket):
+        try:
+            names = os.listdir(bucket)
+        except OSError as e:
+            _warn(f"cannot list {bucket}: {e}")
+            names = []
+        for name in sorted(names):
+            if name in (".", ".."):
+                continue
+            hist = os.path.join(bucket, name, CHAT_HISTORY)
+            if not os.path.isfile(hist):
+                continue
+            add_located("grok", name)
+
     return found
 
 
@@ -222,6 +262,7 @@ def collect_targets(
     transcript: Optional[str],
     cwd: str,
     root: str,
+    check: bool = False,
 ) -> list[tuple[str, str]]:
     """Ordered unique (sid, source) jobs."""
     jobs: dict[str, str] = {}
@@ -239,6 +280,11 @@ def collect_targets(
             src = locate_source(sid, cwd)
         use_sid = sid or (sid_from_path(src) if src else None)
         add(use_sid, src)
+        return [(k, jobs[k]) for k in jobs]
+
+    if check:
+        for s, p in cwd_sessions(cwd):
+            add(s, p)
         return [(k, jobs[k]) for k in jobs]
 
     for s in existing_sids(root):
@@ -326,7 +372,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         transcript = args.transcript
         if transcript:
             transcript = resolve_transcript(transcript)
-        targets = collect_targets(args.sid, transcript, cwd, root)
+        targets = collect_targets(args.sid, transcript, cwd, root, check=args.check)
         for sid, source in targets:
             try:
                 sync_one(sid, source, root, args.check)

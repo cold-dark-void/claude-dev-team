@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# transcript-sync CLI tests (SPEC-036 M10–M11 / CDT-220 Task 2).
+# transcript-sync CLI tests (SPEC-036 M10–M11 / CDT-220 Task 2 + CDT-221 T1).
 # Run: bash skills/transcript-mirror/transcript-sync-test.sh
 set -euo pipefail
 
@@ -53,6 +53,45 @@ write_grok_nouuid() {
 {"type": "assistant", "content": "grok nouuid assistant 日本語", "model_id": "fixture"}
 EOF
   age "$dest"
+}
+
+write_opt_in() {
+  mkdir -p "$1/.claude"
+  cat >"$1/.claude/settings.json" <<'EOF'
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/transcript-mirror.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+}
+
+seed_store() {
+  mkdir -p "$1/$2"
+  printf '## user\n\nseed %s\n' "$2" >"$1/$2/main.md"
+}
+
+urlenc_cwd() {
+  CWD_RAW="$(cd "$1" && pwd)" python3 - <<'PY'
+import os, urllib.parse
+print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
+PY
+}
+
+claude_pdir() {
+  local abs
+  abs="$(cd "$1" && pwd)"
+  printf '%s/.claude/projects/%s\n' "$HOME" "${abs//\//-}"
 }
 
 ENC="$(CWD_RAW="$(cd "$PROJ" && pwd)" python3 - <<'PY'
@@ -328,6 +367,178 @@ if [ "$RC_MF" -eq 0 ]; then
   pass "M10 missing transcript still exit 0"
 else
   bad "M10 missing-file rc=$RC_MF err=$(cat "$WORK/missfile.err")"
+fi
+
+# ---------------------------------------------------------------------------
+# CDT-221 T1 — all-cwd targeting (M10 AC1/AC13, M11 AC8/AC10/AC11)
+# Isolated --cwd so leftover sess-220-* Grok files cannot become newest.
+# ---------------------------------------------------------------------------
+PROJ221="$WORK/proj221"
+mkdir -p "$PROJ221/.claude/hooks"
+PROJ221_ABS="$(cd "$PROJ221" && pwd)"
+ENC221="$(urlenc_cwd "$PROJ221")"
+BUCKET221="$SESS/$ENC221"
+CLAUDE221="$(claude_pdir "$PROJ221")"
+write_opt_in "$PROJ221"
+
+reset_221() {
+  rm -rf "$BUCKET221" "$CLAUDE221"
+  mkdir -p "$BUCKET221" "$CLAUDE221"
+}
+
+# AC1 Grok two-sid: older never-mirrored + newer already has store dir.
+reset_221
+SID_G_OLD="tm-221-g-old"
+SID_G_NEW="tm-221-g-new"
+mkdir -p "$BUCKET221/$SID_G_OLD" "$BUCKET221/$SID_G_NEW"
+write_mini "$BUCKET221/$SID_G_OLD/chat_history.jsonl"
+write_mini "$BUCKET221/$SID_G_NEW/chat_history.jsonl"
+touch -d '3 minutes ago' "$BUCKET221/$SID_G_OLD/chat_history.jsonl"
+touch -d '2 minutes ago' "$BUCKET221/$SID_G_NEW/chat_history.jsonl"
+STORE_G2="$WORK/store-ac1-grok"
+mkdir -p "$STORE_G2"
+seed_store "$STORE_G2" "$SID_G_NEW"
+set +e
+TRANSCRIPT_MIRROR_ROOT="$STORE_G2" "$SYNC" --cwd "$PROJ221_ABS" >/dev/null 2>"$WORK/ac1-grok.err"
+RC_G2=$?
+set -e
+if [ "$RC_G2" -eq 0 ] && [ -f "$STORE_G2/$SID_G_OLD/main.md" ]; then
+  pass "M10 AC1 Grok two-sid no-args creates older sid"
+else
+  bad "M10 AC1 Grok two-sid rc=$RC_G2 store=$(ls "$STORE_G2" 2>/dev/null) err=$(cat "$WORK/ac1-grok.err")"
+fi
+
+# AC1 Claude two-jsonl: older never-mirrored + newer already has store dir.
+reset_221
+SID_C_OLD="tm-221-c-old"
+SID_C_NEW="tm-221-c-new"
+write_mini "$CLAUDE221/$SID_C_OLD.jsonl"
+write_mini "$CLAUDE221/$SID_C_NEW.jsonl"
+touch -d '3 minutes ago' "$CLAUDE221/$SID_C_OLD.jsonl"
+touch -d '2 minutes ago' "$CLAUDE221/$SID_C_NEW.jsonl"
+STORE_C2="$WORK/store-ac1-claude"
+mkdir -p "$STORE_C2"
+seed_store "$STORE_C2" "$SID_C_NEW"
+set +e
+TRANSCRIPT_MIRROR_ROOT="$STORE_C2" "$SYNC" --cwd "$PROJ221_ABS" >/dev/null 2>"$WORK/ac1-claude.err"
+RC_C2=$?
+set -e
+if [ "$RC_C2" -eq 0 ] && [ -f "$STORE_C2/$SID_C_OLD/main.md" ]; then
+  pass "M10 AC1 Claude two-jsonl no-args creates older sid"
+else
+  bad "M10 AC1 Claude two-jsonl rc=$RC_C2 store=$(ls "$STORE_C2" 2>/dev/null) err=$(cat "$WORK/ac1-claude.err")"
+fi
+
+# AC13 dual-host: one Claude *.jsonl + one Grok chat_history.jsonl.
+reset_221
+SID_D_C="tm-221-d-claude"
+SID_D_G="tm-221-d-grok"
+write_mini "$CLAUDE221/$SID_D_C.jsonl"
+mkdir -p "$BUCKET221/$SID_D_G"
+write_mini "$BUCKET221/$SID_D_G/chat_history.jsonl"
+STORE_D="$WORK/store-ac13"
+mkdir -p "$STORE_D"
+set +e
+TRANSCRIPT_MIRROR_ROOT="$STORE_D" "$SYNC" --cwd "$PROJ221_ABS" >/dev/null 2>"$WORK/ac13.err"
+RC_D=$?
+set -e
+if [ "$RC_D" -eq 0 ] && [ -f "$STORE_D/$SID_D_C/main.md" ] && [ -f "$STORE_D/$SID_D_G/main.md" ]; then
+  pass "M10 AC13 dual-host no-args creates both sids"
+else
+  bad "M10 AC13 dual-host rc=$RC_D store=$(ls "$STORE_D" 2>/dev/null) err=$(cat "$WORK/ac13.err")"
+fi
+
+# --check lists ALL cwd-bucket sids (not newest only).
+reset_221
+SID_CHK_A="tm-221-chk-a"
+SID_CHK_B="tm-221-chk-b"
+mkdir -p "$BUCKET221/$SID_CHK_A" "$BUCKET221/$SID_CHK_B"
+write_mini "$BUCKET221/$SID_CHK_A/chat_history.jsonl"
+write_mini "$BUCKET221/$SID_CHK_B/chat_history.jsonl"
+touch -d '3 minutes ago' "$BUCKET221/$SID_CHK_A/chat_history.jsonl"
+touch -d '2 minutes ago' "$BUCKET221/$SID_CHK_B/chat_history.jsonl"
+STORE_CHK="$WORK/store-chk-all"
+mkdir -p "$STORE_CHK"
+set +e
+CHK_ALL="$(TRANSCRIPT_MIRROR_ROOT="$STORE_CHK" "$SYNC" --check --cwd "$PROJ221_ABS" 2>"$WORK/chk-all.err")"
+RC_CA=$?
+set -e
+N_CA=$(printf '%s\n' "$CHK_ALL" | grep -c '^sid=' || true)
+if [ "$RC_CA" -eq 0 ] && [ "$N_CA" -eq 2 ] \
+   && printf '%s\n' "$CHK_ALL" | grep -q "sid=$SID_CHK_A" \
+   && printf '%s\n' "$CHK_ALL" | grep -q "sid=$SID_CHK_B"; then
+  pass "M11 --check lists ALL cwd-bucket sids"
+else
+  bad "M11 --check-all rc=$RC_CA n=$N_CA out=${CHK_ALL:-<empty>} err=$(cat "$WORK/chk-all.err")"
+fi
+
+# AC11 --check scope: store sid whose source is another cwd MUST NOT print.
+reset_221
+OTHER="$WORK/other-proj"
+mkdir -p "$OTHER/.claude"
+OTHER_ABS="$(cd "$OTHER" && pwd)"
+ENC_O="$(urlenc_cwd "$OTHER")"
+BUCKET_O="$SESS/$ENC_O"
+SID_OTHER="tm-221-other"
+mkdir -p "$BUCKET_O/$SID_OTHER"
+write_mini "$BUCKET_O/$SID_OTHER/chat_history.jsonl"
+STORE_SC="$WORK/store-ac11"
+mkdir -p "$STORE_SC"
+set +e
+TRANSCRIPT_MIRROR_ROOT="$STORE_SC" "$SYNC" --sid "$SID_OTHER" \
+  --transcript "$BUCKET_O/$SID_OTHER/chat_history.jsonl" --cwd "$OTHER_ABS" \
+  >/dev/null 2>"$WORK/ac11-seed.err"
+RC_SC_SEED=$?
+CHK_SC="$(TRANSCRIPT_MIRROR_ROOT="$STORE_SC" "$SYNC" --check --cwd "$PROJ221_ABS" 2>"$WORK/ac11.err")"
+RC_SC=$?
+set -e
+if [ "$RC_SC_SEED" -eq 0 ] && [ -f "$STORE_SC/$SID_OTHER/main.md" ] \
+   && [ "$RC_SC" -eq 0 ] && ! printf '%s\n' "$CHK_SC" | grep -q "sid=$SID_OTHER"; then
+  pass "M11 AC11 --check does not list other-cwd store sid"
+else
+  bad "M11 AC11 rc=$RC_SC seed_rc=$RC_SC_SEED out=${CHK_SC:-<empty>} err=$(cat "$WORK/ac11.err") seederr=$(cat "$WORK/ac11-seed.err")"
+fi
+
+# AC8: no sid dir, no .errors.log → --check status=missing, exit 0.
+reset_221
+SID_MISS8="tm-221-miss"
+mkdir -p "$BUCKET221/$SID_MISS8"
+write_mini "$BUCKET221/$SID_MISS8/chat_history.jsonl"
+STORE_M8="$WORK/store-ac8"
+mkdir -p "$STORE_M8"
+set +e
+CHK_M8="$(TRANSCRIPT_MIRROR_ROOT="$STORE_M8" "$SYNC" --check --cwd "$PROJ221_ABS" 2>"$WORK/ac8.err")"
+RC_M8=$?
+set -e
+if [ "$RC_M8" -eq 0 ] \
+   && [ ! -e "$STORE_M8/.errors.log" ] \
+   && [ ! -e "$STORE_M8/$SID_MISS8" ] \
+   && printf '%s\n' "$CHK_M8" | grep -q "sid=$SID_MISS8 status=missing"; then
+  pass "M11 AC8 --check missing without errors.log"
+else
+  bad "M11 AC8 rc=$RC_M8 out=${CHK_M8:-<empty>} errors.log=$(ls "$STORE_M8/.errors.log" 2>/dev/null || echo none) err=$(cat "$WORK/ac8.err")"
+fi
+
+# AC10: touch source (freshness 9) → --check in-progress; write no-args no sid dir.
+reset_221
+SID_PROG="tm-221-prog"
+mkdir -p "$BUCKET221/$SID_PROG"
+write_mini "$BUCKET221/$SID_PROG/chat_history.jsonl"
+touch "$BUCKET221/$SID_PROG/chat_history.jsonl"
+STORE_P="$WORK/store-ac10"
+mkdir -p "$STORE_P"
+set +e
+CHK_P="$(TRANSCRIPT_MIRROR_ROOT="$STORE_P" "$SYNC" --check --cwd "$PROJ221_ABS" 2>"$WORK/ac10-chk.err")"
+RC_PCHK=$?
+TRANSCRIPT_MIRROR_ROOT="$STORE_P" "$SYNC" --cwd "$PROJ221_ABS" >/dev/null 2>"$WORK/ac10-write.err"
+RC_PWR=$?
+set -e
+if [ "$RC_PCHK" -eq 0 ] && [ "$RC_PWR" -eq 0 ] \
+   && printf '%s\n' "$CHK_P" | grep -q "sid=$SID_PROG status=in-progress" \
+   && [ ! -e "$STORE_P/$SID_PROG" ]; then
+  pass "M11 AC10 --check in-progress; write skips sid dir"
+else
+  bad "M11 AC10 chk_rc=$RC_PCHK wr_rc=$RC_PWR out=${CHK_P:-<empty>} store=$(ls "$STORE_P" 2>/dev/null) chkerr=$(cat "$WORK/ac10-chk.err") wrerr=$(cat "$WORK/ac10-write.err")"
 fi
 
 # ---------------------------------------------------------------------------

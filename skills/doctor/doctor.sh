@@ -114,7 +114,18 @@ resolve_mroot() {
   fi
 }
 
+# Worktree root for cwd-scoped probes (SPEC-022 M2h --cwd).
+resolve_wtroot() {
+  local _tl
+  if _tl=$(git rev-parse --show-toplevel 2>/dev/null); then
+    WTROOT=$_tl
+  else
+    WTROOT=$(pwd)
+  fi
+}
+
 resolve_mroot
+resolve_wtroot
 MEMDB="$MROOT/.claude/memory/memory.db"
 SETTINGS="$MROOT/.claude/settings.json"
 PLUGIN_DIR_SH="$PLUGIN_ROOT/skills/plugin-dir.sh"
@@ -1238,7 +1249,8 @@ check_deps_jq() {
   _dep_check "deps.jq" "jq" "JSON metrics/council gates degrade or fail-open"
 }
 check_deps_python3() {
-  _dep_check "deps.python3" "python3" "skill-lint, handoff prepass, docs-drift unavailable"
+  _dep_check "deps.python3" "python3" \
+    "skill-lint, handoff prepass, docs-drift unavailable; transcript.mirror_lag SKIP"
 }
 check_deps_gh() {
   _dep_check "deps.gh" "gh" "ci-watch / gh-backed release steps unavailable"
@@ -1360,6 +1372,100 @@ check_worktree_distill_lock() {
   fi
 }
 
+# CDT-221 / SPEC-022 M2h — WARN-never-FAIL. SoT is transcript-sync --check stdout.
+# SKIP python3-absent before walking settings. Never treat --check rc as FAIL.
+check_transcript_mirror_lag() {
+  local id="transcript.mirror_lag" group="transcript"
+  if ! have_cmd python3; then
+    record "$id" "$group" "SKIP" "python3 absent" ""
+    return 0
+  fi
+
+  local opted
+  opted=$(python3 -c '
+import json, os, sys
+needle = "transcript-mirror.sh"
+
+def walk(obj):
+    if isinstance(obj, dict):
+        cmd = obj.get("command")
+        if isinstance(cmd, str) and needle in cmd:
+            return True
+        return any(walk(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(walk(x) for x in obj)
+    return False
+
+for p in sys.argv[1:]:
+    if not p or not os.path.isfile(p):
+        continue
+    try:
+        d = json.load(open(p))
+    except Exception:
+        continue
+    if isinstance(d, dict) and walk(d.get("hooks")):
+        print("yes")
+        raise SystemExit(0)
+print("no")
+' \
+    "$MROOT/.claude/settings.json" \
+    "$MROOT/.claude/settings.local.json" \
+    "$WTROOT/.claude/settings.json" \
+    "$WTROOT/.claude/settings.local.json" 2>/dev/null) || opted="no"
+
+  if [ "$opted" != "yes" ]; then
+    record "$id" "$group" "SKIP" "transcript-mirror not opted-in" ""
+    return 0
+  fi
+
+  local sync_sh="$PLUGIN_ROOT/skills/transcript-mirror/transcript-sync.sh"
+  if [ ! -f "$sync_sh" ]; then
+    record "$id" "$group" "SKIP" "transcript-sync.sh missing" ""
+    return 0
+  fi
+
+  local check_out
+  check_out=$(mktemp "${TMPDIR:-/tmp}/doctor-tmlag.XXXXXX") || {
+    record "$id" "$group" "SKIP" "cannot capture transcript-sync --check" ""
+    return 0
+  }
+  # HOME / TRANSCRIPT_MIRROR_ROOT / GROK_SESSIONS_DIR inherit. Pin plugin root
+  # so --check uses this install when cwd is a consumer/fixture project.
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+    bash "$sync_sh" --check --cwd "$WTROOT" >"$check_out" 2>/dev/null || true
+
+  local line sid st rest lag_list="" n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      sid=*)
+        n=$((n + 1))
+        sid=${line#sid=}
+        sid=${sid%% *}
+        rest=${line#*status=}
+        if [ "$rest" = "$line" ]; then
+          continue
+        fi
+        st=${rest%% *}
+        case "$st" in
+          missing|lag)
+            lag_list="${lag_list:+$lag_list }$sid:$st"
+            ;;
+        esac
+        ;;
+    esac
+  done < "$check_out"
+  rm -f "$check_out"
+
+  if [ -n "$lag_list" ]; then
+    record "$id" "$group" "WARN" \
+      "cwd transcript mirror missing/lag: $lag_list" \
+      "bash skills/transcript-mirror/transcript-sync.sh"
+  else
+    record "$id" "$group" "PASS" \
+      "cwd transcript mirror ok ($n sessions)" ""
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Register all checks
 # ---------------------------------------------------------------------------
@@ -1385,6 +1491,7 @@ register_check "deps.python3" "deps" check_deps_python3
 register_check "deps.gh" "deps" check_deps_gh
 register_check "worktree.locks" "worktree" check_worktree_locks
 register_check "worktree.distill_lock" "worktree" check_worktree_distill_lock
+register_check "transcript.mirror_lag" "transcript" check_transcript_mirror_lag
 
 # ---------------------------------------------------------------------------
 # --only filter validation
@@ -1409,7 +1516,7 @@ if [ -n "$ONLY_FILTER" ]; then
   done
   if [ "$known" -eq 0 ]; then
     echo "doctor: unknown check id or group: $ONLY_FILTER" >&2
-    echo "Known groups: version memory hooks settings deps worktree plugin" >&2
+    echo "Known groups: version memory hooks settings deps worktree plugin transcript" >&2
     echo "Known ids: ${REG_IDS[*]}" >&2
     exit 64
   fi

@@ -1612,6 +1612,303 @@ else
 fi
 
 # =============================================================================
+# T23. transcript.mirror_lag (CDT-221 / SPEC-022 M2h, Test 16)
+# HOME / TRANSCRIPT_MIRROR_ROOT / GROK_SESSIONS_DIR isolated here only.
+# Age sources ≥2 min except T23e (in-progress).
+# =============================================================================
+T23_HOME="$TMP/t23-home"
+T23_STORE="$TMP/t23-store"
+T23_SESS="$TMP/t23-sessions"
+mkdir -p "$T23_HOME" "$T23_STORE" "$T23_SESS"
+T23_SYNC="$PLUGIN_ROOT/skills/transcript-mirror/transcript-sync.sh"
+
+t23_doctor() {
+  HOME="$T23_HOME" TRANSCRIPT_MIRROR_ROOT="$T23_STORE" GROK_SESSIONS_DIR="$T23_SESS" \
+    bash "$DOCTOR" "$@"
+}
+
+t23_age() { touch -d '2 minutes ago' "$1"; }
+
+t23_write_mini() {
+  local dest="$1"
+  mkdir -p "$(dirname "$dest")"
+  cat >"$dest" <<'EOF'
+{"uuid": "tm-u1", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "hello from doctor T23"}]}}
+{"uuid": "tm-a1", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "hi from assistant"}]}}
+EOF
+  t23_age "$dest"
+}
+
+t23_opt_in() {
+  local root="$1"
+  write_full_hooks_settings "$root/.claude/settings.json"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/.claude/hooks/transcript-mirror.sh"
+  chmod +x "$root/.claude/hooks/transcript-mirror.sh"
+  python3 - <<'PY' "$root/.claude/settings.json"
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["hooks"]["Stop"][0]["hooks"].append({
+    "type": "command",
+    "command": 'bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/transcript-mirror.sh"',
+    "timeout": 10,
+})
+json.dump(d, open(p, "w"), indent=2)
+PY
+}
+
+t23_new_proj() {
+  local dir="$1"
+  make_bare_project "$dir"
+  t23_opt_in "$dir"
+}
+
+t23_claude_jsonl() {
+  local proj="$1" sid="$2"
+  local abs enc dest
+  abs=$(cd "$proj" && pwd)
+  enc=$(printf '%s' "$abs" | tr '/' '-')
+  dest="$T23_HOME/.claude/projects/$enc/${sid}.jsonl"
+  t23_write_mini "$dest"
+  printf '%s\n' "$dest"
+}
+
+t23_grok_jsonl() {
+  local proj="$1" sid="$2"
+  local abs enc dest
+  abs=$(cd "$proj" && pwd)
+  enc=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""), end="")' "$abs")
+  dest="$T23_SESS/$enc/$sid/chat_history.jsonl"
+  t23_write_mini "$dest"
+  printf '%s\n' "$dest"
+}
+
+t23_sync_sid() {
+  local proj="$1" sid="$2" src="$3"
+  local abs
+  abs=$(cd "$proj" && pwd)
+  HOME="$T23_HOME" TRANSCRIPT_MIRROR_ROOT="$T23_STORE" GROK_SESSIONS_DIR="$T23_SESS" \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+    bash "$T23_SYNC" --sid "$sid" --transcript "$src" --cwd "$abs" >/dev/null 2>&1 || true
+}
+
+t23_field() {
+  local json="$1" field="$2"
+  printf '%s' "$json" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+c = d["checks"][0] if d.get("checks") else {}
+v = c.get(sys.argv[1])
+print("" if v is None else v)
+' "$field" 2>/dev/null || echo ERR
+}
+
+# T23a — unregistered healthy → SKIP, not WARN (AC3)
+cd "$HEALTHY" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+if [ "$STATUS" = "SKIP" ] && [ "$STATUS" != "WARN" ] && [ "$RC" -ne 64 ]; then
+  pass "T23a unregistered healthy → transcript.mirror_lag SKIP not WARN (CDT-221 AC3)"
+else
+  fail "T23a status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T23b — opted-in + all cwd ok (sync first, age ≥2 min) → PASS, fixit null
+T23_OK="$TMP/t23-ok"
+t23_new_proj "$T23_OK"
+T23_OK_SID="t23-ok"
+T23_OK_SRC=$(t23_claude_jsonl "$T23_OK" "$T23_OK_SID")
+t23_sync_sid "$T23_OK" "$T23_OK_SID" "$T23_OK_SRC"
+t23_age "$T23_OK_SRC"
+cd "$T23_OK" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+FIX=$(t23_field "$OUT" fixit)
+if [ "$STATUS" = "PASS" ] && [ "$FIX" = "" ] && [ "$RC" -eq 0 ]; then
+  pass "T23b opted-in all cwd ok → PASS fixit null (CDT-221 AC3)"
+else
+  fail "T23b status=$STATUS fixit=$FIX rc=$RC out=$OUT"
+fi
+
+# T23c — opted-in + missing, no .errors.log → WARN never FAIL, rc=1, exact fixit
+T23_MISS="$TMP/t23-miss"
+t23_new_proj "$T23_MISS"
+T23_MISS_SID="t23-miss"
+t23_claude_jsonl "$T23_MISS" "$T23_MISS_SID" >/dev/null
+rm -f "$T23_STORE/.errors.log"
+rm -rf "$T23_STORE/$T23_MISS_SID"
+cd "$T23_MISS" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+FIX=$(t23_field "$OUT" fixit)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] && [ "$RC" -eq 1 ] \
+   && [ "$FIX" = "bash skills/transcript-mirror/transcript-sync.sh" ] \
+   && ! printf '%s' "$FIX" | grep -q 'setup team' \
+   && ! printf '%s' "$FIX" | grep -q 'setup orchestration'; then
+  pass "T23c opted-in missing no .errors.log → WARN rc=1 exact fixit (CDT-221 AC3/AC7)"
+else
+  fail "T23c status=$STATUS fixit=$FIX rc=$RC out=$OUT"
+fi
+
+# T23d — opted-in + lag (append after cursor) → WARN
+T23_LAG="$TMP/t23-lag"
+t23_new_proj "$T23_LAG"
+T23_LAG_SID="t23-lag"
+T23_LAG_SRC=$(t23_claude_jsonl "$T23_LAG" "$T23_LAG_SID")
+t23_sync_sid "$T23_LAG" "$T23_LAG_SID" "$T23_LAG_SRC"
+printf '%s\n' '{"uuid": "tm-u2", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "second turn"}]}}' >>"$T23_LAG_SRC"
+t23_age "$T23_LAG_SRC"
+cd "$T23_LAG" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ]; then
+  pass "T23d opted-in lag → WARN never FAIL (CDT-221 AC3)"
+else
+  fail "T23d status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T23e — opted-in + in-progress only (touch source) → PASS not WARN
+T23_PROG="$TMP/t23-prog"
+t23_new_proj "$T23_PROG"
+T23_PROG_SID="t23-prog"
+T23_PROG_SRC=$(t23_claude_jsonl "$T23_PROG" "$T23_PROG_SID")
+touch "$T23_PROG_SRC"
+cd "$T23_PROG" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+if [ "$STATUS" = "PASS" ] && [ "$STATUS" != "WARN" ]; then
+  pass "T23e opted-in in-progress only → PASS not WARN (CDT-221 AC3)"
+else
+  fail "T23e status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T23f — opted-in + other-project store sid dir only → PASS/SKIP not WARN (AC11)
+T23_OTHER="$TMP/t23-other"
+t23_new_proj "$T23_OTHER"
+mkdir -p "$T23_STORE/t23-foreign"
+printf 'foreign\n' > "$T23_STORE/t23-foreign/main.md"
+printf 'tm-u1\t0\n' > "$T23_STORE/t23-foreign/cursor"
+cd "$T23_OTHER" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+if [ "$STATUS" = "PASS" ] || [ "$STATUS" = "SKIP" ]; then
+  if [ "$STATUS" != "WARN" ]; then
+    pass "T23f other-project store sid → PASS/SKIP not WARN (CDT-221 AC11)"
+  else
+    fail "T23f status=$STATUS rc=$RC out=$OUT"
+  fi
+else
+  fail "T23f status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T23g — --json --only transcript.mirror_lag on missing: WARN + store unchanged (AC9)
+T23_AC9A="$TMP/t23-ac9a"
+t23_new_proj "$T23_AC9A"
+T23_AC9A_SID="t23-ac9a"
+t23_claude_jsonl "$T23_AC9A" "$T23_AC9A_SID" >/dev/null
+T23_SNAP1=$(find "$T23_STORE" -type f 2>/dev/null | LC_ALL=C sort)
+cd "$T23_AC9A" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+T23_SNAP2=$(find "$T23_STORE" -type f 2>/dev/null | LC_ALL=C sort)
+STATUS=$(t23_field "$OUT" status)
+ID=$(t23_field "$OUT" id)
+if [ "$T23_SNAP1" = "$T23_SNAP2" ] && [ ! -d "$T23_STORE/$T23_AC9A_SID" ] \
+   && [ "$STATUS" = "WARN" ] && [ "$ID" = "transcript.mirror_lag" ]; then
+  pass "T23g --json --only missing fixture WARNs without creating sid dir (CDT-221 AC9)"
+else
+  fail "T23g status=$STATUS id=$ID rc=$RC store_ok=$([ "$T23_SNAP1" = "$T23_SNAP2" ] && echo y || echo n) out=$OUT"
+fi
+
+# T23h — --fix --only transcript.mirror_lag on missing: store unchanged (AC9)
+T23_AC9B="$TMP/t23-ac9b"
+t23_new_proj "$T23_AC9B"
+T23_AC9B_SID="t23-ac9b"
+t23_claude_jsonl "$T23_AC9B" "$T23_AC9B_SID" >/dev/null
+T23_SNAP3=$(find "$T23_STORE" -type f 2>/dev/null | LC_ALL=C sort)
+cd "$T23_AC9B" || exit 1
+RC=0
+t23_doctor --fix --only transcript.mirror_lag >/dev/null 2>&1 || RC=$?
+T23_SNAP4=$(find "$T23_STORE" -type f 2>/dev/null | LC_ALL=C sort)
+RC2=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC2=$?
+STATUS=$(t23_field "$OUT" status)
+if [ "$T23_SNAP3" = "$T23_SNAP4" ] && [ ! -d "$T23_STORE/$T23_AC9B_SID" ] \
+   && [ "$STATUS" = "WARN" ]; then
+  pass "T23h --fix --only missing fixture does not create sid dir (CDT-221 AC9)"
+else
+  fail "T23h status=$STATUS rc=$RC rc2=$RC2 store_ok=$([ "$T23_SNAP3" = "$T23_SNAP4" ] && echo y || echo n) out=$OUT"
+fi
+
+# T23i — python3 absent (PATH scrub) → SKIP
+T23_NOPY="$TMP/t23-nopy"
+t23_new_proj "$T23_NOPY"
+t23_claude_jsonl "$T23_NOPY" "t23-nopy" >/dev/null
+cd "$T23_NOPY" || exit 1
+RC=0
+OUT=$(PATH="$DEPS_BIN" HOME="$T23_HOME" TRANSCRIPT_MIRROR_ROOT="$T23_STORE" \
+  GROK_SESSIONS_DIR="$T23_SESS" bash "$DOCTOR" --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+if [ "$STATUS" = "SKIP" ]; then
+  pass "T23i python3 absent → SKIP (CDT-221 AC3)"
+else
+  fail "T23i status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T23j — dual-host: Claude missing + Grok ok → WARN
+T23_DUAL="$TMP/t23-dual"
+t23_new_proj "$T23_DUAL"
+T23_DUAL_CL="t23-dual-claude"
+T23_DUAL_GK="t23-dual-grok"
+t23_claude_jsonl "$T23_DUAL" "$T23_DUAL_CL" >/dev/null
+T23_DUAL_GSRC=$(t23_grok_jsonl "$T23_DUAL" "$T23_DUAL_GK")
+t23_sync_sid "$T23_DUAL" "$T23_DUAL_GK" "$T23_DUAL_GSRC"
+t23_age "$T23_DUAL_GSRC"
+cd "$T23_DUAL" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript.mirror_lag 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ]; then
+  pass "T23j dual-host Claude missing + Grok ok → WARN (CDT-221 AC3)"
+else
+  fail "T23j status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T23k — second Stop command transcript-mirror.sh → hooks.hygiene not WARN/FAIL (AC4)
+T23_HYG="$TMP/t23-hyg"
+t23_new_proj "$T23_HYG"
+cd "$T23_HYG" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only hooks.hygiene 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+DETAIL=$(t23_field "$OUT" detail)
+if [ "$STATUS" = "PASS" ] && [ "$STATUS" != "WARN" ] && [ "$STATUS" != "FAIL" ] \
+   && ! printf '%s' "$DETAIL" | grep -q 'transcript-mirror'; then
+  pass "T23k second Stop transcript-mirror.sh → hygiene PASS (CDT-221 AC4)"
+else
+  fail "T23k status=$STATUS detail=$DETAIL rc=$RC out=$OUT"
+fi
+
+# T23l — --only transcript is a known group (not exit 64)
+cd "$HEALTHY" || exit 1
+RC=0
+OUT=$(t23_doctor --json --only transcript 2>/dev/null) || RC=$?
+STATUS=$(t23_field "$OUT" status)
+GROUP=$(t23_field "$OUT" group)
+ID=$(t23_field "$OUT" id)
+if [ "$RC" -ne 64 ] && [ "$GROUP" = "transcript" ] && [ "$ID" = "transcript.mirror_lag" ]; then
+  pass "T23l --only transcript is a known group (CDT-221 AC3)"
+else
+  fail "T23l rc=$RC group=$GROUP id=$ID status=$STATUS out=$OUT"
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

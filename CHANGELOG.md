@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.11.1
+- **Transcript-sync mandatory + doctor lag WARN (CDT-221)** — opted-in projects: `transcript-sync` is the acceptance-tested backstop (cron or equivalent), not optional. No-args write enumerates **all** cwd-bucket sessions (Claude `*.jsonl` + Grok `chat_history.jsonl`); `--check` is cwd-bucket only. `/doctor` `transcript.mirror_lag` maps `--check` stdout (WARN, never FAIL; skip when not opted-in). Stop stays the fast path; SessionEnd opportunistic. No new Surface; `EXPECTED_HOOK_*` unchanged.
+
 ### v1.11.0
 - **Transcript mirror (SPEC-036 / CDT-220)** — opt-in Stop + SessionEnd recorder writes the meaning channel to `~/.claude/transcript/<sid>/main.md` with lossless channel sidecars (`thinking` / `tool_result` / `injection`). Hook path is bash+jq (fail-open, uuid/`h:` cursor). `transcript-sync` is the cron/on-demand backstop (`hosts.py` locate). Not a slash command and not an STM packet / compact seed. Default `/setup orchestration` Stop array is unchanged.
 

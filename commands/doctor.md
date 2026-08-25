@@ -24,11 +24,12 @@ FAIL.
 | _(none)_ | Full battery, human table |
 | `--json` | Single JSON document on stdout |
 | `--fix` | Apply allowlisted repairs only (see below) |
-| `--only <id\|group>` | Run a subset of checks |
+| `--only <id\|group>` | Run a subset of checks (groups include `transcript`; id `transcript.mirror_lag`) |
 | `--gate=<orchestration\|team>` | Gate-mode self-remediation (M6c / CDT-67) |
 | `-h` / `--help` | Usage |
 
-Flags may combine: `/doctor --json --only memory`.
+Flags may combine: `/doctor --json --only memory`. Focused transcript lag:
+`/doctor --only transcript` or `/doctor --only transcript.mirror_lag`.
 
 ### `--fix` allowlist
 
@@ -93,5 +94,6 @@ Print the script's stdout as-is (human table or JSON). Do not reformat.
   mutate `memory.db` (except `--fix` distilling_lock clear), or call network.
 - **Worktree-aware** — resolves `$MROOT` via `git rev-parse --git-common-dir`.
 - Check-id table and severity rules: `skills/doctor/SKILL.md`.
+- `transcript.mirror_lag` (group `transcript`) is WARN-never-FAIL; `--fix` does not run transcript-sync.
 - Instruction-stack hygiene (CLAUDE.md, AGENTS.md, directives) is `/audit`, not this battery.
 - Future `/release` preflight adoption is deferred (SPEC-010 revision).

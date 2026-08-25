@@ -84,7 +84,7 @@ An unregistered invocation creates no new store dirs.
 ## SessionEnd
 
 Register `hooks.SessionEnd[]` as well as Stop.
-SessionEnd flushes the mirror at session end.
+SessionEnd is an opportunistic flush at session end.
 It ignores Stop `reason` filters.
 If a host has no SessionEnd event, the settings entry stays inert.
 
@@ -103,8 +103,14 @@ Run `transcript-sync` after sessions that skip Stop.
 
 ## Catch-up (`transcript-sync`)
 
-`transcript-sync` is the on-demand and cron backstop.
-It always exits 0.
+If you opt in, `transcript-sync` is **mandatory**.
+It is not optional.
+Use cron or an equivalent periodic or on-demand job.
+Stop is the fast path.
+SessionEnd is an opportunistic flush.
+Do not inspect crontab.
+
+`transcript-sync` always exits 0.
 
 ```
 bash skills/transcript-mirror/transcript-sync.sh
@@ -115,12 +121,12 @@ bash skills/transcript-mirror/transcript-sync.sh --check
 
 - No args: refresh existing sid dirs. If this project registered the recorder, also create mirrors for cwd sessions that never fired Stop.
 - `--sid` and/or `--transcript`: create or update that mirror.
-- `--check`: print a lag report. Exit 0. Does not fail `/doctor`.
+- `--check`: print a lag report. Exit 0. `/doctor` maps this stdout to `transcript.mirror_lag` (WARN, never FAIL).
 - In-progress sources are skipped.
 
 ### Cron
 
-Arm one cron job per opted-in project.
+Arm one cron job or equivalent per opted-in project.
 The recorder must be registered in that project.
 
 ```cron

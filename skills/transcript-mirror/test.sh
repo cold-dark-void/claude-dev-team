@@ -7,7 +7,8 @@
 # Covers: AC3 unregistered no dirs; AC4 subagent no-op; AC5 updates.jsonl
 # sibling rewrite; AC6 idempotent + rewind; AC8 collapse + thinking header +
 # empty-thinking placeholder; AC9 parent: + dedup; AC10 never-fired create;
-# AC11 --check exit 0; Grok h: --check status=ok after sync.
+# AC11 --check exit 0; Grok h: --check status=ok after sync;
+# AC2 SessionEnd flushes payload sid only (CDT-221).
 # Tests MUST NOT touch operator ~/.claude/transcript/.
 
 set -u
@@ -451,6 +452,25 @@ if grep -q 'hello from claude fixture' "$STORE/tm-se/main.md" 2>/dev/null; then
   pass "M5 SessionEnd reason=other flushes"
 else
   fail "M5 SessionEnd did not flush"
+fi
+
+# AC2 / M5 — SessionEnd flushes payload sid only (CDT-221)
+copy_aged "$FIX/never-mirrored.jsonl" "$WORK/src/tm-se-a.jsonl"
+copy_aged "$FIX/claude-uuid.jsonl" "$WORK/src/tm-se-b.jsonl"
+SEA=$(jq -nc --arg p "$WORK/src/tm-se-a.jsonl" \
+  '{hook_event_name:"SessionEnd",session_id:"tm-se-a",transcript_path:$p,reason:"other"}')
+RC=$(pipe_rec "$SEA")
+assert_rc0 "$RC" "AC2 SessionEnd payload sid exit 0"
+assert_no_block "AC2 SessionEnd"
+if [ -f "$STORE/tm-se-a/main.md" ]; then
+  pass "AC2 SessionEnd created tm-se-a/main.md"
+else
+  fail "AC2 SessionEnd did not create tm-se-a/main.md"
+fi
+if [ -e "$STORE/tm-se-b" ]; then
+  fail "AC2 SessionEnd created tm-se-b (payload sid only)"
+else
+  pass "AC2 SessionEnd did not create tm-se-b"
 fi
 
 # Missing Grok reconstructed file: silent no-op

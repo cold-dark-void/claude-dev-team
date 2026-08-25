@@ -9,8 +9,9 @@ description: >
 # doctor
 
 Deterministic, offline install/config health battery. Diagnoses version pair,
-memory stack, hooks, settings, optional deps, worktree locks, and plugin
-resolution. Never bootstraps (that is `/setup team` / `/setup orchestration`).
+memory stack, hooks, settings, optional deps, worktree locks, plugin
+resolution, and opted-in transcript mirror lag. Never bootstraps (that is
+`/setup team` / `/setup orchestration`).
 
 Governing spec: `specs/core/SPEC-022-doctor-install-diagnostics.md`.
 
@@ -107,14 +108,15 @@ non-bootstrap — gating is the caller's job.
 | `worktree.locks` | worktree |
 | `worktree.distill_lock` | worktree |
 | `plugin.resolve` | plugin |
+| `transcript.mirror_lag` | transcript |
 
 ## Severity
 
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59) |
-| **SKIP** | Probe tool for that check absent; dev-only check in consumer |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL) |
+| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing |
 | **PASS** | Invariant holds |
 
 Uninitialized memory is **WARN not FAIL** — fix-it is `/setup team`.
@@ -138,6 +140,7 @@ MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, or create memory/h
 | WT lock TTL | `WT_LOCK_TTL_SECONDS` + `worktree-lib.sh` |
 | Plugin resolve | `skills/plugin-dir.sh` subprocess |
 | schema_version expected | `skills/memory-store/schema.sql` seed |
+| Transcript lag | `transcript-sync --check` stdout (SPEC-036 M11) |
 
 ## Naming
 
@@ -147,6 +150,7 @@ health only and does not shadow the harness command.
 
 ## Related
 
-- SPEC-022, SPEC-002, SPEC-005, SPEC-016
+- SPEC-022, SPEC-002, SPEC-005, SPEC-016, SPEC-036
 - `/setup team`, `/setup orchestration`, `/release`, `/memory distill --force`
+- `bash skills/transcript-mirror/transcript-sync.sh` (opted-in `transcript.mirror_lag` fix-it)
 - `/audit` — instruction-stack inventory (not install health)

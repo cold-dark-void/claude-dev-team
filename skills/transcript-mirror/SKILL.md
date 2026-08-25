@@ -75,8 +75,15 @@ The recorder always exits 0. It does not emit `decision: block`.
 
 ## Catch-up (`transcript-sync`)
 
-Use `transcript-sync` after a missed Stop, or from cron. It locates sessions,
-skips in-progress sources, and invokes the recorder.
+If this project is opted-in, `transcript-sync` is **mandatory**.
+It is not optional.
+Use cron or an equivalent periodic or on-demand job.
+Stop is the fast path.
+SessionEnd is an opportunistic flush.
+Do not inspect crontab.
+
+`transcript-sync` locates sessions, skips in-progress sources, and invokes
+the recorder.
 
 ```
 bash skills/transcript-mirror/transcript-sync.sh [--sid SID] [--transcript FILE] [--check] [--cwd DIR]
@@ -90,7 +97,9 @@ If this project registered the recorder (any `hooks.*.command` contains
 mirrored.
 
 `--check` prints a lag report (cursor vs source growth / missing mirror).
-It always exits 0. It does not fail `/doctor`.
+It always exits 0.
+`/doctor` maps `--check` stdout to `transcript.mirror_lag`.
+That check WARNs. It never FAILs.
 
 In-progress sources (modified within 60s) are skipped.
 
@@ -98,7 +107,7 @@ The CLI always exits 0.
 
 ### Cron
 
-Run one invocation per opted-in project (recorder registered):
+For each opted-in project, arm one cron job or equivalent:
 
 ```
 cd <project> && bash skills/transcript-mirror/transcript-sync.sh

@@ -41,8 +41,10 @@ PreCompact rescue, or M8 cache.
   `/setup orchestration` greenfield `hooks.Stop` MUST remain `stop-review.sh`
   only. `plugin.json` MUST NOT auto-register Stop or SessionEnd. Doctor
   `EXPECTED_HOOK_*` / `hooks.events` MUST NOT require the recorder or
-  SessionEnd (SPEC-022 unchanged). Unregistered (no hook stdin, no
-  `--sid`/`--transcript`) MUST create no new store dirs.
+  SessionEnd (SPEC-022 `transcript.mirror_lag` is additive; hook SoT
+  unchanged). `hooks.hygiene` MUST stay silent for `transcript-mirror.sh`
+  (user-owned; basename ∉ `EXPECTED_HOOK_SCRIPTS`). Unregistered (no hook
+  stdin, no `--sid`/`--transcript`) MUST create no new store dirs.
 - **M4 — Fail-open.** The recorder MUST always exit 0 and MUST NOT emit
   `decision: block`. Failures MUST append one line to `<store-root>/.errors.log`
   (root, not sid dir). Cursor MUST NOT advance if `main.md` append failed.
@@ -108,23 +110,55 @@ PreCompact rescue, or M8 cache.
   (CLI) + Python helper. Python is allowed **only** here. Locate MUST call
   `skills/transcript-parse/hosts.py` locate only (no second parse engine).
   Freshness: `freshness.sh check` — in-progress (exit 9) MUST skip that
-  session. `--sid` and/or `--transcript` MUST create-or-update that mirror.
-  No-args: refresh every existing sid dir under the store root; **and** if the
-  cwd project has the recorder registered (any `hooks.*.command` containing
-  `transcript-mirror.sh` in `.claude/settings.json` or
-  `.claude/settings.local.json`), locate cwd sessions via `hosts.py` including
-  never-mirrored ones and create-or-update (CDT-221). Cron: document a per
-  opted-in-project invocation (recorder registered). Fail-open: exit 0.
-- **M11 — `transcript-sync --check`.** MUST print a lag report (cursor vs
-  source growth / missing mirror) and exit 0. MUST NOT FAIL `/doctor`. MUST
-  NOT add a doctor check (OQ1 Option A; doctor lag is CDT-221).
+  session (MUST NOT write that sid). `--sid` and/or `--transcript` MUST
+  create-or-update that sid's Transcript mirror (correct = sid dir with
+  Meaning-channel `main.md` + Channel sidecar dirs `thinking/` /
+  `tool_result/` / `injection/` + `cursor` whose identity equals the last
+  source record; sidecar *files* only when the source has that kind).
+  **No-args write target set:** refresh every existing sid dir under the
+  store root; **and** if the cwd project is opted-in (any
+  `hooks.*.command` contains `transcript-mirror.sh` in
+  `.claude/settings.json` or `.claude/settings.local.json`),
+  create-or-update **ALL** cwd-bucket sessions — not newest-only.
+  Cwd-bucket enumeration: list `*.jsonl` in the Claude project dir for
+  `--cwd` (default: pwd) **and** `*/chat_history.jsonl` in the Grok cwd
+  bucket, then `hosts.py` locate **by sid**. MUST NOT call
+  `hosts.locate(host, None, cwd)` (newest-only). Unregistered no-args MUST
+  NOT create new sid dirs. Fail-open: exit 0 always. For opted-in
+  projects, periodic `transcript-sync` (cron or equivalent) is **mandatory**
+  in docs — not optional. Stop is the fast path. SessionEnd is an
+  opportunistic flush. Docs MUST NOT inspect crontab.
+- **M11 — `transcript-sync --check` and doctor lag (CDT-221).** `--check`
+  MUST print one `sid=<sid> status=<status> source=<path>` line per target
+  and MUST exit 0 on `ok`, `lag`, `missing`, and `in-progress`. Status
+  vocabulary is exactly those four tokens. `--check` without
+  `--sid`/`--transcript` MUST target **ALL** sessions locatable in the
+  `--cwd` Claude project dir and Grok cwd bucket (same enumerate + locate
+  by sid as M10). MUST NOT report store sid dirs whose source is outside
+  those buckets. `freshness.sh check` exit 9 → `status=in-progress`.
+  No sid dir → `status=missing` even when `<store-root>/.errors.log` has
+  no line for that sid (hook write miss is still missing; lag MUST NOT
+  require an error log). `/doctor` MUST register check id
+  `transcript.mirror_lag` (group `transcript`) and MUST call
+  `transcript-sync --check` only (default `/doctor` and `--json`; MUST NOT
+  invoke transcript-sync without `--check`). Mapping: any cwd target
+  `missing` or `lag` → WARN; all cwd targets `ok` or `in-progress` (or
+  zero targets) → PASS; not opted-in → SKIP; `python3` or transcript-sync
+  helper absent → SKIP. MUST NOT FAIL (SPEC-022 M3). MUST NOT treat
+  `--check` exit code as FAIL. `--fix` MUST NOT add transcript-sync.
+  Fix-it MUST be one copy-pasteable transcript-sync invocation and MUST
+  NOT be `/setup team` or `/setup orchestration`. Doctor MUST NOT invent a
+  second lag heuristic — stdout `sid=… status=…` is the SoT.
 - **M12 — Freeze.** MUST NOT change `/handoff` CLI, PreCompact templates /
   `precompact-capture.sh`, or M8 cache files.
 - **M13 — Tests and docs.** `skills/transcript-mirror/test.sh` MUST use
   `$TMPDIR` / `TRANSCRIPT_MIRROR_ROOT` fixtures, cover dual-host, and cover
   M1–M11 (including never-fired Stop + registered + existing transcript →
-  sync creates a correct mirror). Skill YAML required. Recorder MUST ship in
-  the plugin package (`skills/transcript-mirror/transcript-mirror.sh`), not
+  sync creates a correct mirror; two cwd-bucket sessions where the older
+  was never mirrored → no-args creates the older sid; dual-host Claude
+  `*.jsonl` + Grok `chat_history.jsonl`). Skill YAML required. Recorder
+  MUST ship in the plugin package
+  (`skills/transcript-mirror/transcript-mirror.sh`), not
   `tools/transcript-mirror-poc.sh`.
 
 ## Test
@@ -156,21 +190,42 @@ PreCompact rescue, or M8 cache.
       a correct mirror; `--check` exits 0 (M10, M11)
 - [ ] No-args sync with a registered settings fixture locates a
       never-mirrored cwd session (M10)
+- [ ] Two cwd-bucket sessions (older never mirrored, newer already has a
+      sid dir): no-args MUST create the older sid; newest-only locate
+      MUST fail this test (M10 AC1)
+- [ ] Dual-host: Claude `*.jsonl` in the project dir AND Grok
+      `chat_history.jsonl` in the cwd bucket; no-args creates both sids
+      when opted-in (M10 AC13)
+- [ ] `--check` without `--sid` lists ALL cwd-bucket sessions; MUST NOT
+      list a store sid whose source is outside those buckets (M11 AC11)
+- [ ] No sid dir and no `.errors.log` line → `--check status=missing`
+      (M11 AC8)
+- [ ] `freshness.sh check` exit 9 → `--check status=in-progress`; sync
+      MUST NOT write that sid; doctor MUST NOT WARN (M10, M11 AC10)
+- [ ] SessionEnd stdin for sid S with no prior Stop / no sid dir flushes
+      S immediately (ignore `reason`), exit 0, no `decision: block`,
+      that sid only (M5 AC2)
+- [ ] Unregistered no-args MUST NOT create new sid dirs (M10)
 - [ ] `git grep` in this change does not modify `commands/handoff.md`,
       `skills/handoff/`, `precompact-capture.sh`, init-orch `HOOKS=`, or
       doctor `EXPECTED_HOOK_` (M3, M12)
 
 ## Validation
 
-- [ ] Spec reviewed against CDT-220 ACs (OQ1 Option A locked)
+- [x] Spec reviewed against CDT-220 ACs (OQ1 Option A locked)
+- [x] Spec amended against CDT-221 ACs (doctor lag in; all cwd-bucket
+      sessions; `--check` SoT)
 - [ ] `bash skills/transcript-mirror/test.sh` green
-- [ ] docs-drift + skill-lint clean on new files
+- [ ] `bash skills/transcript-mirror/transcript-sync-test.sh` green
+- [ ] `bash skills/doctor/test.sh` green (`transcript.mirror_lag`)
+- [ ] docs-drift + skill-lint clean on touched files
 - [ ] Status promoted to ACTIVE after land
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-25 | CDT-221: M10 no-args = ALL cwd-bucket sessions (not newest-only); M11 doctor `transcript.mirror_lag` WARN maps `--check` stdout; OQ1 Option A in; sandbox-write OQ closed as not proven (AC5+AC8) |
 | 2026-08-25 | Initial DRAFT — CDT-220 transcript mirror v1 (Option B) |
 
 **Covers**: `skills/transcript-mirror/SKILL.md`,
@@ -188,6 +243,9 @@ PreCompact rescue, or M8 cache.
   `transcript-sync` (hook still exits 0).
 - SHOULD document the opt-in settings snippet with `stop-review.sh` as the
   first Stop command and the recorder as the second.
+- SHOULD document `transcript-sync` (cron or equivalent periodic/on-demand)
+  as mandatory for opted-in projects. Stop is the fast path. SessionEnd
+  is opportunistic. Do not inspect crontab.
 
 ## MUST NOT
 
@@ -200,16 +258,25 @@ PreCompact rescue, or M8 cache.
 - MUST NOT document `TRANSCRIPT_MIRROR_ROOT` in user-facing docs.
 - MUST NOT re-implement `hosts.py` locate inside the Python backstop.
 - MUST NOT call Python from the Stop/SessionEnd recorder.
+- MUST NOT call `hosts.locate(host, None, cwd)` for no-args / `--check`
+  cwd targeting (newest-only).
+- MUST NOT treat `transcript-sync --check` exit code as a doctor FAIL.
+- MUST NOT run transcript-sync without `--check` from `/doctor`.
+- MUST NOT add transcript-sync to doctor `--fix`.
+- MUST NOT remove or replace the Stop recorder (timeout 10 unchanged).
+- MUST NOT add `commands/*.md` (not a new Surface).
 
 ## Open Questions
 
 - [x] OQ1 — doctor lag WARN vs `transcript-sync --check` only → **Option A**
-      (`--check` only). Doctor lag is CDT-221.
+      (`--check` only). Implemented CDT-221: `/doctor` maps `--check`
+      stdout; WARN never FAIL.
 - [ ] SessionEnd payload on Grok is unverified; treat missing event as
       graceful absence (M5).
-- [ ] Whether Stop/SessionEnd hooks can write `$HOME/.claude/transcript/`
-      under a sandboxed hook env is unverified; M4 fail-open covers mkdir
-      failure (CDT-221).
+- [x] Whether Stop/SessionEnd hooks can write `$HOME/.claude/transcript/`
+      under a sandboxed hook env is **not proven here**. AC5 fail-open +
+      AC8 (missing without an `.errors.log` line still WARNs) cover the
+      symptom.
 
 ## Cross-references
 
@@ -220,5 +287,6 @@ PreCompact rescue, or M8 cache.
 - **SPEC-016** — store is global session-keyed, not `$MROOT` / worktree
 - **SPEC-018** — STM packet / compact seed / PreCompact / M8 frozen
 - **SPEC-021** — skill-bash lint on `SKILL.md` fences; PDH stanza if any
-- **SPEC-022** — doctor unchanged (CDT-221)
+- **SPEC-022** — `transcript.mirror_lag` (group `transcript`); WARN never
+  FAIL; `--check` SoT; `EXPECTED_HOOK_*` frozen
 - **SPEC-010** — docs-drift `docs-hub` for `docs/commands/transcript-mirror.md`

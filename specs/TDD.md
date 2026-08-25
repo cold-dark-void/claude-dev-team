@@ -25,7 +25,7 @@
 | SPEC-019 | Local-Agent Offload via OpenCode | DEPRECATED | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
 | SPEC-020 | Loop-Prompt Architect (/craft-loop) | ACTIVE | commands/craft-loop.md, skills/craft-loop/SKILL.md, program-template.md, examples/ |
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
-| SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh; M6c `--gate=` self-remediation (CDT-67) |
+| SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh; M6c `--gate=` self-remediation (CDT-67); M2h `transcript.mirror_lag` (CDT-221) |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 | SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory.md (`/memory export`), commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
 | SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse); M13 context-discipline seed Tests 14–20 (CDT-127 — build-seed/validate-seed bite-tests) |
@@ -38,11 +38,12 @@
 | SPEC-032 | CI Linter Parity Gate | ACTIVE | .github/workflows/smoke.yml (linter jobs only), skills/skill-lint/SKILL.md (CI-caller note only), skills/docs-drift/SKILL.md (CI-caller note only), skills/release/SKILL.md (referenced, unchanged) |
 | SPEC-034 | Bug-Hunt Workflow | DRAFT | `commands/bug-hunt.md`, `skills/bug-hunt/*` (stages 1–2 — CDT-136; stage-3 materialize — CDT-138 M38–M41; stage-4 phased handoff — CDT-139 M42–M48; Status DRAFT) |
 | SPEC-035 | Context Audit (`/audit`) | DRAFT | `commands/audit.md`, `skills/audit/*`, `docs/commands/audit.md` (CDT-200) |
-| SPEC-036 | Transcript Mirror | DRAFT | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220) |
+| SPEC-036 | Transcript Mirror | DRAFT | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220); M10 all cwd-bucket sessions + M11 doctor lag WARN (CDT-221) |
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-25 | CDT-221: SPEC-036 M10/M11 + SPEC-022 M2h — transcript-sync mandatory backstop; doctor `transcript.mirror_lag` WARN (not a new Surface) |
 | 2026-08-25 | CDT-220: SPEC-036 DRAFT — transcript mirror v1 (recorder + transcript-sync; not a slash Surface) |
 | 2026-08-21 | CDT-204: SPEC-018 M19 detached orchestrator — `detached-stub-test.sh` + `detached-packet-test.sh` (Test 39); Test 24 retarget to orchestrator-spawn `model:` |
 | 2026-08-21 | CDT-203: SPEC-018 M3e `--miner-model` + host-neutral `fast|balanced|max` — `spawn-model-ac-test.sh` (Test 24), `light-gates-test.sh` parse (Test 31) |
