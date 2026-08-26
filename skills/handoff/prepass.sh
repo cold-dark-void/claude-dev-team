@@ -43,6 +43,9 @@
 #                  records AFTER the last match of that uuid only. Missing
 #                  leaf → warn + full spine. Empty delta → mode=direct,
 #                  empty spine, delta_msgs=0. plan.leaf_uuid stays tip.
+#   (e3) M3f     — if transcript-sync --check --sid is status=ok (not --full,
+#                  not since-leaf applied, not fork, not empty strip): skip
+#                  PASS 2 render; spine = stripped main.md. Else JSONL identity.
 #   (f) SIZE     — M3: spine_chars / CHARS_PER_TOKEN <= HANDOFF_SPINE_TOKENS
 #                  → mode="direct"; else mode="chunked", split at message
 #                  boundaries into chunks each within the token budget.
@@ -1093,6 +1096,30 @@ fi
 # the env + paths in; python writes plan.json and chunk/spine files itself, and
 # prints a one-line human summary to stderr.
 # Default 120000 stays; lowering is an operator opt-in (see docs/commands/handoff.md).
+#
+# M3f (CDT-216): resolve transcript-sync via plugin-dir. Do not --check in bash.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+if [ -z "${PDH:-}" ] || [ ! -f "$PDH/skills/plugin-dir.sh" ]; then
+  if [ -f "$SCRIPT_DIR/../plugin-dir.sh" ]; then
+    PDH=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+  fi
+fi
+P=""
+if [ -n "${PDH:-}" ] && [ -f "$PDH/skills/plugin-dir.sh" ]; then
+  P="$PDH/skills/plugin-dir.sh"
+fi
+SYNC=""
+if [ -n "$P" ]; then
+  SYNC=$(bash "$P" file skills/transcript-mirror/transcript-sync.sh 2>/dev/null) || SYNC=""
+fi
+[ -n "$SYNC" ] && [ -f "$SYNC" ] || SYNC=""
+export PREPASS_TRANSCRIPT_SYNC="$SYNC"
+export PREPASS_HANDOFF_SID="$UUID"
+if [ "${HANDOFF_FULL:-}" = "1" ]; then
+  export PREPASS_HANDOFF_FULL=1
+fi
+
 HANDOFF_SPINE_TOKENS="${HANDOFF_SPINE_TOKENS:-120000}" \
 HANDOFF_CHARS_PER_TOKEN="${HANDOFF_CHARS_PER_TOKEN:-4}" \
 PREPASS_UUID="$UUID" \
@@ -1103,10 +1130,14 @@ PREPASS_ASSEMBLE="$ASSEMBLE" \
 PREPASS_PARSE_DIR="$PARSE_DIR" \
 PREPASS_SCRIPT_DIR="$SCRIPT_DIR" \
 PREPASS_SINCE_LEAF="$SINCE_LEAF" \
+PREPASS_TRANSCRIPT_SYNC="${PREPASS_TRANSCRIPT_SYNC:-}" \
+PREPASS_HANDOFF_SID="${PREPASS_HANDOFF_SID:-$UUID}" \
+PREPASS_HANDOFF_FULL="${PREPASS_HANDOFF_FULL:-}" \
 python3 - <<'PYEOF'
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -1332,6 +1363,115 @@ if SINCE_LEAF:
         since_leaf_applied = True
 
 # ---------------------------------------------------------------------------
+# M3f — optional Transcript-mirror consume (CDT-216). After assemble + leaf +
+# since-leaf cut, before PASS 2. Hit → stripped main.md; skip M2 render.
+# Identity (any miss) → existing JSONL render. leaf_uuid stays JSONL tip.
+# ---------------------------------------------------------------------------
+def strip_mirror_main(text):
+    """Drop `# transcript mirror` title and `> @` sidecar/nest refs."""
+    kept = []
+    for line in text.splitlines(keepends=True):
+        if line.endswith("\r\n"):
+            raw = line[:-2]
+        elif line.endswith("\n") or line.endswith("\r"):
+            raw = line[:-1]
+        else:
+            raw = line
+        if re.match(r"^\s*#\s*transcript mirror", raw):
+            continue
+        if re.match(r"^>\s*@", raw):
+            continue
+        kept.append(line)
+    return "".join(kept)
+
+
+def _mirror_store_root():
+    env = os.environ.get("TRANSCRIPT_MIRROR_ROOT")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    return os.path.join(os.path.expanduser("~"), ".claude", "transcript")
+
+
+def _mirror_fork_force_jsonl():
+    """OQ-F: forkedFrom.sessionId / meta ^parent: / canonical stem ≠ sid.
+
+    discover-warm adapt_grok writes mktemp handoff-grok-adapt.XXXXXX.jsonl
+    (frozen). That stem is not a fork — skip the inequality so Grok warm
+    can still hit M3f. other-stem.jsonl (T1.6) still forces JSONL.
+    """
+    for rec in records:
+        ff = rec["obj"].get("forkedFrom")
+        if isinstance(ff, dict):
+            sid = ff.get("sessionId")
+            if isinstance(sid, str) and sid.strip():
+                return True
+    stem = os.path.splitext(os.path.basename(CANONICAL))[0]
+    if stem != UUID and not stem.startswith("handoff-grok-adapt."):
+        return True
+    meta_path = os.path.join(_mirror_store_root(), UUID, "meta")
+    try:
+        with io.open(meta_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                if re.match(r"^parent:", line):
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def _mirror_check_ok(sync_path, sid):
+    """transcript-sync --check --sid only. True iff a line is sid=… status=ok."""
+    if not sync_path or not os.path.isfile(sync_path):
+        return False
+    try:
+        proc_chk = subprocess.run(
+            ["bash", sync_path, "--check", "--sid", sid],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (OSError, ValueError):
+        return False
+    for line in (proc_chk.stdout or "").splitlines():
+        got_sid = None
+        got_status = None
+        for tok in line.split():
+            if tok.startswith("sid="):
+                got_sid = tok[4:]
+            elif tok.startswith("status="):
+                got_status = tok[7:]
+        if got_sid == sid and got_status == "ok":
+            return True
+    return False
+
+
+spine_origin = None
+mirror_hit_text = None
+_full = (os.environ.get("PREPASS_HANDOFF_FULL") or "").strip()
+_sync = (os.environ.get("PREPASS_TRANSCRIPT_SYNC") or "").strip()
+_handoff_sid = (os.environ.get("PREPASS_HANDOFF_SID") or UUID).strip() or UUID
+if _full or since_leaf_applied:
+    pass
+elif not _sync or not os.path.isfile(_sync):
+    pass
+elif _mirror_fork_force_jsonl():
+    pass
+elif not _mirror_check_ok(_sync, _handoff_sid):
+    pass
+else:
+    main_md = os.path.join(_mirror_store_root(), _handoff_sid, "main.md")
+    try:
+        with io.open(main_md, "r", encoding="utf-8") as fh:
+            raw_main = fh.read()
+    except OSError:
+        raw_main = None
+    if raw_main is not None:
+        stripped_main = strip_mirror_main(raw_main)
+        if stripped_main.strip():
+            mirror_hit_text = stripped_main
+            spine_origin = "mirror"
+
+# ---------------------------------------------------------------------------
 # PASS 2: render each surviving message to a compact spine record. KEEP
 # thinking (msg_text). Dedup Reads: a Read of path P that is NOT the last read
 # of P is replaced by a 1-line superseded pointer; the last read of P (and all
@@ -1340,6 +1480,7 @@ if SINCE_LEAF:
 # withheld msg_text) → condensed multi-line reconstruction (CDV-205 / M2).
 # Defensive no-op in real data where isSidechain is never True.
 # When --since-leaf cut applied, only spine_records (post-leaf) are rendered.
+# M3f hit: skip this render; spine_text already from stripped main.md.
 # ---------------------------------------------------------------------------
 spine_parts = []
 deduped_reads = 0
@@ -1410,58 +1551,64 @@ def flush_sidechain(end_L):
         spine_parts.append(block)
     sidechain_buf.clear()
 
-for rec in spine_records:
-    obj = rec["obj"]
-    Ln = rec["L"]
-    side = is_sidechain(obj)
-    if side:
-        if not in_sidechain:
-            in_sidechain = True
-            sidechain_start_L = Ln
-        # Withhold full render; buffer text only (no tool payloads).
+if mirror_hit_text is not None:
+    spine_text = (
+        mirror_hit_text if mirror_hit_text.endswith("\n") else mirror_hit_text + "\n"
+    )
+    spine_parts = [spine_text]
+else:
+    for rec in spine_records:
+        obj = rec["obj"]
+        Ln = rec["L"]
+        side = is_sidechain(obj)
+        if side:
+            if not in_sidechain:
+                in_sidechain = True
+                sidechain_start_L = Ln
+            # Withhold full render; buffer text only (no tool payloads).
+            msg = obj.get("message")
+            content = msg.get("content") if isinstance(msg, dict) else None
+            text = msg_text(content) if content is not None else ""
+            sidechain_buf.append({"role": rec["role"], "text": text or ""})
+            continue
+        else:
+            if in_sidechain:
+                in_sidechain = False
+                flush_sidechain(Ln - 1)
+            # fall through to render this (non-sidechain) message
+
+        header = f"[L{Ln}] {rec['role']} {rec['ts']}".rstrip()
+        body_lines = []
+
         msg = obj.get("message")
         content = msg.get("content") if isinstance(msg, dict) else None
         text = msg_text(content) if content is not None else ""
-        sidechain_buf.append({"role": rec["role"], "text": text or ""})
-        continue
-    else:
-        if in_sidechain:
-            in_sidechain = False
-            flush_sidechain(Ln - 1)
-        # fall through to render this (non-sidechain) message
+        if text:
+            body_lines.append(text)
 
-    header = f"[L{Ln}] {rec['role']} {rec['ts']}".rstrip()
-    body_lines = []
+        for name, inp in tool_uses(obj):
+            if name == "Read":
+                fp = edit_file_path(inp)
+                if fp and last_read_L.get(fp) != Ln:
+                    # Superseded earlier read of this path -> 1-line pointer.
+                    deduped_reads += 1
+                    body_lines.append(
+                        f"TOOL Read {fp} (superseded — latest read at transcript:L{last_read_L[fp]})"
+                    )
+                    continue
+            dg = digest_input(inp)
+            body_lines.append(f"TOOL {name} {dg}".rstrip())
 
-    msg = obj.get("message")
-    content = msg.get("content") if isinstance(msg, dict) else None
-    text = msg_text(content) if content is not None else ""
-    if text:
-        body_lines.append(text)
+        block = header
+        if body_lines:
+            block += "\n" + "\n".join(body_lines)
+        spine_parts.append(block + "\n")
 
-    for name, inp in tool_uses(obj):
-        if name == "Read":
-            fp = edit_file_path(inp)
-            if fp and last_read_L.get(fp) != Ln:
-                # Superseded earlier read of this path -> 1-line pointer.
-                deduped_reads += 1
-                body_lines.append(
-                    f"TOOL Read {fp} (superseded — latest read at transcript:L{last_read_L[fp]})"
-                )
-                continue
-        dg = digest_input(inp)
-        body_lines.append(f"TOOL {name} {dg}".rstrip())
+    # A sidechain run that extends to the final message of the spine slice.
+    if in_sidechain and spine_records:
+        flush_sidechain(spine_records[-1]["L"])
 
-    block = header
-    if body_lines:
-        block += "\n" + "\n".join(body_lines)
-    spine_parts.append(block + "\n")
-
-# A sidechain run that extends to the final message of the spine slice.
-if in_sidechain and spine_records:
-    flush_sidechain(spine_records[-1]["L"])
-
-spine_text = "".join(spine_parts)
+    spine_text = "".join(spine_parts)
 spine_chars = len(spine_text)
 est_tokens = spine_chars // CHARS_PER_TOKEN
 delta_msgs = len(spine_records)
@@ -1500,6 +1647,9 @@ plan = {
     "source_files": [CANONICAL],
     "stats": stats,
 }
+if spine_origin == "mirror":
+    plan["spine_origin"] = "mirror"
+    stats["mirror_sid"] = _handoff_sid
 
 if est_tokens <= BUDGET_TOKENS:
     plan["mode"] = "direct"
@@ -1612,12 +1762,13 @@ with io.open(OUT, "w", encoding="utf-8") as fh:
 _delta_note = ""
 if SINCE_LEAF:
     _delta_note = f"  since_leaf={SINCE_LEAF}  delta_msgs={delta_msgs}/{full_msgs}"
+_origin_note = "  spine_origin=mirror" if spine_origin == "mirror" else ""
 if plan["mode"] == "direct":
     warn(
         f"mode=direct  msgs={delta_msgs}  spine~{est_tokens}tok "
         f"(<= {BUDGET_TOKENS})  stripped={stripped_count} payloads "
         f"({stripped_bytes} B)  deduped_reads={deduped_reads}  leaf={leaf_uuid}"
-        f"{_delta_note}"
+        f"{_delta_note}{_origin_note}"
     )
 else:
     warn(
@@ -1625,7 +1776,7 @@ else:
         f"(> {BUDGET_TOKENS})  chunks={len(plan['chunks'])}  "
         f"stripped={stripped_count} payloads ({stripped_bytes} B)  "
         f"deduped_reads={deduped_reads}  leaf={leaf_uuid}"
-        f"{_delta_note}"
+        f"{_delta_note}{_origin_note}"
     )
 
 # stdout: the plan path (so the orchestrator can capture it).

@@ -1,0 +1,4 @@
+{"uuid": "m3f-plain-u1", "timestamp": "2026-08-26T12:00:00Z", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Please inspect the widget. Marker: M3F-PLAIN-USER"}]}}
+{"uuid": "m3f-plain-a1", "timestamp": "2026-08-26T12:01:00Z", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Looking now. Marker: M3F-PLAIN-ASSIST"}, {"type": "tool_use", "id": "m3f-tu1", "name": "Read", "input": {"path": "widget.txt"}}]}}
+{"uuid": "m3f-plain-u2", "timestamp": "2026-08-26T12:02:00Z", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Thanks — continue."}]}}
+{"uuid": "m3f-plain-tip", "timestamp": "2026-08-26T12:03:00Z", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Done. Marker: M3F-PLAIN-TIP"}]}}

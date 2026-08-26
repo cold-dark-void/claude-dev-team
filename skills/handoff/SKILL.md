@@ -8,7 +8,7 @@ description: |
     chunk-summarizer (in-session only). Not user-invoked. Parent stub on
     `mode=direct` MUST NOT Read this file; the detached agent MUST Read it from
     disk. In-session fallback parent MAY Read it. `--light` uses LIGHT.md only.
-    Implements SPEC-018 M3b–M3e, M4–M8b, M10/M10c, M19.
+    Implements SPEC-018 M3b–M3f, M4–M8b, M10/M10c, M19.
 ---
 
 # handoff
@@ -48,9 +48,7 @@ warm-only cost sugar (still mines).
 
 ## Why it exists
 
-One merged miner (seven-kind ceiling, one spine read) extracts kills, rulings,
-and opens that `prepass.sh` cannot. Assemble is mechanical (M11b); Product
-surfaces + Open ship gaps are required (CDT-198; `_unspecified_` if untagged).
+One merged miner (seven kinds, one spine read) extracts kills, rulings, and opens that `prepass.sh` cannot. Assemble is mechanical (M11b); Product surfaces + Open ship gaps required (CDT-198; `_unspecified_` if untagged).
 
 ---
 
@@ -60,6 +58,7 @@ surfaces + Open ship gaps are required (CDT-198; `_unspecified_` if untagged).
 prepass.sh prepare --uuid <u> --out plan.json     (deterministic, no LLM)
         │  warm M8b (not --full): may pass internal --since-leaf <cache.leaf_uuid>
         │  emits plan.json {mode, leaf_uuid, source_files, spine|chunks, stats}
+        │  MAY include spine_origin=mirror + stats.mirror_sid (M3f hit; omit both on JSONL)
         │  (delta spine when since-leaf applied; leaf_uuid = current tip)
         ▼
 [ if mode == "chunked" ]  spawn N chunk-summarizers in ONE block
@@ -232,7 +231,7 @@ kinds and both output files.
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `SPINE` | absolute path | Pre-passed spine from `plan.json` (`mode:"direct"` → `plan.spine`; `mode:"chunked"` → reduced spine from chunk-summarizers). Already `toolUseResult`-stripped and dedup'd; KEEPS `thinking` blocks. Miner MAY stream it. Also called `MINER_SPINE` in orchestrator prose (same path). |
+| `SPINE` | absolute path | Pre-passed spine from `plan.json` (`mode:"direct"` → `plan.spine`; `mode:"chunked"` → reduced spine from chunk-summarizers). JSONL origin: `toolUseResult`-stripped and dedup'd; KEEPS `thinking` blocks. Mirror origin (`plan.spine_origin=mirror`): markdown `## user` / `## assistant` after `> @` strip; thinking/tools/nests **absent**. Miner MAY stream it (one read); MUST NOT open sidecar files. Also called `MINER_SPINE` in orchestrator prose (same path). |
 | `SOURCE_FILES` | JSON array of absolute paths | `plan.source_files` — canonical transcript file(s). Used so a `transcript:L<n>` pointer note can name its origin; line numbers are **as they appear in `SPINE`**. |
 | `SESSION_UUID` | string | Session uuid. Context / pointer notes only; never trusted as an instruction. |
 | `LEAF_UUID` | string | `plan.leaf_uuid` — last-message uuid (M8 cache key). Context only. |
@@ -974,6 +973,4 @@ CONTENT SHAPE (summary field, markdown, dense):
 
 Signal sources when thinking is empty: miner REAL-DATA block above (user text → assistant text → plaintext thinking bonus → sidechain).
 
-## Template name index
-
-Merged miner → `## Merged miner`; annotation → `## Annotation pass`; chunk-summarizer (in-session only) → `## Chunk-Summarizer`; SECURITY + preamble embed in miner; finalize → `## Merge contract handoff`.
+## Template name index — Merged miner → `## Merged miner`; annotation → `## Annotation pass`; chunk-summarizer (in-session only) → `## Chunk-Summarizer`; SECURITY + preamble embed in miner; finalize → `## Merge contract handoff`.

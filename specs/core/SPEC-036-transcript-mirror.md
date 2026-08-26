@@ -16,7 +16,9 @@ off). Opt-in **SubagentStop** (CDT-217) writes an **agent nest** under
 `<sid>/agents/<id>/` with a nest-ref from parent `main.md`; Stop/SessionEnd
 with a non-empty agent key stay v1 no-ops. The mirror is **not** an STM packet
 and **not** a compact seed — those terms stay with `/handoff` (SPEC-018). This
-spec does not change `/handoff`, PreCompact rescue, or M8 cache.
+spec does not change `/handoff` CLI, PreCompact rescue, or M8 cache **schema**.
+SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
+`transcript-sync --check --sid` reports `status=ok`.
 
 ## MUST
 
@@ -247,8 +249,16 @@ spec does not change `/handoff`, PreCompact rescue, or M8 cache.
   Fix-it MUST be one copy-pasteable transcript-sync invocation and MUST
   NOT be `/setup team` or `/setup orchestration`. Doctor MUST NOT invent a
   second lag heuristic — stdout `sid=… status=…` is the SoT.
-- **M12 — Freeze.** MUST NOT change `/handoff` CLI, PreCompact templates /
-  `precompact-capture.sh`, or M8 cache files.
+- **M12 — Freeze.** MUST NOT change `/handoff` CLI (flags, help, argument-hint),
+  PreCompact templates / `precompact-capture.sh`, or M8 cache **schema**
+  (`leaf_uuid`, `packet`/`brief`, `events`, `path`, `created_at`, optional
+  `light`). **Carve-out (CDT-216 / SPEC-018 M3f):** `/handoff` `prepare` MAY
+  **read** `<store>/<sid>/main.md` and `meta`, and MAY run
+  `transcript-sync --check --sid <handoff-sid>` as the consume gate. MUST NOT
+  write the Transcript mirror store. MUST NOT invoke the recorder. MUST NOT
+  run `transcript-sync` without `--check`. MUST NOT read Channel sidecar
+  bodies or `agents/` for miner input. MUST NOT retarget M8 `leaf_uuid` at
+  `cursor`. Recorder, sync write path, M4a nest, and M5a locate stay frozen.
 - **M13 — Tests and docs.** `skills/transcript-mirror/test.sh` MUST use
   `$TMPDIR` / `TRANSCRIPT_MIRROR_ROOT` / `GROK_SESSIONS_DIR` fixtures,
   cover dual-host, and cover M1–M11 plus M4a (including never-fired Stop +
@@ -345,9 +355,13 @@ spec does not change `/handoff`, PreCompact rescue, or M8 cache.
       S immediately (ignore `reason`), exit 0, no `decision: block`,
       that sid only (M5 AC2)
 - [ ] Unregistered no-args MUST NOT create new sid dirs (M10)
-- [ ] `git grep` in this change does not modify `commands/handoff.md`,
-      `skills/handoff/`, `precompact-capture.sh`, init-orch `HOOKS=`, or
-      doctor `EXPECTED_HOOK_` (M3, M12)
+- [ ] Recorder/sync/doctor PRs: `git grep` does not modify
+      `commands/handoff.md`, `precompact-capture.sh`, init-orch `HOOKS=`,
+      or doctor `EXPECTED_HOOK_` (M3, M12). `skills/handoff/` MAY change
+      only under SPEC-018 M3f as a **read** of `main.md` / `--check`
+      (CDT-216); MUST NOT change M8 cache schema or PreCompact
+- [ ] CDT-216 consume: `--check --sid` `status=ok` is the only handoff
+      read gate; cursor is not `leaf_uuid` (SPEC-018 Test 40)
 
 ## Validation
 
@@ -364,11 +378,14 @@ spec does not change `/handoff`, PreCompact rescue, or M8 cache.
 - [ ] `bash skills/doctor/test.sh` green (`transcript.mirror_lag`)
 - [ ] docs-drift + skill-lint clean on touched files
 - [ ] Status promoted to ACTIVE after land
+- [ ] CDT-216 M12 carve-out: handoff reads `main.md` only via SPEC-018 M3f;
+      recorder / M4a / M5a / PreCompact / M8 schema unchanged
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-26 | CDT-216: M12 carve-out — `/handoff` prepare MAY read `main.md` + `--check --sid` (SPEC-018 M3f). CLI / PreCompact / M8 schema / recorder / M4a / M5a still frozen. |
 | 2026-08-26 | CDT-217: M4a opt-in SubagentStop agent nest under `<sid>/agents/<id>/`; Stop/SessionEnd agent-key no-op stays v1; parent nest-ref; rebuild preserves `agents/`. OQ2/OQ5/OQ7 locked. |
 | 2026-08-25 | CDT-218: M5a Grok cwd-bucket locate — urlencode file then bounded `.cwd` fallback (dual-engine: bash+jq hook, Python `hosts.py` / transcript-sync). Drop CDT-218 OUT. |
 | 2026-08-25 | CDT-221: M10 no-args = ALL cwd-bucket sessions (not newest-only); M11 doctor `transcript.mirror_lag` WARN maps `--check` stdout; OQ1 Option A in; sandbox-write OQ closed as not proven (AC5+AC8) |
@@ -434,6 +451,9 @@ spec does not change `/handoff`, PreCompact rescue, or M8 cache.
 - MUST NOT add transcript-sync to doctor `--fix`.
 - MUST NOT remove or replace the Stop recorder (timeout 10 unchanged).
 - MUST NOT add `commands/*.md` (not a new Surface).
+- MUST NOT let `/handoff` write the Transcript mirror store, invoke the
+  recorder, or run `transcript-sync` except `--check --sid` (M12 carve-out).
+- MUST NOT treat mirror `cursor` as SPEC-018 `leaf_uuid`.
 
 ## Open Questions
 
@@ -459,6 +479,12 @@ spec does not change `/handoff`, PreCompact rescue, or M8 cache.
 - [ ] Live SubagentStop payload field `agent_transcript_path` is
       **unverified**. Spec prefers it then `transcript_path`. Tests use
       fixtures. Missing both: fail-open, no nest.
+- [x] CDT-216 OQ-H — JSONL-prefix + mirror-suffix hybrid → **OUT**.
+- [x] CDT-216 OQ-F — parent-prefix stitch → **JSONL fallback this ticket**
+      (Test 1). Stitch unproven; MUST NOT ship suffix-only.
+- [x] CDT-216 OQ-K — `--check --sid` target → **handoff session id**
+      (warm discover sid / cold CLI uuid). MUST NOT remap to locate()
+      descendant stem.
 
 ## Cross-references
 
@@ -471,7 +497,8 @@ spec does not change `/handoff`, PreCompact rescue, or M8 cache.
 - **SPEC-016** — store is global session-keyed, not `$MROOT` / worktree
 - **SPEC-031** — subagent hooks carry **parent** `session_id`; child is
   `agent_id` (verified CC v2.1.212). Nest under parent sid, not a new sid.
-- **SPEC-018** — STM packet / compact seed / PreCompact / M8 frozen
+- **SPEC-018** — STM packet / compact seed / PreCompact / M8 schema frozen;
+  M3f MAY read `main.md` when `--check --sid` is `ok` (CDT-216)
 - **SPEC-021** — skill-bash lint on `SKILL.md` fences; PDH stanza if any
 - **SPEC-022** — `transcript.mirror_lag` (group `transcript`); WARN never
   FAIL; `--check` SoT; `EXPECTED_HOOK_*` frozen

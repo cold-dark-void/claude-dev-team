@@ -228,6 +228,13 @@ on `plan.mode`:
 Code-state is **git only** — no LLM miner (M3b). Delta path mines only
 post-leaf messages.
 
+### Transcript mirror (M3f)
+
+When `transcript-sync --check --sid` reports `status=ok`, prepare MAY mine
+stripped `main.md`. `main.md` is not a compact seed. See
+[Transcript mirror](./transcript-mirror.md). Fork, applied delta, `--full`,
+and lag (or missing / in-progress) use JSONL. No new `/handoff` flags.
+
 ### Spawn model tiers (M3e / CDT-90)
 
 LLM fan-out uses **tier aliases only** (`haiku` / `sonnet` / `opus` style) — never
@@ -430,6 +437,7 @@ live `settings.json` is machine-local).
 ## See Also
 
 - [`/recall`](./recall.md) — find a past session's uuid to hand off (cross-session discovery)
+- [Transcript mirror](./transcript-mirror.md) — opt-in `main.md`; `/handoff` MAY consume it when `--check` is `ok` (M3f)
 - [`/retro`](./retro.md) — shares the same read-only transcript parsing seam (SPEC-012)
 - [`/council`](./council.md) — owns deep adversarial claim verification; handoff's intent-vs-git flag is only a lightweight heuristic
 - [`/orchestrate`](./orchestrate.md) — long-running flow whose session you might later hand off

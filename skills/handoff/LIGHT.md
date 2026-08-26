@@ -55,6 +55,7 @@ INLINE plus a miner Task on the same capture is a duplicate-spine-read defect (M
    no freeform live-context packet.
 2. Prepare (`prepass.sh prepare` + `--allow-in-progress`). Skip cold cache-check.
    Light cache is never a prior source (`light: true` → no `--since-leaf`).
+   MAY emit `spine_origin=mirror` (M3f). On hit: markdown `## user` / `## assistant` after `@ref` strip; thinking/tools/nests absent; miner MUST NOT open sidecars.
 3. If `mode == "chunked"` (in-session only): spawn N chunk-summarizers (template
    below) in ONE tool-use block; reduce to `MINER_SPINE`. Direct: `MINER_SPINE=$SPINE`.
 4. Miner: **INLINE** on detach (this turn, both event files, one spine read, MUST

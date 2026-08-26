@@ -1,0 +1,4 @@
+{"uuid": "m3f-pre-u1", "timestamp": "2026-08-26T11:00:00Z", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Parent copied prefix. Marker: M3F-PREFIX-FACT"}]}, "forkedFrom": {"sessionId": "m3f-parent", "messageUuid": "m3f-pre-u1"}}
+{"uuid": "m3f-pre-a1", "timestamp": "2026-08-26T11:01:00Z", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Parent assistant on the copied prefix."}]}}
+{"uuid": "m3f-child-u1", "timestamp": "2026-08-26T12:00:00Z", "type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "Child-only new turn. Marker: M3F-CHILD-ONLY"}]}}
+{"uuid": "m3f-fork-tip", "timestamp": "2026-08-26T12:01:00Z", "type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Child assistant tip. Marker: M3F-CHILD-ASSIST"}]}}

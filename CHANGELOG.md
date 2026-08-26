@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.12.0
+- **`/handoff` spine-feed from Transcript mirror (CDT-216 / SPEC-018 M3f)** — when `transcript-sync --check --sid` is `status=ok`, prepare mines stripped `main.md` (Meaning channel) instead of JSONL prepass. Absence, lag, fork/copied-prefix, `--since-leaf`, or `HANDOFF_FULL=1` stay JSONL (byte-identical). `leaf_uuid` stays the assembled JSONL tip; cursor is not unified. `main.md` is not a Compact seed or STM packet. No new flags. Grok `handoff-grok-adapt.*` tempfiles are not treated as forks.
+
 ### v1.11.3
 - **SubagentStop nest opt-in (CDT-217)** — registering `hooks.SubagentStop[]` on the same user-owned shim writes `~/.claude/transcript/<sid>/agents/<id>/` (same `main.md` + sidecars). Parent `main.md` gets one `> @agents/<id>/main.md`. Stop/SessionEnd with agent keys stay v1 no-op. Rebuild preserves `agents/`. `transcript-sync` does not invent children. Default `/setup orchestration` Stop array unchanged. No new Surface.
 

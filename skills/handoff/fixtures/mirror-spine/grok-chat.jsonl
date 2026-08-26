@@ -1,0 +1,5 @@
+{"type": "system", "content": "You are a test system prompt for CDT-216 fixture; must be skipped by adapter."}
+{"type": "user", "content": [{"type": "text", "text": "<system-reminder>\nProject instructions for fixture session.\n</system-reminder>"}], "synthetic_reason": "project_instructions"}
+{"type": "user", "content": [{"type": "text", "text": "Please investigate grok warm mirror. Marker: M3F-GROK-USER"}], "prompt_index": 1}
+{"type": "reasoning", "id": "rs-m3f-1", "summary": [{"type": "summary_text", "text": "Internal reasoning to skip"}], "status": "completed"}
+{"type": "assistant", "content": "Understood. Working the grok warm path. Marker: M3F-GROK-ASSIST", "model_id": "fixture-model"}
