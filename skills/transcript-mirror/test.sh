@@ -3,6 +3,7 @@
 # Machine-check: bash skills/transcript-mirror/test.sh
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 # T2 helper remains transcript-sync-test.sh (not invoked here).
+# M14 sibling: compact-transcript-test.sh (invoked at end; also standalone).
 #
 # Covers: AC3 unregistered no dirs; AC4 Stop/SessionEnd agent-key no-op;
 # AC5 updates.jsonl sibling rewrite; AC6 idempotent + rewind; AC8 collapse +
@@ -143,7 +144,8 @@ else
 fi
 
 # bash -n (never source)
-for f in "$REC" "$SYNC" "$SHIM" "$HERE/test.sh"; do
+for f in "$REC" "$SYNC" "$SHIM" "$HERE/test.sh" "$HERE/compact-transcript.sh" \
+         "$HERE/compact-transcript-test.sh"; do
   if bash -n "$f"; then
     pass "bash -n $(basename "$f")"
   else
@@ -1244,6 +1246,18 @@ if grep -q 'CDT-218-T4-AC1-LONG-CWD' "$STORE/tm-long/main.md" 2>/dev/null; then
   pass "AC9 M5a long-cwd still green after nest tests"
 else
   fail "AC9 M5a long-cwd regress after nest tests"
+fi
+
+# ---------------------------------------------------------------------------
+# M14 — compact-transcript sibling suite (CDT-215)
+# ---------------------------------------------------------------------------
+export CDT_OPERATOR_HOME="$REAL_HOME"
+SIB_RC=0
+bash "$HERE/compact-transcript-test.sh" || SIB_RC=$?
+if [ "$SIB_RC" -eq 0 ]; then
+  pass "M14 compact-transcript-test.sh sibling"
+else
+  fail "M14 compact-transcript-test.sh sibling rc=$SIB_RC"
 fi
 
 # ---------------------------------------------------------------------------

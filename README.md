@@ -114,6 +114,7 @@ Program / multi-ticket work, session tuning, and quality gates.
 | `/release-train` | Multi-branch release queue — register, freeze, land via `/release` |
 | [`/retro`](docs/commands/retro.md) | Scan past sessions for friction; propose directive adjustments ([runbook](docs/runbooks/scheduled-retro.md)) |
 | [`/handoff`](docs/commands/handoff.md) | STM packet / compact seed (State now → Through-line → appendix); cold print core + path, warm file-only |
+| [`/compact-transcript`](docs/commands/compact-transcript.md) | Bounded Meaning tail from Transcript mirror for the operator to @; not a Compact seed |
 | [`/recall`](docs/commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
 | [`/mode`](docs/commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
 | `/adjust-agent` | View/manage per-agent standing directives (`--apply` for non-interactive) |

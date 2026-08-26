@@ -436,6 +436,7 @@ live `settings.json` is machine-local).
 
 ## See Also
 
+- [`/compact-transcript`](./compact-transcript.md) — bounded Meaning tail for you to `@` (separate Surface; M3f unchanged)
 - [`/recall`](./recall.md) — find a past session's uuid to hand off (cross-session discovery)
 - [Transcript mirror](./transcript-mirror.md) — opt-in `main.md`; `/handoff` MAY consume it when `--check` is `ok` (M3f)
 - [`/retro`](./retro.md) — shares the same read-only transcript parsing seam (SPEC-012)

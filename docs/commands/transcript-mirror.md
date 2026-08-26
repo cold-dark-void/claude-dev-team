@@ -139,11 +139,11 @@ Identity is `session_id`, not the repo or worktree.
 Each sid dir has `main.md`, `thinking/`, `tool_result/`, `injection/`, `meta`, and `cursor`.
 An optional agent nest lives at `agents/<id>/` with the same six entries.
 
-To attach the Meaning channel in a later session, mention:
+For compact `@`-attach, run [`/compact-transcript`](./compact-transcript.md).
+That Surface writes a bounded Meaning tail.
+You `@` the printed path.
 
-```
-@~/.claude/transcript/<sid>/main.md
-```
+`@~/.claude/transcript/<sid>/main.md` remains valid only as the full unbounded Meaning channel.
 
 `@refs` inside `main.md` are relative to that sid dir (`@thinking/…`, `@tool_result/…`, `@injection/…`, and nest-refs `@agents/<id>/main.md`).
 
@@ -226,5 +226,6 @@ The recorder always exits 0.
 
 ## See also
 
+- [`/compact-transcript`](./compact-transcript.md) — bounded Meaning tail for you to `@`
 - [`/handoff`](./handoff.md) — session handoff (separate Surface)
 - Skill: `skills/transcript-mirror/SKILL.md`

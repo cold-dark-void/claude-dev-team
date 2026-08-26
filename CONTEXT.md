@@ -30,9 +30,11 @@ agent output. Do not reintroduce avoided aliases.
 | Transcript mirror | Live per-session compressed record (`main.md` + channel sidecars) | live log, shadow transcript |
 | Meaning channel | User + assistant text; retained spine of the transcript mirror | clean text |
 | Channel sidecar | Per-kind cold-storage file referenced from `main.md` via `@ref` | attachment |
+| Meaning tail | Bounded sibling file `<store-root>/<sid>.meaning-tail.md`: stripped Meaning-channel turn-blocks, UTF-8 `wc -c` ≤ 32768, produced by `/compact-transcript` for the operator to `@` | Compact seed, STM packet, compact transcript (as a glossary alias for `main.md`) |
 
 ## Decisions
 
 - 2026-08-23: Transcript-mirror storage root is global `~/.claude/transcript/<sid>/`, not `$MROOT` — identity is the session, not the repo.
 - 2026-08-23: Compact seed MUST NOT extend to `main.md` — that term stays with STM packet / `/handoff`.
 - 2026-08-23: Transcript-mirror enablement is hook registration itself (default off; never in default `/setup orchestration`).
+- 2026-08-26: Meaning tail is the `/compact-transcript` sibling file. Compact seed stays STM packet / `/handoff`. Do not map Compact seed onto `main.md` or the meaning-tail file.

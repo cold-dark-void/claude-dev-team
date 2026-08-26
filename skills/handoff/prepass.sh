@@ -1110,11 +1110,15 @@ if [ -n "${PDH:-}" ] && [ -f "$PDH/skills/plugin-dir.sh" ]; then
   P="$PDH/skills/plugin-dir.sh"
 fi
 SYNC=""
+STRIP_MAIN=""
 if [ -n "$P" ]; then
   SYNC=$(bash "$P" file skills/transcript-mirror/transcript-sync.sh 2>/dev/null) || SYNC=""
+  STRIP_MAIN=$(bash "$P" file skills/transcript-mirror/strip_main.py 2>/dev/null) || STRIP_MAIN=""
 fi
 [ -n "$SYNC" ] && [ -f "$SYNC" ] || SYNC=""
+[ -n "$STRIP_MAIN" ] && [ -f "$STRIP_MAIN" ] || STRIP_MAIN=""
 export PREPASS_TRANSCRIPT_SYNC="$SYNC"
+export PREPASS_STRIP_MAIN="$STRIP_MAIN"
 export PREPASS_HANDOFF_SID="$UUID"
 if [ "${HANDOFF_FULL:-}" = "1" ]; then
   export PREPASS_HANDOFF_FULL=1
@@ -1131,6 +1135,7 @@ PREPASS_PARSE_DIR="$PARSE_DIR" \
 PREPASS_SCRIPT_DIR="$SCRIPT_DIR" \
 PREPASS_SINCE_LEAF="$SINCE_LEAF" \
 PREPASS_TRANSCRIPT_SYNC="${PREPASS_TRANSCRIPT_SYNC:-}" \
+PREPASS_STRIP_MAIN="${PREPASS_STRIP_MAIN:-}" \
 PREPASS_HANDOFF_SID="${PREPASS_HANDOFF_SID:-$UUID}" \
 PREPASS_HANDOFF_FULL="${PREPASS_HANDOFF_FULL:-}" \
 python3 - <<'PYEOF'
@@ -1366,23 +1371,19 @@ if SINCE_LEAF:
 # M3f — optional Transcript-mirror consume (CDT-216). After assemble + leaf +
 # since-leaf cut, before PASS 2. Hit → stripped main.md; skip M2 render.
 # Identity (any miss) → existing JSONL render. leaf_uuid stays JSONL tip.
+# Strip lives in skills/transcript-mirror/strip_main.py (CDT-215); import miss
+# is identity (no consume), not a crash.
 # ---------------------------------------------------------------------------
-def strip_mirror_main(text):
-    """Drop `# transcript mirror` title and `> @` sidecar/nest refs."""
-    kept = []
-    for line in text.splitlines(keepends=True):
-        if line.endswith("\r\n"):
-            raw = line[:-2]
-        elif line.endswith("\n") or line.endswith("\r"):
-            raw = line[:-1]
-        else:
-            raw = line
-        if re.match(r"^\s*#\s*transcript mirror", raw):
-            continue
-        if re.match(r"^>\s*@", raw):
-            continue
-        kept.append(line)
-    return "".join(kept)
+strip_mirror_main = None
+_strip_py = (os.environ.get("PREPASS_STRIP_MAIN") or "").strip()
+if _strip_py and os.path.isfile(_strip_py):
+    _strip_dir = os.path.dirname(os.path.abspath(_strip_py))
+    if _strip_dir not in sys.path:
+        sys.path.insert(0, _strip_dir)
+    try:
+        from strip_main import strip_mirror_main
+    except Exception:
+        strip_mirror_main = None
 
 
 def _mirror_store_root():
@@ -1453,6 +1454,8 @@ _handoff_sid = (os.environ.get("PREPASS_HANDOFF_SID") or UUID).strip() or UUID
 if _full or since_leaf_applied:
     pass
 elif not _sync or not os.path.isfile(_sync):
+    pass
+elif strip_mirror_main is None:
     pass
 elif _mirror_fork_force_jsonl():
     pass

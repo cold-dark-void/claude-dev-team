@@ -18,17 +18,29 @@ with a non-empty agent key stay v1 no-ops. The mirror is **not** an STM packet
 and **not** a compact seed — those terms stay with `/handoff` (SPEC-018). This
 spec does not change `/handoff` CLI, PreCompact rescue, or M8 cache **schema**.
 SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
-`transcript-sync --check --sid` reports `status=ok`.
+`transcript-sync --check --sid` reports `status=ok`. **C7 (CDT-215):** slash
+Surface `/compact-transcript` MAY write a bounded sibling
+`<store-root>/<sid>.meaning-tail.md` from stripped `main.md` when that same
+`--check --sid` line is `status=ok`. That file is Meaning-channel text for the
+operator to `@`; it is **not** an STM packet and **not** a compact seed. This
+Surface MUST NOT invoke host `/compact` or PreCompact.
 
 ## MUST
 
 - **M1 — Surface and glossary.** Product files MUST live under
   `skills/transcript-mirror/` with YAML `name` + `description`. MUST NOT add
-  `commands/*.md` (not a slash Surface). Docs page MUST be
-  `docs/commands/transcript-mirror.md`. Docs, skill, and `main.md` headers MUST
-  use glossary terms **Transcript mirror**, **Meaning channel**, **Channel
-  sidecar** (`CONTEXT.md`). Docs MUST NOT call `main.md` an STM packet or
-  compact seed.
+  `commands/*.md` except **C7 carve-out (CDT-215):** exactly one file,
+  `commands/compact-transcript.md`, with YAML `name: compact-transcript` and a
+  `description`. Recorder remains not a slash Surface (do not add
+  `commands/transcript-mirror.md`). Docs pages MUST be
+  `docs/commands/transcript-mirror.md` and `docs/commands/compact-transcript.md`.
+  Docs, skill, command frontmatter, CHANGELOG, `main.md` headers, and the
+  meaning-tail file MUST use glossary terms **Transcript mirror**, **Meaning
+  channel**, **Channel sidecar** (`CONTEXT.md`). Docs, skill, command
+  frontmatter, CHANGELOG, and output MUST NOT call `main.md` or
+  `<sid>.meaning-tail.md` an STM packet or compact seed. Compact seed stays
+  STM packet / `/handoff`. `/compact-transcript` is not a host `/compact`
+  replacement.
 - **M2 — Store layout.** Default root MUST be `~/.claude/transcript/<sid>/`
   containing `main.md`, `thinking/`, `tool_result/`, `injection/`, `meta`, and
   `cursor`. An optional **agent nest** MUST live at
@@ -36,8 +48,10 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
   own `cursor`). `@refs` in parent `main.md` MUST be paths relative to that
   sid dir (`@thinking/…`, `@tool_result/…`, `@injection/…`, and nest-refs
   `@agents/<id>/main.md`). Identity is `session_id`, not repo / worktree.
-  Nest identity is `(session_id, sanitized agent_id)`. Tests MUST set
-  `TRANSCRIPT_MIRROR_ROOT` to a temp dir and MUST NOT write the operator's
+  Nest identity is `(session_id, sanitized agent_id)`. A C7 meaning-tail file
+  MUST live at `<store-root>/<sid>.meaning-tail.md` (sibling of the sid dir,
+  never inside it) and MUST NOT be one of the six sid-dir entries. Tests MUST
+  set `TRANSCRIPT_MIRROR_ROOT` to a temp dir and MUST NOT write the operator's
   real `~/.claude/transcript/`. That env is a harness override only —
   user-facing docs MUST NOT document it as operator config.
 - **M3 — Enablement.** Opt-in MUST be a user-owned **second** `hooks.Stop[]`
@@ -178,6 +192,9 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
   sid dir, never under `$WORK` / the RETURN `rm -rf` temp, then restore
   after swap). A parent rebuild that drops `agents/` is a spec fail.
   After parent rebuild, re-apply M4a nest-refs from the preserved tree.
+  Rebuild MUST NOT delete, move, truncate, or rewrite
+  `<store-root>/<sid>.meaning-tail.md`. Sid-dir bak names (`<dir>.bak.<pid>`,
+  `<dir>.agents.<pid>`) MUST NOT equal that tail path.
 - **M7 — Meaning channel and sidecars.** Closed taxonomy:
   `thinking | tool_result | injection`. `main.md` MUST contain user + assistant
   text verbatim after wrapper strip. Route to sidecars (lossless):
@@ -258,7 +275,18 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
   write the Transcript mirror store. MUST NOT invoke the recorder. MUST NOT
   run `transcript-sync` without `--check`. MUST NOT read Channel sidecar
   bodies or `agents/` for miner input. MUST NOT retarget M8 `leaf_uuid` at
-  `cursor`. Recorder, sync write path, M4a nest, and M5a locate stay frozen.
+  `cursor`. **Carve-out (CDT-215 / C7):** `/compact-transcript` MAY **read**
+  `<store>/<sid>/main.md` and MAY run `transcript-sync --check --sid <sid>`
+  as the sole consume gate (same stdout contract as M3f). On hit it MAY
+  atomically write `<store-root>/<sid>.meaning-tail.md` (sibling of the sid
+  dir). MUST NOT write `main.md`, `cursor`, Channel sidecars, `meta`,
+  `agents/`, or any other path inside the sid dir. MUST NOT invoke the
+  recorder. MUST NOT run `transcript-sync` without `--check`. MUST NOT read
+  Channel sidecar bodies or `agents/` for the tail. MUST NOT add `/handoff`
+  flags. MUST NOT change M3f hit/miss, JSONL identity, `leaf_uuid`, or
+  PreCompact. Recorder, sync write path, M4a nest, and M5a locate stay
+  frozen. Recorder and `transcript-sync` MUST NOT create, update, or delete
+  `*.meaning-tail.md`.
 - **M13 — Tests and docs.** `skills/transcript-mirror/test.sh` MUST use
   `$TMPDIR` / `TRANSCRIPT_MIRROR_ROOT` / `GROK_SESSIONS_DIR` fixtures,
   cover dual-host, and cover M1–M11 plus M4a (including never-fired Stop +
@@ -279,6 +307,75 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
   SubagentStop as a separate opt-in (same shim), MUST tell the operator
   to measure meaning-channel vs empty-tick signal ratio, and MUST NOT
   add SubagentStop to the default Stop + SessionEnd snippet.
+  `compact-transcript-test.sh` MUST cover M14 and MUST be invoked from
+  `test.sh` or run as a sibling suite in Validation.
+- **M14 — Meaning tail (`/compact-transcript`, CDT-215).** Slash Surface
+  `/compact-transcript` MUST emit a bounded Meaning-channel file for the
+  operator to `@`. It MUST NOT invoke host `/compact` or PreCompact.
+  PreCompact rescue (`precompact-capture.sh`) MUST NOT consume `main.md` or
+  `*.meaning-tail.md`.
+  - **CLI.** `commands/compact-transcript.md` (YAML `name: compact-transcript`)
+    MUST dispatch install-aware `skills/transcript-mirror/compact-transcript.sh`.
+    Bare (no positional) MUST use the live session id from `discover-warm.sh`
+    line 1 (same identity as bare `/handoff` M10b). Positional `<sid>` MUST be
+    that sid as given. MUST NOT remap to `hosts.locate()` descendant stem.
+    `<sid>` MUST be a single path component (no `/`, not `.` or `..`); else
+    fail-closed, no write. Argument-hint: `[<sid>]`. No `--bytes` / `--turns`.
+  - **Detect (sole gate).** Invoke install-aware
+    `skills/transcript-mirror/transcript-sync.sh --check --sid <sid>` only
+    (MUST NOT omit `--check`; MUST NOT pass `--transcript`). Consume only
+    when stdout contains a line `sid=<sid> status=ok` (status token exact).
+    MUST NOT invent a second detect path. Strip MUST be the same
+    `strip_mirror_main` implementation SPEC-018 M3f uses (one helper; no
+    drifted copy).
+  - **Miss (this Surface only).** Any of: status in
+    `{lag, missing, in-progress}`, no matching line, helper missing,
+    `python3` missing, live sid unresolvable, stripped body empty, `<sid>`
+    rejected → exit non-zero (1 for miss/empty/unresolvable; 64 for usage),
+    create or update no tail file, stderr names status or reason. MUST NOT
+    fall back to JSONL. MUST NOT exit 0 (recorder/sync/doctor fail-open
+    unchanged).
+  - **Hit write.** Read `<store>/<sid>/main.md`. Strip: drop the
+    `# transcript mirror` title; drop every line matching `^>\s*@` (Channel
+    sidecar refs and nest-refs). MUST NOT inline sidecar or nest bodies.
+    Drop leading lines until the first `## user` or `## assistant` heading.
+    If nothing remains, treat as miss (empty). Bound: UTF-8 byte length of
+    the file MUST be `<= 32768`. Tests MUST assert `wc -c`, not a tokenizer.
+    Selection: longest trailing **complete turn-block** suffix that fits.
+    A turn-block starts at a line matching `^## (user|assistant)[[:space:]]*$`
+    and runs until the next such heading or EOF. If the newest block alone
+    exceeds the cap: emit that heading plus a prefix of its body, truncated
+    at a UTF-8 code-point boundary so the file is `<= 32768` bytes and valid
+    UTF-8. MUST NOT exceed the cap. First line of the file MUST be
+    `## user` or `## assistant`. MUST NOT emit STM / Compact-seed headings
+    (`## State now`, `## Through-line`, `## appendix`). Atomic overwrite of
+    `<store-root>/<sid>.meaning-tail.md` (temp in the same directory + `mv`).
+    Idempotent: same `main.md` bytes → same tail bytes. On success print
+    exactly one stdout line: the absolute path of the tail file. Exit 0.
+  - **Store isolation.** After success, `main.md` sha256, `cursor`, Channel
+    sidecar trees, and `agents/` MUST be byte-identical to before the
+    invocation. This Surface MUST NOT truncate, rewrite, or delete store
+    files inside the sid dir.
+  - **Docs.** `docs/commands/transcript-mirror.md` MUST NOT recommend
+    `@main.md` as the compact attach. Compact `@`-attach MUST point at
+    `/compact-transcript`. `@main.md` remains valid only as the full
+    unbounded Meaning channel. See-also both ways with `/handoff` and
+    transcript-mirror. README `## Commands` Advanced (adjacent to
+    `/handoff`) and `docs/README.md` command reference MUST index
+    `/compact-transcript`. Docs-drift `cmd-index`, `docs-hub`, and
+    `docs-page-links` MUST be clean on the touched files.
+  - **Ship.** New `commands/*.md` ⇒ bump class **minor** (v1.13.0 at
+    `/release`). A patch ship MUST fail `check-bump-class.sh` (SPEC-010
+    B1–B6).
+  - **Tests.** `skills/transcript-mirror/compact-transcript-test.sh` MUST
+    set `TRANSCRIPT_MIRROR_ROOT` and `$TMPDIR` and MUST NOT write
+    `$HOME/.claude/transcript/`. Coverage: hit write + path stdout; miss
+    no-write; `main.md` sha256 unchanged; strip title / `@refs` / nest-refs;
+    `wc -c <= 32768`; newest-block overflow still `<= 32768` and newest
+    heading present; overwrite idempotent; recorder/sync do not create or
+    mutate a planted tail; sid-dir rebuild leaves the sibling tail
+    byte-identical; SPEC-018 Test 40 no-mirror identity (T1.3: no
+    `spine_origin`).
 
 ## Test
 
@@ -362,6 +459,38 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
       (CDT-216); MUST NOT change M8 cache schema or PreCompact
 - [ ] CDT-216 consume: `--check --sid` `status=ok` is the only handoff
       read gate; cursor is not `leaf_uuid` (SPEC-018 Test 40)
+- [ ] C7 hit: `--check --sid` `status=ok` → writes
+      `$TRANSCRIPT_MIRROR_ROOT/<sid>.meaning-tail.md`; stdout is that
+      absolute path; exit 0 (M14)
+- [ ] C7 miss: status `lag` / `missing` / `in-progress`, no line, helper
+      absent, empty after strip, unresolvable live sid → exit non-zero, no
+      tail file created or updated, stderr names status or reason; MUST NOT
+      exit 0 (M14)
+- [ ] C7 store isolation: after hit, `main.md` sha256, `cursor`, sidecar
+      trees, `agents/` byte-identical (M14, AC2)
+- [ ] C7 strip: fixture with `# transcript mirror`, `> @tool_result/…`,
+      `> @agents/…` → tail has no title and no `^>\s*@` lines; first line
+      is `## user` or `## assistant` (M14, AC7)
+- [ ] C7 cap: `wc -c` of tail `<= 32768`; newest heading present; newest
+      block alone > cap still `<= 32768` (M14, AC7)
+- [ ] C7 overwrite idempotent: second hit with unchanged `main.md` → same
+      tail sha256 (M14)
+- [ ] C7 recorder/sync: planted `*.meaning-tail.md` sha256 unchanged after
+      Stop tick and after `transcript-sync --sid`; neither creates a tail
+      (M12, M14)
+- [ ] C7 rebuild: planted sibling tail sha256 unchanged after sid-dir
+      rebuild (M6, M14)
+- [ ] C7 tests do not create `$HOME/.claude/transcript/` entries (M2, M14)
+- [ ] C7 glossary: `git grep -i` on command/docs/skill/CHANGELOG does not
+      call `main.md` or `meaning-tail.md` an STM packet or compact seed (M1)
+- [ ] C7 docs: transcript-mirror page points compact `@`-attach at
+      `/compact-transcript`; does not recommend `@main.md` as the compact
+      attach; README Advanced + `docs/README.md` index `/compact-transcript`;
+      `docs/commands/compact-transcript.md` exists and is linked (M1, M14)
+- [ ] C7 handoff identity: SPEC-018 Test 40 T1.3 still has no
+      `spine_origin`; no new `/handoff` flags (M12, AC4, AC6)
+- [ ] C7 bump-class: `commands/compact-transcript.md` added + patch version
+      → `check-bump-class.sh` exits 1; + minor → 0 (SPEC-010 B1–B6, AC5)
 
 ## Validation
 
@@ -380,11 +509,16 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
 - [ ] Status promoted to ACTIVE after land
 - [ ] CDT-216 M12 carve-out: handoff reads `main.md` only via SPEC-018 M3f;
       recorder / M4a / M5a / PreCompact / M8 schema unchanged
+- [x] Spec amended against CDT-215 ACs (M1 C7 carve-out; M12 consumer
+      carve-out; M14 meaning-tail; Test 40 unchanged)
+- [ ] `bash skills/transcript-mirror/compact-transcript-test.sh` green
+- [ ] `bash skills/handoff/mirror-spine-test.sh` green (Test 40 T1.3)
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-26 | CDT-215: M1 C7 carve-out — exactly `commands/compact-transcript.md`. M12 consumer carve-out + M14 meaning-tail: `--check --sid` `status=ok` MAY write sibling `<sid>.meaning-tail.md` (≤32768 UTF-8 bytes, trailing turn-blocks, strip title/`^>\s*@`). Fail-closed on miss. Recorder/sync MUST NOT touch `*.meaning-tail.md`. Rebuild MUST NOT eat the sibling. Not Compact seed / STM packet. Not a `/compact` replacement. Minor bump (v1.13.0 at `/release`). |
 | 2026-08-26 | CDT-216: M12 carve-out — `/handoff` prepare MAY read `main.md` + `--check --sid` (SPEC-018 M3f). CLI / PreCompact / M8 schema / recorder / M4a / M5a still frozen. |
 | 2026-08-26 | CDT-217: M4a opt-in SubagentStop agent nest under `<sid>/agents/<id>/`; Stop/SessionEnd agent-key no-op stays v1; parent nest-ref; rebuild preserves `agents/`. OQ2/OQ5/OQ7 locked. |
 | 2026-08-25 | CDT-218: M5a Grok cwd-bucket locate — urlencode file then bounded `.cwd` fallback (dual-engine: bash+jq hook, Python `hosts.py` / transcript-sync). Drop CDT-218 OUT. |
@@ -396,11 +530,17 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
 `skills/transcript-mirror/hook-shim.sh`,
 `skills/transcript-mirror/transcript-sync.sh`,
 `skills/transcript-mirror/transcript-sync.py`,
+`skills/transcript-mirror/strip_main.py`,
+`skills/transcript-mirror/compact-transcript.sh`,
+`skills/transcript-mirror/compact-transcript.py`,
 `skills/transcript-mirror/test.sh`,
 `skills/transcript-mirror/transcript-sync-test.sh`,
+`skills/transcript-mirror/compact-transcript-test.sh`,
 `skills/transcript-parse/hosts.py`,
 `skills/transcript-parse/hosts-grok-locate-test.sh`,
-`docs/commands/transcript-mirror.md`
+`commands/compact-transcript.md`,
+`docs/commands/transcript-mirror.md`,
+`docs/commands/compact-transcript.md`
 
 ## SHOULD
 
@@ -418,6 +558,9 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
   `command`, `timeout` 10, no pipes) **below** the default Stop +
   SessionEnd snippet. SHOULD tell the operator to count meaning-channel
   ticks vs empty/tool-only SubagentStop before considering default-on.
+- SHOULD document `/compact-transcript` as the compact `@`-attach path.
+  SHOULD keep `@main.md` documented as the full unbounded Meaning channel
+  only.
 
 ## MUST NOT
 
@@ -450,10 +593,24 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
 - MUST NOT run transcript-sync without `--check` from `/doctor`.
 - MUST NOT add transcript-sync to doctor `--fix`.
 - MUST NOT remove or replace the Stop recorder (timeout 10 unchanged).
-- MUST NOT add `commands/*.md` (not a new Surface).
+- MUST NOT add `commands/*.md` except `commands/compact-transcript.md`
+  (M1 C7 carve-out). MUST NOT add `commands/transcript-mirror.md`.
 - MUST NOT let `/handoff` write the Transcript mirror store, invoke the
   recorder, or run `transcript-sync` except `--check --sid` (M12 carve-out).
 - MUST NOT treat mirror `cursor` as SPEC-018 `leaf_uuid`.
+- MUST NOT call `main.md` or `<sid>.meaning-tail.md` an STM packet or
+  compact seed.
+- MUST NOT write a meaning-tail inside the sid dir. MUST NOT truncate
+  store `main.md`.
+- MUST NOT create, update, or delete `*.meaning-tail.md` from the
+  recorder or `transcript-sync`.
+- MUST NOT eat `<store-root>/<sid>.meaning-tail.md` on sid-dir rebuild.
+- MUST NOT fail-open `/compact-transcript` (exit 0) on detect miss.
+- MUST NOT fall back to JSONL from `/compact-transcript`.
+- MUST NOT invoke host `/compact` or PreCompact from `/compact-transcript`.
+- MUST NOT add `--bytes` / `--turns` / new `/handoff` flags.
+- MUST NOT change SPEC-018 M3f hit/miss, JSONL identity, `leaf_uuid`, or
+  M8 schema.
 
 ## Open Questions
 
@@ -485,6 +642,13 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
 - [x] CDT-216 OQ-K — `--check --sid` target → **handoff session id**
       (warm discover sid / cold CLI uuid). MUST NOT remap to locate()
       descendant stem.
+- [x] CDT-215 write path → **A**: sibling
+      `<store-root>/<sid>.meaning-tail.md` (not inside the sid dir).
+- [x] CDT-215 seed bound → **32768 UTF-8 bytes** (`wc -c`); longest
+      trailing complete turn-block suffix; newest-block overflow = heading
+      + UTF-8-safe body prefix. Never exceed cap.
+- [x] CDT-215 detect miss → **fail-closed this Surface only** (no JSONL
+      fallback). `/handoff` M3f miss path unchanged.
 
 ## Cross-references
 
@@ -498,8 +662,14 @@ SPEC-018 M3f (CDT-216) MAY **read** `main.md` (strip `@ref`s) when
 - **SPEC-031** — subagent hooks carry **parent** `session_id`; child is
   `agent_id` (verified CC v2.1.212). Nest under parent sid, not a new sid.
 - **SPEC-018** — STM packet / compact seed / PreCompact / M8 schema frozen;
-  M3f MAY read `main.md` when `--check --sid` is `ok` (CDT-216)
-- **SPEC-021** — skill-bash lint on `SKILL.md` fences; PDH stanza if any
+  M3f MAY read `main.md` when `--check --sid` is `ok` (CDT-216). CDT-215
+  `/compact-transcript` is a separate Surface (M14); M3f hit/miss and
+  Test 40 stay unchanged. Bare sid identity = M10b `discover-warm.sh`
+  line 1.
+- **SPEC-021** — skill-bash lint on `SKILL.md` / `commands/*.md` fences;
+  PDH stanza if any
 - **SPEC-022** — `transcript.mirror_lag` (group `transcript`); WARN never
   FAIL; `--check` SoT; `EXPECTED_HOOK_*` frozen
-- **SPEC-010** — docs-drift `docs-hub` for `docs/commands/transcript-mirror.md`
+- **SPEC-010** — docs-drift `cmd-index` / `docs-hub` / `docs-page-links`
+  for `/compact-transcript` + `docs/commands/transcript-mirror.md`;
+  bump-class B1–B6 (new `commands/*.md` ⇒ minor)
