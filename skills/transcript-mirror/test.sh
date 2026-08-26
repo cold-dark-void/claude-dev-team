@@ -4,12 +4,13 @@
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 # T2 helper remains transcript-sync-test.sh (not invoked here).
 #
-# Covers: AC3 unregistered no dirs; AC4 subagent no-op; AC5 updates.jsonl
-# sibling rewrite; AC6 idempotent + rewind; AC8 collapse + thinking header +
-# empty-thinking placeholder; AC9 parent: + dedup; AC10 never-fired create;
-# AC11 --check exit 0; Grok h: --check status=ok after sync;
-# AC2 SessionEnd flushes payload sid only (CDT-221).
+# Covers: AC3 unregistered no dirs; AC4 Stop/SessionEnd agent-key no-op;
+# AC5 updates.jsonl sibling rewrite; AC6 idempotent + rewind; AC8 collapse +
+# thinking header + empty-thinking placeholder; AC9 parent: + dedup;
+# AC10 never-fired create; AC11 --check exit 0; Grok h: --check status=ok
+# after sync; AC2 SessionEnd flushes payload sid only (CDT-221).
 # M5a AC1–AC3 long-cwd .cwd reconstruct + AC2 decoy + AC6 lexical-min (CDT-218).
+# M4a AC1–AC10 SubagentStop nest + nest-ref commute (CDT-217 T3).
 # Tests MUST NOT touch operator ~/.claude/transcript/.
 
 set -u
@@ -72,6 +73,30 @@ pipe_rec() {
   printf '%s' "$rc"
 }
 
+pipe_rec_root() {
+  local root="$1" rc=0
+  printf '%s\n' "$2" | TRANSCRIPT_MIRROR_ROOT="$root" bash "$REC" >"$WORK/rec.out" 2>"$WORK/rec.err" || rc=$?
+  printf '%s' "$rc"
+}
+
+sid_tree() { find "$1" | LC_ALL=C sort; }
+sid_sha() {
+  find "$1" -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum "$f"; done
+}
+
+count_nest_ref() { grep -c -- '^> @agents/worker-1/main.md$' "$1" 2>/dev/null || true; }
+
+walker_bad_ref() {
+  local bad=0 line
+  while IFS= read -r line; do
+    case "$line" in
+      '> @thinking/'*|'> @tool_result/'*|'> @injection/'*|'> @agents/'*) ;;
+      '> @'*) bad=1 ;;
+    esac
+  done < "$1"
+  printf '%s' "$bad"
+}
+
 assert_rc0() {
   if [ "$1" -eq 0 ]; then
     pass "$2"
@@ -129,7 +154,8 @@ done
 # Fixtures present
 for f in claude-uuid.jsonl grok-chat_history.jsonl grok-updates.jsonl \
          rewind-truncate.jsonl fork-parent.jsonl fork-child.jsonl \
-         settings-registered.json never-mirrored.jsonl; do
+         settings-registered.json never-mirrored.jsonl \
+         subagent-child.jsonl parent-with-task.jsonl; do
   if [ -f "$FIX/$f" ]; then
     pass "fixture $f"
   else
@@ -152,23 +178,26 @@ assert_no_block "AC3"
 mkdir -p "$STORE"
 
 # ---------------------------------------------------------------------------
-# AC4 / M4 — SubagentStop and non-empty agent_id are no-ops
+# AC4 / M4 / M4a AC1 — Stop/SessionEnd + agent keys are v1 no-ops (no nest).
+# Empty agent_id SubagentStop also creates no sid (sanitize reject).
 # ---------------------------------------------------------------------------
 copy_aged "$FIX/claude-uuid.jsonl" "$WORK/src/claude-uuid.jsonl"
 SUB_JSON=$(jq -nc --arg p "$WORK/src/claude-uuid.jsonl" \
   '{hook_event_name:"SubagentStop",session_id:"tm-sub",transcript_path:$p,reason:"end_turn"}')
 RC=$(pipe_rec "$SUB_JSON")
-assert_rc0 "$RC" "AC4 SubagentStop exit 0"
+assert_rc0 "$RC" "AC4 SubagentStop empty agent_id exit 0"
+assert_no_block "AC4 SubagentStop empty agent_id"
 if [ -e "$STORE/tm-sub" ]; then
-  fail "AC4 SubagentStop created sid dir"
+  fail "AC4 SubagentStop empty agent_id created sid dir"
 else
-  pass "AC4 SubagentStop no-op (no sid dir)"
+  pass "AC4 SubagentStop empty agent_id no sid dir"
 fi
 
 AGENT_JSON=$(jq -nc --arg p "$WORK/src/claude-uuid.jsonl" \
   '{hookEventName:"Stop",sessionId:"tm-agent",transcriptPath:$p,reason:"end_turn",agent_id:"worker-1"}')
 RC=$(pipe_rec "$AGENT_JSON")
 assert_rc0 "$RC" "AC4 agent_id exit 0"
+assert_no_block "AC4 agent_id"
 if [ -e "$STORE/tm-agent" ]; then
   fail "AC4 agent_id created sid dir"
 else
@@ -179,10 +208,44 @@ AGENT_TYPE_JSON=$(jq -nc --arg p "$WORK/src/claude-uuid.jsonl" \
   '{hook_event_name:"Stop",session_id:"tm-atype",transcript_path:$p,agentType:"explore"}')
 RC=$(pipe_rec "$AGENT_TYPE_JSON")
 assert_rc0 "$RC" "AC4 agentType exit 0"
+assert_no_block "AC4 agentType"
 if [ -e "$STORE/tm-atype" ]; then
   fail "AC4 agentType created sid dir"
 else
   pass "AC4 agentType no-op"
+fi
+
+SE_AGENT_JSON=$(jq -nc --arg p "$WORK/src/claude-uuid.jsonl" \
+  '{hookEventName:"SessionEnd",sessionId:"tm-se-agent",transcriptPath:$p,reason:"end_turn",agent_id:"worker-1"}')
+RC=$(pipe_rec "$SE_AGENT_JSON")
+assert_rc0 "$RC" "AC1 SessionEnd+agent_id exit 0"
+assert_no_block "AC1 SessionEnd+agent_id"
+if [ -e "$STORE/tm-se-agent" ]; then
+  fail "AC1 SessionEnd+agent_id created sid dir"
+else
+  pass "AC1 SessionEnd+agent_id no-op (no sid dir)"
+fi
+
+RC=$(invoke_rec --transcript "$WORK/src/claude-uuid.jsonl" --sid tm-ac4-snap)
+assert_rc0 "$RC" "AC4 snapshot parent exit 0"
+SNAP_TREE=$(sid_tree "$STORE/tm-ac4-snap")
+SNAP_SHA=$(sid_sha "$STORE/tm-ac4-snap")
+STOP_SNAP=$(jq -nc --arg p "$WORK/src/claude-uuid.jsonl" \
+  '{hook_event_name:"Stop",session_id:"tm-ac4-snap",transcript_path:$p,reason:"end_turn",agent_id:"worker-1"}')
+RC=$(pipe_rec "$STOP_SNAP")
+assert_rc0 "$RC" "AC4 Stop+agent_id on existing parent exit 0"
+assert_no_block "AC4 Stop+agent_id snapshot"
+SNAP_TREE2=$(sid_tree "$STORE/tm-ac4-snap")
+SNAP_SHA2=$(sid_sha "$STORE/tm-ac4-snap")
+if [ "$SNAP_TREE" = "$SNAP_TREE2" ] && [ "$SNAP_SHA" = "$SNAP_SHA2" ]; then
+  pass "AC4 Stop+agent_id parent sid sha256 unchanged"
+else
+  fail "AC4 Stop+agent_id mutated existing parent sid dir"
+fi
+if [ -d "$STORE/tm-ac4-snap/agents" ]; then
+  fail "AC4 Stop+agent_id created nest under existing parent"
+else
+  pass "AC4 Stop+agent_id no nest on existing parent"
 fi
 
 # ---------------------------------------------------------------------------
@@ -257,15 +320,9 @@ if grep -q "I'll look that up." "$MAIN" && grep -q 'done with claude fixture.' "
 else
   fail "M2 missing assistant text"
 fi
-BAD_REF=0
-while IFS= read -r line; do
-  case "$line" in
-    '> @thinking/'*|'> @tool_result/'*|'> @injection/'*) ;;
-    '> @'*) BAD_REF=1 ;;
-  esac
-done < "$MAIN"
+BAD_REF=$(walker_bad_ref "$MAIN")
 if [ "$BAD_REF" -eq 0 ]; then
-  pass "M2 @refs relative closed taxonomy"
+  pass "M2 @refs relative closed taxonomy (+ nest-ref)"
 else
   fail "M2 unexpected @ref kind in main.md"
 fi
@@ -903,6 +960,290 @@ if grep -q 'CDT-218-T4-AC6-AAA' "$STORE/tm-dup/main.md" 2>/dev/null \
   pass "M5a AC6 main.md from lexical-min bucket"
 else
   fail "M5a AC6 main.md not lexical-min"
+fi
+
+# ---------------------------------------------------------------------------
+# M4a / CDT-217 T3 — SubagentStop nest (AC2–AC10)
+# ---------------------------------------------------------------------------
+copy_aged "$FIX/subagent-child.jsonl" "$WORK/src/subagent-child.jsonl"
+copy_aged "$FIX/parent-with-task.jsonl" "$WORK/src/parent-with-task.jsonl"
+copy_aged "$FIX/fork-parent.jsonl" "$WORK/src/fork-parent.jsonl"
+CHILD_SRC="$WORK/src/subagent-child.jsonl"
+TASK_SRC="$WORK/src/parent-with-task.jsonl"
+TRAIL_SRC="$WORK/src/fork-parent.jsonl"
+
+# T3.3 AC2 / AC2b / AC10 — nest on first SubagentStop; parent main.md absent
+NEST_JSON=$(jq -nc --arg p "$CHILD_SRC" \
+  '{hook_event_name:"SubagentStop",session_id:"tm-nest",agent_id:"worker-1",agent_transcript_path:$p,reason:"other"}')
+RC=$(pipe_rec "$NEST_JSON")
+assert_rc0 "$RC" "AC2 SubagentStop exit 0"
+assert_no_block "AC2 SubagentStop"
+NEST="$STORE/tm-nest/agents/worker-1"
+if [ -f "$STORE/tm-nest/main.md" ]; then
+  fail "AC2 parent main.md created on SubagentStop"
+else
+  pass "AC2 parent main.md absent"
+fi
+for p in "$NEST/main.md" "$NEST/meta" "$NEST/cursor" "$NEST/thinking" "$NEST/tool_result" "$NEST/injection"; do
+  if [ -e "$p" ]; then
+    pass "AC2 nest has $(basename "$p")"
+  else
+    fail "AC2 nest missing $(basename "$p")"
+  fi
+done
+if grep -q 'CDT-217-T3-CHILD-UNIQUE' "$NEST/main.md" 2>/dev/null; then
+  pass "AC2 nest main.md unique string"
+else
+  fail "AC2 nest missing unique string"
+fi
+if grep -q '^parent: tm-nest$' "$NEST/meta" 2>/dev/null; then
+  pass "AC2 nest meta parent: tm-nest"
+else
+  fail "AC2 nest meta missing parent: $(cat "$NEST/meta" 2>/dev/null)"
+fi
+
+# AC10 empty path: no nest, no M5a reconstruct (cwd would hit long-cwd bucket)
+mkdir -p "$SESS/short-bucket/tm-m5a-skip"
+seed_grok_unique "$SESS/short-bucket/tm-m5a-skip/chat_history.jsonl" "CDT-217-T3-M5A-SHOULD-NOT-APPEAR"
+EMPTY_JSON=$(jq -nc --arg cwd "$LONG_CWD" \
+  '{hook_event_name:"SubagentStop",session_id:"tm-m5a-skip",agent_id:"worker-1",agent_transcript_path:"",transcript_path:"",cwd:$cwd,reason:"other"}')
+RC=$(pipe_rec "$EMPTY_JSON")
+assert_rc0 "$RC" "AC10 empty path exit 0"
+assert_no_block "AC10 empty path"
+if [ -e "$STORE/tm-m5a-skip" ]; then
+  fail "AC10 empty path created sid dir (M5a reconstruct?)"
+else
+  pass "AC10 empty path no nest / no M5a sid dir"
+fi
+if grep -rq 'CDT-217-T3-M5A-SHOULD-NOT-APPEAR' "$STORE" 2>/dev/null; then
+  fail "AC10 empty path M5a-reconstructed grok unique string"
+else
+  pass "AC10 empty path did not reconstruct grok source"
+fi
+
+# AC2b missing file: no nest, .errors.log line, exit 0
+MISS_JSON=$(jq -nc --arg p "$WORK/no-such-child.jsonl" \
+  '{hook_event_name:"SubagentStop",session_id:"tm-miss-child",agent_id:"worker-1",agent_transcript_path:$p,reason:"other"}')
+RC=$(pipe_rec "$MISS_JSON")
+assert_rc0 "$RC" "AC2b missing file exit 0"
+assert_no_block "AC2b missing file"
+if [ -e "$STORE/tm-miss-child" ]; then
+  fail "AC2b missing file created sid dir"
+else
+  pass "AC2b missing file no nest"
+fi
+if grep -q 'no transcript: sid=tm-miss-child' "$STORE/.errors.log" 2>/dev/null; then
+  pass "AC2b missing file .errors.log line"
+else
+  fail "AC2b missing file no .errors.log line"
+fi
+
+# T3.4 AC2c — path-escape agent_id: no nest outside $STORE/<sid>/agents/
+ESC_JSON=$(jq -nc --arg p "$CHILD_SRC" \
+  '{hook_event_name:"SubagentStop",session_id:"tm-esc",agent_id:"../x",agent_transcript_path:$p,reason:"other"}')
+STORE_BEFORE=$(find "$STORE" -type f ! -name '.errors.log' | LC_ALL=C sort)
+RC=$(pipe_rec "$ESC_JSON")
+assert_rc0 "$RC" "AC2c ../x exit 0"
+assert_no_block "AC2c ../x"
+STORE_AFTER=$(find "$STORE" -type f ! -name '.errors.log' | LC_ALL=C sort)
+if [ -e "$STORE/tm-esc" ] || [ -e "$STORE/x" ] || [ -d "$STORE/agents" ]; then
+  fail "AC2c ../x wrote sid/escape path"
+else
+  pass "AC2c ../x no nest"
+fi
+if [ "$STORE_BEFORE" = "$STORE_AFTER" ]; then
+  pass "AC2c ../x no files outside errors.log"
+else
+  fail "AC2c ../x mutated store files besides .errors.log"
+fi
+
+SLASH_JSON=$(jq -nc --arg p "$CHILD_SRC" \
+  '{hook_event_name:"SubagentStop",session_id:"tm-slash",agent_id:"a/b",agent_transcript_path:$p,reason:"other"}')
+RC=$(pipe_rec "$SLASH_JSON")
+assert_rc0 "$RC" "AC2c a/b exit 0"
+assert_no_block "AC2c a/b"
+if [ -d "$STORE/tm-slash/agents/a" ] || [ -e "$STORE/tm-slash/a" ] || [ -e "$STORE/a" ]; then
+  fail "AC2c a/b path-escaped outside agents/<id>/"
+else
+  pass "AC2c a/b no agents/a/ path-escape"
+fi
+SLASH_OUT=0
+if [ -d "$STORE/tm-slash" ]; then
+  while IFS= read -r f; do
+    case "$f" in
+      "$STORE/tm-slash/agents"|"$STORE/tm-slash/agents/"*) ;;
+      *) SLASH_OUT=1 ;;
+    esac
+  done < <(find "$STORE/tm-slash" -mindepth 1 -print)
+fi
+if [ "$SLASH_OUT" -eq 0 ]; then
+  pass "AC2c a/b nothing outside $STORE/tm-slash/agents/"
+else
+  fail "AC2c a/b wrote outside $STORE/tm-slash/agents/"
+fi
+
+# T3.5 AC3 — commute + spawn-adjacent vs trailing
+sub_payload() {
+  jq -nc --arg p "$CHILD_SRC" --arg sid "$1" \
+    '{hook_event_name:"SubagentStop",session_id:$sid,agent_id:"worker-1",agent_transcript_path:$p,reason:"other"}'
+}
+par_payload() {
+  jq -nc --arg p "$2" --arg sid "$1" \
+    '{hook_event_name:"Stop",session_id:$sid,transcript_path:$p,reason:"end_turn"}'
+}
+
+run_commute() {
+  local parent_src="$1" label="$2"
+  local sa="$WORK/store-c3a-$label" sb="$WORK/store-c3b-$label" sid="tm-c3"
+  mkdir -p "$sa" "$sb"
+  RC=$(pipe_rec_root "$sa" "$(sub_payload "$sid")")
+  assert_rc0 "$RC" "AC3 $label sub-then-parent SubagentStop exit 0"
+  assert_no_block "AC3 $label sub-then-parent SubagentStop"
+  RC=$(pipe_rec_root "$sa" "$(par_payload "$sid" "$parent_src")")
+  assert_rc0 "$RC" "AC3 $label sub-then-parent Stop exit 0"
+  assert_no_block "AC3 $label sub-then-parent Stop"
+  RC=$(pipe_rec_root "$sb" "$(par_payload "$sid" "$parent_src")")
+  assert_rc0 "$RC" "AC3 $label parent-then-sub Stop exit 0"
+  assert_no_block "AC3 $label parent-then-sub Stop"
+  RC=$(pipe_rec_root "$sb" "$(sub_payload "$sid")")
+  assert_rc0 "$RC" "AC3 $label parent-then-sub SubagentStop exit 0"
+  assert_no_block "AC3 $label parent-then-sub SubagentStop"
+  local ma="$sa/$sid/main.md" mb="$sb/$sid/main.md"
+  local na="$sa/$sid/agents/worker-1/main.md" nb="$sb/$sid/agents/worker-1/main.md"
+  local ca cb
+  ca=$(count_nest_ref "$ma")
+  cb=$(count_nest_ref "$mb")
+  if [ "$ca" = "1" ] && [ "$cb" = "1" ]; then
+    pass "AC3 $label exactly one nest-ref both orders"
+  else
+    fail "AC3 $label nest-ref count a=$ca b=$cb"
+  fi
+  grep '^> @agents/' "$ma" 2>/dev/null | LC_ALL=C sort > "$WORK/refs-a-$label"
+  grep '^> @agents/' "$mb" 2>/dev/null | LC_ALL=C sort > "$WORK/refs-b-$label"
+  if cmp -s "$WORK/refs-a-$label" "$WORK/refs-b-$label"; then
+    pass "AC3 $label commute nest-ref set"
+  else
+    fail "AC3 $label commute nest-ref set diverged"
+  fi
+  if [ -f "$na" ] && [ -f "$nb" ] \
+     && grep -q 'CDT-217-T3-CHILD-UNIQUE' "$na" \
+     && grep -q 'CDT-217-T3-CHILD-UNIQUE' "$nb"; then
+    pass "AC3 $label nest unique string both orders"
+  else
+    fail "AC3 $label nest missing unique string"
+  fi
+}
+
+run_commute "$TASK_SRC" "spawn"
+SPAWN_MAIN="$WORK/store-c3a-spawn/tm-c3/main.md"
+if [ -f "$SPAWN_MAIN" ]; then
+  REF_LN=$(grep -n '^> @agents/worker-1/main.md$' "$SPAWN_MAIN" | head -1 | cut -d: -f1)
+  TASK_LN=$(grep -n 'spawning worker' "$SPAWN_MAIN" | head -1 | cut -d: -f1)
+  AFTER_LN=$(grep -n 'parent after spawn' "$SPAWN_MAIN" | head -1 | cut -d: -f1)
+  if [ -n "${REF_LN:-}" ] && [ -n "${TASK_LN:-}" ] && [ -n "${AFTER_LN:-}" ] \
+     && [ "$TASK_LN" -lt "$REF_LN" ] && [ "$REF_LN" -lt "$AFTER_LN" ]; then
+    pass "AC3 spawn-adjacent nest-ref (after Task, before later turn)"
+  else
+    fail "AC3 spawn-adjacent place task=${TASK_LN:-none} ref=${REF_LN:-none} after=${AFTER_LN:-none}"
+  fi
+  BAD_REF=$(walker_bad_ref "$SPAWN_MAIN")
+  if [ "$BAD_REF" -eq 0 ]; then
+    pass "AC9 walker allows > @agents/ nest-ref"
+  else
+    fail "AC9 walker rejected > @agents/ nest-ref"
+  fi
+else
+  fail "AC3 spawn commute produced no parent main.md"
+fi
+
+run_commute "$TRAIL_SRC" "trail"
+TRAIL_MAIN="$WORK/store-c3a-trail/tm-c3/main.md"
+if [ -f "$TRAIL_MAIN" ]; then
+  REF_LN=$(grep -n '^> @agents/worker-1/main.md$' "$TRAIL_MAIN" | head -1 | cut -d: -f1)
+  LAST_LN=$(grep -n 'parent assistant turn' "$TRAIL_MAIN" | head -1 | cut -d: -f1)
+  if [ -n "${REF_LN:-}" ] && [ -n "${LAST_LN:-}" ] && [ "$REF_LN" -gt "$LAST_LN" ]; then
+    pass "AC3 trailing nest-ref (after last meaning-channel block)"
+  else
+    fail "AC3 trailing place last=${LAST_LN:-none} ref=${REF_LN:-none}"
+  fi
+else
+  fail "AC3 trail commute produced no parent main.md"
+fi
+
+# T3.6 AC7 — parent rebuild preserves agents/ + nest-ref
+RC=$(invoke_rec --transcript "$TASK_SRC" --sid tm-reb)
+assert_rc0 "$RC" "AC7 parent setup exit 0"
+assert_no_block "AC7 parent setup"
+REB_NEST=$(jq -nc --arg p "$CHILD_SRC" \
+  '{hook_event_name:"SubagentStop",session_id:"tm-reb",agent_id:"worker-1",agent_transcript_path:$p,reason:"other"}')
+RC=$(pipe_rec "$REB_NEST")
+assert_rc0 "$RC" "AC7 nest setup exit 0"
+assert_no_block "AC7 nest setup"
+if [ -f "$STORE/tm-reb/agents/worker-1/main.md" ] \
+   && grep -q '^> @agents/worker-1/main.md$' "$STORE/tm-reb/main.md"; then
+  pass "AC7 pre-rebuild nest + nest-ref present"
+else
+  fail "AC7 pre-rebuild missing nest or nest-ref"
+fi
+NEST_SHA=$(sha256sum "$STORE/tm-reb/agents/worker-1/main.md" | awk '{print $1}')
+copy_aged "$FIX/parent-with-task.jsonl" "$WORK/src/rebuild-parent-2.jsonl"
+RC=$(invoke_rec --transcript "$WORK/src/rebuild-parent-2.jsonl" --sid tm-reb)
+assert_rc0 "$RC" "AC7 parent rebuild exit 0"
+assert_no_block "AC7 parent rebuild"
+if [ -f "$STORE/tm-reb/agents/worker-1/main.md" ]; then
+  pass "AC7 agents/worker-1/main.md survived parent rebuild"
+else
+  fail "AC7 nest wiped by parent rebuild"
+fi
+NEST_SHA2=$(sha256sum "$STORE/tm-reb/agents/worker-1/main.md" 2>/dev/null | awk '{print $1}')
+if [ -n "$NEST_SHA" ] && [ "$NEST_SHA" = "$NEST_SHA2" ]; then
+  pass "AC7 nest main.md sha256 unchanged across rebuild"
+else
+  fail "AC7 nest main.md mutated across rebuild"
+fi
+if [ "$(count_nest_ref "$STORE/tm-reb/main.md")" = "1" ]; then
+  pass "AC7 nest-ref still in parent main.md after rebuild"
+else
+  fail "AC7 nest-ref missing after parent rebuild"
+fi
+if grep -q 'CDT-217-T3-CHILD-UNIQUE' "$STORE/tm-reb/agents/worker-1/main.md" 2>/dev/null; then
+  pass "AC7 nest unique string survived rebuild"
+else
+  fail "AC7 nest unique string lost on rebuild"
+fi
+
+# T3.7 AC8 — --agent CLI
+RC=$(invoke_rec --transcript "$CHILD_SRC" --sid tm-cli --agent worker-1)
+assert_rc0 "$RC" "AC8 --transcript --sid --agent exit 0"
+assert_no_block "AC8 --agent nest"
+if [ -f "$STORE/tm-cli/agents/worker-1/main.md" ] \
+   && grep -q 'CDT-217-T3-CHILD-UNIQUE' "$STORE/tm-cli/agents/worker-1/main.md"; then
+  pass "AC8 --agent creates nest"
+else
+  fail "AC8 --agent did not create nest"
+fi
+CLI_BEFORE=$(find "$STORE" -type f ! -name '.errors.log' | LC_ALL=C sort)
+RC=$(invoke_rec --agent worker-1 </dev/null)
+assert_rc0 "$RC" "AC8 --agent without --transcript exit 0"
+assert_no_block "AC8 --agent without --transcript"
+CLI_AFTER=$(find "$STORE" -type f ! -name '.errors.log' | LC_ALL=C sort)
+if [ "$CLI_BEFORE" = "$CLI_AFTER" ]; then
+  pass "AC8 --agent without --transcript creates nothing"
+else
+  fail "AC8 --agent without --transcript mutated store"
+fi
+
+# T3.8 AC6 / AC9 — walker on rebuilt parent; M5a still green (block above)
+BAD_REF=$(walker_bad_ref "$STORE/tm-reb/main.md")
+if [ "$BAD_REF" -eq 0 ]; then
+  pass "AC9 M2 walker allows > @agents/ on rebuilt parent"
+else
+  fail "AC9 M2 walker unexpected @ref on rebuilt parent"
+fi
+if grep -q 'CDT-218-T4-AC1-LONG-CWD' "$STORE/tm-long/main.md" 2>/dev/null; then
+  pass "AC9 M5a long-cwd still green after nest tests"
+else
+  fail "AC9 M5a long-cwd regress after nest tests"
 fi
 
 # ---------------------------------------------------------------------------

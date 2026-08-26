@@ -1,0 +1,4 @@
+{"uuid":"pt-u1","type":"user","message":{"role":"user","content":[{"type":"text","text":"parent spawn user"}]}}
+{"uuid":"pt-a1","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"spawning worker"},{"type":"tool_use","id":"tu-worker-1","name":"Task","input":{"agent_id":"worker-1","description":"nest fixture","prompt":"do the nested work"}}]}}
+{"uuid":"pt-u2","type":"user","message":{"role":"user","content":[{"type":"text","text":"parent after spawn"}]}}
+{"uuid":"pt-a2","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"parent wrap"}]}}

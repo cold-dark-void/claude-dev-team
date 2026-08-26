@@ -16,7 +16,8 @@ text) plus lossless **Channel sidecars**. This is **not** an STM packet and
 Governing spec: `specs/core/SPEC-036-transcript-mirror.md`.
 
 Store: `~/.claude/transcript/<session-id>/` (`main.md`, `thinking/`,
-`tool_result/`, `injection/`, `meta`, `cursor`). Identity is `session_id`.
+`tool_result/`, `injection/`, `meta`, `cursor`; optional `agents/<id>/`
+with the same six entries). Identity is `session_id`.
 
 ## Enablement
 
@@ -65,6 +66,50 @@ Opt-in is hook registration. Default is off. **Do not** add this hook through
 
 SessionEnd missing on a host is a graceful absence.
 
+## SubagentStop (separate opt-in)
+
+Do **not** add SubagentStop to the JSON above.
+It is a separate opt-in (same shim, `timeout` 10, no pipes).
+Do **not** default-on.
+Measure Meaning-channel ticks vs empty or tool-only SubagentStop first.
+
+Merge this extra event. Do not replace the Stop + SessionEnd JSON.
+
+```json
+{
+  "hooks": {
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/transcript-mirror.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Nest: `~/.claude/transcript/<sid>/agents/<id>/` (same six entries).
+Parent nest-ref (exactly one):
+
+```
+> @agents/worker-1/main.md
+```
+
+Stop/SessionEnd with a non-empty `agent_id` stay no-ops.
+If a host has no SubagentStop event, the settings entry stays inert.
+
+| Source | Meaning-channel | Empty/tool-only | Ratio | Status |
+|--------|-----------------|-----------------|-------|--------|
+| Live hook | — | — | — | unmeasured (no live SubagentStop) |
+| `--agent` CLI | 2 | 0 | 1.00 | T3 AC8 (`subagent-child.jsonl`) |
+
+This report is ship-blocking for default-on.
+
 ## Grok Stop holes
 
 Grok Stop may omit `transcript_path`. Reconstruct `chat_history.jsonl` with urlencode then `.cwd` fallback. A missing reconstructed file is a silent no-op.
@@ -73,7 +118,11 @@ Grok Stop may omit `transcript_path`. Reconstruct `chat_history.jsonl` with urle
 
 ```
 bash skills/transcript-mirror/transcript-mirror.sh --transcript FILE.jsonl --sid SESSION-ID
+bash skills/transcript-mirror/transcript-mirror.sh --transcript FILE.jsonl --sid SESSION-ID --agent AGENT-ID
 ```
+
+`--agent AGENT-ID` writes the nest under that sid.
+`--agent` without `--transcript` creates no dirs.
 
 The recorder always exits 0. It does not emit `decision: block`.
 
@@ -99,6 +148,9 @@ If this project registered the recorder (any `hooks.*.command` contains
 `transcript-mirror.sh` in `.claude/settings.json` or
 `.claude/settings.local.json`), also locate cwd sessions that were never
 mirrored.
+
+`transcript-sync` does not invent, enumerate, or refresh agent nests.
+Use the live SubagentStop hook or the recorder `--agent` flag.
 
 `--check` prints a lag report (cursor vs source growth / missing mirror).
 It always exits 0.

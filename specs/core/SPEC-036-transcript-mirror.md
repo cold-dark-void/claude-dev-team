@@ -12,9 +12,11 @@ SessionEnd hook recorder appends as the session happens (bash + jq only). A
 `transcript-sync` CLI is the acceptance-tested catch-up path (Python; `hosts.py`
 locate + freshness). Storage is global and session-keyed at
 `~/.claude/transcript/<sid>/`. Enablement is hook registration itself (default
-off). The mirror is **not** an STM packet and **not** a compact seed — those
-terms stay with `/handoff` (SPEC-018). This spec does not change `/handoff`,
-PreCompact rescue, or M8 cache.
+off). Opt-in **SubagentStop** (CDT-217) writes an **agent nest** under
+`<sid>/agents/<id>/` with a nest-ref from parent `main.md`; Stop/SessionEnd
+with a non-empty agent key stay v1 no-ops. The mirror is **not** an STM packet
+and **not** a compact seed — those terms stay with `/handoff` (SPEC-018). This
+spec does not change `/handoff`, PreCompact rescue, or M8 cache.
 
 ## MUST
 
@@ -27,31 +29,82 @@ PreCompact rescue, or M8 cache.
   compact seed.
 - **M2 — Store layout.** Default root MUST be `~/.claude/transcript/<sid>/`
   containing `main.md`, `thinking/`, `tool_result/`, `injection/`, `meta`, and
-  `cursor`. `@refs` in `main.md` MUST be paths relative to that sid dir
-  (`@thinking/…`, `@tool_result/…`, `@injection/…`). Identity is `session_id`,
-  not repo / worktree. Tests MUST set `TRANSCRIPT_MIRROR_ROOT` to a temp dir
-  and MUST NOT write the operator's real `~/.claude/transcript/`. That env is a
-  harness override only — user-facing docs MUST NOT document it as operator
-  config.
+  `cursor`. An optional **agent nest** MUST live at
+  `<sid>/agents/<sanitized-agent-id>/` with the same six entries (same layout,
+  own `cursor`). `@refs` in parent `main.md` MUST be paths relative to that
+  sid dir (`@thinking/…`, `@tool_result/…`, `@injection/…`, and nest-refs
+  `@agents/<id>/main.md`). Identity is `session_id`, not repo / worktree.
+  Nest identity is `(session_id, sanitized agent_id)`. Tests MUST set
+  `TRANSCRIPT_MIRROR_ROOT` to a temp dir and MUST NOT write the operator's
+  real `~/.claude/transcript/`. That env is a harness override only —
+  user-facing docs MUST NOT document it as operator config.
 - **M3 — Enablement.** Opt-in MUST be a user-owned **second** `hooks.Stop[]`
   command (after `stop-review.sh`) **and** a `hooks.SessionEnd[]` command, both
   `timeout` 10, pointing at a thin project shim that execs the plugin recorder.
   The settings.json `command` string MUST NOT contain pipe characters (PDH
   lookup MUST live inside the `.sh`, same pattern as `precompact-rescue.sh`).
   `/setup orchestration` greenfield `hooks.Stop` MUST remain `stop-review.sh`
-  only. `plugin.json` MUST NOT auto-register Stop or SessionEnd. Doctor
-  `EXPECTED_HOOK_*` / `hooks.events` MUST NOT require the recorder or
-  SessionEnd (SPEC-022 `transcript.mirror_lag` is additive; hook SoT
-  unchanged). `hooks.hygiene` MUST stay silent for `transcript-mirror.sh`
-  (user-owned; basename ∉ `EXPECTED_HOOK_SCRIPTS`). Unregistered (no hook
-  stdin, no `--sid`/`--transcript`) MUST create no new store dirs.
+  only. `plugin.json` MUST NOT auto-register Stop, SessionEnd, or
+  SubagentStop. Doctor `EXPECTED_HOOK_*` / `hooks.events` MUST NOT require
+  the recorder, SessionEnd, or SubagentStop (SPEC-022 `transcript.mirror_lag`
+  is additive; hook SoT unchanged). `hooks.hygiene` MUST stay silent for
+  `transcript-mirror.sh` (user-owned; basename ∉ `EXPECTED_HOOK_SCRIPTS`).
+  Default docs/SKILL settings snippet MUST stay Stop + SessionEnd only.
+  SubagentStop is a **separate** opt-in event (same shim `command`, no
+  pipes). Unregistered (no hook stdin, no `--sid`/`--transcript`) MUST
+  create no new store dirs.
 - **M4 — Fail-open.** The recorder MUST always exit 0 and MUST NOT emit
   `decision: block`. Failures MUST append one line to `<store-root>/.errors.log`
   (root, not sid dir). Cursor MUST NOT advance if `main.md` append failed.
   An incomplete or killed tick MUST NOT leave `cursor` past unwritten content
   (write `cursor` only after a successful append, via temp file + `mv`).
-  Subagent MUST no-op: `hook_event_name`/`hookEventName` is `SubagentStop`, **or**
-  any of `agent_id` / `agentId` / `agent_type` / `agentType` is non-empty.
+  Stop and SessionEnd MUST no-op when any of `agent_id` / `agentId` /
+  `agent_type` / `agentType` is non-empty (v1; AC1). That no-op MUST leave
+  the store byte-identical to v1 (no nest dir, no parent mutation).
+  `SubagentStop` is **not** this no-op — see **M4a**.
+- **M4a — Agent nest (CDT-217; opt-in SubagentStop).** Opt-in tick is
+  stdin `hook_event_name` // `hookEventName` equal to `SubagentStop`
+  (AC1b). Same shim as Stop/SessionEnd. `/setup orchestration` and
+  `plugin.json` MUST NOT register SubagentStop. Default docs snippet
+  MUST NOT include it. Measure signal ratio; MUST NOT default-on.
+  **Identity.** `session_id` // `sessionId` is the parent sid
+  (SPEC-031: subagent hooks carry parent sid). Nest directory name is
+  sanitized `agent_id` // `agentId` only — MUST NOT use `agent_type` /
+  `agentType` as the nest id. Empty `agent_id` after sanitize: log one
+  `.errors.log` line, create no nest, exit 0.
+  **Sanitize (AC2c).** Map with `tr -c 'A-Za-z0-9._-' '_'`, then
+  `cut -c1-64`. Reject (log, no nest) if the result is empty, `.`, `..`,
+  starts with `.`, or contains `..` or `/`. MUST NOT write outside
+  `<sid>/agents/<sanitized-id>/`.
+  **Source path (AC2b, AC10).** Resolve
+  `agent_transcript_path` // `agentTranscriptPath` else
+  `transcript_path` // `transcriptPath`. Honor `updates.jsonl` → sibling
+  `chat_history.jsonl` when that sibling exists. MUST NOT run M5a Grok
+  cwd-bucket reconstruct on SubagentStop. Empty or missing file: log,
+  create no nest, exit 0 (fail-open).
+  **Flush (OQ5 / AC10).** SubagentStop MUST flush regardless of
+  `reason` (including empty and values that Stop would no-op).
+  **Create (OQ7 / AC2).** First successful SubagentStop MUST create
+  `<sid>/agents/<id>/` with the M2 six entries even when
+  `<sid>/main.md` is missing. Nest `meta` MUST include `parent: <sid>`.
+  Nest `cursor` follows **M6** inside the nest dir.
+  **Parent nest-ref (AC3, OQ7).** A nest-ref is one line
+  `> @agents/<id>/main.md` in parent `main.md`. Each nest id MUST appear
+  exactly once. Placement: spawn-adjacent (after the parent assistant
+  turn whose Task/Agent `tool_use` names that agent) when that turn
+  exists in the parent source; otherwise trailing (after the last
+  meaning-channel block). Insert on the first **parent** meaning-channel
+  write after the nest exists (Stop / SessionEnd / manual without
+  `--agent`). SubagentStop-first (no parent `main.md` yet) MUST still
+  create the nest and MUST add the nest-ref on the next parent write.
+  Commute: SubagentStop-then-parent-Stop vs parent-Stop-then-SubagentStop
+  MUST leave the same nest-ref set in parent `main.md` (exactly one line
+  per nest id). Parent rebuild (`emit_tick`) MUST re-apply nest-refs
+  from existing `<sid>/agents/*/main.md` so they survive a full rewrite.
+  **Manual (OQ2 / AC8).**
+  `transcript-mirror.sh --transcript FILE --sid SID --agent ID`
+  writes that nest. `transcript-sync` MUST NOT invent, enumerate, or
+  refresh agent nests (live hook + `--agent` only).
 - **M5 — Dual-host locate (hook = bash + jq only).** Claude: read
   `transcript_path` // `transcriptPath`. Grok: if that path ends with
   `updates.jsonl` and sibling `chat_history.jsonl` exists, switch to the
@@ -61,12 +114,16 @@ PreCompact rescue, or M8 cache.
   // `sessionId` else `$GROK_SESSION_ID`). Missing reconstructed file:
   silent no-op (no sid dir; `.errors.log` unchanged). Parse both stdin
   casings (`hook_event_name` // `hookEventName`, `session_id` //
-  `sessionId`, `transcript_path` // `transcriptPath`, agent keys above).
+  `sessionId`, `transcript_path` // `transcriptPath`, agent keys above,
+  plus `agent_transcript_path` // `agentTranscriptPath`).
   Stop: process only when `reason` is empty, `end_turn`, `channel_closed`, or
   `shutdown`; other reasons no-op. SessionEnd MUST flush (ignore `reason`)
-  unless the M4 subagent rule applies. Manual:
-  `transcript-mirror.sh --transcript <file.jsonl> --sid <session-id>`.
+  unless the M4 Stop/SessionEnd agent-key no-op applies. SubagentStop
+  reason is M4a (always flush). Manual:
+  `transcript-mirror.sh --transcript <file.jsonl> --sid <session-id>
+  [--agent <agent-id>]`.
   SessionEnd absent on a host is graceful absence (settings entry inert).
+  SubagentStop absent is graceful absence (v1 no-op for agent keys).
 - **M5a — Grok cwd-bucket locate (CDT-218; dual-engine).** Stop/SessionEnd
   reconstruct (bash + jq only) and `hosts.py` locate / `grok_cwd_bucket`
   (Python; transcript-sync only) MUST implement the same contract. Python
@@ -113,6 +170,12 @@ PreCompact rescue, or M8 cache.
   `main.md`). Two-phase append (tick A then tick B) MUST be byte-identical to
   one-shot over the same source. Path change vs stored source-path: treat as
   identity-absent (rebuild).
+  **Agent nest (AC7).** Each nest dir has its own `cursor`. Nest rebuild
+  MUST NOT mutate parent `main.md` / parent `cursor`. Parent rebuild MUST
+  preserve `<sid>/agents/` (move the tree aside to a **sibling** of the
+  sid dir, never under `$WORK` / the RETURN `rm -rf` temp, then restore
+  after swap). A parent rebuild that drops `agents/` is a spec fail.
+  After parent rebuild, re-apply M4a nest-refs from the preserved tree.
 - **M7 — Meaning channel and sidecars.** Closed taxonomy:
   `thinking | tool_result | injection`. `main.md` MUST contain user + assistant
   text verbatim after wrapper strip. Route to sidecars (lossless):
@@ -123,7 +186,9 @@ PreCompact rescue, or M8 cache.
   - `thinking` blocks and Grok `type=reasoning` → `thinking/`
   Empty or encrypted thinking/reasoning MUST write a placeholder
   (`(signature-only, no plaintext)` or `(encrypted reasoning, no plaintext)`).
-  MUST NOT invent a fourth sidecar kind.
+  MUST NOT invent a fourth sidecar kind. A line `> @agents/<id>/main.md`
+  is a **nest-ref** (pointer to an agent nest), not a Channel sidecar.
+  Closed sidecar taxonomy stays `thinking | tool_result | injection`.
 - **M8 — Format.** `main.md` section headers MUST be `## user` and
   `## assistant`. Consecutive `@tool_result` **only** lines (no meaning-channel
   text between them) MUST collapse to one `@ref` per turn. `@thinking` MUST
@@ -155,7 +220,9 @@ PreCompact rescue, or M8 cache.
   Grok cwd bucket (M5a `grok_cwd_bucket`: urlencode directory if it
   exists, else `.cwd`-matched bucket), then `hosts.py` locate **by sid**.
   MUST NOT call `hosts.locate(host, None, cwd)` (newest-only). Unregistered no-args MUST
-  NOT create new sid dirs. Fail-open: exit 0 always. For opted-in
+  NOT create new sid dirs. MUST NOT invent, enumerate, or refresh
+  `<sid>/agents/` (OQ2: live SubagentStop + recorder `--agent` only).
+  Fail-open: exit 0 always. For opted-in
   projects, periodic `transcript-sync` (cron or equivalent) is **mandatory**
   in docs — not optional. Stop is the fast path. SessionEnd is an
   opportunistic flush. Docs MUST NOT inspect crontab.
@@ -184,18 +251,24 @@ PreCompact rescue, or M8 cache.
   `precompact-capture.sh`, or M8 cache files.
 - **M13 — Tests and docs.** `skills/transcript-mirror/test.sh` MUST use
   `$TMPDIR` / `TRANSCRIPT_MIRROR_ROOT` / `GROK_SESSIONS_DIR` fixtures,
-  cover dual-host, and cover M1–M11 (including never-fired Stop +
+  cover dual-host, and cover M1–M11 plus M4a (including never-fired Stop +
   registered + existing transcript → sync creates a correct mirror; two
   cwd-bucket sessions where the older was never mirrored → no-args
   creates the older sid; dual-host Claude `*.jsonl` + Grok
   `chat_history.jsonl`; long-cwd `.cwd` reconstruct AC1–AC3 and AC2
-  decoy; SessionEnd with empty `transcript_path`).
+  decoy; SessionEnd with empty `transcript_path`; SubagentStop nest;
+  Stop-with-agent-keys byte-identical to v1; commute nest-ref; rebuild
+  preserves `agents/`; M5a suite still green).
   `hosts-grok-locate-test.sh` MUST cover M5a short-cwd plus AC1/AC2/AC6.
   `transcript-sync-test.sh` MUST include one `--check` line for the
-  long-cwd sid when opted-in. Skill YAML required. Recorder MUST ship in
+  long-cwd sid when opted-in, and MUST assert no-args / `--sid` does not
+  create `agents/` dirs. Skill YAML required. Recorder MUST ship in
   the plugin package (`skills/transcript-mirror/transcript-mirror.sh`),
   not `tools/transcript-mirror-poc.sh`. Docs “Grok Stop holes” MUST
-  describe urlencode then `.cwd` fallback.
+  describe urlencode then `.cwd` fallback. Docs MUST document
+  SubagentStop as a separate opt-in (same shim), MUST tell the operator
+  to measure meaning-channel vs empty-tick signal ratio, and MUST NOT
+  add SubagentStop to the default Stop + SessionEnd snippet.
 
 ## Test
 
@@ -206,7 +279,21 @@ PreCompact rescue, or M8 cache.
 - [ ] Unregistered invocation (no stdin, no flags) creates no store dirs (M3)
 - [ ] Recorder exit code is 0 on jq failure; `cursor` unchanged when append
       fails; `.errors.log` gains a line (M4)
-- [ ] SubagentStop and non-empty `agent_id` are no-ops (M4)
+- [ ] Stop/SessionEnd with non-empty `agent_id` / `agentType` are v1
+      no-ops: no nest dir, parent sid dir sha256 unchanged (M4, AC1, AC4)
+- [ ] SubagentStop creates `<sid>/agents/<id>/` with M2 layout even when
+      parent `main.md` is missing; nest `meta` has `parent: <sid>` (M4a, AC2)
+- [ ] SubagentStop source is `agent_transcript_path` else `transcript_path`;
+      MUST NOT M5a-reconstruct; missing file: no nest, exit 0 (M4a, AC2b, AC10)
+- [ ] Bad `agent_id` (`..`, `/`, empty after sanitize) creates no nest
+      and does not write outside `<sid>/agents/` (M4a, AC2c)
+- [ ] Parent `main.md` has exactly one `> @agents/<A>/main.md`; commute
+      SubagentStop↔parent Stop; spawn-adjacent or trailing (M4a, AC3)
+- [ ] Parent rebuild preserves `agents/` and re-emits nest-refs (M6, AC7)
+- [ ] `--agent` CLI writes the nest; no-args/`--sid` sync does not
+      invent `agents/` (M4a, M10, AC8)
+- [ ] SubagentStop `reason=other` still flushes (M4a, AC10)
+- [ ] Nest-ref is not a fourth sidecar kind; M5a tests still green (M7, AC9)
 - [ ] Claude `transcript_path` and Grok `updates.jsonl` → sibling
       `chat_history.jsonl`; both stdin casings parse (M5)
 - [ ] Missing Grok reconstructed file is a silent no-op (M5, AC2: no
@@ -269,6 +356,8 @@ PreCompact rescue, or M8 cache.
       sessions; `--check` SoT)
 - [x] Spec amended against CDT-218 ACs (M5a dual-engine `.cwd` locate;
       CDT-218 OUT dropped)
+- [x] Spec amended against CDT-217 ACs (M4a SubagentStop agent nest;
+      Stop agent-key no-op stays; OQ2/OQ5/OQ7 locked)
 - [ ] `bash skills/transcript-mirror/test.sh` green
 - [ ] `bash skills/transcript-parse/hosts-grok-locate-test.sh` green
 - [ ] `bash skills/transcript-mirror/transcript-sync-test.sh` green
@@ -280,6 +369,7 @@ PreCompact rescue, or M8 cache.
 
 | Date | Change |
 |------|--------|
+| 2026-08-26 | CDT-217: M4a opt-in SubagentStop agent nest under `<sid>/agents/<id>/`; Stop/SessionEnd agent-key no-op stays v1; parent nest-ref; rebuild preserves `agents/`. OQ2/OQ5/OQ7 locked. |
 | 2026-08-25 | CDT-218: M5a Grok cwd-bucket locate — urlencode file then bounded `.cwd` fallback (dual-engine: bash+jq hook, Python `hosts.py` / transcript-sync). Drop CDT-218 OUT. |
 | 2026-08-25 | CDT-221: M10 no-args = ALL cwd-bucket sessions (not newest-only); M11 doctor `transcript.mirror_lag` WARN maps `--check` stdout; OQ1 Option A in; sandbox-write OQ closed as not proven (AC5+AC8) |
 | 2026-08-25 | Initial DRAFT — CDT-220 transcript mirror v1 (Option B) |
@@ -307,19 +397,32 @@ PreCompact rescue, or M8 cache.
 - SHOULD document `transcript-sync` (cron or equivalent periodic/on-demand)
   as mandatory for opted-in projects. Stop is the fast path. SessionEnd
   is opportunistic. Do not inspect crontab.
+- SHOULD document SubagentStop as a second opt-in event (same shim
+  `command`, `timeout` 10, no pipes) **below** the default Stop +
+  SessionEnd snippet. SHOULD tell the operator to count meaning-channel
+  ticks vs empty/tool-only SubagentStop before considering default-on.
 
 ## MUST NOT
 
 - MUST NOT add the recorder to `skills/init-orchestration` greenfield Stop
   array, `HOOKS=` list, or `check-hook-templates.sh`.
+- MUST NOT add SubagentStop to greenfield settings, `plugin.json`, or
+  doctor `EXPECTED_HOOK_*`.
+- MUST NOT default-on SubagentStop in the docs/SKILL Stop + SessionEnd
+  snippet (signal-ratio measurement first).
+- MUST NOT run M5a Grok reconstruct on SubagentStop.
+- MUST NOT invent agent nests from `transcript-sync` no-args / `--sid` /
+  `--check`.
+- MUST NOT treat `@agents/…` as a fourth Channel sidecar kind.
+- MUST NOT drop `<sid>/agents/` on parent rebuild.
 - MUST NOT extend SPEC-022 / doctor `EXPECTED_HOOK_EVENTS` /
   `EXPECTED_HOOK_SCRIPTS`.
 - MUST NOT register hooks from `.claude-plugin/plugin.json`.
 - MUST NOT put pipe operators in the settings.json hook `command` string.
 - MUST NOT document `TRANSCRIPT_MIRROR_ROOT` in user-facing docs.
 - MUST NOT re-implement `hosts.py` locate inside the Python backstop.
-- MUST NOT call Python from the Stop/SessionEnd recorder or any helper
-  it sources.
+- MUST NOT call Python from the Stop/SessionEnd/SubagentStop recorder or
+  any helper it sources.
 - MUST NOT invent Grok's slug+hash write algorithm (`.cwd` content match
   only).
 - MUST NOT recurse into session dirs or parse JSONL when resolving `.cwd`.
@@ -347,6 +450,15 @@ PreCompact rescue, or M8 cache.
       under a sandboxed hook env is **not proven here**. AC5 fail-open +
       AC8 (missing without an `.errors.log` line still WARNs) cover the
       symptom.
+- [x] OQ2 — agent-nest catch-up → **live SubagentStop + recorder
+      `--agent` only**. `transcript-sync` MUST NOT invent children.
+- [x] OQ5 — SubagentStop `reason` → **always flush** (ignore `reason`).
+- [x] OQ7 — create vs parent `@ref` → **create nest on first
+      SubagentStop**; parent nest-ref on first parent meaning-channel
+      write (commute).
+- [ ] Live SubagentStop payload field `agent_transcript_path` is
+      **unverified**. Spec prefers it then `transcript_path`. Tests use
+      fixtures. Missing both: fail-open, no nest.
 
 ## Cross-references
 
@@ -357,6 +469,8 @@ PreCompact rescue, or M8 cache.
   This ticket extends Grok cwd-bucket resolve (urlencode then `.cwd`).
   `/retro` behavior is unchanged beyond existing suite green.
 - **SPEC-016** — store is global session-keyed, not `$MROOT` / worktree
+- **SPEC-031** — subagent hooks carry **parent** `session_id`; child is
+  `agent_id` (verified CC v2.1.212). Nest under parent sid, not a new sid.
 - **SPEC-018** — STM packet / compact seed / PreCompact / M8 frozen
 - **SPEC-021** — skill-bash lint on `SKILL.md` fences; PDH stanza if any
 - **SPEC-022** — `transcript.mirror_lag` (group `transcript`); WARN never

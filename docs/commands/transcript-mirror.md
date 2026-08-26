@@ -59,12 +59,85 @@ Both commands use `timeout` 10.
 }
 ```
 
+## SubagentStop (separate opt-in)
+
+SubagentStop is a **separate** opt-in.
+Do **not** add it to the Stop + SessionEnd JSON above.
+Default stays Stop + SessionEnd only.
+Do **not** default-on SubagentStop.
+
+Use the same shim as Stop and SessionEnd.
+Set `timeout` to 10.
+Do not put `|` in the `command` string.
+
+Merge this extra event into `.claude/settings.json`.
+Do not replace the Stop + SessionEnd JSON.
+
+```json
+{
+  "hooks": {
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/transcript-mirror.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The recorder writes an **agent nest** at
+`~/.claude/transcript/<sid>/agents/<id>/`.
+The nest uses the same six entries as the parent sid dir.
+Parent `main.md` gets exactly one nest-ref per nest:
+
+```
+> @agents/worker-1/main.md
+```
+
+Stop and SessionEnd with a non-empty `agent_id` stay no-ops.
+They do not write a nest.
+If a host has no SubagentStop event, the settings entry stays inert.
+`/setup orchestration` and `plugin.json` do not register SubagentStop.
+
+## Signal ratio
+
+Do not default-on SubagentStop.
+Measure Meaning-channel ticks against empty or tool-only ticks first.
+
+How to measure:
+
+1. Register SubagentStop as the separate opt-in above.
+2. Run sessions that spawn subagents.
+3. Count nest `main.md` ticks that contain user or assistant text.
+4. Count ticks that are empty or tool-only.
+5. Compute ratio = meaning-channel ticks / total SubagentStop ticks.
+
+Do not add SubagentStop to the default snippet until this ratio justifies it.
+Live hook is unmeasured (no live SubagentStop this run).
+T3 fixtures: `subagent-child.jsonl` is two meaning-channel turns (user + assistant). Empty or tool-only child fixtures: none.
+
+| Source | Meaning-channel ticks | Empty or tool-only | Ratio | Status |
+|--------|-----------------------|--------------------|-------|--------|
+| Live hook | — | — | — | unmeasured (no live SubagentStop) |
+| `--agent` CLI | 2 | 0 | 1.00 | T3 AC8 (`subagent-child.jsonl`) |
+| Test fixtures (T3/T6) | 2 | 0 | 1.00 | `subagent-child.jsonl` only |
+
+This report is ship-blocking for default-on.
+It is **not** a reason to skip the separate opt-in.
+
 ## Store
 
 The store path is `~/.claude/transcript/<sid>/`.
 Identity is `session_id`, not the repo or worktree.
 
 Each sid dir has `main.md`, `thinking/`, `tool_result/`, `injection/`, `meta`, and `cursor`.
+An optional agent nest lives at `agents/<id>/` with the same six entries.
 
 To attach the Meaning channel in a later session, mention:
 
@@ -72,7 +145,7 @@ To attach the Meaning channel in a later session, mention:
 @~/.claude/transcript/<sid>/main.md
 ```
 
-`@refs` inside `main.md` are relative to that sid dir (`@thinking/…`, `@tool_result/…`, `@injection/…`).
+`@refs` inside `main.md` are relative to that sid dir (`@thinking/…`, `@tool_result/…`, `@injection/…`, and nest-refs `@agents/<id>/main.md`).
 
 ## Fail-open
 
@@ -123,6 +196,9 @@ bash skills/transcript-mirror/transcript-sync.sh --check
 - `--sid` and/or `--transcript`: create or update that mirror.
 - `--check`: print a lag report. Exit 0. `/doctor` maps this stdout to `transcript.mirror_lag` (WARN, never FAIL).
 - In-progress sources are skipped.
+- `transcript-sync` does not invent, enumerate, or refresh agent nests.
+
+Use the live SubagentStop hook or the recorder `--agent` flag for nests.
 
 ### Cron
 
@@ -140,7 +216,11 @@ Replace `<PROJECT>` with the project directory.
 
 ```
 bash skills/transcript-mirror/transcript-mirror.sh --transcript FILE.jsonl --sid SESSION-ID
+bash skills/transcript-mirror/transcript-mirror.sh --transcript FILE.jsonl --sid SESSION-ID --agent AGENT-ID
 ```
+
+`--agent AGENT-ID` writes the nest under that sid.
+`--agent` without `--transcript` creates no dirs.
 
 The recorder always exits 0.
 

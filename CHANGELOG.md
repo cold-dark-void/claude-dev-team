@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.11.3
+- **SubagentStop nest opt-in (CDT-217)** — registering `hooks.SubagentStop[]` on the same user-owned shim writes `~/.claude/transcript/<sid>/agents/<id>/` (same `main.md` + sidecars). Parent `main.md` gets one `> @agents/<id>/main.md`. Stop/SessionEnd with agent keys stay v1 no-op. Rebuild preserves `agents/`. `transcript-sync` does not invent children. Default `/setup orchestration` Stop array unchanged. No new Surface.
+
 ### v1.11.2
 - **Grok long-cwd bucket locate (CDT-218)** — Stop/SessionEnd reconstruct and `hosts.py` locate try urlencode(cwd) first, then a maxdepth-1 bucket-root `.cwd` match when the encoded path is missing (Grok slug+hash when urlencode >255 bytes). Hook stays bash+jq; Python only in transcript-sync. Missing file still silent no-op. No new Surface.
 

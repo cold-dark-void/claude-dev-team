@@ -1,0 +1,2 @@
+{"uuid":"sc-u1","type":"user","message":{"role":"user","content":[{"type":"text","text":"CDT-217-T3-CHILD-UNIQUE"}]}}
+{"uuid":"sc-a1","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"child nest reply"}]}}

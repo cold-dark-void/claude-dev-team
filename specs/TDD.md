@@ -38,11 +38,12 @@
 | SPEC-032 | CI Linter Parity Gate | ACTIVE | .github/workflows/smoke.yml (linter jobs only), skills/skill-lint/SKILL.md (CI-caller note only), skills/docs-drift/SKILL.md (CI-caller note only), skills/release/SKILL.md (referenced, unchanged) |
 | SPEC-034 | Bug-Hunt Workflow | DRAFT | `commands/bug-hunt.md`, `skills/bug-hunt/*` (stages 1–2 — CDT-136; stage-3 materialize — CDT-138 M38–M41; stage-4 phased handoff — CDT-139 M42–M48; Status DRAFT) |
 | SPEC-035 | Context Audit (`/audit`) | DRAFT | `commands/audit.md`, `skills/audit/*`, `docs/commands/audit.md` (CDT-200) |
-| SPEC-036 | Transcript Mirror | DRAFT | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220); M10 all cwd-bucket sessions + M11 doctor lag WARN (CDT-221); M5a urlencode then `.cwd` locate (CDT-218) |
+| SPEC-036 | Transcript Mirror | DRAFT | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220); M10 all cwd-bucket sessions + M11 doctor lag WARN (CDT-221); M5a urlencode then `.cwd` locate (CDT-218); M4a SubagentStop agent nest (CDT-217) |
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-26 | CDT-217: SPEC-036 M4a — opt-in SubagentStop agent nest; Stop agent-key no-op stays v1 (not a new Surface) |
 | 2026-08-25 | CDT-218: SPEC-036 M5a — Grok cwd-bucket locate: urlencode then `.cwd` fallback (dual-engine; not a new Surface) |
 | 2026-08-25 | CDT-221: SPEC-036 M10/M11 + SPEC-022 M2h — transcript-sync mandatory backstop; doctor `transcript.mirror_lag` WARN (not a new Surface) |
 | 2026-08-25 | CDT-220: SPEC-036 DRAFT — transcript mirror v1 (recorder + transcript-sync; not a slash Surface) |

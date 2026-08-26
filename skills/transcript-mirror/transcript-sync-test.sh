@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# transcript-sync CLI tests (SPEC-036 M10–M11 / CDT-220 Task 2 + CDT-221 T1 + CDT-218 T3).
+# transcript-sync CLI tests (SPEC-036 M10–M11 / CDT-220 Task 2 + CDT-221 T1 + CDT-218 T3 + CDT-217 T4).
 # Run: bash skills/transcript-mirror/transcript-sync-test.sh
 set -euo pipefail
 
@@ -598,6 +598,104 @@ if grep -q 'grok_cwd_bucket(' "$HERE/transcript-sync.py" \
   pass "M5a AC5 enumerate via grok_cwd_bucket (no second engine)"
 else
   bad "M5a AC5 transcript-sync.py must call grok_cwd_bucket; must not reimplement .cwd scan"
+fi
+
+# ---------------------------------------------------------------------------
+# CDT-217 T4 — AC8 / M10: sync MUST NOT invent <sid>/agents/
+# Seed a parent sid dir without a nest. Opted-in no-args and --sid refresh
+# the parent only. Recorder --agent is live-hook / manual; sync never
+# forwards it (parse_known_args drops unknown flags).
+# ---------------------------------------------------------------------------
+PROJ217="$WORK/proj217"
+mkdir -p "$PROJ217/.claude/hooks"
+PROJ217_ABS="$(cd "$PROJ217" && pwd)"
+write_opt_in "$PROJ217"
+CLAUDE217="$(claude_pdir "$PROJ217")"
+mkdir -p "$CLAUDE217"
+
+SID_T4="tm-217-parent"
+write_mini "$CLAUDE217/$SID_T4.jsonl"
+STORE_T4="$WORK/store-cdt217-t4"
+mkdir -p "$STORE_T4"
+seed_store "$STORE_T4" "$SID_T4"
+
+if [ ! -e "$STORE_T4/$SID_T4/agents" ]; then
+  pass "T4.1 seed parent sid has no agents/ nest"
+else
+  bad "T4.1 seed already has $STORE_T4/$SID_T4/agents"
+fi
+
+set +e
+TRANSCRIPT_MIRROR_ROOT="$STORE_T4" "$SYNC" --cwd "$PROJ217_ABS" \
+  >/dev/null 2>"$WORK/cdt217-noargs.err"
+RC_T4NA=$?
+set -e
+if [ "$RC_T4NA" -eq 0 ] \
+   && [ -f "$STORE_T4/$SID_T4/main.md" ] \
+   && grep -q 'hello from sync fixture' "$STORE_T4/$SID_T4/main.md" \
+   && [ ! -e "$STORE_T4/$SID_T4/agents" ]; then
+  pass "T4.1 AC8 no-args opted-in does not invent agents/"
+else
+  bad "T4.1 no-args rc=$RC_T4NA agents=$(ls -la "$STORE_T4/$SID_T4/agents" 2>/dev/null || echo absent) main=$(ls "$STORE_T4/$SID_T4/main.md" 2>/dev/null || echo missing) err=$(cat "$WORK/cdt217-noargs.err")"
+fi
+
+set +e
+TRANSCRIPT_MIRROR_ROOT="$STORE_T4" "$SYNC" --sid "$SID_T4" \
+  --transcript "$CLAUDE217/$SID_T4.jsonl" --cwd "$PROJ217_ABS" \
+  >/dev/null 2>"$WORK/cdt217-sid.err"
+RC_T4SID=$?
+set -e
+if [ "$RC_T4SID" -eq 0 ] && [ ! -e "$STORE_T4/$SID_T4/agents" ]; then
+  pass "T4.1 AC8 --sid opted-in does not invent agents/"
+else
+  bad "T4.1 --sid rc=$RC_T4SID agents=$(ls -la "$STORE_T4/$SID_T4/agents" 2>/dev/null || echo absent) err=$(cat "$WORK/cdt217-sid.err")"
+fi
+
+# T4.2: parse_args has no --agent; unknown flags stay dropped.
+if grep -qE 'add_argument\([^)]*--agent' "$HERE/transcript-sync.py"; then
+  bad "T4.2 parse_args must not declare --agent"
+else
+  pass "T4.2 parse_args has no --agent"
+fi
+if grep -q 'parse_known_args' "$HERE/transcript-sync.py" \
+   && ! grep -q -- '--agent' "$HERE/transcript-sync.py"; then
+  pass "T4.2 parse_known_args present; --agent absent from sync.py"
+else
+  bad "T4.2 parse_known_args missing or --agent leaked into transcript-sync.py"
+fi
+
+set +e
+PY_T42="$(SYNC_PY="$HERE/transcript-sync.py" python3 - <<'PY'
+import importlib.util, os, sys
+path = os.environ["SYNC_PY"]
+spec = importlib.util.spec_from_file_location("tsync", path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+args = mod.parse_args(["--sid", "tm-217-parent", "--agent", "worker-1", "--bogus"])
+print("sid=%s has_agent=%s agent=%r" % (
+    args.sid, hasattr(args, "agent"), getattr(args, "agent", None)))
+PY
+)"
+RC_T42=$?
+set -e
+if [ "$RC_T42" -eq 0 ] \
+   && printf '%s\n' "$PY_T42" | grep -q 'sid=tm-217-parent has_agent=False'; then
+  pass "T4.2 parse_args drops --agent (parse_known_args)"
+else
+  bad "T4.2 parse_args probe rc=$RC_T42 out=${PY_T42:-<empty>}"
+fi
+
+# Dropped --agent on the CLI must not create a nest (unknown flag not forwarded).
+set +e
+TRANSCRIPT_MIRROR_ROOT="$STORE_T4" "$SYNC" --sid "$SID_T4" \
+  --transcript "$CLAUDE217/$SID_T4.jsonl" --cwd "$PROJ217_ABS" \
+  --agent worker-1 >/dev/null 2>"$WORK/cdt217-agent-flag.err"
+RC_T4AG=$?
+set -e
+if [ "$RC_T4AG" -eq 0 ] && [ ! -e "$STORE_T4/$SID_T4/agents" ]; then
+  pass "T4.2 --agent CLI flag dropped; no nest"
+else
+  bad "T4.2 --agent-flag rc=$RC_T4AG agents=$(ls -la "$STORE_T4/$SID_T4/agents" 2>/dev/null || echo absent) err=$(cat "$WORK/cdt217-agent-flag.err")"
 fi
 
 # ---------------------------------------------------------------------------
