@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# transcript-sync CLI tests (SPEC-036 M10–M11 / CDT-220 Task 2 + CDT-221 T1).
+# transcript-sync CLI tests (SPEC-036 M10–M11 / CDT-220 Task 2 + CDT-221 T1 + CDT-218 T3).
 # Run: bash skills/transcript-mirror/transcript-sync-test.sh
 set -euo pipefail
 
@@ -539,6 +539,65 @@ if [ "$RC_PCHK" -eq 0 ] && [ "$RC_PWR" -eq 0 ] \
   pass "M11 AC10 --check in-progress; write skips sid dir"
 else
   bad "M11 AC10 chk_rc=$RC_PCHK wr_rc=$RC_PWR out=${CHK_P:-<empty>} store=$(ls "$STORE_P" 2>/dev/null) chkerr=$(cat "$WORK/ac10-chk.err") wrerr=$(cat "$WORK/ac10-write.err")"
+fi
+
+# ---------------------------------------------------------------------------
+# CDT-218 T3 — M5a AC5: opted-in --check enumerates long-cwd via grok_cwd_bucket
+# Shared fixture under $SESS (not ~/.grok/sessions). Prefer --check first so
+# doctor lag can map stdout (no doctor code change).
+# ---------------------------------------------------------------------------
+PAD="$(printf 'a%.0s' {1..230})"
+LONG_CWD="$WORK/p/$PAD"
+mkdir -p "$LONG_CWD"
+LONG_CWD="$(cd "$LONG_CWD" && pwd)"
+LONG_ENC="$(jq -rn --arg s "$LONG_CWD" '$s|@uri')"
+write_opt_in "$LONG_CWD"
+
+SID_L="tm-218-long"
+SRC_L="$SESS/short-bucket/$SID_L/chat_history.jsonl"
+mkdir -p "$SESS/short-bucket/$SID_L"
+printf '%s\n' "$LONG_CWD" >"$SESS/short-bucket/.cwd"
+cat >"$SRC_L" <<'EOF'
+{"type": "user", "content": [{"type": "text", "text": "cdt-218-long-cwd-sync-unique"}]}
+{"type": "assistant", "content": "cdt-218-long-cwd-ack"}
+EOF
+age "$SRC_L"
+
+DECOY_CWD="$WORK/decoy-218"
+mkdir -p "$DECOY_CWD"
+DECOY_CWD="$(cd "$DECOY_CWD" && pwd)"
+SID_DECOY="tm-218-decoy"
+mkdir -p "$SESS/decoy-bucket/$SID_DECOY"
+printf '%s\n' "$DECOY_CWD" >"$SESS/decoy-bucket/.cwd"
+write_mini "$SESS/decoy-bucket/$SID_DECOY/chat_history.jsonl"
+
+if [ "${#LONG_ENC}" -gt 255 ] && [ ! -e "$SESS/$LONG_ENC" ]; then
+  pass "M5a AC5 long-cwd @uri ${#LONG_ENC} >255; no urlencode-named dir"
+else
+  bad "M5a AC5 encode len=${#LONG_ENC} urlencode_dir=$( [ -e "$SESS/$LONG_ENC" ] && echo yes || echo no )"
+fi
+
+STORE_L="$WORK/store-cdt218-long"
+mkdir -p "$STORE_L"
+set +e
+CHK_L="$(TRANSCRIPT_MIRROR_ROOT="$STORE_L" "$SYNC" --check --cwd "$LONG_CWD" 2>"$WORK/cdt218-chk.err")"
+RC_L=$?
+set -e
+WANT_MISS="sid=$SID_L status=missing source=$SRC_L"
+WANT_OK="sid=$SID_L status=ok source=$SRC_L"
+if [ "$RC_L" -eq 0 ] \
+   && { printf '%s\n' "$CHK_L" | grep -qxF "$WANT_MISS" || printf '%s\n' "$CHK_L" | grep -qxF "$WANT_OK"; } \
+   && ! printf '%s\n' "$CHK_L" | grep -q "sid=$SID_DECOY"; then
+  pass "M5a AC5 --check long-cwd sid source=.cwd jsonl"
+else
+  bad "M5a AC5 --check rc=$RC_L out=${CHK_L:-<empty>} err=$(cat "$WORK/cdt218-chk.err")"
+fi
+
+if grep -q 'grok_cwd_bucket(' "$HERE/transcript-sync.py" \
+   && ! grep -qE '_cwd_marker_text|_grok_marker_buckets' "$HERE/transcript-sync.py"; then
+  pass "M5a AC5 enumerate via grok_cwd_bucket (no second engine)"
+else
+  bad "M5a AC5 transcript-sync.py must call grok_cwd_bucket; must not reimplement .cwd scan"
 fi
 
 # ---------------------------------------------------------------------------

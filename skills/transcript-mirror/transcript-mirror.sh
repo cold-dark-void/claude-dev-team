@@ -188,6 +188,70 @@ ensure_meta() {
   fi
 }
 
+# M5a: stdin cwd else $PWD; expand ~ / ~/; prefix $PWD if not absolute.
+abs_cwd() {
+  local cwd="${1:-}"
+  [ -n "$cwd" ] || cwd="$PWD"
+  case "$cwd" in
+    '~') cwd="${HOME:-/}" ;;
+    '~/'*) cwd="${HOME:-/}/${cwd#~/}" ;;
+  esac
+  case "$cwd" in
+    /*) printf '%s\n' "$cwd" ;;
+    *) printf '%s/%s\n' "${PWD%/}" "$cwd" ;;
+  esac
+}
+
+# M5a: jq @uri; ASCII abs paths match quote(abs, safe="").
+urlencode_cwd() {
+  local abs="$1"
+  jq -rn --arg s "$abs" '$s|@uri'
+}
+
+# M5a: urlencode file wins; else maxdepth-1 .cwd match; lexical-min among files.
+# Strip one trailing LF/CR/CRLF from .cwd. No find. No JSONL parse.
+grok_reconstruct_chat_history() {
+  local root="$1" abs="$2" sid="$3"
+  local enc cand child raw marker ng_was min p
+  local -a hits=()
+
+  enc=$(urlencode_cwd "$abs") || return 0
+  cand="$root/$enc/$sid/chat_history.jsonl"
+  if [ -f "$cand" ]; then
+    printf '%s\n' "$cand"
+    return 0
+  fi
+  [ -d "$root" ] || return 0
+
+  ng_was=$(shopt -p nullglob)
+  shopt -s nullglob
+  for child in "$root"/*/; do
+    [ -f "${child}.cwd" ] || continue
+    raw=$(cat "${child}.cwd" 2>/dev/null && printf x) || continue
+    raw="${raw%x}"
+    case "$raw" in
+      *$'\r\n') marker="${raw%$'\r\n'}" ;;
+      *$'\n') marker="${raw%$'\n'}" ;;
+      *$'\r') marker="${raw%$'\r'}" ;;
+      *) marker="$raw" ;;
+    esac
+    [ "$marker" = "$abs" ] || continue
+    cand="${child}${sid}/chat_history.jsonl"
+    [ -f "$cand" ] || continue
+    hits+=("$cand")
+  done
+  eval "$ng_was"
+
+  [ "${#hits[@]}" -gt 0 ] || return 0
+  min="${hits[0]}"
+  for p in "${hits[@]}"; do
+    if LC_ALL=C [ "$p" \< "$min" ]; then
+      min="$p"
+    fi
+  done
+  printf '%s\n' "$min"
+}
+
 # Parent-covered identities: parent source records through parent cursor identity.
 parent_skip_json() {
   local parent="$1" start="$2" idents="$3" work="$4"
@@ -251,10 +315,10 @@ main() {
     if [ -z "$TP" ]; then
       SID="${SID:-${GROK_SESSION_ID:-}}"
       [ -n "$SID" ] || return 0
-      local base enc
+      local base abs
       base="${GROK_SESSIONS_DIR:-$HOME/.grok/sessions}"
-      enc=$(jq -rn --arg s "${CWD:-$PWD}" '$s|@uri') || return 0
-      TP="$base/$enc/$SID/chat_history.jsonl"
+      abs=$(abs_cwd "$CWD")
+      TP=$(grok_reconstruct_chat_history "$base" "$abs" "$SID") || TP=""
       RECON=1
     fi
   fi

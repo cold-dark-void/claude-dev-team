@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.11.2
+- **Grok long-cwd bucket locate (CDT-218)** — Stop/SessionEnd reconstruct and `hosts.py` locate try urlencode(cwd) first, then a maxdepth-1 bucket-root `.cwd` match when the encoded path is missing (Grok slug+hash when urlencode >255 bytes). Hook stays bash+jq; Python only in transcript-sync. Missing file still silent no-op. No new Surface.
+
 ### v1.11.1
 - **Transcript-sync mandatory + doctor lag WARN (CDT-221)** — opted-in projects: `transcript-sync` is the acceptance-tested backstop (cron or equivalent), not optional. No-args write enumerates **all** cwd-bucket sessions (Claude `*.jsonl` + Grok `chat_history.jsonl`); `--check` is cwd-bucket only. `/doctor` `transcript.mirror_lag` maps `--check` stdout (WARN, never FAIL; skip when not opted-in). Stop stays the fast path; SessionEnd opportunistic. No new Surface; `EXPECTED_HOOK_*` unchanged.
 

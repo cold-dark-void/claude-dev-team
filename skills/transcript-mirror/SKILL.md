@@ -65,6 +65,10 @@ Opt-in is hook registration. Default is off. **Do not** add this hook through
 
 SessionEnd missing on a host is a graceful absence.
 
+## Grok Stop holes
+
+Grok Stop may omit `transcript_path`. Reconstruct `chat_history.jsonl` with urlencode then `.cwd` fallback. A missing reconstructed file is a silent no-op.
+
 ## Manual catch-up
 
 ```

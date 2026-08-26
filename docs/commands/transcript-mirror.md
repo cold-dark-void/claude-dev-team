@@ -93,7 +93,7 @@ If a host has no SessionEnd event, the settings entry stays inert.
 Grok Stop delivery is incomplete.
 Use SessionEnd and `transcript-sync` as the backstop.
 
-- Grok may omit `transcript_path`. The recorder reconstructs `chat_history.jsonl` from the cwd bucket. A missing reconstructed file is a no-op.
+- Grok may omit `transcript_path`. The recorder reconstructs `chat_history.jsonl` with urlencode then `.cwd` fallback. A missing reconstructed file is a no-op.
 - Grok may pass `updates.jsonl`. The recorder switches to sibling `chat_history.jsonl`.
 - Grok SessionEnd is unverified. Treat a missing event as a graceful absence.
 - Stop `reason` values other than empty, `end_turn`, `channel_closed`, or `shutdown` are a no-op.

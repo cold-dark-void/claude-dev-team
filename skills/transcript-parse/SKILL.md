@@ -12,7 +12,7 @@ parse primitives + freshness here once, not duplicated per command
 
 **Hosts (CDT-156 MVP):**
 - **claude** — `~/.claude/projects/<dash-encoded-cwd>/*.jsonl` (default; score-compatible)
-- **grok** — `${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/<sid>/chat_history.jsonl`
+- **grok** — `${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/<sid>/chat_history.jsonl` (urlencode first; `.cwd` fallback)
 
 **Adapter contract (CDT-156):** each host provides `locate` + `normalize` → a
 **Claude-shaped JSONL gate feed** (stable `uuid` turn_ids, nested
@@ -82,7 +82,7 @@ def normalize(
 | Host | `locate` | `normalize` |
 |------|----------|-------------|
 | `claude` | `session_id` set → `assemble.locate(uuid)` (fork-aware, all projects); `session_id is None` → newest-mtime `*.jsonl` under `~/.claude/projects/<dash-encoded-cwd>/` | **identity** — returns `abspath(source_path)` for both modes (no score change) |
-| `grok` | cwd-bucket under `GROK_SESSIONS_DIR`/`urlencode(cwd)`: by-id or newest `chat_history.jsonl`; honors `GROK_TRANSCRIPT_PATH` when under root | **present** — `grok_normalize.normalize_to_file` → TMPDIR Claude-shaped JSONL; scoring keeps `tool_result` + name map; handoff skips `tool_result` |
+| `grok` | cwd-bucket under `GROK_SESSIONS_DIR`: urlencode path first, then `.cwd` fallback; by-id or newest `chat_history.jsonl`; honors `GROK_TRANSCRIPT_PATH` when under root | **present** — `grok_normalize.normalize_to_file` → TMPDIR Claude-shaped JSONL; scoring keeps `tool_result` + name map; handoff skips `tool_result` |
 
 `sessions_dir` overrides the host root (Claude: projects dir; Grok: sessions
 dir). Unknown `host` / `mode` → `ValueError`.

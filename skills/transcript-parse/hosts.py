@@ -13,7 +13,7 @@ Claude (this task):
   normalize — identity (return source_path); score-compatible, no rewrite
 
 Grok:
-  locate  — cwd-bucket under GROK_SESSIONS_DIR (urlencode cwd); by-id or newest
+  locate  — cwd-bucket under GROK_SESSIONS_DIR (urlencode cwd, else .cwd); by-id or newest
   normalize — grok_normalize.normalize_to_file (scoring keeps tool_result)
 
 CLI (shell callers in retro.md):
@@ -102,9 +102,58 @@ def grok_sessions_root(*, sessions_dir: Optional[str] = None) -> str:
     return os.path.abspath(DEFAULT_GROK_SESSIONS_DIR)
 
 
+def _cwd_marker_text(path: str) -> Optional[str]:
+    """Read a Grok bucket-root `.cwd` marker as UTF-8.
+
+    Strip one trailing LF, CR, or CRLF. No other trim.
+    Missing or unreadable → None.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if text.endswith("\r\n"):
+        return text[:-2]
+    if text.endswith("\n") or text.endswith("\r"):
+        return text[:-1]
+    return text
+
+
+def _grok_marker_buckets(abs_cwd: str, sessions_dir: str) -> list[str]:
+    """Immediate child dirs of sessions_dir whose `.cwd` text equals abs_cwd.
+
+    Sorted. Does not walk and does not read JSONL.
+    """
+    try:
+        names = os.listdir(sessions_dir)
+    except OSError:
+        return []
+    matches: list[str] = []
+    for name in names:
+        if name in (".", ".."):
+            continue
+        child = os.path.join(sessions_dir, name)
+        if not os.path.isdir(child):
+            continue
+        text = _cwd_marker_text(os.path.join(child, ".cwd"))
+        if text is not None and text == abs_cwd:
+            matches.append(os.path.abspath(child))
+    matches.sort()
+    return matches
+
+
 def grok_cwd_bucket(cwd: str, *, sessions_dir: Optional[str] = None) -> str:
-    """`${sessions_root}/<urlencode(cwd)>` — MVP exact-cwd bucket only."""
-    return os.path.join(grok_sessions_root(sessions_dir=sessions_dir), urlencode_cwd(cwd))
+    """Cwd bucket: existing urlencode dir, else lexical-min `.cwd` match, else urlencode path."""
+    root = grok_sessions_root(sessions_dir=sessions_dir)
+    encoded_path = os.path.join(root, urlencode_cwd(cwd))
+    if os.path.isdir(encoded_path):
+        return encoded_path
+    abs_cwd = os.path.abspath(os.path.expanduser(cwd or "."))
+    buckets = _grok_marker_buckets(abs_cwd, root)
+    if buckets:
+        return buckets[0]
+    return encoded_path
 
 
 def _claude_locate_newest(cwd: str, *, projects_dir: Optional[str] = None) -> Optional[str]:
@@ -223,19 +272,27 @@ def _grok_locate_by_id(
     *,
     sessions_dir: Optional[str] = None,
 ) -> Optional[str]:
-    """Path under cwd bucket only: …/<enc>/<sid>/chat_history.jsonl (MVP)."""
+    """Urlencode file if present; else lexical-min `.cwd` match with sid file."""
     if not session_id or session_id in (".", "..") or os.sep in session_id:
         return None
     if os.altsep and os.altsep in session_id:
         return None
-    path = os.path.join(
-        grok_cwd_bucket(cwd, sessions_dir=sessions_dir),
-        session_id,
-        CHAT_HISTORY_BASENAME,
+    root = grok_sessions_root(sessions_dir=sessions_dir)
+    encoded_file = os.path.join(
+        root, urlencode_cwd(cwd), session_id, CHAT_HISTORY_BASENAME
     )
-    if os.path.isfile(path):
-        return os.path.abspath(path)
-    return None
+    if os.path.isfile(encoded_file):
+        return os.path.abspath(encoded_file)
+    abs_cwd = os.path.abspath(os.path.expanduser(cwd or "."))
+    hits: list[str] = []
+    for bucket in _grok_marker_buckets(abs_cwd, root):
+        path = os.path.join(bucket, session_id, CHAT_HISTORY_BASENAME)
+        if os.path.isfile(path):
+            hits.append(os.path.abspath(path))
+    if not hits:
+        return None
+    hits.sort()
+    return hits[0]
 
 
 def _grok_locate_newest(
@@ -280,10 +337,8 @@ def _grok_locate(
 ) -> Optional[str]:
     """Grok locate: cwd-bucket by-id or newest; optional GROK_TRANSCRIPT_PATH pin.
 
-    Path layout:
-      ${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/<sid>/chat_history.jsonl
-
-    MVP: exact cwd bucket only (no full MROOT/worktree fan-out).
+    Path layout: urlencode dir if present, else bucket-root `.cwd` match
+    (SPEC-036 M5a). Newest follows grok_cwd_bucket (no extra scan).
     """
     pinned = _grok_env_transcript_path(session_id, sessions_dir=sessions_dir)
     if pinned is not None:

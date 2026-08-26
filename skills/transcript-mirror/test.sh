@@ -9,6 +9,7 @@
 # empty-thinking placeholder; AC9 parent: + dedup; AC10 never-fired create;
 # AC11 --check exit 0; Grok h: --check status=ok after sync;
 # AC2 SessionEnd flushes payload sid only (CDT-221).
+# M5a AC1–AC3 long-cwd .cwd reconstruct + AC2 decoy + AC6 lexical-min (CDT-218).
 # Tests MUST NOT touch operator ~/.claude/transcript/.
 
 set -u
@@ -702,6 +703,206 @@ if [ "$RC" -eq 0 ]; then
   pass "M10 missing transcript still exit 0"
 else
   fail "M10 missing-file rc=$RC"
+fi
+
+# ---------------------------------------------------------------------------
+# M5a — Grok long-cwd .cwd reconstruct (CDT-218 T4)
+# GROK_SESSIONS_DIR + TRANSCRIPT_MIRROR_ROOT only. ASCII abs paths.
+# ---------------------------------------------------------------------------
+seed_grok_unique() {
+  mkdir -p "$(dirname "$1")"
+  cp "$FIX/grok-chat_history.jsonl" "$1"
+  printf '%s\n' "{\"type\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"$2\"}],\"prompt_index\":99}" >> "$1"
+  age "$1"
+}
+
+PAD="$(printf 'a%.0s' {1..240})"
+LONG_CWD="$WORK/p/$PAD"
+mkdir -p "$LONG_CWD"
+LONG_CWD="$(cd "$LONG_CWD" && pwd)"
+LONG_ENC="$(jq -rn --arg s "$LONG_CWD" '$s|@uri')"
+if [ "${#LONG_ENC}" -gt 255 ]; then
+  pass "M5a AC1 cwd jq @uri length ${#LONG_ENC} >255"
+else
+  fail "M5a AC1 cwd jq @uri length ${#LONG_ENC} (want >255)"
+fi
+if [ -e "$SESS/$LONG_ENC" ]; then
+  fail "M5a AC1 urlencode-named dir exists (must not)"
+else
+  pass "M5a AC1 no urlencode-named dir"
+fi
+
+mkdir -p "$SESS/short-bucket/tm-long" "$SESS/short-bucket/tm-long-se"
+printf '%s\n' "$LONG_CWD" > "$SESS/short-bucket/.cwd"
+seed_grok_unique "$SESS/short-bucket/tm-long/chat_history.jsonl" "CDT-218-T4-AC1-LONG-CWD"
+seed_grok_unique "$SESS/short-bucket/tm-long-se/chat_history.jsonl" "CDT-218-T4-AC1-SESSIONEND"
+
+DECOY_CWD="$WORK/decoy-project"
+mkdir -p "$DECOY_CWD"
+DECOY_CWD="$(cd "$DECOY_CWD" && pwd)"
+mkdir -p "$SESS/decoy-bucket/tm-long" "$SESS/decoy-bucket/tm-decoy"
+printf '%s\n' "$DECOY_CWD" > "$SESS/decoy-bucket/.cwd"
+seed_grok_unique "$SESS/decoy-bucket/tm-long/chat_history.jsonl" "CDT-218-T4-AC3-DECOY-TRAP"
+seed_grok_unique "$SESS/decoy-bucket/tm-decoy/chat_history.jsonl" "CDT-218-T4-AC2-DECOY-SID"
+
+EMPTY_CWD="$WORK/empty-match-cwd"
+mkdir -p "$EMPTY_CWD"
+EMPTY_CWD="$(cd "$EMPTY_CWD" && pwd)"
+mkdir -p "$SESS/empty-match"
+printf '%s\n' "$EMPTY_CWD" > "$SESS/empty-match/.cwd"
+
+# T4.1 AC1 Stop: empty transcript_path, cwd=$LONG_CWD
+STOP_LONG=$(jq -nc --arg cwd "$LONG_CWD" \
+  '{hook_event_name:"Stop",session_id:"tm-long",transcript_path:"",cwd:$cwd,reason:"end_turn"}')
+RC=$(pipe_rec "$STOP_LONG")
+assert_rc0 "$RC" "M5a AC1 Stop long-cwd exit 0"
+assert_no_block "M5a AC1 Stop"
+if grep -q 'CDT-218-T4-AC1-LONG-CWD' "$STORE/tm-long/main.md" 2>/dev/null; then
+  pass "M5a AC1 Stop main.md unique string"
+else
+  fail "M5a AC1 Stop missing unique string main=$(ls "$STORE/tm-long/main.md" 2>/dev/null || echo missing)"
+fi
+if grep -q 'CDT-218-T4-AC3-DECOY-TRAP' "$STORE/tm-long/main.md" 2>/dev/null; then
+  fail "M5a AC1 Stop selected decoy bucket"
+else
+  pass "M5a AC3 decoy-bucket not selected"
+fi
+GSRC=$(cut -f2 "$STORE/tm-long/cursor" 2>/dev/null || true)
+if [ "$GSRC" = "$SESS/short-bucket/tm-long/chat_history.jsonl" ]; then
+  pass "M5a AC1 Stop cursor field 2 resolved chat_history.jsonl"
+else
+  fail "M5a AC1 Stop cursor src=$GSRC want=$SESS/short-bucket/tm-long/chat_history.jsonl"
+fi
+if [ -e "$SESS/$LONG_ENC" ]; then
+  fail "M5a AC1 reconstruct created urlencode-named dir"
+else
+  pass "M5a AC1 still no urlencode-named dir"
+fi
+
+# T4.2 AC1 SessionEnd: same fixture, new sid, empty path, reason=other
+SE_LONG=$(jq -nc --arg cwd "$LONG_CWD" \
+  '{hookEventName:"SessionEnd",sessionId:"tm-long-se",transcriptPath:"",cwd:$cwd,reason:"other"}')
+RC=$(pipe_rec "$SE_LONG")
+assert_rc0 "$RC" "M5a AC1 SessionEnd long-cwd exit 0"
+assert_no_block "M5a AC1 SessionEnd"
+if grep -q 'CDT-218-T4-AC1-SESSIONEND' "$STORE/tm-long-se/main.md" 2>/dev/null; then
+  pass "M5a AC1 SessionEnd flushes unique string"
+else
+  fail "M5a AC1 SessionEnd did not flush"
+fi
+GSRC=$(cut -f2 "$STORE/tm-long-se/cursor" 2>/dev/null || true)
+if [ "$GSRC" = "$SESS/short-bucket/tm-long-se/chat_history.jsonl" ]; then
+  pass "M5a AC1 SessionEnd cursor field 2 resolved chat_history.jsonl"
+else
+  fail "M5a AC1 SessionEnd cursor src=$GSRC"
+fi
+
+# T4.3 AC2: keep tm-ghost; matching .cwd without file; decoy .cwd
+if [ -e "$STORE/tm-ghost" ]; then
+  fail "M5a AC2 tm-ghost sid dir appeared"
+else
+  pass "M5a AC2 tm-ghost still absent"
+fi
+ERR_BEFORE=$(wc -c < "$STORE/.errors.log" 2>/dev/null || echo 0)
+MISS_JSON=$(jq -nc --arg cwd "$EMPTY_CWD" \
+  '{hook_event_name:"Stop",session_id:"tm-cwd-miss",transcript_path:"",cwd:$cwd,reason:"end_turn"}')
+RC=$(pipe_rec "$MISS_JSON")
+assert_rc0 "$RC" "M5a AC2 matching .cwd without file exit 0"
+if [ -e "$STORE/tm-cwd-miss" ]; then
+  fail "M5a AC2 matching .cwd without file created sid dir"
+else
+  pass "M5a AC2 matching .cwd without file no sid dir"
+fi
+DECOY_JSON=$(jq -nc --arg cwd "$LONG_CWD" \
+  '{hook_event_name:"Stop",session_id:"tm-decoy",transcript_path:"",cwd:$cwd,reason:"end_turn"}')
+RC=$(pipe_rec "$DECOY_JSON")
+assert_rc0 "$RC" "M5a AC2 decoy .cwd exit 0"
+if [ -e "$STORE/tm-decoy" ]; then
+  fail "M5a AC2 decoy .cwd created sid dir"
+else
+  pass "M5a AC2 decoy .cwd no sid dir"
+fi
+ERR_AFTER=$(wc -c < "$STORE/.errors.log" 2>/dev/null || echo 0)
+if [ "$ERR_BEFORE" = "$ERR_AFTER" ]; then
+  pass "M5a AC2 .errors.log byte-unchanged"
+else
+  fail "M5a AC2 .errors.log mutated before=$ERR_BEFORE after=$ERR_AFTER"
+fi
+
+# T4.4 AC3: short-cwd Grok reconstruct; urlencode wins; Claude + sibling untouched
+seed_grok_unique "$SESS/$ENC/tm-short-recon/chat_history.jsonl" "CDT-218-T4-AC3-SHORT-CWD"
+mkdir -p "$SESS/aaa-cwd-marker/tm-short-recon"
+printf '%s\n' "$PROJ_ABS" > "$SESS/aaa-cwd-marker/.cwd"
+seed_grok_unique "$SESS/aaa-cwd-marker/tm-short-recon/chat_history.jsonl" "CDT-218-T4-AC3-MARKER-TRAP"
+SHORT_JSON=$(jq -nc --arg cwd "$PROJ_ABS" \
+  '{hook_event_name:"Stop",session_id:"tm-short-recon",transcript_path:"",cwd:$cwd,reason:"end_turn"}')
+RC=$(pipe_rec "$SHORT_JSON")
+assert_rc0 "$RC" "M5a AC3 short-cwd Grok reconstruct exit 0"
+if grep -q 'CDT-218-T4-AC3-SHORT-CWD' "$STORE/tm-short-recon/main.md" 2>/dev/null; then
+  pass "M5a AC3 short-cwd Grok meaning channel"
+else
+  fail "M5a AC3 short-cwd missing unique string"
+fi
+if grep -q 'CDT-218-T4-AC3-MARKER-TRAP' "$STORE/tm-short-recon/main.md" 2>/dev/null; then
+  fail "M5a AC3 short-cwd selected .cwd marker over urlencode"
+else
+  pass "M5a AC3 urlencode file wins over matching .cwd"
+fi
+GSRC=$(cut -f2 "$STORE/tm-short-recon/cursor" 2>/dev/null || true)
+if [ "$GSRC" = "$SESS/$ENC/tm-short-recon/chat_history.jsonl" ]; then
+  pass "M5a AC3 short-cwd cursor field 2 urlencode chat_history.jsonl"
+else
+  fail "M5a AC3 short-cwd cursor src=$GSRC"
+fi
+if grep -q 'hello from claude fixture' "$STORE/tm-claude/main.md" 2>/dev/null; then
+  pass "M5a AC3 Claude fixture still present"
+else
+  fail "M5a AC3 Claude fixture missing"
+fi
+if grep -q 'hello from grok fixture' "$STORE/tm-grok/main.md" 2>/dev/null; then
+  pass "M5a AC3 Grok updates.jsonl sibling still present"
+else
+  fail "M5a AC3 Grok sibling fixture missing"
+fi
+GSRC=$(cut -f2 "$STORE/tm-grok/cursor" 2>/dev/null || true)
+if [ "$GSRC" = "$GROK_DIR/chat_history.jsonl" ]; then
+  pass "M5a AC3 updates.jsonl sibling cursor untouched"
+else
+  fail "M5a AC3 sibling cursor mutated src=$GSRC"
+fi
+
+# T4.5 AC6: N matching .cwd+file → lexical-min cursor source-path
+PAD6="$(printf 'b%.0s' {1..240})"
+LONG6="$WORK/q/$PAD6"
+mkdir -p "$LONG6"
+LONG6="$(cd "$LONG6" && pwd)"
+LONG6_ENC="$(jq -rn --arg s "$LONG6" '$s|@uri')"
+if [ "${#LONG6_ENC}" -gt 255 ] && [ ! -e "$SESS/$LONG6_ENC" ]; then
+  pass "M5a AC6 cwd @uri length ${#LONG6_ENC} >255, no urlencode dir"
+else
+  fail "M5a AC6 encode len=${#LONG6_ENC} exists=$( [ -e "$SESS/$LONG6_ENC" ] && echo yes || echo no )"
+fi
+mkdir -p "$SESS/zzz-dup/tm-dup" "$SESS/aaa-dup/tm-dup"
+printf '%s\n' "$LONG6" > "$SESS/zzz-dup/.cwd"
+printf '%s\n' "$LONG6" > "$SESS/aaa-dup/.cwd"
+seed_grok_unique "$SESS/zzz-dup/tm-dup/chat_history.jsonl" "CDT-218-T4-AC6-ZZZ"
+seed_grok_unique "$SESS/aaa-dup/tm-dup/chat_history.jsonl" "CDT-218-T4-AC6-AAA"
+DUP_JSON=$(jq -nc --arg cwd "$LONG6" \
+  '{hook_event_name:"Stop",session_id:"tm-dup",transcript_path:"",cwd:$cwd,reason:"end_turn"}')
+RC=$(pipe_rec "$DUP_JSON")
+assert_rc0 "$RC" "M5a AC6 N-match Stop exit 0"
+assert_no_block "M5a AC6"
+GSRC=$(cut -f2 "$STORE/tm-dup/cursor" 2>/dev/null || true)
+if [ "$GSRC" = "$SESS/aaa-dup/tm-dup/chat_history.jsonl" ]; then
+  pass "M5a AC6 cursor field 2 lexical-min aaa-dup"
+else
+  fail "M5a AC6 cursor src=$GSRC want=$SESS/aaa-dup/tm-dup/chat_history.jsonl"
+fi
+if grep -q 'CDT-218-T4-AC6-AAA' "$STORE/tm-dup/main.md" 2>/dev/null \
+   && ! grep -q 'CDT-218-T4-AC6-ZZZ' "$STORE/tm-dup/main.md" 2>/dev/null; then
+  pass "M5a AC6 main.md from lexical-min bucket"
+else
+  fail "M5a AC6 main.md not lexical-min"
 fi
 
 # ---------------------------------------------------------------------------
