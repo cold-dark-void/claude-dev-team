@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # compact-transcript-test.sh — SPEC-036 M14 engine isolation (CDT-215 T4).
+# CDT-214 T6.1: after M15 overlay, compact still hit-writes a stripped tail.
 # Run: bash skills/transcript-mirror/compact-transcript-test.sh
 # (cwd = plugin worktree so PDH resolves to feat/CDT-215, not master cache)
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -14,6 +15,7 @@ cd "$REPO" || exit 1
 
 CT="$HERE/compact-transcript.sh"
 CT_PY="$HERE/compact-transcript.py"
+ST="$HERE/summarize-transcript.sh"
 REC="$HERE/transcript-mirror.sh"
 SYNC="$HERE/transcript-sync.sh"
 FIX_TM="$HERE/fixtures"
@@ -136,6 +138,12 @@ run_ct_bin() {
   shift
   local rc=0
   bash "$bin" "$@" >"$WORK/ct.out" 2>"$WORK/ct.err" || rc=$?
+  printf '%s' "$rc"
+}
+
+run_st() {
+  local rc=0
+  bash "$ST" "$@" >"$WORK/st.out" 2>"$WORK/st.err" || rc=$?
   printf '%s' "$rc"
 }
 
@@ -597,6 +605,148 @@ if [ -f "$TAIL_REB" ] && [ ! -d "${STORE}/${SID_REB}.meaning-tail.md" ]; then
   pass "C9 tail still a file (not bak-swap)"
 else
   fail "C9 tail path is not a regular file after rebuild"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 11 — after M15 overlay, compact still hit-writes tail (CDT-214 T6.1)
+# ---------------------------------------------------------------------------
+if [ -f "$ST" ] && bash -n "$ST"; then
+  pass "C11 summarize-transcript.sh present"
+else
+  fail "C11 summarize-transcript.sh missing or syntax"
+fi
+
+cat >"$WORK/stub.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+prefix=$(head -c 40)
+cat >/dev/null
+printf 'STUB:%s\n' "$prefix"
+EOF
+chmod +x "$WORK/stub.sh"
+export SUMMARIZE_TRANSCRIPT_CMD="$WORK/stub.sh"
+
+SID_OL="c7ol"
+MAIN_OL="$WORK/ol-main.md"
+{
+  printf '# transcript mirror\n\n'
+  printf '## user\n'
+  printf 'OVERSIZE-OL-MARKER\n'
+  head -c 8200 /dev/zero | tr '\0' 'x'
+  printf '\n'
+  printf '## assistant\n'
+  printf 'small assistant\n'
+} >"$MAIN_OL"
+plant_hit "$SID_OL" "$FIX_SP/plain.jsonl" "$MAIN_OL" >/dev/null
+printf '%s\n' 'M3F-SIDECAR-TOOL-BODY must not leak' >"$STORE/$SID_OL/tool_result/L000001.txt"
+printf '%s\n' 'M3F-NEST-BODY must not leak' >"$STORE/$SID_OL/agents/w/main.md"
+printf '%s\n' 'THINK-BODY' >"$STORE/$SID_OL/thinking/t.txt"
+printf '%s\n' 'INJ-BODY' >"$STORE/$SID_OL/injection/i.txt"
+# cursor field 3 is main.md only; sidecar plant after write_store is fine
+CHK_OL=$(check_sid "$SID_OL")
+if printf '%s\n' "$CHK_OL" | grep -q "sid=$SID_OL status=ok"; then
+  pass "C11 pre-overlay --check status=ok"
+else
+  fail "C11 pre-overlay --check not ok: ${CHK_OL:-<empty>}"
+fi
+
+RC=$(run_st --sid "$SID_OL")
+if [ "$RC" -eq 0 ]; then
+  pass "C11 overlay exit 0"
+else
+  fail "C11 overlay rc=$RC err=$(head -c 240 "$WORK/st.err") out=$(head -c 120 "$WORK/st.out")"
+fi
+IFS= read -r GOT_OL <"$WORK/st.out" || true
+if [ "$GOT_OL" = "sid=$SID_OL replaced=1" ]; then
+  pass "C11 overlay stdout replaced=1"
+else
+  fail "C11 overlay stdout want replaced=1 got=${GOT_OL:-<empty>}"
+fi
+if grep -q '^STUB:' "$STORE/$SID_OL/main.md" \
+   && grep -qE '^>[[:space:]]*@verbatim/' "$STORE/$SID_OL/main.md"; then
+  pass "C11 overlay wrote stub + @verbatim/"
+else
+  fail "C11 overlay main.md missing stub or @verbatim/"
+fi
+
+CHK_OL2=$(check_sid "$SID_OL")
+if printf '%s\n' "$CHK_OL2" | grep -q "sid=$SID_OL status=ok"; then
+  pass "C11 post-overlay --check status=ok"
+else
+  fail "C11 post-overlay --check not ok: ${CHK_OL2:-<empty>}"
+fi
+
+TAIL_OL=$(tail_path "$SID_OL")
+[ -e "$TAIL_OL" ] && fail "C11 tail existed before compact" || pass "C11 no tail before compact"
+
+FP_OL_BEFORE=$(store_fingerprint "$STORE/$SID_OL")
+MAIN_OL_SHA=$(sha_file "$STORE/$SID_OL/main.md")
+CUR_OL_BEFORE=$(cat "$STORE/$SID_OL/cursor")
+VDIR_OL="$STORE/$SID_OL/verbatim"
+if [ -d "$VDIR_OL" ]; then
+  VFP_BEFORE=$(store_fingerprint "$VDIR_OL")
+  pass "C11 verbatim/ present after overlay"
+else
+  VFP_BEFORE=""
+  fail "C11 verbatim/ missing after overlay"
+fi
+
+# Compact must not need the summarizer seam.
+unset SUMMARIZE_TRANSCRIPT_CMD || true
+RC=$(run_ct "$SID_OL")
+if [ "$RC" -eq 0 ]; then
+  pass "C11 compact hit exit 0"
+else
+  fail "C11 compact rc=$RC err=$(head -c 240 "$WORK/ct.err") out=$(head -c 120 "$WORK/ct.out")"
+fi
+
+NLINES_OL=$(wc -l <"$WORK/ct.out" | tr -d ' ')
+IFS= read -r GOT_OL_PATH <"$WORK/ct.out" || true
+if [ "$NLINES_OL" = "1" ] && [ "$GOT_OL_PATH" = "$TAIL_OL" ] && [ -f "$TAIL_OL" ]; then
+  pass "C11 compact stdout absolute tail path"
+else
+  fail "C11 compact stdout want=$TAIL_OL got=${GOT_OL_PATH:-<empty>} nlines=$NLINES_OL"
+fi
+
+if grep -qE '^>[[:space:]]*@verbatim/' "$TAIL_OL"; then
+  fail "C11 tail has ^> @verbatim/"
+else
+  pass "C11 tail has no ^> @verbatim/"
+fi
+if grep -q '^STUB:' "$TAIL_OL"; then
+  pass "C11 tail contains stub summary"
+else
+  fail "C11 tail missing stub summary"
+fi
+if grep -qE '^>[[:space:]]*@' "$TAIL_OL"; then
+  fail "C11 tail has leftover ^> @ refs"
+else
+  pass "C11 tail stripped of ^> @ refs"
+fi
+if grep -qF 'M3F-SIDECAR-TOOL-BODY' "$TAIL_OL" || grep -qF 'M3F-NEST-BODY' "$TAIL_OL"; then
+  fail "C11 tail inlined sidecar/nest body"
+else
+  pass "C11 tail no nest/sidecar body"
+fi
+
+FP_OL_AFTER=$(store_fingerprint "$STORE/$SID_OL")
+MAIN_OL_SHA2=$(sha_file "$STORE/$SID_OL/main.md")
+CUR_OL_AFTER=$(cat "$STORE/$SID_OL/cursor")
+if [ "$FP_OL_BEFORE" = "$FP_OL_AFTER" ] && [ "$MAIN_OL_SHA" = "$MAIN_OL_SHA2" ] \
+   && [ "$CUR_OL_BEFORE" = "$CUR_OL_AFTER" ]; then
+  pass "C11 store isolation (main.md/cursor/sidecars/agents)"
+else
+  fail "C11 store mutated after compact"
+fi
+if [ -d "$VDIR_OL" ]; then
+  VFP_AFTER=$(store_fingerprint "$VDIR_OL")
+  if [ "$VFP_BEFORE" = "$VFP_AFTER" ]; then
+    pass "C11 verbatim/ sha256 unchanged"
+  else
+    fail "C11 verbatim/ mutated by compact"
+  fi
+else
+  fail "C11 verbatim/ missing after compact"
 fi
 
 # ---------------------------------------------------------------------------

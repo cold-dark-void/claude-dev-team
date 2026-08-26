@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.13.1
+- **`summarize-transcript` Meaning-channel overlay (CDT-214 / SPEC-036 M15)** — on-demand skill CLI overlays oversized Meaning-channel bodies in parent `main.md` with an LLM summary + `@verbatim/` ref. Originals live in `<sid>/verbatim/`. Stop/SessionEnd never invokes an LLM. Default off. No new slash Surface. Recorder still writes verbatim.
+
 ### v1.13.0
 - **`/compact-transcript` Meaning tail (CDT-215 / SPEC-036 M14)** — operator runs `/compact-transcript` (bare = live sid, same as `/handoff` M10b) to write a bounded sibling `~/.claude/transcript/<sid>.meaning-tail.md` from stripped `main.md` (≤32768 UTF-8 bytes, trailing turn-blocks). Store `main.md` / cursor / sidecars / `agents/` stay byte-identical. Detect is C6 `transcript-sync --check --sid` `status=ok`; miss is fail-closed (no JSONL fallback). Compact seed stays STM packet / `/handoff`. New Surface ⇒ minor.
 

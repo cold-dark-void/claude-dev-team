@@ -4,6 +4,7 @@
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 # T2 helper remains transcript-sync-test.sh (not invoked here).
 # M14 sibling: compact-transcript-test.sh (invoked at end; also standalone).
+# M15 sibling: summarize-transcript-test.sh (invoked at end; also standalone).
 #
 # Covers: AC3 unregistered no dirs; AC4 Stop/SessionEnd agent-key no-op;
 # AC5 updates.jsonl sibling rewrite; AC6 idempotent + rewind; AC8 collapse +
@@ -143,9 +144,35 @@ else
   fi
 fi
 
+# T7.2 — skill/docs MUST NOT call main.md / verbatim / meaning-tail / overlay
+# an STM packet, compact seed, or Channel sidecar. Allowed denials:
+# "not an STM packet" / "not a compact seed" / "not a Channel sidecar".
+# Channel sidecar is not paired with main.md (frontmatter lists both).
+glossary_forbidden_hits() {
+  local f="$1"
+  grep -nE 'main\.md|verbatim/|Verbatim original|meaning-tail|Meaning tail|overlay' "$f" \
+    | grep -iE 'STM packet|compact seed' \
+    | grep -viE 'not.{0,80}STM packet|not.{0,80}compact seed|MUST NOT' || true
+  grep -nE 'verbatim/|Verbatim original|meaning-tail|Meaning tail|overlay' "$f" \
+    | grep -iE 'Channel sidecar' \
+    | grep -viE 'not.{0,80}Channel sidecar|MUST NOT' || true
+}
+for f in "$SKILL" \
+         "$REPO/docs/commands/transcript-mirror.md" \
+         "$REPO/docs/commands/compact-transcript.md"; do
+  HITS=$(glossary_forbidden_hits "$f")
+  if [ -z "$HITS" ]; then
+    pass "M1 glossary clean $(basename "$f")"
+  else
+    fail "M1 glossary $(basename "$f") calls subject STM/compact/sidecar"
+    printf '%s\n' "$HITS" >&2
+  fi
+done
+
 # bash -n (never source)
 for f in "$REC" "$SYNC" "$SHIM" "$HERE/test.sh" "$HERE/compact-transcript.sh" \
-         "$HERE/compact-transcript-test.sh"; do
+         "$HERE/compact-transcript-test.sh" "$HERE/summarize-transcript.sh" \
+         "$HERE/summarize-transcript-test.sh"; do
   if bash -n "$f"; then
     pass "bash -n $(basename "$f")"
   else
@@ -1258,6 +1285,18 @@ if [ "$SIB_RC" -eq 0 ]; then
   pass "M14 compact-transcript-test.sh sibling"
 else
   fail "M14 compact-transcript-test.sh sibling rc=$SIB_RC"
+fi
+
+# ---------------------------------------------------------------------------
+# M15 — summarize-transcript sibling suite (CDT-214)
+# ---------------------------------------------------------------------------
+export CDT_OPERATOR_HOME="$REAL_HOME"
+SIB_RC=0
+bash "$HERE/summarize-transcript-test.sh" || SIB_RC=$?
+if [ "$SIB_RC" -eq 0 ]; then
+  pass "M15 summarize-transcript-test.sh sibling"
+else
+  fail "M15 summarize-transcript-test.sh sibling rc=$SIB_RC"
 fi
 
 # ---------------------------------------------------------------------------

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# transcript-mirror.sh — Stop/SessionEnd recorder (SPEC-036 M2–M9).
+# transcript-mirror.sh — Stop/SessionEnd recorder (SPEC-036 M2–M9, M15).
 # Opt-in SubagentStop / --agent writes <sid>/agents/<id>/ (M4a).
 # Parent nest-refs: ensure_nest_refs after parent write / nest tick if parent main.md exists.
+# Parent rebuild stashes agents/ + verbatim/ to siblings, then reapply-overlay.sh (M15).
 # Meaning channel → main.md; channel sidecars: thinking/ tool_result/ injection/.
 # bash + jq only. Fail-open: always exit 0; never decision:block.
 # Manual: transcript-mirror.sh --transcript FILE --sid SID [--agent ID]
 set -uo pipefail
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT="${TRANSCRIPT_MIRROR_ROOT:-$HOME/.claude/transcript}"
 ERRLOG="$ROOT/.errors.log"
 
@@ -373,6 +375,17 @@ parent_nest_refs_after_nest() {
   return 0
 }
 
+# Restore sibling stash (agents/ or verbatim/) onto dest. Non-empty err logs mv fail.
+restore_sibling_stash() {
+  local bak="${1:-}" dest="$2" err="${3:-}"
+  [ -n "$bak" ] && [ -d "$bak" ] || return 0
+  if [ -n "$err" ]; then
+    mv "$bak" "$dest" 2>/dev/null || log_err "$err"
+  else
+    mv "$bak" "$dest" 2>/dev/null || true
+  fi
+}
+
 # M5a: stdin cwd else $PWD; expand ~ / ~/; prefix $PWD if not absolute.
 abs_cwd() {
   local cwd="${1:-}"
@@ -633,8 +646,10 @@ main() {
     write_cursor "$NEW" "$last_ident" "$TP" "$NEW/main.md"
     rm -f "$NEW/.slice.jsonl" "$NEW/.main.part" "$NEW/.main.part.raw"
     # Sibling of $DIR — never under $WORK (RETURN trap rm -rf would drop the live sid).
+    # Bak names MUST NOT equal $ROOT/${SID}.meaning-tail.md (M6/M15).
     local BAK="${DIR}.bak.$$"
     local AGENTS_BAK=""
+    local VERBATIM_BAK=""
     if [ -d "$DIR/agents" ]; then
       AGENTS_BAK="${DIR}.agents.$$"
       if ! mv "$DIR/agents" "$AGENTS_BAK"; then
@@ -642,26 +657,32 @@ main() {
         return 0
       fi
     fi
-    if ! mv "$DIR" "$BAK"; then
-      if [ -n "$AGENTS_BAK" ] && [ -d "$AGENTS_BAK" ]; then
-        mv "$AGENTS_BAK" "$DIR/agents" 2>/dev/null || true
+    if [ -d "$DIR/verbatim" ]; then
+      VERBATIM_BAK="${DIR}.verbatim.$$"
+      if ! mv "$DIR/verbatim" "$VERBATIM_BAK"; then
+        log_err "rebuild verbatim stash failed: sid=$SID"
+        restore_sibling_stash "$AGENTS_BAK" "$DIR/agents"
+        return 0
       fi
+    fi
+    if ! mv "$DIR" "$BAK"; then
+      restore_sibling_stash "$AGENTS_BAK" "$DIR/agents"
+      restore_sibling_stash "$VERBATIM_BAK" "$DIR/verbatim"
       log_err "rebuild mv old failed: sid=$SID"
       return 0
     fi
     if ! mv "$NEW" "$DIR"; then
       mv "$BAK" "$DIR" 2>/dev/null || true
-      if [ -n "$AGENTS_BAK" ] && [ -d "$AGENTS_BAK" ]; then
-        mv "$AGENTS_BAK" "$DIR/agents" 2>/dev/null || true
-      fi
+      restore_sibling_stash "$AGENTS_BAK" "$DIR/agents"
+      restore_sibling_stash "$VERBATIM_BAK" "$DIR/verbatim"
       log_err "rebuild swap failed: sid=$SID"
       return 0
     fi
-    if [ -n "$AGENTS_BAK" ] && [ -d "$AGENTS_BAK" ]; then
-      mv "$AGENTS_BAK" "$DIR/agents" 2>/dev/null || log_err "rebuild agents restore failed: sid=$SID"
-    fi
+    restore_sibling_stash "$AGENTS_BAK" "$DIR/agents" "rebuild agents restore failed: sid=$SID"
+    restore_sibling_stash "$VERBATIM_BAK" "$DIR/verbatim" "rebuild verbatim restore failed: sid=$SID"
     rm -rf "$BAK"
     if [ "$NEST" -eq 0 ]; then
+      bash "$SCRIPT_DIR/reapply-overlay.sh" "$DIR" || log_err "reapply-overlay failed: sid=$SID"
       ensure_nest_refs "$DIR"
       write_cursor "$DIR" "$last_ident" "$TP" "$DIR/main.md"
     else

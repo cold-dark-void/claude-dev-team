@@ -23,7 +23,12 @@ Surface `/compact-transcript` MAY write a bounded sibling
 `<store-root>/<sid>.meaning-tail.md` from stripped `main.md` when that same
 `--check --sid` line is `status=ok`. That file is Meaning-channel text for the
 operator to `@`; it is **not** an STM packet and **not** a compact seed. This
-Surface MUST NOT invoke host `/compact` or PreCompact.
+Surface MUST NOT invoke host `/compact` or PreCompact. **M15 (CDT-214):**
+skill CLI `summarize-transcript` (not a slash Surface; default off) MAY,
+after an explicit invoke and `--check --sid` `status=ok`, overlay oversized
+Meaning-channel bodies in parent `main.md` with an LLM summary plus a
+`> @verbatim/…` ref to a **Verbatim original**. The recorder still writes
+verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
 
 ## MUST
 
@@ -36,24 +41,29 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
   `docs/commands/transcript-mirror.md` and `docs/commands/compact-transcript.md`.
   Docs, skill, command frontmatter, CHANGELOG, `main.md` headers, and the
   meaning-tail file MUST use glossary terms **Transcript mirror**, **Meaning
-  channel**, **Channel sidecar** (`CONTEXT.md`). Docs, skill, command
-  frontmatter, CHANGELOG, and output MUST NOT call `main.md` or
-  `<sid>.meaning-tail.md` an STM packet or compact seed. Compact seed stays
-  STM packet / `/handoff`. `/compact-transcript` is not a host `/compact`
-  replacement.
+  channel**, **Channel sidecar**, **Meaning tail**, **Verbatim original**
+  (`CONTEXT.md`). Docs, skill, command frontmatter, CHANGELOG, and output
+  MUST NOT call `main.md`, `<sid>.meaning-tail.md`, the M15 overlay, or
+  Verbatim original files an STM packet, compact seed, or Channel sidecar.
+  Compact seed stays STM packet / `/handoff`. `/compact-transcript` is not
+  a host `/compact` replacement. M15 MUST NOT add a second `commands/*.md`.
 - **M2 — Store layout.** Default root MUST be `~/.claude/transcript/<sid>/`
   containing `main.md`, `thinking/`, `tool_result/`, `injection/`, `meta`, and
   `cursor`. An optional **agent nest** MUST live at
   `<sid>/agents/<sanitized-agent-id>/` with the same six entries (same layout,
   own `cursor`). `@refs` in parent `main.md` MUST be paths relative to that
-  sid dir (`@thinking/…`, `@tool_result/…`, `@injection/…`, and nest-refs
-  `@agents/<id>/main.md`). Identity is `session_id`, not repo / worktree.
-  Nest identity is `(session_id, sanitized agent_id)`. A C7 meaning-tail file
-  MUST live at `<store-root>/<sid>.meaning-tail.md` (sibling of the sid dir,
-  never inside it) and MUST NOT be one of the six sid-dir entries. Tests MUST
-  set `TRANSCRIPT_MIRROR_ROOT` to a temp dir and MUST NOT write the operator's
-  real `~/.claude/transcript/`. That env is a harness override only —
-  user-facing docs MUST NOT document it as operator config.
+  sid dir (`@thinking/…`, `@tool_result/…`, `@injection/…`, nest-refs
+  `@agents/<id>/main.md`, and M15 `@verbatim/…`). Identity is `session_id`,
+  not repo / worktree. Nest identity is `(session_id, sanitized agent_id)`.
+  A C7 meaning-tail file MUST live at `<store-root>/<sid>.meaning-tail.md`
+  (sibling of the sid dir, never inside it) and MUST NOT be one of the six
+  sid-dir entries. **M15 Verbatim original dir:** optional extra
+  `<sid>/verbatim/` (not a Channel sidecar kind; not one of the six
+  required entries; not under `thinking/` / `tool_result/` / `injection/` /
+  `agents/`). Tests MUST set `TRANSCRIPT_MIRROR_ROOT` to a temp dir and
+  MUST NOT write the operator's real `~/.claude/transcript/`. That env is a
+  harness override only — user-facing docs MUST NOT document it as operator
+  config.
 - **M3 — Enablement.** Opt-in MUST be a user-owned **second** `hooks.Stop[]`
   command (after `stop-review.sh`) **and** a `hooks.SessionEnd[]` command, both
   `timeout` 10, pointing at a thin project shim that execs the plugin recorder.
@@ -194,10 +204,21 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
   After parent rebuild, re-apply M4a nest-refs from the preserved tree.
   Rebuild MUST NOT delete, move, truncate, or rewrite
   `<store-root>/<sid>.meaning-tail.md`. Sid-dir bak names (`<dir>.bak.<pid>`,
-  `<dir>.agents.<pid>`) MUST NOT equal that tail path.
+  `<dir>.agents.<pid>`, `<dir>.verbatim.<pid>`) MUST NOT equal that tail
+  path. **M15 verbatim stash:** parent rebuild MUST move `<sid>/verbatim/`
+  aside to a **sibling** of the sid dir (`<dir>.verbatim.<pid>`), never
+  under `$WORK` / the RETURN `rm -rf` temp, then restore after swap (same
+  pattern as `agents/`). A parent rebuild that drops `verbatim/` is a spec
+  fail. After restore, the recorder MUST re-apply the overlay **without
+  LLM and without Python** via `reapply-overlay.sh` (M15), then write
+  `cursor` `main-sha256` of the post-reapply `main.md`.
 - **M7 — Meaning channel and sidecars.** Closed taxonomy:
-  `thinking | tool_result | injection`. `main.md` MUST contain user + assistant
-  text verbatim after wrapper strip. Route to sidecars (lossless):
+  `thinking | tool_result | injection`. The recorder MUST write user +
+  assistant text into `main.md` verbatim after wrapper strip. **M15
+  overlay:** after an explicit `summarize-transcript` invoke only, eligible
+  Meaning-channel bodies in parent `main.md` MAY be an LLM summary plus
+  `> @verbatim/…` (Verbatim original ref). Absent that invoke, `main.md`
+  stays v1 verbatim. Route to sidecars (lossless):
   - `<system-reminder>`, `<command-message>` / `<command-name>` / `<command-args>`,
     `<user_query>` wrappers → `injection/`
   - `isMeta == true` and Grok `synthetic_reason` present → `injection/`
@@ -207,12 +228,15 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
   (`(signature-only, no plaintext)` or `(encrypted reasoning, no plaintext)`).
   MUST NOT invent a fourth sidecar kind. A line `> @agents/<id>/main.md`
   is a **nest-ref** (pointer to an agent nest), not a Channel sidecar.
-  Closed sidecar taxonomy stays `thinking | tool_result | injection`.
+  A line `> @verbatim/…` is a **Verbatim original** ref (M15), not a
+  Channel sidecar. Closed sidecar taxonomy stays
+  `thinking | tool_result | injection`.
 - **M8 — Format.** `main.md` section headers MUST be `## user` and
   `## assistant`. Consecutive `@tool_result` **only** lines (no meaning-channel
   text between them) MUST collapse to one `@ref` per turn. `@thinking` MUST
   appear only after a `## assistant` header (never as a leading ref before the
-  header).
+  header). M15 overlay MUST keep those rules: the `@verbatim/` ref sits
+  with the summary, never inside a consecutive `@tool_result` run.
 - **M9 — Fork, resume, compact.** New `session_id` MUST create a new sid dir.
   When the child source has `forkedFrom.sessionId` (object; Claude), `meta`
   MUST contain `parent: <that-sid>`. If the parent mirror dir exists, skip
@@ -241,7 +265,8 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
   MUST NOT call `hosts.locate(host, None, cwd)` (newest-only). Unregistered no-args MUST
   NOT create new sid dirs. MUST NOT invent, enumerate, or refresh
   `<sid>/agents/` (OQ2: live SubagentStop + recorder `--agent` only).
-  Fail-open: exit 0 always. For opted-in
+  Fail-open: exit 0 always. MUST NOT invoke `summarize-transcript` (M15 is
+  explicit CLI only; no-args / cron MUST NOT overlay). For opted-in
   projects, periodic `transcript-sync` (cron or equivalent) is **mandatory**
   in docs — not optional. Stop is the fast path. SessionEnd is an
   opportunistic flush. Docs MUST NOT inspect crontab.
@@ -282,11 +307,23 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
   dir). MUST NOT write `main.md`, `cursor`, Channel sidecars, `meta`,
   `agents/`, or any other path inside the sid dir. MUST NOT invoke the
   recorder. MUST NOT run `transcript-sync` without `--check`. MUST NOT read
-  Channel sidecar bodies or `agents/` for the tail. MUST NOT add `/handoff`
-  flags. MUST NOT change M3f hit/miss, JSONL identity, `leaf_uuid`, or
-  PreCompact. Recorder, sync write path, M4a nest, and M5a locate stay
-  frozen. Recorder and `transcript-sync` MUST NOT create, update, or delete
-  `*.meaning-tail.md`.
+  Channel sidecar bodies, `agents/`, or `verbatim/` for the tail. MUST NOT
+  add `/handoff` flags. MUST NOT change M3f hit/miss, JSONL identity,
+  `leaf_uuid`, or PreCompact. MUST NOT summarize. **Carve-out (CDT-214 /
+  M15):** `summarize-transcript` MAY **read** `<store>/<sid>/main.md` and
+  `cursor`, MAY run `transcript-sync --check --sid <sid>` as the sole
+  consume gate, and MAY write parent `main.md`, `<sid>/verbatim/`, and
+  `cursor` field 3 (`main-sha256`) only. MUST NOT write Channel sidecars,
+  `meta`, `agents/`, or `*.meaning-tail.md`. MUST NOT invoke the recorder.
+  MUST NOT run `transcript-sync` without `--check`. MUST NOT enumerate,
+  summarize, or restore `agents/*/main.md`. `/handoff` miners MUST NOT
+  read `verbatim/`, Channel sidecar bodies, or `agents/`. After overlay,
+  M3f strip keeps summary text and drops `@ref`s (including `@verbatim/`).
+  Recorder rebuild MAY stash/restore `verbatim/` and exec
+  `reapply-overlay.sh` (no LLM, no Python). Sync write path, M4a nest,
+  and M5a locate stay frozen. Recorder and `transcript-sync` MUST NOT
+  create, update, or delete `*.meaning-tail.md` or invoke
+  `summarize-transcript`.
 - **M13 — Tests and docs.** `skills/transcript-mirror/test.sh` MUST use
   `$TMPDIR` / `TRANSCRIPT_MIRROR_ROOT` / `GROK_SESSIONS_DIR` fixtures,
   cover dual-host, and cover M1–M11 plus M4a (including never-fired Stop +
@@ -309,6 +346,9 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
   add SubagentStop to the default Stop + SessionEnd snippet.
   `compact-transcript-test.sh` MUST cover M14 and MUST be invoked from
   `test.sh` or run as a sibling suite in Validation.
+  `summarize-transcript-test.sh` MUST cover M15 and MUST be invoked from
+  `test.sh` or run as a sibling suite in Validation. Docs MUST document
+  the skill CLI (not as a slash Surface) and `SUMMARIZE_TRANSCRIPT_CMD`.
 - **M14 — Meaning tail (`/compact-transcript`, CDT-215).** Slash Surface
   `/compact-transcript` MUST emit a bounded Meaning-channel file for the
   operator to `@`. It MUST NOT invoke host `/compact` or PreCompact.
@@ -337,7 +377,8 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
     unchanged).
   - **Hit write.** Read `<store>/<sid>/main.md`. Strip: drop the
     `# transcript mirror` title; drop every line matching `^>\s*@` (Channel
-    sidecar refs and nest-refs). MUST NOT inline sidecar or nest bodies.
+    sidecar refs, nest-refs, and `@verbatim/` refs). MUST NOT inline sidecar,
+    nest, or Verbatim original bodies.
     Drop leading lines until the first `## user` or `## assistant` heading.
     If nothing remains, treat as miss (empty). Bound: UTF-8 byte length of
     the file MUST be `<= 32768`. Tests MUST assert `wc -c`, not a tokenizer.
@@ -353,9 +394,11 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
     Idempotent: same `main.md` bytes → same tail bytes. On success print
     exactly one stdout line: the absolute path of the tail file. Exit 0.
   - **Store isolation.** After success, `main.md` sha256, `cursor`, Channel
-    sidecar trees, and `agents/` MUST be byte-identical to before the
-    invocation. This Surface MUST NOT truncate, rewrite, or delete store
-    files inside the sid dir.
+    sidecar trees, `agents/`, and `verbatim/` MUST be byte-identical to
+    before the invocation. This Surface MUST NOT truncate, rewrite, or
+    delete store files inside the sid dir. MUST NOT summarize. MUST NOT
+    invoke `summarize-transcript`. After an M15 overlay, the Meaning tail
+    MAY be stale until the operator re-runs `/compact-transcript`.
   - **Docs.** `docs/commands/transcript-mirror.md` MUST NOT recommend
     `@main.md` as the compact attach. Compact `@`-attach MUST point at
     `/compact-transcript`. `@main.md` remains valid only as the full
@@ -376,6 +419,112 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
     mutate a planted tail; sid-dir rebuild leaves the sibling tail
     byte-identical; SPEC-018 Test 40 no-mirror identity (T1.3: no
     `spine_origin`).
+- **M15 — Meaning-channel overlay (`summarize-transcript`, CDT-214).**
+  Skill CLI (not a slash Surface). Default off. Explicit invoke only.
+  Recorder still writes verbatim (M7).
+  - **CLI.** Ship install-aware
+    `skills/transcript-mirror/summarize-transcript.sh` (PDH + `python3`;
+    fail-closed like `compact-transcript.sh`). Python helper
+    `summarize-transcript.py`. Apply engine
+    `reapply-overlay.sh` (bash+awk only). MUST NOT add `commands/*.md`.
+    `--sid <sid>` is required. `<sid>` MUST be a single path component
+    (no `/`, not `.` or `..`). No positional. No-args / unknown flags /
+    `--restore` without `<turn-id>` → exit 64, no write.
+    Overlay: `summarize-transcript.sh --sid <sid>`.
+    Restore one turn: `summarize-transcript.sh --sid <sid> --restore <turn-id>`.
+    `<turn-id>` is `T` + 6-digit 1-based ordinal of `^## (user|assistant)[[:space:]]*$`
+    headings in parent `main.md` (`T000001`). MUST NOT hang off
+    `transcript-sync` no-args or cron. MUST NOT run from
+    `/compact-transcript`, `/handoff`, `/doctor`, `/setup orchestration`,
+    or the recorder.
+  - **Detect (sole gate).** Invoke install-aware
+    `transcript-sync.sh --check --sid <sid>` only (MUST NOT omit
+    `--check`; MUST NOT pass `--transcript`). Consume only when stdout
+    contains `sid=<sid> status=ok` (status token exact). Else exit 1,
+    stderr names status or reason, store byte-identical. MUST NOT invent
+    a second detect path.
+  - **Eligibility (size only).** A turn-block starts at a line matching
+    `^## (user|assistant)[[:space:]]*$` and runs until the next such
+    heading or EOF. **Meaning payload** = turn-block lines that are not
+    the heading and do not match `^>\s*@`. Eligible iff UTF-8 `wc -c` of
+    the meaning payload is **> 8192**. Already-replaced turns (body has
+    `^>\s*@verbatim/`), empty payloads, Channel sidecar bodies, and
+    nest-ref lines are not eligible. User and assistant both in scope.
+    MUST NOT use age. Parent sid `main.md` only — MUST NOT enumerate
+    `agents/*/main.md`.
+  - **Replacement.** Keep the heading. Keep existing Channel sidecar /
+    nest-ref `^>\s*@` lines as two groups: leading (before the first
+    meaning-payload line) and trailing (after the last). Replace the
+    meaning payload with: non-empty LLM summary + exactly one
+    `> @verbatim/<turn-id>.txt` immediately after the summary and
+    before trailing refs. MUST NOT add, drop, merge, or duplicate
+    headings. MUST NOT place the verbatim `@ref` inside a consecutive
+    `@tool_result` run (M8). If the summary is empty, the summarizer
+    exits non-zero, or `wc -c(summary) >= wc -c(payload)`, leave that
+    turn verbatim (no write for that turn). MUST NOT write
+    `[summarization failed]` or any placeholder.
+  - **Verbatim original store.** One file per replaced turn inside
+    `<sid>/verbatim/<turn-id>.txt`. `@ref` is relative to the sid dir.
+    File bytes MUST equal the pre-replacement meaning payload
+    (lossless). Companion `<sid>/verbatim/<turn-id>.sum` holds the
+    summary text only (for rebuild re-apply without LLM). `.sum` is
+    **not** a Verbatim original, **not** a Channel sidecar, **not** a
+    Meaning tail. MUST NOT write under `thinking/` / `tool_result/` /
+    `injection/` / `agents/`. MUST NOT write
+    `<store-root>/<sid>.meaning-tail.md` or any sibling tail.
+  - **Restore.** `--restore <turn-id>` splices `.txt` back as the
+    meaning payload, drops that turn's `> @verbatim/…` line, deletes
+    that turn's `.txt` and `.sum`, and updates `cursor` `main-sha256`.
+    MUST NOT re-LLM. MUST NOT touch other turns. Missing or
+    not-overlaid `<turn-id>` → exit 1, store byte-identical.
+  - **Cursor.** After overlay or restore: `cursor` identity and
+    source-path unchanged; field 3 MUST equal sha256 of the post-write
+    `main.md`. Next recorder tick MUST NOT treat this as hash-mismatch
+    rebuild and MUST NOT duplicate `## user` / `## assistant`. New
+    source records append verbatim.
+  - **Rebuild re-apply.** Sid-dir rebuild MUST NOT delete, move,
+    truncate, or rewrite `verbatim/` files or `*.meaning-tail.md`.
+    After stash/restore of `verbatim/`, exec
+    `skills/transcript-mirror/reapply-overlay.sh <sid-dir>` (bash+awk;
+    no Python; no LLM; no `SUMMARIZE_TRANSCRIPT_CMD`). For every
+    `<turn-id>` that still has both `.txt` and `.sum`, overlay that
+    heading-ordinal turn (summary + `@ref`; no duplicate headings).
+    Then write `cursor` `main-sha256` of the post-reapply `main.md`.
+  - **Summarizer seam.** Env `SUMMARIZE_TRANSCRIPT_CMD` is the only
+    seam. stdin = UTF-8 meaning payload; stdout = UTF-8 summary; exit
+    0 required. Unset, empty, non-zero exit, or empty stdout → that
+    turn verbatim. Plugin MUST NOT ship a live LLM caller. Tests MUST
+    stub this env. `--restore` and `reapply-overlay.sh` MUST NOT read
+    this env and MUST NOT invoke an LLM.
+  - **Fail-closed (this CLI only).** Detect miss / helper missing /
+    `python3` missing / bad sid → exit 1 (64 for usage), store
+    byte-identical. MUST NOT exit 0 on miss (do not copy
+    `transcript-sync` fail-open). Zero eligible turns → exit 0,
+    byte-identical. Per-turn LLM fail → that turn verbatim. Overlay
+    success stdout is exactly one line `sid=<sid> replaced=<n>`.
+    Restore success stdout is exactly one line
+    `sid=<sid> restored=<turn-id>`. Recorder / `transcript-sync` /
+    doctor fail-open unchanged.
+  - **Consumers.** This CLI MUST NOT create, update, or delete
+    `*.meaning-tail.md`. `/compact-transcript` MUST NOT summarize.
+    M14 strip still drops `^>\s*@`; tail and SPEC-018 M3f see summary
+    text, not originals. Miners MUST NOT read `verbatim/`.
+  - **Python.** Allowed on this CLI and existing `transcript-sync`
+    only. Never from the recorder or any helper it sources.
+    `reapply-overlay.sh` MUST stay bash+awk so the recorder may exec
+    it.
+  - **Ship.** No new `commands/*.md` ⇒ bump class **patch**. A new
+    `commands/*.md` in the same tree MUST fail `check-bump-class.sh`
+    as patch (SPEC-010 B1–B6) and ship as **minor**.
+  - **Tests.** `skills/transcript-mirror/summarize-transcript-test.sh`
+    MUST set `TRANSCRIPT_MIRROR_ROOT` and `$TMPDIR` and MUST NOT write
+    `$HOME/.claude/transcript/`. Stub `SUMMARIZE_TRANSCRIPT_CMD` (no
+    live LLM in CI). Coverage: AC3 miss no-write; oversized replace +
+    `@ref` + original bytes; undersized untouched; idempotent
+    re-invoke; restore splice; cursor sha256; recorder increment
+    no-dup; rebuild re-applies overlay and does not eat `verbatim/`
+    or Meaning tail; M7 still three sidecar kinds; M14 + SPEC-018
+    Test 40 green; glossary grep.
 
 ## Test
 
@@ -491,6 +640,35 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
       `spine_origin`; no new `/handoff` flags (M12, AC4, AC6)
 - [ ] C7 bump-class: `commands/compact-transcript.md` added + patch version
       → `check-bump-class.sh` exits 1; + minor → 0 (SPEC-010 B1–B6, AC5)
+- [ ] M15 miss: `--check` not `ok` / no line / helper missing → exit 1,
+      store byte-identical; no-args / unknown flags → 64 (M15, AC3, AC10)
+- [ ] M15 oversized: meaning payload `wc -c` > 8192 → summary in `main.md`,
+      exactly one `> @verbatim/TNNNNNN.txt`, file bytes equal pre-replacement
+      payload; undersized untouched (M15, AC4, AC5, AC6)
+- [ ] M15 idempotent re-invoke: second overlay with same `main.md` →
+      byte-identical store; already-replaced not eligible (M15, AC4)
+- [ ] M15 restore: `--restore TNNNNNN` splices payload, drops `@verbatim/`
+      for that turn only, deletes that turn's `.txt`/`.sum`, updates
+      `cursor` field 3; no LLM (M15, AC7)
+- [ ] M15 cursor: overlay updates `main-sha256` only; next Stop appends
+      verbatim with no duplicate headings and no rebuild (M15, AC8)
+- [ ] M15 rebuild: `verbatim/` and sibling Meaning tail survive; overlay
+      re-applies without LLM; `cursor` sha256 matches post-reapply
+      `main.md` (M15, AC9)
+- [ ] M15 zero eligible → exit 0, byte-identical; per-turn stub fail →
+      that turn verbatim, no placeholder (M15, AC10)
+- [ ] M15 MUST NOT touch `*.meaning-tail.md`; M14 + Test 40 still green;
+      M7 sidecar dirs remain exactly `thinking` / `tool_result` /
+      `injection` (M15, AC11, AC12, AC16)
+- [ ] M15 nests OUT: `agents/*/main.md` unchanged; no nest invented
+      (M15, AC13)
+- [ ] M15 glossary: `git grep -i` on skill/docs/CHANGELOG does not call
+      `main.md`, overlay, `verbatim/`, or meaning-tail an STM packet,
+      compact seed, or Channel sidecar (M15, AC14)
+- [ ] M15 bump-class: no new `commands/*.md` + patch →
+      `check-bump-class.sh` exits 0 (SPEC-010 B1–B6, AC15)
+- [ ] M15 recorder does not call Python; `reapply-overlay.sh` has no
+      `python3` (M15, AC1, AC17)
 
 ## Validation
 
@@ -513,11 +691,15 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
       carve-out; M14 meaning-tail; Test 40 unchanged)
 - [ ] `bash skills/transcript-mirror/compact-transcript-test.sh` green
 - [ ] `bash skills/handoff/mirror-spine-test.sh` green (Test 40 T1.3)
+- [x] Spec amended against CDT-214 ACs (M15 overlay; `verbatim/` dir;
+      skill CLI; no new `commands/*.md`; taxonomy closed)
+- [ ] `bash skills/transcript-mirror/summarize-transcript-test.sh` green
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-26 | CDT-214: M15 Meaning-channel overlay — skill CLI `summarize-transcript.sh --sid` / `--restore` (no `commands/*.md`). `--check --sid` `status=ok` gate. Size-only eligibility >8192 UTF-8 bytes. Overlay = summary + `@verbatim/TNNNNNN.txt`; originals in `<sid>/verbatim/`. Recorder still verbatim. Rebuild stashes `verbatim/` like `agents/` and re-applies via bash `reapply-overlay.sh` (no LLM/Python). Seam `SUMMARIZE_TRANSCRIPT_CMD`. Patch bump. |
 | 2026-08-26 | CDT-215: M1 C7 carve-out — exactly `commands/compact-transcript.md`. M12 consumer carve-out + M14 meaning-tail: `--check --sid` `status=ok` MAY write sibling `<sid>.meaning-tail.md` (≤32768 UTF-8 bytes, trailing turn-blocks, strip title/`^>\s*@`). Fail-closed on miss. Recorder/sync MUST NOT touch `*.meaning-tail.md`. Rebuild MUST NOT eat the sibling. Not Compact seed / STM packet. Not a `/compact` replacement. Minor bump (v1.13.0 at `/release`). |
 | 2026-08-26 | CDT-216: M12 carve-out — `/handoff` prepare MAY read `main.md` + `--check --sid` (SPEC-018 M3f). CLI / PreCompact / M8 schema / recorder / M4a / M5a still frozen. |
 | 2026-08-26 | CDT-217: M4a opt-in SubagentStop agent nest under `<sid>/agents/<id>/`; Stop/SessionEnd agent-key no-op stays v1; parent nest-ref; rebuild preserves `agents/`. OQ2/OQ5/OQ7 locked. |
@@ -540,7 +722,11 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
 `skills/transcript-parse/hosts-grok-locate-test.sh`,
 `commands/compact-transcript.md`,
 `docs/commands/transcript-mirror.md`,
-`docs/commands/compact-transcript.md`
+`docs/commands/compact-transcript.md`,
+`skills/transcript-mirror/summarize-transcript.sh`,
+`skills/transcript-mirror/summarize-transcript.py`,
+`skills/transcript-mirror/reapply-overlay.sh`,
+`skills/transcript-mirror/summarize-transcript-test.sh`
 
 ## SHOULD
 
@@ -560,7 +746,10 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
   ticks vs empty/tool-only SubagentStop before considering default-on.
 - SHOULD document `/compact-transcript` as the compact `@`-attach path.
   SHOULD keep `@main.md` documented as the full unbounded Meaning channel
-  only.
+  only (optionally M15-overlaid).
+- SHOULD document `summarize-transcript.sh --sid` as the opt-in overlay
+  CLI and `SUMMARIZE_TRANSCRIPT_CMD` as the only summarizer seam. SHOULD
+  tell the operator the plugin does not ship a live LLM caller.
 
 ## MUST NOT
 
@@ -573,8 +762,9 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
 - MUST NOT run M5a Grok reconstruct on SubagentStop.
 - MUST NOT invent agent nests from `transcript-sync` no-args / `--sid` /
   `--check`.
-- MUST NOT treat `@agents/…` as a fourth Channel sidecar kind.
-- MUST NOT drop `<sid>/agents/` on parent rebuild.
+- MUST NOT treat `@agents/…` or `@verbatim/…` as a fourth Channel sidecar
+  kind.
+- MUST NOT drop `<sid>/agents/` or `<sid>/verbatim/` on parent rebuild.
 - MUST NOT extend SPEC-022 / doctor `EXPECTED_HOOK_EVENTS` /
   `EXPECTED_HOOK_SCRIPTS`.
 - MUST NOT register hooks from `.claude-plugin/plugin.json`.
@@ -582,7 +772,9 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
 - MUST NOT document `TRANSCRIPT_MIRROR_ROOT` in user-facing docs.
 - MUST NOT re-implement `hosts.py` locate inside the Python backstop.
 - MUST NOT call Python from the Stop/SessionEnd/SubagentStop recorder or
-  any helper it sources.
+  any helper it sources (including `reapply-overlay.sh`).
+- MUST NOT invoke an LLM from the recorder, `transcript-sync`,
+  `reapply-overlay.sh`, or `--restore`.
 - MUST NOT invent Grok's slug+hash write algorithm (`.cwd` content match
   only).
 - MUST NOT recurse into session dirs or parse JSONL when resolving `.cwd`.
@@ -595,13 +787,14 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
 - MUST NOT remove or replace the Stop recorder (timeout 10 unchanged).
 - MUST NOT add `commands/*.md` except `commands/compact-transcript.md`
   (M1 C7 carve-out). MUST NOT add `commands/transcript-mirror.md`.
+  MUST NOT add `commands/summarize-transcript.md`.
 - MUST NOT let `/handoff` write the Transcript mirror store, invoke the
   recorder, or run `transcript-sync` except `--check --sid` (M12 carve-out).
 - MUST NOT treat mirror `cursor` as SPEC-018 `leaf_uuid`.
-- MUST NOT call `main.md` or `<sid>.meaning-tail.md` an STM packet or
-  compact seed.
+- MUST NOT call `main.md`, `<sid>.meaning-tail.md`, the M15 overlay, or
+  Verbatim original files an STM packet, compact seed, or Channel sidecar.
 - MUST NOT write a meaning-tail inside the sid dir. MUST NOT truncate
-  store `main.md`.
+  store `main.md` except M15 overlay/restore of eligible turn bodies.
 - MUST NOT create, update, or delete `*.meaning-tail.md` from the
   recorder or `transcript-sync`.
 - MUST NOT eat `<store-root>/<sid>.meaning-tail.md` on sid-dir rebuild.
@@ -611,6 +804,13 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
 - MUST NOT add `--bytes` / `--turns` / new `/handoff` flags.
 - MUST NOT change SPEC-018 M3f hit/miss, JSONL identity, `leaf_uuid`, or
   M8 schema.
+- MUST NOT write Verbatim originals under `thinking/` / `tool_result/` /
+  `injection/` / `agents/` or as a meaning-tail sibling.
+- MUST NOT run `summarize-transcript` from `transcript-sync` no-args /
+  cron, `/compact-transcript`, `/handoff`, `/doctor`, `/setup
+  orchestration`, or the recorder.
+- MUST NOT fail-open `summarize-transcript` (exit 0) on detect miss.
+- MUST NOT enumerate, summarize, or restore `agents/*/main.md`.
 
 ## Open Questions
 
@@ -649,6 +849,11 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
       + UTF-8-safe body prefix. Never exceed cap.
 - [x] CDT-215 detect miss → **fail-closed this Surface only** (no JSONL
       fallback). `/handoff` M3f miss path unchanged.
+- [x] CDT-214 dirname → **`verbatim/`** inside the sid dir.
+- [x] CDT-214 eligibility → **size-only**, UTF-8 `wc -c` of meaning
+      payload **> 8192**.
+- [x] CDT-214 vehicle → **skill CLI** `summarize-transcript.sh` (no
+      `commands/*.md`). Seam `SUMMARIZE_TRANSCRIPT_CMD`.
 
 ## Cross-references
 
@@ -664,12 +869,14 @@ Surface MUST NOT invoke host `/compact` or PreCompact.
 - **SPEC-018** — STM packet / compact seed / PreCompact / M8 schema frozen;
   M3f MAY read `main.md` when `--check --sid` is `ok` (CDT-216). CDT-215
   `/compact-transcript` is a separate Surface (M14); M3f hit/miss and
-  Test 40 stay unchanged. Bare sid identity = M10b `discover-warm.sh`
-  line 1.
+  Test 40 stay unchanged. After M15 overlay, strip keeps summary text
+  and drops `@verbatim/` refs. Miners MUST NOT read `verbatim/`. Bare
+  sid identity = M10b `discover-warm.sh` line 1.
 - **SPEC-021** — skill-bash lint on `SKILL.md` / `commands/*.md` fences;
   PDH stanza if any
 - **SPEC-022** — `transcript.mirror_lag` (group `transcript`); WARN never
   FAIL; `--check` SoT; `EXPECTED_HOOK_*` frozen
 - **SPEC-010** — docs-drift `cmd-index` / `docs-hub` / `docs-page-links`
   for `/compact-transcript` + `docs/commands/transcript-mirror.md`;
-  bump-class B1–B6 (new `commands/*.md` ⇒ minor)
+  bump-class B1–B6 (new `commands/*.md` ⇒ minor; M15 no new command ⇒
+  patch)
