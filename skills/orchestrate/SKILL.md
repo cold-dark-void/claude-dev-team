@@ -21,6 +21,7 @@ in agent worktrees. Phase bodies live in `steps/` — this file is the router.
 - `[--council-tier=<skip|light|full>]` — CDT-126; `steps/00-resolve.md` + `steps/09-review.md`
 - `[--resume-ship[=<patch|minor|major|master>]]` — CDT-135/195; `steps/11-ship.md`
 - `[--tier=<light|standard|full>]` — CDT-206; `steps/00-resolve.md` + `steps/02-scope.md`
+- `[--max-loc=<n|unbound>]` — CDT-223; `steps/00-resolve.md`
 
 | `--tier` | Steps | pipeline |
 |----------|-------|----------|
@@ -43,7 +44,7 @@ The monolith is gone from this always-on path.
 
 | Step | File | What |
 |------|------|------|
-| 0 | `00-resolve.md` | Roots, memory, autopilot, council-tier, tier, resume |
+| 0 | `00-resolve.md` | Roots, memory, autopilot, council-tier, tier, max-loc, resume |
 | 1 | `01-fetch.md` | Linear / backlog / freeform |
 | 2 | `02-scope.md` | Scope-confirm gate |
 | 3 | `03-worktree.md` | Branch, worktree, glossary 3b |

@@ -106,7 +106,7 @@ the agent whose stint is ending (counters as of hand-off).
 here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate
 enum value.) The Stint-end outcome emit above still fires unchanged first. Build the C3 §2 envelope
 `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
-iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, <trigger signal:
+iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <trigger signal:
 "IC↔TL 3+ review rounds without consensus" — an unresolved product/architecture decision autopilot
 cannot self-answer (BC1)> }` and call `skills/autopilot/self-answer.md`'s procedure for
 `{decision, blocking_condition, confidence, rationale}` (exactly one `decided_by:"auto"` card is
@@ -181,7 +181,8 @@ auto-selected):
   gate = `plan-approve` — SPEC-033 M8 mapping; no new gate enum value.) Build
   the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
   gate:"plan-approve", run_id:RUN_ID, iteration:ITER,
-  run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, <trigger
+  run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
+  max_loc:MAX_LOC, <trigger
   signal: "task <task_id> has requires_council: true but this run carries
   --council-tier=skip; skip never produces a verdict, so the gate can never be
   satisfied for this task as configured — an unresolved configuration conflict

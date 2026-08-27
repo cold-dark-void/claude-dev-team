@@ -26,6 +26,12 @@
   Independent of `--council-tier`. Omit records `ORCH_TIER` as the literal
   string `"null"`; test with `[ "$ORCH_TIER" = "null" ]`. Later steps MAY
   branch on `[ "$ORCH_TIER" = "light" ]` only.
+- `[--max-loc=<n|unbound>]` — optional, any position: per-run DRI LOC-cap
+  override (CDT-223 / SPEC-033 AC8 / SPEC-009). `=` form only. No env. Not
+  resume-seeded. Independent of `--tier` / `--council-tier`. Consume only
+  when `AUTOPILOT_ON=true` (autopilot off: parse still runs; value unused).
+  Omit records `MAX_LOC` as the literal string `"null"`. MUST NOT pass
+  `--max-loc` on `reroute-epic` unless caller argv already has it.
 - `[--resume-ship[=<patch|minor|major|master>]]` — optional (CDT-135 / SPEC-033 /
   CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
   confirmed ship sequence** (end-state land path + wrap) without re-running the
@@ -87,7 +93,7 @@ by reference. `ITER` starts at `0` and increments once per orchestration stint.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
-AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump> or --tier
+AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump> or --tier or --max-loc
 AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
 AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
 AP_SOURCE=$(jq -r .source <<<"$AP_JSON")            # flag | env | none
@@ -103,6 +109,14 @@ COUNCIL_TIER_OVERRIDE=$(jq -r '.council_tier // "null"' <<<"$AP_JSON")
 # Identity test: [ "$ORCH_TIER" = "null" ] — never emptiness. Later steps
 # MAY branch on [ "$ORCH_TIER" = "light" ] only.
 ORCH_TIER=$(jq -r '.tier // "null"' <<<"$AP_JSON")
+# CDT-223: DRI --max-loc=<n|unbound> per-run LOC-cap, resolved once for the
+# whole run from the same parse-flags.sh call — independent of --tier /
+# --council-tier, no env, no resume-state seeding (unlike AUTOPILOT_ON/BUMP;
+# a resumed run without the flag re-resolves to the 4-character string "null").
+# Consume only when AUTOPILOT_ON=true. Autopilot off: parse still runs
+# (junk → 64 above); value unused. MUST NOT pass --max-loc on reroute-epic
+# unless caller argv already has it.
+MAX_LOC=$(jq -r '.max_loc // "null"' <<<"$AP_JSON")
 
 # Resume detection (CDT-111-C8): only when THIS invocation gave neither
 # --autopilot nor AUTOPILOT= (flag/env always win over recorded state).
@@ -150,7 +164,7 @@ invocation (flag/env win over recorded state — `parse-flags.sh`'s own preceden
 epoch (SPEC-033 M9a, CDT-111-C8).
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
-`RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` / `ORCH_TIER` below means
-these values, carried forward from this step.
+`RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` / `ORCH_TIER` / `MAX_LOC`
+below means these values, carried forward from this step.
 
 ---

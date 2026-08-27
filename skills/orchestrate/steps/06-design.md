@@ -89,8 +89,9 @@ autopilot-only `plan-approve` branch; when autopilot is off nothing changes and 
 existing approval gate below fires as the sole gate. Build the C3 §2 envelope
 `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
-<per-task {file paths present?, verification step present?}, projected LOC / per-file
-size, task-graph shape, destructive-op flags> }` and call
+max_loc:MAX_LOC, <per-task {file paths present?, verification step present?},
+projected counted LOC / per-file size (`loc-exclude.sh is-excluded`; M15),
+task-graph shape, destructive-op flags> }` and call
 `skills/autopilot/self-answer.md`'s procedure. Act on `decision`:
 - `approve` → continue to Step 7 exactly as the user's approval would.
 - `reroute-epic` → print the one-line message below, hand off to `/epic` decompose, and

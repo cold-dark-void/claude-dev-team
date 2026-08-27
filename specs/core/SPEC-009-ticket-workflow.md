@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`
+**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/orchestrate/steps/cross-cutting.md` (LOC change-discipline, CDT-223), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206; `--max-loc`, CDT-223), `skills/autopilot/loc-exclude.sh` (CDT-223), `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`
 
 ## Overview
 
@@ -48,8 +48,10 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST track task state and only spawn agents for unblocked tasks
 - MUST escalate on: agent stuck after 2 attempts, scope creep, ambiguous requirement, breaking change, deadloop (3+ review rounds)
 - MUST NOT escalate on: test failures, lint/format, routine implementation decisions, file organization
-- MUST enforce LOC caps on implementation code: ~1k LOC soft cap, 2k hard cap total, no single file >1k lines changed
-- MUST exempt generated code (specs, tests) from LOC caps
+- MUST enforce LOC caps on **counted** implementation code (SPEC-033 M15 — cite, do not fork): ~1k LOC **soft** cap (non-halting discipline), 2k **hard** cap per PR default, no single counted file >1k lines
+- MUST exempt generated code (specs, tests) from LOC caps. MUST keep this exemption **additive** to SPEC-033 M15 (`.gitattributes linguist-generated` ∪ built-in lockfile/`*.snap`/vendored-prefix list). MUST NOT drop the specs/tests exemption. MUST NOT redefine "test file". MUST NOT reuse the SPEC-008 product-source exclude set as the LOC default list
+- Interactive change-discipline (`skills/orchestrate/steps/cross-cutting.md` Size limits) MUST use the same M15 exclusion as autopilot BC4 / M10.1
+- `/setup project` MUST seed `.gitattributes` with `linguist-generated` markers for the M15 built-in paths (`skills/scaffold-project/SKILL.md`): create if absent; if present, append missing markers only (idempotent; never clobber other attributes). Re-run MUST NOT overwrite `AGENTS.md` or other scaffold files
 - MUST separate refactoring from feature work (ship refactor first, feature on top)
 - MUST never silently absorb discovered work (create new ticket)
 - MUST replan when approach changes materially
@@ -86,7 +88,7 @@ Pipeline cost tier for `/orchestrate`. This subsection is the contract home.
 - MUST use the `=` form only (`--tier=<value>`)
 - MUST parse `--tier` in `skills/autopilot/parse-flags.sh`
 - MUST print JSON key `tier`. MUST NOT reuse key `council_tier` for this flag
-- MUST print exactly five JSON keys on success: `enabled`, `bump`, `source`, `council_tier`, `tier`
+- MUST print exactly six JSON keys on success: `enabled`, `bump`, `source`, `council_tier`, `tier`, `max_loc` (CDT-223 adds `max_loc`; `--tier` contract otherwise unchanged)
 - MUST set `"tier": null` when `--tier` is absent. MUST NOT coerce omit to `"standard"` or `"full"`
 - MUST set `"tier"` to `"light"`, `"standard"`, or `"full"` when the flag is well-formed
 - MUST exit 64, write the error to stderr, and print no success JSON when `--tier` is malformed
@@ -105,6 +107,37 @@ Pipeline cost tier for `/orchestrate`. This subsection is the contract home.
 - **Identity (omit).** MUST NOT coerce omit to `"standard"` at parse time (`"tier": null`). Step 2 MUST auto-size when `[ "$ORCH_TIER" = "null" ]` (CDT-210). After the gate, the selected tier is the run's pipeline
 - Light-path step branches MUST test exactly `[ "$ORCH_TIER" = "light" ]`. MUST NOT use `!= "null"` or `!= "full"` (that would cut omit and standard)
 - MUST NOT change SPEC-033 gate ownership, checklists, or BC halt/escalate. MUST NOT edit SPEC-033
+
+#### Orchestrate `--max-loc` (CDT-223)
+
+DRI per-run LOC-cap override for `/orchestrate` autopilot. **Contract home is SPEC-033 AC8
+(M15/M16).** This subsection is the SPEC-009 Surface/docs/parse wiring. Cite SPEC-033; do
+not fork the exclusion list, effect table, or card field.
+
+- MUST accept `--max-loc=<n|unbound>` on `/orchestrate` in any argument position (`=` form only)
+- MUST parse `--max-loc` in `skills/autopilot/parse-flags.sh` (same call as `--tier`)
+- MUST print JSON key `max_loc`. Omit → `null`. `--max-loc=<n>` with `n` matching
+  `^[1-9][0-9]*$` → JSON **number**. `--max-loc=unbound` → JSON string `"unbound"`
+  (case-sensitive)
+- MUST print six JSON keys on success (see `--tier` key list above)
+- MUST exit 64, write the error to stderr, and print no success JSON when `--max-loc` is
+  malformed (junk, `0`, negative, `UNBOUND`/`off`/`none`/`unlimited`/`inf`, empty `=`,
+  bare flag, space form). Step 0 MUST halt before fetch, worktree, or spawns
+- Duplicate `--max-loc` MUST last-win (same-value and different-value). MUST NOT 64 a
+  duplicate the way `--tier` does
+- MUST parse independently of `--autopilot` / `--council-tier` / `--tier`
+- MUST bind `.max_loc` once in `skills/orchestrate/steps/00-resolve.md` from that same
+  `parse-flags.sh` call
+- MUST NOT add an environment variable. MUST NOT persist in `resume-state.sh`. MUST NOT
+  auto-propagate on `reroute-epic`
+- MUST consume the value only when autopilot is active. Autopilot off: still parse
+  (junk → 64); value unused
+- MUST NOT document `--max-loc` on `/kickoff`. Kickoff MAY parse the token because it
+  shares `parse-flags.sh`. Kickoff MUST ignore a present unused `.max_loc`
+- MUST list `--max-loc=<n|unbound>` in `skills/orchestrate/SKILL.md` Arguments (router
+  stays ≤80 lines) and in `docs/commands/orchestrate.md` Flags table
+- MUST NOT add `commands/orchestrate.md`
+- Effects, exclusion, card `max_loc`, and fixtures: SPEC-033 M15/M16 (cite)
 
 #### Orchestrate `--tier` light path (CDT-207 / CDT-208 / CDT-209)
 
@@ -323,8 +356,13 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify brainstorm enforces 4-round questioning (no shortcuts)
 - Verify kickoff spawns 3 agents in parallel and collects all outputs
 - Verify kickoff pauses on >4 open questions from PM
-- Verify orchestrate enforces LOC caps on implementation code only
-- Verify orchestrate exempts generated code from LOC caps
+- Verify orchestrate enforces LOC caps on **counted** implementation code only (SPEC-033 M15)
+- Verify orchestrate exempts generated code (specs, tests) from LOC caps **and** excludes
+  M15 built-in lockfiles/`*.snap`/vendored prefixes plus `.gitattributes linguist-generated`
+- Verify a 1400-line lockfile or `*.snap` does **not** trip the per-file cap; a 1400-line
+  hand-written implementation file does
+- Verify `/setup project` seeds `.gitattributes` `linguist-generated` for M15 built-in
+  paths (create or append-missing; re-run does not clobber `AGENTS.md`)
 - Verify standup detects stale tasks (mtime > 30min)
 - Verify wrap-ticket blocks on in-progress tasks
 - Verify `bash skills/wrap-ticket/prune-remote-test.sh` (allowlist accept/reject; FF ancestor and squash cherry would-delete; unique `+` leftover; SKILL 6.x `plugin-dir.sh file skills/wrap-ticket/prune-remote.sh`; naive `--delete || true` pair gone)
@@ -345,7 +383,11 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify `close.sh` (close + verify) performs no filesystem operation for a traversal-shaped or otherwise non-`^[A-Za-z0-9_-]+$` resolved slug (e.g. index row `backlog/../../../canary/pwned.md` matched by title): no path construction that escapes `.claude/backlog/`; canary outside backlog untouched; non-zero exit / clear error; valid sibling slug still closes and verifies
 - Verify brainstorm offers backlog/Linear write-back after synthesis is confirmed (unless `/kickoff` runs immediately), and that a filed item's Linear description contains inlined synthesis text, not only a local plan-file path
 - Verify the Programmatic write-back protocol's non-interactive callers (refactor auto-chain, retro `--auto`) never hit an interactive ask and never silently write a duplicate slug row on collision (suffix, not abort)
-- Verify `parse-flags.sh` omit → `"tier": null`; `--tier=light|standard|full` → matching string; 5-key JSON (`enabled`, `bump`, `source`, `council_tier`, `tier`)
+- Verify `parse-flags.sh` omit → `"tier": null`; `--tier=light|standard|full` → matching string; 6-key JSON (`enabled`, `bump`, `source`, `council_tier`, `tier`, `max_loc`)
+- Verify `parse-flags.sh` omit → `"max_loc": null`; `--max-loc=4000` → JSON number `4000`; `--max-loc=unbound` → JSON string `"unbound"`; independent of `--tier`/`--council-tier`/`--autopilot`
+- Verify malformed `--max-loc` exits 64 with stderr and no success JSON: junk, `0`, negative, `UNBOUND`/`off`/`none`/`unlimited`/`inf`, empty `--max-loc=`, bare `--max-loc`, space form
+- Verify duplicate `--max-loc` last-wins (same-value and different-value); env `MAX_LOC` / `AUTOPILOT_MAX_LOC` ignored
+- Verify `read-cards.sh` backfills absent `max_loc` as JSON `null`
 - Verify `--tier` is independent of `--council-tier` and `--autopilot` on one invocation (`--tier=light` does not set `council_tier`; reverse also holds)
 - Verify malformed `--tier` exits 64 with stderr and no success JSON: unknown (`skip`, `bogus`, `std`, `max`), empty `--tier=`, bare `--tier`, space form `--tier light`, case (`LIGHT`, `Full`), duplicate `--tier` / `--tier=*` even when values match
 - Verify `--tier=<value>` is accepted in any argv position mixed with `--autopilot` / `--council-tier` / `--resume-ship`
@@ -364,7 +406,10 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - [ ] Kickoff produces spec + task graph
 - [ ] Kickoff creates/reuses a worktree (bare `<TICKET-ID>` slug) before the PM/TL spawn and commits spec/plan/CONTEXT.md inside `$WT_PATH` on `feat/<TICKET-ID>` — never on master/current branch
 - [ ] Kickoff leaves the worktree in place (no `release`) and prints `$WT_PATH` + branch + resume line
-- [ ] Orchestrate creates PR within LOC caps
+- [ ] Orchestrate creates PR within counted LOC caps (M15 exclusion; specs/tests still exempt)
+- [ ] `--max-loc` parse: omit → JSON `max_loc` null; `n`/`unbound` accepted; malformed → exit 64 before pipeline start (`bash skills/autopilot/test.sh`)
+- [ ] `docs/commands/orchestrate.md` Flags table documents `--max-loc=<n|unbound>`
+- [ ] Orchestrate router lists `--max-loc=<n|unbound>`; SKILL.md ≤80 lines
 - [ ] Standup correctly identifies READY vs WAITING tasks
 - [ ] Wrap-ticket extracts 3-8 specific learnings
 - [ ] Ship closes backlog write-through; Linear In Review on PR-stop / Done on master-land; wrap Done safety net; no staging `.claude/backlog*` into product commits
@@ -389,6 +434,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-08-27 | CDT-223: counted-LOC exclusion (cite SPEC-033 M15) for interactive change-discipline and autopilot BC4/M10.1; keep specs/tests exemption additive. `/orchestrate --max-loc=<n\|unbound>` parse in `parse-flags.sh` (sixth JSON key; flag-only; last-wins; junk→64). Scaffold seeds `.gitattributes`. Contract home for effects/exclusion/card = SPEC-033 AC8. |
 | 2026-08-27 | CDT-229: light Step 8 `@ic4` `effort: low` is the omit-path default; a non-empty Model map effort token wins (SPEC-037 M27). Original "at low effort" sentence kept. |
 | 2026-08-21 | CDT-157: wrap Step 6.x prunes remote `feat/*` when allowlisted and ancestor-or-cherry-safe; leftover notice otherwise; fail-open; no `origin/feat/*` scan. `worktree-lib.sh` stays local-release only. |
 | 2026-08-21 | CDT-207–210 (epic CDT-205): light-path MUSTs (scoper-planner; skip DAG + one IC4; single-pass TL / no council default / QA-fold / wrap-lite; `--council-tier` override) and auto-size at Step 2 scope-confirm (S→light / M→standard / L→full; explicit `--tier` wins; classify-fail → standard). Branch test is exactly `[ "$ORCH_TIER" = "light" ]`. MUST NOT edit SPEC-033. |

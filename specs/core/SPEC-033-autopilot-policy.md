@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-08-04
 
-**Covers**: `skills/autopilot/SKILL.md` (contract home). Future citers (wired by later CDT-111 children, NOT this ticket): `skills/orchestrate/SKILL.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`.
+**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/self-answer-scenarios.md`. Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223).
 
 ---
 
@@ -30,8 +30,9 @@ This spec defines the **shared policy** so that all three workflows obey one con
 instead of each inventing its own auto-answer rules. It specifies: the per-gate answering
 checklists plus per-command checkpoint handling (AC1), the ordered set of blocking conditions
 (AC2), run-budget defaults (AC3),
-the complexity-overflow → `/epic` reroute criteria (AC4), the contract-home rule (AC5), and
-the decision-card audit schema (AC6), and the council ship-gate pass (AC7).
+the complexity-overflow → `/epic` reroute criteria (AC4), the contract-home rule (AC5),
+the decision-card audit schema (AC6), the council ship-gate pass (AC7), and the LOC
+exclusion plus `--max-loc` override (AC8 / CDT-223).
 
 This ticket (CDT-111-C1) writes **only the contract** — the spec plus its operational copy
 in `skills/autopilot/SKILL.md`. Wiring the workflows to consult it, and building the
@@ -129,7 +130,9 @@ target.
     don't apply to this gate — matching M6's global evaluation order.)
     1. Does every plan task carry concrete file paths **and** a verification step? → else BC1.
     2. Does any task perform a destructive/irreversible operation? → BC3.
-    3. Is the projected change within the LOC soft-cap and per-file size cap? → BC4.
+    3. Is the projected **counted** (non-excluded, M15) change within the per-PR hard cap
+       and the per-file size cap? → BC4. The ~1000 LOC soft cap is non-halting discipline
+       (SPEC-009); it MUST NOT trip BC4.
     4. Does the plan's task graph exceed the single-ticket bound? → BC5 reroute (AC4).
     5. Budget (BC6) and confidence (BC7).
   - **`ship-choice`** (orchestrate Step 11; waits on *"Options: 1 Create PR / 2 Show diff /
@@ -221,9 +224,11 @@ target.
   3. **Destructive / irreversible operation** — the gated action would delete/overwrite user data,
      force-push, merge to a protected branch, drop a table, `rm -rf` outside the worktree, rewrite
      shared history, or otherwise be non-trivially reversible. → **halt**.
-  4. **LOC soft-cap / file-size breach** — the projected or actual change exceeds the SPEC-009
-     change-discipline bounds (~1000 LOC soft / 2000 LOC hard per PR; no single file > 1000 lines).
-     → **halt**.
+  4. **LOC hard-cap / file-size breach** — the projected or actual **counted** change (M15)
+     exceeds the per-PR hard cap or the per-file size cap. Default per-PR hard cap is **2000
+     LOC**. Per-file cap is **1000 lines** on any counted file. The ~1000 LOC soft cap is
+     **not** a BC4 halt. `--max-loc` (M16) may raise, tighten, or disable these as specified.
+     BC4 fires **only** at `plan-approve`. → **halt**.
   5. **Complexity overflow** — the work meets the AC4 overflow criteria. This is the **only
      non-blocking** condition: autopilot MUST NOT halt for a human; it MUST **reroute to `/epic`**
      decompose (recording a `reroute-epic` decision-card) and continue autonomously. → **reroute**.
@@ -301,7 +306,9 @@ target.
 
 - **M10 — Overflow criteria.** Complexity **overflow** (the BC5 trigger's underlying definition)
   is met when **any** of the following holds at `scope-confirm` or `plan-approve`:
-  1. Projected total change exceeds the SPEC-009 **hard** cap (> 2000 LOC) across the ticket; or
+  1. Projected total **counted** change (M15) exceeds the per-PR hard cap across the ticket
+     (default **> 2000 LOC**; `--max-loc=<n>` uses **n**; `--max-loc=unbound` **disables this
+     criterion**). Evaluated at `scope-confirm` and `plan-approve`; or
   2. The work naturally decomposes into **3 or more independently shippable workstreams**
      (distinct PR-able units with no shared change surface); or
   3. The plan's task graph would exceed **~8 tasks across multiple parallel waves** (mirrors
@@ -383,6 +390,7 @@ target.
     "blocking_condition": null,
     "council_tier": null,
     "grading_reason": null,
+    "max_loc": null,
     "rationale": "<one-line why>",
     "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700 },
     "actor": "orchestrator"
@@ -432,6 +440,15 @@ target.
     `skills/autopilot/append-card.sh`'s cross-field invariants need extending to cover them
     (`council_tier`/`grading_reason` non-null ⟹ `gate == "ship-choice"`); that writer change is a
     wiring child's work, not this contract's.
+  - `max_loc` (**CDT-223**) records the `--max-loc` override for the run that wrote the card.
+    Values: JSON `null` (omit / no override), JSON number `n` (positive integer), or JSON string
+    `"unbound"`. It is **additive and nullable**; `schema_version` stays `1`; absent key ≡ `null`.
+    `read-cards.sh` MUST backfill a missing `max_loc` as explicit `null` in frozen key order
+    (immediately after `grading_reason`, before `rationale`). Legal on **every** gate (unlike
+    `council_tier`). User provenance of the cap **is** the non-null `max_loc` field —
+    `decided_by` stays `auto` on self-answer cards. When `max_loc` is non-null, `rationale`
+    MUST mention the override. Every gate answer on a run with a non-null parse MUST record
+    the parsed value; a run with omit MUST write `max_loc: null` on every card of that run.
   - `rationale` is a one-line summary and MUST NOT contain secrets, credentials, tokens, keys, or
     PII. Any evidence quoted from the repo, specs, or memory (e.g. the S2 resolution attempt) MUST
     be **redacted or summarized**, never copied verbatim into the card.
@@ -620,6 +637,126 @@ target.
       self-answer it, auto-re-run the council at `full`, or otherwise proceed past the halt (N2 /
       M7) — a BC7 halt still requires a human.
 
+### AC8 — LOC exclusion + `--max-loc` override (CDT-223)
+
+A gate is **never** removed. This AC changes **what LOC counts** and **which numeric bound**
+BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--skip-bcN`.
+
+- **M15 — Counted LOC (one definition).** BC4 per-PR LOC, BC4 per-file size, and BC5 criterion
+  **M10.1** MUST count only **non-excluded** paths. Interactive SPEC-009 change-discipline MUST
+  use this same definition (cite; do not fork). Exclusion is the **union** of:
+
+  1. **`.gitattributes` `linguist-generated`.** A path is excluded when `git check-attr
+     linguist-generated -- <path>` reports `set` or `true`. `false` and `unspecified` do
+     **not** exclude via this arm. The attribute form `linguist-generated` (no `=`) and
+     `linguist-generated=true` both exclude.
+  2. **Built-in mechanical list** (even when `.gitattributes` is absent):
+     - **Lockfile basenames (exact):** `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`,
+       `bun.lock`, `bun.lockb`, `Cargo.lock`, `composer.lock`, `Gemfile.lock`, `poetry.lock`,
+       `Pipfile.lock`, `uv.lock`, `flake.lock`, `go.sum`.
+     - **Snap glob:** basename matches `*.snap`.
+     - **Vendored prefixes** (after stripping a leading `./`): path equals `vendor`,
+       `third_party`, or `node_modules`, **or** starts with `vendor/`, `third_party/`, or
+       `node_modules/`. Mid-path components (e.g. `src/vendor/x`) do **not** match.
+  3. **SPEC-009 specs/tests exemption** (additive; M15 MUST NOT drop it). Specs and test
+     files stay exempt. This spec MUST NOT redefine "test file".
+
+  Project-specific codegen (`*.pb.go`, `*_gen.*`, `*_generated.*`) is **not** in the built-in
+  list. Mark those paths `linguist-generated` in `.gitattributes` to exclude them. MUST NOT
+  reuse the SPEC-008 product-source exclude set as this list.
+
+  Missing or malformed `.gitattributes` → arm (1) empty; use arms (2)+(3) only. MUST NOT halt
+  the run for a missing or unreadable attributes file.
+
+  **Operational helper (subprocess CLI, never sourced):** `skills/autopilot/loc-exclude.sh`.
+  Canonical invocation:
+
+  ```
+  loc-exclude.sh is-excluded <path>
+  ```
+
+  Exit `0` = excluded (do not count). Exit `1` = count. Exit `64` = usage. The helper MUST
+  never exit `2` to kill an orchestrate run. Callers apply M15 and then apply M6.4 / M10.1
+  bounds to the remaining LOC. BC4 stays **judgment-in-context** (not a budget-check-style
+  scripted BC).
+
+- **M16 — `--max-loc=<n|unbound>` DRI flag.** Flag-only per-run override. Council-tier
+  precedent: `=` form, no env, junk → 64, last-wins on duplicate, not resume-seeded.
+
+  **Parse** (`skills/autopilot/parse-flags.sh`, same argv scan as `--autopilot` /
+  `--council-tier` / `--tier`):
+
+  | Input | JSON `max_loc` | Exit |
+  |---|---|---|
+  | omit | `null` | 0 |
+  | `--max-loc=<n>` with `n` matching `^[1-9][0-9]*$` | JSON **number** `n` | 0 |
+  | `--max-loc=unbound` | JSON **string** `"unbound"` (case-sensitive) | 0 |
+
+  MUST print **six** success keys: `enabled`, `bump`, `source`, `council_tier`, `tier`,
+  `max_loc`. Independent of `--autopilot`, `--council-tier`, and `--tier` (no key writes
+  another). Duplicate `--max-loc` **last-wins** (same-value and different-value repeats
+  both succeed — unlike `--tier`, which 64s a duplicate).
+
+  MUST exit **64**, write the error to stderr, and print **no** success JSON for: junk;
+  `0`; negative; `UNBOUND` / `off` / `none` / `unlimited` / `inf`; empty `--max-loc=`;
+  bare `--max-loc`; space form `--max-loc n`. Step 0 MUST halt before fetch, worktree, or
+  spawns.
+
+  MUST NOT read `MAX_LOC`, `AUTOPILOT_MAX_LOC`, or any env for this cap. MUST NOT persist
+  in `resume-state.sh`. MUST NOT auto-propagate on `reroute-epic` (the `/epic` child
+  re-parses its own argv).
+
+  **Consumption:** the value is used only when autopilot is **active**. Autopilot off:
+  still parse (junk → 64); the value is unused. `/kickoff` and `/epic` share the parser;
+  an unused `.max_loc` MUST NOT change those workflows. MUST NOT document `--max-loc` on
+  `/kickoff`. `/orchestrate` Step 0 MUST bind `.max_loc` from the **same** `parse-flags.sh`
+  call as the other keys.
+
+  **Effects** (counted LOC, M15; BC4 = `plan-approve` only; M10.1 = `scope-confirm` and
+  `plan-approve`):
+
+  | `max_loc` | BC4 per-PR | BC4 per-file (1000) | M10.1 |
+  |---|---|---|---|
+  | `null` (default) | halt if counted > 2000 | halt if any counted file > 1000 | reroute if counted > 2000 |
+  | number `n` | halt if counted > **n** | **unchanged** (still 1000) | reroute if counted > **n** |
+  | `"unbound"` | **does not fire** | **does not fire** | **does not fire** |
+
+  `n` MAY be `< 2000` (tighten) or `> 2000` (raise). Soft ~1000 stays non-halting
+  discipline. M10.2–6, BC6, BC3, and BC7 are **unchanged**. `unbound` disables BC4
+  (per-PR **and** per-file) **and** M10.1; it does **not** disable M10.2–6.
+
+  **Writer argc** (`append-card.sh`; additive on the CDT-126 13/15 contract):
+
+  | argc | Meaning |
+  |---|---|
+  | 13 | `council_tier`, `grading_reason`, `max_loc` all null |
+  | 14 | `<max_loc>` (`null` / `unbound` / decimal `^[1-9][0-9]*$`); council pair null |
+  | 15 | `<council_tier> <grading_reason>`; `max_loc` null |
+  | 16 | `<council_tier> <grading_reason> <max_loc>` |
+
+  Any other argc → 64. Self-answer cards keep `decided_by: auto`.
+
+  **Fixtures** (`skills/autopilot/self-answer-scenarios.md`): rewrite **F4** so the 1400-line
+  file is **hand-written implementation** (generated/lockfile/snap at 1400 MUST NOT halt
+  BC4 after M15). Add **F4-gen**, **F4-file**, **F4-n-ok**, **F4-n-file**, **F4-n-tight**,
+  **F4-unbound**, **F4-unbound-m10**:
+
+  | Fixture | Signal | Expected |
+  |---|---|---|
+  | F4 (rewritten) | one counted file 1400 lines; total under hard cap | BC4 halt (per-file) |
+  | F4-gen | lockfile/snap/linguist-generated file 1400 lines | **no** BC4 |
+  | F4-file | `--max-loc=<n>` with `n>2000`; one counted file >1000 | BC4 halt (per-file unchanged) |
+  | F4-n-ok | `--max-loc=<n>`; counted LOC in `(2000, n]` | clean `approve` (no BC4, no M10.1) |
+  | F4-n-file | `--max-loc=<n>`; one counted file >1000 | BC4 halt (per-file) |
+  | F4-n-tight | `--max-loc=<n>` with `n<2000`; counted LOC in `(n, 2000)` | plan-approve BC4 halt; scope-confirm M10.1 reroute |
+  | F4-unbound | `--max-loc=unbound`; counted >2000 **and** file >1000 | **no** BC4, **no** M10.1 |
+  | F4-unbound-m10 | `--max-loc=unbound`; M10.2 workstream overflow | BC5 `reroute-epic` (M10.2 still live) |
+
+  `/setup project` (`skills/scaffold-project/SKILL.md`) MUST seed `.gitattributes` with
+  `linguist-generated` markers for the M15 built-in paths. Create the file if absent. If
+  present, append **missing** markers only (idempotent; never clobber other attributes).
+  Re-run MUST seed without overwriting `AGENTS.md` or other scaffold files.
+
 ---
 
 ## SHOULD
@@ -706,6 +843,13 @@ target.
 - **N8** — MUST NOT self-answer `/epic` B.5's kickoff-mode completion confirmation; it is a truth
   attestation of *real* completion, not an approval, and MUST be left for the human (M5 note f). Nor
   may autopilot mark a child `completed` merely because `/kickoff` produced a plan file.
+- **N9** — MUST NOT read `MAX_LOC`, `AUTOPILOT_MAX_LOC`, or any environment variable for the
+  `--max-loc` cap (M16). Flag-only.
+- **N10** — MUST NOT add `--skip-bcN`, `--loc-cap`, a standing `/setup` `max_loc` config, or
+  any other ambient LOC-cap store. MUST NOT drop BC6. MUST NOT disable M10.2–6, BC3, or BC7
+  via `--max-loc`.
+- **N11** — MUST NOT resume-seed `max_loc` and MUST NOT auto-propagate it on `reroute-epic`.
+  The child `/epic` / `/orchestrate` invocation re-parses its own argv.
 
 ---
 
@@ -728,6 +872,7 @@ target.
 
 | Date | Change |
 |------|--------|
+| 2026-08-27 | CDT-223: **AC8 / M15 / M16** — counted-LOC exclusion (`.gitattributes linguist-generated` ∪ built-in lockfile/`*.snap`/vendored-prefix list ∪ SPEC-009 specs/tests exemption) for BC4 per-PR, BC4 per-file, and M10.1; same definition for interactive SPEC-009 change-discipline. DRI `--max-loc=<n\|unbound>` flag-only (six-key `parse-flags.sh`, no env, junk→64, last-wins, not resume-seeded, not auto-propagated on reroute-epic). `n` raises/tightens per-PR hard cap + M10.1 only (per-file 1000 unchanged); `unbound` disables BC4 (per-PR and per-file) and M10.1; M10.2–6 / BC6 / BC3 / BC7 unchanged. M13 additive nullable `max_loc` (`schema_version` stays 1; `decided_by` stays `auto` on self-answer). Helper `skills/autopilot/loc-exclude.sh`. Scaffold seeds `.gitattributes`. Status stays DRAFT. |
 | 2026-08-16 | CDT-196: M11a(a) BC5 carry-forward MUST pass `--worktree --release <bump>` when bump is patch/minor/major; `/epic` persists `release_bump` so children cannot land on master. |
 | 2026-08-04 | Initial contract (CDT-111-C1) — mode activation (M1–M2), per-gate checklists + per-command checkpoint mapping (M3–M5), eight blocking conditions (M6–M8), run-budget defaults (M9), complexity-overflow reroute (M10–M11), contract home (M12), decision-card schema (M13), MUST NOTs N1–N8. Amended within the same DRAFT cycle by later CDT-111 children: C2 (card writer/reader paths), C5 (AC7 / M14 council ship gate), C6 (M11a reroute safety + state carry-forward), C7 (OQ1 notify transport), C8 (M9a resume wall-clock basis), C9 (N3a deterministic BC3 push-target check). *(This table itself was added 2026-08-05 by CDT-126 — the section was missing; the rows above reconstruct the DRAFT cycle that predates it.)* |
 | 2026-08-05 | CDT-126: council tiering at the autopilot ship gate. **M14(e)** — tier selection before the M14 pass: graded input is `git diff --numstat $(git merge-base <default> HEAD)..HEAD` with `<default>` from `git symbolic-ref refs/remotes/origin/HEAD`, reusing N3a's existing mechanism at the same step rather than inventing one; bands, critical-area signals, the fail-closed contract and the `skip`-unreachability rule are all cited from SPEC-013's Council tiering section, never restated (SPEC-002 D1 / M12 / N4) — (e) keeps only the M14-specific deltas: the graded diff, the fact that an unresolvable `origin/HEAD` grades to `full` here whereas N3a's own unresolvable `origin/HEAD` **halts the ship** under BC3 (same probe, different consequence — not to be conflated), and that autopilot has no DRI so `skip` can only arrive human-supplied; **M14(a)** amended to carve out `--council-tier=<tier>` as the sole permitted flag on the otherwise-unbound `/council` invocation, resolving its contradiction with (e)'s requirement to pass it; firing rule (`ship-choice` only, clean `pr`/`merge` only, exactly once, exactly two cards) unchanged. Includes a correction note for the wiring child: `skills/autopilot/ship-gate-council.md` §3's "the staged diff" is wrong — nothing is staged at M14 firing time (the `git merge --squash` happens after the gate), so M14 has no pre-existing diff of its own, and its "no other flag" sentence is superseded by the M14(a) carve-out — both to be corrected in the same pass. **M14(f)** — tier-aware BC7: the halt card carries `council_tier` and the rationale names it; the full-council re-offer is made only from a `light` halt, and is an escalation affordance autopilot MUST NOT self-answer. No ninth blocking condition, no new halt path; (b)/(c)/(d) unchanged. **M13** — decision card gains nullable `council_tier` + `grading_reason`, non-null only on the M14 council card; `schema_version` stays `1` (additive + nullable, discriminator envelope unchanged); `append-card.sh` cross-field invariants to be extended by the wiring child. Status stays DRAFT. |

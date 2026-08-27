@@ -95,9 +95,11 @@ These rules constrain how work is structured. Violating them is an escalation tr
 
 ### Size limits
 
-- **~1,000 LOC of real code** per PR (soft cap). Tests, generated code, and migrations don't count toward this limit.
-- **Hard cap: 2,000 LOC total** (including tests). If a PR exceeds this, it must be split.
-- **No single file > 1,000 lines.** If a file approaches this, pause and discuss decomposition with Tech Lead before continuing.
+Caps apply to **counted** LOC (SPEC-033 M15 — cite; do not fork). Same exclusion as autopilot BC4 / M10.1. Classify with `skills/autopilot/loc-exclude.sh is-excluded <path>` (exit 0 = excluded, 1 = count). Specs and tests stay exempt (M15 arm 3; the helper does not classify tests). Lockfiles, `*.snap`, and vendored prefixes (`vendor/`, `third_party/`, `node_modules/`) are also excluded (M15 arm 2 / helper). `.gitattributes linguist-generated` excludes via arm 1.
+
+- **~1,000 counted LOC** per PR (soft cap, non-halting). Specs, tests, migrations, and M15-excluded paths do not count.
+- **Hard cap: 2,000 counted LOC** per PR (default). Tests are **not** in this cap. If counted change exceeds this, split the PR.
+- **No single counted file > 1,000 lines.** If a counted file approaches this, pause and discuss decomposition with Tech Lead before continuing.
 
 When a task would exceed these limits, the orchestrator must:
 1. Stop the IC agent

@@ -89,13 +89,16 @@ AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
 AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>
 AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
 AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
+# CDT-223: bind .max_loc from the same parse-flags.sh call (no env, not resume-seeded).
+# Omit records MAX_LOC as the literal string "null".
+MAX_LOC=$(jq -r '.max_loc // "null"' <<<"$AP_JSON")
 RUN_START_EPOCH=$(date +%s)
 RUN_ID="kickoff-<TICKET-ID>-$RUN_START_EPOCH"    # S3-derivable per C3 §2
 ITER=0                                              # ++ once per stint
 ```
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
-`RUN_START_EPOCH` / `ITER` below means these values, carried forward from this step.
+`RUN_START_EPOCH` / `ITER` / `MAX_LOC` below means these values, carried forward from this step.
 
 ---
 
@@ -387,7 +390,7 @@ before any design decisions are made.
 interactive prompt below. Build the C3 §2 envelope
 `{ workflow:"kickoff", ticket_id:<TICKET-ID>, gate:"scope-confirm", run_id:RUN_ID,
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
-<PM's open questions as the issue-text-sufficiency signal> }` and call
+max_loc:MAX_LOC, <PM's open questions as the issue-text-sufficiency signal> }` and call
 `skills/autopilot/self-answer.md`'s procedure (expected: BC1 → `halt`). On `halt`,
 emit `task_blocked` (detail = the one-line message) via **Passive notifications →
 Tier B** (fail-open; § below), then print the FINAL-#4 one-line message and return
@@ -497,7 +500,7 @@ on returns `IGNORED`, `DECORATIVE`, or `UNKNOWN`, skip the interactive pause bel
 Build the C3 §2 envelope
 `{ workflow:"kickoff", ticket_id:<TICKET-ID>, gate:"scope-confirm", run_id:RUN_ID,
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
-<the verification table as the signal> }` and call
+max_loc:MAX_LOC, <the verification table as the signal> }` and call
 `skills/autopilot/self-answer.md`'s procedure (expected: BC8 → `halt`). On `halt`,
 emit `task_blocked` (detail = the one-line message) via **Passive notifications →
 Tier B** (fail-open; § below), then print the FINAL-#4 one-line message and return
@@ -907,7 +910,7 @@ Rules:
   from Step 0): skip the pause below. Build the C3 §2 envelope
   `{ workflow:"kickoff", ticket_id:<TICKET-ID>, gate:"scope-confirm", run_id:RUN_ID,
   iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
-  <open-question count/text as the complexity signal> }` and call
+  max_loc:MAX_LOC, <open-question count/text as the complexity signal> }` and call
   `skills/autopilot/self-answer.md`'s procedure (expected: BC1 → `halt`); on `halt`,
   emit `task_blocked` (detail = the one-line message) via **Passive notifications →
   Tier B** (fail-open; § below), then print `scope-confirm halt: <rationale> — card:
@@ -917,7 +920,7 @@ Rules:
   Step 0): skip the pause below. Build the C3 §2 envelope
   `{ workflow:"kickoff", ticket_id:<TICKET-ID>, gate:"scope-confirm", run_id:RUN_ID,
   iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
-  <the breaking-schema flag as the destructive-op signal> }` and call
+  max_loc:MAX_LOC, <the breaking-schema flag as the destructive-op signal> }` and call
   `skills/autopilot/self-answer.md`'s procedure (expected: BC3 → `halt`); on `halt`,
   emit `task_blocked` (detail = the one-line message) via **Passive notifications →
   Tier B** (fail-open; § below), then print `scope-confirm halt: <rationale> — card:

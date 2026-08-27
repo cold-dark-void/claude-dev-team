@@ -207,7 +207,7 @@ and spawn any newly-unblocked tasks.
 user here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new
 gate enum value.) The Stint-end outcome emit above still fires unchanged first. Build the C3 §2
 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
-iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, <trigger signal:
+iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <trigger signal:
 "agent stuck after 2 genuine attempts; what was tried: <summary>" — an unresolved
 product/architecture decision autopilot cannot self-answer (BC1)> }` and call
 `skills/autopilot/self-answer.md`'s procedure for `{decision, blocking_condition, confidence,
@@ -227,7 +227,7 @@ Otherwise (autopilot off), the escalation above applies unchanged.
 (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate enum
 value.) Build the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
 gate:"plan-approve", run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
-autopilot_bump:AUTOPILOT_BUMP, <scope-creep signal: the out-of-plan work the agent discovered,
+autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <scope-creep signal: the out-of-plan work the agent discovered,
 evaluated against the SPEC-033 M10 complexity-overflow criteria> }` and call
 `skills/autopilot/self-answer.md`'s procedure (exactly one `decided_by:"auto"` card is appended).
 Act on `decision`:
@@ -253,7 +253,7 @@ Otherwise (autopilot off), the escalation above applies unchanged.
 (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate enum
 value.) Build the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
 gate:"plan-approve", run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
-autopilot_bump:AUTOPILOT_BUMP, <trigger signal: "requirement unresolvable from spec/ACs alone" —
+autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <trigger signal: "requirement unresolvable from spec/ACs alone" —
 an unresolved product/architecture decision autopilot cannot self-answer (BC1)> }` and call
 `skills/autopilot/self-answer.md`'s procedure for `{decision, blocking_condition, confidence,
 rationale}` (exactly one `decided_by:"auto"` card is appended; expected `blocking_condition = 1`).
@@ -272,7 +272,7 @@ Otherwise (autopilot off), the escalation above applies unchanged.
 here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate
 enum value.) Build the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
 gate:"plan-approve", run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
-autopilot_bump:AUTOPILOT_BUMP, <trigger signal: "breaking change discovered (schema migration /
+autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <trigger signal: "breaking change discovered (schema migration /
 API contract / dep bump) — **discovery**, a required human decision, not a destructive action
 being taken now (BC1, not BC3)"> }` and call `skills/autopilot/self-answer.md`'s procedure for
 `{decision, blocking_condition, confidence, rationale}` (exactly one `decided_by:"auto"` card is

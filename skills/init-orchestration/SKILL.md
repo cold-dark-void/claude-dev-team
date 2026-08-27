@@ -1863,9 +1863,8 @@ All agents MUST follow these rules. The orchestrator enforces them, but agents s
 - If a task description needs "and" to explain it, split it first.
 
 **Size limits:**
-- ~1,000 LOC of real code per PR (soft cap). Tests, generated code, migrations don't count.
-- Hard cap: 2,000 LOC total including tests. Exceeding this = stop and split.
-- No single file > 1,000 lines. If approaching this, pause and discuss decomposition with Tech Lead.
+- Caps apply to **counted** LOC (SPEC-033 M15 — cite; do not fork). Specs/tests stay exempt. Lockfile/`*.snap`/vendored prefixes and `.gitattributes linguist-generated` also excluded.
+- ~1,000 counted LOC per PR (soft cap). Hard cap: 2,000 counted LOC default. No single counted file > 1,000 lines. Exceeding = stop and split.
 
 **Refactoring is always separate:**
 - Never mix refactoring with feature work in the same PR.
@@ -2039,7 +2038,7 @@ fi
 - Batch questions for the user — don't interrupt for routine progress. Protect their time.
 - When spawning agents, give them the worktree path, spec path, and plan path explicitly. Don't assume they'll find context on their own.
 - Atomic PRs only — one ticket, one branch, one PR. Never bundle multiple tickets.
-- ~1k LOC real code per PR (tests don't count). Hard cap 2k total. No single file > 1k lines. Exceeding = stop and split.
+- ~1k counted LOC per PR (SPEC-033 M15 — cite; specs/tests + lockfile/snap/vendor/`linguist-generated` don't count). Hard cap 2k counted default. No single counted file > 1k lines. Exceeding = stop and split.
 - Refactoring is always a separate PR — never mixed with feature work. Ship refactor first, then feature on top.
 - Discovered work becomes a new ticket — never silently absorb unplanned work into the current change.
 - Material approach changes → pause all IC work, Tech Lead replans, user approves before resuming.

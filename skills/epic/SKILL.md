@@ -222,13 +222,16 @@ AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
 AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>
 AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
 AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
+# CDT-223: bind .max_loc from the same parse-flags.sh call (no env, not resume-seeded).
+# MUST NOT pass --max-loc on reroute-epic unless caller argv already has it.
+MAX_LOC=$(jq -r '.max_loc // "null"' <<<"$AP_JSON")
 RUN_START_EPOCH=$(date +%s)
 RUN_ID="epic-<EPIC-ID>-$RUN_START_EPOCH"    # S3-derivable per C3 §2
 ITER=0                                      # ++ once per stint
 ```
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` / `ITER` /
-`RUN_START_EPOCH` below means these values, carried forward from this step (fresh
+`RUN_START_EPOCH` / `MAX_LOC` below means these values, carried forward from this step (fresh
 shells do not carry them; the orchestrator holds them as session-local run state). Each
 mapped gate — **A.5** (atomic scope+plan) and **B.3** (per child) — consults
 `AUTOPILOT_ON` to choose the autopilot branch or the existing human prompt.
@@ -383,7 +386,7 @@ engine call covering scope **and** plan together — `/epic` has no separate
 plan-approve gate (M5c); the single A.5 verdict is both. Invoke
 `skills/autopilot/self-answer.md` with the C3 §2 envelope: `{ workflow:"epic",
 ticket_id:<EPIC-ID>, gate:"scope-confirm", run_id:RUN_ID, iteration:ITER,
-run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, <scope signals:
+run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <scope signals:
 epic-text sufficiency evidence, destructive-op flags, complexity signals> }`.
 Consume `{ decision, blocking_condition, confidence, rationale }` and act per the
 C4 Decision→action map:
@@ -701,7 +704,7 @@ make **one** `scope-confirm` engine call via `skills/autopilot/self-answer.md`
 with the C3 §2 envelope — `ticket_id` = **that child's** `<CHILD-ID>`:
 `{ workflow:"epic", ticket_id:<CHILD-ID>, gate:"scope-confirm", run_id:RUN_ID,
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
-<scope signals: child issue-text sufficiency, destructive-op flags, complexity> }`.
+max_loc:MAX_LOC, <scope signals: child issue-text sufficiency, destructive-op flags, complexity> }`.
 Consume `{ decision, blocking_condition, confidence, rationale }` and act:
 
 - `proceed` → continue to **B.4** (status → in_progress + handoff) exactly as the

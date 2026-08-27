@@ -40,7 +40,8 @@ project/
 │   └── TDD.md                # Living behavioral specifications
 ├── CONTEXT.md                # Domain glossary (ubiquitous language; empty Terms ok)
 ├── AGENTS.md                 # Project-specific rules
-└── .gitignore                # Git ignore patterns (if needed)
+├── .gitignore                # Git ignore patterns (if needed)
+└── .gitattributes            # linguist-generated for M15 built-in paths
 ```
 
 ## Instructions
@@ -58,7 +59,7 @@ the Claude Code harness built-in /doctor) to verify install health.
 
 ### Step 0: Resolve project root (single-root anchor)
 
-Resolve ONE project root and anchor **every** `.claude/` / `specs/` / `AGENTS.md` / `.gitignore` op on it. All-or-nothing — never mix absolute and relative siblings (that splits the scaffold). Use `--show-toplevel`, **not** `--git-common-dir` (common-dir would resolve a parent worktree's shared root, not the project being created).
+Resolve ONE project root and anchor **every** `.claude/` / `specs/` / `AGENTS.md` / `.gitignore` / `.gitattributes` op on it. All-or-nothing — never mix absolute and relative siblings (that splits the scaffold). Use `--show-toplevel`, **not** `--git-common-dir` (common-dir would resolve a parent worktree's shared root, not the project being created).
 
 ```bash
 PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -632,6 +633,61 @@ If `$PROJ_ROOT/.gitignore` doesn't exist, create it with:
 
 If `$PROJ_ROOT/.gitignore` already exists, ask user if they want to append these patterns.
 
+### Step 7b: Seed .gitattributes (SPEC-033 M15)
+
+`/setup project` MUST seed `$PROJ_ROOT/.gitattributes` with `linguist-generated` markers for the M15 built-in paths (same set as `skills/autopilot/loc-exclude.sh` arm 2 — cite; do not extend). Create the file if absent. If present, append **missing** markers only. Never rewrite existing lines. Never clobber other attributes.
+
+This step is independent of Step 1 skip/overwrite. Always run it. Re-run MUST seed without overwriting `AGENTS.md` or other scaffold files. Do **not** add `*.pb.go` or `*_gen.*` (AC6: project-specific codegen is opt-in attrs).
+
+```bash
+PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+ATTR="$PROJ_ROOT/.gitattributes"
+
+# Create if absent. If present, append missing markers only.
+touch "$ATTR"
+if [ -s "$ATTR" ]; then
+  last=$(tail -c 1 "$ATTR" 2>/dev/null || true)
+  [ -z "$last" ] || [ "$last" = $'\n' ] || printf '\n' >> "$ATTR"
+fi
+
+# M15 built-in lockfile / snap / vendored-prefix globs. One path per line.
+# Helper (arm 2) is the mechanical list; this seed marks the same paths
+# linguist-generated so arm 1 agrees. Do NOT add *.pb.go / *_gen.* (AC6).
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  if awk -v p="$path" '
+    $1 ~ /^#/ { next }
+    $1 == p {
+      for (i = 2; i <= NF; i++)
+        if ($i == "linguist-generated" || index($i, "linguist-generated=") == 1)
+          found = 1
+    }
+    END { exit found ? 0 : 1 }
+  ' "$ATTR"; then
+    continue
+  fi
+  printf '%s linguist-generated\n' "$path" >> "$ATTR"
+done <<'EOF'
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lock
+bun.lockb
+Cargo.lock
+composer.lock
+Gemfile.lock
+poetry.lock
+Pipfile.lock
+uv.lock
+flake.lock
+go.sum
+*.snap
+vendor/**
+third_party/**
+node_modules/**
+EOF
+```
+
 ### Step 8: Summary and Next Steps
 
 After creating all files, output:
@@ -651,6 +707,7 @@ Created:
   📄 CONTEXT.md - Domain glossary (fill Terms as names crystallize)
   📄 AGENTS.md - Project-specific rules (NEEDS CUSTOMIZATION)
   📄 .gitignore - Git ignore patterns [if created]
+  📄 .gitattributes - linguist-generated markers for M15 built-in paths [created/appended]
 
 Next steps:
 
@@ -671,7 +728,7 @@ Next steps:
    - Add entry to .claude/plans.md
 
 4. 📝 Commit the scaffold (product files only — not process trackers):
-   - git add specs/ AGENTS.md CONTEXT.md
+   - git add specs/ AGENTS.md CONTEXT.md .gitattributes
    - git commit -m "Initial project scaffold with TDD workflow
 
 Co-Authored-By: Claude <model> <noreply@anthropic.com>"
@@ -691,6 +748,7 @@ When emitting this, replace `<model>` with the agent/model actually performing t
 1. List which files exist
 2. Ask user: "[1] Skip existing files (recommended), [2] Overwrite all, [3] Cancel"
 3. Proceed based on choice
+4. `.gitattributes` is **not** in that overwrite choice: always append missing M15 markers only (Step 7b). Never clobber other attributes. Re-run MUST NOT overwrite `AGENTS.md` as part of the seed.
 
 ### If not in a suitable directory:
 1. Ask user: "No project directory detected. Create new directory? [name]"
@@ -705,6 +763,7 @@ When emitting this, replace `<model>` with the agent/model actually performing t
 - The 3 starter specs are examples - they should be replaced with actual project requirements
 - Don't overwrite existing files without user confirmation
 - If .gitignore exists, append patterns carefully (don't duplicate)
+- Seed `.gitattributes` append-missing (create if absent). Never clobber other attributes. Re-run does not overwrite `AGENTS.md`. Do not add `*.pb.go` / `*_gen.*` (AC6)
 
 ## Files Created Checklist
 
@@ -720,6 +779,7 @@ Before completing, verify (all under `$PROJ_ROOT`):
 - [ ] $PROJ_ROOT/specs/TDD.md created with 3 starter specs
 - [ ] $PROJ_ROOT/CONTEXT.md created (domain glossary template; skip if already present)
 - [ ] $PROJ_ROOT/AGENTS.md created
+- [ ] $PROJ_ROOT/.gitattributes created or missing M15 linguist-generated markers appended (never clobber other attributes)
 - [ ] $PROJ_ROOT/.gitignore created or updated (if needed)
 - [ ] .gitkeep files in empty directories
 - [ ] All placeholders replaced with actual values

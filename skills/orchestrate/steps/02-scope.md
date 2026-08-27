@@ -34,7 +34,7 @@ Proceed with this scope? Any adjustments? Confirm or override the tier.
 **Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the
 C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"scope-confirm",
 run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
-autopilot_bump:AUTOPILOT_BUMP, <issue-text sufficiency evidence, destructive-op flags,
+autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <issue-text sufficiency evidence, destructive-op flags,
 and the complexity signals from the assessment above, proposed_tier, selected_tier> }` and call
 `skills/autopilot/self-answer.md`'s procedure for `{decision, blocking_condition,
 confidence, rationale}` (exactly one `decided_by:"auto"` card is appended). Act on

@@ -12,7 +12,7 @@
 | SPEC-006 | Memory Retrieval & Search | ACTIVE | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
 | SPEC-007 | Memory Distillation | ACTIVE | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
 | SPEC-008 | Spec Management | ACTIVE | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
-| SPEC-009 | Ticket Workflow | ACTIVE | skills/kickoff, orchestrate, brainstorm, commands/status.md (`/status` + standup), skills/standup (backend), wrap-ticket, backlog |
+| SPEC-009 | Ticket Workflow | ACTIVE | skills/kickoff, orchestrate, brainstorm, commands/status.md (`/status` + standup), skills/standup (backend), wrap-ticket, backlog; parse-flags `--max-loc` + loc-exclude + scaffold `.gitattributes` (CDT-223) |
 | SPEC-010 | Code Review & Release | ACTIVE | skills/review-and-commit, release (Step 4.7 dual-copy hook gate retired/reduced — CDT-54) |
 | SPEC-011 | Memory Validation | ACTIVE | commands/memory.md (`/memory validate`), skills/memory validate (stub), `/memory distill` integration, skills/memory-store/migrate-v3.sh, skills/memory-store/migrate-v4.sh (`--reconcile` cross-agent) |
 | SPEC-012 | Session Retrospective | APPROVED | commands/retro.md, skills/retro-gate (incl. trial-meta/trial-review CDV-200), skills/retro-subagent, skills/transcript-parse/, skills/kickoff + orchestrate hooks |
@@ -36,6 +36,7 @@
 | SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |
 | SPEC-031 | Escalation Gate & Universal Worktree Isolation | DRAFT | skills/refactor/SKILL.md (contract home), skills/debug/SKILL.md, skills/review-and-commit/SKILL.md, skills/code-simplify/SKILL.md, skills/init-orchestration/SKILL.md (hook template) + check-hook-templates.sh, commands/setup.md, AGENTS.md |
 | SPEC-032 | CI Linter Parity Gate | ACTIVE | .github/workflows/smoke.yml (linter jobs only), skills/skill-lint/SKILL.md (CI-caller note only), skills/docs-drift/SKILL.md (CI-caller note only), skills/release/SKILL.md (referenced, unchanged) |
+| SPEC-033 | Shared Autopilot Policy | DRAFT | `skills/autopilot/*` (contract home SKILL.md); parse-flags / loc-exclude / append-card / read-cards / self-answer (CDT-223 M15/M16); citers orchestrate/kickoff/epic |
 | SPEC-034 | Bug-Hunt Workflow | DRAFT | `commands/bug-hunt.md`, `skills/bug-hunt/*` (stages 1–2 — CDT-136; stage-3 materialize — CDT-138 M38–M41; stage-4 phased handoff — CDT-139 M42–M48; Status DRAFT) |
 | SPEC-035 | Context Audit (`/audit`) | DRAFT | `commands/audit.md`, `skills/audit/*`, `docs/commands/audit.md` (CDT-200) |
 | SPEC-036 | Transcript Mirror | DRAFT | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220); M10 all cwd-bucket sessions + M11 doctor lag WARN (CDT-221); M5a urlencode then `.cwd` locate (CDT-218); M4a SubagentStop agent nest (CDT-217); M12 carve-out CDT-216 — `/handoff` MAY read `main.md` via SPEC-018 M3f; CDT-215 M1 C7 + M14 — `/compact-transcript` writes sibling `<sid>.meaning-tail.md`; CDT-214 M15 — `summarize-transcript` overlay + `<sid>/verbatim/` (skill CLI, no new `commands/*.md`) |
@@ -45,6 +46,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-08-27 | CDT-223: SPEC-033 AC8 counted-LOC exclusion + `--max-loc`; SPEC-009 change-discipline cites M15; index row for SPEC-033 |
 | 2026-08-27 | CDT-229: SPEC-037 sibling `effort` map (M22–M29); `resolve-model.sh --effort`; SPEC-009 light Step 8 omit-path `effort: low` |
 | 2026-08-26 | CDT-228: SPEC-037 retitled Per-agent Model map; M18 writer + M19 doctor `models.map` + M20 `/setup models` + M21 `/adjust-agent --model`; SPEC-005/022 dispatch + check rows |
 | 2026-08-26 | CDT-227: SPEC-037 M11 three-layer merge (local → repo → global); bad-value fallthrough; `DEVTEAM_MODEL_*` ignored |

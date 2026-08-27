@@ -67,7 +67,7 @@ When `RELEASE_END_BLOCKED=true`:
 **Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the C3 §2
 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"ship-choice",
 run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
-autopilot_bump:AUTOPILOT_BUMP, <the Step-10b spec-alignment result, QA PASS/FAIL, the
+autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <the Step-10b spec-alignment result, QA PASS/FAIL, the
 session-local `qa_bounces` count (BC2), and ship-action irreversibility (protected-branch
 merge / force-push)> }` and call `skills/autopilot/self-answer.md`'s procedure — it records
 the clean answer as **card #1** (`blocking_condition = null` on a clean `pr`/`merge`).

@@ -37,13 +37,15 @@ This is the contract C4 wires callers against. It is frozen; C3 does not touch c
   iteration:         <int, orchestrator-tracked session-local stint count>,
   run_start_epoch:   <int, unix epoch of run start>,
   autopilot_bump:    "patch" | "minor" | "major" | "master" | null,
+  max_loc:           null | <n> | "unbound",  // parse-flags sixth key; caller-supplied
   <gate-specific signals>   // see below
 }
 ```
 **Gate-specific signals** (caller supplies; NOT read from disk):
-- `scope-confirm`: issue-text sufficiency evidence, destructive-op flags, complexity signals.
-- `plan-approve`: per-task {file paths present?, verification step present?}, projected LOC /
-  per-file size, task-graph shape, destructive-op flags.
+- `scope-confirm`: issue-text sufficiency evidence, destructive-op flags, complexity signals
+  (including projected **counted** LOC for M10.1).
+- `plan-approve`: per-task {file paths present?, verification step present?}, projected
+  **counted** LOC / per-file size (M15), task-graph shape, destructive-op flags.
 - `ship-choice`: Step-10b spec-alignment result, QA PASS/FAIL, `qa_bounces` (session-local count,
   BC2), ship-action irreversibility (protected-branch merge / force-push).
 
@@ -114,6 +116,14 @@ file contents. How each is decided:
 | BC2 | **Supplied numeric compare**: the caller-supplied `qa_bounces >= 3` (ship-choice only). |
 | BC6 | **`budget-check.sh`** verdict from step (b) (`breached`). |
 
+BC4 is **plan-approve only** and stays **judgment-in-context** (not a budget-check-style
+scripted BC). Counted LOC: for each plan path, run `loc-exclude.sh is-excluded <path>`
+(exit 0 exclude / 1 count; MUST NOT exit 2); caller applies M15 arm 3 (SPEC-009
+specs/tests — the helper does not classify tests). Then apply the SPEC-033 **M16
+effects table** (cite; do not fork the lockfile list). Soft ~1000 is non-halting.
+Scope-confirm uses **M10.1** on the same counted LOC (threshold `n`, or unbound-off) —
+M10.1 is a BC5 overflow criterion, not BC4.
+
 BC5 fires against the M10 complexity-overflow criteria (cited, not restated). BC7 is the
 answering agent's own confidence in the default answer falling below the M6/M13 threshold.
 BC8 fires only in `/kickoff`'s pre-spec phase; BC2 only in the `ship-choice` IC/QA loop.
@@ -147,18 +157,28 @@ Emit exactly one card via `skills/autopilot/append-card.sh`, whose frozen call s
 skills/autopilot/append-card.sh \
   <workflow> <ticket_id> <gate> <decision> <decided_by> \
   <bump|null> <confidence> <blocking_condition|null> \
-  <run_id> <iteration> <wall_clock_s> <actor> <rationale>
+  <run_id> <iteration> <wall_clock_s> <actor> <rationale> \
+  [<max_loc>]
 ```
 Argument mapping: `<workflow> <ticket_id> <gate> <run_id> <iteration>` from the envelope;
 `<decision>` and `<blocking_condition>` from step (e); `<wall_clock_s>` from step (b);
 `<bump>` = `autopilot_bump` (see §4); `<confidence>` and `<rationale>` from the answering
 agent; `<actor>` = the component invoking the engine (e.g. `orchestrator`).
 
+Envelope `max_loc` is caller-supplied from `parse-flags.sh` (never env). **argc 13** when
+`max_loc` is omit/`null` (writer records `max_loc: null`). **argc 14** when the override
+is set (`n` or `unbound`): pass `<max_loc>` after `<rationale>`; council pair stays
+**null**. This engine never writes argc 15/16 (M14 council card only).
+
+When envelope `max_loc` is non-null, `rationale` **MUST mention the override** (M13).
+Every card on a non-null-parse run records the parsed value; an omit run writes
+`max_loc: null` on every card.
+
 `<decided_by>` is **always `auto`** on every card this engine writes — clean answer, BC5
-reroute, or hard-block halt alike. A halt/reroute card records **autopilot's own** decision
-to stop or reroute, not a human's answer. **C3 never writes a `decided_by:"user"` card**;
-`user` cards are written later by the halt-resume owner when a human resolves a halt — out
-of scope for this engine.
+reroute, or hard-block halt alike, **including when `max_loc` is non-null**. A halt/reroute
+card records **autopilot's own** decision to stop or reroute, not a human's answer.
+**C3 never writes a `decided_by:"user"` card**; `user` cards are written later by the
+halt-resume owner when a human resolves a halt — out of scope for this engine.
 
 ## 4. Writer-invariant preconditions
 
@@ -193,8 +213,11 @@ deliberately does **not** reproduce M13's enum members, numeric bounds, or chars
 - **`rationale`** is a single line with no newlines/control chars, and is
   **secret-redacted / summarized** — no credentials, tokens, keys, or PII, and any repo /
   spec / memory evidence (e.g. the S2 resolution attempt) is summarized, never copied
-  verbatim (SPEC-033 M13 / S2). Semantic secret-scrubbing is the engine's obligation; the
+  verbatim (SPEC-033 M13 / S2). When envelope `max_loc` is non-null, the line **MUST
+  mention the override**. Semantic secret-scrubbing is the engine's obligation; the
   writer only rejects control chars.
+- **`max_loc`** on the card copies the envelope value (null / number `n` / `"unbound"`).
+  User provenance of the cap **is** that field — `decided_by` stays `auto`.
 
 ## 5. Boundaries — what this engine does NOT do
 
@@ -210,6 +233,8 @@ deliberately does **not** reproduce M13's enum members, numeric bounds, or chars
 - **Script the judgment BCs or the per-gate checklists.** BCs 1,3,4,5,7,8 and the M4/M5
   checklists stay orchestrator-in-context reasoning cited against SPEC-033 — only BC6 is
   deterministic (`budget-check.sh`), and BC2 is a numeric compare of a supplied signal.
+  `loc-exclude.sh is-excluded` classifies plan paths (M15 arms 1–2); applying the M16
+  table to remaining counted LOC is still **judgment-in-context**, not a scripted BC.
 - **Carry autopilot state across a reroute.** On `reroute-epic`, propagating autopilot enablement
   to the handed-off `/epic` invocation (`--autopilot[=<bump>]` / `AUTOPILOT=1`) is the **caller's**
   responsibility, not this engine's — `/epic` Step 0.5 resolves its own state independently
@@ -221,8 +246,9 @@ deliberately does **not** reproduce M13's enum members, numeric bounds, or chars
   entry until a stint terminates, so `qa_bounces` cannot be read mid-run. It is a
   **caller-supplied** session-local signal (§2, §3c), never "read from disk".
 - **R2 — `decided_by` always `auto`.** Every card this engine writes is `auto`, including
-  halt and reroute cards. Future readers must **not** assume C3 ever writes `user` cards —
-  those come from the halt-resume owner (§3f).
+  halt and reroute cards **and** cards with a non-null `max_loc`. Future readers must
+  **not** assume C3 ever writes `user` cards — those come from the halt-resume owner
+  (§3f). The non-null `max_loc` field is the cap's user provenance (M13).
 - **R3 — Contract-home / N4.** This engine cites the checklists, BC definitions, budget
   numbers, and schema fields by name/ordinal from `skills/autopilot/SKILL.md`; it never
   forks or restates them (§1).

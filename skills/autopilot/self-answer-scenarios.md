@@ -18,12 +18,14 @@
   target BC is genuinely the first match.
 - **Expected** — `{decision, blocking_condition, confidence, bump}` per §3e.
 - **Card** — the exact `append-card.sh` call shape (§3f) the engine must emit. `decided_by` is
-  **always `auto`** (§3f). Arg order is the writer's frozen 13-arg contract:
+  **always `auto`** (§3f), including when `max_loc` is non-null. Arg order:
   `<workflow> <ticket_id> <gate> <decision> <decided_by> <bump|null> <confidence>
-  <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale>`.
-  Every fixture below uses that 13-arg form: the writer's two optional trailing args
-  (`<council_tier> <grading_reason>`, CDT-126) belong to the M14 council card alone
-  (`ship-gate-council.md` §6), which this engine never writes.
+  <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale>
+  [<max_loc>]`.
+  Omit / `max_loc` null → **argc 13** (writer records `max_loc: null`). Non-null override →
+  **argc 14** (`<max_loc>` after rationale; council pair null). Argc 15/16 (council pair)
+  belong to the M14 council card alone (`ship-gate-council.md` §6), which this engine never
+  writes. When `max_loc` is non-null, `rationale` MUST mention the override (M13).
 
 **Shared symbols.** `NOW` = wall-clock epoch at engine run. `RS` = `run_start_epoch`. Where a
 fixture is within budget it uses `RS = NOW-60` (`wall_clock_s = 60`); `run_id = ap-<RS>`;
@@ -86,21 +88,152 @@ governing rule; the checklist steps are that same order with the gaps removed.
 - **Doubles as**: proof that `bump` may be non-null on a *halt* card (writer only requires
   `gate=ship-choice`, not `decision=merge`) — see § Gaps found item 2.
 
-### F4 — BC4 LOC/file-size breach → halt
+### F4 — BC4 LOC/file-size breach → halt (rewritten: counted hand-written file)
 
 - **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=4, RS=NOW-60,
-  autopilot_bump=null`.
+  autopilot_bump=null, max_loc=null`.
 - **Gate signals**: every task has file paths **and** a verification step (no BC1); no
-  destructive op (no BC3); projected change includes **one generated file at 1,400 lines**
-  (> 1,000-line per-file cap → M6.4) while total ≈ 1,500 LOC (**under** the 2,000-LOC hard cap,
-  so **not** an M10.1 overflow); one subsystem, one spec, 4 tasks (no M10 overflow).
+  destructive op (no BC3); projected change includes **one hand-written implementation
+  file at 1,400 lines** (`loc-exclude.sh is-excluded` exit 1 → **counted**). Total counted
+  ≈ 1,500 LOC (**under** the 2,000-LOC hard cap, so **not** an M10.1 overflow). Generated /
+  lockfile / snap at 1400 MUST NOT be this fixture (see F4-gen). One subsystem, one spec,
+  4 tasks (no M10 overflow).
 - **BC walk** (plan-approve applies {1,3,4,5,6,7}): BC1 clears (paths+verify present), BC3
-  clears (non-destructive). **BC4 (ordinal 4) matches** — per-file cap breached. BC4 precedes
-  BC5 in ordinal order, and no M10 overflow criterion is met anyway, so the reroute path is
-  correctly not taken. First match wins.
-- **Expected**: `decision=halt, blocking_condition=4, confidence=85, bump=null`.
-- **Card**:
-  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 85 4 ap-<RS> 4 <NOW-RS> orchestrator "<rationale: one file 1400 lines exceeds per-file cap>"`
+  clears (non-destructive). **BC4 (ordinal 4) matches** — counted per-file cap (1000)
+  breached (M16 `max_loc=null`). BC4 precedes BC5; no M10 overflow criterion is met, so
+  the reroute path is not taken. First match wins.
+- **Expected**: `decision=halt, blocking_condition=4, confidence=85, bump=null, max_loc=null`.
+- **Card** (argc 13):
+  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 85 4 ap-<RS> 4 <NOW-RS> orchestrator "<rationale: one counted hand-written file 1400 lines exceeds per-file cap>"`
+
+#### F4-* — AC8 / M16 counted-LOC + `--max-loc` (CDT-223)
+
+Cite SPEC-033 M16 fixture table. Counted LOC = `loc-exclude.sh is-excluded` on plan paths,
+then caller M15 arm 3, then the M16 effects table.
+
+| Fixture | Signal | Expected |
+|---|---|---|
+| F4 (rewritten) | one counted file 1400 lines; total under hard cap | BC4 halt (per-file) |
+| F4-gen | lockfile/snap/linguist-generated file 1400 lines | **no** BC4 |
+| F4-file | `--max-loc=<n>` with `n>2000`; one counted file >1000 | BC4 halt (per-file unchanged) |
+| F4-n-ok | `--max-loc=<n>`; counted LOC in `(2000, n]` | clean `approve` (no BC4, no M10.1) |
+| F4-n-file | `--max-loc=<n>`; one counted file >1000 | BC4 halt (per-file) |
+| F4-n-tight | `--max-loc=<n>` with `n<2000`; counted LOC in `(n, 2000)` | plan-approve BC4 halt; scope-confirm M10.1 reroute |
+| F4-unbound | `--max-loc=unbound`; counted >2000 **and** file >1000 | **no** BC4, **no** M10.1 |
+| F4-unbound-m10 | `--max-loc=unbound`; M10.2 workstream overflow | BC5 `reroute-epic` (M10.2 still live) |
+
+##### F4-gen — excluded 1400-line file → no BC4
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=4, RS=NOW-60,
+  autopilot_bump=null, max_loc=null`.
+- **Gate signals**: paths+verify present; non-destructive; projected change includes
+  **`package-lock.json` at 1,400 lines** (`loc-exclude.sh is-excluded` exit 0 — built-in
+  lockfile). Same class: basename `*.snap`, or `linguist-generated=true`. Remaining
+  counted ≈ 100 LOC, every counted file ≤ 1000. One subsystem, one spec, 4 tasks.
+- **BC walk** (plan-approve {1,3,4,5,6,7}): BC1/BC3 clear. **BC4 does not match** — the
+  1400-line path is excluded (M15); counted per-PR and per-file are inside default
+  caps. BC5/BC6/BC7 clear. No match → default `approve`.
+- **Expected**: `decision=approve, blocking_condition=null, confidence=88, bump=null, max_loc=null`.
+- **Card** (argc 13):
+  `append-card.sh orchestrate CDT-200 plan-approve approve auto null 88 null ap-<RS> 4 <NOW-RS> orchestrator "<rationale: lockfile 1400 excluded; counted LOC within caps>"`
+
+##### F4-file — `n>2000`; counted file >1000 → BC4 per-file (unchanged)
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=4, RS=NOW-60,
+  autopilot_bump=null, max_loc=4000`.
+- **Gate signals**: paths+verify; non-destructive; **one counted hand-written file at
+  1,400 lines**; total counted ≈ 1,500 (`< 4000`, so per-PR under `n`). One subsystem,
+  one spec, 4 tasks.
+- **BC walk** (plan-approve {1,3,4,5,6,7}): BC1/BC3 clear. **BC4 matches** — per-file
+  cap stays **1000** when `max_loc` is a number (M16); `n>2000` raises per-PR only.
+  First match wins.
+- **Expected**: `decision=halt, blocking_condition=4, confidence=85, bump=null, max_loc=4000`.
+- **Card** (argc 14; rationale mentions override):
+  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 85 4 ap-<RS> 4 <NOW-RS> orchestrator "<rationale: max-loc=4000 raises per-PR; counted file 1400 still exceeds per-file 1000>" 4000`
+
+##### F4-n-ok — counted in `(2000, n]` → clean approve
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=4, RS=NOW-60,
+  autopilot_bump=null, max_loc=4000`.
+- **Gate signals**: paths+verify; non-destructive; counted LOC **2500** (in `(2000,
+  4000]`); every counted file ≤ 1000; one subsystem, one spec, 4 tasks (M10.2–6 clear).
+- **BC walk** (plan-approve {1,3,4,5,6,7}): BC1/BC3 clear. **BC4 does not match** —
+  per-PR cap is `n=4000` (2500 ≤ 4000) and per-file holds. **M10.1 does not match**
+  (threshold `n`, 2500 ≤ 4000). BC5/BC6/BC7 clear. No match → default `approve`.
+- **Expected**: `decision=approve, blocking_condition=null, confidence=88, bump=null, max_loc=4000`.
+- **Card** (argc 14; rationale mentions override):
+  `append-card.sh orchestrate CDT-200 plan-approve approve auto null 88 null ap-<RS> 4 <NOW-RS> orchestrator "<rationale: max-loc=4000; counted 2500 within n and per-file>" 4000`
+
+##### F4-n-file — `--max-loc=<n>`; counted file >1000 → BC4 per-file
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=4, RS=NOW-60,
+  autopilot_bump=null, max_loc=3000`.
+- **Gate signals**: paths+verify; non-destructive; **one counted hand-written file at
+  1,100 lines**; total counted ≈ 1,500 (`< n`). One subsystem, one spec, 4 tasks.
+- **BC walk** (plan-approve {1,3,4,5,6,7}): BC1/BC3 clear. **BC4 matches** — per-file
+  1000 unchanged by `n`. First match wins.
+- **Expected**: `decision=halt, blocking_condition=4, confidence=85, bump=null, max_loc=3000`.
+- **Card** (argc 14; rationale mentions override):
+  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 85 4 ap-<RS> 4 <NOW-RS> orchestrator "<rationale: max-loc=3000; counted file 1100 exceeds per-file 1000>" 3000`
+
+##### F4-n-tight — `n<2000`; counted in `(n, 2000)` → BC4 at plan-approve, M10.1 at scope-confirm
+
+Two envelopes, same counted LOC **1800** (in `(1500, 2000)`); every counted file ≤ 1000;
+`max_loc=1500`.
+
+###### plan-approve → BC4 halt
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=4, RS=NOW-60,
+  autopilot_bump=null, max_loc=1500`.
+- **Gate signals**: paths+verify; non-destructive; counted 1800; 4 tasks, one spec, one
+  subsystem.
+- **BC walk** (plan-approve {1,3,4,5,6,7}): BC1/BC3 clear. **BC4 matches** — counted
+  1800 > per-PR `n=1500`. M10.1 would also match but BC4 precedes BC5. First match wins
+  → **halt**, not reroute.
+- **Expected**: `decision=halt, blocking_condition=4, confidence=85, bump=null, max_loc=1500`.
+- **Card** (argc 14; rationale mentions override):
+  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 85 4 ap-<RS> 4 <NOW-RS> orchestrator "<rationale: max-loc=1500 tightens per-PR; counted 1800 exceeds n>" 1500`
+
+###### scope-confirm → M10.1 reroute
+
+- **Envelope**: `workflow=orchestrate, gate=scope-confirm, iteration=2, RS=NOW-60,
+  autopilot_bump=null, max_loc=1500`.
+- **Gate signals**: issue text sufficient; non-destructive; projected counted 1800;
+  one workstream / one spec / one subsystem otherwise.
+- **BC walk** (scope-confirm {1,3,5,6,7}): BC1/BC3 clear. **BC4 dropped** (plan-approve
+  only). **BC5 matches via M10.1** — counted 1800 > `n=1500`. M10.2–6 not required.
+  First match wins → `reroute-epic`.
+- **Expected**: `decision=reroute-epic, blocking_condition=5, confidence=85, bump=null, max_loc=1500`.
+- **Card** (argc 14; rationale mentions override):
+  `append-card.sh orchestrate CDT-200 scope-confirm reroute-epic auto null 85 5 ap-<RS> 2 <NOW-RS> orchestrator "<rationale: max-loc=1500; counted 1800 trips M10.1>" 1500`
+
+##### F4-unbound — unbound; counted >2000 and file >1000 → no BC4, no M10.1
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=4, RS=NOW-60,
+  autopilot_bump=null, max_loc=unbound`.
+- **Gate signals**: paths+verify; non-destructive; counted LOC **2500** **and** one
+  counted hand-written file **1400** lines; one subsystem, one spec, 4 tasks (M10.2–6
+  clear).
+- **BC walk** (plan-approve {1,3,4,5,6,7}): BC1/BC3 clear. **BC4 does not fire**
+  (`unbound` disables per-PR **and** per-file). **M10.1 does not fire** (unbound-off).
+  BC5/BC6/BC7 clear. No match → default `approve`.
+- **Expected**: `decision=approve, blocking_condition=null, confidence=88, bump=null, max_loc="unbound"`.
+- **Card** (argc 14; rationale mentions override):
+  `append-card.sh orchestrate CDT-200 plan-approve approve auto null 88 null ap-<RS> 4 <NOW-RS> orchestrator "<rationale: max-loc=unbound disables BC4 and M10.1; M10.2-6 clear>" unbound`
+
+##### F4-unbound-m10 — unbound; M10.2 still live → BC5 reroute-epic
+
+- **Envelope**: `workflow=orchestrate, gate=scope-confirm, iteration=1, RS=NOW-60,
+  autopilot_bump=null, max_loc=unbound`.
+- **Gate signals**: issue text sufficient; non-destructive; complexity = **overflow**
+  — **4 independently shippable workstreams** (M10.2). Counted LOC may exceed 2000;
+  unbound is irrelevant to M10.2. Within budget.
+- **BC walk** (scope-confirm {1,3,5,6,7}): BC1/BC3 clear. M10.1 does **not** fire
+  (unbound-off). **BC5 matches via M10.2** — workstream overflow still live. Maps to
+  `reroute-epic` (non-blocking). First match wins.
+- **Expected**: `decision=reroute-epic, blocking_condition=5, confidence=85, bump=null, max_loc="unbound"`.
+- **Card** (argc 14; rationale mentions override):
+  `append-card.sh orchestrate CDT-200 scope-confirm reroute-epic auto null 85 5 ap-<RS> 1 <NOW-RS> orchestrator "<rationale: max-loc=unbound; 4 workstreams still M10.2 overflow>" unbound`
 
 ### F5 — BC5 complexity overflow → reroute-epic (the non-blocking BC)
 
@@ -288,6 +421,21 @@ effect (§3f). Every fixture's target outcome is the **genuine first match** in 
 order after dropping inapplicable BCs — confirmed BC-by-BC in each fixture's *BC walk* block
 above. `decided_by=auto` on all 13 (clean, halt, and reroute alike) per §3f.
 
+**A2. CDT-223 F4 rewrite + F4-*.** F4's 1400-line file is **hand-written implementation**
+(counted). F4-gen / F4-file / F4-n-ok / F4-n-file / F4-n-tight / F4-unbound /
+F4-unbound-m10 were walked against `self-answer.md` §3d (counted LOC via
+`loc-exclude.sh is-excluded` + M16 table) and §3f (argc 13 omit / argc 14 when
+override set; rationale mentions override; `decided_by=auto`). Table matches
+SPEC-033 M16.
+
+**T7 live re-walk** (throwaway git repo, real `loc-exclude.sh` + `append-card.sh`):
+`package-lock.json` / `foo.snap` exit 0 (excluded); `src/impl.go` / `src/vendor/x`
+exit 1 (counted). Every F4 / F4-* card shape exit 0: F4 argc13 halt bc=4
+`max_loc:null`; F4-gen argc13 approve; F4-n-tight plan-approve argc14 halt bc=4
+`max_loc:1500`; F4-n-tight scope-confirm argc14 `reroute-epic` bc=5; F4-unbound-m10
+argc14 `reroute-epic` bc=5 `max_loc:"unbound"`. `decided_by=auto` on all. Override
+rationale contains `max-loc=`. See Walkthrough C.
+
 **B. `budget-check.sh` behavior (ran `skills/autopilot/budget-check.sh` directly):**
 
 | Input | stdout `reason` / `breached` / `blocking_condition` | exit | Feeds |
@@ -318,13 +466,25 @@ stdout** — confirming the FE gap. (`jq-1.8.1` present.)
 | F3 `ship-choice halt … minor 85 3` | exit 0 |
 | F6 `plan-approve halt … null 90 6` | exit 0 |
 | F8 `kickoff scope-confirm halt … null 85 8` | exit 0 |
+| **F4** argc13 `plan-approve halt bc=4` `max_loc:null` `decided_by=auto` | exit 0 |
+| **F4-gen** argc13 `plan-approve approve` `max_loc:null` | exit 0 |
+| **F4-file** argc14 `halt bc=4` `max_loc:4000` rationale mentions override | exit 0 |
+| **F4-n-ok** argc14 `approve` `max_loc:4000` | exit 0 |
+| **F4-n-file** argc14 `halt bc=4` `max_loc:3000` | exit 0 |
+| **F4-n-tight** plan argc14 `halt bc=4` `max_loc:1500` | exit 0 |
+| **F4-n-tight** scope argc14 `reroute-epic bc=5` `max_loc:1500` | exit 0 |
+| **F4-unbound** argc14 `approve` `max_loc:"unbound"` | exit 0 |
+| **F4-unbound-m10** argc14 `reroute-epic bc=5` `max_loc:"unbound"` | exit 0 |
 | **neg** `bc=7` with `confidence=85` | **exit 64** (invariant (b) enforced) |
 | **neg** `bump=patch` on `scope-confirm` | **exit 64** (invariant (a) enforced) |
 | **probe** `merge` with `bump=null` | **exit 0** (writer has **no** merge⇒bump guard) |
 
 Every positive fixture card is constructible with **no writer exit-64** → the engine's
-valid-by-construction claim (§4, R6) holds for all 13 fixtures. The two negatives confirm the
-writer's cross-field guards match the two the engine promises to honor.
+valid-by-construction claim (§4, R6) holds for all 13 fixtures plus the CDT-223 F4-*
+argc 13/14 shapes (T7 live re-walk). The two negatives confirm the writer's
+cross-field guards match the two the engine promises to honor. `decided_by=auto`
+on every F4-* card; non-null `max_loc` is the cap's user provenance, not a `user`
+decision.
 
 ---
 
@@ -364,8 +524,10 @@ writer's cross-field guards match the two the engine promises to honor.
 
 ## QA verdict on the fixtures
 
-All **13** functional fixtures (F1–F13) are **genuinely reachable** per the written procedure and
-produce **writer-valid cards** (live-verified, § Walkthrough B/C; F13 requires writer bump enum
-accepting `master` per CDT-195 / M13). The edge fixture **FE** is an intentionally-documented
-**gap**, not a pass. The fixture set is the acceptance bar for `self-answer.md`; the three gaps
-above are handed to Tech Lead's Task-4 review. Gap 1 is the one worth gating on before commit.
+All **13** original functional fixtures (F1–F13) plus **7** CDT-223 F4-* variants
+(F4-gen, F4-file, F4-n-ok, F4-n-file, F4-n-tight dual-gate, F4-unbound,
+F4-unbound-m10) are **genuinely reachable** per the written procedure. F4 rewritten:
+1400-line file is **hand-written**; generated/lockfile/snap at 1400 is F4-gen (**no**
+BC4). F4-* argc 14 cards keep `decided_by=auto` and mention the override in
+`rationale`. The edge fixture **FE** is an intentionally-documented **gap**, not a
+pass. The fixture set is the acceptance bar for `self-answer.md`.

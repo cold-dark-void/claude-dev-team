@@ -117,7 +117,7 @@ ledger() { echo "$AUTODIR/$1.jsonl"; }
 # order: workflow ticket gate decision decided_by bump confidence blocking run_id iter wall actor rationale
 
 # =============================================================================
-# (a) happy-path append → rc 0, 1 line, jq . parses, 17 keys, type/schema/ts
+# (a) happy-path append → rc 0, 1 line, jq . parses, 18 keys, type/schema/ts
 # =============================================================================
 reset
 RC=$(rc_of bash "$APPEND" orchestrate CDT-111 ship-choice merge auto patch 90 null run-1 3 120 orchestrator "ship it")
@@ -129,13 +129,13 @@ else
   fail "a1 rc=$RC lines=${LINES:-?} (want 0/1, jq-parseable)"
 fi
 KEYS_OK=$(jq -e '
-  (keys_unsorted | length) == 17
+  (keys_unsorted | length) == 18
   and has("schema_version") and has("type") and has("ts") and has("run_id")
   and has("workflow") and has("ticket_id") and has("gate") and has("decision")
   and has("decided_by") and has("bump") and has("confidence")
   and has("blocking_condition") and has("council_tier") and has("grading_reason")
-  and has("rationale") and has("budget") and has("actor")
-  and .council_tier == null and .grading_reason == null
+  and has("max_loc") and has("rationale") and has("budget") and has("actor")
+  and .council_tier == null and .grading_reason == null and .max_loc == null
   and .schema_version == 1 and .type == "autopilot_decision"
   and (.ts | test("^[0-9T:-]+Z$"))
   and (.budget | (has("iteration") and has("iteration_cap")
@@ -143,7 +143,7 @@ KEYS_OK=$(jq -e '
   and .budget.iteration_cap == 25 and .budget.wall_clock_cap_s == 2700
 ' "$L" >/dev/null 2>&1 && echo y || echo n)
 if [ "$KEYS_OK" = "y" ]; then
-  pass "a2 all 17 keys + type/schema_version/ts-shape + default budget caps"
+  pass "a2 all 18 keys + type/schema_version/ts-shape + default budget caps"
 else
   fail "a2 schema mismatch: $(cat "$L" 2>/dev/null)"
 fi
@@ -445,15 +445,15 @@ else
 fi
 
 # =============================================================================
-# (ad) parse-flags.sh: JSON shape has all 5 keys (CDT-206 adds tier)
+# (ad) parse-flags.sh: JSON shape has all 6 keys (CDT-223 adds max_loc)
 # =============================================================================
 OUT=$(bash "$PARSE" --autopilot=patch 2>/dev/null)
 if echo "$OUT" | jq -e '
-  (keys_unsorted | length) == 5
+  (keys_unsorted | length) == 6
   and has("enabled") and has("bump") and has("source") and has("council_tier")
-  and has("tier")
+  and has("tier") and has("max_loc")
 ' >/dev/null 2>&1; then
-  pass "ad parse-flags JSON shape has all 5 keys"
+  pass "ad parse-flags JSON shape has all 6 keys"
 else
   fail "ad JSON shape mismatch: $OUT"
 fi
@@ -609,8 +609,10 @@ RC=$(rc_of bash "$APPEND" orchestrate CDT-T ship-choice halt auto null 0 7 run-1
 L=$(ledger CDT-T)
 TIER_OK=$(jq -e '
   .council_tier == "light" and .grading_reason == "clear-low (files=3, loc=40)"
+  and .max_loc == null
   and (keys_unsorted | index("council_tier")) == (keys_unsorted | index("blocking_condition")) + 1
-  and (keys_unsorted | index("rationale")) == (keys_unsorted | index("grading_reason")) + 1
+  and (keys_unsorted | index("max_loc")) == (keys_unsorted | index("grading_reason")) + 1
+  and (keys_unsorted | index("rationale")) == (keys_unsorted | index("max_loc")) + 1
 ' "$L" >/dev/null 2>&1 && echo y || echo n)
 if [ "$RC" -eq 0 ] && [ "$TIER_OK" = "y" ]; then
   pass "an 15-arg append: tier fields present in frozen M13 key order"
@@ -1068,6 +1070,571 @@ if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.tier == "full" and .council_tier == 
   pass "cc parse-flags mixed argv --tier=full; other flags unchanged; --resume-ship ignored"
 else
   fail "cc rc=$RC out=$OUT (want tier:full, council_tier:light, enabled:true/bump:null/source:flag)"
+fi
+
+# --- CDT-223 T1 parse-flags max_loc ---
+# =============================================================================
+# omit → null; numeric → JSON number; unbound → JSON string; junk → 64;
+# last-wins same-value and different-value; independence; 6-key JSON; env-ignore.
+# =============================================================================
+
+# omit → max_loc:null
+OUT=$(bash "$PARSE" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e 'has("max_loc") and .max_loc == null' >/dev/null 2>&1; then
+  pass "cdt223-t1 omit --max-loc → max_loc:null"
+else
+  fail "cdt223-t1 omit rc=$RC out=$OUT (want max_loc:null, rc=0)"
+fi
+
+# numeric → JSON number (not string)
+OUT=$(bash "$PARSE" --max-loc=4000 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 4000 and (.max_loc | type) == "number"' >/dev/null 2>&1; then
+  pass "cdt223-t1 --max-loc=4000 → JSON number 4000"
+else
+  fail "cdt223-t1 numeric rc=$RC out=$OUT (want number 4000)"
+fi
+
+OUT=$(bash "$PARSE" --max-loc=1 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 1 and (.max_loc | type) == "number"' >/dev/null 2>&1; then
+  pass "cdt223-t1 --max-loc=1 → JSON number 1"
+else
+  fail "cdt223-t1 min-numeric rc=$RC out=$OUT (want number 1)"
+fi
+
+# unbound → JSON string (case-sensitive)
+OUT=$(bash "$PARSE" --max-loc=unbound 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == "unbound" and (.max_loc | type) == "string"' >/dev/null 2>&1; then
+  pass "cdt223-t1 --max-loc=unbound → JSON string unbound"
+else
+  fail "cdt223-t1 unbound rc=$RC out=$OUT (want string unbound)"
+fi
+
+# junk / 0 / negative / UNBOUND/off/none/unlimited/inf → 64, stderr, no success JSON
+for junk in bogus 0 -1 UNBOUND off none unlimited inf; do
+  OUT=$(bash "$PARSE" --max-loc="$junk" 2>/dev/null); RC=$?
+  ERR=$(bash "$PARSE" --max-loc="$junk" 2>&1 >/dev/null) || true
+  if [ "$RC" -eq 64 ] && [ -z "$OUT" ] && [ -n "$ERR" ]; then
+    pass "cdt223-t1 junk --max-loc=$junk → 64, no success JSON, stderr"
+  else
+    fail "cdt223-t1 junk --max-loc=$junk rc=$RC out=$OUT err=$ERR"
+  fi
+done
+
+# empty --max-loc=
+OUT=$(bash "$PARSE" --max-loc= 2>/dev/null); RC=$?
+ERR=$(bash "$PARSE" --max-loc= 2>&1 >/dev/null) || true
+if [ "$RC" -eq 64 ] && [ -z "$OUT" ] && [ -n "$ERR" ]; then
+  pass "cdt223-t1 empty --max-loc= → 64, no success JSON, stderr"
+else
+  fail "cdt223-t1 empty rc=$RC out=$OUT err=$ERR"
+fi
+
+# bare --max-loc
+OUT=$(bash "$PARSE" --max-loc 2>/dev/null); RC=$?
+ERR=$(bash "$PARSE" --max-loc 2>&1 >/dev/null) || true
+if [ "$RC" -eq 64 ] && [ -z "$OUT" ] && [ -n "$ERR" ]; then
+  pass "cdt223-t1 bare --max-loc → 64, no success JSON, stderr"
+else
+  fail "cdt223-t1 bare rc=$RC out=$OUT err=$ERR"
+fi
+
+# space form --max-loc n
+OUT=$(bash "$PARSE" --max-loc 4000 2>/dev/null); RC=$?
+ERR=$(bash "$PARSE" --max-loc 4000 2>&1 >/dev/null) || true
+if [ "$RC" -eq 64 ] && [ -z "$OUT" ] && [ -n "$ERR" ]; then
+  pass "cdt223-t1 space form --max-loc 4000 → 64, no success JSON, stderr"
+else
+  fail "cdt223-t1 space rc=$RC out=$OUT err=$ERR"
+fi
+
+# last-wins same-value
+OUT=$(bash "$PARSE" --max-loc=4000 --max-loc=4000 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 4000 and (.max_loc | type) == "number"' >/dev/null 2>&1; then
+  pass "cdt223-t1 last-wins same-value --max-loc=4000 --max-loc=4000 → 4000"
+else
+  fail "cdt223-t1 last-wins same rc=$RC out=$OUT (want number 4000)"
+fi
+
+OUT=$(bash "$PARSE" --max-loc=unbound --max-loc=unbound 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == "unbound" and (.max_loc | type) == "string"' >/dev/null 2>&1; then
+  pass "cdt223-t1 last-wins same-value --max-loc=unbound --max-loc=unbound → unbound"
+else
+  fail "cdt223-t1 last-wins same unbound rc=$RC out=$OUT (want string unbound)"
+fi
+
+# last-wins different-value
+OUT=$(bash "$PARSE" --max-loc=4000 --max-loc=unbound 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == "unbound" and (.max_loc | type) == "string"' >/dev/null 2>&1; then
+  pass "cdt223-t1 last-wins different --max-loc=4000 --max-loc=unbound → unbound"
+else
+  fail "cdt223-t1 last-wins 4000→unbound rc=$RC out=$OUT (want string unbound)"
+fi
+
+OUT=$(bash "$PARSE" --max-loc=unbound --max-loc=2000 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 2000 and (.max_loc | type) == "number"' >/dev/null 2>&1; then
+  pass "cdt223-t1 last-wins different --max-loc=unbound --max-loc=2000 → 2000"
+else
+  fail "cdt223-t1 last-wins unbound→2000 rc=$RC out=$OUT (want number 2000)"
+fi
+
+# independence of --autopilot / --council-tier / --tier
+OUT=$(bash "$PARSE" --autopilot=minor --council-tier=skip --tier=light --max-loc=4000 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .enabled == true and .bump == "minor" and .source == "flag"
+  and .council_tier == "skip" and .tier == "light"
+  and .max_loc == 4000 and (.max_loc | type) == "number"
+' >/dev/null 2>&1; then
+  pass "cdt223-t1 independence: all four flags resolve without writing each other"
+else
+  fail "cdt223-t1 independence rc=$RC out=$OUT"
+fi
+
+OUT=$(bash "$PARSE" --max-loc=unbound 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .enabled == false and .bump == null and .source == "none"
+  and .council_tier == null and .tier == null
+  and .max_loc == "unbound" and (.max_loc | type) == "string"
+' >/dev/null 2>&1; then
+  pass "cdt223-t1 --max-loc=unbound alone does not enable other flags"
+else
+  fail "cdt223-t1 max_loc-alone rc=$RC out=$OUT"
+fi
+
+OUT=$(bash "$PARSE" --tier=light --council-tier=full --autopilot 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .tier == "light" and .council_tier == "full" and .enabled == true
+  and has("max_loc") and .max_loc == null
+' >/dev/null 2>&1; then
+  pass "cdt223-t1 other flags omit --max-loc → max_loc:null"
+else
+  fail "cdt223-t1 other-flags-omit rc=$RC out=$OUT"
+fi
+
+# 6-key JSON with max_loc set
+OUT=$(bash "$PARSE" --max-loc=4000 2>/dev/null)
+if echo "$OUT" | jq -e '
+  (keys_unsorted | length) == 6
+  and has("enabled") and has("bump") and has("source") and has("council_tier")
+  and has("tier") and has("max_loc")
+' >/dev/null 2>&1; then
+  pass "cdt223-t1 --max-loc=4000 JSON has all 6 keys"
+else
+  fail "cdt223-t1 6-key JSON mismatch: $OUT"
+fi
+
+# MUST NOT read MAX_LOC / AUTOPILOT_MAX_LOC
+OUT=$(MAX_LOC=4000 AUTOPILOT_MAX_LOC=unbound env -u AUTOPILOT bash "$PARSE" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e 'has("max_loc") and .max_loc == null and .enabled == false' >/dev/null 2>&1; then
+  pass "cdt223-t1 env MAX_LOC/AUTOPILOT_MAX_LOC ignored → max_loc:null"
+else
+  fail "cdt223-t1 env-ignore omit rc=$RC out=$OUT (want max_loc:null)"
+fi
+
+OUT=$(MAX_LOC=999 AUTOPILOT_MAX_LOC=unbound bash "$PARSE" --max-loc=4000 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 4000 and (.max_loc | type) == "number"' >/dev/null 2>&1; then
+  pass "cdt223-t1 env does not override --max-loc=4000"
+else
+  fail "cdt223-t1 env-ignore flag rc=$RC out=$OUT (want number 4000)"
+fi
+
+# --- CDT-223 T2 loc-exclude ---
+# SPEC-033 M15 arms 1–2: lockfile/snap/prefix excluded; linguist-generated=true
+# excluded; =false counted; missing attrs → built-in only; src/vendor/x counted;
+# usage 64. Helper does NOT classify test files (arm 3 is the caller).
+LOC_EXCLUDE="$SCRIPT_DIR/loc-exclude.sh"
+rm -f .gitattributes
+
+# lockfile basenames (exact), nested and ./ stripped
+for lf in package-lock.json yarn.lock pnpm-lock.yaml bun.lock bun.lockb \
+          Cargo.lock composer.lock Gemfile.lock poetry.lock Pipfile.lock \
+          uv.lock flake.lock go.sum; do
+  expect_rc 0 "cdt223-t2 lockfile $lf excluded" bash "$LOC_EXCLUDE" is-excluded "$lf"
+  expect_rc 0 "cdt223-t2 lockfile dir/$lf excluded" bash "$LOC_EXCLUDE" is-excluded "dir/$lf"
+  expect_rc 0 "cdt223-t2 lockfile ./$lf excluded" bash "$LOC_EXCLUDE" is-excluded "./$lf"
+done
+
+# snap glob (basename)
+expect_rc 0 "cdt223-t2 snap foo.snap excluded" bash "$LOC_EXCLUDE" is-excluded foo.snap
+expect_rc 0 "cdt223-t2 snap dir/bar.snap excluded" bash "$LOC_EXCLUDE" is-excluded dir/bar.snap
+expect_rc 0 "cdt223-t2 snap ./baz.snap excluded" bash "$LOC_EXCLUDE" is-excluded ./baz.snap
+expect_rc 1 "cdt223-t2 snap foo.snap.bak counted" bash "$LOC_EXCLUDE" is-excluded foo.snap.bak
+expect_rc 1 "cdt223-t2 snap foo.SNAP counted" bash "$LOC_EXCLUDE" is-excluded foo.SNAP
+
+# vendored prefixes (after stripping ./); mid-path does NOT match
+for pfx in vendor third_party node_modules; do
+  expect_rc 0 "cdt223-t2 prefix $pfx/x excluded" bash "$LOC_EXCLUDE" is-excluded "$pfx/x"
+  expect_rc 0 "cdt223-t2 prefix $pfx exact excluded" bash "$LOC_EXCLUDE" is-excluded "$pfx"
+  expect_rc 0 "cdt223-t2 prefix ./$pfx/x excluded" bash "$LOC_EXCLUDE" is-excluded "./$pfx/x"
+  expect_rc 1 "cdt223-t2 mid-path src/$pfx/x counted" bash "$LOC_EXCLUDE" is-excluded "src/$pfx/x"
+done
+# nested under vendor/ (arm 2 starts-with vendor/; * in case matches /)
+expect_rc 0 "cdt223-t2 prefix vendor/pkg/foo.go nested excluded" bash "$LOC_EXCLUDE" is-excluded vendor/pkg/foo.go
+
+# missing attrs → built-in only
+rm -f .gitattributes
+expect_rc 1 "cdt223-t2 missing-attrs src/foo.go counted" bash "$LOC_EXCLUDE" is-excluded src/foo.go
+expect_rc 0 "cdt223-t2 missing-attrs go.sum still excluded" bash "$LOC_EXCLUDE" is-excluded go.sum
+
+# linguist-generated=true / set excluded; =false counted (non-builtin)
+printf '%s\n' 'gen.go linguist-generated=true' > .gitattributes
+expect_rc 0 "cdt223-t2 linguist-generated=true excluded" bash "$LOC_EXCLUDE" is-excluded gen.go
+printf '%s\n' 'set.go linguist-generated' > .gitattributes
+expect_rc 0 "cdt223-t2 linguist-generated set excluded" bash "$LOC_EXCLUDE" is-excluded set.go
+printf '%s\n' 'plain.go linguist-generated=false' > .gitattributes
+expect_rc 1 "cdt223-t2 linguist-generated=false counted" bash "$LOC_EXCLUDE" is-excluded plain.go
+
+# union: lockfile stays excluded even when linguist-generated=false
+printf '%s\n' 'go.sum linguist-generated=false' > .gitattributes
+expect_rc 0 "cdt223-t2 lockfile union beats linguist-generated=false" bash "$LOC_EXCLUDE" is-excluded go.sum
+
+# *.pb.go / *_gen.* NOT built-in (attrs can still exclude)
+rm -f .gitattributes
+expect_rc 1 "cdt223-t2 foo.pb.go counted (not built-in)" bash "$LOC_EXCLUDE" is-excluded foo.pb.go
+expect_rc 1 "cdt223-t2 foo_gen.go counted (not built-in)" bash "$LOC_EXCLUDE" is-excluded foo_gen.go
+expect_rc 1 "cdt223-t2 foo_gen.bar counted (not built-in)" bash "$LOC_EXCLUDE" is-excluded foo_gen.bar
+printf '%s\n' '*.pb.go linguist-generated' > .gitattributes
+expect_rc 0 "cdt223-t2 foo.pb.go excluded via attrs" bash "$LOC_EXCLUDE" is-excluded foo.pb.go
+rm -f .gitattributes
+
+# arm 3 stays with caller — helper does NOT classify test/spec paths
+expect_rc 1 "cdt223-t2 foo_test.go counted (not classified)" bash "$LOC_EXCLUDE" is-excluded foo_test.go
+expect_rc 1 "cdt223-t2 tests/foo.go counted (not classified)" bash "$LOC_EXCLUDE" is-excluded tests/foo.go
+expect_rc 1 "cdt223-t2 specs/bar.md counted (not classified)" bash "$LOC_EXCLUDE" is-excluded specs/bar.md
+
+# malformed .gitattributes → arm 1 empty; built-in still runs; never halt
+printf '%s\n' '[[[' > .gitattributes
+expect_rc 1 "cdt223-t2 malformed attrs src/foo.go counted" bash "$LOC_EXCLUDE" is-excluded src/foo.go
+expect_rc 0 "cdt223-t2 malformed attrs yarn.lock excluded" bash "$LOC_EXCLUDE" is-excluded yarn.lock
+rm -f .gitattributes
+
+# fail-open on git check-attr errors (never exit 2)
+expect_rc 1 "cdt223-t2 git-fail-open non-builtin counted" env GIT_DIR=/dev/null bash "$LOC_EXCLUDE" is-excluded src/foo.go
+expect_rc 0 "cdt223-t2 git-fail-open lockfile still excluded" env GIT_DIR=/dev/null bash "$LOC_EXCLUDE" is-excluded go.sum
+failopen_rc=$(rc_of env GIT_DIR=/dev/null bash "$LOC_EXCLUDE" is-excluded src/foo.go)
+if [ "$failopen_rc" -ne 2 ]; then
+  pass "cdt223-t2 git-fail-open MUST NOT exit 2 (rc=$failopen_rc)"
+else
+  fail "cdt223-t2 git-fail-open exited 2"
+fi
+
+# usage 64
+expect_rc 64 "cdt223-t2 usage no-args" bash "$LOC_EXCLUDE"
+expect_rc 64 "cdt223-t2 usage missing path" bash "$LOC_EXCLUDE" is-excluded
+expect_rc 64 "cdt223-t2 usage extra args" bash "$LOC_EXCLUDE" is-excluded foo bar
+expect_rc 64 "cdt223-t2 usage bad command" bash "$LOC_EXCLUDE" exclude foo
+expect_rc 64 "cdt223-t2 usage empty path" bash "$LOC_EXCLUDE" is-excluded ""
+
+# --- CDT-223 T3 card max_loc ---
+# =============================================================================
+# CDT-223 T3: M13 max_loc additive-nullable (argc 13|14|15|16, frozen key order)
+# =============================================================================
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r")
+L=$(ledger CDT-T3)
+if [ "$RC" -eq 0 ] && jq -e '.max_loc == null and .schema_version == 1 and (keys_unsorted | length) == 18' "$L" >/dev/null 2>&1; then
+  pass "t3-13 13-arg append writes max_loc:null, schema_version=1, 18 keys"
+else
+  fail "t3-13 rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r" 4000)
+L=$(ledger CDT-T3)
+if [ "$RC" -eq 0 ] && jq -e '.max_loc == 4000 and (.max_loc | type) == "number" and .council_tier == null and .grading_reason == null' "$L" >/dev/null 2>&1; then
+  pass "t3-14n 14-arg append writes max_loc number, council pair null"
+else
+  fail "t3-14n rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r" unbound)
+L=$(ledger CDT-T3)
+if [ "$RC" -eq 0 ] && jq -e '.max_loc == "unbound" and (.max_loc | type) == "string"' "$L" >/dev/null 2>&1; then
+  pass "t3-14u 14-arg append writes max_loc:\"unbound\""
+else
+  fail "t3-14u rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+reset
+bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r" 2000 >/dev/null 2>&1
+L=$(ledger CDT-T3)
+POS_OK=$(jq -e '
+  (keys_unsorted | index("max_loc")) == (keys_unsorted | index("grading_reason")) + 1
+  and (keys_unsorted | index("rationale")) == (keys_unsorted | index("max_loc")) + 1
+' "$L" >/dev/null 2>&1 && echo y || echo n)
+if [ "$POS_OK" = "y" ]; then
+  pass "t3-pos max_loc immediately after grading_reason, before rationale"
+else
+  fail "t3-pos keys=$(jq -c 'keys_unsorted' "$L" 2>/dev/null)"
+fi
+
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-T3 ship-choice pr auto patch 90 null run-1 1 10 orch "r" light "why")
+L=$(ledger CDT-T3)
+if [ "$RC" -eq 0 ] && jq -e 'has("max_loc") and .council_tier == "light" and .grading_reason == "why" and .max_loc == null' "$L" >/dev/null 2>&1; then
+  pass "t3-15 15-arg append writes council pair, max_loc:null"
+else
+  fail "t3-15 rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-T3 ship-choice pr auto patch 90 null run-1 1 10 orch "r" full "band" unbound)
+L=$(ledger CDT-T3)
+if [ "$RC" -eq 0 ] && jq -e '.council_tier == "full" and .grading_reason == "band" and .max_loc == "unbound"' "$L" >/dev/null 2>&1; then
+  pass "t3-16 16-arg append writes council pair + max_loc"
+else
+  fail "t3-16 rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-T3 scope-confirm proceed auto null 70 null run-1 1 10 orch "r" null null 3000)
+L=$(ledger CDT-T3)
+if [ "$RC" -eq 0 ] && jq -e '.gate == "scope-confirm" and .max_loc == 3000 and .council_tier == null' "$L" >/dev/null 2>&1; then
+  pass "t3-gate max_loc legal on scope-confirm (not ship-choice-only)"
+else
+  fail "t3-gate rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+expect_rc 64 "t3-argc17 argc=17 → 64" \
+  bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r" light "why" 4000 extra
+expect_rc 64 "t3-bad0 max_loc=0 → 64" \
+  bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r" 0
+expect_rc 64 "t3-badU max_loc=UNBOUND → 64" \
+  bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r" UNBOUND
+expect_rc 64 "t3-badn max_loc=-1 → 64" \
+  bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r" -1
+
+reset
+mkdir -p "$AUTODIR"
+PRE=$(ledger CDT-PREML)
+echo '{"schema_version":1,"type":"autopilot_decision","gate":"plan-approve","blocking_condition":null,"council_tier":null,"grading_reason":null,"rationale":"old","actor":"orch"}' > "$PRE"
+RC=0
+OUT=$(bash "$READ" CDT-PREML 2>/dev/null) || RC=$?
+BF_OK=$(printf '%s' "$OUT" | jq -e '
+  (.[0] | has("max_loc")) and (.[0].max_loc == null)
+  and (.[0] | keys_unsorted | index("max_loc"))
+      == (.[0] | keys_unsorted | index("grading_reason")) + 1
+  and (.[0] | keys_unsorted | index("rationale"))
+      == (.[0] | keys_unsorted | index("max_loc")) + 1
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$RC" -eq 0 ] && [ "$BF_OK" = "y" ]; then
+  pass "t3-bf1 reader backfills absent max_loc as null after grading_reason"
+else
+  fail "t3-bf1 rc=$RC out=$OUT"
+fi
+
+reset
+mkdir -p "$AUTODIR"
+PRE126=$(ledger CDT-PRE126)
+echo '{"schema_version":1,"type":"autopilot_decision","gate":"ship-choice","blocking_condition":null,"rationale":"old","actor":"orch"}' > "$PRE126"
+RC=0
+OUT=$(bash "$READ" CDT-PRE126 2>/dev/null) || RC=$?
+BF126_OK=$(printf '%s' "$OUT" | jq -e '
+  (.[0] | has("council_tier")) and (.[0].council_tier == null)
+  and (.[0] | has("grading_reason")) and (.[0].grading_reason == null)
+  and (.[0] | has("max_loc")) and (.[0].max_loc == null)
+  and (.[0] | keys_unsorted | index("council_tier"))
+      == (.[0] | keys_unsorted | index("blocking_condition")) + 1
+  and (.[0] | keys_unsorted | index("max_loc"))
+      == (.[0] | keys_unsorted | index("grading_reason")) + 1
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$RC" -eq 0 ] && [ "$BF126_OK" = "y" ]; then
+  pass "t3-bf2 reader backfills pre-CDT-126 card with council pair AND max_loc"
+else
+  fail "t3-bf2 rc=$RC out=$OUT"
+fi
+
+# --- CDT-223 T7 QA holes (AC8 M15/M16) ---
+# Resume MUST NOT seed max_loc (N11). Kickoff MUST NOT document/bind --max-loc
+# (junk still 64 via shared parser). F4/F4-* writer shapes + decided_by=auto.
+# M13 JSON keys/order match SPEC-033. Does not weaken ACs.
+ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+AP_SKILL="$SCRIPT_DIR/SKILL.md"
+SPEC033="$ROOT/specs/core/SPEC-033-autopilot-policy.md"
+SCEN="$SCRIPT_DIR/self-answer-scenarios.md"
+KICKOFF_SKILL="$ROOT/skills/kickoff/SKILL.md"
+EPIC_SKILL="$ROOT/skills/epic/SKILL.md"
+ORCH_SKILL="$ROOT/skills/orchestrate/SKILL.md"
+SCAFFOLD_SKILL="$ROOT/skills/scaffold-project/SKILL.md"
+: "${LOC_EXCLUDE:=$SCRIPT_DIR/loc-exclude.sh}"
+
+# F4 rewritten: counted hand-written path vs F4-gen excluded lockfile/snap
+expect_rc 1 "cdt223-t7 F4 counted src/impl.go" bash "$LOC_EXCLUDE" is-excluded src/impl.go
+expect_rc 0 "cdt223-t7 F4-gen package-lock.json excluded" bash "$LOC_EXCLUDE" is-excluded package-lock.json
+expect_rc 0 "cdt223-t7 F4-gen foo.snap excluded" bash "$LOC_EXCLUDE" is-excluded foo.snap
+
+# F4 rewritten card (argc 13, max_loc null, decided_by auto, BC4 halt)
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-200 plan-approve halt auto null 85 4 ap-rs 4 60 orchestrator \
+  "one counted hand-written file 1400 lines exceeds per-file cap")
+L=$(ledger CDT-200)
+if [ "$RC" -eq 0 ] && jq -e '
+  .decision == "halt" and .blocking_condition == 4 and .decided_by == "auto"
+  and .max_loc == null and .gate == "plan-approve"
+' "$L" >/dev/null 2>&1; then
+  pass "cdt223-t7 F4 rewritten card argc13 halt bc=4 decided_by=auto max_loc=null"
+else
+  fail "cdt223-t7 F4 rewritten rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# F4-gen card: excluded 1400 → approve, no BC4
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-200 plan-approve approve auto null 88 null ap-rs 4 60 orchestrator \
+  "lockfile 1400 excluded; counted LOC within caps")
+L=$(ledger CDT-200)
+if [ "$RC" -eq 0 ] && jq -e '
+  .decision == "approve" and .blocking_condition == null and .decided_by == "auto"
+  and .max_loc == null
+' "$L" >/dev/null 2>&1; then
+  pass "cdt223-t7 F4-gen card argc13 approve no BC4 decided_by=auto"
+else
+  fail "cdt223-t7 F4-gen rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# F4-n-tight plan-approve → BC4 halt argc 14; rationale mentions override
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-200 plan-approve halt auto null 85 4 ap-rs 4 60 orchestrator \
+  "max-loc=1500 tightens per-PR; counted 1800 exceeds n" 1500)
+L=$(ledger CDT-200)
+if [ "$RC" -eq 0 ] && jq -e '
+  .decision == "halt" and .blocking_condition == 4 and .decided_by == "auto"
+  and .max_loc == 1500 and (.max_loc | type) == "number"
+  and (.rationale | test("max-loc=1500"))
+' "$L" >/dev/null 2>&1; then
+  pass "cdt223-t7 F4-n-tight plan-approve argc14 halt bc=4 decided_by=auto"
+else
+  fail "cdt223-t7 F4-n-tight plan rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# F4-n-tight scope-confirm → M10.1 reroute-epic
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-200 scope-confirm reroute-epic auto null 85 5 ap-rs 2 60 orchestrator \
+  "max-loc=1500; counted 1800 trips M10.1" 1500)
+L=$(ledger CDT-200)
+if [ "$RC" -eq 0 ] && jq -e '
+  .decision == "reroute-epic" and .blocking_condition == 5 and .decided_by == "auto"
+  and .max_loc == 1500 and .gate == "scope-confirm"
+' "$L" >/dev/null 2>&1; then
+  pass "cdt223-t7 F4-n-tight scope-confirm argc14 reroute-epic M10.1 decided_by=auto"
+else
+  fail "cdt223-t7 F4-n-tight scope rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# F4-unbound-m10: unbound does not disable M10.2 → BC5 reroute-epic
+reset
+RC=$(rc_of bash "$APPEND" orchestrate CDT-200 scope-confirm reroute-epic auto null 85 5 ap-rs 1 60 orchestrator \
+  "max-loc=unbound; 4 workstreams still M10.2 overflow" unbound)
+L=$(ledger CDT-200)
+if [ "$RC" -eq 0 ] && jq -e '
+  .decision == "reroute-epic" and .blocking_condition == 5 and .decided_by == "auto"
+  and .max_loc == "unbound" and (.max_loc | type) == "string"
+  and (.rationale | test("max-loc=unbound"))
+' "$L" >/dev/null 2>&1; then
+  pass "cdt223-t7 F4-unbound-m10 argc14 reroute-epic M10.2 decided_by=auto"
+else
+  fail "cdt223-t7 F4-unbound-m10 rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# Fixtures: F4 is hand-written; F4-gen is lockfile/snap; table matches M16
+if grep -q 'hand-written implementation' "$SCEN" \
+  && grep -q 'package-lock.json' "$SCEN" \
+  && grep -q 'F4-gen' "$SCEN" \
+  && grep -q 'plan-approve BC4 halt; scope-confirm M10.1 reroute' "$SCEN" \
+  && grep -q 'F4-unbound-m10' "$SCEN" \
+  && grep -q 'reroute-epic' "$SCEN"; then
+  pass "cdt223-t7 scenarios F4 rewritten hand-written; F4-gen/F4-n-tight/F4-unbound-m10 present"
+else
+  fail "cdt223-t7 scenarios F4 fixture text missing required M16 signals"
+fi
+
+# Kickoff: --max-loc=bogus → 64 (shared parser, kickoff Step 0)
+OUT=$(bash "$PARSE" --autopilot --max-loc=bogus 2>/dev/null); RC=$?
+ERR=$(bash "$PARSE" --autopilot --max-loc=bogus 2>&1 >/dev/null) || true
+if [ "$RC" -eq 64 ] && [ -z "$OUT" ] && [ -n "$ERR" ]; then
+  pass "cdt223-t7 kickoff argv --max-loc=bogus → 64"
+else
+  fail "cdt223-t7 kickoff bogus rc=$RC out=$OUT err=$ERR"
+fi
+# --max-loc=4000 parses; kickoff MUST NOT document the flag (gates unchanged).
+# M13 still requires cards to record the parse: envelopes that pass
+# max_loc:MAX_LOC MUST have Step 0 bind MAX_LOC=$(jq …) from AP_JSON.
+OUT=$(bash "$PARSE" --autopilot --max-loc=4000 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 4000' >/dev/null 2>&1 \
+  && ! grep -q '\[--max-loc' "$KICKOFF_SKILL"; then
+  pass "cdt223-t7 kickoff --max-loc=4000 unused as a documented flag (no Arguments row)"
+else
+  fail "cdt223-t7 kickoff unused-docs rc=$RC out=$OUT"
+fi
+for pair in "kickoff:$KICKOFF_SKILL" "epic:$EPIC_SKILL"; do
+  name="${pair%%:*}"
+  skill="${pair#*:}"
+  if grep -q 'max_loc:MAX_LOC' "$skill"; then
+    if grep -q 'MAX_LOC=$(jq' "$skill"; then
+      pass "cdt223-t7 $name envelopes pass MAX_LOC and Step 0 binds it"
+    else
+      fail "cdt223-t7 $name envelopes pass max_loc:MAX_LOC but Step 0 does not bind MAX_LOC=\$(jq"
+    fi
+  else
+    pass "cdt223-t7 $name envelopes omit max_loc (caller-null → argc 13)"
+  fi
+done
+
+# Resume without --max-loc → parse max_loc:null; resume-state has no max_loc key
+# even if the plan tracking line names one (N11: MUST NOT resume-seed)
+OUT=$(env -u AUTOPILOT bash "$PARSE" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == null' >/dev/null 2>&1; then
+  pass "cdt223-t7 resume-omit parse-flags → max_loc:null"
+else
+  fail "cdt223-t7 resume-omit parse rc=$RC out=$OUT"
+fi
+PLANDIR="$TMP/.claude/plans"
+rm -rf "$PLANDIR"
+mkdir -p "$PLANDIR"
+cat > "$PLANDIR/2026-08-27-CDT-RS-plan.md" << 'EOF'
+## Tracking
+- autopilot_on: true
+- autopilot_bump: minor
+- max_loc: 4000
+EOF
+OUT=$(bash "$RESUME" CDT-RS 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .found == true and .autopilot_on == true and .autopilot_bump == "minor"
+  and (has("max_loc") | not)
+' >/dev/null 2>&1; then
+  pass "cdt223-t7 resume-state ignores plan max_loc (no JSON key)"
+else
+  fail "cdt223-t7 resume-state max_loc leak rc=$RC out=$OUT"
+fi
+rm -rf "$PLANDIR"
+
+# orch SKILL ≤80; M13 JSON keys/order match SPEC-033 (indent-stripped bodies)
+N=$(wc -l < "$ORCH_SKILL" | tr -d ' ')
+if [ "$N" -le 80 ]; then
+  pass "cdt223-t7 orchestrate SKILL.md ≤80 lines (got $N)"
+else
+  fail "cdt223-t7 orchestrate SKILL.md is $N lines (must be ≤80)"
+fi
+m13_body() {
+  awk '
+    /^[[:space:]]*```json[[:space:]]*$/ {p=1; next}
+    p && /^[[:space:]]*```[[:space:]]*$/ {exit}
+    p { sub(/^[[:space:]]+/, ""); print }
+  ' "$1"
+}
+if cmp -s <(m13_body "$SPEC033") <(m13_body "$AP_SKILL"); then
+  pass "cdt223-t7 M13 JSON fence keys/order match SPEC-033"
+else
+  fail "cdt223-t7 M13 JSON fence mismatch vs SPEC-033"
+fi
+
+# scaffold seed: append-missing heredoc has M15 paths, no *.pb.go
+if grep -q 'append missing markers only' "$SCAFFOLD_SKILL" \
+  && grep -q 'package-lock.json' "$SCAFFOLD_SKILL" \
+  && grep -q 'vendor/\*\*' "$SCAFFOLD_SKILL" \
+  && ! grep -E '^[[:space:]]*\*\.pb\.go' "$SCAFFOLD_SKILL"; then
+  pass "cdt223-t7 scaffold seeds .gitattributes append-missing; no *.pb.go in seed"
+else
+  fail "cdt223-t7 scaffold seed missing or contains *.pb.go"
 fi
 
 # =============================================================================

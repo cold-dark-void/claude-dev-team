@@ -26,6 +26,11 @@
 #     a violation means a hand-edited or corrupt ledger; this pair treats an
 #     untrustworthy audit trail as a hard failure, not something to pass through.
 #
+# CDT-223 — max_loc (M13/M16, additive + nullable):
+#   * Absent max_loc is backfilled as explicit null immediately after
+#     grading_reason (before rationale). Pre-CDT-126 cards (no council pair)
+#     still receive the council-pair backfill AND max_loc. schema_version stays 1.
+#
 # Exit codes:
 #   0   success (including the empty/missing-ledger case)
 #  64   usage error (wrong argc), jq absent, unparseable ledger, or a card
@@ -76,21 +81,30 @@ if [ ! -s "$ledger_file" ]; then
   exit 0
 fi
 
-# ---- Parse + backfill the M13 nullable keys (CDT-126) -----------------------
+# ---- Parse + backfill the M13 nullable keys (CDT-126, CDT-223) --------------
 # Insert council_tier/grading_reason as explicit nulls right after
-# blocking_condition when absent, so legacy cards read back in the frozen M13
-# key order rather than silently lacking the keys.
+# blocking_condition when absent, then max_loc after grading_reason, so legacy
+# cards read back in the frozen M13 key order rather than silently lacking keys.
 if ! cards=$(jq -s '
+  def insert_after($after; $pairs):
+    to_entries
+    | map(if .key == $after then ., $pairs[] else . end)
+    | from_entries;
   map(
-    if type == "object" and (has("council_tier") | not) then
-      to_entries
-      | map(
-          if .key == "blocking_condition"
-          then ., {key: "council_tier", value: null}, {key: "grading_reason", value: null}
-          else . end
-        )
-      | from_entries
-    else . end
+    if type != "object" then .
+    else
+      (if has("council_tier") then .
+       else insert_after("blocking_condition"; [
+              {key: "council_tier", value: null},
+              {key: "grading_reason", value: null}
+            ])
+       end)
+      | (if has("max_loc") then .
+         else insert_after("grading_reason"; [
+                {key: "max_loc", value: null}
+              ])
+         end)
+    end
   )
 ' "$ledger_file" 2>/dev/null); then
   echo "error: failed to parse $ledger_file" >&2

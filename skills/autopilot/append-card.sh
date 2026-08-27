@@ -8,18 +8,22 @@
 #   append-card.sh <workflow> <ticket_id> <gate> <decision> <decided_by> \
 #                  <bump|null> <confidence> <blocking_condition|null> \
 #                  <run_id> <iteration> <wall_clock_s> <actor> <rationale> \
-#                  [<council_tier|null> <grading_reason|null>]
+#                  [<max_loc|null> | <council_tier|null> <grading_reason|null> \
+#                   [<max_loc|null>]]
 #
 # Appends ONE JSONL decision card to $MROOT/.claude/autopilot/<ticket_id>.jsonl
 # with the M13-frozen key order:
 #   { schema_version, type, ts, run_id, workflow, ticket_id, gate, decision,
 #     decided_by, bump, confidence, blocking_condition, council_tier,
-#     grading_reason, rationale, budget, actor }
+#     grading_reason, max_loc, rationale, budget, actor }
 #   budget = { iteration, iteration_cap, wall_clock_s, wall_clock_cap_s }
 #
 # CDT-126: council_tier / grading_reason are additive + nullable, so argc 13 is
-# still legal and means both are null (schema_version stays 1). Argc is 13 or
-# 15 — never 14; supplying one without the other is a usage error.
+# still legal and means both are null (schema_version stays 1).
+# CDT-223: max_loc is additive + nullable in the same envelope (18 keys).
+# Argc is 13 (all optionals null) | 14 (max_loc, council pair null) |
+# 15 (council pair, max_loc null) | 16 (council pair + max_loc).
+# Any other argc → 64. Council_tier without grading_reason is not a valid shape.
 #
 # DELIBERATE INVERSION of metrics/emit-outcome.sh best-effort semantics:
 # this writer HARD-FAILS (exit 64) on EVERY failure mode — malformed args,
@@ -35,7 +39,7 @@
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
-USAGE='Usage: append-card.sh <workflow> <ticket_id> <gate> <decision> <decided_by> <bump|null> <confidence> <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale> [<council_tier|null> <grading_reason|null>]'
+USAGE='Usage: append-card.sh <workflow> <ticket_id> <gate> <decision> <decided_by> <bump|null> <confidence> <blocking_condition|null> <run_id> <iteration> <wall_clock_s> <actor> <rationale> [<max_loc|null> | <council_tier|null> <grading_reason|null> [<max_loc|null>]]'
 
 die() {
   echo "error: $1" >&2
@@ -44,9 +48,11 @@ die() {
 }
 
 # ---- Usage ------------------------------------------------------------------
+# 13: all optionals null · 14: max_loc, council pair null
+# 15: council pair, max_loc null · 16: council pair + max_loc
 case $# in
-  13|15) ;;
-  *) die "append-card.sh requires 13 or 15 arguments (got $#)" ;;
+  13|14|15|16) ;;
+  *) die "append-card.sh requires 13, 14, 15, or 16 arguments (got $#)" ;;
 esac
 
 WORKFLOW="$1"
@@ -62,8 +68,18 @@ ITERATION="${10}"
 WALL_CLOCK_S="${11}"
 ACTOR="${12}"
 RATIONALE="${13}"
-COUNCIL_TIER="${14:-null}"
-GRADING_REASON="${15:-null}"
+COUNCIL_TIER=null
+GRADING_REASON=null
+MAX_LOC=null
+if [ $# -ge 15 ]; then
+  COUNCIL_TIER="${14}"
+  GRADING_REASON="${15}"
+fi
+if [ $# -eq 14 ]; then
+  MAX_LOC="${14}"
+elif [ $# -eq 16 ]; then
+  MAX_LOC="${16}"
+fi
 
 # ---- Required non-empty string fields ---------------------------------------
 [ -z "$TICKET_ID" ] && die "ticket_id must not be empty"
@@ -130,6 +146,13 @@ case "$WALL_CLOCK_S" in
   ''|*[!0-9]*) die "wall_clock_s '$WALL_CLOCK_S' must be a non-negative integer" ;;
 esac
 
+# max_loc: null | unbound | ^[1-9][0-9]*$  (JSON null / string / number)
+# Legal on every gate (unlike council_tier). 0 / leading-zero / junk → 64.
+case "$MAX_LOC" in
+  null|unbound) ;;
+  ''|*[!0-9]*|0*) die "invalid max_loc '$MAX_LOC' (expected null|unbound|^[1-9][0-9]*$)" ;;
+esac
+
 # ---- Cross-field invariants (M13) -------------------------------------------
 # (a) bump non-null ONLY on a ship-choice card.
 if [ "$BUMP" != "null" ] && [ "$GATE" != "ship-choice" ]; then
@@ -187,6 +210,15 @@ json_str_or_null() {
   fi
 }
 
+# max_loc: JSON null, string "unbound", or a JSON number.
+json_max_loc() {
+  case "$1" in
+    null) printf '%s' 'null' ;;
+    unbound) printf '%s' '"unbound"' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 # ---- Writer-derived fields --------------------------------------------------
 ITERATION_CAP=${AUTOPILOT_ITERATION_CAP:-25}
 WALL_CLOCK_CAP_S=${AUTOPILOT_WALLCLOCK_CAP:-2700}
@@ -195,6 +227,7 @@ ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 bump_json=$(json_str_or_null "$BUMP")
 council_tier_json=$(json_str_or_null "$COUNCIL_TIER")
 grading_reason_json=$(json_str_or_null "$GRADING_REASON")
+max_loc_json=$(json_max_loc "$MAX_LOC")
 
 # ---- Emit (HARD FAIL on mkdir/jq/write) -------------------------------------
 resolve_mroot
@@ -223,6 +256,7 @@ if ! jq -cn \
   --argjson blocking_condition "$BLOCKING_CONDITION" \
   --argjson council_tier "$council_tier_json" \
   --argjson grading_reason "$grading_reason_json" \
+  --argjson max_loc "$max_loc_json" \
   --arg rationale "$RATIONALE" \
   --argjson iteration "$ITERATION" \
   --argjson iteration_cap "$ITERATION_CAP" \
@@ -244,6 +278,7 @@ if ! jq -cn \
     blocking_condition: $blocking_condition,
     council_tier: $council_tier,
     grading_reason: $grading_reason,
+    max_loc: $max_loc,
     rationale: $rationale,
     budget: {
       iteration: $iteration,

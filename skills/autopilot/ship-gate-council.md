@@ -49,7 +49,7 @@ self-answer engine.
 
 Read card #1 back with `skills/autopilot/read-cards.sh <ticket_id>` to recover the fields
 this pass copies forward on the agree path: its `decision` (`pr` or `merge`), its `bump`,
-and the shared `run_id`.
+its `max_loc`, and the shared `run_id`.
 
 ### 2a. Process-stamp pre-flight (SPEC-033 M14(a) CDT-185)
 
@@ -66,9 +66,14 @@ shape-field mismatch):
 3. Append card #2 via `append-card.sh` as a BC7 halt: `decision = halt`,
    `blocking_condition = 7`, `confidence = 0`, `bump = null`,
    `council_tier = null`, `grading_reason = null` (no council ran — stamp fail
-   skips `/council`), same `run_id` as card #1 (or a fresh halt card if card #1 is
-   unreadable — still BC7, conf=0, tiers null), with `rationale` naming the stamp
-   failure (e.g. `process-stamp fail: <cause>`).
+   skips `/council`), **`max_loc` copied from card #1**, same `run_id` as card #1
+   (or a fresh halt card if card #1 is unreadable — still BC7, conf=0, tiers
+   null, `max_loc` from the unreadable card #1 when recoverable else `null`),
+   with `rationale` naming the stamp failure (e.g. `process-stamp fail: <cause>`).
+   Non-null parse → **argc 16** (council pair null + copied `max_loc`); omit/`null`
+   parse → argc 15 (council pair null, `max_loc` null) or argc 13 (all optionals
+   null). Stamp-fail halt with override uses the same argc-16 path as a healthy
+   card #2 on that parse.
 4. Return; halt escalation is the BC handler's job (§7).
 
 On **stamp pass**, continue to §3. Process is pre-cleared; the claim under audit is
@@ -293,15 +298,23 @@ Field source for card #2's `append-card.sh` args: `workflow` / `ticket_id` / `ru
 `iteration` from card #1's run context; `gate = ship-choice`; `decision` /
 `blocking_condition` / `bump` / `confidence` from §4 (or §5 on a degraded/total-fail run);
 `wall_clock_s` from the run's budget snapshot; `rationale` per §4/§5; `actor` = the
-component running this pass; `council_tier` / `grading_reason` from §3a. Every arg is built
+component running this pass; `council_tier` / `grading_reason` from §3a; **`max_loc`
+copied from card #1** (null / number `n` / `"unbound"`). Every arg is built
 valid-by-construction so the writer never exit-64s (`self-answer.md` §4).
 
 `council_tier` and `grading_reason` extend `self-answer.md` §3f's call shape as two
-**optional trailing** args — the writer accepts argc 13 (both `null`) or 15, never 14. Card
-#1 keeps §3f's unchanged 13-arg call and therefore gets `null` / `null`, which is exactly
-what M13 requires of it; card #2 supplies both. `grading_reason` carries the same one-line,
-secret-redacted obligation as `rationale` (M13); it is grader- or model-derived text, so
-scrub it before passing it, and the writer rejects newlines/control chars.
+**optional trailing** args; `max_loc` is a further optional (CDT-223 / writer M16).
+Writer argc: **13** (all optionals null) · **14** (`max_loc`, council pair null —
+**card #1** / self-answer when the override is set; this pass never writes argc 14)
+· **15** (council pair, `max_loc` null — **card #2** omit/`null` parse) · **16**
+(council pair + parsed `max_loc` — **card #2** on a non-null parse). Card #1 follows
+`self-answer.md` §3f (argc 13 omit/`null`, argc 14 when override is set); council
+pair stays **null**. Card #2 always supplies the council pair; on a non-null parse
+it **MUST be argc 16** and copies `max_loc` from card #1. Stamp-fail halt with a
+non-null override is the same argc-16 path (§2a). `grading_reason` carries the same
+one-line, secret-redacted obligation as `rationale` (M13); it is grader- or
+model-derived text, so scrub it before passing it, and the writer rejects
+newlines/control chars.
 
 > **The coded invariant is deliberately weaker than the prose rule — do not read it as the
 > whole contract.** M13 scopes `council_tier` / `grading_reason` to the **M14 council card**

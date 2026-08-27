@@ -83,7 +83,9 @@ that don't apply to this gate — so it agrees with the "8 blocking conditions" 
 
 1. Does every plan task carry concrete file paths **and** a verification step? → else **BC1**.
 2. Does any task perform a destructive / irreversible operation? → **BC3**.
-3. Is the projected change within the LOC soft-cap and per-file size cap? → **BC4**.
+3. Is the projected **counted** (non-excluded, M15) change within the per-PR hard cap
+   and the per-file size cap? → **BC4**. The ~1000 LOC soft cap is non-halting discipline
+   (SPEC-009); it MUST NOT trip BC4.
 4. Does the plan's task graph exceed the single-ticket bound? → **BC5** reroute (AC4).
 5. Budget (**BC6**) and confidence (**BC7**).
 
@@ -202,9 +204,11 @@ autopilot MUST NOT invent additional auto-halt conditions.
 3. **BC3 — Destructive / irreversible operation.** The gated action would delete/overwrite
    user data, force-push, merge to a protected branch, drop a table, `rm -rf` outside the
    worktree, rewrite shared history, or otherwise be non-trivially reversible. → **halt**.
-4. **BC4 — LOC soft-cap / file-size breach.** The projected or actual change exceeds the
-   SPEC-009 change-discipline bounds (~1000 LOC soft / 2000 LOC hard per PR; no single
-   file > 1000 lines). → **halt**.
+4. **BC4 — LOC hard-cap / file-size breach.** The projected or actual **counted** change
+   (M15) exceeds the per-PR hard cap or the per-file size cap. Default per-PR hard cap is
+   **2000 LOC**. Per-file cap is **1000 lines** on any counted file. The ~1000 LOC soft
+   cap is **not** a BC4 halt. `--max-loc` (M16) may raise, tighten, or disable these as
+   specified. BC4 fires **only** at `plan-approve`. → **halt**.
 5. **BC5 — Complexity overflow.** The work meets the AC4 overflow criteria (below). This
    is the **only non-blocking** condition: autopilot MUST NOT halt for a human; it MUST
    **reroute to `/epic`** decompose (recording a `reroute-epic` decision card) and continue
@@ -274,7 +278,9 @@ stand unchanged for all three workflows. Breaching either cap trips **BC6**.
 Complexity **overflow** (the underlying definition BC5 triggers on) is met when **any** of
 the following holds at `scope-confirm` or `plan-approve`:
 
-1. Projected total change exceeds the SPEC-009 **hard** cap (> 2000 LOC) across the ticket; or
+1. Projected total **counted** change (M15) exceeds the per-PR hard cap across the ticket
+   (default **> 2000 LOC**; `--max-loc=<n>` uses **n**; `--max-loc=unbound` **disables this
+   criterion**). Evaluated at `scope-confirm` and `plan-approve`; or
 2. The work naturally decomposes into **3 or more independently shippable workstreams**
    (distinct PR-able units with no shared change surface); or
 3. The plan's task graph would exceed **~8 tasks across multiple parallel waves** (mirrors
@@ -291,6 +297,46 @@ human halt), because at scope/plan time no code has shipped — the reroute is f
 reversible. **BC5** *references* this overflow condition as its trigger; M10 *defines* what
 overflow is. The `/epic` decompose it hands to then runs under **this same** autopilot
 contract (its A.5 gate auto-answered per M4/M5).
+
+---
+
+## Counted LOC + `--max-loc` (SPEC-033 AC8 / M15 / M16)
+
+Cite SPEC-033 AC8. Do **not** fork the lockfile list. A gate is never removed.
+
+**M15 — Counted LOC.** BC4 per-PR, BC4 per-file, and M10.1 count only **non-excluded**
+paths. Interactive SPEC-009 change-discipline uses this same definition (cite; do not
+fork). Exclusion is the **union** of `.gitattributes linguist-generated`, the built-in
+lockfile / `*.snap` / vendored-prefix list in SPEC-033 M15, and the SPEC-009 specs/tests
+exemption (caller-applied; `loc-exclude.sh` does **not** classify test files).
+Project-specific codegen (`*.pb.go`, `*_gen.*`) is **not** built-in — mark those paths
+`linguist-generated` to exclude them.
+
+Operational helper (subprocess CLI, never sourced): `skills/autopilot/loc-exclude.sh`.
+
+```
+loc-exclude.sh is-excluded <path>
+```
+
+Exit `0` = excluded (do not count). Exit `1` = count. Exit `64` = usage. MUST NOT exit
+`2`. Missing/malformed `.gitattributes` → arm 1 empty; arms 2+3 still run; MUST NOT halt
+the orchestrate run. Callers apply M15, then apply M6.4 / M10.1 to remaining LOC. BC4
+stays **judgment-in-context**.
+
+**M16 — `--max-loc=<n|unbound>`.** Flag-only per-run override (no env; N9). Parse via
+`parse-flags.sh` (six-key JSON; junk → 64). Consumption: used only when autopilot is
+active. Effects on **counted** LOC (cite SPEC-033 M16 table; do not fork):
+
+| `max_loc` | BC4 per-PR | BC4 per-file (1000) | M10.1 |
+|---|---|---|---|
+| `null` (default) | halt if counted > 2000 | halt if any counted file > 1000 | reroute if counted > 2000 |
+| number `n` | halt if counted > **n** | **unchanged** (still 1000) | reroute if counted > **n** |
+| `"unbound"` | **does not fire** | **does not fire** | **does not fire** |
+
+`n` MAY tighten (`< 2000`) or raise (`> 2000`). Soft ~1000 stays non-halting. `unbound`
+disables BC4 (per-PR **and** per-file) **and** M10.1; it does **not** disable M10.2–6 /
+BC6 / BC3 / BC7. Writer argc 13|14|15|16 (M16). Self-answer cards keep `decided_by: auto`.
+MUST NOT resume-seed `max_loc` and MUST NOT auto-propagate it on `reroute-epic` (N11).
 
 ---
 
@@ -326,6 +372,7 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
   "blocking_condition": null,
   "council_tier": null,
   "grading_reason": null,
+  "max_loc": null,
   "rationale": "<one-line why>",
   "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700 },
   "actor": "orchestrator"
@@ -373,6 +420,16 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
   `null` on every other card, card #1 included. Both are **additive and nullable**, so
   `schema_version` stays `1` and pre-CDT-126 cards remain valid (absent key ≡ `null`).
   `skills/autopilot/ship-gate-council.md` §3a/§6 is the procedure that populates them.
+- `max_loc` (**CDT-223**) records the `--max-loc` override for the run that wrote the card.
+  Values: JSON `null` (omit / no override), JSON number `n` (positive integer), or JSON
+  string `"unbound"`. **Additive and nullable**; `schema_version` stays `1`; absent key ≡
+  `null`. `read-cards.sh` MUST backfill a missing `max_loc` as explicit `null` in frozen
+  key order (immediately after `grading_reason`, before `rationale`). Legal on **every**
+  gate (unlike `council_tier`). User provenance of the cap **is** the non-null `max_loc`
+  field — `decided_by` stays `auto` on self-answer cards. When `max_loc` is non-null,
+  `rationale` MUST mention the override. Every gate answer on a run with a non-null parse
+  MUST record the parsed value; a run with omit MUST write `max_loc: null` on every card
+  of that run.
 - `rationale` is a one-line summary and MUST NOT contain secrets, credentials, tokens, keys,
   or PII. Any evidence quoted from the repo, specs, or memory (e.g. the S2 resolution attempt)
   MUST be **redacted or summarized**, never copied verbatim into the card.
@@ -393,7 +450,8 @@ skills/autopilot/append-card.sh \
   <workflow> <ticket_id> <gate> <decision> <decided_by> \
   <bump|null> <confidence> <blocking_condition|null> \
   <run_id> <iteration> <wall_clock_s> <actor> <rationale> \
-  [<council_tier|null> <grading_reason|null>]   # CDT-126; argc 13 or 15, never 14
+  [<max_loc|null> | <council_tier|null> <grading_reason|null> \
+   [<max_loc|null>]]   # CDT-223: argc 13|14|15|16 (M16)
 
 # Dump every card for a ticket as a JSON array (for downstream evidence readers).
 # No cards yet -> "[]" + exit 0; bad args / jq-absent -> exit 64.
@@ -412,8 +470,9 @@ Contract notes (writer):
   them to the M14 card alone; see `ship-gate-council.md` §6 for why the writer cannot tell
   the two ship-choice cards apart). `rationale` and `grading_reason` reject newlines/control
   chars (semantic secret-scrubbing remains the caller's obligation, M13).
-- Reader-side (CDT-126): `read-cards.sh` backfills absent `council_tier`/`grading_reason` as
-  explicit `null`s in their frozen position (M13 absent ≡ null) and re-checks the same
+- Reader-side (CDT-126 / CDT-223): `read-cards.sh` backfills absent `council_tier` /
+  `grading_reason` and absent `max_loc` as explicit `null`s in frozen key order (M13
+  absent ≡ null; `max_loc` immediately after `grading_reason`) and re-checks the same
   ship-choice invariant, exiting 64 on a ledger that violates it.
 - Path `$MROOT/.claude/autopilot/<ticket_id>.jsonl`; sequential per-ticket-file appends (no
   flock — a single JSON line is < PIPE_BUF, so concurrent same-file appends stay whole).
