@@ -2,11 +2,26 @@
 
 ## Step 9: Tech Lead review loop
 
-When `[ "$ORCH_TIER" = "light" ]`: single-pass TL diff review (same Check against / Evaluate as the spawn below). Max one rework (one REQUEST CHANGES → IC fix → re-review). Then APPROVE or escalate. Do not use the 3-round deadloop as the default. Skip Step 9.5 code-simplify. Council EFFECTIVE: if `COUNCIL_TIER_OVERRIDE` is not the string `"null"`, use that value (`skip|light|full`) — `--tier=light --council-tier=full` runs council; `--tier=light --council-tier=skip` skips. Else (override is `"null"`): no council spawn. After APPROVE: TaskUpdate completed. Skip `task-store.sh update-status` when no task-store file. Defensive CI-watch cleanup still applies if a ci-fixer task exists.
+When `[ "$ORCH_TIER" = "light" ]`: single-pass TL diff review (same Check against / Evaluate as the spawn below). Run the standard resolve fences anyway (`tech-lead` review + IC `<agent>` rework). Max one rework (one REQUEST CHANGES → IC fix → re-review). Then APPROVE or escalate. Do not use the 3-round deadloop as the default. Skip Step 9.5 code-simplify. Council EFFECTIVE: if `COUNCIL_TIER_OVERRIDE` is not the string `"null"`, use that value (`skip|light|full`) — `--tier=light --council-tier=full` runs council; `--tier=light --council-tier=skip` skips. Else (override is `"null"`): no council spawn. After APPROVE: TaskUpdate completed. Skip `task-store.sh update-status` when no task-store file. Defensive CI-watch cleanup still applies if a ci-fixer task exists.
 
 Otherwise (omit / `standard` / `full`):
 
 As each IC task completes, trigger a Tech Lead review:
+
+Before spawning @tech-lead:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" tech-lead)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
 
 ```
 @tech-lead — Review the changes for Task <ID> (<title>).
@@ -30,6 +45,21 @@ Output: APPROVE, or REQUEST CHANGES with specific feedback.
 
 Increment session-local `review_cycles` for this `task_id` (SPEC-026 counter only —
 no ledger write). Send feedback back to the IC agent:
+
+Before spawning @<agent> (same roster name as `Spawn @<agent>`):
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" <agent>)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for <agent>; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
 
 ```
 @<agent> — Tech Lead requested changes on Task <ID>:
@@ -263,8 +293,11 @@ run a single behavior-preserving polish pass. Protocol:
 - Empty feature-branch diff vs merge-base
 
 **Otherwise** spawn once using the skill's spawn template (ic4-class agent,
-terse, file list from skill scope discovery, worktree `$WT_PATH`). Hard rules:
-no behavior/API/schema change; recently modified files only; fail-open.
+terse, file list from skill scope discovery, worktree `$WT_PATH`). Follow the
+`skills/code-simplify/SKILL.md` spawn template (T6): resolve `ic4` via
+`resolve-model.sh` before spawn; same host-reject retry-once-omit as other
+sites. Hard rules: no behavior/API/schema change; recently modified files
+only; fail-open.
 
 ```
 Code-simplify: <done | skipped | failed-open>

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.14.0
+- **Per-agent Model map (CDT-222 / SPEC-037)** — local `$MROOT/.claude/dev-team/models.local.json` maps roster agents to host model strings. `skills/model-map/resolve-model.sh` emits the string (empty = Tier default). `/orchestrate` spawn sites pass a non-empty result as Agent `model` (host-reject retries once with the Tier default). Zero-config is unchanged. Repo/global layers, `/setup models`, `/doctor`, and `@agent` overlay are out of this version.
+
 ### v1.13.1
 - **`summarize-transcript` Meaning-channel overlay (CDT-214 / SPEC-036 M15)** — on-demand skill CLI overlays oversized Meaning-channel bodies in parent `main.md` with an LLM summary + `@verbatim/` ref. Originals live in `<sid>/verbatim/`. Stop/SessionEnd never invokes an LLM. Default off. No new slash Surface. Recorder still writes verbatim.
 

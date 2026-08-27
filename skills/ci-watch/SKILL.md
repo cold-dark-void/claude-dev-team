@@ -163,6 +163,11 @@ session context. Available tools: Bash, Task, CronDelete.
        bash <PLUGIN>/skills/orchestrate/task-store.sh create "<TICKET>-ci-fixer" "<TICKET> CI-watch hot-fix attempt <retry_count+1>" false ""
        Note the returned task entry — this tracks the fixer in the task store so the orchestrator
        can detect "a fixer is already running" via task store, and so defensive cleanup fires.
+   MODEL=$(bash <PLUGIN>/skills/model-map/resolve-model.sh ic5)
+   printf '%s\n' "$MODEL"
+   Surface stderr to the user. Bash stdout = model string; empty → omit model. MUST NOT pass "".
+   Host-reject (invalid/unknown/unsupported model): retry once omitting model;
+   warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
    d. Spawn dev-team:ic5 via Task tool with prompt:
         "Hot-fix only — do not refactor, do not add tests beyond the
          failing one. Push to existing branch <BRANCH>. Worktree: <WT>.

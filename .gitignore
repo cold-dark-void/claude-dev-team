@@ -32,6 +32,9 @@
 # Autopilot per-ticket decision cards (SPEC-033)
 .claude/autopilot/
 
+# Per-agent Model map local layer (SPEC-037 / CDT-222)
+.claude/dev-team/models.local.json
+
 # Memory store binaries and database (auto-generated)
 .claude/memory/extensions/
 .claude/memory/models/

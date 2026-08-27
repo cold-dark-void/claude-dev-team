@@ -39,10 +39,13 @@
 | SPEC-034 | Bug-Hunt Workflow | DRAFT | `commands/bug-hunt.md`, `skills/bug-hunt/*` (stages 1–2 — CDT-136; stage-3 materialize — CDT-138 M38–M41; stage-4 phased handoff — CDT-139 M42–M48; Status DRAFT) |
 | SPEC-035 | Context Audit (`/audit`) | DRAFT | `commands/audit.md`, `skills/audit/*`, `docs/commands/audit.md` (CDT-200) |
 | SPEC-036 | Transcript Mirror | DRAFT | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220); M10 all cwd-bucket sessions + M11 doctor lag WARN (CDT-221); M5a urlencode then `.cwd` locate (CDT-218); M4a SubagentStop agent nest (CDT-217); M12 carve-out CDT-216 — `/handoff` MAY read `main.md` via SPEC-018 M3f; CDT-215 M1 C7 + M14 — `/compact-transcript` writes sibling `<sid>.meaning-tail.md`; CDT-214 M15 — `summarize-transcript` overlay + `<sid>/verbatim/` (skill CLI, no new `commands/*.md`) |
+| SPEC-037 | Per-agent Model map (phase 1) | DRAFT | `skills/model-map/` (`resolve-model.sh`, `test.sh`, `spawn-site-test.sh`, `SKILL.md`); `/orchestrate` steps 04/06/08/09/10; `skills/code-simplify/SKILL.md`; `skills/ci-watch/SKILL.md`; `.gitignore` (CDT-222) |
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-26 | CDT-222: SPEC-037 DRAFT — phase 1 local Model map + resolver + `/orchestrate` wiring; SPEC-003 Tier default pointer |
 | 2026-08-26 | CDT-214: SPEC-036 M15 Meaning-channel overlay — skill CLI `summarize-transcript`; Verbatim originals in `<sid>/verbatim/`; taxonomy closed; patch bump |
 | 2026-08-26 | CDT-215: SPEC-036 M1 C7 carve-out + M12 consumer carve-out + M14 meaning-tail — `/compact-transcript` writes sibling `<sid>.meaning-tail.md`; not Compact seed; Test 40 unchanged |
 | 2026-08-26 | CDT-216: SPEC-018 M3f + SPEC-036 M12 carve-out — `/handoff` MAY consume stripped `main.md` when `--check --sid` is `ok`; Test 40 (`mirror-spine-test.sh`) |
