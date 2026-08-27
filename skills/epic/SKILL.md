@@ -237,6 +237,7 @@ mapped gate — **A.5** (atomic scope+plan) and **B.3** (per child) — consults
 `AUTOPILOT_ON` to choose the autopilot branch or the existing human prompt.
 **A.6** defaults `MODE=orchestrate` under autopilot. **B.5 completion is NEVER
 autopilot-answered (SPEC-033 N8) — it stays a human/lifecycle attestation.**
+**N13 isolation (CDT-224):** `/epic` Mode A envelopes omit `tasks` / `projected_loc` / `waves`; engine argc=2; child `/orchestrate` freezes independently.
 
 **BC5 seal-intent (CDT-196):** when `AUTOPILOT_BUMP` ∈ {`patch`,`minor`,`major`}
 and Step 0.4 left `RELEASE_BUMP` null, set `RELEASE_BUMP=$AUTOPILOT_BUMP` and

@@ -1637,6 +1637,593 @@ else
   fail "cdt223-t7 scaffold seed missing or contains *.pb.go"
 fi
 
+# --- CDT-224 T2 ---
+# =============================================================================
+# CDT-224 T2: M13 nested budget.{tier,source,signals} via AUTOPILOT_BUDGET_META
+# =============================================================================
+BUDGET_KEYS='["iteration","iteration_cap","wall_clock_s","wall_clock_cap_s","tier","source","signals"]'
+META_S_AUTO='{"iteration_cap":10,"wall_clock_cap_s":1200,"tier":"S","source":"auto","signals":{"tasks":2,"projected_loc":150,"waves":1}}'
+META_MIXED='{"iteration_cap":25,"wall_clock_cap_s":1200,"tier":"S","source":"mixed","signals":{"tasks":2,"projected_loc":150,"waves":1}}'
+
+# META unset → nested null + 25/2700; frozen 7-key budget; top-level still 18
+reset
+RC=$(rc_of env -u AUTOPILOT_BUDGET_META -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP \
+  bash "$APPEND" orchestrate CDT-T2 plan-approve proceed auto null 70 null run-1 1 10 orch "r")
+L=$(ledger CDT-T2)
+if [ "$RC" -eq 0 ] && jq -e --argjson bk "$BUDGET_KEYS" '
+  (keys_unsorted | length) == 18
+  and .budget.iteration_cap == 25 and .budget.wall_clock_cap_s == 2700
+  and .budget.tier == null and .budget.source == null and .budget.signals == null
+  and (.budget | keys_unsorted) == $bk
+' "$L" >/dev/null 2>&1; then
+  pass "t2-unset META unset → nested null + 25/2700, keys_unsorted length==18"
+else
+  fail "t2-unset rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# META S auto
+reset
+RC=$(rc_of env AUTOPILOT_BUDGET_META="$META_S_AUTO" \
+  bash "$APPEND" orchestrate CDT-T2 plan-approve approve auto null 85 null run-1 1 10 orch "budget_tier=S")
+L=$(ledger CDT-T2)
+if [ "$RC" -eq 0 ] && jq -e --argjson bk "$BUDGET_KEYS" '
+  (keys_unsorted | length) == 18
+  and .budget.iteration_cap == 10 and .budget.wall_clock_cap_s == 1200
+  and .budget.tier == "S" and .budget.source == "auto"
+  and .budget.signals.tasks == 2 and .budget.signals.projected_loc == 150
+  and .budget.signals.waves == 1
+  and (.budget | keys_unsorted) == $bk
+' "$L" >/dev/null 2>&1; then
+  pass "t2-s-auto META S auto writes 10/1200 + nested S/auto/signals"
+else
+  fail "t2-s-auto rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# META mixed (one env + one auto)
+reset
+RC=$(rc_of env AUTOPILOT_BUDGET_META="$META_MIXED" \
+  bash "$APPEND" orchestrate CDT-T2 plan-approve approve auto null 85 null run-1 1 10 orch "budget_tier=S env")
+L=$(ledger CDT-T2)
+if [ "$RC" -eq 0 ] && jq -e '
+  .budget.iteration_cap == 25 and .budget.wall_clock_cap_s == 1200
+  and .budget.tier == "S" and .budget.source == "mixed"
+  and .budget.signals.tasks == 2
+' "$L" >/dev/null 2>&1; then
+  pass "t2-mixed META mixed writes 25/1200 + nested S/mixed"
+else
+  fail "t2-mixed rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# META ignores AUTOPILOT_ITERATION_CAP
+reset
+RC=$(rc_of env AUTOPILOT_ITERATION_CAP=99 AUTOPILOT_WALLCLOCK_CAP=99 \
+  AUTOPILOT_BUDGET_META="$META_S_AUTO" \
+  bash "$APPEND" orchestrate CDT-T2 plan-approve proceed auto null 70 null run-1 1 10 orch "r")
+L=$(ledger CDT-T2)
+if [ "$RC" -eq 0 ] && jq -e '
+  .budget.iteration_cap == 10 and .budget.wall_clock_cap_s == 1200
+  and .budget.tier == "S"
+' "$L" >/dev/null 2>&1; then
+  pass "t2-meta-ignores-cap META ignores AUTOPILOT_ITERATION_CAP/WALLCLOCK_CAP"
+else
+  fail "t2-meta-ignores-cap rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# reader backfill: pre-CDT-224 4-key budget → nested nulls in frozen order
+reset
+mkdir -p "$AUTODIR"
+PRE224=$(ledger CDT-PRE224)
+echo '{"schema_version":1,"type":"autopilot_decision","gate":"plan-approve","blocking_condition":null,"council_tier":null,"grading_reason":null,"max_loc":null,"rationale":"old","budget":{"iteration":1,"iteration_cap":25,"wall_clock_s":10,"wall_clock_cap_s":2700},"actor":"orch"}' > "$PRE224"
+RC=0
+OUT=$(bash "$READ" CDT-PRE224 2>/dev/null) || RC=$?
+BF_OK=$(printf '%s' "$OUT" | jq -e --argjson bk "$BUDGET_KEYS" '
+  .[0].budget.tier == null and .[0].budget.source == null and .[0].budget.signals == null
+  and (.[0].budget | keys_unsorted) == $bk
+  and .[0].budget.iteration_cap == 25 and .[0].budget.wall_clock_cap_s == 2700
+' >/dev/null 2>&1 && echo y || echo n)
+if [ "$RC" -eq 0 ] && [ "$BF_OK" = "y" ]; then
+  pass "t2-bf reader backfills absent nested budget.tier/source/signals as null"
+else
+  fail "t2-bf rc=$RC out=$OUT"
+fi
+
+# t3-13 still 18 keys (13-arg append after nested budget)
+reset
+RC=$(rc_of env -u AUTOPILOT_BUDGET_META \
+  bash "$APPEND" orchestrate CDT-T3 plan-approve proceed auto null 70 null run-1 1 10 orch "r")
+L=$(ledger CDT-T3)
+if [ "$RC" -eq 0 ] && jq -e '.max_loc == null and .schema_version == 1 and (keys_unsorted | length) == 18' "$L" >/dev/null 2>&1; then
+  pass "t2-t3-13 13-arg append still max_loc:null, schema_version=1, 18 keys"
+else
+  fail "t2-t3-13 rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# malformed META → 64
+reset
+expect_rc 64 "t2-malformed-json META not-json → 64" \
+  env AUTOPILOT_BUDGET_META='not-json' \
+  bash "$APPEND" orchestrate CDT-T2 plan-approve proceed auto null 70 null run-1 1 10 orch "r"
+expect_rc 64 "t2-malformed-obj META array → 64" \
+  env AUTOPILOT_BUDGET_META='[]' \
+  bash "$APPEND" orchestrate CDT-T2 plan-approve proceed auto null 70 null run-1 1 10 orch "r"
+expect_rc 64 "t2-malformed-keys META missing nested keys → 64" \
+  env AUTOPILOT_BUDGET_META='{"iteration_cap":10,"wall_clock_cap_s":1200}' \
+  bash "$APPEND" orchestrate CDT-T2 plan-approve proceed auto null 70 null run-1 1 10 orch "r"
+
+# --- CDT-224 T1 ---
+# budget-check.sh argv 2|4|derive (SPEC-033 AC9 / M9b)
+# =============================================================================
+NOW=$(date +%s)
+
+# T1.2 argc=2: empty env = unset → static M 25/2700
+OUT=$(AUTOPILOT_ITERATION_CAP= AUTOPILOT_WALLCLOCK_CAP= bash "$BUDGET" 3 "$NOW" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.iteration_cap == 25 and .wall_clock_cap_s == 2700' >/dev/null 2>&1; then
+  pass "cdt224-t1 argc=2 empty env → static M 25/2700"
+else
+  fail "cdt224-t1 empty-env rc=$RC out=$OUT (want 25/2700)"
+fi
+
+# T1.2 argc=2: junk non-integer env → 64
+expect_rc 64 "cdt224-t1 argc=2 junk AUTOPILOT_ITERATION_CAP=abc → 64" \
+  env AUTOPILOT_ITERATION_CAP=abc bash "$BUDGET" 3 "$NOW"
+expect_rc 64 "cdt224-t1 argc=2 junk AUTOPILOT_WALLCLOCK_CAP=12.5 → 64" \
+  env AUTOPILOT_WALLCLOCK_CAP=12.5 bash "$BUDGET" 3 "$NOW"
+expect_rc 64 "cdt224-t1 argc=2 junk AUTOPILOT_ITERATION_CAP=-1 → 64" \
+  env AUTOPILOT_ITERATION_CAP=-1 bash "$BUDGET" 3 "$NOW"
+
+# T1.5 argc=3 still 64
+expect_rc 64 "cdt224-t1 argc=3 → 64" bash "$BUDGET" 3 "$NOW" 10
+
+# T1.3 argc=4: verbatim freeze, 7 keys, env ignored even if set/junk
+OUT=$(AUTOPILOT_ITERATION_CAP=2 AUTOPILOT_WALLCLOCK_CAP=100 bash "$BUDGET" 5 "$NOW" 40 4500 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .iteration == 5 and .iteration_cap == 40 and .wall_clock_cap_s == 4500
+  and .breached == false and .reason == "none"
+  and (keys_unsorted | length) == 7
+  and has("wall_clock_s") and has("iteration") and has("iteration_cap")
+  and has("wall_clock_cap_s") and has("breached") and has("blocking_condition")
+  and has("reason")
+' >/dev/null 2>&1; then
+  pass "cdt224-t1 argc=4 freeze 40/4500 ignores env ITER=2 WALL=100; 7 keys"
+else
+  fail "cdt224-t1 argc=4 env-ignore rc=$RC out=$OUT"
+fi
+
+OUT=$(AUTOPILOT_ITERATION_CAP=abc AUTOPILOT_WALLCLOCK_CAP=nope bash "$BUDGET" 3 "$NOW" 10 1200 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.iteration_cap == 10 and .wall_clock_cap_s == 1200' >/dev/null 2>&1; then
+  pass "cdt224-t1 argc=4 ignores junk env"
+else
+  fail "cdt224-t1 argc=4 junk-env rc=$RC out=$OUT (want 10/1200, not 64)"
+fi
+
+OUT=$(bash "$BUDGET" 10 "$NOW" 10 1200 2>/dev/null); RC=$?
+if [ "$RC" -eq 6 ] && echo "$OUT" | jq -e '
+  .breached == true and .reason == "iteration" and .blocking_condition == 6
+  and .iteration_cap == 10
+' >/dev/null 2>&1; then
+  pass "cdt224-t1 argc=4 S freeze iteration=10 → BC6"
+else
+  fail "cdt224-t1 argc=4 S-breach rc=$RC out=$OUT"
+fi
+
+OUT=$(bash "$BUDGET" 9 "$NOW" 10 1200 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.breached == false and .iteration_cap == 10' >/dev/null 2>&1; then
+  pass "cdt224-t1 argc=4 S freeze iteration=9 → no BC6"
+else
+  fail "cdt224-t1 argc=4 S-ok rc=$RC out=$OUT"
+fi
+
+expect_rc 64 "cdt224-t1 argc=4 non-numeric iter_cap → 64" bash "$BUDGET" 3 "$NOW" abc 1200
+expect_rc 64 "cdt224-t1 argc=4 non-numeric wall_s → 64" bash "$BUDGET" 3 "$NOW" 10 abc
+expect_rc 64 "cdt224-t1 argc=5 → 64" bash "$BUDGET" 3 "$NOW" 10 1200 extra
+
+# T1.4 derive: L-first then S else M; MUST NOT read env
+derive_ok() {
+  local t=$1 loc=$2 w=$3 want_tier=$4 want_ic=$5 want_wc=$6
+  local out rc=0
+  out=$(AUTOPILOT_ITERATION_CAP=99 AUTOPILOT_WALLCLOCK_CAP=99 bash "$BUDGET" derive "$t" "$loc" "$w" 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 0 ] && echo "$out" | jq -e \
+    --argjson t "$t" --argjson loc "$loc" --argjson w "$w" \
+    --arg tier "$want_tier" --argjson ic "$want_ic" --argjson wc "$want_wc" '
+      .tier == $tier
+      and .iteration_cap == $ic
+      and .wall_clock_cap_s == $wc
+      and .signals.tasks == $t
+      and .signals.projected_loc == $loc
+      and .signals.waves == $w
+      and (keys_unsorted) == ["tier","iteration_cap","wall_clock_cap_s","signals"]
+      and (.signals | keys_unsorted) == ["tasks","projected_loc","waves"]
+    ' >/dev/null 2>&1; then
+    pass "cdt224-t1 derive $t/$loc/$w → $want_tier $want_ic/$want_wc (env ignored)"
+  else
+    fail "cdt224-t1 derive $t/$loc/$w rc=$rc out=$out (want $want_tier $want_ic/$want_wc)"
+  fi
+}
+derive_ok 3 300 1 S 10 1200
+derive_ok 4 300 1 M 25 2700
+derive_ok 3 301 1 M 25 2700
+derive_ok 3 300 2 M 25 2700
+derive_ok 5 1000 2 M 25 2700
+derive_ok 6 100 1 L 40 4500
+derive_ok 2 1001 1 L 40 4500
+derive_ok 2 200 3 L 40 4500
+derive_ok 100 5000 5 L 40 4500
+
+expect_rc 64 "cdt224-t1 derive non-numeric tasks → 64" bash "$BUDGET" derive abc 300 1
+expect_rc 64 "cdt224-t1 derive non-numeric loc → 64" bash "$BUDGET" derive 3 abc 1
+expect_rc 64 "cdt224-t1 derive non-numeric waves → 64" bash "$BUDGET" derive 3 300 abc
+expect_rc 64 "cdt224-t1 derive argc=3 → 64" bash "$BUDGET" derive 3 300
+expect_rc 64 "cdt224-t1 derive argc=5 → 64" bash "$BUDGET" derive 3 300 1 extra
+
+# N12: helper MUST NOT write/export AUTOPILOT_*_CAP
+if grep -Eq '^[[:space:]]*(export[[:space:]]+)?AUTOPILOT_(ITERATION_CAP|WALLCLOCK_CAP)=' "$BUDGET"; then
+  fail "cdt224-t1 budget-check.sh writes/exports AUTOPILOT_*_CAP"
+else
+  pass "cdt224-t1 budget-check.sh MUST NOT write/export AUTOPILOT_*_CAP"
+fi
+
+# --- CDT-224 T5 ---
+# Isolation + remaining tests (SPEC-033 AC9 / N13): kickoff/epic argc=2 at
+# iteration=10 (would-be S ignored), resume argc=4 from freeze card (env
+# mutation ignored), parse-flags still six keys, SKILL/SPEC M13 fence cmp,
+# F6 rewritten pins M (tasks=4, loc in (300,1000], waves=1).
+: "${ROOT:=$(cd "$SCRIPT_DIR/../.." && pwd)}"
+: "${AP_SKILL:=$SCRIPT_DIR/SKILL.md}"
+: "${SPEC033:=$ROOT/specs/core/SPEC-033-autopilot-policy.md}"
+: "${SCEN:=$SCRIPT_DIR/self-answer-scenarios.md}"
+: "${KICKOFF_SKILL:=$ROOT/skills/kickoff/SKILL.md}"
+: "${EPIC_SKILL:=$ROOT/skills/epic/SKILL.md}"
+ORCH00="$ROOT/skills/orchestrate/steps/00-resolve.md"
+NOW=$(date +%s)
+
+# Would-be S signals (kickoff/epic MUST ignore): derive 2/150/1 → S 10/1200
+OUT=$(bash "$BUDGET" derive 2 150 1 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .tier == "S" and .iteration_cap == 10 and .wall_clock_cap_s == 1200
+  and .signals.tasks == 2 and .signals.projected_loc == 150 and .signals.waves == 1
+' >/dev/null 2>&1; then
+  pass "cdt224-t5 would-be S derive 2/150/1 → S 10/1200 (counterfactual)"
+else
+  fail "cdt224-t5 would-be-S rc=$RC out=$OUT"
+fi
+
+# Kickoff argc=2 at iteration=10: static M 25, not BC6 (S would halt at 10)
+OUT=$(env -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP \
+  bash "$BUDGET" 10 "$NOW" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .breached == false and .reason == "none" and .iteration == 10
+  and .iteration_cap == 25 and .wall_clock_cap_s == 2700
+  and (keys_unsorted | length) == 7
+' >/dev/null 2>&1; then
+  pass "cdt224-t5 kickoff argc=2 iteration=10 → not BC6 (static 25)"
+else
+  fail "cdt224-t5 kickoff argc=2 rc=$RC out=$OUT"
+fi
+
+if grep -q 'N13 isolation' "$KICKOFF_SKILL" \
+  && grep -F -q 'envelopes omit `tasks` / `projected_loc` / `waves`' "$KICKOFF_SKILL" \
+  && grep -q 'engine argc=2' "$KICKOFF_SKILL" \
+  && ! grep -q 'budget-check.sh derive' "$KICKOFF_SKILL" \
+  && ! grep -q 'AUTOPILOT_BUDGET_META' "$KICKOFF_SKILL" \
+  && ! grep -qE -- '--(iteration-cap|wall-clock-cap|budget-cap)' "$KICKOFF_SKILL"; then
+  pass "cdt224-t5 kickoff SKILL N13 argc=2, no derive/META/cap-flag"
+else
+  fail "cdt224-t5 kickoff SKILL isolation grep miss"
+fi
+
+reset
+RC=$(rc_of env -u AUTOPILOT_BUDGET_META -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP \
+  bash "$APPEND" kickoff CDT-T5K scope-confirm proceed auto null 90 null run-1 10 60 orch \
+  "kickoff argc=2 static 25; iteration 10 in budget")
+L=$(ledger CDT-T5K)
+if [ "$RC" -eq 0 ] && jq -e '
+  .workflow == "kickoff" and .decision == "proceed" and .blocking_condition == null
+  and .budget.iteration == 10 and .budget.iteration_cap == 25
+  and .budget.tier == null and .budget.source == null and .budget.signals == null
+' "$L" >/dev/null 2>&1; then
+  pass "cdt224-t5 F6-kickoff card argc13 proceed nested-null iter=10"
+else
+  fail "cdt224-t5 F6-kickoff rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# Epic Mode A: same argc=2 isolation
+OUT=$(env -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP \
+  bash "$BUDGET" 10 "$NOW" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .breached == false and .iteration_cap == 25 and .iteration == 10
+' >/dev/null 2>&1; then
+  pass "cdt224-t5 epic Mode A argc=2 iteration=10 → not BC6 (static 25)"
+else
+  fail "cdt224-t5 epic argc=2 rc=$RC out=$OUT"
+fi
+
+if grep -q 'N13 isolation' "$EPIC_SKILL" \
+  && grep -F -q 'Mode A envelopes omit `tasks` / `projected_loc` / `waves`' "$EPIC_SKILL" \
+  && grep -q 'engine argc=2' "$EPIC_SKILL" \
+  && grep -q 'child `/orchestrate` freezes independently' "$EPIC_SKILL" \
+  && ! grep -q 'budget-check.sh derive' "$EPIC_SKILL" \
+  && ! grep -q 'AUTOPILOT_BUDGET_META' "$EPIC_SKILL"; then
+  pass "cdt224-t5 epic SKILL N13 Mode A argc=2, no derive/META"
+else
+  fail "cdt224-t5 epic SKILL isolation grep miss"
+fi
+
+reset
+RC=$(rc_of env -u AUTOPILOT_BUDGET_META -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP \
+  bash "$APPEND" epic CDT-T5E scope-confirm proceed auto null 90 null run-1 10 60 orch \
+  "epic Mode A argc=2 static 25; iteration 10 in budget")
+L=$(ledger CDT-T5E)
+if [ "$RC" -eq 0 ] && jq -e '
+  .workflow == "epic" and .decision == "proceed" and .blocking_condition == null
+  and .budget.iteration == 10 and .budget.iteration_cap == 25
+  and .budget.tier == null and .budget.source == null and .budget.signals == null
+' "$L" >/dev/null 2>&1; then
+  pass "cdt224-t5 epic Mode A card argc13 proceed nested-null iter=10"
+else
+  fail "cdt224-t5 epic card rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# Resume: argc=4 from freeze card; env mutation ignored
+reset
+META_S='{"iteration_cap":10,"wall_clock_cap_s":1200,"tier":"S","source":"auto","signals":{"tasks":2,"projected_loc":150,"waves":1}}'
+RC=$(rc_of env AUTOPILOT_BUDGET_META="$META_S" \
+  bash "$APPEND" orchestrate CDT-T5R plan-approve approve auto null 88 null run-1 1 10 orch \
+  "budget_tier=S freeze")
+L=$(ledger CDT-T5R)
+if [ "$RC" -ne 0 ]; then
+  fail "cdt224-t5 resume freeze-card write rc=$RC"
+else
+  IC=$(jq -r '.budget.iteration_cap' "$L")
+  WC=$(jq -r '.budget.wall_clock_cap_s' "$L")
+  TIER=$(jq -r '.budget.tier' "$L")
+  # env 99/99 would NOT breach at iter=10; freeze 10/1200 DOES
+  OUT=$(AUTOPILOT_ITERATION_CAP=99 AUTOPILOT_WALLCLOCK_CAP=99 \
+    bash "$BUDGET" 10 "$NOW" "$IC" "$WC" 2>/dev/null); RC=$?
+  if [ "$RC" -eq 6 ] && [ "$IC" = "10" ] && [ "$WC" = "1200" ] && [ "$TIER" = "S" ] \
+    && echo "$OUT" | jq -e '
+      .breached == true and .reason == "iteration" and .iteration_cap == 10
+      and .wall_clock_cap_s == 1200 and .blocking_condition == 6
+    ' >/dev/null 2>&1; then
+    pass "cdt224-t5 resume argc=4 from card 10/1200; env 99 ignored → BC6"
+  else
+    fail "cdt224-t5 resume argc=4 rc=$RC ic=$IC wc=$WC out=$OUT"
+  fi
+  OUT=$(AUTOPILOT_ITERATION_CAP=99 AUTOPILOT_WALLCLOCK_CAP=99 \
+    bash "$BUDGET" 9 "$NOW" "$IC" "$WC" 2>/dev/null); RC=$?
+  if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+    .breached == false and .iteration_cap == 10 and .wall_clock_cap_s == 1200
+  ' >/dev/null 2>&1; then
+    pass "cdt224-t5 resume argc=4 iter=9 freeze 10 → no BC6 (env 99 unused)"
+  else
+    fail "cdt224-t5 resume iter=9 rc=$RC out=$OUT"
+  fi
+fi
+
+# resume-state.sh MUST NOT seed caps from plan frontmatter
+PLANDIR="$TMP/.claude/plans"
+rm -rf "$PLANDIR"
+mkdir -p "$PLANDIR"
+cat > "$PLANDIR/2026-08-27-CDT-T5R-plan.md" << 'EOF'
+## Tracking
+- autopilot_on: true
+- autopilot_bump: minor
+- iteration_cap: 10
+- wall_clock_cap_s: 1200
+- budget_tier: S
+EOF
+OUT=$(bash "$RESUME" CDT-T5R 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .found == true and .autopilot_on == true and .autopilot_bump == "minor"
+  and (has("iteration_cap") | not) and (has("wall_clock_cap_s") | not)
+  and (has("budget") | not) and (has("tier") | not)
+' >/dev/null 2>&1; then
+  pass "cdt224-t5 resume-state ignores plan cap keys (no JSON seed)"
+else
+  fail "cdt224-t5 resume-state cap leak rc=$RC out=$OUT"
+fi
+rm -rf "$PLANDIR"
+
+if grep -q 'Freeze-on-resume' "$ORCH00" \
+  && grep -q 'read-cards.sh' "$ORCH00" \
+  && grep -q 'MUST NOT seed caps from plan frontmatter' "$ORCH00" \
+  && grep -q 'engine argc=4' "$ORCH00"; then
+  pass "cdt224-t5 00-resolve freeze-on-resume cites card not resume-state"
+else
+  fail "cdt224-t5 00-resolve freeze-on-resume grep miss"
+fi
+
+# parse-flags.sh still six keys; unknown cap flags ignored (no 7th key)
+OUT=$(bash "$PARSE" --autopilot=patch 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  (keys_unsorted | length) == 6
+  and has("enabled") and has("bump") and has("source") and has("council_tier")
+  and has("tier") and has("max_loc")
+  and (has("iteration_cap") | not) and (has("wall_clock_cap_s") | not)
+  and (has("budget") | not)
+' >/dev/null 2>&1; then
+  pass "cdt224-t5 parse-flags JSON still exactly six keys"
+else
+  fail "cdt224-t5 parse-flags six-key mismatch: $OUT"
+fi
+
+OUT=$(bash "$PARSE" --iteration-cap=10 --wall-clock-cap=1200 --budget-cap=S 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  (keys_unsorted | length) == 6
+  and (has("iteration_cap") | not) and (has("wall_clock_cap_s") | not)
+  and .enabled == false and .max_loc == null
+' >/dev/null 2>&1; then
+  pass "cdt224-t5 parse-flags unknown cap flags ignored; still six keys"
+else
+  fail "cdt224-t5 parse-flags cap-flag leak rc=$RC out=$OUT"
+fi
+
+if ! grep -qE -- '--(iteration-cap|wall-clock-cap|budget-cap)' "$PARSE"; then
+  pass "cdt224-t5 parse-flags.sh has no cap-flag surface"
+else
+  fail "cdt224-t5 parse-flags.sh grew a cap-flag surface"
+fi
+
+# SKILL/SPEC M13 fence still cmp (indent-stripped JSON fences byte-identical)
+if ! type m13_body >/dev/null 2>&1; then
+  m13_body() {
+    awk '
+      /^[[:space:]]*```json[[:space:]]*$/ {p=1; next}
+      p && /^[[:space:]]*```[[:space:]]*$/ {exit}
+      p { sub(/^[[:space:]]+/, ""); print }
+    ' "$1"
+  }
+fi
+if cmp -s <(m13_body "$SPEC033") <(m13_body "$AP_SKILL"); then
+  pass "cdt224-t5 M13 JSON fence indent-stripped still byte-identical"
+else
+  fail "cdt224-t5 M13 JSON fence mismatch vs SPEC-033"
+fi
+
+# F6 rewritten pins M: tasks=4, loc in (300,1000], waves=1
+if grep -q 'F6 (rewritten)' "$SCEN" \
+  && grep -F -q '`tasks=4`, `projected_loc=500` ∈ (300,1000], `waves=1`' "$SCEN" \
+  && grep -F -q 'derive M; argc=4 `25 2700`' "$SCEN" \
+  && grep -q 'tasks=4, projected_loc=500, waves=1' "$SCEN" \
+  && grep -q 'F6-kickoff' "$SCEN" \
+  && grep -F -q 'argc=2 (static 25); no derive' "$SCEN"; then
+  pass "cdt224-t5 F6 rewritten pins M tasks=4 loc=500∈(300,1000] waves=1"
+else
+  fail "cdt224-t5 F6 rewritten pin / F6-kickoff fixture missing"
+fi
+
+F6_LOC=$(sed -n '/^### F6 /,/^### F7 /{
+  s/.*projected_loc=\([0-9][0-9]*\).*/\1/p
+}' "$SCEN" | head -1)
+F6_TASKS=$(sed -n '/^### F6 /,/^### F7 /{
+  s/.*tasks=\([0-9][0-9]*\).*/\1/p
+}' "$SCEN" | head -1)
+F6_WAVES=$(sed -n '/^### F6 /,/^### F7 /{
+  s/.*waves=\([0-9][0-9]*\).*/\1/p
+}' "$SCEN" | head -1)
+if [ "${F6_TASKS:-}" = "4" ] \
+  && [ -n "${F6_LOC:-}" ] && [ "$F6_LOC" -gt 300 ] && [ "$F6_LOC" -le 1000 ] \
+  && [ "${F6_WAVES:-}" = "1" ]; then
+  pass "cdt224-t5 F6 extracted pins M (tasks=$F6_TASKS loc=$F6_LOC∈(300,1000] waves=$F6_WAVES)"
+else
+  fail "cdt224-t5 F6 extract tasks=$F6_TASKS loc=$F6_LOC waves=$F6_WAVES (want 4 / (300,1000] / 1)"
+fi
+
+OUT=$(bash "$BUDGET" derive 4 500 1 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .tier == "M" and .iteration_cap == 25 and .wall_clock_cap_s == 2700
+  and .signals.tasks == 4 and .signals.projected_loc == 500 and .signals.waves == 1
+' >/dev/null 2>&1; then
+  pass "cdt224-t5 derive 4/500/1 → M 25/2700 (F6 rewritten live)"
+else
+  fail "cdt224-t5 F6 derive rc=$RC out=$OUT (want M 25/2700)"
+fi
+
+META_M='{"iteration_cap":25,"wall_clock_cap_s":2700,"tier":"M","source":"auto","signals":{"tasks":4,"projected_loc":500,"waves":1}}'
+reset
+RC=$(rc_of env AUTOPILOT_BUDGET_META="$META_M" \
+  bash "$APPEND" orchestrate CDT-200 plan-approve halt auto null 90 6 ap-rs 25 60 orchestrator \
+  "budget_tier=M; iteration cap 25 reached")
+L=$(ledger CDT-200)
+if [ "$RC" -eq 0 ] && jq -e '
+  .decision == "halt" and .blocking_condition == 6 and .decided_by == "auto"
+  and .budget.tier == "M" and .budget.source == "auto"
+  and .budget.iteration_cap == 25 and .budget.wall_clock_cap_s == 2700
+  and .budget.signals.tasks == 4 and .budget.signals.projected_loc == 500
+  and .budget.signals.waves == 1
+' "$L" >/dev/null 2>&1; then
+  pass "cdt224-t5 F6 rewritten card argc13 halt bc=6 M freeze 4/500/1"
+else
+  fail "cdt224-t5 F6 rewritten card rc=$RC card=$(cat "$L" 2>/dev/null)"
+fi
+
+# --- CDT-224 T3b ---
+# P1#1: freeze card run_id=A, envelope run_id=B (synthetic epoch) still argc=4
+# (engine lookup by ticket_id + latest plan-approve nested-non-null, not solely
+# envelope run_id). P1#2: unfrozen M10.6 vs 4500; BC6 argc=2 stays 25/2700.
+ENGINE="$SCRIPT_DIR/self-answer.md"
+: "${SCEN:=$SCRIPT_DIR/self-answer-scenarios.md}"
+NOW=$(date +%s)
+
+# Procedure: freeze is latest plan-approve nested-non-null; same ticket AND
+# (same run_id OR resume); MUST NOT key solely on envelope run_id.
+FREEZE_BLK=$(awk '/A \*\*freeze\*\*/,/^Pick \*\*one\*\* path/' "$ENGINE")
+if printf '%s\n' "$FREEZE_BLK" | grep -q 'latest `gate=plan-approve`' \
+  && printf '%s\n' "$FREEZE_BLK" | grep -q 'RESUMING=true' \
+  && printf '%s\n' "$FREEZE_BLK" | grep -q 'MUST derive, not steal' \
+  && printf '%s\n' "$FREEZE_BLK" | grep -q 'MUST NOT key freeze solely' \
+  && ! printf '%s\n' "$FREEZE_BLK" | grep -q 'card with this'; then
+  pass "cdt224-t3b engine freeze lookup ticket_id+latest plan-approve, not solely run_id"
+else
+  fail "cdt224-t3b freeze-lookup procedure grep miss"
+fi
+
+# Live: freeze card run_id=A; envelope run_id=B would miss if keyed on run_id;
+# ticket_id + latest nested-non-null still yields argc=4; env ignored.
+reset
+META_S='{"iteration_cap":10,"wall_clock_cap_s":1200,"tier":"S","source":"auto","signals":{"tasks":2,"projected_loc":150,"waves":1}}'
+RC=$(rc_of env AUTOPILOT_BUDGET_META="$META_S" \
+  bash "$APPEND" orchestrate CDT-T3b plan-approve approve auto null 88 null run-A 1 10 orch \
+  "budget_tier=S freeze")
+if [ "$RC" -ne 0 ]; then
+  fail "cdt224-t3b freeze-card write rc=$RC"
+else
+  CARDS=$(bash "$READ" CDT-T3b 2>/dev/null)
+  MATCH_B=$(printf '%s' "$CARDS" | jq '[.[] | select(.run_id == "run-B" and .gate == "plan-approve" and .budget.tier != null)] | length')
+  FREEZE=$(printf '%s' "$CARDS" | jq -c '
+    [.[] | select(.gate == "plan-approve"
+      and .budget.tier != null and .budget.source != null and .budget.signals != null)] | last
+  ')
+  FRID=$(printf '%s' "$FREEZE" | jq -r '.run_id')
+  IC=$(printf '%s' "$FREEZE" | jq -r '.budget.iteration_cap')
+  WC=$(printf '%s' "$FREEZE" | jq -r '.budget.wall_clock_cap_s')
+  TIER=$(printf '%s' "$FREEZE" | jq -r '.budget.tier')
+  if [ "$MATCH_B" = "0" ] && [ "$FRID" = "run-A" ] && [ "$IC" = "10" ] && [ "$WC" = "1200" ] && [ "$TIER" = "S" ]; then
+    OUT=$(AUTOPILOT_ITERATION_CAP=99 AUTOPILOT_WALLCLOCK_CAP=99 \
+      bash "$BUDGET" 10 "$NOW" "$IC" "$WC" 2>/dev/null); RC=$?
+    if [ "$RC" -eq 6 ] && echo "$OUT" | jq -e '
+      .breached == true and .reason == "iteration" and .iteration_cap == 10
+      and .wall_clock_cap_s == 1200 and .blocking_condition == 6
+    ' >/dev/null 2>&1; then
+      pass "cdt224-t3b freeze run_id=A envelope run_id=B still argc=4 10/1200; env 99 ignored → BC6"
+    else
+      fail "cdt224-t3b resume-mismatch argc=4 rc=$RC ic=$IC wc=$WC out=$OUT"
+    fi
+  else
+    fail "cdt224-t3b lookup match_b=$MATCH_B frid=$FRID ic=$IC wc=$WC tier=$TIER"
+  fi
+fi
+
+# P1#2: §3d splits M10.6 4500 from unfrozen BC6 argc=2 2700
+if grep -q 'M10.6 vs \*\*4500 s\*\*' "$ENGINE" \
+  && grep -q 'Unfrozen BC6 stays argc=2' "$ENGINE" \
+  && grep -q 'separate compare' "$ENGINE" \
+  && ! grep -q 'effective wall-clock cap from step (b)' "$ENGINE"; then
+  pass "cdt224-t3b §3d unfrozen M10.6 vs 4500; BC6 argc=2 unchanged"
+else
+  fail "cdt224-t3b M10.6 split grep miss"
+fi
+
+# F6-m10.6-scope fixture still unfrozen 4500; BC6 argc=2 25/2700
+if grep -q 'F6-m10.6-scope' "$SCEN" \
+  && grep -F -q 'unfrozen compare is 4500 s' "$SCEN" \
+  && grep -F -q 'M10.6** uses 4500, not the argc=2 2700' "$SCEN"; then
+  pass "cdt224-t3b F6-m10.6-scope unfrozen M10.6 vs 4500 (not 2700)"
+else
+  fail "cdt224-t3b F6-m10.6-scope wording miss"
+fi
+
+# Live: unfrozen BC6 argc=2 still 25/2700 (do not retune pre-freeze BC6)
+OUT=$(env -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP \
+  bash "$BUDGET" 2 "$NOW" 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .breached == false and .iteration == 2
+  and .iteration_cap == 25 and .wall_clock_cap_s == 2700
+' >/dev/null 2>&1; then
+  pass "cdt224-t3b unfrozen argc=2 still BC6 25/2700 (M10.6 4500 is separate)"
+else
+  fail "cdt224-t3b unfrozen argc=2 rc=$RC out=$OUT (want 25/2700)"
+fi
+
 # =============================================================================
 # Summary
 # =============================================================================

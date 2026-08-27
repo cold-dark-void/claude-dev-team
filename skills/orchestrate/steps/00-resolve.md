@@ -32,6 +32,9 @@
   when `AUTOPILOT_ON=true` (autopilot off: parse still runs; value unused).
   Omit records `MAX_LOC` as the literal string `"null"`. MUST NOT pass
   `--max-loc` on `reroute-epic` unless caller argv already has it.
+  MUST NOT add a `--max-loc` analog for iteration/wall-clock caps (N12 — no
+  cap flags; `parse-flags.sh` stays six-key). MUST NOT export
+  `AUTOPILOT_BUDGET_META` on `reroute-epic` (N13 — child derives its own freeze).
 - `[--resume-ship[=<patch|minor|major|master>]]` — optional (CDT-135 / SPEC-033 /
   CDT-195): after a human overrides a BC7 ship-choice halt, run the **single
   confirmed ship sequence** (end-state land path + wrap) without re-running the
@@ -115,7 +118,9 @@ ORCH_TIER=$(jq -r '.tier // "null"' <<<"$AP_JSON")
 # a resumed run without the flag re-resolves to the 4-character string "null").
 # Consume only when AUTOPILOT_ON=true. Autopilot off: parse still runs
 # (junk → 64 above); value unused. MUST NOT pass --max-loc on reroute-epic
-# unless caller argv already has it.
+# unless caller argv already has it. MUST NOT add a --max-loc analog for
+# iteration/wall-clock caps (N12). MUST NOT export AUTOPILOT_BUDGET_META on
+# reroute-epic (N13).
 MAX_LOC=$(jq -r '.max_loc // "null"' <<<"$AP_JSON")
 
 # Resume detection (CDT-111-C8): only when THIS invocation gave neither
@@ -162,6 +167,16 @@ seeds autopilot state only when no `--autopilot`/`AUTOPILOT=1` was given on this
 invocation (flag/env win over recorded state — `parse-flags.sh`'s own precedence,
 `source=="none"` is the signal). Pause time is excluded from BC6 via the synthetic
 epoch (SPEC-033 M9a, CDT-111-C8).
+
+**Freeze-on-resume (SPEC-033 AC9 / M9b / N13).** Frozen caps live on the
+plan-approve card nested `budget.{tier,source,signals}` — read via
+`read-cards.sh`, not via `resume-state.sh`. `resume-state.sh` seeds only
+`autopilot_on` / `autopilot_bump` (plus the synthetic epoch from
+`--accumulated`). MUST NOT seed caps from plan frontmatter. Pre-CDT-224 cards
+(nested keys absent or null) resume as static M unless env. Mid-run env
+mutation MUST NOT retune. Later gates copy the freeze (engine argc=4); Step 0
+does not re-derive. MUST NOT export `AUTOPILOT_BUDGET_META` on `reroute-epic`
+(child `/epic` or `/orchestrate` derives its own freeze).
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
 `RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` / `ORCH_TIER` / `MAX_LOC`

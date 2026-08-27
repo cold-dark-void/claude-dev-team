@@ -16,11 +16,15 @@
 #   { schema_version, type, ts, run_id, workflow, ticket_id, gate, decision,
 #     decided_by, bump, confidence, blocking_condition, council_tier,
 #     grading_reason, max_loc, rationale, budget, actor }
-#   budget = { iteration, iteration_cap, wall_clock_s, wall_clock_cap_s }
+#   budget = { iteration, iteration_cap, wall_clock_s, wall_clock_cap_s,
+#              tier, source, signals }
 #
 # CDT-126: council_tier / grading_reason are additive + nullable, so argc 13 is
 # still legal and means both are null (schema_version stays 1).
 # CDT-223: max_loc is additive + nullable in the same envelope (18 keys).
+# CDT-224: nested budget.{tier,source,signals} additive + nullable (still 18
+# top-level keys). Snapshot via process-local AUTOPILOT_BUDGET_META; MUST NOT
+# export META; MUST NOT write AUTOPILOT_*_CAP.
 # Argc is 13 (all optionals null) | 14 (max_loc, council pair null) |
 # 15 (council pair, max_loc null) | 16 (council pair + max_loc).
 # Any other argc → 64. Council_tier without grading_reason is not a valid shape.
@@ -220,8 +224,45 @@ json_max_loc() {
 }
 
 # ---- Writer-derived fields --------------------------------------------------
-ITERATION_CAP=${AUTOPILOT_ITERATION_CAP:-25}
-WALL_CLOCK_CAP_S=${AUTOPILOT_WALLCLOCK_CAP:-2700}
+# CDT-224 / M9b: AUTOPILOT_BUDGET_META (compact JSON) is process-local only.
+# MUST NOT export it. MUST NOT write AUTOPILOT_ITERATION_CAP / AUTOPILOT_WALLCLOCK_CAP.
+# Set → numeric caps + nested keys verbatim (do not also apply AUTOPILOT_*_CAP).
+# Unset → nested JSON null; numerics from env-or-default as today.
+# Malformed META → 64.
+if [ -n "${AUTOPILOT_BUDGET_META:-}" ]; then
+  if ! parsed=$(printf '%s' "$AUTOPILOT_BUDGET_META" | jq -ce '
+    select(
+      type == "object"
+      and has("iteration_cap") and has("wall_clock_cap_s")
+      and has("tier") and has("source") and has("signals")
+      and (.iteration_cap | type == "number" and . == floor and . >= 0)
+      and (.wall_clock_cap_s | type == "number" and . == floor and . >= 0)
+      and (.tier == null or .tier == "S" or .tier == "M" or .tier == "L")
+      and (.source == null or .source == "auto" or .source == "env"
+           or .source == "default" or .source == "mixed")
+      and (
+        .signals == null
+        or (
+          (.signals | type) == "object"
+          and (.signals | has("tasks") and has("projected_loc") and has("waves"))
+        )
+      )
+    )
+  ' 2>/dev/null); then
+    die "malformed AUTOPILOT_BUDGET_META"
+  fi
+  ITERATION_CAP=$(printf '%s' "$parsed" | jq -c '.iteration_cap')
+  WALL_CLOCK_CAP_S=$(printf '%s' "$parsed" | jq -c '.wall_clock_cap_s')
+  BUDGET_TIER_JSON=$(printf '%s' "$parsed" | jq -c '.tier')
+  BUDGET_SOURCE_JSON=$(printf '%s' "$parsed" | jq -c '.source')
+  BUDGET_SIGNALS_JSON=$(printf '%s' "$parsed" | jq -c '.signals')
+else
+  ITERATION_CAP=${AUTOPILOT_ITERATION_CAP:-25}
+  WALL_CLOCK_CAP_S=${AUTOPILOT_WALLCLOCK_CAP:-2700}
+  BUDGET_TIER_JSON=null
+  BUDGET_SOURCE_JSON=null
+  BUDGET_SIGNALS_JSON=null
+fi
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 bump_json=$(json_str_or_null "$BUMP")
@@ -262,6 +303,9 @@ if ! jq -cn \
   --argjson iteration_cap "$ITERATION_CAP" \
   --argjson wall_clock_s "$WALL_CLOCK_S" \
   --argjson wall_clock_cap_s "$WALL_CLOCK_CAP_S" \
+  --argjson budget_tier "$BUDGET_TIER_JSON" \
+  --argjson budget_source "$BUDGET_SOURCE_JSON" \
+  --argjson budget_signals "$BUDGET_SIGNALS_JSON" \
   --arg actor "$ACTOR" \
   '{
     schema_version: $schema_version,
@@ -284,7 +328,10 @@ if ! jq -cn \
       iteration: $iteration,
       iteration_cap: $iteration_cap,
       wall_clock_s: $wall_clock_s,
-      wall_clock_cap_s: $wall_clock_cap_s
+      wall_clock_cap_s: $wall_clock_cap_s,
+      tier: $budget_tier,
+      source: $budget_source,
+      signals: $budget_signals
     },
     actor: $actor
   }' \

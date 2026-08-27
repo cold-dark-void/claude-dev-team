@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.17.0
+- **Autopilot BC6 run-budget auto-tuning (CDT-224)** — `/orchestrate` derives S/M/L caps once at plan-approve from task count, counted LOC, and waves. S 10 stints/20 min, M 25/45 (unchanged), L 40/75 (auto-tune ceiling). Env `AUTOPILOT_*_CAP` wins per cap; no new flags. Nested `budget.{tier,source,signals}` on cards. Kickoff and epic Mode A stay static. Unfrozen M10.6 compares to 75 min. Default-behavior change ⇒ minor.
+
 ### v1.16.0
 - **Autopilot BC4 LOC hardblock opt-out (CDT-223)** — counted LOC excludes `.gitattributes linguist-generated` plus a built-in lockfile/`*.snap`/vendored list (`loc-exclude.sh`), additive to SPEC-009 specs/tests. `/setup project` seeds `.gitattributes` (create or append-missing). Per-run `--max-loc=<n|unbound>` (flag-only, `=` form, last-wins, junk→64) raises BC4 hard cap + M10.1, or disables both; per-file 1000 unchanged unless `unbound`. Decision cards grow additive-nullable `max_loc`. Default-behavior change ⇒ minor.
 

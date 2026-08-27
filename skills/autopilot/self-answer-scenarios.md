@@ -26,6 +26,9 @@
   **argc 14** (`<max_loc>` after rationale; council pair null). Argc 15/16 (council pair)
   belong to the M14 council card alone (`ship-gate-council.md` §6), which this engine never
   writes. When `max_loc` is non-null, `rationale` MUST mention the override (M13).
+  Freeze cards set process-local `AUTOPILOT_BUDGET_META` (nested `budget.{tier,source,signals}`);
+  when `source` is `auto` or `mixed`, `rationale` MUST mention `budget_tier`; when `source`
+  is `env` or `mixed`, `rationale` MUST mention env. `decided_by` stays `auto`.
 
 **Shared symbols.** `NOW` = wall-clock epoch at engine run. `RS` = `run_start_epoch`. Where a
 fixture is within budget it uses `RS = NOW-60` (`wall_clock_s = 60`); `run_id = ap-<RS>`;
@@ -251,21 +254,171 @@ Two envelopes, same counted LOC **1800** (in `(1500, 2000)`); every counted file
   `append-card.sh orchestrate CDT-200 scope-confirm reroute-epic auto null 85 5 ap-<RS> 1 <NOW-RS> orchestrator "<rationale: 4 workstreams / 3+ subsystems -> epic overflow>"`
 - **Required case**: this is the mandated BC5→reroute-epic fixture.
 
-### F6 — BC6 run-budget breach → halt
+### F6 — BC6 run-budget breach → halt (rewritten: pin M signals, CDT-224 / AC9)
+
+Cite SPEC-033 AC9 / M9b. First `/orchestrate` `plan-approve` derives then freezes **before**
+the BC walk (`self-answer.md` §3b path 2 → argc=4). Do not restate the tier table.
+
+| Fixture | Signals / env | Budget call | Expected |
+|---|---|---|---|
+| F6 (rewritten) | `tasks=4`, `projected_loc=500` ∈ (300,1000], `waves=1`; no env | derive M; argc=4 `25 2700`; `iteration=25` | BC6 halt |
+| F6-S | S: `tasks=3`, `projected_loc=300`, `waves=1` | argc=4 `10 1200`; `iteration=10` **or** `wall_clock_s≥1200` | BC6 halt |
+| F6-S 9/1199 | same S freeze | argc=4 `10 1200`; `iteration=9` and `wall_clock_s=1199` | **no** BC6 |
+| F6-L | L: `tasks=6`, `projected_loc=400`, `waves=1` | argc=4 `40 4500`; `iteration=26` and `wall_clock_s=2701` | **no** BC6; nested `tier=L` caps 40/4500 `source=auto` |
+| F6-L halt | same L freeze | `iteration=40` **or** `wall_clock_s≥4500` | BC6 halt |
+| F6-env | L signals + `AUTOPILOT_ITERATION_CAP=25` (wall unset) | mix; argc=4 `25 4500`; `iteration=25` | BC6 halt; `source=mixed` |
+| F6-kickoff | would-be S; `workflow=kickoff`; `iteration=10` | argc=2 (static 25); no derive | **no** BC6 |
+| F6-m10.6-scope | est. 4000 s (50 min class); L-capable; no env; `scope-confirm` | argc=2; M10.6 vs unfrozen 4500 | **no** BC5 via M10.6 |
+| F6-m10.6-plan | est. 80 min; L freeze at `plan-approve` | derive L then M10.6 vs frozen 4500 | BC5 M10.6 `reroute-epic` |
+
+##### F6 (rewritten) — M freeze; `iteration=25` → BC6
 
 - **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=25, RS=NOW-60,
-  autopilot_bump=null` (default `AUTOPILOT_ITERATION_CAP=25`).
-- **Gate signals**: paths+verify present (no BC1); non-destructive (no BC3); LOC within caps
-  (no BC4); single-ticket task graph (no BC5).
-- **BC walk** (plan-approve applies {1,3,4,5,6,7}): BC1/BC3/BC4/BC5 all clear. **BC6 (ordinal 6)
-  matches** — `budget-check.sh 25 <RS>` returns `breached:true, reason:"iteration",
-  blocking_condition:6, exit 6` (verified live, § Walkthrough B). First match wins.
+  autopilot_bump=null, tasks=4, projected_loc=500, waves=1`. No freeze card yet. Env
+  caps unset.
+- **Gate signals**: paths+verify present (no BC1); non-destructive (no BC3); counted
+  500, every file ≤1000 (no BC4); single-ticket graph (no M10.1–5). Estimated
+  wall-clock well under frozen M cap (no M10.6).
+- **§3b**: no freeze → path 2. `budget-check.sh derive 4 500 1` → M 25/2700. Mix:
+  neither env set → `source=auto`. Set `AUTOPILOT_BUDGET_META`. argc=4:
+  `budget-check.sh 25 <RS> 25 2700` → `breached:true, reason:"iteration", exit 6`.
+- **BC walk** (plan-approve {1,3,4,5,6,7}): BC1/BC3/BC4/BC5 clear. **BC6 matches**.
+  First match wins. `decided_by=auto`.
 - **Expected**: `decision=halt, blocking_condition=6, confidence=90, bump=null`.
+  Nested `budget.tier=M, source=auto, signals={4,500,1}`, caps 25/2700.
+- **Card** (argc 13; rationale mentions `budget_tier`):
+  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 90 6 ap-<RS> 25 <NOW-RS> orchestrator "<rationale: budget_tier=M; iteration cap 25 reached>"`
+- **Wall-clock variant**: same freeze; `iteration=3, RS=NOW-3000` → argc=4 `3 <RS> 25 2700`
+  `reason:"wall_clock"`; `iteration=25, RS=NOW-3000` → `reason:"both"`. All three map
+  to `blocking_condition=6` (rationale still names `budget_tier`).
+
+##### F6-S — S freeze runaway; halt at 10 stints **or** 1200 s
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=10, RS=NOW-60,
+  autopilot_bump=null, tasks=3, projected_loc=300, waves=1`. No freeze yet. Env unset.
+- **Gate signals**: paths+verify; non-destructive; counted 300 / per-file ok; single
+  ticket (no M10).
+- **§3b**: derive `3 300 1` → S 10/1200; `source=auto`; argc=4 `10 <RS> 10 1200` →
+  `reason:"iteration", exit 6`.
+- **BC walk**: BC1/3/4/5 clear. **BC6 matches**.
+- **Expected**: `decision=halt, blocking_condition=6, confidence=90, bump=null`.
+  Nested `tier=S, source=auto`, caps 10/1200.
 - **Card**:
-  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 90 6 ap-<RS> 25 <NOW-RS> orchestrator "<rationale: iteration cap 25 reached>"`
-- **Wall-clock variant**: identical but `iteration=3, RS=NOW-3000` → `budget-check.sh 3 <RS>`
-  returns `reason:"wall_clock", exit 6`; `iteration=25, RS=NOW-3000` → `reason:"both"`. All
-  three map to the same `blocking_condition=6` card (only the rationale differs).
+  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 90 6 ap-<RS> 10 <NOW-RS> orchestrator "<rationale: budget_tier=S; iteration cap 10 reached>"`
+- **Wall-clock variant**: `iteration=3, RS=NOW-1200` → argc=4 `3 <RS> 10 1200`
+  `reason:"wall_clock"` (≥1200). Same `blocking_condition=6`.
+
+##### F6-S 9/1199 — S freeze; no BC6
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=9, RS=NOW-1199,
+  autopilot_bump=null, tasks=3, projected_loc=300, waves=1`. Env unset.
+- **Gate signals**: same clean S plan as F6-S; confidence 88.
+- **§3b**: derive S 10/1200; argc=4 `9 <RS> 10 1200` → `breached:false, reason:"none",
+  exit 0` (`iteration=9 < 10` and `wall_clock_s=1199 < 1200`).
+- **BC walk**: BC1/3/4/5/6/7 all clear → default `approve`.
+- **Expected**: `decision=approve, blocking_condition=null, confidence=88, bump=null`.
+  Nested `tier=S, source=auto`, caps 10/1200.
+- **Card**:
+  `append-card.sh orchestrate CDT-200 plan-approve approve auto null 88 null ap-<RS> 9 <NOW-RS> orchestrator "<rationale: budget_tier=S; plan complete, within S caps>"`
+
+##### F6-L — L freeze; `iteration=26` / `wall_clock_s=2701` **not** BC6
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=26, RS=NOW-2701,
+  autopilot_bump=null, tasks=6, projected_loc=400, waves=1`. Env unset.
+- **Gate signals**: paths+verify; non-destructive; counted 400 / per-file ok; 6 tasks
+  one wave (under M10.3 ~8 / multi-wave); one spec, one subsystem; estimate under
+  frozen L cap (no M10.6). Confidence 88.
+- **§3b**: derive `6 400 1` → L 40/4500; `source=auto`; argc=4 `26 <RS> 40 4500` →
+  `breached:false` (26 < 40 and 2701 < 4500). Under static M this **would** have
+  been BC6; L freeze is why it is not.
+- **BC walk**: all clear → default `approve`.
+- **Expected**: `decision=approve, blocking_condition=null, confidence=88, bump=null`.
+  Nested `budget.tier=L, source=auto, signals={6,400,1}`, caps **40/4500**.
+- **Card**:
+  `append-card.sh orchestrate CDT-200 plan-approve approve auto null 88 null ap-<RS> 26 <NOW-RS> orchestrator "<rationale: budget_tier=L; plan complete, within L caps 40/4500>"`
+
+##### F6-L halt — L freeze; halt at 40 **or** ≥4500 s
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=40, RS=NOW-60,
+  autopilot_bump=null, tasks=6, projected_loc=400, waves=1`. Env unset.
+- **Gate signals**: same clean L plan as F6-L (M10.1–5 clear).
+- **§3b**: derive L 40/4500; argc=4 `40 <RS> 40 4500` → `reason:"iteration", exit 6`.
+- **BC walk**: BC1/3/4/5 clear. **BC6 matches**.
+- **Expected**: `decision=halt, blocking_condition=6, confidence=90, bump=null`.
+  Nested `tier=L, source=auto`, caps 40/4500.
+- **Card**:
+  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 90 6 ap-<RS> 40 <NOW-RS> orchestrator "<rationale: budget_tier=L; iteration cap 40 reached>"`
+- **Wall-clock variant**: `iteration=3, RS=NOW-4500` → argc=4 `3 <RS> 40 4500`
+  `reason:"wall_clock"` (≥4500). Same `blocking_condition=6`.
+
+##### F6-env — L signals + `AUTOPILOT_ITERATION_CAP=25` → halt at 25 (`source=mixed`)
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=25, RS=NOW-60,
+  autopilot_bump=null, tasks=6, projected_loc=400, waves=1`.
+  `AUTOPILOT_ITERATION_CAP=25` set (non-empty integer). Wall-clock env **unset**.
+- **Gate signals**: same clean L plan as F6-L.
+- **§3b**: derive L 40/4500. Mix per cap: iteration from env (25), wall from auto
+  (4500) → `source=mixed`, `tier=L`. argc=4 `25 <RS> 25 4500` →
+  `reason:"iteration", exit 6`. MUST NOT assign the env vars to apply auto-tune.
+- **BC walk**: BC1/3/4/5 clear. **BC6 matches** at 25 (env wins over L 40).
+- **Expected**: `decision=halt, blocking_condition=6, confidence=90, bump=null`.
+  Nested `tier=L, source=mixed`, caps 25/4500.
+- **Card** (rationale mentions `budget_tier` **and** env):
+  `append-card.sh orchestrate CDT-200 plan-approve halt auto null 90 6 ap-<RS> 25 <NOW-RS> orchestrator "<rationale: budget_tier=L mixed; env AUTOPILOT_ITERATION_CAP=25 reached>"`
+
+##### F6-kickoff — would-be S; `iteration=10`; no BC6 (static 25)
+
+- **Envelope**: `workflow=kickoff, gate=scope-confirm, iteration=10, RS=NOW-60,
+  autopilot_bump=null`. Would-be S signals `tasks=2, projected_loc=150, waves=1`
+  may be present; the engine **ignores** them (N13). Env unset.
+- **Gate signals**: issue text sufficient (no BC1); non-destructive; no overflow;
+  agent certain (no BC7); no unverified external dep (no BC8). Confidence 90.
+- **§3b**: kickoff isolation → path 3, **argc=2**. No `derive`. No META.
+  `budget-check.sh 10 <RS>` (env-or-static M 25/2700) → `breached:false`.
+- **BC walk** (kickoff pre-spec {1,6,7,8}): this fixture isolates BC6 (content-bearing
+  kickoff BC1 is orthogonal and not in play). BC1/7/8 clear. **BC6 does not match**
+  (10 < static 25). No match → default `proceed` on the mapped `scope-confirm` gate.
+- **Expected**: `decision=proceed, blocking_condition=null, confidence=90, bump=null`.
+  Nested `budget.tier/source/signals` **null**.
+- **Card**:
+  `append-card.sh kickoff CDT-200 scope-confirm proceed auto null 90 null ap-<RS> 10 <NOW-RS> orchestrator "<rationale: kickoff argc=2 static 25; iteration 10 in budget>"`
+
+##### F6-m10.6-scope — est. 4000 s, L-capable, unfrozen; **not** BC5 via M10.6
+
+- **Envelope**: `workflow=orchestrate, gate=scope-confirm, iteration=2, RS=NOW-60,
+  autopilot_bump=null`. No env. No freeze (pre-plan-approve).
+- **Gate signals**: issue text sufficient; non-destructive; L-capable work (would
+  derive L at plan-approve: six tasks / counted ~400, one wave) but M10.1–5 clear
+  (counted 400 ≤ 2000; one workstream; one spec; one subsystem). Estimated
+  single-run wall-clock **4000 s** (50 min class). Confidence 90.
+- **§3b**: unfrozen scope-confirm → argc=2 (S-tighter caps **not** in force; BC6
+  still 25/2700). META unset. **M10.6** uses 4500, not the argc=2 2700.
+- **BC walk** (scope-confirm {1,3,5,6,7}): BC1/BC3 clear. **M10.6 does not match**
+  — unfrozen compare is 4500 s (cite M10.6); 4000 < 4500. M10.1–5 clear. BC5 does
+  not fire. BC6 (argc=2 25/2700) / BC7 clear → default `proceed`.
+- **Expected**: `decision=proceed, blocking_condition=null, confidence=90, bump=null`.
+- **Card**:
+  `append-card.sh orchestrate CDT-200 scope-confirm proceed auto null 90 null ap-<RS> 2 <NOW-RS> orchestrator "<rationale: unfrozen M10.6 vs 4500; est 4000s in cap>"`
+
+##### F6-m10.6-plan — est. 80 min after L freeze → BC5 M10.6 reroute
+
+- **Envelope**: `workflow=orchestrate, gate=plan-approve, iteration=4, RS=NOW-60,
+  autopilot_bump=null, tasks=6, projected_loc=400, waves=1`. Env unset. No freeze
+  card yet (first plan-approve).
+- **Gate signals**: paths+verify; non-destructive; counted 400 / per-file ok;
+  M10.1–5 clear (6 tasks one wave; one spec; one subsystem). Estimated
+  single-run wall-clock **80 min (4800 s)** even with full parallelism.
+  Confidence 85.
+- **§3b**: path 2 **before** the BC walk. derive `6 400 1` → L 40/4500;
+  `source=auto`; META set; argc=4 `4 <RS> 40 4500` → not BC6 (4 < 40, 60 < 4500).
+- **BC walk**: BC1/BC3/BC4 clear. **BC5 matches via M10.6** — estimate 4800 s >
+  frozen `wall_clock_cap_s=4500`. M10.1–5 did not fire; M10.6 MUST NOT be
+  suppressed, and here it is the match. First match wins → `reroute-epic` (not
+  BC6). `decided_by=auto`.
+- **Expected**: `decision=reroute-epic, blocking_condition=5, confidence=85, bump=null`.
+  Nested `tier=L, source=auto`, caps 40/4500.
+- **Card**:
+  `append-card.sh orchestrate CDT-200 plan-approve reroute-epic auto null 85 5 ap-<RS> 4 <NOW-RS> orchestrator "<rationale: budget_tier=L; est 80min exceeds frozen wall_clock_cap_s 4500 M10.6>"`
 
 ### F7 — BC7 self-uncertainty → halt (writer cross-field invariant (b))
 
@@ -394,11 +547,10 @@ Two envelopes, same counted LOC **1800** (in `(1500, 2000)`); every counted file
 
 ### FE — `budget-check.sh` exit 64 (malformed budget call)
 
-- **Setup**: engine step (b) calls `budget-check.sh <iteration> <run_start_epoch>` and the call
+- **Setup**: engine step (b) calls `budget-check.sh` (argc 2, argc 4, or `derive`) and the call
   returns **exit 64** — e.g. a non-numeric `iteration`, an argc error, or `run_start_epoch > now`
-  (all three verified live, § Walkthrough B). On exit 64 the helper writes to **stderr only** and
-  computes **no** `wall_clock_s` on stdout (`die()` at `budget-check.sh:37-41` returns before the
-  compute block at :66).
+  (verified live, § Walkthrough B). On exit 64 the helper writes to **stderr only** and
+  computes **no** `wall_clock_s` on stdout (`die()` returns before the check compute block).
 - **Expected per the written procedure**: **UNDEFINED.** `self-answer.md` §3b lists exit 64 as a
   possible outcome but §3d–§3f never consume it — there is **no** "on exit 64, do X" branch, and
   §3b instructs the engine to capture `wall_clock_s` "always, regardless of breach", which is not
@@ -428,6 +580,16 @@ F4-unbound-m10 were walked against `self-answer.md` §3d (counted LOC via
 override set; rationale mentions override; `decided_by=auto`). Table matches
 SPEC-033 M16.
 
+**A3. CDT-224 F6 rewrite + F6-*.** Walked against `self-answer.md` §3b freeze-before-BC
+(AC9 / M9b) then §3d–§3f. F6 pins M (`tasks=4, projected_loc=500, waves=1`) so
+`iteration=25` is still BC6 via argc=4 `25 2700`. F6-S halt at 10 or ≥1200; F6-S
+9/1199 no BC6; F6-L 26/2701 no BC6 with nested `tier=L` 40/4500 `source=auto`;
+F6-L halt at 40 or ≥4500; F6-env L+`AUTOPILOT_ITERATION_CAP=25` halt at 25
+`source=mixed`; F6-kickoff argc=2 static 25, iteration=10 no BC6; F6-m10.6-scope
+4000 s unfrozen not BC5; F6-m10.6-plan 80 min after L freeze → BC5 M10.6.
+`decided_by=auto` on all. Rationale names `budget_tier` on auto/mixed and env on
+env/mixed. No `AUTOPILOT_*_CAP` assignment in the engine procedure.
+
 **T7 live re-walk** (throwaway git repo, real `loc-exclude.sh` + `append-card.sh`):
 `package-lock.json` / `foo.snap` exit 0 (excluded); `src/impl.go` / `src/vendor/x`
 exit 1 (counted). Every F4 / F4-* card shape exit 0: F4 argc13 halt bc=4
@@ -440,14 +602,20 @@ rationale contains `max-loc=`. See Walkthrough C.
 
 | Input | stdout `reason` / `breached` / `blocking_condition` | exit | Feeds |
 |---|---|---|---|
-| `3  NOW-60`   | `none` / `false` / `null` | 0  | F9–F13, clean paths |
-| `25 NOW-60`   | `iteration` / `true` / `6` | 6 | **F6** |
-| `AUTOPILOT_ITERATION_CAP=2 5 NOW-60` | `iteration` / `true` / `6` | 6 | F6 env-override variant |
-| `3  NOW-3000` | `wall_clock` / `true` / `6` | 6 | F6 wall-clock variant |
-| `25 NOW-3000` | `both` / `true` / `6` | 6 | F6 both variant |
+| `3  NOW-60`   | `none` / `false` / `null` | 0  | F9–F13, clean paths, F6-kickoff argc=2 |
+| argc=4 `25 NOW-60 25 2700` | `iteration` / `true` / `6` | 6 | **F6** M freeze |
+| argc=4 `10 NOW-60 10 1200` | `iteration` / `true` / `6` | 6 | F6-S |
+| argc=4 `9 NOW-1199 10 1200` | `none` / `false` / `null` | 0 | F6-S 9/1199 |
+| argc=4 `26 NOW-2701 40 4500` | `none` / `false` / `null` | 0 | F6-L |
+| argc=4 `40 NOW-60 40 4500` | `iteration` / `true` / `6` | 6 | F6-L halt |
+| argc=4 `25 NOW-60 25 4500` | `iteration` / `true` / `6` | 6 | F6-env mixed |
+| argc=2 `10 NOW-60` | `none` / `false` / `null` | 0 | F6-kickoff |
+| `derive 4 500 1` | tier M 25/2700 | 0 | F6 |
+| `derive 3 300 1` | tier S 10/1200 | 0 | F6-S |
+| `derive 6 400 1` | tier L 40/4500 | 0 | F6-L / F6-env / F6-m10.6-plan |
 | `abc NOW-60`  | (stderr `must be a non-negative integer`) | 64 | **FE** |
 | `3  NOW+500`  | (stderr `is in the future`) | 64 | FE |
-| `3` (1 arg)   | (stderr `requires exactly 2 arguments`) | 64 | FE |
+| `3` (1 arg)   | (stderr wrong argc) | 64 | FE |
 
 All within/breach rows emit the 7-key JSON on stdout; all exit-64 rows emit **stderr only, no
 stdout** — confirming the FE gap. (`jq-1.8.1` present.)
@@ -464,7 +632,12 @@ stdout** — confirming the FE gap. (`jq-1.8.1` present.)
 | F13 `ship-choice merge … master 90 null` | exit 0 (writer accepts `master` bump) |
 | F7 `scope-confirm halt … null 65 7` | exit 0 |
 | F3 `ship-choice halt … minor 85 3` | exit 0 |
-| F6 `plan-approve halt … null 90 6` | exit 0 |
+| F6 `plan-approve halt … null 90 6` (M freeze META) | exit 0 |
+| F6-S 9/1199 `plan-approve approve` (S META) | exit 0 |
+| F6-L `plan-approve approve` (L META 40/4500) | exit 0 |
+| F6-env `plan-approve halt` (mixed META 25/4500) | exit 0 |
+| F6-kickoff `kickoff scope-confirm proceed` (META unset) | exit 0 |
+| F6-m10.6-plan `plan-approve reroute-epic bc=5` (L META) | exit 0 |
 | F8 `kickoff scope-confirm halt … null 85 8` | exit 0 |
 | **F4** argc13 `plan-approve halt bc=4` `max_loc:null` `decided_by=auto` | exit 0 |
 | **F4-gen** argc13 `plan-approve approve` `max_loc:null` | exit 0 |
@@ -526,7 +699,10 @@ decision.
 
 All **13** original functional fixtures (F1–F13) plus **7** CDT-223 F4-* variants
 (F4-gen, F4-file, F4-n-ok, F4-n-file, F4-n-tight dual-gate, F4-unbound,
-F4-unbound-m10) are **genuinely reachable** per the written procedure. F4 rewritten:
+F4-unbound-m10) plus **CDT-224 F6\*** (F6 rewritten M, F6-S, F6-S 9/1199, F6-L,
+F6-L halt, F6-env, F6-kickoff, F6-m10.6-scope, F6-m10.6-plan) are **genuinely
+reachable** per the written procedure. F6 pins M signals so `iteration=25` stays
+BC6; S/L/env/kickoff/M10.6 variants walk §3b freeze-before-BC. F4 rewritten:
 1400-line file is **hand-written**; generated/lockfile/snap at 1400 is F4-gen (**no**
 BC4). F4-* argc 14 cards keep `decided_by=auto` and mention the override in
 `rationale`. The edge fixture **FE** is an intentionally-documented **gap**, not a

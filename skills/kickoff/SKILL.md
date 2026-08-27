@@ -100,6 +100,8 @@ ITER=0                                              # ++ once per stint
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
 `RUN_START_EPOCH` / `ITER` / `MAX_LOC` below means these values, carried forward from this step.
 
+**N13 isolation (CDT-224):** `/kickoff` envelopes omit `tasks` / `projected_loc` / `waves`; engine argc=2; no budget-cap flag.
+
 ---
 
 ## Step 1: Load context

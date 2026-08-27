@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-08-04
 
-**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/self-answer-scenarios.md`. Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223).
+**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/budget-check.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/self-answer-scenarios.md`. Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223).
 
 ---
 
@@ -31,8 +31,9 @@ instead of each inventing its own auto-answer rules. It specifies: the per-gate 
 checklists plus per-command checkpoint handling (AC1), the ordered set of blocking conditions
 (AC2), run-budget defaults (AC3),
 the complexity-overflow → `/epic` reroute criteria (AC4), the contract-home rule (AC5),
-the decision-card audit schema (AC6), the council ship-gate pass (AC7), and the LOC
-exclusion plus `--max-loc` override (AC8 / CDT-223).
+the decision-card audit schema (AC6), the council ship-gate pass (AC7), the LOC
+exclusion plus `--max-loc` override (AC8 / CDT-223), and `/orchestrate` run-budget
+auto-tune (AC9 / M9b / CDT-224).
 
 This ticket (CDT-111-C1) writes **only the contract** — the spec plus its operational copy
 in `skills/autopilot/SKILL.md`. Wiring the workflows to consult it, and building the
@@ -287,7 +288,8 @@ target.
   `/orchestrate` carries the orchestrate budget. Note that `/kickoff` and `/epic` have *fewer*
   self-answerable gates (M5), so autopilot tends to **halt earlier** on a blocking condition there —
   which lowers, not raises, budget pressure. The 25-stint / 45-min defaults therefore stand
-  unchanged for all three workflows.
+  unchanged for `/kickoff` and `/epic` Mode A. `/orchestrate` MAY auto-tune those same two
+  caps per **M9b** (AC9). Auto-tune MUST NOT apply to `/kickoff` or `/epic` Mode A.
 
 - **M9a — Wall-clock budget basis on resume (CDT-111-C8).** M9's `wall_clock_cap` counts elapsed
   time from run start; on a **resumed** paused/interrupted run that start is measured
@@ -300,7 +302,9 @@ target.
   original epoch forward unmodified would immediately trip BC6 the instant a legitimate multi-hour
   human-review pause (the exact scenario C6's escalation and C7's notify exist to enable) resumes —
   punishing the human for taking time to respond. Refines M9's `wall_clock_cap` measurement only;
-  introduces no new persistence field and does not modify or duplicate M11a.
+  introduces no new persistence field and does not modify or duplicate M11a. On resume, M9b
+  frozen caps come from the plan-approve card (AC9); M9a still supplies only the synthetic
+  epoch. `resume-state.sh` MUST NOT grow a frontmatter seed for caps.
 
 ### AC4 — Complexity-overflow → `/epic` reroute criteria
 
@@ -316,8 +320,11 @@ target.
   4. The work requires **more than one distinct spec / contract home** (a signal of multiple
      independent concerns); or
   5. It touches **3 or more independent subsystems** with no common change surface; or
-  6. The estimated single-run wall-clock would exceed the AC3 `wall_clock_cap` even with full
-     parallelism.
+  6. The estimated single-run wall-clock would exceed the **effective** `wall_clock_cap`
+     even with full parallelism (M9b). At **unfrozen** `scope-confirm`, compare the
+     estimate to **4500 s** unless `AUTOPILOT_WALLCLOCK_CAP` is set (then use that value).
+     At `plan-approve` and later, compare the estimate to the **frozen**
+     `budget.wall_clock_cap_s`. This criterion MUST NOT suppress M10.1–5.
 - **M11 — Reroute is non-blocking and reversible.** On overflow, autopilot MUST record a
   `reroute-epic` decision-card and hand the ticket to `/epic` decompose **autonomously** (no human
   halt), because at scope/plan time no code has shipped — the reroute is fully reversible. The
@@ -392,7 +399,7 @@ target.
     "grading_reason": null,
     "max_loc": null,
     "rationale": "<one-line why>",
-    "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700 },
+    "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700, "tier": null, "source": null, "signals": null },
     "actor": "orchestrator"
   }
   ```
@@ -452,7 +459,19 @@ target.
   - `rationale` is a one-line summary and MUST NOT contain secrets, credentials, tokens, keys, or
     PII. Any evidence quoted from the repo, specs, or memory (e.g. the S2 resolution attempt) MUST
     be **redacted or summarized**, never copied verbatim into the card.
-  - `budget` snapshots the AC3 counters at decision time.
+  - `budget` snapshots the AC3 counters at decision time. The object keeps four numeric
+    keys (`iteration`, `iteration_cap`, `wall_clock_s`, `wall_clock_cap_s`). **CDT-224 /
+    M9b** adds three nested keys, **additive and nullable**, inside `budget` only:
+    `tier` (`S|M|L|null`), `source` (`auto|env|default|mixed|null`), and `signals`
+    (`{tasks, projected_loc, waves}|null`). Top-level key count stays **18**. Gate enum
+    stays the frozen 3-value set. `type` stays `autopilot_decision`. `schema_version`
+    stays `1`. MUST NOT add a fourth `gate` value. MUST NOT add a new `type`.
+    `read-cards.sh` MUST backfill absent nested keys as explicit `null` (absent ≡ null).
+    Pre-CDT-224 cards remain valid. Pre-freeze, `/kickoff`, and `/epic` Mode A cards
+    MUST write the three nested keys as `null`. Plan-approve freeze and later
+    `/orchestrate` cards MUST copy the freeze (AC9). `rationale` MUST mention
+    `budget_tier` when `source` is `auto` or `mixed`. `rationale` MUST mention env when
+    `source` is `env` or `mixed`.
   - `actor` names the writer (e.g. `orchestrator`).
 
 ### AC7 — Council ship-gate pass (CDT-111-C5)
@@ -757,6 +776,114 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
   present, append **missing** markers only (idempotent; never clobber other attributes).
   Re-run MUST seed without overwriting `AGENTS.md` or other scaffold files.
 
+### AC9 — `/orchestrate` run-budget auto-tune (CDT-224 / M9b)
+
+A gate is **never** removed. This AC changes **which numbers** BC6 and M10.6 use on
+`/orchestrate`. It MUST NOT add a ninth blocking condition. It MUST NOT add `--skip-bcN`.
+It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
+
+- **M9b — Complexity-derived caps, `/orchestrate` only.** Auto-tune MUST run only when
+  `workflow=orchestrate`. `/kickoff` and `/epic` Mode A MUST keep static 25 / 2700 unless
+  env is set. An epic child's `/orchestrate` MUST derive its own tier. It MUST NOT inherit
+  a parent freeze. Autopilot off MUST keep M1 (no behavior change).
+
+  **Signals** (caller-supplied at `plan-approve`; NOT disk-read by the engine):
+  - `tasks` — plan task count (non-negative integer).
+  - `projected_loc` — projected **counted** LOC (M15). Run `loc-exclude.sh is-excluded`
+    on plan paths. Do not reimplement CDT-223. `--max-loc=unbound` MUST NOT zero this
+    signal.
+  - `waves` — parallel-wave count. A plan with no `depends_on` and no wave labels MUST
+    report `waves=1`. Else count topological ranks in the task graph (independent tasks
+    at the same depth share one rank).
+
+  Missing signals MUST fall back to `tasks=0`, `projected_loc=0`, `waves=1` (tier **S**).
+
+  **Tier table** (L first, then S, else M). One tier drives both caps:
+
+  | Match (first wins) | `tier` | `iteration_cap` | `wall_clock_cap_s` |
+  |---|---|---|---|
+  | `tasks≥6` OR `projected_loc>1000` OR `waves≥3` | **L** | 40 | 4500 |
+  | `tasks≤3` AND `projected_loc≤300` AND `waves=1` | **S** | 10 | 1200 |
+  | else | **M** | 25 | 2700 |
+
+  Auto-tune MUST NOT grant more than 40 stints or 4500 s. Env MAY exceed that ceiling.
+
+  Normative boundary rows:
+
+  | tasks | loc | waves | tier | caps |
+  |---|---|---|---|---|
+  | 3 | 300 | 1 | S | 10 / 1200 |
+  | 4 | 300 | 1 | M | 25 / 2700 |
+  | 3 | 301 | 1 | M | 25 / 2700 |
+  | 3 | 300 | 2 | M | 25 / 2700 |
+  | 5 | 1000 | 2 | M | 25 / 2700 |
+  | 6 | 100 | 1 | L | 40 / 4500 |
+  | 2 | 1001 | 1 | L | 40 / 4500 |
+  | 2 | 200 | 3 | L | 40 / 4500 |
+  | 100 | 5000 | 5 | L | 40 / 4500 |
+
+  `budget.tier` is **not** `--tier` and is **not** `council_tier`.
+
+  **Precedence** (per cap, independently). Env is set when the variable is **non-empty**.
+  Empty or unset is not set. Junk (not a non-negative integer) MUST exit 64.
+
+  1. Env (`AUTOPILOT_ITERATION_CAP` / `AUTOPILOT_WALLCLOCK_CAP`) if set.
+  2. Else auto-tune (table above) after freeze.
+  3. Else static M (25 / 2700).
+
+  Mixed = one cap from env and one from auto-tune. MUST NOT write
+  `AUTOPILOT_ITERATION_CAP` or `AUTOPILOT_WALLCLOCK_CAP` to apply auto-tune.
+
+  Pre-freeze `scope-confirm`: env or static M. S-tighter caps are **not** in force.
+
+  **Freeze.** At `plan-approve`, derive and mix env **before** the BC4/5/6 walk.
+  Write the freeze on that card. Later `/orchestrate` gates (including `ship-choice`)
+  MUST copy it. The freeze is immutable for the run, including resume. Mid-run env
+  mutation MUST NOT retune a frozen run. `reroute-epic` MUST NOT propagate frozen
+  caps. `resume-state.sh` MUST NOT seed caps from plan frontmatter. Pre-CDT-224 cards
+  (nested keys absent) resume as static M unless env is set.
+
+  **BC6** keeps the same compare (`iteration >= iteration_cap` OR
+  `wall_clock_s >= wall_clock_cap_s`) against **effective** numbers. Fixtures:
+
+  | Case | Expected |
+  |---|---|
+  | S freeze; `iteration=10` or `wall_clock_s≥1200` | BC6 halt |
+  | S freeze; `iteration=9` and `wall_clock_s=1199` | no BC6 |
+  | M freeze; `iteration=25` | BC6 halt |
+  | L freeze; `iteration=26` and `wall_clock_s=2701` | no BC6 |
+  | L freeze; `iteration=40` or `wall_clock_s≥4500` | BC6 halt |
+  | L table + env `AUTOPILOT_ITERATION_CAP=25` | BC6 halt at 25 (mixed/env) |
+  | `/kickoff` would-be S; `iteration=10` | no BC6 (static 25) |
+
+  **M10.6** is judgment against the effective wall-clock cap (AC4). MUST NOT suppress
+  M10.1–5.
+
+  **Helper argv** (`skills/autopilot/budget-check.sh`; extend; no second helper):
+
+  | Invocation | Caps | Env |
+  |---|---|---|
+  | `budget-check.sh <iteration> <run_start_epoch>` (argc=2) | env or static M | read `AUTOPILOT_*_CAP` as today |
+  | `budget-check.sh <iteration> <run_start_epoch> <iteration_cap> <wall_clock_cap_s>` (argc=4) | verbatim frozen caps | MUST NOT re-read `AUTOPILOT_*_CAP` |
+  | `budget-check.sh derive <tasks> <projected_loc> <waves>` | raw table only | MUST NOT read env |
+
+  Argc=3 MUST still exit 64 (existing test s3). Other argc MUST exit 64. `derive`
+  stdout is compact JSON `{tier, iteration_cap, wall_clock_cap_s, signals}`. Check
+  stdout keeps the existing **7 keys** with effective numbers. Kickoff/epic/scope-confirm
+  keep argc=2.
+
+  **Writer snapshot.** `append-card.sh` argc stays 13\|14\|15\|16. Effective caps and
+  nested `budget.*` come from process-local `AUTOPILOT_BUDGET_META` (compact JSON:
+  `iteration_cap`, `wall_clock_cap_s`, `tier`, `source`, `signals`). This name is
+  **not** `AUTOPILOT_ITERATION_CAP` or `AUTOPILOT_WALLCLOCK_CAP`. Unset META → current
+  env-or-default numerics and nested keys `null`. Set META → write those fields
+  verbatim; MUST NOT also apply `AUTOPILOT_*_CAP`. MUST NOT export META to a child
+  `/epic` or `/orchestrate`.
+
+  **Engine.** `self-answer.md` envelope MUST gain `tasks`, `projected_loc`, `waves`
+  at `plan-approve`. Derive then freeze before the BC walk. Later gates pass argc=4
+  from the freeze. F6 MUST pin M signals. Add S/L variants per the table above.
+
 ---
 
 ## SHOULD
@@ -770,6 +897,8 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
 - **S4** — When `--autopilot=<token>` is supplied, the `ship-choice` card SHOULD record the token
   in `bump` even when the chosen `decision` is `pr` (release tokens travel with the eventual
   release; `master` records land-no-release intent for audit).
+- **S5** — A freeze card SHOULD name the three signals (`tasks`, `projected_loc`, `waves`)
+  in `rationale` when `source` is `auto` or `mixed`.
 
 ---
 
@@ -850,6 +979,15 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
   via `--max-loc`.
 - **N11** — MUST NOT resume-seed `max_loc` and MUST NOT auto-propagate it on `reroute-epic`.
   The child `/epic` / `/orchestrate` invocation re-parses its own argv.
+- **N12** — MUST NOT write `AUTOPILOT_ITERATION_CAP` or `AUTOPILOT_WALLCLOCK_CAP` to apply
+  auto-tune. MUST NOT add a budget-cap flag or a seventh `parse-flags.sh` key.
+- **N13** — MUST NOT auto-tune `/kickoff` or `/epic` Mode A. MUST NOT inherit frozen caps
+  across `reroute-epic` or onto an epic child `/orchestrate`. MUST NOT resume-seed caps
+  via `resume-state.sh` plan frontmatter.
+- **N14** — MUST NOT add a fourth `gate` value, a new card `type`, or a ninth BC for
+  budget-tier. Nested `budget.tier` is **not** `--tier` and is **not** `council_tier`.
+  MUST NOT raise the auto-tune L ceiling above 40 / 4500. MUST NOT add a `/setup`
+  budget store. MUST NOT reimplement `loc-exclude.sh`.
 
 ---
 
@@ -861,7 +999,7 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
   via `/orchestrate`'s **Passive notifications → Tier B** helper (`skills/notify/webhook.sh`,
   fail-open); reuses the existing CDV-210 event enum — no new event, no new transport (AC3).
 - OQ2 — Whether the epic-level walker gets its own aggregate budget distinct from the sum of child
-  budgets — deferred until `/epic` autopilot wiring.
+  budgets — deferred until `/epic` autopilot wiring. **CDT-224 does not resolve OQ2** (AC9.10).
 - OQ3 — Whether `confidence` is self-reported by the answering agent or derived from a council
   micro-check — the schema accommodates either. **Resolved for `ship-choice` by M14
   (council-derived); remains self-reported for `scope-confirm` / `plan-approve`.**
@@ -872,6 +1010,7 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
 
 | Date | Change |
 |------|--------|
+| 2026-08-27 | CDT-224: **AC9 / M9b** — `/orchestrate` BC6 auto-tune from plan-approve signals (task count, counted LOC via M15, parallel waves). Tiers L-first then S else M; L ceiling 40 / 4500; S 10 / 1200; M 25 / 2700. Precedence per cap: env (non-empty) > auto-tune > static M. No cap flags; `parse-flags.sh` stays six-key. Freeze once before BC walk; ledger SoT on resume; no `AUTOPILOT_*_CAP` export. Kickoff / epic Mode A stay static. M10.6 uses L ceiling 4500 at unfrozen scope-confirm unless wall-clock env set; frozen cap after plan-approve. M13 nested `budget.{tier,source,signals}` additive nullable; 18 top-level keys; schema_version 1. Helper argv: argc 2 unchanged, argc 4 verbatim freeze, `derive` subcommand. Writer `AUTOPILOT_BUDGET_META`. N12–N14. Status stays DRAFT. |
 | 2026-08-27 | CDT-223: **AC8 / M15 / M16** — counted-LOC exclusion (`.gitattributes linguist-generated` ∪ built-in lockfile/`*.snap`/vendored-prefix list ∪ SPEC-009 specs/tests exemption) for BC4 per-PR, BC4 per-file, and M10.1; same definition for interactive SPEC-009 change-discipline. DRI `--max-loc=<n\|unbound>` flag-only (six-key `parse-flags.sh`, no env, junk→64, last-wins, not resume-seeded, not auto-propagated on reroute-epic). `n` raises/tightens per-PR hard cap + M10.1 only (per-file 1000 unchanged); `unbound` disables BC4 (per-PR and per-file) and M10.1; M10.2–6 / BC6 / BC3 / BC7 unchanged. M13 additive nullable `max_loc` (`schema_version` stays 1; `decided_by` stays `auto` on self-answer). Helper `skills/autopilot/loc-exclude.sh`. Scaffold seeds `.gitattributes`. Status stays DRAFT. |
 | 2026-08-16 | CDT-196: M11a(a) BC5 carry-forward MUST pass `--worktree --release <bump>` when bump is patch/minor/major; `/epic` persists `release_bump` so children cannot land on master. |
 | 2026-08-04 | Initial contract (CDT-111-C1) — mode activation (M1–M2), per-gate checklists + per-command checkpoint mapping (M3–M5), eight blocking conditions (M6–M8), run-budget defaults (M9), complexity-overflow reroute (M10–M11), contract home (M12), decision-card schema (M13), MUST NOTs N1–N8. Amended within the same DRAFT cycle by later CDT-111 children: C2 (card writer/reader paths), C5 (AC7 / M14 council ship gate), C6 (M11a reroute safety + state carry-forward), C7 (OQ1 notify transport), C8 (M9a resume wall-clock basis), C9 (N3a deterministic BC3 push-target check). *(This table itself was added 2026-08-05 by CDT-126 — the section was missing; the rows above reconstruct the DRAFT cycle that predates it.)* |

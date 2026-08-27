@@ -31,6 +31,11 @@
 #     grading_reason (before rationale). Pre-CDT-126 cards (no council pair)
 #     still receive the council-pair backfill AND max_loc. schema_version stays 1.
 #
+# CDT-224 — nested budget.{tier,source,signals} (M13/M9b, additive + nullable):
+#   * Absent nested keys are backfilled as explicit null after wall_clock_cap_s
+#     in frozen order (tier, source, signals). Pre-CDT-224 4-key budget objects
+#     remain valid (absent ≡ null). Top-level key count stays 18.
+#
 # Exit codes:
 #   0   success (including the empty/missing-ledger case)
 #  64   usage error (wrong argc), jq absent, unparseable ledger, or a card
@@ -81,15 +86,18 @@ if [ ! -s "$ledger_file" ]; then
   exit 0
 fi
 
-# ---- Parse + backfill the M13 nullable keys (CDT-126, CDT-223) --------------
+# ---- Parse + backfill the M13 nullable keys (CDT-126, CDT-223, CDT-224) -----
 # Insert council_tier/grading_reason as explicit nulls right after
 # blocking_condition when absent, then max_loc after grading_reason, so legacy
 # cards read back in the frozen M13 key order rather than silently lacking keys.
+# Nested budget.tier/source/signals: absent ≡ null after wall_clock_cap_s.
 if ! cards=$(jq -s '
   def insert_after($after; $pairs):
     to_entries
     | map(if .key == $after then ., $pairs[] else . end)
     | from_entries;
+  def ensure_null($key; $after):
+    if has($key) then . else insert_after($after; [{key: $key, value: null}]) end;
   map(
     if type != "object" then .
     else
@@ -99,10 +107,14 @@ if ! cards=$(jq -s '
               {key: "grading_reason", value: null}
             ])
        end)
-      | (if has("max_loc") then .
-         else insert_after("grading_reason"; [
-                {key: "max_loc", value: null}
-              ])
+      | ensure_null("max_loc"; "grading_reason")
+      | (if (has("budget") and (.budget | type) == "object") then
+           .budget |= (
+             ensure_null("tier"; "wall_clock_cap_s")
+             | ensure_null("source"; "tier")
+             | ensure_null("signals"; "source")
+           )
+         else .
          end)
     end
   )

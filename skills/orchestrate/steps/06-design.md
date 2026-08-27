@@ -86,10 +86,20 @@ Approve this plan? Want changes?
 
 **Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here — this is the
 autopilot-only `plan-approve` branch; when autopilot is off nothing changes and the
-existing approval gate below fires as the sole gate. Build the C3 §2 envelope
+existing approval gate below fires as the sole gate. Compute AC9 freeze signals from
+the plan (cite SPEC-033 AC9 / M9b; do **not** restate the tier table):
+- `tasks` — plan task count (non-negative integer).
+- `projected_loc` — projected **counted** LOC. For each plan path run
+  `loc-exclude.sh is-excluded <path>` (exit 0 exclude / 1 count; MUST NOT exit 2).
+  Caller applies M15 arm 3 (SPEC-009 specs/tests — the helper does not classify
+  tests). `--max-loc=unbound` MUST NOT zero this signal.
+- `waves` — `1` when the plan has no `depends_on` and no wave labels; else count
+  topological ranks (independent tasks at the same depth share one rank).
+Omit a missing signal (engine fallback `0,0,1`). Build the C3 §2 envelope
 `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP,
-max_loc:MAX_LOC, <per-task {file paths present?, verification step present?},
+max_loc:MAX_LOC, tasks:<task count>, projected_loc:<counted LOC>, waves:<wave count>,
+<per-task {file paths present?, verification step present?},
 projected counted LOC / per-file size (`loc-exclude.sh is-excluded`; M15),
 task-graph shape, destructive-op flags> }` and call
 `skills/autopilot/self-answer.md`'s procedure. Act on `decision`:

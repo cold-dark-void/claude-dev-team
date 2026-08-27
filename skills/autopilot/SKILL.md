@@ -269,7 +269,51 @@ consume the whole epic (each child's BC6 halt is child-scoped). A single shared 
 suffices across workflows — `/kickoff` and `/epic` Mode A are short (~2–6 stints) and sit
 far under the cap; and because they have *fewer* self-answerable gates (M5), autopilot
 tends to **halt earlier** there, lowering budget pressure. The 25-stint / 45-min defaults
-stand unchanged for all three workflows. Breaching either cap trips **BC6**.
+stand unchanged for `/kickoff` and `/epic` Mode A. `/orchestrate` MAY auto-tune per
+**M9b**. Auto-tune MUST NOT apply to `/kickoff` or `/epic` Mode A. Breaching either cap
+trips **BC6**.
+
+### M9b — `/orchestrate` auto-tune (SPEC-033 AC9)
+
+Cite SPEC-033 AC9. Do not fork the table. `budget.tier` is not `--tier` and is not
+`council_tier`.
+
+Signals at `plan-approve` (caller-supplied): `tasks`, `projected_loc` (M15
+`loc-exclude.sh is-excluded`; `--max-loc=unbound` MUST NOT zero it), `waves` (no
+`depends_on` and no wave labels → 1). Missing → `0,0,1` (S).
+
+L first, then S, else M. Same tier for both caps. L: `tasks≥6` OR `loc>1000` OR
+`waves≥3` → 40 / 4500. S: `tasks≤3` AND `loc≤300` AND `waves=1` → 10 / 1200. Else M
+→ 25 / 2700. Auto-tune MUST NOT grant more than 40 / 4500. Env MAY exceed.
+
+Precedence per cap: env (non-empty `AUTOPILOT_ITERATION_CAP` /
+`AUTOPILOT_WALLCLOCK_CAP`) > auto-tune > static M. Mixed = one env + one auto.
+MUST NOT write those env vars to apply auto-tune. No cap flags. `parse-flags.sh`
+stays six-key.
+
+Freeze at `plan-approve` **before** the BC4/5/6 walk. Copy onto later gates including
+`ship-choice`. Resume uses M9a synthetic epoch **plus** frozen caps from the
+plan-approve card. Pre-CDT-224 cards → static M unless env. Mid-run env mutation
+MUST NOT retune. `reroute-epic` MUST NOT propagate freeze. `resume-state.sh` MUST
+NOT seed caps.
+
+Pre-freeze `scope-confirm`: env or static M (S not in force). Kickoff / epic Mode A:
+argc=2 only.
+
+Helper (`budget-check.sh`; extend; no second file):
+
+```
+budget-check.sh <iteration> <run_start_epoch>
+budget-check.sh <iteration> <run_start_epoch> <iteration_cap> <wall_clock_cap_s>
+budget-check.sh derive <tasks> <projected_loc> <waves>
+```
+
+Argc=2 = current (env or static M). Argc=4 = verbatim freeze; MUST NOT re-read
+`AUTOPILOT_*_CAP`. `derive` = raw table; MUST NOT read env. Argc=3 still 64.
+Check JSON keeps 7 keys.
+
+Writer argc stays 13|14|15|16. Snapshot via process-local `AUTOPILOT_BUDGET_META`
+(not `AUTOPILOT_*_CAP`). Unset → nested `tier`/`source`/`signals` null.
 
 ---
 
@@ -288,8 +332,10 @@ the following holds at `scope-confirm` or `plan-approve`:
 4. The work requires **more than one distinct spec / contract home** (a signal of multiple
    independent concerns); or
 5. It touches **3 or more independent subsystems** with no common change surface; or
-6. The estimated single-run wall-clock would exceed the `wall_clock_cap` even with full
-   parallelism.
+6. The estimated single-run wall-clock would exceed the **effective** `wall_clock_cap`
+   even with full parallelism (M9b). Unfrozen `scope-confirm`: compare to **4500 s**
+   unless `AUTOPILOT_WALLCLOCK_CAP` is set. `plan-approve` and later: compare to frozen
+   `budget.wall_clock_cap_s`. MUST NOT suppress M10.1–5.
 
 **Reroute is non-blocking and reversible (M11).** On overflow, autopilot MUST record a
 `reroute-epic` decision card and hand the ticket to `/epic` decompose **autonomously** (no
@@ -374,7 +420,7 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
   "grading_reason": null,
   "max_loc": null,
   "rationale": "<one-line why>",
-  "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700 },
+  "budget": { "iteration": 0, "iteration_cap": 25, "wall_clock_s": 0, "wall_clock_cap_s": 2700, "tier": null, "source": null, "signals": null },
   "actor": "orchestrator"
 }
 ```
@@ -433,7 +479,15 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
 - `rationale` is a one-line summary and MUST NOT contain secrets, credentials, tokens, keys,
   or PII. Any evidence quoted from the repo, specs, or memory (e.g. the S2 resolution attempt)
   MUST be **redacted or summarized**, never copied verbatim into the card.
-- `budget` snapshots the run-budget counters at decision time.
+- `budget` snapshots the run-budget counters at decision time. Four numeric keys stay.
+  **CDT-224 / M9b** adds nested additive-nullable `tier` (`S|M|L|null`), `source`
+  (`auto|env|default|mixed|null`), and `signals` (`{tasks,projected_loc,waves}|null`).
+  Top-level key count stays 18. Gate enum stays the frozen 3-value set. `type` stays
+  `autopilot_decision`. `schema_version` stays 1. `read-cards.sh` MUST backfill absent
+  nested keys as `null`. Pre-freeze / kickoff / epic Mode A write nested nulls.
+  Plan-approve freeze and later `/orchestrate` cards copy the freeze. `rationale`
+  MUST mention `budget_tier` when `source` is `auto` or `mixed`, and env when `source`
+  is `env` or `mixed`. Nested `budget.tier` is not `--tier` and is not `council_tier`.
 - `actor` names the writer (e.g. `orchestrator`).
 
 ---
@@ -462,17 +516,20 @@ Contract notes (writer):
 - `run_id` is **caller-supplied and required** — never writer-derived (S3 is the caller's job).
 - `schema_version` (const `1`), `type` (const `autopilot_decision`), and `ts`
   (`date -u +%Y-%m-%dT%H:%M:%SZ`) are writer-derived and MUST NOT be passed in.
-- `iteration_cap` / `wall_clock_cap_s` are resolved from `AUTOPILOT_ITERATION_CAP` /
-  `AUTOPILOT_WALLCLOCK_CAP` (defaults 25 / 2700) — the single source for the M9 defaults.
+- `iteration_cap` / `wall_clock_cap_s` are resolved from `AUTOPILOT_BUDGET_META` when
+  set (verbatim freeze / mixed snapshot; M9b). Else from `AUTOPILOT_ITERATION_CAP` /
+  `AUTOPILOT_WALLCLOCK_CAP` (defaults 25 / 2700). Nested `tier`/`source`/`signals`
+  are null when META is unset. MUST NOT write `AUTOPILOT_*_CAP` to apply auto-tune.
 - Enforced M13 invariants: `bump` non-null **only** when `gate=ship-choice`; `confidence` < 80
   **required** when `blocking_condition=7`; `council_tier`/`grading_reason` non-null **only**
   when `gate=ship-choice` (CDT-126 — deliberately weaker than M13's prose rule, which scopes
   them to the M14 card alone; see `ship-gate-council.md` §6 for why the writer cannot tell
   the two ship-choice cards apart). `rationale` and `grading_reason` reject newlines/control
   chars (semantic secret-scrubbing remains the caller's obligation, M13).
-- Reader-side (CDT-126 / CDT-223): `read-cards.sh` backfills absent `council_tier` /
-  `grading_reason` and absent `max_loc` as explicit `null`s in frozen key order (M13
-  absent ≡ null; `max_loc` immediately after `grading_reason`) and re-checks the same
-  ship-choice invariant, exiting 64 on a ledger that violates it.
+- Reader-side (CDT-126 / CDT-223 / CDT-224): `read-cards.sh` backfills absent
+  `council_tier` / `grading_reason` and absent `max_loc` as explicit `null`s in frozen
+  key order (M13 absent ≡ null; `max_loc` immediately after `grading_reason`). It also
+  backfills absent nested `budget.tier` / `budget.source` / `budget.signals` as `null`.
+  It re-checks the ship-choice invariant, exiting 64 on a ledger that violates it.
 - Path `$MROOT/.claude/autopilot/<ticket_id>.jsonl`; sequential per-ticket-file appends (no
   flock — a single JSON line is < PIPE_BUF, so concurrent same-file appends stay whole).

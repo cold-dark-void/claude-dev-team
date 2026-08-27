@@ -3,6 +3,7 @@
 ## Step 2: Evaluate issue and confirm scope with user
 
 When `[ "$ORCH_TIER" = "null" ]` (no `--tier` on this run): classify S/M/L from cheap signals with NO extra agent spawn: AC count, estimated files touched, bugfix-vs-feature shape, diff-size guess. Mapping: S → light, M → standard, L → full. Classification failure or missing signals → propose `standard`. Show proposed tier + one-line rationale in THIS same gate (not a new gate). Autopilot `proceed` uses the proposed tier unless overridden. Decision-card records proposed + selected. After confirm/override, bind `ORCH_TIER=<selected>` (`light` / `standard` / `full`).
+`ORCH_TIER` S/M/L (pipeline `light`/`standard`/`full`) is **not** `budget.tier` (N14). Do not bind them.
 
 When `--tier` was explicit (`light` / `standard` / `full` already bound in Step 0): skip classification; the flag wins. Still show the resolved tier in the gate for visibility.
 
@@ -31,7 +32,9 @@ My assessment:
 Proceed with this scope? Any adjustments? Confirm or override the tier.
 ```
 
-**Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the
+**Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Pre-freeze:
+MUST NOT pass auto-tune signals `tasks` / `projected_loc` / `waves` (argc=2; S-tighter
+caps are not in force — AC9). Build the
 C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"scope-confirm",
 run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
 autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <issue-text sufficiency evidence, destructive-op flags,
