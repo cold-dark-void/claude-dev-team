@@ -2,7 +2,7 @@
 
 Setup, initialization, and memory configuration for the claude-dev-team plugin.
 
-Primary Surface: **[`/setup`](commands/setup.md)** — `project` · `orchestration` · `team` (prefer over legacy `/init-team` / skill discovery for scaffold and orchestration).
+Primary Surface: **[`/setup`](commands/setup.md)** — `project` · `orchestration` · `team` · `models` (prefer over legacy `/init-team` / skill discovery for scaffold and orchestration).
 
 ---
 

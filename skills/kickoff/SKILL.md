@@ -260,6 +260,22 @@ Do **not** hardcode `.worktrees/<TICKET-ID>` when the ticket may be an epic shar
 Spawn **three** agents simultaneously. Do not wait for one before starting the others.
 
 ### PM prompt (send now):
+
+Before spawning @pm:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" pm)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for pm; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 ```
 You are @pm. Review ticket <TICKET-ID>:
 
@@ -280,6 +296,22 @@ orchestrator; there is no addressable parent.
 ```
 
 ### Tech Lead prompt (send now, in parallel):
+
+Before spawning @tech-lead:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" tech-lead)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 ```
 You are @tech-lead. Orient on ticket <TICKET-ID> while @pm reviews scope.
 
@@ -368,7 +400,23 @@ Please answer each one so we can lock scope.
 
 If PM had no open questions, skip to Step 4.
 
-Collect answers. Feed them back to PM:
+Collect answers. Feed them back to PM (new @pm spawn — resolve model first):
+
+Before spawning @pm:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" pm)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for pm; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 ```
 @pm — user answers to your open questions:
 <answers>
@@ -470,6 +518,21 @@ below finds nothing and commits an empty/failed spec while the real file sits el
 
 ### If spec needs to be created:
 
+Before spawning @tech-lead:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" tech-lead)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 ```
 @tech-lead Write SPEC-NNN for <feature area> based on:
 - Confirmed ACs: <list>
@@ -501,6 +564,21 @@ ls "$WT_PATH/specs/core/" | grep -oP 'SPEC-\K\d+' | sort -n | tail -1
 
 ### If spec needs updating:
 
+Before spawning @tech-lead:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" tech-lead)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 ```
 @tech-lead Update <spec-file> to reflect the confirmed ACs for <TICKET-ID>.
 Add/modify only what this ticket changes. Do not remove existing requirements
@@ -530,6 +608,21 @@ git -C "$WT_PATH" commit -m "spec: <TICKET-ID> — add/update <feature area> spe
 
 The Step 5 **Spawned-agent path contract** applies here too: substitute the resolved
 absolute Step 1b worktree path for `<WT_PATH>` before sending, or spawn with that cwd.
+
+Before spawning @tech-lead:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" tech-lead)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
 
 ```
 @tech-lead Produce the implementation plan for <TICKET-ID>.

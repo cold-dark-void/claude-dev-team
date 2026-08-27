@@ -87,6 +87,76 @@ is a bug.
 
 ---
 
+## Model map (SPEC-037)
+
+Named-roster Task/Agent spawns honor `$MROOT/.claude/dev-team/models.local.json`
+via `resolve-model.sh`. Empty stdout = **Tier default** (omit `model`; MUST
+NOT pass `""`). Surface resolver stderr. Do not swallow. Mapping
+`council-judge` MUST NOT add tools (`tools: ""` stays empty).
+
+**Wired roles** (one fence per role; same fence for later spawns of this
+agent). Resolve the agent actually spawned. Named fallback `ic5`→`ic4`
+resolves `ic4`. Unnamed / `general-purpose` / Explore: omit the fence.
+
+**Omit (OQ1):** Phase 1 extractor, Phase 3 specialist, Phase 4
+prosecutor/advocate, `--blind` extra waves.
+
+### Investigator (`ic5`) — Phase 2
+
+Before spawning @ic5:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" ic5)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
+### Cross-reviewer (`ic4`) — Phase 2.5
+
+Before spawning @ic4:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" ic4)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic4; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
+### Judge (`council-judge`) — Phase 5
+
+Before spawning @council-judge:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" council-judge)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for council-judge; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
+Dispatch surface: `commands/council.md` points here and contains the same
+three role fences at Phase 2 / 2.5 / 5.
+
+---
+
 ## Invocation Contract
 
 ### CLI arguments
@@ -296,6 +366,9 @@ prior verdicts.
 ### Phase 2 — Parallel Investigation
 
 **Spawn contract:**
+- **Model map:** resolve `ic5` first (canonical fence in § Model map). Named
+  fallback `ic5`→`ic4` resolves `ic4` (same fence for later spawns of that
+  agent). Unnamed / `general-purpose` / Explore: omit the fence.
 - Spawn investigators via the Task tool with
   **`subagent_type: "dev-team:ic5"` preferred** (CDT-133 — named `dev-team:*`
   agents delivered final output more reliably than bare `general-purpose` in
@@ -585,6 +658,9 @@ bundle. This phase is implemented in the council pipeline (driven by
 not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
 
 **Spawn contract:**
+- **Model map:** resolve `ic4` first (canonical fence in § Model map). Same
+  fence for later `ic4` spawns of this agent. Unnamed / `general-purpose`:
+  omit the fence.
 - For N investigators, spawn N cross-reviewers via the Task tool
   (`subagent_type: "dev-team:ic4"` preferred; fallback `general-purpose` —
   CDT-133), in parallel.
@@ -699,7 +775,8 @@ Devil's Advocate).
 
 **Agent:** `agents/council-judge.md`. Structurally
 forbidden from running tools via `tools: ""` in YAML frontmatter. (SPEC-013
-lines 79–80, 86.)
+lines 79–80, 86.) **Model map:** resolve `council-judge` first (canonical
+fence in § Model map). Mapping its model MUST NOT add tools.
 
 **Engine passes to the Judge** (plan key `phases.5_judgment.inputs` is the
 authoritative per-run list):

@@ -4,22 +4,23 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `commands/setup.md` (single entry `/setup` with subs `project` | `orchestration` | `team`), `agents/project-init.md` (invoked by `/setup team`), `commands/init-team.md` (Deprecation stub → `/setup team`, CDT-46-C4), `skills/memory-store/download-extensions.sh`, `skills/scaffold-project/SKILL.md` (protocol retained; skill-delegate from `/setup project`, CDT-46-C4), `skills/init-orchestration/SKILL.md` (protocol retained; skill-delegate from `/setup orchestration`, CDT-46-C4; Step 4h known-legacy-orphan sweep + Step 9 summary, CDT-76), `skills/init-orchestration/sweep-legacy-orphans.sh`, `skills/init-orchestration/test-sweep-legacy-orphans.sh`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2; historical only)
+**Covers**: `commands/setup.md` (single entry `/setup` with subs `project` | `orchestration` | `team` | `models`), `agents/project-init.md` (invoked by `/setup team`), `commands/init-team.md` (Deprecation stub → `/setup team`, CDT-46-C4), `skills/memory-store/download-extensions.sh`, `skills/scaffold-project/SKILL.md` (protocol retained; skill-delegate from `/setup project`, CDT-46-C4), `skills/init-orchestration/SKILL.md` (protocol retained; skill-delegate from `/setup orchestration`, CDT-46-C4; Step 4h known-legacy-orphan sweep + Step 9 summary, CDT-76), `skills/init-orchestration/sweep-legacy-orphans.sh`, `skills/init-orchestration/test-sweep-legacy-orphans.sh`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2; historical only), `skills/model-map/write-model.sh` (skill-delegate from `/setup models`, CDT-228)
 
 ## Overview
 
 Everything needed to get the dev-team running in a new or existing project. Includes SQLite DB initialization, extension downloads, project scanning, cortex file generation for all 7 agents, project scaffolding (TDD structure for greenfield), and orchestration setup (sandbox, permissions, hooks for brownfield). All bootstrap operations are idempotent.
 
-**User-facing entry:** `/setup <project|orchestration|team>` is the **sole** onboarding dispatcher (`commands/setup.md`). The three subs remain **behaviorally distinct** protocols (greenfield scaffold vs brownfield orchestration vs team memory bootstrap) under one Surface — not three primary slash commands. `/init-team` is a deprecation stub only; do not treat it as the primary entry.
+**User-facing entry:** `/setup <project|orchestration|team|models>` is the **sole** onboarding dispatcher (`commands/setup.md`). The three onboarding subs remain **behaviorally distinct** protocols (greenfield scaffold vs brownfield orchestration vs team memory bootstrap) under one Surface — not three primary slash commands. `models` is a known non-bootstrap sub (local Model map; SPEC-037). `/init-team` is a deprecation stub only; do not treat it as the primary entry.
 
 ## MUST
 
 ### `/setup` dispatcher entry (CDT-46-C4)
 
-- MUST provide user-invocable `commands/setup.md` with subs: `project` | `orchestration` | `team`
-- MUST map: `project` → former scaffold-project behavior; `orchestration` → former init-orchestration behavior; `team` → former init-team behavior (flag pass-through: `--refresh`, `--migrate-only`, `--no-extensions`)
-- bare `/setup` or unknown sub MUST print usage and MUST NOT mutate project state
-- MUST keep the three flows as separate protocols (no merged greenfield/brownfield/team logic) — dispatcher only
+- MUST provide user-invocable `commands/setup.md` with subs: `project` | `orchestration` | `team` | `models`
+- MUST map: `project` → former scaffold-project behavior; `orchestration` → former init-orchestration behavior; `team` → former init-team behavior (flag pass-through: `--refresh`, `--migrate-only`, `--no-extensions`); `models` → `skills/model-map/write-model.sh` (bare = list; `set` / `unset` pass through; SPEC-037 M20)
+- bare `/setup` or unknown sub MUST print usage and MUST NOT mutate project state; `models` is a known sub
+- MUST keep the three onboarding flows as separate protocols (no merged greenfield/brownfield/team logic) — dispatcher only
+- `/setup models` MUST NOT hard-gate on doctor
 - `commands/init-team.md` MUST be a one-cycle Deprecation stub pointing to `/setup team` (removed at v1.1)
 
 ### Team Initialization (`/setup team`)
@@ -200,6 +201,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | 2026-07-22 | CDT-67: doctor gate passes `--gate=<sub>` (`team` / `orchestration`); M6c self-remediation (exact fix-it match) does not block. |
 | 2026-07-22 | CDT-76: known-legacy-orphan sweep on /setup orchestration Step 4 — finite list (v1: bash-compress-wrapper.sh); bak-force + FORCE-OVERWRITE; ref-guard WARN; Step 9 summary. |
 | 2026-08-08 | CDT-173: present-file SHA-256 re-verification. The unconditional `[skip] already present` short-circuit in `download_and_extract()` / `download_file()` skipped integrity checking entirely, so a tampered or corrupt on-disk `vec0.so` / `lembed0.so` / `.gguf` was `.load`ed forever (partial regression of the CLUSTER-010 fail-closed guarantee). Skip is now conditional on the present file matching its pin; mismatch/unverifiable deletes and re-downloads. Adds a second pinned table for the **extracted member** (`.so`/`.dylib`) alongside the existing tarball pins — a sidecar hash file was rejected as a self-attesting anchor (an attacker who can write the binary can write the sidecar) and because it would break the documented hand-place-the-file recovery path. Member pin also closes a latent defect: the post-extract `find … \| head -1` could `mv` a stray tarball member (LICENSE/README) into place with the tarball hash still matching. No change to SPEC-005's no-block-on-failure guarantee — helpers return non-zero, call sites keep `\|\| true`, top level never `exit 1`. |
+| 2026-08-26 | CDT-228: `/setup models` dispatch (local Model map writer; not doctor-gated). Subs are `project` \| `orchestration` \| `team` \| `models`. Status stays ACTIVE. |
 
 ## Cross-references
 

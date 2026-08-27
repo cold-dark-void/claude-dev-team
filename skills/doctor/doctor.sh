@@ -1466,6 +1466,98 @@ print("no")
   fi
 }
 
+# SPEC-037 M19 / CDT-228: Model map layers. WARN never FAIL.
+check_models_map() {
+  local id="models.map" group="config"
+  local local_map="$MROOT/.claude/dev-team/models.local.json"
+  local repo_map="$MROOT/.claude/dev-team/models.json"
+  local global_map="${HOME:-}/.claude/dev-team/models.json"
+  local present="" p problems="" m9="" key typ raw trimmed atype
+
+  for p in "$local_map" "$repo_map" "$global_map"; do
+    [ -f "$p" ] || continue
+    present="${present}${p}"$'\n'
+  done
+  if [ -z "$present" ]; then
+    record "$id" "$group" "SKIP" "no Model map files" ""
+    return 0
+  fi
+  if ! have_cmd jq; then
+    record "$id" "$group" "WARN" \
+      "jq absent — cannot validate Model map" \
+      "Install jq (system package manager)"
+    return 0
+  fi
+
+  _mmap_is_mappable() {
+    case "$1" in
+      pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  while IFS= read -r p || [ -n "$p" ]; do
+    [ -n "$p" ] || continue
+    if ! jq empty "$p" >/dev/null 2>&1; then
+      problems="${problems:+$problems; }unparseable JSON at ${p}"
+      continue
+    fi
+    if [ "$(jq -r 'type' "$p" 2>/dev/null || true)" != "object" ]; then
+      problems="${problems:+$problems; }unparseable JSON at ${p}"
+      continue
+    fi
+    if jq -e 'has("agents")' "$p" >/dev/null 2>&1; then
+      atype=$(jq -r '.agents | type' "$p" 2>/dev/null) || atype=""
+      if [ "$atype" != "object" ]; then
+        problems="${problems:+$problems; }agents is not an object at ${p}"
+        continue
+      fi
+    else
+      continue
+    fi
+    while IFS= read -r key || [ -n "$key" ]; do
+      [ -n "$key" ] || continue
+      if ! _mmap_is_mappable "$key"; then
+        problems="${problems:+$problems; }unknown agent key '${key}' in ${p}"
+        continue
+      fi
+      typ=$(jq -r --arg n "$key" '.agents[$n] | type' "$p" 2>/dev/null) || typ=""
+      if [ "$typ" != "string" ]; then
+        problems="${problems:+$problems; }agents.${key} is not a non-empty string in ${p}"
+        continue
+      fi
+      raw=$(jq -r --arg n "$key" '.agents[$n]' "$p" 2>/dev/null) || raw=""
+      trimmed=$(trim_ws "$raw")
+      if [ -z "$trimmed" ]; then
+        problems="${problems:+$problems; }agents.${key} is not a non-empty string in ${p}"
+        continue
+      fi
+      case "$key" in
+        qa|council-judge)
+          case " $m9 " in
+            *" $key "*) ;;
+            *) m9="${m9:+$m9 }$key" ;;
+          esac
+          ;;
+      esac
+    done < <(jq -r '.agents | keys[]' "$p" 2>/dev/null || true)
+  done <<< "$present"
+
+  if [ -n "$problems" ]; then
+    record "$id" "$group" "WARN" "$problems" "/setup models"
+    return 0
+  fi
+  if [ -n "$m9" ]; then
+    local name m9detail=""
+    for name in $m9; do
+      m9detail="${m9detail:+$m9detail; }model-map: override for adversarial role '${name}' is allowed and may weaken the gate"
+    done
+    record "$id" "$group" "WARN" "$m9detail" "/setup models"
+    return 0
+  fi
+  record "$id" "$group" "PASS" "Model map JSON valid" ""
+}
+
 # ---------------------------------------------------------------------------
 # Register all checks
 # ---------------------------------------------------------------------------
@@ -1492,6 +1584,7 @@ register_check "deps.gh" "deps" check_deps_gh
 register_check "worktree.locks" "worktree" check_worktree_locks
 register_check "worktree.distill_lock" "worktree" check_worktree_distill_lock
 register_check "transcript.mirror_lag" "transcript" check_transcript_mirror_lag
+register_check "models.map" "config" check_models_map
 
 # ---------------------------------------------------------------------------
 # --only filter validation
@@ -1516,7 +1609,7 @@ if [ -n "$ONLY_FILTER" ]; then
   done
   if [ "$known" -eq 0 ]; then
     echo "doctor: unknown check id or group: $ONLY_FILTER" >&2
-    echo "Known groups: version memory hooks settings deps worktree plugin transcript" >&2
+    echo "Known groups: version memory hooks settings deps worktree plugin transcript config" >&2
     echo "Known ids: ${REG_IDS[*]}" >&2
     exit 64
   fi

@@ -908,6 +908,17 @@ Read `$FT_SKILL` and execute its Steps 0–8 with the parsed ticket args
 (worktree ensure → premise verify ic5 → implement ic4/ic5 → N qa refuters →
 orchestrator review → report under `$MROOT/.claude/fix-ticket/` → next steps).
 
+**Model map (SPEC-037):** ticket-mode named-roster spawns honor the
+fix-ticket Model map contract (`skills/fix-ticket/SKILL.md` Steps 3–5).
+Call `resolve-model.sh` as a subprocess via `plugin-dir.sh file` (never
+source the resolver). Empty stdout omits `model` (MUST NOT pass `""`).
+If spawn fails attributed to the model param (invalid/unknown/unsupported
+model): retry once with model omitted; warn
+`model-map: host rejected model '<string>' for <agent>; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+`full` / `patch` / `arch` have no named-roster Agent spawns — omit the
+fence. Unnamed / `general-purpose` / Explore: omit the fence.
+
 Load prompts/templates from the same skill dir:
 
 ```bash

@@ -2,17 +2,19 @@
 name: setup
 description: >
   Onboarding dispatcher — project scaffold (TDD structure), orchestration
-  bootstrap (sandbox/hooks/teams), or team memory init (SQLite + project-init).
-  Usage /setup <project|orchestration|team> [flags...]. Bare/unknown prints
+  bootstrap (sandbox/hooks/teams), team memory init (SQLite + project-init),
+  or Model map (local per-agent model strings). Usage /setup
+  <project|orchestration|team|models> [flags...]. Bare/unknown prints
   usage only (no side effects).
-argument-hint: "<project|orchestration|team> [flags...]"
+argument-hint: "<project|orchestration|team|models> [flags...]"
 agent: build
 ---
 
 # /setup — Onboarding Dispatcher
 
-Single entry for project onboarding (SPEC-005). Three **behaviorally distinct**
-flows share one Surface — do not merge their protocols.
+Single entry for project onboarding plus the Model map (SPEC-005). The
+onboarding subs stay **behaviorally distinct** — do not merge their protocols.
+`models` is a known sub and is **not** doctor-gated.
 
 ## Dispatch
 
@@ -25,7 +27,7 @@ Remaining args (including flags) pass through unchanged to the routed sub.
 ### Usage (bare / unknown — prose only, zero side effects)
 
 ```
-Usage: /setup <project|orchestration|team> [flags...]
+Usage: /setup <project|orchestration|team|models> [flags...]
 
 Subs:
   project         Scaffold TDD workflow structure (AGENTS.md, specs/TDD.md,
@@ -39,6 +41,9 @@ Subs:
                   project-init scan). Hard-gates on dev-team:doctor.
                   Flags: --refresh --migrate-only --no-extensions
                   --skip-doctor
+  models          Local Model map (read/write
+                  $MROOT/.claude/dev-team/models.local.json only).
+                  Not doctor-gated. Bare = list; set/unset pass through.
 
 Examples:
   /setup project
@@ -49,6 +54,9 @@ Examples:
   /setup team --migrate-only
   /setup team --no-extensions
   /setup team --skip-doctor
+  /setup models
+  /setup models set ic4 grok-code-fast-1
+  /setup models unset ic4
 ```
 
 Unknown/missing sub → print this usage and stop. **MUST NOT** mutate project state.
@@ -58,7 +66,8 @@ hard-gate on plugin **`dev-team:doctor`** (NOT the Claude Code harness built-in
 `/doctor`) with `--gate=team` / `--gate=orchestration`. Exit ≤1 continues (including
 self-remediating FAILs whose fix-it exactly matches the active sub); exit 2 blocks.
 Override: `--skip-doctor` prints an explicit WARNING then continues. `/setup project`
-is soft-advisory only. Marketplace install has no doctor gate.
+is soft-advisory only. `/setup models` is **not** gated on doctor. Marketplace
+install has no doctor gate.
 
 ## Routing table
 
@@ -67,14 +76,17 @@ is soft-advisory only. Marketplace install has no doctor gate.
 | `project` | **skill-delegate** | `skills/scaffold-project/SKILL.md` (internal backend) |
 | `orchestration` | **skill-delegate** | `skills/init-orchestration/SKILL.md` (internal backend) |
 | `team` | **inline** | former `commands/init-team.md` body; flags pass through |
+| `models` | **skill-delegate** | `skills/model-map/write-model.sh` via `plugin-dir.sh file` (SPEC-037) |
 
-The three protocols stay distinct (greenfield scaffold vs brownfield orchestration
-vs team memory bootstrap). Dispatcher only — no semantic merge.
+The three onboarding protocols stay distinct (greenfield scaffold vs brownfield
+orchestration vs team memory bootstrap). Dispatcher only — no semantic merge.
+`models` writes local Model map JSON only (never repo/global).
 
 ```
 /setup project
 /setup orchestration
 /setup team [--refresh|--migrate-only|--no-extensions]
+/setup models [set <agent> <string>|unset <agent>]
 ```
 
 ---
@@ -491,3 +503,38 @@ warm start: N memories imported for M agents from pack dated <date>; K rejected
 
 Parse counts from `$SEED_IMPORT_SUMMARY` when non-empty; omit this line entirely when
 no pack was present (M11).
+
+---
+
+## Sub: `models` — skill-delegate → `skills/model-map/write-model.sh`
+
+Local Model map only (SPEC-037). **Do not** write repo
+`$MROOT/.claude/dev-team/models.json` or global `~/.claude/dev-team/models.json`.
+**Do not** inline JSON writes in this command — call `write-model.sh` as a
+subprocess. **Not** doctor-gated (unlike `team` / `orchestration`). Unknown
+remainder after a known `models` verb still must not mutate: pass through to
+the CLI (bad argv → exit 64, no write).
+
+| Invocation | Maps to |
+|------------|---------|
+| `/setup models` | `write-model.sh list` (read-only) |
+| `/setup models set <agent> <string>` | `write-model.sh set <agent> <string>` |
+| `/setup models unset <agent>` | `write-model.sh unset <agent>` |
+
+Protocol (also in `skills/model-map/SKILL.md`):
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+WRITE_MODEL=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/write-model.sh)
+if [ -z "$WRITE_MODEL" ] || [ ! -f "$WRITE_MODEL" ]; then
+  echo "error: skills/model-map/write-model.sh not found in the installed plugin" >&2
+  exit 1
+fi
+# Remaining args after `models` pass through unchanged (empty → list).
+[ "${1:-}" = "models" ] && shift
+bash "$WRITE_MODEL" "${1:-list}" "${@:2}"
+```
+
+Surface CLI stderr (M9 adversarial warn, unparseable refuse). Do not reimplement
+layer merge — `list` calls `resolve-model.sh`.

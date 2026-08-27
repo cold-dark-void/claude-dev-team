@@ -24,7 +24,7 @@ FAIL.
 | _(none)_ | Full battery, human table |
 | `--json` | Single JSON document on stdout |
 | `--fix` | Apply allowlisted repairs only (see below) |
-| `--only <id\|group>` | Run a subset of checks (groups include `transcript`; id `transcript.mirror_lag`) |
+| `--only <id\|group>` | Run a subset of checks (groups include `transcript`, `config`; ids `transcript.mirror_lag`, `models.map`) |
 | `--gate=<orchestration\|team>` | Gate-mode self-remediation (M6c / CDT-67) |
 | `-h` / `--help` | Usage |
 
@@ -36,6 +36,8 @@ Flags may combine: `/doctor --json --only memory`. Focused transcript lag:
 1. Clear held `distilling_lock` (mirrors `/memory distill --force`)
 2. Remove STALE-per-SPEC-016 `.wt-lock` files (not FRESH; not worktree dirs)
 3. Sweep `.claude/handoff/cache/*.tmp`
+
+MUST NOT rewrite the Model map (`models.map` is WARN-never-FAIL; not on this allowlist).
 
 TTY → confirm each repair. Non-TTY → apply. Second `--fix` is a no-op when clean.
 

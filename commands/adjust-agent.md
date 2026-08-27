@@ -1,7 +1,7 @@
 ---
 name: adjust-agent
-description: View and manage per-agent behavioral directives — standing orders that persist across sessions.
-argument-hint: "[<agent>] [--apply] [<prompt>]"
+description: View and manage per-agent behavioral directives — standing orders that persist across sessions. Also sets the local Model map via --model / --model-unset.
+argument-hint: "[<agent>] [--apply] [--model <string>] [--model-unset] [<prompt>]"
 agent: build
 ---
 
@@ -17,6 +17,8 @@ agent's own reasoning.
 - `/adjust-agent <agent>` — Read-only view of current directives for one agent
 - `/adjust-agent <agent> <prompt>` — Conversational adjustment of an agent's directives
 - `/adjust-agent <agent> --apply <prompt>` — Non-interactive adjustment: applies directly on no conflict, exits non-zero on conflict (never prompts)
+- `/adjust-agent <agent> --model <string>` — Write local Model map (`write-model.sh set`). Not a directives conversation.
+- `/adjust-agent <agent> --model-unset` — Delete that agent's local Model map key (`write-model.sh unset`). Not a directives conversation.
 
 ## Step 1: Resolve paths
 
@@ -39,10 +41,19 @@ PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)
 
 Extract the first word as `AGENT` and the remainder as `PROMPT` from the arguments.
 
+Parse `--model` / `--model-unset` **before** treating the remainder as a
+directives prompt. `--model` is not a directive conversation and MUST NOT
+fall through to Step 5.
+
 - If no arguments: go to **Step 3** (Dashboard mode)
+- If agent name + `--model-unset`: go to **Step 7** (Model map unset)
+- If agent name + `--model` + string: go to **Step 7** (Model map set)
 - If agent name only (one word, no prompt): go to **Step 4** (Read-only mode)
 - If agent name + `--apply` + prompt: go to **Step 6** (Non-interactive apply mode)
 - If agent name + prompt (no `--apply`): go to **Step 5** (Adjustment mode)
+
+`council-judge` is mappable (Step 7) even though it is not in the 7-agent
+dashboard roster.
 
 ## Step 3: Dashboard mode (no arguments)
 
@@ -54,27 +65,40 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 DIRECTIVES_BASE="$MROOT/.claude/memory"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE_MODEL=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+echo "Agent        Directives  Model"
+echo "-----        ----------  -----"
 for AGENT in pm tech-lead ic5 ic4 devops qa ds; do
   FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
   COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || echo 0)
-  printf "%-12s %s\n" "$AGENT" "$COUNT"
+  MODEL=""
+  if [ -n "$RESOLVE_MODEL" ] && [ -f "$RESOLVE_MODEL" ]; then
+    MODEL=$(bash "$RESOLVE_MODEL" "$AGENT") || MODEL=""
+  fi
+  [ -n "$MODEL" ] || MODEL="Tier default"
+  printf "%-12s %-11s %s\n" "$AGENT" "$COUNT" "$MODEL"
 done
 ```
 
-Display as an aligned table:
+Display as an aligned table (Model column is the resolved Model map string, or
+`Tier default` when empty). `council-judge` is omitted from this roster; use
+`/adjust-agent council-judge --model <string>` to map it.
 
 ```
-Agent        Directives
------        ----------
-pm           3
-tech-lead    0
-ic5          1
-ic4          2
-devops       0
-qa           0
-ds           0
+Agent        Directives  Model
+-----        ----------  -----
+pm           3           grok-4
+tech-lead    0           Tier default
+ic5          1           Tier default
+ic4          2           grok-code-fast-1
+devops       0           Tier default
+qa           0           Tier default
+ds           0           Tier default
 
-Use: /adjust-agent <agent> to view, or /adjust-agent <agent> <prompt> to adjust.
+Use: /adjust-agent <agent> to view, /adjust-agent <agent> <prompt> to adjust,
+or /adjust-agent <agent> --model <string> / --model-unset for the Model map.
 ```
 
 Stop here.
@@ -287,3 +311,39 @@ Exit 0.
 
 Trial KEEP-strip and REVERT-remove prompts (Step 5d shapes) work under `--apply`
 the same way as any other non-conflicting rewrite.
+
+## Step 7: Model map (`--model` / `--model-unset`)
+
+Not a directives conversation. Do **not** mix into Step 5. Writes only the
+local Model map via `write-model.sh` (never repo/global, never `directives.md`).
+
+`--model <string>` → `write-model.sh set <agent> <string>`
+`--model-unset` → `write-model.sh unset <agent>`
+
+`council-judge` is allowed (M8). `qa` / `council-judge` emit the M9 warn on
+stderr; still write. Unknown agent / empty string: CLI exits 64 (print stderr).
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+WRITE_MODEL=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/write-model.sh)
+if [ -z "$WRITE_MODEL" ] || [ ! -f "$WRITE_MODEL" ]; then
+  echo "error: skills/model-map/write-model.sh not found in the installed plugin" >&2
+  exit 1
+fi
+AGENT="${1:-}"
+shift || true
+case "${1:-}" in
+  --model-unset) bash "$WRITE_MODEL" unset "$AGENT" ;;
+  --model)
+    shift || true
+    bash "$WRITE_MODEL" set "$AGENT" "${1:-}"
+    ;;
+  *)
+    echo "usage: /adjust-agent <agent> --model <string> | --model-unset" >&2
+    exit 64
+    ;;
+esac
+```
+
+Stop here. Do not open a directives rewrite.

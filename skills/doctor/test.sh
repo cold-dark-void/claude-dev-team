@@ -1909,6 +1909,202 @@ else
 fi
 
 # =============================================================================
+# T24. models.map (SPEC-037 M19 / CDT-228) — SKIP/PASS/WARN; never FAIL
+# =============================================================================
+T24_HOME="$TMP/t24-home"
+mkdir -p "$T24_HOME"
+t24_doctor() {
+  HOME="$T24_HOME" bash "$DOCTOR" "$@"
+}
+t24_field() {
+  local json="$1" field="$2"
+  printf '%s' "$json" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+c = d["checks"][0] if d.get("checks") else {}
+v = c.get(sys.argv[1])
+print("" if v is None else v)
+' "$field" 2>/dev/null || echo ERR
+}
+t24_new() {
+  local dir="$1"
+  make_bare_project "$dir"
+}
+
+# T24a — no files at any of 3 paths → SKIP, rc 0
+T24_SKIP="$TMP/t24-skip"
+t24_new "$T24_SKIP"
+cd "$T24_SKIP" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+ID=$(t24_field "$OUT" id)
+GROUP=$(t24_field "$OUT" group)
+if [ "$STATUS" = "SKIP" ] && [ "$RC" -eq 0 ] && [ "$ID" = "models.map" ] && [ "$GROUP" = "config" ]; then
+  pass "T24a no map files → SKIP rc=0 (CDT-228)"
+else
+  fail "T24a status=$STATUS rc=$RC id=$ID group=$GROUP out=$OUT"
+fi
+
+# T24b — valid local JSON → PASS
+T24_PASS="$TMP/t24-pass"
+t24_new "$T24_PASS"
+mkdir -p "$T24_PASS/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"ic4":"grok-code-fast-1"}}' \
+  >"$T24_PASS/.claude/dev-team/models.local.json"
+cd "$T24_PASS" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+if [ "$STATUS" = "PASS" ] && [ "$RC" -eq 0 ]; then
+  pass "T24b valid local map → PASS (CDT-228)"
+else
+  fail "T24b status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T24c — unparseable → WARN never FAIL, rc 1
+T24_BAD="$TMP/t24-bad"
+t24_new "$T24_BAD"
+mkdir -p "$T24_BAD/.claude/dev-team"
+printf '{\n' >"$T24_BAD/.claude/dev-team/models.local.json"
+cd "$T24_BAD" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+FIX=$(t24_field "$OUT" fixit)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] && [ "$RC" -eq 1 ] \
+   && echo "$FIX" | grep -qF '/setup models'; then
+  pass "T24c unparseable → WARN rc=1 never FAIL (CDT-228)"
+else
+  fail "T24c status=$STATUS rc=$RC fix=$FIX out=$OUT"
+fi
+
+# T24d — unknown key → WARN
+T24_UNK="$TMP/t24-unk"
+t24_new "$T24_UNK"
+mkdir -p "$T24_UNK/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"teh-lead":"nope","pm":"grok-4"}}' \
+  >"$T24_UNK/.claude/dev-team/models.local.json"
+cd "$T24_UNK" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+DETAIL=$(t24_field "$OUT" detail)
+if [ "$STATUS" = "WARN" ] && echo "$DETAIL" | grep -q "unknown agent key"; then
+  pass "T24d unknown key → WARN (CDT-228)"
+else
+  fail "T24d status=$STATUS detail=$DETAIL out=$OUT"
+fi
+
+# T24e — agents not object / bad value → WARN
+T24_TYP="$TMP/t24-typ"
+t24_new "$T24_TYP"
+mkdir -p "$T24_TYP/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":[]}' >"$T24_TYP/.claude/dev-team/models.local.json"
+cd "$T24_TYP" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+if [ "$STATUS" = "WARN" ]; then
+  pass "T24e agents array → WARN (CDT-228)"
+else
+  fail "T24e status=$STATUS out=$OUT"
+fi
+
+T24_VAL="$TMP/t24-val"
+t24_new "$T24_VAL"
+mkdir -p "$T24_VAL/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"pm":null}}' \
+  >"$T24_VAL/.claude/dev-team/models.local.json"
+cd "$T24_VAL" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+if [ "$STATUS" = "WARN" ]; then
+  pass "T24e2 null value → WARN (CDT-228)"
+else
+  fail "T24e2 status=$STATUS out=$OUT"
+fi
+
+# T24f — qa override → WARN (M9 text)
+T24_QA="$TMP/t24-qa"
+t24_new "$T24_QA"
+mkdir -p "$T24_QA/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"qa":"cheap"}}' \
+  >"$T24_QA/.claude/dev-team/models.local.json"
+cd "$T24_QA" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+DETAIL=$(t24_field "$OUT" detail)
+if [ "$STATUS" = "WARN" ] && echo "$DETAIL" | grep -q "adversarial role 'qa'"; then
+  pass "T24f qa override → WARN M9 (CDT-228)"
+else
+  fail "T24f status=$STATUS detail=$DETAIL out=$OUT"
+fi
+
+# T24g — global (HOME) valid → PASS; --only config is a known group
+T24_GLOB="$TMP/t24-glob"
+t24_new "$T24_GLOB"
+mkdir -p "$T24_HOME/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"ic5":"grok-4"}}' \
+  >"$T24_HOME/.claude/dev-team/models.json"
+cd "$T24_GLOB" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only config 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+ID=$(t24_field "$OUT" id)
+if [ "$RC" -ne 64 ] && [ "$ID" = "models.map" ] && [ "$STATUS" = "PASS" ]; then
+  pass "T24g HOME global valid + --only config (CDT-228)"
+else
+  fail "T24g rc=$RC id=$ID status=$STATUS out=$OUT"
+fi
+rm -rf "$T24_HOME/.claude"
+
+# T24h — jq missing + file present → WARN never FAIL
+T24_JQ="$TMP/t24-jq"
+t24_new "$T24_JQ"
+mkdir -p "$T24_JQ/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"pm":"x"}}' \
+  >"$T24_JQ/.claude/dev-team/models.local.json"
+cd "$T24_JQ" || exit 1
+RC=0
+OUT=$(env HOME="$T24_HOME" PATH="$DEPS_BIN" bash "$DOCTOR" --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] && [ "$RC" -eq 1 ]; then
+  pass "T24h jq missing → WARN never FAIL (CDT-228)"
+else
+  fail "T24h status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T24i — --fix MUST NOT rewrite the map
+T24_FIX="$TMP/t24-fix"
+t24_new "$T24_FIX"
+mkdir -p "$T24_FIX/.claude/dev-team"
+printf '%s\n' '{"version":1,"agents":{"pm":"keep"}}' \
+  >"$T24_FIX/.claude/dev-team/models.local.json"
+cd "$T24_FIX" || exit 1
+BEFORE=$(cksum "$T24_FIX/.claude/dev-team/models.local.json")
+t24_doctor --fix --only models.map >/dev/null 2>&1 || true
+AFTER=$(cksum "$T24_FIX/.claude/dev-team/models.local.json")
+if [ "$BEFORE" = "$AFTER" ]; then
+  pass "T24i --fix does not rewrite map (CDT-228)"
+else
+  fail "T24i --fix mutated models.local.json"
+fi
+
+# T24j — WARN does not block --gate=team (exit 1, not 2)
+cd "$T24_BAD" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map --gate=team 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+if [ "$STATUS" = "WARN" ] && [ "$RC" -eq 1 ]; then
+  pass "T24j --gate=team WARN → exit 1 not 2 (CDT-228)"
+else
+  fail "T24j status=$STATUS rc=$RC out=$OUT"
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

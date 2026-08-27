@@ -43,4 +43,5 @@ agent output. Do not reintroduce avoided aliases.
 - 2026-08-26: Meaning tail is the `/compact-transcript` sibling file. Compact seed stays STM packet / `/handoff`. Do not map Compact seed onto `main.md` or the meaning-tail file.
 - 2026-08-26: Verbatim originals live in `<sid>/verbatim/` (optional extra dir). Overlay is on-demand `summarize-transcript` only. Channel sidecar taxonomy stays three kinds.
 - 2026-08-26: Model map is layered per-agent routing only. Tiers remain the SoT for role capability intent. Shipped `agents/*.md` defaults stay unchanged.
-- 2026-08-26: CDT-222 phase 1 reads only `$MROOT/.claude/dev-team/models.local.json`. Repo/global layers are specified, not read.
+- 2026-08-26: CDT-227 Model map layers: local `$MROOT/.claude/dev-team/models.local.json` then repo `$MROOT/.claude/dev-team/models.json` then global `~/.claude/dev-team/models.json`. First hit wins. `DEVTEAM_MODEL_*` is ignored.
+- 2026-08-26: CDT-228 Model map writers write **only** the local layer (`write-model.sh` / `/setup models` / `/adjust-agent --model`). Repo and global stay hand-edited. `/doctor` `models.map` is WARN-never-FAIL.

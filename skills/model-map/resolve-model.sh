@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# resolve-model.sh — emit a host model string from the local Model map (SPEC-037).
+# resolve-model.sh — emit a host model string from Model map layers (SPEC-037).
 #
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 #
@@ -9,6 +9,7 @@
 # stderr: warnings only (SPEC-037 M6/M7/M8/M9 prefixes)
 # exit:   0 except 64 when $1 is missing or empty
 # Extra argv after $1 is ignored.
+# Read-only: MUST NOT mkdir or write. MUST NOT read DEVTEAM_MODEL_*.
 
 set -euo pipefail
 
@@ -55,80 +56,80 @@ warn() {
   echo "$1" >&2
 }
 
-argv_unknown() {
-  if ! is_mappable "$AGENT" && ! is_internal "$AGENT"; then
-    warn "model-map: unknown agent '${AGENT}'; using Tier default"
+# Scan one layer: M7 unknown keys; first valid string for AGENT wins (M11).
+pick_from_layer() {
+  local map=$1 key has typ raw trimmed atype
+  [ -f "$map" ] || return 0
+  if ! jq empty "$map" >/dev/null 2>&1; then
+    warn "model-map: unparseable JSON at ${map}; using Tier default"
+    return 0
   fi
+  if ! jq -e 'has("agents")' "$map" >/dev/null 2>&1; then
+    return 0
+  fi
+  atype=$(jq -r '.agents | type' "$map" 2>/dev/null) || atype=""
+  if [ "$atype" != "object" ]; then
+    warn "model-map: agents is not an object; using Tier default"
+    return 0
+  fi
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    if ! is_mappable "$key"; then
+      warn "model-map: unknown agent key '${key}' ignored"
+    fi
+  done < <(jq -r '.agents | keys[]' "$map" 2>/dev/null || true)
+
+  if [ -n "$WINNER" ]; then
+    return 0
+  fi
+  if is_internal "$AGENT" || ! is_mappable "$AGENT"; then
+    return 0
+  fi
+
+  has=$(jq -r --arg n "$AGENT" '.agents | has($n)' "$map" 2>/dev/null) || has="false"
+  if [ "$has" != "true" ]; then
+    return 0
+  fi
+  typ=$(jq -r --arg n "$AGENT" '.agents[$n] | type' "$map" 2>/dev/null) || typ=""
+  if [ "$typ" != "string" ]; then
+    warn "model-map: agents.${AGENT} is not a non-empty string; using Tier default"
+    return 0
+  fi
+  raw=$(jq -r --arg n "$AGENT" '.agents[$n]' "$map" 2>/dev/null) || raw=""
+  trimmed=$(trim "$raw")
+  if [ -z "$trimmed" ]; then
+    warn "model-map: agents.${AGENT} is not a non-empty string; using Tier default"
+    return 0
+  fi
+  WINNER=$trimmed
 }
 
 resolve_mroot
-MAP="$MROOT/.claude/dev-team/models.local.json"
 
 if ! command -v jq >/dev/null 2>&1; then
   warn "model-map: jq not found; using Tier default"
   exit 0
 fi
 
-if [ ! -f "$MAP" ]; then
-  argv_unknown
-  exit 0
-fi
-
-if ! jq empty "$MAP" >/dev/null 2>&1; then
-  warn "model-map: unparseable JSON at ${MAP}; using Tier default"
-  exit 0
-fi
-
-if ! jq -e 'has("agents")' "$MAP" >/dev/null 2>&1; then
-  argv_unknown
-  exit 0
-fi
-
-atype=$(jq -r '.agents | type' "$MAP" 2>/dev/null) || atype=""
-if [ "$atype" != "object" ]; then
-  warn "model-map: agents is not an object; using Tier default"
-  exit 0
-fi
-
-while IFS= read -r key; do
-  [ -n "$key" ] || continue
-  if ! is_mappable "$key"; then
-    warn "model-map: unknown agent key '${key}' ignored"
-  fi
-done < <(jq -r '.agents | keys[]' "$MAP" 2>/dev/null || true)
+WINNER=""
+pick_from_layer "$MROOT/.claude/dev-team/models.local.json"
+pick_from_layer "$MROOT/.claude/dev-team/models.json"
+pick_from_layer "${HOME:-}/.claude/dev-team/models.json"
 
 if is_internal "$AGENT"; then
   exit 0
 fi
-
 if ! is_mappable "$AGENT"; then
   warn "model-map: unknown agent '${AGENT}'; using Tier default"
   exit 0
 fi
 
-has=$(jq -r --arg n "$AGENT" '.agents | has($n)' "$MAP" 2>/dev/null) || has="false"
-if [ "$has" != "true" ]; then
-  exit 0
+if [ -n "$WINNER" ]; then
+  case "$AGENT" in
+    qa|council-judge)
+      warn "model-map: override for adversarial role '${AGENT}' is allowed and may weaken the gate"
+      ;;
+  esac
+  printf '%s\n' "$WINNER"
 fi
-
-typ=$(jq -r --arg n "$AGENT" '.agents[$n] | type' "$MAP" 2>/dev/null) || typ=""
-if [ "$typ" != "string" ]; then
-  warn "model-map: agents.${AGENT} is not a non-empty string; using Tier default"
-  exit 0
-fi
-
-raw=$(jq -r --arg n "$AGENT" '.agents[$n]' "$MAP" 2>/dev/null) || raw=""
-trimmed=$(trim "$raw")
-if [ -z "$trimmed" ]; then
-  warn "model-map: agents.${AGENT} is not a non-empty string; using Tier default"
-  exit 0
-fi
-
-case "$AGENT" in
-  qa|council-judge)
-    warn "model-map: override for adversarial role '${AGENT}' is allowed and may weaken the gate"
-    ;;
-esac
-
-printf '%s\n' "$trimmed"
 exit 0

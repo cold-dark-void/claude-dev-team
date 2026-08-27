@@ -126,7 +126,25 @@ fi
 
 1. Read `prompts/premise.md`; substitute `{{TICKET}}`, `{{WORKTREE}}`, `{{BUG}}`.
 2. Spawn Task: agent `dev-team:ic5` (or Explore-capable), **read-only**.
-   Include `Output mode: terse`.
+   Include `Output mode: terse`. Resolve the agent actually spawned
+   (`ic5`; named fallback `ic5`→`ic4` resolves `ic4`). Unnamed /
+   `general-purpose` / Explore: omit the fence.
+
+Before spawning @ic5:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" ic5)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 3. Expect structured return per premise schema (`holds`, `evidence`, …).
 
 **Gate:** if `holds=false` → go to Step 7 with `premise_holds=false`, empty
@@ -139,7 +157,25 @@ or refute. Print clear stop: `Premise does not hold — stopping (no implement).
 
 1. Read `prompts/implement.md`; substitute placeholders including
    `{{PREMISE_JSON}}` (full premise object) and `{{AGENT}}`, `{{FIX}}`.
-2. Spawn Task: agent `dev-team:{{AGENT}}`.
+2. Spawn Task: agent `dev-team:{{AGENT}}`. Resolve the agent actually
+   spawned (`ic4` or `ic5` from `--agent`). Unnamed / `general-purpose` /
+   Explore: omit the fence.
+
+Before spawning @<agent> (`ic4` or `ic5` from `--agent`):
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" "$AGENT")
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for $AGENT; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 3. Expect `files_changed`, `diff_summary`, `changelog_md` (required).
 4. Orchestrator checklist after return:
    - Diff is under worktree only
@@ -155,6 +191,24 @@ Do **not** apply `changelog_md` to CHANGELOG.md.
 1. Split `LENSES` on commas → list (default `correctness`, `completeness`).
 2. For each lens, substitute `prompts/refute.md` (`{{LENS}}`, `{{PREMISE_EVIDENCE}}`, …).
 3. Spawn **one Task per lens in a single message** (parallel), agent `dev-team:qa`.
+   Same fence for later `qa` spawns of this agent. Unnamed /
+   `general-purpose` / Explore: omit the fence.
+
+Before spawning @qa:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" qa)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for qa; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 4. Collect verdicts `{lens, holds, issues?, detail?}`.
 
 ### Spawn-failure degradation

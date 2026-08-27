@@ -8,7 +8,7 @@
 | SPEC-002 | Plugin Infrastructure | ACTIVE | .claude-plugin/plugin.json, marketplace.json, settings (install-time); hook template SoT in skills/init-orchestration (live `.claude/hooks` generated, not package product — CDT-54); tools/scout-plugins |
 | SPEC-003 | Agent Role System | ACTIVE | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
 | SPEC-004 | Memory Storage & Migration | ACTIVE | skills/memory-store/SKILL.md, schema.sql, migrate.sh, migrate-md.sh, migrate-v2/v3/v4.sh |
-| SPEC-005 | Team Bootstrap | ACTIVE | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration (emit hooks from templates — CDT-54), demo; doctor-gate `--gate=<sub>` (CDT-67 M6c) + posture |
+| SPEC-005 | Team Bootstrap | ACTIVE | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration\|models`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration (emit hooks from templates — CDT-54), demo; doctor-gate `--gate=<sub>` (CDT-67 M6c) + posture; `/setup models` (CDT-228, not doctor-gated) |
 | SPEC-006 | Memory Retrieval & Search | ACTIVE | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
 | SPEC-007 | Memory Distillation | ACTIVE | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
 | SPEC-008 | Spec Management | ACTIVE | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
@@ -25,7 +25,7 @@
 | SPEC-019 | Local-Agent Offload via OpenCode | DEPRECATED | skills/local-agent/run.sh, skills/local-agent/SKILL.md, skills/local-agent/emit-orch-metric.sh, skills/orchestrate/SKILL.md, skills/standup/SKILL.md, AGENTS.md |
 | SPEC-020 | Loop-Prompt Architect (/craft-loop) | ACTIVE | commands/craft-loop.md, skills/craft-loop/SKILL.md, program-template.md, examples/ |
 | SPEC-021 | Skill-Bash Lint Gate | ACTIVE | skills/skill-lint/check-skill-bash.sh, lint.py, SKILL.md, test.sh, fixtures/, skills/release/SKILL.md (Step 4.8 only) |
-| SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh; M6c `--gate=` self-remediation (CDT-67); M2h `transcript.mirror_lag` (CDT-221) |
+| SPEC-022 | /doctor Install & Config Diagnostics | ACTIVE | commands/doctor.md, skills/doctor/doctor.sh, skills/doctor/SKILL.md, skills/doctor/test.sh; M6c `--gate=` self-remediation (CDT-67); M2h `transcript.mirror_lag` (CDT-221); M2i `models.map` WARN-never-FAIL (CDT-228) |
 | SPEC-023 | Release Train Queue | ACTIVE | commands/release-train.md, skills/release-train/SKILL.md, skills/release-train/train-lib.sh, skills/release/SKILL.md (skip-if-present), .gitignore |
 | SPEC-024 | Memory Seed Packs | ACTIVE | commands/memory.md (`/memory export`), commands/init-team.md (Step 5.5), skills/memory-store/{export,import}-seed-pack.sh, seed-common.sh, test-seed-pack.sh, agents/project-init.md |
 | SPEC-025 | /epic Umbrella Decomposition | ACTIVE | commands/epic.md, skills/epic/{SKILL.md,epic-lib.sh,test.sh}, skills/standup/SKILL.md (Step 5.5), skills/wrap-ticket/SKILL.md (Step 6.7), skills/orchestrate/dag-lib.sh (check-cycle reuse); M13 context-discipline seed Tests 14–20 (CDT-127 — build-seed/validate-seed bite-tests) |
@@ -39,12 +39,15 @@
 | SPEC-034 | Bug-Hunt Workflow | DRAFT | `commands/bug-hunt.md`, `skills/bug-hunt/*` (stages 1–2 — CDT-136; stage-3 materialize — CDT-138 M38–M41; stage-4 phased handoff — CDT-139 M42–M48; Status DRAFT) |
 | SPEC-035 | Context Audit (`/audit`) | DRAFT | `commands/audit.md`, `skills/audit/*`, `docs/commands/audit.md` (CDT-200) |
 | SPEC-036 | Transcript Mirror | DRAFT | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220); M10 all cwd-bucket sessions + M11 doctor lag WARN (CDT-221); M5a urlencode then `.cwd` locate (CDT-218); M4a SubagentStop agent nest (CDT-217); M12 carve-out CDT-216 — `/handoff` MAY read `main.md` via SPEC-018 M3f; CDT-215 M1 C7 + M14 — `/compact-transcript` writes sibling `<sid>.meaning-tail.md`; CDT-214 M15 — `summarize-transcript` overlay + `<sid>/verbatim/` (skill CLI, no new `commands/*.md`) |
-| SPEC-037 | Per-agent Model map (phase 1) | DRAFT | `skills/model-map/` (`resolve-model.sh`, `test.sh`, `spawn-site-test.sh`, `SKILL.md`); `/orchestrate` steps 04/06/08/09/10; `skills/code-simplify/SKILL.md`; `skills/ci-watch/SKILL.md`; `.gitignore` (CDT-222) |
+| SPEC-037 | Per-agent Model map | DRAFT | `skills/model-map/` (`resolve-model.sh`, `write-model.sh`, `test.sh`, `write-model-test.sh`, `spawn-site-test.sh`, `SKILL.md`); `/setup models` + `/adjust-agent --model` (CDT-228); `/doctor` `models.map`; `/orchestrate` steps 04/06/08/09/10; `skills/code-simplify/SKILL.md`; `skills/ci-watch/SKILL.md`; remaining named-roster surfaces kickoff/epic/debug/fix-ticket/council/bug-hunt (CDT-222 + CDT-226); local/repo/global layers (CDT-227); `.gitignore` `models.local.json` only |
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-08-26 | CDT-228: SPEC-037 retitled Per-agent Model map; M18 writer + M19 doctor `models.map` + M20 `/setup models` + M21 `/adjust-agent --model`; SPEC-005/022 dispatch + check rows |
+| 2026-08-26 | CDT-227: SPEC-037 M11 three-layer merge (local → repo → global); bad-value fallthrough; `DEVTEAM_MODEL_*` ignored |
+| 2026-08-26 | CDT-226: SPEC-037 M16 remaining named-roster spawn surfaces (kickoff/epic/debug/fix-ticket/council/bug-hunt); M15 covers M13 ∪ M16 |
 | 2026-08-26 | CDT-222: SPEC-037 DRAFT — phase 1 local Model map + resolver + `/orchestrate` wiring; SPEC-003 Tier default pointer |
 | 2026-08-26 | CDT-214: SPEC-036 M15 Meaning-channel overlay — skill CLI `summarize-transcript`; Verbatim originals in `<sid>/verbatim/`; taxonomy closed; patch bump |
 | 2026-08-26 | CDT-215: SPEC-036 M1 C7 carve-out + M12 consumer carve-out + M14 meaning-tail — `/compact-transcript` writes sibling `<sid>.meaning-tail.md`; not Compact seed; Test 40 unchanged |

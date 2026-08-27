@@ -707,6 +707,25 @@ Prefer `subagent_type: "dev-team:ic5"` (CDT-133); fallback `dev-team:ic4` →
 `general-purpose`. Read-only tools only (same as blind path / investigator
 allowlist: Read, Grep, Glob, Bash read-only — no Write/Edit/commit).
 
+**Model map:** resolve the agent actually spawned (`ic5`; named fallback
+`ic5`→`ic4` resolves `ic4`). Same fence for later S1 lens / quorum `ic5`
+spawns of this agent. Unnamed / `general-purpose` / Explore: omit.
+
+Before spawning @ic5:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" ic5)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 **Unconstrained** — for each index `1..BH_TEAMS` (U1..U3):
 
 ```
@@ -760,7 +779,9 @@ Mirror blind path B3:
 
 ### 1e. Quorum analyst (clustering)
 
-Spawn **one** quorum analyst after the reviewer wave completes:
+Spawn **one** quorum analyst after the reviewer wave completes. Same S1
+`ic5` Model map fence as §1c (do not paste full PDH again). Named fallback
+`ic5`→`ic4` resolves `ic4`. Unnamed / `general-purpose` / Explore: omit.
 
 ```
 description: "bug-hunt S1 quorum analysis"
@@ -964,6 +985,25 @@ together.
 
 - Prefer `subagent_type: "dev-team:ic5"` (CDT-133); fallback `dev-team:ic4` →
   `general-purpose` → `Explore`.
+- **Model map:** resolve the agent actually spawned (`ic5`; named fallback
+  `ic5`→`ic4` resolves `ic4`). Same fence for later S2 `ic5` investigator
+  spawns of this agent. Unnamed / `general-purpose` / Explore: omit.
+
+Before spawning @ic5:
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
+MODEL=$(bash "$RESOLVE" ic5)
+printf '%s\n' "$MODEL"
+```
+Bash stdout = model string; empty → omit model.
+Surface resolver stderr to the user. Do not swallow.
+If MODEL is non-empty: pass it as the Agent model param.
+If MODEL is empty: omit model. MUST NOT pass "".
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
+Other spawn failures MUST NOT be retried as a model fallback.
+
 - Allowlist = council investigator allowlist: Read, Grep, Glob, Bash read-only
   (cache writes under `{{CACHE_DIR}}` only). **No** Write/Edit/commit on project
   tree.

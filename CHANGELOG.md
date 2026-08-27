@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.15.0
+- **Model map remaining phases (CDT-225 / SPEC-037)** — remaining named-roster spawn surfaces honor the resolver (`/kickoff`, `/epic`, `/debug ticket`, council, `/bug-hunt`). Resolver merge is local > repo `$MROOT/.claude/dev-team/models.json` > global `~/.claude/dev-team/models.json` > Tier default. `/setup models` and `/adjust-agent --model` write local only. `/doctor` `models.map` is WARN-never-FAIL. Zero-config unchanged. Option B `@agent` overlay still out.
+
 ### v1.14.0
 - **Per-agent Model map (CDT-222 / SPEC-037)** — local `$MROOT/.claude/dev-team/models.local.json` maps roster agents to host model strings. `skills/model-map/resolve-model.sh` emits the string (empty = Tier default). `/orchestrate` spawn sites pass a non-empty result as Agent `model` (host-reject retries once with the Tier default). Zero-config is unchanged. Repo/global layers, `/setup models`, `/doctor`, and `@agent` overlay are out of this version.
 

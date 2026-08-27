@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# spawn-site-test.sh — CDT-222 static contract for SPEC-037 M15/M14/M16/M12/AC2.
+# spawn-site-test.sh — CDT-226 static contract for SPEC-037 M15/M14/M16/M12/AC2.
 # Greps committed templates/docs only (no network, no LLM).
 # Run: bash skills/model-map/spawn-site-test.sh
 set -u
@@ -11,7 +11,7 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 
-# M13 spawn sites (SPEC-037 M15): must mention resolve-model.sh + host-reject.
+# M13 ∪ M16 spawn sites (SPEC-037 M15): must mention resolve-model.sh + host-reject.
 SITES='
 skills/orchestrate/steps/04-kickoff.md
 skills/orchestrate/steps/06-design.md
@@ -20,14 +20,18 @@ skills/orchestrate/steps/09-review.md
 skills/orchestrate/steps/10-qa.md
 skills/code-simplify/SKILL.md
 skills/ci-watch/SKILL.md
-'
-
-# M16 negatives: must not mention resolve-model.sh.
-NEGATIVES='
 skills/kickoff/SKILL.md
 skills/epic/SKILL.md
 skills/debug/SKILL.md
+skills/fix-ticket/SKILL.md
+skills/council/SKILL.md
 commands/council.md
+skills/bug-hunt/SKILL.md
+'
+
+# M16 negatives: must not mention resolve-model.sh (handoff miner stays unwired).
+NEGATIVES='
+commands/handoff.md
 '
 
 # M12 roster (SPEC-003 + AGENTS.md internals). Values are YAML tokens.
@@ -102,7 +106,7 @@ for rel in $SITES; do
   fi
 done
 
-# ---- M16: kickoff/epic/debug/council must not wire the resolver ----
+# ---- M16 negatives: handoff miner must not wire the resolver ----
 for rel in $NEGATIVES; do
   f="$ROOT/$rel"
   if [ ! -f "$f" ]; then
@@ -115,6 +119,17 @@ for rel in $NEGATIVES; do
     ok
   fi
 done
+HANDOFF_DIR="$ROOT/skills/handoff"
+if [ ! -d "$HANDOFF_DIR" ]; then
+  bad "M16 missing skills/handoff/"
+else
+  HANDOFF_HITS=$(grep -rlF 'resolve-model.sh' "$HANDOFF_DIR" 2>/dev/null || true)
+  if [ -n "$HANDOFF_HITS" ]; then
+    bad "M16 skills/handoff/ must not contain resolve-model.sh:"$'\n'"$HANDOFF_HITS"
+  else
+    ok
+  fi
+fi
 
 # ---- M12: agents/*.md frontmatter model: matches roster ----
 for pair in $ROSTER; do
@@ -147,12 +162,13 @@ else
 fi
 
 # Tree-wide: production skills/**/*.sh (not test harnesses) must not redirect
-# onto models.local.json. Fixture tests write a temp map; skip those.
+# onto models.local.json except write-model.sh (the local writer). Fixture
+# tests write a temp map; skip those.
 TREE_BAD=""
 while IFS= read -r sh; do
   base=$(basename "$sh")
   case "$base" in
-    test.sh|*-test.sh|test-*.sh) continue ;;
+    test.sh|*-test.sh|test-*.sh|write-model.sh) continue ;;
   esac
   hits=$(tree_redirect_hits "$sh")
   [ -z "$hits" ] && continue
@@ -164,6 +180,72 @@ if [ -z "$TREE_BAD" ]; then
 else
   bad "AC2 skills/**/*.sh redirect onto models.local.json:"$'\n'"$TREE_BAD"
 fi
+
+# ---- council-judge tools: "" unchanged ----
+CJ="$ROOT/agents/council-judge.md"
+if [ -f "$CJ" ] && grep -qE '^tools:[[:space:]]*""[[:space:]]*$' "$CJ"; then
+  ok
+else
+  bad "M12 agents/council-judge.md tools: \"\" must stay empty"
+fi
+
+# ---- Kickoff omit ranges: explorer + Step 4b have no resolve-model.sh ----
+KICKOFF="$ROOT/skills/kickoff/SKILL.md"
+heading_range() {
+  # Print from first line matching $2 until the next ## heading (exclusive).
+  awk -v start="$2" '
+    $0 ~ start { p=1; print; next }
+    p && /^## / { exit }
+    p { print }
+  ' "$1"
+}
+if [ -f "$KICKOFF" ]; then
+  EXPL=$(heading_range "$KICKOFF" '### Codebase Explorer')
+  if printf '%s\n' "$EXPL" | grep -qF 'resolve-model.sh'; then
+    bad "kickoff Codebase Explorer range must not contain resolve-model.sh"
+  else
+    ok
+  fi
+  STEP4B=$(heading_range "$KICKOFF" '^## Step 4b:')
+  if printf '%s\n' "$STEP4B" | grep -qF 'resolve-model.sh'; then
+    bad "kickoff Step 4b range must not contain resolve-model.sh"
+  else
+    ok
+  fi
+else
+  bad "kickoff SKILL.md missing for omit-range checks"
+  bad "kickoff SKILL.md missing for omit-range checks"
+fi
+
+# ---- No source of resolve-model.sh in SITES; last resolve cmd is printf ----
+for rel in $SITES; do
+  f="$ROOT/$rel"
+  [ -f "$f" ] || continue
+  src_hits=$(code_lines "$f" | grep -E 'source[[:space:]]+[^#[:space:]].*resolve-model\.sh' || true)
+  if [ -n "$src_hits" ]; then
+    bad "M5 $rel sources resolve-model.sh (must subprocess):"$'\n'"$src_hits"
+  else
+    ok
+  fi
+  printf_miss=$(awk '
+    function is_blank_or_comment(s) { return s ~ /^[[:space:]]*(#|$)/ }
+    /MODEL=\$\(bash / && /resolve-model\.sh|\$RESOLVE|\$\{RESOLVE\}/ {
+      pending=1
+      next
+    }
+    pending {
+      if (is_blank_or_comment($0)) next
+      if ($0 ~ /^[[:space:]]*printf '\''%s\\n'\'' "\$MODEL"/) { pending=0; next }
+      printf "line %d: %s\n", NR, $0
+      pending=0
+    }
+  ' "$f")
+  if [ -n "$printf_miss" ]; then
+    bad "M13 $rel resolve fence last cmd is not printf '%s\\n' \"\$MODEL\":"$'\n'"$printf_miss"
+  else
+    ok
+  fi
+done
 
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then

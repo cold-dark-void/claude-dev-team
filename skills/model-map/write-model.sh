@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# write-model.sh — write the local Model map layer (SPEC-037 M18).
+#
+# THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
+#
+#   write-model.sh list
+#   write-model.sh set <agent> <string>
+#   write-model.sh unset <agent>
+#
+# Writes ONLY $MROOT/.claude/dev-team/models.local.json.
+# MUST NOT write repo models.json or ~/.claude/dev-team/models.json.
+# Extra argv after required args is ignored.
+# Exit 64 + usage on bad argv. Unparseable existing local → refuse, exit 1.
+
+set -euo pipefail
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+RESOLVE="$HERE/resolve-model.sh"
+
+usage() {
+  echo "usage: write-model.sh {list|set <agent> <string>|unset <agent>}" >&2
+  exit 64
+}
+
+is_mappable() {
+  case "$1" in
+    pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+trim() {
+  local s=$1
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+warn() {
+  echo "$1" >&2
+}
+
+# Same rule as worktree-lib.sh resolve_mroot (SPEC-037 M1).
+resolve_mroot() {
+  local _gc
+  if _gc=$(git rev-parse --git-common-dir 2>/dev/null); then
+    MROOT=$(cd "$(dirname "$_gc")" && pwd)
+  else
+    MROOT=$(pwd)
+  fi
+}
+
+need_jq() {
+  if command -v jq >/dev/null 2>&1; then
+    return 0
+  fi
+  warn "model-map: jq not found"
+  exit 1
+}
+
+# 0 = ok to merge (missing file is ok). 1 = refuse.
+local_ok_to_write() {
+  local map=$1 atype
+  [ -e "$map" ] || return 0
+  if [ ! -f "$map" ]; then
+    warn "model-map: refusing to write; ${map} is not a file"
+    return 1
+  fi
+  if ! jq empty "$map" >/dev/null 2>&1; then
+    warn "model-map: unparseable JSON at ${map}; refusing to write"
+    return 1
+  fi
+  if [ "$(jq -r 'type' "$map" 2>/dev/null || true)" != "object" ]; then
+    warn "model-map: unparseable JSON at ${map}; refusing to write"
+    return 1
+  fi
+  if jq -e 'has("agents")' "$map" >/dev/null 2>&1; then
+    atype=$(jq -r '.agents | type' "$map" 2>/dev/null) || atype=""
+    if [ "$atype" != "object" ]; then
+      warn "model-map: agents is not an object; refusing to write"
+      return 1
+    fi
+  fi
+  return 0
+}
+
+atomic_write() {
+  local map=$1 json=$2 dir tmp
+  dir=$(dirname "$map")
+  mkdir -p "$dir"
+  tmp=$(mktemp "${map}.tmp.XXXXXX")
+  printf '%s\n' "$json" >"$tmp"
+  mv "$tmp" "$map"
+}
+
+cmd_list() {
+  local agent val
+  printf 'local: %s\n' "$MAP"
+  for agent in pm tech-lead ic5 ic4 devops qa ds council-judge; do
+    val=$(bash "$RESOLVE" "$agent") || val=""
+    if [ -z "$val" ]; then
+      val="Tier default"
+    fi
+    printf '%-14s %s\n' "$agent" "$val"
+  done
+}
+
+cmd_set() {
+  local agent=$1 raw=$2 val json
+  is_mappable "$agent" || usage
+  val=$(trim "$raw")
+  [ -n "$val" ] || usage
+  need_jq
+  local_ok_to_write "$MAP" || exit 1
+  case "$agent" in
+    qa|council-judge)
+      warn "model-map: override for adversarial role '${agent}' is allowed and may weaken the gate"
+      ;;
+  esac
+  if [ -f "$MAP" ]; then
+    json=$(jq --arg n "$agent" --arg v "$val" \
+      '.version = (.version // 1) | .agents = (.agents // {}) | .agents[$n] = $v' \
+      "$MAP")
+  else
+    json=$(jq -n --arg n "$agent" --arg v "$val" \
+      '{version:1, agents:{($n):$v}}')
+  fi
+  atomic_write "$MAP" "$json"
+}
+
+cmd_unset() {
+  local agent=$1 json has
+  is_mappable "$agent" || usage
+  need_jq
+  [ -e "$MAP" ] || exit 0
+  local_ok_to_write "$MAP" || exit 1
+  has=$(jq -r --arg n "$agent" '.agents // {} | has($n)' "$MAP" 2>/dev/null) || has="false"
+  if [ "$has" != "true" ]; then
+    exit 0
+  fi
+  json=$(jq --arg n "$agent" 'del(.agents[$n])' "$MAP")
+  atomic_write "$MAP" "$json"
+}
+
+[ -n "${1:-}" ] || usage
+CMD=$1
+shift || true
+
+resolve_mroot
+MAP="$MROOT/.claude/dev-team/models.local.json"
+
+case "$CMD" in
+  list)
+    cmd_list
+    ;;
+  set)
+    [ -n "${1:-}" ] && [ -n "${2:-}" ] || usage
+    cmd_set "$1" "$2"
+    ;;
+  unset)
+    [ -n "${1:-}" ] || usage
+    cmd_unset "$1"
+    ;;
+  *)
+    usage
+    ;;
+esac
+exit 0

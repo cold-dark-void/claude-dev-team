@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# model-map/test.sh — SPEC-037 bite-tests for resolve-model.sh (CDT-222)
+# model-map/test.sh — SPEC-037 bite-tests for resolve-model.sh (CDT-222 / CDT-227)
 #
 # Machine-check: bash skills/model-map/test.sh  (exit 0)
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -26,12 +26,16 @@ cd "$TMP" || { echo "FAIL: cd $TMP" >&2; exit 1; }
 OUTF="$TMP/stdout.txt"
 ERRF="$TMP/stderr.txt"
 MAP=".claude/dev-team/models.local.json"
+REPO_MAP=".claude/dev-team/models.json"
+FAKE_HOME="$TMP/home"
+GLOBAL_MAP="$FAKE_HOME/.claude/dev-team/models.json"
+mkdir -p "$FAKE_HOME"
 
 run() {
   RC=0
   : >"$OUTF"
   : >"$ERRF"
-  bash "$RESOLVE" "$@" >"$OUTF" 2>"$ERRF" || RC=$?
+  env HOME="$FAKE_HOME" bash "$RESOLVE" "$@" >"$OUTF" 2>"$ERRF" || RC=$?
 }
 
 # Compare via $(cat): callers use MODEL=$(bash resolve-model.sh …).
@@ -60,8 +64,23 @@ write_map() {
   cat >"$MAP"
 }
 
+write_repo() {
+  mkdir -p .claude/dev-team
+  cat >"$REPO_MAP"
+}
+
+write_global() {
+  mkdir -p "$(dirname "$GLOBAL_MAP")"
+  cat >"$GLOBAL_MAP"
+}
+
 rm_map() {
   rm -rf .claude
+}
+
+clear_layers() {
+  rm -f "$MAP" "$REPO_MAP"
+  rm -rf "$FAKE_HOME/.claude"
 }
 
 NOJQ_BIN="$TMP/nojq-bin"
@@ -84,10 +103,10 @@ check "AC8" 64 "" "usage: resolve-model.sh <agent>"
 rm_map
 run pm
 check "AC3a" 0 "" ""
-if [ ! -e "$TMP/.claude" ] && [ ! -f "$TMP/.claude/dev-team/models.local.json" ]; then
+if [ ! -e "$TMP/.claude" ] && [ ! -e "$FAKE_HOME/.claude" ]; then
   pass "AC14"
 else
-  fail "AC14 created path under $TMP/.claude"
+  fail "AC14 created path under $TMP/.claude or $FAKE_HOME/.claude"
 fi
 
 # =============================================================================
@@ -167,7 +186,7 @@ EOF
 RC=0
 : >"$OUTF"
 : >"$ERRF"
-env PATH="$NOJQ_BIN" "$BASH_ABS" "$RESOLVE" pm >"$OUTF" 2>"$ERRF" || RC=$?
+env HOME="$FAKE_HOME" PATH="$NOJQ_BIN" "$BASH_ABS" "$RESOLVE" pm >"$OUTF" 2>"$ERRF" || RC=$?
 check "AC10-jq" 0 "" "jq not found"
 
 # =============================================================================
@@ -214,16 +233,18 @@ run "council-judge"
 check "AC13b" 0 "x" "override for adversarial role 'council-judge'"
 
 # =============================================================================
-# AC15 / M11 — sibling models.json + DEVTEAM_MODEL_* ignored
+# AC15 / M11 — local + repo models.json; local wins; DEVTEAM_MODEL_* ignored
 # =============================================================================
 write_map <<'EOF'
 {"version":1,"agents":{"pm":"from-local"}}
 EOF
-printf '%s\n' '{"version":1,"agents":{"pm":"from-sibling"}}' >.claude/dev-team/models.json
+write_repo <<'EOF'
+{"version":1,"agents":{"pm":"from-repo"}}
+EOF
 RC=0
 : >"$OUTF"
 : >"$ERRF"
-env DEVTEAM_MODEL_pm=from-env bash "$RESOLVE" pm >"$OUTF" 2>"$ERRF" || RC=$?
+env HOME="$FAKE_HOME" DEVTEAM_MODEL_pm=from-env bash "$RESOLVE" pm >"$OUTF" 2>"$ERRF" || RC=$?
 check "AC15" 0 "from-local" ""
 
 # =============================================================================
@@ -238,6 +259,93 @@ cd "$TMP/wt" || { fail "AC1 cd wt"; cd "$TMP"; }
 run pm
 cd "$TMP" || true
 check "AC1" 0 "from-mroot" ""
+
+# =============================================================================
+# C2 / M11 — local beats repo beats global
+# =============================================================================
+clear_layers
+write_map <<'EOF'
+{"version":1,"agents":{"pm":"from-local"}}
+EOF
+write_repo <<'EOF'
+{"version":1,"agents":{"pm":"from-repo"}}
+EOF
+write_global <<'EOF'
+{"version":1,"agents":{"pm":"from-global"}}
+EOF
+run pm
+check "C2-prec-local" 0 "from-local" ""
+rm -f "$MAP"
+run pm
+check "C2-prec-repo" 0 "from-repo" ""
+rm -f "$REPO_MAP"
+run pm
+check "C2-prec-global" 0 "from-global" ""
+
+# =============================================================================
+# C2 / M11 — partial maps compose (pm local, ic4 repo, qa global)
+# =============================================================================
+clear_layers
+write_map <<'EOF'
+{"version":1,"agents":{"pm":"local-pm"}}
+EOF
+write_repo <<'EOF'
+{"version":1,"agents":{"ic4":"repo-ic4"}}
+EOF
+write_global <<'EOF'
+{"version":1,"agents":{"qa":"global-qa"}}
+EOF
+run pm
+check "C2-partial-pm" 0 "local-pm" ""
+run ic4
+check "C2-partial-ic4" 0 "repo-ic4" ""
+run qa
+check "C2-partial-qa" 0 "global-qa" "override for adversarial role 'qa'"
+
+# =============================================================================
+# C2 / M11 — bad local value falls through to repo
+# =============================================================================
+clear_layers
+write_map <<'EOF'
+{"version":1,"agents":{"pm":null}}
+EOF
+write_repo <<'EOF'
+{"version":1,"agents":{"pm":"from-repo"}}
+EOF
+run pm
+check "C2-bad-local-null" 0 "from-repo" "not a non-empty string"
+
+write_map <<'EOF'
+{"version":1,"agents":{"pm":""}}
+EOF
+run pm
+check "C2-bad-local-empty" 0 "from-repo" "not a non-empty string"
+
+# =============================================================================
+# C2 / M11 — unparseable local + good repo
+# =============================================================================
+clear_layers
+write_map <<'EOF'
+{
+EOF
+write_repo <<'EOF'
+{"version":1,"agents":{"pm":"from-repo"}}
+EOF
+run pm
+check "C2-unparseable-local" 0 "from-repo" "unparseable JSON"
+
+# =============================================================================
+# C2 / M11 — absent local, present repo; env ignored
+# =============================================================================
+clear_layers
+write_repo <<'EOF'
+{"version":1,"agents":{"pm":"from-repo"}}
+EOF
+RC=0
+: >"$OUTF"
+: >"$ERRF"
+env HOME="$FAKE_HOME" DEVTEAM_MODEL_pm=from-env bash "$RESOLVE" pm >"$OUTF" 2>"$ERRF" || RC=$?
+check "C2-absent-local-repo" 0 "from-repo" ""
 
 # =============================================================================
 # Summary
