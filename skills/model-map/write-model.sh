@@ -6,6 +6,8 @@
 #   write-model.sh list
 #   write-model.sh set <agent> <string>
 #   write-model.sh unset <agent>
+#   write-model.sh set-effort <agent> <token>
+#   write-model.sh unset-effort <agent>
 #
 # Writes ONLY $MROOT/.claude/dev-team/models.local.json.
 # MUST NOT write repo models.json or ~/.claude/dev-team/models.json.
@@ -18,13 +20,20 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 RESOLVE="$HERE/resolve-model.sh"
 
 usage() {
-  echo "usage: write-model.sh {list|set <agent> <string>|unset <agent>}" >&2
+  echo "usage: write-model.sh {list|set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>}" >&2
   exit 64
 }
 
 is_mappable() {
   case "$1" in
     pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_effort_token() {
+  case "$1" in
+    low|medium|high|xhigh|max) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -38,6 +47,14 @@ trim() {
 
 warn() {
   echo "$1" >&2
+}
+
+warn_adversarial() {
+  case "$1" in
+    qa|council-judge)
+      warn "model-map: override for adversarial role '${1}' is allowed and may weaken the gate"
+      ;;
+  esac
 }
 
 # Same rule as worktree-lib.sh resolve_mroot (SPEC-037 M1).
@@ -58,9 +75,22 @@ need_jq() {
   exit 1
 }
 
+# 0 = absent or object. 1 = present but not an object.
+require_object_field() {
+  local map=$1 field=$2 atype
+  if jq -e --arg f "$field" 'has($f)' "$map" >/dev/null 2>&1; then
+    atype=$(jq -r --arg f "$field" '.[$f] | type' "$map" 2>/dev/null) || atype=""
+    if [ "$atype" != "object" ]; then
+      warn "model-map: ${field} is not an object; refusing to write"
+      return 1
+    fi
+  fi
+  return 0
+}
+
 # 0 = ok to merge (missing file is ok). 1 = refuse.
 local_ok_to_write() {
-  local map=$1 atype
+  local map=$1
   [ -e "$map" ] || return 0
   if [ ! -f "$map" ]; then
     warn "model-map: refusing to write; ${map} is not a file"
@@ -74,13 +104,8 @@ local_ok_to_write() {
     warn "model-map: unparseable JSON at ${map}; refusing to write"
     return 1
   fi
-  if jq -e 'has("agents")' "$map" >/dev/null 2>&1; then
-    atype=$(jq -r '.agents | type' "$map" 2>/dev/null) || atype=""
-    if [ "$atype" != "object" ]; then
-      warn "model-map: agents is not an object; refusing to write"
-      return 1
-    fi
-  fi
+  require_object_field "$map" agents || return 1
+  require_object_field "$map" effort || return 1
   return 0
 }
 
@@ -94,14 +119,14 @@ atomic_write() {
 }
 
 cmd_list() {
-  local agent val
+  local agent model effort
   printf 'local: %s\n' "$MAP"
   for agent in pm tech-lead ic5 ic4 devops qa ds council-judge; do
-    val=$(bash "$RESOLVE" "$agent") || val=""
-    if [ -z "$val" ]; then
-      val="Tier default"
-    fi
-    printf '%-14s %s\n' "$agent" "$val"
+    model=$(bash "$RESOLVE" "$agent") || model=""
+    [ -n "$model" ] || model="Tier default"
+    effort=$(bash "$RESOLVE" --effort "$agent") || effort=""
+    [ -n "$effort" ] || effort="inherited"
+    printf '%-14s %-16s %s\n' "$agent" "$model" "$effort"
   done
 }
 
@@ -112,11 +137,7 @@ cmd_set() {
   [ -n "$val" ] || usage
   need_jq
   local_ok_to_write "$MAP" || exit 1
-  case "$agent" in
-    qa|council-judge)
-      warn "model-map: override for adversarial role '${agent}' is allowed and may weaken the gate"
-      ;;
-  esac
+  warn_adversarial "$agent"
   if [ -f "$MAP" ]; then
     json=$(jq --arg n "$agent" --arg v "$val" \
       '.version = (.version // 1) | .agents = (.agents // {}) | .agents[$n] = $v' \
@@ -128,17 +149,36 @@ cmd_set() {
   atomic_write "$MAP" "$json"
 }
 
-cmd_unset() {
-  local agent=$1 json has
+# Delete one agent key from a Model map field (agents or effort).
+unset_field() {
+  local field=$1 agent=$2 json has
   is_mappable "$agent" || usage
   need_jq
   [ -e "$MAP" ] || exit 0
   local_ok_to_write "$MAP" || exit 1
-  has=$(jq -r --arg n "$agent" '.agents // {} | has($n)' "$MAP" 2>/dev/null) || has="false"
-  if [ "$has" != "true" ]; then
-    exit 0
+  has=$(jq -r --arg n "$agent" --arg f "$field" '.[$f] // {} | has($n)' "$MAP" 2>/dev/null) || has="false"
+  [ "$has" = "true" ] || exit 0
+  json=$(jq --arg n "$agent" --arg f "$field" 'del(.[$f][$n])' "$MAP")
+  atomic_write "$MAP" "$json"
+}
+
+cmd_set_effort() {
+  local agent=$1 raw=$2 val json
+  is_mappable "$agent" || usage
+  val=$(trim "$raw")
+  val=$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')
+  [ -n "$val" ] && is_effort_token "$val" || usage
+  need_jq
+  local_ok_to_write "$MAP" || exit 1
+  warn_adversarial "$agent"
+  if [ -f "$MAP" ]; then
+    json=$(jq --arg n "$agent" --arg v "$val" \
+      '.effort = (.effort // {}) | .effort[$n] = $v' \
+      "$MAP")
+  else
+    json=$(jq -n --arg n "$agent" --arg v "$val" \
+      '{version:1, effort:{($n):$v}}')
   fi
-  json=$(jq --arg n "$agent" 'del(.agents[$n])' "$MAP")
   atomic_write "$MAP" "$json"
 }
 
@@ -159,7 +199,15 @@ case "$CMD" in
     ;;
   unset)
     [ -n "${1:-}" ] || usage
-    cmd_unset "$1"
+    unset_field agents "$1"
+    ;;
+  set-effort)
+    [ -n "${1:-}" ] && [ -n "${2:-}" ] || usage
+    cmd_set_effort "$1" "$2"
+    ;;
+  unset-effort)
+    [ -n "${1:-}" ] || usage
+    unset_field effort "$1"
     ;;
   *)
     usage

@@ -15,13 +15,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" tech-lead)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort tech-lead)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for tech-lead; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ```
 @tech-lead — Review the changes for Task <ID> (<title>).
@@ -53,13 +58,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" <agent>)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort <agent>)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for <agent>; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for <agent>; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ```
 @<agent> — Tech Lead requested changes on Task <ID>:
@@ -295,8 +305,9 @@ run a single behavior-preserving polish pass. Protocol:
 **Otherwise** spawn once using the skill's spawn template (ic4-class agent,
 terse, file list from skill scope discovery, worktree `$WT_PATH`). Follow the
 `skills/code-simplify/SKILL.md` spawn template (T6): resolve `ic4` via
-`resolve-model.sh` before spawn; same host-reject retry-once-omit as other
-sites. Hard rules: no behavior/API/schema change; recently modified files
+`resolve-model.sh` / `resolve-model.sh --effort` before spawn; same host-reject
+retry-once-omit (model and effort independent) as other sites. Hard rules: no
+behavior/API/schema change; recently modified files
 only; fail-open.
 
 ```

@@ -912,10 +912,17 @@ orchestrator review → report under `$MROOT/.claude/fix-ticket/` → next steps
 fix-ticket Model map contract (`skills/fix-ticket/SKILL.md` Steps 3–5).
 Call `resolve-model.sh` as a subprocess via `plugin-dir.sh file` (never
 source the resolver). Empty stdout omits `model` (MUST NOT pass `""`).
-If spawn fails attributed to the model param (invalid/unknown/unsupported
-model): retry once with model omitted; warn
+Then `resolve-model.sh --effort` for that agent (after the model printf).
+Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT
+pass `""`). If spawn fails attributed to the model param
+(invalid/unknown/unsupported model): retry once with model omitted; warn
 `model-map: host rejected model '<string>' for <agent>; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported
+effort): retry once omitting effort; warn
+`model-map: host rejected effort '<token>' for <agent>; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not
+combinatorial-retry both params. Other spawn failures MUST NOT be retried
+as a model or effort fallback.
 `full` / `patch` / `arch` have no named-roster Agent spawns — omit the
 fence. Unnamed / `general-purpose` / Explore: omit the fence.
 

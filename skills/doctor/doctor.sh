@@ -1472,7 +1472,7 @@ check_models_map() {
   local local_map="$MROOT/.claude/dev-team/models.local.json"
   local repo_map="$MROOT/.claude/dev-team/models.json"
   local global_map="${HOME:-}/.claude/dev-team/models.json"
-  local present="" p problems="" m9="" key typ raw trimmed atype
+  local present="" p problems="" m9=""
 
   for p in "$local_map" "$repo_map" "$global_map"; do
     [ -f "$p" ] || continue
@@ -1496,51 +1496,88 @@ check_models_map() {
     esac
   }
 
-  while IFS= read -r p || [ -n "$p" ]; do
-    [ -n "$p" ] || continue
-    if ! jq empty "$p" >/dev/null 2>&1; then
-      problems="${problems:+$problems; }unparseable JSON at ${p}"
-      continue
+  _mmap_is_effort_token() {
+    case "$1" in
+      low|medium|high|xhigh|max) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  _mmap_note_m9() {
+    case "$1" in
+      qa|council-judge)
+        case " $m9 " in
+          *" $1 "*) ;;
+          *) m9="${m9:+$m9 }$1" ;;
+        esac
+        ;;
+    esac
+  }
+
+  _mmap_add_problem() {
+    problems="${problems:+$problems; }$1"
+  }
+
+  # Scan one Model map field (agents or effort). Mutates problems and m9.
+  _mmap_scan_field() {
+    local p=$1 field=$2
+    local ftype key typ raw trimmed token bad
+    if ! jq -e --arg f "$field" 'has($f)' "$p" >/dev/null 2>&1; then
+      return 0
     fi
-    if [ "$(jq -r 'type' "$p" 2>/dev/null || true)" != "object" ]; then
-      problems="${problems:+$problems; }unparseable JSON at ${p}"
-      continue
-    fi
-    if jq -e 'has("agents")' "$p" >/dev/null 2>&1; then
-      atype=$(jq -r '.agents | type' "$p" 2>/dev/null) || atype=""
-      if [ "$atype" != "object" ]; then
-        problems="${problems:+$problems; }agents is not an object at ${p}"
-        continue
-      fi
-    else
-      continue
+    ftype=$(jq -r --arg f "$field" '.[$f] | type' "$p" 2>/dev/null) || ftype=""
+    if [ "$ftype" != "object" ]; then
+      _mmap_add_problem "${field} is not an object at ${p}"
+      return 0
     fi
     while IFS= read -r key || [ -n "$key" ]; do
       [ -n "$key" ] || continue
       if ! _mmap_is_mappable "$key"; then
-        problems="${problems:+$problems; }unknown agent key '${key}' in ${p}"
+        if [ "$field" = "effort" ]; then
+          _mmap_add_problem "unknown effort key '${key}' in ${p}"
+        else
+          _mmap_add_problem "unknown agent key '${key}' in ${p}"
+        fi
         continue
       fi
-      typ=$(jq -r --arg n "$key" '.agents[$n] | type' "$p" 2>/dev/null) || typ=""
+      if [ "$field" = "effort" ]; then
+        bad="effort.${key} is not a valid effort token in ${p}"
+      else
+        bad="agents.${key} is not a non-empty string in ${p}"
+      fi
+      typ=$(jq -r --arg n "$key" --arg f "$field" '.[$f][$n] | type' "$p" 2>/dev/null) || typ=""
       if [ "$typ" != "string" ]; then
-        problems="${problems:+$problems; }agents.${key} is not a non-empty string in ${p}"
+        _mmap_add_problem "$bad"
         continue
       fi
-      raw=$(jq -r --arg n "$key" '.agents[$n]' "$p" 2>/dev/null) || raw=""
+      raw=$(jq -r --arg n "$key" --arg f "$field" '.[$f][$n]' "$p" 2>/dev/null) || raw=""
       trimmed=$(trim_ws "$raw")
-      if [ -z "$trimmed" ]; then
-        problems="${problems:+$problems; }agents.${key} is not a non-empty string in ${p}"
+      if [ "$field" = "effort" ]; then
+        token=$(printf '%s' "$trimmed" | tr '[:upper:]' '[:lower:]')
+        if [ -z "$token" ] || ! _mmap_is_effort_token "$token"; then
+          _mmap_add_problem "$bad"
+          continue
+        fi
+      elif [ -z "$trimmed" ]; then
+        _mmap_add_problem "$bad"
         continue
       fi
-      case "$key" in
-        qa|council-judge)
-          case " $m9 " in
-            *" $key "*) ;;
-            *) m9="${m9:+$m9 }$key" ;;
-          esac
-          ;;
-      esac
-    done < <(jq -r '.agents | keys[]' "$p" 2>/dev/null || true)
+      _mmap_note_m9 "$key"
+    done < <(jq -r --arg f "$field" '.[$f] | keys[]' "$p" 2>/dev/null || true)
+  }
+
+  while IFS= read -r p || [ -n "$p" ]; do
+    [ -n "$p" ] || continue
+    if ! jq empty "$p" >/dev/null 2>&1; then
+      _mmap_add_problem "unparseable JSON at ${p}"
+      continue
+    fi
+    if [ "$(jq -r 'type' "$p" 2>/dev/null || true)" != "object" ]; then
+      _mmap_add_problem "unparseable JSON at ${p}"
+      continue
+    fi
+    _mmap_scan_field "$p" "agents"
+    _mmap_scan_field "$p" "effort"
   done <<< "$present"
 
   if [ -n "$problems" ]; then

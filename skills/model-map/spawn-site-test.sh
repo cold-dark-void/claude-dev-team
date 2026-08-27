@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# spawn-site-test.sh — CDT-226 static contract for SPEC-037 M15/M14/M16/M12/AC2.
+# spawn-site-test.sh — CDT-226/CDT-229 static contract for SPEC-037 M15/M14/M16/M12/M29/AC2.
 # Greps committed templates/docs only (no network, no LLM).
 # Run: bash skills/model-map/spawn-site-test.sh
 set -u
@@ -104,6 +104,17 @@ for rel in $SITES; do
   else
     bad "M14 $rel lacks host-reject language (retry once / host rejected)"
   fi
+  # M29: effort fence + M28 host-reject language
+  if grep -qF 'resolve-model.sh --effort' "$f"; then
+    ok
+  else
+    bad "M29 $rel lacks resolve-model.sh --effort"
+  fi
+  if grep -qF 'host rejected effort' "$f"; then
+    ok
+  else
+    bad "M29 $rel lacks host-reject language (host rejected effort)"
+  fi
 done
 
 # ---- M16 negatives: handoff miner must not wire the resolver ----
@@ -145,6 +156,11 @@ for pair in $ROSTER; do
     ok
   else
     bad "M12 agents/${name}.md model:'${got}' want '${want}'"
+  fi
+  if grep -qE '^effort:' "$f"; then
+    bad "M29 agents/${name}.md must not have effort: frontmatter"
+  else
+    ok
   fi
 done
 

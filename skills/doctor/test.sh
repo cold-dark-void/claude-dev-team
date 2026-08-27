@@ -2104,6 +2104,75 @@ else
   fail "T24j status=$STATUS rc=$RC out=$OUT"
 fi
 
+# T24e (CDT-229) — effort-only valid file → not SKIP (PASS)
+T24_EFF="$TMP/t24-effort-only"
+t24_new "$T24_EFF"
+mkdir -p "$T24_EFF/.claude/dev-team"
+printf '%s\n' '{"version":1,"effort":{"ic4":"high","ic5":" HIGH "}}' \
+  >"$T24_EFF/.claude/dev-team/models.local.json"
+cd "$T24_EFF" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+if [ "$STATUS" != "SKIP" ] && [ "$STATUS" = "PASS" ] && [ "$STATUS" != "FAIL" ] \
+   && [ "$RC" -eq 0 ]; then
+  pass "T24e effort-only valid file → not SKIP (CDT-229)"
+else
+  fail "T24e status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T24f (CDT-229) — bad effort token → WARN rc=1 never FAIL
+T24_EBAD="$TMP/t24-effort-bad"
+t24_new "$T24_EBAD"
+mkdir -p "$T24_EBAD/.claude/dev-team"
+printf '%s\n' '{"version":1,"effort":{"ic4":"extreme"}}' \
+  >"$T24_EBAD/.claude/dev-team/models.local.json"
+cd "$T24_EBAD" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] && [ "$RC" -eq 1 ]; then
+  pass "T24f bad token → WARN rc=1 never FAIL (CDT-229)"
+else
+  fail "T24f-effort status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T24g (CDT-229) — unknown effort key → WARN
+T24_EUNK="$TMP/t24-effort-unk"
+t24_new "$T24_EUNK"
+mkdir -p "$T24_EUNK/.claude/dev-team"
+printf '%s\n' '{"version":1,"effort":{"teh-lead":"high","pm":"low"}}' \
+  >"$T24_EUNK/.claude/dev-team/models.local.json"
+cd "$T24_EUNK" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+DETAIL=$(t24_field "$OUT" detail)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] \
+   && echo "$DETAIL" | grep -q "unknown effort key"; then
+  pass "T24g unknown effort key → WARN (CDT-229)"
+else
+  fail "T24g-effort status=$STATUS detail=$DETAIL out=$OUT"
+fi
+
+# T24h (CDT-229) — qa in effort → M9 WARN
+T24_EQA="$TMP/t24-effort-qa"
+t24_new "$T24_EQA"
+mkdir -p "$T24_EQA/.claude/dev-team"
+printf '%s\n' '{"version":1,"effort":{"qa":"max"}}' \
+  >"$T24_EQA/.claude/dev-team/models.local.json"
+cd "$T24_EQA" || exit 1
+RC=0
+OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
+STATUS=$(t24_field "$OUT" status)
+DETAIL=$(t24_field "$OUT" detail)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] \
+   && echo "$DETAIL" | grep -q "adversarial role 'qa'"; then
+  pass "T24h qa in effort → M9 WARN (CDT-229)"
+else
+  fail "T24h-effort status=$STATUS detail=$DETAIL out=$OUT"
+fi
+
 # =============================================================================
 # Summary
 # =============================================================================

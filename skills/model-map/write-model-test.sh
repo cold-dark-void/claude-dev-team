@@ -112,7 +112,7 @@ else
 fi
 missing=""
 for a in pm tech-lead ic5 ic4 devops qa ds council-judge; do
-  echo "$LIST" | grep -Eq "^${a}[[:space:]]+Tier default$" || missing="$missing $a"
+  echo "$LIST" | grep -Eq "^${a}[[:space:]]+Tier default([[:space:]]|$)" || missing="$missing $a"
 done
 if [ -z "$missing" ]; then
   pass "list-eight-tier-default"
@@ -143,12 +143,12 @@ else
 fi
 
 run list
-if grep -Eq '^pm[[:space:]]+grok-4$' "$OUTF"; then
+if grep -Eq '^pm[[:space:]]+grok-4([[:space:]]|$)' "$OUTF"; then
   pass "list-after-set-pm"
 else
   fail "list-after-set-pm out='$(got_out)'"
 fi
-if grep -Eq '^ic4[[:space:]]+Tier default$' "$OUTF"; then
+if grep -Eq '^ic4[[:space:]]+Tier default([[:space:]]|$)' "$OUTF"; then
   pass "list-omitted-still-default"
 else
   fail "list-omitted-still-default out='$(got_out)'"
@@ -276,7 +276,7 @@ fi
 # list uses resolve-model.sh (repo wins when local omits)
 printf '%s\n' '{"version":1,"agents":{}}' >"$MAP"
 run list
-if grep -Eq '^pm[[:space:]]+from-repo$' "$OUTF"; then
+if grep -Eq '^pm[[:space:]]+from-repo([[:space:]]|$)' "$OUTF"; then
   pass "list-calls-resolve-repo"
 else
   fail "list-calls-resolve-repo out='$(got_out)'"

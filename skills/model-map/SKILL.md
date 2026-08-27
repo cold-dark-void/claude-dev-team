@@ -1,21 +1,25 @@
 ---
 name: model-map
 description: |
-    Per-agent Model map: resolve a host model string from local, repo,
-    and global JSON layers. Empty stdout is the Tier default. Local
+    Per-agent Model map: resolve a host model string or effort token
+    from local, repo, and global JSON layers. Empty model stdout is
+    the Tier default. Empty effort stdout is inherited effort. Local
     writer is write-model.sh; user Surface is /setup models.
     Agent-internal — not a user slash command.
 ---
 
 # Model map
 
-Map behavioral agents to host model strings. Empty resolver stdout means
-**Tier default** (shipped `agents/*.md` frontmatter). Tiers stay the SoT
-for role capability intent (SPEC-003).
+Map behavioral agents to host model strings and optional effort tokens.
+Empty resolver stdout for a model means **Tier default** (shipped
+`agents/*.md` frontmatter). Empty `--effort` stdout means **inherited
+effort** (omit the Agent `effort` param). Tiers stay the SoT for role
+capability intent (SPEC-003).
 
 ## Paths
 
-Three layers. First hit wins per agent.
+Three layers. Per-field first hit wins (local > repo > global > omit).
+Model and effort resolve independently.
 
 | Layer | Path | Git |
 |-------|------|-----|
@@ -29,11 +33,14 @@ plugin-cache copy, or `DEVTEAM_MODEL_*`. Absent file: skip. Do not warn.
 
 ## Schema
 
-JSON of the form `{ "version": 1, "agents": { "<name>": "<model-string>" } }`.
+JSON of the form
+`{ "version": 1, "agents": { "<name>": "<model-string>" }, "effort": { "<name>": "<token>" } }`.
 
-- Partial `agents` is fine.
+- Partial `agents` and partial `effort` are fine.
 - Missing or unknown `version` is treated as `1`.
 - Extra top-level keys are ignored.
+- `agents` values stay non-empty strings. Do not put effort inside `agents`.
+- `effort` is a sibling object. Do not bump `version` for effort.
 
 ## Example
 
@@ -43,9 +50,18 @@ JSON of the form `{ "version": 1, "agents": { "<name>": "<model-string>" } }`.
   "agents": {
     "ic4": "grok-code-fast-1",
     "qa": "grok-4"
+  },
+  "effort": {
+    "ic4": "high",
+    "qa": "max"
   }
 }
 ```
+
+## Effort tokens
+
+Closed allowlist after trim and lowercase: `low`, `medium`, `high`,
+`xhigh`, `max`. No aliases. The resolver prints the lowercase token.
 
 ## Empty stdout = Tier default
 
@@ -62,18 +78,48 @@ warning.
 A listed key with a bad value (null / non-string / empty) warns and falls
 through to the next layer.
 
+## Empty stdout = inherited effort
+
+Call `resolve-model.sh --effort <agent>` as a subprocess via
+`plugin-dir.sh file` (never `source`). Flag-first: `--effort` is argv[1].
+
+- Non-empty stdout → pass the token as the Agent `effort` param.
+- Empty stdout → omit `effort` (do not pass `""`). This is **inherited effort**.
+- Warnings go to stderr. Surface them. Do not abort spawn.
+
+All layers absent and empty `effort` objects both yield empty stdout and no
+warning.
+
+A listed `effort` key with a bad value (null / non-string / empty / not in
+the allowlist) warns and falls through to the next layer. `effort` present
+but not an object: skip effort on that layer; still resolve `agents`.
+
+Per-field first-hit: local > repo > global > omit (**inherited effort**).
+Independent of the model winner.
+
+Light Step 8 `@ic4` omit-path still passes `effort: low`. A non-empty map
+token wins over that default.
+
+If spawn fails because of the `effort` param, retry once omitting effort
+and warn
+`model-map: host rejected effort '<token>' for <agent>; retrying with inherited effort`.
+Light `@ic4` retry uses `effort: low`. Do not combinatorial-retry with model.
+
 ## Warn, never block (`qa` / `council-judge`)
 
-A valid string for `qa` or `council-judge` is emitted. The resolver also
-warns once:
+A valid model string or effort token for `qa` or `council-judge` is
+emitted. The resolver also warns once:
 
 `model-map: override for adversarial role '<name>' is allowed and may weaken the gate`
 
-Do not block, drop, or substitute the **Tier default**.
+Do not block, drop, or substitute the **Tier default** (model) or
+**inherited effort** (effort). Empty effort stdout for those roles does
+not emit this warning.
 
 ## Spawn-surface coverage
 
-Named-roster Agent spawns honor the Model map (SPEC-037 M13 ∪ M16):
+Named-roster Agent spawns honor the Model map (SPEC-037 M13 ∪ M16). Each
+site also runs `resolve-model.sh --effort` for the same agent:
 
 - `/orchestrate` steps 4 / 6 / 8 / 9 / 10, plus code-simplify (`ic4`) and
   ci-watch fixer (`ic5`)
@@ -86,13 +132,14 @@ Named-roster Agent spawns honor the Model map (SPEC-037 M13 ∪ M16):
   `ic5`
 
 Resolve the agent actually spawned. Named fallback `ic5`→`ic4` resolves
-`ic4`. Empty stdout = **Tier default**.
+`ic4`. Empty model stdout = **Tier default**. Empty effort stdout =
+**inherited effort**.
 
 **Omit the fence:** Codebase Explorer; kickoff Step 4b verifier; unnamed /
 `general-purpose` / Explore; council Phase 1 extractor, Phase 3 specialist,
 Phase 4 prosecutor/advocate, `--blind` extra waves; `/handoff` miner
-(`HANDOFF_MINER_MODEL`); `/memory validate`; `/retro`. Direct `@agent` /
-chat stays on frontmatter.
+(`HANDOFF_MINER_MODEL`); `/memory validate`; `/retro`;
+`skills/council/workflow.js`. Direct `@agent` / chat stays on frontmatter.
 
 ## Local writer
 
@@ -104,35 +151,56 @@ chat stays on frontmatter.
 write-model.sh list
 write-model.sh set <agent> <string>
 write-model.sh unset <agent>
+write-model.sh set-effort <agent> <token>
+write-model.sh unset-effort <agent>
 ```
 
-- `list` — print the 8 mappable agents with the winning resolved string
-  (calls `resolve-model.sh`; empty → `Tier default`) plus the local path.
-  Read-only.
+- `list` — print the 8 mappable agents with the winning resolved model
+  (calls `resolve-model.sh`; empty → `Tier default`) and the winning
+  resolved effort (calls `resolve-model.sh --effort`; empty → `inherited`)
+  plus the local path. Read-only.
 - `set` — merge `{version:1, agents:{...}}`. Create parent dirs. Trim.
   Empty after trim or unknown agent → exit 64. `qa` / `council-judge`
   allowed + M9 warn on stderr. Unparseable existing local → refuse, exit 1.
-- `unset` — delete that key. Missing key is OK. Unknown agent → 64.
-  Unparseable existing → refuse, exit 1.
+  Does not drop `effort` or extra top-level keys.
+- `unset` — delete that agents key. Missing key is OK. Unknown agent → 64.
+  Unparseable existing → refuse, exit 1. Does not drop `effort`.
+- `set-effort` — trim+lowercase, then allowlist `low|medium|high|xhigh|max`.
+  Store the lowercase token. Empty / invalid token or unknown agent →
+  exit 64. `qa` / `council-judge` allowed + M9 warn. Does not drop `agents`.
+- `unset-effort` — delete that effort key. Missing key is OK. Unknown
+  agent → 64. Unparseable existing → refuse, exit 1. Does not drop `agents`.
 
-Call via `plugin-dir.sh file`. `jq` is required for set/unset.
+Call via `plugin-dir.sh file`. `jq` is required for set/unset/set-effort/
+unset-effort.
 
 ## `/setup models`
 
-Not doctor-gated. Bare `/setup models` → `write-model.sh list`. `set` /
-`unset` pass through. Unknown `/setup` sub still prints usage and does not
-mutate; `models` is a known sub.
+Not doctor-gated. Bare `/setup models` → `write-model.sh list` (model +
+effort). `set` / `unset` / `set-effort` / `unset-effort` pass through.
+Unknown `/setup` sub still prints usage and does not mutate; `models` is a
+known sub.
 
 `/adjust-agent <agent> --model <string>` → `write-model.sh set`.
-`/adjust-agent <agent> --model-unset` → `write-model.sh unset`. Parse those
-flags before a directives prompt. `council-judge` is mappable.
+`/adjust-agent <agent> --model-unset` → `write-model.sh unset`.
+`/adjust-agent <agent> --effort <token>` → `write-model.sh set-effort`.
+`/adjust-agent <agent> --effort-unset` → `write-model.sh unset-effort`.
+Parse those flags before a directives prompt. `--model` and `--effort` MAY
+appear together; each write touches only its field. `council-judge` is
+mappable. Dashboard (7 behavioral agents) adds an Effort column
+(`inherited` when empty).
 
 ## `/doctor` `models.map`
 
 Group `config`. No map files at any of the three layer paths → SKIP. Valid
 present files → PASS. Unparseable / bad agents / unknown key / `jq` missing
-→ WARN (never FAIL). `qa` / `council-judge` override → WARN (M9). `--fix`
-does not rewrite the map.
+→ WARN (never FAIL). `qa` / `council-judge` in `agents` or `effort` → WARN
+(M9). `--fix` does not rewrite the map.
+
+A present file with only `effort` (no `agents`) is present → validate
+effort (do not SKIP). Effort keys must be mappable. Values must be
+`low|medium|high|xhigh|max` after trim+lowercase. Unparseable / `effort`
+not an object / bad effort value / unknown effort key → WARN (never FAIL).
 
 ## Related
 
@@ -140,3 +208,4 @@ does not rewrite the map.
 - SPEC-003 — Tier default roster
 - SPEC-005 — `/setup models` dispatch
 - SPEC-022 — `models.map` doctor check
+- SPEC-009 — light Step 8 `@ic4` omit-path `effort: low`

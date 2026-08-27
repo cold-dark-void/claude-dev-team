@@ -113,6 +113,7 @@ When `[ "$ORCH_TIER" = "light" ]` (explicit `--tier=light` or auto-size S):
 - MUST spawn exactly one scoper-planner at Steps 4–6 (confirms ACs and writes a short plan). MUST NOT parallel-spawn PM+TL. MUST NOT spawn a separate TL design pass (CDT-207)
 - MUST still surface open questions at Step 5. MUST still fire SPEC-033 `plan-approve` at Step 6. MUST still write the plan artifact with Tracking (CDT-207)
 - MUST skip DAG/task-store at Step 7. MUST create one task. MUST spawn exactly one ic4 at low effort at Step 8. That task MUST NOT set `requires_council` (CDT-208)
+  - **CDT-229:** `effort: low` is the omit-path default for that spawn. A non-empty Model map effort token for `ic4` wins (SPEC-037 M27).
 - MUST run a single-pass TL diff review at Step 9 with max one rework, then APPROVE or escalate. MUST NOT use the 3-round deadloop as the default (CDT-209)
 - MUST default to no council spawn on light. MUST skip simplify 9.5. MUST NOT spawn a separate `@qa` — the IC runs tests and pastes output (CDT-209)
 - `--council-tier=skip|light|full` MUST override the tier's council default when both flags are given: EFFECTIVE = `COUNCIL_TIER_OVERRIDE` when that value is not the string `"null"`; else if `[ "$ORCH_TIER" = "light" ]` then skip council; else today's behavior (CDT-209)
@@ -388,6 +389,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-08-27 | CDT-229: light Step 8 `@ic4` `effort: low` is the omit-path default; a non-empty Model map effort token wins (SPEC-037 M27). Original "at low effort" sentence kept. |
 | 2026-08-21 | CDT-157: wrap Step 6.x prunes remote `feat/*` when allowlisted and ancestor-or-cherry-safe; leftover notice otherwise; fail-open; no `origin/feat/*` scan. `worktree-lib.sh` stays local-release only. |
 | 2026-08-21 | CDT-207–210 (epic CDT-205): light-path MUSTs (scoper-planner; skip DAG + one IC4; single-pass TL / no council default / QA-fold / wrap-lite; `--council-tier` override) and auto-size at Step 2 scope-confirm (S→light / M→standard / L→full; explicit `--tier` wins; classify-fail → standard). Branch test is exactly `[ "$ORCH_TIER" = "light" ]`. MUST NOT edit SPEC-033. |
 | 2026-08-21 | CDT-206: `/orchestrate --tier=light\|standard\|full` pipeline cost tier. Parse in `skills/autopilot/parse-flags.sh` (JSON key `tier`, five-key stdout, omit → null, no env, no resume persist, duplicate/`=`-only hard-fail 64). Independent of `--council-tier`. Identity: omit/`standard`/`full` = today's Step 0–12 and SPEC-033 gate actors; `light` records only in this child (spawn cuts later). Skill-only Surface (no `commands/orchestrate.md`). MUST NOT edit SPEC-033. |

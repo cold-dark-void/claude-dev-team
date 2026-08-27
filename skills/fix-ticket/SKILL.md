@@ -137,13 +137,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" ic5)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort ic5)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for ic5; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 3. Expect structured return per premise schema (`holds`, `evidence`, …).
 
@@ -170,13 +175,18 @@ RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.s
 AGENT="${AGENT:-ic4}"
 MODEL=$(bash "$RESOLVE" "$AGENT")
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort "$AGENT")
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for $AGENT; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for $AGENT; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 3. Expect `files_changed`, `diff_summary`, `changelog_md` (required).
 4. Orchestrator checklist after return:
@@ -203,13 +213,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" qa)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort qa)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for qa; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for qa; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 4. Collect verdicts `{lens, holds, issues?, detail?}`.
 

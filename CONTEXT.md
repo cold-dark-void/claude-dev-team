@@ -32,8 +32,9 @@ agent output. Do not reintroduce avoided aliases.
 | Channel sidecar | Per-kind cold-storage file referenced from `main.md` via `@ref` | attachment |
 | Meaning tail | Bounded sibling file `<store-root>/<sid>.meaning-tail.md`: stripped Meaning-channel turn-blocks, UTF-8 `wc -c` ≤ 32768, produced by `/compact-transcript` for the operator to `@` | Compact seed, STM packet, compact transcript (as a glossary alias for `main.md`) |
 | Verbatim original | Cold copy of a Meaning-channel turn body replaced by an on-demand LLM overlay; file `<sid>/verbatim/<turn-id>.txt`; `@ref` from `main.md`. Not a Channel sidecar. | Channel sidecar, Meaning tail, Compact seed, STM packet |
-| Model map | Layered per-agent agent→model-string mapping; precedence local > repo > global > tier | model config, model overrides |
+| Model map | Layered per-agent agent→model-string mapping plus optional effort token; precedence local > repo > global > tier | model config, model overrides |
 | Tier default | Shipped frontmatter alias (`opus`/`sonnet`/`haiku`) encoding role capability intent; final fallback of the Model map | hardcoded model |
+| inherited effort | Empty `resolve-model.sh --effort` stdout; spawn omits the `effort` param (except light Step 8 `@ic4` omit-path `low`) | default effort, hardcoded effort |
 
 ## Decisions
 
@@ -45,3 +46,4 @@ agent output. Do not reintroduce avoided aliases.
 - 2026-08-26: Model map is layered per-agent routing only. Tiers remain the SoT for role capability intent. Shipped `agents/*.md` defaults stay unchanged.
 - 2026-08-26: CDT-227 Model map layers: local `$MROOT/.claude/dev-team/models.local.json` then repo `$MROOT/.claude/dev-team/models.json` then global `~/.claude/dev-team/models.json`. First hit wins. `DEVTEAM_MODEL_*` is ignored.
 - 2026-08-26: CDT-228 Model map writers write **only** the local layer (`write-model.sh` / `/setup models` / `/adjust-agent --model`). Repo and global stay hand-edited. `/doctor` `models.map` is WARN-never-FAIL.
+- 2026-08-27: CDT-229 Model map sibling `effort` map. Empty resolve stdout is **inherited effort** (omit param), not Tier default.

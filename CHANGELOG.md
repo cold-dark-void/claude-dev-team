@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.15.2
+- **Per-agent effort override (CDT-229 / SPEC-037)** — sibling `effort` map next to `agents`. `resolve-model.sh --effort` emits `low|medium|high|xhigh|max` (empty = **inherited effort**, omit the Agent `effort` param). Per-field first-hit is independent of the model winner. `/setup models set-effort` / `unset-effort` and `/adjust-agent --effort` write local only. Named-roster spawn sites (M13 ∪ M16) pass a non-empty token; host-reject retries once omitting effort. No `effort:` frontmatter. Light Step 8 `@ic4` omit-path stays `effort: low`. Zero-config unchanged. Host spawn `effort` param is fail-soft (M28), not proven.
+
 ### v1.15.1
 - **fix-ticket re-resolves `$AGENT` in the implementer model-map fence** — Step 4 used `$AGENT` from Step 1's other bash block; skill-lint C1 failed CI on v1.15.0. Default remains `ic4`.
 

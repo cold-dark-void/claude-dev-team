@@ -1,7 +1,7 @@
 ---
 name: adjust-agent
-description: View and manage per-agent behavioral directives — standing orders that persist across sessions. Also sets the local Model map via --model / --model-unset.
-argument-hint: "[<agent>] [--apply] [--model <string>] [--model-unset] [<prompt>]"
+description: View and manage per-agent behavioral directives — standing orders that persist across sessions. Also sets the local Model map via --model / --model-unset / --effort / --effort-unset.
+argument-hint: "[<agent>] [--apply] [--model <string>] [--model-unset] [--effort <token>] [--effort-unset] [<prompt>]"
 agent: build
 ---
 
@@ -19,6 +19,9 @@ agent's own reasoning.
 - `/adjust-agent <agent> --apply <prompt>` — Non-interactive adjustment: applies directly on no conflict, exits non-zero on conflict (never prompts)
 - `/adjust-agent <agent> --model <string>` — Write local Model map (`write-model.sh set`). Not a directives conversation.
 - `/adjust-agent <agent> --model-unset` — Delete that agent's local Model map key (`write-model.sh unset`). Not a directives conversation.
+- `/adjust-agent <agent> --effort <token>` — Write local effort (`write-model.sh set-effort`). Token: `low|medium|high|xhigh|max`. Not a directives conversation.
+- `/adjust-agent <agent> --effort-unset` — Delete that agent's local effort key (`write-model.sh unset-effort`). Not a directives conversation.
+- `--model` and `--effort` MAY appear together; each write touches only its field.
 
 ## Step 1: Resolve paths
 
@@ -41,13 +44,16 @@ PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)
 
 Extract the first word as `AGENT` and the remainder as `PROMPT` from the arguments.
 
-Parse `--model` / `--model-unset` **before** treating the remainder as a
-directives prompt. `--model` is not a directive conversation and MUST NOT
-fall through to Step 5.
+Parse `--model` / `--model-unset` / `--effort` / `--effort-unset` **before**
+treating the remainder as a directives prompt. These flags are not a
+directive conversation and MUST NOT fall through to Step 5.
 
 - If no arguments: go to **Step 3** (Dashboard mode)
 - If agent name + `--model-unset`: go to **Step 7** (Model map unset)
 - If agent name + `--model` + string: go to **Step 7** (Model map set)
+- If agent name + `--effort-unset`: go to **Step 7** (effort unset)
+- If agent name + `--effort` + token: go to **Step 7** (effort set)
+- If agent name + both `--model*` and `--effort*` flags: go to **Step 7** (each writes only its field)
 - If agent name only (one word, no prompt): go to **Step 4** (Read-only mode)
 - If agent name + `--apply` + prompt: go to **Step 6** (Non-interactive apply mode)
 - If agent name + prompt (no `--apply`): go to **Step 5** (Adjustment mode)
@@ -68,37 +74,41 @@ DIRECTIVES_BASE="$MROOT/.claude/memory"
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 RESOLVE_MODEL=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-echo "Agent        Directives  Model"
-echo "-----        ----------  -----"
+echo "Agent        Directives  Model            Effort"
+echo "-----        ----------  -----            ------"
 for AGENT in pm tech-lead ic5 ic4 devops qa ds; do
   FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
   COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || echo 0)
   MODEL=""
+  EFFORT=""
   if [ -n "$RESOLVE_MODEL" ] && [ -f "$RESOLVE_MODEL" ]; then
     MODEL=$(bash "$RESOLVE_MODEL" "$AGENT") || MODEL=""
+    EFFORT=$(bash "$RESOLVE_MODEL" --effort "$AGENT") || EFFORT=""
   fi
   [ -n "$MODEL" ] || MODEL="Tier default"
-  printf "%-12s %-11s %s\n" "$AGENT" "$COUNT" "$MODEL"
+  [ -n "$EFFORT" ] || EFFORT="inherited"
+  printf "%-12s %-11s %-16s %s\n" "$AGENT" "$COUNT" "$MODEL" "$EFFORT"
 done
 ```
 
 Display as an aligned table (Model column is the resolved Model map string, or
-`Tier default` when empty). `council-judge` is omitted from this roster; use
-`/adjust-agent council-judge --model <string>` to map it.
+`Tier default` when empty; Effort column is the resolved effort token, or
+`inherited` when empty). `council-judge` is omitted from this roster; use
+`/adjust-agent council-judge --model <string>` or `--effort <token>` to map it.
 
 ```
-Agent        Directives  Model
------        ----------  -----
-pm           3           grok-4
-tech-lead    0           Tier default
-ic5          1           Tier default
-ic4          2           grok-code-fast-1
-devops       0           Tier default
-qa           0           Tier default
-ds           0           Tier default
+Agent        Directives  Model            Effort
+-----        ----------  -----            ------
+pm           3           grok-4           high
+tech-lead    0           Tier default     inherited
+ic5          1           Tier default     inherited
+ic4          2           grok-code-fast-1 inherited
+devops       0           Tier default     inherited
+qa           0           Tier default     inherited
+ds           0           Tier default     inherited
 
 Use: /adjust-agent <agent> to view, /adjust-agent <agent> <prompt> to adjust,
-or /adjust-agent <agent> --model <string> / --model-unset for the Model map.
+or /adjust-agent <agent> --model <string> / --model-unset / --effort <token> / --effort-unset for the Model map.
 ```
 
 Stop here.
@@ -312,16 +322,20 @@ Exit 0.
 Trial KEEP-strip and REVERT-remove prompts (Step 5d shapes) work under `--apply`
 the same way as any other non-conflicting rewrite.
 
-## Step 7: Model map (`--model` / `--model-unset`)
+## Step 7: Model map (`--model` / `--model-unset` / `--effort` / `--effort-unset`)
 
 Not a directives conversation. Do **not** mix into Step 5. Writes only the
 local Model map via `write-model.sh` (never repo/global, never `directives.md`).
 
 `--model <string>` → `write-model.sh set <agent> <string>`
 `--model-unset` → `write-model.sh unset <agent>`
+`--effort <token>` → `write-model.sh set-effort <agent> <token>`
+`--effort-unset` → `write-model.sh unset-effort <agent>`
 
-`council-judge` is allowed (M8). `qa` / `council-judge` emit the M9 warn on
-stderr; still write. Unknown agent / empty string: CLI exits 64 (print stderr).
+`--model` and `--effort` MAY appear together; each write touches only its
+field. `council-judge` is allowed (M8). `qa` / `council-judge` emit the M9
+warn on stderr; still write. Unknown agent / empty string / invalid token:
+CLI exits 64 (print stderr).
 
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -333,17 +347,42 @@ if [ -z "$WRITE_MODEL" ] || [ ! -f "$WRITE_MODEL" ]; then
 fi
 AGENT="${1:-}"
 shift || true
-case "${1:-}" in
-  --model-unset) bash "$WRITE_MODEL" unset "$AGENT" ;;
-  --model)
-    shift || true
-    bash "$WRITE_MODEL" set "$AGENT" "${1:-}"
-    ;;
-  *)
-    echo "usage: /adjust-agent <agent> --model <string> | --model-unset" >&2
-    exit 64
-    ;;
-esac
+RAN=0
+USAGE='usage: /adjust-agent <agent> --model <string> | --model-unset | --effort <token> | --effort-unset'
+while [ $# -gt 0 ]; do
+  case "${1:-}" in
+    --model-unset)
+      bash "$WRITE_MODEL" unset "$AGENT" || exit $?
+      RAN=1
+      shift
+      ;;
+    --model)
+      shift || true
+      bash "$WRITE_MODEL" set "$AGENT" "${1:-}" || exit $?
+      RAN=1
+      shift || true
+      ;;
+    --effort-unset)
+      bash "$WRITE_MODEL" unset-effort "$AGENT" || exit $?
+      RAN=1
+      shift
+      ;;
+    --effort)
+      shift || true
+      bash "$WRITE_MODEL" set-effort "$AGENT" "${1:-}" || exit $?
+      RAN=1
+      shift || true
+      ;;
+    *)
+      echo "$USAGE" >&2
+      exit 64
+      ;;
+  esac
+done
+if [ "$RAN" -eq 0 ]; then
+  echo "$USAGE" >&2
+  exit 64
+fi
 ```
 
 Stop here. Do not open a directives rewrite.

@@ -78,13 +78,22 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" ic4)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort ic4)
+printf '%s\n' "$EFFORT"
 ```
 Surface resolver stderr to the user. Do not swallow.
 Bash stdout = model string; empty → omit model. MUST NOT pass "".
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent
+`effort` param; empty → omit (MUST NOT pass `""`).
 If spawn fails attributed to the model param (invalid/unknown/unsupported
 model): retry once with model omitted; warn
 `model-map: host rejected model '<string>' for ic4; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported
+effort): retry once omitting effort; warn
+`model-map: host rejected effort '<token>' for ic4; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not
+combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ```
 You are running a behavior-preserving code-simplify pass (dev-team skill

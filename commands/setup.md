@@ -43,7 +43,8 @@ Subs:
                   --skip-doctor
   models          Local Model map (read/write
                   $MROOT/.claude/dev-team/models.local.json only).
-                  Not doctor-gated. Bare = list; set/unset pass through.
+                  Not doctor-gated. Bare = list (includes effort);
+                  set/unset/set-effort/unset-effort pass through.
 
 Examples:
   /setup project
@@ -57,6 +58,8 @@ Examples:
   /setup models
   /setup models set ic4 grok-code-fast-1
   /setup models unset ic4
+  /setup models set-effort ic4 high
+  /setup models unset-effort ic4
 ```
 
 Unknown/missing sub → print this usage and stop. **MUST NOT** mutate project state.
@@ -86,7 +89,7 @@ orchestration vs team memory bootstrap). Dispatcher only — no semantic merge.
 /setup project
 /setup orchestration
 /setup team [--refresh|--migrate-only|--no-extensions]
-/setup models [set <agent> <string>|unset <agent>]
+/setup models [set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>]
 ```
 
 ---
@@ -517,9 +520,11 @@ the CLI (bad argv → exit 64, no write).
 
 | Invocation | Maps to |
 |------------|---------|
-| `/setup models` | `write-model.sh list` (read-only) |
+| `/setup models` | `write-model.sh list` (read-only; model + effort) |
 | `/setup models set <agent> <string>` | `write-model.sh set <agent> <string>` |
 | `/setup models unset <agent>` | `write-model.sh unset <agent>` |
+| `/setup models set-effort <agent> <token>` | `write-model.sh set-effort <agent> <token>` |
+| `/setup models unset-effort <agent>` | `write-model.sh unset-effort <agent>` |
 
 Protocol (also in `skills/model-map/SKILL.md`):
 

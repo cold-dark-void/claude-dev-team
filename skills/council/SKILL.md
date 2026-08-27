@@ -91,8 +91,10 @@ is a bug.
 
 Named-roster Task/Agent spawns honor `$MROOT/.claude/dev-team/models.local.json`
 via `resolve-model.sh`. Empty stdout = **Tier default** (omit `model`; MUST
-NOT pass `""`). Surface resolver stderr. Do not swallow. Mapping
-`council-judge` MUST NOT add tools (`tools: ""` stays empty).
+NOT pass `""`). Then `resolve-model.sh --effort`: non-empty → Agent/Workflow
+`effort` param; empty → omit (**inherited effort**; MUST NOT pass `""`).
+Surface resolver stderr. Do not swallow. Mapping `council-judge` MUST NOT add
+tools (`tools: ""` stays empty).
 
 **Wired roles** (one fence per role; same fence for later spawns of this
 agent). Resolve the agent actually spawned. Named fallback `ic5`→`ic4`
@@ -110,13 +112,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" ic5)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort ic5)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for ic5; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ### Cross-reviewer (`ic4`) — Phase 2.5
 
@@ -127,13 +134,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" ic4)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort ic4)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic4; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for ic4; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ### Judge (`council-judge`) — Phase 5
 
@@ -144,13 +156,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" council-judge)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort council-judge)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for council-judge; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for council-judge; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 Dispatch surface: `commands/council.md` points here and contains the same
 three role fences at Phase 2 / 2.5 / 5.

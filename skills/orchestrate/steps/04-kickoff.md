@@ -12,13 +12,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" tech-lead)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort tech-lead)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for tech-lead; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ```
 You are the scoper-planner for issue <ISSUE-ID> (light tier).
@@ -66,13 +71,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" pm)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort pm)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for pm; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for pm; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ```
 You are @pm. Review issue <ISSUE-ID>:
@@ -101,13 +111,18 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
 MODEL=$(bash "$RESOLVE" tech-lead)
 printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort tech-lead)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
+Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
 If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
-Other spawn failures MUST NOT be retried as a model fallback.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for tech-lead; retrying with inherited effort`.
+Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
+Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ```
 You are @tech-lead. Orient on issue <ISSUE-ID> while @pm reviews scope.

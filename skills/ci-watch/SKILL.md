@@ -165,9 +165,15 @@ session context. Available tools: Bash, Task, CronDelete.
        can detect "a fixer is already running" via task store, and so defensive cleanup fires.
    MODEL=$(bash <PLUGIN>/skills/model-map/resolve-model.sh ic5)
    printf '%s\n' "$MODEL"
+   EFFORT=$(bash <PLUGIN>/skills/model-map/resolve-model.sh --effort ic5)
+   printf '%s\n' "$EFFORT"
    Surface stderr to the user. Bash stdout = model string; empty → omit model. MUST NOT pass "".
+   Then `resolve-model.sh --effort` ic5. Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
    Host-reject (invalid/unknown/unsupported model): retry once omitting model;
    warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
+   Host-reject (invalid/unknown/unsupported effort): retry once omitting effort;
+   warn `model-map: host rejected effort '<token>' for ic5; retrying with inherited effort`.
+   Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
    d. Spawn dev-team:ic5 via Task tool with prompt:
         "Hot-fix only — do not refactor, do not add tests beyond the
          failing one. Push to existing branch <BRANCH>. Worktree: <WT>.
