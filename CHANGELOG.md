@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.15.1
+- **fix-ticket re-resolves `$AGENT` in the implementer model-map fence** — Step 4 used `$AGENT` from Step 1's other bash block; skill-lint C1 failed CI on v1.15.0. Default remains `ic4`.
+
 ### v1.15.0
 - **Model map remaining phases (CDT-225 / SPEC-037)** — remaining named-roster spawn surfaces honor the resolver (`/kickoff`, `/epic`, `/debug ticket`, council, `/bug-hunt`). Resolver merge is local > repo `$MROOT/.claude/dev-team/models.json` > global `~/.claude/dev-team/models.json` > Tier default. `/setup models` and `/adjust-agent --model` write local only. `/doctor` `models.map` is WARN-never-FAIL. Zero-config unchanged. Option B `@agent` overlay still out.
 
