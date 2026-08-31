@@ -334,6 +334,19 @@ bash "$CHECK_BUMP" || exit 1
 Non-zero → **Do NOT commit, tag, or push.** Bump minor (or major) and re-run.
 Edits to existing `commands/*.md` do not trip the gate.
 
+## Step 4.12: PDH stanza harness gate (pre-commit gate)
+
+Run:
+```bash
+bash skills/plugin-dir-test.sh
+```
+
+If it exits non-zero, the SPEC-002 bootstrap stanza's fallback branches no longer
+resolve, a `skills/`/`commands/`/`agents/` site reintroduced a bare
+`sort -V | tail` version pick, or the canonical stanza is no longer extractable
+from SPEC-002 (vacuous-gate guard). **Do NOT commit or tag.** Fix and re-run
+until exit 0. Contract lives in SPEC-002 ("Locating `plugin-dir.sh` itself").
+
 ## Step 5: Commit (one folded commit)
 
 Stage the version files **and the actual changed source files** — everything being

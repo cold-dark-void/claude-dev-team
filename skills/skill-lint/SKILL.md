@@ -42,7 +42,9 @@ wrong text and still exit 0. If the canonical block cannot be located or parsed 
 `PDH=$(` line exists in the scan set, the run exits non-zero with `error: [C5] canonical
 stanza not resolvable — …` on stderr. That error is unwaivable by design: a waiver there
 would re-hide the vacuity the guard exists to expose. `skills/plugin-dir.sh` (cannot
-bootstrap itself) and `skills/plugin-dir-test.sh` (deliberate re-quoted copy) are exempt.
+bootstrap itself) and `skills/plugin-dir-test.sh` (holds no stanza copy at all — it
+extracts the canonical text from SPEC-002 at runtime, per CDT-232; the exclusion is
+retained as a no-op) are exempt.
 
 ## Waivers
 

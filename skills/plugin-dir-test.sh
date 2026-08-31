@@ -12,6 +12,7 @@ set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LIB="$SCRIPT_DIR/plugin-dir.sh"
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
 PASS=0
 FAIL=0
@@ -76,11 +77,34 @@ assert_eq "dev file path" "$out" "$WTROOT/skills/plugin-dir.sh"
 # --- resolve: synthetic cache, NO CLAUDE_PLUGIN_ROOT (sort path alone) ---
 echo "== cache sort path (no CLAUDE_PLUGIN_ROOT) =="
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/pdh-test.XXXXXX")
+if [ -z "${TMP:-}" ] || [ ! -d "$TMP" ]; then
+  echo "FATAL: mktemp -d failed — refusing to run (every rm -rf below is anchored on \$TMP)" >&2
+  exit 70
+fi
 trap 'rm -rf "$TMP"' EXIT
+
+# Every destructive path in this harness must be inside $TMP. Never rm a bare
+# "$VAR/..." — an empty VAR turns "$VAR/home" into /home (CDT-232).
+rm_under_tmp() {
+  local target="$1"
+  case "$target" in
+    "$TMP"/*) ;;
+    *) echo "FATAL: refusing rm -rf outside \$TMP: [$target]" >&2; exit 70 ;;
+  esac
+  rm -rf "$target"
+}
 
 # Foreign cwd so tier-1 (dev MROOT) cannot match the probe relpath.
 FOREIGN="$TMP/foreign"
 mkdir -p "$FOREIGN"
+
+# CDT-232: prove branch 1 (cwd dev checkout) is bypassed, not just assumed.
+if [ -f "$FOREIGN/skills/plugin-dir.sh" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL branch-1 not bypassed: dev checkout visible at \$FOREIGN"
+else
+  PASS=$((PASS + 1)); echo "  ok  branch 1 (cwd dev checkout) is bypassed"
+fi
+
 # Synthetic HOME cache: both final and pre under the marketplace slug.
 CACHE_ROOT="$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team"
 PROBE="skills/.pdh-sort-probe"
@@ -108,7 +132,7 @@ fi
 assert_eq "cache final-over-pre content" "$(cat "$out")" "probe-1.0.0"
 
 # Pre-only: highest pre wins when no final present.
-rm -rf "$CACHE_ROOT/1.0.0"
+rm_under_tmp "$CACHE_ROOT/1.0.0"
 out=$(
   cd "$FOREIGN" &&
   env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file "$PROBE"
@@ -135,15 +159,36 @@ echo "== bootstrap stanza sort path =="
 mkdir -p "$CACHE_ROOT/1.0.0/skills" "$CACHE_ROOT/1.0.0-pre.9/skills"
 : > "$CACHE_ROOT/1.0.0/skills/plugin-dir.sh"
 : > "$CACHE_ROOT/1.0.0-pre.9/skills/plugin-dir.sh"
-# Canonical stanza (CDT-82 + CDT-166): force → cwd → marketplace → cache path_ver_pick
-# Cache arm ranks by /dev-team/<VER>/ segment (not full-path sort -V).
-PDH_STANZA='PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf "%s\n" "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf "%s\n" "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path "*/dev-team/*/skills/plugin-dir.sh" 2>/dev/null | awk -F/ '\''{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}'\'' | sort -t $'\''\t'\'' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )'
+
+# CDT-232: execute SPEC-002's canonical text, never a hand-copy. Two quoting
+# layers (shell + bash -c) are what let the old re-quoted copy drift silently,
+# and SPEC-021 C5 exempts this file, so no gate covered it.
+SPEC002="$REPO_ROOT/specs/core/SPEC-002-plugin-infrastructure.md"
+STANZA_SH="$TMP/canonical-stanza.sh"
+awk '
+  /^#{1,6}[[:space:]]+Locating `?plugin-dir\.sh`? itself[[:space:]]*$/ { h=1; next }
+  h && /^```bash$/ { c=1; next }
+  c && /^```$/ { exit }
+  c { print }
+' "$SPEC002" > "$STANZA_SH"
+printf 'printf %s\\\\n "$PDH"\n' '%s' >> "$STANZA_SH"
+
+# Vacuity guard — mirrors SPEC-021 C5's VACUOUS rule. A missing or unparseable
+# canonical block must fail loudly, never silently pass.
+canon_n=$(grep -c '^PDH=\$( {' "$STANZA_SH" || true)
+if [ "$canon_n" != "1" ]; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL canonical stanza not extractable from SPEC-002 (found $canon_n PDH lines)"
+  echo
+  echo "PASS=$PASS FAIL=$FAIL"
+  exit 1
+fi
+PASS=$((PASS + 1))
+echo "  ok  canonical stanza extracted from SPEC-002 (1 PDH line)"
+
 pdh=$(
   cd "$FOREIGN" &&
-  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash -c "
-    $PDH_STANZA
-    printf '%s\n' \"\$PDH\"
-  "
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STANZA_SH"
 )
 assert_contains "stanza picks final PDH" "$pdh" "/1.0.0"
 if printf '%s' "$pdh" | grep -qF '1.0.0-pre'; then
@@ -157,7 +202,7 @@ fi
 # --- CDT-82: same-version marketplace STM vs cache legacy ---
 echo "== CDT-82 same-version STM over legacy cache =="
 # Fresh HOME so leftover 1.0.0-pre dirs do not interfere.
-rm -rf "$TMP/home"
+rm_under_tmp "$TMP/home"
 CACHE_ROOT="$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team"
 MP_ROOT="$TMP/home/.claude/plugins/marketplaces/cold-dark-void"
 mkdir -p "$CACHE_ROOT/1.0.3/skills/handoff" "$CACHE_ROOT/1.0.3/.claude-plugin"
@@ -237,10 +282,7 @@ assert_contains "CDT-82 force uses cache root" "$out" "/cache/cold-dark-void/dev
 # Bootstrap stanza prefers marketplace over same-version cache.
 pdh=$(
   cd "$FOREIGN" &&
-  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash -c "
-    $PDH_STANZA
-    printf '%s\n' \"\$PDH\"
-  "
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STANZA_SH"
 )
 assert_contains "CDT-82 stanza marketplace" "$pdh" "/marketplaces/cold-dark-void"
 
@@ -262,8 +304,8 @@ assert_rc "CDT-82 higher cache wins rc" "$rc" 0
 assert_contains "CDT-82 higher cache path" "$out" "/1.0.4/"
 
 # verify fails when only legacy cache is visible (no marketplace STM) — soft WARN OK
-rm -rf "$TMP/home/.claude/plugins/marketplaces"
-rm -rf "$CACHE_ROOT/1.0.4"
+rm_under_tmp "$TMP/home/.claude/plugins/marketplaces"
+rm_under_tmp "$CACHE_ROOT/1.0.4"
 # leave 1.0.3 legacy only
 out=$(
   cd "$FOREIGN" &&
@@ -299,7 +341,7 @@ assert_eq "CDT-82 verify recovers STM" "$v_rc" "0"
 # --- CDT-166: multi-slug / multi-path / stanza path_ver_pick ---
 echo "== CDT-166 multi-slug path_ver_pick =="
 # Fresh HOME: empty marketplace, two cache slugs where full-path sort -V loses.
-rm -rf "$TMP/home"
+rm_under_tmp "$TMP/home"
 CACHE_BASE="$TMP/home/.claude/plugins/cache"
 PROBE_MS="skills/.pdh-multislug-probe"
 # zzz-wins-path: lower VER, wins naïve full-path sort -V (slug lexically high).
@@ -334,7 +376,7 @@ assert_eq "CDT-166 multi-slug content" "$(cat "$out")" "probe-2.0.0"
 
 # AC-3: multi-path final vs pre across slugs
 echo "== CDT-166 multi-path final-over-pre =="
-rm -rf "$TMP/home"
+rm_under_tmp "$TMP/home"
 mkdir -p "$CACHE_BASE/slug-a/dev-team/1.0.0-pre.9/skills"
 mkdir -p "$CACHE_BASE/slug-b/dev-team/1.0.0/skills"
 PROBE_FP="skills/.pdh-finalpre-probe"
@@ -358,7 +400,7 @@ assert_eq "CDT-166 multi-path content" "$(cat "$out")" "final"
 
 # Equal-VER tie: prefer cold-dark-void over lexically later slug
 echo "== CDT-166 equal-VER cold-dark-void prefer =="
-rm -rf "$TMP/home"
+rm_under_tmp "$TMP/home"
 PROBE_EQ="skills/.pdh-eqver-probe"
 mkdir -p "$CACHE_BASE/zzz-other/dev-team/1.2.3/skills"
 mkdir -p "$CACHE_BASE/cold-dark-void/dev-team/1.2.3/skills"
@@ -373,19 +415,22 @@ assert_rc "CDT-166 equal-VER rc" "$rc" 0
 assert_contains "CDT-166 equal-VER prefers cold-dark-void" "$out" "/cache/cold-dark-void/dev-team/1.2.3/"
 assert_eq "CDT-166 equal-VER content" "$(cat "$out")" "cdv"
 
+# CDT-232: equal-VER cold-dark-void preference, proven at STANZA level too.
+: > "$CACHE_BASE/zzz-other/dev-team/1.2.3/skills/plugin-dir.sh"
+: > "$CACHE_BASE/cold-dark-void/dev-team/1.2.3/skills/plugin-dir.sh"
+pdh=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STANZA_SH" )
+assert_eq "stanza equal-VER prefers cold-dark-void" "$pdh" "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/1.2.3"
+
 # AC-6: stanza alone multi-slug → highest VER PDH
 echo "== CDT-166 stanza multi-slug =="
-rm -rf "$TMP/home"
+rm_under_tmp "$TMP/home"
 mkdir -p "$CACHE_BASE/zzz-wins-path/dev-team/0.50.0/skills"
 mkdir -p "$CACHE_BASE/aaa-loses-path/dev-team/2.0.0/skills"
 : > "$CACHE_BASE/zzz-wins-path/dev-team/0.50.0/skills/plugin-dir.sh"
 : > "$CACHE_BASE/aaa-loses-path/dev-team/2.0.0/skills/plugin-dir.sh"
 pdh=$(
   cd "$FOREIGN" &&
-  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash -c "
-    $PDH_STANZA
-    printf '%s\n' \"\$PDH\"
-  "
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STANZA_SH"
 )
 assert_contains "CDT-166 stanza multi-slug /2.0.0" "$pdh" "/2.0.0"
 if printf '%s' "$pdh" | grep -qF '/0.50.0'; then
@@ -396,13 +441,28 @@ else
   echo "  ok  CDT-166 stanza multi-slug not lower VER"
 fi
 
+# --- CDT-232: empty-PDH fail-mode (SPEC-002:142 "no new failure path") ---
+echo "== empty-PDH fail-mode (SPEC-002:142) =="
+rm_under_tmp "$TMP/home"
+mkdir -p "$TMP/home"
+pdh=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STANZA_SH" )
+assert_eq "empty-PDH stanza yields empty PDH" "$pdh" ""
+out=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" \
+  bash -c 'PDH=""; bash "$PDH/skills/plugin-dir.sh" file skills/anything' 2>/dev/null )
+rc=$?
+assert_eq "empty-PDH stdout empty" "$out" ""
+if [ "$rc" -ne 0 ]; then
+  PASS=$((PASS + 1)); echo "  ok  empty-PDH exits non-zero (rc=$rc)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL empty-PDH must exit non-zero"
+fi
+
 # --- CDT-53-13: tree-wide bare sort -V tilde-map uniformity gate ---
 # Product version-picks MUST use:
 #   sed 's/-pre./~pre./' | sort -V | tail -1 | sed 's/~pre./-pre./'
 # Bare sort-then-tail without the tilde map is forbidden (final 1.0.0 loses to
 # retained 1.0.0-pre.N). Allowlist: this file's intentional hazard assertion.
 echo "== tree bare sort -V uniformity =="
-REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 bare_hits=$(
   python3 - "$REPO_ROOT" <<'PY'
 import os, re, sys

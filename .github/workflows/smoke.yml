@@ -55,3 +55,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash skills/wrap-ticket/prune-remote-test.sh
+
+  # CDT-232 — SPEC-002 bootstrap-stanza fallback branches (blocking gate)
+  plugin-dir:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash skills/plugin-dir-test.sh

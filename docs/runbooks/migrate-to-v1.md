@@ -66,7 +66,8 @@ cp -a "$MROOT/.claude/memory/memory.db" \
   "$MROOT/.claude/memory/memory.db.bak-$(date +%Y%m%d)"
 
 # Resolve plugin root, then chain v2→v3→v4 (content survives; idempotent)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname )
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (rank by /dev-team/<VER>/ segment, not full path; CDT-166). CDT-82: marketplace before same-version cache.
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 bash "$PDH/skills/memory-store/migrate.sh" "$MROOT"
 ```
 
@@ -82,10 +83,12 @@ Alternatively: `/setup team --migrate-only` (runs the same driver, then exits).
 
 **Why this is the critical step:**
 
-1. **Stale hook engines** — pre-v1 live hooks often resolve the plugin with bare
-   `sort -V | tail`. With `1.0.0-pre.N` dirs still in the cache, that can pick a
-   **stale** pre-release engine. Regeneration installs the pre-release-safe
-   tilde-map stanza (`sed 's/-pre\./~pre./' | sort -V | …`).
+1. **Stale hook engines** — pre-v1 live hooks resolve the plugin by sorting
+   **full cache paths**, which can pick a **stale** pre-release engine.
+   Regeneration installs the current stanza, which ranks by the
+   `/dev-team/<VER>/` path segment (CDT-166), so a final `1.0.0` outranks
+   `1.0.0-pre.N` and a lexically-high slug cannot outrank a higher version.
+   Contract: SPEC-002 "Locating `plugin-dir.sh` itself".
 2. **Permission posture flip** — orchestration default moves to **Cell D**:
    `auto` + sandbox enabled + `autoAllowBashIfSandboxed` + matrix allow set
    (CDT-75; epic C5 wording was “sandbox + auto”). v1.0.0–1.0.1 shipped Cell C
