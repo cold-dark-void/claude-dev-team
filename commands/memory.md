@@ -934,7 +934,8 @@ limit remain unvalidated and will be picked up on the next run (they keep
 
 For each batch, substitute `{{MEMORY_BATCH}}` in the claim extractor prompt
 with the JSON array of memories, and spawn a Task subagent
-(`subagent_type: "general-purpose"`).
+(`subagent_type: "general-purpose"`, `model: haiku`). Cheap tier is safe here
+— the six command-enforced validation rules below catch malformed output.
 
 Spawn all extraction batches in parallel (all Task calls in one tool-use
 block).
@@ -1125,7 +1126,9 @@ section "Investigator Prompt Template".
 2. Batch claims per the "Tier B investigation" row of
    `skills/validate-memory/SKILL.md` section "Batching Limits".
 3. For each batch, substitute `{{CLAIMS_TO_VERIFY}}` with the JSON array of
-   claims and spawn a Task subagent (`subagent_type: "general-purpose"`).
+   claims and spawn a Task subagent (`subagent_type: "general-purpose"`,
+   `model: haiku`). Cheap tier is safe here — malformed/missing verdicts
+   default to `AMBIGUOUS` conf 50 rather than being trusted blindly.
 4. Spawn all investigation batches in parallel.
 5. Apply that table's run cap and overflow handling: claims beyond the cap are
    skipped — their parent memories are excluded from scoring and deferred to the
@@ -1638,7 +1641,9 @@ Read `skills/validate-memory/SKILL.md` section **Pair-Judge Prompt Template**.
 1. Load pairs from `$PAIRS_FILE` (JSONL → JSON array).
 2. Batch ≤10 pairs per call, max 5 batches (Batching Limits table).
 3. For each batch, substitute `{{PAIR_BATCH}}` and spawn Task subagent
-   (`subagent_type: "general-purpose"`). Spawn batches in parallel.
+   (`subagent_type: "general-purpose"`, `model: haiku`). Spawn batches in
+   parallel. Cheap tier is safe here — a malformed batch degrades to
+   `unrelated` conf 0 rather than being trusted blindly.
 4. Validate each batch against "Validation rules (command-enforced)".
 5. Malformed batch → every pair in that batch becomes `unrelated` conf 0;
    note in DETAIL: `judge malformed → unrelated`.

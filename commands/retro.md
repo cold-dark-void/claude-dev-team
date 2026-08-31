@@ -785,11 +785,13 @@ substituting the inputs built in Step 4b. When `N > 1`, emit all `Task` calls
 in a single tool-use block so they run in parallel — do not await them one at a
 time.
 
-Use `subagent_type: "general-purpose"` (or "Explore" if available). This is
-read-only analysis work; do NOT route to one of the team roles (pm, tech-lead,
-ic5, ic4, devops, qa, ds) — those are the *subjects* of the retro, not the
-analyst. The rationale: we want an impartial reader who is not itself one of the
-agents whose behavior is being critiqued.
+Use `subagent_type: "general-purpose"` (or "Explore" if available) with
+`model: haiku`. This is read-only analysis work; do NOT route to one of the
+team roles (pm, tech-lead, ic5, ic4, devops, qa, ds) — those are the
+*subjects* of the retro, not the analyst. The rationale: we want an impartial
+reader who is not itself one of the agents whose behavior is being critiqued.
+Cheap tier is safe here because output is schema-validated by the caller
+(see below) — malformed results are caught, not trusted blindly.
 
 Each Task returns exactly one line of JSON matching the output schema in
 `skills/retro-subagent/SKILL.md` §"Output schema". Collect all returned strings

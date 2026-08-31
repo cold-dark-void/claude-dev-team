@@ -142,6 +142,13 @@ never `ic4`. Empty model stdout = **Tier default**. Empty effort stdout =
 Phase 4 prosecutor/advocate, `--blind` extra waves; `/handoff` miner
 (`HANDOFF_MINER_MODEL`); `/memory validate`; `/retro`;
 `skills/council/workflow.js`. Direct `@agent` / chat stays on frontmatter.
+"Omit the fence" means these stay outside the named-roster model-map — it
+does not mean unpinned. `/handoff`'s chunk-summarizer/annotation spawns,
+`/retro`'s friction-analysis spawn, and `/memory validate`'s claim-extractor
+/ investigator / pair-judge spawns hardcode `model: haiku` directly in their
+own command/skill file (bounded rubric work, command-enforced output
+validation catches malformed results). The miner spawn is the one
+intentional session-tier-inherit case among these.
 
 ## Local writer
 
