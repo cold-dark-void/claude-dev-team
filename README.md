@@ -43,18 +43,20 @@ Use `--dry-run` to preview every change without writing anything (`bash install.
 
 | Agent | Model | Role |
 |-------|-------|------|
-| `pm` | Sonnet | Requirements, user stories, acceptance criteria, prioritization |
+| `pm` | Opus | Requirements, user stories, acceptance criteria, prioritization |
 | `tech-lead` | Opus | Architecture, system design, cross-cutting concerns, unblocking ICs |
-| `ic5` | Opus | Complex implementation — ambiguous problems, hard bugs, new systems |
+| `ic5` | Sonnet | Complex implementation — ambiguous problems, hard bugs, new systems |
 | `ic4` | Sonnet | Well-defined tasks — extending patterns, tests, simple fixes |
 | `devops` | Sonnet | Deployments, CI/CD, infrastructure, monitoring, incident response |
-| `qa` | Opus | Test planning, validation, bug reports, **release gating** |
+| `qa` | Sonnet | Test planning, validation, bug reports, **release gating** |
 | `ds` | Opus | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
 
-The seven rows above are the behavioral/team agents you route work to. Three internal
-agents — `project-init`, `distiller`, and `council-judge` — are invoked by specific
-commands (`/setup team`, `/memory distill`, `/council`), not directly. Every agent has
-persistent per-project memory.
+The seven rows above are the behavioral/team agents you route work to, and they are the
+ones with persistent per-project memory. Five internal agents — `finder`, `debugger`,
+`project-init`, `distiller`, and `council-judge` — are invoked by specific commands
+(`/council` and `/bug-hunt`, `/debug`, `/setup team`, `/memory distill`, `/council` again for the judge),
+not directly. `finder` and `debugger` are read-only investigators; internal agents carry
+no memory, cortex, or directives.
 
 ### Memory
 

@@ -100,7 +100,7 @@ else
 fi
 
 # =============================================================================
-# list — read-only, 8 agents, Tier default, local path
+# list — read-only, 10 agents, Tier default, local path
 # =============================================================================
 run list extra-ignored
 check_rc "list-extra-argv" 0
@@ -111,13 +111,13 @@ else
   fail "list-local-path out='$LIST'"
 fi
 missing=""
-for a in pm tech-lead ic5 ic4 devops qa ds council-judge; do
+for a in pm tech-lead ic5 ic4 devops qa ds council-judge finder debugger; do
   echo "$LIST" | grep -Eq "^${a}[[:space:]]+Tier default([[:space:]]|$)" || missing="$missing $a"
 done
 if [ -z "$missing" ]; then
-  pass "list-eight-tier-default"
+  pass "list-ten-tier-default"
 else
-  fail "list-eight-tier-default missing:$missing out='$LIST'"
+  fail "list-ten-tier-default missing:$missing out='$LIST'"
 fi
 if [ ! -e "$TMP/.claude" ] && [ ! -e "$FAKE_HOME/.claude" ]; then
   pass "list-readonly"

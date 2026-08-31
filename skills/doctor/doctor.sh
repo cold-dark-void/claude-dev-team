@@ -1491,7 +1491,7 @@ check_models_map() {
 
   _mmap_is_mappable() {
     case "$1" in
-      pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge) return 0 ;;
+      pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge|finder|debugger) return 0 ;;
       *) return 1 ;;
     esac
   }

@@ -26,7 +26,7 @@ usage() {
 
 is_mappable() {
   case "$1" in
-    pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge) return 0 ;;
+    pm|tech-lead|ic5|ic4|devops|qa|ds|council-judge|finder|debugger) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -121,7 +121,7 @@ atomic_write() {
 cmd_list() {
   local agent model effort
   printf 'local: %s\n' "$MAP"
-  for agent in pm tech-lead ic5 ic4 devops qa ds council-judge; do
+  for agent in pm tech-lead ic5 ic4 devops qa ds council-judge finder debugger; do
     model=$(bash "$RESOLVE" "$agent") || model=""
     [ -n "$model" ] || model="Tier default"
     effort=$(bash "$RESOLVE" --effort "$agent") || effort=""

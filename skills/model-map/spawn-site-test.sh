@@ -34,30 +34,32 @@ NEGATIVES='
 commands/handoff.md
 '
 
-# M12 roster (SPEC-003 + AGENTS.md internals). Values are YAML tokens.
+# M12 roster (SPEC-003 § Tier table). Values are YAML tokens: name:model:effort.
 ROSTER='
-pm:sonnet
-tech-lead:opus
-ic5:opus
-ic4:sonnet
-devops:sonnet
-qa:opus
-ds:opus
-distiller:haiku
-council-judge:opus
-project-init:sonnet
+tech-lead:opus:high
+council-judge:opus:high
+debugger:opus:high
+ds:opus:medium
+pm:opus:medium
+ic5:sonnet:xhigh
+qa:sonnet:high
+finder:sonnet:high
+devops:sonnet:medium
+ic4:sonnet:medium
+project-init:sonnet:low
+distiller:haiku:low
 '
 
-frontmatter_model() {
-  awk '
-    BEGIN { n=0 }
+frontmatter_key() {
+  awk -v key="$2" '
+    BEGIN { n=0; pat = "^" key ":[[:space:]]*" }
     /^---[[:space:]]*$/ {
       n++
       if (n == 2) exit
       next
     }
-    n == 1 && $0 ~ /^model:[[:space:]]*/ {
-      sub(/^model:[[:space:]]*/, "")
+    n == 1 && $0 ~ pat {
+      sub(pat, "")
       gsub(/[[:space:]]+$/, "")
       gsub(/^["'\'']|["'\'']$/, "")
       print
@@ -142,23 +144,42 @@ else
   fi
 fi
 
-# ---- M12: agents/*.md frontmatter model: matches roster ----
-for pair in $ROSTER; do
-  name=${pair%%:*}
-  want=${pair#*:}
+# ---- M12: agents/*.md frontmatter model: + effort: match the Tier table ----
+for triple in $ROSTER; do
+  name=${triple%%:*}
+  rest=${triple#*:}
+  want_model=${rest%%:*}
+  want_effort=${rest#*:}
   f="$ROOT/agents/${name}.md"
   if [ ! -f "$f" ]; then
     bad "M12 missing agents/${name}.md"
     continue
   fi
-  got=$(frontmatter_model "$f")
-  if [ "$got" = "$want" ]; then
+  got=$(frontmatter_key "$f" model)
+  if [ "$got" = "$want_model" ]; then
     ok
   else
-    bad "M12 agents/${name}.md model:'${got}' want '${want}'"
+    bad "M12 agents/${name}.md model:'${got}' want '${want_model}'"
   fi
-  if grep -qE '^effort:' "$f"; then
-    bad "M29 agents/${name}.md must not have effort: frontmatter"
+  got=$(frontmatter_key "$f" effort)
+  if [ "$got" = "$want_effort" ]; then
+    ok
+  else
+    bad "M29 agents/${name}.md effort:'${got}' want '${want_effort}'"
+  fi
+done
+
+# ---- M12: finder / debugger tool floor — read-only, never Write or Edit ----
+for name in finder debugger; do
+  f="$ROOT/agents/${name}.md"
+  got=$(frontmatter_key "$f" tools)
+  if [ "$got" = "Read, Grep, Glob, Bash, SendMessage" ]; then
+    ok
+  else
+    bad "M12 agents/${name}.md tools:'${got}' want 'Read, Grep, Glob, Bash, SendMessage'"
+  fi
+  if printf '%s' "$got" | grep -qE '(^|[[:space:],])(Write|Edit)([[:space:],]|$)'; then
+    bad "M12 agents/${name}.md must not have Write or Edit"
   else
     ok
   fi

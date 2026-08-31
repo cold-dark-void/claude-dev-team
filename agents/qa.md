@@ -2,7 +2,8 @@
 name: qa
 description: QA Engineer. Use for verifying new functionality works as expected, writing and running tests, identifying bugs and regressions, validating acceptance criteria, exploratory testing, and gating releases. QA must sign off before production deployments. Invoke after implementation to validate before deploy.
 tools: Read, Write, Edit, Grep, Glob, Bash, TaskCreate, TaskList, TaskUpdate, TaskGet, SendMessage
-model: opus
+model: sonnet
+effort: high
 mode: subagent
 ---
 

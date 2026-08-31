@@ -59,19 +59,26 @@ hooks, and `specs/`.
 
 | Agent | Model | Role |
 |-------|-------|------|
-| `pm` | Sonnet | Requirements, user stories, acceptance criteria |
+| `pm` | Opus | Requirements, user stories, acceptance criteria |
 | `tech-lead` | Opus | Architecture, design, unblocking ICs |
-| `ic5` | Opus | Complex implementation, hard bugs, new systems |
+| `ic5` | Sonnet | Complex implementation, hard bugs, new systems |
 | `ic4` | Sonnet | Well-defined tasks, extending patterns, tests |
 | `devops` | Sonnet | CI/CD, infrastructure, deployments |
-| `qa` | Opus | Testing, validation, release gating |
+| `qa` | Sonnet | Testing, validation, release gating |
 | `ds` | Opus | Data analysis, ML, metrics |
+| `finder` | Sonnet | Read-only fan-out investigator (`/council` Phase 2 / 2.5, `/bug-hunt` S1 / S2) |
+| `debugger` | Opus | Read-only causal root-cause investigator (`/debug ticket` premise only — `full`/`patch`/`arch` root-cause phases have no named-roster spawn) |
 | `project-init` | Sonnet | One-time memory bootstrap (via `/setup team`) |
 | `distiller` | Haiku | Memory compression specialist (invoked by `/memory distill` only) |
 | `council-judge` | Opus | Tool-less final arbiter for `/council` tribunals (invoked by the council engine only) |
 
-The first 7 rows are the behavioral/team agents; `project-init`, `distiller`, and
-`council-judge` are internal agents invoked by specific commands, never routed to directly.
+The first 7 rows are the behavioral/team agents. The remaining 5 — `finder`,
+`debugger`, `project-init`, `distiller`, and `council-judge` — are internal
+agents invoked by specific commands, never routed to directly. Internal agents
+have no per-agent memory, no cortex, and no `/adjust-agent` directives surface.
+
+Model and effort tiers for all 12 agents are set in `agents/*.md` frontmatter;
+SPEC-003 § Tier table is the source of truth.
 
 ## Worktree Protocol
 

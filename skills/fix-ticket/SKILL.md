@@ -15,7 +15,7 @@ description: >
 
 Protocol for `/debug ticket` (SPEC-028). Orchestrator-driven Task-spawn pipeline:
 
-**premise verify (ic5) → implement in worktree (ic4/ic5) → N adversarial refuters (qa) → orchestrator review + report**
+**premise verify (debugger) → implement in worktree (ic4/ic5) → N adversarial refuters (qa) → orchestrator review + report**
 
 Markdown Task path is authoritative. `workflow.js` is an optional non-invoked
 reference asset (args-as-JSON-string guard for Workflow authoring conventions).
@@ -122,22 +122,22 @@ fi
 
 ---
 
-## Step 3: Verify-premise (ic5, read-only)
+## Step 3: Verify-premise (debugger, read-only)
 
 1. Read `prompts/premise.md`; substitute `{{TICKET}}`, `{{WORKTREE}}`, `{{BUG}}`.
-2. Spawn Task: agent `dev-team:ic5` (or Explore-capable), **read-only**.
+2. Spawn Task: agent `dev-team:debugger` (or Explore-capable), **read-only**.
    Include `Output mode: terse`. Resolve the agent actually spawned
-   (`ic5`; named fallback `ic5`→`ic4` resolves `ic4`). Unnamed /
-   `general-purpose` / Explore: omit the fence.
+   (`debugger`; named fallback `debugger`→`ic5` resolves `ic5`, CDT-230 —
+   never `ic4`). Unnamed / `general-purpose` / Explore: omit the fence.
 
-Before spawning @ic5:
+Before spawning @debugger:
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-MODEL=$(bash "$RESOLVE" ic5)
+MODEL=$(bash "$RESOLVE" debugger)
 printf '%s\n' "$MODEL"
-EFFORT=$(bash "$RESOLVE" --effort ic5)
+EFFORT=$(bash "$RESOLVE" --effort debugger)
 printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
@@ -145,8 +145,8 @@ Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agen
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
-If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for ic5; retrying with inherited effort`.
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for debugger; retrying with Tier default`.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for debugger; retrying with inherited effort`.
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 

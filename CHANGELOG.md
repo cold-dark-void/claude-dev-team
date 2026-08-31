@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.0
+- **Agent role split + effort tier table (CDT-230)** — new non-behavioral roster agents `finder` (sonnet/high — council Phase 2/2.5 and bug-hunt S1/S2 fan-out) and `debugger` (opus/high — `/debug ticket` premise investigation only; `full`/`patch`/`arch` root-cause phases have no named-roster spawn, unaffected). `ic5` narrows to pure senior implementer (opus→sonnet/xhigh). Full 12-agent `model:`+`effort:` tier table lands as `agents/*.md` frontmatter (SPEC-003 is SoT); also `pm` sonnet→opus/medium, `qa` opus→sonnet/high. Both new agents are memory-less, cortex-less, read-only (`Read, Grep, Glob, Bash, SendMessage`), behavioral agent count stays exactly 7. `spawn-site-test.sh` M29 inverted: `effort:` frontmatter goes from forbidden to required. SPEC-037 M8 mappable set widened in all three enforcement copies (`resolve-model.sh`, `write-model.sh`, `doctor.sh`). Effort-surface retirement (the dead `--effort` Agent-param plumbing, SPEC-037 F1) stays out of scope — separate ticket. Default-behavior change ⇒ minor.
+
 ### v1.17.0
 - **Autopilot BC6 run-budget auto-tuning (CDT-224)** — `/orchestrate` derives S/M/L caps once at plan-approve from task count, counted LOC, and waves. S 10 stints/20 min, M 25/45 (unchanged), L 40/75 (auto-tune ceiling). Env `AUTOPILOT_*_CAP` wins per cap; no new flags. Nested `budget.{tier,source,signals}` on cards. Kickoff and epic Mode A stay static. Unfrozen M10.6 compares to 75 min. Default-behavior change ⇒ minor.
 

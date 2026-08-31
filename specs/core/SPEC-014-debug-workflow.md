@@ -5,7 +5,7 @@
 **Created**: 2026-04-25
 **See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule); SPEC-028 (`ticket` mode protocol home — DEPRECATED retained; full MUST fold into 014 deferred to v1.1)
 
-**Covers**: `commands/debug.md` (CDT-46-C4), `skills/debug/SKILL.md`, `skills/debug/theme-status.sh` (SPEC-029 gates); `commands/fix-ticket.md` + `skills/fix-ticket/` (Deprecation stubs → `/debug ticket`, CDT-46-C4)
+**Covers**: `commands/debug.md` (CDT-46-C4), `skills/debug/SKILL.md`, `skills/debug/theme-status.sh` (SPEC-029 gates); `commands/fix-ticket.md` + `skills/fix-ticket/` (Deprecation stubs → `/debug ticket`, CDT-46-C4); `agents/debugger.md` (root-cause / premise investigation agent, CDT-230)
 
 ---
 
@@ -42,6 +42,18 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 - MUST NOT commit, version-bump, or run `/release` (`ticket` mode; caller owns ship)
 - `full` / `patch` / `arch` gates in this spec and SPEC-029 MUST remain unchanged for non-`ticket` modes
 - `commands/fix-ticket.md` and `skills/fix-ticket/SKILL.md` MUST be one-cycle Deprecation stubs pointing to `/debug ticket` (removed at v1.1). Protocol body MAY live under `skills/debug/` or remain reachable from the debug skill; stub files remain for discovery
+
+### Root-cause agent (CDT-230)
+
+- MUST spawn `dev-team:debugger` — not `dev-team:ic5` — for the `ticket`-mode
+  premise-investigation phase (`skills/fix-ticket/SKILL.md` Step 3). `full` /
+  `patch` / `arch` root-cause phases have no named-roster Agent spawn
+  (SPEC-037 M16 site 3) — this MUST does not apply to them.
+- `debugger` MUST be read-only (`tools: Read, Grep, Glob, Bash, SendMessage`). Root-cause investigation MUST NOT write; the fix phase is a separate spawn against the implementer agent (`ic4` / `ic5` per `--agent`).
+- On host-reject of a `debugger` spawn, the caller MUST retry once against `ic5` — the pre-CDT-230 agent for this phase — and MUST NOT fall back to `ic4`. Model-param host-reject stays SPEC-037 M14 and is independent.
+- `debugger` MUST NOT be given a cortex, memory directory, `init-team` bootstrap entry, or `/adjust-agent` directives surface (SPEC-003 § Agent Identity, non-behavioral roster agent).
+- `--agent ic4|ic5` MUST keep its existing meaning: it selects the **implementer** for the fix phase only. It MUST NOT select the root-cause agent, and its accepted token set MUST NOT gain `debugger`.
+- Refuter spawns in `ticket` mode Step 5 MUST stay on `qa` (SPEC-037 M16.3). CDT-230 moves the premise-investigation phase only; the refuter agent, count, blindness, and report path are unchanged.
 
 ### Investigation (all modes)
 
@@ -206,6 +218,17 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
    run routes to `/kickoff` exactly as before; no worktree is created/released in either
    arch case
 
+### T14: Root-cause agent is `debugger` (CDT-230)
+1. Grep `skills/fix-ticket/SKILL.md` Step 3 for the spawned `subagent_type`
+2. Verify: the `ticket`-mode premise spawn names `dev-team:debugger`; grep
+   `skills/debug/SKILL.md` and confirm it asserts NO named-roster spawn for
+   `full` / `patch` / `arch` root-cause phases (no `dev-team:ic5`, no
+   `dev-team:debugger` — SPEC-037 M16 site 3)
+3. Verify: `agents/debugger.md` declares `tools: Read, Grep, Glob, Bash, SendMessage` — no `Write`, no `Edit`
+4. Verify: the documented host-reject fallback for the premise spawn is `ic5`, not `ic4`
+5. Verify: `--agent` still accepts exactly `ic4|ic5` and does not accept `debugger`
+6. Verify: `.claude/memory/debugger/` is not created and `agents/debugger.md` has no memory-protocol include region
+
 ---
 
 ## Validation
@@ -228,6 +251,9 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 - [ ] `commands/debug.md` thin host ships; first-token modes include `ticket`
 - [ ] `/debug ticket` missing args → usage, no spawn; no commit/version on green path
 - [ ] `/fix-ticket` command + skill are Deprecation stubs → `/debug ticket`
+- [ ] The `ticket`-mode premise spawn names `dev-team:debugger`; `full`/`patch`/`arch` root-cause phases assert no named-roster spawn at all (M16 site 3)
+- [ ] `debugger` is read-only, memory-less, and falls back to `ic5` on host-reject
+- [ ] `--agent ic4|ic5` still selects the implementer only and rejects `debugger`
 
 ---
 
@@ -235,6 +261,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 | Date | Change |
 |------|--------|
+| 2026-08-30 | CDT-230: new § Root-cause agent registers `agents/debugger.md` (opus / effort high) as the agent for the `ticket`-mode premise-investigation phase — previously `ic5`, which was carrying three unrelated job shapes. `full`/`patch`/`arch` root-cause phases have no named-roster Agent spawn (SPEC-037 M16 site 3) and are unaffected by this ticket. `debugger` is read-only and memory-less (SPEC-003 non-behavioral roster agent); host-reject falls back to `ic5`, never `ic4`. `--agent ic4\|ic5` keeps its existing implementer-only meaning and does NOT gain a `debugger` token. Step 5 refuters stay on `qa` — unchanged by this ticket. Added T14 + 3 validation checkboxes. Status stays APPROVED. |
 | 2026-08-02 | CDT-103: § Fix reworded — bounded refactor+fix are now "separate ordered commits on the **same branch** (refactor before fix)", achieved by `/refactor inline` reusing `/debug`'s caller-supplied worktree rather than self-creating a second branch (see SPEC-015 § Worktree Isolation). Restores the git-bisect ordering the prose already claimed. |
 | 2026-08-02 | CDT-101: escalate-to-kickoff (full § 2.4) and `arch` (A.3) paths now run the workstream-split check before emitting the handoff; a confirmed split routes to `/epic` (SPEC-031 § Workstream split, cited not restated). ACs 99/104 + T6/T10 + validation reconciled from `/kickoff`-only to `/kickoff`-or-`/epic`. Added T12/T13. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: fold note — SPEC-028 cut to DEPRECATED (retained); ticket-mode protocol home stays SPEC-028 until v1.1; entry remains `/debug ticket` / SPEC-014 host; no full MUST rewrite. |

@@ -140,7 +140,7 @@ const premise = await agent(
     `Read the relevant CURRENT files under ${WT} (line numbers may have moved). Confirm whether the bug is present as described. Report: the CURRENT file:line locations, concise evidence of the wrong behavior, any scope nuance the fixer must know, every SIBLING file carrying the same bug pattern (grep for it), and — if the fix ports an existing correct implementation elsewhere — that reference's file:line.`,
   {
     schema: PREMISE_SCHEMA,
-    agentType: 'dev-team:ic5',
+    agentType: 'dev-team:debugger',
     phase: 'Verify-premise',
     label: `premise:${TICKET}`,
   },

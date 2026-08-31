@@ -905,8 +905,17 @@ echo "Loaded ticket pipeline: $FT_SKILL"
 ```
 
 Read `$FT_SKILL` and execute its Steps 0–8 with the parsed ticket args
-(worktree ensure → premise verify ic5 → implement ic4/ic5 → N qa refuters →
+(worktree ensure → premise verify debugger → implement ic4/ic5 → N qa refuters →
 orchestrator review → report under `$MROOT/.claude/fix-ticket/` → next steps).
+
+**Root-cause agent (SPEC-014 § Root-cause agent, CDT-230):** the `ticket`-mode
+Step 3 premise investigation names `dev-team:debugger`, not `dev-team:ic5`.
+`full` / `patch` / `arch` root-cause phases have **no named-roster Agent
+spawn** (SPEC-037 M16 site 3) — `debugger` does not apply there.
+`debugger` is read-only (`tools: Read, Grep, Glob, Bash, SendMessage`); the fix
+is a separate implementer spawn. On host-reject of a `debugger` spawn, retry
+once against `ic5` — never `ic4`. `--agent ic4|ic5` still selects the
+**implementer** only and does not accept `debugger`.
 
 **Model map (SPEC-037):** ticket-mode named-roster spawns honor the
 fix-ticket Model map contract (`skills/fix-ticket/SKILL.md` Steps 3–5).

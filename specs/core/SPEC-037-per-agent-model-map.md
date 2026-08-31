@@ -19,6 +19,73 @@ local-only writer (`write-model.sh`) backs `/setup models` and
 `/adjust-agent --model` / `--effort`. `/doctor` check `models.map` is
 WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
 
+**The effort half of this spec (M22–M29) is superseded.** The host has no
+Agent `effort` param. See § Host capability findings. The model half is
+unaffected and stays in force.
+
+## Host capability findings
+
+Verified 2026-08-30 against Claude Code `2.1.236` on Linux. Method: capture
+the outbound `POST /v1/messages` body through a local forwarding listener,
+then read `output_config.effort`. Re-verify before you apply these findings
+to another host or another version.
+
+| Substrate | Per-agent effort | Reaches a `dev-team:*` spawn |
+|-----------|------------------|------------------------------|
+| Plugin `agents/*.md` frontmatter | Works | Yes |
+| Project `.claude/agents/<name>.md` | Works | No — bare name only |
+| `--agents` JSON flag | Works | No — bare name only |
+| `settings.json` `agents` key | Does not exist | No |
+| `settings.json` `effortLevel` | Session-wide only | All agents at once |
+| Agent tool `effort` param | **Does not exist** | No |
+| Workflow `agent()` `opts.effort` | Documented; not tested | Workflow scripts only |
+| Frontmatter with no `effort:` key | Inherits session `effortLevel` | Yes |
+| `model:` + `effort:` together in one file | Both apply independently | Yes |
+
+- **F1 — No Agent `effort` param.** The Agent tool input schema carries
+  `subagent_type`, `prompt`, `description`, `model`, `name`, `isolation`,
+  `mode`, `run_in_background`, and `team_name`. It carries no `effort`.
+  M27 and M28 therefore describe a param that the host does not accept.
+  The shipped effort map computes a token that reaches nothing.
+- **F2 — `model` param works.** The model half (M13 ∪ M16) is sound.
+  A mapped model composes with frontmatter effort.
+- **F3 — Frontmatter effort works for subagents.** An `effort:` key in
+  `agents/*.md` sets `output_config.effort` on the subagent request.
+  Verified for a plugin-shipped agent and for a project agent, with a
+  matched `low` / `max` control pair.
+- **F4 — Frontmatter effort does not work for a main session.** Under
+  `--agent <name>`, the session effort wins. The `model:` key still applies.
+  This path is not used by roster spawns.
+- **F5 — The loader validates `effort:`.** Valid values are `low`,
+  `medium`, `high`, `xhigh`, `max`, or an integer. A bad value logs
+  `Agent file <path> has invalid effort '<value>'`.
+- **F6 — Namespaced spawns ignore user overrides.** A bare agent name
+  resolves to a project file before a plugin file. A namespaced
+  `<plugin>:<name>` always resolves to the plugin file. All roster spawn
+  sites pass namespaced types. No user-side substrate can change their
+  effort.
+
+- **F7 — Omitted `effort:` inherits the session's `effortLevel`.** A
+  subagent whose frontmatter carries no `effort:` key takes the operator's
+  `.claude/settings.json` `effortLevel`, not a fixed default. Verified with
+  a `settings.json` `effortLevel: "high"` control: both the main session and
+  a no-effort-key subagent returned `"effort":"high"`. This is the
+  project-wide depth lever F6 leaves available — it moves every agent at
+  once, not one agent at a time.
+- **F8 — `model:` and `effort:` compose in one file.** Both keys set
+  independently on the same subagent request; neither key's presence
+  changes how the other resolves. Verified with `model: claude-sonnet-5` +
+  `effort: xhigh` on one agent file: the request carried both values
+  unmodified. This is the combination every roster agent ships in Option A
+  — a pinned model with a pinned effort in the same frontmatter block.
+
+**Decision (Option A).** Ship effort as tier defaults in `agents/*.md`
+frontmatter. Retire per-agent effort as a configurable surface. F6 makes
+frontmatter the only substrate that reaches a roster spawn. Per-project
+effort tuning is not expressible on this host. Record that limit; do not
+ship a control that silently does nothing. Tier values, the M12 / M29
+amendment, and the surface retirement land as separate tickets.
+
 ## MUST
 
 - **M1 — Path (AC1, AC2).** `$MROOT` MUST be `git rev-parse --git-common-dir`
@@ -73,12 +140,22 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
   key (per layer). Other keys MUST still resolve.
 
 - **M8 — Mappable set (AC12).** Exact lowercase names that MAY emit:
-  `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`.
-  `resolve-model.sh distiller` and `resolve-model.sh project-init` MUST always
-  print empty stdout. If those keys exist in the file, M7 still warns.
+  `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`,
+  `finder`, `debugger`. `finder` and `debugger` join the set under CDT-230:
+  both are named-roster spawn targets at M16 sites, so both MUST be mappable
+  on the same terms as `council-judge` (mappable without being one of the 7
+  behavioral agents). `resolve-model.sh distiller` and
+  `resolve-model.sh project-init` MUST always print empty stdout. If those
+  keys exist in the file, M7 still warns.
   An argv name outside M8 and those two internals is an unknown agent: empty
   stdout, exit `0`, stderr
   `model-map: unknown agent '<name>'; using Tier default`.
+  The set is duplicated in three enforcement points —
+  `skills/model-map/resolve-model.sh`, `skills/model-map/write-model.sh`
+  (guard plus `list` loop), and `skills/doctor/doctor.sh` (`models.map`
+  key validation). All three MUST carry the same 10-name mappable set plus
+  the two always-empty internals; a change to one without the others is a
+  spec violation, not a cosmetic drift.
 
 - **M9 — Adversarial (AC13).** A valid string for `qa` or `council-judge` MUST
   be emitted. The resolver MUST also warn once
@@ -105,11 +182,26 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
   any layer. Per-agent **model** first-hit is this MUST. Per-agent **effort**
   first-hit is M25 (independent).
 
-- **M12 — Frontmatter (AC16–AC18).** All 10 `agents/*.md` `model:` lines MUST
-  stay unchanged. SPEC-003 Tier defaults stay SoT. Direct `@agent` / chat stays
-  on frontmatter. MUST NOT overlay or rewrite agent files.
-  `council-judge` `tools: ""` MUST stay empty; mapping its model MUST NOT add
-  tools. None of the 10 files MUST gain an `effort:` frontmatter key (M29).
+- **M12 — Frontmatter (AC16–AC18).** All 12 `agents/*.md` files MUST carry a
+  `model:` and an `effort:` line whose values match the SPEC-003 § Tier table
+  row for that agent. SPEC-003 is SoT for both columns; this spec MUST NOT
+  restate the values. The **Model map** MUST NOT overlay or rewrite agent
+  files — a mapped model is passed as the Agent `model` param at spawn time
+  (M13 ∪ M16) and never written back to frontmatter (Option B). Direct
+  `@agent` / chat stays on frontmatter. `council-judge` `tools: ""` MUST stay
+  empty; mapping its model MUST NOT add tools. `finder` and `debugger` MUST
+  carry `tools: Read, Grep, Glob, Bash, SendMessage`; mapping their model
+  MUST NOT add `Write` or `Edit`.
+  An `effort:` frontmatter key is REQUIRED, not forbidden. The prior
+  prohibition described a substrate the host does not honour any other way:
+  per § Host capability findings F3, frontmatter `effort:` is the only
+  substrate that sets `output_config.effort` on a subagent request, and per
+  F6 a namespaced `dev-team:*` spawn resolves to the plugin file, so no
+  user-side substrate can reach it. F8 confirms `model:` and `effort:`
+  resolve independently in one file. Effort is therefore a **shipped tier
+  default**, not a runtime-routable field; the sibling `effort` map
+  (M22–M28) does not reach a spawn and MUST NOT be treated as the SoT for
+  any agent's effort.
 
 - **M13 — Orchestrate wiring (AC19–AC21).** Before every named-roster Agent
   spawn listed below, the orchestrator MUST run the resolver for that agent
@@ -161,18 +253,26 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
      fence Codebase Explorer or Step 4b verifier.
   2. `/epic` (`skills/epic/SKILL.md`) — A.2 `@pm` and `@tech-lead` only
      (Mode E `--redecompose` reuses A.2 fences). No ICs.
-  3. `/debug ticket` (`skills/fix-ticket/SKILL.md`) — Step 3 premise `ic5`,
-     Step 4 implement `--agent ic4|ic5`, Step 5 refuters `qa`.
+  3. `/debug ticket` (`skills/fix-ticket/SKILL.md`) — Step 3 premise
+     `debugger` (CDT-230; was `ic5`), Step 4 implement `--agent ic4|ic5`,
+     Step 5 refuters `qa` (unchanged).
      `skills/debug/SKILL.md` cites that contract. No `full` / `patch` /
      `arch` named-roster spawns.
-  4. `/council` — Phase 2 investigators `ic5`, Phase 2.5 cross-reviewers
-     `ic4`, Phase 5 `council-judge`. One Model map protocol section in
+  4. `/council` — Phase 2 investigators `finder` (CDT-230; was `ic5`),
+     Phase 2.5 cross-reviewers `finder` (CDT-230; was `ic4`), Phase 5
+     `council-judge`. One Model map protocol section in
      `skills/council/SKILL.md`; `commands/council.md` points at it and
      contains one fence per role. Mapping `council-judge` MUST NOT add
-     tools. MUST NOT wire Phase 1 extractor, Phase 3 specialist, Phase 4
-     prosecutor/advocate, or `--blind` extra waves.
+     tools; mapping `finder` MUST NOT add `Write` or `Edit`. MUST NOT wire
+     Phase 1 extractor, Phase 3 specialist, Phase 4 prosecutor/advocate, or
+     `--blind` extra waves.
   5. `/bug-hunt` (`skills/bug-hunt/SKILL.md`) — S1 unconstrained / lens /
-     quorum `ic5` and S2 investigators `ic5`.
+     quorum `finder` and S2 investigators `finder` (CDT-230; both were
+     `ic5`).
+  Named fallback under CDT-230: a `finder` or `debugger` spawn that the host
+  rejects falls back to `ic5` (SPEC-003 § Role split), and the fallback
+  agent is the one resolved. The pre-existing `ic5`→`ic4` fallback applies
+  only where `ic5` is still the named agent.
   MUST NOT wire: `/handoff` miner (`HANDOFF_MINER_MODEL`), `/memory
   validate`, `/retro`.
 
@@ -329,7 +429,10 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
   NOT newly wire `skills/council/workflow.js`. MUST NOT expand the
   spawn-site set beyond M13 ∪ M16.
 
-- **M28 — Effort host-reject (AC10).** If Agent spawn fails and the failure
+- **M28 — Effort host-reject (AC10).** **Superseded — F1.** The host has no
+  Agent `effort` param, so this retry path never runs as designed. Keep the
+  text for history. Do not implement it on a new surface.
+  If Agent spawn fails and the failure
   is attributed to the `effort` param (invalid / unknown / unsupported
   effort), retry **once** omitting `effort` (light Step 8 `@ic4` omit-path
   then uses `effort: low`; all other sites omit) and warn
@@ -339,14 +442,26 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
   failures MUST NOT be retried as an effort fallback. MUST NOT probe the
   host for effort validity.
 
-- **M29 — Effort static CI + frontmatter (AC11, AC12).**
-  `skills/model-map/spawn-site-test.sh` MUST fail if any M13 ∪ M16 site's
-  committed template/prose lacks `resolve-model.sh --effort` or M28
-  host-reject language (`retry once` and `host rejected effort`).
-  Negatives unchanged: `commands/handoff.md` and `skills/handoff/` MUST NOT
-  contain `resolve-model.sh` or `--effort` as a resolver invocation. All 10
-  `agents/*.md` `model:` lines MUST stay unchanged (M12). None MUST gain an
-  `effort:` frontmatter key.
+- **M29 — Effort static CI (AC11, AC12).** `skills/model-map/spawn-site-test.sh`
+  MUST fail if any M13 ∪ M16 site's committed template/prose lacks
+  `resolve-model.sh --effort` or M28 host-reject language (`retry once` and
+  `host rejected effort`). Negatives unchanged: `commands/handoff.md` and
+  `skills/handoff/` MUST NOT contain `resolve-model.sh` or `--effort` as a
+  resolver invocation.
+  These `--effort` assertions are retained deliberately. F1 makes the prose
+  they guard inert — the Agent tool has no `effort` param — but retiring the
+  effort **surface** (resolver flag, `set-effort`, `/adjust-agent --effort`,
+  and this prose) is a separate ticket. Until that ticket lands, the
+  assertions MUST keep the surface internally consistent rather than half
+  removed.
+  The frontmatter half of this MUST is **replaced**, not annotated. The
+  former requirement — that no `agents/*.md` gain an `effort:` key, and that
+  all 10 `model:` lines stay unchanged — is deleted. `spawn-site-test.sh`
+  MUST NOT assert the absence of `effort:` frontmatter. It MUST instead
+  assert, for all 12 agents, that `model:` and `effort:` are present and
+  match the SPEC-003 § Tier table (M12). Rationale: F3 and F6 make
+  frontmatter the only substrate that reaches a namespaced roster spawn, so
+  the old assertion blocked the one mechanism that works.
 
 ## MUST NOT
 
@@ -355,11 +470,11 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
 - MUST NOT override distiller internals (`distill_model` / `agents/distiller.md`).
 - MUST NOT add tools to `council-judge`.
 - MUST NOT write repo or global Model map files from `write-model.sh`.
-- MUST NOT overlay or rewrite `agents/*.md` (Option B).
+- MUST NOT overlay or rewrite `agents/*.md` from the Model map (Option B) — a mapped model is a spawn-time param, never a frontmatter write.
 - MUST NOT read `DEVTEAM_MODEL_*`.
 - MUST NOT FAIL `/doctor` `models.map` (WARN or SKIP only).
-- MUST NOT pass `""` as the Agent `effort` param.
-- MUST NOT add `effort:` frontmatter to `agents/*.md`.
+- MUST NOT pass `""` as the Agent `effort` param. **Superseded — F1.**
+- MUST NOT assert the absence of `effort:` frontmatter in `agents/*.md`, and MUST NOT treat the sibling `effort` map as the SoT for any agent's effort. Frontmatter is the only substrate that reaches a namespaced roster spawn (F3, F6); SPEC-003 § Tier table is the SoT.
 - MUST NOT newly wire `skills/council/workflow.js`.
 - MUST NOT parse a second stdout line from `resolve-model.sh <agent>`.
 - MUST NOT store effort inside `agents` values or bump the layer `version`.
@@ -403,7 +518,8 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
       `skills/bug-hunt/SKILL.md` contain `resolve-model.sh` (M16)
 - [ ] Negative: `commands/handoff.md` and `skills/handoff/` have no
       `resolve-model.sh` (M16)
-- [ ] All 10 `agents/*.md` `model:` lines match SPEC-003 roster (M12)
+- [ ] All 12 `agents/*.md` `model:` AND `effort:` lines match the SPEC-003 § Tier table (M12)
+- [ ] `finder` / `debugger` resolve a mapped model and never gain `Write` / `Edit` (M12)
 - [ ] `bash skills/spec-tooling/check-format.sh specs/core/SPEC-037-per-agent-model-map.md` exits 0
 - [ ] `write-model.sh set` writes only local `models.local.json`; repo/global unchanged (M18)
 - [ ] `write-model.sh list` prints 8 M8 names + local path; empty resolve → `Tier default` (M18)
@@ -435,7 +551,11 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
 - [ ] `list` prints model (`Tier default`) and effort (`inherited`) via resolver (M18)
 - [ ] `/doctor --only models.map`: effort-only file is present (not SKIP); bad token WARN; never FAIL (M19)
 - [ ] `spawn-site-test.sh` greps `resolve-model.sh --effort` and `host rejected effort` at every M13 ∪ M16 site (M29)
-- [ ] No `agents/*.md` gains `effort:` frontmatter (M12 / M29)
+- [ ] `spawn-site-test.sh` asserts `effort:` frontmatter is PRESENT and Tier-table-matching on all 12 agents, and carries no assertion that it is absent (M12 / M29)
+- [ ] `resolve-model.sh finder` / `resolve-model.sh debugger` emit a mapped string and are not unknown-agent (M8)
+- [ ] `write-model.sh list` prints 10 mappable names including `finder` and `debugger` (M8 / M18)
+- [ ] `/doctor --only models.map` accepts `finder` / `debugger` keys without an unknown-key WARN (M8 / M19)
+- [ ] All three M8 enforcement points (`resolve-model.sh`, `write-model.sh`, `doctor.sh`) carry the identical mappable set (M8)
 
 ## Validation
 
@@ -449,6 +569,9 @@ WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
 
 | Date | Change |
 |------|--------|
+| 2026-08-30 | F7, F8 (CDT-230 kickoff Step 4b). F7: omitted `effort:` inherits `settings.json` `effortLevel`, the project-wide depth lever left available under F6. F8: `model:` and `effort:` compose in one frontmatter file — the combination every roster agent ships under Option A. Both verified with the same forwarding-listener method as F1–F6. |
+| 2026-08-30 | CDT-230 — M8 widened to 10 mappable names (`finder`, `debugger` added) and now names all three duplicated enforcement points as one contract. M12 **replaced**: `effort:` frontmatter is REQUIRED on all 12 agents and must match the SPEC-003 § Tier table (was: prohibited); SPEC-003 stays SoT for both columns; `finder`/`debugger` tool floor added. M29 **replaced**: the frontmatter-absence assertion is deleted and inverted to a presence + Tier-table assertion; the `--effort` spawn-site assertions are deliberately RETAINED, since retiring the effort surface is a separate ticket. MUST NOT list: the struck effort-frontmatter line replaced with a positive prohibition on asserting its absence. M16 sites 3–5 re-pointed to `debugger` (premise) and `finder` (council Phase 2 / 2.5, bug-hunt S1 / S2), with an `ic5` host-reject fallback. Status stays DRAFT. |
+| 2026-08-30 | Host capability findings F1–F6 (Claude Code 2.1.236). The Agent tool has no `effort` param, so M22–M29 never took effect. Frontmatter `effort:` works for subagents and is the only substrate that reaches a namespaced roster spawn. Option A recorded. M12 / M29 / MUST NOT effort-frontmatter prohibition marked void. Model half unaffected. Status stays DRAFT. |
 | 2026-08-27 | CDT-229 — sibling `effort` map (M22–M29); `resolve-model.sh --effort`; per-field first-hit; inherited effort omit path; light Step 8 `@ic4` omit-path `low` (SPEC-009). Status stays DRAFT. |
 | 2026-08-26 | CDT-228 — retitle Per-agent Model map; M18 local writer; M19 doctor `models.map` WARN-never-FAIL; M20 `/setup models`; M21 `/adjust-agent --model` sugar. Status stays DRAFT. |
 | 2026-08-26 | CDT-227 — M11 three-layer merge (local → repo → global); bad-value fallthrough; DEVTEAM_MODEL_* still ignored |
