@@ -72,6 +72,18 @@ warn() {
   echo "$1" >&2
 }
 
+# Field-aware fallback phrase for stderr messages (CDT-231): "agents" falls
+# back to the shipped Tier default; "effort" falls back to inherited effort.
+# A caller in --effort mode reading a message about "Tier default" is
+# reading the wrong noun for what actually happened.
+default_phrase() {
+  if [ "$1" = "effort" ]; then
+    printf 'inherited effort'
+  else
+    printf 'Tier default'
+  fi
+}
+
 # Accept one Model map value into WINNER, or warn and leave WINNER unset.
 take_field_value() {
   local field=$1 typ=$2 raw=$3 trimmed
@@ -106,7 +118,7 @@ pick_from_layer() {
   local map=$1 field=$2 key has typ raw atype
   [ -f "$map" ] || return 0
   if ! jq empty "$map" >/dev/null 2>&1; then
-    warn "model-map: unparseable JSON at ${map}; using Tier default"
+    warn "model-map: unparseable JSON at ${map}; using $(default_phrase "$field")"
     return 0
   fi
   if ! jq -e --arg f "$field" 'has($f)' "$map" >/dev/null 2>&1; then
@@ -143,7 +155,7 @@ pick_from_layer() {
 resolve_mroot
 
 if ! command -v jq >/dev/null 2>&1; then
-  warn "model-map: jq not found; using Tier default"
+  warn "model-map: jq not found; using $(default_phrase "$FIELD")"
   exit 0
 fi
 
@@ -156,7 +168,7 @@ if is_internal "$AGENT"; then
   exit 0
 fi
 if ! is_mappable "$AGENT"; then
-  warn "model-map: unknown agent '${AGENT}'; using Tier default"
+  warn "model-map: unknown agent '${AGENT}'; using $(default_phrase "$FIELD")"
   exit 0
 fi
 

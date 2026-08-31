@@ -126,13 +126,15 @@ site also runs `resolve-model.sh --effort` for the same agent:
 - `/kickoff` — Step 2 `@pm` / `@tech-lead`, Step 3 feed-back `@pm`,
   Step 5 / 6 `@tech-lead`
 - `/epic` — A.2 `@pm` / `@tech-lead` only (Mode E reuses A.2)
-- `/debug ticket` — premise `ic5`, implement `--agent ic4|ic5`, refuters `qa`
-- `/council` — Phase 2 `ic5`, Phase 2.5 `ic4`, Phase 5 `council-judge`
-- `/bug-hunt` — S1 unconstrained / lens / quorum `ic5` and S2 investigators
-  `ic5`
+- `/debug ticket` — premise `debugger`, implement `--agent ic4|ic5`, refuters `qa`
+- `/council` — Phase 2 `finder`, Phase 2.5 `finder`, Phase 5 `council-judge`
+- `/bug-hunt` — S1 unconstrained / lens / quorum `finder` and S2 investigators
+  `finder`
 
 Resolve the agent actually spawned. Named fallback `ic5`→`ic4` resolves
-`ic4`. Empty model stdout = **Tier default**. Empty effort stdout =
+`ic4` (pre-CDT-230 sites still on `ic5`, e.g. `/orchestrate`, `/kickoff`).
+`finder`/`debugger` spawns fall back to `ic5` on host-reject (CDT-230),
+never `ic4`. Empty model stdout = **Tier default**. Empty effort stdout =
 **inherited effort**.
 
 **Omit the fence:** Codebase Explorer; kickoff Step 4b verifier; unnamed /
@@ -155,7 +157,7 @@ write-model.sh set-effort <agent> <token>
 write-model.sh unset-effort <agent>
 ```
 
-- `list` — print the 8 mappable agents with the winning resolved model
+- `list` — print the 10 mappable agents with the winning resolved model
   (calls `resolve-model.sh`; empty → `Tier default`) and the winning
   resolved effort (calls `resolve-model.sh --effort`; empty → `inherited`)
   plus the local path. Read-only.

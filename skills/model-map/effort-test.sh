@@ -244,7 +244,8 @@ write_repo <<'EOF'
 EOF
 run --effort ic4
 check "M25-unparseable" 0 "low" "unparseable JSON"
-if grep -F -q 'using Tier default' "$ERRF"; then
+# CDT-231: field-aware suffix — effort mode says "inherited effort", not "Tier default".
+if grep -F -q 'using inherited effort' "$ERRF"; then
   pass "M25-unparseable-m6-prefix"
 else
   fail "M25-unparseable-m6-prefix err='$(cat "$ERRF")'"
@@ -347,7 +348,8 @@ RC=0
 : >"$OUTF"
 : >"$ERRF"
 env HOME="$FAKE_HOME" PATH="$NOJQ_BIN" "$BASH_ABS" "$RESOLVE" --effort ic4 >"$OUTF" 2>"$ERRF" || RC=$?
-check "M25-jq" 0 "" "jq not found; using Tier default"
+# CDT-231: field-aware suffix — effort mode says "inherited effort", not "Tier default".
+check "M25-jq" 0 "" "jq not found; using inherited effort"
 
 # =============================================================================
 # M26 — winning qa/council-judge effort emits + M9 once; empty → no M9

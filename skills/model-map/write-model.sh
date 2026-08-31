@@ -131,55 +131,76 @@ cmd_list() {
 }
 
 cmd_set() {
-  local agent=$1 raw=$2 val json
+  local agent=$1 raw=$2 val
   is_mappable "$agent" || usage
   val=$(trim "$raw")
   [ -n "$val" ] || usage
   need_jq
-  local_ok_to_write "$MAP" || exit 1
-  warn_adversarial "$agent"
-  if [ -f "$MAP" ]; then
-    json=$(jq --arg n "$agent" --arg v "$val" \
-      '.version = (.version // 1) | .agents = (.agents // {}) | .agents[$n] = $v' \
-      "$MAP")
-  else
-    json=$(jq -n --arg n "$agent" --arg v "$val" \
-      '{version:1, agents:{($n):$v}}')
-  fi
-  atomic_write "$MAP" "$json"
+  # Atomic read-validate-modify-write under flock (CDT-231): local_ok_to_write's
+  # validation and the merge+atomic_write below must run as one critical
+  # section, or two concurrent invocations can race and one clobbers the other.
+  # mkdir here — atomic_write's own mkdir runs inside the subshell, too late
+  # to open the lock fd on a fresh clone with no .claude/dev-team/ yet.
+  mkdir -p "$(dirname "$MAP")"
+  (
+    flock -x 9
+    local_ok_to_write "$MAP" || exit 1
+    warn_adversarial "$agent"
+    local json
+    if [ -f "$MAP" ]; then
+      json=$(jq --arg n "$agent" --arg v "$val" \
+        '.version = (.version // 1) | .agents = (.agents // {}) | .agents[$n] = $v' \
+        "$MAP")
+    else
+      json=$(jq -n --arg n "$agent" --arg v "$val" \
+        '{version:1, agents:{($n):$v}}')
+    fi
+    atomic_write "$MAP" "$json"
+  ) 9>"$LOCK"
 }
 
 # Delete one agent key from a Model map field (agents or effort).
 unset_field() {
-  local field=$1 agent=$2 json has
+  local field=$1 agent=$2
   is_mappable "$agent" || usage
   need_jq
   [ -e "$MAP" ] || exit 0
-  local_ok_to_write "$MAP" || exit 1
-  has=$(jq -r --arg n "$agent" --arg f "$field" '.[$f] // {} | has($n)' "$MAP" 2>/dev/null) || has="false"
-  [ "$has" = "true" ] || exit 0
-  json=$(jq --arg n "$agent" --arg f "$field" 'del(.[$f][$n])' "$MAP")
-  atomic_write "$MAP" "$json"
+  # Atomic read-validate-modify-write under flock (CDT-231) — see cmd_set.
+  (
+    flock -x 9
+    local_ok_to_write "$MAP" || exit 1
+    local has json
+    has=$(jq -r --arg n "$agent" --arg f "$field" '.[$f] // {} | has($n)' "$MAP" 2>/dev/null) || has="false"
+    [ "$has" = "true" ] || exit 0
+    json=$(jq --arg n "$agent" --arg f "$field" 'del(.[$f][$n])' "$MAP")
+    atomic_write "$MAP" "$json"
+  ) 9>"$LOCK"
 }
 
 cmd_set_effort() {
-  local agent=$1 raw=$2 val json
+  local agent=$1 raw=$2 val
   is_mappable "$agent" || usage
   val=$(trim "$raw")
   val=$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')
   [ -n "$val" ] && is_effort_token "$val" || usage
   need_jq
-  local_ok_to_write "$MAP" || exit 1
-  warn_adversarial "$agent"
-  if [ -f "$MAP" ]; then
-    json=$(jq --arg n "$agent" --arg v "$val" \
-      '.effort = (.effort // {}) | .effort[$n] = $v' \
-      "$MAP")
-  else
-    json=$(jq -n --arg n "$agent" --arg v "$val" \
-      '{version:1, effort:{($n):$v}}')
-  fi
-  atomic_write "$MAP" "$json"
+  # Atomic read-validate-modify-write under flock (CDT-231) — see cmd_set.
+  mkdir -p "$(dirname "$MAP")"
+  (
+    flock -x 9
+    local_ok_to_write "$MAP" || exit 1
+    warn_adversarial "$agent"
+    local json
+    if [ -f "$MAP" ]; then
+      json=$(jq --arg n "$agent" --arg v "$val" \
+        '.effort = (.effort // {}) | .effort[$n] = $v' \
+        "$MAP")
+    else
+      json=$(jq -n --arg n "$agent" --arg v "$val" \
+        '{version:1, effort:{($n):$v}}')
+    fi
+    atomic_write "$MAP" "$json"
+  ) 9>"$LOCK"
 }
 
 [ -n "${1:-}" ] || usage
@@ -188,6 +209,7 @@ shift || true
 
 resolve_mroot
 MAP="$MROOT/.claude/dev-team/models.local.json"
+LOCK="$MAP.lock"
 
 case "$CMD" in
   list)
