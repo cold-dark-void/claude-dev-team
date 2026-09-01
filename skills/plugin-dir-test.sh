@@ -522,6 +522,400 @@ else
   printf '%s\n' "$bare_hits" | sed 's/^/    /'
 fi
 
+# --- CDT-234: cache-resolver coverage gate (T5a discovery + extraction) ----
+# SPEC-002 "Cache-resolver coverage gate" / "Resolver uniformity" (AC7). This
+# is a COVERAGE gate, not a checklist of known sites: it enumerates every
+# non-stanza cache resolver in the tree mechanically so a new (unported) site
+# fails the gate instead of shipping silently defective. Bash+awk/sed only
+# (R4 ruling) — the existing python3 tree-gate block above is untouched.
+echo "== CDT-234 cache-resolver discovery (coverage gate) =="
+
+# Recorded expected count (v1.18.x): 9 single-line embed-one.sh locators + 3
+# multiline hook-runtime bootstraps = 12. A mismatch in EITHER direction MUST
+# fail loudly and print the discovered set — a 13th site is a gate failure
+# until a human ports it or names it, not a silent pass.
+EXPECTED_RESOLVER_COUNT=12
+
+# Named exclusions — `path:line|rationale`. A site the predicate legitimately
+# catches but which cannot be extracted and executed standalone. SPEC-002
+# requires each one to be named WITH its rationale in the harness OUTPUT (not
+# only in a comment): an exclusion a reader cannot see applied is not
+# auditable, which is the same over-claim class as a predicate with a blind
+# spot. A named exclusion that no longer matches the predicate is a stale
+# exclusion (a hole) and MUST fail the gate.
+NAMED_EXCLUSIONS=(
+  "skills/plugin-dir.sh:278|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:47, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
+)
+
+# Discovery: anchored on the SPEC-002 structural invariant — a slug-free
+# `-path '*/dev-team/*'` (or double-quoted) glob — not on a `.claude/plugins/
+# cache` literal spelling. CDT-232 proved the literal-path anchor vacuous: a
+# variable-rooted `find "$cache" -path '*/dev-team/*/...'` never puts the
+# literal cache path on the `find` line, so it was invisible to the old
+# predicate while still being a live CDT-166-defective resolver shape (see
+# skills/plugin-dir.sh:278 for the prevailing variable-rooted idiom in this
+# tree). The glob may sit on the `find` line itself (single-line family, the
+# plugin-dir.sh tier-4 idiom, and any other variable-rooted spelling) or on
+# the very next physical line (the multiline hook-runtime family, whose
+# `_pdh_hit=$(find ... \` wraps its arguments before `-path`); a site is
+# resolved by walking one line back from the glob when the glob's own line
+# has no `find`. The leading backslash on \-path keeps the pattern from
+# being parsed as an option by grep implementations that reject a leading
+# '-' in PATTERN (same rationale as derive_target below).
+#
+# Exclusions: canonical stanza emissions (`PDH=$( {`), skill-lint fixtures
+# (deliberately drifted copies), this harness's own file (hosts the
+# CDT-53-13 hazard assertion plus this gate), comment/prose lines (a line
+# merely describing the shape — e.g. plugin-dir.sh's own header comment at
+# line 26, "Find fallback: find ... -path '*/dev-team/*/<relpath>'" — is not
+# a resolver), and the NAMED_EXCLUSIONS declared above. specs/ is prose, out
+# of scope. A broad pattern exclusion would risk hiding a future genuine
+# blind spot; naming the one file+line that cannot be extracted does not.
+#
+# The stages below are kept SEPARATE (rather than collapsed into one grep
+# pipeline) so the harness can print the full audit chain:
+#   predicate matches - mechanical (shape) exclusions - named exclusions
+#     = extracted and executed
+predicate_matches=$(
+  cd "$REPO_ROOT" &&
+  grep -rn --include='*.md' --include='*.sh' -E "\-path[[:space:]]+[\"']\*/dev-team/\*" \
+    agents skills commands docs 2>/dev/null
+)
+predicate_count=$(printf '%s\n' "$predicate_matches" | grep -c . || true)
+
+# Mechanical (shape) exclusions, applied in a fixed order so every excluded
+# line is counted exactly once, in its first matching category.
+excl_fixtures=$(printf '%s\n' "$predicate_matches" | grep -c 'skill-lint/fixtures/' || true)
+stage_a=$(printf '%s\n' "$predicate_matches" | grep -v 'skill-lint/fixtures/' || true)
+excl_self=$(printf '%s\n' "$stage_a" | grep -c '^skills/plugin-dir-test\.sh:' || true)
+stage_b=$(printf '%s\n' "$stage_a" | grep -v '^skills/plugin-dir-test\.sh:' || true)
+excl_stanza=$(printf '%s\n' "$stage_b" | grep -cF 'PDH=$( {' || true)
+glob_lines=$(printf '%s\n' "$stage_b" | grep -vF 'PDH=$( {' || true)
+
+# Remaining shape exclusion: comment/prose lines — a line that merely
+# DESCRIBES the glob (plugin-dir.sh:26 documents the tier-4 fallback) and any
+# glob line with no `find` on it or on the line immediately above it.
+excl_prose=0
+resolver_hits=""
+if [ -n "$glob_lines" ]; then
+  while IFS= read -r glob_line; do
+    [ -n "$glob_line" ] || continue
+    g_file=$(printf '%s' "$glob_line" | cut -d: -f1)
+    g_line=$(printf '%s' "$glob_line" | cut -d: -f2)
+    g_content=$(printf '%s' "$glob_line" | cut -d: -f3-)
+    if printf '%s' "$g_content" | grep -q '\bfind\b'; then
+      if printf '%s' "$g_content" | grep -qE '^[[:space:]]*(#|<!--)'; then
+        excl_prose=$((excl_prose + 1))
+      else
+        resolver_hits="${resolver_hits:+$resolver_hits
+}$glob_line"
+      fi
+      continue
+    fi
+    p_line=$((g_line - 1))
+    p_content=$(sed -n "${p_line}p" "$REPO_ROOT/$g_file")
+    if printf '%s' "$p_content" | grep -q '\bfind\b' \
+       && ! printf '%s' "$p_content" | grep -qE '^[[:space:]]*(#|<!--)'; then
+      resolver_hits="${resolver_hits:+$resolver_hits
+}$g_file:$p_line:$p_content"
+    else
+      excl_prose=$((excl_prose + 1))
+    fi
+  done <<< "$glob_lines"
+fi
+excl_mechanical=$((excl_fixtures + excl_self + excl_stanza + excl_prose))
+
+# Named exclusions — subtracted LAST, from the resolver set, and reported by
+# path:line with the rationale. A named exclusion that no longer matches the
+# predicate is stale (it may be hiding a real hole) and fails the gate.
+excl_named=0
+named_report=""
+for _ne in "${NAMED_EXCLUSIONS[@]}"; do
+  ne_site="${_ne%%|*}"
+  ne_why="${_ne#*|}"
+  if printf '%s\n' "$resolver_hits" | grep -q "^${ne_site}:"; then
+    resolver_hits=$(printf '%s\n' "$resolver_hits" | grep -v "^${ne_site}:" || true)
+    excl_named=$((excl_named + 1))
+    named_report="${named_report:+$named_report
+}      $ne_site — $ne_why"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  FAIL stale named exclusion: $ne_site no longer matches the discovery predicate"
+    echo "       (a named exclusion that stops matching may be hiding a real hole — re-derive or remove it)"
+  fi
+done
+
+if [ -z "$resolver_hits" ]; then
+  resolver_count=0
+else
+  resolver_count=$(printf '%s\n' "$resolver_hits" | grep -c .)
+fi
+mapfile -t resolver_lines <<< "$resolver_hits"
+
+# Full audit chain on stdout: a reader of the output can see that a named
+# exclusion was applied, and which one.
+echo "  predicate matches (-path '*/dev-team/*' under agents skills commands docs): $predicate_count"
+echo "  - mechanical (shape) exclusions: $excl_mechanical"
+echo "      canonical stanza emissions (line contains 'PDH=\$( {'): $excl_stanza"
+echo "      harness self (skills/plugin-dir-test.sh): $excl_self"
+echo "      skill-lint fixtures (deliberately drifted copies): $excl_fixtures"
+echo "      comment/prose lines (describe the glob, do not run it): $excl_prose"
+echo "  - named exclusions: $excl_named"
+if [ -n "$named_report" ]; then
+  printf '%s\n' "$named_report"
+fi
+echo "  = discovered $resolver_count non-stanza cache-resolver site(s) extracted and executed"
+
+if [ "$resolver_count" -eq 0 ]; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL coverage discovery found ZERO resolvers — discovery predicate rotted (vacuity guard)"
+elif [ "$resolver_count" -ne "$EXPECTED_RESOLVER_COUNT" ]; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL coverage count mismatch: found=$resolver_count want=$EXPECTED_RESOLVER_COUNT"
+  echo "  discovered sites:"
+  printf '%s\n' "$resolver_hits" | sed 's/^/    /'
+else
+  PASS=$((PASS + 1))
+  echo "  ok  coverage count matches expected ($EXPECTED_RESOLVER_COUNT)"
+fi
+
+# Extraction — single-line family (embed-one.sh locators): the physical line
+# carries the whole `find ... | cut -f3` pipeline. Extract from the first
+# `find` token to end-of-line, stripping one optional trailing " )" (the
+# enclosing command substitution's closer).
+extract_single_line_resolver() {
+  local file="$1" lineno="$2" out
+  out=$(sed -n "${lineno}p" "$REPO_ROOT/$file" | grep -oE 'find .*') || out=""
+  if [ -z "$out" ]; then
+    echo "FATAL: extraction failed (no 'find' token) at $file:$lineno" >&2
+    return 1
+  fi
+  out="${out%" )"}"
+  printf '%s' "$out"
+}
+
+# Extraction — multiline family (hook-runtime `_pdh_hit=$(find ...)`
+# bootstraps): start at the `_pdh_hit=$(find ` line, accumulate every
+# following physical line, stop at (and include) the terminator line
+# containing `) || _pdh_hit=""`. Deliberately NOT "chain only while the
+# previous line ends in a backslash": skills/transcript-mirror/hook-shim.sh
+# embeds a multi-line awk PROGRAM inside an unterminated single-quoted
+# string, so intermediate lines carry no trailing backslash. Scanning to the
+# terminator text is the only anchor correct for all three real sites. An
+# unterminated block (no terminator found before EOF) is a loud failure,
+# never a silent skip.
+extract_multiline_resolver() {
+  local file="$1" start="$2"
+  local path="$REPO_ROOT/$file"
+  local total end lineno line block=""
+  total=$(wc -l < "$path")
+  end=""
+  lineno="$start"
+  while [ "$lineno" -le "$total" ]; do
+    line=$(sed -n "${lineno}p" "$path")
+    if [ -z "$block" ]; then block="$line"; else block="$block
+$line"; fi
+    if printf '%s' "$line" | grep -qF ') || _pdh_hit=""'; then
+      end="$lineno"
+      break
+    fi
+    lineno=$((lineno + 1))
+  done
+  if [ -z "$end" ]; then
+    echo "FATAL: unterminated multiline resolver block at $file:$start (no ') || _pdh_hit=\"\"' terminator found before EOF)" >&2
+    return 1
+  fi
+  printf '%s' "$block"
+}
+
+# Derive <target> from the site's own `-path` glob (shape:
+# '*/dev-team/*/<target>') rather than hard-coding it per site. The leading
+# backslash on \-path keeps the pattern from being parsed as an option by
+# grep implementations that reject a leading '-' in PATTERN.
+derive_target() {
+  local resolver_text="$1" glob target
+  glob=$(printf '%s' "$resolver_text" | grep -oE "\-path '[^']*'" | head -1 | sed -E "s/^-path '//; s/'\$//")
+  if [ -z "$glob" ]; then
+    return 1
+  fi
+  target="${glob#\*/dev-team/\*/}"
+  printf '%s' "$target"
+}
+
+# Execute an extracted resolver under a synthetic $HOME. Writes to a scratch
+# file under $TMP and runs it with a fresh bash process (never `bash -c` on
+# raw extracted text — the embedded single quotes / $'\t' ANSI-C quoting
+# would need a second escaping pass to survive as one shell argument). Sets
+# globals RESOLVE_OUT / RESOLVE_RC. $FOREIGN (established above, for the
+# branch-1-bypass proof) has neither skills/memory-store/embed-one.sh nor
+# skills/plugin-dir.sh, so the dev-checkout fast path in the ORIGINAL site
+# expression cannot short-circuit here — moot in practice since extraction
+# already excludes that guard, kept as a belt-and-braces fixture property.
+resolver_exec() {
+  local family="$1" text="$2" home="$3" script
+  script="$TMP/cdt234-resolver-exec.sh"
+  {
+    printf '%s\n' "$text"
+    if [ "$family" = "multiline" ]; then
+      printf 'printf %%s "$_pdh_hit"\n'
+    fi
+  } > "$script"
+  RESOLVE_OUT=$(cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$home" bash "$script" 2>/dev/null)
+  RESOLVE_RC=$?
+  rm_under_tmp "$script"
+}
+
+# --- T5b: per-site behavioural fixtures (AC1 / AC1a / AC4 / AC8) -----------
+echo "== CDT-234 per-site behavioural coverage =="
+CACHE_BASE_234="$TMP/home/.claude/plugins/cache"
+if [ "$resolver_count" -gt 0 ]; then
+  for hit in "${resolver_lines[@]}"; do
+    [ -n "$hit" ] || continue
+    r_file=$(printf '%s' "$hit" | cut -d: -f1)
+    r_line=$(printf '%s' "$hit" | cut -d: -f2)
+    site_label="$r_file:$r_line"
+    if printf '%s' "$hit" | grep -q '_pdh_hit=\$(find'; then
+      family="multiline"
+    else
+      family="single"
+    fi
+
+    if [ "$family" = "single" ]; then
+      resolver_text=$(extract_single_line_resolver "$r_file" "$r_line")
+      ext_rc=$?
+    else
+      resolver_text=$(extract_multiline_resolver "$r_file" "$r_line")
+      ext_rc=$?
+    fi
+    if [ "$ext_rc" -ne 0 ] || [ -z "$resolver_text" ]; then
+      FAIL=$((FAIL + 1))
+      echo "  FAIL extraction failed for $site_label ($family)"
+      continue
+    fi
+    PASS=$((PASS + 1))
+    echo "  ok  extracted resolver at $site_label ($family)"
+
+    target=$(derive_target "$resolver_text")
+    if [ -z "$target" ]; then
+      FAIL=$((FAIL + 1))
+      echo "  FAIL could not derive <target> for $site_label"
+      continue
+    fi
+    target_dir=$(dirname "$target")
+
+    # (a) numeric-not-lexical: cold-dark-void/10.0.0 must beat zzz-other/2.0.0
+    rm_under_tmp "$TMP/home"
+    mkdir -p "$CACHE_BASE_234/zzz-other/dev-team/2.0.0/$target_dir"
+    mkdir -p "$CACHE_BASE_234/cold-dark-void/dev-team/10.0.0/$target_dir"
+    printf 'zzz-2\n' > "$CACHE_BASE_234/zzz-other/dev-team/2.0.0/$target"
+    printf 'cdv-10\n' > "$CACHE_BASE_234/cold-dark-void/dev-team/10.0.0/$target"
+    resolver_exec "$family" "$resolver_text" "$TMP/home"
+    assert_rc "$site_label (a) numeric-not-lexical rc" "$RESOLVE_RC" 0
+    assert_contains "$site_label (a) resolves /10.0.0/ not /2.0.0/" "$RESOLVE_OUT" "/10.0.0/"
+
+    # (b) 1.0.0 beats 1.0.0-pre.4 (tilde map still load-bearing)
+    rm_under_tmp "$TMP/home"
+    mkdir -p "$CACHE_BASE_234/zzz-other/dev-team/1.0.0/$target_dir"
+    mkdir -p "$CACHE_BASE_234/zzz-other/dev-team/1.0.0-pre.4/$target_dir"
+    printf 'final\n' > "$CACHE_BASE_234/zzz-other/dev-team/1.0.0/$target"
+    printf 'pre\n' > "$CACHE_BASE_234/zzz-other/dev-team/1.0.0-pre.4/$target"
+    resolver_exec "$family" "$resolver_text" "$TMP/home"
+    assert_rc "$site_label (b) final-over-pre rc" "$RESOLVE_RC" 0
+    if printf '%s' "$RESOLVE_OUT" | grep -qF '/1.0.0/' && ! printf '%s' "$RESOLVE_OUT" | grep -qF '1.0.0-pre'; then
+      PASS=$((PASS + 1)); echo "  ok  $site_label (b) final outranks pre"
+    else
+      FAIL=$((FAIL + 1)); echo "  FAIL $site_label (b) final must outrank pre: [$RESOLVE_OUT]"
+    fi
+
+    # (c) equal <VER> across slugs prefers cold-dark-void (AC1a)
+    rm_under_tmp "$TMP/home"
+    mkdir -p "$CACHE_BASE_234/zzz-other/dev-team/1.2.3/$target_dir"
+    mkdir -p "$CACHE_BASE_234/cold-dark-void/dev-team/1.2.3/$target_dir"
+    printf 'zzz\n' > "$CACHE_BASE_234/zzz-other/dev-team/1.2.3/$target"
+    printf 'cdv\n' > "$CACHE_BASE_234/cold-dark-void/dev-team/1.2.3/$target"
+    resolver_exec "$family" "$resolver_text" "$TMP/home"
+    assert_rc "$site_label (c) equal-VER rc" "$RESOLVE_RC" 0
+    assert_contains "$site_label (c) prefers cold-dark-void" "$RESOLVE_OUT" "/cache/cold-dark-void/dev-team/1.2.3/"
+
+    # (d) empty cache -> empty stdout, not a bare '/', not a non-zero exit (AC8)
+    rm_under_tmp "$TMP/home"
+    mkdir -p "$CACHE_BASE_234"
+    resolver_exec "$family" "$resolver_text" "$TMP/home"
+    assert_rc "$site_label (d) empty-cache rc" "$RESOLVE_RC" 0
+    assert_eq "$site_label (d) empty-cache stdout empty" "$RESOLVE_OUT" ""
+  done
+else
+  FAIL=$((FAIL + 1))
+  echo "  FAIL per-site behavioural gate skipped — coverage discovery found 0 sites"
+fi
+
+# --- T5c: permanent negative proof (AC3) ------------------------------------
+# The tilde-mapped FULL-PATH sort -V arm (the CDT-166 defect) MUST still lose
+# to fixture (a): this proves the hazard is real AND that the tilde map alone
+# is not the fix. A bare (non-tilde-mapped) sort -V would only re-exercise
+# the pre-existing CDT-53-13 hazard and does NOT satisfy this proof.
+echo "== CDT-234 permanent negative proof (AC3) =="
+rm_under_tmp "$TMP/home"
+mkdir -p "$CACHE_BASE_234/zzz-other/dev-team/2.0.0/skills"
+mkdir -p "$CACHE_BASE_234/cold-dark-void/dev-team/10.0.0/skills"
+: > "$CACHE_BASE_234/zzz-other/dev-team/2.0.0/skills/plugin-dir.sh"
+: > "$CACHE_BASE_234/cold-dark-void/dev-team/10.0.0/skills/plugin-dir.sh"
+naive=$(
+  find "$CACHE_BASE_234" -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
+    | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'
+)
+assert_contains "CDT-234 negative proof: tilde-mapped full-path sort -V still picks /2.0.0/" "$naive" "/2.0.0/"
+if printf '%s' "$naive" | grep -qF '/10.0.0/'; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL negative proof is vacuous — tilde map alone must NOT fix full-path ranking: [$naive]"
+else
+  PASS=$((PASS + 1))
+  echo "  ok  negative proof not vacuous (tilde map alone does not fix full-path ranking)"
+fi
+
+# --- T5c: resolver uniformity (AC7) -----------------------------------------
+# The 9 single-line embed-one.sh sites MUST be identical to the canonical
+# home (skills/agent-memory/protocol.md) after stripping LEADING WHITESPACE
+# only — strict byte-identity is explicitly NOT required and MUST NOT be
+# gated (indentation legitimately differs by host document). The 3 multiline
+# sites are exempt from uniformity (differing host indentation/control
+# flow); they are covered by the behavioural gate above only.
+echo "== CDT-234 resolver uniformity (AC7) =="
+CANON_FILE="skills/agent-memory/protocol.md"
+canon_line=""
+for hit in "${resolver_lines[@]}"; do
+  [ -n "$hit" ] || continue
+  r_file=$(printf '%s' "$hit" | cut -d: -f1)
+  if [ "$r_file" = "$CANON_FILE" ]; then
+    canon_line=$(printf '%s' "$hit" | cut -d: -f2)
+    break
+  fi
+done
+if [ -z "$canon_line" ]; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL uniformity canonical home not found in discovered set: $CANON_FILE"
+else
+  canon_text=$(sed -n "${canon_line}p" "$REPO_ROOT/$CANON_FILE" | sed -E 's/^[[:space:]]*//')
+  PASS=$((PASS + 1))
+  echo "  ok  uniformity canonical text loaded from $CANON_FILE:$canon_line"
+  uniform_checked=0
+  for hit in "${resolver_lines[@]}"; do
+    [ -n "$hit" ] || continue
+    if printf '%s' "$hit" | grep -q '_pdh_hit=\$(find'; then
+      continue  # multiline sites are exempt from uniformity
+    fi
+    r_file=$(printf '%s' "$hit" | cut -d: -f1)
+    r_line=$(printf '%s' "$hit" | cut -d: -f2)
+    site_line=$(sed -n "${r_line}p" "$REPO_ROOT/$r_file" | sed -E 's/^[[:space:]]*//')
+    uniform_checked=$((uniform_checked + 1))
+    assert_eq "uniformity $r_file:$r_line matches canonical (leading-ws-insensitive)" "$site_line" "$canon_text"
+  done
+  if [ "$uniform_checked" -eq 0 ]; then
+    FAIL=$((FAIL + 1))
+    echo "  FAIL uniformity gate checked ZERO single-line sites"
+  fi
+fi
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

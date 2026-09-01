@@ -673,13 +673,14 @@ _emit_task_complete() {
   [ -n "${TASK_ID:-}" ] || return 0
   local PDH="" helper="" _pdh_hit=""
   if [ -f skills/plugin-dir.sh ]; then
-    PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)
+    PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza; byte-identity exemption only, not a correctness exemption — CDT-166 version-segment ranking still applies)
   else
     _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
       -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
-      | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./') || _pdh_hit=""
+      | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ "/cache/cold-dark-void/dev-team/")?1:0; print m "\t" p "\t" $0}' \
+      | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3) || _pdh_hit=""
     if [ -n "$_pdh_hit" ]; then
-      # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)
+      # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza; byte-identity exemption only, not a correctness exemption — CDT-166 version-segment ranking still applies)
       PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
     fi
   fi
@@ -1185,13 +1186,14 @@ set -u
 # unreachable here.
 PDH=""
 if [ -f skills/plugin-dir.sh ]; then
-  PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)
+  PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza; byte-identity exemption only, not a correctness exemption — CDT-166 version-segment ranking still applies)
 else
   _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
     -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
-    | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./') || _pdh_hit=""
+    | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ "/cache/cold-dark-void/dev-team/")?1:0; print m "\t" p "\t" $0}' \
+    | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3) || _pdh_hit=""
   if [ -n "$_pdh_hit" ]; then
-    # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza)
+    # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza; byte-identity exemption only, not a correctness exemption — CDT-166 version-segment ranking still applies)
     PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
   fi
 fi
