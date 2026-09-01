@@ -565,6 +565,14 @@ WRITE RULES
     only. Each sentence MUST contain `{<id>}` using miner raw ids. Missing OK.
     MUST NOT invent a root cause. If both files set it, assemble uses
     through_line.json only.
+    ALL-OR-NOTHING: ONE uncited sentence discards the ENTIRE summary. Sentences
+    split on `(?<=[.!?])\s+`, and a trailing fragment counts as a sentence.
+    The usual failure is an uncited scene-setting OPENER — do not write one.
+    Either cite it or delete it; omitting the summary entirely is also fine.
+    NEGATIVE (kills the whole summary): "Session spans three arcs. Cost work
+    landed {tl-d01}."  ← first sentence has no `{id}`
+    POSITIVE: "Three arcs {tl-h01}: cost work landed {tl-d01}, dogfood confirmed
+    it {tl-d06}."
 
 OUTPUT SHAPE
   ${EVENTS_DIR}/through_line.json → {"summary":"optional omit OK","events":[ ... only the five through-line kinds ... ]}

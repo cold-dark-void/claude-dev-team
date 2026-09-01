@@ -202,6 +202,19 @@ if [ -f "$LIGHT" ] && [ -f "$SKILL" ]; then
   else
     bad "T11 ticket-ID negative (CDT-198 / XYZ-336) missing from LIGHT.md or SKILL.md"
   fi
+  # summary invent-guard: uncited-opener trap (observed twice in real captures —
+  # one 4-word scene-setter discarded an otherwise fully-cited summary).
+  if grep -qF 'ALL-OR-NOTHING' "$LIGHT" && grep -qF 'ALL-OR-NOTHING' "$SKILL"; then
+    ok
+  else
+    bad "T11 summary all-or-nothing warning missing from LIGHT.md or SKILL.md"
+  fi
+  if grep -qF 'Session spans three arcs' "$LIGHT" \
+    && grep -qF 'Session spans three arcs' "$SKILL"; then
+    ok
+  else
+    bad "T11 summary uncited-opener NEGATIVE missing from LIGHT.md or SKILL.md"
+  fi
 else
   bad "T11 skipped — LIGHT.md or SKILL.md missing"
 fi
