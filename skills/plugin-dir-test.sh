@@ -916,6 +916,142 @@ else
   fi
 fi
 
+# --- CDT-237: PDH stanza branch-0 / branch-1 coverage ----------------------
+# Every call site in this file runs the stanza via
+# `env -u CLAUDE_PLUGIN_ROOT ... bash "$STANZA_SH"` (branch 0 unconditionally
+# deleted) with cwd inside $FOREIGN, a synthetic dir with no
+# skills/plugin-dir.sh (branch 1 unconditionally defeated). Neither branch
+# had a single assertion on the RESOLVED PATH before this section — branch 0
+# had zero coverage and branch 1's cwd resolution was never checked. These
+# cases run the same extracted $STANZA_SH with fixtures aimed at each branch.
+echo "== CDT-237 stanza branch-0 (CLAUDE_PLUGIN_ROOT, guarded) =="
+
+# Branch-0 positive: CLAUDE_PLUGIN_ROOT set to a real directory containing
+# skills/plugin-dir.sh (the guard) resolves to that exact root.
+PLANTED_ROOT="$TMP/c237-branch0-planted"
+mkdir -p "$PLANTED_ROOT/skills"
+: > "$PLANTED_ROOT/skills/plugin-dir.sh"
+pdh=$(
+  cd "$FOREIGN" &&
+  env CLAUDE_PLUGIN_ROOT="$PLANTED_ROOT" HOME="$TMP/c237-home-unused1" bash "$STANZA_SH"
+)
+assert_eq "CDT-237 branch-0 positive resolves planted CLAUDE_PLUGIN_ROOT" "$pdh" "$PLANTED_ROOT"
+
+# Branch-0 guard-negative: CLAUDE_PLUGIN_ROOT set to a directory that does
+# NOT contain skills/plugin-dir.sh must not resolve to that bogus root — the
+# guard must fail closed and fall through. A populated cache (branch 3)
+# below proves genuine fallthrough, not a lucky empty-PDH coincidence.
+BOGUS_ROOT="$TMP/c237-branch0-bogus"
+mkdir -p "$BOGUS_ROOT"
+FALLTHROUGH_HOME="$TMP/c237-home-fallthrough"
+FALLTHROUGH_ROOT="$FALLTHROUGH_HOME/.claude/plugins/cache/cold-dark-void/dev-team/3.0.0"
+mkdir -p "$FALLTHROUGH_ROOT/skills"
+: > "$FALLTHROUGH_ROOT/skills/plugin-dir.sh"
+pdh=$(
+  cd "$FOREIGN" &&
+  env CLAUDE_PLUGIN_ROOT="$BOGUS_ROOT" HOME="$FALLTHROUGH_HOME" bash "$STANZA_SH"
+)
+assert_eq "CDT-237 branch-0 guard-negative falls through to cache, not bogus root" "$pdh" "$FALLTHROUGH_ROOT"
+
+echo "== CDT-237 stanza branch-1 (cwd dev checkout) =="
+
+# Branch-1 positive: cwd inside a synthetic checkout containing
+# skills/plugin-dir.sh, CLAUDE_PLUGIN_ROOT unset, resolves to that cwd.
+BRANCH1_CHECKOUT="$TMP/c237-branch1-checkout"
+mkdir -p "$BRANCH1_CHECKOUT/skills"
+: > "$BRANCH1_CHECKOUT/skills/plugin-dir.sh"
+pdh=$(
+  cd "$BRANCH1_CHECKOUT" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/c237-home-unused2" bash "$STANZA_SH"
+)
+assert_eq "CDT-237 branch-1 positive resolves cwd" "$pdh" "$BRANCH1_CHECKOUT"
+
+echo "== CDT-237 stanza precedence =="
+
+# Branch 0 beats branch 1 when both are simultaneously satisfiable.
+PREC_CWD1="$TMP/c237-prec-cwd1"
+mkdir -p "$PREC_CWD1/skills"
+: > "$PREC_CWD1/skills/plugin-dir.sh"
+PREC_ROOT0="$TMP/c237-prec-root0"
+mkdir -p "$PREC_ROOT0/skills"
+: > "$PREC_ROOT0/skills/plugin-dir.sh"
+pdh=$(
+  cd "$PREC_CWD1" &&
+  env CLAUDE_PLUGIN_ROOT="$PREC_ROOT0" HOME="$TMP/c237-home-unused3" bash "$STANZA_SH"
+)
+assert_eq "CDT-237 precedence: branch 0 wins over satisfiable branch 1" "$pdh" "$PREC_ROOT0"
+
+# Branch 1 beats branch 3 (cache) when both are simultaneously satisfiable
+# (CLAUDE_PLUGIN_ROOT unset so branch 0 cannot compete).
+PREC_CWD2="$TMP/c237-prec-cwd2"
+mkdir -p "$PREC_CWD2/skills"
+: > "$PREC_CWD2/skills/plugin-dir.sh"
+PREC_HOME="$TMP/c237-prec-home"
+PREC_CACHE_ROOT="$PREC_HOME/.claude/plugins/cache/cold-dark-void/dev-team/5.0.0"
+mkdir -p "$PREC_CACHE_ROOT/skills"
+: > "$PREC_CACHE_ROOT/skills/plugin-dir.sh"
+pdh=$(
+  cd "$PREC_CWD2" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$PREC_HOME" bash "$STANZA_SH"
+)
+assert_eq "CDT-237 precedence: branch 1 (cwd) wins over populated cache (branch 3)" "$pdh" "$PREC_CWD2"
+
+# Branch 1 beats branch 2 (marketplace) when both are simultaneously
+# satisfiable (CLAUDE_PLUGIN_ROOT unset). Completes AC5 ("branch 1 wins
+# over branches 2/3, each asserted"): every OTHER call site in this file
+# runs inside $FOREIGN (no skills/plugin-dir.sh, branch 1 unsatisfiable),
+# so without this case a stanza that silently swaps branch 1 and branch 2
+# order stays green — a feat/* worktree with a marketplace clone in $HOME
+# would then silently resolve to the clone instead of the checkout (the
+# CDT-82 shadow class).
+PREC_CWD3="$TMP/c237-prec-cwd3"
+mkdir -p "$PREC_CWD3/skills"
+: > "$PREC_CWD3/skills/plugin-dir.sh"
+PREC_HOME3="$TMP/c237-prec-home3"
+PREC_MP_ROOT="$PREC_HOME3/.claude/plugins/marketplaces/prec-mp-slug"
+mkdir -p "$PREC_MP_ROOT/skills" "$PREC_MP_ROOT/agents"
+: > "$PREC_MP_ROOT/skills/plugin-dir.sh"
+: > "$PREC_MP_ROOT/agents/pm.md"
+pdh=$(
+  cd "$PREC_CWD3" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$PREC_HOME3" bash "$STANZA_SH"
+)
+assert_eq "CDT-237 precedence: branch 1 (cwd) wins over populated marketplace (branch 2)" "$pdh" "$PREC_CWD3"
+
+echo "== CDT-237 stanza branch-0 quoting =="
+
+# Branch-0's entire job is consuming a user-supplied env path (FR #48230),
+# so quoting is its highest-value property. CLAUDE_PLUGIN_ROOT containing a
+# space must resolve exactly — an unquoted `[ -f $CLAUDE_PLUGIN_ROOT/... ]`
+# throws "binary operator expected" and silently falls through instead.
+PLANTED_ROOT_SPACE="$TMP/c237-branch0-with space-root"
+mkdir -p "$PLANTED_ROOT_SPACE/skills"
+: > "$PLANTED_ROOT_SPACE/skills/plugin-dir.sh"
+pdh=$(
+  cd "$FOREIGN" &&
+  env CLAUDE_PLUGIN_ROOT="$PLANTED_ROOT_SPACE" HOME="$TMP/c237-home-unused4" bash "$STANZA_SH"
+)
+assert_eq "CDT-237 branch-0 quoting: CLAUDE_PLUGIN_ROOT with a space resolves exactly" "$pdh" "$PLANTED_ROOT_SPACE"
+
+echo "== CDT-237 stanza branch-1 pwd vs pwd -P (symlink) =="
+
+# Bare `pwd` (logical, unresolved) is load-bearing for branch 1, not
+# `pwd -P` (physical). A checkout reached through a symlink must resolve
+# to the symlink path used to cd there, not the realpath — otherwise a
+# compare against the SAME logical path the subshell cd'd to could never
+# distinguish the two, which is exactly why this needs its own fixture
+# rather than reusing the branch-1-positive case above.
+BRANCH1_ACTUAL="$TMP/c237-branch1-actual"
+mkdir -p "$BRANCH1_ACTUAL/skills"
+: > "$BRANCH1_ACTUAL/skills/plugin-dir.sh"
+BRANCH1_SYMLINK="$TMP/c237-branch1-symlink"
+ln -s "$BRANCH1_ACTUAL" "$BRANCH1_SYMLINK"
+pdh=$(
+  cd "$BRANCH1_SYMLINK" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/c237-home-unused5" bash "$STANZA_SH"
+)
+assert_eq "CDT-237 branch-1 resolves logical cwd (pwd, not pwd -P) through a symlink" "$pdh" "$BRANCH1_SYMLINK"
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
