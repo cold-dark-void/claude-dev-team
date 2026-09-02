@@ -62,3 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash skills/plugin-dir-test.sh
+
+  # CDT-235 — SPEC-004 managed include-region drift (previously release-time only)
+  include-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash skills/agent-memory/sync-includes-test.sh
+      - run: python3 skills/agent-memory/sync-includes.py check

@@ -59,14 +59,37 @@ def default_files(root):
     return [f for f in sorted(set(out)) if '<!-- include:' in open(f, encoding='utf-8').read()]
 
 
+USAGE = """Usage: sync-includes.py [check|apply] [--root ROOT] [files...]
+
+  check  verify managed include regions match their partials (default); exit 1 on drift
+  apply  rewrite every managed region from its partial
+
+With no files, scans the repo's agents/ and skills/ for markdown carrying markers.
+Exit 64 on an unrecognised mode or bad usage."""
+
+
 def main():
     args = sys.argv[1:]
     root = '.'
     if '--root' in args:
         i = args.index('--root')
+        if i + 1 >= len(args):
+            print("sync-includes.py: --root requires a value", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
+            sys.exit(64)
         root = args[i + 1]
         del args[i:i + 2]
+
+    if args and args[0] in ('-h', '--help'):
+        print(USAGE)
+        sys.exit(0)
+
     mode = args[0] if args else 'check'
+    if mode not in ('check', 'apply'):
+        print(f"sync-includes.py: unrecognised mode: {mode}", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        sys.exit(64)
+
     files = args[1:] if len(args) > 1 else default_files(root)
 
     drift = 0
