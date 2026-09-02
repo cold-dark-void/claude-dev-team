@@ -1052,6 +1052,123 @@ pdh=$(
 )
 assert_eq "CDT-237 branch-1 resolves logical cwd (pwd, not pwd -P) through a symlink" "$pdh" "$BRANCH1_SYMLINK"
 
+# --- CDT-233 T7 V1: stale-cache delegation falsification (permanent negative
+# proof). A pre-CDT-166 build (its whole body is the forbidden full-path
+# find|sort-V|tail arm) sits at a lexically-higher slug carrying a STALE
+# lower version; the correct root sits at cold-dark-void carrying a HIGHER
+# version. This is the honest, executable form of the SPEC-002 CDT-233
+# verdict: an old copy resolves itself, a find-any bootstrap can reach it,
+# and only the canonical stanza does not.
+#
+# ORDERING CONSTRAINT: this V1/V2 block (through end of file) wipes
+# $TMP/home wholesale and overwrites $STALE_ROOT's plugin-dir.sh in place —
+# safe ONLY because nothing after it reads $TMP/home, $STALE_ROOT, or
+# $GOOD_ROOT. This block MUST remain the LAST thing in this file. If you add
+# a new section below it, either move that section above this one or give
+# it its own $TMP subdirectory instead of reusing $TMP/home.
+echo "== CDT-233 T7 V1: stale-cache delegation (permanent negative proof) =="
+rm_under_tmp "$TMP/home"
+CACHE_233="$TMP/home/.claude/plugins/cache"
+STALE_ROOT="$CACHE_233/zzz-other/dev-team/1.0.0"
+GOOD_ROOT="$CACHE_233/cold-dark-void/dev-team/2.0.0"
+mkdir -p "$STALE_ROOT/skills" "$GOOD_ROOT/skills"
+
+# Pre-CDT-166 build. The glob is spelled LITERALLY, inline in the `find`
+# invocation below — deliberately NOT composed from variables. SPEC-002's
+# glob-in-variable flip test (the B1 falsification) is only meaningful if
+# THIS file is never carved out of it: excluding plugin-dir-test.sh, or
+# hiding the glob behind a variable to dodge the CDT-234 discovery
+# predicate's own count, would be exactly the "loosen the predicate to
+# chase a clean number" move SPEC-002 forbids. This literal line is
+# therefore also the first in-tree instance of the SPEC-021/SPEC-002
+# discovery predicate's shape, moves the audit-chain numbers printed below
+# (a dated measurement, not the gated contract — only EXPECTED_RESOLVER_COUNT
+# is gated), and is correctly excluded from the resolver count via the
+# existing "harness self" mechanical exclusion, not via a new carve-out.
+cat > "$STALE_ROOT/skills/plugin-dir.sh" <<'PRECDT166EOF'
+#!/usr/bin/env bash
+find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./' | xargs -r dirname | xargs -r dirname
+PRECDT166EOF
+
+# Correct root: a real copy of the current script.
+cp "$LIB" "$GOOD_ROOT/skills/plugin-dir.sh"
+
+# Assertion 1: the stale copy answers authoritatively for ITSELF, and it is
+# the wrong root (lexically-higher slug beats an actually-higher version —
+# the CDT-166 defect this build predates).
+out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STALE_ROOT/skills/plugin-dir.sh"
+)
+assert_eq "T7-V1.1 stale pre-CDT-166 copy resolves itself (wrong root)" "$out" "$STALE_ROOT"
+
+# Assertion 2: a find-any-then-delegate bootstrap — the mechanism CDT-232
+# rejected — reaches the same stale root. MUST be `sort | tail -1`, NEVER
+# `head -1`: `find` order is readdir order, not stable across filesystems
+# (observed landing on cold-dark-void FIRST on ext4 here, which would make
+# `head -1` pass this assertion for the wrong reason). `sort | tail -1` is
+# also the honest model of the forbidden pre-CDT-166 spelling: lexically-
+# highest path wins, not highest version.
+readdir_order=$(find "$CACHE_233" -name plugin-dir.sh 2>/dev/null)
+find_any=$(printf '%s\n' "$readdir_order" | sort | tail -1 | xargs -r dirname | xargs -r dirname)
+assert_eq "T7-V1.2 find-any-then-delegate (sort|tail -1) reaches stale root" "$find_any" "$STALE_ROOT"
+# Diagnostic only (not counted in PASS/FAIL): shows whether readdir order on
+# THIS filesystem would have let a `head -1` model pass for the wrong reason.
+if printf '%s\n' "$readdir_order" | head -1 | grep -qF "$GOOD_ROOT"; then
+  echo "  info T7-V1.2 readdir order put cold-dark-void first here — head -1 would have been a false pass (this is why sort|tail -1 is required, not order-dependent)"
+else
+  echo "  info T7-V1.2 readdir order did not put cold-dark-void first this run (still using sort|tail -1, not order-dependent)"
+fi
+
+# Assertion 3: the canonical stanza extracted from SPEC-002 at runtime — the
+# same $STANZA_SH used throughout this harness, never a hand-copy — resolves
+# the CORRECT, higher-versioned root instead.
+pdh=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STANZA_SH"
+)
+assert_eq "T7-V1.3 canonical stanza resolves correct root, not stale" "$pdh" "$GOOD_ROOT"
+
+# Assertion 4 (honest counter-nuance, recorded not hidden): a MODERN copy
+# planted at the SAME stale path self-corrects to cold-dark-void. Here VER
+# decides outright — path_ver_pick (skills/plugin-dir.sh:47-60) sorts
+# `-k1,1V` on the <VER> segment first, and 2.0.0 > 1.0.0 regardless of slug,
+# so the SLUG=cold-dark-void tiebreak (`-k2,2n`) never executes in this
+# fixture. The load-bearing fact this assertion actually proves is
+# LOCATION-INDEPENDENCE: plugin-dir.sh reads no $0/BASH_SOURCE anywhere in
+# its resolution logic, so a modern copy answers the same way regardless of
+# which path on disk happens to be executing it. This is the strongest
+# argument against the verdict: you cannot tell a stale copy from a modern
+# one by path alone, only by running it. V2 below is what proves argv
+# cannot be trusted to tell them apart either.
+cp "$LIB" "$STALE_ROOT/skills/plugin-dir.sh"
+out=$(
+  cd "$FOREIGN" &&
+  env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STALE_ROOT/skills/plugin-dir.sh" root
+)
+assert_eq "T7-V1.4 (honest limitation) modern copy at stale path self-corrects to correct root" "$out" "$GOOD_ROOT"
+
+# --- CDT-233 T7 V2: re-open tripwire for Q1(c) (@pm AC-D) -------------------
+# This is a TRIPWIRE, not a prohibition: it does not forbid hardening argv
+# on `plugin-dir.sh root`; it forbids hardening argv while leaving this
+# SPEC-002 CDT-233 verdict standing on the opposite assumption. Today,
+# `main()`'s `case "$sub"` matches on $1 only and cmd_root ignores "$@"
+# entirely, so an unknown trailing flag is silently accepted and rc stays 0
+# — which is the same shape as an older copy silently accepting a version
+# tag it does not understand and answering with a stale root.
+echo "== CDT-233 T7 V2: re-open tripwire (@pm AC-D) =="
+v2_out=$(bash "$REPO_ROOT/skills/plugin-dir.sh" root --pdh-contract=2 2>/dev/null)
+v2_rc=$?
+if [ "$v2_rc" -eq 0 ] && [ -n "$v2_out" ]; then
+  PASS=$((PASS + 1))
+  echo "  ok  T7-V2 plugin-dir.sh root --pdh-contract=2 exits 0 with a root (verdict's premise holds)"
+else
+  FAIL=$((FAIL + 1))
+  echo "  FAIL T7-V2 plugin-dir.sh now rejects unknown flags. SPEC-002 CDT-233 Q1(c) rests on the opposite"
+  echo "       (an older copy silently accepts a version tag and answers rc 0 with a stale root)."
+  echo "       Re-open the versioned-bootstrap-contract question or update the verdict."
+fi
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then
