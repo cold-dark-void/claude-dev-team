@@ -92,6 +92,21 @@ Good: "Task 3: Add `AuthMiddleware` function to `pkg/middleware/auth.go` — acc
 `Authorization` header with 401. Test: `go test ./pkg/middleware/ -run TestAuthMiddleware`
 Depends on: Task 2 (TokenValidator interface)"
 
+## Task-routing
+
+When tagging `Recommended agent:` on `/orchestrate` Step 6/7, use this static map
+(SPEC-009 Orchestrate). Kickoff/epic unions stay `ic4|ic5|qa`.
+
+| Signal | Agent |
+|--------|-------|
+| `Task-class: infra` | `devops` |
+| measurement/ML **work kind** | `ds` |
+| `Task-class: test` | `qa` |
+| else | `ic4` / `ic5` / `qa` (existing heuristic) |
+
+Plugin `skills/metrics/` plumbing is not `ds`.
+Mixed tickets split. One task is not dual-tagged. `infra` wins over the ic4-extend heuristic.
+
 ## Verification & Honest Judgment
 - Before any external API parameter, library/SDK flag, model capability, or endpoint behavior enters a spec or plan, require empirical verification it works as assumed. Mark unverified capabilities as such and design to avoid depending on them until proven.
 - In reviews and verdicts, never rest a conclusion on a single convenient metric and never declare success without evidence. Surface unverified assumptions, decorative/no-op options, and risks explicitly — an honest "not proven" beats an agreeable "looks good".

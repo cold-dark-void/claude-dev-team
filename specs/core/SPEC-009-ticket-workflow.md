@@ -43,6 +43,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST increment SPEC numbers within the relevant category after highest existing number
 
 ### Orchestrate
+- MUST tag each omit/standard/full orchestrated task with a static Recommended agent from the map in `agents/tech-lead.md` Task-routing: `Task-class: infra` → devops; measurement/ML work kind → ds; else ic4/ic5/qa. Mixed tickets MUST split; one task MUST NOT be dual-tagged. `infra` wins over the ic4-extend heuristic. `Task-class: test` still → qa. Plugin `skills/metrics/` plumbing is not ds. Kickoff tagging stays ic4-for-extending / ic5-for-novel (unchanged).
 - MUST NOT write code directly (orchestrator is observer/navigator only)
 - MUST enforce two escalation gates: scope confirmation (Gate 1) and plan approval (Gate 2)
 - MUST track task state and only spawn agents for unblocked tasks
@@ -434,6 +435,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-09-08 | CDT-242: Orchestrate static Recommended-agent map (`Task-class: infra` → devops; measurement/ML work kind → ds; else ic4/ic5/qa). Cite `agents/tech-lead.md` Task-routing. Kickoff "ic4 for extending / ic5 for novel" MUST unchanged. Light path still exactly one ic4. |
 | 2026-08-27 | CDT-223: counted-LOC exclusion (cite SPEC-033 M15) for interactive change-discipline and autopilot BC4/M10.1; keep specs/tests exemption additive. `/orchestrate --max-loc=<n\|unbound>` parse in `parse-flags.sh` (sixth JSON key; flag-only; last-wins; junk→64). Scaffold seeds `.gitattributes`. Contract home for effects/exclusion/card = SPEC-033 AC8. |
 | 2026-08-27 | CDT-229: light Step 8 `@ic4` `effort: low` is the omit-path default; a non-empty Model map effort token wins (SPEC-037 M27). Original "at low effort" sentence kept. |
 | 2026-08-21 | CDT-157: wrap Step 6.x prunes remote `feat/*` when allowlisted and ancestor-or-cherry-safe; leftover notice otherwise; fail-open; no `origin/feat/*` scan. `worktree-lib.sh` stays local-release only. |

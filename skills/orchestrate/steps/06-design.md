@@ -40,7 +40,8 @@ Your earlier assessment: <affected files, specs, risks>
 Produce:
 1. Spec (create/update in specs/core/ with MUST/SHOULD/MUST NOT)
 2. Implementation plan with task graph (dependencies, parallelism)
-3. For each task: recommended agent (ic4/ic5/qa) and why.
+3. For each task: `Recommended agent: <ic4|ic5|qa|devops|ds>` and why.
+   Cite agents/tech-lead.md Task-routing table.
    Escalation heuristic: assign ic5 (not ic4) when a task touches >10 files,
    modifies >15 callsites, or involves wide-scope structural deletion/renaming.
    ic4 excels at focused tasks; wide-scope structural work should go to ic5 or be split further.
@@ -84,6 +85,7 @@ Tasks:
 1. <task> → ic4 (extends existing pattern)
 2. <task> → ic5 (new module, needs design)
 3. <task> → qa (acceptance tests from spec)
+4. <task> → devops (Task-class: infra)
 
 Dependencies: Task 3 blocked by Task 1+2
 

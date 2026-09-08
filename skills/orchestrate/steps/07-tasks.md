@@ -45,7 +45,8 @@ excluded from advisory aggregation (M7).
 
 #### Step 7 advisory (SPEC-026 M5/M6/M7) — before Recommended agent is finalized
 
-After choosing the **static** Recommended agent (SPEC-009 rules) and Task-class,
+After choosing the **static** Recommended agent (SPEC-009 rules; cite
+agents/tech-lead.md Task-routing table) and Task-class,
 consult the outcome ledger. Fail-open: any failure ⇒ silence, keep static (M9).
 MUST NOT auto-flip routing (M6).
 
@@ -54,7 +55,7 @@ MUST NOT auto-flip routing (M6).
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 RATES=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/outcome-rates.sh)
-STATIC_AGENT="<ic4|ic5|… from static rule>"
+STATIC_AGENT="<ic4|ic5|qa|devops|ds>"
 TASK_CLASS="<from Task-class line; empty if missing>"
 ADVISORY=""
 if [ -n "$TASK_CLASS" ]; then
@@ -78,7 +79,7 @@ TaskCreate:
   description: |
     <description>
     Task-class: <impl-extend|impl-novel|refactor|test|docs|infra|discovery>
-    Recommended agent: <ic4|ic5|qa>
+    Recommended agent: <ic4|ic5|qa|devops|ds>
     Depends on: [Task IDs] or "none"
     requires_council: <true|false>   # omit = false
 ```

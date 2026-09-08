@@ -249,6 +249,16 @@ fi
 if [ -z "$t12_fail" ]; then ok
 else bad "T12 light-branch:$t12_fail"; fi
 
+# ---- T13: CDT-242 Recommended-agent legal set includes devops and ds (06 + 07) ----
+t13_fail=""
+for f in 06-design.md 07-tasks.md; do
+  if ! grep -qE 'Recommended agent: <ic4\|ic5\|qa\|devops\|ds>' "$STEPS/$f"; then
+    t13_fail="$t13_fail $f"
+  fi
+done
+if [ -z "$t13_fail" ]; then ok
+else bad "T13 Recommended-agent devops|ds missing:$t13_fail"; fi
+
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   exit 0
