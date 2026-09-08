@@ -226,7 +226,7 @@ else
   bad "M12 agents/council-judge.md tools: \"\" must stay empty"
 fi
 
-# ---- Kickoff omit ranges: explorer + Step 4b have no resolve-model.sh ----
+# ---- Kickoff ranges: explorer MUST fence; Step 4b MUST NOT ----
 KICKOFF="$ROOT/skills/kickoff/SKILL.md"
 heading_range() {
   # Print from first line matching $2 until the next ## heading (exclusive).
@@ -239,9 +239,19 @@ heading_range() {
 if [ -f "$KICKOFF" ]; then
   EXPL=$(heading_range "$KICKOFF" '### Codebase Explorer')
   if printf '%s\n' "$EXPL" | grep -qF 'resolve-model.sh'; then
-    bad "kickoff Codebase Explorer range must not contain resolve-model.sh"
-  else
     ok
+  else
+    bad "kickoff Codebase Explorer range must contain resolve-model.sh"
+  fi
+  if printf '%s\n' "$EXPL" | grep -qF 'resolve-model.sh --effort'; then
+    ok
+  else
+    bad "kickoff Codebase Explorer range must contain resolve-model.sh --effort"
+  fi
+  if printf '%s\n' "$EXPL" | grep -qF 'host rejected'; then
+    ok
+  else
+    bad "kickoff Codebase Explorer range must contain host-reject language"
   fi
   STEP4B=$(heading_range "$KICKOFF" '^## Step 4b:')
   if printf '%s\n' "$STEP4B" | grep -qF 'resolve-model.sh'; then
@@ -250,8 +260,10 @@ if [ -f "$KICKOFF" ]; then
     ok
   fi
 else
-  bad "kickoff SKILL.md missing for omit-range checks"
-  bad "kickoff SKILL.md missing for omit-range checks"
+  bad "kickoff SKILL.md missing for explorer resolve-model.sh"
+  bad "kickoff SKILL.md missing for explorer --effort"
+  bad "kickoff SKILL.md missing for explorer host-reject"
+  bad "kickoff SKILL.md missing for Step 4b omit"
 fi
 
 # ---- No source of resolve-model.sh in SITES; last resolve cmd is printf ----

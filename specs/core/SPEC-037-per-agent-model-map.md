@@ -248,9 +248,10 @@ amendment, and the surface retirement land as separate tickets.
   the agent actually spawned. Named fallback `ic5`→`ic4` resolves `ic4`.
   Unnamed / `general-purpose` / Explore MUST omit the fence. Sites:
   1. `/kickoff` (`skills/kickoff/SKILL.md`) — Step 2 `@pm`, Step 2
-     `@tech-lead`, Step 3 feed-back `@pm`, Step 5 create-spec `@tech-lead`,
-     Step 5 update-spec `@tech-lead`, Step 6 plan `@tech-lead`. MUST NOT
-     fence Codebase Explorer or Step 4b verifier.
+     `@tech-lead`, Step 2 `@finder` (Codebase Explorer), Step 3 feed-back
+     `@pm`, Step 5 create-spec `@tech-lead`, Step 5 update-spec
+     `@tech-lead`, Step 6 plan `@tech-lead`. MUST NOT fence Step 4b
+     verifier.
   2. `/epic` (`skills/epic/SKILL.md`) — A.2 `@pm` and `@tech-lead` only
      (Mode E `--redecompose` reuses A.2 fences). No ICs.
   3. `/debug ticket` (`skills/fix-ticket/SKILL.md`) — Step 3 premise
@@ -280,7 +281,7 @@ amendment, and the surface retirement land as separate tickets.
   three layer paths and precedence (local → repo → global → Tier default),
   schema, example JSON, empty = Tier default, warn-never-block for `qa` /
   `council-judge`, named-roster spawn-surface coverage (M13 ∪ M16), and the
-  omit list (explorer, Step 4b, unnamed / `general-purpose` / Explore,
+  omit list (Step 4b, unnamed / `general-purpose` / Explore,
   `/handoff` miner, `/memory validate`, `/retro`). Prose MUST use
   **Model map** and **Tier default** (not “model config” / “hardcoded model”).
   YAML `name` + `description` required. MUST NOT mention `--help` (smoke
@@ -569,6 +570,7 @@ amendment, and the surface retirement land as separate tickets.
 
 | Date | Change |
 |------|--------|
+| 2026-09-08 | CDT-243 — M16 site 1 adds Step 2 `@finder` (Codebase Explorer); MUST NOT fence applies only to Step 4b verifier. M17 omit list drops explorer. Status stays DRAFT. |
 | 2026-08-30 | F7, F8 (CDT-230 kickoff Step 4b). F7: omitted `effort:` inherits `settings.json` `effortLevel`, the project-wide depth lever left available under F6. F8: `model:` and `effort:` compose in one frontmatter file — the combination every roster agent ships under Option A. Both verified with the same forwarding-listener method as F1–F6. |
 | 2026-08-30 | CDT-230 — M8 widened to 10 mappable names (`finder`, `debugger` added) and now names all three duplicated enforcement points as one contract. M12 **replaced**: `effort:` frontmatter is REQUIRED on all 12 agents and must match the SPEC-003 § Tier table (was: prohibited); SPEC-003 stays SoT for both columns; `finder`/`debugger` tool floor added. M29 **replaced**: the frontmatter-absence assertion is deleted and inverted to a presence + Tier-table assertion; the `--effort` spawn-site assertions are deliberately RETAINED, since retiring the effort surface is a separate ticket. MUST NOT list: the struck effort-frontmatter line replaced with a positive prohibition on asserting its absence. M16 sites 3–5 re-pointed to `debugger` (premise) and `finder` (council Phase 2 / 2.5, bug-hunt S1 / S2), with an `ic5` host-reject fallback. Status stays DRAFT. |
 | 2026-08-30 | Host capability findings F1–F6 (Claude Code 2.1.236). The Agent tool has no `effort` param, so M22–M29 never took effect. Frontmatter `effort:` works for subagents and is the only substrate that reaches a namespaced roster spawn. Option A recorded. M12 / M29 / MUST NOT effort-frontmatter prohibition marked void. Model half unaffected. Status stays DRAFT. |

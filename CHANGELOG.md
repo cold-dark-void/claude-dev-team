@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.11
+- **CDT-243 Kickoff Codebase Explorer → `@finder`** — kickoff Step 2 explorer was an unnamed Sonnet prompt while CDT-230 had already shipped the read-only `finder` roster agent. The explorer heading stays `### Codebase Explorer`; the prompt is now `You are @finder.` Step 2 Model map is one fence (PDH once) resolving `pm` / `tech-lead` / `finder`; the three prompts cite it. `finder` type-reject retries `@ic5` (never `ic4`). SPEC-037 M16 site 1 and M17 omit-list drop the explorer hole; Step 4b verifier stays unfenced. `spawn-site-test.sh` requires the resolver needles in the explorer range. No new `commands/*.md`. Patch.
+
 ### v1.18.10
 - **CDT-242 TL routes devops/ds by task class** — `devops` and `ds` had full agent files but `/orchestrate` Step 6/7 only tagged `ic4|ic5|qa`. Tech Lead now has a Task-routing table (`Task-class: infra` → devops; measurement/ML work kind → ds; `test` still → qa; else the existing ic4/ic5/qa heuristic). `06-design.md` / `07-tasks.md` legal set is `<ic4|ic5|qa|devops|ds>`. SPEC-009 Orchestrate MUST cites that table. Kickoff/epic unions stay `ic4|ic5|qa` (`COPY-ACCEPTED: divergence-expected`). Light path still one `@ic4`. No new agents or `commands/*.md`. Patch.
 

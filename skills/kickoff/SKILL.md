@@ -264,9 +264,13 @@ Do **not** hardcode `.worktrees/<TICKET-ID>` when the ticket may be an epic shar
 
 Spawn **three** agents simultaneously. Do not wait for one before starting the others.
 
-### PM prompt (send now):
+### Model map (SPEC-037)
 
-Before spawning @pm:
+One fence for this step's three named-roster spawns. PDH once. Resolve the
+agent actually spawned. Capture each agent's MODEL/EFFORT before the next
+resolve overwrites. Do not paste this fence under the prompts below.
+
+Before spawning @pm, @tech-lead, and @finder:
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
@@ -275,16 +279,29 @@ MODEL=$(bash "$RESOLVE" pm)
 printf '%s\n' "$MODEL"
 EFFORT=$(bash "$RESOLVE" --effort pm)
 printf '%s\n' "$EFFORT"
+MODEL=$(bash "$RESOLVE" tech-lead)
+printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort tech-lead)
+printf '%s\n' "$EFFORT"
+MODEL=$(bash "$RESOLVE" finder)
+printf '%s\n' "$MODEL"
+EFFORT=$(bash "$RESOLVE" --effort finder)
+printf '%s\n' "$EFFORT"
 ```
 Bash stdout = model string; empty → omit model.
 Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
 If MODEL is non-empty: pass it as the Agent model param.
 If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for pm; retrying with Tier default`.
-If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for pm; retrying with inherited effort`.
+If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for <agent>; retrying with Tier default`.
+If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for <agent>; retrying with inherited effort`.
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
+Named fallback `finder`→`ic5` (CDT-230 / SPEC-003): if spawn fails because the host rejects agent type `finder`, retry `@ic5` and re-run the fence resolving `ic5` (never `ic4`).
+
+### PM prompt (send now):
+
+**Model map:** canonical fence in § Model map. Spawn @pm with that agent's MODEL/EFFORT. Empty stdout → omit that param (MUST NOT pass `""`).
 
 ```
 You are @pm. Review ticket <TICKET-ID>:
@@ -307,25 +324,7 @@ orchestrator; there is no addressable parent.
 
 ### Tech Lead prompt (send now, in parallel):
 
-Before spawning @tech-lead:
-```bash
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-MODEL=$(bash "$RESOLVE" tech-lead)
-printf '%s\n' "$MODEL"
-EFFORT=$(bash "$RESOLVE" --effort tech-lead)
-printf '%s\n' "$EFFORT"
-```
-Bash stdout = model string; empty → omit model.
-Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
-Surface resolver stderr to the user. Do not swallow.
-If MODEL is non-empty: pass it as the Agent model param.
-If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
-If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for tech-lead; retrying with inherited effort`.
-Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
-Other spawn failures MUST NOT be retried as a model or effort fallback.
+**Model map:** canonical fence in § Model map. Spawn @tech-lead with that agent's MODEL/EFFORT. Empty stdout → omit that param (MUST NOT pass `""`).
 
 ```
 You are @tech-lead. Orient on ticket <TICKET-ID> while @pm reviews scope.
@@ -349,9 +348,12 @@ Return your output as this agent's final message — do NOT SendMessage to the
 orchestrator; there is no addressable parent.
 ```
 
-### Codebase Explorer prompt (send now, in parallel — Sonnet):
+### Codebase Explorer prompt (send now, in parallel):
+
+**Model map:** canonical fence in § Model map (`resolve-model.sh` / `resolve-model.sh --effort` finder). Spawn @finder with that agent's MODEL/EFFORT. Empty stdout → omit that param (MUST NOT pass `""`). Host-reject retry-once-omit (`host rejected`). Named fallback `finder`→`ic5` (CDT-230 / SPEC-003): if spawn fails because the host rejects agent type `finder`, retry `@ic5` and re-run the fence resolving `ic5` (never `ic4`).
+
 ```
-You are a codebase exploration agent. Deep-dive the codebase to map how
+You are @finder. Deep-dive the codebase to map how
 the area related to ticket <TICKET-ID> currently works.
 
 Output mode: terse
@@ -376,6 +378,8 @@ Output a structured report:
 - Dependencies (inbound): <what calls into this area>
 - Dependencies (outbound): <what this area calls>
 - Landmines: <anything surprising, fragile, or undocumented>
+Return your output as this agent's final message — do NOT SendMessage to the
+orchestrator; there is no addressable parent.
 ```
 
 Collect all three outputs before proceeding.

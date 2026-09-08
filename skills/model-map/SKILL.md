@@ -123,8 +123,8 @@ site also runs `resolve-model.sh --effort` for the same agent:
 
 - `/orchestrate` steps 4 / 6 / 8 / 9 / 10, plus code-simplify (`ic4`) and
   ci-watch fixer (`ic5`)
-- `/kickoff` — Step 2 `@pm` / `@tech-lead`, Step 3 feed-back `@pm`,
-  Step 5 / 6 `@tech-lead`
+- `/kickoff` — Step 2 `@pm` / `@tech-lead` / `@finder` (Codebase Explorer),
+  Step 3 feed-back `@pm`, Step 5 / 6 `@tech-lead`
 - `/epic` — A.2 `@pm` / `@tech-lead` only (Mode E reuses A.2)
 - `/debug ticket` — premise `debugger`, implement `--agent ic4|ic5`, refuters `qa`
 - `/council` — Phase 2 `finder`, Phase 2.5 `finder`, Phase 5 `council-judge`
@@ -137,7 +137,7 @@ Resolve the agent actually spawned. Named fallback `ic5`→`ic4` resolves
 never `ic4`. Empty model stdout = **Tier default**. Empty effort stdout =
 **inherited effort**.
 
-**Omit the fence:** Codebase Explorer; kickoff Step 4b verifier; unnamed /
+**Omit the fence:** kickoff Step 4b verifier; unnamed /
 `general-purpose` / Explore; council Phase 1 extractor, Phase 3 specialist,
 Phase 4 prosecutor/advocate, `--blind` extra waves; `/handoff` miner
 (`HANDOFF_MINER_MODEL`); `/memory validate`; `/retro`;
