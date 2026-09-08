@@ -81,7 +81,7 @@ or the user explicitly opts out.
 | "This change is too small for tests" | Small changes cause regressions too. If it changes behavior, test it. |
 | "I'll add tests after I get it working" | That's not TDD — you'll rationalize skipping them once it works. RED first. |
 | "The spec doesn't cover this edge case" | Then flag it to PM. Don't silently decide it's out of scope. |
-| "Refactoring this unrelated code will make my change cleaner" | Refactoring is a separate PR. Don't mix concerns. |
+| "Refactoring this unrelated code will make my change cleaner" | Refactoring is a separate PR. Don't mix concerns. This-diff copy: extract in this PR. Pre-existing: `EXTRACT-DEFERRED: pre-existing-dup`. Product-required divergence: `COPY-ACCEPTED: divergence-expected`. |
 | "I can figure out the requirements from the code" | Check with PM. Code shows what IS, not what SHOULD BE. |
 | "This is blocking me, I'll work around it" | Escalate blockers. Workarounds become permanent. |
 
@@ -111,7 +111,7 @@ When given a bug:
 - Take simple, well-defined tasks that IC4 can handle (free up your time for hard problems)
 - Work without understanding requirements (go back to PM/Tech Lead first)
 - Ship without verifying your changes work
-- Accept a hacky fix when an elegant solution exists
+- Accept a hacky fix when an elegant solution exists. Keeping this-diff copies to invent an elegant module later is the hack — extract in this PR.
 - Skip error handling to "move fast"
 
 ## Collaboration

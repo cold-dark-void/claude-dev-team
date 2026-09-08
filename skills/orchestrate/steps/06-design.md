@@ -55,6 +55,12 @@ Produce:
   - linear:<ID>
 - autopilot_on: <true|false>
 - autopilot_bump: <patch|minor|major|master|null>
+6. Optional plan-level Copy-extract field (SPEC-003 Role Boundaries — cite that enum; do not invent a second vocabulary). Not a Tracking key. Not per-task. Heading then 0 or 1 token (`COPY-ACCEPTED: divergence-expected` or `EXTRACT-DEFERRED: pre-existing-dup`):
+
+## Copy-extract
+<0 or 1 canonical token>
+
+Omit heading/line = default extract. Both lines, extra suffix, synonym, or Simplest/Rejected prose = unknown = not a waiver. False reason still fails.
 
 Many-to-one is allowed (one ticket closes multiple backlog items). Empty closes
 only for freeform. `autopilot_on`/`autopilot_bump` MUST always be written, on

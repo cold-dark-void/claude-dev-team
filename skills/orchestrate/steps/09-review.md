@@ -42,6 +42,7 @@ Evaluate:
 1. Does it meet the spec requirements?
 2. Code quality — would you approve this PR?
 3. Any concerns about integration with other tasks?
+4. Copy-extract (SPEC-003): this-diff copy or new-axis branch MUST be extracted, or the plan carries exactly one canonical waiver (`COPY-ACCEPTED: divergence-expected` or `EXTRACT-DEFERRED: pre-existing-dup`). Unknown (both lines, extra suffix, synonym, Simplest/Rejected prose) is not a waiver. False reason (`COPY-ACCEPTED` when copies share shape; `EXTRACT-DEFERRED` when this diff added the second copy) → REQUEST CHANGES. Docs/config-only with no this-diff copy: omit this axis.
 
 Output: APPROVE, or REQUEST CHANGES with specific feedback.
 ```

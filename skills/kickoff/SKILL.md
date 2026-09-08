@@ -689,6 +689,12 @@ Output:
 - closes:
   - backlog/<slug>.md    # when ticket came from backlog, or dual-write
   - linear:<ID>          # when Linear issue exists
+5. Optional plan-level Copy-extract field (SPEC-003 Role Boundaries — cite that enum; do not invent a second vocabulary). Not a Tracking key. Not per-task. Heading then 0 or 1 token (`COPY-ACCEPTED: divergence-expected` or `EXTRACT-DEFERRED: pre-existing-dup`):
+
+## Copy-extract
+<0 or 1 canonical token>
+
+Omit heading/line = default extract. Both lines, extra suffix, synonym, or Simplest/Rejected prose = unknown = not a waiver. False reason still fails.
 
 No schema changes or new dependencies without calling them out explicitly.
 For each task, list dependencies as `Depends on: <TaskID>, <TaskID>` or `Depends on: none` so kickoff can extract them programmatically.

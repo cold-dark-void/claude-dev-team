@@ -58,6 +58,10 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 - MUST NOT allow DevOps to modify application business logic
 - MUST NOT allow QA to approve releases when blocking bugs exist
 - MUST NOT allow DS to ship models without evaluation metrics and baseline comparison
+- MUST extract a this-diff copy or a new branch on an existing axis unless the plan carries exactly one canonical waiver. A this-diff copy is the second near-duplicate function, block, or guard this diff introduces (the first copy may be pre-existing or also in-diff). A new branch on an existing axis is another `if`/`elif`/`case`/`switch` arm or parallel guard on a dispatch that already has siblings, instead of the shared shape those siblings imply. Extracted means both sites call one helper that already matches an in-tree pattern (same file or already-used helper) — not a new package, module, or dispatch style. Docs/config-only with no this-diff copy: omit this axis.
+- Canonical waivers are byte-identical and the same shape as `WHY INLINE REJECTED`: `COPY-ACCEPTED: divergence-expected` (sites MUST differ by product requirement) or `EXTRACT-DEFERRED: pre-existing-dup` (dup existed on merge-base; this diff did not add a copy or arm). Plan field: optional `## Copy-extract` then 0 or 1 of those lines. Not a Tracking key. Plan-level, not per-task. Omit heading and line = default extract. Both lines, extra suffix, synonym, or Simplest/Rejected prose = unknown = not a waiver. Skills cite this enum; they MUST NOT restate a second vocabulary.
+- MUST treat a false reason as a fail: `COPY-ACCEPTED` when copies share shape; `EXTRACT-DEFERRED` when this diff added the second copy. Tech Lead Step 9 MUST REQUEST CHANGES unless the copy or arm is extracted or a true canonical waiver.
+- MUST NOT allow IC4 to invent a new pattern or abstraction in order to extract — escalate to Tech Lead first. Extracting a this-diff copy into an in-tree helper is matching the codebase, not inventing.
 
 ### Role Responsibilities
 - MUST require Tech Lead to produce micro-task decomposition with exact file paths, specific changes, and verification steps
@@ -100,6 +104,12 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 - Verify `finder` and `debugger` tools are exactly `Read, Grep, Glob, Bash, SendMessage`
 - Verify directives load order: directives → memory → context
 - Verify `/adjust-agent` surfaces conflicts and rewrites holistically with sequential numbering
+- Verify canonical waiver tokens:
+  `rg -n 'COPY-ACCEPTED: divergence-expected|EXTRACT-DEFERRED: pre-existing-dup' agents/ic4.md agents/ic5.md agents/tech-lead.md skills/kickoff/SKILL.md skills/orchestrate/steps/06-design.md skills/orchestrate/steps/09-review.md specs/core/SPEC-003-agent-role-system.md`
+- Verify IC4 opener: `rg -n 'Follow existing patterns. Propose changes to Tech Lead separately.' agents/ic4.md`
+- Verify IC4 Do-NOT: `rg -n 'Invent new patterns or abstractions without Tech Lead approval' agents/ic4.md`
+- Verify Step 8/10 stay silent: `rg -n 'COPY-ACCEPTED|EXTRACT-DEFERRED|Copy-extract' skills/orchestrate/steps/08-execute.md skills/orchestrate/steps/10-qa.md` (expect no matches)
+- Verify no new commands: `git diff --name-only -- commands/` (empty)
 
 ## Validation
 
@@ -109,6 +119,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 - [ ] Role boundaries are enforced in agent behavioral rules
 - [ ] TDD gate exemption for config/docs is explicit in IC5 and IC4 agent definitions
 - [ ] Directives file uses sequential numbering after holistic rewrite
+- [ ] Copy-extract Role Boundaries MUST is present; Test greps match the canonical tokens
 
 ## Open Questions
 
@@ -119,6 +130,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 
 | Date | Change |
 |------|--------|
+| 2026-09-08 | Copy-extract IC rule: Role Boundaries MUST — extract this-diff copy / new-axis branch unless one canonical waiver (`COPY-ACCEPTED: divergence-expected` or `EXTRACT-DEFERRED: pre-existing-dup`); unknown ≠ waiver; false reason fails; IC4 MUST NOT invent a pattern to extract. Test greps + Step 9 TL REQUEST CHANGES. Status stays ACTIVE. |
 | 2026-08-30 | CDT-230: role split + full tier table. Added `finder` (fan-out investigation) and `debugger` (causal root-cause) as **non-behavioral roster agents** — memory-less, directive-less, read-only, precedent `council-judge`; the behavioral count stays exactly 7. `ic5` narrowed to pure senior implementation. Replaced the flat "Opus for tech-lead, ic5, qa, ds; Sonnet for pm, ic4, devops" tier MUST with a 12-row model+effort Tier table (`ic5` opus→sonnet/xhigh, `qa` opus→sonnet/high, `pm` sonnet→opus/medium, `ds` opus/medium). Added `effort` as a required frontmatter field — frontmatter is the only substrate that reaches a namespaced roster spawn (SPEC-037 F3/F6/F8). Host-reject fallback for `finder`/`debugger` is `ic5`. Status stays ACTIVE. |
 | 2026-08-26 | CDT-222: shipped `model:` is the **Tier default**; runtime **Model map** is SPEC-037. Roster unchanged. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |

@@ -67,8 +67,8 @@ or the user explicitly opts out.
 | "This pattern is simple enough to get right without tests" | Simple patterns still break. The test proves it works. |
 | "The existing code doesn't have tests either" | Don't inherit tech debt. Add tests for your changes. |
 | "This task is getting complex, I'll push through" | Stop and escalate to IC5. That's not weakness, it's judgment. |
-| "I know a better pattern than what's here" | Follow existing patterns. Propose changes to Tech Lead separately. |
-| "I'll just add the same guard everywhere it breaks" | If you're adding the same guard in 3+ places, there's one upstream fix. Stop and escalate to IC5. |
+| "I know a better pattern than what's here" | Follow existing patterns. Propose changes to Tech Lead separately. Extracting a this-diff copy matches the codebase. If extract needs a new pattern, flag Tech Lead first. |
+| "I'll just add the same guard everywhere it breaks" | If you're adding the same guard in 3+ places, there's one upstream fix. Stop and escalate to IC5. This-diff copy: extract in this PR. Pre-existing: `EXTRACT-DEFERRED: pre-existing-dup`. Product-required divergence: `COPY-ACCEPTED: divergence-expected`. |
 
 ### While Implementing
 - Follow the patterns you see in the codebase exactly — consistency over cleverness
