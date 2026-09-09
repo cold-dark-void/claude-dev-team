@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.13
+- **CDT-245 Keep IC4 on Sonnet** — close the SPEC-003 open question. IC4 stays `sonnet`/`medium`. Edge-case reasoning escalates to IC5 or Tech Lead; a model bump would invert the cheap-well-defined vs expensive-ambiguous split that CDT-230 set. No frontmatter or tier-table change. Patch.
+
 ### v1.18.12
 - **CDT-244 Security council on auth-secrets plans before Step 8** — security only appeared at review time (diff-mode investigator, security-scan); auth/secrets-touching designs were never gated. Orchestrate Step 6c now runs `/council --plan` with the existing `flavors/security.md` after plan-approve / 6b and before Step 8 when `ticket_class: auth-secrets`. Classifier is dual-homed (kickoff Step 6 + `06-design.md`); kickoff classifies only and MUST NOT invoke `/council`. Unsure → `auth-secrets`. Independent of `--council-tier=skip`. Block Step 8 on CONTRADICTED/FABRICATED/UNVERIFIED ≥80, self-verified, or no report. No `--security` flag, no new flavor, no new `commands/*.md`. Folded onto v1.18.11 (CDT-242 T13 kept; CDT-244 tests are T14/T15). Patch.
 

@@ -124,12 +124,13 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 ## Open Questions
 
 - [x] ~~Is the TDD gate mandatory for config/docs changes?~~ **Resolved: No** — TDD is mandatory for runtime behavior changes only. Pure config, docs, and metadata changes are exempt.
-- [ ] Should IC4 use Opus instead of Sonnet for better reasoning on edge cases?
+- [x] ~~Should IC4 use Opus instead of Sonnet for better reasoning on edge cases?~~ **Resolved: No — keep Sonnet** (CDT-245). IC4 is the well-defined pattern-matching seat; edge-case reasoning escalates to IC5 or Tech Lead. A model bump would invert the cheap-well-defined vs expensive-ambiguous split that CDT-230 set.
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-09-08 | CDT-245: close IC4 Opus OQ — keep Sonnet (`ic4` stays sonnet/medium). Edge-case reasoning escalates; no frontmatter change. Status stays ACTIVE. |
 | 2026-09-08 | Copy-extract IC rule: Role Boundaries MUST — extract this-diff copy / new-axis branch unless one canonical waiver (`COPY-ACCEPTED: divergence-expected` or `EXTRACT-DEFERRED: pre-existing-dup`); unknown ≠ waiver; false reason fails; IC4 MUST NOT invent a pattern to extract. Test greps + Step 9 TL REQUEST CHANGES. Status stays ACTIVE. |
 | 2026-08-30 | CDT-230: role split + full tier table. Added `finder` (fan-out investigation) and `debugger` (causal root-cause) as **non-behavioral roster agents** — memory-less, directive-less, read-only, precedent `council-judge`; the behavioral count stays exactly 7. `ic5` narrowed to pure senior implementation. Replaced the flat "Opus for tech-lead, ic5, qa, ds; Sonnet for pm, ic4, devops" tier MUST with a 12-row model+effort Tier table (`ic5` opus→sonnet/xhigh, `qa` opus→sonnet/high, `pm` sonnet→opus/medium, `ds` opus/medium). Added `effort` as a required frontmatter field — frontmatter is the only substrate that reaches a namespaced roster spawn (SPEC-037 F3/F6/F8). Host-reject fallback for `finder`/`debugger` is `ic5`. Status stays ACTIVE. |
 | 2026-08-26 | CDT-222: shipped `model:` is the **Tier default**; runtime **Model map** is SPEC-037. Roster unchanged. |
