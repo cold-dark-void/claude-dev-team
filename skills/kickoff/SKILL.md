@@ -699,6 +699,11 @@ Output:
 <0 or 1 canonical token>
 
 Omit heading/line = default extract. Both lines, extra suffix, synonym, or Simplest/Rejected prose = unknown = not a waiver. False reason still fails.
+6. Ticket-class (not a Tracking key). Case-insensitive substring match on title|body|ACs|plan against any of: auth, authentication, authorization, oauth, oidc, jwt, session, credential, secret, token, password, api key / api-key / apikey, private key / private-key, pii, ssn, csrf. Match → `ticket_class: auth-secrets`. Else `ticket_class: none`. Unsure → `ticket_class: auth-secrets`. Dual-home with orchestrate `06-design.md`. Emit a plan line:
+
+ticket_class: auth-secrets|none
+
+MUST NOT invoke `/council`. Classifier + `ticket_class:` line only.
 
 No schema changes or new dependencies without calling them out explicitly.
 For each task, list dependencies as `Depends on: <TaskID>, <TaskID>` or `Depends on: none` so kickoff can extract them programmatically.

@@ -40,6 +40,8 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST escalate if Tech Lead identifies breaking schema change
 - MUST write or update spec BEFORE creating task graph (spec-first principle)
 - MUST tag each task with recommended agent (ic4 for extending patterns, ic5 for novel work)
+- MUST emit plan line `ticket_class: auth-secrets|none` (dual-home classifier with `06-design.md`; not a Tracking key). Match title|body|ACs|plan case-insensitive against: auth, authentication, authorization, oauth, oidc, jwt, session, credential, secret, token, password, api key/api-key/apikey, private key/private-key, pii, ssn, csrf → `auth-secrets`; else `none`; unsure → `auth-secrets`. MUST NOT extract a shared partial
+- MUST NOT invoke `/council` (classifier + `ticket_class:` line only)
 - MUST increment SPEC numbers within the relevant category after highest existing number
 
 ### Orchestrate
@@ -56,6 +58,11 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST separate refactoring from feature work (ship refactor first, feature on top)
 - MUST never silently absorb discovered work (create new ticket)
 - MUST replan when approach changes materially
+- MUST run Step 6c after Step 6b and before Step 7 when plan `ticket_class` is `auth-secrets` (same dual-home classifier as Kickoff; missing line → classify now; unsure → `auth-secrets`). Else print one skip line. Light included. Independent of `--council-tier=skip`
+- MUST invoke `/council --plan <approved-plan-path>` unbound (no `--task-id`, no `--diff`, no `--preset diff-mode`). After preflight append `security` to `plan.flavors` if absent. `{{FLAVOR_DELTA}}` = `skills/council/flavors/security.md` body. investigator.md schema wins over flavor `finding[]`; skip SAST. MUST NOT add `skills/council/flavors/*`. Honor `light|full` on the `/council` invoke; omit → full
+- MUST NOT spawn Step 8 ICs when unstruck CONTRADICTED|FABRICATED conf≥80, or UNVERIFIED conf≥80, or `verification_mode: self-verified` / marker `self-verified — refuters unavailable`, or no usable report. Autopilot: off-triad `plan-approve`; verdict fail → BC1 halt; degraded/total-fail → BC7 conf=0. MUST NOT auto-replan. Interactive: print the report and wait
+- MUST continue to Step 7 then 8 when remaining verdicts are VERIFIED|PARTIALLY_VERIFIED or claims are empty. PARTIALLY_VERIFIED: one-line warning; MUST NOT block
+- MUST NOT add a user-facing `--security` flag (or any new orchestrate/council flag) for this gate
 - MUST track review round count per task (flag deadloop at 3+)
 - MUST support an optional `requires_council: true` metadata field on orchestrated tasks (opt-in per task; MUST NOT be required by default on any task)
 - When `requires_council: true` is set, the TaskCompleted quality-gate hook MUST block task completion until a `/council` verdict exists for the task's deliverable with confidence at or above the configured threshold (`council.taskgate.min_confidence`, default 80)
@@ -146,6 +153,7 @@ When `[ "$ORCH_TIER" = "light" ]` (explicit `--tier=light` or auto-size S):
 
 - MUST spawn exactly one scoper-planner at Steps 4–6 (confirms ACs and writes a short plan). MUST NOT parallel-spawn PM+TL. MUST NOT spawn a separate TL design pass (CDT-207)
 - MUST still surface open questions at Step 5. MUST still fire SPEC-033 `plan-approve` at Step 6. MUST still write the plan artifact with Tracking (CDT-207)
+- MUST still run Step 6c when `ticket_class: auth-secrets` (independent of `--council-tier=skip`)
 - MUST skip DAG/task-store at Step 7. MUST create one task. MUST spawn exactly one ic4 at low effort at Step 8. That task MUST NOT set `requires_council` (CDT-208)
   - **CDT-229:** `effort: low` is the omit-path default for that spawn. A non-empty Model map effort token for `ic4` wins (SPEC-037 M27).
 - MUST run a single-pass TL diff review at Step 9 with max one rework, then APPROVE or escalate. MUST NOT use the 3-round deadloop as the default (CDT-209)
@@ -400,6 +408,8 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify `skills/kickoff/SKILL.md` does not document `--tier`; kickoff still runs when `.tier` is present and unused
 - Verify light path: 04 scoper-planner; 07 skip DAG; 08 one `@ic4`; 09 single-pass; 10 no `@qa` spawn; 12 skip 12b (`router-static-test.sh` T12)
 - Verify Step 2 auto-size when `[ "$ORCH_TIER" = "null" ]`: S → light, M → standard, L → full; classify-fail → standard; explicit `--tier` skips classify
+- Verify Step 6c (CDT-244): `06-design.md` has `Step 6c`, `/council --plan`, `flavors/security.md`; kickoff SKILL has the token list and MUST NOT invoke `/council --plan`; orchestrate SKILL / `00-resolve.md` / `parse-flags.sh` have no `--security` (`router-static-test.sh` T14)
+- Verify `commands/council.md` Phase 2: caller MAY append flavor names to `plan.flavors` after preflight; investigator.md output schema always wins over a flavor’s `output_shape_constraint` (`router-static-test.sh` T15)
 
 ## Validation
 
@@ -435,6 +445,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-09-08 | CDT-244: Step 6c security council on `ticket_class: auth-secrets` after plan-approve / 6b, before Step 7. Dual-home classifier (kickoff Step 6 + `06-design.md`). `/council --plan` unbound + append `security` flavor. Block Step 8 on CONTRADICTED/FABRICATED/UNVERIFIED ≥80, self-verified, or no report. No `--security` flag. |
 | 2026-09-08 | CDT-242: Orchestrate static Recommended-agent map (`Task-class: infra` → devops; measurement/ML work kind → ds; else ic4/ic5/qa). Cite `agents/tech-lead.md` Task-routing. Kickoff "ic4 for extending / ic5 for novel" MUST unchanged. Light path still exactly one ic4. |
 | 2026-08-27 | CDT-223: counted-LOC exclusion (cite SPEC-033 M15) for interactive change-discipline and autopilot BC4/M10.1; keep specs/tests exemption additive. `/orchestrate --max-loc=<n\|unbound>` parse in `parse-flags.sh` (sixth JSON key; flag-only; last-wins; junk→64). Scaffold seeds `.gitattributes`. Contract home for effects/exclusion/card = SPEC-033 AC8. |
 | 2026-08-27 | CDT-229: light Step 8 `@ic4` `effort: low` is the omit-path default; a non-empty Model map effort token wins (SPEC-037 M27). Original "at low effort" sentence kept. |

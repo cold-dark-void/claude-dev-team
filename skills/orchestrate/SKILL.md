@@ -50,7 +50,7 @@ The monolith is gone from this always-on path.
 | 3 | `03-worktree.md` | Branch, worktree, glossary 3b |
 | 4 | `04-kickoff.md` | Parallel PM + Tech Lead |
 | 5 | `05-questions.md` | Open questions |
-| 6 | `06-design.md` | TL plan, plan-approve, glossary 6b |
+| 6 | `06-design.md` | TL plan, plan-approve, glossary 6b, security council 6c |
 | 7 | `07-tasks.md` | DAG + task-store |
 | 8 | `08-execute.md` | Spawn, monitor, CI-watch 8.5, stint-end |
 | 9 | `09-review.md` | TL review, council gate, simplify 9.5 |

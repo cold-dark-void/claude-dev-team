@@ -259,6 +259,60 @@ done
 if [ -z "$t13_fail" ]; then ok
 else bad "T13 Recommended-agent devops|ds missing:$t13_fail"; fi
 
+# ---- T14: CDT-244 Step 6c + classifier (AC8) ----
+# 06-design.md: Step 6c, /council --plan, flavors/security.md
+# kickoff SKILL: token list + ticket_class emit; MUST NOT invoke /council
+# orchestrate SKILL / 00-resolve / parse-flags: no --security flag
+KICKOFF="$ROOT/skills/kickoff/SKILL.md"
+PARSE="$ROOT/skills/autopilot/parse-flags.sh"
+t14_fail=""
+if ! grep -q 'Step 6c' "$STEPS/06-design.md"; then
+  t14_fail="$t14_fail 06 missing Step 6c"
+fi
+if ! grep -q '/council --plan' "$STEPS/06-design.md"; then
+  t14_fail="$t14_fail 06 missing /council --plan"
+fi
+if ! grep -q 'flavors/security.md' "$STEPS/06-design.md"; then
+  t14_fail="$t14_fail 06 missing flavors/security.md"
+fi
+for tok in auth-secrets oauth oidc jwt csrf pii ssn apikey 'private key' 'api key' ticket_class; do
+  if ! grep -qF -- "$tok" "$KICKOFF"; then
+    t14_fail="$t14_fail kickoff missing token:$tok"
+  fi
+done
+if ! grep -q 'MUST NOT invoke' "$KICKOFF"; then
+  t14_fail="$t14_fail kickoff missing MUST NOT invoke"
+fi
+if grep -qE '/council --plan|/council "' "$KICKOFF"; then
+  t14_fail="$t14_fail kickoff invokes /council"
+fi
+for f in "$SKILL" "$STEPS/00-resolve.md" "$PARSE"; do
+  if grep -q -- '--security' "$f"; then
+    t14_fail="$t14_fail --security in $(basename "$f")"
+  fi
+done
+if [ -z "$t14_fail" ]; then ok
+else bad "T14 AC8:$t14_fail"; fi
+
+# ---- T15: CDT-244 council Phase 2 flavor-append (AC9) ----
+COUNCIL="$ROOT/commands/council.md"
+t15_fail=""
+if ! grep -q 'Phase 2' "$COUNCIL"; then
+  t15_fail="$t15_fail missing Phase 2"
+fi
+if ! grep -qiE 'MAY append.*plan\.flavors|append flavor names to `?plan\.flavors' "$COUNCIL"; then
+  t15_fail="$t15_fail missing MAY append plan.flavors"
+fi
+if ! grep -qi 'output_shape_constraint' "$COUNCIL"; then
+  t15_fail="$t15_fail missing output_shape_constraint"
+fi
+if ! grep -qiE 'investigator\.md output schema always wins' "$COUNCIL"; then
+  t15_fail="$t15_fail missing investigator schema wins"
+fi
+if [ -z "$t15_fail" ]; then ok
+else bad "T15 AC9:$t15_fail"; fi
+
+
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   exit 0

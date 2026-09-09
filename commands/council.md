@@ -533,6 +533,7 @@ For each claim from Phase 1 (or the single pasted / from-retro claim), spawn at
 least 2 investigator Task subagents in parallel with distinct flavor presets.
 Minimum: `paranoid-ic` flavor + at least one other (e.g. `jaded-senior`) to
 prevent monoculture. Use `plan.flavors` to determine which flavors to spawn.
+A caller MAY append flavor names to `plan.flavors` after preflight; investigator.md output schema always wins over a flavor’s `output_shape_constraint`.
 
 **Optional cache seed (CDV-211):** before spawning investigators, when
 `plan.cache_dir` is set, best-effort pre-read files named in claim

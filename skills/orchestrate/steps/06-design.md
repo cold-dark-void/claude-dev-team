@@ -2,7 +2,7 @@
 
 ## Step 6: Tech Lead designs approach
 
-When `[ "$ORCH_TIER" = "light" ]`: do not spawn Tech Lead for a second design pass. The scoper-planner already wrote `.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` with Tracking (Step 4). Skip the `@tech-lead — ACs are confirmed` spawn below. Present that plan summary. SPEC-033 `plan-approve` still fires — the Autopilot self-answer block below stays. Then Step 6b.
+When `[ "$ORCH_TIER" = "light" ]`: do not spawn Tech Lead for a second design pass. The scoper-planner already wrote `.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` with Tracking (Step 4). Skip the `@tech-lead — ACs are confirmed` spawn below. Present that plan summary. SPEC-033 `plan-approve` still fires — the Autopilot self-answer block below stays. Then Step 6b, then Step 6c.
 
 Otherwise (omit / `standard` / `full`):
 
@@ -62,6 +62,9 @@ Produce:
 <0 or 1 canonical token>
 
 Omit heading/line = default extract. Both lines, extra suffix, synonym, or Simplest/Rejected prose = unknown = not a waiver. False reason still fails.
+7. Ticket-class (not a Tracking key). Case-insensitive substring match on title|body|ACs|plan against any of: auth, authentication, authorization, oauth, oidc, jwt, session, credential, secret, token, password, api key / api-key / apikey, private key / private-key, pii, ssn, csrf. Match → `ticket_class: auth-secrets`. Else `ticket_class: none`. Unsure → `ticket_class: auth-secrets`. Dual-home with kickoff Step 6. Emit a plan line:
+
+ticket_class: auth-secrets|none
 
 Many-to-one is allowed (one ticket closes multiple backlog items). Empty closes
 only for freeform. `autopilot_on`/`autopilot_bump` MUST always be written, on
@@ -111,7 +114,7 @@ max_loc:MAX_LOC, tasks:<task count>, projected_loc:<counted LOC>, waves:<wave co
 projected counted LOC / per-file size (`loc-exclude.sh is-excluded`; M15),
 task-graph shape, destructive-op flags> }` and call
 `skills/autopilot/self-answer.md`'s procedure. Act on `decision`:
-- `approve` → continue to Step 7 exactly as the user's approval would.
+- `approve` → continue to Step 6b then Step 6c then Step 7 exactly as the user's approval would.
 - `reroute-epic` → print the one-line message below, hand off to `/epic` decompose, and
   return control.
   The `/epic` decompose invocation MUST carry the autopilot state forward — pass
@@ -153,4 +156,76 @@ or Step 3b-missed plan delta):
 
 **MUST NOT** leave glossary as uncommitted dirt on the main tree while the
 feature branch carries only specs/code.
+
+### Step 6c: Security council on the approved plan (conditional)
+
+Runs on light and on omit/`standard`/`full`. Independent of `--council-tier=skip`
+(that skip is the Step 9 task-gate only — it MUST NOT short-circuit 6c).
+
+Read `ticket_class:` from the approved plan. If missing, classify now with the
+same token list as item 7 above; unsure → `auth-secrets`.
+
+If `ticket_class` is not `auth-secrets`, print one skip line and continue to
+Step 7:
+```
+Step 6c (security council): skipped — ticket_class: none
+```
+
+If `ticket_class: auth-secrets`, invoke `/council --plan <approved-plan-path>`
+unbound: no `--task-id`, no `--diff`, no `--preset diff-mode` (plan scope infers
+`generic`). Do not export `CLAUDE_TASK_ID` for this invoke.
+
+Honor `light|full` on the `/council` invoke: when `COUNCIL_TIER_OVERRIDE` is
+`light` or `full`, pass `--council-tier=<that value>`. When it is `skip` or the
+string `"null"`, omit `--council-tier` (commands/council.md omit → full).
+
+After `commands/council.md` Step 2 preflight writes `$PLAN_FILE`, append
+`security` to `plan.flavors` if absent:
+
+```bash
+# PLAN_FILE is session-held (council Step 2); not a cross-fence export
+PLAN_TMP=$(mktemp "${TMPDIR:-/tmp}/council-flavors.XXXXXX.json") \
+  || { echo "orchestrate error: mktemp failed for flavor append"; exit 1; }
+jq 'if ((.flavors // []) | index("security")) then . else .flavors = ((.flavors // []) + ["security"]) end' "$PLAN_FILE" > "$PLAN_TMP" && mv "$PLAN_TMP" "$PLAN_FILE"  # lint-ok: C1
+```
+
+`{{FLAVOR_DELTA}}` for `security` = body of `skills/council/flavors/security.md`.
+`skills/council/prompts/investigator.md` output schema (`evidence_bundles`, later
+`verdict[]`) always wins over that flavor's `output_shape_constraint: finding[]`
+and "read every changed file". Skip Optional host SAST. MUST NOT add
+`skills/council/flavors/*`.
+
+MUST NOT spawn Step 8 ICs when any of:
+- unstruck `CONTRADICTED` or `FABRICATED` with confidence ≥ 80
+- unstruck `UNVERIFIED` with confidence ≥ 80
+- report `verification_mode: self-verified` or marker `self-verified — refuters unavailable`
+- no usable report
+
+MUST NOT auto-replan (do not fire the replan gate).
+
+**Autopilot — Step 6c fail:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user
+here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8
+mapping; no new gate enum value.) MUST NOT auto-replan.
+- Verdict fail (`CONTRADICTED`|`FABRICATED`|`UNVERIFIED` conf≥80) → BC1 halt
+  (expected `blocking_condition = 1`).
+- Degraded / total-fail / no usable report → BC7 with confidence 0
+  (expected `blocking_condition = 7`).
+
+Build the C3 §2 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>,
+gate:"plan-approve", run_id:RUN_ID, iteration:ITER,
+run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC,
+<trigger signal: Step 6c security council blocked Step 8> }` and call
+`skills/autopilot/self-answer.md`'s procedure. Act on `decision`:
+- `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
+  notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the
+  one-line message below and return control:
+```
+plan-approve <decision>: <rationale> — card: <card-file-path>
+```
+Otherwise (autopilot off): print the council report and wait. Do not proceed to
+Step 7 or spawn Step 8 ICs.
+
+Clean (remaining unstruck verdicts are `VERIFIED` or `PARTIALLY_VERIFIED`, or
+claims are empty) → continue to Step 7 then Step 8.
+`PARTIALLY_VERIFIED`: print one-line warning; do not block.
 
