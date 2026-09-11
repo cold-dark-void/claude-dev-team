@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.14
+- **PDH stanza tier 0 never fired — now uses the literal `${CLAUDE_PLUGIN_ROOT}` token** — Claude Code substitutes the exact token `${CLAUDE_PLUGIN_ROOT}` into plugin command/skill/agent markdown bodies at load time (regex `/\$\{CLAUDE_PLUGIN_ROOT\}/g`, `fPe` in build 2.1.236). The stanza spelled it `${CLAUDE_PLUGIN_ROOT:-}`, which never matches, so that branch was dead — and a plugin attached via `--plugin-dir` from outside its own directory fell through to a stale marketplace clone instead of the copy actually loaded. Reproduced end-to-end: unfixed resolves to `~/.claude/plugins/marketplaces/cold-dark-void`, fixed resolves to the attached checkout, both from an identical foreign cwd. Adds a branch using the bare token, placed **after** the cwd check so it cannot shadow an active dev checkout; single-quoted and `-f` guarded, so an unsubstituted token degrades to exactly the previous behaviour. 210 emissions across 54 files; skill-lint fixtures and test-harness decoys untouched. Patch.
+
 ### v1.18.13
 - **CDT-245 Keep IC4 on Sonnet** — close the SPEC-003 open question. IC4 stays `sonnet`/`medium`. Edge-case reasoning escalates to IC5 or Tech Lead; a model bump would invert the cheap-well-defined vs expensive-ambiguous split that CDT-230 set. No frontmatter or tier-table change. Patch.
 
