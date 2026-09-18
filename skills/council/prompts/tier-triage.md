@@ -2,13 +2,13 @@
 name: tier-triage
 description: |
   Council tiering (CDT-126) ambiguous-middle triage. Haiku-tier prompt
-  invoked exactly once by the shared tier-grading procedure (commands/
-  council.md § 1.5.2-1.5.4) when skills/council/tier-grade.sh returns tier
+  invoked exactly once by the shared tier-grading procedure (skills/
+  council/SKILL.md § 1.5.2-1.5.4) when skills/council/tier-grade.sh returns tier
   "middle" (files/loc fall between the clear-low and clear-high bands and
   none of the 5 structural critical-area signals fired — a fired signal
   already routes to `full` before this call happens). Currently exercised
   by the autopilot ship gate's M14(e) grading (skills/autopilot/
-  ship-gate-council.md §3a/§3b) — commands/council.md's own `--diff` scope
+  ship-gate-council.md §3a/§3b) — this host's own `--diff` scope
   does not auto-grade. Returns {tier, reason, risk_signals[]} with tier
   constrained to {light, full}. SPEC-013 § Council tiering.
 ---
@@ -22,8 +22,8 @@ once per council run**, and only when `skills/council/tier-grade.sh` returns
 `tier: "middle"` on its own stdout JSON. Variables MUST be filled; do not
 pass the template through with placeholders intact.
 
-Caller contract: `commands/council.md` § 1.5.2–1.5.4 define this procedure;
-`commands/council.md` § 1.5.1 explains that this command does not run it on
+Caller contract: `skills/council/SKILL.md` § 1.5.2–1.5.4 define this procedure;
+`skills/council/SKILL.md` § 1.5.1 explains that this host does not run it on
 its own `--diff` scope — the current live caller is the autopilot ship
 gate's M14(e) grading (`skills/autopilot/ship-gate-council.md` §3a/§3b),
 which resolves its own merge-base diff and cites these sections rather than
@@ -148,7 +148,7 @@ no markdown fences, no commentary.
 | `{{FILES_CHANGED}}` | integer | `tier-grade.sh` stdout JSON field `files` |
 | `{{LOC_CHANGED}}` | integer | `tier-grade.sh` stdout JSON field `loc` (`added + deleted`) |
 | `{{GRADING_REASON}}` | string | `tier-grade.sh` stdout JSON field `grading_reason` (e.g. `"ambiguous-middle (files=8, loc=250) — triage call required"`) |
-| `{{DIFF_SUMMARY}}` | string | caller — the same `git diff --numstat` text fed to `tier-grade.sh --numstat` (§ Step 1.5.1 of `commands/council.md`), capped at 200 lines / 8000 chars |
+| `{{DIFF_SUMMARY}}` | string | caller — the same `git diff --numstat` text fed to `tier-grade.sh --numstat` (§ 1.5.2 of `skills/council/SKILL.md`), capped at 200 lines / 8000 chars |
 
 `tier-grade.sh` also emits `critical_signals[]` (always `[]` at the point
 `tier == "middle"` — a non-empty result would have already routed to `full`)
@@ -173,7 +173,7 @@ per-run data.
 
 ## Validation rules
 
-`commands/council.md` § Step 1.5.4 is the operational copy of this contract
+`skills/council/SKILL.md` § 1.5.4 is the operational copy of this contract
 (which failures fail closed, and why) — cite it, don't restate it here. It
 governs this Task spawn's response specifically: a distinct failure surface
 from `tier-grade.sh`'s own separate exit/JSON contract (§ 1.5.2).

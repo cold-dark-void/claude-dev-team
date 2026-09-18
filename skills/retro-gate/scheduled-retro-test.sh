@@ -44,27 +44,27 @@ R=$(bash "$WRITER" --mroot "$MROOT" --mode all-auto \
   --note "No sessions to retro." 2>/dev/null)
 grep -q 'No sessions to retro' "$R" && ok "empty-set report" || bad "empty-set report"
 
-# 4. Filter 2 still present in commands/retro.md (command-name XML tag)
-if grep -qE "command-name.*/[a-z:-]*retro" "$ROOT/commands/retro.md"; then
-  ok "Filter 2 present in commands/retro.md"
+# 4. Filter 2 still present in skills/retro/SKILL.md (command-name XML tag)
+if grep -qF '<command-name>/[a-z:-]*retro</command-name>' "$ROOT/skills/retro/SKILL.md"; then
+  ok "Filter 2 present in skills/retro/SKILL.md"
 else
-  bad "Filter 2 missing from commands/retro.md"
+  bad "Filter 2 missing from skills/retro/SKILL.md"
 fi
 
 # 5. Filter 1 still delegated to freshness.sh
-if grep -q 'freshness.sh' "$ROOT/commands/retro.md" \
-  && grep -qE 'FRESH_RC|AGE.*60|in-progress' "$ROOT/commands/retro.md"; then
+if grep -q 'freshness.sh' "$ROOT/skills/retro/SKILL.md" \
+  && grep -qE 'FRESH_RC|AGE.*60|in-progress' "$ROOT/skills/retro/SKILL.md"; then
   ok "Filter 1 freshness present"
 else
   bad "Filter 1 freshness missing"
 fi
 
-# 6. Scheduled wire present in commands/retro.md
-if grep -q 'write-scheduled-report' "$ROOT/commands/retro.md" \
-  && grep -q 'scheduled-lock' "$ROOT/commands/retro.md"; then
-  ok "commands/retro.md wires report+lock"
+# 6. Scheduled wire present in skills/retro/SKILL.md
+if grep -q 'write-scheduled-report' "$ROOT/skills/retro/SKILL.md" \
+  && grep -q 'scheduled-lock' "$ROOT/skills/retro/SKILL.md"; then
+  ok "skills/retro/SKILL.md wires report+lock"
 else
-  bad "commands/retro.md missing scheduled wire"
+  bad "skills/retro/SKILL.md missing scheduled wire"
 fi
 
 # 7. SPEC-012 S1–S9

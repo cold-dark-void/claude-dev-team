@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPEC-010 bump-class gate: a new commands/*.md requires minor or major.
+# SPEC-010 bump-class gate: a new commands/*.md or unflagged
+# skills/<name>/SKILL.md requires minor or major.
 # Pure subprocess — no LLM, no network, no index mutation.
 #
 # Usage:
@@ -16,8 +17,13 @@ usage() {
   cat >&2 <<'EOF'
 Usage: check-bump-class.sh [--cached] [--against REF] [--commit REV]
 
-A newly added commands/*.md file requires plugin.json to bump minor or major
-(not patch, not unchanged). Edits to existing commands are not a new Surface.
+A newly added commands/*.md file, or a newly added skills/<name>/SKILL.md
+whose YAML frontmatter lacks user-invocable: false, requires plugin.json to
+bump minor or major (not patch, not unchanged). Exception: commands/<name>.md
+is not a new Surface when skills/<name>/SKILL.md already exists on the old
+ref (thin host door over a pre-existing engine). Edits to existing commands
+or skills are not a new Surface. Flagged skills (user-invocable: false)
+stay patch-eligible. Missing or unreadable frontmatter counts as unflagged.
 
 Exit 0 ok; 1 bump-class violation; 64 usage. Does not mutate the index.
 EOF
@@ -112,6 +118,93 @@ EOF
   fi
 }
 
+# YAML frontmatter only. Whitespace-tolerant user-invocable: false
+# (optional quotes). Missing/unreadable/no-match → unflagged (exit 1).
+fm_has_user_invocable_false() {
+  local line first=1
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    if [ "$first" -eq 1 ]; then
+      first=0
+      [ "$line" = "---" ] || return 1
+      continue
+    fi
+    [ "$line" = "---" ] && return 1
+    printf '%s\n' "$line" | grep -Eq '^[ 	]*user-invocable:[ 	]*(false|"false"|'\''false'\'')[ 	]*$' && return 0
+  done
+  return 1
+}
+
+read_path_text() {
+  local p="$1"
+  case "$MODE" in
+    commit)
+      git show "${COMMIT}:$p" 2>/dev/null || return 1
+      ;;
+    cached)
+      git show ":$p" 2>/dev/null || return 1
+      ;;
+    *)
+      cat "$p" 2>/dev/null || return 1
+      ;;
+  esac
+}
+
+# 0 = flagged (patch-eligible); 1 = unflagged surface
+path_is_flagged_skill() {
+  local p="$1" text
+  text=$(read_path_text "$p") || return 1
+  # Here-string, not a pipe. `printf | fn` SIGPIPEs (141) under pipefail when
+  # fn returns at `user-invocable: false` before consuming a large SKILL.md
+  # (protocol engines). Missing the flag would false-promote a flagged skill
+  # to a new Surface.
+  fm_has_user_invocable_false <<< "$text"
+}
+
+baseline_ref() {
+  if [ "$MODE" = "commit" ]; then
+    printf '%s\n' "${COMMIT}^"
+  else
+    printf '%s\n' "${AGAINST:-HEAD}"
+  fi
+}
+
+# commands/<name>.md wrapping a skill already on the old ref is a host
+# adapter (opencode et al. load commands/ only), not a new Surface.
+command_wraps_existing_skill() {
+  local cmd="$1" name skill
+  name="${cmd#commands/}"
+  name="${name%.md}"
+  [ -n "$name" ] || return 1
+  skill="skills/${name}/SKILL.md"
+  git cat-file -e "$(baseline_ref):$skill" 2>/dev/null
+}
+
+maybe_add_surface() {
+  local p="$1"
+  case "$p" in
+    commands/*.md)
+      if command_wraps_existing_skill "$p"; then
+        return 0
+      fi
+      added+=("$p")
+      ;;
+    skills/*/SKILL.md)
+      if ! path_is_flagged_skill "$p"; then
+        added+=("$p")
+      fi
+      ;;
+  esac
+}
+
+collect_added() {
+  local p
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    maybe_add_surface "$p"
+  done
+}
+
 added=()
 old_ver=""
 new_ver=""
@@ -125,12 +218,7 @@ if [ "$MODE" = "commit" ]; then
     echo "check-bump-class.sh: --commit has no parent (skip)" >&2
     exit 0
   fi
-  while IFS= read -r p; do
-    [ -n "$p" ] || continue
-    case "$p" in
-      commands/*.md) added+=("$p") ;;
-    esac
-  done < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$COMMIT^" "$COMMIT" -- commands/)
+  collect_added < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$COMMIT^" "$COMMIT" -- commands/ skills/)
   old_ver=$(git show "${COMMIT}^:.claude-plugin/plugin.json" 2>/dev/null | json_ver || true)
   new_ver=$(git show "${COMMIT}:.claude-plugin/plugin.json" 2>/dev/null | json_ver || true)
 else
@@ -142,31 +230,16 @@ else
     exit 64
   }
   if [ "$MODE" = "cached" ]; then
-    while IFS= read -r p; do
-      [ -n "$p" ] || continue
-      case "$p" in
-        commands/*.md) added+=("$p") ;;
-      esac
-    done < <(git diff --cached --name-only --diff-filter=A "$AGAINST" -- commands/)
+    collect_added < <(git diff --cached --name-only --diff-filter=A "$AGAINST" -- commands/ skills/)
     if git diff --cached --name-only -- .claude-plugin/plugin.json | grep -qx '.claude-plugin/plugin.json'; then
       new_ver=$(git show ":.claude-plugin/plugin.json" | json_ver || true)
     elif [ -f .claude-plugin/plugin.json ]; then
       new_ver=$(json_ver < .claude-plugin/plugin.json || true)
     fi
   else
-    while IFS= read -r p; do
-      [ -n "$p" ] || continue
-      case "$p" in
-        commands/*.md) added+=("$p") ;;
-      esac
-    done < <(git diff --name-only --diff-filter=A "$AGAINST" -- commands/)
-    # Untracked commands/*.md ( /release runs this before git add )
-    while IFS= read -r p; do
-      [ -n "$p" ] || continue
-      case "$p" in
-        commands/*.md) added+=("$p") ;;
-      esac
-    done < <(git ls-files --others --exclude-standard -- commands/)
+    collect_added < <(git diff --name-only --diff-filter=A "$AGAINST" -- commands/ skills/)
+    # Untracked commands/*.md / skills/*/SKILL.md (/release runs this before git add)
+    collect_added < <(git ls-files --others --exclude-standard -- commands/ skills/)
     if [ -f .claude-plugin/plugin.json ]; then
       new_ver=$(json_ver < .claude-plugin/plugin.json || true)
     fi
@@ -175,16 +248,16 @@ else
 fi
 
 if [ "${#added[@]}" -eq 0 ]; then
-  echo "bump-class: no new commands/*.md — ok"
+  echo "bump-class: no new Surfaces — ok"
   exit 0
 fi
 
 old_ver=${old_ver:-0.0.0}
 new_ver=${new_ver:-}
 if [ -z "$new_ver" ]; then
-  echo "bump-class: new command surface(s) but plugin.json version unreadable" >&2
+  echo "bump-class: new Surface(s) but plugin.json version unreadable" >&2
   printf '  %s\n' "${added[@]}" >&2
-  echo "  new command surfaces require a minor or major bump (AGENTS.md)" >&2
+  echo "  new command/unflagged-skill surfaces require a minor or major bump (AGENTS.md)" >&2
   echo "  MUST NOT commit/tag/push" >&2
   exit 1
 fi
@@ -192,14 +265,14 @@ fi
 klass=$(bump_class "$old_ver" "$new_ver")
 case "$klass" in
   minor|major)
-    echo "bump-class: ${#added[@]} new command(s), $old_ver -> $new_ver ($klass) — ok"
+    echo "bump-class: ${#added[@]} new Surface(s), $old_ver -> $new_ver ($klass) — ok"
     exit 0
     ;;
 esac
 
-echo "bump-class: new command surface(s) require a minor or major bump, not ${klass}" >&2
+echo "bump-class: new Surface(s) require a minor or major bump, not ${klass}" >&2
 printf '  %s\n' "${added[@]}" >&2
 echo "  plugin.json: $old_ver -> $new_ver ($klass)" >&2
-echo "  AGENTS.md: new command surfaces = minor" >&2
+echo "  AGENTS.md: new command/unflagged-skill surfaces = minor" >&2
 echo "  MUST NOT commit/tag/push" >&2
 exit 1

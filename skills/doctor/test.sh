@@ -2174,6 +2174,102 @@ else
 fi
 
 # =============================================================================
+# T25. skills.user_invocable (CDT-257 / SPEC-022 M2j) — WARN never FAIL
+# =============================================================================
+t25_field() {
+  local json="$1" field="$2"
+  printf '%s' "$json" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+c = d["checks"][0] if d.get("checks") else {}
+v = c.get(sys.argv[1])
+print("" if v is None else v)
+' "$field" 2>/dev/null || echo ERR
+}
+t25_seed_doctor() {
+  local plug="$1"
+  mkdir -p "$plug/skills/doctor"
+  cp "$DOCTOR" "$plug/skills/doctor/doctor.sh"
+}
+
+# T25a — leaking skill (no flag, no command) → WARN never FAIL, rc 1
+T25_LEAK="$TMP/t25-leak-plugin"
+t25_seed_doctor "$T25_LEAK"
+mkdir -p "$T25_LEAK/skills/leaky"
+printf '%s\n' '---' 'name: leaky' 'description: orphan surface' '---' '# leaky' \
+  >"$T25_LEAK/skills/leaky/SKILL.md"
+T25_LEAK_PROJ="$TMP/t25-leak-proj"
+make_bare_project "$T25_LEAK_PROJ"
+cd "$T25_LEAK_PROJ" || exit 1
+RC=0
+OUT=$(bash "$T25_LEAK/skills/doctor/doctor.sh" --json --only skills.user_invocable 2>/dev/null) || RC=$?
+STATUS=$(t25_field "$OUT" status)
+ID=$(t25_field "$OUT" id)
+GROUP=$(t25_field "$OUT" group)
+DETAIL=$(t25_field "$OUT" detail)
+FIX=$(t25_field "$OUT" fixit)
+if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] && [ "$RC" -eq 1 ] \
+   && [ "$ID" = "skills.user_invocable" ] && [ "$GROUP" = "skills" ] \
+   && echo "$DETAIL" | grep -q "leaky" \
+   && [ -n "$FIX" ]; then
+  pass "T25a leaking skill → WARN rc=1 never FAIL (CDT-257)"
+else
+  fail "T25a status=$STATUS rc=$RC id=$ID group=$GROUP detail=$DETAIL fix=$FIX out=$OUT"
+fi
+
+# T25b — flagged engine OR paired command → PASS
+T25_OK="$TMP/t25-ok-plugin"
+t25_seed_doctor "$T25_OK"
+mkdir -p "$T25_OK/skills/engine" "$T25_OK/skills/paired" "$T25_OK/commands"
+printf '%s\n' '---' 'name: engine' 'description: protocol' 'user-invocable: false' '---' \
+  >"$T25_OK/skills/engine/SKILL.md"
+printf '%s\n' '---' 'name: paired' 'description: user surface' '---' \
+  >"$T25_OK/skills/paired/SKILL.md"
+printf '%s\n' '---' 'name: paired' 'description: command' '---' \
+  >"$T25_OK/commands/paired.md"
+T25_OK_PROJ="$TMP/t25-ok-proj"
+make_bare_project "$T25_OK_PROJ"
+cd "$T25_OK_PROJ" || exit 1
+RC=0
+OUT=$(bash "$T25_OK/skills/doctor/doctor.sh" --json --only skills.user_invocable 2>/dev/null) || RC=$?
+STATUS=$(t25_field "$OUT" status)
+if [ "$STATUS" = "PASS" ] && [ "$RC" -eq 0 ] && [ "$STATUS" != "FAIL" ]; then
+  pass "T25b flagged-or-has-command → PASS (CDT-257)"
+else
+  fail "T25b status=$STATUS rc=$RC out=$OUT"
+fi
+
+# T25c — --fix --only MUST NOT rewrite SKILL.md
+T25_FIX="$TMP/t25-fix-plugin"
+t25_seed_doctor "$T25_FIX"
+mkdir -p "$T25_FIX/skills/leaky"
+printf '%s\n' '---' 'name: leaky' 'description: stay' '---' '# leaky' \
+  >"$T25_FIX/skills/leaky/SKILL.md"
+T25_FIX_PROJ="$TMP/t25-fix-proj"
+make_bare_project "$T25_FIX_PROJ"
+cd "$T25_FIX_PROJ" || exit 1
+BEFORE=$(cksum "$T25_FIX/skills/leaky/SKILL.md")
+bash "$T25_FIX/skills/doctor/doctor.sh" --fix --only skills.user_invocable >/dev/null 2>&1 || true
+AFTER=$(cksum "$T25_FIX/skills/leaky/SKILL.md")
+if [ "$BEFORE" = "$AFTER" ]; then
+  pass "T25c --fix --only does not rewrite SKILL.md (CDT-257)"
+else
+  fail "T25c --fix mutated SKILL.md"
+fi
+
+# T25d — --only skills is a known group
+cd "$T25_OK_PROJ" || exit 1
+RC=0
+OUT=$(bash "$T25_OK/skills/doctor/doctor.sh" --json --only skills 2>/dev/null) || RC=$?
+ID=$(t25_field "$OUT" id)
+GROUP=$(t25_field "$OUT" group)
+if [ "$RC" -ne 64 ] && [ "$GROUP" = "skills" ] && [ "$ID" = "skills.user_invocable" ]; then
+  pass "T25d --only skills is a known group (CDT-257)"
+else
+  fail "T25d rc=$RC id=$ID group=$GROUP out=$OUT"
+fi
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

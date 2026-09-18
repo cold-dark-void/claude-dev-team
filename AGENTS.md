@@ -33,7 +33,7 @@ sections to it (the changelog was moved out of the README in v0.37.4).
 
 Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
 New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor.
-Enforced on `master`: `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). A new `commands/*.md` on a patch bump MUST NOT commit.
+Enforced on `master`: `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). A new `commands/*.md` on a patch bump MUST NOT commit, unless `skills/<name>/SKILL.md` already exists on the bump baseline (thin host door; not a new Surface).
 
 **Ship / land (plugin-wide — not personal memory):**
 - Never FF-merge epic children onto master so the next worktree can fast-forward. Work stays on `feat/<ticket>` or the epic integration branch. Master moves only at epic seal / one `/release` fold.
@@ -250,6 +250,31 @@ project's **ubiquitous language** (committed glossary — not agent memory).
 
 Absent file is fine until the first real term crystallizes.
 
+## Commands and skills
+
+Commands and skills are the two surface types in this plugin. Commands are the
+user-typed entry points; skills are the engines, protocols, and libraries they
+load. This section owns the rule for when a surface belongs in which. The
+"Code Conventions" section only restates the on-disk layout.
+
+1. A **command** is a user-typed surface (`commands/<name>.md`, single file). It
+   parses arguments, runs gates, resolves plugin paths, then reads or spawns the
+   engine. Target: under 150 lines.
+2. A **skill** is an engine, protocol, or library loaded by commands or agents
+   (`skills/<name>/`, multi-file). It carries `user-invocable: false` in
+   frontmatter.
+3. A user-facing skill that has no command file is a defect — add the command
+   that invokes it.
+
+Commands and skills are functionally equivalent to Claude Code's plugin loader;
+the split is organizational only.
+
+Deliberate library exceptions — `skills/plugin-dir.sh`, `skills/worktree-lib.sh`,
+`skills/agent-memory/`, `skills/notify/` — have no `SKILL.md` by design. They
+are internal libraries resolved via `plugin-dir.sh` / `worktree-lib.sh` and
+surfaced to users through a command, so they omit the `SKILL.md` +
+`user-invocable: false` contract above.
+
 ## Code Conventions
 
 - Agent `.md` files require YAML frontmatter: `name`, `description`, `tools`, `model`
@@ -259,9 +284,7 @@ Absent file is fine until the first real term crystallizes.
     `install.sh` strips the `tools:` line when generating the opencode copies. Do NOT
     remove `tools:` here to satisfy opencode — fix it in the install transform instead.
 - **All** command and skill `.md` files require YAML frontmatter: `name`, `description` — without it they won't appear in Claude Code's discovery/suggestion system
-- `commands/<name>.md` — user-invoked slash commands (single file)
-- `skills/<name>/SKILL.md` — multi-file skills needing supporting assets (scripts, schemas), or agent-internal protocols not directly user-invoked (e.g. `memory-store`, `memory-recall`)
-- Both directories are functionally equivalent to Claude Code's plugin loader — the split is organizational only
+- Surface selection and layout (command vs skill) are defined in **Commands and skills**; this section only restates the on-disk layout
 - Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
 - No build step — this is a pure markdown/JSON plugin
 - Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/setup project` emits for interactive use; `/setup team`, via `project-init`, sets the `Bash(*)` wildcard — the sandbox is the boundary — and syncs the sandbox network allowlist)

@@ -4,6 +4,7 @@ description: |
     Behavior-preserving polish on recently modified code — clarity only, no
     logic or API changes. Used by /orchestrate after Tech Lead approve, before
     QA. Zero external deps (in-plugin; not Anthropic's marketplace plugin).
+user-invocable: false
 ---
 
 # Code Simplify

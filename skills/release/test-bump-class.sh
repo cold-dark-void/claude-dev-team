@@ -146,6 +146,152 @@ run_in "$REPO" --cached
 expect_rc 0 "--cached new command + minor staged"
 rm -rf "$REPO"
 
+write_skill() {
+  local d="$1" name="$2"
+  shift 2
+  mkdir -p "$d/skills/$name"
+  printf '%s\n' "$@" >"$d/skills/$name/SKILL.md"
+}
+
+# new flagged skill + patch (B2/B6 — user-invocable: false stays patch-eligible)
+REPO=$(make_repo)
+set_ver "$REPO" "1.7.37"
+write_skill "$REPO" engine \
+  '---' 'name: engine' 'description: x' 'user-invocable: false' '---'
+run_in "$REPO"
+expect_rc 0 "new flagged skill + patch"
+rm -rf "$REPO"
+
+# large flagged skill + patch (pipefail SIGPIPE on early return)
+REPO=$(make_repo)
+set_ver "$REPO" "1.7.37"
+mkdir -p "$REPO/skills/engine"
+{
+  printf '%s\n' '---' 'name: engine' 'description: |' '  protocol body' 'user-invocable: false' '---'
+  i=0
+  while [ "$i" -lt 4000 ]; do
+    printf 'padding line %s for large flagged skill\n' "$i"
+    i=$((i + 1))
+  done
+} >"$REPO/skills/engine/SKILL.md"
+run_in "$REPO"
+expect_rc 0 "new large flagged skill + patch"
+rm -rf "$REPO"
+
+# new unflagged skill + patch (B2 — lacks user-invocable: false)
+REPO=$(make_repo)
+set_ver "$REPO" "1.7.37"
+write_skill "$REPO" shiny \
+  '---' 'name: shiny' 'description: x' '---'
+run_in "$REPO"
+expect_rc 1 "new unflagged skill + patch"
+expect_contains "skills/shiny/SKILL.md"
+expect_contains "1.7.36 -> 1.7.37"
+expect_contains "MUST NOT commit/tag/push"
+rm -rf "$REPO"
+
+# new unflagged skill + minor
+REPO=$(make_repo)
+set_ver "$REPO" "1.8.0"
+write_skill "$REPO" shiny \
+  '---' 'name: shiny' 'description: x' '---'
+run_in "$REPO"
+expect_rc 0 "new unflagged skill + minor"
+rm -rf "$REPO"
+
+# missing frontmatter = unflagged
+REPO=$(make_repo)
+set_ver "$REPO" "1.7.37"
+write_skill "$REPO" raw '# no yaml'
+run_in "$REPO"
+expect_rc 1 "new skill missing frontmatter + patch"
+expect_contains "skills/raw/SKILL.md"
+rm -rf "$REPO"
+
+# whitespace-tolerant flag (quoted false, extra spaces)
+REPO=$(make_repo)
+set_ver "$REPO" "1.7.37"
+write_skill "$REPO" engine \
+  '---' 'name: engine' 'description: x' '  user-invocable:  "false"  ' '---'
+run_in "$REPO"
+expect_rc 0 "new flagged skill whitespace/quotes + patch"
+rm -rf "$REPO"
+
+# --commit: unflagged skill + patch
+REPO=$(make_repo)
+set_ver "$REPO" "1.7.37"
+write_skill "$REPO" shiny \
+  '---' 'name: shiny' 'description: x' '---'
+git -C "$REPO" add skills/shiny/SKILL.md .claude-plugin/plugin.json
+git -C "$REPO" commit -q -m "feat: v1.7.37 — shiny skill"
+run_in "$REPO" --commit HEAD
+expect_rc 1 "--commit unflagged skill + patch"
+rm -rf "$REPO"
+
+# --cached: flagged skill + patch staged
+REPO=$(make_repo)
+set_ver "$REPO" "1.7.37"
+write_skill "$REPO" engine \
+  '---' 'name: engine' 'description: x' 'user-invocable: false' '---'
+git -C "$REPO" add skills/engine/SKILL.md .claude-plugin/plugin.json
+run_in "$REPO" --cached
+expect_rc 0 "--cached flagged skill + patch"
+rm -rf "$REPO"
+
+# thin command door over a skill already on the baseline + patch
+REPO=$(make_repo)
+write_skill "$REPO" orchestrate \
+  '---' 'name: orchestrate' 'description: x' '---'
+git -C "$REPO" add skills/orchestrate/SKILL.md
+git -C "$REPO" commit -q -m "skill exists on baseline"
+set_ver "$REPO" "1.7.37"
+printf '%s\n' '---' 'name: orchestrate' 'description: x' '---' \
+  >"$REPO/commands/orchestrate.md"
+run_in "$REPO"
+expect_rc 0 "wrap existing skill + patch"
+rm -rf "$REPO"
+
+# wrap existing skill + unchanged version (not a Surface)
+REPO=$(make_repo)
+write_skill "$REPO" orchestrate \
+  '---' 'name: orchestrate' 'description: x' '---'
+git -C "$REPO" add skills/orchestrate/SKILL.md
+git -C "$REPO" commit -q -m "skill exists on baseline"
+printf '%s\n' '---' 'name: orchestrate' 'description: x' '---' \
+  >"$REPO/commands/orchestrate.md"
+run_in "$REPO"
+expect_rc 0 "wrap existing skill + none"
+rm -rf "$REPO"
+
+# --commit: wrap existing skill + patch
+REPO=$(make_repo)
+write_skill "$REPO" orchestrate \
+  '---' 'name: orchestrate' 'description: x' '---'
+git -C "$REPO" add skills/orchestrate/SKILL.md
+git -C "$REPO" commit -q -m "skill exists on baseline"
+set_ver "$REPO" "1.7.37"
+printf '%s\n' '---' 'name: orchestrate' 'description: x' '---' \
+  >"$REPO/commands/orchestrate.md"
+git -C "$REPO" add commands/orchestrate.md .claude-plugin/plugin.json
+git -C "$REPO" commit -q -m "fix: v1.7.37 — wrap orchestrate"
+run_in "$REPO" --commit HEAD
+expect_rc 0 "--commit wrap existing skill + patch"
+rm -rf "$REPO"
+
+# --cached: wrap existing skill + patch staged
+REPO=$(make_repo)
+write_skill "$REPO" orchestrate \
+  '---' 'name: orchestrate' 'description: x' '---'
+git -C "$REPO" add skills/orchestrate/SKILL.md
+git -C "$REPO" commit -q -m "skill exists on baseline"
+set_ver "$REPO" "1.7.37"
+printf '%s\n' '---' 'name: orchestrate' 'description: x' '---' \
+  >"$REPO/commands/orchestrate.md"
+git -C "$REPO" add commands/orchestrate.md .claude-plugin/plugin.json
+run_in "$REPO" --cached
+expect_rc 0 "--cached wrap existing skill + patch"
+rm -rf "$REPO"
+
 echo
 echo "$PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

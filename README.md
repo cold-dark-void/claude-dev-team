@@ -112,7 +112,7 @@ Program / multi-ticket work, session tuning, and quality gates.
 | [`/epic`](docs/commands/epic.md) | Decompose an umbrella into sequenced children for `/kickoff` or `/orchestrate` |
 | `/backlog` | Manage backlog items (Linear-first dual-write when MCP is up) |
 | [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement before planning (`--grill` for one-Q-at-a-time) |
-| [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the host `/loop`/`/goal` |
+| [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the host `loop`/`goal` commands |
 | `/release-train` | Multi-branch release queue — register, freeze, land via `/release` |
 | [`/retro`](docs/commands/retro.md) | Scan past sessions for friction; propose directive adjustments ([runbook](docs/runbooks/scheduled-retro.md)) |
 | [`/handoff`](docs/commands/handoff.md) | STM packet / compact seed (State now → Through-line → appendix); cold print core + path, warm file-only |
@@ -121,7 +121,6 @@ Program / multi-ticket work, session tuning, and quality gates.
 | [`/mode`](docs/commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
 | `/adjust-agent` | View/manage per-agent standing directives (`--apply` for non-interactive) |
 | [`/worktree`](docs/commands/worktree.md) | Release a plugin worktree (`release <slug>`); list via `/status worktree` |
-| `/ci-watch` | Poll PR checks / local tests and spawn a fixer (armed by `/orchestrate`) |
 | [`/review-and-commit`](docs/commands/review-and-commit.md) | Multi-specialist review with confidence scoring; blocks commit on criticals |
 | [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification |
 | `/tdd-gate` | Toggle hook TDD enforcement — blocks Write/Edit without tests (`on`/`off`/`status`) |
@@ -134,10 +133,10 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 ### Internal
 
 Agent protocols (`agent-memory`, `memory-store`, `memory-recall`), council/orchestrate
-engines, gates (`docs-drift`, `skill-lint`, …), and `tools/` helpers are **not**
-user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal agents
-`project-init`, `distiller`, and `council-judge` are reached only via `/setup team`,
-`/memory distill`, and `/council`.
+engines, gates (`docs-drift`, `skill-lint`, …), `ci-watch` (armed by `/orchestrate`,
+not user-typed), and `tools/` helpers are **not** user-invoked Surfaces — they run
+under Core/Advanced commands or CI. Internal agents `project-init`, `distiller`, and
+`council-judge` are reached only via `/setup team`, `/memory distill`, and `/council`.
 
 ### Migration (historical)
 

@@ -3,6 +3,7 @@ name: standup
 description: >
   Internal protocol for /status standup — agent-team task snapshot (TaskList +
   file-store reconcile). Not a user entry; invoke via /status standup.
+user-invocable: false
 ---
 
 # Standup (backend for `/status standup`)

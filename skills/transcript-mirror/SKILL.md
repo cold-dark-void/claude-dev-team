@@ -5,6 +5,7 @@ description: >
   session record). Meaning channel to main.md; Channel sidecars for thinking,
   tool_result, and injection. Not a slash Surface. Copy hook-shim.sh; do not
   install via /setup orchestration.
+user-invocable: false
 ---
 
 # Transcript mirror

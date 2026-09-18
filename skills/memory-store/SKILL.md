@@ -5,12 +5,29 @@ description: |
     DB detection, SQL-safe INSERT/UPDATE, optional embedding generation (lembed or
     remote embedding provider), and retry on SQLITE_BUSY. Usage: read this file to
     learn the protocol, then execute the relevant bash blocks.
+user-invocable: false
 ---
 
 # memory-store
 
 Write a memory record for an agent. Supports both the SQLite DB path (preferred) and
 the legacy `.md` file fallback when the DB or sqlite3 are unavailable.
+
+## /memory command protocol
+
+This skill owns `/memory config`, `distill`, `export`, and `stats`.
+When `commands/memory.md` dispatches here, Read the sibling file for the sub
+and execute it. Do not restate those protocols here.
+
+| Sub | File |
+|-----|------|
+| `config` | `config.md` |
+| `distill` | `distill.md` |
+| `export` | `export.md` |
+| `stats` | `stats.md` |
+
+`--compress` on distill also Reads `skills/memory-compress/SKILL.md`.
+Write protocol (Steps 1–6 below) is for agent memory INSERTs, not the slash command.
 
 ---
 

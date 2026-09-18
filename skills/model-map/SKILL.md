@@ -6,6 +6,7 @@ description: |
     the Tier default. Empty effort stdout is inherited effort. Local
     writer is write-model.sh; user Surface is /setup models.
     Agent-internal — not a user slash command.
+user-invocable: false
 ---
 
 # Model map

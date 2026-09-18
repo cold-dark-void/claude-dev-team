@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""SPEC-010 docs-drift checker: structural docs consistency (D1–D10).
+"""SPEC-010 docs-drift checker: structural docs consistency (D1–D12).
 
 Exit codes: 0 = no unwaived findings, 1 = unwaived findings, 64 = usage error.
 Finding format: <file>: [<check-id>] <message>
-Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc | skill-ref | docs-page-links
+Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc | skill-ref |
+           docs-page-links | surface-readme | surface-skill
 """
 from __future__ import annotations
 
@@ -39,6 +40,14 @@ MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 # e.g. `skills/validate-memory/SKILL.md` or "$PLUGIN_ROOT/skills/x/y.sh"
 SKILL_PATH_RE = re.compile(
     r"skills/([a-z0-9][a-z0-9_-]*)/([A-Za-z0-9_./-]+\.(?:md|sh|py))"
+)
+
+# Backticked slash command `/name` (plugin-style token; stops at space or /)
+SLASH_CMD_RE = re.compile(r"`/([a-z0-9-]+)`")
+
+# Frontmatter user-invocable: false (optional quotes/whitespace). Case-sensitive.
+USER_INVOCABLE_FALSE_RE = re.compile(
+    r"^[ \t]*user-invocable:[ \t]*(?:false|\"false\"|'false')[ \t]*$"
 )
 
 
@@ -170,6 +179,63 @@ def list_md_basenames(dirpath: str) -> set[str]:
 
 def skill_exists(root: str, name: str) -> bool:
     return os.path.isfile(os.path.join(root, "skills", name, "SKILL.md"))
+
+
+def _frontmatter_lines(text: str) -> list[str]:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    out: list[str] = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        out.append(line)
+    return out
+
+
+def skill_uninvocable(root: str, name: str) -> bool:
+    """True when skills/<name>/SKILL.md frontmatter sets user-invocable: false."""
+    path = os.path.join(root, "skills", name, "SKILL.md")
+    text = read_text(path)
+    if text is None:
+        return False
+    return any(USER_INVOCABLE_FALSE_RE.match(line) for line in _frontmatter_lines(text))
+
+
+def list_skill_names(root: str) -> list[str]:
+    skills_dir = os.path.join(root, "skills")
+    if not os.path.isdir(skills_dir):
+        return []
+    names: list[str] = []
+    for ent in os.listdir(skills_dir):
+        if os.path.isfile(os.path.join(skills_dir, ent, "SKILL.md")):
+            names.append(ent)
+    return names
+
+
+def iter_readme_slash_cmds(text: str) -> list[tuple[int, str]]:
+    """Backticked `/name` in README, skipping fences and the renamed/removed table."""
+    found: list[tuple[int, str]] = []
+    in_fence = False
+    in_removed = False
+    for ln, line in enumerate(text.splitlines(), 1):
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if re.match(r"^\|\s*Old command\s*\|", line, re.I):
+            in_removed = True
+            continue
+        if in_removed:
+            if not line.startswith("|"):
+                in_removed = False
+            else:
+                continue
+        for m in SLASH_CMD_RE.finditer(line):
+            found.append((ln, m.group(1)))
+    return found
 
 
 def waiver_ids_on_line(line: str) -> set[str]:
@@ -599,6 +665,54 @@ def check_docs_page_links(root: str, f: Findings) -> None:
                     )
 
 
+def check_surface_readme(root: str, f: Findings) -> None:
+    """D11: every backticked `/name` in README (outside renamed/removed table)
+    resolves to commands/<name>.md or a skill that is not user-invocable: false.
+    """
+    readme_path = os.path.join(root, "README.md")
+    text = read_text(readme_path)
+    if text is None:
+        f.add(readme_path, "surface-readme", "README.md missing or unreadable")
+        return
+    src = text.splitlines()
+    cmd_names = list_md_basenames(os.path.join(root, "commands"))
+    seen: dict[str, int] = {}
+    for ln, name in iter_readme_slash_cmds(text):
+        if name not in seen:
+            seen[name] = ln
+    for name, ln in sorted(seen.items(), key=lambda kv: kv[1]):
+        if name in cmd_names:
+            continue
+        if skill_exists(root, name) and not skill_uninvocable(root, name):
+            continue
+        f.add(
+            readme_path,
+            "surface-readme",
+            f"/{name} in README has no commands/{name}.md "
+            f"or user-invocable skill",
+            line=ln,
+            src_lines=src,
+        )
+
+
+def check_surface_skill(root: str, f: Findings) -> None:
+    """D12: every skill without user-invocable: false has commands/<name>.md."""
+    cmd_names = list_md_basenames(os.path.join(root, "commands"))
+    for name in sorted(list_skill_names(root)):
+        if skill_uninvocable(root, name):
+            continue
+        if name in cmd_names:
+            continue
+        path = os.path.join(root, "skills", name, "SKILL.md")
+        f.add(
+            path,
+            "surface-skill",
+            f"skills/{name}/SKILL.md is user-invocable but "
+            f"commands/{name}.md is missing",
+            line=1,
+        )
+
+
 def run_checks(root: str) -> list[dict]:
     f = Findings(root)
     check_cmd_index(root, f)
@@ -607,6 +721,8 @@ def run_checks(root: str) -> list[dict]:
     check_manifest_desc(root, f)
     check_skill_ref(root, f)
     check_docs_page_links(root, f)
+    check_surface_readme(root, f)
+    check_surface_skill(root, f)
     return f.items
 
 

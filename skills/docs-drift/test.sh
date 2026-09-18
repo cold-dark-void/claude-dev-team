@@ -60,8 +60,9 @@ for a in pm ic4; do
   printf '%s\n' "---" "name: $a" "description: test" "---" > "$MINI/agents/$a.md"
 done
 
-# commands + skills-backed
+# commands + skills-backed (hello is paired so surface-skill is clean)
 printf '%s\n' "---" "name: demo" "description: d" "---" > "$MINI/commands/demo.md"
+printf '%s\n' "---" "name: hello" "description: d" "---" > "$MINI/commands/hello.md"
 printf '%s\n' "---" "name: hello" "description: skill" "---" > "$MINI/skills/hello/SKILL.md"
 
 # docs page linked from docs/README
@@ -322,6 +323,96 @@ rm -f "$MINI/docs/commands/demo-peer.md"
 cp -a "$DOCS_README_BAK" "$MINI/docs/README.md"
 
 # ---------------------------------------------------------------------------
+# T4d surface-readme (D11)
+# ---------------------------------------------------------------------------
+# (a) ghost `/zz-ghost-surface` outside renamed/removed table → finding
+backup "$MINI/README.md"
+printf '%s\n' 'See also `/zz-ghost-surface` in prose.' >> "$MINI/README.md"
+run_check 1 --root "$MINI"
+expect_finding surface-readme
+echo "$OUT" | grep -q "zz-ghost-surface" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: surface-readme should name zz-ghost-surface"
+}
+restore "$MINI/README.md"
+
+# (b) same ghost only in Old command / renamed-removed table → no surface-readme
+backup "$MINI/README.md"
+cat >> "$MINI/README.md" << 'EOF'
+
+### Migration (historical)
+
+| Old command | Use instead |
+|-------------|-------------|
+| `/zz-old-removed` | `/demo` |
+EOF
+run_check 0 --root "$MINI"
+expect_no_finding surface-readme
+restore "$MINI/README.md"
+
+# (c) invocable skill-only `/hello` (no commands/hello.md) → no surface-readme
+backup "$MINI/commands/hello.md"
+rm -f "$MINI/commands/hello.md"
+run_check 1 --root "$MINI"
+expect_no_finding surface-readme
+expect_finding surface-skill
+restore "$MINI/commands/hello.md"
+
+# (d) user-invocable: false skill still listed as `/hello` and no command → finding
+HELLO_SKILL_BAK="$SCRATCH/mini_hello_skill_t4d.bak"
+HELLO_CMD_BAK="$SCRATCH/mini_hello_cmd_t4d.bak"
+cp -a "$MINI/skills/hello/SKILL.md" "$HELLO_SKILL_BAK"
+cp -a "$MINI/commands/hello.md" "$HELLO_CMD_BAK"
+rm -f "$MINI/commands/hello.md"
+printf '%s\n' "---" "name: hello" "description: skill" "user-invocable: false" "---" \
+  > "$MINI/skills/hello/SKILL.md"
+run_check 1 --root "$MINI"
+expect_finding surface-readme
+echo "$OUT" | grep -q "/hello" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: surface-readme should name /hello when skill is uninvocable"
+}
+cp -a "$HELLO_SKILL_BAK" "$MINI/skills/hello/SKILL.md"
+cp -a "$HELLO_CMD_BAK" "$MINI/commands/hello.md"
+
+# ---------------------------------------------------------------------------
+# T4e surface-skill (D12)
+# ---------------------------------------------------------------------------
+# (a) unflagged skill without commands/<name>.md → finding
+mkdir -p "$MINI/skills/zz-orphan-skill"
+printf '%s\n' "---" "name: zz-orphan-skill" "description: leak" "---" \
+  > "$MINI/skills/zz-orphan-skill/SKILL.md"
+run_check 1 --root "$MINI"
+expect_finding surface-skill
+echo "$OUT" | grep -q "zz-orphan-skill" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: surface-skill should name zz-orphan-skill"
+}
+rm -rf "$MINI/skills/zz-orphan-skill"
+
+# (b) user-invocable: false and no command file → no surface-skill
+mkdir -p "$MINI/skills/zz-engine-skill"
+printf '%s\n' "---" "name: zz-engine-skill" "description: engine" "user-invocable: false" "---" \
+  > "$MINI/skills/zz-engine-skill/SKILL.md"
+run_check 0 --root "$MINI"
+expect_no_finding surface-skill
+rm -rf "$MINI/skills/zz-engine-skill"
+
+# (c) unflagged skill WITH commands/<name>.md → no surface-skill
+mkdir -p "$MINI/skills/demo"
+printf '%s\n' "---" "name: demo" "description: paired" "---" > "$MINI/skills/demo/SKILL.md"
+run_check 0 --root "$MINI"
+expect_no_finding surface-skill
+rm -rf "$MINI/skills/demo"
+
+# (d) unflagged hello without commands/hello.md → surface-skill
+backup "$MINI/commands/hello.md"
+rm -f "$MINI/commands/hello.md"
+run_check 1 --root "$MINI"
+expect_finding surface-skill
+echo "$OUT" | grep -q "hello" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: surface-skill should name hello (skill-only unflagged)"
+}
+restore "$MINI/commands/hello.md"
+
+# ---------------------------------------------------------------------------
 # T5 waiver (D6)
 # ---------------------------------------------------------------------------
 backup "$MINI/README.md"
@@ -333,12 +424,12 @@ out = []
 for line in lines:
     out.append(line)
     if "| \`/demo\`" in line:
-        out.append("| \`/no-such-cmd\` | Ghost | <!-- drift-ok: cmd-index -->\n")
+        out.append("| \`/no-such-cmd\` | Ghost | <!-- drift-ok: cmd-index, surface-readme -->\n")
 p.write_text("".join(out))
 PY
 run_check 0 --root "$MINI"
-echo "$OUT" | grep -q "1 findings, 1 waived" && PASS=$((PASS+1)) || {
-  FAIL=$((FAIL+1)); echo "FAIL: expected '1 findings, 1 waived', got: $(echo "$OUT" | tail -1)"
+echo "$OUT" | grep -q "2 findings, 2 waived" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: expected '2 findings, 2 waived', got: $(echo "$OUT" | tail -1)"
 }
 # wrong waiver id does not suppress
 python3 - <<PY
@@ -449,12 +540,30 @@ OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
 }
 restore "$REPO_ROOT/docs/commands/status.md"
 
+# surface-readme: inject ghost `/zz-surface-readme` in README prose (not Commands table)
+backup "$REPO_ROOT/README.md"
+printf '%s\n' 'See also `/zz-surface-readme`.' >> "$REPO_ROOT/README.md"
+OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+[ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[surface-readme\]' && echo "$OUT" | grep -q 'zz-surface-readme' \
+  && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live surface-readme inject"; echo "$OUT" | head -8; }
+restore "$REPO_ROOT/README.md"
+
+# surface-skill: inject unflagged skill-only SKILL.md
+mkdir -p "$REPO_ROOT/skills/zz-surface-skill"
+printf '%s\n' "---" "name: zz-surface-skill" "description: bite" "---" \
+  > "$REPO_ROOT/skills/zz-surface-skill/SKILL.md"
+OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+[ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[surface-skill\]' && echo "$OUT" | grep -q 'zz-surface-skill' \
+  && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live surface-skill inject"; echo "$OUT" | head -8; }
+rm -rf "$REPO_ROOT/skills/zz-surface-skill"
+
 # ---------------------------------------------------------------------------
 # T7 restore discipline: no inject artifacts; harness never used git checkout
 # ---------------------------------------------------------------------------
 LIVE_STATUS_AFTER=$(cd "$REPO_ROOT" && git status --porcelain)
 # inject artifacts specifically
-if [ -e "$REPO_ROOT/commands/zz-docs-drift-bite.md" ] || [ -e "$REPO_ROOT/docs/commands/zz-orphan-bite.md" ]; then
+if [ -e "$REPO_ROOT/commands/zz-docs-drift-bite.md" ] || [ -e "$REPO_ROOT/docs/commands/zz-orphan-bite.md" ] \
+   || [ -e "$REPO_ROOT/skills/zz-surface-skill/SKILL.md" ]; then
   FAIL=$((FAIL+1)); echo "FAIL: inject artifacts remain"
 else
   PASS=$((PASS+1))
@@ -485,6 +594,12 @@ fi
 # docs/commands/status.md must not carry docs-page-links inject lines after restore
 if grep -qE 'zz-nope|\./debug\.md' "$REPO_ROOT/docs/commands/status.md" 2>/dev/null; then
   FAIL=$((FAIL+1)); echo "FAIL: docs/commands/status.md still carries docs-page-links inject after restore"
+else
+  PASS=$((PASS+1))
+fi
+# README must not carry surface-readme inject after restore
+if grep -q 'zz-surface-readme' "$REPO_ROOT/README.md" 2>/dev/null; then
+  FAIL=$((FAIL+1)); echo "FAIL: README.md still carries surface-readme inject after restore"
 else
   PASS=$((PASS+1))
 fi

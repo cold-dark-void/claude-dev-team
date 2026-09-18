@@ -121,13 +121,13 @@ skills/council/tier-grade.sh --numstat <(printf '%s' "$NUMSTAT") [--raw <(printf
 ```
 
 Its exit contract, output fields, and the `light` / `full` / `middle` semantics are stated
-once at `commands/council.md` § 1.5.2 and are not repeated here. Resolve the outcome the same
+once at `skills/council/SKILL.md` § 1.5.2 and are not repeated here. Resolve the outcome the same
 way that step does:
 
 - `tier == "light"` or `tier == "full"` → done. Record `council_tier` and the grader's own
   `grading_reason` (this includes a grader-self-reported `fail-closed: …` `full`).
 - `tier == "middle"` → resolve with **exactly one** haiku-tier triage call, per
-  `commands/council.md` § 1.5.3 and validated under § 1.5.4. Substitutions are unchanged
+  `skills/council/SKILL.md` § 1.5.3 and validated under § 1.5.4. Substitutions are unchanged
   except that `{{DIFF_SUMMARY}}` is §3a's merge-base `$NUMSTAT`. This procedure MUST NOT
   restate that prompt, its substitutions, or § 1.5.4's validation table.
 
@@ -152,9 +152,9 @@ no other flag may be passed. A single-claim scope resolves the generic preset an
 unbound task-id on its own, and the tier flag binds the run to no task, plan, or scope, so
 the invocation stays unbound and locators-only.
 
-`commands/council.md` Step 1.5 honors an externally-supplied tier at **any** scope and
+`skills/council/SKILL.md` § 1.5 honors an externally-supplied tier at **any** scope and
 passes it straight through to `engine.sh preflight --tier` with no grading of its own. That
-is the path this pass uses: M14 is claim-scope, not diff-scope, so Step 1.5's own grading
+is the path this pass uses: M14 is claim-scope, not diff-scope, so § 1.5.1's own grading
 never runs here. `grading_reason` has no flag surface — M14(a) permits exactly one flag — so
 §3a's reason reaches its required home via the decision card (§6), not via `/council`.
 

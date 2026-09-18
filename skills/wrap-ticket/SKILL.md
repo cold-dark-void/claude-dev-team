@@ -5,6 +5,7 @@ description: |
     worktree, appends learnings to project memory, marks the plan complete,
     idempotently re-closes source tracking (backlog/Linear), and prints a
     Linear close-out checklist. Usage: /wrap-ticket <TICKET-ID>
+user-invocable: false
 ---
 
 # Wrap Ticket

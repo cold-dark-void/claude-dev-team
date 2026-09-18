@@ -5,6 +5,7 @@ description: |
     kickoff, spec creation, implementation plan, and TaskCreate task graph. Replaces
     7 manual prompts with one command. Usage: /kickoff <TICKET-ID> "<ticket text>"
     or /kickoff alone to be prompted.
+user-invocable: false
 ---
 
 # Kickoff

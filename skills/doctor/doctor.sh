@@ -1595,6 +1595,57 @@ check_models_map() {
   record "$id" "$group" "PASS" "Model map JSON valid" ""
 }
 
+# Frontmatter-only: user-invocable: false (optional quotes/whitespace).
+_skill_fm_uninvocable() {
+  awk '
+    BEGIN { found=0 }
+    {
+      if (NR==1) {
+        if ($0 != "---") exit
+        next
+      }
+      if ($0 == "---") exit
+      if ($0 ~ /^[[:space:]]*user-invocable:[[:space:]]*(false|"false"|'\''false'\'')[[:space:]]*$/)
+        found=1
+    }
+    END { exit found ? 0 : 1 }
+  ' "$1"
+}
+
+# CDT-257 / SPEC-022 M2j — unflagged skill-only SKILL.md. WARN never FAIL.
+check_skills_user_invocable() {
+  local id="skills.user_invocable" group="skills"
+  local skills_dir="$PLUGIN_ROOT/skills"
+  if [ ! -d "$skills_dir" ]; then
+    record "$id" "$group" "SKIP" "skills/ missing" ""
+    return 0
+  fi
+
+  local f name leaks=""
+  for f in "$skills_dir"/*/SKILL.md; do
+    [ -f "$f" ] || continue
+    name=$(basename "$(dirname "$f")")
+    if _skill_fm_uninvocable "$f"; then
+      continue
+    fi
+    if [ -f "$PLUGIN_ROOT/commands/${name}.md" ]; then
+      continue
+    fi
+    leaks="${leaks}${name}"$'\n'
+  done
+  leaks=$(printf '%s' "$leaks" | LC_ALL=C sort | tr '\n' ' ')
+  leaks=${leaks%% }
+
+  if [ -n "$leaks" ]; then
+    record "$id" "$group" "WARN" \
+      "unflagged skill-only SKILL.md: $leaks" \
+      "Set user-invocable: false in SKILL.md frontmatter, or add commands/<name>.md"
+  else
+    record "$id" "$group" "PASS" \
+      "all SKILL.md flagged or have a command file" ""
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Register all checks
 # ---------------------------------------------------------------------------
@@ -1622,6 +1673,7 @@ register_check "worktree.locks" "worktree" check_worktree_locks
 register_check "worktree.distill_lock" "worktree" check_worktree_distill_lock
 register_check "transcript.mirror_lag" "transcript" check_transcript_mirror_lag
 register_check "models.map" "config" check_models_map
+register_check "skills.user_invocable" "skills" check_skills_user_invocable
 
 # ---------------------------------------------------------------------------
 # --only filter validation
@@ -1646,7 +1698,7 @@ if [ -n "$ONLY_FILTER" ]; then
   done
   if [ "$known" -eq 0 ]; then
     echo "doctor: unknown check id or group: $ONLY_FILTER" >&2
-    echo "Known groups: version memory hooks settings deps worktree plugin transcript config" >&2
+    echo "Known groups: version memory hooks settings deps worktree plugin transcript config skills" >&2
     echo "Known ids: ${REG_IDS[*]}" >&2
     exit 64
   fi

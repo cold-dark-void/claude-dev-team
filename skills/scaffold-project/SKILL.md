@@ -3,6 +3,7 @@ name: scaffold-project
 description: >
   Internal protocol for /setup project — TDD project scaffold (AGENTS.md,
   specs/TDD.md, settings allowlist). Not a user entry; invoke via /setup project.
+user-invocable: false
 ---
 
 # Scaffold Project with TDD Workflow (backend for `/setup project`)

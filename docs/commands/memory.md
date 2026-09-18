@@ -161,7 +161,9 @@ Cross-reference agent memories against the live codebase to detect stale refs
 | `--report-only` | With `--reconcile`: list contradictions; **zero DB writes** |
 
 `--deep` and `--reconcile` are mutually exclusive. Never auto-archives
-contradictions — user decides. Pipeline lives in `commands/memory.md` (`validate` section).
+contradictions — user decides. Pipeline lives in `skills/validate-memory/pipeline.md`
+(templates in `skills/validate-memory/SKILL.md`). `commands/memory.md` is the thin
+dispatcher.
 
 ## How It Works
 

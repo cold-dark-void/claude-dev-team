@@ -9,6 +9,7 @@ description: |
     `mode=direct` MUST NOT Read this file; the detached agent MUST Read it from
     disk. In-session fallback parent MAY Read it. `--light` uses LIGHT.md only.
     Implements SPEC-018 M3b–M3f, M4–M8b, M10/M10c, M19.
+user-invocable: false
 ---
 
 # handoff

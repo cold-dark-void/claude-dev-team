@@ -4,8 +4,10 @@
 # Contract enforced (recurrence-prevention for the dead-sub / literal-leak class):
 #   Each prompt's own `## Variables` table is authoritative (SPEC-013). For each
 #   COVERED prompt, TWO downstream sources MUST name exactly that var set:
-#     (A) commands/council.md  — the `with substitutions:` block following the
-#         prompt's `prompt:` line (the runtime substitution contract).
+#     (A) skills/council/SKILL.md § Runtime substitutions — the
+#         `with substitutions:` block following the prompt's `prompt:` line
+#         (the runtime substitution contract; CDT-255 moved this off
+#         commands/council.md).
 #     (B) skills/council/SKILL.md — the prompt's row in the "Documented variables
 #         per template" table (the documented contract).
 #   Both halves are MUSTs in SPEC-013; both are enforced here.
@@ -22,7 +24,7 @@
 # quorum-analyst (--blind path, CDT-46-C3), tier-triage (--diff scope only, CDT-126).
 #
 # phase4-brief.md is the merged Phase-4 template (AUDIT-P1-4C-1) that replaced
-# the former prosecutor.md + advocate.md. It is referenced in council.md TWICE
+# the former prosecutor.md + advocate.md. It is referenced in SKILL.md TWICE
 # (the Prosecutor spawn and the Devil's Advocate spawn) — both substitution
 # blocks name the SAME var set with different values. council_subs() therefore
 # collects the UNION of {{VARS}} across ALL substitution blocks naming a given
@@ -31,7 +33,7 @@
 #
 # Exit 0  -> all covered prompts match in BOTH sources.
 # Exit 1  -> at least one covered prompt drifted (readable diff printed).
-#              DRIFT[<name>]       = council.md substitution drift.
+#              DRIFT[<name>]       = SKILL.md substitution drift.
 #              SKILL-DRIFT[<name>] = SKILL.md documented-table drift.
 # Exit 2  -> structural failure (a covered block or table could not be located).
 #
@@ -43,7 +45,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-COUNCIL="$ROOT/commands/council.md"
+CMD="$ROOT/commands/council.md"
 SKILL="$ROOT/skills/council/SKILL.md"
 PROMPT_DIR="$ROOT/skills/council/prompts"
 
@@ -55,7 +57,7 @@ if [ -n "$DEFERRED" ]; then
   echo "NOTE: council template-var gate DEFERS (does not check): ${DEFERRED}" >&2
 fi
 
-for f in "$COUNCIL" "$SKILL"; do
+for f in "$CMD" "$SKILL"; do
   if [ ! -f "$f" ]; then
     echo "FAIL: required file not found: $f" >&2
     exit 2
@@ -74,7 +76,7 @@ prompt_vars() {
     | sort -u
 }
 
-# Extract the {{VARS}} commands/council.md SUBSTITUTES for a given prompt.
+# Extract the {{VARS}} skills/council/SKILL.md SUBSTITUTES for a given prompt.
 # A substitution block runs from a `prompt: skills/council/prompts/<name>.md`
 # line up to (and not including) the next code-fence line (```).
 #
@@ -93,7 +95,7 @@ council_subs() {
     $0 ~ ("prompt:[[:space:]]*skills/council/prompts/" name "\\.md") { grab=1; next }
     grab && /^[[:space:]]*```/ { grab=0 }
     grab { print }
-  ' "$COUNCIL" \
+  ' "$SKILL" \
     | grep -oE '\{\{[A-Z_]+\}\}' \
     | sort -u
 }
@@ -114,13 +116,13 @@ status=0
 
 # compare_source <name> <label> <declared-set> <source-set>
 #   declared = authoritative prompt-table var set
-#   source   = the downstream set (council.md subs OR SKILL.md doc row)
+#   source   = the downstream set (SKILL.md subs OR SKILL.md doc row)
 # Sets status=1 and prints a labeled diff on any mismatch; prints OK otherwise.
 compare_source() {
   local name="$1" label="$2" declared="$3" source="$4"
   local src_desc src_noun
   case "$label" in
-    DRIFT)       src_desc="council.md substitutions"; src_noun="substituted in council.md" ;;
+    DRIFT)       src_desc="SKILL.md substitutions"; src_noun="substituted in SKILL.md" ;;
     SKILL-DRIFT) src_desc="SKILL.md documented-variables table"; src_noun="documented in SKILL.md" ;;
     *)           src_desc="$label"; src_noun="present in $label" ;;
   esac
@@ -175,14 +177,14 @@ for name in $COVERED; do
     continue
   fi
 
-  # (A) runtime substitution contract — commands/council.md
+  # (A) runtime substitution contract — skills/council/SKILL.md
   compare_source "$name" "DRIFT"       "$declared" "$(council_subs "$name")"
   # (B) documented contract — skills/council/SKILL.md
   compare_source "$name" "SKILL-DRIFT" "$declared" "$(skill_vars "$name")"
 done
 
 if [ "$status" -eq 0 ]; then
-  echo "PASS: all covered council prompts (${COVERED}) match in council.md AND SKILL.md."
+  echo "PASS: all covered council prompts (${COVERED}) match in SKILL.md substitutions AND documented-variables table."
 else
   echo "FAIL: council template-variable contract has drifted (see above)." >&2
 fi

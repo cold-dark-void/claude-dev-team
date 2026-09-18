@@ -3,6 +3,7 @@ name: memory-compress
 description: |
     Fact-dense rewrite of agent memory prose (tier-0 notes, digests) without
     losing technical substance. Companion to /memory-distill. Zero external deps.
+user-invocable: false
 ---
 
 # Memory Compress

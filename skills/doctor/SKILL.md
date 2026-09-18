@@ -10,8 +10,8 @@ description: >
 
 Deterministic, offline install/config health battery. Diagnoses version pair,
 memory stack, hooks, settings, optional deps, worktree locks, plugin
-resolution, and opted-in transcript mirror lag. Never bootstraps (that is
-`/setup team` / `/setup orchestration`).
+resolution, opted-in transcript mirror lag, and unflagged skill-only
+`SKILL.md`. Never bootstraps (that is `/setup team` / `/setup orchestration`).
 
 Governing spec: `specs/core/SPEC-022-doctor-install-diagnostics.md`.
 
@@ -110,14 +110,15 @@ non-bootstrap — gating is the caller's job.
 | `plugin.resolve` | plugin |
 | `transcript.mirror_lag` | transcript |
 | `models.map` | config |
+| `skills.user_invocable` | skills |
 
 ## Severity
 
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL) |
-| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL); unflagged skill-only `SKILL.md` (`skills.user_invocable`, CDT-257; never FAIL) |
+| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing; `skills.user_invocable` when `skills/` is missing |
 | **PASS** | Invariant holds |
 
 Uninitialized memory is **WARN not FAIL** — fix-it is `/setup team`.
@@ -130,7 +131,7 @@ Only these repairs (idempotent; announced; TTY confirms; non-TTY applies):
 2. Remove **STALE** (per SPEC-016 TTL) `.wt-lock` files — never worktree dirs, never FRESH locks
 3. Sweep `$MROOT/.claude/handoff/cache/*.tmp`
 
-MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, Model map JSON, or create memory/hooks.
+MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, Model map JSON, `SKILL.md`, or create memory/hooks. Allowlist stays these 3 items only.
 
 ## Single-source expectations
 

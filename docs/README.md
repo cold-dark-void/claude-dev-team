@@ -68,7 +68,7 @@ Program / multi-ticket work, session tuning, and quality gates.
 | `/mode` | [mode](commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
 | `/adjust-agent` | skill | View/manage per-agent standing directives (`--apply` for non-interactive) |
 | `/worktree` | [worktree](commands/worktree.md) | Release a plugin worktree (`release <slug>`); list via `/status worktree` |
-| `/ci-watch` | skill | Poll PR checks / local tests and spawn a fixer (armed by `/orchestrate`) |
+| `/ci-watch` | skill | Poll PR checks / local tests and spawn a fixer — armed by `/orchestrate`, not user-typed |
 | `/review-and-commit` | [review-and-commit](commands/review-and-commit.md) | Multi-specialist review with confidence scoring; blocks commit on criticals |
 | `/refactor` | [refactor](commands/refactor.md) | Design-first restructuring with behavior-unchanged verification |
 | `/tdd-gate` | skill | Toggle hook TDD enforcement — blocks Write/Edit without tests (`on`/`off`/`status`) |

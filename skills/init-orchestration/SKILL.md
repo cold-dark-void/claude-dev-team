@@ -3,6 +3,7 @@ name: init-orchestration
 description: >
   Internal protocol for /setup orchestration — Agent Teams bootstrap (settings,
   hooks, AGENTS.md seed). Not a user entry; invoke via /setup orchestration.
+user-invocable: false
 ---
 
 # Init Orchestration (backend for `/setup orchestration`)

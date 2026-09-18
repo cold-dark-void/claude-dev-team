@@ -2,6 +2,8 @@
 
 Session retrospective. Reviews past host session(s) (Claude Code and Grok) for friction patterns and proposes targeted behavioral adjustments — either directives for team agents (routed through `/adjust-agent`) or lessons appended to project-local Claude memory.
 
+Protocol: `skills/retro/SKILL.md`. `commands/retro.md` is the thin front door (parse / gate / path-resolve / spawn). Phase-1 scoring stays in `skills/retro-gate/`; the phase-2 prompt stays in `skills/retro-subagent/`.
+
 ## Usage
 
 ```

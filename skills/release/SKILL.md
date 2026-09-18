@@ -5,6 +5,7 @@ description: |
     tag, and push. Use when releasing any version of this plugin. Ensures the
     two version surfaces stay in sync — never skips either. marketplace.json is
     not versioned (git-ref install channels).
+user-invocable: false
 ---
 
 # Release
@@ -155,14 +156,16 @@ tracked by a single spec), you **MAY** hold the entire arc under one minor line:
 - The **first** release in the arc opens the minor (e.g. SPEC-019 PR1 → 0.37.0).
 - Subsequent increments of the **same** arc take **patch** bumps via an explicit
   `/release patch`, even though they add capability. A **new** `commands/*.md`
-  file is always a new Surface and **MUST** be minor or major (bump-class gate);
-  feature-line patch is same-surface only.
+  file with no matching `skills/<name>/SKILL.md` on the old ref is a new Surface
+  and **MUST** be minor or major (bump-class gate); a thin command door over a
+  skill already on the baseline is not. Feature-line patch is same-surface only.
 - **Keep the `feat:` commit prefix** on those increments — the subject describes
   the change honestly; the patch bump reflects the feature-line policy, not a
   downgrade of the change to a fix. Do **not** relabel feature increments as `fix:`.
-- A **new** `commands/*.md` is never a feature-line patch (bump-class gate).
-  If a new Surface was already tagged as a patch: fold into the minor, delete
-  the patch tag, retag, force-push. Do not leave the false patch in history.
+- A **new** `commands/*.md` with no matching baseline skill is never a
+  feature-line patch (bump-class gate). If a new Surface was already tagged as a
+  patch: fold into the minor, delete the patch tag, retag, force-push. Do not
+  leave the false patch in history.
 - Because the commits are `feat:`, the no-args auto-detect would choose `minor`
   (opening a new line). To stay on the current line you **must** pass `patch`
   explicitly; passing nothing (`/release`) is also valid — it just opens a new
@@ -258,7 +261,7 @@ Run:
 bash skills/council/check-template-vars.sh
 ```
 
-If it exits non-zero, the council template-variable contract has drifted: `commands/council.md` substitutes a variable set that no longer matches a prompt's authoritative `## Variables` table (a dead substitution or a literal `{{VAR}}` leak into the spawned subagent, per SPEC-013). **Do NOT commit or tag.** Fix `commands/council.md` (and/or the prompt's `## Variables` table) so each covered prompt's substituted set exactly equals its declared set, then re-run until it exits 0. (Covered: claim-extractor, investigator, cross-reviewer, phase4-brief, judge. Nothing is deferred — the former prosecutor/advocate templates were merged into phase4-brief.)
+If it exits non-zero, the council template-variable contract has drifted: `skills/council/SKILL.md` substitutes a variable set that no longer matches a prompt's authoritative `## Variables` table (a dead substitution or a literal `{{VAR}}` leak into the spawned subagent, per SPEC-013). **Do NOT commit or tag.** Fix `skills/council/SKILL.md` (and/or the prompt's `## Variables` table) so each covered prompt's substituted set exactly equals its declared set, then re-run until it exits 0. (Covered: claim-extractor, investigator, cross-reviewer, phase4-brief, judge. Nothing is deferred — the former prosecutor/advocate templates were merged into phase4-brief.)
 
 ## Step 4.7: Hook-template hygiene gate (pre-commit gate)
 
@@ -302,7 +305,8 @@ bash skills/docs-drift/check-docs-drift.sh
 ```
 
 If it exits non-zero, structural documentation has drifted (cmd-index, agent-roster,
-docs-hub, or manifest-desc — see skills/docs-drift/SKILL.md; SPEC-010 D1–D8).
+docs-hub, manifest-desc, skill-ref, docs-page-links, surface-readme, or surface-skill —
+see skills/docs-drift/SKILL.md; SPEC-010 D1–D12).
 **Do NOT commit or tag.** Fix the drift (or waive with `<!-- drift-ok: <check-id> -->`
 where allowed), re-run until exit 0.
 
@@ -320,8 +324,10 @@ then re-run until exit 0. Contract lives in SPEC-030.
 
 ## Step 4.11: Bump-class gate (new command surface)
 
-A newly added `commands/*.md` requires `plugin.json` to bump **minor or major**.
-Patch (or unchanged) is a hard fail — this is the 1.7.37 class of defect.
+A newly added `commands/*.md` that does **not** wrap a skill already on the old
+ref requires `plugin.json` to bump **minor or major**. Patch (or unchanged) is a
+hard fail — this is the 1.7.37 class of defect. A `commands/<name>.md` added when
+`skills/<name>/SKILL.md` already exists on the old ref is not a new Surface.
 
 ```bash
 # Fresh shell — re-resolve PDH (SPEC-021 C1)

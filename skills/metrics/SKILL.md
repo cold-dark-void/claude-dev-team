@@ -4,6 +4,7 @@ description: >
   SPEC-026 outcomes ledger writers/readers plus CDV-187 read-only rollup.
   Helpers: emit-outcome.sh (write), outcome-rates.sh (advisory rates),
   rollup.sh (display). User-facing entry: /status metrics.
+user-invocable: false
 ---
 
 # metrics

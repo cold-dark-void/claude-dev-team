@@ -86,7 +86,7 @@ else bad "T6 prepare --transcript --allow-in-progress: spine built, payload stri
 # ---- T7: carve-out scoped (M14, static) — warm ok; cold + /retro must not ----
 # Warm bare /handoff intentionally passes --allow-in-progress (M10/M14 CDT-79).
 # Cold PREPARE_EXTRA stays empty; /retro must never mention the flag.
-if grep -q 'allow-in-progress' "$ROOT/commands/retro.md" 2>/dev/null; then
+if grep -q 'allow-in-progress' "$ROOT/commands/retro.md" "$ROOT/skills/retro/SKILL.md" 2>/dev/null; then
   bad "T7 carve-out flag leaked into /retro"; else ok; fi
 if grep -q 'PREPARE_EXTRA=()' "$ROOT/commands/handoff.md" \
    && grep -q 'PREPARE_EXTRA=(--transcript "$TRANSCRIPT" --allow-in-progress)' "$ROOT/commands/handoff.md"; then ok

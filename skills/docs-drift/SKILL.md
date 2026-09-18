@@ -1,16 +1,19 @@
 ---
 name: docs-drift
 description: |
-    Deterministic, LLM-free structural docs-consistency checker (SPEC-010 D1–D10).
+    Deterministic, LLM-free structural docs-consistency checker (SPEC-010 D1–D12).
     Checks: cmd-index (README ## Commands ↔ commands/*.md), agent-roster
     (AGENTS.md + README ↔ agents/*.md), docs-hub (docs/commands links/orphans),
     manifest-desc (plugin.json description == marketplace plugins[].description),
     skill-ref (every skills/<name>/<file> path mentioned in commands/*.md exists),
-    docs-page-links (relative *.md hrefs in docs/commands/*.md resolve on disk).
+    docs-page-links (relative *.md hrefs in docs/commands/*.md resolve on disk),
+    surface-readme (README `/name` tokens ↔ command file or invocable skill),
+    surface-skill (unflagged skills require commands/<name>.md).
     Wired by /release as Step 4.9 after T3, and also by CI
     (.github/workflows/smoke.yml, job `docs-drift`) on every push/PR to master —
     same invocation, same exit contract. Run manually via:
     bash skills/docs-drift/check-docs-drift.sh [--root DIR]
+user-invocable: false
 ---
 
 # docs-drift
@@ -19,7 +22,7 @@ Structural documentation drift gate — sibling of SPEC-021 skill-bash lint
 (content of fenced bash) and SPEC-008 check-format (spec structure). This gate
 owns index tables, roster tables, page links, and manifest description fields.
 
-Governing spec: `specs/core/SPEC-010-code-review-release.md` (D1–D10).
+Governing spec: `specs/core/SPEC-010-code-review-release.md` (D1–D12).
 
 ## Usage
 
@@ -46,6 +49,8 @@ Trailing summary always printed:
 | `manifest-desc` | `.claude-plugin/plugin.json` `description` byte-identical to each `marketplace.json` `plugins[].description`. Version sync is NOT this check (SPEC-002). |
 | `skill-ref` | Every literal `skills/<name>/<file>` path (`.md`/`.sh`/`.py`) mentioned in `commands/*.md` — prose or embedded in a bash fence — resolves to a real file. Catches a command left delegating to a skill that was stubbed, renamed, or deleted. Existence-only; does not judge whether a hit is a legitimate deprecation stub. |
 | `docs-page-links` | Every relative `*.md` link in `docs/commands/*.md` resolves on disk (fragment/query stripped; path only). Out of scope: `http(s)`, `mailto:`, bare `#anchor`, non-`.md`, absolute `/…`. D6 waivers apply. |
+| `surface-readme` | Every backticked `/name` in `README.md` (outside the renamed/removed `Old command` table; fenced blocks skipped) resolves to `commands/<name>.md` **or** a `skills/<name>/SKILL.md` that does not set `user-invocable: false`. |
+| `surface-skill` | Every `skills/<name>/SKILL.md` without `user-invocable: false` in YAML frontmatter has a matching `commands/<name>.md`. |
 
 ## Waivers
 

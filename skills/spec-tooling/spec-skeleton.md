@@ -1,7 +1,7 @@
 <!--
 Canonical spec-file skeleton — the 9 required sections SPEC-008 mandates.
 Single source; included into /spec generate (skills/spec-tooling/SKILL.md) and
-/spec create (commands/create-spec.md) via
+/spec create (skills/spec-tooling/create.md) via
 <!-- include: skills/spec-tooling/spec-skeleton.md agent=spec --> markers,
 drift-gated at /release. Cite SPEC-008 (format contract) + SPEC-004.
 Legacy skills/generate-specs/SKILL.md also carries the region until Task-7 stub.

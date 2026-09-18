@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-07
 
-**Covers**: `commands/retro.md`, `skills/retro-gate/` (incl. `write-scheduled-report.sh`, `scheduled-lock.sh`, `trial-meta.sh`, `trial-review.sh`), `skills/retro-subagent/`, `skills/transcript-parse/`, friction-capture hook template in `skills/init-orchestration/` (emitted to project `.claude/hooks/friction-capture.sh` by `/setup orchestration` — not dual-copy tracked), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`, schedule scaffold `docs/runbooks/scheduled-retro.md`
+**Covers**: `commands/retro.md` (thin host), `skills/retro/` (protocol engine), `skills/retro-gate/` (incl. `write-scheduled-report.sh`, `scheduled-lock.sh`, `trial-meta.sh`, `trial-review.sh`), `skills/retro-subagent/`, `skills/transcript-parse/`, friction-capture hook template in `skills/init-orchestration/` (emitted to project `.claude/hooks/friction-capture.sh` by `/setup orchestration` — not dual-copy tracked), integration hooks in `skills/kickoff/SKILL.md` and `skills/orchestrate/SKILL.md`, schedule scaffold `docs/runbooks/scheduled-retro.md`
 
 ---
 
@@ -320,6 +320,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 
 | Date | Change |
 |------|--------|
+| 2026-09-17 | CDT-252: protocol engine extracted to `skills/retro/SKILL.md` (`user-invocable: false`). `commands/retro.md` is the thin host (PDH + Read skill). Gate and subagent skills unchanged. |
 | 2026-08-22 | CDT-213: Phase-1 S5 unlock — S1, S2, and S4 share `L0 < s <= L`. S3 stays window overlap. Ledger S2 still does not unlock S5. Weights/caps/threshold unchanged. |
 | 2026-08-22 | CDT-212: Phase-1 S5 scores only with local transcript S1–S4 co-occurrence in the preceding exchange `(L0, L]`. Isolated S5 contributes 0 and is omitted from `signals[]`. Ledger S2 does not unlock S5. Candidate filters (CDT-124/129) and weights/caps/threshold unchanged. |
 | 2026-08-16 | CDT-196: unwrap Grok `<user_query>` before S1/S5; S1 lexicon adds `wtf` / `fuck(ing)` / `why merge` / `why would you`. Weights/caps/threshold unchanged. |

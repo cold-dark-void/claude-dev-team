@@ -5,6 +5,7 @@ description: |
     agents end-to-end, enforces tech-lead review loops, and optionally ships a PR.
     You stay as observer/navigator; agents do all the work.
     Usage: /orchestrate CDV-1 or /orchestrate
+user-invocable: false
 ---
 
 # Orchestrate

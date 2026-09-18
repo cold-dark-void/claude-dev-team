@@ -7,6 +7,7 @@ description: |
   (verdict[] and finding[]), atomic verdict index at .claude/council/index.json,
   feedback-memory learning loop. Judge is a dedicated agent with an empty
   tool allowlist. See specs/core/SPEC-013-adversarial-council-tribunal.md.
+user-invocable: false
 ---
 
 # council — Engine Protocol
@@ -38,8 +39,9 @@ writes feedback memories for high-confidence fabrications.
 
 Two callers share this engine: `/council` (generic, verdict-shape) and
 `/review-and-commit` (diff scope, finding-shape, via the diff-mode preset). The
-engine is invoked from `commands/council.md` and `skills/review-and-commit/SKILL.md`;
-it is never invoked from hooks — hooks read `index.json` only.
+engine is invoked from this skill (the `/council` host Reads it) and from
+`skills/review-and-commit/SKILL.md`; it is never invoked from hooks — hooks
+read `index.json` only.
 
 `/council --blind` is a **third entry** on the same command surface but a
 **distinct execution path** (no tribunal Phases 1–5, no `engine.sh`
@@ -169,8 +171,8 @@ If spawn fails attributed to the `effort` param (invalid/unknown/unsupported eff
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 
-Dispatch surface: `commands/council.md` points here and contains the same
-three role fences at Phase 2 / 2.5 / 5.
+Dispatch surface: this file. The `/council` host Reads this skill; do not
+restate these fences in `commands/council.md`.
 
 ---
 
@@ -178,8 +180,8 @@ three role fences at Phase 2 / 2.5 / 5.
 
 ### CLI arguments
 
-`engine.sh` is the single entry point. It is invoked by `commands/council.md`
-(thin passthrough) and by `skills/review-and-commit/SKILL.md` (passes a scope +
+`engine.sh` is the single entry point. It is invoked by this skill (thin
+`/council` host) and by `skills/review-and-commit/SKILL.md` (passes a scope +
 preset selector). The argument surface:
 
 | Argument | Purpose | Status in COUNCIL-001 |
@@ -209,13 +211,28 @@ Scope exclusivity: exactly one of `<claim>`, `--session`, `--plan`, `--diff`,
 without `--blind`, or `--blind` combined with another scope, MUST fail loudly.
 There is **no** `--no-council` flag. `--workflow` is **not** a scope — it only
 selects the execution transport for tribunal paths (see Workflow execution
-path); MUST NOT apply to `--blind`. For tribunal scopes, `commands/council.md`
+path); MUST NOT apply to `--blind`. For tribunal scopes, this skill
 translates the user surface into the engine's single `--scope <name>` — the
 engine itself takes one `--scope` value. `--blind` never reaches `engine.sh`
-preflight; it is orchestrated entirely by `commands/council.md` per §
-Blind-review path. A zero-scope invocation reaches the engine as an empty
-`--scope` and MUST exit non-zero with a clear stderr message. (SPEC-013
-lines 30–36, 191–211)
+preflight; it is orchestrated entirely by this skill per § Blind-review
+path. A zero-scope invocation reaches the engine as an empty `--scope` and
+MUST exit non-zero with a clear stderr message. (SPEC-013 lines 30–36,
+191–211)
+
+User CLI → `engine.sh preflight` translation:
+
+| User invocation | Engine `preflight` args |
+|---|---|
+| `"<claim text>"` | `--scope claim --scope-arg "<claim text>"` |
+| `--session` | `--scope session` |
+| `--session --last N` | `--scope session --last N` |
+| `--diff` | `--scope diff` |
+| `--plan <path>` | `--scope plan --scope-arg <path>` (path must be readable; else exit 2) |
+| `--from-retro <id>` | `--scope from-retro --scope-arg <id>` |
+| `--task-id <id>` | `--task-id <id>` (passthrough) |
+| `--why` | `--why` (passthrough) |
+| `--external` / `--external=codex\|gemini` | `--external` / `--external=<tool>` (passthrough; CDV-207) |
+| `--council-tier=<light\|full>` | `--tier <value>` (CDT-126). `--grading-reason` is **not** passed — `engine.sh` synthesizes `"externally supplied tier (no grading_reason given)"` when omitted. |
 
 `--plan <path>` is live (CDV-208): missing/unreadable path → exit 2 with a clear
 stderr message; present path → preset `generic`, Phase 1 extraction via
@@ -309,6 +326,114 @@ Orchestrated-task invocations rely on SPEC-009's `CLAUDE_TASK_ID` export
 (orchestrator's responsibility — not this engine's). Reference SPEC-009 line
 46; do not re-specify here.
 
+### Council tiering (CDT-126)
+
+An externally-supplied `--council-tier=<light|full>` (the DRI override) is
+honored at **any** scope and passes straight through to `--tier` with no
+grading run. Callers: autopilot ship gate (`skills/autopilot/ship-gate-council.md`
+§3a/§3b, M14(e)) and the orchestrated task gate (`requires_council: true`).
+`skip` is not a legal `/council` value — a caller wanting `skip` MUST
+short-circuit before invoking `/council`. `engine.sh` independently refuses
+`--tier skip`.
+
+#### 1.5.1 — Manual `/council` does not auto-grade
+
+Every scope this host resolves on its own — including `--diff` — runs `full`
+unconditionally unless `--council-tier` says otherwise. Tiering applies only
+at the two gated call sites (SPEC-013 § Council tiering). `--diff` **used to**
+auto-grade; that auto-trigger is removed because the orchestrated task gate
+binds **claim** scope by product policy, not `--diff`.
+
+§§ 1.5.2–1.5.4 define the shared `tier-grade.sh` + triage-call grading
+*procedure*. `ship-gate-council.md` §3a/§3b cites them rather than duplicating
+them: that file resolves its **own** diff and calls the same grader + triage,
+then supplies the *result* as `--council-tier`.
+
+#### 1.5.2 — Invoke the deterministic grader
+
+A caller grading a diff (currently `ship-gate-council.md` §3a; this host's
+own `--diff` scope no longer does — § 1.5.1) resolves its own diff's
+`--numstat` / `--raw` text, then calls `skills/council/tier-grade.sh`:
+
+```
+tier-grade.sh --numstat <(printf '%s' "$NUMSTAT") [--raw <(printf '%s' "$RAW")]
+```
+
+**Exit contract:** the script exits `0` with a JSON object on stdout in
+**every** case except a CLI usage error (missing/bad flags), which exits `2`
+with no JSON. Internal failures self-report by emitting `tier:"full"`,
+`band:"fail-closed"`, and a `grading_reason` starting with `"fail-closed: "`.
+Treat exit `2` (or no parseable stdout) as a grading failure (§ 1.5.4);
+otherwise **trust the JSON's own `tier` field**.
+
+Output JSON fields this step consumes: `tier` (`light` | `full` | `middle`),
+`band`, `files`, `loc`, `grading_reason`, `critical_signals`, `fanin_probed`.
+
+- `tier == "light"` or `tier == "full"` → grading resolved. Record
+  `council_tier=<tier>`, `grading_reason=<grading_reason>`. **Stop — do not
+  invoke triage.**
+- `tier == "middle"` → continue to § 1.5.3 (one triage call).
+- `tier` missing, or any other value, or exit `2` / unparseable stdout →
+  grading failure → fail closed (§ 1.5.4).
+
+#### 1.5.3 — Ambiguous middle: one haiku-tier triage call
+
+Spawn **exactly one** Task subagent (never retried):
+
+```
+description: "Council tier triage"
+subagent_type: "general-purpose"
+model: haiku
+prompt: skills/council/prompts/tier-triage.md
+  with substitutions:
+    {{FILES_CHANGED}}  ← tier-grade.sh output `files`
+    {{LOC_CHANGED}}    ← tier-grade.sh output `loc`
+    {{GRADING_REASON}} ← tier-grade.sh output `grading_reason`
+    {{DIFF_SUMMARY}}   ← the caller's same `--numstat` text fed to
+                         tier-grade.sh in § 1.5.2 (raw, capped at 200
+                         lines / 8000 chars; truncate with a "... (N more
+                         files)" marker, never silently drop)
+```
+
+`critical_signals` and `fanin_probed` are NOT substituted — both are
+structurally constant (`[]` / `true`) whenever `tier=="middle"`. Parse the
+response as a single-line JSON object.
+
+#### 1.5.4 — Validation + fail-closed contract
+
+Validate before trusting (SPEC-013 § Council tiering, Fail-closed contract).
+Every row below is a grading failure and MUST resolve to `full`:
+
+| Failure | Detected at |
+|---|---|
+| `tier-grade.sh` exit `2` (usage error), or no parseable stdout at all | § 1.5.2 |
+| `tier-grade.sh` stdout JSON missing the `tier` key, or `tier` outside `{"light","full","middle"}` | § 1.5.2 |
+| Triage spawn failed, timed out, or returned no output | § 1.5.3 |
+| Triage output is not valid single-line JSON | § 1.5.4 |
+| Triage output missing the `tier` key | § 1.5.4 |
+| `tier` present but `tier ∉ {"light","full"}` (includes `"middle"`, `"skip"`, any other value) | § 1.5.4 |
+
+Note `tier-grade.sh` reporting its own internal failure (`tier:"full"`,
+`band:"fail-closed"`) is **not** in this table — that is the grader
+correctly fail-closing itself.
+
+On any row above: set `council_tier="full"` and `grading_reason="fail-closed:
+<short cause>"`. Do not retry the triage call.
+
+On success: `council_tier=<validated tier>`, `grading_reason=<triage's own
+"reason" field, truncated to 200 chars>`. A malformed `reason` or
+`risk_signals` on an otherwise-valid `tier` does NOT trigger fail-closed.
+`grading_reason` is untrusted text: load it through a safe channel (Write
+tool, then `$(cat -- "$file")`) — never literal-interpolate into shell.
+
+#### 1.5.5 — Downstream consumption
+
+`council_tier` reaches `engine.sh preflight --tier` only via the
+`--council-tier` flag (slash-surface parse). Neither live supplier (ship
+gate M14(e), task-gate DRI) passes `grading_reason` over the `/council` CLI;
+omitting `--grading-reason` is correct. `engine.sh` synthesizes a safe
+default when the flag is absent.
+
 ---
 
 ## Engine Phases
@@ -321,7 +446,7 @@ resolve preset (explicit or inferred) → validate `--tier` (CDT-126; absent =
 validate `--plan` path readable → load `--from-retro` anchor JSON (missing →
 exit 2) → fail loud on no-scope invocation.
 
-The engine never *grades* — `commands/council.md` Step 1.5 resolves the tier
+The engine never *grades* — § Council tiering (1.5) resolves the tier
 and passes it in as `--tier` / `--grading-reason`. Phase 0 only records it and
 lets it select the flavor subset and the Phase 3 / Phase 4 skips.
 
@@ -396,6 +521,9 @@ prior verdicts.
   never rely on the agent definition's default persona alone.
 - **Minimum 2 investigators per claim with distinct flavor presets** (e.g.
   `paranoid-ic` + one other) to defeat monoculture. (SPEC-013 line 60.)
+  A caller MAY append flavor names to `plan.flavors` after preflight;
+  investigator.md output schema always wins over a flavor's
+  `output_shape_constraint`.
 - One task per claim per flavor — investigators MUST spawn in parallel
   within a single message, subject to Task-tool concurrency limits.
 - Investigators MUST NOT receive prior assistant narrative, prior verdicts,
@@ -437,8 +565,18 @@ inlining the raw blob. (SPEC-013 line 59.)
 `manifest.json`, and emits `cache_dir` + `run_id` on the investigation plan.
 Investigators receive `{{CACHE_DIR}}` and check cache files before Read/Grep;
 on miss they tool-call and write the cache. Orchestrator may seed `reads/`
-from claim source_locators before Phase 2. Finalize best-effort removes the
-dir. Empty/missing cache does not change correctness.
+from claim source_locators before Phase 2:
+
+```bash
+CACHE_DIR=$(jq -r '.cache_dir // empty' "$PLAN_FILE")  # lint-ok: C1
+# for each unique file path P that exists and is readable:
+key=$(printf '%s' "$P" | sha256sum | awk '{print $1}')
+mkdir -p "$CACHE_DIR/reads"
+[ -s "$CACHE_DIR/reads/$key.txt" ] || cat -- "$P" > "$CACHE_DIR/reads/$key.txt" 2>/dev/null || true
+```
+
+Finalize best-effort removes the dir. Empty/missing cache does not change
+correctness.
 
 **External investigator slot (CDV-207; SPEC-013 SHOULD):** opt-in via
 `--external` / `--external=codex|gemini` on `/council` and
@@ -454,6 +592,24 @@ Orchestrator runs `external-reviewer.sh run` once in Phase 2 (or
 review-and-commit Phase 1 specialists) and merges the normalized
 `evidence_bundle` / `findings[]` (`tool_use_id` form
 `external:<tool>:<hash>`). CLI parse isolation lives only in the helper.
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+EXT_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/external-reviewer.sh)
+EXT_OUT=$(mktemp "${TMPDIR:-/tmp}/council-ext.XXXXXX.json") \
+  || { echo "council: mktemp failed for external slot — skipping"; EXT_OUT=""; }
+if [ -n "$EXT_OUT" ] && [ -x "$EXT_SH" ]; then
+  _ext_tool=$(jq -r '.external.tool // "auto"' "$PLAN_FILE")  # lint-ok: C1
+  _ext_shape=$(jq -r '.output_shape' "$PLAN_FILE")  # lint-ok: C1
+  bash "$EXT_SH" run \
+    --tool "$_ext_tool" \
+    --claim "<primary claim text or diff summary>" \
+    --artifacts-file "$ARTIFACTS_FILE" \
+    --output-shape "$_ext_shape" \
+    --out "$EXT_OUT" || true
+fi
+```
 
 ### Spawn-failure degradation
 
@@ -485,8 +641,8 @@ degraded. Full runs have no banner.
 produced usable bundles. Self-verify that yields ≥1 bundle continues finalize.
 
 *Traceability:* SPEC-013 Spawn-failure degradation (CDV-199). Single protocol
-home — `commands/council.md` and `skills/review-and-commit/SKILL.md` cite
-this section; do not restate a second protocol.
+home — this skill and `skills/review-and-commit/SKILL.md` cite this
+section; do not restate a second protocol.
 
 ### Workflow execution path *(CDV-196)*
 
@@ -527,7 +683,7 @@ The engine.sh Task path keeps `repair_json_file` / `PYREPAIR` for free-form JSON
 
 **Single-source prompts/flavors:** `workflow.js` loads `prompts/*` and
 `flavors/*` at runtime and substitutes the same `{{VARS}}` as
-`commands/council.md` / each prompt's `## Variables` table. No forked bodies.
+this skill / each prompt's `## Variables` table. No forked bodies.
 
 **CDV-199 degradation:** on unusable `agent()` result, the workflow driver
 (orchestrator-equivalent) performs the missing role's work (never grant tools
@@ -545,9 +701,32 @@ into shared finalize via `--tokens-file` (see Phase 6). Workflow may also
 surface budget API data when present; Task path is best-effort envelope scrape.
 Missing harness fields → omit Tokens block (never invent `0`).
 
-**Callers:** `commands/council.md` and `skills/review-and-commit/SKILL.md`
-honor the same opt-in + fallback. Diff-mode (`finding[]`) skips Phase 4 on
-both paths.
+**Callers:** this skill (via the `/council` host) and
+`skills/review-and-commit/SKILL.md` honor the same opt-in + fallback.
+Diff-mode (`finding[]`) skips Phase 4 on both paths.
+
+**Probe (Task-path fallback):**
+
+```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+USE_WORKFLOW=0
+# set USE_WORKFLOW=1 when user passed --workflow or COUNCIL_WORKFLOW=1
+if [ "${COUNCIL_WORKFLOW:-}" = "1" ] || [ "${_COUNCIL_WORKFLOW_FLAG:-}" = "1" ]; then
+  USE_WORKFLOW=1
+fi
+if [ "$USE_WORKFLOW" = "1" ]; then
+  PROBE=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/workflow-probe.sh)
+  if ! bash "$PROBE"; then
+    echo "council: Workflow unavailable; falling back to engine.sh" >&2
+    USE_WORKFLOW=0
+  fi
+fi
+if [ "$USE_WORKFLOW" = "1" ] && [ "${COUNCIL_TIER:-full}" = "light" ]; then  # lint-ok: C1
+  echo "council: council_tier=light unsupported on the Workflow path; falling back to engine.sh" >&2
+  USE_WORKFLOW=0
+fi
+```
 
 *Traceability:* SPEC-013 Council-on-Workflow execution path (CDV-196).
 
@@ -559,9 +738,9 @@ Absorbs the former `/blind-review` multi-team peer-review engine into
 preflight/finalize, does **not** use Workflow. Clustering + confidence
 tiering **is** the council verdict for this path.
 
-**Entry:** `commands/council.md` Step 0.5 routes `--blind` here and skips
-Steps 1–6 tribunal. Dispatch surface + substitutions live in
-`commands/council.md` § Blind-review path.
+**Entry:** slash-surface parse routes `--blind` here and skips tribunal
+Phases 1–5. Dispatch surface + substitutions live in this section and
+§ Runtime substitutions.
 
 **Spawn contract:**
 - **N unconstrained** reviewers (`--teams`, default 3); team IDs `U1..UN`;
@@ -664,14 +843,57 @@ about data types or ranges. Logic correctness is your angle — but you review
 EVERYTHING.
 ```
 
+#### Runtime dispatch (B0–B7)
+
+**B0 — Defaults:** `TEAMS` from `--teams` (default 3); `LENSES` from `--lenses`
+(default `security,contributor,spec`); `TARGET` from `--target` (default
+empty = full project). Resolve each lens's `{{FLAVOR_DELTA}}` from the lens
+library above. Unknown lens → hard fail.
+
+**B1 — File list:**
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+if [ -n "$TARGET" ]; then
+  FILE_LIST=$(git ls-files "$MROOT/$TARGET" 2>/dev/null \
+    || find "$MROOT/$TARGET" -type f | grep -v '.git/')
+  SCOPE_NOTE="Review files under: $TARGET"
+else
+  FILE_LIST=$(git ls-files "$MROOT" 2>/dev/null \
+    | grep -vE '\.(lock|min\.js|min\.css|pb\.go|pb\.py|svg)$' \
+    | grep -v 'node_modules/' | grep -v 'dist/' | grep -v 'vendor/' )
+  SCOPE_NOTE="Review the full project (all tracked files listed below)."
+fi
+```
+
+**B2 — Single parallel wave** of N unconstrained + M lens reviewers
+(substitutions: § Runtime substitutions). `Output mode: terse`.
+
+**B3 — Namespace** findings with team ID (`U1-FINDING-001`,
+`L-security-FINDING-001`). Drop malformed (missing Category/Severity/Files/
+Claim/Evidence) — no repair.
+
+**B4 — One quorum analyst** over all namespaced findings.
+
+**B5 — Tier-1 clusters emit as findings.** MUST NOT invoke `/council`.
+
+**B6 — Write** `.claude/council/<YYYY-MM-DD>-<slug>.md` (unbound; no index
+row that would satisfy `requires_council`).
+
+**B7 — Present** tier counts + top 5 Tier 1+2 findings. Spawn failure on a
+reviewer: note as 0 findings / self-verify that slot if critical; marker
+`self-verified — refuters unavailable` (orchestrator only).
+
 *Traceability:* SPEC-013 Blind-review path (CDT-46-C3); Test 22.
 
 ### Phase 2.5 — Blind Cross-Review
 
 Anonymized peer-ranking of the Phase 2 evidence bundles by the investigators
 themselves, aggregated by Borda count into a consensus quality score per
-bundle. This phase is implemented in the council pipeline (driven by
-`commands/council.md`; its Cross-Review section is rendered into both
+bundle. This phase is implemented in the council pipeline (driven by this skill;
+its Cross-Review section is rendered into both
 `templates/report-verdict.md` and `templates/report-finding.md` — Phase 2.5 is
 not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
 
@@ -709,7 +931,7 @@ response is rejected — Phase 2.5 is SKIPPED; bundles pass through in original
 submission order and the bypass reason is noted in the report. (SPEC-013
 line 86.)
 
-`commands/council.md` stores the per-reviewer rankings and consensus scores for
+The orchestrator stores the per-reviewer rankings and consensus scores for
 the `{{CROSS_REVIEW_RANKINGS}}` / `{{CROSS_REVIEW_SCORES}}` report variables
 (audit trail; SPEC-013 line 87).
 
@@ -745,7 +967,7 @@ only). Output `{topic, confidence, agent}` with
 **Downstream:** specialist bundles merge into the Phase 2 set before Phase 2.5
 (and Phase 4/5). Empty pull is normal — not an error.
 
-*Traceability:* SPEC-013 Phase 3; `commands/council.md` Phase 3 dispatch.
+*Traceability:* SPEC-013 Phase 3; this skill's Phase 3 dispatch.
 
 ### Phase 4 — Prosecution & Defense
 
@@ -1005,7 +1227,7 @@ Graceful rules (exit 0 always for token issues — never fail the run):
 4. Task/Workflow envelope fields are **best-effort** — orchestrator fills the
    file; finalize only accepts this simple int map
 
-`commands/council.md` collects usage after Task spawns and passes the file.
+The orchestrator collects usage after Task spawns and passes `--tokens-file`.
 `/status metrics` (CDV-187) is a later display-only consumer of this write path.
 
 **`--why` debug (CDV-206; SPEC-013 SHOULD):** When preflight receives
@@ -1028,12 +1250,11 @@ Graceful rules (exit 0 always for token issues — never fail the run):
 - `preset_source` is `explicit` when `--preset` was passed, else `inferred`.
 - `phase3_specialist` preflight stubs: `"pending (runtime classify)"` for
   `verdict[]`, `"skipped (diff-mode)"` for `finding[]`. After Phase 3,
-  `commands/council.md` prints the runtime reason instead, e.g.
+  the orchestrator prints the runtime reason instead, e.g.
   `"devops (topic=deploy conf=0.91)"`, `"skipped (no confident match)"`,
   `"skipped (diff-mode)"`, or `"skipped (classifier unusable)"`.
-- `commands/council.md` Step 5 prints a short labeled block from these fields
-  after the stdout summary (after any Tokens block). No raw prompt dumps. No
-  verdict impact.
+- Print a short labeled block from these fields after the stdout summary
+  (after any Tokens block). No raw prompt dumps. No verdict impact.
 
 **Index writer (task-bound runs only):**
 
@@ -1184,8 +1405,8 @@ Role prompt templates live at `skills/council/prompts/<name>.md`. Files:
 - `tier-triage.md` — ambiguous-middle council-tier triage, `--diff` scope only (CDT-126)
 
 Templates are Markdown with `{{VARIABLE}}` placeholders. Tribunal templates:
-`engine.sh` / `commands/council.md` substitute before Task/judge. Blind-path
-templates: `commands/council.md` substitutes on the `--blind` path only.
+`engine.sh` / this skill substitute before Task/judge. Blind-path
+templates: this skill substitutes on the `--blind` path only.
 
 **Documented variables per template:**
 
@@ -1207,6 +1428,121 @@ Templates MUST NOT include `{{ASSISTANT_NARRATIVE}}` or any similar variable
 that would leak prior model output into a blind role. Enforcing this is
 primarily a code review discipline (the prompt templates are reviewed against this rule).
 
+### Runtime substitutions
+
+Operational `prompt:` blocks the orchestrator substitutes. Semantics live in
+the matching Engine Phase. Variable set MUST match each prompt's `## Variables`
+table (enforced by `check-template-vars.sh`).
+
+```
+prompt: skills/council/prompts/claim-extractor.md
+  with substitutions:
+    {{SCOPE_TYPE}}   ← plan.scope
+    {{INPUT_TEXT}}   ← raw transcript slice / diff text (artifacts only)
+    {{CLAIM_BUDGET}} ← plan.claim_budget (default 10)
+```
+
+```
+prompt: skills/council/prompts/plan-extractor.md
+  with substitutions:
+    {{PLAN_PATH}}    ← plan.scope_arg
+    {{INPUT_TEXT}}   ← raw plan file contents
+    {{CLAIM_BUDGET}} ← plan.claim_budget (default 10)
+```
+
+```
+prompt: skills/council/prompts/investigator.md
+  with substitutions:
+    {{CLAIM_TEXT}}     ← claim.claim (verbatim)
+    {{SOURCE_LOCATOR}} ← claim.source_locator
+    {{RAW_ARTIFACTS}}  ← raw files / logs / diff / anchor evidence
+    {{FLAVOR_DELTA}}   ← flavor file body (or domain-specialist lens)
+    {{CACHE_DIR}}      ← plan.cache_dir (per-run council-cache under TMPDIR)
+```
+
+```
+prompt: skills/council/prompts/topic-classifier.md
+  with substitutions:
+    {{CLAIM_TEXT}}  ← claim.claim (verbatim)
+```
+
+```
+prompt: skills/council/prompts/cross-reviewer.md
+  with substitutions:
+    {{CLAIM_TEXT}}    ← claim.claim (verbatim)
+    {{BUNDLE_BLOCK}}  ← all bundles EXCEPT this reviewer's own
+```
+
+```
+prompt: skills/council/prompts/phase4-brief.md
+  with substitutions:
+    {{ROLE}}             ← "Prosecutor"
+    {{ROLE_BIAS}}        ← prosecutor bias paragraph
+    {{EVIDENCE_FIELD}}   ← "evidence_against"
+    {{EVIDENCE_BUNDLES}} ← Borda-ranked evidence bundles
+    {{FLAVOR_DELTA}}     ← skills/council/flavors/jaded-senior.md body
+```
+
+```
+prompt: skills/council/prompts/phase4-brief.md
+  with substitutions:
+    {{ROLE}}             ← "Devil's Advocate"
+    {{ROLE_BIAS}}        ← advocate bias paragraph
+    {{EVIDENCE_FIELD}}   ← "evidence_for"
+    {{EVIDENCE_BUNDLES}} ← Borda-ranked evidence bundles
+    {{FLAVOR_DELTA}}     ← skills/council/flavors/yolo-ic.md body
+```
+
+```
+prompt: skills/council/prompts/judge.md
+  with substitutions:
+    {{ORIGINAL_CLAIMS}}   ← original claim list from Phase 1
+    {{EVIDENCE_BUNDLES}}  ← Borda-ranked evidence bundles
+    {{PROSECUTOR_BRIEF}}  ← prosecutor brief when Phase 4 ran; else
+                            "NOT RUN — Phase 4 skipped (reason: …)"
+    {{ADVOCATE_BRIEF}}    ← advocate brief when Phase 4 ran; else same marker
+    {{OUTPUT_SHAPE}}      ← plan.output_shape
+```
+
+```
+prompt: skills/council/prompts/unconstrained-reviewer.md
+  with substitutions:
+    {{TEAM_ID}}      ← U<N>
+    {{FILE_LIST}}    ← FILE_LIST from B1
+    {{PROJECT_ROOT}} ← $MROOT
+    {{SCOPE_NOTE}}   ← SCOPE_NOTE from B1
+```
+
+```
+prompt: skills/council/prompts/lens-reviewer.md
+  with substitutions:
+    {{TEAM_ID}}      ← L-<lens>
+    {{LENS_NAME}}    ← lens name
+    {{FLAVOR_DELTA}} ← lens-delta paragraph from the lens library
+    {{FILE_LIST}}    ← FILE_LIST from B1
+    {{PROJECT_ROOT}} ← $MROOT
+    {{SCOPE_NOTE}}   ← SCOPE_NOTE from B1
+```
+
+```
+prompt: skills/council/prompts/quorum-analyst.md
+  with substitutions:
+    {{ALL_FINDINGS}}         ← namespaced FINDING blocks
+    {{TEAM_MANIFEST}}        ← team IDs + type
+    {{UNCONSTRAINED_TEAMS}}  ← comma-separated U* IDs
+    {{LENS_TEAMS}}           ← comma-separated L-* IDs
+    {{TOTAL_TEAMS}}          ← TEAMS + M
+```
+
+```
+prompt: skills/council/prompts/tier-triage.md
+  with substitutions:
+    {{FILES_CHANGED}}  ← tier-grade.sh output `files`
+    {{LOC_CHANGED}}    ← tier-grade.sh output `loc`
+    {{GRADING_REASON}} ← tier-grade.sh output `grading_reason`
+    {{DIFF_SUMMARY}}   ← caller `--numstat` text (capped)
+```
+
 ---
 
 ## Interaction with other components
@@ -1217,7 +1553,7 @@ primarily a code review discipline (the prompt templates are reviewed against th
 | `skills/orchestrate/task-store.sh` | Writes `.claude/tasks/<task_id>.json` with task metadata (including `requires_council: true`). The engine does NOT write to this file; the orchestrator owns it. Referenced by SPEC-009. |
 | `agents/council-judge.md` | The Judge agent invoked in Phase 5. Empty tool allowlist. |
 | `skills/review-and-commit/SKILL.md` | Calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
-| `commands/council.md` | Thin wrapper; tribunal scopes → `engine.sh` + Task/Workflow; `--blind` → Blind-review path (no engine preflight). |
+| `commands/council.md` | Thin host (parse / preset / PDH / Read this skill). Tribunal scopes → `engine.sh` + Task/Workflow; `--blind` → Blind-review path (no engine preflight). |
 | `skills/council/workflow.js` | Optional Workflow-tool driver (CDV-196); schema-forced agent steps + shared finalize. Not used by `--blind`. |
 | `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate (dual-shape: verdict conf **or** finding conf — SPEC-002). Never calls the engine. Blind-path rows remain gate-ignored (unbound / no qualifying row / both-null); `finding[]` is **not** blanket-ignored. |
 | `commands/retro.md` | Prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. Persists anchors to `$MROOT/.claude/retro/anchors/<id>.json` after validation (single writer; CDV-212). |
@@ -1228,13 +1564,13 @@ primarily a code review discipline (the prompt templates are reviewed against th
 ## Failure modes
 
 Every failure mode has a distinct exit code and a stderr message contract.
-Callers (`commands/council.md`, `skills/review-and-commit/SKILL.md`) rely on
+Callers (this skill via the `/council` host, `skills/review-and-commit/SKILL.md`) rely on
 exit codes to decide whether to continue.
 
 | Exit | Meaning | Stderr message contract |
 |---|---|---|
 | 0 | Success | none on stderr |
-| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff\|plan\|from-retro)` (tribunal); `--blind` exclusivity / parity fails print usage from `commands/council.md` Step 0.5 |
+| 2 | No scope argument supplied | `engine.sh: scope required (--scope claim\|session\|diff\|plan\|from-retro)` (tribunal); `--blind` exclusivity / parity fails print usage from the `/council` host |
 | 2 | Unknown preflight flag | `engine.sh: unknown preflight flag: <flag>` |
 | 2 | `--tier` outside `light\|full` | `engine.sh: invalid --tier value: <v> (want light\|full)`; `skip` gets its own line — `engine.sh: --tier skip is resolved by the caller — the run must not reach preflight`. The caller has already fail-closed to `full` before invoking (SPEC-013 Fail-closed contract), so coercing here would mask a broken caller |
 | 2 | Plan path missing / unreadable | `engine.sh: plan file not found or not readable: <path>` (or `--plan requires a path`) |

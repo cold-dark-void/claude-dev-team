@@ -4,8 +4,9 @@ description: |
   Claim extraction, investigation, and cross-agent pair-judge prompt templates
   for /memory validate. Defines the LLM-driven per-claim validation pipeline
   (claim extractor Step 3, investigator Step 4 Tier B) and the --reconcile
-  pair-judge contract (Steps R1–R4). Not user-invoked — consumed by
-  commands/memory.md (validate sub).
+  pair-judge contract (Steps R1–R4). Host pipeline: pipeline.md.
+  Not user-invoked — consumed by commands/memory.md (validate sub).
+user-invocable: false
 ---
 
 # validate-memory — Prompt Templates & Contracts
@@ -13,6 +14,13 @@ description: |
 Internal skill consumed by `/memory validate`. Defines prompt templates
 (claim extractor, investigator, pair-judge) and the data contracts between
 pipeline stages. Not directly invocable.
+
+## Host pipeline
+
+`/memory validate` host steps (parse, query, extract, two-tier verify, score,
+triage, archive, reviewer, deep, reconcile R1–R4) live in `pipeline.md`.
+Read and execute `pipeline.md` after loading the templates in this file.
+Do not restate the pipeline here.
 
 ---
 

@@ -6,10 +6,9 @@ Single source; included byte-identical into the four alignment consumers via
 drift-gated at /release. Cite SPEC-008 (the alignment contract).
 
 Included into (consumers; region count drifts as /spec consolidates):
-- commands/check-specs.md  ×2  (audit Phase-2 grep + validate-mode grep)
+- skills/spec-tooling/check.md ×2  (audit Phase-2 grep + validate-mode grep)
 - skills/spec-tooling/SKILL.md ×2 (reflect Phase-1c inventory + Phase-4 alignment grep)
-- skills/reflect-specs/SKILL.md ×2 (legacy until Task-7 stub; same partial)
-- commands/update-spec.md  ×1  (code-impact grep for ADDED/MODIFIED requirements)
+- skills/spec-tooling/update.md ×1  (code-impact grep for ADDED/MODIFIED requirements)
 NOTE: /spec generate (ex-/generate-specs) is NOT a consumer — its GENERATION-scope
 scan is a DISTINCT exclusion (it skips skills/ + commands/); it cites SPEC-008 but
 is not this partial.

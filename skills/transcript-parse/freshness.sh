@@ -18,7 +18,7 @@
 # Cold /handoff <uuid> and /retro MUST NOT pass it — default exit 9 unchanged.
 #
 # Cross-platform mtime: Linux `stat -c %Y` / macOS `stat -f %m`.
-# Mirrors the 60 s guard in commands/retro.md (Filter 1).
+# Mirrors the 60 s guard in skills/retro/SKILL.md (Filter 1).
 
 set -eu
 

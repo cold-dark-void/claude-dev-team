@@ -43,11 +43,31 @@ Interpret the arguments:
 3. Anything else (including empty) → **craft mode**; the arguments are the
    goal, or ask for the goal if empty
 
-Then invoke the `craft-loop` skill (namespaced `dev-team:craft-loop` when the
-plugin is installed from the marketplace) with the Skill tool and follow its
-protocol for the selected mode. The skill's hard rules apply verbatim — most
-importantly: never invoke `/loop` or `/goal` yourself, and never write a
-program file before the user approves the draft in chat (and never on hold).
+## Step 0: Resolve skill (PDH)
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+SKILL=$(bash "$PDH/skills/plugin-dir.sh" file skills/craft-loop/SKILL.md)
+if [ -z "$SKILL" ] || [ ! -f "$SKILL" ]; then
+  echo "error: skills/craft-loop/SKILL.md not found in the installed plugin" >&2
+  exit 1
+fi
+echo "Loaded craft-loop protocol: $SKILL"
+```
+
+## Step 1: Follow the skill
+
+Read `$SKILL` and execute it end-to-end for the selected mode with the user
+arguments unchanged.
+
+The skill's hard rules apply verbatim — most importantly: never invoke `/loop`
+or `/goal` yourself, and never write a program file before the user approves
+the draft in chat (and never on hold).
 
 **Hard rule (restated):** MUST NOT start `/loop` or `/goal` in any mode. This
 command is the architect only; the user fires the built-in runtime.

@@ -6,6 +6,7 @@ description: |
     investigators (logic, security, compliance, quality, simplification) run
     in parallel, filtered at confidence 80. Blocks commit on critical or
     compliance findings. Optional path argument saves the review to a file.
+user-invocable: false
 ---
 
 # Review and Commit
@@ -111,7 +112,7 @@ tools are absent. See `skills/security-scan/SKILL.md`.
 
 ## Step 2: Locate the council engine
 
-Same resolution pattern as `commands/council.md`:
+Same PDH resolution pattern as the `/council` host:
 
 ```bash
 # Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (rank by /dev-team/<VER>/ segment, not full path; CDT-166). CDT-82: marketplace before same-version cache.
@@ -155,11 +156,11 @@ protocol: `skills/council/SKILL.md` § Workflow execution path — do not restat
 
 ## Step 4: Drive the diff-mode council phases
 
-Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
+Follow `skills/council/SKILL.md` Phases 1–5 with these diff-mode deltas:
 
 - **Phase 1** — this call site's `engine.sh preflight` invocation (Step 3) does
   not pass `--tier`, so it always resolves `council_tier: full` (CDT-126 —
-  tiering is not wired into `/review-and-commit`; see `commands/council.md`
+  tiering is not wired into `/review-and-commit`; see `skills/council/SKILL.md`
   Step 1.5 for the tiered `/council --diff` path). Spawn one Task subagent per
   full-tier flavor in one message (parallel) — `logic, security, compliance,
   quality, simplification` — from
@@ -172,7 +173,7 @@ Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
   carry a `tool_use_id`.
 - **External slot (CDV-207)** — when `plan.external.requested` and
   `status==available`, run `skills/council/external-reviewer.sh run` once
-  (same contract as `commands/council.md` Phase 2 external slot) and merge
+  (same contract as `skills/council/SKILL.md` Phase 2 external slot) and merge
   `evidence_bundle` / `findings[]` tagged `external:<tool>`. If skipped or
   error: one-line notice, continue with the 5 internal specialists. Never
   drop an internal flavor to make room for external.
@@ -184,7 +185,7 @@ Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
   `skills/council/prompts/judge.md`, `claims=[]`, findings as evidence
   bundles, `output_shape: finding[]`. Judge dedupes, strikes findings
   missing `tool_use_id` or confidence <80, emits final `finding[]`.
-- **Strike enforcement** — same rule as `commands/council.md`: any line
+- **Strike enforcement** — same rule as `skills/council/SKILL.md`: any line
   without a `tool_use_id`, severity outside `critical|warning|nitpick`, or
   confidence <80 → `struck_lines`; never silently drop.
 - **Spawn failure** — if any specialist or judge spawn fails or returns
@@ -385,7 +386,7 @@ ConcreteQueue directly" is); ordered BLOCKER → COMPLIANCE → DESIGN → NITPI
 
 - Thin wrapper over `skills/council/SKILL.md` with `preset: diff-mode`, always
   at `council_tier: full` (CDT-126 — this call site does not thread
-  `--council-tier`; see `commands/council.md` for the tiered path). The
+  `--council-tier`; see `skills/council/SKILL.md` § Council tiering). The
   full-tier flavor set loads from
   `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`.
 - **Phase 7 feedback memory is DISABLED** for diff-mode

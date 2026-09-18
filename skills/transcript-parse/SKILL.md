@@ -1,6 +1,7 @@
 ---
 name: transcript-parse
 description: Shared read-only parsing seam for host session transcripts (Claude ~/.claude/projects/*.jsonl; Grok ~/.grok/sessions/**/chat_history.jsonl). Locates a session's canonical file, host-normalizes to a gate-feed timeline, assembles a deduped chronological timeline, exposes parse primitives, and guards against mid-write files. Consumed by /handoff (SPEC-018) and /retro (SPEC-012).
+user-invocable: false
 ---
 
 # transcript-parse — shared transcript parsing seam

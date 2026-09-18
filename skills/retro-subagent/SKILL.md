@@ -2,10 +2,11 @@
 name: retro-subagent
 description: |
     Phase-2 deep-read protocol for `/retro`. Defines the exact prompt template, input
-    contract, output JSON schema, and validation rules used when `commands/retro.md`
+    contract, output JSON schema, and validation rules used when `skills/retro/SKILL.md`
     spawns a subagent (via the Task tool) to analyze friction anchors flagged by the
     phase-1 gate. Not user-invoked. Read this file to learn the protocol; the calling
-    command pastes the prompt template into a Task call and validates the returned JSON.
+    skill pastes the prompt template into a Task call and validates the returned JSON.
+user-invocable: false
 ---
 
 # retro-subagent
@@ -16,13 +17,13 @@ how to spawn a deep-read subagent that converts those anchors into concrete,
 behavior-changing rule proposals targeted at a specific team agent (or plain Claude).
 
 The output of this subagent is consumed by the dedup/routing phase and the
-confirm/apply phase of `commands/retro.md`.
+confirm/apply phase of `skills/retro/SKILL.md`.
 
 ---
 
 ## Who calls this
 
-`commands/retro.md` Step 4. One subagent per flagged session. Spawned in parallel
+`skills/retro/SKILL.md` Step 4 (via `/retro`). One subagent per flagged session. Spawned in parallel
 when multiple sessions are flagged (`--all` mode). Never invoked by humans.
 
 ---
@@ -241,7 +242,7 @@ empty or non-string `anchor_id` or `fabricated_claim_text` MUST also be dropped.
 After filtering, surviving fabrication anchors are passed to the calling command
 for dedup, disk persist, and hint printing.
 
-**Disk persist (CDV-212, single writer = `commands/retro.md`):** after
+**Disk persist (CDV-212, single writer = `skills/retro/SKILL.md` via `/retro`):** after
 validation/dedup the calling command writes one JSON file per anchor to
 `$MROOT/.claude/retro/anchors/<anchor_id>.json` (MROOT, not WTROOT; gitignored
 under `.claude/retro/`). Schema:

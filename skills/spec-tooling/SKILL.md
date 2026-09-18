@@ -1,18 +1,19 @@
 ---
 name: spec-tooling
 description: |
-    Spec lifecycle tooling for /spec generate|tests|reflect. Reverse-engineer
-    behavioral specs from source (generate), emit unit/integration tests from
-    MUST requirements (tests), and run full-system health reflection across all
-    specs/skills/code (reflect). Also hosts shared partials (spec-skeleton.md,
-    source-exclude.md) and check-format.sh used by the broader /spec surface.
+    Spec lifecycle tooling for /spec check|create|find|list|update|generate|tests|reflect.
+    Check/create/find/list/update live in sibling partials; generate/tests/reflect
+    live in this file. Also hosts spec-skeleton.md, source-exclude.md, and
+    check-format.sh.
+user-invocable: false
 ---
 
 # Spec Tooling
 
-Backing skill for `/spec generate`, `/spec tests`, and `/spec reflect`
-(commands/spec.md routes those three subs here). Absorbs the former
-`generate-specs`, `generate-tests`, and `reflect-specs` skill bodies.
+Backing skill for `/spec`. `commands/spec.md` is the thin dispatcher.
+Check/create/find/list/update live in sibling partials (`check.md` …);
+this file owns generate/tests/reflect (former generate-specs /
+generate-tests / reflect-specs).
 
 Governing contract: `specs/core/SPEC-008-spec-management.md`.
 
@@ -20,6 +21,11 @@ Governing contract: `specs/core/SPEC-008-spec-management.md`.
 
 | Asset | Role |
 |-------|------|
+| `check.md` | `/spec check` protocol (audit / validate / Phase 3). |
+| `create.md` | `/spec create` protocol. |
+| `find.md` | `/spec find` protocol. |
+| `list.md` | `/spec list` protocol. |
+| `update.md` | `/spec update` protocol. |
 | `spec-skeleton.md` | Canonical 9-section emitter partial (SPEC-008). Include via `<!-- include: skills/spec-tooling/spec-skeleton.md agent=spec -->`. |
 | `source-exclude.md` | Canonical code-alignment exclude set (SPEC-008 § Source Exclusions). Include via `<!-- include: skills/spec-tooling/source-exclude.md agent=spec -->`. |
 | `check-format.sh` | Mechanized Phase-1 format check (9 required sections). Exit 0 = OK. |
@@ -34,11 +40,17 @@ python3 skills/agent-memory/sync-includes.py apply skills/spec-tooling/SKILL.md
 
 | Invocation | Mode |
 |------------|------|
-| `/spec generate [path]` | **generate** — code → INFERRED specs |
-| `/spec tests [SPEC-NNN] [--dry-run]` | **tests** — specs → tagged test files |
-| `/spec reflect [--report] [--phase N]` | **reflect** — full-system health audit |
+| `/spec check [--tests] [--gate[=N]] [SPEC-ID]` | **check** — `check.md` |
+| `/spec create` | **create** — `create.md` |
+| `/spec find <keyword>` | **find** — `find.md` |
+| `/spec list` | **list** — `list.md` |
+| `/spec update [SPEC-ID]` | **update** — `update.md` |
+| `/spec generate [path]` | **generate** — this file |
+| `/spec tests [SPEC-NNN] [--dry-run]` | **tests** — this file |
+| `/spec reflect [--report] [--phase N]` | **reflect** — this file |
 
-Unknown sub → refuse; list the three modes above.
+Unknown generate/tests/reflect sub → refuse; list those three modes.
+Check/create/find/list/update are not in this file — Read the matching partial.
 
 Every fenced bash block re-resolves `$MROOT` (skill-lint C1 — fresh shell each fence):
 

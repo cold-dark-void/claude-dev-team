@@ -1,6 +1,7 @@
 ---
 name: memory-recall
 description: Search and retrieve agent memories from SQLite DB with semantic or keyword search
+user-invocable: false
 ---
 
 # memory-recall
@@ -8,6 +9,75 @@ description: Search and retrieve agent memories from SQLite DB with semantic or 
 Search and retrieve memories stored by agents. Supports semantic (vector) search when
 embeddings are available, keyword search as a fallback, and `.md` file grep when the DB
 is absent entirely.
+
+## /memory search
+
+Command protocol for `/memory search`. Thin host: `commands/memory.md`.
+
+### Arguments
+
+- `/memory search <query>` — search for memories related to the query
+- `/memory search --status` — show memory DB status (mode, row counts)
+- `/memory search` (no args) — print usage
+
+If no arguments provided (after the `search` sub), print:
+
+```
+Usage: /memory search <query>
+       /memory search --status
+
+Searches all agent memories using the best available method:
+  - Semantic search (vector embeddings) when DB + embeddings configured
+  - Keyword search (SQLite LIKE) when DB exists but no embeddings
+  - Grep search (.md files) when no DB available
+```
+
+And stop.
+
+### Handle --status
+
+If remaining arguments contain `--status`:
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
+if [ ! -f "$MEMDB" ]; then
+  echo "Memory DB: not initialized (run /setup team first)"
+  exit 0
+fi
+
+EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
+MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
+DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
+TOTAL=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;")
+
+EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
+
+echo "Memory DB:      $MEMDB"
+echo "Embedding mode: $EMBED_MODE ($MODEL, ${DIMS}-dim)"
+[ -n "$EMBED_URL" ] && echo "Embedding URL:  $EMBED_URL"
+echo "Total memories: $TOTAL"
+echo ""
+sqlite3 -header -column "$MEMDB" \
+  "SELECT agent,
+    SUM(CASE WHEN tier=0 AND archived=FALSE THEN 1 ELSE 0 END) AS raw,
+    SUM(CASE WHEN tier=1 AND archived=FALSE THEN 1 ELSE 0 END) AS digests,
+    SUM(CASE WHEN tier=2 AND archived=FALSE THEN 1 ELSE 0 END) AS core,
+    SUM(CASE WHEN tier=0 AND archived=TRUE THEN 1 ELSE 0 END) AS archived
+  FROM memories GROUP BY agent ORDER BY agent;"
+```
+
+And stop.
+
+### Query
+
+Set `QUERY` to the remaining args (and any optional agent/type/limit filters
+this skill documents). Then follow Steps 3–8 below. This skill owns path
+resolution, mode detection (semantic/lembed → semantic/remote → keyword →
+grep), result formatting, and unembedded fallbacks.
 
 ---
 

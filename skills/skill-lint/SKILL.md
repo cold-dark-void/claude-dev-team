@@ -9,6 +9,7 @@ description: |
     (.github/workflows/smoke.yml, job `skill-lint`) on every push/PR to master —
     same invocation, same exit contract. Not user-invoked directly; run manually
     via: bash skills/skill-lint/check-skill-bash.sh [FILE...]
+user-invocable: false
 ---
 
 # skill-lint

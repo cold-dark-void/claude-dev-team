@@ -5,6 +5,7 @@ description: |
     clarification before any planning or implementation. Use before /kickoff for
     complex features, or standalone for early-stage ideation. Optional --grill
     for one-question-at-a-time interviews with recommended answers.
+user-invocable: false
 ---
 
 # Brainstorm

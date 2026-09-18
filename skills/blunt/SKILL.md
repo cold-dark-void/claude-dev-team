@@ -5,6 +5,7 @@ description: |
     confidence must match evidence. Shit is shit; good is good. Primary entry:
     /mode blunt [on|off|status]. /blunt is a deprecation stub (CDT-46-C4).
     Orthogonal to /mode focus and /review-and-commit.
+user-invocable: false
 ---
 
 # Blunt (session tone)

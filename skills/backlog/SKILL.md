@@ -1,6 +1,7 @@
 ---
 name: backlog
 description: Manage project backlog with Linear-first dual-write when MCP is up; local .claude/backlog/ is a mandatory write-through cache. Supports add, close, list, reconcile, and init. Use when adding/closing/listing backlog items or reconciling index drift.
+user-invocable: false
 ---
 
 # Backlog Manager

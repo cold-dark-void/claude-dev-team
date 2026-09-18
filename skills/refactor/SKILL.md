@@ -7,6 +7,7 @@ description: |
     (default), /refactor inline <desc> (approach pre-decided by /debug
     scope=refactor-first).
 argument-hint: "[inline]"
+user-invocable: false
 ---
 
 # Refactor

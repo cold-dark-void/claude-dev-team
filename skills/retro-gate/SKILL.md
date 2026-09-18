@@ -5,6 +5,7 @@ description: |
     that scans a Claude Code session JSONL and decides whether the session
     contained enough friction to warrant a deep retrospective. Used by /retro,
     /kickoff, and /orchestrate to suppress no-op runs on smooth sessions.
+user-invocable: false
 ---
 
 # retro-gate
@@ -185,7 +186,7 @@ signal that field names changed and the gate needs updating.
 
 Phase-1 gate ownership is unchanged. These pure-bash helpers support the
 scheduled `/retro --all --auto` path (report + concurrency + optional webhook).
-Wired from `commands/retro.md` only when both flags are set. Full schedule
+Wired from `skills/retro/SKILL.md` (via `/retro`) only when both flags are set. Full schedule
 scaffold: `docs/runbooks/scheduled-retro.md`.
 
 ### `write-scheduled-report.sh`
@@ -279,5 +280,5 @@ elif `mean(in_trial) < mean(baseline)` → KEEP; else REVERT (ties → REVERT).
 **MVP limitation:** scores are project-session level (not agent-filtered).
 Gate semantics unchanged — `gate.sh` is the only scorer.
 
-Wired from `commands/retro.md` Step 5.5 (review) and Step 6 apply (NEW tag +
+Wired from `skills/retro/SKILL.md` Step 5.5 (review) and Step 6 apply (NEW tag +
 audit after KEEP/REVERT). Outcomes always route through `/adjust-agent`.

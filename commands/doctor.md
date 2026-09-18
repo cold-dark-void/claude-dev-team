@@ -24,7 +24,7 @@ FAIL.
 | _(none)_ | Full battery, human table |
 | `--json` | Single JSON document on stdout |
 | `--fix` | Apply allowlisted repairs only (see below) |
-| `--only <id\|group>` | Run a subset of checks (groups include `transcript`, `config`; ids `transcript.mirror_lag`, `models.map`) |
+| `--only <id\|group>` | Run a subset of checks (groups include `transcript`, `config`, `skills`; ids `transcript.mirror_lag`, `models.map`, `skills.user_invocable`) |
 | `--gate=<orchestration\|team>` | Gate-mode self-remediation (M6c / CDT-67) |
 | `-h` / `--help` | Usage |
 
@@ -38,6 +38,7 @@ Flags may combine: `/doctor --json --only memory`. Focused transcript lag:
 3. Sweep `.claude/handoff/cache/*.tmp`
 
 MUST NOT rewrite the Model map (`models.map` is WARN-never-FAIL; not on this allowlist).
+MUST NOT mutate `SKILL.md` (`skills.user_invocable` is WARN-never-FAIL; not on this allowlist).
 
 TTY → confirm each repair. Non-TTY → apply. Second `--fix` is a no-op when clean.
 
