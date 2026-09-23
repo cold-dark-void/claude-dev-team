@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.15
+- **Full project review and enhancement proposal (docs only)**: `docs/reviews/2026-09-23-full-review/` covers all 542 tracked files at v1.18.14. Ten per-subsystem slice reports each give one row per file. The pack also includes a coverage manifest, a test log (the 10 CI gates plus the 70 test scripts not wired into CI, 8 of them failing), 3 verified P0s and 46 P1s, 7 systemic root causes, and a phased roadmap (Phase 0 hotfixes → CI coverage → flagship correctness → portability → token diet → UX). No product behaviour changed. Patch.
+
 ### v1.18.14
 - **PDH stanza tier 0 never fired — now uses the literal `${CLAUDE_PLUGIN_ROOT}` token** — Claude Code substitutes the exact token `${CLAUDE_PLUGIN_ROOT}` into plugin command/skill/agent markdown bodies at load time (regex `/\$\{CLAUDE_PLUGIN_ROOT\}/g`, `fPe` in build 2.1.236). The stanza spelled it `${CLAUDE_PLUGIN_ROOT:-}`, which never matches, so that branch was dead — and a plugin attached via `--plugin-dir` from outside its own directory fell through to a stale marketplace clone instead of the copy actually loaded. Reproduced end-to-end: unfixed resolves to `~/.claude/plugins/marketplaces/cold-dark-void`, fixed resolves to the attached checkout, both from an identical foreign cwd. Adds a branch using the bare token, placed **after** the cwd check so it cannot shadow an active dev checkout; single-quoted and `-f` guarded, so an unsubstituted token degrades to exactly the previous behaviour. 210 emissions across 54 files; skill-lint fixtures and test-harness decoys untouched. Patch.
 
