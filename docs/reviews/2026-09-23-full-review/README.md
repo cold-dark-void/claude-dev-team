@@ -9,6 +9,7 @@ All 10 CI gates and all 70 test scripts that CI does not run were executed. The 
 | this file | Scorecard, verified top findings, systemic root causes, and a phased enhancement roadmap |
 | [`coverage.md`](coverage.md) | File-by-file manifest: 542 of 542 files, each assigned to exactly one slice |
 | [`test-results.md`](test-results.md) | Raw results for the CI gates and every test CI does not run |
+| [`linear-index.tsv`](linear-index.tsv) | Each of the 428 review items mapped to its Linear issue or checklist entry (project "Full review 2026-09-23 — remediation", CDT-260..425) |
 | [`slices/01-handoff.md`](slices/01-handoff.md) … [`slices/10-core-rest.md`](slices/10-core-rest.md) | Per-file review tables, all findings with file:line and evidence, and per-subsystem enhancement proposals |
 
 ---

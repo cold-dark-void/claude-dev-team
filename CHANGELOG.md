@@ -6,6 +6,17 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.16
+- **Review → Linear traceability index (docs only):** adds `docs/reviews/2026-09-23-full-review/linear-index.tsv`, which maps each of the 428 review items (findings, proposals, actionable per-file rows) to its Linear disposition in project "Full review 2026-09-23 — remediation":
+  - 41 roadmap parents (CDT-260..300);
+  - 125 child issues (CDT-301..425);
+  - 140 parent checklist entries (the workspace hit Linear's free-plan issue limit);
+  - 122 covered by a parent's own scope;
+  - 40 merged into another item's issue;
+  - 2 not actionable.
+
+  The review README links the index. No product behaviour changed. Patch.
+
 ### v1.18.15
 - **Full project review and enhancement proposal (docs only)**: `docs/reviews/2026-09-23-full-review/` covers all 542 tracked files at v1.18.14. Ten per-subsystem slice reports each give one row per file. The pack also includes a coverage manifest, a test log (the 10 CI gates plus the 70 test scripts not wired into CI, 8 of them failing), 3 verified P0s and 46 P1s, 7 systemic root causes, and a phased roadmap (Phase 0 hotfixes → CI coverage → flagship correctness → portability → token diet → UX). No product behaviour changed. Patch.
 

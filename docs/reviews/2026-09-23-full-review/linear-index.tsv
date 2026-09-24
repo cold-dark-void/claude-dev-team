@@ -1,0 +1,429 @@
+slice	item	severity	disposition	title
+01-handoff	F1	P1	COVERED CDT-266	handoff.md 12096B > 12000 cap; detached-stub-test red; handoff tests not in CI (CI part: CDT-269)
+01-handoff	F2	P2	CREATED CDT-316	assemble.py multi-line event text forges ## sections, truncates cold core (+ git-blob fence)
+01-handoff	F3	P2	COVERED CDT-266	undeclared jq in commands/handoff.md aborts silently under set -e
+01-handoff	F4	P2	CREATED CDT-323	discover-warm cwd-newest uses s|/|-|g encoding; fails for . / _ paths
+01-handoff	F5	P1	CREATED CDT-302	detached/light agent has no concrete finalize invocation (+ SPINE= never printed)
+01-handoff	F6	P2	CREATED CDT-328	stale/contradictory Step N references across SKILL/LIGHT/prepass/tests/SPEC-018
+01-handoff	F7	P2	COVERED CDT-291	LIGHT.md ~85% verbatim dup of SKILL.md; SKILL M10c dead; summary rule x3
+01-handoff	F8	P2	CREATED CDT-337	HOST read from warm bridge on cold -> wrong miner tier
+01-handoff	F9	P2	CREATED CDT-346	SKILL git capture recipe lacks git -C (wrong repo on cold)
+01-handoff	F10	P2	COVERED CDT-293	tests validate hand-copied PYDELTA/since-leaf clones, not the command
+01-handoff	F11	P3	CREATED CDT-366	vacuous assertions: AC13 WARN=ok, detached-stub --help tautology, set -u (grep -qv + ac1 covered by CDT-293)
+01-handoff	F12	P3	CREATED CDT-375	fixed ${TMPDIR:-/tmp}/handoff.err clobber/symlink target
+01-handoff	F13	P3	CREATED CDT-385	set -- $ARGUMENTS globs; --slug accepts following flag
+01-handoff	F14	P3	CREATED CDT-395	generic $SESSION_ID env trusted as live session id
+01-handoff	F15	P3	CREATED CDT-396	docs cache-HIT sample order/wording differs from command
+01-handoff	F16	P3	CREATED CDT-397	WORK_DIR spine copy and Grok temp JSONL leak
+01-handoff	F17	P3	CREATED CDT-398	runbook stale refs (cache 1.0.3, feat/CDT-79, feat/CDT-92)
+01-handoff	F18	P3	COVERED CDT-285	GNU-only sha256sum/touch -d/find -printf in handoff tests (sha256 shim: CDT-284)
+01-handoff	F19	P3	CREATED CDT-399	prepass assemble.py --help soft-detect + PDH find instead of $SCRIPT_DIR/..
+01-handoff	F20	P3	CREATED CDT-409	resolve-root.sh nested-write guard dead / allows ~/.claude/.claude
+01-handoff	F21	P3	COVERED CDT-295	skill and command share name handoff; no user-invocable:false
+01-handoff	E1	High	COVERED CDT-269	handoff CI job looping skills/handoff/*-test.sh
+01-handoff	E2	High	COVERED CDT-291	shared miner-prompt.md for SKILL/LIGHT; delete M10c
+01-handoff	E3	High	MERGED F5/CDT-302	canonical Finalize (copy verbatim) block + static flag test
+01-handoff	E4	High	MERGED F2/CDT-316	sanitize newlines in rendered strings + regression test
+01-handoff	E5	Med-High	COVERED CDT-266	replace jq with one python3 helper (MODE SLA ET HOST); F8 cold-HOST logic filed as CDT-337
+01-handoff	E6	Med	COVERED CDT-293	skills/handoff/test-lib.sh shared harness; tests execute extracted command code
+01-handoff	E7	Low-Med	COVERED CDT-293	remove merged-miner-ac1 test + fix grep -qv
+01-handoff	E8	Med	CREATED CDT-419	hermetic handoff tests (resolve-root T7a HOME, mirror-spine pwd); portability part COVERED CDT-285
+01-handoff	E9	Med	COVERED CDT-290	extract PreCompact hook templates so precompact T11b-T13 run
+01-handoff	E10	Low-Med	MERGED F16/CDT-397	cleanup contract for WORK_DIR and Grok temp
+01-handoff	E11	Med	MERGED F6/CDT-328	static Step-reference lint
+01-handoff	PF1	P3	CHECKLIST CDT-280	SKILL/LIGHT contradictions: "one Task" diagram L67-68, haiku vs inherit LIGHT L223/235 vs L230, SKILL L117 "verbatim" vs prefix-collapse; unused parent discover-warm L282
+01-handoff	PF2	P3	CHECKLIST CDT-280	precompact-capture sort -r lexicographic retention L165; prepass int(HANDOFF_SPINE_TOKENS) traceback L1181; exit 2 missing from table L83-87; git-state.txt fixture unrealistic
+02-specs	F1	P1	COVERED CDT-266	handoff.md 12096B > 12000 cap + router-static T10 red; suites not in CI (CI part: CDT-269)
+02-specs	F2	P1	CREATED CDT-301	Fold SPEC-028 into SPEC-014; premise agent debugger; drop stub MUSTs
+02-specs	F3	P1	CREATED CDT-304	Spec status reconciliation pass
+02-specs	F4	P1	COVERED CDT-273	SPEC-008 rules not mechanically enforced (check-format not in CI/release)
+02-specs	F5	P2	CREATED CDT-314	~30 dead file references in spec bodies + TDD index
+02-specs	F6	P2	CREATED CDT-318	SPEC-009:197 INSERT OR REPLACE vs append-only
+02-specs	F7	P2	CREATED CDT-326	SPEC-037 effort half superseded but MUST; no-op --effort; 8 vs 10 names
+02-specs	F8	P2	CREATED CDT-333	--autopilot=master lands without /release vs AGENTS.md
+02-specs	F9	P2	COVERED CDT-297	SPEC-022 M4 cwd-relative doctor fix-its
+02-specs	F10	P2	COVERED CDT-270	Spec-cited test suites failing (friction-capture, scheduled-retro, root chmod, workflow-probe)
+02-specs	F11	P2	CREATED CDT-342	SPEC-005:60 EXAMPLE status vs scaffold DRAFT
+02-specs	F12	P2	CREATED CDT-352	SPEC-016:140 cites non-existent AGENTS.md parallel-worktree rule
+02-specs	F13	P2	CREATED CDT-361	SPEC-002 stanza 4 tiers vs 5 arms; no v1.18.14 row
+02-specs	F14	P2	CREATED CDT-371	Editorial sweep of stale ticket-era statements
+02-specs	F15	P3	CREATED CDT-382	Sort Version History tables; backfill TDD rows
+02-specs	F16	P3	COVERED CDT-294	Deprecated specs SPEC-019/027 not cleaned up (struck demo MUSTs in CDT-314)
+02-specs	F17	P3	CREATED CDT-391	Normalize spec structure / Covers placement
+02-specs	F18	P3	COVERED CDT-292	Tests coupled to spec prose
+02-specs	F19	P3	CREATED CDT-403	SPEC-001/AGENTS.md exempt only 2 of 5 non-behavioral agents
+02-specs	F20	P3	COVERED CDT-292	SPEC-002 size / ticket forensics -> docs/adr
+02-specs	F21	P3	CREATED CDT-413	Smaller wording issues (SPEC-025 L5/M7, SPEC-003:112, SPEC-026 ds)
+02-specs	SPEC-013-row	Issue	CREATED CDT-423	SPEC-013:714 finder shared with /debug ticket vs SPEC-003:46
+02-specs	E1	High	COVERED CDT-273	spec-lint gate
+02-specs	E2	High	COVERED CDT-269	Run every spec-cited test suite in CI (root-safe skip: CDT-270)
+02-specs	E3	Med	MERGED F3/CDT-304	Status reconciliation + promotion rule
+02-specs	E4	Med	COVERED CDT-294	Archive deprecated specs
+02-specs	E5	Med	COVERED CDT-292	Split rationale out of specs into docs/adr
+02-specs	E6	Med	CHECKLIST CDT-283	Covers-driven drift advisory in /release (issue limit; also noted in CDT-391)
+02-specs	E7	Low-Med	MERGED F14/CDT-371	Last verified header field
+02-specs	E8	Low	COVERED CDT-292	Decouple tests from spec prose
+03-council	F-1	P1	CREATED CDT-325	Phase 7 feedback memory not implemented but documented
+03-council	F-2	P1	CREATED CDT-303	Judge output not validated; BOGUS/blob-less verdicts reach index
+03-council	F-3	P1	CREATED CDT-317	requires_council gate passes on FABRICATED/CONTRADICTED high confidence
+03-council	F-4	P1	CREATED CDT-330	jaded-senior Phase 2 investigator told it cannot use tools
+03-council	F-5	P1	CREATED CDT-339	workflow.js Borda attributes votes to wrong bundles
+03-council	F-6	P1	CREATED CDT-349	Workflow fabricates self-verify bundles, bypassing exit 5
+03-council	F-7	P1	CREATED CDT-360	--blind reviews wrong tree / nothing from worktree
+03-council	F-8	P1	COVERED CDT-284/CDT-285	index-writer local -n + flock; tier-grade declare -A (macOS)
+03-council	F-9	P1	CREATED CDT-370	tier-grade suppresses signal 4 for content-only deletions
+03-council	F-10	P2	CREATED CDT-380	Blind/auditor roles run as memory-loading write-capable agents
+03-council	F-11	P2	CREATED CDT-390	Array-shaped judge output crashes finalize after index write
+03-council	F-12	P2	CREATED CDT-401	Dict brief crashes finalize (exit 1)
+03-council	F-13	P2	CREATED CDT-411	Task path never passes Phase 2.5 results to finalize
+03-council	F-14	P2	CREATED CDT-422	Diff-mode <80 filter, spec-grep, report sections absent
+03-council	F-15	P2	CHECKLIST CDT-275	Report filenames collide within a day
+03-council	F-16	P2	CHECKLIST CDT-275	Prompts claim engine-enforced validation that is not implemented
+03-council	F-17	P2	CHECKLIST CDT-273	Stale "SPEC-013 line N" citations in council files
+03-council	F-18	P2	CHECKLIST CDT-275	Stale/contradictory statements in council SKILL.md
+03-council	F-19	P2	CHECKLIST CDT-275	Step 4 finalize block undefined vars / flag never set (lint-ok waiver part COVERED CDT-264)
+03-council	F-20	P2	CHECKLIST CDT-275	Investigator cache breaks read-only and blindness
+03-council	F-21	P2	CHECKLIST CDT-275	Workflow path lacks parity with Task path
+03-council	F-22	P2	CHECKLIST CDT-275	Workflow schemas conflict with extractor prompts (+ struck_lines dict repr)
+03-council	F-23	P2	CHECKLIST CDT-270	Council tests rg/node dependency (CI wiring COVERED CDT-269; CLAUDE_CODE_VERSION + repo pollution COVERED CDT-270)
+03-council	F-24	P2	CHECKLIST CDT-275	Diff-mode flavor bodies contradict investigator prompt
+03-council	F-25	P2	CHECKLIST CDT-275	external-reviewer.sh drops findings without file:line
+03-council	F-26	P3	CHECKLIST CDT-275	Judge schema lacks claim_id (### Claim ?:)
+03-council	F-27	P3	CHECKLIST CDT-275	Minor engine robustness gaps
+03-council	F-28	P3	CHECKLIST CDT-275	Council prompt nits
+03-council	F-29	P3	CHECKLIST CDT-275	Orphan and dead council files
+03-council	F-30	P3	COVERED CDT-289/CDT-288/CDT-291	Token cost: council.md size split, PDH dup, model-map dup
+03-council	E-1	High	MERGED F-2/CDT-303	validate_judge step in finalize
+03-council	E-2	High	MERGED F-3/CDT-317	Verdict-aware gate
+03-council	E-3	Med	MERGED F-1/CDT-325	Implement or defer Phase 7
+03-council	E-4	High	MERGED F-5/CDT-339	Fix Workflow Borda + unit test
+03-council	E-5	High	MERGED F-10/CDT-380	Tool-less memory-less council agent + skeptic flavor (flavor half in F-4/CDT-330)
+03-council	E-6	Med	COVERED CDT-291/CDT-289	Model-map fence dedup + split council.md
+03-council	E-7	High	COVERED CDT-269/CDT-270	Council tests in CI + hermetic (signal-4 fixture in CDT-370, rg fallback in F-23 checklist)
+03-council	E-8	Med	COVERED CDT-284	portable.sh sha256/lock shim
+03-council	E-9	Med	MERGED F-15/CHECKLIST CDT-275	Unique report slugs + sidecar cleanup
+03-council	E-10	Med	MERGED F-7/CDT-360	Blind path WTROOT + fail loudly
+03-council	E-11	Low	MERGED F-17/CHECKLIST CDT-273	Section anchors + SPEC line ban
+03-council	E-12	Med	MERGED F-12/CDT-401	format_brief accepts structured briefs + evidence schema
+03-council	E-13	Med	CHECKLIST CDT-275	Generate substitution blocks from prompts' Variables tables
+03-council	PF-docs	P3	CHECKLIST CDT-275	docs/commands/council.md usage omits --external/--why/--council-tier
+03-council	PF-security-flavor	P3	CHECKLIST CDT-275	security.md flavor runs side-effecting scan.sh
+03-council	PF-tier-grade-sig5	P3	CHECKLIST CDT-275	tier-grade signal-5 *test* pattern over-matches
+03-council	PF-check-template-vars	P3	CHECKLIST CDT-275	check-template-vars digit vars / status overwrite
+04-transcript	F1	P1	CREATED CDT-306	Recorder forks jq per line every tick; exceeds 10 s hook timeout (+E3)
+04-transcript	F2	P1	CREATED CDT-308	Bare /compact-transcript always misses on live session
+04-transcript	F3	P2	CREATED CDT-309	assemble.locate(sid) full-corpus scan
+04-transcript	F4	P2	CREATED CDT-313	Mirror store world-readable (umask); unredacted tool output
+04-transcript	F5	P2	CREATED CDT-319	No per-sid lock; .bak.PID crash leftovers become phantom sids (+F14)
+04-transcript	F6	P2	CREATED CDT-329	Install/cron docs use cwd-relative skills/ paths (related CDT-297)
+04-transcript	F7	P2	CREATED CDT-338	compact-transcript.md forwards "$@" not $ARGUMENTS
+04-transcript	F8	P3	CREATED CDT-347	--sid . passes validation, mirrors into store root
+04-transcript	F9	P2	COVERED CDT-269	Transcript suites not in CI
+04-transcript	F10	P3	COVERED CDT-270	M4 append-fail test fails as root (chmod a-w)
+04-transcript	F11	P2	COVERED CDT-285	GNU-only touch -d/find -printf in tests; recorder sha256sum fallback covered by CDT-284
+04-transcript	F12	P3	CREATED CDT-355	Test gaps: hook-shim cache path, empty/tool-only SubagentStop fixture
+04-transcript	F13	P3	CREATED CDT-364	Meaning text unescaped; "## user"/"> @" spoof markers
+04-transcript	F14	P3	MERGED F5/CDT-319	summarize reapply mv vs recorder append race (unverified)
+04-transcript	F15	P3	CREATED CDT-376	Stale ticket/branch comments in test suites
+04-transcript	F16	P3	CREATED CDT-386	/compact-transcript description jargon
+04-transcript	F17	P3	CREATED CDT-400	bash vs Python ident parity (DEL/floats) -> permanent lag
+04-transcript	F18	P3	CREATED CDT-410	transcript-parse SKILL.md carve-out contradiction / stale API notes
+04-transcript	F19	P3	CREATED CDT-420	discover-host.sh orphan; test-hosts.sh unreferenced
+04-transcript	F20	P3	CHECKLIST CDT-277	grok_normalize is_error matches exit: N anywhere
+04-transcript	F21	P3	CHECKLIST CDT-277	hosts-grok-locate-test aborts silently under set -e
+04-transcript	F22	P2	CHECKLIST CDT-280	dash_encode_cwd replaces only "/" (shared encode-project helper)
+04-transcript	F23	P3	CHECKLIST CDT-277	parselib annotations crash on Python <=3.8
+04-transcript	T-mirror-argv	P3	CHECKLIST CDT-277	transcript-mirror.sh no-ops unless --transcript is argv[1] (per-file Major row)
+04-transcript	T-sync-fanout	P2	CHECKLIST CDT-277	transcript-sync no-args refreshes every sid from every project's cron (per-file Issue row)
+04-transcript	E1	S/high	COVERED CDT-291	One source for mirror docs (docs vs SKILL.md dup)
+04-transcript	E2	S/medium	CHECKLIST CDT-277	Trim transcript-parse/SKILL.md
+04-transcript	E3	M/high	MERGED F1/CDT-306	Cursor-with-offset incremental recorder
+04-transcript	E4	S/low-medium	CHECKLIST CDT-288	Collapse PDH triple-resolution in compact-transcript + wrappers
+04-transcript	E5	M/high	CHECKLIST CDT-277	Installer helper for mirror opt-in
+04-transcript	E6	S-M/medium	COVERED CDT-293	Shared transcript test lib (drifted helpers, grep-the-source asserts)
+04-transcript	E7	S/high	CHECKLIST CDT-277	Status-aware Meaning tail freshness footer
+04-transcript	E8	S/medium	CHECKLIST CDT-277	Redaction seam + re-exposure warning (umask part in CDT-313)
+04-transcript	E9	S/high	COVERED CDT-269	CI job for transcript suites (macOS lane CDT-271)
+05-autopilot-epic	F1	P0	COVERED CDT-260	Seal failure path git clean -fd deletes untracked user files
+05-autopilot-epic	F2	P1	COVERED CDT-260	Autopilot end-state reset --hard loses uncommitted tracked edits
+05-autopilot-epic	F3	P1	CREATED CDT-305	/epic --autopilot contract contradicts itself across files
+05-autopilot-epic	F4	P1	COVERED CDT-284/CDT-285	epic-lib needs flock + declare -A (stock macOS broken)
+05-autopilot-epic	F5	P2	CREATED CDT-307	resume-state.sh prefix glob picks child plan for parent
+05-autopilot-epic	F6	P2	CREATED CDT-310	append-card.sh integer overflow bypasses range + BC7 invariant
+05-autopilot-epic	F7	P2	CREATED CDT-311	return in top-level bash fences does not stop execution
+05-autopilot-epic	F8	P2	CREATED CDT-315	ensure-integration-worktree exits 0 on failure
+05-autopilot-epic	F9	P2	CREATED CDT-322	Undefined shared C4 Decision->action map; A.5 self-reroute
+05-autopilot-epic	F10	P2	COVERED CDT-269	autopilot/epic test suites not in CI
+05-autopilot-epic	F11	P2	CREATED CDT-331	M10.1 overflow unreachable at plan-approve
+05-autopilot-epic	F12	P2	CREATED CDT-340	end-state BC3 ancestry check uses stale origin ref
+05-autopilot-epic	F13	P2	CREATED CDT-350	seal hard-codes default branch + checkout before dirty check
+05-autopilot-epic	F14	P3	CREATED CDT-358	PIPE_BUF atomicity claim wrong; rationale uncapped
+05-autopilot-epic	F15	P3	CREATED CDT-368	(unverified) plan dir differs between kickoff and resume-state
+05-autopilot-epic	F16	P3	CREATED CDT-378	Stale refs and test labels in autopilot slice
+05-autopilot-epic	F17	P3	CREATED CDT-388	/epic docs missing --autopilot/--no-context-discipline flags
+05-autopilot-epic	F18	P3	CREATED CDT-404	sync-apply applies backward status moves
+05-autopilot-epic	F19a	P3	CREATED CDT-414	env-driven eval EPIC_SEAL_RELEASE_HOOK in production
+05-autopilot-epic	F19b	P3	CREATED CDT-424	dead status_of, test.sh global set -e/tmp leaks, A.5 side-effects wording
+05-autopilot-epic	E1	High	COVERED CDT-288	Deduplicate PDH stanza in epic SKILL (24 copies)
+05-autopilot-epic	E2	High	COVERED CDT-289	Split epic SKILL into router + per-mode step files
+05-autopilot-epic	E3	Med-High	COVERED CDT-292	Move CDT archaeology / clause codes out of prompts
+05-autopilot-epic	E4	Medium	CHECKLIST CDT-289	Merge self-answer/ship-gate-council/end-state into one ship pipeline
+05-autopilot-epic	E5	Medium	CHECKLIST CDT-293	Turn self-answer-scenarios.md into table-driven fixtures
+05-autopilot-epic	E6	High	CHECKLIST CDT-281	Git-safety tests: end-state squash, seal untracked/dirty, non-default branch, ensure rc=0
+05-autopilot-epic	E7	High	COVERED CDT-271	Portability CI matrix (macOS / bash 3.2)
+05-autopilot-epic	E8	Medium	CHECKLIST CDT-293	Replace prose-phrase greps with structural checks (fence cmds vs epic-lib subcmds)
+05-autopilot-epic	E9	Medium	MERGED F5/CDT-307	Single ticket->plan resolver (fixes F5 + F15)
+05-autopilot-epic	E10	Medium	COVERED CDT-287	epic-lib doctor prerequisite check
+05-autopilot-epic	T-parse-flags	Minor	CHECKLIST CDT-281	autopilot parse-flags repeat semantics inconsistent/undocumented; loc-exclude cwd requirement undocumented
+05-autopilot-epic	T-ship-gate	Minor	CHECKLIST CDT-281	ship-gate-council 2a fresh halt card run_id unspecified; ship-choice cards indistinguishable
+05-autopilot-epic	T-epic-skill-prose	Minor	CHECKLIST CDT-281	epic SKILL "$@" empty in Bash tool fences; B.7 list indentation; duplicated model/effort resolver blocks L262-320
+05-autopilot-epic	T-envcaps	Minor	MERGED F6/CDT-310	append-card env caps unvalidated; self-answer exit-64 wording; budget-check overflow
+05-autopilot-epic	T-scenarios-stale	Minor	MERGED F16/CDT-378	scenarios F12 fixture impossible, 12 vs 13 count, process notes, end-state brittle release cite
+05-autopilot-epic	T-docs-end-heading	Minor	MERGED F17/CDT-388	docs/commands/epic.md L67 heading uses rejected token end
+05-autopilot-epic	T-test-circular	Minor	COVERED CDT-293	autopilot test.sh process_stamps_ok tests its own predicate (circular)
+05-autopilot-epic	T-cwd-bash	Minor	COVERED CDT-297	commands/epic.md L18 cwd-relative bash skills/epic/epic-lib.sh
+05-autopilot-epic	T-epic-parse-space	Note	NOT-ACTIONABLE	epic parse-flags space form swallows next token (still exits 64, safe)
+06-orchestrate	F1	P1	COVERED CDT-268	TaskCompleted council gate bypassed without timeout (macOS)
+06-orchestrate	F2	P1	CREATED CDT-312	Task-graph dependency keys != task-store keys (stall)
+06-orchestrate	F3	P1	COVERED CDT-263	MEMDB assigned before MROOT; DB-mode memory never loads
+06-orchestrate	F4	P1	COVERED CDT-285	dag-lib.sh requires bash >=4.3 (declare -A, [-1])
+06-orchestrate	F5	P1	COVERED CDT-284	task-store.sh requires flock
+06-orchestrate	F6	P2	COVERED CDT-268	memory-capture template ${VAR,,} bash-4 (also CDT-285)
+06-orchestrate	F7	P1	COVERED CDT-266	router-static-test T10 red on master (02-scope.md:6)
+06-orchestrate	F8	P1	COVERED CDT-264	review-and-commit finalize split by commented line continuation
+06-orchestrate	F8b	P1	CREATED CDT-320	review-and-commit finalize $PLAN_FILE/$degraded empty in fresh fence (child of CDT-264)
+06-orchestrate	F9	P2	CREATED CDT-334	bash-compress auto-allows arbitrary chained commands
+06-orchestrate	F10	P2	COVERED CDT-264	--impact grep --include brace pattern matches nothing
+06-orchestrate	F11	P2	CREATED CDT-343	init-orchestration Step 7 DB seed inserts empty row / wrong root
+06-orchestrate	F12	P2	CREATED CDT-354	SHIP_START never recorded; ship-history gate exits 64
+06-orchestrate	F13	P2	CREATED CDT-363	kickoff docs say no worktree created
+06-orchestrate	F14	P2	CREATED CDT-373	plan/spec location contract inconsistent; no Step 6 spec commit
+06-orchestrate	F15	P2	COVERED CDT-285	GNU-only grep -oP in kickoff
+06-orchestrate	F16	P2	CREATED CDT-381	kickoff Task Map append literal \n, unquoted path
+06-orchestrate	F17	P2	CREATED CDT-392	fix-ticket example id with dot rejected by worktree-lib
+06-orchestrate	F18	P3	CREATED CDT-406	dag-lib exit-code overload; 07-tasks halt only a comment
+06-orchestrate	F19	P2	CREATED CDT-416	no-git-repo behavior contradicts kickoff HARD ERROR
+06-orchestrate	F20	P2	CHECKLIST CDT-278	wrap-ticket harvests learnings from wrong tree; TICKET_ID unset
+06-orchestrate	F21	P2	CHECKLIST CDT-278	LLM learnings text inside double-quoted bash
+06-orchestrate	F22	P2	CHECKLIST CDT-278	prune-remote can delete remote-only commits (no fetch/lease)
+06-orchestrate	F23	P3	CHECKLIST CDT-286	helpers hang on trailing value-less flag (shift 2)
+06-orchestrate	F24	P3	COVERED CDT-269	slice test harnesses not wired into CI
+06-orchestrate	F25	P3	CHECKLIST CDT-278	stale text in init-orchestration SKILL.md
+06-orchestrate	F26	P3	CHECKLIST CDT-278	docs drift: branch naming, review-and-commit behavior, anchors
+06-orchestrate	F27	P3	CHECKLIST CDT-278	cross-step references break load-current-step-only protocol
+06-orchestrate	F28	P3	CHECKLIST CDT-278	fix-ticket/premise/workflow.js drift
+06-orchestrate	F29	P3	CHECKLIST CDT-284	escalation-gate realpath -m GNU-only; no traversal test
+06-orchestrate	T-00resolve	Issue	CHECKLIST CDT-278	00-resolve ACCUM -gt 0 errors on empty resume-state
+06-orchestrate	T-06design	Issue	CHECKLIST CDT-278	06-design auth substring classifier over-triggers council
+06-orchestrate	T-07tasks-halt	Major	MERGED F18/CDT-406	07-tasks halt only a comment, fence continues
+06-orchestrate	T-taskstore-msg	Issue	MERGED F2/CDT-312	task-store L124 prints created after upserted
+06-orchestrate	T-kickoff-finder	Major	MERGED F26/CDT-278	AGENTS roster omits @finder for /kickoff
+06-orchestrate	T-wrap-steporder	Issue	MERGED F20/CDT-278	wrap-ticket step order 5.5 before 5; TICKET_ID L306/530/551
+06-orchestrate	T-fixticket-stale	Issue	MERGED F28/CDT-278	fix-ticket README-version text, L347 wording
+06-orchestrate	T-init-spike	Major	MERGED F25/CDT-278	init-orchestration L654 spike plan reference
+06-orchestrate	T-orch-steps	Minor	CHECKLIST CDT-278	09-review TASK_ID, 10-qa no cap, 05-questions autopilot, 01-fetch tool name, 03-worktree CONTEXT.md
+06-orchestrate	T-init-helpers	Minor	CHECKLIST CDT-278	disclose missing-key, signing tag.gpgsign, normalize plan/apply mismatch, weak allowlist test
+06-orchestrate	E1	high	COVERED CDT-288	centralize PDH + model-map boilerplate (model-map part CDT-291)
+06-orchestrate	E2	high	COVERED CDT-290	move hook bodies out of init-orchestration SKILL.md
+06-orchestrate	E3	high	COVERED CDT-271	portability (macOS) test lane
+06-orchestrate	E4	med	COVERED CDT-286	strengthen check-hook-templates (shellcheck, bash4 grep)
+06-orchestrate	E5	med	COVERED CDT-293	shared test library
+06-orchestrate	E6	high	COVERED CDT-269	one test runner in CI
+06-orchestrate	E7	med	CHECKLIST CDT-278	dag-lib as pure jq + dag-lib-test
+06-orchestrate	E8	high	CHECKLIST CDT-278	unify task identity model
+06-orchestrate	E9	med	CHECKLIST CDT-278	deduplicate kickoff <-> orchestrate Steps 4-7
+06-orchestrate	E10	med	COVERED CDT-291	autopilot envelope macro
+06-orchestrate	E11	high	COVERED CDT-263	skill-lint use-before-assign rule (also CDT-272)
+07-memory	F-1	P0	COVERED CDT-262	lembed wrong API (model name not registered)
+07-memory	F-2	P1	COVERED CDT-264	# lint-ok inside SQL strings in commands/memory.md 413/1426/1516
+07-memory	F-2b	P1	CHECKLIST CDT-276	$THRESHOLD undefined in distill agent-selection fence
+07-memory	F-3	P1	CREATED CDT-321	Pre-distill validation aborts on distill's own distilling_lock
+07-memory	F-4	P1	CREATED CDT-327	Validation score caps at 45; >80 auto-archive unreachable
+07-memory	F-5	P1	CREATED CDT-336	Tiered load hides tier-0 once any tier-1/2 row exists
+07-memory	F-6	P1	CREATED CDT-345	validate --reconcile cannot find reconcile-lib.sh on installed plugin
+07-memory	F-7	P1	CREATED CDT-357	memory-recall fence EXT_DIR/MODEL_DIR unset (continuation part COVERED CDT-264)
+07-memory	F-8	P1	CREATED CDT-367	migrate-md drops # lines, truncates, deletes source
+07-memory	F-8b	P1	CREATED CDT-377, CDT-387	Reconcile O(n^2)+TSV misparse (377); _embed_candidates silent no-op + T15 (387)
+07-memory	F-9	P2	CREATED CDT-402	vec0 L2 metric treated as cosine
+07-memory	F-10	P2	COVERED CDT-284/CDT-285	export-seed-pack bash4 + seed-common sha256sum
+07-memory	F-11	P2	CREATED CDT-412	python3 -c interpolates untrusted REF_PATH (validate fallback)
+07-memory	F-12	P2	CREATED CDT-421 + CHECKLIST CDT-276 (--- framing part)	export --agent deletes other packs; '---' breaks round-trip
+07-memory	F-13	P2	CHECKLIST CDT-276	embed-one.sh referenced by cwd-relative path (memory-store SKILL:147, protocol.md:106)
+07-memory	F-14	P2	CHECKLIST CDT-276	curl calls without --connect-timeout/--max-time (embed-one, recall, migrate-md, download-extensions)
+07-memory	F-15	P3	CHECKLIST CDT-276	seed sanitizer rejects github URLs with paths and dotted filenames
+07-memory	F-16	P2	CHECKLIST CDT-276	distiller/project-init rows never embedded (+ distiller non-transactional insert/archive/log)
+07-memory	F-17	P2	CHECKLIST CDT-276	project-init fences: cat > with indented EOF, unset MROOT at 455, re-run dup (+ no .timeout)
+07-memory	F-18	P2	COVERED CDT-263	memory-recall:203 MEMDB before MROOT
+07-memory	F-19	P3	CHECKLIST CDT-276	inline PRAGMA busy_timeout pollutes stdout (reconcile-lib, test-seed-pack eval)
+07-memory	F-20	P2	CHECKLIST CDT-276	adjust-agent appends bare .claude/memory/ to .gitignore (contradicts SPEC-024 M9)
+07-memory	F-20b	P2	COVERED CDT-269	test-migrate/test-reconcile not in CI
+07-memory	F-21	P3	CHECKLIST CDT-276	adjust-agent Step 7 fence relies on nonexistent $1/$@ (+ line 81 grep -c || echo 0)
+07-memory	F-22	P3	CHECKLIST CDT-276	project-init seeds Bash(*)+acceptEdits without sandbox
+07-memory	F-23	P3	CHECKLIST CDT-276	memory docs drift (defaults, anchor, cosine, 5 vs 10, /memory-distill, stats --agent)
+07-memory	F-24	P3	CHECKLIST CDT-276	cortex-load.md: no .timeout, no :-0 default, missing type column
+07-memory	F-25	P3	CHECKLIST CDT-276	reconcile-lib resolve not transactional, no winner!=loser/id checks, stale vector on merge
+07-memory	T-1	P2	CHECKLIST CDT-276	commands/memory.md --agent interpolated into SQL unescaped (437, 882)
+07-memory	T-2	P3	CHECKLIST CDT-276	memory.md flag gaps: --compress not parsed, export positional 535, reconcile cap 500 vs batch 50
+07-memory	T-3	P2	CHECKLIST CDT-276	protocol.md write retry double-inserts; fallback writes literal <content>
+07-memory	T-4	P3	CHECKLIST CDT-276	memory-store SKILL fences: $ESCAPED undefined, verify selects global newest row, empty THRESHOLD
+07-memory	T-5	P2	CHECKLIST CDT-276	embed-one: unquoted .load $EXT_DIR; EMBED_MODEL falls back to 'none'/'remote' sent as model
+07-memory	T-6	P2	CHECKLIST CDT-276	migrate-md drops existing vec table on failed table_info probe; embeds archived rows; no prereq check
+07-memory	T-7	P3	CHECKLIST CDT-276	seed-common regex [\w.-/] range; mv resets .gitignore mode to 0600
+07-memory	T-8	P3	CHECKLIST CDT-276	validate extractor rule 2 does not require every input memory in output
+07-memory	T-9	P3	CHECKLIST CDT-276	import-seed-pack fallback line cap not enforced; dedupe global not per-agent
+07-memory	T-10	P3	CHECKLIST CDT-276	migrate-v2/v3 plain BEGIN + version check outside txn (use BEGIN IMMEDIATE)
+07-memory	P-1	High	CHECKLIST CDT-276	memdb.sh CLI for all DB ops (parameterized python sqlite)
+07-memory	P-2	High	COVERED CDT-262	Embedding smoke test in CI
+07-memory	P-3	High	COVERED CDT-272 (harness); lint part CHECKLIST CDT-264	Fence-exec tests + lint for # in quoted SQL and backslash-space
+07-memory	P-4	High	MERGED F-5/CDT-336	Bounded since-last-distill tier-0 tail + stats column
+07-memory	P-5	High	MERGED F-8b/CDT-377	Rewrite reconcile candidate generation in python
+07-memory	P-6	High	MERGED F-4/CDT-327	Rescale validation scoring + tests
+07-memory	P-7	Med-High	MERGED F-8/CDT-367	migrate-md non-destructive by default
+07-memory	P-8	Med	MERGED F-12/CDT-421	Seed-pack python aggregation, JSONL framing, --agent merge (portability COVERED CDT-284/285)
+07-memory	P-9	Med	COVERED CDT-269	Wire test-migrate/test-reconcile into smoke.yml (macOS lane CDT-271)
+07-memory	P-10	Low-Med	CHECKLIST CDT-276	distilling_lock TTL / stale-lock auto-expiry
+07-memory	P-11	Low-Med	CHECKLIST CDT-276	Trim agents/project-init.md role templates; drop unused SendMessage
+08-diagnostics	F1	P1	CREATED CDT-324	/retro --all --auto scheduled lock trap releases at fence end; report fn undefined in later fences
+08-diagnostics	F2	P1	CREATED CDT-335	/debug SPEC-029 reopen gate silently no-ops on installs (theme-status.sh bypasses PDH)
+08-diagnostics	F3	P2	COVERED CDT-270	friction-capture-test needs gitignored hook; scheduled-retro-test stale grep (CI wiring: CDT-269)
+08-diagnostics	F4	P2	CREATED CDT-344	scheduled-lock.sh acquire TOCTOU race; release has no owner check
+08-diagnostics	F5	P2	CREATED CDT-353	retro-gate SKILL S3 semantics contradict gate.sh (CDT-125); dead s3_first_tool
+08-diagnostics	F6	P2	CREATED CDT-362	retro.md grep -c || echo 0 yields 0\n0
+08-diagnostics	F7	P2	CREATED CDT-372	/retro --all singleton filter after top-5 cap, per proposal not per session
+08-diagnostics	F8	P2	CREATED CDT-384	scheduled report Applied list includes MANUAL_FOLLOWUP rows
+08-diagnostics	F9	P2	CREATED CDT-393	/debug Step 0c rejects relative paths; git log -- "" fatal
+08-diagnostics	F10	P2	CREATED CDT-407	doctor --fix ignores --only
+08-diagnostics	F11	P2	CREATED CDT-417	bug-hunt *-plan.md glob matches -phase-plan.md
+08-diagnostics	F12	P2	CHECKLIST CDT-279	bug-hunt stem collisions overwrite prior hunt
+08-diagnostics	F13	P2	COVERED CDT-297	doctor fix-its use cwd-relative bash skills/... paths
+08-diagnostics	F14	P3	CHECKLIST CDT-279	doctor embedding allowlist substring match (false PASS)
+08-diagnostics	F15	P3	COVERED CDT-280	inconsistent Claude project-dir encoding (single encoder)
+08-diagnostics	F16	P2	CHECKLIST CDT-286	retro-gate CLIs hang on trailing value flag
+08-diagnostics	F17	P3	CHECKLIST CDT-279	bug-hunt arg/usage contradictions (--start-phase range, BH_FLOOR_FROM_CLI)
+08-diagnostics	F18	P3	CHECKLIST CDT-279	trial-review scores all sessions before checking trials exist
+08-diagnostics	F19	P3	CHECKLIST CDT-279	docs/commands/debug.md stale vs skill
+08-diagnostics	F20	P3	CHECKLIST CDT-279	bug-hunt report.md template stale stage 1-2 hard walls
+08-diagnostics	F21	P3	CHECKLIST CDT-279	retro-gate orphan fixture hybrid-one-row.ledger.jsonl (runtime fixture write: CDT-270)
+08-diagnostics	F22	P3	CHECKLIST CDT-279	gate.sh non-numeric RETRO_THRESHOLD breaks one-JSON-line contract
+08-diagnostics	F23	P3	CHECKLIST CDT-279	doctor test.sh hygiene (no-op seed, SKIP=PASS, tautological T20d/e, touch -d, dup labels)
+08-diagnostics	F24	P3	CHECKLIST CDT-279	theme-status.sh history matching over-matches
+08-diagnostics	F25	P3	CHECKLIST CDT-279	bug-hunt S1 git -C MROOT ls-files wrong in worktrees
+08-diagnostics	F26	P3	COVERED CDT-285	GNU find -printf in /retro Claude fallback
+08-diagnostics	E1	High	COVERED CDT-279	extract /retro steps into subprocess CLIs (parent Goal; rel CDT-252)
+08-diagnostics	E2	High	COVERED CDT-289	split bug-hunt SKILL.md into core + stage files
+08-diagnostics	E3	Medium-High	CHECKLIST CDT-279	make bug-hunt S0/S3a/S4a fences executable in tests
+08-diagnostics	E4	High	COVERED CDT-269	single CI job for all slice tests
+08-diagnostics	E5	Medium	CHECKLIST CDT-279	theme-status.sh + hint.sh tests
+08-diagnostics	E6	Medium	COVERED CDT-286	shared need_arg + lint rule for shift 2
+08-diagnostics	E7	Medium	COVERED CDT-280	single project-dir encoder
+08-diagnostics	E8	Medium	MERGED F10/CDT-407	doctor --fix respects --only (fix-it paths part: CDT-297)
+08-diagnostics	E9	Low-Medium	COVERED CDT-291	dedupe Model-map spawn fence
+08-diagnostics	E10	Medium	CHECKLIST CDT-279	recompute anchor_id command-side; Grok feed path provenance
+08-diagnostics	E11	Low-Medium	MERGED F5/CDT-353	retro-gate SKILL doc refresh + rename ac3 fixture
+08-diagnostics	E12	Low-Medium	CHECKLIST CDT-279	bug-hunt templates frontmatter/placeholders/example rows
+08-diagnostics	X1	P3	CHECKLIST CDT-279	retro.md interpolates $JSONL into python source (per-file Major)
+08-diagnostics	X2	P3	CHECKLIST CDT-279	retro.md Step 5d TIGHTEN merge prose-only (per-file Major)
+08-diagnostics	X3	P3	CHECKLIST CDT-279	debug SKILL fallback theme key / P.5 checklist / no Step 1 (per-file Issue)
+08-diagnostics	X4	P3	CHECKLIST CDT-279	doctor.sh non-exec hook FAIL, dead code, json_escape, unquoted .load (per-file Issue)
+09-release-tooling	F1	P1	COVERED CDT-267	reconcile.sh silently deletes non-row index content
+09-release-tooling	F2	P1	COVERED CDT-267	close.sh duplicates ## Completed when header is last line
+09-release-tooling	F2b	P1	CHECKLIST CDT-282	close.sh title=head -n1 yields --- for frontmatter items; awk -v mangles --note
+09-release-tooling	F3	P1	COVERED CDT-267	release-train restore blind hard-reset after partial /release
+09-release-tooling	F4a	P1	COVERED CDT-274	bump-class --cached reads worktree plugin.json
+09-release-tooling	F4b	P1	COVERED CDT-274	ship-history D4 tag reflog detection dead by default
+09-release-tooling	F4c	P1	COVERED CDT-274	CI bump-class checks HEAD only
+09-release-tooling	F4d	P1	CHECKLIST CDT-274	bump-class --diff-filter=A misses renamed-in commands
+09-release-tooling	F5	P1	COVERED CDT-285	declare -A/mapfile/grep -P bash4/GNU deps (flock part CDT-284)
+09-release-tooling	F6	P1	COVERED CDT-268	ci-watch poll.sh spawns fixers when timeout missing
+09-release-tooling	F7	P1	CREATED CDT-332	release-train preflight flags own queue dirty; test.sh masks it
+09-release-tooling	F8	P2	CREATED CDT-341	/release Step 0 hard-blocks non-epic releases ('.'/'/'/jq)
+09-release-tooling	F9	P2	CREATED CDT-351	backlog store split add vs close/reconcile
+09-release-tooling	F10	P2	CREATED CDT-359	train TDD-index resolver duplicates edited rows
+09-release-tooling	F11	P2	CREATED CDT-369	ci-watch fixer_active never expires
+09-release-tooling	F12	P2	CREATED CDT-379	ci-watch [] -> done races freshly pushed PRs
+09-release-tooling	F12b	P2	COVERED CDT-273	check-format.sh checks presence globally not per section
+09-release-tooling	F13	P2	CREATED CDT-389	/audit apply evidence shape-only (fabricated quotes pass)
+09-release-tooling	F13b	P2	CHECKLIST CDT-282	apply.py path filter false positive + non-transactional multi-id apply
+09-release-tooling	F14	P2	CREATED CDT-405	/spec reflect flags contradict across command/docs/skill
+09-release-tooling	F15	P2	CREATED CDT-415	blocked train entries have no exit path
+09-release-tooling	F16	P2	CREATED CDT-425	/release pushes all local tags (--tags)
+09-release-tooling	F17	P2	CHECKLIST CDT-282	commands/audit.md fence uses "$@" in Bash tool
+09-release-tooling	F18	P2	CHECKLIST CDT-282	docs-drift test.sh mutates live repo without restore trap
+09-release-tooling	F19	P3	CHECKLIST CDT-282	spec docs use non-lifecycle statuses (runbook NEW, emoji, check audit)
+09-release-tooling	F20	P3	CHECKLIST CDT-282	spec skeleton hard-codes Category: core
+09-release-tooling	F21	P3	COVERED CDT-270	metrics test not root-safe (T4)
+09-release-tooling	F22	P3	CHECKLIST CDT-282	stale references, dead code, dead files
+09-release-tooling	F23	P3	CHECKLIST CDT-282	misc shell hygiene (grep -c||echo 0, mktemp, -z --no-renames, hooksPath, lock gitignore, scan truncation)
+09-release-tooling	F23-lock	P3	CHECKLIST CDT-282	train-lib acquire-lock TOCTOU, no stale recovery
+09-release-tooling	T-reconcile	P1	CHECKLIST CDT-267	reconcile.sh blank verdict deletes item file; regex JSON; empty array set -u
+09-release-tooling	T-sidecar	P3	CHECKLIST CDT-282	sidecar.sh delete leaves artifacts; set retypes numeric strings
+09-release-tooling	T-trainlib	P3	CHECKLIST CDT-282	train-lib cwd-relative read_master_version; changelog heading normalization
+09-release-tooling	T-release-bump	P3	CHECKLIST CDT-282	/release feat->minor vs AGENTS opt-in flags = patch
+09-release-tooling	T-scan	P3	CHECKLIST CDT-282	security-scan cwd vs root targets, no dedupe, no tests, privacy note
+09-release-tooling	T-spectool	P3	CHECKLIST CDT-282	spec-tooling unquoted MROOT, Phase 5 uncapped reads, cwd fence
+09-release-tooling	E1	High	COVERED CDT-288	resolve PDH once per skill (release/release-train)
+09-release-tooling	E2	Medium	CHECKLIST CDT-286	skill-lint /tmp check + sh/shell fences (C3 auto-exempt part COVERED CDT-288)
+09-release-tooling	E3	Medium	COVERED CDT-289	split spec-tooling/SKILL.md
+09-release-tooling	E4	High	COVERED CDT-271	portability CI matrix (+ harnesses in CI CDT-269)
+09-release-tooling	E5	High	MERGED F1,F2/CDT-267	line-preserving backlog index edits
+09-release-tooling	E6	Medium	MERGED F4b/CDT-274	ship-history tag snapshot
+09-release-tooling	E7	High	MERGED F3/CDT-267	release-train rewind-safe restore
+09-release-tooling	E8	Medium	MERGED F13/CDT-389	verify evidence in /audit apply
+09-release-tooling	E9	Medium	MERGED F11,F12/CDT-369,CDT-379	ci-watch stale guard + empty-checks debounce
+09-release-tooling	E10	Medium	COVERED CDT-273	check-format section-scoped + CI
+10-core-rest	F1	P0	COVERED CDT-261	/setup team PLUGIN_DIR points at plugin root; memory-store scripts not found
+10-core-rest	F2	P1	COVERED CDT-265	plugin-dir.sh consumer repo shadows plugin scripts (hijack)
+10-core-rest	F3	P1	COVERED CDT-263	MEMDB before MROOT fence ordering (setup, brainstorm, AGENTS.md)
+10-core-rest	F4	P2	COVERED CDT-269	71 of 77 test scripts not in CI (+permissions/timeout CDT-274, macOS CDT-271)
+10-core-rest	F5	P2	CREATED CDT-348	v1.18.14 literal-${CLAUDE_PLUGIN_ROOT} stanza branch untested
+10-core-rest	F6	P2	COVERED CDT-297	dontAsk/Cell C docs vs shipped auto/Cell D
+10-core-rest	F7	P2	COVERED CDT-296	install.sh opencode tier map wrong
+10-core-rest	F8	P2	COVERED CDT-297	scaffold-project allowlist safety claim misleading
+10-core-rest	F9	P2	COVERED CDT-297	scaffolded .gitignore ignores all of .claude/
+10-core-rest	F10	P2	CREATED CDT-356	refactor Step 1b path guard discards relative paths
+10-core-rest	F11	P2	COVERED CDT-296	SECURITY.md supported versions stale
+10-core-rest	F12	P2	COVERED CDT-295	internal skills user-invocable
+10-core-rest	F13	P2	CREATED CDT-365	docs/commands/refactor.md outdated (escalation gate, worktree)
+10-core-rest	F14	P2	COVERED CDT-299	7 agents never load glossary (agent half)
+10-core-rest	F14b	P2	CREATED CDT-374	domain-glossary load path vs write path disagree; malformed table row
+10-core-rest	F15	P3	CREATED CDT-383	tdd-gate hook template malformed (shebang, matcher, exit-2 text)
+10-core-rest	F16	P3	COVERED CDT-295	stale /focus /blunt stub references
+10-core-rest	F17	P3	CREATED CDT-394	manual.md broken anchor, git checkout main (cwd-relative part in CDT-297)
+10-core-rest	F18	P3	COVERED CDT-298	worktree-lib release force-deletes unmerged branch
+10-core-rest	F19	P3	COVERED CDT-298	worktree-lib-test l.118 flaky
+10-core-rest	F20	P3	CREATED CDT-408	setup docs inaccuracies (--refresh, 8 agents, schema v2, onboarding)
+10-core-rest	F21	P3	CREATED CDT-418	pm.md escalates to Opus while on Opus
+10-core-rest	F22	P3	CHECKLIST CDT-297	tools/smoke/run.sh points to missing README
+10-core-rest	F23	P3	CHECKLIST CDT-297	scout-plugins README orphan command + no untrusted-content guard
+10-core-rest	F24	P3	CHECKLIST CDT-297	standup STALE heuristic always fires + minor defects
+10-core-rest	F25	P3	CHECKLIST CDT-284	install-test.sh sha256sum not portable
+10-core-rest	F26	P3	CHECKLIST CDT-299	verify effort: xhigh on Sonnet (unverified)
+10-core-rest	E1	High	COVERED CDT-272	fence doctor lint
+10-core-rest	E2	High	COVERED CDT-269	discovering CI job (+CDT-274 perms/timeouts, CDT-271 macOS)
+10-core-rest	E3	High	COVERED CDT-265	plugin-dir.sh self-location tier + identity check
+10-core-rest	E4	Med	COVERED CDT-296	generate install.sh tier map from frontmatter
+10-core-rest	E5	Med	COVERED CDT-295	user-invocable:false + docs-drift parity
+10-core-rest	E6	Med	COVERED CDT-297	docs-drift stale-term list
+10-core-rest	E7	Med	COVERED CDT-289	trim refactor SKILL.md
+10-core-rest	E8	Med	COVERED CDT-299	glossary + hand-back block for 7 agents
+10-core-rest	E9	Low-Med	CHECKLIST CDT-297	anchor-link checker + /release updates SECURITY.md
+10-core-rest	E10	Med	COVERED CDT-298	worktree-lib --keep-branch, unmerged warning, tests
+10-core-rest	R-smoke.yml	Issue	CHECKLIST CDT-274	actions/checkout not SHA-pinned (other smoke.yml items CDT-269/271/274)
+10-core-rest	R-AGENTS.md	Issue	CHECKLIST CDT-297	AGENTS.md drift: snippet vs protocol.md, directives list, hooksPath, TaskCompleted claim
+10-core-rest	R-fence-args	Major	CHECKLIST CDT-297	"$@"/$slug empty in Bash-tool fences (setup, status, worktree)
+10-core-rest	R-setup-stanza	Major	COVERED CDT-288	PDH stanza repeated 9x in commands/setup.md
+10-core-rest	R-install.sh	Issue	CHECKLIST CDT-296	install.sh default run drops user pins; strip regex; comment
+10-core-rest	R-uninstall	Minor	CHECKLIST CDT-296	uninstall.sh symlink check/pin revert; install-test gaps
+10-core-rest	R-brainstorm	Issue	CHECKLIST CDT-297	brainstorm sqlite timeout; round-4 contradictions (+docs page)
+10-core-rest	R-scaffold	Issue	CHECKLIST CDT-297	scaffold template inner fences close early; phantom ~/.claude/CLAUDE.md
+10-core-rest	R-plugin-dir.sh	Issue	MERGED F5/CDT-348	stale l.14 comment, sort -V
+10-core-rest	R-README	Minor	CHECKLIST CDT-297	README internal-agent count, marketplace key, opencode keys
+10-core-rest	R-hygiene	Minor	CHECKLIST CDT-297	idea-to-plan SPEC-031 collision, migrate cp -a, CHANGELOG annotation, .gitignore dups
+10-core-rest	R-agents-protocol	Minor	CHECKLIST CDT-299	$CONTENT unset, embed resolver tiers, commit-per-GREEN, tools order
+10-core-rest	R-skills-minor	Minor	CHECKLIST CDT-297	code-simplify revert, craft-loop six slots, backlog-burn commits backlog
+10-core-rest	R-worktree-lib	Minor	CHECKLIST CDT-298	release TOCTOU --force, non-git dir adopted, ERR_TMP leak
+10-core-rest	R-matrix-probe	Minor	CHECKLIST CDT-287	permission-matrix-probe no preflight, loose wt_ok, dead code
+10-core-rest	R-smoke.py	Minor	CHECKLIST CDT-269	smoke.py does not validate agents frontmatter
+10-core-rest	R-mode-status-paths	Minor	COVERED CDT-297	cwd-relative skills/*.md paths in mode.md/status.md
+10-core-rest	R-blunt-desc	Minor	COVERED CDT-295	blunt profanity/description surfaces in skill list
+10-core-rest	C-a	info	NOT-ACTIONABLE	manifests valid, no dedicated JSON CI step (docs-drift exercises them)
