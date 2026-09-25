@@ -47,7 +47,6 @@ Narrow-path smoke shape: `/bug-hunt <existing-subdir> [--severity-floor …]` yi
 report + `-plan.md` + ≥0 backlog (only with proceed) + phase handoff stubs —
 **no** product fixes, **no** engine invoke.
 
-**Shipped (CDT-136/C2 + CDT-138/C3 + CDT-139/C4):** S1 discover + S2 refute/confirm → report → S3 findings plan + proceed-gated bh-quality backlog materialize → S4 severity-band phase-plan + handoff templates (emit-only).
 
 **Hard walls (one-liner):** no backlog materialize without explicit proceed (`--proceed` or typed `proceed`); S4 is **emit-only** — MUST NOT invoke `/orchestrate`/`/epic`, spawn fix ICs, or edit product code to fix; no phase arm without M9 (`--start-phase <n>` or typed `start-phase-<n>`); no re-S1/S2 on materialize resume; no re-S1–S3 invent on handoff resume; no commit/version-bump/release; on refuter spawn failure use CDV-199 marker `self-verified — refuters unavailable` (orchestrator only).
 

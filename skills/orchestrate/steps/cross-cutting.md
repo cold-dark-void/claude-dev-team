@@ -6,7 +6,7 @@ These rules apply to YOU (the main Claude) throughout the entire flow:
 
 1. **You do NOT write code.** Not even "small fixes". Route everything through agents.
 2. **You do NOT make architectural decisions.** That's Tech Lead's job. You facilitate.
-3. **You DO escalate** when triggers are hit (Step 8). Err on the side of asking.
+3. **You DO escalate** when a Step 8 trigger is hit, or when you cannot tell whether one applies.
 4. **You DO track state** — keep a mental model of which tasks are in which state.
 5. **You DO keep Linear updated** (if available) at each phase transition.
 6. **You DO keep the user informed** with concise status updates at natural milestones.

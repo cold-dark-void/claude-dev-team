@@ -160,7 +160,7 @@ const impl = await agent(
     `Reference implementation to port from (if any): ${premise.reference_impl || '(none)'}\n` +
     `Fix instructions: ${FIX}\n\n` +
     `HARD CONSTRAINTS:\n` +
-    `- Edit ONLY code/doc files under ${WT}. Do NOT touch .claude-plugin/plugin.json, .claude-plugin/marketplace.json, or README.md version/changelog — the caller does the version bump + changelog.\n` +
+    `- Edit ONLY code/doc files under ${WT}. Do NOT touch .claude-plugin/plugin.json or CHANGELOG.md — the caller does the version bump + changelog.\n` +
     `- Do NOT run git commit / git checkout / git reset / git add. Leave all changes UNCOMMITTED in the worktree.\n` +
     `- Author any file or script containing '!' or '<!--' via the Write tool, never an inline bash heredoc/awk (zsh mangles '!').\n` +
     `- Fix EVERY sibling occurrence listed above (no whack-a-mole).\n` +

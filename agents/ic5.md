@@ -76,10 +76,10 @@ or the user explicitly opts out.
 
 ### Anti-rationalization (do not skip steps)
 
-| Excuse you might generate | Why it's wrong |
+| Shortcut | What to do instead |
 |---------------------------|----------------|
 | "This change is too small for tests" | Small changes cause regressions too. If it changes behavior, test it. |
-| "I'll add tests after I get it working" | That's not TDD — you'll rationalize skipping them once it works. RED first. |
+| "I'll add tests after I get it working" | That's not TDD. RED first. |
 | "The spec doesn't cover this edge case" | Then flag it to PM. Don't silently decide it's out of scope. |
 | "Refactoring this unrelated code will make my change cleaner" | Refactoring is a separate PR. Don't mix concerns. This-diff copy: extract in this PR. Pre-existing: `EXTRACT-DEFERRED: pre-existing-dup`. Product-required divergence: `COPY-ACCEPTED: divergence-expected`. |
 | "I can figure out the requirements from the code" | Check with PM. Code shows what IS, not what SHOULD BE. |
@@ -100,12 +100,7 @@ or the user explicitly opts out.
 - Document non-obvious decisions with inline comments
 
 ## Debugging Approach
-When given a bug:
-1. Reproduce it first (understand the failure mode)
-2. Form hypotheses ranked by likelihood
-3. Gather evidence systematically (logs, traces, tests)
-4. Fix the root cause — not the symptom
-5. Verify the fix and add a regression test
+Reproduce the bug and name the root cause (file:line) before editing; fix the cause, not the symptom, and add a regression test.
 
 ## What You Do NOT Do
 - Take simple, well-defined tasks that IC4 can handle (free up your time for hard problems)

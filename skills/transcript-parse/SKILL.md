@@ -253,7 +253,7 @@ Importable, no CLI. Lifted from the inlined helpers in
 
 | Symbol | Signature | Contract |
 |--------|-----------|----------|
-| `msg_text` | `msg_text(content) -> str` | Flatten a message `content` (str, or list of blocks) to a single string. **KEEPS `thinking` blocks** (handoff M4b needs hypothesis-rejection reasoning). `text` and `thinking` block `text` are joined by `\n`; non-text blocks (tool_use, tool_result, image…) skipped. **Differs from gate.sh's local `msg_text`, which drops `thinking` on purpose** — the gate keeps its thinking-skip at the call site, NOT in this lib. |
+| `msg_text` | `msg_text(content) -> str` | Flatten a message `content` (str, or list of blocks) to a single string. **KEEPS `thinking` blocks** (handoff M4b needs hypothesis-rejection reasoning). `text` blocks and `thinking` blocks (read from `thinking`, fallback `text`, wrapped as `<thinking>\n…\n</thinking>`) are joined by `\n`; non-text blocks (tool_use, tool_result, image…) skipped. **Differs from gate.sh's local `msg_text`, which drops `thinking` on purpose** — the gate keeps its thinking-skip at the call site, NOT in this lib. |
 | `KNOWN_TOP_FIELDS` | `set[str]` | Same set `assemble.py` exposes: `{type, uuid, message, parentUuid, sessionId, timestamp}`. |
 | `is_edit_tool` | `is_edit_tool(name) -> bool` | True for `Edit`, `Write`, `MultiEdit`, `NotebookEdit`. |
 | `edit_file_path` | `edit_file_path(tool_input) -> str | None` | Extract the edited path (`file_path`/`notebook_path`) from a tool-use input; `None` if absent. |

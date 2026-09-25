@@ -3,14 +3,14 @@ name: blunt
 description: |
     Session tone backend for /mode blunt: no sugarcoating, verdict-first,
     confidence must match evidence. Shit is shit; good is good. Primary entry:
-    /mode blunt [on|off|status]. /blunt is a deprecation stub (CDT-46-C4).
+    /mode blunt [on|off|status].
     Orthogonal to /mode focus and /review-and-commit.
 ---
 
 # Blunt (session tone)
 
 > **Entry:** `/mode blunt [on|off|status]`. Live backend for `commands/mode.md`
-> (OQ6 — not a full tombstone). `/blunt` is a deprecation stub.
+> (OQ6 — not a full tombstone).
 
 While ON, every human-facing reply is **direct and epistemically honest**.
 

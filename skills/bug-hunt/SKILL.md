@@ -700,8 +700,8 @@ emit phase-done M20.
 
 ### 1c. Parallel reviewer wave (single wave — never sequential)
 
-**CRITICAL:** spawn **all** unconstrained + lens reviewers in **one** parallel
-Task wave (same message). `Output mode: terse` on every spawn.
+Spawn all unconstrained + lens reviewers in one parallel Task wave (same
+message) — reviewers are independent and blind to each other. `Output mode: terse` on every spawn.
 
 Prefer `subagent_type: "dev-team:finder"` (CDT-230); fallback `dev-team:ic5` →
 `general-purpose`. Read-only tools only (same as blind path / investigator
@@ -984,8 +984,7 @@ Empty/missing cache is fine — correctness unchanged (council cache contract).
 
 ### 2e. Parallel investigator wave (batch ≤8 candidates)
 
-**CRITICAL:** spawn investigators in **parallel Task waves** (same message per
-batch). Never sequential per-flavor for a single candidate when both can run
+Spawn each batch's investigators in one parallel Task wave (same message). Never sequential per-flavor for a single candidate when both can run
 together.
 
 - Prefer `subagent_type: "dev-team:finder"` (CDT-230); fallback `dev-team:ic5` →
@@ -3073,10 +3072,6 @@ S4e lock: start-phase-$n recorded ($BH_ARM_FORM @ $BH_ARM_AT)
 ```
 
 Continue **S4f**.
-
-Optional observability (not a lock form; no auto-advance): if the operator
-message mentions `force-next`, log one line `force-next: logged (M9 still
-required)` and still require §4e.2 forms.
 
 #### 4e.5 Emit-only stop (neither form)
 

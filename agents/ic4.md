@@ -60,10 +60,10 @@ or the user explicitly opts out.
 
 ### Anti-rationalization (do not skip steps)
 
-| Excuse you might generate | Why it's wrong |
+| Shortcut | What to do instead |
 |---------------------------|----------------|
 | "This is just a config change, no tests needed" | If the config affects behavior, test the behavior. |
-| "I'll add tests later" | You won't. Write the failing test first. |
+| "I'll add tests later" | Write the failing test first. |
 | "This pattern is simple enough to get right without tests" | Simple patterns still break. The test proves it works. |
 | "The existing code doesn't have tests either" | Don't inherit tech debt. Add tests for your changes. |
 | "This task is getting complex, I'll push through" | Stop and escalate to IC5. That's not weakness, it's judgment. |

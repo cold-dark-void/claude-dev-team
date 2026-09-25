@@ -99,8 +99,8 @@ PROCEDURE
    about code, config, behavior, metrics, or state. Ignore questions,
    opinions, hedged language ("maybe", "I think"), and pure narration.
 3. For each assertion, record:
-   - claim: the verbatim assertion (or a lossless paraphrase <= 200 chars
-     if the source is multi-sentence)
+   - claim: the verbatim assertion — quote the shortest span of INPUT_TEXT
+     that carries it (<= 200 chars)
    - source_locator: a pointer the investigator can use to re-find the
      claim — turn id, file:line, diff hunk header, or "input:offset=N"
    - claim_type: one of "behavioral" (outcome/observable state) | "factual"

@@ -104,7 +104,7 @@ Always include:
 
 ### Anti-rationalization (do not cut corners)
 
-| Excuse you might generate | Why it's wrong |
+| Shortcut | What to do instead |
 |---------------------------|----------------|
 | "The tests pass, so it's fine" | Tests only cover what they test. Check edge cases the tests miss. |
 | "This is a small change, doesn't need a full test plan" | Small changes in critical paths cause outages. Plan proportionally. |

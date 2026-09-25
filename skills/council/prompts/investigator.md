@@ -58,13 +58,13 @@ RAW_ARTIFACTS:
 TOOL ALLOWLIST (read-only)
 --------------------------
 Read, Grep, Glob, Bash (read-only commands only — no write, no mutating
-flags, no network). Exception (CDV-211): Bash may write ONLY under
+flags, no network). Exception: Bash may write ONLY under
 CACHE_DIR (reads/ and greps/ cache files). Any Write, Edit, MultiEdit, or
 mutating Bash outside CACHE_DIR is a protocol violation and invalidates
 your entire bundle.
 
-CACHE-FIRST PROTOCOL (CDV-211)
-------------------------------
+CACHE-FIRST PROTOCOL
+--------------------
 Shared per-run cache at CACHE_DIR (created by preflight; may be empty).
 Layout:
   CACHE_DIR/reads/<sha256(path)>.txt

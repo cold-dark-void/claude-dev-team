@@ -321,7 +321,7 @@ fi
 ### Step 3: Write .claude/settings.json
 
 **Precondition (CDT-68):** confirm the user already approved the settings merge
-in the up-front batch ask (see **Permission batching under `dontAsk`**). If not,
+in the up-front batch ask (see **Permission batching** above). If not,
 ask now (settings merge + bash-compress + escalation-gate by name) before writing.
 
 Using the `allowedDomains` list from Step 2, write the settings file.
@@ -1933,7 +1933,7 @@ Replace all `[bracketed]` and `<ANGLE BRACKET>` placeholders with actual values.
 
 When emitting this, replace `<model>` with the agent/model actually performing this commit. Do **not** hardcode Claude/Anthropic when the agent is something else (e.g. Grok, Codex, a human). Examples:
 - `Co-Authored-By: Grok <noreply@x.ai>`
-- `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+- `Co-Authored-By: Claude <your model's name, as your environment reports it> <noreply@anthropic.com>`
 
 #### Team Coordination section only (appending to existing AGENTS.md)
 

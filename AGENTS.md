@@ -29,7 +29,7 @@ pin via git refs (`stable` / `master` on `source.ref`). Description sync with
 `plugin.json` is still required (docs-drift `manifest-desc`).
 
 `README.md` carries only a pointer to `CHANGELOG.md` — do NOT add version
-sections to it (the changelog was moved out of the README in v0.37.4).
+sections to it.
 
 Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
 New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor.
@@ -45,15 +45,6 @@ The commit-message format, single-folded-commit rule, and tag/push sequence are 
 `skills/release/SKILL.md` (the authoritative `/release` contract) — follow it rather than
 hand-crafting a release commit. (The format is intentionally NOT restated here, to keep a
 single source of truth; read the skill.)
-
-## v1.0 Feature Freeze (CDT-46) — historical
-
-Lifted: `v1.0.0` is tagged on master. This section is historical and does **not**
-bind master (CDT-46-only + bugfixes is no longer a live landing rule).
-
-While the freeze was active (pre-`v1.0.0`): only CDT-46 child-ticket work and bug
-fixes landed on master. Scope then was `commands/`, `skills/`, `agents/*.md`,
-hooks, and `specs/`.
 
 ## Agent Roster
 
@@ -113,7 +104,7 @@ Each agent has memory stored in SQLite (preferred) or .md files (fallback):
 - Semantic search via sqlite-vec embeddings
 - No line limits
 
-**Memory tiers** (SQLite mode, after v0.14.0):
+**Memory tiers** (SQLite mode):
 - Tier 0: Raw memories (written by agents during work)
 - Tier 1: Digests (LLM-compressed summaries, created by `/memory distill`)
 - Tier 2: Core knowledge (promoted from digests, permanent)
@@ -149,15 +140,15 @@ AGENT_CTX="$WTROOT/.claude/memory/<agent-name>"
 
 **Session start — read memory (tiered):**
 ```bash
-USE_DB=false
-if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  USE_DB=true
-fi
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+USE_DB=false
+if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
+  USE_DB=true
+fi
 if [ "$USE_DB" = "true" ]; then
   # Check if distilled content exists
   HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories

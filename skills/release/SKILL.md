@@ -208,7 +208,7 @@ heading; `/release <assigned_version>` verifies rather than duplicates.
 
 ## Step 3: Bump the version pair
 
-**CRITICAL — both must be updated. Never skip either.**
+Update both files below (3a honors Step 2's skip-if-present); Step 4 verifies the pair matches.
 
 ### 3a. `CHANGELOG.md`
 If skip-if-present matched in Step 2: verify the heading exists with a non-empty
@@ -399,7 +399,6 @@ Co-Authored-By: <Agent-or-Model> <noreply@…>
 - Em-dash (`—`) between version and summary, not a hyphen.
 - **Honest identity** — name the agent/model actually performing the release. Do **not** hardcode Claude/Anthropic when the agent is something else (e.g. Grok, Codex, a human). Examples:
   - `Co-Authored-By: Grok <noreply@x.ai>`
-  - `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
   - `Co-Authored-By: Claude <model> <noreply@anthropic.com>` (model-agnostic Claude form for consumer templates)
 - The CHANGELOG carries the detail; the commit subject stays one line.
 

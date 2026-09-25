@@ -361,15 +361,10 @@ Output mode: terse
 Ticket summary: <first 2 sentences of ticket text>
 Keywords: <extract 3-5 keywords from ticket text>
 
-Your methodology:
-1. DISCOVERY — Grep/Glob for the keywords across the codebase. Find all
-   relevant files, types, functions, routes, handlers.
-2. FLOW ANALYSIS — For the top 3-5 most relevant entry points, trace the
-   execution path: caller → function → dependencies → side effects.
-   Read each file fully, do not skim.
-3. ARCHITECTURE MAPPING — Identify patterns: what abstractions exist,
-   what conventions are followed, what data flows through the system.
-4. DEPENDENCY MAP — What does this area depend on? What depends on it?
+Goal: map how this area works today — entry points, execution flows,
+conventions, and inbound/outbound dependencies — so the design starts from
+the real code. Trace flows through the files that matter rather than listing
+keyword hits.
 
 Output a structured report:
 - Entry points: <list with file:line>

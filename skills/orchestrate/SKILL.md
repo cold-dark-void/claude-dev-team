@@ -33,7 +33,6 @@ No `--tier`: Step 2 auto-sizes S→light / M→standard / L→full (cheap signal
 ## Load protocol
 
 Read **only the current phase**. Do not Read every `steps/*.md` up front.
-The monolith is gone from this always-on path.
 
 1. Resolve plugin root with `plugin-dir.sh` (PDH stanza is in `steps/00-resolve.md`).
 2. Once at start: Read `skills/orchestrate/steps/cross-cutting.md`.

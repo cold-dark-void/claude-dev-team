@@ -2,8 +2,8 @@
 
 > **Companion to `skills/autopilot/SKILL.md`.** This file is a *procedure*, not a
 > *policy*. It describes the operational algorithm an orchestrator follows to answer
-> **one** autopilot gate and emit exactly one decision card. It does **not** wire any
-> caller — wiring `/orchestrate`, `/kickoff`, `/epic` to invoke this engine is C4.
+> **one** autopilot gate and emit exactly one decision card. It is invoked by
+> `/orchestrate`, `/kickoff`, and `/epic` at their gates.
 
 ## 1. Purpose + contract-home stance
 
@@ -13,8 +13,7 @@ blocking conditions (M6), the run-budget defaults (M9), the complexity-overflow 
 (M10–M11), and the decision-card schema (M13). **This engine cites those by name/ordinal
 and never restates or forks them** (SPEC-033 M12 / N4, the SPEC-002 D1 contract-home
 rule). When this document needs a checklist step, a BC definition, a budget number, or a
-schema field, it *references* the home copy rather than reproducing it — the same
-reference-not-restate discipline C1 and C2 followed.
+schema field, it *references* the home copy rather than reproducing it.
 
 What this engine adds on top of the frozen contract is the **procedure**: receive an
 input envelope, freeze or select run-budget caps (SPEC-033 **AC9 / M9b**) **before** the
@@ -25,8 +24,7 @@ this engine writes carries `decided_by:"auto"`.
 
 ## 2. Frozen C3→C4 I/O contract
 
-This is the contract C4 wires callers against. It is frozen; C3 does not touch caller
-`SKILL.md` files.
+This is the contract callers build their envelope against. It is frozen.
 
 **Input envelope** (caller supplies):
 ```
@@ -308,13 +306,12 @@ deliberately does **not** reproduce M13's enum members, numeric bounds, or chars
 
 ## 5. Boundaries — what this engine does NOT do
 
-- **Wire callers.** Making `/orchestrate`, `/kickoff`, `/epic` invoke this engine is **C4**.
-  C3 only freezes the §2 I/O contract as the fixed target.
+- **Wire callers.** Callers own building the §2 envelope; this engine only consumes it.
 - **Own escalation transport.** Surfacing a halt to a human (webhook vs. inline print, OQ1)
   belongs to **the blocking-condition handler** (the halt-escalation owner). This engine
   writes the `halt` card and returns.
 - **Write user-decided cards.** `decided_by:"user"` halt-resume cards come later from the
-  **halt-resume owner**, never from C3 (§3f).
+  **halt-resume owner**, never from this engine (§3f).
 - **Increment the `qa_bounces` counter.** That counter is owned by the orchestrator /
   SPEC-026; this engine only *reads the caller-supplied value* for the BC2 compare.
 - **Script the judgment BCs or the per-gate checklists.** BCs 1,3,4,5,7,8 and the M4/M5

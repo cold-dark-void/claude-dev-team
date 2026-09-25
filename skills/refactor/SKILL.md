@@ -684,7 +684,7 @@ After emitting either handoff: stop modifying files. The caller decides routing.
 
 ## Blockers
 
-Surface a genuine blocker as exactly one specific question stating precisely what information is missing. Do NOT fabricate. Do NOT guess. Do NOT ask multiple back-and-forth questions when one covers it. After asking, stop and wait — do not continue on assumptions.
+Surface a genuine blocker as one specific question stating exactly what information is missing, then stop and wait for the answer rather than continuing on assumptions.
 
 ---
 

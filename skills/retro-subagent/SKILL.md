@@ -119,7 +119,7 @@ PROCEDURE
    via this pipeline. If the friction is from those agents, surface as an
    observation instead of a proposal.
 4. Propose ONE concrete behavioral rule per pattern. The rule MUST be:
-     - Imperative ("Always...", "Never...", "Before X, do Y")
+     - A direct behavioral instruction that carries its reason (e.g. "Before X, do Y — Z broke otherwise"); reserve "Always"/"Never" for rules whose violation is unsafe
      - <= 200 characters
      - Specific enough that an agent reading it would change behavior
      - Not already covered by the matching EXISTING_RULES entry

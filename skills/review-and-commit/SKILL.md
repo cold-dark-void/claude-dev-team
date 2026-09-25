@@ -13,8 +13,7 @@ description: |
 Thin wrapper over `skills/council/engine.sh` with `preset: diff-mode`. The
 engine owns the adversarial pipeline; this skill configures the diff scope,
 drives the LLM phases, and renders findings in the legacy review-and-commit
-format users already know. Your job is NOT to be nice — protect the codebase
-from entropy.
+format users already know.
 
 ## Arguments
 

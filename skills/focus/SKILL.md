@@ -4,13 +4,13 @@ description: |
     Session mode backend for /mode focus: (1) ADHD-friendly action-first output,
     (2) evidence discipline — no guessing, no narrative root-causes without tool
     confirmation, kill false smoking guns, keep dead-ends. Primary entry: /mode
-    focus [on|off|status]. /focus is a deprecation stub (CDT-46-C4).
+    focus [on|off|status].
 ---
 
 # Focus (session mode)
 
 > **Entry:** `/mode focus [on|off|status]`. Live backend for `commands/mode.md`
-> (OQ6 — not a full tombstone). `/focus` is a deprecation stub.
+> (OQ6 — not a full tombstone).
 
 Two jobs while ON — both required:
 

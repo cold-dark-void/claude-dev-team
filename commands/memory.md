@@ -902,8 +902,7 @@ fi
 ## Step 3: Extract checkable claims via LLM
 
 For each memory, use an LLM claim extractor to identify concrete, checkable
-assertions about the codebase. This replaces the previous regex-based
-extraction with semantic claim understanding.
+assertions about the codebase.
 
 Read the claim extractor prompt template from
 `skills/validate-memory/SKILL.md` section "Claim Extractor Prompt Template".
@@ -1266,7 +1265,7 @@ Log each auto-archive action for the TLDR summary.
 
 ## Step 8: Reviewer pipeline (score 40-80)
 
-Spawn the tech-lead agent (Opus model, per SPEC-003) as a reviewer for entries
+Spawn the tech-lead agent (its frontmatter sets the model; SPEC-003) as a reviewer for entries
 in the 40-80 score range. Batch up to 20 entries per call, max 5 batches per
 run. Any remainder beyond 5 batches (100 entries) overflows to the user-flagged
 list.

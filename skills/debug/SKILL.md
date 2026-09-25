@@ -1033,7 +1033,7 @@ continue the pipeline on assumptions.
 - Prefer scripted aggregates over bulk Read when investigating monorepo-scale patterns (think in code)
 - Do NOT edit, create, or delete any file before the root cause statement is in the session output (`full`/`patch`/`arch`)
 - Do NOT claim completion ("done", "fixed", "resolved") before the self-calibration checklist passes (`full`/`patch`)
-- Do NOT apply the same fix in multiple places — that is always a refactor trigger
+- Same fix needed in more than one place at scope time → `refactor-first` (§ 2.4); sibling hits found later in § 2.8 follow that step's address-or-document rule
 - Do NOT skip the failing-test phase for reproducible bugs, even apparently trivial ones
 - Do NOT back-and-forth on blockers — one specific question or silence
 - Do NOT ask the user to make the scope decision or spec classification unless genuinely ambiguous after full investigation

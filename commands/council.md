@@ -1170,8 +1170,8 @@ Total reviewers: $((TEAMS + M))
 
 ### B2 — Parallel reviewer fan-out (single wave)
 
-**CRITICAL: Spawn ALL unconstrained AND lens teams in one parallel wave —
-never sequential.**
+Spawn all unconstrained and lens reviewers in one message so they run in
+parallel and none sees another's output.
 
 **Unconstrained** — for each index `1..TEAMS`:
 

@@ -72,7 +72,7 @@ Team-bootstrap seed (when no orchestration markers present):
 
 ## Step 2: Comprehensive Project Scan
 
-Read broadly. Do NOT skip files. You are reading for 7 different roles simultaneously.
+You are reading for 7 roles at once: cover each area in the checklist well enough to write role-specific entries.
 
 ### FIRST: Read AGENTS.md if it exists
 ```bash
@@ -84,7 +84,7 @@ cat "$MROOT/AGENTS.md" 2>/dev/null || echo "No AGENTS.md found"
 ```
 AGENTS.md contains critical project rules (threading requirements, known bugs, forbidden patterns, testing workflows). Every cortex file you write must incorporate the rules relevant to that role. Known issues from AGENTS.md must go into `lessons.md` for tech-lead and ic5.
 
-### Discovery checklist (read everything that exists):
+### Discovery checklist (read what exists):
 - Root files: `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, `CHANGELOG*`, `LICENSE`
 - Domain glossary: `CONTEXT.md` or `docs/domain/CONTEXT.md` (ubiquitous language —
   preferred term names and aliases to avoid). If present, seed **every** agent's
@@ -144,7 +144,7 @@ if [ "$MEMORY_BACKEND" = "sqlite" ]; then
     VALUES ('$AGENT', '$TYPE', '$ESCAPED_ENTRY');"
   # Repeat for each additional entry — do NOT combine into one row
 else
-  # Fallback: write .md as before
+  # Fallback: write the .md file
   cat > "$MROOT/.claude/memory/$AGENT/$TYPE.md" << 'EOF'
   [content]
   EOF
@@ -445,7 +445,7 @@ _Seeded from AGENTS.md on [date]._
 [Threading, error handling, caching rules]
 ```
 
-If no AGENTS.md exists, write short placeholder lessons.md files with headers only.
+If no AGENTS.md exists, seed lessons only from pitfalls found in the scan; otherwise skip lessons.md.
 
 ## Step 4: Bootstrap Claude Code's Project Memory
 

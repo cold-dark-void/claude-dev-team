@@ -83,8 +83,8 @@ not only in this ambiguous band — either way, it ran here too). A fired
 signal already routes straight to `full` before grading ever reaches you,
 so by construction none did. You are the tiebreaker precisely because the
 deterministic, structural checks came up empty and only file/line-count
-size was ambiguous — read the actual diff content below to judge risk the
-structural checks cannot see.
+size was ambiguous — read the file list and per-file added/deleted counts
+below to judge risk the structural checks cannot see.
 
 DECISION
 --------

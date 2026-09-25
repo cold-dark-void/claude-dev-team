@@ -29,8 +29,8 @@ reference_impl (if any).
 
 HARD CONSTRAINTS:
 - Edit ONLY code/doc files under {{WORKTREE}}. Do NOT touch
-  .claude-plugin/plugin.json, .claude-plugin/marketplace.json, or README.md
-  version/changelog sections — the caller does the version bump + changelog.
+  .claude-plugin/plugin.json or CHANGELOG.md — the caller does the version
+  bump + changelog.
 - Do NOT run git commit / git checkout / git reset / git add. Leave all
   changes UNCOMMITTED in the worktree.
 - Author any file or script containing '!' or '<!--' via the Write tool,

@@ -93,7 +93,7 @@ PROCEDURE
 ---------
 1. Scan INPUT_TEXT line-by-line, tracking the current heading stack.
 2. For each load-bearing assertion, record:
-   - claim: verbatim assertion or lossless paraphrase <= 200 chars
+   - claim: verbatim assertion — the shortest span of INPUT_TEXT that carries it (<= 200 chars)
    - source_locator: PLAN_PATH:heading-path:line (format above)
    - claim_type: behavioral | factual | causal | recommendation
    - load_weight: integer 1-10 (10 = gates ship / unblocks users; 1 = flavor)

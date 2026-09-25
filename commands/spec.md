@@ -61,7 +61,7 @@ With `--tests`, also run Phase 3 for that single spec after the validation repor
 
 | Flag | Effect |
 |------|--------|
-| *(none)* | Phase 1 + Phase 2 only. Output MUST be identical to pre-Phase-3 behavior — no Phase 3 section. |
+| *(none)* | Phase 1 + Phase 2 only; emit no Phase 3 section. |
 | `--tests` | After Phase 2 / validation report, append Phase 3 MUST→test matrix. Report-only: exit 0 even if rows are MISSING. |
 | `--tests --gate[=N]` | Same as `--tests`, then fail closed if total MISSING > N (default N=0). Print `GATE FAIL: Y MISSING exceeds threshold N` and exit non-zero. **Not wired into `/release`** — available for optional preflight only. |
 
@@ -764,12 +764,9 @@ Goes beyond `/spec check` (sampled Phase 2) — exhaustive over every governed s
 
 ---
 
-## Notes for consumers (Tasks 9 / 11 / 13)
+## Flag parity
 
-- Prefer `/spec <sub>` in new docs and in-body refs; legacy `/check-specs`,
-  `/create-spec`, `/find-spec`, `/list-specs`, `/update-spec`, `/generate-specs`,
-  `/generate-tests`, `/reflect-specs` remain until Task 12 stubs them.
-- Flag parity examples that must keep working:
+- Examples that must keep working:
   - `/spec check --tests`
   - `/spec check SPEC-012`
   - `/spec check SPEC-012 --tests --gate=5`

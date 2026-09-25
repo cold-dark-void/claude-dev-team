@@ -174,5 +174,3 @@ JSON, spec tables). Apply mode rules *around* those blocks.
 - No PreToolUse hooks, no disk state
 - No replacement for `/debug` phases or `/council` tribunal
 - Not a substitute for `/review-and-commit`
-- Legacy `/focus` and `/blunt` are deprecation stubs → `/mode focus` / `/mode blunt`
-  (same skill backends)

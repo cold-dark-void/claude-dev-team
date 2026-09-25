@@ -776,14 +776,10 @@ For every flagged session, assemble the four inputs the subagent expects:
 
 ### Step 4c: Spawn subagents in parallel
 
-IMPORTANT — instruction to the Claude interpreting this command:
-
-Count the flagged sessions (`N = wc -l <<< "$FLAGGED_SESSIONS"`). For each one,
-you (the orchestrating Claude) MUST spawn a `Task` tool call using the prompt
-template from `skills/retro-subagent/SKILL.md` §"Subagent prompt template",
-substituting the inputs built in Step 4b. When `N > 1`, emit all `Task` calls
-in a single tool-use block so they run in parallel — do not await them one at a
-time.
+For each flagged session (`N = wc -l <<< "$FLAGGED_SESSIONS"`), spawn one
+`Task` using the prompt template in `skills/retro-subagent/SKILL.md`
+§"Subagent prompt template", with the Step 4b inputs substituted. Put all `Task`
+calls in a single tool-use block so they run in parallel.
 
 Use `subagent_type: "general-purpose"` (or "Explore" if available) with
 `model: haiku`. This is read-only analysis work; do NOT route to one of the
@@ -850,9 +846,8 @@ SUBAGENT_RESULTS="${SUBAGENT_RESULTS}${JSONL}$(printf '\t')${RETURNED_JSON}
 "
 ```
 
-All Task calls for the flagged sessions MUST be emitted in one tool-use block
-so they run in parallel; the accumulation above describes the logical shape of
-`SUBAGENT_RESULTS` that Step 4d consumes.
+The accumulation above describes the logical shape of `SUBAGENT_RESULTS` that
+Step 4d consumes.
 
 ### Step 4d: Parse + validate per the SKILL.md contract
 

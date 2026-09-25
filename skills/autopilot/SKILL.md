@@ -6,8 +6,8 @@ description: |
     runs unattended, and halts + escalates to a human on 7 of 8 blocking conditions
     (BC5 instead reroutes to /epic decompose and continues autonomously). Never
     removes a gate; only changes who answers it and records why (append-only
-    decision cards). Cited by /orchestrate, /kickoff, /epic when wired (later
-    CDT-111 children); those MUST cite, never restate.
+    decision cards). Cited by /orchestrate, /kickoff, /epic; those MUST cite,
+    never restate.
 ---
 
 # Autopilot
@@ -15,7 +15,7 @@ description: |
 > **Contract home (SPEC-002 D1 cite-not-copy).** This SKILL is the **one operational
 > copy** of the shared autopilot policy. `specs/core/SPEC-033-autopilot-policy.md`
 > *defines* the contract; this file *carries* it; `/orchestrate`, `/kickoff`, and
-> `/epic` (when wired by later CDT-111 children) MUST **cite** SPEC-033 / this SKILL
+> `/epic` MUST **cite** SPEC-033 / this SKILL
 > and MUST NOT restate or fork the checklists, conditions, budget, or schema.
 
 Autopilot is the opt-in mode in which a workflow's human-interactive **gates** — the
