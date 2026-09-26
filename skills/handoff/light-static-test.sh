@@ -129,6 +129,13 @@ else
   bad "T6b parent --light direct path must MUST NOT Read full SKILL.md"
 fi
 
+# T6c: same MUST NOT sentence also names LIGHT.md (commands/handoff.md:197)
+if grep -qF 'Parent MUST NOT Read `skills/handoff/SKILL.md` or `LIGHT.md`' "$CMD"; then
+  ok
+else
+  bad "T6c parent --light direct path MUST NOT Read LIGHT.md"
+fi
+
 # ---- T7: LIGHT.md is not a required-load of SKILL.md or commands/handoff.md ----
 # Negated mentions ("MUST NOT Read …") are allowed; a required Read is not.
 if [ -f "$LIGHT" ]; then

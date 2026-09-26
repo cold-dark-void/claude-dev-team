@@ -12,6 +12,9 @@ RC=0
 pass() { PASS=$((PASS + 1)); }
 fail() { FAIL=$((FAIL + 1)); echo "FAIL: $*"; }
 
+# shellcheck source=./fixtures/test-helpers.sh
+. "$HERE/fixtures/test-helpers.sh"
+
 run_lib() {
   # run_lib <want_exit> <args...>
   local want="$1"; shift
@@ -39,6 +42,7 @@ setup_repo() {
   git -C "$d" init -q -b master
   git -C "$d" config user.email "test@example.com"
   git -C "$d" config user.name "Test"
+  git -C "$d" config core.excludesFile /dev/null
   mkdir -p "$d/.claude-plugin"
   printf '%s\n' '{"name":"dev-team","version":"0.39.0"}' > "$d/.claude-plugin/plugin.json"
   printf '%s\n' '{"plugins":[{"name":"dev-team","version":"0.39.0"}]}' > "$d/.claude-plugin/marketplace.json"
@@ -161,7 +165,10 @@ run_in 0 release-lock
 git -C "$REPO" checkout -q -b feat/c
 printf '%s\n' '# Changelog' '' '### v0.40.0' '- c feature' > "$REPO/CHANGELOG.md"
 printf '%s\n' '{"name":"dev-team","version":"0.40.0"}' > "$REPO/.claude-plugin/plugin.json"
-git -C "$REPO" add -A && git -C "$REPO" commit -q -m "feat c assume 0.40.0"
+# CDT-332 regression guard: never sweep up the untracked release-train
+# queue dir here — a prior bug tracked it into this commit, then
+# `checkout -q master` deleted it, silently hiding the preflight defect.
+git -C "$REPO" add CHANGELOG.md .claude-plugin/plugin.json && git -C "$REPO" commit -q -m "feat c assume 0.40.0"
 git -C "$REPO" checkout -q master
 
 run_in 0 detect-assumed feat/c
@@ -238,7 +245,7 @@ BASE=$(git -C "$REPO" rev-parse HEAD)
 echo dirty > "$REPO/dirty.txt"
 git -C "$REPO" add dirty.txt
 run_in 0 restore "$BASE"
-[ -z "$(git -C "$REPO" status --porcelain)" ] && pass || fail "restore not clean"
+clean_except_queue "$REPO" && pass || fail "restore not clean"
 [ "$(git -C "$REPO" rev-parse HEAD)" = "$BASE" ] && pass || fail "restore wrong HEAD"
 
 # verify-tag missing
@@ -248,6 +255,35 @@ run_in 0 verify-tag v0.39.0
 
 run_in 0 preflight
 [ "$OUT" = "ok" ] && pass || fail "preflight want ok got $OUT"
+
+# ---- CDT-332: untracked, non-gitignored release-train queue must not ------
+# ---- block preflight; a real dirty file outside it still must -------------
+[ -f "$REPO/.claude/release-train/queue.json" ] && pass || fail "CDT-332 setup: queue.json missing"
+git -C "$REPO" ls-files --error-unmatch .claude/release-train/queue.json >/dev/null 2>&1 \
+  && fail "CDT-332 setup: queue.json unexpectedly tracked" || pass
+run_in 0 preflight
+[ "$OUT" = "ok" ] && pass || fail "CDT-332: untracked queue should not fail preflight, got $OUT"
+
+echo real-change > "$REPO/real-dirty.txt"
+run_in 1 preflight
+echo "$OUT" | grep -q dirty && pass || fail "CDT-332: real dirty file should still fail preflight, got $OUT"
+rm -f "$REPO/real-dirty.txt"
+run_in 0 preflight
+[ "$OUT" = "ok" ] && pass || fail "CDT-332: preflight ok again after removing real dirty file, got $OUT"
+
+# ---- root-dirt found from a subdirectory (top-anchored pathspec regression) -
+# A plain '.' pathspec limits `git status` to the cwd subtree; preflight run
+# from a subdirectory must still see dirt at the repo root.
+mkdir -p "$REPO/sub"
+echo root-dirty > "$REPO/root-dirty.txt"
+cd "$REPO/sub"
+run_in 1 preflight
+echo "$OUT" | grep -q dirty && pass || fail "preflight from sub/ should see repo-root dirt, got $OUT"
+cd "$REPO"
+rm -f "$REPO/root-dirty.txt"
+rmdir "$REPO/sub"
+run_in 0 preflight
+[ "$OUT" = "ok" ] && pass || fail "preflight ok again after removing root dirt, got $OUT"
 
 git -C "$REPO" checkout -q -b not-master
 run_in 1 preflight

@@ -8,6 +8,7 @@
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "$SCRIPT_DIR/../../tests/lib/skip.sh"
 EMIT="$SCRIPT_DIR/emit-outcome.sh"
 RATES="$SCRIPT_DIR/outcome-rates.sh"
 ROLLUP="$SCRIPT_DIR/rollup.sh"
@@ -137,16 +138,18 @@ fi
 # =============================================================================
 # 4. Fail-open unwritable metrics dir
 # =============================================================================
-reset_ledger
-mkdir -p .claude
-chmod 555 .claude
-RC=0
-ERR=$(emit "CDV-185" "T4" "ic4" "refactor" "M" "accepted" 0 0 0 2>&1 >/dev/null) || RC=$?
-chmod 755 .claude 2>/dev/null || true
-if [ "$RC" -eq 0 ] && [ ! -f "$LEDGER" ] && printf '%s' "$ERR" | grep -qi 'skipping\|cannot'; then
-  pass "4 fail-open unwritable metrics dir"
-else
-  fail "4 unwritable rc=$RC ledger=$([ -f "$LEDGER" ] && echo y || echo n) err=$ERR"
+if ( skip_if_root "4 chmod 555" ); then
+  reset_ledger
+  mkdir -p .claude
+  chmod 555 .claude
+  RC=0
+  ERR=$(emit "CDV-185" "T4" "ic4" "refactor" "M" "accepted" 0 0 0 2>&1 >/dev/null) || RC=$?
+  chmod 755 .claude 2>/dev/null || true
+  if [ "$RC" -eq 0 ] && [ ! -f "$LEDGER" ] && printf '%s' "$ERR" | grep -qi 'skipping\|cannot'; then
+    pass "4 fail-open unwritable metrics dir"
+  else
+    fail "4 unwritable rc=$RC ledger=$([ -f "$LEDGER" ] && echo y || echo n) err=$ERR"
+  fi
 fi
 
 # =============================================================================

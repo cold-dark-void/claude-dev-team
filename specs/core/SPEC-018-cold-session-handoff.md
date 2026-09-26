@@ -206,6 +206,7 @@ Goal: the slash command is a small parent stub. `mode=direct` mines off the pare
   8. `--miner-model` / `HANDOFF_MINER_MODEL` apply to this one agent's `model:` (M3e).
   9. Parent MUST NOT delete `WORK_DIR` / the Grok adapted JSONL until the agent completes (or fails).
   10. Warm completion in the parent: packet path only (plus the M10c light nudge when light). Cold MISS: relay M7 core + path from the agent final report.
+  11. **One parent fence (WP 1-02, W1-27, E5).** Parse, engine locate, discover, resolve-root, cheap gates, cache check and prepare MUST run in one executable bash fence, the first under `## Step 1: Parse arguments` (separate Bash calls do not share shell variables; a split fence turned bare `/handoff` into cold mode). The fence MUST read the command arguments from a quoted heredoc (no word-split glob or expansion of user text); no arguments MUST set warm mode. The parent error capture MUST come from `mktemp`, never a fixed `TMPDIR` path. The parent MUST read `plan.json` and the live-session bridge with one python3 helper under `skills/handoff/` (no `jq` in `commands/handoff.md`), and its payload echo MUST include `SPINE=<plan.spine>`. `--help` and an unknown flag print usage from inside the fence and exit 0 before discover. The cache-HIT and too-fresh (M9) strings MUST match `docs/commands/handoff.md` byte for byte.
 
   **In-session fallback (locked):** if `plan.mode=chunked` **or** the host cannot spawn a background agent, parent MUST NOT spawn the detached orchestrator. Parent MAY Read the skill file and MUST run today's pipeline: parallel N haiku chunk-summarizers (when chunked) + one miner Task + annotation Task when bare warm. Serialization of the chunk map remains a defect on this path. Fallback is **exempt** from the parent ~3k budget. MUST NOT fail the capture solely because detach was unavailable. No new CLI flag.
 
@@ -216,7 +217,7 @@ Goal: the slash command is a small parent stub. `mode=direct` mines off the pare
   - `--slug` missing value: no spawn.
   - `--help` / unknown flag: usage, exit 0, no spawn.
   - Resolve-root fail: fail hard, no spawn, no invoker-cwd write (M7b).
-  - Cold uuid-shape invalid / unknown uuid / M9 decline: existing behavior, no spawn.
+  - Cold uuid-shape invalid (the full `8-4-4-4-12` lowercase-hex form is required) / unknown uuid / M9 decline: existing behavior, no spawn.
   - Cold cache HIT: serve M7 in-session, no spawn.
 
   **Native `agent:` frontmatter:** prefer only if the parent still runs discover (or the agent inherits live session identity) **and** M19 parent-budget (no skill Read on `mode=direct`) holds. Today's `agent: build` does **not** detach. Until a host is proven to honor `agent:` that way, the stub MUST use an explicit one-agent spawn (Claude `Task` / host-equivalent background agent). Host-agnostic.
@@ -302,6 +303,7 @@ Goal: the slash command is a small parent stub. `mode=direct` mines off the pare
 
 | Date | Change |
 |------|--------|
+| 2026-09-25 | **WP 1-02 (CDT-266, W1-27, E5):** M19.11 one parent fence (parse through prepare in the Step 1 fence; quoted-heredoc args; bare → warm); `mktemp` error file; python3 plan helper replaces `jq`; payload echo carries `SPINE=`; full 8-4-4-4-12 uuid shape; cache-HIT / M9 strings match the docs page. Unknown flag stays usage + exit 0 (this spec wins over the W1-27 "exit 64" ask). 12000 B cap unchanged. |
 | 2026-08-26 | **CDT-216:** M3f Transcript mirror consume — `--check --sid` `status=ok` MAY replace M2 render with stripped `main.md`; `leaf_uuid` stays JSONL tip; `plan.spine_origin=mirror` on hit only; fork/delta/`--full`/not-ok → JSONL identity; cursor ≠ leaf; OQ-H hybrid OUT; OQ-F stitch out (force JSONL); OQ-K sid = handoff id; Test 40 |
 | 2026-08-21 | **CDT-204:** M19 detached orchestrator — parent stub parse/discover/prepare then `plan.mode` branch; `mode=direct` one background agent Reads skill from disk and IS the miner (INLINE) + bare-warm annotation (INLINE); chunked / host-cannot-spawn → in-session parallel N haiku map (locked); `--miner-model` applies to the one agent `model:`; command ≤12000 bytes; one-turn lag honesty; Test 39; Test 24 retarget |
 | 2026-08-21 | **CDT-203:** M3e CLI `--miner-model`; host-neutral `fast\|balanced\|max` resolve at spawn (Claude map; Grok identity; `max`→inherit); passthrough + fail-soft; advisory after prepare; flag > env > light > inherit; Test 24/31 |

@@ -6,6 +6,9 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LIB="$HERE/epic-lib.sh"
 PARSE="$HERE/parse-flags.sh"
 DAG="$HERE/../orchestrate/dag-lib.sh"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
 PASS=0
 FAIL=0
 OUT=""
@@ -41,7 +44,7 @@ echo "$OUT" | grep -q Usage && pass || fail "usage text missing"
 
 # ---- isolated root ----------------------------------------------------------
 TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-test.XXXXXX")
-cleanup() { rm -rf "$TMPROOT"; }
+cleanup() { rm -rf "$TMPROOT"; hermetic_cleanup; }
 trap cleanup EXIT
 export EPIC_ROOT="$TMPROOT"
 

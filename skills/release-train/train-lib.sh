@@ -836,7 +836,14 @@ cmd_release_lock() {
 cmd_preflight() {
   local branch dirty
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo UNKNOWN)
-  dirty=$(git status --porcelain 2>/dev/null || true)
+  # Exclude the release-train queue dir: it holds in-flight CLI state, not
+  # repo content, and untracked queue files should never fail preflight
+  # (CDT-332). Excluded whether or not it is gitignored.
+  # Top-anchored (':/' + top magic) so preflight checks the WHOLE repo
+  # regardless of cwd -- a plain '.' pathspec limits the check to the cwd
+  # subtree, hiding dirt elsewhere in the repo when preflight runs from a
+  # subdirectory.
+  dirty=$(git status --porcelain -- ':/' ':(top,exclude).claude/release-train' 2>/dev/null || true)
   local ok=1
   local reason=()
   case "$branch" in

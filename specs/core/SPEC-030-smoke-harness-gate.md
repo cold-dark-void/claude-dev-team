@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-07-21
 
-**Covers**: `tools/smoke/run.sh`, `tools/smoke/smoke.py`, `tools/smoke/test.sh`, `tools/smoke/fixtures/`, `tools/smoke/README.md`, `tools/run-all-tests.sh`, `tools/run-all-tests-test.sh`, `tools/test-quarantine.txt`, `.github/workflows/smoke.yml`, `skills/release/SKILL.md` (Steps 4.10 and 4.13 only)
+**Covers**: `tools/smoke/run.sh`, `tools/smoke/smoke.py`, `tools/smoke/test.sh`, `tools/smoke/fixtures/`, `tools/smoke/README.md`, `tools/run-all-tests.sh`, `tools/run-all-tests-test.sh`, `tools/test-quarantine.txt`, `tests/lib/skip.sh`, `tests/lib/hermetic.sh`, `tests/lib/test.sh`, `.github/workflows/smoke.yml`, `skills/release/SKILL.md` (Steps 4.10 and 4.13 only)
 
 ## Overview
 
@@ -41,6 +41,15 @@ a `smoke.yml` `all-tests` job, and `/release` Step 4.13. The contract home is th
 (not SPEC-010) because this spec already owns `smoke.yml`, the `tools/` test harnesses and
 the "gate contract here, `/release` hosts the step" pattern. SPEC-010 carries a one-line
 Step 4.13 pointer only. Smoke *parses* test scripts; the runner *runs* them.
+
+**Skip protocol and hermetic suites (WP 1-02, CDT-270, CDT-419, W1-34, W1-35).** WP 1-01
+seeded the quarantine with six suites that were red in CI. WP 1-02 fixed them and emptied
+the file. This spec also owns the suite-side contract that keeps the file empty: one
+exit-77 skip protocol for environment causes (`tests/lib/skip.sh`, R18-R20), and hermetic
+suites that do not touch the real `$MROOT/.claude/`, the caller's `TMPDIR` or the real
+`HOME` (`tests/lib/hermetic.sh`, R16). A skip is for a missing tool or a root uid only. A
+repo-state cause (a missing generated file, a stale grep, a live-repo write) is a defect
+to fix, never a skip.
 
 ## MUST
 
@@ -144,7 +153,7 @@ Step 4.13 pointer only. Smoke *parses* test scripts; the runner *runs* them.
 
 - R11. The quarantine file is `<root>/tools/test-quarantine.txt`; an absent file is an empty quarantine. Blank lines and lines whose first non-blank character is `#` are ignored. Every other line is `<path><whitespace><reason>`, where `<path>` is a repo-relative suite path exactly as R4 discovers it. The runner MUST exit `64` naming the file and line number when a line has no reason, when `<path>` is not a discovered suite (stale or mistyped entry), or when a path is listed twice
 - R12. A quarantined suite MUST still run. A FAIL, TIMEOUT or R9 outcome MUST be reported as `QUARANTINED` and MUST NOT affect the exit code. A PASS MUST be reported as `PASS` plus a stderr `warn:` line that tells the operator to remove the entry. Exit `77` stays SKIP
-- R13. Each entry MUST carry one concrete reason: the failing assertion or the missing dependency, with a `file:line` or tool name. The file MUST list only suites measured red in CI (re-measured, never copied from a seed list). It MUST NOT list a suite that a dedicated `smoke.yml` job runs. WP 1-02 empties the file; the runner MUST NOT edit it
+- R13. Each entry MUST carry one concrete reason: the failing assertion or the missing dependency, with a `file:line` or tool name. The file MUST list only suites measured red in CI (re-measured, never copied from a seed list). It MUST NOT list a suite that a dedicated `smoke.yml` job runs. WP 1-02 emptied the file (header comments only); a new entry needs a fresh CI measurement. An environment cause MUST use the R18 exit-77 skip, never an entry. The runner MUST NOT edit the file
 
 ### All-suites runner — CI and release wiring
 
@@ -153,8 +162,19 @@ Step 4.13 pointer only. Smoke *parses* test scripts; the runner *runs* them.
 
 ### All-suites runner — suite hygiene
 
-- R16. A discovered suite MUST NOT leave tracked or untracked-not-ignored changes in the checkout it runs from. A bite-test that needs a "live tree" MUST inject into a scratch copy of the checkout (for example `skills/docs-drift/test.sh` T6/T7), never into the checkout itself — an interrupted or timed-out run would leave the release tree mutated
+- R16. A discovered suite MUST NOT leave tracked or untracked-not-ignored changes in the checkout it runs from. A bite-test that needs a "live tree" MUST inject into a scratch copy of the checkout (for example `skills/docs-drift/test.sh` T6/T7), never into the checkout itself — an interrupted or timed-out run would leave the release tree mutated. A suite MUST NOT write under the real `$MROOT/.claude/` (the main checkout's gitignored state, which R9 cannot see): a suite that exercises an engine that resolves `$MROOT` from `git rev-parse --git-common-dir` MUST run that engine from a `mktemp -d` git repo. A suite MUST NOT leave files in the caller's `TMPDIR` and MUST NOT read or write the real `HOME`; a suite that runs engines which create temp files or read HOME-rooted state MUST call `hermetic_init` (R20) before any other work. The runner does not enforce these rules (R9 compares non-ignored paths only); suite design and review do
 - R17. `tools/run-all-tests-test.sh` MUST prove, on mktemp git trees via `--root`: a new `*-test.sh` is run (tracked and untracked-not-ignored); `test.sh` and `test-*.sh` are run; `fixtures/`, `.worktrees/`, `node_modules/` and non-matching names are not; sorted order; PASS-only → exit 0; FAIL → exit 1; TIMEOUT with a small `RUN_ALL_TESTS_TIMEOUT` → exit 1, fast, no surviving grandchild process; exit 77 → SKIP, exit 0; quarantined FAIL → exit 0; quarantined PASS → `warn:`; each R11 malformed case → exit 64; each R3 usage case → exit 64; an R9 dirtying suite → FAIL. On the live repo it MUST assert that no `tools/test-quarantine.txt` entry is run by a dedicated `smoke.yml` job
+
+### All-suites runner — skip protocol and hermetic helpers
+
+- R18. MUST ship `tests/lib/skip.sh`, source-only (sourcing it has no side effect), that defines two functions. `<suite>` below is the basename of the sourcing script's `$0`:
+  - `skip_if_root [<reason>]` — when `id -u` prints `0`, print `SKIP: <suite>: root uid: <reason>` on stderr and exit 77; else return 0
+  - `require_cmd <cmd>...` — when `command -v` does not find a `<cmd>`, print `SKIP: <suite>: missing command: <cmd>` on stderr and exit 77; else return 0
+
+  A whole-suite skip calls the helper at the top of the suite, before any other work. A per-case skip runs the helper in a subshell, `if ( skip_if_root "<case>" ); then <case body>; fi`: the `SKIP:` line prints, the case does not run, and the suite continues
+- R19. A suite MUST exit 77 (never 0, never another non-zero code) when an environment precondition is absent: a required command is not on `PATH`, or the uid is root and the suite depends on permission bits. A suite MUST NOT exit 77 for any other cause. A missing repo file, a generated file that a clean checkout does not have, or a failed assertion is a FAIL, never a skip
+- R20. MUST ship `tests/lib/hermetic.sh`, source-only, that defines `hermetic_init` and `hermetic_cleanup`. `hermetic_init` MUST create one `mktemp -d` root under the caller's `TMPDIR` (default `/tmp`), export `HERMETIC_ROOT` (that root), `TMPDIR=$HERMETIC_ROOT/tmp` and `HOME=$HERMETIC_ROOT/home` (both created), unset `XDG_CONFIG_HOME`, export fixed `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` values, and install `trap hermetic_cleanup EXIT`. `hermetic_cleanup` MUST remove `$HERMETIC_ROOT`. A suite that sets its own EXIT trap after `hermetic_init` MUST call `hermetic_cleanup` from that trap
+- R21. `tests/lib/test.sh` MUST prove, with nothing run as root and nothing installed: under a `PATH` shim whose `id` prints `0`, `skip_if_root` exits 77 with a `SKIP:` line on stderr, and under a shim that prints `1000` it returns 0; `require_cmd` exits 77 naming the missing command when `PATH` lacks it, and returns 0 when all are present; the per-case subshell form prints the `SKIP:` line and the suite continues; `hermetic_init` puts `TMPDIR` and `HOME` under one root that is gone after the sourcing shell exits, on exit 0 and on a non-zero exit; the caller's `TMPDIR` holds no new entry afterwards
 
 ## SHOULD
 
@@ -177,8 +197,8 @@ Step 4.13 pointer only. Smoke *parses* test scripts; the runner *runs* them.
 - Runtime/behavioral verification of what a command *does* (its outputs, side effects, agent orchestration) — this harness is load-only static verification.
 - Smoke does not *run* test scripts (it only parses them); the all-suites runner does.
 - `.claude-plugin/*.json` schema validation — docs-drift `manifest-desc` covers the description field; a schema check is a separate item.
-- A macOS CI lane (CDT-271), job-level `permissions`/`timeout-minutes` hardening (CDT-274), and root-safe skips (CDT-270).
-- Fixing the quarantined suites — WP 1-02.
+- A macOS CI lane (CDT-271) and job-level `permissions`/`timeout-minutes` hardening (CDT-274).
+- A runner-level guard for writes to gitignored paths, and runner-level `TMPDIR`/`HOME` isolation. R16 is enforced by suite design and review, not by the runner (backlog).
 
 ## Test
 
@@ -199,7 +219,11 @@ Step 4.13 pointer only. Smoke *parses* test scripts; the runner *runs* them.
 - [ ] `.github/workflows/smoke.yml` triggers on both push and pull_request to master and propagates the harness exit code
 - [ ] `/release` dry run with an injected broken fixture on the tree → release blocked at Step 4.10
 - [ ] `bash tools/run-all-tests-test.sh` exits 0 (every R17 case)
-- [ ] `bash tools/run-all-tests.sh` on this repo exits 0 with the seeded quarantine; no `FAIL`/`TIMEOUT` lines
+- [ ] `bash tools/run-all-tests.sh` on this repo exits 0 with an empty quarantine; no `FAIL`/`TIMEOUT`/`QUARANTINED` lines; a `SKIP` line only for an R19 cause
+- [ ] `bash tests/lib/test.sh` exits 0 (every R21 case)
+- [ ] As root (`unshare -r`, where available): `skills/metrics/test.sh` case 4 and `skills/transcript-mirror/test.sh` M4 print `SKIP:` and the suites exit 0
+- [ ] With `sqlite3` absent from `PATH`: `skills/memory-store/test-migrate.sh`, `skills/memory-store/test-seed-pack.sh` and `skills/validate-memory/test-reconcile.sh` exit 77
+- [ ] A full runner run leaves the caller's `TMPDIR`, the real `HOME` and `$MROOT/.claude/` unchanged (R16)
 - [ ] `git status --porcelain` in the checkout is identical before and after a full runner run
 
 ## Validation
@@ -219,6 +243,7 @@ Step 4.13 pointer only. Smoke *parses* test scripts; the runner *runs* them.
 | 2026-07-21 | Initial version (DRAFT). CDT-46-C1 (v1.0-W0). ID 030: highest allocated is SPEC-029. Lands with C1's release commit (freeze + single-folded-commit discipline). |
 | 2026-09-25 | WP 1-01 (CDT-269, `[10 smoke-agents]`, W1-37): smoke discovery widened to agents (five-field value-domain check), sub-doc fences, every `*.sh` incl. tests, and `githooks/`; parser accepts YAML block sequences; `tools/smoke/**` blanket exclusion narrowed to `fixtures/`. New all-suites runner sections R1–R17 (`tools/run-all-tests.sh`, reasoned quarantine, `smoke.yml` `all-tests` job, `/release` Step 4.13, suite hygiene). Title widened. |
 | 2026-09-25 | WP 1-01 review fix: Discovery classifier wording amended to "repo-relative path shape" — classify() must be given a repo-relative path (never absolute), since an ancestor directory outside the root sharing a classified name (`skills`, `agents`, `githooks`) would otherwise false-match. |
+| 2026-09-25 | WP 1-02 (CDT-270, CDT-419, W1-34, W1-35): quarantine emptied; R13 reworded (environment causes skip, never quarantine). R16 extended to the real `$MROOT/.claude/`, the caller's `TMPDIR` and the real `HOME`. New R18–R21: exit-77 skip protocol (`tests/lib/skip.sh`), hermetic helper (`tests/lib/hermetic.sh`) and their self-test. Out of Scope trimmed; Covers widened. |
 
 ## Cross-references
 
@@ -228,4 +253,4 @@ Step 4.13 pointer only. Smoke *parses* test scripts; the runner *runs* them.
 - SPEC-003 — agent role system; source of the five agent frontmatter fields and the Tier table (not enforced here).
 - SPEC-013 — council template-var drift gate precedent (gate owned by domain spec, hosted by `/release`).
 - CDT-46 — v1.0 stability-contract epic; this gate is the W0 "deterministic behavioral gate / verified core" criterion. CONTEXT.md defines the Surface and Deprecation-stub glossary terms this spec relies on.
-- CDT-269 — one discovering runner for all suites (this spec's runner sections). CDT-270 / CDT-271 / CDT-274 — root-safe skips, macOS lane, job permissions/timeouts (out of scope).
+- CDT-269 — one discovering runner for all suites (this spec's runner sections). CDT-270 / CDT-419 — skip protocol and hermetic suites (R16, R18–R21). CDT-271 / CDT-274 — macOS lane, job permissions/timeouts (out of scope).

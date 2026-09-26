@@ -346,9 +346,9 @@ in-session (no background agent).
 /handoff 00000000-0000-4000-8000-000000000004
 ```
 ```
-(served from cache — session unchanged since last handoff)
 ## State now
 ...
+(served from cache — session unchanged)
 ```
 
 **Capture the current live session (warm):**
@@ -405,9 +405,7 @@ Typical next step after warm:
 /handoff 00000000-0000-4000-8000-000000000004
 ```
 ```
-That session looks in-progress (its transcript was modified < 60 s ago). To avoid
-producing a partial handoff, /handoff declines to parse it mid-write. Try again
-once the session has settled (≥ 60 s idle).
+in-progress (transcript modified < 60 s ago) — too-fresh (M9)
 ```
 
 ## Rescue artifacts (PreCompact)

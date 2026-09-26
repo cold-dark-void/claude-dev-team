@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # light-gates-test.sh — CDT-91 T9c / SPEC-018 M10c test 31 + CDT-203 --miner-model parse
 # Coverage:
-#   (1) Cold + --light → usage fail (static gate in commands/handoff.md + fence extract)
+#   (1) Cold + --light → usage fail (static gate in commands/handoff.md + fence run)
 #   (2) Bare warm finalize (no --light) still writes M8 cache (regression vs light skip)
 #   (3) CDT-203 AC1–AC5: --miner-model parse/export (flag > env > light > inherit)
+#
+# The Step 1 fence is the sole parent fence (M19.11 — parse through prepare
+# folded in). It is run end to end against the shared stub plugin root
+# (skills/handoff/fixtures/fence-harness.sh), not sourced as a parse-only
+# prefix — the fence's own PDH/prepass/discover calls need somewhere real (or
+# stubbed) to resolve to.
 # Run: bash skills/handoff/light-gates-test.sh
 set -u
 
@@ -15,47 +21,29 @@ FIX="$HERE/fixtures"
 THRASH="$FIX/events-thrash.json"
 GITBLOB="$FIX/git-state.txt"
 
+# shellcheck source=skills/handoff/fixtures/fence-harness.sh
+. "$FIX/fence-harness.sh"
+
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/light-gates-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
+harness_init
 
-# Extract first ```bash fence under "## Step 1: Parse arguments"
-extract_step1_fence() {
-  awk '
-    /^## Step 1: Parse arguments/ { want=1; next }
-    want && /^```bash[[:space:]]*$/ { on=1; next }
-    on && /^```[[:space:]]*$/ { exit }
-    on { print }
-  ' "$CMD"
-}
+FENCE_FILE="$WORK/step1-parse.sh"
+harness_extract_fence "$CMD" "$FENCE_FILE"
 
-# Source Step 1 fence. $1=ARGUMENTS; $2=HANDOFF_MINER_MODEL env (omit = unset).
-# RUN_PARSE_EXPECT_FAIL=1 → echo UNEXPECTED_PARSE_OK if fence does not exit.
-# Sets RC; writes $WORK/p.out $WORK/p.err
+# run_parse <args> [miner-env] — runs the folded fence against the stub root.
+# miner-env, when given, is passed through to harness_run's hermetic
+# miner-model arg, which re-exports HANDOFF_MINER_MODEL after the child's env
+# is stripped (operator env precedence case — SPEC-030 R16). Sets RC; writes
+# $WORK/run.out $WORK/run.err.
 run_parse() {
-  local args="$1"
-  local miner="${2-__UNSET__}"
-  set +e
-  (
-    if [ "${RUN_PARSE_EXPECT_FAIL:-0}" = "1" ]; then set +e; else set -e; fi
-    unset HANDOFF_FULL HANDOFF_LIGHT HANDOFF_MINER_MODEL HANDOFF_SPINE_TOKENS SKIP_ANNOTATION LIGHT WARM UUID 2>/dev/null || true
-    if [ "$miner" != "__UNSET__" ]; then
-      export HANDOFF_MINER_MODEL="$miner"
-    fi
-    ARGUMENTS="$args"
-    # shellcheck disable=SC1090
-    . "$FENCE_FILE"
-    if [ "${RUN_PARSE_EXPECT_FAIL:-0}" = "1" ]; then
-      echo "UNEXPECTED_PARSE_OK WARM=${WARM:-} LIGHT=${LIGHT:-} HANDOFF_MINER_MODEL=${HANDOFF_MINER_MODEL:-unset}"
-    else
-      echo "PARSE_OK WARM=${WARM:-} LIGHT=${LIGHT:-} HANDOFF_MINER_MODEL=${HANDOFF_MINER_MODEL:-unset}"
-    fi
-  ) >"$WORK/p.out" 2>"$WORK/p.err"
-  RC=$?
-  set -e
+  local args="$1" miner="${2-}"
+  harness_run "$FENCE_FILE" "$args" "$miner"
+  RC=$HARNESS_RC
 }
 
 # ---- T0: fixtures ----
@@ -76,161 +64,121 @@ if grep -qE -- '--light\)' "$CMD" \
    && awk '/--light\)/,/;;/' "$CMD" | grep -q 'LIGHT=1'; then ok
 else bad "T1b --light case arm must set HANDOFF_LIGHT=1 and LIGHT=1"; fi
 
-# ---- T2: extract Step 1 fence — cold uuid + --light → exit 1 ----
-FENCE_FILE="$WORK/step1-parse.sh"
-extract_step1_fence >"$FENCE_FILE"
+# ---- T2: folded fence — cold uuid + --light → exit 1 ----
 if [ -s "$FENCE_FILE" ] && grep -q 'LIGHT=1' "$FENCE_FILE"; then ok
-else bad "T2a failed to extract Step 1 parse fence"; fi
+else bad "T2a failed to extract Step 1 fence"; fi
 
-set +e
-(
-  set +e
-  unset HANDOFF_FULL HANDOFF_LIGHT HANDOFF_MINER_MODEL HANDOFF_SPINE_TOKENS SKIP_ANNOTATION LIGHT WARM UUID 2>/dev/null || true
-  ARGUMENTS="cold-uuid-abc --light"
-  # shellcheck disable=SC1090
-  . "$FENCE_FILE"
-  echo "UNEXPECTED_PARSE_OK WARM=${WARM:-} LIGHT=${LIGHT:-}" 
-) >"$WORK/t2.stdout" 2>"$WORK/t2.stderr"
-RC=$?
-set -e
-if [ "$RC" -eq 1 ] \
-   && grep -q 'error: --light is warm-only' "$WORK/t2.stderr" \
-   && ! grep -q 'UNEXPECTED_PARSE_OK' "$WORK/t2.stdout"; then ok
-else
-  bad "T2 cold+--light must exit 1 with warm-only error rc=$RC out=$(head -c 120 "$WORK/t2.stdout") err=$(head -c 200 "$WORK/t2.stderr")"
-fi
+run_parse "cold-uuid-abc --light"
+if [ "$RC" -eq 1 ] && grep -q 'error: --light is warm-only' "$WORK/run.err"; then ok
+else bad "T2 cold+--light must exit 1 with warm-only error rc=$RC err=$(head -c 200 "$WORK/run.err")"; fi
 
 # order independence: --light before uuid also fails
-set +e
-(
-  set +e
-  unset HANDOFF_FULL HANDOFF_LIGHT 2>/dev/null || true
-  ARGUMENTS="--light cold-uuid-xyz"
-  # shellcheck disable=SC1090
-  . "$FENCE_FILE"
-  echo "UNEXPECTED_PARSE_OK"
-) >"$WORK/t2b.stdout" 2>"$WORK/t2b.stderr"
-RC=$?
-set -e
-if [ "$RC" -eq 1 ] && grep -q 'error: --light is warm-only' "$WORK/t2b.stderr"; then ok
-else bad "T2b --light before uuid must also fail rc=$RC err=$(head -c 160 "$WORK/t2b.stderr")"; fi
+run_parse "--light cold-uuid-xyz"
+if [ "$RC" -eq 1 ] && grep -q 'error: --light is warm-only' "$WORK/run.err"; then ok
+else bad "T2b --light before uuid must also fail rc=$RC err=$(head -c 160 "$WORK/run.err")"; fi
 
-# ---- T3: warm --light alone passes gate (does not usage-fail) ----
-set +e
-(
-  set -e
-  unset HANDOFF_FULL HANDOFF_LIGHT HANDOFF_MINER_MODEL HANDOFF_SPINE_TOKENS SKIP_ANNOTATION 2>/dev/null || true
-  ARGUMENTS="--light"
-  # shellcheck disable=SC1090
-  . "$FENCE_FILE"
-  echo "PARSE_OK WARM=$WARM LIGHT=$LIGHT HANDOFF_LIGHT=$HANDOFF_LIGHT SKIP_ANNOTATION=$SKIP_ANNOTATION"
-) >"$WORK/t3.stdout" 2>"$WORK/t3.stderr"
-RC=$?
-set -e
+# ---- T3: warm --light alone passes gate (does not usage-fail); reaches the end ----
+run_parse "--light"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'PARSE_OK WARM=1 LIGHT=1 HANDOFF_LIGHT=1 SKIP_ANNOTATION=1' "$WORK/t3.stdout"; then ok
+   && grep -qF 'HANDOFF_MODE=warm' "$WORK/run.out" \
+   && grep -qF 'HANDOFF_LIGHT=1' "$WORK/run.out" \
+   && grep -qF 'SKIP_ANNOTATION=1' "$WORK/run.out"; then ok
 else
-  bad "T3 bare --light must pass gate as warm rc=$RC out=$(cat "$WORK/t3.stdout") err=$(head -c 160 "$WORK/t3.stderr")"
+  bad "T3 bare --light must pass gate as warm rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
 # ---- T4: bare warm (no --light) defaults — not light knobs ----
-set +e
-(
-  set -e
-  unset HANDOFF_FULL HANDOFF_LIGHT HANDOFF_MINER_MODEL HANDOFF_SPINE_TOKENS SKIP_ANNOTATION LIGHT 2>/dev/null || true
-  ARGUMENTS=""
-  # shellcheck disable=SC1090
-  . "$FENCE_FILE"
-  # After non-light branch: HANDOFF_LIGHT=0 LIGHT=0; spine/miner left unset (honor operator / prepass defaults)
-  echo "BARE WARM=$WARM LIGHT=$LIGHT HANDOFF_LIGHT=$HANDOFF_LIGHT SKIP=${SKIP_ANNOTATION:-} MINER=${HANDOFF_MINER_MODEL:-unset} SPINE=${HANDOFF_SPINE_TOKENS:-unset}"
-) >"$WORK/t4.stdout" 2>"$WORK/t4.stderr"
-RC=$?
-set -e
+run_parse ""
 if [ "$RC" -eq 0 ] \
-   && grep -q 'BARE WARM=1 LIGHT=0 HANDOFF_LIGHT=0 SKIP=0 MINER=unset SPINE=unset' "$WORK/t4.stdout"; then ok
+   && grep -qF 'HANDOFF_MODE=warm' "$WORK/run.out" \
+   && grep -qF 'HANDOFF_LIGHT=0' "$WORK/run.out" \
+   && grep -qF 'SKIP_ANNOTATION=0' "$WORK/run.out" \
+   && grep -qF 'HANDOFF_MINER_MODEL= ' "$WORK/run.out" \
+   && grep -qF 'HANDOFF_SPINE_TOKENS= ' "$WORK/run.out"; then ok
 else
-  bad "T4 bare warm must leave light knobs off/unset rc=$RC out=$(cat "$WORK/t4.stdout") err=$(head -c 120 "$WORK/t4.stderr")"
+  bad "T4 bare warm must leave light knobs off/unset rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 120 "$WORK/run.err")"
 fi
+T4_OUT=$(cat "$WORK/run.out")
 
 # ---- AC1: --miner-model <alias> and --miner-model=<alias> export alias as given ----
 run_parse "--miner-model balanced"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'PARSE_OK ' "$WORK/p.out" \
-   && grep -q 'HANDOFF_MINER_MODEL=balanced' "$WORK/p.out"; then ok
+   && grep -qF 'HANDOFF_MODE=warm' "$WORK/run.out" \
+   && grep -qF 'HANDOFF_MINER_MODEL=balanced' "$WORK/run.out"; then ok
 else
-  bad "AC1 space form --miner-model balanced rc=$RC out=$(cat "$WORK/p.out") err=$(head -c 160 "$WORK/p.err")"
+  bad "AC1 space form --miner-model balanced rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
 run_parse "--miner-model=fast"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'HANDOFF_MINER_MODEL=fast' "$WORK/p.out"; then ok
+   && grep -qF 'HANDOFF_MINER_MODEL=fast' "$WORK/run.out"; then ok
 else
-  bad "AC1 equals form --miner-model=fast rc=$RC out=$(cat "$WORK/p.out") err=$(head -c 160 "$WORK/p.err")"
+  bad "AC1 equals form --miner-model=fast rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
-# ---- AC2: missing value → rc 1, exact stderr, no UNEXPECTED_PARSE_OK ----
+# ---- AC2: missing value → rc 1, exact stderr, no partial success ----
 ERR_NEED='error: --miner-model requires a value'
 for ac2_args in "--miner-model" "--miner-model=" "--miner-model --light"; do
-  RUN_PARSE_EXPECT_FAIL=1 run_parse "$ac2_args"
-  unset RUN_PARSE_EXPECT_FAIL
-  ac2_err=$(cat "$WORK/p.err")
-  if [ "$RC" -eq 1 ] \
-     && [ "$ac2_err" = "$ERR_NEED" ] \
-     && ! grep -q 'UNEXPECTED_PARSE_OK' "$WORK/p.out"; then ok
+  run_parse "$ac2_args"
+  ac2_err=$(cat "$WORK/run.err")
+  if [ "$RC" -eq 1 ] && [ "$ac2_err" = "$ERR_NEED" ]; then ok
   else
-    bad "AC2 missing value ARGUMENTS='$ac2_args' rc=$RC err=$(head -c 200 "$WORK/p.err") out=$(head -c 120 "$WORK/p.out")"
+    bad "AC2 missing value ARGUMENTS='$ac2_args' rc=$RC err=$(head -c 200 "$WORK/run.err") out=$(head -c 120 "$WORK/run.out")"
   fi
 done
 
 # ---- AC3: flag + --light (either order) → light knobs + miner=fast; --light alone still haiku ----
 run_parse "--miner-model fast --light"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'PARSE_OK WARM=1 LIGHT=1 HANDOFF_MINER_MODEL=fast' "$WORK/p.out"; then ok
+   && grep -qF 'HANDOFF_MODE=warm' "$WORK/run.out" \
+   && grep -qF 'HANDOFF_LIGHT=1' "$WORK/run.out" \
+   && grep -qF 'HANDOFF_MINER_MODEL=fast' "$WORK/run.out"; then ok
 else
-  bad "AC3 --miner-model fast --light rc=$RC out=$(cat "$WORK/p.out") err=$(head -c 160 "$WORK/p.err")"
+  bad "AC3 --miner-model fast --light rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
 run_parse "--light --miner-model fast"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'PARSE_OK WARM=1 LIGHT=1 HANDOFF_MINER_MODEL=fast' "$WORK/p.out"; then ok
+   && grep -qF 'HANDOFF_LIGHT=1' "$WORK/run.out" \
+   && grep -qF 'HANDOFF_MINER_MODEL=fast' "$WORK/run.out"; then ok
 else
-  bad "AC3 --light --miner-model fast rc=$RC out=$(cat "$WORK/p.out") err=$(head -c 160 "$WORK/p.err")"
+  bad "AC3 --light --miner-model fast rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
 run_parse "--light"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'HANDOFF_MINER_MODEL=haiku' "$WORK/p.out"; then ok
+   && grep -qF 'HANDOFF_MINER_MODEL=haiku' "$WORK/run.out"; then ok
 else
-  bad "AC3 --light alone must default miner haiku rc=$RC out=$(cat "$WORK/p.out") err=$(head -c 160 "$WORK/p.err")"
+  bad "AC3 --light alone must default miner haiku rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
 # ---- AC4: flag > env; env preserved when no flag; T4 bare still unset ----
 run_parse "--miner-model fast" "sonnet"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'HANDOFF_MINER_MODEL=fast' "$WORK/p.out"; then ok
+   && grep -qF 'HANDOFF_MINER_MODEL=fast' "$WORK/run.out"; then ok
 else
-  bad "AC4 env sonnet + --miner-model fast must export fast rc=$RC out=$(cat "$WORK/p.out") err=$(head -c 160 "$WORK/p.err")"
+  bad "AC4 env sonnet + --miner-model fast must export fast rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
 run_parse "" "sonnet"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'HANDOFF_MINER_MODEL=sonnet' "$WORK/p.out"; then ok
+   && grep -qF 'HANDOFF_MINER_MODEL=sonnet' "$WORK/run.out"; then ok
 else
-  bad "AC4 env sonnet + no flag + no --light must keep sonnet rc=$RC out=$(cat "$WORK/p.out") err=$(head -c 160 "$WORK/p.err")"
+  bad "AC4 env sonnet + no flag + no --light must keep sonnet rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
-if grep -q 'BARE WARM=1 LIGHT=0 HANDOFF_LIGHT=0 SKIP=0 MINER=unset SPINE=unset' "$WORK/t4.stdout"; then ok
+if printf '%s' "$T4_OUT" | grep -qF 'HANDOFF_MINER_MODEL= '; then ok
 else
-  bad "AC4 T4 bare must still leave MINER=unset out=$(cat "$WORK/t4.stdout")"
+  bad "AC4 T4 bare must still leave MINER unset out=$T4_OUT"
 fi
 
 # ---- AC5: unknown alias is not a parse error (passthrough as given) ----
 run_parse "--miner-model narnia"
 if [ "$RC" -eq 0 ] \
-   && grep -q 'HANDOFF_MINER_MODEL=narnia' "$WORK/p.out" \
-   && ! grep -qi 'error: --miner-model' "$WORK/p.err"; then ok
+   && grep -qF 'HANDOFF_MINER_MODEL=narnia' "$WORK/run.out" \
+   && ! grep -qi 'error: --miner-model' "$WORK/run.err"; then ok
 else
-  bad "AC5 --miner-model narnia must parse/export as-is rc=$RC out=$(cat "$WORK/p.out") err=$(head -c 160 "$WORK/p.err")"
+  bad "AC5 --miner-model narnia must parse/export as-is rc=$RC out=$(cat "$WORK/run.out") err=$(head -c 160 "$WORK/run.err")"
 fi
 
 # ---- T5: bare warm finalize still writes M8 cache (regression; finalize-test T25) ----

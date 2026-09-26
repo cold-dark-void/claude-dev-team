@@ -163,5 +163,51 @@ in the checkout it runs from. The runner snapshots `git status --porcelain
 even on exit 0. A suite that needs a "live tree" to test against must inject
 into a scratch copy of the checkout, never into the checkout itself.
 
+A suite must also leave these unchanged. The runner cannot see them, so the
+suite design must keep them clean:
+
+- The real `$MROOT/.claude/` directory. It is gitignored. Run an engine that
+  resolves `$MROOT` from a `mktemp -d` git repo.
+- The caller's `TMPDIR`.
+- The real `HOME`.
+
+To isolate `TMPDIR` and `HOME`, source `tests/lib/hermetic.sh` and call
+`hermetic_init` before any other work:
+
+```bash
+. "$ROOT/tests/lib/hermetic.sh"
+hermetic_init
+```
+
+`hermetic_init` makes one temp root. It points `TMPDIR` and `HOME` into that
+root and sets a fixed git identity. It removes the root on exit. If your suite
+sets its own `EXIT` trap, call `hermetic_cleanup` from that trap.
+
+### Skip protocol
+
+A suite exits `77` when its environment lacks a precondition. The runner
+reports `SKIP` and does not block. Use a skip for two causes only:
+
+- A required command is not on `PATH`.
+- The uid is root, and the suite depends on permission bits.
+
+Any other cause is a defect. A missing repo file, a generated file that a
+clean checkout does not have, or a failed assertion is a `FAIL`. Do not add
+a quarantine entry for an environment cause.
+
+Source `tests/lib/skip.sh` to get the two helpers. Each prints one `SKIP:`
+line on stderr and exits `77`:
+
+```bash
+. "$ROOT/tests/lib/skip.sh"
+require_cmd sqlite3 jq          # whole-suite skip; call it first
+if ( skip_if_root "case 4 chmod" ); then
+  : # this case runs only when the uid is not root
+fi
+```
+
+Run a helper in a subshell to skip one case. The suite then continues.
+
 Full contract: `specs/core/SPEC-030-smoke-harness-gate.md`, sections "All-suites
-runner — CLI" through "All-suites runner — suite hygiene" (R1-R17).
+runner — CLI" through "All-suites runner — skip protocol and hermetic helpers"
+(R1-R21).

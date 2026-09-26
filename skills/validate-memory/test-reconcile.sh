@@ -9,6 +9,8 @@ set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+source "$PLUGIN_ROOT/tests/lib/skip.sh"
+require_cmd sqlite3
 LIB="$SCRIPT_DIR/reconcile-lib.sh"
 SCHEMA_SQL="$PLUGIN_ROOT/skills/memory-store/schema.sql"
 MIGRATE_V3="$PLUGIN_ROOT/skills/memory-store/migrate-v3.sh"

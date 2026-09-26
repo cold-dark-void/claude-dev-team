@@ -4,18 +4,24 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LIB="$HERE/train-lib.sh"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
 PASS=0; FAIL=0
 pass() { PASS=$((PASS+1)); }
 fail() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/rt-int.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT
+# shellcheck source=./fixtures/test-helpers.sh
+. "$HERE/fixtures/test-helpers.sh"
+
+TMP=$(mktemp -d "$TMPDIR/rt-int.XXXXXX")
 
 REPO="$TMP/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q -b master
 git -C "$REPO" config user.email t@ex.com
 git -C "$REPO" config user.name T
+git -C "$REPO" config core.excludesFile /dev/null
 mkdir -p "$REPO/.claude-plugin" "$REPO/specs" "$REPO/skills"
 printf '%s\n' '{"name":"dev-team","version":"0.39.0"}' > "$REPO/.claude-plugin/plugin.json"
 printf '%s\n' '{"plugins":[{"name":"dev-team","version":"0.39.0"}]}' > "$REPO/.claude-plugin/marketplace.json"
@@ -165,7 +171,7 @@ grep -q '### v0.40.0' CHANGELOG.md && pass || fail "changelog heading"
 
 # restore clean
 bash "$LIB" restore "$BASE" >/dev/null
-[ -z "$(git status --porcelain)" ] && pass || fail "restore dirty"
+clean_except_queue . && pass || fail "restore dirty"
 [ "$(git rev-parse HEAD)" = "$BASE" ] && pass || fail "restore sha"
 
 # conflict outside allowlist → blocked simulation
@@ -197,7 +203,7 @@ if [ -n "$(git diff --name-only --diff-filter=U 2>/dev/null)" ] || [ "$MERGE_RC"
   bash "$LIB" set-status feat/conflict blocked --paths skills/foo.sh >/dev/null
   ST=$(bash "$LIB" list | jq -r '.entries[]|select(.branch=="feat/conflict")|.status')
   [ "$ST" = "blocked" ] && pass || fail "status blocked got $ST"
-  [ -z "$(git status --porcelain)" ] && pass || fail "blocked restore not clean"
+  clean_except_queue . && pass || fail "blocked restore not clean"
 else
   fail "expected conflict on skills/foo.sh"
 fi

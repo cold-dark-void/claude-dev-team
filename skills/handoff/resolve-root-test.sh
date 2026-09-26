@@ -7,6 +7,9 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 RESOLVE="$HERE/resolve-root.sh"
 PREPASS="$HERE/prepass.sh"
 FIX="$HERE/fixtures"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
 THRASH="$FIX/events-thrash.json"
 GITBLOB="$FIX/git-state.txt"
 
@@ -15,7 +18,7 @@ ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/resolve-root-test.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; hermetic_cleanup' EXIT
 
 # ---- T0: helper present ----
 if [ -x "$RESOLVE" ]; then ok; else bad "T0 resolve-root.sh missing/not executable"; fi

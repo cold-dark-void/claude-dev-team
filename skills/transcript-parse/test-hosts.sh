@@ -5,6 +5,9 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
 PASS=0
 FAIL=0
 
@@ -12,7 +15,7 @@ pass() { PASS=$((PASS + 1)); printf 'PASS %s\n' "$1"; }
 bad()  { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1" >&2; }
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/test-hosts.XXXXXX")"
-cleanup() { rm -rf "$WORK"; }
+cleanup() { rm -rf "$WORK"; hermetic_cleanup; }
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------

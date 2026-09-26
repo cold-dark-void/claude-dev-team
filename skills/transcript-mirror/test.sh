@@ -19,6 +19,7 @@ set -u
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
+source "$REPO/tests/lib/skip.sh"
 REC="$HERE/transcript-mirror.sh"
 SYNC="$HERE/transcript-sync.sh"
 SHIM="$HERE/hook-shim.sh"
@@ -294,34 +295,36 @@ else
 fi
 assert_no_block "M4 missing"
 
-head -n 3 "$FIX/claude-uuid.jsonl" > "$WORK/src/append-fail.jsonl"
-age "$WORK/src/append-fail.jsonl"
-RC=$(invoke_rec --transcript "$WORK/src/append-fail.jsonl" --sid tm-afail)
-assert_rc0 "$RC" "M4 append-fail setup exit 0"
-CUR_BEFORE=$(cat "$STORE/tm-afail/cursor" 2>/dev/null || true)
-MAIN_BEFORE=$(cat "$STORE/tm-afail/main.md" 2>/dev/null || true)
-chmod a-w "$STORE/tm-afail/main.md"
-cp "$FIX/claude-uuid.jsonl" "$WORK/src/append-fail.jsonl"
-age "$WORK/src/append-fail.jsonl"
-RC=$(invoke_rec --transcript "$WORK/src/append-fail.jsonl" --sid tm-afail)
-chmod u+w "$STORE/tm-afail/main.md" 2>/dev/null || true
-assert_rc0 "$RC" "M4 append-fail recorder exit 0"
-CUR_AFTER=$(cat "$STORE/tm-afail/cursor" 2>/dev/null || true)
-MAIN_AFTER=$(cat "$STORE/tm-afail/main.md" 2>/dev/null || true)
-if [ "$CUR_BEFORE" = "$CUR_AFTER" ]; then
-  pass "M4 cursor unchanged when append fails"
-else
-  fail "M4 cursor advanced on append fail before=${CUR_BEFORE:-<empty>} after=${CUR_AFTER:-<empty>}"
-fi
-if [ "$MAIN_BEFORE" = "$MAIN_AFTER" ]; then
-  pass "M4 main.md unchanged when append fails"
-else
-  fail "M4 main.md mutated on append fail"
-fi
-if grep -q 'append failed' "$STORE/.errors.log" 2>/dev/null; then
-  pass "M4 .errors.log append failed"
-else
-  fail "M4 .errors.log missing append failed"
+if ( skip_if_root "M4 append-fail chmod a-w" ); then
+  head -n 3 "$FIX/claude-uuid.jsonl" > "$WORK/src/append-fail.jsonl"
+  age "$WORK/src/append-fail.jsonl"
+  RC=$(invoke_rec --transcript "$WORK/src/append-fail.jsonl" --sid tm-afail)
+  assert_rc0 "$RC" "M4 append-fail setup exit 0"
+  CUR_BEFORE=$(cat "$STORE/tm-afail/cursor" 2>/dev/null || true)
+  MAIN_BEFORE=$(cat "$STORE/tm-afail/main.md" 2>/dev/null || true)
+  chmod a-w "$STORE/tm-afail/main.md"
+  cp "$FIX/claude-uuid.jsonl" "$WORK/src/append-fail.jsonl"
+  age "$WORK/src/append-fail.jsonl"
+  RC=$(invoke_rec --transcript "$WORK/src/append-fail.jsonl" --sid tm-afail)
+  chmod u+w "$STORE/tm-afail/main.md" 2>/dev/null || true
+  assert_rc0 "$RC" "M4 append-fail recorder exit 0"
+  CUR_AFTER=$(cat "$STORE/tm-afail/cursor" 2>/dev/null || true)
+  MAIN_AFTER=$(cat "$STORE/tm-afail/main.md" 2>/dev/null || true)
+  if [ "$CUR_BEFORE" = "$CUR_AFTER" ]; then
+    pass "M4 cursor unchanged when append fails"
+  else
+    fail "M4 cursor advanced on append fail before=${CUR_BEFORE:-<empty>} after=${CUR_AFTER:-<empty>}"
+  fi
+  if [ "$MAIN_BEFORE" = "$MAIN_AFTER" ]; then
+    pass "M4 main.md unchanged when append fails"
+  else
+    fail "M4 main.md mutated on append fail"
+  fi
+  if grep -q 'append failed' "$STORE/.errors.log" 2>/dev/null; then
+    pass "M4 .errors.log append failed"
+  else
+    fail "M4 .errors.log missing append failed"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

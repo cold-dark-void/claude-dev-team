@@ -7,6 +7,9 @@ set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 GATE="$HERE/gate.sh"
 FIX="$HERE/fixtures"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
 PASS=0
 FAIL=0
 

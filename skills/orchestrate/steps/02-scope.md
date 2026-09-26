@@ -2,8 +2,7 @@
 
 ## Step 2: Evaluate issue and confirm scope with user
 
-When `[ "$ORCH_TIER" = "null" ]` (no `--tier` on this run): classify S/M/L from cheap signals with NO extra agent spawn: AC count, estimated files touched, bugfix-vs-feature shape, diff-size guess. Mapping: S → light, M → standard, L → full. Classification failure or missing signals → propose `standard`. Show proposed tier + one-line rationale in THIS same gate (not a new gate). Autopilot `proceed` uses the proposed tier unless overridden. Decision-card records proposed + selected. After confirm/override, bind `ORCH_TIER=<selected>` (`light` / `standard` / `full`).
-`ORCH_TIER` S/M/L (pipeline `light`/`standard`/`full`) is **not** `budget.tier` (N14). Do not bind them.
+When `[ "$ORCH_TIER" = "null" ]` (no `--tier` on this run): classify S/M/L from cheap signals with NO extra agent spawn: AC count, estimated files touched, bugfix-vs-feature shape, diff-size guess. Mapping: S → light, M → standard, L → full. Classification failure or missing signals → propose `standard`. Show proposed tier + one-line rationale in THIS same gate (not a new gate). Autopilot `proceed` uses the proposed tier unless overridden. Decision-card records proposed + selected. After confirm/override, bind `ORCH_TIER=<selected>` (`light` / `standard` / `full`); the pipeline tier bound here is not `budget.tier` (N14) - do not bind them together.
 
 When `--tier` was explicit (`light` / `standard` / `full` already bound in Step 0): skip classification; the flag wins. Still show the resolved tier in the gate for visibility.
 

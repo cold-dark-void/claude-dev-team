@@ -11,8 +11,24 @@ IDX="$ROOT/skills/council/index-writer.sh"
 FIX="$ROOT/skills/council/fixtures/finalize-task-id"
 fail=0
 
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$ROOT/tests/lib/hermetic.sh"
+hermetic_init
+
+# ---- Guard: this suite must never rewrite the shared MROOT index (blocker 3,
+# CDT-270 repo pollution) — checksum before/after, asserted at the bottom.
+_gc=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null) \
+  && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || _MROOT="$ROOT"
+SHARED_IDX="$_MROOT/.claude/council/index.json"
+if [ -f "$SHARED_IDX" ]; then
+  SHARED_IDX_SUM_BEFORE=$(sha256sum "$SHARED_IDX" | awk '{print $1}')
+else
+  SHARED_IDX_SUM_BEFORE="absent"
+fi
+
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/tier-engine-test.XXXXXX")"
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP"; hermetic_cleanup' EXIT
 REPO="$TMP/repo"; mkdir -p "$REPO"; git init -q "$REPO"
 
 OUT=""; RC=0
@@ -165,9 +181,15 @@ else
   echo "FAIL: index row shape"; jq -c . "$REPO/.claude/council/index.json" 2>/dev/null; fail=1
 fi
 
-bash "$IDX" T1 /tmp/r.md null 90 bogus "why" >/dev/null 2>&1
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" T1 "$TMP/r.md" null 90 bogus "why" >/dev/null 2>&1
+)
 ok "index-writer rejects a non-enum council_tier" test $? -eq 1
-bash "$IDX" T1 /tmp/r.md null 90 >/dev/null 2>&1
+(
+  cd "$REPO" || exit 1
+  bash "$IDX" T1 "$TMP/r.md" null 90 >/dev/null 2>&1
+)
 ok "index-writer rejects the pre-CDT-126 4-arg form" test $? -eq 1
 
 # ---- Template injection via grading_reason (council review, CRITICAL) --------
@@ -209,8 +231,13 @@ grep_file "full generic report records Phase 3 as eligible" \
   '| Phase 3 (domain specialist) | ELIGIBLE (runtime classify) |' "$TMP/full.md"
 
 # ---- Workflow path forwards the resolved tier (output parity) ----------------
-if node --input-type=module <<'JS' >/dev/null 2>&1
+if COUNCIL_TEST_REPO="$REPO" node --input-type=module <<'JS' >/dev/null 2>&1
 import { runCouncil } from './skills/council/workflow.js'
+// Isolate: engine.sh (spawned by runCouncil via spawnSync) resolves MROOT
+// from this process's cwd. Move off the real worktree before any
+// preflight/finalize call so the mock run's report + index writes land in
+// the disposable per-suite $REPO, never the real $MROOT (blocker 3).
+process.chdir(process.env.COUNCIL_TEST_REPO)
 const agent = async (_p, o) => {
   if (o.phase === 'Investigate') return { bundles: [{ tool_use_id: 't', raw_blob: 'b', file_line: 'f:1', reproducible_command: 'e' }] }
   if (o.phase === 'Phase4') return { briefs: [{ claim_id: 'c0', evidence_against: 'e', requested_verdict: 'UNVERIFIED', supporting_tool_use_ids: ['t'] }], struck_lines: [] }
@@ -248,7 +275,6 @@ ok "the tier fallback does not reuse CDV-196's availability string" \
 # All successful index writes run inside $REPO so the shared MROOT index is
 # never touched. Unique task ids; cleanup is automatic when $REPO is removed.
 echo 'report' > "$TMP/r181.md"
-IDX_CLEANUP_KEYS=()
 
 # Helper: assert index row conf is JSON number equal to expected floor int
 assert_conf() {  # assert_conf <label> <task_id> <field> <want_int|null>
@@ -277,14 +303,12 @@ assert_conf() {  # assert_conf <label> <task_id> <field> <want_int|null>
   bash "$IDX" CDT-181-iw-90 "$TMP/r181.md" 90.7 null full "cdt-181" >/dev/null 2>&1
 ) && assert_conf "index-writer 90.7 → mvc=90 type number" CDT-181-iw-90 max_verdict_confidence 90 \
   || { echo "FAIL: index-writer 90.7 write"; fail=1; }
-IDX_CLEANUP_KEYS+=(CDT-181-iw-90)
 
 (
   cd "$REPO" || exit 1
   bash "$IDX" CDT-181-iw-100 "$TMP/r181.md" 100.3 null full "cdt-181" >/dev/null 2>&1
 ) && assert_conf "index-writer 100.3 → mvc=100 type number" CDT-181-iw-100 max_verdict_confidence 100 \
   || { echo "FAIL: index-writer 100.3 write"; fail=1; }
-IDX_CLEANUP_KEYS+=(CDT-181-iw-100)
 
 (
   cd "$REPO" || exit 1
@@ -300,14 +324,12 @@ ok "index-writer 101.2 did not create index key" \
 ) && assert_conf "index-writer null 87.5 → mfc=87 type number" CDT-181-iw-mfc max_finding_confidence 87 \
   || { echo "FAIL: index-writer finding float write"; fail=1; }
 assert_conf "index-writer null 87.5 → mvc stays null" CDT-181-iw-mfc max_verdict_confidence null
-IDX_CLEANUP_KEYS+=(CDT-181-iw-mfc)
 
 (
   cd "$REPO" || exit 1
   bash "$IDX" CDT-181-iw-int "$TMP/r181.md" 50 null full "cdt-181" >/dev/null 2>&1
 ) && assert_conf "index-writer int 50 unchanged type number" CDT-181-iw-int max_verdict_confidence 50 \
   || { echo "FAIL: index-writer int 50 write"; fail=1; }
-IDX_CLEANUP_KEYS+=(CDT-181-iw-int)
 
 (
   cd "$REPO" || exit 1
@@ -315,7 +337,6 @@ IDX_CLEANUP_KEYS+=(CDT-181-iw-int)
 ) && assert_conf "index-writer null null → mvc null" CDT-181-iw-nn max_verdict_confidence null \
   || { echo "FAIL: index-writer null null write"; fail=1; }
 assert_conf "index-writer null null → mfc null" CDT-181-iw-nn max_finding_confidence null
-IDX_CLEANUP_KEYS+=(CDT-181-iw-nn)
 
 (
   cd "$REPO" || exit 1
@@ -344,7 +365,6 @@ printf '%s\n' '{"verdicts":[{"claim_id":"c1","claim":"float conf","verdict":"VER
   bash "$ENGINE" finalize --plan-file plan-float.json --evidence-file "$FIX/evidence.json" \
     --judge-output "$TMP/judge-float.json" --task-id CDT-181-fin-float >/dev/null 2>&1
 ) || { echo "FAIL: task-bound finalize with float judge conf exited non-zero"; fail=1; }
-IDX_CLEANUP_KEYS+=(CDT-181-fin-float)
 assert_conf "finalize float 90.7 → index mvc=90 type number" CDT-181-fin-float max_verdict_confidence 90
 if jq -e '.["CDT-181-fin-float"][0].report_path | type=="string" and length>0' \
      "$REPO/.claude/council/index.json" >/dev/null 2>&1; then
@@ -375,17 +395,17 @@ AFTER_KEYS=$(jq -c 'keys | sort' "$REPO/.claude/council/index.json" 2>/dev/null 
 ok "unbound finalize adds no index keys" test "$BEFORE_KEYS" = "$AFTER_KEYS"
 ok "unbound finalize still wrote report" test -f "$TMP/unbound-181.md"
 
-# Best-effort: drop CDT-181 keys from shared MROOT index if any leaked
-# (success path uses $REPO only; this is defense-in-depth)
-_gc=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null) \
-  && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || _MROOT="$ROOT"
-SHARED_IDX="$_MROOT/.claude/council/index.json"
+# Guard: the shared MROOT index must be byte-identical to how this suite
+# found it — every task-bound write above ran inside $REPO's own index.
 if [ -f "$SHARED_IDX" ]; then
-  for k in "${IDX_CLEANUP_KEYS[@]}" CDT-181-iw-oob CDT-181-iw-abc; do
-    jq --arg k "$k" 'del(.[$k])' "$SHARED_IDX" > "$SHARED_IDX.tmp" 2>/dev/null \
-      && mv "$SHARED_IDX.tmp" "$SHARED_IDX" || true
-  done
+  SHARED_IDX_SUM_AFTER=$(sha256sum "$SHARED_IDX" | awk '{print $1}')
+else
+  SHARED_IDX_SUM_AFTER="absent"
+fi
+if [ "$SHARED_IDX_SUM_BEFORE" = "$SHARED_IDX_SUM_AFTER" ]; then
+  echo "OK: live index unmodified ($SHARED_IDX_SUM_BEFORE)"
+else
+  echo "FAIL: live index modified"; fail=1
 fi
 
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES PRESENT"; fi

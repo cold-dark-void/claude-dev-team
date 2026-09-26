@@ -45,10 +45,22 @@ R=$(bash "$WRITER" --mroot "$MROOT" --mode all-auto \
 grep -q 'No sessions to retro' "$R" && ok "empty-set report" || bad "empty-set report"
 
 # 4. Filter 2 still present in commands/retro.md (command-name XML tag)
-if grep -qE "command-name.*/[a-z:-]*retro" "$ROOT/commands/retro.md"; then
+filter2_present() {  # filter2_present <file>
+  grep -qF '<command-name>/[a-z:-]*retro</command-name>' "$1"
+}
+if filter2_present "$ROOT/commands/retro.md"; then
   ok "Filter 2 present in commands/retro.md"
 else
   bad "Filter 2 missing from commands/retro.md"
+fi
+
+# 4b. Bite: with the Filter 2 line deleted, filter2_present must report missing
+RETRO_COPY="$TMP/retro-no-filter2.md"
+grep -vF '<command-name>/[a-z:-]*retro</command-name>' "$ROOT/commands/retro.md" > "$RETRO_COPY"
+if filter2_present "$RETRO_COPY"; then
+  bad "Filter 2 bite: line still present after deletion"
+else
+  ok "Filter 2 bite: deletion detected as missing"
 fi
 
 # 5. Filter 1 still delegated to freshness.sh

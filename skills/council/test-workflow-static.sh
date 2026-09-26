@@ -3,19 +3,31 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
+
+# shellcheck source=../../tests/lib/skip.sh
+. "$ROOT/tests/lib/skip.sh"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$ROOT/tests/lib/hermetic.sh"
+require_cmd jq node
+hermetic_init
+WORK=$(mktemp -d)
+TOK_OUT="$WORK/tokens"
+mkdir -p "$TOK_OUT"
+trap 'rm -rf "$WORK"; hermetic_cleanup' EXIT
+
 fail=0
 check() { if "$@"; then echo "OK: $*"; else echo "FAIL: $*"; fail=1; fi; }
 
 # T4.3 greps
-if rg -n 'PYREPAIR|repair_json' skills/council/workflow.js; then echo "FAIL: repair layers"; fail=1; else echo "OK: no repair layers"; fi
-if rg -n "typeof t === 'string'" skills/council/workflow.js >/dev/null; then echo "OK: args guard"; else echo "FAIL: args guard"; fail=1; fi
-if rg -n 'self-verified — refuters unavailable' skills/council/workflow.js; then echo "FAIL: marker inlined"; fail=1; else echo "OK: marker only via finalize"; fi
-if rg -n "agentType: 'dev-team:council-judge'" skills/council/workflow.js >/dev/null; then echo "OK: judge agentType"; else echo "FAIL: judge agentType"; fail=1; fi
-if rg -n 'tools: ""' agents/council-judge.md >/dev/null; then echo "OK: judge tools empty"; else echo "FAIL: judge tools"; fail=1; fi
+if grep -nE 'PYREPAIR|repair_json' skills/council/workflow.js; then echo "FAIL: repair layers"; fail=1; else echo "OK: no repair layers"; fi
+if grep -nF "typeof t === 'string'" skills/council/workflow.js >/dev/null; then echo "OK: args guard"; else echo "FAIL: args guard"; fail=1; fi
+if grep -nF 'self-verified — refuters unavailable' skills/council/workflow.js; then echo "FAIL: marker inlined"; fail=1; else echo "OK: marker only via finalize"; fi
+if grep -nF "agentType: 'dev-team:council-judge'" skills/council/workflow.js >/dev/null; then echo "OK: judge agentType"; else echo "FAIL: judge agentType"; fail=1; fi
+if grep -nF 'tools: ""' agents/council-judge.md >/dev/null; then echo "OK: judge tools empty"; else echo "FAIL: judge tools"; fail=1; fi
 
 # probe
-bash skills/council/workflow-probe.sh
-COUNCIL_WORKFLOW_FORCE_FALLBACK=1 bash skills/council/workflow-probe.sh && { echo "FAIL: force fallback"; fail=1; } || echo "OK: force fallback"
+env -u CLAUDE_CODE_VERSION bash skills/council/workflow-probe.sh
+COUNCIL_WORKFLOW_FORCE_FALLBACK=1 env -u CLAUDE_CODE_VERSION bash skills/council/workflow-probe.sh && { echo "FAIL: force fallback"; fail=1; } || echo "OK: force fallback"
 
 # CDV-208 plan-scope preflight
 FIX_PLAN=skills/council/fixtures/plan-scope-sample.md
@@ -25,16 +37,16 @@ else
   echo "FAIL: missing $FIX_PLAN"; fail=1
 fi
 if [ -f skills/council/prompts/plan-extractor.md ] \
-  && rg -q 'file:heading-path:line|heading-path' skills/council/prompts/plan-extractor.md; then
+  && grep -qE 'file:heading-path:line|heading-path' skills/council/prompts/plan-extractor.md; then
   echo "OK: plan-extractor.md documents locator format"
 else
   echo "FAIL: plan-extractor.md missing or no locator guidance"; fail=1
 fi
 set +e
-bash skills/council/engine.sh preflight --scope plan --scope-arg /nonexistent-cdv208-plan.md >/dev/null 2>"${TMPDIR:-/tmp}/cdv208-plan-miss.err"
+bash skills/council/engine.sh preflight --scope plan --scope-arg /nonexistent-cdv208-plan.md >/dev/null 2>"$WORK/cdv208-plan-miss.err"
 ec_miss=$?
 set -e
-if [ "$ec_miss" -eq 2 ] && rg -q 'not found|not readable|requires a path' "${TMPDIR:-/tmp}/cdv208-plan-miss.err"; then
+if [ "$ec_miss" -eq 2 ] && grep -qE 'not found|not readable|requires a path' "$WORK/cdv208-plan-miss.err"; then
   echo "OK: plan missing path → exit 2"
 else
   echo "FAIL: plan missing path exit=$ec_miss (want 2)"; fail=1
@@ -48,24 +60,25 @@ else
   echo "FAIL: missing/invalid $FIX_ANCHOR"; fail=1
 fi
 set +e
-bash skills/council/engine.sh preflight --scope from-retro --scope-arg missing-cdv212-anchor >/dev/null 2>"${TMPDIR:-/tmp}/cdv212-fr-miss.err"
+bash skills/council/engine.sh preflight --scope from-retro --scope-arg missing-cdv212-anchor >/dev/null 2>"$WORK/cdv212-fr-miss.err"
 ec_fr_miss=$?
 set -e
-if [ "$ec_fr_miss" -eq 2 ] && rg -q 'not found|requires an anchor' "${TMPDIR:-/tmp}/cdv212-fr-miss.err"; then
+if [ "$ec_fr_miss" -eq 2 ] && grep -qE 'not found|requires an anchor' "$WORK/cdv212-fr-miss.err"; then
   echo "OK: from-retro missing anchor → exit 2"
 else
   echo "FAIL: from-retro missing exit=$ec_fr_miss (want 2)"; fail=1
 fi
-# Present fixture: stage under $MROOT/.claude/retro/anchors/ then preflight
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || _MROOT=$(pwd)
+# Present fixture: stage under a disposable temp repo's .claude/retro/anchors/
+# then preflight with cwd = that repo — nothing under the real MROOT (T5).
+TR="$WORK/repo"
+mkdir -p "$TR"
+git init -q "$TR"
 AID=$(jq -r '.anchor_id' "$FIX_ANCHOR")
-ANCHOR_DIR="$_MROOT/.claude/retro/anchors"
+ANCHOR_DIR="$TR/.claude/retro/anchors"
 mkdir -p "$ANCHOR_DIR"
 cp "$FIX_ANCHOR" "$ANCHOR_DIR/${AID}.json"
 set +e
-FR_JSON=$(bash skills/council/engine.sh preflight --scope from-retro --scope-arg "$AID" 2>"${TMPDIR:-/tmp}/cdv212-fr-ok.err")
+FR_JSON=$(cd "$TR" && bash "$ROOT/skills/council/engine.sh" preflight --scope from-retro --scope-arg "$AID" 2>"$WORK/cdv212-fr-ok.err")
 ec_fr_ok=$?
 set -e
 if [ "$ec_fr_ok" -eq 0 ] && printf '%s' "$FR_JSON" | jq -e \
@@ -75,21 +88,22 @@ if [ "$ec_fr_ok" -eq 0 ] && printf '%s' "$FR_JSON" | jq -e \
   echo "OK: from-retro present → skip extract + resolved_claim"
 else
   echo "FAIL: from-retro present preflight exit=$ec_fr_ok"; fail=1
-  cat "${TMPDIR:-/tmp}/cdv212-fr-ok.err" >&2 || true
+  cat "$WORK/cdv212-fr-ok.err" >&2 || true
 fi
-# Leave staged fixture for local re-runs; tests are idempotent overwrite.
+# Staging above went to a disposable temp repo ($TR), not the real MROOT;
+# nothing here needs cleanup -- the trap on $WORK covers it.
 if bash skills/council/engine.sh preflight --scope plan --scope-arg "$FIX_PLAN" \
   | jq -e '.scope=="plan" and .preset=="generic" and .phases["1_claim_extraction"].skip==false and (.phases["1_claim_extraction"].prompt|test("plan-extractor")) and (.claim_budget==10) and (.slug|test("^plan-"))' >/dev/null; then
   echo "OK: plan preflight JSON (generic, extract, plan-extractor, slug)"
 else
   echo "FAIL: plan preflight JSON shape"; fail=1
 fi
-if rg -n 'DEFERRED.*--plan|exits 3, deferred\)' commands/council.md >/dev/null; then
+if grep -nE 'DEFERRED.*--plan|exits 3, deferred\)' commands/council.md >/dev/null; then
   echo "FAIL: council.md still defers --plan"; fail=1
 else
   echo "OK: council.md does not defer --plan"
 fi
-if rg -n 'from-retro' commands/council.md | rg -q 'DEFERRED|deferred|exits 3'; then
+if grep -nF 'from-retro' commands/council.md | grep -qE 'DEFERRED|deferred|exits 3'; then
   echo "FAIL: council.md still defers from-retro"; fail=1
 else
   echo "OK: council.md does not defer from-retro"
@@ -114,7 +128,7 @@ if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' --prese
 else
   echo "FAIL: preset_source explicit"; fail=1
 fi
-if rg -n 'why_detail' commands/council.md >/dev/null; then
+if grep -nF 'why_detail' commands/council.md >/dev/null; then
   echo "OK: council.md documents why_detail"
 else
   echo "FAIL: council.md missing why_detail"; fail=1
@@ -122,7 +136,7 @@ fi
 
 # CDV-209 Phase 3 domain specialist
 if [ -f skills/council/prompts/topic-classifier.md ] \
-  && rg -q 'confidence|devops|topic' skills/council/prompts/topic-classifier.md; then
+  && grep -qE 'confidence|devops|topic' skills/council/prompts/topic-classifier.md; then
   echo "OK: topic-classifier.md present"
 else
   echo "FAIL: topic-classifier.md missing/incomplete"; fail=1
@@ -151,9 +165,9 @@ if bash skills/council/engine.sh preflight --scope diff --why \
 else
   echo "FAIL: why_detail phase3 diff stub"; fail=1
 fi
-if rg -n 'topic-classifier' commands/council.md >/dev/null \
-  && rg -n 'max_specialists_per_run|confidence_threshold|0\.75' commands/council.md >/dev/null \
-  && ! rg -n 'Phase 3 — Domain Specialist \(DEFERRED' commands/council.md >/dev/null; then
+if grep -nF 'topic-classifier' commands/council.md >/dev/null \
+  && grep -nE 'max_specialists_per_run|confidence_threshold|0\.75' commands/council.md >/dev/null \
+  && ! grep -nE 'Phase 3 — Domain Specialist \(DEFERRED' commands/council.md >/dev/null; then
   echo "OK: council.md Phase 3 dispatch live"
 else
   echo "FAIL: council.md Phase 3 still deferred or missing classifier"; fail=1
@@ -173,22 +187,22 @@ else
 fi
 # PATH without codex/gemini → detect skip exit 0
 # (codex may live in /usr/bin on host — build a PATH that only has jq)
-_NOCLI_BIN=$(mktemp -d "${TMPDIR:-/tmp}/cdv207-nocli-bin.XXXXXX")
+_NOCLI_BIN=$(mktemp -d "$WORK/cdv207-nocli-bin.XXXXXX")
 ln -s "$(command -v jq)" "$_NOCLI_BIN/jq"
 set +e
-NOCLI_OUT=$(PATH="$_NOCLI_BIN" /bin/bash "$EXT_SH" detect --prefer auto 2>"${TMPDIR:-/tmp}/cdv207-nocli.err")
+NOCLI_OUT=$(PATH="$_NOCLI_BIN" /bin/bash "$EXT_SH" detect --prefer auto 2>"$WORK/cdv207-nocli.err")
 ec_nocli=$?
 set -e
 rm -rf -- "$_NOCLI_BIN"
 if [ "$ec_nocli" -eq 0 ] && printf '%s' "$NOCLI_OUT" | jq -e '.status=="skipped" and .tool==null' >/dev/null \
-  && rg -q 'skip' "${TMPDIR:-/tmp}/cdv207-nocli.err"; then
+  && grep -qF 'skip' "$WORK/cdv207-nocli.err"; then
   echo "OK: external detect no-cli → skip exit 0"
 else
   echo "FAIL: external detect no-cli exit=$ec_nocli out=$NOCLI_OUT"; fail=1
-  cat "${TMPDIR:-/tmp}/cdv207-nocli.err" >&2 || true
+  cat "$WORK/cdv207-nocli.err" >&2 || true
 fi
 # normalize mock raw → evidence_bundle
-MOCK_RAW=$(mktemp "${TMPDIR:-/tmp}/cdv207-raw.XXXXXX")
+MOCK_RAW=$(mktemp "$WORK/cdv207-raw.XXXXXX")
 printf '%s\n' '- CRITICAL skills/council/engine.sh:42 — missing null check on scope' >"$MOCK_RAW"
 set +e
 NORM_OUT=$(bash "$EXT_SH" normalize --tool codex --raw-file "$MOCK_RAW" --output-shape 'finding[]' --command 'mock')
@@ -204,7 +218,7 @@ else
 fi
 # preflight --external includes external field; never reduces flavors
 set +e
-EXT_PLAN=$(bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' --external 2>"${TMPDIR:-/tmp}/cdv207-pf.err")
+EXT_PLAN=$(bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' --external 2>"$WORK/cdv207-pf.err")
 ec_ext_pf=$?
 set -e
 if [ "$ec_ext_pf" -eq 0 ] && printf '%s' "$EXT_PLAN" | jq -e \
@@ -212,7 +226,7 @@ if [ "$ec_ext_pf" -eq 0 ] && printf '%s' "$EXT_PLAN" | jq -e \
   echo "OK: preflight --external emits external field; ≥2 internal flavors"
 else
   echo "FAIL: preflight --external shape exit=$ec_ext_pf"; fail=1
-  cat "${TMPDIR:-/tmp}/cdv207-pf.err" >&2 || true
+  cat "$WORK/cdv207-pf.err" >&2 || true
 fi
 # without --external: requested false
 if bash skills/council/engine.sh preflight --scope claim --scope-arg 'x' \
@@ -232,29 +246,29 @@ if [ "$ec_pin" -eq 0 ] && printf '%s' "$PIN_PLAN" | jq -e \
 else
   echo "FAIL: preflight --external=gemini exit=$ec_pin"; fail=1
 fi
-if rg -n -- '--external' commands/council.md >/dev/null \
-  && rg -n 'external-reviewer' commands/council.md >/dev/null; then
+if grep -nF -- '--external' commands/council.md >/dev/null \
+  && grep -nF 'external-reviewer' commands/council.md >/dev/null; then
   echo "OK: council.md documents --external slot"
 else
   echo "FAIL: council.md missing --external docs"; fail=1
 fi
-if rg -n -- '--external' skills/review-and-commit/SKILL.md >/dev/null; then
+if grep -nF -- '--external' skills/review-and-commit/SKILL.md >/dev/null; then
   echo "OK: review-and-commit passthrough --external"
 else
   echo "FAIL: review-and-commit missing --external"; fail=1
 fi
-if rg -n 'CDV-207|external investigator' specs/core/SPEC-013-adversarial-council-tribunal.md >/dev/null; then
+if grep -nE 'CDV-207|external investigator' specs/core/SPEC-013-adversarial-council-tribunal.md >/dev/null; then
   echo "OK: SPEC-013 SHOULD external diversity"
 else
   echo "FAIL: SPEC-013 missing external SHOULD"; fail=1
 fi
-if rg -n 'Phase 3 — Domain Specialist \(DEFERRED' skills/council/SKILL.md >/dev/null \
-  || rg -n 'deferred \(CDV-209\)' skills/council/SKILL.md >/dev/null; then
+if grep -nE 'Phase 3 — Domain Specialist \(DEFERRED' skills/council/SKILL.md >/dev/null \
+  || grep -nE 'deferred \(CDV-209\)' skills/council/SKILL.md >/dev/null; then
   echo "FAIL: SKILL.md still defers Phase 3"; fail=1
 else
   echo "OK: SKILL.md Phase 3 not deferred"
 fi
-if rg -n 'Deferred to COUNCIL-002' specs/core/SPEC-013-adversarial-council-tribunal.md >/dev/null; then
+if grep -nF 'Deferred to COUNCIL-002' specs/core/SPEC-013-adversarial-council-tribunal.md >/dev/null; then
   echo "FAIL: SPEC-013 Phase 3 still deferred blockquote"; fail=1
 else
   echo "OK: SPEC-013 Phase 3 undefferred"
@@ -276,8 +290,8 @@ else
   echo "FAIL: cache dir layout missing under $_CDV211_DIR"; fail=1
 fi
 rm -rf -- "$_CDV211_DIR" 2>/dev/null || true
-if rg -n 'cache_dir|cache-first|CACHE_DIR' skills/council/prompts/investigator.md >/dev/null \
-  && rg -n 'cache_dir|CACHE_DIR|council-cache' commands/council.md >/dev/null; then
+if grep -nE 'cache_dir|cache-first|CACHE_DIR' skills/council/prompts/investigator.md >/dev/null \
+  && grep -nE 'cache_dir|CACHE_DIR|council-cache' commands/council.md >/dev/null; then
   echo "OK: investigator + council.md document cache protocol"
 else
   echo "FAIL: cache protocol docs missing"; fail=1
@@ -286,18 +300,16 @@ fi
 # CDV-204: finalize --tokens-file (graceful Tokens block + optional FM)
 FIX_BASE=skills/council/fixtures/finalize-task-id
 TOK_BASE=skills/council/fixtures/finalize-tokens
-TOK_OUT=$(mktemp -d)
-trap 'rm -rf "$TOK_OUT"' EXIT
 if OUT=$(bash skills/council/engine.sh finalize \
   --plan-file "$FIX_BASE/plan-unbound.json" \
   --evidence-file "$FIX_BASE/evidence.json" \
   --judge-output "$FIX_BASE/judge.json" \
   --report-out "$TOK_OUT/with.md" \
   --tokens-file "$TOK_BASE/tokens-full.json" 2>/dev/null) \
-  && printf '%s\n' "$OUT" | rg -q '^Tokens:' \
-  && printf '%s\n' "$OUT" | rg -q 'Total: 78232' \
-  && rg -q 'tokens_total: 78232' "$TOK_OUT/with.md" \
-  && rg -q '1_claim_extraction: 2341' "$TOK_OUT/with.md"; then
+  && printf '%s\n' "$OUT" | grep -qE '^Tokens:' \
+  && printf '%s\n' "$OUT" | grep -qF 'Total: 78232' \
+  && grep -qF 'tokens_total: 78232' "$TOK_OUT/with.md" \
+  && grep -qF '1_claim_extraction: 2341' "$TOK_OUT/with.md"; then
   echo "OK: finalize with tokens → Tokens block + frontmatter"
 else
   echo "FAIL: finalize with tokens"; fail=1
@@ -307,8 +319,8 @@ if OUT=$(bash skills/council/engine.sh finalize \
   --evidence-file "$FIX_BASE/evidence.json" \
   --judge-output "$FIX_BASE/judge.json" \
   --report-out "$TOK_OUT/without.md" 2>/dev/null) \
-  && ! printf '%s\n' "$OUT" | rg -q '^Tokens' \
-  && ! rg -q 'tokens_total' "$TOK_OUT/without.md"; then
+  && ! printf '%s\n' "$OUT" | grep -qE '^Tokens' \
+  && ! grep -qF 'tokens_total' "$TOK_OUT/without.md"; then
   echo "OK: finalize without tokens-file → omit Tokens"
 else
   echo "FAIL: finalize without tokens-file leaked Tokens"; fail=1
@@ -319,8 +331,8 @@ if OUT=$(bash skills/council/engine.sh finalize \
   --judge-output "$FIX_BASE/judge.json" \
   --report-out "$TOK_OUT/unavail.md" \
   --tokens-file "$TOK_BASE/tokens-unavailable.json" 2>/dev/null) \
-  && ! printf '%s\n' "$OUT" | rg -q '^Tokens' \
-  && ! rg -q 'tokens_total' "$TOK_OUT/unavail.md"; then
+  && ! printf '%s\n' "$OUT" | grep -qE '^Tokens' \
+  && ! grep -qF 'tokens_total' "$TOK_OUT/unavail.md"; then
   echo "OK: finalize source=unavailable → omit Tokens"
 else
   echo "FAIL: unavailable tokens not omitted"; fail=1
@@ -331,8 +343,8 @@ if OUT=$(bash skills/council/engine.sh finalize \
   --judge-output "$FIX_BASE/judge.json" \
   --report-out "$TOK_OUT/partial.md" \
   --tokens-file "$TOK_BASE/tokens-partial.json" 2>/dev/null) \
-  && printf '%s\n' "$OUT" | rg -q 'Tokens \(partial\):' \
-  && printf '%s\n' "$OUT" | rg -q 'Total: 59738'; then
+  && printf '%s\n' "$OUT" | grep -qE 'Tokens \(partial\):' \
+  && printf '%s\n' "$OUT" | grep -qF 'Total: 59738'; then
   echo "OK: finalize partial tokens"
 else
   echo "FAIL: finalize partial tokens"; fail=1
@@ -343,21 +355,24 @@ if OUT=$(bash skills/council/engine.sh finalize \
   --judge-output "$FIX_BASE/judge.json" \
   --report-out "$TOK_OUT/zeros.md" \
   --tokens-file "$TOK_BASE/tokens-zeros.json" 2>/dev/null) \
-  && ! printf '%s\n' "$OUT" | rg -q '^Tokens' \
-  && ! rg -q 'tokens_total' "$TOK_OUT/zeros.md"; then
+  && ! printf '%s\n' "$OUT" | grep -qE '^Tokens' \
+  && ! grep -qF 'tokens_total' "$TOK_OUT/zeros.md"; then
   echo "OK: finalize zeros/null phases → omit (no invented 0)"
 else
   echo "FAIL: zeros treated as real tokens"; fail=1
 fi
-if rg -n 'tokens-file' commands/council.md >/dev/null; then
+if grep -nF 'tokens-file' commands/council.md >/dev/null; then
   echo "OK: council.md documents tokens-file"
 else
   echo "FAIL: council.md missing tokens-file"; fail=1
 fi
 
 # helpers + mock finalize
-node --input-type=module <<'JS'
+COUNCIL_TEST_REPO="$TR" node --input-type=module <<'JS'
 import { parseArgs, loadPrompt, runCouncil } from './skills/council/workflow.js'
+// Isolate MROOT off the real worktree before any preflight/finalize call —
+// see the full rationale next to this same chdir in test-tier-engine.sh (T5).
+process.chdir(process.env.COUNCIL_TEST_REPO)
 const a = parseArgs(JSON.stringify({ scope: 'claim', claim: 'x' }))
 if (!a.ok) throw new Error('parse')
 const p = loadPrompt('judge', {

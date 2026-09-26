@@ -30,6 +30,7 @@ TMP="$WORK/tmp"
 HANDOFF="$WORK/handoff"
 mkdir -p "$FAKE_HOME" "$STORE" "$SESS" "$TMP" "$HANDOFF"
 
+export CLAUDE_PLUGIN_ROOT="$ROOT"
 export HOME="$FAKE_HOME"
 export TRANSCRIPT_MIRROR_ROOT="$STORE"
 export CLAUDE_PROJECTS_DIR="$FAKE_HOME/.claude/projects"
@@ -39,7 +40,8 @@ export HANDOFF_DIR="$HANDOFF"
 unset HANDOFF_FULL GROK_TRANSCRIPT_PATH CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID || true
 mkdir -p "$CLAUDE_PROJECTS_DIR"
 
-CWD=$(pwd)
+CWD="$WORK/fake-project-cwd"  # fixed, cwd-independent (SPEC-030 R20)
+mkdir -p "$CWD"
 ENC_CLAUDE=${CWD//\//-}
 ENC_GROK=$(python3 -c 'import os,urllib.parse,sys; print(urllib.parse.quote(os.path.abspath(sys.argv[1]), safe=""))' "$CWD")
 
@@ -137,14 +139,17 @@ plant_hit() {
 
 check_sid() {
   local sid="$1"
-  bash "$SYNC" --check --sid "$sid" 2>"$WORK/chk.err" || true
+  bash "$SYNC" --check --sid "$sid" --cwd "$CWD" 2>"$WORK/chk.err" || true
 }
 
 run_prep() {
   local sid="$1" tr="$2" out="$3"
   shift 3
-  bash "$PREPASS" prepare --uuid "$sid" --transcript "$tr" \
-    --allow-in-progress --out "$out" "$@" >"$WORK/prep.out" 2>"$WORK/prep.err"
+  # cd into the fixed fake project cwd (SPEC-030 R20): prepass.sh's internal
+  # mirror-check subprocess has no --cwd flag and falls back to os.getcwd(),
+  # so the invoker's real cwd must not leak in — pin it to $CWD instead.
+  ( cd "$CWD" && bash "$PREPASS" prepare --uuid "$sid" --transcript "$tr" \
+    --allow-in-progress --out "$out" "$@" ) >"$WORK/prep.out" 2>"$WORK/prep.err"
 }
 
 assert_no_origin() {

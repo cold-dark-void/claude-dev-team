@@ -6,6 +6,8 @@
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "$SCRIPT_DIR/../../tests/lib/skip.sh"
+require_cmd sqlite3
 PLUGIN_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 EXPORT="$SCRIPT_DIR/export-seed-pack.sh"
 IMPORT="$SCRIPT_DIR/import-seed-pack.sh"

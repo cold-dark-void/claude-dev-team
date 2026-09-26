@@ -5,23 +5,34 @@ set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
-CAPTURE="$ROOT/.claude/hooks/friction-capture.sh"
+SKILL="$ROOT/skills/init-orchestration/SKILL.md"
 PASS=0
 FAIL=0
 
 ok()  { PASS=$((PASS + 1)); echo "PASS: $*"; }
 bad() { FAIL=$((FAIL + 1)); echo "FAIL: $*"; }
 
-[ -f "$CAPTURE" ] || { echo "FAIL: missing $CAPTURE"; exit 1; }
-
 # Isolated ledger via FRICTION_LEDGER; still need a git repo for MROOT.
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/friction-test.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
+CAPTURE="$TMP/friction-capture.sh"
+
+# Extract the hook from the first ```bash fence under
+# "### Step 4g: Create .claude/hooks/friction-capture.sh" in SKILL.md.
+awk '
+  /^### Step 4g: Create \.claude\/hooks\/friction-capture\.sh$/ { found=1 }
+  found && /^```bash$/ && !fence { fence=1; next }
+  fence && /^```$/ { exit }
+  fence { print }
+' "$SKILL" > "$CAPTURE"
+
+[ -s "$CAPTURE" ] || { echo "FAIL: extraction from $SKILL produced an empty hook"; exit 1; }
+chmod +x "$CAPTURE"
+
 LEDGER="$TMP/friction.jsonl"
 export FRICTION_LEDGER="$LEDGER"
 # Run capture from a real git worktree so MROOT resolves (FRICTION_LEDGER overrides path).
 cd "$ROOT" || exit 1
-
 feed() {
   # feed <json-string> — invoke capture; ignore exit (must be 0)
   local json="$1"

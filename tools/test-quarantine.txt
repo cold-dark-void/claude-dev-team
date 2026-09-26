@@ -1,9 +1,3 @@
 # Suites red in CI. They run, but do not block (SPEC-030 R11-R13).
 # Format: <repo-relative suite path> <reason>. One entry per line.
-# Measured 2026-09-25 at fbafdb8 in a CI-like run (shallow clone, clean HOME, no rg). WP 1-02 empties this file.
-skills/council/test-workflow-static.sh needs rg (ripgrep), absent on the ubuntu-latest image; rg asserts at :11, :13, :14 FAIL
-skills/handoff/detached-stub-test.sh AC1 byte cap (:109-112): commands/handoff.md is 12096 B, cap 12000 B
-skills/orchestrate/router-static-test.sh T10 bad-form: prose ORCH_TIER mention at skills/orchestrate/steps/02-scope.md:6
-skills/release-train/test-integration.sh restore asserts (:168, :200) see untracked .claude/release-train/ in the temp repo; green only under a global excludesfile that ignores .claude/
-skills/retro-gate/friction-capture-test.sh needs the generated, gitignored hook .claude/hooks/friction-capture.sh (:8); a clean checkout has none
-skills/retro-gate/scheduled-retro-test.sh check 4 regex command-name.*/[a-z:-]*retro (:48) does not match commands/retro.md:575 (Filter 2 is now a regex literal)
+# Empty since WP 1-02 (2026-09-25). An environment cause exits 77 (SPEC-030 R18-R19); it never gets an entry.

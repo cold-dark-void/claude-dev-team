@@ -6,6 +6,13 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.17
+- **WP 1-02 Red suites green, tests hermetic (CDT-266, CDT-332, CDT-270, CDT-419)** — `tools/test-quarantine.txt` is now empty: all 78 suites pass on the host and in a CI-like clean clone. Contract in SPEC-030 R13, R16, R18–R21.
+- **Exit-77 skip protocol** — new `tests/lib/skip.sh` (`skip_if_root`, `require_cmd`) and `tests/lib/hermetic.sh` (`hermetic_init`/`hermetic_cleanup`: private TMPDIR and HOME), with a self-test. metrics T4 and transcript-mirror M4 skip only their chmod case under root; the sqlite3 suites (migrate, seed-pack, reconcile) exit 77 when sqlite3 is missing instead of passing falsely or crashing.
+- **`/handoff` single parse fence (SPEC-018 M19.11, W1-27)** — Step 3 folded into the one Step 1 fence; args read through a quoted heredoc; full 8-4-4-4-12 UUID check; `mktemp` error file; `jq` replaced by `skills/handoff/plan-fields.py`; `SPINE=` in the payload echo; cache-HIT and too-fresh strings byte-match the docs page. `commands/handoff.md` is 11991 B (cap 12000). Unknown flag still exits 0 (SPEC-018).
+- **release-train preflight ignores its own queue (CDT-332)** — `preflight` checks the whole repo except `.claude/release-train/`, so an untracked queue no longer reads as dirty, and dirt at the repo root is caught from a subdirectory. Tests no longer depend on a global gitignore.
+- **Suites stop polluting the checkout** — council `test-workflow-static` and `test-tier-engine` no longer write the live `.claude/council/index.json`, claim reports or retro anchors, and no longer need `rg`; `CLAUDE_CODE_VERSION` no longer breaks the probe. TMPDIR leakers, resolve-root T7a (fake HOME) and mirror-spine (cwd-independent) are hermetic. router-static T10, scheduled-retro and friction-capture (hook extracted from the template) are green.
+
 ### v1.18.16
 - **WP 1-01 One runner for all test suites (CDT-269, CDT-481)** — new `tools/run-all-tests.sh` discovers every `test.sh` / `test-*.sh` / `*-test.sh` from `git ls-files` (no wiring list; excludes `fixtures/`, `.worktrees/`, `node_modules/`, itself), runs each serially from the repo root with a per-suite timeout (process-group TERM, then KILL), and fails any suite that leaves the working tree changed. Exit 0/1/64; `--root`, `--list`; rc 77 = SKIP. Bite-tested by `tools/run-all-tests-test.sh`.
 - **Reasoned quarantine** — `tools/test-quarantine.txt` lists the 6 suites measured red in a CI-like clone, one reason each; quarantined suites still run but do not fail the gate, and a passing entry warns. Malformed entries exit 64. WP 1-02 empties it.

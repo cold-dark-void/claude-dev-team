@@ -12,6 +12,7 @@
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "$SCRIPT_DIR/../../tests/lib/skip.sh"
 SCHEMA="$SCRIPT_DIR/schema.sql"
 MIGRATE="$SCRIPT_DIR/migrate.sh"
 FIXDIR="$SCRIPT_DIR/fixtures/migrate"
@@ -84,10 +85,7 @@ make_mroot() {
   mkdir -p "$root/.claude/memory"
 }
 
-if ! command -v sqlite3 &>/dev/null; then
-  echo "SKIP: sqlite3 not in PATH" >&2
-  exit 0
-fi
+require_cmd sqlite3
 
 assert_file "fixture v1-minimal.sql" "$V1_SQL"
 assert_file "fixture v3-minimal.sql" "$V3_SQL"

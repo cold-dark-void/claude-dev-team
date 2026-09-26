@@ -7,13 +7,16 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DISCOVER="$HERE/discover-warm.sh"
 FIXTURE="$HERE/fixtures/grok-chat-mini.jsonl"
 ADAPTER="$HERE/grok-to-claude-jsonl.py"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/discover-warm-test.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; hermetic_cleanup' EXIT
 
 # Isolate env so ambient session vars / live Grok sessions cannot leak.
 unset CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
