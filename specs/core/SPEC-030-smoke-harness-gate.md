@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-07-21
 
-**Covers**: `tools/smoke/run.sh`, `tools/smoke/smoke.py`, `tools/smoke/test.sh`, `tools/smoke/fixtures/`, `tools/smoke/README.md`, `tools/run-all-tests.sh`, `tools/run-all-tests-test.sh`, `tools/test-quarantine.txt`, `tests/lib/skip.sh`, `tests/lib/hermetic.sh`, `tests/lib/test.sh`, `.github/workflows/smoke.yml`, `skills/release/SKILL.md` (Steps 4.10 and 4.13 only)
+**Covers**: `tools/smoke/run.sh`, `tools/smoke/smoke.py`, `tools/smoke/test.sh`, `tools/smoke/fixtures/`, `tools/smoke/README.md`, `tools/run-all-tests.sh`, `tools/run-all-tests-test.sh`, `tools/test-quarantine.txt`, `tools/ci-workflow-test.sh`, `tests/lib/skip.sh`, `tests/lib/hermetic.sh`, `tests/lib/test.sh`, `.github/workflows/smoke.yml`, `skills/release/SKILL.md` (Steps 4.10 and 4.13 only)
 
 ## Overview
 
@@ -176,6 +176,10 @@ to fix, never a skip.
 - R20. MUST ship `tests/lib/hermetic.sh`, source-only, that defines `hermetic_init` and `hermetic_cleanup`. `hermetic_init` MUST create one `mktemp -d` root under the caller's `TMPDIR` (default `/tmp`), export `HERMETIC_ROOT` (that root), `TMPDIR=$HERMETIC_ROOT/tmp` and `HOME=$HERMETIC_ROOT/home` (both created), unset `XDG_CONFIG_HOME`, export fixed `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` values, and install `trap hermetic_cleanup EXIT`. `hermetic_cleanup` MUST remove `$HERMETIC_ROOT`. A suite that sets its own EXIT trap after `hermetic_init` MUST call `hermetic_cleanup` from that trap
 - R21. `tests/lib/test.sh` MUST prove, with nothing run as root and nothing installed: under a `PATH` shim whose `id` prints `0`, `skip_if_root` exits 77 with a `SKIP:` line on stderr, and under a shim that prints `1000` it returns 0; `require_cmd` exits 77 naming the missing command when `PATH` lacks it, and returns 0 when all are present; the per-case subshell form prints the `SKIP:` line and the suite continues; `hermetic_init` puts `TMPDIR` and `HOME` under one root that is gone after the sourcing shell exits, on exit 0 and on a non-zero exit; the caller's `TMPDIR` holds no new entry afterwards
 
+### CI workflow hygiene
+
+- R22. `.github/workflows/smoke.yml` MUST set a top-level `permissions: contents: read`, and no job may widen it. Every job MUST set `timeout-minutes`: `20` for `all-tests`, `10` for each other job. Every `uses:` MUST pin a full 40-hex commit SHA and carry a `# vX.Y.Z` comment that names the exact tag of that SHA (a moving major tag such as `v4` is not a pin). `tools/ci-workflow-test.sh` MUST assert these three rules on the live workflow. It MUST also bite: on a mktemp copy with each rule broken in turn, it reports a FAIL. The test asserts the pin **shape** only — a 40-hex SHA plus a matching `# vX.Y.Z` comment — never that the SHA and the tag actually name the same commit; confirming that needs the network, and a hermetic test MUST NOT reach it. Check the tag-to-SHA match at pin time with a read-only `git ls-remote --tags <repo> <tag>`, and record that lookup in the ship notes. MUST NOT add a network call to the test itself
+
 ## SHOULD
 
 - SHOULD complete a full no-argument smoke scan of this repo in under 15 seconds
@@ -197,7 +201,7 @@ to fix, never a skip.
 - Runtime/behavioral verification of what a command *does* (its outputs, side effects, agent orchestration) — this harness is load-only static verification.
 - Smoke does not *run* test scripts (it only parses them); the all-suites runner does.
 - `.claude-plugin/*.json` schema validation — docs-drift `manifest-desc` covers the description field; a schema check is a separate item.
-- A macOS CI lane (CDT-271) and job-level `permissions`/`timeout-minutes` hardening (CDT-274).
+- A macOS CI lane (CDT-271).
 - A runner-level guard for writes to gitignored paths, and runner-level `TMPDIR`/`HOME` isolation. R16 is enforced by suite design and review, not by the runner (backlog).
 
 ## Test
@@ -244,6 +248,7 @@ to fix, never a skip.
 | 2026-09-25 | WP 1-01 (CDT-269, `[10 smoke-agents]`, W1-37): smoke discovery widened to agents (five-field value-domain check), sub-doc fences, every `*.sh` incl. tests, and `githooks/`; parser accepts YAML block sequences; `tools/smoke/**` blanket exclusion narrowed to `fixtures/`. New all-suites runner sections R1–R17 (`tools/run-all-tests.sh`, reasoned quarantine, `smoke.yml` `all-tests` job, `/release` Step 4.13, suite hygiene). Title widened. |
 | 2026-09-25 | WP 1-01 review fix: Discovery classifier wording amended to "repo-relative path shape" — classify() must be given a repo-relative path (never absolute), since an ancestor directory outside the root sharing a classified name (`skills`, `agents`, `githooks`) would otherwise false-match. |
 | 2026-09-25 | WP 1-02 (CDT-270, CDT-419, W1-34, W1-35): quarantine emptied; R13 reworded (environment causes skip, never quarantine). R16 extended to the real `$MROOT/.claude/`, the caller's `TMPDIR` and the real `HOME`. New R18–R21: exit-77 skip protocol (`tests/lib/skip.sh`), hermetic helper (`tests/lib/hermetic.sh`) and their self-test. Out of Scope trimmed; Covers widened. |
+| 2026-09-26 | WP 1-03 (CDT-274, `[10 smoke-pin]`): job-level `permissions`/`timeout-minutes` hardening moves from Out of Scope into MUST as R22 (CI workflow hygiene), with SHA-pinned `uses:` and the static test `tools/ci-workflow-test.sh`. |
 
 ## Cross-references
 

@@ -6,6 +6,14 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.18
+- **WP 1-03 Release path pushes only its own tag (CDT-425, CDT-341, CDT-274)** — new `push-release.sh` runs `git push --atomic --no-follow-tags <remote> refs/heads/<branch> refs/tags/vX.Y.Z`. Stray local tags no longer reach origin, and a failed atomic push leaves the remote unchanged. Contract in SPEC-010 R1–R3.
+- **Release step scripts** — `step0.sh` (detached HEAD → 64, epic guard, jq missing → 69) and `ship-start.sh` (ship-start SHA, D4 tag snapshot under the git dir, `--path`/`--list`/`--clear`, stale sweep). Every gate fence in `/release` now resolves through PDH.
+- **Ship-history D4 without reflogs** — tag retargets are found from the Step 0.5 snapshot (`--tag-snapshot`) with full refnames; `--expect-tag` resolves `refs/tags/` only; a tag-list failure exits 64. The H6.2 pre-tag check is now a MUST.
+- **Bump-class** — `--range` checks each commit (CI); `--cached` reads `plugin.json` from the index; `--no-renames`; untracked commands count; pre-release rules apply on the X.Y.Z core. Auto-detect follows the `AGENTS.md` rule, and a tagless repo is a first release over full history.
+- **Staged-path gate and hooks** — the gate reads `-z` names and strips every leading `./`; the hook installer warns on a foreign `hooksPath` or a non-sample hook.
+- **CI hygiene (SPEC-030 R22)** — `smoke.yml` has top-level `permissions: contents: read`, job timeouts, `actions/checkout` pinned to `11d5960…` (v4.4.0) and an event-aware bump-class range; new `tools/ci-workflow-test.sh` asserts these rules.
+
 ### v1.18.17
 - **WP 1-02 Red suites green, tests hermetic (CDT-266, CDT-332, CDT-270, CDT-419)** — `tools/test-quarantine.txt` is now empty: all 78 suites pass on the host and in a CI-like clean clone. Contract in SPEC-030 R13, R16, R18–R21.
 - **Exit-77 skip protocol** — new `tests/lib/skip.sh` (`skip_if_root`, `require_cmd`) and `tests/lib/hermetic.sh` (`hermetic_init`/`hermetic_cleanup`: private TMPDIR and HOME), with a self-test. metrics T4 and transcript-mirror M4 skip only their chmod case under root; the sqlite3 suites (migrate, seed-pack, reconcile) exit 77 when sqlite3 is missing instead of passing falsely or crashing.

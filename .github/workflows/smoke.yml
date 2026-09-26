@@ -6,74 +6,106 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash tools/smoke/run.sh
 
   skill-lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash skills/skill-lint/check-skill-bash.sh
 
   docs-drift:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash skills/docs-drift/check-docs-drift.sh
 
   # CDT-130 — SPEC-012 retro-gate friction heuristics (parity with CDT-96 CI wiring)
   retro-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash skills/retro-gate/test.sh
 
   # Bump-class: new commands/*.md cannot land as a patch (1.7.37 class)
   bump-class:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - run: bash skills/release/test-bump-class.sh
-      - run: bash skills/release/check-bump-class.sh --commit HEAD
+      - name: bump-class over the event range
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+            RANGE="$PR_BASE..$PR_HEAD"
+          elif printf '%s' "$PUSH_BEFORE" | grep -qE '^0+$'; then
+            RANGE="origin/master..$PUSH_AFTER"
+          elif git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            RANGE="$PUSH_BEFORE..$PUSH_AFTER"
+          else
+            echo "::warning::before=$PUSH_BEFORE is not in history (force push); checking $PUSH_AFTER only"
+            RANGE="$PUSH_AFTER^..$PUSH_AFTER"
+          fi
+          bash skills/release/check-bump-class.sh --range "$RANGE"
 
   # CDT-174 — SPEC-024 seed pack export/import bite tests (parity with retro-gate CI wiring)
   seed-pack:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash skills/memory-store/test-seed-pack.sh
 
   # CDT-157 — wrap-ticket remote feat prune (allowlist + cherry/ancestor)
   prune-remote:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash skills/wrap-ticket/prune-remote-test.sh
 
   # CDT-232 — SPEC-002 bootstrap-stanza fallback branches (blocking gate)
   plugin-dir:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash skills/plugin-dir-test.sh
 
   # CDT-235 — SPEC-004 managed include-region drift (previously release-time only)
   include-drift:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash skills/agent-memory/sync-includes-test.sh
       - run: python3 skills/agent-memory/sync-includes.py check
 
   # CDT-269 — SPEC-030 R14 all-suites runner (quarantine: tools/test-quarantine.txt)
   all-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash tools/run-all-tests.sh

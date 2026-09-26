@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/check-bump-class.sh`, `skills/release/test.sh`, `githooks/pre-commit`
+**Covers**: `skills/review-and-commit/SKILL.md`, `skills/release/SKILL.md`, `skills/release/check-staged-paths.sh`, `skills/release/check-ship-history.sh`, `skills/release/check-bump-class.sh`, `skills/release/install-git-hooks.sh`, `skills/release/step0.sh`, `skills/release/ship-start.sh`, `skills/release/push-release.sh`, `skills/release/test.sh`, `skills/release/test-bump-class.sh`, `skills/release/test-ship-history.sh`, `skills/release/test-step0.sh`, `skills/release/test-ship-steps.sh`, `githooks/pre-commit`
 
 ## Overview
 
@@ -35,8 +35,8 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - MUST update the version pair per SPEC-002: CHANGELOG.md changelog heading and plugin.json version — never skip either
 - MUST NOT reintroduce or require a `marketplace.json` `plugins[].version` field (channels pin via git refs)
 - MUST verify version strings are semantically identical across the version pair before committing
-- MUST NOT proceed if no commits exist since last tag ("Nothing to release")
-- MUST auto-detect version bump: minor if any `feat:` commits since last tag, else patch
+- MUST NOT proceed if no commits exist since last tag ("Nothing to release"). When no tag is reachable from `HEAD` (tagless or shallow clone), the release is a first release: use the full history, never an empty range
+- MUST auto-detect the version bump by the AGENTS.md versioning rule: minor when the release adds a new command surface or changes a default behavior; else patch. New opt-in flags with unchanged defaults are patch. A `feat:` subject alone MUST NOT force minor
 - MUST support explicit version: `/release [patch|minor|major|vX.Y.Z]`
 - MUST auto-generate changelog from git log (never ask user for description)
 - MUST exclude `chore: release` commits from changelog generation
@@ -53,8 +53,8 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 Fail-closed gate so foreign index noise cannot ride the folded release commit. **Single SoT:** this subsection + `skills/release/SKILL.md` Step 5 wiring. MUST NOT dual-write a second contract home (CDT-187 may pre-warn only; ship-history one-commit policy lives in the **Ship-history cleanliness** subsection below — this gate does not reimplement it).
 
 - **S1 — Deterministic checker CLI.** MUST ship `skills/release/check-staged-paths.sh` as pure-subprocess bash (no LLM, no network). Invocable from any cwd when run inside a git work tree. Exit codes: `0` = staged ⊆ allowed; `1` = policy fail (foreign staged path(s)); `64` = usage error (missing args / invalid flag / not a git repo as applicable).
-- **S2 — Allowed set.** `allowed = {CHANGELOG.md, .claude-plugin/plugin.json} ∪ intended ∪ allow-extra` where `intended` and `allow-extra` are exact repo-relative path strings supplied by the caller. Version pair is always in `allowed` even if omitted from CLI args (AC-3).
-- **S3 — Staged set.** MUST read **only** `git diff --cached --name-only` (optionally `-z` for safety). MUST NOT consult unstaged working tree or untracked files for pass/fail (AC-6).
+- **S2 — Allowed set.** `allowed = {CHANGELOG.md, .claude-plugin/plugin.json} ∪ intended ∪ allow-extra` where `intended` and `allow-extra` are exact repo-relative path strings supplied by the caller. The checker strips every leading `./` from each caller path before comparison; no other normalization. Version pair is always in `allowed` even if omitted from CLI args (AC-3).
+- **S3 — Staged set.** MUST read **only** `git diff --cached --name-only -z` (NUL-separated, so `core.quotePath` never quotes a path with spaces or non-ASCII bytes). MUST NOT consult unstaged working tree or untracked files for pass/fail (AC-6).
 - **S4 — Gate predicate.** Pass iff every staged path is an exact string match in `allowed`. No globs, no directory prefix expansion, no recursive dir membership. Empty staged set → pass (caller may still fail later for "nothing to release"; out of this gate's scope).
 - **S5 — Fail message (AC-1, AC-10).** On policy fail print a header that names the **staged-path hard gate**, list **every** foreign staged path (one per line), and state that commit/tag/push MUST NOT proceed. MUST NOT `git reset` / unstage / modify the index (AC-7).
 - **S6 — CLI shape.**
@@ -72,10 +72,10 @@ Fail-closed: a newly added `commands/*.md` is a new user-facing Surface and MUST
 ship as **minor or major**, never patch (AGENTS.md versioning). This is the
 1.7.37 class of defect (`/audit` tagged as a patch).
 
-- **B1 — Deterministic checker CLI.** MUST ship `skills/release/check-bump-class.sh` as pure-subprocess bash (no LLM, no network). Exit codes: `0` = ok (no new command file, or bump is minor/major); `1` = new `commands/*.md` with patch / unchanged / unreadable version; `64` = usage / not a git repo. Modes: default = worktree+index+untracked vs `HEAD` (or `--against REF`); `--cached` = index vs HEAD (pre-commit); `--commit REV` = that commit vs its parent (CI).
-- **B2 — Predicate.** Collect added paths matching `commands/*.md` (`--diff-filter=A`, plus untracked in default mode). If the set is empty → pass. Else read `plugin.json` `"version"` at the old ref and the new tree; classify the pair as `major` / `minor` / `patch` / `none` / `invalid`. Pass iff class ∈ {`minor`, `major`}. Edits or deletes of existing command files MUST NOT trip the gate.
+- **B1 — Deterministic checker CLI.** MUST ship `skills/release/check-bump-class.sh` as pure-subprocess bash (no LLM, no network). Exit codes: `0` = ok (no new command file, or bump is minor/major); `1` = new `commands/*.md` with patch / unchanged / unreadable version; `64` = usage / not a git repo. Modes: default = worktree+index+untracked vs `HEAD` (or `--against REF`); `--cached` = index vs HEAD (pre-commit) — the added set and the new `plugin.json` version both come from the index (`git show :.claude-plugin/plugin.json`), never from the worktree; `--commit REV` = that commit vs its parent (CI); `--range BASE..TIP` = `--commit` for each commit of `git rev-list --no-merges --reverse BASE..TIP`, exit `1` if any commit fails, exit `0` on an empty range (CI).
+- **B2 — Predicate.** Collect added paths that are top-level `commands/<name>.md` (a path under `commands/<dir>/` is not a Surface). Diff with rename detection off (`--no-renames --diff-filter=A`), so a rename into `commands/` counts as added. In default mode also collect untracked files. If the set is empty → pass. Else read `plugin.json` `"version"` at the old ref and the new tree; classify the pair as `major` / `minor` / `patch` / `none` / `invalid`. Pass iff class ∈ {`minor`, `major`}. A version MAY carry a semver pre-release or build suffix (`X.Y.Z-pre.N`, `X.Y.Z+b`): classify on the `X.Y.Z` core. When the cores are equal and the strings differ, the class is the line class of the core (`X.0.0` → `major`, `X.Y.0` → `minor`, else `patch`); a release → pre-release of the same core is `invalid`. Edits or deletes of existing command files MUST NOT trip the gate.
 - **B3 — Fail message.** On policy fail print `bump-class:`, list every new command path, print `old -> new (class)`, cite AGENTS.md, and state commit/tag/push MUST NOT proceed. MUST NOT mutate the index.
-- **B4 — Wiring.** `/release` Step 4.11 MUST run the checker and hard-stop on non-zero. `githooks/pre-commit` MUST run `--cached` when the branch is `master` or `main` (no-op on feature branches). CI on push/PR to master MUST run `--commit HEAD` (and the fixture suite). `/release` Step 0.6 MUST set `core.hooksPath=githooks` when `githooks/pre-commit` exists.
+- **B4 — Wiring.** `/release` Step 4.11 MUST run the checker and hard-stop on non-zero. `githooks/pre-commit` MUST run `--cached` when the branch is `master` or `main` (no-op on feature branches). CI on push/PR to master MUST run the fixture suite and `--range` over the event range, with a full-history checkout (`fetch-depth: 0`): pull request → `base.sha..head.sha`; push → `before..after`; an all-zero `before` → `origin/master..after`; a `before` that does not resolve (force push) → `after^..after` plus a workflow warning. `/release` Step 0.6 MUST set `core.hooksPath=githooks` when `githooks/pre-commit` exists. Before it sets the value, the installer MUST print a warning on stderr, and then still install, when `core.hooksPath` already has another value or the common `hooks/` dir holds a hook that is not a `*.sample` file (those hooks stop running).
 - **B5 — Tests.** MUST ship `skills/release/test-bump-class.sh` in temp repos: new command + patch → 1; new command + minor/major → 0; edit existing + patch → 0; `--commit` and `--cached` variants; usage → 64.
 - **B6 — MUST NOT.** Enforce on feature branches; treat skill-only additions (no `commands/*.md`) as a Surface; allow a feature-line `/release patch` to add a new command file (new Surface always minor/major).
 
@@ -89,22 +89,22 @@ Fail-closed **one-commit-per-tag** policy for the ship window. **Single SoT for 
 - **D1 — multi-commit-per-tag.** For any release tag `vX.Y.Z` (or `X.Y.Z`) whose target is in W: more than one non-merge commit lies in the half-open range `(prev_release_tag, this_tag]` where `prev_release_tag` is the nearest older `v*` tag ancestor (or `ship-start` if none). Equivalent: commits-per-tag ≠ 1 for any tag in W.
 - **D2 — subject / CHANGELOG mismatch.** For each tag `vX.Y.Z` in W: the sole fold commit's subject must match `^(feat|fix): v?X\.Y\.Z — ` and the summary after the em-dash MUST equal the **lead bullet text** of the matching `### vX.Y.Z` / `### X.Y.Z` section in `CHANGELOG.md` at that commit (strip leading `- ` / `**` / trailing ` — …` detail; compare bold lead if present). Missing CHANGELOG section or empty body → dirty.
 - **D3 — repair-class commits in W.** Any non-merge commit in W whose subject matches repair patterns: `^fixup!`, `^squash!`, `^WIP\b`, `^wip\b`, `^temp\b`, `^TMP\b`, `^chore:\s*repair\b`, `^chore:\s*retag\b`, or a second `feat:|fix:` release-shaped subject for a version already tagged in W (interactive double-commit hazard: squash delivery commit + later `/release` fold for the same version).
-- **D4 — tag retarget.** For any tag name in W that also exists on `refs/remotes/origin/*` tracking (when `origin` is configured): local tag object SHA ≠ remote-advertised tag SHA for the same name (or local tag points at a commit that is not an ancestor of current branch tip while a prior local reflog entry shows a different target created in this ship). When origin is absent / unreachable, D4 remote half is skipped (not dirty solely for offline); local double-move within W still dirty if two distinct SHAs were tagged with the same name in this ship (detect via `git reflog show <tag>` when available, else best-effort: fail if `git rev-parse <tag>` ≠ recorded expected SHA passed via `--expect-tag TAG=SHA` optional multi-arg).
+- **D4 — tag retarget.** The checker reads release tags by full refname under `refs/tags/`. A branch or a remote-tracking branch with a release-tag name has no effect. Dirty iff any of: (a) **remote half** — a release tag in W has a local remote-tracking tag ref `refs/remotes/origin/tags/<name>` (no network) that peels to a different commit than the local tag; skipped when that ref is absent (not dirty solely for offline). This half applies only to a clone whose fetch configuration mirrors tags into `refs/remotes/origin/tags/`; git's default tag-fetch writes directly to `refs/tags/`, so most clones never populate that namespace and the half is a no-op there; (b) **snapshot half** — with `--tag-snapshot FILE` (H2), a release tag listed in FILE still exists locally but peels to a different commit (a retarget during this ship); (c) **expected half** — `--expect-tag TAG=SHA` is given and `git rev-parse <tag>^{commit}` ≠ SHA. The checker MUST NOT read tag reflogs (tags have no reflog under the default `core.logAllRefUpdates`).
 
 **Clean** ⇔ none of D1–D4 in W. End-state invariant (AC-4): N release tags in W → N fold commits; each subject matches its CHANGELOG lead.
 
-- **H1 — Deterministic checker CLI.** MUST ship `skills/release/check-ship-history.sh` as pure-subprocess bash (no LLM, no network, no ref mutation). Invocable from any cwd inside a git work tree. Exit codes: `0` = clean; `1` = dirty (one or more of D1–D4); `64` = usage / not a git repo / unresolvable `--since`.
+- **H1 — Deterministic checker CLI.** MUST ship `skills/release/check-ship-history.sh` as pure-subprocess bash (no LLM, no network, no ref mutation). Invocable from any cwd inside a git work tree. Exit codes: `0` = clean; `1` = dirty (one or more of D1–D4); `64` = usage / not a git repo / unresolvable `--since` / tag list failure.
 - **H2 — CLI shape.**
   ```
-  check-ship-history.sh --since <ship-start-sha> [--changelog PATH] [--expect-tag TAG=SHA ...]
+  check-ship-history.sh --since <ship-start-sha> [--changelog PATH] [--expect-tag TAG=SHA ...] [--tag-snapshot FILE]
   ```
-  `--since` required (full or abbrev SHA; MUST resolve via `git rev-parse`). `--changelog` defaults to `CHANGELOG.md` at repo root. `--expect-tag` optional, repeatable, for D4 local expected targets. Unknown flags / missing `--since` → exit 64.
+  `--since` required (full or abbrev SHA; MUST resolve via `git rev-parse`). `--changelog` defaults to `CHANGELOG.md` at repo root. `--expect-tag` optional, repeatable, for D4 local expected targets. `--tag-snapshot` optional, for the D4 snapshot half: FILE is the tag snapshot that `skills/release/ship-start.sh` writes at `/release` Step 0.5, one `<refname><TAB><peeled-commit-sha>` line per tag. A missing or unreadable FILE → exit 64. Unknown flags / missing `--since` → exit 64.
 - **H3 — Evidence output (dirty).** On exit 1 print a header that includes the exact token `history dirty — rewrite needed`, then list every finding as one line: `D<n>: <short evidence>` (tag name, SHAs, subject, expected lead). MUST print enough for a human to plan a rewrite; MUST NOT auto-rewrite, force-push, delete tags, or reset.
 - **H4 — Clean output.** On exit 0 print one summary line: tag count in W and `clean` (or equivalent). No force-push advice on clean.
 - **H5 — Proactive gate (AC-1, AC-5).** Callers MUST run the checker **before** claiming ship success — specifically before Linear/backlog **Done**, before printing `Orchestration complete`, and before any success claim that a release is shipped. MUST NOT wait for a human to say "squash commits!". Prefer run **after** the fold commit is created and **before** `git tag` + `git push` when the commit is still local (linearize-before-tag); when tags/commits are already pushed, still run — dirty → halt path (H7/H8), never silent repair.
 - **H6 — Release wiring.** `/release` MUST:
   1. Record `ship-start=$(git rev-parse HEAD)` at skill entry (before any commit), or accept an ambient `SHIP_START_SHA` when the caller (end-state / train / orchestrate) already opened W.
-  2. After Step 5 fold commit succeeds and **before** Step 6 tag+push when possible: if W already contains prior tags/commits from this ship that fail H, halt (do not tag).
+  2. Run `check-ship-history.sh` after the Step 5 fold commit. Run it before `git tag`. If the history is dirty, halt. Do not tag.
   3. After Step 6 tag (local) and **before** treating the release as done: run `check-ship-history.sh --since <ship-start>` (include the new tag). Non-zero → **Do NOT** claim success; follow H7/H8. Prefer not pushing tags until clean; if push already happened, still halt Done claims.
 - **H7 — Interactive rewrite path (AC-2).** When dirty and the session is **not** autopilot: print dirty evidence (H3); propose a rewrite plan (which commits to fold, which tags to move); **require explicit user confirm** before any `git rebase` / `git commit --amend` / tag delete+recreate / `git push --force-with-lease`. On decline or no answer → halt; leave refs unchanged. MUST NOT force-push without that confirm.
 - **H8 — Autopilot halt path (AC-3).** When dirty and autopilot is on: MUST NOT silent force-push, amend, or retag. MUST halt with the exact phrase `history dirty — rewrite needed` plus H3 evidence. MUST NOT set Linear/backlog Done, MUST NOT print Orchestration complete / ship success. Resume only after human confirms a rewrite (interactive H7) or history becomes clean.
@@ -112,6 +112,53 @@ Fail-closed **one-commit-per-tag** policy for the ship window. **Single SoT for 
 - **H10 — Linearize preference.** When dirty is detected **before** tag+push, callers SHOULD fold/linearize first (interactive confirm or human-driven), then re-run the checker to green, then tag+push. Post-push dirty piles → H7/H8 halt only (no silent force).
 - **H11 — Tests.** MUST extend `skills/release/test.sh` (or a dedicated `skills/release/test-ship-history.sh` invoked from it) with temp-repo fixtures: clean 1-tag/1-commit → 0; D1 multi-commit under one tag → 1 + `history dirty — rewrite needed`; D2 subject≠CHANGELOG lead → 1; D3 fixup/WIP/double release-shaped → 1; D4 mismatched `--expect-tag` → 1; missing `--since` → 64; train-shaped two tags each with one commit → 0. Never mutate the live repo as the test subject.
 - **H12 — MUST NOT (scope).** Rewrite outside W; mega-squash concurrent tickets into one fold when they have distinct tags; reimplement CDT-189 staged-path allowlist; reimplement CDT-187 orchestrate pre-check; silent force-push under autopilot; claim Done/complete on partial or dirty history; dual-write a second dirty-predicate home outside this subsection.
+
+### Release step scripts
+
+Deterministic, pure-subprocess CLIs for three individual `/release` steps.
+Each MUST stay bash-only (no LLM, no network) and MUST NOT mutate refs
+beyond its own documented job.
+
+- **R1 — `step0.sh` (Step 0 epic release=end guard).** Exit `0`: ok, or
+  skipped — no ticket/epic ref resolves, the resolved ref fails the
+  charset gate, or no `$MROOT/.claude/epics` directory exists. Exit `64`:
+  usage, detached `HEAD`, not a git repository, or the release=end guard
+  itself failed. Exit `69`: `jq` is missing AND an epics directory exists.
+  REF resolution order (first non-empty wins): `RELEASE_TICKET` env, else
+  `EPIC_RELEASE_END` env, else `EPIC_ID` env, else the branch
+  (`feat/epic-<ID>` → `<ID>`; `feat/<ID>` → `<ID>`; `master`/`main` → none)
+  or the worktree basename. An empty REF, or one that fails the charset
+  gate `^[A-Za-z0-9_-]+$`, skips (exit `0`) before the epics-dir check
+  ever runs. The epics-dir check runs before the `jq` check: a missing
+  `$MROOT/.claude/epics` skips (exit `0`) without ever testing for `jq`.
+- **R2 — `ship-start.sh` (Step 0.5 tag snapshot).** Default mode prints
+  exactly three lines — `SHIP_START=<40hex>`, `TAG_SNAPSHOT=<abs path>`,
+  `LAST_TAG=<tag or empty>` — and writes the tag table to
+  `TAG_SNAPSHOT`. Snapshot path:
+  `$(git rev-parse --absolute-git-dir)/dev-team-release/tags-<40hex-ship-start-sha>.tsv`.
+  `--path SHA` prints that path for `SHA` and writes nothing. `--list`
+  prints the same `<refname><TAB><peeled-commit-sha>` tag table to
+  stdout and writes nothing — the sole source both default mode and
+  `check-ship-history.sh` use, so the peeling rule (full refname under
+  `refs/tags/`; a same-named branch has no effect) lives in exactly one
+  place. `--clear` deletes every `tags-*.tsv` snapshot under this
+  worktree's git dir. Each new default-mode write sweeps every other
+  stale `tags-*.tsv` in the same directory, leaving only the current
+  ship's file. `/release` MUST run `--clear` on any halt from Step 0.5
+  onward, except a post-push dirty halt at Step 6, which keeps the
+  snapshot for diagnosis. Exit `0` ok; `64` usage / not a git repository /
+  unborn `HEAD` / an unresolvable ambient `SHIP_START_SHA`.
+- **R3 — `push-release.sh` (Step 6 push).** Pushes with exactly
+  `git push --atomic --no-follow-tags <remote> refs/heads/<br> refs/tags/<tag>`
+  — one atomic call for the branch and the tag together, so a rejected
+  push changes nothing on the remote. Preconditions, each exit `64`: not
+  a git repository; detached `HEAD`; `--tag` does not match
+  `^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$`; the tag does not
+  resolve under `refs/tags/`; the tag's commit is not `HEAD` (the tag
+  MUST be at `HEAD` before this script runs). On a push failure (exit
+  `1`) `--atomic` leaves the remote unchanged and the script prints the
+  exact command to run by hand on stderr. `--print` prints that same
+  shell-quoted command to stdout and pushes nothing (exit `0`).
 
 ### Docs drift gate
 
@@ -139,12 +186,17 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - Verify confidence scoring discards findings below 80
 - Verify commit blocked on critical issues
 - Verify release updates the version pair identically (`plugin.json` + `CHANGELOG.md`)
-- Verify release auto-detects patch vs minor from commit messages
+- Verify release auto-detects patch vs minor by the AGENTS.md versioning rule (a `feat:` subject alone does not force minor)
 - Verify changelog excludes `chore: release` commits
 - Verify `/release` aborts (no commit/tag) when `sync-includes.py check` exits non-zero (drifted managed-include region), and proceeds when it exits 0
 - Verify staged-path hard gate via `bash skills/release/test.sh` (AC-9 cases; exit 0 when green)
 - Verify ship-history gate via `bash skills/release/test.sh` (or `test-ship-history.sh`): D1–D4 dirty → exit 1 + `history dirty — rewrite needed`; clean 1:1 and train multi-tag → exit 0
 - Verify bump-class gate via `bash skills/release/test-bump-class.sh`: new `commands/*.md` + patch → 1; + minor/major → 0
+- Verify the Step 0 epic release=end guard via `bash skills/release/test-step0.sh`: exit `0` ok/skipped; exit `64` usage / detached `HEAD` / guard failure; exit `69` `jq` missing with an epics directory present
+- Verify `ship-start.sh` and `push-release.sh` via `bash skills/release/test-ship-steps.sh`: the snapshot's three printed lines and its `--path` and `--clear` modes (`--list`'s table format is exercised indirectly, as check-ship-history.sh's sole tag source); `push-release.sh` pushes only when the tag is at `HEAD`, and `--print` prints the command without pushing
+- Verify bump-class `--range BASE..TIP` via `bash skills/release/test-bump-class.sh`: reports every violating non-merge commit in the range; `--commit HEAD` alone stays blind to an earlier violation in the same range
+- Verify ship-history `--tag-snapshot FILE` via `bash skills/release/test-ship-history.sh`: a release tag retargeted since ship start → `D4:`; a tag since deleted → no finding
+- Verify a tagless first release uses the full history, never an empty range (`bash skills/release/test-ship-steps.sh` ship-start tagless case: `LAST_TAG` prints empty)
 
 **Staged-path hard gate:**
 
@@ -194,6 +246,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 
 | Date | Change |
 |------|--------|
+| 2026-09-26 | WP 1-03 (CDT-425, CDT-341, CDT-274, W1-03, W1-05, W2-39, W3-41): B1 `--cached` reads `plugin.json` from the index; new `--range` mode. B2 counts top-level `commands/<name>.md` only, counts a rename as added (`--no-renames`), and accepts a semver pre-release suffix. B4 CI checks every non-merge commit of the event range; the Step 0.6 installer warns when it overrides existing hooks. D4 reads a Step 0.5 tag snapshot (`--tag-snapshot`, H2) instead of tag reflogs, and reads tags by full refname. S2 strips a leading `./`; S3 reads with `-z`. Release: a tagless first release uses the full history; auto-detect follows AGENTS.md (a `feat:` subject alone does not force minor). |
 | 2026-09-25 | WP 1-01 (CDT-269): Step 4.13 all-suites gate pointer — `bash tools/run-all-tests.sh` blocks commit and tag on non-zero; contract in SPEC-030 R1–R17. |
 | 2026-08-16 | Bump-class gate (B1–B6): new `commands/*.md` requires minor/major; `check-bump-class.sh` + `githooks/pre-commit` on master + `/release` Step 4.11 + CI. |
 | 2026-08-09 | CDT-188: ship-history cleanliness gate (H1–H12) — dirty D1–D4 (multi-commit-per-tag, subject/CHANGELOG mismatch, repair-class, tag retarget); window W per ship; `check-ship-history.sh`; interactive confirm rewrite vs autopilot halt `history dirty — rewrite needed`; cite-not-fork from release/orchestrate/end-state; no Done/complete on dirty. |

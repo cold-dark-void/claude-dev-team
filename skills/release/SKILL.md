@@ -26,87 +26,76 @@ committed separately, and it does NOT create a standalone `chore: release` commi
 `/release` when durable epic state has `release_bump` set and seal is not done.
 
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
-
-# Resolve ticket-or-epic (first non-empty wins):
-# 1) explicit ticket from session / orchestrate ISSUE-ID
-# 2) EPIC_RELEASE_END env (B.4 handoff sets epic id when release_bump set)
-# 3) EPIC_ID env
-# 4) branch: feat/epic-<ID> or feat/<CHILD-ID>
-# 5) cwd under .worktrees/epic-<ID> or .worktrees/<CHILD>
-REF="${RELEASE_TICKET:-}"
-[ -n "$REF" ] || REF="${EPIC_RELEASE_END:-}"
-[ -n "$REF" ] || REF="${EPIC_ID:-}"
-if [ -z "$REF" ]; then
-  BR=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-  case "$BR" in
-    feat/epic-*) REF="${BR#feat/epic-}" ;;
-    feat/*)      REF="${BR#feat/}" ;;
-  esac
-fi
-if [ -z "$REF" ]; then
-  WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-  base=$(basename "$WTROOT")
-  case "$base" in
-    epic-*) REF="${base#epic-}" ;;
-    *)      REF="$base" ;;
-  esac
-fi
-
-if [ -n "$REF" ] && [ "$REF" != "master" ] && [ "$REF" != "main" ] && [ "$REF" != "HEAD" ]; then
-  bash "$EPIC_LIB" assert-release-allowed "$REF" || {
-    # exit 64 — user-visible: "epic <ID> is in release=end mode until seal (CDT-141)"
-    # HALT: zero version bump, tag, push, or version-file change
-    exit 64
-  }
-  # SPEC-025 M16 / CDT-158: warn-only incomplete-child gap callout (not a gate).
-  # Print stdout as-is; empty when all-complete / last remaining / unknown.
-  # MUST NOT mix into the C4 64 message above. Continue regardless of incomplete.
-  bash "$EPIC_LIB" gap-callout "$REF"
-fi
+STEP0=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/step0.sh)
+bash "$STEP0" || exit $?
 ```
 
-- **Halt** on exit 64: print the helper's stderr as-is; do **not** edit
-  `CHANGELOG.md` / `plugin.json`, do not commit/tag/push.
-- **Allow** when: no epic context; epic has `release_bump` null/absent; or
-  `sealed=true` (post-C5). C5 seal path may set `EPIC_ALLOW_SEAL_RELEASE=1`.
-- **Callout** (M16): after assert rc 0, print `gap-callout` stdout as-is
-  (warn-only; incomplete children do not halt). Empty when all-complete / last
-  remaining child / unknown. Not a SPEC-033 gate. Do **not** mix into C4's 64
-  message. Land-no-release (`bump=master`) is out of scope for this callout.
-- Guard reads **durable** `$MROOT/.claude/epics/<ID>/state.json` only — holds
-  across resume sessions while mode is active.
+- **Halt** on exit 64: print `$STEP0`'s stderr as-is — detached HEAD, or a
+  release=end epic/child guard failure (`epic <ID> is in release=end mode
+  until seal (CDT-141)`). Do **not** edit `CHANGELOG.md` / `plugin.json`, do
+  not commit/tag/push.
+- **Halt** on exit 69: jq is missing while an epics dir exists at
+  `$MROOT/.claude/epics` — print `$STEP0`'s stderr as-is, install jq, then
+  re-run (nothing changed).
+- **Allow** (exit 0): no ticket/epic ref resolves; the resolved ref does not
+  match the epic/ticket-id charset; no `$MROOT/.claude/epics` dir; epic
+  `release_bump` null/absent; or `sealed=true` (post-C5). C5 seal path may
+  set `EPIC_ALLOW_SEAL_RELEASE=1` (passed through as env).
+- **Callout** (M16, warn-only): `$STEP0`'s stdout is the `gap-callout`
+  output — print it as-is when non-empty; empty when all-complete / last
+  remaining child / unknown. Not a SPEC-033 gate; never mixed into the
+  64/69 halt message above. Land-no-release (`bump=master`) is out of scope
+  for this callout.
+- REF resolution inside `step0.sh` (first non-empty wins): `RELEASE_TICKET`
+  / `EPIC_RELEASE_END` / `EPIC_ID` env, else derived from the branch
+  (`feat/epic-<ID>` → `<ID>`; `feat/<ID>` → `<ID>`) or the worktree
+  basename. `master`/`main` never derives a REF from the branch name, but
+  an **explicit** env ref (e.g. `EPIC_RELEASE_END` set by the B.4 handoff)
+  is still asserted even on `master` (CDT-141 C4).
+- Guard reads **durable** `$MROOT/.claude/epics/<ID>/state.json` only —
+  holds across resume sessions while mode is active. `MROOT` honors
+  `EPIC_ROOT` when set, else the git-common-dir parent (same resolution as
+  `skills/epic/epic-lib.sh`).
 
 Then continue to Step 0.5.
 
-## Step 0.5: Record ship-start SHA (SPEC-010 H6)
+## Step 0.5: Record ship-start SHA + tag snapshot (SPEC-010 H6, R2)
 
-**Before any version-file edit, commit, tag, or push**, open ship window W:
+**Before any version-file edit, commit, tag, or push**, open ship window W
+and take the D4 tag snapshot:
 
 ```bash
-# Ambient SHIP_START_SHA from end-state / train / orchestrate wins when set
-# (caller already opened W). Else record HEAD tip now (before any commit).
-if [ -n "${SHIP_START_SHA:-}" ]; then
-  SHIP_START=$(git rev-parse --verify "$SHIP_START_SHA^{commit}" 2>/dev/null) || {
-    echo "release: unresolvable ambient SHIP_START_SHA=$SHIP_START_SHA" >&2
-    exit 64
-  }
-else
-  SHIP_START=$(git rev-parse HEAD)
-fi
-export SHIP_START
-# Carry into later fences (agent session state) — each bash fence re-reads env
-# or re-derives; do not hardcode a SHA into the skill text.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+SHIP_START_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/ship-start.sh)
+bash "$SHIP_START_SH" || exit $?
 ```
 
-- `SHIP_START` is the sole `--since` value for `check-ship-history.sh` in this
-  `/release` (SPEC-010 H1–H12 — cite, do not restate D1–D4).
+- Ambient `SHIP_START_SHA` (end-state / train / orchestrate already opened W)
+  wins when set — `ship-start.sh` honors it in place of `HEAD`; a bad
+  ambient value halts (exit 64). Otherwise `HEAD` is the ship-start commit.
+- The fence prints exactly three lines: `SHIP_START=<40hex>`,
+  `TAG_SNAPSHOT=<abs path>`, `LAST_TAG=<tag or empty>`. Carry `SHIP_START`
+  and `LAST_TAG` in session state (agent memory, not the skill text) into
+  every later fence that needs them — re-set `SHIP_START=` and `LAST_TAG=`
+  with the printed values rather than recomputing them. Do **not** carry
+  `TAG_SNAPSHOT` the same way — every later fence re-derives it fresh (see
+  the `--path` bullet below); never hardcode or reuse the printed path.
+- `SHIP_START` is the sole `--since` value for `check-ship-history.sh` in
+  this `/release` (SPEC-010 H1–H12 — cite, do not restate D1–D4). `LAST_TAG`
+  drives Steps 1 and 2 (empty means a first release: full history, never an
+  empty range).
+- `TAG_SNAPSHOT` is the D4 tag-retarget baseline (advisor 6, R2): re-derive
+  its path at Step 5.5 / Step 6 with `bash "$SHIP_START_SH" --path
+  "$SHIP_START"` rather than hardcoding the path.
 - Do **not** re-record after the fold commit (that would empty W).
+- On any halt from this step forward: re-resolve PDH and run `ship-start.sh --clear`
+  before stopping — the snapshot must not outlive an abandoned run — except
+  a post-push dirty halt at Step 6, which keeps it for diagnosis. The
+  next Step 0.5 also sweeps every other `tags-*.tsv` under this worktree's
+  git dir.
 
 Then continue to Step 0.6.
 
@@ -138,21 +127,27 @@ Resolve the new version using these rules (first match wins):
 2. **Bump keyword in args** (`patch`, `minor`, or `major`) → compute from current version
 3. **No args provided** → auto-detect from everything being released — BOTH
    commits since the last tag AND the current uncommitted changes:
-   - `git log $(git describe --tags --abbrev=0)..HEAD --oneline` — committed since tag
+   - `LAST_TAG` empty (first release) → `git log --oneline HEAD` (full
+     history); else → `git log --oneline "$LAST_TAG"..HEAD` — committed
+     since tag (`LAST_TAG` from Step 0.5)
    - `git status --short` and `git diff --stat HEAD` — uncommitted work (usually the bulk)
-   - If the release adds a new user-facing capability (or any commit subject contains
-     `feat:`/`feat(`) → **minor**; otherwise → **patch**
+   - Apply the `AGENTS.md` rule verbatim: "New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor." A `feat:` commit subject alone does **not** force minor — judge the actual change, not the prefix.
    - Tell the user what you chose and why (e.g. "Auto-detected **patch** — hardening, no new feature")
 
 Version format: no `v` prefix in files, `v` prefix for git tag and changelog heading.
 
 ### Feature-line versioning (multi-PR arcs)
 
-The auto-detect rule (`feat:` → minor) governs **independent** feature changes.
-When a planned feature ships across several sequential releases (a multi-PR arc
-tracked by a single spec), you **MAY** hold the entire arc under one minor line:
+The AGENTS.md rule governs **independent** feature changes: a new command
+surface or a default-behavior change is minor; everything else — including a
+bare `feat:` subject with no new surface and no default-behavior change — is
+patch. When a planned feature ships across several sequential releases (a
+multi-PR arc tracked by a single spec), you **MAY** hold the entire arc under
+one minor line:
 
-- The **first** release in the arc opens the minor (e.g. SPEC-019 PR1 → 0.37.0).
+- The **first** release in the arc opens the minor (e.g. SPEC-019 PR1 →
+  0.37.0) — it is the increment that actually earns minor under the
+  AGENTS.md rule.
 - Subsequent increments of the **same** arc take **patch** bumps via an explicit
   `/release patch`, even though they add capability. A **new** `commands/*.md`
   file is always a new Surface and **MUST** be minor or major (bump-class gate);
@@ -163,10 +158,12 @@ tracked by a single spec), you **MAY** hold the entire arc under one minor line:
 - A **new** `commands/*.md` is never a feature-line patch (bump-class gate).
   If a new Surface was already tagged as a patch: fold into the minor, delete
   the patch tag, retag, force-push. Do not leave the false patch in history.
-- Because the commits are `feat:`, the no-args auto-detect would choose `minor`
-  (opening a new line). To stay on the current line you **must** pass `patch`
-  explicitly; passing nothing (`/release`) is also valid — it just opens a new
-  minor line instead.
+- Passing nothing (`/release`) auto-detects on the actual change under the
+  AGENTS.md rule, not the commit prefix: a same-surface increment with no
+  default-behavior change auto-detects **patch** on its own merits. Opening a
+  new minor line still needs an explicit `minor` (or a genuine new Surface /
+  default-behavior change) — it is never automatic just because the commits
+  say `feat:`.
 
 **Worked example** — SPEC-019 shipped entirely under the 0.37 line:
 `0.37.0` (PR1 wrapper) → `0.37.1` (PR2 orchestrate integration) →
@@ -180,13 +177,19 @@ committed history:
 
 1. Gather the full change set:
    - `git diff --stat HEAD` and `git status --short` — uncommitted work (usually the bulk)
-   - `git log $(git describe --tags --abbrev=0)..HEAD --oneline --no-merges` — anything already committed since the last tag (exclude `chore: release` commits)
+   - `LAST_TAG` empty (first release) → `git log --oneline --no-merges HEAD`
+     (full history); else → `git log --oneline --no-merges "$LAST_TAG"..HEAD`
+     — anything already committed since the last tag (exclude `chore: release`
+     commits)
 2. Read the actual diffs of changed files as needed to describe them accurately — do not infer from filenames alone.
 3. Write the changelog as a bulleted Markdown list — one `- **bold summary** — detail` line per meaningful change, grouping granular edits.
 4. Match the style of existing changelog entries in CHANGELOG.md (bold lead, concise but specific).
 
-If there are NO uncommitted changes AND no commits since the last tag, tell the
-user "Nothing to release — working tree clean and no commits since last tag" and stop.
+"Nothing to release" applies only when `LAST_TAG` is set, the range gathered
+above is empty, AND the working tree is clean (`git status --short` empty).
+Then tell the user "Nothing to release — working tree clean and no commits
+since last tag" and stop. A tagless (first) release is never "Nothing to
+release" — it always has the full history to describe.
 
 ### Skip-if-present (explicit version only)
 
@@ -246,16 +249,24 @@ If any mismatch: fix before proceeding.
 
 Run:
 ```bash
-python3 skills/agent-memory/sync-includes.py check
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+X=$(bash "$PDH/skills/plugin-dir.sh" file skills/agent-memory/sync-includes.py)
+python3 "$X" check
 ```
 
-If it exits non-zero, one or more managed include regions have drifted from their canonical partials (`skills/agent-memory/protocol.md` — the 7-agent `## Persistent Memory` block; `skills/agent-memory/cortex-load.md` — the debug/refactor tiered-cortex block). **Do NOT commit or tag.** Fix the drift first (re-expand the drifted region to match its partial via `python3 skills/agent-memory/sync-includes.py apply`), then re-run until it exits 0.
+If it exits non-zero, one or more managed include regions have drifted from their canonical partials (`skills/agent-memory/protocol.md` — the 7-agent `## Persistent Memory` block; `skills/agent-memory/cortex-load.md` — the debug/refactor tiered-cortex block). **Do NOT commit or tag.** Fix the drift first (re-expand the drifted region to match its partial via `python3 "$X" apply`), then re-run until it exits 0.
 
 ## Step 4.6: Council template-variable drift-check (pre-commit gate)
 
 Run:
 ```bash
-bash skills/council/check-template-vars.sh
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+X=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/check-template-vars.sh)
+bash "$X"
 ```
 
 If it exits non-zero, the council template-variable contract has drifted: `commands/council.md` substitutes a variable set that no longer matches a prompt's authoritative `## Variables` table (a dead substitution or a literal `{{VAR}}` leak into the spawned subagent, per SPEC-013). **Do NOT commit or tag.** Fix `commands/council.md` (and/or the prompt's `## Variables` table) so each covered prompt's substituted set exactly equals its declared set, then re-run until it exits 0. (Covered: claim-extractor, investigator, cross-reviewer, phase4-brief, judge. Nothing is deferred — the former prosecutor/advocate templates were merged into phase4-brief.)
@@ -268,7 +279,11 @@ Hook bodies SoT = fenced templates in `skills/init-orchestration/SKILL.md` only
 
 Run:
 ```bash
-bash skills/init-orchestration/check-hook-templates.sh
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+X=$(bash "$PDH/skills/plugin-dir.sh" file skills/init-orchestration/check-hook-templates.sh)
+bash "$X"
 ```
 
 Template-internal only: each managed hook must have an extractable fenced bash
@@ -286,11 +301,15 @@ rescue-pointer, friction-capture. Regenerate consumer/dev live hooks via
 
 Run:
 ```bash
-bash skills/skill-lint/check-skill-bash.sh
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+X=$(bash "$PDH/skills/plugin-dir.sh" file skills/skill-lint/check-skill-bash.sh)
+bash "$X"
 ```
 
 If it exits non-zero, a fenced bash block contains a known prompts-as-code defect
-(C1–C4 — see skills/skill-lint/SKILL.md). **Do NOT commit or tag.** Fix or waive
+(C1–C5 — see skills/skill-lint/SKILL.md). **Do NOT commit or tag.** Fix or waive
 (`# lint-ok: <id>` only if proven safe), re-run until exit 0.
 (Covered: commands/**/*.md, skills/**/*.md excl. skill-lint/fixtures/, agents/**/*.md, AGENTS.md; SPEC-021.)
 
@@ -298,7 +317,11 @@ If it exits non-zero, a fenced bash block contains a known prompts-as-code defec
 
 Run:
 ```bash
-bash skills/docs-drift/check-docs-drift.sh
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+X=$(bash "$PDH/skills/plugin-dir.sh" file skills/docs-drift/check-docs-drift.sh)
+bash "$X"
 ```
 
 If it exits non-zero, structural documentation has drifted (cmd-index, agent-roster,
@@ -310,7 +333,11 @@ where allowed), re-run until exit 0.
 
 Run:
 ```bash
-bash tools/smoke/run.sh
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+X=$(bash "$PDH/skills/plugin-dir.sh" file tools/smoke/run.sh)
+bash "$X"
 ```
 
 If it exits non-zero, one or more Surfaces (commands, skills, or engine scripts) failed to
@@ -338,7 +365,11 @@ Edits to existing `commands/*.md` do not trip the gate.
 
 Run:
 ```bash
-bash skills/plugin-dir-test.sh
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+X=$(bash "$PDH/skills/plugin-dir.sh" file skills/plugin-dir-test.sh)
+bash "$X"
 ```
 
 If it exits non-zero, the SPEC-002 bootstrap stanza's fallback branches no longer
@@ -351,7 +382,11 @@ until exit 0. Contract lives in SPEC-002 ("Locating `plugin-dir.sh` itself").
 
 Run:
 ```bash
-bash tools/run-all-tests.sh
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+X=$(bash "$PDH/skills/plugin-dir.sh" file tools/run-all-tests.sh)
+bash "$X"
 ```
 
 If it exits non-zero, one or more test suites failed or timed out. **Do NOT commit or
@@ -419,27 +454,31 @@ After the fold commit succeeds, continue to Step 5.5 **before** tagging.
 
 ## Step 5.5: Ship-history cleanliness gate (SPEC-010 H5–H10; CDT-188)
 
-**After** Step 5 fold commit, **before** Step 6 `git tag` + push, and again
-**after** the local tag exists (include the new tag in W). Cite SPEC-010 H —
-**do not** restate D1–D4 here. Resolve the checker install-aware (plugin-dir);
-re-resolve PDH in this fence (skill-lint C1).
+**Mandatory** — **after** Step 5 fold commit, **before** Step 6 `git tag` +
+push, and again **after** the local tag exists (include the new tag in W).
+Not optional: SPEC-010 H6.2 requires the pre-tag run so a prior dirty W halts
+before a tag is ever created. Cite SPEC-010 H — **do not** restate D1–D4
+here. Resolve the checker install-aware (plugin-dir); re-resolve PDH in this
+fence (skill-lint C1).
 
 ```bash template
 # Fresh shell — re-resolve PDH + SHIP_START (SPEC-021 C1)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 CHECK_SHIP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-ship-history.sh)
+SHIP_START_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/ship-start.sh)
 # SHIP_START from Step 0.5 (or ambient SHIP_START_SHA). Fail closed if missing.
 SHIP_START="${SHIP_START:-${SHIP_START_SHA:-}}"
 [ -n "$SHIP_START" ] || { echo "release: SHIP_START unset — re-run Step 0.5" >&2; exit 64; }
-# Pre-tag (optional but preferred H10): catch prior dirty in W before creating the tag.
-# After local tag: re-run with --expect-tag vX.Y.Z=$(git rev-parse HEAD) so D4 has a pin.
-bash "$CHECK_SHIP" --since "$SHIP_START"
-# post-tag form (Step 6, after git tag vX.Y.Z, before push / success claim):
-# bash "$CHECK_SHIP" --since "$SHIP_START" --expect-tag "vX.Y.Z=$(git rev-parse HEAD)"
+TAG_SNAPSHOT=$(bash "$SHIP_START_SH" --path "$SHIP_START")
+# Pre-tag (mandatory H6.2): catch prior dirty in W before creating the tag.
+# After local tag: Step 6 re-runs this same checker with --expect-tag
+# vX.Y.Z=$(git rev-parse HEAD) so D4 has a pin (own fence there, not a
+# comment here — review r1 N2).
+bash "$CHECK_SHIP" --since "$SHIP_START" --tag-snapshot "$TAG_SNAPSHOT"
 ```
 
-- **Exit 0** — clean; proceed to tag (pre-tag) or push / success claim (post-tag).
+- **Exit 0** — clean; proceed to tag.
 - **Exit 1 (dirty)** — print the script's evidence as-is (includes exact token
   `history dirty — rewrite needed`). **Do NOT** claim release success, set
   Linear/backlog Done, or print a ship-success line.
@@ -449,11 +488,29 @@ bash "$CHECK_SHIP" --since "$SHIP_START"
   - **Interactive (H7):** print dirty evidence; propose a rewrite plan (which
     commits to fold, which tags to move); **require explicit user confirm**
     before any `git rebase` / `git commit --amend` / tag delete+recreate /
-    `git push --force-with-lease`. On decline or no answer → halt; leave refs
-    unchanged. After a confirmed rewrite, re-run the checker until exit 0,
-    then continue (H10 linearize-before-tag when still pre-push).
-- **Exit 64** — usage / unresolvable `--since`: hard-stop; fix invocation; do
-  not tag/push/claim success.
+    a force-push (`--force-with-lease`). On decline or no answer → halt;
+    leave refs unchanged. After a confirmed rewrite: re-take the tag
+    snapshot the same way (`SHIP_START_SHA="$SHIP_START" bash
+    "$SHIP_START_SH"`, same key, fresh content), then re-run the checker
+    until exit 0, then continue (H10 linearize-before-tag when still
+    pre-push).
+- **Exit 64, usage / unresolvable `--since`** — hard-stop; fix invocation.
+- **Exit 64 naming `--tag-snapshot`** (the checker's own message: `unreadable
+  --tag-snapshot: FILE` — Step 0.5 never ran this session, or its snapshot
+  was already `--clear`ed): **fail closed. Never silently re-take.**
+  - **Autopilot / `AUTOPILOT_ON` / non-interactive:** halt immediately.
+    Print `release: tag snapshot missing — Step 0.5 did not run in this
+    release; halting (nothing tagged)`, then stop with a non-zero exit. Do
+    **not** re-take the snapshot, tag, push, or claim success.
+  - **Interactive:** print that same reason, then ask the user. Only on an
+    explicit `y` re-take it with `SHIP_START_SHA="$SHIP_START" bash
+    "$SHIP_START_SH"` (same key, fresh content) and re-run until exit 0. On
+    decline or no answer → halt exactly like autopilot.
+  - `ship-start.sh` never deletes `TAG_SNAPSHOT` itself between Step 0.5 and
+    Step 6 on the normal path — the file is removed only by `--clear`
+    (Step 0.5's own "on any halt" cleanup, or Step 6's post-push clear
+    below). A missing file here means Step 0.5 genuinely did not run (or
+    already cleared), not an accidental mid-run deletion.
 - Prefer **not** pushing tags until clean (H5/H10). If push already happened
   and the re-check is dirty → still H7/H8 halt; never silent repair.
 
@@ -465,24 +522,95 @@ bash "$CHECK_SHIP" --since "$SHIP_START"
 git tag vX.Y.Z
 ```
 
-**Immediately after the local tag**, re-run Step 5.5's checker with
-`--expect-tag "vX.Y.Z=$(git rev-parse HEAD)"` (same PDH / `CHECK_SHIP` /
-`SHIP_START` resolve). Dirty → H7/H8; **do not push**, do not claim success.
+**Immediately after the local tag, before push** — re-resolve PDH fresh and
+re-run Step 5.5's checker with `--expect-tag` so D4 has a pin on the tag
+just created:
 
-When clean:
+```bash template
+# Fresh shell — re-resolve PDH + SHIP_START (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+CHECK_SHIP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-ship-history.sh)
+SHIP_START_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/ship-start.sh)
+# SHIP_START from Step 0.5 (or ambient SHIP_START_SHA). Fail closed if missing.
+SHIP_START="${SHIP_START:-${SHIP_START_SHA:-}}"
+[ -n "$SHIP_START" ] || { echo "release: SHIP_START unset — re-run Step 0.5" >&2; exit 64; }
+TAG_SNAPSHOT=$(bash "$SHIP_START_SH" --path "$SHIP_START")
+bash "$CHECK_SHIP" --since "$SHIP_START" --tag-snapshot "$TAG_SNAPSHOT" \
+  --expect-tag "vX.Y.Z=$(git rev-parse HEAD)"
+```
+
+Dirty (exit 1) → H7/H8; **do not push**, do not claim success. Exit 64 —
+see the fail-closed `--tag-snapshot` handling under Step 5.5 (same rule
+applies here: never silently re-take on autopilot; interactive asks first).
+
+When clean, push the branch and the tag atomically through `push-release.sh`
+— the SKILL text itself never types the push command:
 
 ```bash
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-git push origin "$BRANCH" --tags
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+PUSH_RELEASE=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/push-release.sh)
+bash "$PUSH_RELEASE" --tag vX.Y.Z
 ```
 
-**If push fails due to sandbox restrictions**: tell the user to run the push manually and print the exact commands:
-```
-git push origin <branch> --tags
+**If the push fails** (sandbox restrictions or a rejected non-fast-forward):
+`push-release.sh` leaves the remote unchanged (`--atomic`) and prints the
+command to run by hand on stderr. Show the user that same command by
+re-running with `--print` and relaying its stdout verbatim — never retype
+the push command yourself. Fresh shell, so re-resolve PDH / `PUSH_RELEASE`
+the same way:
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+PUSH_RELEASE=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/push-release.sh)
+bash "$PUSH_RELEASE" --tag vX.Y.Z --print
 ```
 
 Confirm with: `git log --oneline -3` and `git tag --list 'v*' | tail -3`
 
-**Success claim:** only after the post-tag (and post-push if already pushed)
-ship-history check is exit 0. Dirty after push still forbids Done / "released"
-claims (H5/H8).
+**After a successful push** — re-resolve PDH fresh and re-run the same
+checker once more (post-push), before clearing anything. This is the check
+the Success-claim rule below actually names; it is not skipped and it is
+not omitted from `--tag-snapshot`:
+
+```bash template
+# Fresh shell — re-resolve PDH + SHIP_START (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+CHECK_SHIP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-ship-history.sh)
+SHIP_START_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/ship-start.sh)
+SHIP_START="${SHIP_START:-${SHIP_START_SHA:-}}"
+[ -n "$SHIP_START" ] || { echo "release: SHIP_START unset — re-run Step 0.5" >&2; exit 64; }
+TAG_SNAPSHOT=$(bash "$SHIP_START_SH" --path "$SHIP_START")
+bash "$CHECK_SHIP" --since "$SHIP_START" --tag-snapshot "$TAG_SNAPSHOT" \
+  --expect-tag "vX.Y.Z=$(git rev-parse HEAD)"
+```
+
+**Exit 0** — proceed to clear the snapshot below, then claim success.
+**Exit 1 (dirty)** — H7/H8; the push already happened, so this is
+after-the-fact detection, not prevention: do **not** clear the snapshot
+(leave it for diagnosis), do **not** claim success or set Linear/backlog
+Done. Follow H7/H8 (interactive rewrite + re-check, or autopilot halt);
+`ship-start.sh --clear` only once a subsequent re-check of this same step
+is exit 0. **Exit 64** — same fail-closed `--tag-snapshot` handling as
+Step 5.5.
+
+**Only after the post-push check above is exit 0**, clear the tag snapshot
+(the ship window is closed):
+
+```bash
+# Fresh shell — re-resolve PDH (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+SHIP_START_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/ship-start.sh)
+bash "$SHIP_START_SH" --clear
+```
+
+**Success claim:** only after the post-tag check (pre-push) AND the
+post-push check above are both exit 0. Do not claim release success, set
+Linear/backlog Done, or print a ship-success line before the post-push
+check has run and passed.

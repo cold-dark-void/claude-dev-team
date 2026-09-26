@@ -5,27 +5,34 @@
 #
 # Usage:
 #   check-ship-history.sh --since <ship-start-sha> \
-#     [--changelog PATH] [--expect-tag TAG=SHA ...]
+#     [--changelog PATH] [--expect-tag TAG=SHA ...] [--tag-snapshot FILE]
 #
 # Exit codes:
 #   0  — clean (none of D1–D4 in W)
 #   1  — dirty (history dirty — rewrite needed)
-#  64  — usage / not a git repo / unresolvable --since
+#  64  — usage / not a git repo / unresolvable --since / unreadable --tag-snapshot
 #
 # Release tags only: names matching v?X.Y.Z (optional leading v).
 # Non-release tags are ignored.
+#
+# Tags are read by full refname under refs/tags/ (SPEC-010 D4/R2). D4's
+# remote half reads only refs/remotes/origin/tags/<name> (no network); its
+# snapshot half compares against --tag-snapshot FILE (one
+# <refname><TAB><peeled-commit-sha> line per tag, written by
+# skills/release/ship-start.sh). The checker never reads tag ref history.
 set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
 Usage: check-ship-history.sh --since <ship-start-sha> \
-         [--changelog PATH] [--expect-tag TAG=SHA ...]
+         [--changelog PATH] [--expect-tag TAG=SHA ...] [--tag-snapshot FILE]
 
 Ship window W = commits and release tags (v?X.Y.Z) whose targets are
 strictly after --since and ancestor-of-or-equal HEAD.
 
 Dirty classes D1–D4 (SPEC-010 H): multi-commit-per-tag, subject/CHANGELOG
-mismatch, repair-class commits, tag retarget (--expect-tag / local reflog).
+mismatch, repair-class commits, tag retarget (--expect-tag / remote-tracking
+tag / --tag-snapshot). Never inspects a tag's ref-log history.
 
 Exit 0 clean; exit 1 dirty; exit 64 usage. Does not mutate refs.
 EOF
@@ -33,6 +40,7 @@ EOF
 
 SINCE_ARG=""
 CHANGELOG="CHANGELOG.md"
+TAG_SNAPSHOT=""
 # parallel arrays: expect_tag_names[i] / expect_tag_shas[i]
 expect_tag_names=()
 expect_tag_shas=()
@@ -80,6 +88,15 @@ while [ $# -gt 0 ]; do
       expect_tag_shas+=("$_et_sha")
       shift 2
       ;;
+    --tag-snapshot)
+      if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+        echo "check-ship-history.sh: --tag-snapshot requires FILE" >&2
+        usage
+        exit 64
+      fi
+      TAG_SNAPSHOT="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 64
@@ -103,12 +120,19 @@ if [ -z "$SINCE_ARG" ]; then
   exit 64
 fi
 
+if [ -n "$TAG_SNAPSHOT" ] && [ ! -r "$TAG_SNAPSHOT" ]; then
+  echo "check-ship-history.sh: unreadable --tag-snapshot: $TAG_SNAPSHOT" >&2
+  exit 64
+fi
+
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "check-ship-history.sh: not a git repository" >&2
   exit 64
 fi
 
 ROOT=$(git rev-parse --show-toplevel)
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SHIP_START_SH="$HERE/ship-start.sh"
 
 # Resolve --since (full or abbrev SHA / ref)
 if ! SINCE=$(git -C "$ROOT" rev-parse --verify "${SINCE_ARG}^{commit}" 2>/dev/null); then
@@ -249,15 +273,45 @@ add_finding() {
   findings+=("$1")
 }
 
+# --- enumerate tags: read the shared table (SPEC-010 R2). One
+# refname<TAB>peeled-commit-sha line per tag that points at a commit,
+# directly (lightweight) or via one annotated tag object (peeled); the
+# peeling rule itself lives in ship-start.sh --list (single source, shared
+# with the Step 0.5 snapshot writer — no second copy of the for-each-ref
+# format/peel logic here). all_names/all_commits hold every such tag
+# (release or not), current state — used both to build the in-W
+# release-tag list below and as the "still exists locally" side of the D4
+# snapshot-half compare.
+all_names=()
+all_commits=()
+declare -A current_commit_by_name=()
+TAG_TABLE=$(cd "$ROOT" && bash "$SHIP_START_SH" --list) || {
+  echo "check-ship-history.sh: tag list failed" >&2
+  exit 64
+}
+while IFS=$'\t' read -r rname commit; do
+  [ -z "$rname" ] && continue
+  case "$rname" in
+    refs/tags/*) name="${rname#refs/tags/}" ;;
+    *) continue ;;
+  esac
+  all_names+=("$name")
+  all_commits+=("$commit")
+  current_commit_by_name["$name"]="$commit"
+done <<<"$TAG_TABLE"
+
 # --- enumerate release tags in W ---
 # Target strictly after SINCE and ancestor-of-or-equal HEAD
 tag_names=()
 tag_commits=()
 
-while IFS= read -r tname; do
-  [ -z "$tname" ] && continue
+n_all=${#all_names[@]}
+i=0
+while [ "$i" -lt "$n_all" ]; do
+  tname="${all_names[$i]}"
+  tcommit="${all_commits[$i]}"
+  i=$((i + 1))
   is_release_tag "$tname" || continue
-  tcommit=$(git -C "$ROOT" rev-parse --verify "${tname}^{commit}" 2>/dev/null) || continue
   # must be ancestor of HEAD (or equal)
   if ! git -C "$ROOT" merge-base --is-ancestor "$tcommit" "$HEAD" 2>/dev/null; then
     continue
@@ -271,43 +325,34 @@ while IFS= read -r tname; do
   fi
   tag_names+=("$tname")
   tag_commits+=("$tcommit")
-done < <(git -C "$ROOT" for-each-ref --format='%(refname:short)' refs/tags)
+done
 
-# Sort tags by commit topology (ancestor order) for prev_release lookup
-# Use committer date + name as stable order; prev found via ancestry not list order
 n_tags=${#tag_names[@]}
 
-# For a tag commit, find nearest older release-tag ancestor in W ∪ all release tags
-# (prev may be outside W — any older v* tag ancestor, else SINCE)
+# For a tag commit, find the nearest older release-tag ancestor via linear
+# `git describe` lookup (plan DD6) — no all-tags rescan. A --match hit
+# that is not itself a release tag (e.g. a pre-release) is excluded and
+# describe runs again. No hit, or the commit has no parent → SINCE.
 prev_for_tag() {
   local this_commit="$1"
-  local best="" best_commit=""
-  local tname tcommit
-  # Scan ALL release tags (not only W) for ancestors
-  while IFS= read -r tname; do
-    [ -z "$tname" ] && continue
-    is_release_tag "$tname" || continue
-    tcommit=$(git -C "$ROOT" rev-parse --verify "${tname}^{commit}" 2>/dev/null) || continue
-    [ "$tcommit" = "$this_commit" ] && continue
-    if git -C "$ROOT" merge-base --is-ancestor "$tcommit" "$this_commit" 2>/dev/null; then
-      if [ -z "$best" ]; then
-        best="$tname"
-        best_commit="$tcommit"
-      else
-        # prefer the tip-most ancestor (best is ancestor of candidate → candidate closer)
-        if git -C "$ROOT" merge-base --is-ancestor "$best_commit" "$tcommit" 2>/dev/null \
-          && [ "$best_commit" != "$tcommit" ]; then
-          best="$tname"
-          best_commit="$tcommit"
-        fi
-      fi
+  local exclude_args=() desc commit
+  while :; do
+    if ! desc=$(git -C "$ROOT" describe --tags --abbrev=0 \
+      --match 'v[0-9]*' --match '[0-9]*' \
+      "${exclude_args[@]}" "${this_commit}^" 2>/dev/null); then
+      printf '%s\n' "$SINCE"
+      return
     fi
-  done < <(git -C "$ROOT" for-each-ref --format='%(refname:short)' refs/tags)
-  if [ -n "$best_commit" ]; then
-    printf '%s\n' "$best_commit"
-  else
-    printf '%s\n' "$SINCE"
-  fi
+    if is_release_tag "$desc"; then
+      if commit=$(git -C "$ROOT" rev-parse --verify "refs/tags/${desc}^{commit}" 2>/dev/null); then
+        printf '%s\n' "$commit"
+      else
+        printf '%s\n' "$SINCE"
+      fi
+      return
+    fi
+    exclude_args+=(--exclude "$desc")
+  done
 }
 
 # --- D1 + D2 per tag in W ---
@@ -368,9 +413,7 @@ while [ "$i" -lt "$n_tags" ]; do
 done
 
 # Count release-shaped subjects per version in W
-# Use temp files for portability (no assoc arrays required in old bash — we have bash)
 declare -A release_subj_count=()
-declare -A release_subj_seen=()
 
 while IFS= read -r csha; do
   [ -z "$csha" ] && continue
@@ -392,13 +435,10 @@ while IFS= read -r csha; do
     if [ "$already_tagged" -eq 1 ] && [ "${release_subj_count[$ver]}" -ge 2 ]; then
       add_finding "D3: second release-shaped subject for v${ver} in W: ${csha:0:7} ${subj}"
     fi
-    # Also: even without tag, two release-shaped same version in W is hazard when one is tagged
-    # Spec: "second feat:|fix: release-shaped subject for a version already tagged in W"
-    # So only when tagged — handled above.
   fi
 done < <(list_non_merges "$SINCE" "$HEAD")
 
-# --- D4: --expect-tag mismatch + local tag reflog double-move ---
+# --- D4: --expect-tag mismatch (local + remote-tracking half) ---
 i=0
 while [ "$i" -lt "$n_tags" ]; do
   tname="${tag_names[$i]}"
@@ -417,23 +457,6 @@ while [ "$i" -lt "$n_tags" ]; do
     fi
     j=$((j + 1))
   done
-
-  # Local reflog double-move: ≥2 distinct peeled commit SHAs for this tag
-  if git -C "$ROOT" rev-parse -q --verify "refs/tags/${tname}" >/dev/null 2>&1; then
-    # git reflog show <tag> may fail if no reflog; skip quietly
-    if reflog_out=$(git -C "$ROOT" reflog show "$tname" 2>/dev/null); then
-      # First field is the object shown; peel to commit when possible
-      uniq_targets=$(
-        printf '%s\n' "$reflog_out" | awk '{print $1}' | while read -r obj; do
-          git -C "$ROOT" rev-parse --verify "${obj}^{commit}" 2>/dev/null || true
-        done | sort -u | grep -c . || true
-      )
-      # Also require those moves relate to ship — if >1 distinct SHA ever, local retarget happened
-      if [ "${uniq_targets:-0}" -gt 1 ]; then
-        add_finding "D4: $tname local reflog shows ${uniq_targets} distinct targets (retarget)"
-      fi
-    fi
-  fi
 
   i=$((i + 1))
 done
@@ -454,8 +477,11 @@ while [ "$j" -lt "${#expect_tag_names[@]}" ]; do
     i=$((i + 1))
   done
   if [ "$in_w" -eq 0 ]; then
-    # Tag expected but not in W — still compare if tag exists locally
-    if local_c=$(git -C "$ROOT" rev-parse --verify "${et}^{commit}" 2>/dev/null); then
+    # Tag expected but not in W — still compare if tag exists locally.
+    # Resolve strictly under refs/tags/: a bare "${et}^{commit}" falls
+    # through git's ref disambiguation to refs/heads/<et> when no tag by
+    # that name exists, wrongly comparing a same-named branch's tip.
+    if local_c=$(git -C "$ROOT" rev-parse --verify "refs/tags/${et}^{commit}" 2>/dev/null); then
       want_raw="${expect_tag_shas[$j]}"
       if want=$(git -C "$ROOT" rev-parse --verify "${want_raw}^{commit}" 2>/dev/null); then
         if [ "$local_c" != "$want" ]; then
@@ -467,27 +493,42 @@ while [ "$j" -lt "${#expect_tag_names[@]}" ]; do
   j=$((j + 1))
 done
 
-# D4 remote half: no network (H1). Only local remote-tracking tag refs if present.
-# Common layouts rarely cache remote tags; skip when absent (offline-safe).
+# D4 remote half: no network (H1). Only the remote-tracking TAG namespace
+# refs/remotes/origin/tags/<name> (SPEC-010 D4(a)) — refs/remotes/origin/<name>
+# is a branch namespace and is dropped. Skip when that ref is absent.
 if git -C "$ROOT" remote get-url origin >/dev/null 2>&1; then
   i=0
   while [ "$i" -lt "$n_tags" ]; do
     tname="${tag_names[$i]}"
     tcommit="${tag_commits[$i]}"
-    remote_ref=""
-    for cand in \
-      "refs/remotes/origin/tags/${tname}" \
-      "refs/remotes/origin/${tname}"; do
-      if remote_c=$(git -C "$ROOT" rev-parse --verify "${cand}^{commit}" 2>/dev/null); then
-        remote_ref="$cand"
-        if [ "$remote_c" != "$tcommit" ]; then
-          add_finding "D4: $tname local ${tcommit:0:7} != remote-tracking ${remote_c:0:7} ($cand)"
-        fi
-        break
+    if remote_c=$(git -C "$ROOT" rev-parse --verify "refs/remotes/origin/tags/${tname}^{commit}" 2>/dev/null); then
+      if [ "$remote_c" != "$tcommit" ]; then
+        add_finding "D4: $tname local ${tcommit:0:7} != remote-tracking ${remote_c:0:7} (refs/remotes/origin/tags/${tname})"
       fi
-    done
+    fi
     i=$((i + 1))
   done
+fi
+
+# D4 snapshot half (H2): a release tag listed in --tag-snapshot FILE that
+# still exists locally but now peels to a different commit. A deleted tag
+# (absent from current_commit_by_name) is not a finding. Not limited to W:
+# D4(b) covers any release tag in the snapshot, so a retarget away from W is
+# still caught.
+if [ -n "$TAG_SNAPSHOT" ]; then
+  while IFS=$'\t' read -r srefname scommit || [ -n "$srefname" ]; do
+    [ -z "$srefname" ] && continue
+    case "$srefname" in
+      refs/tags/*) sname="${srefname#refs/tags/}" ;;
+      *) continue ;;
+    esac
+    is_release_tag "$sname" || continue
+    cur="${current_commit_by_name[$sname]:-}"
+    [ -z "$cur" ] && continue
+    if [ "$cur" != "$scommit" ]; then
+      add_finding "D4: $sname retargeted since ship start: ${scommit:0:7} -> ${cur:0:7} (tag snapshot)"
+    fi
+  done < "$TAG_SNAPSHOT"
 fi
 
 # --- output ---

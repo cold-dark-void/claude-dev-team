@@ -5,7 +5,11 @@
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
 CHECK="$HERE/check-staged-paths.sh"
+INSTALL="$HERE/install-git-hooks.sh"
 PASS=0
 FAIL=0
 OUT=""
@@ -199,6 +203,148 @@ expect_rc 0 "pair-only --intended (no paths)"
 rm -rf "$REPO"
 
 # ---------------------------------------------------------------------------
+# -z / space-in-path (SPEC-010 S2/S3): staged path with a space, intended
+# matches exactly → 0
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+stage_pair "$REPO"
+stage_file "$REPO" "docs/a b.md" "space path"
+run_in_repo "$REPO" -- --intended "docs/a b.md"
+expect_rc 0 "space-in-path intended"
+rm -rf "$REPO"
+
+# ---------------------------------------------------------------------------
+# -z / core.quotePath (SPEC-010 S2/S3): non-ASCII staged path, intended → 0;
+# same path NOT intended → 1 with the raw (unquoted) path in the output
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+git -C "$REPO" config core.quotePath true
+stage_pair "$REPO"
+stage_file "$REPO" "docs/café.md" "accent path"
+run_in_repo "$REPO" -- --intended "docs/café.md"
+expect_rc 0 "quotePath non-ASCII intended"
+
+REPO2=$(make_repo)
+git -C "$REPO2" config core.quotePath true
+stage_pair "$REPO2"
+stage_file "$REPO2" "docs/café.md" "accent path"
+run_in_repo "$REPO2" -- --intended skills/release/SKILL.md
+expect_rc 1 "quotePath non-ASCII not intended"
+expect_contains "docs/café.md"
+rm -rf "$REPO" "$REPO2"
+
+# ---------------------------------------------------------------------------
+# ./ normalization (S2): leading ./ on --intended and --allow-extra
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+stage_pair "$REPO"
+stage_file "$REPO" "skills/x.md" "x body"
+run_in_repo "$REPO" -- --intended ./skills/x.md
+expect_rc 0 "leading ./ stripped for --intended"
+rm -rf "$REPO"
+
+REPO=$(make_repo)
+stage_pair "$REPO"
+stage_file "$REPO" "skills/x.md" "x body"
+stage_file "$REPO" "docs/e.md" "extra"
+run_in_repo "$REPO" -- --intended skills/x.md --allow-extra ./docs/e.md
+expect_rc 0 "leading ./ stripped for --allow-extra"
+rm -rf "$REPO"
+
+# ---------------------------------------------------------------------------
+# Static: script source holds --name-only -z (behavioural proof is the
+# space/non-ASCII cases above; this guards against a future regression)
+# ---------------------------------------------------------------------------
+if grep -Fq -- '--name-only -z' "$CHECK"; then
+  pass "source holds --name-only -z"
+else
+  fail "source missing --name-only -z"
+fi
+
+# ---------------------------------------------------------------------------
+# install-git-hooks.sh (SPEC-010 B4): hooksPath warnings, never touch the
+# real repo's git config — temp repos only
+# ---------------------------------------------------------------------------
+make_hook_repo() {
+  local d
+  d=$(mktemp -d "${TMPDIR:-/tmp}/release-gate-hooks-XXXXXX")
+  git -C "$d" init -q
+  git -C "$d" config user.email "test@example.com"
+  git -C "$d" config user.name "Test"
+  mkdir -p "$d/githooks"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$d/githooks/pre-commit"
+  printf '%s\n' "$d"
+}
+
+# Plain repo, no prior core.hooksPath, only .sample hooks present → no warning
+REPO=$(make_hook_repo)
+RC=0
+OUT=$(cd "$REPO" && bash "$INSTALL" 2>&1) && RC=0 || RC=$?
+expect_rc 0 "install-git-hooks: plain repo"
+if printf '%s\n' "$OUT" | grep -q "warning:"; then
+  fail "unexpected warning on plain repo: $OUT"
+else
+  pass "no warning on plain repo"
+fi
+if [ "$(git -C "$REPO" config --get core.hooksPath)" = "githooks" ]; then
+  pass "core.hooksPath=githooks set"
+else
+  fail "core.hooksPath not set to githooks"
+fi
+rm -rf "$REPO"
+
+# Executable .git/hooks/pre-push present → warning naming pre-push, still installed
+REPO=$(make_hook_repo)
+printf '#!/usr/bin/env bash\nexit 0\n' >"$REPO/.git/hooks/pre-push"
+chmod +x "$REPO/.git/hooks/pre-push"
+RC=0
+OUT=$(cd "$REPO" && bash "$INSTALL" 2>&1) && RC=0 || RC=$?
+expect_rc 0 "install-git-hooks: legacy pre-push present"
+if printf '%s\n' "$OUT" | grep -q "warning:" && printf '%s\n' "$OUT" | grep -q "pre-push"; then
+  pass "warning names pre-push"
+else
+  fail "expected warning naming pre-push: $OUT"
+fi
+if [ "$(git -C "$REPO" config --get core.hooksPath)" = "githooks" ]; then
+  pass "still installed despite legacy hook"
+else
+  fail "not installed despite legacy hook: $OUT"
+fi
+rm -rf "$REPO"
+
+# core.hooksPath already set to something else (.husky) → warning naming .husky
+REPO=$(make_hook_repo)
+git -C "$REPO" config core.hooksPath .husky
+RC=0
+OUT=$(cd "$REPO" && bash "$INSTALL" 2>&1) && RC=0 || RC=$?
+expect_rc 0 "install-git-hooks: prior core.hooksPath=.husky"
+if printf '%s\n' "$OUT" | grep -q "warning:" && printf '%s\n' "$OUT" | grep -q ".husky"; then
+  pass "warning names .husky"
+else
+  fail "expected warning naming .husky: $OUT"
+fi
+if [ "$(git -C "$REPO" config --get core.hooksPath)" = "githooks" ]; then
+  pass "installed after prior core.hooksPath"
+else
+  fail "not installed after prior core.hooksPath: $OUT"
+fi
+rm -rf "$REPO"
+
+# Re-run with githooks already set and only *.sample hooks → no warning
+REPO=$(make_hook_repo)
+git -C "$REPO" config core.hooksPath githooks
+RC=0
+OUT=$(cd "$REPO" && bash "$INSTALL" 2>&1) && RC=0 || RC=$?
+expect_rc 0 "install-git-hooks: re-run with githooks already set"
+if printf '%s\n' "$OUT" | grep -q "warning:"; then
+  fail "unexpected warning on re-run: $OUT"
+else
+  pass "no warning on re-run with githooks set + samples only"
+fi
+rm -rf "$REPO"
+
+
+# ---------------------------------------------------------------------------
 # CDT-188 H11: ship-history cleanliness (separate harness, same PASS/FAIL rollup)
 # ---------------------------------------------------------------------------
 SHIP_HARNESS="$HERE/test-ship-history.sh"
@@ -220,6 +366,181 @@ else
     fail "test-ship-history.sh exit $SHIP_RC without FAIL count"
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# T7 static guards (AC A/D/E/C): /release SKILL.md hygiene
+# ---------------------------------------------------------------------------
+SKILL="$HERE/SKILL.md"
+REPO_ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
+AGENTS_MD="$REPO_ROOT/AGENTS.md"
+SKILL_LINT_MD="$REPO_ROOT/skills/skill-lint/SKILL.md"
+
+# S1 (AC A): no push --tags literal in skills/release/ or skills/release-train/
+# (non-test, non-fixture); Step 6 calls push-release.sh; no literal 'git push'
+# in SKILL.md; push-release.sh source holds --atomic and refs/tags/.
+S1_HITS=$(grep -rEn 'push[^|]*--tags' "$HERE" "$REPO_ROOT/skills/release-train" \
+  --include='*.sh' --include='*.md' 2>/dev/null |
+  grep -Ev '(^|/)(test[^/]*\.sh|[^/]*-test\.sh)(:|$)' |
+  grep -Ev '/fixtures/')
+if [ -z "$S1_HITS" ]; then
+  pass "S1: no push --tags literal outside test/fixtures"
+else
+  fail "S1: push --tags literal found: $S1_HITS"
+fi
+if grep -Fq 'push-release.sh' "$SKILL"; then
+  pass "S1: SKILL.md names push-release.sh (Step 6)"
+else
+  fail "S1: SKILL.md does not name push-release.sh"
+fi
+if grep -Fq 'git push' "$SKILL"; then
+  fail "S1: literal 'git push' still in SKILL.md"
+else
+  pass "S1: no literal 'git push' in SKILL.md"
+fi
+if grep -Fq -- '--atomic' "$HERE/push-release.sh" && grep -Fq 'refs/tags/' "$HERE/push-release.sh"; then
+  pass "S1: push-release.sh source holds --atomic and refs/tags/"
+else
+  fail "S1: push-release.sh missing --atomic or refs/tags/"
+fi
+if grep -Fq -- '--no-follow-tags' "$HERE/push-release.sh"; then
+  pass "S1: push-release.sh source holds --no-follow-tags"
+else
+  fail "S1: push-release.sh missing --no-follow-tags"
+fi
+
+# S2 (AC D, advisor 4): no cwd-relative bash|python3|sh skills/|tools/ invocation.
+S2_HITS=$(grep -nE '(bash|python3|sh)[[:space:]]+(\./)?(skills|tools)/' "$SKILL")
+if [ -z "$S2_HITS" ]; then
+  pass "S2: no cwd-relative bash/python3/sh skills|tools invocation in SKILL.md"
+else
+  fail "S2: cwd-relative invocation found: $S2_HITS"
+fi
+
+# S3 (AC D): every gate section holds the PDH file-resolve call.
+section_body() { # section_body <label>
+  awk -v pat="^## Step ${1}:" '
+    $0 ~ pat {grab=1; print; next}
+    /^## / {if (grab) exit}
+    grab {print}
+  ' "$SKILL"
+}
+section_has() { # section_has <label> <needle>
+  local body
+  body=$(section_body "$1")
+  if [ -z "$body" ]; then
+    fail "S3: section 'Step $1' not found in SKILL.md"
+    return
+  fi
+  if printf '%s\n' "$body" | grep -Fq -- "$2"; then
+    pass "S3: Step $1 holds: $2"
+  else
+    fail "S3: Step $1 missing: $2"
+  fi
+}
+for s in 0 0.5 0.6 4.5 4.6 4.7 4.8 4.9 4.10 4.11 4.12 4.13 5.5 6; do
+  section_has "$s" 'plugin-dir.sh" file'
+done
+
+# S4 (AC D drift guard): SKILL.md cites C1-C<max from skill-lint/SKILL.md>,
+# and no stale C1-Cn text for any other n.
+LINT_MAX=$(grep -oE '^\| C[0-9]+ ' "$SKILL_LINT_MD" | grep -oE '[0-9]+' | sort -n | tail -1)
+if [ -z "$LINT_MAX" ]; then
+  fail "S4: could not determine skill-lint max class from $SKILL_LINT_MD"
+else
+  if grep -Fq "C1–C${LINT_MAX}" "$SKILL"; then
+    pass "S4: SKILL.md cites C1–C${LINT_MAX}"
+  else
+    fail "S4: SKILL.md missing C1–C${LINT_MAX}"
+  fi
+  STALE=$(grep -oE 'C1[–-]C[0-9]+' "$SKILL" | grep -Fxv "C1–C${LINT_MAX}" || true)
+  if [ -z "$STALE" ]; then
+    pass "S4: no stale C1-Cn drift text in SKILL.md"
+  else
+    fail "S4: stale C1-Cn text found: $STALE"
+  fi
+fi
+
+# S5 (AC D): no "optional but preferred" text in SKILL.md.
+if grep -Fq 'optional but preferred' "$SKILL"; then
+  fail "S5: 'optional but preferred' still in SKILL.md"
+else
+  pass "S5: no 'optional but preferred' text in SKILL.md"
+fi
+
+# S6 (AC E): AGENTS.md bump-rule line quoted verbatim; no stale feat:-forces-
+# minor text; no "would choose ... minor" text.
+AGENTS_LINE=$(grep '^New opt-in flags with unchanged defaults' "$AGENTS_MD" || true)
+if [ -n "$AGENTS_LINE" ] && grep -Fq -- "$AGENTS_LINE" "$SKILL"; then
+  pass "S6: AGENTS.md bump-rule line quoted verbatim in SKILL.md"
+else
+  fail "S6: AGENTS.md bump-rule line not found verbatim in SKILL.md"
+fi
+if grep -Fq 'feat:`/`feat(`) → **minor**' "$SKILL"; then
+  fail "S6: stale feat:-forces-minor text still in SKILL.md"
+else
+  pass "S6: no feat:-forces-minor text in SKILL.md"
+fi
+if grep -Eq 'would choose[^.]*minor' "$SKILL"; then
+  fail "S6: stale 'would choose ... minor' text still in SKILL.md"
+else
+  pass "S6: no 'would choose ... minor' text in SKILL.md"
+fi
+
+# S7 (AC C): no stale git-describe first-release logic; LAST_TAG present in
+# Steps 1 and 2.
+if grep -Fq 'git describe --tags --abbrev=0)' "$SKILL"; then
+  fail "S7: stale 'git describe --tags --abbrev=0)' still in SKILL.md"
+else
+  pass "S7: no stale 'git describe --tags --abbrev=0)' in SKILL.md"
+fi
+section_has "1" 'LAST_TAG'
+section_has "2" 'LAST_TAG'
+
+# S8: the three new step scripts are each named in SKILL.md.
+for f in step0.sh ship-start.sh push-release.sh; do
+  if grep -Fq "$f" "$SKILL"; then
+    pass "S8: $f named in SKILL.md"
+  else
+    fail "S8: $f not named in SKILL.md"
+  fi
+done
+
+# S9 (review r1 N3): fail-closed --tag-snapshot wording is present, and the
+# old unconditional "re-take it" wording (no autopilot/interactive split) is
+# gone.
+if grep -Fq 'release: tag snapshot missing' "$SKILL" && grep -Fq 'Never silently re-take' "$SKILL"; then
+  pass "S9: fail-closed tag-snapshot wording present in SKILL.md"
+else
+  fail "S9: fail-closed tag-snapshot wording missing from SKILL.md"
+fi
+if grep -Fq 'A missing/expired `TAG_SNAPSHOT` named in the' "$SKILL"; then
+  fail "S9: stale unconditional re-take wording still in SKILL.md"
+else
+  pass "S9: stale unconditional re-take wording removed from SKILL.md"
+fi
+
+# S10 (review r1 N1/N2): Step 6 runs its post-tag check (own fence, not a
+# comment) before push, and clears the tag snapshot only after a distinct
+# post-push check — never before it.
+STEP6_BODY=$(section_body "6")
+if [ -z "$STEP6_BODY" ]; then
+  fail "S10: section 'Step 6' not found in SKILL.md"
+else
+  EXPECT_TAG_COUNT=$(printf '%s\n' "$STEP6_BODY" | grep -c -- '--expect-tag')
+  if [ "$EXPECT_TAG_COUNT" -ge 2 ]; then
+    pass "S10: Step 6 runs --expect-tag at least twice (post-tag + post-push)"
+  else
+    fail "S10: Step 6 --expect-tag count $EXPECT_TAG_COUNT < 2 (post-tag + post-push)"
+  fi
+  CLEAR_LINE=$(printf '%s\n' "$STEP6_BODY" | grep -n -- '"\$SHIP_START_SH" --clear' | tail -1 | cut -d: -f1)
+  LAST_EXPECT_LINE=$(printf '%s\n' "$STEP6_BODY" | grep -n -- '--expect-tag' | tail -1 | cut -d: -f1)
+  if [ -n "$CLEAR_LINE" ] && [ -n "$LAST_EXPECT_LINE" ] && [ "$CLEAR_LINE" -gt "$LAST_EXPECT_LINE" ]; then
+    pass "S10: --clear runs after the last --expect-tag check (post-push, not before)"
+  else
+    fail "S10: --clear (line $CLEAR_LINE) does not run after the last --expect-tag check (line $LAST_EXPECT_LINE)"
+  fi
+fi
+
 
 # ---------------------------------------------------------------------------
 echo

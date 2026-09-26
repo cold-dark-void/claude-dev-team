@@ -29,6 +29,14 @@ allow_extra=()
 mode=""
 saw_intended=0
 
+strip_leading_dotslash() {
+  local p="$1"
+  while [ "${p#./}" != "$p" ]; do
+    p="${p#./}"
+  done
+  printf '%s' "$p"
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --intended)
@@ -51,9 +59,9 @@ while [ $# -gt 0 ]; do
       ;;
     *)
       if [ "$mode" = "intended" ]; then
-        intended+=("$1")
+        intended+=("$(strip_leading_dotslash "$1")")
       elif [ "$mode" = "allow_extra" ]; then
-        allow_extra+=("$1")
+        allow_extra+=("$(strip_leading_dotslash "$1")")
       else
         echo "check-staged-paths.sh: unexpected argument before flags: $1" >&2
         usage
@@ -98,12 +106,14 @@ is_allowed() {
 
 foreign=()
 # S3: staged set only — never unstaged/untracked
-while IFS= read -r path; do
+# -z + NUL-delimited read: staged paths may contain spaces, and quoted
+# non-ASCII bytes (core.quotePath) must compare raw, not escaped.
+while IFS= read -r -d '' path; do
   [ -z "$path" ] && continue
   if ! is_allowed "$path"; then
     foreign+=("$path")
   fi
-done < <(git -C "$ROOT" diff --cached --name-only)
+done < <(git -C "$ROOT" diff --cached --name-only -z)
 
 if [ ${#foreign[@]} -eq 0 ]; then
   exit 0
