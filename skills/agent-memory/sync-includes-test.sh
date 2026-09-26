@@ -2,8 +2,8 @@
 # sync-includes-test.sh — bite-tests for sync-includes.py mode validation (CDT-235)
 #
 # Machine-check: bash skills/agent-memory/sync-includes-test.sh  (exit 0)
-# Named *-test.sh per SPEC-030 — excluded from smoke discovery, wired as its own
-# CI job (parity with skills/plugin-dir-test.sh).
+# Named *-test.sh per SPEC-030 — smoke parses it with `bash -n`; the all-suites
+# runner runs it. Also wired as its own CI job (parity with skills/plugin-dir-test.sh).
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
 set -u

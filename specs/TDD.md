@@ -33,7 +33,7 @@
 | SPEC-027 | /incident War-Room & Postmortem | DEPRECATED | commands/incident.md, skills/incident/SKILL.md, timeline.sh, timeline-test.sh, workspace.sh |
 | SPEC-028 | Premise → Implement → Adversarial Refute (`/debug ticket`) | DEPRECATED | `/debug ticket` entry (SPEC-014); commands/fix-ticket.md + skills/fix-ticket (stubs CDT-46-C4); workflow.js optional |
 | SPEC-029 | Debug Reopen & Multi-Surface Done Gates | ACTIVE | skills/debug/SKILL.md, skills/debug/theme-status.sh, SPEC-014 checklist, .claude/debug/themes/ |
-| SPEC-030 | Smoke Harness Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, .github/workflows/smoke.yml, skills/release/SKILL.md (Step 4.10 only) |
+| SPEC-030 | Smoke Harness and All-Suites Gate | ACTIVE | tools/smoke/run.sh, tools/smoke/smoke.py, tools/smoke/test.sh, tools/smoke/fixtures/, tools/smoke/README.md, tools/run-all-tests.sh, tools/run-all-tests-test.sh, tools/test-quarantine.txt, .github/workflows/smoke.yml, skills/release/SKILL.md (Steps 4.10 and 4.13 only) |
 | SPEC-031 | Escalation Gate & Universal Worktree Isolation | DRAFT | skills/refactor/SKILL.md (contract home), skills/debug/SKILL.md, skills/review-and-commit/SKILL.md, skills/code-simplify/SKILL.md, skills/init-orchestration/SKILL.md (hook template) + check-hook-templates.sh, commands/setup.md, AGENTS.md |
 | SPEC-032 | CI Linter Parity Gate | ACTIVE | .github/workflows/smoke.yml (linter jobs only), skills/skill-lint/SKILL.md (CI-caller note only), skills/docs-drift/SKILL.md (CI-caller note only), skills/release/SKILL.md (referenced, unchanged) |
 | SPEC-033 | Shared Autopilot Policy | DRAFT | `skills/autopilot/*` (contract home SKILL.md); parse-flags / loc-exclude / append-card / read-cards / self-answer (CDT-223 M15/M16); citers orchestrate/kickoff/epic |
@@ -117,3 +117,4 @@
 | 2026-07-22 | CDT-51 / CDT-46-C5 kickoff: SPEC-002/005 posture + doctor-gate MUSTs; SPEC-022 M6b caller-gate; SPEC-004 migrate-test note + Covers migrate-v3/v4. No INFERRED→ACTIVE (W5). |
 | 2026-07-22 | CDT-67: SPEC-022 M6c gate-mode self-remediation (`--gate=orchestration|team`); SPEC-005 doctor gate passes `--gate=<sub>`. |
 | 2026-08-22 | CDT-212: SPEC-012 S5 co-occurrence — S5 scores iff a scored transcript S1–S4 overlaps the preceding exchange; isolated S5 omitted; ledger S2 does not unlock S5. |
+| 2026-09-25 | SPEC-030 amended (WP 1-01, CDT-269): smoke discovery widened (agents, sub-docs, all `*.sh`, `githooks/`); all-suites runner R1–R17 (`tools/run-all-tests.sh`, quarantine, `all-tests` CI job, `/release` Step 4.13). SPEC-010 Step 4.13 pointer. |

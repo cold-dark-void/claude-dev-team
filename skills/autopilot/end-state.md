@@ -127,7 +127,7 @@ SHA into `/release` as ambient `SHIP_START_SHA` so Step 0.5 does not re-open W a
 For §5-land-no-release, the same SHA feeds §5.5 `check-ship-history --since`. Cite SPEC-010 H —
 do **not** restate D1–D4.
 
-```bash
+```bash template
 cd <main-repo-path>
 SHIP_START_SHA=$(git rev-parse HEAD)
 export SHIP_START_SHA
@@ -141,7 +141,7 @@ With BC3 clear **and** `SHIP_START_SHA` recorded (§3.5), stage the squash on th
 main-repo path **without committing**, and treat an unresolved merge conflict as
 a hard stop. Shared by **both** land paths — the commit (if any) happens in §5.
 
-```bash
+```bash template
 cd <main-repo-path>
 if ! git merge --squash <branch>; then
   # Unresolved squash conflict: restore a clean tree (stages nothing, moves no ref).
@@ -206,7 +206,7 @@ On success → §5.5.
 
 After §4 squash-stage succeeds on the main-repo path:
 
-```bash
+```bash template
 cd <main-repo-path>
 # 1) Commit with interactive squash message shape (orchestrate Step 11 "If squash merge
 #    requested" — cite, do not fork). Honest Co-Authored-By identity (agent/model actually

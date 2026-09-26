@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """SPEC-030 smoke harness: load-only static verification of plugin Surfaces.
 
-A "Surface" is a user-invocable markdown file with YAML frontmatter
-(commands/*.md, skills/*/SKILL.md) whose executable logic lives in fenced
-```bash blocks; engine scripts are the non-test skills/**/*.sh files. This gate
-asserts each still *loads* — frontmatter parses with name+description, every
-top-level bash fence passes `bash -n`, every engine script parses (plus an
-opt-in --help/--check where the script declares it). It is static: bash fences
-and mutating script bodies are never executed.
+Four target kinds, classified by path shape (classify()), not extension:
+Surface (commands/*.md, skills/<name>/SKILL.md), Agent (agents/*.md), Sub-doc
+(every other skills/**/*.md) and Script (every *.sh anywhere, test scripts
+included, plus every file under githooks/). This gate asserts each still
+*loads*: frontmatter parses (Surface/Agent require name+description; Agent
+also requires tools/model/effort with model/effort value-domain checks), every
+top-level ```bash fence passes `bash -n` (Surface/Agent/Sub-doc), every script
+parses (plus an opt-in --help/--check where a non-test, non-githook script
+declares it). It is static: bash fences and mutating script bodies are never
+executed.
 
 Exit codes: 0 = all pass, 1 = at least one fail, 64 = usage error.
 Output: one `PASS <path>` / `FAIL <path>: <reason>` line per target, then a
@@ -23,13 +26,20 @@ import tempfile
 
 FENCE_RE = re.compile(r"^\s*(`{3,})(.*)$")
 
-# Test-script basenames excluded from engine-script discovery (SPEC-030):
-# `test`-prefixed, `test-*.sh`, and `*-test.sh`.
+# Test-script basenames: `test.sh`, `test-*.sh`, `*-test.sh`. Discovery now
+# includes test scripts as ordinary Script targets (SPEC-030); this pattern is
+# used only to keep a test script's mutating body from ever being invoked via
+# --invoke-flags.
 TEST_SH_RE = re.compile(r"^(test\.sh|test-.*\.sh|.*-test\.sh)$")
 
 # Literal flag tokens that, when present in a script's text, opt it in to an
 # explicit --help/--check invocation (its non-zero exit becomes a FAIL).
 FLAG_RE = re.compile(r"--help|--check")
+
+# SPEC-030 Check set — Agent: model/effort value-domain checks (value domain
+# only — not the SPEC-003 Tier table, which is SPEC-003's to enforce).
+AGENT_MODELS = {"opus", "sonnet", "haiku"}
+AGENT_EFFORTS = {"low", "medium", "high", "xhigh"}
 
 
 # --- Vendored from SPEC-021 skills/skill-lint/lint.py extract_blocks() ---
@@ -94,10 +104,12 @@ def parse_frontmatter(text):
     Returns (mapping, error). `mapping` maps top-level keys to a truthiness
     proxy: "" for an empty scalar, else a non-empty marker string. Handles flat
     `key: value`, block scalars (`key: |` / `key: >` with indented continuation),
-    and quoted values — the subset of YAML the plugin's frontmatter actually
-    uses (verified: no nested mappings, no flow collections). On a structural
-    problem (no opening `---`, unterminated block, a non-`key:` top-level line)
-    returns (None, reason). stdlib only — no pyyaml dependency.
+    quoted values, and YAML block sequences (`key:` followed by `- item` lines,
+    at column 0 or indented; non-empty iff at least one item has content) — the
+    subset of YAML the plugin's frontmatter actually uses (verified: no nested
+    mappings, no flow collections). On a structural problem (no opening `---`,
+    unterminated block, a non-`key:` top-level line) returns (None, reason).
+    stdlib only — no pyyaml dependency.
     """
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -154,9 +166,27 @@ def parse_frontmatter(text):
             while i < end and lines[i][:1] in (" ", "\t") and lines[i].strip():
                 i += 1
         else:
-            # `key:` with no inline value and no block indicator — empty scalar.
-            mapping[key] = ""
+            # `key:` with no inline value and no block indicator: either an
+            # empty scalar or a YAML block sequence (`- item` lines, at column
+            # 0 or indented). Non-empty iff at least one sequence item has
+            # content; a plain indented continuation with no `- ` marker also
+            # counts as content (SPEC-030 parser subset).
             i += 1
+            seq_has_content = False
+            while i < end:
+                nxt = lines[i]
+                if not nxt.strip():
+                    i += 1
+                    continue
+                stripped = nxt.lstrip()
+                if nxt[0] in (" ", "\t") or stripped.startswith("- "):
+                    item = stripped[2:].strip() if stripped.startswith("- ") else stripped
+                    if item:
+                        seq_has_content = True
+                    i += 1
+                    continue
+                break  # column-0, not a sequence item -- ends the block
+            mapping[key] = "x" if seq_has_content else ""
     return mapping, None
 
 
@@ -179,26 +209,13 @@ def bash_n(path=None, source=None, cwd=None):
     return proc.returncode == 0, proc.stderr.strip()
 
 
-def check_md(path):
-    """Check set for a .md Surface. Returns (ok, reason)."""
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read()
-    except OSError as e:
-        return None, f"cannot read: {e}"
-
-    mapping, err = parse_frontmatter(text)
-    if mapping is None:
-        return False, err
-    for field in ("name", "description"):
-        if field not in mapping:
-            return False, f"frontmatter missing `{field}`"
-        if not mapping[field]:
-            return False, f"frontmatter `{field}` is empty"
-
+def check_fences(text):
+    """Shared bash-fence check (Surface/Agent/Sub-doc): every top-level
+    ```bash fence must pass `bash -n`, unless tagged `bash template`. Returns
+    (ok, reason)."""
     for start, block_lines, info in extract_blocks(text):
         # `bash template` fences are documentation-shape (angle-bracket
-        # placeholders / elided pseudocode) — skip the syntax check for them.
+        # placeholders / elided pseudocode) -- skip the syntax check for them.
         if is_template_fence(info):
             continue
         ok, stderr = bash_n(source="\n".join(block_lines) + "\n")
@@ -209,106 +226,328 @@ def check_md(path):
     return True, ""
 
 
+def _read_text(path):
+    """Read a target file's text. Returns (text, None) or (None, reason)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read(), None
+    except OSError as e:
+        return None, f"cannot read: {e}"
+
+
+def _base_frontmatter(text):
+    """Parse frontmatter and enforce the Surface-level name/description
+    check shared by check_md and check_agent (SPEC-003: one copy, not two).
+
+    Returns (mapping, error). `mapping` is None on any defect -- unparseable
+    structure (see parse_frontmatter) or a missing/empty `name`/`description`
+    -- with `error` naming the reason. On success, `mapping` is the parsed
+    frontmatter and `error` is None.
+    """
+    mapping, err = parse_frontmatter(text)
+    if mapping is None:
+        return None, err
+    for field in ("name", "description"):
+        if field not in mapping:
+            return None, f"frontmatter missing `{field}`"
+        if not mapping[field]:
+            return None, f"frontmatter `{field}` is empty"
+    return mapping, None
+
+
+def check_md(path):
+    """Check set for a Surface .md. Returns (ok, reason)."""
+    text, err = _read_text(path)
+    if text is None:
+        return None, err
+
+    mapping, err = _base_frontmatter(text)
+    if mapping is None:
+        return False, err
+
+    return check_fences(text)
+
+
+def check_agent(path):
+    """Check set for an Agent `agents/*.md`. Returns (ok, reason).
+
+    Applies the Surface frontmatter parse + fence check, plus the five
+    SPEC-003 agent fields: name/description (non-empty), tools (key present,
+    value MAY be empty), model and effort (value-domain checked; MUST NOT be
+    compared against the SPEC-003 Tier table -- value domain only).
+    """
+    text, err = _read_text(path)
+    if text is None:
+        return None, err
+
+    mapping, err = _base_frontmatter(text)
+    if mapping is None:
+        return False, err
+
+    if "tools" not in mapping:
+        return False, "frontmatter missing `tools`"
+
+    if "model" not in mapping:
+        return False, "frontmatter missing `model`"
+    if mapping["model"] not in AGENT_MODELS:
+        return False, (
+            f"frontmatter `model` is {mapping['model']!r} "
+            "(want opus|sonnet|haiku)"
+        )
+
+    if "effort" not in mapping:
+        return False, "frontmatter missing `effort`"
+    if mapping["effort"] not in AGENT_EFFORTS:
+        return False, (
+            f"frontmatter `effort` is {mapping['effort']!r} "
+            "(want low|medium|high|xhigh)"
+        )
+
+    return check_fences(text)
+
+
+def check_subdoc(path):
+    """Check set for a Sub-doc (`skills/**/*.md`, not `SKILL.md`). Fence check
+    only -- a sub-doc is loaded by reference, not directly, so it carries no
+    frontmatter requirement. Returns (ok, reason)."""
+    text, err = _read_text(path)
+    if text is None:
+        return None, err
+    return check_fences(text)
+
+
 def check_sh(path, invoke_flags=False):
-    """Check set for an engine .sh script. Returns (ok, reason).
+    """Check set for a Script (`*.sh`, `githooks/*`). Returns (ok, reason).
 
     The MUST-level check is `bash -n` (parse-only). The SPEC-030 `--help`/
     `--check` invocation is a MAY, and is gated behind `invoke_flags` (the
-    harness `--invoke-flags` opt-in), OFF by default. Rationale: this repo's
-    dominant help convention routes `--help` to a `usage()` that prints to
-    stderr and exits non-zero (a usage-error exit, not a help-success exit),
-    and `--check` on some scripts (e.g. local-agent/run.sh) is a value-taking
-    argument, not a boolean self-test. Auto-invoking those as a pass/fail gate
-    would fail the live tree and make the gate un-landable, contradicting the
-    "gate lands green" mandate (SPEC-030 MUST, release-gate wiring). Keeping
-    the capability behind an explicit opt-in preserves it for scripts that do
-    implement a zero-exit `--help`/`--check`, and for the bite-test.
+    harness `--invoke-flags` opt-in), OFF by default, and never applies to a
+    test script or a githook (their bodies mutate state -- never invoke those).
+    Rationale for the default-off gate: this repo's dominant help convention
+    routes `--help` to a `usage()` that prints to stderr and exits non-zero (a
+    usage-error exit, not a help-success exit), and `--check` on some scripts
+    (e.g. local-agent/run.sh) is a value-taking argument, not a boolean
+    self-test. Auto-invoking those as a pass/fail gate would fail the live tree
+    and make the gate un-landable, contradicting the "gate lands green"
+    mandate (SPEC-030 MUST, release-gate wiring). Keeping the capability behind
+    an explicit opt-in preserves it for scripts that do implement a zero-exit
+    `--help`/`--check`, and for the bite-test.
     """
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read()
-    except OSError as e:
-        return None, f"cannot read: {e}"
+    text, err = _read_text(path)
+    if text is None:
+        return None, err
 
     ok, stderr = bash_n(path=path)
     if not ok:
         detail = stderr.splitlines()[-1] if stderr else "bash -n failed"
         return False, f"bash -n: {detail}"
 
-    # Opt-in --help/--check invocation ONLY when enabled AND the script declares
-    # the flag (bodies of non-declaring scripts mutate state — never invoke
-    # those). Run under a timeout in an isolated mktemp -d cwd so an errant
-    # script can't touch the repo tree.
+    # Opt-in --help/--check invocation ONLY when enabled, the script declares
+    # the flag, and it is neither a test script nor a githook. Run under a
+    # timeout in an isolated mktemp -d cwd so an errant script can't touch the
+    # repo tree.
     if invoke_flags:
-        m = FLAG_RE.search(text)
-        if m:
-            flag = m.group(0)
-            with tempfile.TemporaryDirectory() as td:
-                try:
-                    proc = subprocess.run(
-                        ["bash", os.path.abspath(path), flag],
-                        capture_output=True, text=True, cwd=td, timeout=30,
-                    )
-                except subprocess.TimeoutExpired:
-                    return False, f"{flag} did not exit within 30s"
-                except OSError as e:
-                    return False, f"{flag} invocation failed: {e}"
-            if proc.returncode != 0:
-                tail = (proc.stderr.strip().splitlines() or ["no stderr"])[-1]
-                return False, f"{flag} exited {proc.returncode}: {tail}"
+        base = os.path.basename(path)
+        parent = os.path.basename(os.path.dirname(path))
+        is_test = bool(TEST_SH_RE.match(base))
+        is_githook = parent == "githooks"
+        if not is_test and not is_githook:
+            m = FLAG_RE.search(text)
+            if m:
+                flag = m.group(0)
+                with tempfile.TemporaryDirectory() as td:
+                    try:
+                        proc = subprocess.run(
+                            ["bash", os.path.abspath(path), flag],
+                            capture_output=True, text=True, cwd=td, timeout=30,
+                        )
+                    except subprocess.TimeoutExpired:
+                        return False, f"{flag} did not exit within 30s"
+                    except OSError as e:
+                        return False, f"{flag} invocation failed: {e}"
+                if proc.returncode != 0:
+                    tail = (proc.stderr.strip().splitlines() or ["no stderr"])[-1]
+                    return False, f"{flag} exited {proc.returncode}: {tail}"
     return True, ""
 
 
+def classify(path):
+    """Classify a path by shape into a target kind (SPEC-030 Discovery). Both
+    no-arg discovery and the explicit target-list form use this single
+    classifier so their behavior can never diverge.
+
+    `path` MUST be repo-relative (see check_path/resolve_root). Classification
+    is shape-based (a `skills` segment, an `agents`/`githooks` parent) so an
+    absolute path would false-match whenever some *ancestor* of the repo root
+    happens to be named `skills`, `agents` or `githooks` (for example a
+    scratch tree at `$TMP/skills/repo`) -- repo-relative is the only path form
+    that can't carry that ancestry.
+
+    - a `.sh` file, or any file whose parent directory is `githooks` -> Script
+    - a `.md` whose parent directory is `agents` -> Agent
+    - a `.md` below a `skills` segment that is not `skills/<name>/SKILL.md` ->
+      Sub-doc
+    - any other `.md` -> Surface
+
+    Returns "surface" | "agent" | "subdoc" | "script" | None (unsupported).
+    """
+    parts = path.replace(os.sep, "/").split("/")
+    base = parts[-1]
+    parent = parts[-2] if len(parts) >= 2 else ""
+    if base.endswith(".sh") or parent == "githooks":
+        return "script"
+    if not base.endswith(".md"):
+        return None
+    if parent == "agents":
+        return "agent"
+    if "skills" in parts[:-1]:
+        si = parts.index("skills")
+        if base == "SKILL.md" and len(parts) - si == 3:
+            return "surface"
+        return "subdoc"
+    return "surface"
+
+
+def check_path(path, root, invoke_flags=False):
+    """Dispatch one target to its check set via classify() (SPEC-030
+    Discovery classifier) -- not by extension.
+
+    `root` anchors classification: `path` is made repo-relative before it
+    reaches classify(), so an ancestor directory that happens to share a name
+    with a classified shape (`skills`, `agents`, `githooks`) can never leak
+    in -- this applies identically to no-arg-discovered paths and to an
+    explicit target list (both come through here). Returns (ok, reason); ok
+    is None when the file is unreadable/unsupported.
+    """
+    kind = classify(os.path.relpath(path, root))
+    if kind == "surface":
+        return check_md(path)
+    if kind == "agent":
+        return check_agent(path)
+    if kind == "subdoc":
+        return check_subdoc(path)
+    if kind == "script":
+        return check_sh(path, invoke_flags=invoke_flags)
+    return None, "unsupported target type (expected .md or .sh)"
+
+
 def _excluded(relparts):
-    """A path is excluded from discovery iff any segment is `fixtures`, or it
-    lives under tools/smoke/ (the harness's own material must not self-fail)."""
-    if "fixtures" in relparts:
-        return True
-    if len(relparts) >= 2 and relparts[0] == "tools" and relparts[1] == "smoke":
-        return True
-    return False
+    """A path is excluded from no-arg discovery iff any segment is `fixtures`,
+    `.worktrees` or `node_modules` (SPEC-030 DD7) -- the harness's own fixtures
+    under tools/smoke/fixtures/ included; narrowed from the earlier blanket
+    tools/smoke/** exclusion so tools/smoke/run.sh, tools/smoke/test.sh and the
+    runner itself get checked like every other file."""
+    return any(seg in ("fixtures", ".worktrees", "node_modules") for seg in relparts)
+
+
+def _relparts(root, path):
+    rel = os.path.relpath(path, root)
+    return [] if rel == "." else rel.replace(os.sep, "/").split("/")
+
+
+def _is_git_worktree(root):
+    try:
+        proc = subprocess.run(
+            ["git", "-C", root, "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True,
+        )
+    except OSError:
+        return False
+    return proc.returncode == 0 and proc.stdout.strip() == "true"
+
+
+def _git_scripts(root):
+    """Script set via `git ls-files` (tracked plus untracked-not-ignored, so a
+    new script runs before it is staged): every path classify()'d "script",
+    excluding fixtures/.worktrees/node_modules, skipping index entries absent
+    on disk (SPEC-030 Discovery)."""
+    proc = subprocess.run(
+        ["git", "-C", root, "ls-files", "-z", "--cached", "--others",
+         "--exclude-standard"],
+        capture_output=True, text=True, check=True,
+    )
+    found = []
+    for rel in proc.stdout.split("\0"):
+        if not rel:
+            continue
+        relparts = rel.split("/")
+        if _excluded(relparts):
+            continue
+        if classify(rel) != "script":
+            continue
+        p = os.path.join(root, rel)
+        if os.path.isfile(p):
+            found.append(p)
+    return found
+
+
+def _walk_scripts(root):
+    """Sorted filesystem walk fallback for Script discovery when root is not a
+    git work tree (SPEC-030 Discovery fallback; mktemp `--root` fixture
+    trees)."""
+    found = []
+    for dirpath, dirs, files in os.walk(root):
+        dirs.sort()
+        relparts = _relparts(root, dirpath)
+        if _excluded(relparts):
+            dirs[:] = []  # prune the subtree
+            continue
+        for name in sorted(files):
+            rel = "/".join(relparts + [name]) if relparts else name
+            if classify(rel) == "script":
+                found.append(os.path.join(dirpath, name))
+    return found
 
 
 def discover(root):
-    """No-arg Surface + engine-script set (SPEC-030).
+    """No-arg discovery of all four target kinds (SPEC-030 Discovery).
 
-    Surfaces: every commands/*.md and every skills/*/SKILL.md. Engine scripts:
-    every non-test skills/**/*.sh. Excludes any path under a `fixtures/` dir and
-    all of tools/smoke/ itself.
+    Surface: commands/*.md + skills/<name>/SKILL.md. Agent: agents/*.md.
+    Sub-doc: every other skills/**/*.md. Script: git ls-files (tracked plus
+    untracked-not-ignored) filtered to *.sh or a githooks/ parent, or a sorted
+    filesystem-walk fallback when root is not a git work tree. Excludes any
+    path with a fixtures/.worktrees/node_modules segment. Returns a flat list
+    of paths, sorted within each kind, in kind order Surface/Agent/Sub-doc/
+    Script.
     """
-    out = []
+    surfaces = []
+    agents = []
+    subdocs = []
 
     cmd_dir = os.path.join(root, "commands")
     if os.path.isdir(cmd_dir):
         for name in sorted(os.listdir(cmd_dir)):
             if name.endswith(".md"):
-                out.append(os.path.join(cmd_dir, name))
+                surfaces.append(os.path.join(cmd_dir, name))
+
+    agents_dir = os.path.join(root, "agents")
+    if os.path.isdir(agents_dir):
+        for name in sorted(os.listdir(agents_dir)):
+            if name.endswith(".md"):
+                agents.append(os.path.join(agents_dir, name))
 
     skills_dir = os.path.join(root, "skills")
     for dirpath, dirs, files in os.walk(skills_dir):
         dirs.sort()
-        rel = os.path.relpath(dirpath, root)
-        relparts = [] if rel == "." else rel.replace(os.sep, "/").split("/")
+        relparts = _relparts(root, dirpath)
         if _excluded(relparts):
             dirs[:] = []  # prune the subtree
             continue
-        # SKILL.md lives one level under skills/ (skills/<name>/SKILL.md).
-        if len(relparts) == 2 and relparts[0] == "skills" and "SKILL.md" in files:
-            out.append(os.path.join(dirpath, "SKILL.md"))
         for name in sorted(files):
-            if name.endswith(".sh") and not TEST_SH_RE.match(name):
-                out.append(os.path.join(dirpath, name))
-    return out
+            if not name.endswith(".md"):
+                continue
+            p = os.path.join(dirpath, name)
+            if classify(os.path.relpath(p, root)) == "surface":
+                surfaces.append(p)
+            else:
+                subdocs.append(p)
 
+    if _is_git_worktree(root):
+        scripts = _git_scripts(root)
+    else:
+        scripts = _walk_scripts(root)
 
-def check_path(path, invoke_flags=False):
-    """Dispatch one target to its check set by extension. Returns (ok, reason);
-    ok is None when the file is unreadable/unsupported."""
-    if path.endswith(".md"):
-        return check_md(path)
-    if path.endswith(".sh"):
-        return check_sh(path, invoke_flags=invoke_flags)
-    return None, "unsupported target type (expected .md or .sh)"
+    return sorted(surfaces) + sorted(agents) + sorted(subdocs) + sorted(scripts)
 
 
 def resolve_root(explicit_root):
@@ -329,7 +568,7 @@ def main(argv):
     ap.add_argument("--json", action="store_true", help="emit results as JSON")
     ap.add_argument("--invoke-flags", action="store_true",
                     help="also invoke declared --help/--check on engine scripts "
-                         "(opt-in; off by default — see check_sh docstring)")
+                         "(opt-in; off by default -- see check_sh docstring)")
     ap.add_argument("paths", nargs="*", help="explicit paths to check")
     try:
         args = ap.parse_args(argv)
@@ -337,11 +576,15 @@ def main(argv):
         code = e.code if isinstance(e.code, int) else 64
         return 0 if code == 0 else 64
 
+    # Resolved once and reused as the classification anchor for both the
+    # no-arg and explicit-target forms (see check_path).
+    root = resolve_root(args.root)
+
     if args.paths:
         targets = args.paths
         explicit = True
     else:
-        targets = discover(resolve_root(args.root))
+        targets = discover(root)
         explicit = False
 
     results = []
@@ -351,7 +594,7 @@ def main(argv):
         if not os.path.isfile(path) or not os.access(path, os.R_OK):
             print(f"warn: skipping unreadable path: {path}", file=sys.stderr)
             continue
-        ok, reason = check_path(path, invoke_flags=args.invoke_flags)
+        ok, reason = check_path(path, root, invoke_flags=args.invoke_flags)
         if ok is None:
             print(f"warn: skipping unreadable path: {path} ({reason})",
                   file=sys.stderr)

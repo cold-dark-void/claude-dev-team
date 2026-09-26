@@ -46,6 +46,7 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 - MUST run the managed-include drift-gate before committing/tagging a release: `python3 skills/agent-memory/sync-includes.py check`. If it exits non-zero, a managed `<!-- include: -->` region has drifted from its canonical partial — MUST NOT commit or tag; fix the drift (re-expand the region to match the partial) and re-run until it exits 0. Currently single-sourced regions: the agent-memory protocol expanded across the 7 agents (`skills/agent-memory/protocol.md`), and the shared tech-lead tiered-cortex load block in `/debug` and `/refactor` Step 0 (`skills/agent-memory/cortex-load.md`).
 - The drift-gate covers only managed-include regions (markers present). It does NOT cross-check AGENTS.md against the emitted consumer template — those are intentionally distinct documents (SPEC-005), with no managed-include relationship.
 - **Step 4.7 — Hook-template gate (CDT-54 / CDT-46-C8).** Historical dual-copy Step 4.7 (`check-hook-templates.sh` requiring byte-identity between package-tracked live `.claude/hooks/*.sh` and init-orch templates) is **retired or reduced**. After CDT-54: hook bodies SoT = `skills/init-orchestration` templates only (SPEC-002/SPEC-005); live hooks are generated+gitignored. `/release` MUST NOT hard-fail solely because package-tracked live hooks are absent. Any residual Step 4.7 check MUST be template-internal only (e.g. extractability / hygiene of fenced bodies) and MUST NOT require dual-copy live files. Implementation of the reduced/removed gate is Task 2 of CDT-54 — this MUST is the contract.
+- **Step 4.13 — All-suites gate (WP 1-01, CDT-269).** `/release` MUST run `bash tools/run-all-tests.sh` as Step 4.13, after Step 4.12, in the release checkout. A non-zero exit MUST block commit and tag (same contract as Step 4.10). Runner, quarantine and suite-hygiene contract: SPEC-030 R1–R17. This bullet is the release-hosting pointer only; MUST NOT restate the runner contract here.
 
 ### Staged-path hard gate (CDT-189)
 
@@ -181,6 +182,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 - [ ] Staged-path hard gate: `bash skills/release/test.sh` exits 0; foreign staged → exit 1, lists every foreign path, no commit/tag/push
 - [ ] Step 5 wiring: `check-staged-paths.sh` after intentional `git add`, before `git commit` in `skills/release/SKILL.md`
 - [ ] Ship-history gate: `check-ship-history.sh` D1–D4 fixtures green; `/release` + end-state + orchestrate Step 11/12 cite H without forking predicate; autopilot dirty → exact halt phrase, no Done
+- [ ] All-suites gate: Step 4.13 present in `skills/release/SKILL.md`; `bash tools/run-all-tests.sh` exits 0 on the release checkout
 
 ## Open Questions
 
@@ -192,6 +194,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 
 | Date | Change |
 |------|--------|
+| 2026-09-25 | WP 1-01 (CDT-269): Step 4.13 all-suites gate pointer — `bash tools/run-all-tests.sh` blocks commit and tag on non-zero; contract in SPEC-030 R1–R17. |
 | 2026-08-16 | Bump-class gate (B1–B6): new `commands/*.md` requires minor/major; `check-bump-class.sh` + `githooks/pre-commit` on master + `/release` Step 4.11 + CI. |
 | 2026-08-09 | CDT-188: ship-history cleanliness gate (H1–H12) — dirty D1–D4 (multi-commit-per-tag, subject/CHANGELOG mismatch, repair-class, tag retarget); window W per ship; `check-ship-history.sh`; interactive confirm rewrite vs autopilot halt `history dirty — rewrite needed`; cite-not-fork from release/orchestrate/end-state; no Done/complete on dirty. |
 | 2026-08-09 | CDT-189: staged-path hard gate (S1–S9) — `check-staged-paths.sh` index-only allowlist (version pair ∪ intended ∪ `--allow-extra`); exit 0/1/64; fail-closed no auto-reset; Step 5 post-add pre-commit; Covers + `skills/release/test.sh`. |

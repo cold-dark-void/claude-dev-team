@@ -70,3 +70,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash skills/agent-memory/sync-includes-test.sh
       - run: python3 skills/agent-memory/sync-includes.py check
+
+  # CDT-269 — SPEC-030 R14 all-suites runner (quarantine: tools/test-quarantine.txt)
+  all-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tools/run-all-tests.sh

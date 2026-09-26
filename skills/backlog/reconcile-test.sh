@@ -2,7 +2,7 @@
 # skills/backlog/reconcile-test.sh — deterministic subprocess tests for reconcile.sh.
 # Offline: no network, no LLM, no MCP. Each case drives reconcile.sh via --root into a
 # fresh ${TMPDIR:-/tmp} fixture. See specs/core/SPEC-009-ticket-workflow.md §"Backlog reconcile".
-# The *-test.sh basename keeps this out of the smoke harness's engine-script discovery (SPEC-030).
+# smoke parses it with `bash -n`; the all-suites runner runs it (SPEC-030).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

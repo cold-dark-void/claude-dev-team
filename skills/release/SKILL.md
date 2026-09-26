@@ -347,6 +347,19 @@ resolve, a `skills/`/`commands/`/`agents/` site reintroduced a bare
 from SPEC-002 (vacuous-gate guard). **Do NOT commit or tag.** Fix and re-run
 until exit 0. Contract lives in SPEC-002 ("Locating `plugin-dir.sh` itself").
 
+## Step 4.13: All-suites gate (pre-commit gate)
+
+Run:
+```bash
+bash tools/run-all-tests.sh
+```
+
+If it exits non-zero, one or more test suites failed or timed out. **Do NOT commit or
+tag.** Print the `FAIL`/`TIMEOUT` lines and their `    |` tails, fix the suite, or, only
+for a suite measured red in CI, add a reasoned entry to `tools/test-quarantine.txt`, then
+re-run until exit 0. `QUARANTINED` and `PASS` plus a `warn:` line do not block. Contract
+lives in SPEC-030 R1–R17.
+
 ## Step 5: Commit (one folded commit)
 
 Stage the version files **and the actual changed source files** — everything being

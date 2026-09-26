@@ -7,6 +7,7 @@ CHECK="$HERE/check-docs-drift.sh"
 REPO_ROOT=$(cd "$HERE/../.." && pwd)
 PASS=0; FAIL=0
 OUT=""; RC=0
+LIVE=""
 SCRATCH=$(mktemp -d)
 trap 'rm -rf "$SCRATCH"' EXIT
 
@@ -50,7 +51,7 @@ run_check 64 --root /no/such/docs-drift-root-$$
 # Minimal synthetic tree — clean baseline for isolated bites
 # ---------------------------------------------------------------------------
 MINI=$(mktemp -d)
-trap 'rm -rf "$SCRATCH" "$MINI"' EXIT
+trap 'rm -rf "$SCRATCH" "$MINI" "$LIVE"' EXIT
 
 mkdir -p "$MINI/commands" "$MINI/agents" "$MINI/skills/hello" \
          "$MINI/docs/commands" "$MINI/.claude-plugin"
@@ -374,42 +375,48 @@ restore "$MINI/.claude-plugin/marketplace.json"
 # ---------------------------------------------------------------------------
 # T6 live-tree inject (real repo) — each check-id + cp restore
 # NEVER git checkout
+# Live-tree bites run on a scratch copy (SPEC-030 R16).
 # ---------------------------------------------------------------------------
-LIVE_STATUS_BEFORE=$(cd "$REPO_ROOT" && git status --porcelain)
+LIVE=$(mktemp -d)
+(cd "$REPO_ROOT" && git ls-files -z --cached --others --exclude-standard \
+  | tar --null -T - --ignore-failed-read -cf - 2>/dev/null) | (cd "$LIVE" && tar -xf -)
+git -C "$LIVE" init -q && git -C "$LIVE" add -A
+
+LIVE_STATUS_BEFORE=$(cd "$LIVE" && git status --porcelain)
 
 # cmd-index: inject undocumented command file
 printf '%s\n' "---" "name: zz-docs-drift-bite" "description: bite" "---" \
-  > "$REPO_ROOT/commands/zz-docs-drift-bite.md"
-OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+  > "$LIVE/commands/zz-docs-drift-bite.md"
+OUT=$(bash "$CHECK" --root "$LIVE" 2>&1); RC=$?
 [ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[cmd-index\]' && echo "$OUT" | grep -q 'zz-docs-drift-bite' \
   && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live cmd-index inject"; echo "$OUT" | head -5; }
-rm -f "$REPO_ROOT/commands/zz-docs-drift-bite.md"
+rm -f "$LIVE/commands/zz-docs-drift-bite.md"
 
 # agent-roster: remove one AGENTS.md row
-backup "$REPO_ROOT/AGENTS.md"
+backup "$LIVE/AGENTS.md"
 python3 - <<PY
 from pathlib import Path
-p = Path("$REPO_ROOT/AGENTS.md")
+p = Path("$LIVE/AGENTS.md")
 p.write_text("".join(l for l in p.read_text().splitlines(True) if "\`distiller\`" not in l))
 PY
-OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+OUT=$(bash "$CHECK" --root "$LIVE" 2>&1); RC=$?
 [ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[agent-roster\]' \
   && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live agent-roster inject"; echo "$OUT" | head -8; }
-restore "$REPO_ROOT/AGENTS.md"
+restore "$LIVE/AGENTS.md"
 
 # docs-hub: orphan page
-printf '%s\n' "# zz-orphan-bite" > "$REPO_ROOT/docs/commands/zz-orphan-bite.md"
-OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+printf '%s\n' "# zz-orphan-bite" > "$LIVE/docs/commands/zz-orphan-bite.md"
+OUT=$(bash "$CHECK" --root "$LIVE" 2>&1); RC=$?
 [ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[docs-hub\]' && echo "$OUT" | grep -q 'zz-orphan-bite' \
   && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live docs-hub inject"; echo "$OUT" | head -8; }
-rm -f "$REPO_ROOT/docs/commands/zz-orphan-bite.md"
+rm -f "$LIVE/docs/commands/zz-orphan-bite.md"
 
 # manifest-desc: mutate marketplace description one char
-backup "$REPO_ROOT/.claude-plugin/marketplace.json"
+backup "$LIVE/.claude-plugin/marketplace.json"
 python3 - <<PY
 import json
 from pathlib import Path
-p = Path("$REPO_ROOT/.claude-plugin/marketplace.json")
+p = Path("$LIVE/.claude-plugin/marketplace.json")
 data = json.loads(p.read_text())
 for pl in data.get("plugins", []):
     if "description" in pl:
@@ -417,44 +424,44 @@ for pl in data.get("plugins", []):
         break
 p.write_text(json.dumps(data, indent=2) + "\n")
 PY
-OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+OUT=$(bash "$CHECK" --root "$LIVE" 2>&1); RC=$?
 [ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[manifest-desc\]' \
   && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live manifest-desc inject"; echo "$OUT" | head -8; }
-restore "$REPO_ROOT/.claude-plugin/marketplace.json"
+restore "$LIVE/.claude-plugin/marketplace.json"
 
 # skill-ref: inject a dangling skills/<name>/<file> mention into a real command
-backup "$REPO_ROOT/commands/memory.md"
+backup "$LIVE/commands/memory.md"
 printf '%s\n' "See skills/zz-docs-drift-bite-skill/SKILL.md for details." \
-  >> "$REPO_ROOT/commands/memory.md"
-OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+  >> "$LIVE/commands/memory.md"
+OUT=$(bash "$CHECK" --root "$LIVE" 2>&1); RC=$?
 [ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[skill-ref\]' && echo "$OUT" | grep -q 'zz-docs-drift-bite-skill' \
   && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live skill-ref inject"; echo "$OUT" | head -8; }
-restore "$REPO_ROOT/commands/memory.md"
+restore "$LIVE/commands/memory.md"
 
 # docs-page-links: (a) dead relative ./zz-nope.md under docs/commands
-backup "$REPO_ROOT/docs/commands/status.md"
-printf '%s\n' "See also: [nope](./zz-nope.md)." >> "$REPO_ROOT/docs/commands/status.md"
-OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+backup "$LIVE/docs/commands/status.md"
+printf '%s\n' "See also: [nope](./zz-nope.md)." >> "$LIVE/docs/commands/status.md"
+OUT=$(bash "$CHECK" --root "$LIVE" 2>&1); RC=$?
 [ "$RC" -eq 1 ] && echo "$OUT" | grep -q '\[docs-page-links\]' && echo "$OUT" | grep -q 'zz-nope' \
   && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live docs-page-links dead inject"; echo "$OUT" | head -8; }
-restore "$REPO_ROOT/docs/commands/status.md"
+restore "$LIVE/docs/commands/status.md"
 
 # docs-page-links: (b) valid relative .md link → no finding for that href
-backup "$REPO_ROOT/docs/commands/status.md"
-printf '%s\n' "See also: [debug](./debug.md)." >> "$REPO_ROOT/docs/commands/status.md"
-OUT=$(bash "$CHECK" --root "$REPO_ROOT" 2>&1); RC=$?
+backup "$LIVE/docs/commands/status.md"
+printf '%s\n' "See also: [debug](./debug.md)." >> "$LIVE/docs/commands/status.md"
+OUT=$(bash "$CHECK" --root "$LIVE" 2>&1); RC=$?
 [ "$RC" -eq 0 ] && ! echo "$OUT" | grep -q '\[docs-page-links\].*debug\.md' \
   && PASS=$((PASS+1)) || {
   FAIL=$((FAIL+1)); echo "FAIL: live docs-page-links valid link should be clean"; echo "$OUT" | head -8
 }
-restore "$REPO_ROOT/docs/commands/status.md"
+restore "$LIVE/docs/commands/status.md"
 
 # ---------------------------------------------------------------------------
 # T7 restore discipline: no inject artifacts; harness never used git checkout
 # ---------------------------------------------------------------------------
-LIVE_STATUS_AFTER=$(cd "$REPO_ROOT" && git status --porcelain)
+LIVE_STATUS_AFTER=$(cd "$LIVE" && git status --porcelain)
 # inject artifacts specifically
-if [ -e "$REPO_ROOT/commands/zz-docs-drift-bite.md" ] || [ -e "$REPO_ROOT/docs/commands/zz-orphan-bite.md" ]; then
+if [ -e "$LIVE/commands/zz-docs-drift-bite.md" ] || [ -e "$LIVE/docs/commands/zz-orphan-bite.md" ]; then
   FAIL=$((FAIL+1)); echo "FAIL: inject artifacts remain"
 else
   PASS=$((PASS+1))
@@ -467,23 +474,20 @@ if [ -n "$INJECT_DIRTY" ]; then
 else
   PASS=$((PASS+1))
 fi
-# AGENTS.md + marketplace.json must be byte-restored
-if ! cmp -s "$REPO_ROOT/AGENTS.md" <(cd "$REPO_ROOT" && git show HEAD:AGENTS.md 2>/dev/null || cat "$REPO_ROOT/AGENTS.md"); then
-  # if not in git or differs for other reasons, at least ensure distiller row present
-  grep -q '`distiller`' "$REPO_ROOT/AGENTS.md" && PASS=$((PASS+1)) || {
-    FAIL=$((FAIL+1)); echo "FAIL: AGENTS.md missing distiller after restore"
-  }
-else
+# AGENTS.md must be byte-restored (scratch copy vs the untouched checkout)
+if cmp -s "$LIVE/AGENTS.md" "$REPO_ROOT/AGENTS.md"; then
   PASS=$((PASS+1))
+else
+  FAIL=$((FAIL+1)); echo "FAIL: AGENTS.md not byte-restored"
 fi
 # commands/memory.md must not carry the skill-ref inject line after restore
-if grep -q 'zz-docs-drift-bite-skill' "$REPO_ROOT/commands/memory.md" 2>/dev/null; then
+if grep -q 'zz-docs-drift-bite-skill' "$LIVE/commands/memory.md" 2>/dev/null; then
   FAIL=$((FAIL+1)); echo "FAIL: commands/memory.md still carries skill-ref inject after restore"
 else
   PASS=$((PASS+1))
 fi
 # docs/commands/status.md must not carry docs-page-links inject lines after restore
-if grep -qE 'zz-nope|\./debug\.md' "$REPO_ROOT/docs/commands/status.md" 2>/dev/null; then
+if grep -qE 'zz-nope|\./debug\.md' "$LIVE/docs/commands/status.md" 2>/dev/null; then
   FAIL=$((FAIL+1)); echo "FAIL: docs/commands/status.md still carries docs-page-links inject after restore"
 else
   PASS=$((PASS+1))
@@ -492,7 +496,7 @@ fi
 # Informational: live-tree findings (T2 will clean cmd-index)
 echo "---"
 echo "INFO live-tree scan (informational for T2):"
-bash "$CHECK" --root "$REPO_ROOT" 2>&1 | tail -20 || true
+bash "$CHECK" --root "$LIVE" 2>&1 | tail -20 || true
 
 echo "---"
 echo "docs-drift tests: $PASS passed, $FAIL failed"

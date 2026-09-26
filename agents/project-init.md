@@ -146,8 +146,8 @@ if [ "$MEMORY_BACKEND" = "sqlite" ]; then
 else
   # Fallback: write the .md file
   cat > "$MROOT/.claude/memory/$AGENT/$TYPE.md" << 'EOF'
-  [content]
-  EOF
+[content]
+EOF
   echo "  [md] Wrote $AGENT/$TYPE.md"
 fi
 ```

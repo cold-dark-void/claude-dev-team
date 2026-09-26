@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Fixture: a githook that fails `bash -n` (unclosed if).
+set -euo pipefail
+if true
+  echo "unclosed if with no fi"

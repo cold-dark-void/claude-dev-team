@@ -176,6 +176,140 @@ else
   fail "determinism: two no-arg runs differ"
 fi
 
+
+# ---------------------------------------------------------------------------
+# Case 7: agent fixtures (SPEC-030 Check set — Agent). Clean + block-sequence
+# `tools` -> PASS; missing `effort` and out-of-domain `model` -> FAIL naming
+# the field/value.
+# ---------------------------------------------------------------------------
+run_smoke "$FIX/agents/clean.md"
+expect_exit 0 "agent clean"
+expect_out "PASS $FIX/agents/clean.md" "agent clean PASSes"
+
+run_smoke "$FIX/agents/block-list.md"
+expect_exit 0 "agent block-list tools"
+expect_out "PASS $FIX/agents/block-list.md" "agent block-sequence tools PASSes"
+
+run_smoke "$FIX/agents/missing-effort.md"
+expect_exit 1 "agent missing effort"
+expect_out "FAIL" "agent missing effort emits FAIL"
+# Assert the actual reason text, not just the substring "effort" -- the
+# fixture path itself contains "effort" (missing-effort.md), so a bare
+# `expect_out "effort"` would pass even if the reason said nothing about it.
+expect_out "missing \`effort\`" "agent missing-effort reason names the missing field"
+
+run_smoke "$FIX/agents/bad-model.md"
+expect_exit 1 "agent bad model"
+expect_out "FAIL" "agent bad model emits FAIL"
+expect_out "gpt-4" "agent bad-model reason names the bad value"
+
+# ---------------------------------------------------------------------------
+# Case 8: broken githook and broken test-script fixtures -> FAIL naming the
+# file, exit 1.
+# ---------------------------------------------------------------------------
+run_smoke "$FIX/githooks/pre-commit"
+expect_exit 1 "broken githook"
+expect_out "FAIL $FIX/githooks/pre-commit" "broken githook names the file"
+expect_out "bash -n" "broken githook reason cites bash -n"
+
+run_smoke "$FIX/bad-test/broken-test.sh"
+expect_exit 1 "broken test script"
+expect_out "FAIL $FIX/bad-test/broken-test.sh" "broken test script names the file"
+expect_out "bash -n" "broken test script reason cites bash -n"
+
+# ---------------------------------------------------------------------------
+# Case 9: no-arg `--root` discovery of the new kinds on a mktemp tree that is
+# NOT a git repo (walk fallback). Holds a broken agent, a broken githook, a
+# broken `*-test.sh`, a broken sub-doc fence, and a broken test script under a
+# `fixtures/` segment that must never surface in the output.
+# ---------------------------------------------------------------------------
+ROOT9="$TMP/root9"
+mkdir -p "$ROOT9/agents" "$ROOT9/githooks" "$ROOT9/skills/a/steps" "$ROOT9/skills/a/fixtures"
+
+{
+  printf -- '---\n'
+  printf 'name: root9-bad-agent\n'
+  printf 'description: broken agent for --root discovery\n'
+  printf 'tools: Read\n'
+  printf 'model: sonnet\n'
+  printf -- '---\n'
+} > "$ROOT9/agents/x.md"  # missing `effort` -> FAIL
+
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'set -euo pipefail\n'
+  printf 'if true\n'
+  printf '  echo "unclosed"\n'
+} > "$ROOT9/githooks/pre-commit"  # fails bash -n -> FAIL
+
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'if true\n'
+  printf '  echo "unclosed"\n'
+} > "$ROOT9/skills/a/b-test.sh"  # fails bash -n -> FAIL
+
+{
+  printf '# doc\n\n'
+  printf '```bash\n'
+  printf 'if true\n'
+  printf '  echo "unclosed"\n'
+  printf '```\n'
+} > "$ROOT9/skills/a/steps/doc.md"  # broken sub-doc fence -> FAIL
+
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'if true\n'
+  printf '  echo "unclosed"\n'
+} > "$ROOT9/skills/a/fixtures/ok-test.sh"  # under a `fixtures` segment -> excluded
+
+run_smoke --root "$ROOT9"
+expect_exit 1 "root9 --root discovery"
+expect_out "root9/agents/x.md" "root9 broken agent FAILs"
+expect_out "effort" "root9 broken agent names effort"
+expect_out "root9/githooks/pre-commit" "root9 broken githook FAILs"
+expect_out "root9/skills/a/b-test.sh" "root9 broken test script FAILs"
+expect_out "root9/skills/a/steps/doc.md" "root9 broken sub-doc fence FAILs"
+expect_not_out "root9/skills/a/fixtures" "root9 excludes the fixtures-segment script"
+FAIL_LINES=$(echo "$OUT" | grep -c '^FAIL ')
+if [ "$FAIL_LINES" -eq 4 ]; then pass; else
+  fail "root9 --root discovery: want 4 FAIL lines, got $FAIL_LINES"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 10: --invoke-flags MUST NOT invoke a test script or a githook even when
+# its own text declares --help (SPEC-030 Check set — Script). Each fixture
+# exits 1 if actually invoked with --help, so a PASS here proves the harness
+# skipped invocation rather than merely tolerating a zero exit.
+# ---------------------------------------------------------------------------
+run_smoke --invoke-flags "$FIX/invoke-flags-guard/guard-test.sh"
+expect_exit 0 "invoke-flags guard: test script not invoked"
+expect_out "PASS $FIX/invoke-flags-guard/guard-test.sh" "invoke-flags guard: test script PASSes"
+
+run_smoke --invoke-flags "$FIX/invoke-flags-guard/githooks/pre-push"
+expect_exit 0 "invoke-flags guard: githook not invoked"
+expect_out "PASS $FIX/invoke-flags-guard/githooks/pre-push" "invoke-flags guard: githook PASSes"
+
+# ---------------------------------------------------------------------------
+# Case 11: classify() MUST use a repo-relative path, not an absolute one. An
+# ancestor directory that happens to be named `skills` (outside the target
+# tree's own skills/ dir) must never leak into the shape classify() sees --
+# it would otherwise misclassify commands/*.md as a frontmatter-exempt
+# Sub-doc and silently pass a broken Surface (T1 review fix).
+# ---------------------------------------------------------------------------
+ROOT11="$TMP/skills/repo"
+mkdir -p "$ROOT11/commands"
+{
+  printf -- '---\n'
+  printf 'description: missing the name field\n'
+  printf -- '---\n'
+} > "$ROOT11/commands/broken.md"  # missing `name` -> FAIL, if classified Surface
+
+run_smoke --root "$ROOT11"
+expect_exit 1 "skills-ancestor root: broken command FAILs"
+expect_out "FAIL $ROOT11/commands/broken.md" "skills-ancestor root: broken command names the file"
+expect_out "missing \`name\`" "skills-ancestor root: reason names the missing field"
+expect_out "1 checked, 1 failed" "skills-ancestor root: exactly one target, one failure"
+
 # ---------------------------------------------------------------------------
 echo "---"
 echo "smoke bite-test: $PASS passed, $FAIL failed"

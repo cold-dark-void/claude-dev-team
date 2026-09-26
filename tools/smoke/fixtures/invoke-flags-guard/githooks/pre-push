@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Fixture: a githook that declares --help in its own text but MUST NOT be
+# invoked by --invoke-flags (SPEC-030: githooks are never invoked, their
+# bodies mutate state). If ever invoked with --help, this exits 1 -- proving
+# the harness skipped invocation when this stays a PASS.
+set -euo pipefail
+case "${1:-}" in
+  --help)
+    echo "pre-push: --invoke-flags MUST NOT invoke a githook" >&2
+    exit 1
+    ;;
+esac
+echo "ok"
