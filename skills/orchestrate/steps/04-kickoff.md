@@ -35,7 +35,12 @@ Output mode: terse
 Your job:
 1. Confirm or rewrite each acceptance criterion — unambiguous and testable.
    Flag any scope questions that must be resolved before implementation.
-   Add any missing ACs the issue implies but doesn't state.
+   Add any missing ACs the issue implies but doesn't state. Write the
+   confirmed ACs into the ticket's spec (create/update in `specs/core/`), in
+   a `## Acceptance criteria` section, `### <ISSUE-ID>` subsection
+   (SPEC-033 M14(g)). Tag an execution-only AC (asserts only test/gate/CI
+   running, never diff content) `[process]` (M14(h)). Commit the spec on
+   the feature branch, in the worktree.
 2. Write a short (~5-line) implementation plan to
    `.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` with a Tracking section:
 
@@ -48,7 +53,9 @@ Your job:
 - autopilot_on: <true|false>
 - autopilot_bump: <patch|minor|major|master|null>
 
-`autopilot_on`/`autopilot_bump` MUST always be written (Step-0
+Also emit `process_acs: <ids|none>` (item 1's `[process]` tags, in document
+order; SPEC-033 M14(g)/(h) guard 2). `autopilot_on`/`autopilot_bump` MUST
+always be written (Step-0
 `AUTOPILOT_ON`/`AUTOPILOT_BUMP`). Empty closes only for freeform.
 
 Do NOT produce a full task graph. Do NOT spawn further agents.

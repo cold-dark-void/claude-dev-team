@@ -325,21 +325,38 @@ export async function runCouncil(runtime) {
 
   let claims = []
   if (skipExtract) {
-    const retroClaim = plan.resolved_claim || ''
-    const claimText =
-      plan.scope === 'from-retro'
-        ? retroClaim || t.claim || ''
-        : plan.scope_arg || t.claim || retroClaim || ''
-    claims = [
-      {
-        claim: claimText,
-        source_locator:
-          plan.scope === 'from-retro' && plan.scope_arg
-            ? `retro:${plan.scope_arg}`
-            : 'cli:claim',
-        claim_type: 'factual',
-      },
-    ]
+    if (Array.isArray(plan.claims) && plan.claims.length) {
+      // M14 per-AC split (SPEC-013 Phase 1 "M14 per-AC split"; SPEC-033
+      // M14(g)): consume plan.claims[] verbatim -- same order, same claim
+      // text, same source_locator, one investigation claim per array
+      // element. No truncate/reorder/merge/reword/re-extract, and never
+      // slice to claimBudget (preflight already enforced the M14 budget).
+      // Keep claim_id/ac_id so verdicts can join back to ACs by the
+      // [AC-<id>] tag (Task path parity: commands/council.md).
+      claims = plan.claims.map((c) => ({
+        claim: c.claim,
+        source_locator: c.source_locator,
+        claim_type: c.claim_type,
+        claim_id: c.claim_id,
+        ac_id: c.ac_id,
+      }))
+    } else {
+      const retroClaim = plan.resolved_claim || ''
+      const claimText =
+        plan.scope === 'from-retro'
+          ? retroClaim || t.claim || ''
+          : plan.scope_arg || t.claim || retroClaim || ''
+      claims = [
+        {
+          claim: claimText,
+          source_locator:
+            plan.scope === 'from-retro' && plan.scope_arg
+              ? `retro:${plan.scope_arg}`
+              : 'cli:claim',
+          claim_type: 'factual',
+        },
+      ]
+    }
   } else {
     const extractPromptName =
       plan.scope === 'plan' ||

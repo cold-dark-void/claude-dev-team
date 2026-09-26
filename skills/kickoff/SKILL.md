@@ -568,6 +568,9 @@ Save to <WT_PATH>/specs/core/SPEC-NNN-<slug>.md — <WT_PATH> is the absolute wo
 path from Step 1b (on feat/<TICKET-ID>); write to it as an absolute path, not relative
 to your cwd.
 Cross-reference any specs that constrain this one.
+Write the confirmed ACs into a `## Acceptance criteria` section, `###
+<TICKET-ID>` subsection (SPEC-033 M14(g)). Tag an execution-only AC (asserts
+only test/gate/CI running, never diff content) `[process]` (M14(h)).
 ```
 
 Determine the next SPEC number (read from the worktree — same content as master at
@@ -612,6 +615,9 @@ Other spawn failures MUST NOT be retried as a model or effort fallback.
 @tech-lead Update <spec-file> to reflect the confirmed ACs for <TICKET-ID>.
 Add/modify only what this ticket changes. Do not remove existing requirements
 unless they are directly contradicted.
+Write the confirmed ACs into a `## Acceptance criteria` section, `###
+<TICKET-ID>` subsection (SPEC-033 M14(g)). Tag an execution-only AC (asserts
+only test/gate/CI running, never diff content) `[process]` (M14(h)).
 ```
 
 Wait for Tech Lead to write/update the spec. Then commit it **inside the worktree** so

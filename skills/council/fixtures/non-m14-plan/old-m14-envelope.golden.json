@@ -1,0 +1,77 @@
+{
+  "claim_budget": 10,
+  "confidence_filter_threshold": null,
+  "council_tier": "full",
+  "external": {
+    "requested": false
+  },
+  "feedback_memory_enabled": true,
+  "flavors": [
+    "paranoid-ic",
+    "jaded-senior"
+  ],
+  "grading_reason": "ungraded: no tier supplied (default full)",
+  "last": "",
+  "mroot": "<MROOT>",
+  "output_shape": "verdict[]",
+  "phases": {
+    "1_claim_extraction": {
+      "prompt": "skills/council/prompts/claim-extractor.md",
+      "skip": true
+    },
+    "2_parallel_investigation": {
+      "min_flavors_per_claim": 2,
+      "prompt": "skills/council/prompts/investigator.md"
+    },
+    "3_domain_specialist": {
+      "agents": [
+        "devops",
+        "ds",
+        "qa",
+        "pm"
+      ],
+      "classifier_prompt": "skills/council/prompts/topic-classifier.md",
+      "confidence_threshold": 0.75,
+      "deferred": false,
+      "max_specialists_per_run": 1,
+      "skipped": false,
+      "specialist_prompt": "skills/council/prompts/investigator.md"
+    },
+    "4_prosecution_defense": {
+      "advocate": {
+        "evidence_field": "evidence_for",
+        "flavor": "yolo-ic",
+        "prompt": "skills/council/prompts/phase4-brief.md",
+        "role": "Devil's Advocate"
+      },
+      "prosecutor": {
+        "evidence_field": "evidence_against",
+        "flavor": "jaded-senior",
+        "prompt": "skills/council/prompts/phase4-brief.md",
+        "role": "Prosecutor"
+      }
+    },
+    "5_judgment": {
+      "agent": "council-judge",
+      "inputs": [
+        "claims",
+        "evidence_bundles",
+        "prosecutor_brief",
+        "advocate_brief"
+      ],
+      "prompt": "skills/council/prompts/judge.md"
+    },
+    "6_finalize": {
+      "invoke": "engine.sh finalize --plan-file <p> --evidence-file <e> --judge-output <j>"
+    }
+  },
+  "preset": "generic",
+  "report_path": "<MROOT>/.claude/council/<DATE>-claim.md",
+  "resolved_claim": "",
+  "scope": "claim",
+  "scope_arg": "Ship-gate audit for CDT-999. Claim under audit: the widget renders correctly.",
+  "slug": "claim",
+  "spec_grep": false,
+  "task_id": "",
+  "why": false
+}

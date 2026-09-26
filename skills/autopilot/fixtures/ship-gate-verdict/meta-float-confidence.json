@@ -1,0 +1,11 @@
+{
+  "ac_source": "specs/core/SPEC-999-fixture.md",
+  "ac_claims": [{"claim_id": "c0", "ac_id": "A"}],
+  "process_acs": [],
+  "verification_mode": "full",
+  "min_verdict_confidence": 84,
+  "verdict_counts": {"VERIFIED": 1, "PARTIALLY_VERIFIED": 0, "UNVERIFIED": 0, "CONTRADICTED": 0, "FABRICATED": 0},
+  "unstruck_verdicts": [
+    {"claim": "[AC-A] For fixture-ticket, ... criterion A ...", "verdict": "VERIFIED", "confidence": 84.7}
+  ]
+}

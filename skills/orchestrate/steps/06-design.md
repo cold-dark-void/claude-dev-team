@@ -38,7 +38,11 @@ Output mode: terse
 Your earlier assessment: <affected files, specs, risks>
 
 Produce:
-1. Spec (create/update in specs/core/ with MUST/SHOULD/MUST NOT)
+1. Spec (create/update in specs/core/ with MUST/SHOULD/MUST NOT). Write the
+   confirmed ACs into that spec's `## Acceptance criteria` section, in a
+   `### <ISSUE-ID>` subsection (SPEC-033 M14(g)). Tag an execution-only AC
+   (asserts only test/gate/CI running, never diff content) `[process]`
+   (M14(h)); MUST NOT tag an AC that asserts diff content.
 2. Implementation plan with task graph (dependencies, parallelism)
 3. For each task: `Recommended agent: <ic4|ic5|qa|devops|ds>` and why.
    Cite agents/tech-lead.md Task-routing table.
@@ -66,6 +70,12 @@ Omit heading/line = default extract. Both lines, extra suffix, synonym, or Simpl
 
 ticket_class: auth-secrets|none
 
+8. Process ACs (not a Tracking key). List the ids tagged `[process]` in item
+   1's AC write, in document order. Emit a plan line (SPEC-033 M14(g)/(h)
+   guard 2 — do not restate the guard):
+
+process_acs: <ids|none>
+
 Many-to-one is allowed (one ticket closes multiple backlog items). Empty closes
 only for freeform. `autopilot_on`/`autopilot_bump` MUST always be written, on
 autopilot and non-autopilot runs alike — substitute the Step-0 resolved
@@ -91,6 +101,7 @@ Tasks:
 4. <task> → devops (Task-class: infra)
 
 Dependencies: Task 3 blocked by Task 1+2
+process_acs: <ids|none>
 
 Approve this plan? Want changes?
 ```

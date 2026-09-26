@@ -380,6 +380,10 @@ Exit code handling:
   engine's stderr verbatim and exit. Do NOT continue. Missing or unreadable
   `--plan` path and missing `--from-retro` anchor file are exit 2.
 - **Exit 4 (unknown preset):** print engine's stderr verbatim and exit.
+- **Exit 8 (M14 per-AC split failure):** print engine's stderr verbatim
+  (`m14-ac-split: <cause>`) and exit. Do NOT continue, do NOT write a report.
+- **Exit 9 (report path exhausted, SPEC-013 Phase 6):** print engine's stderr
+  verbatim and exit. Do NOT continue, do NOT write a report.
 - **Exit 0:** `$PLAN_FILE` contains the investigation-plan JSON. Proceed to
   Step 3.
 
@@ -390,6 +394,10 @@ empty otherwise), `preset`, `output_shape`, `task_id` (or null),
 should be skipped, i.e. for single pasted claims and `--from-retro`),
 `flavors` (array), and `external` (`{requested:false}` or
 `{requested:true, status:available|skipped, tool, prefer, helper, flavor}`).
+For an M14 per-AC split run (SPEC-033 M14(g); SPEC-013 Phase 1 "M14 per-AC
+split") the plan additionally carries `claims` (`[{claim_id, ac_id, claim,
+source_locator, claim_type}]`), `ac_source` (path), and `process_acs` (ids).
+Non-M14 plans never carry these three keys.
 
 ## Step 2.5: Execution-path routing (CDV-196)
 
@@ -506,7 +514,18 @@ prompt: skills/council/prompts/plan-extractor.md
 ```
 
 **From-retro / single claim** (`phases.1_claim_extraction.skip == true`) — do
-not spawn an extractor. Build a one-element claim list:
+not spawn an extractor.
+
+When `plan.claims` is a non-empty array (M14 per-AC split; SPEC-013 Phase 1
+"M14 per-AC split", SPEC-033 M14(g)) — consume it **verbatim**: same order,
+same `claim` text, same `source_locator`, one investigation claim per array
+element. Do NOT truncate, reorder, merge, reword, or re-extract; do NOT
+`slice` to `plan.claim_budget` (preflight already enforced the M14 budget).
+Keep the plan's `claim_id` (`c<i>`) and `ac_id` on each claim through
+Phase 2–6 so verdicts can join back to ACs by the `[AC-<id>]` tag.
+
+Else (no `plan.claims`, the pre-M14 shape) build the one-element claim list
+as before:
 
 ```
 claim.claim          ← plan.resolved_claim if scope is from-retro, else plan.scope_arg
@@ -519,9 +538,9 @@ When `plan.scope == "from-retro"`, optionally Read
 `evidence_for_fabrication` / `source_jsonl_path` to enrich `{{RAW_ARTIFACTS}}`
 in Phase 2 (artifacts only — no prior narrative).
 
-Receive the structured claim list: `[{ claim, source_locator, claim_type }]`.
-Plan locators use `file:heading-path:line`. For diff-mode the records are
-candidate findings `{ file, line, description }`.
+Receive the structured claim list: `[{ claim, source_locator, claim_type }]`
+(M14 runs add `claim_id`, `ac_id`). Plan locators use `file:heading-path:line`.
+For diff-mode the records are candidate findings `{ file, line, description }`.
 
 **Spawn failure:** if the extractor spawn fails or returns unusable output →
 orchestrator performs extraction with tools; set `degraded=true`. Protocol:
@@ -1243,12 +1262,23 @@ second pass.
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-REPORT_DATE=$(date +%Y-%m-%d)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 SLUG="blind"
 [ -n "$TARGET" ] && SLUG="blind-$(basename "$TARGET" | tr -c 'a-zA-Z0-9' '-' | tr -s '-' | sed 's/-$//')"
-REPORT_PATH="$MROOT/.claude/council/${REPORT_DATE}-${SLUG}.md"
+REPORT_PATH=$("$ENGINE_SH" report-path "$SLUG") \
+  || { echo "council error: report path exhausted" >&2; exit 9; }
 mkdir -p "$MROOT/.claude/council"
 ```
+
+`engine.sh report-path` is the single source for the blind-path filename —
+it resolves the UTC date and probes `-2`..`-99` for a free same-day
+candidate, printing the first one (SPEC-013 Phase 6 "Report no-overwrite";
+SPEC-013 § "Council-on-Workflow execution path" report parity). It only
+probes: the blind path's own write below is not an exclusive create, so a
+second run can still race it. Exits 9 (report path exhausted) when every
+candidate up to -99 is taken; do not hand-roll the date/slug formula here.
 
 Report body:
 
@@ -1365,6 +1395,11 @@ Tier-1 reverse-validation: none (severed — clusters are findings)
   bundle, continue with `--verification-mode self-verified`
 - **Index write failure** → engine finalize exits 6 → print stderr and exit
 - **Judge returned malformed output** → engine finalize exits 7 → print stderr and exit
+- **Report path exhausted** (`-2`..`-99` all collide) → engine finalize
+  exits 9 → print stderr and exit. Never overwrite an existing report or
+  sidecar. `--report-out <path>` is unaffected by this reservation — an
+  explicit `--report-out` writes to the exact given path and MAY overwrite
+  it on a repeat run (SPEC-013 Phase 6 "Report no-overwrite" exception).
 
 ## Rules
 

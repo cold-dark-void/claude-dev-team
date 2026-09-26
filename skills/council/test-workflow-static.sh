@@ -367,6 +367,40 @@ else
   echo "FAIL: council.md missing tokens-file"; fail=1
 fi
 
+
+# T6 — SPEC-013 Test 24 item 3: plan.claims[] verbatim on both consumer
+# paths, no truncate/re-extract; exit 8/9 propagated + documented.
+if grep -nF 'consume it **verbatim**' commands/council.md >/dev/null \
+  && grep -nF 'Do NOT truncate, reorder, merge, reword, or re-extract' commands/council.md >/dev/null \
+  && ! grep -nE 'plan\.claims.*slice|claims\.slice\(0, *claimBudget\)' commands/council.md >/dev/null; then
+  echo "OK: council.md Task path consumes plan.claims verbatim, no slice/truncate"
+else
+  echo "FAIL: council.md Task path plan.claims verbatim contract"; fail=1
+fi
+if grep -nF 'plan.claims.map((c) => ({' skills/council/workflow.js >/dev/null \
+  && ! grep -nE 'plan\.claims\.slice' skills/council/workflow.js >/dev/null; then
+  echo "OK: workflow.js Workflow path maps plan.claims verbatim, no slice"
+else
+  echo "FAIL: workflow.js plan.claims verbatim contract"; fail=1
+fi
+if grep -nF 'claim_id: c.claim_id' skills/council/workflow.js >/dev/null \
+  && grep -nF 'ac_id: c.ac_id' skills/council/workflow.js >/dev/null; then
+  echo "OK: workflow.js keeps claim_id/ac_id on M14 claims"
+else
+  echo "FAIL: workflow.js drops claim_id/ac_id"; fail=1
+fi
+if grep -nE '\*\*Exit 8' commands/council.md >/dev/null \
+  && grep -nE 'exits 9' commands/council.md >/dev/null; then
+  echo "OK: council.md documents exit 8 and exit 9"
+else
+  echo "FAIL: council.md missing exit 8/9 documentation"; fail=1
+fi
+if grep -nF 'pre.status !== 0' skills/council/workflow.js >/dev/null \
+  && grep -nF 'fin.status !== 0' skills/council/workflow.js >/dev/null; then
+  echo "OK: workflow.js propagates preflight/finalize exit codes generically (8/9 not special-cased/retried)"
+else
+  echo "FAIL: workflow.js exit-code propagation missing"; fail=1
+fi
 # helpers + mock finalize
 COUNCIL_TEST_REPO="$TR" node --input-type=module <<'JS'
 import { parseArgs, loadPrompt, runCouncil } from './skills/council/workflow.js'

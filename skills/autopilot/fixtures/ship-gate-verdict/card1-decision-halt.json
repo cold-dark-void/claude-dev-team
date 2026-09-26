@@ -1,0 +1,6 @@
+{
+  "schema_version": 1, "type": "autopilot_decision", "run_id": "orchestrate-fixture-4",
+  "gate": "ship-choice", "decision": "halt", "decided_by": "auto", "bump": null,
+  "confidence": 0, "blocking_condition": 7, "council_tier": null,
+  "grading_reason": null, "max_loc": null
+}

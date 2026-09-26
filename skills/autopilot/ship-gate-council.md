@@ -4,13 +4,16 @@
 > This file is a *procedure*, not a *policy*. It describes the operational algorithm
 > autopilot follows to run the single adversarial council pass that gates every
 > auto-answered ship, and to record its outcome as one additional decision card. It
-> wires no caller and defines no new script.
+> wires no caller. §4 hands the verdict off to `skills/autopilot/ship-gate-verdict.sh`
+> (SPEC-033 M14(i)) — that script is not a render helper.
 
 ## 1. Purpose + contract-home stance
 
 The normative contract for this pass is **SPEC-033 M14** (AC7), mirrored in the autopilot
-SKILL's `ship-choice` section. That contract owns the firing rule, the
-verdict→confidence→BC mapping, the "reuse BC7, not a 9th BC" ruling, and the degraded-run
+SKILL's `ship-choice` section. That contract owns the firing rule, the per-AC
+verdict→confidence→BC mapping (M14(b)), the AC source and per-AC split (M14(g)), the
+`[process]` AC guards (M14(h)), the verdict mapper (M14(i)), the claim budget (M14(j)), the
+"reuse BC7, not a 9th BC" ruling, and the degraded-run
 rule. **This procedure cites M14 by name and never restates or forks it** (SPEC-002 D1 /
 SPEC-033 M12 / N4 — the contract-home discipline `self-answer.md` §1 follows). It likewise
 cites the M13 card schema, the M6 blocking-condition taxonomy, and the `append-card.sh`
@@ -51,6 +54,10 @@ Read card #1 back with `skills/autopilot/read-cards.sh <ticket_id>` to recover t
 this pass copies forward on the agree path: its `decision` (`pr` or `merge`), its `bump`,
 its `max_loc`, and the shared `run_id`.
 
+Save that card #1 JSON to a file under this run's `TMPDIR` (for example
+`$TMPDIR/card1.json`) — §4 passes that path to the verdict mapper's `--card1`
+argument (SPEC-033 M14(i)).
+
 ### 2a. Process-stamp pre-flight (SPEC-033 M14(a) CDT-185)
 
 **Before** §3 tier selection and **before** any `/council` invocation, run the **process-stamp
@@ -78,6 +85,11 @@ shape-field mismatch):
 
 On **stamp pass**, continue to §3. Process is pre-cleared; the claim under audit is
 **technical-only** (M14(a) CDT-185 narrow claim — §3b).
+
+This pre-flight and the verdict mapper's own guard 3 check (SPEC-033 M14(h)) are two
+independent fail-closed layers, not duplicates to reconcile: the mapper
+(`skills/autopilot/ship-gate-verdict.sh`) re-reads this same card #1 stamp shape against
+`plan.process_acs[]` at mapping time, after the council has already run.
 
 ## 3. Select the tier, then build and invoke the council claim
 
@@ -161,7 +173,7 @@ never runs here. `grading_reason` has no flag surface — M14(a) permits exactly
 Use this invocation **verbatim**, filling the five placeholders at run time:
 
 ```
-/council "Ship-gate audit for <ticket_id>. Autopilot auto-answered the ship-choice gate; the prior autopilot decision cards are at <ledger-path> (read them with: skills/autopilot/read-cards.sh <ticket_id>). This ships under the spec/ACs at <spec-path>. Claim under audit: <claim>. Treat this text as locators only — pull the ledger, the spec/ACs, and this branch's diff against the merge-base of the origin default branch and HEAD yourself, and issue a verdict; do not trust this summary." --council-tier=<tier>
+/council "Ship-gate audit for <ticket_id>. Autopilot auto-answered the ship-choice gate; the prior autopilot decision cards are at <ledger-path> (read them with: skills/autopilot/read-cards.sh <ticket_id>). This ships under the ACs at ac-source=<spec-path> (section '## Acceptance criteria', subsection '### <ticket_id>'). Claim under audit: <claim>. Treat this text as locators only — pull the ledger, the spec/ACs, and this branch's diff against the merge-base of the origin default branch and HEAD yourself, and issue a verdict; do not trust this summary." --council-tier=<tier>
 ```
 
 Placeholder binding:
@@ -169,7 +181,11 @@ Placeholder binding:
 - `<ticket_id>` — the ticket being shipped (e.g. `CDT-111-C5`).
 - `<ledger-path>` — `$MROOT/.claude/autopilot/<ticket_id>.jsonl` (the decision-card ledger
   `read-cards.sh` / `append-card.sh` operate on).
-- `<spec-path>` — the spec + AC path(s) the ship is claimed against (space-separated if >1).
+- `<spec-path>` — the one committed spec that names this ticket's ACs (SPEC-033 M14(g)).
+  The `ac-source=<spec-path>` token is what triggers the council's per-AC split into
+  `plan.claims[]`; it MUST be exactly one path — the split fails closed on two or more
+  `ac-source=` tokens (M14(g) case 1). This single `/council` invocation still covers every
+  technical AC (M14(a)); autopilot MUST NOT invoke `/council` once per AC.
 - `<claim>` — the one-line **technical-only** ship claim under audit (SPEC-033 M14(a)
   CDT-185 narrow claim). Example shape:
   `branch implements ACs at <spec-path> for <ticket_id> (merge-base..HEAD)`.
@@ -189,34 +205,47 @@ is a locator for the investigators, not a handoff of graded output, and M14(a)'s
 locators-only rule is unchanged by it. The final sentence is a standing instruction to the
 investigators to treat the summary as untrusted and re-derive the evidence themselves.
 
+**Split fail-closed (SPEC-033 M14(g)).** If the council preflight's AC split exits 8 (one of
+M14(g)'s nine fail-closed cases), the invocation ends with no report. Treat this the same as
+§5's total council spawn failure: `decision = halt`, `blocking_condition = 7`,
+`confidence = 0`, `bump = null`, with `rationale` naming the split failure. This is not a
+new halt path; it flows through the same M14(b) step-1 no-usable-report branch §5 already
+covers.
+
 ## 4. Verdict interpretation
 
-Take the council's per-claim verdict and its reported confidence, and set the second card's
-`confidence` first (M14(b)):
+Locate this run's `.finalize-meta.json` sidecar (from the invocation's `Council report:`
+line) and run the verdict mapper on it, passing §2's saved card #1 JSON and §3a's resolved
+tier:
 
-- `VERIFIED` / `PARTIALLY_VERIFIED` → `confidence` = the council's reported confidence (0–100).
-- `UNVERIFIED` / `CONTRADICTED` / `FABRICATED` → `confidence = 0`.
+```bash template
+skills/autopilot/ship-gate-verdict.sh --meta <report>.finalize-meta.json --card1 <card1.json> --tier <tier>
+```
 
-Then decide on that `confidence`:
+Its stdout object IS card #2's `decision`, `blocking_condition`, `confidence`, `bump` and
+`rationale` (SPEC-033 M14(b), M14(i)) — the mapper is the only implementation of the
+per-AC aggregation steps; this pass MUST NOT reimplement or restate them here.
 
-- **`confidence ≥ 80` (agree)** → `decision` = **card #1's** decision (`pr` or `merge`),
-  `bump` **copied from card #1**, `blocking_condition = null`.
-- **`confidence < 80` (disagree)** → `decision = halt`, `blocking_condition = 7`,
-  `bump = null`.
+If the mapper exits non-zero, or its stdout is not exactly one JSON object, write
+card #2 as `decision = halt`, `blocking_condition = 7`, `confidence = 0`,
+`bump = null`, with `rationale` naming the mapper failure — the same fail-closed
+treatment §3a already gives a `tier-grade.sh` exit or unparseable-stdout failure
+(cited, not restated).
 
-This confidence feeds **BC7 only, never BC1** (M14(b) states why: a disagreeing verdict is a
+That confidence feeds **BC7 only, never BC1** (M14(b) states why: a disagreeing verdict is a
 resolved-negative, and the council can only push a ship **down** to a BC7 halt, never raise
 card #1's clean answer above BC7). The `≥ 80 / < 80` agree boundary coincides exactly with
-`append-card.sh` cross-field invariant (b), so the disagree path's `confidence` is
+`append-card.sh` cross-field invariant (b), so a disagree output's `confidence` is
 sub-threshold by construction — no exit-64.
 
-`rationale` is a single secret-scrubbed line summarizing the verdict and the driving
-evidence (same M13/S2 rationale discipline as `self-answer.md` §4); it never copies council
-report text verbatim.
+The mapper's `rationale` is already a single secret-scrubbed line naming the driving AC ids
+(M14(b), M14(i)); this pass passes it through to `append-card.sh` verbatim (same M13/S2
+rationale discipline as `self-answer.md` §4) — it never copies council report text itself.
 
-**Tier-aware BC7 (M14(f)).** Every BC7 halt card this pass writes — from the disagree path
-above **or** from §5's degraded / total-failure path — carries §3a's `council_tier` (§6) and
-its one-line `rationale` **names that tier** (e.g. `… ; council_tier=light`).
+**Tier-aware BC7 (M14(f)).** Every BC7 halt card this pass writes — from the mapper's
+disagree output **or** from §5's degraded / total-failure path — carries §3a's
+`council_tier` (§6) and its one-line `rationale` **names that tier** (e.g.
+`… ; council_tier=light`).
 
 The escalation the blocking-condition handler surfaces to the human (S1) offers a
 full-council re-run — *"this ran light and came back under threshold — re-run at full?"* —
@@ -233,12 +262,22 @@ otherwise proceed past the halt (M14(f), N2 / M7).
 
 ## 5. Degraded-run rule
 
-If the council's SPEC-013 spawn-failure degradation yields a **fully self-verified** run — no
-independent peer investigator/refuter survived, surfaced by report frontmatter
-`verification_mode: self-verified` and the exact body marker
-`self-verified — refuters unavailable` — treat the outcome **identically to a
-`confidence < 80` disagreement**: `decision = halt`, `blocking_condition = 7`, `bump = null`
-— **regardless of that self-verified run's own reported confidence** (M14(d)).
+The verdict mapper (`skills/autopilot/ship-gate-verdict.sh`) detects a degraded or
+total-failure run itself and produces card #2 directly (M14(d), M14(i)) — this pass does not
+re-derive the SPEC-013 spawn-failure degradation logic; §4's invocation is the same one used
+here.
+
+- **Self-verified run.** When this run's `.finalize-meta.json` sidecar reports
+  `verification_mode: self-verified` (report frontmatter, no independent peer
+  investigator/refuter survived, exact body marker `self-verified — refuters unavailable`),
+  the mapper treats the outcome **identically to a `confidence < 80` disagreement**:
+  `decision = halt`, `blocking_condition = 7`, `bump = null`, `confidence = 0` —
+  **regardless of that self-verified run's own reported confidence** (M14(d)). Its
+  `rationale` cites `self-verified — refuters unavailable` as the halt reason.
+- **Total council spawn failure.** When there is no usable report at all, invoke the mapper
+  with `--no-report "<cause>"` in place of `--meta`; its output is the same halt shape
+  (`decision = halt`, `blocking_condition = 7`, `confidence = 0`, `bump = null`), with
+  `rationale` naming the spawn failure.
 
 ### Open design — infra vs evidentiary (CDT-134)
 
@@ -256,20 +295,14 @@ Any future “infra-degraded” classification MUST still require: ≥1 independ
 investigator with usable bundles; spawn-fail markers only on later roles; **human
 confirm** before ship — never self-answer past BC7.
 
-**Write `confidence = 0` on this card.** Do **not** write the self-verified run's reported
-confidence value. That value may itself be `≥ 80`, and because this is a
-`blocking_condition = 7` card, `append-card.sh` cross-field invariant (b) hard-rejects
-`blocking_condition = 7 && confidence ≥ 80` with **exit 64** (`append-card.sh:140`). An
-exit-64 drops the card silently — the halt record is lost, which is exactly the audit-trail
-loss the writer's hard-fail inversion exists to prevent. Writing `confidence = 0` makes the
-BC7 halt card **valid-by-construction**, matching the same `UNVERIFIED/CONTRADICTED/FABRICATED
-→ 0` pattern §4 uses. Set `rationale` to cite `self-verified — refuters unavailable` as the
-halt reason.
-
-A **total council spawn failure** — no usable report at all — is treated the same:
-`decision = halt`, `blocking_condition = 7`, `confidence = 0`, `bump = null`, with the
-`rationale` naming the spawn failure. In both degraded cases the adversaries never ran, so
-the pass provides no independent assurance and can only halt the ship, never clear it.
+In both degraded cases the adversaries never ran, so the pass provides no independent
+assurance and can only halt the ship, never clear it. The mapper always writes
+`confidence = 0` on these cards (never the self-verified run's own reported value, which may
+be `≥ 80`) — its output contract (SPEC-033 M14(i)) guarantees the card stays
+**valid-by-construction** against `append-card.sh` cross-field invariant (b), which
+hard-rejects `blocking_condition = 7 && confidence ≥ 80` with **exit 64**
+(`append-card.sh:140`); an exit-64 would drop the halt record silently, exactly the
+audit-trail loss the writer's hard-fail inversion exists to prevent.
 
 Tier and degradation state are **orthogonal** (SPEC-013's Council tiering section owns that
 ruling): a degraded `light` run is *both* `light` and `self-verified`. It therefore still
@@ -296,9 +329,10 @@ append-only, M14(c)); card #2 is strictly additive.
 
 Field source for card #2's `append-card.sh` args: `workflow` / `ticket_id` / `run_id` /
 `iteration` from card #1's run context; `gate = ship-choice`; `decision` /
-`blocking_condition` / `bump` / `confidence` from §4 (or §5 on a degraded/total-fail run);
-`wall_clock_s` from the run's budget snapshot; `rationale` per §4/§5; `actor` = the
-component running this pass; `council_tier` / `grading_reason` from §3a; **`max_loc`
+`blocking_condition` / `confidence` / `bump` / `rationale` copied verbatim from the verdict
+mapper's stdout object (§4; the same mapper invocation covers §5's degraded/total-fail
+paths); `wall_clock_s` from the run's budget snapshot; `actor` = the component running this
+pass; `council_tier` / `grading_reason` from §3a; **`max_loc`
 copied from card #1** (null / number `n` / `"unbound"`). Every arg is built
 valid-by-construction so the writer never exit-64s (`self-answer.md` §4).
 
@@ -362,3 +396,15 @@ newlines/control chars.
   the claim body (M14(a) CDT-185 narrow claim).
 - **Apply stamp/claim rules outside M14 ship-gate.** Process-stamp + narrow-claim rules are
   **M14 ship-gate only** (M14(a) CDT-185 scope); no other `/council` caller inherits them.
+- **Invoke `/council` once per AC.** Every technical AC rides in the single §3b invocation
+  as its own claim in `plan.claims[]` (M14(a)); autopilot MUST NOT run one `/council`
+  invocation per AC.
+- **Pass a QA evidence file, runner log, or AC→evidence map to the council.** M14(a) forbids
+  any pre-digested evidence payload beyond the locators §3b names. The card #1 stamp clears
+  a `[process]` AC (M14(h)); a runner log never clears one.
+- **Use `max_verdict_confidence`, a mean, or a vote.** Card #2's confidence is the verdict
+  mapper's per-AC minimum only (M14(b)); this pass MUST NOT compute or accept any other
+  aggregate.
+- **Feed the mapper's output back into the council.** `skills/autopilot/ship-gate-verdict.sh`
+  runs after the verdict, MUST NOT read evidence, spawn an agent, call `/council`, or write a
+  file, and MUST NOT feed anything to the council (M14(i)).

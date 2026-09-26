@@ -35,6 +35,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COUNCIL_DIR="$MROOT/.claude/council"
 TEMPLATE_DIR="$SCRIPT_DIR/templates"
 INDEX_WRITER="$SCRIPT_DIR/index-writer.sh"
+M14_AC_SPLIT="$SCRIPT_DIR/m14-ac-split.sh"
+
+# ---- M14 claim budget (normative; SPEC-033 M14(j), WP 1-14) -----------------
+# The maximum technical AC count an M14 per-AC split (SPEC-013 Phase 1 "M14
+# per-AC split") accepts. Only the Tech Lead may raise this, with a committed
+# change to these two lines plus a new SPEC-033 Version History row -- never
+# an environment variable, a flag, a plan field or a spec field. Applies to
+# M14 split runs only; every other /council caller keeps the SPEC-013
+# per-run claim budget of 10 (unaffected below).
+readonly M14_AC_BUDGET=16
+readonly M14_AC_BUDGET_CEILING=20
 
 # ---- Usage ------------------------------------------------------------------
 usage() {
@@ -56,9 +67,24 @@ Subcommands:
 
   resolve-task-id  [--task-id ID]   Print resolved id (or empty line).
   report-path SLUG [--task-id ID]   Print canonical report path.
+                   Probes for the first free candidate (report-path[-<N>].md,
+                   report AND its .finalize-meta.json sidecar both absent);
+                   reserves nothing (SPEC-013 Phase 6 report no-overwrite).
+
+  m14-check TICKET_ID SPEC-FILE     SPEC-033 M14(g)/(j) split + budget check
+                   (shared by preflight's M14 trigger and the
+                   skills/orchestrate/steps/10-qa.md Step 10b writers
+                   backstop -- one implementation, no copy). Exit 0: prints
+                   the m14-ac-split.sh split JSON on stdout, unchanged.
+                   Exit 8: one "m14-ac-split: <cause>" stderr line (case
+                   1-9 per m14-ac-split.sh / SPEC-033 M14(g)/(j)), no
+                   stdout. Exit 64: argv misuse.
 
 Exit codes: 0 ok | 2 usage/no-scope | 3 reserved (unused; no deferred scopes) | 4 unknown preset
             5 empty evidence | 6 index-writer failure | 7 schema mismatch
+            8 M14 per-AC split fails closed (SPEC-033 M14(g)) | m14-ac-split: <cause>
+            9 report no-overwrite: every candidate up to -99 is taken
+            64 m14-check: argv misuse
 USAGE
 }
 
@@ -97,7 +123,50 @@ validate_path_component() {
 }
 
 # ---- report-path ------------------------------------------------------------
-# $MROOT/.claude/council/<YYYY-MM-DD>-<slug>[--<task_id>].md
+# $MROOT/.claude/council/<YYYY-MM-DD>-<slug>[--<task_id>][-<N>].md
+#
+# Report no-overwrite (SPEC-013 Phase 6, WP 1-14). A candidate is free iff
+# BOTH the report file and its `.finalize-meta.json` sidecar are absent. The
+# base candidate (no `-<N>`) is tried first; on a collision `-2` .. `-99` are
+# tried in filename order. `-<N>` sits directly before `.md`, after the
+# task-id suffix.
+#
+# _report_path_candidate/_report_path_free are pure helpers shared by the
+# read-only probe (cmd_report_path, used by preflight and the `report-path`
+# subcommand — reserves nothing) and the write-time reservation
+# (finalize_reserve_report_path, used by finalize only).
+_report_path_candidate() {  # <slug> <task-id|""> <date> <n (1..99)>
+  local slug="$1" tid="$2" date="$3" n="$4"
+  local suffix="" nsuf=""
+  [ -n "$tid" ] && suffix="--${tid}"
+  [ "$n" -gt 1 ] && nsuf="-${n}"
+  printf '%s/%s-%s%s%s.md\n' "$COUNCIL_DIR" "$date" "$slug" "$suffix" "$nsuf"
+}
+
+_report_path_free() {  # <candidate report path>
+  [ ! -e "$1" ] && [ ! -e "${1}.finalize-meta.json" ]
+}
+
+# Scans candidates 1..99 for <slug>/<tid>/<date>, calling <pred-fn> on each
+# one. Prints the first candidate <pred-fn> accepts and returns 0. Returns 9
+# (no stdout) once every candidate up to -99 is rejected. Shared by the
+# read-only probe (_report_path_free) and the write-time reservation
+# (_report_path_try_reserve) — same scan order, different predicate (tech-lead
+# review r1, B5: was two copies of this loop).
+_report_path_scan() {  # <pred-fn> <slug> <tid> <date>
+  local pred="$1" slug="$2" tid="$3" date="$4"
+  local n cand
+  for n in {1..99}; do
+    cand=$(_report_path_candidate "$slug" "$tid" "$date" "$n")
+    if "$pred" "$cand"; then
+      printf '%s\n' "$cand"
+      return 0
+    fi
+  done
+  return 9
+}
+
+# Probe only — never creates anything. Returns the first free candidate.
 cmd_report_path() {
   if [ $# -lt 1 ]; then
     echo "engine.sh: report-path requires <slug>" >&2
@@ -117,11 +186,96 @@ cmd_report_path() {
   fi
   local date
   date=$(date -u +%Y-%m-%d)  # UTC per SKILL.md report-path contract
-  local suffix=""
-  if [ -n "$tid" ]; then
-    suffix="--${tid}"
+  if _report_path_scan _report_path_free "$slug" "$tid" "$date"; then
+    return 0
   fi
-  printf '%s/%s-%s%s.md\n' "$COUNCIL_DIR" "$date" "$slug" "$suffix"
+  echo "engine.sh: report-path: every candidate up to -99 is taken for slug '$slug' (report no-overwrite, SPEC-013 Phase 6)" >&2
+  exit 9
+}
+
+# ---- report-path reservation (finalize write-time only) ---------------------
+# Sequential exclusive creates of the report file then its sidecar — NOT a
+# single atomic transaction over the pair (WP 1-14 plan-review finding: bash
+# has no cross-file atomic create; "atomic as a pair" was struck as
+# unimplementable). Each attempt is two O_EXCL creates (bash `noclobber`)
+# with a rollback of the first placeholder when the second create fails.
+_report_path_try_reserve() {  # <candidate report path>
+  local report="$1" meta="${1}.finalize-meta.json"
+  if ( set -C; : > "$report" ) 2>/dev/null; then
+    if ( set -C; : > "$meta" ) 2>/dev/null; then
+      return 0
+    fi
+    rm -f -- "$report"
+    return 1
+  fi
+  return 1
+}
+
+# Reserves a report path at finalize write time. Tries $3 (plan.report_path,
+# already task-id-adjusted by the caller) first; if that candidate is taken,
+# scans base .. -99 at TODAY's UTC date (the finalize date, which may differ
+# from the plan's original preflight date). Prints the reserved path and
+# returns 0. Returns 9 (no stdout) once every candidate up to -99 is taken —
+# the caller MUST exit 9 and write no report.
+finalize_reserve_report_path() {  # <slug> <task-id|""> <preferred path>
+  local slug="$1" tid="$2" preferred="$3"
+  mkdir -p "$COUNCIL_DIR"
+  if [ -n "$preferred" ] && _report_path_try_reserve "$preferred"; then
+    printf '%s\n' "$preferred"
+    return 0
+  fi
+  local date
+  date=$(date -u +%Y-%m-%d)
+  _report_path_scan _report_path_try_reserve "$slug" "$tid" "$date"
+}
+
+# ---- m14_check ---------------------------------------------------------
+# Shared implementation of the SPEC-033 M14(g)/(j) split + budget check
+# (WP 1-14 review round 2, B-2). ONE function backs both cmd_preflight's
+# M14 trigger (in-process call) and the "m14-check" subcommand (direct CLI
+# use, e.g. skills/orchestrate/steps/10-qa.md Step 10b) -- never a copy of
+# the constant or the ceiling/budget arithmetic.
+#
+# $1 = ticket_id, $2 = ac_source (path, worktree-relative). On the M14(j)
+# ceiling guard or m14-ac-split.sh's case 9 (the claim budget) this prints
+# exactly one "m14-ac-split: <cause>" stderr line and exits 8, matching
+# m14-ac-split.sh's own case 1-8 contract (C1) so every caller sees one
+# uniform failure shape. m14-ac-split.sh's own exit (8 for cases 1-8, 64
+# for its argv misuse) propagates unchanged. On success this prints the
+# split JSON from m14-ac-split.sh to stdout, unmodified, and returns 0.
+m14_check() {
+  local ticket_id="$1" ac_source="$2"
+  # M14(j): a budget above the ceiling fails every M14 split closed,
+  # independent of the actual technical AC count (config-validity guard;
+  # unreachable with the constants above, but must fail closed if a
+  # future committed change ever violates it).
+  if [ "$M14_AC_BUDGET" -gt "$M14_AC_BUDGET_CEILING" ]; then
+    echo "m14-ac-split: M14_AC_BUDGET ($M14_AC_BUDGET) exceeds M14_AC_BUDGET_CEILING ($M14_AC_BUDGET_CEILING) -- every M14 split fails closed (SPEC-033 M14(j))" >&2
+    exit 8
+  fi
+  local split_json
+  split_json=$(bash "$M14_AC_SPLIT" "$ticket_id" "$ac_source") || exit $?
+  local technical_count
+  technical_count=$(printf '%s' "$split_json" | jq '[.acs[] | select(.process == false)] | length')
+  if [ "$technical_count" -gt "$M14_AC_BUDGET" ]; then
+    local over_ids
+    over_ids=$(printf '%s' "$split_json" | jq -r --argjson b "$M14_AC_BUDGET" \
+      '[.acs[] | select(.process == false)] | .[$b:] | map(.id) | join(", ")')
+    echo "m14-ac-split: case 9: technical AC count ($technical_count) exceeds the M14 claim budget ($M14_AC_BUDGET); ids beyond budget: $over_ids" >&2
+    exit 8
+  fi
+  printf '%s\n' "$split_json"
+}
+
+# ---- m14-check subcommand ----------------------------------------------
+# CLI entry point for m14_check. Argv misuse (wrong arg count) exits 64,
+# matching m14-ac-split.sh's own argv-misuse code (C1).
+cmd_m14_check() {
+  if [ $# -ne 2 ]; then
+    echo "engine.sh: usage: engine.sh m14-check <ticket_id> <spec-file>" >&2
+    exit 64
+  fi
+  m14_check "$1" "$2"
 }
 
 # ---- preflight --------------------------------------------------------------
@@ -293,6 +447,59 @@ cmd_preflight() {
   fi
 
   local claim_budget=10  # SPEC-013 "per-run claim budget (default: 10 claims)", hardcoded in v1
+
+  # ---- M14 per-AC split (SPEC-033 M14(g); SPEC-013 Phase 1 "M14 per-AC
+  # split"; WP 1-14 interface contracts C1/C2). Trigger: scope==claim AND
+  # scope_arg starts "Ship-gate audit for <ticket_id>." AND >=1 ac-source=
+  # token. Zero ac-source= tokens does NOT split -- the plan stays exactly
+  # as it was before WP 1-14 (AC G; the mapper then halts it, SPEC-033
+  # M14(g)). Every stderr line below is prefixed "m14-ac-split:" (never
+  # "engine.sh:") to match m14-ac-split.sh's own contract (C1) and the
+  # SKILL.md exit-8 failure-table row.
+  local m14_triggered="false" m14_claims_json="[]" m14_ac_source="" \
+        m14_process_acs_json="[]"
+  if [ "$scope" = "claim" ] \
+     && [[ "$scope_arg" =~ ^Ship-gate\ audit\ for\ ([A-Za-z0-9._-]+)\. ]]; then
+    local m14_ticket_id="${BASH_REMATCH[1]}"
+    local m14_tokens m14_token_count=0
+    m14_tokens="$(printf '%s' "$scope_arg" | grep -oE 'ac-source=[^[:space:]]+' || true)"
+    [ -n "$m14_tokens" ] && m14_token_count=$(printf '%s\n' "$m14_tokens" | wc -l | tr -d ' ')
+    if [ "$m14_token_count" -ge 1 ]; then
+      m14_triggered="true"
+      if [ "$m14_token_count" -ge 2 ]; then
+        echo "m14-ac-split: case 1: envelope holds $m14_token_count ac-source= tokens (must hold exactly one)" >&2
+        exit 8
+      fi
+      # WP 1-14 review round 2 (B-2): the ceiling check, the split, and the
+      # case-9 budget check live in ONE place, m14_check (defined above) --
+      # no copy of M14_AC_BUDGET or its arithmetic here.
+      m14_ac_source="${m14_tokens#ac-source=}"
+      local m14_split_json
+      m14_split_json=$(m14_check "$m14_ticket_id" "$m14_ac_source")
+      claim_budget="$M14_AC_BUDGET"  # SPEC-033 M14(j) -- overrides the generic 10 above
+      m14_process_acs_json=$(printf '%s' "$m14_split_json" | jq -c '[.acs[] | select(.process == true) | .id]')
+      # SPEC-013 Phase 1 claim record + exact template (WP 1-14 C2). Index i
+      # (0-based) runs over the technical-only array, in document order.
+      m14_claims_json=$(printf '%s' "$m14_split_json" | jq -c \
+        --arg ticket_id "$m14_ticket_id" --arg path "$m14_ac_source" '
+        [ .acs[] | select(.process == false) ] as $tech
+        | [ range(0; ($tech | length)) as $i
+            | ($tech[$i]) as $ac
+            | {
+                claim_id: ("c" + ($i | tostring)),
+                ac_id: $ac.id,
+                claim: ("[AC-" + $ac.id + "] For " + $ticket_id +
+                        ", the diff from the merge-base of the origin default branch and HEAD to HEAD satisfies acceptance criterion " +
+                        $ac.id + " as written at " + $path + ":" + ($ac.line | tostring) +
+                        ". Read the criterion at that locator and judge this criterion only."),
+                source_locator: ($path + ":" + ($ac.line | tostring)),
+                claim_type: "factual"
+              }
+          ]
+        ')
+    fi
+  fi
+
   local slug
   case "$scope" in
     claim)   slug="claim" ;;
@@ -433,6 +640,10 @@ cmd_preflight() {
     --arg cache_dir "$cache_dir" \
     --arg run_id "$run_id" \
     --argjson external "$external_json" \
+    --arg m14_triggered "$m14_triggered" \
+    --argjson m14_claims "$m14_claims_json" \
+    --arg m14_ac_source "$m14_ac_source" \
+    --argjson m14_process_acs "$m14_process_acs_json" \
     '{
       scope: $scope,
       scope_arg: $scope_arg,
@@ -492,6 +703,10 @@ cmd_preflight() {
         "6_finalize": { invoke: "engine.sh finalize --plan-file <p> --evidence-file <e> --judge-output <j>" }
       }
     }
+    | if $m14_triggered == "true" then
+        . + { claims: $m14_claims, ac_source: $m14_ac_source, process_acs: $m14_process_acs }
+      else .
+      end
     | if $why == "true" then
         . + {
           why_detail: {
@@ -677,6 +892,9 @@ cmd_finalize() {
   slug=$(jq -r '.slug' "$plan_file")
   plan_task_id=$(jq -r '.task_id // ""' "$plan_file")
   plan_report_path=$(jq -r '.report_path' "$plan_file")
+  # Original on-disk value — used below to decide whether the plan file needs
+  # rewriting after reservation (SPEC-013 Phase 6 "one path everywhere").
+  local plan_report_path_orig="$plan_report_path"
 
   # CDT-126: the plan is the sole carrier of the tier — preflight resolved it,
   # finalize only records it (frontmatter + index row). Plans written before
@@ -701,11 +919,36 @@ cmd_finalize() {
     task_id="$plan_task_id"
   fi
 
-  # Recompute report path if task_id changed
+  # Recompute report path if task_id changed (the plan's recorded path was
+  # built for the old task-id suffix and names the wrong file entirely).
   if [ -n "$report_out" ]; then
     plan_report_path="$report_out"
   elif [ "$task_id" != "$plan_task_id" ]; then
     plan_report_path=$(cmd_report_path "$slug" --task-id "$task_id")
+  fi
+
+  # Report no-overwrite (SPEC-013 Phase 6, WP 1-14): reserve the path again
+  # at write time, right before rendering. `--report-out` is exempt — it
+  # reserves nothing and can overwrite; the caller that passes it owns that
+  # risk (unchanged from before WP 1-14).
+  if [ -z "$report_out" ]; then
+    local reserved_path
+    if ! reserved_path=$(finalize_reserve_report_path "$slug" "$task_id" "$plan_report_path"); then
+      echo "engine.sh: report no-overwrite: every candidate up to -99 is taken for slug '$slug' — writing no report (SPEC-013 Phase 6)" >&2
+      exit 9
+    fi
+    plan_report_path="$reserved_path"
+    # One path everywhere: when the reserved path differs from what the plan
+    # already recorded (a collision, or a task-id-driven recompute), rewrite
+    # plan.report_path (tmp + rename) so plan / rendered report / sidecar /
+    # `Council report:` line / index row all agree, and say so once on stderr.
+    if [ "$plan_report_path" != "$plan_report_path_orig" ]; then
+      local plan_tmp
+      plan_tmp=$(mktemp "${plan_file}.XXXXXX")
+      jq --arg rp "$plan_report_path" '.report_path = $rp' "$plan_file" > "$plan_tmp"
+      mv -- "$plan_tmp" "$plan_file"
+      echo "engine.sh: report_path reserved at $plan_report_path (plan recorded $plan_report_path_orig) — rewrote plan.report_path (SPEC-013 Phase 6 report no-overwrite)" >&2
+    fi
   fi
 
   # Validate output_shape and select template
@@ -1003,6 +1246,14 @@ else:
     prosecutor_brief_md = format_brief(prosecutor_brief)
     advocate_brief_md = format_brief(advocate_brief)
 
+# CDT-178 / WP 1-14 C3: floor-to-int confidence helper, used both by the
+# verdict/finding formatting below and by the finalize-meta sidecar block.
+def _as_int_conf(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
 # --- Format verdicts / findings (unstruck only for finding[] tid strikes) ---
 if output_shape == "verdict[]":
     # No finding-tid strike this ticket; all verdicts remain unstruck body.
@@ -1030,6 +1281,21 @@ if output_shape == "verdict[]":
     for t in taxonomy:
         table_lines.append(f"| {t} | {counts.get(t, 0)} |")
     verdict_summary_table_md = "\n".join(table_lines)
+
+    # WP 1-14 C3 (SPEC-013 Phase 6 "Finalize-meta sidecar"): sidecar fields
+    # computed over the SAME unstruck_items / counts / taxonomy this branch
+    # already built for the report body -- never a second pass over judge_raw.
+    # `confs` is reused below (CDT-178 sidecar meta) for
+    # max_verdict_confidence -- ONE list comprehension over unstruck_items,
+    # not two (tech-lead review r1, B6).
+    confs = [_as_int_conf(v.get("confidence")) for v in unstruck_items]
+    min_verdict_confidence = min(confs) if confs else None
+    verdict_counts = {t: counts.get(t, 0) for t in taxonomy}
+    unstruck_verdicts = [
+        {"claim": v.get("claim", ""), "verdict": v.get("verdict", "UNVERIFIED"),
+         "confidence": _as_int_conf(v.get("confidence"))}
+        for v in unstruck_items
+    ]
 else:
     # finding[] shape — partition missing tool_use_id (CDT-178)
     unstruck_items = []
@@ -1068,6 +1334,12 @@ else:
     for s in sev_taxonomy:
         table_lines.append(f"| {s} | {counts.get(s, 0)} |")
     verdict_summary_table_md = "\n".join(table_lines)
+
+    # WP 1-14 C3: these three sidecar fields are null for finding[] runs
+    # (SPEC-013 Phase 6 "Finalize-meta sidecar").
+    min_verdict_confidence = None
+    verdict_counts = None
+    unstruck_verdicts = None
 
 # CLAIMS_AUDITED over unstruck body only (finding[] after tid strike)
 claims_audited = str(len(unstruck_items))
@@ -1237,16 +1509,11 @@ with os.fdopen(fd, 'w') as f:
 os.rename(tmp_path, output_path)
 
 # CDT-178: sidecar meta for bash index/stdout (unstruck conf + merged struck)
-def _as_int_conf(v):
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return 0
-
 if output_shape == "verdict[]":
     unstruck_verdict_count = len(unstruck_items)
     unstruck_finding_count = 0
-    confs = [_as_int_conf(v.get("confidence")) for v in unstruck_items]
+    # `confs` already computed above (WP 1-14 C3 min_verdict_confidence) --
+    # reused here, not recomputed (tech-lead review r1, B6).
     max_verdict_confidence = max(confs) if confs else None
     max_finding_confidence = None
 else:
@@ -1262,7 +1529,31 @@ meta = {
     "max_finding_confidence": max_finding_confidence,
     "unstruck_finding_count": unstruck_finding_count,
     "unstruck_verdict_count": unstruck_verdict_count,
+    # WP 1-14 C3 (SPEC-013 Phase 6 "Finalize-meta sidecar"): min_verdict_confidence,
+    # verdict_counts and unstruck_verdicts are null for finding[] runs (set above);
+    # verification_mode is always "full" or "self-verified", never null.
+    "min_verdict_confidence": min_verdict_confidence,
+    "verdict_counts": verdict_counts,
+    "verification_mode": verification_mode,
+    "unstruck_verdicts": unstruck_verdicts,
 }
+
+# M14 per-AC split (WP 1-14; SPEC-013 Phase 6 "Finalize-meta sidecar"): only
+# when the plan carries AC-bound claims (an M14 split ran at preflight).
+# Finalize copies these from the plan verbatim -- it never matches verdicts
+# to ACs itself; SPEC-033 M14(b)/(i) own that mapping, implemented only in
+# skills/autopilot/ship-gate-verdict.sh.
+m14_plan_claims = plan.get("claims")
+if isinstance(m14_plan_claims, list) and m14_plan_claims and all(
+    isinstance(c, dict) and "ac_id" in c for c in m14_plan_claims
+):
+    meta["ac_source"] = plan.get("ac_source")
+    meta["ac_claims"] = [
+        {"claim_id": c.get("claim_id"), "ac_id": c.get("ac_id")}
+        for c in m14_plan_claims
+    ]
+    meta["process_acs"] = plan.get("process_acs", [])
+
 meta_path = output_path + ".finalize-meta.json"
 with open(meta_path, "w") as mf:
     json.dump(meta, mf)
@@ -1469,6 +1760,7 @@ case "$SUBCMD" in
   finalize)        cmd_finalize "$@" ;;
   resolve-task-id) cmd_resolve_task_id "$@" ;;
   report-path)     cmd_report_path "$@" ;;
+  m14-check)       cmd_m14_check "$@" ;;
   -h|--help|help)  usage; exit 0 ;;
   *)
     echo "engine.sh: unknown subcommand: $SUBCMD" >&2

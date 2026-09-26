@@ -32,7 +32,8 @@ a session slice, a diff). A Prosecutor (jaded-senior flavor) and a Devil's
 Advocate (yolo-ic flavor) write adversarial briefs over that evidence. A
 dedicated `council-judge` agent — with a structurally empty tool allowlist —
 issues the final verdicts or findings. The engine writes a report to
-`.claude/council/<date>-<slug>.md`, appends a row to a verdict index at
+`.claude/council/<date>-<slug>[--<task_id>][-<N>].md` (report
+no-overwrite, SPEC-013 Phase 6, below), appends a row to a verdict index at
 `.claude/council/index.json` when task-bound, and (for verdict-shape runs)
 writes feedback memories for high-confidence fabrications.
 
@@ -594,7 +595,8 @@ via a nested council run. The former `--no-council` flag is removed — there
 is nothing to skip. Tier 2 and Tier 3 appear in the report without a second
 pass.
 
-**Report:** `.claude/council/<YYYY-MM-DD>-<slug>.md` (MROOT worktree-aware;
+**Report:** written at the path `engine.sh report-path <slug>` returns,
+`.claude/council/<YYYY-MM-DD>-<slug>[-<N>].md` (MROOT worktree-aware;
 create parent if absent). Contents: scope/target, team manifest, tiered
 clusters (claim, evidence, severity, category, team count, source finding
 IDs), quorum summary, per-team summaries, dropped-malformed count.
@@ -870,8 +872,8 @@ passes to and expects from the Judge — not how it decides.
 
 **Canonical report path:**
 
-- Unbound: `.claude/council/<YYYY-MM-DD>-<slug>.md`
-- Task-bound: `.claude/council/<YYYY-MM-DD>-<slug>--<task_id>.md`
+- Unbound: `.claude/council/<YYYY-MM-DD>-<slug>[-<N>].md`
+- Task-bound: `.claude/council/<YYYY-MM-DD>-<slug>--<task_id>[-<N>].md`
 
 (SPEC-013 lines 89, 96–97.)
 
@@ -885,6 +887,28 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 ```
+
+**Report no-overwrite (WP 1-14; SPEC-013 Phase 6):** the engine MUST NOT
+overwrite an existing report or its `.finalize-meta.json` sidecar, in every
+scope that resolves its path through `cmd_report_path`. `engine.sh
+report-path` and preflight only probe the first free candidate (report AND
+sidecar both absent); finalize reserves that candidate again with an
+exclusive create before it writes, retries `-2`..`-99` on a collision, and
+exits `9` when exhausted. `finalize --report-out PATH` is the one exception:
+it keeps writing exactly `PATH` and can overwrite it, because the caller
+that passes `--report-out` owns that risk.
+
+**Finalize-meta sidecar (WP 1-14; SPEC-013 Phase 6 "Finalize-meta sidecar"):**
+finalize writes `<report>.finalize-meta.json` next to the report, at the
+same reserved path, and keeps its pre-WP-1-14 keys. It adds
+`min_verdict_confidence`, `verdict_counts`, `verification_mode` and
+`unstruck_verdicts`. `min_verdict_confidence`, `verdict_counts` and
+`unstruck_verdicts` are `null` for `finding[]` runs (`min_verdict_confidence`
+is also null when zero verdicts are unstruck); `verification_mode` is always
+`full` or `self-verified`. An M14 per-AC-split run also adds `ac_source`,
+`ac_claims` and `process_acs`, copied from the plan. Finalize never matches
+verdicts to ACs — SPEC-033 M14(b)/(i) owns that mapping, in
+`skills/autopilot/ship-gate-verdict.sh`.
 
 **Report frontmatter (YAML):** templates own the FM shape
 (`templates/report-verdict.md` / `templates/report-finding.md` carry a single
@@ -1034,6 +1058,15 @@ Graceful rules (exit 0 always for token issues — never fail the run):
 - `commands/council.md` Step 5 prints a short labeled block from these fields
   after the stdout summary (after any Tokens block). No raw prompt dumps. No
   verdict impact.
+
+**M14 per-AC split (WP 1-14; SPEC-013 Phase 1 "M14 per-AC split"; SPEC-033
+M14(g)):** when the plan is split into per-AC claims, it carries optional
+keys — `claims` (one record per technical AC, `ac_id` + `claim_id: c<i>`),
+`ac_source` (the spec path) and `process_acs` (the `[process]` AC ids) — on
+top of the fields above. `claim_budget` becomes the SPEC-033 M14(j) value
+instead of `10`. This SKILL cites those specs for the split and the
+verdict-mapping policy rather than restating them; see `skills/council/
+m14-ac-split.sh` and `skills/autopilot/ship-gate-verdict.sh`.
 
 **Index writer (task-bound runs only):**
 
@@ -1244,6 +1277,8 @@ exit codes to decide whether to continue.
 | 5 | Empty evidence **and** no self-verify path | `engine.sh: Phase 2 produced zero evidence bundles — aborting` (after spawn failure, attempt orchestrator self-verify first — see Spawn-failure degradation; exit 5 only if still empty) |
 | 6 | Index write failure | `engine.sh: failed to update .claude/council/index.json` |
 | 7 | Judge returned malformed/empty output | `engine.sh: judge output is not valid JSON and repair failed: <detail>` (also covers an empty or refused judge result, which fails JSON repair) |
+| 8 | M14 per-AC split fails closed (SPEC-033 M14(g)) | `m14-ac-split: <cause>` (one line, names the case; no plan printed on stdout) |
+| 9 | Report no-overwrite candidates exhausted (SPEC-013 Phase 6) | Probe (`cmd_report_path`): `engine.sh: report-path: every candidate up to -99 is taken for slug '<slug>' (report no-overwrite, SPEC-013 Phase 6)`. Finalize: `engine.sh: report no-overwrite: every candidate up to -99 is taken for slug '<slug>' — writing no report (SPEC-013 Phase 6)` (finalize writes no report) |
 
 ---
 

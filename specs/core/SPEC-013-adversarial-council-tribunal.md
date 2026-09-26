@@ -311,9 +311,18 @@ claim scope (see Council tiering consequences above).
 - MUST run a claim-extraction pass before investigation when scope is `--session`, `--plan`, or transcript-derived
 - MUST enrich diff-mode raw input with the applicable-specs grep output (from diff-mode intake) before claim extraction runs; diff-mode claim extraction extracts candidate findings from the diff, not claims-as-assertions
 - MUST produce a structured list of load-bearing assertions with: claim text, source locator (turn ID / file:line), claim type (factual / causal / recommendation)
-- MUST skip the extraction pass when scope is a single pasted claim or `--from-retro <anchor-id>` (claim already isolated)
-- MUST enforce a per-run claim budget (default: 10 claims) to prevent runaway cost
-- MUST rank claims by load-bearing weight when the budget is exceeded (highest-stakes first)
+- MUST skip the extraction pass when scope is a single pasted claim or `--from-retro <anchor-id>` (claim already isolated). An M14 ship-gate claim also skips extraction; preflight splits it into per-AC claims deterministically (M14 per-AC split, below)
+- MUST enforce a per-run claim budget (default: 10 claims) to prevent runaway cost. An M14 per-AC split run (below) uses the SPEC-033 M14(j) budget instead
+- MUST rank claims by load-bearing weight when the budget is exceeded (highest-stakes first). An M14 per-AC split run MUST NOT rank or drop claims: it fails closed (SPEC-033 M14(g))
+- **M14 per-AC split (WP 1-14; SPEC-033 M14(g)).** When the scope is `claim` and the claim meets the SPEC-033 M14(g) trigger, preflight MUST split it into `plan.claims[]` with no LLM step. SPEC-033 M14(g) owns the AC source format, the trigger and the fail-closed cases; this bullet owns the engine side only:
+  - The parser is `skills/council/m14-ac-split.sh`. It reads the AC source at `HEAD` and writes nothing.
+  - Phase 1 stays skipped (`phases.1_claim_extraction.skip == true`).
+  - Each technical AC gives one claim record, in document order, with index `i` from 0: `{ "claim_id": "c<i>", "ac_id": "<id>", "claim": "<text>", "source_locator": "<path>:<line>", "claim_type": "factual" }`. `<line>` is the line of the AC bullet.
+  - The claim text MUST be exactly: `[AC-<id>] For <ticket_id>, the diff from the merge-base of the origin default branch and HEAD to HEAD satisfies acceptance criterion <id> as written at <path>:<line>. Read the criterion at that locator and judge this criterion only.` It MUST NOT hold AC text.
+  - The plan MUST also carry `ac_source` (the path), `process_acs` (the `[process]` AC ids, in document order) and `claim_budget` (the SPEC-033 M14(j) value).
+  - For every SPEC-033 M14(g) fail-closed case, preflight MUST exit `8`, MUST print no plan on stdout, and MUST print one stderr line that names the cause.
+  - The Task path (`commands/council.md`) and the Workflow path (`skills/council/workflow.js`) MUST use `plan.claims[]` verbatim when it is present: the same order, text and locators, with claim id `c<i>` equal to the array index. They MUST NOT truncate, reorder, merge, reword or re-extract the claims. When `plan.claims[]` is absent, both paths keep the one-element claim list.
+  - For a claim that does not meet the trigger, the plan JSON MUST NOT change: no new key, the same `claim_budget` (10), and the same investigator prompt with its 5-call budget.
 
 ### Phase 2 — Parallel Investigation
 - MUST spawn investigators in parallel, one task per claim (up to the claim budget)
@@ -400,16 +409,32 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - MUST preserve the empty tool allowlist for the Judge across both output shapes
 
 ### Phase 6 — Report & Persistence
-- MUST write a report to `.claude/council/<YYYY-MM-DD>-<slug>.md` (create parent dir if absent)
+- MUST write a report to `.claude/council/<YYYY-MM-DD>-<slug>[--<task_id>][-<N>].md` (create parent dir if absent). `-<N>` appears only on a collision (report no-overwrite, below)
 - MUST include in the report: scope, extracted claims, investigator flavors used, evidence bundles, per-claim verdict or per-finding entry with confidence and raw evidence — plus the Prosecutor brief and Devil's Advocate brief **whenever Phase 4 ran**. Like the Phase 5 Judge inputs, the two briefs are **Phase-4-conditional**: when Phase 4 is skipped (`finding[]`-shape presets, or `council_tier: light`) the report MUST record the skip and its reason in their place, and MUST NOT emit an empty or synthesized brief section
 - MUST branch the report template on output shape: `verdict[]` presets emit a verdict summary by taxonomy (session/plan/claim scopes); `finding[]` presets emit a findings summary by severity (diff scope)
 - MUST print a summary to stdout with verdict counts by taxonomy (or finding counts by severity for `finding[]`-shape presets) and a path to the full report
 - MUST resolve the project root with the worktree-aware formula: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)`
+- **Report no-overwrite (WP 1-14).** The engine MUST NOT overwrite an existing report or its `.finalize-meta.json` sidecar. This applies to every scope that resolves its path through `cmd_report_path` (claim, session, diff, plan and from-retro; unbound and task-bound):
+  - **Candidates.** The base candidate is `<YYYY-MM-DD>-<slug>[--<task_id>].md`. The next candidates are `…-2.md`, `…-3.md`, and so on up to `…-99.md`. The `-<N>` suffix comes directly before `.md`, after the task suffix. A candidate is free if and only if the report file and its sidecar are both absent.
+  - **No collision.** When the base candidate is free, the path MUST be byte-identical to the path before WP 1-14.
+  - **Probe.** `engine.sh report-path` and preflight return the first free candidate. The probe reserves nothing. When no candidate up to `-99` is free, the probe (`report-path`, preflight) MUST exit `9` and print no path or plan.
+  - **Reserve at write time.** Finalize MUST reserve the path again before it writes. It MUST create the report file and the sidecar with an exclusive create (`O_EXCL`; bash `noclobber`). If one create fails, finalize MUST remove only the placeholder that it created and try the next candidate. Finalize tries `plan.report_path` first. If that path is taken, it probes from the base candidate with the finalize date.
+  - **One path everywhere.** When the reserved path is not `plan.report_path`, finalize MUST write the reserved path to `report_path` in the plan file (tmp + rename) and print one stderr notice. The rendered report, the sidecar, the `Council report:` line and the index `report_path` MUST all use the reserved path.
+  - **Exhausted.** When no candidate up to `-99` is free, finalize MUST exit `9` and write no report.
+  - **Explicit path.** `finalize --report-out PATH` keeps its behavior before WP 1-14: it writes exactly `PATH`, reserves nothing, and can overwrite. The caller that passes `--report-out` owns that risk. `commands/council.md` and `skills/council/SKILL.md` MUST state this.
+  - A run that fails after the reservation leaves an empty placeholder. Later runs skip it. This is intended: a placeholder is never overwritten.
+- **Finalize-meta sidecar (WP 1-14).** Finalize writes `<report>.finalize-meta.json`. It MUST keep the existing keys and MUST add these keys:
+  - `min_verdict_confidence` — the lowest unstruck verdict confidence, floored to an integer (CDT-181), or `null` for `finding[]` runs and for zero unstruck verdicts.
+  - `verdict_counts` — `{ "VERIFIED", "PARTIALLY_VERIFIED", "UNVERIFIED", "CONTRADICTED", "FABRICATED" }` counts over unstruck verdicts, or `null` for `finding[]` runs.
+  - `verification_mode` — `full` or `self-verified`.
+  - `unstruck_verdicts` — `[ { "claim", "verdict", "confidence" } ]`, a plain copy of the unstruck judge verdicts, or `null` for `finding[]` runs.
+  - When the plan has `plan.claims[]` with `ac_id`: `ac_source`, `ac_claims` (`[ { "claim_id", "ac_id" } ]`) and `process_acs`, copied from the plan. When the plan has no such claims, these keys are absent.
+  - Finalize MUST NOT match verdicts to ACs. SPEC-033 M14(b) owns that rule, and the verdict mapper (SPEC-033 M14(i)) is its only implementation.
 
 #### Task Binding & Verdict Index
 - Report templates (`skills/council/templates/report-verdict.md`, `report-finding.md`) MUST carry a single YAML frontmatter block that includes `task_id: "{{TASK_ID}}"` (plus `scope`, `preset`, hard-coded `output_shape`, `created_at`, `verification_mode`); finalize substitutes `{{…}}` placeholders and MUST NOT prepend a second synthetic frontmatter block
-- When a council run is associated with an orchestrated task (resolved via the fallback chain: `--task-id` flag → `CLAUDE_TASK_ID` env var → none), the report MUST include a `task_id` field in its frontmatter/header section and MUST write the report to `.claude/council/<YYYY-MM-DD>-<slug>--<task_id>.md`
-- When no task id is resolved, finalize MUST strip the unbound `task_id` key entirely (not null, not empty string) so the field is absent from the report frontmatter, and the filename MUST NOT carry a `--<task_id>` suffix
+- When a council run is associated with an orchestrated task (resolved via the fallback chain: `--task-id` flag → `CLAUDE_TASK_ID` env var → none), the report MUST include a `task_id` field in its frontmatter/header section and MUST write the report to `.claude/council/<YYYY-MM-DD>-<slug>--<task_id>.md`, or to `…--<task_id>-<N>.md` on a collision (report no-overwrite, Phase 6)
+- When no task id is resolved, finalize MUST strip the unbound `task_id` key entirely (not null, not empty string) so the field is absent from the report frontmatter, and the filename MUST NOT carry a `--<task_id>` suffix (the no-overwrite suffix `-<N>` can still follow the slug on a collision)
 - The engine MUST maintain a lightweight verdict index at `.claude/council/index.json` — a single JSON document shaped as `{ "<task_id>": [ { "report_path": string, "max_verdict_confidence": int, "max_finding_confidence": int, "created_at": ISO-8601 }, … ], … }`; entries are append-only per task_id (newest first), never mutated in place
 - The engine MUST append a new index entry at the end of every task-bound council run, after the report file is written
 - The verdict index MUST be the single source of truth queried by the SPEC-002 TaskCompleted hook — the hook MUST NOT scan `.claude/council/*.md` report files directly
@@ -469,7 +494,7 @@ Absorbs the former `/council --blind` multi-team peer-review engine into `/counc
   - **Tier 3** — single-team minority findings
 - MUST emit **Tier-1 consensus clusters directly as council findings** in the blind-path report — the clustering + tiering step **is** the verdict; MUST NOT call `/council` (or re-enter the tribunal pipeline) on Tier-1 clusters for reverse validation
 - MUST include Tier 2 and Tier 3 clusters in the report (sorted Tier 1 → 2 → 3) without escalating them through a second council pass
-- MUST write the blind-path report under `.claude/council/<YYYY-MM-DD>-<slug>.md` (worktree-aware `MROOT`; create parent if absent) with: scope/target, team manifest, tiered clusters (claim, evidence, severity, category, team count, source finding IDs), quorum summary, per-team summaries, and count of dropped malformed findings
+- MUST write the blind-path report at the path that `engine.sh report-path <slug>` returns, `.claude/council/<YYYY-MM-DD>-<slug>[-<N>].md` (worktree-aware `MROOT`; create parent if absent; never overwrite an existing report — Phase 6 report no-overwrite) with: scope/target, team manifest, tiered clusters (claim, evidence, severity, category, team count, source finding IDs), quorum summary, per-team summaries, and count of dropped malformed findings
 - MUST treat blind-path output as **gate-ignored** for TaskCompleted purposes: blind runs prefer unbound reports (no `task_id` / no qualifying index row for the completing task). A skip-style row with both confidences null still fails the dual-shape gate if bound; blind review is multi-perspective code review, not a fabrication audit
 - MUST fail loudly (exit non-zero with usage) when `--teams` / `--lenses` / `--target` are supplied without `--blind`, or when `--blind` is combined with another scope flag
 - When `--blind` adds or reuses prompt templates under `skills/council/prompts/`, each template's `## Variables` table remains the authoritative `{{TEMPLATE_VARIABLE}}` contract (Engine Architecture MUST) — prefer reusing existing investigator/lens variable names over inventing a parallel set
@@ -487,7 +512,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 - MUST keep `skills/council/engine.sh` as the canonical default execution path — the Workflow path activates only on explicit opt-in (`/council --workflow` flag or `COUNCIL_WORKFLOW=1` environment variable); with neither set, behavior is byte-for-byte today's engine.sh path
 - MUST detect Workflow availability before relying on it (capability probe or attempt-and-fallback): when the Workflow tool is unavailable (free plan, or a Claude Code version below the Workflow minimum), the run MUST fall back transparently to engine.sh with a one-line stderr notice — never a hard failure, never a degraded report
-- MUST preserve strict output parity with engine.sh: identical `verdict[]`/`finding[]` JSON schemas and taxonomies, identical `.claude/council/index.json` writes (same row shape, append-only, atomic tmp+rename), and identical report shape and naming at `.claude/council/<YYYY-MM-DD>-<slug>[--<task_id>].md` — downstream consumers (the SPEC-002 TaskCompleted gate, `/retro`) MUST NOT be able to tell which path produced a run
+- MUST preserve strict output parity with engine.sh: identical `verdict[]`/`finding[]` JSON schemas and taxonomies, identical `.claude/council/index.json` writes (same row shape, append-only, atomic tmp+rename), and identical report shape and naming at `.claude/council/<YYYY-MM-DD>-<slug>[--<task_id>][-<N>].md`, with the same report no-overwrite reservation (shared finalize, Phase 6) — downstream consumers (the SPEC-002 TaskCompleted gate, `/retro`) MUST NOT be able to tell which path produced a run
 - MUST keep the Judge tool-less on the Workflow path: the judgment step MUST use agentType `council-judge` (plugin-qualified as installed, e.g. `dev-team:council-judge`) with an empty tool allowlist (Phase 5 invariant unchanged) — schema-forced output changes the transport, not the evidence-only design
 - MUST use `agent()` schema-forced structured output for the investigator, Prosecutor, Devil's Advocate, and Judge steps; the Workflow path MUST NOT port the engine.sh JSON-repair layers forward — a schema violation on this path is a step failure, not a repair candidate
 - MUST handle investigator/refuter spawn failures on the Workflow path with the same explicit self-verified-marker degradation as Spawn-failure degradation (CDV-199): pass `engine.sh finalize --verification-mode self-verified` so the report carries the exact marker `self-verified — refuters unavailable` — never silent role omission; never invent a parallel degradation string
@@ -655,6 +680,22 @@ degradation marker — never invent a second string. Distinct from CDV-197
 4. Static: combining `--blind` with another scope flag, or supplying `--teams`/`--lenses`/`--target` without `--blind`, fails loudly
 5. Live (optional): `/council --blind --teams 2 --lenses security --target skills/council/` spawns unconstrained + lens reviewers in one wave, produces a tiered report under `.claude/council/`, and does not spawn a nested tribunal run
 
+### Test 23 — Report no-overwrite (WP 1-14)
+1. Hermetic temp `MROOT` (a temp git repo) and `TMPDIR`. No wall-time dependency: the test reads the date that the engine used from the first path and does not compare with a separate `date` call.
+2. Run two same-day unbound claim finalizes with the same slug. Assert two reports and two sidecars: the base path and the `-2` path. Assert that the bytes of the first report and sidecar stay the same (checksum before and after).
+3. Pre-create only a sidecar at the base path. Assert that the probe skips the base path.
+4. Assert that `plan.report_path` (after finalize), the `Council report:` line, the report on disk and the index `report_path` (task-bound case) agree.
+5. Run finalize with `--report-out PATH` twice. Assert that it writes exactly `PATH` both times and never adds `-<N>`.
+
+### Test 24 — M14 per-AC split (WP 1-14)
+1. Fixture spec in a temp git repo, committed at `HEAD`. Assert one claim per technical AC in document order, the exact claim template, `source_locator` `<path>:<line>`, `process_acs`, and Phase 1 skip.
+2. Assert exit `8` and no stdout for each SPEC-033 M14(g) fail-closed case, including an uncommitted AC source.
+3. Assert that `plan.claims[]` is not truncated by the Task-path or Workflow-path consumer (static check of `commands/council.md` and `skills/council/workflow.js`).
+
+### Test 25 — Non-M14 claim plan unchanged (WP 1-14)
+1. Run preflight for a claim that does not meet the M14 trigger. Assert that the plan JSON, without `run_id` and `cache_dir`, equals the committed golden fixture, that `claim_budget` is 10 and that `plan.claims` is absent.
+2. Assert that `skills/council/prompts/investigator.md` still sets a hard budget of 5 tool calls.
+
 ---
 
 ## Validation
@@ -691,6 +732,8 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [ ] Test 20 (plan scope) pass against the implementation
 - [ ] Test 21 (from-retro scope) pass against the implementation
 - [ ] Test 22 (blind-review scope) pass against the implementation
+- [ ] Report no-overwrite (WP 1-14): report + sidecar never overwritten via `cmd_report_path`; `-<N>` only on collision; finalize reserves atomically; `--report-out` exact; Test 23
+- [ ] M14 per-AC split (WP 1-14): `m14-ac-split.sh`; `plan.claims[]` consumed verbatim on both paths; exit 8 fail-closed; non-M14 plan unchanged; Tests 24–25
 
 ---
 
@@ -698,6 +741,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-09-26 | WP 1-14: **Phase 1** — M14 per-AC split: an M14 ship-gate claim (SPEC-033 M14(g) trigger) is split in preflight into `plan.claims[]` by `skills/council/m14-ac-split.sh`, one claim per technical AC, fixed claim template with the `[AC-<id>]` tag, `ac_source` / `process_acs` / M14(j) `claim_budget` on the plan, exit `8` fail-closed; Task and Workflow paths consume `plan.claims[]` verbatim; non-M14 claim plans unchanged (claim budget 10, 5-call investigator). **Phase 6** — report no-overwrite in every `cmd_report_path` scope: candidates `<date>-<slug>[--<task_id>].md` then `-2` … `-99`; free = report and sidecar both absent; probe at preflight / `report-path`, atomic exclusive-create reservation of report + sidecar at finalize, plan file `report_path` rewritten on a race so plan / report / `Council report:` / index agree; exit `9` when exhausted; `--report-out` keeps its exact, overwriting behavior. Finalize-meta sidecar gains `min_verdict_confidence`, `verdict_counts`, `verification_mode`, `unstruck_verdicts` and (M14 runs) `ac_source` / `ac_claims` / `process_acs`; it never matches verdicts to ACs (SPEC-033 M14(b)/(i)). Blind path resolves its path through `engine.sh report-path` (its date becomes UTC, which matches the `report-path` contract). Tests 23–25. Status stays ACTIVE. |
 | 2026-08-08 | CDT-181: Phase 6 Task Binding — index confidence normalization. `max_verdict_confidence` / `max_finding_confidence` accept JSON numbers in [0,100] including non-integers; MUST floor to int before store; stored shape remains int\|null only (never float). Reject non-numeric and OOB-after-floor. Task-bound finalize MUST NOT exit 6 solely for non-int conf. Defense-in-depth: engine max computation + index-writer. Validation checkbox added. Status stays ACTIVE. |
 | 2026-08-07 | CDT-183: Align TaskCompleted gate contract with dual-shape CDT-122 (SPEC-002 SoT + live hook). Council tiering: task gate claim scope is **policy**, not structural impossibility of finding conf; drop "can never accept / deadlock forever". CDT-122 cross-ref marked **resolved**. Phase 6 / Task-ID Plumbing: hook accepts either confidence shape (algorithm deferred to SPEC-002). Scope Exclusions: remove "MUST NOT gate on finding[]" / verdict[]-only; dual-shape + claim policy + blind still gate-ignored. Blind-path: gate-ignored via unbound / no qualifying index row (not "same as ignoring finding[]"). Validation checkbox updated. Historical Version History rows left intact. Status stays ACTIVE. |
 | 2026-07-21 | CDT-46-C3 (SPEC-013): `/council --blind` scope absorbs former `/blind-review` engine — N unconstrained + M lens-differentiated reviewers (parallel), semantic clustering, confidence tiers (Tier 1 cross-cohort ≥2 / Tier 2 same-cohort ≥2 / Tier 3 single-team); Tier-1 consensus clusters emit directly as council findings (reverse-validation self-call removed; no `--no-council`); parity flags `--teams|--lenses|--target`; scope mutually exclusive with `"<claim>"|--session|--diff|--plan|--from-retro`; `--workflow` does not apply; Covers adds `commands/blind-review.md` DEPRECATED stub; Test 22. Status stays ACTIVE. |

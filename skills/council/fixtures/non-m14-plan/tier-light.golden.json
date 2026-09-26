@@ -1,0 +1,62 @@
+{
+  "claim_budget": 10,
+  "confidence_filter_threshold": null,
+  "council_tier": "light",
+  "external": {
+    "requested": false
+  },
+  "feedback_memory_enabled": true,
+  "flavors": [
+    "paranoid-ic",
+    "jaded-senior"
+  ],
+  "grading_reason": "externally supplied tier (no grading_reason given)",
+  "last": "",
+  "mroot": "<MROOT>",
+  "output_shape": "verdict[]",
+  "phases": {
+    "1_claim_extraction": {
+      "prompt": "skills/council/prompts/claim-extractor.md",
+      "skip": true
+    },
+    "2_parallel_investigation": {
+      "min_flavors_per_claim": 2,
+      "prompt": "skills/council/prompts/investigator.md"
+    },
+    "3_domain_specialist": {
+      "classifier_prompt": "skills/council/prompts/topic-classifier.md",
+      "confidence_threshold": 0.75,
+      "deferred": false,
+      "max_specialists_per_run": 1,
+      "reason": "council_tier: light",
+      "skipped": true,
+      "specialist_prompt": "skills/council/prompts/investigator.md"
+    },
+    "4_prosecution_defense": {
+      "reason": "council_tier: light",
+      "skipped": true
+    },
+    "5_judgment": {
+      "agent": "council-judge",
+      "briefs_omitted": true,
+      "briefs_omitted_reason": "council_tier: light",
+      "inputs": [
+        "claims",
+        "evidence_bundles"
+      ],
+      "prompt": "skills/council/prompts/judge.md"
+    },
+    "6_finalize": {
+      "invoke": "engine.sh finalize --plan-file <p> --evidence-file <e> --judge-output <j>"
+    }
+  },
+  "preset": "generic",
+  "report_path": "<MROOT>/.claude/council/<DATE>-claim.md",
+  "resolved_claim": "",
+  "scope": "claim",
+  "scope_arg": "Fix the widget renderer.",
+  "slug": "claim",
+  "spec_grep": false,
+  "task_id": "",
+  "why": false
+}

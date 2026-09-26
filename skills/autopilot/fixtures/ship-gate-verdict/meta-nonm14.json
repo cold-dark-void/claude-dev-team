@@ -1,0 +1,8 @@
+{
+  "min_verdict_confidence": 90,
+  "verdict_counts": {"VERIFIED": 1, "PARTIALLY_VERIFIED": 0, "UNVERIFIED": 0, "CONTRADICTED": 0, "FABRICATED": 0},
+  "verification_mode": "full",
+  "unstruck_verdicts": [
+    {"claim": "the ordinary non-M14 claim under audit", "verdict": "VERIFIED", "confidence": 90}
+  ]
+}

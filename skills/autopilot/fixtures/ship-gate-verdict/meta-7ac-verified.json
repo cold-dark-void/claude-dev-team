@@ -1,0 +1,22 @@
+{
+  "ac_source": "specs/core/SPEC-999-fixture.md",
+  "ac_claims": [
+    {"claim_id": "c0", "ac_id": "A"}, {"claim_id": "c1", "ac_id": "B"},
+    {"claim_id": "c2", "ac_id": "C"}, {"claim_id": "c3", "ac_id": "D"},
+    {"claim_id": "c4", "ac_id": "E"}, {"claim_id": "c5", "ac_id": "F"},
+    {"claim_id": "c6", "ac_id": "G"}
+  ],
+  "process_acs": [],
+  "verification_mode": "full",
+  "min_verdict_confidence": 82,
+  "verdict_counts": {"VERIFIED": 7, "PARTIALLY_VERIFIED": 0, "UNVERIFIED": 0, "CONTRADICTED": 0, "FABRICATED": 0},
+  "unstruck_verdicts": [
+    {"claim": "[AC-A] For fixture-ticket, ... satisfies acceptance criterion A ...", "verdict": "VERIFIED", "confidence": 95},
+    {"claim": "[AC-B] For fixture-ticket, ... satisfies acceptance criterion B ...", "verdict": "VERIFIED", "confidence": 90},
+    {"claim": "[AC-C] For fixture-ticket, ... satisfies acceptance criterion C ...", "verdict": "VERIFIED", "confidence": 88},
+    {"claim": "[AC-D] For fixture-ticket, ... satisfies acceptance criterion D ...", "verdict": "VERIFIED", "confidence": 85},
+    {"claim": "[AC-E] For fixture-ticket, ... satisfies acceptance criterion E ...", "verdict": "VERIFIED", "confidence": 83},
+    {"claim": "[AC-F] For fixture-ticket, ... satisfies acceptance criterion F ...", "verdict": "VERIFIED", "confidence": 82},
+    {"claim": "[AC-G] For fixture-ticket, ... satisfies acceptance criterion G ...", "verdict": "VERIFIED", "confidence": 99}
+  ]
+}

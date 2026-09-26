@@ -1,0 +1,6 @@
+{
+  "schema_version": 1, "type": "autopilot_decision", "run_id": "orchestrate-fixture-1",
+  "gate": "ship-choice", "decision": "merge", "decided_by": "auto", "bump": "patch",
+  "confidence": 87, "blocking_condition": null, "council_tier": null,
+  "grading_reason": null, "max_loc": null
+}

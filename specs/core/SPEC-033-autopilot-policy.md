@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-08-04
 
-**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/budget-check.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/self-answer-scenarios.md`. Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223).
+**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/budget-check.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/self-answer-scenarios.md`, `skills/autopilot/ship-gate-council.md`, `skills/autopilot/ship-gate-verdict.sh` (M14(i), WP 1-14). Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223).
 
 ---
 
@@ -129,7 +129,9 @@ target.
     plan?"*). Default answer: **`approve`**. Checklist:
     (Evaluated in the canonical BC1→BC8 ordinal order, first-match-wins, dropping BCs that
     don't apply to this gate — matching M6's global evaluation order.)
-    1. Does every plan task carry concrete file paths **and** a verification step? → else BC1.
+    1. Does every plan task carry concrete file paths **and** a verification step? Does the
+       plan's `process_acs:` line equal the `[process]` tags in the `### <ticket_id>` AC
+       subsection of the spec (M14(h) guard 2)? → else BC1.
     2. Does any task perform a destructive/irreversible operation? → BC3.
     3. Is the projected **counted** (non-excluded, M15) change within the per-PR hard cap
        and the per-file size cap? → BC4. The ~1000 LOC soft cap is non-halting discipline
@@ -495,7 +497,7 @@ target.
     does **not** bind the run to a task, a plan, or any other scope, so it leaves this bullet's
     unbound-and-locators-only intent intact. No other flag may be passed. The claim string carries
     **locators only**: `ticket_id`, the decision-card ledger path (for
-    `skills/autopilot/read-cards.sh`), the spec/AC path(s), and a one-line **technical** ship
+    `skills/autopilot/read-cards.sh`), the AC source (`ac-source=<path>`, **(g)**), and a one-line **technical** ship
     claim (**CDT-185** — see process-stamp / narrow-claim rules below). Investigators pull all
     evidence themselves via their own tool calls; autopilot MUST NOT render, pre-digest, or pass
     a materialized evidence file, MUST NOT add any render-helper script, and MUST NOT inject
@@ -551,15 +553,53 @@ target.
          still maps through **(b)** to BC7 halt. **(d)** (degraded / self-verified) is
          **unchanged**.
 
-  - **(b) Verdict → confidence → BC mapping (normative).** The council's per-claim verdict
-    maps to the second `ship-choice` card as follows. First set `confidence`:
-    `VERIFIED` / `PARTIALLY_VERIFIED` → `confidence` = the council's reported confidence
-    (0–100); `UNVERIFIED` / `CONTRADICTED` / `FABRICATED` → `confidence = 0`. Then decide on
-    that `confidence`:
-    - `confidence ≥ 80` (**agree**) → `decision` = the **original** ship-choice card's decision
-      (`pr` or `merge`), `bump` copied from that original card, `blocking_condition = null`.
-    - `confidence < 80` (**disagree**) → `decision = halt`, `blocking_condition = 7`,
-      `bump = null`.
+    - **Per-AC claims in one invocation (WP 1-14).** The claim envelope MUST name exactly one
+      AC source with the locator token `ac-source=<path>` (format, trigger and split:
+      **(g)**). The council MUST audit each technical AC of the ticket as its own falsifiable
+      claim, with its AC id, in the **same** `/council` invocation. Autopilot MUST NOT run
+      one `/council` invocation per AC. The firing rule stays "exactly once per attempt".
+      Each per-AC claim carries the AC id and a `<path>:<line>` locator only. It MUST NOT
+      carry the AC text. Locators-only is unchanged.
+    - **Independent evidence stays inside M14(a) (WP 1-14).** Autopilot MUST NOT pass a QA
+      evidence file, a test-runner log, an AC→evidence map, or any other file that a
+      pipeline step wrote for the council to read. These designs are rejected: they are
+      pre-digested evidence, which this bullet and CDT-185 forbid. The card #1 stamp clears
+      a `[process]` AC **(h)**. A runner log never clears an AC.
+
+  - **(b) Per-AC aggregation → confidence → BC mapping (normative; WP 1-14).** The council
+    returns one verdict per technical AC claim **(g)**. Autopilot MUST map them to the second
+    `ship-choice` card with these steps, in this order. The verdict mapper **(i)** is the
+    only implementation of these steps.
+    1. **No usable report, or a degraded run** → **(d)**: `decision = halt`,
+       `blocking_condition = 7`, `confidence = 0`, `bump = null`. This includes a split that
+       failed closed **(g)**.
+    2. **Match verdicts to ACs.** A verdict belongs to AC `<id>` if and only if it is
+       unstruck and its `claim` text starts with the tag `[AC-<id>]`. If more than one
+       verdict belongs to one AC, use the worst verdict and the lowest confidence. The
+       order from worst to best is `FABRICATED`, `CONTRADICTED`, `UNVERIFIED`,
+       `PARTIALLY_VERIFIED`, `VERIFIED`. A verdict that belongs to no technical AC is
+       ignored.
+    3. **Missing evidence halts (AC E).** A technical AC with no verdict is **unaudited**. This covers a
+       dropped claim, a struck verdict, an empty bundle set, and a verdict outside the taxonomy. One or
+       more unaudited ACs → `decision = halt`, `blocking_condition = 7`, `confidence = 0`, `bump =
+       null`. The `rationale` MUST name every unaudited AC id. An AC over the budget is not "unaudited"
+       -- it fails the split closed at step 1, case 9 of **(g)**, before any claim exists.
+    4. **A failed AC halts.** One or more ACs with `UNVERIFIED`, `CONTRADICTED` or
+       `FABRICATED` → `decision = halt`, `blocking_condition = 7`, `confidence = 0`,
+       `bump = null`. The `rationale` MUST name every failed AC id and its verdict.
+    5. **Confidence is the minimum.** Otherwise every technical AC is `VERIFIED` or
+       `PARTIALLY_VERIFIED`. Set `confidence` to the **lowest** confidence of those
+       verdicts, floored to an integer (CDT-181 floor semantics).
+    6. **Decide.** `confidence ≥ 80` (**agree**) → `decision` = the **original** ship-choice
+       card's decision (`pr` or `merge`), `bump` copied from that original card,
+       `blocking_condition = null`. `confidence < 80` (**disagree**) → `decision = halt`,
+       `blocking_condition = 7`, `bump = null`, and `confidence` stays the minimum. The
+       `rationale` MUST name every AC id below 80.
+
+    The gate MUST NOT use `max_verdict_confidence`, a mean, a vote, or any single "overall"
+    verdict. A run that has no AC-bound claims MUST halt as in step 1: the gate fails
+    closed when the per-AC split did not run.
+
     This confidence feeds **BC7 only — never BC1.** A disagreeing / `UNVERIFIED` council verdict
     is a **resolved-negative** (the ship claim was investigated and *not* upheld), which BC1 —
     whose own text (M6.1) says ambiguity that specs or memory *do* answer "is not a blocker" —
@@ -655,6 +695,133 @@ target.
     - The re-offer is an **escalation affordance, not an auto-action**. Autopilot MUST NOT
       self-answer it, auto-re-run the council at `full`, or otherwise proceed past the halt (N2 /
       M7) — a BC7 halt still requires a human.
+
+  - **(g) AC source and per-AC split (normative; WP 1-14).** The AC source is the committed
+    spec that the claim envelope names with `ac-source=<path>`.
+    - **Path.** `<path>` is relative to the worktree top level
+      (`git rev-parse --show-toplevel`). The split MUST read the file content at `HEAD`
+      (`git show HEAD:<path>`), not the working tree. `<path>` MUST be relative and MUST NOT
+      hold a `..` segment; else the split fails closed (case 1 below).
+    - **Not an AC source.** Gitignored kickoff plans, backlog carriers, and spec checkbox
+      sections (for example a `## Validation` list) MUST NOT be used as the AC source.
+    - **Format.** The spec MUST hold one `## Acceptance criteria` section. The section MUST
+      hold one `### <ticket_id>` subsection for the ticket that ships. Each AC is one
+      bullet at column 0:
+
+      ```
+      ## Acceptance criteria
+
+      ### <ticket_id>
+
+      - **A.** <text>
+      - **B.** [process] <text>
+        - <optional continuation, indented by two or more spaces>
+      ```
+
+      - The section runs from the `## Acceptance criteria` line to the next `## ` heading or
+        the end of file. The subsection runs from the line `### <ticket_id>` (exact text)
+        to the next `### ` or `## ` heading, the next `---` line, or the end of file.
+      - An AC bullet matches `^- \*\*([A-Z][A-Z0-9]{0,3})\.\*\* (\[process\] )?\S`. Group 1
+        is the AC id. The optional `[process]` tag comes directly after the id.
+      - In the subsection, a line MUST be blank, an AC bullet, or a continuation line
+        (indented by two or more spaces).
+      - The `### <ticket_id>` subsection binds the ACs to one ticket. A spec that many
+        tickets amend keeps one subsection per ticket, so a later ticket cannot ship on the
+        ACs of an earlier ticket.
+    - **Trigger.** The split MUST fire if and only if the scope is `claim`, the claim text
+      starts with `Ship-gate audit for <ticket_id>.`, and the claim text holds one or more
+      `ac-source=` tokens. The token value is the non-space text after `ac-source=`. Every
+      other `/council` claim keeps the one-element claim path, and its investigation-plan
+      JSON MUST NOT change (AC G). An M14 envelope with no `ac-source=` token does not
+      split; the mapper then halts it, because the run has no AC-bound claims **(b)**.
+    - **Split.** The council preflight MUST emit one claim per technical AC, in document
+      order, in `plan.claims[]`, with no LLM step. SPEC-013 Phase 1 owns the claim record
+      and the claim text template. A `[process]` AC gets no claim; its id goes to
+      `plan.process_acs[]`.
+    - **Fail closed.** The split MUST refuse to emit a plan, and the run MUST end with no
+      report, when one or more of these is true:
+      1. `<path>` is absent at `HEAD`, or the envelope holds two or more
+         `ac-source=` tokens.
+      2. The `## Acceptance criteria` heading is missing.
+      3. The `### <ticket_id>` subsection is missing.
+      4. The subsection holds zero AC bullets.
+      5. A line in the subsection is not blank, not an AC bullet, and not a continuation
+         line.
+      6. Two AC bullets have the same id.
+      7. Zero technical ACs remain after the `[process]` ACs are removed **(h)**.
+      8. A `[process]` AC fails guard 1 **(h)**.
+      9. The technical AC count is more than the M14 claim budget **(j)**.
+
+      The stderr line MUST name the cause and, for cases 6 and 9, the AC ids. Autopilot then
+      takes step 1 of **(b)** (`halt`, BC7, `confidence = 0`), and the `rationale` MUST
+      name the cause.
+    - **Writers.** The ticket's ACs MUST reach the spec before ship. `/orchestrate` Step 6
+      (and the Step 4 scoper at the `light` tier) and `/kickoff` Step 5 MUST write the
+      confirmed ACs into the `### <ticket_id>` subsection. Step 10b MUST confirm that the
+      subsection exists and holds every confirmed AC. A missing subsection at Step 10b MUST
+      go back to the Tech Lead before ship.
+
+  - **(h) `[process]` ACs (normative; WP 1-14).** A `[process]` AC asserts only test, gate
+    or CI execution (for example, "the full test runner exits 0"). The council MUST NOT
+    audit it. The card #1 process stamp (M14(a) CDT-185) clears it. Three guards apply:
+    1. **Guard 1 (deterministic, at split time).** The text of a `[process]` AC MUST hold at
+       least one of these whole words, in any letter case: `test`, `tests`, `suite`,
+       `suites`, `runner`, `gate`, `gates`, `CI`, `release`. Else the split fails closed
+       **(g)**. This guard proves execution vocabulary only. It cannot prove that the AC
+       asserts no diff content; guard 2 covers that gap.
+    2. **Guard 2 (plan-approve).** The Tech Lead MUST list the `[process]` AC ids in the
+       plan on one line, `process_acs: <ids|none>`. The plan-approve answer (human or
+       autopilot) MUST confirm that this list equals the tags in the spec. An AC that
+       asserts diff content MUST NOT carry the tag.
+    3. **Guard 3 (deterministic, fail closed).** The split fails closed when zero technical
+       ACs remain **(g)**. The verdict mapper **(i)** MUST halt (`halt`, BC7,
+       `confidence = 0`) when `plan.process_acs[]` is not empty and card #1 does not match
+       the M14(a) stamp shape.
+
+    An AC that mixes execution and diff content MUST be split into two ACs, or written
+    without the tag.
+
+  - **(i) Verdict mapper (normative; WP 1-14).** `skills/autopilot/ship-gate-verdict.sh` is
+    the only implementation of **(b)**. It is a pure `jq` mapper over the council's own
+    verdict output.
+    - **Inputs.** The `.finalize-meta.json` sidecar of this run's report (SPEC-013
+      Phase 6), card #1 as JSON, and the resolved `council_tier`. Or, when there is no
+      usable report, one `--no-report <cause>` argument.
+    - **Output.** One JSON object on stdout with `decision`, `blocking_condition`,
+      `confidence`, `bump` and `rationale` for card #2. The `rationale` names the tier
+      **(f)**.
+    - **Limits.** It MUST run after the verdict. It MUST NOT read evidence, spawn an agent,
+      call `/council`, or write a file. It MUST NOT feed anything to the council.
+    - **Not a render helper.** M14(a) bans a render-helper script that feeds the council.
+      The mapper reads the verdict after the council ends, so the ban does not apply. The
+      ban stays in force for every other script.
+
+  - **(j) M14 claim budget (normative; WP 1-14).** One setting sets the maximum technical AC
+    count for an M14 split: the constant `M14_AC_BUDGET` in `skills/council/engine.sh`.
+    - The default is `16`. The hard ceiling is `M14_AC_BUDGET_CEILING=20`. A value above
+      the ceiling MUST make the split fail closed.
+    - Only the Tech Lead can raise the value, with a committed change and a new row in this
+      spec's Version History.
+    - The split MUST NOT read an environment variable, a flag, a plan field, or a spec
+      field to change the value. A per-WP override MUST NOT exist.
+    - The budget applies to M14 split runs only. Every other `/council` caller keeps the
+      SPEC-013 claim budget of 10 and the 5-call investigator budget
+      (`skills/council/prompts/investigator.md`).
+
+  - **(k) Tests (WP 1-14).** These tests MUST run in `tools/run-all-tests.sh`. They MUST
+    start no live council and MUST write only under `TMPDIR`.
+    - **Gate outcome fixtures.** For each fixture, assert card #2 `decision`,
+      `blocking_condition`, `confidence` and `bump`: (i) all 7 ACs `VERIFIED` at 80 or
+      higher → agree, `bump` copied; (ii) one `CONTRADICTED` → halt, 0; (iii) one AC
+      missing → halt, 0; (iv) one AC at 79 → halt; (v) self-verified with all ACs at 95 →
+      halt, 0. Add the `[process]` fail-closed cases: zero technical ACs, a guard 1 miss,
+      and a stamp-shape miss with a `[process]` AC.
+    - **Static guardrails.** Assert in this spec and in `skills/autopilot/ship-gate-council.md`:
+      M14 fires once per attempt with exactly two cards; BC7 is reused and no ninth BC
+      exists; no auto-clear, no self-answer past BC7 and no auto re-run; the **(d)**
+      degraded rule is unchanged; `--council-tier` is the only flag.
+    - **Non-M14 unchanged.** Assert that the preflight plan JSON of a non-M14 claim is
+      unchanged, with `claim_budget` 10, and that the investigator budget stays 5 calls.
 
 ### AC8 — LOC exclusion + `--max-loc` override (CDT-223)
 
@@ -988,6 +1155,13 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
   budget-tier. Nested `budget.tier` is **not** `--tier` and is **not** `council_tier`.
   MUST NOT raise the auto-tune L ceiling above 40 / 4500. MUST NOT add a `/setup`
   budget store. MUST NOT reimplement `loc-exclude.sh`.
+- **N15** — MUST NOT use `max_verdict_confidence`, a mean, or one "overall" verdict to
+  decide the M14 gate (M14(b), WP 1-14). MUST NOT audit all ACs in one claim.
+- **N16** — MUST NOT read an environment variable, a flag, or a plan or spec field for the
+  M14 claim budget. MUST NOT set it above `M14_AC_BUDGET_CEILING` (M14(j)). MUST NOT
+  truncate, merge, or drop AC claims to fit the budget.
+- **N17** — MUST NOT clear an AC with a runner log, a QA evidence file, or an AC→evidence
+  map (M14(a), M14(h)). MUST NOT tag an AC `[process]` when it asserts diff content.
 
 ---
 
@@ -1006,10 +1180,57 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
 
 ---
 
+## Acceptance criteria
+
+Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
+`### <ticket_id>` subsection below.
+
+### wp-1-14-m14-ship-gate-evidence
+
+- **A.** SPEC-033 M14 has a dated revision row that states the multi-AC evidence rule and names the adversarial review report. `skills/autopilot/ship-gate-council.md` cites M14 and does not restate it.
+- **B.** The guardrails stay, and a static test asserts each one in SPEC-033 and in `skills/autopilot/ship-gate-council.md`:
+  - M14 fires once per attempt, with exactly two cards.
+  - BC7 is reused; no ninth BC is added.
+  - There is no auto-clear, no self-answer past BC7 and no auto re-run.
+  - The M14(d) degraded rule is unchanged (self-verified or total spawn fail → halt, confidence 0).
+  - `--council-tier` is the only flag.
+- **C.** Each technical AC of a WP is audited as its own falsifiable claim with its AC id, in one `/council` invocation. The claim envelope names the AC source with `ac-source=<path>`. The AC source is the `## Acceptance criteria` section of the committed spec (M14(g)). Spec checkbox sections, kickoff plans and carriers are not the AC source.
+- **D.** Aggregation follows M14(b):
+  - Agree only if every AC claim is `VERIFIED` or `PARTIALLY_VERIFIED` at 80 or higher.
+  - Card #2 confidence is the lowest AC claim confidence.
+  - Any `UNVERIFIED`, `CONTRADICTED` or `FABRICATED` claim gives confidence 0 and BC7.
+  - The gate never uses `max_verdict_confidence`.
+- **E.** Missing evidence halts. An AC with no verdict gives BC7 and confidence 0, and the rationale names the unaudited AC ids. This covers dropped claims and empty bundles. An AC over the budget is not "unaudited": it fails the split closed at M14(g) case 9, step 1 of M14(b), before any claim exists. The `[process]` rules fail closed: zero technical ACs, a guard 1 miss, or a `[process]` AC with no matching card #1 stamp gives BC7 and confidence 0.
+- **F.** A deterministic fixture test of the gate outcome (card #2 decision, blocking_condition, confidence and bump) covers these cases, plus the `[process]` fail-closed cases:
+  - (i) all 7 ACs `VERIFIED` at 80 or higher → agree, bump copied;
+  - (ii) one `CONTRADICTED` → halt, 0;
+  - (iii) one AC missing → halt, 0;
+  - (iv) one AC at 79 → halt;
+  - (v) self-verified with all ACs at 95 → halt, 0.
+  The test is discovered by `tools/run-all-tests.sh`, starts no live council and writes only under `TMPDIR`.
+- **G.** The change is scoped to M14. Every other `/council` caller keeps 5 calls per investigator and a 10-claim budget. A test asserts that the non-M14 claim plan JSON is unchanged.
+- **H.** Independent evidence stays within M14(a). No QA evidence file, runner log or AC→evidence map is passed to the council.
+- **I.** [process] An attended replay of the new M14 ship gate against WP 1-02 (`2069426..fbfe91d`, 7 ACs, 37 files) reaches 80 or higher. The replay is read-only and writes no `.claude/autopilot/wp-1-02-*.jsonl` file. Its report path, verdict and council wall time go in the ship notes. A halt for a real evidence gap fails this AC.
+- **J.** BC6 and the wall-clock caps are unchanged.
+- **K.** A council report and its `.finalize-meta.json` sidecar are never overwritten, in any scope of `cmd_report_path`.
+- **L.** With no collision, the report path is byte-identical to the path before this change. On a collision, the new path is deterministic and unique (`-<N>`, N ≥ 2). `plan.report_path`, the finalize write, the `Council report:` line and the index `report_path` agree.
+- **M.** Finalize reserves the report path again at write time and never overwrites a file without a message.
+- **N.** An explicit `--report-out PATH` keeps its behavior before this change, and the docs state this.
+- **O.** A regression test shows that two same-day unbound claim runs give two reports and two sidecars, and that the bytes of the first report stay the same. The test is hermetic (temp MROOT) and does not depend on wall time.
+- **P.** The path contract homes are updated: `skills/council/SKILL.md` (canonical report path and the blind-path report line) and SPEC-013 Phase 6, Task Binding, the blind path and the Council-on-Workflow naming.
+- **Q.** [process] `bash tools/run-all-tests.sh` exits 0, and every `/release` gate passes.
+- **R.** [process] The plan-approve council gate (council-full) reviewed the SPEC-033 M14 revision. Every `CONTRADICTED` or `FABRICATED` item is resolved or rejected with a reason.
+- **S.** [process] The ship gate of this WP runs the old rule, because skills load from `master`. A BC7 halt and an attended `--resume-ship=patch` are expected.
+- **T.** Each other defect found is recorded as a local backlog item and is not fixed in this WP.
+
+---
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-09-26 | WP 1-14 step 10b, TL raise (M14(j)): `M14_AC_BUDGET` raised from `10` to `16` in `skills/council/engine.sh`. Reason: this WP's own AC subsection (`### wp-1-14-m14-ship-gate-evidence`) holds 16 technical ACs, which would fail the split closed under the old budget. The hard ceiling `M14_AC_BUDGET_CEILING=20` is unchanged. |
+| 2026-09-26 | WP 1-14 (`m14-investigator-budget-scales-with-scope`): **M14 per-AC evidence.** **M14(a)** — the claim envelope names one AC source (`ac-source=<path>`); the council audits each technical AC as its own claim in the same invocation; per-AC claims carry the AC id and a `<path>:<line>` locator, never AC text; a QA evidence file, runner log or AC→evidence map MUST NOT reach the council (design (c) rejected; design (b), a budget that scales, rejected because one verdict dilutes a failed AC and raises cost for every caller). **M14(b)** rewritten — per-AC aggregation: agree only if every AC is `VERIFIED`/`PARTIALLY_VERIFIED` at 80 or higher; card #2 confidence = the lowest AC confidence; any `UNVERIFIED`/`CONTRADICTED`/`FABRICATED`, missing, struck, or over-budget AC → BC7, confidence 0, rationale names the AC ids; never `max_verdict_confidence`. **M14(g)** — AC source format: committed spec at `HEAD`, `## Acceptance criteria` → `### <ticket_id>` → bullets `- **A.** <text>` with an optional `[process]` tag; split trigger (claim scope + `Ship-gate audit for <ticket_id>.` + an `ac-source=` token; two or more tokens fail closed; zero tokens do not split and the mapper halts); nine fail-closed cases; kickoff / Step 6 / Step 10b write and check the ACs. The `### <ticket_id>` subsection is a Tech Lead refinement of the advisor format: it stops a later ticket from shipping on the ACs of an earlier ticket. **M14(h)** — `[process]` ACs cleared by the card #1 stamp; guard 1 (execution vocabulary), guard 2 (`process_acs:` plan line, confirmed at plan-approve), guard 3 (zero technical ACs, or a stamp-shape miss → BC7). **M14(i)** — verdict mapper `skills/autopilot/ship-gate-verdict.sh`: pure `jq` over the finalize-meta sidecar and card #1, after the verdict; not a render helper. **M14(j)** — one M14-only budget `M14_AC_BUDGET=10` in `engine.sh`, hard ceiling 20, no env/flag/per-WP override. **M14(k)** — fixture, static-guardrail and non-M14-unchanged tests. **M4** `plan-approve` item 1 gains the guard 2 check (`process_acs:` equals the spec tags, else BC1). **N15–N17** added. Firing rule, two cards, BC7 reuse (no ninth BC), (c), (d), (e), (f), BC6 and wall-clock caps unchanged. New `## Acceptance criteria` section holds this WP's ACs. Adversarial review (AC R): `.claude/council/2026-09-26-plan-2026-09-26-wp-1-14-m14-ship-gate-evidence-plan.md` (full tier; flavors paranoid-ic, jaded-senior, security). 10 claims: 3 VERIFIED, 7 PARTIALLY_VERIFIED, 0 UNVERIFIED/CONTRADICTED/FABRICATED. Rejected: the prosecutor asked for CONTRADICTED on not-yet-implemented code (C1, C4, C5, C7, C8, C9); the judge refused, because absent code cannot contradict a plan. Accepted as residual: C6 (VERIFIED at 78) — guard 1 is lexical, so a diff-content AC mis-tagged `[process]` escapes audit; mitigations are guard 1's execution vocabulary, guard 2 (TL confirms `process_acs:` at plan-approve), and guard 3 fail-closed. Struck sub-claims move to implementation: T2 makes the report and sidecar reservation two sequential exclusive creates with a rollback, not one atomic step; T5 checks the stamp-shape field list against real cards; the budget-greater-than-ceiling branch stays unreachable while the constants are fixed. Status stays DRAFT. |
 | 2026-08-27 | CDT-224: **AC9 / M9b** — `/orchestrate` BC6 auto-tune from plan-approve signals (task count, counted LOC via M15, parallel waves). Tiers L-first then S else M; L ceiling 40 / 4500; S 10 / 1200; M 25 / 2700. Precedence per cap: env (non-empty) > auto-tune > static M. No cap flags; `parse-flags.sh` stays six-key. Freeze once before BC walk; ledger SoT on resume; no `AUTOPILOT_*_CAP` export. Kickoff / epic Mode A stay static. M10.6 uses L ceiling 4500 at unfrozen scope-confirm unless wall-clock env set; frozen cap after plan-approve. M13 nested `budget.{tier,source,signals}` additive nullable; 18 top-level keys; schema_version 1. Helper argv: argc 2 unchanged, argc 4 verbatim freeze, `derive` subcommand. Writer `AUTOPILOT_BUDGET_META`. N12–N14. Status stays DRAFT. |
 | 2026-08-27 | CDT-223: **AC8 / M15 / M16** — counted-LOC exclusion (`.gitattributes linguist-generated` ∪ built-in lockfile/`*.snap`/vendored-prefix list ∪ SPEC-009 specs/tests exemption) for BC4 per-PR, BC4 per-file, and M10.1; same definition for interactive SPEC-009 change-discipline. DRI `--max-loc=<n\|unbound>` flag-only (six-key `parse-flags.sh`, no env, junk→64, last-wins, not resume-seeded, not auto-propagated on reroute-epic). `n` raises/tightens per-PR hard cap + M10.1 only (per-file 1000 unchanged); `unbound` disables BC4 (per-PR and per-file) and M10.1; M10.2–6 / BC6 / BC3 / BC7 unchanged. M13 additive nullable `max_loc` (`schema_version` stays 1; `decided_by` stays `auto` on self-answer). Helper `skills/autopilot/loc-exclude.sh`. Scaffold seeds `.gitattributes`. Status stays DRAFT. |
 | 2026-08-16 | CDT-196: M11a(a) BC5 carry-forward MUST pass `--worktree --release <bump>` when bump is patch/minor/major; `/epic` persists `release_bump` so children cannot land on master. |

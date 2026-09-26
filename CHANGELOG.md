@@ -6,6 +6,13 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.19
+- **WP 1-14 M14 ship gate audits each AC** — the ship-gate claim carries `ac-source=<spec>`; preflight splits the spec's `## Acceptance criteria` / `### <ticket>` bullets into one claim per technical AC (new `skills/council/m14-ac-split.sh`, `engine.sh m14-check`), all in one `/council` run. `[process]` ACs are cleared by the card #1 stamp under three guards. Contract in SPEC-033 M14(a)–(k).
+- **Verdict mapper** — new `skills/autopilot/ship-gate-verdict.sh` turns the finalize-meta sidecar into card #2: agree only when every AC is VERIFIED or PARTIALLY_VERIFIED at 80 or more (confidence = minimum); any failed, missing or over-budget AC, a self-verified run, or malformed input halts on BC7 with confidence 0. No new blocking condition, no auto-clear.
+- **Council reports never overwrite each other** — finalize reserves the report and its `.finalize-meta.json` sidecar with exclusive creates and adds `-2`…`-99` on a collision (exit 9 when exhausted); the probe also exits 9. `--report-out` is unchanged. Contract in SPEC-013 Phase 6.
+- **Finalize-meta sidecar** adds `min_verdict_confidence`, `verdict_counts`, `verification_mode`, `unstruck_verdicts` and, for M14 runs, `ac_source`, `ac_claims`, `process_acs`. Non-M14 plans are byte-identical (golden test).
+- **AC writers** — orchestrate Steps 4, 6 and 10b and `/kickoff` write confirmed ACs into the committed spec and record `process_acs:`; Step 10b runs `engine.sh m14-check` as a backstop. `M14_AC_BUDGET` is 16 (ceiling 20).
+
 ### v1.18.18
 - **WP 1-03 Release path pushes only its own tag (CDT-425, CDT-341, CDT-274)** — new `push-release.sh` runs `git push --atomic --no-follow-tags <remote> refs/heads/<branch> refs/tags/vX.Y.Z`. Stray local tags no longer reach origin, and a failed atomic push leaves the remote unchanged. Contract in SPEC-010 R1–R3.
 - **Release step scripts** — `step0.sh` (detached HEAD → 64, epic guard, jq missing → 69) and `ship-start.sh` (ship-start SHA, D4 tag snapshot under the git dir, `--path`/`--list`/`--clear`, stale sweep). Every gate fence in `/release` now resolves through PDH.

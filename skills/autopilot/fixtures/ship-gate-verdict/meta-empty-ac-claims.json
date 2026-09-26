@@ -1,0 +1,9 @@
+{
+  "ac_source": "specs/core/SPEC-999-fixture.md",
+  "ac_claims": [],
+  "process_acs": [],
+  "verification_mode": "full",
+  "min_verdict_confidence": null,
+  "verdict_counts": null,
+  "unstruck_verdicts": []
+}

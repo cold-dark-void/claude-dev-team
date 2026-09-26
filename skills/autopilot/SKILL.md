@@ -81,7 +81,9 @@ that don't apply to this gate — so it agrees with the "8 blocking conditions" 
 *(Evaluate in the canonical BC1→BC8 ordinal order, first-match-wins — dropping BCs
 that don't apply to this gate — so it agrees with the "8 blocking conditions" section.)*
 
-1. Does every plan task carry concrete file paths **and** a verification step? → else **BC1**.
+1. Does every plan task carry concrete file paths **and** a verification step, **and** does
+   the plan's `process_acs:` line equal the `[process]` tags in the spec's `### <ticket_id>`
+   AC subsection (SPEC-033 M14(h) guard 2)? → else **BC1**.
 2. Does any task perform a destructive / irreversible operation? → **BC3**.
 3. Is the projected **counted** (non-excluded, M15) change within the per-PR hard cap
    and the per-file size cap? → **BC4**. The ~1000 LOC soft cap is non-halting discipline
@@ -124,8 +126,8 @@ that don't apply to this gate — so it agrees with the "8 blocking conditions" 
    (same safety as release land — not a false halt merely because default is protected).
 3. Budget (**BC6**) and confidence (**BC7**).
 
-See `skills/autopilot/ship-gate-council.md` for the mandatory council pass that gates every
-clean ship-choice answer (SPEC-033 M14).
+See `skills/autopilot/ship-gate-council.md` for the mandatory per-AC council pass that gates
+every clean ship-choice answer (SPEC-033 M14).
 
 See `skills/autopilot/end-state.md` for the dual land end-state sequences (BC3
 deterministic push-target check + squash-stage, then **release** via `/release` **or**
