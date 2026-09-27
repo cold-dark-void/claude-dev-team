@@ -38,7 +38,9 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 
 Local write-through paths below are relative to `$BACKLOG_ROOT` for **index
 discovery**, but close/reconcile CLIs resolve root as `--root` if set, else
-`git rev-parse --show-toplevel`, else `pwd` (worktree-correct for on-disk files).
+`$MROOT` (the parent of `git rev-parse --git-common-dir`; SPEC-009 § Backlog
+root rule), else `pwd` outside git — every linked worktree reads and writes
+the one shared store.
 
 ### MCP posture (all subcommands)
 
@@ -284,7 +286,7 @@ for the **local** write-through:
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
-# ROOT = worktree/show-toplevel (on-disk write-through), NOT git-common-dir
+# ROOT = MROOT by default (shared store; SPEC-009 § Backlog root rule); --root overrides
 bash "$CLOSE" <slug-or-title> \
   [--ticket <ISSUE-ID>] [--sha <sha>] [--note <text>] \
   [--root <path>] [--status COMPLETED|FIXED/CLOSED]
@@ -294,6 +296,14 @@ bash "$CLOSE" verify <slug-or-title> [--root <path>]
 
 `close.sh` is subprocess-only, bash-only (no MCP). It is **idempotent**
 (re-close → `Already closed:`). Does **not** git-commit or stage.
+
+**Lock (SPEC-009 § Backlog write integrity).** `close.sh` in close mode holds one
+shared `mkdir` lock, `<root>/.claude/backlog.lock/`, over the whole read-decide-write
+(`close.sh verify` takes no lock). A fresh lock makes the caller wait at most
+`BACKLOG_LOCK_WAIT_SECONDS` (default 30); on timeout it exits 1 with the lock path
+on stderr and no file changes. A stale lock — stamp `BACKLOG_LOCK_TTL_SECONDS`
+(default 60) or more seconds old, or missing/unparseable — is reclaimed.
+It fails fast only when `<root>/.claude` is not writable, and exits 1 when its stamp write fails (SPEC-009 documents the double-reclaim residual).
 
 **Terminal classification** (verify + idempotent re-close) uses the shared
 classifier `skills/backlog/terminal-status.sh` — single definition of truth
@@ -372,9 +382,18 @@ Run the deterministic CLI (subprocess-only; does **not** git-commit — and MUST
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 RECON=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/reconcile.sh)
-# ROOT = worktree/show-toplevel (on-disk write-through), NOT git-common-dir.
+# ROOT = MROOT by default (shared store; SPEC-009 § Backlog root rule); --root overrides
 bash "$RECON" [--root <path>] [--dry-run] [--linear-verdicts <file>]
 ```
+
+**Lock (SPEC-009 § Backlog write integrity).** In apply mode, `reconcile.sh`
+holds the same shared `mkdir` lock as `close.sh`, `<root>/.claude/backlog.lock/`,
+over the whole read-decide-write (`--dry-run` takes no lock). A fresh lock makes
+the caller wait at most `BACKLOG_LOCK_WAIT_SECONDS` (default 30); on timeout it
+exits 1 with the lock path on stderr and no file changes. A stale lock — stamp
+`BACKLOG_LOCK_TTL_SECONDS` (default 60) or more seconds old, or missing/unparseable
+— is reclaimed.
+It fails fast only when `<root>/.claude` is not writable, and exits 1 when its stamp write fails (SPEC-009 documents the double-reclaim residual).
 
 #### What it does (LOCAL pass — always)
 
@@ -394,9 +413,13 @@ bash "$RECON" [--root <path>] [--dry-run] [--linear-verdicts <file>]
   with no other record of it would be a silent loss. It is never auto-added to the index either
   (that would be inventing a new item); a human decides — `/backlog add` to track it properly, or
   delete it if it's stale.
-- The index is rebuilt deterministically: header/preamble preserved verbatim, surviving **pending**
-  rows emitted in first-seen order under `## Pending`; `## Completed` stays present but empty
-  (pruned rows are never re-listed there).
+- The index is **line-preserving** (SPEC-009 § Backlog write integrity): reconcile drops only
+  the rows it decides to remove — terminal (pruned), dead-reference and duplicate rows. Every
+  other line — headings, prose, blank lines, nested content and kept rows — stays byte-identical
+  and in its original position, except that a missing final newline is added
+  when the index is rewritten. Reconcile never adds, moves, re-orders or re-tags
+  a line. When it drops nothing, it does not rewrite the index; a second run
+  reports no changes.
 
 #### Precedence — Linear is source of truth when reachable
 
@@ -420,9 +443,15 @@ contract):
 
 **Verdicts file format** (`--linear-verdicts`): either TSV lines `<slug>\t<state>`, or JSON — a
 flat object `{"<slug>":"<state>",...}` or an array of objects each with a `slug`/`id` and a
-`state`/`status` key. Non-terminal states are ignored (they never override local; the local pass
-may still close an item whose own file already reads terminal). A blank state is treated as
-terminal.
+`state`/`status` key. JSON is parsed with `jq` only, never a regular expression, and the result does
+not depend on key order; when `jq` is not on `PATH`, a JSON verdicts file is refused (exit 1, no
+writes) — a TSV file needs no `jq`. In an array object, `slug` wins over `id` and `state` wins over
+`status`; a key with a `null` value counts as absent. For JSON input, malformed JSON, another top-level type, a
+non-object array element, or a missing/non-string slug gives exit 1 with no file changes.
+A file whose first non-blank character is `{` or `[` is JSON; any other file is TSV.
+**A blank state is non-terminal** (CDT-267): a TSV line with an empty state, a bare slug line, or a
+JSON `""`/`null` state prunes nothing — the slug falls through to its local item-file status, so a
+locally open item stays open with no file written.
 
 #### Idempotency & dry-run
 
@@ -480,7 +509,9 @@ Then fall back to local index:
 2. If it doesn't exist, output: `No backlog found. Run /backlog init to create one.`
 3. Otherwise, print:
    - All **Pending** items (with file links if terminal supports it)
-   - Count of **Completed** items (don't list them unless there are 0 pending)
+   - Count of **Completed** rows closed since the last `/backlog reconcile` (reconcile prunes
+     terminal rows rather than archiving them, so this count is 0 after a clean reconcile;
+     don't list them unless there are 0 pending)
 
 Example output:
 
@@ -491,7 +522,7 @@ Pending (2):
   • sort-dropdown-queue-view  Sort dropdown when queue view is on
   • dark-mode                 Add dark mode support
 
-Completed: 3 items (see .claude/backlog.md for details)
+Completed: 2 items closed since the last reconcile (see .claude/backlog.md for details)
 ```
 
 ---

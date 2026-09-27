@@ -5,6 +5,7 @@
 .claude/hooks/
 .claude/backlog/
 .claude/backlog.md
+.claude/backlog.lock/
 .claude/plans/
 .claude/plans.md
 .claude/epics/

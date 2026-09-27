@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/orchestrate/steps/cross-cutting.md` (LOC change-discipline, CDT-223), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206; `--max-loc`, CDT-223), `skills/autopilot/loc-exclude.sh` (CDT-223), `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`
+**Covers**: `skills/kickoff/SKILL.md`, `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/orchestrate/steps/02-scope.md` (auto-size, CDT-210), `skills/orchestrate/steps/{04-kickoff,05-questions,06-design,07-tasks,08-execute,09-review,10-qa,12-wrap}.md` (light path, CDT-207–209), `skills/orchestrate/steps/cross-cutting.md` (LOC change-discipline, CDT-223), `skills/autopilot/parse-flags.sh` (`/orchestrate --tier`, CDT-206; `--max-loc`, CDT-223), `skills/autopilot/loc-exclude.sh` (CDT-223), `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223), `skills/brainstorm/SKILL.md`, `commands/status.md` (`/status` + `/status standup`, CDT-46-C4), `skills/standup/SKILL.md` (internal skill-delegate backend for `/status standup`), `skills/wrap-ticket/SKILL.md`, `skills/backlog/SKILL.md`, `skills/backlog/{close,reconcile,lock}.sh` and `skills/lib/portable.sh` (§ Backlog write integrity, WP 1-04)
 
 ## Overview
 
@@ -76,7 +76,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST resolve `$MROOT` with the worktree-aware formula: `_gc=$(git rev-parse --git-common-dir 2>/dev/null) && MROOT=$(cd "$(dirname "$_gc")" && pwd) || MROOT=$(pwd)` — task metadata is shared across worktrees
 - MUST resolve ticket source at intake when possible: `linear` (MCP hit), `backlog` (`.claude/backlog/<slug>.md` or index match), or `freeform` (paste)
 - MUST record a plan Tracking section with `source`, `ticket_id`, and `closes:` (zero or more `backlog/<slug>.md` and/or `linear:<ID>` entries); many-to-one closes allowed
-- MUST close every plan `closes:` backlog item (item file Status + index line via write-through) as part of ship on the feature worktree — local status flip only; MUST NOT stage or commit `.claude/backlog*` into the product delivery commit (CDT-54)
+- MUST close every plan `closes:` backlog item (item file Status + index line via write-through) as part of ship, run from the feature worktree against the one shared store at `$MROOT` (§ Backlog root rule) — local status flip only; MUST NOT stage or commit `.claude/backlog*` into the product delivery commit (CDT-54)
 - MUST close local backlog write-through for plan `closes:` backlog entries at ship (item Status + index via `close.sh`); fail-open Linear separately
 - **Linear lifecycle (status truth = code location):**
   - **In Progress** when work starts (orchestrate worktree)
@@ -85,7 +85,7 @@ The main delivery pipeline from idea to shipped code. Covers Socratic design ref
 - MUST attempt Linear **In Review** (not Done) on PR-stop when `closes:` lists `linear:<ID>` or source is linear and MCP is available; fail-open with a warning if MCP is unavailable
 - MUST attempt Linear **Done** on master-land ship paths and on wrap-ticket when MCP is available; fail-open with a warning if MCP is unavailable
 - MUST NOT block ship on empty `closes:` (freeform); MUST block ship if a non-empty backlog close fails verify on local write-through
-- MUST use worktree root (`git rev-parse --show-toplevel` or explicit `--root`) when editing local backlog write-through files for close-out — not `git-common-dir` alone
+- MUST edit local backlog write-through files for close-out in the shared store at `$MROOT` (the parent of `git rev-parse --git-common-dir`; SPEC-002 shared-root), through the `close.sh` default root or an explicit `--root "$MROOT"`. MUST NOT pass a worktree toplevel (`git rev-parse --show-toplevel`, `$WT_PATH`) as the backlog root: a linked worktree has no store, so close skips and verify fails (CDT-351)
 
 #### Orchestrate `--tier` (CDT-206)
 
@@ -210,7 +210,7 @@ When `[ "$ORCH_TIER" = "null" ]` (no `--tier`):
 - MUST search case-insensitive for close target (slug or title)
 - MUST ask user to clarify if multiple matches on close
 - MUST provide a deterministic subprocess CLI `skills/backlog/close.sh` for close + verify (idempotent; no git commit inside the script)
-- MUST resolve close/verify root as `--root` if set, else `git rev-parse --show-toplevel`, else `pwd`
+- **Backlog root rule (CDT-351).** `close.sh` (close + verify) and `reconcile.sh` MUST resolve the backlog root as `--root PATH` if set, else `$MROOT` — the parent of `git rev-parse --git-common-dir`, the same root `/backlog add` writes (SPEC-002 shared-root) — else `pwd` outside a git repository. Every linked worktree therefore reads and writes the one shared store. The former default (`git rev-parse --show-toplevel`) is withdrawn.
 - **Linear-first when MCP reachable (CDT-54).** `/backlog add` MUST create (or link) a Linear issue first when the Linear MCP is available, then **always** dual-write the local index + item with Linear id linkage. `/backlog list` MUST prefer Linear open issues as the preferred SoT for open work when MCP is up, presenting local files as write-through. `/backlog close` MUST mark the Linear issue terminal when MCP is up **and** always flip local item + index to COMPLETED.
 - **MCP-down fail-open.** When Linear MCP is absent or errors, add/list/close MUST degrade to local-only semantics, emit a single one-line notice, and MUST NOT block, retry-loop, or hard-fail the Surface.
 - **MUST NOT commit process trackers.** Skills/commands MUST NOT stage or commit `.claude/backlog*`, `.claude/plans*`, or other process state under `.claude/` as product delivery (v1.0 invariant: `.claude` process state never upstream). Local write-through remains on disk only.
@@ -239,10 +239,15 @@ inline copy.
   is allowed). Unanchored substring match is **forbidden** (e.g. `UNDONE` MUST
   stay open; it must not match `DONE`).
 - **MUST** treat the following as **open** (not closed): `PENDING`, `DEFERRED`,
-  empty/blank item-file status, and any unrecognized string. (Reconcile's
-  separate rule that a **blank state in `--linear-verdicts`** means terminal
-  remains unchanged — that short-circuit lives in `reconcile.sh` **before** the
-  shared matcher is consulted.)
+  empty/blank item-file status, and any unrecognized string.
+- **Blank verdict is non-terminal (CDT-267).** A **blank state in
+  `--linear-verdicts`** — a TSV line with an empty state, a bare slug line with
+  no state, or a JSON state of `""` or `null` — MUST be treated as **open**. The
+  verdict has no effect: the slug falls through to its local item-file status,
+  so a locally open item stays open and reconcile writes nothing for it. The
+  former rule "blank verdict = terminal" is withdrawn: it deleted open items when
+  a producer wrote an empty state. No in-tree `--linear-verdicts` producer relied
+  on it (only the interactive `/backlog reconcile` session writes a verdicts file).
 - **Parity (MUST).** For any non-blank status string, `close.sh` (verify +
   re-close idempotency path) and `reconcile.sh` (local prune + verdicts
   classification) MUST return the same closed/open boolean.
@@ -276,9 +281,8 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - MUST operate over both stores: the index (`.claude/backlog.md`) and the per-item files
   (`.claude/backlog/<slug>.md`), **including item files with no corresponding index row**
   (orphans — never dual-written via `add`, or predating this convention). It MUST resolve the
-  root with the same rule as close/verify (`--root` if set, else `git rev-parse --show-toplevel`,
-  else `pwd`) so it edits the local write-through / on-disk process state on the correct worktree
-  (not `git-common-dir` alone).
+  root with the § Backlog root rule (`--root` if set, else `$MROOT`, else `pwd`), so every
+  worktree reconciles the one shared store.
 
 - **Precedence (normative).** For each index entry, the source of truth is determined as follows:
   - **Linear reachable (primary).** When the Linear MCP is reachable AND the index entry has a
@@ -302,7 +306,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
   MUST validate it against `^[A-Za-z0-9_-]+$` — the same charset `skills/worktree-lib.sh`
   `validate_slug()` enforces for worktree slugs. A slug that fails MUST NOT reach the filesystem:
   no `-f` test, no read, no write, no `rm`/`mv`.
-  For **reconcile**: its row MUST survive in the rebuilt index and MUST be reported in the run's
+  For **reconcile**: its row MUST survive in the index and MUST be reported in the run's
   action list, in the style of the `ORPHAN not pruned` notice. An invalid row is specifically
   **not** a dead reference: reconcile never looked for its item file, so it has no evidence either
   way, and dropping the row would discard a possibly-real item on the strength of data it just
@@ -351,6 +355,101 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
   drift (dead rows, stale `PENDING` rows for items Linear has since closed, duplicates). It does
   not replace them.
 
+#### Backlog write integrity (WP 1-04)
+
+Contract home for the backlog lock, the line-preserving reconcile and the
+atomic-write rule. `skills/backlog/lock.sh` implements the lock.
+`skills/lib/portable.sh` defines exactly one function, `atomic_write`; its
+only other content is `set -u` and a subprocess entry point that calls
+`atomic_write`.
+
+- **Shared lock (MUST).** `close.sh` in close mode and `reconcile.sh` in apply
+  mode MUST hold one shared lock for the whole read-decide-write: from the first
+  read that a write decision uses to the last write. The lock is the directory
+  `<root>/.claude/backlog.lock/`, created with `mkdir` (atomic on every POSIX
+  filesystem). `close.sh verify` and `reconcile.sh --dry-run` write nothing and
+  MUST NOT take the lock.
+  - The holder MUST write the file `stamp` in the lock directory. It holds one
+    line, `<epoch-seconds> <ISO-8601-UTC> <owner>` (the SPEC-016 `.wt-lock`
+    format plus an owner id).
+  - The holder MUST check that the stamp write succeeds. When it fails, the
+    holder MUST remove the lock directory and exit `1`.
+  - Staleness is decided by age only. A lock is stale when its stamp epoch is
+    `BACKLOG_LOCK_TTL_SECONDS` (default 60) or more seconds old. A missing or
+    unparseable stamp that is still missing or unparseable after a 1 s re-read
+    is stale. Staleness MUST NOT depend on a PID liveness check: PIDs are not
+    reliable across WSL and container boundaries.
+  - A process that finds a fresh lock MUST wait at most
+    `BACKLOG_LOCK_WAIT_SECONDS` (default 30). When the wait ends, it MUST exit
+    `1` with the lock path on stderr and MUST NOT change any file.
+  - A process MUST fail fast (exit `1`, lock path on stderr, no file changes)
+    only when a failed `mkdir` finds no lock directory and `<root>/.claude` is
+    not writable. It MUST treat any other failed `mkdir` as contention.
+  - When a lock is released or reclaimed between the checks, the process MUST
+    retry within the same `BACKLOG_LOCK_WAIT_SECONDS` budget.
+  - A process that finds a stale lock MUST reclaim it (rename it aside, remove
+    it, then retry `mkdir`). It MUST NOT assume ownership without a successful
+    `mkdir`.
+  - Documented residual: two processes can reclaim one stale lock at the same
+    time. When a third process acquires the lock in the hand-back window, two
+    holders can overlap. The worst case is one lost index update. Each file
+    write stays atomic (`atomic_write`), and the item file keeps its terminal
+    status, and the next `/backlog reconcile` or re-close repairs the index;
+    `close.sh verify` checks the item file only.
+  - The holder MUST release the lock on every exit path, through a trap on
+    `EXIT`, `INT` and `TERM`. It MUST remove the lock only while the stamp still
+    holds its own owner id.
+  - The critical section MUST stay well under the TTL. `/backlog add` does not
+    take the lock yet (follow-up).
+- **Verdict JSON (MUST).** `reconcile.sh` MUST parse a JSON verdicts file with
+  `jq`, never with a regular expression. The result MUST NOT depend on key
+  order. Format detection: when the first non-blank character of the verdicts
+  file is `{` or `[`, the file is JSON; any other file is TSV. Accepted JSON
+  shapes: a flat object `{"<slug>":"<state>",...}`, or an array of objects. In
+  an array object, `slug` wins over `id` and `state` wins over `status`; a key
+  with a `null` value counts as absent. For JSON input only: malformed JSON, another
+  top-level type, a non-object array element, an element with no string slug, or
+  a state that is not a string or `null` MUST give exit `1` with no file changes.
+  When `jq` is absent, reconcile MUST refuse a JSON verdicts file (exit `1`, no
+  writes). A TSV verdicts file does not need `jq`.
+- **Line-preserving reconcile (MUST).** Reconcile MUST drop only the index rows
+  it decides to remove: terminal (pruned), dead-reference and duplicate rows.
+  Every other line — headings, prose, blank lines, nested content and kept rows —
+  MUST stay byte-identical and in its original position; a missing final
+  newline is added when the index is rewritten. Reconcile MUST NOT add,
+  move, re-order or re-tag lines. When it drops no row, it MUST NOT rewrite the
+  index. This supersedes the earlier "rebuild the index" behavior.
+- **Close index update (MUST).** After `close.sh` closes or re-closes a slug, the
+  index MUST hold exactly one `## Completed` header and exactly one row for that
+  slug, including when `## Completed` is the last line (with or without a
+  trailing newline) and when an old row for the slug directly follows the
+  header. The update MUST NOT use awk `getline`. awk MUST receive user values
+  (`--note`, `--ticket`, `--sha`, row text, slug) through `ENVIRON`, never `-v`,
+  so escapes (`\t`, `\n`, `\\`) and `&`, `/` stay byte-for-byte.
+- **Item title (MUST).** Every `close.sh` site that reads an item title MUST use
+  the first `^# ` line after the YAML frontmatter, never `head -n 1`.
+- **Atomic in-directory writes (MUST).** Every file rewrite by `close.sh` and
+  `reconcile.sh`, and every `skills/release-train/train-lib.sh` rewrite of
+  `queue.json` (SPEC-023 M1), `plugin.json` and `marketplace.json`, MUST go
+  through `atomic_write <dest> <cmd> [args...]` in `skills/lib/portable.sh`.
+  The Python in-place writers in `train-lib.sh` (the `renumber` CHANGELOG
+  headings, `resolve-tdd-index`, `resolve-vh` and `resolve-changelog --out`)
+  are out of scope for WP 1-04. They are a known follow-up. `atomic_write`
+  MUST meet these rules:
+  - The temp file MUST be created in the destination directory, named
+    `.<basename>.tmp.XXXXXX`. A temp name MUST NOT match `*.md`.
+  - The temp file MUST take the prior mode of the destination (`stat -c %a`,
+    else `stat -f %Lp`); a new destination takes `0666` masked by the umask.
+  - The rename MUST stay in the destination directory, so it is atomic and never
+    crosses a filesystem.
+  - When the producer command fails, `atomic_write` MUST remove the temp file,
+    leave the destination unchanged and return non-zero.
+  - Writing a temp file under `${TMPDIR:-/tmp}` and then moving it into the
+    repository is forbidden for these scripts.
+- **Empty arrays (MUST).** `close.sh`, `reconcile.sh`, `lock.sh` and
+  `portable.sh` MUST NOT expand a possibly-empty array without a guard
+  (`${a[@]+"${a[@]}"}`): bash 4.0-4.3 fails on it under `set -u`.
+
 ## SHOULD
 
 - SHOULD detect deferred/follow-up items from wrap-ticket learnings and offer to add backlog entries
@@ -388,7 +487,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify `/backlog reconcile` degrades to the local item-file fallback with a one-line notice (no block, no fail) when the Linear MCP is unreachable
 - Verify `/backlog reconcile` prunes a closed-status orphan item file (no index row) and leaves an open/unrecognized-status orphan untouched and reported, never inventing an index row for it
 - Verify a second consecutive `/backlog reconcile` produces zero changes (idempotency)
-- Verify `/backlog reconcile` performs no filesystem operation for an index row whose slug is not `^[A-Za-z0-9_-]+$` (e.g. a `../`-traversal slug): no existence check, no read, no delete inside or outside `.claude/backlog/`; the row survives in the rebuilt index, the skip is reported, and the run still exits 0
+- Verify `/backlog reconcile` performs no filesystem operation for an index row whose slug is not `^[A-Za-z0-9_-]+$` (e.g. a `../`-traversal slug): no existence check, no read, no delete inside or outside `.claude/backlog/`; the row survives in the index, the skip is reported, and the run still exits 0
 - Verify `close.sh` (close + verify) performs no filesystem operation for a traversal-shaped or otherwise non-`^[A-Za-z0-9_-]+$` resolved slug (e.g. index row `backlog/../../../canary/pwned.md` matched by title): no path construction that escapes `.claude/backlog/`; canary outside backlog untouched; non-zero exit / clear error; valid sibling slug still closes and verifies
 - Verify brainstorm offers backlog/Linear write-back after synthesis is confirmed (unless `/kickoff` runs immediately), and that a filed item's Linear description contains inlined synthesis text, not only a local plan-file path
 - Verify the Programmatic write-back protocol's non-interactive callers (refactor auto-chain, retro `--auto`) never hit an interactive ask and never silently write a duplicate slug row on collision (suffix, not abort)
@@ -410,6 +509,11 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - Verify Step 2 auto-size when `[ "$ORCH_TIER" = "null" ]`: S → light, M → standard, L → full; classify-fail → standard; explicit `--tier` skips classify
 - Verify Step 6c (CDT-244): `06-design.md` has `Step 6c`, `/council --plan`, `flavors/security.md`; kickoff SKILL has the token list and MUST NOT invoke `/council --plan`; orchestrate SKILL / `00-resolve.md` / `parse-flags.sh` have no `--security` (`router-static-test.sh` T14)
 - Verify `commands/council.md` Phase 2: caller MAY append flavor names to `plan.flavors` after preflight; investigator.md output schema always wins over a flavor’s `output_shape_constraint` (`router-static-test.sh` T15)
+- Verify `close.sh` and `reconcile.sh` default to the `$MROOT` store when run from a linked worktree (real `git worktree add` fixture): close and verify exit 0, act on the MROOT store and create no `.claude/backlog*` in the worktree (CDT-351)
+- Verify the backlog lock: a held fresh lock makes close/reconcile wait, then exit 1 naming the lock path with no file changes; a stale stamp is reclaimed; every exit path (success, error, INT, TERM) removes the lock; verify and `--dry-run` take no lock
+- Verify a blank verdict (empty TSV state, bare slug, JSON `""`) prunes nothing, and malformed verdict JSON exits 1 with no writes
+- Verify reconcile keeps every non-dropped index line byte-identical, except that a missing final newline is added when the index is rewritten, and a second run reports no changes
+- Verify `atomic_write` keeps the prior mode (GNU and shimmed BSD `stat`), leaves no temp file after success or producer failure, and creates the temp file in the destination directory
 
 ## Validation
 
@@ -427,6 +531,7 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - [ ] `/backlog reconcile` is idempotent (second run is a no-op) and degrades cleanly with Linear absent
 - [ ] `/backlog add` on an existing slug produces no silent duplicate index row
 - [ ] `bash skills/backlog/test.sh` passes
+- [ ] `bash skills/backlog/reconcile-test.sh` and `bash skills/release-train/test.sh` pass (WP 1-04 lock, root, verdict and atomic-write cases)
 - [ ] Brainstorm Step 4c offers backlog/Linear write-back; a filed Linear description is self-contained (no bare local-file pointer)
 - [ ] `/orchestrate --tier` parse: omit → JSON `tier` null; `light|standard|full` accepted; malformed → exit 64 before pipeline start (`bash skills/autopilot/test.sh`)
 - [ ] `--tier` identity: `standard`/`full` run today's Step 0–12; omit auto-sizes at Step 2; `light` runs the light path; SPEC-033 gates unchanged
@@ -445,6 +550,8 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 
 | Date | Change |
 |------|--------|
+| 2026-09-26 | WP 1-04 Step 10b alignment. § Shared lock: fail fast (exit 1, lock path on stderr) only when a failed `mkdir` finds no lock directory and `<root>/.claude` is not writable; a lock released or reclaimed between the checks is retried within the same wait budget; the holder MUST check the stamp write, else remove the lock directory and exit 1; documented residual — a double reclaim plus a third acquirer can overlap two holders (worst case one lost index update; each write stays atomic, and the item file keeps its terminal status, and the next `/backlog reconcile` or re-close repairs the index; `close.sh verify` checks the item file only). § Verdict JSON: first non-blank `{` or `[` means JSON, else TSV; the top-level-type exit applies to JSON only (AC I). Line-preserving reconcile adds a missing final newline on rewrite. The atomic-write MUST and AC L cover only the `train-lib.sh` rewrites of `queue.json`, `plugin.json` and `marketplace.json` (matches SPEC-023 M1); the Python in-place writers (`renumber` CHANGELOG, `resolve-tdd-index`, `resolve-vh`, `resolve-changelog --out`) are a known follow-up. "rebuilt index" → "index". AC N and the § Backlog write integrity intro now say `skills/lib/portable.sh` defines exactly one function, `atomic_write`; its only other content is `set -u` and a subprocess entry point that calls `atomic_write` (matches the shipped file). |
+| 2026-09-26 | WP 1-04 (`wp-1-04-backlog-integrity`; CDT-351, CDT-267 `[09 T-reconcile]`, CDT-282 `[09 F2b]`, local W1-07, W2-40): **Backlog root rule** — close/verify/reconcile default root is `$MROOT` (git-common-dir parent), `--root` overrides, `pwd` outside git; show-toplevel default withdrawn; ship close-out passes `$MROOT`, never a worktree toplevel. **Blank verdict is non-terminal** (TSV empty state, bare slug, JSON `""`/`null`); the "blank = terminal" short-circuit is withdrawn — producer grep found no in-tree `--linear-verdicts` producer that relied on it. New § Backlog write integrity: shared `mkdir` lock `<root>/.claude/backlog.lock/` with an epoch stamp (TTL 60 s, wait 30 s, both env-overridable; no PID check), `jq` verdict parse (`slug` > `id`, `state` > `status`, malformed → exit 1), line-preserving reconcile (fixes `[09 F1]`; WP 1-05 ticks it), one-header/one-row close without `getline` (fixes `[09 F2]`; WP 1-05 ticks it), frontmatter-aware title, `ENVIRON` not `-v`, `atomic_write` in `skills/lib/portable.sh` (in-directory temp, prior mode kept), empty-array guards. New `## Acceptance criteria` section holds this WP's ACs. |
 | 2026-09-08 | CDT-244: Step 6c security council on `ticket_class: auth-secrets` after plan-approve / 6b, before Step 7. Dual-home classifier (kickoff Step 6 + `06-design.md`). `/council --plan` unbound + append `security` flavor. Block Step 8 on CONTRADICTED/FABRICATED/UNVERIFIED ≥80, self-verified, or no report. No `--security` flag. |
 | 2026-09-08 | CDT-242: Orchestrate static Recommended-agent map (`Task-class: infra` → devops; measurement/ML work kind → ds; else ic4/ic5/qa). Cite `agents/tech-lead.md` Task-routing. Kickoff "ic4 for extending / ic5 for novel" MUST unchanged. Light path still exactly one ic4. |
 | 2026-08-27 | CDT-223: counted-LOC exclusion (cite SPEC-033 M15) for interactive change-discipline and autopilot BC4/M10.1; keep specs/tests exemption additive. `/orchestrate --max-loc=<n\|unbound>` parse in `parse-flags.sh` (sixth JSON key; flag-only; last-wins; junk→64). Scaffold seeds `.gitattributes`. Contract home for effects/exclusion/card = SPEC-033 AC8. |
@@ -489,3 +596,30 @@ reconcile never retains a `## Completed` archive on disk — terminal items are 
 - SPEC-002: Plugin Infrastructure — owns the TaskCompleted hook script; council gate logic must be implemented in `task-completed.sh` (cross-spec follow-up required)
 - SPEC-028: `/fix-ticket` premise→implement→adversarial-refuters — ticket-workflow family member; does not absorb orchestrate lifecycle, task store, or PR automation
 - SPEC-025: Epic Umbrella Decomposition — M4/M5: Linear preferred when MCP up; mandatory local write-through always; local `<EPIC-ID>-C<n>` IDs remain canonical orchestration keys; MCP-down fail-open with one-line notice. `/backlog reconcile` mirrors that posture; reconcile MUST keep the local write-through index consistent with the item files those epics write
+
+## Acceptance criteria
+
+Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14 has one
+`### <ticket_id>` subsection below.
+
+### wp-1-04-backlog-integrity
+
+- **A.** `close.sh` (close and verify) and `reconcile.sh` resolve the backlog root as `--root` if set, else the parent of `git rev-parse --git-common-dir` (MROOT), else `pwd` outside git. A test in a real `git init` + `git worktree add` fixture runs close and verify from the linked worktree the way `skills/orchestrate/steps/11-ship.md` calls them: both exit 0, act on the MROOT store and create no `.claude/backlog*` in the worktree. The same test fails against the old show-toplevel default.
+- **B.** No caller or doc passes a worktree toplevel as the backlog root: `skills/backlog/SKILL.md`, `skills/orchestrate/steps/11-ship.md`, `docs/commands/orchestrate.md`, this spec and the `close.sh`/`reconcile.sh` header comments state the MROOT rule. A static test fails when a `close.sh` or `reconcile.sh` call site passes `$WT_PATH` or a `show-toplevel` value as `--root`.
+- **C.** `close.sh` in close mode and `reconcile.sh` in apply mode take one shared `mkdir` lock, `<root>/.claude/backlog.lock/` with an epoch `stamp` file, over the whole read-decide-write. `close.sh verify` and `reconcile.sh --dry-run` take no lock. Tests prove that success, error exit, INT and TERM each leave no lock directory.
+- **D.** When a fresh lock is held, close and reconcile wait at most `BACKLOG_LOCK_WAIT_SECONDS` (default 30), then exit non-zero with the lock path on stderr and no file changes. A lock whose stamp is `BACKLOG_LOCK_TTL_SECONDS` (default 60) or more old, or whose stamp stays missing or unparseable, is reclaimed. No PID check decides staleness. Tests cover a held lock, a stale lock, and a close that waits on a held lock and completes after its release.
+- **E.** After close and re-close, the index holds exactly one `## Completed` header and exactly one row per slug. Tests cover `## Completed` as the last line with and without a trailing newline, and a re-close when the old row directly follows `## Completed` (this case fails against the `getline` code).
+- **F.** The title for a new index row and for title search is the first `^# ` line after the YAML frontmatter, at all three `close.sh` title sites. An item with frontmatter never gets the title `---`.
+- **G.** `--note`, `--ticket` and `--sha` values that hold `\t`, `\n`, `\\`, `&` and `/` appear byte-for-byte in the item file and the index row. awk receives these values through `ENVIRON`, never `-v`.
+- **H.** A blank verdict (a TSV line with an empty state, a bare slug line, or a JSON `""` state) is non-terminal: it prunes nothing, and a locally open item stays open with no file written. This spec and `skills/backlog/SKILL.md` state the rule and cite CDT-267.
+- **I.** `reconcile.sh` parses a JSON verdicts file with `jq` only. A verdicts file whose first non-blank character is `{` or `[` is JSON; any other file is TSV. The result does not depend on key order, `slug` wins over `id`, and `state` wins over `status`. For JSON input, malformed JSON, a wrong shape, or a missing `jq` gives exit 1 with no file changes.
+- **J.** `close.sh`, `reconcile.sh`, `skills/backlog/lock.sh` and `skills/lib/portable.sh` expand no possibly-empty array without a guard. A static test fails on any unguarded `[@]` expansion in these files.
+- **K.** Reconcile is line-preserving: it drops only terminal, dead-reference and duplicate rows, and every other line (headings, prose, blank lines, kept rows) stays byte-identical and in place, except that a missing final newline is added when the index is rewritten. When it drops nothing, it does not rewrite the index. A second run reports no changes.
+- **L.** Every file rewrite in `close.sh` and `reconcile.sh`, and every `skills/release-train/train-lib.sh` rewrite of `queue.json`, `plugin.json` and `marketplace.json`, creates its temp file in the destination directory, then renames it. No temp file remains after a success or after a failed producer, and no temp name matches `*.md`. The Python in-place writers in `train-lib.sh` are out of scope (known follow-up).
+- **M.** A rewritten file keeps its prior mode. The mode read uses `stat -c %a`, else `stat -f %Lp`. Tests cover both branches; the BSD branch runs through a `stat` shim on `PATH`.
+- **N.** All sites in AC L call the one `atomic_write` function in `skills/lib/portable.sh`, which defines exactly one function, `atomic_write`; its only other content is `set -u` and a subprocess entry point that calls `atomic_write`. A grep test fails on any `mktemp` + `mv` rewrite left in the three scripts.
+- **O.** SPEC-023 M1 states that the queue temp file is created in the destination directory, then renamed.
+- **P.** The "Completed count" wording in `skills/backlog/SKILL.md` matches reconcile pruning: it counts rows closed since the last reconcile, and the count is 0 after a clean reconcile.
+- **Q.** [process] The new and changed test suites pass: `bash skills/backlog/test.sh`, `bash skills/backlog/reconcile-test.sh`, `bash skills/release-train/test.sh` and the new `bash skills/backlog/lock-test.sh` and `bash skills/lib/portable-test.sh`.
+- **R.** [process] The test runner `bash tools/run-all-tests.sh` exits 0.
+- **S.** [process] Every `/release` gate passes.

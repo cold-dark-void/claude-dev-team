@@ -7,6 +7,11 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RECONCILE="$HERE/reconcile.sh"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR 2>/dev/null || true
+export GIT_CEILING_DIRECTORIES="$HERMETIC_ROOT"
 PASS=0
 FAIL=0
 
@@ -44,8 +49,8 @@ assert_count() {
   fi
 }
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/backlog-reconcile-test.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT
+TMP="$TMPDIR/reconcile-fixtures"
+mkdir -p "$TMP"
 
 # item_file <path> <status> — write a minimal item file with a given Status.
 item_file() {
@@ -565,6 +570,608 @@ assert_out_match "(n) second run repeats INVALID slug notice" "$out_n2" 'INVALID
 out_n3=$(bash "$RECONCILE" --root "$Rn" --dry-run)
 assert_out_match "(n) dry-run reports INVALID slug" "$out_n3" 'INVALID slug not reconciled'
 
+
+# --- (o) AC A: MROOT root resolution from a worktree, no --root; no store in the worktree ---
+Ro="$TMP/o"
+mkdir -p "$Ro"
+Mo="$Ro/M"
+git init -q "$Mo"
+echo seed > "$Mo/seed.txt"
+git -C "$Mo" add seed.txt
+git -C "$Mo" commit -q -m seed
+mkdir -p "$Mo/.claude/backlog"
+cat > "$Mo/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Done in M](backlog/done-in-m.md) - closed [PENDING]
+- [Open in M](backlog/open-in-m.md) - stays [PENDING]
+
+## Completed
+
+EOF
+item_file "$Mo/.claude/backlog/done-in-m.md" "COMPLETED"
+item_file "$Mo/.claude/backlog/open-in-m.md" "PENDING"
+git -C "$Mo" worktree add -q "$Mo/.worktrees/x" -b feat/wp-1-04-o
+WTo="$Mo/.worktrees/x"
+out_o=$(cd "$WTo" && bash "$RECONCILE")
+assert_file_nomatch "(o) MROOT resolve: terminal item pruned from shared index" "$Mo/.claude/backlog.md" 'done-in-m\.md'
+if [ ! -f "$Mo/.claude/backlog/done-in-m.md" ]; then
+  pass "(o) MROOT resolve: terminal item file pruned (deleted)"
+else
+  fail "(o) MROOT resolve: terminal item file pruned (deleted)" "file still exists"
+fi
+assert_file_match "(o) MROOT resolve: open sibling stays PENDING" "$Mo/.claude/backlog.md" 'open-in-m\.md\).*\[PENDING\]'
+if [ ! -e "$WTo/.claude/backlog.md" ] && [ ! -d "$WTo/.claude/backlog" ]; then
+  pass "(o) no backlog store created under the worktree"
+else
+  fail "(o) no backlog store created under the worktree" "found .claude/backlog under $WTo"
+fi
+
+# --- (p)/(q)/(r) AC C/D: shared lock ---
+make_lock() {
+  local dir="$1" epoch="$2" owner="${3:-manual-holder}"
+  mkdir -p "$dir"
+  printf '%s %s %s\n' "$epoch" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$owner" > "$dir/stamp"
+}
+
+# (p) held FRESH lock + WAIT=1 -> exit 1, stderr names the lock path, nothing changes.
+Rp="$TMP/p"
+mkdir -p "$Rp/.claude/backlog"
+cat > "$Rp/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Prune me](backlog/prune-p.md) - will try to prune [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rp/.claude/backlog/prune-p.md" "COMPLETED"
+cp "$Rp/.claude/backlog.md" "$Rp/idx.snap"
+cp "$Rp/.claude/backlog/prune-p.md" "$Rp/item.snap"
+make_lock "$Rp/.claude/backlog.lock" "$(date +%s)"
+rc_p=0
+out_p=$(BACKLOG_LOCK_WAIT_SECONDS=1 bash "$RECONCILE" --root "$Rp" 2>&1) || rc_p=$?
+if [ "$rc_p" -eq 1 ]; then pass "(p) held fresh lock: exit 1"
+else fail "(p) held fresh lock: exit 1" "rc=$rc_p"
+fi
+assert_out_match "(p) stderr names the lock path" "$out_p" 'backlog\.lock'
+if cmp -s "$Rp/.claude/backlog.md" "$Rp/idx.snap"; then
+  pass "(p) index unchanged while lock busy"
+else
+  fail "(p) index unchanged while lock busy" "cmp differs"
+fi
+if cmp -s "$Rp/.claude/backlog/prune-p.md" "$Rp/item.snap"; then
+  pass "(p) item file unchanged while lock busy"
+else
+  fail "(p) item file unchanged while lock busy" "cmp differs"
+fi
+
+# (q) --dry-run under a held (foreign) lock: exits 0 fast, never waits, no change.
+Rq="$TMP/q"
+mkdir -p "$Rq/.claude/backlog"
+cat > "$Rq/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Prune me](backlog/prune-q.md) - would prune [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rq/.claude/backlog/prune-q.md" "COMPLETED"
+cp "$Rq/.claude/backlog.md" "$Rq/idx.snap"
+make_lock "$Rq/.claude/backlog.lock" "$(date +%s)"
+start_q=$(date +%s)
+rc_q=0
+out_q=$(bash "$RECONCILE" --root "$Rq" --dry-run 2>&1) || rc_q=$?
+end_q=$(date +%s)
+if [ "$rc_q" -eq 0 ]; then pass "(q) --dry-run exit 0 under a held lock"
+else fail "(q) --dry-run exit 0 under a held lock" "rc=$rc_q"
+fi
+elapsed_q=$(( end_q - start_q ))
+if [ "$elapsed_q" -lt 5 ]; then pass "(q) --dry-run does not wait on the lock (elapsed ${elapsed_q}s)"
+else fail "(q) --dry-run does not wait on the lock" "elapsed ${elapsed_q}s"
+fi
+if cmp -s "$Rq/.claude/backlog.md" "$Rq/idx.snap"; then
+  pass "(q) index unchanged under --dry-run with a held lock"
+else
+  fail "(q) index unchanged under --dry-run with a held lock" "cmp differs"
+fi
+if [ -d "$Rq/.claude/backlog.lock" ]; then
+  pass "(q) --dry-run leaves the foreign lock untouched"
+else
+  fail "(q) --dry-run leaves the foreign lock untouched" "lock dir gone"
+fi
+
+# (r) STALE lock (age >= TTL) is reclaimed; run proceeds and releases on exit.
+Rr="$TMP/r"
+mkdir -p "$Rr/.claude/backlog"
+cat > "$Rr/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Prune me](backlog/prune-r.md) - will prune [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rr/.claude/backlog/prune-r.md" "COMPLETED"
+make_lock "$Rr/.claude/backlog.lock" "$(( $(date +%s) - 120 ))" "stale-holder"
+out_r=$(bash "$RECONCILE" --root "$Rr")
+assert_out_match "(r) stale lock reclaimed: prune still applies" "$out_r" "prune 'prune-r'"
+if [ ! -f "$Rr/.claude/backlog/prune-r.md" ]; then
+  pass "(r) stale lock reclaimed: item pruned"
+else
+  fail "(r) stale lock reclaimed: item pruned" "file still exists"
+fi
+if [ ! -d "$Rr/.claude/backlog.lock" ]; then
+  pass "(r) lock released after a successful reclaim+run"
+else
+  fail "(r) lock released after a successful reclaim+run" "lock dir still present"
+fi
+
+# --- (s) AC H: blank verdict is non-terminal (TSV empty state, bare slug, JSON "", JSON null) ---
+Rs="$TMP/s"
+mkdir -p "$Rs/.claude/backlog"
+cat > "$Rs/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Blank TSV state](backlog/blank-tsv-s.md) - tab, empty state [PENDING]
+- [Bare TSV slug](backlog/bare-tsv-s.md) - no state field at all [PENDING]
+- [Blank JSON obj](backlog/blank-obj-s.md) - JSON object empty string [PENDING]
+- [Blank JSON arr](backlog/blank-arr-s.md) - JSON array null state [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rs/.claude/backlog/blank-tsv-s.md" "PENDING"
+item_file "$Rs/.claude/backlog/bare-tsv-s.md" "PENDING"
+item_file "$Rs/.claude/backlog/blank-obj-s.md" "PENDING"
+item_file "$Rs/.claude/backlog/blank-arr-s.md" "PENDING"
+cp "$Rs/.claude/backlog.md" "$Rs/idx.snap"
+
+printf 'blank-tsv-s\t\nbare-tsv-s\n' > "$Rs/verdicts-tsv.txt"
+out_s1=$(bash "$RECONCILE" --root "$Rs" --linear-verdicts "$Rs/verdicts-tsv.txt")
+assert_out_match "(s) TSV blank/bare verdicts: no changes" "$out_s1" 'no changes'
+
+printf '{"blank-obj-s":""}' > "$Rs/verdicts-obj.json"
+out_s2=$(bash "$RECONCILE" --root "$Rs" --linear-verdicts "$Rs/verdicts-obj.json")
+assert_out_match "(s) JSON flat-object blank state: no changes" "$out_s2" 'no changes'
+
+printf '[{"slug":"blank-arr-s","state":null}]' > "$Rs/verdicts-arr.json"
+out_s3=$(bash "$RECONCILE" --root "$Rs" --linear-verdicts "$Rs/verdicts-arr.json")
+assert_out_match "(s) JSON array null state: no changes" "$out_s3" 'no changes'
+
+if cmp -s "$Rs/.claude/backlog.md" "$Rs/idx.snap"; then
+  pass "(s) index byte-unchanged across all blank-verdict runs"
+else
+  fail "(s) index byte-unchanged across all blank-verdict runs" "cmp differs"
+fi
+for slug in blank-tsv-s bare-tsv-s blank-obj-s blank-arr-s; do
+  if [ -f "$Rs/.claude/backlog/${slug}.md" ]; then
+    pass "(s) $slug item file NOT pruned (blank verdict is non-terminal)"
+  else
+    fail "(s) $slug item file NOT pruned (blank verdict is non-terminal)" "file was deleted"
+  fi
+done
+
+# --- (t) AC I: verdict precedence (slug>id, state>status), malformed JSON fail-closed, jq-less PATH ---
+Rt="$TMP/t"
+mkdir -p "$Rt/.claude/backlog"
+cat > "$Rt/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Slug a](backlog/a.md) - array slug/state [PENDING]
+- [Slug b](backlog/b.md) - id vs slug precedence [PENDING]
+- [Slug x](backlog/x.md) - state vs status precedence [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rt/.claude/backlog/a.md" "PENDING"
+item_file "$Rt/.claude/backlog/b.md" "PENDING"
+item_file "$Rt/.claude/backlog/x.md" "PENDING"
+cat > "$Rt/verdicts-precedence.json" <<'EOF'
+[
+  {"state":"Done","slug":"a"},
+  {"slug":"b","id":"CDT-9","status":"Done"},
+  {"slug":"x","status":"Open","state":"Done"}
+]
+EOF
+bash "$RECONCILE" --root "$Rt" --linear-verdicts "$Rt/verdicts-precedence.json" >/dev/null
+for slug in a b x; do
+  if [ ! -f "$Rt/.claude/backlog/${slug}.md" ]; then
+    pass "(t) verdict precedence: '$slug' pruned"
+  else
+    fail "(t) verdict precedence: '$slug' pruned" "file still exists"
+  fi
+done
+assert_file_nomatch "(t) verdict precedence: no row keyed by id 'CDT-9'" "$Rt/.claude/backlog.md" 'CDT-9'
+
+# malformed JSON verdicts -> exit 1, nothing touched (each case against the same snapshot).
+Rt2="$TMP/t2"
+mkdir -p "$Rt2/.claude/backlog"
+cat > "$Rt2/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Untouched](backlog/untouched-t2.md) - stays [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rt2/.claude/backlog/untouched-t2.md" "PENDING"
+cp "$Rt2/.claude/backlog.md" "$Rt2/idx.snap"
+cp "$Rt2/.claude/backlog/untouched-t2.md" "$Rt2/item.snap"
+printf '{bad' > "$Rt2/bad1.json"
+printf '[1]' > "$Rt2/bad2.json"
+printf '{"a":1}' > "$Rt2/bad3.json"
+printf '[{"state":"Done"}]' > "$Rt2/bad4.json"
+for f in bad1.json bad2.json bad3.json bad4.json; do
+  rc=0
+  bash "$RECONCILE" --root "$Rt2" --linear-verdicts "$Rt2/$f" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 1 ]; then pass "(t) malformed verdicts $f: exit 1"
+  else fail "(t) malformed verdicts $f: exit 1" "rc=$rc"
+  fi
+done
+if cmp -s "$Rt2/.claude/backlog.md" "$Rt2/idx.snap"; then
+  pass "(t) malformed verdicts: index unchanged across all cases"
+else
+  fail "(t) malformed verdicts: index unchanged across all cases" "cmp differs"
+fi
+if cmp -s "$Rt2/.claude/backlog/untouched-t2.md" "$Rt2/item.snap"; then
+  pass "(t) malformed verdicts: item file unchanged"
+else
+  fail "(t) malformed verdicts: item file unchanged" "cmp differs"
+fi
+
+# jq-less PATH: JSON verdicts hard-fail; TSV verdicts still work. Shim = symlinks to exactly the
+# external tools reconcile.sh/lock.sh/portable.sh/terminal-status.sh call, minus jq.
+SHIM="$TMP/shim-nojq"
+mkdir -p "$SHIM"
+for tool in bash awk basename dirname grep sed tr rm mv mkdir stat chmod mktemp date sleep; do
+  real=$(command -v "$tool" 2>/dev/null) || continue
+  ln -sf "$real" "$SHIM/$tool"
+done
+Rt3="$TMP/t3"
+mkdir -p "$Rt3/.claude/backlog"
+cat > "$Rt3/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [JQ needed](backlog/needs-jq-t3.md) - closed via Linear [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rt3/.claude/backlog/needs-jq-t3.md" "PENDING"
+cp "$Rt3/.claude/backlog.md" "$Rt3/idx.snap"
+printf '{"needs-jq-t3":"Done"}' > "$Rt3/verdicts.json"
+rc_t3=0
+out_t3=$(PATH="$SHIM" bash "$RECONCILE" --root "$Rt3" --linear-verdicts "$Rt3/verdicts.json" 2>&1) || rc_t3=$?
+if [ "$rc_t3" -eq 1 ]; then pass "(t) JSON verdicts with no jq on PATH: exit 1"
+else fail "(t) JSON verdicts with no jq on PATH: exit 1" "rc=$rc_t3"
+fi
+assert_out_match "(t) jq-required error names the file" "$out_t3" 'jq required'
+if cmp -s "$Rt3/.claude/backlog.md" "$Rt3/idx.snap"; then
+  pass "(t) JSON verdicts with no jq on PATH: index unchanged"
+else
+  fail "(t) JSON verdicts with no jq on PATH: index unchanged" "cmp differs"
+fi
+printf 'needs-jq-t3\tDone\n' > "$Rt3/verdicts.tsv"
+out_t3b=$(PATH="$SHIM" bash "$RECONCILE" --root "$Rt3" --linear-verdicts "$Rt3/verdicts.tsv")
+if [ ! -f "$Rt3/.claude/backlog/needs-jq-t3.md" ]; then
+  pass "(t) TSV verdicts still work with no jq on PATH"
+else
+  fail "(t) TSV verdicts still work with no jq on PATH" "file still exists"
+fi
+
+# --- (u) AC K: line-preserving stream ---
+Ru="$TMP/u"
+mkdir -p "$Ru/.claude/backlog"
+cat > "$Ru/.claude/backlog.md" <<'EOF'
+# Backlog
+
+Some intro prose that must survive untouched.
+
+### A sub-heading
+
+## Pending
+
+- [Keep](backlog/keep-u.md) - stays open [PENDING]
+  - a nested detail line
+  - another nested detail line
+
+- [Terminal](backlog/terminal-u.md) - will be pruned [PENDING]
+- [Ghost](backlog/ghost-u.md) - dead reference [PENDING]
+- [Dup](backlog/dup-u.md) - first occurrence [PENDING]
+- [Dup](backlog/dup-u.md) - second occurrence (duplicate) [PENDING]
+
+## Completed
+
+EOF
+item_file "$Ru/.claude/backlog/keep-u.md" "PENDING"
+item_file "$Ru/.claude/backlog/terminal-u.md" "COMPLETED"
+item_file "$Ru/.claude/backlog/dup-u.md" "PENDING"
+# ghost-u.md deliberately absent (dead reference).
+
+cat > "$Ru/expected.md" <<'EOF'
+# Backlog
+
+Some intro prose that must survive untouched.
+
+### A sub-heading
+
+## Pending
+
+- [Keep](backlog/keep-u.md) - stays open [PENDING]
+  - a nested detail line
+  - another nested detail line
+
+- [Dup](backlog/dup-u.md) - first occurrence [PENDING]
+
+## Completed
+
+EOF
+
+bash "$RECONCILE" --root "$Ru" >/dev/null
+if cmp -s "$Ru/.claude/backlog.md" "$Ru/expected.md"; then
+  pass "(u) line-preserving: result matches fixture minus exactly the dropped rows"
+else
+  fail "(u) line-preserving: result matches fixture minus exactly the dropped rows" "cmp differs"
+fi
+cp "$Ru/.claude/backlog.md" "$Ru/after1.snap"
+out_u2=$(bash "$RECONCILE" --root "$Ru")
+assert_out_match "(u) second run: no changes" "$out_u2" 'no changes'
+if cmp -s "$Ru/.claude/backlog.md" "$Ru/after1.snap"; then
+  pass "(u) second run: index byte-unchanged"
+else
+  fail "(u) second run: index byte-unchanged" "cmp differs"
+fi
+
+# No-drop fixture: never rewritten -> keeps its inode and its missing trailing newline.
+Ru2="$TMP/u2"
+mkdir -p "$Ru2/.claude/backlog"
+printf '%s' "$(cat <<'EOF'
+# Backlog
+
+## Pending
+
+- [Solo](backlog/solo-u2.md) - stays open, no drops here [PENDING]
+
+## Completed
+EOF
+)" > "$Ru2/.claude/backlog.md"
+item_file "$Ru2/.claude/backlog/solo-u2.md" "PENDING"
+cp "$Ru2/.claude/backlog.md" "$Ru2/idx.snap"
+ino_before=$(ls -i "$Ru2/.claude/backlog.md" | awk '{print $1}')
+out_u3=$(bash "$RECONCILE" --root "$Ru2")
+ino_after=$(ls -i "$Ru2/.claude/backlog.md" | awk '{print $1}')
+assert_out_match "(u) no-drop fixture: reconcile reports no changes" "$out_u3" 'no changes'
+if [ "$ino_before" = "$ino_after" ]; then
+  pass "(u) no-drop fixture: index inode unchanged (never rewritten)"
+else
+  fail "(u) no-drop fixture: index inode unchanged (never rewritten)" "inode changed: $ino_before -> $ino_after"
+fi
+if cmp -s "$Ru2/.claude/backlog.md" "$Ru2/idx.snap"; then
+  pass "(u) no-drop fixture: byte-identical, including the missing trailing newline"
+else
+  fail "(u) no-drop fixture: byte-identical, including the missing trailing newline" "cmp differs"
+fi
+
+# --- (v) AC L/M: index mode kept after a drop; no temp files left under .claude/ ---
+Rv="$TMP/v"
+mkdir -p "$Rv/.claude/backlog"
+cat > "$Rv/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Prune me](backlog/prune-v.md) - will drop [PENDING]
+- [Stay](backlog/stay-v.md) - keeps [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rv/.claude/backlog/prune-v.md" "COMPLETED"
+item_file "$Rv/.claude/backlog/stay-v.md" "PENDING"
+chmod 0664 "$Rv/.claude/backlog.md"
+bash "$RECONCILE" --root "$Rv" >/dev/null
+mode_v=$(stat -c %a "$Rv/.claude/backlog.md" 2>/dev/null || stat -f %Lp "$Rv/.claude/backlog.md")
+if [ "$mode_v" = "664" ]; then
+  pass "(v) index mode 0664 kept after a drop"
+else
+  fail "(v) index mode 0664 kept after a drop" "mode=$mode_v"
+fi
+leftover_v=$(find "$Rv/.claude" -name '.*.tmp.*' 2>/dev/null | wc -l | tr -d ' ')
+if [ "$leftover_v" = "0" ]; then
+  pass "(v) no temp files left under .claude/"
+else
+  fail "(v) no temp files left under .claude/" "found: $(find "$Rv/.claude" -name '.*.tmp.*')"
+fi
+
+# --- (w) WP 1-04 rework T4-1: pass 1 must classify the FINAL index row even
+# when the file has no trailing newline. Bug: pass 1's read loop dropped the
+# last row silently; its slug never entered DISPOSITION, so emit_index's
+# default case dropped the row a second time and the orphan scan then
+# reported the still-PENDING item as a false ORPHAN. ---
+Rw="$TMP/w"
+mkdir -p "$Rw/.claude/backlog"
+printf '%s' "$(cat <<'EOF'
+# Backlog
+
+## Pending
+
+- [A item](backlog/a-nl.md) - stays open [PENDING]
+- [B item](backlog/b-nl.md) - will prune [PENDING]
+- [C item](backlog/c-nl.md) - last row, file has no trailing newline [PENDING]
+EOF
+)" > "$Rw/.claude/backlog.md"
+item_file "$Rw/.claude/backlog/a-nl.md" "PENDING"
+item_file "$Rw/.claude/backlog/b-nl.md" "COMPLETED"
+item_file "$Rw/.claude/backlog/c-nl.md" "PENDING"
+cp "$Rw/.claude/backlog/c-nl.md" "$Rw/c-nl.snap"
+out_w=$(bash "$RECONCILE" --root "$Rw")
+assert_file_match "(w) row a stays PENDING" "$Rw/.claude/backlog.md" 'a-nl\.md\).*\[PENDING\]'
+assert_file_nomatch "(w) row b (COMPLETED) pruned from index" "$Rw/.claude/backlog.md" 'b-nl\.md'
+assert_file_match "(w) final row c (no trailing newline) preserved, not dropped" \
+  "$Rw/.claude/backlog.md" 'c-nl\.md\).*\[PENDING\]'
+if [ -f "$Rw/.claude/backlog/c-nl.md" ]; then
+  pass "(w) item c.md NOT deleted (previously silently pruned as a false orphan)"
+else
+  fail "(w) item c.md NOT deleted (previously silently pruned as a false orphan)" "file was deleted"
+fi
+if cmp -s "$Rw/.claude/backlog/c-nl.md" "$Rw/c-nl.snap"; then
+  pass "(w) item c.md byte-unchanged"
+else
+  fail "(w) item c.md byte-unchanged" "cmp differs"
+fi
+if [ ! -f "$Rw/.claude/backlog/b-nl.md" ]; then
+  pass "(w) item b.md pruned (deleted)"
+else
+  fail "(w) item b.md pruned (deleted)" "file still exists"
+fi
+if printf '%s' "$out_w" | grep -qE 'ORPHAN.*c-nl'; then
+  fail "(w) c-nl must NOT be reported as an ORPHAN" "got: $out_w"
+else
+  pass "(w) c-nl must NOT be reported as an ORPHAN"
+fi
+
+# --- (x) WP 1-04 rework T4-2: emit_index must not swallow a mid-stream
+# producer write failure. atomic_write runs emit_index inside an `if`
+# (errexit off in there); an unguarded printf failure was masked by a later
+# successful printf, so the function returned 0 and a truncated temp file got
+# renamed over the index. Deterministic repro: override the `printf` builtin
+# with an exported bash function that fails only for a marker line, so exactly
+# one write inside emit_index fails while later writes would otherwise
+# succeed. ---
+Rx="$TMP/x-write-fail"
+mkdir -p "$Rx/.claude/backlog"
+cat > "$Rx/.claude/backlog.md" <<'EOF'
+# Backlog
+
+PRINTF_FAIL_MARKER prose line that must trigger a producer write failure
+
+## Pending
+
+- [Prune me](backlog/prune-x.md) - will drop [PENDING]
+- [Stay](backlog/stay-x.md) - keeps [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rx/.claude/backlog/prune-x.md" "COMPLETED"
+item_file "$Rx/.claude/backlog/stay-x.md" "PENDING"
+cp "$Rx/.claude/backlog.md" "$Rx/idx.snap"
+cp "$Rx/.claude/backlog/prune-x.md" "$Rx/prune-x.snap"
+
+# Match only emit_index's exact call shape (format arg exactly %s\n, one
+# further arg) so this does not also intercept unrelated printf calls
+# elsewhere (row_slug uses format %s, no trailing newline — a plain substring
+# match would abort pass 1 for the wrong reason instead of emit_index).
+printf() {
+  if [ "$1" = '%s\n' ] && [ "$#" -eq 2 ]; then
+    case "$2" in
+      *PRINTF_FAIL_MARKER*) return 7 ;;
+    esac
+  fi
+  builtin printf "$@"
+}
+export -f printf
+rc_x=0
+out_x=$(bash "$RECONCILE" --root "$Rx" 2>&1) || rc_x=$?
+unset -f printf
+
+if [ "$rc_x" -ne 0 ]; then
+  pass "(x) producer write failure: reconcile exits non-zero"
+else
+  fail "(x) producer write failure: reconcile exits non-zero" "rc=0 out=$out_x"
+fi
+if cmp -s "$Rx/.claude/backlog.md" "$Rx/idx.snap"; then
+  pass "(x) producer write failure: index cmp-unchanged"
+else
+  fail "(x) producer write failure: index cmp-unchanged" "cmp differs"
+fi
+if cmp -s "$Rx/.claude/backlog/prune-x.md" "$Rx/prune-x.snap"; then
+  pass "(x) producer write failure: pruned item file NOT deleted (index write failed first)"
+else
+  fail "(x) producer write failure: pruned item file NOT deleted (index write failed first)" "cmp differs or missing"
+fi
+leftover_x=$(find "$Rx/.claude" -name '.*.tmp.*' 2>/dev/null | wc -l | tr -d ' ')
+if [ "$leftover_x" = "0" ]; then
+  pass "(x) producer write failure: no leftover temp file"
+else
+  fail "(x) producer write failure: no leftover temp file" "found: $(find "$Rx/.claude" -name '.*.tmp.*')"
+fi
+
+
+# --- (y) WP 1-04 rework 2 N2: load_verdicts' TSV loop must classify the FINAL
+# verdicts line even when the file has no trailing newline. Bug: the read loop
+# dropped the last line silently, so a verdict on the last line never entered
+# VERDICT_SLUGS and its slug fell through to local (PENDING) status instead
+# of pruning. ---
+Ry="$TMP/y-verdicts-no-nl"
+mkdir -p "$Ry/.claude/backlog"
+cat > "$Ry/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [First](backlog/first-y.md) - no verdict [PENDING]
+- [Last](backlog/last-y.md) - verdict on final unterminated line [PENDING]
+
+## Completed
+
+EOF
+item_file "$Ry/.claude/backlog/first-y.md" "PENDING"
+item_file "$Ry/.claude/backlog/last-y.md" "PENDING"
+printf 'first-y\tOpen\nlast-y\tDone' > "$Ry/verdicts.tsv"
+bash "$RECONCILE" --root "$Ry" --linear-verdicts "$Ry/verdicts.tsv" >/dev/null
+if [ ! -f "$Ry/.claude/backlog/last-y.md" ]; then
+  pass "(y) final unterminated verdicts line prunes its slug"
+else
+  fail "(y) final unterminated verdicts line prunes its slug" "file still exists"
+fi
+assert_file_nomatch "(y) pruned row removed from index" "$Ry/.claude/backlog.md" 'last-y\.md'
+assert_file_match "(y) non-verdict sibling stays PENDING" "$Ry/.claude/backlog.md" 'first-y\.md\).*\[PENDING\]'
+
+# --- (z) 10b gap 3 / SPEC-009 detection rule: JSON is decided by the file's
+# FIRST NON-BLANK CHARACTER, not its first line. A verdicts file that opens
+# with blank lines, then a JSON array, must still be read as JSON (and
+# prune), never misread as TSV. ---
+Rz="$TMP/z-blank-lines-json"
+mkdir -p "$Rz/.claude/backlog"
+cat > "$Rz/.claude/backlog.md" <<'EOF'
+# Backlog
+
+## Pending
+
+- [Blank lines json](backlog/blank-lines-json-z.md) - terminal via JSON after blank lines [PENDING]
+
+## Completed
+
+EOF
+item_file "$Rz/.claude/backlog/blank-lines-json-z.md" "PENDING"
+printf '\n\n[{"slug":"blank-lines-json-z","state":"Done"}]\n' > "$Rz/verdicts.json"
+bash "$RECONCILE" --root "$Rz" --linear-verdicts "$Rz/verdicts.json" >/dev/null
+if [ ! -f "$Rz/.claude/backlog/blank-lines-json-z.md" ]; then
+  pass "(z) leading-blank-lines JSON verdict prunes its slug"
+else
+  fail "(z) leading-blank-lines JSON verdict prunes its slug" "file still exists"
+fi
+assert_file_nomatch "(z) pruned row removed from index" "$Rz/.claude/backlog.md" 'blank-lines-json-z\.md'
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -3,10 +3,32 @@
 #
 # Brings ROOT/.claude/backlog.md into agreement with ROOT/.claude/backlog/<slug>.md item files
 # (and, when supplied, with Linear-resolved terminal-state verdicts). Hygiene only — never invents
-# new backlog items. See specs/core/SPEC-009-ticket-workflow.md §"Backlog reconcile".
+# new backlog items. See specs/core/SPEC-009-ticket-workflow.md §"Backlog reconcile" and
+# §"Backlog write integrity (WP 1-04)".
 #
 # Usage:
 #   reconcile.sh [--root PATH] [--dry-run] [--linear-verdicts FILE]
+#
+# ROOT (SPEC-009 § Backlog root rule): --root PATH if set, else $MROOT (the parent of
+# `git rev-parse --git-common-dir` — the same shared root `/backlog add` writes), else `pwd`
+# outside a git repository. Every linked worktree therefore reconciles the one shared store.
+#
+# Lock (SPEC-009 § Backlog write integrity): apply mode (i.e. not --dry-run) holds the shared
+# backlog lock (`<root>/.claude/backlog.lock`, skills/backlog/lock.sh) for the whole
+# read-decide-write. A busy lock exits 1 with the lock path on stderr, no file changed.
+# --dry-run writes nothing and never takes the lock.
+#
+# Line-preserving apply (SPEC-009 § Line-preserving reconcile): this script drops only the index
+# rows it decides to remove — terminal (pruned), dead-reference and duplicate. Every other line
+# (headings, prose, blank lines, nested content, kept rows) stays byte-identical and in its
+# original position. No add, move, re-order or re-tag. A run that drops no row does not rewrite
+# the index at all (mtime/inode untouched).
+#
+# Verdicts (SPEC-009 § Blank verdict is non-terminal, CDT-267): a blank state — a TSV line with an
+# empty state, a bare slug line with no state, or a JSON state of "" or null — is non-terminal: it
+# has no effect and the slug falls through to its local item-file status. JSON verdicts are parsed
+# with jq only, never a regex; jq absent with JSON input is a hard failure (exit 1, no writes). A
+# TSV verdicts file needs no jq.
 #
 # LOCAL pass (always):
 #   - Rows whose item file Status is terminal per shared classifier terminal-status.sh
@@ -14,7 +36,7 @@
 #     (item file deleted, index row dropped). Linear (when linked) or git/commit history is the
 #     durable record for done work — the local write-through is a disposable cache, not an archive.
 #   - Index rows with no corresponding item file → REMOVED (dead references).
-#   - Duplicate rows for one slug → collapse to a single row (keep the first/most-informative).
+#   - Duplicate rows for one slug → collapse to a single row (keep the first-seen row verbatim).
 #   - Item files with NO index row at all (orphans — never dual-written, or predate this convention)
 #     → pruned when their own Status is already terminal; otherwise left untouched and reported,
 #     since deleting unindexed OPEN work would be a silent loss.
@@ -23,23 +45,34 @@
 #     Slugs listed as terminal (Done/Cancelled/Completed) take PRECEDENCE over local status: the row
 #     is pruned the same as a locally-terminal item. This script does NOT call MCP.
 #
-# ROOT = --root if set, else git rev-parse --show-toplevel, else pwd.
 # Does NOT commit — local write-through only; never stage process trackers.
 #
-# Exit: 0 ok (reconciled or already clean), 1 error (no index/dir), 64 usage.
+# Exit: 0 ok (reconciled or already clean), 1 error (no index/dir, malformed verdicts, lock busy),
+# 64 usage.
 
 set -euo pipefail
-
-USAGE='Usage: reconcile.sh [--root PATH] [--dry-run] [--linear-verdicts FILE]
-  --root PATH             backlog root (else git show-toplevel, else pwd)
-  --dry-run               print planned actions; write nothing
-  --linear-verdicts FILE  TSV/JSON of slug→terminal-state (Linear SoT; precedence over local status)'
 
 die() {
   local rc="$1"; shift
   printf 'error: %s\n' "$*" >&2
   exit "$rc"
 }
+
+# Self-relative helpers (install-correct in a dev checkout, a marketplace clone and the cache
+# alike; SPEC-009 § Backlog write integrity). Sourced, never subprocess: the lock's traps and
+# state must live in this shell.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+[ -f "$SCRIPT_DIR/lock.sh" ] || die 1 "missing helper: $SCRIPT_DIR/lock.sh"
+. "$SCRIPT_DIR/lock.sh"
+[ -f "$SCRIPT_DIR/../lib/portable.sh" ] || die 1 "missing helper: $SCRIPT_DIR/../lib/portable.sh"
+. "$SCRIPT_DIR/../lib/portable.sh"
+
+USAGE='Usage: reconcile.sh [--root PATH] [--dry-run] [--linear-verdicts FILE]
+  --root PATH             backlog root (else $MROOT — the parent of `git rev-parse
+                          --git-common-dir` — else pwd)
+  --dry-run               print planned actions; write nothing; never takes the lock
+  --linear-verdicts FILE  TSV/JSON of slug→terminal-state (Linear SoT; precedence over
+                          local status; a blank state is non-terminal)'
 
 ROOT=""
 DRY_RUN=0
@@ -56,21 +89,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# C3 — root resolution (SPEC-009 § Backlog root rule; identical body in close.sh).
 resolve_root() {
-  if [ -n "$ROOT" ]; then
-    [ -d "$ROOT" ] || die 1 "root not a directory: $ROOT"
-    ROOT=$(cd "$ROOT" && pwd)
-    return 0
-  fi
-  if ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
-    return 0
-  fi
+  if [ -n "$ROOT" ]; then [ -d "$ROOT" ] || die 1 "root not a directory: $ROOT"; ROOT=$(cd "$ROOT" && pwd); return 0; fi
+  local _gc
+  if _gc=$(git rev-parse --git-common-dir 2>/dev/null); then ROOT=$(cd "$(dirname "$_gc")" && pwd); return 0; fi
   ROOT=$(pwd)
 }
 
 # Shared terminal classifier (CDT-160) — contract lives in terminal-status.sh (SPEC-009).
 # Blank-state-in-verdicts short-circuit stays at load_verdicts call sites (not here).
-_TS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/terminal-status.sh"
+_TS="$SCRIPT_DIR/terminal-status.sh"
 is_closed_status() {
   bash "$_TS" is-closed "$1"
 }
@@ -103,47 +132,59 @@ row_slug() {
   printf '%s' "$1" | sed -n 's/.*](backlog\/\([^)]*\)\.md).*/\1/p'
 }
 
-# Load Linear verdicts file into VERDICT_SLUGS (assoc: slug -> 1 if terminal).
+# C4 — verdict JSON filter (jq only, fail closed; SPEC-009 § Verdict JSON). Accepts a flat object
+# or an array of objects; slug wins over id, state wins over status; a null value counts as
+# absent. Checked with jq 1.8.1 fed 9 samples directly to this filter (bypassing load_verdicts'
+# own detection below): flat, array, slug>id, state>status, [1], "str", {"a":1}, missing slug,
+# parse error. Detection of JSON vs TSV never reaches jq on "str": a verdicts file is JSON iff
+# its first non-blank character is "{" or "[" (SPEC-009 § Verdict JSON); a bare "str" fails that
+# check and load_verdicts reads it as TSV instead.
+VERDICT_JQ='
+def s: if . == null then "" elif type == "string" then . else error("state not a string") end;
+if type == "object" then to_entries[] | [.key, (.value | s)]
+elif type == "array" then .[] | if type != "object" then error("element not an object")
+  else [ (if .slug != null then .slug else .id end), ((if .state != null then .state else .status end) | s) ] end
+else error("top-level not an object or array") end
+| if (.[0] | type) != "string" or .[0] == "" then error("missing slug") else . end
+| @tsv
+'
+
+# Load Linear verdicts file into VERDICT_SLUGS (assoc: slug -> 1 if terminal). Pure read; runs
+# BEFORE the lock — a malformed file exits 1 with no lock ever taken and no writes.
 # Supports two shapes:
-#   TSV : lines "<slug>\t<state>"  (state matched by is_closed_status; blank state = terminal)
-#   JSON: a flat object {"<slug>":"<state>",...} OR an array/list of objects each carrying a
-#         "slug"/"id" and a "state"/"status" key, e.g. [{"slug":"x","state":"Done"},...].
+#   TSV : lines "<slug>\t<state>"  (state matched by is_closed_status; blank state = non-terminal)
+#   JSON: a flat object {"<slug>":"<state>",...} OR an array of objects each carrying a
+#         "slug"/"id" and a "state"/"status" key, parsed by jq only (VERDICT_JQ above).
 # Non-terminal states are ignored (they never override local; local may still close them).
 declare -A VERDICT_SLUGS=()
 load_verdicts() {
   [ -n "$VERDICTS_FILE" ] || return 0
   [ -f "$VERDICTS_FILE" ] || die 1 "linear-verdicts file not found: $VERDICTS_FILE"
   local first
-  first=$(grep -m1 -E '[^[:space:]]' "$VERDICTS_FILE" 2>/dev/null || true)
+  # Format detection (SPEC-009 § Verdict JSON): JSON iff the file's first non-blank
+  # character is { or [; skip leading blank/whitespace-only lines first, then test.
+  first=$(grep -m1 -v -E '^[[:space:]]*$' "$VERDICTS_FILE" 2>/dev/null || true)
   if printf '%s' "$first" | grep -qE '^[[:space:]]*[[{]'; then
-    # JSON-ish: emit real tab-separated slug<TAB>state pairs, tolerant of both shapes.
-    local slug state
+    command -v jq >/dev/null 2>&1 || die 1 "jq required to read JSON verdicts: $VERDICTS_FILE"
+    local pairs slug state
+    pairs=$(jq -r "$VERDICT_JQ" "$VERDICTS_FILE" 2>/dev/null) || die 1 "malformed verdicts JSON: $VERDICTS_FILE"
     while IFS=$'\t' read -r slug state; do
       [ -n "$slug" ] || continue
-      if [ -z "$state" ] || is_closed_status "$state"; then
+      # Blank state is non-terminal (CDT-267): no effect, never sets VERDICT_SLUGS.
+      if [ -n "$state" ] && is_closed_status "$state"; then
         VERDICT_SLUGS["$slug"]=1
       fi
-    done < <(
-      grep -oE '"[^"]+"[[:space:]]*:[[:space:]]*"[^"]*"' "$VERDICTS_FILE" \
-        | awk '
-            function emit(s, v) { if (s != "") printf "%s\t%s\n", s, v }
-            {
-              match($0, /^"[^"]+"/); k=substr($0,2,RLENGTH-2)
-              match($0, /"[^"]*"[[:space:]]*$/); v=substr($0,RSTART+1,RLENGTH-2)
-              if (k=="slug" || k=="id") { pend_slug=v; next }
-              if (k=="state" || k=="status") { emit(pend_slug, v); pend_slug=""; next }
-              # flat object: key IS the slug, value IS the state
-              emit(k, v)
-            }'
-    )
+    done <<< "$pairs"
   else
     # TSV: <slug>\t<state>
     local slug state
-    while IFS=$'\t' read -r slug state _; do
+    # || [ -n "$slug" ]: read a final unterminated line too (WP 1-04 rework T4-1).
+    while IFS=$'\t' read -r slug state _ || [ -n "$slug" ]; do
       slug=$(printf '%s' "$slug" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
       [ -n "$slug" ] || continue
       case "$slug" in \#*) continue ;; esac
-      if [ -z "$state" ] || is_closed_status "$state"; then
+      # Blank state is non-terminal (CDT-267): no effect, never sets VERDICT_SLUGS.
+      if [ -n "$state" ] && is_closed_status "$state"; then
         VERDICT_SLUGS["$slug"]=1
       fi
     done < "$VERDICTS_FILE"
@@ -160,32 +201,41 @@ INDEX="$ROOT/.claude/backlog.md"
 
 load_verdicts
 
+# Shared lock: the whole read-decide-write below. --dry-run writes nothing and never locks.
+if [ "$DRY_RUN" -eq 0 ]; then
+  backlog_lock_acquire "$ROOT" || exit $?
+fi
+
 # Planned-action log (dry-run and summary). Populated during the scan.
 declare -a ACTIONS=()
+# Count of index rows this run drops: duplicate-row occurrences plus the first row of every
+# missing/completed slug. DROPPED > 0 is the sole trigger to rewrite the index at all.
+DROPPED=0
 
 # For each unique slug in the index, decide its terminal disposition:
-#   MISSING  → row(s) removed (dead ref)
-#   COMPLETE → row + item file PRUNED (deleted)
-#   PENDING  → row stays in ## Pending
-# Duplicate rows for one slug always collapse to the first-seen row.
-#
-# We rebuild the index deterministically:
-#   header (everything before the first ## Pending/## Completed section is preserved verbatim),
-#   then ## Pending with surviving pending rows in first-seen order,
-#   then an (empty, after pruning) ## Completed section for schema stability.
+#   missing   → row removed (dead ref)
+#   completed → row + item file PRUNED (deleted)
+#   pending   → row stays, verbatim
+#   invalid   → row stays, verbatim (charset guard; never touches the filesystem)
+# Duplicate rows for one slug always collapse to the first-seen row (kept only if that first
+# row's own disposition is pending/invalid).
 
-# Collect ordered unique slugs + first-seen row text, and detect duplicates/dead refs.
+# Collect ordered unique slugs + first-seen row text, and count duplicate occurrences.
 declare -A SEEN=()          # slug -> 1 once its first row is recorded
-declare -A ROW_TEXT=()      # slug -> first-seen row text
+declare -A ROW_TEXT=()      # slug -> first-seen row text (unused for output; kept for parity/logs)
 declare -a SLUG_ORDER=()    # slugs in first-seen order
 declare -A DISPOSITION=()   # slug -> pending|completed|missing|invalid
 declare -a INVALID_SLUGS=() # slugs that failed the charset guard
 
-while IFS= read -r line; do
+# || [ -n "$line" ]: also classify a final row with no trailing newline (else
+# pass 1 silently drops it, and it re-appears as a false ORPHAN below — WP 1-04
+# rework T4-1).
+while IFS= read -r line || [ -n "$line" ]; do
   slug=$(row_slug "$line")
   [ -n "$slug" ] || continue
   if [ -n "${SEEN[$slug]:-}" ]; then
     ACTIONS+=("collapse duplicate row for '$slug'")
+    DROPPED=$((DROPPED + 1))
     continue
   fi
   SEEN["$slug"]=1
@@ -194,7 +244,7 @@ while IFS= read -r line; do
 done < "$INDEX"
 
 # Classify each unique slug.
-for slug in "${SLUG_ORDER[@]}"; do
+for slug in ${SLUG_ORDER[@]+"${SLUG_ORDER[@]}"}; do
   if [[ ! "$slug" =~ ^[A-Za-z0-9_-]+$ ]]; then
     DISPOSITION["$slug"]="invalid"
     INVALID_SLUGS+=("$slug")
@@ -205,6 +255,7 @@ for slug in "${SLUG_ORDER[@]}"; do
   if [ ! -f "$item" ]; then
     DISPOSITION["$slug"]="missing"
     ACTIONS+=("remove dead-ref row for '$slug' (no item file)")
+    DROPPED=$((DROPPED + 1))
     continue
   fi
   lid=$(item_linear_id "$item")
@@ -212,12 +263,14 @@ for slug in "${SLUG_ORDER[@]}"; do
   if [ -n "${VERDICT_SLUGS[$slug]:-}" ]; then
     DISPOSITION["$slug"]="completed"
     ACTIONS+=("prune '$slug' (Linear verdict: terminal)${lid_suffix}")
+    DROPPED=$((DROPPED + 1))
     continue
   fi
   st=$(item_status_value "$item")
   if is_closed_status "$st"; then
     DISPOSITION["$slug"]="completed"
     ACTIONS+=("prune '$slug' (item Status=${st:-COMPLETED})${lid_suffix}")
+    DROPPED=$((DROPPED + 1))
   else
     DISPOSITION["$slug"]="pending"
   fi
@@ -247,82 +300,72 @@ for item in "$BACKLOG_DIR"/*.md; do
   fi
 done
 
-# Rewrite the index. Header = lines before the first "## Pending" or "## Completed".
-HEADER_TMP=$(mktemp "${TMPDIR:-/tmp}/backlog-reconcile-hdr.XXXXXX")
-awk '
-  /^## Pending[[:space:]]*$/ { exit }
-  /^## Completed[[:space:]]*$/ { exit }
-  { print }
-' "$INDEX" > "$HEADER_TMP"
-
-# Strip a trailing PENDING/COMPLETED/FIXED tag and trailing whitespace, then re-tag.
-retag_row() {
-  local row="$1" tag="$2" base
-  base=$(printf '%s' "$row" \
-    | sed -E 's/[[:space:]]*\[(PENDING|COMPLETED[^]]*|FIXED[/-]CLOSED[^]]*|DONE[^]]*)\]//g' \
-    | sed -E 's/[[:space:]]+$//')
-  printf '%s %s' "$base" "$tag"
-}
-
-NEW_INDEX=$(mktemp "${TMPDIR:-/tmp}/backlog-reconcile-idx.XXXXXX")
-{
-  # Header verbatim (trim trailing blank lines for deterministic spacing).
-  sed -e :a -e '/^[[:space:]]*$/{$d;N;ba}' "$HEADER_TMP"
-  printf '\n## Pending\n\n'
-  for slug in "${SLUG_ORDER[@]}"; do
-    case "${DISPOSITION[$slug]}" in
-      pending) retag_row "${ROW_TEXT[$slug]}" "[PENDING]"; printf '\n' ;;
-      invalid) printf '%s\n' "${ROW_TEXT[$slug]}" ;;
-    esac
-  done
-  # Completed items are pruned, not listed — Linear/commit history is the durable record.
-  # Header kept (empty) for schema stability / manual future use.
-  printf '\n## Completed\n\n'
-} > "$NEW_INDEX"
-rm -f "$HEADER_TMP"
-
-# Change detection: compare rebuilt index to current, used to report "no changes" and to keep
-# dry-run honest.
+# Line-preserving: the index is rewritten iff at least one row drops.
 INDEX_CHANGED=0
-if ! diff -q "$INDEX" "$NEW_INDEX" >/dev/null 2>&1; then
-  INDEX_CHANGED=1
-fi
+[ "$DROPPED" -gt 0 ] && INDEX_CHANGED=1
 
 # All prunes (index-driven "completed" slugs + orphan-driven prunes) — these delete the item file.
 declare -a PRUNE_SLUGS=()
-for slug in "${SLUG_ORDER[@]}"; do
+for slug in ${SLUG_ORDER[@]+"${SLUG_ORDER[@]}"}; do
   [ "${DISPOSITION[$slug]}" = "completed" ] || continue
   PRUNE_SLUGS+=("$slug")
 done
-PRUNE_SLUGS+=("${ORPHAN_PRUNE[@]}")
+PRUNE_SLUGS+=(${ORPHAN_PRUNE[@]+"${ORPHAN_PRUNE[@]}"})
 
 if [ "$DRY_RUN" -eq 1 ]; then
   if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#PRUNE_SLUGS[@]} -eq 0 ] && [ ${#ORPHAN_KEEP[@]} -eq 0 ] && [ ${#INVALID_SLUGS[@]} -eq 0 ]; then
     printf 'reconcile (dry-run): no changes — index already consistent.\n'
   else
     printf 'reconcile (dry-run): planned actions:\n'
-    for a in "${ACTIONS[@]}"; do printf '  - %s\n' "$a"; done
+    for a in ${ACTIONS[@]+"${ACTIONS[@]}"}; do printf '  - %s\n' "$a"; done
     [ "$INDEX_CHANGED" -eq 1 ] && printf '  - rewrite index: .claude/backlog.md\n'
   fi
-  rm -f "$NEW_INDEX"
   exit 0
 fi
 
-# Apply: prune item files (index-driven + orphan), then swap the index in.
-for slug in "${PRUNE_SLUGS[@]}"; do
-  rm -f "$BACKLOG_DIR/${slug}.md"
-done
+# emit_index — line-preserving stream producer for atomic_write (SPEC-009 § Line-preserving
+# reconcile). Streams $INDEX; prints every non-row line verbatim; for a row line, prints only the
+# first occurrence of a pending/invalid slug verbatim; drops every duplicate occurrence and every
+# first-occurrence row of a missing/completed slug. No add, move, re-order or re-tag.
+# Every write returns its own failure (|| return 1): atomic_write runs this
+# producer inside an `if`, so errexit is off in here — an unguarded printf that
+# fails mid-stream (ENOSPC/EIO) would otherwise be masked by a later successful
+# command, and a truncated temp file would get renamed over the index (WP 1-04
+# rework T4-2).
+emit_index() {
+  local _line _slug
+  declare -A _emitted=()
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    _slug=$(row_slug "$_line")
+    if [ -z "$_slug" ]; then
+      printf '%s\n' "$_line" || return 1
+      continue
+    fi
+    if [ -n "${_emitted[$_slug]:-}" ]; then
+      continue
+    fi
+    _emitted["$_slug"]=1
+    case "${DISPOSITION[$_slug]:-}" in
+      pending|invalid) printf '%s\n' "$_line" || return 1 ;;
+      *) ;;
+    esac
+  done < "$INDEX"
+}
 
+# Apply order: index first (atomic_write), then prune item files. A crash between the two leaves
+# a terminal orphan on disk — the next run prunes it — never a dangling index row.
 if [ "$INDEX_CHANGED" -eq 1 ]; then
-  mv "$NEW_INDEX" "$INDEX"
-else
-  rm -f "$NEW_INDEX"
+  atomic_write "$INDEX" emit_index || die 1 "failed to write index: $INDEX"
 fi
+
+for slug in ${PRUNE_SLUGS[@]+"${PRUNE_SLUGS[@]}"}; do
+  rm -f "${BACKLOG_DIR:?}/${slug:?}.md"
+done
 
 if [ "$INDEX_CHANGED" -eq 0 ] && [ ${#PRUNE_SLUGS[@]} -eq 0 ] && [ ${#ORPHAN_KEEP[@]} -eq 0 ] && [ ${#INVALID_SLUGS[@]} -eq 0 ]; then
   printf 'reconcile: no changes — index already consistent.\n'
 else
   printf 'reconcile: applied %d action(s).\n' "${#ACTIONS[@]}"
-  for a in "${ACTIONS[@]}"; do printf '  - %s\n' "$a"; done
+  for a in ${ACTIONS[@]+"${ACTIONS[@]}"}; do printf '  - %s\n' "$a"; done
 fi
 exit 0

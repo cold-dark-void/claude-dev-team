@@ -222,9 +222,11 @@ Linear terminal state is **master-land / wrap**, not PR-open.
 ### Tracking close-out (ship DoD — orchestrator-owned)
 
 **Before** finalizing the delivery commit (PR tip commit or squash), close every
-**local** tracker listed under plan `closes:` (`backlog/<slug>.md`). Do this on
-the **feature worktree** (`--root "$WT_PATH"`) so edits land on the branch tree
-— not mid-flight by parallel ICs (avoids `backlog.md` races).
+**local** tracker listed under plan `closes:` (`backlog/<slug>.md`). Run this from
+the feature worktree against the one shared store at `$MROOT` (SPEC-009 § Backlog
+root rule) via `--root "$MROOT"` — never a worktree toplevel. The backlog lock
+(`skills/backlog/lock.sh`) serializes this write against any concurrent
+`close.sh` or `/backlog reconcile`.
 
 **Linear** (`linear:<ID>` / source=linear) is **path-dependent** (see table above):
 - **PR-stop / autopilot `pr` / release=end PR-only:** MCP → **In Review** + PR URL
@@ -246,21 +248,16 @@ interactive squash, autopilot `pr`) keeps the before-commit ordering below for
 require the ship-history gate before Linear **Done**.
 
 ```bash
-# Re-resolve PDH / MROOT / WT (fresh shell). Parse backlog slugs from plan Tracking.
+# Re-resolve PDH / MROOT (fresh shell). Parse backlog slugs from plan Tracking.
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 CLOSE=$(bash "$PDH/skills/plugin-dir.sh" file skills/backlog/close.sh)
-EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
-WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<ISSUE-ID>" 2>/dev/null) \
-  || WT_PATH="$MROOT/.worktrees/<ISSUE-ID>"
-# Prefer worktree root for --root when present (local write-through on branch tree).
-[ -d "$WT_PATH" ] || WT_PATH=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # For each plan closes: entry of form backlog/<slug>.md (or bare slug):
-bash "$CLOSE" "<slug>" --root "$WT_PATH" --ticket "<ISSUE-ID>" --status "FIXED/CLOSED"
-bash "$CLOSE" verify "<slug>" --root "$WT_PATH" || {
+bash "$CLOSE" "<slug>" --root "$MROOT" --ticket "<ISSUE-ID>" --status "FIXED/CLOSED"
+bash "$CLOSE" verify "<slug>" --root "$MROOT" || {
   echo "Ship blocked: backlog/<slug> still open after close" >&2
   exit 1
 }
@@ -316,9 +313,9 @@ PR, comment with PR URL. Covered by Tracking close-out PR-stop branch.
 release=end message; master unchanged. Prefer PR-stop or leave work on the
 integration branch until epic seal (C5).
 
-Prefer plain git — do NOT require `gh`. Apply Tracking close-out on the feature
-worktree first (local write-through; Linear **Done** only after squash commit on
-master succeeds — if squash fails, leave Linear at In Progress/In Review):
+Prefer plain git — do NOT require `gh`. Apply Tracking close-out from the feature
+worktree against `$MROOT` (local write-through; Linear **Done** only after squash
+commit on master succeeds — if squash fails, leave Linear at In Progress/In Review):
 
 **Glossary ship gate (before squash):**
 1. If this ticket crystallized glossary terms, `CONTEXT.md` (or
@@ -341,7 +338,7 @@ master succeeds — if squash fails, leave Linear at In Progress/In Review):
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || exit 64
-# Tracking close-out on WT_PATH already done (above) — status flips only; do NOT
+# Tracking close-out on the MROOT store already done (above) — status flips only; do NOT
 # include .claude/backlog* or .claude/plans* in the squash tree.
 # Glossary: feature branch CONTEXT.md commits land with the squash — never
 # strip them; never rely on uncommitted main-checkout CONTEXT.md instead.

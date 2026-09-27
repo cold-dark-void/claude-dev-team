@@ -50,6 +50,12 @@ if ! command -v jq >/dev/null 2>&1; then
   die 1 "jq is required but not found in PATH"
 fi
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [ ! -f "$SCRIPT_DIR/../lib/portable.sh" ]; then
+  die 1 "missing helper: skills/lib/portable.sh"
+fi
+. "$SCRIPT_DIR/../lib/portable.sh"
+
 # ---- paths ------------------------------------------------------------------
 resolve_mroot() {
   # Allow test override first
@@ -90,15 +96,8 @@ write_queue() {
   # write_queue <json-string>
   queue_paths
   mkdir -p "$RT_DIR"
-  local tmp
-  tmp=$(mktemp "${TMPDIR:-/tmp}/rt-queue.XXXXXX")
-  printf '%s\n' "$1" > "$tmp"
-  # validate JSON before install
-  if ! jq -e . "$tmp" >/dev/null 2>&1; then
-    rm -f "$tmp"
-    die 1 "refusing to write invalid queue JSON"
-  fi
-  mv "$tmp" "$QUEUE"
+  printf '%s\n' "$1" | jq -e . >/dev/null 2>&1 || die 1 "refusing to write invalid queue JSON"
+  atomic_write "$QUEUE" printf '%s\n' "$1" || die 1 "failed to write $QUEUE"
 }
 
 normalize_ver() {
@@ -450,24 +449,18 @@ print(f"renumber: CHANGELOG headings updated ({n})", file=sys.stderr)
 PY
   fi
   if [ -f .claude-plugin/plugin.json ]; then
-    local tmp
-    tmp=$(mktemp "${TMPDIR:-/tmp}/rt-pj.XXXXXX")
-    jq --arg a "$assumed" --arg v "$assigned" \
+    atomic_write .claude-plugin/plugin.json jq --arg a "$assumed" --arg v "$assigned" \
       'if .version == $a then .version = $v else . end' \
-      .claude-plugin/plugin.json > "$tmp"
-    mv "$tmp" .claude-plugin/plugin.json
+      .claude-plugin/plugin.json || die 1 "renumber: failed to write .claude-plugin/plugin.json"
   fi
   # marketplace.json: only renumber an existing version field — never invent one (CDT-131)
   if [ -f .claude-plugin/marketplace.json ]; then
-    local tmp
-    tmp=$(mktemp "${TMPDIR:-/tmp}/rt-mp.XXXXXX")
-    jq --arg a "$assumed" --arg v "$assigned" '
+    atomic_write .claude-plugin/marketplace.json jq --arg a "$assumed" --arg v "$assigned" '
       if .plugins then
         .plugins |= map(if has("version") and .version == $a then .version = $v else . end)
       else . end
       | if has("version") and .version == $a then .version = $v else . end
-    ' .claude-plugin/marketplace.json > "$tmp"
-    mv "$tmp" .claude-plugin/marketplace.json
+    ' .claude-plugin/marketplace.json || die 1 "renumber: failed to write .claude-plugin/marketplace.json"
   fi
   printf '%s\n' "$assigned"
 }
@@ -745,24 +738,19 @@ cmd_resolve_json() {
   done
   assigned=$(normalize_ver "$assigned")
   if [ -f "$plugin" ]; then
-    local tmp
-    tmp=$(mktemp "${TMPDIR:-/tmp}/rt-pj.XXXXXX")
-    jq --arg v "$assigned" '.version = $v' "$plugin" > "$tmp"
-    mv "$tmp" "$plugin"
+    atomic_write "$plugin" jq --arg v "$assigned" '.version = $v' "$plugin" \
+      || die 1 "resolve-json: failed to write $plugin"
   else
     die 1 "resolve-json: missing $plugin"
   fi
   # marketplace.json: update version only if already present — never invent (CDT-131)
   if [ -f "$market" ]; then
-    local tmp
-    tmp=$(mktemp "${TMPDIR:-/tmp}/rt-mp.XXXXXX")
-    jq --arg v "$assigned" '
+    atomic_write "$market" jq --arg v "$assigned" '
       if .plugins then
         .plugins |= map(if has("version") then .version = $v else . end)
       else . end
       | if has("version") then .version = $v else . end
-    ' "$market" > "$tmp"
-    mv "$tmp" "$market"
+    ' "$market" || die 1 "resolve-json: failed to write $market"
   else
     die 1 "resolve-json: missing $market"
   fi

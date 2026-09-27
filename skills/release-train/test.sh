@@ -4,6 +4,9 @@ set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LIB="$HERE/train-lib.sh"
 FIX="$HERE/fixtures"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init
 PASS=0
 FAIL=0
 OUT=""
@@ -32,9 +35,8 @@ run_lib 64
 echo "$OUT" | grep -q Usage && pass || fail "usage text missing"
 
 # ---- temp git repo helpers --------------------------------------------------
-TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/rt-test.XXXXXX")
-cleanup() { rm -rf "$TMPROOT"; }
-trap cleanup EXIT
+TMPROOT="$TMPDIR/rt-test"
+mkdir -p "$TMPROOT"
 
 setup_repo() {
   local d="$1"
@@ -322,6 +324,77 @@ run_in 0 set-status feat/d landing
 run_in 0 set-status feat/d blocked --paths skills/foo.sh
 # blocked cannot go to landed
 run_in 1 set-status feat/d landed
+
+# ---- AC L/M/N: atomic_write modes + no temp leakage -------------------------
+UMASK_DIR="$TMPROOT/umask"
+mkdir -p "$UMASK_DIR"
+setup_repo "$UMASK_DIR"
+rm -rf "$UMASK_DIR/.claude/release-train"
+(umask 022; RELEASE_TRAIN_ROOT="$UMASK_DIR" bash "$LIB" init >/dev/null)
+UM=$(stat -c %a "$UMASK_DIR/.claude/release-train/queue.json" 2>/dev/null \
+  || stat -f %Lp "$UMASK_DIR/.claude/release-train/queue.json" 2>/dev/null)
+[ "$UM" = "644" ] && pass || fail "new queue.json mode want 644 got $UM"
+
+chmod 0640 "$UMASK_DIR/.claude/release-train/queue.json"
+git -C "$UMASK_DIR" branch feat/mode 2>/dev/null || true
+(cd "$UMASK_DIR" && RELEASE_TRAIN_ROOT="$UMASK_DIR" bash "$LIB" register feat/mode --bump minor >/dev/null)
+UM=$(stat -c %a "$UMASK_DIR/.claude/release-train/queue.json" 2>/dev/null \
+  || stat -f %Lp "$UMASK_DIR/.claude/release-train/queue.json" 2>/dev/null)
+[ "$UM" = "640" ] && pass || fail "queue.json mode not preserved: want 640 got $UM"
+find "$UMASK_DIR/.claude/release-train" -maxdepth 1 -name '.*.tmp.*' | grep -q . \
+  && fail "temp file left in .claude/release-train" || pass
+
+# resolve-json keeps 0644 and 0664 fixture modes
+JMDIR="$TMPROOT/json-modes"
+mkdir -p "$JMDIR"
+cp "$FIX/json/plugin.json" "$JMDIR/plugin.json"
+cp "$FIX/json/marketplace.json" "$JMDIR/marketplace.json"
+chmod 0644 "$JMDIR/plugin.json"
+chmod 0664 "$JMDIR/marketplace.json"
+bash "$LIB" resolve-json 0.41.0 --plugin "$JMDIR/plugin.json" --market "$JMDIR/marketplace.json" >/dev/null
+PM=$(stat -c %a "$JMDIR/plugin.json" 2>/dev/null || stat -f %Lp "$JMDIR/plugin.json" 2>/dev/null)
+MM=$(stat -c %a "$JMDIR/marketplace.json" 2>/dev/null || stat -f %Lp "$JMDIR/marketplace.json" 2>/dev/null)
+[ "$PM" = "644" ] && pass || fail "resolve-json plugin mode want 644 got $PM"
+[ "$MM" = "664" ] && pass || fail "resolve-json market mode want 664 got $MM"
+
+# renumber keeps plugin.json mode
+RNDM="$TMPROOT/renumber-mode"
+mkdir -p "$RNDM/.claude-plugin"
+cp "$FIX/renumber/CHANGELOG.md" "$RNDM/CHANGELOG.md"
+cp "$FIX/renumber/plugin.json" "$RNDM/.claude-plugin/plugin.json"
+cp "$FIX/renumber/marketplace.json" "$RNDM/.claude-plugin/marketplace.json"
+chmod 0664 "$RNDM/.claude-plugin/plugin.json"
+( cd "$RNDM" && bash "$LIB" renumber 0.40.0 0.41.0 >/dev/null )
+RM=$(stat -c %a "$RNDM/.claude-plugin/plugin.json" 2>/dev/null || stat -f %Lp "$RNDM/.claude-plugin/plugin.json" 2>/dev/null)
+[ "$RM" = "664" ] && pass || fail "renumber plugin mode want 664 got $RM"
+find "$RNDM/.claude-plugin" -maxdepth 1 -name '.*.tmp.*' | grep -q . \
+  && fail "temp file left in .claude-plugin (renumber)" || pass
+
+# malformed plugin.json: resolve-json fails closed, dest unchanged, no temp left
+BADDIR="$TMPROOT/json-bad"
+mkdir -p "$BADDIR"
+printf '{not json' > "$BADDIR/plugin.json"
+cp "$FIX/json/marketplace.json" "$BADDIR/marketplace.json"
+cp "$BADDIR/plugin.json" "$BADDIR/plugin.json.orig"
+set +e
+bash "$LIB" resolve-json 0.41.0 --plugin "$BADDIR/plugin.json" --market "$BADDIR/marketplace.json" >/dev/null 2>&1
+RC=$?
+set -e
+[ "$RC" -ne 0 ] && pass || fail "resolve-json on malformed plugin.json should fail"
+cmp -s "$BADDIR/plugin.json" "$BADDIR/plugin.json.orig" && pass || fail "malformed plugin.json was modified"
+find "$BADDIR" -maxdepth 1 -name '.*.tmp.*' | grep -q . \
+  && fail "temp file left after malformed resolve-json" || pass
+
+# ---- static: no mktemp, atomic_write used at every write site ---------------
+MKC=$(grep -c mktemp "$LIB" || true)
+[ "$MKC" = "0" ] && pass || fail "mktemp still present in train-lib.sh ($MKC)"
+AWC=$(grep -c atomic_write "$LIB" || true)
+[ "$AWC" -ge 5 ] && pass || fail "expected >=5 atomic_write call sites, got $AWC"
+# negative control: the grep must actually fire on a planted mktemp string
+PLANT="$TMPROOT/plant.sh"
+printf '%s\n' 'x=$(mktemp /tmp/x.XXXXXX)' > "$PLANT"
+PC=$(grep -c mktemp "$PLANT" || true)
+[ "$PC" = "1" ] && pass || fail "negative control: mktemp grep did not fire on planted string"
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"
