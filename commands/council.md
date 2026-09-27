@@ -396,7 +396,7 @@ should be skipped, i.e. for single pasted claims and `--from-retro`),
 `{requested:true, status:available|skipped, tool, prefer, helper, flavor}`).
 For an M14 per-AC split run (SPEC-033 M14(g); SPEC-013 Phase 1 "M14 per-AC
 split") the plan additionally carries `claims` (`[{claim_id, ac_id, claim,
-source_locator, claim_type}]`), `ac_source` (path), and `process_acs` (ids).
+source_locator, claim_type, verify, tool_budget}]`), `ac_source` (path), and `process_acs` (ids).
 Non-M14 plans never carry these three keys.
 
 ## Step 2.5: Execution-path routing (CDV-196)
@@ -521,7 +521,7 @@ When `plan.claims` is a non-empty array (M14 per-AC split; SPEC-013 Phase 1
 same `claim` text, same `source_locator`, one investigation claim per array
 element. Do NOT truncate, reorder, merge, reword, or re-extract; do NOT
 `slice` to `plan.claim_budget` (preflight already enforced the M14 budget).
-Keep the plan's `claim_id` (`c<i>`) and `ac_id` on each claim through
+Keep the plan's `claim_id` (`c<i>`), `ac_id`, `verify` and `tool_budget` on each claim through
 Phase 2–6 so verdicts can join back to ACs by the `[AC-<id>]` tag.
 
 Else (no `plan.claims`, the pre-M14 shape) build the one-element claim list
@@ -539,7 +539,7 @@ When `plan.scope == "from-retro"`, optionally Read
 in Phase 2 (artifacts only — no prior narrative).
 
 Receive the structured claim list: `[{ claim, source_locator, claim_type }]`
-(M14 runs add `claim_id`, `ac_id`). Plan locators use `file:heading-path:line`.
+(M14 runs add `claim_id`, `ac_id`, `verify`, `tool_budget`). Plan locators use `file:heading-path:line`.
 For diff-mode the records are candidate findings `{ file, line, description }`.
 
 **Spawn failure:** if the extractor spawn fails or returns unusable output →
@@ -607,8 +607,12 @@ prompt: skills/council/prompts/investigator.md
     {{RAW_ARTIFACTS}}  ← raw files / logs / diff / anchor evidence (artifacts only)
     {{FLAVOR_DELTA}}   ← contents of skills/council/flavors/<flavor>.md body
     {{CACHE_DIR}}      ← plan.cache_dir (per-run council-cache under TMPDIR)
+    {{TOOL_BUDGET}}    ← claim.tool_budget, else 5
+    {{VERIFY_COMMAND}} ← claim.verify, else empty
     # tool allowlist is fixed in the investigator prompt body (not substituted)
 ```
+
+Section blocks: SPEC-013 Engine Architecture; remove `{{#VERIFY_COMMAND}}`…`{{/VERIFY_COMMAND}}` when empty, else remove the marker lines only.
 
 **Blindness invariant:** do NOT pass prior assistant narrative, prior
 verdicts, or prior advocate/prosecutor output to any investigator. Raw
@@ -733,6 +737,8 @@ prompt: skills/council/prompts/investigator.md
     {{RAW_ARTIFACTS}}   ← same raw artifacts as Phase 2 for that claim
     {{FLAVOR_DELTA}}    ← domain-specialist delta (below), NOT a flavor file
     {{CACHE_DIR}}       ← plan.cache_dir (same per-run cache as Phase 2)
+    {{TOOL_BUDGET}}     ← claim.tool_budget, else 5
+    {{VERIFY_COMMAND}}  ← claim.verify, else empty
 ```
 
 `{{FLAVOR_DELTA}}` body (paste verbatim; substitute `<agent>` / `<topic>`):
@@ -772,17 +778,27 @@ Anonymized cross-ranking of Phase 2 evidence bundles by the investigators
 themselves (each reviewing peers, never their own bundle), aggregated by
 Borda count to produce a quality-ranked bundle list for Phase 4 and Phase 5.
 
-**Bypass check (do this first):**
+**Per-claim (SPEC-013 Phase 2.5, WP 1-15):** group Phase 2 bundles by the
+`claim_id` they carry, in claim order. Run every step below —
+anonymization, reviewer spawn, RANKING collection, Borda count — once per
+group, against that claim's own bundles and that claim's own text only. A
+reviewer for one claim's group never sees another claim's bundles.
+Concatenate the ranked groups, in claim order, for the bundle list Phase 4
+and Phase 5 receive.
 
-Skip Phase 2.5 entirely if either:
-- Fewer than 3 investigators participated (i.e. fewer than 3 bundles collected
-  in Phase 2). Record bypass reason `"fewer than 3 investigators (N found)"`.
-- Zero valid RANKING lines were collected after the cross-review round (every
-  reviewer's response was rejected). Record bypass reason `"no valid
-  cross-review rankings collected"`.
+**Bypass check (do this first, per claim group):**
 
-In either case, proceed to Phase 4 with the bundles in their original
-submission order.
+Skip Phase 2.5 for a claim group if either:
+- Fewer than 3 investigators participated for that claim (i.e. fewer than 3
+  bundles collected for it in Phase 2). Record the bypass reason for that
+  claim: `"<claim-id>: bypassed: fewer than 3 bundles (N found)"`.
+- Zero valid RANKING lines were collected for that claim's cross-review
+  round (every reviewer's response was rejected). Record the bypass reason
+  for that claim: `"<claim-id>: bypassed: no valid cross-review rankings
+  collected"`.
+
+For a bypassed claim group, proceed to Phase 4 with that group's bundles in
+their original submission order; other claim groups are unaffected.
 
 **Anonymization:**
 

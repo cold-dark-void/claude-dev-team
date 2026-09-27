@@ -42,7 +42,9 @@ Produce:
    confirmed ACs into that spec's `## Acceptance criteria` section, in a
    `### <ISSUE-ID>` subsection (SPEC-033 M14(g)). Tag an execution-only AC
    (asserts only test/gate/CI running, never diff content) `[process]`
-   (M14(h)); MUST NOT tag an AC that asserts diff content.
+   (M14(h)); MUST NOT tag an AC that asserts diff content. Add a two-space
+   `Verify: bash <test file>` continuation to each technical AC that one
+   test file proves (SPEC-033 M14(g)).
 2. Implementation plan with task graph (dependencies, parallelism)
 3. For each task: `Recommended agent: <ic4|ic5|qa|devops|ds>` and why.
    Cite agents/tech-lead.md Task-routing table.

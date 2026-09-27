@@ -425,4 +425,89 @@ if (!r.ok) throw new Error(JSON.stringify(r))
 console.log('OK: mock runCouncil')
 JS
 
+
+# WP 1-15 T7 (AC I) — per-claim cross-review (SPEC-013 Phase 2.5)
+if grep -nF 'claims[0]?.claim' skills/council/workflow.js >/dev/null; then
+  echo "FAIL: workflow.js still reads claims[0] for cross-review CLAIM_TEXT"; fail=1
+else
+  echo "OK: claims[0]?.claim shortcut removed"
+fi
+if grep -nE 'per claim group|per-claim|group.*claim_id' commands/council.md >/dev/null \
+  && grep -nE 'bypassed: fewer than 3 bundles' commands/council.md >/dev/null; then
+  echo "OK: council.md Phase 2.5 states per-claim grouping and per-claim bypass reason"
+else
+  echo "FAIL: council.md Phase 2.5 missing per-claim grouping/bypass text"; fail=1
+fi
+
+COUNCIL_TEST_REPO="$TR" node --input-type=module <<'JS'
+import { runCouncil } from './skills/council/workflow.js'
+process.chdir(process.env.COUNCIL_TEST_REPO)
+
+const crossPrompts = []
+const agent = async (prompt, opts) => {
+  if (opts.phase === 'Extract') {
+    return {
+      claims: [
+        { claim: 'CLAIM_C0_TEXT', source_locator: 'f:1', claim_type: 'factual' },
+        { claim: 'CLAIM_C1_TEXT', source_locator: 'f:2', claim_type: 'factual' },
+      ],
+    }
+  }
+  if (opts.phase === 'Investigate') {
+    if (opts.label === 'inv:c0:paranoid-ic') {
+      return {
+        bundles: [
+          { tool_use_id: 'c0-a', raw_blob: 'C0_BUNDLE_A', file_line: 'f:1', reproducible_command: 'e' },
+          { tool_use_id: 'c0-b', raw_blob: 'C0_BUNDLE_B', file_line: 'f:1', reproducible_command: 'e' },
+          { tool_use_id: 'c0-c', raw_blob: 'C0_BUNDLE_C', file_line: 'f:1', reproducible_command: 'e' },
+        ],
+      }
+    }
+    if (opts.label === 'inv:c0:jaded-senior') return { bundles: [] }
+    if (opts.label === 'inv:c1:paranoid-ic') {
+      return { bundles: [{ tool_use_id: 'c1-a', raw_blob: 'C1_BUNDLE_A', file_line: 'f:2', reproducible_command: 'e' }] }
+    }
+    if (opts.label === 'inv:c1:jaded-senior') {
+      return { bundles: [{ tool_use_id: 'c1-b', raw_blob: 'C1_BUNDLE_B', file_line: 'f:2', reproducible_command: 'e' }] }
+    }
+    return { bundles: [] }
+  }
+  if (opts.phase === 'Cross-review') {
+    crossPrompts.push({ label: opts.label, prompt })
+    return { ranking: ['A', 'B'] }
+  }
+  if (opts.phase === 'Phase4') {
+    return { briefs: [], struck_lines: [] }
+  }
+  if (opts.label === 'council-judge') {
+    return {
+      verdicts: [
+        { claim: 'CLAIM_C0_TEXT', claim_id: 'c0', verdict: 'VERIFIED', confidence: 85, evidence_blob: 'x' },
+        { claim: 'CLAIM_C1_TEXT', claim_id: 'c1', verdict: 'VERIFIED', confidence: 85, evidence_blob: 'x' },
+      ],
+      struck_lines: [],
+    }
+  }
+  return null
+}
+
+const r = await runCouncil({
+  args: { scope: 'session', claim: 'two-claim cross-review probe' },
+  agent,
+  phase: () => {},
+  parallel: async (fns) => Promise.all(fns.map((f) => f())),
+})
+if (!r.ok) throw new Error('runCouncil failed: ' + JSON.stringify(r))
+
+const c0Prompts = crossPrompts.filter((p) => p.label.startsWith('cross:c0:'))
+const c1Prompts = crossPrompts.filter((p) => p.label.startsWith('cross:c1:'))
+if (c0Prompts.length !== 3) throw new Error('expected 3 c0 cross-reviewer spawns, got ' + c0Prompts.length)
+if (c1Prompts.length !== 0) throw new Error('expected 0 c1 cross-reviewer spawns, got ' + c1Prompts.length)
+for (const p of c0Prompts) {
+  if (!p.prompt.includes('CLAIM_C0_TEXT')) throw new Error('c0 prompt missing c0 claim text')
+  if (p.prompt.includes('CLAIM_C1_TEXT')) throw new Error('c0 prompt leaked c1 claim text')
+  if (p.prompt.includes('C1_BUNDLE')) throw new Error('c0 prompt leaked a c1 bundle')
+}
+console.log('OK: per-claim cross-review isolates c0 bundles/text from c1, bypasses c1')
+JS
 exit $fail

@@ -206,11 +206,14 @@ locators-only rule is unchanged by it. The final sentence is a standing instruct
 investigators to treat the summary as untrusted and re-derive the evidence themselves.
 
 **Split fail-closed (SPEC-033 M14(g)).** If the council preflight's AC split exits 8 (one of
-M14(g)'s nine fail-closed cases), the invocation ends with no report. Treat this the same as
+M14(g)'s fail-closed cases), the invocation ends with no report. Treat this the same as
 §5's total council spawn failure: `decision = halt`, `blocking_condition = 7`,
 `confidence = 0`, `bump = null`, with `rationale` naming the split failure. This is not a
 new halt path; it flows through the same M14(b) step-1 no-usable-report branch §5 already
 covers.
+
+An AC may name a `Verify:` command (SPEC-033 M14(a), M14(g)). The council's own
+investigators run it; autopilot does not run it and passes no output.
 
 ## 4. Verdict interpretation
 

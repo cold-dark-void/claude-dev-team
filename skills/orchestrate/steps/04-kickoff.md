@@ -39,7 +39,9 @@ Your job:
    confirmed ACs into the ticket's spec (create/update in `specs/core/`), in
    a `## Acceptance criteria` section, `### <ISSUE-ID>` subsection
    (SPEC-033 M14(g)). Tag an execution-only AC (asserts only test/gate/CI
-   running, never diff content) `[process]` (M14(h)). Commit the spec on
+   running, never diff content) `[process]` (M14(h)). Add a two-space
+   `Verify: bash <test file>` continuation to each technical AC that one
+   test file proves (SPEC-033 M14(g)). Commit the spec on
    the feature branch, in the worktree.
 2. Write a short (~5-line) implementation plan to
    `.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` with a Tracking section:

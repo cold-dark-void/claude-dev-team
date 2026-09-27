@@ -21,6 +21,8 @@ REPO="$HERMETIC_ROOT/repo"
 mkdir -p "$REPO"
 git init -q "$REPO"
 cp "$FIX"/*.md "$REPO"/
+cp "$FIX"/*.sh "$REPO"/
+chmod +x "$REPO"/*.sh
 git -C "$REPO" add -A
 git -C "$REPO" commit -q -m fixtures
 
@@ -154,6 +156,167 @@ else
   fail_msg "case 8: guard 1 fails (rc=$RC, stderr=$ERR)"
 fi
 
+
+# ---- Case 10 / verify field: valid Verify line -> JSON verify; no Verify
+# line -> null (SPEC-033 M14(g) WP 1-15, IC C1) --------------------------
+OUT="$(run wp-case10-valid case10-valid-verify.md)"; RC=$?
+if [ "$RC" -eq 0 ]; then ok "case10-valid: exits 0"; else fail_msg "case10-valid: exits 0 (got $RC)"; fi
+V_A="$(echo "$OUT" | jq -r '.acs[] | select(.id=="A") | .verify')"
+if [ "$V_A" = "bash test-widget.sh" ]; then
+  ok "case10-valid: AC A verify = the Verify command"
+else
+  fail_msg "case10-valid: AC A verify (got: $V_A)"
+fi
+V_B="$(echo "$OUT" | jq -r '.acs[] | select(.id=="B") | .verify')"
+if [ "$V_B" = "null" ]; then
+  ok "case10-valid: AC B (no Verify line) verify = null"
+else
+  fail_msg "case10-valid: AC B verify (got: $V_B)"
+fi
+
+# ---- Case 10: grammar breaks (3 spaces; a tab) -----------------------------
+ERR="$(run wp-case10-3space case10-3space.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [ "$(echo "$ERR" | wc -l)" -eq 1 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+  ok "case 10: 3-space indent breaks the grammar (exit 8, one stderr line)"
+else
+  fail_msg "case 10: 3-space indent (rc=$RC, stderr=$ERR)"
+fi
+
+ERR="$(run wp-case10-tab case10-tab.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [ "$(echo "$ERR" | wc -l)" -eq 1 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+  ok "case 10: tab indent breaks the grammar (exit 8, one stderr line)"
+else
+  fail_msg "case 10: tab indent (rc=$RC, stderr=$ERR)"
+fi
+
+# ---- Case 10: each disallowed metacharacter / a quote ---------------------
+for bc_ticket in wp-case10-semi wp-case10-pipe wp-case10-amp wp-case10-dollar \
+                 wp-case10-backtick wp-case10-lt wp-case10-gt wp-case10-paren \
+                 wp-case10-quote; do
+  ERR="$(run "$bc_ticket" case10-badchars.md 2>&1 1>/dev/null)"; RC=$?
+  if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+    ok "case 10: $bc_ticket disallowed character breaks the grammar"
+  else
+    fail_msg "case 10: $bc_ticket (rc=$RC, stderr=$ERR)"
+  fi
+done
+
+# ---- Case 10: more disallowed metacharacters, and a double space between --
+# tokens (F6 rework) ---------------------------------------------------------
+for bc_ticket in wp-case10-squote wp-case10-backslash wp-case10-star \
+                 wp-case10-tilde wp-case10-doublespace; do
+  ERR="$(run "$bc_ticket" case10-badchars2.md 2>&1 1>/dev/null)"; RC=$?
+  if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+    ok "case 10: $bc_ticket disallowed character/spacing breaks the grammar"
+  else
+    fail_msg "case 10: $bc_ticket (rc=$RC, stderr=$ERR)"
+  fi
+done
+
+# ---- Case 10: a Verify line before any AC bullet (F6 rework). The line's --
+# own grammar is valid; it fails because there is no AC yet to attach it to.
+ERR="$(run wp-case10-before-bullet case10-before-bullet.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]] && [[ "$ERR" == *"before any AC bullet"* ]]; then
+  ok "case 10: a Verify line before any AC bullet (exit 8)"
+else
+  fail_msg "case 10: Verify line before any AC bullet (rc=$RC, stderr=$ERR)"
+fi
+
+# ---- Case 10: path checks (absolute; ".."; non-suite basename; -----------
+# tools/run-all-tests.sh; absent at HEAD) ------------------------------------
+ERR="$(run wp-case10-abspath case10-abspath.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]] && [[ "$ERR" == *"AC A"* ]]; then
+  ok "case 10: absolute Verify path (exit 8, names AC A)"
+else
+  fail_msg "case 10: absolute Verify path (rc=$RC, stderr=$ERR)"
+fi
+
+ERR="$(run wp-case10-dotdot case10-dotdot.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+  ok "case 10: '..' segment in Verify path"
+else
+  fail_msg "case 10: '..' segment (rc=$RC, stderr=$ERR)"
+fi
+
+ERR="$(run wp-case10-notsuite case10-notsuite.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+  ok "case 10: non-suite basename in Verify path"
+else
+  fail_msg "case 10: non-suite basename (rc=$RC, stderr=$ERR)"
+fi
+
+ERR="$(run wp-case10-runalltests case10-runalltests.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+  ok "case 10: tools/run-all-tests.sh forbidden as a Verify target"
+else
+  fail_msg "case 10: tools/run-all-tests.sh (rc=$RC, stderr=$ERR)"
+fi
+
+ERR="$(run wp-case10-absent case10-absent.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]]; then
+  ok "case 10: Verify path absent at HEAD"
+else
+  fail_msg "case 10: path absent at HEAD (rc=$RC, stderr=$ERR)"
+fi
+
+# ---- Case 10: two Verify lines on one AC; a Verify line on a [process] AC -
+ERR="$(run wp-case10-dup case10-dup.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]] && [[ "$ERR" == *"AC A"* ]]; then
+  ok "case 10: two Verify lines on one AC (exit 8, names AC A)"
+else
+  fail_msg "case 10: two Verify lines (rc=$RC, stderr=$ERR)"
+fi
+
+ERR="$(run wp-case10-process case10-process.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 10:"* ]] && [[ "$ERR" == *"AC A"* ]]; then
+  ok "case 10: a [process] AC with a Verify line (exit 8, names AC A)"
+else
+  fail_msg "case 10: [process] AC with Verify (rc=$RC, stderr=$ERR)"
+fi
+
+# ---- Case 10 control: "Verify:" inside bullet text is not a Verify line ---
+OUT="$(run wp-case10-notverify case10-notverify.md)"; RC=$?
+if [ "$RC" -eq 0 ]; then
+  ok "case 10 control: 'Verify:' inside bullet prose stays valid (exits 0)"
+else
+  fail_msg "case 10 control: 'Verify:' in bullet prose (got rc=$RC)"
+fi
+
+# ---- Case 11: a Verify line + uncommitted tracked-file changes fails -------
+# closed; a dirty tracked file with NO Verify line does not (exit 0). -------
+OUT="$(run wp-case11-dirty case11-dirty.md)"; RC=$?
+if [ "$RC" -eq 0 ]; then
+  ok "case 11: clean worktree with a Verify line exits 0"
+else
+  fail_msg "case 11: clean worktree (got rc=$RC)"
+fi
+
+echo "dirtied by test-m14-ac-split.sh" >> "$REPO/notasuite.sh"
+ERR="$(run wp-case11-dirty case11-dirty.md 2>&1 1>/dev/null)"; RC=$?
+if [ "$RC" -eq 8 ] && [[ "$ERR" == "m14-ac-split: case 11:"* ]] && [[ "$ERR" == *"(ACs A)"* ]]; then
+  ok "case 11: dirty tracked file + a Verify line fails closed (exit 8, names AC A)"
+else
+  fail_msg "case 11: dirty tracked file (rc=$RC, stderr=$ERR)"
+fi
+git -C "$REPO" checkout -q -- notasuite.sh
+
+OUT="$(run wp-valid-mix valid-mix.md)"; RC=$?
+echo "dirtied by test-m14-ac-split.sh, no Verify line in this ticket" >> "$REPO/notasuite.sh"
+OUT2="$(run wp-valid-mix valid-mix.md)"; RC2=$?
+if [ "$RC2" -eq 0 ] && [ "$OUT2" = "$OUT" ]; then
+  ok "case 11: a dirty tracked file with no Verify line anywhere in the run does not fail closed"
+else
+  fail_msg "case 11: dirty file, no Verify line (rc=$RC2)"
+fi
+git -C "$REPO" checkout -q -- notasuite.sh
+
+# ---- Old fixtures: byte-identical except the added verify:null ------------
+if echo "$OUT" | jq -e '[.acs[].verify] == [null, null, null]' >/dev/null 2>&1; then
+  ok "valid-mix: every AC (no Verify line in this fixture) has verify:null"
+else
+  fail_msg "valid-mix: verify:null on every AC"
+fi
+
 # ---- Argv misuse: exit 64 ----------------------------------------------------
 set +e
 bash "$SCRIPT" >/dev/null 2>/dev/null; RC=$?
@@ -199,6 +362,74 @@ if echo "$DF_OUT" | jq -e '.acs | length == 20' >/dev/null; then
   ok "dogfood: 20 ACs total"
 else
   fail_msg "dogfood: AC count"
+fi
+
+
+
+# ---- AC M: this WP's own SPEC-033 subsection, the tree about to ship -----
+# Runs $ROOT's own current split script (not the clone's stale copy)
+# against a `git clone -q` of this worktree's HEAD, overlaid with the
+# INDEX's spec and every Verify-named file it lists, committed in the
+# clone only: /release Step 4.13 runs this suite with the WP's diff
+# squash-staged into the INDEX but not yet committed, so a plain clone's
+# HEAD (objects only) lacks this subsection and would wrongly fail case
+# 3, not case 10 (WP 1-15 Task 11). Reads the INDEX (`git show ":<path>"`),
+# not the working tree: a `cp` from the working tree would pass an
+# untracked Verify file that the shipped commit will not actually
+# contain -- exactly the gap case 10 exists to catch -- and would also
+# pick up unstaged edits that will never ship. A path shaped `/...`,
+# `../...`, `.../../...` or exactly `..` is skipped and left absent in
+# the clone (never used to build a path outside it); the split then
+# rejects it on its own terms.
+CLONE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/m14-ac-split-clone.XXXXXX")"
+git clone -q "$ROOT" "$CLONE_ROOT/clone"
+ACM_SPEC="specs/core/SPEC-033-autopilot-policy.md"
+mkdir -p "$CLONE_ROOT/clone/$(dirname "$ACM_SPEC")"
+git -C "$ROOT" show ":$ACM_SPEC" > "$CLONE_ROOT/clone/$ACM_SPEC" 2>/dev/null \
+  || rm -f "$CLONE_ROOT/clone/$ACM_SPEC"
+ACM_VPATHS="$(awk '
+  /^## Acceptance criteria$/ { insec = 1; next }
+  insec && !insub && /^## / { insec = 0 }
+  insec && !insub && $0 == "### wp-1-15-m14-verify-evidence" { insub = 1; next }
+  insub && (/^### / || /^## / || /^---$/) { insub = 0 }
+  insub && /^  Verify: bash / { print }
+' "$CLONE_ROOT/clone/$ACM_SPEC" 2>/dev/null | sed -E 's/^  Verify: bash ([^ ]+).*/\1/')"
+while IFS= read -r acm_vp || [ -n "$acm_vp" ]; do
+  [ -n "$acm_vp" ] || continue
+  case "$acm_vp" in
+    /*|../*|*/../*|..) continue ;;
+  esac
+  mkdir -p "$CLONE_ROOT/clone/$(dirname "$acm_vp")"
+  git -C "$ROOT" show ":$acm_vp" > "$CLONE_ROOT/clone/$acm_vp" 2>/dev/null \
+    || rm -f "$CLONE_ROOT/clone/$acm_vp"
+done <<<"$ACM_VPATHS"
+git -C "$CLONE_ROOT/clone" add -A
+git -C "$CLONE_ROOT/clone" commit -q -m "overlay index for AC M" --allow-empty
+ACM_OUT="$(cd "$CLONE_ROOT/clone" && bash "$ROOT/skills/council/m14-ac-split.sh" wp-1-15-m14-verify-evidence "$ACM_SPEC")"
+ACM_RC=$?
+rm -rf "$CLONE_ROOT"
+if [ "$ACM_RC" -eq 0 ]; then
+  ok "AC M: wp-1-15-m14-verify-evidence subsection splits at exit 0"
+else
+  fail_msg "AC M: wp-1-15-m14-verify-evidence subsection splits at exit 0 (got $ACM_RC)"
+fi
+ACM_TECH="$(echo "$ACM_OUT" | jq -r '[.acs[] | select(.process==false)] | length')"
+if [ "$ACM_TECH" = "14" ]; then
+  ok "AC M: 14 technical ACs"
+else
+  fail_msg "AC M: 14 technical ACs (got $ACM_TECH)"
+fi
+ACM_PROC="$(echo "$ACM_OUT" | jq -r '[.acs[] | select(.process==true) | .id] | join(",")')"
+if [ "$ACM_PROC" = "O,P" ]; then
+  ok "AC M: [process] ids O and P"
+else
+  fail_msg "AC M: [process] ids O and P (got $ACM_PROC)"
+fi
+ACM_NULLVERIFY="$(echo "$ACM_OUT" | jq -r '[.acs[] | select(.process==false) | select(.verify==null)] | length')"
+if [ "$ACM_NULLVERIFY" = "0" ]; then
+  ok "AC M: every technical AC has a non-null verify"
+else
+  fail_msg "AC M: every technical AC has a non-null verify (got $ACM_NULLVERIFY null)"
 fi
 
 echo "---"

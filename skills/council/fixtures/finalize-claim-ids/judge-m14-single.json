@@ -1,0 +1,12 @@
+{
+  "verdicts": [
+    {
+      "claim": "",
+      "verdict": "VERIFIED",
+      "confidence": 90,
+      "evidence_blob": "AC-A satisfied.",
+      "tool_use_id": "t1"
+    }
+  ],
+  "struck_lines": []
+}

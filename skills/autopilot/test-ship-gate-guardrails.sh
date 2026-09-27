@@ -14,15 +14,29 @@
 #   g4 — the M14(d) degraded rule is unchanged (byte-compared to a committed
 #        golden extracted from base 1898468, plus the two ship-gate-council.md
 #        §5 phrases it must keep).
+#        g4-bite locates the mutation by the same (d)..(e) markers
+#        extract_m14d uses, not a fixed line number; g4-bite2 re-proves that
+#        after one line is inserted above the block (AC K).
 #   g5 — `--council-tier` is the sole flag.
+#   g6 — `ship-gate-verdict.sh` is byte-identical to `cbee656` (blob-hash
+#        fixture; WP 1-15 AC G).
+#   g7 — the SPEC-033 M14(b) block, extracted by its `(b)`..`(c)` markers, is
+#        byte-equal to a committed golden extracted from `cbee656` (WP 1-15
+#        AC G). The M14(d) golden (g4) is unchanged.
 #
-# Also covers AC A (a1-a4): SPEC-033 Version History names the review report;
+# Also covers AC A (a1-a5): SPEC-033 Version History names the review report;
 # ship-gate-council.md line 7/8 names the mapper and "not a render helper";
 # it cites M14(b)/(i) and does not restate M14(b)'s worst-order string or
 # "lowest confidence".
+# a5 (WP 1-15 AC A/G): SPEC-033 names WP 1-15, M14(a) and M14(g) in a dated
+# row; ship-gate-council.md cites M14(g) with no grammar restatement, no
+# metacharacter list, and no `run-all-tests.sh` mention.
 #
 # Also covers the M14(g) Writers (w1-w4): 06-design.md, 04-kickoff.md,
 # 10-qa.md, kickoff/SKILL.md each cite M14(g) and `## Acceptance criteria`.
+# w5-w7 (WP 1-15 AC L): 04-kickoff.md and 06-design.md ask writers for a
+# per-AC `Verify:` continuation; 10-qa.md reports `verify: null` ACs and
+# Verify files that do not call `hermetic_init`.
 #
 # Every check also runs a bite test: the same check against a mutated temp
 # copy of the file it reads, asserting the check FAILS on the mutation.
@@ -35,9 +49,15 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
+source "$ROOT/tests/lib/skip.sh"
+source "$ROOT/tests/lib/hermetic.sh"
+
 SPEC="$ROOT/specs/core/SPEC-033-autopilot-policy.md"
 SG="$SCRIPT_DIR/ship-gate-council.md"
 GOLDEN="$SCRIPT_DIR/fixtures/ship-gate-guardrails/m14d.golden.md"
+GOLDEN_M14B="$SCRIPT_DIR/fixtures/ship-gate-guardrails/m14b.golden.md"
+VERDICT_SH="$SCRIPT_DIR/ship-gate-verdict.sh"
+VERDICT_BLOB="$SCRIPT_DIR/fixtures/ship-gate-guardrails/ship-gate-verdict.blob"
 W1="$ROOT/skills/orchestrate/steps/06-design.md"
 W2="$ROOT/skills/orchestrate/steps/04-kickoff.md"
 W3="$ROOT/skills/orchestrate/steps/10-qa.md"
@@ -48,11 +68,13 @@ FAIL=0
 pass() { PASS=$((PASS + 1)); echo "PASS: $1"; }
 fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
 
+hermetic_init
+
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ship-gate-guardrails-test.XXXXXX")
-cleanup() { rm -rf "$TMP"; }
+cleanup() { rm -rf "$TMP"; hermetic_cleanup; }
 trap cleanup EXIT
 
-for f in "$SPEC" "$SG" "$GOLDEN" "$W1" "$W2" "$W3" "$W4"; do
+for f in "$SPEC" "$SG" "$GOLDEN" "$GOLDEN_M14B" "$VERDICT_SH" "$VERDICT_BLOB" "$W1" "$W2" "$W3" "$W4"; do
   if [ ! -f "$f" ]; then
     echo "FAIL: fixture/source file missing: $f" >&2
     exit 1
@@ -108,6 +130,45 @@ extract_m14d() {
     grab && /^  - \*\*\(e\)/ { exit }
     grab { print }
   ' "$1"
+}
+
+# extract_m14b <spec-file>  -- the M14(b) block, (b) line up to (not
+# including) the (c) line (WP 1-15 AC G). Same marker-located, no-fixed-
+# line-number style as extract_m14d.
+extract_m14b() {
+  awk '
+    /^  - \*\*\(b\) Per-AC aggregation/ { grab = 1 }
+    grab && /^  - \*\*\(c\)/ { exit }
+    grab { print }
+  ' "$1"
+}
+
+# find_m14d_self_verified_line <spec-file>  -- the line number, within
+# <spec-file>, of the first line inside the (d)..(e) range (the same
+# markers extract_m14d uses) that holds "self-verified". Empty if none.
+# No fixed line number: it still works after lines are inserted above the
+# block (AC K).
+find_m14d_self_verified_line() {
+  awk '
+    /^  - \*\*\(d\) Degraded-run rule/ { grab = 1 }
+    grab && /^  - \*\*\(e\)/ { exit }
+    grab && /self-verified/ { print NR; exit }
+  ' "$1"
+}
+
+# mutate_m14d_self_verified <src> <dst>  -- writes <src> to <dst>, with the
+# word at the marker-located self-verified line (find_m14d_self_verified_line)
+# altered. A no-op copy if the marker line is not found, so the caller's
+# byte-compare still runs (and fails on a missing block, rather than a
+# silently-unmutated one).
+mutate_m14d_self_verified() {
+  local src=$1 dst=$2 ln
+  ln=$(find_m14d_self_verified_line "$src") || ln=""
+  if [ -z "$ln" ]; then
+    cp -- "$src" "$dst" || return 1
+    return 0
+  fi
+  sed -e "${ln}s/self-verified/altered-verified/" "$src" > "$dst" || return 1
 }
 
 # has <file> <substring>  — literal substring present (exit 0) or not (1).
@@ -221,13 +282,33 @@ elif diff <(printf '%s\n' "$BLOCK") "$GOLDEN" >/dev/null 2>&1; then
 else
   fail "g4 SPEC-033 M14(d) block differs from golden"
 fi
-# Bite: mutate one word inside the live spec's (d) block and re-extract/diff.
-sed -e '620s/self-verified/altered-verified/' "$SPEC" > "$TMP/g4-spec-mut.md"
+# Bite: mutate one word inside the live spec's (d) block, located by the
+# (d)..(e) markers (find_m14d_self_verified_line), not a fixed line number.
+mutate_m14d_self_verified "$SPEC" "$TMP/g4-spec-mut.md" || fail "g4-bite could not build mutated copy"
 MUT_BLOCK=$(extract_m14d "$TMP/g4-spec-mut.md")
 if diff <(printf '%s\n' "$MUT_BLOCK") "$GOLDEN" >/dev/null 2>&1; then
   fail "g4-bite mutated M14(d) block still matched the golden"
 else
   pass "g4-bite mutated M14(d) block diverges from golden -> byte-compare would fail"
+fi
+
+# g4-bite2: insert one line at the top of a copy of the live spec, confirm
+# the marker-located extract still finds the (unmutated) block byte-equal to
+# the golden, then confirm the same marker-located mutation still diverges.
+# Proves the marker location survives a shifted line count (AC K).
+{ printf '%s\n' '<!-- g4-bite2: inserted line -->'; cat -- "$SPEC"; } > "$TMP/g4-bite2-base.md" || fail "g4-bite2 could not build inserted-line copy"
+BASE_BLOCK2=$(extract_m14d "$TMP/g4-bite2-base.md")
+if diff <(printf '%s\n' "$BASE_BLOCK2") "$GOLDEN" >/dev/null 2>&1; then
+  pass "g4-bite2 marker-located extract still matches golden after a line is inserted above the block"
+else
+  fail "g4-bite2 marker-located extract diverges from golden after a line is inserted above the block"
+fi
+mutate_m14d_self_verified "$TMP/g4-bite2-base.md" "$TMP/g4-bite2-mut.md" || fail "g4-bite2 could not build mutated copy"
+MUT_BLOCK2=$(extract_m14d "$TMP/g4-bite2-mut.md")
+if diff <(printf '%s\n' "$MUT_BLOCK2") "$GOLDEN" >/dev/null 2>&1; then
+  fail "g4-bite2 mutated block (after insertion) still matched the golden"
+else
+  pass "g4-bite2 mutated block (after insertion) diverges from golden -> byte-compare would fail"
 fi
 
 G4_SG_A="regardless of that self-verified run's own reported confidence"
@@ -374,6 +455,145 @@ for wf in "$W1" "$W2" "$W3" "$W4"; do
     pass "w$i-bite $name mutation removes M14(g) -> check would fail"
   fi
 done
+
+# =============================================================================
+# w5/w6 — Step 4 (04-kickoff.md) and Step 6 (06-design.md) ask writers to add
+# a `Verify:` continuation per technical AC (SPEC-033 M14(g), WP 1-15 AC L).
+# =============================================================================
+VERIFY_ASK='`Verify: bash <test file>` continuation'
+
+if has "$W2" "$VERIFY_ASK" && has "$W2" "M14(g)"; then
+  pass "w5 04-kickoff.md: asks writers for a Verify: continuation, cites M14(g)"
+else
+  fail "w5 04-kickoff.md: missing the Verify: continuation ask or M14(g) citation"
+fi
+remove_line_substr "$W2" "$TMP/w5-mut.md" "$VERIFY_ASK"
+if has "$TMP/w5-mut.md" "$VERIFY_ASK"; then
+  fail "w5-bite mutation did not remove the Verify: continuation ask"
+else
+  pass "w5-bite 04-kickoff.md mutation removes the Verify: ask -> check would fail"
+fi
+
+if has "$W1" "$VERIFY_ASK" && has "$W1" "M14(g)"; then
+  pass "w6 06-design.md: asks writers for a Verify: continuation, cites M14(g)"
+else
+  fail "w6 06-design.md: missing the Verify: continuation ask or M14(g) citation"
+fi
+remove_line_substr "$W1" "$TMP/w6-mut.md" "$VERIFY_ASK"
+if has "$TMP/w6-mut.md" "$VERIFY_ASK"; then
+  fail "w6-bite mutation did not remove the Verify: continuation ask"
+else
+  pass "w6-bite 06-design.md mutation removes the Verify: ask -> check would fail"
+fi
+
+# =============================================================================
+# w7 — Step 10b (10-qa.md) reports ACs with `verify: null` and Verify files
+# missing `hermetic_init` (SPEC-033 M14(g), WP 1-15 AC L).
+# =============================================================================
+W7_REPORT='`verify: null` in `$SPLIT_JSON`, and each Verify'
+W7_HERMETIC='does not call `hermetic_init`, as a report line'
+
+if has "$W3" "$W7_REPORT" && has "$W3" "$W7_HERMETIC" && has "$W3" "M14(g)"; then
+  pass "w7 10-qa.md: reports verify:null ACs and non-hermetic Verify files, cites M14(g)"
+else
+  fail "w7 10-qa.md: missing the verify:null/hermetic_init report line or M14(g) citation"
+fi
+remove_line_substr "$W3" "$TMP/w7-mut.md" "$W7_HERMETIC"
+if has "$TMP/w7-mut.md" "$W7_HERMETIC"; then
+  fail "w7-bite mutation did not remove the hermetic_init report clause"
+else
+  pass "w7-bite 10-qa.md mutation removes 'hermetic_init' report clause -> check would fail"
+fi
+
+W7_CASE11='m14-ac-split: case 11:'
+W7_DISAMBIG='case 10 and case 11 exit 8'
+
+if has "$W3" "$W7_CASE11" && has "$W3" "$W7_DISAMBIG"; then
+  pass "w7 10-qa.md: case 11 picked out by its stderr line, not by rc alone"
+else
+  fail "w7 10-qa.md: missing the case-11 stderr-line disambiguation from case 10"
+fi
+remove_line_substr "$W3" "$TMP/w7-case11-mut.md" "$W7_CASE11"
+if has "$TMP/w7-case11-mut.md" "$W7_CASE11"; then
+  fail "w7-bite mutation did not remove the case-11 stderr-line prefix"
+else
+  pass "w7-bite 10-qa.md mutation removes the case-11 stderr-line prefix -> check would fail"
+fi
+
+# =============================================================================
+# a5 (WP 1-15 AC A/G) — SPEC-033 names WP 1-15, M14(a) and M14(g) in a dated
+# row; ship-gate-council.md cites M14(g) with no grammar restatement, no
+# metacharacter list, and no `run-all-tests.sh` mention.
+# =============================================================================
+ROW2=$(grep '| 2026-09-27 |' "$SPEC" | grep 'WP 1-15' || true)
+if [ -n "$ROW2" ] && printf '%s' "$ROW2" | grep -q 'M14(a)' && printf '%s' "$ROW2" | grep -q 'M14(g)'; then
+  pass "a5 SPEC-033: dated row names WP 1-15, M14(a) and M14(g)"
+else
+  fail "a5 SPEC-033: WP 1-15 row missing or missing M14(a)/M14(g) citation"
+fi
+remove_all_substr "$SPEC" "$TMP/a5-spec-mut.md" "M14(g)"
+MUT_ROW2=$(grep '| 2026-09-27 |' "$TMP/a5-spec-mut.md" | grep 'WP 1-15' || true)
+if printf '%s' "$MUT_ROW2" | grep -q 'M14(g)'; then
+  fail "a5-bite mutation did not remove the M14(g) citation from the row"
+else
+  pass "a5-bite mutated row loses M14(g) -> check would fail"
+fi
+
+if has "$SG" "M14(g)" && ! has "$SG" "run-all-tests.sh" && ! has "$SG" "A-Z a-z 0-9"; then
+  pass "a5 ship-gate-council.md: cites M14(g), no run-all-tests.sh, no metacharacter list"
+else
+  fail "a5 ship-gate-council.md: missing M14(g) citation, or holds run-all-tests.sh / a metacharacter list"
+fi
+printf '%s\nrun-all-tests.sh\n' "$(cat "$SG")" > "$TMP/a5-sg-mut.md"
+if has "$TMP/a5-sg-mut.md" "run-all-tests.sh"; then
+  pass "a5-bite injected 'run-all-tests.sh' mention is detected -> check would fail"
+else
+  fail "a5-bite injected 'run-all-tests.sh' mention was not detected"
+fi
+
+# =============================================================================
+# g6 (WP 1-15 AC G) — ship-gate-verdict.sh is byte-identical to cbee656.
+# =============================================================================
+VERDICT_HASH=$(git -C "$ROOT" hash-object "$VERDICT_SH" 2>/dev/null) || VERDICT_HASH=""
+FIXTURE_HASH=$(cat "$VERDICT_BLOB")
+if [ -n "$VERDICT_HASH" ] && [ "$VERDICT_HASH" = "$FIXTURE_HASH" ]; then
+  pass "g6 ship-gate-verdict.sh byte-identical to cbee656 (blob $FIXTURE_HASH)"
+else
+  fail "g6 ship-gate-verdict.sh hash $VERDICT_HASH does not match cbee656 blob $FIXTURE_HASH"
+fi
+# Bite: hash a mutated copy (one appended byte) and confirm it diverges.
+cp -- "$VERDICT_SH" "$TMP/g6-mut.sh" || fail "g6-bite could not copy ship-gate-verdict.sh"
+printf '# g6-bite mutation\n' >> "$TMP/g6-mut.sh"
+MUT_HASH=$(git -C "$ROOT" hash-object "$TMP/g6-mut.sh" 2>/dev/null) || MUT_HASH=""
+if [ "$MUT_HASH" = "$FIXTURE_HASH" ]; then
+  fail "g6-bite mutated ship-gate-verdict.sh copy still matched the blob fixture"
+else
+  pass "g6-bite mutated ship-gate-verdict.sh copy diverges from blob fixture -> check would fail"
+fi
+
+# =============================================================================
+# g7 (WP 1-15 AC G) — SPEC-033 M14(b) block, extracted by its (b)..(c)
+# markers, is byte-equal to a committed golden extracted from cbee656. The
+# M14(d) golden (g4, above) is unchanged.
+# =============================================================================
+BLOCK_B=$(extract_m14b "$SPEC")
+if [ -z "$BLOCK_B" ]; then
+  fail "g7 could not extract M14(b) block from SPEC-033"
+elif diff <(printf '%s\n' "$BLOCK_B") "$GOLDEN_M14B" >/dev/null 2>&1; then
+  pass "g7 SPEC-033 M14(b) block byte-equal to committed golden (base cbee656)"
+else
+  fail "g7 SPEC-033 M14(b) block differs from golden"
+fi
+# Bite: mutate one word inside the live spec's (b) block via the same
+# literal-substring technique the other checks use, located by grepping for
+# a phrase unique to the (b) block.
+remove_line_substr "$SPEC" "$TMP/g7-spec-mut.md" "Confidence is the minimum"
+MUT_BLOCK_B=$(extract_m14b "$TMP/g7-spec-mut.md")
+if diff <(printf '%s\n' "$MUT_BLOCK_B") "$GOLDEN_M14B" >/dev/null 2>&1; then
+  fail "g7-bite mutated M14(b) block still matched the golden"
+else
+  pass "g7-bite mutated M14(b) block diverges from golden -> byte-compare would fail"
+fi
 
 # =============================================================================
 echo "----------------------------------------"

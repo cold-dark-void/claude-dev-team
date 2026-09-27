@@ -565,6 +565,15 @@ target.
       pipeline step wrote for the council to read. These designs are rejected: they are
       pre-digested evidence, which this bullet and CDT-185 forbid. The card #1 stamp clears
       a `[process]` AC **(h)**. A runner log never clears an AC.
+    - **A `Verify:` command is a locator (WP 1-15).** A technical AC MAY name one `Verify:`
+      command in the AC source **(g)**. The command string is a locator, like
+      `<path>:<line>`. It names one test that the council's own per-AC investigator runs
+      through its own tool call, during the council pass. The output of that run is the
+      investigator's own Phase 2 evidence (SPEC-013 Phase 2). It is not a "test-runner log"
+      in the sense of the bullet above, because no pipeline step wrote it for the council.
+      Autopilot MUST NOT run the command for the council. Autopilot MUST NOT pass its
+      output, a log of it, or a summary of it. A passing run does not clear an AC by
+      itself. The clearing rule **(b)** and the degraded-run rule **(d)** are unchanged.
 
   - **(b) Per-AC aggregation → confidence → BC mapping (normative; WP 1-14).** The council
     returns one verdict per technical AC claim **(g)**. Autopilot MUST map them to the second
@@ -704,6 +713,10 @@ target.
       hold a `..` segment; else the split fails closed (case 1 below).
     - **Not an AC source.** Gitignored kickoff plans, backlog carriers, and spec checkbox
       sections (for example a `## Validation` list) MUST NOT be used as the AC source.
+    - **Checkboxes are not evidence (WP 1-15).** A `- [ ]` or `- [x]` line in a spec is
+      checklist syntax. Its state MUST NOT count as evidence for or against a claim. The
+      Phase 4 brief and judge prompts of the council state this rule on every run; the
+      investigator prompt states it for a claim with a `Verify:` command (SPEC-013).
     - **Format.** The spec MUST hold one `## Acceptance criteria` section. The section MUST
       hold one `### <ticket_id>` subsection for the ticket that ships. Each AC is one
       bullet at column 0:
@@ -728,6 +741,17 @@ target.
       - The `### <ticket_id>` subsection binds the ACs to one ticket. A spec that many
         tickets amend keeps one subsection per ticket, so a later ticket cannot ship on the
         ACs of an earlier ticket.
+      - **Verify line (WP 1-15).** A technical AC MAY hold one continuation line of this
+        form: two spaces, then `Verify: bash <path>`, then zero or more ` <arg>` tokens.
+        - `<path>` is relative to the worktree top level. It MUST NOT hold a `..` segment.
+          It MUST be present at `HEAD`.
+        - The file name of `<path>` MUST be a suite name that `tools/run-all-tests.sh`
+          discovers: `test.sh`, `test-*.sh` or `*-test.sh`. The command names one test
+          file. It MUST NOT name `tools/run-all-tests.sh`.
+        - `<path>` and each `<arg>` hold only these characters: `A-Z`, `a-z`, `0-9` and
+          `. _ / = : @ % + , -`. So no shell metacharacter can reach the investigator.
+        - The split copies the command into the claim record (SPEC-013 Phase 1). An AC
+          with no `Verify:` line is audited as before.
     - **Trigger.** The split MUST fire if and only if the scope is `claim`, the claim text
       starts with `Ship-gate audit for <ticket_id>.`, and the claim text holds one or more
       `ac-source=` tokens. The token value is the non-space text after `ac-source=`. Every
@@ -751,8 +775,13 @@ target.
       7. Zero technical ACs remain after the `[process]` ACs are removed **(h)**.
       8. A `[process]` AC fails guard 1 **(h)**.
       9. The technical AC count is more than the M14 claim budget **(j)**.
+      10. A `Verify:` line breaks the Verify line rule, one AC holds two or more `Verify:`
+          lines, or a `[process]` AC holds a `Verify:` line (WP 1-15).
+      11. One or more ACs hold a `Verify:` line, and the worktree has uncommitted changes
+          to tracked files. The split reads `HEAD`, but a verify run reads the worktree
+          (WP 1-15).
 
-      The stderr line MUST name the cause and, for cases 6 and 9, the AC ids. Autopilot then
+      The stderr line MUST name the cause and, for cases 6, 9 and 10, the AC ids. Autopilot then
       takes step 1 of **(b)** (`halt`, BC7, `confidence = 0`), and the `rationale` MUST
       name the cause.
     - **Writers.** The ticket's ACs MUST reach the spec before ship. `/orchestrate` Step 6
@@ -760,6 +789,10 @@ target.
       confirmed ACs into the `### <ticket_id>` subsection. Step 10b MUST confirm that the
       subsection exists and holds every confirmed AC. A missing subsection at Step 10b MUST
       go back to the Tech Lead before ship.
+      The writers MUST add a `Verify:` line to each technical AC that one test file proves
+      (WP 1-15). Step 10b MUST list each technical AC with no `Verify:` line, and each
+      `Verify:` file that does not call `hermetic_init`. This list is a report. It does
+      not block the ship.
 
   - **(h) `[process]` ACs (normative; WP 1-14).** A `[process]` AC asserts only test, gate
     or CI execution (for example, "the full test runner exits 0"). The council MUST NOT
@@ -807,6 +840,8 @@ target.
     - The budget applies to M14 split runs only. Every other `/council` caller keeps the
       SPEC-013 claim budget of 10 and the 5-call investigator budget
       (`skills/council/prompts/investigator.md`).
+    - An M14 per-AC claim with a `Verify:` command gets an 8-call investigator budget. An
+      M14 claim with no `Verify:` command keeps 5 calls (SPEC-013 Phase 2; WP 1-15).
 
   - **(k) Tests (WP 1-14).** These tests MUST run in `tools/run-all-tests.sh`. They MUST
     start no live council and MUST write only under `TMPDIR`.
@@ -822,6 +857,13 @@ target.
       degraded rule is unchanged; `--council-tier` is the only flag.
     - **Non-M14 unchanged.** Assert that the preflight plan JSON of a non-M14 claim is
       unchanged, with `claim_budget` 10, and that the investigator budget stays 5 calls.
+    - **Verify evidence (WP 1-15).** Assert the Verify line rule and cases 10-11 of
+      **(g)**; the `verify` and `tool_budget` fields of each M14 claim; the M14 investigator
+      render (budget 8, the verify section) and the non-M14 render (byte-identical to its
+      form before WP 1-15); a fixture chain from a spec with 7 or more technical ACs to the
+      rendered prompts; and mapper fixtures where every AC is at 80 or higher (agree), and
+      where one AC has a verdict from a failing verify (BC7). The mapper **(i)** stays
+      byte-identical.
 
 ### AC8 — LOC exclusion + `--max-loc` override (CDT-223)
 
@@ -1162,6 +1204,8 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
   truncate, merge, or drop AC claims to fit the budget.
 - **N17** — MUST NOT clear an AC with a runner log, a QA evidence file, or an AC→evidence
   map (M14(a), M14(h)). MUST NOT tag an AC `[process]` when it asserts diff content.
+  An investigator's own run of a `Verify:` command during the council pass is evidence, not
+  a runner log (M14(a), WP 1-15). It does not clear an AC by itself.
 
 ---
 
@@ -1223,12 +1267,46 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 - **S.** [process] The ship gate of this WP runs the old rule, because skills load from `master`. A BC7 halt and an attended `--resume-ship=patch` are expected.
 - **T.** Each other defect found is recorded as a local backlog item and is not fixed in this WP.
 
+### wp-1-15-m14-verify-evidence
+
+- **A.** SPEC-033 has a dated WP 1-15 revision row. It amends M14(a) and M14(g): the `Verify:` line rule, the per-AC investigator runs the command itself, and the output of that run is not a "runner log". `skills/autopilot/ship-gate-council.md` cites M14(a) and M14(g) and does not restate the Verify line rule.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **B.** `skills/council/m14-ac-split.sh` reads at most one `Verify:` continuation per technical AC and adds `verify` (the command, or `null`) to each AC in its JSON. A Verify line that breaks the M14(g) rule, a second Verify line on one AC, or a Verify line on a `[process]` AC fails closed as M14(g) case 10 (exit 8, the AC ids on stderr). A Verify line with uncommitted changes to tracked files fails closed as case 11.
+  Verify: bash skills/council/test-m14-ac-split.sh
+- **C.** Each M14 plan claim carries `verify` (the command, or `null`) and `tool_budget` (8 with a command, else 5). The claim text and its `[AC-<id>]` prefix are unchanged. The Task path and the Workflow path pass both fields through with the claim.
+  Verify: bash skills/council/test-m14-split.sh
+- **D.** For a claim with a command, the rendered investigator prompt has an 8-call budget and tells the investigator to run the command first, from the worktree top level, with `TMPDIR` under `CACHE_DIR`, and to put the command, its exit line and its raw output in one bundle. That run is the only permitted mutating Bash, and it writes only under its `TMPDIR`. The judge prompt treats a non-zero exit, a skip or a timeout as evidence against (no `VERIFIED` or `PARTIALLY_VERIFIED`), keeps a claim with no verify bundle below 80, and does not accept a pass alone. `{{TOOL_BUDGET}}` and `{{VERIFY_COMMAND}}` are registered in the prompt table, `commands/council.md` and `skills/council/SKILL.md`.
+  Verify: bash skills/council/test-verify-prompts.sh
+- **E.** For a claim with no command, the rendered investigator prompt has a 5-call budget and no verify section. The non-M14 investigator render is byte-identical to its render at `cbee656`, and the non-M14 preflight plan JSON is unchanged.
+  Verify: bash skills/council/test-non-m14-plan.sh
+- **F.** A deterministic fixture test runs one spec subsection with 7 or more technical ACs (some with a Verify line, one without) through the split, the preflight plan claims and the rendered investigator prompts. Mapper fixtures show that 7 or more ACs at 80 or higher map to agree, and that one AC with a verdict from a failing verify maps to BC7 with confidence 0.
+  Verify: bash skills/autopilot/test-m14-verify-chain.sh
+- **G.** The clearing rule is unchanged. `skills/autopilot/ship-gate-verdict.sh` is byte-identical to `cbee656`. The SPEC-033 M14(b) and M14(d) blocks are unchanged. The `ship-gate-council.md` §5 wording stays.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **H.** Each verdict heading in a council report shows `### Claim <id>: <claim text>` and never `Claim ?`. Extracted Claims lists each claim id and its text. A single-claim run shows the claim text from the plan. A finalize fixture covers an M14 run and a single-claim run.
+  Verify: bash skills/council/test-finalize-claim-ids.sh
+- **I.** Phase 2.5 cross-review runs per claim on the Workflow path and in `commands/council.md`. Each reviewer gets the text of the claim that owns the bundles. `workflow.js` does not use `claims[0]` for `CLAIM_TEXT`. A claim with fewer than 3 bundles bypasses cross-review, and the report records the reason for that claim.
+  Verify: bash skills/council/test-workflow-static.sh
+- **J.** The Phase 4 brief and judge prompts each state that a spec checkbox line is not evidence, and the investigator prompt states it in its verify section, in words that fit the role of each prompt. SPEC-033 M14(g) holds the note.
+  Verify: bash skills/council/test-prompt-checkbox-rule.sh
+- **K.** The g4-bite check finds the M14(d) block by its `(d)` and `(e)` markers, with no fixed line number. It still bites, and it still bites when one line is inserted above the block.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **L.** The `/orchestrate` Step 4, Step 6 and Step 10b spec writers ask for a `Verify:` continuation on each technical AC. Step 10b lists the technical ACs with no Verify line and the Verify files that do not call `hermetic_init`.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **M.** This subsection has a Verify line on every technical AC, and each Verify line parses under the split script.
+  Verify: bash skills/council/test-m14-ac-split.sh
+- **N.** `tools/run-all-tests.sh` discovers every test file that a Verify line in this subsection names. None of these tests starts a live council, and each calls `hermetic_init` and writes only under `TMPDIR`.
+  Verify: bash skills/council/test-m14-suite-hygiene.sh
+- **O.** [process] `bash tools/run-all-tests.sh` exits 0.
+- **P.** [process] Every `/release` gate passes.
+
 ---
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-09-27 | WP 1-15 (`m14-per-ac-verify-command`): **M14 per-AC verify evidence.** This revision changes the evidence the per-AC investigators collect. It does not change how the gate clears: **(b)**, **(d)**, the mapper **(i)**, the firing rule, the two cards and BC7 reuse are unchanged. **M14(a)** — a `Verify:` command is a locator, like `<path>:<line>`; the council's own per-AC investigator runs it through its own tool call during the pass; that output is Phase 2 evidence, not a "test-runner log", because no pipeline step wrote it for the council; autopilot never runs it for the council and never passes its output; a pass does not clear an AC by itself. **M14(g)** — Verify line rule (two-space continuation `Verify: bash <path> [<arg> ...]`; `<path>` repo-relative, no `..`, present at `HEAD`, a suite name that `tools/run-all-tests.sh` discovers, never `tools/run-all-tests.sh`; characters `A-Z a-z 0-9 . _ / = : @ % + , -` only); new fail-closed case 10 (a malformed Verify line, two on one AC, or one on a `[process]` AC) and case 11 (a Verify line with uncommitted changes to tracked files, because the split reads `HEAD` and a verify run reads the worktree); "checkboxes are not evidence" note; Writers add a Verify line per technical AC, and Step 10b lists ACs with none and Verify files that do not call `hermetic_init` (a report, not a block). **M14(j)** — an M14 claim with a command gets 8 investigator calls, else 5; every other caller keeps 5. **M14(k)** — verify evidence tests. **N17** — an investigator's own verify run is evidence, not a runner log. The headline ACs follow reading (A) of the WP 1-15 kickoff: prompt and fixture evidence only; the live proof is the WP 1-05 ship gate. New `### wp-1-15-m14-verify-evidence` AC subsection with a Verify line on every technical AC. SPEC-013 Phases 1, 2, 2.5, 5 and 6 carry the engine side. Status stays DRAFT. |
 | 2026-09-26 | WP 1-14 step 10b, TL raise (M14(j)): `M14_AC_BUDGET` raised from `10` to `16` in `skills/council/engine.sh`. Reason: this WP's own AC subsection (`### wp-1-14-m14-ship-gate-evidence`) holds 16 technical ACs, which would fail the split closed under the old budget. The hard ceiling `M14_AC_BUDGET_CEILING=20` is unchanged. |
 | 2026-09-26 | WP 1-14 (`m14-investigator-budget-scales-with-scope`): **M14 per-AC evidence.** **M14(a)** — the claim envelope names one AC source (`ac-source=<path>`); the council audits each technical AC as its own claim in the same invocation; per-AC claims carry the AC id and a `<path>:<line>` locator, never AC text; a QA evidence file, runner log or AC→evidence map MUST NOT reach the council (design (c) rejected; design (b), a budget that scales, rejected because one verdict dilutes a failed AC and raises cost for every caller). **M14(b)** rewritten — per-AC aggregation: agree only if every AC is `VERIFIED`/`PARTIALLY_VERIFIED` at 80 or higher; card #2 confidence = the lowest AC confidence; any `UNVERIFIED`/`CONTRADICTED`/`FABRICATED`, missing, struck, or over-budget AC → BC7, confidence 0, rationale names the AC ids; never `max_verdict_confidence`. **M14(g)** — AC source format: committed spec at `HEAD`, `## Acceptance criteria` → `### <ticket_id>` → bullets `- **A.** <text>` with an optional `[process]` tag; split trigger (claim scope + `Ship-gate audit for <ticket_id>.` + an `ac-source=` token; two or more tokens fail closed; zero tokens do not split and the mapper halts); nine fail-closed cases; kickoff / Step 6 / Step 10b write and check the ACs. The `### <ticket_id>` subsection is a Tech Lead refinement of the advisor format: it stops a later ticket from shipping on the ACs of an earlier ticket. **M14(h)** — `[process]` ACs cleared by the card #1 stamp; guard 1 (execution vocabulary), guard 2 (`process_acs:` plan line, confirmed at plan-approve), guard 3 (zero technical ACs, or a stamp-shape miss → BC7). **M14(i)** — verdict mapper `skills/autopilot/ship-gate-verdict.sh`: pure `jq` over the finalize-meta sidecar and card #1, after the verdict; not a render helper. **M14(j)** — one M14-only budget `M14_AC_BUDGET=10` in `engine.sh`, hard ceiling 20, no env/flag/per-WP override. **M14(k)** — fixture, static-guardrail and non-M14-unchanged tests. **M4** `plan-approve` item 1 gains the guard 2 check (`process_acs:` equals the spec tags, else BC1). **N15–N17** added. Firing rule, two cards, BC7 reuse (no ninth BC), (c), (d), (e), (f), BC6 and wall-clock caps unchanged. New `## Acceptance criteria` section holds this WP's ACs. Adversarial review (AC R): `.claude/council/2026-09-26-plan-2026-09-26-wp-1-14-m14-ship-gate-evidence-plan.md` (full tier; flavors paranoid-ic, jaded-senior, security). 10 claims: 3 VERIFIED, 7 PARTIALLY_VERIFIED, 0 UNVERIFIED/CONTRADICTED/FABRICATED. Rejected: the prosecutor asked for CONTRADICTED on not-yet-implemented code (C1, C4, C5, C7, C8, C9); the judge refused, because absent code cannot contradict a plan. Accepted as residual: C6 (VERIFIED at 78) — guard 1 is lexical, so a diff-content AC mis-tagged `[process]` escapes audit; mitigations are guard 1's execution vocabulary, guard 2 (TL confirms `process_acs:` at plan-approve), and guard 3 fail-closed. Struck sub-claims move to implementation: T2 makes the report and sidecar reservation two sequential exclusive creates with a rollback, not one atomic step; T5 checks the stamp-shape field list against real cards; the budget-greater-than-ceiling branch stays unreachable while the constants are fixed. Status stays DRAFT. |
 | 2026-08-27 | CDT-224: **AC9 / M9b** — `/orchestrate` BC6 auto-tune from plan-approve signals (task count, counted LOC via M15, parallel waves). Tiers L-first then S else M; L ceiling 40 / 4500; S 10 / 1200; M 25 / 2700. Precedence per cap: env (non-empty) > auto-tune > static M. No cap flags; `parse-flags.sh` stays six-key. Freeze once before BC walk; ledger SoT on resume; no `AUTOPILOT_*_CAP` export. Kickoff / epic Mode A stay static. M10.6 uses L ceiling 4500 at unfrozen scope-confirm unless wall-clock env set; frozen cap after plan-approve. M13 nested `budget.{tier,source,signals}` additive nullable; 18 top-level keys; schema_version 1. Helper argv: argc 2 unchanged, argc 4 verbatim freeze, `derive` subcommand. Writer `AUTOPILOT_BUDGET_META`. N12–N14. Status stays DRAFT. |

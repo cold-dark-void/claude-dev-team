@@ -1,0 +1,12 @@
+{
+  "output_shape": "verdict[]",
+  "scope": "claim",
+  "scope_arg": "Fix the widget renderer to handle null input.",
+  "resolved_claim": "",
+  "preset": "generic",
+  "slug": "wp115-single-claim-scope",
+  "task_id": "",
+  "flavors": ["paranoid-ic"],
+  "claim_budget": 10,
+  "completion_time": "0s"
+}

@@ -113,6 +113,24 @@ export function loadFlavor(name) {
 }
 
 /**
+ * Apply {{#NAME}} ... {{/NAME}} section blocks (SPEC-013 Engine Architecture).
+ * A marker is a line equal to `{{#NAME}}` or `{{/NAME}}` (NAME matches
+ * [A-Z_]+). Sections do not nest. When vars[NAME] is null, undefined or ''
+ * the whole block (both marker lines and the body, newlines included) is
+ * removed. Otherwise only the two marker lines are removed and the body
+ * stays, so a later {{VAR}} substitution can still fill placeholders in it.
+ * Runs before {{VAR}} substitution.
+ */
+function applySections(text, vars) {
+  const sectionRe = /^\{\{#([A-Z_]+)\}\}\r?\n([\s\S]*?)\r?\n\{\{\/\1\}\}\r?\n?/gm
+  return text.replace(sectionRe, (_full, name, body) => {
+    const v = vars[name]
+    const keep = !(v == null || v === '')
+    return keep ? `${body}\n` : ''
+  })
+}
+
+/**
  * Load prompt template and substitute {{VARS}}.
  * Missing vars leave the placeholder (callers must supply happy-path set).
  */
@@ -122,6 +140,7 @@ export function loadPrompt(name, vars = {}) {
     throw new Error(`council workflow: prompt not found: ${name}`)
   }
   let text = extractPromptBody(readFileSync(path, 'utf8'))
+  text = applySections(text, vars)
   for (const [k, v] of Object.entries(vars)) {
     const key = k.startsWith('{{') ? k : `{{${k}}}`
     text = text.split(key).join(v == null ? '' : String(v))
@@ -339,6 +358,8 @@ export async function runCouncil(runtime) {
         claim_type: c.claim_type,
         claim_id: c.claim_id,
         ac_id: c.ac_id,
+        verify: c.verify ?? null,
+        tool_budget: c.tool_budget ?? null,
       }))
     } else {
       const retroClaim = plan.resolved_claim || ''
@@ -439,6 +460,8 @@ export async function runCouncil(runtime) {
       RAW_ARTIFACTS: t.raw_artifacts || plan.scope_arg || t.input_text || '',
       FLAVOR_DELTA: flavorDelta,
       CACHE_DIR: plan.cache_dir || '',
+      TOOL_BUDGET: String(claim.tool_budget ?? 5),
+      VERIFY_COMMAND: claim.verify ?? '',
     })
     const res = await safeAgent(prompt, {
       schema: EvidenceSchema,
@@ -479,16 +502,54 @@ export async function runCouncil(runtime) {
   // --- Cross-review ---------------------------------------------------------
   if (typeof phase === 'function') phase('Cross-review')
 
-  let crossStatus = 'Phase 2.5 not run'
-  let crossRankings = '_Phase 2.5 not run — no cross-review rankings._'
-  let crossScores = '_Phase 2.5 not run — no Borda scores._'
-  let orderedBundles = bundles
+  // Per-claim cross-review (SPEC-013 Phase 2.5 "MUST run Phase 2.5 per
+  // claim", WP 1-15 AC I). Bundles group by claim_id, in claim order; each
+  // group runs its own Borda round against its own claim text, so a c1
+  // reviewer never sees a c0 bundle or the c0 claim text. A group with
+  // fewer than 3 bundles bypasses cross-review for that claim only, and the
+  // bypass reason is recorded per claim, not globally.
+  const groupOrder = []
+  const groupMap = new Map()
+  const seedGroup = (key) => {
+    if (!groupMap.has(key)) {
+      groupMap.set(key, [])
+      groupOrder.push(key)
+    }
+  }
+  claims.forEach((_, ci) => seedGroup(`c${ci}`))
+  bundles.forEach((b) => seedGroup(b.claim_id || ''))
+  bundles.forEach((b) => groupMap.get(b.claim_id || '').push(b))
+  for (let i = groupOrder.length - 1; i >= 0; i--) {
+    if (groupMap.get(groupOrder[i]).length === 0) {
+      groupMap.delete(groupOrder[i])
+      groupOrder.splice(i, 1)
+    }
+  }
 
-  if (bundles.length >= 3) {
-    const labs = labelsFor(bundles.length)
-    const reviewers = bundles.map((_, ri) => ri)
+  // A group with no matching claim (bad/absent claim_id) falls back to the
+  // scope text, same fallback the single-claim path used before this change.
+  const claimTextFor = (key) => {
+    const m = /^c(\d+)$/.exec(key)
+    if (m && claims[Number(m[1])]) return claims[Number(m[1])].claim
+    return plan.scope_arg || ''
+  }
+
+  const statusLines = []
+  const rankingBlocks = []
+  const scoreLines = []
+  let orderedBundles = []
+
+  for (const key of groupOrder) {
+    const groupBundles = groupMap.get(key)
+    if (groupBundles.length < 3) {
+      statusLines.push(`${key}: bypassed: fewer than 3 bundles (${groupBundles.length} found)`)
+      orderedBundles = orderedBundles.concat(groupBundles)
+      continue
+    }
+    const labs = labelsFor(groupBundles.length)
+    const claimText = claimTextFor(key)
     const runReview = async (ri) => {
-      const others = bundles
+      const others = groupBundles
         .map((b, i) => ({ b, i }))
         .filter((x) => x.i !== ri)
       const block = others
@@ -497,7 +558,6 @@ export async function runCouncil(runtime) {
           return `### ${lab}\nclaim_id=${x.b.claim_id}\ntool_use_id=${x.b.tool_use_id}\n\`\`\`\n${x.b.raw_blob}\n\`\`\``
         })
         .join('\n\n')
-      const claimText = claims[0]?.claim || plan.scope_arg || ''
       const prompt = loadPrompt('cross-reviewer', {
         CLAIM_TEXT: claimText,
         BUNDLE_BLOCK: block,
@@ -506,10 +566,11 @@ export async function runCouncil(runtime) {
         schema: RankingSchema,
         agentType: 'dev-team:ic4',
         phase: 'Cross-review',
-        label: `cross:${ri}`,
+        label: `cross:${key}:${ri}`,
       })
     }
 
+    const reviewers = groupBundles.map((_, ri) => ri)
     let rankings
     if (typeof parallel === 'function') {
       rankings = await parallel(reviewers.map((ri) => () => runReview(ri)))
@@ -519,18 +580,27 @@ export async function runCouncil(runtime) {
     }
     const valid = rankings.filter((r) => r && Array.isArray(r.ranking) && r.ranking.length)
     if (valid.length === 0) {
-      crossStatus = 'bypassed: no valid cross-review rankings collected'
+      statusLines.push(`${key}: bypassed: no valid cross-review rankings collected`)
       markDegraded()
+      orderedBundles = orderedBundles.concat(groupBundles)
     } else {
-      const br = bordaRank(bundles, valid)
-      orderedBundles = br.ordered
-      crossStatus = br.status
-      crossRankings = valid.map((r, i) => `reviewer_${i}: ${(r.ranking || []).join(' > ')}`).join('\n')
-      crossScores = br.scores.join(', ')
+      const br = bordaRank(groupBundles, valid)
+      orderedBundles = orderedBundles.concat(br.ordered)
+      statusLines.push(`${key}: ${br.status}`)
+      rankingBlocks.push(
+        `${key}:\n${valid.map((r, i) => `reviewer_${i}: ${(r.ranking || []).join(' > ')}`).join('\n')}`
+      )
+      scoreLines.push(`${key}: ${br.scores.join(', ')}`)
     }
-  } else {
-    crossStatus = `bypassed: fewer than 3 investigators (${bundles.length} found)`
   }
+
+  const crossStatus = statusLines.join('\n') || 'Phase 2.5 not run'
+  const crossRankings = rankingBlocks.length
+    ? rankingBlocks.join('\n\n')
+    : '_Phase 2.5 not run — no cross-review rankings._'
+  const crossScores = scoreLines.length
+    ? scoreLines.join('\n')
+    : '_Phase 2.5 not run — no Borda scores._'
 
   // --- Phase 4 --------------------------------------------------------------
   if (typeof phase === 'function') phase('Phase4')

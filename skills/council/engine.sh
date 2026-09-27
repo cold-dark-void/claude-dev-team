@@ -47,6 +47,13 @@ M14_AC_SPLIT="$SCRIPT_DIR/m14-ac-split.sh"
 readonly M14_AC_BUDGET=16
 readonly M14_AC_BUDGET_CEILING=20
 
+# ---- Investigator tool budgets (normative; SPEC-033 M14(j), WP 1-15) -------
+# An M14 claim with a Verify command gets M14_VERIFY_TOOL_BUDGET investigator
+# tool calls (the verify run plus the citation calls); every other claim,
+# M14 or not, keeps INVESTIGATOR_TOOL_BUDGET (SPEC-013 interface contract C2).
+readonly M14_VERIFY_TOOL_BUDGET=8
+readonly INVESTIGATOR_TOOL_BUDGET=5
+
 # ---- Usage ------------------------------------------------------------------
 usage() {
   cat >&2 <<'USAGE'
@@ -481,7 +488,9 @@ cmd_preflight() {
       # SPEC-013 Phase 1 claim record + exact template (WP 1-14 C2). Index i
       # (0-based) runs over the technical-only array, in document order.
       m14_claims_json=$(printf '%s' "$m14_split_json" | jq -c \
-        --arg ticket_id "$m14_ticket_id" --arg path "$m14_ac_source" '
+        --arg ticket_id "$m14_ticket_id" --arg path "$m14_ac_source" \
+        --argjson default_budget "$INVESTIGATOR_TOOL_BUDGET" \
+        --argjson verify_budget "$M14_VERIFY_TOOL_BUDGET" '
         [ .acs[] | select(.process == false) ] as $tech
         | [ range(0; ($tech | length)) as $i
             | ($tech[$i]) as $ac
@@ -493,7 +502,9 @@ cmd_preflight() {
                         $ac.id + " as written at " + $path + ":" + ($ac.line | tostring) +
                         ". Read the criterion at that locator and judge this criterion only."),
                 source_locator: ($path + ":" + ($ac.line | tostring)),
-                claim_type: "factual"
+                claim_type: "factual",
+                verify: ($ac.verify // null),
+                tool_budget: (if ($ac.verify // null) == null then $default_budget else $verify_budget end)
               }
           ]
         ')
@@ -1010,13 +1021,18 @@ cmd_finalize() {
   local created_at
   created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-  python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
+  COUNCIL_SKILL_DIR="$SCRIPT_DIR" python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
     "$cross_review_scores" "$verification_mode" "${tokens_file:-}" \
     "$council_tier" "$grading_reason" <<'PYEOF'
 import json, sys, os, re
 from collections import Counter
+
+# WP 1-15 C6: report_labels.py resolves claim ids/text for the report (AC H).
+# COUNCIL_SKILL_DIR is engine.sh's own SCRIPT_DIR, set on the invocation.
+sys.path.insert(0, os.environ["COUNCIL_SKILL_DIR"])
+from report_labels import resolve_claims, label_verdict
 
 template_file  = sys.argv[1]
 plan_file      = sys.argv[2]
@@ -1172,25 +1188,19 @@ else:
 claim_budget = str(plan.get("claim_budget", 10))
 completion_time = plan.get("completion_time", "N/A")
 
-# --- Format extracted claims ---
-if extracted_claims_raw:
+# --- Format extracted claims (WP 1-15 C6: claim id + text; AC H) ---
+claims_resolved = resolve_claims(plan, evidence_raw, judge_items)
+if claims_resolved:
     claims_lines = []
-    for i, c in enumerate(extracted_claims_raw, 1):
-        if isinstance(c, dict):
-            ctype = c.get("claim_type", c.get("type", "factual"))
-            ctext = c.get("claim_text", c.get("claim", c.get("text", "")))
-            src = c.get("source_locator", c.get("source", ""))
-            claims_lines.append(f"{i}. **{ctype}** — {ctext} (source: {src})")
-        else:
-            claims_lines.append(f"{i}. {c}")
+    for i, c in enumerate(claims_resolved, 1):
+        ctype = c.get("claim_type", "factual")
+        cid = c.get("claim_id", "")
+        ctext = c.get("claim", "")
+        src = c.get("source_locator", "")
+        claims_lines.append(f"{i}. **{ctype}** — {cid}: {ctext} (source: {src})")
     extracted_claims_md = "\n".join(claims_lines)
 else:
-    # Infer from judge output when claims not provided separately
-    claims_lines = []
-    for i, j in enumerate(judge_items, 1):
-        claim_text = j.get("claim", j.get("description", ""))
-        claims_lines.append(f"{i}. **factual** — {claim_text}")
-    extracted_claims_md = "\n".join(claims_lines) if claims_lines else "_No claims extracted._"
+    extracted_claims_md = "_No claims extracted._"
 
 # --- Format evidence bundles (unstruck only; missing tid → engine strike) ---
 bundle_lines = []
@@ -1260,8 +1270,7 @@ if output_shape == "verdict[]":
     unstruck_items = list(judge_items) if isinstance(judge_items, list) else []
     verdict_lines = []
     for v in unstruck_items:
-        cid = v.get("claim_id", "?")
-        claim = v.get("claim", "")
+        cid, claim = label_verdict(v, claims_resolved)
         verd = v.get("verdict", "UNVERIFIED")
         conf = v.get("confidence", 0)
         blob = v.get("evidence_blob", "")

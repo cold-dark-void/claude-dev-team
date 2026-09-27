@@ -93,6 +93,30 @@ PROCEDURE
      issue UNVERIFIED with confidence <=30 and move the unsupported
      sub-claims into struck_lines.
 
+     VERIFY EVIDENCE (M14 per-AC, WP 1-15, SPEC-033 M14(a)/(g)). When a
+     claim in ORIGINAL_CLAIMS carries a non-null "verify" field, weigh its
+     evidence bundles with these rules:
+       - A "VERIFY exit=<n>" line with a non-zero <n> (77 is a skip; treat
+         it as non-zero) is evidence AGAINST the claim. Do not issue
+         VERIFIED or PARTIALLY_VERIFIED.
+       - Any raw_blob line that starts with "SKIP:" (the tests/lib/skip.sh
+         format) is a skip at ANY exit code (a suite's own require_cmd
+         guard can print it and still exit 0). Treat it the same as a
+         non-zero exit: evidence AGAINST the claim, no VERIFIED or
+         PARTIALLY_VERIFIED.
+       - A verify bundle (its reproducible_command equals the claim's
+         "verify") with no "VERIFY exit=" line anywhere in its raw_blob
+         is a timeout. It is also evidence AGAINST the claim, for the
+         same reason.
+       - A claim with "verify" set and NO verify bundle at all in
+         EVIDENCE_BUNDLES (not the timeout case above — there is no
+         bundle to read) MUST get confidence <=79 — a missing verify run
+         is not neutral, it caps the verdict below 80.
+       - A "VERIFY exit=0" line is not enough by itself. A pass alone
+         does not earn VERIFIED or PARTIALLY_VERIFIED — weigh it together
+         with the cited test lines and diff hunk, as with any other
+         evidence.
+
    If OUTPUT_SHAPE == "finding[]":
      For each candidate finding surfaced by the investigators or briefs,
      issue ONE finding record:
@@ -115,6 +139,9 @@ PROCEDURE
      provided raw_blob MUST be struck.
    - Any line using a verdict outside the 5-term taxonomy or a severity
      outside the 3-term taxonomy MUST be struck.
+   - Any verdict line or brief-derived assertion that rests on a spec
+     checkbox's `- [ ]` / `- [x]` state MUST be struck (SPEC-033 M14(g):
+     checkboxes are not evidence).
    - Struck lines MUST appear in the `struck_lines[]` array with a
      `reason` field. They are NEVER silently dropped.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# skills/council/test-m14-split.sh — WP 1-14 T3 (AC C, E, G; SPEC-013 Test 24;
+# skills/council/test-m14-split.sh — WP 1-14/1-15 T3 (AC C, E, G; SPEC-013 Test 24;
 # SPEC-033 M14(g)/(j)). Covers the engine-side half of the M14 per-AC split:
 #
 #   - the trigger (scope==claim AND scope_arg prefix AND >=1 ac-source= token)
@@ -20,6 +20,9 @@
 #   - end-to-end: preflight split -> synthetic judge output tagged [AC-<id>]
 #     -> finalize -> sidecar -> skills/autopilot/ship-gate-verdict.sh gives
 #     the expected decision
+#   - WP 1-15 C2: claims[].verify (the AC's Verify command or null) and
+#     .tool_budget (8 with a command, else 5); the claim text template is
+#     unaffected; case 10 (a second Verify line) propagates fail-closed
 #
 # Fixtures: skills/council/fixtures/m14-split/*.md (committed into a private
 # temp git repo below; never the live worktree).
@@ -50,6 +53,7 @@ REPO="$HERMETIC_ROOT/repo"
 mkdir -p "$REPO"
 git init -q "$REPO"
 cp "$FIX"/*.md "$REPO"/
+cp "$FIX"/test-stub.sh "$REPO"/   # WP 1-15 T3: Verify-line target, cp preserves the 755 mode
 git -C "$REPO" add -A
 git -C "$REPO" commit -q -m fixtures
 
@@ -346,6 +350,46 @@ ok_eq "13 m14-check success: ac_source" "$(printf '%s' "$OUT13B" | jq -r '.ac_so
 ok_eq "13 m14-check success: ticket_id" "$(printf '%s' "$OUT13B" | jq -r '.ticket_id')" "wp-e2e-split"
 ok_eq "13 m14-check success: acs length" "$(printf '%s' "$OUT13B" | jq '.acs | length')" "3"
 
+
+# ==============================================================================
+# 14. WP 1-15 C2: an AC with a Verify line -> plan.claims[].verify is the
+#     command and .tool_budget is M14_VERIFY_TOOL_BUDGET (8); an AC with none
+#     -> verify:null and tool_budget is INVESTIGATOR_TOOL_BUDGET (5). The
+#     claim text stays the exact WP 1-14 template (byte-equal), unaffected
+#     by the new keys.
+# ==============================================================================
+VA_LINE="$(grep -n '^- \*\*A\.\*\*' "$FIX/verify-spec.md" | head -1 | cut -d: -f1)"
+VB_LINE="$(grep -n '^- \*\*B\.\*\*' "$FIX/verify-spec.md" | head -1 | cut -d: -f1)"
+VERIFY_TRIGGER_ARG="Ship-gate audit for wp-verify-split. This ships under the ACs at ac-source=verify-spec.md (section '## Acceptance criteria', subsection '### wp-verify-split'). Claim under audit: the change ships correctly."
+OUT14="$(preflight "$VERIFY_TRIGGER_ARG")"; RC14=$?
+ok_eq "14 verify fixture: exit 0" "$RC14" "0"
+ok_eq "14 claims[0].verify (A has a Verify line)" \
+  "$(printf '%s' "$OUT14" | jq -r '.claims[0].verify')" "bash test-stub.sh"
+ok_eq "14 claims[0].tool_budget == 8 (M14_VERIFY_TOOL_BUDGET)" \
+  "$(printf '%s' "$OUT14" | jq '.claims[0].tool_budget')" "8"
+ok_eq "14 claims[1].verify (B has none) == null" \
+  "$(printf '%s' "$OUT14" | jq -c '.claims[1].verify')" "null"
+ok_eq "14 claims[1].tool_budget == 5 (INVESTIGATOR_TOOL_BUDGET)" \
+  "$(printf '%s' "$OUT14" | jq '.claims[1].tool_budget')" "5"
+EXPECT_CLAIM_VA="$(expected_claim A wp-verify-split verify-spec.md "$VA_LINE")"
+ok_eq "14 claims[0].claim exact template (verify does not change it)" \
+  "$(printf '%s' "$OUT14" | jq -r '.claims[0].claim')" "$EXPECT_CLAIM_VA"
+EXPECT_CLAIM_VB="$(expected_claim B wp-verify-split verify-spec.md "$VB_LINE")"
+ok_eq "14 claims[1].claim exact template" \
+  "$(printf '%s' "$OUT14" | jq -r '.claims[1].claim')" "$EXPECT_CLAIM_VB"
+
+# ==============================================================================
+# 15. Case 10 (a second Verify line on one AC): preflight propagates
+#     m14-ac-split.sh's fail-closed exit 8, empty stdout.
+# ==============================================================================
+OUT15="$(preflight "Ship-gate audit for wp-bad-verify-split. ac-source=bad-verify-spec.md" 2>"$HERMETIC_ROOT/err15")"; RC15=$?
+ok_eq "15 case 10 (second Verify line): exit 8" "$RC15" "8"
+ok_eq "15 case 10 (second Verify line): empty stdout" "$OUT15" ""
+if [ "$(wc -l <"$HERMETIC_ROOT/err15")" -eq 1 ] && grep -q '^m14-ac-split: case 10:' "$HERMETIC_ROOT/err15"; then
+  ok "15 case 10 (second Verify line): one stderr line, case 10"
+else
+  fail_msg "15 case 10 (second Verify line): stderr ($(cat "$HERMETIC_ROOT/err15"))"
+fi
 echo
 echo "PASS=$pass FAIL=$fail"
 if [ "$fail" -ne 0 ]; then

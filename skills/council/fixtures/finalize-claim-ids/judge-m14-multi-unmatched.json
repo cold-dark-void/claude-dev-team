@@ -1,0 +1,20 @@
+{
+  "verdicts": [
+    {
+      "claim_id": "c0",
+      "claim": "[AC-A] For CDT-FIX, the diff satisfies acceptance criterion A as written at specs/core/SPEC-FIX.md:12.",
+      "verdict": "VERIFIED",
+      "confidence": 90,
+      "evidence_blob": "AC-A satisfied.",
+      "tool_use_id": "t1"
+    },
+    {
+      "claim": "a stray verdict with no matching claim text",
+      "verdict": "UNVERIFIED",
+      "confidence": 40,
+      "evidence_blob": "no match found.",
+      "tool_use_id": "t2"
+    }
+  ],
+  "struck_lines": []
+}

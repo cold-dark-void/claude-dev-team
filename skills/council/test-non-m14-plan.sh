@@ -16,8 +16,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ENGINE="$ROOT/skills/council/engine.sh"
 FIX="$ROOT/skills/council/fixtures/non-m14-plan"
 INVESTIGATOR="$ROOT/skills/council/prompts/investigator.md"
+WORKFLOW_JS="$ROOT/skills/council/workflow.js"
 fail=0
 
+# shellcheck source=../../tests/lib/skip.sh
+. "$ROOT/tests/lib/skip.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$ROOT/tests/lib/hermetic.sh"
 hermetic_init
@@ -86,12 +89,54 @@ check_case old-m14-envelope "Ship-gate audit for CDT-999. Claim under audit: the
 # ---- Case 5: claim holding ac-source= but not the M14 trigger prefix --------
 check_case ac-source-no-prefix "Please review this claim: ac-source=specs/core/SPEC-999-foo.md is mentioned but not as a trigger."
 
-# ---- Investigator prompt still holds the 5-call hard budget text ------------
-if grep -qF '5 calls you found NO evidence either way' "$INVESTIGATOR"; then
-  ok "investigator.md: 5-call hard budget text intact"
-else
-  fail_msg "investigator.md: 5-call hard budget text missing/changed"
+# ---- Investigator prompt: byte-exact non-M14 render (precondition 1, AC E) --
+# Identity substitution for every non-section var (each var maps to its own
+# {{VAR}} placeholder, a no-op), plus explicit TOOL_BUDGET='5' and
+# VERIFY_COMMAND='' (the non-M14 call-site values). The section blocks then
+# remove {{#VERIFY_COMMAND}}...{{/VERIFY_COMMAND}} entirely (empty), so the
+# result must equal extractPromptBody() of the investigator.md at cbee656,
+# byte-for-byte — no Verify: line existed there to add TOOL_BUDGET/
+# VERIFY_COMMAND placeholders to begin with.
+if ( require_cmd node ); then
+  RENDER_OUT="$TMP/render-non-m14.txt"
+  FIXTURE_OUT="$TMP/fixture-body.txt"
+  if COUNCIL_RENDER_OUT="$RENDER_OUT" \
+     COUNCIL_FIXTURE_OUT="$FIXTURE_OUT" \
+     COUNCIL_FIXTURE_PATH="$FIX/investigator.cbee656.md" \
+     COUNCIL_WORKFLOW_JS="$WORKFLOW_JS" \
+     node --input-type=module <<'JS'
+import { writeFileSync, readFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
+
+const { loadPrompt, extractPromptBody } = await import(pathToFileURL(process.env.COUNCIL_WORKFLOW_JS).href)
+
+const rendered = loadPrompt('investigator', {
+  CLAIM_TEXT: '{{CLAIM_TEXT}}',
+  SOURCE_LOCATOR: '{{SOURCE_LOCATOR}}',
+  RAW_ARTIFACTS: '{{RAW_ARTIFACTS}}',
+  FLAVOR_DELTA: '{{FLAVOR_DELTA}}',
+  CACHE_DIR: '{{CACHE_DIR}}',
+  TOOL_BUDGET: '5',
+  VERIFY_COMMAND: '',
+})
+writeFileSync(process.env.COUNCIL_RENDER_OUT, rendered)
+
+const fixtureMd = readFileSync(process.env.COUNCIL_FIXTURE_PATH, 'utf8')
+writeFileSync(process.env.COUNCIL_FIXTURE_OUT, extractPromptBody(fixtureMd))
+console.log('OK: non-m14 byte-exact render prepared')
+JS
+  then
+    if diff -q "$RENDER_OUT" "$FIXTURE_OUT" >/dev/null 2>&1; then
+      ok "investigator.md: non-M14 render byte-exact vs cbee656 fixture"
+    else
+      fail_msg "investigator.md: non-M14 render differs from cbee656 fixture"
+      diff "$FIXTURE_OUT" "$RENDER_OUT" | head -40
+    fi
+  else
+    fail_msg "investigator.md: non-M14 render script failed"
+  fi
 fi
+
 
 if [ "$fail" -eq 0 ]; then
   echo "PASS: test-non-m14-plan.sh"

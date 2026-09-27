@@ -1,0 +1,14 @@
+[
+  {
+    "tool_use_id": "t1",
+    "raw_blob": "AC-A evidence blob",
+    "file_line": "specs/core/SPEC-FIX.md:12",
+    "reproducible_command": ""
+  },
+  {
+    "tool_use_id": "t2",
+    "raw_blob": "AC-B evidence blob",
+    "file_line": "specs/core/SPEC-FIX.md:20",
+    "reproducible_command": ""
+  }
+]

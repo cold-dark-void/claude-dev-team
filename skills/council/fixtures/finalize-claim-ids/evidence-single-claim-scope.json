@@ -1,0 +1,16 @@
+{
+  "extracted_claims": [
+    {
+      "claim_text": "(see plan.scope_arg)",
+      "source_locator": "n/a"
+    }
+  ],
+  "bundles": [
+    {
+      "tool_use_id": "t1",
+      "raw_blob": "widget renderer handles null input",
+      "file_line": "src/widget.js:1",
+      "reproducible_command": ""
+    }
+  ]
+}

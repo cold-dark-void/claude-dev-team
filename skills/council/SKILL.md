@@ -1226,7 +1226,7 @@ templates: `commands/council.md` substitutes on the `--blind` path only.
 |---|---|
 | `claim-extractor.md` | `{{SCOPE_TYPE}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
 | `plan-extractor.md` | `{{PLAN_PATH}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
-| `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}`, `{{CACHE_DIR}}` |
+| `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}`, `{{CACHE_DIR}}`, `{{TOOL_BUDGET}}`, `{{VERIFY_COMMAND}}` |
 | `topic-classifier.md` | `{{CLAIM_TEXT}}` |
 | `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
 | `phase4-brief.md` | `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |

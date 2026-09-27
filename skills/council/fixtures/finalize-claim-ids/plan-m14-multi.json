@@ -1,0 +1,34 @@
+{
+  "output_shape": "verdict[]",
+  "scope": "diff",
+  "preset": "generic",
+  "slug": "wp115-m14-multi",
+  "task_id": "",
+  "flavors": ["paranoid-ic"],
+  "claim_budget": 10,
+  "completion_time": "0s",
+  "council_tier": "full",
+  "grading_reason": "fixture: WP 1-15 AC H, M14 multi-claim unmatched case",
+  "ac_source": "specs/core/SPEC-FIX.md",
+  "process_acs": [],
+  "claims": [
+    {
+      "claim_id": "c0",
+      "ac_id": "A",
+      "claim": "[AC-A] For CDT-FIX, the diff satisfies acceptance criterion A as written at specs/core/SPEC-FIX.md:12.",
+      "source_locator": "specs/core/SPEC-FIX.md:12",
+      "claim_type": "factual",
+      "verify": null,
+      "tool_budget": 5
+    },
+    {
+      "claim_id": "c1",
+      "ac_id": "B",
+      "claim": "[AC-B] For CDT-FIX, the diff satisfies acceptance criterion B as written at specs/core/SPEC-FIX.md:20.",
+      "source_locator": "specs/core/SPEC-FIX.md:20",
+      "claim_type": "factual",
+      "verify": null,
+      "tool_budget": 5
+    }
+  ]
+}
