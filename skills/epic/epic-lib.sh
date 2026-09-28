@@ -39,7 +39,7 @@ Commands:
   assert-release-allowed <ticket-or-epic>
   gap-callout <ticket-or-epic>
   seal-ready <EPIC-ID>
-  seal <EPIC-ID> [--dry-run|--complete|--abort [--force]]
+  seal <EPIC-ID> [--dry-run|--complete|--abort [--force]]   (--force: stash then reset)
   build-seed <EPIC-ID> [--next <CHILD-ID>] [--out path]
   validate-seed <path>
   mark-done <TICKET-ID>
@@ -79,6 +79,11 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DAG_LIB="${EPIC_DAG_LIB:-$HERE/../orchestrate/dag-lib.sh}"
 # worktree-lib: EPIC_WT_LIB for tests; else co-located sibling (install-aware via PDH in SKILL callers)
 WT_LIB="${EPIC_WT_LIB:-$HERE/../worktree-lib.sh}"
+# git-safety: shared subprocess CLI (SPEC-025 M17) — never source, always
+# `bash "$GIT_SAFETY" <sub> ...` (WP 1-05 C2).
+GIT_SAFETY="${EPIC_GIT_SAFETY:-$HERE/../lib/git-safety.sh}"
+# Seal squash-stage / abort gate excludes — defined once (C2).
+SEAL_EXCLUDES=(.claude/epics/ .worktrees/ .wt-lock)
 
 resolve_mroot() {
   if [ -n "${EPIC_ROOT:-}" ]; then
@@ -974,29 +979,58 @@ cmd_seal_ready() {
   _seal_ready_json "$epic_id"
 }
 
-# Reset squash-stage on main (merge --squash has no MERGE_HEAD).
-# Callers: abort (after dirty gate), squash-fail, hook-fail recovery (AC6).
-_seal_reset_main() {
-  local main="$1"
-  git -C "$main" reset --hard >/dev/null 2>&1 || true
-  git -C "$main" clean -fd >/dev/null 2>&1 || true
+# _seal_null_stage <EPIC-ID>
+# Nulls a stale seal_stage under EPICS_LOCK, if present. Shared by the
+# --abort path and _seal_restore_or_die's hook-fail recovery — main no
+# longer holds that squash-stage once either acts, so the recorded
+# fingerprint would otherwise linger.
+_seal_null_stage() {
+  local id="$1" s
+  epic_paths "$id"
+  mkdir -p "$EPICS_DIR"
+  (
+    flock -x 9
+    s=$(read_state "$id")
+    if [ "$(echo "$s" | jq -r '.seal_stage // "null"')" != "null" ]; then
+      s=$(echo "$s" | jq '.seal_stage = null')
+      write_state "$id" "$s"
+    fi
+  ) 9>>"$EPICS_LOCK"
 }
 
-# True (return 0) when main-repo checkout has non-empty porcelain (CDT-170).
-_seal_main_is_dirty() {
-  local main="$1"
-  [ -n "$(git -C "$main" status --porcelain 2>/dev/null)" ]
+# _seal_restore_or_die <main> <sha> <ok-msg> <refused-msg> [<epic-id>]
+# X1: shared by squash-fail / stage-write-fail / hook-fail recovery. Restores
+# <main> to <sha> via the git-safety primitive (never inline reset --hard);
+# dies with <ok-msg> when the restore succeeded, <refused-msg> when
+# safe-reset refused (main left as is; nothing further touched). When
+# <epic-id> is given and the restore succeeded, also nulls a stale
+# seal_stage (hook-fail recovery; same as the other paths that act on
+# --abort).
+_seal_restore_or_die() {
+  local main="$1" sha="$2" ok_msg="$3" refused_msg="$4" restore_epic_id="${5:-}"
+  set +e
+  bash "$GIT_SAFETY" -C "$main" safe-reset --clean-at "$sha"
+  local rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    [ -n "$restore_epic_id" ] && _seal_null_stage "$restore_epic_id"
+    die 1 "$ok_msg"
+  else
+    die 1 "$refused_msg"
+  fi
 }
 
 cmd_seal() {
-  # seal <EPIC-ID> [--dry-run|--complete|--abort [--force]]
-  # End-of-epic seal composition (CDT-141-C5 / M14 / CDT-170):
+  # seal <EPIC-ID> [--dry-run|--complete|--abort [--force]]   (--force: stash then reset)
+  # End-of-epic seal composition (CDT-141-C5 / M14 / CDT-170 / WP 1-05 C2):
   #   default     — preflight → squash-stage on master/main →
   #                 EPIC_SEAL_RELEASE_HOOK (tests) or handoff JSON for /release
   #   --dry-run   — readiness + plan only; zero git / state writes
   #   --complete  — set sealed=true after successful /release (atomic)
-  #   --abort     — reset --hard main only if clean (or with --force); leave sealed=false
-  #   --force     — only with --abort; MAY wipe dirty main WIP
+  #   --abort     — clean main: no-op; seal-owned stage (fingerprint match via
+  #                 git-safety safe-reset --stage): reset that; else refuse
+  #   --force     — only with --abort; stash then reset (named stash, never
+  #                 removes untracked files)
   # Without release_bump: exit 0 skipped (no epic seal path).
   # Already sealed: exit 0 already_sealed (runs once).
   # Failure: sealed stays false; main restored clean (no partial tag/push from us).
@@ -1006,7 +1040,7 @@ cmd_seal() {
       --dry-run) mode=dry-run; shift ;;
       --complete) mode=complete; shift ;;
       --abort) mode=abort; shift ;;
-      --force) force=1; shift ;;
+      --force) force=1; shift ;;  # stash then reset (only with --abort)
       -*)
         die 64 "seal: unknown flag $1"
         ;;
@@ -1019,20 +1053,71 @@ cmd_seal() {
   done
   [ -n "$epic_id" ] || die 64 "seal: missing <EPIC-ID>"
   if [ "$force" -eq 1 ] && [ "$mode" != "abort" ]; then
-    die 64 "seal: --force only valid with --abort"
+    die 64 "seal: --force only valid with --abort (stash then reset)"
   fi
 
   local st
   st=$(read_state "$epic_id")
   _seal_eval_ready "$st"
 
-  # ---- --abort: cleanup on main (dirty gate unless --force; CDT-170) ----
+  # ---- --abort: clean-or-fingerprint reset; --force = stash then reset (CDT-170) ----
   if [ "$mode" = "abort" ]; then
     if _seal_main_repo; then
-      if _seal_main_is_dirty "$SEAL_MAIN" && [ "$force" -eq 0 ]; then
-        die 1 "seal: main working tree dirty — refuse abort (use --abort --force to wipe)"
+      local main="$SEAL_MAIN"
+      if bash "$GIT_SAFETY" -C "$main" is-clean -- "${SEAL_EXCLUDES[@]}"; then
+        : # clean (or only excluded dirt) — nothing to reset
+      elif [ "$force" -eq 1 ]; then
+        # M2: `git stash push` (no -u) with only untracked dirt creates no
+        # stash and exits 0 ("No local changes to save") — compare refs/stash
+        # before/after and report what actually happened, never a hardcoded
+        # stash@{0} (that index can belong to another session on the shared
+        # stack). D2: the reset-refused die text names the actual saved
+        # stash SHA when one exists, so it never says "nothing changed"
+        # once edits have already moved into a stash. X2: route the reset
+        # itself through the git-safety primitive (never inline
+        # `reset --hard`) so it also drops SQUASH_MSG.
+        local stash_name before_stash after_stash head_now stash_created=0
+        stash_name="epic-seal-${epic_id}-$(date -u +%Y%m%dT%H%M%SZ)"
+        before_stash=$(git -C "$main" rev-parse -q --verify refs/stash 2>/dev/null || true)
+        if ! git -C "$main" stash push -m "$stash_name" >/dev/null 2>&1; then
+          die 1 "seal: stash failed — refuse abort; nothing changed"
+        fi
+        after_stash=$(git -C "$main" rev-parse -q --verify refs/stash 2>/dev/null || true)
+        [ -n "$after_stash" ] && [ "$after_stash" != "$before_stash" ] && stash_created=1
+        head_now=$(git -C "$main" rev-parse HEAD)
+        if ! bash "$GIT_SAFETY" -C "$main" safe-reset --clean-at "$head_now"; then
+          if [ "$stash_created" -eq 1 ]; then
+            die 1 "seal: stash push saved $after_stash ($stash_name) but the reset was refused — edits are in that stash; recover by hand"
+          else
+            die 1 "seal: no tracked edits were stashed and the reset was refused — nothing changed; recover by hand"
+          fi
+        fi
+        if [ "$stash_created" -eq 1 ]; then
+          printf 'seal: edits saved in stash %s (%s) — stash then reset\n' "$after_stash" "$stash_name" >&2
+        else
+          printf 'seal: no tracked edits to stash (%s) — reset only\n' "$stash_name" >&2
+        fi
+      else
+        local can_stage=0 sstage sbase stree wtree
+        sstage=$(echo "$st" | jq -c '.seal_stage // null')
+        if [ "$sstage" != "null" ]; then
+          sbase=$(echo "$sstage" | jq -r '.base_sha')
+          stree=$(echo "$sstage" | jq -r '.staged_tree')
+          wtree=$(git -C "$main" write-tree 2>/dev/null || true)
+          if [ "$wtree" = "$stree" ] \
+            && bash "$GIT_SAFETY" -C "$main" is-clean --ignore-staged -- "${SEAL_EXCLUDES[@]}"; then
+            can_stage=1
+          fi
+        fi
+        if [ "$can_stage" -eq 1 ] \
+          && bash "$GIT_SAFETY" -C "$main" safe-reset --stage "$sbase" "$stree"; then
+          : # reset the seal-owned stage
+        else
+          die 1 "seal: main working tree dirty — refuse abort (not the seal-owned stage; to keep edits and reset: --abort --force = stash then reset)"
+        fi
       fi
-      _seal_reset_main "$SEAL_MAIN"
+      # seal_stage no longer describes reality once we act on --abort; null it.
+      _seal_null_stage "$epic_id"
     fi
     # ensure sealed remains false (do not flip true)
     if [ "$SEAL_SEALED" = "true" ]; then
@@ -1077,7 +1162,7 @@ cmd_seal() {
       if [ "$SEAL_INCOMPLETE" -gt 0 ] || [ "$SEAL_TOTAL" -eq 0 ]; then
         die 64 "seal --complete: not all children completed"
       fi
-      st=$(echo "$st" | jq '.sealed = true')
+      st=$(echo "$st" | jq '.sealed = true | .seal_stage = null')
       write_state "$epic_id" "$st"
       jq -nc --arg id "$epic_id" --arg rb "$SEAL_RB" \
         '{epic_id:$id, sealed:true, already_sealed:false, release_bump:$rb}'
@@ -1144,8 +1229,7 @@ cmd_seal() {
       die 1 "seal: cannot checkout $default on $main (current=$cur) — seal from main-repo checkout"
     fi
   fi
-  if ! git -C "$main" diff --quiet 2>/dev/null \
-    || ! git -C "$main" diff --cached --quiet 2>/dev/null; then
+  if ! bash "$GIT_SAFETY" -C "$main" is-clean -- "${SEAL_EXCLUDES[@]}"; then
     die 1 "seal: $default working tree dirty — refuse squash-stage"
   fi
 
@@ -1159,8 +1243,40 @@ cmd_seal() {
   local squash_rc=$?
   set -e
   if [ "$squash_rc" -ne 0 ]; then
-    _seal_reset_main "$main"
-    die 1 "seal: squash conflict/fail for $SEAL_BRANCH — master restored (rc=$squash_rc): $(echo "$squash_err" | tr '\n' ' ')"
+    _seal_restore_or_die "$main" "$master_before" \
+      "seal: squash conflict/fail for $SEAL_BRANCH — master restored (rc=$squash_rc): $(echo "$squash_err" | tr '\n' ' ')" \
+      "seal: squash conflict/fail for $SEAL_BRANCH (rc=$squash_rc) — safe-reset refused — main left as is: $(echo "$squash_err" | tr '\n' ' ')"
+  fi
+
+  # Record seal_stage {base_sha, staged_tree, added_paths} under EPICS_LOCK so
+  # a later bare `--abort` can fingerprint-match and reset only this stage.
+  # L8: write-tree / diff / state-write all run in one guarded (set +e)
+  # region — a failure anywhere in the chain restores via
+  # _seal_restore_or_die (C2: write failure -> safe-reset --clean-at), same
+  # as the squash-fail and hook-fail paths.
+  epic_paths "$epic_id"
+  mkdir -p "$EPICS_DIR"
+  local staged_tree added_paths_json stage_write_rc
+  set +e
+  staged_tree=$(git -C "$main" write-tree) \
+    && added_paths_json=$(git -C "$main" diff --cached -z --name-only --diff-filter=A "$master_before" \
+         | jq -Rs 'split("\u0000") | map(select(length>0))') \
+    && (
+      flock -x 9
+      st=$(read_state "$epic_id")
+      st=$(echo "$st" | jq \
+        --arg base "$master_before" \
+        --arg tree "$staged_tree" \
+        --argjson added "$added_paths_json" \
+        '.seal_stage = {base_sha:$base, staged_tree:$tree, added_paths:$added}')
+      write_state "$epic_id" "$st"
+    ) 9>>"$EPICS_LOCK"
+  stage_write_rc=$?
+  set -e
+  if [ "$stage_write_rc" -ne 0 ]; then
+    _seal_restore_or_die "$main" "$master_before" \
+      "seal: failed to record seal_stage — master restored" \
+      "seal: failed to record seal_stage — safe-reset refused — main left as is"
   fi
 
   # Empty squash (integration == master): still allow release of empty? treat as ok stage
@@ -1180,9 +1296,10 @@ cmd_seal() {
     local hook_rc=$?
     set -e
     if [ "$hook_rc" -ne 0 ]; then
-      _seal_reset_main "$main"
-      # sealed stays false
-      die 1 "seal: release hook failed (rc=$hook_rc) — master restored, sealed=false"
+      _seal_restore_or_die "$main" "$master_before" \
+        "seal: release hook failed (rc=$hook_rc) — master restored, sealed=false" \
+        "seal: release hook failed (rc=$hook_rc) — HEAD moved; not reset; sealed=false; recover by hand" \
+        "$epic_id"
     fi
     # Success → sealed=true under EPICS_LOCK (git/hook work already outside lock)
     epic_paths "$epic_id"
@@ -1190,7 +1307,7 @@ cmd_seal() {
     (
       flock -x 9
       st=$(read_state "$epic_id")
-      st=$(echo "$st" | jq '.sealed = true')
+      st=$(echo "$st" | jq '.sealed = true | .seal_stage = null')
       write_state "$epic_id" "$st"
     ) 9>>"$EPICS_LOCK"
     local master_after
@@ -1236,7 +1353,8 @@ cmd_seal() {
       env:{EPIC_ALLOW_SEAL_RELEASE:"1", EPIC_ID:$id, EPIC_RELEASE_END:$id, EPIC_RELEASE_BUMP:$rb},
       handoff:("/release "+$rb),
       next:["EPIC_ALLOW_SEAL_RELEASE=1 /release "+$rb,"bash epic-lib seal "+$id+" --complete"],
-      on_failure:("bash epic-lib seal "+$id+" --abort --force")
+      on_failure:("bash epic-lib seal "+$id+" --abort"),
+      on_failure_if_refused:("bash epic-lib seal "+$id+" --abort --force  # stash then reset")
     }'
 }
 

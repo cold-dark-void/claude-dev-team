@@ -143,24 +143,39 @@ a hard stop. Shared by **both** land paths — the commit (if any) happens in §
 
 ```bash template
 cd <main-repo-path>
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+GIT_SAFETY=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/git-safety.sh)
+if ! bash "$GIT_SAFETY" is-clean --tracked-only; then
+  # write a halt card naming the dirty tracked tree (append-card.sh call shape
+  # per self-answer.md §3f — not restated), then halt WITHOUT reaching §5.
+  echo "ship-choice halt: main-repo checkout has uncommitted tracked edits — squash refused — card: <card-path>"
+  return 1
+fi
+SQUASH_BASE=$(git rev-parse HEAD)
 if ! git merge --squash <branch>; then
-  # Unresolved squash conflict: restore a clean tree (stages nothing, moves no ref).
-  # NOTE: git merge --abort does NOT work here — --squash records no MERGE_HEAD, so
-  # abort exits 128 and leaves conflict markers; git reset --hard is the correct undo.
-  git reset --hard
-  # then write a halt card naming the squash conflict explicitly (append-card.sh call
-  # shape per self-answer.md §3f — not restated), print the ship-choice halt line, and
-  # return WITHOUT reaching §5 on this path.
+  # Unresolved squash conflict: restore the pre-squash tree (stages nothing,
+  # moves no ref) via the shared safety primitive. NOTE: git merge --abort
+  # does NOT work here — --squash records no MERGE_HEAD, so abort exits 128
+  # and leaves conflict markers. Then write a halt card naming the squash
+  # conflict explicitly (append-card.sh call shape per self-answer.md §3f —
+  # not restated), print the ship-choice halt line, and return WITHOUT
+  # reaching §5 on this path.
+  bash "$GIT_SAFETY" safe-reset --clean-at "$SQUASH_BASE" || echo "end-state: safe-reset refused — halt for human" >&2
+  echo "ship-choice halt: squash conflict on <branch> — card: <card-path>"
   return 1
 fi
 ```
 
 `git merge --squash` moves **no** ref and creates **no** commit — it only stages the branch's
-net change into the index, fully reversible with `git reset --hard` (N3a(iii)). On a **conflict**
-it exits nonzero and leaves conflict markers staged; because `--squash` records no `MERGE_HEAD`,
-the clean-up is `git reset --hard` (not `git merge --abort`, which would exit 128), after which
-the sequence writes a squash-conflict **halt** card and returns — it does **not** fall through to
-§5.
+net change into the index. The `is-clean --tracked-only` gate above refuses first when the
+main-repo checkout already carries uncommitted tracked edits, so a squash never has to overwrite
+uncommitted work that isn't this sequence's to clobber. On a **conflict** it exits nonzero and
+leaves conflict markers staged; the clean-up is the shared `safe-reset --clean-at` primitive
+(`skills/lib/git-safety.sh` — SPEC-025 M17), which refuses instead of acting when HEAD has moved
+off `$SQUASH_BASE` (not `git merge --abort`, which would exit 128), after which the sequence
+writes a squash-conflict **halt** card and returns — it does **not** fall through to §5.
+
 
 This path **MUST NOT** run the interactive `git commit` from `/orchestrate` Step 11's
 "If squash merge requested (no PR)" block. That block's `git merge --squash` **+ `git commit`**
@@ -192,8 +207,8 @@ commit, tags it, and pushes to the origin default branch (`skills/release/SKILL.
 contract). This procedure adds **no** second commit, tag, or push and does **not** duplicate
 `/release`'s pre-commit gates (Steps 4.5–4.10) or its ship-history gate (Step 5.5 / SPEC-010 H).
 Those gates are `/release`'s own; if any fails, `/release` aborts before claiming success and
-nothing ships as Done (§6), and this sequence resets the squash-staged tree on a pre-commit
-abort path (§6.5).
+nothing ships as Done (§6), and this sequence runs the §6.5 block on a pre-commit
+abort path.
 
 **R5:** this path stages only in §4 — the only commit is `/release`'s fold-commit.
 
@@ -224,7 +239,7 @@ git push origin "<DEFAULT_BRANCH>"
 ```
 
 On **commit or push failure**: write a halt card (append-card shape per `self-answer.md` §3f),
-print `ship-choice halt: <rationale> — card: <path>`, run §6.5 dirty-tree cleanup as needed,
+print `ship-choice halt: <rationale> — card: <path>`, run the §6.5 block as needed,
 and return — **no** Done, **no** ship success claim. If commit succeeded but push failed, do
 **not** force-push; halt for human (history may need rewrite — SPEC-010 H).
 
@@ -292,20 +307,35 @@ move or alter the interactive block.
 
 **§5-release abort:** `/release`'s pre-commit gates (Steps 4.5–4.10) each **stop without
 committing** and, per `skills/release/SKILL.md`, only instruct the operator to *fix the drift
-and re-run until the gate exits 0* — none of them `git reset` or otherwise clean the working
-tree. So `/release`'s own abort path does **not** guarantee a clean tree: the squash-staged
-index this sequence created in §4 is **left in place** on the main-repo tree. On this path
-this sequence therefore **MUST** `git -C <main-repo-path> reset --hard` to discard the
-squash-staged index and restore HEAD's tree **before returning control**, so a later run does
-not inherit a half-staged working tree. (`git merge --abort` is not usable — the §4 `--squash`
-records no `MERGE_HEAD`.)
+and re-run until the gate exits 0* — none of them clean the working tree themselves. So
+`/release`'s own abort path does **not** guarantee a clean tree: the squash-staged index this
+sequence created in §4 is **left in place** on the main-repo tree. On this path this sequence
+therefore **MUST run the §6.5 block** below to discard the squash-staged index and restore
+HEAD's tree **before returning control**, so a later run does not inherit a half-staged working
+tree. (`git merge --abort` is not usable — the §4 `--squash` records no `MERGE_HEAD`.)
 
 **§5-land-no-release abort:** on commit failure (or pre-push halt with only a staged squash),
-same `git -C <main-repo-path> reset --hard` to discard the staged index. On push failure after
-a successful commit: do **not** reset away the commit silently — halt for human; no force-push.
+run the §6.5 block below to discard the staged index. On push failure after a successful
+commit: run the §6.5 block below too — `SHIP_START_SHA` no longer equals HEAD once the delivery
+commit has moved it, so the block's own attestation check refuses instead of acting and halts
+for human; the commit is never silently discarded and no force-push follows.
+
+```bash template
+cd <main-repo-path>
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+GIT_SAFETY=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/git-safety.sh)
+SHIP_START_SHA="<SHIP_START_SHA>"   # literal from §3.5 — required
+[ -n "$SHIP_START_SHA" ] && [ "$SHIP_START_SHA" != "<SHIP_START_SHA>" ] || {
+  echo "end-state: SHIP_START_SHA unset — re-run §3.5" >&2
+  return 1
+}
+bash "$GIT_SAFETY" safe-reset --clean-at "$SHIP_START_SHA" || { echo "ship-choice halt: HEAD moved past SHIP_START_SHA (delivery commit exists) — no reset; halt for human — card: <card-path>"; return 1; }
+```
 
 The trackers still stay **open** per §6 — nothing shipped; only the working-tree state is
 reset where the land never created a delivery commit.
+
 
 ## 7. Boundaries — what this sequence does NOT do
 

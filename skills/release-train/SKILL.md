@@ -36,6 +36,7 @@ Before the landing loop:
 
 1. Current branch is `master` or `main`
 2. Working tree clean, or dirty from a prior train run → `restore <base_sha>`
+   (a restore halt stops the train)
 3. Queue has ≥1 non-landed entry
 4. Plan frozen (`assigned_version` set for all pending) — freeze on `start` if needed
 5. Advisory lock acquired (`acquire-lock`)
@@ -188,8 +189,11 @@ TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib
 BASE=$(git rev-parse HEAD)   # or the base_sha recorded at landing start
 # Prefer queue base_sha when present:
 # BASE=$(bash "$TRAIN_LIB" list | jq -r --arg b '<branch>' '.entries[]|select(.branch==$b)|.base_sha')
-bash "$TRAIN_LIB" restore "$BASE"
-bash "$TRAIN_LIB" set-status <branch> blocked --paths path1,path2
+if bash "$TRAIN_LIB" restore "$BASE"; then
+  bash "$TRAIN_LIB" set-status <branch> blocked --paths path1,path2
+else
+  echo "release-train: restore halted — entry stays landing; follow the recovery steps above"
+fi
 bash "$TRAIN_LIB" release-lock
 ```
 
@@ -269,8 +273,11 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
 BASE=$(bash "$TRAIN_LIB" list | jq -r --arg b '<branch>' \
   '.entries[] | select(.branch==$b) | .base_sha')
-bash "$TRAIN_LIB" restore "$BASE"
-bash "$TRAIN_LIB" set-status <branch> blocked
+if bash "$TRAIN_LIB" restore "$BASE"; then
+  bash "$TRAIN_LIB" set-status <branch> blocked
+else
+  echo "release-train: restore halted — entry stays landing; follow the recovery steps above"
+fi
 bash "$TRAIN_LIB" release-lock
 ```
 
@@ -306,7 +313,7 @@ Print final train summary table from `list`. Suggest per-branch follow-up
 On restart / `start` again:
 
 1. `preflight` — if dirty, restore using the `landing` entry's `base_sha` (or last
-   known clean tip)
+   known clean tip; a restore halt stops the train)
 2. `acquire-lock`
 3. For each `landed` entry: `verify-tag` before skipping
 4. Resume at first entry whose status is not `landed` (typically `pending` or

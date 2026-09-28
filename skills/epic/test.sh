@@ -1301,8 +1301,8 @@ fi
     # master still lacks epic-file
     [ ! -f "$C5_TMP/epic-file.txt" ] && pass || fail "c5-5 dry-run leaked file to master"
 
-    # (c5-6) seal failure (hook fail) → master clean, sealed=false, no partial
-    HOOK_LOG="$C5_TMP/hook.log"
+    # (c5-6) seal failure (hook fail) -> master clean, sealed=false, no partial
+    HOOK_LOG=$(mktemp "${TMPDIR:-/tmp}/epic-c5-hook.XXXXXX")
     : >"$HOOK_LOG"
     FAIL_HOOK="echo FAIL_HOOK >>\"$HOOK_LOG\"; exit 1"
     set +e
@@ -1394,25 +1394,20 @@ fi
     [ "$(git -C "$C5_TMP" rev-parse HEAD)" = "$PRE_HO" ] \
       && pass || fail "c5-9 handoff must not commit"
     git -C "$C5_TMP" diff --cached --quiet && fail "c5-9 expected staged index" || pass
-    # CDT-170: staged seal = porcelain dirty → bare --abort refuses
-    set +e
-    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort 2>&1)
-    RC=$?
-    set -e
-    [ "$RC" -eq 1 ] && pass || fail "c5-9 staged bare abort want rc=1 got $RC out=$OUT"
-    echo "$OUT" | grep -q 'dirty' && echo "$OUT" | grep -q 'refuse' \
-      && pass || fail "c5-9 staged bare abort message (out=$OUT)"
-    git -C "$C5_TMP" diff --cached --quiet && fail "c5-9 bare abort wiped staged" || pass
-    # intentional wipe of seal stage uses --force
-    run_c5 0 seal CDV-C5-HO --abort --force
+    # WP 1-05 C2: staged seal_stage matches write-tree and nothing else is
+    # dirty -> bare --abort resets it via safe-reset --stage (rc=0); no
+    # --force needed for the seal-owned stage itself.
+    run_c5 0 seal CDV-C5-HO --abort
     echo "$OUT" | jq -e '.aborted==true and .sealed==false' >/dev/null \
-      && pass || fail "c5-9 abort --force JSON (out=$OUT)"
+      && pass || fail "c5-9 staged bare abort JSON (out=$OUT)"
     git -C "$C5_TMP" diff --quiet && git -C "$C5_TMP" diff --cached --quiet \
-      && pass || fail "c5-9 abort --force left dirty"
+      && pass || fail "c5-9 staged bare abort left dirty"
+    jq -e '.seal_stage == null' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json" >/dev/null 2>&1 \
+      && pass || fail "c5-9 staged bare abort seal_stage not nulled"
     jq -e '(.sealed // false)==false' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json" >/dev/null \
       && pass || fail "c5-9 abort must not seal"
 
-    # (c5-d2) clean bare abort → rc=0 (tree already clean after force)
+    # (c5-d2) clean bare abort → rc=0 (tree already clean after bare abort)
     run_c5 0 seal CDV-C5-HO --abort
     echo "$OUT" | jq -e '.aborted==true and .sealed==false' >/dev/null \
       && pass || fail "c5-d2 clean abort JSON (out=$OUT)"
@@ -1450,17 +1445,31 @@ fi
     [ "$(jq -r '.sealed // false' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json")" = "$SEALED_BEFORE" ] \
       && pass || fail "c5-d1 sealed flipped"
 
-    # (c5-d3) dirty + --abort --force → wipe; rc=0
+    # (c5-d3) dirty (tracked edit + untracked wip.txt) + --abort --force ->
+    # C2: stash then reset. Named stash holds the tracked edit; the
+    # untracked wip.txt survives (plain `git stash push` has no -u; `reset
+    # --hard` never removes untracked files; never `git clean`).
+    printf '# c5-d3 tracked edit\n' >>"$C5_TMP/.gitignore"
+    C5_D3_ERR=$(mktemp "${TMPDIR:-/tmp}/epic-c5-d3-err.XXXXXX")
     set +e
-    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort --force 2>&1)
+    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort --force 2>"$C5_D3_ERR")
     RC=$?
     set -e
-    [ "$RC" -eq 0 ] && pass || fail "c5-d3 abort --force rc=$RC out=$OUT"
+    ERR=$(cat "$C5_D3_ERR"); rm -f "$C5_D3_ERR"
+    [ "$RC" -eq 0 ] && pass || fail "c5-d3 abort --force rc=$RC out=$OUT err=$ERR"
     echo "$OUT" | jq -e '(.aborted==true or .reason=="already_sealed")' >/dev/null \
       && pass || fail "c5-d3 force JSON (out=$OUT)"
-    [ ! -f "$C5_TMP/wip.txt" ] && pass || fail "c5-d3 force left wip.txt"
-    git -C "$C5_TMP" status --porcelain | grep -q . \
-      && fail "c5-d3 force left dirty porcelain" || pass
+    printf '%s' "$ERR" | grep -qi 'stash then reset' \
+      && pass || fail "c5-d3 stderr missing 'stash then reset' (err=$ERR)"
+    [ -f "$C5_TMP/wip.txt" ] && pass || fail "c5-d3 force wiped untracked wip.txt"
+    STASH_REF=$(git -C "$C5_TMP" stash list | grep "epic-seal-CDV-C5-HO-" | head -1 | cut -d: -f1)
+    [ -n "$STASH_REF" ] && pass || fail "c5-d3 force missing named stash"
+    if [ -n "$STASH_REF" ]; then
+      git -C "$C5_TMP" stash show -p "$STASH_REF" | grep -q 'c5-d3 tracked edit' \
+        && pass || fail "c5-d3 stash missing tracked edit"
+    fi
+    git -C "$C5_TMP" diff --quiet && git -C "$C5_TMP" diff --cached --quiet \
+      && pass || fail "c5-d3 force left dirty tracked tree"
 
     # (c5-d4) already_sealed + dirty bare abort → rc=1; no wipe; sealed still true
     jq -e '.sealed==true' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json" >/dev/null \
@@ -1477,7 +1486,7 @@ fi
     jq -e '.sealed==true' "$C5_TMP/.claude/epics/CDV-C5-HO/state.json" >/dev/null \
       && pass || fail "c5-d4 sealed no longer true"
     # cleanup dirty for later cases
-    rm -f "$C5_TMP/wip-sealed.txt"
+    rm -f "$C5_TMP/wip.txt" "$C5_TMP/wip-sealed.txt"
 
     # (c5-d5) --force without --abort → 64
     run_c5 64 seal CDV-C5-HO --force

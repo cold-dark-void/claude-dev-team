@@ -758,12 +758,61 @@ cmd_resolve_json() {
 }
 
 cmd_restore() {
-  local sha="${1:-}"
-  [ -n "$sha" ] || die 64 "restore: missing <base_sha>"
-  # abort merge/cherry-pick/rebase if in progress
-  if [ -d "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null || echo /dev/null)" ] 2>/dev/null; then
-    :
+  local base="${1:-}"
+  [ -n "$base" ] || die 64 "restore: missing <base_sha>"
+  local base_sha
+  base_sha=$(git rev-parse --verify --quiet "${base}^{commit}" 2>/dev/null || true)
+  [ -n "$base_sha" ] || die 1 "restore: cannot resolve <base_sha>: $base"
+
+  local range_commits
+  range_commits=$(git rev-list "${base_sha}..HEAD" 2>/dev/null) || die 1 "restore: rev-list failed for ${base_sha}..HEAD"
+
+  local origin_ok=1
+  git remote get-url origin >/dev/null 2>&1 && origin_ok=0
+
+  # Decide first, act second: walk the range and halt before touching
+  # anything if any commit is a released one (tagged, or reachable from
+  # origin), OR if the check itself cannot be trusted (Design 5: fail
+  # toward halt). --count=1 avoids piping into `head`, which would
+  # SIGPIPE for-each-ref on a large ref set and read as "not released".
+  if [ -n "$range_commits" ]; then
+    local c hit rc
+    while IFS= read -r c || [ -n "$c" ]; do
+      [ -n "$c" ] || continue
+      if hit=$(git for-each-ref --points-at "$c" refs/tags/ --format='%(refname:short)' --count=1 2>/dev/null); then
+        :
+      else
+        rc=$?
+        printf 'restore: HALT — could not check whether %s is tagged (for-each-ref rc=%s); not resetting a possibly released commit\n' "$c" "$rc" >&2
+        return 1
+      fi
+      if [ -n "$hit" ]; then
+        {
+          printf 'restore: HALT — %s is tagged %s; not resetting a released commit\n' "$c" "$hit"
+          printf 'restore: inspect git log %s..HEAD; if the release is complete, record it with: set-status <branch> landed --tag %s; else recover by hand\n' "$base_sha" "$hit"
+        } >&2
+        return 1
+      fi
+      if [ "$origin_ok" -eq 0 ]; then
+        if hit=$(git for-each-ref --contains "$c" refs/remotes/origin/ --format='%(refname)' --count=1 2>/dev/null); then
+          :
+        else
+          rc=$?
+          printf 'restore: HALT — could not check whether %s is on origin (for-each-ref rc=%s); not resetting a possibly released commit\n' "$c" "$rc" >&2
+          return 1
+        fi
+        if [ -n "$hit" ]; then
+          {
+            printf 'restore: HALT — %s is on %s; not resetting a released commit\n' "$c" "$hit"
+            printf 'restore: inspect git log %s..HEAD; if the release is complete, record it with: set-status <branch> landed --tag <tag>; else recover by hand\n' "$base_sha"
+          } >&2
+          return 1
+        fi
+      fi
+    done < <(printf '%s\n' "$range_commits")
   fi
+
+  # Safe: act. abort merge/cherry-pick/rebase if in progress
   if [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null || true)" ]; then
     git merge --abort 2>/dev/null || true
   fi
@@ -774,9 +823,9 @@ cmd_restore() {
   if [ -f "$(git rev-parse --git-path SQUASH_MSG 2>/dev/null || true)" ]; then
     rm -f "$(git rev-parse --git-path SQUASH_MSG)" "$(git rev-parse --git-path MERGE_MSG)" 2>/dev/null || true
   fi
-  git reset --hard "$sha" >/dev/null
+  git reset --hard "$base_sha" >/dev/null
   # leave untracked alone (train does not create untracked that need clean -fd)
-  printf '%s\n' "$sha"
+  printf '%s\n' "$base_sha"
 }
 
 cmd_verify_tag() {

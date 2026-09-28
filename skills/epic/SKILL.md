@@ -992,12 +992,9 @@ EPIC_ID="<EPIC-ID>"
 bash "$EPIC_LIB" seal "$EPIC_ID" --complete
    ```
 4. **On `/release` or squash failure** — leave `sealed=false` (no partial
-   tag/push from seal; master not half-shipped). **Bare** `seal --abort` is
-   safe cleanup **only when main is clean** (porcelain empty): it hard-resets
-   seal staging then exits 0. If main is **dirty** (unrelated WIP or leftover
-   seal dirt), bare `--abort` **refuses** (exit **1**, WIP preserved — CDT-170).
-   When the orchestrator just staged seal and needs a wipe after failure (or
-   any intentional dirty wipe), use `seal --abort --force`:
+   tag/push from seal; master not half-shipped). Recover with **bare**
+   `seal --abort` first — it resets the seal-owned squash stage (or is a
+   no-op when main is already clean) and exits 0:
    ```bash
    _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -1006,8 +1003,21 @@ bash "$EPIC_LIB" seal "$EPIC_ID" --complete
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
-# Post-stage / intentional wipe (main usually dirty after squash-stage).
-# Bare --abort only when main is clean (dirty → exit 1, WIP preserved).
+bash "$EPIC_LIB" seal "$EPIC_ID" --abort
+   ```
+   If bare `--abort` **refuses** (exit **1** — main holds edits outside the
+   seal-owned stage, for example unstaged version-pair edits a failed
+   `/release` Step 3 left behind), run `--abort` with `--force` — stash then reset —
+   a named stash holds the edits, nothing is lost:
+   ```bash
+   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+EPIC_ID="<EPIC-ID>"
+# Post-stage / intentional wipe (stash then reset) — only after bare --abort refused.
 bash "$EPIC_LIB" seal "$EPIC_ID" --abort --force
    ```
 
@@ -1015,8 +1025,10 @@ bash "$EPIC_LIB" seal "$EPIC_ID" --abort --force
 - Seal path runs **once** (`sealed=true` → further `seal` is `already_sealed` no-op).
 - Master receives epic delivery **only** at seal (C4 forbids mid-epic land).
 - Exactly one versioned release commit for the epic (`/release` contract).
-- Bare `seal --abort` MUST NOT wipe dirty main WIP; `--abort --force` MAY
-  hard-reset+clean (operator/orchestrator recovery only; CDT-170).
+- Bare `seal --abort` resets only the seal-owned stage (or no-ops on a clean
+  tree) and MUST NOT wipe unrelated main WIP; `--abort` with `--force` is
+  stash then reset (named stash; operator/orchestrator recovery only; never
+  removes untracked files — CDT-170).
 - `EPIC_SEAL_RELEASE_HOOK` (tests only) may stand in for `/release`; production
   orchestrator always uses `/release` as SoT.
 
@@ -1237,8 +1249,8 @@ tree on child wrap), re-implement kickoff/orchestrate WT lifecycle, or fork
 | Resume M14 flags omitted | Honor stored `worktree_enabled` / `release_bump` (C6); ensure same integration tree |
 | Resume M14 flags conflict with state | Exit **64**, zero side effects; no silent mode change/downgrade (C6) |
 | All children completed + `release_bump` set | **B.7** seal once: squash-stage → one `/release <bump>` → `sealed=true` (C5) |
-| Seal failure (B.7 post-stage) | `seal --abort --force`; `sealed` stays false; wipes seal dirt; no partial tag/push (C5/CDT-170) |
-| Seal abort (main clean only) | Bare `seal --abort`; resets seal staging; exit 0. Dirty main → exit **1**, WIP preserved — use `--force` for intentional wipe (CDT-170) |
+| Seal failure (B.7 post-stage) | Bare `seal --abort` (stash then reset if it refuses via `--force`); `sealed` stays false; no partial tag/push (C5/CDT-170) |
+| Seal abort (clean main or seal-owned stage) | Bare `seal --abort`; resets seal-owned staging; exit 0. Other dirt → exit **1**, WIP preserved — `--force` = stash then reset for an intentional wipe (CDT-170) |
 | No `release_bump` at end | No epic seal path (C5) |
 | No ready children | Report rollup; stop cleanly |
 | Confirm handoff = n | Exit; child stays pending (or revert in_progress if already set — prefer confirm **before** set-status) |
