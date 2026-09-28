@@ -59,6 +59,8 @@ just happened; treat it as a directive to re-Read every file you intend
 to touch this turn, not a one-off retry.
 
 For each task that has no blockers, spawn the Claude IC via the fence below.
+Before spawning, run the **Task-store status mirror** (`cross-cutting.md`) to
+record the pending → in_progress claim.
 
 Before spawning @<agent> (same roster name as `Spawn @<agent>`):
 ```bash template
@@ -166,8 +168,9 @@ closes the loop.
    when you called `TaskCreate`; record `task_id ↔ agentId` at spawn
    time so you can map back).
 2. Read the spawn result for outcome (success/failure/blocker).
-3. Call `TaskUpdate(task_id, completed)` (or `blocked` with reason).
-4. Then re-run `dag-lib.sh ready-set` to fan out unblocked work.
+3. Call `TaskUpdate(task_id, completed)` (or `blocked` with reason), then run the
+   **Task-store status mirror** (`cross-cutting.md`).
+4. Then re-run `dag-lib.sh ready-set --issue <ISSUE-ID>` to fan out unblocked work.
 
 Without step 3, `/status standup` will show stale `in_progress` counters and
 the TaskCompleted hook (council gate) never fires for that task. The
@@ -180,18 +183,18 @@ it.
 At orchestration start and after every task status transition to `completed`,
 compute the unblocked set via:
 
-  ```bash
+  ```bash template
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
   DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh)
-  READY=$(bash "$DAG_LIB" ready-set)
+  READY=$(bash "$DAG_LIB" ready-set --issue "<ISSUE-ID>")
   ```
 
 Spawn an agent for every task_id in `$READY` simultaneously — do not process
 them one at a time. This is the parallel fan-out guaranteed by SPEC-017.
 
 A task is only eligible for spawning when:
-1. dag-lib.sh ready-set includes its task_id
+1. `dag-lib.sh ready-set --issue <ISSUE-ID>` includes its task_id
 2. No agent is currently running for that task_id (check in-progress task store status)
 
 After each agent completes (status → completed), immediately re-run ready-set
@@ -200,12 +203,12 @@ and spawn any newly-unblocked tasks.
 ### Escalation triggers (interrupt user):
 
 - **Agent stuck after 2 genuine attempts** — present what was tried, ask for guidance.
-  Before re-routing: run **Stint-end outcome emit** with `STINT_OUTCOME=escalated`
+  Before re-routing: run **Stint-end outcome emit** (`cross-cutting.md`) with `STINT_OUTCOME=escalated`
   for the agent whose stint is ending (counters as of hand-off).
 
 **Autopilot — agent stuck after 2 attempts:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the
 user here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new
-gate enum value.) The Stint-end outcome emit above still fires unchanged first. Build the C3 §2
+gate enum value.) The Stint-end outcome emit (`cross-cutting.md`) above still fires unchanged first. Build the C3 §2
 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <trigger signal:
 "agent stuck after 2 genuine attempts; what was tried: <summary>" — an unresolved
@@ -214,7 +217,7 @@ product/architecture decision autopilot cannot self-answer (BC1)> }` and call
 rationale}` (exactly one `decided_by:"auto"` card is appended; expected `blocking_condition = 1`).
 Act on `decision`:
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
-  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and
   return control:
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>
@@ -240,7 +243,7 @@ Act on `decision`:
   also pass `--worktree --release <bump>` (seal-intent; MUST NOT land each child
   on master). `/epic` persists that bump as `release_bump` (SPEC-033 M11a / CDT-196).
 - `halt` (BC1 — scope-creep that is NOT an overflow) → emit `task_blocked` (detail = the
-  one-line message below) via **Passive notifications → Tier B** (fail-open; § below), then
+  one-line message below) via **Passive notifications → Tier B** (fail-open; § in `cross-cutting.md`), then
   print the one-line message below and return control:
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>
@@ -259,7 +262,7 @@ an unresolved product/architecture decision autopilot cannot self-answer (BC1)> 
 rationale}` (exactly one `decided_by:"auto"` card is appended; expected `blocking_condition = 1`).
 Act on `decision`:
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
-  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and
   return control:
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>
@@ -278,7 +281,7 @@ being taken now (BC1, not BC3)"> }` and call `skills/autopilot/self-answer.md`'s
 `{decision, blocking_condition, confidence, rationale}` (exactly one `decided_by:"auto"` card is
 appended; expected `blocking_condition = 1`). Act on `decision`:
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
-  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and
   return control:
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>
@@ -417,65 +420,7 @@ SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
 
 ---
 
-### Stint-end outcome emit (SPEC-026 M4) — named reusable block
-
-Call when a **(task, agent) stint ends**. Never on Step-9 APPROVE alone (OQ4).
-Fail-open — never block orchestration (M9). MVP outcomes: `accepted` | `escalated`
-only (`rejected` reserved, never written this version).
-
-**Session-local counters** (orchestrator tracks per compound `task_id`; same
-bookkeeping SPEC-009 already requires for deadloop):
-- `review_cycles` — increment on each Step-9 REQUEST CHANGES for that task
-- `qa_bounces` — increment on each Step-10 QA FAIL routed back to the IC for that task
-Initialize both to `0` when a stint starts (agent spawn / hand-off receive).
-
-```bash
-# Stint-end emit — set STINT_* then run. Re-resolve PDH (fresh shell).
-# STINT_TICKET STINT_TASK_ID STINT_AGENT STINT_CLASS STINT_SIZE
-# STINT_OUTCOME STINT_REVIEW_CYCLES STINT_QA_BOUNCES
-# Optional fields: literal "null" when unknown. STINT_AGENT + STINT_OUTCOME required.
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-EMIT=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/emit-outcome.sh)
-MIN_CONF=$(python3 -c '
-import json,sys
-try:
-  data=json.load(open(sys.argv[1]))
-  print(data.get("council",{}).get("taskgate",{}).get("min_confidence",80))
-except Exception:
-  print(80)
-' "$MROOT/.claude/settings.json" 2>/dev/null || echo 80)
-# council_overturns: index rows for task_id where max_verdict_confidence is null
-# OR < min (OQ2). Missing index / jq / null task_id → null arg.
-COUNCIL_OVERTURNS=null
-if command -v jq >/dev/null 2>&1 && [ -f "$MROOT/.claude/council/index.json" ] \
-   && [ -n "${STINT_TASK_ID:-}" ] && [ "$STINT_TASK_ID" != "null" ]; then
-  COUNCIL_OVERTURNS=$(jq -r --arg tid "$STINT_TASK_ID" --argjson min "$MIN_CONF" '
-    (.[$tid] // [])
-    | map(select(
-        (.max_verdict_confidence == null)
-        or ((.max_verdict_confidence | type == "number")
-            and .max_verdict_confidence < $min)
-      ))
-    | length
-  ' "$MROOT/.claude/council/index.json" 2>/dev/null || echo null)
-fi
-bash "$EMIT" \
-  "${STINT_TICKET:-null}" "${STINT_TASK_ID:-null}" "${STINT_AGENT}" \
-  "${STINT_CLASS:-null}" "${STINT_SIZE:-null}" "${STINT_OUTCOME}" \
-  "${STINT_REVIEW_CYCLES:-null}" "${STINT_QA_BOUNCES:-null}" \
-  "${COUNCIL_OVERTURNS:-null}" 2>/dev/null || true
-```
-
-**Call sites** (prose only — do not rewrite review/QA loop bodies):
-1. **Escalated** (`STINT_OUTCOME=escalated`): Step-8 stuck-after-2 hand-off; Step-9
-   3+-round deadloop escalate. Emit for the agent whose stint ends; counters as of
-   hand-off.
-2. **Accepted** (`STINT_OUTCOME=accepted`): **after** Step-10 finalizes `qa_bounces`
-   for that task (QA PASS, or QA N/A with counter frozen). MUST NOT emit on Step-9
-   APPROVE alone.
+The **Stint-end outcome emit** block (SPEC-026 M4) — call when a (task,
+agent) stint ends — lives in `cross-cutting.md`, not here.
 
 ---

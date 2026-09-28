@@ -9,6 +9,14 @@ ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 SKILL="$HERE/SKILL.md"
 STEPS="$HERE/steps"
 
+# Hermetic suite (SPEC-030 R20): AC E (T17) runs the cycle-gate
+# fences as live git commands, so this suite must not touch the caller's
+# git state.
+. "$ROOT/tests/lib/hermetic.sh"
+hermetic_init
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
@@ -206,8 +214,11 @@ fi
 if ! grep -qi 'Tech Lead review' "$STEPS/09-review.md"; then
   t11_fail="$t11_fail | 09-review.md missing Tech Lead review"
 fi
-if ! grep -q 'check-cycle' "$STEPS/07-tasks.md"; then
-  t11_fail="$t11_fail | 07-tasks.md missing DAG check-cycle"
+if ! grep -q 'task-graph.md' "$STEPS/07-tasks.md"; then
+  t11_fail="$t11_fail | 07-tasks.md missing task-graph.md citation"
+fi
+if ! grep -q 'check-cycle' "$HERE/task-graph.md" 2>/dev/null; then
+  t11_fail="$t11_fail | task-graph.md missing DAG check-cycle"
 fi
 if ! grep -q 'reviewed 3+ times' "$STEPS/09-review.md"; then
   t11_fail="$t11_fail | 09-review.md missing 3-round deadloop"
@@ -313,6 +324,255 @@ if [ -z "$t15_fail" ]; then ok
 else bad "T15 AC9:$t15_fail"; fi
 
 
+
+# ---- T16: WP 1-07 AC D — Step 7 task-graph protocol lives in one file ----
+TASK_GRAPH="$HERE/task-graph.md"
+t16_fail=""
+if [ ! -f "$TASK_GRAPH" ]; then
+  t16_fail="$t16_fail missing task-graph.md"
+else
+  if ! grep -q 'skills/orchestrate/task-graph.md' "$STEPS/07-tasks.md"; then
+    t16_fail="$t16_fail 07-tasks.md missing task-graph.md path citation"
+  fi
+  if ! grep -q 'skills/orchestrate/task-graph.md' "$ROOT/skills/kickoff/SKILL.md"; then
+    t16_fail="$t16_fail kickoff/SKILL.md missing task-graph.md path citation"
+  fi
+  if grep -qF '"$TASK_STORE" create' "$STEPS/07-tasks.md"; then
+    t16_fail="$t16_fail 07-tasks.md still holds \"\$TASK_STORE\" create"
+  fi
+  if grep -qF '"$TASK_STORE" create' "$ROOT/skills/kickoff/SKILL.md"; then
+    t16_fail="$t16_fail kickoff/SKILL.md still holds \"\$TASK_STORE\" create"
+  fi
+  if grep -q 'check-cycle' "$STEPS/07-tasks.md"; then
+    t16_fail="$t16_fail 07-tasks.md still holds check-cycle"
+  fi
+  if grep -q 'check-cycle' "$ROOT/skills/kickoff/SKILL.md"; then
+    t16_fail="$t16_fail kickoff/SKILL.md still holds check-cycle"
+  fi
+  if ! grep -qF '"$TASK_STORE" create' "$TASK_GRAPH"; then
+    t16_fail="$t16_fail task-graph.md missing \"\$TASK_STORE\" create call"
+  fi
+  if ! grep -q -- '--plan-ordinal' "$TASK_GRAPH" || ! grep -q -- '--taskcreate-id' "$TASK_GRAPH"; then
+    t16_fail="$t16_fail task-graph.md missing --plan-ordinal/--taskcreate-id"
+  fi
+  p1_line=$(grep -n '^## Phase 1' "$TASK_GRAPH" | head -n1 | cut -d: -f1)
+  p2_line=$(grep -n '^## Phase 2' "$TASK_GRAPH" | head -n1 | cut -d: -f1)
+  if [ -z "$p1_line" ] || [ -z "$p2_line" ] || [ "$p1_line" -ge "$p2_line" ]; then
+    t16_fail="$t16_fail task-graph.md Phase 1 does not precede Phase 2"
+  fi
+  for f in "$STEPS/07-tasks.md" "$ROOT/skills/kickoff/SKILL.md" "$TASK_GRAPH"; do
+    if grep -qF '<ISSUE-ID>-N' "$f"; then
+      t16_fail="$t16_fail $(basename "$f") maps Task N to <ISSUE-ID>-N"
+    fi
+  done
+  for f in "$STEPS/07-tasks.md" "$ROOT/skills/kickoff/SKILL.md" "$TASK_GRAPH"; do
+    if grep -qiE 're-?mark[a-z]* (every|each|the)? ?dependents? as ready' "$f"; then
+      t16_fail="$t16_fail $(basename "$f") says a wrong dep key re-marks dependents as ready"
+    fi
+  done
+fi
+if [ -z "$t16_fail" ]; then ok
+else bad "T16 AC D:$t16_fail"; fi
+
+# ---- T17: WP 1-07 AC E — task-graph.md cycle pre-gate fences actually run ----
+t17_fail=""
+if [ ! -f "$TASK_GRAPH" ]; then
+  t17_fail="missing task-graph.md"
+else
+  extract_fence() {
+    # $1 = heading regex, $2 = file
+    awk -v pat="$1" '
+      $0 ~ pat { found=1 }
+      found && /^```/ { c++; if (c==1) { inblock=1; next }; if (c==2) { exit } }
+      inblock { print }
+    ' "$2"
+  }
+  WRITE_FENCE=$(extract_fence '^## Cycle pre-gate . write fence' "$TASK_GRAPH")
+  CHECK_FENCE=$(extract_fence '^## Cycle pre-gate . check fence' "$TASK_GRAPH")
+  if [ -z "$WRITE_FENCE" ] || [ -z "$CHECK_FENCE" ]; then
+    t17_fail="could not extract both fences by heading"
+  else
+    T17_TMP=$(mktemp -d "${TMPDIR:-/tmp}/router-t17.XXXXXX")
+    (
+      cd "$T17_TMP" || exit 1
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q .
+      mkdir -p skills
+      : > skills/plugin-dir.sh
+      chmod +x skills/plugin-dir.sh
+      run_pair() {
+        # $1 = fixture JSON (single line), $2 = write-fence text, $3 = check-fence text
+        w=$(printf '%s\n' "$2" | sed \
+          -e 's/<ISSUE-ID>/T-1/g' \
+          -e "s#<JSON array:.*#$1#")
+        c=$(printf '%s\n' "$3" | sed \
+          -e 's/<ISSUE-ID>/T-1/g' \
+          -e 's/<Kickoff|Orchestrate>/Test/g')
+        printf '%s\n' "$w" > w.sh
+        printf '%s\n' "$c" > c.sh
+        timeout 20 env CLAUDE_PLUGIN_ROOT="$ROOT" bash w.sh || return 90
+        timeout 20 env CLAUDE_PLUGIN_ROOT="$ROOT" bash c.sh
+      }
+      run_pair '[{"task_id":"1","depends_on":[]},{"task_id":"2","depends_on":["1"]}]' "$WRITE_FENCE" "$CHECK_FENCE" > acyclic.out 2>&1
+      echo "acyclic_rc=$?" >> acyclic.out
+      run_pair '[{"task_id":"1","depends_on":["2"]},{"task_id":"2","depends_on":["1"]}]' "$WRITE_FENCE" "$CHECK_FENCE" > cyclic.out 2>&1
+      echo "cyclic_rc=$?" >> cyclic.out
+      cat acyclic.out cyclic.out > "$T17_TMP/combined.out"
+    )
+    ACY_RC=$(grep -o 'acyclic_rc=[0-9]*' "$T17_TMP/combined.out" 2>/dev/null | cut -d= -f2)
+    CYC_RC=$(grep -o 'cyclic_rc=[0-9]*' "$T17_TMP/combined.out" 2>/dev/null | cut -d= -f2)
+    if [ "$ACY_RC" != "0" ]; then
+      t17_fail="$t17_fail acyclic-case-rc=$ACY_RC"
+    fi
+    if [ -z "$CYC_RC" ] || [ "$CYC_RC" = "0" ]; then
+      t17_fail="$t17_fail cyclic-case-did-not-fail(rc=$CYC_RC)"
+    fi
+    if ! grep -q 'circular dependency detected' "$T17_TMP/combined.out"; then
+      t17_fail="$t17_fail missing 'circular dependency detected'"
+    fi
+    if ! grep -q 'cycle:' "$T17_TMP/combined.out"; then
+      t17_fail="$t17_fail missing 'cycle:' text"
+    fi
+    rm -rf "$T17_TMP"
+  fi
+fi
+if [ -z "$t17_fail" ]; then ok
+else bad "T17 AC E:$t17_fail"; fi
+
+# ---- T18: WP 1-07 AC F — check-fence branches print + exit; no "# halt" stand-in ----
+t18_fail=""
+if [ ! -f "$TASK_GRAPH" ]; then
+  t18_fail="missing task-graph.md"
+else
+  if ! grep -q 'circular dependency detected' "$TASK_GRAPH"; then
+    t18_fail="$t18_fail missing circular-dependency message"
+  fi
+  if ! grep -q 'cycle gate could not run' "$TASK_GRAPH"; then
+    t18_fail="$t18_fail missing cycle-gate-could-not-run message"
+  fi
+  if ! grep -qE '^[[:space:]]*exit ' "$TASK_GRAPH"; then
+    t18_fail="$t18_fail missing an actual exit statement"
+  fi
+  if grep -qF '# halt' "$TASK_GRAPH"; then
+    t18_fail="$t18_fail '# halt' comment stands in for exit"
+  fi
+  if ! grep -qi 'Do NOT call TaskCreate' "$TASK_GRAPH"; then
+    t18_fail="$t18_fail prose does not forbid TaskCreate after a halt"
+  fi
+fi
+if [ -z "$t18_fail" ]; then ok
+else bad "T18 AC F:$t18_fail"; fi
+
+# ---- T19: WP 1-07 AC M — 08-execute ready-set --issue; mirror lives in cross-cutting.md ----
+t19_fail=""
+if ! grep -qF 'ready-set --issue' "$STEPS/08-execute.md"; then
+  t19_fail="$t19_fail 08-execute.md missing ready-set --issue"
+fi
+if grep -qE 'ready-set)[[:space:]]*$' "$STEPS/08-execute.md"; then
+  t19_fail="$t19_fail 08-execute.md still calls bare ready-set (no --issue)"
+fi
+if grep -qF '"$TASK_STORE" update-status' "$STEPS/09-review.md"; then
+  t19_fail="$t19_fail 09-review.md still holds the task-store mirror fence"
+fi
+if ! grep -qF '"$TASK_STORE" update-status' "$STEPS/cross-cutting.md"; then
+  t19_fail="$t19_fail cross-cutting.md missing the task-store mirror fence"
+fi
+STANDUP_SKILL="$ROOT/skills/standup/SKILL.md"
+if [ -f "$STANDUP_SKILL" ]; then
+  standup_calls=$(grep -nF 'bash "$DAG_LIB" ready-set' "$STANDUP_SKILL")
+  if [ -z "$standup_calls" ]; then
+    t19_fail="$t19_fail standup/SKILL.md missing a dag-lib.sh ready-set call"
+  elif printf '%s\n' "$standup_calls" | grep -q -- '--issue'; then
+    t19_fail="$t19_fail standup/SKILL.md ready-set call passes --issue (must stay cross-issue)"
+  fi
+fi
+if [ -z "$t19_fail" ]; then ok
+else bad "T19 AC M:$t19_fail"; fi
+
+# ---- T20: WP 1-07 AC N — ship window record ----
+t20_fail=""
+SHIP="$STEPS/11-ship.md"
+squash_block=$(awk '/^cd <main-repo-path>$/{print; f=1; next} f{print} f && /^git merge --squash <branch>$/{exit}' "$SHIP")
+if ! printf '%s\n' "$squash_block" | grep -qF 'SHIP_START=$(git rev-parse HEAD)'; then
+  t20_fail="$t20_fail squash fence missing SHIP_START=\$(git rev-parse HEAD)"
+fi
+if ! printf '%s\n' "$squash_block" | grep -qF 'echo "SHIP_START=$SHIP_START"'; then
+  t20_fail="$t20_fail squash fence missing echo SHIP_START=\$SHIP_START"
+fi
+cd_line=$(printf '%s\n' "$squash_block" | grep -n 'cd <main-repo-path>' | tail -n1 | cut -d: -f1)
+start_line=$(printf '%s\n' "$squash_block" | grep -n 'SHIP_START=\$(git rev-parse HEAD)' | tail -n1 | cut -d: -f1)
+merge_line=$(printf '%s\n' "$squash_block" | grep -n 'git merge --squash <branch>' | tail -n1 | cut -d: -f1)
+if [ -n "$cd_line" ] && [ -n "$start_line" ] && [ -n "$merge_line" ]; then
+  if [ "$start_line" -le "$cd_line" ] || [ "$merge_line" -le "$start_line" ]; then
+    t20_fail="$t20_fail SHIP_START not between cd and squash"
+  fi
+else
+  t20_fail="$t20_fail could not locate cd/SHIP_START/squash lines"
+fi
+if ! awk '/^```bash template$/{tag=NR} /CHECK_SHIP=/{print tag; exit}' "$SHIP" | grep -qv '^$'; then
+  t20_fail="$t20_fail ship-history check fence not tagged bash template"
+fi
+if ! grep -qF 'SHIP_START="<SHIP_START>"' "$SHIP"; then
+  t20_fail="$t20_fail check fence missing SHIP_START=\"<SHIP_START>\""
+fi
+if grep -qF '${SHIP_START:-' "$SHIP"; then
+  t20_fail="$t20_fail check fence reads \${SHIP_START:-...} from an earlier shell"
+fi
+if grep -n 'assert-release-allowed' "$SHIP" | grep -qiE 'on exit 64|exits 64'; then
+  t20_fail="$t20_fail an assert-release-allowed line still says exit(s) 64"
+fi
+if [ -z "$t20_fail" ]; then ok
+else bad "T20 AC N:$t20_fail"; fi
+
+# ---- T21: WP 1-07 AC O — no "§ below/above"; Stint-end in cross-cutting.md; pointer paragraphs name their home file ----
+t21_fail=""
+if grep -lE '§ below|§ above' "$STEPS"/*.md >/dev/null 2>&1; then
+  t21_fail="$t21_fail has section-below/above: $(grep -lE '§ below|§ above' "$STEPS"/*.md | xargs -n1 basename | tr '\n' ',')"
+fi
+if grep -q '### Stint-end outcome emit' "$STEPS/08-execute.md"; then
+  t21_fail="$t21_fail Stint-end outcome emit block still in 08-execute.md"
+fi
+if ! grep -q '### Stint-end outcome emit' "$STEPS/cross-cutting.md"; then
+  t21_fail="$t21_fail Stint-end outcome emit block missing from cross-cutting.md"
+fi
+for f in "$STEPS"/*.md; do
+  base=$(basename "$f")
+  bad_paras=$(awk -v basefile="$base" '
+    BEGIN { para="" }
+    /^[[:space:]]*$/ {
+      if (para != "") check(para)
+      para=""
+      next
+    }
+    { para = para " " $0 }
+    END { if (para != "") check(para) }
+    function check(p) {
+      if (basefile != "cross-cutting.md" \
+          && (p ~ /Stint-end outcome emit/ || p ~ /Task-store status mirror/ || p ~ /Passive notifications/) \
+          && p !~ /cross-cutting\.md/) {
+        print "missing-cross-cutting"
+      }
+      if (basefile != "11-ship.md" && p ~ /Linear lifecycle/ && p !~ /11-ship\.md/) {
+        print "missing-11-ship"
+      }
+    }
+  ' "$f")
+  if [ -n "$bad_paras" ]; then
+    t21_fail="$t21_fail $base:$(printf '%s' "$bad_paras" | tr '\n' '+')"
+  fi
+done
+if [ -z "$t21_fail" ]; then ok
+else bad "T21 AC O:$t21_fail"; fi
+
+
+# ---- Harness self-check: the suite defines 22 checks (T0-T21). A total
+# below 22 means a check was skipped silently (stale copy of this file, an
+# early return, or an environment-dependent short-circuit) — turn that into
+# an explicit failure instead of a quietly-smaller PASS count.
+EXPECTED_CHECKS=22
+RUN_TOTAL=$((PASS + FAIL))
+if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
+  bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"
+fi
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   exit 0

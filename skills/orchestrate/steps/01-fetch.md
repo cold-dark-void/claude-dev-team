@@ -16,8 +16,8 @@ Order:
    `source=freeform`, `closes: []`, and warn: no tracker will be closed at ship.
 
 If Linear **and** a matching backlog item both exist, dual-write both into
-`closes:` (close local index at ship; Linear ticket status per **Linear lifecycle**
-below — Done only when work is on master / wrap).
+`closes:` (close local index at ship; Linear ticket status per **Linear
+lifecycle** (`11-ship.md`) — Done only when work is on master / wrap).
 
 Print source + closes in the Step 2 summary. Store issue context for all
 subsequent agent prompts.

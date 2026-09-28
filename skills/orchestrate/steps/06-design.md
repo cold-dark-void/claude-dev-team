@@ -135,7 +135,7 @@ task-graph shape, destructive-op flags> }` and call
   also pass `--worktree --release <bump>` (seal-intent; MUST NOT land each child
   on master). `/epic` persists that bump as `release_bump` (SPEC-033 M11a / CDT-196).
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
-  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and
   return control:
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>

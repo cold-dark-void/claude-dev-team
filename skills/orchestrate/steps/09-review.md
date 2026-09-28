@@ -100,12 +100,12 @@ This looks like a disagreement — please weigh in:
 ```
 
 Escalate to user. Do NOT let it loop further. Before re-assigning or pausing the
-current agent, run **Stint-end outcome emit** with `STINT_OUTCOME=escalated` for
+current agent, run **Stint-end outcome emit** (`cross-cutting.md`) with `STINT_OUTCOME=escalated` for
 the agent whose stint is ending (counters as of hand-off).
 
 **Autopilot — deadloop (3+ review rounds):** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user
 here. (Off-triad checkpoint; canonical gate = `plan-approve` — SPEC-033 M8 mapping; no new gate
-enum value.) The Stint-end outcome emit above still fires unchanged first. Build the C3 §2 envelope
+enum value.) The Stint-end outcome emit (`cross-cutting.md`) above still fires unchanged first. Build the C3 §2 envelope
 `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"plan-approve", run_id:RUN_ID,
 iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <trigger signal:
 "IC↔TL 3+ review rounds without consensus" — an unresolved product/architecture decision autopilot
@@ -113,7 +113,7 @@ cannot self-answer (BC1)> }` and call `skills/autopilot/self-answer.md`'s proced
 `{decision, blocking_condition, confidence, rationale}` (exactly one `decided_by:"auto"` card is
 appended; expected `blocking_condition = 1`). Act on `decision`:
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
-  notifications → Tier B** (fail-open; § below), then print the one-line message below and
+  notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and
   return control:
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>
@@ -194,7 +194,7 @@ auto-selected):
   as `1` on the card — this conflict has no `proceed`/`reroute-epic` resolution,
   only `halt`). Act on `decision`:
   - `halt` → emit `task_blocked` (detail = the one-line message below) via
-    **Passive notifications → Tier B** (fail-open; § below), then print the
+    **Passive notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the
     one-line message below and return control:
   ```
   plan-approve <decision>: <rationale> — card: <card-file-path>
@@ -249,17 +249,8 @@ as any other incomplete task (SPEC-013 § Council tiering; no new gate).
 Update TaskUpdate → completed. Check if this unblocks other tasks.
 **Do NOT** emit an outcomes-ledger record here — wait for Step-10 QA terminal (OQ4).
 
-On every TaskUpdate that changes a task's status, the orchestrator MUST also call:
-
-```bash template
-# Re-resolve PDH (each bash fence is a fresh shell)
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-TASK_STORE=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-store.sh)
-bash "$TASK_STORE" update-status <ISSUE-ID>-<task_id> <new_status>
-```
-
-Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). **MUST** pass the compound key — bare TaskCreate integers are non-native (CDT-167: unique compound is redirected, multi-match fails closed; historical bare stubs are handled by shadow-safe TaskCompleted, not invent). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009, the task-store write/update/no-delete-after-completion MUSTs); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
+Run the **Task-store status mirror** (`cross-cutting.md`) with the same
+compound key the `create` call used (e.g. `CDV-QF-FILTER-1`).
 
 ### Defensive CI-watch cleanup
 

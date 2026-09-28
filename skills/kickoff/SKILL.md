@@ -714,35 +714,10 @@ For each task, list dependencies as `Depends on: <TaskID>, <TaskID>` or `Depends
 
 ## Step 7: Create task graph via TaskCreate
 
-Before creating any tasks, extract the dependency graph from the Tech Lead plan:
-1. For each task in the plan, note its ID (Task 1, Task 2, etc.) and its "Depends on:" list
-2. Build a JSON array: `[{"task_id": "TICKET-N", "depends_on": ["TICKET-M", ...]}, ...]`
-3. Write the dependency JSON to `$DAG_FILE` and run:
-   ```bash
-   DAG_FILE="${TMPDIR:-/tmp}/kickoff-dag-$$.json"
-   CYCLE_ERR="${TMPDIR:-/tmp}/kickoff-cycle-err-$$.txt"
-   # (caller already wrote the dependency JSON into $DAG_FILE)
-   # Re-resolve PDH (each bash fence is a fresh shell)
-   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-   DAG_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/dag-lib.sh)
-   bash "$DAG_LIB" check-cycle "$DAG_FILE" 2>"$CYCLE_ERR"
-   rc=$?
-   if [ "$rc" -eq 1 ]; then
-     # $CYCLE_MSG is the detected back-edge ("cycle: <from> -> <to>"), not a full path.
-     CYCLE_MSG=$(cat "$CYCLE_ERR" 2>/dev/null || true)
-     rm -f "$DAG_FILE" "$CYCLE_ERR"
-     echo "Kickoff error: circular dependency detected ($CYCLE_MSG). Revise the task graph."
-     # halt — do NOT call TaskCreate for any task
-   elif [ "$rc" -ne 0 ]; then
-     DIAG=$(cat "$CYCLE_ERR" 2>/dev/null || true)
-     rm -f "$DAG_FILE" "$CYCLE_ERR"
-     echo "Kickoff error: cycle gate could not run (rc=$rc): $DIAG"
-     # halt — do NOT call TaskCreate for any task
-   fi
-   rm -f "$DAG_FILE" "$CYCLE_ERR"
-   ```
-   Do NOT call TaskCreate for any task if a cycle is detected or the cycle gate could not run.
+Resolve and Read `skills/orchestrate/task-graph.md`
+(`bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-graph.md`).
+`<Caller>` = `Kickoff`. Follow its Inputs, Cycle pre-gate (write fence then
+check fence) and Phase 1 sections before any TaskCreate below.
 
 Then detect quality-check mode:
 ```bash
@@ -773,24 +748,9 @@ TaskCreate:
     Exposes: <interface/contract other tasks need, if any>
 ```
 
-After each TaskCreate, register the task in the task store with its dependencies:
-```bash
-# Build colon-separated depends_on from plan dep list
-# Map to compound keys: replace "Task N" with "<TICKET>-<taskid>"
-# e.g. if Task 3 depends on Task 1 and Task 2, and TICKET-ID is CDV-1:
-#   DEPS="CDV-1-1:CDV-1-2"
-# If no deps:
-#   DEPS=""
-DEPS=$(echo "<dep task IDs from plan, space/comma-separated>" | tr ', ' ':' | tr -s ':' | sed 's/^://;s/:$//')
-# Replace each "Task N" reference with "<TICKET-ID>-N" compound key
-# Re-resolve PDH (each bash fence is a fresh shell)
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-TASK_STORE=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-store.sh)
-bash "$TASK_STORE" create "<TICKET-ID>-<task_id>" "<subject>" <requires_council> "$DEPS"
-```
-
-Create all tasks. Note their assigned IDs.
+After all TaskCreate calls above, follow `skills/orchestrate/task-graph.md`
+Phase 2 to call `task-store.sh create` once per task, and its Status key
+section for every later `task-store.sh update-status` call.
 
 Then update the plan file (in the worktree) to include the task IDs:
 ```bash

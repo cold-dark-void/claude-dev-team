@@ -150,3 +150,83 @@ Task metadata writes via `skills/orchestrate/task-store.sh` are **distinct from*
 - **Branch already exists**: check if it has unmerged work; ask user before resetting
 - **All agents stuck**: don't panic — present the full state to user and ask for direction
 - **User goes AFK mid-flow**: pause gracefully; state is in tasks + plan file; resumable
+
+---
+
+### Task-store status mirror
+
+On every TaskUpdate that changes a task's status, the orchestrator MUST
+also call:
+
+```bash template
+# Re-resolve PDH (each bash fence is a fresh shell)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+TASK_STORE=$(bash "$PDH/skills/plugin-dir.sh" file skills/orchestrate/task-store.sh)
+bash "$TASK_STORE" update-status <ISSUE-ID>-<task_id> <new_status>
+```
+
+Use the same compound key as the `create` call (e.g. `CDV-QF-FILTER-1`). **MUST** pass the compound key — bare TaskCreate integers are non-native (CDT-167: unique compound is redirected, multi-match fails closed; historical bare stubs are handled by shadow-safe TaskCompleted, not invent). This mirrors the new status into `$MROOT/.claude/tasks/<ISSUE-ID>-<task_id>.json`, preserving all other fields. Applies to every transition — agent claiming (pending → in_progress), completion (→ completed), and blocking (→ blocked). The task store file is the persistent record consulted by the TaskCompleted council gate (SPEC-009, the task-store write/update/no-delete-after-completion MUSTs); it MUST never be deleted after task completion. If `task-store.sh` exits non-zero, surface the failure to the user.
+
+---
+
+### Stint-end outcome emit (SPEC-026 M4) — named reusable block
+
+Call when a **(task, agent) stint ends**. Never on Step-9 APPROVE alone (OQ4).
+Fail-open — never block orchestration (M9). MVP outcomes: `accepted` | `escalated`
+only (`rejected` reserved, never written this version).
+
+**Session-local counters** (orchestrator tracks per compound `task_id`; same
+bookkeeping SPEC-009 already requires for deadloop):
+- `review_cycles` — increment on each Step-9 REQUEST CHANGES for that task
+- `qa_bounces` — increment on each Step-10 QA FAIL routed back to the IC for that task
+Initialize both to `0` when a stint starts (agent spawn / hand-off receive).
+
+```bash
+# Stint-end emit — set STINT_* then run. Re-resolve PDH (fresh shell).
+# STINT_TICKET STINT_TASK_ID STINT_AGENT STINT_CLASS STINT_SIZE
+# STINT_OUTCOME STINT_REVIEW_CYCLES STINT_QA_BOUNCES
+# Optional fields: literal "null" when unknown. STINT_AGENT + STINT_OUTCOME required.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+EMIT=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/emit-outcome.sh)
+MIN_CONF=$(python3 -c '
+import json,sys
+try:
+  data=json.load(open(sys.argv[1]))
+  print(data.get("council",{}).get("taskgate",{}).get("min_confidence",80))
+except Exception:
+  print(80)
+' "$MROOT/.claude/settings.json" 2>/dev/null || echo 80)
+# council_overturns: index rows for task_id where max_verdict_confidence is null
+# OR < min (OQ2). Missing index / jq / null task_id → null arg.
+COUNCIL_OVERTURNS=null
+if command -v jq >/dev/null 2>&1 && [ -f "$MROOT/.claude/council/index.json" ] \
+   && [ -n "${STINT_TASK_ID:-}" ] && [ "$STINT_TASK_ID" != "null" ]; then
+  COUNCIL_OVERTURNS=$(jq -r --arg tid "$STINT_TASK_ID" --argjson min "$MIN_CONF" '
+    (.[$tid] // [])
+    | map(select(
+        (.max_verdict_confidence == null)
+        or ((.max_verdict_confidence | type == "number")
+            and .max_verdict_confidence < $min)
+      ))
+    | length
+  ' "$MROOT/.claude/council/index.json" 2>/dev/null || echo null)
+fi
+bash "$EMIT" \
+  "${STINT_TICKET:-null}" "${STINT_TASK_ID:-null}" "${STINT_AGENT}" \
+  "${STINT_CLASS:-null}" "${STINT_SIZE:-null}" "${STINT_OUTCOME}" \
+  "${STINT_REVIEW_CYCLES:-null}" "${STINT_QA_BOUNCES:-null}" \
+  "${COUNCIL_OVERTURNS:-null}" 2>/dev/null || true
+```
+
+**Call sites** (prose only — do not rewrite review/QA loop bodies):
+1. **Escalated** (`STINT_OUTCOME=escalated`): Step-8 stuck-after-2 hand-off; Step-9
+   3+-round deadloop escalate. Emit for the agent whose stint ends; counters as of
+   hand-off.
+2. **Accepted** (`STINT_OUTCOME=accepted`): **after** Step-10 finalizes `qa_bounces`
+   for that task (QA PASS, or QA N/A with counter frozen). MUST NOT emit on Step-9
+   APPROVE alone.

@@ -82,7 +82,7 @@ effective decision is card #1's.
 
 Act on the **post-council effective decision**:
 - `pr` → take Option 1 (Create PR) above exactly as the user's choice would; emit `task_complete`
-  (detail = `shipped (PR): <PR URL>`) via **Passive notifications → Tier B** (fail-open; § below),
+  (detail = `shipped (PR): <PR URL>`) via **Passive notifications → Tier B** (fail-open; § in `cross-cutting.md`),
   then STOP — no `/release` (Tracking close-out below runs in its existing pre-delivery order).
   [PR-stop]
 - `merge` → **CDT-141-C4:** if `RELEASE_END_BLOCKED=true`, do **not** run end-state;
@@ -103,7 +103,7 @@ Act on the **post-council effective decision**:
   and §6 closeout. Does **not** route through the interactive "If squash merge
   requested" block below (`autopilot_bump != null` is engine-guaranteed).
   On land success **and** end-state §5.5 clean (§6 closeout done), emit
-  `task_complete` via **Passive notifications → Tier B** (fail-open; § below):
+  `task_complete` via **Passive notifications → Tier B** (fail-open; § in `cross-cutting.md`):
   - release path: detail = `released <bump>/<tag>`
   - land-no-release: detail = `landed master (no release)`
   On dirty ship-history (H8): halt with exact `history dirty — rewrite needed`;
@@ -111,7 +111,7 @@ Act on the **post-council effective decision**:
   ship success.
 - `halt` / `reroute-epic` → print the one-line message below and return control; on `halt`
   **only**, first emit `task_blocked` (detail = the one-line message below) via **Passive
-  notifications → Tier B** (fail-open; § below) — `reroute-epic` does NOT notify-blocked;
+  notifications → Tier B** (fail-open; § in `cross-cutting.md`) — `reroute-epic` does NOT notify-blocked;
   `reroute-epic` additionally hands off to `/epic` decompose:
   The `/epic` decompose invocation MUST carry the autopilot state forward — pass
   `--autopilot[=<bump>]` (or `AUTOPILOT=1`). When `<bump>` ∈ {patch,minor,major},
@@ -158,10 +158,10 @@ is `master` (or force land-no-release when token is a release bump).
 **Confirmed sequence (one orchestrated path — replace ad-hoc land then
 `/wrap-ticket`):**
 
-0. **CDT-141-C4:** run `assert-release-allowed <ISSUE-ID>` first. On exit 64
-   (release=end mid-flight): print the message, **stop** — no squash, no
-   `/release`, no land-no-release, baseline unchanged. (Seal is C5; resume-ship
-   is not a seal. Mid-epic land-no-release forbidden too.)
+0. **CDT-141-C4:** run `assert-release-allowed <ISSUE-ID>` first. On any
+   non-zero exit (64 = release=end mid-flight): print the message, **stop** —
+   no squash, no `/release`, no land-no-release, baseline unchanged. (Seal is
+   C5; resume-ship is not a seal. Mid-epic land-no-release forbidden too.)
 1. Print plan summary: branch, worktree, proposed token, land path name
    (`release <bump>` vs `land-no-release`), last ship-choice card path
    (`$MROOT/.claude/autopilot/<ISSUE-ID>.jsonl` if present).
@@ -181,7 +181,8 @@ is `master` (or force land-no-release when token is a release bump).
      - `master`: **MUST NOT** run `/release`; if commit already pushed, skip
        to wrap; if staged-only leftover, halt for human.
    - Then `/wrap-ticket <ISSUE-ID>` (idempotent close-out + worktree release).
-5. Emit `task_complete` via Passive notifications Tier B (fail-open):
+5. Emit `task_complete` via **Passive notifications → Tier B** (fail-open;
+   § in `cross-cutting.md`):
    - release: detail = `resume-ship released <bump>`
    - land-no-release: detail = `resume-ship landed master (no release)`
 6. Append one decision card to the ticket ledger if append-card is available:
@@ -309,7 +310,7 @@ PR, comment with PR URL. Covered by Tracking close-out PR-stop branch.
 ### If squash merge requested (no PR):
 
 **CDT-141-C4:** if `RELEASE_END_BLOCKED=true` (or `assert-release-allowed
-<ISSUE-ID>` exits 64), **halt** — do not squash onto master; print the
+<ISSUE-ID>` exits non-zero), **halt** — do not squash onto master; print the
 release=end message; master unchanged. Prefer PR-stop or leave work on the
 integration branch until epic seal (C5).
 
@@ -343,6 +344,8 @@ bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || exit 64
 # Glossary: feature branch CONTEXT.md commits land with the squash — never
 # strip them; never rely on uncommitted main-checkout CONTEXT.md instead.
 cd <main-repo-path>
+SHIP_START=$(git rev-parse HEAD)
+echo "SHIP_START=$SHIP_START"   # record for the ship-history gate below (SPEC-010 H6)
 git merge --squash <branch>
 git commit -m "<ISSUE-ID>: <title>
 
@@ -365,19 +368,20 @@ end-state after release **or** land-no-release, resume-ship after either land)
 **before** Linear **Done**, local backlog terminal close that implies ship
 success, or Step 12 `Orchestration complete`:
 
-1. Ensure `SHIP_START` / `SHIP_START_SHA` is known (end-state §3.5 /
-   `/release` Step 0.5; for interactive squash-only or land-no-release without
-   `/release`, record `SHIP_START=$(git rev-parse HEAD)` on the main-repo path
-   **before** the squash commit).
+1. The squash fence above prints `SHIP_START=<sha>`; substitute that value
+   (or `SHIP_START_SHA` from end-state / `/release`) for `<SHIP_START>`
+   below.
 2. Run the install-aware checker (cite SPEC-010 H — **do not** restate D1–D4):
 
-```bash
+```bash template
 # Fresh shell — re-resolve PDH (SPEC-021 C1)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 CHECK_SHIP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-ship-history.sh)
-SHIP_START="${SHIP_START:-${SHIP_START_SHA:-}}"
-[ -n "$SHIP_START" ] || { echo "orchestrate: SHIP_START unset for master-land gate" >&2; exit 64; }
+SHIP_START="<SHIP_START>"
+case "$SHIP_START" in
+  ""|"<"*) echo "orchestrate: SHIP_START not substituted for master-land gate" >&2; exit 64 ;;
+esac
 bash "$CHECK_SHIP" --since "$SHIP_START"
 ```
 

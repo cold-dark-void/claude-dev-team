@@ -11,7 +11,12 @@
 #     skills/init-orchestration/SKILL.md (same marker as check-hook-templates)
 #     CDT-163 B6/B7/B9/B10: isolate preferred + unique-suffix; no multi-key max-merge
 #     CDT-186 B11/B12: multi-true compounds → lex-min preferred basename
-
+# (C) task identity fields -- --plan-ordinal / --taskcreate-id on `create`,
+#     null defaults, upsert-preserves-when-omitted, bad-flag exit 2 no write (SPEC-017 AC A)
+# (D) dag-lib.sh ready-set integration -- a Step-7-shaped store (compound keys,
+#     translated depends_on) keeps a dependent out of the unscoped ready set
+#     until every dep is completed (SPEC-017 AC B)
+# (E) `create` stderr -- exactly one line, created|upserted (SPEC-017 AC C)
 set -u
 
 PASS=0
@@ -68,15 +73,27 @@ command -v python3 >/dev/null 2>&1 || die "python3 required"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+
+# C7 hygiene: shared hermetic-suite helper (SPEC-030 R20) isolates HOME/TMPDIR
+# and git author identity; add git-config isolation on top so fixture repos
+# never read host/global git config.
+source "$ROOT/tests/lib/hermetic.sh"
+hermetic_init
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE 2>/dev/null || true
 STORE="$SCRIPT_DIR/task-store.sh"
 SKILL="$ROOT/skills/init-orchestration/SKILL.md"
 [ -f "$STORE" ] || die "task-store.sh not found at $STORE"
 [ -f "$SKILL" ] || die "SKILL.md not found at $SKILL"
 [ -x "$STORE" ] || chmod +x "$STORE"
+DAG_LIB="$SCRIPT_DIR/dag-lib.sh"
+[ -f "$DAG_LIB" ] || die "dag-lib.sh not found at $DAG_LIB"
 
 BASE=$(mktemp -d "${TMPDIR:-/tmp}/task-store-test.XXXXXX") || die "mktemp failed"
 BASE=$(realpath "$BASE")
-cleanup() { rm -rf "$BASE"; }
+cleanup() { rm -rf "$BASE"; hermetic_cleanup; }
 trap cleanup EXIT
 
 # ---- Shared: fresh temp git repo as MROOT -----------------------------------
@@ -351,6 +368,236 @@ jq -n '{
 }' > "$REPO/.claude/council/index.json"
 run_hook "$REPO" "7"
 assert_eq "B12 CDT-186 only non-preferred ZZZ@95 → exit 2 (isolate AAA)" "$RC" "2"
+
+
+# =============================================================================
+echo "== (C) task identity fields (SPEC-017 AC A) =="
+
+# --- C1: new file, 3-arg create -> both keys present, type null ---
+REPO=$(new_repo c1)
+set +e
+( cd "$REPO" && bash "$STORE" create T-1 "subj" true ) >/dev/null 2>"$BASE/c1.err"
+RC=$?
+set -e
+assert_eq "C1 create rc" "$RC" "0"
+f="$REPO/.claude/tasks/T-1.json"
+assert_file_present "C1 file created" "$f"
+got_has_po=$(jq -r 'has("plan_ordinal")' "$f")
+got_has_tc=$(jq -r 'has("taskcreate_id")' "$f")
+got_po_type=$(jq -r '.plan_ordinal | type' "$f")
+got_tc_type=$(jq -r '.taskcreate_id | type' "$f")
+assert_eq "C1 has plan_ordinal key" "$got_has_po" "true"
+assert_eq "C1 has taskcreate_id key" "$got_has_tc" "true"
+assert_eq "C1 plan_ordinal type null" "$got_po_type" "null"
+assert_eq "C1 taskcreate_id type null" "$got_tc_type" "null"
+
+# --- C2: 4-arg create (deps set) + both flags -> plan_ordinal number 3, taskcreate_id "43" ---
+REPO=$(new_repo c2)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj" true "" --plan-ordinal 3 --taskcreate-id 43 ) \
+  >/dev/null 2>"$BASE/c2.err"
+RC=$?
+set -e
+assert_eq "C2 create rc" "$RC" "0"
+f="$REPO/.claude/tasks/T-43.json"
+assert_file_present "C2 file created" "$f"
+if [ -f "$f" ]; then
+  got_po_type=$(jq -r '.plan_ordinal | type' "$f")
+  got_tc_type=$(jq -r '.taskcreate_id | type' "$f")
+  got_po=$(jq -r '.plan_ordinal' "$f")
+  got_tc=$(jq -r '.taskcreate_id' "$f")
+else
+  got_po_type="(no file)"; got_tc_type="(no file)"; got_po="(no file)"; got_tc="(no file)"
+fi
+assert_eq "C2 plan_ordinal type number" "$got_po_type" "number"
+assert_eq "C2 taskcreate_id type string" "$got_tc_type" "string"
+assert_eq "C2 plan_ordinal value 3" "$got_po" "3"
+assert_eq "C2 taskcreate_id value 43" "$got_tc" "43"
+
+# --- C3: plain old 4-arg call (deps set, no flags) still works; keys present+null ---
+REPO=$(new_repo c3)
+set +e
+( cd "$REPO" && bash "$STORE" create T-1 "subj" true "T-0" ) >/dev/null 2>"$BASE/c3.err"
+RC=$?
+set -e
+assert_eq "C3 old 4-arg create rc" "$RC" "0"
+f="$REPO/.claude/tasks/T-1.json"
+got_deps=$(jq -c '.depends_on' "$f")
+got_po_type=$(jq -r '.plan_ordinal | type' "$f")
+got_tc_type=$(jq -r '.taskcreate_id | type' "$f")
+assert_eq "C3 deps preserved" "$got_deps" '["T-0"]'
+assert_eq "C3 plan_ordinal type null" "$got_po_type" "null"
+assert_eq "C3 taskcreate_id type null" "$got_tc_type" "null"
+
+# --- C4: upsert without flags keeps previously-set plan_ordinal/taskcreate_id ---
+REPO=$(new_repo c4)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj" true "" --plan-ordinal 3 --taskcreate-id 43 ) \
+  >/dev/null 2>"$BASE/c4a.err"
+( cd "$REPO" && bash "$STORE" create T-43 "subj2" false "" ) >/dev/null 2>"$BASE/c4b.err"
+RC=$?
+set -e
+assert_eq "C4 upsert-no-flags rc" "$RC" "0"
+f="$REPO/.claude/tasks/T-43.json"
+got_po=$(jq -r '.plan_ordinal' "$f")
+got_tc=$(jq -r '.taskcreate_id' "$f")
+got_subj=$(jq -r '.subject' "$f")
+assert_eq "C4 plan_ordinal kept" "$got_po" "3"
+assert_eq "C4 taskcreate_id kept" "$got_tc" "43"
+assert_eq "C4 subject updated by upsert" "$got_subj" "subj2"
+
+# --- C5: bad --plan-ordinal '0' on existing T-43 -> exit 2, no write ---
+REPO=$(new_repo c5)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj" true "" --plan-ordinal 3 --taskcreate-id 43 ) \
+  >/dev/null 2>"$BASE/c5setup.err"
+set -e
+f="$REPO/.claude/tasks/T-43.json"
+before=$(cat "$f" 2>/dev/null || true)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj3" true "" --plan-ordinal 0 ) >/dev/null 2>"$BASE/c5.err"
+RC=$?
+set -e
+assert_eq "C5 bad plan-ordinal 0 exit 2" "$RC" "2"
+after=$(cat "$f" 2>/dev/null || true)
+assert_eq "C5 file unchanged" "$before" "$after"
+assert_file_absent "C5 no tmp left" "$f.tmp"
+
+# --- C6: bad --plan-ordinal 'x' on existing T-43 -> exit 2, no write ---
+REPO=$(new_repo c6)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj" true "" --plan-ordinal 3 --taskcreate-id 43 ) \
+  >/dev/null 2>"$BASE/c6setup.err"
+set -e
+f="$REPO/.claude/tasks/T-43.json"
+before=$(cat "$f" 2>/dev/null || true)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj3" true "" --plan-ordinal x ) >/dev/null 2>"$BASE/c6.err"
+RC=$?
+set -e
+assert_eq "C6 bad plan-ordinal x exit 2" "$RC" "2"
+after=$(cat "$f" 2>/dev/null || true)
+assert_eq "C6 file unchanged" "$before" "$after"
+assert_file_absent "C6 no tmp left" "$f.tmp"
+
+# --- C7: bad --taskcreate-id 'a.b' (dotted) on existing T-43 -> exit 2, no write ---
+REPO=$(new_repo c7)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj" true "" --plan-ordinal 3 --taskcreate-id 43 ) \
+  >/dev/null 2>"$BASE/c7setup.err"
+set -e
+f="$REPO/.claude/tasks/T-43.json"
+before=$(cat "$f" 2>/dev/null || true)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj3" true "" --taskcreate-id "a.b" ) >/dev/null 2>"$BASE/c7.err"
+RC=$?
+set -e
+assert_eq "C7 bad taskcreate-id dotted exit 2" "$RC" "2"
+after=$(cat "$f" 2>/dev/null || true)
+assert_eq "C7 file unchanged" "$before" "$after"
+assert_file_absent "C7 no tmp left" "$f.tmp"
+
+# --- C8: --taskcreate-id '44' is not the suffix of T-43 -> exit 2, no write ---
+REPO=$(new_repo c8)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj" true "" --plan-ordinal 3 --taskcreate-id 43 ) \
+  >/dev/null 2>"$BASE/c8setup.err"
+set -e
+f="$REPO/.claude/tasks/T-43.json"
+before=$(cat "$f" 2>/dev/null || true)
+set +e
+( cd "$REPO" && bash "$STORE" create T-43 "subj3" true "" --taskcreate-id 44 ) >/dev/null 2>"$BASE/c8.err"
+RC=$?
+set -e
+assert_eq "C8 bad taskcreate-id non-suffix exit 2" "$RC" "2"
+after=$(cat "$f" 2>/dev/null || true)
+assert_eq "C8 file unchanged" "$before" "$after"
+assert_file_absent "C8 no tmp left" "$f.tmp"
+
+# --- C9: bad flag on a FRESH id -> exit 2, no file at all ---
+REPO=$(new_repo c9)
+set +e
+( cd "$REPO" && bash "$STORE" create T-99 "subj" true "" --plan-ordinal 0 ) >/dev/null 2>"$BASE/c9.err"
+RC=$?
+set -e
+assert_eq "C9 bad flag fresh id exit 2" "$RC" "2"
+assert_file_absent "C9 fresh id file absent" "$REPO/.claude/tasks/T-99.json"
+assert_file_absent "C9 fresh id tmp absent" "$REPO/.claude/tasks/T-99.json.tmp"
+
+# =============================================================================
+echo "== (D) dag-lib.sh ready-set integration (SPEC-017 AC B) =="
+
+# --- D1: Step-7-shaped store; T-43 out of ready-set until both deps completed ---
+REPO=$(new_repo d1)
+set +e
+( cd "$REPO" && bash "$STORE" create T-41 "task one" false ) >/dev/null 2>"$BASE/d1-41.err"
+( cd "$REPO" && bash "$STORE" create T-42 "task two" false ) >/dev/null 2>"$BASE/d1-42.err"
+( cd "$REPO" && bash "$STORE" create T-43 "task three" true "T-41:T-42" \
+    --plan-ordinal 3 --taskcreate-id 43 ) >/dev/null 2>"$BASE/d1-43.err"
+set -e
+assert_file_present "D1 T-43 file exists (guards against old-code usage reject)" \
+  "$REPO/.claude/tasks/T-43.json"
+
+set +e
+READY=$( cd "$REPO" && bash "$DAG_LIB" ready-set 2>"$BASE/d1-ready1.err" | sort )
+RC=$?
+set -e
+assert_eq "D1 ready-set (no deps done) rc" "$RC" "0"
+assert_contains "D1 T-41 ready" "$READY" "T-41"
+assert_contains "D1 T-42 ready" "$READY" "T-42"
+if printf '%s\n' "$READY" | grep -qx "T-43"; then
+  FAIL=$((FAIL + 1)); echo "  FAIL D1 T-43 must not be ready yet: [$READY]"
+else
+  PASS=$((PASS + 1)); echo "  ok  D1 T-43 not ready yet"
+fi
+
+set +e
+( cd "$REPO" && bash "$STORE" update-status T-41 completed ) >/dev/null 2>"$BASE/d1-u41.err"
+set -e
+set +e
+READY=$( cd "$REPO" && bash "$DAG_LIB" ready-set 2>"$BASE/d1-ready2.err" | sort )
+RC=$?
+set -e
+if printf '%s\n' "$READY" | grep -qx "T-43"; then
+  FAIL=$((FAIL + 1)); echo "  FAIL D1 T-43 must still not be ready (T-42 incomplete): [$READY]"
+else
+  PASS=$((PASS + 1)); echo "  ok  D1 T-43 still not ready (T-42 incomplete)"
+fi
+
+set +e
+( cd "$REPO" && bash "$STORE" update-status T-42 completed ) >/dev/null 2>"$BASE/d1-u42.err"
+set -e
+set +e
+READY=$( cd "$REPO" && bash "$DAG_LIB" ready-set 2>"$BASE/d1-ready3.err" | sort )
+RC=$?
+set -e
+assert_contains "D1 T-43 ready once both deps completed" "$READY" "T-43"
+
+# =============================================================================
+echo "== (E) create stderr — exactly one line (SPEC-017 AC C) =="
+
+# --- E1: new file -> exactly one stderr line, "created: <path>" ---
+REPO=$(new_repo e1)
+set +e
+( cd "$REPO" && bash "$STORE" create T-1 "subj" true ) >/dev/null 2>"$BASE/e1.err"
+RC=$?
+set -e
+assert_eq "E1 create rc" "$RC" "0"
+e1_lines=$(wc -l < "$BASE/e1.err" | tr -d ' ')
+assert_eq "E1 stderr exactly one line" "$e1_lines" "1"
+assert_contains "E1 line says created" "$(cat "$BASE/e1.err")" "created: $REPO/.claude/tasks/T-1.json"
+
+# --- E2: upsert (create again on same id) -> exactly one stderr line, "upserted: ..." ---
+REPO=$(new_repo e2)
+set +e
+( cd "$REPO" && bash "$STORE" create T-1 "subj" true ) >/dev/null 2>"$BASE/e2a.err"
+( cd "$REPO" && bash "$STORE" create T-1 "subj2" false ) >/dev/null 2>"$BASE/e2b.err"
+RC=$?
+set -e
+assert_eq "E2 upsert rc" "$RC" "0"
+e2_lines=$(wc -l < "$BASE/e2b.err" | tr -d ' ')
+assert_eq "E2 upsert stderr exactly one line" "$e2_lines" "1"
+assert_contains "E2 line says upserted" "$(cat "$BASE/e2b.err")" "upserted: $REPO/.claude/tasks/T-1.json"
 
 # =============================================================================
 echo ""
