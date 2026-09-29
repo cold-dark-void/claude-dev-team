@@ -15,10 +15,20 @@ Read-only listing moved to [`/status worktree`](./status.md). This command is
 
 | Args | Action |
 |------|--------|
-| `release <slug>` | Confirm in chat, then remove lock + worktree if clean |
+| `release <slug>` | Show a preview, ask for confirmation, then remove the worktree. Release never force-removes. It deletes `feat/<slug>` only when it is merged, and keeps an unmerged branch with a warning. |
 | `status` / `list` / _(none)_ / unknown | Print usage (point to `/status worktree`) and stop |
 
 Slug rules: `[A-Za-z0-9_-]+` only. Reject empty or invalid slugs before release.
+
+## Before it asks
+
+`release <slug>` runs `worktree-lib.sh release --preview <slug>` first. The
+preview shows the counts: how many commits the branch has ahead of its base
+and ahead of its upstream, and whether the branch is merged and pushed.
+
+- If the branch is not merged, `/worktree` requires the typed slug as
+  confirmation. A plain yes does not count.
+- If the branch is merged, a plain yes or no answer is enough.
 
 ## Listing (read-only)
 

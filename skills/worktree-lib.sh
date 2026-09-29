@@ -2,22 +2,38 @@
 # worktree-lib.sh — manage per-task git worktrees with advisory, age-gated locks.
 #
 # Subcommands:
-#   ensure <slug>     create-or-reuse worktree at $MROOT/.worktrees/<slug>
-#   release <slug>    remove lock + worktree if clean
-#   status | list     enumerate $MROOT/.worktrees/* (lock FRESH|STALE|NONE)
-#   register <slug>   stamp .wt-lock only (dir must already exist)
-#   sweep             propose STALE worktrees with no live task (never delete)
+#   ensure <slug>            create-or-reuse worktree at $MROOT/.worktrees/<slug>
+#   release [--preview] <slug>
+#                            remove lock + worktree if clean; delete feat/<slug>
+#                            only when git-safety.sh says it is merged (kept
+#                            otherwise, exit 0); --preview is read-only (WP 1-06)
+#   status | list            enumerate $MROOT/.worktrees/* (lock FRESH|STALE|NONE)
+#   register <slug>          stamp .wt-lock only (dir must already exist)
+#   sweep                    propose STALE worktrees with no live task (never delete)
 #
 # The real holder of a worktree is an LLM agent/conversation, not an OS process
 # with a checkable PID, so the lock is ADVISORY and keyed on AGE: a lock younger
 # than WT_LOCK_TTL_SECONDS is FRESH (prompt before reuse); older (or unparseable)
 # is STALE. ensure reclaims STALE only when the tree is clean (release porcelain)
 # and no live task references the slug; otherwise refuses with exit 1. sweep
-# proposes STALE worktrees with no live task (never deletes).
+# proposes STALE worktrees with no live task (never deletes). ensure also refuses
+# an existing $MROOT/.worktrees/<slug> directory that is not itself a git
+# worktree (no-lock path only; WP 1-06, SPEC-016).
+#
+# release never adds a force flag when it removes a worktree (WP 1-06):
+# a failed remove exits 1 and keeps the directory, the branch and its
+# config unchanged. It also never deletes a branch through git's own
+# delete subcommand: the only branch-delete path is
+# skills/lib/git-safety.sh safe-delete-branch, gated on resolve-base +
+# is-merged. An unmerged (or base-less) branch is kept, with a stderr
+# note, and release still exits 0 -- callers that do `release || exit 1`
+# are unaffected by a kept branch.
 #
 # Stdout discipline: ensure/register print ONLY the absolute worktree path on
-# success. status/list print listing rows. sweep prints PROPOSAL lines (or nothing).
-# All diagnostics go to stderr. ensure/register stdout is empty on any non-zero exit.
+# success. status/list print listing rows. sweep prints PROPOSAL lines (or
+# nothing). release --preview prints exactly eight `key: value` lines and
+# changes nothing (SPEC-016 section release). All other diagnostics go to
+# stderr. ensure/register stdout is empty on any non-zero exit.
 
 set -euo pipefail
 
@@ -26,6 +42,11 @@ set -euo pipefail
 # Env-overridable; falls back to 6h on a non-numeric value.
 WT_LOCK_TTL_SECONDS="${WT_LOCK_TTL_SECONDS:-21600}"
 [[ "$WT_LOCK_TTL_SECONDS" =~ ^[0-9]+$ ]] || WT_LOCK_TTL_SECONDS=21600
+
+# Shared base-resolution / merge-check primitive (SPEC-025 M17). Subprocess
+# only -- never sourced. release and release --preview are its only
+# consumers here (C3).
+GIT_SAFETY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/git-safety.sh"
 
 resolve_mroot() {
   local _gc
@@ -187,6 +208,21 @@ is_worktree_dirty() {
   [ -n "$dirty" ]
 }
 
+# is_git_worktree <wt>
+# exit 0 if <wt> is itself a git worktree (its own toplevel resolves to <wt>,
+# not to some ancestor such as $MROOT). Used only by ensure's no-lock +
+# existing-directory branch (WP 1-06, SPEC-016): the exit code of a bare
+# `git -C <wt> rev-parse ...` is not enough for a plain directory under
+# $MROOT/.worktrees/, because git walks up and finds $MROOT.
+is_git_worktree() {
+  local wt="$1" top top_real wt_real
+  [ -e "$wt/.git" ] || return 1
+  top=$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null) || return 1
+  top_real=$(cd "$top" 2>/dev/null && pwd -P) || return 1
+  wt_real=$(cd "$wt" 2>/dev/null && pwd -P) || return 1
+  [ "$top_real" = "$wt_real" ]
+}
+
 # validate_slug <cmd> <slug>
 validate_slug() {
   local cmd="$1" slug="$2"
@@ -270,8 +306,15 @@ cmd_ensure() {
     write_lock_and_exit "$wt" "$lock"
   fi
 
-  # No lock. If worktree dir exists, just create the lock.
+  # No lock. If the worktree dir exists, it must be a real git worktree
+  # before ensure stamps a lock on it (WP 1-06, SPEC-016). A bare
+  # `git -C <wt> rev-parse` exit code is not enough here: for a plain
+  # directory under $MROOT/.worktrees/, git walks up and finds $MROOT.
   if [ -d "$wt" ]; then
+    if ! is_git_worktree "$wt"; then
+      echo "ensure: $wt exists but is not a git worktree" >&2
+      exit 1
+    fi
     write_lock_and_exit "$wt" "$lock"
   fi
 
@@ -297,12 +340,116 @@ cmd_ensure() {
   write_lock_and_exit "$wt" "$lock"
 }
 
+# count_or_q <rev-list args...>
+# git rev-list --count with the given args, each a separate positional
+# argument (a caller-built "A..B" range is one such argument). Prints "?"
+# on any git error or a non-numeric result (release --preview count
+# fields; SPEC-016 section release says a failed count prints "?").
+count_or_q() {
+  local out rc=0
+  out=$(git -C "$MROOT" rev-list --count "$@" 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ] || ! [[ "$out" =~ ^[0-9]+$ ]]; then
+    printf '?'
+  else
+    printf '%s' "$out"
+  fi
+}
+
+# cmd_release_preview <branch>
+# Read-only eight-line report for `release --preview` (SPEC-016 section
+# release, WP 1-06). Never removes the lock, the worktree, the branch or
+# the config section, and does not need the worktree directory to exist.
+cmd_release_preview() {
+  local branch="$1"
+  local branch_disp base ahead_base upstream ahead_up merged pushed confirm
+
+  local base_val="" base_rc=0
+  base_val=$(bash "$GIT_SAFETY" -C "$MROOT" resolve-base 2>/dev/null) || base_rc=$?
+  if [ "$base_rc" -eq 0 ] && [ -n "$base_val" ]; then
+    base="$base_val"
+  else
+    base="none"
+  fi
+
+  if ! git -C "$MROOT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1; then
+    # Branch absent: counts are 0, merged/pushed are no, confirm is yesno.
+    # base still reports whatever resolve-base found (independent of the
+    # feat/<slug> branch's existence).
+    branch_disp="none"
+    ahead_base=0
+    upstream="none"
+    ahead_up=0
+    merged="no"
+    pushed="no"
+    confirm="yesno"
+  else
+    branch_disp="$branch"
+
+    if [ "$base" != "none" ]; then
+      ahead_base=$(count_or_q "$base..$branch")
+    else
+      ahead_base=$(count_or_q "$branch")
+    fi
+
+    local up_rc=0
+    upstream=$(git -C "$MROOT" rev-parse --abbrev-ref "${branch}@{upstream}" 2>/dev/null) || up_rc=$?
+    if [ "$up_rc" -ne 0 ] || [ -z "$upstream" ]; then
+      upstream="none"
+      ahead_up=$(count_or_q "$branch" --not --remotes)
+    else
+      ahead_up=$(count_or_q "${branch}@{upstream}..${branch}")
+    fi
+
+    merged="no"
+    if [ "$base" != "none" ] \
+       && bash "$GIT_SAFETY" -C "$MROOT" is-merged "refs/heads/$branch" "$base" >/dev/null 2>&1; then
+      merged="yes"
+    fi
+
+    pushed="no"
+    if bash "$GIT_SAFETY" -C "$MROOT" is-pushed "$branch" >/dev/null 2>&1; then
+      pushed="yes"
+    fi
+
+    confirm="yesno"
+    [ "$merged" = "no" ] && confirm="slug"
+  fi
+
+  printf 'branch: %s\n' "$branch_disp"
+  printf 'base: %s\n' "$base"
+  printf 'ahead_of_base: %s\n' "$ahead_base"
+  printf 'upstream: %s\n' "$upstream"
+  printf 'ahead_of_upstream: %s\n' "$ahead_up"
+  printf 'merged: %s\n' "$merged"
+  printf 'pushed: %s\n' "$pushed"
+  printf 'confirm: %s\n' "$confirm"
+}
+
 cmd_release() {
+  local preview=0
+  if [ "${1:-}" = "--preview" ]; then
+    preview=1
+    shift
+  fi
   local slug="${1:-}"
   validate_slug "release" "$slug"
+  shift || true
+  if [ "$#" -gt 0 ]; then
+    # WP 1-06 review L1: a flag after the slug (e.g. `release <slug>
+    # --preview`) must not silently fall through to a real, destructive
+    # release. Reject any extra argument.
+    echo "release: unexpected argument: $1" >&2
+    exit 64
+  fi
 
   resolve_mroot
   local wt="$MROOT/.worktrees/$slug"
+  local branch="feat/$slug"
+
+  if [ "$preview" -eq 1 ]; then
+    cmd_release_preview "$branch"
+    exit 0
+  fi
 
   if [ ! -d "$wt" ]; then
     echo "release: worktree not found: $wt" >&2
@@ -316,27 +463,57 @@ cmd_release() {
 
   rm -f "$wt/.wt-lock"
 
-  # Worktree remove + branch delete + config cleanup. Each git op is
-  # retried on EBUSY (WSL2 race); they run as separate calls so the
-  # second op doesn't fire while the first is still releasing
-  # .git/config.
-  local branch="feat/$slug"
-  git_retry 3 200 -C "$MROOT" worktree remove "$wt" || \
-    git_retry 3 200 -C "$MROOT" worktree remove --force "$wt"
+  # Worktree remove -- no fallback that adds a force flag (WP 1-06,
+  # CDT-298). Re-running the dirty check above does not make a forced
+  # remove safe: a file can change between the check and this call, or
+  # the tree can be locked. On failure the directory, the branch and its
+  # config section all stay.
+  if ! git_retry 3 200 -C "$MROOT" worktree remove "$wt"; then
+    echo "release: git worktree remove failed for $wt — not forcing" >&2
+    exit 1
+  fi
 
   # Reap any leftover admin entries (handles partial-failure state).
   git_retry 3 200 -C "$MROOT" worktree prune || true
 
-  # Delete the feature branch if it exists. -D since squash-merge
-  # leaves the branch "not fully merged" by git's reachability check.
+  # Branch delete (WP 1-06): the only path is git-safety.sh
+  # safe-delete-branch, gated on the shared base resolver and is-merged.
+  # An unmerged branch (or one with no resolvable base) is kept, with a
+  # stderr note; release still exits 0 for a kept branch — callers that
+  # run `release || exit 1` are unaffected.
   if git -C "$MROOT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1; then
-    git_retry 3 200 -C "$MROOT" branch -D "$branch" || true
+    local base="" base_rc=0
+    base=$(bash "$GIT_SAFETY" -C "$MROOT" resolve-base 2>/dev/null) || base_rc=$?
+    if [ "$base_rc" -eq 0 ] && [ -n "$base" ]; then
+      # git-safety.sh safe-delete-branch swallows git's own stderr, so a
+      # WSL2 EBUSY-class .git/config race on its internal delete step is
+      # indistinguishable here from a genuine "not merged" refusal
+      # (review L2). Retry the call a bounded number of times before
+      # settling; a truly unmerged branch just re-fails cheaply each time.
+      local del_rc=0 attempt=0
+      while :; do
+        del_rc=0
+        bash "$GIT_SAFETY" -C "$MROOT" safe-delete-branch "$branch" "$base" || del_rc=$?
+        [ "$del_rc" -eq 0 ] && break
+        attempt=$((attempt + 1))
+        [ "$attempt" -ge 3 ] && break
+        sleep 0.2 2>/dev/null || sleep 1
+      done
+      if git -C "$MROOT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1; then
+        # Ref still present: safe-delete-branch genuinely refused (no
+        # base, or unmerged) even after retrying.
+        echo "release: kept $branch: not merged into $base" >&2
+      else
+        # Ref is gone even though the last attempt reported non-zero: a
+        # config-section rewrite inside that delete step can itself hit
+        # EBUSY after the ref delete already landed (review L2). Sweep
+        # the leftover section unconditionally, regardless of del_rc.
+        git_retry 3 200 -C "$MROOT" config --remove-section "branch.$branch" 2>/dev/null || true
+      fi
+    else
+      echo "release: kept $branch: no base" >&2
+    fi
   fi
-
-  # If branch -D's config-section rewrite was the op that hit EBUSY,
-  # the ref is gone but [branch "feat/X"] may linger in .git/config.
-  # Sweep it explicitly — this is a no-op if the section is absent.
-  git_retry 3 200 -C "$MROOT" config --remove-section "branch.$branch" 2>/dev/null || true
 
   exit 0
 }
@@ -469,7 +646,7 @@ main() {
     register) cmd_register "$@" ;;
     sweep)    cmd_sweep "$@" ;;
     *)
-      echo "usage: worktree-lib.sh {ensure|release|status|list|register|sweep} [slug]" >&2
+      echo "usage: worktree-lib.sh {ensure|release [--preview]|status|list|register|sweep} [slug]" >&2
       exit 64
       ;;
   esac

@@ -354,6 +354,74 @@ assert_eq "safe-reset --clean-at: refused -> HEAD unchanged" "$pre_call_sha" "$(
 l2" ] && pass "safe-reset --clean-at: refused -> content unchanged" || fail "safe-reset --clean-at: refused -> content unchanged" "changed"
 
 # ============================================================================
+# resolve-base (SPEC-025 M17 item 9, AC I)
+# ============================================================================
+
+d="$WORK/rb_none"; new_repo "$d"
+out=$(gs "$d" resolve-base); rc=$?
+assert_eq "resolve-base: no ref resolves -> rc1" "1" "$rc"
+assert_eq "resolve-base: no ref resolves -> empty stdout" "" "$out"
+
+gs "$WORK/rb_none" resolve-base extra-arg >/dev/null
+assert_eq "resolve-base: extra argument -> usage 64" "64" "$?"
+
+d="$WORK/rb_main_only"; mkdir -p "$d"
+( cd "$d" && git init -q && git symbolic-ref HEAD refs/heads/main ) >/dev/null 2>&1
+printf 'a\n' > "$d/a.txt"; commit_all "$d" "c1"
+out=$(gs "$d" resolve-base); rc=$?
+assert_eq "resolve-base: order step 5 (local main, no master) -> rc0" "0" "$rc"
+assert_eq "resolve-base: order step 5 (local main, no master) -> prints main" "main" "$out"
+
+d="$WORK/rb_master_only"; new_repo "$d"
+printf 'a\n' > "$d/a.txt"; commit_all "$d" "c1"
+( cd "$d" && git branch -q main ) >/dev/null 2>&1
+out=$(gs "$d" resolve-base); rc=$?
+assert_eq "resolve-base: order step 4 (local master beats local main) -> rc0" "0" "$rc"
+assert_eq "resolve-base: order step 4 (local master beats local main) -> prints master" "master" "$out"
+
+d="$WORK/rb_origin_main"; new_repo "$d"
+printf 'a\n' > "$d/a.txt"; commit_all "$d" "c1"
+rb_bare="$WORK/rb_origin_main.git"; ( git init -q --bare "$rb_bare" ) >/dev/null 2>&1
+( cd "$d" && git remote add origin "$rb_bare" && git push -q origin master:main ) >/dev/null 2>&1
+( cd "$d" && git fetch -q origin ) >/dev/null 2>&1
+( cd "$d" && git branch -m master zzz-local ) >/dev/null 2>&1
+out=$(gs "$d" resolve-base); rc=$?
+assert_eq "resolve-base: order step 3 (origin/main, no origin/master, no local master) -> rc0" "0" "$rc"
+assert_eq "resolve-base: order step 3 (origin/main, no origin/master, no local master) -> prints origin/main" "origin/main" "$out"
+
+d="$WORK/rb_origin_master_beats_main"; new_repo "$d"
+printf 'a\n' > "$d/a.txt"; commit_all "$d" "c1"
+rb_bare2="$WORK/rb_origin_master.git"; ( git init -q --bare "$rb_bare2" ) >/dev/null 2>&1
+( cd "$d" && git remote add origin "$rb_bare2" && git push -q origin master && git push -q origin master:main ) >/dev/null 2>&1
+( cd "$d" && git branch -m master zzz-local ) >/dev/null 2>&1
+out=$(gs "$d" resolve-base); rc=$?
+assert_eq "resolve-base: order step 2 (origin/master beats origin/main, no origin/HEAD, no local master) -> rc0" "0" "$rc"
+assert_eq "resolve-base: order step 2 (origin/master beats origin/main, no origin/HEAD, no local master) -> prints origin/master" "origin/master" "$out"
+
+d="$WORK/rb_origin_head"; new_repo "$d"
+printf 'a\n' > "$d/a.txt"; commit_all "$d" "c1"
+rb_bare3="$WORK/rb_origin_head.git"; ( git init -q --bare "$rb_bare3" ) >/dev/null 2>&1
+( cd "$d" && git remote add origin "$rb_bare3" && git push -q origin master && git remote set-head origin master ) >/dev/null 2>&1
+out=$(gs "$d" resolve-base); rc=$?
+assert_eq "resolve-base: order step 1 (origin/HEAD symbolic target wins over everything) -> rc0" "0" "$rc"
+assert_eq "resolve-base: order step 1 (origin/HEAD symbolic target wins over everything) -> prints full refname" "refs/remotes/origin/master" "$out"
+
+d="$WORK/rb_dangling_head"; new_repo "$d"
+printf 'a\n' > "$d/a.txt"; commit_all "$d" "c1"
+rb_bare4="$WORK/rb_dangling_head.git"; ( git init -q --bare "$rb_bare4" ) >/dev/null 2>&1
+( cd "$d" && git remote add origin "$rb_bare4" && git push -q origin master:main ) >/dev/null 2>&1
+( cd "$d" && git branch -m master zzz-local ) >/dev/null 2>&1
+# M1 repro (TL review): origin/HEAD -> origin/master (never pushed here;
+# only origin/main exists). The pre-fix code printed this dangling target
+# anyway (rc 0), leaving every downstream consumer unable to resolve it.
+( cd "$d" && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master ) >/dev/null 2>&1
+( cd "$d" && git rev-parse --verify --quiet refs/remotes/origin/master >/dev/null 2>&1 )
+assert_eq "resolve-base (M1 fixture setup): origin/master must not resolve" "1" "$?"
+out=$(gs "$d" resolve-base); rc=$?
+assert_eq "resolve-base: dangling origin/HEAD target falls through to origin/main (M1) -> rc0" "0" "$rc"
+assert_eq "resolve-base: dangling origin/HEAD target falls through to origin/main (M1) -> prints origin/main" "origin/main" "$out"
+
+# ============================================================================
 # premise (security council finding, Step 6c): `git merge --squash` refuses
 # to overwrite an untracked, non-ignored file at a path the incoming branch
 # adds. The end-state H/I untracked-safety design (T6) rests on this.
@@ -384,6 +452,29 @@ FIXTURE_GITCLEAN="$WORK/planted-gitclean.sh"
 printf '# a fixture line calling git clean -fd\n' > "$FIXTURE_GITCLEAN"
 neg_count=$(grep -c 'git clean' "$FIXTURE_GITCLEAN" || true)
 assert_eq "static negative control: planted 'git clean' detected" "1" "$neg_count"
+
+# ============================================================================
+# AC I: no copy of the base order list outside git-safety.sh
+# ============================================================================
+
+PRUNE_REMOTE="$HERE/../wrap-ticket/prune-remote.sh"
+WORKTREE_LIB="$HERE/../worktree-lib.sh"
+WRAP_SKILL="$HERE/../wrap-ticket/SKILL.md"
+
+for f in "$PRUNE_REMOTE" "$WORKTREE_LIB" "$WRAP_SKILL"; do
+  if [ -f "$f" ]; then
+    order_count=$(grep -c 'origin/master origin/main master main' "$f" || true)
+    assert_eq "AC I: no copy of the base order in $(basename "$f")" "0" "${order_count:-0}"
+  else
+    fail "AC I: no copy of the base order in $(basename "$f")" "file not found: $f"
+  fi
+done
+
+FIXTURE_BASEORDER="$WORK/planted-baseorder.sh"
+printf 'for ref in origin/master origin/main master main; do :; done\n' > "$FIXTURE_BASEORDER"
+neg_count=$(grep -c 'origin/master origin/main master main' "$FIXTURE_BASEORDER" || true)
+assert_eq "static negative control: planted base order detected" "1" "${neg_count:-0}"
+
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

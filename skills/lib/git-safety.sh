@@ -12,11 +12,12 @@
 #   safe-delete-branch <branch> <base>
 #   safe-reset --stage <base_sha> <staged_tree>
 #   safe-reset --clean-at <sha>
+#   resolve-base
 #
 # Exit codes: 0 holds/done; 1 fails/refused (no change); 2 git error;
-# 64 usage error (unknown sub, missing args, bad exclude path). Diagnostics
-# go to stderr only; stdout is empty except where a subcommand says
-# otherwise (none currently print to stdout).
+# 64 usage error (unknown sub, missing args, bad exclude path, extra args).
+# Diagnostics go to stderr only; stdout is empty except for `resolve-base`,
+# which prints the resolved base ref on a match.
 #
 # bash 3.2 portable: no mapfile, no declare -A, no ${var,,}, no local -n.
 # Path lists that can hold arbitrary bytes are NUL-separated and read with
@@ -300,6 +301,31 @@ cmd_safe_reset() {
   esac
 }
 
+# --- resolve-base ----------------------------------------------------------
+
+# Prints the first base ref that resolves, in order: the target of
+# refs/remotes/origin/HEAD, origin/master, origin/main, master, main. Never
+# fetches. Exit 0 with the ref on stdout, or exit 1 with empty stdout.
+cmd_resolve_base() {
+  [ "$#" -eq 0 ] || usage_error "resolve-base: no arguments expected"
+  local ref
+
+  ref=$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || ref=""
+  if [ -n "$ref" ] && git rev-parse --verify --quiet "${ref}^{commit}" >/dev/null 2>&1; then
+    printf '%s\n' "$ref"
+    return 0
+  fi
+
+  for ref in origin/master origin/main master main; do
+    if git rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+      printf '%s\n' "$ref"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # --- dispatch --------------------------------------------------------------
 
 main() {
@@ -321,6 +347,7 @@ main() {
     is-pushed) cmd_is_pushed "$@" ;;
     safe-delete-branch) cmd_safe_delete_branch "$@" ;;
     safe-reset) cmd_safe_reset "$@" ;;
+    resolve-base) cmd_resolve_base "$@" ;;
     *) usage_error "unknown subcommand: $sub" ;;
   esac
   exit $?

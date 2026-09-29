@@ -10,10 +10,19 @@
 #   prune-remote.sh prune <T> [--linear-id ID] [--child ID]... [--epic] [--dry-run] [--base REF]
 #
 # Exit: allowlisted 0/1; safe-to-delete 0 safe / 1 leftover; prune 0 (usage 64).
+#
+# Safety (WP 1-06, SPEC-016 wp-1-06-branch-deletion-safety AC C, D): each
+# candidate is fetched into refs/remotes/origin/<n> first and judged there
+# via skills/lib/git-safety.sh is-merged — never on refs/heads/<n> once
+# origin exists. Delete uses --force-with-lease on the exact fetched SHA;
+# an unqualified force flag is never used. resolve_base delegates to
+# git-safety.sh resolve-base (SPEC-025 M17 item 9) — this file holds no
+# copy of the base order.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EPIC_LIB="$HERE/../epic/epic-lib.sh"
+GIT_SAFETY="$HERE/../lib/git-safety.sh"
 
 USAGE='Usage: prune-remote.sh allowlisted <name>
        prune-remote.sh candidates <T> [--linear-id ID] [--child ID]... [--epic]
@@ -103,27 +112,18 @@ build_candidates() {
   done
 }
 
-# Resolve merge base: --base, origin/HEAD, origin/master, origin/main, master, main.
+# Resolve merge base: --base wins; else delegate to the one shared order
+# (SPEC-025 M17 item 9). No copy of the order list here (AC I).
 resolve_base() {
-  local ref
   if [ -n "${BASE-}" ]; then
     printf '%s\n' "$BASE"
     return 0
   fi
-  if ref=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null) && [ -n "$ref" ]; then
-    printf '%s\n' "$ref"
-    return 0
-  fi
-  for ref in origin/master origin/main master main; do
-    if git rev-parse --verify --quiet "$ref" >/dev/null; then
-      printf '%s\n' "$ref"
-      return 0
-    fi
-  done
-  return 1
+  bash "$GIT_SAFETY" resolve-base
 }
 
 # Resolve a constructed feat/ name to a local or origin tracking ref.
+# Local-only fallback: used when origin is absent (dry-run, safe-to-delete).
 resolve_branch_ref() {
   local name="$1"
   name="${name#origin/}"
@@ -138,30 +138,81 @@ resolve_branch_ref() {
   return 1
 }
 
-# SAFE iff ancestor of base OR git cherry has no '+' lines.
-# stdout: leftover reason when unsafe. exit 0 safe / 1 leftover.
-is_safe() {
-  local branch="$1" base="$2" br mb_rc cherry
-  if ! br=$(resolve_branch_ref "$branch"); then
-    printf 'missing\n'
-    return 1
+# One-line join for a (possibly multi-line) git stderr blob.
+join_err() {
+  printf '%s' "$1" | tr '\n' ' ' | sed 's/  */ /g; s/ $//'
+}
+
+# Classify a push's stderr as "already gone" — narrow on purpose (AC D3):
+# a repository-not-found or auth failure MUST NOT be treated as already
+# gone (fail-open would silently drop a real failure).
+is_already_gone() {
+  local err="$1"
+  printf '%s' "$err" | grep -qE 'remote ref does not exist|src refspec .+ does not match'
+}
+
+# Fetch (when origin exists) or locally resolve one candidate, then judge
+# safety against base via git-safety.sh is-merged. Never reads
+# refs/heads/<n> once origin exists (AC C1). Shared by cmd_prune and
+# cmd_safe_to_delete — no copy of this logic.
+#
+# Always returns 0; the result is reported through the globals below (bash
+# 3.2 has no associative arrays):
+#   CHK_STATE  safe | leftover | skip | failed
+#   CHK_REASON set on leftover and failed
+#   CHK_REF / CHK_SHA  set on safe (for the caller's lease delete)
+classify_candidate() {
+  local name="$1" base="$2" have_origin="$3"
+  local ref="" sha="" err="" rc=0 mrc=0
+  name="${name#origin/}"
+
+  CHK_STATE="failed"
+  CHK_REASON=""
+  CHK_REF=""
+  CHK_SHA=""
+
+  if [ "$have_origin" = "1" ]; then
+    rc=0
+    err=$(git fetch --no-tags --quiet origin "+refs/heads/${name}:refs/remotes/origin/${name}" 2>&1) || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      if printf '%s' "$err" | grep -qi "couldn't find remote ref"; then
+        CHK_STATE="skip"
+        return 0
+      fi
+      CHK_STATE="failed"
+      CHK_REASON=$(join_err "$err") || CHK_REASON="$err"
+      return 0
+    fi
+    ref="refs/remotes/origin/${name}"
+  else
+    if ! ref=$(resolve_branch_ref "$name"); then
+      CHK_STATE="skip"
+      return 0
+    fi
   fi
-  mb_rc=0
-  git merge-base --is-ancestor "$br" "$base" || mb_rc=$?
-  if [ "$mb_rc" -eq 0 ]; then
+
+  rc=0
+  sha=$(git rev-parse --verify "${ref}^{commit}" 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$sha" ]; then
+    CHK_STATE="failed"
+    CHK_REASON="cannot resolve ${ref}"
     return 0
   fi
-  if [ "$mb_rc" -ge 128 ]; then
-    printf 'merge-base failed\n'
-    return 1
+
+  mrc=0
+  bash "$GIT_SAFETY" is-merged "$ref" "$base" || mrc=$?
+  if [ "$mrc" -eq 0 ]; then
+    CHK_STATE="safe"
+    CHK_REF="$ref"
+    CHK_SHA="$sha"
+    return 0
   fi
-  if ! cherry=$(git cherry "$base" "$br" 2>/dev/null); then
-    printf 'cherry check failed\n'
-    return 1
-  fi
-  if printf '%s\n' "$cherry" | grep -q '^+'; then
-    printf 'unique commits\n'
-    return 1
+
+  CHK_STATE="leftover"
+  if [ "$mrc" -eq 1 ]; then
+    CHK_REASON="unique commits"
+  else
+    CHK_REASON="check failed"
   fi
   return 0
 }
@@ -184,7 +235,7 @@ cmd_candidates() {
 }
 
 cmd_safe_to_delete() {
-  local branch="" reason
+  local branch="" have_origin=0
   BASE=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -209,66 +260,72 @@ cmd_safe_to_delete() {
     printf 'unresolvable base\n'
     exit 1
   fi
-  if reason=$(is_safe "$branch" "$BASE"); then
-    exit 0
-  fi
-  printf '%s\n' "$reason"
-  exit 1
-}
 
-# Classify git push --delete stderr: already-gone vs real failure.
-is_already_gone() {
-  local err="$1"
-  printf '%s' "$err" | grep -qiE 'remote ref does not exist|does not exist|src refspec .+ does not match|remote origin does not exist'
+  if git remote get-url origin >/dev/null 2>&1; then
+    have_origin=1
+  fi
+
+  classify_candidate "$branch" "$BASE" "$have_origin"
+  case "$CHK_STATE" in
+    safe) exit 0 ;;
+    skip) printf 'missing\n'; exit 1 ;;
+    *) printf '%s\n' "$CHK_REASON"; exit 1 ;;
+  esac
 }
 
 cmd_prune() {
   parse_ticket_flags "$@"
   [ -n "$T" ] || usage
-  local base name ref reason err rc failed
+  local base name have_origin=0 err rc
 
   if ! base=$(resolve_base); then
     printf 'remote prune failed: unresolvable base\n'
     exit 0
   fi
 
-  if [ "$DRY" != "1" ]; then
-    if ! git remote get-url origin >/dev/null 2>&1; then
-      printf 'remote prune failed: no origin remote\n'
-      exit 0
-    fi
+  if git remote get-url origin >/dev/null 2>&1; then
+    have_origin=1
+  fi
+
+  if [ "$DRY" != "1" ] && [ "$have_origin" != "1" ]; then
+    printf 'remote prune failed: no origin remote\n'
+    exit 0
   fi
 
   build_candidates
-  failed=0
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     allowlisted "$name" || continue
-    if ! ref=$(resolve_branch_ref "$name"); then
-      # No local/tracking ref: live try-delete only if we can prove nothing —
-      # AC2 forbids delete without safety. Silent skip (AC4 never-pushed).
+
+    classify_candidate "$name" "$base" "$have_origin"
+    case "$CHK_STATE" in
+      skip)
+        continue
+        ;;
+      failed)
+        printf 'remote prune failed: %s: %s\n' "$name" "$CHK_REASON"
+        continue
+        ;;
+      leftover)
+        printf 'leftover: %s (%s)\n' "$name" "$CHK_REASON"
+        continue
+        ;;
+    esac
+
+    if [ "$DRY" = "1" ]; then
+      printf 'pruned: %s\n' "$name"
       continue
     fi
-    if reason=$(is_safe "$name" "$base"); then
-      if [ "$DRY" = "1" ]; then
-        printf 'pruned: %s\n' "$name"
-        continue
-      fi
-      err=""
-      rc=0
-      err=$(git push origin --delete "$name" 2>&1) || rc=$?
-      if [ "$rc" -eq 0 ]; then
-        printf 'pruned: %s\n' "$name"
-      elif is_already_gone "$err"; then
-        :
-      else
-        if [ "$failed" -eq 0 ]; then
-          printf 'remote prune failed: %s\n' "$err"
-          failed=1
-        fi
-      fi
+
+    err=""
+    rc=0
+    err=$(git push --force-with-lease="refs/heads/${name}:${CHK_SHA}" origin ":refs/heads/${name}" 2>&1) || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      printf 'pruned: %s\n' "$name"
+    elif is_already_gone "$err"; then
+      :
     else
-      printf 'leftover: %s (%s)\n' "$name" "$reason"
+      printf 'remote prune failed: %s: %s\n' "$name" "$(join_err "$err")"
     fi
   done < <(printf '%s\n' "${CANDS-}")
   exit 0

@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-28
 
-**Covers**: `skills/worktree-lib.sh`, `skills/orchestrate/SKILL.md`, `skills/kickoff/SKILL.md` (create-caller, CDT-105), `skills/wrap-ticket/SKILL.md`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2), `commands/worktree.md` (reduced: `release` only, CDT-46-C4), `commands/status.md` (`/status worktree` read-only list, CDT-46-C4), `AGENTS.md`, `.gitignore`
+**Covers**: `skills/worktree-lib.sh`, `skills/orchestrate/SKILL.md`, `skills/kickoff/SKILL.md` (create-caller, CDT-105), `skills/wrap-ticket/SKILL.md`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2), `commands/worktree.md` (reduced: `release` only, CDT-46-C4), `commands/status.md` (`/status worktree` read-only list, CDT-46-C4), `AGENTS.md`, `.gitignore`. WP 1-06 adds `skills/worktree-lib-test.sh`, `skills/wrap-ticket/resolve-worktree.sh`, `skills/wrap-ticket/wrap-ticket-test.sh`, `docs/commands/worktree.md` and `docs/commands/wrap-ticket.md`. This spec consumes `skills/lib/git-safety.sh` (SPEC-025 M17).
 
 ## Overview
 
@@ -20,9 +20,9 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 
 ### `worktree-lib.sh` CLI contract
 - MUST be a pure subprocess CLI — invoked as `bash "$WT_LIB" <cmd> <args>` where `$WT_LIB` is the install-aware path resolved via `plugin-dir.sh` (see Caller integration); MUST NOT require sourcing; MUST NOT mutate the caller's shell
-- MUST support subcommands: `ensure <slug>`, `release <slug>`, `status` (alias `list`), `register <slug>`, and `sweep` (see subcommand sections). Unknown subcommands exit 64
+- MUST support subcommands: `ensure <slug>`, `release [--preview] <slug>`, `status` (alias `list`), `register <slug>`, and `sweep` (see subcommand sections). Unknown subcommands exit 64
 - MUST resolve `$MROOT` internally using the worktree-aware formula above
-- MUST exit with: `0` = success, `1` = safety/error (including `release` blocked on missing worktree or dirty tree; `ensure` STALE reclaim refused for dirty tree or live task; `register` missing dir), `2` = user aborted on collision prompt, `64` = usage error
+- MUST exit with: `0` = success, `1` = safety/error (including `release` blocked on missing worktree, dirty tree or a failed `git worktree remove`; `ensure` STALE reclaim refused for dirty tree or live task; `ensure` on an existing directory that is not a git worktree; `register` missing dir), `2` = user aborted on collision prompt, `64` = usage error
 
 ### `ensure <slug>` semantics
 - MUST create the worktree at `$MROOT/.worktrees/<slug>` if absent
@@ -40,14 +40,49 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
     3. **Eligible reclaim** — if the tree is clean under that dirty definition **and** no live task references the slug: MUST overwrite `.wt-lock` and exit `0` with the worktree path on stdout (stderr diagnostics such as a reclaim notice are allowed; path remains stdout-only on success).
 - MUST NOT print the worktree path on stdout for any non-zero exit
 - FRESH collision/steal path MUST remain unchanged by CDT-162 (no new dirty/live-task gates on FRESH)
-- The no-lock + existing-directory path (stamp lock only) is **out of scope** for CDT-162 and MUST keep current behavior
+- The no-lock + existing-directory path is **out of scope** for CDT-162. WP 1-06 (CDT-298) adds one check to it:
+  - Before it writes the lock, `ensure` MUST make sure that `$MROOT/.worktrees/<slug>` is a git worktree. The check passes only when `<wt>/.git` exists and `git -C <wt> rev-parse --show-toplevel` equals the resolved `<wt>` path.
+  - The exit code of `git -C <wt>` alone is not enough. For a plain directory under `$MROOT/.worktrees/`, git walks up and finds `$MROOT`.
+  - When the check fails, `ensure` MUST print the directory on stderr, MUST NOT write `.wt-lock`, MUST leave stdout empty and MUST exit `1`.
+  - When the check passes, `ensure` stamps the lock. This behavior does not change.
+  - The FRESH and STALE lock paths do not get this check in WP 1-06.
 
-### `release <slug>` semantics
+### `release [--preview] <slug>` semantics
 - MUST remove `$MROOT/.worktrees/<slug>/.wt-lock`
-- MUST run `git worktree remove "$MROOT/.worktrees/<slug>"`
+- MUST run `git worktree remove "$MROOT/.worktrees/<slug>"` with no `--force`
+- MUST NOT fall back to `git worktree remove --force` (WP 1-06, CDT-298). A second run of the dirty check does not make a forced remove safe: a file can change after any check.
+- If `git worktree remove` fails after the dirty check passed (for example, a file changed after the check, or the worktree is locked), `release` MUST exit `1` with a stderr message. The worktree directory, the `feat/<slug>` branch and the `branch.feat/<slug>` config section MUST stay unchanged.
 - MUST exit non-zero (exit `1`) with a clear stderr message if the worktree has uncommitted changes; MUST NOT force-remove
 - Dirty definition for `release` (and for `ensure` STALE reclaim): `git -C <wt> status --porcelain` output with lines matching the exact bookkeeping path `.wt-lock` excluded; any remaining line means dirty
-- MUST exit 0 on clean removal
+- **Branch delete (WP 1-06).** After the worktree is removed, and only when `refs/heads/feat/<slug>` exists:
+  1. Resolve the base with `git-safety.sh -C "$MROOT" resolve-base` (SPEC-025 M17).
+  2. Delete the branch with `git-safety.sh -C "$MROOT" safe-delete-branch feat/<slug> <base>`. This deletes the branch only when `is-merged` holds, so a squash-merged branch is deleted.
+  3. When the branch is deleted, remove the `branch.feat/<slug>` config section.
+  4. When the base does not resolve, or `safe-delete-branch` refuses, MUST keep the branch and its config section. MUST print `release: kept feat/<slug>: not merged into <base>` (or `release: kept feat/<slug>: no base`) on stderr. MUST exit `0`.
+  - `release` MUST NOT run `git branch -D` directly. The only delete path is `safe-delete-branch`.
+  - Exit `0` for a kept branch is deliberate. Callers such as `skills/refactor/SKILL.md` run `release || exit 1`, and a kept branch is not a failure. Callers do not change.
+- MUST exit 0 on clean removal, when the branch is deleted and when the branch is kept
+- **`--preview` (WP 1-06, rv-w3-08).** `release --preview <slug>` is read-only. It MUST NOT remove the lock, the worktree, the branch or the config section. It does not need the worktree directory. It MUST print exactly these eight lines on stdout, in this order, and exit `0`:
+  ```
+  branch: feat/<slug>|none
+  base: <ref>|none
+  ahead_of_base: <n>
+  upstream: <ref>|none
+  ahead_of_upstream: <n>
+  merged: yes|no
+  pushed: yes|no
+  confirm: slug|yesno
+  ```
+  - `base` is the output of `git-safety.sh resolve-base`.
+  - `ahead_of_base` is `git rev-list --count <base>..feat/<slug>`. With no base, it counts every commit of `feat/<slug>`.
+  - `upstream` is the short name of `feat/<slug>@{upstream}`, or `none`.
+  - `ahead_of_upstream` is `git rev-list --count feat/<slug>@{upstream}..feat/<slug>`. With no upstream, it is `git rev-list --count feat/<slug> --not --remotes` (commits on no remote ref).
+  - `merged` is `yes` when `git-safety.sh is-merged refs/heads/feat/<slug> <base>` exits `0`. With no base, it is `no`.
+  - `pushed` is `yes` when `git-safety.sh is-pushed feat/<slug>` exits `0`. Use the short branch name: `refs/heads/<b>@{upstream}` does not resolve (verified on git 2.53).
+  - `confirm` is `slug` when the branch exists and `merged` is `no`. Else it is `yesno`, whatever the `pushed` value. `pushed`, `upstream` and the counts are information only (D2 revised): `release` deletes only a merged branch, so the work of a merged branch is already on the base.
+  - When the branch does not exist, the counts are `0`, `merged` and `pushed` are `no`, and `confirm` is `yesno`. Nothing is deleted.
+  - When a count fails with a git error, print `?` for that count. `confirm` still follows `merged`. A git error in `is-merged` gives `merged: no`, so `confirm: slug`.
+  - An invalid slug exits `64`.
 
 ### `status` / `list` semantics (CDV-189)
 - MUST enumerate only plugin-managed worktrees under `$MROOT/.worktrees/*` (directories); MUST NOT include sibling-path or harness-default worktrees outside that tree
@@ -72,6 +107,11 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST provide a user-invocable command `commands/worktree.md` as a **reduced mutate-only** Surface (NOT a Deprecation stub)
 - MUST support only the mutating action: `release <slug>`
 - `release <slug>` MUST ask for **chat confirmation** before calling `worktree-lib.sh release <slug>`; on decline, MUST NOT call release
+- **Counts and typed slug (WP 1-06, rv-w3-08).** Before it asks, `release <slug>` MUST run `worktree-lib.sh release --preview <slug>` and show `ahead_of_base`, `ahead_of_upstream` (or `no upstream`), `merged` and `pushed`.
+  - When the preview prints `confirm: slug`, the command MUST accept only the exact typed slug as confirmation. `yes` is not confirmation.
+  - When the preview prints `confirm: yesno`, a plain yes/no answer is enough.
+  - The prompt MUST state what the lib does: it removes the worktree only when the tree is clean, it never force-removes, and it deletes `feat/<slug>` only when the branch is merged. An unmerged branch is kept.
+  - The prompt stays a chat confirmation. It MUST NOT move into the lib's `/dev/tty` path.
 - MUST reuse lib dirty-tree refusal; MUST NOT force-remove
 - `status` / `list` args on `/worktree` MUST print usage pointing to `/status worktree` and MUST NOT invoke `worktree-lib.sh status` (read-only listing moved to `/status`)
 - bare or unknown args MUST print usage: `release <slug>` + pointer to `/status worktree`
@@ -89,6 +129,12 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - `skills/wrap-ticket/SKILL.md` Step 6 MUST call `bash "$WT_LIB" release <slug>` as a subprocess. MUST remove any direct `git worktree remove` call targeting `.worktrees/` paths
 - `skills/wrap-ticket/SKILL.md` MUST detect both `.worktrees/<slug>` (new) and `$MROOT/../<project>-<TICKET-ID>` (legacy) worktree paths; MUST prefer the new path when both exist
 - `skills/wrap-ticket/SKILL.md` MUST anchor every `grep` for a TICKET-ID so `WISO-1` does not match `WISO-10` (use `grep -E "(^|[^A-Z0-9-])WISO-1([^0-9]|$)"` or `grep -wF`); fix everywhere wrap-ticket greps for ticket ID
+- **One worktree matcher (WP 1-06).** `skills/wrap-ticket/SKILL.md` MUST resolve the ticket worktree through `bash skills/wrap-ticket/resolve-worktree.sh <TICKET-ID>` (resolved through `plugin-dir.sh`) in Step 0, Step 2 and Step 6. No fence keeps its own matcher.
+  - The helper prints one absolute path, or nothing, and exits `0`. An empty or invalid id (not `^[A-Za-z0-9_-]+$`) exits `64`.
+  - Order: (1) the epic shared integration path (`resolve-child-worktree` gives `use_shared: true`); (2) `$MROOT/.worktrees/<TICKET-ID>` when the directory exists; (3) a legacy entry from `git worktree list --porcelain` whose branch line is exactly `branch refs/heads/feat/<TICKET-ID>`, or whose basename equals `<TICKET-ID>` or ends with `-<TICKET-ID>`.
+  - The helper MUST NOT match by substring or by `grep -w`. `CDT-1` MUST NOT match `CDT-1-2`.
+- **Legacy path delete (WP 1-06, rv-w1-04).** In Step 6, when the legacy lookup is empty, the fence MUST print a skip message and exit `0` with no `git worktree remove` and no `git branch` call. Else it runs `git worktree remove` with no `--force`, then `git-safety.sh safe-delete-branch feat/<TICKET-ID> <base>` with the base from `git-safety.sh resolve-base`. An unmerged branch MUST be kept, and a message MUST name it. `SKILL.md` MUST NOT run `git branch -D "feat/$TICKET_ID"`.
+- **Step 6 confirmation (WP 1-06, rv-w3-08).** The Step 6 prompt MUST follow the `/worktree` counts and typed-slug rule (§ `/worktree` user command). It MUST NOT state that the branch "has already been merged".
 - **OBSOLETE at v1.0.0 (CDT-46-C2):** `/demo` was removed (`skills/demo/SKILL.md` is now a deprecation stub); this requirement is retained one deprecation cycle as historical record only. ~~`skills/demo/SKILL.md` MUST keep its dedicated `$TMPDIR/demo-project` path and MUST NOT depend on `worktree-lib.sh`. MUST add a 2-3 line inline check at worktree creation: if path exists, prompt user before proceeding~~
 - `AGENTS.md` MUST contain a "Worktree Protocol" section that: declares `.worktrees/<slug>` as the canonical path, points to `skills/worktree-lib.sh` and SPEC-016, and states in one sentence that sibling-directory worktrees are forbidden when the lib is in use
 - `AGENTS.md` Worktree Protocol SHOULD mention `/worktree release <slug>` (mutate) and `/status worktree` (read-only list) as the user-facing surfaces
@@ -137,6 +183,9 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST NOT silently reuse a worktree whose lock is still FRESH (age < `WT_LOCK_TTL_SECONDS`); MUST prompt (abort/steal) instead
 - MUST NOT overwrite a STALE `.wt-lock` when the worktree is dirty (release-equivalent porcelain) or when `slug_has_live_task` is true (CDT-162)
 - MUST NOT delete or `--force` a worktree with uncommitted changes
+- MUST NOT fall back to `git worktree remove --force` in `release` (WP 1-06)
+- MUST NOT delete `feat/<slug>` in `release` or in the wrap-ticket legacy path unless `git-safety.sh is-merged` holds against the resolved base (WP 1-06)
+- MUST NOT stamp `.wt-lock` on an existing directory that is not a git worktree (`ensure` no-lock path; WP 1-06)
 - MUST NOT run parallel `git worktree` operations — already documented in AGENTS.md; this spec inherits that constraint
 
 ## Lock file format
@@ -159,8 +208,8 @@ Field 1 (epoch seconds) is authoritative — freshness is `now - epoch` compared
 
 | Code | Meaning |
 |------|---------|
-| 0 | Success — worktree ready, path on stdout |
-| 1 | Safety/error — `release` missing worktree or dirty tree; `ensure` STALE reclaim refused (dirty tree or live task); `register` missing dir |
+| 0 | Success — worktree ready, path on stdout; `release` done (branch deleted, or an unmerged branch kept with a stderr warning); `release --preview` printed |
+| 1 | Safety/error — `release` missing worktree, dirty tree or failed `git worktree remove`; `ensure` STALE reclaim refused (dirty tree or live task); `ensure` on an existing directory that is not a git worktree; `register` missing dir |
 | 2 | User aborted on prompt (FRESH lock collision declined or no answer given) |
 | 64 | Usage error — missing slug or unknown subcommand |
 | non-zero (other) | Fatal error |
@@ -178,6 +227,10 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 - Verify `ensure` FRESH path unchanged (collision summary + abort/steal / no-TTY exit 2) (AC-8 / AC-9)
 - Verify `ensure` no-TTY / unwritable `/dev/tty` collision (e.g. `setsid … </dev/null` against a FRESH lock): prompts on stderr, exits 2, stdout empty, no "No such device" on stderr
 - Verify `release` cleans `.wt-lock` + removes worktree on clean tree; exits non-zero on dirty tree without force
+- Verify `release` has no `worktree remove --force` and no direct `branch -D`; a locked clean worktree gives exit 1 and keeps the directory, the branch and its config (WP 1-06)
+- Verify `release` deletes a merged (fast-forward or squash) `feat/<slug>` and keeps an unmerged one with exit 0 and a stderr warning (WP 1-06)
+- Verify `release --preview` prints the eight lines and changes nothing; `confirm: slug` only for an unmerged branch; a merged branch gives `confirm: yesno` whether pushed or not (WP 1-06)
+- Verify `ensure` on a plain directory under `.worktrees/` exits 1 with no lock and empty stdout (WP 1-06)
 - Verify orchestrate Step 3 captures stdout path correctly and halts on exit 1/2
 - Verify wrap-ticket grep does not match `WISO-10` when looking for `WISO-1`
 - Verify wrap-ticket detects both `.worktrees/<slug>` and legacy sibling path; prefers new
@@ -185,6 +238,8 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 - Verify `register <slug>` stamps lock without creating branch/worktree; exit 1 if dir missing
 - Verify `sweep` prints proposals only and never deletes worktree/lock/branch
 - Verify `/worktree release` requires chat confirmation before calling lib release
+- Verify `/worktree release` and wrap-ticket Step 6 run `release --preview`, show both counts and require the typed slug when the preview prints `confirm: slug` (WP 1-06)
+- Verify `resolve-worktree.sh CDT-1` does not return the `CDT-1-2` worktree, and the wrap-ticket legacy path keeps an unmerged branch (WP 1-06)
 
 **Lifecycle hooks (DRAFT — not required for CDV-189 ship):**
 - Do **not** require WorktreeRemove exit-2 block tests (harness cannot honor them)
@@ -206,7 +261,7 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 ## Open Questions
 
 - [ ] Should `ensure` accept a `--no-prompt` / `--steal` flag for fully non-interactive callers (CI)? Currently unwritable `/dev/tty` aborts with exit 2 (CDV-201); if CI needs reclaim without TTY, add later.
-- [ ] Should `release` support an explicit `--force` for callers that have already confirmed loss is acceptable? Out of scope for v1.
+- [ ] Should `release` support an explicit `--force` for callers that have already confirmed loss is acceptable? Out of scope for v1. WP 1-06 does not add it: `release` keeps an unmerged branch and exits 0, so no caller needs `--force` to finish a release.
 - [x] ~~Do WorktreeCreate/Remove support exit-2 enforcement?~~ **No** (CDV-189 spike). Remove has no decision control; Create is a provider that must print path.
 - [ ] Future: should the plugin wire WorktreeCreate as isolation provider (`ensure` + path stdout) for `--worktree` / `isolation: worktree`? Separate ticket; do not wire in init-orchestration until intentional.
 
@@ -225,9 +280,40 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 | 2026-08-02 | CDT-105: added `skills/kickoff/SKILL.md` as a create-caller. `/kickoff` MUST `ensure <TICKET-ID>` after context load and before the PM+TL spawn (mirroring orchestrate Step 3→4), commit its spec/plan/task work inside `$WT_PATH` (never `$MROOT`), and MUST NOT `release` at exit — the worktree is a resumable planning handoff (SPEC-009). Bare-`<TICKET-ID>` slug makes a later `/orchestrate <TICKET-ID>` reuse the same tree. Fixes the origin defect where standalone `/kickoff` committed the spec straight to master (CDT-104 a049044, CDT-99 0fdf420). No producer holds a live worktree at `/kickoff` handoff time (refactor releases first; debug creates none), so no double-create/orphan. |
 | 2026-08-07 | CDT-162: `ensure` STALE reclaim is no longer unconditional. Dirty STALE (release-equivalent porcelain, excl `.wt-lock`) and STALE with a live task (`slug_has_live_task`) MUST refuse reclaim — no lock overwrite, empty stdout, exit `1`. Clean STALE with no live task still overwrites lock and exits 0 with path. FRESH path and no-lock+existing-dir path unchanged. Exit-code table: exit `1` is shared safety/error for release and ensure STALE guards. |
 | 2026-08-07 | CDT-161: ensure create-path MUST use `git_retry 3 200` for both `worktree add` arms (parity with release mutators); re-probe branch after failed `-b` so sticky `-b` is not used once `feat/<slug>` exists; no new exit-code contract (passthrough `git_retry` rc). |
+| 2026-09-28 | WP 1-06 (`wp-1-06-branch-deletion-safety`; CDT-278 `[06 F20]` `[06 F21]` `[06 F22]`, CDT-298 `[10 worktree-lib-misc]`, rv-w1-04, rv-p0-03, rv-w3-08). `release` has no `--force` fallback: a failed `git worktree remove` exits 1 and keeps the directory, branch and config. `release` deletes `feat/<slug>` only through `git-safety.sh safe-delete-branch`; an unmerged branch is kept with a stderr warning and exit 0 (callers unchanged). New `release --preview <slug>` prints base and upstream counts plus the `confirm` rule. `/worktree release` and wrap-ticket Step 6 show the counts and require the typed slug only when the branch is not merged (the pushed state is information only). `ensure` refuses an existing directory that is not a git worktree (no-lock path only). wrap-ticket resolves its worktree through one helper, `skills/wrap-ticket/resolve-worktree.sh`; the legacy path uses an exact match and keeps an unmerged branch. Exit-code table updated. New `## Acceptance criteria` section holds this WP's ACs. |
 
 ## Cross-references
 
 - SPEC-002: Plugin Infrastructure — `$MROOT` resolution formula; subprocess CLI precedent (`task-store.sh`, `gate.sh`); kickoff caller-integration row (site table)
 - SPEC-009: Ticket Workflow — wrap-ticket worktree cleanup MUSTs; orchestrate Step 3 ownership; `$MROOT` worktree-aware resolution; **owns the kickoff worktree lifecycle / resumable-state exit contract** (CDT-105)
 - SPEC-031: Escalation Gate & Universal Worktree Isolation — its bounded-exit "MUST NOT leave a worktree as final state" is scoped to *implementation-capable* skills that ship code; `/kickoff` ships spec+plan (no source edits) and its worktree is deliberately the handoff artifact, so that rule does NOT extend here (CDT-105)
+- SPEC-025: Epic Umbrella Decomposition — M17 owns `skills/lib/git-safety.sh` (`resolve-base`, `is-merged`, `is-pushed`, `safe-delete-branch`). `release`, `release --preview` and the wrap-ticket legacy path consume it (WP 1-06)
+- SPEC-009: Ticket Workflow — owns `skills/wrap-ticket/prune-remote.sh` (remote prune MUSTs, WP 1-06 lease amendment). The WP 1-06 ACs below cover both specs
+
+## Acceptance criteria
+
+Format and rules: SPEC-033 M14(g) and M14(h). Each ticket that ships through M14 has one
+`### <ticket_id>` subsection below.
+
+### wp-1-06-branch-deletion-safety
+
+- **A.** wrap-ticket learnings fences (CDT-278 F20, F21). (1) The Step 2 fences set `TICKET_ID="<TICKET-ID>"` and read the worktree from `resolve-worktree.sh`. Fixture: MROOT and `.worktrees/<ID>/.claude/memory/<agent>/context.md` hold different text. The extracted Step 2 fences, run from MROOT, print the worktree text and not the MROOT text. The plan lookup prints the matching plan name from the worktree `.claude/plans/` first, then from MROOT. With the worktree removed, the fence prints a warning and reads MROOT. (2) Each fence in `SKILL.md` that uses `$TICKET_ID` sets `TICKET_ID="<TICKET-ID>"`. No `lint-ok: C1` waiver is on a line that uses `$TICKET_ID`, and `bash skills/skill-lint/check-skill-bash.sh skills/wrap-ticket/SKILL.md` reports no C1. (3) `## Step 5:` comes before `## Step 5.5:`. (4) The Step 3 write fence resolves `MROOT` before `MEMDB` and takes the learnings from a quoted heredoc or a file, never from a double-quoted literal. Payload: `$(touch x)`, a backtick `touch y` and a `"`. The fence creates no `x` and no `y`, and the stored text equals the payload byte for byte, on the sqlite path and on the `.md` fallback path.
+  Verify: bash skills/wrap-ticket/wrap-ticket-test.sh
+- **B.** wrap-ticket worktree match and legacy delete (rv-w1-04). (1) `SKILL.md` has no `:-{}}`. Each `CHILD_WT` default uses a separate variable (`DEF='{}'`, then `${CHILD_WT:-$DEF}`). The extracted jq lines give exit 0 and empty stderr with `CHILD_WT='{"skip_release":false,"use_shared":false}'` and with an empty `CHILD_WT`. (2) Fixture: legacy worktrees on `feat/CDT-1` and `feat/CDT-1-2`. `resolve-worktree.sh CDT-1` prints only the `CDT-1` path. Step 0, Step 2 and Step 6 call the helper, and no `grep -wF "$TICKET_ID"` over `git worktree list` output remains. (3) The extracted Step 6 legacy fence for `CDT-1` removes only the `CDT-1` tree. The `CDT-1-2` tree and branch stay. (4) With an empty lookup, the fence prints a skip message, exits 0 and makes zero `git worktree remove` and `git branch` calls (PATH shim). (5) An unmerged `feat/CDT-1` (one unique commit) stays, and a message names it. A merged branch, fast-forward or squash, is deleted. `SKILL.md` has no `git branch -D "feat/$TICKET_ID"`. (6) The Step 6 line reads `cd "$MROOT"`, and no unquoted `cd $MROOT` remains.
+  Verify: bash skills/wrap-ticket/wrap-ticket-test.sh
+- **C.** prune-remote checks the fetched remote ref (CDT-278 F22, rv-p0-03). (1) For each allowlisted candidate, prune runs `git fetch origin "+refs/heads/<n>:refs/remotes/origin/<n>"` before its check. The check is `git-safety.sh is-merged refs/remotes/origin/<n> <base>` and never reads `refs/heads/<n>`. (2) Bare-remote fixture: the local `feat/CDT-9` is merged and the remote `feat/CDT-9` has one extra commit. The remote branch stays, and the output has `leftover: feat/CDT-9 (unique commits)`. A second fixture with a stale tracking ref behind the remote gives the same result. (3) On bare-remote fixtures, a fast-forward-merged and a squash-merged remote branch print `pruned:` in `--dry-run` and in a live run, and the live run deletes them. (4) `--dry-run` fetches when `origin` exists. With no `origin`, `--dry-run` uses local refs as before. (5) A fetch that fails with `couldn't find remote ref` is a silent skip with exit 0. Any other fetch failure (fixture: the origin URL is a missing path) prints one `remote prune failed: <n>: <err>` line, deletes nothing and exits 0.
+  Verify: bash skills/wrap-ticket/prune-remote-test.sh
+- **D.** prune-remote deletes with a lease and reports every failure (rv-p0-03). (1) The delete is `git push --force-with-lease=refs/heads/<n>:<sha> origin :refs/heads/<n>`, where `<sha>` is the fetched SHA that the check evaluated. Fixture: a `git` PATH shim moves the remote branch between the check and the push. The push is refused, the remote branch stays, and the output has `remote prune failed: feat/<n>: …`. (2) Static check: `prune-remote.sh` has `--force-with-lease` and no bare `--force` (regex `--force([^-]|$)`). This check replaces the old `--force` assertion. (3) Only `remote ref does not exist` and `src refspec … does not match` count as already gone. A push stub that prints `repository does not exist` or an auth failure gives a `remote prune failed:` line, not a silent skip. (4) With two failing candidates, the output has exactly two `remote prune failed:` lines, and each failure is one line (multi-line git stderr is joined). (5) The usage, allowlist, candidates, fail-open, SKILL 6.x, worktree-lib and no-glob cases pass.
+  Verify: bash skills/wrap-ticket/prune-remote-test.sh
+- **E.** worktree-lib `release` never forces and keeps an unmerged branch (CDT-298, D1). (1) `worktree-lib.sh` has no `worktree remove --force` and no `branch -D`. (2) Fixture: a clean worktree locked with `git worktree lock`. `release` exits 1 with stderr, and the worktree directory, `feat/<slug>` and the `branch.feat/<slug>` config section stay. (3) A merged branch, fast-forward or squash, is deleted: `release` exits 0, and the worktree, the branch and the config section are gone. (4) An unmerged branch (one unique commit): `release` exits 0, the worktree is gone, the branch and its config section stay, and stderr has `release: kept feat/<slug>`. (5) A dirty tree still gives exit 1 with no change.
+  Verify: bash skills/worktree-lib-test.sh
+- **F.** worktree-lib `ensure` refuses a non-git directory, and the suite leaks no temp file (CDT-298). (1) `ensure <slug>` for an existing `.worktrees/<slug>` with no `.git` entry exits 1, prints the directory on stderr, prints nothing on stdout and writes no `.wt-lock`. The check compares `git -C <wt> rev-parse --show-toplevel` with `<wt>`. (2) The `status`, `register` and `sweep` cases that use plain directories still pass. (3) `ERR_TMP` is under `$TMP`. A run with a new empty `TMPDIR` leaves no `wt-test-err.*` file in it.
+  Verify: bash skills/worktree-lib-test.sh
+- **G.** `release` shows counts and asks for the typed slug (rv-w3-08, D2). (1) `release --preview <slug>` prints the eight lines of SPEC-016 § `release` in order. Fixtures: a squash-merged branch whose upstream contains it gives `merged: yes`, `pushed: yes`, `confirm: yesno` and `ahead_of_base` above 0. A squash-merged branch with no upstream gives `merged: yes`, `pushed: no` and `confirm: yesno`. An unmerged branch gives `merged: no` and `confirm: slug`. A branch with no upstream gives `upstream: none`, and `ahead_of_upstream` counts the commits that are on no remote ref. (2) After `--preview`, the lock, the worktree, the branch and the config section are unchanged. (3) Static check: the release step of `commands/worktree.md` and Step 6 of `skills/wrap-ticket/SKILL.md` both run `release --preview` before they ask, show both counts, accept only the typed slug when the preview prints `confirm: slug`, and accept yes/no when it prints `confirm: yesno`. `SKILL.md` has no "has already been merged".
+  Verify: bash skills/worktree-lib-test.sh
+- **H.** The docs match the lib (rv-w3-08). `docs/commands/worktree.md` and Step 9 of `docs/commands/wrap-ticket.md` state that release never force-removes, deletes `feat/<slug>` only when it is merged, keeps an unmerged branch with a warning, and shows the counts and asks for the typed slug when the branch is not merged. A grep check fails when either page says that release removes the branch with no merge condition, or when `wrap-ticket.md` describes a plain `git worktree remove`. The text follows ASD-STE100.
+  Verify: bash skills/worktree-lib-test.sh
+- **I.** One shared base resolver (D2). `git-safety.sh resolve-base` prints the first ref that resolves, in this order: the target of `refs/remotes/origin/HEAD`, `origin/master`, `origin/main`, `master`, `main`. It exits 0, or exits 1 with empty stdout when no ref resolves. Tests cover each step of the order and the no-ref case. `prune-remote.sh` (after its `--base` flag) and `worktree-lib.sh` call it. A grep check finds no copy of the order list in `prune-remote.sh`, `worktree-lib.sh` or `skills/wrap-ticket/SKILL.md`.
+  Verify: bash skills/lib/git-safety-test.sh
+- **J.** [process] These suites pass: `skills/wrap-ticket/wrap-ticket-test.sh`, `skills/wrap-ticket/prune-remote-test.sh`, `skills/worktree-lib-test.sh`, `skills/lib/git-safety-test.sh` and `skills/skill-lint/test.sh`.
+- **K.** [process] Every `/release` gate passes.

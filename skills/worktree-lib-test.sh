@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
-# worktree-lib-test.sh — bite-tests for worktree-lib.sh (CDV-189 Part 2, CDT-162)
+# worktree-lib-test.sh -- bite-tests for worktree-lib.sh (CDV-189 Part 2,
+# CDT-162, WP 1-06 branch-deletion-safety AC E/F/G/H)
 #
 # Machine-check: bash skills/worktree-lib-test.sh  (exit 0)
-# THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
+# THIS SCRIPT IS A SUBPROCESS CLI -- NEVER SOURCE IT.
 
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 LIB="$SCRIPT_DIR/worktree-lib.sh"
+
+# SPEC-030 R20 hermetic suite helper: isolated TMPDIR/HOME, fixed git author
+# identity, trap hermetic_cleanup EXIT.
+. "$ROOT/tests/lib/hermetic.sh"
+hermetic_init
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
 
 PASS=0
 FAIL=0
@@ -72,11 +81,14 @@ assert_dir() {
 
 # ---- Isolated fake MROOT ----------------------------------------------------
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/worktree-lib-test.XXXXXX")
-ERR_TMP="${TMPDIR:-/tmp}/wt-test-err.$$"
-cleanup() { rm -rf "$TMP"; }
+# ERR_TMP lives under $TMP (WP 1-06 AC F3): the EXIT trap below rm -rf's
+# $TMP, so a killed/died run leaves nothing under $TMPDIR either -- the old
+# ERR_TMP sat directly in $TMPDIR and relied on a fragile end-of-script rm.
+ERR_TMP="$TMP/wt-test-err.$$"
+cleanup() { rm -rf "$TMP"; hermetic_cleanup; }
 trap cleanup EXIT
 
-git init -q "$TMP" || die "git init failed"
+git init -q -b master "$TMP" || die "git init failed"
 git -C "$TMP" config user.email "test@example.com"
 git -C "$TMP" config user.name "Test"
 git -C "$TMP" commit --allow-empty -q -m "init" || die "empty commit failed"
@@ -368,9 +380,424 @@ else
 fi
 assert_contains "ensure STALE live reason" "$ERR" "live task"
 
-# cleanup temp err
-rm -f "$ERR_TMP" 2>/dev/null || true
+# ERR_TMP is under $TMP; the EXIT trap (cleanup) removes it -- no explicit
+# rm needed here (WP 1-06 AC F3).
 
+# ---------------------------------------------------------------------------
+# WP 1-06 branch-deletion-safety: AC E (release never forces, branch delete
+# only via git-safety.sh), AC F (ensure non-git-dir refusal, no leaked temp
+# file), AC G (release --preview), AC H (docs match the lib).
+# ---------------------------------------------------------------------------
+
+# mk_release_fixture <slug>
+# ensure-creates .worktrees/<slug> on branch feat/<slug>, commits one real
+# file in it, and plants a branch.feat/<slug> config key so the E/G checks
+# below can tell whether release's branch-delete step touched it.
+mk_release_fixture() {
+  local slug="$1" out rc
+  out=$(run_lib ensure "$slug" 2>"$ERR_TMP"); rc=$?
+  [ "$rc" -eq 0 ] || die "mk_release_fixture $slug: ensure failed rc=$rc $(cat "$ERR_TMP" 2>/dev/null)"
+  printf 'line one for %s\n' "$slug" > ".worktrees/$slug/file-$slug.txt"
+  git -C ".worktrees/$slug" add "file-$slug.txt"
+  git -C ".worktrees/$slug" commit -q -m "work on $slug"
+  git config "branch.feat/$slug.description" "test-marker-$slug"
+}
+
+# assert_preview_order <name> <preview_output>
+# WP 1-06 review spec-check gap 2b: the eight release --preview lines must
+# come in the fixed SPEC-016 order, not just be present somewhere in the
+# output.
+assert_preview_order() {
+  local name="$1" out="$2" want got
+  want="branch\nbase\nahead_of_base\nupstream\nahead_of_upstream\nmerged\npushed\nconfirm"
+  want=$(printf '%b' "$want")
+  got=$(printf '%s\n' "$out" | sed -n 's/^\([a-zA-Z_]*\):.*/\1/p')
+  assert_eq "$name" "$got" "$want"
+}
+
+echo "== T11 release static: no force fallback, no direct branch delete (AC E1) =="
+LIB_TEXT=$(cat "$LIB")
+assert_not_contains "worktree-lib.sh has no 'worktree remove --force' text" "$LIB_TEXT" "worktree remove --force"
+assert_not_contains "worktree-lib.sh has no 'branch -D' text" "$LIB_TEXT" "branch -D"
+assert_contains "worktree-lib.sh usage mentions --preview" "$LIB_TEXT" "release [--preview]"
+assert_not_contains "worktree-lib.sh has no base-order list copy" "$LIB_TEXT" "origin/master origin/main master main"
+
+# Planted negative control (hazard checklist): prove the exact-substring
+# checks above are not vacuously true by running them against text that
+# DOES contain the banned strings.
+PLANTED='git worktree remove --force "$wt"
+git branch -D "$branch"
+candidates="origin/master origin/main master main"'
+CTRL_HIT=0
+printf '%s' "$PLANTED" | grep -qF -- "worktree remove --force" && CTRL_HIT=$((CTRL_HIT + 1))
+printf '%s' "$PLANTED" | grep -qF -- "branch -D" && CTRL_HIT=$((CTRL_HIT + 1))
+printf '%s' "$PLANTED" | grep -qF -- "origin/master origin/main master main" && CTRL_HIT=$((CTRL_HIT + 1))
+assert_eq "T11 negative control catches all 3 banned strings" "$CTRL_HIT" "3"
+
+echo "== T12 ensure refuses a non-git directory under .worktrees/ (AC F1) =="
+mkdir -p .worktrees/plain-dir
+NGOUT=$(run_lib ensure plain-dir 2>"$ERR_TMP"); NGRC=$?
+NGERR=$(cat "$ERR_TMP" 2>/dev/null || true)
+assert_eq "ensure plain-dir exit 1" "$NGRC" "1"
+assert_eq "ensure plain-dir empty stdout" "$NGOUT" ""
+assert_contains "ensure plain-dir stderr names the dir" "$NGERR" ".worktrees/plain-dir"
+if [ -f ".worktrees/plain-dir/.wt-lock" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL ensure plain-dir must not write .wt-lock"
+else
+  PASS=$((PASS + 1)); echo "  ok  ensure plain-dir wrote no .wt-lock"
+fi
+# Negative control: a real worktree at the same shape (existing dir, no
+# lock) must still succeed -- proves the check does not blanket-refuse.
+CTRLOUT=$(run_lib ensure ctrl-real-wt 2>"$ERR_TMP"); CTRLRC=$?
+assert_eq "ensure real worktree control exit 0" "$CTRLRC" "0"
+rm -f .worktrees/ctrl-real-wt/.wt-lock
+CTRLOUT2=$(run_lib ensure ctrl-real-wt 2>"$ERR_TMP"); CTRLRC2=$?
+assert_eq "ensure real worktree, no-lock re-run, exit 0 (negative control)" "$CTRLRC2" "0"
+
+echo "== T13 release: a locked worktree refuses, no force retry (AC E2) =="
+mk_release_fixture rel-locked
+git worktree lock ".worktrees/rel-locked" 2>"$ERR_TMP" || die "git worktree lock failed: $(cat "$ERR_TMP")"
+LKOUT=$(run_lib release rel-locked 2>"$ERR_TMP"); LKRC=$?
+LKERR=$(cat "$ERR_TMP" 2>/dev/null || true)
+assert_eq "release locked exit 1" "$LKRC" "1"
+assert_dir "release locked kept the worktree dir" ".worktrees/rel-locked"
+if git rev-parse --verify --quiet refs/heads/feat/rel-locked >/dev/null 2>&1; then
+  PASS=$((PASS + 1)); echo "  ok  release locked kept the branch"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL release locked deleted the branch"
+fi
+LKCFG=$(git config --get "branch.feat/rel-locked.description" 2>/dev/null || true)
+assert_eq "release locked kept the config section" "$LKCFG" "test-marker-rel-locked"
+assert_contains "release locked stderr states not-forcing (not a force retry)" "$LKERR" "not forcing"
+git worktree unlock ".worktrees/rel-locked" 2>/dev/null || true
+
+echo "== T14 release: a fast-forward-merged branch is deleted (AC E3) =="
+mk_release_fixture rel-ff
+git merge -q --ff-only "feat/rel-ff" || die "ff-only merge failed"
+FFOUT=$(run_lib release rel-ff 2>"$ERR_TMP"); FFRC=$?
+FFERR=$(cat "$ERR_TMP" 2>/dev/null || true)
+assert_eq "release ff-merged exit 0" "$FFRC" "0"
+if [ -d ".worktrees/rel-ff" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL release ff-merged worktree still present"
+else
+  PASS=$((PASS + 1)); echo "  ok  release ff-merged worktree removed"
+fi
+if git rev-parse --verify --quiet refs/heads/feat/rel-ff >/dev/null 2>&1; then
+  FAIL=$((FAIL + 1)); echo "  FAIL release ff-merged branch still present"
+else
+  PASS=$((PASS + 1)); echo "  ok  release ff-merged branch deleted"
+fi
+FFCFG=$(git config --get "branch.feat/rel-ff.description" 2>/dev/null || true)
+assert_eq "release ff-merged config section gone" "$FFCFG" ""
+assert_not_contains "release ff-merged stderr has no kept message" "$FFERR" "kept feat/rel-ff"
+
+echo "== T15 release: a squash-merged branch is deleted (AC E3) =="
+mk_release_fixture rel-squash
+git merge -q --squash "feat/rel-squash" || die "squash merge (stage) failed"
+git commit -q -m "squash rel-squash"
+SQOUT=$(run_lib release rel-squash 2>"$ERR_TMP"); SQRC=$?
+assert_eq "release squash-merged exit 0" "$SQRC" "0"
+if [ -d ".worktrees/rel-squash" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL release squash-merged worktree still present"
+else
+  PASS=$((PASS + 1)); echo "  ok  release squash-merged worktree removed"
+fi
+if git rev-parse --verify --quiet refs/heads/feat/rel-squash >/dev/null 2>&1; then
+  FAIL=$((FAIL + 1)); echo "  FAIL release squash-merged branch still present"
+else
+  PASS=$((PASS + 1)); echo "  ok  release squash-merged branch deleted"
+fi
+SQCFG=$(git config --get "branch.feat/rel-squash.description" 2>/dev/null || true)
+assert_eq "release squash-merged config section gone" "$SQCFG" ""
+
+echo "== T16 release: an unmerged branch is kept with a stderr warning (AC E4) =="
+mk_release_fixture rel-unique
+UQOUT=$(run_lib release rel-unique 2>"$ERR_TMP"); UQRC=$?
+UQERR=$(cat "$ERR_TMP" 2>/dev/null || true)
+assert_eq "release unmerged exit 0" "$UQRC" "0"
+if [ -d ".worktrees/rel-unique" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL release unmerged worktree still present"
+else
+  PASS=$((PASS + 1)); echo "  ok  release unmerged worktree removed"
+fi
+if git rev-parse --verify --quiet refs/heads/feat/rel-unique >/dev/null 2>&1; then
+  PASS=$((PASS + 1)); echo "  ok  release unmerged kept the branch"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL release unmerged deleted the branch"
+fi
+UQCFG=$(git config --get "branch.feat/rel-unique.description" 2>/dev/null || true)
+assert_eq "release unmerged kept the config section" "$UQCFG" "test-marker-rel-unique"
+assert_contains "release unmerged stderr kept message" "$UQERR" "release: kept feat/rel-unique"
+
+echo "== T17 release: a dirty tree refuses, branch/config untouched (AC E5) =="
+mk_release_fixture rel-dirty2
+echo "dirty" > .worktrees/rel-dirty2/scratch.txt
+D2OUT=$(run_lib release rel-dirty2 2>"$ERR_TMP"); D2RC=$?
+assert_eq "release dirty2 exit 1" "$D2RC" "1"
+assert_dir "release dirty2 kept the worktree dir" ".worktrees/rel-dirty2"
+if git rev-parse --verify --quiet refs/heads/feat/rel-dirty2 >/dev/null 2>&1; then
+  PASS=$((PASS + 1)); echo "  ok  release dirty2 kept the branch"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL release dirty2 deleted the branch"
+fi
+D2CFG=$(git config --get "branch.feat/rel-dirty2.description" 2>/dev/null || true)
+assert_eq "release dirty2 kept the config section" "$D2CFG" "test-marker-rel-dirty2"
+rm -f .worktrees/rel-dirty2/scratch.txt
+
+echo "== T18 preview: unmerged branch, no upstream, worktree already gone (AC G1) =="
+# Expected per SPEC-016 section release: "ahead_of_upstream counts the
+# commits that are on no remote ref" when there is no upstream.
+EXPECT_UP18=$(git rev-list --count feat/rel-unique --not --remotes)
+PVOUT=$(run_lib release --preview rel-unique 2>"$ERR_TMP"); PVRC=$?
+assert_eq "preview unmerged exit 0" "$PVRC" "0"
+assert_contains "preview unmerged branch line" "$PVOUT" "branch: feat/rel-unique"
+assert_contains "preview unmerged base line" "$PVOUT" "base: master"
+assert_contains "preview unmerged upstream none" "$PVOUT" "upstream: none"
+assert_contains "preview unmerged ahead_of_upstream value" "$PVOUT" "ahead_of_upstream: $EXPECT_UP18"
+assert_contains "preview unmerged merged no" "$PVOUT" "merged: no"
+assert_contains "preview unmerged pushed no" "$PVOUT" "pushed: no"
+assert_contains "preview unmerged confirm slug" "$PVOUT" "confirm: slug"
+PVLINES=$(printf '%s\n' "$PVOUT" | wc -l | tr -d ' ')
+assert_eq "preview prints exactly 8 lines" "$PVLINES" "8"
+assert_preview_order "preview unmerged lines are in SPEC-016 order" "$PVOUT"
+
+echo "== T19 preview: branch does not exist (AC G1 branch-absent) =="
+NBOUT=$(run_lib release --preview no-such-branch-slug 2>"$ERR_TMP"); NBRC=$?
+assert_eq "preview no-branch exit 0" "$NBRC" "0"
+assert_contains "preview no-branch branch none" "$NBOUT" "branch: none"
+assert_contains "preview no-branch ahead_of_base 0" "$NBOUT" "ahead_of_base: 0"
+assert_contains "preview no-branch upstream none" "$NBOUT" "upstream: none"
+assert_contains "preview no-branch ahead_of_upstream 0" "$NBOUT" "ahead_of_upstream: 0"
+assert_contains "preview no-branch merged no" "$NBOUT" "merged: no"
+assert_contains "preview no-branch pushed no" "$NBOUT" "pushed: no"
+assert_contains "preview no-branch confirm yesno" "$NBOUT" "confirm: yesno"
+
+echo "== T20 preview: squash-merged local, no upstream; no side effects (AC G1, G2) =="
+mk_release_fixture prev-squash
+git merge -q --squash "feat/prev-squash" || die "squash merge (stage) failed"
+git commit -q -m "squash prev-squash"
+PS_LOCK_BEFORE=$(cat .worktrees/prev-squash/.wt-lock)
+PS_SHA_BEFORE=$(git rev-parse refs/heads/feat/prev-squash)
+PS_CFG_BEFORE=$(git config --get "branch.feat/prev-squash.description")
+PSOUT=$(run_lib release --preview prev-squash 2>"$ERR_TMP"); PSRC=$?
+EXPECT_UP20=$(git rev-list --count feat/prev-squash --not --remotes)
+assert_eq "preview squash-local exit 0" "$PSRC" "0"
+assert_contains "preview squash-local branch line" "$PSOUT" "branch: feat/prev-squash"
+assert_contains "preview squash-local merged yes" "$PSOUT" "merged: yes"
+assert_contains "preview squash-local pushed no" "$PSOUT" "pushed: no"
+assert_contains "preview squash-local ahead_of_upstream value" "$PSOUT" "ahead_of_upstream: $EXPECT_UP20"
+assert_contains "preview squash-local confirm yesno" "$PSOUT" "confirm: yesno"
+assert_dir "preview squash-local worktree unchanged (still present)" ".worktrees/prev-squash"
+assert_eq "preview squash-local lock unchanged" "$(cat .worktrees/prev-squash/.wt-lock)" "$PS_LOCK_BEFORE"
+assert_eq "preview squash-local branch sha unchanged" "$(git rev-parse refs/heads/feat/prev-squash)" "$PS_SHA_BEFORE"
+assert_eq "preview squash-local config unchanged" "$(git config --get "branch.feat/prev-squash.description")" "$PS_CFG_BEFORE"
+
+echo "== T21 preview: squash-merged, upstream contains it (AC G1 upstream) =="
+BARE="$TMP-origin.git"
+git init -q -b master --bare "$BARE" >/dev/null 2>&1 || die "bare origin init failed"
+git remote add origin "$BARE"
+git push -q origin master
+mk_release_fixture prev-up
+git push -q -u origin "feat/prev-up"
+git merge -q --squash "feat/prev-up" || die "squash merge (stage) failed"
+git commit -q -m "squash prev-up"
+git push -q origin master
+PUOUT=$(run_lib release --preview prev-up 2>"$ERR_TMP"); PURC=$?
+assert_eq "preview upstream exit 0" "$PURC" "0"
+assert_contains "preview upstream branch line" "$PUOUT" "branch: feat/prev-up"
+assert_contains "preview upstream base is origin/master" "$PUOUT" "base: origin/master"
+assert_contains "preview upstream merged yes" "$PUOUT" "merged: yes"
+assert_contains "preview upstream pushed yes" "$PUOUT" "pushed: yes"
+assert_contains "preview upstream confirm yesno" "$PUOUT" "confirm: yesno"
+AHEAD_LINE=$(printf '%s\n' "$PUOUT" | grep '^ahead_of_base: ')
+AHEAD_N=${AHEAD_LINE#ahead_of_base: }
+case "$AHEAD_N" in
+  ''|*[!0-9]*)
+    FAIL=$((FAIL + 1)); echo "  FAIL preview upstream ahead_of_base not numeric: [$AHEAD_LINE]" ;;
+  0)
+    FAIL=$((FAIL + 1)); echo "  FAIL preview upstream ahead_of_base should be > 0, got 0" ;;
+  *)
+    PASS=$((PASS + 1)); echo "  ok  preview upstream ahead_of_base > 0 ($AHEAD_N)" ;;
+esac
+
+echo "== T22 static: release --preview confirm prompt markers (AC G3) =="
+check_c4_markers() {
+  local name="$1" path="$2" text
+  text=$(cat "$path" 2>/dev/null)
+  assert_contains "$name has a release --preview fence" "$text" "release --preview"
+  assert_contains "$name has ahead_of_base token" "$text" "ahead_of_base"
+  assert_contains "$name has ahead_of_upstream token" "$text" "ahead_of_upstream"
+  assert_contains "$name has confirm: slug token" "$text" "confirm: slug"
+  assert_contains "$name has confirm: yesno token" "$text" "confirm: yesno"
+  if printf '%s' "$text" | grep -qE 'Type .* to confirm'; then
+    PASS=$((PASS + 1)); echo "  ok  $name has a 'Type ... to confirm' prompt line"
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL $name missing a 'Type ... to confirm' prompt line"
+  fi
+  # Tolerant of markdown emphasis around "not" (e.g. "is **not** confirmation").
+  if printf '%s' "$text" | grep -qE 'not\*{0,2}[[:space:]]+confirmation'; then
+    PASS=$((PASS + 1)); echo "  ok  $name states yes is not confirmation"
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL $name missing the 'yes is not confirmation' rule sentence"
+  fi
+}
+check_c4_markers "commands/worktree.md" "$ROOT/commands/worktree.md"
+# wrap-ticket SKILL.md is T3's file (parallel wave-1 task) -- red here until
+# T3's commit lands; expected per the plan's C4 handshake note.
+check_c4_markers "skills/wrap-ticket/SKILL.md" "$ROOT/skills/wrap-ticket/SKILL.md"
+assert_not_contains "skills/wrap-ticket/SKILL.md has no 'has already been merged'" \
+  "$(cat "$ROOT/skills/wrap-ticket/SKILL.md" 2>/dev/null)" "has already been merged"
+
+echo "== T23 static: docs match the lib (AC H) =="
+check_doc_markers() {
+  local name="$1" path="$2" text
+  text=$(cat "$path" 2>/dev/null)
+  assert_contains "$name states never force-removes" "$text" "never force-removes"
+  assert_contains "$name states only when it is merged" "$text" "only when it is merged"
+  assert_contains "$name states typed slug" "$text" "typed slug"
+}
+check_doc_markers "docs/commands/worktree.md" "$ROOT/docs/commands/worktree.md"
+check_doc_markers "docs/commands/wrap-ticket.md Step 9" "$ROOT/docs/commands/wrap-ticket.md"
+assert_not_contains "docs/commands/worktree.md table row is not the bare old text" \
+  "$(cat "$ROOT/docs/commands/worktree.md" 2>/dev/null)" \
+  "| \`release <slug>\` | Confirm in chat, then remove lock + worktree if clean |"
+assert_not_contains "docs/commands/wrap-ticket.md has no bare 'before running git worktree remove'" \
+  "$(cat "$ROOT/docs/commands/wrap-ticket.md" 2>/dev/null)" \
+  'before running `git worktree remove`'
+
+echo "== T24 ERR_TMP lives under \$TMP, not bare \$TMPDIR (AC F3) =="
+case "$ERR_TMP" in
+  "$TMP"/*) PASS=$((PASS + 1)); echo "  ok  ERR_TMP is under \$TMP" ;;
+  *) FAIL=$((FAIL + 1)); echo "  FAIL ERR_TMP not under \$TMP: $ERR_TMP" ;;
+esac
+
+echo "== T25 release: an extra argument after the slug is rejected (review L1) =="
+mk_release_fixture rel-badflag
+git merge -q --ff-only "feat/rel-badflag" || die "ff-only merge failed"
+BF1OUT=$(run_lib release rel-badflag --preview 2>"$ERR_TMP"); BF1RC=$?
+BF1ERR=$(cat "$ERR_TMP" 2>/dev/null || true)
+assert_eq "release <slug> --preview exit 64" "$BF1RC" "64"
+assert_eq "release <slug> --preview empty stdout" "$BF1OUT" ""
+assert_contains "release <slug> --preview stderr names the extra arg" "$BF1ERR" "unexpected argument"
+assert_dir "release <slug> --preview left the worktree dir" ".worktrees/rel-badflag"
+if git rev-parse --verify --quiet refs/heads/feat/rel-badflag >/dev/null 2>&1; then
+  PASS=$((PASS + 1)); echo "  ok  release <slug> --preview left the branch (did not really release)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL release <slug> --preview deleted the branch"
+fi
+BFCFG=$(git config --get "branch.feat/rel-badflag.description" 2>/dev/null || true)
+assert_eq "release <slug> --preview left the config section" "$BFCFG" "test-marker-rel-badflag"
+
+BF2OUT=$(run_lib release --preview rel-badflag extra-garbage 2>"$ERR_TMP"); BF2RC=$?
+assert_eq "release --preview <slug> <extra> exit 64" "$BF2RC" "64"
+assert_eq "release --preview <slug> <extra> empty stdout" "$BF2OUT" ""
+assert_dir "release --preview <slug> <extra> left the worktree dir" ".worktrees/rel-badflag"
+
+echo "== T26 release: branch-delete retries a transient git failure (review L2) =="
+mk_release_fixture rel-ebusy
+git merge -q --ff-only "feat/rel-ebusy" || die "ff-only merge failed"
+# origin exists from T21 onward; resolve-base now points at origin/master,
+# so keep it in sync with the local ff-merge or is-merged sees a stale base.
+git push -q origin master || die "push master (sync origin) failed"
+REAL_GIT2=$(command -v git || true)
+if [ -n "$REAL_GIT2" ] && [ -x "$REAL_GIT2" ]; then
+  SHIMDIR2=$(mktemp -d "${TMPDIR:-/tmp}/wt-branchD-shim.XXXXXX")
+  COUNTER2="$SHIMDIR2/count"
+  echo 0 > "$COUNTER2"
+  cat > "$SHIMDIR2/git" <<'SHIM2'
+#!/usr/bin/env bash
+# Forward all git; on `branch -D` fail the first FAIL_N2 times with a
+# WSL2-style EBUSY error, then pass through (WP 1-06 review L2).
+is_bd=0
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "branch" ] && [ "$a" = "-D" ]; then
+    is_bd=1
+    break
+  fi
+  prev=$a
+done
+if [ "$is_bd" -eq 1 ]; then
+  n=0
+  if [ -n "${COUNTER2:-}" ] && [ -f "$COUNTER2" ]; then
+    n=$(cat "$COUNTER2" 2>/dev/null || echo 0)
+  fi
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  if [ "$n" -lt "${FAIL_N2:-0}" ]; then
+    echo $((n + 1)) > "$COUNTER2"
+    echo "error: could not write config: Device or resource busy" >&2
+    exit 1
+  fi
+fi
+exec "$REAL_GIT2" "$@"
+SHIM2
+  chmod +x "$SHIMDIR2/git"
+  FAIL_N2=2
+  REBOUT=$(PATH="$SHIMDIR2:$PATH" REAL_GIT2="$REAL_GIT2" COUNTER2="$COUNTER2" FAIL_N2="$FAIL_N2" \
+    run_lib release rel-ebusy 2>"$ERR_TMP"); REBRC=$?
+  REBERR=$(cat "$ERR_TMP" 2>/dev/null || true)
+  assert_eq "release ebusy-retry exit 0" "$REBRC" "0"
+  if git rev-parse --verify --quiet refs/heads/feat/rel-ebusy >/dev/null 2>&1; then
+    FAIL=$((FAIL + 1)); echo "  FAIL release ebusy-retry branch still present after retry"
+  else
+    PASS=$((PASS + 1)); echo "  ok  release ebusy-retry branch deleted after retrying past the transient failure"
+  fi
+  EBCFG=$(git config --get "branch.feat/rel-ebusy.description" 2>/dev/null || true)
+  assert_eq "release ebusy-retry config section gone" "$EBCFG" ""
+  assert_not_contains "release ebusy-retry stderr has no false 'kept' message" "$REBERR" "kept feat/rel-ebusy"
+  rm -rf "$SHIMDIR2"
+else
+  echo "  skip T26 ebusy retry (git not found for shim)"
+fi
+
+echo "== T27 negative control: the C4/H marker checks correctly flag a fixture missing them (review L7) =="
+DECOY_C4=$(mktemp "${TMPDIR:-/tmp}/wt-decoy-c4.XXXXXX")
+cat > "$DECOY_C4" << 'DECOYEOF'
+# decoy prompt file with none of the required markers
+Ask the user to confirm removal.
+DECOYEOF
+C4_MISS=0
+grep -qF -- "release --preview" "$DECOY_C4" || C4_MISS=$((C4_MISS + 1))
+grep -qF -- "ahead_of_base" "$DECOY_C4" || C4_MISS=$((C4_MISS + 1))
+grep -qF -- "ahead_of_upstream" "$DECOY_C4" || C4_MISS=$((C4_MISS + 1))
+grep -qF -- "confirm: slug" "$DECOY_C4" || C4_MISS=$((C4_MISS + 1))
+grep -qF -- "confirm: yesno" "$DECOY_C4" || C4_MISS=$((C4_MISS + 1))
+grep -qE 'Type .* to confirm' "$DECOY_C4" || C4_MISS=$((C4_MISS + 1))
+grep -qE 'not\*{0,2}[[:space:]]+confirmation' "$DECOY_C4" || C4_MISS=$((C4_MISS + 1))
+assert_eq "T22 negative control: decoy prompt file misses all 7 C4 markers" "$C4_MISS" "7"
+
+DECOY_HIT=$(mktemp "${TMPDIR:-/tmp}/wt-decoy-c4hit.XXXXXX")
+cat > "$DECOY_HIT" << 'DECOYHITEOF'
+This branch has already been merged.
+DECOYHITEOF
+if grep -qF -- "has already been merged" "$DECOY_HIT"; then
+  PASS=$((PASS + 1)); echo "  ok  T22 negative control: banned-phrase check catches a planted hit"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T22 negative control: banned-phrase check missed a planted hit"
+fi
+rm -f "$DECOY_C4" "$DECOY_HIT"
+
+DECOY_H=$(mktemp "${TMPDIR:-/tmp}/wt-decoy-h.XXXXXX")
+cat > "$DECOY_H" << 'DECOYHEOF'
+# decoy docs page with none of the required markers
+Release removes the worktree and the branch.
+DECOYHEOF
+H_MISS=0
+grep -qF -- "never force-removes" "$DECOY_H" || H_MISS=$((H_MISS + 1))
+grep -qF -- "only when it is merged" "$DECOY_H" || H_MISS=$((H_MISS + 1))
+grep -qF -- "typed slug" "$DECOY_H" || H_MISS=$((H_MISS + 1))
+assert_eq "T23 negative control: decoy docs page misses all 3 doc markers" "$H_MISS" "3"
+
+DECOY_ROW=$(mktemp "${TMPDIR:-/tmp}/wt-decoy-row.XXXXXX")
+cat > "$DECOY_ROW" << 'DECOYROWEOF'
+| `release <slug>` | Confirm in chat, then remove lock + worktree if clean |
+DECOYROWEOF
+if grep -qF -- "| \`release <slug>\` | Confirm in chat, then remove lock + worktree if clean |" "$DECOY_ROW"; then
+  PASS=$((PASS + 1)); echo "  ok  T23 negative control: bare-row check catches a planted hit"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T23 negative control: bare-row check missed a planted hit"
+fi
+rm -f "$DECOY_H" "$DECOY_ROW"
 echo
 echo "Results: PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

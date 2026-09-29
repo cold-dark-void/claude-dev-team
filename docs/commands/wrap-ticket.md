@@ -80,7 +80,7 @@ To force-close a task: TaskUpdate <task_id> status:completed
 
 8. **Add deferred items to backlog** — any work explicitly deferred during the ticket (noted in agent context files) is surfaced and offered as backlog entries. Asks before creating them.
 
-9. **Remove worktree** — asks for confirmation before running `git worktree remove`. If the worktree has uncommitted changes, git will refuse and the command reports clearly without force-removing.
+9. **Remove the worktree** — shows a preview first. The preview shows the commits ahead of the base and ahead of the upstream. It shows whether the branch is merged. It asks for confirmation. If the branch is not merged, you must enter the typed slug or ticket ID. A plain yes does not count. `worktree-lib.sh release` never force-removes the worktree. It deletes the branch only when it is merged. An unmerged branch stays, with a warning. If the worktree has uncommitted changes, the command refuses. It reports the problem, with no force-remove fallback.
 
 10. **Prune remote feat branches** — constructs `feat/<TICKET-ID>` (and epic/child names when you wrap an epic). Deletes a remote only when the name is allowlisted and merged (ancestor or squash-equivalent). Unique commits print `leftover: feat/<id>`. Network errors print `remote prune failed:` and wrap continues. Child wrap does not prune parent `feat/epic-<parent>`.
 

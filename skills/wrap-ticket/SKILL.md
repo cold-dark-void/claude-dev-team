@@ -48,23 +48,14 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 TICKET_ID="<TICKET-ID>"
+DEF='{}'
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$TICKET_ID" 2>/dev/null || true)
-SKIP_RELEASE=$(jq -r '.skip_release // false' <<<"${CHILD_WT:-{}}")
-USE_SHARED=$(jq -r '.use_shared // false' <<<"${CHILD_WT:-{}}")
-if [ "$USE_SHARED" = "true" ]; then
-  # Epic shared integration tree — learnings path only; Step 6 MUST NOT release it
-  WORKTREE_PATH=$(jq -r '.integration_path // empty' <<<"$CHILD_WT")
-elif [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
-  # New convention: $MROOT/.worktrees/<TICKET-ID>
-  WORKTREE_PATH="$MROOT/.worktrees/$TICKET_ID"
-else
-  # Legacy: sibling directory
-  WORKTREE_PATH=$(git worktree list --porcelain \
-    | grep "^worktree " \
-    | sed 's/^worktree //' \
-    | grep -wF "$TICKET_ID" | head -1)
-fi
+SKIP_RELEASE=$(jq -r '.skip_release // false' <<<"${CHILD_WT:-$DEF}")
+# One worktree matcher (WP 1-06) — resolves epic shared integration, then
+# $MROOT/.worktrees/<TICKET-ID>, then a legacy sibling (exact match only).
+RESOLVE_WT=$(bash "$PDH/skills/plugin-dir.sh" file skills/wrap-ticket/resolve-worktree.sh)
+WORKTREE_PATH=$(bash "$RESOLVE_WT" "$TICKET_ID")
 ```
 
 `$WORKTREE_PATH` is used in all downstream steps. If empty, no worktree was found —
@@ -148,25 +139,30 @@ Completion could not be verified — no task records found for <TICKET-ID>.
 
 ## Step 2: Collect learnings from agent context files
 
-Read each agent's context.md for this ticket's worktree:
+Read each agent's context.md and find the matching plan — from the ticket's
+worktree (`resolve-worktree.sh`), not from `$MROOT`, unless the worktree is
+already gone (WP 1-06, CDT-278 F20):
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+TICKET_ID="<TICKET-ID>"
+RESOLVE_WT=$(bash "$PDH/skills/plugin-dir.sh" file skills/wrap-ticket/resolve-worktree.sh)
+WT=$(bash "$RESOLVE_WT" "$TICKET_ID")
+if [ -z "$WT" ] || [ ! -d "$WT" ]; then
+  echo "warning: ticket worktree not found — reading $MROOT" >&2
+  WT="$MROOT"
+fi
 for agent in ic4 ic5 qa tech-lead pm devops; do
-  cat $WTROOT/.claude/memory/$agent/context.md 2>/dev/null
+  cat "$WT/.claude/memory/$agent/context.md" 2>/dev/null
 done
-```
-
-Also read the plan file:
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-ls $WTROOT/.claude/plans/ | grep -wF "$TICKET_ID"  # lint-ok: C1
+ls "$WT/.claude/plans/" 2>/dev/null | grep -wF -- "$TICKET_ID"
+if [ "$WT" != "$MROOT" ]; then
+  ls "$MROOT/.claude/plans/" 2>/dev/null | grep -wF -- "$TICKET_ID"
+fi
 ```
 
 From these, extract:
@@ -192,11 +188,10 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 
 Read current memory:
 ```bash
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-MEMDB="$MROOT/.claude/memory/memory.db"
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
   if [ "$HAS_DISTILLED" -gt 0 ]; then
@@ -226,12 +221,18 @@ Step 2). wrap-ticket appends ONE consolidated learnings doc per wrap; the table 
 key, so `INSERT OR REPLACE` would just append a duplicate every time. Append-only is correct —
 distillation (`/memory distill`) compresses older rows later.
 ```bash
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-MEMDB="$MROOT/.claude/memory/memory.db"
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-CONTENT="<the new learnings section only (## <TICKET-ID> learnings …) — NOT the full re-read>"
+MEMDB="$MROOT/.claude/memory/memory.db"
+LEARN_F=$(mktemp "${TMPDIR:-/tmp}/wrap-learnings.XXXXXX")
+if [ -z "$LEARN_F" ]; then
+  echo "wrap-ticket: mktemp failed — learnings not written" >&2
+else
+cat > "$LEARN_F" <<'LEARNINGS_EOF'
+<the new learnings section only (## <TICKET-ID> learnings …) — NOT the full re-read>
+LEARNINGS_EOF
+CONTENT=$(cat "$LEARN_F"); rm -f "$LEARN_F"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
   MEMORY_ID=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('claude', 'memory', '$ESCAPED');
@@ -243,9 +244,9 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   [ -n "$EMB" ] && [ -n "$MEMORY_ID" ] && bash "$EMB" "$MEMDB" "$MEMORY_ID" "$CONTENT" 2>/dev/null || true
 else
   # Fallback: append to .md (NEVER truncate — append-only contract, SPEC-004)
-  cat >> "$MROOT/.claude/memory/claude/memory.md" << MEMEOF
-$CONTENT
-MEMEOF
+  mkdir -p "$MROOT/.claude/memory/claude"
+  printf '%s\n' "$CONTENT" >> "$MROOT/.claude/memory/claude/memory.md"
+fi
 fi
 ```
 
@@ -303,12 +304,32 @@ Find the plan entry in `$MROOT/.claude/plans.md` (if it exists):
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-grep -wF "$TICKET_ID" $MROOT/.claude/plans.md 2>/dev/null  # lint-ok: C1
+TICKET_ID="<TICKET-ID>"
+grep -wF "$TICKET_ID" "$MROOT/.claude/plans.md" 2>/dev/null
 ```
 
 If found, update its status from `[IN PROGRESS]` or `[ACTIVE]` to `[COMPLETED]`.
 
 If `plans.md` doesn't exist, skip silently.
+
+---
+
+## Step 5: Add any deferred items to backlog
+
+If learnings from Step 2 include deferred work (things descoped, follow-up tickets,
+known limitations), add them to the backlog:
+
+For each deferred item, call `/backlog add <title>` or prompt the user:
+
+```
+Found N deferred items from <TICKET-ID>:
+  1. "No loading indicator during export — large folders feel frozen"
+  2. "Gio backend not covered — export only works in Fyne"
+
+Add these to the backlog? (y/n)
+```
+
+If yes: create backlog entries for each.
 
 ---
 
@@ -360,25 +381,6 @@ write-through stays on disk only — **MUST NOT** stage or commit
 
 ---
 
-## Step 5: Add any deferred items to backlog
-
-If learnings from Step 2 include deferred work (things descoped, follow-up tickets,
-known limitations), add them to the backlog:
-
-For each deferred item, call `/backlog add <title>` or prompt the user:
-
-```
-Found N deferred items from <TICKET-ID>:
-  1. "No loading indicator during export — large folders feel frozen"
-  2. "Gio backend not covered — export only works in Fyne"
-
-Add these to the backlog? (y/n)
-```
-
-If yes: create backlog entries for each.
-
----
-
 ## Step 6: Remove the worktree
 
 **CDT-141-C3 critical:** if this ticket is an epic child on a **shared integration**
@@ -398,9 +400,10 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 TICKET_ID="<TICKET-ID>"
+DEF='{}'
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$TICKET_ID" 2>/dev/null || true)
-if [ "$(jq -r '.skip_release // false' <<<"${CHILD_WT:-{}}")" = "true" ]; then
+if [ "$(jq -r '.skip_release // false' <<<"${CHILD_WT:-$DEF}")" = "true" ]; then
   INT_PATH=$(jq -r '.integration_path // empty' <<<"$CHILD_WT")
   echo "Shared epic integration worktree — skipping release for $TICKET_ID"
   echo "(integration: $INT_PATH; removed only at epic seal / end-of-epic)"
@@ -411,11 +414,52 @@ else
 fi
 ```
 
-If **not** shared and a worktree was found in Step 0:
+If **not** shared and a worktree was found in Step 0, run the preview first
+(SPEC-016 `release --preview`; WP 1-06, rv-w3-08). The preview is read-only —
+it never removes the lock, the worktree, the branch or the config section:
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+TICKET_ID="<TICKET-ID>"
+WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
+bash "$WT_LIB" release --preview "$TICKET_ID"
+```
+
+`release --preview` prints eight lines: `branch`, `base`, `ahead_of_base`,
+`upstream`, `ahead_of_upstream`, `merged`, `pushed`, `confirm`. Show the engineer
+`ahead_of_base` and `ahead_of_upstream` (or `no upstream` when `upstream: none`),
+`merged` and `pushed`. State what the lib does: it removes the worktree only
+when the tree is clean, it never force-removes, and it deletes `feat/<TICKET-ID>`
+only when the branch is merged — an unmerged branch is kept.
+
+If the preview printed `confirm: slug`:
 
 ```
-About to remove worktree at <path>.
-This cannot be undone. The branch feat/<TICKET-ID>-* has already been merged.
+About to remove worktree at <path>. feat/<TICKET-ID> is NOT merged into <base>
+and will be kept. ahead_of_base: <n>  ahead_of_upstream: <n or "no upstream">
+Type `<TICKET-ID>` to confirm.
+```
+
+`yes` is not confirmation — only the exact typed `<TICKET-ID>` proceeds.
+
+If the preview printed `confirm: yesno` and `branch: none` (no `feat/<TICKET-ID>`
+branch exists — only a plain worktree):
+
+```
+About to remove worktree at <path>. No feat/<TICKET-ID> branch exists — only
+the worktree is removed.
+Proceed? (y/n)
+```
+
+If the preview printed `confirm: yesno` and a branch (merged):
+
+```
+About to remove worktree at <path>. feat/<TICKET-ID> is merged into <base> and
+will be deleted. ahead_of_base: <n>  pushed: <yes or no>
 Proceed? (y/n)
 ```
 
@@ -424,7 +468,7 @@ If yes (and `skip_release` is false):
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-cd $MROOT
+cd "$MROOT"
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 TICKET_ID="<TICKET-ID>"
@@ -439,19 +483,34 @@ if [ -d "$MROOT/.worktrees/$TICKET_ID" ]; then
   WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
   bash "$WT_LIB" release "$TICKET_ID"
 else
-  # Legacy sibling path — re-resolve WORKTREE_PATH (fresh shell per fence)
-  WORKTREE_PATH=$(git worktree list --porcelain \
-    | grep "^worktree " \
-    | sed 's/^worktree //' \
-    | grep -wF "$TICKET_ID" | head -1)
-  # Guard: refuse if path is an epic integration tree
-  case "$WORKTREE_PATH" in
-    */.worktrees/epic-*) echo "Refusing to remove epic integration path: $WORKTREE_PATH"; ;;
-    *)
-      git worktree remove "$WORKTREE_PATH"
-      git branch -D "feat/$TICKET_ID" 2>/dev/null || true
-      ;;
-  esac
+  # Legacy sibling path — one worktree matcher (WP 1-06). No fence keeps its
+  # own grep; base + branch delete go through git-safety.sh, never `git branch -D`.
+  RESOLVE_WT=$(bash "$PDH/skills/plugin-dir.sh" file skills/wrap-ticket/resolve-worktree.sh)
+  WORKTREE_PATH=$(bash "$RESOLVE_WT" "$TICKET_ID")
+  if [ -z "$WORKTREE_PATH" ]; then
+    echo "No legacy worktree for $TICKET_ID — skipping"
+  else
+    case "$WORKTREE_PATH" in
+      */.worktrees/epic-*)
+        echo "Refusing to remove epic integration path: $WORKTREE_PATH"
+        ;;
+      *)
+        if git worktree remove "$WORKTREE_PATH"; then
+          GIT_SAFETY=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/git-safety.sh)
+          BASE=$(bash "$GIT_SAFETY" resolve-base) || BASE=""
+          if [ -n "$BASE" ] && bash "$GIT_SAFETY" safe-delete-branch "feat/$TICKET_ID" "$BASE"; then
+            :
+          elif [ -n "$BASE" ]; then
+            echo "Kept feat/$TICKET_ID: not merged into $BASE"
+          else
+            echo "Kept feat/$TICKET_ID: no base"
+          fi
+        else
+          echo "worktree remove failed for $WORKTREE_PATH — not forcing; kept feat/$TICKET_ID"
+        fi
+        ;;
+    esac
+  fi
 fi
 fi
 ```
@@ -480,9 +539,9 @@ Candidates for ticket `T`:
 - Child wrap (`skip_release=true`): prune `feat/<child>` only. Do **not** pass
   `--epic`. Do **not** add parent `feat/epic-<parent>`.
 
-Delete a name only when it is allowlisted **and** safe versus the merge base
-(`origin/HEAD`, else `origin/master` / `origin/main`, else local `master` /
-`main`): `git merge-base --is-ancestor` **or** `git cherry` with no `+` lines
+Delete a name only when it is allowlisted **and** safe versus the base that
+`git-safety.sh resolve-base` resolves (SPEC-025 M17 item 9 — the order lives
+there only): `git merge-base --is-ancestor` **or** `git cherry` with no `+` lines
 (squash-equivalent). Unique `+` commits print `leftover: feat/X (<reason>)` and
 are not deleted. Never `git push --force`. Never delete a protected name.
 
@@ -504,7 +563,8 @@ TICKET_ID="<TICKET-ID>"
 PRUNE=$(bash "$PDH/skills/plugin-dir.sh" file skills/wrap-ticket/prune-remote.sh)
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 CHILD_WT=$(bash "$EPIC_LIB" resolve-child-worktree "$TICKET_ID" 2>/dev/null || true)
-SKIP_RELEASE=$(jq -r '.skip_release // false' <<<"${CHILD_WT:-{}}")
+DEF='{}'
+SKIP_RELEASE=$(jq -r '.skip_release // false' <<<"${CHILD_WT:-$DEF}")
 EPIC_FLAG=""
 if [ "$SKIP_RELEASE" != "true" ] && [ -f "$EPIC_LIB" ] && bash "$EPIC_LIB" exists "$TICKET_ID" 2>/dev/null; then
   EPIC_FLAG="--epic"
@@ -527,14 +587,20 @@ Check for an active CI-watch sidecar for this ticket:
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
-SIDECAR_PATH=$(bash "$SIDECAR_CLI" path "$TICKET_ID" 2>/dev/null)  # lint-ok: C1
+TICKET_ID="<TICKET-ID>"
+SIDECAR_PATH=$(bash "$SIDECAR_CLI" path "$TICKET_ID" 2>/dev/null)
 ```
 
 If `$SIDECAR_PATH` is non-empty and the file exists:
 
 1. Read the cron job ID:
    ```bash
-   CRON_ID=$(jq -r '.cron_job_id // empty' "$SIDECAR_PATH")  # lint-ok: C1
+   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+   TICKET_ID="<TICKET-ID>"
+   SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
+   SIDECAR_PATH=$(bash "$SIDECAR_CLI" path "$TICKET_ID" 2>/dev/null)
+   CRON_ID=$(jq -r '.cron_job_id // empty' "$SIDECAR_PATH")
    ```
 
 2. If `CRON_ID` is non-empty:
@@ -545,10 +611,11 @@ If `$SIDECAR_PATH` is non-empty and the file exists:
 3. Clean up the sidecar file (reuse `$SIDECAR_CLI` from the block above, or
    re-resolve it if running this block fresh):
    ```bash
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
-   bash "$SIDECAR_CLI" delete "$TICKET_ID"  # lint-ok: C1
+   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+   SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
+   TICKET_ID="<TICKET-ID>"
+   bash "$SIDECAR_CLI" delete "$TICKET_ID"
    ```
    Print: `CI watch sidecar cleaned up.`
 
