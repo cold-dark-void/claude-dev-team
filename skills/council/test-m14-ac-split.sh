@@ -366,71 +366,88 @@ fi
 
 
 
-# ---- AC M: this WP's own SPEC-033 subsection, the tree about to ship -----
-# Runs $ROOT's own current split script (not the clone's stale copy)
-# against a `git clone -q` of this worktree's HEAD, overlaid with the
-# INDEX's spec and every Verify-named file it lists, committed in the
+
+# dogfood_subsection <ticket> <expected_technical> <expected_process_csv>
+# Runs $ROOT's own current split script (not a clone's stale copy) against
+# a `git clone -q` of this worktree's HEAD, overlaid with the INDEX's spec
+# and every Verify-named file <ticket>'s subsection lists, committed in the
 # clone only: /release Step 4.13 runs this suite with the WP's diff
 # squash-staged into the INDEX but not yet committed, so a plain clone's
-# HEAD (objects only) lacks this subsection and would wrongly fail case
-# 3, not case 10 (WP 1-15 Task 11). Reads the INDEX (`git show ":<path>"`),
+# HEAD (objects only) lacks this subsection and would wrongly fail case 3,
+# not case 10 (WP 1-15 Task 11). Reads the INDEX (`git show ":<path>"`),
 # not the working tree: a `cp` from the working tree would pass an
-# untracked Verify file that the shipped commit will not actually
-# contain -- exactly the gap case 10 exists to catch -- and would also
-# pick up unstaged edits that will never ship. A path shaped `/...`,
-# `../...`, `.../../...` or exactly `..` is skipped and left absent in
-# the clone (never used to build a path outside it); the split then
-# rejects it on its own terms.
-CLONE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/m14-ac-split-clone.XXXXXX")"
-git clone -q "$ROOT" "$CLONE_ROOT/clone"
-ACM_SPEC="specs/core/SPEC-033-autopilot-policy.md"
-mkdir -p "$CLONE_ROOT/clone/$(dirname "$ACM_SPEC")"
-git -C "$ROOT" show ":$ACM_SPEC" > "$CLONE_ROOT/clone/$ACM_SPEC" 2>/dev/null \
-  || rm -f "$CLONE_ROOT/clone/$ACM_SPEC"
-ACM_VPATHS="$(awk '
-  /^## Acceptance criteria$/ { insec = 1; next }
-  insec && !insub && /^## / { insec = 0 }
-  insec && !insub && $0 == "### wp-1-15-m14-verify-evidence" { insub = 1; next }
-  insub && (/^### / || /^## / || /^---$/) { insub = 0 }
-  insub && /^  Verify: bash / { print }
-' "$CLONE_ROOT/clone/$ACM_SPEC" 2>/dev/null | sed -E 's/^  Verify: bash ([^ ]+).*/\1/')"
-while IFS= read -r acm_vp || [ -n "$acm_vp" ]; do
-  [ -n "$acm_vp" ] || continue
-  case "$acm_vp" in
-    /*|../*|*/../*|..) continue ;;
-  esac
-  mkdir -p "$CLONE_ROOT/clone/$(dirname "$acm_vp")"
-  git -C "$ROOT" show ":$acm_vp" > "$CLONE_ROOT/clone/$acm_vp" 2>/dev/null \
-    || rm -f "$CLONE_ROOT/clone/$acm_vp"
-done <<<"$ACM_VPATHS"
-git -C "$CLONE_ROOT/clone" add -A
-git -C "$CLONE_ROOT/clone" commit -q -m "overlay index for AC M" --allow-empty
-ACM_OUT="$(cd "$CLONE_ROOT/clone" && bash "$ROOT/skills/council/m14-ac-split.sh" wp-1-15-m14-verify-evidence "$ACM_SPEC")"
-ACM_RC=$?
-rm -rf "$CLONE_ROOT"
-if [ "$ACM_RC" -eq 0 ]; then
-  ok "AC M: wp-1-15-m14-verify-evidence subsection splits at exit 0"
-else
-  fail_msg "AC M: wp-1-15-m14-verify-evidence subsection splits at exit 0 (got $ACM_RC)"
-fi
-ACM_TECH="$(echo "$ACM_OUT" | jq -r '[.acs[] | select(.process==false)] | length')"
-if [ "$ACM_TECH" = "14" ]; then
-  ok "AC M: 14 technical ACs"
-else
-  fail_msg "AC M: 14 technical ACs (got $ACM_TECH)"
-fi
-ACM_PROC="$(echo "$ACM_OUT" | jq -r '[.acs[] | select(.process==true) | .id] | join(",")')"
-if [ "$ACM_PROC" = "O,P" ]; then
-  ok "AC M: [process] ids O and P"
-else
-  fail_msg "AC M: [process] ids O and P (got $ACM_PROC)"
-fi
-ACM_NULLVERIFY="$(echo "$ACM_OUT" | jq -r '[.acs[] | select(.process==false) | select(.verify==null)] | length')"
-if [ "$ACM_NULLVERIFY" = "0" ]; then
-  ok "AC M: every technical AC has a non-null verify"
-else
-  fail_msg "AC M: every technical AC has a non-null verify (got $ACM_NULLVERIFY null)"
-fi
+# untracked Verify file that the shipped commit will not actually contain
+# -- exactly the gap case 10 exists to catch -- and would also pick up
+# unstaged edits that will never ship. A path shaped `/...`, `../...`,
+# `.../../...` or exactly `..` is skipped and left absent in the clone
+# (never used to build a path outside it); the split then rejects it on
+# its own terms.
+# Asserts: split exits 0; technical-AC count == <expected_technical>;
+# [process] ids == <expected_process_csv>; every technical AC has a
+# non-null verify. WP 1-16 T3 extract: this replaces the WP 1-15 "AC M"
+# block, parameterized so a second WP subsection can reuse it.
+dogfood_subsection() {
+  local ticket="$1" exp_tech="$2" exp_proc="$3"
+  local clone_root spec_rel out rc tech proc nullverify
+  clone_root="$(mktemp -d "${TMPDIR:-/tmp}/m14-ac-split-clone.XXXXXX")"
+  git clone -q "$ROOT" "$clone_root/clone"
+  spec_rel="specs/core/SPEC-033-autopilot-policy.md"
+  mkdir -p "$clone_root/clone/$(dirname "$spec_rel")"
+  git -C "$ROOT" show ":$spec_rel" > "$clone_root/clone/$spec_rel" 2>/dev/null \
+    || rm -f "$clone_root/clone/$spec_rel"
+  local vpaths
+  vpaths="$(DF_TICKET="### $ticket" awk '
+    /^## Acceptance criteria$/ { insec = 1; next }
+    insec && !insub && /^## / { insec = 0 }
+    insec && !insub && $0 == ENVIRON["DF_TICKET"] { insub = 1; next }
+    insub && (/^### / || /^## / || /^---$/) { insub = 0 }
+    insub && /^  Verify: bash / { print }
+  ' "$clone_root/clone/$spec_rel" 2>/dev/null | sed -E 's/^  Verify: bash ([^ ]+).*/\1/')"
+  local vp
+  while IFS= read -r vp || [ -n "$vp" ]; do
+    [ -n "$vp" ] || continue
+    case "$vp" in
+      /*|../*|*/../*|..) continue ;;
+    esac
+    mkdir -p "$clone_root/clone/$(dirname "$vp")"
+    git -C "$ROOT" show ":$vp" > "$clone_root/clone/$vp" 2>/dev/null \
+      || rm -f "$clone_root/clone/$vp"
+  done <<<"$vpaths"
+  git -C "$clone_root/clone" add -A
+  git -C "$clone_root/clone" commit -q -m "overlay index for $ticket" --allow-empty
+  out="$(cd "$clone_root/clone" && bash "$ROOT/skills/council/m14-ac-split.sh" "$ticket" "$spec_rel")"
+  rc=$?
+  rm -rf "$clone_root"
+  if [ "$rc" -eq 0 ]; then
+    ok "dogfood $ticket: subsection splits at exit 0"
+  else
+    fail_msg "dogfood $ticket: subsection splits at exit 0 (got $rc)"
+    return
+  fi
+  tech="$(echo "$out" | jq -r '[.acs[] | select(.process==false)] | length')"
+  if [ "$tech" = "$exp_tech" ]; then
+    ok "dogfood $ticket: $exp_tech technical ACs"
+  else
+    fail_msg "dogfood $ticket: $exp_tech technical ACs (got $tech)"
+  fi
+  proc="$(echo "$out" | jq -r '[.acs[] | select(.process==true) | .id] | join(",")')"
+  if [ "$proc" = "$exp_proc" ]; then
+    ok "dogfood $ticket: [process] ids $exp_proc"
+  else
+    fail_msg "dogfood $ticket: [process] ids $exp_proc (got $proc)"
+  fi
+  nullverify="$(echo "$out" | jq -r '[.acs[] | select(.process==false) | select(.verify==null)] | length')"
+  if [ "$nullverify" = "0" ]; then
+    ok "dogfood $ticket: every technical AC has a non-null verify"
+  else
+    fail_msg "dogfood $ticket: every technical AC has a non-null verify (got $nullverify null)"
+  fi
+}
+
+# ---- AC M (WP 1-15) + WP 1-16: this WP's own SPEC-033 subsections, the ---
+# tree about to ship.
+dogfood_subsection wp-1-15-m14-verify-evidence 14 O,P
+dogfood_subsection wp-1-16-m14-finder-recipe 8 I,J,K,L
 
 echo "---"
 echo "pass=$pass fail=$fail"

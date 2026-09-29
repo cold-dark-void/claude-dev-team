@@ -24,6 +24,19 @@
 #        byte-equal to a committed golden extracted from `cbee656` (WP 1-15
 #        AC G). The M14(d) golden (g4) is unchanged.
 #
+# WP 1-16 AC F (SPEC-033 M14(g) finder recipe): g8-g10, a6-a7.
+#   g8 — `append-card.sh` is byte-identical to `38bc739` (`assert_blob_hash`,
+#        shared with g6).
+#   g9 — `ship-gate-council.md` §5, extracted by its `## 5.`/`## 6.` markers,
+#        is byte-equal to a committed golden extracted from `38bc739`.
+#   g10 — `skills/council/engine.sh` holds `M14_VERIFY_TOOL_BUDGET=8` and
+#        `INVESTIGATOR_TOOL_BUDGET=5`.
+#   a6 — SPEC-033 has a dated 2026-09-28 WP 1-16 row naming M14(g), M14(j),
+#        the no-elision rule and the judge caps ("can only lower a
+#        confidence"); SPEC-013 has a dated 2026-09-28 WP 1-16 row.
+#   a7 — ship-gate-council.md §3b names "finder recipe" and M14(g), and does
+#        not hold "RECIPE STEP" (no restatement of the recipe's own steps).
+#
 # Also covers AC A (a1-a5): SPEC-033 Version History names the review report;
 # ship-gate-council.md line 7/8 names the mapper and "not a render helper";
 # it cites M14(b)/(i) and does not restate M14(b)'s worst-order string or
@@ -58,6 +71,11 @@ GOLDEN="$SCRIPT_DIR/fixtures/ship-gate-guardrails/m14d.golden.md"
 GOLDEN_M14B="$SCRIPT_DIR/fixtures/ship-gate-guardrails/m14b.golden.md"
 VERDICT_SH="$SCRIPT_DIR/ship-gate-verdict.sh"
 VERDICT_BLOB="$SCRIPT_DIR/fixtures/ship-gate-guardrails/ship-gate-verdict.blob"
+APPEND_CARD_SH="$SCRIPT_DIR/append-card.sh"
+APPEND_CARD_BLOB="$SCRIPT_DIR/fixtures/ship-gate-guardrails/append-card.blob"
+GOLDEN_SGC_S5="$SCRIPT_DIR/fixtures/ship-gate-guardrails/sgc-s5.golden.md"
+ENGINE_SH="$ROOT/skills/council/engine.sh"
+SPEC013="$ROOT/specs/core/SPEC-013-adversarial-council-tribunal.md"
 W1="$ROOT/skills/orchestrate/steps/06-design.md"
 W2="$ROOT/skills/orchestrate/steps/04-kickoff.md"
 W3="$ROOT/skills/orchestrate/steps/10-qa.md"
@@ -74,7 +92,7 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/ship-gate-guardrails-test.XXXXXX")
 cleanup() { rm -rf "$TMP"; hermetic_cleanup; }
 trap cleanup EXIT
 
-for f in "$SPEC" "$SG" "$GOLDEN" "$GOLDEN_M14B" "$VERDICT_SH" "$VERDICT_BLOB" "$W1" "$W2" "$W3" "$W4"; do
+for f in "$SPEC" "$SG" "$GOLDEN" "$GOLDEN_M14B" "$VERDICT_SH" "$VERDICT_BLOB" "$APPEND_CARD_SH" "$APPEND_CARD_BLOB" "$GOLDEN_SGC_S5" "$ENGINE_SH" "$SPEC013" "$W1" "$W2" "$W3" "$W4"; do
   if [ ! -f "$f" ]; then
     echo "FAIL: fixture/source file missing: $f" >&2
     exit 1
@@ -173,6 +191,55 @@ mutate_m14d_self_verified() {
 
 # has <file> <substring>  — literal substring present (exit 0) or not (1).
 has() { grep -F -q -- "$2" "$1"; }
+
+# assert_blob_hash <file> <blob-fixture> <label> — hashes <file> with
+# `git hash-object` and compares it to the committed blob-hash text in
+# <blob-fixture>. Also runs the bite test: hashes a copy of <file> with one
+# appended byte and confirms that mutated hash diverges from the fixture.
+# pass()/fail() as with every other check in this suite. Shared by g6
+# (ship-gate-verdict.sh) and g8 (append-card.sh) — WP 1-16 T3 extract,
+# replacing two near-identical inline blocks (TL review M6).
+assert_blob_hash() {
+  local file=$1 blob_fixture=$2 label=$3
+  local hash fixture_hash mutfile mut_hash
+  hash=$(git -C "$ROOT" hash-object "$file" 2>/dev/null) || hash=""
+  fixture_hash=$(cat "$blob_fixture")
+  if [ -n "$hash" ] && [ "$hash" = "$fixture_hash" ]; then
+    pass "$label byte-identical (blob $fixture_hash)"
+  else
+    fail "$label hash $hash does not match blob $fixture_hash"
+  fi
+
+  mutfile=$(mktemp "$TMP/assert-blob-hash-mut.XXXXXX") || { fail "$label-bite could not create a mutation tempfile"; return 1; }
+  cp -- "$file" "$mutfile" || { fail "$label-bite could not copy $file"; return 1; }
+  printf '# %s-bite mutation\n' "$label" >> "$mutfile" || fail "$label-bite could not append the mutation byte"
+  mut_hash=$(git -C "$ROOT" hash-object "$mutfile" 2>/dev/null) || mut_hash=""
+  if [ "$mut_hash" = "$fixture_hash" ]; then
+    fail "$label-bite mutated copy still matched the blob fixture"
+  else
+    pass "$label-bite mutated copy diverges from blob fixture -> check would fail"
+  fi
+}
+
+# extract_sgc_s5 <ship-gate-council.md path> -- the §5 block, from the
+# "## 5." heading line up to (not including) the "## 6." heading line.
+extract_sgc_s5() {
+  awk '
+    /^## 5\./ { grab = 1 }
+    grab && /^## 6\./ { exit }
+    grab { print }
+  ' "$1"
+}
+
+# extract_sgc_3b <ship-gate-council.md path> -- the §3b block ("### 3b."
+# heading up to, not including, the next "## " top-level heading).
+extract_sgc_3b() {
+  awk '
+    /^### 3b\./ { grab = 1 }
+    grab && /^## / { exit }
+    grab { print }
+  ' "$1"
+}
 
 # =============================================================================
 # g1 — M14 fires once per attempt, with exactly two cards.
@@ -551,25 +618,11 @@ else
   fail "a5-bite injected 'run-all-tests.sh' mention was not detected"
 fi
 
+
 # =============================================================================
 # g6 (WP 1-15 AC G) — ship-gate-verdict.sh is byte-identical to cbee656.
 # =============================================================================
-VERDICT_HASH=$(git -C "$ROOT" hash-object "$VERDICT_SH" 2>/dev/null) || VERDICT_HASH=""
-FIXTURE_HASH=$(cat "$VERDICT_BLOB")
-if [ -n "$VERDICT_HASH" ] && [ "$VERDICT_HASH" = "$FIXTURE_HASH" ]; then
-  pass "g6 ship-gate-verdict.sh byte-identical to cbee656 (blob $FIXTURE_HASH)"
-else
-  fail "g6 ship-gate-verdict.sh hash $VERDICT_HASH does not match cbee656 blob $FIXTURE_HASH"
-fi
-# Bite: hash a mutated copy (one appended byte) and confirm it diverges.
-cp -- "$VERDICT_SH" "$TMP/g6-mut.sh" || fail "g6-bite could not copy ship-gate-verdict.sh"
-printf '# g6-bite mutation\n' >> "$TMP/g6-mut.sh"
-MUT_HASH=$(git -C "$ROOT" hash-object "$TMP/g6-mut.sh" 2>/dev/null) || MUT_HASH=""
-if [ "$MUT_HASH" = "$FIXTURE_HASH" ]; then
-  fail "g6-bite mutated ship-gate-verdict.sh copy still matched the blob fixture"
-else
-  pass "g6-bite mutated ship-gate-verdict.sh copy diverges from blob fixture -> check would fail"
-fi
+assert_blob_hash "$VERDICT_SH" "$VERDICT_BLOB" "g6 ship-gate-verdict.sh"
 
 # =============================================================================
 # g7 (WP 1-15 AC G) — SPEC-033 M14(b) block, extracted by its (b)..(c)
@@ -593,6 +646,138 @@ if diff <(printf '%s\n' "$MUT_BLOCK_B") "$GOLDEN_M14B" >/dev/null 2>&1; then
   fail "g7-bite mutated M14(b) block still matched the golden"
 else
   pass "g7-bite mutated M14(b) block diverges from golden -> byte-compare would fail"
+fi
+
+# =============================================================================
+# g8 (WP 1-16 AC F) — append-card.sh is byte-identical to 38bc739.
+# =============================================================================
+assert_blob_hash "$APPEND_CARD_SH" "$APPEND_CARD_BLOB" "g8 append-card.sh"
+# =============================================================================
+# g9 (WP 1-16 AC F) — ship-gate-council.md §5, extracted by its "## 5." /
+# "## 6." markers, is byte-equal to a committed golden extracted from
+# 38bc739 (the recipe citation lands after §3b; §5 stays untouched). Uses
+# `cmp` on files, not a `$(...)`/diff round-trip, so a trailing-newline-only
+# change in §5 is still caught (TL review L5).
+# =============================================================================
+extract_sgc_s5 "$SG" > "$TMP/g9-live-s5.md"
+if [ ! -s "$TMP/g9-live-s5.md" ]; then
+  fail "g9 could not extract §5 block from ship-gate-council.md"
+elif cmp -s "$TMP/g9-live-s5.md" "$GOLDEN_SGC_S5"; then
+  pass "g9 ship-gate-council.md §5 byte-equal to committed golden (base 38bc739)"
+else
+  fail "g9 ship-gate-council.md §5 differs from golden"
+fi
+# Bite: mutate one word inside the live §5 block and confirm it diverges.
+remove_line_substr "$SG" "$TMP/g9-sg-mut.md" "regardless of that self-verified run's own reported confidence"
+extract_sgc_s5 "$TMP/g9-sg-mut.md" > "$TMP/g9-mut-s5.md"
+if cmp -s "$TMP/g9-mut-s5.md" "$GOLDEN_SGC_S5"; then
+  fail "g9-bite mutated §5 block still matched the golden"
+else
+  pass "g9-bite mutated §5 block diverges from golden -> byte-compare would fail"
+fi
+
+# g9c-bite — a trailing-newline-only change to §5 (no word mutation) MUST
+# also diverge under `cmp`, proving L5's fix actually bites (a `diff
+# <(printf '%s\n' ...)` round-trip would silently swallow this one).
+{ cat -- "$GOLDEN_SGC_S5"; printf '\n'; } > "$TMP/g9c-trailing-nl.md"
+if cmp -s "$TMP/g9c-trailing-nl.md" "$GOLDEN_SGC_S5"; then
+  fail "g9c-bite an extra trailing newline still compared equal to the golden"
+else
+  pass "g9c-bite an extra trailing newline diverges from the golden -> cmp would fail"
+fi
+
+# =============================================================================
+# g10 (WP 1-16 AC F) — engine.sh holds the two M14 tool-budget constants.
+# =============================================================================
+G10_A="readonly M14_VERIFY_TOOL_BUDGET=8"
+G10_B="readonly INVESTIGATOR_TOOL_BUDGET=5"
+
+if has "$ENGINE_SH" "$G10_A" && has "$ENGINE_SH" "$G10_B"; then
+  pass "g10 engine.sh: holds both M14 tool-budget constants (8, 5)"
+else
+  fail "g10 engine.sh: missing one of the M14 tool-budget constants"
+fi
+remove_line_substr "$ENGINE_SH" "$TMP/g10-mut.sh" "$G10_A"
+if has "$TMP/g10-mut.sh" "$G10_A"; then
+  fail "g10-bite mutation did not remove the M14_VERIFY_TOOL_BUDGET constant"
+else
+  pass "g10-bite mutated engine.sh loses M14_VERIFY_TOOL_BUDGET=8 -> check would fail"
+fi
+
+# =============================================================================
+# a6 (WP 1-16 AC F) — SPEC-033 and SPEC-013 each carry a dated 2026-09-28
+# WP 1-16 row naming the recipe, the budget, the no-elision rule and the
+# judge caps.
+# =============================================================================
+ROW3=$(grep '| 2026-09-28 |' "$SPEC" | grep 'WP 1-16' || true)
+if [ -n "$ROW3" ] \
+  && printf '%s' "$ROW3" | grep -q 'M14(g)' \
+  && printf '%s' "$ROW3" | grep -q 'M14(j)' \
+  && printf '%s' "$ROW3" | grep -q 'elision' \
+  && printf '%s' "$ROW3" | grep -q '79' \
+  && printf '%s' "$ROW3" | grep -q 'can only lower a confidence'
+then
+  pass "a6 SPEC-033: dated WP 1-16 row names M14(g), M14(j), elision, 79 and 'can only lower a confidence'"
+else
+  fail "a6 SPEC-033: WP 1-16 row missing or missing one of its required citations"
+fi
+remove_all_substr "$SPEC" "$TMP/a6-spec-mut.md" "can only lower a confidence"
+MUT_ROW3=$(grep '| 2026-09-28 |' "$TMP/a6-spec-mut.md" | grep 'WP 1-16' || true)
+if printf '%s' "$MUT_ROW3" | grep -q 'can only lower a confidence'; then
+  fail "a6-bite mutation did not remove the 'can only lower a confidence' phrase"
+else
+  pass "a6-bite mutated row loses 'can only lower a confidence' -> check would fail"
+fi
+
+ROW4=$(grep '| 2026-09-28 |' "$SPEC013" | grep 'WP 1-16' || true)
+if [ -n "$ROW4" ]; then
+  pass "a6 SPEC-013: has a dated 2026-09-28 WP 1-16 row"
+else
+  fail "a6 SPEC-013: missing a dated 2026-09-28 WP 1-16 row"
+fi
+remove_all_substr "$SPEC013" "$TMP/a6-spec013-mut.md" "WP 1-16"
+MUT_ROW4=$(grep '| 2026-09-28 |' "$TMP/a6-spec013-mut.md" | grep 'WP 1-16' || true)
+if [ -n "$MUT_ROW4" ]; then
+  fail "a6-bite SPEC-013 mutation did not remove the WP 1-16 row"
+else
+  pass "a6-bite SPEC-013 mutated row loses 'WP 1-16' -> check would fail"
+fi
+
+
+# =============================================================================
+# a7 (WP 1-16 AC F) — ship-gate-council.md §3b (only) names "finder recipe"
+# and does not restate the recipe's own step headings. Scoped to the §3b
+# extract, not the whole file: `M14(g)` alone would pass at base (TL review
+# L4 — the citation this AC pins is the new "finder recipe" sentence, which
+# did not exist before this WP; `M14(g)` by itself is not new to §3b).
+# =============================================================================
+extract_sgc_3b "$SG" > "$TMP/a7-live-3b.md"
+if [ ! -s "$TMP/a7-live-3b.md" ]; then
+  fail "a7 could not extract §3b block from ship-gate-council.md"
+elif has "$TMP/a7-live-3b.md" "finder recipe" && ! has "$TMP/a7-live-3b.md" "RECIPE STEP"; then
+  pass "a7 ship-gate-council.md §3b: names 'finder recipe', no RECIPE STEP restatement"
+else
+  fail "a7 ship-gate-council.md §3b: missing 'finder recipe' citation, or restates RECIPE STEP"
+fi
+
+# Bite: remove the 'finder recipe' phrase and confirm the §3b extract loses it.
+remove_line_substr "$SG" "$TMP/a7-sg-mut.md" "finder recipe"
+extract_sgc_3b "$TMP/a7-sg-mut.md" > "$TMP/a7-mut-3b.md"
+if has "$TMP/a7-mut-3b.md" "finder recipe"; then
+  fail "a7-bite mutation did not remove the 'finder recipe' citation"
+else
+  pass "a7-bite mutated §3b loses 'finder recipe' -> check would fail"
+fi
+
+# Bite: inject a 'RECIPE STEP' restatement INSIDE §3b (not merely appended
+# at end of file, which the old whole-file check would have wrongly missed
+# once scoped) and confirm the §3b extract catches it.
+sed '/^### 3b\./a RECIPE STEP 1' "$SG" > "$TMP/a7-sg-mut2.md"
+extract_sgc_3b "$TMP/a7-sg-mut2.md" > "$TMP/a7-mut2-3b.md"
+if has "$TMP/a7-mut2-3b.md" "RECIPE STEP"; then
+  pass "a7-bite injected 'RECIPE STEP' restatement inside §3b is detected -> check would fail"
+else
+  fail "a7-bite injected 'RECIPE STEP' restatement inside §3b was not detected"
 fi
 
 # =============================================================================

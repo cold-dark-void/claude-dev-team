@@ -215,6 +215,9 @@ covers.
 An AC may name a `Verify:` command (SPEC-033 M14(a), M14(g)). The council's own
 investigators run it; autopilot does not run it and passes no output.
 
+The investigator's own verify evidence follows the **M14(g) finder recipe** (SPEC-033).
+This procedure cites that recipe by name and does not restate its steps.
+
 ## 4. Verdict interpretation
 
 Locate this run's `.finalize-meta.json` sidecar (from the invocation's `Council report:`

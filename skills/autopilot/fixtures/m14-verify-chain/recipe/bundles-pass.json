@@ -1,0 +1,86 @@
+[
+  {
+    "ac_id": "A",
+    "kind": "quote",
+    "reproducible_command": "awk -v n=7 'NR==n{p=1} p&&NR>n&&!/^  /{exit} p{print NR\": \"$0}' wp-rx-spec.md",
+    "raw_blob": "7: - **A.** the loader validates the `schema.json` config against Case 2 of the\n8:   parser and applies rule (3) before it writes the result\n9:   Verify: bash skills/fx/test-rx-a.sh"
+  },
+  {
+    "ac_id": "A",
+    "kind": "verify",
+    "reproducible_command": "bash skills/fx/test-rx-a.sh",
+    "raw_blob": "VERIFY exit=0\nVERIFY log=/tmp/verify.fx7k2p.log\nPASS=1 FAIL=0"
+  },
+  {
+    "ac_id": "A",
+    "kind": "filter",
+    "reproducible_command": "grep -nE 'AC A([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])A[0-9]*[:(]|(^|[^A-Za-z0-9_])A-[0-9]+|^(FAIL|SKIP)|(FAIL|SKIP):|PASS=|FAIL=|[Pp]ass=|[Ff]ail=|^PASS:|[0-9]+ passed|[0-9]+ failed|VERIFY exit=' A.verify.log",
+    "raw_blob": "1:PASS=1 FAIL=0\n2:VERIFY exit=0"
+  },
+  {
+    "ac_id": "A",
+    "kind": "token",
+    "reproducible_command": "grep -nF -e 'schema.json' -- skills/fx/test-rx-a.sh",
+    "raw_blob": "2:# AC A stub for the schema.json check"
+  },
+  {
+    "ac_id": "A",
+    "kind": "token",
+    "reproducible_command": "grep -nF -e 'Case 2' -- skills/fx/test-rx-a.sh",
+    "raw_blob": "3:# exercises Case 2 of the parser"
+  },
+  {
+    "ac_id": "B",
+    "kind": "quote",
+    "reproducible_command": "awk -v n=10 'NR==n{p=1} p&&NR>n&&!/^  /{exit} p{print NR\": \"$0}' wp-rx-spec.md",
+    "raw_blob": "10: - **B.** the writer commits the change recorded at skills/fx/test-rx-b.sh:5\n11:   before it logs the outcome\n12:   Verify: bash skills/fx/test-rx-b.sh"
+  },
+  {
+    "ac_id": "B",
+    "kind": "verify",
+    "reproducible_command": "bash skills/fx/test-rx-b.sh",
+    "raw_blob": "VERIFY exit=0\nVERIFY log=/tmp/verify.g92m1a.log\nPASS=1 FAIL=0"
+  },
+  {
+    "ac_id": "B",
+    "kind": "filter",
+    "reproducible_command": "grep -nE 'AC B([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])B[0-9]*[:(]|(^|[^A-Za-z0-9_])B-[0-9]+|^(FAIL|SKIP)|(FAIL|SKIP):|PASS=|FAIL=|[Pp]ass=|[Ff]ail=|^PASS:|[0-9]+ passed|[0-9]+ failed|VERIFY exit=' B.verify.log",
+    "raw_blob": "1:PASS=1 FAIL=0\n2:VERIFY exit=0"
+  },
+  {
+    "ac_id": "B",
+    "kind": "token",
+    "reproducible_command": "awk 'NR==5{print FILENAME\":\"NR}' skills/fx/test-rx-b.sh",
+    "raw_blob": "skills/fx/test-rx-b.sh:5"
+  },
+  {
+    "ac_id": "C",
+    "kind": "quote",
+    "reproducible_command": "awk -v n=13 'NR==n{p=1} p&&NR>n&&!/^  /{exit} p{print NR\": \"$0}' wp-rx-spec.md",
+    "raw_blob": "13: - **C.** the merger checks AC A before it appends to `merge.log`\n14:   Verify: bash skills/fx/test-rx-c.sh"
+  },
+  {
+    "ac_id": "C",
+    "kind": "verify",
+    "reproducible_command": "bash skills/fx/test-rx-c.sh",
+    "raw_blob": "VERIFY exit=0\nVERIFY log=/tmp/verify.h04t8b.log\nPASS=1 FAIL=0"
+  },
+  {
+    "ac_id": "C",
+    "kind": "filter",
+    "reproducible_command": "grep -nE 'AC C([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])C[0-9]*[:(]|(^|[^A-Za-z0-9_])C-[0-9]+|^(FAIL|SKIP)|(FAIL|SKIP):|PASS=|FAIL=|[Pp]ass=|[Ff]ail=|^PASS:|[0-9]+ passed|[0-9]+ failed|VERIFY exit=' C.verify.log",
+    "raw_blob": "1:PASS=1 FAIL=0\n2:VERIFY exit=0"
+  },
+  {
+    "ac_id": "C",
+    "kind": "token",
+    "reproducible_command": "grep -nF -e 'AC A' -- skills/fx/test-rx-c.sh",
+    "raw_blob": "2:# AC C stub: checks AC A before it appends to merge.log"
+  },
+  {
+    "ac_id": "C",
+    "kind": "token",
+    "reproducible_command": "grep -nF -e 'merge.log' -- skills/fx/test-rx-c.sh",
+    "raw_blob": "2:# AC C stub: checks AC A before it appends to merge.log"
+  }
+]

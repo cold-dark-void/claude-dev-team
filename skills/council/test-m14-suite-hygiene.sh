@@ -185,28 +185,38 @@ overlay_ship_tree() {
   git -C "$dir" commit -q -m "overlay index for $ticket" --allow-empty
 }
 
-# ---- Main: this WP's own SPEC-033 AC subsection, the tree about to ship --
+# ---- Main: this WP's own SPEC-033 AC subsections, the tree about to ship -
 TMP="$HERMETIC_ROOT/clone-root"
 mkdir -p "$TMP"
 CLONE="$TMP/clone"
 git clone -q "$ROOT" "$CLONE"
-overlay_ship_tree "$CLONE" wp-1-15-m14-verify-evidence \
-  specs/core/SPEC-033-autopilot-policy.md
 
+# hygiene_subsection <ticket> — overlays <ticket>'s subsection (and its
+# Verify files) into $CLONE's index, runs check_hygiene against it, and
+# reports one ok/fail_msg line. WP 1-16 T3 review fix (TL M6): replaces two
+# copy-pasted overlay/check/report blocks (one per WP subsection).
+hygiene_subsection() {
+  local ticket="$1"
+  local spec="specs/core/SPEC-033-autopilot-policy.md"
+  local out_file="$HERMETIC_ROOT/main-$ticket.out"
+  local rc
+  overlay_ship_tree "$CLONE" "$ticket" "$spec"
+  if check_hygiene "$CLONE" "$ticket" "$spec" > "$out_file" 2>&1; then
+    rc=0
+  else
+    rc=1
+  fi
+  cat "$out_file"
+  if [ "$rc" -eq 0 ]; then
+    ok "every Verify file in the $ticket subsection passes hygiene"
+  else
+    fail_msg "at least one Verify file in the $ticket subsection fails hygiene (see FAIL lines above)"
+  fi
+}
 
-if check_hygiene "$CLONE" wp-1-15-m14-verify-evidence \
-    specs/core/SPEC-033-autopilot-policy.md > "$HERMETIC_ROOT/main.out" 2>&1
-then
-  MAIN_RC=0
-else
-  MAIN_RC=1
-fi
-cat "$HERMETIC_ROOT/main.out"
-if [ "$MAIN_RC" -eq 0 ]; then
-  ok "every Verify file in the wp-1-15-m14-verify-evidence subsection passes hygiene"
-else
-  fail_msg "at least one Verify file in the wp-1-15-m14-verify-evidence subsection fails hygiene (see FAIL lines above)"
-fi
+for ticket in wp-1-15-m14-verify-evidence wp-1-16-m14-finder-recipe; do
+  hygiene_subsection "$ticket"
+done
 
 # ---- Fixture repo shared by the bite test and the positive control -------
 FIXREPO="$HERMETIC_ROOT/fixrepo"

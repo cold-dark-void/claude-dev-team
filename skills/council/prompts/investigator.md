@@ -72,27 +72,106 @@ CACHE_DIR (reads/ and greps/ cache files). Any Write, Edit, MultiEdit, or
 mutating Bash outside CACHE_DIR is a protocol violation and invalidates
 your entire bundle.
 {{#VERIFY_COMMAND}}
-VERIFY RUN (M14 per-AC)
+VERIFY RUN (M14 per-AC finder recipe)
 ------------------------
-This claim names a Verify command (SPEC-033 M14(a), M14(g)). Run it as
-your first tool call, from the worktree top level, with TMPDIR under
-CACHE_DIR. This is the only Bash call permitted to mutate anything, and
-it writes only under its own TMPDIR.
+This claim names a Verify command (SPEC-033 M14(a), M14(g)). Run the
+three recipe steps below, in order, as your first tool calls, from the
+worktree top level. Step 2's Verify call is the only one of these that
+may mutate anything, and it writes only under its own TMPDIR (a child
+of CACHE_DIR) plus the `$d.log` sibling file next to it. The recipe
+fits the 8-call M14 budget: 1 quote + 1 verify run + 1 filter + one
+default multi-token grep, plus one call per `path:N` token and rare
+scoped fallbacks.
 
-    base="{{CACHE_DIR}}"; d=$(mktemp -d "${base:-${TMPDIR:-/tmp}}/verify.XXXXXX") && cd "$(git rev-parse --show-toplevel)" && TMPDIR="$d" {{VERIFY_COMMAND}}; echo "VERIFY exit=$?"
+RECIPE STEP 1 — quote the AC at its source locator
+------------------------
+SOURCE_LOCATOR is `<PATH>:<N>`. Run this quote command first, to anchor
+every later bundle on the AC's own bullet text:
+
+    awk -v n=<N> 'NR==n{p=1} p&&NR>n&&!/^  /{exit} p{print NR": "$0}' <PATH>
+
+Substitute `<N>` and `<PATH>` from SOURCE_LOCATOR. It prints the AC
+bullet and its 2-space continuation lines as `<line>: <text>`, and
+stops at the first line that is not a continuation. Record it as its
+own evidence bundle: file_line is SOURCE_LOCATOR, reproducible_command
+is the substituted command above.
+raw_blob is the complete output of its own reproducible_command.
+
+RECIPE STEP 2 — run the Verify command, then filter it
+------------------------
+Run the Verify command:
+
+    base="{{CACHE_DIR}}"; d=$(mktemp -d "${base:-${TMPDIR:-/tmp}}/verify.XXXXXX") && cd "$(git rev-parse --show-toplevel)" && { TMPDIR="$d" {{VERIFY_COMMAND}} >"$d.log" 2>&1; echo "VERIFY exit=$?" | tee -a "$d.log"; echo "VERIFY log=$d.log"; grep -E '^(FAIL|SKIP)|(FAIL|SKIP):|PASS=|FAIL=|[Pp]ass=|[Ff]ail=|^PASS:|[0-9]+ passed|[0-9]+ failed' "$d.log" || true; }
 
 Run this with the Bash tool timeout set to 600000 ms (10 minutes). A
 timeout gives no exit line — record the tool's timeout output
-verbatim; do not invent an exit code.
+verbatim; do not invent an exit code. A failed mktemp likewise prints
+no exit line; treat it the same way (fail closed).
 
-Record this call as one evidence bundle:
-  - reproducible_command: {{VERIFY_COMMAND}}
-  - file_line: SOURCE_LOCATOR with line 1 (path:1)
-  - raw_blob: every output line that holds FAIL or SKIP, then the last 40
-    lines of output, including the VERIFY exit=<n> line
+Record this call as one evidence bundle: reproducible_command is
+{{VERIFY_COMMAND}} (the claim's own command, unchanged, so the judge
+can match it), file_line is SOURCE_LOCATOR with line 1 (path:1).
+raw_blob is the complete output of THIS CALL — not of a bare re-run of
+reproducible_command alone, which would print the suite's unredirected
+log instead. This is the one bundle exempt from the raw_blob-equals-a-
+rerun-of-reproducible_command invariant every other bundle in this
+recipe holds. raw_blob includes the `VERIFY exit=<n>` line.
+No raw_blob holds a line that is only ..., [...] or …, and no text added after the output.
+Use a narrow command, not a cut of a long output.
+This rule replaces PROCEDURE step 5 (snippet plus 3 lines of context) for this claim.
 
-A pass alone is not enough. Use your remaining calls to cite the test
-lines and one diff hunk that back the claim.
+The `$d.log` file this call writes is a sibling of TMPDIR, not inside
+it. Filter it with the AC-label filter, over the `VERIFY log=` path
+the call above printed:
+
+    grep -nE '<AC_LABEL>|^(FAIL|SKIP)|(FAIL|SKIP):|PASS=|FAIL=|[Pp]ass=|[Ff]ail=|^PASS:|[0-9]+ passed|[0-9]+ failed|VERIFY exit=' <LOG>
+
+Substitute `<LOG>` with the `VERIFY log=` path. The default
+`<AC_LABEL>` for AC id X is:
+AC X([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])X[0-9]*[:(]|(^|[^A-Za-z0-9_])X-[0-9]+
+This form avoids `\b`, because BSD grep `-E` does not reliably honor it.
+The filter output is a separate bundle.
+Its reproducible_command is the substituted filter command and its
+file_line is the `VERIFY log=` path with line 1.
+raw_blob is the complete output of its own reproducible_command.
+
+A `VERIFY exit=0` line is not enough by itself — weigh it together
+with the Step 1 quote and the Step 3 token bundles below.
+
+RECIPE STEP 3 — one grep per token class, scoped and bounded
+------------------------
+Take the tokens from your OWN Step 1 quote, never from the claim text
+or from another bundle. A named token is one of: a backtick span; a
+`path:N` locator; a `Case N` or `AC X` reference; a numbered
+sub-clause such as `(2)`.
+
+Default: cover every backtick-span, `Case N` and `AC X` token in ONE
+call against the Verify test file (the file VERIFY_COMMAND names):
+
+    grep -nF -e '<T1>' -e '<T2>' -- <VERIFY_FILE>
+
+The grep's complete output is its bundle's raw_blob; reproducible_command
+is the substituted command above, file_line is `<VERIFY_FILE>:1`.
+
+A `path:N` locator token needs its own call, because `grep -F` never
+matches a locator string against file content — use this instead:
+
+    awk 'NR==<N>{print FILENAME":"NR": "$0}' <PATH>
+
+raw_blob is the complete output of its own reproducible_command.
+
+Fallback — only for a token the default call above found no line for:
+one scoped, multi-`-e` call against ONE path you already read for this
+claim (the Verify test file, SOURCE_LOCATOR's file, or a file a bundle
+above already named). Never run an unscoped `git grep`:
+
+    git grep -nF -e '<T1>' -e '<T2>' -- <PATH>
+
+Its raw_blob is likewise the grep's complete output.
+
+Numbered sub-clauses are advisory evidence, not a capped token
+(SPEC-013 Phase 5): grep a key phrase of the sub-clause in the Verify
+test file, same bundle shape as above.
 
 A spec checkbox line (`- [ ]` or `- [x]`) you meet in the AC source goes
 in raw_blob as file content only, never as a result. Its

@@ -793,6 +793,42 @@ target.
       (WP 1-15). Step 10b MUST list each technical AC with no `Verify:` line, and each
       `Verify:` file that does not call `hermetic_init`. This list is a report. It does
       not block the ship.
+    - **Finder recipe (WP 1-16).** For a claim with a `Verify:` command, the per-AC
+      investigator MUST follow a fixed recipe, in this order. The investigator prompt
+      (`skills/council/prompts/investigator.md`, verify section) owns the exact commands.
+      1. Quote the AC. One read anchored on the `<path>:<line>` locator prints the AC
+         bullet and its continuation lines, with line numbers. A search for the bullet id
+         alone is not enough, because each `### <ticket_id>` subsection reuses the ids.
+      2. Run the `Verify:` command (M14(a)). Then run one filter over its saved output
+         that keeps every line with the AC label, every FAIL and SKIP line, the suite
+         summary lines and the `VERIFY exit=` line. The filter output is its own bundle.
+      3. Find the named tokens in the step 1 quote: backtick spans, `path:N` locators,
+         `Case N` and `AC X` references, and numbered sub-clauses such as `(2)`. By default,
+         one bounded grep covers every backtick-span, `Case N` and `AC X` token against the
+         Verify test file; a `path:N` token gets its own `awk 'NR==<N>{...}'` call, because
+         grep never matches a locator string against file content. Only when that default
+         call finds no line for a token does the investigator fall back to one scoped,
+         multi-`-e` `git grep` call against a path it already read for this claim; it MUST
+         NOT run an unscoped `git grep`. Numbered sub-clauses are advisory evidence only.
+      - **No elision.** In this mode a `raw_blob` is the complete output of its own
+        `reproducible_command`. It MUST NOT hold an inserted `...`, `[...]` or `…` line, and
+        MUST NOT hold text that the investigator added after the output. Use a narrow
+        command, not a cut of a long output. The step 2 verify bundle is the one exemption:
+        its `raw_blob` is the complete stdout of the step 2 call (the wrapper that also
+        records the exit code), not a bare re-run of `reproducible_command`, which still
+        equals the claim's own `Verify:` command.
+      - **Tokens come from the finder.** The investigator takes the tokens from its own
+        quote. The split, the engine and the claim record MUST NOT carry the AC text or
+        its tokens (M14(a) locators-only).
+      - **Judge caps.** The judge MUST keep the confidence at 79 or lower when no bundle
+        quotes the AC, when a token of class backtick span, `path:N`, `Case N` or `AC X`
+        named in that quote has no bundle, other than the step 1 quote bundle, with a
+        matching line, or when a bundle holds an elision line (SPEC-013 Phase 5). A numbered
+        sub-clause named in that quote is advisory evidence only and carries no cap, because
+        no oracle can check a finder-chosen key phrase. These caps can only lower a
+        confidence. They add no clear path and change nothing in **(b)**, **(d)** or the
+        mapper **(i)**.
+      - A claim with no `Verify:` command keeps the render it had before WP 1-16.
 
   - **(h) `[process]` ACs (normative; WP 1-14).** A `[process]` AC asserts only test, gate
     or CI execution (for example, "the full test runner exits 0"). The council MUST NOT
@@ -842,6 +878,8 @@ target.
       (`skills/council/prompts/investigator.md`).
     - An M14 per-AC claim with a `Verify:` command gets an 8-call investigator budget. An
       M14 claim with no `Verify:` command keeps 5 calls (SPEC-013 Phase 2; WP 1-15).
+      The finder recipe **(g)** fits in 8 calls: one quote, one verify run, one filter and
+      the token greps, grouped by file (WP 1-16). The budget does not change.
 
   - **(k) Tests (WP 1-14).** These tests MUST run in `tools/run-all-tests.sh`. They MUST
     start no live council and MUST write only under `TMPDIR`.
@@ -864,6 +902,11 @@ target.
       rendered prompts; and mapper fixtures where every AC is at 80 or higher (agree), and
       where one AC has a verdict from a failing verify (BC7). The mapper **(i)** stays
       byte-identical.
+    - **Finder recipe (WP 1-16).** Assert the recipe steps and the no-elision rule in the
+      M14 render; run the render's quote and filter commands on fixtures; assert the judge
+      caps; and run a pass and fail bundle-conformance fixture pair to the mapper. These
+      tests prove the prompt text and the wiring. They do not prove what a live judge
+      scores. The first live proof is the next ship gate after WP 1-16.
 
 ### AC8 — LOC exclusion + `--max-loc` override (CDT-223)
 
@@ -1307,12 +1350,36 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 - **O.** [process] `bash tools/run-all-tests.sh` exits 0.
 - **P.** [process] Every `/release` gate passes.
 
+### wp-1-16-m14-finder-recipe
+
+- **A.** For a claim with a `verify` command, the rendered investigator prompt holds the M14(g) finder recipe as three numbered steps in this order: (1) one quote command anchored on the `SOURCE_LOCATOR` line; (2) the Verify run, then one filter command over its saved output; (3) one grep per named token. Step 3 names the four token classes (backtick spans, `path:N` locators, `Case N` and `AC X` references, numbered sub-clauses) and allows one `grep -nF -e` call per file. The render does not hold "cite the test lines and one diff hunk". The render of a claim with no `verify` command is byte-identical to its render at `38bc739`.
+  Verify: bash skills/council/test-verify-prompts.sh
+- **B.** For a claim with a `verify` command, the rendered investigator prompt does not hold "last 40 lines". It states that a `raw_blob` is the complete output of its own `reproducible_command`, that a `raw_blob` holds no `...`, `[...]` or `…` line and no text added after the output, and that this rule replaces the "3 lines of context" rule for the claim. It states that the verify bundle keeps `reproducible_command` equal to the claim's command and holds the `VERIFY exit=` line, and that the filter output is a separate bundle.
+  Verify: bash skills/council/test-verify-prompts.sh
+- **C.** The test takes the quote command and the filter command from the rendered prompt and runs them on fixtures. On a fixture spec with two `### <ticket_id>` subsections that both hold `- **A.**`, the quote command for AC A of the second subsection prints only that bullet and its continuation lines, each with its line number. On a fixture log that holds the AC's own lines first, then more than 40 other lines, then FAIL, SKIP, summary and `VERIFY exit=` lines, the filter prints every AC line, every FAIL and SKIP line, the summary lines and the `VERIFY exit=` line.
+  Verify: bash skills/council/test-verify-prompts.sh
+- **D.** The judge prompt states that for a claim with a `verify` command the confidence is 79 or lower when no bundle quotes the AC bullet at the claim's source locator, when a token of class backtick span, `path:N`, `Case N` or `AC X` named in that quote has no bundle, other than the step 1 quote bundle, with a matching line, or when a bundle holds a `...`, `[...]` or `…` line. Each of the three caps has a bite test. The five WP 1-15 verify-evidence rule bullets in `judge.md` are byte-identical to `38bc739`.
+  Verify: bash skills/council/test-verify-prompts.sh
+- **E.** A test-only conformance check runs on fixture bundles for a fixture WP subsection with 3 or more technical ACs, in a private git repo. It passes only when each bundle other than the verify bundle byte-equals a re-run of its `reproducible_command`, each Verify command exits 0 and its bundle holds `VERIFY exit=0`, one bundle holds the anchored AC quote, and each token of class backtick span, `path:N`, `Case N` or `AC X` named in that quote has a bundle, other than the quote bundle, with a line that holds it. The conformant set passes. A set with one Verify stub at exit 1 fails, a set with one named token absent from the repo fails, and a set with one `...` line fails. `skills/autopilot/ship-gate-verdict.sh` maps a synthetic finalize-meta with every AC at 80 or higher to `blocking_condition` null, and one with one AC at 79 to `blocking_condition` 7.
+  Verify: bash skills/autopilot/test-m14-verify-chain.sh
+- **F.** The clearing rule is unchanged and the docs cite the recipe. `skills/autopilot/ship-gate-verdict.sh` and `skills/autopilot/append-card.sh` are byte-identical to `38bc739`. The SPEC-033 M14(b) and M14(d) blocks match their goldens. `skills/autopilot/ship-gate-council.md` §5 is byte-identical to `38bc739`, and its §3b cites the M14(g) finder recipe. `skills/council/engine.sh` holds `M14_VERIFY_TOOL_BUDGET=8` and `INVESTIGATOR_TOOL_BUDGET=5`. SPEC-033 has a dated WP 1-16 row that names M14(g), M14(j), the no-elision rule and the judge caps, and states that the caps can only lower a confidence. SPEC-013 has a dated WP 1-16 row.
+  Verify: bash skills/autopilot/test-ship-gate-guardrails.sh
+- **G.** This subsection parses under `skills/council/m14-ac-split.sh` with 8 technical ACs, each with one Verify line, and the `[process]` ids I, J, K and L.
+  Verify: bash skills/council/test-m14-ac-split.sh
+- **H.** `tools/run-all-tests.sh --list` finds each test file that a Verify line in this subsection names. Each of these files calls `hermetic_init` and starts no live council.
+  Verify: bash skills/council/test-m14-suite-hygiene.sh
+- **I.** [process] `bash tools/run-all-tests.sh`, `skills/council/test-m14-ac-split.sh` and `skills/autopilot/test-ship-gate-guardrails.sh` exit 0, and every `/release` gate passes.
+- **J.** [process] The release notes record that this WP's own ship gate ran the old finder prompt from `master`, and that a BC7 halt there with every Verify at exit 0 is not a code gap.
+- **K.** [process] The release notes name the next WP's ship gate as the first live test of the recipe. The loop journal records its per-AC confidences, and a BC7 on an AC with no code gap gets a local backlog item.
+- **L.** [process] Before the release, three local backlog items exist: judge delivery of large bundles and the classifier stop; a spec-writing lint for technical-AC clauses that no command can check; and an M14 report path that is absolute under the main repo root (the lost WP 1-07 report).
+
 ---
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-09-28 | WP 1-16 (`wp-1-16-m14-finder-recipe`; backlog `m14-finder-evidence-recipe`): **M14 finder evidence recipe.** Premise: the WP 1-05 and WP 1-06 ship gates (`.claude/council/2026-09-28-claim-wp-1-05-m14.md`, `.claude/council/2026-09-28-claim-wp-1-06-m14.md`) halted on BC7 with every Verify at exit 0 and no code gap; the judge struck elided `raw_blob` lines, ACs with no quote of their text, and named literals that no bundle held. **M14(g)** — new "Finder recipe" bullet: an AC quote anchored on the `<path>:<line>` locator (bullet plus continuation lines); the Verify run plus one AC-label filter bundle; one grep per token class, bounded and scoped — one default call against the Verify test file for backtick spans, `Case N` and `AC X` tokens, an explicit locator command for `path:N`, and a scoped multi-token `git grep` fallback (never unscoped) only for a token the default call missed; numbered sub-clauses are grepped too, as advisory evidence. No-elision rule: a `raw_blob` is the complete output of its own `reproducible_command`, with no `...`, `[...]` or `…` line and no text added after the output; the one exception is the Verify-run bundle, whose `raw_blob` is the complete stdout of the wrapped Step 2 call (a bare re-run of `reproducible_command` alone would print the suite's unredirected log instead) — it is exempt from the raw_blob-equals-a-rerun-of-reproducible_command invariant the other recipe bundles hold. The finder takes the tokens from its own quote; the split, the engine and the claim record carry no AC text or tokens (M14(a)). Judge caps: confidence 79 or lower for a missing AC quote, an unmatched named token of class backtick span, `path:N`, `Case N` or `AC X` (matched outside the Step 1 quote bundle) or an elision line (SPEC-013 Phase 5); a numbered sub-clause named in the quote is advisory evidence only and carries no cap. The recipe and the caps can only lower a confidence: they feed nothing new to the mapper **(i)**, add no clear path, and leave **(b)**, **(d)**, the firing rule, the two cards and BC7 reuse unchanged. An engine-side strike was rejected, because it would change how the gate clears (`ship-gate-council.md` §5). **M14(j)** — the recipe fits the 8-call budget; the budget does not change. **M14(k)** — recipe tests; they prove prompt text and wiring, not a live judge score. A claim with no `Verify:` command keeps its render. This WP's own gate runs the old prompt from `master`; the next WP's gate is the first live proof. New `### wp-1-16-m14-finder-recipe` AC subsection. Status stays DRAFT. |
 | 2026-09-27 | WP 1-05 (`wp-1-05-git-safety-lib`; CDT-260 `[05 F2]`): **N3a (iii)** gains a clean-tree precondition. Before the squash, autopilot runs `git-safety.sh is-clean --tracked-only` (SPEC-025 M17) on the main-repo checkout; tracked edits give a halt card, exit ≠0 and no change; untracked files do not block. Every undo of the squash stage (`end-state.md` §4 conflict path, §6.5 land-abort paths) calls `git-safety.sh safe-reset --clean-at <sha>` and never a bare `git reset --hard`; a moved HEAD makes `safe-reset` refuse and autopilot halt for a human. The former "fully reversible with `git reset`" wording is withdrawn. Behavioural suite: `skills/autopilot/test-end-state-safety.sh`. The ACs live in SPEC-025 `### wp-1-05-git-safety-lib`. |
 | 2026-09-27 | WP 1-15 (`m14-per-ac-verify-command`): **M14 per-AC verify evidence.** This revision changes the evidence the per-AC investigators collect. It does not change how the gate clears: **(b)**, **(d)**, the mapper **(i)**, the firing rule, the two cards and BC7 reuse are unchanged. **M14(a)** — a `Verify:` command is a locator, like `<path>:<line>`; the council's own per-AC investigator runs it through its own tool call during the pass; that output is Phase 2 evidence, not a "test-runner log", because no pipeline step wrote it for the council; autopilot never runs it for the council and never passes its output; a pass does not clear an AC by itself. **M14(g)** — Verify line rule (two-space continuation `Verify: bash <path> [<arg> ...]`; `<path>` repo-relative, no `..`, present at `HEAD`, a suite name that `tools/run-all-tests.sh` discovers, never `tools/run-all-tests.sh`; characters `A-Z a-z 0-9 . _ / = : @ % + , -` only); new fail-closed case 10 (a malformed Verify line, two on one AC, or one on a `[process]` AC) and case 11 (a Verify line with uncommitted changes to tracked files, because the split reads `HEAD` and a verify run reads the worktree); "checkboxes are not evidence" note; Writers add a Verify line per technical AC, and Step 10b lists ACs with none and Verify files that do not call `hermetic_init` (a report, not a block). **M14(j)** — an M14 claim with a command gets 8 investigator calls, else 5; every other caller keeps 5. **M14(k)** — verify evidence tests. **N17** — an investigator's own verify run is evidence, not a runner log. The headline ACs follow reading (A) of the WP 1-15 kickoff: prompt and fixture evidence only; the live proof is the WP 1-05 ship gate. New `### wp-1-15-m14-verify-evidence` AC subsection with a Verify line on every technical AC. SPEC-013 Phases 1, 2, 2.5, 5 and 6 carry the engine side. Status stays DRAFT. |
 | 2026-09-26 | WP 1-14 step 10b, TL raise (M14(j)): `M14_AC_BUDGET` raised from `10` to `16` in `skills/council/engine.sh`. Reason: this WP's own AC subsection (`### wp-1-14-m14-ship-gate-evidence`) holds 16 technical ACs, which would fail the split closed under the old budget. The hard ceiling `M14_AC_BUDGET_CEILING=20` is unchanged. |

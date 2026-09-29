@@ -1,0 +1,50 @@
+AC A: quote command located source line 12
+AC A: continuation captured through line 15
+AC A: filter regex compiled against the log
+noise line 001
+noise line 002
+noise line 003
+noise line 004
+noise line 005
+noise line 006
+noise line 007
+noise line 008
+noise line 009
+noise line 010
+noise line 011
+noise line 012
+noise line 013
+noise line 014
+noise line 015
+noise line 016
+noise line 017
+noise line 018
+noise line 019
+noise line 020
+noise line 021
+noise line 022
+noise line 023
+noise line 024
+noise line 025
+noise line 026
+noise line 027
+noise line 028
+noise line 029
+noise line 030
+noise line 031
+noise line 032
+noise line 033
+noise line 034
+noise line 035
+noise line 036
+noise line 037
+noise line 038
+noise line 039
+noise line 040
+noise line 041
+FAIL: skills/fx/test-a2.sh failed at line 9
+SKIP: skills/fx/test-a1.sh skipped (no docker)
+PASS=3 FAIL=1
+pass=65 fail=0
+PASS: test-workflow-static.sh
+VERIFY exit=1

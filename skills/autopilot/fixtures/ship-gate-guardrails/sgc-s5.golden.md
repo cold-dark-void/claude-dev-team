@@ -1,0 +1,50 @@
+## 5. Degraded-run rule
+
+The verdict mapper (`skills/autopilot/ship-gate-verdict.sh`) detects a degraded or
+total-failure run itself and produces card #2 directly (M14(d), M14(i)) — this pass does not
+re-derive the SPEC-013 spawn-failure degradation logic; §4's invocation is the same one used
+here.
+
+- **Self-verified run.** When this run's `.finalize-meta.json` sidecar reports
+  `verification_mode: self-verified` (report frontmatter, no independent peer
+  investigator/refuter survived, exact body marker `self-verified — refuters unavailable`),
+  the mapper treats the outcome **identically to a `confidence < 80` disagreement**:
+  `decision = halt`, `blocking_condition = 7`, `bump = null`, `confidence = 0` —
+  **regardless of that self-verified run's own reported confidence** (M14(d)). Its
+  `rationale` cites `self-verified — refuters unavailable` as the halt reason.
+- **Total council spawn failure.** When there is no usable report at all, invoke the mapper
+  with `--no-report "<cause>"` in place of `--meta`; its output is the same halt shape
+  (`decision = halt`, `blocking_condition = 7`, `confidence = 0`, `bump = null`), with
+  `rationale` naming the spawn failure.
+
+### Open design — infra vs evidentiary (CDT-134)
+
+M14(d) currently cannot distinguish pure spawn/infra flakiness (early investigator
+returned strong tool-backed bundles; later roles never spawned) from genuine
+evidentiary gaps. **Do not implement a ship-clearing “infra-degraded” path here
+without a SPEC-033 revision and adversarial review.** Safe interim:
+
+- Keep the halt + `confidence = 0` (this section).
+- Prefer reducing spawn flakiness (CDT-133 named-agent preference).
+- After human review, resume shipping only via explicit human override
+  (`/orchestrate <id> --resume-ship=<bump>` — CDT-135), never by auto-clearing BC7.
+
+Any future “infra-degraded” classification MUST still require: ≥1 independent
+investigator with usable bundles; spawn-fail markers only on later roles; **human
+confirm** before ship — never self-answer past BC7.
+
+In both degraded cases the adversaries never ran, so the pass provides no independent
+assurance and can only halt the ship, never clear it. The mapper always writes
+`confidence = 0` on these cards (never the self-verified run's own reported value, which may
+be `≥ 80`) — its output contract (SPEC-033 M14(i)) guarantees the card stays
+**valid-by-construction** against `append-card.sh` cross-field invariant (b), which
+hard-rejects `blocking_condition = 7 && confidence ≥ 80` with **exit 64**
+(`append-card.sh:140`); an exit-64 would drop the halt record silently, exactly the
+audit-trail loss the writer's hard-fail inversion exists to prevent.
+
+Tier and degradation state are **orthogonal** (SPEC-013's Council tiering section owns that
+ruling): a degraded `light` run is *both* `light` and `self-verified`. It therefore still
+takes this section's path **and** still carries `council_tier: light`, so §4's tier-aware
+BC7 re-offer remains available on it. A healthy `light` run sets neither
+`verification_mode: self-verified` nor the marker, so it never reaches this section at all.
+

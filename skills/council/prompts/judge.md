@@ -116,6 +116,18 @@ PROCEDURE
          does not earn VERIFIED or PARTIALLY_VERIFIED — weigh it together
          with the cited test lines and diff hunk, as with any other
          evidence.
+       - When no bundle quotes the AC bullet at the claim's source_locator
+         (a raw_blob line of the form `<N>: - **<id>.**` anchored on
+         its source_locator), the claim MUST get confidence <=79.
+       - When a token of class backtick span, `path:N`, `Case N` or `AC X`
+         named in that quote has no bundle, other than the Step 1 quote,
+         with a line that holds it, the claim MUST get confidence <=79.
+       - When a raw_blob holds a line that is only ..., [...] or …, the
+         claim MUST get confidence <=79.
+       A numbered sub-clause named in that quote is advisory evidence
+       only and carries no cap, because no oracle can check a
+       finder-chosen key phrase.
+       These caps can only lower a confidence; they do not change SPEC-033 M14(b).
 
    If OUTPUT_SHAPE == "finding[]":
      For each candidate finding surfaced by the investigators or briefs,

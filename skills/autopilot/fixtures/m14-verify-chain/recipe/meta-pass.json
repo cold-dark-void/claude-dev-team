@@ -1,0 +1,32 @@
+{
+  "ac_claims": [
+    {
+      "ac_id": "A"
+    },
+    {
+      "ac_id": "B"
+    },
+    {
+      "ac_id": "C"
+    }
+  ],
+  "verification_mode": "full",
+  "process_acs": [],
+  "unstruck_verdicts": [
+    {
+      "claim": "[AC-A] evidence",
+      "verdict": "VERIFIED",
+      "confidence": 85
+    },
+    {
+      "claim": "[AC-B] evidence",
+      "verdict": "VERIFIED",
+      "confidence": 90
+    },
+    {
+      "claim": "[AC-C] evidence",
+      "verdict": "VERIFIED",
+      "confidence": 80
+    }
+  ]
+}
