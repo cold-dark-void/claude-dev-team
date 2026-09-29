@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.26
+- **CI all-tests job fetches full history** — the `all-tests` job ran on a shallow clone, so `test-verify-prompts.sh` (v1.18.25) could not `git show` its pinned base commit and CI went red. The job now checks out with `fetch-depth: 0`. SPEC-030 R22 requires it, and `tools/ci-workflow-test.sh` asserts it (B5) with a bite on a copy that drops the line.
+
 ### v1.18.25
 - **WP 1-16 M14 finder evidence recipe (L-22)** — for a claim with a `verify` command, the rendered investigator prompt now holds the M14(g) recipe as three numbered steps: one quote command anchored on the `SOURCE_LOCATOR` line, one Verify run whose complete output is the verify bundle, then one filter per AC token grouped per file. It no longer says "last 40 lines"; a `raw_blob` is the complete output of its own `reproducible_command`. A claim with no `verify` command renders byte-identically to before.
 - **Judge caps** — `judge.md` caps confidence at 79 when no bundle quotes the AC bullet at the claim's source locator, or when an AC token (backtick span, `path:N`, `Case N`, `AC X`) outside the quote bundle has no filter bundle. The M14 clearing rule is unchanged: `ship-gate-verdict.sh` and `append-card.sh` are byte-identical to v1.18.23.

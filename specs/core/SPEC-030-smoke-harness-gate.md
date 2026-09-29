@@ -178,7 +178,7 @@ to fix, never a skip.
 
 ### CI workflow hygiene
 
-- R22. `.github/workflows/smoke.yml` MUST set a top-level `permissions: contents: read`, and no job may widen it. Every job MUST set `timeout-minutes`: `20` for `all-tests`, `10` for each other job. Every `uses:` MUST pin a full 40-hex commit SHA and carry a `# vX.Y.Z` comment that names the exact tag of that SHA (a moving major tag such as `v4` is not a pin). `tools/ci-workflow-test.sh` MUST assert these three rules on the live workflow. It MUST also bite: on a mktemp copy with each rule broken in turn, it reports a FAIL. The test asserts the pin **shape** only — a 40-hex SHA plus a matching `# vX.Y.Z` comment — never that the SHA and the tag actually name the same commit; confirming that needs the network, and a hermetic test MUST NOT reach it. Check the tag-to-SHA match at pin time with a read-only `git ls-remote --tags <repo> <tag>`, and record that lookup in the ship notes. MUST NOT add a network call to the test itself
+- R22. `.github/workflows/smoke.yml` MUST set a top-level `permissions: contents: read`, and no job may widen it. Every job MUST set `timeout-minutes`: `20` for `all-tests`, `10` for each other job. Every `uses:` MUST pin a full 40-hex commit SHA and carry a `# vX.Y.Z` comment that names the exact tag of that SHA (a moving major tag such as `v4` is not a pin). The `all-tests` job MUST check out with `fetch-depth: 0`, because suites read pinned base commits with `git show <sha>:<path>`. `tools/ci-workflow-test.sh` MUST assert these four rules on the live workflow. It MUST also bite: on a mktemp copy with each rule broken in turn, it reports a FAIL. The test asserts the pin **shape** only — a 40-hex SHA plus a matching `# vX.Y.Z` comment — never that the SHA and the tag actually name the same commit; confirming that needs the network, and a hermetic test MUST NOT reach it. Check the tag-to-SHA match at pin time with a read-only `git ls-remote --tags <repo> <tag>`, and record that lookup in the ship notes. MUST NOT add a network call to the test itself
 
 ## SHOULD
 
@@ -249,6 +249,7 @@ to fix, never a skip.
 | 2026-09-25 | WP 1-01 review fix: Discovery classifier wording amended to "repo-relative path shape" — classify() must be given a repo-relative path (never absolute), since an ancestor directory outside the root sharing a classified name (`skills`, `agents`, `githooks`) would otherwise false-match. |
 | 2026-09-25 | WP 1-02 (CDT-270, CDT-419, W1-34, W1-35): quarantine emptied; R13 reworded (environment causes skip, never quarantine). R16 extended to the real `$MROOT/.claude/`, the caller's `TMPDIR` and the real `HOME`. New R18–R21: exit-77 skip protocol (`tests/lib/skip.sh`), hermetic helper (`tests/lib/hermetic.sh`) and their self-test. Out of Scope trimmed; Covers widened. |
 | 2026-09-26 | WP 1-03 (CDT-274, `[10 smoke-pin]`): job-level `permissions`/`timeout-minutes` hardening moves from Out of Scope into MUST as R22 (CI workflow hygiene), with SHA-pinned `uses:` and the static test `tools/ci-workflow-test.sh`. |
+| 2026-09-29 | Hotfix after v1.18.25: CI `all-tests` ran on a shallow clone, so `test-verify-prompts.sh` could not `git show` its pinned base commit. R22 adds `fetch-depth: 0` for `all-tests`; `ci-workflow-test.sh` asserts it (B5) and bites it. |
 
 ## Cross-references
 

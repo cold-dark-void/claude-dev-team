@@ -8,6 +8,7 @@
 #   G3 — every `uses:` line pins a full 40-hex SHA with a `# vX.Y.Z` comment.
 #   B4 — the bump-class job has fetch-depth: 0, uses check-bump-class.sh
 #        with --range, and never --commit HEAD.
+#   B5 — the all-tests job has fetch-depth: 0 (suites read pinned base commits).
 #
 # Bash + grep/awk only. Hermetic: no writes outside mktemp.
 set -u
@@ -126,6 +127,19 @@ check_workflow() {
       echo "FAIL: B4: bump-class job still uses --commit HEAD"
     fi
   fi
+
+  # --- B5: all-tests job has fetch-depth: 0 (suites read pinned base commits). ---
+  local at_block
+  at_block=$(awk '
+    /^  all-tests:$/ { on=1; next }
+    on && /^  [A-Za-z0-9_-]+:$/ { exit }
+    on { print }
+  ' "$file")
+  if [ -z "$at_block" ]; then
+    echo "FAIL: B5: no all-tests job found"
+  elif ! printf '%s\n' "$at_block" | grep -qE 'fetch-depth:[[:space:]]*0([[:space:]]|$)'; then
+    echo "FAIL: B5: all-tests job missing fetch-depth: 0"
+  fi
 }
 
 run_check() { # run_check LABEL FILE — runs check_workflow, counts FAILs.
@@ -185,6 +199,9 @@ bite "no-comment" 's/(actions\/checkout@[0-9a-f]{40}) # v[0-9.]+/\1/' "G3"
 
 # Restore --commit HEAD in the bump-class job.
 bite "commit-head" 's/check-bump-class\.sh --range "\$RANGE"/check-bump-class.sh --commit HEAD/' "B4"
+
+# Drop fetch-depth from the all-tests job (shallow clone breaks pinned-commit reads).
+bite "all-tests-shallow" '/^  all-tests:$/,$ {/fetch-depth:/d}' "B5"
 
 if [ "$FAIL_COUNT" -eq 0 ]; then
   echo "PASS: ci-workflow-test"
