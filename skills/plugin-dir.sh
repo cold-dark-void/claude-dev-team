@@ -11,12 +11,20 @@
 #
 # Resolution (load-bearing; pre-release-safe sort -V; never glob-first):
 #   0. Optional CLAUDE_PLUGIN_ROOT: if set and $CLAUDE_PLUGIN_ROOT/<relpath> exists.
-#      Dead in Bash-tool fences today (hooks/MCP/LSP only; FR #48230) — also the
+#      The env var is exported to hook, MCP and LSP processes only. It is not
+#      exported into Bash-tool fences (FR #48230). Claude Code does substitute
+#      the literal token ${CLAUDE_PLUGIN_ROOT} into plugin .md bodies at load
+#      time; the stanza's _pr= branch (SPEC-002) consumes that, and this script
+#      never sees it. .sh files get no substitution. This tier is also the
 #      operator force path (AC-3) without reinstall / "delete cache only".
-#   1. Dev worktree (show-toplevel): if $WTROOT/<relpath> exists — worktree-correct
-#      so feat/* dogfood is not shadowed by the main checkout via git-common-dir.
-#   2. Dev main checkout (git-common-dir MROOT): only if different from WTROOT and
-#      $MROOT/<relpath> exists.
+#   The cwd tiers 1 and 2 accept a root only when it IS the dev-team plugin
+#   (is_dev_team_root). A consumer repo that holds its own skills/<x>.sh must not
+#   shadow the plugin's script (CDT-265).
+#   1. Dev worktree (show-toplevel): if $WTROOT is the dev-team plugin and
+#      $WTROOT/<relpath> exists — worktree-correct so feat/* dogfood is not
+#      shadowed by the main checkout via git-common-dir.
+#   2. Dev main checkout (git-common-dir MROOT): only if different from WTROOT,
+#      $MROOT is the dev-team plugin and $MROOT/<relpath> exists.
 #   3. Marketplace clone vs versioned cache (CDT-82):
 #      - marketplace: ~/.claude/plugins/marketplaces/* with skills/plugin-dir.sh + agents/pm.md
 #      - cache: ~/.claude/plugins/cache/$SLUG/dev-team/<VER>/ (highest ver_pick)
@@ -38,6 +46,9 @@ SLUG="cold-dark-void"
 
 # Pre-release-safe version pick: map -pre. → ~pre. so GNU sort -V ranks final
 # releases above retained pre-release dirs, then unmap. Load-bearing.
+# Needs GNU coreutils sort: -V version order and the ~ rule (filevercmp). Not
+# POSIX. plugin-dir-test.sh probes the host sort first (CDT-348) and fails with
+# a hint when it lacks these semantics.
 ver_pick() {
   sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'
 }
@@ -91,6 +102,19 @@ resolve_wtroot() {
   else
     WTROOT=""
   fi
+}
+
+# is_dev_team_root <root> — 0 only when <root> IS the dev-team plugin (CDT-265):
+# .claude-plugin/plugin.json holds the fixed string `"name": "dev-team"` and
+# agents/pm.md exists. A cheap identity check, not authentication: it stops a
+# consumer repo that merely carries skills/<x>.sh from shadowing the plugin.
+# Same test as the canonical PDH stanza's cwd branch (SPEC-002).
+is_dev_team_root() {
+  local root="${1:-}"
+  [ -n "$root" ] \
+    && [ -f "$root/agents/pm.md" ] \
+    && [ -f "$root/.claude-plugin/plugin.json" ] \
+    && grep -qF '"name": "dev-team"' "$root/.claude-plugin/plugin.json" 2>/dev/null
 }
 
 # plugin_version <root> — read .claude-plugin/plugin.json version (empty if missing).
@@ -176,8 +200,10 @@ resolve() {
   fi
 
   # Tier 1: current worktree (show-toplevel) — dogfood feat/* correctly.
+  # Only when that worktree IS the dev-team plugin (CDT-265): a consumer repo
+  # must not shadow plugin scripts. Otherwise go on to marketplace / cache.
   resolve_wtroot
-  if [ -n "$WTROOT" ] && [ -e "$WTROOT/$rel" ]; then
+  if [ -n "$WTROOT" ] && [ -e "$WTROOT/$rel" ] && is_dev_team_root "$WTROOT"; then
     emit_path "$WTROOT/$rel" "worktree" "root=$WTROOT marker=$(stm_marker "$WTROOT")"
     return 0
   fi
@@ -185,8 +211,9 @@ resolve() {
   # Tier 2: main checkout via git-common-dir (when WTROOT lacked the relpath).
   # Covers: cwd inside a non-plugin worktree linked to a plugin main, or bare
   # main checkout when show-toplevel already matched (tier 1 returned).
+  # Same identity gate as tier 1. Outside git, MROOT is the cwd (resolve_mroot).
   resolve_mroot
-  if [ -n "$MROOT" ] && [ -e "$MROOT/$rel" ]; then
+  if [ -n "$MROOT" ] && [ -e "$MROOT/$rel" ] && is_dev_team_root "$MROOT"; then
     emit_path "$MROOT/$rel" "dev-main" "root=$MROOT marker=$(stm_marker "$MROOT")"
     return 0
   fi
@@ -402,7 +429,9 @@ cmd_verify() {
 
   if [ -z "$peer_stm" ]; then
     resolve_wtroot
-    if [ -n "$WTROOT" ] && [ "$(stm_marker "$WTROOT")" = "stm" ]; then
+    # A peer must be the dev-team plugin too (CDT-265); a consumer repo that
+    # happens to hold a prepass.sh with --events is not an STM peer.
+    if [ -n "$WTROOT" ] && is_dev_team_root "$WTROOT" && [ "$(stm_marker "$WTROOT")" = "stm" ]; then
       peer_root="$WTROOT"
       peer_ver=$(plugin_version "$WTROOT")
       peer_stm=1

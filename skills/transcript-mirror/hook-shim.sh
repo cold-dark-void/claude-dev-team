@@ -11,10 +11,10 @@ set -u
 drain() { cat >/dev/null 2>/dev/null || true; }
 
 # Resolve plugin root (PDH) — hook-runtime bootstrap, not the caller-site stanza.
-# Two tiers only: (a) PDH=$(pwd) when skills/plugin-dir.sh exists in cwd (dev
+# Two tiers only: (a) PDH=$(pwd) when cwd is the dev-team plugin itself (skills/plugin-dir.sh, agents/pm.md and a plugin.json naming dev-team; CDT-265) (dev
 # checkout), else (b) highest-version match under the installed plugin cache.
 PDH=""
-if [ -f skills/plugin-dir.sh ]; then
+if [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null; then
   PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza; byte-identity waiver only — does not exempt this site from the CDT-166 version-segment ranking rule)
 else
   _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \

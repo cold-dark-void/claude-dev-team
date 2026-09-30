@@ -64,6 +64,21 @@ assert_eq "pipeline pre above older final" "$got" "1.0.0-pre.1"
 bare=$(printf '1.0.0-pre.4\n1.0.0\n' | sort -V | tail -1)
 assert_eq "hazard: bare sort -V prefers pre" "$bare" "1.0.0-pre.4"
 
+# CDT-348: capability probe. Every ranker in this tree (plugin-dir.sh ver_pick,
+# path_ver_pick, the canonical stanza, the hook bootstraps) relies on GNU
+# coreutils version sort: `sort -V` for version order and the `~` (tilde) rule
+# that ranks a `~pre.N` tag below its final release. A sort without those
+# semantics (older BSD, busybox without -V) would rank versions wrongly and
+# silently. Probe the host once so the failure names the cause.
+echo "== sort -V capability probe (GNU coreutils version sort) =="
+got=$(printf '1.0.9\n1.0.10\n' | sort -V | tail -1)
+assert_eq "sort -V is a version sort (1.0.10 above 1.0.9)" "$got" "1.0.10"
+got=$(printf '1.0.0\n1.0.0~pre.1\n' | sort -V | tail -1)
+assert_eq "sort -V ranks a ~pre tag below its final release" "$got" "1.0.0"
+if [ "$FAIL" -ne 0 ]; then
+  echo "  hint: this host's sort lacks GNU version-sort semantics; SPEC-002 requires GNU coreutils sort -V" >&2
+fi
+
 # --- resolve: dev checkout ---
 # CDT-82: prefer show-toplevel (worktree) so feat/* dogfood is not shadowed
 # by the main checkout via git-common-dir (master may still be legacy handoff).
@@ -72,7 +87,11 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 out=$(bash "$LIB" file skills/plugin-dir.sh)
 rc=$?
 assert_rc "dev file rc" "$rc" 0
-assert_eq "dev file path" "$out" "$WTROOT/skills/plugin-dir.sh"
+# WP 1-11: tier 1 accepts the checkout only if it passes the dev-team identity
+# check (.claude-plugin/plugin.json holding the fixed string "name": "dev-team",
+# one space, plus agents/pm.md). If this fails with a cache or marketplace path,
+# suspect a plugin.json reformat (spacing or key order) before plugin-dir.sh.
+assert_eq "dev file path (checkout must pass the dev-team identity check: plugin.json \"name\": \"dev-team\" + agents/pm.md)" "$out" "$WTROOT/skills/plugin-dir.sh"
 
 # --- resolve: synthetic cache, NO CLAUDE_PLUGIN_ROOT (sort path alone) ---
 echo "== cache sort path (no CLAUDE_PLUGIN_ROOT) =="
@@ -92,6 +111,20 @@ rm_under_tmp() {
     *) echo "FATAL: refusing rm -rf outside \$TMP: [$target]" >&2; exit 70 ;;
   esac
   rm -rf "$target"
+}
+
+# WP 1-11 (CDT-265): the cwd tiers accept a root only when it IS the dev-team
+# plugin: `.claude-plugin/plugin.json` naming `"name": "dev-team"` (one space,
+# the shipped spelling; the identity check is a fixed-string grep) and
+# `agents/pm.md`. A cwd fixture that stands in for a dev checkout needs both.
+# mk_plugin_identity <dir> [name] [with-pm: 1|0] — defaults: dev-team, 1.
+mk_plugin_identity() {
+  local dir="$1" name="${2:-dev-team}" with_pm="${3:-1}"
+  mkdir -p "$dir/.claude-plugin" "$dir/agents"
+  printf '{\n  "name": "%s",\n  "version": "0.0.1"\n}\n' "$name" > "$dir/.claude-plugin/plugin.json"
+  if [ "$with_pm" = "1" ]; then
+    : > "$dir/agents/pm.md"
+  fi
 }
 
 # Foreign cwd so tier-1 (dev MROOT) cannot match the probe relpath.
@@ -457,6 +490,116 @@ else
   FAIL=$((FAIL + 1)); echo "  FAIL empty-PDH must exit non-zero"
 fi
 
+# --- WP 1-11 / CDT-265: cwd tiers accept only the dev-team plugin itself ----
+# plugin-dir.sh tier 1 (show-toplevel) and tier 2 (git-common-dir, or the cwd
+# outside git) used to accept any root that held <relpath>. A consumer repo
+# that carries its own skills/worktree-lib.sh therefore got that file executed
+# by /worktree, /status worktree and /setup. Tiers 1 and 2 now require the root
+# to BE the dev-team plugin; otherwise resolution goes straight on to the
+# force, marketplace, cache and find tiers. Tier 0 (operator force) is
+# unchanged. Every git call below runs with a private HOME and no system
+# config, so no user git config (signing, hooks) can leak in.
+echo "== WP 1-11 plugin-dir.sh cwd tiers accept only the dev-team plugin (CDT-265) =="
+WP11="$TMP/wp11"
+rm_under_tmp "$WP11"
+mkdir -p "$WP11"
+WP11="$(cd "$WP11" && pwd -P)"
+WP11_HOME="$WP11/home"
+WP11_CACHE="$WP11_HOME/.claude/plugins/cache/cold-dark-void/dev-team/9.9.9"
+mkdir -p "$WP11_CACHE/skills/handoff"
+printf 'installed\n' > "$WP11_CACHE/skills/worktree-lib.sh"
+: > "$WP11_CACHE/skills/plugin-dir.sh"
+printf '# prepass.sh finalize --sections <dir>\n' > "$WP11_CACHE/skills/handoff/prepass.sh"
+
+wp11_git() {
+  env -i PATH="$PATH" HOME="$WP11_HOME" GIT_CONFIG_NOSYSTEM=1 \
+    GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t \
+    git "$@"
+}
+# wp11_repo <dir> — a fresh git repo with one commit that holds README.
+wp11_repo() {
+  mkdir -p "$1"
+  wp11_git -C "$1" init -q 2>/dev/null
+  printf 'base\n' > "$1/README"
+  wp11_git -C "$1" add -A 2>/dev/null
+  wp11_git -C "$1" commit -q -m base 2>/dev/null
+}
+# wp11_file <cwd> <relpath> — resolve from <cwd>; stdout = path, $WP11_ERR = stderr.
+WP11_ERR="$WP11/stderr"
+wp11_file() {
+  ( cd "$1" && env -u CLAUDE_PLUGIN_ROOT HOME="$WP11_HOME" PDH_TRACE=1 bash "$LIB" file "$2" 2>"$WP11_ERR" )
+}
+
+# (a) RED on the old code: a foreign repo with a decoy worktree-lib.sh must
+# resolve to the installed copy, not to the decoy.
+WP11_FR="$WP11/foreign-repo"
+wp11_repo "$WP11_FR"
+mkdir -p "$WP11_FR/skills"
+printf 'decoy\n' > "$WP11_FR/skills/worktree-lib.sh"
+: > "$WP11_FR/skills/plugin-dir.sh"
+out=$(wp11_file "$WP11_FR" skills/worktree-lib.sh)
+assert_eq "WP11 foreign repo + decoy worktree-lib.sh resolves to the installed copy" "$out" "$WP11_CACHE/skills/worktree-lib.sh"
+assert_contains "WP11 foreign repo resolution is the cache tier" "$(cat "$WP11_ERR")" "tier=cache"
+out=$( cd "$WP11_FR" && env -u CLAUDE_PLUGIN_ROOT HOME="$WP11_HOME" bash "$LIB" root 2>/dev/null )
+assert_eq "WP11 foreign repo + decoy plugin-dir.sh: root is the installed root" "$out" "$WP11_CACHE"
+
+# (b) Negative controls: each identity half is load-bearing on its own.
+# plugin.json names another plugin, agents/pm.md present -> the name grep decides.
+mk_plugin_identity "$WP11_FR" "other-plugin" 1
+out=$(wp11_file "$WP11_FR" skills/worktree-lib.sh)
+assert_eq "WP11 control: agents/pm.md + plugin.json named other-plugin is rejected" "$out" "$WP11_CACHE/skills/worktree-lib.sh"
+# plugin.json names dev-team but agents/pm.md is missing -> the file test decides.
+mk_plugin_identity "$WP11_FR" "dev-team" 0
+rm -f "$WP11_FR/agents/pm.md"
+out=$(wp11_file "$WP11_FR" skills/worktree-lib.sh)
+assert_eq "WP11 control: plugin.json dev-team without agents/pm.md is rejected" "$out" "$WP11_CACHE/skills/worktree-lib.sh"
+# Positive: both halves present -> the repo IS the plugin and tier 1 accepts it.
+mk_plugin_identity "$WP11_FR" "dev-team" 1
+out=$(wp11_file "$WP11_FR" skills/worktree-lib.sh)
+assert_eq "WP11 positive: dev-team identity accepts the cwd repo copy (tier 1)" "$out" "$WP11_FR/skills/worktree-lib.sh"
+assert_contains "WP11 positive resolution is the worktree tier" "$(cat "$WP11_ERR")" "tier=worktree"
+
+# (c) Outside git, tier 2 falls back to the cwd. A decoy there must be skipped.
+WP11_NG="$WP11/not-a-repo"
+mkdir -p "$WP11_NG/skills"
+printf 'decoy\n' > "$WP11_NG/skills/worktree-lib.sh"
+out=$(wp11_file "$WP11_NG" skills/worktree-lib.sh)
+assert_eq "WP11 non-git cwd + decoy resolves to the installed copy" "$out" "$WP11_CACHE/skills/worktree-lib.sh"
+
+# (d) Tier 2 (git-common-dir). The linked worktree lacks the file; the main
+# checkout holds it. Foreign main -> skipped; dev-team main -> accepted.
+WP11_MF="$WP11/main-foreign"
+wp11_repo "$WP11_MF"
+mkdir -p "$WP11_MF/skills"
+printf 'decoy\n' > "$WP11_MF/skills/worktree-lib.sh"
+wp11_git -C "$WP11_MF" add -A 2>/dev/null
+wp11_git -C "$WP11_MF" commit -q -m decoy 2>/dev/null
+wp11_git -C "$WP11_MF" worktree add -q -b side "$WP11/wt-foreign" HEAD~1 2>/dev/null
+out=$(wp11_file "$WP11/wt-foreign" skills/worktree-lib.sh)
+assert_eq "WP11 tier 2: linked worktree of a foreign main skips the main decoy" "$out" "$WP11_CACHE/skills/worktree-lib.sh"
+
+WP11_MD="$WP11/main-devteam"
+wp11_repo "$WP11_MD"
+mk_plugin_identity "$WP11_MD"
+mkdir -p "$WP11_MD/skills"
+printf 'main-copy\n' > "$WP11_MD/skills/worktree-lib.sh"
+wp11_git -C "$WP11_MD" add -A 2>/dev/null
+wp11_git -C "$WP11_MD" commit -q -m plugin 2>/dev/null
+wp11_git -C "$WP11_MD" worktree add -q -b side "$WP11/wt-devteam" HEAD~1 2>/dev/null
+out=$(wp11_file "$WP11/wt-devteam" skills/worktree-lib.sh)
+assert_eq "WP11 tier 2: linked worktree of the dev-team main accepts the main copy" "$out" "$WP11_MD/skills/worktree-lib.sh"
+assert_contains "WP11 tier 2 resolution is the dev-main tier" "$(cat "$WP11_ERR")" "tier=dev-main"
+
+# (e) verify: a foreign repo must not pose as an STM peer. The installed copy
+# is legacy (--sections); the foreign repo carries a prepass with --events.
+# Old code read that as "legacy root shadowed by STM source" (rc 2).
+WP11_VF="$WP11/verify-foreign"
+wp11_repo "$WP11_VF"
+mkdir -p "$WP11_VF/skills/handoff"
+printf '# prepass.sh finalize --events <dir|file>\n' > "$WP11_VF/skills/handoff/prepass.sh"
+( cd "$WP11_VF" && env -u CLAUDE_PLUGIN_ROOT HOME="$WP11_HOME" bash "$LIB" verify >/dev/null 2>&1 )
+assert_rc "WP11 verify: a foreign repo with an --events prepass is not an STM peer (rc 0)" "$?" 0
+
 # --- CDT-53-13: tree-wide bare sort -V tilde-map uniformity gate ---
 # Product version-picks MUST use:
 #   sed 's/-pre./~pre./' | sort -V | tail -1 | sed 's/~pre./-pre./'
@@ -544,7 +687,7 @@ EXPECTED_RESOLVER_COUNT=12
 # spot. A named exclusion that no longer matches the predicate is a stale
 # exclusion (a hole) and MUST fail the gate.
 NAMED_EXCLUSIONS=(
-  "skills/plugin-dir.sh:278|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:47, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
+  "skills/plugin-dir.sh:305|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:58, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
 )
 
 # Discovery: anchored on the SPEC-002 structural invariant — a slug-free
@@ -553,7 +696,7 @@ NAMED_EXCLUSIONS=(
 # variable-rooted `find "$cache" -path '*/dev-team/*/...'` never puts the
 # literal cache path on the `find` line, so it was invisible to the old
 # predicate while still being a live CDT-166-defective resolver shape (see
-# skills/plugin-dir.sh:278 for the prevailing variable-rooted idiom in this
+# skills/plugin-dir.sh:305 for the prevailing variable-rooted idiom in this
 # tree). The glob may sit on the `find` line itself (single-line family, the
 # plugin-dir.sh tier-4 idiom, and any other variable-rooted spelling) or on
 # the very next physical line (the multiline hook-runtime family, whose
@@ -593,7 +736,7 @@ excl_stanza=$(printf '%s\n' "$stage_b" | grep -cF 'PDH=$( {' || true)
 glob_lines=$(printf '%s\n' "$stage_b" | grep -vF 'PDH=$( {' || true)
 
 # Remaining shape exclusion: comment/prose lines — a line that merely
-# DESCRIBES the glob (plugin-dir.sh:26 documents the tier-4 fallback) and any
+# DESCRIBES the glob (plugin-dir.sh:34 documents the tier-4 fallback) and any
 # glob line with no `find` on it or on the line immediately above it.
 excl_prose=0
 resolver_hits=""
@@ -957,9 +1100,13 @@ echo "== CDT-237 stanza branch-1 (cwd dev checkout) =="
 
 # Branch-1 positive: cwd inside a synthetic checkout containing
 # skills/plugin-dir.sh, CLAUDE_PLUGIN_ROOT unset, resolves to that cwd.
+# WP 1-11: a cwd fixture that stands in for a dev checkout also needs the
+# dev-team identity (mk_plugin_identity); the decoy-cwd cases are in the
+# "WP 1-11 stanza" section below.
 BRANCH1_CHECKOUT="$TMP/c237-branch1-checkout"
 mkdir -p "$BRANCH1_CHECKOUT/skills"
 : > "$BRANCH1_CHECKOUT/skills/plugin-dir.sh"
+mk_plugin_identity "$BRANCH1_CHECKOUT"
 pdh=$(
   cd "$BRANCH1_CHECKOUT" &&
   env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/c237-home-unused2" bash "$STANZA_SH"
@@ -972,6 +1119,7 @@ echo "== CDT-237 stanza precedence =="
 PREC_CWD1="$TMP/c237-prec-cwd1"
 mkdir -p "$PREC_CWD1/skills"
 : > "$PREC_CWD1/skills/plugin-dir.sh"
+mk_plugin_identity "$PREC_CWD1"
 PREC_ROOT0="$TMP/c237-prec-root0"
 mkdir -p "$PREC_ROOT0/skills"
 : > "$PREC_ROOT0/skills/plugin-dir.sh"
@@ -986,6 +1134,7 @@ assert_eq "CDT-237 precedence: branch 0 wins over satisfiable branch 1" "$pdh" "
 PREC_CWD2="$TMP/c237-prec-cwd2"
 mkdir -p "$PREC_CWD2/skills"
 : > "$PREC_CWD2/skills/plugin-dir.sh"
+mk_plugin_identity "$PREC_CWD2"
 PREC_HOME="$TMP/c237-prec-home"
 PREC_CACHE_ROOT="$PREC_HOME/.claude/plugins/cache/cold-dark-void/dev-team/5.0.0"
 mkdir -p "$PREC_CACHE_ROOT/skills"
@@ -1007,6 +1156,7 @@ assert_eq "CDT-237 precedence: branch 1 (cwd) wins over populated cache (branch 
 PREC_CWD3="$TMP/c237-prec-cwd3"
 mkdir -p "$PREC_CWD3/skills"
 : > "$PREC_CWD3/skills/plugin-dir.sh"
+mk_plugin_identity "$PREC_CWD3"
 PREC_HOME3="$TMP/c237-prec-home3"
 PREC_MP_ROOT="$PREC_HOME3/.claude/plugins/marketplaces/prec-mp-slug"
 mkdir -p "$PREC_MP_ROOT/skills" "$PREC_MP_ROOT/agents"
@@ -1044,6 +1194,7 @@ echo "== CDT-237 stanza branch-1 pwd vs pwd -P (symlink) =="
 BRANCH1_ACTUAL="$TMP/c237-branch1-actual"
 mkdir -p "$BRANCH1_ACTUAL/skills"
 : > "$BRANCH1_ACTUAL/skills/plugin-dir.sh"
+mk_plugin_identity "$BRANCH1_ACTUAL"
 BRANCH1_SYMLINK="$TMP/c237-branch1-symlink"
 ln -s "$BRANCH1_ACTUAL" "$BRANCH1_SYMLINK"
 pdh=$(
@@ -1051,6 +1202,292 @@ pdh=$(
   env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/c237-home-unused5" bash "$STANZA_SH"
 )
 assert_eq "CDT-237 branch-1 resolves logical cwd (pwd, not pwd -P) through a symlink" "$pdh" "$BRANCH1_SYMLINK"
+
+# --- WP 1-11 / CDT-265 + CDT-348: stanza cwd identity and the _pr= branch ----
+# The canonical stanza's cwd branch (branch 1) used to accept any cwd that held
+# skills/plugin-dir.sh, so a consumer repo could supply the PDH. It now needs the
+# dev-team identity (plugin.json naming dev-team + agents/pm.md), the same test
+# as plugin-dir.sh tiers 1 and 2. The third branch, `_pr='${CLAUDE_PLUGIN_ROOT}'`,
+# only fires when Claude Code has substituted the literal token with a real
+# path (v1.18.14); left unsubstituted it is a relative path that must not match.
+# The token is substituted here with awk (fixed string, values via ENVIRON) so
+# only the bare `${CLAUDE_PLUGIN_ROOT}` spelling changes, as in Claude Code
+# (the `${CLAUDE_PLUGIN_ROOT:-}` spelling in branch 0 must stay untouched).
+echo "== WP 1-11 stanza: cwd identity + literal-token branch (CDT-265, CDT-348) =="
+S11="$TMP/wp11-stanza"
+rm_under_tmp "$S11"
+mkdir -p "$S11"
+
+# stanza_subst <out> <old> <new> [in] — copy [in] (default $STANZA_SH) to <out> with every fixed-string
+# <old> replaced by <new>. Returns 3 when <old> never occurs (the edit did not
+# land), so a mutation or substitution can never be silently vacuous.
+stanza_subst() {
+  local out="$1"
+  OLD="$2" NEW="$3" awk '
+    BEGIN { o = ENVIRON["OLD"]; n = ENVIRON["NEW"]; cnt = 0 }
+    {
+      s = $0; res = ""
+      while ((i = index(s, o)) > 0) { res = res substr(s, 1, i - 1) n; s = substr(s, i + length(o)); cnt++ }
+      print res s
+    }
+    END { if (cnt == 0) exit 3 }
+  ' "${4:-$STANZA_SH}" > "$out"
+}
+
+# Planted-text control: the canonical holds the literal-token branch exactly once.
+tok_n=$(grep -cF "_pr='\${CLAUDE_PLUGIN_ROOT}'" "$STANZA_SH" || true)
+assert_eq "WP11 stanza holds the _pr='\${CLAUDE_PLUGIN_ROOT}' branch exactly once" "$tok_n" "1"
+
+# Fixtures. Cache-only HOME, and a HOME with marketplace + cache both present.
+S11_HOME_CACHE="$S11/home-cache"
+S11_CACHE="$S11_HOME_CACHE/.claude/plugins/cache/cold-dark-void/dev-team/7.7.7"
+mkdir -p "$S11_CACHE/skills"
+: > "$S11_CACHE/skills/plugin-dir.sh"
+S11_HOME_MP="$S11/home-mp"
+S11_MP="$S11_HOME_MP/.claude/plugins/marketplaces/some-slug"
+S11_MP_CACHE="$S11_HOME_MP/.claude/plugins/cache/cold-dark-void/dev-team/7.7.7"
+mkdir -p "$S11_MP/skills" "$S11_MP/agents" "$S11_MP_CACHE/skills"
+: > "$S11_MP/skills/plugin-dir.sh"
+: > "$S11_MP/agents/pm.md"
+: > "$S11_MP_CACHE/skills/plugin-dir.sh"
+# The root Claude Code would substitute for the token (not a cwd, not a dev checkout).
+S11_ROOT="$S11/loaded-plugin"
+mkdir -p "$S11_ROOT/skills"
+: > "$S11_ROOT/skills/plugin-dir.sh"
+# A consumer repo that carries a decoy plugin-dir.sh and a decoy worktree-lib.sh.
+S11_DECOY="$S11/consumer-repo"
+mkdir -p "$S11_DECOY/skills"
+: > "$S11_DECOY/skills/plugin-dir.sh"
+printf 'decoy\n' > "$S11_DECOY/skills/worktree-lib.sh"
+# A dev checkout: the dev-team identity present.
+S11_DEV="$S11/dev-checkout"
+mkdir -p "$S11_DEV/skills"
+: > "$S11_DEV/skills/plugin-dir.sh"
+mk_plugin_identity "$S11_DEV"
+# A cwd that holds nothing.
+S11_EMPTY="$S11/empty-cwd"
+mkdir -p "$S11_EMPTY"
+
+# Substituted stanzas (what Claude Code feeds the shell).
+S11_SUB="$S11/stanza-sub.sh"
+stanza_subst "$S11_SUB" '${CLAUDE_PLUGIN_ROOT}' "$S11_ROOT"
+assert_rc "WP11 token substitution landed" "$?" 0
+assert_eq "WP11 substituted stanza has no bare token left" "$(grep -cF '${CLAUDE_PLUGIN_ROOT}' "$S11_SUB" || true)" "0"
+assert_eq "WP11 substituted stanza keeps branch 0 (:-) spelling" "$(grep -cF '${CLAUDE_PLUGIN_ROOT:-}' "$S11_SUB" || true)" "1"
+S11_BOGUS="$S11/no-plugin-here"
+mkdir -p "$S11_BOGUS"
+S11_SUB_BOGUS="$S11/stanza-sub-bogus.sh"
+stanza_subst "$S11_SUB_BOGUS" '${CLAUDE_PLUGIN_ROOT}' "$S11_BOGUS"
+
+# CDT-265: decoy cwd resolves to the installed copy, not the decoy (RED on old).
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$STANZA_SH" )
+assert_eq "WP11 stanza: decoy cwd (plugin-dir.sh only) resolves to the installed copy" "$pdh" "$S11_CACHE"
+# Controls: each identity half is load-bearing on its own.
+mk_plugin_identity "$S11_DECOY" "other-plugin" 1
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$STANZA_SH" )
+assert_eq "WP11 stanza control: agents/pm.md + plugin.json named other-plugin is rejected" "$pdh" "$S11_CACHE"
+mk_plugin_identity "$S11_DECOY" "dev-team" 0
+rm -f "$S11_DECOY/agents/pm.md"
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$STANZA_SH" )
+assert_eq "WP11 stanza control: plugin.json dev-team without agents/pm.md is rejected" "$pdh" "$S11_CACHE"
+rm -f "$S11_DECOY/.claude-plugin/plugin.json"
+: > "$S11_DECOY/agents/pm.md"
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$STANZA_SH" 2>"$S11/err-nojson" )
+assert_eq "WP11 stanza control: agents/pm.md without plugin.json is rejected" "$pdh" "$S11_CACHE"
+assert_eq "WP11 stanza control: the missing plugin.json adds no stderr noise" "$(cat "$S11/err-nojson")" ""
+# Positive: the dev checkout (identity present) is accepted as before.
+pdh=$( cd "$S11_DEV" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$STANZA_SH" )
+assert_eq "WP11 stanza positive: dev-team identity accepts the cwd" "$pdh" "$S11_DEV"
+
+# CDT-348: literal-token branch. Positive: a substituted real root wins over
+# the marketplace and cache tiers from a cwd that holds nothing.
+pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_SUB" )
+assert_eq "WP11 _pr positive: a substituted root wins over marketplace and cache" "$pdh" "$S11_ROOT"
+# Negative: substituted with a path that has no skills/plugin-dir.sh -> falls through.
+pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_SUB_BOGUS" )
+assert_eq "WP11 _pr negative: a substituted path without plugin-dir.sh falls through to the marketplace" "$pdh" "$S11_MP"
+# Negative: the token left unsubstituted (real stanza text) does not fire and
+# never leaks into PDH.
+pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$STANZA_SH" )
+assert_eq "WP11 _pr negative: the unsubstituted token falls through to the marketplace" "$pdh" "$S11_MP"
+assert_eq "WP11 _pr negative: the unsubstituted token never leaks into PDH" "$(printf '%s' "$pdh" | grep -cF 'CLAUDE_PLUGIN_ROOT' || true)" "0"
+# Hijack through the literal token: unsubstituted, `$_pr` is the relative path
+# `${CLAUDE_PLUGIN_ROOT}/skills/plugin-dir.sh`. A consumer repo that holds a
+# directory with that literal name would be accepted, PDH would be the literal
+# text, and `bash "$PDH/skills/plugin-dir.sh"` would run the repo's copy (the
+# CDT-265 shadow, through the third branch). RED before the `$_pr` guard.
+S11_LIT="$S11/literal-dir-repo"
+mkdir -p "$S11_LIT"/'${CLAUDE_PLUGIN_ROOT}'/skills
+: > "$S11_LIT"/'${CLAUDE_PLUGIN_ROOT}'/skills/plugin-dir.sh
+pdh=$( cd "$S11_LIT" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$STANZA_SH" )
+assert_eq "WP11 _pr negative: a repo dir literally named \${CLAUDE_PLUGIN_ROOT} is not accepted" "$pdh" "$S11_MP"
+pdh=$( cd "$S11_LIT" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_SUB" )
+assert_eq "WP11 _pr positive: the guard does not reject a substituted absolute root" "$pdh" "$S11_ROOT"
+pdh=$( cd "$S11_LIT" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash -u "$STANZA_SH" 2>&1 )
+assert_eq "WP11 set -u: a literal-named repo dir is not accepted" "$pdh" "$S11_MP"
+
+# Precedence: a shadowing consumer repo in cwd must not beat the substituted
+# root (RED on old: the decoy cwd branch won).
+mk_plugin_identity "$S11_DECOY" "other-plugin" 1
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_SUB" )
+assert_eq "WP11 _pr precedence: a substituted root beats a shadowing consumer repo" "$pdh" "$S11_ROOT"
+# Pin (v1.18.14 ordering intent): the branch sits AFTER the cwd check, so an
+# active dev checkout is not shadowed by the substituted root.
+pdh=$( cd "$S11_DEV" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_SUB" )
+assert_eq "WP11 _pr precedence: a dev checkout cwd beats the substituted root" "$pdh" "$S11_DEV"
+# Branch 0 still beats the substituted root.
+pdh=$( cd "$S11_EMPTY" && env CLAUDE_PLUGIN_ROOT="$S11_BOGUS" HOME="$S11_HOME_MP" bash "$S11_SUB" )
+assert_eq "WP11 _pr precedence: a CLAUDE_PLUGIN_ROOT without plugin-dir.sh falls through to the substituted root" "$pdh" "$S11_ROOT"
+
+# CDT-238: the stanza must run under set -u (CLAUDE_PLUGIN_ROOT unset, no
+# unguarded expansion). Branches: cwd identity, decoy -> cache, _pr, none.
+pdh=$( cd "$S11_DEV" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash -u "$STANZA_SH" 2>&1 )
+assert_eq "WP11 set -u: cwd identity branch" "$pdh" "$S11_DEV"
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash -u "$STANZA_SH" 2>&1 )
+assert_eq "WP11 set -u: decoy cwd falls through to the cache" "$pdh" "$S11_CACHE"
+pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash -u "$S11_SUB" 2>&1 )
+assert_eq "WP11 set -u: substituted _pr branch" "$pdh" "$S11_ROOT"
+pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash -u "$STANZA_SH" 2>&1 )
+assert_eq "WP11 set -u: unsubstituted _pr falls through to the marketplace" "$pdh" "$S11_MP"
+pdh=$( cd "$S11_EMPTY" && env CLAUDE_PLUGIN_ROOT="$S11_ROOT" HOME="$S11_HOME_MP" bash -u "$STANZA_SH" 2>&1 )
+assert_eq "WP11 set -u: branch 0 (CLAUDE_PLUGIN_ROOT set)" "$pdh" "$S11_ROOT"
+
+# zsh: the same canonical text, run as a zsh script. Skipped when zsh is absent.
+if command -v zsh >/dev/null 2>&1; then
+  pdh=$( cd "$S11_DEV" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" zsh "$STANZA_SH" 2>&1 )
+  assert_eq "WP11 zsh: cwd identity branch" "$pdh" "$S11_DEV"
+  pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" zsh "$STANZA_SH" 2>&1 )
+  assert_eq "WP11 zsh: decoy cwd falls through to the marketplace" "$pdh" "$S11_MP"
+else
+  echo "  skip WP11 zsh cases (zsh not installed)"
+fi
+
+# Mutation proof (CDT-348 acceptance: "mutating the _pr= branch makes a test
+# fail"). Each mutant edits the canonical text, asserts the edit landed
+# (stanza_subst returns 3 otherwise), reruns the scenario of the assertion
+# above and requires a DIFFERENT result. A mutant that survives means the
+# matching assertion above does not bite.
+echo "== WP 1-11 stanza mutants (each must change the resolved PDH) =="
+assert_ne() {
+  local name="$1" got="$2" not_want="$3"
+  if [ "$got" != "$not_want" ]; then
+    PASS=$((PASS + 1)); echo "  ok  $name (mutant resolved [$got])"
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL $name: mutant survived, still resolved [$got]"
+  fi
+}
+# M1: the _pr branch can never match (its -f test forced false).
+S11_M1="$S11/mutant-pr-dead.sh"
+stanza_subst "$S11_M1" '[ -f "$_pr/skills/plugin-dir.sh" ]' 'false' "$S11_SUB"
+assert_rc "WP11 mutant M1 (_pr branch dead) applied" "$?" 0
+pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_M1" )
+assert_ne "WP11 mutant M1: the _pr positive assertion bites" "$pdh" "$S11_ROOT"
+# M2: the _pr branch accepts any existing $_pr, even the unsubstituted relative token.
+S11_M2="$S11/mutant-pr-unguarded.sh"
+stanza_subst "$S11_M2" '[ "${_pr#\$}" = "$_pr" ]' 'true'
+assert_rc "WP11 mutant M2 (_pr unsubstituted-token guard removed) applied" "$?" 0
+pdh=$( cd "$S11_LIT" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_M2" )
+assert_ne "WP11 mutant M2: the literal-named-dir assertion bites" "$pdh" "$S11_MP"
+# M3: the cwd branch loses its dev-team name check.
+S11_M3="$S11/mutant-cwd-no-name.sh"
+stanza_subst "$S11_M3" "grep -qF '\"name\": \"dev-team\"' .claude-plugin/plugin.json 2>/dev/null" 'true'
+assert_rc "WP11 mutant M3 (cwd name check removed) applied" "$?" 0
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$S11_M3" )
+assert_ne "WP11 mutant M3: the other-plugin control assertion bites" "$pdh" "$S11_CACHE"
+S11_M4="$S11/mutant-cwd-no-pm.sh"
+stanza_subst "$S11_M4" '[ -f agents/pm.md ] && ' ''
+assert_rc "WP11 mutant M4 (cwd agents/pm.md test removed) applied" "$?" 0
+mk_plugin_identity "$S11_DECOY" "dev-team" 0
+rm -f "$S11_DECOY/agents/pm.md"
+pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$S11_M4" )
+assert_ne "WP11 mutant M4: the no-agents/pm.md control assertion bites" "$pdh" "$S11_CACHE"
+
+# --- WP 1-11 / CDT-265: hook-runtime bootstraps (same cwd hole, other text) ---
+# The three hook-runtime bootstraps (transcript-mirror/hook-shim.sh, and the
+# precompact-rescue and task-completed templates in init-orchestration/SKILL.md)
+# are exempt from C5 byte-identity but, per SPEC-002, not from behaviour MUSTs.
+# Each had `if [ -f skills/plugin-dir.sh ]; then PDH=$(pwd)`, so a consumer repo
+# decoy was EXECUTED by the hook. The decoy below records that it ran; the
+# hook must skip it unless the cwd has the dev-team identity. Each site is
+# run, not grepped. The emitted hooks come from check-hook-templates.sh
+# --extract (the single extractor CLI).
+echo "== WP 1-11 hook-runtime bootstraps: cwd arm needs the dev-team identity =="
+H11="$TMP/wp11-hooks"
+rm_under_tmp "$H11"
+mkdir -p "$H11/home"
+H11_MARK="$H11/ran-marker"
+CHT="$REPO_ROOT/skills/init-orchestration/check-hook-templates.sh"
+# h11_decoy <dir> — a cwd whose skills/plugin-dir.sh records that it ran.
+h11_decoy() {
+  mkdir -p "$1/skills"
+  printf '#!/usr/bin/env bash\nprintf x >> %q\nexit 3\n' "$H11_MARK" > "$1/skills/plugin-dir.sh"
+}
+# h11_ran — prints yes|no, then clears the marker.
+h11_ran() {
+  if [ -s "$H11_MARK" ]; then echo yes; else echo no; fi
+  rm -f "$H11_MARK"
+}
+# The full cwd-arm condition, as a fixed string. A prefix match is not enough: a
+# site that drops `[ -f agents/pm.md ] &&` (or the name grep) still starts with
+# `if [ -f skills/plugin-dir.sh`. Each site must hold the whole fragment once.
+H11_FRAG="if [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '\"name\": \"dev-team\"' .claude-plugin/plugin.json 2>/dev/null; then"
+bash "$CHT" --extract precompact-rescue > "$H11/precompact-rescue.sh" 2>/dev/null
+assert_eq "WP11 hooks: precompact-rescue template holds the full identity-checked cwd arm once" "$(grep -cF -- "$H11_FRAG" "$H11/precompact-rescue.sh" || true)" "1"
+bash "$CHT" --extract task-completed 2>/dev/null \
+  | awk '/^_emit_task_complete\(\) \{$/ { f = 1 } f { print } f && /^\}$/ { exit }' > "$H11/emit-task-complete.sh"
+assert_eq "WP11 hooks: task-completed _emit_task_complete holds the full identity-checked cwd arm once" "$(grep -cF -- "$H11_FRAG" "$H11/emit-task-complete.sh" || true)" "1"
+assert_eq "WP11 hooks: hook-shim.sh holds the full identity-checked cwd arm once" "$(grep -cF -- "$H11_FRAG" "$REPO_ROOT/skills/transcript-mirror/hook-shim.sh" || true)" "1"
+h11_run_shim()     { ( cd "$1" && env -i PATH="$PATH" HOME="$H11/home" bash "$REPO_ROOT/skills/transcript-mirror/hook-shim.sh" </dev/null >/dev/null 2>&1 ); }
+h11_run_rescue()   { ( cd "$1" && env -i PATH="$PATH" HOME="$H11/home" bash "$H11/precompact-rescue.sh" </dev/null >/dev/null 2>&1 ); }
+h11_run_emit()     { ( cd "$1" && env -i PATH="$PATH" HOME="$H11/home" TASK_ID=1 bash -c '. "$1"; _emit_task_complete' _ "$H11/emit-task-complete.sh" </dev/null >/dev/null 2>&1 ); }
+for h11_site in shim rescue emit; do
+  H11_CWD="$H11/cwd-$h11_site"
+  h11_decoy "$H11_CWD"
+  rm -f "$H11_MARK"
+  "h11_run_$h11_site" "$H11_CWD"
+  assert_eq "WP11 hooks ($h11_site): a consumer-repo decoy plugin-dir.sh is not executed" "$(h11_ran)" "no"
+  mk_plugin_identity "$H11_CWD"
+  "h11_run_$h11_site" "$H11_CWD"
+  assert_eq "WP11 hooks ($h11_site): a dev-team cwd (identity present) is still used" "$(h11_ran)" "yes"
+  mk_plugin_identity "$H11_CWD" "other-plugin" 1
+  "h11_run_$h11_site" "$H11_CWD"
+  assert_eq "WP11 hooks ($h11_site): control, agents/pm.md + plugin.json named other-plugin is skipped" "$(h11_ran)" "no"
+  # Control for the file test: plugin.json names dev-team but agents/pm.md is missing.
+  mk_plugin_identity "$H11_CWD" "dev-team" 0
+  rm -f "$H11_CWD/agents/pm.md"
+  "h11_run_$h11_site" "$H11_CWD"
+  assert_eq "WP11 hooks ($h11_site): control, plugin.json dev-team without agents/pm.md is skipped" "$(h11_ran)" "no"
+done
+
+# --- WP 1-11: tree-wide stanza sync --------------------------------------------
+# Every caller-site emission must be the identity-checked canonical text (SPEC-002
+# byte-identity, leading whitespace aside), and none may keep the old cwd
+# branch. SPEC-021 C5 (check-skill-bash.sh) is the general gate; this pins the
+# WP 1-11 change inside the suite the ACs name. The skill-lint fixtures hold
+# deliberately drifted copies and the harness holds quoted examples, so both are
+# excluded; specs/ holds the canonical itself.
+echo "== WP 1-11 tree: every stanza emission is the identity-checked canonical =="
+canon_line=$(grep '^PDH=\$( {' "$STANZA_SH")
+# stanza_variants — distinct emission lines after the leading-whitespace strip.
+stanza_variants() { sed 's/^[[:space:]]*//' | sort -u; }
+emitted=$( cd "$REPO_ROOT" && grep -rhF --exclude-dir=fixtures --exclude=plugin-dir-test.sh \
+  'PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]' agents commands skills docs AGENTS.md )
+emitted_n=$(printf '%s\n' "$emitted" | awk 'NF { n++ } END { print n + 0 }')
+if [ "$emitted_n" -gt 100 ]; then
+  PASS=$((PASS + 1)); echo "  ok  WP11 tree: found $emitted_n stanza emissions (predicate is not vacuous)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL WP11 tree: only $emitted_n stanza emissions found — predicate or scan roots rotted"
+fi
+variants=$(printf '%s\n' "$emitted" | stanza_variants)
+assert_eq "WP11 tree: all emissions are one variant, equal to the SPEC-002 canonical" "$variants" "$canon_line"
+# Planted negative controls: the predicate must see a drifted line, and the old text.
+drifted=$(printf '%s' "$canon_line" | sed 's|agents/pm\.md|agents/other.md|')
+assert_eq "WP11 tree control: a drifted emission yields a second variant" \
+  "$(printf '%s\n%s\n' "$canon_line" "$drifted" | stanza_variants | awk 'END { print NR }')" "2"
+assert_eq "WP11 tree: no emission keeps the old cwd branch" \
+  "$(printf '%s\n' "$emitted" | grep -cF '{ [ -f skills/plugin-dir.sh ] && pwd; }' || true)" "0"
+assert_eq "WP11 tree control: the old-branch predicate matches the drifted skill-lint fixture" \
+  "$(grep -cF '{ [ -f skills/plugin-dir.sh ] && pwd; }' "$REPO_ROOT/skills/skill-lint/fixtures/c5-pdh-drift.md" || true)" "2"
 
 # --- CDT-233 T7 V1: stale-cache delegation falsification (permanent negative
 # proof). A pre-CDT-166 build (its whole body is the forbidden full-path
@@ -1131,7 +1568,7 @@ assert_eq "T7-V1.3 canonical stanza resolves correct root, not stale" "$pdh" "$G
 
 # Assertion 4 (honest counter-nuance, recorded not hidden): a MODERN copy
 # planted at the SAME stale path self-corrects to cold-dark-void. Here VER
-# decides outright — path_ver_pick (skills/plugin-dir.sh:47-60) sorts
+# decides outright — path_ver_pick (skills/plugin-dir.sh:58-71) sorts
 # `-k1,1V` on the <VER> segment first, and 2.0.0 > 1.0.0 regardless of slug,
 # so the SLUG=cold-dark-void tiebreak (`-k2,2n`) never executes in this
 # fixture. The load-bearing fact this assertion actually proves is
