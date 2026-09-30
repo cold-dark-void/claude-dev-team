@@ -71,6 +71,7 @@ poll.sh <TICKET_ID>
   - On `retry_count >= 3` with a real failure: emits `cap` (does **not** rewrite last_failure.txt).
   - On `fixer_active == true`: emits `wait` immediately (guard — never spawn a second fixer concurrently).
   - On missing sidecar: emits `wait`.
+  - On missing `timeout` and `gtimeout` (mode `local-test`, checked before the worktree check): increments `poll_error_count`; emits `wait`; logs `timeout_missing`; writes a stderr hint naming `timeout` and `gtimeout`.
   - Appends `<ISO-8601> <TICKET> outcome=<word>` to `<TICKET>.log` for every non-silent outcome.
 
 ### Decision matrix
@@ -89,6 +90,7 @@ mode=ci:
     all pass|skipping  → done
     else (pending)     → wait (no poll_error_count++)
 mode=local-test:
+  timeout/gtimeout missing → wait (poll_error_count++, log timeout_missing)
   worktree missing      → wait (poll_error_count++)
   detect-mode = none    → wait (poll_error_count++)
   test rc == 0          → done

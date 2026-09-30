@@ -157,11 +157,45 @@ OUT=$(bash "$HELPER" \
 RC=$?
 assert_rc "missing settings rc 1" "$RC" 1
 
+# missing settings KEY (file exists, key absent) → not a force-overwrite (AC G)
+echo "-- helper settings mode: missing key"
+OUT=$(bash "$HELPER" \
+  --settings "$TMP/settings.json" \
+  --key permissions.someMissingKey \
+  --new dontAsk \
+  --backup-dir "$TMP/bak-missing" 2>&1)
+RC=$?
+assert_rc "missing key rc 1" "$RC" 1
+assert_eq "missing key prints nothing (no FORCE-OVERWRITE)" "$OUT" ""
+MISSING_BAK_COUNT=$(find "$TMP/bak-missing" -name 'settings.force-*' 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "missing key creates no backup" "$MISSING_BAK_COUNT" "0"
+
+# present key with a changed value still discloses (control for the above)
+OUT=$(bash "$HELPER" \
+  --settings "$TMP/settings.json" \
+  --key permissions.defaultMode \
+  --new dontAsk 2>&1)
+RC=$?
+assert_rc "present key changed rc 0" "$RC" 0
+assert_contains "present key changed discloses" "$OUT" "FORCE-OVERWRITE"
+
+# ---------- AC G: exit-code header documents missing-key, drops "--new empty" ----------
+echo "-- exit-code header text"
+if grep -qF -- '--new empty' "$HELPER"; then
+  FAIL=$((FAIL + 1)); echo "  FAIL header still mentions --new empty"
+else
+  PASS=$((PASS + 1)); echo "  ok  header has no --new empty"
+fi
+if grep -E '^#[[:space:]]+1[[:space:]].*missing key' "$HELPER" | grep -qv -- '--new empty'; then
+  PASS=$((PASS + 1)); echo "  ok  header documents exit 1 for missing key"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL header missing exit-1-for-missing-key doc"
+fi
+
 # usage error
 set +e
 OUT=$(bash "$HELPER" 2>&1)
 RC=$?
-set -e
 assert_rc "usage rc 2" "$RC" 2
 
 echo "=== results: PASS=$PASS FAIL=$FAIL ==="

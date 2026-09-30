@@ -108,6 +108,41 @@ else
   PASS=$((PASS + 1)); echo "  ok  brownfield requires full greenfield allow set"
 fi
 
+# ---------- AC J: single-line "Ensure permissions.allow contains" check ----------
+echo "-- Ensure permissions.allow contains: single-line check"
+
+check_allow_line() {
+  # $1: file to check. Returns 0 if the "Ensure `permissions.allow` contains"
+  # line names every matrix entry; 1 if the line is missing or incomplete.
+  local file="$1" line item needle rc=0
+  line=$(grep -F -- 'Ensure `permissions.allow` contains' "$file" 2>/dev/null | head -n1)
+  [ -n "$line" ] || return 1
+  for item in "${MATRIX_ALLOW[@]}"; do
+    needle='`'"$item"'`'
+    if ! printf '%s\n' "$line" | grep -qF -- "$needle"; then
+      rc=1
+    fi
+  done
+  return "$rc"
+}
+
+if check_allow_line "$SKILL"; then
+  PASS=$((PASS + 1)); echo "  ok  allow-contains line names every matrix entry"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL allow-contains line missing a matrix entry"
+fi
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/orch-allowlist-test.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT
+NO_GLOB="$TMP/SKILL-no-glob.md"
+sed '/Ensure `permissions.allow` contains/ s/, `Glob`//' "$SKILL" > "$NO_GLOB"
+
+if check_allow_line "$NO_GLOB"; then
+  FAIL=$((FAIL + 1)); echo "  FAIL bite check: temp copy missing Glob should FAIL but passed"
+else
+  PASS=$((PASS + 1)); echo "  ok  bite check: temp copy missing Glob reports FAIL"
+fi
+
 # ---------- P1: project-init must not claim to BE the orchestration posture ----------
 echo "-- project-init Step 1b (P1)"
 # Old mislabel: "This is the orchestration posture" — negation "NOT the orchestration posture" is OK

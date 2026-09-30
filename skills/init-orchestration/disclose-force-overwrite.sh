@@ -17,7 +17,7 @@
 # Stdout: disclosure block (stable labels for protocol greps / tests)
 # Exit:
 #   0  disclosed (old != new) — caller MUST proceed with force write
-#   1  no-op (old == new, or missing key and --new empty) — no force needed
+#   1  no-op (old == new, or missing key — adding a key is not a force-overwrite)
 #   2  usage / IO error
 #
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -82,8 +82,7 @@ cur = data
 parts = key.split(".")
 for p in parts:
     if not isinstance(cur, dict) or p not in cur:
-        print("")  # missing key → treat as empty old
-        sys.exit(0)
+        sys.exit(3)  # missing key: adding a key is not a force-overwrite
     cur = cur[p]
 if cur is None:
     print("")
@@ -95,7 +94,13 @@ elif isinstance(cur, (dict, list)):
 else:
     print(cur)
 PY
-) || exit 2
+)
+  _py_rc=$?
+  if [ "$_py_rc" -eq 3 ]; then
+    # Missing key: adding a key is not a force-overwrite. No output, no backup.
+    exit 1
+  fi
+  [ "$_py_rc" -eq 0 ] || exit 2
 
   # Optional backup of the whole settings file when value will change
   if [ "$OLD" != "$NEW" ] && [ -n "$BACKUP_DIR" ]; then

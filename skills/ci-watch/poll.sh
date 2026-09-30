@@ -62,6 +62,16 @@ emit() {
   exit 0
 }
 
+# Recoverable poll failure: count it, log the outcome word, then emit "wait".
+# Args: [outcome-word]  (default: poll_error). Never returns (emit exits).
+# A stderr hint belongs to the caller and prints BEFORE this call.
+poll_error_wait() {
+  local w="${1:-poll_error}"
+  bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
+  log_event "$w"
+  emit "wait"
+}
+
 # ---- Sidecar gate -----------------------------------------------------------
 if [ ! -f "$SIDECAR" ]; then
   emit "wait"
@@ -123,9 +133,7 @@ poll_ci() {
     if [ "$gh_rc" -eq 8 ]; then
       emit "wait"
     fi
-    bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
-    log_event "poll_error"
-    emit "wait"
+    poll_error_wait
   fi
 
   local total fail_count ok_count
@@ -157,11 +165,15 @@ poll_ci() {
 
 # ---- local-test mode --------------------------------------------------------
 poll_local_test() {
+  TIMEOUT_BIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)
+  if [ -z "$TIMEOUT_BIN" ]; then
+    echo "ci-watch: neither 'timeout' nor 'gtimeout' is on PATH — install coreutils; not running tests" >&2
+    poll_error_wait "timeout_missing"
+  fi
+
   local wt="$MROOT/.worktrees/$TICKET"
   if [ ! -d "$wt" ]; then
-    bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
-    log_event "poll_error"
-    emit "wait"
+    poll_error_wait
   fi
 
   local mode_out test_cmd
@@ -169,13 +181,11 @@ poll_local_test() {
   test_cmd=$(echo "$mode_out" | sed -n 2p)
 
   if [ -z "$test_cmd" ]; then
-    bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
-    log_event "poll_error"
-    emit "wait"
+    poll_error_wait
   fi
 
   # test_cmd MUST be a hardcoded literal from detect-mode.sh — never interpolate user data here
-  ( cd "$wt" && timeout 120 bash -c "$test_cmd" ) > "$OUT_TMP" 2>&1
+  ( cd "$wt" && "$TIMEOUT_BIN" 120 bash -c "$test_cmd" ) > "$OUT_TMP" 2>&1
   local rc=$?
 
   if [ "$rc" -eq 0 ]; then

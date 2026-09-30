@@ -316,7 +316,13 @@ cmd_apply() {
 
   if [ "$OPTION" = "3" ]; then
     git_c config --local commit.gpgsign false
-    echo "WARNING: local commit.gpgsign set false. Remotes that require commit signatures will still reject unsigned commits." >&2
+    _warn="WARNING: local commit.gpgsign set false. Remotes that require commit signatures will still reject unsigned commits."
+    _tag_was=$(git_c config --bool --get tag.gpgsign 2>/dev/null || true)
+    if [ "$_tag_was" = "true" ]; then
+      git_c config --local tag.gpgsign false
+      _warn="$_warn WARNING: local tag.gpgsign set false. Remotes that require tag signatures will still reject unsigned tags."
+    fi
+    echo "$_warn" >&2
     printf '%s\n' "applied=option3"
     exit 0
   fi

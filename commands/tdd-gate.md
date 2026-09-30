@@ -2,6 +2,7 @@
 name: tdd-gate
 description: Toggle hook-based TDD enforcement — blocks Write/Edit to implementation files when no corresponding test file exists. Usage /tdd-gate on, /tdd-gate off, /tdd-gate status
 agent: build
+argument-hint: "[on|off|status]"
 ---
 
 # TDD Gate
@@ -23,7 +24,8 @@ at the tool level — deterministic, not probabilistic.
 
 The hook intercepts Write and Edit tool calls. For each target file, it checks
 whether a corresponding test file exists. If no test file is found, the hook
-exits with code 2 (block) and tells the agent to write a failing test first.
+gives a hint on the 1st attempt, a warning on the 2nd, and blocks (exit 2) on
+the 3rd and later attempts, telling the agent to write a failing test first.
 
 **Test file detection** (checked in order):
 
@@ -45,6 +47,8 @@ exits with code 2 (block) and tells the agent to write a failing test first.
 - Migration files (`**/migrations/**`)
 - Spec files (`specs/**`)
 - `.claude/**` files
+- Shell scripts (`*.sh`)
+- Build files (`Makefile`, `Taskfile*`)
 
 ## Step 1: Resolve paths
 
@@ -56,7 +60,8 @@ HOOK_SCRIPT="$WTROOT/.claude/hooks/tdd-gate.sh"
 
 ## Step 2: Parse argument
 
-Default to `status` if no argument is given.
+Default to `status` if no argument is given. If the argument is not `on`,
+`off`, `status`, or empty, print `Usage: /tdd-gate [on|off|status]` and stop.
 
 ## Step 3: Handle `status`
 
@@ -72,13 +77,11 @@ TDD Gate: DISABLED
 
 ### 4a: Create the hook script
 
-Create `.claude/hooks/` if needed, then write `.claude/hooks/tdd-gate.sh`:
+Create `.claude/hooks/` if needed. Use the `Write` tool to create `.claude/hooks/tdd-gate.sh` with this content:
 
-```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+The file content below must not be executed — it is written verbatim to disk.
+
+```bash template
 #!/usr/bin/env bash
 # PreToolUse hook — TDD gate. Blocks Write/Edit to implementation files
 # when no corresponding test file exists.
@@ -218,16 +221,20 @@ exit 0
 
 Make it executable:
 ```bash
-chmod +x .claude/hooks/tdd-gate.sh
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+chmod +x "$WTROOT/.claude/hooks/tdd-gate.sh"
 ```
 
 ### 4b: Add the PreToolUse hook to settings.json
 
-Read `$SETTINGS`. If `hooks.PreToolUse` does not exist, add it:
+Read `$SETTINGS`. Remove every existing element of the `PreToolUse` array
+whose command references `tdd-gate.sh`. If `hooks.PreToolUse` does not
+exist, add it:
 
 ```json
 "PreToolUse": [
   {
+    "matcher": "Write|Edit|MultiEdit",
     "hooks": [
       {
         "type": "command",
@@ -238,14 +245,16 @@ Read `$SETTINGS`. If `hooks.PreToolUse` does not exist, add it:
 ]
 ```
 
-If `hooks.PreToolUse` already exists, append the tdd-gate entry to the
-existing array. Write the merged result back.
+If `hooks.PreToolUse` already exists, append the tdd-gate entry (after the
+removal above) to the existing array. Write the merged result back.
 
 ### 4c: Print confirmation
 
 ```
 TDD Gate: ENABLED
-Write/Edit to implementation files will be blocked unless a test file exists.
+Write/Edit to implementation files gets a hint on the 1st attempt, a
+warning on the 2nd, and is blocked on the 3rd and later attempts unless a
+test file exists.
 Supported: TypeScript, JavaScript, Python, Go, Rust
 Disable with: /tdd-gate off
 ```
@@ -272,6 +281,9 @@ TDD Gate: DISABLED
   counter files. Counter resets on new session. First attempt is a hint (exit 0),
   second is a warning (exit 0), third+ is a block (exit 2).
 - Coexists with `/setup orchestration` hooks — both write into the same `PreToolUse`
-  array, but both sides append and remove element-wise and dedup by `matcher` + command
-  set, so neither clobbers the other in either install order (see
-  `skills/init-orchestration/SKILL.md` § "`PreToolUse` array append rule (SPEC-031)")
+  array. `/tdd-gate on` registers `"matcher": "Write|Edit|MultiEdit"`, giving it the
+  dedup identity `("Write|Edit|MultiEdit", [tdd-gate.sh command])`, distinct from
+  escalation-gate's `("Write|Edit|NotebookEdit", …)`. Each side removes and appends
+  its own identity element-wise, so neither clobbers the other in either install
+  order (see `skills/init-orchestration/SKILL.md` § "`PreToolUse` array append rule
+  (SPEC-031)")

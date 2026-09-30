@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-07-31
 
-**Covers**: `skills/refactor/SKILL.md` (contract home), `skills/debug/SKILL.md`, `skills/review-and-commit/SKILL.md`, `skills/code-simplify/SKILL.md`, `skills/init-orchestration/SKILL.md` (hook template), `skills/init-orchestration/check-hook-templates.sh`, `commands/setup.md`, `AGENTS.md` (Worktree Protocol drift fix)
+**Covers**: `skills/refactor/SKILL.md` (contract home), `skills/debug/SKILL.md`, `skills/review-and-commit/SKILL.md`, `skills/code-simplify/SKILL.md`, `skills/init-orchestration/SKILL.md` (hook template), `skills/init-orchestration/check-hook-templates.sh`, `commands/setup.md`, `AGENTS.md` (Worktree Protocol drift fix), `commands/tdd-gate.md` (PreToolUse entry shape, wp-1-10-gate-hooks)
 
 ---
 
@@ -215,7 +215,7 @@ MUST NOT restate it.
   (`bash-compress.sh`) and `memory-capture.sh`; MUST fail open when `jq` is absent.
 - MUST emit the hook script with a shebang as its **first non-empty line** (
   `#!/usr/bin/env bash`), and MUST NOT place variable-resolution lines above the shebang —
-  the defect present in `commands/tdd-gate.md`'s template MUST NOT be replicated.
+  the defect that `commands/tdd-gate.md`'s template had before wp-1-10-gate-hooks MUST NOT be replicated.
 - MUST add the new hook name to the `HOOKS` list in
   `skills/init-orchestration/check-hook-templates.sh`; a template fence absent from that
   list is silently unverified.
@@ -223,6 +223,7 @@ MUST NOT restate it.
   non-empty `settings.json` `PreToolUse` array. `/setup orchestration` currently merges at
   the event-key level only, and `/tdd-gate on` writes into the same array; the two MUST
   coexist without either clobbering the other.
+- `/tdd-gate on` MUST register its `PreToolUse` entry with `"matcher": "Write|Edit|MultiEdit"`, the tools its script gates. Its dedup identity is then `("Write|Edit|MultiEdit", [tdd-gate.sh command])`, which is distinct from escalation-gate's `("Write|Edit|NotebookEdit", …)`. Before it appends, `/tdd-gate on` MUST remove every element whose command references `tdd-gate.sh`, so an upgraded install holds exactly one entry. The hook body in `commands/tdd-gate.md` MUST sit in a `bash template` fence whose first line is the shebang (wp-1-10-gate-hooks).
 - MUST add the blocking hook to the up-front permission batch disclosure in
   `commands/setup.md` — a hook that can block tool calls is a material behavior change and
   MUST be disclosed before install.
@@ -574,3 +575,4 @@ indefinitely (origin findings: `skills/refactor/SKILL.md` release-fail-skips-dis
 | 2026-07-31 | Initial spec created (CDT-98) — Escalation gate contract, universal worktree isolation, graduated PreToolUse hook with normative honest-limits, sibling citation rule, sequencing. External behaviors verified live on Claude Code v2.1.212 (multi-entry PreToolUse, notebook_path, parent session_id + agent_id, transcript_path). |
 | 2026-08-02 | CDT-101: authorize debug's escalate/arch split-check placement fix (D1 new-decision pin). Debug now runs the § 2.2a.2 split check before its escalate-to-kickoff (§ 2.4) and arch (A.3) handoffs and routes a confirmed split to `/epic` via § 2.2a.5. Narrow amendment to CDT-102's "all of debug arms nothing": debug arms on exactly one route — the split-confirmed `/epic` auto-chain — disarming at `/epic` completion; the `/kickoff` non-split path stays emit-and-stop/never-arm. Arch `/epic` route: worktree-release is a no-op (no worktree created); arm/disarm still apply. Contract-home text (refactor § 2.2a.2 / § 2.2a.5, arm/disarm blocks) unchanged — cited only. |
 | 2026-08-02 | CDT-102 council follow-ups. Marker lifecycle changed to **arm-on-escalate, disarm-at-handoff-completion** (arming decoupled from worktree creation and confined to the escalate-and-auto-chain route; bounded runs unarmed/WARN-only; exactly one success-path disarm right after `/kickoff`/`/epic` completes; 8h leak-expiry demoted to an abnormal-termination backstop) — closes the disarm-gap class by removing the scattered-happy-path fan-out. Escalate routes that emit-and-stop (all of `debug`) arm nothing. Added control-plane tamper-surface carve-out ahead of the allowlist (hook script, settings[.local].json, armed-marker dir) closing the armed self-disarm hole (#4/#15); doc `*.md` exemption retained deliberately. Warn-latch session-scoped + symlink-hardened (#3/#5). Sibling ripple pre-scoped: `debug` arm/disarm pure removal, `review-and-commit` §7.4 citation + dead-disarm removal. |
+| 2026-09-28 | wp-1-10-gate-hooks (CDT-383, rv-w1-28): /tdd-gate entry gains matcher "Write\|Edit\|MultiEdit" (identity no longer ("", …)); on-install removes old tdd-gate.sh elements first; hook fence is bash template with the shebang first. |

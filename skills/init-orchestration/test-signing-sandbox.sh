@@ -359,6 +359,58 @@ AFTER=$(cat "$SET3")
 assert_eq "option 3 does not mutate settings" "$AFTER" "$BEFORE"
 assert_contains "option 3 global file still true" "$(cat "$GLOBAL_CFG")" "true"
 
+# ---------- option 3 tag-only (AC H) ----------
+echo "-- option 3 tag-only"
+REPO_TAG3="$TMP/repo-opt3-tag"
+make_repo "$REPO_TAG3"
+git -C "$REPO_TAG3" config --local tag.gpgsign true
+SET3T="$TMP/opt3-tag-settings.json"
+base_settings "$SET3T"
+OUT=$(bash "$HELPER" apply --option 3 --settings "$SET3T" --repo "$REPO_TAG3" 2>&1)
+RC=$?
+assert_rc "option 3 tag-only rc 0" "$RC" 0
+assert_contains "option 3 tag-only applied marker" "$OUT" "applied=option3"
+assert_contains "option 3 tag-only stderr names tag.gpgsign" "$OUT" "tag.gpgsign"
+TAG_VAL=$(git -C "$REPO_TAG3" config --local --bool --get tag.gpgsign)
+assert_eq "option 3 tag-only local tag.gpgsign false" "$TAG_VAL" "false"
+
+# ---------- option 3 commit-only leaves tag.gpgsign untouched (AC H) ----------
+echo "-- option 3 commit-only does not set tag.gpgsign"
+REPO_C3="$TMP/repo-opt3-commit"
+make_repo "$REPO_C3"
+git -C "$REPO_C3" config --local commit.gpgsign true
+SET3C="$TMP/opt3-commit-settings.json"
+base_settings "$SET3C"
+# Explicit isolation: a host global tag.gpgsign=true must not leak in here.
+OUT=$(GIT_CONFIG_GLOBAL=/dev/null bash "$HELPER" apply --option 3 --settings "$SET3C" --repo "$REPO_C3" 2>&1)
+RC=$?
+assert_rc "option 3 commit-only rc 0" "$RC" 0
+COMMIT_VAL=$(git -C "$REPO_C3" config --local --bool --get commit.gpgsign)
+assert_eq "option 3 commit-only local commit.gpgsign false" "$COMMIT_VAL" "false"
+git -C "$REPO_C3" config --local --bool --get tag.gpgsign >/dev/null 2>&1
+TAG_UNSET_RC=$?
+assert_rc "option 3 commit-only tag.gpgsign remains unset" "$TAG_UNSET_RC" 1
+
+# ---------- option 3 with tag.gpgsign true at global level only ----------
+# The helper reads tag.gpgsign from all config levels (SKILL.md prose matches).
+echo "-- option 3 global-only tag.gpgsign"
+REPO_G3="$TMP/repo-opt3-globaltag"
+make_repo "$REPO_G3"
+git -C "$REPO_G3" config --local commit.gpgsign true
+GLOBAL_TAG_CFG="$TMP/global-tag.gitconfig"
+cat > "$GLOBAL_TAG_CFG" <<'EOF'
+[tag]
+	gpgsign = true
+EOF
+SET3G="$TMP/opt3-globaltag-settings.json"
+base_settings "$SET3G"
+OUT=$(GIT_CONFIG_GLOBAL="$GLOBAL_TAG_CFG" bash "$HELPER" apply --option 3 --settings "$SET3G" --repo "$REPO_G3" 2>&1)
+RC=$?
+assert_rc "option 3 global-tag rc 0" "$RC" 0
+assert_contains "option 3 global-tag stderr names tag.gpgsign" "$OUT" "tag.gpgsign"
+GTAG_VAL=$(git -C "$REPO_G3" config --local --bool --get tag.gpgsign)
+assert_eq "option 3 global-tag local tag.gpgsign false" "$GTAG_VAL" "false"
+
 # ---------- SKILL protocol ----------
 echo "-- SKILL protocol grep"
 for needle in \

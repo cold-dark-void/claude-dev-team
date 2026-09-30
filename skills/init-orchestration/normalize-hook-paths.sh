@@ -89,12 +89,16 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 2
 fi
 
-# Plan rewrites (stdout: TSV event\told\tnew); exit 1 from python = none
-PLAN=$(SETTINGS_FILE="$SETTINGS" PROJECT_ROOT="$PROJECT_ROOT" python3 - <<'PY'
+# run_py MODE — shared plan/apply python program (CDT-278 AC I: one rewrite rule)
+run_py() {
+  local mode="$1"
+  SETTINGS_FILE="$SETTINGS" PROJECT_ROOT="$PROJECT_ROOT" BAK_PATH="${BAK:-}" python3 - "$mode" <<'PY'
 import json, os, re, sys
 
+mode = sys.argv[1]
 settings_path = os.environ["SETTINGS_FILE"]
 root = os.path.realpath(os.environ["PROJECT_ROOT"]).rstrip("/")
+bak = os.environ.get("BAK_PATH", "")
 
 try:
     with open(settings_path, encoding="utf-8") as fh:
@@ -123,8 +127,13 @@ CMD_RE = re.compile(
 def canonical(name: str) -> str:
     return 'bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/%s"' % name
 
-def should_rewrite(path: str, name: str) -> bool:
-    """True if relative .claude/hooks or absolute under project root (not yet anchored)."""
+def should_rewrite(cmd: str, path: str, name: str) -> bool:
+    """True if relative .claude/hooks or absolute under project root (not yet anchored).
+    A command holding a tab or newline is never rewritten, in plan or apply."""
+    if "\t" in cmd or "\n" in cmd:
+        if mode == "plan":
+            sys.stderr.write("normalize-hook-paths: command contains tab/newline; skip\n")
+        return False
     if "${CLAUDE_PROJECT_DIR}" in path or "$CLAUDE_PROJECT_DIR" in path:
         return False
     if path == ".claude/hooks/%s" % name or path == "./.claude/hooks/%s" % name:
@@ -143,6 +152,7 @@ def should_rewrite(path: str, name: str) -> bool:
     return False
 
 changes = []
+n = 0
 
 for event, entries in hooks.items():
     if not isinstance(entries, list):
@@ -164,19 +174,33 @@ for event, entries in hooks.items():
             new_cmd = canonical(name)
             if cmd == new_cmd:
                 continue
-            if should_rewrite(path, name):
-                changes.append((event, cmd, new_cmd))
+            if should_rewrite(cmd, path, name):
+                if mode == "plan":
+                    changes.append((event, cmd, new_cmd))
+                else:
+                    h["command"] = new_cmd
+                    n += 1
 
-if not changes:
-    sys.exit(1)
+if mode == "plan":
+    if not changes:
+        sys.exit(1)
+    for event, old, new in changes:
+        sys.stdout.write("%s\t%s\t%s\n" % (event, old, new))
+    sys.exit(0)
 
-for event, old, new in changes:
-    if "\t" in old or "\t" in new or "\n" in old or "\n" in new:
-        sys.stderr.write("normalize-hook-paths: command contains tab/newline; skip\n")
-        continue
-    sys.stdout.write("%s\t%s\t%s\n" % (event, old, new))
+tmp = settings_path + ".tmp." + str(os.getpid())
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+os.replace(tmp, settings_path)
+sys.stderr.write(
+    "normalize-hook-paths: rewrote %d hook command(s); backup %s\n" % (n, bak)
+)
 PY
-) || {
+}
+
+# Plan rewrites (stdout: TSV event\told\tnew); exit 1 from python = none
+PLAN=$(run_py plan) || {
   _py_rc=$?
   if [ "$_py_rc" -eq 1 ]; then
     exit 1
@@ -229,81 +253,8 @@ cp -p -- "$SETTINGS" "$BAK" 2>/dev/null || cp -p "$SETTINGS" "$BAK" || {
   exit 2
 }
 
-# Apply rewrites (same match rules as plan phase)
-SETTINGS_FILE="$SETTINGS" PROJECT_ROOT="$PROJECT_ROOT" BAK_PATH="$BAK" python3 - <<'PY' || exit 2
-import json, os, re, sys
-
-settings_path = os.environ["SETTINGS_FILE"]
-root = os.path.realpath(os.environ["PROJECT_ROOT"]).rstrip("/")
-bak = os.environ.get("BAK_PATH", "")
-
-with open(settings_path, encoding="utf-8") as fh:
-    data = json.load(fh)
-
-CMD_RE = re.compile(
-    r"""^bash\s+(?P<q>["']?)(?P<path>
-        (?:\$\{CLAUDE_PROJECT_DIR\}|\$CLAUDE_PROJECT_DIR)?
-        (?:/?\.claude/hooks/|/.+?/\.claude/hooks/)
-        (?P<name>[A-Za-z0-9_.-]+\.sh)
-    )(?P=q)\s*$""",
-    re.VERBOSE,
-)
-
-def canonical(name: str) -> str:
-    return 'bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/%s"' % name
-
-def should_rewrite(path: str, name: str) -> bool:
-    if "${CLAUDE_PROJECT_DIR}" in path or "$CLAUDE_PROJECT_DIR" in path:
-        return False
-    if path == ".claude/hooks/%s" % name or path == "./.claude/hooks/%s" % name:
-        return True
-    if path.startswith("/"):
-        try:
-            real = os.path.realpath(path)
-        except OSError:
-            real = os.path.normpath(path)
-        prefix = root + "/"
-        suffix = "/.claude/hooks/" + name
-        if real.startswith(prefix) and real.endswith(suffix):
-            return True
-        if path.startswith(prefix) and path.endswith(suffix):
-            return True
-    return False
-
-hooks = data.get("hooks") or {}
-n = 0
-for event, entries in hooks.items():
-    if not isinstance(entries, list):
-        continue
-    for ent in entries:
-        if not isinstance(ent, dict):
-            continue
-        for h in ent.get("hooks") or []:
-            if not isinstance(h, dict):
-                continue
-            cmd = h.get("command")
-            if not isinstance(cmd, str) or not cmd:
-                continue
-            m = CMD_RE.match(cmd.strip())
-            if not m:
-                continue
-            path, name = m.group("path"), m.group("name")
-            new_cmd = canonical(name)
-            if cmd == new_cmd:
-                continue
-            if should_rewrite(path, name):
-                h["command"] = new_cmd
-                n += 1
-
-tmp = settings_path + ".tmp." + str(os.getpid())
-with open(tmp, "w", encoding="utf-8") as fh:
-    json.dump(data, fh, indent=2)
-    fh.write("\n")
-os.replace(tmp, settings_path)
-sys.stderr.write(
-    "normalize-hook-paths: rewrote %d hook command(s); backup %s\n" % (n, bak)
-)
-PY
+# Apply rewrites (same rewrite rule as plan phase, via run_py)
+run_py apply || exit 2
 
 echo "normalize-hook-paths: backup at $BAK" >&2
 exit 0

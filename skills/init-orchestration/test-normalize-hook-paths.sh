@@ -216,6 +216,42 @@ GOT=$(python3 -c "import json; d=json.load(open('$PROJ/.claude/settings.json'));
 assert_eq "foreign abs unchanged" "$GOT" \
   'bash "/other/place/.claude/hooks/stop-review.sh"'
 
+# ---------- Command containing a literal tab is left un-rewritten (AC I) ----------
+echo "-- tab-in-command skip"
+cat > "$PROJ/.claude/settings.json" <<'JSON'
+{
+  "hooks": {
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "bash .claude/hooks/a.sh"
+      }]
+    }],
+    "PostToolUse": [{
+      "hooks": [{
+        "type": "command",
+        "command": "bash\t.claude/hooks/b.sh"
+      }]
+    }]
+  }
+}
+JSON
+
+OUT=$(bash "$HELPER" --settings "$PROJ/.claude/settings.json" --project-root "$PROJ" 2>&1)
+RC=$?
+assert_rc "tab-in-command rc 0 (a rewritten)" "$RC" 0
+assert_contains "tab-in-command stderr holds skip" "$OUT" "skip"
+FO_COUNT=$(printf '%s\n' "$OUT" | grep -c '^FORCE-OVERWRITE:')
+assert_eq "tab-in-command FORCE-OVERWRITE count equals changed count (1)" "$FO_COUNT" "1"
+assert_contains "tab-in-command a rewritten in file" "$(cat "$PROJ/.claude/settings.json")" \
+  'bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/a.sh\"'
+assert_contains "tab-in-command b byte-identical in file" "$(cat "$PROJ/.claude/settings.json")" \
+  'bash\t.claude/hooks/b.sh'
+
+# ---------- AC I: CMD_RE compiled exactly once (merge proof) ----------
+echo "-- CMD_RE compiled once"
+assert_eq "CMD_RE compiled once" "$(grep -c 'CMD_RE = re.compile' "$HELPER")" "1"
+
 # ---------- dry-run: disclose but do not write ----------
 echo "-- dry-run"
 cat > "$PROJ/.claude/settings.json" <<JSON

@@ -45,7 +45,8 @@ This /setup orchestration needs three explicit approvals (settings self-mod
 guards — intentional; not removable without losing the guard):
   1. Merge into .claude/settings.json (sandbox + hooks + auto + matrix allow)
   2. Write .claude/hooks/bash-compress.sh (PreToolUse; permissionDecision:allow
-     bounded to the hardcoded NOISY test/build allowlist)
+     applies only to one simple (non-compound) command whose prefix matches
+     the hardcoded NOISY test/build allowlist)
   3. Write .claude/hooks/escalation-gate.sh (PreToolUse; WARNs on out-of-worktree
      writes, BLOCKs only when the run is armed — armed only on an
      escalate-and-auto-chain handoff, disarmed when it completes). NOT tamper-proof:
@@ -295,7 +296,7 @@ Detect ON iff `git config --bool --get commit.gpgsign` OR `tag.gpgsign`. `gpg.fo
 
 1. Recommended: unique-append `sandbox.filesystem.allowWrite` `~/.gnupg`; macOS unique-append `sandbox.network.allowUnixSockets` `~/.gnupg/S.gpg-agent` (ssh: also `$SSH_AUTH_SOCK` when set); Linux/WSL2 set `sandbox.network.allowAllUnixSockets: true` (disclose Linux socket blast radius). If `/run/user/$(id -u)` exists, unique-append `/run/user/$(id -u)/gnupg` to `.claude/settings.local.json` allowWrite only — never a UID path in committed `settings.json`.
 2. Unique-append `git` to `sandbox.excludedCommands`.
-3. `git config --local commit.gpgsign false` + remote-signature warning (not default).
+3. `git config --local commit.gpgsign false`; also `git config --local tag.gpgsign false` when `tag.gpgsign` is `true` at any config level — the remote-signature warning on stderr names each key it changed (not default).
 
 Re-run: same detect; no-op if mitigated (`~/.gnupg` in allowWrite AND platform socket keys, OR `git` in excludedCommands); else unique-append; preserve other filesystem keys. Adding a missing key is not force-overwrite. Flipping `allowAllUnixSockets` false→true MUST disclose (CDT-51 AC5).
 
@@ -527,9 +528,10 @@ order does not matter:
 - `/tdd-gate on` first, `/setup orchestration` second → the rule above appends to the
   array that already holds tdd-gate's element; tdd-gate's element is untouched.
 
-The two never collide on the dedup key: tdd-gate's entry carries **no** `matcher` (it
-self-filters on `tool_name` inside the script), so its identity is `("", [tdd-gate.sh])`
-— distinct from `("Write|Edit|NotebookEdit", [escalation-gate.sh])`.
+The two never collide on the dedup key: tdd-gate's entry carries
+`"matcher": "Write|Edit|MultiEdit"`, so its identity is
+`("Write|Edit|MultiEdit", [tdd-gate.sh command])` — distinct from
+`("Write|Edit|NotebookEdit", [escalation-gate.sh])`.
 
 **Implementation.** Apply once per managed entry (`bash-compress`, `escalation-gate`):
 
@@ -714,8 +716,25 @@ fi
 # === council gate ===
 # Uses $MROOT (git-common-dir root, resolved at top) for shared council state.
 
-# Read stdin once (one-shot); timeout 1 avoids hanging on direct shell invocations
-STDIN_JSON=$(timeout 1 cat 2>/dev/null || true)
+# Read stdin once. A closed fd 0, a read error, or a payload over 1 MiB fails
+# closed (wp-1-10-gate-hooks, SPEC-002 "Stdin read"). `timeout` is unavailable
+# on stock macOS, so fd 0 is guarded explicitly (exec + head) instead.
+if [ -t 0 ]; then
+  STDIN_JSON=""
+elif { exec 3<&0; } 2>/dev/null; then
+  if ! STDIN_JSON=$(head -c 1048577 <&3); then
+    echo "TaskCompleted hook: cannot read hook stdin (read error)" >&2
+    exit 2
+  fi
+  exec 3<&-
+  if [ "$(printf '%s' "$STDIN_JSON" | wc -c)" -gt 1048576 ]; then
+    echo "TaskCompleted hook: cannot read hook stdin (payload exceeds 1 MiB)" >&2
+    exit 2
+  fi
+else
+  echo "TaskCompleted hook: cannot read hook stdin (fd 0 unavailable)" >&2
+  exit 2
+fi
 
 # Resolve task_id: stdin .task_id first, then CLAUDE_TASK_ID env var fallback
 # Use heredoc to pass STDIN_JSON safely (avoids shell injection on backticks/quotes)
@@ -740,6 +759,12 @@ fi
 # impossibility") is unreachable past this guard, so it is intentionally not implemented.
 if [ -z "$TASK_ID" ]; then
   exit 0
+fi
+
+# Task id validation (wp-1-10-gate-hooks, rv-bh-c004): before any path use.
+if ! [[ "$TASK_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  printf 'TaskCompleted council gate: invalid task_id %q (must match ^[A-Za-z0-9_-]+$)\n' "$TASK_ID" >&2
+  exit 2
 fi
 
 # Read task metadata — shadow-safe candidate set (CDT-167 / SPEC-002).
@@ -773,21 +798,36 @@ fi
 # Multi-true compounds (CDT-186): preferred P = lex-asc min stem (basename without .json).
 # Output: line1 = true|false, line2 = preferred meta path (empty if none true).
 META_SCAN=$(python3 -c '
-import json, os, sys
+import json, os, re, sys
 task_id = sys.argv[1]
-true_compounds = []  # (stem, path) for requires_council true and stem != task_id
-true_flat = None
+ticket = os.environ.get("CLAUDE_TICKET", "")
+ticket_ok = bool(re.fullmatch(r"[A-Za-z0-9_-]+", ticket))
+records = []  # (stem, path, requires_council, status)
 for path in sys.argv[2:]:
     try:
         data = json.load(open(path))
         rc = bool(data.get("requires_council", False))
+        status = data.get("status")
     except Exception:
-        continue
-    if not rc:
         continue
     stem = os.path.basename(path)
     if stem.endswith(".json"):
         stem = stem[:-5]
+    records.append((stem, path, rc, status))
+# wp-1-10-gate-hooks candidate filter (C5): CLAUDE_TICKET narrow first, then
+# a non-emptying drop of completed candidates.
+if ticket_ok:
+    narrowed = [r for r in records if r[0] == ticket + "-" + task_id]
+    if narrowed:
+        records = narrowed
+live = [r for r in records if r[3] != "completed"]
+if live:
+    records = live
+true_compounds = []  # (stem, path) for requires_council true and stem != task_id
+true_flat = None
+for stem, path, rc, status in records:
+    if not rc:
+        continue
     if stem == task_id:
         if true_flat is None:
             true_flat = path
@@ -803,10 +843,13 @@ elif true_flat is not None:
 else:
     print("false")
     print("")
-' "$TASK_ID" "${CANDIDATES[@]}" 2>/dev/null || printf '%s\n' "false" "")
+print(len(records))
+' "$TASK_ID" "${CANDIDATES[@]}" 2>/dev/null || printf '%s\n' "false" "" "0")
 
 REQUIRES_COUNCIL=$(printf '%s\n' "$META_SCAN" | sed -n '1p')
 TASK_META=$(printf '%s\n' "$META_SCAN" | sed -n '2p')
+CANDIDATE_COUNT=$(printf '%s\n' "$META_SCAN" | sed -n '3p')
+case "$CANDIDATE_COUNT" in ''|*[!0-9]*) CANDIDATE_COUNT=0 ;; esac
 
 if [ "$REQUIRES_COUNCIL" != "true" ]; then
   _emit_task_complete
@@ -817,6 +860,13 @@ fi
 # If python omitted path somehow, fall back to first candidate that is -f.
 if [ -z "$TASK_META" ] || [ ! -f "$TASK_META" ]; then
   TASK_META="${CANDIDATES[0]}"
+fi
+
+# wp-1-10-gate-hooks candidate filter (C5): when 2+ candidates remain after
+# the CLAUDE_TICKET narrow and non-emptying completed drop, log which one
+# drives the index lookup.
+if [ "$CANDIDATE_COUNT" -ge 2 ]; then
+  echo "TaskCompleted council gate: chosen candidate $(basename -- "$TASK_META") ($CANDIDATE_COUNT candidates)" >&2
 fi
 
 # Read threshold from settings.json (default 80)
@@ -970,10 +1020,16 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && _MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || _MROOT=$(pwd)
 
-# Drain stdin so the harness doesn't block on the pipe; we don't need its content.
-TMPF="${TMPDIR:-/tmp}/stop-review-$$"
-timeout 1 cat > "$TMPF" 2>/dev/null || true
-rm -f "$TMPF"
+# Drain stdin so the harness doesn't block on the pipe; we don't need its
+# content. Guard fd 0 explicitly (wp-1-10-gate-hooks) — timeout is
+# unavailable on stock macOS. This hook is not a gate: any guard failure
+# just skips the drain and falls through to exit 0 below.
+if [ -t 0 ]; then
+  :
+elif { exec 3<&0; } 2>/dev/null; then
+  cat <&3 >/dev/null 2>&1 || true
+  exec 3<&-
+fi
 
 HEAD_SHA=$(git -C "$_MROOT" rev-parse --short HEAD 2>/dev/null || echo "nohead")
 CWD_HASH=$(printf '%s' "$PWD" | cksum | cut -d' ' -f1)
@@ -1063,8 +1119,15 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null || exit 0
 
 TMPF="${TMPDIR:-/tmp}/memcap-$$"
-# timeout 1: match stop-review.sh — a stuck stdin must not hang PostToolUse.
-timeout 1 cat > "$TMPF" 2>/dev/null || { rm -f "$TMPF"; exit 0; }
+# Guard fd 0 explicitly (wp-1-10-gate-hooks) — timeout is unavailable on
+# stock macOS. This hook is not a gate: a closed fd 0 or a terminal just
+# yields no tool_name/file_path below, and the case default exits 0.
+if [ -t 0 ]; then
+  :
+elif { exec 3<&0; } 2>/dev/null; then
+  cat <&3 > "$TMPF" 2>/dev/null || true
+  exec 3<&-
+fi
 
 TOOL_NAME=$(jq -r '.tool_name // empty' "$TMPF" 2>/dev/null)
 
@@ -1079,7 +1142,8 @@ rm -f "$TMPF"
 
 [ -z "$FILE_PATH" ] && exit 0
 
-OBSERVATION="${TOOL_NAME,,} $FILE_PATH"
+_verb=$(printf '%s' "$TOOL_NAME" | tr '[:upper:]' '[:lower:]')
+OBSERVATION="$_verb $FILE_PATH"
 
 # Per-repo dedup marker (hash of MROOT) so concurrent projects/agents on the
 # same host do not share or race a single global file.
@@ -1107,7 +1171,9 @@ chmod +x .claude/hooks/memory-capture.sh
 
 **Precondition (CDT-68):** `bash-compress.sh` must be covered by the up-front
 batch approval (name the hook explicitly). Its `permissionDecision:"allow"` is
-intentional (bounded NOISY allowlist only) — do not remove without evidence.
+intentional — it re-grants only for one simple (non-compound) command whose
+prefix matches the NOISY allowlist; a compound command always passes through
+unmatched. Do not remove without evidence.
 
 Use the `Write` tool to create `.claude/hooks/bash-compress.sh` with this content:
 
@@ -1126,6 +1192,11 @@ TOOL_NAME=$(jq -r '.tool_name // empty' "$TMPF" 2>/dev/null)
 COMMAND=$(jq -r '.tool_input.command // empty' "$TMPF" 2>/dev/null)
 rm -f "$TMPF"
 [ -z "$COMMAND" ] && exit 0
+
+# Compound commands (CDT-334): a compound command must pass through
+# unmatched — the permissionDecision:"allow" re-grant below is for one
+# simple (non-compound) command only.
+case "$COMMAND" in *';'*|*'&'*|*'|'*|*'`'*|*'$('*|*'<('*|*'>('*|*$'\n'*|*$'\r'*) exit 0 ;; esac
 
 NOISY=false
 case "$COMMAND" in
@@ -1148,8 +1219,10 @@ esac
 # Use `$( ( ... ) 2>&1 )` (space after `$(`) so this is unambiguously a
 # command substitution containing a subshell — NOT `$(( ... ))` arithmetic
 # expansion. The later `$((_ccn - 40))` IS real arithmetic.
-# NOTE: permissionDecision:"allow" re-grant below applies ONLY to commands the
-# hardcoded NOISY test/build allowlist already matched — bounded exposure.
+# NOTE: permissionDecision:"allow" re-grant below applies ONLY to one simple
+# (non-compound) command whose prefix matches the hardcoded NOISY test/build
+# allowlist — the compound-command check above already passed anything else
+# through unmatched.
 _CMD_Q=$(printf '%q' "$COMMAND")
 WRAPPED="_ccout=\$( ( bash -c ${_CMD_Q} ) 2>&1 ); _ccexit=\$?; _ccf=\$(mktemp); printf '%s\n' \"\$_ccout\" > \"\$_ccf\"; _ccn=\$(awk 'END{print NR}' \"\$_ccf\"); if [ \"\$_ccn\" -le 50 ]; then cat \"\$_ccf\"; else head -20 \"\$_ccf\"; printf '\n... %d lines omitted ...\n\n' \"\$((_ccn - 40))\"; tail -20 \"\$_ccf\"; fi; rm -f \"\$_ccf\"; exit \$_ccexit"
 
@@ -2050,12 +2123,15 @@ fi
 Write this content using the DB-first dual path.
 
 **If DB exists:** use the `Bash` tool to run the python3 sqlite3 insert:
+
+Before you run it, use the `Write` tool to create `$PROJ_ROOT/.claude/memory/claude/.seed-baseline.md` with the `#### Baseline memory content` body above (verbatim) — the fence below reads it from disk instead of receiving it as a shell variable.
+
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-MEMDB="$MROOT/.claude/memory/memory.db"
+PROJ_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$PROJ_ROOT/.claude/memory/memory.db"
+SEED="$PROJ_ROOT/.claude/memory/claude/.seed-baseline.md"
+CONTENT=$(cat "$SEED" 2>/dev/null || true)
+[ -n "$CONTENT" ] || { echo "Step 7: empty seed at $SEED — refusing to touch $MEMDB" >&2; exit 1; }
 python3 -c "
 import sqlite3, sys, datetime
 db = sqlite3.connect(sys.argv[1])
@@ -2065,7 +2141,8 @@ db.execute('DELETE FROM memories WHERE agent=? AND type=? AND content LIKE ?',
 db.execute('INSERT INTO memories(agent, type, content, updated_at) VALUES (?, ?, ?, ?)',
            ('claude', 'memory', sys.argv[2], datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')))
 db.commit()
-" "$MEMDB" "$CONTENT"
+" "$MEMDB" "$CONTENT" || exit 1
+rm -f "$SEED"
 ```
 
 **If no DB:** use the `Write` tool to create `$PROJ_ROOT/.claude/memory/claude/memory.md` with the baseline content above.
