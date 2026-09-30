@@ -25,7 +25,7 @@
 #        AC G). The M14(d) golden (g4) is unchanged.
 #
 # WP 1-16 AC F (SPEC-033 M14(g) finder recipe): g8-g10, a6-a7.
-#   g8 — `append-card.sh` is byte-identical to `38bc739` (`assert_blob_hash`,
+#   g8 — `append-card.sh` is byte-identical to its WP 1-08 version (`assert_blob_hash`,
 #        shared with g6).
 #   g9 — `ship-gate-council.md` §5, extracted by its `## 5.`/`## 6.` markers,
 #        is byte-equal to a committed golden extracted from `38bc739`.
@@ -64,6 +64,7 @@ ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
 source "$ROOT/tests/lib/skip.sh"
 source "$ROOT/tests/lib/hermetic.sh"
+source "$ROOT/tests/lib/text.sh"
 
 SPEC="$ROOT/specs/core/SPEC-033-autopilot-policy.md"
 SG="$SCRIPT_DIR/ship-gate-council.md"
@@ -99,27 +100,6 @@ for f in "$SPEC" "$SG" "$GOLDEN" "$GOLDEN_M14B" "$VERDICT_SH" "$VERDICT_BLOB" "$
   fi
 done
 
-# remove_line_substr <src> <dst> <substring>
-# Removes the FIRST line-local occurrence of a literal substring (no regex
-# escaping needed — awk index()/substr() on literal text) and writes the
-# result to <dst>. Used to build one-token mutations for the bite tests.
-remove_line_substr() {
-  local src=$1 dst=$2 s=$3
-  awk -v s="$s" '
-    BEGIN { done = 0 }
-    {
-      if (!done) {
-        i = index($0, s)
-        if (i > 0) {
-          print substr($0, 1, i - 1) substr($0, i + length(s))
-          done = 1
-          next
-        }
-      }
-      print
-    }
-  ' "$src" > "$dst"
-}
 
 # remove_all_substr <src> <dst> <substring>
 # Removes EVERY occurrence of a literal substring across the whole file
@@ -189,8 +169,6 @@ mutate_m14d_self_verified() {
   sed -e "${ln}s/self-verified/altered-verified/" "$src" > "$dst" || return 1
 }
 
-# has <file> <substring>  — literal substring present (exit 0) or not (1).
-has() { grep -F -q -- "$2" "$1"; }
 
 # assert_blob_hash <file> <blob-fixture> <label> — hashes <file> with
 # `git hash-object` and compares it to the committed blob-hash text in
@@ -649,7 +627,7 @@ else
 fi
 
 # =============================================================================
-# g8 (WP 1-16 AC F) — append-card.sh is byte-identical to 38bc739.
+# g8 (WP 1-16 AC F) — append-card.sh is byte-identical to its WP 1-08 version (re-pinned at merge).
 # =============================================================================
 assert_blob_hash "$APPEND_CARD_SH" "$APPEND_CARD_BLOB" "g8 append-card.sh"
 # =============================================================================

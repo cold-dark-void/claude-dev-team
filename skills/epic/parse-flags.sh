@@ -23,6 +23,8 @@
 #   --release each|end                      -> exit 64
 #   --bump / --land / --seal (any form)     -> exit 64
 #   duplicate --worktree or --release       -> exit 64
+#   near-miss of --worktree/--release family (e.g. --worktre, --releas)
+#                                           -> exit 64 (SPEC-033 M16)
 #   flags with status|complete|block|unblock|sync (first non-flag positional)
 #                                           -> exit 64
 #
@@ -102,6 +104,9 @@ while [ "$i" -lt "$n" ]; do
       ;;
     --bump|--bump=*|--land|--land=*|--seal|--seal=*)
       die "rejected flag: $a (unsupported; use --worktree and/or --release <bump>)"
+      ;;
+    --work*|--rel*)
+      die "unknown flag near --worktree/--release family: $a"
       ;;
     --*)
       # Other flags (autopilot, redecompose, no-context-discipline, …) — ignore.

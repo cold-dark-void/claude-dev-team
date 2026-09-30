@@ -28,6 +28,12 @@
 # Argc is 13 (all optionals null) | 14 (max_loc, council pair null) |
 # 15 (council pair, max_loc null) | 16 (council pair + max_loc).
 # Any other argc → 64. Council_tier without grading_reason is not a valid shape.
+# AC9: every numeric card argument (confidence, blocking_condition, iteration,
+# wall_clock_s) and env cap (AUTOPILOT_ITERATION_CAP, AUTOPILOT_WALLCLOCK_CAP,
+# read only when AUTOPILOT_BUDGET_META is unset) is validated BY PATTERN —
+# non-negative integer, at most 15 digits, no leading zero — before any
+# arithmetic compare. The env caps are external input, not orchestrator-
+# constructed, so they get the same treatment as any other untrusted arg.
 #
 # DELIBERATE INVERSION of metrics/emit-outcome.sh best-effort semantics:
 # this writer HARD-FAILS (exit 64) on EVERY failure mode — malformed args,
@@ -127,28 +133,46 @@ case "$COUNCIL_TIER" in
 esac
 
 # ---- Numeric-range guards ---------------------------------------------------
-# confidence: integer 0..100
-case "$CONFIDENCE" in
-  ''|*[!0-9]*) die "confidence '$CONFIDENCE' must be an integer 0..100" ;;
-esac
-[ "$CONFIDENCE" -gt 100 ] && die "confidence '$CONFIDENCE' out of range (0..100)"
+# AC9: every numeric card argument is validated BY PATTERN before any
+# arithmetic (-gt/-lt/-ge) ever touches it. A pattern that requires the WHOLE
+# arg to match a bounded shape can never hand `[ -gt/-lt/-ge ]` a value long
+# enough to overflow bash's signed-integer arithmetic (which otherwise fails
+# open: `[: N: integer expected` is a nonzero `[` status that a `&&`-guarded
+# `die` silently skips, and jq happily writes an oversized number to the
+# card — the exact gap AC9 closes).
 
-# blocking_condition: literal null or integer 1..8
+# require_nnint <name> <value> — non-negative integer, no leading zero
+# (except the literal "0"), at most 15 digits (AC9: canonical, exact in jq).
+require_nnint() {
+  local name="$1" val="$2"
+  case "$val" in
+    0) return 0 ;;
+    [1-9]*) ;;
+    *) die "$name '$val' must be a non-negative integer" ;;
+  esac
+  case "$val" in
+    *[!0-9]*) die "$name '$val' must be a non-negative integer" ;;
+  esac
+  [ "${#val}" -le 15 ] || die "$name '$val' must be a non-negative integer (at most 15 digits)"
+}
+
+# confidence: integer 0..100, no leading zero (0-9 | 10-99 | 100 only).
+case "$CONFIDENCE" in
+  [0-9]|[1-9][0-9]|100) ;;
+  *) die "confidence '$CONFIDENCE' must be an integer 0..100" ;;
+esac
+
+# blocking_condition: literal null or a single digit 1..8.
 if [ "$BLOCKING_CONDITION" != "null" ]; then
   case "$BLOCKING_CONDITION" in
-    ''|*[!0-9]*) die "blocking_condition '$BLOCKING_CONDITION' must be null or 1..8" ;;
+    [1-8]) ;;
+    *) die "blocking_condition '$BLOCKING_CONDITION' must be null or 1..8" ;;
   esac
-  { [ "$BLOCKING_CONDITION" -lt 1 ] || [ "$BLOCKING_CONDITION" -gt 8 ]; } \
-    && die "blocking_condition '$BLOCKING_CONDITION' out of range (1..8)"
 fi
 
-# iteration / wall_clock_s: non-negative integers
-case "$ITERATION" in
-  ''|*[!0-9]*) die "iteration '$ITERATION' must be a non-negative integer" ;;
-esac
-case "$WALL_CLOCK_S" in
-  ''|*[!0-9]*) die "wall_clock_s '$WALL_CLOCK_S' must be a non-negative integer" ;;
-esac
+# iteration / wall_clock_s: non-negative integers, at most 15 digits.
+require_nnint iteration "$ITERATION"
+require_nnint wall_clock_s "$WALL_CLOCK_S"
 
 # max_loc: null | unbound | ^[1-9][0-9]*$  (JSON null / string / number)
 # Legal on every gate (unlike council_tier). 0 / leading-zero / junk → 64.
@@ -257,8 +281,17 @@ if [ -n "${AUTOPILOT_BUDGET_META:-}" ]; then
   BUDGET_SOURCE_JSON=$(printf '%s' "$parsed" | jq -c '.source')
   BUDGET_SIGNALS_JSON=$(printf '%s' "$parsed" | jq -c '.signals')
 else
+  # AC9: the env caps are external input (set by whatever invoked this run,
+  # not orchestrator-constructed), so validate each one the moment it is
+  # read, before it reaches jq --argjson.
   ITERATION_CAP=${AUTOPILOT_ITERATION_CAP:-25}
+  if [ -n "${AUTOPILOT_ITERATION_CAP:-}" ]; then
+    require_nnint AUTOPILOT_ITERATION_CAP "$ITERATION_CAP"
+  fi
   WALL_CLOCK_CAP_S=${AUTOPILOT_WALLCLOCK_CAP:-2700}
+  if [ -n "${AUTOPILOT_WALLCLOCK_CAP:-}" ]; then
+    require_nnint AUTOPILOT_WALLCLOCK_CAP "$WALL_CLOCK_CAP_S"
+  fi
   BUDGET_TIER_JSON=null
   BUDGET_SOURCE_JSON=null
   BUDGET_SIGNALS_JSON=null

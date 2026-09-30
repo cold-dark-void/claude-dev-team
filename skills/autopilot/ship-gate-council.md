@@ -75,7 +75,9 @@ shape-field mismatch):
    `council_tier = null`, `grading_reason = null` (no council ran — stamp fail
    skips `/council`), **`max_loc` copied from card #1**, same `run_id` as card #1
    (or a fresh halt card if card #1 is unreadable — still BC7, conf=0, tiers
-   null, `max_loc` from the unreadable card #1 when recoverable else `null`),
+   null, `max_loc` from the unreadable card #1 when recoverable else `null`,
+   `run_id` = `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>` per the `/orchestrate`
+   Step 0 formula, using the run's current `RUN_START_EPOCH` (SPEC-033 M13)),
    with `rationale` naming the stamp failure (e.g. `process-stamp fail: <cause>`).
    Non-null parse → **argc 16** (council pair null + copied `max_loc`); omit/`null`
    parse → argc 15 (council pair null, `max_loc` null) or argc 13 (all optionals
@@ -337,8 +339,9 @@ Field source for card #2's `append-card.sh` args: `workflow` / `ticket_id` / `ru
 `iteration` from card #1's run context; `gate = ship-choice`; `decision` /
 `blocking_condition` / `confidence` / `bump` / `rationale` copied verbatim from the verdict
 mapper's stdout object (§4; the same mapper invocation covers §5's degraded/total-fail
-paths); `wall_clock_s` from the run's budget snapshot; `actor` = the component running this
-pass; `council_tier` / `grading_reason` from §3a; **`max_loc`
+paths); `wall_clock_s` from the run's budget snapshot; `actor` = the literal
+`ship-gate-council` (M13's actor discriminator, CDT-281; card #1 MUST NOT carry
+it); `council_tier` / `grading_reason` from §3a; **`max_loc`
 copied from card #1** (null / number `n` / `"unbound"`). Every arg is built
 valid-by-construction so the writer never exit-64s (`self-answer.md` §4).
 
@@ -360,11 +363,15 @@ newlines/control chars.
 > whole contract.** M13 scopes `council_tier` / `grading_reason` to the **M14 council card**
 > — card #2 alone. What `append-card.sh` cross-field invariant (c) can actually check is
 > `non-null ⇒ gate == "ship-choice"`, which *also* admits card #1. That gap is structural,
-> not an oversight: cards #1 and #2 share `gate`, `run_id`, and `decided_by`, and M13 defines
-> no write-time discriminator between them, so a stricter writer check would have to invent
-> one (N4 forbids that). `read-cards.sh` re-checks the same invariant on read and can do no
-> better for the same reason. The narrower rule is therefore enforced **here**, by this
-> procedure: `null` / `null` on card #1, §3a's resolved values only on card #2.
+> not an oversight: cards #1 and #2 share `gate`, `run_id`, and `decided_by`. M13's
+> discriminator is `actor` (card #2 carries the literal `ship-gate-council`; card #1
+> never does, CDT-281) — but that rule is prose-enforced, here and in SPEC-033, not a
+> writer cross-field check (`council_tier` is not a discriminator either: a stamp-fail
+> card #2 has `council_tier: null`). `read-cards.sh` re-checks the same invariant on
+> read and can do no better for the same reason; a reader of a ledger written before
+> this revision falls back to append order within `run_id`. The narrower rule is
+> therefore enforced **here**, by this procedure: `null` / `null` on card #1, §3a's
+> resolved values only on card #2.
 
 ## 7. Boundaries — what this pass does NOT do
 

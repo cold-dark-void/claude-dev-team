@@ -80,7 +80,7 @@ EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || {
   # stderr: epic <ID> is in release=end mode until seal (CDT-141)
   # HALT: no squash, no /release, no land-no-release commit/push, baseline unchanged
-  return
+  exit 1
 }
 ```
 
@@ -103,11 +103,23 @@ DEFAULT_BRANCH=${DEFAULT_REF##refs/remotes/origin/}
 # Land target: main-repo HEAD (release path: branch /release will push;
 # land-no-release: worktree baseline — typically origin/HEAD default, not hard-coded "master")
 LAND_TARGET=$(git -C "<main-repo-path>" rev-parse --abbrev-ref HEAD 2>/dev/null)
-# BC3 halt (fail-closed) iff ANY clause holds — origin/HEAD unresolvable, land
-# target != resolved default branch, OR local history has diverged from origin
-# (origin default is NOT an ancestor of the target => the push would need --force):
-[ -z "$DEFAULT_BRANCH" ] || [ "$DEFAULT_BRANCH" != "$LAND_TARGET" ] \
-  || ! git -C "<main-repo-path>" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" "$LAND_TARGET"
+# Fetch BEFORE the ancestor check so origin/$DEFAULT_BRANCH reflects the
+# remote's current tip, not a stale local cache (N3a). Empty DEFAULT_BRANCH
+# short-circuits the fetch (nothing to fetch); a fetch failure is itself a
+# BC3 halt clause below — fail-closed, never a network guess.
+FETCH_OK=0
+if [ -n "$DEFAULT_BRANCH" ] && git -C "<main-repo-path>" fetch --no-tags origin "$DEFAULT_BRANCH"; then
+  FETCH_OK=1
+fi
+# BC3 halt (fail-closed) iff ANY clause holds — origin/HEAD unresolvable, the
+# fetch above failed, land target != resolved default branch, OR local
+# history has diverged from origin (origin default is NOT an ancestor of the
+# target => the push would need --force):
+if [ -z "$DEFAULT_BRANCH" ] || [ "$FETCH_OK" -ne 1 ] || [ "$DEFAULT_BRANCH" != "$LAND_TARGET" ] \
+  || ! git -C "<main-repo-path>" merge-base --is-ancestor "origin/$DEFAULT_BRANCH" "$LAND_TARGET"; then
+  echo "ship-choice halt: BC3 push-target check failed — card: <card-path>"
+  exit 1
+fi
 ```
 
 `LAND_TARGET` is the baseline the action will land on. The disjunction above is BC3 evaluated
@@ -115,10 +127,11 @@ mechanically; the **semantics** of each clause — including why an unresolvable
 fail-closed (halt, never a network guess) and the protected-branch framing — live in **N3a** and
 are not re-derived here.
 
-On a BC3 halt: write the BC3 halt card via `append-card.sh` (call shape per `self-answer.md` §3f
-— not restated), print `ship-choice halt: <rationale> — card: <path>`, and return — **no squash,
-no `/release`, no land-no-release commit/push**. A passing check is the ship-*safety* guarantee of
-the intent/safety/assurance triad N3a defines; all three must hold before the sequence continues.
+On a BC3 halt: the fence above prints `ship-choice halt: <rationale> — card: <path>` and exits
+`1` — **no squash, no `/release`, no land-no-release commit/push**. Write the BC3 halt card via
+`append-card.sh` (call shape per `self-answer.md` §3f — not restated) for that halt. A passing
+check (exit `0`) is the ship-*safety* guarantee of the intent/safety/assurance triad N3a defines;
+all three must hold before the sequence continues.
 
 ## 3.5 Capture ship-start SHA (SPEC-010 H6 / H9; CDT-188)
 
@@ -133,6 +146,14 @@ SHIP_START_SHA=$(git rev-parse HEAD)
 export SHIP_START_SHA
 # /release Step 0.5 honors ambient SHIP_START_SHA (same value for check-ship-history
 # --since). Do not re-record after squash-stage or fold commit.
+if [ "<AUTOPILOT_BUMP>" = "master" ]; then
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+  SHIP_START=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/ship-start.sh)
+  # Land-no-release only — /release's own Step 0.5 takes this snapshot on
+  # the release path (SHIP_START_SHA ambient); do not double-write there.
+  bash "$SHIP_START" >/dev/null || { echo "ship-choice halt: ship-start.sh snapshot failed — card: <card-path>"; exit 1; }
+fi
 ```
 
 ## 4. Squash-stage — NO commit yet (shared preflight)
@@ -150,7 +171,7 @@ if ! bash "$GIT_SAFETY" is-clean --tracked-only; then
   # write a halt card naming the dirty tracked tree (append-card.sh call shape
   # per self-answer.md §3f — not restated), then halt WITHOUT reaching §5.
   echo "ship-choice halt: main-repo checkout has uncommitted tracked edits — squash refused — card: <card-path>"
-  return 1
+  exit 1
 fi
 SQUASH_BASE=$(git rev-parse HEAD)
 if ! git merge --squash <branch>; then
@@ -159,11 +180,11 @@ if ! git merge --squash <branch>; then
   # does NOT work here — --squash records no MERGE_HEAD, so abort exits 128
   # and leaves conflict markers. Then write a halt card naming the squash
   # conflict explicitly (append-card.sh call shape per self-answer.md §3f —
-  # not restated), print the ship-choice halt line, and return WITHOUT
+  # not restated), print the ship-choice halt line, and exit 1 WITHOUT
   # reaching §5 on this path.
   bash "$GIT_SAFETY" safe-reset --clean-at "$SQUASH_BASE" || echo "end-state: safe-reset refused — halt for human" >&2
   echo "ship-choice halt: squash conflict on <branch> — card: <card-path>"
-  return 1
+  exit 1
 fi
 ```
 
@@ -261,15 +282,40 @@ CHECK_SHIP=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/check-ship-his
 SHIP_START_SHA="<SHIP_START_SHA>"   # literal from §3.5 — required
 [ -n "$SHIP_START_SHA" ] && [ "$SHIP_START_SHA" != "<SHIP_START_SHA>" ] || {
   echo "end-state: SHIP_START_SHA unset — re-run §3.5" >&2
-  return 1
+  exit 1
 }
-bash "$CHECK_SHIP" --since "$SHIP_START_SHA" || {
-  # Autopilot path (H8): exact halt; no Done / trackers / success claim
-  echo "history dirty — rewrite needed"
-  # print checker evidence (already on stdout/stderr); write halt card if available
-  # MUST NOT: Linear Done, backlog close, Orchestration complete, task_complete ship
-  return 1
-}
+if [ "<AUTOPILOT_BUMP>" = "master" ]; then
+  # Land-no-release: also check the D4 tag-retarget snapshot half, via the
+  # §3.5 snapshot recomputed deterministically from the same SHA (cross-block
+  # env does not carry, so this is --path, never the printed TAG_SNAPSHOT=
+  # line from a different shell).
+  SHIP_START=$(bash "$PDH/skills/plugin-dir.sh" file skills/release/ship-start.sh)
+  SNAP=$(bash "$SHIP_START" --path "$SHIP_START_SHA") || {
+    echo "end-state: ship-start.sh --path failed — halt" >&2
+    exit 1
+  }
+  [ -r "$SNAP" ] || {
+    echo "end-state: tag snapshot missing ($SNAP) — halt" >&2
+    exit 1
+  }
+  if bash "$CHECK_SHIP" --since "$SHIP_START_SHA" --tag-snapshot "$SNAP"; then
+    bash "$SHIP_START" --clear || echo "end-state: ship-start.sh --clear failed (non-fatal)" >&2
+  else
+    # Autopilot path (H8): exact halt; no Done / trackers / success claim
+    echo "history dirty — rewrite needed"
+    exit 1
+  fi
+else
+  # Release: /release Step 5.5 (post-fold, pre-tag) and Step 6 (post-tag,
+  # post-push) already own the ship-history authority for this path,
+  # including the D4 tag-retarget snapshot half — this --since check is a
+  # pre-fold sanity re-check only, not a second authority.
+  bash "$CHECK_SHIP" --since "$SHIP_START_SHA" || {
+    # Autopilot path (H8): exact halt; no Done / trackers / success claim
+    echo "history dirty — rewrite needed"
+    exit 1
+  }
+fi
 ```
 
 - **Exit 0** — clean; continue to §6 closeout.
@@ -278,6 +324,10 @@ bash "$CHECK_SHIP" --since "$SHIP_START_SHA" || {
   `closes:` trackers, **MUST NOT** claim ship success. No silent force-push / amend / retag.
   Resume only after human confirms a rewrite (interactive H7 via `/release` or manual) or
   history becomes clean on re-check.
+- **Release-path authority:** `/release` Step 5.5 and Step 6 (`skills/release/SKILL.md`) are
+  the ship-history authority on the release path — post-tag, post-push, and the D4
+  tag-retarget snapshot half. This fence's release-path `--since` check is a pre-fold sanity
+  re-check only; it does not pass `--tag-snapshot` and does not duplicate that authority.
 
 ## 6. Tracking closeout — AFTER land succeeds **and** ship-history is clean (AC5)
 
@@ -328,9 +378,9 @@ GIT_SAFETY=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/git-safety.sh)
 SHIP_START_SHA="<SHIP_START_SHA>"   # literal from §3.5 — required
 [ -n "$SHIP_START_SHA" ] && [ "$SHIP_START_SHA" != "<SHIP_START_SHA>" ] || {
   echo "end-state: SHIP_START_SHA unset — re-run §3.5" >&2
-  return 1
+  exit 1
 }
-bash "$GIT_SAFETY" safe-reset --clean-at "$SHIP_START_SHA" || { echo "ship-choice halt: HEAD moved past SHIP_START_SHA (delivery commit exists) — no reset; halt for human — card: <card-path>"; return 1; }
+bash "$GIT_SAFETY" safe-reset --clean-at "$SHIP_START_SHA" || { echo "ship-choice halt: HEAD moved past SHIP_START_SHA (delivery commit exists) — no reset; halt for human — card: <card-path>"; exit 1; }
 ```
 
 The trackers still stay **open** per §6 — nothing shipped; only the working-tree state is

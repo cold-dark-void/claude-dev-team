@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-08-04
 
-**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/budget-check.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/self-answer-scenarios.md`, `skills/autopilot/ship-gate-council.md`, `skills/autopilot/ship-gate-verdict.sh` (M14(i), WP 1-14). Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223). N3a clean-tree precondition (WP 1-05): `skills/autopilot/end-state.md` §4 and §6.5, `skills/autopilot/test-end-state-safety.sh`.
+**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/budget-check.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/self-answer-scenarios.md`, `skills/autopilot/ship-gate-council.md`, `skills/autopilot/ship-gate-verdict.sh` (M14(i), WP 1-14). Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223). N3a clean-tree precondition (WP 1-05): `skills/autopilot/end-state.md` §4 and §6.5, `skills/autopilot/test-end-state-safety.sh`. WP 1-08: `skills/autopilot/resume-state.sh` and `skills/lib/plan-resolve.sh` (M9a plan lookup, ITER restore, approval wait), `skills/autopilot/end-state.md` §3, §3.5 and §5.5 (N3a fetch-first, tag snapshot).
 
 ---
 
@@ -308,13 +308,43 @@ target.
   frozen caps come from the plan-approve card (AC9); M9a still supplies only the synthetic
   epoch. `resume-state.sh` MUST NOT grow a frontmatter seed for caps.
 
+  **Approval wait (WP 1-08; user decision 2026-09-28).** Time that a live `/orchestrate`
+  autopilot run spends blocked on a human approval (a refused tool call, a permission prompt,
+  or any other "wait for the user" inside the run) MUST NOT count toward BC6. Such a wait is
+  already an M8 halt: before it blocks, the orchestrator MUST write a `halt` card through the
+  `self-answer.md` §3f freeze recipe with `blocking_condition` 1 (3 when the refused action is
+  destructive, M6.3), `decided_by` `auto`, `gate` = the last gate this run answered
+  (`scope-confirm` or `plan-approve`; `scope-confirm` before the first gate; never
+  `ship-choice`), the current `run_id` and ITER, and a
+  `rationale` that starts with `approval-wait:`. Its `budget.wall_clock_s` is the active time up to
+  the wait. When the human replies in the same session, the orchestrator MUST re-mint
+  `run_start_epoch` by the resume rule above (`now − resume-state.sh --accumulated`) before its
+  next `budget-check.sh` call. The re-mint changes `run_start_epoch` only; `run_id` stays. If the
+  `budget-check.sh` call for the wait card already reports a breach, the card is a BC6 halt
+  instead and no re-mint follows (resuming past BC6 stays a human decision). No wait card is
+  needed after ship-choice card #1: BC6 is not evaluated after it. `/kickoff` and `/epic` Mode A
+  are unchanged. This loosens BC6 for human wait time only: BC6 stays a hard stop for active
+  time, and a run that does not wait for a human keeps the old measure. It adds no card field,
+  no gate value, no `type` and no ninth BC.
+
+  **Plan lookup and ITER restore (WP 1-08).** `resume-state.sh` finds the plan through
+  `skills/lib/plan-resolve.sh`: the plan whose `## Tracking` section has `ticket_id:` exactly
+  equal to the ticket id, searched in `<show-toplevel>/.claude/plans` and then
+  `$MROOT/.claude/plans`; the newest mtime wins a tie; no exact match (including a legacy plan
+  with no `ticket_id:` line) → `{"found":false}`, never a prefix guess. `autopilot_on` and
+  `autopilot_bump` are read only inside that `## Tracking` section. `--accumulated` always prints
+  one non-negative integer (`0` when there are no cards or `read-cards.sh` fails). On resume, ITER
+  restarts at `resume-state.sh --iteration <ticket_id>`: `max(.budget.iteration)` over the
+  ticket's cards, or `0`. ITER is incremented once per M9 stint, at each agent spawn site.
+
 ### AC4 — Complexity-overflow → `/epic` reroute criteria
 
 - **M10 — Overflow criteria.** Complexity **overflow** (the BC5 trigger's underlying definition)
   is met when **any** of the following holds at `scope-confirm` or `plan-approve`:
   1. Projected total **counted** change (M15) exceeds the per-PR hard cap across the ticket
      (default **> 2000 LOC**; `--max-loc=<n>` uses **n**; `--max-loc=unbound` **disables this
-     criterion**). Evaluated at `scope-confirm` and `plan-approve`; or
+     criterion**). Evaluated at `scope-confirm` only. At `plan-approve` a counted-LOC overflow is
+     BC4, which comes first in M6 order, so M10.1 never reroutes there (WP 1-08, CDT-331); or
   2. The work naturally decomposes into **3 or more independently shippable workstreams**
      (distinct PR-able units with no shared change surface); or
   3. The plan's task graph would exceed **~8 tasks across multiple parallel waves** (mirrors
@@ -475,6 +505,15 @@ target.
     `budget_tier` when `source` is `auto` or `mixed`. `rationale` MUST mention env when
     `source` is `env` or `mixed`.
   - `actor` names the writer (e.g. `orchestrator`).
+    **Ship-choice card #1 vs card #2 (WP 1-08, CDT-281).** `actor` is the discriminator; no
+    field is added. Card #2 (the M14 council card, including the §2a stamp-fail halt) MUST
+    carry `actor: "ship-gate-council"`. Card #1 carries the component that ran the self-answer
+    engine (`orchestrator`, or `epic-orchestrator` for an `/epic`-driven child) and MUST NOT
+    carry `ship-gate-council`. `council_tier` is not a discriminator: a stamp-fail card #2 has
+    `council_tier: null`. Cards written before this revision may carry `orchestrator` on card #2;
+    a reader of an old ledger falls back to append order within the `run_id`. When card #1 is
+    unreadable, the fresh §2a halt card uses `run_id` `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>`
+    (the `/orchestrate` Step 0 formula, with the run's current `RUN_START_EPOCH`).
 
 ### AC7 — Council ship-gate pass (CDT-111-C5)
 
@@ -952,7 +991,7 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
   scripted BC).
 
 - **M16 — `--max-loc=<n|unbound>` DRI flag.** Flag-only per-run override. Council-tier
-  precedent: `=` form, no env, junk → 64, last-wins on duplicate, not resume-seeded.
+  precedent: `=` form, no env, junk → 64, duplicate → 64 (WP 1-08), not resume-seeded.
 
   **Parse** (`skills/autopilot/parse-flags.sh`, same argv scan as `--autopilot` /
   `--council-tier` / `--tier`):
@@ -965,13 +1004,23 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
 
   MUST print **six** success keys: `enabled`, `bump`, `source`, `council_tier`, `tier`,
   `max_loc`. Independent of `--autopilot`, `--council-tier`, and `--tier` (no key writes
-  another). Duplicate `--max-loc` **last-wins** (same-value and different-value repeats
-  both succeed — unlike `--tier`, which 64s a duplicate).
+  another). A duplicate `--max-loc` exits **64** (same-value and different-value repeats alike,
+  as `--tier` does; WP 1-08).
 
   MUST exit **64**, write the error to stderr, and print **no** success JSON for: junk;
   `0`; negative; `UNBOUND` / `off` / `none` / `unlimited` / `inf`; empty `--max-loc=`;
   bare `--max-loc`; space form `--max-loc n`. Step 0 MUST halt before fetch, worktree, or
   spawns.
+
+  **Duplicates and near-misses (all four `parse-flags.sh` flags; WP 1-08, CDT-281).** A second
+  occurrence of `--autopilot` (bare or `=` form, in any order), `--council-tier`, `--tier` or
+  `--max-loc` MUST exit **64**. An argument that starts with `--auto`, `--council`, `--tier` or
+  `--max` and is not one of these four flags, bare or with `=<value>` (for example `--autopliot`,
+  `--max-locs=5`), MUST exit **64**.
+  Every other `--*` argument still passes through untouched: the other parser families
+  (`/orchestrate` `--resume-ship`, `/kickoff` `--effort` / `--worktree`, `/epic` flags) are not
+  this parser's to judge (SPEC-025 M14 item 6). `skills/autopilot/loc-exclude.sh` moves to the repo
+  top level itself, so a caller in a subdirectory gets the same answer for a repo-relative path.
 
   MUST NOT read `MAX_LOC`, `AUTOPILOT_MAX_LOC`, or any env for this cap. MUST NOT persist
   in `resume-state.sh`. MUST NOT auto-propagate on `reroute-epic` (the `/epic` child
@@ -983,8 +1032,8 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
   `/kickoff`. `/orchestrate` Step 0 MUST bind `.max_loc` from the **same** `parse-flags.sh`
   call as the other keys.
 
-  **Effects** (counted LOC, M15; BC4 = `plan-approve` only; M10.1 = `scope-confirm` and
-  `plan-approve`):
+  **Effects** (counted LOC, M15; BC4 = `plan-approve` only; M10.1 = `scope-confirm`
+  only, WP 1-08):
 
   | `max_loc` | BC4 per-PR | BC4 per-file (1000) | M10.1 |
   |---|---|---|---|
@@ -1078,6 +1127,14 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
 
   **Precedence** (per cap, independently). Env is set when the variable is **non-empty**.
   Empty or unset is not set. Junk (not a non-negative integer) MUST exit 64.
+  The env caps are **external input** (WP 1-08, CDT-310). `budget-check.sh` and
+  `append-card.sh` MUST validate them whenever they read them: a set value MUST be a
+  non-negative decimal integer of at most 15 digits with no leading zero (`0` itself is legal).
+  Otherwise the script exits 64, names the variable on stderr, and writes no card. The same
+  15-digit rule applies to every numeric argument of both scripts (`iteration`,
+  `run_start_epoch`, `wall_clock_s`, caps, derive signals); `confidence` MUST match `0..100`
+  and `blocking_condition` `1..8` by pattern, before any `-gt` / `-lt` / `-ge` test, so an
+  overflowing value can never skip a range check or the BC7 `< 80` invariant.
 
   1. Env (`AUTOPILOT_ITERATION_CAP` / `AUTOPILOT_WALLCLOCK_CAP`) if set.
   2. Else auto-tune (table above) after freeze.
@@ -1216,6 +1273,16 @@ It MUST NOT add a budget-cap flag. `parse-flags.sh` stays six-key.
   either land action to proceed. Fail-closed: an unresolvable `origin/HEAD` halts under BC3
   (autopilot MUST NOT fall back to a network guess to proceed). Force-push remains BC3-never-waived
   on both branches.
+
+  **Fetch first (WP 1-08, CDT-340).** The force-push clause needs a current `origin/<default>`:
+  before the ancestry test, autopilot MUST run `git fetch --no-tags origin <default>` on the
+  main-repo checkout. A failed fetch is a BC3 halt (fail-closed), never a pass on a stale ref.
+  `--no-tags` keeps the fetch from adding tags inside the ship window (SPEC-010 D4). On the
+  land-no-release path, autopilot takes the SPEC-010 H2 tag snapshot (`skills/release/ship-start.sh`)
+  when it records `SHIP_START_SHA`, passes it as `--tag-snapshot` to the post-land
+  `check-ship-history.sh` run (a missing snapshot fails closed), and clears it after a clean
+  check. On the release path, `/release` Step 5.5 and Step 6 own the ship-history checks,
+  including the snapshot half.
 
   The operational sequence lives in the companion procedure `skills/autopilot/end-state.md`
   (peer to `self-answer.md` / `ship-gate-council.md`), which MUST NOT restate or fork this
@@ -1373,6 +1440,32 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 - **K.** [process] The release notes name the next WP's ship gate as the first live test of the recipe. The loop journal records its per-AC confidences, and a BC7 on an AC with no code gap gets a local backlog item.
 - **L.** [process] Before the release, three local backlog items exist: judge delivery of large bundles and the classifier stop; a spec-writing lint for technical-AC clauses that no command can check; and an M14 report path that is absolute under the main repo root (the lost WP 1-07 report).
 
+### wp-1-08-autopilot-state
+
+- **A.** `skills/autopilot/append-card.sh` exits 64, names the field on stderr and adds no ledger line for: `confidence` `99999999999999999999999`, `abc`, `101` or `007`; `blocking_condition` `99999999999999999999999` or `9`; an `iteration` or `wall_clock_s` of 16 digits or with a letter; `AUTOPILOT_ITERATION_CAP` or `AUTOPILOT_WALLCLOCK_CAP` set to `abc` or to 16 digits while `AUTOPILOT_BUDGET_META` is unset. `blocking_condition` `7` with `confidence` `80` still exits 64. `skills/autopilot/budget-check.sh` exits 64 for a 16-digit `iteration` or `run_start_epoch` and for the same env caps, and its stderr names the variable. `skills/autopilot/self-answer.md` does not contain `never external input` and states that the env caps are external input.
+  Verify: bash skills/autopilot/test-card-validation.sh
+- **B.** `skills/autopilot/self-answer.md` §3f holds one bash fence that reads the freeze with `read-cards.sh`, calls `budget-check.sh` and calls `append-card.sh`. Run as extracted in a new shell with `AUTOPILOT_BUDGET_META`, `AUTOPILOT_ITERATION_CAP` and `AUTOPILOT_WALLCLOCK_CAP` unset, against a ledger with a plan-approve freeze of 40 / 10800 (tier `L`) and the same `run_id`, the fence appends a ship-choice card with `budget.iteration_cap` 40, `budget.wall_clock_cap_s` 10800 and `budget.tier` `L`. With a different `run_id` and `RESUMING=false` the card does not carry that freeze. With a different `run_id` and `RESUMING=true` it does.
+  Verify: bash skills/autopilot/test-card-validation.sh
+- **C.** SPEC-033 Version History has a dated WP 1-08 row. Outside its `## Acceptance criteria` section, SPEC-033 does not contain ``Evaluated at `scope-confirm` and `plan-approve` ``, and neither does `skills/autopilot/SKILL.md`; both files contain ``Evaluated at `scope-confirm` only``. The F4-n-tight scenario in `skills/autopilot/self-answer-scenarios.md` still expects a BC4 halt at `plan-approve`. `skills/autopilot/ship-gate-council.md` §2a gives the fresh halt card the `run_id` `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>`, and §6 requires `actor` `ship-gate-council` on card #2. The §5 text of `ship-gate-council.md` is byte-equal to its text at `38bc739`.
+  Verify: bash skills/autopilot/test-contract-prose.sh
+- **D.** `skills/autopilot/test.sh` exits 0 with no FAIL line when the caller exports `AUTOPILOT_WALLCLOCK_CAP=10800`, `AUTOPILOT_ITERATION_CAP=3`, `AUTOPILOT_BUDGET_META=junk` and `AUTOPILOT=1`.
+  Verify: bash skills/autopilot/test-env-hermetic.sh
+- **E.** With only a plan whose `## Tracking` has `ticket_id: CDV-30-C1`, `skills/autopilot/resume-state.sh CDV-30` prints `"found":false`. With a parent plan (`ticket_id: CDV-30`) added, it prints the parent path and the parent `autopilot_on` / `autopilot_bump`. An `- autopilot_on:` line outside `## Tracking` is ignored. A plan with no `ticket_id:` line gives `"found":false`. A plan in `<worktree>/.claude/plans` is found when the script runs inside that worktree. `--accumulated` prints `0` when `read-cards.sh` fails or no card exists. `--iteration CDV-30` prints the largest `budget.iteration` of that ticket's cards, or `0` with no cards.
+  Verify: bash skills/autopilot/test.sh
+- **F.** No bash fence in `skills/autopilot/end-state.md` has a line whose first word is `return`. The §3 fence runs `git fetch --no-tags origin` before `merge-base --is-ancestor`. Run as extracted against fixture repos, it exits non-zero when the fetch fails and when origin is ahead of the land target after the fetch, and exits 0 when the land target contains origin. The §3.5 fence calls `ship-start.sh` on the `master` bump. The §5.5 land-no-release fence passes `--tag-snapshot` to `check-ship-history.sh`, and exits non-zero when the snapshot file is missing. The §5.5 text names `/release` Step 6 as the ship-history authority on the release path.
+  Verify: bash skills/autopilot/test-end-state-safety.sh
+- **G.** No bash fence in `skills/epic/SKILL.md` has a line whose first word is `return`. The build-seed fence, run as extracted with a `build-seed` stub that fails, exits non-zero and does not call `validate-seed`. `skills/epic/epic-lib.sh init X --title --mode orchestrate` exits 64 and writes no `state.json`.
+  Verify: bash skills/epic/test.sh
+- **H.** One table-driven test sends duplicate, bare, empty, `=`, space-form and near-miss rows through `skills/autopilot/parse-flags.sh` and `skills/epic/parse-flags.sh`. Autopilot parser: `--autopilot=patch --autopilot`, `--autopilot --autopilot=patch`, a second `--council-tier` and a second `--max-loc` exit 64; `--autopliot` and `--max-locs=5` exit 64; `--worktree` and `--resume-ship` exit 0. Epic parser: `--worktre` and `--releas patch` exit 64; `--autopilot=patch` and `--redecompose` exit 0. The `skills/autopilot/parse-flags.sh` header states the duplicate rule. `skills/autopilot/loc-exclude.sh` gives the same exit code for a repo-relative path from a subdirectory as from the top level.
+  Verify: bash skills/autopilot/test-flag-matrix.sh
+- **I.** `ITER=$((ITER+1))` occurs in each of `skills/orchestrate/steps/04-kickoff.md`, `06-design.md`, `08-execute.md`, `09-review.md` and `10-qa.md`. `00-resolve.md` sets ITER from `resume-state.sh --iteration` when resuming. The extracted `00-resolve.md` run-start fence, with a `resume-state.sh` stub that prints nothing, sets `RUN_START_EPOCH` to the current epoch and writes nothing to stderr.
+  Verify: bash skills/orchestrate/router-static-test.sh
+- **J.** `skills/orchestrate/steps/cross-cutting.md` tells the orchestrator to write the `approval-wait:` halt card before it blocks on a human approval and to run the `00-resolve.md` re-mint fence on the reply. Fixture: last card an `approval-wait:` BC1 halt with `wall_clock_s` 2000, original run start 30000 s ago, caps 40 / 10800. The re-mint fence followed by `budget-check.sh` reports no breach, and the same check from the original run start reports a `wall_clock` breach. A ledger whose last card has `wall_clock_s` 11000 and no wait card still breaches after the re-mint. The re-mint leaves `RUN_ID` unchanged.
+  Verify: bash skills/autopilot/test-bc6-approval-wait.sh
+- **K.** [process] The release ship notes record the evaporated part (rv-w1-58 `epic-lib.sh` unknown flags, already `die 64` at `epic-lib.sh:203-204,281`) and the parts moved to WP 5-01 (05-questions BC1 branch, 10-qa `qa_bounces` cap, 10b marker, plan writers).
+- **L.** [process] `bash tools/run-all-tests.sh` exits 0 and every `/release` gate passes.
+- **M.** [process] The release ship notes record the WP 1-16 merge order: whichever of WP 1-08 and WP 1-16 ships second re-pins the g8 `append-card.sh` blob fixture in `skills/autopilot/fixtures/ship-gate-guardrails/`.
+
 ---
 
 ## Version History
@@ -1380,6 +1473,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 | Date | Change |
 |------|--------|
 | 2026-09-28 | WP 1-16 (`wp-1-16-m14-finder-recipe`; backlog `m14-finder-evidence-recipe`): **M14 finder evidence recipe.** Premise: the WP 1-05 and WP 1-06 ship gates (`.claude/council/2026-09-28-claim-wp-1-05-m14.md`, `.claude/council/2026-09-28-claim-wp-1-06-m14.md`) halted on BC7 with every Verify at exit 0 and no code gap; the judge struck elided `raw_blob` lines, ACs with no quote of their text, and named literals that no bundle held. **M14(g)** — new "Finder recipe" bullet: an AC quote anchored on the `<path>:<line>` locator (bullet plus continuation lines); the Verify run plus one AC-label filter bundle; one grep per token class, bounded and scoped — one default call against the Verify test file for backtick spans, `Case N` and `AC X` tokens, an explicit locator command for `path:N`, and a scoped multi-token `git grep` fallback (never unscoped) only for a token the default call missed; numbered sub-clauses are grepped too, as advisory evidence. No-elision rule: a `raw_blob` is the complete output of its own `reproducible_command`, with no `...`, `[...]` or `…` line and no text added after the output; the one exception is the Verify-run bundle, whose `raw_blob` is the complete stdout of the wrapped Step 2 call (a bare re-run of `reproducible_command` alone would print the suite's unredirected log instead) — it is exempt from the raw_blob-equals-a-rerun-of-reproducible_command invariant the other recipe bundles hold. The finder takes the tokens from its own quote; the split, the engine and the claim record carry no AC text or tokens (M14(a)). Judge caps: confidence 79 or lower for a missing AC quote, an unmatched named token of class backtick span, `path:N`, `Case N` or `AC X` (matched outside the Step 1 quote bundle) or an elision line (SPEC-013 Phase 5); a numbered sub-clause named in the quote is advisory evidence only and carries no cap. The recipe and the caps can only lower a confidence: they feed nothing new to the mapper **(i)**, add no clear path, and leave **(b)**, **(d)**, the firing rule, the two cards and BC7 reuse unchanged. An engine-side strike was rejected, because it would change how the gate clears (`ship-gate-council.md` §5). **M14(j)** — the recipe fits the 8-call budget; the budget does not change. **M14(k)** — recipe tests; they prove prompt text and wiring, not a live judge score. A claim with no `Verify:` command keeps its render. This WP's own gate runs the old prompt from `master`; the next WP's gate is the first live proof. New `### wp-1-16-m14-finder-recipe` AC subsection. Status stays DRAFT. |
+| 2026-09-28 | WP 1-08 (`wp-1-08-autopilot-state`; CDT-340, CDT-331, CDT-310, CDT-311, CDT-307, CDT-368, CDT-278 `[06 T-00resolve]`, CDT-281 `[05 T-parse-flags]` `[05 T-ship-gate]`, rv-w1-53, rv-w1-58): **M9a** — approval wait does not count toward BC6 (user decision 2026-09-28). A blocking human approval inside a live `/orchestrate` run is an M8 halt: an `approval-wait:` card (BC1, or BC3 for a destructive action) before the wait, then a same-session re-mint of `run_start_epoch` by the resume rule on the reply (`run_id` unchanged). This changes when BC6 fires (a safety halt) for human wait time only; BC6 stays a hard stop for active time; no new field, gate, `type` or BC. Plan lookup by exact Tracking `ticket_id:` through `skills/lib/plan-resolve.sh` (toplevel then `$MROOT`, newest mtime, legacy → not found); `--accumulated` always an integer; ITER restored from `resume-state.sh --iteration` and incremented at each spawn site. **M10.1** — evaluated at `scope-confirm` only (BC4 owns plan-approve overflow; matches fixture F4-n-tight). **M13** — ship-choice card #2 carries `actor: ship-gate-council`, card #1 never does; fresh §2a halt card `run_id` = `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>`. **M16** — duplicate `--autopilot` / `--council-tier` / `--max-loc` exit 64 (was last-wins), near-miss own-family flags exit 64, other families pass through; `loc-exclude.sh` resolves from the repo top level. **AC9** — env caps are external input: validated (canonical integers of at most 15 digits, exact in `jq`) by `budget-check.sh` and `append-card.sh`; every numeric card argument validated by pattern before arithmetic. **N3a** — fetch first (`git fetch --no-tags origin <default>`; failure → BC3); land-no-release takes, checks and clears the SPEC-010 H2 tag snapshot; `/release` owns the checks on the release path. The M14 clearing rule (**(b)**, **(d)**, the mapper, `ship-gate-verdict.sh`, `ship-gate-council.md` §5) is unchanged. New `### wp-1-08-autopilot-state` AC subsection. Status stays DRAFT. |
 | 2026-09-27 | WP 1-05 (`wp-1-05-git-safety-lib`; CDT-260 `[05 F2]`): **N3a (iii)** gains a clean-tree precondition. Before the squash, autopilot runs `git-safety.sh is-clean --tracked-only` (SPEC-025 M17) on the main-repo checkout; tracked edits give a halt card, exit ≠0 and no change; untracked files do not block. Every undo of the squash stage (`end-state.md` §4 conflict path, §6.5 land-abort paths) calls `git-safety.sh safe-reset --clean-at <sha>` and never a bare `git reset --hard`; a moved HEAD makes `safe-reset` refuse and autopilot halt for a human. The former "fully reversible with `git reset`" wording is withdrawn. Behavioural suite: `skills/autopilot/test-end-state-safety.sh`. The ACs live in SPEC-025 `### wp-1-05-git-safety-lib`. |
 | 2026-09-27 | WP 1-15 (`m14-per-ac-verify-command`): **M14 per-AC verify evidence.** This revision changes the evidence the per-AC investigators collect. It does not change how the gate clears: **(b)**, **(d)**, the mapper **(i)**, the firing rule, the two cards and BC7 reuse are unchanged. **M14(a)** — a `Verify:` command is a locator, like `<path>:<line>`; the council's own per-AC investigator runs it through its own tool call during the pass; that output is Phase 2 evidence, not a "test-runner log", because no pipeline step wrote it for the council; autopilot never runs it for the council and never passes its output; a pass does not clear an AC by itself. **M14(g)** — Verify line rule (two-space continuation `Verify: bash <path> [<arg> ...]`; `<path>` repo-relative, no `..`, present at `HEAD`, a suite name that `tools/run-all-tests.sh` discovers, never `tools/run-all-tests.sh`; characters `A-Z a-z 0-9 . _ / = : @ % + , -` only); new fail-closed case 10 (a malformed Verify line, two on one AC, or one on a `[process]` AC) and case 11 (a Verify line with uncommitted changes to tracked files, because the split reads `HEAD` and a verify run reads the worktree); "checkboxes are not evidence" note; Writers add a Verify line per technical AC, and Step 10b lists ACs with none and Verify files that do not call `hermetic_init` (a report, not a block). **M14(j)** — an M14 claim with a command gets 8 investigator calls, else 5; every other caller keeps 5. **M14(k)** — verify evidence tests. **N17** — an investigator's own verify run is evidence, not a runner log. The headline ACs follow reading (A) of the WP 1-15 kickoff: prompt and fixture evidence only; the live proof is the WP 1-05 ship gate. New `### wp-1-15-m14-verify-evidence` AC subsection with a Verify line on every technical AC. SPEC-013 Phases 1, 2, 2.5, 5 and 6 carry the engine side. Status stays DRAFT. |
 | 2026-09-26 | WP 1-14 step 10b, TL raise (M14(j)): `M14_AC_BUDGET` raised from `10` to `16` in `skills/council/engine.sh`. Reason: this WP's own AC subsection (`### wp-1-14-m14-ship-gate-evidence`) holds 16 technical ACs, which would fail the split closed under the old budget. The hard ceiling `M14_AC_BUDGET_CEILING=20` is unchanged. |

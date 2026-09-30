@@ -89,14 +89,16 @@ If ISSUE-ID missing, ask:
 
 Resolve autopilot enablement once, at run start — every gated checkpoint below
 (Step 2 scope-confirm, Step 6 plan-approve, Step 11 ship-choice) reuses these values
-by reference. `ITER` starts at `0` and increments once per orchestration stint.
+by reference. `ITER` starts at `0` on a fresh run and increments once per
+orchestration stint; resuming (`RESUMING=true`) restores it from
+`resume-state.sh --iteration` instead of resetting it (SPEC-033 M9a).
 
 ```bash
 # Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (rank by /dev-team/<VER>/ segment, not full path; CDT-166). CDT-82: marketplace before same-version cache.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
-AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump> or --tier or --max-loc
+AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>, --tier, --max-loc; a duplicate/near-miss --autopilot|--council-tier|--max-loc flag (SPEC-033 M16)
 AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
 AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
 AP_SOURCE=$(jq -r .source <<<"$AP_JSON")            # flag | env | none
@@ -126,6 +128,7 @@ MAX_LOC=$(jq -r '.max_loc // "null"' <<<"$AP_JSON")
 # Resume detection (CDT-111-C8): only when THIS invocation gave neither
 # --autopilot nor AUTOPILOT= (flag/env always win over recorded state).
 RESUMING=false
+ITER=0                                              # ++ once per stint; restored below on resume (SPEC-033 M9a)
 if [ "$AP_SOURCE" = none ]; then
   RS=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/resume-state.sh)
   RS_JSON=$(bash "$RS" "<ISSUE-ID>")
@@ -136,6 +139,8 @@ if [ "$AP_SOURCE" = none ]; then
       AUTOPILOT_BUMP=$(jq -r '.autopilot_bump // "null"' <<<"$RS_JSON")
       RESUMING=true
       PLAN_PATH=$(jq -r .plan <<<"$RS_JSON")
+      ITER=$(bash "$RS" --iteration "<ISSUE-ID>")   # SPEC-033 M9a: restored, not reset
+      case "$ITER" in ''|*[!0-9]*) ITER=0 ;; esac
       if [ "$AUTOPILOT_ON" = true ]; then
         echo "resuming <ISSUE-ID> in recorded autopilot mode (bump=$AUTOPILOT_BUMP) — plan: $PLAN_PATH"
       else
@@ -144,12 +149,25 @@ if [ "$AP_SOURCE" = none ]; then
     fi
   fi
 fi
+```
 
+### Run-start epoch and RUN_ID (SPEC-033 M9a)
+
+```bash template
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (rank by /dev-team/<VER>/ segment, not full path; CDT-166). CDT-82: marketplace before same-version cache.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RS=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/resume-state.sh)
+if [ -z "$RS" ]; then
+  echo "00-resolve: cannot resolve skills/autopilot/resume-state.sh via plugin-dir.sh" >&2
+  exit 1
+fi
 # RUN_START_EPOCH: synthetic on resume so BC6's wall-clock cap measures active
 # execution time only — pause duration must never count (SPEC-033 M9a).
 NOW=$(date +%s)
-if [ "$RESUMING" = true ]; then
-  ACCUM=$(bash "$RS" --accumulated "<ISSUE-ID>")   # $RS resolved above, same script
+if [ "<RESUMING>" = true ]; then
+  ACCUM=$(bash "$RS" --accumulated "<ISSUE-ID>") || ACCUM=""
+  case "$ACCUM" in ''|*[!0-9]*) ACCUM=0 ;; esac
   if [ "$ACCUM" -gt 0 ]; then
     RUN_START_EPOCH=$(( NOW - ACCUM ))
   else
@@ -159,14 +177,15 @@ else
   RUN_START_EPOCH=$NOW
 fi
 RUN_ID="orchestrate-<ISSUE-ID>-$RUN_START_EPOCH"    # S3-derivable per C3 §2
-ITER=0                                              # ++ once per stint
 ```
 
-On a fresh `/orchestrate <ISSUE-ID>`, an existing `.claude/plans/*-<ISSUE-ID>-*.md`
-seeds autopilot state only when no `--autopilot`/`AUTOPILOT=1` was given on this
-invocation (flag/env win over recorded state — `parse-flags.sh`'s own precedence,
-`source=="none"` is the signal). Pause time is excluded from BC6 via the synthetic
-epoch (SPEC-033 M9a, CDT-111-C8).
+On a fresh `/orchestrate <ISSUE-ID>`, `skills/lib/plan-resolve.sh find <ISSUE-ID>`
+(via `resume-state.sh`) seeds autopilot state only when no `--autopilot`/
+`AUTOPILOT=1` was given on this invocation (flag/env win over recorded state —
+`parse-flags.sh`'s own precedence, `source=="none"` is the signal). A legacy
+plan with no `## Tracking` `- ticket_id:` line is not found (SPEC-033 M9a
+D11). Pause time is excluded from BC6 via the synthetic epoch (SPEC-033 M9a,
+CDT-111-C8).
 
 **Freeze-on-resume (SPEC-033 AC9 / M9b / N13).** Frozen caps live on the
 plan-approve card nested `budget.{tier,source,signals}` — read via
@@ -177,6 +196,39 @@ plan-approve card nested `budget.{tier,source,signals}` — read via
 mutation MUST NOT retune. Later gates copy the freeze (engine argc=4); Step 0
 does not re-derive. MUST NOT export `AUTOPILOT_BUDGET_META` on `reroute-epic`
 (child `/epic` or `/orchestrate` derives its own freeze).
+
+### Re-mint after a human approval wait
+
+`cross-cutting.md` § "Approval wait under autopilot" runs this fence on the
+human's reply, after the `approval-wait:` halt card written before the block
+(SPEC-033 M9a). `RUN_ID` is unchanged — only `RUN_START_EPOCH` re-mints, from
+the same synthetic-epoch rule as the run-start fence above.
+
+```bash template
+# Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd dev/worktree, else marketplace clone (slug-free agents/pm.md), else installed cache (rank by /dev-team/<VER>/ segment, not full path; CDT-166). CDT-82: marketplace before same-version cache.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RS=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/resume-state.sh)
+if [ -z "$RS" ]; then
+  echo "re-mint: cannot resolve skills/autopilot/resume-state.sh via plugin-dir.sh" >&2
+  exit 1
+fi
+NOW=$(date +%s)
+ACCUM=$(bash "$RS" --accumulated "<ISSUE-ID>" 2>&1)
+ACCUM_RC=$?
+if [ "$ACCUM_RC" -ne 0 ]; then
+  echo "re-mint: resume-state.sh --accumulated failed: $ACCUM" >&2
+  exit 1
+fi
+case "$ACCUM" in
+  ''|*[!0-9]*)
+    echo "re-mint: resume-state.sh --accumulated printed a non-integer: '$ACCUM'" >&2
+    exit 1
+    ;;
+esac
+RUN_START_EPOCH=$(( NOW - ACCUM ))
+echo "RUN_START_EPOCH=$RUN_START_EPOCH"   # RUN_ID unchanged (SPEC-033 M9a)
+```
 
 Every later reference to `AUTOPILOT_ON` / `AUTOPILOT_BUMP` / `RUN_ID` /
 `RUN_START_EPOCH` / `ITER` / `COUNCIL_TIER_OVERRIDE` / `ORCH_TIER` / `MAX_LOC`

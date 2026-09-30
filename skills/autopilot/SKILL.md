@@ -326,7 +326,9 @@ the following holds at `scope-confirm` or `plan-approve`:
 
 1. Projected total **counted** change (M15) exceeds the per-PR hard cap across the ticket
    (default **> 2000 LOC**; `--max-loc=<n>` uses **n**; `--max-loc=unbound` **disables this
-   criterion**). Evaluated at `scope-confirm` and `plan-approve`; or
+   criterion**). Evaluated at `scope-confirm` only; BC4 owns the `plan-approve`
+   counted-LOC overflow (BC4 comes first in M6 order, so M10.1 never reroutes there;
+   SPEC-033 M10, WP 1-08 CDT-331); or
 2. The work naturally decomposes into **3 or more independently shippable workstreams**
    (distinct PR-able units with no shared change surface); or
 3. The plan's task graph would exceed **~8 tasks across multiple parallel waves** (mirrors

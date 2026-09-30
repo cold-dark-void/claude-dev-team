@@ -22,6 +22,33 @@ These rules apply to YOU (the main Claude) throughout the entire flow:
 
 ---
 
+## Approval wait under autopilot (SPEC-033 M9a)
+
+When `AUTOPILOT_ON` and the orchestrator hits a blocking human approval inside
+a live run (a refused tool call, a permission prompt, or any other in-run
+"wait for the user"), run the self-answer.md §3f recipe's `budget-check.sh`
+call first (the same call the recipe already makes at write time, step (b)).
+
+- **Already breached:** write a BC6 halt card instead of a wait card —
+  `decision=halt`, `blocking_condition=6`, `rationale` names the breach (no
+  `approval-wait:` prefix) — and end the run. Do **not** block on the human
+  reply and do **not** run the re-mint fence; a breached budget is a hard
+  stop, not a pause.
+- **Not breached:** write the `approval-wait:` wait card *before* blocking,
+  with every field set inline: `gate` = the last answered gate
+  (`scope-confirm` before the first gate; `plan-approve` after; never
+  `ship-choice`), `decision=halt`, `decided_by=auto`, `bump=null`,
+  `confidence=95`, `blocking_condition=1` (`3` for a refused destructive
+  action), the current `run_id` and `ITER`, `actor=orchestrator`, and
+  `rationale` starting with `approval-wait:` naming what is waiting. No wait
+  card follows ship-choice card #1. On the human's reply, run the
+  `00-resolve.md` re-mint fence ("Re-mint after a human approval wait") and
+  carry the new `RUN_START_EPOCH` literal forward; `RUN_ID` stays the one
+  minted at Step 0. This is the one M8 halt exempt from counting wait time
+  toward BC6.
+
+---
+
 ## Passive notifications (CDV-210)
 
 Tiered, fail-open progress visibility for long `/orchestrate` runs. **Never block**

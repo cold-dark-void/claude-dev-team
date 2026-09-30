@@ -10,7 +10,9 @@
 #   budget-check.sh <iteration> <run_start_epoch> <iteration_cap> <wall_clock_cap_s>
 #   budget-check.sh derive <tasks> <projected_loc> <waves>
 #
-# Env (argc=2 only; empty = unset → static M 25/2700; junk non-integer → 64):
+# Env (argc=2 only; empty = unset → static M 25/2700; AC9: the env caps are
+# external input, validated the moment they are read — non-negative integer,
+# at most 15 digits, no leading zero; junk or oversized → 64):
 #   AUTOPILOT_ITERATION_CAP   (default 25)
 #   AUTOPILOT_WALLCLOCK_CAP   (default 2700)   # seconds
 # Argc=4 uses argv caps verbatim (MUST NOT re-read env).
@@ -50,12 +52,23 @@ die() {
   exit 64
 }
 
+# require_nnint <name> <value> — non-negative integer, no leading zero
+# (except the literal "0"), at most 15 digits (AC9: canonical, exact in jq).
+# Every numeric arg (iteration, run_start_epoch, argc-4 caps, derive args,
+# the env caps) is checked here BY PATTERN before any -gt/-lt/-ge arithmetic
+# ever sees it, so a huge value can never overflow bash's signed-integer
+# comparison and silently skip the die (AC9).
 require_nnint() {
   case "$2" in
-    ''|*[!0-9]*) die "$1 '$2' must be a non-negative integer" ;;
+    0) return 0 ;;
+    [1-9]*) ;;
+    *) die "$1 '$2' must be a non-negative integer" ;;
   esac
+  case "$2" in
+    *[!0-9]*) die "$1 '$2' must be a non-negative integer" ;;
+  esac
+  [ "${#2}" -le 15 ] || die "$1 '$2' must be a non-negative integer (at most 15 digits)"
 }
-
 require_jq() {
   if ! command -v jq >/dev/null 2>&1; then
     die "jq not found; cannot compute budget-check result"

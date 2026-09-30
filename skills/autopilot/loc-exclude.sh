@@ -7,6 +7,9 @@
 #
 # Usage:
 #   loc-exclude.sh is-excluded <path>
+# <path> is repo-relative. Arm 1 runs git check-attr from the repo top level
+# (SPEC-033 M16) so the same repo-relative path gives the same exit code
+# whether the script runs from the repo top or from a subdirectory.
 #
 # Exit:
 #   0   excluded (do not count)
@@ -66,8 +69,12 @@ case "$rel" in
 esac
 
 # ---- Arm 1: linguist-generated (fail-open → unspecified) --------------------
+REPO_TOP=""
 if command -v git >/dev/null 2>&1; then
-  if attr_line=$(git check-attr linguist-generated -- "$path" 2>/dev/null); then
+  REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_TOP=""
+fi
+if [ -n "$REPO_TOP" ]; then
+  if attr_line=$(cd "$REPO_TOP" && git check-attr linguist-generated -- "$path" 2>/dev/null); then
     case "${attr_line##*: }" in
       set|true) exit 0 ;;
     esac

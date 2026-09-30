@@ -142,27 +142,39 @@ Pick **one** path:
    (writer nested keys null). Unfrozen `scope-confirm`: S-tighter caps are **not**
    in force (AC9).
 
+The §3f fence below is the one executable implementation of this three-path select
+and its freeze-select jq filter (C5); this list states the rule once, §3f runs it.
+
 Check stdout is the existing 7-key JSON (`wall_clock_s`, `breached`, `reason`,
 the effective caps, `blocking_condition` = `6|null`) plus a dual signal:
 - **exit code**: `0` within budget · `6` breached (BC6) · `64` usage/validation error.
 
-Capture `wall_clock_s` **always, regardless of breach** — the card needs the elapsed time
-for its `budget` snapshot on every outcome (it becomes `append-card.sh` arg 11). The
-`breached` flag feeds the BC6 slot in step (d). A scripted caller may branch on `$?`; under
-`set -e`, guard the call with `|| true` since exit 6 is an outcome, not a failure.
+Capture `wall_clock_s` **always, regardless of breach** — the `breached` flag feeds the
+BC6 slot in step (d) on every outcome. This step (b) value is NOT what reaches the card:
+step (f)'s §3f fence re-runs `budget-check.sh` at write time and uses THAT fresh value as
+`append-card.sh` arg 11 (C5) — so a card written long after step (b), for example after
+an approval wait, still carries an accurate elapsed time. A scripted caller may branch on
+`$?`; under `set -e`, guard the call with `|| true` since exit 6 is an outcome, not a
+failure.
 
 META is **process-local**. The writer subprocess may inherit it. MUST NOT export META
 into a child `/epic` or `/orchestrate`. `reroute-epic` MUST NOT propagate frozen caps.
 
-**Exit 64 is an INTERNAL ENGINE BUG, not a gate outcome.** `budget-check.sh` returns 64
-on a malformed `iteration` / `run_start_epoch` / caps / derive args / wrong argc, and
-the mix treats junk env the same way. `iteration` / `run_start_epoch` are always
-orchestrator-tracked integers the engine itself constructs (§2, §3a) — never external
-input — so a validation failure here means something upstream is already broken. On this
-path there is **no `wall_clock_s`**, therefore **no card is written** (the engine's
-"always exactly one card" guarantee assumes a well-formed budget snapshot). This
-escalates **out-of-band to the blocking-condition handler** (the halt-escalation owner —
-role, not ticket) as an **unexpected-error condition**, distinct from a normal BC halt:
+**Exit 64 has two distinct causes.** `budget-check.sh` returns 64 on a malformed
+`iteration` / `run_start_epoch` / caps / derive args / wrong argc — every numeric
+argument is checked by pattern before any arithmetic (AC9). `iteration` and
+`run_start_epoch` are orchestrator-tracked integers the engine itself constructs
+(§2, §3a), so a malformed one here is an **INTERNAL ENGINE BUG, not a gate
+outcome** — something upstream is already broken. `AUTOPILOT_ITERATION_CAP` and
+`AUTOPILOT_WALLCLOCK_CAP` are different: the env caps are external input, set by
+whatever invoked this run, not by the engine — so both `budget-check.sh` and
+`append-card.sh` validate each cap the moment they read it (canonical
+non-negative integer, at most 15 digits), and a junk value there is ordinary
+input validation, not an engine bug. Either way there is **no `wall_clock_s`**,
+therefore **no card is written** (the engine's "always exactly one card"
+guarantee assumes a well-formed budget snapshot). This escalates **out-of-band
+to the blocking-condition handler** (the halt-escalation owner — role, not
+ticket) as an **unexpected-error condition**, distinct from a normal BC halt:
 it is not one of BC1–BC8, it produces no decision card, and it does not run steps
 (c)–(f).
 
@@ -238,8 +250,116 @@ skills/autopilot/append-card.sh \
   <run_id> <iteration> <wall_clock_s> <actor> <rationale> \
   [<max_loc>]
 ```
+
+**The recipe below is the ONE executable fence for this step** (SPEC-033 AC9 writer
+snapshot, interface contract C5). In one shell it resolves the freeze via
+`read-cards.sh`, calls `budget-check.sh`, and calls `append-card.sh`; the
+freeze-select jq filter and the three-path branch logic that §3b's list
+describes live only here (not copied a second time). This is card #1's own
+call shape; `end-state.md`'s halt cards cite this fence too. `ship-gate-council.md`
+§6's card #2 does **not** use it — this fence has no `<council_tier>` /
+`<grading_reason>` slots, so card #2 keeps its own call shape (argc 15/16).
+Every angle-bracket token below is a
+literal substitution the caller makes before running the block; `<tasks>`
+`<projected_loc>` `<waves>` only matter on path 2 (first freeze at
+plan-approve) and may be substituted with `0`/`0`/`1` on any other gate.
+
+```bash template
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+READ_CARDS=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/read-cards.sh)
+BUDGET_CHECK=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/budget-check.sh)
+APPEND_CARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/append-card.sh)
+
+# rationale is model-written free text (SPEC-033 M13); load it through a
+# quoted heredoc so backticks or $(...) inside it are data, never executed
+# (the quoted 'RATIONALE_EOF' terminator disables every shell expansion in
+# the body). Use "$RATIONALE" below, never a bare "<rationale>" placeholder.
+RATIONALE=$(cat <<'RATIONALE_EOF'
+<rationale>
+RATIONALE_EOF
+)
+
+CARDS=$(bash "$READ_CARDS" "<ticket_id>" 2>/dev/null) || CARDS='[]'
+FREEZE=$(printf '%s' "$CARDS" | jq -c --arg rid "<run_id>" --arg res "<RESUMING>" '
+  [.[] | select(.gate=="plan-approve" and .budget.tier!=null and .budget.source!=null and .budget.signals!=null)
+       | select(.run_id==$rid or $res=="true")]
+  | last
+  | if .==null then empty else .budget | {iteration_cap, wall_clock_cap_s, tier, source, signals} end
+')
+
+META=""
+if [ -n "$FREEZE" ]; then
+  # Path 1 — freeze exists: copy verbatim, argc=4. MUST NOT re-derive or re-read env.
+  ITERATION_CAP=$(printf '%s' "$FREEZE" | jq -r '.iteration_cap')
+  WALL_CLOCK_CAP_S=$(printf '%s' "$FREEZE" | jq -r '.wall_clock_cap_s')
+  META="$FREEZE"
+  if BC_OUT=$(bash "$BUDGET_CHECK" "<iteration>" "<run_start_epoch>" "$ITERATION_CAP" "$WALL_CLOCK_CAP_S"); then BC_RC=0; else BC_RC=$?; fi
+elif [ "<workflow>" = orchestrate ] && [ "<gate>" = plan-approve ]; then
+  # Path 2 — first freeze at plan-approve: derive, mix env per cap independently, snapshot META.
+  DERIVE=$(bash "$BUDGET_CHECK" derive "<tasks>" "<projected_loc>" "<waves>")
+  D_IC=$(printf '%s' "$DERIVE" | jq -r '.iteration_cap')
+  D_WC=$(printf '%s' "$DERIVE" | jq -r '.wall_clock_cap_s')
+  TIER=$(printf '%s' "$DERIVE" | jq -r '.tier')
+  SIGNALS=$(printf '%s' "$DERIVE" | jq -c '.signals')
+  ITERATION_CAP="$D_IC"; SRC_IC=auto
+  if [ -n "${AUTOPILOT_ITERATION_CAP:-}" ]; then ITERATION_CAP="$AUTOPILOT_ITERATION_CAP"; SRC_IC=env; fi
+  WALL_CLOCK_CAP_S="$D_WC"; SRC_WC=auto
+  if [ -n "${AUTOPILOT_WALLCLOCK_CAP:-}" ]; then WALL_CLOCK_CAP_S="$AUTOPILOT_WALLCLOCK_CAP"; SRC_WC=env; fi
+  case "$SRC_IC:$SRC_WC" in
+    env:env)   SOURCE=env ;;
+    auto:auto) SOURCE=auto ;;
+    *)         SOURCE=mixed ;;
+  esac
+  META=$(jq -cn --argjson ic "$ITERATION_CAP" --argjson wc "$WALL_CLOCK_CAP_S" \
+    --arg tier "$TIER" --arg source "$SOURCE" --argjson signals "$SIGNALS" \
+    '{iteration_cap:$ic, wall_clock_cap_s:$wc, tier:$tier, source:$source, signals:$signals}')
+  if BC_OUT=$(bash "$BUDGET_CHECK" "<iteration>" "<run_start_epoch>" "$ITERATION_CAP" "$WALL_CLOCK_CAP_S"); then BC_RC=0; else BC_RC=$?; fi
+else
+  # Path 3 — unfrozen: argc=2, no META (writer nested keys stay null).
+  if BC_OUT=$(bash "$BUDGET_CHECK" "<iteration>" "<run_start_epoch>"); then BC_RC=0; else BC_RC=$?; fi
+fi
+
+echo "$BC_OUT"
+if [ "$BC_RC" -eq 64 ]; then
+  # Internal engine bug (§3b) — no wall_clock_s, no card; escalate out-of-band.
+  exit 64
+fi
+WALL_CLOCK_S=$(printf '%s' "$BC_OUT" | jq -r '.wall_clock_s')
+
+if [ "<max_loc>" = "null" ]; then
+  if [ -n "$META" ]; then
+    AUTOPILOT_BUDGET_META="$META" bash "$APPEND_CARD" \
+      "<workflow>" "<ticket_id>" "<gate>" "<decision>" auto "<bump>" "<confidence>" \
+      "<blocking_condition>" "<run_id>" "<iteration>" "$WALL_CLOCK_S" "<actor>" "$RATIONALE"
+  else
+    env -u AUTOPILOT_BUDGET_META bash "$APPEND_CARD" \
+      "<workflow>" "<ticket_id>" "<gate>" "<decision>" auto "<bump>" "<confidence>" \
+      "<blocking_condition>" "<run_id>" "<iteration>" "$WALL_CLOCK_S" "<actor>" "$RATIONALE"
+  fi
+else
+  if [ -n "$META" ]; then
+    AUTOPILOT_BUDGET_META="$META" bash "$APPEND_CARD" \
+      "<workflow>" "<ticket_id>" "<gate>" "<decision>" auto "<bump>" "<confidence>" \
+      "<blocking_condition>" "<run_id>" "<iteration>" "$WALL_CLOCK_S" "<actor>" "$RATIONALE" "<max_loc>"
+  else
+    env -u AUTOPILOT_BUDGET_META bash "$APPEND_CARD" \
+      "<workflow>" "<ticket_id>" "<gate>" "<decision>" auto "<bump>" "<confidence>" \
+      "<blocking_condition>" "<run_id>" "<iteration>" "$WALL_CLOCK_S" "<actor>" "$RATIONALE" "<max_loc>"
+  fi
+fi
+```
+
+`wall_clock_s` for arg 11 always comes from this fence's own `budget-check.sh` call
+(never step (b)'s earlier snapshot), so a card written long after step (b) — for
+example after an approval wait (`cross-cutting.md` "Approval wait under autopilot") — still carries a fresh
+elapsed time. The BC6 halt/no-halt **decision** stays whatever step (b)/(d) already
+resolved into `<decision>` / `<blocking_condition>`; this fence does not re-judge
+BC6, it only re-measures the clock and appends.
+
 Argument mapping: `<workflow> <ticket_id> <gate> <run_id> <iteration>` from the envelope;
-`<decision>` and `<blocking_condition>` from step (e); `<wall_clock_s>` from step (b);
+`<decision>` and `<blocking_condition>` from step (e); `<wall_clock_s>` from this fence's own
+`budget-check.sh` call (C5, never step (b)'s earlier snapshot);
 `<bump>` = `autopilot_bump` (see §4); `<confidence>` and `<rationale>` from the answering
 agent; `<actor>` = the component invoking the engine (e.g. `orchestrator`).
 

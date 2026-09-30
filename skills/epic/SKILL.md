@@ -878,11 +878,11 @@ NEXT="<next ready CHILD-ID or omit --next for auto>"
 SEED_PATH=$(bash "$EPIC_LIB" build-seed "$EPIC_ID" --next "$NEXT") || {
   echo "context-discipline: seed failed — build-seed failed"
   # halt: do NOT set-status in_progress on next child; leave pending
-  return
+  exit 1
 }
 bash "$EPIC_LIB" validate-seed "$SEED_PATH" || {
   echo "context-discipline: seed failed — validate-seed failed"
-  return
+  exit 1
 }
 echo "@$SEED_PATH"
 ```

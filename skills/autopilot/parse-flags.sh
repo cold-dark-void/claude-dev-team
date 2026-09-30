@@ -6,6 +6,12 @@
 # interaction with --autopilot). CDT-206 adds --tier (pipeline cost tier;
 # independent of --council-tier; no env). CDT-223 adds --max-loc (LOC-cap
 # override; independent of the other three flags; no env).
+# SPEC-033 M16: a second occurrence of --autopilot/--autopilot=*,
+# --council-tier[=*], --tier[=*] or --max-loc[=*] is a duplicate and exits
+# 64 (was last-wins for --council-tier and --max-loc); after the exact
+# cases, --auto*, --council*, --tier* or --max* that did not match an exact
+# case is a near-miss of that family and exits 64; any other --* flag
+# passes through unchanged.
 #
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 #
@@ -33,7 +39,8 @@
 # DRI-only override, per-run, never auto-selected, no env-var equivalent
 # (unlike --autopilot, there is no ambient "always skip council" mode to
 # encode). Requires an `=` value; a bare --council-tier or an out-of-vocabulary
-# value is a malformed flag. Last-wins if repeated.
+# value is a malformed flag. A second --council-tier (SPEC-033 M16) is a
+# duplicate and exits 64 (was last-wins).
 #   --council-tier=<skip|light|full>  -> council_tier=<value>
 #   --council-tier absent              -> council_tier=null
 #   --council-tier=<junk>, or bare --council-tier with no `=`
@@ -53,7 +60,8 @@
 # DRI per-run LOC-cap override. Independent of --autopilot / --council-tier /
 # --tier (no key writes another). `=` form only; no env (MUST NOT read
 # MAX_LOC / AUTOPILOT_MAX_LOC / any env for this cap). Omit → JSON null.
-# Last-wins if repeated (same-value and different-value; unlike --tier).
+# A second --max-loc (SPEC-033 M16) is a duplicate and exits 64 (was
+# last-wins for same-value and different-value).
 #   --max-loc=<n>  n matches ^[1-9][0-9]*$  -> max_loc=JSON number n
 #   --max-loc=unbound (case-sensitive)      -> max_loc=JSON string "unbound"
 #   --max-loc absent                         -> max_loc=null
@@ -71,6 +79,8 @@
 #       or malformed --council-tier (value not in {skip,light,full}, incl. bare/empty)
 #       or malformed --tier (value not in {light,standard,full}, incl. bare/empty/duplicate)
 #       or malformed --max-loc (not a positive integer or unbound, incl. bare/empty)
+#       or a duplicate --autopilot/--council-tier/--tier/--max-loc, or a
+#       near-miss flag of one of those families (SPEC-033 M16)
 
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -111,19 +121,31 @@ ML_VALUE=""
 for a in "$@"; do
   case "$a" in
     --autopilot=*)
+      if [ "$FLAG_SEEN" = true ]; then
+        die "--autopilot specified more than once"
+      fi
       FLAG_SEEN=true
       FLAG_HAS_EQ=true
       FLAG_BUMP="${a#--autopilot=}"
       ;;
     --autopilot)
+      if [ "$FLAG_SEEN" = true ]; then
+        die "--autopilot specified more than once"
+      fi
       FLAG_SEEN=true
       ;;
     --council-tier=*)
+      if [ "$CT_SEEN" = true ]; then
+        die "--council-tier specified more than once"
+      fi
       CT_SEEN=true
       CT_HAS_EQ=true
       CT_VALUE="${a#--council-tier=}"
       ;;
     --council-tier)
+      if [ "$CT_SEEN" = true ]; then
+        die "--council-tier specified more than once"
+      fi
       CT_SEEN=true
       ;;
     --tier=*)
@@ -141,13 +163,31 @@ for a in "$@"; do
       TIER_SEEN=true
       ;;
     --max-loc=*)
+      if [ "$ML_SEEN" = true ]; then
+        die "--max-loc specified more than once"
+      fi
       ML_SEEN=true
       ML_HAS_EQ=true
       ML_VALUE="${a#--max-loc=}"
       ;;
     --max-loc)
+      if [ "$ML_SEEN" = true ]; then
+        die "--max-loc specified more than once"
+      fi
       ML_SEEN=true
       ML_HAS_EQ=false
+      ;;
+    --auto*)
+      die "unknown flag near --autopilot family: $a"
+      ;;
+    --council*)
+      die "unknown flag near --council-tier family: $a"
+      ;;
+    --tier*)
+      die "unknown flag near --tier family: $a"
+      ;;
+    --max*)
+      die "unknown flag near --max-loc family: $a"
       ;;
   esac
 done

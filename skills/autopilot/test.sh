@@ -47,8 +47,23 @@
 # Covers CDT-206 T1 cases (bk)-(cc) for parse-flags.sh --tier: omit → null,
 # light|standard|full accepted, independent of --council-tier/--autopilot,
 # malformed/duplicate/bare/space/case → 64, mixed argv with --resume-ship.
+#
+# Covers WP 1-08 Task 2 cases (cd)-(ci) for skills/lib/plan-resolve.sh +
+# resume-state.sh (SPEC-033 AC D/E): AUTOPILOT* env hermeticity (AC D),
+# CDV-30 vs CDV-30-C1 exact-not-prefix match, Tracking-only reads
+# (autopilot_on outside `## Tracking` ignored), legacy plan with no
+# ticket_id: → not found, a worktree-toplevel-only plan found from inside
+# that worktree, --accumulated 0 on a read-cards.sh failure, and
+# --iteration max / 0-with-no-cards. WP 1-08 also flips the CDT-223
+# --max-loc duplicate rows below from last-wins to exit 64 (SPEC-033 M16 /
+# C8: a repeated --max-loc is now malformed regardless of value).
 
 set -u
+
+# SPEC-033 AC D (WP 1-08 Task 2): a caller's AUTOPILOT* env MUST NOT leak
+# into this harness's own subject-script invocations — test-env-hermetic.sh
+# runs this whole file with all four set and asserts rc 0 / zero FAIL.
+unset AUTOPILOT AUTOPILOT_WALLCLOCK_CAP AUTOPILOT_ITERATION_CAP AUTOPILOT_BUDGET_META
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 APPEND="$SCRIPT_DIR/append-card.sh"
@@ -499,6 +514,7 @@ rm -rf "$PLANDIR"
 mkdir -p "$PLANDIR"
 cat > "$PLANDIR/2026-08-04-CDT-RS-plan.md" << 'EOF'
 ## Tracking
+- ticket_id: CDT-RS
 - autopilot_on: false
 - autopilot_bump: null
 EOF
@@ -534,10 +550,12 @@ rm -rf "$PLANDIR"
 mkdir -p "$PLANDIR"
 cat > "$PLANDIR/2026-01-01-CDT-RS-old.md" << 'EOF'
 ## Tracking
+- ticket_id: CDT-RS
 - autopilot_on: false
 EOF
 cat > "$PLANDIR/2026-08-04-CDT-RS-new.md" << 'EOF'
 ## Tracking
+- ticket_id: CDT-RS
 - autopilot_on: true
 - autopilot_bump: major
 EOF
@@ -1072,10 +1090,165 @@ else
   fail "cc rc=$RC out=$OUT (want tier:full, council_tier:light, enabled:true/bump:null/source:flag)"
 fi
 
+# =============================================================================
+# (cd) WP 1-08 Task 2 — SPEC-033 AC E: CDV-30 vs CDV-30-C1 is an EXACT
+# Tracking ticket_id match (plan-resolve.sh), never a prefix/substring match.
+# =============================================================================
+reset
+PLANDIR="$TMP/.claude/plans"
+rm -rf "$PLANDIR"
+mkdir -p "$PLANDIR"
+cat > "$PLANDIR/2026-09-28-CDV-30-C1-plan.md" << 'EOF'
+## Tracking
+- ticket_id: CDV-30-C1
+- autopilot_on: true
+- autopilot_bump: patch
+EOF
+OUT=$(bash "$RESUME" CDV-30 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && [ "$OUT" = '{"found":false}' ]; then
+  pass "cd1 resume-state CDV-30 query, only CDV-30-C1 plan on disk → found:false"
+else
+  fail "cd1 rc=$RC out=$OUT (want 0 / {\"found\":false})"
+fi
+
+cat > "$PLANDIR/2026-09-28-CDV-30-plan.md" << 'EOF'
+## Tracking
+- ticket_id: CDV-30
+- autopilot_on: true
+- autopilot_bump: minor
+EOF
+OUT=$(bash "$RESUME" CDV-30 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .found == true and .autopilot_on == true and .autopilot_bump == "minor"
+  and (.plan | test("CDV-30-plan.md$"))
+' >/dev/null 2>&1; then
+  pass "cd2 resume-state CDV-30 query, parent plan added → parent found (not the -C1 child)"
+else
+  fail "cd2 rc=$RC out=$OUT (want found:true/plan=...CDV-30-plan.md/bump:minor)"
+fi
+rm -rf "$PLANDIR"
+
+# =============================================================================
+# (ce) WP 1-08 Task 2 — SPEC-033 AC E: a `- autopilot_on:` line OUTSIDE
+# `## Tracking` is ignored; only the Tracking section's own copy counts.
+# =============================================================================
+mkdir -p "$PLANDIR"
+cat > "$PLANDIR/2026-09-28-CDT-CE-plan.md" << 'EOF'
+## Tracking
+- ticket_id: CDT-CE
+
+## Notes
+- autopilot_on: true
+- autopilot_bump: major
+EOF
+OUT=$(bash "$RESUME" CDT-CE 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+  .found == true and .autopilot_on == null and .autopilot_bump == null
+' >/dev/null 2>&1; then
+  pass "ce resume-state ignores autopilot_on/autopilot_bump outside ## Tracking"
+else
+  fail "ce rc=$RC out=$OUT (want found:true/on:null/bump:null)"
+fi
+rm -rf "$PLANDIR"
+
+# =============================================================================
+# (cf) WP 1-08 Task 2 — SPEC-033 AC E / D11: a plan with no `ticket_id:`
+# line at all (legacy plan) → found:false.
+# =============================================================================
+mkdir -p "$PLANDIR"
+cat > "$PLANDIR/2026-09-28-CDT-CF-plan.md" << 'EOF'
+## Tracking
+- source: backlog
+- autopilot_on: true
+- autopilot_bump: patch
+EOF
+OUT=$(bash "$RESUME" CDT-CF 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && [ "$OUT" = '{"found":false}' ]; then
+  pass "cf resume-state legacy plan (no ticket_id:) → found:false"
+else
+  fail "cf rc=$RC out=$OUT (want 0 / {\"found\":false})"
+fi
+rm -rf "$PLANDIR"
+
+# =============================================================================
+# (cg) WP 1-08 Task 2 — SPEC-033 AC E / C1: a plan that lives ONLY under a
+# worktree's own .claude/plans (not $MROOT's) is found when the script runs
+# inside that worktree.
+# =============================================================================
+git -c user.email=t@t.invalid -c user.name=t commit -q --allow-empty -m "wp-1-08 T2 worktree fixture root" >/dev/null 2>&1
+WTDIR="${TMP}-wt-cg"
+rm -rf "$WTDIR"
+if git worktree add -q -b wp108-t2-cg "$WTDIR" >/dev/null 2>&1; then
+  mkdir -p "$WTDIR/.claude/plans"
+  cat > "$WTDIR/.claude/plans/2026-09-28-CDT-CG-plan.md" << 'EOF'
+## Tracking
+- ticket_id: CDT-CG
+- autopilot_on: false
+EOF
+  OUT=$(cd "$WTDIR" && bash "$RESUME" CDT-CG 2>/dev/null); RC=$?
+  if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
+    .found == true and .autopilot_on == false
+    and (.plan | test("CDT-CG-plan.md$"))
+  ' >/dev/null 2>&1; then
+    pass "cg resume-state finds a worktree-toplevel-only plan from inside that worktree"
+  else
+    fail "cg rc=$RC out=$OUT (want found:true/on:false/plan=...CDT-CG-plan.md)"
+  fi
+  git worktree remove -f "$WTDIR" >/dev/null 2>&1
+else
+  fail "cg git worktree add failed — cannot exercise worktree-toplevel lookup"
+fi
+rm -rf "$WTDIR"
+
+# =============================================================================
+# (ch) WP 1-08 Task 2 — SPEC-033 AC E: --accumulated / --iteration print `0`
+# on a read-cards.sh failure (corrupt ledger), never a propagated non-zero
+# exit.
+# =============================================================================
+reset
+mkdir -p "$AUTODIR"
+printf 'not valid jsonl\n' > "$(ledger CDT-RSBAD)"
+OUT=$(bash "$RESUME" --accumulated CDT-RSBAD 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && [ "$OUT" = "0" ]; then
+  pass "ch1 resume-state --accumulated 0 on a read-cards.sh failure (corrupt ledger)"
+else
+  fail "ch1 rc=$RC out=$OUT (want 0)"
+fi
+OUT=$(bash "$RESUME" --iteration CDT-RSBAD 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && [ "$OUT" = "0" ]; then
+  pass "ch2 resume-state --iteration 0 on a read-cards.sh failure (corrupt ledger)"
+else
+  fail "ch2 rc=$RC out=$OUT (want 0)"
+fi
+reset
+
+# =============================================================================
+# (ci) WP 1-08 Task 2 — SPEC-033 C2: resume-state.sh --iteration — 0 with no
+# cards; the max recorded budget.iteration across N cards otherwise.
+# =============================================================================
+reset
+OUT=$(bash "$RESUME" --iteration CDT-RSITER 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && [ "$OUT" = "0" ]; then
+  pass "ci1 resume-state --iteration 0 cards → 0"
+else
+  fail "ci1 rc=$RC out=$OUT (want 0)"
+fi
+
+bash "$APPEND" orchestrate CDT-RSITER plan-approve proceed auto null 70 null run-1 3 100 orch "c1" >/dev/null 2>&1
+bash "$APPEND" orchestrate CDT-RSITER plan-approve proceed auto null 70 null run-1 7 55 orch "c2" >/dev/null 2>&1
+bash "$APPEND" orchestrate CDT-RSITER ship-choice merge auto patch 90 null run-1 2 300 orch "c3" >/dev/null 2>&1
+OUT=$(bash "$RESUME" --iteration CDT-RSITER 2>/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && [ "$OUT" = "7" ]; then
+  pass "ci2 resume-state --iteration N cards (3,7,2) → max 7"
+else
+  fail "ci2 rc=$RC out=$OUT (want 7)"
+fi
+
 # --- CDT-223 T1 parse-flags max_loc ---
 # =============================================================================
 # omit → null; numeric → JSON number; unbound → JSON string; junk → 64;
-# last-wins same-value and different-value; independence; 6-key JSON; env-ignore.
+# duplicate (same-value or different-value) → 64 (SPEC-033 M16 / C8, WP 1-08:
+# was last-wins); independence; 6-key JSON; env-ignore.
 # =============================================================================
 
 # omit → max_loc:null
@@ -1147,35 +1320,19 @@ else
   fail "cdt223-t1 space rc=$RC out=$OUT err=$ERR"
 fi
 
-# last-wins same-value
-OUT=$(bash "$PARSE" --max-loc=4000 --max-loc=4000 2>/dev/null); RC=$?
-if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 4000 and (.max_loc | type) == "number"' >/dev/null 2>&1; then
-  pass "cdt223-t1 last-wins same-value --max-loc=4000 --max-loc=4000 → 4000"
-else
-  fail "cdt223-t1 last-wins same rc=$RC out=$OUT (want number 4000)"
-fi
+# duplicate --max-loc → 64 (SPEC-033 M16 / C8, WP 1-08: was last-wins,
+# same-value and different-value both now malformed, like --tier)
+expect_rc 64 "cdt223-t1 duplicate same-value --max-loc=4000 --max-loc=4000 → 64" \
+  bash "$PARSE" --max-loc=4000 --max-loc=4000
 
-OUT=$(bash "$PARSE" --max-loc=unbound --max-loc=unbound 2>/dev/null); RC=$?
-if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == "unbound" and (.max_loc | type) == "string"' >/dev/null 2>&1; then
-  pass "cdt223-t1 last-wins same-value --max-loc=unbound --max-loc=unbound → unbound"
-else
-  fail "cdt223-t1 last-wins same unbound rc=$RC out=$OUT (want string unbound)"
-fi
+expect_rc 64 "cdt223-t1 duplicate same-value --max-loc=unbound --max-loc=unbound → 64" \
+  bash "$PARSE" --max-loc=unbound --max-loc=unbound
 
-# last-wins different-value
-OUT=$(bash "$PARSE" --max-loc=4000 --max-loc=unbound 2>/dev/null); RC=$?
-if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == "unbound" and (.max_loc | type) == "string"' >/dev/null 2>&1; then
-  pass "cdt223-t1 last-wins different --max-loc=4000 --max-loc=unbound → unbound"
-else
-  fail "cdt223-t1 last-wins 4000→unbound rc=$RC out=$OUT (want string unbound)"
-fi
+expect_rc 64 "cdt223-t1 duplicate different-value --max-loc=4000 --max-loc=unbound → 64" \
+  bash "$PARSE" --max-loc=4000 --max-loc=unbound
 
-OUT=$(bash "$PARSE" --max-loc=unbound --max-loc=2000 2>/dev/null); RC=$?
-if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 2000 and (.max_loc | type) == "number"' >/dev/null 2>&1; then
-  pass "cdt223-t1 last-wins different --max-loc=unbound --max-loc=2000 → 2000"
-else
-  fail "cdt223-t1 last-wins unbound→2000 rc=$RC out=$OUT (want number 2000)"
-fi
+expect_rc 64 "cdt223-t1 duplicate different-value --max-loc=unbound --max-loc=2000 → 64" \
+  bash "$PARSE" --max-loc=unbound --max-loc=2000
 
 # independence of --autopilot / --council-tier / --tier
 OUT=$(bash "$PARSE" --autopilot=minor --council-tier=skip --tier=light --max-loc=4000 2>/dev/null); RC=$?
@@ -1592,6 +1749,7 @@ rm -rf "$PLANDIR"
 mkdir -p "$PLANDIR"
 cat > "$PLANDIR/2026-08-27-CDT-RS-plan.md" << 'EOF'
 ## Tracking
+- ticket_id: CDT-RS
 - autopilot_on: true
 - autopilot_bump: minor
 - max_loc: 4000
@@ -2005,6 +2163,7 @@ rm -rf "$PLANDIR"
 mkdir -p "$PLANDIR"
 cat > "$PLANDIR/2026-08-27-CDT-T5R-plan.md" << 'EOF'
 ## Tracking
+- ticket_id: CDT-T5R
 - autopilot_on: true
 - autopilot_bump: minor
 - iteration_cap: 10

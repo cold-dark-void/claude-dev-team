@@ -8,6 +8,8 @@ PARSE="$HERE/parse-flags.sh"
 DAG="$HERE/../orchestrate/dag-lib.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$HERE/../../tests/lib/hermetic.sh"
+# shellcheck source=../../tests/lib/fence.sh
+. "$HERE/../../tests/lib/fence.sh"
 hermetic_init
 PASS=0
 FAIL=0
@@ -2003,6 +2005,92 @@ LEFTOVER=$(find "$RACE_ROOT/.claude/epics" -name 'state.json.tmp.*' 2>/dev/null 
 
 rm -rf "$RACE_ROOT"
 unset EPIC_ROOT
+
+# ---- SPEC-033 wp-1-08-autopilot-state AC G ----------------------------------
+
+# G1: no bash fence in SKILL.md has a top-level `return` line.
+G_RET="$(fence_top_level_returns "$SKILL")"
+[ -z "$G_RET" ] && pass || fail "SKILL.md fence has a top-level return: $G_RET"
+
+# G2: the B.6 build-seed fence, run with a failing build-seed stub (via a
+# CLAUDE_PLUGIN_ROOT fixture root — plugin-dir.sh Tier 0 force, real
+# plugin-dir.sh copied in, epic-lib.sh replaced by the stub), exits
+# non-zero and never reaches validate-seed. Unwrapped (no function
+# wrapper): the fence's `return`-turned-`exit 1` needs to halt at the top
+# level, the same discipline test-end-state-safety.sh uses for AC F.
+G_FIXROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-g2.XXXXXX")
+mkdir -p "$G_FIXROOT/skills/epic"
+cp "$HERE/../plugin-dir.sh" "$G_FIXROOT/skills/plugin-dir.sh"
+VALIDATE_MARKER="$G_FIXROOT/validate-seed-called"
+cat >"$G_FIXROOT/skills/epic/epic-lib.sh" <<STUB_EOF
+#!/usr/bin/env bash
+set -euo pipefail
+case "\${1:-}" in
+  build-seed) echo "stub: build-seed failed" >&2; exit 1 ;;
+  validate-seed) : >"$VALIDATE_MARKER"; exit 0 ;;
+  *) exit 64 ;;
+esac
+STUB_EOF
+chmod +x "$G_FIXROOT/skills/epic/epic-lib.sh"
+
+B6_BLOCK="$(fence_nth "$SKILL" "### B.6" 1)"
+if [ -z "$B6_BLOCK" ]; then
+  fail "B.6 build-seed fence not found"
+else
+  B6_SUBST="$(printf '%s\n' "$B6_BLOCK" | sed \
+    -e 's|<EPIC-ID>|M13-G2|g' \
+    -e 's|<next ready CHILD-ID or omit --next for auto>|M13-G2-C1|g')"
+  B6_RUNFILE=$(mktemp "$G_FIXROOT/run-b6.XXXXXX")
+  printf '%s\n' "$B6_SUBST" >"$B6_RUNFILE"
+  set +e
+  B6_OUT=$(CLAUDE_PLUGIN_ROOT="$G_FIXROOT" bash "$B6_RUNFILE" 2>&1)
+  B6_RC=$?
+  set -e
+  [ "$B6_RC" -ne 0 ] && pass || fail "B.6 fence exits non-zero on build-seed failure (rc=$B6_RC): $B6_OUT"
+  if [ -f "$VALIDATE_MARKER" ]; then
+    fail "B.6 fence called validate-seed after build-seed failed"
+  else
+    pass
+  fi
+  echo "$B6_OUT" | grep -qF 'context-discipline: seed failed' \
+    && pass || fail "B.6 fence prints the fail-closed one-liner: $B6_OUT"
+fi
+rm -rf "$G_FIXROOT"
+
+# G3: epic-lib.sh init X --title --mode orchestrate -> 64, no state.json
+# (AC-literal case — already 64 on pre-fix code via a different code path:
+# "orchestrate" lands as an unexpected trailing positional. Non-bite; kept
+# because the AC text names it verbatim).
+G3_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-g3.XXXXXX")
+set +e
+G3_OUT=$(EPIC_ROOT="$G3_ROOT" bash "$LIB" init X --title --mode orchestrate 2>&1)
+G3_RC=$?
+set -e
+[ "$G3_RC" -eq 64 ] && pass || fail "init X --title --mode orchestrate rc=$G3_RC want 64: $G3_OUT"
+if [ -f "$G3_ROOT/.claude/epics/X/state.json" ]; then
+  fail "init X --title --mode orchestrate wrote state.json"
+else
+  pass
+fi
+rm -rf "$G3_ROOT"
+
+# G4: the real bite — --title swallows the NEXT flag as its value when
+# --title is not the last flag processed; --worktree-enabled never runs as
+# its own flag, wt_set stays false, and title="--worktree-enabled" still
+# passes the non-empty check, so pre-fix code writes state.json with that
+# title. Fails on pre-fix epic-lib.sh; passes only with the new guard.
+G4_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-g4.XXXXXX")
+set +e
+G4_OUT=$(EPIC_ROOT="$G4_ROOT" bash "$LIB" init X --mode orchestrate --title --worktree-enabled 2>&1)
+G4_RC=$?
+set -e
+[ "$G4_RC" -eq 64 ] && pass || fail "init X --mode orchestrate --title --worktree-enabled rc=$G4_RC want 64: $G4_OUT"
+if [ -f "$G4_ROOT/.claude/epics/X/state.json" ]; then
+  fail "init X --mode orchestrate --title --worktree-enabled wrote state.json"
+else
+  pass
+fi
+rm -rf "$G4_ROOT"
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

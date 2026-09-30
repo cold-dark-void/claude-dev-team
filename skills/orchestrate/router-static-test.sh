@@ -13,6 +13,7 @@ STEPS="$HERE/steps"
 # fences as live git commands, so this suite must not touch the caller's
 # git state.
 . "$ROOT/tests/lib/hermetic.sh"
+. "$ROOT/tests/lib/fence.sh"
 hermetic_init
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
@@ -563,12 +564,107 @@ done
 if [ -z "$t21_fail" ]; then ok
 else bad "T21 AC O:$t21_fail"; fi
 
+# ---- T22: WP 1-08 AC I — ITER spawn-site literal + resume restore + run-start fence ----
+t22_fail=""
+for f in 04-kickoff.md 06-design.md 08-execute.md 09-review.md 10-qa.md; do
+  if ! grep -qF 'ITER=$((ITER+1))' "$STEPS/$f"; then
+    t22_fail="$t22_fail $f missing ITER=\$((ITER+1))"
+  fi
+done
+# G4: the ITER-restore check must match the code line, not prose that also
+# contains the bare string "--iteration" (e.g. the intro paragraph).
+if ! grep -qF 'ITER=$(bash "$RS" --iteration' "$STEPS/00-resolve.md"; then
+  t22_fail="$t22_fail 00-resolve.md missing ITER=\$(bash \"\$RS\" --iteration restore"
+fi
+RESOLVE_MD="$STEPS/00-resolve.md"
+if [ ! -f "$RESOLVE_MD" ]; then
+  t22_fail="$t22_fail missing 00-resolve.md"
+else
+  RUNSTART_FENCE=$(fence_nth "$RESOLVE_MD" "### Run-start epoch" 1) || RUNSTART_FENCE=""
+  if [ -z "$RUNSTART_FENCE" ]; then
+    t22_fail="$t22_fail could not extract run-start fence"
+  else
+    T22_TMP=$(mktemp -d "${TMPDIR:-/tmp}/router-t22.XXXXXX")
 
-# ---- Harness self-check: the suite defines 22 checks (T0-T21). A total
+    # ---- Positive fixture: a real plugin-dir.sh + a resume-state.sh stub
+    # that prints nothing (AC I). The fence must resolve PDH/RS on its own —
+    # neither is pre-set by this harness (that was the T3 fix-pass defect).
+    T22_FIXROOT="$T22_TMP/fixroot"
+    mkdir -p "$T22_FIXROOT/skills/autopilot"
+    cp "$ROOT/skills/plugin-dir.sh" "$T22_FIXROOT/skills/plugin-dir.sh"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$T22_FIXROOT/skills/autopilot/resume-state.sh"
+    chmod +x "$T22_FIXROOT/skills/autopilot/resume-state.sh"
+
+    RUN_SCRIPT="$T22_TMP/run.sh"
+    {
+      echo '#!/usr/bin/env bash'
+      printf '%s\n' "$RUNSTART_FENCE" | sed \
+        -e 's/<ISSUE-ID>/T-1/g' \
+        -e 's/<RESUMING>/true/g'
+      echo 'echo "RUN_START_EPOCH=$RUN_START_EPOCH"'
+    } > "$RUN_SCRIPT"
+    T22_BEFORE=$(date +%s)
+    T22_OUT=$(CLAUDE_PLUGIN_ROOT="$T22_FIXROOT" bash "$RUN_SCRIPT" 2>"$T22_TMP/stderr.out")
+    T22_RC=$?
+    T22_AFTER=$(date +%s)
+    T22_STDERR=$(cat "$T22_TMP/stderr.out" 2>/dev/null)
+    T22_EPOCH=$(printf '%s\n' "$T22_OUT" | sed -n 's/^RUN_START_EPOCH=//p' | tail -n1)
+    if [ "$T22_RC" -ne 0 ]; then
+      t22_fail="$t22_fail run-start fence exited $T22_RC on the empty-stub fixture: $T22_STDERR"
+    elif [ -z "$T22_EPOCH" ]; then
+      t22_fail="$t22_fail run-start fence produced no RUN_START_EPOCH"
+    elif [ "$T22_EPOCH" -lt "$T22_BEFORE" ] || [ "$T22_EPOCH" -gt "$T22_AFTER" ]; then
+      t22_fail="$t22_fail RUN_START_EPOCH=$T22_EPOCH not within [$T22_BEFORE,$T22_AFTER]"
+    fi
+    if [ -n "$T22_STDERR" ]; then
+      t22_fail="$t22_fail run-start fence wrote to stderr: $T22_STDERR"
+    fi
+
+    # ---- Negative fixture: a plugin-dir.sh stub that resolves ITSELF (so the
+    # fence's own PDH detection succeeds) but always fails to resolve any
+    # OTHER relpath (so RS comes back empty) -> the fence must exit non-zero
+    # and print no RUN_START_EPOCH line (T3 fix-pass: fail closed, not silent).
+    T22_NEGROOT="$T22_TMP/negroot"
+    mkdir -p "$T22_NEGROOT/skills"
+    cat > "$T22_NEGROOT/skills/plugin-dir.sh" << 'NEG_EOF'
+#!/usr/bin/env bash
+echo "plugin-dir: stub: not found: $2" >&2
+exit 3
+NEG_EOF
+    chmod +x "$T22_NEGROOT/skills/plugin-dir.sh"
+    NEG_SCRIPT="$T22_TMP/neg.sh"
+    {
+      echo '#!/usr/bin/env bash'
+      printf '%s\n' "$RUNSTART_FENCE" | sed \
+        -e 's/<ISSUE-ID>/T-1/g' \
+        -e 's/<RESUMING>/true/g'
+      echo 'echo "RUN_START_EPOCH=$RUN_START_EPOCH"'
+    } > "$NEG_SCRIPT"
+    NEG_OUT=$(CLAUDE_PLUGIN_ROOT="$T22_NEGROOT" bash "$NEG_SCRIPT" 2>"$T22_TMP/neg-stderr.out")
+    NEG_RC=$?
+    NEG_STDERR=$(cat "$T22_TMP/neg-stderr.out" 2>/dev/null)
+    if [ "$NEG_RC" -eq 0 ]; then
+      t22_fail="$t22_fail run-start fence exited 0 with an unresolvable RS (want non-zero)"
+    fi
+    if printf '%s' "$NEG_OUT" | grep -q '^RUN_START_EPOCH='; then
+      t22_fail="$t22_fail run-start fence printed RUN_START_EPOCH with an unresolvable RS"
+    fi
+    if [ -z "$NEG_STDERR" ]; then
+      t22_fail="$t22_fail run-start fence wrote nothing to stderr on an unresolvable RS"
+    fi
+
+    rm -rf "$T22_TMP"
+  fi
+fi
+if [ -z "$t22_fail" ]; then ok
+else bad "T22 AC I:$t22_fail"; fi
+
+
+# ---- Harness self-check: the suite defines 23 checks (T0-T22). A total
 # below 22 means a check was skipped silently (stale copy of this file, an
 # early return, or an environment-dependent short-circuit) — turn that into
 # an explicit failure instead of a quietly-smaller PASS count.
-EXPECTED_CHECKS=22
+EXPECTED_CHECKS=23
 RUN_TOTAL=$((PASS + FAIL))
 if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
   bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"

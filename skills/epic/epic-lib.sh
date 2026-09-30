@@ -176,6 +176,11 @@ cmd_init() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --title)
+        # A value that starts with "--" is another flag swallowed as the
+        # title, not a real title (SPEC-033 M16) — die 64 before any write.
+        case "${2:-}" in
+          --*) die 64 "init: --title value must not start with --" ;;
+        esac
         title="${2:-}"; shift 2 || die 64 "init: --title needs value"
         ;;
       --mode)

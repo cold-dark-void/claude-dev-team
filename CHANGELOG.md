@@ -6,6 +6,12 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.27
+- **WP 1-08 Autopilot state hardening** — approval wait inside a live `/orchestrate` run no longer counts toward BC6: an `approval-wait:` halt card is written before the wait, and the run start is re-minted on the reply (SPEC-033 M9a). `append-card.sh` and `budget-check.sh` validate every numeric card argument and env cap (canonical integers, at most 15 digits) and exit 64 on bad input.
+- **Flags and plan lookup** — duplicate `--autopilot` / `--council-tier` / `--max-loc` and near-miss own-family flags now exit 64 (was last-wins); `skills/epic/parse-flags.sh` refuses near-miss `--worktree` / `--release`. `skills/lib/plan-resolve.sh` finds a plan by its exact Tracking `ticket_id:`; `resume-state.sh --accumulated` is always an integer; ITER is restored on resume and counted at each spawn site. `loc-exclude.sh` resolves from the repo top level.
+- **Ship path and cards** — `end-state.md` §3 fetches origin before the BC3 ancestor check; land-no-release takes, checks and clears the SPEC-010 tag snapshot; no bash fence in `end-state.md` or `skills/epic/SKILL.md` starts a line with `return`. M10.1 is evaluated at `scope-confirm` only; ship-choice card #2 carries `actor: ship-gate-council`. The M14 clearing rule is unchanged.
+- **Tests and ship notes** — new suites `test-card-validation.sh`, `test-flag-matrix.sh`, `test-bc6-approval-wait.sh`, `test-contract-prose.sh`, `test-env-hermetic.sh`; shared `tests/lib/fence.sh` and `tests/lib/text.sh`. Merge order: WP 1-16 shipped first, so this release re-pins the g8 `append-card.sh` blob fixture. Evaporated: rv-w1-58 (`epic-lib.sh` already exits 64 on unknown flags). Moved to WP 5-01: the 05-questions BC1 branch, the 10-qa `qa_bounces` cap, the 10b marker and plan writers.
+
 ### v1.18.26
 - **CI all-tests job fetches full history** — the `all-tests` job ran on a shallow clone, so `test-verify-prompts.sh` (v1.18.25) could not `git show` its pinned base commit and CI went red. The job now checks out with `fetch-depth: 0`. SPEC-030 R22 requires it, and `tools/ci-workflow-test.sh` asserts it (B5) with a bite on a copy that drops the line.
 
