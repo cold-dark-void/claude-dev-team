@@ -6,6 +6,13 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.33
+- **WP 2-01 Fence-exec harness checks and runs bash fences** — new `tools/fence-exec/` (bash and awk only) with `list`, `check` and `run` (CDT-272). `check` scans 524 fences in 187 files: F1 `bash -n` (also `AGENTS.md`), F2 a function called from a fence that does not define it, F3 a `trap … EXIT` that would outlive its fence, F4 `return` outside a function, F5 every `$PDH/…`, `$PLUGIN_DIR/…` and `plugin-dir.sh file|dir` path literal resolves in the repo. Template fences are skipped by one rule shared with smoke. `run` executes the fence suites named in `tools/fence-exec/manifest.tsv`.
+- **Shared parser** — skill-lint and the harness use one fence parser (`fence-scan.awk`) and one scan set. skill-lint C6 also covers `$PDH` and `$EXT_DIR`.
+- **CI** — new `fence-exec` job in `.github/workflows/smoke.yml`; `tools/ci-workflow-test.sh` rule B6 asserts it.
+- **`/refactor` Step 1b** — a relative path is rebased on the worktree root instead of discarded, an out-of-tree path is rejected, and `git log` never gets an empty pathspec (CDT-356).
+- **Known exclusions** — `commands/retro.md` Step 1b (4 × F2, 1 × F3) is the CDT-324 defect, owned by WP 2-10; the manifest excludes it with a reason until that fix lands. F4 does not model a subshell-bodied function `name() ( … )`.
+
 ### v1.18.32
 - **WP 1-13 /setup team finds its scripts; lembed local embedding works** — `/setup team` Steps 2, 2.5, 3 and 4 resolve `schema.sql`, `migrate.sh`, `download-extensions.sh` and `migrate-md.sh` under `skills/memory-store/`, so DB init, migration, extension download and `.md` import run again; a missing script warns and skips (CDT-261). Step 5b is one fence and makes `.claude/`; the cross-fence variables and the C1 waivers are gone.
 - **lembed API** — `embed-one.sh`, `migrate-md.sh` and memory-recall Step 4 register the model in `temp.lembed_models` and call `lembed('<name>', text)` instead of passing a `.gguf` path, through one helper (`embed_lembed_register_sql` in `skills/memory-store/embed-common.sh`). `migrate-md.sh` stores `vec_to_json()` of the BLOB (CDT-262).

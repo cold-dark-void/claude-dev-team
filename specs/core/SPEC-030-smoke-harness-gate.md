@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-07-21
 
-**Covers**: `tools/smoke/run.sh`, `tools/smoke/smoke.py`, `tools/smoke/test.sh`, `tools/smoke/fixtures/`, `tools/smoke/README.md`, `tools/run-all-tests.sh`, `tools/run-all-tests-test.sh`, `tools/test-quarantine.txt`, `tools/ci-workflow-test.sh`, `tests/lib/skip.sh`, `tests/lib/hermetic.sh`, `tests/lib/test.sh`, `.github/workflows/smoke.yml`, `skills/release/SKILL.md` (Steps 4.10 and 4.13 only)
+**Covers**: `tools/smoke/run.sh`, `tools/smoke/smoke.py`, `tools/smoke/test.sh`, `tools/smoke/fixtures/`, `tools/smoke/README.md`, `tools/run-all-tests.sh`, `tools/run-all-tests-test.sh`, `tools/test-quarantine.txt`, `tools/ci-workflow-test.sh`, `tools/fence-exec/run.sh`, `tools/fence-exec/fence-check.awk`, `tools/fence-exec/manifest.tsv`, `tools/fence-exec/test.sh`, `tools/fence-exec/fixtures/`, `skills/refactor/test-fences.sh`, `skills/retro-gate/test-retro-fences.sh`, `tests/lib/skip.sh`, `tests/lib/hermetic.sh`, `tests/lib/test.sh`, `.github/workflows/smoke.yml`, `skills/release/SKILL.md` (Steps 4.10 and 4.13 only)
 
 ## Overview
 
@@ -51,6 +51,18 @@ suites that do not touch the real `$MROOT/.claude/`, the caller's `TMPDIR` or th
 repo-state cause (a missing generated file, a stale grep, a live-repo write) is a defect
 to fix, never a skip.
 
+**Fence-exec harness (WP 2-01, CDT-272, CDT-356).** The largest defect class in this
+plugin sits in fenced bash inside LLM-facing markdown, and each fence runs in a fresh
+shell. A function, a trap or a variable from an earlier fence does not exist in the next
+one. Smoke checks that a fence parses (`bash -n`) and skill-lint (SPEC-021) checks
+variable scope. Neither checks function scope, a `trap ... EXIT` that must outlive its
+fence, a top-level `return` or a path literal, and neither runs a fence. This spec also
+owns `tools/fence-exec/run.sh` (R23-R30): per-fence static checks F1-F5, a manifest that
+ties fences to the suites that run them against fixtures, reasoned exclusions for known
+defects that other work packages own, and the `fence-exec` CI job. It runs on the skill-lint
+fence parser and scan set (SPEC-021). The two "static only" rules below bind the smoke
+harness; the fence-exec harness runs a fence only through a manifest suite.
+
 ## MUST
 
 ### CLI contract
@@ -58,7 +70,7 @@ to fix, never a skip.
 - MUST ship `tools/smoke/run.sh` as a pure-subprocess CLI (bash + python3 only, no LLM, no network), invoked from any cwd, that `exec`s `tools/smoke/smoke.py`
 - MUST exit `0` when every discovered target passes its check set, `1` when at least one fails, `64` on usage error (invalid flag; or an explicit target list where every named path is missing/unreadable)
 - MUST NOT modify any discovered or scanned file
-- MUST NOT execute a discovered `.md` file's bash blocks (frontmatter parse + `bash -n` syntax check only); MUST NOT execute a script's body except the explicit opt-in `--help`/`--check` invocation permitted below
+- The smoke harness MUST NOT execute a discovered `.md` file's bash blocks (frontmatter parse + `bash -n` syntax check only); MUST NOT execute a script's body except the explicit opt-in `--help`/`--check` invocation permitted below. The fence-exec harness (R23-R30) runs a fence only through a manifest suite
 - MUST print one `PASS <path>` or `FAIL <path>: <reason>` line per checked target, and a final one-line summary (`N checked, M failed`)
 - MUST skip an unreadable path with a `warn:` line on stderr and continue (a mix of readable + unreadable targets is not a usage error)
 
@@ -180,6 +192,22 @@ to fix, never a skip.
 
 - R22. `.github/workflows/smoke.yml` MUST set a top-level `permissions: contents: read`, and no job may widen it. Every job MUST set `timeout-minutes`: `20` for `all-tests`, `10` for each other job. Every `uses:` MUST pin a full 40-hex commit SHA and carry a `# vX.Y.Z` comment that names the exact tag of that SHA (a moving major tag such as `v4` is not a pin). The `all-tests` job MUST check out with `fetch-depth: 0`, because suites read pinned base commits with `git show <sha>:<path>`. `tools/ci-workflow-test.sh` MUST assert these four rules on the live workflow. It MUST also bite: on a mktemp copy with each rule broken in turn, it reports a FAIL. The test asserts the pin **shape** only — a 40-hex SHA plus a matching `# vX.Y.Z` comment — never that the SHA and the tag actually name the same commit; confirming that needs the network, and a hermetic test MUST NOT reach it. Check the tag-to-SHA match at pin time with a read-only `git ls-remote --tags <repo> <tag>`, and record that lookup in the ship notes. MUST NOT add a network call to the test itself
 
+### Fence-exec harness
+
+- R23. MUST ship `tools/fence-exec/run.sh` as a pure-subprocess bash CLI (bash, awk and POSIX utilities only; no interpreter, no network). Subcommands: `list` (one TSV row per bash fence: file, first body line, last body line, nearest heading, info string), `check` (the R25 checks and the R26 manifest rules) and `run` (`check`, then the manifest suites; the default and the CI entry). Options: `--root DIR` (the repo root that F5 and the manifest resolve against; default this checkout), `--manifest FILE|none` and file arguments that replace the scan set. Exit `0` clean, `1` findings or a failed suite, `64` usage error or a malformed manifest. A failing awk engine MUST exit `1` and MUST NOT read as clean
+- R24. MUST scan the skill-lint file set (`skills/skill-lint/scan-set.sh`: `commands`, `skills` and `agents` `*.md` plus `AGENTS.md`, `skills/skill-lint/fixtures` excluded) on the skill-lint fence parser (`skills/skill-lint/fence-scan.awk`; SPEC-021). MUST NOT hold its own fence-opener match or file list
+- R25. MUST run these checks on each bash fence. A fence is a fresh shell, so each rule is per fence. A `bash template` fence (pseudocode) is exempt from F2, F3 and F4; F1 skips it, as smoke does; F5 still resolves its literal paths:
+  - F1: `bash -n` parses the fence. The finding names the file, the failing line and the section. Smoke (`tools/smoke/smoke.py` `check_fences`) runs the same `bash -n` for `commands`, `skills` and `agents`; F1 adds `AGENTS.md` and the section name and keeps the check in the standalone guard
+  - F2: a fence calls a function that only another fence of the same file defines (`name() {`, `name () {` or `function name`)
+  - F3: a `trap ... EXIT` (or `trap ... 0`) in a fence that does not start with a shebang, unless its action is a plain `rm` or `rmdir` of variables that no other fence of the file reads. `trap - EXIT`, an empty action and other signals are allowed
+  - F4: a `return` at command position outside a function body. A heredoc body, a comment, quoted text and an argument are not commands. A function with a subshell body, `name() ( ... )`, is not read as a function body (known limit; write the body with braces)
+  - F5: a literal `$PDH/<path>`, `${PDH}/<path>`, `$CLAUDE_PLUGIN_ROOT/<path>`, `$PLUGIN_ROOT/<path>`, `plugin-dir.sh file|dir <path>` or `$PLUGIN_DIR/<leaf>` whose path does not exist under the root. A `$PLUGIN_DIR` leaf resolves against the `plugin-dir.sh dir <path>` literal that assigns `PLUGIN_DIR` in the same fence. A path with a placeholder, a glob or an expansion is not a literal and is skipped
+- R26. MUST read exclusions and suite rows from `tools/fence-exec/manifest.tsv` (tab-separated; every field holds text). An `exclude` row names a check, a file, a fixed-string needle searched in the printed finding text (message plus section), an exact count, a local backlog slug and a reason. The run prints every exclusion. A row whose count does not match, or that matches nothing, is an `M1` finding, so a fixed defect or a second defect cannot hide behind it. A `suite` row names a file, a heading needle and a suite. `check` proves that the heading still holds a bash fence, that the suite basename is one that R4 discovers, and that the suite text names the heading. `run` runs each suite once as `bash <suite>` from the root (capped by `FENCE_EXEC_TIMEOUT`, default 300 s, when `timeout` exists) and prints the last 20 lines of a failing suite. A malformed row exits `64`
+- R27. MUST hold the starting set in the manifest: a `suite` row for `commands/setup.md` `` Sub: `team` ``, `commands/memory.md` Step 5 (distill) and Steps 10.1 and 10.5 (validate), `skills/memory-recall/SKILL.md` Step 4, `commands/retro.md` Step 1b (scheduled), `skills/review-and-commit/SKILL.md` Step 5 (finalize) and `skills/refactor/SKILL.md` Step 1b (CDT-356). The retro row runs `skills/retro-gate/test-retro-fences.sh` and the refactor row runs `skills/refactor/test-fences.sh`. A new fence suite that follows the `tests/lib/fence.sh` pattern gets its row in the change that adds it
+- R28. MUST have a `smoke.yml` job `fence-exec` (`timeout-minutes: 10` and the pinned `actions/checkout` line of the other jobs) that runs `bash tools/fence-exec/run.sh`. `tools/ci-workflow-test.sh` MUST assert it (rule B6) and bite: a workflow without the job, and a job that runs another command, each produce B6. Existing job ids stay unchanged
+- R29. `tools/fence-exec/test.sh` MUST prove each check on fixtures with planted positives and negative controls (`f1-syntax.md` to `f5-root/`, `clean.md`). It MUST show that each test depends on its rule: a private copy of the harness with one rule switched off loses exactly that rule's findings. It MUST prove that the lexer stays in sync: a `return` appended to every fence of the clean fixture, and to every non-template fence of the live tree, is found in each one. It MUST cover the manifest (exclusion count, stale row, malformed rows, suite link, `run` with a passing, a failing and a duplicated suite), no-argument discovery of `commands`, `skills`, `agents` and `AGENTS.md`, and fail-closed on a broken awk. The live tree MUST exit 0. The suite is hermetic (R16) and `tools/run-all-tests.sh` discovers it (R4)
+- R30. MUST NOT hide a finding without a manifest row, MUST NOT auto-fix a fence, and MUST NOT run a fence other than through a manifest suite. The two exclusion rows at WP 2-01 (`commands/retro.md`: F2 x4 and F3 x1, backlog `wp-2-10-retro-scheduled`) each leave in the change that fixes their defect (CDT-324, WP 2-10)
+
 ## SHOULD
 
 - SHOULD complete a full no-argument smoke scan of this repo in under 15 seconds
@@ -189,7 +217,7 @@ to fix, never a skip.
 
 ## MUST NOT
 
-- MUST NOT execute a discovered Surface's bash blocks or a script's mutating body — static parse only, except the declared `--help`/`--check` opt-in
+- The smoke harness MUST NOT execute a discovered Surface's bash blocks or a script's mutating body — static parse only, except the declared `--help`/`--check` opt-in. Running a fence belongs to the fence-exec harness (R26, R30), and only through a manifest suite
 - MUST NOT hardcode the kept-Surface list — discovery is dynamic against the live tree
 - MUST NOT auto-fix a failing Surface (report-only; fixes are authored and reviewed like any change)
 - The runner MUST NOT run suites in parallel (suites share `$MROOT/.claude/` state), MUST NOT retry a failed suite, and MUST NOT count a quarantined outcome as passed in its summary
@@ -197,8 +225,8 @@ to fix, never a skip.
 ## Out of Scope
 
 - **README command-index presence** (a Surface appearing in the README `## Commands` list) — this is `docs-drift`'s D1 check (SPEC-010, `/release` Step 4.9). Asserting index presence here would false-FAIL internal skills that are intentionally not user-facing and not in the README index. The smoke harness checks that a Surface *loads*, not that it is *documented*.
-- Fenced-bash defect-class linting (cross-block scope, zsh `!` hazard, unguarded glob, inline-PRAGMA poison) — owned by SPEC-021 `skill-lint` (`/release` Step 4.8). Smoke asserts `bash -n` *parses*; skill-lint asserts the defect classes are absent. Complementary, non-overlapping.
-- Runtime/behavioral verification of what a command *does* (its outputs, side effects, agent orchestration) — this harness is load-only static verification.
+- Fenced-bash defect-class linting (cross-block scope, zsh `!` hazard, unguarded glob, inline-PRAGMA poison) — owned by SPEC-021 `skill-lint` (`/release` Step 4.8). Smoke asserts `bash -n` *parses*; skill-lint asserts the defect classes are absent. Complementary, non-overlapping.  Function scope across fences, `trap ... EXIT` in a fence, a top-level `return` and path literals are per-fence checks of the fence-exec harness (R25), not of skill-lint.
+- Runtime/behavioral verification of what a command *does* (its outputs, side effects, agent orchestration) — the smoke harness is load-only static verification. The fence-exec harness runs only the fences that its manifest lists, against fixtures (R26, R27).
 - Smoke does not *run* test scripts (it only parses them); the all-suites runner does.
 - `.claude-plugin/*.json` schema validation — docs-drift `manifest-desc` covers the description field; a schema check is a separate item.
 - A macOS CI lane (CDT-271).
@@ -229,6 +257,10 @@ to fix, never a skip.
 - [ ] With `sqlite3` absent from `PATH`: `skills/memory-store/test-migrate.sh`, `skills/memory-store/test-seed-pack.sh` and `skills/validate-memory/test-reconcile.sh` exit 77
 - [ ] A full runner run leaves the caller's `TMPDIR`, the real `HOME` and `$MROOT/.claude/` unchanged (R16)
 - [ ] `git status --porcelain` in the checkout is identical before and after a full runner run
+- [ ] `bash tools/fence-exec/test.sh` exits 0 (every R29 case)
+- [ ] `bash tools/fence-exec/run.sh` on this repo exits 0 and prints the two `commands/retro.md` exclusions with backlog `wp-2-10-retro-scheduled`
+- [ ] `bash skills/refactor/test-fences.sh` and `bash skills/retro-gate/test-retro-fences.sh` exit 0 (R27)
+- [ ] `bash tools/ci-workflow-test.sh` exits 0 (R28, rule B6 and its two bites)
 
 ## Validation
 
@@ -239,6 +271,44 @@ to fix, never a skip.
 - [ ] Spec reviewed and promoted DRAFT → ACTIVE
 - [ ] `all-tests` job green on the first PR or push that carries it; its QUARANTINED set equals the `tools/test-quarantine.txt` entries (none reported `PASS` + `warn:`)
 - [ ] Step 4.13 present in `skills/release/SKILL.md` and exercised by one real release
+- [ ] `fence-exec` CI job green on the first push or pull request that carries it (R28)
+- [ ] `bash tools/fence-exec/run.sh` exits 0 on the live tree: no unexcluded finding, the two `commands/retro.md` exclusions printed, six suites pass
+
+## Acceptance criteria
+
+### wp-2-01-fence-harness
+
+- **A.** `bash tools/fence-exec/run.sh list` prints one TSV row per bash fence: file, first body line, last body line, nearest heading and info string. On `tools/fence-exec/fixtures/f4-return.md` it prints four rows, and the first is `tools/fence-exec/fixtures/f4-return.md`, 8, 9, `Positives`, `bash`. With no argument it scans the skill-lint file set on the skill-lint fence parser, finds a planted defect in each of `commands/`, `skills/**`, `agents/` and `AGENTS.md`, and skips `skills/skill-lint/fixtures/`.
+  Verify: bash tools/fence-exec/test.sh
+- **B.** F1 runs `bash -n` on each bash fence. Fixture `f1-syntax.md` exits 1 with one F1 finding at line 9, in section `Positive`. A clean fence, a `bash template` fence and a `sql` fence add no finding. A copy of the harness with the `bash -n` call switched off reports none.
+  Verify: bash tools/fence-exec/test.sh
+- **C.** F2 reports a call to a function that only another fence of the file defines. Fixture `f2-function-scope.md` exits 1 with 15 findings, at lines 19, 25, 26 and 71 to 79 (three on line 71 and two on line 72). A fence that defines its own copy, a function-keyword definition, a name in a string, a comment or a quoted heredoc, an undefined name and a `bash template` fence add no finding. A copy with the rule switched off reports none.
+  Verify: bash tools/fence-exec/test.sh
+- **D.** F3 reports `trap ... EXIT` in a fence that is not a script body. Fixture `f3-trap-exit.md` exits 1 with three findings, at lines 10 (a lock release), 16 (a named handler) and 23 (an `rm` trap whose variable a later fence reads). An `rm` trap that no other fence reads, a fence that starts with a shebang, other signals, `trap - EXIT`, an empty action and a `bash template` fence add no finding. A copy with the rule switched off reports none.
+  Verify: bash tools/fence-exec/test.sh
+- **E.** F4 reports a `return` at command position outside a function. Fixture `f4-return.md` exits 1 with three findings, at lines 9, 15 (inside a brace group) and 17 (inside an `if`). A `return` in a brace-bodied function (the shapes `name()`, `name ()` with the brace on the next line, `function name` and `function name()`, one-line and multi-line, in a `case` arm and in a brace group), in a heredoc body, in a comment, in a string and as an argument adds no finding. A copy with the rule switched off reports none.
+  Verify: bash tools/fence-exec/test.sh
+- **F.** F5 reports a literal path that does not exist under `--root`. Fixture `f5-root/commands/paths.md` exits 1 with five findings, at lines 8, 9, 10, 11 and 18 (a `$PLUGIN_DIR` leaf next to a `plugin-dir.sh dir` literal). Existing paths, a placeholder, a glob, an expansion, a comment, a heredoc body and a `$PLUGIN_DIR` leaf with no known directory add no finding. A copy with the rule switched off reports none.
+  Verify: bash tools/fence-exec/test.sh
+- **G.** The lexer stays in sync. Fixture `clean.md` exits 0. A `return 9` appended to each of its four fences gives four F4 findings. The same canary appended to every non-template fence of the live tree gives one F4 finding per fence, in every file. A broken `awk` makes the run exit 1 with `refusing to report a clean run`.
+  Verify: bash tools/fence-exec/test.sh
+- **H.** Manifest exclusions are counted and printed. A matching `exclude` row keeps its findings out of the count and prints a line with the check, the file, the number, the backlog slug and the reason. A row that matches more or fewer findings than its count, and a row that matches nothing, each give an M1 finding and exit 1. A row for another check hides nothing. An unknown check id, an empty field, a zero count, a slug with spaces, an unknown row kind and a short `suite` row each exit 64.
+  Verify: bash tools/fence-exec/test.sh
+- **I.** Manifest suite rows link a fence to its suite. `check` gives an M1 finding when the file is absent, when the heading no longer holds a bash fence, when the suite is absent, when its basename is not a suite name that `tools/run-all-tests.sh` discovers, or when the suite never names the heading. `run` runs each suite once, exits 1 when a suite fails, names it with its rc and shows its last output lines.
+  Verify: bash tools/fence-exec/test.sh
+- **J.** On the live tree `bash tools/fence-exec/run.sh check` exits 0 over at least 400 fences in at least 150 files. The committed manifest holds a `suite` row for `commands/setup.md` `team`, `commands/memory.md` Step 5, Step 10.1 and Step 10.5, `skills/memory-recall/SKILL.md` Step 4, `commands/retro.md` Step 1b, `skills/review-and-commit/SKILL.md` Step 5 and `skills/refactor/SKILL.md` Step 1b. It holds two `exclude` rows, both for `commands/retro.md` with backlog slug `wp-2-10-retro-scheduled`: F2 with count 4 and F3 with count 1.
+  Verify: bash tools/fence-exec/test.sh
+- **K.** `skills/retro-gate/test-retro-fences.sh` runs the `commands/retro.md` Step 1b fence, as extracted, in a fresh shell in a fixture repo against stub lock and report scripts. With `MODE=all` and `AUTO=1` and a free lock it calls `acquire` once with the repo as MROOT, writes no report, exits 0, and (labelled KNOWN DEFECT) calls `release` once when the fence ends. With a held lock (rc 2) it prints `scheduled retro: lock held, skipping`, exits 0, releases nothing and writes no report. With an acquire error (rc 1) it warns `continuing without lock` and arms no trap. With `MODE=single`, with `AUTO=0` and with the lock script absent it never acquires. A fence with the `AUTO` guard removed takes the lock when unscheduled, and a fence with the held-lock code changed loses the skip line.
+  Verify: bash skills/retro-gate/test-retro-fences.sh
+- **L.** CDT-356: `skills/refactor/test-fences.sh` runs the `skills/refactor/SKILL.md` Step 1b (b) and (c) fences in a fixture repo. A relative path (`src/a.txt`) is kept: `git log` lists both commits of the file and the test scan reads `src/`. An in-tree absolute path is kept. An out-of-tree path, a sibling directory that shares the root's name prefix, a `..` path and an empty path are rejected, `git log` is skipped with a message, the fence exits 0 and no `fatal` appears on stderr. The test scan never reads the out-of-tree directory. On the v1.18.32 text (`skills/refactor/fixtures/step1b-before.md`) the relative path ends in `fatal: empty string is not a valid pathspec`, so the suite fails on the old text.
+  Verify: bash skills/refactor/test-fences.sh
+- **M.** One fence parser and one scan set: `fence-state.awk` holds no fence-opener match, `check-skill-bash.sh` holds no `discover()`, and `scan-set.sh` defines `skill_lint_scan_set`. Skill-lint C6 also guards `$PDH` and `$EXT_DIR`: fixture `c6-resolver-names.md` gives `[C6]` at lines 6 and 15 and a counted waiver at line 23, and the live tree holds no C6 or C10 finding.
+  Verify: bash skills/skill-lint/test.sh
+- **N.** `.github/workflows/smoke.yml` holds a job `fence-exec` with `timeout-minutes: 10`, the pinned `actions/checkout` line and `run: bash tools/fence-exec/run.sh`. `tools/ci-workflow-test.sh` exits 0, and its rule B6 fires on a workflow without the job and on a job that runs another command.
+  Verify: bash tools/ci-workflow-test.sh
+- **O.** [process] The release notes record the premise check of CDT-272. Goal 2 (`bash -n`) is run for `commands`, `skills` and `agents` by `tools/smoke/smoke.py` `check_fences`, and F1 adds `AGENTS.md` and the section name. Goal 3 (assign-before-use) is skill-lint C6, which this work package widens to `$PDH` and `$EXT_DIR`. Goal 5 reuses the four existing fence suites through the manifest. `[07 P-3]` holds through C10 and the `commands/memory.md` fence suite, and `[10 E1]` is read as this harness plus its CI job, with no change to `skills/doctor`.
+- **P.** [process] The release notes name CDT-324 (WP 2-10, backlog slug `wp-2-10-retro-scheduled`) as the owner of the two manifest exclusions, and they say that WP 2-10 removes the rows.
+- **Q.** [process] `bash tools/run-all-tests.sh` exits 0 and every `/release` gate passes.
 
 ## Version History
 
@@ -250,6 +320,7 @@ to fix, never a skip.
 | 2026-09-25 | WP 1-02 (CDT-270, CDT-419, W1-34, W1-35): quarantine emptied; R13 reworded (environment causes skip, never quarantine). R16 extended to the real `$MROOT/.claude/`, the caller's `TMPDIR` and the real `HOME`. New R18–R21: exit-77 skip protocol (`tests/lib/skip.sh`), hermetic helper (`tests/lib/hermetic.sh`) and their self-test. Out of Scope trimmed; Covers widened. |
 | 2026-09-26 | WP 1-03 (CDT-274, `[10 smoke-pin]`): job-level `permissions`/`timeout-minutes` hardening moves from Out of Scope into MUST as R22 (CI workflow hygiene), with SHA-pinned `uses:` and the static test `tools/ci-workflow-test.sh`. |
 | 2026-09-29 | Hotfix after v1.18.25: CI `all-tests` ran on a shallow clone, so `test-verify-prompts.sh` could not `git show` its pinned base commit. R22 adds `fetch-depth: 0` for `all-tests`; `ci-workflow-test.sh` asserts it (B5) and bites it. |
+| 2026-09-30 | WP 2-01 (`wp-2-01-fence-harness`; CDT-272, CDT-356): new section **Fence-exec harness** (R23-R30): `tools/fence-exec/run.sh` with `list`, `check` and `run`; per-fence checks F1 (`bash -n`, adds `AGENTS.md`), F2 (function scope across fences), F3 (`trap ... EXIT` in a fence), F4 (`return` outside a function) and F5 (path literals); a manifest (`tools/fence-exec/manifest.tsv`) of counted, reasoned exclusions and of suite rows that tie fences to the suites that run them; the `fence-exec` CI job and `tools/ci-workflow-test.sh` rule B6. The two "static only" rules and the Out of Scope "runtime verification" line now bind the smoke harness; the fence-exec harness runs a fence only through a manifest suite. First manifest: the four existing fence suites, `skills/retro-gate/test-retro-fences.sh` (`commands/retro.md` Step 1b) and `skills/refactor/test-fences.sh` (CDT-356), plus two exclusions for `commands/retro.md` (F2 x4, F3 x1; backlog `wp-2-10-retro-scheduled`). New `## Acceptance criteria` with `### wp-2-01-fence-harness`. The parser and the scan set come from SPEC-021. |
 
 ## Cross-references
 
@@ -260,3 +331,6 @@ to fix, never a skip.
 - SPEC-013 — council template-var drift gate precedent (gate owned by domain spec, hosted by `/release`).
 - CDT-46 — v1.0 stability-contract epic; this gate is the W0 "deterministic behavioral gate / verified core" criterion. CONTEXT.md defines the Surface and Deprecation-stub glossary terms this spec relies on.
 - CDT-269 — one discovering runner for all suites (this spec's runner sections). CDT-270 / CDT-419 — skip protocol and hermetic suites (R16, R18–R21). CDT-271 / CDT-274 — macOS lane, job permissions/timeouts (out of scope).
+- SPEC-021 — skill-bash lint gate; the fence-exec harness runs on its fence parser (`fence-scan.awk`) and scan set (`scan-set.sh`), and skill-lint C6 guards `PDH` and `EXT_DIR`. SPEC-021 keeps C1-C6 and C10; C7-C9 stay reserved for WP 2-02 and WP 6-03.
+- SPEC-015 — refactor workflow; owns the Step 1b path guard that CDT-356 fixed. `skills/refactor/test-fences.sh` is the fence-exec suite for it (R27).
+- CDT-272 — fence-exec harness; CDT-356 — `/refactor` Step 1b path guard. WP 2-01 (`wp-2-01-fence-harness`) ships both. `tools/fence-exec/manifest.tsv` holds the exclusions that other work packages own (CDT-324, WP 2-10, for `commands/retro.md`).

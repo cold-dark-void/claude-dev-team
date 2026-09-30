@@ -1,0 +1,28 @@
+# tools/fence-exec/manifest.tsv — fence-exec harness manifest (SPEC-030 R23+).
+#
+# Tab-separated. Blank lines and lines that start with # are ignored. Every
+# field must hold text. Two row kinds:
+#
+#   exclude <check> <file> <needle> <count> <backlog-slug> <reason>
+#       Keeps known findings out of the failing count. <needle> is a fixed
+#       string searched in the printed finding text (message plus
+#       "(section: <heading>)"). <count> is the exact number of findings the
+#       row covers: a fixed defect (fewer) or a new one (more) fails the run,
+#       so a row cannot rot or hide a second defect. <backlog-slug> names the
+#       local backlog item that owns the fix. Each row is printed on every run.
+#
+#   suite <file> <heading-needle> <suite> <what it runs>
+#       Says that <suite> (a test.sh, test-*.sh or *-test.sh) runs the bash
+#       fences under the first heading of <file> that holds <heading-needle>.
+#       `check` proves the heading still holds a bash fence and that the suite
+#       names the heading; `run` runs each suite once from the repo root.
+exclude	F2	commands/retro.md	write_scheduled_report_if_needed	4	wp-2-10-retro-scheduled	The Step 1b fence defines the helper; Steps 2d, 3c, 6a and 6h call it from fresh shells, so the call fails. Not a WP 2-01 member. CDT-324 (WP 2-10, wp-2-10-retro-scheduled) owns the fix.
+exclude	F3	commands/retro.md	section: Step 1b: Scheduled path lock	1	wp-2-10-retro-scheduled	The Step 1b trap releases the scheduled lock when that fence ends, so Steps 2 to 6 run unlocked. Not a WP 2-01 member. CDT-324 (WP 2-10, wp-2-10-retro-scheduled) owns the fix.
+suite	commands/setup.md	Sub: `team`	skills/memory-store/test-setup-team-fences.sh	/setup team: every bash fence runs in a fresh shell against fixture repos and DBs
+suite	commands/memory.md	## Step 5: Check distill_enabled	skills/memory-store/test-memory-md-fences.sh	/memory distill: the agent-selection fence runs against a fixture DB
+suite	commands/memory.md	### Step 10.1	skills/memory-store/test-memory-md-fences.sh	/memory validate --deep: the tier-1 digest listing runs with and without --agent
+suite	commands/memory.md	### Step 10.5	skills/memory-store/test-memory-md-fences.sh	/memory validate --deep: the source-ID reconcile fence drops the stale ID
+suite	skills/memory-recall/SKILL.md	## Step 4: Semantic search	skills/memory-recall/test-fences.sh	memory-recall Step 4 runs in each embedding mode against a fixture DB
+suite	commands/retro.md	### Step 1b: Scheduled path lock	skills/retro-gate/test-retro-fences.sh	/retro scheduled: the Step 1b lock fence runs against stub lock and report scripts
+suite	skills/review-and-commit/SKILL.md	## Step 5: Finalize	skills/review-and-commit/test-fences.sh	review-and-commit finalize runs against a stub council engine
+suite	skills/refactor/SKILL.md	## Step 1b	skills/refactor/test-fences.sh	/refactor Step 1b path guard (CDT-356): relative path kept, out-of-tree rejected, no git fatal

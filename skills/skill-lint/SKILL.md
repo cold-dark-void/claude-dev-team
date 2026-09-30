@@ -36,7 +36,7 @@ Exit codes: 0 clean, 1 unwaived findings, 64 usage error.
 | C3 | Unquoted glob that aborts the block under zsh when it matches nothing | Iterate via find -maxdepth 1 -name, or guard existence |
 | C4 | Command substitution capturing sqlite3 with a leading inline PRAGMA assignment (emits a value row on sqlite >= 3.51.2) | sqlite3 -cmd ".timeout N", or drop the inline PRAGMA |
 | C5 | A `PDH=$(` line that is not byte-identical (after leading-whitespace strip) to SPEC-002's canonical bootstrap stanza | Copy the stanza verbatim from SPEC-002 "Locating `plugin-dir.sh` itself" |
-| C6 | `$MROOT`, `$WTROOT`, `$MEMDB` or `$PLUGIN_DIR` read in a block before the first assignment of that name in the same block (every block is a separate shell, so the read is empty and `MEMDB` becomes `/.claude/memory/memory.db`) | Assign in this order inside the block: `_gc`/`MROOT`, then `WTROOT`, then `MEMDB`, then `USE_DB` |
+| C6 | `$MROOT`, `$WTROOT`, `$MEMDB`, `$PLUGIN_DIR`, `$PDH` or `$EXT_DIR` read in a block before the first assignment of that name in the same block (every block is a separate shell, so the read is empty and `MEMDB` becomes `/.claude/memory/memory.db`) | Assign in this order inside the block: `_gc`/`MROOT`, then `WTROOT`, then `MEMDB`, then `USE_DB` |
 | C10 | A `\` followed by blanks (an escaped space, not a continuation); a `#` comment line right after a `\` continuation; `# lint-ok:` inside an open quote; a `#` that starts a word inside an open quote while a `sqlite3` command runs | Put the comment or waiver on its own line above the command, or remove the need for it (assign the variable in the block) |
 
 C6 and C10 run in `fence-state.awk` (bash + awk only). `check-skill-bash.sh` runs `lint.py`
@@ -46,6 +46,10 @@ engine fails, the run exits 1 — it never reads as clean. C6 reports the first 
 name per block and only when that block assigns the name later; a block that never assigns the
 name is C1's job. Reads in comments, in single quotes and in quoted heredoc bodies are not reads.
 C10 does not scan heredoc bodies.
+
+`fence-scan.awk` is the one awk fence parser: `fence-state.awk` and the fence-exec harness
+(`tools/fence-exec/`) both run on it, and `scan-set.sh` is the one no-argument file list for
+`check-skill-bash.sh` and the harness. Do not write a second fence-opener match in an engine.
 
 C5 reads its canonical text from `specs/core/SPEC-002-plugin-infrastructure.md` at
 runtime, anchored on that section heading — SPEC-002 holds more than one fenced bash

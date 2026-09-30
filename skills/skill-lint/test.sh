@@ -364,6 +364,38 @@ else
   expect_no_finding C10
 fi
 
+# T13 (WP 2-01): C6 also guards PDH and EXT_DIR. Positives: fixture lines 6
+# (PDH read before its bootstrap) and 15 (EXT_DIR read before it is assigned);
+# line 23 holds a waived PDH read. Negatives: correct order, export, :=, quotes,
+# comments, a longer name, and a fence that never assigns the name (C1's job).
+run_lint 1 "$FIX/c6-resolver-names.md"
+expect_at C6 c6-resolver-names.md 6
+expect_at C6 c6-resolver-names.md 15
+expect_count C6 2
+echo "$OUT" | grep -q '\[C6\] \$PDH is used before' && echo "$OUT" | grep -q '\[C6\] \$EXT_DIR is used before' && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: C6 messages must name \$PDH and \$EXT_DIR"; }
+echo "$OUT" | grep -q "c6-resolver-names.md:23:.*\[C6\]" && { FAIL=$((FAIL+1)); echo "FAIL: waived C6 at :23 was printed"; } || PASS=$((PASS+1))
+# the waiver is counted (--json keeps waived findings), never silent
+if command -v jq >/dev/null 2>&1; then
+  JW=$(bash "$LINT" --json "$FIX/c6-resolver-names.md" 2>/dev/null | jq -r '[.[] | select(.check == "C6" and .waived)] | map(.line) | join(",")' || true)
+  [ "$JW" = "23" ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: waived C6 lines '$JW' != '23'"; }
+else
+  PASS=$((PASS+1))  # jq absent: the waived-count check needs --json
+fi
+
+# T14 (WP 2-01): one fence parser and one scan set for every engine that reads
+# fences in awk and bash. fence-scan.awk owns the fence-opener match and
+# scan-set.sh owns discovery; fence-state.awk and check-skill-bash.sh carry no
+# copy. The same grep must find the opener match in fence-scan.awk (planted
+# negative control), so a moved comment cannot make the check pass by accident.
+FENCE_OPEN_RE='\[ \\t\]\*```'
+grep -q "$FENCE_OPEN_RE" "$HERE/fence-scan.awk" 2>/dev/null && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: control: fence-scan.awk must hold the fence-opener match"; }
+grep -q "$FENCE_OPEN_RE" "$HERE/fence-state.awk" && { FAIL=$((FAIL+1)); echo "FAIL: fence-state.awk still holds its own fence-opener match"; } || PASS=$((PASS+1))
+grep -q 'discover()' "$HERE/check-skill-bash.sh" && { FAIL=$((FAIL+1)); echo "FAIL: check-skill-bash.sh still holds its own discover()"; } || PASS=$((PASS+1))
+[ -f "$HERE/scan-set.sh" ] && grep -q 'skill_lint_scan_set()' "$HERE/scan-set.sh" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: scan-set.sh must define skill_lint_scan_set"; }
+
 echo "---"
 echo "skill-lint tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

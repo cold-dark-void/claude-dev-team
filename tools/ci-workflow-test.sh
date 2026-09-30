@@ -9,6 +9,7 @@
 #   B4 — the bump-class job has fetch-depth: 0, uses check-bump-class.sh
 #        with --range, and never --commit HEAD.
 #   B5 — the all-tests job has fetch-depth: 0 (suites read pinned base commits).
+#   B6 — the fence-exec job runs `bash tools/fence-exec/run.sh` (CDT-272).
 #
 # Bash + grep/awk only. Hermetic: no writes outside mktemp.
 set -u
@@ -140,6 +141,19 @@ check_workflow() {
   elif ! printf '%s\n' "$at_block" | grep -qE 'fetch-depth:[[:space:]]*0([[:space:]]|$)'; then
     echo "FAIL: B5: all-tests job missing fetch-depth: 0"
   fi
+
+  # --- B6: the fence-exec job runs the harness (CDT-272). ---
+  local fe_block
+  fe_block=$(awk '
+    /^  fence-exec:$/ { on=1; next }
+    on && /^  [A-Za-z0-9_-]+:$/ { exit }
+    on { print }
+  ' "$file")
+  if [ -z "$fe_block" ]; then
+    echo "FAIL: B6: no fence-exec job found"
+  elif ! printf '%s\n' "$fe_block" | grep -qE 'run:[[:space:]]*bash tools/fence-exec/run\.sh[[:space:]]*$'; then
+    echo "FAIL: B6: fence-exec job does not run bash tools/fence-exec/run.sh"
+  fi
 }
 
 run_check() { # run_check LABEL FILE — runs check_workflow, counts FAILs.
@@ -162,7 +176,7 @@ LIVE="$REPO_ROOT/.github/workflows/smoke.yml"
 
 # --- Live check: the real workflow must be clean. ---
 if run_check "live" "$LIVE"; then
-  echo "OK: live smoke.yml has no G1/G2/G3/B4 violations"
+  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6 violations"
 else
   echo "FAIL: live smoke.yml has violations (see above)"
 fi
@@ -202,6 +216,12 @@ bite "commit-head" 's/check-bump-class\.sh --range "\$RANGE"/check-bump-class.sh
 
 # Drop fetch-depth from the all-tests job (shallow clone breaks pinned-commit reads).
 bite "all-tests-shallow" '/^  all-tests:$/,$ {/fetch-depth:/d}' "B5"
+
+# Drop the fence-exec job (the harness would stop running in CI).
+bite "no-fence-exec" '/^  fence-exec:$/,/^$/d' "B6"
+
+# Point the fence-exec job at another command.
+bite "fence-exec-wrong-command" 's#bash tools/fence-exec/run\.sh#bash tools/smoke/run.sh#' "B6"
 
 if [ "$FAIL_COUNT" -eq 0 ]; then
   echo "PASS: ci-workflow-test"

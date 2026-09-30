@@ -19,6 +19,7 @@ Defines the `/refactor` skill — standalone proactive design improvement workfl
 - MUST support two invocation forms: `/refactor <description>` (default) and `/refactor inline <description>` (approach pre-decided — skips the design proposal and the **approach** approval gate; the Escalation gate's edit go-ahead still runs)
 - MUST output the approach being implemented (one sentence) before modifying any file in inline mode — even though no design problem gate or **approach** approval gate applies. The Escalation gate (SPEC-031) still applies in full.
 - MUST load AGENTS.md, relevant specs, recent git log, and all code in the affected area before outputting any design analysis
+- MUST, in Step 1b, take a relative affected path as relative to the worktree root (`$WTROOT`) and keep a path that is `$WTROOT` or below it. MUST reject a `..` path, an empty path and a path outside the worktree, a sibling directory that shares the root's name prefix included. MUST NOT pass an empty pathspec to `git log` (`fatal: empty string is not a valid pathspec`): when the path is rejected it skips the log and says so (CDT-356; `skills/refactor/test-fences.sh`)
 - MUST read any `.claude/plans/` file for the affected area if one exists
 - MUST proceed without error if AGENTS.md does not exist
 
@@ -190,6 +191,11 @@ The full gate contract — edit go-ahead, ticket-weight routing, workstream spli
 3. Add a `ticket_id:` reference; verify the exemption now qualifies
 4. Verify: a plan file written by the current run never qualifies
 
+### T13: Step 1b path guard (CDT-356)
+1. Run the Step 1b (b) and (c) fences with a relative path, an in-tree absolute path, an out-of-tree path, a sibling directory that shares the root's name prefix, a `..` path and an empty path
+2. Verify: the relative and in-tree paths are kept (`git log` lists the commits, the test scan reads the path's directory); every other path is rejected, `git log` is skipped with a message, and no `fatal` appears
+3. Verify: the same relative path on the v1.18.32 text ends in `fatal: empty string is not a valid pathspec` (`bash skills/refactor/test-fences.sh`)
+
 ### T8: Self-calibration gate
 1. Run `/refactor`, then verify the checklist is emitted verbatim before any completion language
 2. If coverage was thin: confirm the "characterization tests passing on original code" item is present
@@ -229,3 +235,4 @@ The full gate contract — edit go-ahead, ticket-weight routing, workstream spli
 | 2026-04-26 | PM review: rewrote 4 ACs, added 6 new ACs, resolved OQ-1 (inline preamble required), OQ-2 (greenfield in scope), OQ-3 (refactor: prefix default), OQ-4 (commit level), OQ-5 (behavioral or file-existence proxy) |
 | 2026-07-31 | CDT-98: added Escalation Gate + Worktree Isolation sections (SPEC-031 owns the full contract); retired the current-session-branch commit mandate in favor of PR / squash-merge-after-review exits; closed the self-satisfiable `.claude/plans/` exemption (ticket-id reference required, no timestamp checks); disambiguated the no-user-input MUSTs to approach-decision only; added workstream-split routing to `/epic` and in-session `/kickoff` auto-chain; added T10-T12 and 6 validation rows |
 | 2026-08-02 | CDT-103: § Worktree Isolation — inline mode MUST accept an optional caller-supplied worktree; when supplied MUST reuse it + its branch (no `ensure`/`$SLUG`) and commit onto that branch, else self-create as before. § Commit discipline EXCEPTION — with a caller-supplied worktree, take NEITHER bounded exit (no PR/squash/release); the caller (`/debug`) owns the exit, giving refactor+fix ordered commits on one branch (see SPEC-014 § Fix). |
+| 2026-09-30 | WP 2-01 (`wp-2-01-fence-harness`; CDT-356): § Entry & Mode Selection — Step 1b MUST take a relative affected path as relative to `$WTROOT`, keep `$WTROOT` and paths below it, reject `..`, empty and out-of-tree paths (a sibling that shares the root name prefix included), and never pass an empty pathspec to `git log`. New test T13 (`skills/refactor/test-fences.sh`, run by the SPEC-030 fence-exec harness). |

@@ -203,11 +203,24 @@ SAFE_PATH=$(printf '%s' "$RAW_PATH" | tr -cd 'A-Za-z0-9_./-')
 case "$SAFE_PATH" in
   *..* ) echo "Path traversal detected — skip" && SAFE_PATH="" ;;
 esac
-[ -n "$SAFE_PATH" ] && [[ "$SAFE_PATH" != "$WTROOT"* ]] && SAFE_PATH=""
-git log --oneline -20 -- "$SAFE_PATH"
+# A relative path is relative to the worktree root
+case "$SAFE_PATH" in
+  "" | /* ) ;;
+  * ) SAFE_PATH="$WTROOT/$SAFE_PATH" ;;
+esac
+# Keep only $WTROOT itself or a path below it (not a sibling that shares the name prefix)
+case "$SAFE_PATH" in
+  "$WTROOT" | "$WTROOT"/* ) ;;
+  * ) SAFE_PATH="" ;;
+esac
+if [ -n "$SAFE_PATH" ]; then
+  git log --oneline -20 -- "$SAFE_PATH"
+else
+  echo "Affected path not identifiable or outside the worktree — git log skipped."
+fi
 ```
 
-> Use single-quoted assignment for RAW_PATH to prevent command substitution in the path before sanitization. Reject paths containing `..` and paths resolving outside `$WTROOT`.
+> Use single-quoted assignment for RAW_PATH to prevent command substitution in the path before sanitization. A relative path is taken relative to `$WTROOT`. Reject paths containing `..` and paths resolving outside `$WTROOT`. Never pass an empty pathspec to `git log` (`fatal: empty string is not a valid pathspec`).
 
 If no path identifiable: skip and note "Affected path not identifiable — git log skipped."
 
@@ -225,8 +238,19 @@ SAFE_PATH=$(printf '%s' "$RAW_PATH" | tr -cd 'A-Za-z0-9_./-')
 case "$SAFE_PATH" in
   *..* ) echo "Path traversal detected — skip" && SAFE_PATH="" ;;
 esac
-[ -n "$SAFE_PATH" ] && [[ "$SAFE_PATH" != "$WTROOT"* ]] && SAFE_PATH=""
-find "$(dirname "$SAFE_PATH")" -name "*test*" -o -name "*_test.*" 2>/dev/null | head -20
+# A relative path is relative to the worktree root
+case "$SAFE_PATH" in
+  "" | /* ) ;;
+  * ) SAFE_PATH="$WTROOT/$SAFE_PATH" ;;
+esac
+# Keep only $WTROOT itself or a path below it (not a sibling that shares the name prefix)
+case "$SAFE_PATH" in
+  "$WTROOT" | "$WTROOT"/* ) ;;
+  * ) SAFE_PATH="" ;;
+esac
+if [ -n "$SAFE_PATH" ]; then
+  find "$(dirname "$SAFE_PATH")" -name "*test*" -o -name "*_test.*" 2>/dev/null | head -20
+fi
 # Fallback: project-wide
 find "$WTROOT" -name "*test*" -o -name "*_test.*" 2>/dev/null | head -30
 ```

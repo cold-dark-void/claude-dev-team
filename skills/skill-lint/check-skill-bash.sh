@@ -11,6 +11,9 @@ set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PY="$HERE/lint.py"
 AWKF="$HERE/fence-state.awk"
+AWKSCAN="$HERE/fence-scan.awk"   # shared fence parser; passed to awk before AWKF
+# shellcheck source=scan-set.sh
+. "$HERE/scan-set.sh"
 
 ARGS=("$@")
 root=""
@@ -38,16 +41,8 @@ case "$py_rc" in
 esac
 
 # Target set for engine 2: the explicit readable files, or the same discovery
-# as lint.py (commands/skills/agents *.md + AGENTS.md; fixtures excluded).
-discover() {
-  local d
-  for d in commands skills agents; do
-    [ -d "$root/$d" ] || continue
-    find "$root/$d" -path '*skill-lint/fixtures*' -prune -o \( -type f -o -type l \) -name '*.md' -print
-  done | LC_ALL=C sort
-  if [ -f "$root/AGENTS.md" ]; then printf '%s\n' "$root/AGENTS.md"; fi
-  return 0
-}
+# as lint.py (skill_lint_scan_set: commands/skills/agents *.md + AGENTS.md;
+# fixtures excluded).
 
 targets=()
 if [ "${#files[@]}" -gt 0 ]; then
@@ -56,13 +51,13 @@ if [ "${#files[@]}" -gt 0 ]; then
   done
 else
   [ -n "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
-  while IFS= read -r f || [ -n "$f" ]; do targets+=("$f"); done < <(discover)
+  while IFS= read -r f || [ -n "$f" ]; do targets+=("$f"); done < <(skill_lint_scan_set "$root")
 fi
 
 # Engine 2: fence-state.awk (C6, C10). One TSV line per finding.
 awk_tsv=""
 if [ "${#targets[@]}" -gt 0 ]; then
-  if awk_tsv=$(awk -f "$AWKF" "${targets[@]}"); then :; else
+  if awk_tsv=$(awk -f "$AWKSCAN" -f "$AWKF" "${targets[@]}"); then :; else
     awk_rc=$?
     echo "error: fence-state.awk failed (rc=$awk_rc); C6/C10 were not checked — refusing to report a clean run" >&2
     exit 1

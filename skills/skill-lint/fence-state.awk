@@ -7,18 +7,19 @@
 #
 #   <waived 0|1> TAB <path> TAB <line> TAB <check-id> TAB <message>
 #
-# Fence scanning mirrors lint.py scan_fences(): an opening fence is a line
-# that starts (after blanks) with 3 or more backticks; it closes on a line
-# with at least as many backticks and no info string; a fence is bash when
-# the first word of its info string is exactly "bash".
+# Fence scanning lives in fence-scan.awk (WP 2-01): pass that file first
+# (awk -f fence-scan.awk -f fence-state.awk FILE...). It mirrors lint.py
+# scan_fences() and calls the three fence_* callbacks defined near the end of
+# this file. This file holds no fence-opener match of its own.
 #
 # C6  assign-before-use. Inside ONE bash fence, a read of $MROOT, $WTROOT,
-#     $MEMDB or $PLUGIN_DIR that comes before the first assignment of that
-#     same name in that fence. Every fence is a separate shell, so the read
-#     sees an empty value (MEMDB=/.claude/memory/memory.db) and the skill
-#     silently takes its fallback branch. Reads in comments, single quotes
-#     and quoted heredoc bodies are not reads. One finding per name per
-#     fence. A fence that never assigns the name is C1's job, not C6's; set
+#     $MEMDB, $PLUGIN_DIR, $PDH or $EXT_DIR that comes before the first
+#     assignment of that same name in that fence. Every fence is a separate
+#     shell, so the read sees an empty value (MEMDB=/.claude/memory/memory.db)
+#     and the skill silently takes its fallback branch. Reads in comments,
+#     single quotes and quoted heredoc bodies are not reads. One finding per
+#     name per fence. A fence that never assigns the name is C1's job, not
+#     C6's; set
 #     -v BROAD=1 to report that case too (used only to size the rule).
 #     Waivable: "# lint-ok: C6" on the line or the line above (same matching
 #     as lint.py).
@@ -43,9 +44,8 @@
 
 BEGIN {
   FS = "\n"
-  n = split("MROOT WTROOT MEMDB PLUGIN_DIR", nm, " ")
+  n = split("MROOT WTROOT MEMDB PLUGIN_DIR PDH EXT_DIR", nm, " ")
   for (k = 1; k <= n; k++) isname[nm[k]] = 1
-  ticks = 0
   nfind = 0
   have_file = 0
 }
@@ -57,7 +57,7 @@ FNR == 1 {
 
 {
   src[FNR] = $0
-  process_line($0, FNR)
+  fs_feed($0, FNR)
 }
 
 END {
@@ -69,8 +69,7 @@ function start_file(name) {
   fname = name
   split("", src)
   nfind = 0
-  ticks = 0
-  is_bash = 0
+  fs_reset()
 }
 
 # Waiver match mirrors lint.py WAIVER_RE: "#", blanks, "lint-ok:", then the
@@ -132,31 +131,17 @@ function trim(s) {
   return s
 }
 
-function process_line(line, ln,    run, info, rest, tok) {
-  if (ticks == 0) {
-    if (match(line, /^[ \t]*```+/)) {
-      run = substr(line, RSTART, RLENGTH)
-      sub(/^[ \t]*/, "", run)
-      ticks = length(run)
-      info = trim(substr(line, RSTART + RLENGTH))
-      split(info, tok, /[ \t]+/)
-      is_bash = (info != "" && tok[1] == "bash")
-      if (is_bash) block_start()
-    }
-    return
-  }
-  if (match(line, /^[ \t]*```+/)) {
-    run = substr(line, RSTART, RLENGTH)
-    sub(/^[ \t]*/, "", run)
-    rest = trim(substr(line, RSTART + RLENGTH))
-    if (length(run) >= ticks && rest == "") {
-      if (is_bash) block_end()
-      ticks = 0
-      is_bash = 0
-      return
-    }
-  }
-  if (is_bash) scan_line(line, ln)
+# Callbacks for fence-scan.awk (the shared fence parser).
+function fence_open(ln, info, is_bash) {
+  if (is_bash) block_start()
+}
+
+function fence_line(line, ln) {
+  scan_line(line, ln)
+}
+
+function fence_close(ln, is_bash) {
+  if (is_bash) block_end()
 }
 
 function block_start() {
