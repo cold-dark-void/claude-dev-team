@@ -94,6 +94,7 @@ non-bootstrap — gating is the caller's job.
 | `memory.ext.vec` | memory |
 | `memory.ext.lembed` | memory |
 | `memory.embedding_config` | memory |
+| `memory.embed_errors` | memory |
 | `hooks.events` | hooks |
 | `hooks.hygiene` | hooks |
 | `hooks.templates` | hooks (dev-checkout only; template hygiene, not dual-copy; SKIP in consumer) |
@@ -116,7 +117,7 @@ non-bootstrap — gating is the caller's job.
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL) |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL) |
 | **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing |
 | **PASS** | Invariant holds |
 

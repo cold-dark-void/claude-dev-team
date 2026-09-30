@@ -14,6 +14,18 @@ MROOT="${1:?Usage: migrate-md.sh <project-root>}"
 MEMDB="$MROOT/.claude/memory/memory.db"
 MEMDIR="$MROOT/.claude/memory"
 
+# Shared lembed helpers (model registration, .errors.log) live next to this file.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A missing embed-common.sh must not stop the .md import: embedding is skipped.
+EMBED_LIB_OK=true
+if [ -f "$SCRIPT_DIR/embed-common.sh" ]; then
+  # shellcheck source=embed-common.sh
+  . "$SCRIPT_DIR/embed-common.sh"
+else
+  EMBED_LIB_OK=false
+  echo "WARNING: embed-common.sh not found next to migrate-md.sh; embedding is skipped (the .md import still runs)." >&2
+fi
+
 # Verify DB exists
 if [ ! -f "$MEMDB" ]; then
   echo "ERROR: memory.db not found at $MEMDB"
@@ -171,13 +183,19 @@ MODEL_DIR="$MROOT/.claude/memory/models"
 EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
-if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
+if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ] && [ "$EMBED_LIB_OK" = true ]; then
   UNEMBEDDED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;")
 
   if [ "$UNEMBEDDED" -gt 0 ]; then
     echo ""
     echo "Embedding $UNEMBEDDED chunks (mode: $EMBED_MODE)..."
     EMBEDDED_COUNT=0
+
+    # sqlite3 stderr goes to this temp file, never into a captured value: a call
+    # that succeeds but prints a warning must still yield a clean vector. The file
+    # is removed on every exit path; without it stderr is discarded.
+    EMBED_ERR=$(mktemp "${TMPDIR:-/tmp}/migrate-md-embed.XXXXXX") || EMBED_ERR=""
+    trap '[ -z "${EMBED_ERR:-}" ] || rm -f "$EMBED_ERR"' EXIT
 
     # Read embedding URL/model once (not per-row)
     EMBED_URL=""
@@ -216,7 +234,7 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
         [ -n "$EMBED_MODEL" ] && BODY=$(printf '%s' "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
         CURL_ARGS+=(-d "$BODY")
 
-        RESPONSE=$(curl "${CURL_ARGS[@]}" 2>/dev/null) || { [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"; echo "  WARN: curl failed for chunk $MEM_ID"; continue; }
+        RESPONSE=$(curl "${CURL_ARGS[@]}" 2>/dev/null) || { [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"; echo "  WARN: curl failed for chunk $MEM_ID"; embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: curl failed for the remote embedding endpoint"; continue; }
         [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
         EMBEDDING=$(printf '%s' "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding' 2>/dev/null)
         # $EMBEDDING is interpolated raw into INSERT VALUES — it must be a well-formed
@@ -225,23 +243,45 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
         # Per-row best-effort: skip this chunk's embedding, don't abort the migration.
         if printf '%s' "$EMBEDDING" | grep -q '[^][0-9.,eE+ -]'; then
           echo "  WARN: embedding from endpoint is not a numeric vector for chunk $MEM_ID; skipping" >&2
+          embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: embedding from the remote endpoint is not a numeric vector"
           continue
         fi
 
       elif [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ]; then
         MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
         ESCAPED_SQL=$(printf '%s' "$MEM_CONTENT" | sed "s/'/''/g")
-        EMBEDDING=$(sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" ".load $EXT_DIR/lembed0" \
-          "SELECT json(lembed('$MODEL_PATH', '$ESCAPED_SQL'));" 2>/dev/null) || { echo "  WARN: lembed failed for chunk $MEM_ID"; continue; }
+        # lembed() takes a registered model NAME (embed-common.sh). The model is
+        # registered on this connection, in the same call, before lembed() runs
+        # (temp.lembed_models is per connection; a bulk run loads the model per
+        # row — simple, not fast). lembed() returns a BLOB, so read it as JSON
+        # with vec_to_json(): json() cannot hold a BLOB.
+        REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_PATH") || REGISTER_SQL=""
+        LEMBED_RC=0
+        EMBEDDING=$(sqlite3 -bail "$MEMDB" ".load $EXT_DIR/vec0" ".load $EXT_DIR/lembed0" \
+          "$REGISTER_SQL" \
+          "SELECT vec_to_json(lembed('$EMBED_LEMBED_NAME', '$ESCAPED_SQL'));" 2>"${EMBED_ERR:-/dev/null}") || LEMBED_RC=$?
+        if [ "$LEMBED_RC" -ne 0 ]; then
+          LEMBED_ERR=""
+          [ -z "$EMBED_ERR" ] || LEMBED_ERR=$(cat "$EMBED_ERR" 2>/dev/null || true)
+          echo "  WARN: lembed failed for chunk $MEM_ID"
+          embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: lembed failed (sqlite3 exit $LEMBED_RC): ${LEMBED_ERR:-${EMBEDDING:-no error text}}"
+          continue
+        fi
       else
         break
       fi
 
       # Validate
-      [ -z "$EMBEDDING" ] || [ "$EMBEDDING" = "null" ] && { echo "  WARN: empty embedding for chunk $MEM_ID"; continue; }
-      DIMS=$(printf '%s' "$EMBEDDING" | jq 'length' 2>/dev/null)
-      [ -z "$DIMS" ] || [ "$DIMS" = "0" ] || [ "$DIMS" = "null" ] && continue
-      [[ "$DIMS" =~ ^[0-9]+$ ]] || continue
+      [ -z "$EMBEDDING" ] || [ "$EMBEDDING" = "null" ] && { echo "  WARN: empty embedding for chunk $MEM_ID"; embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: empty embedding"; continue; }
+      # DIMS becomes a table identifier (vec_memories_<DIMS>): a positive integer only.
+      # A failing jq (not JSON) must not abort the run under set -e, and an invalid
+      # count is a failed embed: warn and log it, never a silent continue.
+      DIMS=$(printf '%s' "$EMBEDDING" | jq 'length' 2>/dev/null) || DIMS=""
+      if ! [[ "$DIMS" =~ ^[0-9]+$ ]] || [ "$DIMS" -eq 0 ]; then
+        echo "  WARN: invalid embedding dimensions '$DIMS' for chunk $MEM_ID"
+        embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: invalid embedding dimensions '$DIMS'"
+        continue
+      fi
 
       VEC_TABLE="vec_memories_${DIMS}"
 
@@ -258,10 +298,16 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ]; then
       fi
 
       # Insert embedding
-      sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
+      INSERT_RC=0
+      INSERT_ERR=$(sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
         "INSERT INTO ${VEC_TABLE}(memory_id, embedding) VALUES ($MEM_ID, '$EMBEDDING');" \
         "INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table) VALUES ($MEM_ID, '$EMBED_MODEL_ESC', $DIMS, '$VEC_TABLE');" \
-        2>/dev/null || { echo "  WARN: vec insert failed for chunk $MEM_ID"; continue; }
+        2>&1) || INSERT_RC=$?
+      if [ "$INSERT_RC" -ne 0 ]; then
+        echo "  WARN: vec insert failed for chunk $MEM_ID"
+        embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: vec insert failed (sqlite3 exit $INSERT_RC): ${INSERT_ERR:-no error text}"
+        continue
+      fi
 
       EMBEDDED_COUNT=$((EMBEDDED_COUNT + 1))
     done < <(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;" 2>/dev/null)

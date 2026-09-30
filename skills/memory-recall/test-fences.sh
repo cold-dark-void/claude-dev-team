@@ -113,7 +113,7 @@ run_fence() {
   text="${text//<QUERY>/$query}"
   text="${text//<CURRENT_MODEL>/test-model}"
   : > "$SHIM_LOG"
-  fence_exec "$prefix" "$cwd" "$text" PATH="$WORK/bin:$PATH"
+  fence_exec "$prefix" "$cwd" "$text" PATH="$WORK/bin:$PATH" CLAUDE_PLUGIN_ROOT="${FENCE_PLUGIN_ROOT-$ROOT}"
 }
 out_has() { grep -qF -- "$1" "$2.out"; }
 out_lacks() { ! grep -qF -- "$1" "$2.out"; }
@@ -156,9 +156,39 @@ QUERY_TEXT="it's fine" run_fence "$STEP4" "$REPO" "$WORK/s4lembed"
 check "Step 4 lembed: exits 0 (rc=$RUN_RC; err: $(head -c 160 "$WORK/s4lembed.err"))" [ "$RUN_RC" -eq 0 ]
 check "Step 4 lembed: .load vec0 from <MROOT>/.claude/memory/extensions, quoted" grep -qxF ".load \"$EXT/vec0\"" "$SHIM_LOG"
 check "Step 4 lembed: .load lembed0 from <MROOT>/.claude/memory/extensions, quoted" grep -qxF ".load \"$EXT/lembed0\"" "$SHIM_LOG"
-check "Step 4 lembed: lembed() gets <MROOT>/.claude/memory/models/all-MiniLM-L6-v2.gguf" grep -qF "lembed('$MODELS/all-MiniLM-L6-v2.gguf', 'it''s fine')" "$SHIM_LOG"
+REG_SQL="INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('$MODELS/all-MiniLM-L6-v2.gguf');"
+check "Step 4 lembed: the model is registered (name 'mini') from <MROOT>/.claude/memory/models/all-MiniLM-L6-v2.gguf" grep -qxF "$REG_SQL" "$SHIM_LOG"
+check "Step 4 lembed: lembed() gets the registered NAME, with the query SQL-escaped" grep -qF "lembed('mini', 'it''s fine')" "$SHIM_LOG"
+REG_LINE="$(grep -n -F -- "$REG_SQL" "$SHIM_LOG" | head -1 | cut -d: -f1)"
+USE_LINE="$(grep -n -F -- "lembed('mini', " "$SHIM_LOG" | head -1 | cut -d: -f1)"
+check "Step 4 lembed: the registration comes before the lembed() call, after both .load lines (lines ${REG_LINE:-none} < ${USE_LINE:-none})" \
+  bash -c 'l=$(grep -n "^\.load .*lembed0" "$1" | head -1 | cut -d: -f1); [ -n "$l" ] && [ -n "$2" ] && [ -n "$3" ] && [ "$l" -lt "$2" ] && [ "$2" -lt "$3" ]' _ "$SHIM_LOG" "$REG_LINE" "$USE_LINE"
+lembed_first_args() { grep -oE "lembed\('[^']*'" "$SHIM_LOG" | sort -u; } # one line per distinct first argument of a lembed( call
+check "Step 4 lembed: the first argument of every lembed() call is the model name, never a file path (got: $(lembed_first_args))" \
+  [ "$(lembed_first_args)" = "lembed('mini'" ]
 check "Step 4 lembed: no .load of a path with an empty root" bash -c '! grep -qE "^\.load \"?/(vec0|lembed0)" "$1"' _ "$SHIM_LOG"
 check "Step 4 lembed: no sqlite3 error text on stderr" bash -c '! grep -qi "cannot open shared object\|no such module\|parse error" "$1"' _ "$WORK/s4lembed.err"
+
+# The registration statement and the model name come from embed-common.sh, resolved
+# through plugin-dir.sh (TL fix: no second hand-typed copy in the fence).
+typed_copy_count() { grep -c "temp\.lembed_models\|lembed('mini'\|SELECT 'mini'" || true; } # stdin: fence text
+check "Step 4: the fence sources embed-common.sh through plugin-dir.sh" \
+  bash -c 'printf "%s\n" "$1" | grep -q "plugin-dir.sh\" file skills/memory-store/embed-common.sh"' _ "$STEP4"
+check "Step 4: the fence uses embed_lembed_register_sql and \$EMBED_LEMBED_NAME" \
+  bash -c 'printf "%s\n" "$1" | grep -q "embed_lembed_register_sql" && printf "%s\n" "$1" | grep -qF "\$EMBED_LEMBED_NAME"' _ "$STEP4"
+check "Step 4: the fence holds no hand-typed registration statement or 'mini' literal (found $(printf '%s\n' "$STEP4" | typed_copy_count))" \
+  [ "$(printf '%s\n' "$STEP4" | typed_copy_count)" = 0 ]
+check "control: the copy check counts a planted hand-typed registration" \
+  bash -c '[ "$1" = 2 ]' _ "$(printf '%s\n' "INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('x');" "WHERE e.embedding MATCH lembed('mini', 'q')" | typed_copy_count)"
+
+# lembed mode, but embed-common.sh does not resolve: keyword search, no .load, exit 0
+mkdir -p "$WORK/noplugin/skills"
+cp "$ROOT/skills/plugin-dir.sh" "$WORK/noplugin/skills/plugin-dir.sh"
+QUERY_TEXT='100%' FENCE_PLUGIN_ROOT="$WORK/noplugin" run_fence "$STEP4" "$REPO" "$WORK/s4nocommon"
+check "Step 4 lembed, embed-common.sh unresolved: exits 0 (rc=$RUN_RC; err: $(head -c 160 "$WORK/s4nocommon.err"))" [ "$RUN_RC" -eq 0 ]
+check "Step 4 lembed, embed-common.sh unresolved: falls back to keyword search" out_has "Using keyword search" "$WORK/s4nocommon"
+check "Step 4 lembed, embed-common.sh unresolved: no .load reaches sqlite3" [ ! -s "$SHIM_LOG" ]
+check "Step 4 lembed, embed-common.sh unresolved: the keyword fallback still matches '100%'" out_has "coverage reached 100%" "$WORK/s4nocommon"
 
 # mode remote (curl stub returns a fixed embedding)
 set_cfg embedding_mode remote; set_cfg embedding_dimensions 3

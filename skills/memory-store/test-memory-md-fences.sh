@@ -11,6 +11,8 @@
 #                      threshold comes from config and the agents over it are found
 #   Step 10.1 (deep)   tier-1 digests are listed, with and without --agent
 #   Step 10.5 (deep)   the valid source IDs of a digest are collected
+#   stats Step 3       (WP 1-13, CDT-262) the "Embed errors:" line counts the embed
+#                      lines of <MROOT>/.claude/memory/.errors.log and prints none of them
 #
 # Hermetic: private TMPDIR/HOME (tests/lib/hermetic.sh). MEMORY_MD may name
 # another revision of memory.md (bite-on-old-code run); default is this checkout.
@@ -100,6 +102,44 @@ FOOTER='printf "VALID_IDS=%s\n" "$(echo "$VALID_IDS" | tr "\n" " ")"' run_fence 
 check "deep 10.5: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
 check "deep 10.5: no SQL error ($(head -c 120 "$WORK/v3.err"))" no_sql_error "$WORK/v3"
 check "deep 10.5: keeps the live and the distilled sources, drops the stale one" grep -qx 'VALID_IDS=11 12 ' "$WORK/v3.out"
+
+# ---- stats: the embed error count (WP 1-13, CDT-262) ---------------------------
+# Lines are written by the real writer (embed_log_error), so a format change in
+# embed-common.sh breaks this test. The count is lines whose 2nd field is "embed".
+STATS="$(fence_nth "$MEMORY_MD" "## Step 3: Gather and display stats" 1)"
+if [ -n "$STATS" ]; then pass_line "structural: stats Step 3 fence extracted"
+else fail_line "structural: stats Step 3 fence extracted (zero)"; fi
+
+run_fence "$STATS" "$WORK/st0" CLAUDE_PLUGIN_ROOT="$ROOT"
+check "stats, no .errors.log: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+check "stats, no .errors.log: no SQL error ($(head -c 120 "$WORK/st0.err"))" no_sql_error "$WORK/st0"
+check "stats, no .errors.log: prints 'Embed errors: 0'" grep -qx 'Embed errors: 0' "$WORK/st0.out"
+
+( . "$ROOT/skills/memory-store/embed-common.sh"
+  embed_log_error "$REPO/.claude/memory" embed-one "memory 1: lembed embed failed: no such table SECRET-CONTENT"
+  embed_log_error "$REPO/.claude/memory" migrate-md "chunk 2: lembed failed" )
+printf '%s\n' '2026-01-01T00:00:00Z other site not an embed line' >> "$REPO/.claude/memory/.errors.log"
+run_fence "$STATS" "$WORK/st2" CLAUDE_PLUGIN_ROOT="$ROOT"
+check "stats, 2 embed lines + 1 foreign line: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+check "stats, 2 embed lines + 1 foreign line: prints 'Embed errors: 2'" grep -qx 'Embed errors: 2' "$WORK/st2.out"
+check "stats: no log detail is printed (the detail can quote memory content)" bash -c '! grep -q "SECRET-CONTENT\|no such table" "$1"' _ "$WORK/st2.out"
+check "control: the detail check would catch a printed log line" \
+  bash -c 'printf "%s\n" "x no such table SECRET-CONTENT" | grep -q "SECRET-CONTENT\|no such table"'
+
+# the count comes from embed_error_count in embed-common.sh (resolved through
+# plugin-dir.sh); a plugin root without that file gives "unavailable", not a wrong 0
+check "stats: the fence sources embed-common.sh through plugin-dir.sh and calls embed_error_count" \
+  bash -c 'printf "%s\n" "$1" | grep -q "plugin-dir.sh\" file skills/memory-store/embed-common.sh" && printf "%s\n" "$1" | grep -q "embed_error_count"' _ "$STATS"
+check "stats: the fence holds no copy of the awk counter" \
+  bash -c '! printf "%s\n" "$1" | grep -q "\$2 == \"embed\""' _ "$STATS"
+check "control: the copy check matches the old inline counter" \
+  bash -c 'printf "%s\n" "$1" | grep -q "\$2 == \"embed\""' _ "EMBED_ERRORS=\$(awk '\$2 == \"embed\" { n++ } END { print n + 0 }' \"\$ERRLOG\")"
+mkdir -p "$WORK/noplugin/skills"
+cp "$ROOT/skills/plugin-dir.sh" "$WORK/noplugin/skills/plugin-dir.sh"
+run_fence "$STATS" "$WORK/st3" CLAUDE_PLUGIN_ROOT="$WORK/noplugin"
+check "stats, embed-common.sh unresolved: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+check "stats, embed-common.sh unresolved: prints 'Embed errors: unavailable ...', never a count" \
+  bash -c 'grep -q "^Embed errors: unavailable" "$1" && ! grep -qx "Embed errors: [0-9]*" "$1"' _ "$WORK/st3.out"
 
 echo "---"
 echo "memory.md fence tests: $pass passed, $fail failed"

@@ -138,8 +138,12 @@ to share publicly.
 ```
 
 Shows per-agent breakdown (type counts, avg/max/total chars), overall summary,
-embedding coverage, and boot-load estimate (chars each agent loads at session
-start, with HIGH/moderate/ok status).
+embedding coverage, the embed error count, and boot-load estimate (chars each
+agent loads at session start, with HIGH/moderate/ok status). The embed error
+count is the number of failed embeds that `embed-one.sh` and `migrate-md.sh`
+logged to `.claude/memory/.errors.log`. A count above 0 means some memories have
+no vector. Run `/doctor` for the fix-it (check `memory.embed_errors`). Stats
+never prints the log lines.
 
 ## Sub: `validate`
 

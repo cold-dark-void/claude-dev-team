@@ -202,9 +202,11 @@ rm -rf "$LOC_FIXTURE"
 # =============================================================================
 
 header_states_duplicate_rule() {
-  sed -n '1,/^set -euo pipefail/p' "$1" \
-    | grep -qi 'duplicate' \
-    && sed -n '1,/^set -euo pipefail/p' "$1" | grep -q 'exits 64'
+  # Capture the header first and grep a here-string: `sed | grep -q` under
+  # pipefail fails at random when grep exits early and sed gets SIGPIPE.
+  local hdr
+  hdr=$(sed -n '1,/^set -euo pipefail/p' "$1")
+  grep -qi 'duplicate' <<<"$hdr" && grep -q 'exits 64' <<<"$hdr"
 }
 
 if header_states_duplicate_rule "$AUTOPILOT_PARSE"; then

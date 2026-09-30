@@ -10,7 +10,7 @@ set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-DOCTOR="$SCRIPT_DIR/doctor.sh"
+DOCTOR="${DOCTOR:-$SCRIPT_DIR/doctor.sh}"
 SCHEMA_SQL="$PLUGIN_ROOT/skills/memory-store/schema.sql"
 
 PASS=0
@@ -2171,6 +2171,113 @@ if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] \
   pass "T24h qa in effort → M9 WARN (CDT-229)"
 else
   fail "T24h-effort status=$STATUS detail=$DETAIL out=$OUT"
+fi
+
+# =============================================================================
+# T25. memory.embed_errors (SPEC-022 M2j / CDT-262) — the embed error log is
+#      counted; PASS / WARN / SKIP, never FAIL; read-only
+# =============================================================================
+# The log lines are written by the real writer (embed_log_error), so a format
+# change in embed-common.sh breaks this test. JSON is read with jq.
+t25_field() { # t25_field <json> <jq filter for the first check>
+  printf '%s' "$1" | jq -r ".checks[0] | $2" 2>/dev/null || echo ERR
+}
+t25_log() { # t25_log <project> <site> <detail> — one line through the real writer
+  ( . "$PLUGIN_ROOT/skills/memory-store/embed-common.sh" && embed_log_error "$1/.claude/memory" "$2" "$3" )
+}
+if command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  # a: memory.db present, no log → PASS
+  T25="$TMP/t25"
+  make_bare_project "$T25"
+  init_memory_db "$T25"
+  cd "$T25" || exit 1
+  RC=0
+  OUT=$(t24_doctor --json --only memory.embed_errors 2>/dev/null) || RC=$?
+  if [ "$(t25_field "$OUT" .status)" = "PASS" ] && [ "$(t25_field "$OUT" .id)" = "memory.embed_errors" ] \
+     && [ "$(t25_field "$OUT" .group)" = "memory" ] && [ "$RC" -eq 0 ]; then
+    pass "T25a no .errors.log → PASS rc=0 (CDT-262)"
+  else
+    fail "T25a rc=$RC out=$OUT"
+  fi
+
+  # b: two embed lines and one foreign line → WARN with the count of 2
+  t25_log "$T25" embed-one "memory 7: lembed embed failed: no such table: vec_memories_384"
+  t25_log "$T25" migrate-md "chunk 3: lembed failed"
+  printf '%s\n' '2026-01-01T00:00:00Z other site not an embed line' >> "$T25/.claude/memory/.errors.log"
+  CK1=$(cksum "$T25/.claude/memory/.errors.log" | awk '{print $1" "$2}')
+  RC=0
+  OUT=$(t24_doctor --json --only memory.embed_errors 2>/dev/null) || RC=$?
+  DETAIL=$(t25_field "$OUT" .detail)
+  FIXIT=$(t25_field "$OUT" .fixit)
+  if [ "$(t25_field "$OUT" .status)" = "WARN" ] && [ "$RC" -eq 1 ] \
+     && printf '%s' "$DETAIL" | grep -q '^2 embed error(s) in \.claude/memory/\.errors\.log' \
+     && printf '%s' "$FIXIT" | grep -qF '.claude/memory/.errors.log'; then
+    pass "T25b 2 embed lines (+1 foreign) → WARN count 2, rc=1, fix-it names the log (CDT-262)"
+  else
+    fail "T25b rc=$RC detail=$DETAIL fixit=$FIXIT out=$OUT"
+  fi
+
+  # c: read-only (M1) — the log is byte-identical after the run
+  CK2=$(cksum "$T25/.claude/memory/.errors.log" | awk '{print $1" "$2}')
+  if [ "$CK1" = "$CK2" ]; then
+    pass "T25c the run did not touch .errors.log (M1 read-only)"
+  else
+    fail "T25c cksum before=$CK1 after=$CK2"
+  fi
+
+  # d: WARN does not block --gate=team (exit 1, not 2)
+  RC=0
+  t24_doctor --json --gate=team --only memory.embed_errors >/dev/null 2>&1 || RC=$?
+  if [ "$RC" -eq 1 ]; then
+    pass "T25d embed-error WARN does not block --gate=team (rc=1)"
+  else
+    fail "T25d gate rc=$RC (want 1)"
+  fi
+
+  # e: a log with no embed line → PASS
+  printf '%s\n' '2026-01-01T00:00:00Z other site only' > "$T25/.claude/memory/.errors.log"
+  RC=0
+  OUT=$(t24_doctor --json --only memory.embed_errors 2>/dev/null) || RC=$?
+  if [ "$(t25_field "$OUT" .status)" = "PASS" ] && [ "$RC" -eq 0 ]; then
+    pass "T25e a log with no embed line → PASS"
+  else
+    fail "T25e rc=$RC out=$OUT"
+  fi
+
+  # f: no memory.db → SKIP (nothing embeds)
+  T25B="$TMP/t25b"
+  make_bare_project "$T25B"
+  cd "$T25B" || exit 1
+  RC=0
+  OUT=$(t24_doctor --json --only memory.embed_errors 2>/dev/null) || RC=$?
+  if [ "$(t25_field "$OUT" .status)" = "SKIP" ] && [ "$RC" -eq 0 ]; then
+    pass "T25f no memory.db → SKIP rc=0"
+  else
+    fail "T25f rc=$RC out=$OUT"
+  fi
+  # g: the count comes from embed_error_count (embed-common.sh), not a copy of the awk
+  if ! grep -q '\$2 == "embed"' "$DOCTOR" && grep -q 'embed_error_count' "$DOCTOR"; then
+    pass "T25g doctor.sh counts through embed_error_count, no inline awk copy"
+  else
+    fail "T25g doctor.sh holds an inline embed counter or does not call embed_error_count"
+  fi
+
+  # h: a doctor install without embed-common.sh → SKIP with a reason, never a false PASS
+  T25_FAKE="$TMP/t25-fakeplugin"
+  mkdir -p "$T25_FAKE/skills/doctor"
+  cp "$SCRIPT_DIR/doctor.sh" "$T25_FAKE/skills/doctor/doctor.sh"
+  cd "$T25" || exit 1
+  printf '%s\n' '2026-01-01T00:00:00Z embed embed-one memory 1: boom' > "$T25/.claude/memory/.errors.log"
+  RC=0
+  OUT=$(HOME="$T24_HOME" bash "$T25_FAKE/skills/doctor/doctor.sh" --json --only memory.embed_errors 2>/dev/null) || RC=$?
+  if [ "$(t25_field "$OUT" .status)" = "SKIP" ] && [ "$RC" -eq 0 ] \
+     && t25_field "$OUT" .detail | grep -q 'embed-common.sh'; then
+    pass "T25h no embed-common.sh in the install → SKIP naming the file rc=0"
+  else
+    fail "T25h rc=$RC out=$OUT"
+  fi
+else
+  pass "T25 SKIP (sqlite3 or jq absent)"
 fi
 
 # =============================================================================

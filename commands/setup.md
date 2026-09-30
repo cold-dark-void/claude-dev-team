@@ -243,7 +243,11 @@ Skip this step if `--migrate-only` is set.
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-PLUGIN_DIR="$PDH"
+PLUGIN_DIR=$(bash "$PDH/skills/plugin-dir.sh" dir skills/memory-store/schema.sql 2>/dev/null) || PLUGIN_DIR=""
+if [ -z "$PLUGIN_DIR" ] || [ ! -f "$PLUGIN_DIR/schema.sql" ]; then
+  echo "WARNING: dev-team plugin memory-store skills not found (schema.sql)." >&2
+  PLUGIN_DIR=""
+fi
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
@@ -267,7 +271,11 @@ If the DB already existed before Step 2, check if it needs a schema upgrade:
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-PLUGIN_DIR="$PDH"
+PLUGIN_DIR=$(bash "$PDH/skills/plugin-dir.sh" dir skills/memory-store/migrate.sh 2>/dev/null) || PLUGIN_DIR=""
+if [ -z "$PLUGIN_DIR" ] || [ ! -f "$PLUGIN_DIR/migrate.sh" ]; then
+  echo "WARNING: dev-team plugin memory-store skills not found (migrate.sh)." >&2
+  PLUGIN_DIR=""
+fi
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -294,17 +302,18 @@ Skip this step if `--no-extensions` or `--migrate-only` is set.
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-PLUGIN_DIR="$PDH"
+PLUGIN_DIR=$(bash "$PDH/skills/plugin-dir.sh" dir skills/memory-store/download-extensions.sh 2>/dev/null) || PLUGIN_DIR=""
+if [ -z "$PLUGIN_DIR" ] || [ ! -f "$PLUGIN_DIR/download-extensions.sh" ]; then
+  echo "WARNING: dev-team plugin memory-store skills not found (download-extensions.sh)." >&2
+  PLUGIN_DIR=""
+fi
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 if command -v sqlite3 &>/dev/null && [ -n "$PLUGIN_DIR" ]; then
-  # Only mark the memory .gitignore block as written if download-extensions.sh
-  # actually SUCCEEDED — it writes that block at the very end, so a mid-run abort
-  # (unsupported platform exit, curl/tar failure) must leave the flag UNSET so
-  # Step 5's idempotent fallback still covers the extensions/ + models/ dirs the
-  # script mkdir'd before failing. && ties the flag to the child's exit status.
-  bash "$PLUGIN_DIR/download-extensions.sh" "$MROOT" && export EXT_GITIGNORE_DONE=1
+  # A failed or partial run does not matter here: Step 5 re-checks the memory
+  # .gitignore block every time (idempotent), so nothing is passed to Step 5.
+  bash "$PLUGIN_DIR/download-extensions.sh" "$MROOT"
 fi
 ```
 
@@ -324,7 +333,11 @@ Skip this step if `--migrate-only` is NOT set AND this is the first run (no prio
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-PLUGIN_DIR="$PDH"
+PLUGIN_DIR=$(bash "$PDH/skills/plugin-dir.sh" dir skills/memory-store/migrate-md.sh 2>/dev/null) || PLUGIN_DIR=""
+if [ -z "$PLUGIN_DIR" ] || [ ! -f "$PLUGIN_DIR/migrate-md.sh" ]; then
+  echo "WARNING: dev-team plugin memory-store skills not found (migrate-md.sh)." >&2
+  PLUGIN_DIR=""
+fi
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -340,10 +353,12 @@ fi
 Skip this step if `--migrate-only` is set.
 
 `download-extensions.sh` (Step 3) is the single source of the 5-line memory
-`.gitignore` block. This step is only a **fallback** for the paths where Step 3
-did not run — `--no-extensions`, or `sqlite3`/`PLUGIN_DIR` unavailable — so no
-init path loses gitignore coverage. When Step 3 ran (`EXT_GITIGNORE_DONE=1`),
-skip this step entirely. The `grep -qF || echo` guard is idempotent regardless.
+`.gitignore` block. This step is the **fallback** for the paths where Step 3
+did not run or did not finish — `--no-extensions`, `sqlite3`/`PLUGIN_DIR`
+unavailable, or a failed download — so no init path loses gitignore coverage.
+Each step runs in its own shell, so Step 3 cannot pass a flag to this step.
+This step always runs. The `grep -qF || echo` guard skips an entry that is
+already present.
 
 **Never** write a bare `.claude/memory/` exclude here — use child globs only so a
 committed seed pack under `.claude/memory/seed/` stays committable (SPEC-024 M9).
@@ -352,27 +367,25 @@ committed seed pack under `.claude/memory/seed/` stays committable (SPEC-024 M9)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-if [ -z "${EXT_GITIGNORE_DONE:-}" ]; then  # lint-ok: C1
-  GITIGNORE="$MROOT/.gitignore"
-  for ENTRY in \
-    ".claude/memory/extensions/" \
-    ".claude/memory/models/" \
-    ".claude/memory/memory.db" \
-    ".claude/memory/memory.db-wal" \
-    ".claude/memory/memory.db-shm"; do
-    grep -qF "$ENTRY" "$GITIGNORE" 2>/dev/null || echo "$ENTRY" >> "$GITIGNORE"
-  done
-  # Seed carve-out (child-glob + negations) when a pack may be committed
-  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-  COMMON=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/seed-common.sh 2>/dev/null || true)
-  if [ -n "$COMMON" ] && [ -f "$COMMON" ]; then
-    # shellcheck disable=SC1090
-    . "$COMMON"
-    ensure_seed_gitignore "$MROOT" || true
-  fi
-  echo "Checked .gitignore entries (fallback)."
+GITIGNORE="$MROOT/.gitignore"
+for ENTRY in \
+  ".claude/memory/extensions/" \
+  ".claude/memory/models/" \
+  ".claude/memory/memory.db" \
+  ".claude/memory/memory.db-wal" \
+  ".claude/memory/memory.db-shm"; do
+  grep -qF "$ENTRY" "$GITIGNORE" 2>/dev/null || echo "$ENTRY" >> "$GITIGNORE"
+done
+# Seed carve-out (child-glob + negations) when a pack may be committed
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+COMMON=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/seed-common.sh 2>/dev/null || true)
+if [ -n "$COMMON" ] && [ -f "$COMMON" ]; then
+  # shellcheck disable=SC1090
+  . "$COMMON"
+  ensure_seed_gitignore "$MROOT" || true
 fi
+echo "Checked .gitignore entries (fallback)."
 ```
 
 ### Step 5.5: Import memory seed pack (if present)
@@ -403,14 +416,42 @@ if [ -f "$MROOT/.claude/memory/seed/manifest.json" ]; then
     echo "WARNING: seed pack present but import-seed-pack.sh not found — skipping import"
   fi
 fi
-# Export for Step 7 warm-start line (same shell / agent context)
-export SEED_IMPORT_SUMMARY
 ```
 
 ### Step 5b: Add required hosts to sandbox network allowlist
 
 Collect all hosts that need sandbox network access. Always include `github.com:22`
 (for git push over SSH). If `$EMBEDDING_URL` is set, also include the embedding host.
+For each host, check if it's already in the allowlist. If not, add it.
+
+**IMPORTANT — not pure zero-intervention under `dontAsk` (CDT-68):** two layers
+can block settings writes, not just the sandbox:
+
+1. **Sandbox** — `.claude/settings.json` is sandbox-protected. On sandbox deny,
+   retry with `dangerouslyDisableSandbox: true` (user approves once per command).
+2. **Permission classifier under `dontAsk`** — writes to `settings.json` (Edit or
+   jq-via-Bash) are self-escalation-guarded. Generic "approve edits" is often
+   rejected; the user must **explicitly** approve the write by name.
+
+**Approval up front (MUST):** before this `team`-path settings merge, ask the user
+**once** for the merge, e.g.:
+
+```
+This bootstrap needs one explicit approval (dontAsk self-escalation guard —
+not removable without losing the guard):
+  1. Merge into .claude/settings.json (sandbox network allowlist + team permissions)
+Approve it so the rest of /setup can run without mid-run denials?
+```
+
+Do **not** discover this mid-run as a separate denial. The `team` path writes no
+hook script. `/setup orchestration` owns `bash-compress.sh` and its approval
+(`skills/init-orchestration/SKILL.md` § Permission batching).
+
+Temp paths in any bypass-retry snippet: use `"${TMPDIR:-/tmp}/…"` (or
+`mktemp`) — bare `$TMPDIR` is unset outside the sandbox.
+
+This step is one fence. Each fence runs in its own shell, so `SETTINGS` and
+`HOSTS_TO_ADD` must be set in the fence that uses them.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -427,47 +468,15 @@ if [ -n "${EMBEDDING_URL:-}" ]; then
   EMBED_HOST=$(echo "$EMBEDDING_URL" | sed -E 's|https?://([^/]+).*|\1|')
   HOSTS_TO_ADD+=("$EMBED_HOST")
 fi
-```
 
-For each host, check if it's already in the allowlist. If not, add it.
-
-**IMPORTANT — not pure zero-intervention under `dontAsk` (CDT-68):** two layers
-can block settings writes, not just the sandbox:
-
-1. **Sandbox** — `.claude/settings.json` is sandbox-protected. On sandbox deny,
-   retry with `dangerouslyDisableSandbox: true` (user approves once per command).
-2. **Permission classifier under `dontAsk`** — writes to `settings.json` (Edit or
-   jq-via-Bash) and emitting `bash-compress.sh` (its `permissionDecision:"allow"`
-   reads as permission-widening) are self-escalation-guarded. Generic "approve
-   edits" is often rejected; the user must **explicitly** approve these by name.
-
-**Batch approvals up front (MUST):** before this `team`-path settings merge or
-hook emit, ask the user **once** for both approvals together, e.g.:
-
-```
-This bootstrap needs two explicit approvals (dontAsk self-escalation guards —
-not removable without losing the guard):
-  1. Merge into .claude/settings.json (sandbox + hooks + dontAsk posture)
-  2. Write .claude/hooks/bash-compress.sh (PreToolUse; permissionDecision:allow
-     on noisy test/build rewrites only)
-Approve both so the rest of /setup can run without mid-run denials?
-```
-
-Do **not** discover these mid-run as separate denials. Do **not** strip
-`permissionDecision:"allow"` from bash-compress without evidence the CC
-re-check on rewritten commands is gone (it exists for CC 2.1.116+).
-
-Temp paths in any bypass-retry snippet: use `"${TMPDIR:-/tmp}/…"` (or
-`mktemp`) — bare `$TMPDIR` is unset outside the sandbox.
-
-```bash
 if command -v jq &>/dev/null; then
   # Ensure settings.json exists with minimal structure
-  if [ ! -f "$SETTINGS" ]; then  # lint-ok: C1
+  mkdir -p "$MROOT/.claude"
+  if [ ! -f "$SETTINGS" ]; then
     echo '{}' > "$SETTINGS"
   fi
 
-  for HOST in "${HOSTS_TO_ADD[@]}"; do  # lint-ok: C1
+  for HOST in "${HOSTS_TO_ADD[@]}"; do
     if ! grep -qF "$HOST" "$SETTINGS" 2>/dev/null; then
       jq --arg host "$HOST" '
         .sandbox.network.allowedDomains = ((.sandbox.network.allowedDomains // []) + [$host] | unique)
@@ -504,8 +513,9 @@ note for the user (SPEC-024 SHOULD), e.g.:
 warm start: N memories imported for M agents from pack dated <date>; K rejected
 ```
 
-Parse counts from `$SEED_IMPORT_SUMMARY` when non-empty; omit this line entirely when
-no pack was present (M11).
+Parse counts from the `seed-import:` line that Step 5.5 printed. No variable carries
+over from that step, because each step runs in its own shell. Omit this line entirely
+when no pack was present (M11).
 
 ---
 

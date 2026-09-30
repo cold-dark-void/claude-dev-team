@@ -119,23 +119,42 @@ EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mod
 EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
+# lembed needs the model-registration helper in embed-common.sh (SPEC-004). Resolve it
+# through plugin-dir.sh; when it does not resolve, this fence uses keyword search.
+EMBED_COMMON=""
+if [ "$EMBED_MODE" = "lembed" ]; then
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+  EMBED_COMMON=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/embed-common.sh 2>/dev/null || true)
+  if [ -n "$EMBED_COMMON" ] && [ -f "$EMBED_COMMON" ]; then
+    # shellcheck disable=SC1090
+    . "$EMBED_COMMON"
+  else
+    EMBED_COMMON=""
+  fi
+fi
 DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
-if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \
+if [ "$EMBED_MODE" = "lembed" ] && [ -n "$EMBED_COMMON" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \
    [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
   MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
   VEC_TABLE="vec_memories_${DIMS}"
   # Escape the query for SQL interpolation (see Step 3): '→''
   ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+  # lembed() takes a registered model NAME, not a file path. The registration is
+  # per connection, so it goes in this same sqlite3 call, before lembed(). The
+  # statement and the name come from embed-common.sh (no copy here).
+  REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_PATH")
   sqlite3 "$MEMDB" <<EOSQL
 .load "$EXT_DIR/vec0"
 .load "$EXT_DIR/lembed0"
+$REGISTER_SQL
 SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet,
        CAST(ROUND((1 - e.distance) * 100) AS INTEGER) || '%' AS score,
        m.created_at
 FROM ${VEC_TABLE} e
 JOIN memories m ON m.id = e.memory_id AND m.archived = FALSE
-WHERE e.embedding MATCH lembed('$MODEL_PATH', '$ESCAPED_QUERY')
+WHERE e.embedding MATCH lembed('$EMBED_LEMBED_NAME', '$ESCAPED_QUERY')
   AND k = 10
 ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
@@ -321,7 +340,7 @@ EOSQL
 - The `MATCH` operator + `k = N` is sqlite-vec's KNN syntax — it is not standard SQL.
 - Distance is cosine distance: lower = more similar, 0 = identical.
 - To convert to similarity percentage: `(1 - distance) * 100`.
-- `lembed()` takes the **model file path** (GGUF) as its first argument, not a model name.
+- `lembed()` takes a **registered model name**, not a file path. Register the GGUF on the same `sqlite3` connection first: `INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf path>');`. Then call `lembed('mini', <text>)`. `temp.lembed_models` is per connection.
 - For remote embedding providers, the URL is read from the DB config (`embedding_url`).
   Model: `EMBEDDING_MODEL` env if set, else config `embedding_model`. Optional
   `EMBEDDING_API_KEY` for authenticated providers.

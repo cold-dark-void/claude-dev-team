@@ -875,6 +875,44 @@ except Exception:
   esac
 }
 
+# memory.embed_errors (CDT-262 / SPEC-022 M2j): embed-one.sh and migrate-md.sh append
+# one line per failed embed to <MROOT>/.claude/memory/.errors.log as
+# "<UTC ts> embed <site> <detail>". Count the lines whose second field is "embed".
+# Read-only (M1). WARN, never FAIL (M3): the memory write itself always succeeded.
+check_memory_embed_errors() {
+  if [ ! -f "$MEMDB" ]; then
+    record "memory.embed_errors" "memory" "SKIP" "memory.db absent" ""
+    return 0
+  fi
+  local errlog="$MROOT/.claude/memory/.errors.log" lib="$PLUGIN_ROOT/skills/memory-store/embed-common.sh" n last
+  if [ ! -f "$errlog" ]; then
+    record "memory.embed_errors" "memory" "PASS" "no embed errors logged" ""
+    return 0
+  fi
+  # The line format lives in embed-common.sh (embed_error_count / embed_error_last).
+  if [ ! -f "$lib" ] || ! have_cmd awk; then
+    record "memory.embed_errors" "memory" "SKIP" "embed-common.sh or awk absent — cannot count the embed error log" ""
+    return 0
+  fi
+  # shellcheck source=/dev/null
+  if ! . "$lib"; then
+    record "memory.embed_errors" "memory" "SKIP" "embed-common.sh could not be loaded — cannot count the embed error log" ""
+    return 0
+  fi
+  n=$(embed_error_count "$MROOT/.claude/memory")
+  last=$(embed_error_last "$MROOT/.claude/memory")
+  case "$n" in
+    ""|*[!0-9]*) n=0 ;;
+  esac
+  if [ "$n" -eq 0 ]; then
+    record "memory.embed_errors" "memory" "PASS" "no embed errors logged" ""
+  else
+    record "memory.embed_errors" "memory" "WARN" \
+      "$n embed error(s) in .claude/memory/.errors.log (last: ${last:-unknown}) — some memories have no vector; semantic search may be incomplete" \
+      "Read .claude/memory/.errors.log, fix the cause (for example /setup team --refresh), then run: rm .claude/memory/.errors.log"
+  fi
+}
+
 check_hooks_events() {
   if [ ! -f "$SETTINGS" ]; then
     record "hooks.events" "hooks" "WARN" \
@@ -1607,6 +1645,7 @@ register_check "memory.schema" "memory" check_memory_schema
 register_check "memory.ext.vec" "memory" check_memory_ext_vec
 register_check "memory.ext.lembed" "memory" check_memory_ext_lembed
 register_check "memory.embedding_config" "memory" check_memory_embedding_config
+register_check "memory.embed_errors" "memory" check_memory_embed_errors
 register_check "hooks.events" "hooks" check_hooks_events
 register_check "hooks.hygiene" "hooks" check_hooks_hygiene
 register_check "hooks.templates" "hooks" check_hooks_templates_dev

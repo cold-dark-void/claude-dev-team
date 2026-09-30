@@ -134,9 +134,11 @@ echo "[memory-store] DB unavailable — writing to .md fallback."
 After the Step 2 INSERT has captured `$MEMORY_ID`, generate the embedding with the
 shared **`embed-one.sh`** helper (a sibling of this skill). It self-derives the
 extensions/model paths from the DB, reads `embedding_mode` / `embedding_url` from
-the `config` table, and is **best-effort**: it ALWAYS exits 0 and silently skips
-when the mode is `fallback` or the required extensions/models are absent — so it
-never breaks the write.
+the `config` table, and is **best-effort**: it ALWAYS exits 0 and never breaks the
+write. It skips silently when the mode is `fallback`. When the mode is `lembed` or
+`remote` and the embed fails (missing extension or model, sqlite error, provider
+error), it appends one line to `<MROOT>/.claude/memory/.errors.log`, because
+callers usually send its stderr to `/dev/null`.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -150,7 +152,8 @@ bash skills/memory-store/embed-one.sh "$MEMDB" "$MEMORY_ID" "$CONTENT"  # lint-o
 The lembed (local GGUF) and remote (OpenAI-compatible) provider logic — formerly
 inline here — now lives in `embed-one.sh`, shared with the agent memory-write
 path. (`skills/memory-store/migrate-md.sh` is a separate, bulk-migration path
-that inlines its own embedding logic — it is not a caller of `embed-one.sh`.)
+with its own embedding loop — it is not a caller of `embed-one.sh`, but both source
+`embed-common.sh` for the lembed model registration and the `.errors.log` writer.)
 Consumers resolve the skill's own directory via the plugin-dir bootstrap
 (SPEC-002, "Locating `plugin-dir.sh` itself"); `embed-one.sh` sits alongside this file.
 
@@ -237,7 +240,8 @@ Expected output format: `<id>|<agent>|<type>|<bytes>|<timestamp>`
   before string interpolation. Heredoc syntax sidesteps this for static content.
 - `last_insert_rowid()` must be in the same sqlite3 session as the INSERT or it
   returns 0 (each `sqlite3` invocation is a separate connection).
-- `lembed()` takes a **file path** to the GGUF model, not a model name string.
+- `lembed()` takes a **registered model name** (`mini`), not a file path. Register the GGUF on the same `sqlite3` connection, before the `lembed()` call: `INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf path>');` (`embed-common.sh` builds it). `temp.lembed_models` is per connection, so every `sqlite3` call that uses `lembed()` registers the model itself.
+- Embed failures are not silent. `embed-one.sh` and `migrate-md.sh` append one line per failure to `<MROOT>/.claude/memory/.errors.log` (`<UTC ts> embed <site> <detail>`). `/memory stats` and `/doctor` show the count. Callers that send stderr to `/dev/null` lose nothing.
 - For `remote` mode, set `embedding_url` in the config table and optionally export
   `EMBEDDING_API_KEY` and `EMBEDDING_MODEL`. The response parser handles both OpenAI
   (`data[0].embedding`) and ollama-style (`embeddings[0]` / `embedding`) shapes.

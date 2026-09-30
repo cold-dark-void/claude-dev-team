@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/embed-one.sh`, `skills/memory-store/migrate.sh`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`, `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
+**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/embed-one.sh`, `skills/memory-store/embed-common.sh`, `skills/memory-store/test-embed-lembed.sh`, `skills/memory-store/migrate.sh`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`, `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
 
 ## Overview
 
@@ -35,9 +35,19 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 
 ### Embedding Generation
 - MUST support two embedding modes: lembed (local GGUF model) and remote (API endpoint)
-- MUST pass file path to GGUF model for lembed (not model name)
+- MUST call `lembed()` with the REGISTERED MODEL NAME (`mini`), never a file path. sqlite-lembed v0.0.1-alpha.8 fails `lembed('<path>', …)` with "Unknown model name … Was it registered with lembed_models?" (WP 1-13, CDT-262)
+- MUST register the GGUF model on the same `sqlite3` connection, in the same call, after the `.load` lines and before any `lembed()` call: `INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf>');`. `temp.lembed_models` is per connection, and every `sqlite3` invocation is its own connection. `embed-one.sh` and `migrate-md.sh` build the statement with `embed_lembed_register_sql` from `skills/memory-store/embed-common.sh`; `skills/memory-recall/SKILL.md` Step 4 sources the same file, resolved through `plugin-dir.sh`, and uses the same function; it has no copy (SPEC-006)
+- MUST read a `lembed()` result as JSON in `migrate-md.sh` with `vec_to_json(lembed('mini', …))`: `lembed()` returns a BLOB and `json()` cannot hold a BLOB. In `migrate-md.sh`, sqlite3 stderr goes to a temp file, never into the captured vector: a call that succeeds but prints a warning still yields a clean vector
+- MUST use `sqlite3 -bail` for the `embed-one.sh` lembed batch, so a failed registration never lets the vector INSERT run
 - MUST handle both OpenAI (`.data[0].embedding`) and Ollama (`.embeddings[0]`) response shapes for remote mode
-- MUST skip embedding gracefully if extensions or config unavailable (write memory without vector)
+- MUST skip embedding gracefully if extensions or config unavailable (write memory without vector). `fallback` mode skips silently. In `lembed` or `remote` mode a failed embed — missing extension or model, sqlite error, provider error — MUST NOT be silent (next block)
+
+#### Embed errors are logged (WP 1-13, CDT-262)
+- MUST append one line per failed embed in `lembed` or `remote` mode to `<MROOT>/.claude/memory/.errors.log`: `<UTC ISO-8601> embed <site> <detail>`, where `<site>` is `embed-one` or `migrate-md` and `<detail>` is one line of at most 300 characters (`embed_log_error` in `embed-common.sh`). `embed-one.sh` callers send its stderr to `/dev/null`, so the log is the durable channel
+- MUST keep `embed-one.sh` best-effort: it ALWAYS exits 0, and logging is fail-open (an unwritable log never fails the caller's write)
+- MUST log every failed embed in `migrate-md.sh`, including an embedding whose dimension count is empty, `0` or not a number (`chunk N: invalid embedding dimensions`): a bare skip is not allowed. A failing `jq` MUST NOT abort the run. When `embed-common.sh` is missing next to `migrate-md.sh`, the script MUST print a warning on stderr, skip embedding and still import the `.md` files
+- MUST keep `.errors.log` out of git: its `<detail>` is sqlite error text and can quote memory content. The `.claude/memory/*` child glob that `/setup team` Steps 3 and 5 ensure (SPEC-024 M9) covers it, so the log needs no entry of its own in the memory `.gitignore` block
+- MUST surface the count — the lines whose second field is `embed` — in `/memory stats` (Embeddings block, `Embed errors:` line) and in `/doctor` (`memory.embed_errors`, SPEC-022 M2j)
 
 #### SQL safety in the embedding write path (CDT-164)
 - MUST apply the SQLite Write Path escaping rule ("MUST escape single quotes in all SQL content") to EVERY shell-expanded value interpolated into a SQL string literal in the embedding write path — including the embedding model name (`EMBED_MODEL`), not only memory content
@@ -80,6 +90,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 - Verify chunk truncation at 8000 chars and skip under 20 chars
 - Verify embedding generation handles both response shapes
 - **Model-name SQL safety (CDT-164):** verify an embedding model name containing a single quote round-trips into `embedding_meta.model` verbatim and does not abort the sqlite batch. Manual verification is acceptable — no `.sh` test harness exists in this repo and none is introduced by CDT-164
+- **Lembed registration (WP 1-13, CDT-262):** `bash skills/memory-store/test-embed-lembed.sh` runs `embed-one.sh` and `migrate-md.sh` in `lembed` mode against a fixture project and a `sqlite3` shim that refuses an unregistered model name, like the extension. It asserts that the registration comes after the `.load` lines and before every `lembed()` call, that the first argument of every `lembed()` call is `'mini'`, that a failed embed adds one line to `.errors.log` and still exits 0, and that a missing model or extension is logged. The suite downloads no extension and no model; a CI round-trip with a real model is deferred until a CI model download is approved
 - **Migrate driver (CDT-51):** automated tests MUST cover (1) **fresh** install via `schema.sql` → `schema_version=4`; (2) **≥1 real upgrade floor** v3→v4 via `migrate-v4.sh` / `migrate.sh`. Full stepwise v1→v4 is OK because `migrate-v2/v3/v4` + `schema.sql` are in-repo (no git-history archaeology). Version reads MUST be PRAGMA-poison capture-safe (plain SELECT for `schema_version`; never capture an inline `PRAGMA` result row as the version)
 
 ## Validation
@@ -91,6 +102,8 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 - [ ] No .md source files deleted if any INSERT failed
 - [ ] With `embedding_mode=remote`, a model name containing an apostrophe (e.g. `o'brien-embed`) yields `embedding_meta.model = o'brien-embed` verbatim, a matching `vec_memories_<dims>` row, and an updated `config.embedding_dimensions` — no orphaned vector row (CDT-164)
 
+- [ ] `bash skills/memory-store/test-embed-lembed.sh` exits 0: the model is registered before every `lembed('mini', …)` call, no call passes a path, and a failed embed leaves one line in `.claude/memory/.errors.log` (WP 1-13, CDT-262)
+
 ## Open Questions
 
 - [x] ~~Is the 5000-char truncation on migration too aggressive?~~ **Resolved: Yes** — bumped to 8000 chars per chunk. A 100-line cortex file with dense content can easily exceed 5000 chars in a single `##` section.
@@ -101,6 +114,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 
 | Date | Change |
 |------|--------|
+| 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262 `[07 F-1]`): `lembed()` takes a registered model NAME, not a file path. The Embedding MUST "pass file path to GGUF model for lembed (not model name)" was wrong for sqlite-lembed v0.0.1-alpha.8: `lembed('<path>', …)` fails with "Unknown model name … Was it registered with lembed_models?", so no vector was stored or queried in the default local mode. The GGUF is now registered on the same connection, before `lembed()` (`INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf>')`); `migrate-md.sh` reads the result with `vec_to_json()` (a BLOB, not `json()`) and keeps sqlite3 stderr out of the vector (temp file); `embed-one.sh` and `migrate-md.sh` share `embed-common.sh`. A failed embed is no longer hidden: one line per failure in `<MROOT>/.claude/memory/.errors.log`, counted by `/memory stats` and `/doctor`. The CI round-trip smoke test with a real model is deferred until a CI model download is approved. Status stays ACTIVE. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |
 | 2026-03-22 | Initial spec generated by /generate-specs |
 | 2026-03-23 | Bumped chunk truncation from 5000 to 8000 chars. Added context.md 60-line limit. Added default distill config values. Moved tier access control to SPEC-007. Moved distillation threshold check to SPEC-007. |

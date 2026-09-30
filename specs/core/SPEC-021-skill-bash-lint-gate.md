@@ -137,7 +137,7 @@ Out of Scope.
   Verify: bash skills/review-and-commit/test-fences.sh
 - **F.** The `--impact` caller grep of `skills/review-and-commit/SKILL.md` Step 1b, run on a fixture tree, lists the `.py`, `.ts`, `.sh`, `.go`, `.rs` and `.js` files that hold the symbol and skips `.txt`, `node_modules` and `vendor`. The old `--include='*.{py,…}'` form matches nothing on the same tree.
   Verify: bash skills/review-and-commit/test-fences.sh
-- **G.** The Step 4 fence of `skills/memory-recall/SKILL.md`, run in a fresh shell against a fixture DB, exits 0 in each embedding mode. In `none` mode, with a leftover `embedding_dimensions` of 384, it reports the keyword fallback and sends no `.load`. In `lembed` mode it sends `.load "<MROOT>/.claude/memory/extensions/vec0"`, `.load "<MROOT>/.claude/memory/extensions/lembed0"` and `lembed('<MROOT>/.claude/memory/models/all-MiniLM-L6-v2.gguf', …)`. In `remote` mode (curl stub) it sends the quoted `vec0` load and the returned vector. No `.load` path starts with an empty root. The `.load` step is stubbed where sqlite-vec is not installed.
+- **G.** The Step 4 fence of `skills/memory-recall/SKILL.md`, run in a fresh shell against a fixture DB, exits 0 in each embedding mode. In `none` mode, with a leftover `embedding_dimensions` of 384, it reports the keyword fallback and sends no `.load`. In `lembed` mode it sends `.load "<MROOT>/.claude/memory/extensions/vec0"` and `.load "<MROOT>/.claude/memory/extensions/lembed0"`, then registers the model with `INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<MROOT>/.claude/memory/models/all-MiniLM-L6-v2.gguf')` and calls `lembed('mini', …)` after it (WP 1-13: `lembed()` takes a registered name, never a path). In `remote` mode (curl stub) it sends the quoted `vec0` load and the returned vector. No `.load` path starts with an empty root. The `.load` step is stubbed where sqlite-vec is not installed.
   Verify: bash skills/memory-recall/test-fences.sh
 - **H.** The Step 5 fence of `skills/memory-recall/SKILL.md` prints nothing when `memory.db` exists (`USE_DB=true`). With no DB it matches with `grep -F` (`needle.token` does not match `needleXtoken`), and a query of `$(touch X)`, a backtick command or a quote-breaking string executes nothing. A linked worktree's own `.claude/memory/*/context.md` is searched.
   Verify: bash skills/memory-recall/test-fences.sh
@@ -152,6 +152,7 @@ Out of Scope.
 
 | Date | Change |
 |------|--------|
+| 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262): AC G of `wp-1-12-fence-state` names the lembed call of the `skills/memory-recall/SKILL.md` Step 4 fence. `lembed()` takes a registered name, so AC G now says the fence registers the model (`INSERT INTO temp.lembed_models …`) and then calls `lembed('mini', …)`. SPEC-004 and SPEC-006 own the rule; no lint check changes. |
 | 2026-07-03 | Initial version (DRAFT). ID 021: SPEC-020 is allocated to /craft-loop on its own feature branch. |
 | 2026-07-13 | CDV-180: codify Q1 fixtures-exclude, Q3 skip/all-missing→64, Q4 declare/local/readonly, Q5 first info-string token; Covers + lint.py/test.sh |
 | 2026-07-13 | CDV-180 implemented (Tasks T0–T11): skills/skill-lint C1–C4 + waivers + fixtures/test.sh; adoption pass live-clean; `/release` Step 4.8 wired; status DRAFT→ACTIVE. Remaining: first real release exercises gate (~0.39.0). |
