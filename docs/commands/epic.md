@@ -64,6 +64,10 @@ mechanical subcommands, not `/epic` flags.)
    `--autopilot`: Mode B keeps walking until B.3 halt/`n`, empty ready-set,
    all children completed (B.7 iff `release_bump`), only blocked/in_progress,
    M13 seed-fail, or user interrupt — not after the first shipped child.
+   `--autopilot=patch|minor|major` is **seal-intent**: a new decompose persists
+   it as `release_bump` (with `worktree_enabled=true`) when `--release` did not.
+   On resume, a bump token over a null `release_bump` exits 64 (resume has no
+   init to persist it). `--autopilot=master` never sets `release_bump`.
 3. **Mid-epic forbid (release=end):** when `release_bump` set and not sealed,
    `/release` and master-merge hard-fail (exit 64) until seal. When
    `release_bump` is null/absent, `/release` Step 0 prints a warn-only

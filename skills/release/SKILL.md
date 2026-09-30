@@ -42,7 +42,8 @@ bash "$STEP0" || exit $?
 - **Allow** (exit 0): no ticket/epic ref resolves; the resolved ref does not
   match the epic/ticket-id charset; no `$MROOT/.claude/epics` dir; epic
   `release_bump` null/absent; or `sealed=true` (post-C5). C5 seal path may
-  set `EPIC_ALLOW_SEAL_RELEASE=1` (passed through as env).
+  set `EPIC_ALLOW_SEAL_RELEASE=1` (passed through as env); the guard honors it
+  only while the epic is seal-staged (`seal_stage` non-null), else exit 64.
 - **Callout** (M16, warn-only): `$STEP0`'s stdout is the `gap-callout`
   output — print it as-is when non-empty; empty when all-complete / last
   remaining child / unknown. Not a SPEC-033 gate; never mixed into the

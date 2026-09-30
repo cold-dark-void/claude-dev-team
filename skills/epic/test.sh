@@ -1161,15 +1161,41 @@ fi
   run_c4 0 assert-release-allowed CDV-C4-END-C1
 
   # (c4-8) EPIC_ALLOW_SEAL_RELEASE=1 bypasses mid-flight (C5 seal /release path)
+  # ONLY while the state is seal-staged (seal_stage non-null; WP 1-09 / W3-37).
   jq 'del(.sealed)' "$C4_TMP/.claude/epics/CDV-C4-END/state.json" \
     >"$C4_TMP/c4-unseal.tmp"
   mv "$C4_TMP/c4-unseal.tmp" "$C4_TMP/.claude/epics/CDV-C4-END/state.json"
+  # a leaked env var alone (no seal_stage) bypasses nothing
   set +e
   OUT=$(EPIC_ROOT="$C4_TMP" EPIC_ALLOW_SEAL_RELEASE=1 \
     bash "$LIB" assert-release-allowed CDV-C4-END 2>&1)
   RC=$?
   set -e
-  [ "$RC" -eq 0 ] && pass || fail "c4-8 seal env bypass rc=$RC out=$OUT"
+  [ "$RC" -eq 64 ] && pass || fail "c4-8 env without seal_stage must not bypass (rc=$RC out=$OUT)"
+  echo "$OUT" | grep -q 'release=end mode until seal' \
+    && pass || fail "c4-8 env-without-stage message (out=$OUT)"
+  # seal-staged + env → allowed
+  jq '.seal_stage={base_sha:"b",staged_tree:"t",added_paths:[]}' \
+    "$C4_TMP/.claude/epics/CDV-C4-END/state.json" >"$C4_TMP/c4-stage.tmp"
+  mv "$C4_TMP/c4-stage.tmp" "$C4_TMP/.claude/epics/CDV-C4-END/state.json"
+  set +e
+  OUT=$(EPIC_ROOT="$C4_TMP" EPIC_ALLOW_SEAL_RELEASE=1 \
+    bash "$LIB" assert-release-allowed CDV-C4-END 2>&1)
+  RC=$?
+  set -e
+  [ "$RC" -eq 0 ] && pass || fail "c4-8 seal env bypass while staged rc=$RC out=$OUT"
+  # seal-staged without env still fails (the stage is not a bypass by itself)
+  run_c4 64 assert-release-allowed CDV-C4-END
+  # stage cleared → env no longer bypasses
+  jq '.seal_stage=null' "$C4_TMP/.claude/epics/CDV-C4-END/state.json" \
+    >"$C4_TMP/c4-unstage.tmp"
+  mv "$C4_TMP/c4-unstage.tmp" "$C4_TMP/.claude/epics/CDV-C4-END/state.json"
+  set +e
+  OUT=$(EPIC_ROOT="$C4_TMP" EPIC_ALLOW_SEAL_RELEASE=1 \
+    bash "$LIB" assert-release-allowed CDV-C4-END 2>&1)
+  RC=$?
+  set -e
+  [ "$RC" -eq 64 ] && pass || fail "c4-8 env after stage cleared must not bypass (rc=$RC)"
   # without env still fails
   run_c4 64 assert-release-allowed CDV-C4-END
 
@@ -1308,7 +1334,7 @@ fi
     : >"$HOOK_LOG"
     FAIL_HOOK="echo FAIL_HOOK >>\"$HOOK_LOG\"; exit 1"
     set +e
-    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_SEAL_RELEASE_HOOK="$FAIL_HOOK" \
+    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_TEST_MODE=1 EPIC_SEAL_RELEASE_HOOK="$FAIL_HOOK" \
       bash "$LIB" seal CDV-C5-END 2>&1)
     RC=$?
     set -e
@@ -1330,7 +1356,7 @@ fi
     OK_HOOK='git commit -q -m "fix: v9.9.9 — epic seal mock" && echo HOOK_OK >>"'"$HOOK_LOG"'"'
     : >"$HOOK_LOG"
     set +e
-    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_SEAL_RELEASE_HOOK="$OK_HOOK" \
+    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_TEST_MODE=1 EPIC_SEAL_RELEASE_HOOK="$OK_HOOK" \
       bash "$LIB" seal CDV-C5-END 2>&1)
     RC=$?
     set -e
@@ -1355,7 +1381,7 @@ fi
     # (c5-8) second seal → already_sealed, no second hook/commit
     : >"$HOOK_LOG"
     set +e
-    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_SEAL_RELEASE_HOOK="$OK_HOOK" \
+    OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_TEST_MODE=1 EPIC_SEAL_RELEASE_HOOK="$OK_HOOK" \
       bash "$LIB" seal CDV-C5-END 2>&1)
     RC=$?
     set -e
@@ -2091,6 +2117,469 @@ else
   pass
 fi
 rm -rf "$G4_ROOT"
+
+# ---- SPEC-025 wp-1-09-epic-seal ----------------------------------------------
+echo "=== WP 1-09 epic seal ==="
+W9_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-w109.XXXXXX")
+W9_SKILL="$HERE/SKILL.md"
+W9_CMD="$HERE/../../commands/epic.md"
+W9_DOCS="$HERE/../../docs/commands/epic.md"
+
+# w9 <want-rc> <lib args...> — private EPIC_ROOT; sets OUT, RC.
+w9() {
+  local want="$1"; shift
+  set +e
+  OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" bash "$LIB" "$@" 2>&1)
+  RC=$?
+  set -e
+  if [ "$RC" -eq "$want" ]; then pass
+  else fail "w109 exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
+  fi
+}
+
+# --- T1 / CDT-305: commands/epic.md --autopilot row says seal-intent, not "unused"
+# _w9_ap_row_ok <file>: the --autopilot row names seal-intent and release_bump
+# and says neither "Unused" nor "Independent of" (Linear goal: one contract in
+# commands/epic.md, the epic SKILL and SPEC-033).
+_w9_ap_row_ok() {
+  local row
+  row=$(grep -F '| `[--autopilot[=<token>]]` |' "$1" | head -n1)
+  [ -n "$row" ] || return 1
+  printf '%s' "$row" | grep -q 'seal-intent' || return 1
+  printf '%s' "$row" | grep -q 'release_bump' || return 1
+  if printf '%s' "$row" | grep -qi 'unused'; then return 1; fi
+  if printf '%s' "$row" | grep -qi 'independent of'; then return 1; fi
+  return 0
+}
+# planted negative controls: the pre-WP 1-09 wording, and a row that has the new
+# words but still says "Independent of"
+W9_OLD_ROW=$(mktemp "$W9_ROOT/old-row.XXXXXX")
+printf '%s\n' '| `[--autopilot[=<token>]]` | self-answer gates. Unused by `/epic` (never ships) but resolved+carried for seed parity. |' >"$W9_OLD_ROW"
+if _w9_ap_row_ok "$W9_OLD_ROW"; then fail "w109 T1 negative control: old row accepted"; else pass; fi
+W9_IND_ROW=$(mktemp "$W9_ROOT/ind-row.XXXXXX")
+printf '%s\n' '| `[--autopilot[=<token>]]` | A bump is seal-intent and sets release_bump. Independent of `--worktree`/`--release`. |' >"$W9_IND_ROW"
+if _w9_ap_row_ok "$W9_IND_ROW"; then fail "w109 T1 negative control: 'Independent of' row accepted"; else pass; fi
+if _w9_ap_row_ok "$W9_CMD"; then pass; else fail "w109 T1 commands/epic.md --autopilot row: want seal-intent + release_bump, no 'Unused' / 'Independent of'"; fi
+
+# _w9_no_orth <file>: no "Orthogonal to `--autopilot`" claim (a bump token is seal-intent)
+_w9_no_orth() { if grep -qF 'Orthogonal to `--autopilot`' "$1"; then return 1; fi; return 0; }
+W9_ORTH=$(mktemp "$W9_ROOT/orth.XXXXXX")
+printf '%s\n' 'Without this flag: no epic seal path. Orthogonal to `--autopilot`. |' >"$W9_ORTH"
+if _w9_no_orth "$W9_ORTH"; then fail "w109 T1 negative control: Orthogonal claim accepted"; else pass; fi
+if _w9_no_orth "$W9_CMD"; then pass; else fail "w109 T1 commands/epic.md still says Orthogonal to --autopilot"; fi
+if _w9_no_orth "$W9_SKILL"; then pass; else fail "w109 T1 SKILL.md still says Orthogonal to --autopilot"; fi
+if grep -qF 'Token is unused by' "$W9_SKILL"; then fail "w109 T1 SKILL.md Step 0.5 still says the token is unused"; else pass; fi
+
+# _w9_m5_ok <file>: the M5 ship-choice row's /epic cell says the seal ships it
+# (B.7, M14) and not "/epic never ships".
+_w9_m5_ok() {
+  local row
+  row=$(grep -F '| `ship-choice` |' "$1" | head -n1)
+  [ -n "$row" ] || return 1
+  printf '%s' "$row" | grep -qF 'ships only via B.7 seal (M14)' || return 1
+  if printf '%s' "$row" | grep -qF '`/epic` never ships'; then return 1; fi
+  return 0
+}
+W9_OLD_M5=$(mktemp "$W9_ROOT/old-m5.XXXXXX")
+printf '%s\n' '  | `ship-choice` | Step 11 (ship options) | **N/A** — `/kickoff` never ships | **N/A** — `/epic` never ships (M11: no code) |' >"$W9_OLD_M5"
+if _w9_m5_ok "$W9_OLD_M5"; then fail "w109 T1 negative control: old M5 cell accepted"; else pass; fi
+if _w9_m5_ok "$HERE/../autopilot/SKILL.md"; then pass; else fail "w109 T1 skills/autopilot/SKILL.md M5 ship-choice cell: want 'ships only via B.7 seal (M14)'"; fi
+if _w9_m5_ok "$HERE/../../specs/core/SPEC-033-autopilot-policy.md"; then pass; else fail "w109 T1 SPEC-033 M5 ship-choice cell: want 'ships only via B.7 seal (M14)'"; fi
+
+# _w9_ap_doc_ok <file>: prose names seal-intent and the resume exit 64 rule
+_w9_ap_doc_ok() {
+  grep -q 'seal-intent' "$1" || return 1
+  grep -q 'release_bump' "$1" || return 1
+  grep -qi 'resume' "$1" || return 1
+  grep -q '64' "$1" || return 1
+  return 0
+}
+W9_OLD_DOC=$(mktemp "$W9_ROOT/old-doc.XXXXXX")
+printf '%s\n' '`--autopilot`: Mode B keeps walking until B.3 halt/`n`.' >"$W9_OLD_DOC"
+if _w9_ap_doc_ok "$W9_OLD_DOC"; then fail "w109 T1 negative control: old doc accepted"; else pass; fi
+if _w9_ap_doc_ok "$W9_DOCS"; then pass
+else fail "w109 T1 docs/commands/epic.md: want seal-intent, release_bump, and the resume exit 64 rule for --autopilot"; fi
+W9_S05=$(md_section "$W9_SKILL" "## Step 0.5")
+if printf '%s\n' "$W9_S05" | grep -q 'resolve-resume-flags' \
+  && printf '%s\n' "$W9_S05" | grep -qi 'on resume'; then pass
+else fail "w109 T1 SKILL Step 0.5: BC5 seal-intent must name the resume rule (resolve-resume-flags, on resume)"; fi
+
+# --- T1 / rv-w2-34: resume with --autopilot=<bump> and null release_bump -> 64
+w9 0 init W34-NULL --title "null bump" --mode orchestrate
+w9 0 init W34-WT --title "worktree only" --mode orchestrate --worktree-enabled true
+w9 0 init W34-SEAL --title "sealed intent" --mode orchestrate --worktree-enabled true --release-bump patch
+W34_STATE="$W9_ROOT/.claude/epics/W34-NULL/state.json"
+W34_SUM=$(cksum <"$W34_STATE")
+for W34_TOK in patch minor major; do
+  w9 64 resolve-resume-flags W34-NULL -- W34-NULL "--autopilot=$W34_TOK"
+  if printf '%s' "$OUT" | grep -q 'release_bump' && printf '%s' "$OUT" | grep -qi 'seal'; then pass
+  else fail "w109 W2-34 $W34_TOK: 64 message must name release_bump and seal: $OUT"; fi
+done
+w9 64 resolve-resume-flags W34-WT -- W34-WT --autopilot=minor
+# zero side effects on the refusal
+[ "$(cksum <"$W34_STATE")" = "$W34_SUM" ] && pass || fail "w109 W2-34 state changed by the refused resume"
+# token that is not a release bump never adds seal-intent: still resumes
+w9 0 resolve-resume-flags W34-NULL -- W34-NULL --autopilot=master
+printf '%s' "$OUT" | jq -e '.release_bump==null' >/dev/null && pass || fail "w109 W2-34 master token: release_bump must stay null ($OUT)"
+w9 0 resolve-resume-flags W34-NULL -- W34-NULL --autopilot
+w9 0 resolve-resume-flags W34-NULL -- W34-NULL
+# state already holds the bump: resume keeps it and assert-release-allowed blocks a mid-epic land
+w9 0 resolve-resume-flags W34-SEAL -- W34-SEAL --autopilot=patch
+printf '%s' "$OUT" | jq -e '.release_bump=="patch" and .worktree_enabled==true' >/dev/null \
+  && pass || fail "w109 W2-34 resume with stored bump: want patch/true ($OUT)"
+w9 64 assert-release-allowed W34-SEAL
+
+# --- T2 / CDT-315: ensure-integration-worktree / ensure-ticket-worktree never
+# exit 0 when worktree-lib fails. A stub that exits 0 with an empty path is a
+# failure; a stub that exits N keeps rc N.
+W9_WT_EMPTY="$W9_ROOT/wt-exit0-empty.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$W9_WT_EMPTY"
+W9_WT_RC3="$W9_ROOT/wt-exit3.sh"
+printf '#!/usr/bin/env bash\necho "stub: boom" >&2\nexit 3\n' >"$W9_WT_RC3"
+# w9wt <want-rc> <wt-lib> <lib args...>
+w9wt() {
+  local want="$1" wtlib="$2"; shift 2
+  set +e
+  OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_WT_LIB="$wtlib" bash "$LIB" "$@" 2>&1)
+  RC=$?
+  set -e
+  if [ "$RC" -eq "$want" ]; then pass
+  else fail "w109 wt exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
+  fi
+}
+w9 0 init W315 --title "wt fail" --mode orchestrate --worktree-enabled true
+w9wt 1 "$W9_WT_EMPTY" ensure-integration-worktree W315
+w9wt 3 "$W9_WT_RC3" ensure-integration-worktree W315
+if jq -e '(.integration_path // null) == null' "$W9_ROOT/.claude/epics/W315/state.json" >/dev/null; then pass
+else fail "w109 CDT-315 failed ensure must not record integration_path"; fi
+w9wt 1 "$W9_WT_EMPTY" ensure-ticket-worktree W315-NOSUCH-TICKET
+w9wt 3 "$W9_WT_RC3" ensure-ticket-worktree W315-NOSUCH-TICKET
+
+# --- T4 / W3-37: parent lookup prefers the active parent; mark-done is scoped
+# w9child <epic> <child-id> <deps-json> [linear-id]
+w9child() {
+  local epic="$1" cid="$2" deps="$3" lin="${4:-}"
+  if [ -n "$lin" ]; then
+    w9 0 add-child "$epic" --id "$cid" --slug s --title t --estimate S --agent ic4 \
+      --depends-on "$deps" --problem p --ac '["a"]' --linear-id "$lin"
+  else
+    w9 0 add-child "$epic" --id "$cid" --slug s --title t --estimate S --agent ic4 \
+      --depends-on "$deps" --problem p --ac '["a"]'
+  fi
+}
+# w9state <epic> <jq filter> — rewrite that epic's state.json
+w9state() {
+  local f="$W9_ROOT/.claude/epics/$1/state.json"
+  jq "$2" "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+}
+# Two epics share linear id LIN-DUP-1: A-OLD (sealed, older; first alphabetically)
+# and B-NEW (unsealed, newer). The active parent is B-NEW.
+w9 0 init A-OLD --title old --mode orchestrate --worktree-enabled true --release-bump patch
+w9 0 init B-NEW --title new --mode orchestrate --worktree-enabled true --release-bump patch
+w9child A-OLD A-OLD-C1 '[]' LIN-DUP-1
+w9child B-NEW B-NEW-C1 '[]' LIN-DUP-1
+w9state A-OLD '.sealed=true | .created_at="2026-01-01T00:00:00Z"'
+w9state B-NEW '.created_at="2026-06-01T00:00:00Z"'
+w9 0 resolve-child-worktree LIN-DUP-1
+printf '%s' "$OUT" | jq -e '.epic_id=="B-NEW"' >/dev/null \
+  && pass || fail "w109 W3-37 resolve-child-worktree must pick the unsealed parent B-NEW ($OUT)"
+w9 64 assert-release-allowed LIN-DUP-1
+printf '%s' "$OUT" | grep -q 'epic B-NEW is in release=end mode' \
+  && pass || fail "w109 W3-37 assert-release-allowed must name B-NEW, not the sealed A-OLD ($OUT)"
+
+# both unsealed: newest created_at wins, even when the older one sorts first
+w9 0 init C-ONE --title one --mode orchestrate
+w9 0 init D-TWO --title two --mode orchestrate
+w9child C-ONE C-ONE-C1 '[]' LIN-DUP-2
+w9child D-TWO D-TWO-C1 '[]' LIN-DUP-2
+w9state C-ONE '.created_at="2026-01-01T00:00:00Z"'
+w9state D-TWO '.created_at="2026-06-01T00:00:00Z"'
+w9 0 resolve-child-worktree LIN-DUP-2
+printf '%s' "$OUT" | jq -e '.epic_id=="D-TWO"' >/dev/null \
+  && pass || fail "w109 W3-37 newest unsealed parent D-TWO must win ($OUT)"
+
+# both sealed: newest sealed wins
+w9 0 init G-S1 --title s1 --mode orchestrate
+w9 0 init H-S2 --title s2 --mode orchestrate
+w9child G-S1 G-S1-C1 '[]' LIN-DUP-3
+w9child H-S2 H-S2-C1 '[]' LIN-DUP-3
+w9state G-S1 '.sealed=true | .created_at="2026-01-01T00:00:00Z"'
+w9state H-S2 '.sealed=true | .created_at="2026-06-01T00:00:00Z"'
+w9 0 resolve-child-worktree LIN-DUP-3
+printf '%s' "$OUT" | jq -e '.epic_id=="H-S2"' >/dev/null \
+  && pass || fail "w109 W3-37 newest sealed parent H-S2 must win when all are sealed ($OUT)"
+
+# a single match still resolves (no regression)
+w9 0 resolve-child-worktree B-NEW-C1
+printf '%s' "$OUT" | jq -e '.epic_id=="B-NEW" and .is_epic_child==true' >/dev/null \
+  && pass || fail "w109 W3-37 single-match lookup ($OUT)"
+
+# mark-done completes the child only in the resolved epic
+w9 0 mark-done LIN-DUP-1
+[ "$(jq -r '.children[0].status' "$W9_ROOT/.claude/epics/B-NEW/state.json")" = "completed" ] \
+  && pass || fail "w109 W3-37 mark-done must complete the child in B-NEW"
+[ "$(jq -r '.children[0].status' "$W9_ROOT/.claude/epics/A-OLD/state.json")" = "pending" ] \
+  && pass || fail "w109 W3-37 mark-done must not touch the sealed epic A-OLD"
+w9 0 mark-done LIN-NO-SUCH-TICKET
+
+# --- T4 / W3-37: waves in one Kahn pass, one ready-set definition
+# w9waves <epic> <expected>
+w9waves() {
+  w9 0 waves "$1"
+  [ "$OUT" = "$2" ] && pass || fail "w109 W3-37 waves $1: got [$OUT] want [$2]"
+}
+w9 0 init WV-D --title d --mode orchestrate
+w9child WV-D WV-D-C1 '[]'
+w9child WV-D WV-D-C2 '["WV-D-C1"]'
+w9child WV-D WV-D-C3 '["WV-D-C1"]'
+w9child WV-D WV-D-C4 '["WV-D-C2","WV-D-C3"]'
+w9waves WV-D 'Wave 1: WV-D-C1 → Wave 2: WV-D-C2, WV-D-C3 → Wave 3: WV-D-C4'
+# cycle: the cyclic pair lands in one final wave
+w9 0 init WV-X --title x --mode orchestrate
+w9child WV-X WV-X-C1 '["WV-X-C2"]'
+w9child WV-X WV-X-C2 '["WV-X-C1"]'
+w9child WV-X WV-X-C3 '[]'
+w9waves WV-X 'Wave 1: WV-X-C3 → Wave 2: WV-X-C1, WV-X-C2'
+# unknown dep is ignored; a duplicated dep counts once per wave
+w9 0 init WV-G --title g --mode orchestrate
+w9child WV-G WV-G-C1 '["GHOST-1"]'
+w9child WV-G WV-G-C2 '["WV-G-C1","WV-G-C1"]'
+w9waves WV-G 'Wave 1: WV-G-C1 → Wave 2: WV-G-C2'
+# self-dependency never becomes ready: it falls into the final wave
+w9 0 init WV-S --title s --mode orchestrate
+w9child WV-S WV-S-C1 '["WV-S-C1"]'
+w9child WV-S WV-S-C2 '[]'
+w9waves WV-S 'Wave 1: WV-S-C2 → Wave 2: WV-S-C1'
+# no children: one empty line
+w9 0 init WV-E --title e --mode orchestrate
+w9waves WV-E ''
+# ids sort as strings (C1 < C10 < C11 < C2)
+w9 0 init WV-10 --title t --mode orchestrate
+for W9_I in 1 2 3 10 11; do w9child WV-10 "WV-10-C$W9_I" '[]'; done
+w9child WV-10 WV-10-C4 '["WV-10-C10"]'
+w9waves WV-10 'Wave 1: WV-10-C1, WV-10-C10, WV-10-C11, WV-10-C2, WV-10-C3 → Wave 2: WV-10-C4'
+w9 0 ready-set WV-10
+[ "$(printf '%s\n' "$OUT" | paste -sd, -)" = "WV-10-C1,WV-10-C10,WV-10-C11,WV-10-C2,WV-10-C3" ] \
+  && pass || fail "w109 W3-37 ready-set WV-10 ($OUT)"
+w9 0 show WV-10
+printf '%s' "$OUT" | jq -e '.ready == ["WV-10-C1","WV-10-C10","WV-10-C11","WV-10-C2","WV-10-C3"]' >/dev/null \
+  && pass || fail "w109 W3-37 show.ready WV-10 ($OUT)"
+
+# process count: jq runs per `waves` call must not grow with the edge count
+W9_SHIM="$W9_ROOT/shim"
+W9_JQLOG="$W9_ROOT/jq-calls.log"
+mkdir -p "$W9_SHIM"
+W9_REAL_JQ=$(command -v jq)
+printf '#!/usr/bin/env bash\necho x >>"%s"\nexec "%s" "$@"\n' "$W9_JQLOG" "$W9_REAL_JQ" >"$W9_SHIM/jq"
+chmod +x "$W9_SHIM/jq"
+# big fixture: 12 children, 3 deps each (written straight to state.json)
+mkdir -p "$W9_ROOT/.claude/epics/WV-BIG"
+jq -n '{epic_id:"WV-BIG", title:"big", execution_mode:"orchestrate", children:
+  [range(1;13) as $n | {id:"WV-BIG-C\($n)", status:"pending",
+    depends_on:([range(1;$n) | "WV-BIG-C\(.)"] | .[-3:])}]}' \
+  >"$W9_ROOT/.claude/epics/WV-BIG/state.json"
+w9_waves_jq_calls() {  # <epic> -> prints the number of jq processes one `waves` call starts
+  : >"$W9_JQLOG"
+  ( cd "$W9_ROOT" && PATH="$W9_SHIM:$PATH" EPIC_ROOT="$W9_ROOT" bash "$LIB" waves "$1" >/dev/null 2>&1 ) || true
+  wc -l <"$W9_JQLOG" | tr -d ' '
+}
+W9_CALLS_SMALL=$(w9_waves_jq_calls WV-D)
+W9_CALLS_BIG=$(w9_waves_jq_calls WV-BIG)
+[ "$W9_CALLS_SMALL" -eq "$W9_CALLS_BIG" ] && pass \
+  || fail "w109 W3-37 waves jq processes grow with edges: small=$W9_CALLS_SMALL big=$W9_CALLS_BIG"
+[ "$W9_CALLS_BIG" -le 3 ] && pass || fail "w109 W3-37 waves starts $W9_CALLS_BIG jq processes (want <= 3)"
+
+# one copy of the ready-set rule: epic-lib.sh holds it once (negative control:
+# a planted file with three copies must be seen as three)
+W9_READY_PLANT=$(mktemp "$W9_ROOT/ready-plant.XXXXXX")
+for W9_I in 1 2 3; do printf '%s\n' '| select(.status == "pending")' >>"$W9_READY_PLANT"; done
+[ "$(grep -c 'select(.status == "pending")' "$W9_READY_PLANT")" -eq 3 ] \
+  && pass || fail "w109 W3-37 negative control: planted copies not counted"
+[ "$(grep -c 'select(.status == "pending")' "$LIB")" -eq 1 ] \
+  && pass || fail "w109 W3-37 epic-lib.sh must hold one ready-set definition, found $(grep -c 'select(.status == "pending")' "$LIB")"
+
+# --- T4 / W3-37: more check-cycle coverage (thin wrapper over dag-lib)
+# w9cyc <want-rc> <json>
+w9cyc() {
+  local want="$1" json="$2" f
+  f=$(mktemp "$W9_ROOT/cyc.XXXXXX")
+  printf '%s\n' "$json" >"$f"
+  w9 "$want" check-cycle "$f"
+}
+w9cyc 1 '[{"task_id":"A","depends_on":["A"]}]'
+w9cyc 1 '[{"task_id":"A","depends_on":["B"]},{"task_id":"B","depends_on":["C"]},{"task_id":"C","depends_on":["A"]}]'
+printf '%s' "$OUT" | grep -qi cycle && pass || fail "w109 W3-37 3-cycle message ($OUT)"
+w9cyc 0 '[{"task_id":"A","depends_on":[]},{"task_id":"B","depends_on":["A"]},{"task_id":"C","depends_on":["A"]},{"task_id":"D","depends_on":["B","C"]}]'
+w9cyc 0 '[{"task_id":"A","depends_on":["NOT-A-NODE"]}]'
+w9cyc 0 '[]'
+w9cyc 2 'not json'
+w9 2 check-cycle "$W9_ROOT/no-such-file.json"
+w9 64 check-cycle
+set +e
+OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_DAG_LIB="$W9_ROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$W9_ROOT/no-such-file.json" 2>&1)
+RC=$?
+set -e
+[ "$RC" -eq 1 ] && pass || fail "w109 W3-37 missing dag-lib must exit 1 (rc=$RC out=$OUT)"
+
+# --- T4 / W3-37: SKILL Step 0.4 passes the tool's own exit code through.
+# The fence runs against a stub plugin root whose epic-lib.sh answers `exists`
+# with 0 and `resolve-resume-flags` with the rc in STUB_RC.
+W9_FIX="$W9_ROOT/fix04"
+mkdir -p "$W9_FIX/skills/epic"
+cp "$HERE/../plugin-dir.sh" "$W9_FIX/skills/plugin-dir.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$W9_FIX/skills/epic/parse-flags.sh"
+cat >"$W9_FIX/skills/epic/epic-lib.sh" <<'STUB_EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  exists) exit 0 ;;
+  resolve-resume-flags) echo "stub: resolve failed" >&2; exit "${STUB_RC:-0}" ;;
+  *) exit 64 ;;
+esac
+STUB_EOF
+chmod +x "$W9_FIX/skills/epic/epic-lib.sh" "$W9_FIX/skills/epic/parse-flags.sh"
+W9_F04=$(fence_nth "$W9_SKILL" "## Step 0.4" 1)
+if [ -z "$W9_F04" ]; then
+  fail "w109 W3-37 Step 0.4 fence not found"
+else
+  W9_F04_RUN="$W9_FIX/run-04.sh"
+  printf '%s\n' "$W9_F04" | sed -e 's|<EPIC-ID>|W9-04|g' >"$W9_F04_RUN"
+  for W9_RC in 64 1 2 7; do
+    set +e
+    OUT=$(cd "$W9_ROOT" && CLAUDE_PLUGIN_ROOT="$W9_FIX" STUB_RC="$W9_RC" bash "$W9_F04_RUN" --worktree 2>&1)
+    RC=$?
+    set -e
+    [ "$RC" -eq "$W9_RC" ] && pass || fail "w109 W3-37 Step 0.4 fence: resolve rc $W9_RC must exit $W9_RC, got $RC ($OUT)"
+  done
+fi
+
+# --- T4 / CDT-404: sync-apply pulls status forward only
+# w9sync <epic> <child-json-array>; sets OUT (report JSON)
+w9sync() {
+  local f
+  f=$(mktemp "$W9_ROOT/verdicts.XXXXXX")
+  printf '{"children":%s}\n' "$2" >"$f"
+  w9 0 sync-apply "$1" --verdicts "$f"
+}
+# w9status <epic> <child-id> -> local status
+w9status() { jq -r --arg id "$2" '.children[] | select(.id==$id) | .status' "$W9_ROOT/.claude/epics/$1/state.json"; }
+w9 0 init SY --title sync --mode orchestrate
+for W9_I in 1 2 3 4 5 6; do w9child SY "SY-C$W9_I" '[]'; done
+w9 0 set-status SY SY-C2 in_progress
+w9 0 set-status SY SY-C3 in_progress
+w9 0 set-status SY SY-C4 blocked
+w9 0 set-status SY SY-C5 blocked
+w9 0 set-status SY SY-C6 completed
+# backward: in_progress -> pending, blocked -> pending: skipped, status kept
+w9sync SY '[{"id":"SY-C2","status":"pending"},{"id":"SY-C4","status":"pending"}]'
+printf '%s' "$OUT" | jq -e '[.skipped[] | select(.action=="no_backward_status")] | length == 2' >/dev/null \
+  && pass || fail "w109 CDT-404 backward moves must be skipped as no_backward_status ($OUT)"
+printf '%s' "$OUT" | jq -e '.applied_count==0' >/dev/null && pass || fail "w109 CDT-404 nothing applied ($OUT)"
+[ "$(w9status SY SY-C2)" = "in_progress" ] && pass || fail "w109 CDT-404 C2 must stay in_progress, got $(w9status SY SY-C2)"
+[ "$(w9status SY SY-C4)" = "blocked" ] && pass || fail "w109 CDT-404 C4 must stay blocked, got $(w9status SY SY-C4)"
+# completed is still never downgraded (its own action name)
+w9sync SY '[{"id":"SY-C6","status":"pending"},{"id":"SY-C6","status":"in_progress"}]'
+printf '%s' "$OUT" | jq -e '[.skipped[] | select(.action=="no_downgrade_completed")] | length == 2' >/dev/null \
+  && pass || fail "w109 CDT-404 completed downgrade action ($OUT)"
+# forward and lateral moves apply: pending->in_progress, in_progress->completed,
+# in_progress->blocked, blocked->in_progress
+w9sync SY '[{"id":"SY-C1","status":"in_progress"},{"id":"SY-C2","status":"completed"},{"id":"SY-C3","status":"blocked"},{"id":"SY-C5","status":"in_progress"}]'
+printf '%s' "$OUT" | jq -e '.applied_count==4' >/dev/null && pass || fail "w109 CDT-404 forward/lateral moves apply ($OUT)"
+[ "$(w9status SY SY-C1)" = "in_progress" ] && [ "$(w9status SY SY-C2)" = "completed" ] \
+  && [ "$(w9status SY SY-C3)" = "blocked" ] && [ "$(w9status SY SY-C5)" = "in_progress" ] \
+  && pass || fail "w109 CDT-404 forward/lateral end states"
+
+# --- T4 / CDT-322: SKILL defines the /epic decision map. reroute-epic never
+# loops back into /epic and never passes A.5 silently; B.3 states the nested-epic
+# rule. Predicates run on the real SKILL and on planted old text.
+# _w9_map_ok <A.5-text> <B.3-text>
+_w9_map_ok() {
+  if printf '%s\n%s\n' "$1" "$2" | grep -q 'shared C4 Decision→action map'; then return 1; fi
+  # A.5: more than 8 children -> soft warn card line, continue; otherwise halt; never a silent proceed
+  printf '%s\n' "$1" | grep -q 'reroute-epic' || return 1
+  printf '%s\n' "$1" | grep -qF 'scope-confirm reroute-epic (soft warn)' || return 1
+  printf '%s\n' "$1" | grep -qi 'more than 8 children' || return 1
+  printf '%s\n' "$1" | grep -qi 'treat as `halt`' || return 1
+  if printf '%s\n' "$1" | grep -qi 'treat as `proceed`'; then return 1; fi
+  # B.3: halt + --redecompose, and an explicit nested-epic rule
+  printf '%s\n' "$2" | grep -q 'reroute-epic' || return 1
+  printf '%s\n' "$2" | grep -qi 'treat as `halt`' || return 1
+  printf '%s\n' "$2" | grep -q -- '--redecompose' || return 1
+  printf '%s\n' "$2" | grep -qi 'nested epic' || return 1
+  printf '%s\n' "$2" | grep -qi 'not allowed' || return 1
+  if printf '%s\n%s\n' "$1" "$2" | grep -qE 'hand (that child )?to `/epic`'; then return 1; fi
+  return 0
+}
+W9_OLD_A5='- any other decision follows the shared C4 Decision→action map (e.g. `reroute-epic` → same one-line message, then hand to `/epic` decompose).'
+W9_OLD_B3='- any other decision follows the shared C4 Decision→action map (e.g. `reroute-epic` → same one-line message, then hand that child to `/epic` decompose per M11 self-reroute).'
+if _w9_map_ok "$W9_OLD_A5" "$W9_OLD_B3"; then fail "w109 CDT-322 negative control: old text accepted"; else pass; fi
+W9_A5=$(md_section "$W9_SKILL" "### A.5")
+W9_B3=$(md_section "$W9_SKILL" "### B.3")
+# the first WP 1-09 wording passed A.5 silently: it must be rejected too
+W9_SILENT_A5='- `reroute-epic` (BC5 complexity overflow) → treat as `proceed`. `/epic` decompose is itself the reroute target. Continue to **A.6**.
+- any other value → treat as `halt`.'
+if _w9_map_ok "$W9_SILENT_A5" "$W9_B3"; then fail "w109 CDT-322 negative control: silent-proceed A.5 accepted"; else pass; fi
+if _w9_map_ok "$W9_A5" "$W9_B3"; then pass
+else fail "w109 CDT-322 SKILL A.5/B.3: A.5 reroute-epic = soft warn when more than 8 children, else halt (never a silent proceed); B.3 = halt + --redecompose + a nested-epic rule; no shared map, no hand back to /epic"; fi
+if grep -q 'shared C4 Decision→action map' "$W9_SKILL"; then fail "w109 CDT-322 SKILL still cites the undefined shared C4 map"; else pass; fi
+
+# _w9_spec_ok <file>: the spec text carries the soft-warn rule and the nested-epic rule
+_w9_spec_ok() {
+  grep -qi 'soft warn' "$1" || return 1
+  grep -qi 'nested epic' "$1" || return 1
+  return 0
+}
+W9_OLD_SPEC=$(mktemp "$W9_ROOT/old-spec.XXXXXX")
+printf '%s\n' 'A.5 runs reroute-epic as proceed. B.3 runs it as halt.' >"$W9_OLD_SPEC"
+if _w9_spec_ok "$W9_OLD_SPEC"; then fail "w109 CDT-322 negative control: old spec text accepted"; else pass; fi
+if _w9_spec_ok "$HERE/../../specs/core/SPEC-025-epic-umbrella-decomposition.md"; then pass; else fail "w109 CDT-322 SPEC-025 must state the A.5 soft warn and the B.3 nested-epic rule"; fi
+if _w9_spec_ok "$HERE/../../specs/core/SPEC-033-autopilot-policy.md"; then pass; else fail "w109 CDT-322 SPEC-033 must state the A.5 soft warn and the B.3 nested-epic rule"; fi
+
+# --- TL fix 4: resolve-resume-flags takes the bump from the autopilot parser
+# (skills/autopilot/parse-flags.sh owns the token grammar; epic-lib never copies it).
+# A stub parser that reports bump=minor proves the delegation: no --autopilot
+# argument is needed to trip the rule.
+W9_AP_STUB="$W9_ROOT/ap-stub.sh"
+# w9ap <want-rc> <stub-json-or-rc> <args...>
+w9ap() {
+  local want="$1" stub="$2"; shift 2
+  case "$stub" in
+    rc:*) printf '#!/usr/bin/env bash\necho "stub: parser failed" >&2\nexit %s\n' "${stub#rc:}" >"$W9_AP_STUB" ;;
+    warn:*)
+      printf '%s\n' "${stub#warn:}" >"$W9_AP_STUB.json"
+      printf '#!/usr/bin/env bash\necho "stub: a warning on stderr" >&2\ncat "%s.json"\n' "$W9_AP_STUB" >"$W9_AP_STUB"
+      ;;
+    *)
+      printf '%s\n' "$stub" >"$W9_AP_STUB.json"
+      printf '#!/usr/bin/env bash\ncat "%s.json"\n' "$W9_AP_STUB" >"$W9_AP_STUB"
+      ;;
+  esac
+  set +e
+  OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_AUTOPILOT_PARSE_FLAGS="$W9_AP_STUB" bash "$LIB" "$@" 2>&1)
+  RC=$?
+  set -e
+  if [ "$RC" -eq "$want" ]; then pass
+  else fail "w109 TL4 exit $RC != $want for stub=$stub: $*"; echo "  out: $OUT" | head -c 400; echo
+  fi
+}
+w9ap 64 '{"enabled":true,"bump":"minor","source":"flag"}' resolve-resume-flags W34-NULL -- W34-NULL
+w9ap 64 '{"enabled":true,"bump":"major","source":"flag"}' resolve-resume-flags W34-WT -- W34-WT
+w9ap 0 '{"enabled":true,"bump":"master","source":"flag"}' resolve-resume-flags W34-NULL -- W34-NULL
+w9ap 0 '{"enabled":true,"bump":null,"source":"flag"}' resolve-resume-flags W34-NULL -- W34-NULL
+w9ap 0 '{"enabled":true,"bump":"minor","source":"flag"}' resolve-resume-flags W34-SEAL -- W34-SEAL
+w9ap 64 rc:64 resolve-resume-flags W34-NULL -- W34-NULL --autopilot=patch
+# parser output that is not JSON must fail closed (exit non-zero), never "no bump"
+w9ap 1 'this is not json' resolve-resume-flags W34-NULL -- W34-NULL
+w9ap 1 '' resolve-resume-flags W34-NULL -- W34-NULL
+# stderr noise from the parser is not part of its JSON: a valid bump still trips the rule
+w9ap 64 'warn:{"enabled":true,"bump":"minor","source":"flag"}' resolve-resume-flags W34-NULL -- W34-NULL
+# no copy of the token grammar in epic-lib.sh (planted negative control)
+_w9_no_grammar_copy() { if grep -q -- '--autopilot=patch|--autopilot=minor|--autopilot=major' "$1"; then return 1; fi; return 0; }
+W9_GRAM=$(mktemp "$W9_ROOT/gram.XXXXXX")
+printf '%s\n' '      --autopilot=patch|--autopilot=minor|--autopilot=major)' >"$W9_GRAM"
+if _w9_no_grammar_copy "$W9_GRAM"; then fail "w109 TL4 negative control: grammar copy not detected"; else pass; fi
+if _w9_no_grammar_copy "$LIB"; then pass; else fail "w109 TL4 epic-lib.sh still copies the --autopilot token grammar"; fi
+
+rm -rf "$W9_ROOT"
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

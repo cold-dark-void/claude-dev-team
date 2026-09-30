@@ -85,6 +85,21 @@ GIT_SAFETY="${EPIC_GIT_SAFETY:-$HERE/../lib/git-safety.sh}"
 # Seal squash-stage / abort gate excludes — defined once (C2).
 SEAL_EXCLUDES=(.claude/epics/ .worktrees/ .wt-lock)
 
+# The ONE copy of the ready-set rule (WP 1-09 / W3-37). ready ⟺ status is
+# pending AND every depends_on id has status completed; a dep id that is not a
+# child counts as incomplete. Prepend it to a jq program run over a state
+# object; `ready_ids` emits the sorted array of ready child ids.
+_JQ_READY_DEF='
+def ready_ids:
+  (.children as $all
+   | ($all | map({key:.id, value:.status}) | from_entries) as $stmap
+   | [$all[]
+      | select(.status == "pending")
+      | select(all(.depends_on[]?; ($stmap[.] // "missing") == "completed"))
+      | .id]
+   | sort);
+'
+
 resolve_mroot() {
   if [ -n "${EPIC_ROOT:-}" ]; then
     MROOT="$EPIC_ROOT"
@@ -523,10 +538,12 @@ cmd_ensure_integration_worktree() {
     erc=$?
     set -e
     if [ "$erc" -ne 0 ] || [ -z "$path" ]; then
-      local diag
+      local diag frc="$erc"
       diag=$(tr '\n' ' ' <"$errf" | sed 's/[[:space:]]*$//')
       rm -f "$errf"
-      die "${erc:-1}" "ensure-integration-worktree: worktree-lib ensure failed for $slug (rc=$erc)${diag:+: $diag}"
+      # CDT-315: rc 0 with an empty path is still a failure — never exit 0 here.
+      [ "$frc" -ne 0 ] || frc=1
+      die "$frc" "ensure-integration-worktree: worktree-lib ensure failed for $slug (rc=$erc)${diag:+: $diag}"
     fi
     rm -f "$errf"
 
@@ -565,6 +582,8 @@ cmd_resolve_resume_flags() {
   #   (worktree_enabled // false, release_bump // null). No silent downgrade.
   # - M14 flags present → must match state exactly or exit 64 (zero side effects).
   # - Always re-parses via parse-flags first (illegal combos still 64).
+  # - --autopilot=patch|minor|major over a null durable release_bump → exit 64
+  #   (rv-w2-34: resume has no init, so seal-intent cannot be persisted here).
   # Stdout: same JSON as parse-flags.sh.
   local epic_id="${1:-}"
   [ -n "$epic_id" ] || die 64 "resolve-resume-flags: missing <EPIC-ID>"
@@ -589,6 +608,7 @@ cmd_resolve_resume_flags() {
     exit "$prc"
   fi
 
+  # flags_present: an M14 flag is in argv.
   local flags_present=false a
   for a in "$@"; do
     case "$a" in
@@ -599,9 +619,40 @@ cmd_resolve_resume_flags() {
     esac
   done
 
+  # ap_bump: the release bump of --autopilot=<bump>, read from the autopilot
+  # parser (skills/autopilot/parse-flags.sh owns the token grammar; nothing here
+  # restates it). null (no token) and `master` (land-no-release) are not a bump.
+  local ap_parse="${EPIC_AUTOPILOT_PARSE_FLAGS:-$HERE/../autopilot/parse-flags.sh}"
+  [ -f "$ap_parse" ] || die 1 "resolve-resume-flags: autopilot parse-flags not found: $ap_parse"
+  local ap_json aprc=0 ap_bump=""
+  # Fail closed: stdout only (the parser's stderr passes through); a parser
+  # failure keeps the parser's exit code; output that is not a JSON object is an
+  # error, never "no bump" (that would skip the exit-64 guard below).
+  set +e
+  ap_json=$(bash "$ap_parse" "$@")
+  aprc=$?
+  set -e
+  if [ "$aprc" -ne 0 ]; then
+    [ -z "$ap_json" ] || printf '%s\n' "$ap_json" >&2
+    exit "$aprc"
+  fi
+  ap_bump=$(printf '%s' "$ap_json" \
+    | jq -er 'if type == "object" then (.bump // "") else error("not an object") end') \
+    || die 1 "resolve-resume-flags: autopilot parse-flags output is not JSON"
+  [ "$ap_bump" != "master" ] || ap_bump=""
+
   local sw sr
   sw=$(echo "$st" | jq -r 'if .worktree_enabled == true then "true" else "false" end')
   sr=$(echo "$st" | jq -c '.release_bump // null')
+
+  # rv-w2-34 / WP 1-09: seal-intent (SKILL Step 0.5 BC5) is persisted by `init`
+  # only. A resume has no init, so a bump token over a null durable release_bump
+  # would change the session var alone and diverge from state (and
+  # assert-release-allowed would still allow a mid-epic land). Fail instead;
+  # zero side effects (C6 policy).
+  if [ -n "$ap_bump" ] && [ "$sr" = "null" ]; then
+    die 64 "resume --autopilot=$ap_bump: state release_bump is null, so the bump cannot be seal-intent on resume (no session-only release_bump). Resume with bare --autopilot or --autopilot=master, or start a new epic with --worktree --release $ap_bump"
+  fi
 
   if [ "$flags_present" = false ]; then
     # Honor durable store — modes from state, not CLI defaults
@@ -628,6 +679,10 @@ cmd_resolve_resume_flags() {
 # Internal: find parent epic state for a child ticket (id or linear_id).
 # Sets: _RCW_FOUND (0|1), _RCW_EPIC_ID, _RCW_STATE_JSON (full state when found).
 _find_parent_epic_for_ticket() {
+  # Several epics can hold the same ticket (a shared linear_id, a re-used child
+  # id). Pick the ACTIVE parent (WP 1-09 / W3-37): unsealed before sealed, then
+  # the newest created_at, then the first state path in sorted order — never
+  # just the first alphabetical match, which may be a sealed or old epic.
   local ticket="${1:-}"
   _RCW_FOUND=0
   _RCW_EPIC_ID=""
@@ -635,19 +690,30 @@ _find_parent_epic_for_ticket() {
   resolve_mroot
   local epics_dir="$MROOT/.claude/epics"
   [ -d "$epics_dir" ] || return 0
-  local state_file epic_id
-  while IFS= read -r state_file; do
+  local state_file meta eid sealed created
+  local best_file="" best_eid="" best_sealed="" best_created=""
+  while IFS= read -r state_file || [ -n "$state_file" ]; do
     [ -f "$state_file" ] || continue
-    epic_id=$(jq -r '.epic_id // empty' "$state_file" 2>/dev/null) || continue
-    [ -n "$epic_id" ] || continue
-    if jq -e --arg t "$ticket" \
-      '.children[] | select(.id==$t or .linear_id==$t)' "$state_file" >/dev/null 2>&1; then
-      _RCW_FOUND=1
-      _RCW_EPIC_ID="$epic_id"
-      _RCW_STATE_JSON=$(cat "$state_file")
-      return 0
+    meta=$(jq -r --arg t "$ticket" '
+      select((.epic_id // "") != "" and any(.children[]?; .id==$t or .linear_id==$t))
+      | [.epic_id, (if .sealed == true then "1" else "0" end), (.created_at // "")]
+      | join("|")
+    ' "$state_file" 2>/dev/null) || continue
+    [ -n "$meta" ] || continue
+    IFS='|' read -r eid sealed created <<<"$meta"
+    if [ -z "$best_file" ] \
+      || [[ "$sealed" < "$best_sealed" ]] \
+      || { [ "$sealed" = "$best_sealed" ] && [[ "$created" > "$best_created" ]]; }; then
+      best_file="$state_file"
+      best_eid="$eid"
+      best_sealed="$sealed"
+      best_created="$created"
     fi
   done < <(find "$epics_dir" -mindepth 2 -maxdepth 2 -name state.json -type f 2>/dev/null | sort)
+  [ -n "$best_file" ] || return 0
+  _RCW_STATE_JSON=$(cat "$best_file" 2>/dev/null) || { _RCW_STATE_JSON=""; return 0; }
+  _RCW_FOUND=1
+  _RCW_EPIC_ID="$best_eid"
   return 0
 }
 
@@ -759,7 +825,9 @@ cmd_ensure_ticket_worktree() {
     if [ -n "$diag" ]; then
       printf '%s\n' "$diag" >&2
     fi
-    exit "${erc:-1}"
+    # CDT-315: rc 0 with an empty path is still a failure — never exit 0 here.
+    [ "$erc" -ne 0 ] || die 1 "ensure-ticket-worktree: worktree-lib ensure printed no path for $ticket (rc=0)"
+    exit "$erc"
   fi
   rm -f "$errf"
   path=$(printf '%s' "$path" | tr -d '\r' | sed 's/[[:space:]]*$//')
@@ -775,16 +843,14 @@ cmd_assert_release_allowed() {
   # Exit 64 when durable state has release_bump set and seal is not done
   # (release=end mid-flight). Message names the epic and CDT-141.
   # Reads state only — resume-safe; no side effects.
-  # C5 seal path: set EPIC_ALLOW_SEAL_RELEASE=1 to bypass (or sealed=true).
+  # C5 seal path: EPIC_ALLOW_SEAL_RELEASE=1 bypasses ONLY while the durable
+  # state is seal-staged (seal_stage non-null: `seal` squash-staged, not yet
+  # --complete / --abort); or sealed=true. A stray env var alone bypasses
+  # nothing (WP 1-09 / W3-37).
   local ref="${1:-}"
   [ -n "$ref" ] || die 64 "assert-release-allowed: missing <ticket-or-epic>"
   [ $# -eq 1 ] || die 64 "assert-release-allowed: unexpected args"
   validate_epic_id "$ref"
-
-  # C5 seal invocation may temporarily allow the end-of-epic /release.
-  if [ "${EPIC_ALLOW_SEAL_RELEASE:-}" = "1" ]; then
-    return 0
-  fi
 
   local epic_id="" st=""
   resolve_mroot
@@ -817,8 +883,19 @@ cmd_assert_release_allowed() {
     return 0
   fi
 
-  # Mid-flight: release_bump set, seal not done — forbid /release + master merge
-  die 64 "epic $epic_id is in release=end mode until seal (CDT-141)"
+  # C5 seal invocation: allow the end-of-epic /release only while seal-staged.
+  # Mid-flight: release_bump set, seal not done — forbid /release + master merge.
+  # One message text; the ignored-env note is appended when that is the cause.
+  local midflight="epic $epic_id is in release=end mode until seal (CDT-141)"
+  if [ "${EPIC_ALLOW_SEAL_RELEASE:-}" = "1" ]; then
+    local staged
+    staged=$(echo "$st" | jq -r 'if (.seal_stage // null) != null then "true" else "false" end')
+    if [ "$staged" = "true" ]; then
+      return 0
+    fi
+    midflight="$midflight; EPIC_ALLOW_SEAL_RELEASE=1 ignored: the epic is not seal-staged (run epic-lib seal first)"
+  fi
+  die 64 "$midflight"
 }
 
 # ---- CDT-158 / SPEC-025 M16: mid-epic incomplete-child gap callout ----------
@@ -884,16 +961,23 @@ _seal_main_repo() {
   return 0
 }
 
-# Default branch on main repo: master preferred, else main.
+# Default branch on main repo (CDT-350): the local branch behind the base that
+# git-safety `resolve-base` picks (origin/HEAD target first, then
+# origin/master, origin/main, master, main — that helper owns the order, this
+# function never restates it). Sets SEAL_DEFAULT. Returns 1 when no base
+# resolves or the base has no local branch (fail closed: never squash onto a
+# different branch than the one the remote calls the default).
 _seal_default_branch() {
-  local main="$1"
-  if git -C "$main" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
-    SEAL_DEFAULT=master
-  elif git -C "$main" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
-    SEAL_DEFAULT=main
-  else
+  local main="$1" base
+  base=$(bash "$GIT_SAFETY" -C "$main" resolve-base 2>/dev/null) || return 1
+  base="${base#refs/remotes/}"   # refs/remotes/origin/trunk -> origin/trunk
+  base="${base#origin/}"         # origin/trunk -> trunk
+  [ -n "$base" ] || return 1
+  git -C "$main" show-ref --verify --quiet "refs/heads/$base" 2>/dev/null || {
+    SEAL_DEFAULT_MISSING="$base"
     return 1
-  fi
+  }
+  SEAL_DEFAULT="$base"
   return 0
 }
 
@@ -1028,8 +1112,8 @@ _seal_restore_or_die() {
 cmd_seal() {
   # seal <EPIC-ID> [--dry-run|--complete|--abort [--force]]   (--force: stash then reset)
   # End-of-epic seal composition (CDT-141-C5 / M14 / CDT-170 / WP 1-05 C2):
-  #   default     — preflight → squash-stage on master/main →
-  #                 EPIC_SEAL_RELEASE_HOOK (tests) or handoff JSON for /release
+  #   default     — preflight → squash-stage on the default branch →
+  #                 EPIC_SEAL_RELEASE_HOOK (tests; needs EPIC_TEST_MODE=1) or handoff JSON for /release
   #   --dry-run   — readiness + plan only; zero git / state writes
   #   --complete  — set sealed=true after successful /release (atomic)
   #   --abort     — clean main: no-op; seal-owned stage (fingerprint match via
@@ -1208,7 +1292,7 @@ cmd_seal() {
         release_bump:$rb,
         integration_branch:$branch,
         integration_path:(if $path=="" then null else $path end),
-        plan:["squash-stage integration onto master/main","EPIC_ALLOW_SEAL_RELEASE=1 /release "+$rb,"seal --complete"],
+        plan:["squash-stage integration onto the default branch","EPIC_ALLOW_SEAL_RELEASE=1 /release "+$rb,"seal --complete"],
         sealed:false
       }'
     return 0
@@ -1217,7 +1301,9 @@ cmd_seal() {
   # ---- live seal: squash-stage + hook or handoff ----
   _seal_main_repo || die 1 "seal: main repo not found at $MROOT"
   local main="$SEAL_MAIN"
-  _seal_default_branch "$main" || die 1 "seal: no master/main branch in $main"
+  SEAL_DEFAULT_MISSING=""
+  _seal_default_branch "$main" \
+    || die 1 "seal: no local default branch in $main${SEAL_DEFAULT_MISSING:+ (the remote default $SEAL_DEFAULT_MISSING has no local branch)}"
   local default="$SEAL_DEFAULT"
 
   # integration branch must exist
@@ -1225,17 +1311,20 @@ cmd_seal() {
     die 1 "seal: integration branch missing: $SEAL_BRANCH"
   fi
 
-  # Require clean tree on default before staging (master unchanged until seal)
+  # Dirty gate first (CDT-350): a refusal must leave HEAD on the
+  # branch the operator started on (M14 item 13: HEAD stays unchanged).
+  if ! bash "$GIT_SAFETY" -C "$main" is-clean -- "${SEAL_EXCLUDES[@]}"; then
+    die 1 "seal: working tree dirty — refuse squash-stage (nothing was changed)"
+  fi
+
+  # Seal never switches branches (CDT-350): the squash-stage lands on the
+  # checkout's HEAD, so HEAD must already be the default branch. Anything else
+  # (another branch, a detached HEAD) is refused with no change.
   local cur
   cur=$(git -C "$main" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  [ "$cur" != "HEAD" ] || cur="detached"
   if [ "$cur" != "$default" ]; then
-    # Prefer checkout default when not locked by another worktree
-    if ! git -C "$main" checkout -q "$default" 2>/dev/null; then
-      die 1 "seal: cannot checkout $default on $main (current=$cur) — seal from main-repo checkout"
-    fi
-  fi
-  if ! bash "$GIT_SAFETY" -C "$main" is-clean -- "${SEAL_EXCLUDES[@]}"; then
-    die 1 "seal: $default working tree dirty — refuse squash-stage"
+    die 1 "seal: HEAD is ${cur:-unknown}, not $default — check out $default in $main first"
   fi
 
   local master_before
@@ -1285,8 +1374,19 @@ cmd_seal() {
   fi
 
   # Empty squash (integration == master): still allow release of empty? treat as ok stage
-  # Hook path (tests / automation): run mock /release once
+  # Hook path (tests only): run a mock /release once. The hook is shell text
+  # from the environment and is eval'd below, so it runs ONLY when the caller
+  # also sets EPIC_TEST_MODE=1 (CDT-414). A leaked EPIC_SEAL_RELEASE_HOOK in a
+  # production env is ignored with a notice; seal then takes the handoff path.
+  local seal_hook=""
   if [ -n "${EPIC_SEAL_RELEASE_HOOK:-}" ]; then
+    if [ "${EPIC_TEST_MODE:-}" = "1" ]; then
+      seal_hook="$EPIC_SEAL_RELEASE_HOOK"
+    else
+      printf 'seal: EPIC_SEAL_RELEASE_HOOK ignored — it runs only with EPIC_TEST_MODE=1 (tests); using the /release handoff\n' >&2
+    fi
+  fi
+  if [ -n "$seal_hook" ]; then
     set +e
     (
       cd "$main" || exit 1
@@ -1296,7 +1396,7 @@ cmd_seal() {
       export EPIC_RELEASE_BUMP="$SEAL_RB"
       export EPIC_INTEGRATION_BRANCH="$SEAL_BRANCH"
       # shellcheck disable=SC2086
-      eval "$EPIC_SEAL_RELEASE_HOOK"
+      eval "$seal_hook"
     )
     local hook_rc=$?
     set -e
@@ -1372,38 +1472,29 @@ cmd_mark_done() {
   local EPICS_LOCK="$EPICS_DIR/.lock"
   [ -d "$epics_dir" ] || exit 0
 
-  # RO find scan outside lock; per-epic RMW under EPICS_LOCK (re-read under lock)
-  local found=0
-  local state_file epic_id st
-  while IFS= read -r state_file; do
-    [ -f "$state_file" ] || continue
-    epic_id=$(jq -r '.epic_id // empty' "$state_file" 2>/dev/null) || continue
-    [ -n "$epic_id" ] || continue
-    if ! jq -e --arg t "$ticket" \
-      '.children[] | select(.id==$t or .linear_id==$t)' "$state_file" >/dev/null 2>&1; then
-      continue
-    fi
-    mkdir -p "$EPICS_DIR"
-    (
-      flock -x 9
-      epic_paths "$epic_id"
-      [ -f "$STATE" ] || exit 0
-      if ! jq -e --arg t "$ticket" \
-        '.children[] | select(.id==$t or .linear_id==$t)' "$STATE" >/dev/null 2>&1; then
-        exit 0
-      fi
-      st=$(jq --arg t "$ticket" \
-        '(.children[] | select(.id==$t or .linear_id==$t) | .status) = "completed"' \
-        "$STATE")
-      write_state "$epic_id" "$st"
-      echo "$st" | jq -c --arg t "$ticket" \
-        '.children[] | select(.id==$t or .linear_id==$t)'
-    ) 9>>"$EPICS_LOCK"
-    found=1
-  done < <(find "$epics_dir" -mindepth 2 -maxdepth 2 -name state.json -type f 2>/dev/null | sort)
-
+  # Resolve ONE epic — the active parent (W3-37): the same ticket or
+  # linear_id can sit in a sealed or old epic too, and completing it there
+  # would rewrite finished work. The RMW below re-reads under EPICS_LOCK.
+  _find_parent_epic_for_ticket "$ticket"
   # soft no-op if unknown (wrap-ticket)
-  [ "$found" -eq 1 ] || true
+  [ "$_RCW_FOUND" -eq 1 ] || exit 0
+  local epic_id="$_RCW_EPIC_ID" st
+  mkdir -p "$EPICS_DIR"
+  (
+    flock -x 9
+    epic_paths "$epic_id"
+    [ -f "$STATE" ] || exit 0
+    if ! jq -e --arg t "$ticket" \
+      '.children[] | select(.id==$t or .linear_id==$t)' "$STATE" >/dev/null 2>&1; then
+      exit 0
+    fi
+    st=$(jq --arg t "$ticket" \
+      '(.children[] | select(.id==$t or .linear_id==$t) | .status) = "completed"' \
+      "$STATE")
+    write_state "$epic_id" "$st"
+    echo "$st" | jq -c --arg t "$ticket" \
+      '.children[] | select(.id==$t or .linear_id==$t)'
+  ) 9>>"$EPICS_LOCK"
   exit 0
 }
 
@@ -1413,19 +1504,8 @@ cmd_ready_set() {
   local st
   st=$(read_state "$epic_id")
   # ready ⟺ status=pending AND every depends_on id has status=completed
-  # missing dep id → treat as incomplete
-  echo "$st" | jq -r '
-    .children as $all
-    | ($all | map({key:.id, value:.status}) | from_entries) as $stmap
-    | $all[]
-    | select(.status == "pending")
-    | select(
-        all(.depends_on[]?;
-          ($stmap[.] // "missing") == "completed"
-        )
-      )
-    | .id
-  ' | sort
+  # missing dep id → treat as incomplete (the rule lives in _JQ_READY_DEF)
+  echo "$st" | jq -r "$_JQ_READY_DEF"'ready_ids[]'
 }
 
 cmd_check_cycle() {
@@ -1484,14 +1564,7 @@ cmd_rollup() {
     non_done=$(echo "$st" | jq '[.children[] | select(.status != "completed")] | length')
     [ "$non_done" -gt 0 ] || continue
     any=1
-    ready=$(echo "$st" | jq -r '
-      .children as $all
-      | ($all | map({key:.id, value:.status}) | from_entries) as $stmap
-      | $all[]
-      | select(.status == "pending")
-      | select(all(.depends_on[]?; ($stmap[.] // "missing") == "completed"))
-      | .id
-    ' | sort | paste -sd, -)
+    ready=$(echo "$st" | jq -r "$_JQ_READY_DEF"'ready_ids | join(",")')
     waves=$(cmd_waves "$epic_id" 2>/dev/null || true)
     echo "$st" | jq -c --arg ready "${ready:-}" --arg waves "${waves:-}" '
       {
@@ -1520,80 +1593,32 @@ cmd_rollup() {
 
 cmd_waves() {
   # Kahn topological levels for display. Output: "Wave 1: C1, C2 → Wave 2: C3"
+  # One jq process per call (W3-37; it was one jq per dependency edge, O(N·D)).
+  # A node joins the first wave after every in-epic dep is placed; a dep id that
+  # is not a child is ignored. When no node is ready (a cycle, a self-dep) the
+  # rest lands in one final wave. Ids sort as strings; no children → one empty line.
   local epic_id="${1:-}"
   [ -n "$epic_id" ] || die 64 "waves: missing <EPIC-ID>"
-  local st
+  local st out
   st=$(read_state "$epic_id")
-
-  # Build remaining indegree + adj via jq, then layer in bash
-  local nodes deps
-  nodes=$(echo "$st" | jq -r '.children[].id' | sort)
-  [ -n "$nodes" ] || { printf '\n'; return 0; }
-
-  declare -A indeg=()
-  declare -A children_of=()  # parent -> space-separated kids that depend on parent
-  declare -A status_of=()
-
-  while IFS=$'\t' read -r id status depjson; do
-    status_of["$id"]="$status"
-    indeg["$id"]=0
-    # count only deps that are also nodes in this epic
-    local d
-    for d in $(echo "$depjson" | jq -r '.[]'); do
-      if echo "$st" | jq -e --arg d "$d" '.children[] | select(.id==$d)' >/dev/null 2>&1; then
-        indeg["$id"]=$(( ${indeg["$id"]} + 1 ))
-        children_of["$d"]="${children_of[$d]:-} $id"
-      fi
-    done
-  done < <(echo "$st" | jq -r '.children[] | [.id, .status, (.depends_on|tostring)] | @tsv')
-
-  local remaining=0
-  local n
-  for n in $nodes; do remaining=$((remaining + 1)); done
-
-  local wave_num=0
-  local parts=()
-  local visited=0
-
-  while [ "$visited" -lt "$remaining" ]; do
-    local layer=()
-    for n in $nodes; do
-      if [ "${indeg[$n]:--1}" -eq 0 ]; then
-        layer+=("$n")
-      fi
-    done
-    if [ "${#layer[@]}" -eq 0 ]; then
-      # cycle or leftover — dump remaining as final wave (should not happen post check-cycle)
-      for n in $nodes; do
-        if [ "${indeg[$n]:--1}" -ge 0 ]; then
-          layer+=("$n")
-        fi
-      done
-      if [ "${#layer[@]}" -eq 0 ]; then break; fi
-    fi
-    wave_num=$((wave_num + 1))
-    # stable sort layer
-    local sorted
-    sorted=$(printf '%s\n' "${layer[@]}" | sort | paste -sd, -)
-    parts+=("Wave ${wave_num}: ${sorted//,/, }")
-    for n in "${layer[@]}"; do
-      indeg["$n"]=-1
-      visited=$((visited + 1))
-      local kid
-      for kid in ${children_of[$n]:-}; do
-        if [ "${indeg[$kid]:--1}" -gt 0 ]; then
-          indeg["$kid"]=$(( ${indeg[$kid]} - 1 ))
-        fi
-      done
-    done
-  done
-
-  local out=""
-  local i
-  for i in "${!parts[@]}"; do
-    if [ -n "$out" ]; then out+=" → "; fi
-    out+="${parts[$i]}"
-  done
+  out=$(printf '%s' "$st" | jq -r '
+    (.children // []) as $kids
+    | ($kids | map({key: .id, value: true}) | from_entries) as $isnode
+    | ($kids | map({id: .id, deps: [(.depends_on // [])[] | select($isnode[.] // false)]})) as $nodes
+    | def layers($rest; $placed):
+        if ($rest | length) == 0 then []
+        else
+          ($rest | map(select(all(.deps[]; $placed[.] // false)))) as $ready
+          | (if ($ready | length) == 0 then $rest else $ready end) as $layer
+          | ($layer | map({key: .id, value: true}) | from_entries) as $lids
+          | [$layer | map(.id) | sort]
+            + layers($rest | map(select($lids[.id] | not)); $placed + $lids)
+        end;
+      layers($nodes; {})
+    | to_entries
+    | map("Wave \(.key + 1): \(.value | join(", "))")
+    | join(" → ")
+  ') || die 1 "waves: jq failed for epic $epic_id"
   printf '%s\n' "$out"
 }
 
@@ -1610,15 +1635,8 @@ cmd_exists() {
 # Args: <next-child-id> <generated_at> <waves-line>
 _seed_render() {
   local next_id="$1" gen_at="$2" waves="$3"
-  jq -r --arg next "$next_id" --arg ts "$gen_at" --arg waves "$waves" '
-    def ready_ids:
-      (.children as $all
-       | ($all | map({key:.id, value:.status}) | from_entries) as $stmap
-       | [$all[]
-          | select(.status == "pending")
-          | select(all(.depends_on[]?; ($stmap[.] // "missing") == "completed"))
-          | .id]
-       | sort | join(", "));
+  jq -r --arg next "$next_id" --arg ts "$gen_at" --arg waves "$waves" "$_JQ_READY_DEF"'
+    def ready_line: ready_ids | join(", ");
     def count_line:
       "pending=\([.children[] | select(.status=="pending")] | length)"
       + " in_progress=\([.children[] | select(.status=="in_progress")] | length)"
@@ -1653,7 +1671,7 @@ _seed_render() {
         "",
         "## State now",
         "- counts: \(count_line)",
-        "- ready: \(if ready_ids == "" then "(none)" else ready_ids end)",
+        "- ready: \(if ready_line == "" then "(none)" else ready_line end)",
         "- in_progress: \(in_prog_line)",
         "- blockers:",
         (if (blocker_bullets | length) == 0 then "  (none)"
@@ -1819,6 +1837,19 @@ cmd_validate_seed() {
   return 0
 }
 
+# _sync_status_rank <status> — forward order for sync-apply (CDT-404):
+# pending 0 < in_progress = blocked 1 < completed 2. in_progress and blocked
+# are lateral to each other (Linear canceled maps to blocked, started to
+# in_progress); a move to a LOWER rank is backward and is not applied.
+_sync_status_rank() {
+  case "${1:-}" in
+    pending) echo 0 ;;
+    in_progress|blocked) echo 1 ;;
+    completed) echo 2 ;;
+    *) echo 0 ;;
+  esac
+}
+
 cmd_sync_apply() {
   # sync-apply <EPIC-ID> --verdicts FILE [--dry-run]
   # Session-owned Linear inventory → verdicts JSON; this command only mutates
@@ -1838,7 +1869,8 @@ cmd_sync_apply() {
   # Rules:
   # - Unknown child id → skip + conflict
   # - linear_id: fill when local null/empty; match → no-op; mismatch → conflict skip
-  # - status: no-op if same; never downgrade completed → non-completed (no_downgrade_completed)
+  # - status: no-op if same; never downgrade completed → non-completed (no_downgrade_completed);
+  #   forward only — a move to a lower rank (pending < in_progress = blocked < completed) is skipped (no_backward_status, CDT-404)
   # - outcome_summary only with completed|blocked when status is applied or already that status
   # - linear_project_id: fill when local null; mismatch non-null → conflict skip
   # - never deletes/reorders children; never re-decomposes
@@ -1985,6 +2017,14 @@ cmd_sync_apply() {
               skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
             elif [ "$local_status" = "completed" ] && [ "$v_status" != "completed" ]; then
               action_row=$(jq -cn --arg a no_downgrade_completed --arg id "$child_id" \
+                --arg local "$local_status" --arg remote "$v_status" \
+                '{action:$a, id:$id, local:$local, remote:$remote}')
+              skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')
+            elif [ "$(_sync_status_rank "$v_status")" -lt "$(_sync_status_rank "$local_status")" ]; then
+              # CDT-404: sync pulls status FORWARD only (in_progress→pending,
+              # blocked→pending stay as they are; Linear "else→pending" would
+              # otherwise undo local progress).
+              action_row=$(jq -cn --arg a no_backward_status --arg id "$child_id" \
                 --arg local "$local_status" --arg remote "$v_status" \
                 '{action:$a, id:$id, local:$local, remote:$remote}')
               skipped_json=$(echo "$skipped_json" | jq --argjson r "$action_row" '. + [$r]')

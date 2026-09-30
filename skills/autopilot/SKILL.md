@@ -146,7 +146,7 @@ against `skills/kickoff/SKILL.md` and `skills/epic/SKILL.md`:
 |---|---|---|---|
 | `scope-confirm` | Step 2 (first escalation gate) — self-answerable | **No approval-gate analog.** Step 3 "resolve open questions" is the nearest pause but is **content-bearing** (needs answers, not yes/no) → blocking condition (**BC1**), never self-answer | A.5 approval gate, **scope half** (problem + ACs) — evaluated; **and** B.3 per-child handoff confirm, which **is** a repeated scope-confirm (per child, before any work) |
 | `plan-approve` | Step 6 (second escalation gate) — self-answerable | **Does not exist.** Step 6 (TL plan) flows straight into Step 7 (TaskCreate); no "approve this plan?" prompt. Adding one is a **new gate** — a design decision **out of scope** here | A.5 approval gate, **plan half** (estimate / agent / depends_on / waves) — evaluated jointly with the scope half; **single atomic verdict** |
-| `ship-choice` | Step 11 (ship options) — self-answerable, defaults to PR | **N/A** — `/kickoff` ends at the task graph and never ships | **N/A** — `/epic` never ships (M11: no code, no worktrees, no IC spawns); each child's real ship-choice lives **inside its own delegated `/orchestrate` Step 11** |
+| `ship-choice` | Step 11 (ship options) — self-answerable, defaults to PR | **N/A** — `/kickoff` ends at the task graph and never ships | **N/A** at a gate — `/epic` ships only via B.7 seal (M14); it writes no code and spawns no IC; each child's real ship-choice lives **inside its own delegated `/orchestrate` Step 11** |
 
 Notes the policy records:
 

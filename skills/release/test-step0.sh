@@ -160,9 +160,20 @@ if ( require_cmd jq ); then
   OUT=$(cd "$REPO" && EPIC_RELEASE_END=E1 bash "$STEP0" 2>&1) && RC=0 || RC=$?
   expect_rc 64 "master + EPIC_RELEASE_END=E1 (DD2, explicit ref asserted)"
 
+  # WP 1-09 (W3-37): the env var alone bypasses nothing; it counts only while
+  # the epic is seal-staged (seal_stage non-null).
   RC=0
   OUT=$(cd "$REPO" && EPIC_RELEASE_END=E1 EPIC_ALLOW_SEAL_RELEASE=1 bash "$STEP0" 2>&1) && RC=0 || RC=$?
-  expect_rc 0 "master + EPIC_RELEASE_END=E1 + EPIC_ALLOW_SEAL_RELEASE=1"
+  expect_rc 64 "master + EPIC_RELEASE_END=E1 + EPIC_ALLOW_SEAL_RELEASE=1, not seal-staged"
+
+  jq '.seal_stage={"base_sha":"b","staged_tree":"t","added_paths":[]}' "$REPO/.claude/epics/E1/state.json" >"$REPO/.claude/epics/E1/state.json.tmp"
+  mv "$REPO/.claude/epics/E1/state.json.tmp" "$REPO/.claude/epics/E1/state.json"
+  RC=0
+  OUT=$(cd "$REPO" && EPIC_RELEASE_END=E1 EPIC_ALLOW_SEAL_RELEASE=1 bash "$STEP0" 2>&1) && RC=0 || RC=$?
+  expect_rc 0 "master + EPIC_RELEASE_END=E1 + EPIC_ALLOW_SEAL_RELEASE=1, seal-staged"
+  RC=0
+  OUT=$(cd "$REPO" && EPIC_RELEASE_END=E1 bash "$STEP0" 2>&1) && RC=0 || RC=$?
+  expect_rc 64 "master + EPIC_RELEASE_END=E1, seal-staged without the env var"
 
   epic_state "$REPO" E1 minor true '[{"id":"C1"}]'
   RC=0

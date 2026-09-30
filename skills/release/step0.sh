@@ -20,7 +20,8 @@ Usage: step0.sh [--epic-lib PATH] [-h|--help]
 env:
   RELEASE_TICKET | EPIC_RELEASE_END | EPIC_ID   explicit REF (first non-empty wins)
   EPIC_ROOT                                     MROOT override (as epic-lib.sh)
-  EPIC_ALLOW_SEAL_RELEASE                        passed through to epic-lib.sh
+  EPIC_ALLOW_SEAL_RELEASE                        passed through to epic-lib.sh (honored only
+                                                 while the epic is seal-staged)
 
 Exit 0 ok or skipped (no ticket/epic ref, unusable ref, or no epics dir).
 Exit 64 usage, detached HEAD, not a git repository, or the release=end guard

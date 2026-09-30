@@ -172,7 +172,7 @@ target.
   |---|---|---|---|
   | `scope-confirm` | Step 2 (first escalation gate) — self-answerable | **No approval-gate analog.** Step 3 "resolve open questions" is the nearest pause but is **content-bearing** (needs answers, not yes/no) → blocking condition (BC1), never self-answer | A.5 approval gate, **scope half** (problem + ACs) — evaluated; **and** B.3 per-child handoff confirm, which **is** a repeated scope-confirm (per child, before any work) |
   | `plan-approve` | Step 6 (second escalation gate) — self-answerable | **Does not exist.** Step 6 (TL plan) flows straight into Step 7 (TaskCreate); no "approve this plan?" prompt. Adding one is a **new gate** — a design decision **out of scope** here | A.5 approval gate, **plan half** (estimate / agent / depends_on / waves) — evaluated jointly with the scope half; **single atomic verdict** |
-  | `ship-choice` | Step 11 (ship options) — self-answerable, defaults to PR | **N/A** — `/kickoff` ends at the task graph and never ships | **N/A** — `/epic` never ships (M11: no code, no worktrees, no IC spawns); each child's real ship-choice lives **inside its own delegated `/orchestrate` Step 11** |
+  | `ship-choice` | Step 11 (ship options) — self-answerable, defaults to PR | **N/A** — `/kickoff` ends at the task graph and never ships | **N/A** at a gate — `/epic` ships only via B.7 seal (M14); it writes no code and spawns no IC; each child's real ship-choice lives **inside its own delegated `/orchestrate` Step 11** |
 
   Notes the policy MUST record:
 
@@ -207,6 +207,18 @@ target.
     default this rarely arises, but the prohibition is absolute.
   - **(g) Out of scope:** `/epic` Mode E `--redecompose` confirm is an explicitly user-invoked
     flag; autopilot does not spontaneously redecompose, so it is out of scope for this contract.
+  - **(h) `reroute-epic` at an `/epic` gate (WP 1-09; CDT-322).** `/epic` is the target of a
+    `reroute-epic` decision, so the decision cannot hand off to `/epic` from inside it. At **A.5**
+    it never passes silently: with more than 8 proposed children (the `/epic` A.1 soft-warn rule)
+    it prints `scope-confirm reroute-epic (soft warn): <rationale> — card: <card-path>` and
+    continues to A.6; otherwise it runs as `halt`. At **B.3** it runs as `halt` (child unchanged,
+    `task_blocked` notice, one-line message): splitting one child needs `--redecompose`, which
+    autopilot never starts (note (g)). **A nested epic for a child is not allowed:** an epic holds
+    one flat child list (SPEC-025 M6), and a nested epic needs cross-epic dependencies, which
+    SPEC-025 lists as out of scope. Any other decision value at an `/epic` gate runs as `halt`
+    (fail closed). `skills/epic/SKILL.md` defines this map itself; it does not cite a "shared" map.
+    The M5 table above reads the same way for `ship-choice`: `/epic` ships only via the B.7 seal
+    (M14), and `/epic` has no ship-choice gate of its own.
 
 ### AC2 — Blocking conditions
 
@@ -377,7 +389,9 @@ target.
     **Step 0.5** resolves its own autopilot state **independently** from its own args/env
     and does **not** inherit the caller's session state; it MUST persist a release
     token as `release_bump` + `worktree_enabled` so children cannot land on master
-    (CDT-196). Absent the explicit flag/env, `/epic` falls back to interactive human
+    (CDT-196). The persist happens at `init`, so it applies to a **new** decompose. On a
+    **resume** of an epic whose durable `release_bump` is null, `/epic` MUST exit **64** and
+    MUST NOT set the bump on the session alone (WP 1-09; SPEC-025 M14 item 10). Absent the explicit flag/env, `/epic` falls back to interactive human
     gates, silently breaking the unattended run. Carrying the state forward is the
     **caller's** (the wiring's) responsibility, **not** the `self-answer.md` engine's —
     the engine writes the `reroute-epic` card and returns (self-answer.md §5). Applies
@@ -1466,12 +1480,23 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 - **L.** [process] `bash tools/run-all-tests.sh` exits 0 and every `/release` gate passes.
 - **M.** [process] The release ship notes record the WP 1-16 merge order: whichever of WP 1-08 and WP 1-16 ships second re-pins the g8 `append-card.sh` blob fixture in `skills/autopilot/fixtures/ship-gate-guardrails/`.
 
+### wp-1-09-epic-seal
+
+- **A.** `skills/epic/SKILL.md` A.5 and B.3 define the `/epic` action for a `reroute-epic` decision (M5 note (h)). A.5 runs it as a soft warn line `scope-confirm reroute-epic (soft warn)` with more than 8 proposed children and as `halt` otherwise; it never runs as `proceed`. B.3 runs it as `halt` that names `--redecompose` and states that a nested epic for a child is not allowed. Any other decision value runs as `halt`. The SKILL does not contain "shared C4 Decision→action map".
+  Verify: bash skills/epic/test.sh
+- **B.** `skills/epic/epic-lib.sh resolve-resume-flags` exits 64 for `--autopilot=patch`, `--autopilot=minor` and `--autopilot=major` over a state with a null `release_bump`. It exits 0 for `--autopilot=master` and for a bump over a stored `release_bump` (M11a (a)).
+  Verify: bash skills/epic/test.sh
+- **C.** The M5 `ship-choice` row in SPEC-033 and in `skills/autopilot/SKILL.md` says `/epic` ships only via B.7 seal (M14) and does not say `/epic` never ships. The `--autopilot` row of `commands/epic.md` says seal-intent and `release_bump`, and contains neither "Unused" nor "Independent of".
+  Verify: bash skills/epic/test.sh
+- **D.** [process] The suites that the ACs of this subsection and of SPEC-025 `### wp-1-09-epic-seal` name pass, `bash tools/run-all-tests.sh` passes and every `/release` gate passes. SPEC-025 holds the full AC set for this WP.
+
 ---
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-09-30 | WP 1-09 (`wp-1-09-epic-seal`; CDT-322, rv-w2-34; the rest of the WP is in SPEC-025): **M5 note (h)** — `reroute-epic` at an `/epic` gate cannot hand off to `/epic`: A.5 prints a soft warn and continues when there are more than 8 proposed children and halts otherwise (never a silent proceed), B.3 runs it as `halt` with no nested epic allowed (`--redecompose` is never autopilot-started, note (g)), any other value runs as `halt`; the `/epic` SKILL defines the map itself. **M5 table** — the `/epic` `ship-choice` cell reads "ships only via B.7 seal (M14)", not "never ships". **M11a (a)** — the `release_bump` persist happens at `init`, so a release-bump token over a null durable `release_bump` on resume exits 64 and is never set on the session alone. New `### wp-1-09-epic-seal` AC subsection. Status stays DRAFT. |
 | 2026-09-28 | WP 1-16 (`wp-1-16-m14-finder-recipe`; backlog `m14-finder-evidence-recipe`): **M14 finder evidence recipe.** Premise: the WP 1-05 and WP 1-06 ship gates (`.claude/council/2026-09-28-claim-wp-1-05-m14.md`, `.claude/council/2026-09-28-claim-wp-1-06-m14.md`) halted on BC7 with every Verify at exit 0 and no code gap; the judge struck elided `raw_blob` lines, ACs with no quote of their text, and named literals that no bundle held. **M14(g)** — new "Finder recipe" bullet: an AC quote anchored on the `<path>:<line>` locator (bullet plus continuation lines); the Verify run plus one AC-label filter bundle; one grep per token class, bounded and scoped — one default call against the Verify test file for backtick spans, `Case N` and `AC X` tokens, an explicit locator command for `path:N`, and a scoped multi-token `git grep` fallback (never unscoped) only for a token the default call missed; numbered sub-clauses are grepped too, as advisory evidence. No-elision rule: a `raw_blob` is the complete output of its own `reproducible_command`, with no `...`, `[...]` or `…` line and no text added after the output; the one exception is the Verify-run bundle, whose `raw_blob` is the complete stdout of the wrapped Step 2 call (a bare re-run of `reproducible_command` alone would print the suite's unredirected log instead) — it is exempt from the raw_blob-equals-a-rerun-of-reproducible_command invariant the other recipe bundles hold. The finder takes the tokens from its own quote; the split, the engine and the claim record carry no AC text or tokens (M14(a)). Judge caps: confidence 79 or lower for a missing AC quote, an unmatched named token of class backtick span, `path:N`, `Case N` or `AC X` (matched outside the Step 1 quote bundle) or an elision line (SPEC-013 Phase 5); a numbered sub-clause named in the quote is advisory evidence only and carries no cap. The recipe and the caps can only lower a confidence: they feed nothing new to the mapper **(i)**, add no clear path, and leave **(b)**, **(d)**, the firing rule, the two cards and BC7 reuse unchanged. An engine-side strike was rejected, because it would change how the gate clears (`ship-gate-council.md` §5). **M14(j)** — the recipe fits the 8-call budget; the budget does not change. **M14(k)** — recipe tests; they prove prompt text and wiring, not a live judge score. A claim with no `Verify:` command keeps its render. This WP's own gate runs the old prompt from `master`; the next WP's gate is the first live proof. New `### wp-1-16-m14-finder-recipe` AC subsection. Status stays DRAFT. |
 | 2026-09-28 | WP 1-08 (`wp-1-08-autopilot-state`; CDT-340, CDT-331, CDT-310, CDT-311, CDT-307, CDT-368, CDT-278 `[06 T-00resolve]`, CDT-281 `[05 T-parse-flags]` `[05 T-ship-gate]`, rv-w1-53, rv-w1-58): **M9a** — approval wait does not count toward BC6 (user decision 2026-09-28). A blocking human approval inside a live `/orchestrate` run is an M8 halt: an `approval-wait:` card (BC1, or BC3 for a destructive action) before the wait, then a same-session re-mint of `run_start_epoch` by the resume rule on the reply (`run_id` unchanged). This changes when BC6 fires (a safety halt) for human wait time only; BC6 stays a hard stop for active time; no new field, gate, `type` or BC. Plan lookup by exact Tracking `ticket_id:` through `skills/lib/plan-resolve.sh` (toplevel then `$MROOT`, newest mtime, legacy → not found); `--accumulated` always an integer; ITER restored from `resume-state.sh --iteration` and incremented at each spawn site. **M10.1** — evaluated at `scope-confirm` only (BC4 owns plan-approve overflow; matches fixture F4-n-tight). **M13** — ship-choice card #2 carries `actor: ship-gate-council`, card #1 never does; fresh §2a halt card `run_id` = `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>`. **M16** — duplicate `--autopilot` / `--council-tier` / `--max-loc` exit 64 (was last-wins), near-miss own-family flags exit 64, other families pass through; `loc-exclude.sh` resolves from the repo top level. **AC9** — env caps are external input: validated (canonical integers of at most 15 digits, exact in `jq`) by `budget-check.sh` and `append-card.sh`; every numeric card argument validated by pattern before arithmetic. **N3a** — fetch first (`git fetch --no-tags origin <default>`; failure → BC3); land-no-release takes, checks and clears the SPEC-010 H2 tag snapshot; `/release` owns the checks on the release path. The M14 clearing rule (**(b)**, **(d)**, the mapper, `ship-gate-verdict.sh`, `ship-gate-council.md` §5) is unchanged. New `### wp-1-08-autopilot-state` AC subsection. Status stays DRAFT. |
 | 2026-09-27 | WP 1-05 (`wp-1-05-git-safety-lib`; CDT-260 `[05 F2]`): **N3a (iii)** gains a clean-tree precondition. Before the squash, autopilot runs `git-safety.sh is-clean --tracked-only` (SPEC-025 M17) on the main-repo checkout; tracked edits give a halt card, exit ≠0 and no change; untracked files do not block. Every undo of the squash stage (`end-state.md` §4 conflict path, §6.5 land-abort paths) calls `git-safety.sh safe-reset --clean-at <sha>` and never a bare `git reset --hard`; a moved HEAD makes `safe-reset` refuse and autopilot halt for a human. The former "fully reversible with `git reset`" wording is withdrawn. Behavioural suite: `skills/autopilot/test-end-state-safety.sh`. The ACs live in SPEC-025 `### wp-1-05-git-safety-lib`. |

@@ -46,7 +46,7 @@ Writers serialize via exclusive flock on `$MROOT/.claude/epics/.lock`
 | `/epic unblock <ID> <CHILD>` | Mark child pending again |
 | `/epic sync <ID> [--dry-run]` | Refresh local `state.json` from Linear (M15) when state may be stale |
 | `/epic … --worktree` | (decompose/execute/resume/`--redecompose` only) Enable epic integration-worktree mode (SPEC-025 M14 / CDT-141). Bare flag only — value forms hard-fail (exit 64). Persists `worktree_enabled=true` on init when set. After init (and on resume when state enabled): ensure **one** integration worktree `epic-<EPIC-ID>` (C2). On resume: omit to honor store; present must match state or exit 64 (C6). Illegal on `status` \| `complete` \| `block` \| `unblock`. |
-| `/epic … --release <bump>` | (with `--worktree` only) End-of-epic release bump intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` accepted alias. Alone / bare / `each`\|`end` / without `--worktree` → exit 64, zero side effects. Persists `release_bump` on init. Resume: omit honors store (no silent clear); mismatch → 64 (C6). After last child: Mode B.7 seal once (squash → one `/release <bump>` → `sealed=true`; C5). Without this flag: no epic seal. Orthogonal to `--autopilot`. |
+| `/epic … --release <bump>` | (with `--worktree` only) End-of-epic release bump intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` accepted alias. Alone / bare / `each`\|`end` / without `--worktree` → exit 64, zero side effects. Persists `release_bump` on init. Resume: omit honors store (no silent clear); mismatch → 64 (C6). After last child: Mode B.7 seal once (squash → one `/release <bump>` → `sealed=true`; C5). Without this flag: no epic seal, unless a new decompose carries a release-bump `--autopilot` token, which sets the same intent (Step 0.5). |
 | `/epic … --no-context-discipline` | Debug opt-out of M13 between-child boundary (default **on**) |
 
 Execution mode (`kickoff` | `orchestrate`) is chosen **once** at first execute
@@ -120,9 +120,9 @@ EPIC_ID="<EPIC-ID>"
 # Resume (state exists): honor store / hard-fail conflict (C6). New decompose: pure parse.
 if bash "$EPIC_LIB" exists "$EPIC_ID"; then
   EPIC_FLAGS=$(bash "$EPIC_LIB" resolve-resume-flags "$EPIC_ID" -- "$@") \
-    || { echo "$EPIC_FLAGS" >&2; exit 64; }
+    || { EPIC_RC=$?; exit "$EPIC_RC"; }   # pass the tool rc through: 64 flag/usage, 1 operational (W3-37)
 else
-  EPIC_FLAGS=$(bash "$EPIC_PARSE" "$@") || { echo "$EPIC_FLAGS" >&2; exit 64; }
+  EPIC_FLAGS=$(bash "$EPIC_PARSE" "$@") || { EPIC_RC=$?; exit "$EPIC_RC"; }
 fi
 WORKTREE_ENABLED=$(jq -r .worktree_enabled <<<"$EPIC_FLAGS")
 RELEASE_BUMP=$(jq -r '.release_bump // "null"' <<<"$EPIC_FLAGS")   # literal null or patch|minor|major
@@ -136,6 +136,7 @@ Rules (hard-fail exit **64**, zero side effects):
 - duplicate `--worktree` or `--release` → 64
 - flags illegal with first positional `status` | `complete` | `block` | `unblock` | `sync`
 - allowed on decompose / execute-resume / `--redecompose` only
+- exit codes pass through: **64** = flag / usage / resume-conflict; any other code (for example **1**, a missing state or tool failure) is an operational failure — report it as that, never as a flag error
 
 ### Resume flag-vs-state policy (CDT-141-C6) — hard-fail, no silent downgrade
 
@@ -146,6 +147,7 @@ When `state.json` **exists** (execute/resume / re-invoke same epic):
 | **Omitted** (`--worktree` / `--release` absent) | **Honor store**: effective modes = `state.worktree_enabled // false` and `state.release_bump // null`. End-of-epic release intent (non-null `release_bump`) is **never** cleared by a bare resume. |
 | **Present and match** state | OK — same modes; continue. |
 | **Present and conflict** with state | **Exit 64**, zero side effects. No silent enable/disable of worktree, no silent change or clear of `release_bump` (no downgrade of end-release mode). |
+| `--autopilot=<patch\|minor\|major>` with null `release_bump` | **Exit 64**, zero side effects (rv-w2-34). Seal-intent is persisted by `init` only; see Step 0.5. |
 
 Defaults path (never used `--worktree`/`--release` at init — keys absent) + flags omitted → `false`/`null`; resume unchanged. Do **not** re-decompose; do **not** require pasting a prior handoff string for tree/branch continuity — B.1 `ensure-integration-worktree` reuses the recorded `epic-<ID>` path/branch from state.
 
@@ -206,11 +208,12 @@ over the env and is the **only** channel that carries a ship-intent token
 default, not necessarily a branch named `master`). A malformed
 `--autopilot=<token>` (token ∉ {patch,minor,major,master}, incl. empty
 `--autopilot=`) is a hard error (exit 64) — never a silent fall-through to off
-(R7). Token is unused by `/epic` as a *ship executor* (M11 — `/epic` never
-`/release`s mid-child) but **is** seal-intent when ∈ {patch,minor,major}:
-persist `release_bump` + enable worktree (BC5 / CDT-196). Do **not** treat
-the token as unused for land policy. Resolved+carried so the seed block is
-identical across `/orchestrate`, `/kickoff`, `/epic`.
+(R7). `/epic` never ships a child itself (M11 — no `/release` mid-child), so the
+token is not a ship executor here. A release bump ∈ {patch,minor,major} **is**
+seal-intent: a new decompose persists `release_bump` and enables the worktree
+(BC5 / CDT-196), and the epic ships only via the B.7 seal (M14). `master` is the
+land-no-release spelling and sets no `release_bump`. Resolved+carried so the
+seed block is identical across `/orchestrate`, `/kickoff`, `/epic`.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -240,11 +243,22 @@ autopilot-answered (SPEC-033 N8) — it stays a human/lifecycle attestation.**
 **N13 isolation (CDT-224):** `/epic` Mode A envelopes omit `tasks` / `projected_loc` / `waves`; engine argc=2; child `/orchestrate` freezes independently.
 
 **BC5 seal-intent (CDT-196):** when `AUTOPILOT_BUMP` ∈ {`patch`,`minor`,`major`}
-and Step 0.4 left `RELEASE_BUMP` null, set `RELEASE_BUMP=$AUTOPILOT_BUMP` and
-`WORKTREE_ENABLED=true` before A.6 `init`. Child handoffs then get
-`EPIC_RELEASE_END` (B.4). MUST NOT `git merge --ff-only` / merge a child onto
-master. One `/release <bump>` at B.7 only. `--autopilot=master` does **not**
-set `release_bump` (land-no-release is not a version seal).
+and Step 0.4 left `RELEASE_BUMP` null **on a new decompose**, set
+`RELEASE_BUMP=$AUTOPILOT_BUMP` and `WORKTREE_ENABLED=true` before A.6 `init`;
+`init` persists both. Child handoffs then get `EPIC_RELEASE_END` (B.4). MUST NOT
+`git merge --ff-only` / merge a child onto master. One `/release <bump>` at B.7
+only. `--autopilot=master` does **not** set `release_bump` (land-no-release is
+not a version seal).
+
+**On resume (rv-w2-34):** there is no `init`, so seal-intent cannot be
+persisted and MUST NOT be set on the session var alone (the session
+`RELEASE_BUMP` would diverge from durable `release_bump`, and
+`assert-release-allowed` would still allow a mid-epic land). Step 0.4
+`resolve-resume-flags` already receives the full argv: a bump token over a null
+durable `release_bump` exits **64** with guidance. Stop there — do not catch the
+64 and continue. Resume with bare `--autopilot` or `--autopilot=master`, or
+start a new epic with `--worktree --release <bump>`. When durable
+`release_bump` is set, it wins; the session never overrides it.
 
 ---
 
@@ -389,8 +403,9 @@ plan-approve gate (M5c); the single A.5 verdict is both. Invoke
 ticket_id:<EPIC-ID>, gate:"scope-confirm", run_id:RUN_ID, iteration:ITER,
 run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <scope signals:
 epic-text sufficiency evidence, destructive-op flags, complexity signals> }`.
-Consume `{ decision, blocking_condition, confidence, rationale }` and act per the
-C4 Decision→action map:
+Consume `{ decision, blocking_condition, confidence, rationale }` and act per
+this map. It is the whole map for `/epic` (the engine returns only `proceed`,
+`halt` or `reroute-epic` at `scope-confirm`):
 
 - `proceed` → continue to **A.6** exactly as the human **approve** path would.
 - `halt` → emit `task_blocked` (detail = the one-line message) via **Passive
@@ -399,8 +414,13 @@ C4 Decision→action map:
   **return** with **zero** disk side effects **and zero** Linear project
   create/link attempts — identical no-side-effect semantics to the human
   **decline** path below (AC12 / M3).
-- any other decision follows the shared C4 Decision→action map (e.g.
-  `reroute-epic` → same one-line message, then hand to `/epic` decompose).
+- `reroute-epic` (BC5 complexity overflow) — `/epic` decompose is itself the
+  reroute target, so never hand off (a hand-off would re-enter this A.5 gate).
+  Count the proposed children (the soft-warn rule of A.1 and the list above):
+  **more than 8 children** → print `scope-confirm reroute-epic (soft warn):
+  <rationale> — card: <card-path>`, then continue to **A.6**. Otherwise →
+  treat as `halt` (the `halt` branch above, with zero side effects).
+- any other value (an engine contract break) → treat as `halt` (fail closed).
 
 Otherwise (autopilot off) the existing human gate applies **unchanged**:
 
@@ -715,9 +735,15 @@ Consume `{ decision, blocking_condition, confidence, rationale }` and act:
   `scope-confirm halt: <rationale> — card: <card-path>` and **return**; that
   child's state is **unchanged** (no `set-status`), identical to the human `n`
   path (preserves AC10: confirm before `set-status`).
-- any other decision follows the shared C4 Decision→action map (e.g.
-  `reroute-epic` → same one-line message, then hand that child to `/epic`
-  decompose per M11 self-reroute).
+- `reroute-epic` (BC5: this child alone overflows one ticket) → treat as `halt`
+  (emit `task_blocked`, print `scope-confirm reroute-epic: <rationale> — card:
+  <card-path>`, **return**, child unchanged). A nested epic for a child is
+  **not allowed:** one epic holds one flat child list (SPEC-025 M6), and a
+  nested epic would need cross-epic dependencies, which SPEC-025 lists as out of
+  scope. To split the child, the operator runs `/epic --redecompose <EPIC-ID>`
+  on this same epic (non-completed children only); autopilot never starts that
+  (SPEC-033 M5(g)).
+- any other value (an engine contract break) → treat as `halt` (fail closed).
 
 ### B.4 Status → in_progress + handoff (M7, M8)
 
@@ -952,7 +978,7 @@ bash "$EPIC_LIB" seal-ready "$EPIC_ID"
 
 **When `seal-ready` reports `ready=true`:**
 
-1. **Squash-stage** integration onto master/main (no commit):
+1. **Squash-stage** integration onto the default branch (the local branch behind `origin/HEAD`, else master/main; no commit). Run it from the main checkout with the default branch checked out. Seal never switches branches: it exits 1 when that checkout is dirty, or when HEAD is another branch or detached. Check out the default branch there first:
    ```bash
    _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -966,7 +992,10 @@ bash "$EPIC_LIB" seal "$EPIC_ID"
    ```
 2. **Exactly one** `/release <release_bump>` (bump from durable state — not a
    separate `--bump` flag). `/release` remains the ship-of-record (version
-   pair + single fold-commit + tag/push). Export for the single invocation:
+   pair + single fold-commit + tag/push). `assert-release-allowed` honors
+   `EPIC_ALLOW_SEAL_RELEASE=1` only while the epic is seal-staged (`seal_stage`
+   non-null: after `seal`, before `--complete`/`--abort`); a stray env var
+   alone bypasses nothing. Export for the single invocation:
    ```bash
    _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -1029,7 +1058,8 @@ bash "$EPIC_LIB" seal "$EPIC_ID" --abort --force
   tree) and MUST NOT wipe unrelated main WIP; `--abort` with `--force` is
   stash then reset (named stash; operator/orchestrator recovery only; never
   removes untracked files — CDT-170).
-- `EPIC_SEAL_RELEASE_HOOK` (tests only) may stand in for `/release`; production
+- `EPIC_SEAL_RELEASE_HOOK` (tests only; runs only with `EPIC_TEST_MODE=1`, else
+  ignored with a stderr notice) may stand in for `/release`; production
   orchestrator always uses `/release` as SoT.
 
 **When `release_bump` is null/absent:** `seal` / `seal-ready` skip (`reason=
