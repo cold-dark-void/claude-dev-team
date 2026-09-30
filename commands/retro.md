@@ -808,7 +808,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 # For each $JSONL in $FLAGGED_SESSIONS:  # lint-ok: C1
 FRICTION_SIGNALS_JSON=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)
-ANCHOR_MESSAGE_IDS_JSON=$(echo "$ANCHOR_IDS" | python3 -c "  # lint-ok: C1
+# lint-ok: C1 — ANCHOR_IDS is session-held by the orchestrating Claude; the waiver sits above the command, not inside the quoted script
+ANCHOR_MESSAGE_IDS_JSON=$(echo "$ANCHOR_IDS" | python3 -c "
 import sys, json
 lines = [l for l in sys.stdin.read().splitlines() if l.strip()]
 ids = [p.split(None,1)[1] for p in lines if p.startswith('$JSONL ')]

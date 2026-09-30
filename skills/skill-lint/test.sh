@@ -4,6 +4,9 @@ set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LINT="$HERE/check-skill-bash.sh"
 FIX="$HERE/fixtures"
+# shellcheck source=../../tests/lib/hermetic.sh
+. "$HERE/../../tests/lib/hermetic.sh"
+hermetic_init   # private TMPDIR/HOME: every mktemp below lives under one root
 PASS=0; FAIL=0
 OUT=""; RC=0
 
@@ -224,6 +227,142 @@ rm -rf "$T8E" "$T8A" "$T8B"
 OUT=$(bash "$LINT" --root "$REPO_ROOT" 2>&1); RC=$?
 expect_no_finding C5
 expect_no_vacuity "live tree cannot resolve the SPEC-002 canonical stanza"
+
+# ---------------------------------------------------------------------------
+# WP 1-12 (wp-1-12-fence-state): C6 assign-before-use and C10 comment/waiver
+# placement. Both rules live in fence-state.awk (bash + awk, no interpreter);
+# check-skill-bash.sh runs them after lint.py and merges the output.
+# ---------------------------------------------------------------------------
+expect_at() { # expect_at <check-id> <file-basename> <line> — one finding line at file:line
+  if echo "$OUT" | grep -q "$2:$3: \[$1\]"; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); echo "FAIL: no [$1] finding at $2:$3 in:"; echo "$OUT" | head -8
+  fi
+}
+
+expect_count() { # expect_count <check-id> <n> — number of printed [ID] findings in last OUT
+  local got
+  got=$(echo "$OUT" | grep -c "\[$1\]" || true)
+  if [ "$got" -eq "$2" ]; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); echo "FAIL: expected $2 [$1] finding(s), got $got:"; echo "$OUT" | grep "\[$1\]"
+  fi
+}
+
+# T9: C6 — a root variable read before its first assignment in the same fence.
+# Positives: fixture lines 7 (MROOT in the MEMDB= line), 21 (MEMDB tested before
+# MEMDB=), 30 (PLUGIN_DIR), 38 (unquoted heredoc body), 47 (waived). Negatives:
+# correct order, same-line assign, export, :=, single quotes, comments, quoted
+# heredoc, longer names, and a fence that never assigns the name (C1's job).
+run_lint 1 "$FIX/c6-assign-before-use.md"
+expect_at C6 c6-assign-before-use.md 7
+expect_at C6 c6-assign-before-use.md 21
+expect_at C6 c6-assign-before-use.md 30
+expect_at C6 c6-assign-before-use.md 38
+expect_count C6 4
+echo "$OUT" | grep -q "c6-assign-before-use.md:47:" && { FAIL=$((FAIL+1)); echo "FAIL: waived C6 at :47 was printed"; } || PASS=$((PASS+1))
+echo "$OUT" | grep -q '\[C6\] \$MEMDB is used before' && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: C6 message does not name \$MEMDB"; }
+# the C6 waiver is counted, never silent (--json keeps waived findings)
+if command -v jq >/dev/null 2>&1; then
+  JW=$(bash "$LINT" --json "$FIX/c6-assign-before-use.md" 2>/dev/null | jq -r '[.[] | select(.check == "C6" and .waived)] | map(.line) | join(",")' || true)
+  [ "$JW" = "47" ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: waived C6 lines '$JW' != '47'"; }
+else
+  PASS=$((PASS+1))  # jq absent: the waived-count check needs --json
+fi
+
+# T10: C10 — comment and waiver placement. Positives: 6 (waiver after a
+# continuation backslash), 13 (backslash then trailing space), 21 (comment line
+# inside a continuation), 29 (waiver inside an open double quote), 39 (# inside
+# a quoted sqlite3 SQL argument), 47 (# inside a single-quoted sqlite3 SQL
+# argument). The NEGATIVE fence from line 54 holds the correct forms.
+run_lint 1 "$FIX/c10-waiver-placement.md"
+for L in 6 13 21 29 39 47; do expect_at C10 c10-waiver-placement.md "$L"; done
+expect_count C10 6
+echo "$OUT" | grep -q "6 findings, 0 waived" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: C10 fixture summary wrong: $(echo "$OUT" | tail -1)"; }
+
+# 1. C10 cannot be waived: a waiver above a planted defect does not hide it
+T10A=$(mktemp -d)
+printf '```bash\n# lint-ok: C10\n"$E" run \\  # lint-ok: C10\n  --x\n```\n' > "$T10A/w.md"
+run_lint 1 "$T10A/w.md"
+expect_at C10 w.md 3
+rm -rf "$T10A"
+
+# 2. A C6 waiver must not hide C10 and the reverse (IDs are matched exactly)
+T10B=$(mktemp -d)
+printf '```bash\n# lint-ok: C6\nMEMDB="$MROOT/m.db"\nMROOT=$(pwd)\n# lint-ok: C10\nE=1 \\  # lint-ok: C1\n  cmd\n```\n' > "$T10B/w.md"
+run_lint 1 "$T10B/w.md"
+expect_no_finding C6
+expect_at C10 w.md 6
+rm -rf "$T10B"
+
+# T11: wrapper contract — lint.py and fence-state.awk findings merge into one
+# report; exit codes and the summary line stay one contract.
+T11=$(mktemp -d)
+printf '```bash\nV=$(sqlite3 db "PRAGMA busy_timeout=5000; SELECT 1;")\nMEMDB="$MROOT/m.db"\nMROOT=$(pwd)\n```\n' > "$T11/both.md"
+run_lint 1 "$T11/both.md"
+expect_at C4 both.md 2
+expect_at C6 both.md 3
+echo "$OUT" | tail -1 | grep -qx "2 findings, 0 waived" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: merged summary wrong: $(echo "$OUT" | tail -1)"; }
+
+# C6-only file: exit 1 comes from the awk engine alone
+printf '```bash\nMEMDB="$MROOT/m.db"\nMROOT=$(pwd)\n```\n' > "$T11/c6only.md"
+run_lint 1 "$T11/c6only.md"
+expect_at C6 c6only.md 2
+# clean file still exits 0 with the original summary
+run_lint 0 "$FIX/clean.md"
+echo "$OUT" | tail -1 | grep -qx "0 findings, 0 waived" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: clean summary wrong: $(echo "$OUT" | tail -1)"; }
+
+# --json: one JSON array holding both engines' findings
+if command -v jq >/dev/null 2>&1; then
+  JOUT=$(bash "$LINT" --json "$T11/both.md" 2>&1); JRC=$?
+  [ "$JRC" -eq 1 ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: --json exit $JRC != 1"; }
+  JCHK=$(printf '%s' "$JOUT" | jq -r '[.[].check] | sort | join(",")' 2>&1 || true)
+  [ "$JCHK" = "C4,C6" ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: --json checks '$JCHK' != 'C4,C6'"; }
+else
+  PASS=$((PASS+2))  # jq absent: the --json merge needs it; nothing to assert here
+fi
+
+# usage errors keep exit 64; --help passes through to argparse (exit 0)
+run_lint 64 --root
+run_lint 64 --no-such-flag "$FIX/clean.md"
+run_lint 0 --help
+echo "$OUT" | grep -q "usage:" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: --help printed no usage"; }
+
+# fail closed: a broken awk must never turn into a silent pass
+mkdir -p "$T11/shim"
+printf '#!/bin/sh\nexit 2\n' > "$T11/shim/awk"; chmod +x "$T11/shim/awk"
+OUT=$(PATH="$T11/shim:$PATH" bash "$LINT" "$FIX/clean.md" 2>&1); RC=$?
+[ "$RC" -eq 1 ] && echo "$OUT" | grep -q "fence-state" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: broken awk must exit 1 naming fence-state (rc=$RC): $(echo "$OUT" | tail -2)"; }
+
+# no-arg discovery proves C6 and C10 over every globbed location (coverage
+# bite-test), and skips the fixtures directory
+T11R=$(mktemp -d)
+mkdir -p "$T11R/commands" "$T11R/skills/deep/nested" "$T11R/agents" "$T11R/skills/skill-lint/fixtures"
+PLANT6='```bash'$'\n''MEMDB="$MROOT/m.db"'$'\n''MROOT=$(pwd)'$'\n''```'
+PLANT10='```bash'$'\n''E=1 \  # c'$'\n''  cmd'$'\n''```'
+for loc in commands/a.md skills/deep/nested/b.md agents/c.md AGENTS.md; do
+  printf '%s\n%s\n' "$PLANT6" "$PLANT10" > "$T11R/$loc"
+done
+printf '%s\n%s\n' "$PLANT6" "$PLANT10" > "$T11R/skills/skill-lint/fixtures/planted.md"
+run_lint 1 --root "$T11R"
+for loc in commands/a.md skills/deep/nested/b.md agents/c.md AGENTS.md; do
+  echo "$OUT" | grep -q "$loc:2: \[C6\]" && echo "$OUT" | grep -q "$loc:6: \[C10\]" && PASS=$((PASS+1)) || {
+    FAIL=$((FAIL+1)); echo "FAIL: no-arg scan missed C6/C10 in $loc"; }
+done
+echo "$OUT" | grep -q "fixtures/planted.md" && { FAIL=$((FAIL+1)); echo "FAIL: fixtures dir scanned by the awk engine"; } || PASS=$((PASS+1))
+rm -rf "$T11" "$T11R"
+
+# T12: live tree — zero C6 and zero C10 findings. C10 cannot be waived. A real
+# C6 hit is fixed by reordering the block, never waived, so the live tree must
+# hold no C6 waiver either. The JSON keeps waived findings, so a waiver cannot
+# hide a hit from this count.
+if command -v jq >/dev/null 2>&1; then
+  LIVE=$({ bash "$LINT" --json --root "$REPO_ROOT" 2>/dev/null || true; } | jq -r '[.[] | select(.check == "C6" or .check == "C10")] | map("\(.path):\(.line):\(.check):\(.waived)") | join(" ")' 2>&1)
+  [ -z "$LIVE" ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live tree has C6/C10 findings: $LIVE"; }
+else
+  OUT=$(bash "$LINT" --root "$REPO_ROOT" 2>&1); RC=$?
+  expect_no_finding C6
+  expect_no_finding C10
+fi
 
 echo "---"
 echo "skill-lint tests: $PASS passed, $FAIL failed"

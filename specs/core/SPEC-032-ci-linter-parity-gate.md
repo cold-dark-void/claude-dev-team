@@ -10,10 +10,10 @@
 
 ## Overview
 
-Two deterministic, LLM-free structural linters — skill-lint (SPEC-021, checks C1–C5)
+Two deterministic, LLM-free structural linters — skill-lint (SPEC-021, checks C1–C10)
 and docs-drift (SPEC-010, checks D1–D8) — today run only as `/release` pre-commit gates
 (`skills/release/SKILL.md` Steps 4.8 and 4.9). A contributor working outside the release
-flow (any push or pull request) gets no automated signal from either linter; a C1–C5
+flow (any push or pull request) gets no automated signal from either linter; a C1–C10
 skill-bash defect or a D1–D8 docs-drift regression ships to `master` undetected until the
 next `/release`, where it blocks the release instead of the PR that introduced it.
 SPEC-030 already added `.github/workflows/smoke.yml` and wired the smoke harness into CI,
@@ -68,7 +68,7 @@ SPEC-021 and SPEC-010 respectively, and `/release` behavior is untouched.
 
 ## Test
 
-- [ ] With a seeded C1–C5 skill-bash violation on a branch, the `skill-lint` CI job exits
+- [ ] With a seeded C1–C10 skill-bash violation on a branch, the `skill-lint` CI job exits
       non-zero and reports a failing check; the `docs-drift` job still runs.
 - [ ] With a seeded D1–D8 docs-drift violation, the `docs-drift` CI job exits non-zero; the
       `skill-lint` job still runs.
@@ -92,7 +92,7 @@ SPEC-021 and SPEC-010 respectively, and `/release` behavior is untouched.
 
 ## Cross-references
 
-- SPEC-021 (skill-lint) — owns C1–C5 check definitions and the linter exit contract.
+- SPEC-021 (skill-lint) — owns C1–C10 check definitions (C7–C9 are reserved) and the linter exit contract.
 - SPEC-010 (docs-drift) — owns D1–D8 check definitions and the linter exit contract.
 - SPEC-030 (smoke harness gate) — owns `.github/workflows/smoke.yml` creation and the smoke
   job; this spec adds sibling linter jobs to the same file.
@@ -102,3 +102,4 @@ SPEC-021 and SPEC-010 respectively, and `/release` behavior is untouched.
 | Date | Change |
 |------|--------|
 | 2026-08-03 | Initial version |
+| 2026-09-30 | WP 1-12: skill-lint check list reads C1–C10, with C7–C9 reserved (SPEC-021 adds C6 assign-before-use and C10 waiver placement); the `skill-lint` CI job and its no-flag invocation are unchanged. |

@@ -1073,8 +1073,10 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 TOKENS_FILE="${TMPDIR:-/tmp}/council-tokens-$$.json"  # lint-ok: C1
 # write tokens JSON when any usable ints collected; else skip or source=unavailable
-"$ENGINE_SH" finalize \
-  --plan-file    "$PLAN_FILE" \  # lint-ok: C1
+# PLAN_FILE is session-held by the orchestrating Claude (Step 1), as above. The waiver
+# sits on its own line: after a trailing \ it would end the command.
+# lint-ok: C1
+"$ENGINE_SH" finalize --plan-file "$PLAN_FILE" \
   --evidence-file "$EVIDENCE_FILE" \
   --judge-output  "$JUDGE_FILE" \
   [--task-id      "<task_id if present>"] \

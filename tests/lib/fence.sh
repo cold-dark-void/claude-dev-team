@@ -58,6 +58,18 @@
 #     an empty result means no top-level return was found by this rule, not
 #     that a fence holds none by any rule.
 #
+#   fence_exec <prefix> <cwd> <fence-text> [NAME=value ...]
+#     Runs one fence the way the host does: writes <fence-text> plus a
+#     newline to <prefix>.sh, then runs it in a FRESH `bash` process with
+#     its cwd set to <cwd>, extra environment NAME=value ... (each passed to
+#     `env`), stdin from /dev/null, stdout to <prefix>.out and stderr to
+#     <prefix>.err. Sets the global RUN_RC to the exit status (a missing
+#     <cwd> is a non-zero RUN_RC, never a run in the wrong directory).
+#     Returns 0 after a run; a usage error returns 1. Caller-side setup
+#     (placeholder substitution, truncating a stub log, a PATH stub dir)
+#     stays in the caller. This is the one core of the three wp-1-12
+#     fence suites' run_fence wrappers (copy-extract rule).
+#
 # bash 3.2 (no declare -A / mapfile / ${v,,}). awk only, no writes. Every
 # value crosses into awk via ENVIRON, never `awk -v` (hazard checklist: -v
 # assignment backslash-processes \t \n \\ & / — ENVIRON does not).
@@ -200,5 +212,18 @@ fence_top_level_returns() {
       }
     }
   ' "$md"
+  return 0
+}
+
+fence_exec() {
+  if [ $# -lt 3 ]; then
+    echo "fence_exec: usage: fence_exec <prefix> <cwd> <fence-text> [NAME=value ...]" >&2
+    return 1
+  fi
+  local prefix="$1" cwd="$2" text="$3"
+  shift 3
+  printf '%s\n' "$text" > "$prefix.sh" || return 1
+  ( cd "$cwd" && env "$@" bash "$prefix.sh" ) < /dev/null > "$prefix.out" 2> "$prefix.err"
+  RUN_RC=$?
   return 0
 }

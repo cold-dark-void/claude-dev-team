@@ -62,11 +62,11 @@ Read in parallel:
 - `$MROOT/AGENTS.md`
 - Claude memory:
   ```bash
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-MEMDB="$MROOT/.claude/memory/memory.db"
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MEMDB="$MROOT/.claude/memory/memory.db"
   if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
     HAS_DISTILLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
     if [ "${HAS_DISTILLED:-0}" -gt 0 ]; then

@@ -131,6 +131,68 @@ else
   fail "hermetic_init exit3: rc=$RC root=$ROOTVAL before=$BEFORE after=$AFTER"
 fi
 
+# ---- check.sh: pass_line / fail_line / check count and print ----------------
+CHECK_LIB="$HERE/check.sh"
+OUT=$(bash -c '
+. "'"$CHECK_LIB"'"
+pass=0; fail=0
+check "ok case" true
+check "bad case" false
+check "arg case" test 1 -eq 1
+pass_line "direct pass"
+fail_line "direct fail"
+echo "counts=$pass,$fail"
+' 2>&1)
+if echo "$OUT" | grep -qx "PASS: ok case" && echo "$OUT" | grep -qx "FAIL: bad case" \
+   && echo "$OUT" | grep -qx "PASS: arg case" && echo "$OUT" | grep -qx "PASS: direct pass" \
+   && echo "$OUT" | grep -qx "FAIL: direct fail" && echo "$OUT" | grep -qx "counts=3,2"; then
+  pass
+else
+  fail "check.sh helpers: $OUT"
+fi
+# sourcing has no side effect (no output, no counters created)
+OUT=$(bash -c '. "'"$CHECK_LIB"'"; echo "[${pass:-unset}${fail:-unset}]"' 2>&1)
+if [ "$OUT" = "[unsetunset]" ]; then pass; else fail "check.sh sourcing side effect: $OUT"; fi
+
+# ---- fence_exec: fresh bash, cwd, env, captured out/err, RUN_RC -------------
+FENCE_LIB="$HERE/fence.sh"
+FX="$WORK/fx"
+mkdir -p "$FX/cwd"
+OUT=$(bash -c '
+. "'"$FENCE_LIB"'"
+LEAK=caller-var
+fence_exec "'"$FX"'/a" "'"$FX"'/cwd" '"'"'printf "cwd=%s v=%s leak=%s\n" "$PWD" "$FENCE_V" "${LEAK:-none}"; echo oops >&2; SET_IN_FENCE=1; exit 3'"'"' FENCE_V=hello
+echo "rc=$RUN_RC set=${SET_IN_FENCE:-unset}"
+' 2>&1)
+if [ "$(tail -1 <<<"$OUT")" = "rc=3 set=unset" ] \
+   && grep -qx "cwd=$FX/cwd v=hello leak=none" "$FX/a.out" \
+   && grep -qx "oops" "$FX/a.err" && [ -f "$FX/a.sh" ]; then
+  pass
+else
+  fail "fence_exec core: $OUT / out=$(cat "$FX/a.out" 2>&1) err=$(cat "$FX/a.err" 2>&1)"
+fi
+# stdin is /dev/null (a fence that reads stdin must not hang), and env args are optional
+OUT=$(timeout 10 bash -c '
+. "'"$FENCE_LIB"'"
+fence_exec "'"$FX"'/b" "'"$FX"'/cwd" '"'"'cat; echo done'"'"'
+echo "rc=$RUN_RC"
+' 2>&1)
+if [ "$(tail -1 <<<"$OUT")" = "rc=0" ] && grep -qx "done" "$FX/b.out"; then pass; else fail "fence_exec stdin: $OUT"; fi
+# a missing cwd is a non-zero RUN_RC, never a silent run in the wrong directory
+OUT=$(bash -c '
+. "'"$FENCE_LIB"'"
+fence_exec "'"$FX"'/c" "'"$FX"'/no-such-dir" '"'"'echo ran'"'"'
+echo "rc=$RUN_RC"
+' 2>&1)
+if [ "$(tail -1 <<<"$OUT")" != "rc=0" ] && ! grep -qx "ran" "$FX/c.out"; then pass; else fail "fence_exec bad cwd: $OUT"; fi
+# too few arguments: usage error under set -u, no unbound-variable abort
+OUT=$(bash -c 'set -u; . "'"$FENCE_LIB"'"; fence_exec only-one; echo "rc=$?"' 2>&1)
+if echo "$OUT" | grep -q "usage" && echo "$OUT" | grep -q "rc=1" && ! echo "$OUT" | grep -qi "unbound"; then
+  pass
+else
+  fail "fence_exec usage: $OUT"
+fi
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

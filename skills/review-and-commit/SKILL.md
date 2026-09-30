@@ -54,7 +54,9 @@ Skip this step entirely if `--impact` was not passed. When enabled:
    references (exclude the changed files themselves, test files, and
    vendor/node_modules directories):
    ```bash
-   grep -rl --include='*.{py,js,ts,go,rs,sh}' '<symbol>' . \
+   # One --include per extension: grep does not brace-expand a pattern.
+   grep -rl --include='*.py' --include='*.js' --include='*.ts' --include='*.go' \
+     --include='*.rs' --include='*.sh' '<symbol>' . \
      | grep -v node_modules | grep -v vendor | grep -v __pycache__
    ```
    Cap at 20 caller files total to avoid context blowout.
@@ -132,7 +134,12 @@ PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/review-and-commit-plan.XXXXXX.json") \
 EXT_ARGS=()
 # set EXT_ARGS=(--external) or (--external=codex) etc. from user CLI
 "$ENGINE_SH" preflight --scope diff --preset diff-mode "${EXT_ARGS[@]}" > "$PLAN_FILE"
+# Every fence is a separate shell: print the path so the Step 5 fence can be given it.
+printf 'PLAN_FILE=%s\n' "$PLAN_FILE"
 ```
+
+Keep the printed `PLAN_FILE=<path>` line. The Step 5 fence runs in a new shell and does
+not see `$PLAN_FILE`; you paste the path into it.
 
 Preflight runs Phase 0 intake including spec-grep enrichment over
 `$MROOT/specs/**/*.md` for MUSTs matching changed paths. The plan declares
@@ -198,18 +205,31 @@ Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
+# Replace <PLAN_FILE> with the plan path that the Step 3 fence printed (PLAN_FILE=<path>).
+PLAN_FILE="<PLAN_FILE>"
+[ -f "$PLAN_FILE" ] || { echo "review-and-commit error: set PLAN_FILE to the plan path from Step 3" >&2; exit 1; }
+# Replace <DEGRADED> with true when any spawn failed and you self-verified the lens, else false.
+DEGRADED="<DEGRADED>"
+case "$DEGRADED" in
+  true)  FINALIZE_MODE=(--verification-mode self-verified) ;;
+  false) FINALIZE_MODE=() ;;
+  *) echo "review-and-commit error: set DEGRADED to true or false" >&2; exit 1 ;;
+esac
 EVIDENCE_FILE=$(mktemp "${TMPDIR:-/tmp}/rc-evidence.XXXXXX.json") \
   || { echo "review-and-commit error: mktemp failed for EVIDENCE_FILE"; exit 1; }
 JUDGE_FILE=$(mktemp "${TMPDIR:-/tmp}/rc-judge.XXXXXX.json") \
   || { echo "review-and-commit error: mktemp failed for JUDGE_FILE"; exit 1; }
 # populate from Phase 1 / Phase 5 outputs, then:
-"$ENGINE_SH" finalize --plan-file "$PLAN_FILE" \  # lint-ok: C1
+"$ENGINE_SH" finalize --plan-file "$PLAN_FILE" \
   --evidence-file "$EVIDENCE_FILE" --judge-output "$JUDGE_FILE" \
-  ${degraded:+--verification-mode self-verified}
+  ${FINALIZE_MODE[@]+"${FINALIZE_MODE[@]}"}
 ```
 
-When `degraded=true`, pass `--verification-mode self-verified` so the
-canonical report includes marker `self-verified — refuters unavailable`.
+This fence runs in a new shell. It does not see variables from the Step 3 fence, so you
+fill in `<PLAN_FILE>` and `<DEGRADED>` yourself. The fence exits 1 until both are filled
+(`DEGRADED` must be exactly `true` or `false`), so a skipped edit never reads as a
+non-degraded run. With `DEGRADED=true` the engine gets `--verification-mode self-verified`
+and the canonical report includes marker `self-verified — refuters unavailable`.
 See `skills/council/SKILL.md` § Spawn-failure degradation.
 
 Engine renders the canonical report via

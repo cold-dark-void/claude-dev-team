@@ -401,6 +401,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+# This block is a new shell: read the threshold here, never from the block above.
+THRESHOLD=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
 if [ -n "$TARGET_AGENT" ]; then
   # Single agent mode -- process regardless of threshold
   AGENTS="$TARGET_AGENT"
@@ -410,7 +412,7 @@ else
     "SELECT agent FROM memories
      WHERE tier=0 AND archived=FALSE
      GROUP BY agent
-     HAVING COUNT(*) >= $THRESHOLD  # lint-ok: C1
+     HAVING COUNT(*) >= $THRESHOLD
      ORDER BY agent;")
 fi
 
@@ -1419,10 +1421,15 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+# This block is a new shell: rebuild the agent filter here (same rule as Step 3).
+AGENT_CLAUSE=""
+if [ -n "$TARGET_AGENT" ]; then
+  AGENT_CLAUSE="AND agent='$TARGET_AGENT'"
+fi
 DIGESTS=$(sqlite3 "$MEMDB" "
   SELECT id, agent, distilled_from
   FROM memories
-  WHERE tier=1 AND archived=FALSE $AGENT_CLAUSE  # lint-ok: C1
+  WHERE tier=1 AND archived=FALSE $AGENT_CLAUSE
   ORDER BY created_at ASC;
 ")
 ```
@@ -1510,9 +1517,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+   # This block is a new shell: rebuild the ID list from the digest's distilled_from array (as in Step 10.2).
+   SOURCE_IDS=$(echo "$DISTILLED_FROM" | tr -d '[]' | tr ',' ' ')
+   SOURCE_IDS_CSV=$(echo "$SOURCE_IDS" | tr ' ' ',')
    VALID_IDS=$(sqlite3 "$MEMDB" "
      SELECT id FROM memories
-     WHERE id IN ($SOURCE_IDS_CSV)  # lint-ok: C1
+     WHERE id IN ($SOURCE_IDS_CSV)
        AND (archive_reason IS NULL OR archive_reason='distilled')
      ORDER BY created_at ASC;
    ")

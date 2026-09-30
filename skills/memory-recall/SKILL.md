@@ -52,9 +52,14 @@ This skill owns **cross-agent search** (Steps 3–5+). Session boot uses the pro
 Simple LIKE-based search — no extensions required. Keyword mode returns up to 20 rows
 per SPEC-006 (`LIMIT 20`).
 
+Every fence in this skill is a separate shell. Each fence sets its own `MROOT`, `MEMDB`
+and `QUERY`; none of them sees a variable from another fence. Replace `<QUERY>` with the
+search text. The heredoc delimiter is quoted, so the text is never expanded or executed.
+
 The query is interpolated into SQL, so it MUST be single-quote escaped first (`'`→`''`)
-to prevent SQL injection. Define `ESCAPED_QUERY` once and use it everywhere the query
-lands in SQL (here and in the LIKE/lembed paths below):
+to prevent SQL injection. In a LIKE pattern it MUST also have `\`, `%` and `_` escaped,
+so they match literally (`ESCAPED_QUERY` for a string literal, `LIKE_QUERY` for a LIKE
+pattern; LIKE uses `ESCAPE '\'`). Every fence that puts the query in SQL defines both:
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -62,11 +67,16 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+QUERY=$(cat <<'QUERY_EOF'
+<QUERY>
+QUERY_EOF
+)
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
 sqlite3 -header -column "$MEMDB" \
   "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
    FROM memories
-   WHERE content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
+   WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
      AND archived = FALSE
    ORDER BY tier DESC, updated_at DESC
    LIMIT 20;"
@@ -97,21 +107,28 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+# Same derivation as skills/memory-store/download-extensions.sh (each fence is a new shell).
+EXT_DIR="$MROOT/.claude/memory/extensions"
+MODEL_DIR="$MROOT/.claude/memory/models"
+QUERY=$(cat <<'QUERY_EOF'
+<QUERY>
+QUERY_EOF
+)
 EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
 
 EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
 DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
-if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \  # lint-ok: C1
+if [ "$EMBED_MODE" = "lembed" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \
    [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
-  MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"  # lint-ok: C1
+  MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
   VEC_TABLE="vec_memories_${DIMS}"
   # Escape the query for SQL interpolation (see Step 3): '→''
   ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
   sqlite3 "$MEMDB" <<EOSQL
-.load $EXT_DIR/vec0
-.load $EXT_DIR/lembed0
+.load "$EXT_DIR/vec0"
+.load "$EXT_DIR/lembed0"
 SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet,
        CAST(ROUND((1 - e.distance) * 100) AS INTEGER) || '%' AS score,
@@ -159,16 +176,17 @@ elif [ "$EMBED_MODE" = "remote" ] && \
      printf '%s' "$QUERY_EMBEDDING" | grep -q '[^][0-9.,eE+ -]'; then
     echo "[memory-recall] Invalid/empty embedding from endpoint. Using keyword search."
     ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+    LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
     sqlite3 -header -column "$MEMDB" \
       "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
-       FROM memories WHERE content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
+       FROM memories WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
          AND archived = FALSE
        ORDER BY tier DESC, updated_at DESC LIMIT 20;"
     exit 0
   fi
 
   sqlite3 "$MEMDB" <<EOSQL
-.load $EXT_DIR/vec0
+.load "$EXT_DIR/vec0"
 SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet,
        CAST(ROUND((1 - e.distance) * 100) AS INTEGER) || '%' AS score,
@@ -184,9 +202,10 @@ else
   # Fallback: keyword search
   echo "[memory-recall] No embeddings available. Using keyword search."
   ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+  LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
   sqlite3 -header -column "$MEMDB" \
     "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
-     FROM memories WHERE content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
+     FROM memories WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
        AND archived = FALSE
      ORDER BY tier DESC, updated_at DESC LIMIT 20;"
 fi
@@ -196,24 +215,38 @@ fi
 
 ## Step 5: Fallback (.md grep)
 
-Used when `USE_DB=false`. Searches all agent `.md` files with grep.
+Used when `USE_DB=false`. Searches all agent `.md` files with `grep -F` (the query is
+literal text, not a regex). The fence sets `MROOT` before `MEMDB`, so a DB that exists
+sets `USE_DB=true` and this step prints nothing. `context.md` is per-worktree and never in
+the DB, so a linked worktree's own `.claude/memory/*/context.md` files are searched too.
+Replace `<QUERY>` with the search text; the quoted heredoc keeps it from being executed.
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 USE_DB=false
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
 fi
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+QUERY=$(cat <<'QUERY_EOF'
+<QUERY>
+QUERY_EOF
+)
 if [ "$USE_DB" = "false" ]; then
-  find "$MROOT/.claude/memory" -mindepth 2 -maxdepth 2 -name '*.md' -type f -exec grep -lil "<QUERY>" {} + 2>/dev/null | while read -r FILE; do
+  {
+    find "$MROOT/.claude/memory" -mindepth 2 -maxdepth 2 -name '*.md' -type f 2>/dev/null
+    if [ "$WTROOT" != "$MROOT" ]; then
+      find "$WTROOT/.claude/memory" -mindepth 2 -maxdepth 2 -name 'context.md' -type f 2>/dev/null
+    fi
+  } | while IFS= read -r FILE || [ -n "$FILE" ]; do
+    grep -Fiq -- "$QUERY" "$FILE" || continue
     AGENT=$(basename "$(dirname "$FILE")")
     TYPE=$(basename "$FILE" .md)
     echo "=== @$AGENT / $TYPE ==="
-    grep -i -C 2 "<QUERY>" "$FILE"
+    grep -Fi -C 2 -- "$QUERY" "$FILE"
     echo ""
   done
 fi
@@ -253,8 +286,8 @@ Each result includes:
 
 After semantic results, also surface memories that lack embeddings for the current model
 (e.g., memories stored before embedding was configured, or stored while extensions were
-absent). Replace `<CURRENT_MODEL>`. The query is single-quote escaped (`ESCAPED_QUERY`,
-see Step 3) before interpolation.
+absent). Replace `<CURRENT_MODEL>` and `<QUERY>`. The query is single-quote escaped
+(`ESCAPED_QUERY`) and LIKE-escaped (`LIKE_QUERY`), see Step 3, before interpolation.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -262,8 +295,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+QUERY=$(cat <<'QUERY_EOF'
+<QUERY>
+QUERY_EOF
+)
 # Append unembedded memories (keyword match) after semantic results
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
 sqlite3 "$MEMDB" <<EOSQL
 SELECT m.agent, m.type, m.tier, substr(m.content, 1, 200) AS snippet,
        '[not yet embedded]' AS score, m.created_at
@@ -271,7 +309,7 @@ FROM memories m
 LEFT JOIN embedding_meta em ON em.memory_id = m.id AND em.model = '<CURRENT_MODEL>'
 WHERE em.memory_id IS NULL
   AND m.archived = FALSE
-  AND m.content LIKE '%${ESCAPED_QUERY}%' COLLATE NOCASE
+  AND m.content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
 LIMIT 10;
 EOSQL
 ```
