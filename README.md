@@ -279,9 +279,13 @@ add the marketplace entry to a settings file you **do** commit:
 
 For opencode, clone the repo and run `bash install.sh` to install into your opencode config directory (commands are symlinked; agents are copied with the Claude Code `tools:` field stripped, since opencode rejects it — re-run after editing an agent). Commands are accessible as `/dev-team/<command-name>` (e.g., `/dev-team/handoff`, `/dev-team/recall`).
 
-`bash install.sh --dry-run` prints every planned change (removals, dirs, symlink, model-pin reset, agent copies) and writes nothing — exits 0. Both scripts auto-detect opencode first: if neither an `opencode` binary on PATH nor an existing config dir is found, install skips with a warning instead of writing into a dead config dir. Install also warns when the opencode agent tree has 100+ agent `.md` files, since opencode may silently ignore agents past that point.
+`bash install.sh --dry-run` prints every planned change (removals, dirs, symlink, model pins left unchanged, agent copies) and writes nothing — exits 0. Both scripts auto-detect opencode first: if neither an `opencode` binary on PATH nor an existing config dir is found, install skips with a warning instead of writing into a dead config dir. Install also warns when the opencode agent tree has 100+ agent `.md` files, since opencode may silently ignore agents past that point.
 
-Uninstall with `bash uninstall.sh` (removes the `commands/dev-team` symlink and generated `agents/dev-team` dir); `bash uninstall.sh --dry-run` prints `would remove: <path>` / `not found: <path>` per target and removes nothing.
+Uninstall with `bash uninstall.sh`. It removes the `commands/dev-team` symlink only when that symlink points at this clone's `commands/` directory, removes the generated `agents/dev-team` directory, and deletes the dev-team model pins in `opencode.json`. `bash uninstall.sh --dry-run` prints `would remove: <path>` / `not found: <path>` per target and removes nothing. An unknown flag on either script exits 64 and writes nothing. A default `bash install.sh` does not change existing model pins; `bash install.sh --reset` clears the dev-team pins.
+
+These Surfaces have a `commands/<name>.md` file. After install they are `/dev-team/<name>`: adjust-agent, audit, bug-hunt, compact-transcript, council, craft-loop, debug, doctor, epic, handoff, memory, mode, recall, release-train, retro, setup, spec, status, tdd-gate, worktree.
+
+These Surfaces are skills only. They have no `commands/<name>.md` file, so install does not create a `/dev-team/<name>` command for them. Add this clone's `skills/` directory to `skills.paths` (the block below) and invoke the skill by the `name` in its `SKILL.md`: kickoff, orchestrate, brainstorm, backlog, release, ci-watch, refactor, review-and-commit, wrap-ticket.
 
 For skills, add your clone's `skills/` directory to `opencode.json` (skills are
 **not** symlinked by `install.sh` — they are loaded in place from the clone):

@@ -8,8 +8,8 @@ set -euo pipefail
 # HARD-ERRORS ("Configuration is invalid ... Expected object") on the string
 # form. Claude Code's `model:` uses tier names (sonnet/opus/haiku) but opencode
 # expects full model IDs. So we generate opencode-valid agent copies: strip
-# `tools:` and `model:` (model assignments go in opencode.json agent section).
-# Model assignments go into opencode.json agent section (see below).
+# `tools:` and `model:` from YAML frontmatter only. Model pins live in
+# opencode.json and are written only by --assign-models (see below).
 # Skills are NOT installed here — they load in place from this clone's skills/
 # directory via opencode.json skills.paths (see the echo at the end).
 
@@ -21,17 +21,19 @@ OPCODE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 AGENT_DIR="$OPCODE_DIR/agents/dev-team"
 CMD_DIR="$OPCODE_DIR/commands"
 
-# Parse flags. Default: agents inherit the session model (any prior dev-team
-# pins are cleared). --assign-models opts into the interactive per-tier picker.
-# --reset is an explicit alias for the default (clear pins → inherit).
-# --dry-run prints every planned mutation and executes none (exit 0).
+# Parse flags. Default: agents inherit the session model and existing pins
+# stay. --assign-models opts into the interactive per-tier picker.
+# --reset clears dev-team pins. --dry-run prints every planned mutation and
+# executes none (exit 0). Any other flag exits 64 and writes nothing.
 ASSIGN_MODELS=false
+RESET_PINS=false
 DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
-    --assign-models) ASSIGN_MODELS=true ;;
-    --reset)         ASSIGN_MODELS=false ;;
+    --assign-models) ASSIGN_MODELS=true; RESET_PINS=false ;;
+    --reset)         RESET_PINS=true; ASSIGN_MODELS=false ;;
     --dry-run)       DRY_RUN=true ;;
+    *) echo "unknown flag: $arg" >&2; exit 64 ;;
   esac
 done
 
@@ -63,40 +65,60 @@ if [ -d "$OPCODE_DIR/agents" ]; then
   fi
 fi
 
-# Remove any prior install (older symlink, or a previously generated dir).
-# rm -rf the command entry too — if a real directory somehow exists there,
-# `ln -sf` would create the link *inside* it ($CMD_DIR/dev-team/commands)
-# rather than replacing it.
-run rm -rf "$OPCODE_DIR/agents/dev-team"
-run rm -rf "$CMD_DIR/dev-team"
-
-run mkdir -p "$AGENT_DIR" "$CMD_DIR"
-
-# Commands: symlink unchanged (opencode accepts `agent: build` and $ARGUMENTS).
-# -n so an existing symlink-to-dir is replaced, not dereferenced into.
-run ln -sfn "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
-
-# Discover available models from opencode.json (all providers, sorted)
+# Validate opencode.json before any removal. A jq failure or a comments-style
+# file must leave the previous agents dir, command symlink, and pins in place.
 config_file="$OPCODE_DIR/opencode.json"
+json_tmp=""
+cleanup_json_tmp() {
+  if [ -n "${json_tmp:-}" ] && [ -f "$json_tmp" ]; then
+    rm -f "$json_tmp"
+  fi
+}
+trap cleanup_json_tmp EXIT
+
+apply_json_filter() {
+  local filter="$1"
+  json_tmp=$(mktemp "${TMPDIR:-/tmp}/opencode.json.XXXXXX")
+  if ! jq "$filter" "$config_file" > "$json_tmp"; then
+    echo "jq failed rewriting $config_file. Previous install left intact." >&2
+    rm -f "$json_tmp"
+    json_tmp=""
+    exit 1
+  fi
+  mv "$json_tmp" "$config_file"
+  json_tmp=""
+}
+
+PIN_AGENTS="ic4 qa devops pm tech-lead ic5 ds"
+pin_delete_filter() {
+  local filter="." a
+  for a in $PIN_AGENTS; do
+    filter="$filter | del(.agent[\"$a\"])"
+  done
+  printf '%s\n' "$filter"
+}
+
+if [ -f "$config_file" ] && command -v jq >/dev/null 2>&1 && ! $DRY_RUN; then
+  if ! jq -e . "$config_file" >/dev/null 2>&1; then
+    echo "opencode.json is not strict JSON. Comments and trailing commas are not supported. Nothing was changed." >&2
+    exit 1
+  fi
+fi
+
+# Discover available models from opencode.json (all providers, sorted).
+# Pin edits happen before the agents dir is removed, so a jq failure leaves
+# the previous install in place. A default run does not touch pins.
 if [ -f "$config_file" ]; then
-  # Reset prior dev-team model pins so every run starts clean (default = inherit
-  # the session model). Without this, an inherit run would leave stale
-  # assignments from an earlier --assign-models run in opencode.json. The
-  # --assign-models path below re-adds only the tiers you choose.
-  if command -v jq >/dev/null 2>&1; then
-    reset_filter="."
-    for a in ic4 qa devops pm tech-lead ic5 ds; do
-      reset_filter="$reset_filter | del(.agent[\"$a\"])"
-    done
-    if $DRY_RUN; then
-      echo "[dry-run] would update opencode.json model pins (clear prior dev-team assignments)"
-    else
-      jq "$reset_filter" "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
-    fi
-  else
-    echo "Note: 'jq' not found — cannot read models or clear existing dev-team model pins in"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "Note: 'jq' not found — cannot read models or edit dev-team model pins in"
     echo "      $config_file. Install jq to manage per-tier assignments; any existing pins are"
     echo "      left untouched and agents otherwise inherit the session model."
+  elif $DRY_RUN && $RESET_PINS; then
+    echo "[dry-run] would clear prior dev-team model pins in opencode.json"
+  elif $RESET_PINS; then
+    apply_json_filter "$(pin_delete_filter)"
+  elif $DRY_RUN && ! $ASSIGN_MODELS; then
+    echo "[dry-run] would leave existing dev-team model pins unchanged"
   fi
 
   available_models=()
@@ -111,7 +133,7 @@ if [ -f "$config_file" ]; then
     # AC6: never touch the TTY in dry-run — skip the picker and the jq apply.
     echo "[dry-run] would prompt for model tiers (haiku/sonnet/opus) — skipped in dry-run"
     echo ""
-  elif $ASSIGN_MODELS && [ ${#available_models[@]} -gt 1 ] && [ -t 0 ]; then
+  elif $ASSIGN_MODELS && [ ${#available_models[@]} -gt 1 ] && { [ -t 0 ] || [ "${DEV_TEAM_ASSIGN_MODELS_STDIN:-}" = 1 ]; }; then
     echo "Available models in your opencode.json:"
     printf '  %s\n' "${available_models[@]}"
     echo ""
@@ -195,8 +217,9 @@ if [ -f "$config_file" ]; then
     add_tier "ic5" "$opus_model"
     add_tier "ds" "$opus_model"
 
-    # Apply filter
-    jq "$jq_filter | .agent = (.agent // {})" "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+    # Replace only the dev-team pins, then apply the tiers just chosen.
+    jq_filter="$(pin_delete_filter) | $jq_filter | .agent = (.agent // {})"
+    apply_json_filter "$jq_filter"
 
     echo "Added to opencode.json agent section:"
     if [ -n "$haiku_model" ]; then
@@ -228,16 +251,42 @@ else
   echo ""
 fi
 
-# Generate opencode-valid copies of ALL agents (strip tools: + model:).
-# Internal agents (council-judge/project-init/distiller) are installed too —
-# they're excluded only from the model-tier menu above (their model isn't
-# switched per-provider), so they inherit the session model.
+# Remove any prior install only after config checks. A jq failure above has
+# already exited, so this rm cannot run against a half-applied pin rewrite.
+# rm -rf the command entry too — if a real directory somehow exists there,
+# `ln -sf` would create the link *inside* it ($CMD_DIR/dev-team/commands)
+# rather than replacing it.
+run rm -rf "$OPCODE_DIR/agents/dev-team"
+run rm -rf "$CMD_DIR/dev-team"
+run mkdir -p "$AGENT_DIR" "$CMD_DIR"
+# -n so an existing symlink-to-dir is replaced, not dereferenced into.
+run ln -sfn "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
+
+# Generate opencode-valid copies of every agent. Strip tools: and model:
+# only inside the YAML frontmatter (the first two --- lines). A body line
+# that starts with those words stays. Internal agents (finder, debugger,
+# project-init, distiller, council-judge) are installed too. They are not in
+# the model-tier menu above, so they inherit the session model.
+strip_frontmatter() {
+  awk '
+    BEGIN { n = 0; fm = 0 }
+    /^---[[:space:]]*$/ {
+      n++
+      print
+      if (n == 1) fm = 1
+      else if (n == 2) fm = 0
+      next
+    }
+    fm && /^[[:space:]]*(tools|model):/ { next }
+    { print }
+  ' "$1"
+}
 if $DRY_RUN; then
   n=$(find "$SCRIPT_DIR/agents" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
   echo "[dry-run] would generate $n opencode agent copies into $AGENT_DIR/"
 else
   for f in "$SCRIPT_DIR"/agents/*.md; do
-    grep -v -E '^\s*(tools|model):' "$f" > "$AGENT_DIR/$(basename "$f")"
+    strip_frontmatter "$f" > "$AGENT_DIR/$(basename "$f")"
   done
 fi
 
@@ -246,7 +295,7 @@ if $DRY_RUN; then
 else
   echo "Installed claude-dev-team for opencode"
 fi
-echo "  Agents:   $AGENT_DIR/ (generated from $SCRIPT_DIR/agents, tools: + model: stripped)"
+echo "  Agents:   $AGENT_DIR/ (generated from $SCRIPT_DIR/agents, frontmatter tools: + model: stripped)"
 echo "  Commands: $CMD_DIR/dev-team -> $SCRIPT_DIR/commands"
 echo ""
 echo "For skills: add '$SCRIPT_DIR/skills' to opencode.json skills.paths:"

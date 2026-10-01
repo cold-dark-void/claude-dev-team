@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.45
+- **WP 2-13 Install opencode** — a default install keeps model pins, unknown flags exit 64, and uninstall removes only this repo's command symlink.
+
 ### v1.18.44
 - **WP 2-12 Mirror recorder** — an incremental tick reads from the cursor byte offset, a killed rebuild restores the sid, and no-args sync stays in one project.
 
