@@ -510,4 +510,143 @@ for (const p of c0Prompts) {
 }
 console.log('OK: per-claim cross-review isolates c0 bundles/text from c1, bypasses c1')
 JS
+
+# WP 2-08 — Borda label map, empty-fleet exit 5, degraded judge fails closed.
+if grep -nF 'self-verify-${claimId}' skills/council/workflow.js; then
+  echo "FAIL: workflow.js still fabricates a self-verify bundle id"; fail=1
+else
+  echo "OK: no fabricated self-verify bundle id"
+fi
+
+COUNCIL_TEST_REPO="$TR" node --input-type=module <<'JS'
+import { readFileSync, existsSync } from 'node:fs'
+import { runCouncil } from './skills/council/workflow.js'
+import { CLAIM_TYPES, ClaimsSchema } from './skills/council/workflow-schemas.js'
+process.chdir(process.env.COUNCIL_TEST_REPO)
+
+if (!CLAIM_TYPES.includes('behavioral')) throw new Error('CLAIM_TYPES missing behavioral')
+if (ClaimsSchema.properties.unaudited) throw new Error('ClaimsSchema still has unaudited')
+if (!ClaimsSchema.properties.un_audited) throw new Error('ClaimsSchema missing un_audited')
+const req = ClaimsSchema.properties.claims.items.required
+for (const k of ['claim', 'source_locator', 'claim_type', 'load_weight']) {
+  if (!req.includes(k)) throw new Error('claim record missing required ' + k)
+}
+console.log('OK: ClaimsSchema matches extractor claim_type and un_audited')
+
+function reportText(r) {
+  const m = String(r.stdout || '').match(/Council report: (\S+)/)
+  if (!m) throw new Error('no Council report line\n' + r.stdout + '\n' + r.stderr)
+  return readFileSync(m[1], 'utf8')
+}
+
+const cross = []
+const agent = async (_prompt, opts) => {
+  if (opts.phase === 'Investigate') {
+    if (opts.label === 'inv:c0:paranoid-ic') {
+      return {
+        bundles: [
+          { tool_use_id: 'b0', raw_blob: 'BLOB_0', file_line: 'f:1', reproducible_command: 'true' },
+          { tool_use_id: 'b1', raw_blob: 'BLOB_1', file_line: 'f:2', reproducible_command: 'true' },
+          { tool_use_id: 'b2', raw_blob: 'BLOB_2', file_line: 'f:3', reproducible_command: 'true' },
+        ],
+      }
+    }
+    return { bundles: [] }
+  }
+  if (opts.phase === 'Cross-review') {
+    cross.push({ label: opts.label, prompt: _prompt })
+    return { ranking: ['B', 'A'] }
+  }
+  if (opts.phase === 'Phase4') return { briefs: [], struck_lines: [] }
+  if (opts.label === 'council-judge') {
+    return {
+      verdicts: [{ claim: 'borda probe', claim_id: 'c0', verdict: 'UNVERIFIED', confidence: 50, evidence_blob: 'b' }],
+      struck_lines: [],
+    }
+  }
+  return null
+}
+const ranked = await runCouncil({
+  args: { scope: 'claim', claim: 'borda probe' },
+  agent,
+  phase: () => {},
+  parallel: async (fns) => Promise.all(fns.map((f) => f())),
+  shuffle: (items) => items.slice(),
+})
+if (!ranked.ok) throw new Error('borda run failed: ' + JSON.stringify(ranked))
+for (const p of cross) {
+  const ri = Number(p.label.split(':').pop())
+  const own = `tool_use_id=b${ri}`
+  if (p.prompt.includes(own)) throw new Error('reviewer ' + ri + ' saw its own bundle')
+}
+const rankedReport = reportText(ranked)
+if (!rankedReport.includes('bundle_2=2') || !rankedReport.includes('bundle_1=1') || !rankedReport.includes('bundle_0=0')) {
+  throw new Error('Borda scores did not follow the per-reviewer label map:\n' + rankedReport)
+}
+console.log('OK: Borda attributes B>A to the bundles each reviewer saw, not the global index')
+
+const failed = await runCouncil({
+  args: { scope: 'claim', claim: 'fleet down' },
+  agent: async () => null,
+  phase: () => {},
+  parallel: async (fns) => Promise.all(fns.map((f) => f())),
+})
+if (failed.ok || failed.exit_code !== 5) {
+  throw new Error('expected exit 5, got ' + JSON.stringify(failed))
+}
+if (failed.handoff && existsSync(failed.handoff.judge)) {
+  throw new Error('exit 5 wrote a judge file')
+}
+if (JSON.stringify(failed).includes('self-verify-c0')) {
+  throw new Error('exit 5 response contains a fabricated bundle id')
+}
+console.log('OK: investigator fleet failure exits 5 with no fabricated bundles')
+
+async function diffRun(judge) {
+  return runCouncil({
+    args: { scope: 'diff', claim: 'diff probe' },
+    agent: async (_prompt, opts) => {
+      if (opts.phase === 'Extract') {
+        return {
+          claims: [{ claim: 'diff claim', source_locator: 'src/a.js:4', claim_type: 'factual', load_weight: 5 }],
+        }
+      }
+      if (opts.phase === 'Investigate') {
+        if (String(opts.label).endsWith(':logic')) {
+          return {
+            bundles: [{ tool_use_id: 't-real', raw_blob: 'REAL_BLOB', file_line: 'src/a.js:4', reproducible_command: 'true' }],
+          }
+        }
+        return { bundles: [] }
+      }
+      if (opts.label === 'council-judge') return judge
+      return null
+    },
+    phase: () => {},
+    parallel: async (fns) => Promise.all(fns.map((f) => f())),
+  })
+}
+const blocked = await diffRun(null)
+if (!blocked.ok) throw new Error('degraded judge run failed: ' + JSON.stringify(blocked))
+const blockedReport = reportText(blocked)
+if (!blockedReport.includes('**BLOCKED**')) throw new Error('degraded judge did not block the commit gate')
+if (!blockedReport.includes('degraded-judge: council-judge spawn failed')) {
+  throw new Error('report missing degraded-judge reason')
+}
+if (!blockedReport.includes('[CRITICAL]')) throw new Error('fallback finding is not critical')
+console.log('OK: degraded finding[] judge fails closed and names the reason')
+
+const passed = await diffRun({
+  findings: [{
+    file: 'src/a.js', line: 4, severity: 'warning', category: 'quality',
+    description: 'ordinary warning', suggestion: 'none', confidence: 90, tool_use_id: 't-real',
+  }],
+  struck_lines: [],
+})
+if (!passed.ok) throw new Error('normal judge run failed: ' + JSON.stringify(passed))
+const passedReport = reportText(passed)
+if (!passedReport.includes('**PASSED**')) throw new Error('normal warning judge did not pass the gate')
+if (passedReport.includes('degraded-judge:')) throw new Error('normal judge report mentions degraded-judge')
+console.log('OK: normal finding[] judge path stays PASSED')
+JS
 exit $fail

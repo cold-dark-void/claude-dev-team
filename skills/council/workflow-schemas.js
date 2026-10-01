@@ -14,7 +14,19 @@ export const VERDICT_TAXONOMY = [
 
 export const FINDING_SEVERITY = ['critical', 'warning', 'nitpick']
 
-export const CLAIM_TYPES = ['factual', 'causal', 'recommendation']
+export const CLAIM_TYPES = ['behavioral', 'factual', 'causal', 'recommendation']
+
+/** One claim record. Matches claim-extractor.md / plan-extractor.md. */
+const ClaimRecordSchema = {
+  type: 'object',
+  properties: {
+    claim: { type: 'string' },
+    source_locator: { type: 'string' },
+    claim_type: { type: 'string', enum: CLAIM_TYPES },
+    load_weight: { type: 'integer', minimum: 1, maximum: 10 },
+  },
+  required: ['claim', 'source_locator', 'claim_type', 'load_weight'],
+}
 
 /** Phase 1 claim list (verdict[]-shape extraction). */
 export const ClaimsSchema = {
@@ -22,18 +34,12 @@ export const ClaimsSchema = {
   properties: {
     claims: {
       type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          claim: { type: 'string' },
-          source_locator: { type: 'string' },
-          claim_type: { type: 'string', enum: CLAIM_TYPES },
-        },
-        required: ['claim', 'source_locator', 'claim_type'],
-      },
+      items: ClaimRecordSchema,
     },
-    truncated: { type: 'boolean' },
-    unaudited: { type: 'array', items: { type: 'string' } },
+    un_audited: {
+      type: 'array',
+      items: ClaimRecordSchema,
+    },
   },
   required: ['claims'],
 }

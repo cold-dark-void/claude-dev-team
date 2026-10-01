@@ -226,8 +226,10 @@ list:
 2. **Executable** — the post-image begins with `#!`, or `git diff --raw` reports mode `100755`
 3. **High fan-in** — the changed file's basename is referenced by ≥ 5 other tracked files
    (`git grep -l -F <basename> | wc -l`) — computed per run, never hardcoded
-4. **Deletion-heavy executable** — more than 30 deleted lines in a file matching signal 2
+4. **Deletion-heavy executable** — more than 30 deleted lines in a file that matches signal 2 before the content-only relaxation below
 5. **Test removal** — net-negative LOC in a file matching `*test*`, `*_test.*`, or `test_*`
+
+Signal 2 from an unchanged mode `100755` does not fire for a content-only edit when the status is not a rename or copy and added+deleted lines are below the clear-low LOC band (CDT-132). Signal 4 still evaluates the executable status from before that relaxation, so a content-only deletion of more than 30 lines stays clear-high. A mode flip, a rename or copy, and a shebang-only signal 2 are not relaxed.
 
 Signal 3 is the only costly probe, so its scope is capped per band. It MUST run in **both** the
 clear-low and the ambiguous-middle band:

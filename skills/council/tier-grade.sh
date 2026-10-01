@@ -311,9 +311,15 @@ for i in "${!PATHS[@]}"; do
     fi
   fi
 
+  # Signal 4 reads the executable status from before the CDT-132 relaxation.
+  # A content-only deletion of more than 30 lines in an already-executable
+  # file must still be clear-high even when signal 2 is relaxed (CDT-370).
+  exec_sig4="$exec_why"
+
   # CDT-132: tiny content-only edits to paths already at mode 100755 must not
   # alone force clear-high full council. Mode flips (chmod), renames (R*),
   # shebang-only signal 2, and material LOC (>= clear-low band) still fire.
+  # This relaxation applies to signal 2 only. Signal 4 keeps exec_sig4.
   if [ -n "$exec_why" ]; then
     case "$exec_why" in
       *'100755'*)
@@ -336,8 +342,8 @@ for i in "${!PATHS[@]}"; do
   [ -z "$spec_why" ] || add_signal 1 spec-contract "$p" "$spec_why"
   [ -z "$exec_why" ] || add_signal 2 executable "$p" "$exec_why"
 
-  # Signal 4 — deletion-heavy executable
-  if [ -n "$exec_why" ] && [ "$d" -gt 30 ]; then
+  # Signal 4 — deletion-heavy executable (pre-relaxation executable status)
+  if [ -n "$exec_sig4" ] && [ "$d" -gt 30 ]; then
     add_signal 4 deletion-heavy-executable "$p" "$d deleted lines in an executable (>30)"
   fi
 

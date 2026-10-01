@@ -269,6 +269,35 @@ fi
 ngrep_file "10 all-struck critical description omitted" \
   'all-struck critical missing tid' "$REPORT_ALL"
 
+# ---- Case 11: struck_lines objects render as text, not Python dict repr -----
+EVID_F22="$TMP/evidence-f22.json"
+JUDGE_F22="$TMP/judge-f22.json"
+cat >"$EVID_F22" <<'EOF'
+[{"tool_use_id":"t-f22","raw_blob":"blob","file_line":"a.js:1","reproducible_command":"true"}]
+EOF
+cat >"$JUDGE_F22" <<'EOF'
+{
+  "findings": [{
+    "file": "a.js", "line": 1, "severity": "warning", "category": "quality",
+    "description": "kept", "suggestion": "none", "confidence": 90,
+    "tool_use_id": "t-f22"
+  }],
+  "struck_lines": [{"claim_id": "c0", "line": "the checkbox was checked", "reason": "no tool_use_id"}]
+}
+EOF
+REPORT_F22="$TMP/f22.md"
+RC_F22=0
+bash "$ENGINE" finalize \
+  --plan-file "$PLAN_UNBOUND" \
+  --evidence-file "$EVID_F22" \
+  --judge-output "$JUDGE_F22" \
+  --report-out "$REPORT_F22" >"$TMP/f22.stdout" 2>&1 || RC_F22=$?
+if [ "$RC_F22" -eq 0 ]; then ok "11 struck-object finalize exit 0"; else fail_msg "11 struck-object finalize exit $RC_F22"; fi
+grep_file "11 struck object renders claim, line, and reason" \
+  'c0 — the checkbox was checked — no tool_use_id' "$REPORT_F22"
+ngrep_file "11 struck object is not a Python dict repr" \
+  "{'claim_id'" "$REPORT_F22"
+
 # ---- Summary -----------------------------------------------------------------
 echo
 echo "PASS=$pass FAIL=$fail"

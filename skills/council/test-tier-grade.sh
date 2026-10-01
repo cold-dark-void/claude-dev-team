@@ -180,6 +180,13 @@ expect "signal 4 (deletion-heavy executable) -> full, alongside signal 2" '.tier
   and (.critical_signals|map(select(.signal==4 and .file=="tools/oldscript"))|length)==1
   and (.critical_signals|map(select(.signal==2))|length)==1'
 
+# Content-only deletion: mode stays 100755, status M, 40 deleted lines.
+# CDT-132 may relax signal 2 (loc 40 < clear-low). Signal 4 must still fire (CDT-370).
+grade "$REPO" sig4-content-only-exec.numstat sig4-content-only-exec.raw
+expect "signal 4 (content-only executable deletion >30) -> full" '.tier=="full"
+  and (.critical_signals|map(select(.signal==4 and .file=="tools/trimscript"))|length)==1
+  and (.critical_signals|map(select(.signal==2))|length)==0'
+
 # ---- Signal 5 — test removal -------------------------------------------------
 grade "$REPO" sig5-test-removal.numstat
 expect "signal 5 (net-negative test file) -> full" '.tier=="full"

@@ -856,7 +856,7 @@ cmd_finalize() {
 
   local plan_file="" evidence_file="" judge_output="" task_id="" report_out=""
   local cross_review_status="" cross_review_rankings="" cross_review_scores=""
-  local verification_mode="" tokens_file=""
+  local verification_mode="" tokens_file="" degradation_reason=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -869,6 +869,7 @@ cmd_finalize() {
       --cross-review-rankings)  need_val "$1" $#; cross_review_rankings="$2"; shift 2 ;;
       --cross-review-scores)    need_val "$1" $#; cross_review_scores="$2"; shift 2 ;;
       --verification-mode)      need_val "$1" $#; verification_mode="$2"; shift 2 ;;
+      --degradation-reason)     need_val "$1" $#; degradation_reason="$2"; shift 2 ;;
       --tokens-file)            need_val "$1" $#; tokens_file="$2"; shift 2 ;;
       *)
         echo "engine.sh: unknown finalize flag: $1" >&2
@@ -1032,7 +1033,7 @@ cmd_finalize() {
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
     "$cross_review_scores" "$verification_mode" "${tokens_file:-}" \
-    "$council_tier" "$grading_reason" <<'PYEOF'
+    "$council_tier" "$grading_reason" "$degradation_reason" <<'PYEOF'
 import json, sys, os, re
 from collections import Counter
 
@@ -1058,6 +1059,7 @@ verification_mode     = sys.argv[14] if len(sys.argv) > 14 else "full"
 tokens_file           = sys.argv[15] if len(sys.argv) > 15 else ""
 council_tier          = sys.argv[16] if len(sys.argv) > 16 else "full"
 grading_reason        = sys.argv[17] if len(sys.argv) > 17 else ""
+degradation_reason    = sys.argv[18] if len(sys.argv) > 18 else ""
 if verification_mode not in ("full", "self-verified"):
     verification_mode = "full"
 
@@ -1114,10 +1116,15 @@ tokens_data = load_usable_tokens(tokens_file)
 
 # CDV-199: banner only when orchestrator self-verified after spawn failure
 if verification_mode == "self-verified":
+    _deg = degradation_reason.strip() if isinstance(degradation_reason, str) else ""
+    _detail = (
+        _deg
+        if _deg
+        else "Orchestrator performed adversarial checks after refuter/investigator spawn failure."
+    )
     verification_banner = (
         "> **self-verified — refuters unavailable**\n"
-        "> Orchestrator performed adversarial checks after "
-        "refuter/investigator spawn failure.\n"
+        f"> {_detail}\n"
     )
 else:
     verification_banner = ""
@@ -1364,8 +1371,23 @@ claims_audited = str(len(unstruck_items))
 struck_lines_raw = list(struck_lines_raw) + engine_strikes
 
 # --- Format struck lines ---
+# Objects are claim/line/reason records (workflow schemas). Rendering a dict
+# with an f-string prints Python repr (`{'claim': ...}`), which is not a line.
+def format_struck_line(ln):
+    if isinstance(ln, str):
+        return ln
+    if isinstance(ln, dict):
+        who = ln.get("claim_id") or ln.get("claim") or ""
+        line = ln.get("line") or ""
+        reason = ln.get("reason") or ""
+        parts = [str(p) for p in (who, line, reason) if p]
+        if parts:
+            return " — ".join(parts)
+        return json.dumps(ln, sort_keys=True, ensure_ascii=True)
+    return str(ln)
+
 if struck_lines_raw:
-    struck_md = "\n".join(f"- {ln}" for ln in struck_lines_raw)
+    struck_md = "\n".join(f"- {format_struck_line(ln)}" for ln in struck_lines_raw)
 else:
     struck_md = "No lines struck."
 

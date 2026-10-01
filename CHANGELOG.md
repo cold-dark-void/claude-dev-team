@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.40
+- **WP 2-08 Council integrity** — signal 4 fires on a content-only executable deletion over 30 lines, Borda maps each reviewer's labels to the bundles they saw, a failed investigator fleet exits 5, and a failed diff-mode judge blocks the commit gate.
+
 ### v1.18.39
 - **WP 2-07 Distill and validate finish** — a distill run may validate under its own lock, one contradicted claim at confidence 90 scores 90, and a digest commit is one transaction.
 

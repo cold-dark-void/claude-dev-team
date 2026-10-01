@@ -198,22 +198,40 @@ function formatBundlesForPrompt(bundles) {
     .join('\n\n')
 }
 
-function labelsFor(n) {
-  return Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i))
+function shuffled(items, shuffleFn) {
+  const a = items.slice()
+  if (typeof shuffleFn === 'function') return shuffleFn(a)
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = a[i]
+    a[i] = a[j]
+    a[j] = tmp
+  }
+  return a
 }
 
 function bordaRank(bundles, rankings) {
-  // rankings: array of { ranking: ['B','A',...] } with shared label→index map
+  // rankings: { ranking, labelToIndex, excludeIndex }
+  // labelToIndex maps the labels THIS reviewer saw onto bundle indexes.
+  // A missing map is the legacy global A=0 order. A present map never
+  // falls through to that global index (CDT-339).
   if (!rankings.length) return { ordered: bundles, scores: [], status: 'bypassed: no valid rankings' }
   const n = bundles.length
   const scores = new Array(n).fill(0)
-  // Each ranking uses labels A.. over the presented set; map label→index 0..n-1
-  // For simplicity labels are global A=0,B=1,... matching submission order
   for (const r of rankings) {
     const order = r.ranking || []
     const m = order.length
+    const map = r.labelToIndex
     order.forEach((lab, rankIdx) => {
-      const bi = lab.charCodeAt(0) - 65
+      let bi
+      if (map && Object.prototype.hasOwnProperty.call(map, lab)) {
+        bi = map[lab]
+      } else if (!map) {
+        bi = lab.charCodeAt(0) - 65
+      } else {
+        return
+      }
+      if (typeof r.excludeIndex === 'number' && bi === r.excludeIndex) return
       if (bi >= 0 && bi < n) scores[bi] += m - 1 - rankIdx
     })
   }
@@ -470,18 +488,13 @@ export async function runCouncil(runtime) {
       label: `inv:${claimId}:${flavor}`,
     })
     if (!res || !Array.isArray(res.bundles)) {
-      // orchestrator self-verify stub bundle (tools would run in live session)
+      // Fail closed (CDT-349). A failed investigator contributes no bundle.
+      // Do not invent a self-verify stub: a non-empty stub makes the
+      // empty-fleet exit 5 below unreachable and lets the judge rule on text
+      // no tool produced. The orchestrator self-verifies with real tools on
+      // the Task path; this driver only marks the run degraded.
       markDegraded()
-      return [
-        {
-          tool_use_id: `self-verify-${claimId}-${flavor}`,
-          raw_blob: `(self-verified) no investigator spawn for claim: ${claim.claim || claim.description || ''}`,
-          file_line: claim.source_locator || 'unknown:0',
-          reproducible_command: 'echo self-verified',
-          claim_id: claimId,
-          flavor,
-        },
-      ]
+      return []
     }
     return res.bundles.map((b) => ({ ...b, claim_id: b.claim_id || claimId, flavor }))
   }
@@ -496,7 +509,12 @@ export async function runCouncil(runtime) {
 
   let bundles = bundleLists.flat().filter(Boolean)
   if (bundles.length === 0) {
-    return { ok: false, error: 'zero evidence bundles after investigate+self-verify', exit_code: 5 }
+    return {
+      ok: false,
+      error: 'zero evidence bundles after investigate+self-verify',
+      exit_code: 5,
+      handoff,
+    }
   }
 
   // --- Cross-review ---------------------------------------------------------
@@ -546,15 +564,20 @@ export async function runCouncil(runtime) {
       orderedBundles = orderedBundles.concat(groupBundles)
       continue
     }
-    const labs = labelsFor(groupBundles.length)
     const claimText = claimTextFor(key)
     const runReview = async (ri) => {
+      // Reviewer ri submitted groupBundles[ri]. Labels cover the other
+      // bundles only, shuffled per reviewer, then mapped back by identity
+      // (CDT-339). A label never falls through to the global A=0 index.
       const others = groupBundles
         .map((b, i) => ({ b, i }))
         .filter((x) => x.i !== ri)
-      const block = others
+      const presented = shuffled(others, runtime.shuffle)
+      const labelToIndex = {}
+      const block = presented
         .map((x, j) => {
-          const lab = labs[j] || String.fromCharCode(65 + j)
+          const lab = String.fromCharCode(65 + j)
+          labelToIndex[lab] = x.i
           return `### ${lab}\nclaim_id=${x.b.claim_id}\ntool_use_id=${x.b.tool_use_id}\n\`\`\`\n${x.b.raw_blob}\n\`\`\``
         })
         .join('\n\n')
@@ -562,12 +585,14 @@ export async function runCouncil(runtime) {
         CLAIM_TEXT: claimText,
         BUNDLE_BLOCK: block,
       })
-      return safeAgent(prompt, {
+      const res = await safeAgent(prompt, {
         schema: RankingSchema,
         agentType: 'dev-team:ic4',
         phase: 'Cross-review',
         label: `cross:${key}:${ri}`,
       })
+      if (!res || !Array.isArray(res.ranking)) return res
+      return { ...res, labelToIndex, excludeIndex: ri }
     }
 
     const reviewers = groupBundles.map((_, ri) => ri)
@@ -682,18 +707,23 @@ export async function runCouncil(runtime) {
     label: 'council-judge',
   })
 
+  // Passed to finalize only for the finding[] judge fallback (CDT-487).
+  // The CDV-199 marker string stays in engine.sh; this is the reason line.
+  let degradationReason = ''
+
   if (!judgeOut) {
     // Orchestrator emits judge JSON — never grant tools to a judge persona
     markDegraded()
     if (outputShape === 'finding[]') {
+      degradationReason = 'degraded-judge: council-judge spawn failed'
       judgeOut = {
         findings: orderedBundles.map((b) => ({
           file: (b.file_line || 'unknown:0').split(':')[0],
           line: parseInt((b.file_line || '0:0').split(':')[1], 10) || 0,
-          severity: 'warning',
+          severity: 'critical',
           category: b.flavor || 'quality',
-          description: `(self-verified) ${b.raw_blob}`.slice(0, 500),
-          suggestion: 're-run council with full investigator fleet',
+          description: `(${degradationReason}) ${b.raw_blob}`.slice(0, 500),
+          suggestion: 're-run council with a live council-judge',
           confidence: 50,
           tool_use_id: b.tool_use_id,
         })),
@@ -754,6 +784,9 @@ export async function runCouncil(runtime) {
   // D6: marker only via finalize flag — never retype the CDV-199 string here
   if (degraded) {
     finArgs.push('--verification-mode', 'self-verified')
+  }
+  if (degradationReason) {
+    finArgs.push('--degradation-reason', degradationReason)
   }
 
   const fin = runEngine('finalize', finArgs)
