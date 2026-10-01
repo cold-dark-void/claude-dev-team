@@ -208,12 +208,16 @@ bash skills/retro-gate/write-scheduled-report.sh \
 ### `scheduled-lock.sh`
 
 ```
-bash skills/retro-gate/scheduled-lock.sh acquire <mroot>   # 0 ok; 2 held; 1 error
-bash skills/retro-gate/scheduled-lock.sh release <mroot>   # always 0 (fail-open)
+bash skills/retro-gate/scheduled-lock.sh acquire <mroot>   # stdout: owner token; 0 ok; 2 held; 1 error
+bash skills/retro-gate/scheduled-lock.sh release <mroot> <token>   # 0; deletes only when <token> matches
 ```
 
-- Lock: `$MROOT/.claude/retro/scheduled.lock` (`pid\nts_epoch\n`)
-- TTL **2h** (7200s); stale locks are stolen
+- Lock: `$MROOT/.claude/retro/scheduled.lock` (`pid\nts_epoch\ntoken\n`)
+- Acquire writes a complete file, then publishes it with `link`. A second acquire while the lock is fresh exits 2. Release renames the lock aside and deletes that inode only when the token matches
+- TTL **2h** (7200s); a stale lock is stolen by rename, then exclusive create
+- Release with no token, or with a token that does not match, leaves the lock in place (exit 0)
+- A missing lock is fail-open (exit 0)
+- `commands/retro.md` Step 1b stores the token at `$MROOT/.claude/retro/scheduled.owner`. `invoke-scheduled-report.sh` writes the report and releases with that token. Step 1b does not release the lock
 - Concurrent scheduled runs: acquire rc 2 → print skip line, exit 0, no report
 
 ### `parse-args.sh`
@@ -236,6 +240,8 @@ bash skills/retro-gate/test.sh                      # gate / hybrid / S3 / S5
 bash skills/retro-gate/write-scheduled-report-test.sh
 bash skills/retro-gate/scheduled-lock-test.sh
 bash skills/retro-gate/scheduled-retro-test.sh
+bash skills/retro-gate/test-w1-21.sh
+bash skills/retro-gate/test-retro-fences.sh
 bash skills/retro-gate/trial-meta-test.sh            # CDV-200
 bash skills/retro-gate/trial-review-test.sh          # CDV-200
 bash skills/retro-gate/parse-args-test.sh            # the one /retro argument parser

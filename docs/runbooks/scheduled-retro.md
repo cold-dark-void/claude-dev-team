@@ -132,7 +132,8 @@ Unset the variable to disable. Full multi-channel sinks remain **CDV-210**.
 ## Helpers (for agents / debugging)
 
 ```bash
-bash skills/retro-gate/scheduled-lock.sh acquire|release <MROOT>
+bash skills/retro-gate/scheduled-lock.sh acquire <MROOT>          # prints the owner token
+bash skills/retro-gate/scheduled-lock.sh release <MROOT> <token>
 bash skills/retro-gate/write-scheduled-report.sh --mroot <MROOT> --mode all-auto --note "probe"
 bash skills/retro-gate/write-scheduled-report-test.sh
 bash skills/retro-gate/scheduled-lock-test.sh

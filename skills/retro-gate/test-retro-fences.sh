@@ -11,12 +11,9 @@
 #   not scheduled                 the lock script is never called
 #   lock script absent            the fence continues without a lock
 #
-# KNOWN DEFECT (backlog wp-2-10-retro-scheduled, CDT-324 in WP 2-10): the fence
-# arms `trap ... release EXIT`, and a fence's shell exits when the fence ends, so
-# the lock is released before Step 2 starts. The suite states today's behavior
-# in a case labelled KNOWN DEFECT. The static checks F2 and F3 of
-# tools/fence-exec/run.sh name the same defect; the manifest excludes both.
-# Flip the KNOWN DEFECT case when that item is fixed.
+# CDT-324 (WP 2-10): Step 1b acquires the lock and stores the owner token.
+# It does not arm `trap ... EXIT`. The lock stays held when this fence ends.
+# Later fences release it by calling invoke-scheduled-report.sh.
 #
 # Hermetic: private TMPDIR/HOME (tests/lib/hermetic.sh). RETRO_MD may name
 # another revision of retro.md; default is this checkout.
@@ -88,8 +85,7 @@ run_fence "$WORK/free" MODE=all AUTO=1 STUB_LOCK_RC=0
 check "scheduled, lock free: the fence exits 0" test "$RUN_RC" -eq 0
 check "scheduled, lock free: acquire is called once with the repo as MROOT" test "$(log_count "^lock acquire $REPO\$")" -eq 1
 check "scheduled, lock free: no report is written by this fence" log_lacks '^writer'
-# KNOWN DEFECT (backlog wp-2-10-retro-scheduled, CDT-324): the EXIT trap fires when the fence's shell ends.
-check "KNOWN DEFECT: the lock is released when the Step 1b fence ends, before Step 2" test "$(log_count "^lock release $REPO\$")" -eq 1
+check "scheduled, lock free: the lock stays held when the Step 1b fence ends" test "$(log_count "^lock release $REPO\$")" -eq 0
 
 # ---- scheduled, lock held (rc 2) --------------------------------------------
 run_fence "$WORK/held" MODE=all AUTO=1 STUB_LOCK_RC=2

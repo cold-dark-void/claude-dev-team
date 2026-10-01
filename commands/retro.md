@@ -70,8 +70,11 @@ Rules:
 
 When both `MODE=all` and `AUTO=1`, this invocation is the **scheduled runner**
 path (SPEC-012 S1–S9 / CDV-190). Acquire the project lock before discovery so
-concurrent cron fires no-op cleanly. Empty/smooth/success paths MUST release
-the lock (trap or explicit release). Lock-held skip does **not** write a report.
+concurrent cron fires no-op cleanly. `acquire` prints an owner token. This fence
+stores that token at `$MROOT/.claude/retro/scheduled.owner`. Empty, smooth, and
+success paths release it by calling `invoke-scheduled-report.sh` from Steps 2d,
+3c, 6a, and 6i. This fence does not release the lock. A lock-held skip does
+**not** write a report, and it does **not** release a lock this run did not acquire.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -80,7 +83,6 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 SCHED_LOCK=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/scheduled-lock.sh 2>/dev/null || true)
-SCHED_WRITER=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/write-scheduled-report.sh 2>/dev/null || true)
 # Instrumentation for scheduled report (SPEC-012 S2); best-effort across steps.
 SCANNED=0
 SKIPPED_INPROG=0
@@ -91,7 +93,8 @@ SCHEDULED_LOCK_HELD=0
 
 if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
   if [ -x "$SCHED_LOCK" ]; then
-    bash "$SCHED_LOCK" acquire "$MROOT"
+    # stdout is the owner token. stderr still carries the lock script's own messages.
+    TOKEN=$(bash "$SCHED_LOCK" acquire "$MROOT")
     LOCK_RC=$?
     if [ "$LOCK_RC" -eq 2 ]; then
       echo "scheduled retro: lock held, skipping"
@@ -101,37 +104,18 @@ if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
       echo "# retro: scheduled lock acquire failed (rc=$LOCK_RC) — continuing without lock" >&2
     else
       SCHEDULED_LOCK_HELD=1
-      # Release on any exit from this shell block path.
-      trap 'bash "$SCHED_LOCK" release "$MROOT" 2>/dev/null || true' EXIT
+      # A later fence is a new shell. It releases only with this token (CDT-324).
+      if [ -n "$TOKEN" ]; then
+        mkdir -p "$MROOT/.claude/retro"
+        printf '%s\n' "$TOKEN" > "$MROOT/.claude/retro/scheduled.owner"
+        chmod 600 "$MROOT/.claude/retro/scheduled.owner" 2>/dev/null || true
+        # Later fences are new shells. They pass this token to the invoker.
+        # They must not read scheduled.owner, which a newer run may overwrite.
+        printf 'SCHEDULED_LOCK_TOKEN=%s\n' "$TOKEN"
+      fi
     fi
   fi
 fi
-
-# Helper: write scheduled report when --all --auto (no-op otherwise).
-# Call sites: empty-set (2d), smooth gate (3c), empty findings (6a), end of 6h.
-write_scheduled_report_if_needed() {
-  # Args via env: NOTE, APPLIED_FILE, FOLLOWUP_FILE, DUP_FILE, OBS_FILE, SUMMARY
-  [ "$MODE" = "all" ] && [ "$AUTO" = "1" ] || return 0  # lint-ok: C1
-  [ -x "$SCHED_WRITER" ] || {
-    echo "# retro: write-scheduled-report.sh missing — skip report" >&2
-    return 0
-  }
-  # Session counters and paths are set in earlier orchestrator steps (not this fence).
-  SKIPPED_TOTAL=$(( ${SKIPPED_INPROG:-0} + ${SKIPPED_FILTER2:-0} ))  # lint-ok: C1
-  set -- --mroot "$MROOT" --mode all-auto \
-    --scanned "${SCANNED:-0}" --skipped "${SKIPPED_TOTAL:-0}" \
-    --gated "${GATED_PASS:-0}" --deep "${DEEP_READ:-0}"  # lint-ok: C1
-  [ -n "${NOTE:-}" ] && set -- "$@" --note "$NOTE"  # lint-ok: C1
-  [ -n "${APPLIED_FILE:-}" ] && [ -f "$APPLIED_FILE" ] && set -- "$@" --applied-file "$APPLIED_FILE"  # lint-ok: C1
-  [ -n "${FOLLOWUP_FILE:-}" ] && [ -f "$FOLLOWUP_FILE" ] && set -- "$@" --followup-file "$FOLLOWUP_FILE"  # lint-ok: C1
-  [ -n "${DUP_FILE:-}" ] && [ -f "$DUP_FILE" ] && set -- "$@" --duplicate-file "$DUP_FILE"  # lint-ok: C1
-  [ -n "${OBS_FILE:-}" ] && [ -f "$OBS_FILE" ] && set -- "$@" --observations-file "$OBS_FILE"  # lint-ok: C1
-  [ -n "${SUMMARY:-}" ] && set -- "$@" --summary "$SUMMARY"  # lint-ok: C1
-  REPORT_PATH=$(bash "$SCHED_WRITER" "$@" 2>/dev/null) || REPORT_PATH=""  # lint-ok: C1
-  if [ -n "$REPORT_PATH" ]; then
-    echo "Report: $REPORT_PATH"
-  fi
-}
 ```
 
 ## Step 2: Session discovery
@@ -465,7 +449,7 @@ while IFS=$'\t' read -r _host _src; do
   AGE=$(( NOW - ${MTIME:-NOW} ))
 
   if [ -f "$FRESHNESS" ]; then  # lint-ok: C1
-    sh "$FRESHNESS" check "$_src" >/dev/null 2>&1
+    bash "$FRESHNESS" check "$_src" >/dev/null 2>&1
     FRESH_RC=$?
   else
     if [ "$AGE" -lt 60 ]; then FRESH_RC=9; else FRESH_RC=0; fi
@@ -519,12 +503,35 @@ SCANNED=$(printf '%s\n' "$SESSIONS" | sed '/^[[:space:]]*$/d' | grep -c . || tru
 ### Step 2d: Empty-set guard
 
 ```bash
-if [ -z "$SESSIONS" ]; then  # lint-ok: C1
+if [ -z "${SESSIONS:-}" ]; then  # lint-ok: C1
   echo "No sessions to retro."
   # CDV-190 S3: empty-set still writes a short scheduled report when --all --auto.
   NOTE="No sessions to retro."
   SUMMARY="Applied: 0 | empty candidate set"
-  write_scheduled_report_if_needed
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+  INVOKER=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/invoke-scheduled-report.sh 2>/dev/null || true)
+  if [ -x "$INVOKER" ]; then
+    # Session counters are set in earlier fences. Copy them here so this shell has them.
+    SCANNED=${SCANNED:-0}  # lint-ok: C1
+    SKIPPED_INPROG=${SKIPPED_INPROG:-0}  # lint-ok: C1
+    SKIPPED_FILTER2=${SKIPPED_FILTER2:-0}  # lint-ok: C1
+    GATED_PASS=${GATED_PASS:-0}  # lint-ok: C1
+    DEEP_READ=${DEEP_READ:-0}  # lint-ok: C1
+    SCHEDULED_LOCK_TOKEN=${SCHEDULED_LOCK_TOKEN:-}  # lint-ok: C1
+    # lint-ok: C1 — MODE and AUTO come from earlier fences
+    bash "$INVOKER" \
+      --mode "${MODE:-}" --auto "${AUTO:-}" --mroot "$MROOT" \
+      --token "$SCHEDULED_LOCK_TOKEN" \
+      --note "$NOTE" --summary "$SUMMARY" \
+      --scanned "$SCANNED" \
+      --skipped-inprog "$SKIPPED_INPROG" \
+      --skipped-filter2 "$SKIPPED_FILTER2" \
+      --gated "$GATED_PASS" --deep "$DEEP_READ"
+  fi
   exit 0
 fi
 ```
@@ -560,7 +567,7 @@ Unlike the kickoff hook (which soft-skips when gate.sh is missing), `/retro` tre
 
 Budget policy (two modes):
 - **single/explicit-SID mode**: 5s total budget (per SPEC-012 "exit in under 5 seconds on smooth sessions").
-- **`--all` mode**: no total budget cap; instead a hard 2s per-file cap prevents any one session from dominating.
+- **`--all` mode**: no total budget cap. Each file has a 2s cap. When `timeout` is on `PATH`, the gate runs as `timeout 2`. That stops a long file at 2s. When `timeout` is absent, the fence measures elapsed time after the gate and skips the file when that time is at least 2s.
 
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -571,6 +578,12 @@ ANCHOR_IDS=""        # newline-separated "<jsonl-path> <id>" pairs for Step 4
 GATE_START=$(date +%s)
 TOTAL=$(echo "$SESSIONS" | wc -l)  # lint-ok: C1
 N=0
+
+# Step 4b reads gate stdout from this directory. Do not re-run gate.sh.
+if [ -z "${GATE_CACHE:-}" ]; then  # lint-ok: C1
+  GATE_CACHE=$(mktemp -d "${TMPDIR:-/tmp}/retro-gate-cache.XXXXXX")
+  echo "GATE_CACHE=$GATE_CACHE"
+fi
 
 # Total budget: 5s for single/explicit mode; unlimited for --all (per-file cap applies instead).
 TOTAL_BUDGET=5
@@ -589,17 +602,32 @@ while IFS= read -r JSONL; do
     fi
   fi
 
-  # Per-file hard cap: 2s timeout for --all, unlimited (timeout(1) not assumed) for single.
-  if [ "$MODE" = "all" ]; then
-    FILE_START=$(date +%s)
-    GATE_OUT=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)
-    FILE_ELAPSED=$(( $(date +%s) - FILE_START ))
-    if [ "$FILE_ELAPSED" -ge 2 ]; then
-      echo "# retro: gate timed out on $(basename "$JSONL" .jsonl) (${FILE_ELAPSED}s >= 2s per-file cap) — skipping" >&2
-      continue
+  # Per-file cap: timeout 2 when timeout(1) exists. Otherwise measure after the gate.
+  if [ "$MODE" = "all" ]; then  # lint-ok: C1
+    if command -v timeout >/dev/null 2>&1; then
+      GATE_OUT=$(timeout 2 bash "$GATE_SH" "$JSONL" 2>/dev/null)
+      FILE_RC=$?
+      if [ "$FILE_RC" -eq 124 ]; then
+        echo "# retro: gate timed out on $(basename "$JSONL" .jsonl) (timeout 2s per-file cap) — skipping" >&2
+        continue
+      fi
+    else
+      FILE_START=$(date +%s)
+      GATE_OUT=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)
+      FILE_ELAPSED=$(( $(date +%s) - FILE_START ))
+      if [ "$FILE_ELAPSED" -ge 2 ]; then
+        echo "# retro: gate timed out on $(basename "$JSONL" .jsonl) (${FILE_ELAPSED}s >= 2s per-file cap) — skipping" >&2
+        continue
+      fi
     fi
   else
     GATE_OUT=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)
+  fi
+  # Step 4b reads this file. Do not run gate.sh again for the same JSONL.
+  if [ -n "${GATE_CACHE:-}" ]; then  # lint-ok: C1
+    mkdir -p "$GATE_CACHE"
+    _gsid=$(basename "$JSONL" .jsonl)
+    printf '%s\n' "$GATE_OUT" > "$GATE_CACHE/${_gsid}.out"
   fi
   PASSED=$(echo "$GATE_OUT" | grep -o '"passed": *true' | head -1)
   SCORE=$(echo "$GATE_OUT" | grep -o '"score": *[0-9][0-9.]*' | head -1 | grep -o '[0-9][0-9.]*')
@@ -662,12 +690,35 @@ ANCHOR_IDS=$(echo "$ANCHOR_IDS" | sed '/^[[:space:]]*$/d')
 ### Step 3c: Early exit if nothing flagged
 
 ```bash
-if [ -z "$FLAGGED_SESSIONS" ]; then  # lint-ok: C1
+if [ -z "${FLAGGED_SESSIONS:-}" ]; then  # lint-ok: C1
   echo "No friction detected — nothing to retro."
   # CDV-190 S3: all-smooth still writes a short scheduled report when --all --auto.
   NOTE="No friction detected — nothing to retro (all smooth)."
   SUMMARY="Applied: 0 | all-smooth | scanned=${SCANNED:-0} gated=0"  # lint-ok: C1
-  write_scheduled_report_if_needed  # lint-ok: C1
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+  INVOKER=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/invoke-scheduled-report.sh 2>/dev/null || true)
+  if [ -x "$INVOKER" ]; then
+    # Session counters are set in earlier fences. Copy them here so this shell has them.
+    SCANNED=${SCANNED:-0}  # lint-ok: C1
+    SKIPPED_INPROG=${SKIPPED_INPROG:-0}  # lint-ok: C1
+    SKIPPED_FILTER2=${SKIPPED_FILTER2:-0}  # lint-ok: C1
+    GATED_PASS=${GATED_PASS:-0}  # lint-ok: C1
+    DEEP_READ=${DEEP_READ:-0}  # lint-ok: C1
+    SCHEDULED_LOCK_TOKEN=${SCHEDULED_LOCK_TOKEN:-}  # lint-ok: C1
+    # lint-ok: C1 — MODE and AUTO come from earlier fences
+    bash "$INVOKER" \
+      --mode "${MODE:-}" --auto "${AUTO:-}" --mroot "$MROOT" \
+      --token "$SCHEDULED_LOCK_TOKEN" \
+      --note "$NOTE" --summary "$SUMMARY" \
+      --scanned "$SCANNED" \
+      --skipped-inprog "$SKIPPED_INPROG" \
+      --skipped-filter2 "$SKIPPED_FILTER2" \
+      --gated "$GATED_PASS" --deep "$DEEP_READ"
+  fi
   exit 0
 fi
 ```
@@ -688,10 +739,9 @@ For every flagged session, assemble the four inputs the subagent expects:
 - `SESSION_JSONL` — absolute path (one line of `$FLAGGED_SESSIONS`)
 - `ANCHOR_MESSAGE_IDS_JSON` — JSON array of message IDs collected by the gate
   for this specific JSONL, extracted from `$ANCHOR_IDS`
-- `FRICTION_SIGNALS_JSON` — verbatim stdout of `gate.sh` for this JSONL.
-  Before each Task spawn, re-run the gate per session:
-  `FRICTION_SIGNALS_JSON=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)`.
-  Re-invocation is cheap (~60ms per session) and avoids caching complexity.
+- `FRICTION_SIGNALS_JSON` — the Step 3b gate stdout for this JSONL. Read
+  `$GATE_CACHE/<basename>.out`. Do not run `gate.sh` again. Step 3b already
+  applied the 2s cap and wrote that file.
 - `EXISTING_RULES` — per-target rules text, coalesced to the literal sentinel
   `empty` for any missing/empty file (SKILL.md:50 input contract). Built in the
   Step 4c block below via `load_rules_for_prompt`. NOTE: only the SUBAGENT-PROMPT
@@ -725,14 +775,15 @@ Per-session construction, to be performed by the orchestrating Claude before
 each Task spawn:
 
 ```bash
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-GATE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/gate.sh)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-# For each $JSONL in $FLAGGED_SESSIONS:  # lint-ok: C1
-FRICTION_SIGNALS_JSON=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)
+# For each $JSONL in $FLAGGED_SESSIONS. Read the Step 3b cache. Do not run gate.sh again.  # lint-ok: C1
+_gsid=$(basename "${JSONL:-}" .jsonl)  # lint-ok: C1
+FRICTION_SIGNALS_JSON=""
+if [ -n "${GATE_CACHE:-}" ] && [ -n "$_gsid" ] && [ -f "${GATE_CACHE}/${_gsid}.out" ]; then  # lint-ok: C1
+  FRICTION_SIGNALS_JSON=$(cat "${GATE_CACHE}/${_gsid}.out")
+fi
 # lint-ok: C1 — ANCHOR_IDS is session-held by the orchestrating Claude; the waiver sits above the command, not inside the quoted script
 ANCHOR_MESSAGE_IDS_JSON=$(printf '%s\n' "$ANCHOR_IDS" | JSONL="$JSONL" python3 -c '
 import os, sys, json
@@ -1437,11 +1488,36 @@ When `MODE=all` and `AUTO=1`, still write a short scheduled report (S3), then
 exit 0:
 
 ```bash
-if [ -z "$(printf '%s' "$CLASSIFIED_PROPOSALS$OBSERVATIONS" | sed '/^[[:space:]]*$/d')" ]; then  # lint-ok: C1
+# Trial decisions are actionable. Do not short-circuit when only they are set.
+_short=$(printf '%s' "${CLASSIFIED_PROPOSALS:-}${OBSERVATIONS:-}${TRIAL_DECISIONS:-}" | sed '/^[[:space:]]*$/d')  # lint-ok: C1
+if [ -z "$_short" ]; then
   echo "No actionable findings."
   NOTE="No actionable findings."
   SUMMARY="Applied: 0 | no actionable findings"
-  write_scheduled_report_if_needed
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+  INVOKER=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/invoke-scheduled-report.sh 2>/dev/null || true)
+  if [ -x "$INVOKER" ]; then
+    # Session counters are set in earlier fences. Copy them here so this shell has them.
+    SCANNED=${SCANNED:-0}  # lint-ok: C1
+    SKIPPED_INPROG=${SKIPPED_INPROG:-0}  # lint-ok: C1
+    SKIPPED_FILTER2=${SKIPPED_FILTER2:-0}  # lint-ok: C1
+    GATED_PASS=${GATED_PASS:-0}  # lint-ok: C1
+    DEEP_READ=${DEEP_READ:-0}  # lint-ok: C1
+    SCHEDULED_LOCK_TOKEN=${SCHEDULED_LOCK_TOKEN:-}  # lint-ok: C1
+    # lint-ok: C1 — MODE and AUTO come from earlier fences
+    bash "$INVOKER" \
+      --mode "${MODE:-}" --auto "${AUTO:-}" --mroot "$MROOT" \
+      --token "$SCHEDULED_LOCK_TOKEN" \
+      --note "$NOTE" --summary "$SUMMARY" \
+      --scanned "$SCANNED" \
+      --skipped-inprog "$SKIPPED_INPROG" \
+      --skipped-filter2 "$SKIPPED_FILTER2" \
+      --gated "$GATED_PASS" --deep "$DEEP_READ"
+  fi
   exit 0
 fi
 ```
@@ -1454,7 +1530,7 @@ Partition `CLASSIFIED_PROPOSALS` into two sets:
 - `DUPLICATE_PROPOSALS` — rows where `action` is `DUPLICATE`
 
 DUPLICATE proposals are **never auto-applied**, even in `--auto` mode. They are
-surfaced at the end as an advisory list (see Step 6f).
+surfaced at the end as an advisory list (see Step 6d).
 
 ### Step 6c: Apply loop
 
@@ -1463,6 +1539,7 @@ Initialize accounting counters:
 ```bash
 APPLIED=0
 REJECTED=0
+SUGGESTED=0          # printed /adjust-agent or /backlog add only; not applied
 MANUAL_FOLLOWUP=""   # newline-separated proposals that --auto could not apply
 ```
 
@@ -1598,8 +1675,10 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
     FILE="$MROOT/.claude/memory/<target>/directives.md"
     COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || true); COUNT=${COUNT:-0}
     printf '%s: %s directive(s) currently (run the command above to update)\n' "<target>" "$COUNT"
+    # Printed only. The user runs /adjust-agent. Do not count this as applied.
+    SUGGESTED=$(( ${SUGGESTED:-0} + 1 ))
     ```
-    Increment `APPLIED`.
+    Count this in `SUGGESTED`. Do not increment `APPLIED`.
   - If `target` is **`plugin`**: add `proposed_text` to the project backlog.
     Default mode uses `skills/backlog/SKILL.md` § Programmatic write-back
     protocol's **print-and-confirm** convention — print the command for the
@@ -1609,7 +1688,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
       <proposed_text>
     Run: /backlog add "<proposed_text>"
     ```
-    Increment `APPLIED`. In `--auto` mode, use that protocol's **direct-write**
+    Increment `SUGGESTED`. Do not increment `APPLIED`. In `--auto` mode, use that protocol's **direct-write**
     convention instead (Linear-first; title = problem = goal = `proposed_text`;
     dedup fixed to suffix) and print `[auto-added] plugin backlog: <proposed_text>`.
   - If `target` is **`claude`**: append `proposed_text` to
@@ -1783,6 +1862,7 @@ Print a summary line:
 ```
 --- Retro Summary ---
 Applied:          <APPLIED>
+Suggested:        <SUGGESTED>   (printed /adjust-agent or /backlog add only)
 Rejected/skipped: <REJECTED>
 Duplicates:       <count of DUPLICATE_PROPOSALS>
 Manual follow-up: <count of MANUAL_FOLLOWUP items>   (--auto mode only)
@@ -1819,8 +1899,9 @@ fi
 After Step 6g summary and Step 6h hints, when both `--all` and `--auto` are set,
 write the non-interactive report under `$MROOT/.claude/retro/`. Build temp
 files from the in-memory apply/follow-up/dup/obs state accumulated above, then
-call `write-scheduled-report.sh`. Print `Report: <absolute-path>`. The EXIT trap
-from Step 1b releases `scheduled.lock`.
+call `invoke-scheduled-report.sh`. That script calls `write-scheduled-report.sh`,
+prints `Report: <absolute-path>`, and releases `scheduled.lock` with the owner
+token from `$MROOT/.claude/retro/scheduled.owner`. There is no EXIT trap.
 
 ```bash
 if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
@@ -1829,7 +1910,7 @@ if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
     || MROOT=$(pwd)
   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-  SCHED_WRITER=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/write-scheduled-report.sh 2>/dev/null || true)
+  INVOKER=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/invoke-scheduled-report.sh 2>/dev/null || true)
 
   APPLIED_FILE=$(mktemp "${TMPDIR:-/tmp}/retro-applied.XXXXXX")
   FOLLOWUP_FILE=$(mktemp "${TMPDIR:-/tmp}/retro-followup.XXXXXX")
@@ -1845,9 +1926,17 @@ if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
       t=$(printf '%s' "$row" | cut -f1)
       a=$(printf '%s' "$row" | cut -f2)
       s=$(printf '%s' "$row" | cut -f4)
-      # Only NEW/TIGHTEN that were not parked in MANUAL_FOLLOWUP.
+      # Only NEW/TIGHTEN whose text is not parked in MANUAL_FOLLOWUP.
       case "$a" in NEW|TIGHTEN)
-        printf '%s\t%s\t%s\n' "$t" "$a" "$s" >>"$APPLIED_FILE"
+        parked=0
+        if [ -n "$s" ] && [ -n "${MANUAL_FOLLOWUP:-}" ]; then  # lint-ok: C1
+          if printf '%s\n' "$MANUAL_FOLLOWUP" | grep -qF -- "$s"; then  # lint-ok: C1
+            parked=1
+          fi
+        fi
+        if [ "$parked" = "0" ]; then
+          printf '%s\t%s\t%s\n' "$t" "$a" "$s" >>"$APPLIED_FILE"
+        fi
         ;;
       esac
     done
@@ -1880,9 +1969,34 @@ if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
   DUP_N=$(grep -c . "$DUP_FILE" 2>/dev/null || true); DUP_N=${DUP_N:-0}
   MF_N=$(grep -c . "$FOLLOWUP_FILE" 2>/dev/null || true); MF_N=${MF_N:-0}
   OBS_N=$(grep -c . "$OBS_FILE" 2>/dev/null || true); OBS_N=${OBS_N:-0}
-  SUMMARY="Applied: ${APPLIED:-0} | Rejected: ${REJECTED:-0} | Duplicates: ${DUP_N} | Manual follow-up: ${MF_N} | Observations: ${OBS_N}"  # lint-ok: C1
+  APPLIED_N=$(grep -c . "$APPLIED_FILE" 2>/dev/null || true); APPLIED_N=${APPLIED_N:-0}
+  APPLIED_N=$(printf '%s' "$APPLIED_N" | head -1 | tr -cd '0-9')
+  APPLIED_N=${APPLIED_N:-0}
+  SUMMARY="Applied: ${APPLIED_N} | Rejected: ${REJECTED:-0} | Suggested: ${SUGGESTED:-0} | Duplicates: ${DUP_N} | Manual follow-up: ${MF_N} | Observations: ${OBS_N}"  # lint-ok: C1
   NOTE=""
-  write_scheduled_report_if_needed  # lint-ok: C1
+  if [ -x "$INVOKER" ]; then
+    # Session counters are set in earlier fences. Copy them here so this shell has them.
+    SCANNED=${SCANNED:-0}  # lint-ok: C1
+    SKIPPED_INPROG=${SKIPPED_INPROG:-0}  # lint-ok: C1
+    SKIPPED_FILTER2=${SKIPPED_FILTER2:-0}  # lint-ok: C1
+    GATED_PASS=${GATED_PASS:-0}  # lint-ok: C1
+    DEEP_READ=${DEEP_READ:-0}  # lint-ok: C1
+    SCHEDULED_LOCK_TOKEN=${SCHEDULED_LOCK_TOKEN:-}  # lint-ok: C1
+    # lint-ok: C1 — MODE and AUTO come from earlier fences
+    bash "$INVOKER" \
+      --mode "$MODE" --auto "$AUTO" \
+      --token "$SCHEDULED_LOCK_TOKEN" \
+      --mroot "$MROOT" \
+      --note "$NOTE" --summary "$SUMMARY" \
+      --scanned "$SCANNED" \
+      --skipped-inprog "$SKIPPED_INPROG" \
+      --skipped-filter2 "$SKIPPED_FILTER2" \
+      --gated "$GATED_PASS" --deep "$DEEP_READ" \
+      --applied-file "$APPLIED_FILE" \
+      --followup-file "$FOLLOWUP_FILE" \
+      --duplicate-file "$DUP_FILE" \
+      --observations-file "$OBS_FILE"
+  fi
   rm -f "$APPLIED_FILE" "$FOLLOWUP_FILE" "$DUP_FILE" "$OBS_FILE"
 fi
 ```

@@ -330,9 +330,9 @@ check "mutant control: an unmodified copy reports the F4 positives" count_is F4 
 run_h check
 check "live tree: check exits 0" is_rc 0
 check "live tree: no unexcluded finding" summary_zero
-check "live tree: the retro F2 exclusion is printed with its count and backlog slug" out_has "excluded: [F2] commands/retro.md, 4 finding(s), backlog wp-2-10-retro-scheduled"
-check "live tree: the retro F3 exclusion is printed with its count and backlog slug" out_has "excluded: [F3] commands/retro.md, 1 finding(s), backlog wp-2-10-retro-scheduled"
-check "live tree: the manifest holds exactly two exclusion rows" test "$(grep -c '^exclude' "$HERE/manifest.tsv")" -eq 2
+check "live tree: the retro F2 exclusion is gone" out_lacks "excluded: [F2] commands/retro.md, 4 finding(s), backlog wp-2-10-retro-scheduled"
+check "live tree: the retro F3 exclusion is gone" out_lacks "excluded: [F3] commands/retro.md, 1 finding(s), backlog wp-2-10-retro-scheduled"
+check "live tree: the manifest holds no exclude row" test "$(grep -c '^exclude' "$HERE/manifest.tsv")" -eq 0
 re='\(([0-9]+) fences in ([0-9]+) files\)'
 if [[ "$OUT" =~ $re ]] && [ "${BASH_REMATCH[1]}" -ge 400 ] && [ "${BASH_REMATCH[2]}" -ge 150 ]; then
   pass_line "live tree: the scan covers at least 400 fences in 150 files (${BASH_REMATCH[1]} fences, ${BASH_REMATCH[2]} files)"
