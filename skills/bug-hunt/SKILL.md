@@ -742,6 +742,7 @@ prompt: contents of skills/council/prompts/unconstrained-reviewer.md
     {{FILE_LIST}}    ← FILE_LIST from 1b
     {{PROJECT_ROOT}} ← $MROOT
     {{SCOPE_NOTE}}   ← SCOPE_NOTE from 1b
+    {{DATA_NONCE}}   ← skills/lib/prompt-frame.sh nonce; prompt-frame.sh strip FILE_LIST first
   + trailing line: Output mode: terse
   + trailing line: Return FINDING blocks + SUMMARY as the final message.
 ```
@@ -759,6 +760,7 @@ prompt: contents of skills/council/prompts/lens-reviewer.md
     {{FILE_LIST}}    ← FILE_LIST from 1b
     {{PROJECT_ROOT}} ← $MROOT
     {{SCOPE_NOTE}}   ← SCOPE_NOTE from 1b
+    {{DATA_NONCE}}   ← skills/lib/prompt-frame.sh nonce; prompt-frame.sh strip FILE_LIST first
   + trailing line: Output mode: terse
   + trailing line: Return FINDING blocks + SUMMARY as the final message.
 ```
@@ -798,6 +800,7 @@ prompt: contents of skills/council/prompts/quorum-analyst.md
     {{UNCONSTRAINED_TEAMS}}  ← U1,U2,U3
     {{LENS_TEAMS}}           ← L-security,L-contributor,L-spec
     {{TOTAL_TEAMS}}          ← 6
+    {{DATA_NONCE}}           ← skills/lib/prompt-frame.sh nonce; prompt-frame.sh strip ALL_FINDINGS first
   + trailing line: Output mode: terse
   + trailing line: Return CLUSTER blocks + QUORUM-SUMMARY as the final message.
 ```

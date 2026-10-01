@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # import-seed-pack.sh — import sanitized seed pack into memory (SPEC-024).
 #
-# Usage: import-seed-pack.sh [MROOT]
+# Usage: import-seed-pack.sh [--confirm] [MROOT]
 #
-# Always exits 0 for bootstrap safety (errors → warnings + counts).
 # Missing pack → silent exit 0 (M11 graceful absence).
+# A present pack without --confirm is refused (exit 2).
+# Other errors → warnings + counts, then exit 0.
 
 set -u
 
@@ -12,7 +13,21 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=seed-common.sh
 . "$SCRIPT_DIR/seed-common.sh"
 
-MROOT="${1:-}"
+CONFIRM=0
+MROOT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --confirm) CONFIRM=1; shift ;;
+    *)
+      if [ -n "$MROOT" ]; then
+        echo "usage: import-seed-pack.sh [--confirm] [MROOT]" >&2
+        exit 64
+      fi
+      MROOT=$1
+      shift
+      ;;
+  esac
+done
 if [ -z "$MROOT" ]; then
   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
     && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -30,6 +45,11 @@ MANIFEST="$SEED_DIR/manifest.json"
 # M11: no pack → silent
 if [ ! -f "$MANIFEST" ]; then
   exit 0
+fi
+
+if [ "$CONFIRM" -ne 1 ]; then
+  echo "import-seed-pack: refused: pass --confirm after reviewing the pack" >&2
+  exit 2
 fi
 
 USE_DB=false
@@ -129,14 +149,14 @@ insert_db() {
   # — PRAGMA busy_timeout=N prints N and would corrupt last_insert_rowid capture.
   memory_id=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
 INSERT INTO memories(agent, type, content, metadata_json, tier, distilled_from)
-VALUES ('$agent', 'digest', '$escaped', '$meta_esc', 1, '[]');
+VALUES ('$agent', 'digest', '$escaped', '$meta_esc', 0, '[]');
 SELECT last_insert_rowid();" 2>/dev/null) || memory_id=""
 
   if [ -z "$memory_id" ] || ! [[ "$memory_id" =~ ^[0-9]+$ ]]; then
     sleep 0.2
     memory_id=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
 INSERT INTO memories(agent, type, content, metadata_json, tier, distilled_from)
-VALUES ('$agent', 'digest', '$escaped', '$meta_esc', 1, '[]');
+VALUES ('$agent', 'digest', '$escaped', '$meta_esc', 0, '[]');
 SELECT last_insert_rowid();" 2>/dev/null) || memory_id=""
   fi
 
@@ -358,8 +378,15 @@ print(lines[-1] if lines else "")
     sanitized=$(seed_normalize_content "$sanitized")
     # If sanitize rewrote paths, re-hash would change — keep original body+trailer for storage
     # (re-screen only gates; stored content is pack content with trailer)
-    local store_content
-    store_content=$(printf '%s\n%s\n' "$body_no_trailer" "$trailer_line")
+    local store_content injection_flag
+    injection_flag=false
+    case "$body_no_trailer" in
+      *"ignore previous"*|*"you are now"*|*"disregard previous"*)
+        injection_flag=true
+        warn "FLAG: injection-pattern in $fname"
+        ;;
+    esac
+    store_content=$(printf '[imported — untrusted]\n%s\n%s\n' "$body_no_trailer" "$trailer_line")
 
     # Dedupe
     local status
@@ -378,9 +405,11 @@ print(lines[-1] if lines else "")
     local imported_at meta_json
     imported_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     meta_json=$(SEED_PROJECT="$SEED_PROJECT" SEED_DATE="$SEED_DATE" SEED_TIER="$SEED_TIER" \
-      SEED_HASH="$SEED_HASH" IMPORTED_AT="$imported_at" python3 -c '
+      SEED_HASH="$SEED_HASH" IMPORTED_AT="$imported_at" INJECTION_FLAG="$injection_flag" python3 -c '
 import json, os
 print(json.dumps({
+  "provenance": "imported — untrusted",
+  "injection_flag": os.environ.get("INJECTION_FLAG") == "true",
   "seed": {
     "project": os.environ["SEED_PROJECT"],
     "date": os.environ["SEED_DATE"],

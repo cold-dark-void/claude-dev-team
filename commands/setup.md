@@ -404,8 +404,10 @@ absent, do nothing (no new output — SPEC-024 M11 graceful absence). A bad pack
 never blocks bootstrap: import always exits 0 and prints counts/warnings only.
 
 Import runs **after** DB init + extensions + md-migrate + gitignore, and
-**before** project-init (Step 6), so seeded tier-1 digests already exist when the
-scan runs (SPEC-024 M4).
+**before** project-init (Step 6). Print the pack file list. Ask the user to
+confirm it. Import only after that confirm. Rows land at tier 0 with the
+provenance marker `imported — untrusted` (SPEC-024 M5). A pack without
+confirm is refused and does not block bootstrap.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -417,8 +419,13 @@ if [ -f "$MROOT/.claude/memory/seed/manifest.json" ]; then
   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
   IMPORT_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/import-seed-pack.sh)
   if [ -n "$IMPORT_SH" ] && [ -f "$IMPORT_SH" ]; then
-    SEED_IMPORT_SUMMARY=$(bash "$IMPORT_SH" "$MROOT" 2>&1) || true
-    echo "$SEED_IMPORT_SUMMARY"
+    find "$MROOT/.claude/memory/seed" -type f -print
+    if [ "${SEED_IMPORT_CONFIRM:-}" = "1" ]; then
+      SEED_IMPORT_SUMMARY=$(bash "$IMPORT_SH" --confirm "$MROOT" 2>&1) || true
+      echo "$SEED_IMPORT_SUMMARY"
+    else
+      echo "seed import refused: review the pack list, then re-run with SEED_IMPORT_CONFIRM=1"
+    fi
   else
     echo "WARNING: seed pack present but import-seed-pack.sh not found — skipping import"
   fi

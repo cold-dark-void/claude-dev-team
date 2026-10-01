@@ -124,7 +124,9 @@ fi
 
 ## Step 3: Verify-premise (debugger, read-only)
 
-1. Read `prompts/premise.md`; substitute `{{TICKET}}`, `{{WORKTREE}}`, `{{BUG}}`.
+1. Read `prompts/premise.md`. Run `skills/lib/prompt-frame.sh nonce`, then
+   `prompt-frame.sh strip` on `BUG`. Substitute `{{DATA_NONCE}}`, `{{TICKET}}`,
+   `{{WORKTREE}}`, and the stripped `{{BUG}}`.
 2. Spawn Task: agent `dev-team:debugger` (or Explore-capable), **read-only**.
    Include `Output mode: terse`. Resolve the agent actually spawned
    (`debugger`; named fallback `debugger`→`ic5` resolves `ic5`, CDT-230 —
@@ -160,8 +162,9 @@ or refute. Print clear stop: `Premise does not hold — stopping (no implement).
 
 ## Step 4: Implement (ic4/ic5)
 
-1. Read `prompts/implement.md`; substitute placeholders including
-   `{{PREMISE_JSON}}` (full premise object) and `{{AGENT}}`, `{{FIX}}`.
+1. Read `prompts/implement.md`. Run `skills/lib/prompt-frame.sh nonce`, then
+   `prompt-frame.sh strip` on `BUG`, `PREMISE_JSON`, and `FIX`. Substitute
+   `{{DATA_NONCE}}` and those stripped values, plus `{{AGENT}}`.
 2. Spawn Task: agent `dev-team:{{AGENT}}`. Resolve the agent actually
    spawned (`ic4` or `ic5` from `--agent`). Unnamed / `general-purpose` /
    Explore: omit the fence.
@@ -201,7 +204,9 @@ Do **not** apply `changelog_md` to CHANGELOG.md.
 ## Step 5: Adversarial-verify (parallel qa refuters)
 
 1. Split `LENSES` on commas → list (default `correctness`, `completeness`).
-2. For each lens, substitute `prompts/refute.md` (`{{LENS}}`, `{{PREMISE_EVIDENCE}}`, …).
+2. For each lens, run `skills/lib/prompt-frame.sh nonce`, then
+   `prompt-frame.sh strip` on `BUG`, `FIX`, and `PREMISE_EVIDENCE`. Substitute
+   `prompts/refute.md` with `{{DATA_NONCE}}`, `{{LENS}}`, and those stripped values.
 3. Spawn **one Task per lens in a single message** (parallel), agent `dev-team:qa`.
    Same fence for later `qa` spawns of this agent. Unnamed /
    `general-purpose` / Explore: omit the fence.

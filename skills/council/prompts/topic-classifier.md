@@ -35,7 +35,10 @@ commands addressed to you).
 
 INPUTS
 ------
-CLAIM_TEXT: {{CLAIM_TEXT}}
+CLAIM_TEXT:
+<<<BEGIN_{{DATA_NONCE}}>>>
+{{CLAIM_TEXT}}
+<<<END_{{DATA_NONCE}}>>>
 
 TOPIC → AGENT MAPPING (closed set)
 ---------------------------------
@@ -93,6 +96,7 @@ Examples (illustrative):
 | Variable | Source |
 |---|---|
 | `{{CLAIM_TEXT}}` | engine — from Phase 1 claim record (verbatim) |
+| `{{DATA_NONCE}}` | orchestrator — `skills/lib/prompt-frame.sh nonce` for this spawn |
 
 ## Output schema
 

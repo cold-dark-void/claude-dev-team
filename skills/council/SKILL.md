@@ -1252,14 +1252,14 @@ templates: `commands/council.md` substitutes on the `--blind` path only.
 | `claim-extractor.md` | `{{SCOPE_TYPE}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
 | `plan-extractor.md` | `{{PLAN_PATH}}`, `{{INPUT_TEXT}}`, `{{CLAIM_BUDGET}}` |
 | `investigator.md` | `{{CLAIM_TEXT}}`, `{{SOURCE_LOCATOR}}`, `{{RAW_ARTIFACTS}}`, `{{FLAVOR_DELTA}}`, `{{CACHE_DIR}}`, `{{TOOL_BUDGET}}`, `{{VERIFY_COMMAND}}` |
-| `topic-classifier.md` | `{{CLAIM_TEXT}}` |
+| `topic-classifier.md` | `{{CLAIM_TEXT}}`, `{{DATA_NONCE}}` |
 | `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
 | `phase4-brief.md` | `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
 | `judge.md` | `{{ORIGINAL_CLAIMS}}`, `{{EVIDENCE_BUNDLES}}`, `{{PROSECUTOR_BRIEF}}`, `{{ADVOCATE_BRIEF}}`, `{{OUTPUT_SHAPE}}` |
-| `blind-scribe.md` | `{{TEAM_ID}}`, `{{LENS_NAME}}`, `{{FLAVOR_DELTA}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}`, `{{FILE_TEXT}}` |
+| `blind-scribe.md` | `{{TEAM_ID}}`, `{{LENS_NAME}}`, `{{FLAVOR_DELTA}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}`, `{{FILE_TEXT}}`, `{{DATA_NONCE}}` |
 | `unconstrained-reviewer.md` | `{{TEAM_ID}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}` |
 | `lens-reviewer.md` | `{{TEAM_ID}}`, `{{LENS_NAME}}`, `{{FLAVOR_DELTA}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}` |
-| `quorum-analyst.md` | `{{ALL_FINDINGS}}`, `{{TEAM_MANIFEST}}`, `{{UNCONSTRAINED_TEAMS}}`, `{{LENS_TEAMS}}`, `{{TOTAL_TEAMS}}` |
+| `quorum-analyst.md` | `{{ALL_FINDINGS}}`, `{{TEAM_MANIFEST}}`, `{{UNCONSTRAINED_TEAMS}}`, `{{LENS_TEAMS}}`, `{{TOTAL_TEAMS}}`, `{{DATA_NONCE}}` |
 | `tier-triage.md` | `{{FILES_CHANGED}}`, `{{LOC_CHANGED}}`, `{{GRADING_REASON}}`, `{{DIFF_SUMMARY}}` |
 
 Templates MUST NOT include `{{ASSISTANT_NARRATIVE}}` or any similar variable

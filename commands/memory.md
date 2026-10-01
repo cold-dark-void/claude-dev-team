@@ -974,8 +974,9 @@ unvalidated and will be picked up on the next run (they keep
 
 ### Step 3.2: Spawn claim extractors
 
-For each batch, substitute `{{MEMORY_BATCH}}` in the claim extractor prompt
-with the JSON array of memories, and spawn a Task subagent
+For each batch, run `skills/lib/prompt-frame.sh nonce`, then
+`prompt-frame.sh strip` on the JSON array, then substitute `{{DATA_NONCE}}`
+and `{{MEMORY_BATCH}}` with that stripped JSON. Spawn a Task subagent
 (`subagent_type: "general-purpose"`, `model: haiku`). Cheap tier is safe here
 — the six command-enforced validation rules below catch malformed output.
 
@@ -1175,8 +1176,10 @@ section "Investigator Prompt Template".
 1. Collect all Tier B claims from all memories.
 2. Batch claims per the "Tier B investigation" row of
    `skills/validate-memory/SKILL.md` section "Batching Limits".
-3. For each batch, substitute `{{CLAIMS_TO_VERIFY}}` with the JSON array of
-   claims and spawn a Task subagent (`subagent_type: "general-purpose"`,
+3. For each batch, run `skills/lib/prompt-frame.sh nonce`, then
+   `prompt-frame.sh strip` on the JSON array, then substitute `{{DATA_NONCE}}`
+   and `{{CLAIMS_TO_VERIFY}}` with that stripped JSON. Spawn a Task subagent
+   (`subagent_type: "general-purpose"`,
    `model: haiku`). Cheap tier is safe here — malformed/missing verdicts
    default to `AMBIGUOUS` conf 50 rather than being trusted blindly.
 4. Spawn all investigation batches in parallel.
@@ -1709,7 +1712,9 @@ Read `skills/validate-memory/SKILL.md` section **Pair-Judge Prompt Template**.
 
 1. Load pairs from `$PAIRS_FILE` (JSONL → JSON array).
 2. Batch ≤10 pairs per call, max 5 batches (Batching Limits table).
-3. For each batch, substitute `{{PAIR_BATCH}}` and spawn Task subagent
+3. For each batch, run `skills/lib/prompt-frame.sh nonce`, then
+   `prompt-frame.sh strip` on the JSON array, then substitute `{{DATA_NONCE}}`
+   and `{{PAIR_BATCH}}` with that stripped JSON. Spawn a Task subagent
    (`subagent_type: "general-purpose"`, `model: haiku`). Spawn batches in
    parallel. Cheap tier is safe here — a malformed batch degrades to
    `unrelated` conf 0 rather than being trusted blindly.

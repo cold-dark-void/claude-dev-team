@@ -715,6 +715,7 @@ subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
 prompt: skills/council/prompts/topic-classifier.md
   with substitutions:
     {{CLAIM_TEXT}}  ← claim.claim (verbatim)
+    {{DATA_NONCE}}  ← skills/lib/prompt-frame.sh nonce; prompt-frame.sh strip CLAIM_TEXT first
 ```
 
 Pass nothing else — no prior narrative, no other claims, no evidence bundles.
@@ -1295,6 +1296,7 @@ prompt: skills/council/prompts/blind-scribe.md
     {{PROJECT_ROOT}} ← $WTROOT
     {{SCOPE_NOTE}}   ← SCOPE_NOTE from B1
     {{FILE_TEXT}}    ← FILE_TEXT from B1 (20 files, head -c 8192 each)
+    {{DATA_NONCE}}   ← skills/lib/prompt-frame.sh nonce; prompt-frame.sh strip FILE_TEXT and FILE_LIST first
 ```
 
 **Lens** — for each lens in LENSES:
@@ -1311,6 +1313,7 @@ prompt: skills/council/prompts/blind-scribe.md
     {{PROJECT_ROOT}} ← $WTROOT
     {{SCOPE_NOTE}}   ← SCOPE_NOTE from B1
     {{FILE_TEXT}}    ← FILE_TEXT from B1 (20 files, head -c 8192 each)
+    {{DATA_NONCE}}   ← skills/lib/prompt-frame.sh nonce; prompt-frame.sh strip FILE_TEXT and FILE_LIST first
 ```
 
 All reviewers: `Output mode: terse`. Collect FINDING-NNN blocks + SUMMARY
@@ -1336,6 +1339,7 @@ prompt: skills/council/prompts/quorum-analyst.md
     {{UNCONSTRAINED_TEAMS}}  ← comma-separated U* IDs
     {{LENS_TEAMS}}           ← comma-separated L-* IDs
     {{TOTAL_TEAMS}}          ← TEAMS + M
+    {{DATA_NONCE}}           ← skills/lib/prompt-frame.sh nonce; prompt-frame.sh strip ALL_FINDINGS first
 ```
 
 Collect CLUSTER-NNN blocks (Tier 1/2/3) + QUORUM-SUMMARY.

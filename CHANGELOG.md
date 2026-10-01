@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.1
+- **WP 3-06 Prompt trust** — untrusted prompt data uses a per-run nonce, and seed imports land at tier 0 after confirm.
+
 ### v1.19.0
 - **WP 3-05 Review and commit** — /review-and-commit is council --diff --tier full, and both surfaces print one legacy review.
 
