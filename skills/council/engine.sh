@@ -444,7 +444,7 @@ cmd_preflight() {
     generic)
       output_shape="verdict[]"; feedback_enabled="true"; spec_grep="false"
       confidence_filter="null"
-      flavors='["paranoid-ic","jaded-senior"]' ;;
+      flavors='["paranoid-ic","skeptic-ic"]' ;;
     diff-mode)
       output_shape="finding[]"; feedback_enabled="false"; spec_grep="true"
       confidence_filter="80"
@@ -455,7 +455,8 @@ cmd_preflight() {
   esac
 
   # CDT-126 light flavor subsets (SPEC-013 § Council tiering). `generic` is
-  # already exactly the 2 distinct flavors light requires, so it is unchanged;
+  # already exactly the 2 distinct Phase 2 flavors light requires (paranoid-ic
+  # + skeptic-ic), so it is unchanged;
   # `diff-mode` keeps the two correctness/safety axes and drops the three
   # polish axes.
   if [ "$council_tier" = "light" ] && [ "$preset" = "diff-mode" ]; then

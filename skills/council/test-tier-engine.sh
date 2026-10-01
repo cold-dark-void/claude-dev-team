@@ -66,7 +66,7 @@ plan --scope claim --scope-arg "x"
 expect_rc "no --tier exit 0" 0
 expect "no --tier -> council_tier=full" '.council_tier=="full"'
 expect "no --tier -> grading_reason distinguishes ungraded" '.grading_reason|test("ungraded")'
-expect "full generic keeps both flavors" '.flavors==["paranoid-ic","jaded-senior"]'
+expect "full generic keeps both flavors" '.flavors==["paranoid-ic","skeptic-ic"]'
 expect "full generic runs phase 3" '.phases["3_domain_specialist"].skipped==false'
 expect "full generic runs phase 4" '.phases["4_prosecution_defense"].prosecutor.role=="Prosecutor"'
 expect "full generic judge gets briefs" \
@@ -77,7 +77,7 @@ expect "full generic judge gets briefs" \
 plan --scope claim --scope-arg "x" --tier light --grading-reason "clear-low (files=2<=5)"
 expect_rc "light exit 0" 0
 expect "light -> council_tier=light" '.council_tier=="light" and .grading_reason=="clear-low (files=2<=5)"'
-expect "light generic flavors unchanged (already exactly 2)" '.flavors==["paranoid-ic","jaded-senior"]'
+expect "light generic flavors unchanged (already exactly 2)" '.flavors==["paranoid-ic","skeptic-ic"]'
 expect "light skips phase 3" \
   '.phases["3_domain_specialist"].skipped==true and .phases["3_domain_specialist"].reason=="council_tier: light"'
 expect "light skips phase 4" \

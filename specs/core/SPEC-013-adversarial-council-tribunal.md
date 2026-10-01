@@ -3,7 +3,7 @@
 **Status**: ACTIVE
 **Category**: core
 **Created**: 2026-04-09
-**Covers**: `commands/council.md`, `skills/council/`, `agents/council-judge.md`, `agents/finder.md` (Phase 2 / Phase 2.5 investigator body, CDT-230), `skills/review-and-commit/SKILL.md` (diff-mode preset consumer), `commands/council --blind.md` (DEPRECATED stub — use `/council --blind`, CDT-46-C3)
+**Covers**: `commands/council.md`, `skills/council/`, `agents/council-judge.md`, `agents/council-scribe.md` (tool-less internal council role, CDT-380), `agents/finder.md` (Phase 2 investigator body, CDT-230), `skills/review-and-commit/SKILL.md` (diff-mode preset consumer), `commands/council --blind.md` (DEPRECATED stub — use `/council --blind`, CDT-46-C3)
 
 ---
 
@@ -42,9 +42,10 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST define flavor presets as files in `skills/council/flavors/<name>.md` — each containing name, system-prompt delta, and tool allowlist
 - For every council prompt template under `skills/council/prompts/`, that file's own `## Variables` table is the authoritative declaration of its `{{TEMPLATE_VARIABLE}}` contract; `commands/council.md` substitution blocks and `skills/council/SKILL.md`'s documented-variables table MUST name exactly the variables declared in each prompt's Variables table — no more (no dead substitutions), no fewer (no unsubstituted placeholders leaking into spawned subagents)
 - **Section blocks (WP 1-15).** A prompt template MAY hold a section: a line `{{#NAME}}`, body lines, and a line `{{/NAME}}`, where `NAME` is a variable in that prompt's Variables table. When the value of `NAME` is empty, the renderer MUST remove both marker lines and every line between them. Otherwise it MUST remove only the two marker lines. The Task path and the Workflow path MUST apply the same rule. Only `skills/council/prompts/investigator.md` holds a section.
-- MUST NOT register Prosecutor, Devil's Advocate, or Domain Specialist as persistent team agents (no entries in `agents/`, no cortex, no `init-team` bootstrap). Two agent files are carved out of this prohibition, on **separate and non-interchangeable** grounds:
+- MUST NOT register Prosecutor, Devil's Advocate, or Domain Specialist as persistent team agents (no entries in `agents/`, no cortex, no `init-team` bootstrap). Three agent files are carved out of this prohibition, on **separate and non-interchangeable** grounds:
   - **`council-judge` — structural tool-lessness.** The Judge's authority rests on an empty tool allowlist, and no per-invocation allowlist-override mechanism exists. Only a persistent agent file can enforce `tools: ""` structurally. This exception is about what the agent *cannot* do.
-  - **`finder` — shared generic investigator body.** The Investigator role body is not council-specific: the same read-only fan-out behavior is spawned by `/council` Phase 2 and Phase 2.5 and by `/bug-hunt` S1/S2. Maintaining one copy per caller is the drift hazard this MUST NOT was written to prevent, inverted. `finder` is therefore a single shared, memory-less, read-only agent file (SPEC-003 § Role split), not a council role registration. This exception is about *reuse across engines*, and it MUST NOT be read as licence to give the Judge tools.
+  - **`council-scribe` — tool-less internal roles (CDT-380).** Extractor, classifier, prosecutor, advocate, cross-reviewer, and quorum analyst share one memory-less agent with `tools: ""`. It does not read project memory and it does not write files. This is not a team-agent registration of those roles.
+  - **`finder` — shared generic investigator body.** The Investigator role body is not council-specific: the same read-only fan-out behavior is spawned by `/council` Phase 2 and by `/bug-hunt` S1/S2. Phase 2.5 is `council-scribe`, not `finder`. `finder` is a single shared, memory-less, read-only agent file (SPEC-003 § Role split), not a council role registration. This exception is about *reuse across engines*, and it MUST NOT be read as licence to give the Judge or the scribe tools.
 - The `finder` carve-out MUST NOT weaken the tribunal invariants that already bind investigators. `finder` MUST stay read-only (`tools: Read, Grep, Glob, Bash, SendMessage` — no `Write`, no `Edit`), MUST stay blind per Phase 2, and MUST NOT gain cortex, memory, `init-team` bootstrap, or a `/adjust-agent` directives surface. Council-specific protocol MUST stay in `skills/council/prompts/`, never in the agent body.
 
 ### Output Shapes
@@ -103,7 +104,7 @@ and run `full` unless given that same override.
 
   | Preset | `full` flavors | `light` flavors |
   |---|---|---|
-  | `generic` | `paranoid-ic`, `jaded-senior` | `paranoid-ic`, `jaded-senior` (unchanged — already exactly 2) |
+  | `generic` | `paranoid-ic`, `skeptic-ic` | `paranoid-ic`, `skeptic-ic` (unchanged — already exactly 2; `jaded-senior` is prosecutor-only) |
   | `diff-mode` | `logic`, `security`, `compliance`, `quality`, `simplification` | `logic`, `security` |
 
   Light `diff-mode` keeps the two correctness/safety axes and drops the three polish axes. It is
@@ -453,7 +454,10 @@ this skip was previously implementation-only in `engine.sh` preflight and
 - **Index confidence normalization (CDT-181):** when computing `max_verdict_confidence` / `max_finding_confidence` from judge output and when accepting those values at the index writer, the engine and `index-writer.sh` MUST treat a JSON **number** as valid input even if non-integer (e.g. `87.5`, `90.7`). They MUST apply mathematical **floor** (toward −∞; jq `floor` / equivalent) to produce an **integer**, then accept only if that integer is in `0..100` inclusive. Stored index values MUST be JSON `int` or JSON `null` only — NEVER a float. Integer inputs `0`/`1`/`50`/`100` and literal `null` MUST pass through unchanged. After floor, values outside `0..100` (e.g. `101.2` → `101`) MUST be rejected with no index row written. Non-numeric values MUST be rejected. Task-bound finalize MUST NOT exit 6 solely because max confidence was a non-integer JSON number whose floor is in `0..100`. Both confidence columns MUST use the same rule. Unbound finalize still MUST NOT write the index.
 
 ### Phase 7 — Learning Loop (Feedback Memory)
-- MUST scope Phase 7 to `verdict[]`-shape presets only; `finding[]`-shape presets (e.g., diff-mode) MUST NOT trigger feedback memory writes — a code bug is not a fabrication
+
+**Status: DEFERRED (CDT-325).** The engine does not run Phase 7. It does not write lessons. `feedback_memory_enabled` is reserved and has no effect until Phase 7 is implemented. The bullets below are the deferred contract, not current behavior.
+
+- Deferred: scope Phase 7 to `verdict[]`-shape presets only; `finding[]`-shape presets (e.g., diff-mode) must not trigger feedback memory writes — a code bug is not a fabrication
 - MUST auto-write a feedback memory when any verdict is `FABRICATED` with confidence ≥ 70
 - MUST auto-write a feedback memory when any verdict is `UNVERIFIED` with confidence ≥ 85
 - MUST structure each feedback memory with: the false claim, the contradicting evidence, the tool that should have been run before asserting it, a **Why:** line, a **How to apply:** line
@@ -504,7 +508,7 @@ Absorbs the former `/council --blind` multi-team peer-review engine into `/counc
   - **Tier 3** — single-team minority findings
 - MUST emit **Tier-1 consensus clusters directly as council findings** in the blind-path report — the clustering + tiering step **is** the verdict; MUST NOT call `/council` (or re-enter the tribunal pipeline) on Tier-1 clusters for reverse validation
 - MUST include Tier 2 and Tier 3 clusters in the report (sorted Tier 1 → 2 → 3) without escalating them through a second council pass
-- MUST write the blind-path report at the path that `engine.sh report-path <slug>` returns, `.claude/council/<YYYY-MM-DD>-<slug>[-<N>].md` (worktree-aware `MROOT`; create parent if absent; never overwrite an existing report — Phase 6 report no-overwrite) with: scope/target, team manifest, tiered clusters (claim, evidence, severity, category, team count, source finding IDs), quorum summary, per-team summaries, and count of dropped malformed findings
+- MUST write the blind-path report at the path that `engine.sh report-path <slug>` returns, `.claude/council/<YYYY-MM-DD>-<slug>[-<N>].md` (shared MROOT, the git common dir, not the linked worktree; create parent if absent; never overwrite an existing report — Phase 6 report no-overwrite) with: scope/target, team manifest, tiered clusters (claim, evidence, severity, category, team count, source finding IDs), quorum summary, per-team summaries, and count of dropped malformed findings
 - MUST treat blind-path output as **gate-ignored** for TaskCompleted purposes: blind runs prefer unbound reports (no `task_id` / no qualifying index row for the completing task). A skip-style row with both confidences null still fails the dual-shape gate if bound; blind review is multi-perspective code review, not a fabrication audit
 - MUST fail loudly (exit non-zero with usage) when `--teams` / `--lenses` / `--target` are supplied without `--blind`, or when `--blind` is combined with another scope flag
 - When `--blind` adds or reuses prompt templates under `skills/council/prompts/`, each template's `## Variables` table remains the authoritative `{{TEMPLATE_VARIABLE}}` contract (Engine Architecture MUST) — prefer reusing existing investigator/lens variable names over inventing a parallel set
@@ -553,7 +557,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 2. Observe: investigators spawn, read `commands/retro.md`, return evidence bundles
 3. Verify: Judge verdict is `FABRICATED` with confidence ≥ 70
 4. Verify: report written to `.claude/council/<date>-*.md`
-5. Verify: feedback memory written to `.claude/memory/claude/lessons.md` with Why/How-to-apply lines
+5. Verify: Phase 7 is DEFERRED (CDT-325). A normal run must NOT write lessons.md. `feedback_memory_enabled` is reserved and has no effect until Phase 7 is implemented.
 6. Verify: raw file content appears inline in the report, not paraphrased
 
 ### Test 2 — Blind investigator guarantee
@@ -751,6 +755,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | CDT-325: Phase 7 feedback memory is DEFERRED. The engine does not run it. `feedback_memory_enabled` is reserved and has no effect until Phase 7 is implemented. CDT-330: generic Phase 2 flavors are `paranoid-ic` and `skeptic-ic` (`jaded-senior` stays prosecutor-only). CDT-380: tool-less council roles spawn `council-scribe`. Status stays ACTIVE. |
 | 2026-10-01 | CDT-317: the task gate is verdict-aware. An index row may include `max_verified_confidence` (max confidence over unstruck `VERIFIED` and `PARTIALLY_VERIFIED` only) and `worst_verdict` (worst unstruck verdict; null for `finding[]`). SPEC-033 M14 ship-gate still refuses `max_verdict_confidence`. |
 | 2026-09-28 | WP 1-16: **Phase 2** — the investigator verify section holds the SPEC-033 M14(g) finder recipe (anchored AC quote, verify run plus AC-label filter bundle, one grep per token class, bounded and scoped) and the no-elision `raw_blob` rule (the verify bundle is exempt from raw_blob-equals-a-rerun-of-reproducible_command, since its raw_blob is the wrapped Step 2 call's complete stdout, not a bare re-run of the claim's verify command); the investigator takes the tokens from its own quote; the claim record, `tool_budget` (8 or 5) and the render of a claim with no `verify` command are unchanged. **Phase 5** — judge caps at 79 or lower for a missing AC quote, an unmatched named token (backtick span, `path:N`, `Case N` or `AC X`; matched outside the Step 1 quote bundle) or an elision line; a numbered sub-clause is advisory only and carries no cap; the WP 1-15 rules and SPEC-033 M14(b) are unchanged. No engine strike. Status stays ACTIVE. |
 | 2026-09-27 | WP 1-15: **Engine Architecture** — prompt section blocks `{{#NAME}}` … `{{/NAME}}` (removed with their body when `NAME` is empty; same rule on both paths). **Phase 1** — each M14 claim record gains `verify` (the AC's `Verify:` command or `null`, SPEC-033 M14(g)) and `tool_budget` (8 with a command, else 5); claim text and `[AC-<id>]` prefix unchanged; the non-M14 investigator render stays byte-identical. **Phase 2** — `claim.tool_budget` calls; a claim with a command runs it first, as the investigator verify section states; that run is the only write exception, under its own `TMPDIR`; checkbox lines are not evidence. **Phase 2.5** — per-claim cross-review with the claim's own text; per-claim bypass below 3 bundles (was: `workflow.js` passed `claims[0]` for every claim). **Phase 5** — judge verify rules (a failing, skipped or timed-out run is evidence against; no verify bundle keeps confidence below 80; a pass alone is not enough); SPEC-033 M14(b) unchanged. **Phase 6** — report labels `### Claim <id>: <claim text>` from the verdict, the plan claims or the single-claim plan text, `unmatched` when none; the sidecar is unchanged. Status stays ACTIVE. |

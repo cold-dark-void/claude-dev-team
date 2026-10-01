@@ -423,10 +423,10 @@ ConcreteQueue directly" is); ordered BLOCKER → COMPLIANCE → DESIGN → NITPI
   `--council-tier`; see `commands/council.md` for the tiered path). The
   full-tier flavor set loads from
   `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`.
-- **Phase 7 feedback memory is DISABLED** for diff-mode
-  (`feedback_memory_enabled: false`). A code bug is not a claim fabrication;
-  conflating them would poison agent directives. See SPEC-013 § Council tiering,
-  SPEC-010 § Code Review (review-and-commit).
+- **Phase 7 is DEFERRED** (CDT-325). The engine does not run it and does not
+  write lessons.md. `feedback_memory_enabled: false` is reserved and has no
+  effect until Phase 7 is implemented. A code bug is not a claim fabrication.
+  See SPEC-013 § Council tiering, SPEC-010 § Code Review (review-and-commit).
 - Engine always writes the canonical report to
   `$MROOT/.claude/council/<date>-diff-staged.md`. An optional path argument
   writes an ADDITIONAL copy in the legacy text format rendered by Step 6.

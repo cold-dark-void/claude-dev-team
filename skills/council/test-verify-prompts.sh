@@ -318,16 +318,22 @@ PNEOF
     fail_msg "non-M14 render: empty output"
   fi
 
-  # ---- WP 1-16 AC A: non-M14 render byte-identical to 38bc739 -------------
-  # M5 (TL review): compared against the REAL loadPrompt render of the
-  # 38bc739 investigator.md (computed above, inside the node heredoc, via a
-  # scratch copy of workflow.js) -- not a second bash/awk implementation.
-  if [ -s "$RENDER_GOLDEN_NONM14" ] && [ -s "$RENDER_NONM14" ] \
-    && cmp -s "$RENDER_GOLDEN_NONM14" "$RENDER_NONM14"; then
-    ok "AC A: non-M14 render byte-identical to 38bc739 (real loadPrompt golden)"
+  # ---- WP 3-02 F-20: cache section is read-only -------------------------
+  # WP 1-16 AC A froze the whole non-M14 render against 38bc739. That freeze
+  # included the investigator-written cache (mkdir, sha256sum, Bash-cat as a
+  # tool_use_id). CDT-275 F-20 removed that write path, so the whole-file
+  # cmp cannot hold. The verify-budget checks above still pin the M14
+  # section. This check pins the new cache contract and fails if the old
+  # write protocol returns.
+  if [ -s "$RENDER_NONM14" ] \
+    && grep -qF 'You MUST NOT mkdir, write, or run sha256sum.' "$RENDER_NONM14" \
+    && grep -qF 'tool_use_id for those bytes.' "$RENDER_NONM14" \
+    && ! grep -qF 'mkdir -p CACHE_DIR' "$RENDER_NONM14" \
+    && ! grep -qF 'Bash may write ONLY under' "$RENDER_NONM14" \
+    && ! grep -qF 'sha256sum | awk' "$RENDER_NONM14"; then
+    ok "AC A: non-M14 cache section is read-only (no sha256sum, no mkdir)"
   else
-    fail_msg "AC A: non-M14 render differs from the 38bc739 golden (real loadPrompt)"
-    diff "$RENDER_GOLDEN_NONM14" "$RENDER_NONM14" 2>/dev/null | head -40
+    fail_msg "AC A: non-M14 cache section still tells the investigator to write"
   fi
 
   # ---- WP 1-16 M3 (TL review): C2 is pinned and executed, not just implied --

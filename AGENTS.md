@@ -57,18 +57,19 @@ single source of truth; read the skill.)
 | `devops` | Sonnet | CI/CD, infrastructure, deployments |
 | `qa` | Sonnet | Testing, validation, release gating |
 | `ds` | Opus | Data analysis, ML, metrics |
-| `finder` | Sonnet | Read-only fan-out investigator (`/council` Phase 2 / 2.5, `/bug-hunt` S1 / S2) |
+| `finder` | Sonnet | Read-only fan-out investigator (`/council` Phase 2, `/bug-hunt` S1 / S2) |
 | `debugger` | Opus | Read-only causal root-cause investigator (`/debug ticket` premise only — `full`/`patch`/`arch` root-cause phases have no named-roster spawn) |
 | `project-init` | Sonnet | One-time memory bootstrap (via `/setup team`) |
 | `distiller` | Haiku | Memory compression specialist (invoked by `/memory distill` only) |
 | `council-judge` | Opus | Tool-less final arbiter for `/council` tribunals (invoked by the council engine only) |
+| `council-scribe` | Opus | Tool-less internal council role (extractor, classifier, prosecutor, advocate, cross-reviewer, quorum analyst). No memory. Invoked by the council engine only |
 
-The first 7 rows are the behavioral/team agents. The remaining 5 — `finder`,
-`debugger`, `project-init`, `distiller`, and `council-judge` — are internal
+The first 7 rows are the behavioral/team agents. The remaining 6 — `finder`,
+`debugger`, `project-init`, `distiller`, `council-judge`, and `council-scribe` — are internal
 agents invoked by specific commands, never routed to directly. Internal agents
 have no per-agent memory, no cortex, and no `/adjust-agent` directives surface.
 
-Model and effort tiers for all 12 agents are set in `agents/*.md` frontmatter;
+Model and effort tiers for all 13 agents are set in `agents/*.md` frontmatter;
 SPEC-003 § Tier table is the source of truth.
 
 ## Worktree Protocol
@@ -184,7 +185,7 @@ Agents can receive project-specific standing orders via directives files:
 **File:** `.claude/memory/<agent>/directives.md`
 **Format:** Numbered list, one directive per line
 **Applies to:** 7 behavioral agents (pm, tech-lead, ic5, ic4, devops, qa, ds)
-**Does NOT apply to:** project-init, distiller
+**Does NOT apply to:** project-init, distiller, council-scribe
 
 Directives load BEFORE memory (load order: directives → memory → context).
 They are framed as "standing orders" that the agent must not override — analogous to

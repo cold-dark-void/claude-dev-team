@@ -8,7 +8,7 @@
   "feedback_memory_enabled": true,
   "flavors": [
     "paranoid-ic",
-    "jaded-senior"
+    "skeptic-ic"
   ],
   "grading_reason": "ungraded: no tier supplied (default full)",
   "last": "",
@@ -82,7 +82,7 @@
     },
     "flavors": [
       "paranoid-ic",
-      "jaded-senior"
+      "skeptic-ic"
     ],
     "grading_reason": "ungraded: no tier supplied (default full)",
     "phase3_specialist": "pending (runtime classify)",

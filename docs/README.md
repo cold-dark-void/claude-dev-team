@@ -79,7 +79,7 @@ Program / multi-ticket work, session tuning, and quality gates.
 Agent protocols (`agent-memory`, `memory-store`, `memory-recall`), council/orchestrate
 engines, gates (`docs-drift`, `skill-lint`, …), and `tools/` helpers are **not**
 user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal agents
-`project-init`, `distiller`, and `council-judge` are reached only via `/setup team`,
+`project-init`, `distiller`, `council-judge`, and `council-scribe` are reached only via `/setup team`,
 `/memory distill`, and `/council`.
 
 ### Migration (historical)

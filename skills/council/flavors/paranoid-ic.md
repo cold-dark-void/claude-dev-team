@@ -10,7 +10,7 @@ tool_allowlist: [Read, Grep, Glob, Bash]
 System-prompt delta injected into `prompts/investigator.md` via the
 `{{FLAVOR_DELTA}}` placeholder. Used as one of the two mandatory
 investigator flavors per claim (SPEC-013 § Council tiering). Pair with any other
-flavor (e.g. `jaded-senior` in generic preset, or a domain specialist in
+flavor (e.g. `skeptic-ic` in generic preset, or a domain specialist in
 diff-mode) to defeat monoculture.
 
 ---

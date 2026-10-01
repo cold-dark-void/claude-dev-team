@@ -463,11 +463,11 @@ const agent = async (prompt, opts) => {
         ],
       }
     }
-    if (opts.label === 'inv:c0:jaded-senior') return { bundles: [] }
+    if (opts.label === 'inv:c0:skeptic-ic') return { bundles: [] }
     if (opts.label === 'inv:c1:paranoid-ic') {
       return { bundles: [{ tool_use_id: 'c1-a', raw_blob: 'C1_BUNDLE_A', file_line: 'f:2', reproducible_command: 'e' }] }
     }
-    if (opts.label === 'inv:c1:jaded-senior') {
+    if (opts.label === 'inv:c1:skeptic-ic') {
       return { bundles: [{ tool_use_id: 'c1-b', raw_blob: 'C1_BUNDLE_B', file_line: 'f:2', reproducible_command: 'e' }] }
     }
     return { bundles: [] }
@@ -649,4 +649,94 @@ if (!passedReport.includes('**PASSED**')) throw new Error('normal warning judge 
 if (passedReport.includes('degraded-judge:')) throw new Error('normal judge report mentions degraded-judge')
 console.log('OK: normal finding[] judge path stays PASSED')
 JS
+# CDT-411: Step 4 finalize passes Phase 2.5 placeholders.
+step4=$(awk '/^## Step 4:/,/^## Step 5:/' commands/council.md)
+for flag in --cross-review-status --cross-review-rankings --cross-review-scores; do
+  if printf '%s\n' "$step4" | grep -qF -- "$flag"; then
+    echo "OK: Step 4 finalize has $flag"
+  else
+    echo "FAIL: Step 4 finalize missing $flag"; fail=1
+  fi
+done
+
+# CDT-380: no ic4/ic5 spawn for council roles. Phase 3 keeps dev-team:<agent>.
+if grep -nE 'subagent_type: "dev-team:ic[45]"' commands/council.md; then
+  echo "FAIL: commands/council.md still spawns ic4 or ic5"; fail=1
+else
+  echo "OK: commands/council.md has no dev-team:ic4/ic5 spawn"
+fi
+if grep -nE "agentType: 'dev-team:ic[45]'" skills/council/workflow.js; then
+  echo "FAIL: workflow.js still spawns ic4 or ic5"; fail=1
+else
+  echo "OK: workflow.js has no dev-team:ic4/ic5 agentType"
+fi
+if grep -qF "agentType: 'dev-team:finder'" skills/council/workflow.js \
+  && grep -qF "agentType: 'dev-team:council-scribe'" skills/council/workflow.js \
+  && grep -qF "agentType: 'dev-team:council-judge'" skills/council/workflow.js; then
+  echo "OK: workflow.js agentTypes are finder, council-scribe, council-judge"
+else
+  echo "FAIL: workflow.js missing finder/council-scribe/council-judge"; fail=1
+fi
+
+# CDT-325: Test 1 must require that a normal run does not write lessons.md.
+# The old step ("feedback memory written to") would fail this check.
+test1=$(awk '/^### Test 1/,/^### Test 2/' specs/core/SPEC-013-adversarial-council-tribunal.md)
+if printf '%s\n' "$test1" | grep -qF 'feedback memory written to'; then
+  echo "FAIL: SPEC-013 Test 1 still requires a lessons.md write"; fail=1
+elif printf '%s\n' "$test1" | grep -qF 'Phase 7 is DEFERRED' \
+  && printf '%s\n' "$test1" | grep -qF 'must NOT write lessons.md'; then
+  echo "OK: SPEC-013 Test 1 says Phase 7 is DEFERRED and must NOT write lessons.md"
+else
+  echo "FAIL: SPEC-013 Test 1 missing deferred lessons.md wording"; fail=1
+fi
+if grep -qF 'Phase 7 is a no-op' skills/council/flavors/diff-mode.md; then
+  echo "FAIL: diff-mode.md still says Phase 7 is a no-op"; fail=1
+elif grep -qF 'Phase 7 is DEFERRED' skills/council/flavors/diff-mode.md \
+  && grep -qF 'does not write lessons.md' skills/council/flavors/diff-mode.md; then
+  echo "OK: diff-mode.md says Phase 7 is DEFERRED and does not write lessons.md"
+else
+  echo "FAIL: diff-mode.md missing deferred lessons.md wording"; fail=1
+fi
+
+# Council --blind reviewers use the tool-less prompt, not the bug-hunt prompts.
+b2=$(awk '/^### B2 /,/^### B3 /' commands/council.md)
+if printf '%s\n' "$b2" | grep -qF 'skills/council/prompts/blind-scribe.md' \
+  && printf '%s\n' "$b2" | grep -qF 'dev-team:council-scribe' \
+  && printf '%s\n' "$b2" | grep -qF '{{FILE_TEXT}}' \
+  && ! printf '%s\n' "$b2" | grep -qF 'unconstrained-reviewer.md' \
+  && ! printf '%s\n' "$b2" | grep -qF 'lens-reviewer.md'; then
+  echo "OK: council blind spawns use blind-scribe.md and council-scribe"
+else
+  echo "FAIL: council blind spawn sites still use a tool-using reviewer prompt"; fail=1
+fi
+if grep -qF 'Read, Bash' skills/council/prompts/unconstrained-reviewer.md \
+  && grep -qF 'Read, Bash' skills/council/prompts/lens-reviewer.md; then
+  echo "OK: bug-hunt reviewer prompts still allow Read and Bash"
+else
+  echo "FAIL: shared reviewer prompts lost their tool instructions"; fail=1
+fi
+if grep -qF 'head -c 8192' commands/council.md \
+  && grep -qF 'must not call Read, Bash, Glob, or Grep' skills/council/prompts/blind-scribe.md; then
+  echo "OK: blind file text is preloaded and the scribe is tool-less"
+else
+  echo "FAIL: blind file preload or tool-less scribe rule missing"; fail=1
+fi
+
+# CDT-275 static: guarded preflight JSON, tokens passthrough, handoff trap.
+if grep -qF 'JSON.parse(pre.stdout)' skills/council/workflow.js; then
+  echo "FAIL: workflow.js still has unguarded JSON.parse(pre.stdout)"; fail=1
+else
+  echo "OK: preflight JSON.parse is not bare"
+fi
+if grep -qF 'parsePreflightStdout(pre.stdout)' skills/council/workflow.js \
+  && grep -qF 'exit_code: 1' skills/council/workflow.js \
+  && grep -qF -- '--tokens-file' skills/council/workflow.js \
+  && grep -qF 'rmSync(handoff.dir' skills/council/workflow.js \
+  && grep -qF 'TASK_PATH_NOTICE' skills/council/workflow.js \
+  && grep -qF 'LIGHT_NOTICE' skills/council/workflow.js; then
+  echo "OK: workflow.js parse guard, tokens-file, handoff trap, exit-2 notices"
+else
+  echo "FAIL: workflow.js missing CDT-275 guards"; fail=1
+fi
+
 exit $fail

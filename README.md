@@ -52,10 +52,10 @@ Use `--dry-run` to preview every change without writing anything (`bash install.
 | `ds` | Opus | Data analysis, ML/AI pipelines, A/B testing, metrics, statistical modeling |
 
 The seven rows above are the behavioral/team agents you route work to, and they are the
-ones with persistent per-project memory. Five internal agents — `finder`, `debugger`,
-`project-init`, `distiller`, and `council-judge` — are invoked by specific commands
-(`/council` and `/bug-hunt`, `/debug`, `/setup team`, `/memory distill`, `/council` again for the judge),
-not directly. `finder` and `debugger` are read-only investigators; internal agents carry
+ones with persistent per-project memory. Six internal agents — `finder`, `debugger`,
+`project-init`, `distiller`, `council-judge`, and `council-scribe` — are invoked by specific commands
+(`/council` and `/bug-hunt`, `/debug`, `/setup team`, `/memory distill`, `/council` again for the judge and the scribe),
+not directly. `finder` and `debugger` are read-only investigators; `council-scribe` is a tool-less internal council role. Internal agents carry
 no memory, cortex, or directives.
 
 ### Memory
@@ -136,7 +136,7 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 Agent protocols (`agent-memory`, `memory-store`, `memory-recall`), council/orchestrate
 engines, gates (`docs-drift`, `skill-lint`, …), and `tools/` helpers are **not**
 user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal agents
-`project-init`, `distiller`, and `council-judge` are reached only via `/setup team`,
+`project-init`, `distiller`, `council-judge`, and `council-scribe` are reached only via `/setup team`,
 `/memory distill`, and `/council`.
 
 ### Migration (historical)

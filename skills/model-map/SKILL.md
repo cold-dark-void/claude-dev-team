@@ -127,7 +127,7 @@ site also runs `resolve-model.sh --effort` for the same agent:
   Step 3 feed-back `@pm`, Step 5 / 6 `@tech-lead`
 - `/epic` — A.2 `@pm` / `@tech-lead` only (Mode E reuses A.2)
 - `/debug ticket` — premise `debugger`, implement `--agent ic4|ic5`, refuters `qa`
-- `/council` — Phase 2 `finder`, Phase 2.5 `finder`, Phase 5 `council-judge`
+- `/council` — Phase 2 `finder`, Phase 5 `council-judge` (Phase 2.5 is `council-scribe`, omitted)
 - `/bug-hunt` — S1 unconstrained / lens / quorum `finder` and S2 investigators
   `finder`
 
@@ -138,8 +138,9 @@ never `ic4`. Empty model stdout = **Tier default**. Empty effort stdout =
 **inherited effort**.
 
 **Omit the fence:** kickoff Step 4b verifier; unnamed /
-`general-purpose` / Explore; council Phase 1 extractor, Phase 3 specialist,
-Phase 4 prosecutor/advocate, `--blind` extra waves; `/handoff` miner
+`general-purpose` / Explore; council Phase 1 extractor, Phase 2.5
+cross-reviewer, Phase 3 specialist, Phase 4 prosecutor/advocate, `--blind`
+waves (`council-scribe`); `/handoff` miner
 (`HANDOFF_MINER_MODEL`); `/memory validate`; `/retro`;
 `skills/council/workflow.js`. Direct `@agent` / chat stays on frontmatter.
 "Omit the fence" means these stay outside the named-roster model-map — it

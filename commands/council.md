@@ -469,13 +469,14 @@ spawns for a given phase must be issued in a single message (parallel
 execution). (Skipped when Step 2.5 selected Workflow.)
 
 **Model map (SPEC-037):** protocol home is `skills/council/SKILL.md` § Model
-map. One fence per wired role below (`ic5` investigators, `ic4`
-cross-reviewers, `council-judge`). Same fence for later spawns of this
-agent. Do not paste full PDH at every later spawn of the same role.
-Named fallback `ic5`→`ic4` resolves `ic4`. Unnamed / `general-purpose` /
-Explore: omit the fence. Omit Phase 1 extractor, Phase 3 specialist,
-Phase 4 prosecutor/advocate, and `--blind` extra waves (OQ1). Mapping
-`council-judge` MUST NOT add tools.
+map. Wired fences: Phase 2 `finder`, Phase 5 `council-judge`. Same fence
+for later spawns of that agent. Do not paste full PDH at every later spawn
+of the same role. Named fallback `finder`→`ic5` resolves `ic5` (CDT-230).
+Unnamed / `general-purpose` / Explore: omit the fence. Omit Phase 1
+extractor, Phase 2.5 cross-reviewer, Phase 3 specialist, Phase 4
+prosecutor/advocate, and `--blind` waves (OQ1) — those tool-less roles
+spawn `dev-team:council-scribe` (`tools: ""`), not `ic4` or `ic5`. Mapping
+`council-judge` or `council-scribe` MUST NOT add tools.
 
 ### Phase 1 — Claim Extraction
 
@@ -491,7 +492,7 @@ Use the prompt path from `plan.phases.1_claim_extraction.prompt` (session/diff
 
 ```
 description: "Extract claims from session"
-subagent_type: "dev-team:ic4"   # CDT-133 prefer named; fallback general-purpose
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
 prompt: skills/council/prompts/claim-extractor.md
   with substitutions:
     {{SCOPE_TYPE}}   ← plan.scope
@@ -505,7 +506,7 @@ prompt: skills/council/prompts/claim-extractor.md
 
 ```
 description: "Extract claims from plan"
-subagent_type: "dev-team:ic4"   # CDT-133 prefer named; fallback general-purpose
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
 prompt: skills/council/prompts/plan-extractor.md
   with substitutions:
     {{PLAN_PATH}}    ← plan.scope_arg (path as given to --plan)
@@ -550,14 +551,16 @@ orchestrator performs extraction with tools; set `degraded=true`. Protocol:
 
 For each claim from Phase 1 (or the single pasted / from-retro claim), spawn at
 least 2 investigator Task subagents in parallel with distinct flavor presets.
-Minimum: `paranoid-ic` flavor + at least one other (e.g. `jaded-senior`) to
-prevent monoculture. Use `plan.flavors` to determine which flavors to spawn.
+Minimum: `paranoid-ic` flavor + at least one other (generic preset:
+`skeptic-ic`) to prevent monoculture. Use `plan.flavors` to determine which
+flavors to spawn. `jaded-senior` is the prosecutor flavor, not a Phase 2
+investigator.
 A caller MAY append flavor names to `plan.flavors` after preflight; investigator.md output schema always wins over a flavor’s `output_shape_constraint`.
 
 **Optional cache seed (CDV-211):** before spawning investigators, when
-`plan.cache_dir` is set, best-effort pre-read files named in claim
-`source_locator`s into the shared cache (reliability backstop if subagents
-ignore cache-first instructions). For each unique path-like locator (strip
+`plan.cache_dir` is set, the orchestrator may pre-seed a read-only cache
+from claim `source_locator`s. Investigators must not mkdir, write, or hash
+that cache (CDT-275). For each unique path-like locator (strip
 `:line` / `:heading-path:line` suffixes when present; skip non-file locators
 like turn ids / `retro:…`):
 
@@ -695,7 +698,7 @@ For each claim from Phase 1, spawn a cheap classifier Task (parallel OK):
 
 ```
 description: "Classify claim topic for domain specialist"
-subagent_type: "dev-team:ic4"   # CDT-133 prefer named; fallback general-purpose
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
 prompt: skills/council/prompts/topic-classifier.md
   with substitutions:
     {{CLAIM_TEXT}}  ← claim.claim (verbatim)
@@ -812,32 +815,13 @@ their original submission order; other claim groups are unaffected.
 
 For each investigator (N investigators → N cross-reviewers), spawn one
 ephemeral Task subagent. Each reviewer sees all bundles EXCEPT their own,
-labeled with their personal shuffled mapping. Same fence for later `finder`
-spawns of this agent. Named fallback `finder`→`ic5` (CDT-230): re-run the `ic5` fence. Unnamed / `general-purpose`: omit.
-
-Before spawning @finder:
-```bash
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-MODEL=$(bash "$RESOLVE" finder)
-printf '%s\n' "$MODEL"
-EFFORT=$(bash "$RESOLVE" --effort finder)
-printf '%s\n' "$EFFORT"
-```
-Bash stdout = model string; empty → omit model.
-Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
-Surface resolver stderr to the user. Do not swallow.
-If MODEL is non-empty: pass it as the Agent model param.
-If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for finder; retrying with Tier default`.
-If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for finder; retrying with inherited effort`.
-Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
-Other spawn failures MUST NOT be retried as a model or effort fallback.
+labeled with their personal shuffled mapping. Cross-review is tool-less
+(`agents/council-scribe.md`). No model-map fence (OQ1). Do not spawn
+`finder`, `ic4`, or `ic5`.
 
 ```
 description: "Cross-review evidence bundles for claim <claim-id>"
-subagent_type: "dev-team:finder"   # CDT-230 prefer named; fallback ic5 → general-purpose
+subagent_type: "dev-team:council-scribe"   # tool-less; MUST NOT run tools (CDT-380)
 prompt: skills/council/prompts/cross-reviewer.md
   with substitutions:
     {{CLAIM_TEXT}}    ← claim.claim (verbatim)
@@ -875,7 +859,9 @@ it as an abstain and exclude that reviewer from the Borda tally.
 
 Pass the ranked bundle list (with WEAK_EVIDENCE flags) to Phase 4; store
 per-reviewer rankings and scores for `{{CROSS_REVIEW_RANKINGS}}` /
-`{{CROSS_REVIEW_SCORES}}`.
+`{{CROSS_REVIEW_SCORES}}`. Assign `$CROSS_REVIEW_STATUS`,
+`$CROSS_REVIEW_RANKINGS`, and `$CROSS_REVIEW_SCORES` from that round.
+Step 4 passes those three variables to finalize.
 
 **Spawn failure:** if cross-reviewer spawns fail → treat as Phase 2.5
 bypass with reason `"cross-review spawns failed"`; set `degraded=true` if
@@ -897,7 +883,7 @@ Otherwise spawn exactly one Prosecutor and one Devil's Advocate in parallel:
 ```
 Prosecutor:
   description: "Prosecute claims against evidence"
-  subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
+  subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
   prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
       {{ROLE}}             ← "Prosecutor"
@@ -914,7 +900,7 @@ Prosecutor:
 
 Devil's Advocate:
   description: "Defend claims with evidence"
-  subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
+  subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
   prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
       {{ROLE}}             ← "Devil's Advocate"
@@ -1081,6 +1067,9 @@ TOKENS_FILE=$(mktemp "${TMPDIR:-/tmp}/council-tokens.XXXXXX.json")  # lint-ok: C
   --judge-output  "$JUDGE_FILE" \
   [--task-id      "<task_id if present>"] \
   [--verification-mode self-verified]   # when degraded=true; else omit (defaults full)
+  --cross-review-status   "$CROSS_REVIEW_STATUS" \
+  --cross-review-rankings "$CROSS_REVIEW_RANKINGS" \
+  --cross-review-scores   "$CROSS_REVIEW_SCORES" \
   [--tokens-file  "$TOKENS_FILE"]       # CDV-204; omit when no file / unavailable
 ```
 
@@ -1180,21 +1169,42 @@ Resolve each lens's `{{FLAVOR_DELTA}}` from the blind-path lens library in
 ### B1 — Build file list
 
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+LIST_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/blind-file-list.sh)
+# WTROOT file list (CDT-360). MROOT is only the report directory (B6).
+# Helper exits non-zero on an empty list; do not swallow that.
 if [ -n "$TARGET" ]; then
-  FILE_LIST=$(git ls-files "$MROOT/$TARGET" 2>/dev/null \
-    || find "$MROOT/$TARGET" -type f | grep -v '.git/')
+  FILE_LIST=$(bash "$LIST_SH" "$TARGET") || exit $?
   SCOPE_NOTE="Review files under: $TARGET"
 else
-  FILE_LIST=$(git ls-files "$MROOT" 2>/dev/null \
-    | grep -vE '\.(lock|min\.js|min\.css|pb\.go|pb\.py|svg)$' \
-    | grep -v 'node_modules/' \
-    | grep -v 'dist/' \
-    | grep -v 'vendor/' )
+  FILE_LIST=$(bash "$LIST_SH") || exit $?
   SCOPE_NOTE="Review the full project (all tracked files listed below)."
 fi
+# Preload file text for the tool-less scribe. Cap 20 files, 8192 bytes each.
+# A missing file is one stderr line, not a crash.
+FILE_TEXT=""
+_n=0
+while IFS= read -r _p || [ -n "${_p:-}" ]; do
+  [ -n "$_p" ] || continue
+  _n=$((_n + 1))
+  if [ "$_n" -gt 20 ]; then
+    echo "council: blind file text capped at 20 files" >&2
+    break
+  fi
+  if [ ! -f "$_p" ]; then
+    echo "council: skip missing file: $_p" >&2
+    continue
+  fi
+  _chunk=$(head -c 8192 -- "$_p") || {
+    echo "council: skip unreadable file: $_p" >&2
+    continue
+  }
+  FILE_TEXT="${FILE_TEXT}===== ${_p} ====="$'\n'"${_chunk}"$'\n'
+done <<EOF
+$FILE_LIST
+EOF
 ```
 
 Print brief summary:
@@ -1214,28 +1224,32 @@ parallel and none sees another's output.
 
 ```
 description: "Blind review unconstrained U<N>"
-subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
-prompt: skills/council/prompts/unconstrained-reviewer.md
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+prompt: skills/council/prompts/blind-scribe.md
   with substitutions:
     {{TEAM_ID}}      ← U<N> (U1, U2, …)
+    {{LENS_NAME}}    ← none
+    {{FLAVOR_DELTA}} ← empty (no lens)
     {{FILE_LIST}}    ← FILE_LIST from B1
-    {{PROJECT_ROOT}} ← $MROOT
+    {{PROJECT_ROOT}} ← $WTROOT
     {{SCOPE_NOTE}}   ← SCOPE_NOTE from B1
+    {{FILE_TEXT}}    ← FILE_TEXT from B1 (20 files, head -c 8192 each)
 ```
 
 **Lens** — for each lens in LENSES:
 
 ```
 description: "Blind review lens L-<lens>"
-subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
-prompt: skills/council/prompts/lens-reviewer.md
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+prompt: skills/council/prompts/blind-scribe.md
   with substitutions:
     {{TEAM_ID}}      ← L-<lens> (e.g. L-security)
     {{LENS_NAME}}    ← lens name
     {{FLAVOR_DELTA}} ← lens-delta paragraph from SKILL.md lens library
     {{FILE_LIST}}    ← FILE_LIST from B1
-    {{PROJECT_ROOT}} ← $MROOT
+    {{PROJECT_ROOT}} ← $WTROOT
     {{SCOPE_NOTE}}   ← SCOPE_NOTE from B1
+    {{FILE_TEXT}}    ← FILE_TEXT from B1 (20 files, head -c 8192 each)
 ```
 
 All reviewers: `Output mode: terse`. Collect FINDING-NNN blocks + SUMMARY
@@ -1253,7 +1267,7 @@ Spawn ONE quorum analyst:
 
 ```
 description: "Blind review quorum analysis"
-subagent_type: "dev-team:ic5"   # CDT-133 prefer named; fallback general-purpose
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
 prompt: skills/council/prompts/quorum-analyst.md
   with substitutions:
     {{ALL_FINDINGS}}         ← namespaced FINDING blocks (=== TEAM <id> === headers)
@@ -1430,8 +1444,9 @@ Tier-1 reverse-validation: none (severed — clusters are findings)
 - Phase 3 (domain specialist, CDV-209): classify claims; pull at most one of
   devops/ds/qa/pm when confidence ≥ 0.75; skip on weak match and in
   diff-mode; run before Phase 2.5
-- Phase 7 (feedback memory) is invoked by the engine for `verdict[]`-shape
-  runs only; the command does not call it directly
+- Phase 7 (feedback memory) is DEFERRED (CDT-325). The engine does not run
+  it. `feedback_memory_enabled` is reserved and has no effect until Phase 7
+  is implemented. Do not write `lessons.md` from this command.
 - Missing scopes and missing retro anchors MUST fail loudly via engine exit
   code 2 — never silently substitute another behavior
 - `--blind`: Tier-1 clusters emit as findings with **no** recursive `/council`;

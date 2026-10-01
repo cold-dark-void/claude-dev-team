@@ -265,7 +265,7 @@ run ln -sfn "$SCRIPT_DIR/commands" "$CMD_DIR/dev-team"
 # Generate opencode-valid copies of every agent. Strip tools: and model:
 # only inside the YAML frontmatter (the first two --- lines). A body line
 # that starts with those words stays. Internal agents (finder, debugger,
-# project-init, distiller, council-judge) are installed too. They are not in
+# project-init, distiller, council-judge, council-scribe) are installed too. They are not in
 # the model-tier menu above, so they inherit the session model.
 strip_frontmatter() {
   awk '

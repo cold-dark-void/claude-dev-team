@@ -38,6 +38,7 @@ commands/handoff.md
 ROSTER='
 tech-lead:opus:high
 council-judge:opus:high
+council-scribe:opus:high
 debugger:opus:high
 ds:opus:medium
 pm:opus:medium

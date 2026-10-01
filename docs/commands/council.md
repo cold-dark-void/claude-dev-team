@@ -185,7 +185,7 @@ non-positive `--teams`; missing `--target` path.
 ## Notes
 
 - The council is a **pure auditor**: it never proposes fixes, never modifies files, never audits user-authored claims, and never runs automatically on a session or commit. Every invocation is explicit.
-- For `verdict[]` runs, a `FABRICATED` (confidence ≥ 70) or `UNVERIFIED` (≥ 85) verdict triggers a feedback-memory write — to `.claude/memory/claude/lessons.md` for plain Claude, or via `/adjust-agent` for a team-agent author. Diff-mode (`finding[]`) and blind-path findings never write feedback memory: a code bug is not a fabrication.
+- Phase 7 feedback memory is DEFERRED (CDT-325). The engine does not run it and does not write `.claude/memory/claude/lessons.md`. `feedback_memory_enabled` is reserved and has no effect until Phase 7 is implemented. Diff-mode and blind-path findings are not fabrications.
 - `/retro` prints `Consider: /council --from-retro <anchor-id>` and persists anchors under `.claude/retro/anchors/`; `/council --from-retro` loads that file and skips claim extraction.
 - Blind-path reports are findings-shaped and **gate-ignored** — they do not write an `index.json` row that would satisfy `requires_council`.
 

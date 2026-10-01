@@ -4,8 +4,8 @@ role: preset
 description: |
   Code-review preset used by /review-and-commit. Emits finding[] output shape with
   the 5 review-and-commit specialists as investigator flavors. Spec-grep intake
-  enriched into Phase 1. Feedback memory disabled — code bugs are not
-  fabrications.
+  enriched into Phase 1. Phase 7 is DEFERRED and does not write lessons.md.
+  Code bugs are not fabrications.
 output_shape: finding[]
 flavor_list: [logic, security, compliance, quality, simplification]
 spec_grep: true
@@ -20,8 +20,9 @@ commit_gate_blocks_on: [critical, compliance]
 The `diff-mode` preset fires when the council engine is invoked with `--diff`
 or an explicit `--preset diff-mode`. It configures the engine as a
 code-review pipeline over a staged/modified diff: 5 specialist investigators
-in parallel, `finding[]` output shape, 80-confidence discard filter, and no
-feedback-memory writes (a code bug is not a fabrication — SPEC-013 § Council tiering).
+in parallel, `finding[]` output shape, 80-confidence discard filter. Phase 7
+is DEFERRED and does not write lessons.md (a code bug is not a fabrication —
+SPEC-013 § Council tiering).
 
 This preset is the ONLY v1 caller path for `/review-and-commit`. The command
 wrapper at `skills/review-and-commit/SKILL.md` is a thin entry point
@@ -99,9 +100,9 @@ not re-parse the finding list. Authoritative gate behavior is SPEC-010 § Code R
 
 ## Feedback memory
 
-Disabled for diff-mode. Phase 7 is a no-op under this preset. Rationale: a
-code bug discovered by a specialist is not a claim fabrication; writing it to
-an agent's directives would conflate "caught a bug" with "caught a lie"
+Phase 7 is DEFERRED (CDT-325). The engine does not run it and does not write
+lessons.md. `feedback_memory_enabled: false` on this preset is reserved and
+has no effect until Phase 7 is implemented. A code bug is not a fabrication
 (SPEC-013 § Council tiering, SPEC-010 § Code Review (review-and-commit)).
 
 ## Cross-references

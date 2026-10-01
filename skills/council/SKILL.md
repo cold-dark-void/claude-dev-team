@@ -34,8 +34,8 @@ dedicated `council-judge` agent — with a structurally empty tool allowlist —
 issues the final verdicts or findings. The engine writes a report to
 `.claude/council/<date>-<slug>[--<task_id>][-<N>].md` (report
 no-overwrite, SPEC-013 Phase 6, below), appends a row to a verdict index at
-`.claude/council/index.json` when task-bound, and (for verdict-shape runs)
-writes feedback memories for high-confidence fabrications.
+`.claude/council/index.json` when task-bound. Phase 7 feedback memory
+is DEFERRED (CDT-325): the engine does not write lessons.
 
 Two callers share this engine: `/council` (generic, verdict-shape) and
 `/review-and-commit` (diff scope, finding-shape, via the diff-mode preset). The
@@ -83,8 +83,10 @@ is a bug.
   ephemeral prompt-template variants injected into Task-tool subagent
   invocations, not entries in `agents/`. Phase 3 Domain Specialist reuses an
   existing team agent (`devops`/`ds`/`qa`/`pm`) as an investigator for one
-  claim — still ephemeral for the run, not a new council agent file. The only
-  persistent council-specific agent is `council-judge`. (SPEC-013 § Command Shape & Scope)
+  claim — still ephemeral for the run, not a new council agent file. Persistent
+  council agent files are `council-judge` (Phase 5) and `council-scribe`
+  (tool-less extractor, classifier, prosecutor, advocate, cross-reviewer,
+  quorum analyst). (SPEC-013 § Command Shape & Scope)
 
 ---
 
@@ -101,8 +103,9 @@ tools (`tools: ""` stays empty).
 agent). Resolve the agent actually spawned. Named fallback `finder`→`ic5`
 resolves `ic5` (CDT-230). Unnamed / `general-purpose` / Explore: omit the fence.
 
-**Omit (OQ1):** Phase 1 extractor, Phase 3 specialist, Phase 4
-prosecutor/advocate, `--blind` extra waves.
+**Omit (OQ1):** Phase 1 extractor, Phase 2.5 cross-reviewer, Phase 3
+specialist, Phase 4 prosecutor/advocate, `--blind` waves. Those roles spawn
+`dev-team:council-scribe` (`tools: ""`). Do not map `council-scribe`.
 
 ### Investigator (`finder`) — Phase 2
 
@@ -126,27 +129,10 @@ If spawn fails attributed to the `effort` param (invalid/unknown/unsupported eff
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 
-### Cross-reviewer (`finder`) — Phase 2.5
+### Cross-reviewer (`council-scribe`) — Phase 2.5
 
-Before spawning @finder:
-```bash
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-MODEL=$(bash "$RESOLVE" finder)
-printf '%s\n' "$MODEL"
-EFFORT=$(bash "$RESOLVE" --effort finder)
-printf '%s\n' "$EFFORT"
-```
-Bash stdout = model string; empty → omit model.
-Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
-Surface resolver stderr to the user. Do not swallow.
-If MODEL is non-empty: pass it as the Agent model param.
-If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for finder; retrying with Tier default`.
-If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for finder; retrying with inherited effort`.
-Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
-Other spawn failures MUST NOT be retried as a model or effort fallback.
+Tool-less. Spawn `subagent_type: "dev-team:council-scribe"`. No model-map
+fence (OQ1). MUST NOT run tools. Do not spawn `finder`.
 
 ### Judge (`council-judge`) — Phase 5
 
@@ -170,8 +156,9 @@ If spawn fails attributed to the `effort` param (invalid/unknown/unsupported eff
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 
-Dispatch surface: `commands/council.md` points here and contains the same
-three role fences at Phase 2 / 2.5 / 5.
+Dispatch surface: `commands/council.md` points here. Wired fences are
+Phase 2 `finder` and Phase 5 `council-judge`. Phase 2.5 is `council-scribe`
+with no fence.
 
 ---
 
@@ -255,14 +242,15 @@ resolution emits into the plan, not a file format:
 | `output_shape` | `verdict[]` \| `finding[]` | Mandatory — drives Phase 5/6/7 branching |
 | `flavor_list` | array of flavor names | Which flavors spawn as investigators (paranoid-ic + ≥1 other) and/or specialists |
 | `spec_grep` | bool | If true, intake enriches raw input with applicable-specs bundle (diff-mode only in v1) |
-| `feedback_memory_enabled` | bool | If false, Phase 7 is a no-op regardless of verdicts |
+| `feedback_memory_enabled` | bool | Reserved. No effect until Phase 7 is implemented |
 | `confidence_filter_threshold` | int 0–100 \| null | If set, findings/verdicts below this are filtered at emission (diff-mode: 80) |
 
 **Concrete COUNCIL-001 presets:**
 
 - **`generic`** — `output_shape: verdict[]`, flavors: `paranoid-ic` +
-  `jaded-senior` (investigators) + `jaded-senior` (prosecutor) + `yolo-ic`
-  (advocate), `spec_grep: false`, `feedback_memory_enabled: true`,
+  `skeptic-ic` (investigators) + `jaded-senior` (prosecutor) + `yolo-ic`
+  (advocate), `spec_grep: false`, `feedback_memory_enabled: true`
+  (reserved; no effect until Phase 7 is implemented),
   `confidence_filter_threshold: null`.
 - **`diff-mode`** — `output_shape: finding[]`, flavors: `logic`, `security`,
   `compliance`, `quality`, `simplification` as investigators + jaded-senior /
@@ -276,7 +264,7 @@ only; every other preset field is untouched:
 
 | Preset | `full` flavors | `light` flavors |
 |---|---|---|
-| `generic` | `paranoid-ic`, `jaded-senior` | unchanged — already exactly the 2 distinct flavors Phase 2 requires |
+| `generic` | `paranoid-ic`, `skeptic-ic` | unchanged — already exactly the 2 distinct flavors Phase 2 requires |
 | `diff-mode` | `logic`, `security`, `compliance`, `quality`, `simplification` | `logic`, `security` — the two correctness/safety axes; the three polish axes drop |
 
 Prosecutor/advocate flavors are not subset because `light` does not run Phase 4
@@ -435,9 +423,10 @@ inlining the raw blob. (SPEC-013 § Council tiering.)
 **Intra-run tool-call cache (CDV-211; SPEC-013 SHOULD):** preflight creates
 `${TMPDIR:-/tmp}/council-cache-<run_id>/` with `reads/`, `greps/`, and
 `manifest.json`, and emits `cache_dir` + `run_id` on the investigation plan.
-Investigators receive `{{CACHE_DIR}}` and check cache files before Read/Grep;
-on miss they tool-call and write the cache. Orchestrator may seed `reads/`
-from claim source_locators before Phase 2. Finalize best-effort removes the
+The orchestrator may pre-seed `reads/` from claim source_locators.
+Investigators receive `{{CACHE_DIR}}` as a read-only path. They must not
+mkdir, write, or run sha256sum, and must not invent a tool_use_id for
+bytes another agent wrote (CDT-275). Finalize best-effort removes the
 dir. Empty/missing cache does not change correctness.
 
 **External investigator slot (CDV-207; SPEC-013 SHOULD):** opt-in via
@@ -499,14 +488,15 @@ only on explicit opt-in.
 | neither `--workflow` nor `COUNCIL_WORKFLOW=1` | engine.sh + Task path only (byte-for-byte today) |
 | `--workflow` **or** `COUNCIL_WORKFLOW=1` | capability probe → Workflow path if available |
 | opt-in + probe fail / Workflow unavailable | stderr `council: Workflow unavailable; falling back to engine.sh` → Task path; **not** a degraded report (`verification_mode: full`) |
-| opt-in + `council_tier: light` (CDT-126) | stderr `council: council_tier=light unsupported on the Workflow path; falling back to engine.sh` → Task path. The Workflow path is `full`-only; a distinct string is required because the tool *is* available and only the tier is unsupported. Never a silent upgrade to `full`, and no tiering fork inside `workflow.js` |
+| opt-in + `council_tier: light` (CDT-126) | stderr `council: council_tier=light unsupported on the Workflow path; falling back to engine.sh` → Task path. `workflow.js` prints that same line and exits 2 if invoked with `light`. The Workflow path is `full`-only. Never a silent upgrade to `full`. |
 | `COUNCIL_WORKFLOW_FORCE_FALLBACK=1` | forces probe fail (test harness) |
 
 **Driver:** `skills/council/workflow.js` (schemas in `workflow-schemas.js`).
 Capability probe: `skills/council/workflow-probe.sh`.
 
 **Shared finalize (parity):** Workflow path writes handoff JSON under
-`"${TMPDIR:-/tmp}/council-wf-*"` then calls existing:
+`council-wf-*` in TMPDIR, then removes that directory on every exit
+(including exit 2). It calls existing:
 
 ```
 engine.sh finalize --plan-file P --evidence-file E --judge-output J
@@ -541,9 +531,16 @@ arguments as a JSON-encoded string. Distinct from CDV-197 (`/debug ticket`
 promotion); share convention only.
 
 **Token summary (SHOULD, CDV-204):** both paths feed optional per-phase usage
-into shared finalize via `--tokens-file` (see Phase 6). Workflow may also
-surface budget API data when present; Task path is best-effort envelope scrape.
+into shared finalize via `--tokens-file` (see Phase 6). Workflow passes
+`--tokens-file` only when the caller already has a tokens file. It does not
+invent one. Task path is best-effort envelope scrape.
 Missing harness fields → omit Tokens block (never invent `0`).
+
+**Phase 3 and `--external` (CDT-275):** workflow does not run them. If the
+caller sets `phase3` or `external`, `workflow.js` prints one stderr line
+`council: Phase 3 and --external are the Task path (commands/council.md)`
+and exits 2 before it writes a handoff. Use `commands/council.md`. Do not
+treat a workflow report as having run those options.
 
 **Callers:** `commands/council.md` and `skills/review-and-commit/SKILL.md`
 honor the same opt-in + fallback. Diff-mode (`finding[]`) skips Phase 4 on
@@ -565,16 +562,19 @@ Steps 1–6 tribunal. Dispatch surface + substitutions live in
 
 **Spawn contract:**
 - **N unconstrained** reviewers (`--teams`, default 3); team IDs `U1..UN`;
-  prompt `prompts/unconstrained-reviewer.md`
+  prompt `prompts/blind-scribe.md` on `dev-team:council-scribe` (tool-less).
+  Bug-hunt still uses `prompts/unconstrained-reviewer.md`.
 - **M lens-differentiated** reviewers (`--lenses`, default
-  `security,contributor,spec`); team IDs `L-<lens>`; prompt
-  `prompts/lens-reviewer.md` with `{{FLAVOR_DELTA}}` = lens-delta paragraph
-  (variable name reused from investigator; value is **not** a tribunal
-  flavor file — see Lens delta library below)
+  `security,contributor,spec`); team IDs `L-<lens>`; same
+  `prompts/blind-scribe.md` with `{{FLAVOR_DELTA}}` = lens-delta paragraph
+  (value is **not** a tribunal flavor file — see Lens delta library below).
+  Bug-hunt still uses `prompts/lens-reviewer.md`.
 - Available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`
 - **Single parallel wave** for all N+M reviewers — never sequential fan-out
 - File list from `--target <path>` when set, else full project tracked files
-  (exclude lockfiles/generated assets)
+  under WTROOT (`skills/council/blind-file-list.sh`; not MROOT). Same
+  lockfile/vendor excludes on `--target` and on the full tree. Empty list
+  fails loud. An untracked target falls through to `find`.
 - After collection: namespace findings with team ID; drop malformed (missing
   Category/Severity/Files/Claim/Evidence — no repair)
 - Spawn **one** quorum analyst (`prompts/quorum-analyst.md`) over all
@@ -595,8 +595,8 @@ is nothing to skip. Tier 2 and Tier 3 appear in the report without a second
 pass.
 
 **Report:** written at the path `engine.sh report-path <slug>` returns,
-`.claude/council/<YYYY-MM-DD>-<slug>[-<N>].md` (MROOT worktree-aware;
-create parent if absent). Contents: scope/target, team manifest, tiered
+`.claude/council/<YYYY-MM-DD>-<slug>[-<N>].md` under shared MROOT (git
+common dir, not the linked worktree); create parent if absent. Contents: scope/target, team manifest, tiered
 clusters (claim, evidence, severity, category, team count, source finding
 IDs), quorum summary, per-team summaries, dropped-malformed count.
 **Output shape:** findings-shaped for presentation; TaskCompleted MUST treat
@@ -612,7 +612,8 @@ combined with another scope; unknown lens; missing target path; non-positive
 
 #### Lens delta library
 
-Inject the matching paragraph as `{{FLAVOR_DELTA}}` in `lens-reviewer.md`.
+Inject the matching paragraph as `{{FLAVOR_DELTA}}` in `blind-scribe.md`
+(council) and in `lens-reviewer.md` (bug-hunt).
 
 **security**
 ```
@@ -677,12 +678,9 @@ bundle. This phase is implemented in the council pipeline (driven by
 not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
 
 **Spawn contract:**
-- **Model map:** resolve `finder` first (canonical fence in § Model map). Same
-  fence for later `finder` spawns of this agent. Named fallback
-  `finder`→`ic5` resolves `ic5`. Unnamed / `general-purpose`: omit the fence.
-- For N investigators, spawn N cross-reviewers via the Task tool
-  (`subagent_type: "dev-team:finder"` preferred; fallback `dev-team:ic5` →
-  `general-purpose` — CDT-230), in parallel.
+- Spawn `subagent_type: "dev-team:council-scribe"` (tool-less; no model-map
+  fence). Do not spawn `finder`, `ic4`, or `ic5`.
+- For N investigators, spawn N cross-reviewers in parallel.
 - Each reviewer sees every bundle **EXCEPT its own** (self-exclusion) — never
   investigator identities, prior narrative, or prior verdicts. (SPEC-013 § Council tiering.)
 
@@ -765,8 +763,8 @@ synthesizes, stubs, or empty-strings a brief the run did not produce.
 **Spawn contract (verdict[]-shape):**
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
   **one** Devil's Advocate (flavor: `yolo-ic`) per council run, in parallel.
-  (SPEC-013 § Council tiering.) Prefer `subagent_type: "dev-team:ic5"` (CDT-133);
-  fallback `general-purpose`.
+  (SPEC-013 § Council tiering.) Spawn `subagent_type: "dev-team:council-scribe"`
+  (`tools: ""`). Do not spawn `ic5`.
 - Both roles are **BLIND to the original claims.** They receive **ONLY the
   evidence bundles** — not the original claim list, not the prior narrative,
   not each other's output. Each role reconstructs the set of claims under
@@ -873,7 +871,8 @@ passes to and expects from the Judge — not how it decides.
 `<slug>` is a short kebab-case tag derived from the scope (e.g.
 `session-last-20`, `diff-staged`, `claim-<first-5-words>`). The engine MUST
 create the `.claude/council/` parent directory if absent. The engine MUST
-resolve `$MROOT` with the worktree-aware formula (SPEC-013 § Council tiering):
+resolve `$MROOT` with the shared-root formula (git common dir, not the
+linked worktree; SPEC-013 § Council tiering):
 
 ```
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -1034,7 +1033,7 @@ Graceful rules (exit 0 always for token issues — never fail the run):
   "why": true,
   "why_detail": {
     "preset": "generic",
-    "flavors": ["paranoid-ic", "jaded-senior"],
+    "flavors": ["paranoid-ic", "skeptic-ic"],
     "phase3_specialist": "pending (runtime classify)",
     "claim_budget": 10,
     "preset_source": "inferred"
@@ -1123,9 +1122,13 @@ index row is a hard miss. (SPEC-013 § Council tiering.)
 
 ### Phase 7 — Learning Loop (Feedback Memory)
 
-**Scope:** `verdict[]`-shape presets ONLY. `finding[]`-shape presets (i.e.
-`diff-mode`) MUST NOT trigger feedback memory writes. Additionally, any
-preset with `feedback_memory_enabled: false` MUST skip this phase entirely.
+**Status: DEFERRED (CDT-325).** The engine does not run Phase 7. It does not
+write `$MROOT/.claude/memory/claude/lessons.md`. `feedback_memory_enabled`
+on the plan is reserved and has no effect until Phase 7 is implemented.
+The notes below are the deferred contract, not current behavior.
+
+**Deferred scope:** `verdict[]`-shape presets only. `finding[]`-shape presets
+(i.e. `diff-mode`) must not trigger feedback memory writes.
 (SPEC-013 § Council tiering.)
 
 **Trigger thresholds (configurable via `.claude/settings.json`):**
@@ -1190,8 +1193,11 @@ prompt.
 **Committed flavor set (COUNCIL-001):**
 - `paranoid-ic.md` — hostile-read investigator; demands receipts for
   every asserted fact.
-- `jaded-senior.md` — prosecutor flavor; has seen every failure mode;
-  assumes the claim is wrong until evidence proves otherwise.
+- `skeptic-ic.md` — tool-using Phase 2 investigator; generic preset pairs
+  it with `paranoid-ic`. It may Read, Grep, and Bash.
+- `jaded-senior.md` — prosecutor flavor only; has seen every failure mode;
+  assumes the claim is wrong until evidence proves otherwise. Not a Phase 2
+  investigator.
 - `yolo-ic.md` — advocate flavor; argues the claim is true; exists to
   defeat prosecutor monoculture.
 - `logic.md`, `security.md`, `compliance.md`, `quality.md`,
@@ -1212,8 +1218,9 @@ Role prompt templates live at `skills/council/prompts/<name>.md`. Files:
 - `topic-classifier.md` — Phase 3 topic classify (one per claim; CDV-209)
 - `phase4-brief.md` — runs in Phase 4 (spawned twice: once as Prosecutor, once as Devil's Advocate, parameterized by role)
 - `judge.md` — delivered to the `council-judge` agent in Phase 5
-- `unconstrained-reviewer.md` — `--blind` unconstrained teams (CDT-46-C3)
-- `lens-reviewer.md` — `--blind` lens teams (CDT-46-C3)
+- `blind-scribe.md` — council `--blind` reviewers (tool-less; file text preloaded)
+- `unconstrained-reviewer.md` — bug-hunt unconstrained teams (tool-using; not council `--blind`)
+- `lens-reviewer.md` — bug-hunt lens teams (tool-using; not council `--blind`)
 - `quorum-analyst.md` — `--blind` semantic clustering (CDT-46-C3)
 - `tier-triage.md` — ambiguous-middle council-tier triage, `--diff` scope only (CDT-126)
 
@@ -1232,6 +1239,7 @@ templates: `commands/council.md` substitutes on the `--blind` path only.
 | `cross-reviewer.md` | `{{CLAIM_TEXT}}`, `{{BUNDLE_BLOCK}}` |
 | `phase4-brief.md` | `{{ROLE}}`, `{{ROLE_BIAS}}`, `{{EVIDENCE_FIELD}}`, `{{EVIDENCE_BUNDLES}}`, `{{FLAVOR_DELTA}}` |
 | `judge.md` | `{{ORIGINAL_CLAIMS}}`, `{{EVIDENCE_BUNDLES}}`, `{{PROSECUTOR_BRIEF}}`, `{{ADVOCATE_BRIEF}}`, `{{OUTPUT_SHAPE}}` |
+| `blind-scribe.md` | `{{TEAM_ID}}`, `{{LENS_NAME}}`, `{{FLAVOR_DELTA}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}`, `{{FILE_TEXT}}` |
 | `unconstrained-reviewer.md` | `{{TEAM_ID}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}` |
 | `lens-reviewer.md` | `{{TEAM_ID}}`, `{{LENS_NAME}}`, `{{FLAVOR_DELTA}}`, `{{FILE_LIST}}`, `{{PROJECT_ROOT}}`, `{{SCOPE_NOTE}}` |
 | `quorum-analyst.md` | `{{ALL_FINDINGS}}`, `{{TEAM_MANIFEST}}`, `{{UNCONSTRAINED_TEAMS}}`, `{{LENS_TEAMS}}`, `{{TOTAL_TEAMS}}` |
@@ -1250,6 +1258,7 @@ primarily a code review discipline (the prompt templates are reviewed against th
 | `skills/council/index-writer.sh` | **Sole writer** of `.claude/council/index.json`. The engine shells out to this helper in Phase 6; never opens the index file directly. |
 | `skills/orchestrate/task-store.sh` | Writes `.claude/tasks/<task_id>.json` with task metadata (including `requires_council: true`). The engine does NOT write to this file; the orchestrator owns it. Referenced by SPEC-009. |
 | `agents/council-judge.md` | The Judge agent invoked in Phase 5. Empty tool allowlist. |
+| `agents/council-scribe.md` | Tool-less internal council role (extractor, classifier, prosecutor, advocate, cross-reviewer, quorum analyst). No memory. |
 | `skills/review-and-commit/SKILL.md` | Calls this engine with `--preset diff-mode` (or `--diff` with inferred preset). Must not carry a parallel pipeline. |
 | `commands/council.md` | Thin wrapper; tribunal scopes → `engine.sh` + Task/Workflow; `--blind` → Blind-review path (no engine preflight). |
 | `skills/council/workflow.js` | Optional Workflow-tool driver (CDV-196); schema-forced agent steps + shared finalize. Not used by `--blind`. |
@@ -1300,8 +1309,8 @@ exit codes to decide whether to continue.
 - **Investigator tool-call caching within a run** — **implemented CDV-211**.
   Preflight creates `${TMPDIR:-/tmp}/council-cache-<run_id>/` (`reads/`,
   `greps/`, `manifest.json`) and emits `cache_dir` + `run_id` in the plan.
-  Investigators cache-first via `{{CACHE_DIR}}`; orchestrator may seed
-  `reads/` from claim locators; finalize best-effort `rm -rf`. Empty cache
+  Orchestrator may seed a read-only `{{CACHE_DIR}}`; the investigator must
+  not write it (CDT-275). Finalize best-effort `rm -rf`. Empty cache
   is fine — correctness unchanged.
   *(Per-phase token usage reporting — SPEC-013 SHOULD — implemented CDV-204
   via finalize `--tokens-file`; graceful omit when harness has no tokens.)*
@@ -1311,10 +1320,15 @@ exit codes to decide whether to continue.
 - **Per-invocation preset overrides** — `confidence_filter_threshold` and
   `claim_budget` remain hardcoded per preset unless a later ticket exposes
   CLI overrides.
+- **Phase 7 feedback memory** — **DEFERRED (CDT-325)**. The engine does not
+  run it. `feedback_memory_enabled` is reserved and has no effect until
+  Phase 7 is implemented. Do not write `lessons.md` from finalize.
 - **`/council --blind`** — **implemented CDT-46-C3**. Scope flag + parity
-  `--teams|--lenses|--target`; prompts `unconstrained-reviewer`,
-  `lens-reviewer`, `quorum-analyst`; Tier-1 emit as findings (no recursive
-  `/council`); no `--no-council`. (SPEC-013 Blind-review path; Test 22.)
+  `--teams|--lenses|--target`; council reviewers use tool-less
+  `blind-scribe.md` (file text preloaded); `quorum-analyst` clusters;
+  bug-hunt keeps `unconstrained-reviewer` and `lens-reviewer`. Tier-1 emit
+  as findings (no recursive `/council`); no `--no-council`.
+  (SPEC-013 Blind-review path; Test 22.)
 
 ---
 

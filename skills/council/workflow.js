@@ -17,7 +17,7 @@
  * Pure helpers exported for node unit checks.
  */
 
-import { readFileSync, writeFileSync, mkdtempSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdtempSync, existsSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -141,12 +141,47 @@ export function loadPrompt(name, vars = {}) {
   }
   let text = extractPromptBody(readFileSync(path, 'utf8'))
   text = applySections(text, vars)
+  // One pass. A value that contains {{OTHER}} must not be expanded.
+  const map = {}
   for (const [k, v] of Object.entries(vars)) {
-    const key = k.startsWith('{{') ? k : `{{${k}}}`
-    text = text.split(key).join(v == null ? '' : String(v))
+    const name = k.startsWith('{{') && k.endsWith('}}') ? k.slice(2, -2) : k
+    map[name] = v == null ? '' : String(v)
   }
-  return text
+  return text.replace(/\{\{([A-Z0-9_]+)\}\}/g, (m, name) =>
+    Object.prototype.hasOwnProperty.call(map, name) ? map[name] : m,
+  )
 }
+
+/** Preflight stdout → plan. Invalid JSON is exit 1, not a throw (CDT-275). */
+export function parsePreflightStdout(stdout) {
+  try {
+    const plan = JSON.parse(stdout)
+    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
+      return { ok: false, error: 'preflight JSON is not an object', exit_code: 1 }
+    }
+    return { ok: true, plan }
+  } catch (e) {
+    const detail = e && e.message ? e.message : String(e)
+    return { ok: false, error: `preflight JSON parse failed: ${detail}`, exit_code: 1 }
+  }
+}
+
+/** Caller asked for Phase 3 or --external. Workflow does not run those. */
+export function callerWantsTaskPath(t, plan) {
+  if (t) {
+    if (t.phase3 === true || t.phase_3 === true || t.domain_specialist === true) return true
+    const ext = t.external
+    if (ext === true || ext === 'codex' || ext === 'gemini' || ext === 'auto') return true
+    if (ext && typeof ext === 'object' && ext.requested) return true
+  }
+  if (plan && plan.external && plan.external.requested === true) return true
+  return false
+}
+
+const LIGHT_NOTICE =
+  'council: council_tier=light unsupported on the Workflow path; falling back to engine.sh'
+const TASK_PATH_NOTICE =
+  'council: Phase 3 and --external are the Task path (commands/council.md)'
 
 export function isUsableAgentResult(result) {
   if (result == null) return false
@@ -274,6 +309,16 @@ export async function runCouncil(runtime) {
     return { ok: false, error: 'scope required (claim|session|diff|plan) or claim string' }
   }
 
+  // Full path only. Refuse before preflight so no handoff dir is created.
+  if (t.council_tier === 'light') {
+    console.error(LIGHT_NOTICE)
+    return { ok: false, error: LIGHT_NOTICE, exit_code: 2, stderr: LIGHT_NOTICE }
+  }
+  if (callerWantsTaskPath(t, null)) {
+    console.error(TASK_PATH_NOTICE)
+    return { ok: false, error: TASK_PATH_NOTICE, exit_code: 2, stderr: TASK_PATH_NOTICE }
+  }
+
   let degraded = false
   const tokenUsage = []
 
@@ -333,12 +378,34 @@ export async function runCouncil(runtime) {
     }
   }
 
-  const plan = JSON.parse(pre.stdout)
-  const handoff = tmpHandoff('run')
+  const parsedPlan = parsePreflightStdout(pre.stdout)
+  if (!parsedPlan.ok) {
+    console.error(`council workflow: ${parsedPlan.error}`)
+    return {
+      ok: false,
+      error: parsedPlan.error,
+      exit_code: 1,
+      stderr: parsedPlan.error,
+    }
+  }
+  const plan = parsedPlan.plan
+
+  if (plan.council_tier === 'light') {
+    console.error(LIGHT_NOTICE)
+    return { ok: false, error: LIGHT_NOTICE, exit_code: 2, stderr: LIGHT_NOTICE }
+  }
+  if (callerWantsTaskPath(t, plan)) {
+    console.error(TASK_PATH_NOTICE)
+    return { ok: false, error: TASK_PATH_NOTICE, exit_code: 2, stderr: TASK_PATH_NOTICE }
+  }
+
+  let handoff = null
+  try {
+  handoff = tmpHandoff('run')
   writeFileSync(handoff.plan, JSON.stringify(plan, null, 2))
 
   const outputShape = plan.output_shape
-  const flavors = Array.isArray(plan.flavors) ? plan.flavors : ['paranoid-ic', 'jaded-senior']
+  const flavors = Array.isArray(plan.flavors) ? plan.flavors : ['paranoid-ic', 'skeptic-ic']
   const claimBudget = plan.claim_budget || 10
   const skipExtract = plan.phases?.['1_claim_extraction']?.skip === true
   const skipPhase4 =
@@ -417,7 +484,7 @@ export async function runCouncil(runtime) {
     const extractPrompt = loadPrompt(extractPromptName, extractVars)
     const extracted = await safeAgent(extractPrompt, {
       schema: ClaimsSchema,
-      agentType: 'dev-team:ic4',
+      agentType: 'dev-team:council-scribe',
       phase: 'Extract',
       label: extractPromptName,
     })
@@ -442,8 +509,8 @@ export async function runCouncil(runtime) {
   const invFlavors =
     outputShape === 'finding[]'
       ? flavors
-      : flavors.filter((f) => f === 'paranoid-ic' || f === 'jaded-senior').length >= 2
-        ? flavors.filter((f) => f === 'paranoid-ic' || f === 'jaded-senior')
+      : flavors.filter((f) => f === 'paranoid-ic' || f === 'skeptic-ic').length >= 2
+        ? flavors.filter((f) => f === 'paranoid-ic' || f === 'skeptic-ic')
         : flavors.slice(0, Math.max(2, flavors.length))
 
   const invJobs = []
@@ -456,7 +523,7 @@ export async function runCouncil(runtime) {
 
   // Ensure ≥2 investigators when verdict shape and only one flavor listed
   if (outputShape === 'verdict[]' && invFlavors.length < 2) {
-    ;['paranoid-ic', 'jaded-senior'].forEach((flavor) => {
+    ;['paranoid-ic', 'skeptic-ic'].forEach((flavor) => {
       if (!invFlavors.includes(flavor)) {
         claims.forEach((c, ci) => {
           invJobs.push({ claim: c, claimId: `c${ci}`, flavor, ci })
@@ -483,7 +550,7 @@ export async function runCouncil(runtime) {
     })
     const res = await safeAgent(prompt, {
       schema: EvidenceSchema,
-      agentType: 'dev-team:ic4',
+      agentType: 'dev-team:finder',
       phase: 'Investigate',
       label: `inv:${claimId}:${flavor}`,
     })
@@ -587,7 +654,7 @@ export async function runCouncil(runtime) {
       })
       const res = await safeAgent(prompt, {
         schema: RankingSchema,
-        agentType: 'dev-team:ic4',
+        agentType: 'dev-team:council-scribe',
         phase: 'Cross-review',
         label: `cross:${key}:${ri}`,
       })
@@ -652,7 +719,7 @@ export async function runCouncil(runtime) {
       })
       const res = await safeAgent(prompt, {
         schema: BriefSchema,
-        agentType: 'dev-team:ic4',
+        agentType: 'dev-team:council-scribe',
         phase: 'Phase4',
         label: role,
       })
@@ -749,7 +816,9 @@ export async function runCouncil(runtime) {
     }
   }
 
-  if (!judgeOut.struck_lines) judgeOut.struck_lines = struck
+  // Phase-4 strikes stay on the evidence doc only. Copying them onto the
+  // judge object double-counts: finalize appends judge.struck_lines to
+  // evidence.struck_lines (CDT-178).
 
   // --- Finalize handoff -----------------------------------------------------
   if (typeof phase === 'function') phase('Finalize')
@@ -790,6 +859,10 @@ export async function runCouncil(runtime) {
   if (degradationReason) {
     finArgs.push('--degradation-reason', degradationReason)
   }
+  // Pass a tokens file through. Do not invent one when the caller has none.
+  if (typeof t.tokens_file === 'string' && t.tokens_file && existsSync(t.tokens_file)) {
+    finArgs.push('--tokens-file', t.tokens_file)
+  }
 
   const fin = runEngine('finalize', finArgs)
   if (fin.status !== 0) {
@@ -827,6 +900,16 @@ export async function runCouncil(runtime) {
     plan,
     claim_count: claims.length,
     bundle_count: orderedBundles.length,
+  }
+  } finally {
+    // Trap: drop council-wf-* on every exit, including early exit 2.
+    if (handoff && handoff.dir) {
+      try {
+        rmSync(handoff.dir, { recursive: true, force: true })
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 }
 
