@@ -90,6 +90,59 @@ assert d.get("source") == "orchestrate"
 ' 2>/dev/null && ok "optional fields omitted" || bad "optional fields: $payload"
 unset NOTIFY_DRY_RUN AGENT_WEBHOOK_URL
 
+# --- unknown event is a no-op ---
+export AGENT_WEBHOOK_URL="https://example.invalid/hook"
+out=$(bash "$WH" not_an_event "nope" 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "unknown event exit 0 silent" || bad "unknown event rc=$rc out='$out'"
+
+# --- redact secret and keep a UTF-8 code point at the cut ---
+export NOTIFY_DRY_RUN=1
+payload=$(bash "$WH" error "prefix sk-abcdefghijklmnopqrstuvwxyz tail" 2>/dev/null)
+printf '%s' "$payload" | grep -qF 'sk-abcdefghijklmnopqrstuvwxyz' && bad "secret leaked into payload" || ok "secret redacted"
+utf=$(python3 -c 'print("x"*499 + "é" + "y"*20)')
+payload=$(bash "$WH" error "$utf" 2>/dev/null)
+printf '%s' "$payload" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+detail = d.get("detail", "")
+assert len(detail) == 500, len(detail)
+assert detail.endswith("é"), detail[-3:]
+' 2>/dev/null && ok "detail cut is 500 code points" || bad "utf-8 detail: $payload"
+unset NOTIFY_DRY_RUN
+
+# --- URL and body stay off curl argv; timeout and proto flags are present ---
+SHIM=$(mktemp -d "${TMPDIR:-/tmp}/webhook-shim.XXXXXX")
+cat > "$SHIM/curl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" > "$CURL_ARGV_LOG"
+for a in "$@"; do
+  case "$a" in
+    *127.0.0.1*|*https://*|*http://*) echo "url-in-argv:$a" >> "$CURL_ARGV_LOG"; exit 9 ;;
+  esac
+done
+exit 0
+EOF
+chmod +x "$SHIM/curl"
+export CURL_ARGV_LOG="$SHIM/argv"
+export AGENT_WEBHOOK_URL="https://hooks.example.test/services/SECRETTOKEN"
+export PATH="$SHIM:$PATH"
+out=$(bash "$WH" task_complete "shipped" 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] && ok "shimmed curl exit 0" || bad "shimmed curl rc=$rc out=$out"
+if [ -f "$CURL_ARGV_LOG" ] && grep -q 'url-in-argv' "$CURL_ARGV_LOG"; then
+  bad "webhook URL was on curl argv: $(cat "$CURL_ARGV_LOG")"
+else
+  ok "webhook URL is not on curl argv"
+fi
+if grep -q -- '--max-time' "$CURL_ARGV_LOG" && grep -q -- '--connect-timeout' "$CURL_ARGV_LOG" && grep -q -- '--proto' "$CURL_ARGV_LOG"; then
+  ok "webhook curl sets max-time, connect-timeout, and proto"
+else
+  bad "webhook curl flags: $(cat "$CURL_ARGV_LOG" 2>/dev/null)"
+fi
+unset AGENT_WEBHOOK_URL CURL_ARGV_LOG
+rm -rf "$SHIM"
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

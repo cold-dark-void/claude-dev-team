@@ -15,8 +15,11 @@
 #   ensure_seed_gitignore <project_root>
 #   seed_file_sha256 <path>           # full sha256 hex of file contents
 #   seed_strip_trailer <text>         # content without trailing [seed: …] line
-
-set -u
+#   seed_escape_separators <text>     # prefix a --- line so it is not a splitter
+#   seed_unescape_separators <text>
+#
+# Do not `set -u` here. This file is sourced. A caller's unset variable must
+# not become a nounset error (W2-18).
 
 seed_agents() {
   printf '%s\n' "pm tech-lead ic5 ic4 devops qa ds"
@@ -77,6 +80,36 @@ seed_parse_trailer() {
 }
 
 # Strip a trailing [seed: …] line (and blank lines before it) from normalized content.
+# A body line that is exactly --- would split the pack. Prefix it, and prefix
+# a line that already starts with a backslash, so unescape is the inverse.
+seed_escape_separators() {
+  printf '%s' "${1-}" | python3 -c '
+import sys
+lines = sys.stdin.read().split("\n")
+out = []
+for line in lines:
+    if line == "---" or line.startswith("\\"):
+        out.append("\\" + line)
+    else:
+        out.append(line)
+sys.stdout.write("\n".join(out))
+'
+}
+
+seed_unescape_separators() {
+  printf '%s' "${1-}" | python3 -c '
+import sys
+lines = sys.stdin.read().split("\n")
+out = []
+for line in lines:
+    if line.startswith("\\"):
+        out.append(line[1:])
+    else:
+        out.append(line)
+sys.stdout.write("\n".join(out))
+'
+}
+
 seed_strip_trailer() {
   local text="${1-}"
   printf '%s' "$text" | python3 -c '
@@ -124,16 +157,18 @@ def rewrite_paths(s: str) -> str:
     esc = re.escape(root)
     s = re.sub(esc + r"/", "", s)
     # bare root token → .
-    s = re.sub(r"(?<![\w.-])" + esc + r"(?![\w.-/])", ".", s)
+    s = re.sub(r"(?<![\w./-])" + esc + r"(?![\w./-])", ".", s)
     return s
 
 text = rewrite_paths(text)
 reasons = []
 
+# Scan a copy with http(s) URLs removed so /owner/repo is not an absolute path.
+scan = re.sub(r"https?://[^\s]+", " ", text)
 abs_re = re.compile(
-    r"(?<![\w])(/(?:home|Users|var|tmp|opt|usr|etc|private|root|mnt|data)(?:/[\w./+@~-]*)?|/[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._+-]+)+)"
+    r"(?<![\w./-])(/(?:home|Users|var|tmp|opt|usr|etc|private|root|mnt|data)(?:/[\w./+@~-]*)?|/[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._+-]+)+)"
 )
-for m in abs_re.finditer(text):
+for m in abs_re.finditer(scan):
     frag = m.group(0)
     if frag.startswith("//"):
         continue
@@ -181,8 +216,17 @@ elif re.search(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){2,}[a-z]{2,}\b", t
         }
         parts = host.split(".")
         tail2 = ".".join(parts[-2:]) if len(parts) >= 2 else host
-        if host not in allow and tail2 not in allow:
+        file_ext = {
+            "js", "mjs", "cjs", "ts", "tsx", "jsx", "md", "json", "yml", "yaml",
+            "sh", "py", "go", "rs", "css", "html", "txt", "toml", "lock", "svg",
+        }
+        if parts[-1] in file_ext:
+            host = ""
+        if host and host not in allow and tail2 not in allow:
             reasons.append(f"hostname: {host}")
+
+if re.search(r"[A-Za-z0-9+/]{40,}={0,2}", text):
+    reasons.append("high-entropy token")
 
 if reasons:
     sys.stderr.write(reasons[0] + "\n")
@@ -264,6 +308,11 @@ ensure_seed_gitignore() {
     else
       _pub=$(mktemp "$(dirname -- "$gi")/.gitignore.tmp.XXXXXX") || { rm -f "$tmp"; return 1; }
       cat "$tmp" > "$_pub" || { rm -f "$tmp" "$_pub"; return 1; }
+      if [ -f "$gi" ]; then
+        chmod --reference="$gi" "$_pub" 2>/dev/null || chmod 0644 "$_pub"
+      else
+        chmod 0644 "$_pub"
+      fi
       mv -f "$_pub" "$gi" || { rm -f "$tmp" "$_pub"; return 1; }
     fi
     rm -f "$tmp"

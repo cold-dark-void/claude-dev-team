@@ -8,6 +8,7 @@ keyword when vec0 cannot be loaded or the vector table is empty.
 """
 
 import datetime
+import hashlib
 import heapq
 import json
 import os
@@ -141,10 +142,27 @@ def vec_extension(memdb):
     return os.path.join(ext_dir, "vec0." + suffix)
 
 
+def sidecar_matches(path):
+    """True when no sidecar is present, or the sidecar matches the file bytes."""
+    side = path + ".sha256"
+    if not os.path.isfile(side):
+        return True
+    try:
+        with open(side, "r", encoding="utf-8") as fh:
+            want = fh.read().strip().lower()
+        with open(path, "rb") as fh:
+            actual = hashlib.sha256(fh.read()).hexdigest()
+    except OSError:
+        return False
+    return bool(want) and want == actual
+
+
 def load_vec_extension(con, memdb):
     """Load vec0 before any query against a virtual vec table. False if it cannot."""
     ext = vec_extension(memdb)
     if not os.path.isfile(ext) or os.path.getsize(ext) == 0:
+        return False
+    if not sidecar_matches(ext):
         return False
     try:
         con.enable_load_extension(True)

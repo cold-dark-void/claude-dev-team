@@ -56,6 +56,12 @@ if [ -z "$EMBED_DIR" ] || [ ! -f "$EMBED_DIR/embed-common.sh" ]; then
 fi
 # shellcheck source=embed-common.sh
 . "$EMBED_DIR/embed-common.sh"
+if [ -f "$EMBED_DIR/ext-hash.sh" ]; then
+  # shellcheck source=ext-hash.sh
+  . "$EMBED_DIR/ext-hash.sh"
+else
+  ext_verify() { return 0; }
+fi
 
 # Derive paths from the DB location: <memdir> = <MROOT>/.claude/memory.
 MEM_DIR=$(cd "$(dirname "$MEMDB")" 2>/dev/null && pwd) || exit 0
@@ -84,6 +90,10 @@ if [ "$EMBED_MODE" = "lembed" ]; then
     embed_fail "embedding_mode=lembed but missing: $MISSING; run /setup team --refresh."
     exit 0
   fi
+  if ! ext_verify "$EXT_DIR/vec0.$EXT_SUFFIX" || ! ext_verify "$EXT_DIR/lembed0.$EXT_SUFFIX" || ! ext_verify "$MODEL_PATH"; then
+    embed_fail "extension or model hash mismatch — refusing to load."
+    exit 0
+  fi
   CONTENT_ESC=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
   vec_repair_db "$MEMDB" "$EXT_DIR/vec0.$EXT_SUFFIX" || true
   VEC_SQL=$(vec_create_sql vec_memories_384 384 1) || { embed_fail "cannot build the vec0 cosine create."; exit 0; }
@@ -93,8 +103,8 @@ if [ "$EMBED_MODE" = "lembed" ]; then
   # registration shares this batch with the lembed() call (embed-common.sh).
   emit_lembed_sql() {
     cat <<EOSQL
-.load $EXT_DIR/vec0
-.load $EXT_DIR/lembed0
+.load "$EXT_DIR/vec0"
+.load "$EXT_DIR/lembed0"
 $VEC_SQL
 $REGISTER_SQL
 INSERT INTO vec_memories_384(memory_id, embedding)
@@ -119,27 +129,34 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   EMBED_KEY="${EMBEDDING_API_KEY:-}"
   # Env overrides DB; DB is the durable source when env is unset (local ollama, etc.).
   EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';" 2>/dev/null)}"
+  case "${EMBED_MODEL:-}" in
+    ""|none|remote)
+      embed_fail "embedding model is unset or a placeholder; skipping remote embed."
+      exit 0
+      ;;
+  esac
 
-
-  # Build curl args — auth header via config file to avoid leaking in ps aux.
-  CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
+  # Auth header via config file so the key is not on the curl argv.
+  CURL_ARGS=(-sS --fail --connect-timeout 5 --max-time 30 --proto '=https,http' "$EMBED_URL" -H "Content-Type: application/json")
   CURL_CONFIG=""
   if [ -n "$EMBED_KEY" ]; then
-    CURL_CONFIG=$(mktemp "${TMPDIR:-/tmp}/curl-cfg.XXXXXX")
-    printf 'header = "Authorization: Bearer %s"\n' "$EMBED_KEY" > "$CURL_CONFIG"
-    chmod 600 "$CURL_CONFIG"
-    CURL_ARGS+=(-K "$CURL_CONFIG")
+    CURL_CONFIG=$(mktemp "${TMPDIR:-/tmp}/curl-cfg.XXXXXX") || CURL_CONFIG=""
+    if [ -n "$CURL_CONFIG" ]; then
+      printf 'header = "Authorization: Bearer %s"\n' "$EMBED_KEY" > "$CURL_CONFIG"
+      chmod 600 "$CURL_CONFIG"
+      CURL_ARGS+=(-K "$CURL_CONFIG")
+      trap 'rm -f -- "$CURL_CONFIG"' EXIT
+    fi
   fi
 
   # Truncate content for embedding (most models have ~512 token limit).
-  EMBED_TEXT=$(echo "$CONTENT" | head -c 1500)
+  EMBED_TEXT=$(printf '%s' "$CONTENT" | head -c 1500)
 
-  # Build request body.
-  BODY="{\"input\":[$(echo "$EMBED_TEXT" | jq -Rs .)]}"
-  [ -n "$EMBED_MODEL" ] && BODY=$(echo "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
+  BODY="{\"input\":[$(printf '%s' "$EMBED_TEXT" | jq -Rs .)]}"
+  BODY=$(printf '%s' "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
   CURL_ARGS+=(-d "$BODY")
 
-  RESPONSE=$(curl "${CURL_ARGS[@]}")
+  RESPONSE=$(curl "${CURL_ARGS[@]}") || RESPONSE=""
   [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
 
   # Handle both OpenAI (.data[0].embedding) and ollama (.embeddings[0]/.embedding) shapes.
@@ -172,20 +189,24 @@ elif [ "$EMBED_MODE" = "remote" ]; then
     embed_fail "vec0 extension unavailable — remote embedding computed but NOT stored; install extensions to enable semantic search."
     exit 0
   fi
+  if ! ext_verify "$EXT_DIR/vec0.$EXT_SUFFIX"; then
+    embed_fail "vec0 hash mismatch — refusing to load."
+    exit 0
+  fi
 
   # Ensure vec table exists for this dimension, using cosine distance.
   vec_repair_db "$MEMDB" "$EXT_DIR/vec0.$EXT_SUFFIX" || true
   VEC_SQL=$(vec_create_sql "$VEC_TABLE" "$DIMS" 1) || true
   if [ -n "${VEC_SQL:-}" ]; then
-    sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" "$VEC_SQL" 2>/dev/null || true
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load \"$EXT_DIR/vec0\"" "$VEC_SQL" 2>/dev/null || true
   fi
 
   # Insert embedding. sqlite3 aborts the remainder of a multi-statement batch on a
   # parse error, so a failure here may be partial (e.g. the vec row already committed).
-  EMBED_MODEL_ESC=$(printf '%s' "${EMBED_MODEL:-remote}" | sed "s/'/''/g")
+  EMBED_MODEL_ESC=$(printf '%s' "$EMBED_MODEL" | sed "s/'/''/g")
   emit_remote_sql() {
     cat <<EOSQL
-.load $EXT_DIR/vec0
+.load "$EXT_DIR/vec0"
 INSERT INTO ${VEC_TABLE}(memory_id, embedding)
   VALUES ($MEMORY_ID, '$EMBEDDING');
 INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table)

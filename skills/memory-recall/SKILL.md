@@ -120,6 +120,23 @@ EMBED_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHE
 EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
+# A sidecar hash refuses a tampered extension. No sidecar still allows the load.
+ext_ok() {
+  local file="$1" side want actual
+  [ -f "$file" ] || return 0
+  side="$file.sha256"
+  [ -f "$side" ] || return 0
+  want=$(tr -d '[:space:]' < "$side" | tr 'A-F' 'a-f') || return 1
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum -- "$file" | awk '{print $1}' | tr 'A-F' 'a-f')
+  elif command -v shasum >/dev/null 2>&1; then
+    actual=$(shasum -a 256 -- "$file" | awk '{print $1}' | tr 'A-F' 'a-f')
+  else
+    return 0
+  fi
+  [ "$want" = "$actual" ]
+}
+
 # lembed needs the model-registration helper in embed-common.sh (SPEC-004). Resolve it
 # through plugin-dir.sh; when it does not resolve, this fence uses keyword search.
 EMBED_COMMON=""
@@ -139,6 +156,17 @@ if [ "$EMBED_MODE" = "lembed" ] && [ -n "$EMBED_COMMON" ] && [ -f "$EXT_DIR/vec0
    [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
   MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
   VEC_TABLE="vec_memories_${DIMS}"
+  if ! ext_ok "$EXT_DIR/vec0.$EXT_SUFFIX" || ! ext_ok "$EXT_DIR/lembed0.$EXT_SUFFIX" || ! ext_ok "$MODEL_PATH"; then
+    echo "[memory-recall] extension hash mismatch. Using keyword search."
+    ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+    LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
+    sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
+      "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
+       FROM memories WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
+         AND archived = FALSE
+       ORDER BY tier DESC, updated_at DESC LIMIT 20;"
+    exit 0
+  fi
   # Escape the query for SQL interpolation (see Step 3): '→''
   ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
   # lembed() takes a registered model NAME, not a file path. The registration is
@@ -168,23 +196,36 @@ elif [ "$EMBED_MODE" = "remote" ] && \
   # Env overrides DB; DB is the durable source when env is unset.
   EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")}"
   VEC_TABLE="vec_memories_${DIMS}"
+  case "${EMBED_MODEL:-}" in
+    ""|none|remote)
+      echo "[memory-recall] embedding model is a placeholder. Using keyword search."
+      ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+      LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
+      sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
+        "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
+         FROM memories WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
+           AND archived = FALSE
+         ORDER BY tier DESC, updated_at DESC LIMIT 20;"
+      exit 0
+      ;;
+  esac
 
-
-  # Build curl args — auth header via config file to avoid leaking in ps aux
-  CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
+  # Auth header via config file so the key is not on the curl argv.
+  CURL_ARGS=(-sS --fail --connect-timeout 5 --max-time 30 --proto '=https,http' "$EMBED_URL" -H "Content-Type: application/json")
   CURL_CONFIG=""
   if [ -n "$EMBED_KEY" ]; then
     CURL_CONFIG=$(mktemp "${TMPDIR:-/tmp}/curl-cfg.XXXXXX")
     printf 'header = "Authorization: Bearer %s"\n' "$EMBED_KEY" > "$CURL_CONFIG"
     chmod 600 "$CURL_CONFIG"
     CURL_ARGS+=(-K "$CURL_CONFIG")
+    trap 'rm -f -- "$CURL_CONFIG"' EXIT
   fi
 
-  BODY="{\"input\":[$(echo "$QUERY" | jq -Rs .)]}"
-  [ -n "$EMBED_MODEL" ] && BODY=$(echo "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
+  BODY="{\"input\":[$(printf '%s' "$QUERY" | jq -Rs .)]}"
+  BODY=$(printf '%s' "$BODY" | jq --arg m "$EMBED_MODEL" '. + {model: $m}')
   CURL_ARGS+=(-d "$BODY")
 
-  RESPONSE=$(curl "${CURL_ARGS[@]}")
+  RESPONSE=$(curl "${CURL_ARGS[@]}") || RESPONSE=""
   [ -n "$CURL_CONFIG" ] && rm -f "$CURL_CONFIG"
   QUERY_EMBEDDING=$(echo "$RESPONSE" | jq -c '.data[0].embedding // .embeddings[0] // .embedding')
 
@@ -195,6 +236,18 @@ elif [ "$EMBED_MODE" = "remote" ] && \
   if [ -z "$QUERY_EMBEDDING" ] || [ "$QUERY_EMBEDDING" = "null" ] || \
      printf '%s' "$QUERY_EMBEDDING" | grep -q '[^][0-9.,eE+ -]'; then
     echo "[memory-recall] Invalid/empty embedding from endpoint. Using keyword search."
+    ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
+    LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
+    sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
+      "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
+       FROM memories WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
+         AND archived = FALSE
+       ORDER BY tier DESC, updated_at DESC LIMIT 20;"
+    exit 0
+  fi
+
+  if ! ext_ok "$EXT_DIR/vec0.$EXT_SUFFIX"; then
+    echo "[memory-recall] extension hash mismatch. Using keyword search."
     ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
     LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
     sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \

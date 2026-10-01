@@ -46,6 +46,12 @@ fi
 if [ -f "$SCRIPT_DIR/embed-common.sh" ]; then
   # shellcheck source=embed-common.sh
   . "$SCRIPT_DIR/embed-common.sh"
+  if [ -f "$SCRIPT_DIR/ext-hash.sh" ]; then
+    # shellcheck source=ext-hash.sh
+    . "$SCRIPT_DIR/ext-hash.sh"
+  else
+    ext_verify() { return 0; }
+  fi
 else
   EMBED_LIB_OK=false
   echo "WARNING: embed-common.sh not found next to migrate-md.sh; embedding is skipped (the .md import still runs)." >&2
@@ -263,7 +269,8 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
     # that succeeds but prints a warning must still yield a clean vector. The file
     # is removed on every exit path; without it stderr is discarded.
     EMBED_ERR=$(mktemp "${TMPDIR:-/tmp}/migrate-md-embed.XXXXXX") || EMBED_ERR=""
-    trap '[ -z "${EMBED_ERR:-}" ] || rm -f "$EMBED_ERR"' EXIT
+    CURL_CONFIG=""
+    trap '[ -z "${EMBED_ERR:-}" ] || rm -f -- "$EMBED_ERR"; [ -z "${CURL_CONFIG:-}" ] || rm -f -- "$CURL_CONFIG"' EXIT
 
     # Read embedding URL/model once (not per-row)
     EMBED_URL=""
@@ -273,6 +280,28 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       EMBED_URL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
       # Env overrides DB; DB is durable source when env unset.
       [ -n "$EMBED_MODEL" ] || EMBED_MODEL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';" 2>/dev/null)
+    fi
+    if [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && ! ext_verify "$EXT_DIR/vec0.$EXT_SUFFIX"; then
+      echo "  WARN: vec0 hash mismatch — refusing to load" >&2
+      embed_log_error "$MEMDIR" migrate-md "vec0 hash mismatch — refusing to load"
+      EMBED_MODE="fallback"
+    fi
+    if [ "$EMBED_MODE" = "lembed" ]; then
+      if { [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && ! ext_verify "$EXT_DIR/lembed0.$EXT_SUFFIX"; } \
+        || { [ -f "$MODEL_DIR/all-MiniLM-L6-v2.gguf" ] && ! ext_verify "$MODEL_DIR/all-MiniLM-L6-v2.gguf"; }; then
+        echo "  WARN: lembed extension or model hash mismatch — refusing to load" >&2
+        embed_log_error "$MEMDIR" migrate-md "lembed hash mismatch — refusing to load"
+        EMBED_MODE="fallback"
+      fi
+    fi
+    if [ "$EMBED_MODE" = "remote" ]; then
+      case "${EMBED_MODEL:-}" in
+        ""|none|remote)
+          echo "  WARN: embedding model is unset or a placeholder — skipping remote embed" >&2
+          embed_log_error "$MEMDIR" migrate-md "embedding model is unset or a placeholder"
+          EMBED_MODE="fallback"
+          ;;
+      esac
     fi
     # Apply :-default before escaping (SPEC-004 / CDT-164). SQL-only — jq --arg keeps raw EMBED_MODEL.
     EMBED_MODEL_ESC=$(printf '%s' "${EMBED_MODEL:-all-MiniLM-L6-v2}" | sed "s/'/''/g")
@@ -287,7 +316,7 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       JSON_CONTENT=$(printf '%s' "$MEM_CONTENT" | jq -Rs .)
 
       if [ "$EMBED_MODE" = "remote" ] && [ -n "$EMBED_URL" ]; then
-        CURL_ARGS=(-s "$EMBED_URL" -H "Content-Type: application/json")
+        CURL_ARGS=(-sS --fail --connect-timeout 5 --max-time 30 --proto '=https,http' "$EMBED_URL" -H "Content-Type: application/json")
 
         # Pass auth header via config file to avoid leaking token in ps aux
         CURL_CONFIG=""
@@ -325,7 +354,7 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
         # with vec_to_json(): json() cannot hold a BLOB.
         REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_PATH") || REGISTER_SQL=""
         LEMBED_RC=0
-        EMBEDDING=$(sqlite3 -cmd ".timeout 5000" -bail "$MEMDB" ".load $EXT_DIR/vec0" ".load $EXT_DIR/lembed0" \
+        EMBEDDING=$(sqlite3 -cmd ".timeout 5000" -bail "$MEMDB" ".load \"$EXT_DIR/vec0\"" ".load \"$EXT_DIR/lembed0\"" \
           "$REGISTER_SQL" \
           "SELECT vec_to_json(lembed('$EMBED_LEMBED_NAME', '$ESCAPED_SQL'));" 2>"${EMBED_ERR:-/dev/null}") || LEMBED_RC=$?
         if [ "$LEMBED_RC" -ne 0 ]; then
@@ -356,7 +385,7 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       # Ensure vec table exists with correct schema
       # Drop and recreate if columns don't match (handles legacy tables)
       PROBE_RC=0
-      PROBE_OUT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" "PRAGMA table_info($VEC_TABLE);" 2>/dev/null) || PROBE_RC=$?
+      PROBE_OUT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load \"$EXT_DIR/vec0\"" "PRAGMA table_info($VEC_TABLE);" 2>/dev/null) || PROBE_RC=$?
       if [ "$PROBE_RC" -ne 0 ]; then
         echo "  WARN: table_info probe failed for $VEC_TABLE; not dropping it"
         embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: table_info probe failed; left $VEC_TABLE in place"
@@ -365,19 +394,19 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       HAS_MEMORY_ID=$(printf '%s\n' "$PROBE_OUT" | grep -c "memory_id" || true)
       if [ "$HAS_MEMORY_ID" = "0" ]; then
         VEC_SQL=$(vec_create_sql "$VEC_TABLE" "$DIMS" 0)
-        sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
+        sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load \"$EXT_DIR/vec0\"" \
           "DROP TABLE IF EXISTS $VEC_TABLE;" \
           "$VEC_SQL" 2>/dev/null
       else
         vec_repair_db "$MEMDB" "$EXT_DIR/vec0.$EXT_SUFFIX" || true
         VEC_SQL=$(vec_create_sql "$VEC_TABLE" "$DIMS" 1)
-        sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
+        sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load \"$EXT_DIR/vec0\"" \
           "$VEC_SQL" 2>/dev/null
       fi
 
       # Insert embedding
       INSERT_RC=0
-      INSERT_ERR=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
+      INSERT_ERR=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load \"$EXT_DIR/vec0\"" \
         "INSERT INTO ${VEC_TABLE}(memory_id, embedding) VALUES ($MEM_ID, '$EMBEDDING');" \
         "INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table) VALUES ($MEM_ID, '$EMBED_MODEL_ESC', $DIMS, '$VEC_TABLE');" \
         2>&1) || INSERT_RC=$?

@@ -14,6 +14,22 @@ MODEL_DIR="$MROOT/.claude/memory/models"
 
 mkdir -p "$EXT_DIR" "$MODEL_DIR"
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ext-hash.sh
+. "$SCRIPT_DIR/ext-hash.sh"
+
+# Memory and model downloads are https only. A partial file never lands on dest.
+curl_https() {
+  curl -fSL --connect-timeout 5 --max-time 120 \
+    --proto '=https' --proto-redir '=https' "$@"
+}
+
+# EXIT, not RETURN. A RETURN trap also fires when curl_https returns and
+# would delete the download directory before tar runs.
+DL_TMP=""
+DL_PARTIAL=""
+trap 'if [ -n "${DL_TMP:-}" ]; then rm -rf -- "$DL_TMP"; fi; if [ -n "${DL_PARTIAL:-}" ]; then rm -f -- "$DL_PARTIAL"; fi' EXIT
+
 # ---------------------------------------------------------------------------
 # Platform detection
 # ---------------------------------------------------------------------------
@@ -150,23 +166,29 @@ download_and_extract() {
 
   if [ -f "$dest_file" ]; then
     if verify_sha256 "$dest_file" "$expected_member" "$artifact_name (present file)"; then
+      ext_write_sidecar "$dest_file" "$expected_member" || true
       echo "  [skip] $artifact_name already present (verified): $dest_file"
       return 0
     fi
     echo "  Present $artifact_name failed verification — deleting and re-downloading." >&2
-    rm -f "$dest_file"
+    rm -f -- "$dest_file" "${dest_file}.sha256"
   fi
 
   echo "  Downloading $artifact_name from $url ..."
-  local tmpdir tarball
-  tmpdir=$(mktemp -d)
+  local dest_dir tmpdir tarball
+  dest_dir=$(dirname -- "$dest_file")
+  mkdir -p "$dest_dir"
+  # Temp dir sits next to dest so mv of the .so stays on one filesystem.
+  tmpdir=$(mktemp -d "$dest_dir/.dl.XXXXXX")
+  DL_TMP="$tmpdir"
   tarball="$tmpdir/archive.tar.gz"
   # Download to a file first so we can verify the tarball BEFORE extraction.
   # Native code is loaded from the result, so we never pipe straight into tar.
-  if curl -fSL -o "$tarball" "$url" 2>/dev/null; then
+  if curl_https -o "$tarball" "$url" 2>/dev/null; then
     if ! verify_sha256 "$tarball" "$expected_hash" "$artifact_name tarball"; then
       echo "Fallback mode (keyword search only) will be used until this is resolved." >&2
       rm -rf "$tmpdir"
+      DL_TMP=""
       return 1
     fi
     if tar -xz -C "$tmpdir" -f "$tarball" 2>/dev/null; then
@@ -177,9 +199,11 @@ download_and_extract() {
         if ! verify_sha256 "$extracted" "$expected_member" "$artifact_name extracted member"; then
           echo "Fallback mode (keyword search only) will be used until this is resolved." >&2
           rm -rf "$tmpdir"
+          DL_TMP=""
           return 1
         fi
         mv "$extracted" "$dest_file"
+        ext_write_sidecar "$dest_file" "$expected_member" || true
         echo "  [ok]   $artifact_name -> $dest_file"
       else
         echo "ERROR: Failed to extract $artifact_name from $url" >&2
@@ -191,12 +215,14 @@ download_and_extract() {
         echo "  3. Place it at $dest_file" >&2
         echo "  4. Re-run /setup team" >&2
         rm -rf "$tmpdir"
+        DL_TMP=""
         return 1
       fi
     else
       echo "ERROR: Failed to extract $artifact_name from $url" >&2
       echo "Fallback mode (keyword search only) will be used until this is resolved." >&2
       rm -rf "$tmpdir"
+      DL_TMP=""
       return 1
     fi
   else
@@ -212,9 +238,11 @@ download_and_extract() {
     echo "  3. Place it at $dest_file" >&2
     echo "  4. Re-run /setup team" >&2
     rm -rf "$tmpdir"
+    DL_TMP=""
     return 1
   fi
   rm -rf "$tmpdir"
+  DL_TMP=""
   return 0
 }
 
@@ -229,24 +257,35 @@ download_file() {
 
   if [ -f "$dest_file" ]; then
     if verify_sha256 "$dest_file" "$expected_hash" "$artifact_name (present file)"; then
+      ext_write_sidecar "$dest_file" "$expected_hash" || true
       echo "  [skip] $artifact_name already present (verified): $dest_file"
       return 0
     fi
     echo "  Present $artifact_name failed verification — deleting and re-downloading." >&2
-    rm -f "$dest_file"
+    rm -f -- "$dest_file" "${dest_file}.sha256"
   fi
 
   echo "  Downloading $artifact_name from $url ..."
-  if curl -fSL -o "$dest_file" "$url" 2>/dev/null; then
-    if ! verify_sha256 "$dest_file" "$expected_hash" "$artifact_name"; then
-      rm -f "$dest_file"  # never leave an unverified artifact on disk
+  local dest_dir partial
+  dest_dir=$(dirname -- "$dest_file")
+  mkdir -p "$dest_dir"
+  partial=$(mktemp "$dest_dir/.partial.XXXXXX")
+  DL_PARTIAL="$partial"
+  if curl_https -o "$partial" "$url" 2>/dev/null; then
+    if ! verify_sha256 "$partial" "$expected_hash" "$artifact_name"; then
+      rm -f -- "$partial"
+      DL_PARTIAL=""
       echo "Fallback mode (keyword search only) will be used until this is resolved." >&2
       return 1
     fi
+    mv -f "$partial" "$dest_file"
+    DL_PARTIAL=""
+    ext_write_sidecar "$dest_file" "$expected_hash" || true
     echo "  [ok]   $artifact_name -> $dest_file"
     return 0
   else
-    rm -f "$dest_file"  # remove partial download
+    rm -f -- "$partial" "$dest_file"
+    DL_PARTIAL=""
     echo "" >&2
     echo "ERROR: Failed to download $artifact_name from $url" >&2
     echo "Fallback mode (keyword search only) will be used until this is resolved." >&2
@@ -328,7 +367,7 @@ if [ -n "${EMBEDDING_URL:-}" ]; then
     EMBEDDING_URL_ESC=$(printf '%s' "$EMBEDDING_URL" | sed "s/'/''/g")
     sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT OR REPLACE INTO config(key, value, updated_at) VALUES ('embedding_url', '$EMBEDDING_URL_ESC', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
   fi
-elif [ -f "$EXT_DIR/lembed0.$EXT" ] && [ -f "$MODEL_DIR/all-MiniLM-L6-v2.gguf" ]; then
+elif [ -f "$EXT_DIR/vec0.$EXT" ] && [ -f "$EXT_DIR/lembed0.$EXT" ] && [ -f "$MODEL_DIR/all-MiniLM-L6-v2.gguf" ]; then
   MODE="lembed"
   MODEL="all-MiniLM-L6-v2"
   DIMS=384

@@ -55,6 +55,10 @@ fi
 USE_DB=false
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
+  # Lookup index only. Does not bump schema_version (LATEST stays 4).
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" \
+    "CREATE INDEX IF NOT EXISTS idx_memories_agent_seed_hash ON memories(agent, json_extract(metadata_json, '$.seed.hash'));" \
+    >/dev/null 2>&1 || true
 fi
 
 IMPORTED=0
@@ -204,11 +208,8 @@ insert_fallback() {
   local add_lines
   add_lines=$(printf '%s\n' "$content" | wc -l | tr -d ' ')
   if [ $((existing + add_lines)) -gt "$limit" ]; then
-    # try to fit a truncated single-line summary
-    if [ "$existing" -ge "$limit" ]; then
-      warn "fallback line cap for $agent/lessons.md — omitted seed entry"
-      return 2
-    fi
+    warn "fallback line cap for $agent/lessons.md — omitted seed entry"
+    return 2
   fi
   {
     [ -f "$target" ] && [ -s "$target" ] && [ -n "$(tail -c1 "$target" 2>/dev/null)" ] && printf '\n'
@@ -219,18 +220,18 @@ insert_fallback() {
 
 dedupe_lookup() {
   # prints: none | live | archived
-  local hash="$1"
+  # Scoped to one roster agent. The same hash on another agent is not a duplicate.
+  local hash="$1" agent="${2-}"
+  seed_is_valid_agent "$agent" || { echo "none"; return 0; }
   if [ "$USE_DB" != true ]; then
-    # fallback: grep trailers in agent *.md only — never seed/ pack (would always match)
-    local hit=0 a f
-    for a in $(seed_agents); do
-      for f in cortex.md memory.md lessons.md; do
-        if [ -f "$MROOT/.claude/memory/$a/$f" ] && \
-           grep -qF "hash=${hash}]" "$MROOT/.claude/memory/$a/$f" 2>/dev/null; then
-          hit=1
-          break 2
-        fi
-      done
+    # fallback: grep trailers in this agent's *.md only — never seed/ pack
+    local hit=0 f
+    for f in cortex.md memory.md lessons.md; do
+      if [ -f "$MROOT/.claude/memory/$agent/$f" ] && \
+         grep -qF "hash=${hash}]" "$MROOT/.claude/memory/$agent/$f" 2>/dev/null; then
+        hit=1
+        break
+      fi
     done
     if [ "$hit" -eq 1 ]; then
       echo "live"
@@ -239,11 +240,17 @@ dedupe_lookup() {
     fi
     return 0
   fi
-  local row
+  local row agent_sql hash_sql
+  agent_sql=$(printf '%s' "$agent" | sed "s/'/''/g")
+  hash_sql=$(printf '%s' "$hash" | sed "s/'/''/g")
   # Avoid PRAGMA in the SELECT session (it prints a result row and poisons empty matches).
   row=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
     "SELECT id || '|' || archived FROM memories
-     WHERE content LIKE '%hash=${hash}]%'
+     WHERE agent='$agent_sql'
+       AND (
+         json_extract(metadata_json, '$.seed.hash') = '$hash_sql'
+         OR content LIKE '%hash=${hash_sql}]%'
+       )
      LIMIT 1;" 2>/dev/null || true)
   if [ -z "$row" ]; then
     echo "none"
@@ -357,6 +364,7 @@ print(lines[-1] if lines else "")
     fi
 
     body_no_trailer=$(seed_strip_trailer "$raw")
+    body_no_trailer=$(seed_unescape_separators "$body_no_trailer")
     body_no_trailer=$(seed_normalize_content "$body_no_trailer")
 
     # Verify content hash
@@ -386,11 +394,11 @@ print(lines[-1] if lines else "")
         warn "FLAG: injection-pattern in $fname"
         ;;
     esac
-    store_content=$(printf '[imported — untrusted]\n%s\n%s\n' "$body_no_trailer" "$trailer_line")
+    store_content=$(printf '[imported — untrusted]\n%s\n%s\n' "$sanitized" "$trailer_line")
 
-    # Dedupe
+    # Dedupe is per agent. $agent equals SEED_AGENT (M13) and is roster-checked.
     local status
-    status=$(dedupe_lookup "$SEED_HASH")
+    status=$(dedupe_lookup "$SEED_HASH" "$agent")
     case "$status" in
       live)
         SKIPPED_DUP=$((SKIPPED_DUP + 1))

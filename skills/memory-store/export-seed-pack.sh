@@ -62,7 +62,9 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
 fi
 
-PROJECT_NAME=$(basename "$MROOT")
+# Trailer project= is one token. A directory name with a space must become a slug.
+# printf drops the newline basename writes, so tr does not turn that newline into a dash.
+PROJECT_NAME=$(printf '%s' "$(basename "$MROOT")" | tr -c 'A-Za-z0-9._-' '-')
 EXPORT_DATE=$(date -u +%Y-%m-%d)
 
 AGENTS=$(seed_agents)
@@ -115,6 +117,8 @@ include_entry() {
   fi
 
   hash=$(seed_content_hash "$sanitized")
+  # Hash the unescaped body. Escape --- so import does not split the entry.
+  sanitized=$(seed_escape_separators "$sanitized")
   trailer=$(seed_trailer "$PROJECT_NAME" "$EXPORT_DATE" "$source_tier" "$agent" "$hash")
   # Always put trailer on its own line after content
   body=$(printf '%s\n%s\n' "$sanitized" "$trailer")
@@ -133,6 +137,7 @@ export_sqlite() {
   local agent="$1"
   local total_for_agent jsonl
 
+  # Count already uses .timeout 5000 (W2-18). Do not add a second timeout.
   total_for_agent=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
     "SELECT COUNT(*) FROM memories WHERE tier=2 AND (archived=0 OR archived=FALSE) AND agent='$(printf '%s' "$agent" | sed "s/'/''/g")';")
   if [ "${total_for_agent:-0}" -gt "$LIMIT" ]; then
@@ -245,12 +250,39 @@ for agent in $AGENTS; do
   FILE_COUNTS[$agent]=${#entries[@]}
 done
 
+# Drop one manifest key. Used when --agent has nothing left to write.
+drop_manifest_key() {
+  local key="$1"
+  [ -f "$SEED_DIR/manifest.json" ] || return 0
+  DROP_KEY="$key" EXISTING="$SEED_DIR/manifest.json" python3 -c '
+import json, os
+path = os.environ["EXISTING"]
+with open(path, encoding="utf-8") as fh:
+    old = json.load(fh)
+if not isinstance(old, dict):
+    old = {}
+files = old.get("files") if isinstance(old.get("files"), dict) else {}
+files.pop(os.environ.get("DROP_KEY", ""), None)
+old["files"] = files
+old["format_version"] = 1
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(old, fh, sort_keys=True, indent=2)
+    fh.write("\n")
+'
+}
+
 if [ "$TOTAL_INCLUDED" -eq 0 ]; then
   echo "nothing to export"
   if [ -d "$SEED_DIR" ] && [ "$DRY_RUN" -eq 0 ]; then
-    rm -f "$SEED_DIR"/*.md "$SEED_DIR/manifest.json" 2>/dev/null || true
-    rmdir "$SEED_DIR" 2>/dev/null || true
-    echo "pruned prior pack (no exportable sources)"
+    if [ -n "$AGENT_FILTER" ]; then
+      rm -f "$SEED_DIR/$AGENT_FILTER.md"
+      drop_manifest_key "${AGENT_FILTER}.md"
+      echo "pruned agent $AGENT_FILTER from pack"
+    else
+      rm -f "$SEED_DIR"/*.md "$SEED_DIR/manifest.json" 2>/dev/null || true
+      rmdir "$SEED_DIR" 2>/dev/null || true
+      echo "pruned prior pack (no exportable sources)"
+    fi
   fi
   if [ "$DRY_RUN" -eq 0 ]; then
     ensure_seed_gitignore "$MROOT" || true
@@ -298,20 +330,56 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 mkdir -p "$SEED_DIR"
-for old in "$SEED_DIR"/*.md; do
-  [ -f "$old" ] || continue
-  base=$(basename "$old")
-  agent="${base%.md}"
-  if [ -z "${FILE_COUNTS[$agent]:-}" ]; then
-    rm -f "$old"
+# A partial --agent export rewrites only that agent. A full export still
+# removes pack files for agents that produced nothing this run.
+if [ -n "$AGENT_FILTER" ]; then
+  if [ -z "${FILE_COUNTS[$AGENT_FILTER]:-}" ]; then
+    rm -f "$SEED_DIR/$AGENT_FILTER.md"
   fi
-done
+else
+  for old in "$SEED_DIR"/*.md; do
+    [ -f "$old" ] || continue
+    base=$(basename "$old")
+    agent="${base%.md}"
+    if [ -z "${FILE_COUNTS[$agent]:-}" ]; then
+      rm -f "$old"
+    fi
+  done
+fi
 
 for agent in $AGENTS; do
   [ -f "$OUT/$agent.md" ] || continue
   cp "$OUT/$agent.md" "$SEED_DIR/$agent.md"
 done
-printf '%s' "$MANIFEST_JSON" > "$SEED_DIR/manifest.json"
+
+if [ -n "$AGENT_FILTER" ] && [ -f "$SEED_DIR/manifest.json" ]; then
+  printf '%s' "$MANIFEST_JSON" | EXISTING="$SEED_DIR/manifest.json" python3 -c '
+import json, os, sys
+new = json.loads(sys.stdin.read() or "{}")
+path = os.environ["EXISTING"]
+try:
+    with open(path, encoding="utf-8") as fh:
+        old = json.load(fh)
+except Exception:
+    old = {}
+if not isinstance(old, dict):
+    old = {}
+files = old.get("files") if isinstance(old.get("files"), dict) else {}
+for key, meta in (new.get("files") or {}).items():
+    files[key] = meta
+old["files"] = files
+old["format_version"] = 1
+if new.get("project"):
+    old["project"] = new["project"]
+if new.get("export_date"):
+    old["export_date"] = new["export_date"]
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(old, fh, sort_keys=True, indent=2)
+    fh.write("\n")
+'
+else
+  printf '%s' "$MANIFEST_JSON" > "$SEED_DIR/manifest.json"
+fi
 
 ensure_seed_gitignore "$MROOT" || true
 

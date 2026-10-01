@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.3
+- **WP 3-08 Seed packs** — `--agent` merges one pack file, a `---` body line round-trips, import enforces the fallback cap and dedupes per agent, and a mismatched extension hash is refused.
+
 ### v1.19.2
 - **WP 3-07 memdb CLI** — session load keeps unarchived tier-0 beside digests, migrate-v2 is one transaction with a backup, and vec0 tables use cosine distance.
 

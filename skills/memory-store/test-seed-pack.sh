@@ -988,6 +988,159 @@ else
 fi
 rm -rf "$FIX"
 
+# ---------- WP 3-08: separators, partial export, cap, sanitizer, dedupe ----------
+echo "-- WP 3-08 seed pack extensions"
+if bash -c 'unset NOT_SET; . "$1"; printf "%s" "$NOT_SET"' _ "$COMMON"; then
+  PASS=$((PASS + 1)); echo "  ok  sourced seed-common does not leak nounset"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL sourced seed-common leaks nounset"
+fi
+
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-wp308.XXXXXX")
+make_fixture "$FIX"
+SAN_GH=$(seed_sanitize_entry "See next.config.js and https://github.com/foo/bar/baz for notes." "$FIX" 2>"$FIX/san.err") && SAN_GH_RC=0 || SAN_GH_RC=$?
+if [ "$SAN_GH_RC" -eq 0 ] && printf '%s' "$SAN_GH" | grep -qF 'next.config.js' && printf '%s' "$SAN_GH" | grep -qF 'https://github.com/foo/bar/baz'; then
+  PASS=$((PASS + 1)); echo "  ok  sanitizer allows a dotted filename and a github URL"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL sanitizer github/filename rc=$SAN_GH_RC err=$(cat "$FIX/san.err") out=$SAN_GH"
+fi
+TOKEN=$(printf 'A%.0s' {1..44})
+if seed_sanitize_entry "token $TOKEN" "$FIX" >/dev/null 2>"$FIX/ent.err"; then
+  FAIL=$((FAIL + 1)); echo "  FAIL high-entropy token was accepted"
+else
+  if grep -qF 'high-entropy token' "$FIX/ent.err"; then
+    PASS=$((PASS + 1)); echo "  ok  sanitizer rejects a high-entropy token"
+  else
+    FAIL=$((FAIL + 1)); echo "  FAIL high-entropy reason: $(cat "$FIX/ent.err")"
+  fi
+fi
+
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "$(printf '%s\n' 'line one' '---' 'line two' '\kept')"
+insert_tier2 "$FIX/.claude/memory/memory.db" "ic5" "ic5 core fact stays when pm is re-exported."
+bash "$EXPORT" "$FIX" >/dev/null
+if grep -qxF '\---' "$FIX/.claude/memory/seed/pm.md"; then
+  PASS=$((PASS + 1)); echo "  ok  export escapes a --- body line"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL --- body line was not escaped"
+fi
+IC5_BEFORE=$(cat "$FIX/.claude/memory/seed/ic5.md")
+IC5_HASH=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["files"]["ic5.md"]["content_hash"])' "$FIX/.claude/memory/seed/manifest.json")
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+IC5_AFTER=$(cat "$FIX/.claude/memory/seed/ic5.md")
+IC5_HASH2=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["files"]["ic5.md"]["content_hash"])' "$FIX/.claude/memory/seed/manifest.json")
+if [ "$IC5_BEFORE" = "$IC5_AFTER" ] && [ "$IC5_HASH" = "$IC5_HASH2" ]; then
+  PASS=$((PASS + 1)); echo "  ok  --agent pm leaves ic5.md and its manifest entry"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL partial export changed ic5"
+fi
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" --confirm "$FIX" 2>"$FIX/imp.err")
+set -e
+PM_BODY=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT content FROM memories WHERE agent='pm' LIMIT 1;")
+if printf '%s' "$PM_BODY" | grep -qxF -- '---' && printf '%s' "$PM_BODY" | grep -qxF -- '\kept'; then
+  PASS=$((PASS + 1)); echo "  ok  import restores an escaped --- line"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL restored body: [$PM_BODY] err=$(cat "$FIX/imp.err") out=$OUT"
+fi
+
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories WHERE agent='pm';"
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+if [ -f "$FIX/.claude/memory/seed/ic5.md" ] && [ ! -f "$FIX/.claude/memory/seed/pm.md" ]; then
+  PASS=$((PASS + 1)); echo "  ok  empty --agent pm removes only pm.md"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL empty partial prune ic5=$([ -f "$FIX/.claude/memory/seed/ic5.md" ] && echo yes || echo no) pm=$([ -f "$FIX/.claude/memory/seed/pm.md" ] && echo yes || echo no)"
+fi
+if python3 -c 'import json,sys; f=json.load(open(sys.argv[1]))["files"]; assert "ic5.md" in f and "pm.md" not in f' "$FIX/.claude/memory/seed/manifest.json"; then
+  PASS=$((PASS + 1)); echo "  ok  empty --agent pm drops only the pm manifest key"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL manifest after empty partial: $(cat "$FIX/.claude/memory/seed/manifest.json")"
+fi
+rm -rf "$FIX"
+
+PARENT=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-space.XXXXXX")
+FIX="$PARENT/my project"
+mkdir -p "$FIX"
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "A project directory may contain a space."
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+if grep -qF 'project=my-project date=' "$FIX/.claude/memory/seed/pm.md"; then
+  PASS=$((PASS + 1)); echo "  ok  project name with a space is slugified"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL trailer: $(tail -n 1 "$FIX/.claude/memory/seed/pm.md")"
+fi
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" --confirm "$FIX" 2>"$FIX/space.err")
+RC=$?
+set -e
+CNT=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='pm';")
+if [ "$RC" -eq 0 ] && [ "$CNT" = "1" ]; then
+  PASS=$((PASS + 1)); echo "  ok  slugified project name round-trips"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL space round-trip rc=$RC cnt=$CNT err=$(cat "$FIX/space.err") out=$OUT"
+fi
+rm -rf "$PARENT"
+
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-cap.XXXXXX")
+mkdir -p "$FIX/.claude/memory/pm"
+git -C "$FIX" init -q
+printf '%s\n' ".claude/memory/*" "!.claude/memory/seed/" "!.claude/memory/seed/**" > "$FIX/.gitignore"
+printf '%s\n' "Cap lesson one." > "$FIX/.claude/memory/pm/lessons.md"
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+awk 'BEGIN{for(i=1;i<=79;i++) print "existing line " i}' > "$FIX/.claude/memory/pm/lessons.md"
+set +e
+OUT=$(bash "$IMPORT" --confirm "$FIX" 2>"$FIX/cap.err")
+set -e
+LINES=$(wc -l < "$FIX/.claude/memory/pm/lessons.md" | tr -d ' ')
+if [ "$LINES" = "79" ] && grep -qF 'omitted seed entry' "$FIX/cap.err"; then
+  PASS=$((PASS + 1)); echo "  ok  fallback cap omits an entry that would pass 80"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL cap lines=$LINES err=$(cat "$FIX/cap.err") out=$OUT"
+fi
+rm -rf "$FIX"
+
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-dedupe.XXXXXX")
+make_fixture "$FIX"
+insert_tier2 "$FIX/.claude/memory/memory.db" "pm" "Dedupe is per agent, not global."
+bash "$EXPORT" --agent pm "$FIX" >/dev/null
+HASH=$(sed -n 's/.*hash=\([a-f0-9]\{12\}\)].*/\1/p' "$FIX/.claude/memory/seed/pm.md" | head -1)
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+sqlite3 "$FIX/.claude/memory/memory.db" "INSERT INTO memories(agent, type, content, tier, metadata_json) VALUES ('ic5', 'core', 'other agent hash=${HASH}]', 2, json_object('seed', json_object('hash', '${HASH}')));"
+set +e
+OUT=$(bash "$IMPORT" --confirm "$FIX" 2>"$FIX/dedupe.err")
+set -e
+CNT_PM=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='pm';")
+CNT_IC5=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE agent='ic5';")
+if [ "$CNT_PM" = "1" ] && [ "$CNT_IC5" = "1" ]; then
+  PASS=$((PASS + 1)); echo "  ok  dedupe does not skip a different agent"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL dedupe pm=$CNT_PM ic5=$CNT_IC5 out=$OUT err=$(cat "$FIX/dedupe.err")"
+fi
+
+BODY="$FIX/skills/memory-store/schema.sql is the schema"
+NORM=$(seed_content_hash "$BODY")
+TRAILER=$(seed_trailer "proj" "2026-10-01" 2 pm "$NORM")
+printf '%s\n%s\n' "$BODY" "$TRAILER" > "$FIX/.claude/memory/seed/pm.md"
+FILE_HASH=$(seed_file_sha256 "$FIX/.claude/memory/seed/pm.md")
+python3 - "$FIX/.claude/memory/seed/manifest.json" "$FILE_HASH" <<'PY'
+import json, sys
+path, h = sys.argv[1], sys.argv[2]
+m = {"format_version": 1, "project": "proj", "export_date": "2026-10-01", "files": {"pm.md": {"count": 1, "content_hash": h}}}
+open(path, "w").write(json.dumps(m, sort_keys=True, indent=2) + "\n")
+PY
+sqlite3 "$FIX/.claude/memory/memory.db" "DELETE FROM memories;"
+set +e
+OUT=$(bash "$IMPORT" --confirm "$FIX" 2>"$FIX/sanstore.err")
+set -e
+STORED=$(sqlite3 "$FIX/.claude/memory/memory.db" "SELECT content FROM memories WHERE agent='pm' LIMIT 1;")
+if printf '%s' "$STORED" | grep -qF 'skills/memory-store/schema.sql' && ! printf '%s' "$STORED" | grep -qF "$FIX"; then
+  PASS=$((PASS + 1)); echo "  ok  import stores the sanitized body"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL stored sanitized: [$STORED] err=$(cat "$FIX/sanstore.err")"
+fi
+rm -rf "$FIX"
+
 echo ""
 echo "=== results: pass=$PASS fail=$FAIL ==="
 if [ "$FAIL" -gt 0 ]; then
