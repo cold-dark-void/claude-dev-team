@@ -192,6 +192,7 @@ def try_embed(con, rows, memdb):
             neighbors = []
             for oid, oagent, dist in con.execute(knn, (row["id"], row["agent"], row["id"])):
                 try:
+                    # vec0 tables use distance_metric=cosine, so this is cosine similarity.
                     sim = 1.0 - float(dist)
                 except (TypeError, ValueError):
                     continue

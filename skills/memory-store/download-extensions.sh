@@ -374,10 +374,16 @@ fi
 # Create virtual tables if vec0 loads and the DB exists
 if [ -n "$VEC_VER" ] && [ -f "$MEMDB" ]; then
   VEC_LIB="$EXT_DIR/vec0"
+  _VEC_COSINE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vec-cosine.sh
+  # shellcheck disable=SC1090
+  . "$_VEC_COSINE"
+  SQL384=$(vec_create_sql vec_memories_384 384 1)
+  SQL768=$(vec_create_sql vec_memories_768 768 1)
   sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load \"$VEC_LIB\"" \
-    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_384 USING vec0(memory_id INTEGER, embedding FLOAT[384]);" \
-    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_768 USING vec0(memory_id INTEGER, embedding FLOAT[768]);" \
+    "$SQL384" \
+    "$SQL768" \
     2>/dev/null || echo "WARNING: Failed to create vec virtual tables in $MEMDB"
+  bash "$_VEC_COSINE" repair "$MEMDB" "$EXT_DIR/vec0.$EXT" || echo "WARNING: vec cosine repair failed for $MEMDB"
 fi
 
 # ---------------------------------------------------------------------------

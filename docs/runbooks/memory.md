@@ -80,7 +80,7 @@ important patterns to permanent core knowledge.
 ```
 
 Uses the best available method automatically:
-- **Semantic search** (if vector extensions loaded) — embeds query, finds closest matches by cosine similarity
+- **Semantic search** (if vector extensions loaded) — embeds query, finds closest matches by cosine distance (`distance_metric=cosine` on `vec_memories_*`)
 - **Keyword search** (if DB exists but no embeddings) — SQL LIKE matching
 - **Grep fallback** (no DB) — searches `.md` files
 

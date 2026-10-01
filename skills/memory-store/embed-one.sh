@@ -30,6 +30,10 @@
 
 set -u
 
+_VEC_COSINE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vec-cosine.sh
+# shellcheck disable=SC1090
+. "$_VEC_COSINE"
+
 MEMDB="${1:-}"
 MEMORY_ID="${2:-}"
 CONTENT="${3:-}"
@@ -81,6 +85,8 @@ if [ "$EMBED_MODE" = "lembed" ]; then
     exit 0
   fi
   CONTENT_ESC=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
+  vec_repair_db "$MEMDB" "$EXT_DIR/vec0.$EXT_SUFFIX" || true
+  VEC_SQL=$(vec_create_sql vec_memories_384 384 1) || { embed_fail "cannot build the vec0 cosine create."; exit 0; }
   REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_PATH") || { embed_fail "cannot build the lembed model registration."; exit 0; }
   # -bail: stop at the first failing statement, so a failed registration never
   # lets the vector INSERT run. temp.lembed_models is per connection, so the
@@ -89,6 +95,7 @@ if [ "$EMBED_MODE" = "lembed" ]; then
     cat <<EOSQL
 .load $EXT_DIR/vec0
 .load $EXT_DIR/lembed0
+$VEC_SQL
 $REGISTER_SQL
 INSERT INTO vec_memories_384(memory_id, embedding)
   VALUES ($MEMORY_ID, lembed('$EMBED_LEMBED_NAME', '$CONTENT_ESC'));
@@ -166,9 +173,12 @@ elif [ "$EMBED_MODE" = "remote" ]; then
     exit 0
   fi
 
-  # Ensure vec table exists for this dimension.
-  sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
-    "CREATE VIRTUAL TABLE IF NOT EXISTS ${VEC_TABLE} USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);" 2>/dev/null || true
+  # Ensure vec table exists for this dimension, using cosine distance.
+  vec_repair_db "$MEMDB" "$EXT_DIR/vec0.$EXT_SUFFIX" || true
+  VEC_SQL=$(vec_create_sql "$VEC_TABLE" "$DIMS" 1) || true
+  if [ -n "${VEC_SQL:-}" ]; then
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" "$VEC_SQL" 2>/dev/null || true
+  fi
 
   # Insert embedding. sqlite3 aborts the remainder of a multi-statement batch on a
   # parse error, so a failure here may be partial (e.g. the vec row already committed).

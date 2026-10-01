@@ -730,34 +730,21 @@ fi
 echo "Embed errors: $EMBED_ERRORS"
 
 # Boot load estimate (what agents actually load at session start).
-# Mirrors the tiered read (SPEC-006 Step 2): tier-1 + tier-2 active content when an
-# agent has any distilled rows, else tier-0 active content. Archived rows never load.
+# Mirrors memdb.sh load-session: every non-archived row, all tiers.
+# tier0_rows is the unarchived tier-0 tail loaded beside any digest (CDT-336).
 sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" "
-WITH active AS (
-  SELECT agent, tier, LENGTH(content) AS len FROM memories WHERE archived = FALSE
-),
-distilled AS (
-  SELECT DISTINCT agent FROM active WHERE tier >= 1
-)
 SELECT
-  a.agent,
-  SUM(CASE
-        WHEN a.agent IN (SELECT agent FROM distilled) THEN CASE WHEN a.tier >= 1 THEN a.len ELSE 0 END
-        ELSE CASE WHEN a.tier = 0 THEN a.len ELSE 0 END
-      END) AS boot_load_chars,
+  agent,
+  SUM(LENGTH(content)) AS boot_load_chars,
+  SUM(CASE WHEN tier = 0 THEN 1 ELSE 0 END) AS tier0_rows,
   CASE
-    WHEN SUM(CASE
-        WHEN a.agent IN (SELECT agent FROM distilled) THEN CASE WHEN a.tier >= 1 THEN a.len ELSE 0 END
-        ELSE CASE WHEN a.tier = 0 THEN a.len ELSE 0 END
-      END) > 10000 THEN '⚠ HIGH'
-    WHEN SUM(CASE
-        WHEN a.agent IN (SELECT agent FROM distilled) THEN CASE WHEN a.tier >= 1 THEN a.len ELSE 0 END
-        ELSE CASE WHEN a.tier = 0 THEN a.len ELSE 0 END
-      END) > 5000 THEN 'moderate'
+    WHEN SUM(LENGTH(content)) > 10000 THEN '⚠ HIGH'
+    WHEN SUM(LENGTH(content)) > 5000 THEN 'moderate'
     ELSE 'ok'
   END AS status
-FROM active a
-GROUP BY a.agent
+FROM memories
+WHERE archived = FALSE
+GROUP BY agent
 ORDER BY boot_load_chars DESC;
 "
 ```

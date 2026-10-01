@@ -301,6 +301,85 @@ else
 fi
 rm -rf "$T5" "$T5B" "$T5C" "$T5D"
 
+# ---------- T6: backup, sequence, crash rollback, locked read ----------
+echo "-- T6 atomic migrate-v2"
+T6=$(mktemp -d "${TMPDIR:-/tmp}/migrate-test-t6.XXXXXX")
+make_mroot "$T6"
+DB6="$T6/.claude/memory/memory.db"
+sqlite3 "$DB6" <"$V1_SQL" >/dev/null
+sqlite3 "$DB6" "UPDATE sqlite_sequence SET seq=100 WHERE name='memories';"
+set +e
+bash "$MIGRATE" "$T6" >"$T6/out.txt" 2>"$T6/err.txt"
+T6_RC=$?
+set -e
+assert_eq "T6 migrate rc" "$T6_RC" "0"
+assert_file "T6 backup memory.db.bak-v1" "$T6/.claude/memory/memory.db.bak-v1"
+SEQ6=$(sqlite3 "$DB6" "SELECT seq FROM sqlite_sequence WHERE name='memories';")
+assert_eq "T6 sqlite_sequence preserved" "$SEQ6" "100"
+NEXT6=$(sqlite3 "$DB6" "INSERT INTO memories(agent, type, content) VALUES ('ic4','memory','after-seq'); SELECT last_insert_rowid();")
+assert_eq "T6 next id is 101" "$NEXT6" "101"
+# version bump and distillation_log are inside the same transaction as the rebuild
+V2SH="$SCRIPT_DIR/migrate-v2.sh"
+V2BODY=$(cat "$V2SH")
+assert_contains "T6 v2 BEGIN IMMEDIATE" "$V2BODY" "BEGIN IMMEDIATE;"
+# The schema_version write must sit before COMMIT, not after it.
+V2_BEFORE=${V2BODY%%COMMIT*}
+assert_contains "T6 version bump before COMMIT" "$V2_BEFORE" "UPDATE config SET value='2'"
+assert_contains "T6 distillation_log before COMMIT" "$V2_BEFORE" "CREATE TABLE IF NOT EXISTS distillation_log"
+assert_contains "T6 v3 BEGIN IMMEDIATE" "$(cat "$SCRIPT_DIR/migrate-v3.sh")" "BEGIN IMMEDIATE;"
+assert_contains "T6 v4 BEGIN IMMEDIATE" "$(cat "$SCRIPT_DIR/migrate-v4.sh")" "BEGIN IMMEDIATE;"
+rm -rf "$T6"
+
+echo "-- T6b crash during version bump rolls back"
+T6B=$(mktemp -d "${TMPDIR:-/tmp}/migrate-test-t6b.XXXXXX")
+make_mroot "$T6B"
+DB6B="$T6B/.claude/memory/memory.db"
+sqlite3 "$DB6B" <"$V1_SQL" >/dev/null
+sqlite3 "$DB6B" "CREATE TRIGGER crash_v2 BEFORE UPDATE ON config WHEN NEW.key='schema_version' AND NEW.value='2' BEGIN SELECT RAISE(ABORT, 'injected crash'); END;"
+set +e
+bash "$SCRIPT_DIR/migrate-v2.sh" "$T6B" >"$T6B/out.txt" 2>"$T6B/err.txt"
+T6B_RC=$?
+set -e
+if [ "$T6B_RC" -ne 0 ]; then
+  PASS=$((PASS + 1)); echo "  ok  T6b crash exits non-zero (rc=$T6B_RC)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T6b crash exited 0"
+fi
+VER6B=$(sqlite3 "$DB6B" "SELECT value FROM config WHERE key='schema_version';")
+TIERCOL=$(sqlite3 "$DB6B" "SELECT COUNT(*) FROM pragma_table_info('memories') WHERE name='tier';")
+LOG6B=$(sqlite3 "$DB6B" "SELECT COUNT(*) FROM sqlite_master WHERE name='distillation_log';")
+assert_eq "T6b version stays 1" "$VER6B" "1"
+assert_eq "T6b no tier column (not half-migrated)" "$TIERCOL" "0"
+assert_eq "T6b no distillation_log" "$LOG6B" "0"
+rm -rf "$T6B"
+
+echo "-- T6c locked DB makes migrate exit non-zero"
+T6C=$(mktemp -d "${TMPDIR:-/tmp}/migrate-test-t6c.XXXXXX")
+make_mroot "$T6C"
+DB6C="$T6C/.claude/memory/memory.db"
+sqlite3 "$DB6C" <"$V1_SQL" >/dev/null
+FIFO6="$T6C/lock.fifo"
+mkfifo "$FIFO6"
+sqlite3 "$DB6C" <"$FIFO6" &
+LOCKPID=$!
+exec 9>"$FIFO6"
+printf '%s\n' "BEGIN EXCLUSIVE;" >&9
+sleep 0.3
+set +e
+bash "$MIGRATE" "$T6C" >"$T6C/out.txt" 2>"$T6C/err.txt"
+T6C_RC=$?
+set -e
+printf '%s\n' "COMMIT;" >&9
+exec 9>&-
+wait "$LOCKPID" 2>/dev/null || true
+rm -f "$FIFO6"
+if [ "$T6C_RC" -ne 0 ]; then
+  PASS=$((PASS + 1)); echo "  ok  T6c locked migrate rc=$T6C_RC"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T6c locked migrate exited 0: $(cat "$T6C/err.txt" "$T6C/out.txt")"
+fi
+rm -rf "$T6C"
+
 # ---------- summary ----------
 echo "=== results: PASS=$PASS FAIL=$FAIL ==="
 if [ "$FAIL" -gt 0 ]; then

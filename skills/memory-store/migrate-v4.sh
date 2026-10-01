@@ -28,7 +28,7 @@ if ! command -v sqlite3 &>/dev/null; then
 fi
 
 # Check schema_version — exit early if already v4
-CURRENT_VERSION=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo "")
+CURRENT_VERSION=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';")
 if [ "$CURRENT_VERSION" = "4" ]; then
   echo "Schema already at v4. Nothing to do."
   exit 0
@@ -44,7 +44,7 @@ sqlite3 -cmd ".timeout 5000" "$MEMDB" <<'SQL'
 .bail on
 
 
-BEGIN TRANSACTION;
+BEGIN IMMEDIATE;
 
 CREATE TABLE IF NOT EXISTS reconcile_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

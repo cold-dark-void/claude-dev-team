@@ -9,7 +9,7 @@
 | SPEC-003 | Agent Role System | ACTIVE | agents/pm.md, tech-lead.md, ic5.md, ic4.md, devops.md, qa.md, ds.md, commands/adjust-agent.md |
 | SPEC-004 | Memory Storage & Migration | ACTIVE | skills/memory-store/SKILL.md, schema.sql, migrate.sh, migrate-md.sh, migrate-v2/v3/v4.sh |
 | SPEC-005 | Team Bootstrap | ACTIVE | agents/project-init.md, commands/setup.md (`/setup team\|project\|orchestration\|models`), commands/init-team.md (stub), download-extensions.sh, skills/scaffold-project, init-orchestration (emit hooks from templates — CDT-54), demo; doctor-gate `--gate=<sub>` (CDT-67 M6c) + posture; `/setup models` (CDT-228, not doctor-gated) |
-| SPEC-006 | Memory Retrieval & Search | ACTIVE | commands/memory.md (`/memory search`), skills/memory-recall (stub), recall.md |
+| SPEC-006 | Memory Retrieval & Search | ACTIVE | commands/memory.md (`/memory search`), skills/memory-recall, recall.md |
 | SPEC-007 | Memory Distillation | ACTIVE | agents/distiller.md, commands/memory.md (`/memory distill|config|stats`) |
 | SPEC-008 | Spec Management | ACTIVE | commands/spec.md (`/spec <sub>`), skills/spec-tooling/ |
 | SPEC-009 | Ticket Workflow | ACTIVE | skills/kickoff, orchestrate, brainstorm, commands/status.md (`/status` + standup), skills/standup (backend), wrap-ticket, backlog; parse-flags `--max-loc` + loc-exclude + scaffold `.gitattributes` (CDT-223) |

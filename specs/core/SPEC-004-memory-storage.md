@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/embed-one.sh`, `skills/memory-store/embed-common.sh`, `skills/memory-store/test-embed-lembed.sh`, `skills/memory-store/migrate.sh`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`, `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
+**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/embed-one.sh`, `skills/memory-store/embed-common.sh`, `skills/memory-store/test-embed-lembed.sh`, `skills/memory-store/memdb.sh`, `skills/memory-store/vec-cosine.sh`, `skills/memory-store/test-memdb.sh`, `skills/memory-store/migrate.sh`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`, `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
 
 ## Overview
 
@@ -63,7 +63,10 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 - MUST create indexes: idx_memories_agent, idx_memories_agent_type, idx_memories_tier
 - MUST create distillation_log table
 - MUST INSERT OR IGNORE default distill config keys: distill_enabled=false, distill_mode=suggest, distill_threshold=50, distill_model=haiku (idempotent)
-- MUST update schema_version to "2" only after all steps complete
+- MUST update schema_version to "2" only after all steps complete, inside the same `BEGIN IMMEDIATE` transaction as the rebuild, `distillation_log`, and the distill config inserts (WP 3-07)
+- MUST preserve `sqlite_sequence` for `memories` across the v2 rebuild so later inserts do not reuse ids
+- MUST take `VACUUM INTO memory.db.bak-v<version>` before the first destructive migrate step
+- MUST treat a failed `schema_version` read (locked database included) as a non-zero exit. An empty version is still the skip path
 
 ### .md → SQLite Migration
 - MUST be idempotent (check existing row count before re-inserting)
@@ -114,7 +117,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 
 | Date | Change |
 |------|--------|
-
+| 2026-10-01 | WP 3-07: v2 rebuild, distillation_log, and the version bump share one `BEGIN IMMEDIATE`. `sqlite_sequence` is preserved. `migrate.sh` backs up with `VACUUM INTO` and fails when the version read fails. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262 `[07 F-1]`): `lembed()` takes a registered model NAME, not a file path. The Embedding MUST "pass file path to GGUF model for lembed (not model name)" was wrong for sqlite-lembed v0.0.1-alpha.8: `lembed('<path>', …)` fails with "Unknown model name … Was it registered with lembed_models?", so no vector was stored or queried in the default local mode. The GGUF is now registered on the same connection, before `lembed()` (`INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf>')`); `migrate-md.sh` reads the result with `vec_to_json()` (a BLOB, not `json()`) and keeps sqlite3 stderr out of the vector (temp file); `embed-one.sh` and `migrate-md.sh` share `embed-common.sh`. A failed embed is no longer hidden: one line per failure in `<MROOT>/.claude/memory/.errors.log`, counted by `/memory stats` and `/doctor`. The CI round-trip smoke test with a real model is deferred until a CI model download is approved. Status stays ACTIVE. |
 | 2026-08-09 | CDT-190: fixed the same `EMBED_MODEL` SQL-interpolation defect in `migrate-md.sh` that CDT-164 fixed for `embed-one.sh`. After model resolution (outside the per-row loop), apply `:-all-MiniLM-L6-v2` then single-quote-double into `EMBED_MODEL_ESC`; use that form only in the `embedding_meta` INSERT. Provider body still gets the raw name via `jq --arg`. |
 | 2026-08-07 | CDT-164: added "SQL safety in the embedding write path" MUST block — `EMBED_MODEL` MUST be single-quote-escaped before interpolation into the `embedding_meta` INSERT in `embed-one.sh` (it was raw, violating the existing SQLite Write Path MUST at the top of this spec). An apostrophe in the model name aborted the remaining statements in the sqlite batch, leaving an orphaned `vec_memories_<dims>` row with no `embedding_meta` and skipping the `embedding_dimensions` UPDATE. Escaping is SQL-only — the provider JSON body keeps the raw name via `jq --arg`. Added SHOULD on partial-batch warning wording. `migrate-md.sh` carried the same defect (fixed in CDT-190). |

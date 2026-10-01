@@ -28,7 +28,7 @@ if ! command -v sqlite3 &>/dev/null; then
 fi
 
 # Step 1: Check schema_version — exit early if already v2
-CURRENT_VERSION=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo "")
+CURRENT_VERSION=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';")
 if [ "$CURRENT_VERSION" = "2" ]; then
   echo "Schema already at v2. Nothing to do."
   exit 0
@@ -45,14 +45,36 @@ ROW_COUNT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories
 # Table rebuild inside a transaction (SQLite cannot ALTER CHECK constraints).
 # .bail on: abort on first error so a partial rebuild cannot leave the DB
 # half-migrated while later statements (including schema_version) still run.
-sqlite3 -cmd ".timeout 5000" "$MEMDB" <<'SQL'
+# sqlite_sequence is an internal table. Touch it only when SQLite already
+# created it. SEQ_PREFIX and SEQ_RESTORE are fixed SQL, not user text.
+HAS_SEQ=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM sqlite_master WHERE name='sqlite_sequence';")
+if [ "$HAS_SEQ" = "1" ]; then
+  SEQ_PREFIX="CREATE TEMP TABLE mem_seq_save(seq INTEGER);
+INSERT INTO mem_seq_save SELECT seq FROM sqlite_sequence WHERE name='memories';"
+  SEQ_RESTORE="INSERT INTO mem_seq_save SELECT seq FROM sqlite_sequence WHERE name='memories_new';
+DELETE FROM sqlite_sequence WHERE name IN ('memories', 'memories_new');
+INSERT INTO sqlite_sequence(name, seq)
+  SELECT 'memories', MAX(seq) FROM mem_seq_save
+  WHERE seq IS NOT NULL
+  GROUP BY 'memories'
+  HAVING MAX(seq) IS NOT NULL;"
+else
+  SEQ_PREFIX=""
+  SEQ_RESTORE=""
+fi
+sqlite3 -cmd ".timeout 5000" "$MEMDB" <<SQL
 .bail on
 -- Set busy timeout so concurrent writes don't immediately fail
 
 
 PRAGMA foreign_keys=OFF;
 
-BEGIN TRANSACTION;
+BEGIN IMMEDIATE;
+
+-- Keep the AUTOINCREMENT high-water mark across the rebuild. DROP TABLE
+-- deletes the sqlite_sequence row, and a later INSERT would reuse an id
+-- that embedding_meta still names.
+$SEQ_PREFIX
 
 -- Create new table with v2 schema
 CREATE TABLE memories_new (
@@ -78,14 +100,12 @@ DROP TABLE memories;
 
 ALTER TABLE memories_new RENAME TO memories;
 
+$SEQ_RESTORE
+
 -- Recreate indexes
 CREATE INDEX idx_memories_agent ON memories(agent);
 CREATE INDEX idx_memories_agent_type ON memories(agent, type);
 CREATE INDEX idx_memories_tier ON memories(agent, tier, archived);
-
-COMMIT;
-
-PRAGMA foreign_keys=ON;
 
 -- Create distillation_log table
 CREATE TABLE IF NOT EXISTS distillation_log (
@@ -98,7 +118,7 @@ CREATE TABLE IF NOT EXISTS distillation_log (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
--- Insert config keys and update schema_version
+-- Insert config keys and update schema_version inside the same transaction
 INSERT OR IGNORE INTO config(key, value) VALUES
   ('distill_enabled', 'false'),
   ('distill_mode', 'suggest'),
@@ -107,6 +127,10 @@ INSERT OR IGNORE INTO config(key, value) VALUES
   ('distill_model', 'haiku');
 
 UPDATE config SET value='2' WHERE key='schema_version';
+
+COMMIT;
+
+PRAGMA foreign_keys=ON;
 SQL
 
 echo "Migrated schema v1 -> v2. $ROW_COUNT existing memories set to tier=0."

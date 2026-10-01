@@ -34,7 +34,7 @@ fi
 
 ## Step 2: Store a memory (DB path)
 
-Replace `<AGENT>`, `<TYPE>`, and `<CONTENT_ESCAPED>` with real values.
+Set `AGENT`, `TYPE`, and `CONTENT` before the fence. The fence binds them.
 `<TYPE>` must be one of: `cortex`, `memory`, `lessons`, `digest`, `core`.
 
 > **Tier note:** Regular agent writes are always tier 0 (the column defaults to 0 and
@@ -66,7 +66,7 @@ bash skills/lib/sqlq.sh "$MEMDB" \
   "$AGENT" "$TYPE" "$CONTENT"
 ```
 
-**Use heredoc for multi-line content** to avoid shell quoting issues:
+A quoted heredoc holds **literal SQL only**. It does not bind variables and it does not sidestep escaping. Dynamic agent, type, or content goes through `memdb.sh write` (bound `?`). The delimiter below is unique so a content line cannot close it. Cap dynamic `.md` fallback bodies at 8000 bytes.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -74,13 +74,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 -cmd ".timeout 5000" "$MEMDB" <<'EOSQL'
+sqlite3 -cmd ".timeout 5000" "$MEMDB" <<'MEMSQL_7f3a'
 INSERT INTO memories(agent, type, content) VALUES (
   'tech-lead',
   'cortex',
   'Cache: sharded LRU in internal/cache/, keys sha256(model+prompt), TTL 1h default'
 );
-EOSQL
+MEMSQL_7f3a
 ```
 
 **Capture the new row ID in the same session** (needed for embedding — see Step 4):
@@ -130,9 +130,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 AGENT_MEM="$MROOT/.claude/memory/<AGENT>"
 mkdir -p "$AGENT_MEM"
-cat >> "$AGENT_MEM/<TYPE>.md" << 'EOF'
-<content>
-EOF
+_cap=$(printf '%s' "$CONTENT" | head -c 8000)
+printf '%s\n' "$_cap" >> "$AGENT_MEM/<TYPE>.md"
 echo "[memory-store] DB unavailable — writing to .md fallback."
 ```
 
@@ -157,7 +156,10 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-bash skills/memory-store/embed-one.sh "$MEMDB" "$MEMORY_ID" "$CONTENT"  # lint-ok: C1
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+EMB=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/embed-one.sh 2>/dev/null || true)
+[ -n "$EMB" ] && bash "$EMB" "$MEMDB" "$MEMORY_ID" "$CONTENT"  # lint-ok: C1
 ```
 
 The lembed (local GGUF) and remote (OpenAI-compatible) provider logic — formerly
@@ -181,7 +183,11 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 -cmd ".timeout 5000" "$MEMDB" " INSERT ..." || { sleep 1; sqlite3 -cmd ".timeout 5000" "$MEMDB" " INSERT ..."; }
+# memdb.sh write retries once. It does not insert again when the first attempt committed.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+MEMDB_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/memdb.sh 2>/dev/null || true)
+[ -n "$MEMDB_SH" ] && bash "$MEMDB_SH" write "$MEMDB" "$AGENT" "$TYPE" "$CONTENT"
 ```
 
 ---
@@ -204,6 +210,9 @@ if [ "$DISTILL_ENABLED" = "true" ]; then
   DISTILL_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_mode';")
   if [ "$DISTILL_MODE" != "manual" ]; then
     THRESHOLD=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
+    case "$THRESHOLD" in
+      ''|*[!0-9]*) THRESHOLD=50 ;;
+    esac
     COUNT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='<AGENT>' AND tier=0 AND archived=FALSE;")
     if [ "$COUNT" -ge "$THRESHOLD" ]; then
       echo "[memory] @<AGENT> has $COUNT raw memories (threshold: $THRESHOLD). Run /memory distill to compress."
@@ -222,9 +231,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 -cmd ".timeout 5000" "$MEMDB" \
-  "SELECT id, agent, type, length(content), created_at
-   FROM memories ORDER BY id DESC LIMIT 1;"
+# Verify the row this write created. A global "newest id" can be another agent's row.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+MEMDB_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/memdb.sh 2>/dev/null || true)
+[ -n "$MEMDB_SH" ] && bash "$MEMDB_SH" query "$MEMDB" \
+  "SELECT id, agent, type, length(content), created_at FROM memories WHERE id = ?" \
+  "$MEMORY_ID"  # lint-ok: C1
 ```
 
 Expected output format: `<id>|<agent>|<type>|<bytes>|<timestamp>`
@@ -262,8 +275,9 @@ Expected output format: `<id>|<agent>|<type>|<bytes>|<timestamp>`
   embedding, logs a one-line stderr warning, and skips the store (the write still
   succeeds — only the vector is lost).
 - The vec0 virtual tables (`vec_memories_384`, `vec_memories_768`) are created only
-  when the sqlite-vec extension is loaded; they are absent from a plain `schema.sql`
-  apply. Agents must guard all vec0 operations with an extension availability check.
+  when the sqlite-vec extension is loaded, with `distance_metric=cosine`
+  (`vec-cosine.sh`). They are absent from a plain `schema.sql` apply. Agents must
+  guard all vec0 operations with an extension availability check.
 - **Distill threshold short-circuit:** When `distill_enabled=false` (the default), the
   post-store threshold check (Step 5.5) issues exactly one SELECT and exits immediately.
   Zero additional queries are run, so there is no performance impact on normal writes.

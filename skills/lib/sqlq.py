@@ -9,19 +9,40 @@ import sqlite3
 import sys
 
 
+def _cell(value):
+    if value is None:
+        return ""
+    return str(value)
+
+
 def main(argv):
     if len(argv) < 2:
         sys.stderr.write("usage: sqlq.py <db> <sql> [arg ...]\n")
         return 64
     db_path, sql = argv[0], argv[1]
     params = argv[2:]
-    con = sqlite3.connect(db_path)
+    try:
+        con = sqlite3.connect(db_path)
+    except sqlite3.Error as exc:
+        sys.stderr.write("sqlq: %s\n" % exc)
+        return 1
     try:
         con.execute("PRAGMA busy_timeout=5000")
+        con.execute("PRAGMA foreign_keys=ON")
         cur = con.execute(sql, params)
-        con.commit()
-        if sql.lstrip()[:6].upper() == "INSERT":
+        if cur.description:
+            for row in cur:
+                sys.stdout.write("|".join(_cell(col) for col in row) + "\n")
+        elif sql.lstrip()[:6].upper() == "INSERT":
             sys.stdout.write("%s\n" % cur.lastrowid)
+        con.commit()
+    except sqlite3.Error as exc:
+        try:
+            con.rollback()
+        except sqlite3.Error:
+            pass
+        sys.stderr.write("sqlq: %s\n" % exc)
+        return 1
     finally:
         con.close()
     return 0

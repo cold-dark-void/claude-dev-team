@@ -38,8 +38,7 @@ agents (drift-checked by `skills/agent-memory/sync-includes.py` at `/release`).
 Do **not** duplicate that bash here. Contract summary (SPEC-006):
 
 - Load directives first, then tiered memory, then per-worktree `context.md`
-- If any tier-1 or tier-2 rows exist for the agent: load tier-2 then tier-1 (`type, content`)
-- Else: load raw tier-0 (`type, content`)
+- Load tier-2, then tier-1, and every non-archived tier-0 row (`type, content`)
 - Always exclude `archived = TRUE`
 - Fallback when `USE_DB=false`: cat `cortex` / `memory` / `lessons` `.md` files
 
@@ -344,7 +343,7 @@ EOSQL
 ## Design notes
 
 - The `MATCH` operator + `k = N` is sqlite-vec's KNN syntax — it is not standard SQL.
-- Distance is cosine distance: lower = more similar, 0 = identical.
+- Distance is cosine distance: lower = more similar, 0 = identical. `vec_memories_*` tables are created with `distance_metric=cosine` (`skills/memory-store/vec-cosine.sh`). The L2 default makes `(1 - distance) * 100` negative.
 - To convert to similarity percentage: `(1 - distance) * 100`.
 - `lembed()` takes a **registered model name**, not a file path. Register the GGUF on the same `sqlite3` connection first: `INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf path>');`. Then call `lembed('mini', <text>)`. `temp.lembed_models` is per connection.
 - For remote embedding providers, the URL is read from the DB config (`embedding_url`).

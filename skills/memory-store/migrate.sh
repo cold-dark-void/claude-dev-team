@@ -40,10 +40,35 @@ fi
 read_version() {
   # Plain SELECT — no inline PRAGMA (an inline 'PRAGMA busy_timeout=N;'
   # emits a result row that would pollute this captured read).
-  sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo ""
+  # A locked or unreadable DB is a failure. An empty result is "no version".
+  _rv_err=$(mktemp "${TMPDIR:-/tmp}/migrate-ver.XXXXXX")
+  _rv_out=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>"$_rv_err")
+  _rv_rc=$?
+  if [ "$_rv_rc" -ne 0 ]; then
+    echo "Error: cannot read schema_version (rc=$_rv_rc): $(cat "$_rv_err")" >&2
+    rm -f "$_rv_err"
+    return 1
+  fi
+  rm -f "$_rv_err"
+  printf '%s\n' "$_rv_out"
 }
 
-V="$(read_version)"
+backup_db() {
+  bak="$MROOT/.claude/memory/memory.db.bak-v${V}"
+  if [ -f "$bak" ]; then
+    return 0
+  fi
+  bak_sql=$(printf '%s' "$bak" | sed "s/'/''/g")
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" "VACUUM INTO '${bak_sql}';"
+}
+
+repair_vec() {
+  ext_suffix="so"
+  [ "$(uname -s)" = "Darwin" ] && ext_suffix="dylib"
+  bash "$DIR/vec-cosine.sh" repair "$MEMDB" "$MROOT/.claude/memory/extensions/vec0.${ext_suffix}"
+}
+
+V="$(read_version)" || exit 1
 
 if [ -z "$V" ]; then
   echo "No schema_version found in $MEMDB — skipping migration."
@@ -59,8 +84,12 @@ esac
 
 if [ "$V" -ge "$LATEST" ]; then
   echo "Schema version: $V (up to date)"
+  repair_vec
   exit 0
 fi
+
+echo "Backing up $MEMDB before migration from v$V"
+backup_db
 
 while [ "$V" -lt "$LATEST" ]; do
   NEXT=$((V + 1))
@@ -74,7 +103,7 @@ while [ "$V" -lt "$LATEST" ]; do
     echo "Error: migration v$V->v$NEXT failed" >&2
     exit 1
   fi
-  NEWV="$(read_version)"
+  NEWV="$(read_version)" || exit 1
   case "$NEWV" in
     ''|*[!0-9]*)
       echo "Error: schema_version unreadable/non-numeric ('$NEWV') after v$V->v$NEXT" >&2
@@ -88,4 +117,5 @@ while [ "$V" -lt "$LATEST" ]; do
   V="$NEWV"
 done
 
+repair_vec
 echo "Schema migrated to v$V (latest)."

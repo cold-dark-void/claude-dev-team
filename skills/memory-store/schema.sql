@@ -103,8 +103,10 @@ CREATE TABLE IF NOT EXISTS embedding_meta (
 --   1024 — mxbai-embed-large
 --   1536 — OpenAI text-embedding-3-small
 --
--- Tables are auto-created at runtime for any dimension via:
---   CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_N USING vec0(...)
+-- Tables are auto-created at runtime for any dimension via vec-cosine.sh:
+--   CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_N
+--     USING vec0(memory_id INTEGER, embedding FLOAT[N] distance_metric=cosine)
+-- The default vec0 metric is L2. Recall and reconcile treat distance as cosine.
 
 -- Enable WAL mode for concurrent agent access. Some sandboxed
 -- filesystems (bubblewrap tmpdirs, NFS, certain CI runners) cannot
@@ -114,4 +116,6 @@ CREATE TABLE IF NOT EXISTS embedding_meta (
 -- apply and warns if WAL was rejected, so the degradation is visible.
 PRAGMA journal_mode=WAL;
 PRAGMA busy_timeout=5000;
+-- foreign_keys is per connection. memdb.sh sets it on every connection.
+-- A connection that skips it does not enforce REFERENCES.
 PRAGMA foreign_keys=ON;

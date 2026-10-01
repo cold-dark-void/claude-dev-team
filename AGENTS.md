@@ -151,24 +151,11 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
 fi
 if [ "$USE_DB" = "true" ]; then
-  # Check if distilled content exists
-  HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories
-    WHERE agent='<NAME>' AND tier > 0 AND archived=FALSE;")
-  if [ "$HAS_DISTILLED" -gt 0 ]; then
-    # Tier 2: core knowledge (always loaded)
-    sqlite3 "$MEMDB" "SELECT content FROM memories
-      WHERE agent='<NAME>' AND tier=2 AND archived=FALSE
-      ORDER BY type, updated_at DESC;"
-    # Tier 1: digests (compressed summaries)
-    sqlite3 "$MEMDB" "SELECT content FROM memories
-      WHERE agent='<NAME>' AND tier=1 AND archived=FALSE
-      ORDER BY type, updated_at DESC;"
-  else
-    # No distilled content yet — load all tier-0 (backward compat)
-    sqlite3 "$MEMDB" "SELECT content FROM memories
-      WHERE agent='<NAME>' AND tier=0 AND archived=FALSE
-      ORDER BY type, created_at DESC;"
-  fi
+  # memdb.sh load-session is the executable form. It returns type and content
+  # for tier 2, tier 1, and every non-archived tier-0 row. Archived rows stay out.
+  sqlite3 "$MEMDB" "SELECT type, content FROM memories
+    WHERE agent='<NAME>' AND archived=FALSE
+    ORDER BY tier DESC, type, updated_at DESC;"
 fi
 ```
 

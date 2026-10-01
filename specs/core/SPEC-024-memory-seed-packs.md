@@ -86,9 +86,9 @@ The pack is a **transport format, not a second memory system**. Everything about
 - [x] A pack-supplied agent id cannot reach a SQL string or a filesystem path unvalidated (CDT-176 regression cases in `skills/memory-store/test-seed-pack.sh`)
 - [x] Cross-agent trailer (`agent=` ≠ filename stem) is rejected with no insert under either agent, both ids named in the warning, exit 0 — SQLite and fallback (M13 / CDT-193 cases in `skills/memory-store/test-seed-pack.sh`)
 - [x] Matching trailer still imports; partial-file (match + mismatch) yields `imported≥1` and `rejected≥1` (M13)
-- [ ] Manifest key with newline or TAB is rejected at parse; file-level content-hash is not skipped; valid sibling still imports; exit 0 (M12/CDT-194 — `test-seed-pack.sh`)
-- [ ] Empty/missing `content_hash` on a roster-valid key rejects the file (`rejected++`), no free pass; exit 0 (M8/CDT-194)
-- [ ] Symlink rejection warning names symlink, not roster (M12 wording)
+- [x] Manifest key with newline or TAB is rejected at parse; file-level content-hash is not skipped; valid sibling still imports; exit 0 (M12/CDT-194 — `test-seed-pack.sh`)
+- [x] Empty/missing `content_hash` on a roster-valid key rejects the file (`rejected++`), no free pass; exit 0 (M8/CDT-194)
+- [x] Symlink rejection warning names symlink, not roster (M12 wording)
 
 ---
 

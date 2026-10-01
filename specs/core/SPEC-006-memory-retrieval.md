@@ -18,13 +18,13 @@ The query layer for agent memories. Provides three search strategies (semantic v
 - MUST make every fenced bash block of `skills/memory-recall/SKILL.md` self-contained, because each block runs as a separate shell: the block resolves `MROOT` before it derives `MEMDB`, `EXT_DIR` or `MODEL_DIR`, and captures the query itself. A block MUST NOT read a variable that only an earlier block sets (SPEC-021 C6 checks the order)
 
 ### Tiered Loading (Session Start)
-- MUST load memories by tier: tier-2 core first, then tier-1 digests, then tier-0 raw only for agents with no tier-1 or tier-2 memories (to ensure some context loads)
+- MUST load memories by tier: tier-2 core, then tier-1 digests, and every non-archived tier-0 row. A tier-1 or tier-2 row MUST NOT hide tier-0. Distill archives consumed tier-0; those archived rows stay out (CDT-336)
 - MUST never return archived rows (`archived = TRUE` always filtered)
 - MUST support optional agent and type filters on all queries
 
 ### Agent Session-Read Protocol (single source of truth)
 - The agent session-READ (tiered) protocol is defined ONCE in `skills/agent-memory/protocol.md` (expanded into the 7 behavioral agents, drift-checked by `skills/agent-memory/sync-includes.py` at `/release`). `skills/memory-recall` Step 2 points at that partial and does not duplicate the bash.
-- The read MUST select `type, content` (not `content` alone) with the tier-2 → tier-1 → tier-0 fallback (tier-0 only when no tier-1/tier-2 rows exist for the agent), `archived = TRUE` excluded.
+- The read MUST select `type, content` (not `content` alone) for tier-2, tier-1, and non-archived tier-0 together, `archived = TRUE` excluded. `skills/memory-store/memdb.sh load-session` is that query.
 
 ### Semantic Search
 - MUST use sqlite-vec KNN syntax (`MATCH` operator, `k = N`) for vector search
@@ -33,6 +33,7 @@ The query layer for agent memories. Provides three search strategies (semantic v
 - MUST derive `EXT_DIR` (`$MROOT/.claude/memory/extensions`) and `MODEL_DIR` (`$MROOT/.claude/memory/models`) in the semantic-search block itself, as `skills/memory-store/download-extensions.sh` does, and MUST quote every `.load` path
 - MUST handle both OpenAI (`.data[0].embedding`) and Ollama (`.embeddings[0]`) response shapes
 - MUST convert cosine distance to similarity: `(1 - distance) * 100`
+- MUST create `vec_memories_*` with `distance_metric=cosine` (`skills/memory-store/vec-cosine.sh`). The vec0 default is L2, and `(1 - distance) * 100` then goes negative (CDT-402)
 - MUST surface unembedded memories after semantic results (so nothing is silently missed)
 
 ### Keyword Search
@@ -98,6 +99,7 @@ The query layer for agent memories. Provides three search strategies (semantic v
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 3-07: session load returns non-archived tier-0 beside tier 1 and 2 (`memdb.sh load-session`). Vec tables use `distance_metric=cosine`. |
 | 2026-10-01 | WP 2-03: SPEC-006/T1 names the keyword-literal assertion in `skills/memory-recall/test-fences.sh`. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262 `[07 F-1]`): the MUST "pass file path to GGUF model for lembed (not model name)" is reversed. sqlite-lembed takes a registered model name, so the Step 4 lembed block registers the GGUF (`INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file(…)`) on its own connection, after the `.load` lines, and calls `lembed('mini', <query>)`. `skills/memory-recall/test-fences.sh` asserts the order and the name. SPEC-004 owns the name and the statement. Step 4 sources `embed-common.sh` through `plugin-dir.sh` and has no typed copy; when the file does not resolve, it uses keyword search. Status stays ACTIVE. |
 | 2026-09-30 | WP 1-12 (`wp-1-12-fence-state`; CDT-357, CDT-263 `[07 F-18]`, CDT-264, W2-22): every `skills/memory-recall/SKILL.md` fence is self-contained (separate shells). Step 4 derives `EXT_DIR`/`MODEL_DIR` from `MROOT` and quotes `.load` paths; Step 5 resolves `MROOT` before `MEMDB` so a present DB is used, matches with `grep -F`, captures the query through a quoted heredoc and searches a worktree's `context.md`; Steps 3, 4 and 8 escape `\`, `%`, `_` in LIKE patterns. The waiver after a `\` continuation in Step 4 is gone. Behavioural suite: `skills/memory-recall/test-fences.sh`. |

@@ -146,19 +146,17 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
 fi
 if [ "$USE_DB" = "true" ]; then
-  HAS_DISTILLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories
-    WHERE agent='devops' AND tier > 0 AND archived=FALSE;")
-  if [ "${HAS_DISTILLED:-0}" -gt 0 ]; then
-    sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
-      WHERE agent='devops' AND tier=2 AND archived=FALSE
-      ORDER BY type, updated_at DESC;"
-    sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
-      WHERE agent='devops' AND tier=1 AND archived=FALSE
-      ORDER BY type, updated_at DESC;"
+  # Load tier 2, tier 1, and every non-archived tier-0 row. Distill archives
+  # consumed tier-0, so a lesson written after a digest stays visible (CDT-336).
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+  MEMDB_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/memdb.sh 2>/dev/null || true)
+  if [ -n "$MEMDB_SH" ] && [ -f "$MEMDB_SH" ]; then
+    bash "$MEMDB_SH" load-session "$MEMDB" "devops"
   else
     sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
-      WHERE agent='devops' AND tier=0 AND archived=FALSE
-      ORDER BY type, created_at DESC;"
+      WHERE agent='devops' AND archived=FALSE
+      ORDER BY tier DESC, type, updated_at DESC;"
   fi
 else
   for TYPE in cortex memory lessons; do
@@ -182,29 +180,32 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
 fi
 if [ "$USE_DB" = "true" ]; then
-  # Append ONE focused fact/decision/lesson per INSERT. <TYPE> = cortex|memory|lessons.
-  ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
-  MEMORY_ID=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('devops', '<TYPE>', '$ESCAPED');
-    SELECT last_insert_rowid();") \
-    || { sleep 1; MEMORY_ID=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('devops', '<TYPE>', '$ESCAPED');
-      SELECT last_insert_rowid();"); }
-  # Best-effort embedding — silently skips when extensions absent. embed-one.sh is a
-  # sibling of skills/memory-store/; resolve it (dev checkout first, else installed cache).
+  # Append ONE focused fact. memdb.sh write binds the values, reads the row
+  # back, and retries only when the first attempt did not commit (CDT-276 T-3).
+  # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+  MEMDB_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/memdb.sh 2>/dev/null || true)
+  EMB=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/embed-one.sh 2>/dev/null || true)
+  if [ -z "$EMB" ]; then
   EMB=$( [ -f skills/memory-store/embed-one.sh ] && echo skills/memory-store/embed-one.sh \
     || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/memory-store/embed-one.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 )
+  fi
+  MEMORY_ID=""
+  if [ -n "$MEMDB_SH" ] && [ -f "$MEMDB_SH" ]; then
+    MEMORY_ID=$(bash "$MEMDB_SH" write "$MEMDB" "devops" "<TYPE>" "$CONTENT" || true)
+  fi
   [ -n "$EMB" ] && [ -n "$MEMORY_ID" ] && bash "$EMB" "$MEMDB" "$MEMORY_ID" "$CONTENT" 2>/dev/null || true
 else
-  # Fallback: append to .md (NEVER truncate — append-only contract, SPEC-004)
+  # Fallback: append at most 8000 bytes. printf writes the variable, so a
+  # content line that looks like a heredoc terminator cannot close the write.
   mkdir -p "$AGENT_MEM"
-  cat >> "$AGENT_MEM/<TYPE>.md" << 'EOF'
-<content>
-EOF
+  _cap=$(printf '%s' "$CONTENT" | head -c 8000)
+  printf '%s\n' "$_cap" >> "$AGENT_MEM/<TYPE>.md"
 fi
-# Context always writes to .md (per-worktree); current-state snapshot, so overwrite
+# Context always writes to .md (per-worktree); current-state snapshot, so overwrite.
 mkdir -p "$WTROOT/.claude/memory/devops"
-cat > "$WTROOT/.claude/memory/devops/context.md" << 'EOF'
-<context>
-EOF
+_ctx=$(printf '%s' "$CONTEXT" | head -c 8000)
+printf '%s\n' "$_ctx" > "$WTROOT/.claude/memory/devops/context.md"
 ```
 ### Memory search (cross-agent)
 ```bash

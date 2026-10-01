@@ -36,6 +36,13 @@ MEMDIR="$MROOT/.claude/memory"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # A missing embed-common.sh must not stop the .md import: embedding is skipped.
 EMBED_LIB_OK=true
+if [ -f "$SCRIPT_DIR/vec-cosine.sh" ]; then
+  # shellcheck source=vec-cosine.sh
+  . "$SCRIPT_DIR/vec-cosine.sh"
+else
+  vec_create_sql() { return 0; }
+  vec_repair_db() { return 0; }
+fi
 if [ -f "$SCRIPT_DIR/embed-common.sh" ]; then
   # shellcheck source=embed-common.sh
   . "$SCRIPT_DIR/embed-common.sh"
@@ -357,12 +364,15 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       fi
       HAS_MEMORY_ID=$(printf '%s\n' "$PROBE_OUT" | grep -c "memory_id" || true)
       if [ "$HAS_MEMORY_ID" = "0" ]; then
+        VEC_SQL=$(vec_create_sql "$VEC_TABLE" "$DIMS" 0)
         sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
           "DROP TABLE IF EXISTS $VEC_TABLE;" \
-          "CREATE VIRTUAL TABLE $VEC_TABLE USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);" 2>/dev/null
+          "$VEC_SQL" 2>/dev/null
       else
+        vec_repair_db "$MEMDB" "$EXT_DIR/vec0.$EXT_SUFFIX" || true
+        VEC_SQL=$(vec_create_sql "$VEC_TABLE" "$DIMS" 1)
         sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
-          "CREATE VIRTUAL TABLE IF NOT EXISTS $VEC_TABLE USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);" 2>/dev/null
+          "$VEC_SQL" 2>/dev/null
       fi
 
       # Insert embedding
