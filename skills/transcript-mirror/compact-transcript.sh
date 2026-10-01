@@ -2,6 +2,7 @@
 # compact-transcript.sh — Meaning-tail CLI (SPEC-036 M14).
 # Fail-closed: missing plugin/helper/python3 → exit 1 (do not copy transcript-sync fail-open).
 set -u
+umask 077
 
 # Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd only when it is the dev-team plugin itself (CDT-265), else marketplace clone (slug-free agents/pm.md), else installed cache (rank by /dev-team/<VER>/ segment, not full path; CDT-166). CDT-82: marketplace before same-version cache.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)

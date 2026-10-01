@@ -19,6 +19,16 @@ Surface (SPEC-036 M14). On-demand Meaning-channel overlay is skill CLI
 
 Governing spec: `specs/core/SPEC-036-transcript-mirror.md`.
 
+The store is as sensitive as `~/.claude/projects`. It holds unredacted tool
+output. Files are created mode 0600 and directories mode 0700 (`umask 077`).
+`@`-attaching `main.md` or a Meaning tail into another session re-exposes
+that text.
+
+`TRANSCRIPT_MIRROR_REDACT_CMD`, when set, filters each Channel sidecar.
+The command reads the sidecar on stdin and writes the replacement on stdout.
+Exit 0 and a non-empty stdout replace the file. Otherwise the original
+sidecar is kept. Unset leaves sidecars unchanged.
+
 Store: `~/.claude/transcript/<session-id>/` (`main.md`, `thinking/`,
 `tool_result/`, `injection/`, `meta`, `cursor`; optional `agents/<id>/`
 with the same six entries; optional `verbatim/` for Verbatim originals).

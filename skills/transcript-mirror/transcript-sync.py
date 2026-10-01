@@ -103,22 +103,12 @@ def freshness_check(path: str) -> int:
 
 
 def record_ident(line: str) -> str:
-    raw = line.strip()
-    if not raw:
-        return ""
-    try:
-        obj = json.loads(raw)
-    except json.JSONDecodeError:
-        return ""
-    uuid = obj.get("uuid")
-    if isinstance(uuid, str) and uuid:
-        return uuid
-    try:
-        # jq -S -c always emits a trailing newline; hash that (M6 / M11).
-        canon = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
-    except (TypeError, ValueError):
-        return ""
-    return "h:" + hashlib.sha256(canon.encode("utf-8")).hexdigest()
+    """Delegate to mirrorlib. A non-object line is hashed, not raised."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    from mirrorlib import record_ident as _ident
+    return _ident(line)
 
 
 def last_ident(path: str) -> str:

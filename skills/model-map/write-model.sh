@@ -9,8 +9,9 @@
 #   write-model.sh set-effort <agent> <token>
 #   write-model.sh unset-effort <agent>
 #
-# Writes ONLY $MROOT/.claude/dev-team/models.local.json.
-# MUST NOT write repo models.json or ~/.claude/dev-team/models.json.
+# Writes $MROOT/.claude/dev-team/models.local.json.
+# A successful set or unset also appends runtime .gitignore entries when absent.
+# list does not write. MUST NOT write repo models.json or ~/.claude/dev-team/models.json.
 # Extra argv after required args is ignored.
 # Exit 64 + usage on bad argv. Unparseable existing local → refuse, exit 1.
 
@@ -119,6 +120,18 @@ write_json_file() {
   atomic_write "$map" printf '%s\n' "$json"
 }
 
+# Handoff spines, the friction ledger, and local model pins stay untracked.
+# Idempotent. list does not call this.
+ensure_runtime_gitignore() {
+  local entry gi="$MROOT/.gitignore"
+  for entry in \
+    ".claude/handoff/" \
+    ".claude/retro/" \
+    ".claude/dev-team/models.local.json*"; do
+    grep -qF -- "$entry" "$gi" 2>/dev/null || printf '%s\n' "$entry" >> "$gi"
+  done
+}
+
 cmd_list() {
   local agent model effort
   printf 'local: %s\n' "$MAP"
@@ -156,6 +169,7 @@ cmd_set() {
       json=$(jq -n --arg n "$agent" --arg v "$val" \
         '{version:1, agents:{($n):$v}}')
     fi
+    ensure_runtime_gitignore
     write_json_file "$MAP" "$json"
   ) 9>"$LOCK"
 }
@@ -174,6 +188,7 @@ unset_field() {
     has=$(jq -r --arg n "$agent" --arg f "$field" '.[$f] // {} | has($n)' "$MAP" 2>/dev/null) || has="false"
     [ "$has" = "true" ] || exit 0
     json=$(jq --arg n "$agent" --arg f "$field" 'del(.[$f][$n])' "$MAP")
+    ensure_runtime_gitignore
     write_json_file "$MAP" "$json"
   ) 9>"$LOCK"
 }
@@ -200,6 +215,7 @@ cmd_set_effort() {
       json=$(jq -n --arg n "$agent" --arg v "$val" \
         '{version:1, effort:{($n):$v}}')
     fi
+    ensure_runtime_gitignore
     write_json_file "$MAP" "$json"
   ) 9>"$LOCK"
 }

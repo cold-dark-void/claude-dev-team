@@ -22,8 +22,16 @@ REAPPLY_SH = os.path.join(_HERE, "reapply-overlay.sh")
 LOCK_SH = os.path.join(_HERE, "sid-lock.sh")
 
 THRESHOLD = 8192
-HEADING_RE = re.compile(r"^## (user|assistant)[ \t]*$")
-REF_RE = re.compile(r"^>\s*@")
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+try:
+    from mirrorlib import HEADING_RE, REF_RE, escape_meaning_text
+except Exception:
+    HEADING_RE = re.compile(r"^## (user|assistant)[ \t]*$")
+    REF_RE = re.compile(r"^>\s*@")
+
+    def escape_meaning_text(text: str) -> str:
+        return text
 VREF_RE = re.compile(r"^>\s*@verbatim/")
 TURN_ID_RE = re.compile(r"^T[0-9]{6}$")
 
@@ -289,6 +297,7 @@ def overlay(sid: str, sid_dir: str, main_md: str, text: str) -> int:
         summary = run_summarizer(payload_bytes)
         if summary is None:
             continue
+        summary = escape_meaning_text(summary.decode("utf-8", "replace")).encode("utf-8")
         replacements.append((turn_id_for(n), payload_bytes, summary))
     if not replacements:
         sys.stdout.write("sid=" + sid + " replaced=0\n")

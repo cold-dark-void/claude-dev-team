@@ -3,6 +3,12 @@
 The **Transcript mirror** is a live compressed session record.
 It writes the **Meaning channel** (user + assistant text) to `main.md`.
 It writes lossless **Channel sidecar** files for thinking, tool results, and injection.
+The store is as sensitive as `~/.claude/projects`.
+It holds unredacted tool output.
+New files are mode 0600. New directories are mode 0700.
+`@`-attaching `main.md` or a Meaning tail into another session re-exposes that text.
+Set `TRANSCRIPT_MIRROR_REDACT_CMD` to filter each Channel sidecar.
+The command reads stdin and writes stdout. A failure keeps the original sidecar.
 
 This is **not** an STM packet and **not** a compact seed.
 Those terms stay with [`/handoff`](./handoff.md).

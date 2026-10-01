@@ -23,6 +23,7 @@
 #   HANDOFF_PRECOMPACT_SPINE_BYTES      spine byte cap, tail-kept (default 2000000)
 
 set -u   # NOT -e / NOT pipefail: every failure is handled explicitly -> exit 0
+umask 077
 
 fail() { echo "precompact-capture: $*" >&2; exit 0; }
 

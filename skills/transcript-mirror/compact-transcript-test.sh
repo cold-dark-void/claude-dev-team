@@ -59,24 +59,16 @@ age() { touch -d '2 minutes ago' "$1"; }
 sha_file() { sha256sum "$1" | awk '{print $1}'; }
 
 last_ident() {
-  python3 - "$1" <<'PY'
-import hashlib, json, sys
+  python3 - "$1" "$REPO/skills/transcript-mirror" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[2])
+from mirrorlib import record_ident
 ident = ""
 with open(sys.argv[1], encoding="utf-8", errors="replace") as f:
     for line in f:
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            obj = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        uuid = obj.get("uuid")
-        if isinstance(uuid, str) and uuid:
-            ident = uuid
-            continue
-        canon = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
-        ident = "h:" + hashlib.sha256(canon.encode("utf-8")).hexdigest()
+        i = record_ident(line)
+        if i:
+            ident = i
 print(ident)
 PY
 }

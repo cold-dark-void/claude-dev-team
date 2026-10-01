@@ -8,8 +8,13 @@ whether any bytes remain.
 """
 from __future__ import annotations
 
-import hashlib
+import os
 import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+from mirrorlib import hash_raw_bytes  # noqa: E402
 
 
 def index_mode(src: str, dest: str) -> int:
@@ -20,7 +25,8 @@ def index_mode(src: str, dest: str) -> int:
     with open(src, "rb") as raw, open(dest, "w", encoding="utf-8") as out:
         for canon in sys.stdin.buffer:
             start = raw.tell()
-            if not raw.readline():
+            src_line = raw.readline()
+            if not src_line:
                 sys.stderr.write("ident-batch: jq row has no source line\n")
                 return 1
             n += 1
@@ -30,7 +36,7 @@ def index_mode(src: str, dest: str) -> int:
             elif line == b"":
                 ident = ""
             else:
-                ident = "h:" + hashlib.sha256(line + b"\n").hexdigest()
+                ident = hash_raw_bytes(src_line)
             out.write(ident + "\n")
             if ident:
                 last_n = n

@@ -7,10 +7,17 @@
 # bash + jq, plus one python pass for idents. Fail-open except a bad CLI sid (exit 2).
 # Manual: transcript-mirror.sh --transcript FILE --sid SID [--agent ID]
 set -uo pipefail
+# The store holds unredacted tool output. Same sensitivity as ~/.claude/projects.
+umask 077
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT="${TRANSCRIPT_MIRROR_ROOT:-$HOME/.claude/transcript}"
 ERRLOG="$ROOT/.errors.log"
+# Tighten the store root only. A full-tree chmod on every tick walks every
+# session and can blow the Stop hook timeout. The session dir is tightened below.
+if [ -d "$ROOT" ]; then
+  chmod go-rwx "$ROOT" 2>/dev/null || true
+fi
 
 log_err() {
   mkdir -p "$ROOT" 2>/dev/null || true
@@ -30,30 +37,15 @@ sanitize_agent_id() {
   esac
 }
 
-# Identity of one JSONL record: non-null string .uuid, else h:+SHA-256(jq -S -c).
-# One jq for the uuid. A line with no uuid uses one jq -S -c and one sha256sum.
+# Identity of one JSONL record. mirrorlib.record_ident is the only hasher:
+# string uuid, else sha256 of the raw line bytes. No jq re-serialize.
 ident_one() {
-  local line="$1" uuid="" canon="" hash=""
+  local line="$1"
   if [ -z "$line" ]; then
     printf '\n'
     return 0
   fi
-  uuid=$(printf '%s\n' "$line" | jq -r 'if (.uuid | type == "string" and length > 0) then .uuid else empty end' 2>/dev/null) || uuid=""
-  if [ -n "$uuid" ]; then
-    printf '%s\n' "$uuid"
-    return 0
-  fi
-  canon=$(printf '%s\n' "$line" | jq -S -c . 2>/dev/null) || canon=""
-  if [ -z "$canon" ]; then
-    printf '\n'
-    return 0
-  fi
-  hash=$(printf '%s\n' "$canon" | sha256sum | awk '{print $1}') || hash=""
-  if [ -n "$hash" ]; then
-    printf 'h:%s\n' "$hash"
-  else
-    printf '\n'
-  fi
+  printf '%s\n' "$line" | python3 "$SCRIPT_DIR/mirrorlib.py" ident-line
 }
 
 # Full index: one jq over the file, then one python hashing pass.
@@ -125,6 +117,19 @@ last_nonblank() {
 
 JQ_COMMON='
   def pad: ("00000" + tostring)[-6:];
+  def redact(t):
+    if (t|type) != "string" then ""
+    else t
+      | gsub("Bearer [A-Za-z0-9._~/+-]{8,}"; "Bearer [redacted]")
+      | gsub("sk-[A-Za-z0-9]{8,}"; "sk-[redacted]")
+      | gsub("AKIA[0-9A-Z]{8,}"; "AKIA[redacted]")
+      | gsub("(?i)password=[^[:space:]]+"; "password=[redacted]")
+    end;
+  def esc_line:
+    if test("^## (user|assistant)[ \\t]*$") or test("^>[[:space:]]*@") then " " + . else . end;
+  def esc_text(t):
+    if (t|type) != "string" or (t|length) == 0 then t
+    else (redact(t) | split("\n") | map(esc_line) | join("\n")) end;
   def textof(c): if (c|type)=="string" then c
     else ([c[]? | select(type=="object" and .type=="text") | .text] | join("\n\n")) end;
   def cleanuser(t): t
@@ -172,7 +177,7 @@ emit_tick() {
           + (if ($clean|length) > 0 then
                "\n## user\n"
                + (if $hinj then "\n> @injection/L\($ln).txt\n" else "" end)
-               + "\n" + $clean + "\n"
+               + "\n" + esc_text($clean) + "\n"
              else "" end) )
       else
         (textof($c)) as $t
@@ -182,7 +187,7 @@ emit_tick() {
         | if ($t|length) > 0 or $hth or ($tools|length) > 0 then
             "\n## assistant\n"
             + (if $hth then "\n> @thinking/L\($ln).txt\n" else "" end)
-            + (if ($t|length) > 0 then "\n" + $t + "\n" else "" end)
+            + (if ($t|length) > 0 then "\n" + esc_text($t) + "\n" else "" end)
             + (if ($tools|length) > 0 then "> @tool_result/L\($ln)-call.txt\n" else "" end)
           else empty end
       end
@@ -221,7 +226,22 @@ emit_tick() {
       end
   ' "$slice" 2>/dev/null | while IFS=$'\t' read -r rel b64; do
     [ -n "$rel" ] || continue
-    printf '%s' "$b64" | base64 -d > "$dest/$rel" 2>/dev/null || log_err "sidecar write failed: $rel"
+    if ! printf '%s' "$b64" | base64 -d > "$dest/$rel" 2>/dev/null; then
+      log_err "sidecar write failed: $rel"
+      continue
+    fi
+    # Optional sidecar pass (CDT-277 E8). Unset keeps the original bytes.
+    # A failing or empty command does not drop the sidecar.
+    if [ -n "${TRANSCRIPT_MIRROR_REDACT_CMD:-}" ]; then
+      _red=$(mktemp "${TMPDIR:-/tmp}/tm-redact.XXXXXX") || continue
+      if bash -c "$TRANSCRIPT_MIRROR_REDACT_CMD" < "$dest/$rel" > "$_red" 2>/dev/null \
+         && [ -s "$_red" ]; then
+        cat "$_red" > "$dest/$rel" 2>/dev/null || log_err "redact write failed: $rel"
+      else
+        log_err "redact cmd failed: $rel"
+      fi
+      rm -f "$_red"
+    fi
   done
   return 0
 }
@@ -687,6 +707,7 @@ main() {
   local SID_LOCKED=1 WORK="" SWAP_BAK=""
   sweep_sid_stashes "$SID"
   mkdir -p "$DIR/thinking" "$DIR/tool_result" "$DIR/injection" || { log_err "mkdir failed: $DIR"; return 0; }
+  chmod -R go-rwx "$DIR" 2>/dev/null || true
   ensure_meta "$DIR" "$TP" "$META_PARENT"
 
   WORK=$(mktemp -d "${TMPDIR:-/tmp}/tmirror.XXXXXX") || { log_err "mktemp failed"; return 0; }
@@ -822,6 +843,7 @@ main() {
       log_err "rebuild swap failed: sid=$SID"
       return 0
     fi
+    chmod -R go-rwx "$DIR" 2>/dev/null || true
     SWAP_BAK=""
     rm -rf "$BAK"
     if [ "$NEST" -eq 0 ]; then

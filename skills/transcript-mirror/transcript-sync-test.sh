@@ -233,9 +233,9 @@ else
   bad "M11 dumps vs jq mismatch jq=$(printf '%s' "$JQ_OUT" | od -An -tx1) dumps=$(printf '%s' "$DUMPS_NL" | od -An -tx1)"
 fi
 
-LINE_HASH=$(printf '%s\n' "$UJSON" | jq -S -c . | sha256sum | awk '{print $1}')
+RAW_HASH=$(printf '%s\n' "$UJSON" | sha256sum | awk '{print $1}')
 PY_HASH=$(UJSON="$UJSON" SYNC_PY="$HERE/transcript-sync.py" python3 - <<'PY'
-import importlib.util, os, sys
+import importlib.util, os
 path = os.environ["SYNC_PY"]
 spec = importlib.util.spec_from_file_location("tsync", path)
 mod = importlib.util.module_from_spec(spec)
@@ -244,11 +244,34 @@ ident = mod.record_ident(os.environ["UJSON"])
 print(ident[2:] if ident.startswith("h:") else ident, end="")
 PY
 )
-if [ "$LINE_HASH" = "$PY_HASH" ]; then
-  pass "M11 record_ident matches jq -S -c|sha256sum (unicode)"
+if [ "$RAW_HASH" = "$PY_HASH" ]; then
+  pass "M11 record_ident matches sha256 of the raw line (unicode)"
 else
-  bad "M11 ident hash jq=$LINE_HASH py=$PY_HASH"
+  bad "M11 ident hash raw=$RAW_HASH py=$PY_HASH"
 fi
+ident_of() {
+  UJSON="$1" SYNC_PY="$HERE/transcript-sync.py" python3 - <<'PY'
+import importlib.util, os
+path = os.environ["SYNC_PY"]
+spec = importlib.util.spec_from_file_location("tsync", path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.record_ident(os.environ["UJSON"]), end="")
+PY
+}
+check_raw_ident() {
+  local name="$1" body="$2" want got
+  want=$(printf '%s\n' "$body" | sha256sum | awk '{print $1}')
+  got=$(ident_of "$body")
+  case "$got" in
+    h:"$want") pass "M11 $name ident is the raw-line hash" ;;
+    *) bad "M11 $name ident=$got want h:$want" ;;
+  esac
+}
+check_raw_ident DEL '{"a":"'"$(printf '\177')"'"}'
+check_raw_ident float '{"n":1.0}'
+check_raw_ident bigint '{"n":9007199254740993}'
+check_raw_ident list '[1,2,3]'
 
 SID_NU="sess-220-nouuid"
 mkdir -p "$BUCKET/$SID_NU"

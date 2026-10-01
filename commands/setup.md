@@ -380,7 +380,10 @@ for ENTRY in \
   ".claude/memory/models/" \
   ".claude/memory/memory.db" \
   ".claude/memory/memory.db-wal" \
-  ".claude/memory/memory.db-shm"; do
+  ".claude/memory/memory.db-shm" \
+  ".claude/handoff/" \
+  ".claude/retro/" \
+  ".claude/dev-team/models.local.json*"; do
   grep -qF "$ENTRY" "$GITIGNORE" 2>/dev/null || echo "$ENTRY" >> "$GITIGNORE"
 done
 # Seed carve-out (child-glob + negations) when a pack may be committed
@@ -539,8 +542,10 @@ Local Model map only (SPEC-037). **Do not** write repo
 `$MROOT/.claude/dev-team/models.json` or global `~/.claude/dev-team/models.json`.
 **Do not** inline JSON writes in this command — call `write-model.sh` as a
 subprocess. **Not** doctor-gated (unlike `team` / `orchestration`). Unknown
-remainder after a known `models` verb still must not mutate: pass through to
-the CLI (bad argv → exit 64, no write).
+remainder after a known `models` verb still must not mutate the model map:
+pass through to the CLI (bad argv → exit 64, no JSON write).
+The same fence appends three `.gitignore` lines when they are absent.
+That ignore update is idempotent. It is not a model-map write.
 
 | Invocation | Maps to |
 |------------|---------|
@@ -560,6 +565,17 @@ if [ -z "$WRITE_MODEL" ] || [ ! -f "$WRITE_MODEL" ]; then
   echo "error: skills/model-map/write-model.sh not found in the installed plugin" >&2
   exit 1
 fi
+# Ignore handoff spines, the friction ledger, and local model pins.
+# Idempotent. This is not a model-map write. list stays read-only for JSON.
+# show-toplevel: .gitignore is this worktree's file, not the common-dir parent.
+RT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+RT_GI="$RT_ROOT/.gitignore"
+for RT_ENTRY in \
+  ".claude/handoff/" \
+  ".claude/retro/" \
+  ".claude/dev-team/models.local.json*"; do
+  grep -qF -- "$RT_ENTRY" "$RT_GI" 2>/dev/null || printf '%s\n' "$RT_ENTRY" >> "$RT_GI"
+done
 # Remaining args after `models` pass through unchanged (empty → list). A
 # Bash-tool fence has no positional arguments: read the user's text through a
 # quoted heredoc, then split it with globbing off (skill-lint C9).

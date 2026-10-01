@@ -120,19 +120,23 @@ def tool_use_blocks(tool_calls: Any, *, mode: str) -> List[Dict[str, Any]]:
     for i, tc in enumerate(tool_calls):
         if not isinstance(tc, dict):
             continue
-        name = tc.get("name") or "unknown"
+        fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+        name = tc.get("name") or fn.get("name") or "unknown"
         if not isinstance(name, str):
             name = "unknown"
         name = map_tool_name(name, mode=mode)
-        tid = tc.get("id") or f"toolu-adapt-{i}"
+        tid = tc.get("id") or fn.get("id") or f"toolu-adapt-{i}"
         if not isinstance(tid, str):
             tid = f"toolu-adapt-{i}"
+        arguments = tc.get("arguments")
+        if arguments is None:
+            arguments = fn.get("arguments")
         out.append(
             {
                 "type": "tool_use",
                 "id": tid,
                 "name": name,
-                "input": parse_tool_arguments(tc.get("arguments")),
+                "input": parse_tool_arguments(arguments),
             }
         )
     return out

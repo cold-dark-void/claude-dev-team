@@ -1410,6 +1410,7 @@ Use the `Write` tool to create `.claude/hooks/friction-capture.sh` with this con
 #   FRICTION_LEDGER_MAX_BYTES  default 5242880 (5 MiB)
 
 set -u   # NOT -e / NOT pipefail: every failure is handled explicitly -> exit 0
+umask 077
 
 fail() { echo "friction-capture: $*" >&2; exit 0; }
 
@@ -2165,6 +2166,26 @@ rm -f "$SEED"
 ```
 
 **If no DB:** use the `Write` tool to create `$PROJ_ROOT/.claude/memory/claude/memory.md` with the baseline content above.
+
+---
+
+### Step 7b: Ignore runtime handoff, retro, and local model pins
+
+Append these lines to the project `.gitignore` when they are absent.
+A second run does not duplicate a line.
+Handoff spines, the friction ledger, and local model pins stay untracked.
+
+```bash
+# show-toplevel: .gitignore is this worktree's file, not the common-dir parent.
+RT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+RT_GI="$RT_ROOT/.gitignore"
+for RT_ENTRY in \
+  ".claude/handoff/" \
+  ".claude/retro/" \
+  ".claude/dev-team/models.local.json*"; do
+  grep -qF -- "$RT_ENTRY" "$RT_GI" 2>/dev/null || printf '%s\n' "$RT_ENTRY" >> "$RT_GI"
+done
+```
 
 ---
 

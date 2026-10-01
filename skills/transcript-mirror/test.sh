@@ -1407,6 +1407,47 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# WP 4-01 — umask 077 and meaning-line redaction
+# ---------------------------------------------------------------------------
+umask 022
+PRIV="$WORK/priv.jsonl"
+printf '%s\n' '{"type":"user","uuid":"u-priv","message":{"role":"user","content":"## user\nBearer abcdefghijklmnop\npassword=s3cret"}}' > "$PRIV"
+age "$PRIV"
+umask 022
+TRANSCRIPT_MIRROR_ROOT="$STORE" bash "$REC" --transcript "$PRIV" --sid tm-priv >/dev/null 2>"$WORK/priv.err" || true
+PMODE=$(stat -c '%a' "$STORE/tm-priv/main.md" 2>/dev/null || true)
+DMODE=$(stat -c '%a' "$STORE/tm-priv" 2>/dev/null || true)
+if [ "$PMODE" = "600" ] && [ "$DMODE" = "700" ]; then
+  pass "WP401 store file is 0600 and dir is 0700 under umask 022"
+else
+  fail "WP401 modes file=$PMODE dir=$DMODE"
+fi
+if grep -q 'Bearer \[redacted\]' "$STORE/tm-priv/main.md" && ! grep -q 'abcdefghijklmnop' "$STORE/tm-priv/main.md" && ! grep -q 'password=s3cret' "$STORE/tm-priv/main.md"; then
+  pass "WP401 mirror redacts bearer and password"
+else
+  fail "WP401 redaction missing"
+fi
+if grep -qx ' ## user' "$STORE/tm-priv/main.md"; then
+  pass "WP401 a spoofed ## user line is escaped"
+else
+  fail "WP401 spoofed heading was not escaped"
+fi
+umask 022
+
+SEAM="$WORK/seam.jsonl"
+printf '%s\n' '{"type":"user","uuid":"u-seam","message":{"role":"user","content":[{"type":"tool_result","content":"SECRET-TOKEN"}]}}' > "$SEAM"
+age "$SEAM"
+TRANSCRIPT_MIRROR_REDACT_CMD='sed s/SECRET-TOKEN/HIDDEN/' \
+  TRANSCRIPT_MIRROR_ROOT="$STORE" bash "$REC" --transcript "$SEAM" --sid tm-seam >/dev/null 2>"$WORK/seam.err" || true
+SEAM_FILE=$(find "$STORE/tm-seam" -name '*.txt' 2>/dev/null | head -1)
+if [ -n "$SEAM_FILE" ] && grep -q 'HIDDEN' "$SEAM_FILE" && ! grep -q 'SECRET-TOKEN' "$SEAM_FILE"; then
+  pass "WP401 redact cmd replaces a sidecar"
+else
+  fail "WP401 redact cmd missing file=${SEAM_FILE:-none}"
+fi
+unset TRANSCRIPT_MIRROR_REDACT_CMD || true
+
+# ---------------------------------------------------------------------------
 # M14 — compact-transcript sibling suite (CDT-215)
 # ---------------------------------------------------------------------------
 export CDT_OPERATOR_HOME="$REAL_HOME"

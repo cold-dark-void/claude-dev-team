@@ -27,7 +27,12 @@ SYNC_SH = os.path.join(_HERE, "transcript-sync.sh")
 LOCK_SH = os.path.join(_HERE, "sid-lock.sh")
 DISCOVER_SH = os.path.abspath(os.path.join(_HERE, "..", "handoff", "discover-warm.sh"))
 CAP = 32768
-HEADING_RE = re.compile(r"^## (user|assistant)[ \t]*$")
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+try:
+    from mirrorlib import HEADING_RE
+except Exception:
+    HEADING_RE = re.compile(r"^## (user|assistant)[ \t]*$")
 
 
 def store_root() -> str:

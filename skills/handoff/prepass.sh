@@ -91,6 +91,8 @@
 # jq dependency, matching the "no new deps" rule).
 
 set -eu
+# Finalize and prepare write handoff packets. Same privacy as the mirror store.
+umask 077
 
 # --- locate this script's dir so we can find the shared module --------------
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -1245,6 +1247,16 @@ def tool_uses(obj):
             yield b.get("name") or "?", (b.get("input") if isinstance(b.get("input"), dict) else {})
 
 
+def redact_text(text):
+    if not isinstance(text, str) or not text:
+        return text if isinstance(text, str) else ""
+    text = re.sub(r"Bearer [A-Za-z0-9._~/+-]{8,}", "Bearer [redacted]", text)
+    text = re.sub(r"sk-[A-Za-z0-9]{8,}", "sk-[redacted]", text)
+    text = re.sub(r"AKIA[0-9A-Z]{8,}", "AKIA[redacted]", text)
+    text = re.sub(r"(?i)password=\S+", "password=[redacted]", text)
+    return text
+
+
 def digest_input(inp):
     """A short, single-line digest of a tool input (never a payload dump)."""
     if not isinstance(inp, dict):
@@ -1252,10 +1264,11 @@ def digest_input(inp):
     # Prefer a file path; else a command; else a compact key list.
     fp = edit_file_path(inp)
     if fp:
-        return fp
+        return redact_text(fp)
     cmd = inp.get("command")
     if isinstance(cmd, str) and cmd:
         first = cmd.strip().splitlines()[0] if cmd.strip() else ""
+        first = redact_text(first)
         return (first[:160] + "…") if len(first) > 160 else first
     keys = ",".join(sorted(k for k in inp.keys()))
     return f"{{{keys}}}" if keys else ""
