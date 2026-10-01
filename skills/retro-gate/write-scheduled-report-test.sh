@@ -102,6 +102,35 @@ rc=$?
 [ "$rc" -eq 0 ] && ok "webhook fail-open exit 0" || bad "webhook fail-open exit $rc"
 unset AGENT_WEBHOOK_URL
 
+# Quote in the report path must stay inside a JSON string.
+CAP="$TMP/curl-capture"
+mkdir -p "$TMP/bin"
+cat >"$TMP/bin/curl" <<'EOF'
+#!/bin/sh
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-d" ]; then
+    printf '%s\n' "$2" >"$CURL_CAPTURE"
+    exit 0
+  fi
+  shift
+done
+exit 0
+EOF
+chmod +x "$TMP/bin/curl"
+QDIR="$MROOT/.claude/retro"
+mkdir -p "$QDIR"
+QREPORT="$QDIR/scheduled-quote\"path.md"
+printf '%s\n' 'quote body' >"$QREPORT"
+CURL_CAPTURE="$CAP" PATH="$TMP/bin:$PATH" AGENT_WEBHOOK_URL="http://example.invalid" \
+  bash "$WRITER" --mroot "$MROOT" --mode all-auto --note "q" --applied-count x >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 0 ] && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$CAP" 2>/dev/null; then
+  ok "webhook body is JSON when the path has a quote"
+else
+  bad "webhook JSON rc=$rc body=$(head -c 200 "$CAP" 2>/dev/null)"
+fi
+unset AGENT_WEBHOOK_URL
+
 # --- usage error ---
 bash "$WRITER" 2>/dev/null
 rc=$?

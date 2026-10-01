@@ -431,6 +431,30 @@ else
   bad "S5: S1–S5 weight/cap or RETRO_THRESHOLD 5.0 missing or changed"
 fi
 
+_lead=$(RETRO_THRESHOLD=08 bash "$GATE" /no/such/retro.jsonl 2>/dev/null || true)
+if printf '%s' "$_lead" | python3 -c 'import json,sys; json.load(sys.stdin)'; then
+  ok "leading-zero RETRO_THRESHOLD yields JSON"
+else
+  bad "leading-zero RETRO_THRESHOLD out=$_lead"
+fi
+_nopy=$(PATH=/bin RETRO_THRESHOLD=not-a-number bash "$GATE" /no/such/retro.jsonl 2>/dev/null || true)
+if printf '%s' "$_nopy" | python3 -c 'import json,sys; json.load(sys.stdin)'; then
+  ok "bad RETRO_THRESHOLD stays JSON when python3 is absent"
+else
+  bad "no-python threshold out=$_nopy"
+fi
+
+_bt=$(mktemp "${TMPDIR:-/tmp}/retro-thr.XXXXXX")
+printf '%s\n' '{}' >"$_bt"
+_bout=$(RETRO_THRESHOLD=not-a-number bash "$GATE" "$_bt" 2>"$_bt.err")
+if printf '%s' "$_bout" | python3 -c 'import json,sys; json.load(sys.stdin)' \
+   && ! grep -q Traceback "$_bt.err"; then
+  ok "bad RETRO_THRESHOLD yields JSON"
+else
+  bad "bad RETRO_THRESHOLD out=$_bout err=$(head -c 200 "$_bt.err")"
+fi
+rm -f "$_bt" "$_bt.err"
+
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

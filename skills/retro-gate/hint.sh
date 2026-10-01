@@ -31,7 +31,16 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 # Claude Code encodes project dirs by replacing every non-alnum with '-'.
 # (s|/|-|g alone misses '.', so ~/apps/my.app would never resolve.)
 ENCODED_PATH=$(echo "$MROOT" | sed 's|[^A-Za-z0-9]|-|g')
-SESSION_JSONL=$(ls -t "$HOME/.claude/projects/${ENCODED_PATH}/"*.jsonl 2>/dev/null | head -1)
+SESSION_JSONL=""
+_best=0
+for _f in "$HOME/.claude/projects/${ENCODED_PATH}/"*.jsonl; do
+  [ -f "$_f" ] || continue
+  _mt=$(stat -c '%Y' "$_f" 2>/dev/null || stat -f '%m' "$_f" 2>/dev/null || printf '%s' 0)
+  if [ "$_mt" -gt "$_best" ]; then
+    _best=$_mt
+    SESSION_JSONL=$_f
+  fi
+done
 
 if [ -z "$SESSION_JSONL" ]; then
   exit 0

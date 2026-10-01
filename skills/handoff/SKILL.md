@@ -728,6 +728,32 @@ Defensive handling — **drop bad events / failed miner; never abort the packet*
 
 ---
 
+## Finalize (copy verbatim)
+
+The parent echo sets `PLAN_JSON`, `EVENTS_DIR`, `HANDOFF_DIR`, `SKILL`, `UUID`, `SLUG`, `HANDOFF_MODE`, and `PRIOR_EVENTS_FILE`. Copy this block. Do not rebuild the flags from memory.
+
+```bash
+PLAN_JSON="${PLAN_JSON:?}"
+EVENTS_DIR="${EVENTS_DIR:?}"
+HANDOFF_DIR="${HANDOFF_DIR:?}"
+SKILL="${SKILL:?}"
+UUID="${UUID:?}"
+SLUG="${SLUG:-stm}"
+MODE="${HANDOFF_MODE:-cold}"
+PREPASS="${PREPASS:-$(CDPATH= cd -- "$(dirname -- "$SKILL")" && pwd)/prepass.sh}"
+LEAF=$(python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); print(p.get("leaf_uuid") or "")' "$PLAN_JSON")
+SPINE_TOKENS=$(python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); s=p.get("stats") or {}; print(s.get("est_tokens") or 0)' "$PLAN_JSON")
+fin_args=(finalize --uuid "$UUID" --events "$EVENTS_DIR" --leaf "$LEAF" --slug "$SLUG" --mode "$MODE" --spine-tokens "$SPINE_TOKENS")
+if [ -n "${PRIOR_EVENTS_FILE:-}" ]; then
+  fin_args+=(--prior-events "$PRIOR_EVENTS_FILE")
+fi
+if [ -n "${ANNOTATIONS_FILE:-}" ]; then
+  fin_args+=(--annotations "$ANNOTATIONS_FILE")
+fi
+case "${HANDOFF_LIGHT:-}" in 1|true) fin_args+=(--light) ;; esac
+HANDOFF_DIR="$HANDOFF_DIR" bash "$PREPASS" "${fin_args[@]}"
+```
+
 ## Merge contract handoff to `prepass.sh finalize` / `assemble.py`
 
 Boundary between this skill (LLM fan-out) and deterministic assemble:

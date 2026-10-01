@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.9
+- **WP 4-04 Handoff packet** — finalize has one copy-paste command, event text stays one line, and a handoff root under the home Claude dir is refused.
+
 ### v1.19.8
 - **Sid lock keeps a fresh owner** — a lock directory with no owner line is not stolen, so two mirror ticks do not append the same turn twice.
 

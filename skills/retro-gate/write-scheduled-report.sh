@@ -190,18 +190,26 @@ mv -f "$tmp" "$REPORT" || {
 # shellcheck disable=SC2012
 (
   cd "$RETRO_DIR" || exit 0
-  # ls -1t: newest first; drop from 13th onward
-  ls -1t scheduled-*.md 2>/dev/null | tail -n +13 | while IFS= read -r old; do
+  find . -maxdepth 1 -type f -name 'scheduled-*.md' -print | while IFS= read -r f; do
+    mt=$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null || printf '%s' 0)
+    printf '%s %s\n' "$mt" "$f"
+  done | sort -nr | awk 'NR>12 { print $2 }' | while IFS= read -r old; do
     [ -n "$old" ] && rm -f -- "$old"
   done
 )
 
 # Thin optional webhook (fail-open; not CDV-210). Summary counts only — no transcript.
 if [ -n "${AGENT_WEBHOOK_URL:-}" ]; then
-  curl -sS -m 5 -X POST "$AGENT_WEBHOOK_URL" \
-    -H 'Content-Type: application/json' \
-    -d "{\"event\":\"scheduled_retro\",\"report_path\":\"$REPORT\",\"applied\":$APPLIED_COUNT,\"manual_followup\":$FOLLOWUP_COUNT,\"timestamp\":\"$TS\"}" \
-    >/dev/null 2>&1 || true
+  case "$APPLIED_COUNT" in ''|*[!0-9]*) APPLIED_COUNT=0 ;; esac
+  case "$FOLLOWUP_COUNT" in ''|*[!0-9]*) FOLLOWUP_COUNT=0 ;; esac
+  body=$(python3 -c 'import json,sys; print(json.dumps({"event":"scheduled_retro","report_path":sys.argv[1],"applied":int(sys.argv[2]),"manual_followup":int(sys.argv[3]),"timestamp":sys.argv[4]}))' \
+    "$REPORT" "$APPLIED_COUNT" "$FOLLOWUP_COUNT" "$TS" 2>/dev/null) || body=""
+  if [ -n "$body" ]; then
+    curl -sS -m 5 -X POST "$AGENT_WEBHOOK_URL" \
+      -H 'Content-Type: application/json' \
+      -d "$body" \
+      >/dev/null 2>&1 || true
+  fi
 fi
 
 # Absolute path on stdout.

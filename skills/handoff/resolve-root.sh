@@ -205,17 +205,23 @@ fi
 # MROOT: git-common-dir from PROJECT_DIR (worktree → shared main). Non-git → PROJECT_DIR.
 mroot_from_project() {
   local dir="$1"
-  local gc
+  local gc root
   if gc=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null); then
     # git-common-dir may be relative to dir
     if [ "${gc#/}" != "$gc" ]; then
-      ( CDPATH= cd -- "$(dirname -- "$gc")" && pwd )
+      root=$(CDPATH= cd -- "$(dirname -- "$gc")" && pwd)
     else
-      ( CDPATH= cd -- "$dir" && CDPATH= cd -- "$(dirname -- "$gc")" && pwd )
+      root=$(CDPATH= cd -- "$dir" && CDPATH= cd -- "$(dirname -- "$gc")" && pwd)
     fi
-    return 0
+  else
+    root=$dir
   fi
-  printf '%s' "$dir"
+  # A submodule common dir is <super>/.git/modules/<name>. dirname of that
+  # is <super>/.git/modules. The project root is the super checkout.
+  if [ "$(basename -- "$root")" = "modules" ] && [ "$(basename -- "$(dirname -- "$root")")" = ".git" ]; then
+    root=$(dirname -- "$(dirname -- "$root")")
+  fi
+  printf '%s' "$root"
 }
 
 MROOT=$(mroot_from_project "$PROJECT_DIR")
@@ -226,18 +232,16 @@ fi
 
 HANDOFF_DIR="$MROOT/.claude/handoff"
 
-# Safety: never silently land under $HOME/.claude/.claude/ when the target
-# project is not itself $HOME/.claude (AC1/AC9 anti-pattern).
+# Refuse a handoff root that is $HOME/.claude. That writes
+# $HOME/.claude/.claude/handoff, which the docs forbid.
 HOME_CLAUDE="${HOME}/.claude"
-NESTED="${HOME_CLAUDE}/.claude"
-case "$HANDOFF_DIR" in
-  "$NESTED"|"$NESTED"/*)
-    if [ "$MROOT" != "$HOME_CLAUDE" ]; then
-      echo "resolve-root.sh: refusing nested write path $HANDOFF_DIR (target MROOT=$MROOT)" >&2
-      exit 1
-    fi
-    ;;
-esac
+if [ -d "$HOME_CLAUDE" ]; then
+  HOME_CLAUDE=$(CDPATH= cd -- "$HOME_CLAUDE" && pwd)
+fi
+if [ "$MROOT" = "$HOME_CLAUDE" ]; then
+  echo "resolve-root.sh: refusing MROOT=$MROOT (would write $HANDOFF_DIR)" >&2
+  exit 1
+fi
 
 printf '%s\n' "$PROJECT_DIR"
 printf '%s\n' "$MROOT"

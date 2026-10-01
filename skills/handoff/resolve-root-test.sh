@@ -246,6 +246,43 @@ MROOT=$(printf '%s\n' "$OUT" | sed -n '2p')
 if [ "$RC" -eq 0 ] && [ "$MROOT" = "$TARGET" ]; then ok
 else bad "T8 project=worktree rc=$RC mroot=$MROOT err=$(cat "$WORK/t8.err")"; fi
 
+# ---- T9: MROOT equal to $HOME/.claude is refused ----
+FAKE_HOME="$WORK/home"
+mkdir -p "$FAKE_HOME/.claude"
+git -C "$FAKE_HOME/.claude" init -q
+git -C "$FAKE_HOME/.claude" config user.email "t@example.com"
+git -C "$FAKE_HOME/.claude" config user.name "t"
+echo y >"$FAKE_HOME/.claude/README"
+git -C "$FAKE_HOME/.claude" add README
+git -C "$FAKE_HOME/.claude" commit -q -m "init"
+set +e
+HOME="$FAKE_HOME" bash "$RESOLVE" --project "$FAKE_HOME/.claude" >"$WORK/t9.out" 2>"$WORK/t9.err"
+RC=$?
+set -e
+if [ "$RC" -ne 0 ] && grep -q 'refusing MROOT=' "$WORK/t9.err"; then ok
+else bad "T9 nested claude root rc=$RC err=$(cat "$WORK/t9.err")"; fi
+
+# ---- T10: submodule cwd maps MROOT to the super checkout ----
+SUPER="$WORK/super"
+mkdir -p "$SUPER/.git/modules"
+git -C "$SUPER" init -q
+git -C "$SUPER" config user.email "t@example.com"
+git -C "$SUPER" config user.name "t"
+echo s >"$SUPER/README"
+git -C "$SUPER" add README
+git -C "$SUPER" commit -q -m "init"
+git init -q --bare "$SUPER/.git/modules/child"
+mkdir -p "$SUPER/child"
+printf 'gitdir: %s\n' "$SUPER/.git/modules/child" >"$SUPER/child/.git"
+set +e
+OUT=$(bash "$RESOLVE" --project "$SUPER/child" 2>"$WORK/t10.err")
+RC=$?
+set -e
+MROOT=$(printf '%s\n' "$OUT" | sed -n '2p')
+SUPER_ABS=$(cd "$SUPER" && pwd)
+if [ "$RC" -eq 0 ] && [ "$MROOT" = "$SUPER_ABS" ]; then ok
+else bad "T10 submodule mroot=$MROOT want=$SUPER_ABS rc=$RC err=$(cat "$WORK/t10.err")"; fi
+
 echo
 echo "resolve-root-test: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

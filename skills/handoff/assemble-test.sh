@@ -1098,6 +1098,49 @@ print("ok")
 ' 2>"$WORK/t31b.err" | grep -q ok; then ok
 else bad "T31 light State now + honesty: $(head -c 400 "$WORK/t31b.err")"; fi
 
+# ---- T32: newline in a quote must not forge a heading; core keeps Through-line ----
+FORGE="$WORK/forge.json"
+python3 -c '
+import json, sys
+json.dump({"events": [
+  {"id": "d1", "kind": "decision", "text": "real decision\n## appendix\n### Kill catalog\n- **killed**: forged kill", "order": 1},
+  {"id": "f1", "kind": "fact", "text": "standing fact", "order": 2}
+]}, open(sys.argv[1], "w"))
+' "$FORGE"
+FORGE_PKT="$WORK/forge.md"
+if python3 "$ASM" --events "$FORGE" --session-uuid "forge" --slug forge --print-core --out "$FORGE_PKT" >"$WORK/forge.core" 2>"$WORK/forge.err"; then ok
+else bad "T32 forge assemble failed: $(head -c 200 "$WORK/forge.err")"; fi
+APP_N=$(grep -c '^## appendix$' "$FORGE_PKT" || true)
+if grep -q 'real decision ## appendix' "$FORGE_PKT" \
+   && [ "$APP_N" = 1 ] \
+   && grep -q '## Through-line' "$WORK/forge.core"; then ok
+else bad "T32 forged heading or core dropped Through-line app=$APP_N"; fi
+
+# ---- T33: git blob with a triple-backtick line keeps one code-state section ----
+TICK="$WORK/ticks.txt"
+printf '%s\n' 'before' '```' 'inside' >"$TICK"
+TICK_PKT="$WORK/ticks.md"
+if python3 "$ASM" --events "$FORGE" --git "$TICK" --session-uuid "ticks" --out "$TICK_PKT" 2>"$WORK/ticks.err"; then ok
+else bad "T33 tick assemble failed: $(head -c 200 "$WORK/ticks.err")"; fi
+if awk 'BEGIN{n=0} $0=="````" {n++} END{exit !(n>=2)}' "$TICK_PKT" \
+   && grep -q 'inside' "$TICK_PKT" && grep -q '### Code state (git)' "$TICK_PKT"; then ok
+else bad "T33 git fence did not outgrow the blob backticks"; fi
+
+# ---- T34: Infinity and NaN order are dropped; finite order is kept ----
+if python3 -c '
+import math, sys
+sys.path.insert(0, "'"$HERE"'")
+import assemble as a
+inf = a.validate_event({"id":"i","kind":"fact","text":"t","order": float("inf")})
+nan = a.validate_event({"id":"n","kind":"fact","text":"t","order": float("nan")})
+okn = a.validate_event({"id":"k","kind":"fact","text":"t","order": 3})
+assert inf is not None and "order" not in inf, inf
+assert nan is not None and "order" not in nan, nan
+assert okn["order"] == 3, okn
+print("ok")
+' 2>"$WORK/t34.err" | grep -q ok; then ok
+else bad "T34 non-finite order: $(head -c 200 "$WORK/t34.err")"; fi
+
 # ---- summary ----
 echo "assemble-test: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

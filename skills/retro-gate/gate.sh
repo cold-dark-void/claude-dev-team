@@ -24,6 +24,9 @@ set -u
 
 JSONL="${1:-}"
 THRESHOLD="${RETRO_THRESHOLD:-5.0}"
+if ! printf '%s' "$THRESHOLD" | grep -Eq '^(0|[1-9][0-9]*)([.][0-9]+)?$'; then
+  THRESHOLD=5.0
+fi
 
 if [ -z "$JSONL" ]; then
   echo '{"score":0,"passed":false,"threshold":'"$THRESHOLD"',"signals":[],"error":"missing jsonl path"}'
@@ -42,7 +45,6 @@ if [ ! -s "$JSONL" ]; then
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
-  THRESHOLD="${RETRO_THRESHOLD:-5.0}"
   echo "{\"score\":0,\"passed\":false,\"threshold\":${THRESHOLD},\"signals\":[],\"error\":\"python3 required\"}"
   exit 0
 fi
@@ -67,10 +69,15 @@ export FRICTION_LEDGER="${FRICTION_LEDGER:-}"
 export RETRO_FORCE_TRANSCRIPT_S2="${RETRO_FORCE_TRANSCRIPT_S2:-}"
 
 python3 - "$JSONL" "$THRESHOLD" "${PARSELIB_DIR:-}" <<'PYEOF'
-import json, re, sys, os  # json: only for serializing the verdict (parse via parselib)
+import json, math, re, sys, os  # json: only for serializing the verdict (parse via parselib)
 
 JSONL_PATH = sys.argv[1]
-THRESHOLD = float(sys.argv[2])
+try:
+    THRESHOLD = float(sys.argv[2])
+    if not math.isfinite(THRESHOLD):
+        THRESHOLD = 5.0
+except (TypeError, ValueError):
+    THRESHOLD = 5.0
 PARSELIB_DIR = sys.argv[3] if len(sys.argv) > 3 else ""
 LEDGER_PATH = os.environ.get("FRICTION_LEDGER") or ""
 FORCE_TRANSCRIPT_S2 = os.environ.get("RETRO_FORCE_TRANSCRIPT_S2") == "1"

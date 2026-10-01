@@ -320,6 +320,7 @@ The numbered Test section above is the acceptance map. This table is the script 
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 4-04: event text, how_verified, pointer notes, and validated summary prose collapse to one line before render. Git blob fence is longer than any backtick run in the blob. Packet write is temp plus rename. resolve-root refuses MROOT equal to `$HOME/.claude` and maps a submodule common dir up to the super checkout. |
 | 2026-10-01 | WP 2-03: `## Traceability` holds the Test→script map. `SPEC-018/T39` is tagged on `skills/handoff/detached-stub-test.sh`. |
 | 2026-09-25 | **WP 1-02 (CDT-266, W1-27, E5):** M19.11 one parent fence (parse through prepare in the Step 1 fence; quoted-heredoc args; bare → warm); `mktemp` error file; python3 plan helper replaces `jq`; payload echo carries `SPINE=`; full 8-4-4-4-12 uuid shape; cache-HIT / M9 strings match the docs page. Unknown flag stays usage + exit 0 (this spec wins over the W1-27 "exit 64" ask). 12000 B cap unchanged. |
 | 2026-08-26 | **CDT-216:** M3f Transcript mirror consume — `--check --sid` `status=ok` MAY replace M2 render with stripped `main.md`; `leaf_uuid` stays JSONL tip; `plan.spine_origin=mirror` on hit only; fork/delta/`--full`/not-ok → JSONL identity; cursor ≠ leaf; OQ-H hybrid OUT; OQ-F stitch out (force JSONL); OQ-K sid = handoff id; Test 40 |

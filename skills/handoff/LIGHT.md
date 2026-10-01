@@ -61,8 +61,9 @@ INLINE plus a miner Task on the same capture is a duplicate-spine-read defect (M
 4. Miner: **INLINE** on detach (this turn, both event files, one spine read, MUST
    NOT nest Task). In-session: spawn **1** miner Task. `model: haiku` when unset.
 5. **Skip annotation.** `ANNOTATIONS_FILE=""`. Do not build `EVENTS_SUMMARY_JSON`.
-6. `prepass.sh finalize --mode warm --light` (no `--annotations`). Draft path;
-   no M8 cache. Print:
+6. Run `## Finalize (copy verbatim)` in `skills/handoff/SKILL.md` with
+   `HANDOFF_LIGHT=1` so the block passes `--light`. Do not Read the rest of
+   that file. Draft path; no M8 cache. Print:
    ```
    Light handoff written → <path>
    Note: light preset (not AC-16-scored). Run bare /handoff before session end for a full tip + delta chain.

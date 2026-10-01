@@ -125,7 +125,7 @@ def validate_summary(text, events) -> tuple:
                 break
         if not has_valid:
             return False, None, "uncited sentence"
-    return True, _strip_cite_tokens(stripped), "ok"
+    return True, " ".join(_strip_cite_tokens(stripped).split()), "ok"
 
 
 def occupied_ids(state: dict) -> set:

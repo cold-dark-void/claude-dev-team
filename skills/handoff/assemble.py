@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import os
 import sys
 from collections import OrderedDict
@@ -161,14 +162,19 @@ def validate_event(raw):
     if quote is not None and quote.strip():
         out["quote"] = quote
 
-    if "order" in raw and raw["order"] is not None:
+    if "order" in raw and raw["order"] is not None and not isinstance(raw["order"], bool):
         try:
-            out["order"] = int(raw["order"])
-        except (TypeError, ValueError):
-            try:
-                out["order"] = float(raw["order"])
-            except (TypeError, ValueError):
-                pass
+            n = float(raw["order"])
+        except (TypeError, ValueError, OverflowError):
+            n = None
+        if n is not None and math.isfinite(n):
+            if n.is_integer():
+                try:
+                    out["order"] = int(n)
+                except (OverflowError, ValueError):
+                    pass
+            else:
+                out["order"] = n
 
     ts = raw.get("timestamp")
     if isinstance(ts, str) and ts.strip():
@@ -271,12 +277,12 @@ def load_events(path):
     i = 0
     for p in paths:
         stem = os.path.splitext(os.path.basename(p))[0]
-        with open(p, "r", encoding="utf-8") as fh:
-            try:
+        try:
+            with open(p, "r", encoding="utf-8") as fh:
                 obj = json.load(fh)
-            except ValueError as e:
-                sys.stderr.write(f"assemble: skip unreadable JSON {p}: {e}\n")
-                continue
+        except (OSError, ValueError) as e:
+            sys.stderr.write(f"assemble: skip unreadable JSON {p}: {e}\n")
+            continue
         for raw in _extract_events_payload(obj):
             ev = validate_event(raw)
             if ev is None:
@@ -711,7 +717,7 @@ def fmt_pointer(p):
         return str(p).strip()
     ptype = (p.get("type") or "").strip().lower()
     ref = str(p.get("ref") or "").strip()
-    note = str(p.get("note") or "").strip()
+    note = " ".join(str(p.get("note") or "").split())
     if not ref:
         token = ""
     elif ptype == "transcript":
@@ -768,7 +774,7 @@ def _display_body(ev):
     elif len(body) > QUOTE_MAX and kind in ("ruling", "killed", "hypothesis", "decision", "open", "conflict", "fact"):
         # Defensive: any over-cap body shown inline is truncated (AC-7)
         body = truncate_quote(body, QUOTE_MAX)
-    return body
+    return " ".join(str(body).split())
 
 
 def render_event_line(ev, bullet="-"):
@@ -777,7 +783,7 @@ def render_event_line(ev, bullet="-"):
     line = f"{bullet} **{kind}**: {body}{_label_suffix(ev)}"
     hv = ev.get("how_verified")
     if hv and kind == "fact":
-        line += f" _(verified: {hv})_"
+        line += f" _(verified: {' '.join(str(hv).split())})_"
     line += _pointer_suffix(ev)
     return line
 
@@ -1032,9 +1038,19 @@ def assemble_packet(
     lines.append("### Code state (git)")
     git_text = (git_blob or "").rstrip()
     if git_text:
-        lines.append("```")
+        run = 0
+        longest = 0
+        for ch in git_text:
+            if ch == "`":
+                run += 1
+                if run > longest:
+                    longest = run
+            else:
+                run = 0
+        bar = "`" * max(3, longest + 1)
+        lines.append(bar)
         lines.append(git_text)
-        lines.append("```")
+        lines.append(bar)
     else:
         lines.append("_no git snapshot_")
     lines.append("")
@@ -1225,10 +1241,20 @@ def main(argv=None):
 
     if args.out:
         out_dir = os.path.dirname(args.out)
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-        with open(args.out, "w", encoding="utf-8") as fh:
-            fh.write(packet)
+        tmp_out = args.out + f".{os.getpid()}.tmp"
+        try:
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            with open(tmp_out, "w", encoding="utf-8") as fh:
+                fh.write(packet)
+            os.replace(tmp_out, args.out)
+        except OSError as e:
+            try:
+                os.remove(tmp_out)
+            except OSError:
+                pass
+            sys.stderr.write(f"assemble: packet write failed: {e}\n")
+            return 2
 
     if args.print_core:
         sys.stdout.write(extract_core(packet))

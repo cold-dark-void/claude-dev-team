@@ -181,7 +181,11 @@ esac
 # --since-leaf (prepare internal/debug M8b), --prior-events (finalize M8b),
 # --light / HANDOFF_LIGHT (finalize M10c light preset, CDT-91).
 UUID=""
-OUT="plan.json"
+if [ -n "${HANDOFF_DIR:-}" ] && [ -d "$HANDOFF_DIR" ]; then
+  OUT="$HANDOFF_DIR/plan.json"
+else
+  OUT="plan.json"
+fi
 EVENTS=""
 GIT_STATE=""
 ANNOTATIONS=""
@@ -1180,8 +1184,19 @@ CANONICAL = os.environ["PREPASS_CANONICAL"]
 OUT = os.environ["PREPASS_OUT"]
 ASSEMBLE = os.environ["PREPASS_ASSEMBLE"]
 SINCE_LEAF = (os.environ.get("PREPASS_SINCE_LEAF") or "").strip()
-BUDGET_TOKENS = int(os.environ.get("HANDOFF_SPINE_TOKENS", "120000"))
-CHARS_PER_TOKEN = max(1, int(os.environ.get("HANDOFF_CHARS_PER_TOKEN", "4")))
+_raw_budget = os.environ.get("HANDOFF_SPINE_TOKENS", "120000")
+try:
+    BUDGET_TOKENS = int(_raw_budget)
+except (TypeError, ValueError, OverflowError):
+    BUDGET_TOKENS = 120000
+if BUDGET_TOKENS < 1:
+    BUDGET_TOKENS = 120000
+_raw_cpt = os.environ.get("HANDOFF_CHARS_PER_TOKEN", "4")
+try:
+    CHARS_PER_TOKEN = int(_raw_cpt)
+except (TypeError, ValueError, OverflowError):
+    CHARS_PER_TOKEN = 4
+CHARS_PER_TOKEN = max(1, CHARS_PER_TOKEN)
 BUDGET_CHARS = BUDGET_TOKENS * CHARS_PER_TOKEN
 
 OUT_DIR = os.path.dirname(os.path.abspath(OUT)) or "."
@@ -1459,8 +1474,9 @@ def _mirror_check_ok(sync_path, sid):
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            timeout=30,
         )
-    except (OSError, ValueError):
+    except (OSError, ValueError, subprocess.TimeoutExpired):
         return False
     for line in (proc_chk.stdout or "").splitlines():
         got_sid = None

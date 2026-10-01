@@ -367,15 +367,25 @@ if printf '%s' "$UFOOT" | grep -Eq '^packet_tokens: [0-9]+ \(advisory\)$' \
    && ! grep -q 'stripped_spine_tokens' "$PACKET"; then ok
 else bad "T18 unavailable footer shape: $UFOOT"; fi
 
-# ---- T19: production path wires plan.json est_tokens → --spine-tokens (AC6) ----
-# T2 stub: parent no longer inlines FIN_ARGS. Spawn payload names
-# HANDOFF_SPINE_TOKENS; prepass.sh finalize still forwards the flag.
+# ---- T19: Finalize (copy verbatim) carries the production flags (AC6) ----
+FIN_BLOCK=$(awk '
+  /^## Finalize \(copy verbatim\)/ { on=1; next }
+  on && /^## / { exit }
+  on { print }
+' "$HERE/SKILL.md")
+fin_missing=""
+for flag in --uuid --events --leaf --slug --mode --spine-tokens --prior-events; do
+  printf '%s\n' "$FIN_BLOCK" | grep -q -- "$flag" || fin_missing="$fin_missing $flag"
+done
 if [ -f "$CMD_HANDOFF" ] \
    && grep -q 'est_tokens' "$CMD_HANDOFF" \
+   && grep -q 'SPINE=' "$CMD_HANDOFF" \
    && grep -q 'HANDOFF_SPINE_TOKENS=…' "$CMD_HANDOFF" \
-   && grep -q 'HANDOFF_SPINE_TOKENS' "$HERE/SKILL.md" \
-   && grep -q -- '--spine-tokens "$SPINE_TOKENS"' "$PREPASS"; then ok
-else bad "T19 missing est_tokens / spawn HANDOFF_SPINE_TOKENS / prepass --spine-tokens wiring"; fi
+   && [ -z "$fin_missing" ] \
+   && printf '%s\n' "$FIN_BLOCK" | grep -q 'HANDOFF_DIR=' \
+   && grep -q -- '--spine-tokens "$SPINE_TOKENS"' "$PREPASS" \
+   && grep -q 'Finalize (copy verbatim)' "$HERE/LIGHT.md"; then ok
+else bad "T19 finalize block missing:${fin_missing:- none} block=$(printf '%s' "$FIN_BLOCK" | head -c 180)"; fi
 
 # ---- T20: CDT-88 M8b cache events write/read (stem map, raw ids) ----
 # T1 finalize with thrash + leaf → cache must include non-empty events map.
