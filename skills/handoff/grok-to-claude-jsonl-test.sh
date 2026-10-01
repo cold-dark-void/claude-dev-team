@@ -24,8 +24,8 @@ mkdir -p "$CWD"
 OUT="$WORK/claude-shaped.jsonl"
 
 # ---- T0: script + fixture present ----
-if [ -f "$ADAPTER" ] && [ -x "$ADAPTER" ] || [ -f "$ADAPTER" ]; then ok
-else bad "T0 adapter missing: $ADAPTER"; fi
+if [ -f "$ADAPTER" ] && [ -x "$ADAPTER" ]; then ok
+else bad "T0 adapter missing or not executable: $ADAPTER"; fi
 if [ -f "$FIX" ]; then ok; else bad "T0 fixture missing: $FIX"; fi
 if rg -qF "$PHRASE_USER" "$FIX" 2>/dev/null || grep -qF "$PHRASE_USER" "$FIX"; then ok
 else bad "T0 fixture missing known phrase $PHRASE_USER"; fi

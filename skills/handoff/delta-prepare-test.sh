@@ -216,7 +216,7 @@ PYSLA
     PRIOR_LEAF=""
     unset FINALIZE_PRIOR_EVENTS 2>/dev/null || true
   fi
-  # finalize gate (commands/handoff.md Step 8)
+  # finalize gate (commands/handoff.md prepare echo)
   FIN_ARGS=()
   if [ -n "${PRIOR_EVENTS_FILE:-}" ] && [ -f "$PRIOR_EVENTS_FILE" ]; then
     FIN_ARGS+=(--prior-events "$PRIOR_EVENTS_FILE")

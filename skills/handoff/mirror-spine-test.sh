@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # mirror-spine-test.sh — SPEC-018 M3f / Test 40 (CDT-216 T1).
 # Run: bash skills/handoff/mirror-spine-test.sh
-# Consume asserts (T1.4/T1.7/T1.8) are RED until T2 prepass M3f.
+# Consume asserts (T1.4/T1.7/T1.8) cover prepass M3f.
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -200,7 +200,7 @@ if [ -f "$PLAN_ID" ]; then
   else bad "T1.3 JSONL spine missing M3F-PLAIN-USER"; fi
 fi
 
-# ---- T1.4 hit plant: --check ok then consume (RED until T2) ----
+# ---- T1.4 hit plant: --check ok then consume ----
 SID_HIT="00000000-0000-4000-8000-m3fhit"
 TR_HIT=$(tr_copy "$SID_HIT" "$FIX/plain.jsonl")
 LOC_HIT=$(plant_hit "$SID_HIT" "$FIX/plain.jsonl" "$FIX/plain-main.md")

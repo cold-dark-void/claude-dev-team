@@ -805,7 +805,7 @@ if python3 "$ASM" --events "$THRASH" --session-uuid "light-off" --mode warm --ou
    && grep -q '^mode: warm$' "$LIGHT_OFF"; then ok
 else bad "T27 bare warm must omit light meta"; fi
 
-# ---- T28: CDT-94 gen-3 prior id collision — load-time #N uniquify (RED before T1) ----
+# ---- T28: CDT-94 gen-3 prior id collision — load-time #N uniquify ----
 # Fixture mimics post–gen-2 events_for_cache: two through_line rows share raw id tl-e1
 # with distinct bodies; state stem has a unique raw (non-collision pocket).
 G3_PRIOR="$WORK/g3-prior.json"

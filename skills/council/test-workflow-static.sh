@@ -290,6 +290,19 @@ else
   echo "FAIL: cache dir layout missing under $_CDV211_DIR"; fail=1
 fi
 rm -rf -- "$_CDV211_DIR" 2>/dev/null || true
+_STALE_PARENT=$(dirname -- "$_CDV211_DIR")
+_STALE="$_STALE_PARENT/council-cache-stale-wp406"
+_FRESH="$_STALE_PARENT/council-cache-fresh-wp406"
+rm -rf -- "$_STALE" "$_FRESH"
+mkdir -p "$_STALE" "$_FRESH"
+touch -d '2 days ago' "$_STALE"
+bash skills/council/engine.sh preflight --scope claim --scope-arg 'prune' >/dev/null
+if [ ! -d "$_STALE" ] && [ -d "$_FRESH" ]; then
+  echo "OK: preflight prunes council-cache older than 24h"
+else
+  echo "FAIL: stale council-cache prune stale=$([ -d "$_STALE" ] && echo yes || echo no) fresh=$([ -d "$_FRESH" ] && echo yes || echo no)"; fail=1
+fi
+rm -rf -- "$_STALE" "$_FRESH" 2>/dev/null || true
 if grep -nE 'cache_dir|cache-first|CACHE_DIR' skills/council/prompts/investigator.md >/dev/null \
   && grep -nE 'cache_dir|CACHE_DIR|council-cache' commands/council.md >/dev/null; then
   echo "OK: investigator + council.md document cache protocol"

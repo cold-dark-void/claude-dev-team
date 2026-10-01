@@ -195,7 +195,7 @@ if [ -x "$PREPASS" ] && [ -f "$THRASH" ]; then
   else ok
   fi
 
-  # Happy path: HANDOFF_DIR from resolve (simulates command Step 0 export)
+  # Happy path: HANDOFF_DIR from resolve (simulates the command export)
   unset HANDOFF_DIR
   export HANDOFF_DIR="$EXP_HDIR"
   PACKET_GLOB=""

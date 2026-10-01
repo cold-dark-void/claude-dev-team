@@ -432,6 +432,12 @@ _session_id_from_source() {
   fi
 }
 
+# Keep this run's feeds for later fences and the phase-2 read.
+# Prune only retro-norm dirs older than 24h.
+find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'retro-norm.*' -mmin +1440 -print 2>/dev/null \
+  | while IFS= read -r _old_norm; do rm -rf -- "$_old_norm"; done
+_RETRO_NORM=$(mktemp -d "${TMPDIR:-/tmp}/retro-norm.XXXXXX") || _RETRO_NORM=""
+
 _normalize_feed() {
   # $1=host $2=source $3=session_id → gate path on stdout
   # --cwd is live HOST_CWD (Grok session metadata / bucket parity).
@@ -440,8 +446,13 @@ _normalize_feed() {
   local _src="$2"
   local _sid="$3"
   if [ -f "$HOSTS_PY" ] && command -v python3 >/dev/null 2>&1; then
-    python3 "$HOSTS_PY" normalize --host "$_h" --source "$_src" --cwd "$HOST_CWD" \
-      --session-id "$_sid" --mode scoring 2>/dev/null || true
+    if [ -n "${_RETRO_NORM:-}" ]; then
+      TMPDIR="$_RETRO_NORM" python3 "$HOSTS_PY" normalize --host "$_h" --source "$_src" --cwd "$HOST_CWD" \
+        --session-id "$_sid" --mode scoring 2>/dev/null || true
+    else
+      python3 "$HOSTS_PY" normalize --host "$_h" --source "$_src" --cwd "$HOST_CWD" \
+        --session-id "$_sid" --mode scoring 2>/dev/null || true
+    fi
     return 0
   fi
   # Identity fallback (Claude only).

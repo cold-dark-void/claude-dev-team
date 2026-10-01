@@ -88,7 +88,7 @@ not freeform live-context; not a dual path when discover fails (M10 / M10b).
 | Knob | Light default (only if operator-unset) | Bare warm default |
 |------|----------------------------------------|-------------------|
 | `HANDOFF_MINER_MODEL` | `haiku` (`--miner-model` wins) | inherit session (omit `model`) |
-| Annotation (Step 7) | **skip** (`SKIP_ANNOTATION=1`) | haiku annotation Task |
+| Annotation | **skip** (`SKIP_ANNOTATION=1`) | haiku annotation Task |
 | `HANDOFF_SPINE_TOKENS` | **40000** (optional lower; MUST NOT change bare default) | **120000** |
 | M8 cache write | **none** (no create/overwrite of `cache/<sid>.json`) | write cumulative `events` |
 | Packet filename | `…-<slug>-draft.md` | `…-<slug>.md` |
@@ -112,7 +112,7 @@ eligible `Supersedes` tips; PreCompact rescues remain excluded.
 
 **Orchestrator contract:**
 
-1. Warm-only — cold uuid + `--light` → usage fail (command Step 0).
+1. Warm-only — cold uuid + `--light` → usage fail (parse fence).
 2. Preset knobs apply **only when unset** — honor operator env overrides.
 3. Do **not** build `EVENTS_SUMMARY_JSON` or spawn annotation under light.
 4. Finalize with `--light` / `HANDOFF_LIGHT=1` → draft path + skip M8 write/prune.
@@ -228,7 +228,7 @@ Background agent `model:` is miner tier (`haiku` when `HANDOFF_MINER_MODEL` unse
 
 ```
 subagent_type: "general-purpose"
-# model: inherit session by default (omit field)
+# model: haiku when HANDOFF_MINER_MODEL is unset
 # if HANDOFF_MINER_MODEL is exact fast|balanced|max → host cell; else passthrough
 # effort: optional — omit by default; never required
 ```

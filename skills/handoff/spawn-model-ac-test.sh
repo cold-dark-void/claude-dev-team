@@ -78,7 +78,7 @@ else
 fi
 
 # ---- T3: miner inherits; HANDOFF_MINER_MODEL opt-in; no unconditional haiku ----
-# CMD home is orchestrator-spawn (background agent model:), not Step 6 miner Task.
+# CMD home is orchestrator-spawn (background agent model:), not the in-session miner Task.
 if printf '%s\n' "$SPAWN_SEC" | grep -q 'HANDOFF_MINER_MODEL' \
   && printf '%s\n' "$SPAWN_SEC" | grep -qiE 'inherit' \
   && ! printf '%s\n' "$SPAWN_SEC" | grep -qE '^[[:space:]]*model:[[:space:]]*haiku[[:space:]]*$'; then

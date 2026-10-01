@@ -390,7 +390,8 @@ Using the `allowedDomains` list from Step 2, write the settings file.
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/precompact-rescue.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/precompact-rescue.sh\"",
+            "timeout": 45
           }
         ]
       }

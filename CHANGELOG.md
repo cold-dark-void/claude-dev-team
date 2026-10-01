@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.11
+- **WP 4-06 Handoff hygiene** — slug rejects a following flag, precompact keeps the newest rescue past seq 999, and prepare uses the sibling transcript mirror.
+
 ### v1.19.10
 - **WP 4-05 Handoff discovery** — project-dir names encode every non-letter, cold mode ignores a Grok bridge, and a generic SESSION_ID is not a pin.
 

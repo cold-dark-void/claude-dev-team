@@ -13,13 +13,13 @@ is_edit_tool(name)    : bool       — True for Write/Edit/MultiEdit/NotebookEdi
 edit_file_path(inp)   : str|None   — extract target path from a tool_use input dict
 is_meta(d)            : bool       — True for system-injected isMeta user turns
 is_sidechain(d)       : bool       — True for isSidechain-tagged messages
-is_tool_result(obj)   : bool       — True when the line dict carries a tool_result block
+is_tool_result(obj)   : bool       — internal; no production caller. True when the line dict carries a tool_result block
 SIDECHAIN_SIGNAL_CUES : tuple[str] — closed cue list for signal-bearing sidechain detection (CDV-205)
 sidechain_cue_hit(text) : (cue, line)|None — first case-insensitive cue match in text
-sidechain_is_signal(texts) : bool  — True if any text hits a SIDECHAIN_SIGNAL_CUE
+sidechain_is_signal(texts) : bool  — internal; tests import it. True if any text hits a SIDECHAIN_SIGNAL_CUE
 schema_drift_warn(path): None      — stream first 50 lines of path; warn stderr if no known field seen
 warn_schema_drift(path, lines_checked, seen_known): None  — lower-level helper (used by iter_lines)
-iter_lines(path, n)   : Iterator[(int, dict)] — yield (line_no, dict) with auto schema-drift check
+iter_lines(path, n)   : Iterator[(int, dict)] — internal; no production caller. Yield (line_no, dict)
 """
 
 from __future__ import annotations

@@ -779,6 +779,42 @@ else
   fail "C10 suite did not use TRANSCRIPT_MIRROR_ROOT"
 fi
 
+# bound_tail: earliest suffix that fits; clip only when the newest block alone exceeds.
+if python3 - "$CT_PY" << 'PY'
+import importlib.util, sys, time
+path = sys.argv[1]
+spec = importlib.util.spec_from_file_location("compact_transcript", path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+blocks = ["## user\nshort\n", "## assistant\n" + ("b" * 40) + "\n", "## user\nend\n"]
+text = "".join(blocks)
+cap = len(blocks[1].encode()) + len(blocks[2].encode())
+got = mod.bound_tail(text, cap)
+want = blocks[1] + blocks[2]
+if got != want:
+    sys.stderr.write("suffix mismatch\n")
+    sys.exit(1)
+clipped = mod.bound_tail(text, 8)
+if not clipped.startswith("## user"):
+    sys.stderr.write("clip did not keep the newest heading\n")
+    sys.exit(1)
+if len(clipped.encode()) > 8:
+    sys.stderr.write("clip exceeded cap\n")
+    sys.exit(1)
+big = "".join("## user\n" + ("x" * 200) + "\n" for _ in range(30000))
+t0 = time.monotonic()
+out = mod.bound_tail(big, 50000)
+elapsed = time.monotonic() - t0
+if elapsed >= 0.2:
+    sys.stderr.write("bound_tail %.3fs on large input\n" % elapsed)
+    sys.exit(1)
+if len(out.encode()) > 50000 or not out.endswith("x\n"):
+    sys.stderr.write("large suffix contract failed\n")
+    sys.exit(1)
+PY
+then pass "bound_tail suffix is linear and matches the cap"
+else fail "bound_tail suffix contract"; fi
+
 printf '\ncompact-transcript-test: PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 printf 'operator-store: unchanged n=%s root=%s\n' "$BEFORE_OP_N" "$OP_STORE"
 [ "$FAIL" -eq 0 ]

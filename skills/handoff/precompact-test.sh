@@ -190,6 +190,50 @@ fi
 if bash "$ROOT/skills/init-orchestration/check-hook-templates.sh" >/dev/null 2>&1; then ok
 else bad "T14c check-hook-templates.sh must pass"; fi
 
+# ---- T15: retention stays numeric across seq 999 → 1000 (W2-31) ----
+printf 'old\n' > "$HDIR/${SID}-precompact-999.md"
+printf 'old\n' > "$HDIR/${SID}-precompact-1000.md"
+touch "$TR"
+( cd "$REPO" && hook_json auto | HANDOFF_PRECOMPACT_MAX_PER_SESSION=2 bash "$CAPTURE" 2>/dev/null )
+if [ -f "$HDIR/${SID}-precompact-1001.md" ] && [ -f "$HDIR/${SID}-precompact-1000.md" ] \
+   && [ ! -f "$HDIR/${SID}-precompact-999.md" ]; then ok
+else bad "T15 retention must keep 1001 and 1000, drop 999"; fi
+
+# ---- T16: slow prepare, including a python grandchild, is killed (W2-31) ----
+SLOW="$WORK/slow-prepass.sh"
+cat > "$SLOW" << EOF
+#!/bin/bash
+python3 -c 'import time; time.sleep(60)' &
+echo \$! > "$WORK/grand.pid"
+wait
+EOF
+chmod +x "$SLOW"
+# A timeout that does not signal the child group. The old wrapper uses it
+# and leaves the grandchild. _timeout uses setsid and does not call it.
+mkdir -p "$WORK/bin"
+cat > "$WORK/bin/timeout" << 'EOF'
+#!/bin/bash
+shift
+"$@" &
+wait $!
+EOF
+chmod +x "$WORK/bin/timeout"
+: > "$WORK/grand.pid"
+T16_START=$(date +%s)
+( cd "$REPO" && hook_json manual | PATH="$WORK/bin:$PATH" HANDOFF_PRECOMPACT_TIMEOUT=1 HANDOFF_PRECOMPACT_PREPASS="$SLOW" bash "$CAPTURE" 2>"$WORK/t16.err" )
+T16_RC=$?
+T16_END=$(date +%s)
+GRAND=$(cat "$WORK/grand.pid" 2>/dev/null || true)
+if [ "$T16_RC" -eq 0 ] && [ $((T16_END - T16_START)) -lt 15 ]; then ok
+else bad "T16 capture must fail-open quickly rc=$T16_RC elapsed=$((T16_END - T16_START))"; fi
+if [ -n "$GRAND" ] && ! kill -0 "$GRAND" 2>/dev/null; then ok
+else bad "T16 python grandchild still alive pid=${GRAND:-none}"; fi
+
+# ---- T17: settings template sets an explicit PreCompact timeout ----
+if grep -q 'precompact-rescue.sh' "$ROOT/skills/init-orchestration/SKILL.md" \
+   && grep -q '"timeout": 45' "$ROOT/skills/init-orchestration/SKILL.md"; then ok
+else bad "T17 PreCompact settings template missing timeout 45"; fi
+
 echo "---"
 echo "precompact tests: $PASS passed, $FAIL failed, $SKIP skipped"
 [ "$FAIL" -eq 0 ]

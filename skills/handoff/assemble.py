@@ -460,7 +460,7 @@ def load_merged_events(events_path, prior=None):
 
 
 def load_merged_for_summary(events_path, prior_path=None):
-    """Step 7 helper — same merge id space as assemble (alias)."""
+    """Annotation-pass helper — same merge id space as assemble (alias)."""
     return load_merged_events(events_path, prior=prior_path)
 
 

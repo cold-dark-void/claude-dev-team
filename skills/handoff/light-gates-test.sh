@@ -127,6 +127,16 @@ for ac2_args in "--miner-model" "--miner-model=" "--miner-model --light"; do
   fi
 done
 
+# ---- AC2s (CDT-385): --slug rejects a missing value and a following flag ----
+for ac2s_args in "--slug" "--slug --full"; do
+  run_parse "$ac2s_args"
+  ac2s_err=$(cat "$WORK/run.err")
+  if [ "$RC" -eq 1 ] && [ "$ac2s_err" = "error: --slug requires a value" ]; then ok
+  else
+    bad "AC2s --slug flag/missing ARGUMENTS='$ac2s_args' rc=$RC err=$(head -c 200 "$WORK/run.err")"
+  fi
+done
+
 # ---- AC3: flag + --light (either order) → light knobs + miner=fast; --light alone still haiku ----
 run_parse "--miner-model fast --light"
 if [ "$RC" -eq 0 ] \

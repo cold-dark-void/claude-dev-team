@@ -64,8 +64,10 @@ prepass.sh prepare --uuid <u> --out plan.json     (deterministic, no LLM)
 [ if mode == "chunked" ]  spawn N chunk-summarizers in ONE block
         │  → reduced spine.txt (event-preserving: hyp/kill/ruling/decision/fact/open)
         ▼
-SPAWN 1 MERGED MINER IN ONE TOOL-USE BLOCK   ◄── THIS FILE   (the fan-out invariant)
-   one Task · reads MINER_SPINE once · all 7 kinds · partition on write
+ONE MERGED MINER (fan-out invariant)          ◄── THIS FILE
+   detached: INLINE (this agent; MUST NOT nest Task)
+   in-session: one Task
+   one spine read · all 7 kinds · partition on write
         │  writes ${EVENTS_DIR}/through_line.json  (5 kinds)
         │  writes ${EVENTS_DIR}/state.json         (2 kinds)
         │  (miner sees delta spine only when M8b; does NOT re-read prior)
@@ -105,7 +107,7 @@ session length, when the M8 cache holds cumulative events.
 | Cache miss / no events / since-leaf not in timeline | Full re-mine (universal fallback); prepare sets `stats.since_leaf_applied=false` on miss → orchestrator clears `PRIOR_EVENTS_FILE` |
 | Cold | **Unchanged** — no auto since-leaf; cache-check HIT intact; finalize still **writes** `events` for future warm |
 
-**Cross-gen event ids (assemble + Step 7):**
+**Cross-gen event ids (assemble + annotation pass):**
 
 | Source | Id after load |
 |--------|----------------|
@@ -114,9 +116,9 @@ session length, when the M8 cache holds cumulative events.
 
 - Dedup is M3d (1) three-pass: exact `(kind, normalize(body))` first-wins (prior
   verbatim), then same-kind prefix-collapse (≥40), then open/conflict drop — not id.
-- Prior events are **verbatim** — never re-paraphrased.
+- Identical-body matches stay verbatim. Prefix-near-dups may keep the longer body.
 - `--since-leaf` is **internal/debug only** (not a user CLI flag).
-- Step 7 summary MUST use `assemble.load_merged_for_summary(dir, prior=…)` so
+- The annotation pass MUST use `assemble.load_merged_for_summary(dir, prior_path=…)` so
   annotation can target both gens (including `prior:stem:id`).
 - Cache with `light: true` or empty `events` → treat as no-prior (defense; primary
   light path never writes cache).
@@ -130,7 +132,7 @@ not freeform live-context; not a dual path when discover fails (M10 / M10b).
 | Knob | Light default (only if operator-unset) | Bare warm default |
 |------|----------------------------------------|-------------------|
 | `HANDOFF_MINER_MODEL` | `haiku` | inherit session (omit `model`) |
-| Annotation (Step 7) | **skip** (`SKIP_ANNOTATION=1`) | haiku annotation Task |
+| Annotation | **skip** (`SKIP_ANNOTATION=1`) | haiku annotation Task |
 | `HANDOFF_SPINE_TOKENS` | **40000** (optional lower; MUST NOT change bare default) | **120000** |
 | M8 cache write | **none** (no create/overwrite of `cache/<sid>.json`) | write cumulative `events` |
 | Packet filename | `…-<slug>-draft.md` | `…-<slug>.md` |
@@ -154,7 +156,7 @@ eligible `Supersedes` tips; PreCompact rescues remain excluded.
 
 **Orchestrator contract:**
 
-1. Warm-only — cold uuid + `--light` → usage fail (command Step 0).
+1. Warm-only — cold uuid + `--light` → usage fail (parse fence).
 2. Preset knobs apply **only when unset** — honor operator env overrides.
 3. Do **not** build `EVENTS_SUMMARY_JSON` or spawn annotation under light.
 4. Finalize with `--light` / `HANDOFF_LIGHT=1` → draft path + skip M8 write/prune.
@@ -208,9 +210,9 @@ on the parent loop). Detached agent's `model:` is the miner tier (below).
 
 | Stage | Task count | `model` | Notes |
 |-------|------------|---------|--------|
-| Chunk-summarizer (Step 5b) | N in one block | **`haiku`** | In-session fallback only |
-| Merged miner (Step 6, in-session) | **1** Task | **inherit session** (omit `model`) | Opt-in: `--miner-model` / `HANDOFF_MINER_MODEL` (`fast\|balanced\|max` or alias). **Light (M10c):** `haiku` if unset |
-| Annotation (Step 7, in-session warm) | 1 | **`haiku`** | Labels/rank only. **Light:** skip (no Task) |
+| Chunk-summarizer | N in one block | **`haiku`** | In-session fallback only |
+| Merged miner (in-session) | **1** Task | **inherit session** (omit `model`) | Opt-in: `--miner-model` / `HANDOFF_MINER_MODEL` (`fast\|balanced\|max` or alias). **Light (M10c):** `haiku` if unset |
+| Annotation (in-session warm) | 1 | **`haiku`** | Labels/rank only. **Light:** skip (no Task) |
 | Parent stub | — | **session** | Parse/discover/prepare/branch; never force haiku |
 | Detached orchestrator agent | 1 | miner tier (`HANDOFF_MINER_MODEL`) | IS miner (+ annotation if bare warm) |
 
@@ -238,7 +240,7 @@ kinds and both output files.
 | `REPO_ROOT` | absolute path | **Target** session MROOT (CDT-80 / `resolve-root.sh`) — not invoker cwd. Miner may run read-only git here for M5 **or** consume `GIT_STATE_FILE` (preferred: one shared capture with assemble). |
 | `GIT_STATE_FILE` | absolute path (optional) | Pre-captured git blob from orchestrator. Prefer this over re-running git inside the miner. |
 | `EVENTS_DIR` | absolute path | Directory where the miner writes **both** JSON files (`through_line.json`, `state.json`). `finalize --events` reads this dir. |
-| `PRIOR_EVENTS_FILE` | absolute path (optional, M8b) | Warm delta: path to M8 cache JSON with cumulative `events` stem map (or bare stem map). Empty on cold / full-force / cache miss. Step 7 + finalize `--prior-events`. Also env `FINALIZE_PRIOR_EVENTS`. |
+| `PRIOR_EVENTS_FILE` | absolute path (optional, M8b) | Warm delta: path to M8 cache JSON with cumulative `events` stem map (or bare stem map). Empty on cold / full-force / cache miss. Annotation pass + finalize `--prior-events`. Also env `FINALIZE_PRIOR_EVENTS`. |
 
 The miner MUST NOT receive raw `toolUseResult` payloads (stripped by `prepass.sh`).
 On M8b delta path the miner still writes only delta events into `EVENTS_DIR`;
@@ -434,8 +436,7 @@ subagent_type: "general-purpose"
 # effort: optional — omit by default; never required
 ```
 
-Default: **omit `model`** so the miner inherits the session model. Opt-in: exact `fast|balanced|max` → host cell; else passthrough. MUST NOT force
-`model: haiku` when unset. Still **one** actor (INLINE or Task), both event files, one spine read (CDT-89 / M3b).
+Bare warm: **omit `model`** so the miner inherits the session model. MUST NOT force `model: haiku` on that path. Light preset default is `haiku` when unset, and that default lives only in `LIGHT.md`. Opt-in: exact `fast|balanced|max` → host cell; else passthrough. Still **one** actor (INLINE or Task), both event files, one spine read (CDT-89 / M3b).
 
 | Canonical | Claude | Grok |
 |-----------|--------|------|
@@ -606,7 +607,7 @@ Examples: `through_line.json` id `tl-e1` → `through_line:tl-e1`; prior same �
 with `#N` on the raw half (`prior:through_line:tl-e1#2`). Original bare id is
 `_raw_id` for display only (includes `#N` when applied).
 
-**Step 7 MUST build `EVENTS_SUMMARY_JSON` with
+**The annotation pass MUST build `EVENTS_SUMMARY_JSON` with
 `assemble.load_merged_for_summary(EVENTS_DIR, prior_path=PRIOR_EVENTS_FILE)`**
 so the summary includes **both** gens when prior is set — same id space as
 finalize assemble. Bare miner ids (`tl-e1`, `e1`) **do not match** and are
@@ -808,7 +809,7 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   heuristic; else Claude; fail hard if neither) + `--allow-in-progress`. Grok
   stdout line 2 is Claude-shaped adapted JSONL (prepare-ready); env:
   `GROK_SESSION_ID`, `GROK_TRANSCRIPT_PATH`, `GROK_SESSIONS_DIR`, `GROK_CWD`.
-  Command Step 1w stays thin (no host branch).
+  The parse fence stays thin (no host branch).
 - **Warm light (M10c):** same warm entry/exit shape; draft filename; no M8 cache;
   skip annotation; see `### M10c — light warm preset` above.
 - **Cache (M8 / M8b):** keyed by `(session uuid + leaf_uuid)` under target

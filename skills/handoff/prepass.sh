@@ -17,7 +17,7 @@
 #   --transcript <path>     skip M1 locate; stream exactly this file
 #   --allow-in-progress     soften M9 guard to warn-and-proceed
 # Passed by: skills/handoff/precompact-capture.sh and warm /handoff
-# (commands/handoff.md Step 1w). Cold user path MUST NOT forward either flag.
+# (warm path in commands/handoff.md). Cold user path MUST NOT forward either flag.
 # Independent: --transcript alone still enforces M9.
 #
 # `prepare` — what it does (no LLM — this is the deterministic stage
@@ -82,9 +82,10 @@
 #
 # Exit codes (the API):
 #   0  ok            prepare: plan.json written · cache-check: HIT · finalize: packet ok
+#   1  not-found     uuid not in any transcript, or usage / environment error
+#   2  bad-uuid      --uuid has '/', '..', or a character outside [A-Za-z0-9._-]
 #   9  too-fresh     transcript modified < 60 s ago (M9) — declined  [prepare]
 #   10 cache-miss    no cached packet, or session has grown (M8)       [cache-check]
-#   1  not-found     uuid not in any transcript, or usage / environment error
 #
 # Runtime: python3 only (already required by retro-gate + the shared module).
 # We stream; we never read() the whole monster. JSON is emitted by python3 (no
@@ -93,6 +94,17 @@
 set -eu
 # Finalize and prepare write handoff packets. Same privacy as the mirror store.
 umask 077
+
+GIT_TMP=""
+EVENTS_OUT_TMP=""
+EVENTS_BUILT_TMP=""
+_prepass_tmp_cleanup() {
+  [ -n "${GIT_TMP:-}" ] && rm -f -- "$GIT_TMP"
+  [ -n "${EVENTS_OUT_TMP:-}" ] && rm -f -- "$EVENTS_OUT_TMP"
+  [ -n "${EVENTS_BUILT_TMP:-}" ] && rm -f -- "$EVENTS_BUILT_TMP"
+  return 0
+}
+trap _prepass_tmp_cleanup EXIT
 
 # --- locate this script's dir so we can find the shared module --------------
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -140,7 +152,7 @@ Usage: prepass.sh prepare     --uuid <uuid> [--out <plan.json>]
   --spine-tokens N    finalize: stripped spine tokens for advisory footer ratio
   --supersedes <name> finalize: prior packet filename for footer
   --prior-events <path> finalize: M8b prior cache JSON / stem map (merge before
-                      delta). Also FINALIZE_PRIOR_EVENTS env. Soft-detect.
+                      delta). Also FINALIZE_PRIOR_EVENTS env.
   --light             finalize: M10c light preset (CDT-91). Auto packet path
                       ends -draft.md; skip M8 cache write+prune; pass --light
                       to assemble when supported. Also HANDOFF_LIGHT=1.
@@ -323,7 +335,7 @@ fi
 # Packet + M8 cache live under <TARGET_MROOT>/.claude/handoff/cache/, NOT the
 # invoker's cwd. Worktree sessions share one cache via git-common-dir.
 # MUST NOT live in memory.db (SPEC-018 M8).
-# HANDOFF_DIR env override: isolated tests / command Step 0 export.
+# HANDOFF_DIR env override: isolated tests / command export.
 RESOLVE_ROOT="$SCRIPT_DIR/resolve-root.sh"
 HANDOFF_DIR_FROM_ENV=0
 if [ -n "${HANDOFF_DIR:-}" ]; then
@@ -624,7 +636,7 @@ if [ "$SUBCMD" = "finalize" ]; then
       exit 1 ;;
   esac
 
-  # Target handoff root (CDT-80). HANDOFF_DIR env (tests / command Step 0) wins;
+  # Target handoff root (CDT-80). HANDOFF_DIR env (tests / command export) wins;
   # else resolve from --transcript or locate --uuid. Fail hard if undetermined.
   if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     ensure_target_roots "$TRANSCRIPT" || { set -e; exit 1; }
@@ -727,24 +739,12 @@ if [ "$SUBCMD" = "finalize" ]; then
   [ -n "$SPINE_TOKENS" ] && ASM_ARGS+=(--spine-tokens "$SPINE_TOKENS")
   [ -n "$SUPERSEDES" ] && ASM_ARGS+=(--supersedes "$SUPERSEDES")
   [ "$DO_PRINT_CORE" = "1" ] && ASM_ARGS+=(--print-core)
-  # Soft-detect M8b flags (CDT-88); unknown flags must not break cold path.
-  if python3 "$PACKET_ASSEMBLE" --help 2>&1 | grep -q -- '--events-out'; then
-    ASM_ARGS+=(--events-out "$EVENTS_OUT_TMP")
-  fi
+  ASM_ARGS+=(--events-out "$EVENTS_OUT_TMP")
   if [ -n "$PRIOR_EVENTS" ] && [ -f "$PRIOR_EVENTS" ]; then
-    if python3 "$PACKET_ASSEMBLE" --help 2>&1 | grep -q -- '--prior-events'; then
-      ASM_ARGS+=(--prior-events "$PRIOR_EVENTS")
-    else
-      echo "prepass.sh: WARNING — assemble lacks --prior-events; ignoring prior ($PRIOR_EVENTS)" >&2
-    fi
+    ASM_ARGS+=(--prior-events "$PRIOR_EVENTS")
   fi
-  # M10c light (CDT-91): pass --light when assemble supports it (T2); soft-detect
-  # so finalize stays green if assemble lands later.
-  if [ "$LIGHT" = "1" ]; then
-    if python3 "$PACKET_ASSEMBLE" --help 2>&1 | grep -q -- '--light'; then
-      ASM_ARGS+=(--light)
-    fi
-  fi
+  # M10c light (CDT-91): assemble ships --light.
+  [ "$LIGHT" = "1" ] && ASM_ARGS+=(--light)
 
   set +e
   python3 "$PACKET_ASSEMBLE" "${ASM_ARGS[@]}"
@@ -1103,8 +1103,19 @@ fi
 # prints a one-line human summary to stderr.
 # Default 120000 stays; lowering is an operator opt-in (see docs/commands/handoff.md).
 #
-# M3f (CDT-216): resolve transcript-sync via plugin-dir. Do not --check in bash.
+# M3f (CDT-399): co-located transcript-mirror wins. PDH only if that sibling is missing.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+SYNC=""
+STRIP_MAIN=""
+_mirror="$SCRIPT_DIR/../transcript-mirror"
+if [ -f "$_mirror/transcript-sync.sh" ] && [ -f "$_mirror/strip_main.py" ]; then
+  _mdir=$(CDPATH= cd -- "$_mirror" && pwd) || _mdir=""
+  if [ -n "$_mdir" ]; then
+    SYNC="$_mdir/transcript-sync.sh"
+    STRIP_MAIN="$_mdir/strip_main.py"
+  fi
+fi
+if [ ! -f "${SYNC:-}" ] || [ ! -f "${STRIP_MAIN:-}" ]; then
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 if [ -z "${PDH:-}" ] || [ ! -f "$PDH/skills/plugin-dir.sh" ]; then
   if [ -f "$SCRIPT_DIR/../plugin-dir.sh" ]; then
@@ -1123,6 +1134,7 @@ if [ -n "$P" ]; then
 fi
 [ -n "$SYNC" ] && [ -f "$SYNC" ] || SYNC=""
 [ -n "$STRIP_MAIN" ] && [ -f "$STRIP_MAIN" ] || STRIP_MAIN=""
+fi
 export PREPASS_TRANSCRIPT_SYNC="$SYNC"
 export PREPASS_STRIP_MAIN="$STRIP_MAIN"
 export PREPASS_HANDOFF_SID="$UUID"

@@ -11,7 +11,7 @@
 #
 # FAIL-OPEN CONTRACT (M17): ALWAYS exits 0. Never exits 2 (2 would block the
 # compaction). Every failure logs ONE stderr line and exits 0. Runtime is
-# bounded via `timeout` when available (soft; degrades to unbounded).
+# bounded by _timeout (process group). Fail-open still exits 0.
 #
 # HARD BOUNDARIES (M18): no LLM invocation; no memory.db access; all writes
 # confined to .claude/handoff/ (gitignored, machine-local — same isolation as
@@ -27,8 +27,37 @@ umask 077
 
 fail() { echo "precompact-capture: $*" >&2; exit 0; }
 
+# Kill cmd and its process group. setsid + kill -- -pgid; else timeout -k.
+_timeout() {
+  _secs=$1
+  shift
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" &
+    _pid=$!
+    _pgid=$(ps -o pgid= -p "$_pid" 2>/dev/null | tr -d ' ')
+    case "${_pgid:-}" in ''|0|1) _pgid=$_pid ;; esac
+    (
+      sleep "$_secs"
+      kill -TERM -- "-$_pgid" 2>/dev/null || true
+      sleep 5
+      kill -KILL -- "-$_pgid" 2>/dev/null || true
+    ) &
+    _watch=$!
+    wait "$_pid"
+    _rc=$?
+    kill "$_watch" 2>/dev/null || true
+    wait "$_watch" 2>/dev/null || true
+    return "$_rc"
+  fi
+  if command -v timeout >/dev/null 2>&1; then
+    timeout -k 5 "$_secs" "$@"
+    return $?
+  fi
+  "$@"
+}
+
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || fail "cannot resolve script dir"
-PREPASS="$SCRIPT_DIR/prepass.sh"
+PREPASS="${HANDOFF_PRECOMPACT_PREPASS:-$SCRIPT_DIR/prepass.sh}"
 [ -f "$PREPASS" ] || fail "prepass.sh not found next to capture script"
 command -v python3 >/dev/null 2>&1 || fail "python3 unavailable — skipping rescue capture"
 
@@ -88,10 +117,8 @@ ARTIFACT="$HANDOFF_DIR/${SESSION_ID}-precompact-${SEQ}.md"
 PLAN="$WORKDIR/plan.json"
 PREPARE_CMD=(bash "$PREPASS" prepare --uuid "$SESSION_ID" --transcript "$TRANSCRIPT_PATH" \
   --allow-in-progress --out "$PLAN")
-if command -v timeout >/dev/null 2>&1; then
-  PREPARE_CMD=(timeout "${HANDOFF_PRECOMPACT_TIMEOUT:-30}" "${PREPARE_CMD[@]}")
-fi
-if ! HANDOFF_SPINE_TOKENS=999999999 "${PREPARE_CMD[@]}" >/dev/null 2>"$WORKDIR/prepare.err"; then
+if ! HANDOFF_SPINE_TOKENS=999999999 _timeout "${HANDOFF_PRECOMPACT_TIMEOUT:-30}" \
+  "${PREPARE_CMD[@]}" >/dev/null 2>"$WORKDIR/prepare.err"; then
   fail "prepare failed or timed out: $(tail -n 1 "$WORKDIR/prepare.err" 2>/dev/null)"
 fi
 
@@ -151,19 +178,32 @@ head += [
     "",
 ]
 tmp = artifact + ".tmp"
-with open(tmp, "w", encoding="utf-8") as fh:
-    fh.write("\n".join(head) + "\n")
-    fh.write(body)
-    if not body.endswith("\n"):
-        fh.write("\n")
-os.replace(tmp, artifact)
+try:
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(head) + "\n")
+        fh.write(body)
+        if not body.endswith("\n"):
+            fh.write("\n")
+    os.replace(tmp, artifact)
+finally:
+    if os.path.exists(tmp):
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 PYEOF
 
 # --- 6. Bounded retention (M15): newest N per session; ONLY *-precompact-*.md
 KEEP="${HANDOFF_PRECOMPACT_MAX_PER_SESSION:-3}"
 case "$KEEP" in ''|*[!0-9]*|0) KEEP=3 ;; esac
-find "$HANDOFF_DIR" -maxdepth 1 -name "${SESSION_ID}-precompact-*.md" 2>/dev/null \
-  | sort -r | awk -v keep="$KEEP" 'NR > keep' \
+find "$HANDOFF_DIR" -maxdepth 1 -name "${SESSION_ID}-precompact-*.md" -print 2>/dev/null \
+  | while IFS= read -r f; do
+      seq=${f##*-precompact-}
+      seq=${seq%.md}
+      printf '%012d\t%s\n' "$((10#$seq))" "$f"
+    done \
+  | sort -nr \
+  | awk -F '\t' -v keep="$KEEP" 'NR > keep { print $2 }' \
   | while IFS= read -r victim; do rm -f -- "$victim"; done
 
 # --- 7. Surfacing marker (M16 input; consumed by rescue-pointer.sh) ---------
@@ -179,10 +219,17 @@ payload = {
 }
 marker = os.environ["MARKER_FILE"]
 tmp = marker + ".tmp"
-with open(tmp, "w", encoding="utf-8") as fh:
-    json.dump(payload, fh, indent=2)
-    fh.write("\n")
-os.replace(tmp, marker)
+try:
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, marker)
+finally:
+    if os.path.exists(tmp):
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 PYEOF
 
 echo "precompact-capture: rescue artifact written: $ARTIFACT (trigger=$TRIGGER, keep<=$KEEP)" >&2

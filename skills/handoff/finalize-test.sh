@@ -640,6 +640,28 @@ if [ "$GIT_BARE" -eq 0 ] \
    && grep -q 'git -C "$MROOT" log' "$HERE/SKILL.md"; then ok
 else bad "T27 bare git capture commands: $GIT_BARE"; fi
 
+# ---- T28 (CDT-399): prepare uses the co-located transcript-mirror, not a decoy cache ----
+DECOY_HOME="$WORK/decoy-home"
+DECOY_ROOT="$DECOY_HOME/.claude/plugins/cache/cold-dark-void/dev-team/99.0.0"
+mkdir -p "$DECOY_ROOT/skills/transcript-mirror"
+cp "$HERE/../plugin-dir.sh" "$DECOY_ROOT/skills/plugin-dir.sh"
+cat > "$DECOY_ROOT/skills/transcript-mirror/transcript-sync.sh" << EOF
+#!/bin/bash
+echo decoy >> "$WORK/decoy-hit"
+echo "sid=x status=bad"
+EOF
+chmod +x "$DECOY_ROOT/skills/transcript-mirror/transcript-sync.sh"
+printf '%s\n' 'def strip_mirror_main(text):' '    return text' > "$DECOY_ROOT/skills/transcript-mirror/strip_main.py"
+: > "$WORK/decoy-hit"
+mkdir -p "$WORK/not-a-plugin"
+if [ -f "$HERE/fixtures/delta-two-stage.jsonl" ] \
+   && ( cd "$WORK/not-a-plugin" && env -u CLAUDE_PLUGIN_ROOT HOME="$DECOY_HOME" bash "$PREPASS" prepare \
+        --uuid "00000000-0000-4000-8000-decoy" \
+        --transcript "$HERE/fixtures/delta-two-stage.jsonl" \
+        --allow-in-progress --out "$WORK/t28-plan.json" >/dev/null 2>"$WORK/t28.err" ) \
+   && [ ! -s "$WORK/decoy-hit" ]; then ok
+else bad "T28 decoy cache transcript-sync ran or prepare failed: $(head -c 200 "$WORK/t28.err")"; fi
+
 echo
 echo "finalize-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

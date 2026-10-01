@@ -61,12 +61,12 @@ Do **not** skip steps. Record paths and outcomes in the results table.
 
 ### 0. PDH verify (CDT-82 — MUST pass before scoring)
 
-Frozen marketplace installs can leave **cache `1.0.3` legacy** (`finalize --sections`, five extractors) beside a **marketplace/dev STM** tree (`finalize --events`) at the **same version string**. PDH must resolve STM — never soft-continue on legacy when STM is available.
+Frozen marketplace installs can leave **an older cached version** (`finalize --sections`, five extractors) beside a **marketplace/dev STM** tree (`finalize --events`) at the **same version string**. PDH must resolve STM — never soft-continue on legacy when STM is available.
 
 **Before any AC-16 re-capture or human score**, run:
 
 ```bash
-# From this repo / worktree (feat/CDT-79 dogfood):
+# From this repo / worktree:
 bash skills/plugin-dir.sh verify
 
 # Or after bootstrap (consumer cwd / live /handoff host):
@@ -220,8 +220,8 @@ extra rows but does not close the gate alone.
 
 **Exact remaining steps (operator):**
 
-1. Open a **Claude Code** session in this repo (feat/CDT-92 or released plugin
-   with CDT-85/CDT-92). Prefer a long-debug thrash session with ≥1 kill + user ruling.
+1. Open a **Claude Code** session in this repo or a released plugin.
+   Prefer a long-debug thrash session with ≥1 kill + user ruling.
 2. **PDH verify (MUST):** `bash skills/plugin-dir.sh verify` → `stm_marker=stm`
    (same gate as cold — see §0 above).
 3. If env is empty, export before bare handoff (optional when cwd-newest works):

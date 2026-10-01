@@ -160,11 +160,17 @@ def bound_tail(text: str, cap: int = CAP) -> str:
     blocks = split_turn_blocks(text)
     if not blocks:
         return ""
-    for i in range(len(blocks)):
-        candidate = "".join(blocks[i:])
-        if len(candidate.encode("utf-8")) <= cap:
-            return candidate
-    return clip_newest_block(blocks[-1], cap)
+    sizes = [len(b.encode("utf-8")) for b in blocks]
+    if sizes[-1] > cap:
+        return clip_newest_block(blocks[-1], cap)
+    total = 0
+    start = len(blocks)
+    for i in range(len(blocks) - 1, -1, -1):
+        if total + sizes[i] > cap:
+            break
+        total += sizes[i]
+        start = i
+    return "".join(blocks[start:])
 
 
 def freshness_footer(root: str, sid: str, status: str) -> str:

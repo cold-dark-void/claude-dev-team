@@ -55,7 +55,7 @@ else
   bad "T0 handoff.md missing light HANDOFF_MINER_MODEL=haiku default"
 fi
 
-# ---- T1: SKIP_ANNOTATION / skip annotation — parse fence + SKILL/LIGHT (not Step 7 body) ----
+# ---- T1: SKIP_ANNOTATION / skip annotation — parse fence + SKILL/LIGHT (not the annotation body) ----
 FENCE_FILE=$(mktemp "${TMPDIR:-/tmp}/light-static-step1.XXXXXX")
 trap 'rm -f "$FENCE_FILE"' EXIT
 extract_step1_fence >"$FENCE_FILE"

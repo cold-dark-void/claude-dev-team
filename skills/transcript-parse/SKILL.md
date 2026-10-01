@@ -240,10 +240,10 @@ Importable, no CLI. Lifted from the inlined helpers in
 | `is_sidechain` | `is_sidechain(obj) -> bool` | `bool(obj.get("isSidechain"))` — truthy test, tolerant of the field being absent (returns False). |
 | `SIDECHAIN_SIGNAL_CUES` | `tuple[str, ...]` | Closed cue list for signal-bearing sidechain detection (CDV-205 / SPEC-018 M2). Single source of truth — prepass imports this; do not scatter cue strings. |
 | `sidechain_cue_hit` | `sidechain_cue_hit(text) -> (cue, line) \| None` | First case-insensitive substring hit from `SIDECHAIN_SIGNAL_CUES`; returns `(cue, matching_line)` or `None`. |
-| `sidechain_is_signal` | `sidechain_is_signal(texts) -> bool` | True if any text in the iterable hits a cue (MVP: ≥1). |
-| `is_tool_result` | `is_tool_result(obj) -> bool` | True if the **line dict** (as returned by `parse_line` / `iter_lines`) carries a `tool_result` block inside `obj["message"]["content"]`. Accepts a full line object, not a raw content list. Returns False on missing/unexpected structure. |
+| `sidechain_is_signal` | `sidechain_is_signal(texts) -> bool` | Internal. Tests import it. True if any text in the iterable hits a cue (MVP: ≥1). No production caller. |
+| `is_tool_result` | `is_tool_result(obj) -> bool` | Internal. No production caller. True if the line dict carries a `tool_result` block inside `obj["message"]["content"]`. |
 | `schema_drift_warn` | `schema_drift_warn(path) -> None` | Stream the file's first 50 lines; if no `KNOWN_TOP_FIELDS` seen, write the same `transcript-parse: WARNING …` to stderr. |
-| `iter_lines` | `iter_lines(path, schema_drift_check_n=50) -> Iterator[(int, dict)]` | Yield `(line_no, dict)` for every valid JSONL line in `path`. Handles schema-drift detection automatically after the first `schema_drift_check_n` lines. Uses UTF-8 with replacement for robustness on files with stray bytes. Skips blank/unparseable lines. |
+| `iter_lines` | `iter_lines(path, schema_drift_check_n=50) -> Iterator[(int, dict)]` | Internal. No production caller. Yield `(line_no, dict)` for every valid JSONL line. |
 
 Notes:
 - Keep these **pure parse helpers** — no scoring, no I/O beyond
@@ -278,7 +278,7 @@ freshness.sh check <path> [--allow-in-progress]
 **SCOPED CARVE-OUT (SPEC-018 M14):** a PreCompact capture is by definition
 mid-write. Passed by `skills/handoff/precompact-capture.sh` via
 `prepass.sh prepare --allow-in-progress`, and by warm bare `/handoff`
-(`commands/handoff.md` Step 1w `PREPARE_EXTRA`). Cold `/handoff <uuid>` and
+(`commands/handoff.md` warm `PREPARE_EXTRA`). Cold `/handoff <uuid>` and
 `/retro` do not pass it — default guard behavior (exit 9) is unchanged.
 With the flag: mtime < 60 s → NOTE on stderr, **exit 0** (warn-and-proceed).
 

@@ -613,6 +613,15 @@ cmd_preflight() {
   run_id=$(basename -- "$cache_dir" | sed 's/^council-cache-//')
   mkdir -p "$cache_dir/reads" "$cache_dir/greps"
   printf '%s\n' '{"version":1,"entries":[]}' > "$cache_dir/manifest.json"
+  # Drop council-cache dirs older than 24h. Skip the directory just created.
+  _cache_parent=$(dirname -- "$cache_dir")
+  find "$_cache_parent" -maxdepth 1 -type d -name 'council-cache-*' -mmin +1440 -print 2>/dev/null \
+    | while IFS= read -r _old_cache; do
+        [ "$_old_cache" = "$cache_dir" ] && continue
+        case "$(basename -- "$_old_cache")" in
+          council-cache-*) rm -rf -- "$_old_cache" 2>/dev/null || true ;;
+        esac
+      done
 
   # CDV-207: optional external investigator detection (never hard-fail on miss).
   # External is additive — plan.flavors (internal) are never reduced.

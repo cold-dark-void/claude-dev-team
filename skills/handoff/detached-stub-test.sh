@@ -136,11 +136,12 @@ else bad "AC1b commands/handoff.md must be jq-free (E5 / plan-fields.py)"; fi
 if ! grep -qF 'set -- $ARGUMENTS' "$CMD"; then ok
 else bad "AC1b commands/handoff.md must not glob-split \$ARGUMENTS directly (DD2 quoted heredoc)"; fi
 
-if grep -qF 'E=$(mktemp)' "$CMD"; then ok
+if grep -qF 'E=$(mktemp ' "$CMD"; then ok
 else bad "AC1b commands/handoff.md must create the error file via mktemp"; fi
 
-if ! grep -qF 'handoff.err' "$CMD"; then ok
-else bad "AC1b commands/handoff.md must not use a fixed .../handoff.err path"; fi
+if grep -qF 'handoff.err.XXXXXX' "$CMD" \
+   && ! grep -E 'handoff\.err([^.]|$)' "$CMD" >/dev/null; then ok
+else bad "AC1b error file must be mktemp handoff.err.XXXXXX, not a fixed path"; fi
 
 for f in "$CMD" "$DOCS"; do
   if grep -qF '(served from cache — session unchanged)' "$f" \

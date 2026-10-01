@@ -1,4 +1,11 @@
+### git log --oneline -n 30
 abc1234 feat: example commit
 def5678 fix: example fix
+
+### git status --porcelain
  M skills/handoff/assemble.py
 ?? skills/handoff/fixtures/events-thrash.json
+
+### git diff --stat HEAD
+
+### git diff --stat

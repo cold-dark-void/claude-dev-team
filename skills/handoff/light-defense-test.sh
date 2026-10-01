@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # light-defense-test.sh — CDT-91 T9b / SPEC-018 test 33 (M10c light cache defense).
-# Mirrors commands/handoff.md Step 4 PYDELTA gate:
+# Mirrors the PYDELTA gate in the commands/handoff.md Step 1 fence:
 #   data.get("light") in (True, 1, "true", "1") → exit 0 (no PRIOR_LEAF)
 #   empty events + leaf → no-prior (same soft path)
 # Run: bash skills/handoff/light-defense-test.sh
@@ -13,7 +13,7 @@ bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/light-defense-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
-# Exact gate from commands/handoff.md Step 4 (PYDELTA). Keep in sync.
+# Exact gate from the commands/handoff.md Step 1 fence (PYDELTA). Keep in sync.
 prior_leaf_from_cache() {
   local cache=$1
   PRIOR_CACHE="$cache" python3 - <<'PYDELTA'

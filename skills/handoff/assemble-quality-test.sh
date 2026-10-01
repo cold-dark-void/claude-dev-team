@@ -14,7 +14,7 @@ DFIX="$QFIX/dedup-residuals"
 GITBLOB="$FIX/git-state.txt"
 PQ="$HERE/packet_quality.py"
 
-PASS=0; FAIL=0
+PASS=0; FAIL=0; WARN=0
 ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 
@@ -468,11 +468,11 @@ if [ -f "$WORK/ac13.ratio" ]; then
     ok
   else
     echo "WARN: AC13 SHOULD 50% missed ratio=$RATIO (advisory, not fail-closed)"
-    ok
+    WARN=$((WARN + 1))
   fi
 else
   echo "WARN: AC13 SHOULD 50% skipped (no ratio file, advisory)"
-  ok
+  WARN=$((WARN + 1))
 fi
 
 # ---- Test 38 / CDT-202: prefix-collapse + leftover Kill placeholder ----
@@ -630,7 +630,7 @@ else bad "T38 AC8 trio: $(head -c 300 "$WORK/t38-ac8.err")"; fi
 if [ "$(kc_lines "$WORK/ac8-trio.md")" = "$NONE_SHOWN" ]; then ok
 else bad "T38 AC8 leftover placeholder: $(kc_lines "$WORK/ac8-trio.md")"; fi
 
-# packet_dedup unit bites — import FAIL until T2 is expected (tests-first)
+# packet_dedup unit bites
 if python3 -c "
 import io, sys
 sys.path.insert(0, '$HERE')
@@ -682,6 +682,6 @@ print('ok')
 else bad "T38 packet_dedup units: $(head -c 300 "$WORK/t38-unit.err")"; fi
 
 # ---- summary ----
-echo "assemble-quality-test: $PASS passed, $FAIL failed"
+echo "assemble-quality-test: $PASS passed, $FAIL failed, $WARN warned"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi
 exit 0

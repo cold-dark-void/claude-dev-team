@@ -7,7 +7,7 @@ agent: build
 
 # /handoff
 
-Parent stub (M19): parse → discover → prepare → `plan.mode`. Detach is **one-turn lag**; parent stub stays **session tier**. `agent: build` does not detach.
+Parent stub (M19). One-turn lag. Parent stays session tier. `agent: build` does not detach.
 
 ## Step 1: Parse arguments
 
@@ -28,7 +28,7 @@ else
       --full) HANDOFF_FULL=1; shift ;;
       --light) HANDOFF_LIGHT=1; LIGHT=1; shift ;;
       --slug)
-        [ -n "${2:-}" ] || { echo "error: --slug requires a value" >&2; exit 1; }
+        case "${2:-}" in ""|-*) echo "error: --slug requires a value" >&2; exit 1 ;; esac
         SLUG="$2"; shift 2 ;;
       --slug=*) SLUG="${1#--slug=}"; shift ;;
       --miner-model)
@@ -87,7 +87,8 @@ SKILL=$(bash "$P" file skills/handoff/SKILL.md)
 LIGHT_PROFILE=$(bash "$P" file skills/handoff/LIGHT.md)
 PLANFIELDS=$(bash "$P" file skills/handoff/plan-fields.py)
 [ -x "$PREPASS" ] || { echo "error: skills/handoff/prepass.sh not found in the installed plugin cache" >&2; exit 1; }
-E=$(mktemp)
+E=$(mktemp "${TMPDIR:-/tmp}/handoff.err.XXXXXX")
+trap 'rm -f -- "$E"' EXIT
 if [ "$HANDOFF_LIGHT" = "1" ] || [ "$LIGHT" = "1" ]; then SKILL="$LIGHT_PROFILE"; fi
 if [ "$WARM" != "1" ]; then
   case "$UUID" in
@@ -142,7 +143,7 @@ leaf=data.get("leaf_uuid") or ""
 if not isinstance(leaf,str) or not leaf.strip(): sys.exit(0)
 ev=data.get("events")
 if not isinstance(ev,dict) or not ev: sys.exit(0)
-# M10c defense (CDT-91): light:true cache → no-prior (primary path never writes this)
+# light:true cache → no-prior
 if data.get("light") in (True,1,"true","1"): sys.exit(0)
 if any(isinstance(v,list) and v for v in ev.values()): print(leaf.strip())
 PYDELTA
@@ -155,14 +156,23 @@ export PRIOR_EVENTS_FILE
 [ -n "$PRIOR_EVENTS_FILE" ] && export FINALIZE_PRIOR_EVENTS="$PRIOR_EVENTS_FILE" || unset FINALIZE_PRIOR_EVENTS 2>/dev/null || true
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/handoff.XXXXXX") \
   || { echo "handoff error: mktemp -d failed for WORK_DIR"; exit 1; }
+_gadapt() { _bn=${1##*/}; [ "${_bn#handoff-grok-adapt.}" != "$_bn" ]; }
+drop_wd() { rm -rf -- "$WORK_DIR"; _gadapt "${TRANSCRIPT:-}" && rm -f -- "$TRANSCRIPT"; }
+if _gadapt "${TRANSCRIPT:-}"; then
+  _gbn=${TRANSCRIPT##*/}
+  if mv -- "$TRANSCRIPT" "$WORK_DIR/$_gbn"; then
+    TRANSCRIPT="$WORK_DIR/$_gbn"
+    [ "${PREPARE_EXTRA[0]:-}" = "--transcript" ] && PREPARE_EXTRA[1]="$TRANSCRIPT"
+  fi
+fi
 PLAN_JSON="$WORK_DIR/plan.json"; EVENTS_DIR="$WORK_DIR/events"; mkdir -p "$EVENTS_DIR"
 set +e
 "$PREPASS" prepare --uuid "$UUID" --out "$PLAN_JSON" "${PREPARE_EXTRA[@]}" >/dev/null 2>"$E"
 PREP_RC=$?; set -e
-if [ "$PREP_RC" -eq 9 ]; then echo "in-progress (transcript modified < 60 s ago) — too-fresh (M9)"; exit 0; fi
-[ "$PREP_RC" -eq 0 ] || { cat "$E" >&2; echo "error: prepare failed" >&2; exit 1; }
+if [ "$PREP_RC" -eq 9 ]; then drop_wd; echo "in-progress (transcript modified < 60 s ago) — too-fresh (M9)"; exit 0; fi
+[ "$PREP_RC" -eq 0 ] || { drop_wd; cat "$E" >&2; echo "error: prepare failed" >&2; exit 1; }
 FIELDS=$(python3 "$PLANFIELDS" "$PLAN_JSON" "$HANDOFF_DIR/.live-session.json" "$HANDOFF_MODE" 2>"$E") \
-  || { cat "$E" >&2; echo "error: plan-fields failed" >&2; exit 1; }
+  || { drop_wd; cat "$E" >&2; echo "error: plan-fields failed" >&2; exit 1; }
 MODE=$(printf '%s\n' "$FIELDS" | sed -n '1p')
 SLA=$(printf '%s\n' "$FIELDS" | sed -n '2p')
 ET=$(printf '%s\n' "$FIELDS" | sed -n '3p')
@@ -174,8 +184,7 @@ echo "PLAN_JSON=$PLAN_JSON WORK_DIR=$WORK_DIR SPINE=$SPINE EVENTS_DIR=$EVENTS_DI
 echo "SESSION_ID=$SESSION_ID TRANSCRIPT=$TRANSCRIPT HOST=$HOST HANDOFF_MODE=$HANDOFF_MODE UUID=$UUID SLUG=$SLUG"
 echo "HANDOFF_FULL=$HANDOFF_FULL HANDOFF_LIGHT=$HANDOFF_LIGHT HANDOFF_MINER_MODEL=$HANDOFF_MINER_MODEL HANDOFF_SPINE_TOKENS=$HANDOFF_SPINE_TOKENS SKIP_ANNOTATION=$SKIP_ANNOTATION"
 echo "HANDOFF_DIR=$HANDOFF_DIR MROOT=$MROOT PROJECT_DIR=$PROJECT_DIR"
-# Miner-tier advisory (CDT-203, print-only). Skip: prepare failed, no plan.json, missing/non-numeric tokens, or cold cache-HIT.
-# mode==direct AND est_tokens < 30000 vs chunked
+# Skip advisory on prepare failed, non-numeric tokens, or cache-HIT. mode==direct est_tokens 30000 vs chunked.
 case "$ET" in ''|*[!0-9]*|0) ;; *)
   if [ "$MODE" = "chunked" ] || { [ "$MODE" = "direct" ] && [ "$ET" -ge 30000 ]; }; then echo "keep session tier"
   elif [ "$MODE" = "direct" ] && [ "$ET" -lt 30000 ]; then echo "fast tier is likely sufficient for this mine"; fi ;;
@@ -192,7 +201,7 @@ Folded into Step 1 (M19.11): discover (warm) → resolve-root → cheap gates (u
 
 ## Orchestrator spawn
 
-`mode=direct` + can spawn → **one background agent**. Parent MUST NOT Read `skills/handoff/SKILL.md` or `LIGHT.md`. Parent stays session tier. `HANDOFF_MINER_MODEL`: exact `fast|balanced|max` → host cell; else passthrough as-is; empty omit `model` to **inherit**. Claude: fast→haiku, balanced→sonnet, max inherit (omit). Grok identity (fast→fast). Host reject → fail-soft inherit. Claude `Task` + resolved `model:`. Grok: host-equivalent one background agent (`spawn_subagent`), same prompt.
+`mode=direct` + can spawn → **one background agent**. Parent MUST NOT Read `skills/handoff/SKILL.md` or `LIGHT.md`. Parent stays session tier. Empty model omits `model` to **inherit**. Claude: fast→haiku, balanced→sonnet, max inherit. `fast|balanced|max` else passthrough. Host reject → fail-soft inherit. Grok identity (`spawn_subagent`).
 
 ```
 subagent_type: general-purpose
@@ -210,13 +219,14 @@ Bare warm: you ARE annotation (inline). Light/cold: skip annotation.
 MUST NOT nest Task. MUST NOT re-run discover-warm.sh.
 Final report: cold → State now + Through-line + packet path; warm → path only
 (+ light nudge if light).
+Last: rm -rf "$WORK_DIR".
 ```
 
-TMPDIR Grok JSONL must exist. Parent MUST NOT `rm -rf $WORK_DIR` before completion. Cold MISS: relay M7.
+Early exit calls drop_wd. Agent removes WORK_DIR. Cold MISS: relay M7.
 
 ## In-session fallback
 
-If `plan.mode=chunked` or spawn unavailable (host cannot spawn): MUST NOT spawn the detached agent. MUST NOT fail the capture. Parent MAY Read `$SKILL` / `$LIGHT_PROFILE` (`skills/handoff/SKILL.md` or `LIGHT.md`). Execute remaining pipeline in this turn: git capture; parallel N chunk-summarizers (one tool-use block); one miner Task; annotation Task if bare warm; finalize. Do not detach.
+If `plan.mode=chunked` or the host cannot spawn: do not detach and do not fail the capture. Parent MAY Read `$SKILL` / `$LIGHT_PROFILE`. Run git capture, parallel N chunk-summarizers, one miner Task, annotation Task if bare warm, then finalize.
 
 Bare-warm chunk + annotation (skip light/cold/`SKIP_ANNOTATION=1`):
 
