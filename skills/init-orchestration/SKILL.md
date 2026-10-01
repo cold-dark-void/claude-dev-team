@@ -940,22 +940,37 @@ try:
     if not rows:
         print("NO_TASK_IN_INDEX")
         sys.exit(0)
-    scores = []
-    for r in rows:
+    # CDT-317: newest row (index 0, newest-first) fails closed on a
+    # contradicted or fabricated verdict even when confidence is high.
+    newest = rows[0] if isinstance(rows[0], dict) else {}
+    worst = newest.get("worst_verdict")
+    if worst in ("CONTRADICTED", "FABRICATED"):
+        print("WORST:" + str(worst))
+        sys.exit(0)
+    def as_int(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        return int(v)
+    def row_score(r):
         if not isinstance(r, dict):
-            continue
+            return None
         vc = r.get("max_verdict_confidence")
         fc = r.get("max_finding_confidence")
+        # finding[]: null verdict confidence still uses max_finding_confidence.
+        if vc is None and fc is not None:
+            return as_int(fc)
+        # Present max_verified_confidence (including 0) replaces max_verdict_confidence.
+        # Null means no VERIFIED/PARTIALLY_VERIFIED score — do not fall back.
+        if "max_verified_confidence" in r:
+            return as_int(r.get("max_verified_confidence"))
         if vc is not None:
-            try:
-                scores.append(int(vc))
-            except (TypeError, ValueError):
-                pass
-        elif fc is not None:
-            try:
-                scores.append(int(fc))
-            except (TypeError, ValueError):
-                pass
+            return as_int(vc)
+        return None
+    scores = []
+    for r in rows:
+        s = row_score(r)
+        if s is not None:
+            scores.append(s)
     if not scores:
         print("NO_CONFIDENCE_ROWS")
     else:
@@ -972,6 +987,10 @@ case "$MAX_CONF" in
     ;;
   NO_CONFIDENCE_ROWS)
     echo "TaskCompleted council gate: no confidence rows for task $TASK_ID (need verdict[] max_verdict_confidence or finding[] max_finding_confidence)" >&2
+    exit 2
+    ;;
+  WORST:*)
+    echo "TaskCompleted council gate: newest row worst_verdict ${MAX_CONF#WORST:} blocks task $TASK_ID regardless of confidence" >&2
     exit 2
     ;;
   PARSE_ERROR)

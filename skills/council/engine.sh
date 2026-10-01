@@ -87,8 +87,8 @@ Subcommands:
                    1-9 per m14-ac-split.sh / SPEC-033 M14(g)/(j)), no
                    stdout. Exit 64: argv misuse.
 
-Exit codes: 0 ok | 2 usage/no-scope | 3 reserved (unused; no deferred scopes) | 4 unknown preset
-            5 empty evidence | 6 index-writer failure | 7 schema mismatch
+Exit codes: 0 ok | 1 jq required but not found | 2 usage/no-scope | 3 reserved (unused; no deferred scopes)
+            4 unknown preset | 5 empty evidence | 6 index-writer failure | 7 schema mismatch
             8 M14 per-AC split fails closed (SPEC-033 M14(g)) | m14-ac-split: <cause>
             9 report no-overwrite: every candidate up to -99 is taken
             64 m14-check: argv misuse
@@ -130,7 +130,9 @@ cmd_resolve_task_id() {
 # Reject any value containing path traversal characters.
 validate_path_component() {
   local label="$1" value="$2"
-  if ! [[ "$value" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+  # ".." matches the character class; reject it so a slug or task-id cannot
+  # walk out of .claude/council. "/" already fails the class.
+  if [[ "$value" == *..* ]] || [[ "$value" == */* ]] || ! [[ "$value" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     echo "engine.sh: invalid $label: must match [a-zA-Z0-9._-]+" >&2
     exit 2
   fi
@@ -755,10 +757,9 @@ cmd_preflight() {
 # that is not part of a valid escape (" \ / b f n r t u).
 #
 # errexit note: engine.sh runs under `set -euo pipefail`. A python3 non-zero
-# exit fires errexit before any post-heredoc bash guard can run, so the per-mode
-# exit code MUST be produced by sys.exit(int(code)) inside python (driven by the
-# exit_code argv), NOT by a bash `[ $? -ne 0 ]` guard. The guard is kept as
-# explicit documentation of the 5-vs-7 failure contract.
+# exit fires errexit before any later bash statement, so the per-mode exit
+# code MUST be produced by sys.exit(int(code)) inside python (driven by the
+# exit_code argv). Do not add a bash `$?` guard after this call.
 repair_json_file() {
   local _file="$1" _mode="$2" _label="$3" _code="$4"
   python3 - "$_file" "$_mode" "$_label" "$_code" <<'PYREPAIR'
@@ -845,6 +846,27 @@ except json.JSONDecodeError as e:
         print(f"engine.sh: first 200 chars: {raw[:200]}", file=sys.stderr)
     sys.exit(exit_code)
 PYREPAIR
+}
+
+# CDT-390: rewrite a top-level JSON array judge file to object form in place.
+# Temp file sits beside the destination, then rename. Non-array files are
+# left untouched. Returns non-zero only when the rewrite itself fails.
+normalize_judge_shape() {
+  local file="$1" shape="$2" kind key tmp
+  kind=$(jq -r 'if type == "array" then "array" else "other" end' "$file" 2>/dev/null) || return 1
+  if [ "$kind" != "array" ]; then
+    return 0
+  fi
+  key="verdicts"
+  if [ "$shape" = "finding[]" ]; then
+    key="findings"
+  fi
+  tmp=$(mktemp "${file}.XXXXXX") || return 1
+  if ! jq --arg k "$key" '{($k): .}' "$file" > "$tmp"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  mv -- "$tmp" "$file"
 }
 
 # ---- finalize ---------------------------------------------------------------
@@ -938,6 +960,15 @@ cmd_finalize() {
     task_id="$plan_task_id"
   fi
 
+  # Reject a bad id before any report reservation, plan rewrite, or index
+  # write. Empty task_id is unbound (no index row), not an error.
+  if [ -n "$task_id" ]; then
+    validate_path_component "task-id" "$task_id"
+  fi
+  if [ -n "$slug" ] && [ "$slug" != "null" ]; then
+    validate_path_component "slug" "$slug"
+  fi
+
   # Recompute report path if task_id changed (the plan's recorded path was
   # built for the old task-id suffix and names the wrong file entirely).
   if [ -n "$report_out" ]; then
@@ -991,9 +1022,6 @@ cmd_finalize() {
   # escape properly. Attempt repair before any jq calls.
   if ! jq empty "$evidence_file" 2>/dev/null; then
     repair_json_file "$evidence_file" evidence "evidence file" 5
-    # Note: under set -e, python3 non-zero exit fires errexit before this
-    # guard executes. Guard kept as explicit documentation of the contract.
-    [ $? -ne 0 ] && exit 5
   fi
 
   # Validate evidence file is non-empty JSON array. An empty bundle set is
@@ -1010,11 +1038,14 @@ cmd_finalize() {
   # Apply the same backslash repair as evidence, then validate.
   if ! jq empty "$judge_output" 2>/dev/null; then
     repair_json_file "$judge_output" judge "judge output" 7
-    # Note: under set -e, python3 non-zero exit fires errexit before this
-    # guard executes. Guard kept as explicit documentation of the contract.
-    if [ $? -ne 0 ]; then
-      exit 7
-    fi
+  fi
+
+  # CDT-390: a top-level JSON array has no .verdicts / .findings. Wrap it
+  # before render and before the stdout counters so those jq paths stay object
+  # form. Verdict shape → {"verdicts":[...]} ; finding shape → {"findings":[...]}.
+  if ! normalize_judge_shape "$judge_output" "$output_shape"; then
+    echo "engine.sh: failed to normalize judge output shape" >&2
+    exit 7
   fi
 
   # max_*_confidence + struck_count come from finalize-meta.json after render
@@ -1029,18 +1060,19 @@ cmd_finalize() {
   local created_at
   created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-  COUNCIL_SKILL_DIR="$SCRIPT_DIR" python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
+  export COUNCIL_SKILL_DIR="$SCRIPT_DIR"
+  python3 - "$template_file" "$plan_file" "$evidence_file" "$judge_output" \
     "$plan_report_path" "$scope" "$preset" "$output_shape" "$created_at" \
     "$task_id" "$cross_review_status" "$cross_review_rankings" \
     "$cross_review_scores" "$verification_mode" "${tokens_file:-}" \
     "$council_tier" "$grading_reason" "$degradation_reason" <<'PYEOF'
-import json, sys, os, re
+import json, sys, os, re, math
 from collections import Counter
 
 # WP 1-15 C6: report_labels.py resolves claim ids/text for the report (AC H).
 # COUNCIL_SKILL_DIR is engine.sh's own SCRIPT_DIR, set on the invocation.
 sys.path.insert(0, os.environ["COUNCIL_SKILL_DIR"])
-from report_labels import resolve_claims, label_verdict
+from report_labels import resolve_claims, label_verdict, load_usable_tokens
 
 template_file  = sys.argv[1]
 plan_file      = sys.argv[2]
@@ -1070,48 +1102,7 @@ def yaml_dq(s):
              .replace("\r", " ").replace("\n", " "))
 
 # CDV-204: optional per-phase tokens (orchestrator-owned file). Never invent 0.
-def load_usable_tokens(path):
-    if not path or not os.path.isfile(path):
-        return None
-    try:
-        with open(path) as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    source = data.get("source") or ""
-    if source == "unavailable":
-        return None
-    raw_phases = data.get("phases") or {}
-    if not isinstance(raw_phases, dict):
-        raw_phases = {}
-    clean = {}
-    for k, v in raw_phases.items():
-        if v is None:
-            continue
-        try:
-            n = int(v)
-        except (TypeError, ValueError):
-            continue
-        if n > 0:
-            clean[str(k)] = n
-    total = data.get("total")
-    total_n = None
-    if total is not None:
-        try:
-            t = int(total)
-            if t > 0:
-                total_n = t
-        except (TypeError, ValueError):
-            total_n = None
-    if total_n is None and clean:
-        total_n = sum(clean.values())
-    if not clean and total_n is None:
-        return None
-    partial = source == "partial" or bool(data.get("partial"))
-    return {"phases": clean, "total": total_n, "partial": partial, "source": source}
-
+# Parser lives in report_labels.load_usable_tokens — one copy for render and stdout.
 tokens_data = load_usable_tokens(tokens_file)
 
 # CDV-199: banner only when orchestrator self-verified after spawn failure
@@ -1218,7 +1209,13 @@ else:
 
 # --- Format evidence bundles (unstruck only; missing tid → engine strike) ---
 bundle_lines = []
+raw_blobs = []
+bundle_ids = set()
 for b in bundles:
+    if isinstance(b, dict):
+        rb = b.get("raw_blob")
+        if isinstance(rb, str):
+            raw_blobs.append(rb)
     if missing_tool_use_id(b):
         fl = b.get("file_line", "") if isinstance(b, dict) else ""
         engine_strikes.append(
@@ -1226,6 +1223,7 @@ for b in bundles:
         )
         continue
     tid = b.get("tool_use_id")
+    bundle_ids.add(tid)
     raw = b.get("raw_blob", "")
     fl = b.get("file_line", "")
     cmd = b.get("reproducible_command", "")
@@ -1239,11 +1237,40 @@ evidence_bundles_md = "\n".join(bundle_lines) if bundle_lines else "_No evidence
 # Phase-4-conditional (SPEC-013 Phases 5/6): when Phase 4 did not run there is
 # no brief to render, and an empty or synthesized one is forbidden — the report
 # records the skip and its reason in its place.
+def brief_item_text(b):
+    # Match workflow.js briefToText, plus argument/text fields (CDT-401).
+    if not isinstance(b, dict):
+        return str(b) if b else ""
+    body = b.get("argument") or b.get("text") or b.get("evidence_against") or b.get("evidence_for") or ""
+    if not isinstance(body, str):
+        body = "" if body is None else str(body)
+    ids = b.get("supporting_tool_use_ids") or []
+    if not isinstance(ids, list):
+        ids = []
+    return (
+        "claim_id=%s requested=%s\n%s\nids=%s"
+        % (b.get("claim_id", ""), b.get("requested_verdict", ""), body, ",".join(str(x) for x in ids))
+    )
+
+def briefs_to_text(value):
+    if isinstance(value, dict):
+        briefs = value.get("briefs")
+        if not isinstance(briefs, list):
+            return ""
+        return "\n\n".join(brief_item_text(b) for b in briefs)
+    if isinstance(value, list):
+        return "\n\n".join(brief_item_text(b) for b in value)
+    if isinstance(value, str):
+        return value
+    return ""
+
 def format_brief(text):
-    if not text:
+    # str keeps quote rendering. dict/list render brief text, then the same quotes.
+    rendered = text if isinstance(text, str) else briefs_to_text(text)
+    if not isinstance(rendered, str) or not rendered.strip():
         return "_Brief not provided._"
-    lines = text.strip().splitlines()
-    return "\n".join(f"> {ln}" for ln in lines)
+    lines = rendered.strip().splitlines()
+    return "\n".join("> %s" % ln for ln in lines)
 
 phase4_plan = (plan.get("phases") or {}).get("4_prosecution_defense") or {}
 phase4_skipped = bool(phase4_plan.get("skipped"))
@@ -1270,18 +1297,107 @@ else:
     prosecutor_brief_md = format_brief(prosecutor_brief)
     advocate_brief_md = format_brief(advocate_brief)
 
+# CDT-181 floor (toward -inf). Bool is not a JSON number. None = not in 0..100.
+def floor_conf(v):
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return None
+    n = math.floor(v)
+    if n < 0 or n > 100:
+        return None
+    return int(n)
+
 # CDT-178 / WP 1-14 C3: floor-to-int confidence helper, used both by the
 # verdict/finding formatting below and by the finalize-meta sidecar block.
 def _as_int_conf(v):
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return 0
+    n = floor_conf(v)
+    return 0 if n is None else n
 
-# --- Format verdicts / findings (unstruck only for finding[] tid strikes) ---
+VERDICT_OK = {"VERIFIED", "PARTIALLY_VERIFIED", "UNVERIFIED", "CONTRADICTED", "FABRICATED"}
+SEVERITY_OK = {"critical", "warning", "nitpick"}
+
+def verdict_strike_reason(v, blobs, ids):
+    cid = v.get("claim_id") or v.get("claim") or "?"
+    verd = v.get("verdict")
+    if verd not in VERDICT_OK:
+        return "verdict %s outside taxonomy (claim=%s)" % (verd, cid)
+    blob = v.get("evidence_blob", None)
+    if not isinstance(blob, str) or blob.strip() == "":
+        return "verdict evidence_blob empty (claim=%s)" % cid
+    if floor_conf(v.get("confidence")) is None:
+        return "verdict confidence not in 0..100 after floor (claim=%s)" % cid
+    if not any(isinstance(rb, str) and blob in rb for rb in blobs):
+        return "verdict evidence_blob is not a substring of a bundle raw_blob (claim=%s)" % cid
+    tid = v.get("tool_use_id", None)
+    if isinstance(tid, str) and tid.strip() and tid.strip() not in ids:
+        return "verdict tool_use_id not in evidence bundles (claim=%s)" % cid
+    return None
+
+def finding_strike_reason(f, ids, threshold):
+    fl = f.get("file", "")
+    ln = f.get("line", "")
+    if missing_tool_use_id(f):
+        return "finding missing tool_use_id (file=%s line=%s)" % (fl, ln)
+    sev = f.get("severity")
+    if sev not in SEVERITY_OK:
+        return "finding severity %s outside taxonomy (file=%s line=%s)" % (sev, fl, ln)
+    tid = f.get("tool_use_id")
+    tid_s = tid.strip() if isinstance(tid, str) else ""
+    if tid_s not in ids:
+        return "finding tool_use_id not in evidence bundles (file=%s line=%s)" % (fl, ln)
+    conf = floor_conf(f.get("confidence"))
+    if conf is None:
+        return "finding confidence not in 0..100 after floor (file=%s line=%s)" % (fl, ln)
+    # A failed council-judge stays critical at confidence 50 so the commit
+    # gate still blocks and a task gate at 80 still fails. Do not filter it.
+    desc = f.get("description")
+    degraded = isinstance(desc, str) and desc.startswith("(degraded-judge:")
+    if threshold is not None and conf < threshold and not degraded:
+        return "finding confidence %s below confidence_filter_threshold %s (file=%s line=%s)" % (conf, threshold, fl, ln)
+    return None
+
+def validate_judge(items, shape, blobs, ids, threshold):
+    # CDT-303: strike before render and before max-confidence. Continue (exit 0).
+    kept = []
+    strikes = []
+    if not isinstance(items, list):
+        strikes.append("judge items are not a list")
+        return kept, strikes
+    for item in items:
+        if not isinstance(item, dict):
+            strikes.append("judge item is not an object")
+            continue
+        if shape == "verdict[]":
+            reason = verdict_strike_reason(item, blobs, ids)
+        else:
+            reason = finding_strike_reason(item, ids, threshold)
+        if reason:
+            strikes.append(reason)
+        else:
+            kept.append(item)
+    return kept, strikes
+
+# Findings only. Verdict[] is not filtered by confidence_filter_threshold.
+conf_threshold = None
+if output_shape == "finding[]":
+    raw_th = plan.get("confidence_filter_threshold", None)
+    if not isinstance(raw_th, bool) and isinstance(raw_th, (int, float)):
+        th = math.floor(raw_th)
+        if 0 <= th <= 100:
+            conf_threshold = int(th)
+
+unstruck_items, judge_strikes = validate_judge(
+    judge_items, output_shape, raw_blobs, bundle_ids, conf_threshold
+)
+engine_strikes.extend(judge_strikes)
+
+# --- Format verdicts / findings (unstruck only) ---
+max_verified_confidence = None
+worst_verdict_value = None
+finding_counts = None
+finding_attention = None
 if output_shape == "verdict[]":
-    # No finding-tid strike this ticket; all verdicts remain unstruck body.
-    unstruck_items = list(judge_items) if isinstance(judge_items, list) else []
     verdict_lines = []
     for v in unstruck_items:
         cid, claim = label_verdict(v, claims_resolved)
@@ -1314,24 +1430,38 @@ if output_shape == "verdict[]":
     confs = [_as_int_conf(v.get("confidence")) for v in unstruck_items]
     min_verdict_confidence = min(confs) if confs else None
     verdict_counts = {t: counts.get(t, 0) for t in taxonomy}
-    unstruck_verdicts = [
-        {"claim": v.get("claim", ""), "verdict": v.get("verdict", "UNVERIFIED"),
-         "confidence": _as_int_conf(v.get("confidence"))}
+    unstruck_verdicts = []
+    for v in unstruck_items:
+        blob = v.get("evidence_blob", "")
+        if not isinstance(blob, str):
+            blob = ""
+        unstruck_verdicts.append({
+            "claim": v.get("claim", ""),
+            "verdict": v.get("verdict", "UNVERIFIED"),
+            "confidence": _as_int_conf(v.get("confidence")),
+            "evidence_blob": blob,
+        })
+    # CDT-317: verified confidence ignores UNVERIFIED/CONTRADICTED/FABRICATED.
+    # worst_verdict is the worst unstruck taxonomy term (FABRICATED worst).
+    verified_confs = [
+        _as_int_conf(v.get("confidence"))
         for v in unstruck_items
+        if v.get("verdict") in ("VERIFIED", "PARTIALLY_VERIFIED")
     ]
+    max_verified_confidence = max(verified_confs) if verified_confs else None
+    _worst_rank = {
+        "FABRICATED": 0, "CONTRADICTED": 1, "UNVERIFIED": 2,
+        "PARTIALLY_VERIFIED": 3, "VERIFIED": 4,
+    }
+    _best = 99
+    for v in unstruck_items:
+        _r = _worst_rank.get(v.get("verdict"))
+        if _r is not None and _r < _best:
+            _best = _r
+            worst_verdict_value = v.get("verdict")
 else:
-    # finding[] shape — partition missing tool_use_id (CDT-178)
-    unstruck_items = []
-    for f in (judge_items if isinstance(judge_items, list) else []):
-        if missing_tool_use_id(f):
-            fl = f.get("file", "") if isinstance(f, dict) else ""
-            ln = f.get("line", "") if isinstance(f, dict) else ""
-            engine_strikes.append(
-                f"finding missing tool_use_id (file={fl} line={ln})"
-            )
-            continue
-        unstruck_items.append(f)
-
+    # finding[] — validate_judge already struck missing tid, bad severity,
+    # foreign tid, OOB confidence, and below-threshold confidence.
     finding_lines = []
     for f in unstruck_items:
         fl = f.get("file", "")
@@ -1363,6 +1493,25 @@ else:
     min_verdict_confidence = None
     verdict_counts = None
     unstruck_verdicts = None
+    finding_counts = {s: counts.get(s, 0) for s in sev_taxonomy}
+    finding_attention = []
+    for f in unstruck_items:
+        sev = f.get("severity") or ""
+        if sev not in ("critical", "warning"):
+            continue
+        desc = f.get("description", "")
+        if not isinstance(desc, str):
+            desc = ""
+        fl = f.get("file", "")
+        if not isinstance(fl, str):
+            fl = ""
+        finding_attention.append({
+            "confidence": f.get("confidence", "?"),
+            "severity": sev,
+            "file": fl,
+            "line": f.get("line", ""),
+            "description": desc.strip(),
+        })
 
 # CLAIMS_AUDITED over unstruck body only (finding[] after tid strike)
 claims_audited = str(len(unstruck_items))
@@ -1392,10 +1541,19 @@ else:
     struck_md = "No lines struck."
 
 # --- Diff-mode specific placeholders ---
-diff_summary = plan.get("diff_summary", plan.get("scope_arg", "_Not available._"))
-applicable_specs = plan.get("applicable_specs", "_None matched._")
-if isinstance(applicable_specs, list):
-    applicable_specs = "\n".join(f"- `{s}`" for s in applicable_specs)
+# Missing or empty string is absent. Do not render an empty DIFF_SUMMARY.
+def _nonempty_text(v):
+    return v if isinstance(v, str) and v.strip() else None
+
+diff_summary = _nonempty_text(plan.get("diff_summary")) or _nonempty_text(plan.get("scope_arg")) or "_Not available._"
+applicable_raw = plan.get("applicable_specs", None)
+if isinstance(applicable_raw, list) and applicable_raw:
+    applicable_specs = "\n".join("- `%s`" % s for s in applicable_raw)
+elif isinstance(applicable_raw, str) and applicable_raw.strip():
+    applicable_specs = applicable_raw
+else:
+    # No file list on the plan — do not claim a spec-grep ran.
+    applicable_specs = "_None matched._"
 
 # Commit gate status for finding[] shape (unstruck only)
 commit_gate = "PASSED"
@@ -1437,10 +1595,16 @@ for f in sorted(unstruck_items, key=action_rank):
     ln = f.get("line", "")
     desc = f.get("description", "")
     sugg = f.get("suggestion", desc)
+    if not isinstance(sugg, str):
+        sugg = "" if sugg is None else str(sugg)
+    sugg = sugg.strip()
     conf = f.get("confidence", 0)
     loc = f"`{fl}:{ln}`" if fl else ""
     label = action_label(f)
-    action_lines.append(f"- [ ] {label} {loc} — {desc} — {sugg} [confidence: {conf}]")
+    if sugg:
+        action_lines.append(f"- [ ] {label} {loc} — {desc} — {sugg} [confidence: {conf}]")
+    else:
+        action_lines.append(f"- [ ] {label} {loc} — {desc} [confidence: {conf}]")
 action_items_md = "\n".join(action_lines) if action_lines else "_No action items._"
 
 # --- Read template and strip comment block ---
@@ -1574,6 +1738,12 @@ meta = {
     "verdict_counts": verdict_counts,
     "verification_mode": verification_mode,
     "unstruck_verdicts": unstruck_verdicts,
+    # CDT-317: null when no VERIFIED/PARTIALLY_VERIFIED remains; null worst for finding[].
+    "max_verified_confidence": max_verified_confidence,
+    "worst_verdict": worst_verdict_value,
+    # Stdout counts. Null on the other shape. Attention rows are unstruck only.
+    "finding_counts": finding_counts,
+    "finding_attention": finding_attention,
 }
 
 # M14 per-AC split (WP 1-14; SPEC-013 Phase 6 "Finalize-meta sidecar"): only
@@ -1600,11 +1770,14 @@ PYEOF
 
   # Read finalize-meta for index conf + struck count (unstruck-only; CDT-178)
   local max_verdict_confidence="null" max_finding_confidence="null"
+  local max_verified_confidence="null" worst_verdict="null"
   local struck_count=0
   local meta_path="${plan_report_path}.finalize-meta.json"
   if [ -f "$meta_path" ]; then
     max_verdict_confidence=$(jq -r 'if .max_verdict_confidence == null then "null" else .max_verdict_confidence end' "$meta_path")
     max_finding_confidence=$(jq -r 'if .max_finding_confidence == null then "null" else .max_finding_confidence end' "$meta_path")
+    max_verified_confidence=$(jq -r 'if .max_verified_confidence == null then "null" else .max_verified_confidence end' "$meta_path")
+    worst_verdict=$(jq -r 'if .worst_verdict == null then "null" else .worst_verdict end' "$meta_path")
     struck_count=$(jq -r '.struck_count // 0' "$meta_path")
   fi
 
@@ -1614,14 +1787,14 @@ PYEOF
       echo "engine.sh: index-writer.sh not executable at $INDEX_WRITER" >&2
       exit 6
     fi
-    if ! "$INDEX_WRITER" "$task_id" "$plan_report_path" "$max_verdict_confidence" "$max_finding_confidence" "$council_tier" "$grading_reason" >&2; then
+    if ! "$INDEX_WRITER" "$task_id" "$plan_report_path" "$max_verdict_confidence" "$max_finding_confidence" "$council_tier" "$grading_reason" "$max_verified_confidence" "$worst_verdict" >&2; then
       echo "engine.sh: failed to update .claude/council/index.json" >&2
       exit 6
     fi
   fi
 
   # Stdout summary (contract from SKILL.md Phase 6)
-  local rel_path="${plan_report_path#$MROOT/}"
+  local rel_path="${plan_report_path#"$MROOT"/}"
   printf 'Council report: %s\n' "$rel_path"
   printf 'Scope: %s\n' "$scope"
   printf 'Preset: %s (%s)\n' "$preset" "$output_shape"
@@ -1634,83 +1807,77 @@ PYEOF
   printf 'verification_mode=%s\n' "$verification_mode"
 
   if [ "$output_shape" = "verdict[]" ]; then
-    # Verdict counts
+    # Unstruck counts from the sidecar. Do not rescan the raw judge file.
     local v_verified v_partial v_unverified v_contradicted v_fabricated
-    v_verified=$(jq '[(.verdicts // [])[] | select(.verdict=="VERIFIED")] | length' "$judge_output")
-    v_partial=$(jq '[(.verdicts // [])[] | select(.verdict=="PARTIALLY_VERIFIED")] | length' "$judge_output")
-    v_unverified=$(jq '[(.verdicts // [])[] | select(.verdict=="UNVERIFIED")] | length' "$judge_output")
-    v_contradicted=$(jq '[(.verdicts // [])[] | select(.verdict=="CONTRADICTED")] | length' "$judge_output")
-    v_fabricated=$(jq '[(.verdicts // [])[] | select(.verdict=="FABRICATED")] | length' "$judge_output")
+    v_verified=$(jq -r '.verdict_counts.VERIFIED // 0' "$meta_path")
+    v_partial=$(jq -r '.verdict_counts.PARTIALLY_VERIFIED // 0' "$meta_path")
+    v_unverified=$(jq -r '.verdict_counts.UNVERIFIED // 0' "$meta_path")
+    v_contradicted=$(jq -r '.verdict_counts.CONTRADICTED // 0' "$meta_path")
+    v_fabricated=$(jq -r '.verdict_counts.FABRICATED // 0' "$meta_path")
     printf 'VERIFIED: %d  PARTIALLY_VERIFIED: %d  UNVERIFIED: %d  CONTRADICTED: %d  FABRICATED: %d\n' \
       "$v_verified" "$v_partial" "$v_unverified" "$v_contradicted" "$v_fabricated"
 
-    # Needs-attention block: any non-VERIFIED verdict
+    # Needs-attention block: any non-VERIFIED unstruck verdict
     local attention_count=$(( v_partial + v_unverified + v_contradicted + v_fabricated ))
     if [ "$attention_count" -gt 0 ]; then
       printf '\n\xe2\x9a\xa0 Needs attention (%d):\n' "$attention_count"
-      python3 - "$judge_output" <<'PYEOF'
-import json, sys, textwrap
-raw = json.load(open(sys.argv[1]))
-data = raw.get("verdicts", raw) if isinstance(raw, dict) else raw
-for v in data:
+      python3 - "$meta_path" <<'PYEOF'
+import json, sys
+meta = json.load(open(sys.argv[1]))
+for v in meta.get("unstruck_verdicts") or []:
+    if not isinstance(v, dict):
+        continue
     vt = v.get("verdict", "")
     if vt == "VERIFIED":
         continue
     conf = v.get("confidence", "?")
-    claim = v.get("claim", "").strip()
-    blob = v.get("evidence_blob", "").strip()
-    # First non-empty line of blob as snippet
+    claim = v.get("claim", "")
+    if not isinstance(claim, str):
+        claim = ""
+    claim = claim.strip()
+    blob = v.get("evidence_blob", "")
+    if not isinstance(blob, str):
+        blob = ""
     snippet = next((ln.strip() for ln in blob.splitlines() if ln.strip()), "")
     if snippet:
-        print(f"  [{conf}] {vt} \u2014 {claim} ({snippet})")
+        print("  [%s] %s \u2014 %s (%s)" % (conf, vt, claim, snippet))
     else:
-        print(f"  [{conf}] {vt} \u2014 {claim}")
+        print("  [%s] %s \u2014 %s" % (conf, vt, claim))
 PYEOF
     fi
   else
-    # Finding counts by severity — unstruck only (jq twin of missing_tool_use_id)
-    # Present non-empty string after strip; null/non-string/blank → missing.
+    # Unstruck severity counts from the sidecar.
     local f_critical f_warning f_nitpick
-    f_critical=$(jq '[(.findings // [])[] | select((.tool_use_id != null) and (.tool_use_id | type == "string") and ((.tool_use_id | gsub("^[[:space:]]+|[[:space:]]+$";"")) | length > 0) and .severity=="critical")] | length' "$judge_output")
-    f_warning=$(jq '[(.findings // [])[] | select((.tool_use_id != null) and (.tool_use_id | type == "string") and ((.tool_use_id | gsub("^[[:space:]]+|[[:space:]]+$";"")) | length > 0) and .severity=="warning")] | length' "$judge_output")
-    f_nitpick=$(jq '[(.findings // [])[] | select((.tool_use_id != null) and (.tool_use_id | type == "string") and ((.tool_use_id | gsub("^[[:space:]]+|[[:space:]]+$";"")) | length > 0) and .severity=="nitpick")] | length' "$judge_output")
+    f_critical=$(jq -r '.finding_counts.critical // 0' "$meta_path")
+    f_warning=$(jq -r '.finding_counts.warning // 0' "$meta_path")
+    f_nitpick=$(jq -r '.finding_counts.nitpick // 0' "$meta_path")
     printf 'critical: %d  warning: %d  nitpick: %d\n' \
       "$f_critical" "$f_warning" "$f_nitpick"
 
-    # Needs-attention block: critical and warning findings (unstruck only)
+    # Needs-attention block: unstruck critical and warning findings
     local attention_count=$(( f_critical + f_warning ))
     if [ "$attention_count" -gt 0 ]; then
       printf '\n\xe2\x9a\xa0 Needs attention (%d):\n' "$attention_count"
-      python3 - "$judge_output" <<'PYEOF'
+      python3 - "$meta_path" <<'PYEOF'
 import json, sys
-
-def missing_tool_use_id(obj):
-    if not isinstance(obj, dict):
-        return True
-    v = obj.get("tool_use_id", None)
-    if v is None:
-        return True
-    if not isinstance(v, str):
-        return True
-    return v.strip() == ""
-
-raw = json.load(open(sys.argv[1]))
-data = raw.get("findings", raw) if isinstance(raw, dict) else raw
-for f in data:
-    if missing_tool_use_id(f):
+meta = json.load(open(sys.argv[1]))
+for f in meta.get("finding_attention") or []:
+    if not isinstance(f, dict):
         continue
     sev = f.get("severity", "")
-    if sev not in ("critical", "warning"):
-        continue
     conf = f.get("confidence", "?")
     fname = f.get("file", "")
+    if not isinstance(fname, str):
+        fname = ""
     line = f.get("line", "")
-    desc = f.get("description", "").strip()
-    loc = f"{fname}:{line}" if fname else ""
+    desc = f.get("description", "")
+    if not isinstance(desc, str):
+        desc = ""
+    loc = "%s:%s" % (fname, line) if fname else ""
     if loc:
-        print(f"  [{conf}] {sev.upper()} \u2014 {loc}: {desc}")
+        print("  [%s] %s \u2014 %s: %s" % (conf, sev.upper(), loc, desc))
     else:
-        print(f"  [{conf}] {sev.upper()} \u2014 {desc}")
+        print("  [%s] %s \u2014 %s" % (conf, sev.upper(), desc))
 PYEOF
     fi
   fi
@@ -1721,52 +1888,19 @@ PYEOF
   # CDV-204: optional Tokens block (graceful omit when missing/unavailable)
   if [ -n "$tokens_file" ] && [ -f "$tokens_file" ]; then
     python3 - "$tokens_file" <<'PYEOF'
-import json, sys, os
+import os, sys
+sys.path.insert(0, os.environ["COUNCIL_SKILL_DIR"])
+from report_labels import load_usable_tokens
 
-path = sys.argv[1]
-try:
-    with open(path) as f:
-        data = json.load(f)
-except Exception:
+data = load_usable_tokens(sys.argv[1])
+if not data:
     sys.exit(0)
-if not isinstance(data, dict):
-    sys.exit(0)
-source = data.get("source") or ""
-if source == "unavailable":
-    sys.exit(0)
-raw_phases = data.get("phases") or {}
-if not isinstance(raw_phases, dict):
-    raw_phases = {}
-clean = {}
-for k, v in raw_phases.items():
-    if v is None:
-        continue
-    try:
-        n = int(v)
-    except (TypeError, ValueError):
-        continue
-    if n > 0:
-        clean[str(k)] = n
-total = data.get("total")
-total_n = None
-if total is not None:
-    try:
-        t = int(total)
-        if t > 0:
-            total_n = t
-    except (TypeError, ValueError):
-        total_n = None
-if total_n is None and clean:
-    total_n = sum(clean.values())
-if not clean and total_n is None:
-    sys.exit(0)
-partial = source == "partial" or bool(data.get("partial"))
-label = "Tokens (partial):" if partial else "Tokens:"
-print(f"\n{label}")
-for k, v in clean.items():
-    print(f"  {k}: {v}")
-if total_n is not None:
-    print(f"  Total: {total_n}")
+label = "Tokens (partial):" if data.get("partial") else "Tokens:"
+print("\n%s" % label)
+for k, v in data["phases"].items():
+    print("  %s: %s" % (k, v))
+if data.get("total") is not None:
+    print("  Total: %s" % data["total"])
 PYEOF
   fi
 

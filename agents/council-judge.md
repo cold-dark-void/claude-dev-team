@@ -36,7 +36,7 @@ The council engine passes the following to the Judge:
 
 ## Output Contract
 
-For `verdict[]` runs, emit a list of records: `{claim, verdict, confidence, evidence_blob}`.
+For `verdict[]` runs, emit a list of records: `{claim, claim_id, verdict, confidence, evidence_blob}`. `claim_id` is required.
 
 For `finding[]` runs, emit a list of records: `{file, line, severity, category, description, suggestion, confidence, tool_use_id}`.
 

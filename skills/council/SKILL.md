@@ -329,7 +329,8 @@ For diff-mode only: run spec-grep over the changed file paths against
 This bundle is appended to the raw input that Phase 1 receives. The diff
 itself is the primary raw input; the spec bundle is context for claim
 extraction. (SPEC-013 § Engine Architecture, SPEC-010 § Code Review (review-and-commit), taxonomy resolution doc
-section 1.)
+section 1.) When the plan omits `applicable_specs`, spec-grep is the
+orchestrator's job; finalize renders the plan value only and does not grep.
 
 No user code runs in Phase 0. No subagents spawn. This phase is pure
 validation + input assembly.
@@ -1075,6 +1076,8 @@ Index row schema (produced by `index-writer.sh`):
   "report_path": "<absolute or MROOT-relative path>",
   "max_verdict_confidence": <int 0..100 | null>,
   "max_finding_confidence": <int 0..100 | null>,
+  "max_verified_confidence": <int 0..100 | null>,
+  "worst_verdict": "<taxonomy term | null>",
   "created_at": "<ISO-8601 UTC>",
   "council_tier": "light | full",
   "grading_reason": "<why that tier was selected>"
@@ -1089,8 +1092,15 @@ They are orthogonal to `verification_mode` — the tier says which roles the run
 Per-shape population rule:
 - `verdict[]` runs: `max_verdict_confidence` = `max(confidence)` across all
   unstruck verdicts; `max_finding_confidence = null`.
+  `max_verified_confidence` = max confidence over unstruck `VERIFIED` and
+  `PARTIALLY_VERIFIED` only (null when none). `worst_verdict` is the worst
+  unstruck verdict (`FABRICATED` > `CONTRADICTED` > `UNVERIFIED` >
+  `PARTIALLY_VERIFIED` > `VERIFIED`).
 - `finding[]` runs: `max_finding_confidence` = `max(confidence)` across all
-  unstruck findings; `max_verdict_confidence = null`. (SPEC-013 § Council tiering.)
+  unstruck findings; `max_verdict_confidence = null`. `worst_verdict` and
+  `max_verified_confidence` are null. (SPEC-013 § Council tiering.)
+  Findings below `confidence_filter_threshold` are struck (the reason names
+  the threshold). Verdict rows are not filtered by that threshold.
 
 **Index confidence normalization (CDT-181):** engine max pipelines end with
 `| floor` so argv is integer text; `index-writer.sh` also floors float argv

@@ -4,7 +4,7 @@
       "claim": "",
       "verdict": "VERIFIED",
       "confidence": 85,
-      "evidence_blob": "Widget renderer handles null input.",
+      "evidence_blob": "widget renderer handles null input",
       "tool_use_id": "t1"
     }
   ],

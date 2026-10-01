@@ -302,7 +302,9 @@ jq '{
 EVIDENCE_ONE_BAD="$HERMETIC_ROOT/evidence-one-bad.json"
 cat > "$EVIDENCE_ONE_BAD" <<'EV_EOF'
 [{"tool_use_id": "t1", "raw_blob": "VERIFY exit=1",
-  "file_line": "skills/fx/test-a.sh:1", "reproducible_command": "bash skills/fx/test-a.sh"}]
+  "file_line": "skills/fx/test-a.sh:1", "reproducible_command": "bash skills/fx/test-a.sh"},
+ {"tool_use_id": "t2", "raw_blob": "VERIFY exit=0",
+  "file_line": "skills/fx/test-b.sh:1", "reproducible_command": "bash skills/fx/test-b.sh"}]
 EV_EOF
 
 REPORT_BAD="$HERMETIC_ROOT/report-bad.md"

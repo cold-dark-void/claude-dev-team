@@ -731,17 +731,19 @@ export async function runCouncil(runtime) {
       }
     } else {
       judgeOut = {
-        verdicts: claims.map((c, i) => ({
-          claim: c.claim,
-          claim_id: `c${i}`,
-          verdict: 'UNVERIFIED',
-          confidence: 40,
-          evidence_blob: orderedBundles
-            .filter((b) => b.claim_id === `c${i}`)
-            .map((b) => b.raw_blob)
-            .join('\n')
-            .slice(0, 2000) || '(no evidence)',
-        })),
+        verdicts: claims.map((c, i) => {
+          const cid = `c${i}`
+          const matched = orderedBundles.find((b) => b.claim_id === cid)
+          const src = matched || orderedBundles[0]
+          const blob = src && typeof src.raw_blob === 'string' ? src.raw_blob : ''
+          return {
+            claim: c.claim,
+            claim_id: cid,
+            verdict: 'UNVERIFIED',
+            confidence: 40,
+            evidence_blob: blob,
+          }
+        }),
         struck_lines: [],
       }
     }

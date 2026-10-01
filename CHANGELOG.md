@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.46
+- **WP 3-01 Council finalize** — finalize strikes an invalid judge row, the task gate fails a contradicted or fabricated verdict, and stdout counts only the rows that remain.
+
 ### v1.18.45
 - **WP 2-13 Install opencode** — a default install keeps model pins, unknown flags exit 64, and uninstall removes only this repo's command symlink.
 

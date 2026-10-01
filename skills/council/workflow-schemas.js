@@ -138,7 +138,7 @@ export const VerdictSchema = {
           confidence: { type: 'integer', minimum: 0, maximum: 100 },
           evidence_blob: { type: 'string' },
         },
-        required: ['claim', 'verdict', 'confidence', 'evidence_blob'],
+        required: ['claim', 'claim_id', 'verdict', 'confidence', 'evidence_blob'],
       },
     },
     struck_lines: {

@@ -83,6 +83,7 @@ PROCEDURE
      For each claim in ORIGINAL_CLAIMS, weigh the prosecutor and advocate
      briefs against the evidence bundles and issue ONE verdict record:
        - claim: verbatim claim text
+       - claim_id: the claim id from ORIGINAL_CLAIMS (required; never "?")
        - verdict: one of VERIFIED | PARTIALLY_VERIFIED | UNVERIFIED
                         | CONTRADICTED | FABRICATED
        - confidence: integer 0-100
@@ -174,7 +175,7 @@ Respond with a SINGLE LINE of strict JSON matching the schema for the
 current OUTPUT_SHAPE. No prose, no markdown fences.
 
 For verdict[]:
-{"verdicts":[{"claim":"...","verdict":"VERIFIED","confidence":0,"evidence_blob":"..."}],"struck_lines":[{"claim":"...","line":"...","reason":"..."}]}
+{"verdicts":[{"claim":"...","claim_id":"c0","verdict":"VERIFIED","confidence":0,"evidence_blob":"..."}],"struck_lines":[{"claim":"...","line":"...","reason":"..."}]}
 
 For finding[]:
 {"findings":[{"file":"...","line":0,"severity":"critical","category":"...","description":"...","suggestion":"...","confidence":0,"tool_use_id":"..."}],"struck_lines":[{"claim":"...","line":"...","reason":"..."}]}
@@ -199,6 +200,7 @@ For finding[]:
 {
   "verdicts": [
     {"claim": "string",
+     "claim_id": "string",
      "verdict": "VERIFIED|PARTIALLY_VERIFIED|UNVERIFIED|CONTRADICTED|FABRICATED",
      "confidence": 0,
      "evidence_blob": "string (raw bytes, NOT paraphrased)"}
@@ -230,22 +232,15 @@ For finding[]:
 
 ## Validation rules (engine-enforced)
 
-The engine MUST reject the judge's response (exit code 7, SPEC-013 SKILL
-failure modes) if:
-1. Output is not valid single-line JSON matching the branch schema.
-2. The response contains a `tool_use` block — the judge tried to run a
-   tool (SPEC-013 § Council tiering). This is a structural invariant
-   violation.
-3. Any verdict is outside the 5-term taxonomy (SPEC-013 § Council tiering).
-4. Any severity is outside the 3-term taxonomy (SPEC-013 § Council tiering).
-5. Any confidence is outside `[0,100]` (SPEC-013 § Council tiering).
-6. Any verdict line has an empty `evidence_blob`, or any finding line has
-   an empty `tool_use_id` (SPEC-013 § Engine Architecture).
-7. Any line's quoted text is not a verbatim substring of a raw_blob in
-   the evidence bundles (SPEC-013 § Council tiering).
-8. `struck_lines` is missing entirely. It MAY be empty but MUST exist —
-   a missing audit trail is a bug (SPEC-013 § Council tiering, treated as hard AC
-   per SKILL).
+Exit 7 is only for judge output that is not valid JSON after repair, or for
+an `output_shape` the plan does not declare. The engine does not exit 7 for
+a missing `tool_use_id`, a bad taxonomy term, an empty blob, a confidence
+outside 0..100, or a quote that is not a substring of a bundle `raw_blob`.
+
+Those lines are struck and the run continues (exit 0). Struck lines are
+appended to the audit trail. They are excluded from max confidence. A
+finding whose `tool_use_id` is not one of the evidence bundle ids is struck
+the same way. Do not invent ids.
 
 Enforces SPEC-013 § Council tiering (Phase 5 judgment, fixed taxonomies, empty
 tool allowlist, strike rule, confidence scale).

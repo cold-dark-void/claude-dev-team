@@ -356,7 +356,7 @@ ok "engine jq floor: int 100 unchanged" \
     | jq "[(.verdicts // [])[] | .confidence // 0] | max // 0 | floor")" = "100" ]'
 
 # finalize task-bound with float judge confidence (AC1/AC8)
-printf '%s\n' '{"verdicts":[{"claim_id":"c1","claim":"float conf","verdict":"VERIFIED","confidence":90.7,"evidence_blob":"x"}],"struck_lines":[]}' \
+printf '%s\n' '{"verdicts":[{"claim_id":"c1","claim":"float conf","verdict":"VERIFIED","confidence":90.7,"evidence_blob":"tools: \"\""}],"struck_lines":[]}' \
   > "$TMP/judge-float.json"
 (
   cd "$REPO" || exit 1

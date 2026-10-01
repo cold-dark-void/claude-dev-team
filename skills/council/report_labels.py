@@ -131,3 +131,53 @@ def label_verdict(v, claims):
         return (c.get("claim_id") or "c0"), (c.get("claim") or vclaim)
 
     return "unmatched", vclaim
+
+
+def load_usable_tokens(path):
+    """CDV-204 tokens file → dict or None. Shared by finalize render and stdout.
+
+    Never invents 0. source "unavailable", non-dict, or no positive ints → None.
+    """
+    import json
+    import os
+
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    source = data.get("source") or ""
+    if source == "unavailable":
+        return None
+    raw_phases = data.get("phases") or {}
+    if not isinstance(raw_phases, dict):
+        raw_phases = {}
+    clean = {}
+    for k, v in raw_phases.items():
+        if v is None:
+            continue
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            clean[str(k)] = n
+    total = data.get("total")
+    total_n = None
+    if total is not None:
+        try:
+            t = int(total)
+            if t > 0:
+                total_n = t
+        except (TypeError, ValueError):
+            total_n = None
+    if total_n is None and clean:
+        total_n = sum(clean.values())
+    if not clean and total_n is None:
+        return None
+    partial = source == "partial" or bool(data.get("partial"))
+    return {"phases": clean, "total": total_n, "partial": partial, "source": source}

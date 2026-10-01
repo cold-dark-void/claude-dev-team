@@ -5,6 +5,11 @@
 # Usage:
 #   index-writer.sh <task_id> <report_path> <max_verdict_confidence|null> <max_finding_confidence|null>
 #                   <council_tier> <grading_reason>
+#                   [max_verified_confidence|null] [worst_verdict|null]
+#
+# The last two args are optional. A 6-arg call still writes the pre-CDT-317
+# row (those keys absent). Finalize passes both. Empty task_id is rejected.
+# A non-empty id is accepted for every tier, including skip.
 #
 # Exits 0 on success, non-zero on failure (message on stderr).
 # Atomic tmp+rename, flock-serialized to prevent concurrent races.
@@ -12,8 +17,8 @@
 set -euo pipefail
 
 # ---- Args -------------------------------------------------------------------
-if [ $# -ne 6 ]; then
-  echo "Usage: index-writer.sh <task_id> <report_path> <max_verdict_confidence|null> <max_finding_confidence|null> <council_tier> <grading_reason>" >&2
+if [ $# -lt 6 ] || [ $# -gt 8 ]; then
+  echo "Usage: index-writer.sh <task_id> <report_path> <max_verdict_confidence|null> <max_finding_confidence|null> <council_tier> <grading_reason> [max_verified_confidence|null] [worst_verdict|null]" >&2
   exit 1
 fi
 
@@ -23,6 +28,18 @@ MVC="$3"    # max_verdict_confidence  — JSON number (int|float) or literal "nu
 MFC="$4"    # max_finding_confidence  — JSON number (int|float) or literal "null"
 TIER="$5"   # council_tier (CDT-126)  — light | full | skip
 REASON="$6" # grading_reason (CDT-126) — free text, may be empty
+HAS_MVC_VERIFIED=0
+MVC_VERIFIED="null"
+HAS_WORST=0
+WORST_VERDICT="null"
+if [ $# -ge 7 ]; then
+  MVC_VERIFIED="$7"
+  HAS_MVC_VERIFIED=1
+fi
+if [ $# -ge 8 ]; then
+  WORST_VERDICT="$8"
+  HAS_WORST=1
+fi
 
 # ---- Dependency check -------------------------------------------------------
 # jq required early: confidence floor-normalize (CDT-181) + atomic index write.
@@ -32,7 +49,13 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # ---- Validate task_id (path traversal prevention) ----------------------------
-if [ -n "$TASK_ID" ] && ! [[ "$TASK_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+# Empty is rejected (W2-15). ".." matches the character class; reject it.
+# Do not reject a non-empty skip-tier id — tier is checked separately.
+if [ -z "$TASK_ID" ]; then
+  echo "error: task_id must be non-empty" >&2
+  exit 1
+fi
+if [[ "$TASK_ID" == *..* ]] || [[ "$TASK_ID" == */* ]] || ! [[ "$TASK_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
   printf 'error: task_id must match [a-zA-Z0-9._-]+, got: %q\n' "$TASK_ID" >&2
   exit 1
 fi
@@ -62,6 +85,18 @@ validate_confidence() {
 }
 validate_confidence MVC "max_verdict_confidence"
 validate_confidence MFC "max_finding_confidence"
+if [ "$HAS_MVC_VERIFIED" -eq 1 ]; then
+  validate_confidence MVC_VERIFIED "max_verified_confidence"
+fi
+if [ "$HAS_WORST" -eq 1 ]; then
+  case "$WORST_VERDICT" in
+    null|VERIFIED|PARTIALLY_VERIFIED|UNVERIFIED|CONTRADICTED|FABRICATED) ;;
+    *)
+      echo "error: worst_verdict must be a taxonomy term or 'null', got: $WORST_VERDICT" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 # ---- Validate council_tier ---------------------------------------------------
 # light|full come from an actual engine.sh finalize run; grading can never
@@ -111,7 +146,14 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
      --arg ts  "$TS" \
      --arg tier "$TIER" \
      --arg reason "$REASON" \
-     '.[$tid] = [{report_path: $rp, max_verdict_confidence: $mvc, max_finding_confidence: $mfc, created_at: $ts, council_tier: $tier, grading_reason: $reason}] + (.[$tid] // [])' \
+     --argjson has_mv "$HAS_MVC_VERIFIED" \
+     --argjson mv "$MVC_VERIFIED" \
+     --argjson has_wv "$HAS_WORST" \
+     --arg wv "$WORST_VERDICT" \
+     '.[$tid] = [({report_path: $rp, max_verdict_confidence: $mvc, max_finding_confidence: $mfc, created_at: $ts, council_tier: $tier, grading_reason: $reason}
+        + (if $has_mv == 1 then {max_verified_confidence: $mv} else {} end)
+        + (if $has_wv == 1 then {worst_verdict: (if $wv == "null" then null else $wv end)} else {} end)
+      )] + (.[$tid] // [])' \
      "$INDEX" > "$TMP"
 
   mv "$TMP" "$INDEX"

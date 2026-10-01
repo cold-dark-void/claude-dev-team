@@ -4,7 +4,7 @@
 [//]: # "{{PRESET}}                — e.g. 'diff-mode'"
 [//]: # "{{TIMESTAMP}}             — ISO-8601 UTC timestamp of report creation"
 [//]: # "{{DIFF_SUMMARY}}          — paths and line counts of the diff under review"
-[//]: # "{{APPLICABLE_SPECS}}      — list of spec files matched by spec-grep intake"
+[//]: # "{{APPLICABLE_SPECS}}      — plan applicable_specs, or none-matched when omitted"
 [//]: # "{{INVESTIGATOR_FLAVORS}}  — comma-separated list of flavor ids used"
 [//]: # "{{PHASE3_SPECIALIST_STATUS}} — 'ELIGIBLE (runtime classify)' or 'SKIPPED (reason: <text>)'"
 [//]: # "{{CROSS_REVIEW_STATUS}}   — 'RAN' or 'BYPASSED (reason: <text>)'"
@@ -12,6 +12,9 @@
 [//]: # "{{CROSS_REVIEW_SCORES}}   — Borda score table: bundle identity, score, WEAK_EVIDENCE flag"
 [//]: # "{{VERIFICATION_BANNER}}   — empty when verification_mode=full; blockquote banner when self-verified"
 [//]: # "{{FINDINGS}}              — per-finding records grouped by severity"
+[//]: # "{{EVIDENCE_BUNDLES}}      — raw evidence bundles from Phase 2 investigators"
+[//]: # "{{PROSECUTOR_BRIEF}}      — Phase 4 prosecutor output, or the Phase-4 skip note"
+[//]: # "{{ADVOCATE_BRIEF}}        — Phase 4 devil's advocate output, or the Phase-4 skip note"
 [//]: # "{{STRUCK_FINDINGS}}       — findings struck for missing tool_use_id or unsupported citation"
 [//]: # "{{SEVERITY_SUMMARY_TABLE}} — counts by severity: critical / warning / nitpick"
 [//]: # "{{COMMIT_GATE_STATUS}}    — BLOCKED if any critical/compliance finding, else PASSED"
@@ -72,9 +75,9 @@ before committing.
 
 ## Applicable Specs
 
-Spec files matched by spec-grep over the changed file paths. Each matched
-MUST requirement was provided to investigators as context during Phase 1
-enrichment and Phase 2 investigation.
+Specs taken from the plan field applicable_specs. When the plan omits that
+field, this section stays none-matched. Spec-grep is the orchestrator's job.
+This report does not claim a grep ran.
 
 {{APPLICABLE_SPECS}}
 
@@ -104,16 +107,37 @@ that flag set.
 
 ---
 
+## Evidence Bundles
+
+Raw tool-call evidence collected by investigators. Each bundle contains a
+`tool_use_id` and the raw output blob.
+
+{{EVIDENCE_BUNDLES}}
+
+---
+
+## Prosecutor Brief
+
+{{PROSECUTOR_BRIEF}}
+
+---
+
+## Devil's Advocate Brief
+
+{{ADVOCATE_BRIEF}}
+
+---
+
 ## Findings
 
 Per-finding records from the Council Judge (Phase 5, diff-mode). Each entry
 includes `file:line`, category (from the specialist flavor), description,
 suggestion, confidence score (0–100), and the `tool_use_id` citing the
-Read/Grep that observed the cited location. Findings below confidence 80 were
-filtered at emission (per SPEC-013's "diff-mode findings filter <80 at emission"). `engine.sh`
-emits one `### [SEVERITY] file:line (category)` heading per finding into
-`{{FINDINGS}}` (in the order the judge returned them), so each finding carries
-its own severity inline and no static severity subheadings are needed here.
+Read/Grep that observed the cited location. Findings below the plan
+confidence filter were struck at emission (diff-mode threshold 80). The
+engine emits one severity heading per unstruck finding, in judge order, so
+each finding carries its own severity inline and no static severity
+subheadings are needed here.
 
 {{FINDINGS}}
 
