@@ -359,6 +359,30 @@ else
   fail "surface-delegates-writer"
 fi
 
+# models.local.json.lock is a local runtime file (write-model.sh flock target):
+# .gitignore must list it next to models.local.json (CDT-282 [09 F23]). A text
+# match, not `git check-ignore`: a global excludes file can hide the defect.
+if grep -qxF '.claude/dev-team/models.local.json.lock' "$ROOT/.gitignore"; then
+  pass "models-local-lock-ignored"
+else
+  fail "models-local-lock-ignored: .claude/dev-team/models.local.json.lock is not in .gitignore"
+fi
+# control: the same match finds nothing for a line that is not in the file
+if grep -qxF '.claude/dev-team/not-a-runtime-file.lock' "$ROOT/.gitignore"; then
+  fail "control: the .gitignore match finds a line that is not there"
+else
+  pass "control: the .gitignore match is false for an absent line"
+fi
+# adjust-agent names every mappable internal agent (write-model.sh is_mappable;
+# rv-w1-20): finder and debugger are mappable like council-judge.
+for a in council-judge finder debugger; do
+  if grep -qF "\`$a\`" "$ROOT/commands/adjust-agent.md" && grep -qE "\`finder\` and \`debugger\` (are|is) (mappable|omitted|allowed)|\`finder\` and \`debugger\` are (mappable|omitted|allowed)" "$ROOT/commands/adjust-agent.md"; then
+    pass "adjust-agent-mappable-$a"
+  else
+    fail "adjust-agent-mappable-$a: commands/adjust-agent.md does not name it as mappable"
+  fi
+done
+
 # =============================================================================
 # Summary
 # =============================================================================

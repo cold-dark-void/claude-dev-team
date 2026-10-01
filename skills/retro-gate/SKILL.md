@@ -216,6 +216,19 @@ bash skills/retro-gate/scheduled-lock.sh release <mroot>   # always 0 (fail-open
 - TTL **2h** (7200s); stale locks are stolen
 - Concurrent scheduled runs: acquire rc 2 → print skip line, exit 0, no report
 
+### `parse-args.sh`
+
+```
+PARSED=$(bash skills/retro-gate/parse-args.sh "$@") || exit 1; eval "$PARSED"
+```
+
+- The one `/retro` argument parser. `commands/retro.md` Steps 1 and 2 call it after they read
+  `$ARGUMENTS` through a quoted heredoc and split it with `set -f; set -- $ARGS; set +f`
+- Prints `MODE`, `AUTO`, `WHY`, `EXPLICIT_SID`, `HOST` and `HOST_EXPLICIT` as `printf %q`
+  assignments; a value is data, never code. Exit 1 with one `error:` line on a bad `--host`
+  value, a missing `--host` value, or `--all` with a session id. An unknown `--flag` is warned
+  about and skipped
+
 ### Tests
 
 ```
@@ -225,6 +238,7 @@ bash skills/retro-gate/scheduled-lock-test.sh
 bash skills/retro-gate/scheduled-retro-test.sh
 bash skills/retro-gate/trial-meta-test.sh            # CDV-200
 bash skills/retro-gate/trial-review-test.sh          # CDV-200
+bash skills/retro-gate/parse-args-test.sh            # the one /retro argument parser
 ```
 
 ## Directive trial helpers (CDV-200 / SPEC-001 M1–M8)

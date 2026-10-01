@@ -56,28 +56,32 @@ usage() {
   exit 1
 }
 
+# A value flag needs a value. With one argument left, `shift 2` fails without
+# shifting and the parse loop never ends (WP 2-02, CDT-286 [08 F16]).
+need_arg() { [ "$2" -ge 2 ] || { echo "trial-review: $1 needs a value" >&2; usage; }; }
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --mroot) MROOT=${2:-}; shift 2 ;;
-    --today) TODAY=${2:-}; shift 2 ;;
-    --projects-root) PROJECTS_ROOT=${2:-}; shift 2 ;;
-    --scope) SCOPE=${2:-}; shift 2 ;;
-    --gate) GATE_SH=${2:-}; shift 2 ;;
-    --session-scores-file) SCORES_FILE=${2:-}; shift 2 ;;
-    --freshness-secs) FRESHNESS_SECS=${2:-60}; shift 2 ;;
+    --mroot) need_arg "$1" $#; MROOT="$2"; shift 2 ;;
+    --today) need_arg "$1" $#; TODAY="$2"; shift 2 ;;
+    --projects-root) need_arg "$1" $#; PROJECTS_ROOT="$2"; shift 2 ;;
+    --scope) need_arg "$1" $#; SCOPE="$2"; shift 2 ;;
+    --gate) need_arg "$1" $#; GATE_SH="$2"; shift 2 ;;
+    --session-scores-file) need_arg "$1" $#; SCORES_FILE="$2"; shift 2 ;;
+    --freshness-secs) need_arg "$1" $#; FRESHNESS_SECS="${2:-60}"; shift 2 ;;
     --record-decision) RECORD=1; shift ;;
-    --agent) R_AGENT=${2:-}; shift 2 ;;
-    --directive) R_DIRECTIVE=${2:-}; shift 2 ;;
-    --source) R_SOURCE=${2:-}; shift 2 ;;
-    --trial-start) R_TRIAL_START=${2:-}; shift 2 ;;
-    --baseline-mean) R_B_MEAN=${2:-}; shift 2 ;;
-    --baseline-n) R_B_N=${2:-}; shift 2 ;;
-    --baseline-ids) R_B_IDS=${2:-}; shift 2 ;;
-    --in-trial-mean) R_T_MEAN=${2:-}; shift 2 ;;
-    --in-trial-n) R_T_N=${2:-}; shift 2 ;;
-    --in-trial-ids) R_T_IDS=${2:-}; shift 2 ;;
-    --decision) R_DECISION=${2:-}; shift 2 ;;
-    --decided-by) R_BY=${2:-}; shift 2 ;;
+    --agent) need_arg "$1" $#; R_AGENT="$2"; shift 2 ;;
+    --directive) need_arg "$1" $#; R_DIRECTIVE="$2"; shift 2 ;;
+    --source) need_arg "$1" $#; R_SOURCE="$2"; shift 2 ;;
+    --trial-start) need_arg "$1" $#; R_TRIAL_START="$2"; shift 2 ;;
+    --baseline-mean) need_arg "$1" $#; R_B_MEAN="$2"; shift 2 ;;
+    --baseline-n) need_arg "$1" $#; R_B_N="$2"; shift 2 ;;
+    --baseline-ids) need_arg "$1" $#; R_B_IDS="$2"; shift 2 ;;
+    --in-trial-mean) need_arg "$1" $#; R_T_MEAN="$2"; shift 2 ;;
+    --in-trial-n) need_arg "$1" $#; R_T_N="$2"; shift 2 ;;
+    --in-trial-ids) need_arg "$1" $#; R_T_IDS="$2"; shift 2 ;;
+    --decision) need_arg "$1" $#; R_DECISION="$2"; shift 2 ;;
+    --decided-by) need_arg "$1" $#; R_BY="$2"; shift 2 ;;
     -h|--help) usage ;;
     *)
       echo "trial-review: unknown arg: $1" >&2

@@ -252,6 +252,28 @@ expect_rc 0 "leading ./ stripped for --allow-extra"
 rm -rf "$REPO"
 
 # ---------------------------------------------------------------------------
+# Renames (CDT-282 [09 F23]): a staged rename from a foreign path into an
+# allowed path lists only the new name when git detects renames, so the delete
+# of the foreign path would pass the gate. --no-renames lists both paths.
+# ---------------------------------------------------------------------------
+REPO=$(make_repo)
+stage_file "$REPO" "docs/foreign.md" "a file that must not ride along"
+git -C "$REPO" commit -q -m "add foreign"
+stage_pair "$REPO"
+mkdir -p "$REPO/skills/release"
+git -C "$REPO" mv docs/foreign.md skills/release/SKILL.md
+run_in_repo "$REPO" -- --intended skills/release/SKILL.md
+expect_rc 1 "staged rename of a foreign path into an allowed path"
+expect_contains "docs/foreign.md"
+# control: the same pair and a plain (non-rename) add of the allowed path passes
+REPO2=$(make_repo)
+stage_pair "$REPO2"
+stage_file "$REPO2" "skills/release/SKILL.md" "skill body"
+run_in_repo "$REPO2" -- --intended skills/release/SKILL.md
+expect_rc 0 "control: plain add of the allowed path"
+rm -rf "$REPO" "$REPO2"
+
+# ---------------------------------------------------------------------------
 # Static: script source holds --name-only -z (behavioural proof is the
 # space/non-ASCII cases above; this guards against a future regression)
 # ---------------------------------------------------------------------------

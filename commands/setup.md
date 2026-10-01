@@ -182,7 +182,14 @@ harness `/doctor`). Run before Steps 1+ mutate memory/settings. Exit ≤1 (PASS,
 or self-remediating FAIL) continues; exit 2 (blocking FAIL) **blocks** bootstrap.
 
 ```bash
-# Parse --skip-doctor from remaining args (do not strip other flags)
+# Parse --skip-doctor from the user's text (do not strip other flags). A
+# Bash-tool fence has no positional arguments: read the text through a quoted
+# heredoc, then split it with globbing off (skill-lint C9).
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
 SKIP_DOCTOR=0
 for _a in "$@"; do
   case "$_a" in --skip-doctor) SKIP_DOCTOR=1 ;; esac
@@ -546,7 +553,14 @@ if [ -z "$WRITE_MODEL" ] || [ ! -f "$WRITE_MODEL" ]; then
   echo "error: skills/model-map/write-model.sh not found in the installed plugin" >&2
   exit 1
 fi
-# Remaining args after `models` pass through unchanged (empty → list).
+# Remaining args after `models` pass through unchanged (empty → list). A
+# Bash-tool fence has no positional arguments: read the user's text through a
+# quoted heredoc, then split it with globbing off (skill-lint C9).
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
 [ "${1:-}" = "models" ] && shift
 bash "$WRITE_MODEL" "${1:-list}" "${@:2}"
 ```

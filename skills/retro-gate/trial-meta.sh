@@ -22,12 +22,17 @@ usage() {
   exit 1
 }
 
+# A value flag needs a value. With one argument left, `shift 2` fails without
+# shifting and the parse loop never ends (WP 2-02, CDT-286 [08 F16]).
+need_arg() { [ "$2" -ge 2 ] || { echo "trial-meta: $1 needs a value" >&2; usage; }; }
+
 # Extract value for key= from trial comment body (space-separated key=value tokens).
 _get_kv() {
   # $1 = body (inside <!-- trial ... -->), $2 = key
   local body=$1 key=$2
-  # shellcheck disable=SC2086
-  printf '%s\n' $body | tr ' ' '\n' | while IFS= read -r tok; do
+  # Quoted: an unquoted $body is glob-expanded against the cwd (a token such as
+  # source=*#a would be replaced by a matching file name). tr splits the tokens.
+  printf '%s\n' "$body" | tr -s '[:space:]' '\n' | while IFS= read -r tok; do
     case "$tok" in
       ${key}=*) printf '%s\n' "${tok#*=}" ;;
     esac
@@ -77,10 +82,10 @@ cmd_annotate() {
   local text="" start="" source="" review_after=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --text) text=${2:-}; shift 2 ;;
-      --start) start=${2:-}; shift 2 ;;
-      --source) source=${2:-}; shift 2 ;;
-      --review-after) review_after=${2:-}; shift 2 ;;
+      --text) need_arg "$1" $#; text="$2"; shift 2 ;;
+      --start) need_arg "$1" $#; start="$2"; shift 2 ;;
+      --source) need_arg "$1" $#; source="$2"; shift 2 ;;
+      --review-after) need_arg "$1" $#; review_after="$2"; shift 2 ;;
       -h|--help) usage ;;
       *)
         echo "trial-meta annotate: unknown arg: $1" >&2
@@ -134,10 +139,10 @@ cmd_is_elapsed() {
   local start="" review_after="" mtimes_file="" today=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --start) start=${2:-}; shift 2 ;;
-      --review-after) review_after=${2:-}; shift 2 ;;
-      --session-mtimes-file) mtimes_file=${2:-}; shift 2 ;;
-      --today) today=${2:-}; shift 2 ;;
+      --start) need_arg "$1" $#; start="$2"; shift 2 ;;
+      --review-after) need_arg "$1" $#; review_after="$2"; shift 2 ;;
+      --session-mtimes-file) need_arg "$1" $#; mtimes_file="$2"; shift 2 ;;
+      --today) need_arg "$1" $#; today="$2"; shift 2 ;;
       -h|--help) usage ;;
       *)
         echo "trial-meta is-elapsed: unknown arg: $1" >&2

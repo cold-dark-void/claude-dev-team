@@ -33,6 +33,10 @@ EOF
   exit 2
 }
 
+# A value flag needs a value. With one argument left, `shift 2` fails without
+# shifting and the parse loop never ends (WP 2-02, CDT-286 [06 F23]).
+need_arg() { [ "$2" -ge 2 ] || { echo "disclose-force-overwrite: $1 needs a value" >&2; usage; }; }
+
 KEY=""
 OLD=""
 NEW=""
@@ -43,12 +47,12 @@ MODE="print"   # print | settings
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --key)      KEY="${2:-}"; shift 2 ;;
-    --old)      OLD="${2:-}"; shift 2 ;;
-    --new)      NEW="${2:-}"; shift 2 ;;
-    --restore)  RESTORE="${2:-}"; shift 2 ;;
-    --settings) SETTINGS="${2:-}"; MODE="settings"; shift 2 ;;
-    --backup-dir) BACKUP_DIR="${2:-}"; shift 2 ;;
+    --key)      need_arg "$1" $#; KEY="$2"; shift 2 ;;
+    --old)      need_arg "$1" $#; OLD="$2"; shift 2 ;;
+    --new)      need_arg "$1" $#; NEW="$2"; shift 2 ;;
+    --restore)  need_arg "$1" $#; RESTORE="$2"; shift 2 ;;
+    --settings) need_arg "$1" $#; SETTINGS="$2"; MODE="settings"; shift 2 ;;
+    --backup-dir) need_arg "$1" $#; BACKUP_DIR="$2"; shift 2 ;;
     -h|--help)  usage ;;
     *) echo "disclose-force-overwrite: unknown arg: $1" >&2; usage ;;
   esac

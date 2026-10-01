@@ -1,13 +1,13 @@
 # C4 fixture
 
 ```bash
-DB=/tmp/x.db
+DB=/srv/x.db
 VAL=$(sqlite3 "$DB" "PRAGMA busy_timeout=5000; SELECT content FROM memories;")
 echo "$VAL"
 ```
 
 ```bash
-DB=/tmp/x.db
+DB=/srv/x.db
 sqlite3 "$DB" <<'SQL'
 PRAGMA busy_timeout=5000;
 SELECT 1;

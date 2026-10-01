@@ -42,6 +42,9 @@
 
 set -euo pipefail
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
+_TS_HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=../lib/portable.sh
+. "$_TS_HERE/../lib/portable.sh"
 
 # ---- Usage ------------------------------------------------------------------
 usage() {
@@ -151,7 +154,6 @@ cmd_create() {
   fi
 
   local dest="$TASKS_DIR/${task_id}.json"
-  local tmp="$TASKS_DIR/${task_id}.json.tmp"
   local ts
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -172,18 +174,17 @@ cmd_create() {
       [ "$po_given" -eq 1 ] && filter="$filter"' | .plan_ordinal = $po'
       [ "$tc_given" -eq 1 ] && filter="$filter"' | .taskcreate_id = $tc'
 
-      jq \
+      atomic_write "$dest" jq \
         --arg subj "$subject" \
         --argjson rc "$requires_council" \
         --argjson deps "$deps" \
         --argjson po "$po_json" \
         --argjson tc "$tc_json" \
         "$filter" \
-        "$dest" > "$tmp" || { rm -f "$tmp"; exit 1; }
-      mv "$tmp" "$dest"
+        "$dest" || exit 1
       echo "upserted: $dest (already existed, updated)" >&2
     else
-      jq -n \
+      atomic_write "$dest" jq -n \
         --arg tid  "$task_id" \
         --arg subj "$subject" \
         --argjson rc "$requires_council" \
@@ -192,8 +193,7 @@ cmd_create() {
         --argjson po "$po_json" \
         --argjson tc "$tc_json" \
         '{task_id: $tid, subject: $subj, requires_council: $rc, depends_on: $deps, created_at: $ts, status: "pending", plan_ordinal: $po, taskcreate_id: $tc}' \
-        > "$tmp" || { rm -f "$tmp"; exit 1; }
-      mv "$tmp" "$dest"
+        || exit 1
       echo "created: $dest" >&2
     fi
   ) 9>"$LOCK"
@@ -243,25 +243,21 @@ cmd_update_status() {
         dest="${matches[0]}"
       else
         # No compound match — invent bare stub (resume path OK)
-        local ts tmp
+        local ts
         ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        tmp="${dest}.tmp"
-        jq -n \
+        atomic_write "$dest" jq -n \
           --arg tid "$task_id" \
           --arg s   "$new_status" \
           --arg ts  "$ts" \
           '{task_id: $tid, subject: "(auto-created stub)", requires_council: false, depends_on: [], created_at: $ts, status: $s}' \
-          > "$tmp" || { rm -f "$tmp"; exit 1; }
-        mv "$tmp" "$dest"
+          || exit 1
         echo "warning: task file not found, created stub: $dest" >&2
         invented=1
       fi
     fi
 
     if [ "$invented" -eq 0 ]; then
-      local tmp="${dest}.tmp"
-      jq --arg s "$new_status" '.status = $s' "$dest" > "$tmp" || { rm -f "$tmp"; exit 1; }
-      mv "$tmp" "$dest"
+      atomic_write "$dest" jq --arg s "$new_status" '.status = $s' "$dest" || exit 1
     fi
 
     # Print using resolved dest (may be compound path after redirect)

@@ -114,6 +114,17 @@ else
   bad "report looks like transcript dump"
 fi
 
+# ── trailing value flag: exits 1 (usage), never hangs (CDT-286 [08 F16], WP 2-02) ──
+# shellcheck source=../../tests/lib/trailing-flag.sh
+. "$HERE/../../tests/lib/trailing-flag.sh"
+trailing_flag_scan "$WRITER" 1
+if [ "$TF_SKIP" = "1" ]; then
+  ok "trailing-flag probe skipped: no timeout command"
+else
+  [ "$TF_N" = "14" ] && ok "14 value flags probed" || bad "want 14 value flags, probed $TF_N"
+  [ -z "$TF_BAD" ] && ok "every value flag with no value exits 1" || bad "trailing flag:$TF_BAD"
+fi
+
 echo "---"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

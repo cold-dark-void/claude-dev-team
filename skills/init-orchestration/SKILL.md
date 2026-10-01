@@ -1118,7 +1118,7 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 
 [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null || exit 0
 
-TMPF="${TMPDIR:-/tmp}/memcap-$$"
+TMPF=$(mktemp "${TMPDIR:-/tmp}/memcap.XXXXXX" 2>/dev/null) || exit 0
 # Guard fd 0 explicitly (wp-1-10-gate-hooks) — timeout is unavailable on
 # stock macOS. This hook is not a gate: a closed fd 0 or a terminal just
 # yields no tool_name/file_path below, and the case default exits 0.
@@ -1183,7 +1183,7 @@ Use the `Write` tool to create `.claude/hooks/bash-compress.sh` with this conten
 # Inlines the compression logic so no wrapper script is invoked (avoids
 # permission re-checks on the rewritten command in CC 2.1.116+).
 
-TMPF="${TMPDIR:-/tmp}/bcompress-$$"
+TMPF=$(mktemp "${TMPDIR:-/tmp}/bcompress.XXXXXX" 2>/dev/null) || exit 0
 cat > "$TMPF"
 
 TOOL_NAME=$(jq -r '.tool_name // empty' "$TMPF" 2>/dev/null)
@@ -2153,7 +2153,7 @@ rm -f "$SEED"
 
 Run the hook manually to confirm it passes. Use file redirection — NOT a pipe (`echo '{}' | bash ...` poisons the session). Temp paths MUST use `${TMPDIR:-/tmp}` (bare `$TMPDIR` is often unset outside the sandbox):
 ```bash
-_HOOK_TEST="${TMPDIR:-/tmp}/hook-test-$$"
+_HOOK_TEST=$(mktemp "${TMPDIR:-/tmp}/hook-test.XXXXXX")
 printf '{}' > "$_HOOK_TEST"
 bash .claude/hooks/task-completed.sh < "$_HOOK_TEST"
 echo "Hook exit code: $?"

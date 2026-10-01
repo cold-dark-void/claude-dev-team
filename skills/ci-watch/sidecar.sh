@@ -21,6 +21,9 @@
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
 set -euo pipefail
+_SC_HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=../lib/portable.sh
+. "$_SC_HERE/../lib/portable.sh"
 
 # ---- Usage ------------------------------------------------------------------
 usage() {
@@ -64,10 +67,6 @@ sidecar_file() {
   echo "$WATCH_DIR/${1}.json"
 }
 
-sidecar_tmp() {
-  echo "$WATCH_DIR/${1}.json.tmp"
-}
-
 # ---- Subcommands ------------------------------------------------------------
 cmd_init() {
   [ $# -eq 4 ] || { echo "error: init requires 4 arguments" >&2; usage; }
@@ -78,8 +77,6 @@ cmd_init() {
 
   local dest
   dest=$(sidecar_file "$ticket")
-  local tmp
-  tmp=$(sidecar_tmp "$ticket")
 
   (
     flock -x 9
@@ -92,7 +89,7 @@ cmd_init() {
       fi
     fi
 
-    jq -n \
+    atomic_write "$dest" jq -n \
       --arg  ticket_id    "$ticket" \
       --arg  mode         "$mode" \
       --arg  pr_number    "$pr_number" \
@@ -106,8 +103,7 @@ cmd_init() {
         poll_error_count: 0,
         fixer_active:    false,
         cron_job_id:     null
-      }' > "$tmp"
-    mv "$tmp" "$dest"
+      }' || exit 1
   ) 9>"$LOCK"
 }
 
@@ -118,8 +114,6 @@ cmd_set() {
 
   local dest
   dest=$(sidecar_file "$ticket")
-  local tmp
-  tmp=$(sidecar_tmp "$ticket")
 
   if [ ! -f "$dest" ]; then
     echo "error: sidecar file not found for $ticket" >&2
@@ -135,8 +129,7 @@ cmd_set() {
       true|false|null) jq_type=argjson ;;
       *) if [[ "$value" =~ ^-?[0-9]+$ ]]; then jq_type=argjson; else jq_type=arg; fi ;;
     esac
-    jq --"$jq_type" v "$value" --arg k "$key" '.[$k] = $v' "$dest" > "$tmp"
-    mv "$tmp" "$dest"
+    atomic_write "$dest" jq --"$jq_type" v "$value" --arg k "$key" '.[$k] = $v' "$dest" || exit 1
   ) 9>"$LOCK"
 }
 
@@ -163,8 +156,6 @@ cmd_inc() {
 
   local dest
   dest=$(sidecar_file "$ticket")
-  local tmp
-  tmp=$(sidecar_tmp "$ticket")
 
   if [ ! -f "$dest" ]; then
     echo "error: sidecar file not found for $ticket" >&2
@@ -174,8 +165,7 @@ cmd_inc() {
   (
     flock -x 9
     new_val=$(jq --arg k "$key" '(.[$k] // 0) + 1' "$dest")
-    jq --argjson v "$new_val" --arg k "$key" '.[$k] = $v' "$dest" > "$tmp"
-    mv "$tmp" "$dest"
+    atomic_write "$dest" jq --argjson v "$new_val" --arg k "$key" '.[$k] = $v' "$dest" || exit 1
     echo "$new_val"
   ) 9>"$LOCK"
 }

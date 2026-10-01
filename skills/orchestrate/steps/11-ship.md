@@ -407,7 +407,7 @@ also skips release when shared. Integration tree lifecycle is epic-owned (C5 sea
 
 **Prefer `worktree-lib.sh release <slug>`** only for **non-shared** per-ticket
 trees — it handles EBUSY retry, branch deletion, and orphaned config-section
-cleanup. Use it instead of running `git worktree remove` + `git branch -D` by hand:
+cleanup. Use it instead of running `git worktree remove` + a branch delete by hand:
 
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -425,7 +425,10 @@ fi
 
 If you must do it by hand (squash-merge case where the lib refuses on
 "uncommitted changes"), run each step as a SEPARATE Bash call — never
-chain `worktree remove && branch -D` in a single command. On WSL2 the
+chain the worktree remove and the branch delete in a single command. Delete
+the branch through `skills/lib/git-safety.sh safe-delete-branch` (it deletes
+only a branch whose work is already in `<base>`), never with a bare
+`git branch -D`. On WSL2 the
 second op fires while the first is still releasing `.git/config`, which
 produces `error: could not write config file .git/config: Device or
 resource busy`. The branch ref still gets deleted but the
@@ -433,7 +436,7 @@ resource busy`. The branch ref still gets deleted but the
 
 ```bash template
 git worktree remove <path-1>      # call 1
-git branch -D <branch-1>          # call 2 (separate Bash invocation)
+bash "$GIT_SAFETY" safe-delete-branch <branch-1> <base>   # call 2 (separate Bash invocation)
 git worktree prune                # call 3 (reaps leftover admin entries)
 ```
 

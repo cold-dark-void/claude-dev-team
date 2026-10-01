@@ -6,6 +6,10 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.34
+- **WP 2-02 Lint rules catch count fallbacks, temp paths and empty flags** — skill-lint C8 flags a `grep -c || echo 0` count, a `$$` temp path, a bare `/tmp/` path, a brace in a default, a Stop-here comment with no exit, and destructive git. C9 flags `"$@"` and an unquoted `$ARGUMENTS` in a command fence. `sh` and `shell` fences are linted too. A value flag with no value exits with usage instead of hanging. `poll.sh` uses `mktemp` and runs tests in `EPIC_INTEGRATION_PATH`. `scan.sh` uses a private directory and says when it cuts the target list. Writers publish through `atomic_write`.
+- **Tests** — new `skills/skill-lint/test-command-fences.sh`, `skills/security-scan/test.sh`, trailing-flag suites, and a rename case in `skills/release/test.sh`. Each new check has a planted control that fails on the old text.
+
 ### v1.18.33
 - **WP 2-01 Fence-exec harness checks and runs bash fences** — new `tools/fence-exec/` (bash and awk only) with `list`, `check` and `run` (CDT-272). `check` scans 524 fences in 187 files: F1 `bash -n` (also `AGENTS.md`), F2 a function called from a fence that does not define it, F3 a `trap … EXIT` that would outlive its fence, F4 `return` outside a function, F5 every `$PDH/…`, `$PLUGIN_DIR/…` and `plugin-dir.sh file|dir` path literal resolves in the repo. Template fences are skipped by one rule shared with smoke. `run` executes the fence suites named in `tools/fence-exec/manifest.tsv`.
 - **Shared parser** — skill-lint and the harness use one fence parser (`fence-scan.awk`) and one scan set. skill-lint C6 also covers `$PDH` and `$EXT_DIR`.

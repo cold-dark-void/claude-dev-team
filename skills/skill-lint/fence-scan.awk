@@ -5,7 +5,7 @@
 #
 #   awk -f fence-scan.awk -f <engine>.awk FILE...
 #
-# Users today: skills/skill-lint/fence-state.awk (C6, C10) and
+# Users today: skills/skill-lint/fence-state.awk (C6, C8, C9, C10) and
 # tools/fence-exec/fence-check.awk (F2-F5 and the fence list). Do not write a
 # second fence-opener match in an engine; call fs_feed() instead.
 #
@@ -51,7 +51,9 @@ function fs_feed(line, ln,    run, info, rest, tok) {
       fs_ticks = length(run)
       info = fs_trim(substr(line, RSTART + RLENGTH))
       split(info, tok, /[ \t]+/)
-      fs_bash = (info != "" && tok[1] == "bash")
+      # fs_shell_aliases (set by fence-state.awk only): also lint ```sh and
+      # ```shell. fence-exec leaves it unset, so it still scans bash alone.
+      fs_bash = (info != "" && (tok[1] == "bash" || (fs_shell_aliases && (tok[1] == "sh" || tok[1] == "shell"))))
       fs_info = info
       fence_open(ln, info, fs_bash)
       return

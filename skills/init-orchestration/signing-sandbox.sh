@@ -31,6 +31,10 @@ EOF
   exit 2
 }
 
+# A value flag needs a value. With one argument left, `shift 2` fails without
+# shifting and the parse loop never ends (WP 2-02, CDT-286 [06 F23]).
+need_arg() { [ "$2" -ge 2 ] || { echo "signing-sandbox: $1 needs a value" >&2; usage; }; }
+
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 CMD="${1:-}"
@@ -51,15 +55,15 @@ DISCLOSE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo)           REPO="${2:-}"; shift 2 ;;
-    --option)         OPTION="${2:-}"; shift 2 ;;
-    --settings)       SETTINGS="${2:-}"; shift 2 ;;
-    --settings-local) SETTINGS_LOCAL="${2:-}"; shift 2 ;;
-    --platform)       PLATFORM="${2:-}"; shift 2 ;;
-    --format)         FORMAT="${2:-}"; FORMAT_SET=1; shift 2 ;;
-    --run-user-dir)   RUN_USER_DIR="${2:-}"; RUN_USER_SET=1; shift 2 ;;
-    --ssh-auth-sock)  SSH_AUTH_SOCK_VAL="${2:-}"; shift 2 ;;
-    --disclose)       DISCLOSE="${2:-}"; shift 2 ;;
+    --repo)           need_arg "$1" $#; REPO="$2"; shift 2 ;;
+    --option)         need_arg "$1" $#; OPTION="$2"; shift 2 ;;
+    --settings)       need_arg "$1" $#; SETTINGS="$2"; shift 2 ;;
+    --settings-local) need_arg "$1" $#; SETTINGS_LOCAL="$2"; shift 2 ;;
+    --platform)       need_arg "$1" $#; PLATFORM="$2"; shift 2 ;;
+    --format)         need_arg "$1" $#; FORMAT="$2"; FORMAT_SET=1; shift 2 ;;
+    --run-user-dir)   need_arg "$1" $#; RUN_USER_DIR="$2"; RUN_USER_SET=1; shift 2 ;;
+    --ssh-auth-sock)  need_arg "$1" $#; SSH_AUTH_SOCK_VAL="$2"; shift 2 ;;
+    --disclose)       need_arg "$1" $#; DISCLOSE="$2"; shift 2 ;;
     -h|--help)        usage ;;
     *) echo "signing-sandbox: unknown arg: $1" >&2; usage ;;
   esac

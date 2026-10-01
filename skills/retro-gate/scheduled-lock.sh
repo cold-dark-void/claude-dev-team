@@ -10,6 +10,10 @@
 # TTL: 7200s (2h) — stale locks are stolen.
 set -u
 
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=../lib/portable.sh
+. "$HERE/../lib/portable.sh"
+
 TTL_SEC=7200
 
 usage() {
@@ -50,18 +54,11 @@ case "$CMD" in
       fi
       # Stale or corrupt → steal.
     fi
-    # Write atomically via tmp+rename.
-    tmp="${LOCK}.tmp.$$"
-    printf '%s\n%s\n' "$$" "$NOW" >"$tmp" || {
-      rm -f "$tmp"
-      echo "scheduled-lock: cannot write lock" >&2
-      exit 1
-    }
-    mv -f "$tmp" "$LOCK" || {
-      rm -f "$tmp"
+    # Same-directory temp via atomic_write. A name that ends in $$ is predictable.
+    if ! atomic_write "$LOCK" printf '%s\n%s\n' "$$" "$NOW"; then
       echo "scheduled-lock: cannot install lock" >&2
       exit 1
-    }
+    fi
     exit 0
     ;;
   release)

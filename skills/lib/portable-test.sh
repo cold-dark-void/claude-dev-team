@@ -229,5 +229,38 @@ EOS
 neg_count=$(grep -cE "$FUNC_RE" "$FIXTURE_TWO_FUNCS")
 assert_eq "static negative control: two funcs detected" "2" "$neg_count"
 
+# Writers that used a predictable .tmp.$$ name now call atomic_write.
+# A planted line must still match, so the pattern is not vacuous.
+ROOT=$(cd "$HERE/../.." && pwd)
+for rel in \
+  skills/model-map/write-model.sh \
+  skills/retro-gate/scheduled-lock.sh \
+  skills/retro-gate/write-scheduled-report.sh \
+  skills/epic/epic-lib.sh \
+  skills/orchestrate/task-store.sh \
+  skills/ci-watch/sidecar.sh \
+  skills/ci-watch/poll.sh \
+  skills/security-scan/scan.sh \
+  tools/permission-matrix-probe.sh
+do
+  if grep -n '\.tmp\.\$\$' "$ROOT/$rel" >/dev/null; then
+    fail "no predictable .tmp.\$\$ in $rel" "still present"
+  else
+    pass "no predictable .tmp.\$\$ in $rel"
+  fi
+  if grep -q 'atomic_write\|mktemp' "$ROOT/$rel"; then
+    pass "$rel publishes through atomic_write or mktemp"
+  else
+    fail "$rel publishes through atomic_write or mktemp" "neither helper"
+  fi
+done
+PLANT="$WORK/plant-tmp.sh"
+printf '%s\n' 'tmp="${LOCK}.tmp.$$"' > "$PLANT"
+if grep -n '\.tmp\.\$\$' "$PLANT" >/dev/null; then
+  pass "control: the .tmp.\$\$ pattern matches a planted line"
+else
+  fail "control: the .tmp.\$\$ pattern matches a planted line" "no match"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

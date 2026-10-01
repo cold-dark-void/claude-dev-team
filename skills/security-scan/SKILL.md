@@ -33,7 +33,10 @@ bash "$SCAN"   # optional path args; default = feature-branch changed files
 ```
 
 Exit code is **always 0** (fail-open). Stdout ends with a summary; artifacts
-under `OUT_DIR=` (or `$SECURITY_SCAN_OUT`).
+under `OUT_DIR=` (or `$SECURITY_SCAN_OUT`). The default `OUT_DIR` is a private
+`mktemp -d` directory (mode 700). The scan reads at most **40** targets; when it
+cuts the list, the summary holds a `TARGETS: truncated to the first 40 of N` line.
+Test: `bash skills/security-scan/test.sh`.
 
 | Tool | Behavior |
 |------|----------|

@@ -32,6 +32,13 @@ Exit: always 0 for missing CLI / invoke failure (status in JSON). Exit 2 = usage
 USAGE
 }
 
+# A value flag needs a value. With one argument left, `shift 2` fails without
+# shifting, and under `set -e` the script exits 1 with no message (WP 2-02).
+# need_val <flag> <$#> — exit 2 with the usage text when no value follows.
+need_val() {
+  [ "$2" -ge 2 ] || { echo "external-reviewer.sh: $1 needs a value" >&2; usage; exit 2; }
+}
+
 # ---- emit helpers -----------------------------------------------------------
 emit_json() {
   # shellcheck disable=SC2016
@@ -90,7 +97,7 @@ cmd_detect() {
   local prefer="auto"
   while [ $# -gt 0 ]; do
     case "$1" in
-      --prefer) prefer="${2:-}"; shift 2 ;;
+      --prefer) need_val "$1" $#; prefer="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "external-reviewer.sh detect: unknown flag: $1" >&2; exit 2 ;;
     esac
@@ -226,10 +233,10 @@ cmd_normalize() {
   local tool="" raw_file="" shape="verdict[]" cmd=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --tool) tool="${2:-}"; shift 2 ;;
-      --raw-file) raw_file="${2:-}"; shift 2 ;;
-      --output-shape) shape="${2:-}"; shift 2 ;;
-      --command) cmd="${2:-}"; shift 2 ;;
+      --tool) need_val "$1" $#; tool="$2"; shift 2 ;;
+      --raw-file) need_val "$1" $#; raw_file="$2"; shift 2 ;;
+      --output-shape) need_val "$1" $#; shape="$2"; shift 2 ;;
+      --command) need_val "$1" $#; cmd="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "external-reviewer.sh normalize: unknown flag: $1" >&2; exit 2 ;;
     esac
@@ -337,11 +344,11 @@ cmd_run() {
   local tool_pref="auto" claim="" artifacts_file="" shape="verdict[]" out_path=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --tool) tool_pref="${2:-}"; shift 2 ;;
-      --claim) claim="${2:-}"; shift 2 ;;
-      --artifacts-file) artifacts_file="${2:-}"; shift 2 ;;
-      --output-shape) shape="${2:-}"; shift 2 ;;
-      --out) out_path="${2:-}"; shift 2 ;;
+      --tool) need_val "$1" $#; tool_pref="$2"; shift 2 ;;
+      --claim) need_val "$1" $#; claim="$2"; shift 2 ;;
+      --artifacts-file) need_val "$1" $#; artifacts_file="$2"; shift 2 ;;
+      --output-shape) need_val "$1" $#; shape="$2"; shift 2 ;;
+      --out) need_val "$1" $#; out_path="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "external-reviewer.sh run: unknown flag: $1" >&2; exit 2 ;;
     esac

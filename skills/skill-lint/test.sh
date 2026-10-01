@@ -396,6 +396,93 @@ grep -q 'discover()' "$HERE/check-skill-bash.sh" && { FAIL=$((FAIL+1)); echo "FA
 [ -f "$HERE/scan-set.sh" ] && grep -q 'skill_lint_scan_set()' "$HERE/scan-set.sh" && PASS=$((PASS+1)) || {
   FAIL=$((FAIL+1)); echo "FAIL: scan-set.sh must define skill_lint_scan_set"; }
 
+# ---------------------------------------------------------------------------
+# WP 2-02 (wp-2-02-lint-rules): C8 idiom hazards and C9 command-fence arguments,
+# both in fence-state.awk. C8 has six sub-rules; the fixture plants each one and
+# a negative control in the same file, so the rule is proven to stay silent on
+# the correct forms.
+# ---------------------------------------------------------------------------
+
+# T15: C8 — (a) grep -c || echo 0 at 9-12, (b) $$ temp path at 31-32, (c) bare
+# /tmp/ at 47-48, (d) brace default at 64-65, (e) Stop here without exit at 81
+# and 84, (f) destructive git at 105-109; a waived one at 111. The negative
+# fences hold the safe forms and the look-alikes (wc/stat/jq fallbacks, quotes,
+# comments, ${TMPDIR:-/tmp}, --tmpfs /tmp, ${A:-${B}}, exit after Stop here).
+run_lint 1 "$FIX/c8-idioms.md"
+for L in 9 10 11 12 31 32 47 48 64 65 81 84 105 106 107 108 109; do expect_at C8 c8-idioms.md "$L"; done
+expect_count C8 17
+echo "$OUT" | tail -1 | grep -qx "18 findings, 1 waived" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: C8 fixture summary wrong (another check fired?): $(echo "$OUT" | tail -1)"; }
+echo "$OUT" | grep -q "c8-idioms.md:111:" && { FAIL=$((FAIL+1)); echo "FAIL: waived C8 at :111 was printed"; } || PASS=$((PASS+1))
+for MSG in 'grep -c prints 0' '\$\$ in a temp path' 'bare /tmp/ path' 'brace inside a \${VAR' 'Stop here' 'destructive git'; do
+  echo "$OUT" | grep -q "\[C8\] .*$MSG" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: no C8 message for: $MSG"; }
+done
+if command -v jq >/dev/null 2>&1; then
+  JW=$(bash "$LINT" --json "$FIX/c8-idioms.md" 2>/dev/null | jq -r '[.[] | select(.check == "C8" and .waived)] | map(.line) | join(",")' || true)
+  [ "$JW" = "111" ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: waived C8 lines '$JW' != '111'"; }
+else
+  PASS=$((PASS+1))  # jq absent: the waived-count check needs --json
+fi
+# a waiver for another check does not hide C8; the C8 waiver on the line above does
+T15A=$(mktemp -d)
+printf '```bash\n# lint-ok: C3\nn=$(grep -c . "$f" || echo 0)\n# lint-ok: C8\nm=$(grep -c . "$f" || echo 0)\n```\n' > "$T15A/w.md"
+run_lint 1 "$T15A/w.md"
+expect_at C8 w.md 3
+expect_count C8 1
+rm -rf "$T15A"
+# ```sh and ```shell are linted. ```text is not (CDT-286 [09 E2]).
+T15B=$(mktemp -d)
+cat > "$T15B/s.md" << 'EOS'
+```sh
+n=$(grep -c . "$f" || echo 0)
+```
+```shell
+OUT="${TMPDIR:-/tmp}/x-$$"
+```
+```text
+n=$(grep -c . "$f" || echo 0)
+```
+EOS
+run_lint 1 "$T15B/s.md"
+expect_count C8 2
+rm -rf "$T15B"
+
+# T16: C9 — positional parameters and unquoted $ARGUMENTS in a command fence.
+# The rule reads only commands/<name>.md, so test.sh copies the fixture into a
+# commands/ directory (line numbers stay the same) and into skills/ (silent).
+# Positives: 10-14 (top-level $@ $1 ${@:2} $# and $1 in $(...)), 21 (a read
+# before "set --"), 28 (a read after a function closed), 52-53 (unquoted
+# $ARGUMENTS) and 55 (unquoted heredoc body). Negatives: after "set --",
+# function bodies, ${#arr[@]}, single quotes, comments, $0 $$ $? $!, the quoted
+# heredoc convention and "$ARGUMENTS" in double quotes.
+T16=$(mktemp -d)
+mkdir -p "$T16/commands" "$T16/skills"
+cp "$FIX/c9-args.md" "$T16/commands/c9-args.md"
+cp "$FIX/c9-args.md" "$T16/skills/c9-args.md"
+run_lint 1 "$T16/commands/c9-args.md"
+for L in 10 11 12 13 14 21 28 52 53 55; do expect_at C9 c9-args.md "$L"; done
+expect_count C9 10
+echo "$OUT" | tail -1 | grep -qx "10 findings, 0 waived" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: C9 fixture summary wrong (another check fired?): $(echo "$OUT" | tail -1)"; }
+echo "$OUT" | grep -q '\[C9\] \$@ is read at the top level' && echo "$OUT" | grep -q '\[C9\] \$ARGUMENTS in an unquoted heredoc body' && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: C9 messages must name the token and the unquoted heredoc"; }
+run_lint 0 "$T16/skills/c9-args.md"
+expect_no_finding C9
+# the rule is waivable like C1-C5
+printf '```bash\n# lint-ok: C9\nbash "$S" "$@"\n```\n' > "$T16/commands/w.md"
+run_lint 0 "$T16/commands/w.md"
+echo "$OUT" | tail -1 | grep -qx "1 findings, 1 waived" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: C9 waiver not counted: $(echo "$OUT" | tail -1)"; }
+rm -rf "$T16"
+
+# T17: live tree — zero C8 and zero C9 findings, waived or not. The JSON keeps
+# waived findings, so a waiver cannot hide a real hit from this count.
+if command -v jq >/dev/null 2>&1; then
+  LIVE=$({ bash "$LINT" --json --root "$REPO_ROOT" 2>/dev/null || true; } | jq -r '[.[] | select(.check == "C8" or .check == "C9")] | map("\(.path):\(.line):\(.check):\(.waived)") | join(" ")' 2>&1)
+  [ -z "$LIVE" ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live tree has C8/C9 findings: $LIVE"; }
+else
+  OUT=$(bash "$LINT" --root "$REPO_ROOT" 2>&1); RC=$?
+  expect_no_finding C8
+  expect_no_finding C9
+fi
+
 echo "---"
 echo "skill-lint tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

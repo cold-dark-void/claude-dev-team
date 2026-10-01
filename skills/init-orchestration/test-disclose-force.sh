@@ -198,6 +198,17 @@ OUT=$(bash "$HELPER" 2>&1)
 RC=$?
 assert_rc "usage rc 2" "$RC" 2
 
+echo "-- trailing value flag (CDT-286 [06 F23], WP 2-02)"
+# shellcheck source=../../tests/lib/trailing-flag.sh
+. "$SCRIPT_DIR/../../tests/lib/trailing-flag.sh"
+trailing_flag_scan "$HELPER" 2
+if [ "$TF_SKIP" = "1" ]; then
+  echo "  skip trailing-flag probe: no timeout command"
+else
+  assert_eq "6 value flags probed" "$TF_N" "6"
+  assert_eq "each value flag with no value exits 2, never hangs" "${TF_BAD:-none}" "none"
+fi
+
 echo "=== results: PASS=$PASS FAIL=$FAIL ==="
 if [ "$FAIL" -gt 0 ]; then
   exit 1

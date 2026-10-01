@@ -18,6 +18,10 @@
 
 set -euo pipefail
 
+_EPIC_HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=../lib/portable.sh
+. "$_EPIC_HERE/../lib/portable.sh"
+
 usage() {
   cat >&2 <<'EOF'
 Usage: bash skills/epic/epic-lib.sh <cmd> …
@@ -166,19 +170,13 @@ write_state() {
   local id="$1" json="$2"
   epic_paths "$id"
   mkdir -p "$EPICS_DIR" "$EPIC_DIR"
-  local tmp
-  # same-dir tmp for atomic rename on one FS
-  tmp="$EPIC_DIR/state.json.tmp.$$"
-  printf '%s\n' "$json" > "$tmp"
-  if ! jq -e . "$tmp" >/dev/null 2>&1; then
-    rm -f "$tmp"
+  if ! printf '%s\n' "$json" | jq -e . >/dev/null 2>&1; then
     die 1 "refusing to write invalid state JSON"
   fi
-  # stamp updated_at
+  # stamp updated_at, then publish with the shared same-directory rename
   local stamped
-  stamped=$(jq --arg ts "$(iso_now)" '.updated_at = $ts' "$tmp")
-  printf '%s\n' "$stamped" > "$tmp"
-  mv "$tmp" "$STATE"
+  stamped=$(printf '%s\n' "$json" | jq --arg ts "$(iso_now)" '.updated_at = $ts') || die 1 "refusing to write invalid state JSON"
+  atomic_write "$STATE" printf '%s\n' "$stamped" || die 1 "cannot write state"
 }
 
 # ---- commands ---------------------------------------------------------------
@@ -1780,7 +1778,7 @@ cmd_build_seed() {
     out_path="$seeds_dir/${stamp}-${prev_tag}-to-${next_id}.md"
   fi
 
-  tmp="${out_path}.tmp.$$"
+  tmp=$(mktemp "${seeds_dir}/seed.tmp.XXXXXX") || die 1 "build-seed: mktemp failed"
   printf '%s\n' "$body" > "$tmp"
   # fail-closed: refuse to land a seed that would not validate
   # subshell so validate-seed die/exit does not skip tmp cleanup
@@ -1788,7 +1786,8 @@ cmd_build_seed() {
     rm -f "$tmp"
     die 1 "build-seed: rendered seed failed validation"
   fi
-  mv "$tmp" "$out_path"
+  atomic_write "$out_path" cat "$tmp" || { rm -f "$tmp"; die 1 "build-seed: publish failed"; }
+  rm -f "$tmp"
 
   if command -v realpath >/dev/null 2>&1; then
     abs=$(realpath "$out_path")

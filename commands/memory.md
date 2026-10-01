@@ -250,6 +250,7 @@ if [ "$USE_DB" = "false" ]; then
   echo "Distillation requires SQLite memory backend."
   echo "Run /setup team to initialize the database."
   # Stop here
+  exit 1
 fi
 ```
 
@@ -330,6 +331,7 @@ if [ "$CHANGED" != "1" ]; then
   HOLDER=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';" 2>/dev/null || true)
   echo "[distill] Skipped: distillation already in progress (locked by ${HOLDER:-unknown}). Use --force to clear."
   # Stop here — not acquired (held by another process, or sqlite failed/timed out)
+  exit 0
 fi
 ```
 
@@ -421,6 +423,7 @@ if [ -z "$AGENTS" ]; then
   # Release lock and stop
   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
   # Stop here
+  exit 0
 fi
 ```
 
@@ -533,8 +536,17 @@ if [ -z "$EXPORT_SH" ] || [ ! -f "$EXPORT_SH" ]; then
   echo "ERROR: could not resolve export-seed-pack.sh"
   exit 1
 fi
-# Pass through user flags from $ARGUMENTS (agent may substitute parsed flags)
-bash "$EXPORT_SH" $ARGUMENTS "$MROOT"
+# Pass the user's flags through. The text is `export [--agent NAME] [--limit N]
+# [--dry-run]`: read it through a quoted heredoc, split it with globbing off
+# (skill-lint C9), and drop the leading `export` word so MROOT is the only
+# positional argument the script sees.
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+[ "${1:-}" = "export" ] && shift
+bash "$EXPORT_SH" "$@" "$MROOT"
 ```
 
 ## After export
@@ -824,6 +836,7 @@ if [ ! -f "$MEMDB" ] || ! command -v sqlite3 &>/dev/null; then
   echo "Error: memory DB not found at $MEMDB"
   echo "Run /setup team to initialize the database."
   # Stop here (exit 1)
+  exit 1
 fi
 ```
 
@@ -840,10 +853,12 @@ Parse flags from arguments:
 if [ "$RECONCILE" = "true" ] && [ "$DEEP" = "true" ]; then
   echo "Error: --deep and --reconcile cannot be combined."
   # Stop here (exit 1)
+  exit 1
 fi
 if [ "$REPORT_ONLY" = "true" ] && [ "$RECONCILE" != "true" ]; then
   echo "Error: --report-only requires --reconcile."
   # Stop here (exit 1)
+  exit 1
 fi
 ```
 
@@ -861,6 +876,7 @@ if [ -n "$LOCK" ]; then
   echo "Error: distilling_lock is held ($LOCK). Cannot validate while distillation is in progress."
   echo "Wait for distillation to complete, or use /memory distill --force to clear a stale lock."
   # Stop here (exit 1)
+  exit 1
 fi
 ```
 
@@ -915,6 +931,7 @@ If zero eligible memories, report and exit:
 if [ -z "$MEMORIES" ]; then  # lint-ok: C1
   echo "TLDR: all memories validated within the last $WINDOW_DAYS days. Nothing to do. Use --force to re-validate."  # lint-ok: C1
   # Stop here (exit 0)
+  exit 0
 fi
 ```
 
@@ -1656,6 +1673,7 @@ CAP_K=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='reconcile_pair_cap
 CAP_K="${CAP_K:-50}"
 echo "TLDR: reconcile: 0 candidates, 0 judged, 0 contradictory, 0 resolved, 0 skipped, cap=${CAP_K}"
 # Stop here (exit 0) — zero writes
+exit 0
 ```
 
 Path-containment: N/A (no filesystem paths from untrusted claim text in R1).
@@ -1700,6 +1718,7 @@ echo "DETAIL:"
 # MUST NOT: UPDATE memories, INSERT reconcile_log, archive anything
 rm -f "${PAIRS_FILE:-}"  # lint-ok: C1
 # Stop here (exit 0)
+exit 0
 ```
 
 **AC7:** Even max-confidence `contradictory` never archives on this path.

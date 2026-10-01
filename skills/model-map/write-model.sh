@@ -18,6 +18,8 @@ set -euo pipefail
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 RESOLVE="$HERE/resolve-model.sh"
+# shellcheck source=../lib/portable.sh
+. "$HERE/../lib/portable.sh"
 
 usage() {
   echo "usage: write-model.sh {list|set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>}" >&2
@@ -109,13 +111,12 @@ local_ok_to_write() {
   return 0
 }
 
-atomic_write() {
-  local map=$1 json=$2 dir tmp
-  dir=$(dirname "$map")
-  mkdir -p "$dir"
-  tmp=$(mktemp "${map}.tmp.XXXXXX")
-  printf '%s\n' "$json" >"$tmp"
-  mv "$tmp" "$map"
+# Publish JSON through the shared atomic_write (same-directory temp, kept
+# mode). The name write_json_file is not atomic_write: portable.sh owns that
+# name, and its arguments are <dest> <cmd>, not <map> <json>.
+write_json_file() {
+  local map=$1 json=$2
+  atomic_write "$map" printf '%s\n' "$json"
 }
 
 cmd_list() {
@@ -139,8 +140,8 @@ cmd_set() {
   # Atomic read-validate-modify-write under flock (CDT-231): local_ok_to_write's
   # validation and the merge+atomic_write below must run as one critical
   # section, or two concurrent invocations can race and one clobbers the other.
-  # mkdir here — atomic_write's own mkdir runs inside the subshell, too late
-  # to open the lock fd on a fresh clone with no .claude/dev-team/ yet.
+  # mkdir here — the lock file lives in this directory, and atomic_write
+  # refuses when the parent directory does not exist yet.
   mkdir -p "$(dirname "$MAP")"
   (
     flock -x 9
@@ -155,7 +156,7 @@ cmd_set() {
       json=$(jq -n --arg n "$agent" --arg v "$val" \
         '{version:1, agents:{($n):$v}}')
     fi
-    atomic_write "$MAP" "$json"
+    write_json_file "$MAP" "$json"
   ) 9>"$LOCK"
 }
 
@@ -173,7 +174,7 @@ unset_field() {
     has=$(jq -r --arg n "$agent" --arg f "$field" '.[$f] // {} | has($n)' "$MAP" 2>/dev/null) || has="false"
     [ "$has" = "true" ] || exit 0
     json=$(jq --arg n "$agent" --arg f "$field" 'del(.[$f][$n])' "$MAP")
-    atomic_write "$MAP" "$json"
+    write_json_file "$MAP" "$json"
   ) 9>"$LOCK"
 }
 
@@ -199,7 +200,7 @@ cmd_set_effort() {
       json=$(jq -n --arg n "$agent" --arg v "$val" \
         '{version:1, effort:{($n):$v}}')
     fi
-    atomic_write "$MAP" "$json"
+    write_json_file "$MAP" "$json"
   ) 9>"$LOCK"
 }
 

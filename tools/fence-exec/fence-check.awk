@@ -39,7 +39,7 @@
 # position of each word. It is not a full shell parser. A line it cannot read
 # leaves the rest of the fence unchecked. Apart from the limit above, it
 # reports only what it reads.
-# fence-state.awk (skill-lint C6, C10) holds its own quote scanner because it
+# fence-state.awk (skill-lint C6, C8, C9, C10) holds its own quote scanner because it
 # needs character-level events; this lexer needs word-level events.
 
 BEGIN {

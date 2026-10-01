@@ -39,8 +39,10 @@ LOG_FILE="$WATCH_DIR/${TICKET}.log"
 LAST_FAIL="$WATCH_DIR/${TICKET}.last_failure.txt"
 SIDECAR="$WATCH_DIR/${TICKET}.json"
 
-OUT_TMP="${TMPDIR:-/tmp}/ci-watch-out-$TICKET.txt"
-ERR_TMP="${TMPDIR:-/tmp}/ci-watch-err-$TICKET.txt"
+# Private names (mktemp, mode 600). A path that embeds $TICKET is predictable
+# (CWE-377): another user can plant a symlink before the poll creates it.
+OUT_TMP=$(mktemp "${TMPDIR:-/tmp}/ci-watch-out.XXXXXX") || { echo "wait"; exit 0; }
+ERR_TMP=$(mktemp "${TMPDIR:-/tmp}/ci-watch-err.XXXXXX") || { rm -f "$OUT_TMP"; echo "wait"; exit 0; }
 trap 'rm -f "$OUT_TMP" "$ERR_TMP"' EXIT
 
 # Sibling scripts — resolve relative to this script so the skill works
@@ -171,9 +173,15 @@ poll_local_test() {
     poll_error_wait "timeout_missing"
   fi
 
-  local wt="$MROOT/.worktrees/$TICKET"
-  if [ ! -d "$wt" ]; then
-    poll_error_wait
+  # A shared epic child has no .worktrees/<TICKET>. Epic hands the
+  # integration tree in EPIC_INTEGRATION_PATH (skills/epic/SKILL.md B.4).
+  local wt=""
+  if [ -n "${EPIC_INTEGRATION_PATH:-}" ] && [ -d "$EPIC_INTEGRATION_PATH" ]; then
+    wt="$EPIC_INTEGRATION_PATH"
+  elif [ -d "$MROOT/.worktrees/$TICKET" ]; then
+    wt="$MROOT/.worktrees/$TICKET"
+  else
+    emit "wait"
   fi
 
   local mode_out test_cmd

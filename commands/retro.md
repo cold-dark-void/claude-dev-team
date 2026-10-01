@@ -42,65 +42,20 @@ Parse the raw arguments string (everything after `/retro`).
 Extract flags and positional arg:
 
 ```bash
-MODE="single"        # single | all
-AUTO=0               # 1 if --auto present
-WHY=0                # 1 if --why present
-EXPLICIT_SID=""      # non-empty if a bare word (not starting with --) was given
-HOST=""              # claude | grok | all | empty (auto-detect)
-HOST_EXPLICIT=0      # 1 if user passed --host
-_PREV_HOST=0
-
-for arg in $ARGUMENTS; do
-  if [ "$_PREV_HOST" = "1" ]; then
-    case "$arg" in
-      claude|grok|all)
-        HOST="$arg"
-        HOST_EXPLICIT=1
-        _PREV_HOST=0
-        continue
-        ;;
-      *)
-        echo "error: --host expects claude|grok|all, got: $arg" >&2
-        exit 1
-        ;;
-    esac
-  fi
-  case "$arg" in
-    --all)  MODE="all" ;;
-    --auto) AUTO=1 ;;
-    --why)  WHY=1 ;;
-    --host) _PREV_HOST=1 ;;
-    --host=*)
-      _hv="${arg#--host=}"
-      case "$_hv" in
-        claude|grok|all)
-          HOST="$_hv"
-          HOST_EXPLICIT=1
-          ;;
-        *)
-          echo "error: --host expects claude|grok|all, got: $_hv" >&2
-          exit 1
-          ;;
-      esac
-      ;;
-    --*)    echo "Unknown flag: $arg" >&2 ;;
-    *)      EXPLICIT_SID="$arg" ;;
-  esac
-done
-if [ "$_PREV_HOST" = "1" ]; then
-  echo "error: --host requires a value (claude|grok|all)" >&2
-  exit 1
-fi
-
-# bare --all without --host ⇒ --host all (SPEC-012 / CDT-156 OQ3)
-if [ "$MODE" = "all" ] && [ "$HOST_EXPLICIT" = "0" ]; then
-  HOST="all"
-fi
-
-if [ "$MODE" = "all" ] && [ -n "$EXPLICIT_SID" ]; then
-  echo "error: --all and <session-id> are mutually exclusive" >&2
-  exit 1
-fi
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+PARSE_ARGS=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/parse-args.sh)
+# A Bash-tool fence has no positional arguments: read the user's text through a
+# quoted heredoc, split it with globbing off (skill-lint C9), and let the one
+# parser set MODE, AUTO, WHY, EXPLICIT_SID, HOST and HOST_EXPLICIT. Step 2 runs
+# the same lines again (each fence is a fresh shell).
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+PARSED=$(bash "$PARSE_ARGS" "$@") || exit 1
+eval "$PARSED"
 ```
 
 Rules:
@@ -231,46 +186,16 @@ ENCODED=$(echo "$MROOT" | sed 's|/|-|g')
 PROJECT_DIR="$HOME/.claude/projects/$ENCODED"
 GROK_SESSIONS_ROOT="${GROK_SESSIONS_DIR:-$HOME/.grok/sessions}"
 
-# Re-parse Step 1 args (each fence is a fresh shell — skill-lint C1).
-MODE="single"
-EXPLICIT_SID=""
-HOST=""
-HOST_EXPLICIT=0
-_PREV_HOST=0
-for arg in $ARGUMENTS; do
-  if [ "$_PREV_HOST" = "1" ]; then
-    case "$arg" in
-      claude|grok|all) HOST="$arg"; HOST_EXPLICIT=1; _PREV_HOST=0; continue ;;
-      *) echo "error: --host expects claude|grok|all, got: $arg" >&2; exit 1 ;;
-    esac
-  fi
-  case "$arg" in
-    --all)  MODE="all" ;;
-    --auto) ;;
-    --why)  ;;
-    --host) _PREV_HOST=1 ;;
-    --host=*)
-      _hv="${arg#--host=}"
-      case "$_hv" in
-        claude|grok|all) HOST="$_hv"; HOST_EXPLICIT=1 ;;
-        *) echo "error: --host expects claude|grok|all, got: $_hv" >&2; exit 1 ;;
-      esac
-      ;;
-    --*) ;;
-    *) EXPLICIT_SID="$arg" ;;
-  esac
-done
-if [ "$_PREV_HOST" = "1" ]; then
-  echo "error: --host requires a value (claude|grok|all)" >&2
-  exit 1
-fi
-if [ "$MODE" = "all" ] && [ "$HOST_EXPLICIT" = "0" ]; then
-  HOST="all"
-fi
-if [ "$MODE" = "all" ] && [ -n "$EXPLICIT_SID" ]; then
-  echo "error: --all and <session-id> are mutually exclusive" >&2
-  exit 1
-fi
+# Re-parse Step 1 args (each fence is a fresh shell — skill-lint C1): the same
+# heredoc, split and parser call as Step 1 (skills/retro-gate/parse-args.sh).
+PARSE_ARGS=$(bash "$PDH/skills/plugin-dir.sh" file skills/retro-gate/parse-args.sh)
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+PARSED=$(bash "$PARSE_ARGS" "$@" 2>/dev/null) || exit 1
+eval "$PARSED"
 
 _mtime_of() {
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
@@ -462,7 +387,7 @@ print(os.path.join(os.path.abspath(os.path.expanduser(root)), enc))
       done < <(find "$_g_bucket" -mindepth 2 -maxdepth 2 -name chat_history.jsonl -type f 2>/dev/null)
     fi
     if [ "$HOST" = "grok" ]; then
-      _gc=$(printf '%s\n' "$CANDIDATES" | sed '/^[[:space:]]*$/d' | grep -c . || echo 0)
+      _gc=$(printf '%s\n' "$CANDIDATES" | sed '/^[[:space:]]*$/d' | grep -c . || true); _gc=${_gc:-0}
       if [ "$_gc" -eq 0 ]; then
         echo "error: no Grok sessions found under cwd bucket for $HOST_CWD" >&2
         echo "error: no Claude fallback for --host grok" >&2
@@ -470,7 +395,7 @@ print(os.path.join(os.path.abspath(os.path.expanduser(root)), enc))
       fi
     fi
   fi
-  SESSION_COUNT=$(printf '%s\n' "$CANDIDATES" | sed '/^[[:space:]]*$/d' | grep -c . || echo 0)
+  SESSION_COUNT=$(printf '%s\n' "$CANDIDATES" | sed '/^[[:space:]]*$/d' | grep -c . || true); SESSION_COUNT=${SESSION_COUNT:-0}
   if [ "$SESSION_COUNT" -gt 500 ]; then
     echo "# retro: --all found $SESSION_COUNT sessions; this will take a while" >&2
   fi
@@ -588,7 +513,7 @@ while IFS=$'\t' read -r _host _src; do
 ${_feed}"
 done <<< "$CANDIDATES"  # lint-ok: C1
 SESSIONS=$(printf '%s\n' "$FILTERED" | sed '/^[[:space:]]*$/d')
-SCANNED=$(printf '%s\n' "$SESSIONS" | sed '/^[[:space:]]*$/d' | grep -c . || echo 0)
+SCANNED=$(printf '%s\n' "$SESSIONS" | sed '/^[[:space:]]*$/d' | grep -c . || true); SCANNED=${SCANNED:-0}
 ```
 
 ### Step 2d: Empty-set guard
@@ -1405,12 +1330,13 @@ if [ -n "$TRIAL_REVIEW" ] && [ -f "$TRIAL_REVIEW" ]; then  # lint-ok: C1
   # (~/.claude/projects/, skip mtime <60s, gate.sh scores).
   SCOPE_ARG="current"
   [ "${MODE:-single}" = "all" ] && SCOPE_ARG="all"  # lint-ok: C1
-  TRIAL_DECISIONS=$(bash "$TRIAL_REVIEW" --mroot "$MROOT" --scope "$SCOPE_ARG" 2>"${TMPDIR:-/tmp}/trial-review-$$.err" || true)
-  if [ -s "${TMPDIR:-/tmp}/trial-review-$$.err" ]; then
+  TR_ERR=$(mktemp "${TMPDIR:-/tmp}/trial-review.XXXXXX" 2>/dev/null) || TR_ERR=""
+  TRIAL_DECISIONS=$(bash "$TRIAL_REVIEW" --mroot "$MROOT" --scope "$SCOPE_ARG" 2>"${TR_ERR:-/dev/null}" || true)
+  if [ -n "$TR_ERR" ] && [ -s "$TR_ERR" ]; then
     # DEFER lines and diagnostics — surface lightly
-    sed 's/^/# /' "${TMPDIR:-/tmp}/trial-review-$$.err" 2>/dev/null | head -20 || true
+    sed 's/^/# /' "$TR_ERR" 2>/dev/null | head -20 || true
   fi
-  rm -f "${TMPDIR:-/tmp}/trial-review-$$.err" 2>/dev/null || true
+  [ -z "$TR_ERR" ] || rm -f "$TR_ERR" 2>/dev/null || true
 else
   echo "# retro: trial-review.sh missing — skip trial review" >&2
 fi
@@ -1669,7 +1595,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
     FILE="$MROOT/.claude/memory/<target>/directives.md"
-    COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || echo 0)
+    COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || true); COUNT=${COUNT:-0}
     printf '%s: %s directive(s) currently (run the command above to update)\n' "<target>" "$COUNT"
     ```
     Increment `APPLIED`.
@@ -1767,7 +1693,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
     FILE="$MROOT/.claude/memory/<target>/directives.md"
-    COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || echo 0)
+    COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || true); COUNT=${COUNT:-0}
     printf '[auto-applied] %s: %s directive(s) now\n' "<target>" "$COUNT"
     ```
   - **Exit non-zero (conflict refused):** Do NOT silently drop. Append the
@@ -1876,7 +1802,7 @@ without re-scanning session JSONL (CDV-212 / SPEC-012 / SPEC-013).
 
 ```bash
 if [ -n "$FABRICATION_ANCHORS" ]; then  # lint-ok: C1
-  FA_COUNT=$(printf '%s\n' "$FABRICATION_ANCHORS" | grep -c '.' || echo 0)
+  FA_COUNT=$(printf '%s\n' "$FABRICATION_ANCHORS" | grep -c '.' || true); FA_COUNT=${FA_COUNT:-0}
   echo ""
   echo "Detected ${FA_COUNT} fabrication anchor(s) — consider auditing with /council:"
   while IFS= read -r row; do
@@ -1950,9 +1876,9 @@ if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
     done
   fi
 
-  DUP_N=$(grep -c . "$DUP_FILE" 2>/dev/null || echo 0)
-  MF_N=$(grep -c . "$FOLLOWUP_FILE" 2>/dev/null || echo 0)
-  OBS_N=$(grep -c . "$OBS_FILE" 2>/dev/null || echo 0)
+  DUP_N=$(grep -c . "$DUP_FILE" 2>/dev/null || true); DUP_N=${DUP_N:-0}
+  MF_N=$(grep -c . "$FOLLOWUP_FILE" 2>/dev/null || true); MF_N=${MF_N:-0}
+  OBS_N=$(grep -c . "$OBS_FILE" 2>/dev/null || true); OBS_N=${OBS_N:-0}
   SUMMARY="Applied: ${APPLIED:-0} | Rejected: ${REJECTED:-0} | Duplicates: ${DUP_N} | Manual follow-up: ${MF_N} | Observations: ${OBS_N}"  # lint-ok: C1
   NOTE=""
   write_scheduled_report_if_needed  # lint-ok: C1

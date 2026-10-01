@@ -22,7 +22,11 @@
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-OUTDIR="${1:-${TMPDIR:-/tmp}/cdt-51-matrix-$$}"
+if [ -n "${1:-}" ]; then
+  OUTDIR="$1"
+else
+  OUTDIR=$(mktemp -d "${TMPDIR:-/tmp}/cdt-51-matrix.XXXXXX")
+fi
 MODEL="${MATRIX_MODEL:-haiku}"
 TIMEOUT_S="${MATRIX_TIMEOUT:-180}"
 CC_VERSION_FILE="${MATRIX_CC_VERSION_FILE:-$REPO/tools/permission-matrix-cc-version}"
@@ -351,7 +355,8 @@ key_probe() {
     echo
     echo "settings_keys_in_binary:"
     for k in bypassPermissions acceptEdits dontAsk auto autoAllowBashIfSandboxed defaultMode sandbox.enabled; do
-      n=$(strings /opt/claude-code/bin/claude 2>/dev/null | rg -c "$k" || echo 0)
+      n=$(strings /opt/claude-code/bin/claude 2>/dev/null | rg -c "$k" || true)
+      n=${n:-0}
       echo "  $k: $n occurrences"
     done
     echo

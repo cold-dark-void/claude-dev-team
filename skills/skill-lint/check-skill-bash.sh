@@ -3,7 +3,7 @@
 # Pure subprocess CLI — no LLM, no network. See skills/skill-lint/SKILL.md.
 #
 # Two engines, one report. lint.py runs C1-C5. fence-state.awk (bash + awk, no
-# interpreter) runs C6 and C10 over the same file set. This wrapper merges the
+# interpreter) runs C6, C8, C9 and C10 over the same file set. This wrapper merges the
 # finding lines, the "N findings, M waived" summary, --json and the exit code
 # (0 clean, 1 unwaived findings, 64 usage error). If the awk engine fails, the
 # run fails: a broken rule engine never reads as a clean run.
@@ -54,12 +54,12 @@ else
   while IFS= read -r f || [ -n "$f" ]; do targets+=("$f"); done < <(skill_lint_scan_set "$root")
 fi
 
-# Engine 2: fence-state.awk (C6, C10). One TSV line per finding.
+# Engine 2: fence-state.awk (C6, C8, C9, C10). One TSV line per finding.
 awk_tsv=""
 if [ "${#targets[@]}" -gt 0 ]; then
   if awk_tsv=$(awk -f "$AWKSCAN" -f "$AWKF" "${targets[@]}"); then :; else
     awk_rc=$?
-    echo "error: fence-state.awk failed (rc=$awk_rc); C6/C10 were not checked — refusing to report a clean run" >&2
+    echo "error: fence-state.awk failed (rc=$awk_rc); C6/C8/C9/C10 were not checked — refusing to report a clean run" >&2
     exit 1
   fi
 fi

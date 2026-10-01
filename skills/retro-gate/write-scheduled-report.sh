@@ -36,22 +36,26 @@ usage() {
   exit 1
 }
 
+# A value flag needs a value. With one argument left, `shift 2` fails without
+# shifting and the parse loop never ends (WP 2-02, CDT-286 [08 F16]).
+need_arg() { [ "$2" -ge 2 ] || { echo "write-scheduled-report: $1 needs a value" >&2; usage; }; }
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --mroot)           MROOT=${2:-}; shift 2 ;;
-    --mode)            MODE=${2:-}; shift 2 ;;
-    --scanned)         SCANNED=${2:-0}; shift 2 ;;
-    --skipped)         SKIPPED=${2:-0}; shift 2 ;;
-    --gated)           GATED=${2:-0}; shift 2 ;;
-    --deep)            DEEP=${2:-0}; shift 2 ;;
-    --applied-file)    APPLIED_FILE=${2:-}; shift 2 ;;
-    --followup-file)   FOLLOWUP_FILE=${2:-}; shift 2 ;;
-    --duplicate-file)  DUP_FILE=${2:-}; shift 2 ;;
-    --observations-file) OBS_FILE=${2:-}; shift 2 ;;
-    --summary)         SUMMARY=${2:-}; shift 2 ;;
-    --note)            NOTE=${2:-}; shift 2 ;;
-    --applied-count)   APPLIED_COUNT=${2:-}; shift 2 ;;
-    --followup-count)  FOLLOWUP_COUNT=${2:-}; shift 2 ;;
+    --mroot)           need_arg "$1" $#; MROOT="$2"; shift 2 ;;
+    --mode)            need_arg "$1" $#; MODE="$2"; shift 2 ;;
+    --scanned)         need_arg "$1" $#; SCANNED="${2:-0}"; shift 2 ;;
+    --skipped)         need_arg "$1" $#; SKIPPED="${2:-0}"; shift 2 ;;
+    --gated)           need_arg "$1" $#; GATED="${2:-0}"; shift 2 ;;
+    --deep)            need_arg "$1" $#; DEEP="${2:-0}"; shift 2 ;;
+    --applied-file)    need_arg "$1" $#; APPLIED_FILE="$2"; shift 2 ;;
+    --followup-file)   need_arg "$1" $#; FOLLOWUP_FILE="$2"; shift 2 ;;
+    --duplicate-file)  need_arg "$1" $#; DUP_FILE="$2"; shift 2 ;;
+    --observations-file) need_arg "$1" $#; OBS_FILE="$2"; shift 2 ;;
+    --summary)         need_arg "$1" $#; SUMMARY="$2"; shift 2 ;;
+    --note)            need_arg "$1" $#; NOTE="$2"; shift 2 ;;
+    --applied-count)   need_arg "$1" $#; APPLIED_COUNT="$2"; shift 2 ;;
+    --followup-count)  need_arg "$1" $#; FOLLOWUP_COUNT="$2"; shift 2 ;;
     -h|--help)         usage ;;
     *)
       echo "write-scheduled-report: unknown arg: $1" >&2
@@ -82,14 +86,16 @@ fi
 # Count applied/followup from files if counts not provided.
 if [ -z "$APPLIED_COUNT" ]; then
   if [ -n "$APPLIED_FILE" ] && [ -f "$APPLIED_FILE" ]; then
-    APPLIED_COUNT=$(grep -c . "$APPLIED_FILE" 2>/dev/null || echo 0)
+    APPLIED_COUNT=$(grep -c . "$APPLIED_FILE" 2>/dev/null || true)
+    APPLIED_COUNT=${APPLIED_COUNT:-0}
   else
     APPLIED_COUNT=0
   fi
 fi
 if [ -z "$FOLLOWUP_COUNT" ]; then
   if [ -n "$FOLLOWUP_FILE" ] && [ -f "$FOLLOWUP_FILE" ]; then
-    FOLLOWUP_COUNT=$(grep -c . "$FOLLOWUP_FILE" 2>/dev/null || echo 0)
+    FOLLOWUP_COUNT=$(grep -c . "$FOLLOWUP_FILE" 2>/dev/null || true)
+    FOLLOWUP_COUNT=${FOLLOWUP_COUNT:-0}
   else
     FOLLOWUP_COUNT=0
   fi
@@ -100,7 +106,10 @@ FOLLOWUP_COUNT=$(printf '%s' "$FOLLOWUP_COUNT" | head -1 | tr -cd '0-9')
 APPLIED_COUNT=${APPLIED_COUNT:-0}
 FOLLOWUP_COUNT=${FOLLOWUP_COUNT:-0}
 
-tmp="${REPORT}.tmp.$$"
+tmp=$(mktemp "${RETRO_DIR}/scheduled.tmp.XXXXXX") || {
+  echo "write-scheduled-report: cannot create a temp file" >&2
+  exit 1
+}
 {
   printf '%s\n' "# Scheduled retro report"
   printf '%s\n' "- timestamp: $TS"

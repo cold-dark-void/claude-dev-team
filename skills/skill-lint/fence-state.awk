@@ -1,4 +1,4 @@
-# fence-state.awk — SPEC-021 rules C6 and C10 for fenced bash blocks.
+# fence-state.awk — SPEC-021 rules C6, C8, C9 and C10 for fenced bash blocks.
 #
 # Pure awk (POSIX features only: no gensub, no match() array, no \s, no {n}
 # intervals). check-skill-bash.sh runs this after lint.py and merges both
@@ -7,6 +7,11 @@
 #
 #   <waived 0|1> TAB <path> TAB <line> TAB <check-id> TAB <message>
 #
+# Also lint ```sh and ```shell fences (CDT-286 [09 E2]). fence-exec does not.
+# A bare assignment here would be an always-true pattern whose default action
+# prints every line, so the flag is set once in BEGIN.
+BEGIN { fs_shell_aliases = 1 }
+
 # Fence scanning lives in fence-scan.awk (WP 2-01): pass that file first
 # (awk -f fence-scan.awk -f fence-state.awk FILE...). It mirrors lint.py
 # scan_fences() and calls the three fence_* callbacks defined near the end of
@@ -23,6 +28,31 @@
 #     -v BROAD=1 to report that case too (used only to size the rule).
 #     Waivable: "# lint-ok: C6" on the line or the line above (same matching
 #     as lint.py).
+#
+# C8  idiom hazards in a bash fence. Six sub-rules, one per defect class. Each
+#     reads the code part of a line: text in comments, single quotes and
+#     heredoc bodies is not code (a masked copy of the line, see idiom_scan).
+#       (a) grep -c / rg -c followed by "|| echo 0": with no match grep prints
+#           0 and exits 1, so the substitution yields "0" newline "0".
+#       (b) "$$" in a word that holds TMPDIR or /tmp: a predictable temp path
+#           (and a new PID in every Bash-tool call).
+#       (c) a bare /tmp/ path (AGENTS.md: use "${TMPDIR:-/tmp}/..." or mktemp).
+#       (d) a brace inside a ${VAR:-...} default: the expansion ends at the
+#           first }, so ${X:-{}} is "{" followed by a stray "}".
+#       (e) a "# Stop here" comment with no exit or return as the next command.
+#       (f) git branch -D, reset --hard, clean -f and push --force/--delete.
+#     Waivable: "# lint-ok: C8" on the line or the line above.
+#
+# C9  argument pass-through in a command fence (path commands/*.md only). A
+#     Bash-tool fence is a fresh shell with no positional arguments, and Claude
+#     Code puts the user text in only where $ARGUMENTS appears.
+#       (a) $@ $* $# $1-$9 (also ${1}, ${@:2}) read at the top level of a fence
+#           that has not run "set --" (function bodies are exempt: they have
+#           their own arguments),
+#       (b) an unquoted $ARGUMENTS, or $ARGUMENTS inside an unquoted heredoc:
+#           the text is word-split, glob-expanded or executed. Quoted
+#           heredoc bodies and double-quoted words are not flagged.
+#     Waivable: "# lint-ok: C9" on the line or the line above.
 #
 # C10 comment and waiver placement. Text after a backslash-newline joins the
 #     next line into the command, and text inside an open quote is part of
@@ -69,6 +99,8 @@ function start_file(name) {
   fname = name
   split("", src)
   nfind = 0
+  # C9 reads only command fences: commands/<name>.md (any root prefix).
+  is_cmd = (name ~ /(^|\/)commands\/[^\/]+\.md$/)
   fs_reset()
 }
 
@@ -100,6 +132,14 @@ function add(ln, id, msg) {
 
 function add_once(ln, id, msg,    key) {
   key = ln SUBSEP id
+  if (key in seen_find) return
+  seen_find[key] = 1
+  add(ln, id, msg)
+}
+
+# One finding per line, rule id and sub-rule (C8 holds six sub-rules).
+function add_sub(ln, id, sub_id, msg,    key) {
+  key = ln SUBSEP id SUBSEP sub_id
   if (key in seen_find) return
   seen_find[key] = 1
   add(ln, id, msg)
@@ -159,11 +199,20 @@ function block_start() {
   split("", fdc)
   split("", stk)
   split("", pdep)
+  # C8/C9 state: brace depth and function bodies, top-level "set --", and a
+  # "# Stop here" comment that still waits for its exit.
+  bd = 0
+  nf = 0
+  fn_pending = 0
+  has_set = 0
+  stop_ln = 0
+  split("", fnb)
 }
 
 # Emit C6 findings for the fence that just closed. Uses are kept in order;
 # the first use of each name that precedes its first assignment is reported.
 function block_end(    u, nmn, reported, before) {
+  if (stop_ln > 0) stop_unresolved()
   split("", reported)
   for (u = 1; u <= nuse; u++) {
     nmn = uname[u]
@@ -213,6 +262,7 @@ function scan_heredoc_uses(line, ln,    p, rest, name, j) {
       name = ident_at(line, p)
       if (name in isname) use_event(name, ln, p - 1)
     }
+    if (is_cmd && name == "ARGUMENTS") args_unquoted(ln, "an unquoted heredoc body")
   }
 }
 
@@ -246,8 +296,18 @@ function scan_line(line, ln,    len, i, c, top, nx, name, rest, j, q, tag, cont,
   if (prevcont && line ~ /^[ \t]*#/)
     add_once(ln, "C10", "a # comment line after a \\ continuation joins the command line and ends it; the next line then runs as its own command — move the comment above the command")
   prevcont = 0
+  # C8 (e): the first command after a "# Stop here" comment must be exit/return
+  t = trim(line)
+  if (stop_ln > 0 && t != "" && t !~ /^#/) {
+    if (t ~ /^(exit|return)([ \t;]|$)/) stop_ln = 0
+    else stop_unresolved()
+  }
+  split("", cx)
+  cmt = 0
   while (i <= len) {
     c = substr(line, i, 1)
+    # context of this character for idiom_scan: S single-quoted, D double-quoted, C code
+    cx[i] = (inS || inA) ? "S" : ((top_ctx() == "D") ? "D" : "C")
     if (inS) {
       if (c == "'") inS = 0
       else if (c == "#" && (i == 1 || substr(line, i - 1, 1) == " " || substr(line, i - 1, 1) == "\t"))
@@ -293,7 +353,20 @@ function scan_line(line, ln,    len, i, c, top, nx, name, rest, j, q, tag, cont,
     }
     if (c == "'") { inS = 1; i++; continue }
     if (c == "\"") { push_ctx("D"); i++; continue }
-    if (c == "#" && is_wordstart(line, i)) break
+    if (c == "#" && is_wordstart(line, i)) { cmt = i; break }
+    if (c == "{" && substr(line, i + 1, 1) ~ /^([ \t]|$)/ && (is_wordstart(line, i) || substr(line, i - 1, 1) == ")")) {
+      # a brace group or a function body opens; "{" right after name() starts the body
+      if (fn_pending) { nf++; fnb[nf] = bd; fn_pending = 0 }
+      bd++
+      i++
+      continue
+    }
+    if (c == "}" && is_wordstart(line, i) && substr(line, i + 1, 1) ~ /^([ \t;&|)]|$)/) {
+      if (bd > 0) bd--
+      if (nf > 0 && bd == fnb[nf]) nf--
+      i++
+      continue
+    }
     if (c == "$") {
       nx = substr(line, i + 1, 1)
       if (nx == "'") { inA = 1; i += 2; continue }
@@ -336,11 +409,17 @@ function scan_line(line, ln,    len, i, c, top, nx, name, rest, j, q, tag, cont,
         if (nx == "=" || (nx == "+" && substr(line, i + length(name) + 1, 1) == "="))
           def_event(name, ln, i)
       }
+      if (is_wordstart(line, i)) {
+        rest = substr(line, i + length(name))
+        if (rest ~ /^[ \t]*\([ \t]*\)/ || name == "function") fn_pending = 1
+        else if (name == "set" && nf == 0 && rest ~ /^[ \t]+(-[A-Za-z]+[ \t]+)*--([ \t]|$)/) has_set = 1
+      }
       i += length(name)
       continue
     }
     i++
   }
+  idiom_scan(line, ln, len)
   # end of line
   if (hd_pending != "") { hd_tag = hd_pending; hd_quoted = hd_pending_q; hd_pending = "" }
   if (!inS && !inA && top_ctx() != "D") {
@@ -362,14 +441,123 @@ function note_dollar(line, i, ln,    nx, p, name, after) {
       if (after ~ /^:?=/) def_event(name, ln, i)
       else use_event(name, ln, i)
     }
+    if (name == "ARGUMENTS") args_ref(ln)
+    else if (name == "" && substr(line, p, 1) ~ /[1-9@*]/) pos_read(ln, "$" substr(line, p, 1))
     return p + (length(name) > 0 ? length(name) : 1)
+  }
+  if (nx ~ /[1-9@*#]/) {
+    pos_read(ln, "$" nx)
+    return i + 2
   }
   if (nx ~ /[A-Za-z_]/) {
     name = ident_at(line, i + 1)
     if (name in isname) use_event(name, ln, i)
+    if (name == "ARGUMENTS") args_ref(ln)
     return i + 1 + length(name)
   }
   return i + 2
+}
+
+# C9 (a): a positional-parameter read at the top level of a command fence.
+function pos_read(ln, tok) {
+  if (!is_cmd || nf > 0 || has_set) return
+  add_sub(ln, "C9", "a", tok " is read at the top level of a command fence, where it is empty: a Bash-tool fence is a fresh shell with no arguments, and Claude Code puts the user text in only at $ARGUMENTS — read the text through a quoted heredoc (ARGS=$(cat <<'__A__'  $ARGUMENTS  __A__), then set -f; set -- $ARGS; set +f)")
+}
+
+# C9 (b): $ARGUMENTS outside a quoted heredoc and outside double quotes.
+function args_ref(ln) {
+  if (!is_cmd || top_ctx() == "D") return
+  args_unquoted(ln, "an unquoted word")
+}
+
+function args_unquoted(ln, where) {
+  add_sub(ln, "C9", "b", "$ARGUMENTS in " where " is word-split, glob-expanded or executed by the shell — read it through a quoted heredoc (ARGS=$(cat <<'__A__'  $ARGUMENTS  __A__), then set -f; set -- $ARGS; set +f)")
+}
+
+# C8 (e): a "# Stop here" comment whose next command is not exit or return.
+function stop_unresolved() {
+  add_sub(stop_ln, "C8", "e", "a \"# Stop here\" comment is not a stop: the block keeps running after it — put an exit (or return) on the next command")
+  stop_ln = 0
+}
+
+# C8 (a)-(d), (f) and the start of (e): one scan over the code part of a line.
+# cx[] (set in scan_line) says which characters are code (C), double-quoted (D)
+# or single-quoted (S); cmt is the column of a trailing comment, or 0.
+function idiom_scan(line, ln, len,    j, code, cs, masked, ch, off, rest, pos, p, cut, after, seg, kk, s, e, word, pc, rs, rl) {
+  for (j = 1; j <= len; j++) if (!(j in cx)) cx[j] = (j > 1) ? cx[j - 1] : "C"
+  code = (cmt > 1) ? substr(line, 1, cmt - 1) : ((cmt == 1) ? "" : line)
+  cs = length(code)
+  if (cmt > 0 && stop_ln == 0 && tolower(substr(line, cmt)) ~ /stop here/ && code !~ /(^|[^A-Za-z0-9_])(exit|return)([^A-Za-z0-9_]|$)/)
+    stop_ln = ln
+  if (cs == 0) return
+  masked = ""
+  for (j = 1; j <= cs; j++) {
+    ch = substr(code, j, 1)
+    masked = masked ((cx[j] == "C") ? ch : "_")
+  }
+  # (a) grep -c / rg -c ... || echo 0
+  off = 0
+  rest = masked
+  while ((pos = index(rest, "||")) > 0) {
+    cut = off + pos
+    after = substr(code, cut + 2)
+    if (after ~ /^[ \t]*echo[ \t]+["']?0["']?([^0-9A-Za-z_.]|$)/) {
+      seg = substr(masked, 1, cut - 1)
+      for (kk = length(seg); kk >= 1; kk--) {
+        ch = substr(seg, kk, 1)
+        if (ch == "|" || ch == ";" || ch == "(") break
+        if (ch == "&" && ((kk > 1 && substr(seg, kk - 1, 1) == "&") || substr(seg, kk + 1, 1) == "&")) break
+      }
+      seg = substr(seg, kk + 1)
+      if (seg ~ /^[ \t]*(grep|egrep|fgrep|rg)[ \t]/ && (seg ~ /[ \t]-[A-Za-z]*c[A-Za-z]*([ \t]|$)/ || seg ~ /[ \t]--count([ \t]|$)/))
+        add_sub(ln, "C8", "a", "grep -c prints 0 and exits 1 when nothing matches, so \"|| echo 0\" yields \"0\" newline \"0\" and breaks -eq tests — use n=$(grep -c ... || true); n=${n:-0}")
+    }
+    off = cut + 1
+    rest = substr(masked, off + 1)
+  }
+  # (b) "$$" in a word that holds TMPDIR or /tmp
+  off = 0
+  rest = code
+  while ((pos = index(rest, "$$")) > 0) {
+    p = off + pos
+    if (cx[p] != "S" && (p == 1 || substr(code, p - 1, 1) != "\\")) {
+      s = p
+      while (s > 1 && substr(code, s - 1, 1) !~ /[ \t]/) s--
+      e = p + 1
+      while (e < cs && substr(code, e + 1, 1) !~ /[ \t]/) e++
+      word = substr(code, s, e - s + 1)
+      if (word ~ /TMPDIR/ || word ~ /\/tmp/)
+        add_sub(ln, "C8", "b", "$$ in a temp path is predictable (CWE-377) and is a new PID in every Bash-tool call — use mktemp or mktemp -d, and carry the path to later fences as a placeholder")
+    }
+    off = p + 1
+    rest = substr(code, off + 1)
+  }
+  # (c) a bare /tmp/ path
+  off = 0
+  rest = code
+  while ((pos = index(rest, "/tmp/")) > 0) {
+    p = off + pos
+    pc = (p == 1) ? "" : substr(code, p - 1, 1)
+    if (cx[p] != "S" && (pc == "" || index(" \t\"'=(:<>;&|,`", pc) > 0))
+      add_sub(ln, "C8", "c", "bare /tmp/ path — AGENTS.md: write temp files to \"${TMPDIR:-/tmp}/...\" or use mktemp / mktemp -d")
+    off = p + 4
+    rest = substr(code, off + 1)
+  }
+  # (d) a brace inside a ${VAR:-...} default
+  off = 0
+  rest = code
+  while (match(rest, /\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=+?]([^}${]|\$[^{}])*\{/)) {
+    rs = RSTART
+    rl = RLENGTH
+    p = off + rs
+    if (cx[p] != "S")
+      add_sub(ln, "C8", "d", "a brace inside a ${VAR:-...} default ends the expansion at the first } — ${X:-{}} is \"{\" plus a stray \"}\"; assign DEF='{}' first and use ${X:-$DEF}")
+    off = p + rl - 1
+    rest = substr(code, off + 1)
+  }
+  # (f) destructive git
+  if (match(masked, /(^|[ \t;&|(])git[ \t]+((-[Cc][ \t]+[^ \t]+|--[A-Za-z-]+(=[^ \t]*)?)[ \t]+)*(branch[ \t]+([^|;&]*[ \t])?-D([ \t]|$)|reset[ \t]+([^|;&]*[ \t])?--hard([ \t]|$)|clean[ \t]+([^|;&]*[ \t])?(-[A-Za-z]*f[A-Za-z]*|--force)([ \t]|$)|push[ \t]+([^|;&]*[ \t])?(--force(-with-lease)?(=[^ \t]*)?|-f|--delete|-d)([ \t]|$))/))
+    add_sub(ln, "C8", "f", "destructive git (branch -D, reset --hard, clean -f, push --force or --delete) in a fence — route it through skills/lib/git-safety.sh, or waive it on the line above with # lint-ok: C8 and say why it is safe")
 }
 
 # "#" that starts a word inside an open quote. Report a waiver inside any

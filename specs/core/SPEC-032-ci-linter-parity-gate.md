@@ -92,7 +92,7 @@ SPEC-021 and SPEC-010 respectively, and `/release` behavior is untouched.
 
 ## Cross-references
 
-- SPEC-021 (skill-lint) — owns C1–C10 check definitions (C7–C9 are reserved) and the linter exit contract.
+- SPEC-021 (skill-lint) — owns C1–C10 check definitions (C7 is reserved) and the linter exit contract.
 - SPEC-010 (docs-drift) — owns D1–D8 check definitions and the linter exit contract.
 - SPEC-030 (smoke harness gate) — owns `.github/workflows/smoke.yml` creation and the smoke
   job; this spec adds sibling linter jobs to the same file.
@@ -103,3 +103,4 @@ SPEC-021 and SPEC-010 respectively, and `/release` behavior is untouched.
 |------|--------|
 | 2026-08-03 | Initial version |
 | 2026-09-30 | WP 1-12: skill-lint check list reads C1–C10, with C7–C9 reserved (SPEC-021 adds C6 assign-before-use and C10 waiver placement); the `skill-lint` CI job and its no-flag invocation are unchanged. |
+| 2026-09-30 | WP 2-02: SPEC-021 adds C8 (idiom hazards) and C9 (command-fence arguments), so the skill-lint check list reads C1–C6 and C8–C10 with C7 reserved for WP 6-03. The `skill-lint` CI job and its no-flag invocation are unchanged. |

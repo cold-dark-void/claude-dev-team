@@ -103,7 +103,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || BACKLOG_ROOT=$(pwd)
 # Row-exists = an index row keyed to this slug; file-exists = item file.
 SLUG="<generated-slug>"
-ROW_EXISTS=$(grep -cE "\]\(backlog/${SLUG}\.md\)" "$BACKLOG_ROOT/.claude/backlog.md" 2>/dev/null || echo 0)
+ROW_EXISTS=$(grep -cE "\]\(backlog/${SLUG}\.md\)" "$BACKLOG_ROOT/.claude/backlog.md" 2>/dev/null || true); ROW_EXISTS=${ROW_EXISTS:-0}
 FILE_EXISTS=$([ -f "$BACKLOG_ROOT/.claude/backlog/${SLUG}.md" ] && echo 1 || echo 0)
 ```
 

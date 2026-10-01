@@ -26,3 +26,15 @@ suite	skills/memory-recall/SKILL.md	## Step 4: Semantic search	skills/memory-rec
 suite	commands/retro.md	### Step 1b: Scheduled path lock	skills/retro-gate/test-retro-fences.sh	/retro scheduled: the Step 1b lock fence runs against stub lock and report scripts
 suite	skills/review-and-commit/SKILL.md	## Step 5: Finalize	skills/review-and-commit/test-fences.sh	review-and-commit finalize runs against a stub council engine
 suite	skills/refactor/SKILL.md	## Step 1b	skills/refactor/test-fences.sh	/refactor Step 1b path guard (CDT-356): relative path kept, out-of-tree rejected, no git fatal
+suite	commands/audit.md	## Step 2: Invoke	skills/skill-lint/test-command-fences.sh	/audit: the words and a * reach audit.sh intact through the quoted $ARGUMENTS heredoc (C9, rv-w1-46)
+suite	commands/compact-transcript.md	## Step 2: Invoke	skills/skill-lint/test-command-fences.sh	/compact-transcript: a sid and a * reach the script intact
+suite	commands/doctor.md	## Step 2: Invoke doctor	skills/skill-lint/test-command-fences.sh	/doctor: flags and a * reach doctor.sh intact
+suite	commands/status.md	### Step 2: Invoke rollup	skills/skill-lint/test-command-fences.sh	/status: a section and a * reach rollup.sh intact
+suite	commands/setup.md	Sub: `models`	skills/skill-lint/test-command-fences.sh	/setup models: the models word is dropped and the rest reaches write-model.sh intact
+suite	commands/setup.md	### Step 0: Doctor hard-gate	skills/skill-lint/test-command-fences.sh	/setup team: --skip-doctor is found in the user text, not in $@
+suite	commands/memory.md	## Step 1: Export seed pack	skills/skill-lint/test-command-fences.sh	/memory export: the flags reach export-seed-pack.sh and MROOT is the only extra word
+suite	commands/worktree.md	Step 3:	skills/skill-lint/test-command-fences.sh	/worktree release: the slug is read and validated from the user text
+suite	commands/adjust-agent.md	## Step 7: Model map	skills/skill-lint/test-command-fences.sh	/adjust-agent --model/--effort: the agent and flags reach write-model.sh
+suite	commands/adjust-agent.md	## Step 3: Dashboard mode	skills/skill-lint/test-command-fences.sh	/adjust-agent dashboard: an empty directives file gives one 0 (CDT-362)
+suite	commands/retro.md	## Step 1: Parse arguments	skills/skill-lint/test-command-fences.sh	/retro Step 1: the one parser, words intact
+suite	commands/retro.md	Step 2a	skills/skill-lint/test-command-fences.sh	/retro --all --host grok with no Grok session prints its error (CDT-362)

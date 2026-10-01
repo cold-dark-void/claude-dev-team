@@ -34,6 +34,10 @@ EOF
   exit 2
 }
 
+# A value flag needs a value. With one argument left, `shift 2` fails without
+# shifting and the parse loop never ends (WP 2-02, CDT-286 [06 F23]).
+need_arg() { [ "$2" -ge 2 ] || { echo "normalize-hook-paths: $1 needs a value" >&2; usage; }; }
+
 SETTINGS=""
 PROJECT_ROOT=""
 DISCLOSE=""
@@ -41,9 +45,9 @@ DRY_RUN=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --settings)     SETTINGS="${2:-}"; shift 2 ;;
-    --project-root) PROJECT_ROOT="${2:-}"; shift 2 ;;
-    --disclose)     DISCLOSE="${2:-}"; shift 2 ;;
+    --settings)     need_arg "$1" $#; SETTINGS="$2"; shift 2 ;;
+    --project-root) need_arg "$1" $#; PROJECT_ROOT="$2"; shift 2 ;;
+    --disclose)     need_arg "$1" $#; DISCLOSE="$2"; shift 2 ;;
     --dry-run)      DRY_RUN=1; shift ;;
     -h|--help)      usage ;;
     *) echo "normalize-hook-paths: unknown arg: $1" >&2; usage ;;

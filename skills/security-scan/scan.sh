@@ -4,7 +4,15 @@
 # Usage: scan.sh [PATH...]   (default: git diff paths vs merge-base, or .)
 set -euo pipefail
 
-OUT_DIR="${SECURITY_SCAN_OUT:-${TMPDIR:-/tmp}/dev-team-security-scan-$$}"
+# Private output directory: mktemp -d (mode 700, random name). A name built
+# from $$ is predictable (CWE-377). SECURITY_SCAN_OUT overrides it.
+OUT_DIR="${SECURITY_SCAN_OUT:-}"
+if [ -z "$OUT_DIR" ]; then
+  OUT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/dev-team-security-scan.XXXXXX" 2>/dev/null) || {
+    echo "SECURITY-SCAN: SKIP — cannot create a temp directory (fail-open)"
+    exit 0
+  }
+fi
 mkdir -p "$OUT_DIR"
 SUMMARY="$OUT_DIR/summary.txt"
 : >"$SUMMARY"
@@ -37,8 +45,11 @@ fi
 
 # Cap target list for CLI args
 MAX_TARGETS=40
-if [ "${#TARGETS[@]}" -gt "$MAX_TARGETS" ]; then
+TARGETS_TOTAL="${#TARGETS[@]}"
+if [ "$TARGETS_TOTAL" -gt "$MAX_TARGETS" ]; then
   TARGETS=("${TARGETS[@]:0:$MAX_TARGETS}")
+  # Never cut the list in silence: the summary says how much was not scanned.
+  echo "TARGETS: truncated to the first $MAX_TARGETS of $TARGETS_TOTAL (CLI argument cap) — the rest were not scanned" >>"$SUMMARY"
 fi
 
 RAN=0

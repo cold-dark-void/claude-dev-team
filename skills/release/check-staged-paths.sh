@@ -106,6 +106,7 @@ is_allowed() {
 
 foreign=()
 # S3: staged set only — never unstaged/untracked
+# --no-renames: a rename lists both its paths, so a foreign source path is seen.
 # -z + NUL-delimited read: staged paths may contain spaces, and quoted
 # non-ASCII bytes (core.quotePath) must compare raw, not escaped.
 while IFS= read -r -d '' path; do
@@ -113,7 +114,7 @@ while IFS= read -r -d '' path; do
   if ! is_allowed "$path"; then
     foreign+=("$path")
   fi
-done < <(git -C "$ROOT" diff --cached --name-only -z)
+done < <(git -C "$ROOT" diff --cached --no-renames --name-only -z)
 
 if [ ${#foreign[@]} -eq 0 ]; then
   exit 0

@@ -1,8 +1,8 @@
 # Waiver fixture
 
 ```bash
-rm /tmp/known-nonempty/*.bak  # lint-ok: C3
+rm /srv/known-nonempty/*.bak  # lint-ok: C3
 # lint-ok: C3
-rm /tmp/other-nonempty/*.bak
-rm /tmp/unwaived/*.bak  # lint-ok: C1
+rm /srv/other-nonempty/*.bak
+rm /srv/unwaived/*.bak  # lint-ok: C1
 ```

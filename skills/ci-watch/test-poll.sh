@@ -147,7 +147,8 @@ BASH_BIN=$(command -v bash) || die "bash not found"
 REAL_TIMEOUT=$(command -v timeout) || die "real timeout not found on host"
 
 FARM="$TMP/farm"
-path_farm "$FARM" bash git jq sed awk date mkdir head rm dirname cat mv mktemp tr basename printf flock
+# chmod and stat: sidecar publishes through atomic_write, which keeps the file mode.
+path_farm "$FARM" bash git jq sed awk date mkdir head rm dirname cat mv mktemp tr basename printf flock chmod stat
 FARM_RC=$?
 [ "$FARM_RC" -eq 0 ] || die "path_farm rc=$FARM_RC (unexpectedly refused a non-timeout command)"
 
@@ -266,6 +267,70 @@ if [ "$e2_ok" -eq 1 ]; then
   echo "  PASS [AC-E gtimeout-shim]: no timeout_missing when gtimeout present exit=0"
   PASS=$((PASS + 1))
 else
+  FAIL=$((FAIL + 1))
+fi
+
+# ---- CDT-282 [09 F23]: private temp files (mktemp), not a name per ticket ----
+# poll.sh wrote ${TMPDIR:-/tmp}/ci-watch-{out,err}-<TICKET>.txt: a fixed name an
+# attacker can plant a symlink on (CWE-377). The mock gh lists TMPDIR while the
+# poll runs, when both temp files exist.
+echo ""
+echo "Temp files: mktemp names, removed on exit"
+LS_MOCK="$TMP/ls-mock-bin"
+mkdir -p "$LS_MOCK"
+cat > "$LS_MOCK/gh" << 'LSMOCK'
+#!/bin/sh
+case " $* " in
+  *" checks "*) ls "$TMPDIR" > "$GH_MOCK_LS" 2>/dev/null; printf '%s' "${GH_MOCK_JSON-}"; exit 0 ;;
+  *" view "*) echo OPEN; exit 0 ;;
+esac
+exit 99
+LSMOCK
+chmod +x "$LS_MOCK/gh"
+reset_sidecar 0
+T_LS="$TMP/ls.log"
+: > "$T_LS"
+t_out=$(PATH="$LS_MOCK:$PATH" GH_MOCK_LS="$T_LS" GH_MOCK_JSON='[]' bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$t_out" = "done" ] && grep -Eq '^ci-watch-err\.[A-Za-z0-9]{6}$' "$T_LS" \
+   && ! grep -q "^ci-watch-err-${TICKET}\.txt$" "$T_LS"; then
+  echo "  PASS [temp names]: the err file is ci-watch-err.<random>, not a per-ticket name"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [temp names]: out='$t_out' TMPDIR listing during the poll: $(tr '\n' ' ' < "$T_LS")"
+  FAIL=$((FAIL + 1))
+fi
+left=$(ls "$TMPDIR" 2>/dev/null | grep -c '^ci-watch-' || true)
+if [ "${left:-0}" = "0" ]; then
+  echo "  PASS [temp cleanup]: no ci-watch-* file is left in TMPDIR"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [temp cleanup]: $left ci-watch-* file(s) left in TMPDIR"
+  FAIL=$((FAIL + 1))
+fi
+
+# ---- CDT-282 [09 F23]: local-test mode in a shared epic integration tree ----
+# A child of a shared epic tree has no .worktrees/<TICKET>; its tree is the epic
+# integration path (epic-lib resolve-child-worktree). poll.sh used to look only
+# at .worktrees/<TICKET> and answered wait for ever.
+echo ""
+echo "Local-test mode: slug is not always the ticket (shared epic tree)"
+NPM_MOCK="$TMP/npm-mock-bin"
+mkdir -p "$NPM_MOCK"
+printf '#!/bin/sh\nexit "${NPM_MOCK_RC:-0}"\n' > "$NPM_MOCK/npm"
+chmod +x "$NPM_MOCK/npm"
+INT_WT="$TMP/int-wt"
+mkdir -p "$INT_WT"
+printf '{"scripts":{"test":"x"}}\n' > "$INT_WT/package.json"
+reset_sidecar_local
+s_out=$(PATH="$NPM_MOCK:$PATH" EPIC_INTEGRATION_PATH="$INT_WT" bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+s_out_fail=$(PATH="$NPM_MOCK:$PATH" EPIC_INTEGRATION_PATH="$INT_WT" NPM_MOCK_RC=1 bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+# control: no shared tree and no .worktrees/<TICKET> → nothing to test → wait
+s_out_none=$(PATH="$NPM_MOCK:$PATH" bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$s_out" = "done" ] && [ "$s_out_fail" = "fail" ] && [ "$s_out_none" = "wait" ]; then
+  echo "  PASS [shared tree]: passing tests → done, failing tests → fail, no tree → wait"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [shared tree]: pass='$s_out' (want done) fail='$s_out_fail' (want fail) none='$s_out_none' (want wait)"
   FAIL=$((FAIL + 1))
 fi
 

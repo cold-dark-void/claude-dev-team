@@ -35,6 +35,7 @@
 
 # Per-agent Model map local layer (SPEC-037 / CDT-222)
 .claude/dev-team/models.local.json
+.claude/dev-team/models.local.json.lock
 
 # Memory store binaries and database (auto-generated)
 .claude/memory/extensions/

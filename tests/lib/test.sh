@@ -193,6 +193,90 @@ else
   fail "fence_exec usage: $OUT"
 fi
 
+# ---- trailing_flag_scan: finds value flags that hang without a value (WP 2-02)
+TF_LIB="$HERE/trailing-flag.sh"
+TF="$WORK/tf"
+mkdir -p "$TF"
+# planted positive: the unguarded parser hangs on a trailing value flag
+cat > "$TF/bad.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --alpha)  ALPHA="${2:-}"; shift 2 ;;
+    -b|--beta)
+      BETA="${2:-}"
+      shift 2 ;;
+    --gamma=*) G="${1#--gamma=}"; shift ;;
+    --flag)   F=1; shift ;;
+    *) exit 64 ;;
+  esac
+done
+EOF
+# negative control: the same parser with a value check exits 64 at once
+cat > "$TF/good.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+need() { [ "$2" -ge 2 ] || { echo "$1 needs a value" >&2; exit 64; }; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --alpha)  need "$1" $#; ALPHA="$2"; shift 2 ;;
+    -b|--beta)
+      need "$1" $#
+      BETA="$2"
+      shift 2 ;;
+    --gamma=*) G="${1#--gamma=}"; shift ;;
+    --flag)   F=1; shift ;;
+    *) exit 64 ;;
+  esac
+done
+EOF
+# two subcommand parsers: the function filter keeps each flag set apart
+cat > "$TF/sub.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+cmd_one() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --x) X="${2:-}"; shift 2 ;;
+      *) exit 64 ;;
+    esac
+  done
+}
+cmd_two() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --y) Y="${2:-}"; shift 2 ;;
+      *) exit 64 ;;
+    esac
+  done
+}
+case "${1:-}" in
+  one) shift; cmd_one "$@" ;;
+  two) shift; cmd_two "$@" ;;
+esac
+EOF
+(
+  . "$TF_LIB"
+  trailing_flag_scan "$TF/bad.sh" 64
+  if [ "$TF_SKIP" = "1" ]; then echo "SKIP"; exit 0; fi
+  [ "$TF_N" = "3" ] && [ "$TF_BAD" = " --alpha=124 -b=124 --beta=124" ] || { echo "BAD: n=$TF_N bad=$TF_BAD"; exit 1; }
+  trailing_flag_scan "$TF/good.sh" 64
+  [ "$TF_N" = "3" ] && [ -z "$TF_BAD" ] || { echo "GOOD: n=$TF_N bad=$TF_BAD"; exit 1; }
+  TF_EXEMPT="--alpha -b" trailing_flag_scan "$TF/bad.sh" 64
+  [ "$TF_N" = "1" ] && [ "$TF_BAD" = " --beta=124" ] || { echo "EXEMPT: n=$TF_N bad=$TF_BAD"; exit 1; }
+  trailing_flag_scan "$TF/sub.sh" 64 cmd_two two
+  [ "$TF_N" = "1" ] && [ "$TF_BAD" = " --y=124" ] || { echo "FN: n=$TF_N bad=$TF_BAD"; exit 1; }
+  trailing_flag_scan "$TF/good.sh" 64 cmd_absent
+  [ "$TF_N" = "0" ] || { echo "VACUOUS: n=$TF_N"; exit 1; }
+  exit 0
+) > "$TF/out" 2>&1
+RC=$?
+if [ "$RC" -eq 0 ]; then pass; else fail "trailing_flag_scan: $(cat "$TF/out")"; fi
+# sourcing has no side effect
+OUT=$(bash -c '. "'"$TF_LIB"'"; echo "[${TF_N:-unset}${TF_BAD:-unset}]"' 2>&1)
+if [ "$OUT" = "[unsetunset]" ]; then pass; else fail "trailing-flag.sh sourcing side effect: $OUT"; fi
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

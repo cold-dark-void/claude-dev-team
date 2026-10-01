@@ -310,7 +310,7 @@ bash "$X"
 ```
 
 If it exits non-zero, a fenced bash block contains a known prompts-as-code defect
-(C1–C10, where C7–C9 are reserved — see skills/skill-lint/SKILL.md). **Do NOT commit or tag.** Fix or waive
+(C1–C10, where C7 is reserved — see skills/skill-lint/SKILL.md). **Do NOT commit or tag.** Fix or waive
 (`# lint-ok: <id>` only if proven safe; C10 cannot be waived), re-run until exit 0.
 (Covered: commands/**/*.md, skills/**/*.md excl. skill-lint/fixtures/, agents/**/*.md, AGENTS.md; SPEC-021.)
 

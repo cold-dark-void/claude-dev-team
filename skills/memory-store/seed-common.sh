@@ -251,7 +251,22 @@ ensure_seed_gitignore() {
   if [ -f "$gi" ] && cmp -s "$tmp" "$gi"; then
     rm -f "$tmp"
   else
-    mv "$tmp" "$gi"
+    # A copied fixture (setup-team fence test) has no skills/lib next to it.
+    # Publish beside the destination either way, so a /tmp temp is never renamed
+    # onto the repo.
+    _aw="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../lib/portable.sh"
+    if [ -f "$_aw" ]; then
+      if ! declare -F atomic_write >/dev/null 2>&1; then
+        # shellcheck source=../lib/portable.sh
+        . "$_aw"
+      fi
+      atomic_write "$gi" cat "$tmp" || { rm -f "$tmp"; return 1; }
+    else
+      _pub=$(mktemp "$(dirname -- "$gi")/.gitignore.tmp.XXXXXX") || { rm -f "$tmp"; return 1; }
+      cat "$tmp" > "$_pub" || { rm -f "$tmp" "$_pub"; return 1; }
+      mv -f "$_pub" "$gi" || { rm -f "$tmp" "$_pub"; return 1; }
+    fi
+    rm -f "$tmp"
   fi
 
   # Verify seed is not ignored by the *repo* gitignore (ignore global excludesFile —

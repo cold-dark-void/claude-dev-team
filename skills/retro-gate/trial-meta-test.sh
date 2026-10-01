@@ -101,6 +101,28 @@ printf '%s\n' "$LINE" "2. plain" >"$TMP/dir.md"
 cnt=$(grep -c '^[0-9]' "$TMP/dir.md")
 [ "$cnt" -eq 2 ] && ok "grep count annotated" || bad "grep count want 2 got $cnt"
 
+# ── trailing value flag: exits 1 (usage), never hangs (CDT-286 [08 F16], WP 2-02) ──
+# shellcheck source=../../tests/lib/trailing-flag.sh
+. "$HERE/../../tests/lib/trailing-flag.sh"
+trailing_flag_scan "$META" 1 cmd_annotate annotate
+if [ "$TF_SKIP" = "1" ]; then
+  ok "trailing-flag probe skipped: no timeout command"
+else
+  [ "$TF_N" = "4" ] && ok "annotate: 4 value flags probed" || bad "annotate: want 4 value flags, probed $TF_N"
+  [ -z "$TF_BAD" ] && ok "annotate: every value flag with no value exits 1" || bad "annotate: trailing flag:$TF_BAD"
+  trailing_flag_scan "$META" 1 cmd_is_elapsed is-elapsed
+  [ "$TF_N" = "4" ] && ok "is-elapsed: 4 value flags probed" || bad "is-elapsed: want 4 value flags, probed $TF_N"
+  [ -z "$TF_BAD" ] && ok "is-elapsed: every value flag with no value exits 1" || bad "is-elapsed: trailing flag:$TF_BAD"
+fi
+
+# ── the trial body is not glob-expanded against the cwd (W1-14) ──────────────
+GLOBDIR="$TMP/globcwd"
+mkdir -p "$GLOBDIR"
+: >"$GLOBDIR/source=zzz#a"
+GLOB_LINE='1. text <!-- trial start=2026-01-01 source=*#a review-after=3-sessions -->'
+got=$(cd "$GLOBDIR" && bash "$META" parse "$GLOB_LINE" | cut -f3)
+[ "$got" = '*#a' ] && ok "glob characters in a trial body are kept" || bad "glob in trial body expanded: source=[$got]"
+
 echo "---"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

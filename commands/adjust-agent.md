@@ -58,8 +58,8 @@ directive conversation and MUST NOT fall through to Step 5.
 - If agent name + `--apply` + prompt: go to **Step 6** (Non-interactive apply mode)
 - If agent name + prompt (no `--apply`): go to **Step 5** (Adjustment mode)
 
-`council-judge` is mappable (Step 7) even though it is not in the 7-agent
-dashboard roster.
+`council-judge`, `finder` and `debugger` are mappable (Step 7) even though they
+are not in the 7-agent dashboard roster.
 
 ## Step 3: Dashboard mode (no arguments)
 
@@ -78,7 +78,7 @@ echo "Agent        Directives  Model            Effort"
 echo "-----        ----------  -----            ------"
 for AGENT in pm tech-lead ic5 ic4 devops qa ds; do
   FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
-  COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || echo 0)
+  COUNT=$(grep -c '^[0-9]' "$FILE" 2>/dev/null || true); COUNT=${COUNT:-0}
   MODEL=""
   EFFORT=""
   if [ -n "$RESOLVE_MODEL" ] && [ -f "$RESOLVE_MODEL" ]; then
@@ -93,8 +93,9 @@ done
 
 Display as an aligned table (Model column is the resolved Model map string, or
 `Tier default` when empty; Effort column is the resolved effort token, or
-`inherited` when empty). `council-judge` is omitted from this roster; use
-`/adjust-agent council-judge --model <string>` or `--effort <token>` to map it.
+`inherited` when empty). `council-judge`, `finder` and `debugger` are omitted
+from this roster; use `/adjust-agent <agent> --model <string>` or
+`--effort <token>` to map one.
 
 ```
 Agent        Directives  Model            Effort
@@ -333,7 +334,7 @@ local Model map via `write-model.sh` (never repo/global, never `directives.md`).
 `--effort-unset` → `write-model.sh unset-effort <agent>`
 
 `--model` and `--effort` MAY appear together; each write touches only its
-field. `council-judge` is allowed (M8). `qa` / `council-judge` emit the M9
+field. `council-judge`, `finder` and `debugger` are allowed (M8). `qa` / `council-judge` emit the M9
 warn on stderr; still write. Unknown agent / empty string / invalid token:
 CLI exits 64 (print stderr).
 
@@ -345,6 +346,13 @@ if [ -z "$WRITE_MODEL" ] || [ ! -f "$WRITE_MODEL" ]; then
   echo "error: skills/model-map/write-model.sh not found in the installed plugin" >&2
   exit 1
 fi
+# A Bash-tool fence has no positional arguments: read the user's text through a
+# quoted heredoc, then split it with globbing off (skill-lint C9).
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
 AGENT="${1:-}"
 shift || true
 RAN=0

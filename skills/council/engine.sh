@@ -95,6 +95,13 @@ Exit codes: 0 ok | 2 usage/no-scope | 3 reserved (unused; no deferred scopes) | 
 USAGE
 }
 
+# A value flag needs a value. With one argument left, `shift 2` fails without
+# shifting, and under `set -e` the script exits 1 with no message (WP 2-02).
+# need_val <flag> <$#> — exit 2 with the usage text when no value follows.
+need_val() {
+  [ "$2" -ge 2 ] || { echo "engine.sh: $1 needs a value" >&2; usage; exit 2; }
+}
+
 # ---- Dependency check -------------------------------------------------------
 require_jq() {
   if ! command -v jq >/dev/null 2>&1; then
@@ -109,7 +116,7 @@ cmd_resolve_task_id() {
   local tid=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --task-id) tid="${2:-}"; shift 2 ;;
+      --task-id) need_val "$1" $#; tid="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -184,7 +191,7 @@ cmd_report_path() {
   local tid=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --task-id) tid="${2:-}"; shift 2 ;;
+      --task-id) need_val "$1" $#; tid="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -300,17 +307,17 @@ cmd_preflight() {
 
   while [ $# -gt 0 ]; do
     case "$1" in
-      --scope)     scope="${2:-}"; shift 2 ;;
-      --scope-arg) scope_arg="${2:-}"; shift 2 ;;
-      --last)      last="${2:-}"; shift 2 ;;
-      --task-id)   task_id="${2:-}"; shift 2 ;;
-      --preset)    preset="${2:-}"; preset_source="explicit"; shift 2 ;;
+      --scope)     need_val "$1" $#; scope="$2"; shift 2 ;;
+      --scope-arg) need_val "$1" $#; scope_arg="$2"; shift 2 ;;
+      --last)      need_val "$1" $#; last="$2"; shift 2 ;;
+      --task-id)   need_val "$1" $#; task_id="$2"; shift 2 ;;
+      --preset)    need_val "$1" $#; preset="$2"; preset_source="explicit"; shift 2 ;;
       --why)       why="true"; shift ;;
       # CDT-126: tier resolved by the caller (commands/council.md Step 1.5 —
       # grading, or an externally-supplied DRI/ship-gate tier). The engine
       # never grades; it only consumes the resolved value.
-      --tier)           council_tier="${2:-}"; shift 2 ;;
-      --grading-reason) grading_reason="${2:-}"; shift 2 ;;
+      --tier)           need_val "$1" $#; council_tier="$2"; shift 2 ;;
+      --grading-reason) need_val "$1" $#; grading_reason="$2"; shift 2 ;;
       # CDV-207: optional external investigator (codex/gemini). Forms:
       #   --external | --external=codex|gemini | --external codex|gemini
       --external)
@@ -853,16 +860,16 @@ cmd_finalize() {
 
   while [ $# -gt 0 ]; do
     case "$1" in
-      --plan-file)     plan_file="${2:-}"; shift 2 ;;
-      --evidence-file) evidence_file="${2:-}"; shift 2 ;;
-      --judge-output)  judge_output="${2:-}"; shift 2 ;;
-      --task-id)       task_id="${2:-}"; shift 2 ;;
-      --report-out)    report_out="${2:-}"; shift 2 ;;
-      --cross-review-status)    cross_review_status="${2:-}"; shift 2 ;;
-      --cross-review-rankings)  cross_review_rankings="${2:-}"; shift 2 ;;
-      --cross-review-scores)    cross_review_scores="${2:-}"; shift 2 ;;
-      --verification-mode)      verification_mode="${2:-}"; shift 2 ;;
-      --tokens-file)            tokens_file="${2:-}"; shift 2 ;;
+      --plan-file)     need_val "$1" $#; plan_file="$2"; shift 2 ;;
+      --evidence-file) need_val "$1" $#; evidence_file="$2"; shift 2 ;;
+      --judge-output)  need_val "$1" $#; judge_output="$2"; shift 2 ;;
+      --task-id)       need_val "$1" $#; task_id="$2"; shift 2 ;;
+      --report-out)    need_val "$1" $#; report_out="$2"; shift 2 ;;
+      --cross-review-status)    need_val "$1" $#; cross_review_status="$2"; shift 2 ;;
+      --cross-review-rankings)  need_val "$1" $#; cross_review_rankings="$2"; shift 2 ;;
+      --cross-review-scores)    need_val "$1" $#; cross_review_scores="$2"; shift 2 ;;
+      --verification-mode)      need_val "$1" $#; verification_mode="$2"; shift 2 ;;
+      --tokens-file)            need_val "$1" $#; tokens_file="$2"; shift 2 ;;
       *)
         echo "engine.sh: unknown finalize flag: $1" >&2
         exit 2
