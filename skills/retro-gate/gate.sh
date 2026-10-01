@@ -56,6 +56,21 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARSELIB_DIR="$(cd "$SCRIPT_DIR/../transcript-parse" 2>/dev/null && pwd)"
 
+# Forked transcripts: assemble (dedup) then drop copied prefix lines.
+_asm=""
+if grep -q 'forkedFrom' "$JSONL" 2>/dev/null; then
+  ASSEMBLE="$SCRIPT_DIR/../transcript-parse/assemble.py"
+  if [ -f "$ASSEMBLE" ]; then
+    _asm=$(mktemp "${TMPDIR:-/tmp}/retro-asm.XXXXXX")
+    if python3 "$ASSEMBLE" assemble-file "$JSONL" >"$_asm" 2>/dev/null && [ -s "$_asm" ]; then
+      JSONL="$_asm"
+    else
+      rm -f "$_asm"
+      _asm=""
+    fi
+  fi
+fi
+
 # Hybrid S2 ledger path (SPEC-012 M4): default $MROOT/.claude/retro/friction.jsonl
 if [ -z "${FRICTION_LEDGER:-}" ]; then
   if _gc=$(git rev-parse --git-common-dir 2>/dev/null); then
@@ -141,7 +156,6 @@ s1_hits, s4_hits, s5_hits = [], [], []
 s2_runs = []                       # list of starting message ids per run
 # s3_files: file_path -> list[(turn_idx, msg_id, tool_name, seq)]
 s3_files = {}
-s3_first_tool = {}                 # file_path -> name of first edit-tool in session
 tool_error_seqs = []               # monotonic positions of tool_result is_error
 s1_event_seqs = []                 # monotonic positions of S1-eligible rejections
 s4_event_seqs = []                 # assistant line_no per S4 hit
@@ -190,6 +204,11 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
         d = parse_line(raw)
         if d is None:
             continue
+        ff = d.get("forkedFrom")
+        if isinstance(ff, dict):
+            fsid = ff.get("sessionId")
+            if isinstance(fsid, str) and fsid.strip():
+                continue
 
         if line_no < 50 and KNOWN_TOP_FIELDS & set(d.keys()):
             known_field_seen_in_first_50 = True
@@ -226,8 +245,6 @@ with open(JSONL_PATH, "r", encoding="utf-8", errors="replace") as f:
                     if is_edit_tool(name):
                         fp = edit_file_path(inp)
                         if fp:
-                            if fp not in s3_first_tool:
-                                s3_first_tool[fp] = name
                             s3_files.setdefault(fp, []).append(
                                 (assistant_turn_idx, uuid, name, line_no)
                             )
@@ -494,4 +511,7 @@ out = {
 sys.stdout.write(json.dumps(out, separators=(",", ":")) + "\n")
 PYEOF
 
+if [ -n "${_asm:-}" ]; then
+  rm -f "$_asm"
+fi
 exit 0

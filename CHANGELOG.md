@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.12
+- **WP 4-07 Retro pipeline** — classify.py filters cross-session repeats before the cap, the gate scores a forked suffix, and retro.md calls those scripts.
+
 ### v1.19.11
 - **WP 4-06 Handoff hygiene** — slug rejects a following flag, precompact keeps the newest rescue past seq 999, and prepare uses the sibling transcript mirror.
 

@@ -137,6 +137,33 @@ cmp -s "$MROOT/.claude/memory/ic5/directives.md" "$TMP/before.md" \
   && ok "review does not mutate directives" || bad "review mutated directives.md"
 
 # ── trailing value flag: exits 1 (usage), never hangs (CDT-286 [08 F16], WP 2-02) ──
+# ── F18: do not score projects when no directive has trial meta ──────────────
+F18="$TMP/f18"
+mkdir -p "$F18/mroot/.claude/memory/pm" "$F18/projects"
+printf '1. Ship specs first\n' >"$F18/mroot/.claude/memory/pm/directives.md"
+ENC=$(printf '%s' "$F18/mroot" | sed 's|/|-|g')
+mkdir -p "$F18/projects/$ENC"
+printf '%s\n' '{}' >"$F18/projects/$ENC/s.jsonl"
+cat >"$F18/gate.sh" <<'EOF'
+#!/bin/bash
+printf 'called\n' >>"$F18_MARKER"
+printf '%s\n' '{"score":1,"passed":false,"threshold":5.0,"signals":[]}'
+EOF
+chmod +x "$F18/gate.sh"
+F18_MARKER="$F18/marker"
+out=$(F18_MARKER="$F18_MARKER" bash "$REVIEW" --mroot "$F18/mroot" --projects-root "$F18/projects" \
+  --scope current --freshness-secs 0 --gate "$F18/gate.sh" --today 2026-07-20 2>"$F18/err")
+if [ ! -s "$F18_MARKER" ]; then
+  ok "F18 skips project scoring when no trial meta"
+else
+  bad "F18 scored a project with no trial meta"
+fi
+printf '1. Always run bash -n <!-- trial start=2026-07-01 source=sess#a1 review-after=2-sessions -->\n' \
+  >"$F18/mroot/.claude/memory/pm/directives.md"
+out=$(F18_MARKER="$F18_MARKER" bash "$REVIEW" --mroot "$F18/mroot" --projects-root "$F18/projects" \
+  --scope current --freshness-secs 0 --gate "$F18/gate.sh" --today 2026-07-20 2>"$F18/err")
+grep -q 'called' "$F18_MARKER" && ok "F18 still scores when a trial exists" || bad "F18 did not score a real trial"
+
 # shellcheck source=../../tests/lib/trailing-flag.sh
 . "$HERE/../../tests/lib/trailing-flag.sh"
 trailing_flag_scan "$REVIEW" 1

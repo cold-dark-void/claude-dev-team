@@ -75,7 +75,7 @@ evidence rather than re-scanning the whole transcript.
 |----|-------------------|--------------------------------------------------------------------------------------------------------------------|--------|-----|
 | S1 | Explicit reject   | Regex on real (non-meta) `type=user` text after unwrapping `<user_query>` (Grok): `\b(revert\|stop\|wrong\|don'?t\|why did you\|why would you\|why merge\|no that'?s\|undo\|that'?s not\|nope\|wtf\|fuck(?:ing)?)\b` | 3.0    | 3   |
 | S2 | Tool error run    | **Transcript (default / uncovered):** a run of >=2 consecutive `tool_result.is_error:true` blocks; reset by a successful result or a real user turn. **Ledger-covered:** ≥2 ledger friction events for the session in append order (one continuous run; no success reset). Hybrid: ledger supplies S2 only when covered; see above. | 2.0    | -   |
-| S3 | Edit loop         | >=3 `Edit`/`Write`/`MultiEdit`/`NotebookEdit` tool_uses on the same `file_path` within 10 assistant turns; one score per file. **Exempt:** clean draft-polish — path whose first edit-tool is `Write` (session-created) with no intervening `tool_result.is_error` and no S1-eligible user rejection after that Write and at/before the last edit in the candidate window. Pre-existing paths and dirty session-created paths still score. | 2.5    | -   |
+| S3 | Edit loop         | >=3 `Edit`/`Write`/`MultiEdit`/`NotebookEdit` tool_uses on the same `file_path` within 10 assistant turns; one score per file. Scores only windows with an intervening tool error or S1 rejection (CDT-125). A clean multi-edit, whether Write-first or pre-existing, never scores. | 2.5    | -   |
 | S4 | Assistant retry   | Regex on assistant text: `\b(let me try again\|let me try a different\|that didn'?t work\|actually,? let me\|sorry,? let me\|my mistake\|i'?ll try)\b` (see `S4_RE` in gate.sh) | 1.5    | 3   |
 | S5 | Terse follow-up   | Real user message of <=3 words after the most recent assistant turn of >=500 chars, excluding slash-command invocations and approval acknowledgements (see below). **Scores only** when a scored transcript S1–S4 overlaps the preceding exchange `(L0, L]` (CDT-212): `L0` = previous non-wrapper, non-meta `type=user` (`-1` if none). S1, S2, and S4 share `L0 < s <= L`. Isolated S5 contributes 0 and is omitted from `signals[]` / `--why` when the filtered count is 0. Ledger S2 does not unlock S5. Cap applies after this filter. Candidate detection (CDT-124/129) is unchanged. | 1.0    | 4   |
 
@@ -143,7 +143,7 @@ those paths are fully exempt from S3, not merely discounted on the first Write.
 ```
 Session: <id>
 Score: 5.5 / 5.0 (passed)
-Signals matched:
+Matched signals:
   S1 (explicit reject) x2  — 00000000-0000-4000-8000-000000000004, 00000000-0000-4000-8000-000000000002
   S3 (edit loop)       x1  — 00000000-0000-4000-8000-000000000005
 Signals NOT matched: S2, S4, S5
@@ -220,6 +220,22 @@ bash skills/retro-gate/scheduled-lock.sh release <mroot> <token>   # 0; deletes 
 - `commands/retro.md` Step 1b stores the token at `$MROOT/.claude/retro/scheduled.owner`. `invoke-scheduled-report.sh` writes the report and releases with that token. Step 1b does not release the lock
 - Concurrent scheduled runs: acquire rc 2 → print skip line, exit 0, no report
 
+### `hint.sh`
+
+```
+bash skills/retro-gate/hint.sh
+```
+
+Non-blocking friction hint for `/kickoff` and `/orchestrate`. It locates `gate.sh` beside itself and prints a one-line hint. A missing session is a no-op. Test: `bash skills/retro-gate/hint-test.sh`.
+
+### `classify.py` and `parse_results.py`
+
+`classify.py` reads RAW proposal TSV on stdin and writes CLASSIFIED TSV. `--mode all` drops patterns that occur in only one session, then caps. `TIGHTEN` column 4 is the merged sentence. `parse_results.py` collapses tabs and newlines in a field and recomputes `anchor_id` from the turn, the claim, and the source. The Step 4d fence imports it. The model `anchor_id` is not stored.
+
+```
+bash skills/retro-gate/classify-test.sh
+```
+
 ### `parse-args.sh`
 
 ```
@@ -245,6 +261,9 @@ bash skills/retro-gate/test-retro-fences.sh
 bash skills/retro-gate/trial-meta-test.sh            # CDV-200
 bash skills/retro-gate/trial-review-test.sh          # CDV-200
 bash skills/retro-gate/parse-args-test.sh            # the one /retro argument parser
+bash skills/retro-gate/hint-test.sh                  # kickoff / orchestrate hint
+bash skills/retro-gate/friction-capture-test.sh      # ledger capture hook
+bash skills/retro-gate/classify-test.sh              # repeat filter, TIGHTEN merge, anchor id
 ```
 
 ## Directive trial helpers (CDV-200 / SPEC-001 M1–M8)

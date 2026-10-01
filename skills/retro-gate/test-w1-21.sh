@@ -24,9 +24,9 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # ---- freshness: bash, so a dash-like sh cannot disable the 60s guard --------
-F2C=$(fence_nth "$RETRO" '### Step 2c: Apply filters' 1) || F2C=""
-[ -n "$F2C" ] && ok "Step 2c fence extracts" || bad "Step 2c fence extracts"
-CALL=$(printf '%s\n' "$F2C" | grep 'FRESHNESS" check' | head -1)
+DISC="$ROOT/skills/retro-gate/discover.sh"
+[ -f "$DISC" ] && ok "discover.sh present" || bad "discover.sh present"
+CALL=$(grep 'FRESHNESS" check' "$DISC" | head -1)
 printf '%s\n' "$CALL" | grep -q 'bash "$FRESHNESS"' \
   && ok "Step 2c calls bash freshness" || bad "Step 2c freshness call: ${CALL:-missing}"
 
@@ -92,8 +92,8 @@ grep -q 'No actionable findings' "$TMP/mut6.out" \
   || bad "bite: mutated short-circuit did not fire"
 
 # ---- Step 3b: timeout 2 stops a slow gate; the cache stores a fast gate -----
-F3B=$(fence_nth "$RETRO" '### Step 3b: Gate each session' 1) || F3B=""
-[ -n "$F3B" ] && ok "Step 3b fence extracts" || bad "Step 3b fence extracts"
+GS="$ROOT/skills/retro-gate/gate-sessions.sh"
+[ -f "$GS" ] && ok "gate-sessions.sh present" || bad "gate-sessions.sh present"
 PLUG="$TMP/plug"
 mkdir -p "$PLUG/skills/retro-gate"
 cp "$ROOT/skills/plugin-dir.sh" "$PLUG/skills/plugin-dir.sh"
@@ -107,8 +107,8 @@ chmod +x "$PLUG/skills/retro-gate/gate.sh"
 SESS="$TMP/slow.jsonl"
 printf '%s\n' '{}' > "$SESS"
 start=$(date +%s%N)
-fence_exec "$TMP/slow" "$REPO" "$F3B" CLAUDE_PLUGIN_ROOT="$PLUG" \
-  MODE=all WHY=0 SESSIONS="$SESS" GATE_CACHE="$TMP/cache-slow"
+GATE_SH="$PLUG/skills/retro-gate/gate.sh" MODE=all WHY=0 SESSIONS="$SESS" \
+  GATE_CACHE="$TMP/cache-slow" bash "$GS" >"$TMP/slow.out" 2>"$TMP/slow.err"
 end=$(date +%s%N)
 ms=$(( (end - start) / 1000000 ))
 if [ "$ms" -lt 2800 ]; then
@@ -125,8 +125,8 @@ printf '%s\n' 'MARKER-GATE-OUT'
 EOF
 chmod +x "$PLUG/skills/retro-gate/gate.sh"
 mkdir -p "$TMP/cache-fast"
-fence_exec "$TMP/fast" "$REPO" "$F3B" CLAUDE_PLUGIN_ROOT="$PLUG" \
-  MODE=all WHY=0 SESSIONS="$SESS" GATE_CACHE="$TMP/cache-fast"
+GATE_SH="$PLUG/skills/retro-gate/gate.sh" MODE=all WHY=0 SESSIONS="$SESS" \
+  GATE_CACHE="$TMP/cache-fast" bash "$GS" >"$TMP/fast.out" 2>"$TMP/fast.err"
 sid=$(basename "$SESS" .jsonl)
 if [ -f "$TMP/cache-fast/$sid.out" ] && grep -q 'MARKER-GATE-OUT' "$TMP/cache-fast/$sid.out"; then
   ok "Step 3b stores gate stdout in GATE_CACHE"

@@ -101,7 +101,7 @@ fi
 
 # ---- AC3: pre-existing Edit×3 without struggle → no S3 (CDT-125) ----
 # Multi-section doc authoring on an existing file is not an edit loop.
-run_gate "ac3-preexisting-thrash.jsonl"
+run_gate "ac3-preexisting-clean.jsonl"
 if assert_json_shape "AC3"; then
   s3c=$(signal_count S3)
   if [ "$s3c" = "0" ] 2>/dev/null; then
@@ -454,6 +454,34 @@ else
   bad "bad RETRO_THRESHOLD out=$_bout err=$(head -c 200 "$_bt.err")"
 fi
 rm -f "$_bt" "$_bt.err"
+
+if grep -q 's3_first_tool' "$GATE"; then
+  bad "s3_first_tool still present"
+else
+  ok "s3_first_tool removed"
+fi
+if [ -f "$FIX/hybrid-one-row.ledger.jsonl" ]; then
+  bad "orphan hybrid-one-row.ledger.jsonl still present"
+else
+  ok "orphan hybrid-one-row.ledger.jsonl removed"
+fi
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/retro-fork.XXXXXX")
+FORK="$WORK/fork-child.jsonl"
+SUFFIX="$WORK/suffix-only.jsonl"
+PREFIX="$WORK/prefix-only.jsonl"
+printf '%s\n' '{"uuid":"p1","type":"user","message":{"role":"user","content":[{"type":"text","text":"wrong stop"}]},"forkedFrom":{"sessionId":"parent","messageUuid":"p1"}}' '{"uuid":"c1","type":"user","message":{"role":"user","content":[{"type":"text","text":"hello there friend"}]}}' > "$FORK"
+printf '%s\n' '{"uuid":"c1","type":"user","message":{"role":"user","content":[{"type":"text","text":"hello there friend"}]}}' > "$SUFFIX"
+printf '%s\n' '{"uuid":"p1","type":"user","message":{"role":"user","content":[{"type":"text","text":"wrong stop"}]}}' > "$PREFIX"
+fork_score=$(bash "$GATE" "$FORK" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("score", -1))')
+suf_score=$(bash "$GATE" "$SUFFIX" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("score", -1))')
+pre_score=$(bash "$GATE" "$PREFIX" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("score", -1))')
+if [ "$fork_score" = "$suf_score" ] && [ "$pre_score" != "0" ] && [ "$pre_score" != "0.0" ]; then
+  ok "forked child score equals the unique suffix ($fork_score)"
+else
+  bad "fork score=$fork_score suffix=$suf_score prefix=$pre_score"
+fi
+rm -rf "$WORK"
 
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"

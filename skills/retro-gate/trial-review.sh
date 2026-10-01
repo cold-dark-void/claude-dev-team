@@ -183,8 +183,22 @@ fi
 }
 
 # Build SCORES_TSV: session_id \t score \t mtime_epoch
-# Either from --session-scores-file or by scanning projects + gate.sh
+# Either from --session-scores-file or by scanning projects + gate.sh.
+# Do not score the project when no directive line carries trial meta.
 SCORES_TSV=""
+_has_trial=0
+if [ -z "$SCORES_FILE" ]; then
+  for agent in $AGENTS; do
+    dfile="$MROOT/.claude/memory/$agent/directives.md"
+    [ -s "$dfile" ] || continue
+    if grep -q 'trial start=' "$dfile" 2>/dev/null; then
+      _has_trial=1
+      break
+    fi
+  done
+else
+  _has_trial=1
+fi
 MTIMES_TMP=$(mktemp "${TMPDIR:-/tmp}/trial-review-mtimes.XXXXXX")
 trap 'rm -f "$MTIMES_TMP"' EXIT
 
@@ -204,7 +218,7 @@ if [ -n "$SCORES_FILE" ]; then
     SCORES_TSV="${SCORES_TSV}${sid}"$'\t'"${score}"$'\t'"${mt}"$'\n'
     printf '%s\n' "$mt" >>"$MTIMES_TMP"
   done <"$SCORES_FILE"
-else
+elif [ "$_has_trial" = "1" ]; then
   # Discover JSONLs under projects-root (keep in sync with commands/retro.md Step 2)
   NOW=$(date +%s)
   # Encode MROOT for current-project scope: / → -

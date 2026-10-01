@@ -208,15 +208,19 @@ if command -v python3 >/dev/null 2>&1; then
   else
     fail_line "retro grok no-sessions: the Step 2a fence has no \$ARGUMENTS heredoc"
   fi
-  OLD2=$(swap "$RETRO2" 'grep -c . || true); _gc=${_gc:-0}' 'grep -c . || echo 0)') || OLD2=""
-  if [ -n "$OLD2" ] && retro_grok "$OLD2"; then
-    if printf '%s' "$ERR" | grep -q 'error: no Grok sessions found'; then
+  DISC="$ROOT/skills/retro-gate/discover.sh"
+  OLD2=$(swap "$(cat "$DISC")" 'grep -c . || true); _gc=${_gc:-0}' 'grep -c . || echo 0)') || OLD2=""
+  if [ -n "$OLD2" ]; then
+    printf '%s\n' "$OLD2" > "$WORK/discover-old.sh"
+    chmod +x "$WORK/discover-old.sh"
+    MODE=all HOST=grok HOST_EXPLICIT=1 bash "$WORK/discover-old.sh" >"$WORK/old.out" 2>"$WORK/old.err" || true
+    if printf '%s' "$(cat "$WORK/old.err")" | grep -q 'error: no Grok sessions found'; then
       fail_line "control: the old '|| echo 0' text still prints the Grok error (the test does not bite)"
     else
       pass_line "control: the old '|| echo 0' text skips the Grok error"
     fi
   else
-    fail_line "control: could not plant the old '|| echo 0' text in the Step 2a fence"
+    fail_line "control: could not plant the old '|| echo 0' text in discover.sh"
   fi
 else
   echo "SKIP: retro grok no-sessions (no python3 on PATH)"
