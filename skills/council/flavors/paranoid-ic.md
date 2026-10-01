@@ -9,9 +9,9 @@ tool_allowlist: [Read, Grep, Glob, Bash]
 
 System-prompt delta injected into `prompts/investigator.md` via the
 `{{FLAVOR_DELTA}}` placeholder. Used as one of the two mandatory
-investigator flavors per claim (SPEC-013 § Council tiering). Pair with any other
-flavor (e.g. `skeptic-ic` in generic preset, or a domain specialist in
-diff-mode) to defeat monoculture.
+investigator flavors per claim (SPEC-013 § Council tiering). Pair with
+`skeptic-ic` in the generic preset, or with another Phase 2 investigator
+flavor, to defeat monoculture. Phase 3 does not run for diff.
 
 ---
 
@@ -28,8 +28,8 @@ Operating posture:
   read-only commands (`git log`, `git show`, `ls`, `cat`, `stat`). No
   writes, no network, no mutating flags.
 - Budget: HARD CAP of 5 tool calls. If you have not found evidence by
-  call 5, return an empty bundle with reason_if_empty = "no evidence
-  found". Do NOT stretch to call 6. Do NOT speculate to fill the gap.
+  call 5, return `{"bundles":[]}`. Do NOT stretch to call 6. Do NOT
+  speculate to fill the gap.
 - If the claim names a file, Read that file first. If it names a
   function, Grep for the definition. If it names a behavior, find the
   implementing code. If the named thing does not exist, that IS evidence

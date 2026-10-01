@@ -108,6 +108,8 @@ HARD RULES
 - NEVER cite a spec checkbox's `- [ ]` / `- [x]` state as evidence for or
   against a claim (SPEC-033 M14(g): checkboxes are not evidence).
 
+Output mode: terse
+
 OUTPUT
 ------
 Respond with a SINGLE LINE of strict JSON matching this schema. No prose,

@@ -658,6 +658,16 @@ for flag in --cross-review-status --cross-review-rankings --cross-review-scores;
     echo "FAIL: Step 4 finalize missing $flag"; fail=1
   fi
 done
+if printf '%s\n' "$step4" | grep -qF '[--task-id'; then
+  echo "FAIL: Step 4 finalize still contains [--task-id"; fail=1
+else
+  echo "OK: Step 4 finalize has no [--task-id pseudo-syntax"
+fi
+if grep -qF 'Do not flag a bundle at confidence' commands/council.md; then
+  echo "OK: WEAK_EVIDENCE confidence floor is stated"
+else
+  echo "FAIL: WEAK_EVIDENCE confidence floor sentence missing"; fail=1
+fi
 
 # CDT-380: no ic4/ic5 spawn for council roles. Phase 3 keeps dev-team:<agent>.
 if grep -nE 'subagent_type: "dev-team:ic[45]"' commands/council.md; then
@@ -737,6 +747,70 @@ if grep -qF 'parsePreflightStdout(pre.stdout)' skills/council/workflow.js \
   echo "OK: workflow.js parse guard, tokens-file, handoff trap, exit-2 notices"
 else
   echo "FAIL: workflow.js missing CDT-275 guards"; fail=1
+fi
+
+# CDT-275 F-18: SKILL.md must not cite a missing command or a stale tier-triage scope.
+if grep -qF 'commands/blind-review.md' skills/council/SKILL.md; then
+  echo "FAIL: SKILL.md still cites commands/blind-review.md"; fail=1
+else
+  echo "OK: SKILL.md does not cite commands/blind-review.md"
+fi
+if grep -qF 'tier-triage --diff only' skills/council/SKILL.md \
+  || grep -qF -- '--diff` scope only' skills/council/SKILL.md \
+  || grep -qF -- '--diff scope only' skills/council/SKILL.md; then
+  echo "FAIL: SKILL.md still says tier-triage is --diff only"; fail=1
+else
+  echo "OK: SKILL.md does not limit tier-triage to --diff only"
+fi
+if grep -qF 'under 60 lines' skills/council/SKILL.md; then
+  echo "FAIL: SKILL.md still states a 60-line flavor cap"; fail=1
+else
+  echo "OK: SKILL.md has no 60-line flavor cap"
+fi
+
+# BH-C013 / SPEC-003 MC-4: the 8 tribunal templates carry Output mode: terse.
+for f in investigator cross-reviewer claim-extractor plan-extractor phase4-brief judge tier-triage topic-classifier; do
+  if grep -qF 'Output mode: terse' "skills/council/prompts/${f}.md"; then
+    echo "OK: ${f}.md has Output mode: terse"
+  else
+    echo "FAIL: ${f}.md missing Output mode: terse"; fail=1
+  fi
+done
+
+# CDT-275 F-24: diff flavors do not return a finding array or demand a fix.
+for f in logic quality security simplification compliance; do
+  if grep -qF 'Return a JSON array' "skills/council/flavors/${f}.md" \
+    || grep -qF 'MUST suggest a concrete fix' "skills/council/flavors/${f}.md"; then
+    echo "FAIL: ${f}.md still has a finding-array or fix-suggestion contract"; fail=1
+  else
+    echo "OK: ${f}.md has no finding-array or fix-suggestion contract"
+  fi
+done
+if grep -qF 'bash "$SCAN"' skills/council/flavors/security.md; then
+  echo "FAIL: security.md still runs the scanner"; fail=1
+else
+  echo "OK: security.md does not run the scanner"
+fi
+if grep -qF '1k lines' skills/council/flavors/compliance.md \
+  || grep -qF '2k hard' skills/council/flavors/compliance.md; then
+  echo "FAIL: compliance.md still hard-codes invented size caps"; fail=1
+else
+  echo "OK: compliance.md has no invented size caps"
+fi
+if grep -qF 'Nitpick is a real severity' skills/council/flavors/simplification.md; then
+  echo "OK: simplification.md states nitpick is a real severity"
+else
+  echo "FAIL: simplification.md missing nitpick severity sentence"; fail=1
+fi
+if grep -qF 'reason_if_empty' skills/council/flavors/paranoid-ic.md; then
+  echo "FAIL: paranoid-ic.md still references reason_if_empty"; fail=1
+else
+  echo "OK: paranoid-ic.md does not reference reason_if_empty"
+fi
+if grep -qF 'role: preset' skills/council/flavors/diff-mode.md; then
+  echo "FAIL: diff-mode.md still claims role: preset"; fail=1
+else
+  echo "OK: diff-mode.md does not claim role: preset"
 fi
 
 exit $fail

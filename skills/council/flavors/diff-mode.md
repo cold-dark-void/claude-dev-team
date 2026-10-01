@@ -38,8 +38,11 @@ preset selected.
 
 ## Intake (Phase 0 enrichment)
 
-Before Phase 1 extraction runs, the engine performs a spec-grep enrichment
-step specific to diff-mode (SPEC-013 § Engine Architecture, SPEC-010 § Code Review (review-and-commit)):
+The engine records `spec_grep: true` for diff-mode. It does not grep
+`specs/**/*.md`. Spec-grep is the orchestrator's job (WP 3-01). Finalize
+renders `applicable_specs` from the plan and does not grep.
+
+When the orchestrator runs that step:
 
 1. Enumerate changed file paths from the staged + modified diff.
 2. For each changed path, grep `specs/**/*.md` for MUST lines whose scope
@@ -50,7 +53,7 @@ step specific to diff-mode (SPEC-013 § Engine Architecture, SPEC-010 § Code Re
    alongside the diff itself. The diff remains the primary artifact; the
    bundle is context so extraction can surface spec-misalignment findings.
 
-This step runs only for `diff-mode`. Other presets leave spec_grep off.
+Other presets leave `spec_grep` off. The engine still does not grep.
 
 ## Specialist roles
 
@@ -76,17 +79,14 @@ alongside this preset.
 
 ## Severity classification
 
-Findings are scored on the SPEC-010 confidence rubric (0-100):
-
-- **0-25** — likely false positive. Discard.
-- **26-50** — uncertain. Discard.
-- **51-79** — probable issue. Discard.
-- **80-94** — high confidence. Emit as **warning**.
-- **95-100** — near certain. Emit as **critical**.
+Severity is impact: `critical`, `warning`, or `nitpick`. Confidence is
+certainty, 0-100. Do not derive severity from a confidence band. Nitpick is
+a real severity. A confidence of 90 does not make a small issue a warning.
 
 The engine applies `confidence_filter_threshold: 80` at emission: any finding
 below 80 is dropped before Phase 6 writes the report (SPEC-013 § Engine Architecture,
-SPEC-010 § Code Review (review-and-commit)). Below-threshold findings are preserved in the report's
+SPEC-010 § Code Review (review-and-commit)). That filter does not choose
+severity. Below-threshold findings are preserved in the report's
 struck-lines audit trail, never silently dropped.
 
 Severity taxonomy is fixed: `critical | warning | nitpick`. Any finding with

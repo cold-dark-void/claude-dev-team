@@ -72,6 +72,8 @@ HARD RULES
 - NEVER investigate, cite files, or return evidence.
 - Output ONE JSON object only — no prose, no markdown fences.
 
+Output mode: terse
+
 OUTPUT
 ------
 {"topic":"deploy|metrics|test|product|none","confidence":0.0,"agent":"devops|ds|qa|pm|null"}

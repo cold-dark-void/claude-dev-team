@@ -187,6 +187,8 @@ preset selector). The argument surface:
 | `--workflow` | Opt-in Workflow execution path (CDV-196); orthogonal to tribunal scope | Supported — **not** applied to `--blind` |
 | `--why` | Print flavors used + specialist reasoning after summary | Supported (CDV-206) |
 | `--external[=codex\|gemini]` | Optional external investigator slot (codex → gemini) | Supported (CDV-207) |
+| `--council-tier=<light\|full>` | Command-surface tier override. `commands/council.md` maps it to engine `--tier`. Not an `engine.sh` flag | Supported (CDT-126) |
+| `--tier light\|full` | Engine preflight tier. Absent means `full`. `skip` is refused | Supported (CDT-126) |
 | (no scope) | — | **Hard fail, non-zero exit** |
 
 Env: `COUNCIL_WORKFLOW=1` is equivalent to `--workflow`.
@@ -241,7 +243,7 @@ resolution emits into the plan, not a file format:
 | `description` | string | One-line purpose |
 | `output_shape` | `verdict[]` \| `finding[]` | Mandatory — drives Phase 5/6/7 branching |
 | `flavor_list` | array of flavor names | Which flavors spawn as investigators (paranoid-ic + ≥1 other) and/or specialists |
-| `spec_grep` | bool | If true, intake enriches raw input with applicable-specs bundle (diff-mode only in v1) |
+| `spec_grep` | bool | Recorded true for diff-mode. The engine does not grep. The orchestrator assembles applicable specs (WP 3-01) |
 | `feedback_memory_enabled` | bool | Reserved. No effect until Phase 7 is implemented |
 | `confidence_filter_threshold` | int 0–100 \| null | If set, findings/verdicts below this are filtered at emission (diff-mode: 80) |
 
@@ -253,8 +255,9 @@ resolution emits into the plan, not a file format:
   (reserved; no effect until Phase 7 is implemented),
   `confidence_filter_threshold: null`.
 - **`diff-mode`** — `output_shape: finding[]`, flavors: `logic`, `security`,
-  `compliance`, `quality`, `simplification` as investigators + jaded-senior /
-  yolo-ic for prosecution/defense, `spec_grep: true`,
+  `compliance`, `quality`, `simplification` as investigators. Phase 4
+  prosecution/defense is skipped (`finding[]-shape preset`). `spec_grep`
+  is recorded `true`; the engine does not grep (orchestrator, WP 3-01).
   `feedback_memory_enabled: false` (SPEC-013 § Council tiering; a code bug is not a
   fabrication), `confidence_filter_threshold: 80` (SPEC-013 § Engine Architecture,
   SPEC-010 § Code Review (review-and-commit)).
@@ -304,21 +307,26 @@ Orchestrated-task invocations rely on SPEC-009's `CLAUDE_TASK_ID` export
 
 Parse args → resolve scope → resolve task id (fallback chain above) →
 resolve preset (explicit or inferred) → validate `--tier` (CDT-126; absent =
-`full`) → validate mutually exclusive flags →
-validate `--plan` path readable → load `--from-retro` anchor JSON (missing →
-exit 2) → fail loud on no-scope invocation.
+`full`) → validate `--plan` path readable → load `--from-retro` anchor JSON
+(missing → exit 2) → fail loud on an empty or unknown `--scope`.
 
-The engine never *grades* — `commands/council.md` Step 1.5 resolves the tier
-and passes it in as `--tier` / `--grading-reason`. Phase 0 only records it and
-lets it select the flavor subset and the Phase 3 / Phase 4 skips.
+User-flag mutual exclusion is not an engine check. `commands/council.md`
+Step 0.5 rejects zero or multiple scopes before preflight. The engine takes
+one `--scope` value.
 
-For diff-mode only: run spec-grep over the changed file paths against
-`specs/**/*.md` MUST requirements and produce an "applicable-specs" bundle.
-This bundle is appended to the raw input that Phase 1 receives. The diff
-itself is the primary raw input; the spec bundle is context for claim
-extraction. (SPEC-013 § Engine Architecture, SPEC-010 § Code Review (review-and-commit), taxonomy resolution doc
-section 1.) When the plan omits `applicable_specs`, spec-grep is the
-orchestrator's job; finalize renders the plan value only and does not grep.
+The engine never *grades*. `commands/council.md` § 1.5.1 does not auto-grade
+any scope, including `--diff`. An externally supplied `--council-tier` passes
+through as `engine.sh preflight --tier` (§ 1.5.5). This command does not pass
+`--grading-reason`. When that flag is absent, the engine synthesizes
+`externally supplied tier (no grading_reason given)`. §§ 1.5.2–1.5.4 are the
+shared grading procedure for other callers (the ship gate). This command does
+not run them on itself. Phase 0 only records the tier and lets it select the
+flavor subset and the Phase 3 / Phase 4 skips.
+
+Diff-mode records `spec_grep: true`. The engine does not run spec-grep and
+does not read `specs/**/*.md`. Spec-grep is the orchestrator's job (WP 3-01).
+Finalize renders `applicable_specs` from the plan only and does not grep.
+When the plan omits it, the report says none matched.
 
 No user code runs in Phase 0. No subagents spawn. This phase is pure
 validation + input assembly.
@@ -701,9 +709,11 @@ and Phase 5 ordered by Borda consensus rank, not submission order.** (SPEC-013 �
 25th-percentile threshold) MUST be flagged `WEAK_EVIDENCE` in the report.
 (SPEC-013 § Council tiering.)
 
-**Bypass:** When fewer than 3 investigators participate — or every reviewer
-response is rejected — Phase 2.5 is SKIPPED; bundles pass through in original
-submission order and the bypass reason is noted in the report. (SPEC-013 § Council tiering.)
+**Bypass:** Per claim, not per run (`workflow.js` groups bundles by
+`claim_id`). When a claim has fewer than 3 bundles — or every reviewer
+response for that claim is rejected — Phase 2.5 is SKIPPED for that claim.
+Those bundles pass through in original submission order and the bypass
+reason is noted in the report. Other claims are unaffected. (SPEC-013 § Council tiering.)
 
 `commands/council.md` stores the per-reviewer rankings and consensus scores for
 the `{{CROSS_REVIEW_RANKINGS}}` / `{{CROSS_REVIEW_SCORES}}` report variables
@@ -1046,7 +1056,8 @@ Graceful rules (exit 0 always for token issues — never fail the run):
   `verdict[]`, `"skipped (diff-mode)"` for `finding[]`. After Phase 3,
   `commands/council.md` prints the runtime reason instead, e.g.
   `"devops (topic=deploy conf=0.91)"`, `"skipped (no confident match)"`,
-  `"skipped (diff-mode)"`, or `"skipped (classifier unusable)"`.
+  `"skipped (diff-mode)"`, `"skipped (council_tier: light)"`, or
+  `"skipped (classifier unusable)"`.
 - `commands/council.md` Step 5 prints a short labeled block from these fields
   after the stdout summary (after any Tokens block). No raw prompt dumps. No
   verdict impact.
@@ -1185,10 +1196,15 @@ tool_allowlist: [Read, Grep, Glob, Bash]   # prompt-level only
 
 (SPEC-013 § Command Shape & Scope.)
 
-**Body:** a Markdown system-prompt delta. The engine injects this body into
-the role's base prompt template via a `{{FLAVOR_DELTA}}` placeholder. Keep
-each flavor file under 60 lines; the delta is a focus lens, not a full
-prompt.
+**Body:** a Markdown system-prompt delta. There is no line cap. The delta is
+a focus lens, not a second full prompt. Tribunal flavors put authoring notes
+above a `## Delta body` marker. `loadFlavor` in `workflow.js` strips
+frontmatter, `[//]: #` authoring lines, and everything above that marker,
+then the orchestrator injects the rest as `{{FLAVOR_DELTA}}`. Diff-mode
+flavors have no marker; the whole body is the delta.
+
+`external.md` is not injected by `loadFlavor`. `external-reviewer.sh`
+`build_prompt` reads `## Delta body` and puts that text in the CLI prompt.
 
 **Committed flavor set (COUNCIL-001):**
 - `paranoid-ic.md` — hostile-read investigator; demands receipts for
@@ -1203,8 +1219,9 @@ prompt.
 - `logic.md`, `security.md`, `compliance.md`, `quality.md`,
   `simplification.md` — diff-mode specialist investigators; the 5
   focus areas migrated from the pre-refactor `skills/review-and-commit/SKILL.md`.
-- `external.md` — external CLI investigator (CDV-207); not Task-spawned —
-  constraints for `external-reviewer.sh` prompt. Additive slot only.
+- `external.md` — external CLI investigator (CDV-207); not Task-spawned.
+  Loaded by `external-reviewer.sh` `build_prompt` (it reads `## Delta body`).
+  Not injected by `loadFlavor`. Additive slot only.
 
 ---
 
@@ -1222,7 +1239,7 @@ Role prompt templates live at `skills/council/prompts/<name>.md`. Files:
 - `unconstrained-reviewer.md` — bug-hunt unconstrained teams (tool-using; not council `--blind`)
 - `lens-reviewer.md` — bug-hunt lens teams (tool-using; not council `--blind`)
 - `quorum-analyst.md` — `--blind` semantic clustering (CDT-46-C3)
-- `tier-triage.md` — ambiguous-middle council-tier triage, `--diff` scope only (CDT-126)
+- `tier-triage.md` — ambiguous-middle council-tier triage (CDT-126). Procedure is `commands/council.md` §§ 1.5.2–1.5.4. The live caller is the autopilot ship gate (`skills/autopilot/ship-gate-council.md` §3a/§3b), which grades its own merge-base numstat. `/council --diff` does not auto-grade (§ 1.5.1). Input is numstat, not a full patch.
 
 Templates are Markdown with `{{VARIABLE}}` placeholders. Tribunal templates:
 `engine.sh` / `commands/council.md` substitute before Task/judge. Blind-path
@@ -1264,7 +1281,7 @@ primarily a code review discipline (the prompt templates are reviewed against th
 | `skills/council/workflow.js` | Optional Workflow-tool driver (CDV-196); schema-forced agent steps + shared finalize. Not used by `--blind`. |
 | `.claude/hooks/task-completed.sh` | **Reads** `.claude/council/index.json` to apply the `requires_council` gate (dual-shape: verdict conf **or** finding conf — SPEC-002). Never calls the engine. Blind-path rows remain gate-ignored (unbound / no qualifying row / both-null); `finding[]` is **not** blanket-ignored. |
 | `commands/retro.md` | Prints `Consider: /council --from-retro <anchor-id>` as a hint. Does NOT auto-invoke. Persists anchors to `$MROOT/.claude/retro/anchors/<id>.json` after validation (single writer; CDV-212). |
-| `commands/blind-review.md` | DEPRECATED one-cycle stub → `/council --blind` (CDT-46-C3). |
+| `commands/council.md` § Blind-review path | Former `/blind-review` lives in that section (CDT-46-C3). The old command file was removed. |
 
 ---
 

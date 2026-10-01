@@ -19,7 +19,9 @@
 #
 # Covered prompts: claim-extractor, plan-extractor, investigator, topic-classifier,
 # cross-reviewer, phase4-brief, judge, blind-scribe (council --blind reviewers),
-# quorum-analyst (--blind path, CDT-46-C3), tier-triage (--diff scope only, CDT-126).
+# quorum-analyst (--blind path, CDT-46-C3), tier-triage (shared grading
+# procedure, commands/council.md §§ 1.5.2–1.5.4; ship-gate numstat, not a
+# /council --diff auto-grade).
 # unconstrained-reviewer and lens-reviewer stay uncovered here: bug-hunt owns
 # those tool-using prompts. Council --blind does not substitute them.
 #

@@ -169,6 +169,8 @@ HARD RULES (REINFORCEMENT — also in agents/council-judge.md)
 - NEVER drop struck lines silently — they belong in the audit trail.
 - NEVER recommend code changes in verdict-shape runs.
 
+Output mode: terse
+
 OUTPUT
 ------
 Respond with a SINGLE LINE of strict JSON matching the schema for the

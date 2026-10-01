@@ -13,6 +13,9 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 /council --blind [--teams N] [--lenses L1,L2,...] [--target <path>]
 /council --task-id <id>
 /council --workflow "<claim text>"
+/council --external[=codex|gemini]
+/council --why
+/council --council-tier=<light|full>
 ```
 
 ## Arguments
@@ -28,6 +31,9 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 | `--target <path>` | Blind-path only. Narrow review to a path (default: full project). Hard fail without `--blind`. |
 | `--task-id <id>` | Bind the run to an orchestrated task. Adds a `task_id` to the report and appends a row to `.claude/council/index.json`. Falls back to the `CLAUDE_TASK_ID` env var, then unbound. Not applied to `--blind` index rows (findings-shaped / gate-ignored). |
 | `--workflow` | Opt-in Workflow execution path (schema-forced `agent()` steps). Also `COUNCIL_WORKFLOW=1`. Orthogonal to tribunal scopes; **must not** apply to `--blind`. Falls back to the default Task path with a one-line stderr notice when Workflow is unavailable — never a hard fail. |
+| `--external[=codex\|gemini]` | Optional external investigator (codex, then gemini). Graceful skip if no CLI is installed. Does not replace an internal flavor. |
+| `--why` | Print flavors, the Phase 3 reason, the claim budget, and the preset source after the summary. |
+| `--council-tier=<light\|full>` | Tier override. Passes through to `engine.sh preflight --tier`. This command does not auto-grade. `skip` is not legal here. |
 | `--plan <path>` | Audit a plan file for unverified assumptions (CDV-208). Missing path exits 2. |
 | `--from-retro <id>` | Audit a fabrication anchor persisted by `/retro` under `.claude/retro/anchors/<id>.json` (CDV-212). Missing anchor exits 2; Phase 1 skipped. |
 
@@ -75,6 +81,7 @@ Spawns investigators that read `commands/retro.md`, return evidence bundles, and
 Council report: .claude/council/2026-06-22-claim-the-retry-logic-in.md
 Scope: claim
 Preset: generic (verdict[])
+verification_mode=full
 FABRICATED: 1   CONTRADICTED: 0   UNVERIFIED: 0   PARTIALLY_VERIFIED: 0   VERIFIED: 0
 Struck lines: 0
 

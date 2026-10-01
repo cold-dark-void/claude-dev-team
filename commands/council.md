@@ -76,6 +76,7 @@ From the user invocation, detect scope flags and parity flags:
 | `--lenses L1,L2,...` | blind parity only (default `security,contributor,spec`) |
 | `--target <path>` | blind parity only (default full project) |
 | `--council-tier=<light\|full>` | orthogonal flag, not a scope selector (CDT-126) — captured here as `$COUNCIL_TIER_FLAG` so a malformed value fails at the earliest point, same as the scope/blind checks below; consumed at § 1.5 |
+| `--workflow` | orthogonal, not a scope. Set `_COUNCIL_WORKFLOW_FLAG=1` here. Step 2.5 reads it. `COUNCIL_WORKFLOW=1` is the env equivalent. Do not invent a second workflow switch |
 
 Hard fails (print usage, exit non-zero) — do **not** continue:
 
@@ -364,6 +365,7 @@ site (Step 0.5 / the caller's own procedure) and must never reach preflight.
 Omitting `--tier` entirely runs `full`, as manual `/council` invocations do.
 
 ```bash template
+# Template, not a spawn. Fill <translated-args> before you run it.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
@@ -422,7 +424,8 @@ available and only the tier is unsupported.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 USE_WORKFLOW=0
-# set USE_WORKFLOW=1 when user passed --workflow or COUNCIL_WORKFLOW=1
+# Step 0.5 sets _COUNCIL_WORKFLOW_FLAG=1 when the user passed --workflow.
+# lint-ok: C1
 if [ "${COUNCIL_WORKFLOW:-}" = "1" ] || [ "${_COUNCIL_WORKFLOW_FLAG:-}" = "1" ]; then
   USE_WORKFLOW=1
 fi
@@ -569,7 +572,7 @@ that cache (CDT-275). For each unique path-like locator (strip
 like turn ids / `retro:…`):
 
 ```bash
-# PLAN_FILE is session-held by the orchestrating Claude (created in Step 1); not a
+# PLAN_FILE is session-held by the orchestrating Claude (created in Step 2); not a
 # cross-fence shell export — same contract as finalize --plan-file below.
 CACHE_DIR=$(jq -r '.cache_dir // empty' "$PLAN_FILE")  # lint-ok: C1
 # for each unique file path P that exists and is readable:
@@ -655,11 +658,14 @@ When `plan.external.requested == true`, after internal investigator spawns
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 EXT_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/external-reviewer.sh)
-# ARTIFACTS_FILE = raw claim/diff/artifacts written for this run (TMPDIR-safe)
+# ARTIFACTS_FILE holds the raw claim or diff text for this run. Write it
+# before the helper. Removed on exit.
+ARTIFACTS_FILE=$(mktemp "${TMPDIR:-/tmp}/council-artifacts.XXXXXX") \
+  || { echo "council: mktemp failed for ARTIFACTS_FILE — skipping external"; ARTIFACTS_FILE=""; }
 EXT_OUT=$(mktemp "${TMPDIR:-/tmp}/council-ext.XXXXXX.json") \
   || { echo "council: mktemp failed for external slot — skipping"; EXT_OUT=""; }
-if [ -n "$EXT_OUT" ] && [ -x "$EXT_SH" ]; then
-  # PLAN_FILE session-held by orchestrating Claude (Step 1) — not a cross-fence export
+if [ -n "$EXT_OUT" ] && [ -n "$ARTIFACTS_FILE" ] && [ -x "$EXT_SH" ]; then
+  # PLAN_FILE session-held by orchestrating Claude (Step 2) — not a cross-fence export
   _ext_tool=$(jq -r '.external.tool // "auto"' "$PLAN_FILE")  # lint-ok: C1
   _ext_shape=$(jq -r '.output_shape' "$PLAN_FILE")  # lint-ok: C1
   bash "$EXT_SH" run \
@@ -668,10 +674,13 @@ if [ -n "$EXT_OUT" ] && [ -x "$EXT_SH" ]; then
     --artifacts-file "$ARTIFACTS_FILE" \
     --output-shape "$_ext_shape" \
     --out "$EXT_OUT" || true
-  # Merge: if status==ok and evidence_bundle present, append to Phase 2 set
-  # tagged investigator: "external:<tool>". findings[] (diff-mode) merge into
-  # candidate findings. status skipped|error → notice only; continue.
+  # Merge from EXT_OUT before the rm: if status==ok and evidence_bundle
+  # present, append to Phase 2 set tagged investigator: "external:<tool>".
+  # findings[] (diff-mode) merge into candidate findings.
+  # status skipped|error → notice only; continue.
 fi
+[ -n "${EXT_OUT:-}" ] && rm -f -- "$EXT_OUT"
+[ -n "${ARTIFACTS_FILE:-}" ] && rm -f -- "$ARTIFACTS_FILE"
 ```
 
 Detection order inside the helper: `codex` then `gemini` (first wins), or
@@ -777,6 +786,7 @@ required mid-flight and self-verify cannot recover a bundle. Protocol:
 - pulled: `"<agent> (topic=<topic> conf=<confidence>)"` e.g. `devops (topic=deploy conf=0.91)`
 - no match: `"skipped (no confident match)"`
 - diff-mode: `"skipped (diff-mode)"`
+- light tier: `"skipped (council_tier: light)"`
 - classifier error / all rejected: `"skipped (classifier unusable)"`
 
 ### Phase 2.5 — Blind Cross-Review
@@ -857,9 +867,12 @@ it as an abstain and exclude that reviewer from the Borda tally.
 
 **WEAK_EVIDENCE flagging:**
 
-- Compute the 25th-percentile Borda score across all bundles as the
+- Compute the 25th-percentile Borda score across that claim's bundles as the
   threshold.
-- Flag any bundle with score `≤ threshold` as `WEAK_EVIDENCE`.
+- Flag a bundle `WEAK_EVIDENCE` only when its score is `≤ threshold` and its
+  confidence is below 80.
+- Do not flag a bundle at confidence ≥ 80. A set of all-strong bundles must
+  not flag the lowest one.
 
 Pass the ranked bundle list (with WEAK_EVIDENCE flags) to Phase 4; store
 per-reviewer rankings and scores for `{{CROSS_REVIEW_RANKINGS}}` /
@@ -1057,24 +1070,57 @@ Write a tokens JSON file (orchestrator-owned) before finalize:
 - Do **not** change `index.json` schema for tokens (CDV-187 is a later
   display-only consumer of the write path here).
 
+Temp files, each from `mktemp` under `TMPDIR`, each removed on exit:
+
+- `$EVIDENCE_FILE` — evidence-bundle JSON. The orchestrator writes it in this
+  fence before `finalize`.
+- `$JUDGE_FILE` — judge JSON. The orchestrator writes it in this fence before
+  `finalize`.
+- `$TOKENS_FILE` — token-usage JSON. Write it here when any usable ints were
+  collected. Leave it empty to omit `--tokens-file`.
+- `$ARTIFACTS_FILE` — raw claim or diff text for the external slot. Created
+  in the Phase 2 external fence, not here. That fence removes it on exit.
+
+`$PLAN_FILE` was created in Step 2. Phase 2.5 assigns `$CROSS_REVIEW_STATUS`,
+`$CROSS_REVIEW_RANKINGS`, and `$CROSS_REVIEW_SCORES`. Set `DEGRADED=true`
+when any spawn was self-verified.
+
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
-TOKENS_FILE=$(mktemp "${TMPDIR:-/tmp}/council-tokens.XXXXXX.json")  # lint-ok: C1
-# write tokens JSON when any usable ints collected; else skip or source=unavailable
-# PLAN_FILE is session-held by the orchestrating Claude (Step 1), as above. The waiver
-# sits on its own line: after a trailing \ it would end the command.
+EVIDENCE_FILE=$(mktemp "${TMPDIR:-/tmp}/council-evidence.XXXXXX.json") \
+  || { echo "council error: mktemp failed for EVIDENCE_FILE"; exit 1; }
+JUDGE_FILE=$(mktemp "${TMPDIR:-/tmp}/council-judge.XXXXXX.json") \
+  || { rm -f -- "$EVIDENCE_FILE"; echo "council error: mktemp failed for JUDGE_FILE"; exit 1; }
+TOKENS_FILE=$(mktemp "${TMPDIR:-/tmp}/council-tokens.XXXXXX.json") \
+  || { rm -f -- "$EVIDENCE_FILE" "$JUDGE_FILE"; echo "council error: mktemp failed for TOKENS_FILE"; exit 1; }
+trap 'rm -f -- "$EVIDENCE_FILE" "$JUDGE_FILE" "$TOKENS_FILE"' EXIT
+# PLAN_FILE is session-held (created in Step 2). Waiver on its own line.
+# lint-ok: C1
+TASK_ID=$(jq -r '.task_id // empty' "$PLAN_FILE")
+TASK_ARGS=()
+if [ -n "$TASK_ID" ] && [ "$TASK_ID" != "null" ]; then
+  TASK_ARGS=(--task-id "$TASK_ID")
+fi
+VERIFY_ARGS=()
+if [ "${DEGRADED:-false}" = "true" ]; then
+  VERIFY_ARGS=(--verification-mode self-verified)
+fi
+TOKEN_ARGS=()
+if [ -s "$TOKENS_FILE" ]; then
+  TOKEN_ARGS=(--tokens-file "$TOKENS_FILE")
+fi
 # lint-ok: C1
 "$ENGINE_SH" finalize --plan-file "$PLAN_FILE" \
   --evidence-file "$EVIDENCE_FILE" \
-  --judge-output  "$JUDGE_FILE" \
-  [--task-id      "<task_id if present>"] \
-  [--verification-mode self-verified]   # when degraded=true; else omit (defaults full)
-  --cross-review-status   "$CROSS_REVIEW_STATUS" \
+  --judge-output "$JUDGE_FILE" \
+  ${TASK_ARGS[@]+"${TASK_ARGS[@]}"} \
+  ${VERIFY_ARGS[@]+"${VERIFY_ARGS[@]}"} \
+  --cross-review-status "$CROSS_REVIEW_STATUS" \
   --cross-review-rankings "$CROSS_REVIEW_RANKINGS" \
-  --cross-review-scores   "$CROSS_REVIEW_SCORES" \
-  [--tokens-file  "$TOKENS_FILE"]       # CDV-204; omit when no file / unavailable
+  --cross-review-scores "$CROSS_REVIEW_SCORES" \
+  ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"}
 ```
 
 Finalize best-effort `rm -rf` of `plan.cache_dir` (CDV-211 council-cache under
@@ -1446,8 +1492,8 @@ Tier-1 reverse-validation: none (severed — clusters are findings)
 - Judge MUST NOT have any tool access (enforced by `agents/council-judge.md`)
 - Every verdict line MUST be backed by an investigator tool_use_id
 - Phase 3 (domain specialist, CDV-209): classify claims; pull at most one of
-  devops/ds/qa/pm when confidence ≥ 0.75; skip on weak match and in
-  diff-mode; run before Phase 2.5
+  devops/ds/qa/pm when confidence ≥ 0.75; skip on weak match, in diff-mode,
+  and at light tier (`skipped (council_tier: light)`); run before Phase 2.5
 - Phase 7 (feedback memory) is DEFERRED (CDT-325). The engine does not run
   it. `feedback_memory_enabled` is reserved and has no effect until Phase 7
   is implemented. Do not write `lessons.md` from this command.

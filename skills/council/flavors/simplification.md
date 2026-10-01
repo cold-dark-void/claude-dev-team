@@ -39,60 +39,48 @@ Read every changed file in full. Grep the rest of the repo to check
 whether a new helper duplicates an existing one before emitting a
 "redundant" finding.
 
-## Severity classification
+## Severity and confidence
 
-Score each finding on the 0-100 confidence scale:
+Severity is impact. Confidence is certainty. Do not derive severity from a
+confidence band. That mapping makes `nitpick` unreachable.
 
-- **0-79** — discard. Engine drops these at emission.
-- **80-94** — `warning`: clear simplification with behavior preservation
-  proof.
-- **95-100** — `critical`: confirmed dead code or unreachable branch.
+- `critical` — dead code on a ship path (it can run in production).
+- `warning` — dead code that is not on a ship path, or a clear shorter form
+  that preserves behavior.
+- `nitpick` — a small simplification. Nitpick is a real severity. A shorter
+  form you are sure about (confidence 90) stays `nitpick` when the impact is
+  small. High confidence does not promote it.
 
-Dead code and unreachable branches are `critical` (they lie to readers).
-Inline-the-helper and collapse-the-flag-variable findings are `warning` or
-`nitpick` depending on clarity gain. "This could be prettier" without a
-specific shorter form is below 80 — do not emit.
+Dead code is a warning unless it is on a ship path.
 
-Most simplification findings land as `nitpick` — that is correct. A
-`nitpick` with a concrete one-line fix is a valid finding.
+Confidence is an integer 0-100. The engine drops findings below 80 at
+emission. That filter does not choose severity. Do not emit "this could be
+prettier" with no cited shorter span in the raw bytes.
 
-## Output contract
+## Evidence contract
 
-Return a JSON array of findings matching the engine's `finding[]` schema:
+Return evidence bundles. The investigator contract is `{bundles}`:
 
 ```json
-[
-  {
-    "file": "path/to/file",
-    "line": 42,
-    "severity": "critical|warning|nitpick",
-    "category": "simplification",
-    "description": "what is wrong",
-    "suggestion": "the concrete shorter form",
-    "confidence": 88,
-    "tool_use_id": "<id of the tool call that produced the evidence>"
-  }
-]
+{"bundles":[{"tool_use_id":"...","raw_blob":"...","file_line":"path:N","reproducible_command":"..."}]}
 ```
 
-If no issues found, return `[]`.
+NEVER propose a fix. You audit; you do not coach. Quote the shorter span that
+already exists, or the dead span. Do not write the replacement. The judge
+emits `finding[]`. If you found nothing, return `{"bundles":[]}`.
 
 ## Hard rules
 
-- MUST cite a `tool_use_id` for every finding — evidence-or-silence
-- MUST include exact `file:line`
-- MUST suggest a concrete fix — the exact shorter form, not "simplify
-  this"
-- MUST NOT use hedging language — no "maybe", "consider", "you might want
-  to"
-- MUST score confidence 0-100; engine drops <80 at emission
-- `severity ∈ {critical, warning, nitpick}`; `category == "simplification"`
-  on every finding
-- MUST verify behavior is preserved — a "simplification" that changes
-  semantics is a logic bug, not a simplification (route it to the logic
-  specialist's category by not emitting here)
-- MUST NOT propose additions dressed up as simplifications — if your
-  "simpler form" is longer than the original, you are wrong
+- MUST cite a `tool_use_id` for every bundle — evidence-or-silence
+- MUST include exact `file:line` in `file_line`
+- NEVER propose a fix
+- MUST NOT use hedging language — no "maybe", "consider", "you might want to"
+- MUST score confidence only as certainty, 0-100
+- Name impact in `raw_blob` with `severity` in `{critical, warning, nitpick}`
+  and `category` `simplification`. Do not map a confidence band onto that word
+- A simplification that changes semantics is a logic bug. Do not emit it here
+- Do not report an addition as a simplification. If the cited span is longer
+  than the original, you are wrong
 
 ## Cross-references
 

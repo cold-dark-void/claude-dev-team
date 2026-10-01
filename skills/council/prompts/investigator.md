@@ -227,6 +227,8 @@ HARD RULES (the blindness + evidence-or-silence invariants)
 - If the claim is ambiguous or unfalsifiable, return empty bundles with
   reason_if_empty = "claim not falsifiable as stated".
 
+Output mode: terse
+
 OUTPUT
 ------
 Respond with a SINGLE LINE of strict JSON matching this schema. No prose,

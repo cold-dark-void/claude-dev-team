@@ -71,6 +71,8 @@ PROCEDURE
 4. Write one sentence per bundle label explaining why it ranks where it does,
    citing rubric criteria by number (e.g. "criterion 1 absent").
 
+Output mode: terse
+
 OUTPUT
 ------
 Respond with exactly two sections, in this order, with no other prose:

@@ -114,8 +114,7 @@ PROCEDURE
    descending. Break ties: behavioral > causal > factual > recommendation.
 5. Truncate to the top CLAIM_BUDGET claims. If the raw list exceeds
    CLAIM_BUDGET, list the dropped ones in `un_audited[]` with the same
-   record shape.
-5. If you can find ZERO load-bearing claims, return
+   record shape. If you can find ZERO load-bearing claims, return
    {"claims":[],"un_audited":[],"reason":"no load-bearing claims found"}.
    Do NOT invent claims to fill the budget.
 
@@ -127,6 +126,8 @@ HARD RULES
 - NEVER reference prior assistant narrative, prior verdicts, or "what the
   user probably meant". You only see INPUT_TEXT.
 - Stop at CLAIM_BUDGET. Do not emit more.
+
+Output mode: terse
 
 OUTPUT
 ------

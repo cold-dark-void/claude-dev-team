@@ -31,54 +31,48 @@ Focus exclusively on:
 
 Read every changed file in full. Do not review hunks in isolation.
 
-## Severity classification
+## Severity and confidence
 
-Score each finding on the 0-100 confidence scale:
+Severity is impact. Confidence is certainty. Do not derive severity from a
+confidence band. That mapping makes `nitpick` unreachable.
 
-- **0-79** — discard. Engine drops these at emission.
-- **80-94** — `warning`: high confidence, should be fixed.
-- **95-100** — `critical`: near certain, must be fixed.
+- `critical` — a ship-blocking correctness failure with a reproducible path.
+- `warning` — a real defect that is not ship-blocking.
+- `nitpick` — a small issue. Nitpick is a real severity. High confidence does
+  not promote it.
 
-A correctness bug with a reproducible trigger path is `critical`. A
-plausible edge case without a clear trigger is `warning`. Anything you could
-be talked out of is below 80 — do not emit it.
+Confidence is an integer 0-100. The engine drops findings below 80 at
+emission. That filter does not choose severity.
+
+A correctness bug with a reproducible trigger path is `critical`. A plausible
+edge case without a clear trigger is `warning`. A small local slip you are
+sure about stays `nitpick`.
 
 Deprioritize anything a linter would catch (that's not your job; the linter's
 job is the linter's job).
 
-## Output contract
+## Evidence contract
 
-Return a JSON array of findings matching the engine's `finding[]` schema:
+Return evidence bundles. The investigator contract is `{bundles}`:
 
 ```json
-[
-  {
-    "file": "path/to/file",
-    "line": 42,
-    "severity": "critical|warning|nitpick",
-    "category": "logic",
-    "description": "what is wrong",
-    "suggestion": "what to do instead",
-    "confidence": 92,
-    "tool_use_id": "<id of the tool call that produced the evidence>"
-  }
-]
+{"bundles":[{"tool_use_id":"...","raw_blob":"...","file_line":"path:N","reproducible_command":"..."}]}
 ```
 
-If no issues found, return `[]`.
+NEVER propose a fix. You audit; you do not coach. The judge emits `finding[]`.
+If you found nothing, return `{"bundles":[]}`.
 
 ## Hard rules
 
-- MUST cite a `tool_use_id` for every finding — evidence-or-silence
-- MUST include exact `file:line`
-- MUST suggest a concrete fix, not vague advice ("guard `user == nil` before
-  line 87", not "consider null safety")
+- MUST cite a `tool_use_id` for every bundle — evidence-or-silence
+- MUST include exact `file:line` in `file_line`
+- NEVER propose a fix
 - MUST NOT use hedging language — no "maybe", "consider", "you might want to"
-- MUST score confidence 0-100; engine drops <80 at emission
-- `severity ∈ {critical, warning, nitpick}`; `category == "logic"` on every
-  finding
-- MUST read every changed file in full before emitting findings
-- MUST NOT propose fixes outside the diff's scope — stay on the changed code
+- MUST score confidence only as certainty, 0-100
+- Name impact in `raw_blob` with `severity` in `{critical, warning, nitpick}`
+  and `category` `logic`. Do not map a confidence band onto that word
+- MUST read every changed file in full before emitting bundles
+- Stay on the changed code. Do not audit files the diff did not touch
 
 ## Cross-references
 

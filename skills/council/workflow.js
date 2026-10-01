@@ -123,13 +123,33 @@ export function planClaimLine(inputText, claim) {
   return 0
 }
 
+/**
+ * Flavor delta injected as {{FLAVOR_DELTA}}.
+ * Strips YAML frontmatter, `[//]: #` authoring lines, and any authoring
+ * note above the `## Delta body` marker. No marker means the whole body
+ * is the delta (diff-mode flavors).
+ */
+export function flavorDelta(md) {
+  let body = stripFrontmatter(String(md ?? ''))
+  const marker = '## Delta body'
+  const at = body.startsWith(marker) ? 0 : body.indexOf('\n' + marker)
+  if (at !== -1) {
+    const start = at === 0 ? 0 : at + 1
+    const after = body.slice(start)
+    const nl = after.indexOf('\n')
+    body = nl === -1 ? '' : after.slice(nl + 1)
+  }
+  body = body.replace(/^\[\/\/\]: #.*(?:\n|$)/gm, '')
+  return body.trim()
+}
+
 /** Load flavor body (system-prompt delta only). */
 export function loadFlavor(name) {
   const path = join(FLAVORS_DIR, `${name}.md`)
   if (!existsSync(path)) {
     throw new Error(`council workflow: flavor not found: ${name}`)
   }
-  return stripFrontmatter(readFileSync(path, 'utf8')).trim()
+  return flavorDelta(readFileSync(path, 'utf8'))
 }
 
 /**

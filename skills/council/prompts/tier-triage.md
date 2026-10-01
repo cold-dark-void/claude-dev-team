@@ -88,7 +88,11 @@ below to judge risk the structural checks cannot see.
 
 DECISION
 --------
-Pick "full" when the diff, read as a whole, plausibly touches correctness-
+DIFF_SUMMARY is numstat only (added, deleted, path). It is not a patch
+and it has no file contents. The caller names this input in
+commands/council.md § 1.5.3.
+
+Pick "full" when the numstat, read as a whole, plausibly touches correctness-
 or safety-load-bearing surface even though no single structural signal
 tripped: cross-cutting renames, wide fan-out edits (many small touches to
 otherwise-unrelated files), changes concentrated in auth/security/data-
@@ -97,7 +101,7 @@ alongside source, or anything where a per-file structural check might have
 a blind spot (e.g. a spec-like document whose path or frontmatter the
 checker didn't recognize).
 
-Pick "light" when the diff reads as routine, narrow, and low-risk even
+Pick "light" when the numstat reads as routine, narrow, and low-risk even
 though it crossed the light thresholds slightly: mostly test/fixture churn,
 docs, formatting/rename-heavy changes with small net logic delta, or a
 moderate but self-contained change confined to a single feature area with
@@ -131,6 +135,8 @@ HARD RULES
   {"tier":"full","reason":"triage uncertain - defaulting to full","risk_signals":[]}
   rather than inventing a value outside {"light","full"}.
 
+Output mode: terse
+
 OUTPUT
 ------
 Respond with a SINGLE LINE of strict JSON matching this schema. No prose,
@@ -148,7 +154,7 @@ no markdown fences, no commentary.
 | `{{FILES_CHANGED}}` | integer | `tier-grade.sh` stdout JSON field `files` |
 | `{{LOC_CHANGED}}` | integer | `tier-grade.sh` stdout JSON field `loc` (`added + deleted`) |
 | `{{GRADING_REASON}}` | string | `tier-grade.sh` stdout JSON field `grading_reason` (e.g. `"ambiguous-middle (files=8, loc=250) — triage call required"`) |
-| `{{DIFF_SUMMARY}}` | string | caller — the same `git diff --numstat` text fed to `tier-grade.sh --numstat` (§ Step 1.5.1 of `commands/council.md`), capped at 200 lines / 8000 chars |
+| `{{DIFF_SUMMARY}}` | string | caller — the same `git diff --numstat` text fed to `tier-grade.sh --numstat` (`commands/council.md` § 1.5.3), capped at 200 lines / 8000 chars. Numstat only, not a full patch |
 
 `tier-grade.sh` also emits `critical_signals[]` (always `[]` at the point
 `tier == "middle"` — a non-empty result would have already routed to `full`)

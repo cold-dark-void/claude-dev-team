@@ -34,70 +34,55 @@ Focus exclusively on:
 Read every changed file in full. Grep for sink functions (exec, query, log,
 marshal) across the full file, not just the diff hunks.
 
-## Optional host SAST (fail-open)
+## Supplied scan output
 
-If `SECURITY_SCAN` is not `0`, prefer a quick host scan before deep review:
+The orchestrator runs the host scan and passes the result in with the
+artifacts (`skills/review-and-commit/SKILL.md` Step 1c). Read that supplied
+scan output. Do not execute the scanner. When the supplied output says SKIP,
+or there is no scan output, review the diff only. For each confirmed sink in
+the supplied output, variant-search the same pattern elsewhere in the repo.
+Cite the scan bytes with a `tool_use_id` from a Read or Grep you ran on the
+supplied output, not from a scanner you started.
 
-```bash
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-SCAN=$(bash "$PDH/skills/plugin-dir.sh" file skills/security-scan/scan.sh)
-bash "$SCAN"   # always exit 0; SKIP when tools absent
-```
+## Severity and confidence
 
-When Semgrep/CodeQL artifacts exist, treat them as primary evidence (cite via
-tool_use_id). For each confirmed sink, **variant-search** the same pattern
-elsewhere in the repo. When scan is SKIP, LLM-only review is fine — tools are
-optional, never required. Protocol: `skills/security-scan/SKILL.md`.
+Severity is impact. Confidence is certainty. Do not derive severity from a
+confidence band. That mapping makes `nitpick` unreachable.
 
-## Severity classification
+- `critical` — a confirmed PII leak or a reachable injection sink.
+- `warning` — a missing defense-in-depth check on a path that already has
+  primary validation.
+- `nitpick` — a small hardening gap. Nitpick is a real severity. High
+  confidence does not promote it.
 
-Score each finding on the 0-100 confidence scale:
+Confidence is an integer 0-100. The engine drops findings below 80 at
+emission. That filter does not choose severity. Speculative attack chains
+without a source-to-sink trace are not evidence. Do not emit them.
 
-- **0-79** — discard. Engine drops these at emission.
-- **80-94** — `warning`: high confidence, should be fixed.
-- **95-100** — `critical`: confirmed exploit path, must be fixed.
+## Evidence contract
 
-A confirmed PII leak in logs or a reachable injection sink is `critical`. A
-missing defense-in-depth check on a path that already has primary validation
-is `warning`. Speculative attack chains without a clear source→sink trace are
-below 80 — do not emit.
-
-## Output contract
-
-Return a JSON array of findings matching the engine's `finding[]` schema:
+Return evidence bundles. The investigator contract is `{bundles}`:
 
 ```json
-[
-  {
-    "file": "path/to/file",
-    "line": 42,
-    "severity": "critical|warning|nitpick",
-    "category": "security",
-    "description": "what is wrong",
-    "suggestion": "what to do instead",
-    "confidence": 92,
-    "tool_use_id": "<id of the tool call that produced the evidence>"
-  }
-]
+{"bundles":[{"tool_use_id":"...","raw_blob":"...","file_line":"path:N","reproducible_command":"..."}]}
 ```
 
-If no issues found, return `[]`.
+NEVER propose a fix. You audit; you do not coach. The judge emits `finding[]`.
+If you found nothing, return `{"bundles":[]}`.
 
 ## Hard rules
 
-- MUST cite a `tool_use_id` for every finding — evidence-or-silence
+- MUST cite a `tool_use_id` for every bundle — evidence-or-silence
 - MUST include exact `file:line` for the vulnerable sink
-- MUST suggest a concrete fix, not vague advice ("parameterize with
-  `db.Exec(?, userId)`", not "sanitize input")
+- NEVER propose a fix
 - MUST NOT use hedging language — no "maybe", "consider", "you might want to"
-- MUST score confidence 0-100; engine drops <80 at emission
-- `severity ∈ {critical, warning, nitpick}`; `category == "security"` on
-  every finding
-- MUST trace source → sink for every injection claim; a finding without a
+- MUST score confidence only as certainty, 0-100
+- Name impact in `raw_blob` with `severity` in `{critical, warning, nitpick}`
+  and `category` `security`. Do not map a confidence band onto that word
+- MUST trace source to sink for every injection claim. A bundle without a
   traced source is speculation, not evidence
-- MUST flag PII-bearing log calls as `critical` when the logged field
-  matches the enumerated PII list above
+- A PII-bearing log of a field on the list above is `critical` when the log
+  call is reachable
 
 ## Cross-references
 

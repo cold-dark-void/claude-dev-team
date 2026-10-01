@@ -86,8 +86,13 @@ where:
   - line is the 1-based index of that assertion in the block above <<<END_INPUT>>>
     (the plan file). Do not add the count of instruction lines after that marker.
 
-Example:
-  .claude/plans/foo.md:## Approach > Decision:sqlite:42
+Example (the heading contains no colon):
+  .claude/plans/foo.md:## Approach > ### Storage:42
+
+The line is the field after the last `:`. A colon inside a heading makes
+that split ambiguous. Replace each `:` in the heading text with ` - `
+before you join the heading-path. `## Decision: sqlite` is recorded as
+`## Decision - sqlite`.
 
 If a claim sits under no heading, use heading-path `BODY`.
 
@@ -115,6 +120,8 @@ HARD RULES
   claim MUST be traceable to a substring of INPUT_TEXT.
 - NEVER reference prior assistant narrative or prior verdicts.
 - Stop at CLAIM_BUDGET. Do not emit more.
+
+Output mode: terse
 
 OUTPUT
 ------

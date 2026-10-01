@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.49
+- **WP 3-04 Council prompts** — tribunal prompts say Output mode: terse, diff flavors follow the evidence-bundle contract, and the finalize fence is real bash.
+
 ### v1.18.48
 - **WP 3-03 Council engine sweep** — tier-grade no longer treats latest as a test, an external finding without a line is kept, and a plan locator uses the claim's own line.
 
