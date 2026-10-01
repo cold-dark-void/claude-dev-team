@@ -214,7 +214,10 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
   rename), then write `cursor`. Rebuild is allowed and MUST leave `main.md`
   duplicate-free. Re-run with no new records MUST be a no-op (byte-identical
   `main.md`). Two-phase append (tick A then tick B) MUST be byte-identical to
-  one-shot over the same source. Path change vs stored source-path: treat as
+  one-shot over the same source. The per-sid mkdir lock MUST NOT treat a
+  lock directory that has no owner line as stale until that directory is
+  at least 2 seconds old. A second tick MUST wait. It MUST NOT delete that
+  lock. Two concurrent ticks of one new record MUST match one sequential tick. Path change vs stored source-path: treat as
   identity-absent (rebuild).
   **Agent nest (AC7).** Each nest dir has its own `cursor`. Nest rebuild
   MUST NOT mutate parent `main.md` / parent `cursor`. Parent rebuild MUST

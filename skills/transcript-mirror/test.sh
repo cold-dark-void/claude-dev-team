@@ -1384,6 +1384,34 @@ else
   fail "WP212 restore rc=$RC marker=$(ls "$STORE/tm-kill/agents/marker" 2>/dev/null || echo absent) err=$(cat "$WORK/rec.err" 2>/dev/null)"
 fi
 
+# A lock directory with no owner line is the moment after mkdir.
+# Stealing it lets two ticks append the same record.
+LOCK_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/tm-lock.XXXXXX")
+mkdir "$LOCK_ROOT/.sid.lock"
+lock_rc=0
+timeout 1 bash "$HERE/sid-lock.sh" acquire "$LOCK_ROOT" sid >/dev/null 2>&1 || lock_rc=$?
+if [ "$lock_rc" -ne 0 ] && [ ! -f "$LOCK_ROOT/.sid.lock/owner" ]; then
+  pass "fresh sid lock with no owner is not stolen"
+else
+  fail "fresh sid lock was stolen rc=$lock_rc"
+fi
+rm -rf "$LOCK_ROOT"
+LOCK_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/tm-lock.XXXXXX")
+mkdir "$LOCK_ROOT/.sid.lock"
+printf '99999999\n1\n' >"$LOCK_ROOT/.sid.lock/owner"
+if bash "$HERE/sid-lock.sh" acquire "$LOCK_ROOT" sid >/dev/null 2>&1; then
+  owner_now=$(awk 'NR==1 { print; exit }' "$LOCK_ROOT/.sid.lock/owner" 2>/dev/null || true)
+  if [ -n "$owner_now" ] && [ "$owner_now" != "99999999" ]; then
+    pass "dead sid lock owner is reclaimed"
+  else
+    fail "dead sid lock owner stayed $owner_now"
+  fi
+else
+  fail "dead sid lock acquire failed"
+fi
+bash "$HERE/sid-lock.sh" release "$LOCK_ROOT" sid >/dev/null 2>&1 || true
+rm -rf "$LOCK_ROOT"
+
 # Two concurrent ticks match one sequential tick.
 awk 'BEGIN{for(i=1;i<=20;i++) printf "{\"type\":\"user\",\"uuid\":\"c-%d\",\"message\":{\"role\":\"user\",\"content\":\"con %d\"}}\n", i, i}' \
   >"$WORK/src/con.jsonl"

@@ -18,6 +18,8 @@ case "$SID" in
 esac
 
 LOCK="$ROOT/.$SID.lock"
+# A mkdir'd lock has no owner line for a moment. That is not stale.
+EMPTY_GRACE=2
 
 owner_pid() {
   [ -f "$LOCK/owner" ] || return 0
@@ -39,9 +41,13 @@ lock_age() {
 is_stale() {
   local pid age
   [ -d "$LOCK" ] || return 1
+  age=$(lock_age)
   pid=$(owner_pid)
-  if [ -n "$pid" ] && pid_alive "$pid"; then
-    age=$(lock_age)
+  if [ -z "$pid" ]; then
+    [ "$age" -gt "$EMPTY_GRACE" ]
+    return
+  fi
+  if pid_alive "$pid"; then
     [ "$age" -gt "$STALE" ]
     return
   fi

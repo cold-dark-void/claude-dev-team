@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.8
+- **Sid lock keeps a fresh owner** — a lock directory with no owner line is not stolen, so two mirror ticks do not append the same turn twice.
+
 ### v1.19.7
 - **WP 4-03 Transcript close** — an installer copies the shim and prints an absolute cron line, docs resolve scripts through plugin-dir, and a locate-suite failure is reported.
 
