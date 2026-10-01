@@ -293,5 +293,56 @@ else
   bad "cold prepare locate count=$N err=$(head -c 200 "$WORK/prep.err")"
 fi
 
+# WP 4-05 — dash-encode, .. session id, mixed timestamps, locate parameter.
+set +e
+python3 - "$HERE" "$WORK" <<'PY'
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import assemble
+import hosts
+from grok_normalize import normalize_to_file, sanitize_session_id
+
+cwd = "/tmp/my.proj/.worktrees/wt_1"
+enc = hosts.dash_encode_cwd(cwd)
+assert "." not in enc and "_" not in enc, enc
+assert enc == os.path.abspath(cwd).replace("/", "-").replace(".", "-").replace("_", "-"), enc
+
+safe = sanitize_session_id("foo..bar")
+assert ".." not in safe, safe
+assert safe == "foo-bar", safe
+
+src = os.path.join(sys.argv[2], "mix.jsonl")
+with open(src, "w", encoding="utf-8") as fh:
+    fh.write('{"type":"user","content":"first","timestamp":"2026-09-01T00:00:00Z"}\n')
+    fh.write('{"type":"assistant","content":"second"}\n')
+    fh.write('{"type":"user","content":"third","timestamp":"2026-09-01T00:00:02Z"}\n')
+out = os.path.join(sys.argv[2], "mix-out.jsonl")
+normalize_to_file(src, cwd="/tmp/proj", session_id="foo..bar", mode="scoring", out_path=out)
+rows = [__import__("json").loads(line) for line in open(out, encoding="utf-8") if line.strip()]
+assert [r["message"]["content"][0]["text"] for r in rows] == ["first", "second", "third"]
+assert rows[1]["timestamp"] >= rows[0]["timestamp"], rows[1]["timestamp"]
+assert rows[2]["timestamp"] >= rows[1]["timestamp"]
+assert all(r["sessionId"] == "foo-bar" for r in rows), rows[0]["sessionId"]
+
+root = os.path.join(sys.argv[2], "projects-param")
+os.makedirs(root)
+uid = "param-sid-1"
+os.makedirs(os.path.join(root, "proj"))
+path = os.path.join(root, "proj", uid + ".jsonl")
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write('{"uuid":"%s","timestamp":"2020-01-01T00:00:00Z"}\n' % uid)
+found = assemble.locate(uid, projects_dir=root)
+assert found == path, found
+# The module global is unchanged by the parameter.
+assert assemble.PROJECTS_DIR != root
+PY
+PRC=$?
+set -e
+if [ "$PRC" -eq 0 ]; then
+  pass "WP405 encode, sanitize, timestamp, locate parameter"
+else
+  bad "WP405 encode/sanitize/timestamp/locate rc=$PRC"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

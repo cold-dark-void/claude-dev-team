@@ -74,21 +74,29 @@ def _warn(msg):
     sys.stderr.write("transcript-parse: " + msg + "\n")
 
 
-def _iter_project_files():
+def _projects_root(projects_dir=None):
+    """Projects root for one locate. None keeps the module default."""
+    if projects_dir:
+        return projects_dir
+    return PROJECTS_DIR
+
+
+def _iter_project_files(projects_dir=None):
     """Yield absolute paths of every *.jsonl under ~/.claude/projects/*/.
 
     Tolerates a missing projects dir and unreadable subdirs (a session may
     reference ancestor projects that no longer exist on this machine).
     """
-    if not os.path.isdir(PROJECTS_DIR):
+    root = _projects_root(projects_dir)
+    if not os.path.isdir(root):
         return
     try:
-        subdirs = os.listdir(PROJECTS_DIR)
+        subdirs = os.listdir(root)
     except OSError as e:
-        _warn(f"cannot list {PROJECTS_DIR}: {e}")
+        _warn(f"cannot list {root}: {e}")
         return
     for name in subdirs:
-        sub = os.path.join(PROJECTS_DIR, name)
+        sub = os.path.join(root, name)
         if not os.path.isdir(sub):
             continue
         try:
@@ -170,21 +178,22 @@ def _log_scan(path):
         pass
 
 
-def _direct_hit(target_uuid):
+def _direct_hit(target_uuid, projects_dir=None):
     """Return <project>/<uuid>.jsonl when one exists. Do not open other files."""
     if not target_uuid or os.sep in target_uuid or target_uuid in (".", ".."):
         return None
-    if not os.path.isdir(PROJECTS_DIR):
+    root = _projects_root(projects_dir)
+    if not os.path.isdir(root):
         return None
     name = target_uuid + ".jsonl"
     found = []
     try:
-        subdirs = os.listdir(PROJECTS_DIR)
+        subdirs = os.listdir(root)
     except OSError as e:
-        _warn(f"cannot list {PROJECTS_DIR}: {e}")
+        _warn(f"cannot list {root}: {e}")
         return None
     for dname in subdirs:
-        sub = os.path.join(PROJECTS_DIR, dname)
+        sub = os.path.join(root, dname)
         if not os.path.isdir(sub):
             continue
         path = os.path.join(sub, name)
@@ -207,21 +216,24 @@ def _direct_hit(target_uuid):
     return found[0]
 
 
-def locate(target_uuid):
+def locate(target_uuid, projects_dir=None):
     """Return the canonical transcript path for target_uuid, or None.
 
     Direct hit: `<project>/<uuid>.jsonl` returns immediately and does not
     open any other transcript. Fork descendants are scanned only when no
     direct file exists. Among those, canonical = greatest max-timestamp.
     Ties break by path.
+
+    projects_dir overrides PROJECTS_DIR for this call. Callers pass it.
+    The module global is not mutated.
     """
     _log_locate()
-    direct = _direct_hit(target_uuid)
+    direct = _direct_hit(target_uuid, projects_dir)
     if direct is not None:
         return direct
     best_path = None
     best_ts = None
-    for path in _iter_project_files():
+    for path in _iter_project_files(projects_dir):
         contains, max_ts = _scan_file_for_uuid(path, target_uuid)
         if not contains:
             continue

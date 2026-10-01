@@ -684,11 +684,12 @@ RULES
 Code-state for the appendix is **git only** (AC-8 / M3b). The orchestrator (or
 `prepass.sh finalize` when `--git-state` is omitted) captures:
 
-```
-git log --oneline -n 30
-git status --porcelain
-git diff --stat HEAD
-git diff --stat
+```bash
+MROOT="${MROOT:?}"
+git -C "$MROOT" log --oneline -n 30
+git -C "$MROOT" status --porcelain
+git -C "$MROOT" diff --stat HEAD
+git -C "$MROOT" diff --stat
 ```
 
 Pass the blob as `finalize --git-state <file>`. Prefer one capture shared with

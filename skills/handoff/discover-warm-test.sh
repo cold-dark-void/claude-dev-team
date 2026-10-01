@@ -19,9 +19,9 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/discover-warm-test.XXXXXX")
 trap 'rm -rf "$WORK"; hermetic_cleanup' EXIT
 
 # Isolate env so ambient session vars / live Grok sessions cannot leak.
-unset CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
+unset CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID SESSION_ID HANDOFF_SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH
 unset GROK_SESSION_ID GROK_TRANSCRIPT_PATH GROK_CWD CLAUDE_CWD
-unset HANDOFF_BRIDGE HANDOFF_DIR
+unset HANDOFF_BRIDGE HANDOFF_DIR HANDOFF_BRIDGE_MAX_AGE
 export CLAUDE_PROJECTS_DIR="$WORK/projects"
 export GROK_SESSIONS_DIR="$WORK/grok-sessions"
 export GROK_ADAPTER="$ADAPTER"
@@ -54,16 +54,16 @@ if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$SID" ] && [ "$GOT_TR" = "$NEW" ]; then ok
 else bad "T1 newest stem rc=$RC sid=$GOT_SID tr=$GOT_TR err=$(cat "$WORK/t1.err")"; fi
 unset CLAUDE_SESSION_ID
 
-# ---- T2: SESSION_ID fallback ----
-export SESSION_ID="$SID"
+# ---- T2: HANDOFF_SESSION_ID fallback (generic SESSION_ID is not a pin) ----
+export HANDOFF_SESSION_ID="$SID"
 set +e
 OUT=$(bash "$DISCOVER" 2>"$WORK/t2.err")
 RC=$?
 set -e
 GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
 if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$SID" ]; then ok
-else bad "T2 SESSION_ID rc=$RC sid=$GOT_SID"; fi
-unset SESSION_ID
+else bad "T2 HANDOFF_SESSION_ID rc=$RC sid=$GOT_SID"; fi
+unset HANDOFF_SESSION_ID
 
 # ---- T3: CLAUDE_TRANSCRIPT_PATH wins over stem ----
 export CLAUDE_SESSION_ID="$SID"
@@ -159,11 +159,12 @@ unset CLAUDE_SESSION_ID HANDOFF_BRIDGE
 export HANDOFF_BRIDGE="$WORK/bridge-read.json"
 # Point bridge at NEW transcript path
 python3 -c '
-import json, sys
+import datetime, json, sys
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 json.dump({
   "session_id": sys.argv[1],
   "transcript_path": sys.argv[2],
-  "updated_at": "2026-07-26T00:00:00Z",
+  "updated_at": now,
   "source": "test",
 }, open(sys.argv[3], "w"), indent=2)
 ' "$SID" "$NEW" "$HANDOFF_BRIDGE"
@@ -189,7 +190,7 @@ export CLAUDE_PROJECTS_DIR="$WORK/projects"
 # Encode a fake abs cwd into projects layout
 FAKE_CWD="$WORK/fake-proj"
 mkdir -p "$FAKE_CWD"
-ENC=$(printf '%s' "$FAKE_CWD" | sed 's|/|-|g')
+ENC=$(python3 "$HERE/../transcript-parse/hosts.py" encode-project --cwd "$FAKE_CWD")
 mkdir -p "$CLAUDE_PROJECTS_DIR/$ENC"
 CW_SID="cwd-bridge-sess-99"
 CW_TR="$CLAUDE_PROJECTS_DIR/$ENC/${CW_SID}.jsonl"
@@ -301,7 +302,7 @@ G15_SRC=$(install_grok_session "$G15_SID" "$G15_CWD")
 export GROK_CWD="$G15_CWD"
 # Also plant Claude cwd-newest so Claude path would resolve if Grok skipped
 export CLAUDE_CWD="$G15_CWD"
-ENC15=$(printf '%s' "$G15_CWD" | sed 's|/|-|g')
+ENC15=$(python3 "$HERE/../transcript-parse/hosts.py" encode-project --cwd "$G15_CWD")
 mkdir -p "$CLAUDE_PROJECTS_DIR/$ENC15"
 printf '{"type":"user","uuid":"cwd-claude"}\n' \
   >"$CLAUDE_PROJECTS_DIR/$ENC15/claude-cwd-tip.jsonl"
@@ -585,6 +586,171 @@ if [ -f "$HANDOFF_BRIDGE" ] && grep -q '"host": "claude"' "$HANDOFF_BRIDGE" \
    && grep -q "\"session_id\": \"$G25_CLAUDE_SID\"" "$HANDOFF_BRIDGE"; then ok
 else bad "T25b bridge host=claude bridge=$(cat "$HANDOFF_BRIDGE" 2>/dev/null)"; fi
 unset CLAUDE_CODE_SESSION_ID GROK_CWD CLAUDE_CWD HANDOFF_BRIDGE
+
+# ---- T26: generic SESSION_ID does not override transcript resolution ----
+unset CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID HANDOFF_SESSION_ID GROK_SESSION_ID GROK_TRANSCRIPT_PATH
+export CLAUDE_PROJECTS_DIR="$WORK/projects"
+export CLAUDE_TRANSCRIPT_PATH="$NEW"
+export SESSION_ID="other-should-lose"
+printf '{"type":"user","uuid":"poison"}\n' >"$CLAUDE_PROJECTS_DIR/proj-a/other-should-lose.jsonl"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t26.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$SID" ]; then ok
+else bad "T26 SESSION_ID must not override transcript rc=$RC sid=$GOT_SID err=$(cat "$WORK/t26.err")"; fi
+unset SESSION_ID CLAUDE_TRANSCRIPT_PATH
+
+# ---- T27: SESSION_ID alone does not resolve ----
+export SESSION_ID="$SID"
+unset CLAUDE_TRANSCRIPT_PATH CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID HANDOFF_SESSION_ID HANDOFF_BRIDGE
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t27.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+if [ "$RC" -ne 0 ] && [ "$GOT_SID" != "$SID" ]; then ok
+else bad "T27 SESSION_ID alone must miss rc=$RC sid=$GOT_SID"; fi
+unset SESSION_ID
+
+# ---- T28: cwd with '.' and '_' resolves (not slash-only encoding) ----
+unset CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID HANDOFF_SESSION_ID SESSION_ID
+unset CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH HANDOFF_BRIDGE HANDOFF_DIR
+unset GROK_SESSION_ID GROK_TRANSCRIPT_PATH GROK_CWD
+export CLAUDE_PROJECTS_DIR="$WORK/projects-dot"
+export GROK_SESSIONS_DIR="$WORK/grok-empty-t28"
+mkdir -p "$CLAUDE_PROJECTS_DIR" "$GROK_SESSIONS_DIR"
+DOT_CWD="$WORK/my.proj/.worktrees/wt_1"
+mkdir -p "$DOT_CWD"
+DOT_ENC=$(python3 "$HERE/../transcript-parse/hosts.py" encode-project --cwd "$DOT_CWD")
+DOT_SLASH=$(printf '%s' "$DOT_CWD" | sed 's|/|-|g')
+mkdir -p "$CLAUDE_PROJECTS_DIR/$DOT_ENC" "$CLAUDE_PROJECTS_DIR/$DOT_SLASH"
+printf '{"type":"user","uuid":"dot"}\n' >"$CLAUDE_PROJECTS_DIR/$DOT_ENC/dot-sid.jsonl"
+printf '{"type":"user","uuid":"slash"}\n' >"$CLAUDE_PROJECTS_DIR/$DOT_SLASH/slash-decoy.jsonl"
+export CLAUDE_CWD="$DOT_CWD"
+export HANDOFF_BRIDGE="$WORK/bridge-t28.json"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t28.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "dot-sid" ] && [ "$DOT_ENC" != "$DOT_SLASH" ]; then ok
+else bad "T28 dotted cwd rc=$RC sid=$GOT_SID enc=$DOT_ENC slash=$DOT_SLASH err=$(cat "$WORK/t28.err")"; fi
+unset CLAUDE_CWD HANDOFF_BRIDGE
+
+# ---- T29: stale bridge does not beat cwd-newest ----
+unset CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID HANDOFF_SESSION_ID SESSION_ID
+unset CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH GROK_SESSION_ID GROK_TRANSCRIPT_PATH GROK_CWD
+export CLAUDE_PROJECTS_DIR="$WORK/projects-stale"
+mkdir -p "$CLAUDE_PROJECTS_DIR"
+STALE_CWD="$WORK/stale-cwd-proj"
+mkdir -p "$STALE_CWD"
+STALE_ENC=$(python3 "$HERE/../transcript-parse/hosts.py" encode-project --cwd "$STALE_CWD")
+mkdir -p "$CLAUDE_PROJECTS_DIR/$STALE_ENC"
+printf '{"type":"user","uuid":"freshcwd"}\n' >"$CLAUDE_PROJECTS_DIR/$STALE_ENC/fresh-cwd-sid.jsonl"
+export CLAUDE_CWD="$STALE_CWD"
+export HANDOFF_BRIDGE="$WORK/bridge-t29.json"
+python3 -c '
+import json, sys
+json.dump({
+  "session_id": sys.argv[1],
+  "transcript_path": sys.argv[2],
+  "updated_at": "2020-01-01T00:00:00Z",
+  "source": "stale",
+  "host": "claude",
+}, open(sys.argv[3], "w"), indent=2)
+' "$SID" "$NEW" "$HANDOFF_BRIDGE"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t29.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "fresh-cwd-sid" ]; then ok
+else bad "T29 stale bridge rc=$RC sid=$GOT_SID err=$(cat "$WORK/t29.err")"; fi
+unset CLAUDE_CWD HANDOFF_BRIDGE
+
+# ---- T30: Grok .cwd marker when the urlencode bucket is absent ----
+unset CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID HANDOFF_SESSION_ID SESSION_ID
+unset CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH GROK_SESSION_ID GROK_TRANSCRIPT_PATH CLAUDE_CWD
+export GROK_SESSIONS_DIR="$WORK/grok-marker-t30"
+export CLAUDE_PROJECTS_DIR="$WORK/projects-empty-t30"
+mkdir -p "$GROK_SESSIONS_DIR" "$CLAUDE_PROJECTS_DIR"
+M_CWD="$WORK/marker cwd proj"
+mkdir -p "$M_CWD"
+M_ABS=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$M_CWD")
+M_SID="grok-marker-sid"
+M_BUCKET="$GROK_SESSIONS_DIR/marker-bucket"
+mkdir -p "$M_BUCKET/$M_SID"
+cp "$FIXTURE" "$M_BUCKET/$M_SID/chat_history.jsonl"
+printf '%s\n' "$M_ABS" >"$M_BUCKET/.cwd"
+export GROK_CWD="$M_ABS"
+export HANDOFF_BRIDGE="$WORK/bridge-t30.json"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t30.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+GOT_TR=$(printf '%s\n' "$OUT" | sed -n '2p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$M_SID" ] && [ -f "$GOT_TR" ] \
+   && grep -q 'CDT92-FIXTURE-PHRASE-ALPHA' "$GOT_TR"; then ok
+else bad "T30 grok .cwd marker rc=$RC sid=$GOT_SID tr=$GOT_TR err=$(cat "$WORK/t30.err")"; fi
+unset GROK_CWD HANDOFF_BRIDGE
+
+# ---- T31: two .cwd buckets pick the codepoint-min name (Zed before alpha) ----
+unset CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID HANDOFF_SESSION_ID SESSION_ID
+unset CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH GROK_SESSION_ID GROK_TRANSCRIPT_PATH CLAUDE_CWD
+export GROK_SESSIONS_DIR="$WORK/grok-lex-t31"
+export CLAUDE_PROJECTS_DIR="$WORK/projects-empty-t31"
+mkdir -p "$GROK_SESSIONS_DIR" "$CLAUDE_PROJECTS_DIR"
+LEX_CWD="$WORK/lex-cwd"
+mkdir -p "$LEX_CWD"
+LEX_ABS=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$LEX_CWD")
+for pair in "alpha:sid-alpha" "Zed:sid-zed"; do
+  bname=${pair%%:*}
+  bsid=${pair##*:}
+  mkdir -p "$GROK_SESSIONS_DIR/$bname/$bsid"
+  cp "$FIXTURE" "$GROK_SESSIONS_DIR/$bname/$bsid/chat_history.jsonl"
+  printf '%s\n' "$LEX_ABS" >"$GROK_SESSIONS_DIR/$bname/.cwd"
+done
+export GROK_CWD="$LEX_ABS"
+export HANDOFF_BRIDGE="$WORK/bridge-t31.json"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t31.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+if [ "$RC" -eq 0 ] && [ "$GOT_SID" = "sid-zed" ]; then ok
+else bad "T31 lexical-min bucket rc=$RC sid=$GOT_SID err=$(cat "$WORK/t31.err")"; fi
+unset GROK_CWD HANDOFF_BRIDGE
+
+# ---- T32: .cwd marker matches the logical path, not the realpath ----
+unset CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID HANDOFF_SESSION_ID SESSION_ID
+unset CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH GROK_SESSION_ID GROK_TRANSCRIPT_PATH CLAUDE_CWD
+export GROK_SESSIONS_DIR="$WORK/grok-link-t32"
+export CLAUDE_PROJECTS_DIR="$WORK/projects-empty-t32"
+mkdir -p "$GROK_SESSIONS_DIR" "$CLAUDE_PROJECTS_DIR"
+LINK_REAL="$WORK/link-real"
+LINK_PATH="$WORK/link-name"
+mkdir -p "$LINK_REAL"
+ln -s "$LINK_REAL" "$LINK_PATH"
+LINK_ABS=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$LINK_PATH")
+LINK_REALPATH=$(realpath "$LINK_PATH")
+L_SID="sid-link"
+L_BUCKET="$GROK_SESSIONS_DIR/link-bucket"
+mkdir -p "$L_BUCKET/$L_SID"
+cp "$FIXTURE" "$L_BUCKET/$L_SID/chat_history.jsonl"
+printf '%s\n' "$LINK_ABS" >"$L_BUCKET/.cwd"
+export GROK_CWD="$LINK_PATH"
+export HANDOFF_BRIDGE="$WORK/bridge-t32.json"
+set +e
+OUT=$(bash "$DISCOVER" 2>"$WORK/t32.err")
+RC=$?
+set -e
+GOT_SID=$(printf '%s\n' "$OUT" | sed -n '1p')
+if [ "$LINK_ABS" != "$LINK_REALPATH" ] && [ "$RC" -eq 0 ] && [ "$GOT_SID" = "$L_SID" ]; then ok
+else bad "T32 logical cwd rc=$RC sid=$GOT_SID abs=$LINK_ABS real=$LINK_REALPATH err=$(cat "$WORK/t32.err")"; fi
+unset GROK_CWD HANDOFF_BRIDGE
 
 # Restore defaults for cleanliness
 export CLAUDE_PROJECTS_DIR="$WORK/projects"

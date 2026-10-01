@@ -630,6 +630,16 @@ else
   bad "T26 light draft supersedes rc1=$RC1 rc2=$RC2 draft=${SD_DRAFT:-none} full=${SD_FULL:-none} supersedes=$SUP_LINE"
 fi
 
+# ---- T27 (CDT-346): fenced git commands in SKILL.md and LIGHT.md carry -C ----
+GIT_BARE=0
+for f in "$HERE/SKILL.md" "$HERE/LIGHT.md"; do
+  n=$(awk 'BEGIN{f=0} /^```/{f=!f; next} f && $1=="git" && $0 !~ /-C/ {c++} END{print c+0}' "$f")
+  GIT_BARE=$((GIT_BARE + n))
+done
+if [ "$GIT_BARE" -eq 0 ] \
+   && grep -q 'git -C "$MROOT" log' "$HERE/SKILL.md"; then ok
+else bad "T27 bare git capture commands: $GIT_BARE"; fi
+
 echo
 echo "finalize-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

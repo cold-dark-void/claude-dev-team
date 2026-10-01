@@ -69,6 +69,11 @@ sh "$FRESHNESS" check "$TR" >/dev/null 2>&1; RC=$?
 if [ "$RC" -eq 9 ]; then ok; else bad "T3 default guard: fresh file must exit 9 (got $RC)"; fi
 sh "$FRESHNESS" check "$TR" --allow-in-progress >/dev/null 2>&1; RC=$?
 if [ "$RC" -eq 0 ]; then ok; else bad "T4 carve-out: fresh file + flag must exit 0 (got $RC)"; fi
+FUT="$WORK/future-mtime.jsonl"
+printf '{}\n' >"$FUT"
+touch -d '2027-01-01 00:00:00' "$FUT"
+sh "$FRESHNESS" check "$FUT" >/dev/null 2>&1; RC=$?
+if [ "$RC" -eq 0 ]; then ok; else bad "future mtime must exit 0, not 9 (got $RC)"; fi
 
 # ---- T5/T6: prepass plumbing — M9 intact without the flag, capture with it ----
 touch "$TR"

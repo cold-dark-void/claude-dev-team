@@ -60,6 +60,12 @@ fi
 NOW=$(date +%s)
 AGE=$(( NOW - MTIME ))
 
+# A future mtime is clock skew, not an in-progress write. Age 0 is not
+# too-fresh. A negative age used to stay under 60s and exit 9 forever.
+if [ "$AGE" -lt 0 ]; then
+  exit 0
+fi
+
 if [ "$AGE" -lt 60 ]; then
   if [ "$ALLOW" = "1" ]; then
     echo "freshness.sh: NOTE — $FILE modified ${AGE}s ago (< 60 s); proceeding anyway (--allow-in-progress, PreCompact capture path)." >&2

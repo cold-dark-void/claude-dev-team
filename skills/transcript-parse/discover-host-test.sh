@@ -21,12 +21,11 @@ CWD="$(cd "$CWD" && pwd)"
 
 CLAUDE_ROOT="$WORK/claude-projects"
 GROK_ROOT="$WORK/grok-sessions"
-# Dash-encode cwd for Claude project dir (same rule as hosts.dash_encode_cwd).
-CLAUDE_ENC="$(CWD_RAW="$CWD" python3 - <<'PY'
-import os
-print(os.path.abspath(os.environ["CWD_RAW"]).replace("/", "-"), end="")
-PY
-)"
+# Dash-encode cwd for Claude project dir (hosts.dash_encode_cwd).
+dash_enc() {
+  python3 "$HERE/hosts.py" encode-project --cwd "$1"
+}
+CLAUDE_ENC="$(dash_enc "$CWD")"
 GROK_ENC="$(CWD_RAW="$CWD" python3 - <<'PY'
 import os, urllib.parse
 print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
@@ -185,11 +184,7 @@ fi
 ONLY="$WORK/claude-only-proj"
 mkdir -p "$ONLY"
 ONLY="$(cd "$ONLY" && pwd)"
-ONLY_ENC="$(CWD_RAW="$ONLY" python3 - <<'PY'
-import os
-print(os.path.abspath(os.environ["CWD_RAW"]).replace("/", "-"), end="")
-PY
-)"
+ONLY_ENC="$(dash_enc "$ONLY")"
 mkdir -p "$CLAUDE_ROOT/$ONLY_ENC"
 printf 'x\n' >"$CLAUDE_ROOT/$ONLY_ENC/only-sid.jsonl"
 touch -d "2022-01-01 00:00:00" "$CLAUDE_ROOT/$ONLY_ENC/only-sid.jsonl"
@@ -203,6 +198,26 @@ if [ "$RC" -eq 0 ] \
   pass "T9 claude-only host=claude"
 else
   bad "T9 rc=$RC out=$OUT err=$(cat "$WORK/t9.err")"
+fi
+
+# ---- T10: path with a space survives locate and tab emit ----
+SPACE_CWD="$WORK/space dir"
+mkdir -p "$SPACE_CWD"
+SPACE_CWD="$(cd "$SPACE_CWD" && pwd)"
+SPACE_ENC="$(dash_enc "$SPACE_CWD")"
+mkdir -p "$CLAUDE_ROOT/$SPACE_ENC"
+printf 'space\n' >"$CLAUDE_ROOT/$SPACE_ENC/space-sid.jsonl"
+set +e
+OUT="$("$DISCOVER" --cwd "$SPACE_CWD" 2>"$WORK/t10.err")"
+RC=$?
+set -e
+if [ "$RC" -eq 0 ] \
+  && printf '%s\n' "$OUT" | grep -q 'host=claude' \
+  && printf '%s\n' "$OUT" | grep -q 'session_id=space-sid' \
+  && printf '%s\n' "$OUT" | grep -F "path=$CLAUDE_ROOT/$SPACE_ENC/space-sid.jsonl" >/dev/null; then
+  pass "T10 space in cwd path"
+else
+  bad "T10 rc=$RC out=$OUT err=$(cat "$WORK/t10.err")"
 fi
 
 echo "discover-host-test: $PASS passed, $FAIL failed"

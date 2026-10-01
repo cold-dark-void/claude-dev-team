@@ -6,14 +6,16 @@ commands/handoff.md Step 1 with one python3 helper (python3 is already a
 /handoff dependency via prepass.sh).
 
 Usage:
-  plan-fields.py <plan.json> <live-session.json>
+  plan-fields.py <plan.json> <live-session.json> [mode]
 
 Stdout: exactly 5 lines, in order:
   MODE   plan.mode, or "" when absent/not a string
   SLA    "true" iff plan.stats.since_leaf_applied is JSON true, else "false"
   ET     plan.stats.est_tokens when a non-negative int, else ""
-  HOST   live-session.json .host when a non-empty string, else "claude"
-         (missing/unreadable/invalid live-session.json also falls back to "claude")
+  HOST   live-session.json .host when mode is warm (or omitted), else "claude".
+         A non-warm mode (cold) does not trust the bridge. Two-arg calls keep
+         the warm read so existing callers stay stable. Missing or invalid
+         live-session.json falls back to "claude".
   SPINE  plan.spine, or "" when absent/not a string
 
 Exit 0 on success. plan.json missing/unreadable/invalid JSON/not an object ->
@@ -35,7 +37,10 @@ def _non_negative_int_or_empty(value):
     return ""
 
 
-def _host(live_path):
+def _host(live_path, mode):
+    # Cold, and any explicit mode other than warm, uses the Claude column.
+    if mode != "warm":
+        return "claude"
     try:
         with open(live_path, encoding="utf-8") as fh:
             live = json.load(fh)
@@ -48,11 +53,13 @@ def _host(live_path):
 
 
 def main(argv):
-    if len(argv) != 3:
-        print("plan-fields: usage: plan-fields.py <plan.json> <live-session.json>",
+    if len(argv) not in (3, 4):
+        print("plan-fields: usage: plan-fields.py <plan.json> <live-session.json> [mode]",
               file=sys.stderr)
         return 1
     plan_path, live_path = argv[1], argv[2]
+    # Two-arg calls keep the bridge read. A third arg is the handoff mode.
+    handoff_mode = "warm" if len(argv) == 3 else argv[3]
 
     try:
         with open(plan_path, encoding="utf-8") as fh:
@@ -70,7 +77,7 @@ def main(argv):
     mode = _str_or_empty(plan.get("mode"))
     sla = "true" if stats.get("since_leaf_applied") is True else "false"
     est_tokens = _non_negative_int_or_empty(stats.get("est_tokens"))
-    host = _host(live_path)
+    host = _host(live_path, handoff_mode)
     spine = _str_or_empty(plan.get("spine"))
 
     print(mode)

@@ -57,7 +57,11 @@ def sanitize_session_id(session_id: str) -> str:
     s = (session_id or "").strip()
     if not s:
         raise ValueError("session_id is required and must be non-empty")
-    safe = _UUID_SAFE.sub("-", s).strip("-._")
+    safe = _UUID_SAFE.sub("-", s)
+    # ".." is a path segment. The charset class keeps dots, so strip it.
+    while ".." in safe:
+        safe = safe.replace("..", "-")
+    safe = safe.strip("-._")
     if not safe:
         raise ValueError(
             f"session_id yields empty uuid prefix after sanitize: {session_id!r}"
@@ -202,7 +206,7 @@ def _base_line(
     return {
         "type": typ,
         "uuid": make_uuid(session_safe, emit_index),
-        "sessionId": session_id,
+        "sessionId": session_safe,
         "cwd": cwd,
         "timestamp": ts,
         "message": {
@@ -300,6 +304,7 @@ def convert_stream(
     n_user = 0
     n_assistant = 0
     n_tool_result = 0
+    prev_ts = ""
     for raw in infile:
         raw = raw.strip()
         if not raw:
@@ -322,6 +327,16 @@ def convert_stream(
         )
         if claude is None:
             continue
+        # A missing timestamp must not sort before an earlier real timestamp.
+        # Equal timestamps keep file order via assemble's line-index tiebreak.
+        raw_ts = obj.get("timestamp")
+        had_real = isinstance(raw_ts, str) and bool(raw_ts)
+        ts = claude.get("timestamp") if isinstance(claude.get("timestamp"), str) else ""
+        if not had_real and prev_ts and ts < prev_ts:
+            claude["timestamp"] = prev_ts
+            ts = prev_ts
+        if ts:
+            prev_ts = ts
         emitted.append(claude)
         if claude["type"] == "user":
             n_user += 1

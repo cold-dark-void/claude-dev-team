@@ -407,6 +407,22 @@ PF_RC=$?
 if [ "$PF_RC" -eq 1 ] && grep -qF 'plan-fields:' "$PF_WORK/bad.err" && [ ! -s "$PF_WORK/bad.out" ]; then ok
 else bad "AC13 plan-fields.py invalid plan.json must exit 1 with stderr rc=$PF_RC"; fi
 
+# ---- AC14 (CDT-337): cold mode ignores a Grok bridge; warm still reads it ----
+PF_OUT=$(python3 "$PLANFIELDS" "$PF_WORK/plan-full.json" "$PF_WORK/live.json" cold 2>"$PF_WORK/err")
+PF_RC=$?
+PF_HOST=$(printf '%s\n' "$PF_OUT" | sed -n '4p')
+if [ "$PF_RC" -eq 0 ] && [ "$PF_HOST" = "claude" ]; then ok
+else bad "AC14 cold mode must use the Claude column rc=$PF_RC host=$PF_HOST out=$PF_OUT"; fi
+PF_OUT=$(python3 "$PLANFIELDS" "$PF_WORK/plan-full.json" "$PF_WORK/live.json" warm 2>"$PF_WORK/err")
+PF_RC=$?
+PF_HOST=$(printf '%s\n' "$PF_OUT" | sed -n '4p')
+if [ "$PF_RC" -eq 0 ] && [ "$PF_HOST" = "grok" ]; then ok
+else bad "AC14 warm mode must keep the bridge host rc=$PF_RC host=$PF_HOST"; fi
+# Claude column maps fast to haiku. Grok identity would keep fast.
+if grep -qE '`fast`[[:space:]]*\|[[:space:]]*`haiku`' "$HERE/SKILL.md" \
+   && grep -qF '"$HANDOFF_MODE"' "$ROOT/commands/handoff.md"; then ok
+else bad "AC14 command must pass HANDOFF_MODE and the Claude fast cell is haiku"; fi
+
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   exit 0

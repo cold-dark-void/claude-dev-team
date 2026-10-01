@@ -89,9 +89,10 @@ PY
 }
 
 claude_pdir() {
-  local abs
+  local abs enc
   abs="$(cd "$1" && pwd)"
-  printf '%s/.claude/projects/%s\n' "$HOME" "${abs//\//-}"
+  enc=$(python3 "$HERE/../transcript-parse/hosts.py" encode-project --cwd "$abs")
+  printf '%s/.claude/projects/%s\n' "$HOME" "$enc"
 }
 
 ENC="$(CWD_RAW="$(cd "$PROJ" && pwd)" python3 - <<'PY'

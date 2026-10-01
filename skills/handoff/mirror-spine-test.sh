@@ -42,7 +42,7 @@ mkdir -p "$CLAUDE_PROJECTS_DIR"
 
 CWD="$WORK/fake-project-cwd"  # fixed, cwd-independent (SPEC-030 R20)
 mkdir -p "$CWD"
-ENC_CLAUDE=${CWD//\//-}
+ENC_CLAUDE=$(python3 "$ROOT/skills/transcript-parse/hosts.py" encode-project --cwd "$CWD")
 ENC_GROK=$(python3 -c 'import os,urllib.parse,sys; print(urllib.parse.quote(os.path.abspath(sys.argv[1]), safe=""))' "$CWD")
 
 age() { touch -d '2 minutes ago' "$1"; }

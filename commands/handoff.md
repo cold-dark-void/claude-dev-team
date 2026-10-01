@@ -161,7 +161,7 @@ set +e
 PREP_RC=$?; set -e
 if [ "$PREP_RC" -eq 9 ]; then echo "in-progress (transcript modified < 60 s ago) — too-fresh (M9)"; exit 0; fi
 [ "$PREP_RC" -eq 0 ] || { cat "$E" >&2; echo "error: prepare failed" >&2; exit 1; }
-FIELDS=$(python3 "$PLANFIELDS" "$PLAN_JSON" "$HANDOFF_DIR/.live-session.json" 2>"$E") \
+FIELDS=$(python3 "$PLANFIELDS" "$PLAN_JSON" "$HANDOFF_DIR/.live-session.json" "$HANDOFF_MODE" 2>"$E") \
   || { cat "$E" >&2; echo "error: plan-fields failed" >&2; exit 1; }
 MODE=$(printf '%s\n' "$FIELDS" | sed -n '1p')
 SLA=$(printf '%s\n' "$FIELDS" | sed -n '2p')

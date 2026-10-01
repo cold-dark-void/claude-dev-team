@@ -1667,7 +1667,7 @@ t23_claude_jsonl() {
   local proj="$1" sid="$2"
   local abs enc dest
   abs=$(cd "$proj" && pwd)
-  enc=$(printf '%s' "$abs" | tr '/' '-')
+  enc=$(python3 "$PLUGIN_ROOT/skills/transcript-parse/hosts.py" encode-project --cwd "$abs")
   dest="$T23_HOME/.claude/projects/$enc/${sid}.jsonl"
   t23_write_mini "$dest"
   printf '%s\n' "$dest"

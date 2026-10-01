@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import urllib.parse
 from typing import Callable, Optional
@@ -73,9 +74,9 @@ def _require_mode(mode: str) -> str:
 
 
 def dash_encode_cwd(cwd: str) -> str:
-    """Claude project-dir encoding: absolute path with every '/' → '-'."""
+    """Claude project-dir encoding: every non-[A-Za-z0-9] becomes '-'."""
     abs_cwd = os.path.abspath(os.path.expanduser(cwd or "."))
-    return abs_cwd.replace("/", "-")
+    return re.sub(r"[^A-Za-z0-9]", "-", abs_cwd)
 
 
 def urlencode_cwd(cwd: str) -> str:
@@ -194,18 +195,10 @@ def _claude_locate(
 ) -> Optional[str]:
     """Claude locate: by uuid (fork-aware) or newest mtime under project dir."""
     if session_id:
-        # assemble.locate scans all ~/.claude/projects (fork canonical pick).
-        # sessions_dir override is ignored for uuid locate — fork trees may
-        # span project dirs; assemble always uses PROJECTS_DIR. If a test
-        # needs a custom root, patch assemble.PROJECTS_DIR.
-        if sessions_dir is not None and sessions_dir != DEFAULT_CLAUDE_PROJECTS_DIR:
-            # Temporarily point assemble at the override for testability.
-            prev = assemble.PROJECTS_DIR
-            try:
-                assemble.PROJECTS_DIR = sessions_dir
-                return assemble.locate(session_id)
-            finally:
-                assemble.PROJECTS_DIR = prev
+        # assemble.locate scans the projects root (fork canonical pick).
+        # Pass the override as a parameter. Do not mutate assemble.PROJECTS_DIR.
+        if sessions_dir is not None:
+            return assemble.locate(session_id, projects_dir=sessions_dir)
         return assemble.locate(session_id)
     return _claude_locate_newest(cwd, projects_dir=sessions_dir)
 
@@ -448,6 +441,11 @@ def _cmd_locate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_encode_project(args: argparse.Namespace) -> int:
+    sys.stdout.write(dash_encode_cwd(args.cwd))
+    return 0
+
+
 def _cmd_normalize(args: argparse.Namespace) -> int:
     try:
         out = normalize(
@@ -500,6 +498,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override host sessions/projects root (tests / GROK_SESSIONS_DIR)",
     )
     loc.set_defaults(func=_cmd_locate)
+
+    enc = sub.add_parser(
+        "encode-project",
+        help="Print the Claude project-dir name for --cwd",
+    )
+    enc.add_argument("--cwd", required=True, help="Project directory to encode")
+    enc.set_defaults(func=_cmd_encode_project)
 
     norm = sub.add_parser(
         "normalize",

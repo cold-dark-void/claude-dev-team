@@ -133,12 +133,12 @@ Design: deterministic LLM-free **pre-pass** (fork-tree assembly + `toolUseResult
   **Host selection:** Explicit Grok env (steps 1–2) wins. Grok cwd-newest (step 3) MUST win over a *stale* Claude bridge or Claude projects-dir tip (CDT-92) but MUST NOT fire when a definitive live-Claude env signal is present (`CLAUDE_CODE_SESSION_ID` or `CLAUDE_SESSION_ID`, or `CLAUDE_TRANSCRIPT_PATH` / `TRANSCRIPT_PATH` pointing at a real non-Grok file) — otherwise dual-host repos silently mine the wrong session. `CLAUDE_CODE_SESSION_ID` is the variable Claude Code actually exports (CDT-104); omitting it made the gate dead in every live Claude session. When only Claude is resolvable, Claude path (CDT-85) is unchanged. When neither resolves → fail clear; MUST NOT freeform-write live-context as warm STM.
 
   **Grok discovery precedence (when Grok path active):**
-  (1) Grok/session env (`GROK_SESSION_ID` / `GROK_TRANSCRIPT_PATH` / non-empty `SESSION_ID` that names a dir under `GROK_SESSIONS_DIR`);
+  (1) Grok/session env (`GROK_SESSION_ID` / `GROK_TRANSCRIPT_PATH` / non-empty `HANDOFF_SESSION_ID` that names a dir under `GROK_SESSIONS_DIR`);
   (2) `CLAUDE_SESSION_ID` / `CLAUDE_TRANSCRIPT_PATH` / `TRANSCRIPT_PATH` **only if** the path is a Grok `chat_history.jsonl` **under** `${GROK_SESSIONS_DIR:-~/.grok/sessions}` (basename alone is insufficient; sid from parent dir of that file);
   (3) newest-mtime `chat_history.jsonl` under `${GROK_SESSIONS_DIR:-~/.grok/sessions}/<urlencode(cwd)>/*/` — **skipped** when live Claude env signal is set;
   (4) else Grok miss (fall through to Claude discovery or hard fail).
 
-  **Claude discovery precedence:** env → bridge → stem → cwd-newest under `CLAUDE_PROJECTS_DIR` (CDT-85), but **skipped** when Grok already resolved via steps 1–2 or ungated step 3. The env leg MUST read `CLAUDE_CODE_SESSION_ID` first, then `CLAUDE_SESSION_ID`, then `SESSION_ID` (CDT-104) — same order as the `ARM_SID` chain in `skills/refactor/SKILL.md`. Grok step (2) intentionally does **not** consult `CLAUDE_CODE_SESSION_ID`: it runs before the live-Claude gate, so admitting the live id there would reopen the hijack this gate closes.
+  **Claude discovery precedence:** env → bridge → stem → cwd-newest under `CLAUDE_PROJECTS_DIR` (CDT-85), but **skipped** when Grok already resolved via steps 1–2 or ungated step 3. The env leg MUST read `CLAUDE_CODE_SESSION_ID` first, then `CLAUDE_SESSION_ID`, then `HANDOFF_SESSION_ID` (CDT-395). A generic `SESSION_ID` is not a session pin. The bridge is fresh only when `updated_at` is inside `HANDOFF_BRIDGE_MAX_AGE` (default 86400 seconds). Project-dir names use `hosts.py encode-project` (every non-`[A-Za-z0-9]` becomes `-`). Grok step (2) intentionally does **not** consult `CLAUDE_CODE_SESSION_ID`: it runs before the live-Claude gate, so admitting the live id there would reopen the hijack this gate closes.
 
   **Grok normalize:** Before prepare, Grok `chat_history` MUST be adapted to Claude-shaped JSONL (user/assistant `message.role`, synthetic `uuid`, injected `cwd` for M7b resolve-root). Shared spine-mine after prepare is unchanged (M3b).
 
@@ -320,6 +320,7 @@ The numbered Test section above is the acceptance map. This table is the script 
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 4-05: project-dir encoding uses `hosts.py encode-project`. Generic `SESSION_ID` is not a warm pin (`HANDOFF_SESSION_ID` is). A stale `.live-session.json` does not resolve. Cold `plan-fields.py` ignores the bridge host. The git capture recipe uses `git -C "$MROOT"`. |
 | 2026-10-01 | WP 4-04: event text, how_verified, pointer notes, and validated summary prose collapse to one line before render. Git blob fence is longer than any backtick run in the blob. Packet write is temp plus rename. resolve-root refuses MROOT equal to `$HOME/.claude` and maps a submodule common dir up to the super checkout. |
 | 2026-10-01 | WP 2-03: `## Traceability` holds the Test→script map. `SPEC-018/T39` is tagged on `skills/handoff/detached-stub-test.sh`. |
 | 2026-09-25 | **WP 1-02 (CDT-266, W1-27, E5):** M19.11 one parent fence (parse through prepare in the Step 1 fence; quoted-heredoc args; bare → warm); `mktemp` error file; python3 plan helper replaces `jq`; payload echo carries `SPINE=`; full 8-4-4-4-12 uuid shape; cache-HIT / M9 strings match the docs page. Unknown flag stays usage + exit 0 (this spec wins over the W1-27 "exit 64" ask). 12000 B cap unchanged. |
