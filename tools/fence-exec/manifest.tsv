@@ -42,3 +42,5 @@ suite	commands/adjust-agent.md	## Step 7: Model map	skills/skill-lint/test-comma
 suite	commands/adjust-agent.md	## Step 3: Dashboard mode	skills/skill-lint/test-command-fences.sh	/adjust-agent dashboard: an empty directives file gives one 0 (CDT-362)
 suite	commands/retro.md	## Step 1: Parse arguments	skills/skill-lint/test-command-fences.sh	/retro Step 1: the one parser, words intact
 suite	commands/retro.md	Step 2a	skills/skill-lint/test-command-fences.sh	/retro --all --host grok with no Grok session prints its error (CDT-362)
+suite	skills/debug/SKILL.md	## Step 0c: Load bug-specific context	skills/debug/test-fences.sh	/debug Step 0c: a relative path survives sanitization and an empty path does not call git log
+suite	skills/debug/SKILL.md	### S.1 Theme key + reopen status	skills/debug/test-fences.sh	/debug S.1: theme-status.sh resolves through plugin-dir on a consumer cwd

@@ -19,7 +19,7 @@ design-level issue that warrants a `/kickoff` handoff. Entry host:
 `commands/debug.md` (PDH-resolves this skill).
 
 > **MUST (SPEC-029):** same-theme reopens, multi-UI products, and isolation-language
-> force redesign / multi-surface verification. See `## SPEC-029 gates` below.
+> force redesign / multi-surface verification. See `## Step 1: SPEC-029 gates` below.
 > **SPEC-029 applies to `full` / `patch` / `arch` only** — not `ticket`.
 
 ## Arguments
@@ -247,8 +247,20 @@ SAFE_PATH=$(printf '%s' "$RAW_PATH" | tr -cd 'A-Za-z0-9_./-')
 case "$SAFE_PATH" in
   *..* ) echo "Path traversal detected — skip" && SAFE_PATH="" ;;
 esac
-[ -n "$SAFE_PATH" ] && [[ "$SAFE_PATH" != "$WTROOT"* ]] && SAFE_PATH=""
-git log --oneline -20 -- "$SAFE_PATH"
+# A repo-relative path is not a prefix of $WTROOT. Anchor it first (CDT-393).
+case "$SAFE_PATH" in
+  /*) ;;
+  *) [ -n "$SAFE_PATH" ] && SAFE_PATH="$WTROOT/$SAFE_PATH" ;;
+esac
+case "$SAFE_PATH" in
+  "$WTROOT"|"$WTROOT"/*) ;;
+  *) SAFE_PATH="" ;;
+esac
+if [ -n "$SAFE_PATH" ]; then
+  git log --oneline -20 -- "$SAFE_PATH"
+else
+  echo "Affected path not identifiable or outside the worktree — git log skipped."
+fi
 ```
 
 If no specific path is identifiable from `$DESC`, skip this read and note:
@@ -271,9 +283,19 @@ SAFE_PATH=$(printf '%s' "$RAW_PATH" | tr -cd 'A-Za-z0-9_./-')
 case "$SAFE_PATH" in
   *..* ) echo "Path traversal detected — skip" && SAFE_PATH="" ;;
 esac
-[ -n "$SAFE_PATH" ] && [[ "$SAFE_PATH" != "$WTROOT"* ]] && SAFE_PATH=""
+# A repo-relative path is not a prefix of $WTROOT. Anchor it first (CDT-393).
+case "$SAFE_PATH" in
+  /*) ;;
+  *) [ -n "$SAFE_PATH" ] && SAFE_PATH="$WTROOT/$SAFE_PATH" ;;
+esac
+case "$SAFE_PATH" in
+  "$WTROOT"|"$WTROOT"/*) ;;
+  *) SAFE_PATH="" ;;
+esac
 # When affected path is known:
-find "$(dirname "$SAFE_PATH")" -name "*test*" -o -name "*_test.*" 2>/dev/null | head -20
+if [ -n "$SAFE_PATH" ]; then
+  find "$(dirname "$SAFE_PATH")" -name "*test*" -o -name "*_test.*" 2>/dev/null | head -20
+fi
 # Fallback: project-wide test discovery
 find "$WTROOT" -name "*test*" -o -name "*_test.*" 2>/dev/null | head -30
 ```
@@ -291,7 +313,7 @@ Bug-specific context loaded:
 
 ---
 
-## SPEC-029 gates
+## Step 1: SPEC-029 gates
 
 Evidence-backed additions from the May 2026 refine/isolation thrash. Apply in
 **full**, **patch**, and **arch** modes (arch: S.1 + S.6 at minimum; no fix path).
@@ -313,26 +335,14 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 DESC_FOR_THEME='<paste $DESC factual bug text here — model fills before run>'
-HELPER=""
-for c in \
-  "$MROOT/skills/debug/theme-status.sh" \
-  "${CLAUDE_PLUGIN_ROOT:-}/skills/debug/theme-status.sh" \
-  ; do
-  [ -x "$c" ] && HELPER="$c" && break
-  [ -f "$c" ] && HELPER="bash $c" && break
-done
-if [ -n "$HELPER" ]; then
-  THEME_KEY=$($HELPER derive "$DESC_FOR_THEME")
-  $HELPER force-check "$THEME_KEY" "$DESC_FOR_THEME" "$MROOT"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+HELPER=$(bash "$PDH/skills/plugin-dir.sh" file skills/debug/theme-status.sh 2>/dev/null || true)
+if [ -n "$HELPER" ] && [ -f "$HELPER" ]; then
+  THEME_KEY=$(bash "$HELPER" derive "$DESC_FOR_THEME")
+  bash "$HELPER" force-check "$THEME_KEY" "$DESC_FOR_THEME" "$MROOT"
 else
-  THEME_KEY=$(printf '%s' "$DESC_FOR_THEME" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | tr -s '-' | cut -c1-48)
-  [ -z "$THEME_KEY" ] && THEME_KEY=unthemed
-  echo "Theme: $THEME_KEY"
-  echo "Prior debug days (14d): 0"
-  echo "Forced redesign: no"
-  echo "THEME_KEY=$THEME_KEY"
-  echo "REOPEN_COUNT=0"
-  echo "FORCED_REDESIGN=no"
+  echo "WARN: theme-status.sh unresolved — SPEC-029 reopen count unavailable" >&2
 fi
 ```
 
@@ -784,6 +794,7 @@ Self-calibration checklist (patch mode):
   [ ] Failing test existed and was confirmed failing before fix
   [ ] Full test suite passes
   [ ] Manual verification completed (if non-reproducible bug or no test suite)
+  [ ] SPEC-029 theme log write-back ran (S.6)
 ```
 
 If any item ✗: do not output any completion language. Either resolve the gap or escalate.

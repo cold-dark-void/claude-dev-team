@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.43
+- **WP 2-11 Debug gates** — the reopen gate resolves theme-status.sh through plugin-dir, a relative path survives the sanitizer, and an empty path does not run git log.
+
 ### v1.18.42
 - **WP 2-10 Scheduled retro lock** — Step 1b keeps the scheduled lock until an exit fence releases it with the owner token, acquire publishes a complete lock with link(2), and the report applied count omits parked rows.
 

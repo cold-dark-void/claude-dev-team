@@ -10,7 +10,9 @@
 #   theme-status.sh count-prior <theme-key> [project-root]  # prints integer only
 set -euo pipefail
 
-STOP='^(a|an|the|to|of|in|on|for|and|or|is|not|does|do|with|from|when|while|this|that|it|my|i|we|you|as|be|by|at|so|if|bug|issue|broken|still|fix|the|after)$'
+# Tokens shorter than 3 characters never reach this filter (the derive grep
+# keeps only [a-z0-9]{3,}). Do not list them here.
+STOP='^(the|for|and|not|does|with|from|when|while|this|that|you|bug|issue|broken|still|fix|after)$'
 
 derive_theme() {
   local desc="$*"
@@ -94,7 +96,11 @@ if hp.is_file() and tokens:
         except json.JSONDecodeError:
             continue
         pth = (o.get("project") or "").rstrip("/")
-        if root_n not in pth and pth not in root_n:
+        # Exact project or a directory inside it. An empty project and an
+        # ancestor path (pth in root) must not inflate the count (CDT-279 F24).
+        if not root_n or not pth:
+            continue
+        if pth != root_n and not pth.startswith(root_n + "/"):
             continue
         d = day_of(o.get("timestamp"))
         if not d:
@@ -186,10 +192,14 @@ case "$cmd" in
   count-prior) count_prior_days "${1:-unthemed}" "${2:-.}" ;;
   # Do NOT pass an empty $3 — that used to force echo "" and drop stdin (C1-class).
   append)
+    if [[ $# -lt 1 ]]; then
+      echo "Usage: $0 append <theme-key> [project-root] [--|json]" >&2
+      exit 2
+    fi
     if [[ $# -ge 3 ]]; then
-      append "${1:?theme}" "${2:-.}" "$3"
+      append "${1}" "${2:-.}" "$3"
     else
-      append "${1:?theme}" "${2:-.}"
+      append "${1}" "${2:-.}"
     fi
     ;;
   force-check) force_check "${1:?theme}" "${2:-}" "${3:-.}" ;;
