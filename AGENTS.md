@@ -255,7 +255,8 @@ Absent file is fine until the first real term crystallizes.
 - Both directories are functionally equivalent to Claude Code's plugin loader — the split is organizational only
 - Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
 - No build step — this is a pure markdown/JSON plugin
-- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/setup project` emits for interactive use; `/setup team`, via `project-init`, sets the `Bash(*)` wildcard — the sandbox is the boundary — and syncs the sandbox network allowlist)
+- Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/setup project` emits for interactive use; `/setup team`, via `project-init`, seeds only `Bash(sqlite3:*)` and `Bash(git:*)` when no sandbox is present, and syncs the sandbox network allowlist)
+- Untrusted input never becomes code. Pass paths and JSONL as argv or environment variables. SQL that carries user or LLM text uses `?` via `bash skills/lib/sqlq.sh`. Check `--agent` with the roster regex `^(pm|tech-lead|ic5|ic4|devops|qa|ds)$` (`skills/lib/require-agent.sh`) before it reaches SQL. A numeric config value must be an integer before it is interpolated.
 - Temp paths in skill/command executable bash blocks MUST use `"${TMPDIR:-/tmp}/…"`
   or plain `mktemp` / `mktemp -d` (honors `$TMPDIR`). MUST NOT hard-code bare
   `/tmp/…` for writable files. Intentional OS mounts (e.g. bwrap `--tmpfs /tmp`

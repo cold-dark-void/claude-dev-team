@@ -42,14 +42,15 @@ Read the existing `$MROOT/.claude/settings.json` (if any). Merge/ensure the
 following permissions are present. **Do not remove** any existing user-added
 permissions — only add missing ones.
 
-Team-bootstrap seed (when no orchestration markers present):
+Team-bootstrap seed (when no orchestration markers and no sandbox are present).
+Do not grant `Bash(*)` or `acceptEdits` in that case. Seed only narrow allows:
 ```json
 {
   "permissions": {
     "allow": [
-      "Bash(*)"
-    ],
-    "defaultMode": "acceptEdits"
+      "Bash(sqlite3:*)",
+      "Bash(git:*)"
+    ]
   }
 }
 ```
@@ -58,16 +59,10 @@ Team-bootstrap seed (when no orchestration markers present):
 1. If `$MROOT/.claude/settings.json` does not exist → create it with the JSON above.
 2. If it exists → read it, add any missing entries from the `allow` list above,
    preserve any extra entries the user added. Write the updated file back.
-3. **`defaultMode` rules (MUST — never clobber orchestration):**
-   - If `permissions.defaultMode` is **already set** → **leave it** (do not
-     overwrite `dontAsk`, `bypassPermissions`, or any other value).
-   - Only seed `defaultMode: "acceptEdits"` when **both** are true:
-     (a) `defaultMode` is missing/empty, **and**
-     (b) no orchestration markers present — markers = `sandbox.enabled: true`
-         **and** `permissions.allow` contains `"Bash(*)"` as a managed
-         orchestration entry (sandbox + Bash(*) managed together).
-   - When orchestration markers are present, never write `acceptEdits` even if
-     `defaultMode` is missing — leave mode for `/setup orchestration` to own.
+3. **`defaultMode` rules (MUST — project-init never writes it):**
+   - Do not write `defaultMode` from project-init.
+   - If `permissions.defaultMode` is already set, leave it.
+   - If it is missing, leave it unset. `/setup orchestration` owns the mode.
 4. Report what was added (e.g., "Added Bash(*) to allowlist") or "Permissions already up to date".
 
 ## Step 2: Comprehensive Project Scan
@@ -140,15 +135,21 @@ fi
 if [ "$MEMORY_BACKEND" = "sqlite" ]; then
   # Append one focused entry per INSERT — one fact/subsystem/concept per row
   ESCAPED_ENTRY=$(printf '%s' "$ENTRY" | sed "s/'/''/g")
-  sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content)
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content)
     VALUES ('$AGENT', '$TYPE', '$ESCAPED_ENTRY');"
+  # Backfill an embedding after the insert when embed-one.sh is configured.
+  # A missing helper or a failed embed does not undo the memory row.
   # Repeat for each additional entry — do NOT combine into one row
 else
   # Fallback: write the .md file
-  cat > "$MROOT/.claude/memory/$AGENT/$TYPE.md" << 'EOF'
+  if [ ! -f "$MROOT/.claude/memory/$AGENT/$TYPE.md" ]; then
+  cat >> "$MROOT/.claude/memory/$AGENT/$TYPE.md" << 'EOF'
 [content]
 EOF
   echo "  [md] Wrote $AGENT/$TYPE.md"
+  else
+  echo "  [md] Kept existing $AGENT/$TYPE.md"
+  fi
 fi
 ```
 
@@ -452,6 +453,9 @@ If no AGENTS.md exists, seed lessons only from pitfalls found in the scan; other
 Create `.claude/CLAUDE.md` (the project memory pointer) if it doesn't already exist:
 
 ```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
 if [ ! -f "$MROOT/.claude/CLAUDE.md" ]; then  # lint-ok: C1
   mkdir -p "$MROOT/.claude"
   cat > "$MROOT/.claude/CLAUDE.md" << 'EOF'
@@ -478,7 +482,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 mkdir -p "$MROOT/.claude/memory/claude"
 if [ ! -f "$MROOT/.claude/memory/claude/memory.md" ]; then
-  cat > "$MROOT/.claude/memory/claude/memory.md" << EOF
+  cat > "$MROOT/.claude/memory/claude/memory.md" << 'EOF'
 # Claude Code Memory — [Project Name]
 _Seeded by project-init on [date]_
 
@@ -494,7 +498,7 @@ EOF
 fi
 ```
 
-Replace `[Project Name]`, `[date]`, and the placeholder sections with real content from the scan.
+Write the header from the scan before you create the file. Omit a section you cannot fill. Do not leave bracket placeholders in the file.
 
 ## Step 5: Report
 

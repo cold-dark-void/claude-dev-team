@@ -221,6 +221,86 @@ PLAIN=$(sqlite3 "$POISON_DB" "SELECT value FROM config WHERE key='schema_version
 assert_eq "T4 plain SELECT returns 4" "$PLAIN" "4"
 rm -rf "$POISON_FIX"
 
+# ---------- T5: migrate-md keeps # body lines, splits, and renames ----------
+MDMIG="$SCRIPT_DIR/migrate-md.sh"
+T5=$(mktemp -d "${TMPDIR:-/tmp}/migrate-md-t5.XXXXXX")
+mkdir -p "$T5/.claude/memory/ic5"
+sqlite3 "$T5/.claude/memory/memory.db" <"$SCHEMA" >/dev/null
+awk 'BEGIN{
+  print "## Auth module"
+  print "The auth module checks tokens before every request."
+  print "# NEVER run this against prod because it drops tables"
+  print "#42 was the ticket that added the lock"
+  for (i = 0; i < 9000; i++) printf "B"
+  print ""
+  print "ENDMARKER stays in the migrated body and is longer than the short-chunk floor"
+}' >"$T5/.claude/memory/ic5/lessons.md"
+set +e
+bash "$MDMIG" "$T5" >"$T5/out.txt" 2>&1
+T5_RC=$?
+set -e
+BLOB=$(sqlite3 "$T5/.claude/memory/memory.db" "SELECT group_concat(content, char(10)) FROM memories;" 2>/dev/null || true)
+if [ "$T5_RC" -eq 0 ] && [ -f "$T5/.claude/memory/ic5/lessons.md.migrated" ] && [ ! -f "$T5/.claude/memory/ic5/lessons.md" ] \
+  && printf '%s' "$BLOB" | grep -qF '# NEVER run this against prod' \
+  && printf '%s' "$BLOB" | grep -qF '#42 was the ticket' \
+  && printf '%s' "$BLOB" | grep -qF 'ENDMARKER stays in the migrated body'; then
+  PASS=$((PASS + 1)); echo "  ok  T5 migrate-md keeps hash lines, splits, renames source"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T5 migrate-md rc=$T5_RC migrated=$([ -f "$T5/.claude/memory/ic5/lessons.md.migrated" ] && echo yes || echo no)"
+fi
+# dry-run leaves the source and writes no rows
+T5B=$(mktemp -d "${TMPDIR:-/tmp}/migrate-md-t5b.XXXXXX")
+mkdir -p "$T5B/.claude/memory/qa"
+sqlite3 "$T5B/.claude/memory/memory.db" <"$SCHEMA" >/dev/null
+printf '%s\n' '## Queue' 'The queue caps workers at four.' >"$T5B/.claude/memory/qa/lessons.md"
+set +e
+bash "$MDMIG" --dry-run "$T5B" >"$T5B/out.txt" 2>&1
+set -e
+T5B_N=$(sqlite3 "$T5B/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo err)
+if [ -f "$T5B/.claude/memory/qa/lessons.md" ] && [ "$T5B_N" = "0" ] && grep -q 'dry-run' "$T5B/out.txt"; then
+  PASS=$((PASS + 1)); echo "  ok  T5 dry-run keeps the source and writes nothing"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T5 dry-run n=$T5B_N"
+fi
+if grep -q 'probe failed' "$MDMIG" && grep -q 'm.archived = 0' "$MDMIG" && grep -q 'command -v python3' "$MDMIG"; then
+  PASS=$((PASS + 1)); echo "  ok  T5 probe failure, archived skip, and python3 check are in migrate-md"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T5 migrate-md guards missing"
+fi
+# A short tail after a line over the split floor must stay in the row.
+T5C=$(mktemp -d "${TMPDIR:-/tmp}/migrate-md-t5c.XXXXXX")
+mkdir -p "$T5C/.claude/memory/ds"
+sqlite3 "$T5C/.claude/memory/memory.db" <"$SCHEMA" >/dev/null
+awk 'BEGIN{ for (i = 0; i < 5100; i++) printf "X"; print ""; print "TAILBIT" }' >"$T5C/.claude/memory/ds/memory.md"
+set +e
+bash "$MDMIG" "$T5C" >"$T5C/out.txt" 2>&1
+T5C_RC=$?
+set -e
+T5C_BLOB=$(sqlite3 "$T5C/.claude/memory/memory.db" "SELECT group_concat(content, char(10)) FROM memories;" 2>/dev/null || true)
+if [ "$T5C_RC" -eq 0 ] && [ -f "$T5C/.claude/memory/ds/memory.md.migrated" ] \
+  && printf '%s' "$T5C_BLOB" | grep -qF 'TAILBIT' \
+  && printf '%s' "$T5C_BLOB" | grep -qF 'XXXX'; then
+  PASS=$((PASS + 1)); echo "  ok  T5 short tail stays with the previous chunk"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T5 short tail rc=$T5C_RC"
+fi
+# dry-run must not enter the embed writer when rows already lack vectors
+T5D=$(mktemp -d "${TMPDIR:-/tmp}/migrate-md-t5d.XXXXXX")
+mkdir -p "$T5D/.claude/memory/ic4"
+sqlite3 "$T5D/.claude/memory/memory.db" <"$SCHEMA" >/dev/null
+sqlite3 "$T5D/.claude/memory/memory.db" "UPDATE config SET value='remote' WHERE key='embedding_mode'; INSERT INTO memories(agent, type, content) VALUES ('pm','memory','already stored and long enough to count as a row');"
+printf '%s\n' '## New' 'A new lesson that is long enough to migrate cleanly.' >"$T5D/.claude/memory/ic4/lessons.md"
+set +e
+bash "$MDMIG" --dry-run "$T5D" >"$T5D/out.txt" 2>&1
+set -e
+T5D_N=$(sqlite3 "$T5D/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo err)
+if [ -f "$T5D/.claude/memory/ic4/lessons.md" ] && [ "$T5D_N" = "1" ] && ! grep -q 'Embedding ' "$T5D/out.txt"; then
+  PASS=$((PASS + 1)); echo "  ok  T5 dry-run does not embed"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL T5 dry-run embed n=$T5D_N"
+fi
+rm -rf "$T5" "$T5B" "$T5C" "$T5D"
+
 # ---------- summary ----------
 echo "=== results: PASS=$PASS FAIL=$FAIL ==="
 if [ "$FAIL" -gt 0 ]; then

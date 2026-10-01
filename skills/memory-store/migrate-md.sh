@@ -1,16 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: migrate-md.sh <MROOT>
+# Usage: migrate-md.sh [--dry-run] [--delete-sources] <MROOT>
 # Where MROOT is the project root (resolved via git-common-dir)
 #
 # Migrates existing .md memory files (cortex, memory, lessons) from
 # .claude/memory/<agent>/ into the SQLite memories table.
 # Files are chunked by ## sections — each section becomes its own row
 # for better embedding quality and semantic search granularity.
+# Body lines that start with # are kept. Oversized chunks are split, not
+# truncated. Sources are renamed to *.md.migrated unless --delete-sources.
+# --dry-run writes nothing and leaves every source in place.
 # context.md files are intentionally skipped — they remain as .md per-worktree.
 
-MROOT="${1:?Usage: migrate-md.sh <project-root>}"
+DRY_RUN=false
+DELETE_SOURCES=false
+MROOT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    --delete-sources) DELETE_SOURCES=true; shift ;;
+    --) shift; break ;;
+    -*) echo "ERROR: unknown flag $1" >&2; exit 64 ;;
+    *) MROOT="$1"; shift ;;
+  esac
+done
+if [ -z "$MROOT" ]; then
+  echo "Usage: migrate-md.sh [--dry-run] [--delete-sources] <project-root>" >&2
+  exit 64
+fi
 MEMDB="$MROOT/.claude/memory/memory.db"
 MEMDIR="$MROOT/.claude/memory"
 
@@ -32,6 +50,8 @@ if [ ! -f "$MEMDB" ]; then
   echo "Run /setup team first to create the database."
   exit 1
 fi
+command -v sqlite3 >/dev/null 2>&1 || { echo "ERROR: sqlite3 is required" >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required" >&2; exit 1; }
 
 # Counters
 TOTAL_FILES=0
@@ -43,6 +63,53 @@ DELETED=0
 
 # Track successfully migrated files for cleanup
 MIGRATED_FILES=()
+
+# Insert a text body in pieces of at most LIMIT characters, on line boundaries
+# when a line fits. A single longer line is inserted whole (never head -c).
+split_and_insert() {
+  local text="$1" limit="$2"
+  local piece="" line
+  local -a parts=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$piece" ]; then
+      piece="$line"
+    elif [ $(( ${#piece} + ${#line} + 1 )) -le "$limit" ]; then
+      piece="${piece}
+${line}"
+    else
+      parts+=("$piece")
+      piece="$line"
+    fi
+  done <<< "$text"
+  if [ -n "$piece" ]; then
+    parts+=("$piece")
+  fi
+  # A piece of 20 characters or fewer is below the insert floor. Fold it into
+  # a neighbor so a short tail is not stored alone and then lost on the rerun.
+  if [ "${#parts[@]}" -gt 1 ]; then
+    local -a folded=()
+    local cur=""
+    for cur in "${parts[@]}"; do
+      if [ "${#folded[@]}" -gt 0 ] && [ "${#cur}" -le 20 ]; then
+        folded[$((${#folded[@]} - 1))]="${folded[$((${#folded[@]} - 1))]}
+${cur}"
+      else
+        folded+=("$cur")
+      fi
+    done
+    if [ "${#folded[@]}" -gt 1 ] && [ "${#folded[0]}" -le 20 ]; then
+      folded[1]="${folded[0]}
+${folded[1]}"
+      folded=("${folded[@]:1}")
+    fi
+    parts=("${folded[@]}")
+  fi
+  local p
+  for p in "${parts[@]}"; do
+    [ -n "$p" ] || continue
+    _migrate_chunk "$p"
+  done
+}
 
 echo "Scanning $MEMDIR for .md memory files..."
 echo ""
@@ -72,6 +139,11 @@ print(db.execute('SELECT COUNT(*) FROM memories WHERE agent=? AND type=?', (sys.
   if [ "$EXISTING" -gt 0 ]; then
     echo "  SKIP: $AGENT/$TYPE.md ($EXISTING chunks already in DB)"
     SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo "  dry-run: would migrate $AGENT/$TYPE.md"
     continue
   fi
 
@@ -118,8 +190,7 @@ db.commit()
     CHUNK=""
     while IFS= read -r LINE; do
       if echo "$LINE" | grep -q '^## ' && [ -n "$CHUNK" ]; then
-        CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 8000)
-        _migrate_chunk "$CHUNK_TRIMMED"
+        split_and_insert "$CHUNK" 8000
         CHUNK="$LINE"
       else
         CHUNK="${CHUNK}
@@ -128,30 +199,20 @@ ${LINE}"
     done <<< "$CONTENT"
     # Save last chunk
     if [ -n "$CHUNK" ]; then
-      CHUNK_TRIMMED=$(echo "$CHUNK" | sed '/^$/d' | sed '/^#/d' | head -c 8000)
-      _migrate_chunk "$CHUNK_TRIMMED"
+      split_and_insert "$CHUNK" 8000
     fi
     echo "  OK: $FILE_INSERTED inserted / $FILE_CONSIDERED considered ($FILE_SKIPPED short-skipped) from $AGENT/$TYPE"
     TOTAL_CHUNKS=$((TOTAL_CHUNKS + FILE_INSERTED))
   else
-    # No ## headers — insert whole file as one chunk (capped at 5000 chars)
-    CONTENT_TRIMMED=$(printf '%s' "$CONTENT" | head -c 5000)
-    FILE_CONSIDERED=1
-    if [ -z "$CONTENT_TRIMMED" ]; then
+    # No ## headers — split the file instead of truncating at 5000 chars.
+    if [ -z "$CONTENT" ]; then
       FILE_SKIPPED=$((FILE_SKIPPED + 1))
       echo "  WARN: empty content for $AGENT/$TYPE — source will be preserved"
-    elif python3 -c "
-import sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
-db.execute('PRAGMA busy_timeout=5000')
-db.execute('INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)', (sys.argv[2], sys.argv[3], sys.argv[4]))
-db.commit()
-" "$MEMDB" "$AGENT" "$TYPE" "$CONTENT_TRIMMED"; then
-      FILE_INSERTED=1
-      echo "  OK: 1 chunk (no sections) from $AGENT/$TYPE"
-      TOTAL_CHUNKS=$((TOTAL_CHUNKS + 1))
     else
-      FILE_FAILED=true
+      split_and_insert "$CONTENT" 5000
+      if [ "$FILE_INSERTED" -gt 0 ]; then
+        echo "  OK: $FILE_INSERTED chunk(s) (no sections) from $AGENT/$TYPE"
+      fi
     fi
   fi
 
@@ -183,8 +244,8 @@ MODEL_DIR="$MROOT/.claude/memory/models"
 EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
 
-if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ] && [ "$EMBED_LIB_OK" = true ]; then
-  UNEMBEDDED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;")
+if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ] && [ "$EMBED_LIB_OK" = true ]; then
+  UNEMBEDDED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL AND m.archived = 0;")
 
   if [ "$UNEMBEDDED" -gt 0 ]; then
     echo ""
@@ -287,7 +348,14 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ] && [ "$EMBED_L
 
       # Ensure vec table exists with correct schema
       # Drop and recreate if columns don't match (handles legacy tables)
-      HAS_MEMORY_ID=$(sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" "PRAGMA table_info($VEC_TABLE);" 2>/dev/null | grep -c "memory_id" || true)
+      PROBE_RC=0
+      PROBE_OUT=$(sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" "PRAGMA table_info($VEC_TABLE);" 2>/dev/null) || PROBE_RC=$?
+      if [ "$PROBE_RC" -ne 0 ]; then
+        echo "  WARN: table_info probe failed for $VEC_TABLE; not dropping it"
+        embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: table_info probe failed; left $VEC_TABLE in place"
+        continue
+      fi
+      HAS_MEMORY_ID=$(printf '%s\n' "$PROBE_OUT" | grep -c "memory_id" || true)
       if [ "$HAS_MEMORY_ID" = "0" ]; then
         sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
           "DROP TABLE IF EXISTS $VEC_TABLE;" \
@@ -310,7 +378,7 @@ if [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" != "none" ] && [ "$EMBED_L
       fi
 
       EMBEDDED_COUNT=$((EMBEDDED_COUNT + 1))
-    done < <(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL;" 2>/dev/null)
+    done < <(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT m.id FROM memories m LEFT JOIN embedding_meta em ON em.memory_id = m.id WHERE em.memory_id IS NULL AND m.archived = 0;" 2>/dev/null)
 
     echo "  Embedded: $EMBEDDED_COUNT/$UNEMBEDDED chunks"
 
@@ -335,17 +403,30 @@ echo "Validation: $TOTAL_ROWS total rows in memories table"
 # Delete only fully-successful files (per-file fail-closed: MIGRATED_FILES never
 # includes zero-row or short-skipped sources). Partial batch failures keep those
 # originals but still clean up files that fully migrated.
-if [ "${#MIGRATED_FILES[@]}" -gt 0 ]; then
+if [ "$DRY_RUN" = true ]; then
   echo ""
-  echo "Deleting fully-migrated source files..."
+  echo "dry-run: no source files renamed"
+elif [ "${#MIGRATED_FILES[@]}" -gt 0 ]; then
+  echo ""
+  if [ "$DELETE_SOURCES" = true ]; then
+    echo "Deleting fully-migrated source files..."
+  else
+    echo "Renaming fully-migrated source files to *.md.migrated..."
+  fi
   for FILE in "${MIGRATED_FILES[@]}"; do
-    if rm "$FILE"; then
+    if [ "$DELETE_SOURCES" = true ]; then
+      if rm "$FILE"; then
+        DELETED=$((DELETED + 1))
+      else
+        echo "  WARNING: Could not delete $FILE"
+      fi
+    elif mv "$FILE" "$FILE.migrated"; then
       DELETED=$((DELETED + 1))
     else
-      echo "  WARNING: Could not delete $FILE"
+      echo "  WARNING: Could not rename $FILE"
     fi
   done
-  echo "  Deleted $DELETED files"
+  echo "  Retired $DELETED files"
 fi
 if [ "$FAILED" -gt 0 ]; then
   echo ""

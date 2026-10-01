@@ -406,7 +406,13 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 # This block is a new shell: read the threshold here, never from the block above.
 THRESHOLD=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
 if [ -n "$TARGET_AGENT" ]; then
-  # Single agent mode -- process regardless of threshold
+  # Single agent mode -- process regardless of threshold.
+  # Roster check before the name is stored or reaches a later SQL fence.
+  case "$TARGET_AGENT" in
+    pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+    *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
+  esac
+  bash skills/lib/require-agent.sh "$TARGET_AGENT"
   AGENTS="$TARGET_AGENT"
 else
   # All agents over threshold
@@ -437,6 +443,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
+# Roster check before the name reaches SQL. skills/lib/require-agent.sh is the same rule.
+case "$AGENT" in
+  pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+  *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
+esac
+bash skills/lib/require-agent.sh "$AGENT"
 MEMORIES=$(sqlite3 "$MEMDB" \
   "SELECT id, content FROM memories
    WHERE agent='$AGENT' AND tier=0 AND archived=FALSE
@@ -914,6 +926,11 @@ fi
 
 AGENT_CLAUSE=""
 if [ -n "$TARGET_AGENT" ]; then
+  case "$TARGET_AGENT" in
+    pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+    *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
+  esac
+  bash skills/lib/require-agent.sh "$TARGET_AGENT"
   AGENT_CLAUSE="AND agent='$TARGET_AGENT'"
 fi
 
@@ -1027,7 +1044,7 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # REF_PATH set by surrounding claim loop (session state across fences)
 # lint-ok: C1
 RESOLVED=$(realpath -m "$WTROOT/$REF_PATH" 2>/dev/null \
-  || python3 -c "import os.path; print(os.path.normpath(os.path.join('$WTROOT','$REF_PATH')))")
+  || python3 -c 'import os,sys; print(os.path.normpath(os.path.join(sys.argv[1], sys.argv[2])))' "$WTROOT" "$REF_PATH")
 case "$RESOLVED" in
   "$WTROOT"/*) ;;  # safe — inside project
   *)
@@ -1049,7 +1066,7 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Helper: relative path with fallback for macOS
 relpath() {
   realpath --relative-to="$WTROOT" "$1" 2>/dev/null \
-    || python3 -c "import os.path; print(os.path.relpath('$1','$WTROOT'))"
+    || python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$1" "$WTROOT"
 }
 ```
 
@@ -1459,6 +1476,11 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 # This block is a new shell: rebuild the agent filter here (same rule as Step 3).
 AGENT_CLAUSE=""
 if [ -n "$TARGET_AGENT" ]; then
+  case "$TARGET_AGENT" in
+    pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+    *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
+  esac
+  bash skills/lib/require-agent.sh "$TARGET_AGENT"
   AGENT_CLAUSE="AND agent='$TARGET_AGENT'"
 fi
 DIGESTS=$(sqlite3 "$MEMDB" "

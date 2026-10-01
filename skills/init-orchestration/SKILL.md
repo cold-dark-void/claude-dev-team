@@ -600,7 +600,7 @@ if [ -n "$DISCLOSE" ] && [ -f "$DISCLOSE" ]; then
   # exit 0 → disclosed (force write ok); exit 1 → already matches (no-op)
 else
   # Fallback: agent MUST print the same labels if helper missing
-  OLD_DM=$(python3 -c "import json; d=json.load(open('$SETTINGS')); print(d.get('permissions',{}).get('defaultMode',''))" 2>/dev/null || true)
+  OLD_DM=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("permissions",{}).get("defaultMode",""))' "$SETTINGS" 2>/dev/null || true)
   if [ -n "$OLD_DM" ] && [ "$OLD_DM" != "$NEW_DEFAULT_MODE" ]; then
     cat <<EOF
 FORCE-OVERWRITE: managed value will be replaced
@@ -699,7 +699,7 @@ ERRORS=()
 
 for f in "$WTROOT/.claude-plugin/plugin.json" "$WTROOT/.claude-plugin/marketplace.json"; do
   if [ -f "$f" ]; then
-    if ! python3 -c "import json,sys; json.load(open('$f'))" 2>/dev/null; then
+    if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$f" 2>/dev/null; then
       ERRORS+=("$f is not valid JSON")
     fi
   fi

@@ -3,7 +3,7 @@ name: recall
 description: Search all prior work by topic across sessions, memory, specs, plans,
   and git history. Outputs claude --resume commands for matching sessions. Usage
   /recall [topic]
-argument-hint: [topic]
+argument-hint: "[topic]"
 agent: build
 ---
 
@@ -18,6 +18,19 @@ and present an actionable summary with `claude --resume` commands so the user ca
 instantly resume any matching session.
 
 ---
+
+## Step 0: Read the topic literally
+
+A bare `/recall` has no topic. Stop with usage. Never eval the topic.
+
+```bash
+TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
+# First line is the literal topic. Second line is the LIKE pattern (\ % _ escaped).
+TOPIC_LITERAL=$(printf '%s\n' "$TOPIC" | head -1)
+TOPIC_LIKE=$(printf '%s\n' "$TOPIC" | tail -1)
+```
+
+An empty topic makes `recall-topic.sh` exit 64 and print `Usage: /recall <topic>`.
 
 ## Step 1: Resolve paths
 
@@ -38,7 +51,9 @@ These results will be used to expand the search for sessions.
 ### A. Current Project Git History
 
 ```bash
-git log --oneline --all --grep="$ARGUMENTS" -i -20
+TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
+TOPIC_LITERAL=$(printf '%s\n' "$TOPIC" | head -1)
+git log --oneline --all --fixed-strings --grep="$TOPIC_LITERAL" -i -20
 ```
 
 ### B. Agent Memory Files
@@ -67,11 +82,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-ESCAPED_ARGS=$(printf '%s' "$ARGUMENTS" | sed "s/'/''/g")
+TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
+TOPIC_LIKE=$(printf '%s\n' "$TOPIC" | tail -1)
 sqlite3 -header -column "$MEMDB" \
   "SELECT agent, type, tier, substr(content, 1, 300) AS content_preview, updated_at
    FROM memories
-   WHERE content LIKE '%${ESCAPED_ARGS}%' COLLATE NOCASE
+   WHERE content LIKE '%${TOPIC_LIKE}%' ESCAPE '\' COLLATE NOCASE
      AND archived = FALSE
    ORDER BY tier DESC, updated_at DESC
    LIMIT 10;"
@@ -83,11 +99,13 @@ If USE_DB=false, fall back to grepping .md files:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
+TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
+TOPIC_LITERAL=$(printf '%s\n' "$TOPIC" | head -1)
 # Project-local agent memory
-grep -r -i -l "$ARGUMENTS" $MROOT/.claude/memory/ 2>/dev/null
+grep -F --directories=recurse -i -l -- "$TOPIC_LITERAL" "$MROOT/.claude/memory/"
 
 # Global project memories
-find ~/.claude/projects -mindepth 2 -maxdepth 2 -type d -name memory 2>/dev/null | while read -r d; do grep -r -i -l "$ARGUMENTS" "$d" 2>/dev/null; done
+find ~/.claude/projects -mindepth 2 -maxdepth 2 -type d -name memory 2>/dev/null | while read -r d; do grep -F --directories=recurse -i -l -- "$TOPIC_LITERAL" "$d" 2>/dev/null; done
 ```
 
 For each matching file (grep path only), extract the relevant lines with 2 lines of context.
@@ -100,7 +118,9 @@ Search plan files for the topic:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-grep -r -i -l "$ARGUMENTS" $MROOT/.claude/plans/ 2>/dev/null
+TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
+TOPIC_LITERAL=$(printf '%s\n' "$TOPIC" | head -1)
+grep -F --directories=recurse -i -l -- "$TOPIC_LITERAL" "$MROOT/.claude/plans/"
 ```
 
 Read matching plan files — extract titles, status, AND key terms/phrases.
@@ -113,7 +133,9 @@ Search spec files:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-grep -r -i -l "$ARGUMENTS" $MROOT/specs/ 2>/dev/null
+TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
+TOPIC_LITERAL=$(printf '%s\n' "$TOPIC" | head -1)
+grep -F --directories=recurse -i -l -- "$TOPIC_LITERAL" "$MROOT/specs/"
 ```
 
 Note spec IDs, titles, AND key terms/phrases from matching specs.
@@ -126,7 +148,9 @@ Search backlog items:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-grep -r -i -l "$ARGUMENTS" $MROOT/.claude/backlog/ 2>/dev/null
+TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
+TOPIC_LITERAL=$(printf '%s\n' "$TOPIC" | head -1)
+grep -F --directories=recurse -i -l -- "$TOPIC_LITERAL" "$MROOT/.claude/backlog/"
 ```
 
 ### F. Cross-Project Sessions
@@ -135,7 +159,9 @@ Search `~/.claude/projects/` directory names for projects that might match,
 then check their session files:
 
 ```bash
-ls ~/.claude/projects/ | grep -i "$ARGUMENTS" 2>/dev/null
+TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
+TOPIC_LITERAL=$(printf '%s\n' "$TOPIC" | head -1)
+ls ~/.claude/projects/ 2>/dev/null | grep -F --ignore-case -- "$TOPIC_LITERAL"
 ```
 
 ---
@@ -244,7 +270,8 @@ After showing the summary:
 ## Rules
 
 - Sort everything by recency (newest first)
-- Show at most 10 sessions, 5 memory matches, 5 specs, 5 plans, 10 commits
+- Show at most 10 sessions, 10 memory matches, 5 specs, 5 plans, 10 commits
+- A bare `/recall` prints `Usage: /recall <topic>` and searches nothing
 - If there are more matches than the limit, show the count: "(+N more)"
 - Always output the full sessionId in resume commands — never truncate
 - The `history.jsonl` can be large — use efficient line-by-line search

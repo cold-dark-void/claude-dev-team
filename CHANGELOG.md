@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.38
+- **WP 2-06 Untrusted input never becomes code** — claim paths and JSONL go in argv, migrate-md keeps # body lines and renames sources unless `--delete-sources`, and `--agent` is roster-checked.
+
 ### v1.18.37
 - **WP 2-05 Reconcile pairs use one parameterized pass** — keyword Jaccard uses an inverted index, embed KNN loads vec0 before it counts rows and falls back to keyword when that table is empty, and each resolve is one transaction.
 

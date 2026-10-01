@@ -54,9 +54,16 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-# APPEND a focused memory entry (one fact, decision, or lesson per INSERT)
-ESCAPED=$(printf '%s' "$CONTENT" | sed "s/'/''/g")
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT INTO memories(agent, type, content) VALUES ('<AGENT>', '<TYPE>', '$ESCAPED');"
+# APPEND a focused memory entry (one fact, decision, or lesson per INSERT).
+# Bind agent, type, and content. Do not paste them into the SQL text.
+case "$AGENT" in
+  pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+  *) echo "Error: agent must match the roster" >&2; exit 64 ;;
+esac
+bash skills/lib/require-agent.sh "$AGENT"
+bash skills/lib/sqlq.sh "$MEMDB" \
+  "INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)" \
+  "$AGENT" "$TYPE" "$CONTENT"
 ```
 
 **Use heredoc for multi-line content** to avoid shell quoting issues:
@@ -83,14 +90,18 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-MEMORY_ID=$(sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content)
-  VALUES ('<AGENT>', '<TYPE>', '$ESCAPED');
-  SELECT last_insert_rowid();")
+case "$AGENT" in
+  pm|tech-lead|ic5|ic4|devops|qa|ds) ;;
+  *) echo "Error: agent must match the roster" >&2; exit 64 ;;
+esac
+bash skills/lib/require-agent.sh "$AGENT"
+MEMORY_ID=$(bash skills/lib/sqlq.sh "$MEMDB" \
+  "INSERT INTO memories(agent, type, content) VALUES (?, ?, ?)" \
+  "$AGENT" "$TYPE" "$CONTENT")
 ```
 
-> Note: `last_insert_rowid()` MUST be called within the same sqlite3 session as the
-> INSERT. A separate `sqlite3 "$MEMDB" "SELECT last_insert_rowid();"` call will return
-> 0 because each invocation is an independent connection.
+> Note: `sqlq.sh` prints `lastrowid` for an INSERT on that same connection.
+> A separate `sqlite3 "$MEMDB" "SELECT last_insert_rowid();"` call returns 0.
 
 ---
 
@@ -236,10 +247,10 @@ Expected output format: `<id>|<agent>|<type>|<bytes>|<timestamp>`
 
 - This skill handles BOTH the DB path and the `.md` fallback transparently. Always
   check `USE_DB` before choosing which path to take.
-- SQL escaping is the agent's responsibility: every `'` in content must become `''`
-  before string interpolation. Heredoc syntax sidesteps this for static content.
-- `last_insert_rowid()` must be in the same sqlite3 session as the INSERT or it
-  returns 0 (each `sqlite3` invocation is a separate connection).
+- SQL that carries agent, type, or content uses `?` via `bash skills/lib/sqlq.sh`.
+  Do not paste those values into the SQL text. A static heredoc with literal SQL is fine.
+- `sqlq.sh` prints `lastrowid` for an INSERT on that same connection. A later
+  `sqlite3` process that runs `SELECT last_insert_rowid()` returns 0.
 - `lembed()` takes a **registered model name** (`mini`), not a file path. Register the GGUF on the same `sqlite3` connection, before the `lembed()` call: `INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf path>');` (`embed-common.sh` builds it). `temp.lembed_models` is per connection, so every `sqlite3` call that uses `lembed()` registers the model itself.
 - Embed failures are not silent. `embed-one.sh` and `migrate-md.sh` append one line per failure to `<MROOT>/.claude/memory/.errors.log` (`<UTC ts> embed <site> <detail>`). `/memory stats` and `/doctor` show the count. Callers that send stderr to `/dev/null` lose nothing.
 - For `remote` mode, set `embedding_url` in the config table and optionally export

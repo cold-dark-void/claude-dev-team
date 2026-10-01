@@ -44,18 +44,19 @@ mkdir -p "$REPO/.claude/memory"
 ( cd "$REPO" && git init -q . && git commit -q --allow-empty -m init ) || { echo "FATAL: fixture repo"; exit 1; }
 DB="$REPO/.claude/memory/memory.db"
 sqlite3 "$DB" < "$ROOT/skills/memory-store/schema.sql" > /dev/null || { echo "FATAL: schema"; exit 1; }
-# a1: 3 raw rows (over threshold 2); a2: 1 raw row. Two tier-1 digests (one per
+# pm: 3 raw rows (over threshold 2); ic5: 1 raw row. Two tier-1 digests (one per
 # agent). ids 11/12/13 are sources of a digest: live, distilled, stale.
+# Names are roster names: --agent is rejected unless it matches the roster.
 sqlite3 "$DB" "
   UPDATE config SET value='2' WHERE key='distill_threshold';
   INSERT INTO memories(id, agent, type, content, tier) VALUES
-    (1, 'a1', 'memory', 'a1 raw one', 0), (2, 'a1', 'memory', 'a1 raw two', 0),
-    (3, 'a1', 'memory', 'a1 raw three', 0), (4, 'a2', 'memory', 'a2 raw one', 0),
-    (5, 'a1', 'digest', 'a1 digest', 1), (6, 'a2', 'digest', 'a2 digest', 1);
+    (1, 'pm', 'memory', 'pm raw one', 0), (2, 'pm', 'memory', 'pm raw two', 0),
+    (3, 'pm', 'memory', 'pm raw three', 0), (4, 'ic5', 'memory', 'ic5 raw one', 0),
+    (5, 'pm', 'digest', 'pm digest', 1), (6, 'ic5', 'digest', 'ic5 digest', 1);
   INSERT INTO memories(id, agent, type, content, tier, archived, archive_reason) VALUES
-    (11, 'a1', 'memory', 'src live', 0, 0, NULL),
-    (12, 'a1', 'memory', 'src distilled', 0, 1, 'distilled'),
-    (13, 'a1', 'memory', 'src stale', 0, 1, 'stale');" || { echo "FATAL: fixture rows"; exit 1; }
+    (11, 'pm', 'memory', 'src live', 0, 0, NULL),
+    (12, 'pm', 'memory', 'src distilled', 0, 1, 'distilled'),
+    (13, 'pm', 'memory', 'src stale', 0, 1, 'stale');" || { echo "FATAL: fixture rows"; exit 1; }
 
 # run_fence <fence-text> <prefix> [VAR=value ...] — fresh bash, cwd = the repo.
 # A footer line (passed in $FOOTER) prints the variable the fence computed; the
@@ -84,19 +85,23 @@ check "control: sqlite3 rejects a '# lint-ok' waiver inside a SQL string (got: $
 FOOTER='printf "AGENTS=%s\n" "$AGENTS"' run_fence "$DISTILL" "$WORK/d1"
 check "distill without --agent: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
 check "distill without --agent: no SQL error on stderr ($(head -c 120 "$WORK/d1.err"))" no_sql_error "$WORK/d1"
-check "distill without --agent: finds the agent over the threshold (a1 only)" grep -qx 'AGENTS=a1' "$WORK/d1.out"
+check "distill without --agent: finds the agent over the threshold (pm only)" grep -qx 'AGENTS=pm' "$WORK/d1.out"
 check "distill without --agent: does not report 'No agents have enough'" bash -c '! grep -q "No agents have enough" "$1"' _ "$WORK/d1.out"
 
-FOOTER='printf "AGENTS=%s\n" "$AGENTS"' run_fence "$DISTILL" "$WORK/d2" TARGET_AGENT=a2
-check "distill with --agent a2: processes a2 regardless of threshold" grep -qx 'AGENTS=a2' "$WORK/d2.out"
+FOOTER='printf "AGENTS=%s\n" "$AGENTS"' run_fence "$DISTILL" "$WORK/d2" TARGET_AGENT=ic5
+check "distill with --agent ic5: processes ic5 regardless of threshold" grep -qx 'AGENTS=ic5' "$WORK/d2.out"
+run_fence "$DISTILL" "$WORK/d3" TARGET_AGENT=nope
+check "distill rejects a non-roster --agent (rc=$RUN_RC)" [ "$RUN_RC" -eq 64 ]
 
 # ---- validate --deep: digests and source IDs -----------------------------------
 FOOTER='printf "DIGESTS=%s\n" "$DIGESTS"' run_fence "$DEEP101" "$WORK/v1"
 check "deep 10.1 without --agent: no SQL error ($(head -c 120 "$WORK/v1.err"))" no_sql_error "$WORK/v1"
-check "deep 10.1 without --agent: lists both tier-1 digests" bash -c 'grep -q "5|a1" "$1" && grep -q "6|a2" "$1"' _ "$WORK/v1.out"
+check "deep 10.1 without --agent: lists both tier-1 digests" bash -c 'grep -q "5|pm" "$1" && grep -q "6|ic5" "$1"' _ "$WORK/v1.out"
 
-FOOTER='printf "DIGESTS=%s\n" "$DIGESTS"' run_fence "$DEEP101" "$WORK/v2" TARGET_AGENT=a1
-check "deep 10.1 with --agent a1: lists only the a1 digest" bash -c 'grep -q "5|a1" "$1" && ! grep -q "6|a2" "$1"' _ "$WORK/v2.out"
+FOOTER='printf "DIGESTS=%s\n" "$DIGESTS"' run_fence "$DEEP101" "$WORK/v2" TARGET_AGENT=pm
+check "deep 10.1 with --agent pm: lists only the pm digest" bash -c 'grep -q "5|pm" "$1" && ! grep -q "6|ic5" "$1"' _ "$WORK/v2.out"
+run_fence "$DEEP101" "$WORK/v2bad" TARGET_AGENT=nope
+check "deep 10.1 rejects a non-roster --agent (rc=$RUN_RC)" [ "$RUN_RC" -eq 64 ]
 
 FOOTER='printf "VALID_IDS=%s\n" "$(echo "$VALID_IDS" | tr "\n" " ")"' run_fence "$DEEP105" "$WORK/v3" 'DISTILLED_FROM=[11,12,13]'
 check "deep 10.5: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]

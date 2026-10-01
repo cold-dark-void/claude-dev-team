@@ -85,7 +85,9 @@ sqlite3 -header -column "$MEMDB" \
 **Optional agent filter** — append to the WHERE clause:
 
 ```bash
-# Add: AND agent='<AGENT_FILTER>'
+# Optional. Check the name, then bind it. Do not paste the name into SQL.
+# bash skills/lib/require-agent.sh "$AGENT_FILTER"
+# AND agent=?
 ```
 
 **Optional type filter** — append to the WHERE clause:
@@ -305,7 +307,8 @@ Each result includes:
 
 After semantic results, also surface memories that lack embeddings for the current model
 (e.g., memories stored before embedding was configured, or stored while extensions were
-absent). Replace `<CURRENT_MODEL>` and `<QUERY>`. The query is single-quote escaped
+absent). Replace `<QUERY>`. Read the model name from config `embedding_model`
+and single-quote escape it. The query is single-quote escaped
 (`ESCAPED_QUERY`) and LIKE-escaped (`LIKE_QUERY`), see Step 3, before interpolation.
 
 ```bash
@@ -318,14 +321,17 @@ QUERY=$(cat <<'QUERY_EOF'
 <QUERY>
 QUERY_EOF
 )
-# Append unembedded memories (keyword match) after semantic results
+# Append unembedded memories (keyword match) after semantic results.
+# Bind the model name from config. Do not paste a placeholder into SQL.
+CURRENT_MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
+ESCAPED_MODEL=$(printf '%s' "$CURRENT_MODEL" | sed "s/'/''/g")
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
 sqlite3 "$MEMDB" <<EOSQL
 SELECT m.agent, m.type, m.tier, substr(m.content, 1, 200) AS snippet,
        '[not yet embedded]' AS score, m.created_at
 FROM memories m
-LEFT JOIN embedding_meta em ON em.memory_id = m.id AND em.model = '<CURRENT_MODEL>'
+LEFT JOIN embedding_meta em ON em.memory_id = m.id AND em.model = '$ESCAPED_MODEL'
 WHERE em.memory_id IS NULL
   AND m.archived = FALSE
   AND m.content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE

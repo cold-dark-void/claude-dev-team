@@ -8,6 +8,8 @@ Search all prior work by topic across sessions, memory, specs, plans, and git hi
 /recall [topic]
 ```
 
+A bare `/recall` (no topic) prints `Usage: /recall <topic>` and searches nothing.
+
 ## Flags
 
 | Flag / Argument | Description |

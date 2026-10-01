@@ -320,6 +320,9 @@ if [ -n "${EMBEDDING_URL:-}" ]; then
   MODEL="${EMBEDDING_MODEL:-remote}"
   # Auto-detect dimensions on first use, default to 0 until then
   DIMS="${EMBEDDING_DIMENSIONS:-0}"
+  case "$DIMS" in
+    ''|*[!0-9]*) echo "ERROR: EMBEDDING_DIMENSIONS must be an integer" >&2; exit 64 ;;
+  esac
   # Store URL in config for recall/search to use (escape SQL single quotes)
   if [ -f "$MEMDB" ]; then
     EMBEDDING_URL_ESC=$(printf '%s' "$EMBEDDING_URL" | sed "s/'/''/g")
