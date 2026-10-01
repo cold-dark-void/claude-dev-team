@@ -24,7 +24,7 @@ An on-demand adversarial tribunal that reality-checks Claude's claims with mater
 |----------|-------------|
 | `"<claim text>"` | Audit a single pasted claim. Extraction is skipped — the claim is already isolated. |
 | `--session [--last N]` | Audit a slice of the current session transcript. `--last N` limits to the last N turns. |
-| `--diff` | Audit the staged diff. Routes through the same engine as [`/review-and-commit`](./review-and-commit.md) (diff-mode preset, finding-shape output). |
+| `--diff` | Audit the staged diff (diff-mode preset, finding-shape output). [`/review-and-commit`](./review-and-commit.md) is this path locked to `--tier full`, plus optional SAST and impact pre-steps and a commit gate. Both render the user-facing review from `skills/council/templates/legacy-review.md`. |
 | `--blind` | Multi-team blind peer review (absorbs former `/blind-review`). Distinct path — no tribunal Phases 1–5. See [Blind peer review](#blind-peer-review---blind) below. |
 | `--teams N` | Blind-path only. Number of unconstrained reviewer teams (default `3`). Hard fail without `--blind`. |
 | `--lenses L1,L2,...` | Blind-path only. Comma-separated lens teams (default `security,contributor,spec`). Available: `security`, `contributor`, `spec`, `architecture`, `logic`. Hard fail without `--blind`. |

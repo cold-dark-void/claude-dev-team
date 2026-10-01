@@ -1,6 +1,6 @@
 # /review-and-commit
 
-Brutally honest multi-agent review of staged and modified files. Runs 5 specialist sub-agents in parallel, applies confidence scoring to filter noise, and gates the commit on the results.
+This command is `/council --diff --tier full` plus optional SAST and impact pre-steps and a commit gate. The user-facing review is `skills/council/templates/legacy-review.md`. It is not a second tribunal.
 
 ## Usage
 

@@ -27,7 +27,7 @@ tribunal runs, appends a verdict row to `.claude/council/index.json`.
 
 - `/council "<claim text>"` — audit a single pasted claim
 - `/council --session [--last N]` — audit a slice of the current session transcript
-- `/council --diff` — audit staged diff (equivalent to /review-and-commit dispatch path)
+- `/council --diff` — audit the staged diff at the tier Step 1.5 grades. `/review-and-commit` is this path with `--tier full`, optional SAST and impact pre-steps, and a commit gate. The two commands are not the same. Both render the user-facing review from `skills/council/templates/legacy-review.md`.
 - `/council --plan <path>` — audit a plan file for unverified assumptions (Phase 1 uses `plan-extractor.md`)
 - `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (reads `$MROOT/.claude/retro/anchors/<id>.json`)
 - `/council --blind` — multi-team blind peer review (absorbs former `/blind-review`; CDT-46-C3)
@@ -1164,6 +1164,17 @@ When tokens are partial, the header is `Tokens (partial):`. When the harness
 has no token fields, the entire Tokens block is omitted (never invent `0`).
 The `council_tier=` line appears only for a `light` (non-`full`) run, keeping
 `full`'s stdout byte-identical to pre-CDT-126 behavior.
+
+### Diff user-facing review
+
+When scope is `diff`, `engine.sh finalize` prints the user-facing review on
+stdout after the summary and before it returns. The review is
+`skills/review-and-commit/bucket.sh` over the unstruck findings. The section
+headings live only in `skills/council/templates/legacy-review.md`. Do not
+print a second heading set. Do not read `JUDGE_FILE` from a later shell: the
+Step 4 fence deletes it on exit. The engine file from `report-finding.md`
+stays the canonical report. `/review-and-commit` uses this same template.
+The workflow path prints the same finalize stdout.
 
 ### `--why` debug block (CDV-206)
 

@@ -10,10 +10,10 @@ description: |
 
 # Review and Commit
 
-Thin wrapper over `skills/council/engine.sh` with `preset: diff-mode`. The
-engine owns the adversarial pipeline; this skill configures the diff scope,
-drives the LLM phases, and renders findings in the legacy review-and-commit
-format users already know.
+This command is `/council --diff --tier full` plus optional pre-steps and a
+commit-gate post-step. It is not a second tribunal. The engine owns the
+adversarial pipeline (`preset: diff-mode`). User-facing review text comes
+only from `skills/council/templates/legacy-review.md`.
 
 ## Arguments
 
@@ -138,7 +138,7 @@ PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/review-and-commit-plan.XXXXXX.json") \
 # Pass --external / --external=codex|gemini through when the user supplied it.
 EXT_ARGS=()
 # set EXT_ARGS=(--external) or (--external=codex) etc. from user CLI
-"$ENGINE_SH" preflight --scope diff --preset diff-mode "${EXT_ARGS[@]}" > "$PLAN_FILE"
+"$ENGINE_SH" preflight --scope diff --preset diff-mode --tier full "${EXT_ARGS[@]}" > "$PLAN_FILE"
 # Every fence is a separate shell: print the path so the Step 5 fence can be given it.
 printf 'PLAN_FILE=%s\n' "$PLAN_FILE"
 ```
@@ -160,48 +160,24 @@ Same opt-in as `/council`: `--workflow` **or** `COUNCIL_WORKFLOW=1`. When set,
 run capability probe (`skills/council/workflow-probe.sh`); on fail print
 `council: Workflow unavailable; falling back to engine.sh` and continue with
 the Task path below (`verification_mode: full` — not degraded). On success,
-dispatch `skills/council/workflow.js` with `scope: diff` / `preset: diff-mode`
-and skip Steps 4–5 Task spawns (script owns preflight→finalize). Full dual-path
+dispatch `skills/council/workflow.js` with `scope: diff`, `preset: diff-mode`,
+and `council_tier: full`. Do not omit `council_tier`. The script forwards it
+as `--tier`. Then skip Steps 4–5 Task spawns (script owns preflight→finalize). Full dual-path
 protocol: `skills/council/SKILL.md` § Workflow execution path — do not restate.
 
-## Step 4: Drive the diff-mode council phases
+## Step 4: Drive `/council --diff --tier full`
 
-Follow `commands/council.md` Step 3 (Phases 1–5) with these diff-mode deltas:
+Follow `commands/council.md` for `/council --diff`. Do not restate the phase
+list here. Call-site deltas:
 
-- **Phase 1** — this call site's `engine.sh preflight` invocation (Step 3) does
-  not pass `--tier`, so it always resolves `council_tier: full` (CDT-126 —
-  tiering is not wired into `/review-and-commit`; see `commands/council.md`
-  Step 1.5 for the tiered `/council --diff` path). Spawn one Task subagent per
-  full-tier flavor in one message (parallel) — `logic, security, compliance,
-  quality, simplification` — from
-  `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`,
-  using `skills/council/prompts/investigator.md`. Pass full diff, full
-  changed-file contents, applicable-specs bundle, impact context from
-  Step 1b if available (empty string if `--impact` was not used),
-  `output_shape: finding[]`,
-  tool allowlist `Read, Grep, Glob, Bash (read-only)`. Every finding MUST
-  carry a `tool_use_id`.
-- **External slot (CDV-207)** — when `plan.external.requested` and
-  `status==available`, run `skills/council/external-reviewer.sh run` once
-  (same contract as `commands/council.md` Phase 2 external slot) and merge
-  `evidence_bundle` / `findings[]` tagged `external:<tool>`. If skipped or
-  error: one-line notice, continue with the 5 internal specialists. Never
-  drop an internal flavor to make room for external.
-- **Phase 2 / Phase 3** — n/a (specialists already investigate; domain
-  specialist deferred).
-- **Phase 4** — skipped in diff-mode; route specialist findings directly to
-  the judge.
-- **Phase 5** — spawn `agents/council-judge.md` (empty tool allowlist) with
-  `skills/council/prompts/judge.md`, `claims=[]`, findings as evidence
-  bundles, `output_shape: finding[]`. Judge dedupes, strikes findings
-  missing `tool_use_id` or confidence <80, emits final `finding[]`.
-- **Strike enforcement** — same rule as `commands/council.md`: any line
-  without a `tool_use_id`, severity outside `critical|warning|nitpick`, or
-  confidence <80 → `struck_lines`; never silently drop.
-- **Spawn failure** — if any specialist or judge spawn fails or returns
-  unusable output → orchestrator self-verifies missing lenses with tools;
-  set `degraded=true`. Actor is always the orchestrator, never the
-  implementer. Protocol (single source): `skills/council/SKILL.md`
+- Step 3 already passed `--tier full`. Do not grade a lighter tier at this call site.
+- Pass impact context from Step 1b when `--impact` was used. Pass the Step 1c
+  SAST summary to the security investigator only.
+- Pass `--external` through. A skipped external CLI does not drop an internal flavor.
+- Phase 4 is skipped in diff-mode. Do not run prosecution or defense from this command.
+- Spawn failure: the orchestrator self-verifies the missing lens and sets
+  `degraded=true`. The marker is `self-verified — refuters unavailable`.
+  The actor is the orchestrator. Protocol: `skills/council/SKILL.md`
   § Spawn-failure degradation.
 
 ## Step 5: Finalize
@@ -241,70 +217,20 @@ Engine renders the canonical report via
 `skills/council/templates/report-finding.md` to
 `$MROOT/.claude/council/<YYYY-MM-DD>-diff-staged.md`.
 
-## Step 6: Output the Review (legacy format — DO NOT ALTER)
+## Step 6: Output the Review
 
-Read the judge's finding[] output and print it in this exact structure. Omit
-empty sections. Every heading, label, and bracket-confidence annotation is
-load-bearing — user muscle memory depends on it.
+Render the judge's finding[] with `skills/review-and-commit/bucket.sh`.
+Print the sections from `skills/council/templates/legacy-review.md`.
+That file is the only copy of the headings. Do not paste them here.
 
-If `degraded=true`, print this exact banner line **before** `## Critical Issues`:
+Run `skills/review-and-commit/stats-line.sh` for the `Review stats:` line.
+`bucket.sh` is the section assigner: a logic warning stays in Critical Issues;
+`design` and legacy `quality` share Design Problems; anything else that is
+not a known bucket lands in Other.
 
-```
-> **self-verified — refuters unavailable**
-```
-
-```
-## Critical Issues (Must Fix) [confidence 95-100]
-Bugs, security risks, confirmed PII leaks, correctness failures.
-Each item: `file:line` — what is wrong — what to do instead. [confidence: N]
-
-## Compliance Violations
-AGENTS.md / CLAUDE.md rule violations.
-Each item: `file:line` — rule violated — what to fix. [confidence: N]
-
-## Design Problems [confidence 80-94]
-Wrong abstractions, unnecessary complexity, over-engineering.
-
-## Security & PII [confidence 80-94]
-Trust boundaries, auth gaps, data exposure, logging risks.
-
-## Maintainability Risks
-Hidden coupling, future migration pain, naming that lies.
-
-## Simplification Opportunities
-Concrete ways to make the code simpler.
-
-## Nitpicks (Yes, They Matter) [confidence 80-94]
-Small things that compound. Still cite file:line.
-
-## What I Would Do Instead
-The simpler or safer direction. Prefer subtraction.
-
-## Overall Assessment
-2–3 blunt sentences. End with one of: APPROVE / REQUEST CHANGES / NEEDS DISCUSSION
-
-Review stats: N findings from A agents, M passed confidence filter (≥80), K discarded.
-```
-
-`A` is not a fixed 5. Run `skills/review-and-commit/stats-line.sh` on the
-investigation plan: one agent per flavor, plus one when
-`external.status` is `available`.
-
-Grouping rules (`skills/review-and-commit/bucket.sh` is the renderer):
-`severity=critical` → Critical Issues; `category=logic` → Critical Issues
-(critical or warning — a logic warning is a correctness finding and must
-appear); `category=compliance` → Compliance Violations;
-`category=design,severity=warning` → Design Problems (the quality flavor
-emits `design`; a legacy `quality` value uses the same bucket);
-`category=security,severity=warning` → Security & PII;
-`category=simplification` → Simplification Opportunities; `severity=nitpick`
-→ Nitpicks; any other category → Other. If spec-grep detected drift, add
-`## Spec Alignment` listing affected specs. If a path argument was given,
-also write this output there.
-
-Tone rules (non-negotiable): no softening, no congratulation, no hedging
-("maybe", "consider", "you might want to"), every issue references a
-specific `file:line`, fixes are concrete.
+If spec-grep detected drift, add `## Spec Alignment` listing affected specs.
+If a path argument was given, also write this rendered review there.
+The engine still writes the canonical report under `.claude/council/`.
 
 ## Step 7: Commit Gate
 
@@ -418,10 +344,8 @@ ConcreteQueue directly" is); ordered BLOCKER → COMPLIANCE → DESIGN → NITPI
 
 ## Notes
 
-- Thin wrapper over `skills/council/SKILL.md` with `preset: diff-mode`, always
-  at `council_tier: full` (CDT-126 — this call site does not thread
-  `--council-tier`; see `commands/council.md` for the tiered path). The
-  full-tier flavor set loads from
+- This command is `/council --diff --tier full`. Step 3 passes `--tier full`.
+  `/council --diff` may still be graded. The full-tier flavor set loads from
   `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`.
 - **Phase 7 is DEFERRED** (CDT-325). The engine does not run it and does not
   write lessons.md. `feedback_memory_enabled: false` is reserved and has no
@@ -429,4 +353,4 @@ ConcreteQueue directly" is); ordered BLOCKER → COMPLIANCE → DESIGN → NITPI
   See SPEC-013 § Council tiering, SPEC-010 § Code Review (review-and-commit).
 - Engine always writes the canonical report to
   `$MROOT/.claude/council/<date>-diff-staged.md`. An optional path argument
-  writes an ADDITIONAL copy in the legacy text format rendered by Step 6.
+  writes an ADDITIONAL copy rendered from `skills/council/templates/legacy-review.md`.

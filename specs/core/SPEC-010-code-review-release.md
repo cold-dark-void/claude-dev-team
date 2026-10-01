@@ -16,6 +16,8 @@ Quality gates and shipping. The review-and-commit skill delegates to the adversa
 
 ### Code Review (review-and-commit)
 - MUST delegate to the council engine (SPEC-013) with `preset: diff-mode` — review-and-commit is a thin wrapper, not a parallel pipeline
+- MUST invoke that delegation as `/council --diff --tier full`. The review-and-commit preflight passes `--tier full`. Optional `--impact` and host SAST are pre-steps. The commit gate is a post-step.
+- MUST render the user-facing review from `skills/council/templates/legacy-review.md` only. `/council --diff` uses that same template. A second copy of those headings in `skills/review-and-commit/SKILL.md` or `commands/` is a defect.
 - MUST NOT maintain an adversarial review pipeline independent of the council engine (prevents drift from SPEC-013)
 - MUST load the 5 specialists as flavor presets from `skills/council/flavors/`: Logic & Correctness, Security & PII, Compliance (AGENTS.md/CLAUDE.md rules), Design & Quality, Simplification
 - MUST configure the `diff-mode` preset so the engine emits the `finding[]` output shape declared in SPEC-013 Output Shapes, satisfying these preset requirements:
@@ -246,6 +248,7 @@ Goal: a deterministic, LLM-free docs-consistency gate for `/release` — a struc
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 3-05 (W2-43): `/review-and-commit` is `/council --diff --tier full` plus optional pre-steps and the commit gate. The user-facing headings live only in `skills/council/templates/legacy-review.md`. |
 | 2026-10-01 | WP 2-03 (CDT-273, W1-60): D9 scans `skills/**/*.md` (not `fixtures/`), `agents/*.md`, `AGENTS.md`, and spec `**Covers**` lines. New check-id `skill-name`. A `#` line inside a fence does not end a heading section. D1–D10 stay the check range. |
 | 2026-09-26 | WP 1-03 (CDT-425, CDT-341, CDT-274, W1-03, W1-05, W2-39, W3-41): B1 `--cached` reads `plugin.json` from the index; new `--range` mode. B2 counts top-level `commands/<name>.md` only, counts a rename as added (`--no-renames`), and accepts a semver pre-release suffix. B4 CI checks every non-merge commit of the event range; the Step 0.6 installer warns when it overrides existing hooks. D4 reads a Step 0.5 tag snapshot (`--tag-snapshot`, H2) instead of tag reflogs, and reads tags by full refname. S2 strips a leading `./`; S3 reads with `-z`. Release: a tagless first release uses the full history; auto-detect follows AGENTS.md (a `feat:` subject alone does not force minor). |
 | 2026-09-25 | WP 1-01 (CDT-269): Step 4.13 all-suites gate pointer — `bash tools/run-all-tests.sh` blocks commit and tag on non-zero; contract in SPEC-030 R1–R17. |

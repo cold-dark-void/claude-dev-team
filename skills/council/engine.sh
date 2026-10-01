@@ -1539,6 +1539,38 @@ else:
             "description": desc.strip(),
         })
 
+# User-facing diff review reads this list. Struck rows stay out.
+unstruck_findings = []
+if output_shape == "finding[]":
+    for f in unstruck_items:
+        if not isinstance(f, dict):
+            continue
+        desc = f.get("description", "")
+        if not isinstance(desc, str):
+            desc = ""
+        fl = f.get("file", "")
+        if not isinstance(fl, str):
+            fl = ""
+        sugg = f.get("suggestion", "")
+        if not isinstance(sugg, str):
+            sugg = ""
+        cat = f.get("category", "")
+        if not isinstance(cat, str):
+            cat = ""
+        tid = f.get("tool_use_id", "")
+        if not isinstance(tid, str):
+            tid = ""
+        unstruck_findings.append({
+            "file": fl,
+            "line": f.get("line", 0),
+            "severity": f.get("severity") or "",
+            "category": cat,
+            "description": desc.strip(),
+            "suggestion": sugg,
+            "confidence": f.get("confidence", 0),
+            "tool_use_id": tid,
+        })
+
 # CLAIMS_AUDITED over unstruck body only (finding[] after tid strike)
 claims_audited = str(len(unstruck_items))
 
@@ -1774,6 +1806,7 @@ meta = {
     # Stdout counts. Null on the other shape. Attention rows are unstruck only.
     "finding_counts": finding_counts,
     "finding_attention": finding_attention,
+    "unstruck_findings": unstruck_findings,
 }
 
 # M14 per-AC split (WP 1-14; SPEC-013 Phase 6 "Finalize-meta sidecar"): only
@@ -1932,6 +1965,21 @@ for k, v in data["phases"].items():
 if data.get("total") is not None:
     print("  Total: %s" % data["total"])
 PYEOF
+  fi
+
+  # WP 3-05: diff user-facing review. Printed before this function returns.
+  # The command fence deletes JUDGE_FILE on exit, so a later shell cannot
+  # read it. Struck rows are already absent from unstruck_findings.
+  if [ "$scope" = "diff" ]; then
+    printf '\n'
+    if ! (
+      set -o pipefail
+      jq -c '.unstruck_findings // []' "$meta_path" \
+        | bash "$SCRIPT_DIR/../review-and-commit/bucket.sh"
+    ); then
+      echo "engine.sh: legacy review render failed" >&2
+      exit 1
+    fi
   fi
 
   # CDV-211: best-effort discard of per-run investigator tool-call cache.
