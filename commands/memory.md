@@ -100,7 +100,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 -header -column "$MEMDB" \
+sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
   "SELECT key,
     CASE WHEN key='distilling_lock' AND value='' THEN '(none)' ELSE value END AS value,
     updated_at
@@ -274,7 +274,7 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 echo "MEMORY TIER STATUS"
 echo "================================"
 
-sqlite3 -header -column "$MEMDB" \
+sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
   "SELECT agent,
     SUM(CASE WHEN tier=0 AND archived=FALSE THEN 1 ELSE 0 END) AS raw,
     SUM(CASE WHEN tier=0 AND archived=TRUE THEN 1 ELSE 0 END) AS archived,
@@ -284,7 +284,7 @@ sqlite3 -header -column "$MEMDB" \
 
 echo ""
 echo "Distillation config:"
-sqlite3 -header -column "$MEMDB" \
+sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
   "SELECT key,
     CASE WHEN key='distilling_lock' AND value='' THEN '(none)' ELSE value END AS value
   FROM config
@@ -306,7 +306,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
+bash skills/memory-store/distill-lock.sh force-clear "$MEMDB"
 echo "[distill] Stale lock cleared. Proceeding."
 ```
 
@@ -322,17 +322,9 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-# UPDATE + changes() MUST run in a single sqlite3 session for CAS to work
-CHANGED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
-  UPDATE config SET value='distill-$(date +%s)' WHERE key='distilling_lock' AND value='';
-  SELECT changes();
-") || CHANGED=""
-if [ "$CHANGED" != "1" ]; then
-  HOLDER=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';" 2>/dev/null || true)
-  echo "[distill] Skipped: distillation already in progress (locked by ${HOLDER:-unknown}). Use --force to clear."
-  # Stop here — not acquired (held by another process, or sqlite failed/timed out)
-  exit 0
-fi
+# Print the token. Copy it into DISTILL_TOKEN and LOCK_OWNER for later fences.
+# A fresh foreign lock exits 75. A lock older than 30 minutes is taken.
+bash skills/memory-store/distill-lock.sh acquire "$MEMDB" || exit $?
 ```
 
 ## Step 4.5: Pre-distill validation
@@ -367,7 +359,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
+   bash skills/memory-store/distill-lock.sh release "$MEMDB" "$DISTILL_TOKEN"
    echo "[distill] Validation failed. Aborting distillation."
    exit 1
    ```
@@ -426,8 +418,8 @@ fi
 
 if [ -z "$AGENTS" ]; then
   echo "[distill] No agents have enough raw memories to distill (threshold: $THRESHOLD)."
-  # Release lock and stop
-  sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
+  # Release only the token this run acquired.
+  bash skills/memory-store/distill-lock.sh release "$MEMDB" "$DISTILL_TOKEN"
   # Stop here
   exit 0
 fi
@@ -449,12 +441,12 @@ case "$AGENT" in
   *) echo "Error: --agent must match the roster" >&2; exit 64 ;;
 esac
 bash skills/lib/require-agent.sh "$AGENT"
-MEMORIES=$(sqlite3 "$MEMDB" \
+MEMORIES=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
   "SELECT id, content FROM memories
    WHERE agent='$AGENT' AND tier=0 AND archived=FALSE
    ORDER BY created_at ASC;")
 
-COUNT=$(sqlite3 "$MEMDB" \
+COUNT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
   "SELECT COUNT(*) FROM memories
    WHERE agent='$AGENT' AND tier=0 AND archived=FALSE;")
 ```
@@ -471,7 +463,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-DISTILL_MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_model';")
+DISTILL_MODEL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_model';")
 ```
 
 For each target agent, spawn the @distiller agent with:
@@ -498,10 +490,11 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';"
+bash skills/memory-store/distill-lock.sh release "$MEMDB" "$DISTILL_TOKEN"
 ```
 
-Always release the lock, even if distillation encountered errors for some agents.
+Release only the token Step 4 printed. A run that does not hold the lock
+cannot clear another process's token.
 
 ## Step 9: Print summary
 
@@ -611,19 +604,19 @@ if [ ! -f "$MEMDB" ]; then
   exit 0
 fi
 
-EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
-MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
-DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
-TOTAL=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;")
+EMBED_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
+MODEL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
+DIMS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
+TOTAL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories;")
 
-EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
+EMBED_URL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
 
 echo "Memory DB:      $MEMDB"
 echo "Embedding mode: $EMBED_MODE ($MODEL, ${DIMS}-dim)"
 [ -n "$EMBED_URL" ] && echo "Embedding URL:  $EMBED_URL"
 echo "Total memories: $TOTAL"
 echo ""
-sqlite3 -header -column "$MEMDB" \
+sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
   "SELECT agent,
     SUM(CASE WHEN tier=0 AND archived=FALSE THEN 1 ELSE 0 END) AS raw,
     SUM(CASE WHEN tier=1 AND archived=FALSE THEN 1 ELSE 0 END) AS digests,
@@ -681,7 +674,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 # Per-agent stats (active rows only — archived excluded)
-sqlite3 -header -column "$MEMDB" "
+sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" "
 SELECT
   agent,
   COUNT(*) AS total_memories,
@@ -698,7 +691,7 @@ ORDER BY total_chars DESC;
 "
 
 # Overall summary (active rows only — archived excluded)
-sqlite3 "$MEMDB" "
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
 SELECT
   COUNT(*) AS total_rows,
   COUNT(DISTINCT agent) AS agents,
@@ -712,7 +705,7 @@ WHERE archived = FALSE;
 "
 
 # Embedding status
-sqlite3 "$MEMDB" "
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
 SELECT
   (SELECT value FROM config WHERE key='embedding_mode') AS mode,
   (SELECT value FROM config WHERE key='embedding_model') AS model,
@@ -739,7 +732,7 @@ echo "Embed errors: $EMBED_ERRORS"
 # Boot load estimate (what agents actually load at session start).
 # Mirrors the tiered read (SPEC-006 Step 2): tier-1 + tier-2 active content when an
 # agent has any distilled rows, else tier-0 active content. Archived rows never load.
-sqlite3 -header -column "$MEMDB" "
+sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" "
 WITH active AS (
   SELECT agent, tier, LENGTH(content) AS len FROM memories WHERE archived = FALSE
 ),
@@ -883,13 +876,9 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-LOCK=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';")
-if [ -n "$LOCK" ]; then
-  echo "Error: distilling_lock is held ($LOCK). Cannot validate while distillation is in progress."
-  echo "Wait for distillation to complete, or use /memory distill --force to clear a stale lock."
-  # Stop here (exit 1)
-  exit 1
-fi
+# LOCK_OWNER is the distill token when validate runs inside Step 4.5.
+# A fresh foreign lock exits 1. The owner, an empty lock, and a stale lock pass.
+bash skills/memory-store/distill-lock.sh guard "$MEMDB" "${LOCK_OWNER:-}" || exit $?
 ```
 
 If `RECONCILE=true`, skip the codebase-validation pipeline (Steps 2–11) and
@@ -903,7 +892,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-WINDOW_DAYS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='validate_window_days';")
+WINDOW_DAYS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='validate_window_days';")
 WINDOW_DAYS="${WINDOW_DAYS:-7}"
 ```
 
@@ -934,7 +923,7 @@ if [ -n "$TARGET_AGENT" ]; then
   AGENT_CLAUSE="AND agent='$TARGET_AGENT'"
 fi
 
-MEMORIES=$(sqlite3 "$MEMDB" "
+MEMORIES=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   SELECT id, agent, content, tier, type, distilled_from, created_at
   FROM memories
   WHERE archived=FALSE $AGENT_CLAUSE $WINDOW_CLAUSE
@@ -995,11 +984,19 @@ block).
 
 ### Step 3.3: Validate extraction results
 
-For each returned result, enforce all six rules in `skills/validate-memory/SKILL.md`
+For each returned result, enforce the rules in `skills/validate-memory/SKILL.md`
 section "Claim Extractor Prompt Template" → "Validation rules (command-enforced)".
 That includes the "Maximum 8 claims per memory" cap (rule 6): truncate extractions
-that exceed it. The `claim_type` values it references are the six terms in the
-"Claim Type Taxonomy" section.
+that exceed it. Rule 7: every input id appears once. The `claim_type` values it
+references are the six terms in the "Claim Type Taxonomy" section.
+
+```bash
+# INPUT_IDS are the batch ids. EXTRACTION_JSON is the extractor's one line.
+printf '%s\n' "$EXTRACTION_JSON" | bash skills/validate-memory/check-extraction.sh $INPUT_IDS || {
+  echo "claim extraction failed: an input memory id is missing"
+  exit 1
+}
+```
 
 Memories with malformed extraction results go to FLAG_USER with score 30 and
 reason "claim extraction failed".
@@ -1207,8 +1204,9 @@ BASE_POINTS={"VALID": 0, "STALE": 25, "AMBIGUOUS": 10, "CONTRADICTED": 40}
 for each claim verdict:
   weighted_pts = BASE_POINTS[verdict] * (confidence / 100)
 
-# Average across all claims for this memory
+# Average across all claims for this memory (0-40), then scale to 0-100.
 raw_score = SUM(weighted_pts) / num_claims
+scaled = raw_score * 100 / 40
 
 # --- Age modifier (0-5 pts) ---
 CREATED_EPOCH=$(date -d "$CREATED_AT" +%s 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$CREATED_AT" +%s 2>/dev/null)
@@ -1229,9 +1227,8 @@ if [ "$TIER" = "2" ]; then
 fi
 
 # --- Final score ---
-SCORE=$(( raw_score + age_mod + tier_mod ))
-[ "$SCORE" -lt 0 ] && SCORE=0
-[ "$SCORE" -gt 100 ] && SCORE=100
+# Executable form: skills/validate-memory/score.sh <age_days> <tier> VERDICT:CONF...
+SCORE=$(bash skills/validate-memory/score.sh "$AGE_DAYS" "$TIER" "${VERDICT_ARGS[@]}")
 ```
 
 For why the score averages across claims (and worked examples), see
@@ -1276,7 +1273,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   UPDATE memories SET validated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
   WHERE id=$MEM_ID;
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
@@ -1305,7 +1302,7 @@ for each claim verdict for this memory:
   CLAIM_SUMMARY="${CLAIM_SUMMARY:+$CLAIM_SUMMARY; }${verdict}(${confidence}%): ${evidence}"  # lint-ok: C1
 
 ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   UPDATE memories SET archived=TRUE, archive_reason='stale'
   WHERE id=$MEM_ID;
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
@@ -1344,7 +1341,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")  # lint-ok: C1
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
   VALUES ($MEM_ID, '$MEM_AGENT', 'flag_review', $SCORE, '$ESCAPED_REASON');"
 ```
@@ -1367,7 +1364,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   UPDATE memories SET archived=TRUE, archive_reason='stale'
   WHERE id=$MEM_ID;
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
@@ -1393,7 +1390,7 @@ NEW_CONTENT=$(echo "$REWRITE_CONTENT" | sed 's/\[validated: [0-9-]*\]//g')
 NEW_CONTENT=$(printf '%s\n\n[validated: %s]' "$NEW_CONTENT" "$TODAY")
 
 ESCAPED_CONTENT=$(printf '%s' "$NEW_CONTENT" | sed "s/'/''/g")
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   UPDATE memories SET content='$ESCAPED_CONTENT',
     validated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
   WHERE id=$MEM_ID;
@@ -1414,7 +1411,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   UPDATE memories SET validated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
   WHERE id=$MEM_ID;
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
@@ -1448,7 +1445,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 ESCAPED_REASON=$(printf '%s' "$CLAIM_SUMMARY" | sed "s/'/''/g")  # lint-ok: C1
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   INSERT INTO validation_log(memory_id, agent, action, confidence, reason)
   VALUES ($MEM_ID, '$MEM_AGENT', 'flag_user', $SCORE, '$ESCAPED_REASON');"
 ```
@@ -1483,7 +1480,7 @@ if [ -n "$TARGET_AGENT" ]; then
   bash skills/lib/require-agent.sh "$TARGET_AGENT"
   AGENT_CLAUSE="AND agent='$TARGET_AGENT'"
 fi
-DIGESTS=$(sqlite3 "$MEMDB" "
+DIGESTS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   SELECT id, agent, distilled_from
   FROM memories
   WHERE tier=1 AND archived=FALSE $AGENT_CLAUSE
@@ -1503,12 +1500,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 # Parse distilled_from JSON array (e.g., '[1,2,3]')
-SOURCE_IDS=$(echo "$DISTILLED_FROM" | tr -d '[]' | tr ',' ' ')
+SOURCE_IDS=$(printf '%s' "$DISTILLED_FROM" | tr -d '[] ' | tr ',' ' ')
 TOTAL_SOURCES=$(echo "$SOURCE_IDS" | wc -w)
 
 # Count stale sources
 SOURCE_IDS_CSV=$(echo "$SOURCE_IDS" | tr ' ' ',')
-STALE_COUNT=$(sqlite3 "$MEMDB" "
+STALE_COUNT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
   SELECT COUNT(*) FROM memories
   WHERE id IN ($SOURCE_IDS_CSV) AND archive_reason='stale';
 ")
@@ -1537,9 +1534,9 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-LOCK=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distilling_lock';")
-if [ -n "$LOCK" ]; then
-  echo "Error: distiller lock held ($LOCK). Cannot rebuild digests. Try again later."
+# Skip only a fresh foreign lock. An empty lock and a lock older than 30 minutes pass.
+if ! bash skills/memory-store/distill-lock.sh guard "$MEMDB"; then
+  echo "Error: distiller lock held. Cannot rebuild digests. Try again later."
   # Report all flagged digests as skipped, do NOT archive them
   DEEP_SKIPPED=$FLAGGED_COUNT
   # Skip to Step 10.6 deep mode reporting
@@ -1553,21 +1550,28 @@ this case.
 
 For each flagged digest:
 
-1. Archive the stale digest:
+1. Ask @distiller for the replacement text only. Do not write the database in
+   that step. The text is `NEW_DIGEST`.
+
+2. Write the new digest, then archive the old row. `deep-rebuild.sh` keeps
+   sources whose `archive_reason` is null or `distilled`, and it leaves the
+   old digest live when the distiller fails or no source remains:
    ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-   sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000;
-     UPDATE memories SET archived=TRUE, archive_reason='stale'
-     WHERE id=$DIGEST_ID;"
+   if [ -z "$NEW_DIGEST" ]; then
+     bash skills/memory-store/deep-rebuild.sh "$MEMDB" "$DIGEST_ID" fail
+   else
+     bash skills/memory-store/deep-rebuild.sh "$MEMDB" "$DIGEST_ID" content "$NEW_DIGEST"
+   fi
    ```
 
-2. Collect the remaining valid source IDs (those NOT archived as stale).
-   Include `archive_reason='distilled'` sources — they were valid at
-   distillation time and their content is still usable for re-distillation:
+3. The valid source ids are those whose `archive_reason` is null or
+   `distilled`. `deep-rebuild.sh` uses the same rule. This fence is the
+   check the host can run before it asks for the new text:
    ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -1575,19 +1579,15 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
    # This block is a new shell: rebuild the ID list from the digest's distilled_from array (as in Step 10.2).
-   SOURCE_IDS=$(echo "$DISTILLED_FROM" | tr -d '[]' | tr ',' ' ')
-   SOURCE_IDS_CSV=$(echo "$SOURCE_IDS" | tr ' ' ',')
-   VALID_IDS=$(sqlite3 "$MEMDB" "
+   SOURCE_IDS=$(printf '%s' "$DISTILLED_FROM" | tr -d '[] ' | tr ',' ' ')
+   SOURCE_IDS_CSV=$(printf '%s' "$SOURCE_IDS" | tr ' ' ',')
+   VALID_IDS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "
      SELECT id FROM memories
      WHERE id IN ($SOURCE_IDS_CSV)
        AND (archive_reason IS NULL OR archive_reason='distilled')
      ORDER BY created_at ASC;
    ")
    ```
-
-3. Invoke the @distiller agent to re-distill the valid sources into a new
-   digest. The distiller reads the source memories and produces a replacement
-   tier-1 entry.
 
 ### Step 10.6: Report deep mode results
 
@@ -1694,7 +1694,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-CAP_K=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='reconcile_pair_cap';" 2>/dev/null || echo "50")
+CAP_K=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='reconcile_pair_cap';" 2>/dev/null || echo "50")
 CAP_K="${CAP_K:-50}"
 echo "TLDR: reconcile: 0 candidates, 0 judged, 0 contradictory, 0 resolved, 0 skipped, cap=${CAP_K}"
 # Stop here (exit 0) — zero writes

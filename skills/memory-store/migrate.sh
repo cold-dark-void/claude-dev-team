@@ -40,7 +40,7 @@ fi
 read_version() {
   # Plain SELECT — no inline PRAGMA (an inline 'PRAGMA busy_timeout=N;'
   # emits a result row that would pollute this captured read).
-  sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo ""
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo ""
 }
 
 V="$(read_version)"

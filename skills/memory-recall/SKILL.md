@@ -73,7 +73,7 @@ QUERY_EOF
 )
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
-sqlite3 -header -column "$MEMDB" \
+sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
   "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
    FROM memories
    WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
@@ -116,7 +116,7 @@ QUERY=$(cat <<'QUERY_EOF'
 <QUERY>
 QUERY_EOF
 )
-EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
+EMBED_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
 
 EXT_SUFFIX="so"
 [ "$(uname -s)" = "Darwin" ] && EXT_SUFFIX="dylib"
@@ -135,7 +135,7 @@ if [ "$EMBED_MODE" = "lembed" ]; then
     EMBED_COMMON=""
   fi
 fi
-DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
+DIMS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';")
 if [ "$EMBED_MODE" = "lembed" ] && [ -n "$EMBED_COMMON" ] && [ -f "$EXT_DIR/vec0.$EXT_SUFFIX" ] && [ -f "$EXT_DIR/lembed0.$EXT_SUFFIX" ] && \
    [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
   MODEL_PATH="$MODEL_DIR/all-MiniLM-L6-v2.gguf"
@@ -146,7 +146,7 @@ if [ "$EMBED_MODE" = "lembed" ] && [ -n "$EMBED_COMMON" ] && [ -f "$EXT_DIR/vec0
   # per connection, so it goes in this same sqlite3 call, before lembed(). The
   # statement and the name come from embed-common.sh (no copy here).
   REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_PATH")
-  sqlite3 "$MEMDB" <<EOSQL
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" <<EOSQL
 .load "$EXT_DIR/vec0"
 .load "$EXT_DIR/lembed0"
 $REGISTER_SQL
@@ -162,12 +162,12 @@ ORDER BY m.tier DESC, e.distance ASC;
 EOSQL
 
 elif [ "$EMBED_MODE" = "remote" ] && \
-     DIMS=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';") && \
+     DIMS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_dimensions';") && \
      [[ "$DIMS" =~ ^[0-9]+$ ]] && [ "$DIMS" -gt 0 ]; then
-  EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';")
+  EMBED_URL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';")
   EMBED_KEY="${EMBEDDING_API_KEY:-}"
   # Env overrides DB; DB is the durable source when env is unset.
-  EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")}"
+  EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")}"
   VEC_TABLE="vec_memories_${DIMS}"
 
 
@@ -198,7 +198,7 @@ elif [ "$EMBED_MODE" = "remote" ] && \
     echo "[memory-recall] Invalid/empty embedding from endpoint. Using keyword search."
     ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
     LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
-    sqlite3 -header -column "$MEMDB" \
+    sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
       "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
        FROM memories WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
          AND archived = FALSE
@@ -206,7 +206,7 @@ elif [ "$EMBED_MODE" = "remote" ] && \
     exit 0
   fi
 
-  sqlite3 "$MEMDB" <<EOSQL
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" <<EOSQL
 .load "$EXT_DIR/vec0"
 SELECT m.agent, m.type, m.tier,
        substr(m.content, 1, 200) AS snippet,
@@ -224,7 +224,7 @@ else
   echo "[memory-recall] No embeddings available. Using keyword search."
   ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
   LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
-  sqlite3 -header -column "$MEMDB" \
+  sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
     "SELECT agent, type, tier, substr(content, 1, 200) AS snippet, updated_at
      FROM memories WHERE content LIKE '%${LIKE_QUERY}%' ESCAPE '\\' COLLATE NOCASE
        AND archived = FALSE
@@ -323,11 +323,11 @@ QUERY_EOF
 )
 # Append unembedded memories (keyword match) after semantic results.
 # Bind the model name from config. Do not paste a placeholder into SQL.
-CURRENT_MODEL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
+CURRENT_MODEL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';")
 ESCAPED_MODEL=$(printf '%s' "$CURRENT_MODEL" | sed "s/'/''/g")
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
-sqlite3 "$MEMDB" <<EOSQL
+sqlite3 -cmd ".timeout 5000" "$MEMDB" <<EOSQL
 SELECT m.agent, m.type, m.tier, substr(m.content, 1, 200) AS snippet,
        '[not yet embedded]' AS score, m.created_at
 FROM memories m

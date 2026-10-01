@@ -84,7 +84,7 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 TOPIC=$(bash skills/lib/recall-topic.sh "$ARGUMENTS") || exit $?
 TOPIC_LIKE=$(printf '%s\n' "$TOPIC" | tail -1)
-sqlite3 -header -column "$MEMDB" \
+sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
   "SELECT agent, type, tier, substr(content, 1, 300) AS content_preview, updated_at
    FROM memories
    WHERE content LIKE '%${TOPIC_LIKE}%' ESCAPE '\' COLLATE NOCASE

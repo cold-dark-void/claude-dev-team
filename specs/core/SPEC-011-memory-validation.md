@@ -23,7 +23,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - MUST verify `line_content`, `behavioral`, `architectural`, and `configuration` claims via read-only LLM investigation (Tier B): investigator subagent with Read/Grep/Glob tools checks claim against actual code
 - MUST produce per-claim verdicts using the four-term taxonomy: `VALID` (claim matches code), `STALE` (code changed, claim was probably true once), `CONTRADICTED` (claim is demonstrably false), `AMBIGUOUS` (cannot determine)
 - MUST attach a confidence score (0-100) to each per-claim verdict
-- MUST compute a composite staleness score (0-100) per memory as weighted average of per-claim verdict points: `CONTRADICTED`=40pts, `STALE`=25pts, `AMBIGUOUS`=10pts, `VALID`=0pts, each weighted by `confidence/100`, then averaged across claims, plus age modifier (0-5pts) and tier modifier (-5pts for tier-2)
+- MUST compute a composite staleness score (0-100) per memory as weighted average of per-claim verdict points: `CONTRADICTED`=40pts, `STALE`=25pts, `AMBIGUOUS`=10pts, `VALID`=0pts, each weighted by `confidence/100`, then averaged across claims. Scale that 0-40 average to 0-100 (`scaled = raw * 100 / 40`) before the age modifier (0-5pts) and the tier modifier (-5pts for tier-2). One `CONTRADICTED` claim at confidence 90 scores 90 and auto-archives.
 - MUST resolve file paths relative to the project root (`WTROOT`)
 - MUST skip memories with zero extractable checkable claims (not marked as validated)
 - MUST use Opus model for the reviewer agent (judgment-heavy confirmation of medium-confidence entries); claim extraction and investigation subagents may use any available model

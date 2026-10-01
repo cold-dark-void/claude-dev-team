@@ -262,7 +262,7 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 mkdir -p "$MROOT/.claude/memory"
 if command -v sqlite3 &>/dev/null && [ -n "$PLUGIN_DIR" ]; then
-  sqlite3 "$MEMDB" < "$PLUGIN_DIR/schema.sql"
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" < "$PLUGIN_DIR/schema.sql"
   echo "SQLite memory DB initialized at $MEMDB"
 else
   echo "WARNING: sqlite3 or plugin not found. Using .md memory fallback."

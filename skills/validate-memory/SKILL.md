@@ -109,6 +109,9 @@ Single-line JSON matching this schema:
 4. Every claim MUST have at least one `code_ref` with a non-empty `path`.
 5. Empty `claims` array requires non-null `skip_reason`.
 6. Maximum 8 claims per memory (extractor truncates, keeps most specific).
+7. Every input memory id MUST appear exactly once. Empty `claims` are allowed
+   when `skip_reason` is set. Run `skills/validate-memory/check-extraction.sh`
+   with the input ids and the JSON on stdin before scoring.
 
 ### Prompt body
 
@@ -489,6 +492,7 @@ For each claim:
   weighted_pts = BASE_POINTS[verdict] * (confidence / 100)
 
 raw_score = SUM(weighted_pts) / num_claims
+scaled = raw_score * 100 / 40
 
 Age modifier (0-5 pts):
   0 pts if age < 30 days
@@ -497,7 +501,7 @@ Age modifier (0-5 pts):
 Tier modifier:
   -5 pts for tier-2 memories
 
-final_score = clamp(floor(raw_score + age_mod + tier_mod), 0, 100)
+final_score = clamp(floor(scaled + age_mod + tier_mod), 0, 100)
 ```
 
 Averaging normalizes by claim count: a memory with 5 VALID + 1 STALE scores

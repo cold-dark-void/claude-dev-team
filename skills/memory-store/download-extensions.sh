@@ -304,9 +304,9 @@ download_file "$MODEL_URL" "$MODEL_DEST_PATH" "all-MiniLM-L6-v2" "$(expected_sha
 # Migrate legacy ollama mode from v0.12.0/v0.12.1
 # ---------------------------------------------------------------------------
 if [ -f "$MEMDB" ]; then
-  OLD_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null)
+  OLD_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null)
   if [ "$OLD_MODE" = "ollama" ]; then
-    sqlite3 "$MEMDB" "UPDATE config SET value='fallback', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_mode';"
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "UPDATE config SET value='fallback', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_mode';"
     echo "  Migrated legacy ollama mode -> fallback"
     echo "  To re-enable: export EMBEDDING_URL=http://localhost:11434/api/embed"
   fi
@@ -326,7 +326,7 @@ if [ -n "${EMBEDDING_URL:-}" ]; then
   # Store URL in config for recall/search to use (escape SQL single quotes)
   if [ -f "$MEMDB" ]; then
     EMBEDDING_URL_ESC=$(printf '%s' "$EMBEDDING_URL" | sed "s/'/''/g")
-    sqlite3 "$MEMDB" "INSERT OR REPLACE INTO config(key, value, updated_at) VALUES ('embedding_url', '$EMBEDDING_URL_ESC', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT OR REPLACE INTO config(key, value, updated_at) VALUES ('embedding_url', '$EMBEDDING_URL_ESC', strftime('%Y-%m-%dT%H:%M:%SZ','now'));"
   fi
 elif [ -f "$EXT_DIR/lembed0.$EXT" ] && [ -f "$MODEL_DIR/all-MiniLM-L6-v2.gguf" ]; then
   MODE="lembed"
@@ -343,12 +343,12 @@ fi
 # ---------------------------------------------------------------------------
 if [ -f "$MEMDB" ]; then
   MODEL_ESC=$(printf '%s' "$MODEL" | sed "s/'/''/g")
-  sqlite3 "$MEMDB" \
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" \
     "UPDATE config SET value='$MODE',  updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_mode';" \
     "UPDATE config SET value='$MODEL_ESC', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_model';" \
     "UPDATE config SET value='$DIMS',  updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE key='embedding_dimensions';"
   if [ "$MODE" != "remote" ]; then
-    sqlite3 "$MEMDB" "DELETE FROM config WHERE key='embedding_url';" 2>/dev/null || true
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "DELETE FROM config WHERE key='embedding_url';" 2>/dev/null || true
   fi
 else
   echo "  WARNING: $MEMDB not found — skipping config update (run /setup team to create it first)."
@@ -374,7 +374,7 @@ fi
 # Create virtual tables if vec0 loads and the DB exists
 if [ -n "$VEC_VER" ] && [ -f "$MEMDB" ]; then
   VEC_LIB="$EXT_DIR/vec0"
-  sqlite3 "$MEMDB" ".load \"$VEC_LIB\"" \
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load \"$VEC_LIB\"" \
     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_384 USING vec0(memory_id INTEGER, embedding FLOAT[384]);" \
     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories_768 USING vec0(memory_id INTEGER, embedding FLOAT[768]);" \
     2>/dev/null || echo "WARNING: Failed to create vec virtual tables in $MEMDB"

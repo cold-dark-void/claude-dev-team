@@ -133,7 +133,7 @@ export_sqlite() {
   local agent="$1"
   local total_for_agent jsonl
 
-  total_for_agent=$(sqlite3 "$MEMDB" \
+  total_for_agent=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
     "SELECT COUNT(*) FROM memories WHERE tier=2 AND (archived=0 OR archived=FALSE) AND agent='$(printf '%s' "$agent" | sed "s/'/''/g")';")
   if [ "${total_for_agent:-0}" -gt "$LIMIT" ]; then
     TOTAL_OMITTED=$((TOTAL_OMITTED + total_for_agent - LIMIT))

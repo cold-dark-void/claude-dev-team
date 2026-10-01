@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.39
+- **WP 2-07 Distill and validate finish** — a distill run may validate under its own lock, one contradicted claim at confidence 90 scores 90, and a digest commit is one transaction.
+
 ### v1.18.38
 - **WP 2-06 Untrusted input never becomes code** — claim paths and JSONL go in argv, migrate-md keeps # body lines and renames sources unless `--delete-sources`, and `--agent` is roster-checked.
 

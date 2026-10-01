@@ -28,7 +28,7 @@ if ! command -v sqlite3 &>/dev/null; then
 fi
 
 # Step 1: Check schema_version — exit early if already v2
-CURRENT_VERSION=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo "")
+CURRENT_VERSION=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo "")
 if [ "$CURRENT_VERSION" = "2" ]; then
   echo "Schema already at v2. Nothing to do."
   exit 0
@@ -40,15 +40,15 @@ if [ "$CURRENT_VERSION" != "1" ]; then
 fi
 
 # Count existing memories for summary
-ROW_COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
+ROW_COUNT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
 
 # Table rebuild inside a transaction (SQLite cannot ALTER CHECK constraints).
 # .bail on: abort on first error so a partial rebuild cannot leave the DB
 # half-migrated while later statements (including schema_version) still run.
-sqlite3 "$MEMDB" <<'SQL'
+sqlite3 -cmd ".timeout 5000" "$MEMDB" <<'SQL'
 .bail on
 -- Set busy timeout so concurrent writes don't immediately fail
-PRAGMA busy_timeout=5000;
+
 
 PRAGMA foreign_keys=OFF;
 

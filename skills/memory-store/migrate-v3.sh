@@ -28,7 +28,7 @@ if ! command -v sqlite3 &>/dev/null; then
 fi
 
 # Check schema_version — exit early if already v3
-CURRENT_VERSION=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo "")
+CURRENT_VERSION=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='schema_version';" 2>/dev/null || echo "")
 if [ "$CURRENT_VERSION" = "3" ]; then
   echo "Schema already at v3. Nothing to do."
   exit 0
@@ -40,12 +40,12 @@ if [ "$CURRENT_VERSION" != "2" ]; then
 fi
 
 # Count existing memories for summary
-ROW_COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
+ROW_COUNT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories;" 2>/dev/null || echo "0")
 
 # SQLite has no ADD COLUMN IF NOT EXISTS — a re-run after a prior partial migration
 # (column added before the schema_version bump) would otherwise fail "duplicate column".
 # Detect existing columns via PRAGMA table_info and emit each ADD COLUMN only if absent.
-EXISTING_COLS=$(sqlite3 "$MEMDB" "PRAGMA table_info(memories);" 2>/dev/null | cut -d'|' -f2)
+EXISTING_COLS=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "PRAGMA table_info(memories);" 2>/dev/null | cut -d'|' -f2)
 ADD_COLS=""
 case "$EXISTING_COLS" in
   *validated_at*) ;;
@@ -60,9 +60,9 @@ esac
 # .bail on: a mid-transaction statement error must abort before schema_version
 # bumps and COMMIT — without it sqlite3 continues and can record a partial
 # migration as complete.
-sqlite3 "$MEMDB" <<SQL
+sqlite3 -cmd ".timeout 5000" "$MEMDB" <<SQL
 .bail on
-PRAGMA busy_timeout=5000;
+
 
 BEGIN TRANSACTION;
 

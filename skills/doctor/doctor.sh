@@ -1718,7 +1718,7 @@ do_fix() {
     if [ -n "$holder" ]; then
       if fix_confirm "clear distilling_lock (held by '$holder') → ''"; then
         sqlite3 -cmd ".timeout 5000" "$MEMDB" \
-          "PRAGMA busy_timeout=5000; UPDATE config SET value='' WHERE key='distilling_lock';" 2>/dev/null || true
+          " UPDATE config SET value='' WHERE key='distilling_lock';" 2>/dev/null || true
         echo "doctor --fix: distilling_lock cleared" >&2
       fi
     fi

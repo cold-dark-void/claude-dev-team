@@ -63,7 +63,7 @@ embed_fail() {
   embed_log_error "$MEM_DIR" embed-one "memory $MEMORY_ID: $1"
 }
 
-EMBED_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null) || exit 0
+EMBED_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';" 2>/dev/null) || exit 0
 
 # Determine platform extension suffix.
 EXT_SUFFIX="so"
@@ -98,20 +98,20 @@ UPDATE config SET value='384', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') W
 EOSQL
   }
   LEMBED_RC=0
-  LEMBED_ERR=$(emit_lembed_sql | sqlite3 -bail "$MEMDB" 2>&1) || LEMBED_RC=$?
+  LEMBED_ERR=$(emit_lembed_sql | sqlite3 -cmd ".timeout 5000" -bail "$MEMDB" 2>&1) || LEMBED_RC=$?
   if [ "$LEMBED_RC" -ne 0 ]; then
     embed_fail "lembed embed failed (sqlite3 exit $LEMBED_RC): ${LEMBED_ERR:-no error text}"
   fi
 
 # --- 4b. remote mode (any OpenAI-compatible embedding provider) ---
 elif [ "$EMBED_MODE" = "remote" ]; then
-  EMBED_URL=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
+  EMBED_URL=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_url';" 2>/dev/null)
   [ -n "$EMBED_URL" ] || exit 0
   command -v curl >/dev/null 2>&1 || exit 0
   command -v jq   >/dev/null 2>&1 || exit 0
   EMBED_KEY="${EMBEDDING_API_KEY:-}"
   # Env overrides DB; DB is the durable source when env is unset (local ollama, etc.).
-  EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';" 2>/dev/null)}"
+  EMBED_MODEL="${EMBEDDING_MODEL:-$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_model';" 2>/dev/null)}"
 
 
   # Build curl args — auth header via config file to avoid leaking in ps aux.
@@ -167,7 +167,7 @@ elif [ "$EMBED_MODE" = "remote" ]; then
   fi
 
   # Ensure vec table exists for this dimension.
-  sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
     "CREATE VIRTUAL TABLE IF NOT EXISTS ${VEC_TABLE} USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);" 2>/dev/null || true
 
   # Insert embedding. sqlite3 aborts the remainder of a multi-statement batch on a
@@ -184,7 +184,7 @@ UPDATE config SET value='$DIMS', updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
 EOSQL
   }
   REMOTE_RC=0
-  REMOTE_ERR=$(emit_remote_sql | sqlite3 "$MEMDB" 2>&1) || REMOTE_RC=$?
+  REMOTE_ERR=$(emit_remote_sql | sqlite3 -cmd ".timeout 5000" "$MEMDB" 2>&1) || REMOTE_RC=$?
   if [ "$REMOTE_RC" -ne 0 ]; then
     embed_fail "sqlite write batch failed — vector and/or its embedding_meta row may be missing; semantic search may be incomplete. sqlite3 said: ${REMOTE_ERR:-no error text}"
   fi

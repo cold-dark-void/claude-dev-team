@@ -193,12 +193,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  HAS_DISTILLED=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
+  HAS_DISTILLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='claude' AND tier > 0 AND archived=FALSE;")
   if [ "$HAS_DISTILLED" -gt 0 ]; then
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=2 AND archived=FALSE ORDER BY type, updated_at DESC;"
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=1 AND archived=FALSE ORDER BY type, updated_at DESC;"
   else
-    sqlite3 "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
+    sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT content FROM memories WHERE agent='claude' AND tier=0 AND archived=FALSE ORDER BY type, created_at DESC;"
   fi
 else
   cat "$MROOT/.claude/memory/claude/memory.md" 2>/dev/null
@@ -266,12 +266,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
-  DISTILL_ENABLED=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
-  DISTILL_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_mode';")
+  DISTILL_ENABLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
+  DISTILL_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_mode';")
 
   if [ "$DISTILL_ENABLED" = "true" ] && [ "$DISTILL_MODE" = "auto" ]; then
-    THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
-    AGENTS_OVER=$(sqlite3 "$MEMDB" "SELECT agent FROM memories
+    THRESHOLD=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
+    AGENTS_OVER=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT agent FROM memories
       WHERE tier=0 AND archived=FALSE
       GROUP BY agent HAVING COUNT(*) >= $THRESHOLD;")
     if [ -n "$AGENTS_OVER" ]; then
@@ -282,8 +282,8 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
       echo "Run /memory distill to execute distillation."
     fi
   elif [ "$DISTILL_ENABLED" = "true" ] && [ "$DISTILL_MODE" = "suggest" ]; then
-    THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
-    AGENTS_OVER=$(sqlite3 "$MEMDB" "SELECT agent || ' (' || COUNT(*) || ' raw)' FROM memories
+    THRESHOLD=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
+    AGENTS_OVER=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT agent || ' (' || COUNT(*) || ' raw)' FROM memories
       WHERE tier=0 AND archived=FALSE
       GROUP BY agent HAVING COUNT(*) >= $THRESHOLD;")
     if [ -n "$AGENTS_OVER" ]; then

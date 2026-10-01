@@ -274,7 +274,7 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       # Validate MEM_ID is numeric (defense in depth)
       [[ "$MEM_ID" =~ ^[0-9]+$ ]] || continue
       # Fetch content — truncate to 1500 chars for embedding (matches embed-one.sh)
-      MEM_CONTENT=$(sqlite3 "$MEMDB" "SELECT substr(content, 1, 1500) FROM memories WHERE id=$MEM_ID;")
+      MEM_CONTENT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT substr(content, 1, 1500) FROM memories WHERE id=$MEM_ID;")
       [ -z "$MEM_CONTENT" ] && continue
 
       JSON_CONTENT=$(printf '%s' "$MEM_CONTENT" | jq -Rs .)
@@ -318,7 +318,7 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
         # with vec_to_json(): json() cannot hold a BLOB.
         REGISTER_SQL=$(embed_lembed_register_sql "$MODEL_PATH") || REGISTER_SQL=""
         LEMBED_RC=0
-        EMBEDDING=$(sqlite3 -bail "$MEMDB" ".load $EXT_DIR/vec0" ".load $EXT_DIR/lembed0" \
+        EMBEDDING=$(sqlite3 -cmd ".timeout 5000" -bail "$MEMDB" ".load $EXT_DIR/vec0" ".load $EXT_DIR/lembed0" \
           "$REGISTER_SQL" \
           "SELECT vec_to_json(lembed('$EMBED_LEMBED_NAME', '$ESCAPED_SQL'));" 2>"${EMBED_ERR:-/dev/null}") || LEMBED_RC=$?
         if [ "$LEMBED_RC" -ne 0 ]; then
@@ -349,7 +349,7 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       # Ensure vec table exists with correct schema
       # Drop and recreate if columns don't match (handles legacy tables)
       PROBE_RC=0
-      PROBE_OUT=$(sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" "PRAGMA table_info($VEC_TABLE);" 2>/dev/null) || PROBE_RC=$?
+      PROBE_OUT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" "PRAGMA table_info($VEC_TABLE);" 2>/dev/null) || PROBE_RC=$?
       if [ "$PROBE_RC" -ne 0 ]; then
         echo "  WARN: table_info probe failed for $VEC_TABLE; not dropping it"
         embed_log_error "$MEMDIR" migrate-md "chunk $MEM_ID: table_info probe failed; left $VEC_TABLE in place"
@@ -357,17 +357,17 @@ if [ "$DRY_RUN" != true ] && [ "$EMBED_MODE" != "fallback" ] && [ "$EMBED_MODE" 
       fi
       HAS_MEMORY_ID=$(printf '%s\n' "$PROBE_OUT" | grep -c "memory_id" || true)
       if [ "$HAS_MEMORY_ID" = "0" ]; then
-        sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
+        sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
           "DROP TABLE IF EXISTS $VEC_TABLE;" \
           "CREATE VIRTUAL TABLE $VEC_TABLE USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);" 2>/dev/null
       else
-        sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
+        sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
           "CREATE VIRTUAL TABLE IF NOT EXISTS $VEC_TABLE USING vec0(memory_id INTEGER, embedding FLOAT[$DIMS]);" 2>/dev/null
       fi
 
       # Insert embedding
       INSERT_RC=0
-      INSERT_ERR=$(sqlite3 "$MEMDB" ".load $EXT_DIR/vec0" \
+      INSERT_ERR=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" ".load $EXT_DIR/vec0" \
         "INSERT INTO ${VEC_TABLE}(memory_id, embedding) VALUES ($MEM_ID, '$EMBEDDING');" \
         "INSERT OR IGNORE INTO embedding_meta(memory_id, model, dimensions, vec_table) VALUES ($MEM_ID, '$EMBED_MODEL_ESC', $DIMS, '$VEC_TABLE');" \
         2>&1) || INSERT_RC=$?

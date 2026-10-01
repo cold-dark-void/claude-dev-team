@@ -164,9 +164,9 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Entry point: cmd/project/main.go — starts HTTP server and backend manager');"
-sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Cache: sharded LRU in internal/cache/, keys sha256(model+prompt+image_hash), TTL 1h');"
-sqlite3 "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Queue: internal/queue/ — semaphore-based backpressure, max 4 concurrent jobs per backend');"
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Entry point: cmd/project/main.go — starts HTTP server and backend manager');"
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Cache: sharded LRU in internal/cache/, keys sha256(model+prompt+image_hash), TTL 1h');"
+sqlite3 -cmd ".timeout 5000" "$MEMDB" "INSERT INTO memories(agent, type, content) VALUES ('ic5', 'cortex', 'Queue: internal/queue/ — semaphore-based backpressure, max 4 concurrent jobs per backend');"
 ```
 
 One entry per subsystem, file group, pattern, or lesson. This enables semantic search to

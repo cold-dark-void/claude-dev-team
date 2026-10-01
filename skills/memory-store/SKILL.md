@@ -74,7 +74,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" <<'EOSQL'
+sqlite3 -cmd ".timeout 5000" "$MEMDB" <<'EOSQL'
 INSERT INTO memories(agent, type, content) VALUES (
   'tech-lead',
   'cortex',
@@ -101,7 +101,7 @@ MEMORY_ID=$(bash skills/lib/sqlq.sh "$MEMDB" \
 ```
 
 > Note: `sqlq.sh` prints `lastrowid` for an INSERT on that same connection.
-> A separate `sqlite3 "$MEMDB" "SELECT last_insert_rowid();"` call returns 0.
+> A separate `sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT last_insert_rowid();"` call returns 0.
 
 ---
 
@@ -172,7 +172,7 @@ Consumers resolve the skill's own directory via the plugin-dir bootstrap
 ## Step 5: Retry on SQLITE_BUSY
 
 WAL mode is set at DB init, but `busy_timeout` is a per-connection setting.
-Always prepend `PRAGMA busy_timeout=5000;` to write operations. For the rare
+Always prepend `` to write operations. For the rare
 case of a hard lock, retry once:
 
 ```bash
@@ -181,7 +181,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT ..." || { sleep 1; sqlite3 "$MEMDB" "PRAGMA busy_timeout=5000; INSERT ..."; }
+sqlite3 -cmd ".timeout 5000" "$MEMDB" " INSERT ..." || { sleep 1; sqlite3 -cmd ".timeout 5000" "$MEMDB" " INSERT ..."; }
 ```
 
 ---
@@ -199,12 +199,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 # Threshold check (skip if distill_enabled=false)
-DISTILL_ENABLED=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
+DISTILL_ENABLED=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_enabled';")
 if [ "$DISTILL_ENABLED" = "true" ]; then
-  DISTILL_MODE=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_mode';")
+  DISTILL_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_mode';")
   if [ "$DISTILL_MODE" != "manual" ]; then
-    THRESHOLD=$(sqlite3 "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
-    COUNT=$(sqlite3 "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='<AGENT>' AND tier=0 AND archived=FALSE;")
+    THRESHOLD=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='distill_threshold';")
+    COUNT=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT COUNT(*) FROM memories WHERE agent='<AGENT>' AND tier=0 AND archived=FALSE;")
     if [ "$COUNT" -ge "$THRESHOLD" ]; then
       echo "[memory] @<AGENT> has $COUNT raw memories (threshold: $THRESHOLD). Run /memory distill to compress."
     fi
@@ -222,7 +222,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-sqlite3 "$MEMDB" \
+sqlite3 -cmd ".timeout 5000" "$MEMDB" \
   "SELECT id, agent, type, length(content), created_at
    FROM memories ORDER BY id DESC LIMIT 1;"
 ```
