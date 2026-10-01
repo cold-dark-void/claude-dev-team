@@ -118,7 +118,7 @@ counts = Counter()
 # Bound scan: cwd is dense in real transcripts; fixtures are tiny.
 max_lines = 20000
 try:
-    with open(path, "r", errors="replace") as fh:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for i, line in enumerate(fh):
             if i >= max_lines:
                 break

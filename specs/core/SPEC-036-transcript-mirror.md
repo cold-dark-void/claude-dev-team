@@ -374,11 +374,15 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
     `skills/transcript-mirror/transcript-sync.sh --check --sid <sid>` only
     (MUST NOT omit `--check`; MUST NOT pass `--transcript`). Consume only
     when stdout contains a line `sid=<sid> status=ok` (status token exact).
+    Bare (no positional) exception: when `<store>/<sid>/main.md` exists,
+    status `ok`, `lag`, or `in-progress` is a hit. The tail ends with one
+    line `<!-- mirror cursor: <ident>, lag: N lines -->`. A positional
+    `<sid>` still requires `status=ok`.
     MUST NOT invent a second detect path. Strip MUST be the same
     `strip_mirror_main` implementation SPEC-018 M3f uses (one helper; no
     drifted copy).
-  - **Miss (this Surface only).** Any of: status in
-    `{lag, missing, in-progress}`, no matching line, helper missing,
+  - **Miss (this Surface only).** Any of: positional status in
+    `{lag, missing, in-progress}`, bare status `missing`, no matching line, helper missing,
     `python3` missing, live sid unresolvable, stripped body empty, `<sid>`
     rejected → exit non-zero (1 for miss/empty/unresolvable; 64 for usage),
     create or update no tail file, stderr names status or reason. MUST NOT

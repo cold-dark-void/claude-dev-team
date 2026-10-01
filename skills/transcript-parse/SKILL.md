@@ -37,7 +37,7 @@ NOT score signals, distil, summarize, or rank. Consumers own all of that:
 |------|--------|----------|-----------|
 | `assemble.py` | **present** | CLI `locate` + `assemble` + `assemble-file` (Claude-only) | handoff prepass, retro Step 2 location, PreCompact capture |
 | `hosts.py` | **present** (CDT-156) | Multi-host `locate`/`normalize` + CLI; `HOSTS=("claude","grok")` | retro discovery Step 2; handoff MAY wrap |
-| `discover-host.sh` | **present** (CDT-156 T5) | Dual-host auto-detect: env pins → newest mtime; stdout `host=… session_id=… path=… source=…` | optional helper (same precedence as retro Step 2a); T4 inlines `hosts.py locate` equivalently |
+| `discover-host.sh` | **present** (CDT-156 T5) | Dual-host auto-detect: env pins → newest mtime; stdout is tab-separated `host` `session_id` `path` `source` | `commands/retro.md` Step 2a |
 | `grok_normalize.py` | **present** (CDT-156 T3) | Grok chat_history → Claude-shaped JSONL (`scoring` / `handoff`) | `hosts.normalize(host=grok)`; T8 handoff wrap |
 | `parselib.py` | **present** | importable parse primitives | handoff prepass, retro gate |
 | `freshness.sh` | **present** | 60 s mid-write guard (+ M14 carve-out) | handoff (M9), retro Filter-1, PreCompact (M14) |
@@ -107,13 +107,12 @@ from this skill directory.
 ## `discover-host.sh` — dual-host auto-detect (CDT-156 T5) — PRESENT
 
 Thin shell helper over `hosts.py locate` for SPEC-012 auto-detect / OQ2 when
-`--host` is omitted. `commands/retro.md` Step 2a inlines the same precedence
-via `hosts.py locate` (T4); this script is the extractable equivalent for tests
-and other callers.
+`--host` is omitted. `commands/retro.md` Step 2a calls this script for the
+auto-detect candidate.
 
 ```
 discover-host.sh [--cwd DIR] [--env-check]
-# stdout: host=<claude|grok> session_id=… path=… source=…
+# stdout: tab-separated host=… session_id=… path=… source=…
 # exit 0 found; 1 none; 2 usage/missing python3
 ```
 
@@ -125,7 +124,9 @@ Precedence:
    (`source=mtime`). Skipped when `--env-check` (env pins only).
 
 Test overrides: `CLAUDE_PROJECTS_DIR`, `GROK_SESSIONS_DIR`.
-Verify: `bash skills/transcript-parse/discover-host-test.sh` (dual-host trees).
+Verify: `bash skills/transcript-parse/discover-host-test.sh` (dual-host trees)
+and `bash skills/transcript-parse/test-hosts.sh`. CI runs both through
+`tools/run-all-tests.sh`.
 
 ---
 
@@ -231,7 +232,7 @@ per-line — that is what makes PreCompact capture safe under M14.
 - `assemble(uuid, out=sys.stdout, path=None) -> int | None` — writes the
   timeline to `out`, returns the count emitted, or `None` if not located /
   path missing. When `path` is given, locate is skipped (assemble-file mode).
-- `KNOWN_TOP_FIELDS: set[str]` — shared schema-drift field set.
+- `KNOWN_TOP_FIELDS: frozenset[str]` — shared schema-drift field set.
 - `PROJECTS_DIR: str` — `~/.claude/projects`.
 
 ### Validated (against real data)
@@ -254,9 +255,9 @@ Importable, no CLI. Lifted from the inlined helpers in
 | Symbol | Signature | Contract |
 |--------|-----------|----------|
 | `msg_text` | `msg_text(content) -> str` | Flatten a message `content` (str, or list of blocks) to a single string. **KEEPS `thinking` blocks** (handoff M4b needs hypothesis-rejection reasoning). `text` blocks and `thinking` blocks (read from `thinking`, fallback `text`, wrapped as `<thinking>\n…\n</thinking>`) are joined by `\n`; non-text blocks (tool_use, tool_result, image…) skipped. **Differs from gate.sh's local `msg_text`, which drops `thinking` on purpose** — the gate keeps its thinking-skip at the call site, NOT in this lib. |
-| `KNOWN_TOP_FIELDS` | `set[str]` | Same set `assemble.py` exposes: `{type, uuid, message, parentUuid, sessionId, timestamp}`. |
+| `KNOWN_TOP_FIELDS` | `frozenset[str]` | Same set `assemble.py` exposes: `{type, uuid, message, parentUuid, sessionId, timestamp}`. |
 | `is_edit_tool` | `is_edit_tool(name) -> bool` | True for `Edit`, `Write`, `MultiEdit`, `NotebookEdit`. |
-| `edit_file_path` | `edit_file_path(tool_input) -> str | None` | Extract the edited path (`file_path`/`notebook_path`) from a tool-use input; `None` if absent. |
+| `edit_file_path` | `edit_file_path(tool_input) -> str | None` | Extract the edited path (`file_path`, `notebook_path`, or `path`) from a tool-use input; `None` if absent. |
 | `is_meta` | `is_meta(obj) -> bool` | True for a meta/system bookkeeping line (e.g. `isMeta is True`). |
 | `is_sidechain` | `is_sidechain(obj) -> bool` | `bool(obj.get("isSidechain"))` — truthy test, tolerant of the field being absent (returns False). |
 | `SIDECHAIN_SIGNAL_CUES` | `tuple[str, ...]` | Closed cue list for signal-bearing sidechain detection (CDV-205 / SPEC-018 M2). Single source of truth — prepass imports this; do not scatter cue strings. |
@@ -283,7 +284,7 @@ Verification gate:
 
 ## `freshness.sh` — mid-write guard (SPEC-018 M9 / SPEC-012 Filter-1) — PRESENT
 
-POSIX sh. **Contract:**
+bash. **Contract:**
 
 ```
 freshness.sh check <path> [--allow-in-progress]
@@ -297,9 +298,10 @@ freshness.sh check <path> [--allow-in-progress]
   (`stat -f %m`) `stat`.
 
 **SCOPED CARVE-OUT (SPEC-018 M14):** a PreCompact capture is by definition
-mid-write. Passed EXCLUSIVELY by `skills/handoff/precompact-capture.sh` via
-`prepass.sh prepare --allow-in-progress`. No user-invoked path (`/handoff`
-cold, `/retro`) passes it — default guard behavior (exit 9) is unchanged.
+mid-write. Passed by `skills/handoff/precompact-capture.sh` via
+`prepass.sh prepare --allow-in-progress`, and by warm bare `/handoff`
+(`commands/handoff.md` Step 1w `PREPARE_EXTRA`). Cold `/handoff <uuid>` and
+`/retro` do not pass it — default guard behavior (exit 9) is unchanged.
 With the flag: mtime < 60 s → NOTE on stderr, **exit 0** (warn-and-proceed).
 
 Exit codes are the API: `0` = ok to parse, `9` = too fresh (caller warns +
@@ -313,6 +315,8 @@ file → **exit 9**; same + `--allow-in-progress` → **exit 0**.
 
 ## Consumer wiring (informational)
 
+- **transcript-sync**, the Transcript mirror, and `/audit` also read host
+  transcripts through this seam (`assemble.locate`, `hosts.locate`).
 - **/handoff prepass** (`skills/handoff/prepass.sh prepare`):
   `freshness.sh check` (exit 9 → warn+decline) → `assemble.py assemble` →
   strip `toolUseResult` → dedup repeated reads → collapse sidechains (noise
@@ -333,8 +337,9 @@ Implemented in `grok_normalize.py` (called from `hosts.normalize(host="grok")`).
 - Skip `system` / `reasoning` / `backend_tool_call` for the gate feed.
 - Preserve `tool_result` as **user** lines with
   `content: [{type:tool_result, tool_use_id, is_error, content}]`.
-- `is_error: true` only when body matches `exit:\s*N` with **N ≠ 0** (MVP S2;
-  optional space after colon matches live Grok `exit: 0` / `exit: 1`).
+- `is_error: true` only when the **first line** matches `exit:\s*N` with
+  **N ≠ 0** (MVP S2; optional space after colon matches live Grok
+  `exit: 0` / `exit: 1`). A later `exit: N` inside file text is not a status.
 - Map `write` → `Write`, `search_replace` → `Edit` for S3 (scoring mode only);
   other tool names pass through; path keys already often `file_path`.
 - Stable turn_id: `<safe-session>-L<n>`; `sessionId` = Grok session dir id;

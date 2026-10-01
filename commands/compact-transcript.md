@@ -1,8 +1,8 @@
 ---
 name: compact-transcript
 description: >
-  Bounded Meaning-channel file (Meaning tail) for the operator to @.
-  Not a host /compact replacement.
+  Write a short excerpt of the recent conversation that you can @-attach
+  in a new session (Meaning tail). Not a host /compact replacement.
 argument-hint: "[<sid>]"
 ---
 

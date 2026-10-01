@@ -264,6 +264,18 @@ fi
 
 CANDIDATES=""
 
+# Auto-detect candidate from discover-host.sh (CDT-420). Explicit --sid
+# still uses the host-scoped locate below.
+DISCOVER=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-parse/discover-host.sh)
+if [ -z "${EXPLICIT_SID:-}" ] && [ -n "${DISCOVER:-}" ] && [ -f "$DISCOVER" ]; then
+  _dh=$(bash "$DISCOVER" --cwd "$HOST_CWD" 2>/dev/null || true)
+  _dh_host=$(printf '%s\n' "$_dh" | awk -F '\t' 'NF { print $1; exit }' | sed 's/^host=//')
+  _dh_path=$(printf '%s\n' "$_dh" | awk -F '\t' 'NF { print $3; exit }' | sed 's/^path=//')
+  if [ -n "$_dh_host" ] && [ -n "$_dh_path" ] && [ -f "$_dh_path" ]; then
+    _append_cand "$_dh_host" "$_dh_path"
+  fi
+fi
+
 if [ -n "$EXPLICIT_SID" ]; then
   # Explicit session-id: host-scoped locate. Claude UUIDs validated for claude path.
   _found=""

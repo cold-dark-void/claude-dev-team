@@ -351,6 +351,21 @@ plant_sentinel "$SID_IP"
 RC=$(run_ct "$SID_IP")
 assert_miss "C2 in-progress" "$RC" "status=in-progress" "$SID_IP"
 
+# CDT-308 — bare live sid with a just-appended line still writes a tail.
+SID_BARE="c7bare"
+LOC_BARE=$(plant_hit "$SID_BARE" "$FIX_SP/plain.jsonl" "$FIX_SP/plain-main.md")
+printf '%s\n' '{"type":"user","uuid":"bare-new","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":"just appended"}}' >> "$LOC_BARE"
+touch "$LOC_BARE"
+export CLAUDE_CODE_SESSION_ID="$SID_BARE"
+RC=$(run_ct)
+unset CLAUDE_CODE_SESSION_ID || true
+TAIL_BARE=$(tail_path "$SID_BARE")
+if [ "$RC" -eq 0 ] && [ -f "$TAIL_BARE" ] && grep -q 'mirror cursor:' "$TAIL_BARE" && grep -q 'lag:' "$TAIL_BARE"; then
+  pass "C2b bare in-progress writes a tail with a cursor footer"
+else
+  fail "C2b bare in-progress rc=$RC tail=${TAIL_BARE:-missing} err=$(head -c 240 "$WORK/ct.err")"
+fi
+
 SID_HELP="c7help"
 plant_hit "$SID_HELP" "$FIX_SP/plain.jsonl" "$FIX_SP/plain-main.md" >/dev/null
 plant_sentinel "$SID_HELP"

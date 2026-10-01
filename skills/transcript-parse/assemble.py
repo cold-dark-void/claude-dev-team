@@ -33,7 +33,9 @@ Why this shape (validated against real 72 MB+ transcripts):
   - Ordering uses timestamps, not the parentUuid DAG: copy-duplication makes
     that DAG multi-root and branchy. File order alone is also wrong because
     copied segments overlap in time, hence the (timestamp, line) sort.
-  - We never read the whole file: monsters are 70 MB+ and may be mid-write.
+  - A direct `<uuid>.jsonl` hit returns that file and does not open other
+    transcripts. A fork scan (no direct file) streams line by line. Monsters
+    are 70 MB+ and may be mid-write. We never read() a whole file.
 
 This module is parse-only: it locates and orders, it never scores or distils.
 Consumers (the /handoff prepass, the /retro gate + Step 2) own that.
@@ -115,8 +117,13 @@ def _scan_file_for_uuid(path, target_uuid):
     known_seen = False
     probed = 0
     try:
-        with open(path, "r", errors="replace") as fh:
+        _log_scan(path)
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
             for line in fh:
+                # Substring pre-filter: skip lines that cannot hold the uuid
+                # or a timestamp before paying for json.loads.
+                if target_uuid not in line and '"timestamp"' not in line:
+                    continue
                 obj = parse_line(line)
                 if obj is None:
                     # Blank / corrupt / non-dict line -- skip it.
@@ -126,7 +133,7 @@ def _scan_file_for_uuid(path, target_uuid):
                     if obj.keys() & KNOWN_TOP_FIELDS:
                         known_seen = True
                 u = obj.get("uuid")
-                if u is not None and u == target_uuid:
+                if isinstance(u, str) and u == target_uuid:
                     contains = True
                 ts = obj.get("timestamp")
                 if isinstance(ts, str) and ts > max_ts:
@@ -141,13 +148,77 @@ def _scan_file_for_uuid(path, target_uuid):
     return (contains, max_ts)
 
 
+def _log_locate():
+    log = os.environ.get("ASSEMBLE_LOCATE_LOG")
+    if not log:
+        return
+    try:
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write("locate\n")
+    except OSError:
+        pass
+
+
+def _log_scan(path):
+    log = os.environ.get("ASSEMBLE_SCAN_LOG")
+    if not log:
+        return
+    try:
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(path + "\n")
+    except OSError:
+        pass
+
+
+def _direct_hit(target_uuid):
+    """Return <project>/<uuid>.jsonl when one exists. Do not open other files."""
+    if not target_uuid or os.sep in target_uuid or target_uuid in (".", ".."):
+        return None
+    if not os.path.isdir(PROJECTS_DIR):
+        return None
+    name = target_uuid + ".jsonl"
+    found = []
+    try:
+        subdirs = os.listdir(PROJECTS_DIR)
+    except OSError as e:
+        _warn(f"cannot list {PROJECTS_DIR}: {e}")
+        return None
+    for dname in subdirs:
+        sub = os.path.join(PROJECTS_DIR, dname)
+        if not os.path.isdir(sub):
+            continue
+        path = os.path.join(sub, name)
+        try:
+            if os.path.isfile(path):
+                found.append(path)
+        except OSError:
+            continue
+    if not found:
+        return None
+
+    def _key(p):
+        try:
+            mt = os.path.getmtime(p)
+        except OSError:
+            mt = 0
+        return (-mt, p)
+
+    found.sort(key=_key)
+    return found[0]
+
+
 def locate(target_uuid):
     """Return the canonical transcript path for target_uuid, or None.
 
-    Canonical = the descendant whose copied prefix is most complete, i.e. the
-    matching file with the greatest max-timestamp (latest descendant). Ties
-    broken by path for determinism.
+    Direct hit: `<project>/<uuid>.jsonl` returns immediately and does not
+    open any other transcript. Fork descendants are scanned only when no
+    direct file exists. Among those, canonical = greatest max-timestamp.
+    Ties break by path.
     """
+    _log_locate()
+    direct = _direct_hit(target_uuid)
+    if direct is not None:
+        return direct
     best_path = None
     best_ts = None
     for path in _iter_project_files():
@@ -178,7 +249,7 @@ def _stream_message_lines(path):
     idx = -1
     known_seen = False
     probed = 0
-    with open(path, "r", errors="replace") as fh:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for raw in fh:
             obj = parse_line(raw)
             if obj is None:
@@ -188,7 +259,7 @@ def _stream_message_lines(path):
                 if obj.keys() & KNOWN_TOP_FIELDS:
                     known_seen = True
             u = obj.get("uuid")
-            if u is None:
+            if not isinstance(u, str) or not u:
                 continue
             idx += 1
             ts = obj.get("timestamp")
@@ -243,6 +314,8 @@ def assemble(target_uuid, out=sys.stdout, path=None):
         # Canonical file vanished between locate and read (race / mid-rotate).
         _warn(f"canonical file disappeared during read: {path}")
         return None
+    except BrokenPipeError:
+        raise
     except OSError as e:
         _warn(f"cannot read {path}: {e}")
         return None
@@ -311,4 +384,11 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    try:
+        sys.exit(main(sys.argv))
+    except BrokenPipeError:
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
+        sys.exit(0)

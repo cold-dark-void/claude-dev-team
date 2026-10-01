@@ -270,8 +270,8 @@ def collect_targets(
         src = None
         if transcript:
             src = resolve_transcript(transcript)
-        if src is None:
-            src = locate_source(sid, cwd)
+        if src is None and sid:
+            src = source_for_sid(sid, cwd, root)
         use_sid = sid or (sid_from_path(src) if src else None)
         add(use_sid, src)
         return [(k, jobs[k]) for k in jobs]

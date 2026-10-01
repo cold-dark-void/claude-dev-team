@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.6
+- **WP 4-02 Compact transcript** — a bare compact writes a live tail, locate returns the sid file directly, and a non-string uuid is skipped.
+
 ### v1.19.5
 - **WP 4-01 Transcript privacy** — the mirror store is mode 0600, secrets and spoofed headings are filtered, and record identity is the raw line.
 

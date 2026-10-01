@@ -38,8 +38,9 @@ SKIP_HANDOFF = frozenset({"tool_result"})
 # uuid charset for leafrule / filesystem consumers
 _UUID_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
-# Grok shell results use "exit: 0" / "exit:1" — allow optional whitespace.
-_EXIT_RE = re.compile(r"exit:\s*(\d+)")
+# Grok shell results use "exit: 0" / "exit:1" on the first line only.
+# A later "exit: N" inside file contents is not a shell status (CDT-277 F20).
+_EXIT_RE = re.compile(r"\s*exit:\s*(\d+)")
 
 # S3 edit-tool name map (scoring only).
 TOOL_NAME_MAP = {
@@ -163,7 +164,8 @@ def is_error_from_content(content: Any) -> bool:
         text = json.dumps(content, ensure_ascii=False)
     else:
         text = str(content)
-    m = _EXIT_RE.search(text)
+    first = text.splitlines()[0] if text else ""
+    m = _EXIT_RE.match(first)
     if not m:
         return False
     try:

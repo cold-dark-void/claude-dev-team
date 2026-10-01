@@ -22,6 +22,8 @@ warn_schema_drift(path, lines_checked, seen_known): None  — lower-level helper
 iter_lines(path, n)   : Iterator[(int, dict)] — yield (line_no, dict) with auto schema-drift check
 """
 
+from __future__ import annotations
+
 import json
 import sys
 from typing import Any, Iterable, Optional, Tuple

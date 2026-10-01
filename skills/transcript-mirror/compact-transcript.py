@@ -167,6 +167,34 @@ def bound_tail(text: str, cap: int = CAP) -> str:
     return clip_newest_block(blocks[-1], cap)
 
 
+def freshness_footer(root: str, sid: str, status: str) -> str:
+    """E7: one HTML comment so the operator can see how fresh the tail is."""
+    ident = ""
+    lag_n = 0
+    cursor = os.path.join(root, sid, "cursor")
+    try:
+        with open(cursor, encoding="utf-8") as fh:
+            parts = fh.readline().rstrip("\n").split("\t")
+    except OSError:
+        parts = []
+    if parts and parts[0]:
+        ident = parts[0]
+    src = parts[1] if len(parts) > 1 else ""
+    line_no = 0
+    if len(parts) > 3 and parts[3].isdigit():
+        line_no = int(parts[3])
+    if src and line_no and os.path.isfile(src):
+        try:
+            with open(src, encoding="utf-8", errors="replace") as fh:
+                total = sum(1 for _ in fh)
+            lag_n = max(total - line_no, 0)
+        except OSError:
+            lag_n = 0
+    elif status != "ok":
+        lag_n = 0
+    return "<!-- mirror cursor: %s, lag: %d lines -->\n" % (ident, lag_n)
+
+
 def atomic_write(path: str, data: str) -> None:
     d = os.path.dirname(path)
     fd, tmp = tempfile.mkstemp(prefix=".meaning-tail.", suffix=".tmp", dir=d)
@@ -186,8 +214,10 @@ def atomic_write(path: str, data: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    bare = False
     sid = parse_argv(argv)
     if sid is None:
+        bare = True
         sid = resolve_bare_sid()
         if reject_sid_shape(sid):
             miss_exit("unresolvable sid")
@@ -197,7 +227,9 @@ def main(argv: list[str] | None = None) -> int:
     status = mirror_check(sid)
     if status is None:
         miss_exit("no matching --check line")
-    if status != "ok":
+    # Positional <sid> still requires status=ok. Bare/live accepts lag and
+    # in-progress when main.md exists (CDT-308). The footer marks the cursor.
+    if status != "ok" and not (bare and status in ("lag", "in-progress")):
         miss_exit("status=" + status)
 
     root = store_root()
@@ -216,9 +248,18 @@ def main(argv: list[str] | None = None) -> int:
         except OSError:
             miss_exit("main.md missing")
 
-        tail = bound_tail(strip_mirror_main(raw_main), CAP)
+        footer = freshness_footer(root, sid, status or "")
+        foot_b = len(footer.encode("utf-8"))
+        # One spare byte so a missing trailing newline still fits with the footer.
+        room = CAP - foot_b - 1
+        if room < 1:
+            miss_exit("bound exceeded")
+        tail = bound_tail(strip_mirror_main(raw_main), room)
         if not tail.strip():
             miss_exit("empty after strip")
+        if not tail.endswith("\n"):
+            tail += "\n"
+        tail = tail + footer
         if len(tail.encode("utf-8")) > CAP:
             miss_exit("bound exceeded")
 

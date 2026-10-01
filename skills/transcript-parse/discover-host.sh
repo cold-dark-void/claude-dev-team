@@ -108,11 +108,11 @@ locate_host() {
     cmd+=(--session-id "$sid")
   fi
   if [ "$host" = "claude" ]; then
-    # shellcheck disable=SC2207
-    cmd+=($(claude_sessions_args))
-  else
-    # shellcheck disable=SC2207
-    cmd+=($(grok_sessions_args))
+    if [ -n "${CLAUDE_PROJECTS_DIR:-}" ]; then
+      cmd+=(--sessions-dir "$CLAUDE_PROJECTS_DIR")
+    fi
+  elif [ -n "${GROK_SESSIONS_DIR:-}" ]; then
+    cmd+=(--sessions-dir "$GROK_SESSIONS_DIR")
   fi
   out="$("${cmd[@]}" 2>/dev/null)" || true
   if [ -n "$out" ] && [ -f "$out" ]; then
@@ -136,7 +136,7 @@ emit() {
   local source="$3"
   local sid
   sid="$(session_id_from_path "$host" "$path")"
-  printf 'host=%s session_id=%s path=%s source=%s\n' "$host" "$sid" "$path" "$source"
+  printf 'host=%s\tsession_id=%s\tpath=%s\tsource=%s\n' "$host" "$sid" "$path" "$source"
 }
 
 # --- 1. Grok env pins ---
@@ -210,8 +210,8 @@ if [ -z "${GPATH:-}" ]; then
 fi
 
 # Compare mtimes; tie → prefer lexicographically smaller path (matches hosts.py).
-CMTIME=$(stat -c %Y "$CPATH" 2>/dev/null || stat -f %m "$CPATH" 2>/dev/null)
-GMTIME=$(stat -c %Y "$GPATH" 2>/dev/null || stat -f %m "$GPATH" 2>/dev/null)
+CMTIME=$(stat -c %Y "$CPATH" 2>/dev/null || stat -f %m "$CPATH" 2>/dev/null || true)
+GMTIME=$(stat -c %Y "$GPATH" 2>/dev/null || stat -f %m "$GPATH" 2>/dev/null || true)
 CMTIME=${CMTIME:-0}
 GMTIME=${GMTIME:-0}
 

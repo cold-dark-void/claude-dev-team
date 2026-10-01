@@ -26,14 +26,8 @@ LOC_OUT=$(bash "$HERE/hosts-grok-locate-test.sh" 2>&1)
 LOC_RC=$?
 set -e
 if [ "$LOC_RC" -eq 0 ]; then
-  # Count "PASS " lines from child (avoid double-counting its summary)
-  LOC_N=$(printf '%s\n' "$LOC_OUT" | grep -c '^PASS ' || true)
-  i=0
-  while [ "$i" -lt "${LOC_N:-0}" ]; do
-    pass "locate-suite[$i]"
-    i=$((i + 1))
-  done
-  pass "hosts-grok-locate-test.sh exit 0 ($LOC_N cases)"
+  # One parent result. Do not re-count the child suite's PASS lines.
+  pass "hosts-grok-locate-test.sh exit 0"
 else
   bad "hosts-grok-locate-test.sh failed rc=$LOC_RC"
   printf '%s\n' "$LOC_OUT" >&2
@@ -210,6 +204,93 @@ PY
       bad "handoff mode still has tool_result"
     fi
   fi
+fi
+
+# CDT-309 — direct <sid>.jsonl does not open a sibling transcript.
+PROJ="$HOME/.claude/projects/wp402"
+mkdir -p "$PROJ"
+SIDF="wp402-direct"
+printf '%s\n' '{"type":"user","uuid":"wp402-direct","timestamp":"2020-01-01T00:00:00.000Z","message":{"role":"user","content":"hi"}}' > "$PROJ/${SIDF}.jsonl"
+printf 'not json\n' > "$PROJ/poison.jsonl"
+chmod 000 "$PROJ/poison.jsonl" || true
+SCAN="$WORK/scan.log"
+: > "$SCAN"
+set +e
+OUT=$(ASSEMBLE_SCAN_LOG="$SCAN" python3 "$HERE/assemble.py" locate "$SIDF" 2>"$WORK/loc.err")
+LRC=$?
+set -e
+chmod 644 "$PROJ/poison.jsonl" 2>/dev/null || true
+if [ "$LRC" -eq 0 ] && [ "$OUT" = "$PROJ/${SIDF}.jsonl" ] && [ ! -s "$SCAN" ]; then
+  pass "direct hit does not scan siblings"
+else
+  bad "direct hit rc=$LRC out=$OUT scan=$(cat "$SCAN" 2>/dev/null) err=$(head -c 160 "$WORK/loc.err")"
+fi
+
+# W1-13 — a dict uuid does not abort assemble; the string uuid survives.
+DICT="$WORK/dict-uuid.jsonl"
+printf '%s\n' '{"uuid":{"x":1},"timestamp":"2020-01-01T00:00:00.000Z","message":{"role":"user","content":"bad"}}' > "$DICT"
+printf '%s\n' '{"uuid":"ok-uuid","timestamp":"2020-01-01T00:00:01.000Z","message":{"role":"user","content":"good"}}' >> "$DICT"
+set +e
+python3 "$HERE/assemble.py" assemble-file "$DICT" >"$WORK/dict.out" 2>"$WORK/dict.err"
+DRC=$?
+set -e
+if [ "$DRC" -eq 0 ] && grep -q 'ok-uuid' "$WORK/dict.out" && ! grep -q '"x": 1' "$WORK/dict.out" && ! grep -q '"x":1' "$WORK/dict.out"; then
+  pass "dict uuid skipped"
+else
+  bad "dict uuid rc=$DRC err=$(head -c 160 "$WORK/dict.err")"
+fi
+
+# W1-13 — utf-8 transcripts under LC_ALL=C.
+UNI="$WORK/uni.jsonl"
+printf '%s\n' '{"uuid":"u-uni","timestamp":"2020-01-01T00:00:00.000Z","message":{"role":"user","content":"héllo"}}' > "$UNI"
+set +e
+UOUT=$(LC_ALL=C python3 "$HERE/assemble.py" assemble-file "$UNI" 2>"$WORK/uni.err")
+URC=$?
+set -e
+if [ "$URC" -eq 0 ] && printf '%s\n' "$UOUT" | grep -q 'héllo'; then
+  pass "utf-8 under LC_ALL=C"
+else
+  bad "utf-8 under LC_ALL=C rc=$URC"
+fi
+
+# CDT-277 F20 — is_error reads only the first line.
+set +e
+python3 - "$HERE" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from grok_normalize import is_error_from_content
+assert is_error_from_content("exit: 1\n") is True
+assert is_error_from_content("exit: 0\n") is False
+assert is_error_from_content("notes mention exit: 1 later\n") is False
+assert is_error_from_content("ok\nexit: 1\n") is False
+PY
+FRC=$?
+set -e
+if [ "$FRC" -eq 0 ]; then
+  pass "F20 is_error is the first line only"
+else
+  bad "F20 is_error first-line rc=$FRC"
+fi
+
+# W1-13 — cold prepare calls assemble.locate once.
+UUID="11111111-1111-4111-8111-111111111111"
+PDIR="$HOME/.claude/projects/-wp402"
+mkdir -p "$PDIR"
+printf '%s\n' "{\"type\":\"user\",\"uuid\":\"$UUID\",\"timestamp\":\"2020-01-01T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}" > "$PDIR/$UUID.jsonl"
+touch -d '2 minutes ago' "$PDIR/$UUID.jsonl"
+LOG="$WORK/locate.log"
+: > "$LOG"
+set +e
+(
+  cd "$WORK" || exit 1
+  ASSEMBLE_LOCATE_LOG="$LOG" bash "$HERE/../handoff/prepass.sh" prepare --uuid "$UUID" >"$WORK/prep.out" 2>"$WORK/prep.err"
+)
+set -e
+N=$(grep -c '^locate$' "$LOG" || true)
+if [ "$N" -eq 1 ]; then
+  pass "cold prepare locates once"
+else
+  bad "cold prepare locate count=$N err=$(head -c 200 "$WORK/prep.err")"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

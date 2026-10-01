@@ -1130,7 +1130,7 @@ HANDOFF_SPINE_TOKENS="${HANDOFF_SPINE_TOKENS:-120000}" \
 HANDOFF_CHARS_PER_TOKEN="${HANDOFF_CHARS_PER_TOKEN:-4}" \
 PREPASS_UUID="$UUID" \
 PREPASS_CANONICAL="$CANONICAL" \
-PREPASS_FROM_FILE="$([ -n "$TRANSCRIPT" ] && echo 1 || echo 0)" \
+PREPASS_FROM_FILE="$([ -n "$CANONICAL" ] && [ -f "$CANONICAL" ] && echo 1 || echo 0)" \
 PREPASS_OUT="$OUT" \
 PREPASS_ASSEMBLE="$ASSEMBLE" \
 PREPASS_PARSE_DIR="$PARSE_DIR" \
@@ -1314,6 +1314,14 @@ for line in proc.stdout:
         del obj["toolUseResult"]
         stripped_count += 1
 
+    msg = obj.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                if "content" in block:
+                    block["content"] = ""
+
     rec = {"L": L, "role": role_of(obj), "ts": obj.get("timestamp") or "", "obj": obj}
     records.append(rec)
 
@@ -1438,8 +1446,16 @@ def _mirror_check_ok(sync_path, sid):
     if not sync_path or not os.path.isfile(sync_path):
         return False
     try:
+        cmd = ["bash", sync_path, "--check", "--sid", sid]
+        # A cursor already names the mirror source, so --check must not
+        # switch to the handoff canonical file. With no cursor, pass the
+        # file prepare already located so --check does not locate again.
+        canon = (os.environ.get("PREPASS_CANONICAL") or "").strip()
+        cursor = os.path.join(_mirror_store_root(), sid, "cursor")
+        if canon and os.path.isfile(canon) and not os.path.isfile(cursor):
+            cmd.extend(["--transcript", canon])
         proc_chk = subprocess.run(
-            ["bash", sync_path, "--check", "--sid", sid],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,

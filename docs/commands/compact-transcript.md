@@ -1,6 +1,6 @@
 # /compact-transcript
 
-Write a bounded Meaning-channel file (Meaning tail) for you to `@`.
+Write a short excerpt of the recent conversation that you can `@` in a new session (Meaning tail).
 
 This Surface is not a host `/compact` replacement.
 The Meaning tail is not a Compact seed and not an STM packet.
@@ -20,6 +20,8 @@ Governing spec: `specs/core/SPEC-036-transcript-mirror.md` (M14).
 |------|--------|
 | _(none)_ | Use the live session id |
 | `<sid>` | Use that sid as given |
+
+A bare command writes the tail when the mirror `main.md` exists, even if the live session is still in progress or lagging. The tail is the mirror as of the cursor. It ends with `<!-- mirror cursor: <ident>, lag: N lines -->`. A named `<sid>` still requires a caught-up mirror.
 
 Stdout is the absolute path of the Meaning tail.
 You `@` that printed path.
