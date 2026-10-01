@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.4
+- **WP 3-09 Memory commands** — /memory is a short router, config set inserts a missing key, stats --agent filters one agent, and reconcile judges every pair up to the cap.
+
 ### v1.19.3
 - **WP 3-08 Seed packs** — `--agent` merges one pack file, a `---` body line round-trips, import enforces the fallback cap and dedupes per agent, and a mismatched extension hash is refused.
 

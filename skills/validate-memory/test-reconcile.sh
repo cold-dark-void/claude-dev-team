@@ -562,15 +562,16 @@ print("no")
   else
     pass "static: reconcile-lib.sh does not splice \${mid}"
   fi
-  MEM_MD="$PLUGIN_ROOT/commands/memory.md"
-  if grep -n 'CLAUDE_PLUGIN_ROOT:-\$WTROOT' "$MEM_MD" >/dev/null 2>&1; then
-    fail "static: memory.md still falls back to CLAUDE_PLUGIN_ROOT:-WTROOT"
-  elif ! grep -n 'plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh' "$MEM_MD" >/dev/null 2>&1; then
-    fail "static: memory.md does not resolve reconcile-lib.sh via plugin-dir"
-  elif ! grep -n 'LIMIT 100' "$MEM_MD" >/dev/null 2>&1; then
-    fail "static: memory.md Step 2 has no LIMIT 100"
+  HOST_MD="$PLUGIN_ROOT/skills/validate-memory/host-pipeline.md"
+  RECON_MD="$PLUGIN_ROOT/skills/validate-memory/reconcile-host.md"
+  if grep -n 'CLAUDE_PLUGIN_ROOT:-\$WTROOT' "$HOST_MD" >/dev/null 2>&1 || grep -n 'CLAUDE_PLUGIN_ROOT:-\$WTROOT' "$RECON_MD" >/dev/null 2>&1; then
+    fail "static: validate host still falls back to CLAUDE_PLUGIN_ROOT:-WTROOT"
+  elif ! grep -n 'plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh' "$RECON_MD" >/dev/null 2>&1; then
+    fail "static: reconcile-host.md does not resolve reconcile-lib.sh via plugin-dir"
+  elif ! grep -n 'LIMIT 100' "$HOST_MD" >/dev/null 2>&1; then
+    fail "static: host-pipeline.md Step 2 has no LIMIT 100"
   else
-    pass "static: memory.md resolves reconcile-lib and limits Step 2"
+    pass "static: reconcile-host resolves reconcile-lib and host-pipeline limits Step 2"
   fi
 }
 

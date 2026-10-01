@@ -152,7 +152,7 @@ if [ -f "$EXTRACT" ]; then
   else bad "extraction rejected a complete set rc=$ERC"; fi
 fi
 
-MEM="$ROOT/commands/memory.md"
+MEM="$ROOT/skills/validate-memory/host-pipeline.md"
 if grep -q 'distill-lock.sh guard' "$MEM" && grep -q 'deep-rebuild.sh' "$MEM" && grep -q 'score.sh' "$MEM" && grep -q 'check-extraction.sh' "$MEM"; then
   ok "memory.md calls the lock guard, the score helper, deep-rebuild, and extraction check"
 else

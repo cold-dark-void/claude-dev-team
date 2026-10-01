@@ -108,6 +108,26 @@ When scope is `blind`, follow the Blind-review path section below and **stop**
 (do not invoke `engine.sh` preflight or tribunal phases). All other scopes
 continue at Step 1.
 
+This fence is its own shell. Set the workflow flag here. Step 2.5 parses the
+same words again. Do not read this variable from a later fence.
+
+```bash
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+_COUNCIL_WORKFLOW_FLAG=0
+for _a in "$@"; do
+  if [ "$_a" = "--workflow" ]; then
+    _COUNCIL_WORKFLOW_FLAG=1
+  fi
+done
+if [ "${COUNCIL_WORKFLOW:-}" = "1" ]; then
+  _COUNCIL_WORKFLOW_FLAG=1
+fi
+```
+
 ## Step 1: Locate the engine
 
 ```bash
@@ -352,12 +372,24 @@ this CLI; `engine.sh` synthesizes its own safe default when the flag is
 omitted):
 
 ```bash
-# CDT-126: assign the externally-supplied tier as real shell state, here,
-# BEFORE Step 2.5's Workflow-fallback guard reads ${COUNCIL_TIER:-full}.
-# When $COUNCIL_TIER_FLAG is empty (no --council-tier on this invocation),
-# skip this line — COUNCIL_TIER stays unset and Step 2.5's default is the
-# correct, ungraded-full behavior.
-COUNCIL_TIER="$COUNCIL_TIER_FLAG"
+# CDT-126: this fence is a new shell. Read --council-tier from the user's words.
+# Empty means no flag. Step 2.5 parses the same words again.
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+COUNCIL_TIER=""
+for _a in "$@"; do
+  case "$_a" in
+    --council-tier=light) COUNCIL_TIER=light ;;
+    --council-tier=full) COUNCIL_TIER=full ;;
+    --council-tier=*)
+      echo "council error: --council-tier accepts only light or full" >&2
+      exit 2
+      ;;
+  esac
+done
 ```
 
 The engine rejects `--tier skip` (exit 2): `skip` short-circuits at the call
@@ -371,6 +403,11 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 ENGINE_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/engine.sh)
 PLAN_FILE=$(mktemp "${TMPDIR:-/tmp}/council-plan.XXXXXX.json") \
   || { echo "council error: mktemp failed for PLAN_FILE"; exit 1; }
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+mkdir -p "$MROOT/.claude/council"
+printf '%s\n' "$PLAN_FILE" > "$MROOT/.claude/council/plan-path"
 
 "$ENGINE_SH" preflight <translated-args> > "$PLAN_FILE"
 EXIT=$?
@@ -424,9 +461,25 @@ available and only the tier is unsupported.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 USE_WORKFLOW=0
-# Step 0.5 sets _COUNCIL_WORKFLOW_FLAG=1 when the user passed --workflow.
-# lint-ok: C1
-if [ "${COUNCIL_WORKFLOW:-}" = "1" ] || [ "${_COUNCIL_WORKFLOW_FLAG:-}" = "1" ]; then
+# This fence is a new shell. Parse --workflow and --council-tier here.
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+_COUNCIL_WORKFLOW_FLAG=0
+COUNCIL_TIER=""
+for _a in "$@"; do
+  case "$_a" in
+    --workflow) _COUNCIL_WORKFLOW_FLAG=1 ;;
+    --council-tier=light) COUNCIL_TIER=light ;;
+    --council-tier=full) COUNCIL_TIER=full ;;
+  esac
+done
+if [ "${COUNCIL_WORKFLOW:-}" = "1" ]; then
+  _COUNCIL_WORKFLOW_FLAG=1
+fi
+if [ "$_COUNCIL_WORKFLOW_FLAG" = "1" ]; then
   USE_WORKFLOW=1
 fi
 if [ "$USE_WORKFLOW" = "1" ]; then
@@ -438,9 +491,8 @@ if [ "$USE_WORKFLOW" = "1" ]; then
 fi
 # CDT-126: tier-driven fallback. Distinct from the availability notice above —
 # the Workflow tool is available; only council_tier=light is unsupported there.
-# COUNCIL_TIER is session-held by the orchestrating Claude (assigned in Step 2);
-# not a cross-fence shell export — same contract as PLAN_FILE above.
-if [ "$USE_WORKFLOW" = "1" ] && [ "${COUNCIL_TIER:-full}" = "light" ]; then  # lint-ok: C1
+# COUNCIL_TIER was set in this fence from --council-tier.
+if [ "$USE_WORKFLOW" = "1" ] && [ "${COUNCIL_TIER:-full}" = "light" ]; then
   echo "council: council_tier=light unsupported on the Workflow path; falling back to engine.sh" >&2
   USE_WORKFLOW=0
 fi
@@ -572,9 +624,15 @@ that cache (CDT-275). For each unique path-like locator (strip
 like turn ids / `retro:…`):
 
 ```bash
-# PLAN_FILE is session-held by the orchestrating Claude (created in Step 2); not a
-# cross-fence shell export — same contract as finalize --plan-file below.
-CACHE_DIR=$(jq -r '.cache_dir // empty' "$PLAN_FILE")  # lint-ok: C1
+# PLAN_FILE was written by Step 2 to .claude/council/plan-path. Read it here.
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PLAN_FILE=""
+if [ -f "$MROOT/.claude/council/plan-path" ]; then
+  PLAN_FILE=$(head -1 "$MROOT/.claude/council/plan-path")
+fi
+CACHE_DIR=$(jq -r '.cache_dir // empty' "$PLAN_FILE")
 # for each unique file path P that exists and is readable:
 key=$(printf '%s' "$P" | sha256sum | awk '{print $1}')
 mkdir -p "$CACHE_DIR/reads"
@@ -665,9 +723,16 @@ ARTIFACTS_FILE=$(mktemp "${TMPDIR:-/tmp}/council-artifacts.XXXXXX") \
 EXT_OUT=$(mktemp "${TMPDIR:-/tmp}/council-ext.XXXXXX.json") \
   || { echo "council: mktemp failed for external slot — skipping"; EXT_OUT=""; }
 if [ -n "$EXT_OUT" ] && [ -n "$ARTIFACTS_FILE" ] && [ -x "$EXT_SH" ]; then
-  # PLAN_FILE session-held by orchestrating Claude (Step 2) — not a cross-fence export
-  _ext_tool=$(jq -r '.external.tool // "auto"' "$PLAN_FILE")  # lint-ok: C1
-  _ext_shape=$(jq -r '.output_shape' "$PLAN_FILE")  # lint-ok: C1
+  # PLAN_FILE was written by Step 2 to .claude/council/plan-path. Read it here.
+  _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+    && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+    || MROOT=$(pwd)
+  PLAN_FILE=""
+  if [ -f "$MROOT/.claude/council/plan-path" ]; then
+    PLAN_FILE=$(head -1 "$MROOT/.claude/council/plan-path")
+  fi
+  _ext_tool=$(jq -r '.external.tool // "auto"' "$PLAN_FILE")
+  _ext_shape=$(jq -r '.output_shape' "$PLAN_FILE")
   bash "$EXT_SH" run \
     --tool "$_ext_tool" \
     --claim "<primary claim text or diff summary>" \
@@ -1097,8 +1162,14 @@ JUDGE_FILE=$(mktemp "${TMPDIR:-/tmp}/council-judge.XXXXXX.json") \
 TOKENS_FILE=$(mktemp "${TMPDIR:-/tmp}/council-tokens.XXXXXX.json") \
   || { rm -f -- "$EVIDENCE_FILE" "$JUDGE_FILE"; echo "council error: mktemp failed for TOKENS_FILE"; exit 1; }
 trap 'rm -f -- "$EVIDENCE_FILE" "$JUDGE_FILE" "$TOKENS_FILE"' EXIT
-# PLAN_FILE is session-held (created in Step 2). Waiver on its own line.
-# lint-ok: C1
+# PLAN_FILE was written by Step 2 to .claude/council/plan-path. Read it here.
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PLAN_FILE=""
+if [ -f "$MROOT/.claude/council/plan-path" ]; then
+  PLAN_FILE=$(head -1 "$MROOT/.claude/council/plan-path")
+fi
 TASK_ID=$(jq -r '.task_id // empty' "$PLAN_FILE")
 TASK_ARGS=()
 if [ -n "$TASK_ID" ] && [ "$TASK_ID" != "null" ]; then
@@ -1112,7 +1183,6 @@ TOKEN_ARGS=()
 if [ -s "$TOKENS_FILE" ]; then
   TOKEN_ARGS=(--tokens-file "$TOKENS_FILE")
 fi
-# lint-ok: C1
 "$ENGINE_SH" finalize --plan-file "$PLAN_FILE" \
   --evidence-file "$EVIDENCE_FILE" \
   --judge-output "$JUDGE_FILE" \

@@ -348,9 +348,9 @@ has_suite_row() { # has_suite_row MANIFEST FILE NEEDLE — a suite row for FILE 
   MF="$2" MN="$3" awk -F'\t' '$1 == "suite" && $2 == ENVIRON["MF"] && index($3, ENVIRON["MN"]) > 0 { found = 1 } END { exit !found }' "$1"
 }
 REQ='commands/setup.md|Sub: `team`
-commands/memory.md|Step 5: Check distill_enabled
-commands/memory.md|Step 10.1
-commands/memory.md|Step 10.5
+skills/memory-store/modes/distill.md|Step 5: Check distill_enabled
+skills/validate-memory/host-pipeline.md|Step 10.1
+skills/validate-memory/host-pipeline.md|Step 10.5
 skills/memory-recall/SKILL.md|Step 4: Semantic search
 commands/retro.md|Step 1b: Scheduled path lock
 skills/review-and-commit/SKILL.md|Step 5: Finalize

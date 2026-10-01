@@ -11,7 +11,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 pass=0
 fail=0
 
-FENCE=$(fence_nth "$ROOT/commands/memory.md" "Step 5a: Reject read-only" 1) || FENCE=""
+FENCE=$(fence_nth "$ROOT/skills/memory-store/modes/config.md" "Step 5a: Reject read-only" 1) || FENCE=""
 if [ -n "$FENCE" ]; then
   pass_line "Step 5a fence extracted"
 else

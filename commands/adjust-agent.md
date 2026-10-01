@@ -123,7 +123,13 @@ Check if the agent has a definition file in the plugin:
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 PLUGIN_AGENTS=$(bash "$PDH/skills/plugin-dir.sh" dir agents/pm.md)
-if [ -n "$PLUGIN_AGENTS" ] && [ ! -f "$PLUGIN_AGENTS/$AGENT.md" ]; then  # lint-ok: C1
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+AGENT="${1:-}"
+if [ -n "$PLUGIN_AGENTS" ] && [ ! -f "$PLUGIN_AGENTS/$AGENT.md" ]; then
   echo "Warning: No agent definition found for '$AGENT' (no agents/$AGENT.md in plugin)."
   echo "This may be a typo. Continuing anyway for forward-compatibility."
   echo ""
@@ -140,7 +146,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 DIRECTIVES_BASE="$MROOT/.claude/memory"
-FILE="$DIRECTIVES_BASE/$AGENT/directives.md"  # lint-ok: C1
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+AGENT="${1:-}"
+FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
 if [ -s "$FILE" ]; then
   echo "Directives for $AGENT:"
   echo ""
@@ -165,7 +177,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 DIRECTIVES_BASE="$MROOT/.claude/memory"
-FILE="$DIRECTIVES_BASE/$AGENT/directives.md"  # lint-ok: C1
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+AGENT="${1:-}"
+FILE="$DIRECTIVES_BASE/$AGENT/directives.md"
 EXISTING=""
 if [ -s "$FILE" ]; then
   EXISTING=$(cat "$FILE")
@@ -242,17 +260,21 @@ evaluates them exactly like permanent lines.
 
 ### Step 5e: Ensure .gitignore coverage
 
-Before writing, verify that `.claude/memory/` is covered by `.gitignore`:
+Before writing, call `ensure_seed_gitignore` so `.claude/memory/*` is ignored and `!.claude/memory/seed/` stays committable. Do not append a bare `.claude/memory/` directory rule.
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-GITIGNORE="$MROOT/.gitignore"
-if ! grep -qE '^\.claude/memory(/|$)' "$GITIGNORE" 2>/dev/null && \
-   ! grep -qF '.claude/memory/' "$GITIGNORE" 2>/dev/null; then
-  echo ".claude/memory/" >> "$GITIGNORE"
-  echo "(Added .claude/memory/ to .gitignore)"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+SEED_COMMON=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/seed-common.sh)
+if [ -z "$SEED_COMMON" ] || [ ! -f "$SEED_COMMON" ]; then
+  echo "Error: seed-common.sh not found" >&2
+  exit 1
 fi
+# shellcheck disable=SC1090
+. "$SEED_COMMON"
+ensure_seed_gitignore "$MROOT"
 ```
 
 ### Step 5f: Write directives file
@@ -262,7 +284,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 DIRECTIVES_BASE="$MROOT/.claude/memory"
-mkdir -p "$DIRECTIVES_BASE/$AGENT"  # lint-ok: C1
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+AGENT="${1:-}"
+mkdir -p "$DIRECTIVES_BASE/$AGENT"
 cat > "$DIRECTIVES_BASE/$AGENT/directives.md" << 'DIREOF'
 <the holistic rewritten numbered list>
 DIREOF

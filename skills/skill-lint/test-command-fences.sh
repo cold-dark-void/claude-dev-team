@@ -102,7 +102,7 @@ pass_through "setup models: the models word is dropped, a * stays" "$CMD/setup.m
 pass_through "setup models: bare models lists" "$CMD/setup.md" 'Sub: `models`' 1 \
   'bash "$WRITE_MODEL" "${1:-list}" "${@:2}"' 'printf "ARG:%s\n" "${1:-list}" "${@:2}"' 'models' 'list'
 
-text=$(fence_nth "$CMD/memory.md" "## Step 1: Export seed pack" 1)
+text=$(fence_nth "$ROOT/skills/memory-store/modes/export.md" "## Step 1: Export seed pack" 1)
 text=$(subst_args "$text" 'export --agent pm --limit 5 *') && text=$(swap "$text" 'bash "$EXPORT_SH" "$@" "$MROOT"' 'printf "ARG:%s\n" "$@" "$MROOT"') || text=""
 if [ -n "$text" ]; then
   run_fence "$text" "$ROOT"

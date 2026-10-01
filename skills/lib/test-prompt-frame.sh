@@ -113,7 +113,7 @@ else
   bad "strip dropped the payload: $stripped"
 fi
 
-for f in commands/memory.md skills/fix-ticket/SKILL.md skills/bug-hunt/SKILL.md commands/council.md; do
+for f in skills/validate-memory/host-pipeline.md skills/validate-memory/reconcile-host.md skills/fix-ticket/SKILL.md skills/bug-hunt/SKILL.md commands/council.md; do
   if grep -qF '{{DATA_NONCE}}' "$ROOT/$f" && grep -qF 'prompt-frame.sh strip' "$ROOT/$f"; then
     ok "spawn site strips then substitutes the nonce: $f"
   else

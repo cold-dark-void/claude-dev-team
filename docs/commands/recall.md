@@ -57,7 +57,7 @@ Output includes sessions matching expanded related terms like "cache layer", "in
 
 **Phase 2 — Keyword expansion then session search:** From the Phase 1 results, `/recall` extracts up to 8 related terms — distinctive noun phrases and technical terms used to describe the same concept in plain language. If Phase 1 returned nothing, the query itself is decomposed (split on hyphens/underscores, numeric affixes stripped). All terms are combined into a single pattern and `~/.claude/history.jsonl` is scanned in one pass for matching conversation sessions. Sessions that match only an expanded term are tagged `(related: "<term>")` so you know why they appeared.
 
-The output groups findings by type (Sessions, Agent Memory, Specs, Plans, Commits, Backlog), orders each group newest-first, and caps results per section to avoid noise (10 sessions, 5 memory matches, 5 specs, 5 plans, 10 commits). After the summary, the most recent matching session's first five prompts are shown to give richer context.
+The output groups findings by type (Sessions, Agent Memory, Specs, Plans, Commits, Backlog), orders each group newest-first, and caps results per section to avoid noise (10 sessions, 10 memory matches, 5 specs, 5 plans, 10 commits). After the summary, the most recent matching session's first five prompts are shown to give richer context.
 
 ## See Also
 

@@ -5,7 +5,7 @@ description: |
   for /memory validate. Defines the LLM-driven per-claim validation pipeline
   (claim extractor Step 3, investigator Step 4 Tier B) and the --reconcile
   pair-judge contract (Steps R1–R4). Not user-invoked — consumed by
-  commands/memory.md (validate sub).
+  skills/validate-memory/host-pipeline.md and reconcile-host.md.
 ---
 
 # validate-memory — Prompt Templates & Contracts
@@ -321,7 +321,7 @@ No markdown fences. No prose before or after.
 |---|---|---|---|
 | Claim extraction | 10 memories | 10 batches | SQL LIMIT 100; overflow deferred to next run |
 | Tier B investigation | 15 claims | 5 batches | Overflow claims skipped; parent memory deferred to next run |
-| Reconcile pair-judge | 10 pairs | 5 batches | Cap at `reconcile_pair_cap` (default 50); overflow not judged this run |
+| Reconcile pair-judge | 10 pairs | enough calls to cover `reconcile_pair_cap` | Judge every candidate up to the cap (default 50, max 500). Do not stop at 50 when the cap is higher. |
 
 All batches within a stage spawn in parallel (one tool-use block).
 

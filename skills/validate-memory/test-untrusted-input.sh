@@ -11,7 +11,7 @@ FAIL=0
 ok() { PASS=$((PASS + 1)); echo "PASS: $1"; }
 bad() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
 
-MEM="$ROOT/commands/memory.md"
+MEM="$ROOT/skills/validate-memory/host-pipeline.md"
 RECALL="$ROOT/commands/recall.md"
 RETRO="$ROOT/commands/retro.md"
 INIT="$ROOT/agents/project-init.md"

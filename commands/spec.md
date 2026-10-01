@@ -67,6 +67,29 @@ With `--tests`, also run Phase 3 for that single spec after the validation repor
 
 Parse flags from the invocation; strip them before treating remaining tokens as a spec ID.
 
+The word `audit` is a keyword, not a spec id. `/spec check audit` is Mode 1,
+the same audit as `/spec check` with no id. Do not open a file named `audit`.
+
+```bash
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+[ "${1:-}" = "check" ] && shift
+MODE="audit"
+SPEC_ID=""
+while [ $# -gt 0 ]; do
+  case "${1:-}" in
+    audit) MODE="audit"; shift ;;
+    --tests) shift ;;
+    --gate) shift ;;
+    --gate=*) shift ;;
+    *) SPEC_ID="$1"; MODE="validate"; shift ;;
+  esac
+done
+```
+
 ---
 
 ### Audit Mode

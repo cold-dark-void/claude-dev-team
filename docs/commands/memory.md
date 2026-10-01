@@ -37,8 +37,8 @@ View and update memory distillation configuration in the SQLite `config` table
 | `distill_mode` | `manual` / `suggest` / `auto` | `suggest` | When distillation triggers |
 | `distill_threshold` | integer 1–9999 | `50` | Raw memory count per agent before trigger |
 | `distill_model` | model name | `haiku` | Model used by `@distiller` |
-| `validate_window_days` | integer 1–365 | — | Skip recently-validated rows |
-| `reconcile_pair_cap` | integer 1–500 | — | Max contradiction pairs per reconcile pass |
+| `validate_window_days` | integer 1–365 | `7` | Skip recently-validated rows |
+| `reconcile_pair_cap` | integer 1–500 | `50` | Max contradiction pairs per reconcile pass |
 
 Read-only keys (`distilling_lock`, `schema_version`) cannot be set manually.
 Invalid values are rejected before write.
@@ -137,6 +137,8 @@ to share publicly.
 /memory stats --agent <name>
 ```
 
+`--agent <name>` limits every per-agent query and the summary to that roster name (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`). A name outside the roster exits 64. The embedding query runs only when `embedding_meta` exists.
+
 Shows per-agent breakdown (type counts, avg/max/total chars), overall summary,
 embedding coverage, the embed error count, and boot-load estimate (chars each
 agent loads at session start, with HIGH/moderate/ok status). The embed error
@@ -165,7 +167,9 @@ Cross-reference agent memories against the live codebase to detect stale refs
 | `--report-only` | With `--reconcile`: list contradictions; **zero DB writes** |
 
 `--deep` and `--reconcile` are mutually exclusive. Never auto-archives
-contradictions — user decides. Pipeline lives in `commands/memory.md` (`validate` section).
+contradictions — user decides. The host pipeline is
+`skills/validate-memory/host-pipeline.md`. The reconcile path is
+`skills/validate-memory/reconcile-host.md`. The router is `commands/memory.md`.
 
 ## How It Works
 

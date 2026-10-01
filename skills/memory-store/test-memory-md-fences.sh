@@ -19,7 +19,9 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-MEMORY_MD="${MEMORY_MD:-$ROOT/commands/memory.md}"
+DISTILL_MD="${DISTILL_MD:-$ROOT/skills/memory-store/modes/distill.md}"
+HOST_MD="${HOST_MD:-$ROOT/skills/validate-memory/host-pipeline.md}"
+STATS_MD="${STATS_MD:-$ROOT/skills/memory-store/modes/stats.md}"
 
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$ROOT/tests/lib/hermetic.sh"
@@ -68,9 +70,9 @@ run_fence() {
 no_sql_error() { ! grep -qiE 'parse error|unrecognized token|syntax error|incomplete input' "$1.err"; }
 
 # ---- extract ----------------------------------------------------------------
-DISTILL="$(fence_nth "$MEMORY_MD" "## Step 5: Check distill_enabled" 2)"
-DEEP101="$(fence_nth "$MEMORY_MD" "### Step 10.1" 1)"
-DEEP105="$(fence_nth "$MEMORY_MD" "### Step 10.5" 2)"
+DISTILL="$(fence_nth "$DISTILL_MD" "## Step 5: Check distill_enabled" 2)"
+DEEP101="$(fence_nth "$HOST_MD" "### Step 10.1" 1)"
+DEEP105="$(fence_nth "$HOST_MD" "### Step 10.5" 2)"
 for pair in "Step 5 (distill) agents:$DISTILL" "Step 10.1:$DEEP101" "Step 10.5 valid IDs:$DEEP105"; do
   if [ -n "${pair#*:}" ]; then pass_line "structural: ${pair%%:*} fence extracted"
   else fail_line "structural: ${pair%%:*} fence extracted (zero)"; fi
@@ -111,7 +113,7 @@ check "deep 10.5: keeps the live and the distilled sources, drops the stale one"
 # ---- stats: the embed error count (WP 1-13, CDT-262) ---------------------------
 # Lines are written by the real writer (embed_log_error), so a format change in
 # embed-common.sh breaks this test. The count is lines whose 2nd field is "embed".
-STATS="$(fence_nth "$MEMORY_MD" "## Step 3: Gather and display stats" 1)"
+STATS="$(fence_nth "$STATS_MD" "## Step 3: Gather and display stats" 1)"
 if [ -n "$STATS" ]; then pass_line "structural: stats Step 3 fence extracted"
 else fail_line "structural: stats Step 3 fence extracted (zero)"; fi
 

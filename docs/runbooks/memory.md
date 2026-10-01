@@ -169,7 +169,7 @@ The quality of memory search depends on your embedding configuration:
 | Mode | How it works | Quality | Setup |
 |------|-------------|---------|-------|
 | `remote` | Calls external embedding API | Best | Set `EMBEDDING_URL` env var |
-| `lembed` | Local GGUF model (all-MiniLM-L6-v2) | Good | Default after `/setup team` |
+| `lembed` | Local GGUF model (all-MiniLM-L6-v2) | Good | Used when vec0, lembed0, and the GGUF are present. The seed default is `fallback`. |
 | `fallback` | SQL keyword matching or grep | Basic | Automatic if no extensions |
 
 To switch to remote embeddings:

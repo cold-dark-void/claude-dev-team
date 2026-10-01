@@ -17,9 +17,9 @@
 #       `check` proves the heading still holds a bash fence and that the suite
 #       names the heading; `run` runs each suite once from the repo root.
 suite	commands/setup.md	Sub: `team`	skills/memory-store/test-setup-team-fences.sh	/setup team: every bash fence runs in a fresh shell against fixture repos and DBs
-suite	commands/memory.md	## Step 5: Check distill_enabled	skills/memory-store/test-memory-md-fences.sh	/memory distill: the agent-selection fence runs against a fixture DB
-suite	commands/memory.md	### Step 10.1	skills/memory-store/test-memory-md-fences.sh	/memory validate --deep: the tier-1 digest listing runs with and without --agent
-suite	commands/memory.md	### Step 10.5	skills/memory-store/test-memory-md-fences.sh	/memory validate --deep: the source-ID reconcile fence drops the stale ID
+suite	skills/memory-store/modes/distill.md	## Step 5: Check distill_enabled	skills/memory-store/test-memory-md-fences.sh	/memory distill: the agent-selection fence runs against a fixture DB
+suite	skills/validate-memory/host-pipeline.md	### Step 10.1	skills/memory-store/test-memory-md-fences.sh	/memory validate --deep: the tier-1 digest listing runs with and without --agent
+suite	skills/validate-memory/host-pipeline.md	### Step 10.5	skills/memory-store/test-memory-md-fences.sh	/memory validate --deep: the source-ID reconcile fence drops the stale ID
 suite	skills/memory-recall/SKILL.md	## Step 4: Semantic search	skills/memory-recall/test-fences.sh	memory-recall Step 4 runs in each embedding mode against a fixture DB
 suite	commands/retro.md	### Step 1b: Scheduled path lock	skills/retro-gate/test-retro-fences.sh	/retro scheduled: the Step 1b lock fence runs against stub lock and report scripts
 suite	commands/retro.md	### Step 2d: Empty-set guard	skills/retro-gate/scheduled-retro-test.sh	/retro scheduled: the empty-set fence writes a report and releases the lock
@@ -36,7 +36,7 @@ suite	commands/doctor.md	## Step 2: Invoke doctor	skills/skill-lint/test-command
 suite	commands/status.md	### Step 2: Invoke rollup	skills/skill-lint/test-command-fences.sh	/status: a section and a * reach rollup.sh intact
 suite	commands/setup.md	Sub: `models`	skills/skill-lint/test-command-fences.sh	/setup models: the models word is dropped and the rest reaches write-model.sh intact
 suite	commands/setup.md	### Step 0: Doctor hard-gate	skills/skill-lint/test-command-fences.sh	/setup team: --skip-doctor is found in the user text, not in $@
-suite	commands/memory.md	## Step 1: Export seed pack	skills/skill-lint/test-command-fences.sh	/memory export: the flags reach export-seed-pack.sh and MROOT is the only extra word
+suite	skills/memory-store/modes/export.md	## Step 1: Export seed pack	skills/skill-lint/test-command-fences.sh	/memory export: the flags reach export-seed-pack.sh and MROOT is the only extra word
 suite	commands/worktree.md	Step 3:	skills/skill-lint/test-command-fences.sh	/worktree release: the slug is read and validated from the user text
 suite	commands/adjust-agent.md	## Step 7: Model map	skills/skill-lint/test-command-fences.sh	/adjust-agent --model/--effort: the agent and flags reach write-model.sh
 suite	commands/adjust-agent.md	## Step 3: Dashboard mode	skills/skill-lint/test-command-fences.sh	/adjust-agent dashboard: an empty directives file gives one 0 (CDT-362)
