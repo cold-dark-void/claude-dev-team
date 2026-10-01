@@ -1279,6 +1279,134 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# WP 2-12 — byte-offset tick, sid reject, flag order, crash restore
+# ---------------------------------------------------------------------------
+printf '%s\n' '{"type":"user","uuid":"ord-1","message":{"role":"user","content":"ORDER-OK"}}' \
+  >"$WORK/src/order.jsonl"
+age "$WORK/src/order.jsonl"
+RC=$(invoke_rec --sid tm-order --transcript "$WORK/src/order.jsonl")
+if [ "$RC" -eq 0 ] && grep -q 'ORDER-OK' "$STORE/tm-order/main.md" 2>/dev/null; then
+  pass "WP212 --sid before --transcript writes main.md"
+else
+  fail "WP212 flag order rc=$RC err=$(cat "$WORK/rec.err" 2>/dev/null)"
+fi
+
+RC=$(invoke_rec --transcript "$WORK/src/order.jsonl" --sid .)
+if [ "$RC" -ne 0 ] && [ ! -f "$STORE/main.md" ]; then
+  pass "WP212 --sid . exits non-zero and writes nothing"
+else
+  fail "WP212 sid-dot rc=$RC main=$(ls "$STORE/main.md" 2>/dev/null || echo absent)"
+fi
+RC=$(invoke_rec --sid .x --transcript "$WORK/src/order.jsonl")
+if [ "$RC" -ne 0 ] && [ ! -d "$STORE/.x" ]; then
+  pass "WP212 --sid .x exits non-zero and writes nothing"
+else
+  fail "WP212 sid-.x rc=$RC"
+fi
+
+printf 'NOT JSON\n{"type":"user","uuid":"m-1","message":{"role":"user","content":"MALFORMED-OK"},"forkedFrom":{"sessionId":"parent-x"}}\n' \
+  >"$WORK/src/bad-first.jsonl"
+age "$WORK/src/bad-first.jsonl"
+RC=$(invoke_rec --transcript "$WORK/src/bad-first.jsonl" --sid tm-bad1)
+if [ "$RC" -eq 0 ] && grep -q 'MALFORMED-OK' "$STORE/tm-bad1/main.md" 2>/dev/null; then
+  pass "WP212 malformed first line does not abort"
+else
+  fail "WP212 malformed rc=$RC err=$(cat "$WORK/rec.err" 2>/dev/null)"
+fi
+printf '\n%s\n' '{"type":"user","uuid":"m-2","message":{"role":"user","content":"MALFORMED-N"}}' >>"$WORK/src/bad-first.jsonl"
+age "$WORK/src/bad-first.jsonl"
+RC=$(invoke_rec --transcript "$WORK/src/bad-first.jsonl" --sid tm-bad1)
+OKN=$(grep -c 'MALFORMED-OK' "$STORE/tm-bad1/main.md" 2>/dev/null || true)
+NN=$(grep -c 'MALFORMED-N' "$STORE/tm-bad1/main.md" 2>/dev/null || true)
+if [ "$RC" -eq 0 ] && [ "$OKN" = 1 ] && [ "$NN" = 1 ]; then
+  pass "WP212 blank or bad line does not repeat the previous turn"
+else
+  fail "WP212 align rc=$RC ok=$OKN n=$NN"
+fi
+printf '%s\n' '"line-one\nline-two"' '{"type":"user","uuid":"s-1","message":{"role":"user","content":"AFTER-STRING"}}' \
+  >"$WORK/src/str.jsonl"
+age "$WORK/src/str.jsonl"
+RC=$(invoke_rec --transcript "$WORK/src/str.jsonl" --sid tm-str)
+printf '%s\n' '{"type":"user","uuid":"s-2","message":{"role":"user","content":"AFTER-STRING-2"}}' >>"$WORK/src/str.jsonl"
+age "$WORK/src/str.jsonl"
+RC2=$(invoke_rec --transcript "$WORK/src/str.jsonl" --sid tm-str)
+S1=$(grep -c 'AFTER-STRING$' "$STORE/tm-str/main.md" 2>/dev/null || true)
+S2=$(grep -c 'AFTER-STRING-2' "$STORE/tm-str/main.md" 2>/dev/null || true)
+if [ "$RC" -eq 0 ] && [ "$RC2" -eq 0 ] && [ "$S1" = 1 ] && [ "$S2" = 1 ]; then
+  pass "WP212 JSON string row stays one ident line"
+else
+  fail "WP212 string-row rc=$RC/$RC2 s1=$S1 s2=$S2"
+fi
+
+awk 'BEGIN{for(i=1;i<=5000;i++) printf "{\"type\":\"user\",\"uuid\":\"p-%d\",\"message\":{\"role\":\"user\",\"content\":\"perf %d\"}}\n", i, i}' \
+  >"$WORK/src/perf.jsonl"
+age "$WORK/src/perf.jsonl"
+RC=$(invoke_rec --transcript "$WORK/src/perf.jsonl" --sid tm-perf)
+assert_rc0 "$RC" "WP212 perf seed exit 0"
+printf '%s\n' '{"type":"user","uuid":"p-new","message":{"role":"user","content":"PERF-NEW"}}' >>"$WORK/src/perf.jsonl"
+age "$WORK/src/perf.jsonl"
+P0=$(date +%s%N)
+RC=$(invoke_rec --transcript "$WORK/src/perf.jsonl" --sid tm-perf)
+P1=$(date +%s%N)
+PMS=$(( (P1 - P0) / 1000000 ))
+if [ "$RC" -eq 0 ] && [ "$PMS" -lt 2000 ] && grep -q 'PERF-NEW' "$STORE/tm-perf/main.md"; then
+  pass "WP212 incremental 5k tick ${PMS}ms"
+else
+  fail "WP212 incremental rc=$RC ms=$PMS err=$(cat "$WORK/rec.err" 2>/dev/null)"
+fi
+
+# Crash after the sid dir is renamed aside. The next tick restores agents/.
+printf '%s\n' '{"type":"user","uuid":"k-1","message":{"role":"user","content":"KILL-BASE"}}' \
+  >"$WORK/src/kill.jsonl"
+age "$WORK/src/kill.jsonl"
+RC=$(invoke_rec --transcript "$WORK/src/kill.jsonl" --sid tm-kill)
+assert_rc0 "$RC" "WP212 kill seed exit 0"
+mkdir -p "$STORE/tm-kill/agents"
+printf '%s\n' 'AGENT-KEEP' >"$STORE/tm-kill/agents/marker"
+printf 'dead\t%s\tdead\n' "$WORK/src/kill.jsonl" >"$STORE/tm-kill/cursor"
+set +e
+TM_FAILPOINT=after-bak bash "$REC" --transcript "$WORK/src/kill.jsonl" --sid tm-kill \
+  >"$WORK/rec.out" 2>"$WORK/rec.err"
+RC_KILL=$?
+set -e
+if [ "$RC_KILL" -ne 0 ]; then
+  pass "WP212 failpoint stops the swap rc=$RC_KILL"
+else
+  fail "WP212 failpoint did not stop rc=$RC_KILL"
+fi
+unset TM_FAILPOINT || true
+RC=$(invoke_rec --transcript "$WORK/src/kill.jsonl" --sid tm-kill)
+if [ "$RC" -eq 0 ] && [ -f "$STORE/tm-kill/agents/marker" ] \
+   && grep -q 'AGENT-KEEP' "$STORE/tm-kill/agents/marker" \
+   && [ ! -d "$STORE/tm-kill.bak.1" ]; then
+  pass "WP212 next tick restores agents after a killed rebuild"
+else
+  fail "WP212 restore rc=$RC marker=$(ls "$STORE/tm-kill/agents/marker" 2>/dev/null || echo absent) err=$(cat "$WORK/rec.err" 2>/dev/null)"
+fi
+
+# Two concurrent ticks match one sequential tick.
+awk 'BEGIN{for(i=1;i<=20;i++) printf "{\"type\":\"user\",\"uuid\":\"c-%d\",\"message\":{\"role\":\"user\",\"content\":\"con %d\"}}\n", i, i}' \
+  >"$WORK/src/con.jsonl"
+age "$WORK/src/con.jsonl"
+SA="$WORK/store-con-a"
+SB="$WORK/store-con-b"
+mkdir -p "$SA" "$SB"
+TRANSCRIPT_MIRROR_ROOT="$SA" bash "$REC" --transcript "$WORK/src/con.jsonl" --sid tm-con >/dev/null
+TRANSCRIPT_MIRROR_ROOT="$SB" bash "$REC" --transcript "$WORK/src/con.jsonl" --sid tm-con >/dev/null
+printf '%s\n' '{"type":"user","uuid":"c-new","message":{"role":"user","content":"CON-NEW"}}' >>"$WORK/src/con.jsonl"
+age "$WORK/src/con.jsonl"
+TRANSCRIPT_MIRROR_ROOT="$SA" bash "$REC" --transcript "$WORK/src/con.jsonl" --sid tm-con >/dev/null &
+TRANSCRIPT_MIRROR_ROOT="$SA" bash "$REC" --transcript "$WORK/src/con.jsonl" --sid tm-con >/dev/null &
+wait
+TRANSCRIPT_MIRROR_ROOT="$SB" bash "$REC" --transcript "$WORK/src/con.jsonl" --sid tm-con >/dev/null
+if cmp -s "$SA/tm-con/main.md" "$SB/tm-con/main.md" && grep -q 'CON-NEW' "$SA/tm-con/main.md"; then
+  pass "WP212 concurrent ticks match one sequential tick"
+else
+  fail "WP212 concurrent main.md diverged"
+  diff -u "$SB/tm-con/main.md" "$SA/tm-con/main.md" >&2 || true
+fi
+
+# ---------------------------------------------------------------------------
 # M14 — compact-transcript sibling suite (CDT-215)
 # ---------------------------------------------------------------------------
 export CDT_OPERATOR_HOME="$REAL_HOME"

@@ -181,6 +181,13 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
   5. Tests MUST set `GROK_SESSIONS_DIR` and `TRANSCRIPT_MIRROR_ROOT` to
      temp fixtures. MUST NOT walk the operator's `~/.grok/sessions`.
 - **M6 — Cursor.** `cursor` is one line: `<identity>\t<source-path>\t<main-sha256>\n`.
+  Two optional fields may follow: `<line-no>\t<byte-offset>`. `line-no` is the
+  1-based source line of that identity. `byte-offset` is the 1-based byte
+  where that line starts (`tail -c +N`). Readers of the first three fields
+  stay valid. A tick that has both optional fields reads from that offset,
+  checks the identity with one jq call, and processes only the bytes after
+  that line. A mismatch, a path change, or a `main.md` hash mismatch rebuilds.
+  A full index is one jq plus one hashing process, not one process per line.
   Watermark identity is the last **successfully mirrored** source record plus
   the resolved source path.
   - Claude: identity = non-null string `.uuid`. Null/missing uuid →
@@ -198,9 +205,11 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
   identity-absent (rebuild).
   **Agent nest (AC7).** Each nest dir has its own `cursor`. Nest rebuild
   MUST NOT mutate parent `main.md` / parent `cursor`. Parent rebuild MUST
-  preserve `<sid>/agents/` (move the tree aside to a **sibling** of the
-  sid dir, never under `$WORK` / the RETURN `rm -rf` temp, then restore
-  after swap). A parent rebuild that drops `agents/` is a spec fail.
+  preserve `<sid>/agents/` (copy them into the new tree, then move the old
+  sid dir to a dotted sibling `$ROOT/.$SID.bak.<pid>`, never under `$WORK` /
+  the RETURN `rm -rf` temp). The next tick restores that sibling if the swap
+  did not finish. A parent rebuild that drops `agents/` is a spec fail.
+  Stash names that match `.(bak|agents|verbatim).<pid>` are not session ids.
   After parent rebuild, re-apply M4a nest-refs from the preserved tree.
   Rebuild MUST NOT delete, move, truncate, or rewrite
   `<store-root>/<sid>.meaning-tail.md`. Sid-dir bak names (`<dir>.bak.<pid>`,

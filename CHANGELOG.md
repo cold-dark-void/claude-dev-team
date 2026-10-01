@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.44
+- **WP 2-12 Mirror recorder** — an incremental tick reads from the cursor byte offset, a killed rebuild restores the sid, and no-args sync stays in one project.
+
 ### v1.18.43
 - **WP 2-11 Debug gates** — the reopen gate resolves theme-status.sh through plugin-dir, a relative path survives the sanitizer, and an empty path does not run git log.
 

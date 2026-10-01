@@ -19,6 +19,7 @@ import tempfile
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SYNC_SH = os.path.join(_HERE, "transcript-sync.sh")
 REAPPLY_SH = os.path.join(_HERE, "reapply-overlay.sh")
+LOCK_SH = os.path.join(_HERE, "sid-lock.sh")
 
 THRESHOLD = 8192
 HEADING_RE = re.compile(r"^## (user|assistant)[ \t]*$")
@@ -338,20 +339,45 @@ def restore(sid: str, sid_dir: str, main_md: str, text: str, turn_id: str) -> in
     return 0
 
 
+def _lock_sid(root: str, sid: str) -> bool:
+    try:
+        proc = subprocess.run(["bash", LOCK_SH, "acquire", root, sid])
+    except Exception:
+        return False
+    if proc.returncode != 0:
+        return False
+    os.environ["TM_LOCK_HELD"] = sid
+    return True
+
+
+def _unlock_sid(root: str, sid: str) -> None:
+    os.environ.pop("TM_LOCK_HELD", None)
+    try:
+        subprocess.run(["bash", LOCK_SH, "release", root, sid])
+    except Exception:
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     sid, restore_id = parse_argv(argv)
     require_ok(sid)
     root = store_root()
-    sid_dir = os.path.join(root, sid)
-    main_md = os.path.join(sid_dir, "main.md")
+    if not _lock_sid(root, sid):
+        sys.stderr.write("summarize-transcript: lock busy\n")
+        return 0
     try:
-        with open(main_md, "r", encoding="utf-8", newline="") as fh:
-            text = fh.read()
-    except OSError:
-        miss_exit("main.md missing")
-    if restore_id is not None:
-        return restore(sid, sid_dir, main_md, text, restore_id)
-    return overlay(sid, sid_dir, main_md, text)
+        sid_dir = os.path.join(root, sid)
+        main_md = os.path.join(sid_dir, "main.md")
+        try:
+            with open(main_md, "r", encoding="utf-8", newline="") as fh:
+                text = fh.read()
+        except OSError:
+            miss_exit("main.md missing")
+        if restore_id is not None:
+            return restore(sid, sid_dir, main_md, text, restore_id)
+        return overlay(sid, sid_dir, main_md, text)
+    finally:
+        _unlock_sid(root, sid)
 
 
 if __name__ == "__main__":

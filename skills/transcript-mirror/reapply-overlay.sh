@@ -13,9 +13,24 @@ usage() {
 SID_DIR=$1
 [ -n "$SID_DIR" ] || usage
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+SID_NAME=$(basename "$SID_DIR")
+ROOT_NAME=$(dirname "$SID_DIR")
+HELD=0
+if [ "${TM_LOCK_HELD:-}" != "$SID_NAME" ]; then
+  if ! bash "$SCRIPT_DIR/sid-lock.sh" acquire "$ROOT_NAME" "$SID_NAME"; then
+    echo "reapply-overlay: lock busy" >&2
+    exit 1
+  fi
+  HELD=1
+fi
+
 MAIN="$SID_DIR/main.md"
 if [ ! -f "$MAIN" ]; then
   echo "reapply-overlay: main.md missing: $SID_DIR" >&2
+  if [ "$HELD" -eq 1 ]; then
+    bash "$SCRIPT_DIR/sid-lock.sh" release "$ROOT_NAME" "$SID_NAME" || true
+  fi
   exit 1
 fi
 
@@ -23,6 +38,10 @@ MAP=""
 OUT=""
 cleanup() {
   rm -f "${MAP:-}" "${OUT:-}"
+  if [ "${HELD:-0}" -eq 1 ]; then
+    bash "$SCRIPT_DIR/sid-lock.sh" release "$ROOT_NAME" "$SID_NAME" || true
+    HELD=0
+  fi
 }
 trap cleanup EXIT
 

@@ -4,7 +4,7 @@
 # Parent nest-refs: ensure_nest_refs after parent write / nest tick if parent main.md exists.
 # Parent rebuild stashes agents/ + verbatim/ to siblings, then reapply-overlay.sh (M15).
 # Meaning channel → main.md; channel sidecars: thinking/ tool_result/ injection/.
-# bash + jq only. Fail-open: always exit 0; never decision:block.
+# bash + jq, plus one python pass for idents. Fail-open except a bad CLI sid (exit 2).
 # Manual: transcript-mirror.sh --transcript FILE --sid SID [--agent ID]
 set -uo pipefail
 
@@ -31,9 +31,9 @@ sanitize_agent_id() {
 }
 
 # Identity of one JSONL record: non-null string .uuid, else h:+SHA-256(jq -S -c).
-# Always prints one line so ident file rows match source rows.
-ident_line() {
-  local line="$1" uuid="" hash=""
+# One jq for the uuid. A line with no uuid uses one jq -S -c and one sha256sum.
+ident_one() {
+  local line="$1" uuid="" canon="" hash=""
   if [ -z "$line" ]; then
     printf '\n'
     return 0
@@ -43,7 +43,12 @@ ident_line() {
     printf '%s\n' "$uuid"
     return 0
   fi
-  hash=$(printf '%s\n' "$line" | jq -S -c . 2>/dev/null | sha256sum | awk '{print $1}') || hash=""
+  canon=$(printf '%s\n' "$line" | jq -S -c . 2>/dev/null) || canon=""
+  if [ -z "$canon" ]; then
+    printf '\n'
+    return 0
+  fi
+  hash=$(printf '%s\n' "$canon" | sha256sum | awk '{print $1}') || hash=""
   if [ -n "$hash" ]; then
     printf 'h:%s\n' "$hash"
   else
@@ -51,23 +56,49 @@ ident_line() {
   fi
 }
 
+# Full index: one jq over the file, then one python hashing pass.
+# Writes $dest (one ident per source line) and $dest.pos
+# (line_no, 1-based byte offset, ident of the last identity).
 index_idents() {
-  local src="$1" dest="$2" line
+  local src="$1" dest="$2"
   : > "$dest"
-  while IFS= read -r line || [ -n "$line" ]; do
-    ident_line "$line" >> "$dest"
-  done < "$src"
+  # catch null, not empty: a bad or blank line must still emit one row
+  # or the cursor line number drifts and the next tick repeats a turn.
+  jq -R -S -c -r '
+    (try fromjson catch null) as $m
+    | if $m == null then ""
+      elif ($m|type)=="object" and ($m.uuid|type)=="string" and ($m.uuid|length)>0 then
+        "UUID:" + $m.uuid
+      elif ($m|type)=="string" then ($m | tojson)
+      else $m end
+  ' "$src" | python3 "$SCRIPT_DIR/ident-batch.py" index "$src" "$dest"
 }
 
 sha_file() {
   [ -f "$1" ] && sha256sum "$1" | awk '{print $1}'
 }
 
+# Cursor: ident, source, main sha, optional 1-based line number, optional
+# 1-based byte offset of that line. Omit 4 and 5 only when they are unknown.
+# A later rewrite that keeps ident and source preserves 4 and 5.
 write_cursor() {
-  local dest="$1" ident="$2" path="$3" mainf="$4" h=""
+  local dest="$1" ident="$2" path="$3" mainf="$4" line_no="${5:-}" byte_off="${6:-}" h=""
+  local old_id="" old_src="" old_h="" old_ln="" old_off=""
   [ -n "$ident" ] || return 0
   h=$(sha_file "$mainf")
-  printf '%s\t%s\t%s\n' "$ident" "$path" "$h" > "$dest/cursor.tmp" && mv "$dest/cursor.tmp" "$dest/cursor"
+  if [ -f "$dest/cursor" ]; then
+    IFS=$'\t' read -r old_id old_src old_h old_ln old_off < "$dest/cursor" || true
+    if [ "$old_id" = "$ident" ] && [ "$old_src" = "$path" ]; then
+      [ -n "$line_no" ] || line_no="$old_ln"
+      [ -n "$byte_off" ] || byte_off="$old_off"
+    fi
+  fi
+  if [ -n "$line_no" ] && [ -n "$byte_off" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\n' "$ident" "$path" "$h" "$line_no" "$byte_off" > "$dest/cursor.tmp"
+  else
+    printf '%s\t%s\t%s\n' "$ident" "$path" "$h" > "$dest/cursor.tmp"
+  fi
+  mv "$dest/cursor.tmp" "$dest/cursor"
 }
 
 # Consecutive @tool_result-only lines → keep first (M8). Blanks do not break a run
@@ -485,24 +516,75 @@ parent_skip_json() {
   fi
 }
 
+# Restore a killed rebuild, drop phantom stashes, and remove old WORK dirs.
+sweep_sid_stashes() {
+  local sid="$1" bak d now m age ng
+  ng=$(shopt -p nullglob)
+  shopt -s nullglob
+  if [ ! -d "$ROOT/$sid" ]; then
+    for bak in "$ROOT/.$sid.bak."* "$ROOT/$sid.bak."*; do
+      [ -d "$bak" ] || continue
+      mv "$bak" "$ROOT/$sid" && break
+    done
+  fi
+  for bak in "$ROOT/.$sid.bak."* "$ROOT/$sid.bak."*; do
+    [ -d "$bak" ] || continue
+    rm -rf "$bak"
+  done
+  if [ -d "$ROOT/$sid" ] && [ ! -d "$ROOT/$sid/agents" ]; then
+    for bak in "$ROOT/.$sid.agents."* "$ROOT/$sid.agents."*; do
+      [ -d "$bak" ] || continue
+      mv "$bak" "$ROOT/$sid/agents" && break
+    done
+  fi
+  for bak in "$ROOT/.$sid.agents."* "$ROOT/$sid.agents."*; do
+    [ -d "$bak" ] || continue
+    rm -rf "$bak"
+  done
+  if [ -d "$ROOT/$sid" ] && [ ! -d "$ROOT/$sid/verbatim" ]; then
+    for bak in "$ROOT/.$sid.verbatim."* "$ROOT/$sid.verbatim."*; do
+      [ -d "$bak" ] || continue
+      mv "$bak" "$ROOT/$sid/verbatim" && break
+    done
+  fi
+  for bak in "$ROOT/.$sid.verbatim."* "$ROOT/$sid.verbatim."*; do
+    [ -d "$bak" ] || continue
+    rm -rf "$bak"
+  done
+  now=$(date +%s)
+  for d in "${TMPDIR:-/tmp}"/tmirror.*; do
+    [ -d "$d" ] || continue
+    m=$(date -r "$d" +%s 2>/dev/null || echo "$now")
+    age=$((now - m))
+    [ "$age" -gt 120 ] && rm -rf "$d"
+  done
+  eval "$ng"
+}
+
 main() {
   local SID="" TP="" STDIN="" EVENT="" REASON="" AGENT="" AGENT_ID="" CWD="" RECON=0 PARENT="" META_PARENT=""
-  local NEST=0 AID="" AID_RAW=""
+  local NEST=0 AID="" AID_RAW="" CLI=0 a
 
-  if [ "${1:-}" = "--transcript" ]; then
-    TP="${2:-}"; shift 2
-    [ -n "$TP" ] || return 0
+  for a in "$@"; do
+    [ "$a" = "--transcript" ] && CLI=1
+  done
+  if [ "$CLI" -eq 1 ]; then
     while [ $# -gt 0 ]; do
       case "$1" in
-        --sid)
-          SID="${2:-}"
+        --transcript)
           shift
+          TP="${1:-}"
+          [ $# -gt 0 ] && shift
+          ;;
+        --sid)
+          shift
+          SID="${1:-}"
           [ $# -gt 0 ] && shift
           ;;
         --agent)
           NEST=1
-          AID_RAW="${2:-}"
           shift
+          AID_RAW="${1:-}"
           [ $# -gt 0 ] && shift
           ;;
         *)
@@ -510,11 +592,13 @@ main() {
           ;;
       esac
     done
+    [ -n "$TP" ] || { log_err "usage: transcript-mirror.sh --transcript FILE --sid SID"; return 2; }
   else
     if [ -t 0 ]; then
       return 0
     fi
-    STDIN=$(cat 2>/dev/null || true)
+    # Bound the hook payload. A Stop payload is a small JSON object.
+    STDIN=$(head -c 1048576 2>/dev/null || true)
     [ -n "$STDIN" ] || return 0
     EVENT=$(jq -r '.hook_event_name // .hookEventName // empty' <<<"$STDIN" 2>/dev/null) || EVENT=""
     SID=$(jq -r '.session_id // .sessionId // empty' <<<"$STDIN" 2>/dev/null) || SID=""
@@ -563,7 +647,12 @@ main() {
   esac
   [ -n "$SID" ] || SID=$(basename "${TP%.jsonl}")
   case "$SID" in
-    ""|*[!A-Za-z0-9._-]*|*..*) [ "$RECON" -eq 1 ] && return 0; log_err "bad sid=$SID"; return 0 ;;
+    ""|.*|*[!A-Za-z0-9._-]*|*..*)
+      [ "$RECON" -eq 1 ] && return 0
+      log_err "bad sid=$SID"
+      [ "$CLI" -eq 1 ] && return 2
+      return 0
+      ;;
   esac
   if [ ! -f "$TP" ]; then
     [ "$RECON" -eq 1 ] && return 0
@@ -585,38 +674,93 @@ main() {
     PARENT=""
   else
     DIR="$ROOT/$SID"
-    PARENT=$(jq -r 'select(.forkedFrom.sessionId | type == "string" and length > 0) | .forkedFrom.sessionId' "$TP" 2>/dev/null | head -1) || PARENT=""
+    PARENT=$(jq -n -R -r 'first(inputs | (try fromjson catch empty) | select(type=="object" and (.forkedFrom.sessionId|type)=="string" and (.forkedFrom.sessionId|length)>0) | .forkedFrom.sessionId) // empty' "$TP" 2>/dev/null) || PARENT=""
     case "$PARENT" in ""|null|NULL) PARENT="" ;; esac
     META_PARENT="$PARENT"
   fi
 
+  if ! bash "$SCRIPT_DIR/sid-lock.sh" acquire "$ROOT" "$SID"; then
+    log_err "lock busy sid=$SID"
+    return 0
+  fi
+  export TM_LOCK_HELD="$SID"
+  local SID_LOCKED=1 WORK="" SWAP_BAK=""
+  sweep_sid_stashes "$SID"
   mkdir -p "$DIR/thinking" "$DIR/tool_result" "$DIR/injection" || { log_err "mkdir failed: $DIR"; return 0; }
   ensure_meta "$DIR" "$TP" "$META_PARENT"
 
-  local WORK
   WORK=$(mktemp -d "${TMPDIR:-/tmp}/tmirror.XXXXXX") || { log_err "mktemp failed"; return 0; }
-  # shellcheck disable=SC2064
-  trap "rm -rf '$WORK'" RETURN
+  release_tick() {
+    [ -n "${WORK:-}" ] && rm -rf "$WORK"
+    if [ "${SID_LOCKED:-}" = 1 ]; then
+      bash "$SCRIPT_DIR/sid-lock.sh" release "$ROOT" "$SID" || true
+      SID_LOCKED=0
+    fi
+  }
+  on_signal() {
+    if [ -n "${SWAP_BAK:-}" ] && [ -d "$SWAP_BAK" ] && [ ! -d "$DIR" ]; then
+      mv "$SWAP_BAK" "$DIR" 2>/dev/null || true
+    fi
+    release_tick
+    exit 0
+  }
+  trap release_tick RETURN
+  trap on_signal TERM INT
 
-  index_idents "$TP" "$WORK/idents"
-  local nlines last_ident found=0 need_rebuild=0 cur_id="" cur_src="" cur_hash="" main_hash=""
-  nlines=$(wc -l < "$WORK/idents" | tr -d ' ')
-  last_ident=$(awk 'NF { x=$0 } END { print x }' "$WORK/idents")
-  [ -n "$nlines" ] || nlines=0
+  local nlines last_ident found=0 need_rebuild=0 cur_id="" cur_src="" cur_hash="" cur_line="" cur_off=""
+  local main_hash="" LAST_LINE="" LAST_OFF="" used_fast=0 next_b="" more="" vid="" vline=""
+  local slice_line="" slice_off="" slice_ident=""
 
   if [ -f "$DIR/cursor" ]; then
-    IFS=$'\t' read -r cur_id cur_src cur_hash < "$DIR/cursor" || true
-    main_hash=$(sha_file "$DIR/main.md")
-    if [ "$cur_src" != "$TP" ] || [ -z "$cur_id" ]; then
-      need_rebuild=1
-    elif [ -n "$cur_hash" ] && [ "$cur_hash" != "$main_hash" ]; then
-      need_rebuild=1
-    else
-      found=$(awk -v id="$cur_id" '$0==id { n=NR } END { print n+0 }' "$WORK/idents")
-      [ "$found" -gt 0 ] || need_rebuild=1
+    IFS=$'\t' read -r cur_id cur_src cur_hash cur_line cur_off < "$DIR/cursor" || true
+  fi
+  main_hash=$(sha_file "$DIR/main.md")
+  if [ -z "$PARENT" ] && [ "$cur_src" = "$TP" ] && [ -n "$cur_id" ] && [ "$cur_hash" = "$main_hash" ] \
+     && case "$cur_line" in ""|*[!0-9]*) false ;; *) true ;; esac \
+     && case "$cur_off" in ""|*[!0-9]*) false ;; *) true ;; esac; then
+    vline=$(tail -c +"$cur_off" -- "$TP" 2>/dev/null | head -n 1 || true)
+    vid=$(ident_one "$vline")
+    if [ "$vid" = "$cur_id" ]; then
+      IFS=$'\t' read -r next_b more < <(python3 "$SCRIPT_DIR/ident-batch.py" next-off "$TP" "$cur_off" || true)
+      if [ "$more" = "no" ]; then
+        return 0
+      fi
+      if [ "$more" = "yes" ] && [ -n "$next_b" ]; then
+        tail -c +"$next_b" -- "$TP" > "$WORK/new.jsonl" || true
+        if index_idents "$WORK/new.jsonl" "$WORK/idents"; then
+          used_fast=1
+          found=$cur_line
+          nlines=$(wc -l < "$WORK/idents" | tr -d ' ')
+          nlines=$((cur_line + nlines))
+          IFS=$'\t' read -r slice_line slice_off slice_ident < "$WORK/idents.pos" || true
+          last_ident=$slice_ident
+          if [ -n "$slice_line" ] && [ -n "$slice_off" ]; then
+            LAST_LINE=$((cur_line + slice_line))
+            LAST_OFF=$((next_b + slice_off - 1))
+          fi
+        fi
+      fi
     fi
-  elif [ -s "$DIR/main.md" ]; then
-    need_rebuild=1
+  fi
+
+  if [ "$used_fast" -eq 0 ]; then
+    index_idents "$TP" "$WORK/idents" || { log_err "index failed: sid=$SID"; return 0; }
+    nlines=$(wc -l < "$WORK/idents" | tr -d ' ')
+    last_ident=$(awk 'NF { x=$0 } END { print x }' "$WORK/idents")
+    [ -n "$nlines" ] || nlines=0
+    IFS=$'\t' read -r LAST_LINE LAST_OFF _ < "$WORK/idents.pos" || true
+    if [ -f "$DIR/cursor" ]; then
+      if [ "$cur_src" != "$TP" ] || [ -z "$cur_id" ]; then
+        need_rebuild=1
+      elif [ -n "$cur_hash" ] && [ "$cur_hash" != "$main_hash" ]; then
+        need_rebuild=1
+      else
+        found=$(awk -v id="$cur_id" '$0==id { n=NR } END { print n+0 }' "$WORK/idents")
+        [ "$found" -gt 0 ] || need_rebuild=1
+      fi
+    elif [ -s "$DIR/main.md" ]; then
+      need_rebuild=1
+    fi
   fi
 
   if [ "$need_rebuild" -eq 0 ] && [ "$found" -ge "$nlines" ]; then
@@ -643,48 +787,47 @@ main() {
     fi
     printf 'source: %s\nstarted_mirror: %s\n' "$TP" "$(date -Is 2>/dev/null || date)" > "$NEW/meta"
     [ -n "$META_PARENT" ] && printf 'parent: %s\n' "$META_PARENT" >> "$NEW/meta"
-    write_cursor "$NEW" "$last_ident" "$TP" "$NEW/main.md"
+    if [ "$NEST" -eq 0 ] && [ -d "$DIR/agents" ]; then
+      mkdir -p "$NEW/agents" || { log_err "rebuild agents copy failed: sid=$SID"; return 0; }
+      cp -a "$DIR/agents/." "$NEW/agents/" || { log_err "rebuild agents copy failed: sid=$SID"; return 0; }
+    fi
+    if [ "$NEST" -eq 0 ] && [ -d "$DIR/verbatim" ]; then
+      mkdir -p "$NEW/verbatim" || { log_err "rebuild verbatim copy failed: sid=$SID"; return 0; }
+      cp -a "$DIR/verbatim/." "$NEW/verbatim/" || { log_err "rebuild verbatim copy failed: sid=$SID"; return 0; }
+    fi
+    write_cursor "$NEW" "$last_ident" "$TP" "$NEW/main.md" "$LAST_LINE" "$LAST_OFF"
     rm -f "$NEW/.slice.jsonl" "$NEW/.main.part" "$NEW/.main.part.raw"
-    # Sibling of $DIR — never under $WORK (RETURN trap rm -rf would drop the live sid).
-    # Bak names MUST NOT equal $ROOT/${SID}.meaning-tail.md (M6/M15).
-    local BAK="${DIR}.bak.$$"
-    local AGENTS_BAK=""
-    local VERBATIM_BAK=""
-    if [ -d "$DIR/agents" ]; then
-      AGENTS_BAK="${DIR}.agents.$$"
-      if ! mv "$DIR/agents" "$AGENTS_BAK"; then
-        log_err "rebuild agents stash failed: sid=$SID"
+    # Dotted sibling of the sid dir. Never under $WORK. Not a phantom sid.
+    local BAK
+    if [ "$NEST" -eq 0 ]; then
+      BAK="$ROOT/.$SID.bak.$$"
+    else
+      BAK="$(dirname "$DIR")/.$AID.bak.$$"
+    fi
+    if [ -d "$DIR" ]; then
+      if ! mv "$DIR" "$BAK"; then
+        log_err "rebuild mv old failed: sid=$SID"
         return 0
       fi
+      SWAP_BAK="$BAK"
     fi
-    if [ -d "$DIR/verbatim" ]; then
-      VERBATIM_BAK="${DIR}.verbatim.$$"
-      if ! mv "$DIR/verbatim" "$VERBATIM_BAK"; then
-        log_err "rebuild verbatim stash failed: sid=$SID"
-        restore_sibling_stash "$AGENTS_BAK" "$DIR/agents"
-        return 0
-      fi
-    fi
-    if ! mv "$DIR" "$BAK"; then
-      restore_sibling_stash "$AGENTS_BAK" "$DIR/agents"
-      restore_sibling_stash "$VERBATIM_BAK" "$DIR/verbatim"
-      log_err "rebuild mv old failed: sid=$SID"
-      return 0
+    if [ "${TM_FAILPOINT:-}" = "after-bak" ]; then
+      kill -9 $$
     fi
     if ! mv "$NEW" "$DIR"; then
-      mv "$BAK" "$DIR" 2>/dev/null || true
-      restore_sibling_stash "$AGENTS_BAK" "$DIR/agents"
-      restore_sibling_stash "$VERBATIM_BAK" "$DIR/verbatim"
+      if [ -n "$SWAP_BAK" ] && [ -d "$SWAP_BAK" ] && [ ! -d "$DIR" ]; then
+        mv "$SWAP_BAK" "$DIR" 2>/dev/null || true
+      fi
+      SWAP_BAK=""
       log_err "rebuild swap failed: sid=$SID"
       return 0
     fi
-    restore_sibling_stash "$AGENTS_BAK" "$DIR/agents" "rebuild agents restore failed: sid=$SID"
-    restore_sibling_stash "$VERBATIM_BAK" "$DIR/verbatim" "rebuild verbatim restore failed: sid=$SID"
+    SWAP_BAK=""
     rm -rf "$BAK"
     if [ "$NEST" -eq 0 ]; then
       bash "$SCRIPT_DIR/reapply-overlay.sh" "$DIR" || log_err "reapply-overlay failed: sid=$SID"
       ensure_nest_refs "$DIR"
-      write_cursor "$DIR" "$last_ident" "$TP" "$DIR/main.md"
+      write_cursor "$DIR" "$last_ident" "$TP" "$DIR/main.md" "$LAST_LINE" "$LAST_OFF"
     else
       parent_nest_refs_after_nest "$ROOT/$SID"
     fi
@@ -716,9 +859,14 @@ main() {
   else
     parent_nest_refs_after_nest "$ROOT/$SID"
   fi
-  write_cursor "$DIR" "$last_ident" "$TP" "$DIR/main.md"
+  write_cursor "$DIR" "$last_ident" "$TP" "$DIR/main.md" "$LAST_LINE" "$LAST_OFF"
   return 0
 }
 
-main "$@" || log_err "unexpected failure rc=$?"
+rc=0
+main "$@" || rc=$?
+if [ "$rc" -eq 2 ]; then
+  exit 2
+fi
+[ "$rc" -eq 0 ] || log_err "unexpected failure rc=$rc"
 exit 0

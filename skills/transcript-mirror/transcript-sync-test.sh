@@ -699,6 +699,60 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# WP 2-12 — no-args does not refresh another project's sid
+# ---------------------------------------------------------------------------
+PROJ_FA="$WORK/proj-fan-a"
+PROJ_FB="$WORK/proj-fan-b"
+mkdir -p "$PROJ_FA/.claude" "$PROJ_FB/.claude"
+write_opt_in "$PROJ_FA"
+write_opt_in "$PROJ_FB"
+PA_ABS="$(cd "$PROJ_FA" && pwd)"
+PB_ABS="$(cd "$PROJ_FB" && pwd)"
+CA_DIR="$(claude_pdir "$PROJ_FA")"
+CB_DIR="$(claude_pdir "$PROJ_FB")"
+mkdir -p "$CA_DIR" "$CB_DIR"
+write_mini "$CA_DIR/fan-a.jsonl"
+write_mini "$CB_DIR/fan-b.jsonl"
+STORE_FAN="$WORK/store-fan"
+mkdir -p "$STORE_FAN"
+TRANSCRIPT_MIRROR_ROOT="$STORE_FAN" "$SYNC" --sid fan-a --transcript "$CA_DIR/fan-a.jsonl" --cwd "$PA_ABS" \
+  >/dev/null 2>"$WORK/fan-a.err"
+TRANSCRIPT_MIRROR_ROOT="$STORE_FAN" "$SYNC" --sid fan-b --transcript "$CB_DIR/fan-b.jsonl" --cwd "$PB_ABS" \
+  >/dev/null 2>"$WORK/fan-b.err"
+printf '%s\n' '{"uuid":"fan-a2","type":"user","message":{"role":"user","content":[{"type":"text","text":"FAN-A-ONLY"}]}}' >>"$CA_DIR/fan-a.jsonl"
+printf '%s\n' '{"uuid":"fan-b2","type":"user","message":{"role":"user","content":[{"type":"text","text":"FAN-B-ONLY"}]}}' >>"$CB_DIR/fan-b.jsonl"
+age "$CA_DIR/fan-a.jsonl"
+age "$CB_DIR/fan-b.jsonl"
+TRANSCRIPT_MIRROR_ROOT="$STORE_FAN" "$SYNC" --cwd "$PA_ABS" >/dev/null 2>"$WORK/fan-noargs.err"
+if grep -q 'FAN-A-ONLY' "$STORE_FAN/fan-a/main.md" 2>/dev/null \
+   && ! grep -q 'FAN-B-ONLY' "$STORE_FAN/fan-b/main.md" 2>/dev/null; then
+  pass "WP212 no-args refreshes this cwd only"
+else
+  bad "WP212 fanout A=$(grep -c FAN-A-ONLY "$STORE_FAN/fan-a/main.md" 2>/dev/null || echo 0) B=$(grep -c FAN-B-ONLY "$STORE_FAN/fan-b/main.md" 2>/dev/null || echo 0) err=$(cat "$WORK/fan-noargs.err")"
+fi
+
+mkdir -p "$STORE_FAN/fan-a.bak.999"
+printf 'seed\n' >"$STORE_FAN/fan-a.bak.999/cursor"
+set +e
+PY_PH="$(SYNC_PY="$HERE/transcript-sync.py" STORE_FAN="$STORE_FAN" python3 - <<'PY'
+import importlib.util, os
+path = os.environ["SYNC_PY"]
+spec = importlib.util.spec_from_file_location("tsync", path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+names = mod.existing_sids(os.environ["STORE_FAN"])
+print("\n".join(names))
+PY
+)"
+set -e
+if printf '%s\n' "$PY_PH" | grep -qx 'fan-a' \
+   && ! printf '%s\n' "$PY_PH" | grep -q 'bak'; then
+  pass "WP212 existing_sids rejects phantom bak dirs"
+else
+  bad "WP212 phantom sids: ${PY_PH:-<empty>}"
+fi
+
+# ---------------------------------------------------------------------------
 # M2 — operator ~/.claude/transcript/ untouched
 # ---------------------------------------------------------------------------
 AFTER_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"

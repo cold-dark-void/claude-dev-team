@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Any, Iterable, Optional
@@ -146,6 +147,9 @@ def read_cursor(sid_dir: str) -> tuple[str, str]:
     return ident, src
 
 
+_PHANTOM_SID = re.compile(r"\.(bak|agents|verbatim)\.[0-9]+$")
+
+
 def existing_sids(root: str) -> list[str]:
     if not os.path.isdir(root):
         return []
@@ -155,7 +159,7 @@ def existing_sids(root: str) -> list[str]:
     except OSError:
         return []
     for name in names:
-        if not name or name.startswith("."):
+        if not name or name.startswith(".") or _PHANTOM_SID.search(name):
             continue
         if os.path.isdir(os.path.join(root, name)):
             out.append(name)
@@ -287,12 +291,16 @@ def collect_targets(
             add(s, p)
         return [(k, jobs[k]) for k in jobs]
 
-    for s in existing_sids(root):
-        add(s, source_for_sid(s, cwd, root))
-
+    # No-args is this cwd's sessions only. Claude uuid locate scans every
+    # project dir, so a store-wide walk re-mirrors other projects' sids.
+    sessions = cwd_sessions(cwd)
     if recorder_registered(cwd):
-        for s, p in cwd_sessions(cwd):
-            if s not in jobs:
+        for s, p in sessions:
+            add(s, p)
+    else:
+        known = set(existing_sids(root))
+        for s, p in sessions:
+            if s in known:
                 add(s, p)
 
     return [(k, jobs[k]) for k in jobs]
@@ -347,6 +355,14 @@ def sync_one(sid: str, source: str, root: str, check: bool) -> None:
     if rc == 9:
         return
     if rc != 0:
+        return
+    cur, src = read_cursor(os.path.join(root, sid))
+    if (
+        cur
+        and src
+        and os.path.abspath(src) == os.path.abspath(source)
+        and cur == last_ident(source)
+    ):
         return
     invoke_recorder(sid, source)
 

@@ -24,6 +24,9 @@ Greenfield Stop stays `stop-review.sh` only.
 The recorder is the **second** Stop command.
 The `command` string must not contain `|`.
 Both commands use `timeout` 10.
+An incremental tick reads from the cursor byte offset and finishes inside that
+10 second limit. A 5000-line transcript with one new line must finish in under
+2 seconds. A full index is one pass over the file, not one process per line.
 
 ```json
 {

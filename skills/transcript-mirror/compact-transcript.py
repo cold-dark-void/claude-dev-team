@@ -24,6 +24,7 @@ except Exception:
     sys.exit(1)
 
 SYNC_SH = os.path.join(_HERE, "transcript-sync.sh")
+LOCK_SH = os.path.join(_HERE, "sid-lock.sh")
 DISCOVER_SH = os.path.abspath(os.path.join(_HERE, "..", "handoff", "discover-warm.sh"))
 CAP = 32768
 HEADING_RE = re.compile(r"^## (user|assistant)[ \t]*$")
@@ -195,31 +196,42 @@ def main(argv: list[str] | None = None) -> int:
         miss_exit("status=" + status)
 
     root = store_root()
-    main_md = os.path.join(root, sid, "main.md")
     try:
-        with open(main_md, "r", encoding="utf-8") as fh:
-            raw_main = fh.read()
-    except OSError:
-        miss_exit("main.md missing")
-
-    tail = bound_tail(strip_mirror_main(raw_main), CAP)
-    if not tail.strip():
-        miss_exit("empty after strip")
-    if len(tail.encode("utf-8")) > CAP:
-        miss_exit("bound exceeded")
-
-    dest = os.path.join(root, sid + ".meaning-tail.md")
-    dest_abs = os.path.abspath(dest)
-    sid_dir = os.path.abspath(os.path.join(root, sid)) + os.sep
-    if dest_abs.startswith(sid_dir):
-        miss_exit("refusing write inside sid dir")
+        held = subprocess.run(["bash", LOCK_SH, "acquire", root, sid]).returncode == 0
+    except Exception:
+        held = False
+    if not held:
+        miss_exit("lock busy")
+    os.environ["TM_LOCK_HELD"] = sid
     try:
-        atomic_write(dest_abs, tail)
-    except OSError as e:
-        miss_exit("write failed: " + str(e))
+        main_md = os.path.join(root, sid, "main.md")
+        try:
+            with open(main_md, "r", encoding="utf-8") as fh:
+                raw_main = fh.read()
+        except OSError:
+            miss_exit("main.md missing")
 
-    sys.stdout.write(dest_abs + "\n")
-    return 0
+        tail = bound_tail(strip_mirror_main(raw_main), CAP)
+        if not tail.strip():
+            miss_exit("empty after strip")
+        if len(tail.encode("utf-8")) > CAP:
+            miss_exit("bound exceeded")
+
+        dest = os.path.join(root, sid + ".meaning-tail.md")
+        dest_abs = os.path.abspath(dest)
+        sid_dir = os.path.abspath(os.path.join(root, sid)) + os.sep
+        if dest_abs.startswith(sid_dir):
+            miss_exit("refusing write inside sid dir")
+        try:
+            atomic_write(dest_abs, tail)
+        except OSError as e:
+            miss_exit("write failed: " + str(e))
+
+        sys.stdout.write(dest_abs + "\n")
+        return 0
+    finally:
+        os.environ.pop("TM_LOCK_HELD", None)
+        subprocess.run(["bash", LOCK_SH, "release", root, sid])
 
 
 if __name__ == "__main__":

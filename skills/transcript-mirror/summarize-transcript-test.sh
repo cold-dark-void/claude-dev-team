@@ -450,7 +450,7 @@ else
 fi
 ASST_BEFORE=$(extract_turn_block "$STORE/$SID_OV/main.md" 2)
 HEAD_BEFORE=$(heading_count "$STORE/$SID_OV/main.md")
-IFS=$'\t' read -r OV_C1 OV_C2 OV_C3 <"$STORE/$SID_OV/cursor" || true
+IFS=$'\t' read -r OV_C1 OV_C2 OV_C3 _ <"$STORE/$SID_OV/cursor" || true
 
 RC=$(run_st --sid "$SID_OV")
 if [ "$RC" -eq 0 ]; then
@@ -556,7 +556,7 @@ fi
 # ---------------------------------------------------------------------------
 # T1.6 restore
 # ---------------------------------------------------------------------------
-IFS=$'\t' read -r PRE_C1 PRE_C2 PRE_C3 <"$STORE/$SID_OV/cursor" || true
+IFS=$'\t' read -r PRE_C1 PRE_C2 PRE_C3 _ <"$STORE/$SID_OV/cursor" || true
 ASST_PRE_R=$(extract_turn_block "$MAIN_OV" 2)
 RC=$(run_st --sid "$SID_OV" --restore T000001)
 if [ "$RC" -eq 0 ]; then
@@ -593,7 +593,7 @@ if [ "$ASST_PRE_R" = "$ASST_POST_R" ]; then
 else
   fail "T1.6 assistant turn mutated on restore"
 fi
-IFS=$'\t' read -r POST_C1 POST_C2 POST_C3 <"$STORE/$SID_OV/cursor" || true
+IFS=$'\t' read -r POST_C1 POST_C2 POST_C3 _ <"$STORE/$SID_OV/cursor" || true
 MAIN_R_SHA=$(sha_file "$MAIN_OV")
 if [ "$POST_C1" = "$PRE_C1" ] && [ "$POST_C2" = "$PRE_C2" ]; then
   pass "T1.6 cursor fields 1-2 unchanged"
@@ -644,7 +644,7 @@ if [ "$RC" -eq 0 ]; then
 else
   fail "T1.7 overlay rc=$RC err=$(head -c 200 "$WORK/st.err")"
 fi
-IFS=$'\t' read -r INC_C1 INC_C2 INC_C3 <"$STORE/$SID_INC/cursor" || true
+IFS=$'\t' read -r INC_C1 INC_C2 INC_C3 _ <"$STORE/$SID_INC/cursor" || true
 INC_MAIN_SHA=$(sha_file "$STORE/$SID_INC/main.md")
 if [ "$INC_C3" = "$INC_MAIN_SHA" ]; then
   pass "T1.7 cursor field 3 == sha256sum main.md"
@@ -757,7 +757,7 @@ if [ "$HEAD_REB" = "$HEAD_REB2" ]; then
 else
   fail "T1.8 heading count $HEAD_REB -> $HEAD_REB2"
 fi
-IFS=$'\t' read -r REB_C1 REB_C2 REB_C3 <"$STORE/$SID_REB/cursor" || true
+IFS=$'\t' read -r REB_C1 REB_C2 REB_C3 _ <"$STORE/$SID_REB/cursor" || true
 REB_MAIN_SHA=$(sha_file "$STORE/$SID_REB/main.md")
 if [ "$REB_C3" = "$REB_MAIN_SHA" ]; then
   pass "T1.8 cursor field 3 matches post-reapply main.md"
