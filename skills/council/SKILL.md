@@ -420,13 +420,24 @@ evidence_bundle := {
 }
 ```
 
-**Validation (strike rule):** Bundles missing `tool_use_id` MUST be treated
-as "no evidence collected" for that claim. Absent, `null`, empty, or
-whitespace-only `tool_use_id` counts as missing (after strip). Engine-generated
-strike reasons APPEND to pre-existing `struck_lines` (never replace).
-Strike-and-continue (exit 0); do not invent IDs; do not exit 7 for missing tid.
-The engine MUST NOT accept a bundle that paraphrases a tool output instead of
-inlining the raw blob. (SPEC-013 § Council tiering.)
+**Validation (strike rule):** The orchestrator runs
+`skills/bug-hunt/strike-bundle.sh` on each investigator bundle. Strike the
+bundle when `reproducible_command` is missing, `file_line` is missing,
+`raw_blob` is empty or paraphrased, or a re-run of `reproducible_command`
+does not match `raw_blob`. The one M14 Verify bundle whose
+`reproducible_command` equals the claim `VERIFY_COMMAND` is exempt from that
+byte compare (`strike-bundle.sh --exempt-rerun`): its `raw_blob` is the
+wrapper output, not a bare re-run. `tool_use_id` is a stable per-call label the
+investigator assigns (`read_1`). A missing host-emitted id is not a strike
+and does not by itself set `verification_mode` to `self-verified`. A kept
+bundle whose re-run matches leaves `verification_mode: full` when the spawn
+succeeded. `engine.sh` still strikes an empty or whitespace-only
+`tool_use_id` when it packages a bundle (CDT-178). Absent, `null`, empty, or
+whitespace-only `tool_use_id` counts as missing for that packaging (after
+strip). Engine-generated strike reasons APPEND to pre-existing `struck_lines`
+(never replace). Strike-and-continue (exit 0); do not invent host ids; do not
+exit 7 for a missing host id. The engine MUST NOT accept a bundle that
+paraphrases a tool output instead of inlining the raw blob. (SPEC-013 § Council tiering.)
 
 **Intra-run tool-call cache (CDV-211; SPEC-013 SHOULD):** preflight creates
 `${TMPDIR:-/tmp}/council-cache-<run_id>/` with `reads/`, `greps/`, and

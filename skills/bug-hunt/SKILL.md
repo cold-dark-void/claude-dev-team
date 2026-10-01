@@ -46,7 +46,7 @@ Neighboring surfaces (when-to-use — SPEC-034 M26):
 
 ```
 # Continuous (S1→S3→S4 same session — OQ5/OQ6):
-Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed]
+Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
 
 # Resume materialize (fresh session or re-run — OQ5):
 Usage: /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]
@@ -60,10 +60,10 @@ Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]
 | `path` (continuous) | No | project root (`$WTROOT`) | unusable / non-existent path (loud fail; M4) |
 | `materialize <path>` | resume entry | — | path = `.json` preferred, `.md` report, or existing `-plan.md`; both findings+report missing → exit **64** (AC1 / M38) |
 | `handoff <plan-path>` | resume S4 | — | path must end in `-plan.md` (or resolve sibling plan); missing/unreadable → exit **64** (AC1 / M42) |
-| `--severity-floor` | No | continuous: `nitpick`; materialize resume: from artifact then `nitpick` | value ∉ {`critical`,`warning`,`nitpick`} → exit **64** (M3–M4); re-applied at S3b (AC2); **ignored for S4 banding** (OQ; bands use full severity order) |
-| `--proceed` | No | off | Satisfies M8 without interactive token; enables S3e after plan (AC4 / OQ2) |
+| `--severity-floor` | No | continuous: `nitpick`; materialize resume: from artifact then `nitpick` | value ∉ {`critical`,`warning`,`nitpick`} → exit **64** (M3–M4); re-applied at S3b (AC2); **ignored for S4 banding**; **handoff rejects the flag** (exit **64**) |
+| `--proceed` | No | off | Satisfies M8 without interactive token; enables S3e after plan (AC4 / OQ2); **handoff rejects the flag** (exit **64**) |
 | Typed proceed | No | off | Exact token `proceed` (case-insensitive) on materialize lock prompt (S3d) |
-| `--start-phase <n>` | No | off | Satisfies M9 for phase `n` without typed token (OQ5); handoff resume or continuous S4e |
+| `--start-phase <n>` | No | off | Satisfies M9 for phase `n` (OQ5); continuous or handoff only. Materialize rejects the flag (exit **64**). S0 accepts only a non-negative integer. S4e rejects `n >= BH_PHASE_COUNT` (exit **64**) |
 | Typed `start-phase-<n>` | No | off | Case-insensitive exact token on S4e lock prompt (OQ5) |
 
 Canonical continuous form: SPEC-034 M5 + optional `--proceed`. Floor order:
@@ -305,7 +305,7 @@ Order: `critical` > `warning` > `nitpick`.
 ### Usage (exact — M5 + C3/C4 surface)
 
 ```
-Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed]
+Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
 Usage: /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]
 Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]
 ```
@@ -355,9 +355,9 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-BH_REPORT_DIR="$MROOT/.claude/bug-hunt"
+BH_REPORT_DIR="${BH_REPORT_DIR:-$MROOT/.claude/bug-hunt}"
 
-BH_USAGE='Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed]
+BH_USAGE='Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
 Usage: /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]
 Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]'
 
@@ -375,6 +375,7 @@ Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]'
 
 BH_PATH_ARG=""
 BH_FLOOR="nitpick"
+BH_FLOOR_FROM_CLI=0
 BH_MODE="continuous"
 BH_PROCEED="none"
 BH_MAT_PATH=""
@@ -407,23 +408,45 @@ fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --severity-floor)
+      if [ "$BH_MODE" = "handoff" ]; then
+        echo "error: --severity-floor is not valid in handoff mode" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
       if [ -z "${2:-}" ] || case "$2" in --*) true;; *) false;; esac; then
         echo "error: --severity-floor requires one of: critical|warning|nitpick" >&2
         echo "$BH_USAGE" >&2
         exit 64
       fi
       BH_FLOOR="$2"
+      BH_FLOOR_FROM_CLI=1
       shift 2
       ;;
     --severity-floor=*)
+      if [ "$BH_MODE" = "handoff" ]; then
+        echo "error: --severity-floor is not valid in handoff mode" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
       BH_FLOOR="${1#--severity-floor=}"
+      BH_FLOOR_FROM_CLI=1
       shift
       ;;
     --proceed)
+      if [ "$BH_MODE" = "handoff" ]; then
+        echo "error: --proceed is not valid in handoff mode" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
       BH_PROCEED="flag"
       shift
       ;;
     --start-phase)
+      if [ "$BH_MODE" = "materialize" ]; then
+        echo "error: --start-phase is not valid in materialize mode" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
       if [ -z "${2:-}" ] || case "$2" in --*) true;; *) false;; esac; then
         echo "error: --start-phase requires <n> (non-negative integer)" >&2
         echo "$BH_USAGE" >&2
@@ -433,6 +456,11 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --start-phase=*)
+      if [ "$BH_MODE" = "materialize" ]; then
+        echo "error: --start-phase is not valid in materialize mode" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
       BH_START_PHASE="${1#--start-phase=}"
       shift
       ;;
@@ -495,8 +523,8 @@ if [ "$BH_MODE" = "handoff" ]; then
   # Orchestrator: jump to Step S4a (LOAD).
 elif [ "$BH_MODE" = "materialize" ]; then
   # Resume: S3a loads BH_MAT_PATH. MUST NOT enter S1/S2.
-  printf 'BH_MODE=%s\nBH_MAT_PATH=%s\nBH_FLOOR=%s\nBH_PROCEED=%s\nBH_START_PHASE=%s\nBH_REPORT_DIR=%s\n' \
-    "$BH_MODE" "$BH_MAT_PATH" "$BH_FLOOR" "$BH_PROCEED" "${BH_START_PHASE:-}" "$BH_REPORT_DIR"
+  printf 'BH_MODE=%s\nBH_MAT_PATH=%s\nBH_FLOOR=%s\nBH_FLOOR_FROM_CLI=%s\nBH_PROCEED=%s\nBH_REPORT_DIR=%s\n' \
+    "$BH_MODE" "$BH_MAT_PATH" "$BH_FLOOR" "$BH_FLOOR_FROM_CLI" "$BH_PROCEED" "$BH_REPORT_DIR"
   # Orchestrator: jump to Step S3a (LOAD + FILTER).
 else
   # Continuous path resolve (M2, M4)
@@ -552,12 +580,26 @@ else
     [ -n "$BH_SLUG" ] || BH_SLUG="scope"
   fi
   BH_STEM="${BH_DATE}-${BH_SLUG}"
+  _bh_stem_base="$BH_STEM"
+  _bh_stem_n=2
   BH_REPORT="$BH_REPORT_DIR/${BH_STEM}.md"
   BH_FINDINGS="$BH_REPORT_DIR/${BH_STEM}.json"
   BH_PLAN="$BH_REPORT_DIR/${BH_STEM}-plan.md"
+  while [ -e "$BH_REPORT" ] || [ -e "$BH_FINDINGS" ] || [ -e "$BH_PLAN" ]; do
+    BH_STEM="${_bh_stem_base}-${_bh_stem_n}"
+    BH_REPORT="$BH_REPORT_DIR/${BH_STEM}.md"
+    BH_FINDINGS="$BH_REPORT_DIR/${BH_STEM}.json"
+    BH_PLAN="$BH_REPORT_DIR/${BH_STEM}-plan.md"
+    _bh_stem_n=$((_bh_stem_n + 1))
+    if [ "$_bh_stem_n" -gt 99 ]; then
+      echo "error: stem collision limit at $BH_REPORT_DIR/$_bh_stem_base" >&2
+      echo "$BH_USAGE" >&2
+      exit 64
+    fi
+  done
 
-  printf 'BH_MODE=%s\nBH_PATH=%s\nBH_FLOOR=%s\nBH_SLUG=%s\nBH_DATE=%s\nBH_STEM=%s\nBH_REPORT_DIR=%s\nBH_REPORT=%s\nBH_FINDINGS=%s\nBH_PLAN=%s\nBH_PROCEED=%s\nBH_START_PHASE=%s\n' \
-    "$BH_MODE" "$BH_PATH" "$BH_FLOOR" "$BH_SLUG" "$BH_DATE" "$BH_STEM" \
+  printf 'BH_MODE=%s\nBH_PATH=%s\nBH_FLOOR=%s\nBH_FLOOR_FROM_CLI=%s\nBH_SLUG=%s\nBH_DATE=%s\nBH_STEM=%s\nBH_REPORT_DIR=%s\nBH_REPORT=%s\nBH_FINDINGS=%s\nBH_PLAN=%s\nBH_PROCEED=%s\nBH_START_PHASE=%s\n' \
+    "$BH_MODE" "$BH_PATH" "$BH_FLOOR" "$BH_FLOOR_FROM_CLI" "$BH_SLUG" "$BH_DATE" "$BH_STEM" \
     "$BH_REPORT_DIR" "$BH_REPORT" "$BH_FINDINGS" "$BH_PLAN" "$BH_PROCEED" \
     "${BH_START_PHASE:-}"
 fi
@@ -582,6 +624,12 @@ args MUST NOT occur (M4).
 | materialize path missing both json+report | **exit 64** + `error: no findings.json or report.md at <stem>` |
 | `/bug-hunt handoff .claude/bug-hunt/x-plan.md` | `BH_MODE=handoff` → S4a |
 | `/bug-hunt handoff x-plan.md --start-phase 0` | handoff + `BH_START_PHASE=0` |
+| `/bug-hunt handoff x-plan.md --proceed` | **exit 64** + `--proceed is not valid in handoff mode` |
+| `/bug-hunt handoff x-plan.md --severity-floor critical` | **exit 64** + `--severity-floor is not valid in handoff mode` |
+| `/bug-hunt materialize x.json --start-phase 0` | **exit 64** + `--start-phase is not valid in materialize mode` |
+| materialize path outside `$MROOT/.claude/bug-hunt/` | **exit 64** + `materialize path outside .claude/bug-hunt/` |
+| same-day stem already on disk | `BH_STEM` gains `-2`, `-3`, … (no overwrite) |
+| `--start-phase` integer `n >= phase_count` | **exit 64** at S4e (`out of range`) |
 | `/bug-hunt handoff` (no path) | **exit 64** + Usage |
 | handoff plan missing/unreadable | **exit 64** + `error: findings plan not readable: <path>` (S4a / M42) |
 | handoff path not `*-plan.md` (and no sibling) | **exit 64** + `error: handoff path must end in -plan.md: <path>` |
@@ -669,7 +717,7 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
 # Path-bound file list (AC3). Prefer git-tracked under BH_PATH; fall back to find.
 if [ -d "$BH_PATH" ]; then
-  FILE_LIST=$(git -C "$MROOT" ls-files -- "$BH_PATH" 2>/dev/null)
+  FILE_LIST=$(git -C "$WTROOT" ls-files -- "$BH_PATH" 2>/dev/null)
   if [ -z "$FILE_LIST" ]; then
     FILE_LIST=$(find "$BH_PATH" -type f \
       ! -path '*/.git/*' ! -path '*/node_modules/*' ! -path '*/dist/*' \
@@ -1061,10 +1109,39 @@ Mirror council Phase 2 strike (orchestrator-enforced):
 
 Strike a bundle if any of:
 
-1. Missing `tool_use_id`
+1. Missing `reproducible_command`, or a re-run of that command does not match `raw_blob` (`bash skills/bug-hunt/strike-bundle.sh`). The one M14 Verify bundle whose `reproducible_command` is the claim `VERIFY_COMMAND` is exempt from the byte compare (`--exempt-rerun`): its `raw_blob` is the wrapper output, not a bare re-run.
 2. Empty `raw_blob` or clearly paraphrased (no tool-output substance)
-3. Missing `file_line` or `reproducible_command`
+3. Missing `file_line`
 4. Blindness leak (cites other investigators / prior verdicts / narrative)
+
+`tool_use_id` is a stable per-call label the investigator assigns (`read_1`). A missing host id does not strike the bundle and does not set `self-verified — refuters unavailable`. When the investigator spawn succeeded and every kept bundle matches its re-run, `verification_mode` stays `full`.
+
+```bash
+# 2f strike one bundle. Orchestrator injects the four bindings below.
+BH_STRIKE="${BH_STRIKE:-skills/bug-hunt/strike-bundle.sh}"
+BH_REPRO="${BH_REPRO:?reproducible_command required}"
+BH_RAW_FILE="${BH_RAW_FILE:?raw_blob file required}"
+BH_FILE_LINE="${BH_FILE_LINE:?file_line required}"
+BH_SPAWN_OK="${BH_SPAWN_OK:-1}"
+BH_EXEMPT_RERUN="${BH_EXEMPT_RERUN:-0}"
+BH_VERIFICATION_MODE=full
+if [ "$BH_SPAWN_OK" != 1 ]; then
+  BH_VERIFICATION_MODE=self-verified
+  printf 'self-verified — refuters unavailable\n'
+else
+  if [ "$BH_EXEMPT_RERUN" = 1 ]; then
+    BH_STRIKE_RC=0
+    bash "$BH_STRIKE" --exempt-rerun --command "$BH_REPRO" --raw-file "$BH_RAW_FILE" --file-line "$BH_FILE_LINE" || BH_STRIKE_RC=$?
+  else
+    BH_STRIKE_RC=0
+    bash "$BH_STRIKE" --command "$BH_REPRO" --raw-file "$BH_RAW_FILE" --file-line "$BH_FILE_LINE" || BH_STRIKE_RC=$?
+  fi
+  if [ "$BH_STRIKE_RC" -ne 0 ]; then
+    echo "strike: bundle dropped" >&2
+  fi
+fi
+printf 'verification_mode: %s\n' "$BH_VERIFICATION_MODE"
+```
 
 After strike, if `evidence_bundles` is empty, treat as empty return with
 `reason_if_empty` preserved or set to `no evidence found`.
@@ -1495,12 +1572,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 BH_REPORT_DIR="${BH_REPORT_DIR:-$MROOT/.claude/bug-hunt}"
-BH_USAGE='Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed]
+BH_USAGE='Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
 Usage: /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]'
 # lint-ok: C1 — BH_MODE / BH_FLOOR / BH_MAT_PATH / continuous paths from S0|REPORT; orchestrator injects
 : "${BH_MODE:?BH_MODE required (continuous|materialize)}"  # lint-ok: C1
 : "${BH_FLOOR:?BH_FLOOR required}"  # lint-ok: C1
 BH_FLOOR_CLI="$BH_FLOOR"
+BH_FLOOR_FROM_CLI="${BH_FLOOR_FROM_CLI:-0}"
 BH_MAT_ABS=""
 BH_LOAD_KIND=""
 BH_LOAD_SRC=""
@@ -1520,7 +1598,30 @@ if [ "$BH_MODE" = "materialize" ]; then
   BH_MAT_BASE=$(basename -- "$BH_MAT_ABS")
   BH_MAT_DIR=$(dirname -- "$BH_MAT_ABS")
 
+  case "$BH_MAT_ABS" in
+    "$MROOT/.claude/bug-hunt"|"$MROOT/.claude/bug-hunt"/*) ;;
+    *)
+      echo "error: materialize path outside .claude/bug-hunt/: $BH_MAT_ABS" >&2
+      echo "$BH_USAGE" >&2
+      exit 64
+      ;;
+  esac
+
   case "$BH_MAT_BASE" in
+    *-phase-plan.md)
+      _bh_sib="${BH_MAT_BASE%-phase-plan.md}"
+      _bh_sib_plan="$BH_MAT_DIR/${_bh_sib}-plan.md"
+      if [ ! -f "$_bh_sib_plan" ] || [ ! -r "$_bh_sib_plan" ]; then
+        echo "error: phase-plan has no sibling findings plan: $_bh_sib_plan" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
+      BH_STEM="$_bh_sib"
+      BH_PLAN="$_bh_sib_plan"
+      BH_FINDINGS="$BH_MAT_DIR/${BH_STEM}.json"
+      BH_REPORT="$BH_MAT_DIR/${BH_STEM}.md"
+      BH_LOAD_KIND="plan"
+      ;;
     *-plan.md)
       BH_STEM="${BH_MAT_BASE%-plan.md}"
       BH_PLAN="$BH_MAT_ABS"
@@ -1594,8 +1695,8 @@ fi
 # T2 requires findings or report for first load.
 printf 'BH_STEM=%s\nBH_PLAN=%s\nBH_FINDINGS=%s\nBH_REPORT=%s\n' \
   "$BH_STEM" "$BH_PLAN" "$BH_FINDINGS" "$BH_REPORT"
-printf 'BH_LOAD_KIND=%s\nBH_LOAD_SRC=%s\nBH_FLOOR=%s\nBH_FLOOR_CLI=%s\n' \
-  "$BH_LOAD_KIND" "$BH_LOAD_SRC" "$BH_FLOOR" "$BH_FLOOR_CLI"
+printf 'BH_LOAD_KIND=%s\nBH_LOAD_SRC=%s\nBH_FLOOR=%s\nBH_FLOOR_CLI=%s\nBH_FLOOR_FROM_CLI=%s\n' \
+  "$BH_LOAD_KIND" "$BH_LOAD_SRC" "$BH_FLOOR" "$BH_FLOOR_CLI" "$BH_FLOOR_FROM_CLI"
 ```
 
 #### 3a.4 Parse loaded source → confirmed set + artifact floor
@@ -1660,7 +1761,7 @@ When section body is exactly `(none)` → `source_findings = []` (zero path lega
 #### 3a.5 Re-bind floor (artifact default; CLI override)
 
 ```
-if user passed --severity-floor on this invocation:
+if BH_FLOOR_FROM_CLI is 1:
   BH_FLOOR = CLI value (already validated in S0)
 else if artifact_floor is valid enum:
   BH_FLOOR = artifact_floor
@@ -2502,7 +2603,7 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 BH_REPORT_DIR="${BH_REPORT_DIR:-$MROOT/.claude/bug-hunt}"
-BH_USAGE='Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed]
+BH_USAGE='Usage: /bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]
 Usage: /bug-hunt materialize <report|json|plan-path> [--severity-floor <critical|warning|nitpick>] [--proceed]
 Usage: /bug-hunt handoff <plan-path> [--start-phase <n>]'
 # lint-ok: C1 — BH_MODE / BH_PLAN / BH_HANDOFF_PATH from S0|S3g; orchestrator injects
@@ -2526,6 +2627,17 @@ if [ "$BH_MODE" = "handoff" ]; then
   BH_PLAN_DIR=$(dirname -- "$BH_PLAN_ABS")
 
   case "$BH_PLAN_BASE" in
+    *-phase-plan.md)
+      _bh_sib="${BH_PLAN_BASE%-phase-plan.md}"
+      _bh_sib_plan="$BH_PLAN_DIR/${_bh_sib}-plan.md"
+      if [ ! -f "$_bh_sib_plan" ] || [ ! -r "$_bh_sib_plan" ]; then
+        echo "error: phase-plan has no sibling findings plan: $_bh_sib_plan" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
+      BH_STEM="$_bh_sib"
+      BH_PLAN="$_bh_sib_plan"
+      ;;
     *-plan.md)
       BH_STEM="${BH_PLAN_BASE%-plan.md}"
       BH_PLAN="$BH_PLAN_ABS"
@@ -2569,6 +2681,17 @@ else
   BH_PLAN="$BH_PLAN_ABS"
   BH_PLAN_BASE=$(basename -- "$BH_PLAN")
   case "$BH_PLAN_BASE" in
+    *-phase-plan.md)
+      _bh_sib="${BH_PLAN_BASE%-phase-plan.md}"
+      _bh_sib_plan="$(dirname -- "$BH_PLAN")/${_bh_sib}-plan.md"
+      if [ ! -f "$_bh_sib_plan" ] || [ ! -r "$_bh_sib_plan" ]; then
+        echo "error: phase-plan has no sibling findings plan: $_bh_sib_plan" >&2
+        echo "$BH_USAGE" >&2
+        exit 64
+      fi
+      BH_STEM="$_bh_sib"
+      BH_PLAN="$_bh_sib_plan"
+      ;;
     *-plan.md) BH_STEM="${BH_STEM:-${BH_PLAN_BASE%-plan.md}}" ;;
     *)
       echo "error: handoff path must end in -plan.md: $BH_PLAN" >&2
@@ -3010,9 +3133,36 @@ enter this step. No lock; go **S4g** zero.
 | Typed token `start-phase-<n>` | parsed integer from token |
 | Neither | no arm — emit-only stop (§4e.5) |
 
-Valid range: `0 ≤ n < BH_PHASE_COUNT`. Out-of-range / non-integer already
-rejected at S0 for the flag; typed token with bad `n` → treat as not locked
-(print how-to; exit 0) — never invent a phase.
+Valid range: `0 ≤ n < BH_PHASE_COUNT`. S0 rejects a non-integer `--start-phase`
+(exit **64**). S4e rejects an integer outside that range (exit **64**). A typed
+token with a bad `n` is not a lock (print how-to; exit **0**). Never invent a phase.
+
+```bash
+# S4e range fence. Orchestrator injects BH_PHASE_COUNT and optional BH_START_PHASE.
+BH_START_PHASE="${BH_START_PHASE:-}"
+BH_PHASE_COUNT="${BH_PHASE_COUNT:?BH_PHASE_COUNT required}"
+case "$BH_PHASE_COUNT" in
+  ''|*[!0-9]*)
+    echo "error: BH_PHASE_COUNT must be a non-negative integer" >&2
+    exit 64
+    ;;
+esac
+if [ -n "$BH_START_PHASE" ]; then
+  case "$BH_START_PHASE" in
+    *[!0-9]*)
+      echo "error: --start-phase requires non-negative integer (got '$BH_START_PHASE')" >&2
+      exit 64
+      ;;
+  esac
+  if [ "$BH_START_PHASE" -ge "$BH_PHASE_COUNT" ]; then
+    echo "error: --start-phase $BH_START_PHASE out of range (phase_count=$BH_PHASE_COUNT)" >&2
+    exit 64
+  fi
+  printf 'BH_ARM_PHASE=%s\n' "$BH_START_PHASE"
+else
+  printf 'BH_ARM_PHASE=none\n'
+fi
+```
 
 Between-phase resume (M9/M36): operator re-enters
 `/bug-hunt handoff $BH_PLAN --start-phase <n>` for `n > 0` after completing

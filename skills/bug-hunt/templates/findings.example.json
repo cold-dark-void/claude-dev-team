@@ -1,0 +1,40 @@
+{
+  "$schema_note": "Example only. Do not copy these rows into a hunt artifact. The live template is findings.json and its arrays are empty.",
+  "confirmed_actionable": [
+    {
+      "id": "CLUSTER-001",
+      "locator": "path/to/file.ext:42",
+      "severity": "warning",
+      "description": "What is wrong (AC8)",
+      "evidence": "Tool cites / investigator file_line / reproducible_command (AC8)",
+      "status": "confirmed"
+    }
+  ],
+  "refuted": [
+    {
+      "id": "cand-0",
+      "locator": "path/to/other.ext:10",
+      "severity": "nitpick",
+      "description": "Claim text",
+      "evidence": "thin evidence; fail-closed refuted",
+      "status": "refuted"
+    }
+  ],
+  "dropped": [
+    {
+      "locator": "out/of/scope.ext:1",
+      "severity": "warning",
+      "description": "Claim text",
+      "reason": "out-of-scope",
+      "detail": "locator outside BH_PATH"
+    }
+  ],
+  "linkage": [
+    {
+      "finding_id": "CLUSTER-001",
+      "backlog_slug": "(pending)",
+      "linear_id": "(pending)",
+      "status": "planned"
+    }
+  ]
+}

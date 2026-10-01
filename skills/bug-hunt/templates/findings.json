@@ -20,36 +20,10 @@
     "dropped": 0,
     "confirmed_actionable": 0
   },
-  "confirmed_actionable": [
-    {
-      "id": "CLUSTER-001",
-      "locator": "path/to/file.ext:42",
-      "severity": "warning",
-      "description": "What is wrong (AC8)",
-      "evidence": "Tool cites / investigator file_line / reproducible_command (AC8)",
-      "status": "confirmed"
-    }
-  ],
+  "confirmed_actionable": [],
   "confirmed": [],
-  "refuted": [
-    {
-      "id": "cand-0",
-      "locator": "path/to/other.ext:10",
-      "severity": "nitpick",
-      "description": "Claim text",
-      "evidence": "thin evidence; fail-closed refuted",
-      "status": "refuted"
-    }
-  ],
-  "dropped": [
-    {
-      "locator": "out/of/scope.ext:1",
-      "severity": "warning",
-      "description": "Claim text",
-      "reason": "out-of-scope",
-      "detail": "locator outside BH_PATH"
-    }
-  ],
+  "refuted": [],
+  "dropped": [],
   "phase_done": {
     "discover_m20": "phase-done: discover — candidate set produced (M20)",
     "refute_m21": "phase-done: refute — every candidate dispositioned (M21)",
@@ -65,13 +39,6 @@
       "skipped_linked": 0,
       "failed": 0
     },
-    "linkage": [
-      {
-        "finding_id": "CLUSTER-001",
-        "backlog_slug": "(pending)",
-        "linear_id": "(pending)",
-        "status": "planned"
-      }
-    ]
+    "linkage": []
   }
 }

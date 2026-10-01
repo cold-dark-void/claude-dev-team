@@ -67,9 +67,13 @@ MUST NOT invoke `/orchestrate`, `/epic`, spawn ICs, or edit product code to fix 
   `nitpick` (lowest floor — all severities eligible unless raised).
 - **M4 — Loud fail on invalid input.** Invalid severity enum values and unusable/non-existent
   path arguments MUST fail loudly (non-zero exit and/or clear user-visible error). Silent
-  coercion or silent ignore of invalid args MUST NOT occur.
-- **M5 — Invocation shape.** Canonical form:
-  `/bug-hunt [path] [--severity-floor <critical|warning|nitpick>]`.
+  coercion or silent ignore of invalid args MUST NOT occur. Handoff MUST reject
+  `--proceed` and `--severity-floor` (exit 64). Materialize MUST reject `--start-phase`
+  (exit 64). When `--severity-floor` is accepted, the session MUST set
+  `BH_FLOOR_FROM_CLI=1`. A same-day stem that already exists MUST take a `-2`, `-3`, …
+  suffix instead of overwriting.
+- **M5 — Invocation shape.** Canonical continuous form:
+  `/bug-hunt [path] [--severity-floor <critical|warning|nitpick>] [--proceed] [--start-phase <n>]`.
 
 ### Stages & user locks (AC3)
 
@@ -177,7 +181,9 @@ redesign stages 3–4.
 
 - **M31 — Stage 1–2 user-visible report.** A continuous stages 1–2 run MUST emit a
   user-visible report under `.claude/bug-hunt/` (canonical path pattern:
-  `$MROOT/.claude/bug-hunt/<YYYY-MM-DD>-<slug>.md`). Process artifacts under `.claude/bug-hunt/`
+  `$MROOT/.claude/bug-hunt/<YYYY-MM-DD>-<slug>.md`). The stage-1 file list MUST use
+  `git -C "$WTROOT" ls-files`. The report template MUST state the current walls (no
+  materialize without `--proceed`; stage 4 emit-only). Process artifacts under `.claude/bug-hunt/`
   MUST remain **uncommitted** (M25 process-tracker hygiene).
 - **M32 — Confirmed-actionable filter (stage 1–2 exit).** At stages 1–2 exit,
   `confirmed_actionable` MUST equal findings with `status=confirmed` **and** severity at or
@@ -203,7 +209,10 @@ start fix work, and MUST NOT enter stage 4.
   the sibling stages 1–2 `report.md` (or a resume path ending in `.md` that is not `-plan.md`).
   When both preferred inputs are missing/unreadable, stage 3 MUST **loud fail** (non-zero exit
   and a clear user-visible error naming the stem / usage). A resume path ending in `-plan.md`
-  MUST load that findings plan for re-materialize (idempotent path; M41). Stage 3 MUST NOT
+  but not `-phase-plan.md` MUST load that findings plan for re-materialize (idempotent path; M41).
+  A path ending in `-phase-plan.md` MUST resolve the sibling `<stem>-plan.md` or loud-fail.
+  It MUST NOT set the stem to `<stem>-phase`. A materialize path outside
+  `$MROOT/.claude/bug-hunt/` MUST be refused (exit 64). Stage 3 MUST NOT
   re-enter stages 1–2 to regenerate findings.
 - **M39 — Findings plan path.** Stage 3 MUST write (or update) the findings plan at
   `$MROOT/.claude/bug-hunt/<YYYY-MM-DD>-<slug>-plan.md` (locks S2 naming preference as the
@@ -240,7 +249,9 @@ NOT invent findings, and MUST NOT invoke fix engines or edit product code (N12�
   inputs are plan rows with status `materialized` or `skipped_linked` **and** a non-empty
   `backlog_slug` (failed/pending/planned rows excluded). When the plan is missing/unreadable or
   the path does not resolve to a findings plan, stage 4 MUST **loud fail** (non-zero exit and a
-  clear user-visible error). Stage 4 MUST NOT re-enter stages 1–3 to regenerate findings (N13).
+  clear user-visible error). A path ending in `-phase-plan.md` MUST map to the sibling
+  findings plan `<stem>-plan.md` or loud-fail. It MUST NOT parse the phase plan as the
+  findings table. Stage 4 MUST NOT re-enter stages 1–3 to regenerate findings (N13).
 - **M43 — Severity banding.** Stage 4 MUST group phaseable items into severity bands in order
   **`critical` → `warning` → `nitpick` only** (no custom priority mix). Empty bands MUST be
   **omitted**; remaining phases MUST be renumbered contiguous `0..N` in emission order.
@@ -267,6 +278,8 @@ NOT invent findings, and MUST NOT invoke fix engines or edit product code (N12�
   typed **`start-phase-<n>`** token (case-insensitive); either form is acceptable. Without the
   lock for phase `n`, stage 4 MUST leave templates on disk, print how to arm, and MUST NOT
   auto-advance (aligns with M9 / M36). Completing a fix phase MUST NOT auto-start the next.
+  S0 checks only that `--start-phase` is a non-negative integer. S4e MUST exit 64 when
+  that integer is `n >= phase_count`. A typed token with a bad `n` stays unlocked (exit 0).
 - **M47 — Exit metrics on template.** Each phase handoff template MUST expose checkable exit
   metrics for the **downstream** fix run: `closed_count` target equal to `|items|` for that
   phase, `residual_criticals == 0` required, and `signoff` field (`pending` at emit; recorded
@@ -481,6 +494,7 @@ Status remains DRAFT until a later epic promote (not a C2 ship gate).
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 4-08 (CDT-417, CDT-279 E12 E3 F12 F17 F20 F25): stem suffix on collision; phase-plan maps to the sibling findings plan; materialize paths stay under `.claude/bug-hunt/`; handoff rejects `--proceed` and `--severity-floor`; S4e rejects an out-of-range `--start-phase`; S1 lists files with `git -C WTROOT`; report walls match continuous S3/S4; evidence strike re-runs `reproducible_command`. Status stays DRAFT. |
 | 2026-08-07 | CDT-139: additive stage-4 runtime MUSTs M42–M48 (load C3 plan + phaseable filter, severity banding omit-empty renumber, phase-plan + handoff-phase templates, M18 route rule phase_count≥2∧item_count≥2, M9 lock forms `--start-phase`/`start-phase-<n>`, exit metrics, M23 full+zero + emit-only); N12–N13 hard walls; Covers/Overview stage 4 owned by CDT-139; Tests T22–T26 + Validation AC15; Status stays DRAFT |
 | 2026-08-07 | CDT-138: additive stage-3 runtime MUSTs M38–M41 (load json/report, findings plan `-plan.md` path, SPEC-009 programmatic write-back + bidirectional linkage, proceed forms + idempotent re-materialize + zero path); N10–N11 hard walls; Covers/Overview stage 3 owned by CDT-138 (stage 4 still uncovered); Tests T18–T21 + Validation AC14; Status stays DRAFT |
 | 2026-08-06 | CDT-136: additive stages 1–2 runtime MUSTs M31–M34 (report path, confirmed-actionable floor filter, discover/refute SPEC-013 compose); renumber prior OOS M31–M33 → M35–M37; Covers → `commands/bug-hunt.md`, `skills/bug-hunt/*`; Tests T12–T16 + Index T17; Status stays DRAFT |

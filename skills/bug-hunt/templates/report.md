@@ -1,23 +1,3 @@
-[//]: # "Variable contract — orchestrator fills via Write tool (no bash heredoc with !)"
-[//]: # "{{PATH}}                  — BH_PATH absolute scope"
-[//]: # "{{FLOOR}}                 — BH_FLOOR (critical|warning|nitpick)"
-[//]: # "{{SLUG}}                  — BH_SLUG report basename slug"
-[//]: # "{{DATE}}                  — BH_DATE YYYY-MM-DD UTC"
-[//]: # "{{CREATED_AT}}            — ISO-8601 UTC timestamp"
-[//]: # "{{MANIFEST}}              — team/lens manifest (BH_MANIFEST)"
-[//]: # "{{S2_FLAVORS}}            — refute flavor pair(s) e.g. logic+security"
-[//]: # "{{VERIFICATION_MODE}}     — full | self-verified"
-[//]: # "{{DEGRADED_BANNER}}       — empty when full; blockquote with exact CDV-199 marker when degraded"
-[//]: # "{{COUNTS}}                — multiline counts block (candidates/confirmed/refuted/dropped/confirmed_actionable)"
-[//]: # "{{CONFIRMED_ACTIONABLE}}  — full AC8 list for confirmed ∧ severity≥floor; or '(none)' when empty"
-[//]: # "{{REFUTED_SUMMARY}}       — locator + one-line reason per refuted item; or '(none)'"
-[//]: # "{{DROPPED_SUMMARY}}       — informational dropped[] (reason); or '(none)'"
-[//]: # "{{PHASE_DONE_M20}}        — exact phase-done discover lines from S1"
-[//]: # "{{PHASE_DONE_M21}}        — exact phase-done refute lines from S2"
-[//]: # "{{ZERO_ACTIONABLE_LINE}}  — '0 confirmed-actionable' when A==0; else empty or count line"
-[//]: # "{{REPORT_PATH}}           — BH_REPORT absolute path"
-[//]: # "{{FINDINGS_JSON_PATH}}    — SHOULD path for machine JSON (or 'not written')"
-
 ---
 path: "{{PATH}}"
 severity_floor: "{{FLOOR}}"
@@ -29,6 +9,31 @@ stage: "1-2"
 ---
 
 # Bug-hunt report — {{DATE}}-{{SLUG}}
+
+## Variable contract
+
+Fill each brace slot in the frontmatter and body once. This section has no brace slots.
+
+| Slot | Source |
+|------|--------|
+| PATH | BH_PATH |
+| FLOOR | BH_FLOOR |
+| SLUG | BH_SLUG |
+| DATE | BH_DATE |
+| CREATED_AT | ISO-8601 UTC |
+| VERIFICATION_MODE | full, or self-verified |
+| DEGRADED_BANNER | empty when full; the CDV-199 marker when degraded |
+| MANIFEST | BH_MANIFEST |
+| S2_FLAVORS | refute flavor pair |
+| COUNTS | candidates, confirmed, refuted, dropped, confirmed_actionable |
+| CONFIRMED_ACTIONABLE | AC8 list, or `(none)` |
+| REFUTED_SUMMARY | locator plus one-line reason, or `(none)` |
+| DROPPED_SUMMARY | dropped rows, or `(none)` |
+| PHASE_DONE_M20 | discover phase-done lines |
+| PHASE_DONE_M21 | refute phase-done lines |
+| ZERO_ACTIONABLE_LINE | `0 confirmed-actionable` when the actionable count is 0 |
+| REPORT_PATH | BH_REPORT |
+| FINDINGS_JSON_PATH | findings JSON path, or not written |
 
 {{DEGRADED_BANNER}}
 
@@ -86,35 +91,17 @@ Below-floor / out-of-scope / malformed — never entered candidate set (M15).
 | User-visible report | `{{REPORT_PATH}}` |
 | Machine findings JSON (SHOULD) | `{{FINDINGS_JSON_PATH}}` |
 
-## Hard walls (stages 1–2)
+## Hard walls
 
-- **MUST NOT** materialize / backlog / findings-plan (AC12)
-- **MUST NOT** fix / implement / stage-4 handoff (AC13)
-- Stages 3–4 require a later epic child + explicit user proceed
+- The report does not materialize. Materialize runs only after `--proceed` or a typed `proceed`.
+- Stage 4 is emit-only. The skill prints an invocation hint and does not start `/orchestrate` or `/epic`.
+- Stages 3 and 4 continue in this hunt after the report.
 
 ---
 
-<!-- Orchestrator fill notes:
-  {{DEGRADED_BANNER}} when BH_REFUTE_DEGRADED or BH_VERIFICATION_MODE=self-verified:
-    > **self-verified — refuters unavailable**
-  else empty string.
-
-  {{COUNTS}} example:
-    - candidates: N
-    - confirmed: C
-    - refuted: R
-    - dropped: D
-    - confirmed_actionable: A
-
-  {{CONFIRMED_ACTIONABLE}} — for each item, all AC8 fields:
-    ### <id or n>
-    - **locator:** …
-    - **severity:** critical|warning|nitpick
-    - **description:** …
-    - **evidence:** …
-    - **status:** confirmed
-    When empty: `(none)` plus ensure terminal shows `0 confirmed-actionable`.
-
-  {{REFUTED_SUMMARY}} — bullet per item: `- <locator> — <one-line reason>`
-  {{DROPPED_SUMMARY}} — bullet: `- <locator> (<reason>) — <detail>`
+<!-- Orchestrator fill notes. Slot names are in the variable contract.
+  DEGRADED_BANNER is the self-verified marker when degraded, else empty.
+  COUNTS lists candidates, confirmed, refuted, dropped, and confirmed_actionable.
+  CONFIRMED_ACTIONABLE is one AC8 block per item, or (none).
+  REFUTED_SUMMARY and DROPPED_SUMMARY are one bullet per item.
 -->

@@ -1,20 +1,3 @@
-[//]: # "Variable contract — orchestrator fills via Write tool (no bash heredoc with !)"
-[//]: # "{{PHASE_ID}}              — BH-PHASE-<n>"
-[//]: # "{{PHASE_N}}               — integer n (0..N after omit-empty renumber)"
-[//]: # "{{HUNT_STEM}}             — BH_STEM = <YYYY-MM-DD>-<slug>"
-[//]: # "{{PLAN_PATH}}             — BH_PLAN absolute path (…-plan.md)"
-[//]: # "{{ROUTE}}                 — BH_ROUTE: /orchestrate | /epic (S4c)"
-[//]: # "{{BAND}}                  — severity band: critical | warning | nitpick"
-[//]: # "{{ITEMS}}                 — markdown list/table of items (slug | linear_id)"
-[//]: # "{{ITEM_COUNT}}            — |items| for this phase (= closed_count_target)"
-[//]: # "{{GOAL}}                  — default OQ8: Close all phase items (severity=<band>) for hunt <stem>"
-[//]: # "{{CLOSED_COUNT_TARGET}}   — |items| (exit_metrics.closed_count_target)"
-[//]: # "{{RESIDUAL_CRITICALS}}    — always 0 required (exit_metrics.residual_criticals)"
-[//]: # "{{SIGNOFF}}               — pending at emit; recorded (flag|token @ ISO) after arm"
-[//]: # "{{LOCK}}                  — AWAIT_USER start-phase-<n> at emit; armed @ ISO after S4f"
-[//]: # "{{INVOCATION_HINT}}       — print-only string: /orchestrate <ISSUE-ID> or /epic <ID>"
-[//]: # "{{CREATED_AT}}            — ISO-8601 UTC timestamp at handoff write"
-
 ---
 phase_id: "{{PHASE_ID}}"
 phase_n: {{PHASE_N}}
@@ -25,9 +8,35 @@ band: "{{BAND}}"
 goal: "{{GOAL}}"
 lock: "{{LOCK}}"
 created_at: "{{CREATED_AT}}"
+exit_metrics:
+  closed_count_target: "{{CLOSED_COUNT_TARGET}}"
+  residual_criticals: "{{RESIDUAL_CRITICALS}}"
+  signoff: pending
 ---
 
 # Phase handoff — {{PHASE_ID}} ({{BAND}})
+
+## Variable contract
+
+Fill each brace slot in the frontmatter and body once. This section has no brace slots.
+
+| Slot | Source |
+|------|--------|
+| PHASE_ID | BH-PHASE-n |
+| PHASE_N | integer n |
+| HUNT_STEM | BH_STEM |
+| PLAN_PATH | BH_PLAN |
+| ROUTE | BH_ROUTE |
+| BAND | critical, warning, or nitpick |
+| ITEMS | table rows for this phase |
+| ITEM_COUNT | item count |
+| GOAL | close all phase items for this band |
+| CLOSED_COUNT_TARGET | exit_metrics.closed_count_target |
+| RESIDUAL_CRITICALS | exit_metrics.residual_criticals (0) |
+| SIGNOFF | body mirror of exit_metrics.signoff |
+| LOCK | AWAIT_USER until S4f |
+| INVOCATION_HINT | print-only /orchestrate or /epic string |
+| CREATED_AT | ISO-8601 UTC |
 
 Emit-only handoff for severity band `{{BAND}}` (AC3 / M44). **MUST NOT** invoke
 engines from this file — print `invocation_hint` only after M9 arm (AC9 / OQ10).
@@ -104,7 +113,7 @@ spawn `/orchestrate` or `/epic`.
       if route=/epic:    /epic <ISSUE-ID>          # first linear_id or slug guidance
       else:              /orchestrate <ISSUE-ID>  # string only
 
-  {{ITEMS}} — one table row per phase item (plan-table order within band):
+  ITEMS — one table row per phase item (plan-table order within band):
     | <backlog_slug> | <linear_id or (none)> | <finding_id> | <severity> | <locator> |
     Escape bare | in cells as \| .
 

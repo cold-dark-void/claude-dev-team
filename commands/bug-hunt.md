@@ -33,8 +33,8 @@ args through.
 | `materialize <path>` | — | Resume entry: `.json` preferred, `.md` report, or existing `-plan.md` |
 | `handoff <plan-path>` | — | Resume S4: path ending in `-plan.md` (or sibling plan); missing/unreadable → exit 64 |
 | `--severity-floor` | `nitpick` (continuous); artifact then `nitpick` (resume) | Re-applied at S3 filter; invalid → exit 64; ignored for S4 banding |
-| `--proceed` | off | Satisfies M8 materialize lock (no interactive token) |
-| `--start-phase <n>` | off | Satisfies M9 for phase `n` (flag or typed `start-phase-<n>`); arms print-only |
+| `--proceed` | off | Satisfies M8 materialize lock (no interactive token). Handoff rejects it (exit 64) |
+| `--start-phase <n>` | off | Continuous or handoff only. Materialize rejects it (exit 64). S4e rejects `n` outside `0..phase_count-1` |
 
 **Sequence (continuous, skill-owned):**
 

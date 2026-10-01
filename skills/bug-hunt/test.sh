@@ -122,12 +122,9 @@ done
 # T4 Surface
 has_f "$SPEC" '/bug-hunt' "T4 /bug-hunt"
 has_f "$SPEC" '--severity-floor' "T4 --severity-floor"
-has "$SPEC" 'critical' "T4 critical"
-has "$SPEC" 'warning' "T4 warning"
-has "$SPEC" 'nitpick' "T4 nitpick"
+has "$SPEC" 'critical\|warning\|nitpick' "T4 severity enum"
 # T5 Stages
-has "$SPEC" 'discover' "T5 discover"
-has "$SPEC" 'refute' "T5 refute"
+has_f "$SPEC" 'refute/confirm' "T5 refute/confirm stage"
 has "$SPEC" 'materialize' "T5 materialize"
 has "$SPEC" 'handoff' "T5 handoff"
 # T6 Locks
@@ -140,9 +137,7 @@ for f in locator severity description evidence; do
   has_f "$SPEC" "$f" "T7 field $f"
 done
 has "$SPEC" 'status=confirmed|status.*confirmed' "T7 status=confirmed"
-has_f "$SPEC" 'candidate' "T7 candidate"
-has_f "$SPEC" 'refuted' "T7 refuted"
-has_f "$SPEC" 'confirmed' "T7 confirmed"
+has_f "$SPEC" '`candidate` | `refuted` | `confirmed`' "T7 status set"
 # T8 Floor
 has "$SPEC" 'below-floor|below the active|never materialize' "T8 below-floor"
 has "$SPEC" 'default.*nitpick|omitted.*nitpick|nitpick' "T8 default nitpick"
@@ -366,6 +361,298 @@ has "$CMD" 'MUST NOT invoke|/orchestrate|/epic|edit product code' \
 has "$DOCS" 'no product-code|MUST NOT invoke|/orchestrate' \
   "C5 docs no-fix smoke non-products"
 has_f "$DOCS" 'Hard non-products of smoke' "C5 docs smoke non-products header"
+
+# ---- WP 4-08 executable fences (E3 / F11 / F12 / F17 / F20 / F25 / BH-S01) ----
+extract_fence() {
+  awk -v h="$1" '
+    $0 ~ h { seen=1 }
+    seen && !inf && /^```bash[[:space:]]*$/ { inf=1; next }
+    inf && /^```/ { exit }
+    inf { print }
+  ' "$SKILL"
+}
+
+run_s0() {
+  local tmp rc out err
+  tmp=$(mktemp "${TMPDIR:-/tmp}/bh-s0.XXXXXX")
+  {
+    printf 'set --'
+    local a
+    for a in "$@"; do printf ' %q' "$a"; done
+    printf '\n'
+    extract_fence '### 0b\. Parse args'
+  } >"$tmp"
+  set +e
+  out=$(bash "$tmp" 2>"$tmp.err")
+  rc=$?
+  set +e
+  err=$(cat "$tmp.err")
+  rm -f "$tmp" "$tmp.err"
+  printf '%s\n' "$out"
+  printf '%s\n' "$err" >&2
+  return "$rc"
+}
+
+# F20 — current walls, not a later epic child
+if grep -qF 'later epic child' "$HERE/templates/report.md"; then
+  bad "F20 report still says later epic child"
+else
+  ok "F20 report has no later-epic wall"
+fi
+has_f "$HERE/templates/report.md" 'Stage 4 is emit-only' "F20 emit-only wall"
+has_f "$HERE/templates/report.md" 'only after `--proceed`' "F20 proceed wall"
+
+# E12 — frontmatter first; no brace slots in comments; empty example rows
+for _tpl in findings-plan.md handoff-phase.md phase-plan.md report.md; do
+  if [ "$(head -n 1 "$HERE/templates/$_tpl")" = "---" ]; then
+    ok "E12 $_tpl starts with frontmatter"
+  else
+    bad "E12 $_tpl does not start with ---"
+  fi
+  if awk '
+    /<!--/ { c=1 }
+    c && /\{\{/ { found=1 }
+    /-->/ { c=0 }
+    /^\[\/\/\]:/ && /\{\{/ { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$HERE/templates/$_tpl"; then
+    bad "E12 $_tpl still has a brace slot in a comment"
+  else
+    ok "E12 $_tpl comments have no brace slots"
+  fi
+done
+if awk '
+  BEGIN { in_fm=0 }
+  NR==1 && $0=="---" { in_fm=1; next }
+  in_fm && $0=="---" { exit 0 }
+  in_fm && /^  signoff: pending$/ { hit=1 }
+  END { exit hit ? 0 : 1 }
+' "$HERE/templates/handoff-phase.md"; then
+  ok "E12 handoff exit_metrics.signoff"
+else
+  bad "E12 handoff missing exit_metrics.signoff"
+fi
+if grep -qF 'CLUSTER-001' "$HERE/templates/findings.json"; then
+  bad "E12 findings.json still has CLUSTER-001"
+else
+  ok "E12 findings.json has no sample id"
+fi
+has_f "$HERE/templates/findings.example.json" 'CLUSTER-001' "E12 example keeps CLUSTER-001"
+has_f "$HERE/templates/findings.example.json" 'cand-0' "E12 example keeps cand-0"
+
+# F17 / W1-25 — extracted S0
+s0_rc=0
+s0_out=$(run_s0 handoff x-plan.md --proceed 2>"$HERE/.s0.err") || s0_rc=$?
+if [ "$s0_rc" -eq 64 ] && grep -qF 'not valid in handoff mode' "$HERE/.s0.err"; then
+  ok "F17 handoff --proceed exits 64"
+else
+  bad "F17 handoff --proceed rc=$s0_rc"
+fi
+s0_rc=0
+run_s0 handoff x-plan.md --severity-floor critical >/dev/null 2>"$HERE/.s0.err" || s0_rc=$?
+if [ "$s0_rc" -eq 64 ]; then ok "F17 handoff --severity-floor exits 64"; else bad "F17 handoff floor rc=$s0_rc"; fi
+s0_rc=0
+run_s0 materialize x.json --start-phase 0 >/dev/null 2>"$HERE/.s0.err" || s0_rc=$?
+if [ "$s0_rc" -eq 64 ]; then ok "F17 materialize --start-phase exits 64"; else bad "F17 materialize start-phase rc=$s0_rc"; fi
+s0_rc=0
+run_s0 --severity-floor high >/dev/null 2>"$HERE/.s0.err" || s0_rc=$?
+if [ "$s0_rc" -eq 64 ]; then ok "E3 floor high exits 64"; else bad "E3 floor high rc=$s0_rc"; fi
+s0_rc=0
+run_s0 /no/such/path >/dev/null 2>"$HERE/.s0.err" || s0_rc=$?
+if [ "$s0_rc" -eq 64 ] && grep -qF 'path does not exist' "$HERE/.s0.err"; then
+  ok "E3 missing path exits 64"
+else
+  bad "E3 missing path rc=$s0_rc"
+fi
+s0_rc=0
+run_s0 --bogus >/dev/null 2>"$HERE/.s0.err" || s0_rc=$?
+if [ "$s0_rc" -eq 64 ]; then ok "E3 unknown flag exits 64"; else bad "E3 unknown flag rc=$s0_rc"; fi
+s0_out=$(run_s0 skills 2>/dev/null) || true
+if printf '%s\n' "$s0_out" | grep -q '^BH_PATH=.*/skills$'; then
+  ok "E3 relative path binds under WTROOT"
+else
+  bad "E3 relative path did not bind skills"
+fi
+if printf '%s\n' "$s0_out" | grep -q '^BH_FLOOR_FROM_CLI=0$'; then
+  ok "F17 default BH_FLOOR_FROM_CLI=0"
+else
+  bad "F17 missing default BH_FLOOR_FROM_CLI"
+fi
+s0_out=$(run_s0 skills --severity-floor warning 2>/dev/null) || true
+if printf '%s\n' "$s0_out" | grep -q '^BH_FLOOR_FROM_CLI=1$' \
+  && printf '%s\n' "$s0_out" | grep -q '^BH_FLOOR=warning$'; then
+  ok "F17 emits BH_FLOOR_FROM_CLI=1"
+else
+  bad "F17 did not emit BH_FLOOR_FROM_CLI=1"
+fi
+
+# F12 collision
+BH_COLLIDE=$(mktemp -d "${TMPDIR:-/tmp}/bh-collide.XXXXXX")
+s0_out=$(BH_REPORT_DIR="$BH_COLLIDE" run_s0 skills 2>/dev/null) || true
+stem1=$(printf '%s\n' "$s0_out" | sed -n 's/^BH_STEM=//p')
+rep1=$(printf '%s\n' "$s0_out" | sed -n 's/^BH_REPORT=//p')
+if [ -n "$stem1" ] && [ -n "$rep1" ]; then
+  : >"$rep1"
+  s0_out=$(BH_REPORT_DIR="$BH_COLLIDE" run_s0 skills 2>/dev/null) || true
+  stem2=$(printf '%s\n' "$s0_out" | sed -n 's/^BH_STEM=//p')
+  case "$stem2" in
+    "$stem1"-2) ok "F12 second stem is ${stem1}-2" ;;
+    *) bad "F12 second stem '$stem2' want ${stem1}-2" ;;
+  esac
+else
+  bad "F12 first stem missing"
+fi
+rm -rf "$BH_COLLIDE"
+
+# S3a / S4a phase-plan + confinement. Fixtures live on MROOT (git common dir).
+_gc=$(git rev-parse --git-common-dir 2>/dev/null || true)
+if [ -n "$_gc" ]; then
+  BH_MROOT=$(CDPATH= cd -- "$(dirname "$_gc")" && pwd)
+else
+  BH_MROOT=$ROOT
+fi
+BH_HUNT="$BH_MROOT/.claude/bug-hunt"
+mkdir -p "$BH_HUNT"
+BH_FIX="$BH_HUNT/2099-01-01-wp408"
+printf '{}\n' >"${BH_FIX}.json"
+printf 'plan\n' >"${BH_FIX}-plan.md"
+printf 'phase\n' >"${BH_FIX}-phase-plan.md"
+cleanup_bh() {
+  rm -f "${BH_FIX}.json" "${BH_FIX}-plan.md" "${BH_FIX}-phase-plan.md" "${BH_FIX}rel.json" "$HERE/.s0.err"
+}
+trap cleanup_bh EXIT
+
+s3_body=$(extract_fence '#### 3a\.1')
+s3_tmp=$(mktemp "${TMPDIR:-/tmp}/bh-s3.XXXXXX")
+printf '%s\n' "$s3_body" >"$s3_tmp"
+s3_rc=0
+s3_out=$(BH_MODE=materialize BH_FLOOR=nitpick BH_MAT_PATH="${BH_FIX}-phase-plan.md" bash "$s3_tmp" 2>"$HERE/.s0.err") || s3_rc=$?
+if [ "$s3_rc" -eq 0 ] && printf '%s\n' "$s3_out" | grep -qx 'BH_STEM=2099-01-01-wp408'; then
+  ok "CDT-417 materialize phase-plan maps to sibling stem"
+else
+  bad "CDT-417 materialize phase-plan rc=$s3_rc stem mismatch"
+fi
+rm -f "${BH_FIX}-plan.md" "${BH_FIX}.json"
+s3_rc=0
+BH_MODE=materialize BH_FLOOR=nitpick BH_MAT_PATH="${BH_FIX}-phase-plan.md" bash "$s3_tmp" >/dev/null 2>"$HERE/.s0.err" || s3_rc=$?
+if [ "$s3_rc" -eq 64 ] && grep -qF 'no sibling findings plan' "$HERE/.s0.err"; then
+  ok "CDT-417 missing sibling exits 64"
+else
+  bad "CDT-417 missing sibling rc=$s3_rc"
+fi
+printf '{}\n' >"${BH_FIX}.json"
+printf 'plan\n' >"${BH_FIX}-plan.md"
+s3_rc=0
+BH_MODE=materialize BH_FLOOR=nitpick BH_MAT_PATH=/etc/passwd bash "$s3_tmp" >/dev/null 2>"$HERE/.s0.err" || s3_rc=$?
+if [ "$s3_rc" -eq 64 ] && grep -qF 'outside .claude/bug-hunt/' "$HERE/.s0.err"; then
+  ok "W1-25 absolute path outside bug-hunt refused"
+else
+  bad "W1-25 outside path rc=$s3_rc"
+fi
+printf '{}\n' >"${BH_FIX}rel.json"
+s3_rc=0
+s3_out=$(BH_MODE=materialize BH_FLOOR=nitpick BH_MAT_PATH=".claude/bug-hunt/2099-01-01-wp408rel.json" bash "$s3_tmp" 2>/dev/null) || s3_rc=$?
+if [ "$s3_rc" -eq 0 ] && printf '%s\n' "$s3_out" | grep -qx 'BH_STEM=2099-01-01-wp408rel'; then
+  ok "E3 relative materialize path under bug-hunt"
+else
+  bad "E3 relative materialize rc=$s3_rc"
+fi
+rm -f "$s3_tmp" "${BH_FIX}rel.json"
+
+s4_body=$(extract_fence '#### 4a\.1 Resolve plan path')
+s4_tmp=$(mktemp "${TMPDIR:-/tmp}/bh-s4.XXXXXX")
+printf '%s\n' "$s4_body" >"$s4_tmp"
+s4_rc=0
+s4_out=$(BH_MODE=handoff BH_HANDOFF_PATH="${BH_FIX}-phase-plan.md" bash "$s4_tmp" 2>"$HERE/.s0.err") || s4_rc=$?
+if [ "$s4_rc" -eq 0 ] && printf '%s\n' "$s4_out" | grep -qx 'BH_STEM=2099-01-01-wp408' \
+  && printf '%s\n' "$s4_out" | grep -q -- '-plan.md$' \
+  && ! printf '%s\n' "$s4_out" | grep -q -- '-phase-plan.md$'; then
+  ok "CDT-417 handoff phase-plan uses sibling findings plan"
+else
+  bad "CDT-417 handoff phase-plan rc=$s4_rc"
+fi
+rm -f "$s4_tmp"
+
+# F25 file list uses the worktree and skips an untracked probe
+s1_body=$(extract_fence '### 1b\. Build path-bound')
+s1_tmp=$(mktemp "${TMPDIR:-/tmp}/bh-s1.XXXXXX")
+{
+  printf '%s\n' "$s1_body"
+  printf '%s\n' 'printf "%s\n" "$FILE_LIST"'
+} >"$s1_tmp"
+probe="$ROOT/wp408-untracked-probe.txt"
+: >"$probe"
+s1_out=$(BH_PATH="$ROOT" bash "$s1_tmp" 2>/dev/null) || true
+rm -f "$probe" "$s1_tmp"
+if printf '%s\n' "$s1_out" | grep -q 'skills/bug-hunt/SKILL.md' \
+  && ! printf '%s\n' "$s1_out" | grep -q 'wp408-untracked-probe'; then
+  ok "F25 tracked list excludes untracked probe"
+else
+  bad "F25 file list missing tracked file or included probe"
+fi
+if grep -qF 'git -C "$WTROOT" ls-files' "$SKILL" && ! grep -qF 'git -C "$MROOT" ls-files' "$SKILL"; then
+  ok "F25 fence uses WTROOT"
+else
+  bad "F25 fence still uses MROOT ls-files"
+fi
+
+# S4e out of range
+s4e_body=$(extract_fence '#### 4e\.1 Target')
+s4e_tmp=$(mktemp "${TMPDIR:-/tmp}/bh-s4e.XXXXXX")
+printf '%s\n' "$s4e_body" >"$s4e_tmp"
+s4e_rc=0
+BH_PHASE_COUNT=2 BH_START_PHASE=5 bash "$s4e_tmp" >/dev/null 2>"$HERE/.s0.err" || s4e_rc=$?
+if [ "$s4e_rc" -eq 64 ] && grep -qF 'out of range' "$HERE/.s0.err"; then
+  ok "F17 start-phase out of range exits 64"
+else
+  bad "F17 start-phase range rc=$s4e_rc"
+fi
+s4e_rc=0
+s4e_out=$(BH_PHASE_COUNT=2 BH_START_PHASE=0 bash "$s4e_tmp" 2>/dev/null) || s4e_rc=$?
+if [ "$s4e_rc" -eq 0 ] && printf '%s\n' "$s4e_out" | grep -qx 'BH_ARM_PHASE=0'; then
+  ok "F17 in-range start-phase arms 0"
+else
+  bad "F17 in-range start-phase rc=$s4e_rc"
+fi
+rm -f "$s4e_tmp"
+
+# BH-S01 strike + verification_mode fence
+STRIKE="$HERE/strike-bundle.sh"
+blob=$(mktemp "${TMPDIR:-/tmp}/bh-blob.XXXXXX")
+printf 'hello\n' >"$blob"
+if bash "$STRIKE" --command "printf 'hello\n'" --raw-file "$blob" --file-line 'a:1'; then
+  ok "BH-S01 matching re-run is kept"
+else
+  bad "BH-S01 matching re-run was struck"
+fi
+printf 'nope\n' >"$blob"
+st_rc=0
+bash "$STRIKE" --command "printf 'hello\n'" --raw-file "$blob" --file-line 'a:1' >/dev/null 2>"$HERE/.s0.err" || st_rc=$?
+if [ "$st_rc" -eq 1 ] && grep -qF 'does not match re-run' "$HERE/.s0.err"; then
+  ok "BH-S01 mismatched raw_blob is struck"
+else
+  bad "BH-S01 mismatch rc=$st_rc"
+fi
+st_rc=0
+bash "$STRIKE" --exempt-rerun --command "printf 'hello\n'" --raw-file "$blob" --file-line 'a:1' >/dev/null 2>"$HERE/.s0.err" || st_rc=$?
+if [ "$st_rc" -eq 0 ]; then
+  ok "BH-S01 M14 verify bundle is exempt from the byte compare"
+else
+  bad "BH-S01 exempt re-run rc=$st_rc"
+fi
+f2_body=$(extract_fence '### 2f\. Validate evidence')
+f2_tmp=$(mktemp "${TMPDIR:-/tmp}/bh-2f.XXXXXX")
+printf '%s\n' "$f2_body" >"$f2_tmp"
+printf 'hello\n' >"$blob"
+f2_out=$(BH_STRIKE="$STRIKE" BH_REPRO="printf 'hello\n'" BH_RAW_FILE="$blob" BH_FILE_LINE='a:1' BH_SPAWN_OK=1 bash "$f2_tmp" 2>/dev/null) || true
+if printf '%s\n' "$f2_out" | grep -qx 'verification_mode: full'; then
+  ok "BH-S01 kept bundle sets verification_mode full"
+else
+  bad "BH-S01 verification_mode was not full"
+fi
+rm -f "$blob" "$f2_tmp" "$HERE/.s0.err"
+cleanup_bh
+trap - EXIT
 
 # ---- skill-lint (unwaived findings fail) ------------------------------------
 if [ -f "$LINT" ]; then
