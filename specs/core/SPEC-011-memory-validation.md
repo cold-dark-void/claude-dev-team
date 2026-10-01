@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-23
 
-**Covers**: `/memory validate` (`commands/memory.md`), `skills/validate-memory/SKILL.md`, `skills/validate-memory/reconcile-lib.sh`, `/memory distill` integration (pre-distill hook), `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
+**Covers**: `/memory validate` (`commands/memory.md`), `skills/validate-memory/SKILL.md`, `skills/validate-memory/reconcile-lib.sh`, `skills/validate-memory/reconcile-pass.py`, `/memory distill` integration (pre-distill hook), `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
 
 ---
 
@@ -259,6 +259,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 
 ---
 
+| 2026-10-01 | WP 2-05 (CDT-377, CDT-387, CDT-345, `[07 F-25]`): candidate generation is one parameterized pass (`reconcile-pass.py`). Keyword Jaccard uses an inverted index. Embed KNN asks for a larger pre-filter, keeps k=5 cross-agent neighbours, and falls back to keyword when vec0 fails to load or the vector table is empty. Each resolve runs in one transaction, rejects a winner that is the loser or a missing or archived id, and merge deletes the winner vector row. `commands/memory.md` resolves the library through `plugin-dir.sh` and Step 2 uses `LIMIT 100`. |
 | 2026-07-22 | CDT-46-C3: retarget Covers + in-body surfaces `/validate-memory` → `/memory validate`, `/memory-distill` → `/memory distill`, `/memory-config` → `/memory config` (`commands/memory.md`). Status stays ACTIVE. |
 | 2026-07-14 | CDV-195: promote cross-agent memory reconciliation to normative MUSTs. Entry: `/validate-memory --reconcile` (+ `--report-only`). Schema v4 + `reconcile_log` + `reconcile_pair_cap`. Bounded candidates (embed KNN / keyword Jaccard). LLM pair-judge; never auto-archive; deep-audit → `/council` only. Status → ACTIVE. |
 | 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): trimmed the verbatim `PRAGMA busy_timeout=5000` MUST restatement to defer to SPEC-004's write-path contract (SPEC-004 is the single source). No behavioral change. |

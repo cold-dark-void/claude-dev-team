@@ -921,7 +921,8 @@ MEMORIES=$(sqlite3 "$MEMDB" "
   SELECT id, agent, content, tier, type, distilled_from, created_at
   FROM memories
   WHERE archived=FALSE $AGENT_CLAUSE $WINDOW_CLAUSE
-  ORDER BY validated_at ASC NULLS FIRST, created_at ASC;
+  ORDER BY validated_at ASC NULLS FIRST, created_at ASC
+  LIMIT 100;
 ")
 ```
 
@@ -960,9 +961,9 @@ Limits". For each memory, prepare a JSON object:
 }
 ```
 
-To enforce that run cap, add `LIMIT 100` to the Step 2 SQL query (the SQL-LIMIT
-overflow handling named in the Batching Limits table). Memories beyond this
-limit remain unvalidated and will be picked up on the next run (they keep
+The Step 2 SQL query includes `LIMIT 100` (the SQL-LIMIT overflow handling
+named in the Batching Limits table). Memories beyond this limit remain
+unvalidated and will be picked up on the next run (they keep
 `validated_at IS NULL` and retain highest processing priority).
 
 ### Step 3.2: Spawn claim extractors
@@ -1635,12 +1636,13 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 # Plugin root: prefer WTROOT when it contains the skill; else walk from this
 # command file's known install layout.
-PLUGIN_ROOT="$WTROOT"
-if [ ! -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ]; then
-  # Fallback: installed plugin path from CLAUDE_PLUGIN_ROOT if set
-  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RECONCILE_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh)
+if [ -z "$RECONCILE_LIB" ] || [ ! -f "$RECONCILE_LIB" ]; then
+  echo "Error: reconcile-lib.sh not found" >&2
+  exit 1
 fi
-RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
 PAIRS_FILE=$(mktemp "${TMPDIR:-/tmp}/reconcile-pairs.XXXXXX")
 AGENT_ARGS=()
 if [ -n "${TARGET_AGENT:-}" ]; then
@@ -1652,11 +1654,12 @@ fi
 # stderr carries RECONCILE_META; JSONL goes to --out only
 META_FILE=$(mktemp "${TMPDIR:-/tmp}/reconcile-meta.XXXXXX")
 bash "$RECONCILE_LIB" candidates "$MEMDB" "${AGENT_ARGS[@]}" --out "$PAIRS_FILE" \
-  2>"$META_FILE" >/dev/null || true
+  2>"$META_FILE" >/dev/null
 META=$(cat "$META_FILE")
 rm -f "$META_FILE"
 # Parse RECONCILE_META candidates=N cap=K cap_hit=bool method=keyword|embed
 CAND_N=$(echo "$META" | sed -n 's/.*candidates=\([0-9]*\).*/\1/p' | tail -1)
+CAND_N="${CAND_N:-0}"
 CAP_K=$(echo "$META" | sed -n 's/.*cap=\([0-9]*\).*/\1/p' | tail -1)
 CAP_HIT=$(echo "$META" | sed -n 's/.*cap_hit=\([^ ]*\).*/\1/p' | tail -1)
 METHOD=$(echo "$META" | sed -n 's/.*method=\([^ ]*\).*/\1/p' | tail -1)
@@ -1748,9 +1751,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RECONCILE_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh)
+if [ -z "$RECONCILE_LIB" ] || [ ! -f "$RECONCILE_LIB" ]; then
+  echo "Error: reconcile-lib.sh not found" >&2
+  exit 1
+fi
 bash "$RECONCILE_LIB" resolve-pick "$MEMDB" "$WINNER_ID" "$LOSER_ID" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
 # Archives loser with archive_reason='reconciled'; logs pick-survivor
@@ -1767,9 +1774,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RECONCILE_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh)
+if [ -z "$RECONCILE_LIB" ] || [ ! -f "$RECONCILE_LIB" ]; then
+  echo "Error: reconcile-lib.sh not found" >&2
+  exit 1
+fi
 bash "$RECONCILE_LIB" resolve-merge "$MEMDB" "$WINNER_ID" "$LOSER_ID" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$MERGED_CONTENT" "$REASON"
 # UPDATE winner content (preserve tier/type/distilled_from); tag [reconciled: YYYY-MM-DD];
@@ -1784,9 +1795,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RECONCILE_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh)
+if [ -z "$RECONCILE_LIB" ] || [ ! -f "$RECONCILE_LIB" ]; then
+  echo "Error: reconcile-lib.sh not found" >&2
+  exit 1
+fi
 bash "$RECONCILE_LIB" resolve-both-stale "$MEMDB" "$ID_A" "$ID_B" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
 ```
@@ -1799,9 +1814,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RECONCILE_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh)
+if [ -z "$RECONCILE_LIB" ] || [ ! -f "$RECONCILE_LIB" ]; then
+  echo "Error: reconcile-lib.sh not found" >&2
+  exit 1
+fi
 bash "$RECONCILE_LIB" resolve-skip "$MEMDB" "$ID_A" "$ID_B" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
 # Log only — pair may reappear on a later run (skip is not a resolved action)
@@ -1815,9 +1834,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-PLUGIN_ROOT="$WTROOT"
-[ -f "$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh" ] || PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$WTROOT}"
-RECONCILE_LIB="$PLUGIN_ROOT/skills/validate-memory/reconcile-lib.sh"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+RECONCILE_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh)
+if [ -z "$RECONCILE_LIB" ] || [ ! -f "$RECONCILE_LIB" ]; then
+  echo "Error: reconcile-lib.sh not found" >&2
+  exit 1
+fi
 bash "$RECONCILE_LIB" resolve-deep-audit "$MEMDB" "$ID_A" "$ID_B" \
   "$AGENT_A" "$AGENT_B" "$CLAIM_A" "$CLAIM_B" "$CONF" "$REASON"
 # Prints: /council "claim_a vs claim_b"

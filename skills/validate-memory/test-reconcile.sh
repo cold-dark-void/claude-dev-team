@@ -363,7 +363,7 @@ print(bad)
   fi
 }
 
-# ---- T15: path-correct — vec0 at sibling-of-memdb → method=embed (AC-1/2/3)
+# ---- T15: zero-byte vec0 and an empty vec table fall back to keyword ------
 {
   R="$TMP/ext_ok"
   make_v4_db "$R"
@@ -383,12 +383,13 @@ SQL
   META=$(bash "$LIB" candidates "$DB" --out "$OUTF" 2>&1)
   RC=$?
   METHOD=$(echo "$META" | grep RECONCILE_META | sed -n 's/.*method=\([^ ]*\).*/\1/p')
+  N=$(wc -l <"$OUTF" | tr -d ' ')
   NESTED_TOUCHED=0
   [ -e "$R/.claude/.claude" ] && NESTED_TOUCHED=1
-  if [ "$RC" = "0" ] && [ "$METHOD" = "embed" ] && [ "$NESTED_TOUCHED" = "0" ]; then
-    pass "path-correct: vec0 at memory/extensions → method=embed"
+  if [ "$RC" = "0" ] && [ "$METHOD" = "keyword" ] && [ "$N" -ge 1 ] && [ "$NESTED_TOUCHED" = "0" ]; then
+    pass "broken vec0 and empty vec table fall back to keyword (n=$N)"
   else
-    fail "path-correct (rc=$RC method=$METHOD nested=$NESTED_TOUCHED meta=$META)"
+    fail "keyword fallback (rc=$RC method=$METHOD n=$N nested=$NESTED_TOUCHED meta=$META)"
   fi
 }
 
@@ -450,6 +451,160 @@ SQL
     fail "static: mroot_guess or double-dirname still in reconcile-lib"
   else
     pass "static: no mroot_guess / double-dirname of memdb"
+  fi
+}
+
+# ---- T19: injection and multiline content do not change the row count -----
+{
+  R="$TMP/inject"
+  make_v4_db "$R"
+  DB="$R/.claude/memory/memory.db"
+  seed_contradiction "$DB"
+  sqlite3 "$DB" "INSERT INTO memories(agent,type,content,tier) VALUES
+    ('qa','memory','line one' || char(10) || '0); DELETE FROM memories; --' || char(9) || 'pipe|inside',0),
+    ('ic5','memory','line one' || char(10) || '0); DELETE FROM memories; --' || char(9) || 'pipe|inside',0);"
+  BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM memories;")
+  OUTF="$TMP/inject.jsonl"
+  bash "$LIB" candidates "$DB" --out "$OUTF" 2>/dev/null
+  AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM memories;")
+  FULL=$(python3 -c '
+import json,sys
+want="line one\n0); DELETE FROM memories; --\tpipe|inside"
+for line in open(sys.argv[1], encoding="utf-8"):
+    o=json.loads(line)
+    if o.get("content_a")==want or o.get("content_b")==want:
+        print("yes")
+        raise SystemExit
+print("no")
+' "$OUTF")
+  if [ "$BEFORE" = "$AFTER" ] && [ "$FULL" = "yes" ]; then
+    pass "injection and multiline content stay intact (rows=$AFTER)"
+  else
+    fail "injection (before=$BEFORE after=$AFTER full=$FULL)"
+  fi
+}
+
+# ---- T20: 1400-row keyword pass finishes within 30s -----------------------
+{
+  R="$TMP/fast"
+  make_v4_db "$R"
+  DB="$R/.claude/memory/memory.db"
+  {
+    echo "BEGIN;"
+    for agent in pm tech-lead ic5 ic4 devops qa ds; do
+      i=1
+      while [ "$i" -le 200 ]; do
+        printf "INSERT INTO memories(agent,type,content,tier) VALUES ('%s','memory','sharedtokenfeature reconciliation keyword overlap memory store item %s',0);\n" "$agent" "$i"
+        i=$((i + 1))
+      done
+    done
+    echo "COMMIT;"
+  } | sqlite3 "$DB"
+  OUTF="$TMP/fast.jsonl"
+  START=$(date +%s)
+  bash "$LIB" candidates "$DB" --cap 50 --out "$OUTF" >/dev/null
+  END=$(date +%s)
+  ELAPSED=$((END - START))
+  N=$(wc -l <"$OUTF" | tr -d ' ')
+  if [ "$ELAPSED" -lt 30 ] && [ "$N" -ge 1 ] && [ "$N" -le 50 ]; then
+    pass "1400-row keyword pass in ${ELAPSED}s (n=$N)"
+  else
+    fail "1400-row keyword pass elapsed=${ELAPSED}s n=$N"
+  fi
+}
+
+# ---- T21: bad resolve ids leave the database unchanged --------------------
+{
+  R="$TMP/guard"
+  make_v4_db "$R"
+  DB="$R/.claude/memory/memory.db"
+  seed_contradiction "$DB"
+  ID_PM=$(sqlite3 "$DB" "SELECT id FROM memories WHERE agent='pm' LIMIT 1;")
+  BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM memories WHERE archived=0; SELECT COUNT(*) FROM reconcile_log;")
+  if bash "$LIB" resolve-pick "$DB" "$ID_PM" "$ID_PM" "pm" "tech-lead" "a" "b" 90 "same" >/dev/null 2>&1; then
+    fail "winner=loser should exit non-zero"
+  fi
+  if bash "$LIB" resolve-pick "$DB" "$ID_PM" 999999 "pm" "tech-lead" "a" "b" 90 "missing" >/dev/null 2>&1; then
+    fail "missing id should exit non-zero"
+  fi
+  AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM memories WHERE archived=0; SELECT COUNT(*) FROM reconcile_log;")
+  if [ "$BEFORE" = "$AFTER" ]; then
+    pass "rejected resolve leaves no partial state"
+  else
+    fail "rejected resolve mutated db (before=$BEFORE after=$AFTER)"
+  fi
+}
+
+# ---- T22: merge drops the winner vector row --------------------------------
+{
+  R="$TMP/vecdrop"
+  make_v4_db "$R"
+  DB="$R/.claude/memory/memory.db"
+  seed_contradiction "$DB"
+  ID_PM=$(sqlite3 "$DB" "SELECT id FROM memories WHERE agent='pm' LIMIT 1;")
+  ID_TL=$(sqlite3 "$DB" "SELECT id FROM memories WHERE agent='tech-lead' LIMIT 1;")
+  sqlite3 "$DB" "CREATE TABLE vec_memories_384 (memory_id INTEGER, embedding BLOB);
+    INSERT INTO vec_memories_384(memory_id, embedding) VALUES ($ID_PM, X'00');"
+  bash "$LIB" resolve-merge "$DB" "$ID_PM" "$ID_TL" "pm" "tech-lead" \
+    "a" "b" 88 "Merged body" "merged decision" >/dev/null
+  LEFT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM vec_memories_384 WHERE memory_id=$ID_PM;")
+  if [ "$LEFT" = "0" ]; then
+    pass "merge deletes the winner vector row"
+  else
+    fail "merge left vector rows=$LEFT"
+  fi
+}
+
+# ---- T23: static — no unquoted id splice; command uses plugin-dir + LIMIT -
+{
+  if grep -n 'memory_id = \${' "$LIB" >/dev/null 2>&1 || grep -n '\${mid}' "$LIB" >/dev/null 2>&1; then
+    fail "static: unquoted id interpolation remains in reconcile-lib.sh"
+  else
+    pass "static: reconcile-lib.sh does not splice \${mid}"
+  fi
+  MEM_MD="$PLUGIN_ROOT/commands/memory.md"
+  if grep -n 'CLAUDE_PLUGIN_ROOT:-\$WTROOT' "$MEM_MD" >/dev/null 2>&1; then
+    fail "static: memory.md still falls back to CLAUDE_PLUGIN_ROOT:-WTROOT"
+  elif ! grep -n 'plugin-dir.sh" file skills/validate-memory/reconcile-lib.sh' "$MEM_MD" >/dev/null 2>&1; then
+    fail "static: memory.md does not resolve reconcile-lib.sh via plugin-dir"
+  elif ! grep -n 'LIMIT 100' "$MEM_MD" >/dev/null 2>&1; then
+    fail "static: memory.md Step 2 has no LIMIT 100"
+  else
+    pass "static: memory.md resolves reconcile-lib and limits Step 2"
+  fi
+}
+
+# ---- T24: deep-audit escapes a quote in the council handoff ---------------
+{
+  R="$TMP/esc"
+  make_v4_db "$R"
+  DB="$R/.claude/memory/memory.db"
+  seed_contradiction "$DB"
+  ID_PM=$(sqlite3 "$DB" "SELECT id FROM memories WHERE agent='pm' LIMIT 1;")
+  ID_TL=$(sqlite3 "$DB" "SELECT id FROM memories WHERE agent='tech-lead' LIMIT 1;")
+  OUT=$(bash "$LIB" resolve-deep-audit "$DB" "$ID_PM" "$ID_TL" "pm" "tech-lead" \
+    'say "hello"' 'cost $1' 70 "needs council")
+  if printf '%s\n' "$OUT" | grep -F 'say \"hello\"' >/dev/null && printf '%s\n' "$OUT" | grep -F 'cost \$1' >/dev/null; then
+    pass "deep-audit escapes quotes and dollars"
+  else
+    fail "deep-audit escape (out=$OUT)"
+  fi
+}
+
+# ---- T25: embed counts the vec table only after load_extension ------------
+{
+  PASS_PY="$SCRIPT_DIR/reconcile-pass.py"
+  ORDER=$(awk '
+    /def try_embed\(/ { on=1 }
+    /def emit_candidates\(/ { on=0 }
+    on && /load_vec_extension\(/ { if (!seen_count) loaded=1 }
+    on && /SELECT COUNT\(\*\)/ { if (!loaded) bad=1; seen_count=1 }
+    END { if (bad || !loaded || !seen_count) print "bad"; else print "ok" }
+  ' "$PASS_PY")
+  if [ "$ORDER" = "ok" ]; then
+    pass "try_embed loads vec0 before counting the vec table"
+  else
+    fail "try_embed counts the vec table before load_extension"
   fi
 }
 
