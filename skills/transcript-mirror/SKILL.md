@@ -39,11 +39,38 @@ Identity is `session_id`.
 Opt-in is hook registration. Default is off. **Do not** add this hook through
 `/setup orchestration`. Greenfield Stop stays `stop-review.sh` only.
 
-1. Copy `skills/transcript-mirror/hook-shim.sh` to
-   `.claude/hooks/transcript-mirror.sh` in the project.
-2. Make it executable.
-3. Merge the JSON below into `.claude/settings.json`. The recorder is the
-   **second** Stop command. The `command` string must not contain `|`.
+Run the installer from the project you want to opt in.
+Resolve it through `plugin-dir.sh`. Do not use a cwd-relative `skills/` path.
+
+```bash
+PDH="${PLUGIN_ROOT:?set PLUGIN_ROOT to the plugin root}"
+INSTALL=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-mirror/install.sh)
+bash "$INSTALL"
+```
+
+`--subagent` also merges SubagentStop. `--cron` prints one cron line and
+does not edit crontab. The line sets
+`PATH=/usr/local/bin:/opt/homebrew/bin:$PATH` and calls the absolute
+`transcript-sync.sh`.
+
+Manual copy:
+
+```bash
+PDH="${PLUGIN_ROOT:?set PLUGIN_ROOT to the plugin root}"
+SHIM=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-mirror/hook-shim.sh)
+cp "$SHIM" .claude/hooks/transcript-mirror.sh
+chmod +x .claude/hooks/transcript-mirror.sh
+```
+
+The shim lives in the plugin cache or marketplace clone, not in the project.
+`CLAUDE_PLUGIN_ROOT` wins when that directory contains `skills/plugin-dir.sh`.
+Otherwise the shim uses the highest cached `dev-team` version.
+A copied shim runs with the project as cwd, so the cwd plugin check misses
+the install. Cron that does not set `CLAUDE_PLUGIN_ROOT` keeps the cache tier.
+
+Merge the JSON below into `.claude/settings.json` when you skip the installer.
+The recorder is the **second** Stop command. The `command` string must not
+contain `|`.
 
 ```json
 {
@@ -118,10 +145,15 @@ Parent nest-ref (exactly one):
 Stop/SessionEnd with a non-empty `agent_id` stay no-ops.
 If a host has no SubagentStop event, the settings entry stays inert.
 
+Fixture ratio = meaning-text lines / (meaning-text lines + empty files + tool-only files).
+`subagent-child.jsonl` contributes 2 meaning-text lines.
+`subagent-child-empty.jsonl` and `subagent-child-tool-only.jsonl` contribute one each.
+Ratio = 0.50. Live hook stays unmeasured.
+
 | Source | Meaning-channel | Empty/tool-only | Ratio | Status |
 |--------|-----------------|-----------------|-------|--------|
 | Live hook | — | — | — | unmeasured (no live SubagentStop) |
-| `--agent` CLI | 2 | 0 | 1.00 | T3 AC8 (`subagent-child.jsonl`) |
+| `--agent` CLI fixtures | 2 | 2 | 0.50 | three child fixtures (meaning, empty, tool-only) |
 
 This report is ship-blocking for default-on.
 
@@ -131,9 +163,11 @@ Grok Stop may omit `transcript_path`. Reconstruct `chat_history.jsonl` with urle
 
 ## Manual catch-up
 
-```
-bash skills/transcript-mirror/transcript-mirror.sh --transcript FILE.jsonl --sid SESSION-ID
-bash skills/transcript-mirror/transcript-mirror.sh --transcript FILE.jsonl --sid SESSION-ID --agent AGENT-ID
+```bash
+PDH="${PLUGIN_ROOT:?set PLUGIN_ROOT to the plugin root}"
+REC=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-mirror/transcript-mirror.sh)
+bash "$REC" --transcript FILE.jsonl --sid SESSION-ID
+bash "$REC" --transcript FILE.jsonl --sid SESSION-ID --agent AGENT-ID
 ```
 
 `--agent AGENT-ID` writes the nest under that sid.
@@ -153,8 +187,13 @@ Do not inspect crontab.
 `transcript-sync` locates sessions, skips in-progress sources, and invokes
 the recorder.
 
-```
-bash skills/transcript-mirror/transcript-sync.sh [--sid SID] [--transcript FILE] [--check] [--cwd DIR]
+```bash
+PDH="${PLUGIN_ROOT:?set PLUGIN_ROOT to the plugin root}"
+SYNC=$(bash "$PDH/skills/plugin-dir.sh" file skills/transcript-mirror/transcript-sync.sh)
+bash "$SYNC" --sid SID
+bash "$SYNC" --transcript FILE --sid SID
+bash "$SYNC" --check
+bash "$SYNC" --cwd DIR
 ```
 
 `--sid` and/or `--transcript` create or update that session's Transcript mirror.
@@ -181,13 +220,14 @@ It does not invoke `summarize-transcript`.
 
 For each opted-in project, arm one cron job or equivalent:
 
-```
-cd <project> && bash skills/transcript-mirror/transcript-sync.sh
+```cron
+0 * * * * cd <PROJECT> && PATH=/usr/local/bin:/opt/homebrew/bin:$PATH bash <ABS-SYNC>
 ```
 
-If the plugin is not in the project tree, resolve `transcript-sync.sh` with
-`plugin-dir.sh` (`file skills/transcript-mirror/transcript-sync.sh`) and run
-that path after `cd <project>`.
+`<ABS-SYNC>` is the absolute path from
+`plugin-dir.sh file skills/transcript-mirror/transcript-sync.sh`.
+`install.sh --cron` prints the line with the project directory and that path.
+The `PATH=` prefix is there because cron often has no Homebrew `jq` or `python3`.
 
 ## `/compact-transcript` (SPEC-036 M14)
 

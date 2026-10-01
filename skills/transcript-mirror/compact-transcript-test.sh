@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# compact-transcript-test.sh — SPEC-036 M14 engine isolation (CDT-215 T4).
-# CDT-214 T6.1: after M15 overlay, compact still hit-writes a stripped tail.
+# compact-transcript-test.sh — SPEC-036 M14 engine isolation.
+# After an M15 overlay, compact still hit-writes a stripped tail.
 # Run: bash skills/transcript-mirror/compact-transcript-test.sh
-# (cwd = plugin worktree so PDH resolves to feat/CDT-215, not master cache)
+# Run from the plugin root so plugin-dir resolution uses this tree.
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 # Invoked from test.sh as a sibling; also runnable standalone.
 # MUST NOT write operator ~/.claude/transcript/. Use TMPDIR + TRANSCRIPT_MIRROR_ROOT.

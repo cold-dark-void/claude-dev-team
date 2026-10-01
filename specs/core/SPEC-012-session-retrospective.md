@@ -48,7 +48,7 @@ conflict-detection and holistic-rewrite guarantees.
 - MUST exit in under 5 seconds on smooth sessions (gate-only path, no subagent spawn)
 
 ### Session Discovery
-- Transcript location, canonical-file selection, fork-tree assembly, host adapters (locate + normalize), parse primitives, and the in-progress freshness guard are owned by the shared read-only parsing seam `skills/transcript-parse/` (`assemble.py` locate/assemble, host adapter surface, `parselib.py` parse primitives, `freshness.sh` 60 s mid-write guard, plus `SKILL.md`). `/retro` and `/handoff` (SPEC-018) MUST both consume this single module — neither MUST re-implement transcript parsing privately. `/retro` owns only its own friction scoring on top of the shared primitives.
+- Transcript location, canonical-file selection, fork-tree assembly, host adapters (locate + normalize), parse primitives, and the in-progress freshness guard are owned by the shared read-only parsing seam `skills/transcript-parse/` (`assemble.py` locate/assemble, host adapter surface, `parselib.py` parse primitives, `freshness.sh` 60 s mid-write guard, plus `SKILL.md`). `/retro` and `/handoff` (SPEC-018) MUST both consume this single module — neither MUST re-implement transcript parsing privately. `/retro` owns only its own friction scoring on top of the shared primitives. `SKILL.md` keeps the API tables and landmines. The design record below holds the monster-file counts, the assemble rationale, and the Grok normalize notes.
 - **Claude host:** MUST read session JSONL files from `~/.claude/projects/<encoded-project-path>/` (dash-encoded absolute path, existing Claude Code layout).
 - **Grok host (CDT-156):** MUST read from `${GROK_SESSIONS_DIR:-$HOME/.grok/sessions}/<urlencode(cwd)>/<session-id>/chat_history.jsonl` where `cwd` is the live project directory for the invocation (MVP: exact cwd bucket only — full MROOT+worktree fan-out is non-MVP).
 - MUST default to the most recently modified candidate session for the selected host(s) when no `<session-id>` given (Claude: newest `*.jsonl` under the project dir; Grok: newest `chat_history.jsonl` under the cwd bucket).
@@ -68,7 +68,7 @@ conflict-detection and holistic-rewrite guarantees.
   - Skip `system` and `reasoning` (and other non-scoring bookkeeping) for the gate feed.
   - Map `user` / `assistant` with nested `message.content` Claude shape.
   - Map `assistant.tool_calls` → `tool_use` blocks; map tool names for edit signals: `write` → `Write`, `search_replace` → `Edit` (other names MAY pass through unchanged).
-  - Map `tool_result` into the timeline (user-wrapped `tool_result` blocks as Claude does, or equivalent structure `gate.sh` already scores). Set `is_error: true` iff the result body matches an **`exit:N` with N ≠ 0** pattern (OQ5 — only this rule for MVP S2 on Grok). Success / missing exit line → not error.
+  - Map `tool_result` into the timeline (user-wrapped `tool_result` blocks as Claude does, or equivalent structure `gate.sh` already scores). Set `is_error: true` iff the **first line** of the result body matches an **`exit:N` with N ≠ 0** pattern (OQ5 — only this rule for MVP S2 on Grok). A later `exit: N` inside file text is not a status. Success / missing exit line → not error.
   - Mark Grok synthetic/system-injected user lines (`synthetic_reason` or equivalent) as `isMeta: true` so S1/S5 skip them.
   - Unwrap `<user_query>…</user_query>` (Grok host wrap) before S1/S5 word-count and regex. The wrap tags MUST NOT count as words and MUST NOT classify the turn as a system notification.
   - Inject `sessionId` from the Grok session directory id (not the basename `chat_history`).
@@ -297,6 +297,16 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 
 ---
 
+### Transcript-parse design record
+
+This record moved out of `skills/transcript-parse/SKILL.md` (WP 4-03). The skill file keeps the API tables and the landmines.
+
+**Assemble rationale.** A fork copies its chosen-path prefix into the child file, so the most complete copy is the descendant with the latest content. Pick by max-timestamp, not by first match. Do not order by the `parentUuid` DAG: copy-duplication makes that graph multi-root. Do not use raw file order: copied segments overlap in time. Sidechain runs pass through unmodified. In sampled data no line is a sidechain, so that pass is a defensive no-op. Collapse stays in the handoff prepass.
+
+**Validated monster.** Session `00000000-0000-4000-8000-000000000003` under `~/.claude/projects/-home-user-vibes-project/` was about 87 MB and mid-write. `locate` resolved the file. `assemble` emitted 3862 deduped lines from 5542 raw lines. The output was timestamp-ordered, with zero duplicate uuids, zero null-uuid leaks, and no schema-drift or sidechain warnings. An unknown uuid exits 1 with a stderr message.
+
+**Grok normalize notes.** `grok_normalize.py` implements `hosts.normalize(host="grok")`. Skip `system`, `reasoning`, and `backend_tool_call` on the gate feed. Preserve `tool_result` as user lines with `content: [{type:tool_result, tool_use_id, is_error, content}]`. Map `write` to `Write` and `search_replace` to `Edit` in scoring mode only. Other tool names pass through. The stable turn id is `<safe-session>-L<n>`. `sessionId` is the Grok session directory id. Handoff mode omits `tool_result`. Fixture: `skills/transcript-parse/fixtures/grok-chat-scoring.jsonl`.
+
 ## Out of Scope
 
 - Modifying `AGENTS.md` or global `CLAUDE.md` (too broad; each eng↔Claude interaction is project-specific)
@@ -323,6 +333,7 @@ Helpers (pure bash, co-located under `skills/retro-gate/`):
 
 ---
 
+| 2026-10-01 | WP 4-03: move transcript-parse design record (monster counts, assemble rationale, Grok normalize notes) out of SKILL.md. `is_error` matches `exit: N` on the first line only. |
 | 2026-08-22 | CDT-213: Phase-1 S5 unlock — S1, S2, and S4 share `L0 < s <= L`. S3 stays window overlap. Ledger S2 still does not unlock S5. Weights/caps/threshold unchanged. |
 | 2026-08-22 | CDT-212: Phase-1 S5 scores only with local transcript S1–S4 co-occurrence in the preceding exchange `(L0, L]`. Isolated S5 contributes 0 and is omitted from `signals[]`. Ledger S2 does not unlock S5. Candidate filters (CDT-124/129) and weights/caps/threshold unchanged. |
 | 2026-08-16 | CDT-196: unwrap Grok `<user_query>` before S1/S5; S1 lexicon adds `wtf` / `fuck(ing)` / `why merge` / `why would you`. Weights/caps/threshold unchanged. |

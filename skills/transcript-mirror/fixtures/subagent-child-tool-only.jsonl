@@ -1,0 +1,1 @@
+{"uuid":"sc-tool","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-1","content":"TOOL-ONLY-NO-MEANING"}]}}

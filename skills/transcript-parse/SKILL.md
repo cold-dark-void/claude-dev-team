@@ -153,37 +153,24 @@ Print the **canonical transcript file** for the session and exit 0.
 - Ties on max-timestamp break by path (deterministic).
 - Not found → message on **stderr**, **exit 1**, nothing on stdout.
 
-Rationale: a fork copies its chosen-path prefix into the child file, so the
-most-complete copy is the descendant with the latest content. We pick by
-max-timestamp, **not** first match.
+Pick the descendant with the greatest max-timestamp.
+The fork rationale and the monster-file counts are in SPEC-012
+under "Transcript-parse design record".
 
 #### `assemble <uuid>`
 Locate the canonical file, then stream **one raw-JSON message line per
 surviving message** to stdout, in chronological order. Exit 0 on success;
 **exit 1** if the uuid cannot be located (or the file vanished mid-read).
 
-Pipeline (this is the authoritative M1 algorithm — validated against real
-72 MB transcripts):
+Pipeline (API). The long form is in SPEC-012 "Transcript-parse design record".
 
 1. **LOCATE** the canonical file (above).
-2. **LOAD** — stream it; a *message line* is one that parses to a JSON object
-   with a **non-null `uuid`**. Null-`uuid` bookkeeping lines (`mode`,
-   `custom-title`, `agent-name`, `last-prompt`, `file-history-snapshot`, and
-   also-seen `permission-mode` / `queue-operation`) are **dropped** from the
-   timeline. The non-null-uuid rule is generic, so new bookkeeping types need
-   no code change.
-3. **DEDUP** on `uuid`, **KEEP-LAST**: a later copy replaces the earlier
-   payload + timestamp, but the **first-seen line index** is pinned for
-   tie-breaking.
-4. **ORDER** by `(timestamp, first_seen_index)`. NOT the `parentUuid` DAG
-   (copy-duplication makes it multi-root/branchy); NOT raw file order (copied
-   segments overlap in time).
-5. **SIDECHAIN** — maximal contiguous runs where `isSidechain` is truthy are tagged
-   (span begin/end logged to stderr) and passed through **unmodified**.
-   Collapsing / signal-bearing reconstruction is the prepass's job (SPEC-018 M2 /
-   CDV-205), not the parser's. In real data no line is ever a sidechain, so this
-   is a defensive no-op. Detection uses the shared `parselib.is_sidechain`
-   (`bool(obj.get("isSidechain"))`) — tolerant of the field being absent.
+2. **LOAD** — a message line parses to a JSON object with a non-null string
+   `uuid`. Null-`uuid` bookkeeping lines are dropped.
+3. **DEDUP** on `uuid`, **KEEP-LAST**. Pin the first-seen line index.
+4. **ORDER** by `(timestamp, first_seen_index)`.
+5. **SIDECHAIN** — truthy `isSidechain` runs pass through unmodified.
+   Collapse stays in the handoff prepass.
 
 Output is exactly the input raw lines, reordered/deduped — fields are NOT
 rewritten or stripped here (the prepass strips). One JSON object per line.
@@ -234,15 +221,6 @@ per-line — that is what makes PreCompact capture safe under M14.
   path missing. When `path` is given, locate is skipped (assemble-file mode).
 - `KNOWN_TOP_FIELDS: frozenset[str]` — shared schema-drift field set.
 - `PROJECTS_DIR: str` — `~/.claude/projects`.
-
-### Validated (against real data)
-
-Monster `00000000-0000-4000-8000-000000000003` in
-`~/.claude/projects/-home-user-vibes-project/` (~87 MB, mid-write):
-`locate` resolves the file; `assemble | wc -l` = **3862** deduped lines from
-**5542** raw lines; output verified strictly timestamp-ordered, zero duplicate
-uuids, zero null-uuid leaks, no schema-drift/sidechain warnings. Unknown uuid →
-exit 1 with a clear stderr message.
 
 ---
 
@@ -330,24 +308,12 @@ file → **exit 9**; same + `--allow-in-progress` → **exit 0**.
   JSONL or Grok `chat_history.jsonl`). Claude default remains score-compatible
   with pre-CDT-156 fixtures.
 
-### Grok normalize notes (scoring path, CDT-156)
+### Grok normalize contract
 
-Implemented in `grok_normalize.py` (called from `hosts.normalize(host="grok")`).
-
-- Skip `system` / `reasoning` / `backend_tool_call` for the gate feed.
-- Preserve `tool_result` as **user** lines with
-  `content: [{type:tool_result, tool_use_id, is_error, content}]`.
-- `is_error: true` only when the **first line** matches `exit:\s*N` with
-  **N ≠ 0** (MVP S2; optional space after colon matches live Grok
-  `exit: 0` / `exit: 1`). A later `exit: N` inside file text is not a status.
-- Map `write` → `Write`, `search_replace` → `Edit` for S3 (scoring mode only);
-  other tool names pass through; path keys already often `file_path`.
-- Stable turn_id: `<safe-session>-L<n>`; `sessionId` = Grok session dir id;
-  timestamp preserved or synthetic order-preserving ISO.
-- Output path: unique file under `$TMPDIR` (or system temp) for `gate.sh`.
-- Handoff mode (`mode=handoff`) omits tool_result (CDT-92 spine parity; T8 may
-  wrap `skills/handoff/grok-to-claude-jsonl.py`). Fixture:
-  `fixtures/grok-chat-scoring.jsonl`.
+`is_error: true` only when the **first line** matches `exit:\s*N` with
+**N ≠ 0**. A later `exit: N` inside file text is not a status.
+The rest of the scoring map (skip lists, tool-name map, turn ids, handoff
+mode) is in SPEC-012 "Transcript-parse design record".
 
 ## Landmines (cross-cutting)
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# summarize-transcript-test.sh — SPEC-036 M15 overlay isolation (CDT-214 T1).
+# summarize-transcript-test.sh — SPEC-036 M15 overlay isolation.
 # Run: bash skills/transcript-mirror/summarize-transcript-test.sh
-# (cwd = plugin worktree so PDH resolves to feat/CDT-214, not master cache)
+# Run from the plugin root so plugin-dir resolution uses this tree.
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
-# Suite is RED until T3: missing summarize-transcript.sh is FAIL, not skip.
+# A missing summarize-transcript.sh is FAIL, not skip.
 # MUST NOT write operator ~/.claude/transcript/. Use TMPDIR + TRANSCRIPT_MIRROR_ROOT.
 
 set -u
@@ -920,7 +920,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# T2.4 reapply-overlay.sh direct (until T4 wires rebuild)
+# T2.4 reapply-overlay.sh direct (rebuild re-apply has no python3 and no summarizer seam)
 # ---------------------------------------------------------------------------
 if [ -f "$RO" ] && bash -n "$RO"; then
   pass "T2.4 bash -n reapply-overlay.sh"

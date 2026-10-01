@@ -77,7 +77,16 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
   `transcript-mirror.sh` (user-owned; basename ∉ `EXPECTED_HOOK_SCRIPTS`).
   Default docs/SKILL settings snippet MUST stay Stop + SessionEnd only.
   SubagentStop is a **separate** opt-in event (same shim `command`, no
-  pipes). Unregistered (no hook stdin, no `--sid`/`--transcript`) MUST
+  pipes). `skills/transcript-mirror/install.sh` is the opt-in helper. Run it
+  from the target project. It copies `hook-shim.sh` and merges Stop and
+  SessionEnd idempotently. `--subagent` also merges SubagentStop. `--cron`
+  prints one line: `cd <project> && PATH=/usr/local/bin:/opt/homebrew/bin:$PATH bash <absolute transcript-sync.sh>`.
+  It does not edit crontab and it does not register the hook through
+  `/setup orchestration`. User docs MUST NOT tell the operator to run
+  `bash skills/transcript-mirror/…` from the project cwd. Resolve scripts
+  with `plugin-dir.sh`. The copied shim checks `CLAUDE_PLUGIN_ROOT` first,
+  then the cwd plugin tree, then the highest cached `dev-team` version.
+  Unregistered (no hook stdin, no `--sid`/`--transcript`) MUST
   create no new store dirs.
 - **M4 — Fail-open.** The recorder MUST always exit 0 and MUST NOT emit
   `decision: block`. Failures MUST append one line to `<store-root>/.errors.log`
@@ -93,6 +102,10 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
   (AC1b). Same shim as Stop/SessionEnd. `/setup orchestration` and
   `plugin.json` MUST NOT register SubagentStop. Default docs snippet
   MUST NOT include it. Measure signal ratio; MUST NOT default-on.
+  Fixture ratio = meaning-text lines / (meaning-text lines + empty files +
+  tool-only files). `subagent-child.jsonl` (2 meaning-text lines),
+  `subagent-child-empty.jsonl`, and `subagent-child-tool-only.jsonl` give
+  ratio 0.50. Live hook stays unmeasured.
   **Identity.** `session_id` // `sessionId` is the parent sid
   (SPEC-031: subagent hooks carry parent sid). Nest directory name is
   sanitized `agent_id` // `agentId` only — MUST NOT use `agent_type` /
@@ -716,6 +729,7 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
 **Covers**: `skills/transcript-mirror/SKILL.md`,
 `skills/transcript-mirror/transcript-mirror.sh`,
 `skills/transcript-mirror/hook-shim.sh`,
+`skills/transcript-mirror/install.sh`,
 `skills/transcript-mirror/transcript-sync.sh`,
 `skills/transcript-mirror/transcript-sync.py`,
 `skills/transcript-mirror/strip_main.py`,
@@ -734,6 +748,7 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
 `skills/transcript-mirror/reapply-overlay.sh`,
 `skills/transcript-mirror/summarize-transcript-test.sh`
 
+| 2026-10-01 | WP 4-03: `install.sh` opt-in helper; user docs resolve scripts through `plugin-dir.sh`; shim tier `CLAUDE_PLUGIN_ROOT` then cwd then cache; fixture signal ratio 0.50. Patch bump. |
 | 2026-08-26 | CDT-214: M15 Meaning-channel overlay — skill CLI `summarize-transcript.sh --sid` / `--restore` (no `commands/*.md`). `--check --sid` `status=ok` gate. Size-only eligibility >8192 UTF-8 bytes. Overlay = summary + `@verbatim/TNNNNNN.txt`; originals in `<sid>/verbatim/`. Recorder still verbatim. Rebuild stashes `verbatim/` like `agents/` and re-applies via bash `reapply-overlay.sh` (no LLM/Python). Seam `SUMMARIZE_TRANSCRIPT_CMD`. Patch bump. |
 | 2026-08-26 | CDT-215: M1 C7 carve-out — exactly `commands/compact-transcript.md`. M12 consumer carve-out + M14 meaning-tail: `--check --sid` `status=ok` MAY write sibling `<sid>.meaning-tail.md` (≤32768 UTF-8 bytes, trailing turn-blocks, strip title/`^>\s*@`). Fail-closed on miss. Recorder/sync MUST NOT touch `*.meaning-tail.md`. Rebuild MUST NOT eat the sibling. Not Compact seed / STM packet. Not a `/compact` replacement. Minor bump (v1.13.0 at `/release`). |
 | 2026-08-26 | CDT-216: M12 carve-out — `/handoff` prepare MAY read `main.md` + `--check --sid` (SPEC-018 M3f). CLI / PreCompact / M8 schema / recorder / M4a / M5a still frozen. |

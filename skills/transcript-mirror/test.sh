@@ -1448,6 +1448,134 @@ fi
 unset TRANSCRIPT_MIRROR_REDACT_CMD || true
 
 # ---------------------------------------------------------------------------
+# WP 4-03 — shim tiers, installer, fixture signal ratio, install-aware docs
+# ---------------------------------------------------------------------------
+plant_shim() {
+  local root="$1" mark="$2"
+  mkdir -p "$root/skills/transcript-mirror"
+  cat >"$root/skills/plugin-dir.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+if [ "${1:-}" != "file" ] || [ -z "${2:-}" ]; then
+  exit 64
+fi
+base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+printf '%s/%s\n' "$base" "$2"
+EOF
+  chmod +x "$root/skills/plugin-dir.sh"
+  cat >"$root/skills/transcript-mirror/transcript-mirror.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "$mark" >>"\${SHIM_MARK:?}"
+EOF
+  chmod +x "$root/skills/transcript-mirror/transcript-mirror.sh"
+}
+
+SHIM_MARK="$WORK/shim-mark"
+: >"$SHIM_MARK"
+CACHE_ROOT="$WORK/shimhome/.claude/plugins/cache/cold-dark-void/dev-team/9.9.9"
+plant_shim "$CACHE_ROOT" cache
+ROOT_PLUGIN="$WORK/plugin-root"
+plant_shim "$ROOT_PLUGIN" root
+mkdir -p "$WORK/not-a-plugin"
+(
+  cd "$WORK/not-a-plugin" || exit 1
+  unset CLAUDE_PLUGIN_ROOT
+  printf '{}\n' | HOME="$WORK/shimhome" SHIM_MARK="$SHIM_MARK" bash "$SHIM" >/dev/null
+)
+if [ "$(cat "$SHIM_MARK")" = "cache" ]; then
+  pass "WP403 shim cache tier execs the recorder"
+else
+  fail "WP403 shim cache tier mark=$(cat "$SHIM_MARK" 2>/dev/null)"
+fi
+: >"$SHIM_MARK"
+(
+  cd "$WORK/not-a-plugin" || exit 1
+  printf '{}\n' | HOME="$WORK/shimhome" CLAUDE_PLUGIN_ROOT="$ROOT_PLUGIN" SHIM_MARK="$SHIM_MARK" bash "$SHIM" >/dev/null
+)
+if [ "$(cat "$SHIM_MARK")" = "root" ]; then
+  pass "WP403 CLAUDE_PLUGIN_ROOT wins over the cache tier"
+else
+  fail "WP403 root tier mark=$(cat "$SHIM_MARK" 2>/dev/null)"
+fi
+
+INST="$WORK/install-proj"
+mkdir -p "$INST"
+inst_rc=0
+(
+  cd "$INST" || exit 1
+  bash "$HERE/install.sh" >"$WORK/install.out"
+) || inst_rc=$?
+if [ "$inst_rc" -ne 0 ]; then
+  fail "WP403 install.sh rc=$inst_rc err=$(cat "$WORK/install.out" 2>/dev/null)"
+fi
+if [ -x "$INST/.claude/hooks/transcript-mirror.sh" ] \
+   && cmp -s "$SHIM" "$INST/.claude/hooks/transcript-mirror.sh"; then
+  pass "WP403 install.sh copies hook-shim.sh"
+else
+  fail "WP403 install.sh did not copy the shim"
+fi
+STOP_N=$(jq '[.hooks.Stop[]?.hooks[]?.command | select(contains("transcript-mirror.sh"))] | length' "$INST/.claude/settings.json")
+END_N=$(jq '[.hooks.SessionEnd[]?.hooks[]?.command | select(contains("transcript-mirror.sh"))] | length' "$INST/.claude/settings.json")
+SUB_N=$(jq '[.hooks.SubagentStop[]?.hooks[]?.command | select(contains("transcript-mirror.sh"))] | length' "$INST/.claude/settings.json")
+if [ "$STOP_N" = "1" ] && [ "$END_N" = "1" ] && [ "$SUB_N" = "0" ]; then
+  pass "WP403 install.sh merges Stop and SessionEnd once"
+else
+  fail "WP403 install counts stop=$STOP_N end=$END_N sub=$SUB_N"
+fi
+inst_rc=0
+(
+  cd "$INST" || exit 1
+  bash "$HERE/install.sh" --subagent --cron >"$WORK/install2.out"
+) || inst_rc=$?
+if [ "$inst_rc" -ne 0 ]; then
+  fail "WP403 install.sh --subagent --cron rc=$inst_rc err=$(cat "$WORK/install2.out" 2>/dev/null)"
+fi
+STOP_N=$(jq '[.hooks.Stop[]?.hooks[]?.command | select(contains("transcript-mirror.sh"))] | length' "$INST/.claude/settings.json")
+SUB_N=$(jq '[.hooks.SubagentStop[]?.hooks[]?.command | select(contains("transcript-mirror.sh"))] | length' "$INST/.claude/settings.json")
+if [ "$STOP_N" = "1" ] && [ "$SUB_N" = "1" ] \
+   && grep -q 'PATH=/usr/local/bin:/opt/homebrew/bin:$PATH' "$WORK/install2.out" \
+   && grep -q "$HERE/transcript-sync.sh" "$WORK/install2.out" \
+   && ! grep -q 'bash skills/transcript-mirror/' "$WORK/install2.out"; then
+  pass "WP403 --subagent is idempotent and --cron prints the absolute sync path"
+else
+  fail "WP403 second install stop=$STOP_N sub=$SUB_N out=$(cat "$WORK/install2.out")"
+fi
+
+BAD_LINE='bash skills/transcript-mirror/transcript-sync.sh'
+printf '%s\n' "$BAD_LINE" | grep -q 'bash skills/transcript-mirror/' \
+  || fail "WP403 negative control did not match the cwd-relative form"
+if grep -n 'bash skills/transcript-mirror/' \
+    "$REPO/docs/commands/transcript-mirror.md" "$SKILL" >/dev/null; then
+  fail "WP403 user docs still tell you to run bash skills/transcript-mirror/"
+else
+  pass "WP403 user docs resolve transcript-mirror scripts through plugin-dir.sh"
+fi
+
+class_fix() {
+  jq -s -r '
+    def texts: [.. | objects | select(.type=="text") | .text // "" | select(length>0)];
+    def tools: [.. | objects | select(.type=="tool_use" or .type=="tool_result")];
+    if (texts|length) > 0 then "meaning"
+    elif (tools|length) > 0 then "tool"
+    else "empty" end
+  ' "$1"
+}
+if [ "$(class_fix "$FIX/subagent-child.jsonl")" = "meaning" ] \
+   && [ "$(class_fix "$FIX/subagent-child-empty.jsonl")" = "empty" ] \
+   && [ "$(class_fix "$FIX/subagent-child-tool-only.jsonl")" = "tool" ]; then
+  pass "WP403 child fixtures classify meaning, empty, and tool-only"
+else
+  fail "WP403 fixture class meaning=$(class_fix "$FIX/subagent-child.jsonl") empty=$(class_fix "$FIX/subagent-child-empty.jsonl") tool=$(class_fix "$FIX/subagent-child-tool-only.jsonl")"
+fi
+MEAN_N=$(jq -s '[.[] | .. | objects | select(.type=="text") | .text // "" | select(length>0)] | length' "$FIX/subagent-child.jsonl")
+RATIO=$(awk -v m="$MEAN_N" 'BEGIN { printf "%.2f", m / (m + 2) }')
+if [ "$MEAN_N" = "2" ] && [ "$RATIO" = "0.50" ]; then
+  pass "WP403 fixture signal ratio is 0.50"
+else
+  fail "WP403 ratio meaning=$MEAN_N ratio=$RATIO"
+fi
+
+# ---------------------------------------------------------------------------
 # M14 — compact-transcript sibling suite (CDT-215)
 # ---------------------------------------------------------------------------
 export CDT_OPERATOR_HOME="$REAL_HOME"

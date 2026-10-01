@@ -10,6 +10,12 @@ FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'PASS %s\n' "$1"; }
 bad()  { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1" >&2; }
 
+if grep -n 'if \[ \$? -eq 0 \]' "$0" >/dev/null; then
+  bad "naked \$? check remains; set -e aborts before it"
+else
+  pass "python blocks use if/then so a failure prints FAIL"
+fi
+
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/hosts-grok-locate.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
@@ -124,7 +130,7 @@ fi
 unset GROK_TRANSCRIPT_PATH
 
 # ---- import API ----
-python3 - <<PY
+if python3 - <<PY
 import os, sys
 sys.path.insert(0, "$HERE")
 from hosts import locate, urlencode_cwd, HOSTS
@@ -138,7 +144,7 @@ assert p2 == "$BUCKET/sid-new/chat_history.jsonl", p2
 assert locate("grok", "missing", "$CWD", sessions_dir="$SESS") is None
 print("import-ok")
 PY
-if [ $? -eq 0 ]; then pass "import API locate/urlencode_cwd"; else bad "import API"; fi
+then pass "import API locate/urlencode_cwd"; else bad "import API"; fi
 
 # =============================================================================
 # M5a long-cwd .cwd locate (CDT-218 T1) — GROK_SESSIONS_DIR fixture only
@@ -147,7 +153,7 @@ export GROK_SESSIONS_DIR="$SESS"
 OP_GROK="$(printf '%s' "$HOME/.grok/sessions")"
 
 # T1.1 — _cwd_marker_text: UTF-8, one trailing LF/CR/CRLF, missing/unreadable → None
-python3 - <<PY
+if python3 - <<PY
 import os, sys
 sys.path.insert(0, "$HERE")
 from hosts import _cwd_marker_text
@@ -184,7 +190,7 @@ with open(mark, "wb") as f:
 assert _cwd_marker_text(mark) is None
 print("cwd-marker-ok")
 PY
-if [ $? -eq 0 ]; then pass "T1.1 _cwd_marker_text strip/missing/unreadable"; else bad "T1.1 _cwd_marker_text"; fi
+then pass "T1.1 _cwd_marker_text strip/missing/unreadable"; else bad "T1.1 _cwd_marker_text"; fi
 
 # AC1 cwd: ASCII abs path whose jq @uri encoding is >255 bytes. Do NOT mkdir $SESS/$ENC.
 PAD="$(printf 'a%.0s' {1..220})"
@@ -238,7 +244,7 @@ case "$OUT" in
 esac
 
 # grok_cwd_bucket → lexical-min marker bucket (short-bucket)
-python3 - <<PY
+if python3 - <<PY
 import os, sys
 sys.path.insert(0, "$HERE")
 from hosts import grok_cwd_bucket, locate, _grok_marker_buckets
@@ -259,7 +265,7 @@ op = os.path.expanduser("~/.grok/sessions")
 assert p is not None and not p.startswith(op + os.sep)
 print("ac1-import-ok")
 PY
-if [ $? -eq 0 ]; then pass "AC1 grok_cwd_bucket + newest + marker list"; else bad "AC1 grok_cwd_bucket import"; fi
+then pass "AC1 grok_cwd_bucket + newest + marker list"; else bad "AC1 grok_cwd_bucket import"; fi
 
 # AC3 — decoy bucket for another cwd is not selected; urlencode file still wins on short cwd
 mkdir -p "$SESS/aaa-cwd-marker/sid-target"
@@ -338,7 +344,7 @@ else
   bad "AC2 decoy-newest rc=$RC out=$OUT"
 fi
 
-python3 - <<PY
+if python3 - <<PY
 import os, sys
 sys.path.insert(0, "$HERE")
 from hosts import locate, grok_cwd_bucket
@@ -351,7 +357,7 @@ assert b == os.path.join(sess, "$GHOST_ENC"), b
 assert not os.path.isdir(b)
 print("ac2-import-ok")
 PY
-if [ $? -eq 0 ]; then pass "AC2 import None × ghost/empty + ghost bucket path"; else bad "AC2 import"; fi
+then pass "AC2 import None × ghost/empty + ghost bucket path"; else bad "AC2 import"; fi
 
 # AC6 — N matching .cwd+file → lexical-min
 PAD6="$(printf 'b%.0s' {1..220})"
@@ -378,7 +384,7 @@ else
   bad "AC6 by-id rc=$RC out=$OUT expected=$SESS/aaa-dup/sid-dup/chat_history.jsonl"
 fi
 
-python3 - <<PY
+if python3 - <<PY
 import os, sys
 sys.path.insert(0, "$HERE")
 from hosts import grok_cwd_bucket, locate, _grok_marker_buckets
@@ -394,7 +400,7 @@ p = locate("grok", "sid-dup", long6, sessions_dir=sess)
 assert p == os.path.join(sess, "aaa-dup", "sid-dup", "chat_history.jsonl"), p
 print("ac6-import-ok")
 PY
-if [ $? -eq 0 ]; then pass "AC6 grok_cwd_bucket lexical-min + marker sort"; else bad "AC6 import"; fi
+then pass "AC6 grok_cwd_bucket lexical-min + marker sort"; else bad "AC6 import"; fi
 
 # T1.4: urlencode *directory* exists without the sid file → by-id still uses marker
 FB_CWD="$WORK/fb-cwd"
@@ -409,7 +415,7 @@ mkdir -p "$SESS/$FB_ENC" "$SESS/marker-fb/sid-fb"
 printf '%s\n' "$FB_CWD" >"$SESS/marker-fb/.cwd"
 printf 't14-marker-file\n' >"$SESS/marker-fb/sid-fb/chat_history.jsonl"
 
-python3 - <<PY
+if python3 - <<PY
 import os, sys
 sys.path.insert(0, "$HERE")
 from hosts import grok_cwd_bucket, locate
@@ -423,7 +429,7 @@ p = locate("grok", "sid-fb", cwd, sessions_dir=sess)
 assert p == os.path.join(sess, "marker-fb", "sid-fb", "chat_history.jsonl"), p
 print("t14-ok")
 PY
-if [ $? -eq 0 ]; then pass "T1.4 urlencode dir miss file → marker by-id; newest follows bucket"; else bad "T1.4 fallback split"; fi
+then pass "T1.4 urlencode dir miss file → marker by-id; newest follows bucket"; else bad "T1.4 fallback split"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
