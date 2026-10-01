@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.41
+- **WP 2-09 Review scope** — reviews, refuters, simplify, and the security scan share one changed set of staged, unstaged, and untracked paths, and every council category has a Step 6 bucket.
+
 ### v1.18.40
 - **WP 2-08 Council integrity** — signal 4 fires on a content-only executable deletion over 30 lines, Borda maps each reviewer's labels to the bundles they saw, a failed investigator fleet exits 5, and a failed diff-mode judge blocks the commit gate.
 

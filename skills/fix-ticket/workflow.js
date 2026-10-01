@@ -1,3 +1,15 @@
+import { spawnSync } from 'node:child_process'
+import { refuteEvidence } from './untracked.js'
+
+function porcelainOf(wt) {
+  try {
+    const r = spawnSync('git', ['-C', wt, 'status', '--porcelain', '-uall', '-z'], { encoding: 'utf8' })
+    return (r && r.stdout) || ''
+  } catch {
+    return ''
+  }
+}
+
 /**
  * fix-ticket Workflow reference asset (CDV-197 / SPEC-028).
  *
@@ -185,6 +197,8 @@ const verdicts = (
         `You are an INDEPENDENT adversarial reviewer. Try hard to REFUTE that the fix for ${TICKET} is correct and complete, through the '${lens}' lens.\n` +
           `Output mode: terse.\n` +
           `Worktree: ${WT}. Inspect the uncommitted changes: cd ${WT} && git diff   (also read the surrounding code).\n` +
+          refuteEvidence(porcelainOf(WT)) +
+          '\n' +
           `Original bug: ${BUG}\n` +
           `Intended fix: ${FIX}\n` +
           `Premise evidence: ${premise.evidence}\n\n` +

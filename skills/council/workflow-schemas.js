@@ -14,6 +14,9 @@ export const VERDICT_TAXONOMY = [
 
 export const FINDING_SEVERITY = ['critical', 'warning', 'nitpick']
 
+// One vocabulary. The quality flavor emits `design`. Unknown strings are rejected.
+export const FINDING_CATEGORIES = ['logic', 'security', 'compliance', 'design', 'simplification']
+
 export const CLAIM_TYPES = ['behavioral', 'factual', 'causal', 'recommendation']
 
 /** One claim record. Matches claim-extractor.md / plan-extractor.md. */
@@ -165,7 +168,7 @@ export const FindingSchema = {
           file: { type: 'string' },
           line: { type: 'integer' },
           severity: { type: 'string', enum: FINDING_SEVERITY },
-          category: { type: 'string' },
+          category: { type: 'string', enum: FINDING_CATEGORIES },
           description: { type: 'string' },
           suggestion: { type: 'string' },
           confidence: { type: 'integer', minimum: 0, maximum: 100 },

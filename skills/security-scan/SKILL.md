@@ -41,7 +41,7 @@ Test: `bash skills/security-scan/test.sh`.
 | Tool | Behavior |
 |------|----------|
 | `semgrep` | `--config=auto` on targets; SARIF when supported |
-| `codeql` | Only if `CODEQL_DB_PATH` or `./codeql-db` exists — never creates DBs |
+| `codeql` | Only when `CODEQL_DB_PATH` names an existing database. A database found on disk is not reused. Never creates DBs. |
 | neither | `SECURITY-SCAN: SKIP` line |
 
 ## Investigator protocol
@@ -61,6 +61,7 @@ When scan is SKIP: proceed with LLM-only security review (existing flavor).
 
 | Variable | Effect |
 |----------|--------|
-| `SECURITY_SCAN=0` | Callers skip invoking scan.sh entirely |
+| `SECURITY_SCAN=0` | scan.sh itself exits 0 immediately and runs no scanner. Callers may also skip the invocation. `--config=auto` can use the network; this switch sends nothing. |
+| `SECURITY_SCAN_CLEAN=1` | After the summary is printed, remove the private temp directory. A directory named by `SECURITY_SCAN_OUT` is kept. |
 | `SECURITY_SCAN_OUT` | Artifact directory |
 | `CODEQL_DB_PATH` | Existing CodeQL database directory |

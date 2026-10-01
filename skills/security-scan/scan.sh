@@ -4,6 +4,13 @@
 # Usage: scan.sh [PATH...]   (default: git diff paths vs merge-base, or .)
 set -euo pipefail
 
+# Callers skip the script when SECURITY_SCAN=0. Honor it here too, before any
+# temp directory or scanner runs, so a direct invocation sends nothing.
+if [ "${SECURITY_SCAN:-}" = "0" ]; then
+  echo "SECURITY-SCAN: SKIP (SECURITY_SCAN=0)"
+  exit 0
+fi
+
 # Private output directory: mktemp -d (mode 700, random name). A name built
 # from $$ is predictable (CWE-377). SECURITY_SCAN_OUT overrides it.
 OUT_DIR="${SECURITY_SCAN_OUT:-}"
@@ -19,25 +26,17 @@ SUMMARY="$OUT_DIR/summary.txt"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Resolve targets
+# Resolve targets from the repo root. Paths are root-relative, so a scan
+# started in a subdirectory still names the files git sees.
+HERE=$(cd "$(dirname "$0")" && pwd)
+CHANGED="$HERE/../lib/changed-set.sh"
+unset GIT_DIR GIT_WORK_TREE
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$WTROOT"
 if [ "$#" -gt 0 ]; then
   TARGETS=("$@")
 else
-  WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-  BASE=$(git -C "$WTROOT" merge-base HEAD origin/main 2>/dev/null \
-    || git -C "$WTROOT" merge-base HEAD origin/master 2>/dev/null \
-    || git -C "$WTROOT" merge-base HEAD main 2>/dev/null \
-    || git -C "$WTROOT" merge-base HEAD master 2>/dev/null \
-    || true)
-  mapfile -t TARGETS < <(
-    if [ -n "${BASE:-}" ]; then
-      git -C "$WTROOT" diff --name-only --diff-filter=ACMR "$BASE"...HEAD 2>/dev/null || true
-      git -C "$WTROOT" diff --name-only --diff-filter=ACMR 2>/dev/null || true
-    else
-      echo "."
-    fi
-  )
-  # Dedup empty
+  mapfile -t TARGETS < <("${BASH:-/bin/bash}" "$CHANGED" -C "$WTROOT" paths)
   if [ "${#TARGETS[@]}" -eq 0 ] || [ -z "${TARGETS[0]:-}" ]; then
     TARGETS=(".")
   fi
@@ -49,6 +48,7 @@ TARGETS_TOTAL="${#TARGETS[@]}"
 if [ "$TARGETS_TOTAL" -gt "$MAX_TARGETS" ]; then
   TARGETS=("${TARGETS[@]:0:$MAX_TARGETS}")
   # Never cut the list in silence: the summary says how much was not scanned.
+  echo "TRUNCATED $MAX_TARGETS/$TARGETS_TOTAL" >>"$SUMMARY"
   echo "TARGETS: truncated to the first $MAX_TARGETS of $TARGETS_TOTAL (CLI argument cap) — the rest were not scanned" >>"$SUMMARY"
 fi
 
@@ -59,23 +59,24 @@ if have semgrep; then
   RAN=1
   SEM_OUT="$OUT_DIR/semgrep.txt"
   # Prefer SARIF when supported; fall back to text
+  sem_rc=0
   if semgrep --help 2>&1 | grep -q -- '--sarif'; then
     SEM_SARIF="$OUT_DIR/semgrep.sarif"
-    if semgrep --config=auto --quiet --sarif -o "$SEM_SARIF" "${TARGETS[@]}" 2>"$OUT_DIR/semgrep.err"; then
+    semgrep --config=auto --quiet --sarif -o "$SEM_SARIF" "${TARGETS[@]}" 2>"$OUT_DIR/semgrep.err" || sem_rc=$?
+    if [ "$sem_rc" -eq 0 ]; then
       echo "SEMGREP: wrote $SEM_SARIF" >>"$SUMMARY"
+    elif [ -s "$SEM_SARIF" ]; then
+      echo "SEMGREP: findings in $SEM_SARIF (exit $sem_rc)" >>"$SUMMARY"
     else
-      # Non-zero often means findings; still keep output if present
-      if [ -s "$SEM_SARIF" ]; then
-        echo "SEMGREP: findings in $SEM_SARIF (exit non-zero)" >>"$SUMMARY"
-      else
-        # Retry text mode
-        semgrep --config=auto --quiet "${TARGETS[@]}" >"$SEM_OUT" 2>"$OUT_DIR/semgrep.err" || true
-        echo "SEMGREP: text $SEM_OUT" >>"$SUMMARY"
-      fi
+      echo "SEMGREP: FAILED (exit $sem_rc)" >>"$SUMMARY"
     fi
   else
-    semgrep --config=auto --quiet "${TARGETS[@]}" >"$SEM_OUT" 2>"$OUT_DIR/semgrep.err" || true
-    echo "SEMGREP: text $SEM_OUT" >>"$SUMMARY"
+    semgrep --config=auto --quiet "${TARGETS[@]}" >"$SEM_OUT" 2>"$OUT_DIR/semgrep.err" || sem_rc=$?
+    if [ "$sem_rc" -eq 0 ] || [ -s "$SEM_OUT" ]; then
+      echo "SEMGREP: text $SEM_OUT (exit $sem_rc)" >>"$SUMMARY"
+    else
+      echo "SEMGREP: FAILED (exit $sem_rc)" >>"$SUMMARY"
+    fi
   fi
 else
   echo "SEMGREP: SKIP (semgrep not on PATH)" >>"$SUMMARY"
@@ -84,12 +85,8 @@ fi
 # --- CodeQL (if database already exists — never create DBs here) ---
 if have codeql; then
   # Only run if user pointed at a DB or a conventional path exists
+  # Only an explicit CODEQL_DB_PATH. Do not reuse a stale database found on disk.
   CODEQL_DB="${CODEQL_DB_PATH:-}"
-  if [ -z "$CODEQL_DB" ]; then
-    for cand in codeql-db .codeql/db "${WTROOT:-.}/codeql-db"; do
-      [ -d "$cand" ] && CODEQL_DB="$cand" && break
-    done
-  fi
   if [ -n "${CODEQL_DB:-}" ] && [ -d "$CODEQL_DB" ]; then
     RAN=1
     CQ_OUT="$OUT_DIR/codeql.sarif"
@@ -102,7 +99,21 @@ if have codeql; then
     echo "CODEQL: SKIP (no CODEQL_DB_PATH / codeql-db; install+create DB separately)" >>"$SUMMARY"
   fi
 else
-  echo "CODEQL: SKIP (codeql not on PATH)" >>"$SUMMARY"
+  echo "CODEQL: SKIP (codeql not on PATH or CODEQL_DB_PATH unset)" >>"$SUMMARY"
+fi
+
+# Optional secret scan. Missing binary is a skip, never a failure.
+if have gitleaks; then
+  RAN=1
+  gl_rc=0
+  gitleaks detect --no-git --redact -s "$WTROOT" >"$OUT_DIR/gitleaks.txt" 2>"$OUT_DIR/gitleaks.err" || gl_rc=$?
+  if [ "$gl_rc" -eq 0 ]; then
+    echo "GITLEAKS: clean" >>"$SUMMARY"
+  else
+    echo "GITLEAKS: FAILED (exit $gl_rc)" >>"$SUMMARY"
+  fi
+else
+  echo "GITLEAKS: SKIP (gitleaks not on PATH)" >>"$SUMMARY"
 fi
 
 if [ "$RAN" -eq 0 ]; then
@@ -111,5 +122,10 @@ fi
 
 echo "OUT_DIR=$OUT_DIR" >>"$SUMMARY"
 cat "$SUMMARY"
+# SECURITY_SCAN_CLEAN=1 removes the private temp dir after the summary is
+# printed. A caller-supplied SECURITY_SCAN_OUT is never removed.
+if [ "${SECURITY_SCAN_CLEAN:-}" = "1" ] && [ -z "${SECURITY_SCAN_OUT:-}" ]; then
+  rm -rf "$OUT_DIR"
+fi
 # Always success — fail-open for orchestrators
 exit 0

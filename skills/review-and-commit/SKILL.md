@@ -29,12 +29,17 @@ format users already know.
 ## Step 1: Stage and inspect
 
 ```bash
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+CHANGED=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/changed-set.sh)
+bash "$CHANGED" paths
 git diff --cached
 git diff
 ```
 
-If nothing is staged or modified, stop. Read every changed file in full —
-do not review hunks in isolation.
+The path list is the reviewed set: committed range, staged, unstaged, and
+untracked files. Save it. If it is empty, stop. Read every path in full,
+including untracked files — do not review hunks in isolation.
 
 ## Step 1b: Blast radius analysis (only when `--impact` is passed)
 
@@ -278,16 +283,24 @@ The simpler or safer direction. Prefer subtraction.
 ## Overall Assessment
 2–3 blunt sentences. End with one of: APPROVE / REQUEST CHANGES / NEEDS DISCUSSION
 
-Review stats: N findings from 5 agents, M passed confidence filter (≥80), K discarded.
+Review stats: N findings from A agents, M passed confidence filter (≥80), K discarded.
 ```
 
-Grouping rules: `severity=critical` → Critical Issues; `category=compliance`
-(any severity) → Compliance Violations; `category=design,severity=warning` →
-Design Problems; `category=security,severity=warning` → Security & PII;
-`category=quality,severity=warning` → Maintainability Risks;
+`A` is not a fixed 5. Run `skills/review-and-commit/stats-line.sh` on the
+investigation plan: one agent per flavor, plus one when
+`external.status` is `available`.
+
+Grouping rules (`skills/review-and-commit/bucket.sh` is the renderer):
+`severity=critical` → Critical Issues; `category=logic` → Critical Issues
+(critical or warning — a logic warning is a correctness finding and must
+appear); `category=compliance` → Compliance Violations;
+`category=design,severity=warning` → Design Problems (the quality flavor
+emits `design`; a legacy `quality` value uses the same bucket);
+`category=security,severity=warning` → Security & PII;
 `category=simplification` → Simplification Opportunities; `severity=nitpick`
-→ Nitpicks. If spec-grep detected drift, add `## Spec Alignment` listing
-affected specs. If a path argument was given, also write this output there.
+→ Nitpicks; any other category → Other. If spec-grep detected drift, add
+`## Spec Alignment` listing affected specs. If a path argument was given,
+also write this output there.
 
 Tone rules (non-negotiable): no softening, no congratulation, no hedging
 ("maybe", "consider", "you might want to"), every issue references a
@@ -366,8 +379,11 @@ go-ahead satisfies it, and anything other than an affirmative halts the run
 command-specific note: `/orchestrate` calls `/review-and-commit` directly, and
 its own "may I edit files" grant does not cover this commit.
 
-- On affirmative and bounded routing → `git commit` with a conventional
-  message explaining *why* the change was made.
+- On affirmative and bounded routing → stage exactly the reviewed path list
+  from Step 1, then `git commit` with a conventional message explaining *why*
+  the change was made. Run `skills/review-and-commit/stage-reviewed.sh --list`
+  on that list. If the worktree has a dirty or untracked path outside the
+  list, the script exits 1 and stages nothing — stop and do not commit.
 
 No escalation-gate disarm runs here: under SPEC-031's arm-on-escalate model the
 worktree this command operates in is never armed (bounded runs don't arm;

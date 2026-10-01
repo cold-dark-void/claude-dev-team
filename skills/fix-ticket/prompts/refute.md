@@ -23,6 +23,10 @@ Output mode: terse.
 
 Worktree: {{WORKTREE}}
 Inspect uncommitted changes: cd {{WORKTREE}} && git diff
+Also run: git status --porcelain
+Read every path whose status starts with ?? (untracked files the implementer
+created). List those paths in your evidence. A fix that only exists in an
+untracked file is still in scope.
 (also read surrounding code).
 
 Original bug: {{BUG}}

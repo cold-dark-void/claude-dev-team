@@ -172,7 +172,7 @@ normalize_raw() {
         if test("(?i)security|auth|pii|injection") then "security"
         elif test("(?i)compliance|agents\\.md|claude\\.md") then "compliance"
         elif test("(?i)simplif|dead code|unused|over-?engineer") then "simplification"
-        elif test("(?i)maintain|naming|coupling|quality") then "quality"
+        elif test("(?i)maintain|naming|coupling|quality|design") then "design"
         else "logic" end;
       ($raw_blob
         | split("\n")

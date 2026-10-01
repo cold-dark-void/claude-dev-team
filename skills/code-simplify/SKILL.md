@@ -17,13 +17,11 @@ this is a **MIT-owned protocol** inside dev-team — no marketplace install requ
 | Caller | When |
 |--------|------|
 | `/orchestrate` | After **all** IC tasks have Tech Lead **APPROVE** (Step 9), **before** Step 10 QA |
-| Manual | User asks to simplify recent work; or after a large IC implement outside orchestrate |
+| Manual | No orchestrate worktree: do not edit. Route the user to `/refactor`. |
 
-Manual invocation (outside `/orchestrate`, which already supplies a worktree)
-must pass the same Escalation gate as `/refactor` — see `skills/refactor/SKILL.md`
-§ 2.2a Escalation gate. A manual run that passes the gate is a bounded exit and is
-never armed under refactor's escalation-gate model. Runs under `/orchestrate` never
-touch the gate at all.
+A manual invocation that has no `/orchestrate` worktree routes to `/refactor`.
+Do not simplify in place. Runs under `/orchestrate` already have a worktree and
+do not use the refactor escalation gate.
 
 Skip when:
 - Diff is docs/config-only with no runtime code
@@ -40,30 +38,30 @@ to QA — never block ship on polish.
 2. **Recently modified only** — files in `git diff <base>...HEAD` (and unstaged
    worktree changes if any). Do not "improve" unrelated modules
 3. **Match project style** — AGENTS.md, existing patterns, domain glossary terms
-4. **Tests stay green** — if project has a quick test command, prefer running it
-   after edits; if tests fail, **revert** the simplify edits and report failure
+4. **Tests stay green** — if the project has a quick test command, prefer running it
+   after edits. If tests fail, revert with `git reset --hard "$PRE_SIMPLIFY_SHA"`
+   (the checkpoint committed before the spawn). Do not `git checkout -- <file>`:
+   that also deletes uncommitted IC work that was never checkpointed.
 5. **No new dependencies**
 
 ## Scope discovery
 
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-# Prefer merge-base with main/master; fall back to upstream or empty-tree
-BASE=$(git -C "$WTROOT" merge-base HEAD origin/main 2>/dev/null \
-  || git -C "$WTROOT" merge-base HEAD origin/master 2>/dev/null \
-  || git -C "$WTROOT" merge-base HEAD main 2>/dev/null \
-  || git -C "$WTROOT" merge-base HEAD master 2>/dev/null \
-  || echo "")
-if [ -n "$BASE" ]; then
-  git -C "$WTROOT" diff --name-only "$BASE"...HEAD
-  git -C "$WTROOT" diff --name-only
-else
-  git -C "$WTROOT" diff --name-only HEAD
-  git -C "$WTROOT" status --short
-fi
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+CHANGED=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/changed-set.sh)
+bash "$CHANGED" paths
+```
+
+Commit that set before the spawn, and record the checkpoint:
+
+```bash
+git add --pathspec-from-file=- <<'EOF'
+<paste the changed-set paths>
+EOF
+git commit -m "chore: pre-simplify checkpoint"
+PRE_SIMPLIFY_SHA=$(git rev-parse HEAD)
+printf '%s\n' "$PRE_SIMPLIFY_SHA"
 ```
 
 Filter to source files (language-appropriate). Cap at ~25 files; if larger, only

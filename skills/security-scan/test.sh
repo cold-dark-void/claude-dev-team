@@ -29,7 +29,7 @@ fail=0
 
 BASH_BIN=$(command -v bash)
 FARM="$HERMETIC_ROOT/farm"
-path_farm "$FARM" git mkdir mktemp cat rm dirname basename chmod
+path_farm "$FARM" git mkdir mktemp cat rm dirname basename chmod sed sort grep
 REPO="$HERMETIC_ROOT/repo"
 mkdir -p "$REPO"
 git -C "$REPO" init -q .
@@ -89,6 +89,46 @@ else
   pass_line "control: 40 targets print no truncation line"
 fi
 [ "$RC" -eq 0 ] && pass_line "a truncated scan still exits 0" || fail_line "exit $RC"
+
+# ---- SECURITY_SCAN=0 runs nothing -----------------------------------------
+RC=0
+OUT=$(SECURITY_SCAN=0 PATH="$FARM" "$BASH_BIN" "$SCAN" 2>&1) || RC=$?
+printf '%s\n' "$OUT" | grep -q 'SECURITY_SCAN=0' && [ "$RC" -eq 0 ] \
+  && pass_line "SECURITY_SCAN=0 short-circuits" || fail_line "SECURITY_SCAN=0: rc=$RC out=$OUT"
+
+# ---- staged + untracked paths, from a subdirectory, with a failing semgrep -
+STUB_LOG="$HERMETIC_ROOT/semgrep.args"
+cat >"$FARM/semgrep" <<'EOF'
+#!/bin/bash
+if [ "${1:-}" = "--help" ]; then
+  printf '%s\n' '--sarif'
+  exit 0
+fi
+printf '%s\n' "$@" >>"$SECURITY_SCAN_STUB_LOG"
+exit 1
+EOF
+chmod +x "$FARM/semgrep"
+mkdir -p "$REPO/sub"
+printf 'keep\n' >"$REPO/staged-file.txt"
+env -u GIT_DIR -u GIT_WORK_TREE git -C "$REPO" init -q
+env -u GIT_DIR -u GIT_WORK_TREE git -C "$REPO" add staged-file.txt
+printf 'new\n' >"$REPO/untracked-file.txt"
+RC=0
+OUT=$(cd "$REPO/sub" && SECURITY_SCAN_STUB_LOG="$STUB_LOG" PATH="$FARM" "$BASH_BIN" "$SCAN" 2>&1) || RC=$?
+[ "$RC" -eq 0 ] && pass_line "stub semgrep scan exits 0 (fail-open)" || fail_line "stub scan exit $RC"
+grep -q 'staged-file.txt' "$STUB_LOG" && pass_line "staged file was passed to semgrep" || fail_line "staged file missing from $(cat "$STUB_LOG")"
+grep -q 'untracked-file.txt' "$STUB_LOG" && pass_line "untracked file was passed to semgrep" || fail_line "untracked file missing from $(cat "$STUB_LOG")"
+printf '%s\n' "$OUT" | grep -q 'SEMGREP: FAILED' && pass_line "offline semgrep shows FAILED" || fail_line "no FAILED status: $OUT"
+
+# ---- clean removes the private temp dir -----------------------------------
+RC=0
+OUT=$(SECURITY_SCAN_CLEAN=1 PATH="$FARM" "$BASH_BIN" "$SCAN" a.txt 2>&1) || RC=$?
+D=$(out_dir)
+if [ -n "$D" ] && [ ! -d "$D" ]; then
+  pass_line "SECURITY_SCAN_CLEAN removes the private temp dir"
+else
+  fail_line "SECURITY_SCAN_CLEAN left [$D]"
+fi
 
 echo
 echo "PASS=$pass FAIL=$fail"

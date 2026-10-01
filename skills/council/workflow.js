@@ -721,7 +721,7 @@ export async function runCouncil(runtime) {
           file: (b.file_line || 'unknown:0').split(':')[0],
           line: parseInt((b.file_line || '0:0').split(':')[1], 10) || 0,
           severity: 'critical',
-          category: b.flavor || 'quality',
+          category: b.flavor === 'quality' || !b.flavor ? 'design' : b.flavor,
           description: `(${degradationReason}) ${b.raw_blob}`.slice(0, 500),
           suggestion: 're-run council with a live council-judge',
           confidence: 50,

@@ -311,8 +311,11 @@ Code-simplify: <done | skipped | failed-open>
   notes: <one line>
 ```
 
-Do **not** re-open the Step 9 review loop for pure polish unless the simplify
-agent reports it could not preserve behavior (then revert its edits and
-`failed-open`). Do **not** block QA on simplify failure.
+After the simplify agent returns, the Tech Lead reviews the delta
+`git diff "$PRE_SIMPLIFY_SHA"` (the checkpoint from
+`skills/code-simplify/SKILL.md`). That delta review is required. If the
+simplify agent could not preserve behavior, revert with
+`git reset --hard "$PRE_SIMPLIFY_SHA"` and record `failed-open`. Do **not**
+block QA on simplify failure.
 
 Then continue to Step 10.
