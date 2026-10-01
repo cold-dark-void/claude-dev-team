@@ -130,3 +130,12 @@ jobs:
         with:
           fetch-depth: 0  # suites read pinned base commits (git show <sha>:path)
       - run: bash tools/run-all-tests.sh
+
+  # CDT-271 — informational macOS lane (bash 3.2 / BSD). WP 6-B makes it required.
+  macos:
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: bash tools/run-all-tests.sh --portable

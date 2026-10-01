@@ -15,7 +15,7 @@ PROG="tools/run-all-tests.sh"
 
 usage() {
   cat <<'USAGE'
-Usage: bash tools/run-all-tests.sh [--root DIR] [--list] [-h|--help]
+Usage: bash tools/run-all-tests.sh [--root DIR] [--list] [--portable] [-h|--help]
 
 Discovers every test.sh, test-*.sh and *-test.sh suite under --root (default:
 git rev-parse --show-toplevel of the cwd) via `git ls-files --cached --others
@@ -26,6 +26,8 @@ sorted order, as `bash <repo-relative-path>` with cwd = root.
   --root DIR    Repo root to scan and run from. MUST be a directory and a
                 git work tree.
   --list        Print the discovered suite paths, one per line. Run nothing.
+  --portable    Keep only suites whose code is bash 3.2 / BSD-safe (CDT-271).
+                A comment that names a GNU tool does not exclude the suite.
   -h, --help    Show this help and exit.
 
 Environment:
@@ -46,6 +48,7 @@ USAGE
 ROOT=""
 ROOT_GIVEN=false
 LIST_ONLY=false
+PORTABLE_ONLY=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -69,6 +72,10 @@ while [ $# -gt 0 ]; do
       ;;
     --list)
       LIST_ONLY=true
+      shift
+      ;;
+    --portable)
+      PORTABLE_ONLY=true
       shift
       ;;
     *)
@@ -158,7 +165,48 @@ discover_suites() {
       done | LC_ALL=C sort -u
 }
 
+# bash 3.2 / BSD userland (CDT-271). Full-line comments are ignored so a
+# suite that only names a forbidden tool in a comment still runs.
+suite_portable() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    /declare[[:space:]]+-A/ { bad=1 }
+    /declare[[:space:]]+-n/ { bad=1 }
+    /local[[:space:]]+-n/ { bad=1 }
+    /(^|[[:space:];|&(])mapfile([[:space:]]|$)/ { bad=1 }
+    /(^|[[:space:];|&(])readarray([[:space:]]|$)/ { bad=1 }
+    /(^|[[:space:];|&(])flock([[:space:]]|$)/ { bad=1 }
+    /(^|[[:space:];|&(])sha256sum([[:space:]]|$)/ { bad=1 }
+    /(^|[[:space:];|&(])gtimeout([[:space:]]|$)/ { bad=1 }
+    /(^|[[:space:];|&(])timeout([[:space:]]|$)/ { bad=1 }
+    /grep[[:space:]]+-[A-Za-z]*P/ { bad=1 }
+    /touch[[:space:]]+-d/ { bad=1 }
+    /-printf([[:space:]]|$)/ { bad=1 }
+    /\$\{[A-Za-z_][A-Za-z0-9_]*,,/ { bad=1 }
+    /\$\{[A-Za-z_][A-Za-z0-9_]*\^\^/ { bad=1 }
+    END { exit bad ? 1 : 0 }
+  ' "$ROOT/$1"
+}
+
 discover_suites > "$SUITES_FILE"
+
+if [ "$PORTABLE_ONLY" = true ]; then
+  kept="$WORKDIR/portable.txt"
+  : > "$kept"
+  skipped=0
+  while IFS= read -r suite; do
+    [ -n "$suite" ] || continue
+    if suite_portable "$suite"; then
+      printf '%s\n' "$suite" >> "$kept"
+    else
+      skipped=$((skipped + 1))
+    fi
+  done < "$SUITES_FILE"
+  mv "$kept" "$SUITES_FILE"
+  if [ "$skipped" -gt 0 ]; then
+    echo "warn: portable: skipped $skipped non-portable suite(s)" >&2
+  fi
+fi
 
 if [ "$LIST_ONLY" = true ]; then
   cat "$SUITES_FILE"

@@ -11,6 +11,8 @@
 #   B5 — the all-tests job has fetch-depth: 0 (suites read pinned base commits).
 #   B6 — the fence-exec job runs `bash tools/fence-exec/run.sh` (CDT-272).
 #   B7 — the spec-lint job runs `bash tools/spec-lint.sh` (CDT-273).
+#   B8 — the macos job is informational: macos-latest, continue-on-error,
+#        and `bash tools/run-all-tests.sh --portable` (CDT-271, WP 2-04).
 #
 # Bash + grep/awk only. Hermetic: no writes outside mktemp.
 set -u
@@ -168,6 +170,23 @@ check_workflow() {
   elif ! printf '%s\n' "$sl_block" | grep -qE 'run:[[:space:]]*bash tools/spec-lint\.sh[[:space:]]*$'; then
     echo "FAIL: B7: spec-lint job does not run bash tools/spec-lint.sh"
   fi
+
+  # --- B8: informational macOS lane (CDT-271). ---
+  local mac_block
+  mac_block=$(awk '
+    /^  macos:$/ { on=1; next }
+    on && /^  [A-Za-z0-9_-]+:$/ { exit }
+    on { print }
+  ' "$file")
+  if [ -z "$mac_block" ]; then
+    echo "FAIL: B8: no macos job found"
+  elif ! printf '%s\n' "$mac_block" | grep -qE 'runs-on:[[:space:]]*macos-latest[[:space:]]*$'; then
+    echo "FAIL: B8: macos job does not run on macos-latest"
+  elif ! printf '%s\n' "$mac_block" | grep -qE 'continue-on-error:[[:space:]]*true[[:space:]]*$'; then
+    echo "FAIL: B8: macos job is not continue-on-error"
+  elif ! printf '%s\n' "$mac_block" | grep -qE 'run:[[:space:]]*bash tools/run-all-tests\.sh --portable[[:space:]]*$'; then
+    echo "FAIL: B8: macos job does not run bash tools/run-all-tests.sh --portable"
+  fi
 }
 
 run_check() { # run_check LABEL FILE — runs check_workflow, counts FAILs.
@@ -190,7 +209,7 @@ LIVE="$REPO_ROOT/.github/workflows/smoke.yml"
 
 # --- Live check: the real workflow must be clean. ---
 if run_check "live" "$LIVE"; then
-  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6/B7 violations"
+  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6/B7/B8 violations"
 else
   echo "FAIL: live smoke.yml has violations (see above)"
 fi
@@ -242,6 +261,15 @@ bite "no-spec-lint" '/^  spec-lint:$/,/^$/d' "B7"
 
 # Point the spec-lint job at another command.
 bite "spec-lint-wrong-command" 's#bash tools/spec-lint\.sh#bash tools/smoke/run.sh#' "B7"
+
+# Drop the informational macOS job.
+bite "no-macos" '/^  macos:$/,/^$/d' "B8"
+
+# Make the macOS job required.
+bite "macos-required" '/continue-on-error: true/d' "B8"
+
+# Run the full suite instead of the portable subset.
+bite "macos-full" 's#bash tools/run-all-tests\.sh --portable#bash tools/run-all-tests.sh#' "B8"
 
 if [ "$FAIL_COUNT" -eq 0 ]; then
   echo "PASS: ci-workflow-test"

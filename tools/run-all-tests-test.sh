@@ -387,6 +387,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Case 12: --portable drops GNU/bash4 code and keeps a comment-only mention.
+# ---------------------------------------------------------------------------
+R12=$(new_root)
+ok_suite > "$R12/test.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'mapfile -t xs < /dev/null' 'exit 1' > "$R12/gnu-test.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# mapfile is named only in this comment' 'exit 0' > "$R12/note-test.sh"
+git -C "$R12" add -A
+
+run_runner --root "$R12" --list
+expect_exit 0 "case12 full list"
+expect_out_line "gnu-test.sh" "case12 full list includes the mapfile suite"
+expect_out_line "test.sh" "case12 full list includes the clean suite"
+
+run_runner_split --root "$R12" --portable --list
+expect_exit 0 "case12 --portable --list"
+expect_out_line "test.sh" "case12 portable keeps the clean suite"
+expect_out_line "note-test.sh" "case12 portable keeps a comment mention"
+expect_not_out "gnu-test.sh" "case12 portable drops the mapfile suite"
+if printf '%s\n' "$ERR" | grep -q 'warn: portable: skipped 1 non-portable suite'; then
+  pass
+else
+  fail "case12 portable warn names the skip count"
+fi
+
+R12B=$(new_root)
+fail_suite > "$R12B/test.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'sha256sum /dev/null' 'exit 0' > "$R12B/hash-test.sh"
+git -C "$R12B" add -A
+run_runner --root "$R12B" --portable
+expect_exit 1 "case12 portable still fails a portable suite"
+expect_out "FAIL test.sh" "case12 portable reports the portable failure"
+expect_not_out "hash-test.sh" "case12 portable does not run sha256sum"
+
+# ---------------------------------------------------------------------------
 echo "---"
 echo "run-all-tests bite-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.36
+- **WP 2-04 macOS CI lane runs the portable subset** — the `macos` job on `macos-latest` is `continue-on-error: true` and runs `bash tools/run-all-tests.sh --portable`. WP 6-B makes the lane required.
+
 ### v1.18.35
 - **WP 2-03 Spec lint checks format, index, covers, history and citations** — `tools/spec-lint.sh` runs section-scoped `check-format.sh`, matches each spec title and status to `specs/TDD.md`, requires backticked Covers and Test paths to exist, keeps Version History dates in one direction, and rejects a `SPEC-N line N` citation even when the number wraps onto the next line (CDT-273). The `spec-lint` CI job runs that gate plus the traceability report.
 - **Docs drift** — `skill-ref` scans `skills/**/*.md` (not `fixtures/`), `agents/*.md`, `AGENTS.md`, and spec Covers lines. `skill-name` checks that a skill directory matches its frontmatter name. A `#` comment inside a fence does not end a heading. SPEC-010 and SPEC-032 list D1–D10 (CDT-282 partial, W1-60).
