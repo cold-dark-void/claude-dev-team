@@ -198,6 +198,6 @@ agents actually execute S.1 — nothing hook-enforces it yet.
 
 | Date | Change |
 |------|--------|
-| 2026-07-15 | DRAFT from plugin eval + May autopsy |
-| 2026-07-15 | Review fixes: Validation section; REOPEN_COUNT = distinct days; human override; C1-safe S.6 placeholders; empty-key fallback; FM coverage table; arch S.6 |
 | 2026-07-16 | Status DRAFT→ACTIVE after describer dogfood (Grok `/debug` sessions; happy-path + S.1; force/override residual) |
+| 2026-07-15 | Review fixes: Validation section; REOPEN_COUNT = distinct days; human override; C1-safe S.6 placeholders; empty-key fallback; FM coverage table; arch S.6 |
+| 2026-07-15 | DRAFT from plugin eval + May autopsy |

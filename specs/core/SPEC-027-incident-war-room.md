@@ -95,12 +95,12 @@
 
 | Date | Change |
 |------|--------|
-| 2026-07-21 | DEPRECATED — /incident surface excised at v1.0.0 (CDT-46-C2); command/skill replaced by one-cycle Deprecation stubs; engine scripts deleted |
-| 2026-07-14 | ACTIVE — ship `/incident` + workspace/timeline CLIs; OQs locked; jsonl-canonical MUST |
-| 2026-07-03 | Initial DRAFT — ideation wave 2 |
 
 **Covers:** `commands/incident.md`, `skills/incident/SKILL.md`, `skills/incident/workspace.sh`, `skills/incident/timeline.sh`, `skills/incident/timeline-test.sh`, `agents/devops.md` (incident-commander posture), `docs/commands/incident.md`, `.gitignore` (`.claude/incidents/`), `skills/debug/SKILL.md` (SHOULD cross-suggest), `README.md` (commands table).
 
+| 2026-07-21 | DEPRECATED — /incident surface excised at v1.0.0 (CDT-46-C2); command/skill replaced by one-cycle Deprecation stubs; engine scripts deleted |
+| 2026-07-14 | ACTIVE — ship `/incident` + workspace/timeline CLIs; OQs locked; jsonl-canonical MUST |
+| 2026-07-03 | Initial DRAFT — ideation wave 2 |
 ## Cross-references
 
 - **SPEC-014 — Debug Workflow:** the root-cause sub-flow `/incident` delegates to; its gates are inherited, never reimplemented.

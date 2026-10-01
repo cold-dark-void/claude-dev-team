@@ -109,16 +109,16 @@ The train is a **sequencer, not a releaser**. It owns queue state, ordering, slo
 
 | Date | Change |
 |------|--------|
-| 2026-07-03 | Initial DRAFT — ideation wave 2 |
-| 2026-07-13 | CDV-181: lock v1 OQs; M12–M15 CLI/precond/lock/status; CHANGELOG skip-if-present contract; implement train-lib + skill + command; status DRAFT→ACTIVE |
-| 2026-07-22 | CDT-54 / CDT-46-C8: cross-ref only — SPEC-010 Step 4.7 dual-copy hook-template gate retired/reduced (no train behavior change) |
-| 2026-08-06 | CDT-131: renumber/M5d treat marketplace version as optional (update only if present; never invent). Master version source is the pair (CHANGELOG + plugin.json). |
-| 2026-08-07 | CDT-171: M12 + SHOULD — callers MUST resolve train-lib via plugin-dir.sh (install-aware); subprocess-only contract unchanged. |
-| 2026-09-26 | WP 1-04 (W2-40): M1 write rule — the queue temp file is created in the destination directory and renamed there through `atomic_write` (`skills/lib/portable.sh`); the former `${TMPDIR:-/tmp}` temp + cross-filesystem rename (non-atomic, mode 0600) is forbidden. The same helper covers the `renumber` and `resolve-json` rewrites of `plugin.json` / `marketplace.json`. |
-| 2026-09-27 | WP 1-05 (`wp-1-05-git-safety-lib`; CDT-267 `[09 F3]`): **M12 `restore`** decides over `<base_sha>..HEAD` before any change — an empty or unreleased (untagged, unpushed) range resets; a tagged or pushed commit in the range halts (exit ≠0, nothing changed, recovery steps printed); no `origin` counts as unpushed; never `git clean`; the origin check fails toward halt and does not reuse `git-safety.sh is-pushed`. **M6** (range empty, still resets), **M7** (partial release → restore halts, entry stays `landing`), **M8** (exception to the two-state rule for a released commit) and **M13(b)** (auto-restore follows the table) amended. Test 17 added. The ACs live in SPEC-025 `### wp-1-05-git-safety-lib`. |
 
 **Covers**: `commands/release-train.md` (user entrypoint: register/list/drop/start/dry-run/status), `skills/release-train/SKILL.md` (train protocol: ordering, slot assignment, landing loop), `skills/release-train/train-lib.sh` (subprocess CLI: queue.json state ops + mechanical M5a–d pre-resolvers), `skills/release-train/test-restore-safety.sh` (M12 `restore` decision table, WP 1-05), `skills/release/SKILL.md` (Step 2–3a skip-if-present only; consumed per entry), `.gitignore` (`.claude/release-train/`).
 
+| 2026-09-27 | WP 1-05 (`wp-1-05-git-safety-lib`; CDT-267 `[09 F3]`): **M12 `restore`** decides over `<base_sha>..HEAD` before any change — an empty or unreleased (untagged, unpushed) range resets; a tagged or pushed commit in the range halts (exit ≠0, nothing changed, recovery steps printed); no `origin` counts as unpushed; never `git clean`; the origin check fails toward halt and does not reuse `git-safety.sh is-pushed`. **M6** (range empty, still resets), **M7** (partial release → restore halts, entry stays `landing`), **M8** (exception to the two-state rule for a released commit) and **M13(b)** (auto-restore follows the table) amended. Test 17 added. The ACs live in SPEC-025 `### wp-1-05-git-safety-lib`. |
+| 2026-09-26 | WP 1-04 (W2-40): M1 write rule — the queue temp file is created in the destination directory and renamed there through `atomic_write` (`skills/lib/portable.sh`); the former `${TMPDIR:-/tmp}` temp + cross-filesystem rename (non-atomic, mode 0600) is forbidden. The same helper covers the `renumber` and `resolve-json` rewrites of `plugin.json` / `marketplace.json`. |
+| 2026-08-07 | CDT-171: M12 + SHOULD — callers MUST resolve train-lib via plugin-dir.sh (install-aware); subprocess-only contract unchanged. |
+| 2026-08-06 | CDT-131: renumber/M5d treat marketplace version as optional (update only if present; never invent). Master version source is the pair (CHANGELOG + plugin.json). |
+| 2026-07-22 | CDT-54 / CDT-46-C8: cross-ref only — SPEC-010 Step 4.7 dual-copy hook-template gate retired/reduced (no train behavior change) |
+| 2026-07-13 | CDV-181: lock v1 OQs; M12–M15 CLI/precond/lock/status; CHANGELOG skip-if-present contract; implement train-lib + skill + command; status DRAFT→ACTIVE |
+| 2026-07-03 | Initial DRAFT — ideation wave 2 |
 ## Cross-references
 
 - **SPEC-010** — Code Review & Release: owns single-release mechanics (`skills/release/SKILL.md`); the train invokes `/release` per entry with an explicit version and reimplements none of it; skip-if-present enables train M5c pre-write.

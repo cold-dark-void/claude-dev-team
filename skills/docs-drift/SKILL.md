@@ -5,8 +5,10 @@ description: |
     Checks: cmd-index (README ## Commands ↔ commands/*.md), agent-roster
     (AGENTS.md + README ↔ agents/*.md), docs-hub (docs/commands links/orphans),
     manifest-desc (plugin.json description == marketplace plugins[].description),
-    skill-ref (every skills/<name>/<file> path mentioned in commands/*.md exists),
-    docs-page-links (relative *.md hrefs in docs/commands/*.md resolve on disk).
+    skill-ref (every skills/<name>/<file> path in commands, skills, agents,
+    AGENTS.md, and spec Covers lines exists), skill-name (SKILL.md frontmatter
+    name equals the directory), docs-page-links (relative *.md hrefs in
+    docs/commands/*.md resolve on disk).
     Wired by /release as Step 4.9 after T3, and also by CI
     (.github/workflows/smoke.yml, job `docs-drift`) on every push/PR to master —
     same invocation, same exit contract. Run manually via:
@@ -44,8 +46,9 @@ Trailing summary always printed:
 | `agent-roster` | AGENTS.md roster table ↔ `agents/*.md` (count+names both ways); every README Agents table row names a real agent; every `agents/*.md` basename appears as `` `<name>` `` in the README Agents section. |
 | `docs-hub` | Every `docs/commands/*.md` link in README / `docs/README.md` resolves; every `docs/commands/*.md` file is linked from `docs/README.md` (no orphans). Index-only commands without a docs page are fine. |
 | `manifest-desc` | `.claude-plugin/plugin.json` `description` byte-identical to each `marketplace.json` `plugins[].description`. Version sync is NOT this check (SPEC-002). |
-| `skill-ref` | Every literal `skills/<name>/<file>` path (`.md`/`.sh`/`.py`) mentioned in `commands/*.md` — prose or embedded in a bash fence — resolves to a real file. Catches a command left delegating to a skill that was stubbed, renamed, or deleted. Existence-only; does not judge whether a hit is a legitimate deprecation stub. |
-| `docs-page-links` | Every relative `*.md` link in `docs/commands/*.md` resolves on disk (fragment/query stripped; path only). Out of scope: `http(s)`, `mailto:`, bare `#anchor`, non-`.md`, absolute `/…`. D6 waivers apply. |
+| `skill-ref` | Every literal `skills/<name>/<file>` path (`.md`/`.sh`/`.py`) in `commands/*.md`, `skills/**/*.md` (not `fixtures/`), `agents/*.md`, `AGENTS.md`, and spec `**Covers**` lines or a `## Covers` section — prose or a bash fence — resolves to a real file. Existence-only. A `<!-- drift-ok: skill-ref -->` on the adjacent line waives one historical mention. |
+| `skill-name` | `skills/<dir>/SKILL.md` frontmatter `name` equals `<dir>`. |
+| `docs-page-links` | Every relative `*.md` link in `docs/commands/*.md` resolves on disk (fragment/query stripped; path only). Out of scope: `http(s)`, `mailto:`, bare `#anchor`, non-`.md`, absolute `/…`. D6 waivers apply. A `# comment` inside a fence does not end a heading section. |
 
 ## Waivers
 

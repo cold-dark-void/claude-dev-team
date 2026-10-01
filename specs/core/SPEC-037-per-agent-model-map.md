@@ -570,6 +570,7 @@ amendment, and the surface retirement land as separate tickets.
 
 | Date | Change |
 |------|--------|
+
 | 2026-09-08 | CDT-243 — M16 site 1 adds Step 2 `@finder` (Codebase Explorer); MUST NOT fence applies only to Step 4b verifier. M17 omit list drops explorer. Status stays DRAFT. |
 | 2026-08-30 | F7, F8 (CDT-230 kickoff Step 4b). F7: omitted `effort:` inherits `settings.json` `effortLevel`, the project-wide depth lever left available under F6. F8: `model:` and `effort:` compose in one frontmatter file — the combination every roster agent ships under Option A. Both verified with the same forwarding-listener method as F1–F6. |
 | 2026-08-30 | CDT-230 — M8 widened to 10 mappable names (`finder`, `debugger` added) and now names all three duplicated enforcement points as one contract. M12 **replaced**: `effort:` frontmatter is REQUIRED on all 12 agents and must match the SPEC-003 § Tier table (was: prohibited); SPEC-003 stays SoT for both columns; `finder`/`debugger` tool floor added. M29 **replaced**: the frontmatter-absence assertion is deleted and inverted to a presence + Tier-table assertion; the `--effort` spawn-site assertions are deliberately RETAINED, since retiring the effort surface is a separate ticket. MUST NOT list: the struck effort-frontmatter line replaced with a positive prohibition on asserting its absence. M16 sites 3–5 re-pointed to `debugger` (premise) and `finder` (council Phase 2 / 2.5, bug-hunt S1 / S2), with an `ic5` host-reject fallback. Status stays DRAFT. |
@@ -579,7 +580,6 @@ amendment, and the surface retirement land as separate tickets.
 | 2026-08-26 | CDT-227 — M11 three-layer merge (local → repo → global); bad-value fallthrough; DEVTEAM_MODEL_* still ignored |
 | 2026-08-26 | CDT-226 — M16 remaining named-roster spawn surfaces; M15 covers M13 ∪ M16; M17 not orchestrate-only |
 | 2026-08-26 | Initial DRAFT — CDT-222 phase 1 local Model map + resolver + `/orchestrate` wiring |
-
 ## Cross-references
 
 - SPEC-003 — Tier default roster; shipped `model:` frontmatter

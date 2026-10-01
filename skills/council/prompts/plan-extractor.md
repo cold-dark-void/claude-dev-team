@@ -130,7 +130,7 @@ no markdown fences, no commentary.
 |---|---|---|
 | `{{PLAN_PATH}}` | string | engine — `plan.scope_arg` (path passed to `--plan`) |
 | `{{INPUT_TEXT}}` | string | orchestrator — raw plan file contents (no narrative) |
-| `{{CLAIM_BUDGET}}` | integer | preset — default 10 (SPEC-013 line 51) |
+| `{{CLAIM_BUDGET}}` | integer | preset — default 10 (SPEC-013 § Output Shapes) |
 
 ## Output schema
 

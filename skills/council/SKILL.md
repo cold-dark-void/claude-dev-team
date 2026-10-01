@@ -57,34 +57,34 @@ is a bug.
 - **Blindness.** Investigators, Prosecutor, Devil's Advocate, and the
   Domain Specialist MUST receive raw artifacts only (files, logs, diffs,
   plan text) — never prior assistant narrative, never prior verdicts, never
-  a paraphrase. (SPEC-013 line 56)
+  a paraphrase. (SPEC-013 § Output Shapes)
 - **Evidence-or-silence.** Every claim, finding, verdict, prosecutor line,
   and advocate line MUST be backed by an investigator `tool_use_id`. Lines
   without one MUST be struck. Struck lines MUST appear in the report audit
-  trail — never silently dropped. (SPEC-013 lines 43, 59, 76, 85)
+  trail — never silently dropped. (SPEC-013 § Engine Architecture)
 - **Judge cannot run tools.** Phase 5 routes to `agents/council-judge.md`,
   whose YAML frontmatter declares `tools: ""`. The empty allowlist is
   structurally enforced by the agent file — the engine does not attempt a
-  per-invocation override. (SPEC-013 lines 79–80, 86)
+  per-invocation override. (SPEC-013 § Council tiering)
 - **Tool_use_id required on every claim/finding line.** Missing = struck.
-  This is how "evidence-or-silence" is mechanized. (SPEC-013 lines 43, 59, 85)
+  This is how "evidence-or-silence" is mechanized. (SPEC-013 § Engine Architecture)
 - **Atomic index writes.** `.claude/council/index.json` is updated via
   tmp+rename under `flock`, delegated to `skills/council/index-writer.sh`.
   A concurrent reader (the TaskCompleted hook) MUST never observe a partial
-  write. (SPEC-013 line 101)
+  write. (SPEC-013 § Council tiering)
 - **Output shape branching.** `verdict[]` and `finding[]` are first-class;
   every preset MUST declare exactly one. Phase 5 output, Phase 6 report
   template, Phase 7 feedback memory, and the TaskCompleted gate all branch
-  on this field. (SPEC-013 lines 40–44, 82–83, 91, 105, 136)
+  on this field. (SPEC-013 § Engine Architecture)
 - **Pure auditor.** The council MUST NOT propose fixes, MUST NOT modify
   files, MUST NOT audit user-authored claims, MUST NOT run automatically on
-  every session or commit. (SPEC-013 lines 128–134)
+  every session or commit. (SPEC-013 § Council tiering)
 - **No persistent council roles.** Investigators, Prosecutor, and Advocate are
   ephemeral prompt-template variants injected into Task-tool subagent
   invocations, not entries in `agents/`. Phase 3 Domain Specialist reuses an
   existing team agent (`devops`/`ds`/`qa`/`pm`) as an investigator for one
   claim — still ephemeral for the run, not a new council agent file. The only
-  persistent council-specific agent is `council-judge`. (SPEC-013 lines 37, 134)
+  persistent council-specific agent is `council-judge`. (SPEC-013 § Command Shape & Scope)
 
 ---
 
@@ -215,8 +215,7 @@ translates the user surface into the engine's single `--scope <name>` — the
 engine itself takes one `--scope` value. `--blind` never reaches `engine.sh`
 preflight; it is orchestrated entirely by `commands/council.md` per §
 Blind-review path. A zero-scope invocation reaches the engine as an empty
-`--scope` and MUST exit non-zero with a clear stderr message. (SPEC-013
-lines 30–36, 191–211)
+`--scope` and MUST exit non-zero with a clear stderr message. (SPEC-013 § Command Shape & Scope)
 
 `--plan <path>` is live (CDV-208): missing/unreadable path → exit 2 with a clear
 stderr message; present path → preset `generic`, Phase 1 extraction via
@@ -268,9 +267,9 @@ resolution emits into the plan, not a file format:
 - **`diff-mode`** — `output_shape: finding[]`, flavors: `logic`, `security`,
   `compliance`, `quality`, `simplification` as investigators + jaded-senior /
   yolo-ic for prosecution/defense, `spec_grep: true`,
-  `feedback_memory_enabled: false` (SPEC-013 line 105; a code bug is not a
-  fabrication), `confidence_filter_threshold: 80` (SPEC-013 line 44,
-  SPEC-010 line 24).
+  `feedback_memory_enabled: false` (SPEC-013 § Council tiering; a code bug is not a
+  fabrication), `confidence_filter_threshold: 80` (SPEC-013 § Engine Architecture,
+  SPEC-010 § Code Review (review-and-commit)).
 
 **Light-tier flavor subsets (CDT-126).** `--tier light` narrows `flavor_list`
 only; every other preset field is untouched:
@@ -285,7 +284,7 @@ at all.
 
 ### Task-id resolution
 
-Fallback chain, evaluated left-to-right (SPEC-013 lines 119–120):
+Fallback chain, evaluated left-to-right (SPEC-013 § Council tiering):
 
 1. `--task-id <id>` command-line flag
 2. `CLAUDE_TASK_ID` environment variable
@@ -294,7 +293,7 @@ Fallback chain, evaluated left-to-right (SPEC-013 lines 119–120):
 This fallback chain applies ONLY to direct command-path invocations
 (`/council`, `/review-and-commit` → `engine.sh`). The SPEC-002 TaskCompleted
 hook uses its own stdin-based task-id resolution and does NOT participate in
-this fallback chain — the two paths are independent. (SPEC-013 line 125.)
+this fallback chain — the two paths are independent. (SPEC-013 § Council tiering.)
 
 When task-bound:
 - Report filename MUST include `--<task_id>` suffix (Phase 6).
@@ -307,8 +306,7 @@ When unbound:
 - Engine MUST NOT write to `.claude/council/index.json`.
 
 Orchestrated-task invocations rely on SPEC-009's `CLAUDE_TASK_ID` export
-(orchestrator's responsibility — not this engine's). Reference SPEC-009 line
-46; do not re-specify here.
+(orchestrator's responsibility — not this engine's). Reference SPEC-009 § Orchestrate; do not re-specify here.
 
 ---
 
@@ -330,7 +328,7 @@ For diff-mode only: run spec-grep over the changed file paths against
 `specs/**/*.md` MUST requirements and produce an "applicable-specs" bundle.
 This bundle is appended to the raw input that Phase 1 receives. The diff
 itself is the primary raw input; the spec bundle is context for claim
-extraction. (SPEC-013 line 48, SPEC-010 line 29, taxonomy resolution doc
+extraction. (SPEC-013 § Engine Architecture, SPEC-010 § Code Review (review-and-commit), taxonomy resolution doc
 section 1.)
 
 No user code runs in Phase 0. No subagents spawn. This phase is pure
@@ -343,14 +341,14 @@ validation + input assembly.
   slice and produces a list of load-bearing claims.
 - `--plan <path>`: extraction runs over the markdown plan file via
   `skills/council/prompts/plan-extractor.md`. Locators:
-  `<plan-file>:<heading-path>:<line>`. (SPEC-013 lines 27, 49; CDV-208.)
+  `<plan-file>:<heading-path>:<line>`. (SPEC-013 § Command Shape & Scope; CDV-208.)
 - `--diff` (diff-mode): extraction runs over the diff + applicable-specs
   bundle and produces candidate **findings** (not claims-as-assertions) —
-  the finding IS the assertion in diff-mode. (SPEC-013 line 48.)
+  the finding IS the assertion in diff-mode. (SPEC-013 § Engine Architecture.)
 - Single pasted claim (`"<claim>"`) and `--from-retro <anchor-id>`: extraction
   is SKIPPED — the claim is already isolated. For from-retro, claim text is
   `resolved_claim` from the anchor file; locator `retro:<anchor-id>`.
-  (SPEC-013 line 50; CDV-212.)
+  (SPEC-013 § Output Shapes; CDV-212.)
 
 **Output shape (structured records):**
 
@@ -372,7 +370,7 @@ and confidence.
 - When the extraction pass produces more than the budget, claims MUST be
   ranked by load-bearing weight (highest-stakes first) and truncated to the
   budget. The report MUST note the cap and list the un-audited claims.
-  (SPEC-013 lines 51–52.)
+  (SPEC-013 § Output Shapes.)
 
 **Implementation note:** claim extraction is performed by a Task-tool
 subagent. Session/diff use `skills/council/prompts/claim-extractor.md`;
@@ -396,12 +394,12 @@ prior verdicts.
   at Explore). Always inject the investigator prompt template + flavor delta;
   never rely on the agent definition's default persona alone.
 - **Minimum 2 investigators per claim with distinct flavor presets** (e.g.
-  `paranoid-ic` + one other) to defeat monoculture. (SPEC-013 line 60.)
+  `paranoid-ic` + one other) to defeat monoculture. (SPEC-013 § Council tiering.)
 - One task per claim per flavor — investigators MUST spawn in parallel
   within a single message, subject to Task-tool concurrency limits.
 - Investigators MUST NOT receive prior assistant narrative, prior verdicts,
   or prior advocate/prosecutor output. They see raw artifacts only.
-  (SPEC-013 line 56.)
+  (SPEC-013 § Output Shapes.)
 - Completion discipline (all council Task spawns): prompt MUST end with an
   explicit instruction to return the required JSON as the **final message**
   (not only via SendMessage/mailbox). Re-request at most twice on empty output
@@ -409,7 +407,7 @@ prior verdicts.
 
 **Tool allowlist (read-only):**
 `Read`, `Grep`, `Glob`, `Bash` for read commands only, MCP query tools.
-No Write, Edit, MultiEdit, no Bash mutating commands. (SPEC-013 line 57.)
+No Write, Edit, MultiEdit, no Bash mutating commands. (SPEC-013 § Council tiering.)
 This allowlist is injected into the Task prompt by the investigator prompt
 template; Task-tool spawns do not have per-invocation tool allowlists,
 so enforcement is prompt-level + strike-rule at evidence-bundle validation.
@@ -431,7 +429,7 @@ whitespace-only `tool_use_id` counts as missing (after strip). Engine-generated
 strike reasons APPEND to pre-existing `struck_lines` (never replace).
 Strike-and-continue (exit 0); do not invent IDs; do not exit 7 for missing tid.
 The engine MUST NOT accept a bundle that paraphrases a tool output instead of
-inlining the raw blob. (SPEC-013 line 59.)
+inlining the raw blob. (SPEC-013 § Council tiering.)
 
 **Intra-run tool-call cache (CDV-211; SPEC-013 SHOULD):** preflight creates
 `${TMPDIR:-/tmp}/council-cache-<run_id>/` with `reads/`, `greps/`, and
@@ -685,37 +683,34 @@ not shape-gated; the reviewer prompt is `prompts/cross-reviewer.md`).
   (`subagent_type: "dev-team:finder"` preferred; fallback `dev-team:ic5` →
   `general-purpose` — CDT-230), in parallel.
 - Each reviewer sees every bundle **EXCEPT its own** (self-exclusion) — never
-  investigator identities, prior narrative, or prior verdicts. (SPEC-013
-  lines 80–82.)
+  investigator identities, prior narrative, or prior verdicts. (SPEC-013 § Council tiering.)
 
 **Anonymization:** Bundles are stripped of investigator identity and assigned
 random labels (`A`, `B`, `C`, …). The `label → bundle` mapping is shuffled
-**independently per reviewer** to defeat position bias. (SPEC-013 line 80.)
+**independently per reviewer** to defeat position bias. (SPEC-013 § Council tiering.)
 
 **Tool allowlist:** Cross-reviewers MUST NOT run any tools — evaluation is over
-the submitted bundles only, never raw artifacts. (SPEC-013 line 82.)
+the submitted bundles only, never raw artifacts. (SPEC-013 § Council tiering.)
 
 **Aggregation (Borda count):** Each reviewer returns a `RANKING: X > Y > Z`
 line; an invalid/missing line is an abstain. Rankings are mapped back to bundle
 identities and summed into a Borda consensus score per bundle. The ranked list
 (stable-sorted, original submission order as tiebreaker) is passed to **Phase 4
-and Phase 5 ordered by Borda consensus rank, not submission order.** (SPEC-013
-lines 83–84.)
+and Phase 5 ordered by Borda consensus rank, not submission order.** (SPEC-013 § Council tiering.)
 
 **WEAK_EVIDENCE:** Bundles in the bottom Borda quartile (score ≤ the
 25th-percentile threshold) MUST be flagged `WEAK_EVIDENCE` in the report.
-(SPEC-013 line 85.)
+(SPEC-013 § Council tiering.)
 
 **Bypass:** When fewer than 3 investigators participate — or every reviewer
 response is rejected — Phase 2.5 is SKIPPED; bundles pass through in original
-submission order and the bypass reason is noted in the report. (SPEC-013
-line 86.)
+submission order and the bypass reason is noted in the report. (SPEC-013 § Council tiering.)
 
 `commands/council.md` stores the per-reviewer rankings and consensus scores for
 the `{{CROSS_REVIEW_RANKINGS}}` / `{{CROSS_REVIEW_SCORES}}` report variables
-(audit trail; SPEC-013 line 87).
+(audit trail; SPEC-013 § Council tiering).
 
-*Traceability:* SPEC-013 lines 79–86. Phase 2.5 is live; Phase 3 specialist
+*Traceability:* SPEC-013 § Council tiering. Phase 2.5 is live; Phase 3 specialist
 bundles (when pulled) join the set before cross-review.
 
 ### Phase 3 — Domain Specialist (CDV-209)
@@ -769,14 +764,14 @@ synthesizes, stubs, or empty-strings a brief the run did not produce.
 **Spawn contract (verdict[]-shape):**
 - Spawn exactly **one** Prosecutor (flavor: `jaded-senior`) and exactly
   **one** Devil's Advocate (flavor: `yolo-ic`) per council run, in parallel.
-  (SPEC-013 line 72.) Prefer `subagent_type: "dev-team:ic5"` (CDT-133);
+  (SPEC-013 § Council tiering.) Prefer `subagent_type: "dev-team:ic5"` (CDT-133);
   fallback `general-purpose`.
 - Both roles are **BLIND to the original claims.** They receive **ONLY the
   evidence bundles** — not the original claim list, not the prior narrative,
   not each other's output. Each role reconstructs the set of claims under
   audit from the `claim_id` carried inside each bundle; it is never handed a
   separate claims list. Prosecution and defense operate on evidence alone.
-  (SPEC-013 lines 89–94.)
+  (SPEC-013 § Council tiering.)
 
 **Output contract:**
 - Prosecutor produces a brief: each claim → evidence against → requested
@@ -785,7 +780,7 @@ synthesizes, stubs, or empty-strings a brief the run did not produce.
   verdict.
 - Both roles MUST NOT assert a fact unbacked by an investigator
   `tool_use_id`. Any such line MUST be struck by the engine before Phase 5.
-  (SPEC-013 line 76.)
+  (SPEC-013 § Council tiering.)
 
 The single role-parameterized prompt template `prompts/phase4-brief.md`
 encodes these constraints; the engine spawns it twice (as Prosecutor and as
@@ -794,8 +789,7 @@ Devil's Advocate).
 ### Phase 5 — Judgment
 
 **Agent:** `agents/council-judge.md`. Structurally
-forbidden from running tools via `tools: ""` in YAML frontmatter. (SPEC-013
-lines 79–80, 86.) **Model map:** resolve `council-judge` first (canonical
+forbidden from running tools via `tools: ""` in YAML frontmatter. (SPEC-013 § Council tiering.) **Model map:** resolve `council-judge` first (canonical
 fence in § Model map). Mapping its model MUST NOT add tools.
 
 **Engine passes to the Judge** (plan key `phases.5_judgment.inputs` is the
@@ -846,23 +840,21 @@ finding := {
 
 The fixed taxonomies above are enforced by the engine: any verdict with a
 value outside the five-term set MUST be rejected and struck; any finding
-with a severity outside the three-term set MUST be struck. (SPEC-013 lines
-82–83.)
+with a severity outside the three-term set MUST be struck. (SPEC-013 § Council tiering.)
 
 **Strike rule (engine-enforced after Judge returns):**
 - Any verdict or finding line missing an inline raw evidence blob MUST be
-  struck. (SPEC-013 line 85.)
+  struck. (SPEC-013 § Council tiering.)
 - Any line whose quoted citation does not appear verbatim in the provided
   raw blob MUST be struck.
-- Any line missing a `tool_use_id` (for findings) MUST be struck. (SPEC-013
-  line 43.) Absent, `null`, empty, or whitespace-only `tool_use_id` counts as
+- Any line missing a `tool_use_id` (for findings) MUST be struck. (SPEC-013 § Output Shapes.) Absent, `null`, empty, or whitespace-only `tool_use_id` counts as
   missing (after strip). Engine-generated strike reasons APPEND to pre-existing
   `struck_lines` (never replace). Strike-and-continue (exit 0); do not invent
   IDs; do not exit 7 for missing tid.
 - Any line making a factual assertion not traceable to any evidence bundle
   MUST be struck.
 - Struck lines MUST be preserved in an "audit trail" section of the report,
-  never silently dropped. (SPEC-013 SHOULD line 146; treated as hard AC.)
+  never silently dropped. (SPEC-013 § Council tiering; treated as hard AC.)
 
 The Judge reasoning is documented in `agents/council-judge.md` and the
 `prompts/judge.md` template. This SKILL only documents what the engine
@@ -875,12 +867,12 @@ passes to and expects from the Judge — not how it decides.
 - Unbound: `.claude/council/<YYYY-MM-DD>-<slug>[-<N>].md`
 - Task-bound: `.claude/council/<YYYY-MM-DD>-<slug>--<task_id>[-<N>].md`
 
-(SPEC-013 lines 89, 96–97.)
+(SPEC-013 § Council tiering.)
 
 `<slug>` is a short kebab-case tag derived from the scope (e.g.
 `session-last-20`, `diff-staged`, `claim-<first-5-words>`). The engine MUST
 create the `.claude/council/` parent directory if absent. The engine MUST
-resolve `$MROOT` with the worktree-aware formula (SPEC-013 line 93):
+resolve `$MROOT` with the worktree-aware formula (SPEC-013 § Council tiering):
 
 ```
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -975,7 +967,7 @@ Both shapes MUST include: scope, extracted claims (or candidate findings),
 investigator flavors used, evidence bundles (inlined raw blobs), Prosecutor
 brief, Devil's Advocate brief, per-claim verdict or per-finding entry with
 confidence + raw evidence, a **struck-lines audit trail** section.
-(SPEC-013 line 90.)
+(SPEC-013 § Council tiering.)
 
 - `verdict[]` template (`templates/report-verdict.md`): verdict summary
   grouped by taxonomy (VERIFIED / PARTIALLY_VERIFIED / UNVERIFIED /
@@ -983,7 +975,7 @@ confidence + raw evidence, a **struck-lines audit trail** section.
 - `finding[]` template (`templates/report-finding.md`): findings summary
   grouped by severity (critical / warning / nitpick counts).
 
-(SPEC-013 line 91.)
+(SPEC-013 § Council tiering.)
 
 **Stdout summary (engine prints this after writing the report):**
 
@@ -1001,7 +993,7 @@ Tokens:                         # CDV-204; only when --tokens-file usable
   Total: <int>
 ```
 
-(SPEC-013 line 92; CDV-199 adds `verification_mode=`; CDV-204 optional Tokens;
+(SPEC-013 § Council tiering; CDV-199 adds `verification_mode=`; CDV-204 optional Tokens;
 CDT-126 adds `council_tier=` — printed only when the run graded to `light`,
 never for `full`, keeping `full`'s stdout byte-identical.)
 
@@ -1074,8 +1066,7 @@ After the report file is written, the engine MUST append a row to
 `.claude/council/index.json` by shelling out to
 `skills/council/index-writer.sh`. The engine MUST NOT
 open, read, or write `index.json` directly — `index-writer.sh` is the sole
-writer and owns the atomic tmp+rename + `flock` semantics. (SPEC-013 lines
-98–101.)
+writer and owns the atomic tmp+rename + `flock` semantics. (SPEC-013 § Council tiering.)
 
 Index row schema (produced by `index-writer.sh`):
 
@@ -1099,7 +1090,7 @@ Per-shape population rule:
 - `verdict[]` runs: `max_verdict_confidence` = `max(confidence)` across all
   unstruck verdicts; `max_finding_confidence = null`.
 - `finding[]` runs: `max_finding_confidence` = `max(confidence)` across all
-  unstruck findings; `max_verdict_confidence = null`. (SPEC-013 line 102.)
+  unstruck findings; `max_verdict_confidence = null`. (SPEC-013 § Council tiering.)
 
 **Index confidence normalization (CDT-181):** engine max pipelines end with
 `| floor` so argv is integer text; `index-writer.sh` also floors float argv
@@ -1118,14 +1109,14 @@ SPEC-002; this SKILL does not re-specify it.
 
 **Hard rule:** The engine MUST NOT fall back to filename scanning of
 `.claude/council/*.md` if the index is missing or unreadable. A missing
-index row is a hard miss. (SPEC-013 line 124.)
+index row is a hard miss. (SPEC-013 § Council tiering.)
 
 ### Phase 7 — Learning Loop (Feedback Memory)
 
 **Scope:** `verdict[]`-shape presets ONLY. `finding[]`-shape presets (i.e.
 `diff-mode`) MUST NOT trigger feedback memory writes. Additionally, any
 preset with `feedback_memory_enabled: false` MUST skip this phase entirely.
-(SPEC-013 line 105.)
+(SPEC-013 § Council tiering.)
 
 **Trigger thresholds (configurable via `.claude/settings.json`):**
 
@@ -1134,7 +1125,7 @@ preset with `feedback_memory_enabled: false` MUST skip this phase entirely.
 | `council.feedback.fabricated_min` | 70 | Auto-write on `verdict == FABRICATED && confidence >= 70` |
 | `council.feedback.unverified_min` | 85 | Auto-write on `verdict == UNVERIFIED && confidence >= 85` |
 
-(SPEC-013 lines 106–107, 111.)
+(SPEC-013 § Council tiering.)
 
 **Feedback memory entry structure (required fields):**
 
@@ -1146,16 +1137,16 @@ preset with `feedback_memory_enabled: false` MUST skip this phase entirely.
 - How to apply: "<one-line rule the agent should adopt>"
 ```
 
-(SPEC-013 line 108.)
+(SPEC-013 § Council tiering.)
 
 **Routing:**
 - **Plain-Claude subject** (no team agent authored the claim): append the
-  entry to `$MROOT/.claude/memory/claude/lessons.md`. (SPEC-013 line 109.)
+  entry to `$MROOT/.claude/memory/claude/lessons.md`. (SPEC-013 § Council tiering.)
 - **Team-agent subject** (claim authored by pm / tech-lead / ic5 / ic4 /
   devops / qa / ds): route through `/adjust-agent <agent> --apply` — this
   preserves SPEC-001 conflict detection and SPEC-012 routing convention.
   The engine MUST NOT write directly to `.claude/memory/<agent>/directives.md`.
-  (SPEC-013 line 110.)
+  (SPEC-013 § Council tiering.)
 
 Detection of "who authored the claim" is done at Phase 1 extraction time
 using source locators (turn metadata / agent attribution on the transcript
@@ -1179,7 +1170,7 @@ tool_allowlist: [Read, Grep, Glob, Bash]   # prompt-level only
 ---
 ```
 
-(SPEC-013 line 36.)
+(SPEC-013 § Command Shape & Scope.)
 
 **Body:** a Markdown system-prompt delta. The engine injects this body into
 the role's base prompt template via a `{{FLAVOR_DELTA}}` placeholder. Keep

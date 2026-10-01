@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # detached-stub-test.sh — CDT-204 / SPEC-018 M19.11 Test 39 stub contract.
+# covers: SPEC-018/T39
 # Static greps + Step 1 fence extract, plus end-to-end fence runs against the
 # shared stub plugin root (skills/handoff/fixtures/fence-harness.sh — T2/DD3).
 # The Step 1 fence is now the sole parent fence (parse through prepare folded

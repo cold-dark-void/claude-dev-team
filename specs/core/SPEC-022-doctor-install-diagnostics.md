@@ -118,22 +118,22 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
 
 | Date | Change |
 |------|--------|
-| 2026-07-03 | Initial DRAFT — ideation wave 2 |
-| 2026-07-14 | ACTIVE (CDV-191): `commands/doctor.md` + `skills/doctor/doctor.sh` + test harness; naming lock `dev-team:doctor`; OQs deferred (`/release` preflight, `--probe`) |
-| 2026-07-21 | CDT-46-C2: removed the `deps.opencode` / `deps.bwrap` optional-dep checks and the `LOCAL_AGENT` preflight surface (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Optional-deps set is now `jq` / `python3` / `gh`; dropped the SPEC-019 boundary bullet and cross-reference. Status stays ACTIVE. |
+
+**Covers**: `commands/doctor.md`, `skills/doctor/doctor.sh`, `skills/doctor/SKILL.md`, `skills/doctor/test.sh`
+
+| 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262): **M2j** — `memory.embed_errors` (group `memory`). Counts (with `embed_error_count` from `embed-common.sh`) the `embed` lines of `<MROOT>/.claude/memory/.errors.log` that `embed-one.sh` and `migrate-md.sh` append for every failed embed (SPEC-004); PASS / WARN / SKIP, never FAIL; read-only; prints no log detail. Test 18. Status stays ACTIVE. |
+| 2026-08-26 | CDT-228: **M2i** — `models.map` (group `config`); WARN never FAIL; `--fix` MUST NOT rewrite the map. Test 17. Status stays ACTIVE. |
+| 2026-08-25 | CDT-221: **M2h** — `transcript.mirror_lag` (group `transcript`); maps `transcript-sync --check` stdout; WARN never FAIL; `--fix` allowlist unchanged. Test 16. Status stays ACTIVE. |
+| 2026-08-06 | CDT-131: M2a version check is a **pair** (plugin.json ↔ CHANGELOG); marketplace `plugins[].version` no longer required. Check id remains `version.triplet` for caller stability; detail text describes the pair. |
+| 2026-07-22 | CDT-77: **M2c″** — `hooks.hygiene` managed-only (EXPECTED_HOOK_SCRIPTS identity; user-owned pathless/custom silent); M4 honesty: `/setup orchestration` fix-it only for managed findings; Test 5 amended. Status stays ACTIVE. |
+| 2026-07-22 | CDT-78: **settings.sandbox_runtime** functional bwrap init probe (WARN-only; config coherence unchanged). Status stays ACTIVE. |
 | 2026-07-22 | CDT-51 / CDT-46-C5: **M6b** — callers MAY gate on exit codes (≤1 proceed, 2 block); doctor stays non-bootstrap (M8); harness `/doctor` vs `dev-team:doctor` disambiguation restated; fix-it pointer `/setup orchestration`. Status stays ACTIVE. |
 | 2026-07-22 | CDT-54 / CDT-46-C8: **M2c′** — hooks expected on project path after `/setup orchestration`; no FAIL for missing package-tracked live hooks; M9 SoT = init-orch templates only (dual-copy gate retired). Status stays ACTIVE. |
 | 2026-07-22 | CDT-53 reflect: primary fix-it / bootstrap entry names → `/setup team` · `/setup orchestration` (stubs until v1.1). Status stays ACTIVE. |
 | 2026-07-22 | CDT-67: **M6c** gate-mode self-remediation (`--gate=orchestration|team`; exact fixit match; status stays FAIL; waived FAILs exit 1 not 2); M6b caller `--gate` pointer. Status stays ACTIVE. |
-| 2026-07-22 | CDT-77: **M2c″** — `hooks.hygiene` managed-only (EXPECTED_HOOK_SCRIPTS identity; user-owned pathless/custom silent); M4 honesty: `/setup orchestration` fix-it only for managed findings; Test 5 amended. Status stays ACTIVE. |
-| 2026-07-22 | CDT-78: **settings.sandbox_runtime** functional bwrap init probe (WARN-only; config coherence unchanged). Status stays ACTIVE. |
-| 2026-08-25 | CDT-221: **M2h** — `transcript.mirror_lag` (group `transcript`); maps `transcript-sync --check` stdout; WARN never FAIL; `--fix` allowlist unchanged. Test 16. Status stays ACTIVE. |
-| 2026-08-26 | CDT-228: **M2i** — `models.map` (group `config`); WARN never FAIL; `--fix` MUST NOT rewrite the map. Test 17. Status stays ACTIVE. |
-| 2026-08-06 | CDT-131: M2a version check is a **pair** (plugin.json ↔ CHANGELOG); marketplace `plugins[].version` no longer required. Check id remains `version.triplet` for caller stability; detail text describes the pair. |
-| 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262): **M2j** — `memory.embed_errors` (group `memory`). Counts (with `embed_error_count` from `embed-common.sh`) the `embed` lines of `<MROOT>/.claude/memory/.errors.log` that `embed-one.sh` and `migrate-md.sh` append for every failed embed (SPEC-004); PASS / WARN / SKIP, never FAIL; read-only; prints no log detail. Test 18. Status stays ACTIVE. |
-
-**Covers**: `commands/doctor.md`, `skills/doctor/doctor.sh`, `skills/doctor/SKILL.md`, `skills/doctor/test.sh`
-
+| 2026-07-21 | CDT-46-C2: removed the `deps.opencode` / `deps.bwrap` optional-dep checks and the `LOCAL_AGENT` preflight surface (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Optional-deps set is now `jq` / `python3` / `gh`; dropped the SPEC-019 boundary bullet and cross-reference. Status stays ACTIVE. |
+| 2026-07-14 | ACTIVE (CDV-191): `commands/doctor.md` + `skills/doctor/doctor.sh` + test harness; naming lock `dev-team:doctor`; OQs deferred (`/release` preflight, `--probe`) |
+| 2026-07-03 | Initial DRAFT — ideation wave 2 |
 ## Cross-references
 
 - **SPEC-002** — Plugin Infrastructure: version-pair rule, manifest layout, settings/sandbox baseline, `TaskCompleted` hook contract (`/doctor` verifies, never redefines).

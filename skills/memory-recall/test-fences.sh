@@ -118,6 +118,7 @@ run_fence() {
 out_has() { grep -qF -- "$1" "$2.out"; }
 out_lacks() { ! grep -qF -- "$1" "$2.out"; }
 
+# covers: SPEC-006/T1
 # ---- Step 3: keyword search, LIKE escaped ------------------------------------
 QUERY_TEXT='100%' run_fence "$STEP3" "$REPO" "$WORK/s3a"
 check "Step 3: query '100%' exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]

@@ -106,17 +106,17 @@ The pack is a **transport format, not a second memory system**. Everything about
 
 | Date | Change |
 |------|--------|
+
+**Covers**: `/memory export` (`commands/memory.md`), `commands/setup team.md` (Step 5.5 import), `agents/project-init.md` (seed awareness), `skills/memory-store/{export,import}-seed-pack.sh`, `skills/memory-store/seed-common.sh`, `skills/memory-store/test-seed-pack.sh`, `skills/memory-store/SKILL.md` (M5 host-script note), `.claude/memory/seed/` (emitted pack layout: `<agent>.md` + `manifest.json`).
+
 | 2026-08-09 | CDT-194: M8 — empty/missing file-level `content_hash` is a hard reject (no soft-skip). M12 — manifest keys must be byte-exact `<agent>.md` (no newline/TAB); reject control-char keys before the import side-channel so content-hash is never skipped; trailer `agent=` roster policy folded to M8 ref; symlink warnings name symlink not roster. Test 15 + validation bullets. Status stays ACTIVE. |
 | 2026-08-09 | CDT-193: add M13 — trailer `agent=` MUST equal the manifest-file agent (filename stem); mismatch rejects the entry (no rebind to either agent), warning names both ids, fail-open exit 0. Test 14 + validation bullets. Status stays ACTIVE. |
 | 2026-08-08 | CDT-174: add M12 — manifest keys and trailer `agent=` validated against the `seed_agents()` roster before any path join, plus symlink refusal at both import sinks. Closes a `SEED_DIR` read escape and a hash-free fallback write primitive (M3 excludes the trailer from the entry hash). Status stays ACTIVE. |
 | 2026-08-08 | CDT-176: M8 extended — pack-supplied agent id MUST pass the `seed_agents` closed-set allowlist before reaching SQL or a filesystem path; acceptance criterion 13 added. Status stays ACTIVE. |
 | 2026-07-22 | CDT-46-C3: retarget Covers + in-body surfaces `/memory-export` → `/memory export`, `/validate-memory` → `/memory validate` (`commands/memory.md`). Status stays ACTIVE. |
+| 2026-07-22 | CDT-53 reflect: primary entry `/init-team` → `/setup team` (stub until v1.1). Status stays ACTIVE. |
 | 2026-07-14 | ACTIVE — CDV-194 implementation (export/import scripts, `/memory-export`, init-team Step 5.5) |
 | 2026-07-03 | Initial DRAFT — ideation wave 2 |
-| 2026-07-22 | CDT-53 reflect: primary entry `/init-team` → `/setup team` (stub until v1.1). Status stays ACTIVE. |
-
-**Covers**: `/memory export` (`commands/memory.md`), `commands/setup team.md` (Step 5.5 import), `agents/project-init.md` (seed awareness), `skills/memory-store/{export,import}-seed-pack.sh`, `skills/memory-store/seed-common.sh`, `skills/memory-store/test-seed-pack.sh`, `skills/memory-store/SKILL.md` (M5 host-script note), `.claude/memory/seed/` (emitted pack layout: `<agent>.md` + `manifest.json`).
-
 ## Cross-references
 
 - **SPEC-004** — Memory Storage & Migration: import writes exclusively via the memory-store protocol; no schema change (type CHECK untouched; provenance in trailer + `metadata_json`); fallback line limits govern M10.

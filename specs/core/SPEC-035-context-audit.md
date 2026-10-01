@@ -86,14 +86,14 @@ hygiene. Skill splits and handoff packet fields are separate workstreams
 
 | Date | Change |
 |------|--------|
-| 2026-08-16 | Initial DRAFT — CDT-200 /audit v1 (CDT-196-C4) |
-| 2026-08-16 | Promoted ACTIVE on v1.8.0 land |
-| 2026-08-16 | CDT-201: M4 `~/.grok` user-global + MROOT from `--cwd`; M7 `realpath` + `--yes` for `~/.grok`; M9 `--json` stdout JSON-only |
 
 **Covers**: `commands/audit.md`, `skills/audit/SKILL.md`, `skills/audit/audit.sh`,
 `skills/audit/apply.py`, `skills/audit/from-session.sh`, `skills/audit/test.sh`,
 `docs/commands/audit.md`
 
+| 2026-08-16 | Initial DRAFT — CDT-200 /audit v1 (CDT-196-C4) |
+| 2026-08-16 | Promoted ACTIVE on v1.8.0 land |
+| 2026-08-16 | CDT-201: M4 `~/.grok` user-global + MROOT from `--cwd`; M7 `realpath` + `--yes` for `~/.grok`; M9 `--json` stdout JSON-only |
 ## SHOULD
 
 - SHOULD emit `--json` with `audit_schema: "1"` for agent apply payloads

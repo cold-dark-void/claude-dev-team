@@ -5,7 +5,7 @@ description: |
   assertions from a raw transcript, plan, or diff and emits a ranked JSON
   list of claims. Invoked as a blind Task-tool subagent — sees raw input
   only, never prior assistant narrative or verdicts. Enforces SPEC-013
-  claim budget and source-locator requirements (SPEC-013 lines 46-52).
+  claim budget and source-locator requirements (SPEC-013 § Engine Architecture).
 ---
 
 # claim-extractor prompt template
@@ -144,7 +144,7 @@ no markdown fences, no commentary.
 |---|---|---|
 | `{{SCOPE_TYPE}}` | string | engine — one of `claim`, `session`, `diff` |
 | `{{INPUT_TEXT}}` | string | engine — raw transcript slice, diff, or plan text (no narrative) |
-| `{{CLAIM_BUDGET}}` | integer | preset — default 10 (SPEC-013 line 51) |
+| `{{CLAIM_BUDGET}}` | integer | preset — default 10 (SPEC-013 § Output Shapes) |
 
 ## Output schema
 
@@ -173,4 +173,4 @@ The engine MUST reject the response and exit non-zero if:
 7. Any `claim` text is not a substring (modulo whitespace) of `INPUT_TEXT`.
    This is how fabrication is mechanized out.
 
-Enforces SPEC-013 lines 46-52 (Phase 1 claim extraction, budget, ranking).
+Enforces SPEC-013 § Engine Architecture (Phase 1 claim extraction, budget, ranking).

@@ -10,6 +10,7 @@
 #        with --range, and never --commit HEAD.
 #   B5 — the all-tests job has fetch-depth: 0 (suites read pinned base commits).
 #   B6 — the fence-exec job runs `bash tools/fence-exec/run.sh` (CDT-272).
+#   B7 — the spec-lint job runs `bash tools/spec-lint.sh` (CDT-273).
 #
 # Bash + grep/awk only. Hermetic: no writes outside mktemp.
 set -u
@@ -154,6 +155,19 @@ check_workflow() {
   elif ! printf '%s\n' "$fe_block" | grep -qE 'run:[[:space:]]*bash tools/fence-exec/run\.sh[[:space:]]*$'; then
     echo "FAIL: B6: fence-exec job does not run bash tools/fence-exec/run.sh"
   fi
+
+  # --- B7: the spec-lint job runs the spec gate (CDT-273). ---
+  local sl_block
+  sl_block=$(awk '
+    /^  spec-lint:$/ { on=1; next }
+    on && /^  [A-Za-z0-9_-]+:$/ { exit }
+    on { print }
+  ' "$file")
+  if [ -z "$sl_block" ]; then
+    echo "FAIL: B7: no spec-lint job found"
+  elif ! printf '%s\n' "$sl_block" | grep -qE 'run:[[:space:]]*bash tools/spec-lint\.sh[[:space:]]*$'; then
+    echo "FAIL: B7: spec-lint job does not run bash tools/spec-lint.sh"
+  fi
 }
 
 run_check() { # run_check LABEL FILE — runs check_workflow, counts FAILs.
@@ -176,7 +190,7 @@ LIVE="$REPO_ROOT/.github/workflows/smoke.yml"
 
 # --- Live check: the real workflow must be clean. ---
 if run_check "live" "$LIVE"; then
-  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6 violations"
+  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6/B7 violations"
 else
   echo "FAIL: live smoke.yml has violations (see above)"
 fi
@@ -222,6 +236,12 @@ bite "no-fence-exec" '/^  fence-exec:$/,/^$/d' "B6"
 
 # Point the fence-exec job at another command.
 bite "fence-exec-wrong-command" 's#bash tools/fence-exec/run\.sh#bash tools/smoke/run.sh#' "B6"
+
+# Drop the spec-lint job.
+bite "no-spec-lint" '/^  spec-lint:$/,/^$/d' "B7"
+
+# Point the spec-lint job at another command.
+bite "spec-lint-wrong-command" 's#bash tools/spec-lint\.sh#bash tools/smoke/run.sh#' "B7"
 
 if [ "$FAIL_COUNT" -eq 0 ]; then
   echo "PASS: ci-workflow-test"

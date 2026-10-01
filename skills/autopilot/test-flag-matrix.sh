@@ -59,6 +59,7 @@ run_row() {
 # skills/autopilot/parse-flags.sh — SPEC-033 M16
 # =============================================================================
 
+# covers: SPEC-033/T1
 # ---- duplicate: --autopilot / --autopilot=* (both orders) -------------------
 run_row "ap-dup1 --autopilot=patch --autopilot" "$AUTOPILOT_PARSE" 64 - \
   --autopilot=patch --autopilot

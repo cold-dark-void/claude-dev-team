@@ -134,14 +134,14 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 
 | Date | Change |
 |------|--------|
-| 2026-07-22 | CDT-52 / CDT-46-C6: verify-keep ACTIVE; metrics emit/outcome-rates + orchestrate advisory present. |
-| 2026-07-03 | Initial DRAFT — ideation wave 2 |
-| 2026-07-14 | CDV-185: path-cherry-pick; OQ1–OQ6 locks; stint-end emit timing; council_overturns = index conf null or &lt; taskgate; status DRAFT→ACTIVE |
-| 2026-07-21 | CDT-46-C2: ledger-source list narrowed — `/local-do` + local-agent escalation producers removed (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Dropped `commands/local-do.md` from Covers and the local source test; `local` agent enum retained without a producer; SPEC-019 references retagged as historical format-exemplar. M8 advisory scope now ic4 ⇄ ic5 only. Status stays ACTIVE. |
-| 2026-07-22 | CDT-46-C4: display entry for rollup noted as `/status metrics` (former `/metrics` Deprecation stub). Write-path ownership unchanged. |
 
 **Covers**: `skills/metrics/emit-outcome.sh`, `skills/metrics/outcome-rates.sh`, `skills/metrics/test.sh` (or equivalent bite harness), `skills/orchestrate/steps/07-tasks.md` (Step-7 advisory) + `skills/orchestrate/steps/08-execute.md` (stint-end emit; SKILL.md is the CDT-199 router), `specs/TDD.md` (index row) — planned/landing with CDV-185. Standup surface is SHOULD (optional).
 
+| 2026-07-22 | CDT-52 / CDT-46-C6: verify-keep ACTIVE; metrics emit/outcome-rates + orchestrate advisory present. |
+| 2026-07-22 | CDT-46-C4: display entry for rollup noted as `/status metrics` (former `/metrics` Deprecation stub). Write-path ownership unchanged. |
+| 2026-07-21 | CDT-46-C2: ledger-source list narrowed — `/local-do` + local-agent escalation producers removed (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Dropped `commands/local-do.md` from Covers and the local source test; `local` agent enum retained without a producer; SPEC-019 references retagged as historical format-exemplar. M8 advisory scope now ic4 ⇄ ic5 only. Status stays ACTIVE. |
+| 2026-07-14 | CDV-185: path-cherry-pick; OQ1–OQ6 locks; stint-end emit timing; council_overturns = index conf null or &lt; taskgate; status DRAFT→ACTIVE |
+| 2026-07-03 | Initial DRAFT — ideation wave 2 |
 ## Cross-references
 
 - **SPEC-003** — Agent Role System: capability boundaries authoritative; ledger tunes routing within them (M8).

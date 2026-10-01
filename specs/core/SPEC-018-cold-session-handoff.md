@@ -299,10 +299,28 @@ Goal: the slash command is a small parent stub. `mode=direct` mines off the pare
 
 ---
 
+## Traceability
+
+The numbered Test section above is the acceptance map. This table is the script map for the tests that name a suite. Id form for a tag is `SPEC-018/T39`.
+
+| Test | Script |
+|------|--------|
+| 11c | `skills/handoff/grok-to-claude-jsonl-test.sh`, `skills/handoff/discover-warm-test.sh` |
+| 24 | `skills/handoff/spawn-model-ac-test.sh`, `skills/handoff/light-gates-test.sh` |
+| 35 | `skills/handoff/discover-warm-test.sh` |
+| 36 | `skills/handoff/assemble-test.sh`, `skills/handoff/light-preset-test.sh` |
+| 37 | `skills/handoff/assemble-quality-test.sh` |
+| 38 | `skills/handoff/assemble-quality-test.sh` |
+| 39 | `skills/handoff/detached-stub-test.sh`, `skills/handoff/detached-packet-test.sh` |
+| 40 | `skills/handoff/mirror-spine-test.sh` |
+
+---
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 2-03: `## Traceability` holds the Test→script map. `SPEC-018/T39` is tagged on `skills/handoff/detached-stub-test.sh`. |
 | 2026-09-25 | **WP 1-02 (CDT-266, W1-27, E5):** M19.11 one parent fence (parse through prepare in the Step 1 fence; quoted-heredoc args; bare → warm); `mktemp` error file; python3 plan helper replaces `jq`; payload echo carries `SPINE=`; full 8-4-4-4-12 uuid shape; cache-HIT / M9 strings match the docs page. Unknown flag stays usage + exit 0 (this spec wins over the W1-27 "exit 64" ask). 12000 B cap unchanged. |
 | 2026-08-26 | **CDT-216:** M3f Transcript mirror consume — `--check --sid` `status=ok` MAY replace M2 render with stripped `main.md`; `leaf_uuid` stays JSONL tip; `plan.spine_origin=mirror` on hit only; fork/delta/`--full`/not-ok → JSONL identity; cursor ≠ leaf; OQ-H hybrid OUT; OQ-F stitch out (force JSONL); OQ-K sid = handoff id; Test 40 |
 | 2026-08-21 | **CDT-204:** M19 detached orchestrator — parent stub parse/discover/prepare then `plan.mode` branch; `mode=direct` one background agent Reads skill from disk and IS the miner (INLINE) + bare-warm annotation (INLINE); chunked / host-cannot-spawn → in-session parallel N haiku map (locked); `--miner-model` applies to the one agent `model:`; command ≤12000 bytes; one-turn lag honesty; Test 39; Test 24 retarget |
@@ -315,19 +333,19 @@ Goal: the slash command is a small parent stub. `mode=direct` mines off the pare
 | 2026-07-27 | **CDT-91:** M10c light warm preset — haiku miner + no annotation + optional spine 40k; `light: true` meta; `-draft` file; **no M8 cache write**; Supersedes includes drafts; AC-16 exclude; patch 1.1.7. Tests 29–33 |
 | 2026-07-27 | **CDT-88:** M8b delta-mine re-capture — cache `events` stem map; warm spine since cached leaf when events present; assemble prior+delta merge (generation order + existing dedup); full fallback; no packet parse; `--full`/`HANDOFF_FULL`; cold HIT unchanged. M3b amend: miner MAY take delta spine; still one merged miner; assemble sole merge SoT. Tests 25–28. M10c light preset claimed under CDT-91 |
 | 2026-07-27 | **CDT-90:** M3e spawn model tiers — chunk + annotation haiku; merged miner session-inherit + `HANDOFF_MINER_MODEL` opt-in; effort optional; parent stays session tier; `HANDOFF_SPINE_TOKENS` default 120000; Test 24 |
-| 2026-06-04 | Initial spec (cold handoff brainstorm) |
-| 2026-06-04 | M10 warm + M11 consolidation (CDV-10) |
-| 2026-06-04 | M1 mechanism corrected (CDV-10 GATE-1) |
-| 2026-06-05 | Implemented CDV-10; ACTIVE |
-| 2026-06-05 | Cache eviction (HOFF-EVICT) |
-| 2026-06-15 | Editorial hygiene AUDIT-P3.5b |
-| 2026-07-03 | PreCompact extension DRAFT |
-| 2026-07-14 | PreCompact M12–M18 implemented (CDV-182) |
-| 2026-07-14 | CDV-205 sidechain signal reconstruction |
-| 2026-07-22 | CDT-54 M13 template SoT |
 | 2026-07-27 | **CDT-89:** M3b single merged miner — one Task, one spine read, both `through_line.json` + `state.json`; MUST NOT two full-spine miners; fan-out 1 Task; finalize/assemble two-file contract unchanged |
 | 2026-07-27 | **CDT-92 follow-up:** Grok step-3 cwd-newest gated when live Claude env present; `is_grok_chat_history` scoped under sessions root; dual-present discover tests |
 | 2026-07-27 | **CDT-92:** M10b Grok warm host + `chat_history`→Claude adapter; dual-host discover (explicit Grok / cwd-newest over stale Claude bridge); Test 11c |
 | 2026-07-26 | **CDT-85:** M10b session-id bridge + AC-16 honesty — `.live-session.json`, packet `mode: warm|cold`, fail (not freeform) when session id missing; warm dogfood runbook gate explicit; no AC-16 3/3 warm claim from cold-only |
 | 2026-07-26 | **CDT-80:** M7b target-session write root — packet/cache/git from target project via `resolve-root.sh`, not invoker cwd; fail hard if undetermined |
 | 2026-07-23 | **CDT-79 major rework:** STM packet / compact seed; spine-mine; event assemble; State now; M4/M6/M7/M10/M11 rewrite; M14 warm carve-out; five-section brief retired; PreCompact remains spine rescue |
+| 2026-07-22 | CDT-54 M13 template SoT |
+| 2026-07-14 | CDV-205 sidechain signal reconstruction |
+| 2026-07-14 | PreCompact M12–M18 implemented (CDV-182) |
+| 2026-07-03 | PreCompact extension DRAFT |
+| 2026-06-15 | Editorial hygiene AUDIT-P3.5b |
+| 2026-06-05 | Cache eviction (HOFF-EVICT) |
+| 2026-06-05 | Implemented CDV-10; ACTIVE |
+| 2026-06-04 | M10 warm + M11 consolidation (CDV-10) |
+| 2026-06-04 | M1 mechanism corrected (CDV-10 GATE-1) |
+| 2026-06-04 | Initial spec (cold handoff brainstorm) |

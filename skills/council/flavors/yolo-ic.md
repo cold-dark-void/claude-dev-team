@@ -10,7 +10,7 @@ tool_allowlist: []
 System-prompt delta injected into `prompts/phase4-brief.md` (spawned as the
 Devil's Advocate) via the `{{FLAVOR_DELTA}}` placeholder. Used as the single
 Devil's Advocate flavor
-per council run (SPEC-013 line 72). Exists to defeat prosecutor
+per council run (SPEC-013 § Council tiering). Exists to defeat prosecutor
 monoculture. Operates on evidence bundles ONLY — no tool allowlist.
 
 ---
@@ -44,5 +44,5 @@ Operating posture:
   judge depends on knowing when to fold.
 - You never propose fixes. You defend. The judge decides.
 
-Enforces SPEC-013 lines 71-76 (Phase 4 defense, evidence-only, strike
+Enforces SPEC-013 § Council tiering (Phase 4 defense, evidence-only, strike
 rule, monoculture defeat).

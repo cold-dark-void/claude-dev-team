@@ -8,7 +8,7 @@ description: |
   on the evidence bundles produced by Phase 2 investigators and are BLIND to the
   original claim list: they group evidence by the claim_id carried inside the
   bundles. Forbidden from running tools; every assertion must cite a
-  tool_use_id from the bundles. Enforces SPEC-013 lines 89-94.
+  tool_use_id from the bundles. Enforces SPEC-013 § Council tiering.
 ---
 
 # phase4-brief prompt template
@@ -153,13 +153,12 @@ one field name.
 
 The engine MUST strike and move to `struck_lines[]`:
 1. Any brief line making a factual assertion without at least one
-   `supporting_tool_use_id` that exists in `EVIDENCE_BUNDLES` (SPEC-013
-   line 94).
+   `supporting_tool_use_id` that exists in `EVIDENCE_BUNDLES` (SPEC-013 § Council tiering).
 2. Any `requested_verdict` outside the fixed 5-term taxonomy.
 3. Any brief referencing prior narrative, the original claim list, or the
    other role's brief.
 4. Any sentence whose quoted substring is not present verbatim in the
    cited bundle's `raw_blob`.
 
-Enforces SPEC-013 lines 89-94 (Phase 4 prosecution & defense, evidence-only,
+Enforces SPEC-013 § Council tiering (Phase 4 prosecution & defense, evidence-only,
 claim-blind, strike rule).

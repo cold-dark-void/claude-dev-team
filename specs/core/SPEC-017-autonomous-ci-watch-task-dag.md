@@ -368,17 +368,17 @@ The router loads only the current step file plus `cross-cutting.md`
 
 | Date | Change |
 |------|--------|
-| 2026-04-30 | Initial spec — CI watch (3-mode adaptive) + task DAG (depends_on schema + parallel fan-out) |
-| 2026-04-30 | Implemented and aligned: poll interval → `*/7` (off-minute convention); unified done notification; fixer guard via sidecar primary + task store secondary; retry cap semantics clarified (3 total spawns); resolved OQ-1 (durable:true) and OQ-2 (worktree root); status → ACTIVE |
-| 2026-06-12 | ci-mode poll: `--json name,conclusion` → `name,state,bucket` (`conclusion` was never a `gh pr checks` JSON field; the error was masked as eternal `wait` by the poll_error path). Decisions now bucket-based; skipped checks no longer block green |
-| 2026-06-16 | Aligned the local-test detection MUST to `detect-mode.sh`: a `pyproject.toml` triggers `local-test` only when it declares a `[tool.pytest.ini_options]` section (bare presence alone does not), avoiding false positives on non-test pyprojects |
-| 2026-07-14 | CDV-170: ci-mode poll MUST NOT treat `gh pr checks` exit 1/8 as poll errors; classification is parseable JSON array (`jq type==array`) + `bucket` only. Exit 8 + non-array → `wait` without `poll_error_count++`. Bite-tests via PATH-mock `gh` required |
-| 2026-07-20 | Harness-aware CronCreate durable: prefer `durable: true`; on deny/unavailable (cmux) fall back to session-only once and notify — do not hard-fail arming |
-| 2026-08-07 | CDT-167: task-store `update-status` invent policy — no bare false stub when compound `*-<id>.json` exists (single match → update compound; multi → fail closed; zero → bare stub ok). Write-side complement to SPEC-002 shadow-safe TaskCompleted reads. |
-| 2026-09-28 | WP 1-07 (CDT-312, CDT-406, CDT-354, CDT-278 E7/E8/F27, rv-w1-08, rv-w1-09): one task identity (`<ISSUE-ID>-<taskcreate_id>` key, optional `plan_ordinal` / `taskcreate_id` fields, deps translated in two phases); one Step 7 task-graph protocol in `skills/orchestrate/task-graph.md` with a deterministic DAG file and real halts; dag-lib exit codes 0/1/2/64, pure-jq `check-cycle`, `ready-set --issue`, corrupt-file skip, `blocked-dep` stderr report, `status-of` id rule; 11-ship records `SHIP_START`; step files name the file of each cross-file block. |
 
 ---
 
+| 2026-09-28 | WP 1-07 (CDT-312, CDT-406, CDT-354, CDT-278 E7/E8/F27, rv-w1-08, rv-w1-09): one task identity (`<ISSUE-ID>-<taskcreate_id>` key, optional `plan_ordinal` / `taskcreate_id` fields, deps translated in two phases); one Step 7 task-graph protocol in `skills/orchestrate/task-graph.md` with a deterministic DAG file and real halts; dag-lib exit codes 0/1/2/64, pure-jq `check-cycle`, `ready-set --issue`, corrupt-file skip, `blocked-dep` stderr report, `status-of` id rule; 11-ship records `SHIP_START`; step files name the file of each cross-file block. |
+| 2026-08-07 | CDT-167: task-store `update-status` invent policy — no bare false stub when compound `*-<id>.json` exists (single match → update compound; multi → fail closed; zero → bare stub ok). Write-side complement to SPEC-002 shadow-safe TaskCompleted reads. |
+| 2026-07-20 | Harness-aware CronCreate durable: prefer `durable: true`; on deny/unavailable (cmux) fall back to session-only once and notify — do not hard-fail arming |
+| 2026-07-14 | CDV-170: ci-mode poll MUST NOT treat `gh pr checks` exit 1/8 as poll errors; classification is parseable JSON array (`jq type==array`) + `bucket` only. Exit 8 + non-array → `wait` without `poll_error_count++`. Bite-tests via PATH-mock `gh` required |
+| 2026-06-16 | Aligned the local-test detection MUST to `detect-mode.sh`: a `pyproject.toml` triggers `local-test` only when it declares a `[tool.pytest.ini_options]` section (bare presence alone does not), avoiding false positives on non-test pyprojects |
+| 2026-06-12 | ci-mode poll: `--json name,conclusion` → `name,state,bucket` (`conclusion` was never a `gh pr checks` JSON field; the error was masked as eternal `wait` by the poll_error path). Decisions now bucket-based; skipped checks no longer block green |
+| 2026-04-30 | Initial spec — CI watch (3-mode adaptive) + task DAG (depends_on schema + parallel fan-out) |
+| 2026-04-30 | Implemented and aligned: poll interval → `*/7` (off-minute convention); unified done notification; fixer guard via sidecar primary + task store secondary; retry cap semantics clarified (3 total spawns); resolved OQ-1 (durable:true) and OQ-2 (worktree root); status → ACTIVE |
 ## Cross-references
 
 - SPEC-009: Ticket Workflow — extends orchestrate, kickoff, standup, wrap-ticket; formalizes the `depends_on` standup MUST already in SPEC-009

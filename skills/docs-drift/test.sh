@@ -281,6 +281,84 @@ run_check 1 --root "$MINI"
 expect_finding skill-ref
 restore "$MINI/commands/demo.md"
 
+# (d) the same dangling path inside a skill markdown file (not only commands/)
+backup "$MINI/skills/hello/SKILL.md"
+printf '%s\n' "See skills/no-such-skill/SKILL.md for details." >> "$MINI/skills/hello/SKILL.md"
+run_check 1 --root "$MINI"
+expect_finding skill-ref
+echo "$OUT" | grep -q "skills/hello/SKILL.md" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: skill-ref should name the skill file"
+}
+restore "$MINI/skills/hello/SKILL.md"
+
+# (e) fixture markdown is not scanned
+mkdir -p "$MINI/skills/hello/fixtures"
+printf '%s\n' "See skills/fixture-only-missing/SKILL.md" \
+  > "$MINI/skills/hello/fixtures/note.md"
+run_check 0 --root "$MINI"
+echo "$OUT" | grep -q "fixture-only-missing" && {
+  FAIL=$((FAIL+1)); echo "FAIL: skill-ref scanned a fixtures file"
+} || PASS=$((PASS+1))
+rm -rf "$MINI/skills/hello/fixtures"
+
+# (f) a spec **Covers** line is scanned; a later prose line in the same file is not
+mkdir -p "$MINI/specs/core"
+cat > "$MINI/specs/core/SPEC-001-x.md" << 'EOF'
+**Covers**: `skills/no-such-skill/SKILL.md`
+See skills/also-missing/SKILL.md in prose.
+EOF
+run_check 1 --root "$MINI"
+expect_finding skill-ref
+echo "$OUT" | grep -q "no-such-skill" && ! echo "$OUT" | grep -q "also-missing" \
+  && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: skill-ref should flag Covers only"; echo "$OUT" | head -8
+}
+rm -rf "$MINI/specs"
+
+# (g) skill-name: frontmatter name must equal the directory
+mkdir -p "$MINI/skills/wrong"
+printf '%s\n' "---" "name: other" "description: x" "---" > "$MINI/skills/wrong/SKILL.md"
+run_check 1 --root "$MINI"
+expect_finding skill-name
+echo "$OUT" | grep -q "other" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: skill-name should name the frontmatter value"
+}
+rm -rf "$MINI/skills/wrong"
+run_check 0 --root "$MINI"
+expect_no_finding skill-name
+
+# (g2) a mismatched name under fixtures/ is not scanned
+mkdir -p "$MINI/skills/hello/fixtures"
+printf '%s\n' "---" "name: other" "description: x" "---" \
+  > "$MINI/skills/hello/fixtures/SKILL.md"
+run_check 0 --root "$MINI"
+expect_no_finding skill-name
+rm -rf "$MINI/skills/hello/fixtures"
+
+# (h) a `# comment` inside a fence does not end ## Commands
+backup "$MINI/README.md"
+awk '
+  seen { print; next }
+  $0 ~ "\\| `/demo` \\|" {
+    print ""
+    print "```bash"
+    print "# comment"
+    print "```"
+    print ""
+    print
+    seen = 1
+    next
+  }
+  { print }
+' "$MINI/README.md" > "$MINI/README.md.h"
+mv "$MINI/README.md.h" "$MINI/README.md"
+grep -q '# comment' "$MINI/README.md" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: fence comment was not inserted before /demo"
+}
+run_check 0 --root "$MINI"
+expect_no_finding cmd-index
+restore "$MINI/README.md"
+
 # ---------------------------------------------------------------------------
 # T4c docs-page-links (D10)
 # ---------------------------------------------------------------------------

@@ -70,17 +70,27 @@ fi
 # 7. Test
 grep -Eq '^## Test[[:space:]]*$' "$specfile" || missing+=("## Test section")
 
-# 8. Validation section + at least one checkbox
+# 8. Validation section + at least one checkbox INSIDE that section.
+#    A checkbox under Open Questions must not satisfy Validation (CDT-273).
 if grep -Eq '^## Validation[[:space:]]*$' "$specfile"; then
-  grep -Eq '^- \[[ xX]\] ' "$specfile" || missing+=("## Validation section (no '- [ ]' checkbox)")
+  awk '
+    /^## Validation[[:space:]]*$/ { in_sec=1; next }
+    in_sec && /^## / { in_sec=0 }
+    in_sec && /^- \[[ xX]\] / { found=1 }
+    END { exit(found ? 0 : 1) }
+  ' "$specfile" || missing+=("## Validation section (no '- [ ]' checkbox)")
 else
   missing+=("## Validation section")
 fi
 
-# 9. Version History section + table header
+# 9. Version History section + table header INSIDE that section.
 if grep -Eq '^## Version History[[:space:]]*$' "$specfile"; then
-  grep -Eq '^\| *Date *\| *Change *\|' "$specfile" \
-    || missing+=("## Version History section (no '| Date | Change |' table)")
+  awk '
+    /^## Version History[[:space:]]*$/ { in_sec=1; next }
+    in_sec && /^## / { in_sec=0 }
+    in_sec && /^\| *Date *\| *Change *\|/ { found=1 }
+    END { exit(found ? 0 : 1) }
+  ' "$specfile" || missing+=("## Version History section (no '| Date | Change |' table)")
 else
   missing+=("## Version History section")
 fi

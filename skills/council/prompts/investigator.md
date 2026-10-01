@@ -5,7 +5,7 @@ description: |
   investigation against a single claim and returns an evidence bundle of
   raw tool outputs. Spawned in parallel (>=2 flavors per claim) to defeat
   monoculture. Enforces the blindness invariant and the evidence-or-silence
-  rule (SPEC-013 lines 54-60).
+  rule (SPEC-013 § Output Shapes).
 ---
 
 # investigator prompt template
@@ -280,16 +280,16 @@ no markdown fences.
 ## Validation rules (engine-enforced)
 
 The engine MUST strike any bundle that:
-1. Is missing `tool_use_id` (SPEC-013 line 59).
+1. Is missing `tool_use_id` (SPEC-013 § Council tiering).
 2. Has `raw_blob` empty or detectably paraphrased (e.g. no substring match
    against the investigator's recorded tool output).
 3. Is missing `file_line` or `reproducible_command`.
 4. References prior narrative, a prior verdict, or another investigator's
-   output (blindness leak — SPEC-013 line 56).
+   output (blindness leak — SPEC-013 § Output Shapes).
 
 If ALL bundles are struck, the engine MUST record the claim with
 `reason_if_empty = "no evidence found"` — it MUST NOT synthesize one.
 
-Enforces SPEC-013 lines 54-60 (Phase 2 investigation, blindness, read-only,
+Enforces SPEC-013 § Output Shapes (Phase 2 investigation, blindness, read-only,
 evidence bundle schema, >=2 flavors per claim). Cache-first protocol is
 SPEC-013 SHOULD (intra-run tool-call cache; CDV-211).

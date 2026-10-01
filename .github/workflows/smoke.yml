@@ -33,6 +33,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash tools/fence-exec/run.sh
 
+  # CDT-273 — spec format, index, covers, history, citations, plus the
+  # report-only AC traceability list (CDT-485).
+  spec-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: bash tools/spec-lint.sh
+      - run: bash tools/check-traceability.sh
+
   docs-drift:
     runs-on: ubuntu-latest
     timeout-minutes: 10

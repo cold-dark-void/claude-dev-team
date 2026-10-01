@@ -409,8 +409,8 @@ ConcreteQueue directly" is); ordered BLOCKER → COMPLIANCE → DESIGN → NITPI
   `skills/council/flavors/{logic,security,compliance,quality,simplification}.md`.
 - **Phase 7 feedback memory is DISABLED** for diff-mode
   (`feedback_memory_enabled: false`). A code bug is not a claim fabrication;
-  conflating them would poison agent directives. See SPEC-013 line 105,
-  SPEC-010 line 28.
+  conflating them would poison agent directives. See SPEC-013 § Council tiering,
+  SPEC-010 § Code Review (review-and-commit).
 - Engine always writes the canonical report to
   `$MROOT/.claude/council/<date>-diff-staged.md`. An optional path argument
   writes an ADDITIONAL copy in the legacy text format rendered by Step 6.

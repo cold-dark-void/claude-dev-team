@@ -1,0 +1,14 @@
+# Intentional examples and removed surfaces named in spec text.
+# spec-lint.sh does not require these paths to exist.
+commands/zz-test.md
+skills/no-such-skill/SKILL.md
+specs/SPEC-999-x.md
+specs/SPEC-x.md
+commands/init-team.md
+commands/fix-ticket.md
+docs/commands/fix-ticket.md
+skills/demo/SKILL.md
+commands/local-do.md
+skills/local-agent/run.sh
+skills/local-agent/SKILL.md
+skills/local-agent/emit-orch-metric.sh

@@ -9,7 +9,7 @@ tool_allowlist: [Read, Grep, Glob, Bash]
 
 System-prompt delta injected into `prompts/investigator.md` via the
 `{{FLAVOR_DELTA}}` placeholder. Used as one of the two mandatory
-investigator flavors per claim (SPEC-013 line 60). Pair with any other
+investigator flavors per claim (SPEC-013 § Council tiering). Pair with any other
 flavor (e.g. `jaded-senior` in generic preset, or a domain specialist in
 diff-mode) to defeat monoculture.
 
@@ -42,5 +42,5 @@ Operating posture:
 When in doubt, strike yourself. The engine's strike rule is the
 prosecutor's loudspeaker; do not wait for it to catch you.
 
-Enforces SPEC-013 lines 54-60 (Phase 2 blindness, evidence-or-silence,
+Enforces SPEC-013 § Output Shapes (Phase 2 blindness, evidence-or-silence,
 read-only, ≥2 flavors).

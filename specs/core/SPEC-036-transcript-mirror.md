@@ -699,13 +699,6 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
 
 | Date | Change |
 |------|--------|
-| 2026-08-26 | CDT-214: M15 Meaning-channel overlay — skill CLI `summarize-transcript.sh --sid` / `--restore` (no `commands/*.md`). `--check --sid` `status=ok` gate. Size-only eligibility >8192 UTF-8 bytes. Overlay = summary + `@verbatim/TNNNNNN.txt`; originals in `<sid>/verbatim/`. Recorder still verbatim. Rebuild stashes `verbatim/` like `agents/` and re-applies via bash `reapply-overlay.sh` (no LLM/Python). Seam `SUMMARIZE_TRANSCRIPT_CMD`. Patch bump. |
-| 2026-08-26 | CDT-215: M1 C7 carve-out — exactly `commands/compact-transcript.md`. M12 consumer carve-out + M14 meaning-tail: `--check --sid` `status=ok` MAY write sibling `<sid>.meaning-tail.md` (≤32768 UTF-8 bytes, trailing turn-blocks, strip title/`^>\s*@`). Fail-closed on miss. Recorder/sync MUST NOT touch `*.meaning-tail.md`. Rebuild MUST NOT eat the sibling. Not Compact seed / STM packet. Not a `/compact` replacement. Minor bump (v1.13.0 at `/release`). |
-| 2026-08-26 | CDT-216: M12 carve-out — `/handoff` prepare MAY read `main.md` + `--check --sid` (SPEC-018 M3f). CLI / PreCompact / M8 schema / recorder / M4a / M5a still frozen. |
-| 2026-08-26 | CDT-217: M4a opt-in SubagentStop agent nest under `<sid>/agents/<id>/`; Stop/SessionEnd agent-key no-op stays v1; parent nest-ref; rebuild preserves `agents/`. OQ2/OQ5/OQ7 locked. |
-| 2026-08-25 | CDT-218: M5a Grok cwd-bucket locate — urlencode file then bounded `.cwd` fallback (dual-engine: bash+jq hook, Python `hosts.py` / transcript-sync). Drop CDT-218 OUT. |
-| 2026-08-25 | CDT-221: M10 no-args = ALL cwd-bucket sessions (not newest-only); M11 doctor `transcript.mirror_lag` WARN maps `--check` stdout; OQ1 Option A in; sandbox-write OQ closed as not proven (AC5+AC8) |
-| 2026-08-25 | Initial DRAFT — CDT-220 transcript mirror v1 (Option B) |
 
 **Covers**: `skills/transcript-mirror/SKILL.md`,
 `skills/transcript-mirror/transcript-mirror.sh`,
@@ -728,6 +721,13 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
 `skills/transcript-mirror/reapply-overlay.sh`,
 `skills/transcript-mirror/summarize-transcript-test.sh`
 
+| 2026-08-26 | CDT-214: M15 Meaning-channel overlay — skill CLI `summarize-transcript.sh --sid` / `--restore` (no `commands/*.md`). `--check --sid` `status=ok` gate. Size-only eligibility >8192 UTF-8 bytes. Overlay = summary + `@verbatim/TNNNNNN.txt`; originals in `<sid>/verbatim/`. Recorder still verbatim. Rebuild stashes `verbatim/` like `agents/` and re-applies via bash `reapply-overlay.sh` (no LLM/Python). Seam `SUMMARIZE_TRANSCRIPT_CMD`. Patch bump. |
+| 2026-08-26 | CDT-215: M1 C7 carve-out — exactly `commands/compact-transcript.md`. M12 consumer carve-out + M14 meaning-tail: `--check --sid` `status=ok` MAY write sibling `<sid>.meaning-tail.md` (≤32768 UTF-8 bytes, trailing turn-blocks, strip title/`^>\s*@`). Fail-closed on miss. Recorder/sync MUST NOT touch `*.meaning-tail.md`. Rebuild MUST NOT eat the sibling. Not Compact seed / STM packet. Not a `/compact` replacement. Minor bump (v1.13.0 at `/release`). |
+| 2026-08-26 | CDT-216: M12 carve-out — `/handoff` prepare MAY read `main.md` + `--check --sid` (SPEC-018 M3f). CLI / PreCompact / M8 schema / recorder / M4a / M5a still frozen. |
+| 2026-08-26 | CDT-217: M4a opt-in SubagentStop agent nest under `<sid>/agents/<id>/`; Stop/SessionEnd agent-key no-op stays v1; parent nest-ref; rebuild preserves `agents/`. OQ2/OQ5/OQ7 locked. |
+| 2026-08-25 | CDT-218: M5a Grok cwd-bucket locate — urlencode file then bounded `.cwd` fallback (dual-engine: bash+jq hook, Python `hosts.py` / transcript-sync). Drop CDT-218 OUT. |
+| 2026-08-25 | CDT-221: M10 no-args = ALL cwd-bucket sessions (not newest-only); M11 doctor `transcript.mirror_lag` WARN maps `--check` stdout; OQ1 Option A in; sandbox-write OQ closed as not proven (AC5+AC8) |
+| 2026-08-25 | Initial DRAFT — CDT-220 transcript mirror v1 (Option B) |
 ## SHOULD
 
 - SHOULD keep Stop-hook wall time under the 10s timeout on typical sessions;

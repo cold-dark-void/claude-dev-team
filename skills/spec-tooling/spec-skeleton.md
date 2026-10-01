@@ -4,6 +4,7 @@ Single source; included into /spec generate (skills/spec-tooling/SKILL.md) and
 /spec create (commands/create-spec.md) via
 <!-- include: skills/spec-tooling/spec-skeleton.md agent=spec --> markers,
 drift-gated at /release. Cite SPEC-008 (format contract) + SPEC-004.
+<!-- drift-ok: skill-ref -->
 Legacy skills/generate-specs/SKILL.md also carries the region until Task-7 stub.
 
 Editing notes (this block is stripped by sync-includes.py expand() — it drops

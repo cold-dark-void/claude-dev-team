@@ -3,7 +3,7 @@
 
 Exit codes: 0 = no unwaived findings, 1 = unwaived findings, 64 = usage error.
 Finding format: <file>: [<check-id>] <message>
-Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc | skill-ref | docs-page-links
+Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc | skill-ref | skill-name | docs-page-links
 """
 from __future__ import annotations
 
@@ -105,11 +105,19 @@ def section_lines(text: str, heading: str) -> list[tuple[int, str]]:
     if start is None:
         return []
     out: list[tuple[int, str]] = []
+    in_fence = False
     for i in range(start, len(lines)):
         line = lines[i]
-        m = re.match(r"^(#+)\s", line)
-        if m and len(m.group(1)) <= level:
-            break
+        # A `# comment` inside a fence is not a heading (W1-60).
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            out.append((i + 1, line))
+            continue
+        if not in_fence:
+            m = re.match(r"^(#+)\s", line)
+            if m and len(m.group(1)) <= level:
+                break
         out.append((i + 1, line))
     return out
 
@@ -521,26 +529,75 @@ def check_manifest_desc(root: str, f: Findings) -> None:
             )
 
 
-def check_skill_ref(root: str, f: Findings) -> None:
-    """D9: every skills/<name>/<file> literal path mentioned in commands/*.md
-    (prose or embedded in a bash fence) must resolve to a real file — catches
-    a command left delegating to a skill that was stubbed or deleted (the
-    validate-memory class of bug: CDT-46-C3 stubbed a skill a dispatcher was
-    still delegating to, in the same commit).
-    """
+def _skill_ref_files(root: str) -> list[str]:
+    """commands, skills, agents, AGENTS.md, and spec files (Covers lines only)."""
+    found: list[str] = []
     cmd_dir = os.path.join(root, "commands")
-    if not os.path.isdir(cmd_dir):
-        return
-    for name in sorted(os.listdir(cmd_dir)):
-        if not name.endswith(".md"):
-            continue
-        cmd_path = os.path.join(cmd_dir, name)
-        text = read_text(cmd_path)
+    if os.path.isdir(cmd_dir):
+        for name in sorted(os.listdir(cmd_dir)):
+            if name.endswith(".md"):
+                found.append(os.path.join(cmd_dir, name))
+    skills = os.path.join(root, "skills")
+    if os.path.isdir(skills):
+        for dirpath, _dirs, filenames in os.walk(skills):
+            # Fixture markdown names paths that were never shipped.
+            if f"{os.sep}fixtures{os.sep}" in dirpath + os.sep:
+                continue
+            for name in sorted(filenames):
+                if name.endswith(".md"):
+                    found.append(os.path.join(dirpath, name))
+    agents = os.path.join(root, "agents")
+    if os.path.isdir(agents):
+        for name in sorted(os.listdir(agents)):
+            if name.endswith(".md"):
+                found.append(os.path.join(agents, name))
+    agents_md = os.path.join(root, "AGENTS.md")
+    if os.path.isfile(agents_md):
+        found.append(agents_md)
+    specs = os.path.join(root, "specs")
+    if os.path.isdir(specs):
+        for dirpath, _dirs, filenames in os.walk(specs):
+            for name in sorted(filenames):
+                if name.endswith(".md"):
+                    found.append(os.path.join(dirpath, name))
+    return found
+
+
+def _line_in_skill_ref_scope(path: str, line: str, in_covers: bool) -> bool:
+    """Spec files contribute only **Covers** lines and the ## Covers section."""
+    norm = path.replace(os.sep, "/")
+    if "/specs/" not in f"/{norm}/" and not norm.endswith("/specs") :
+        # path is absolute; detect a /specs/ segment
+        pass
+    if f"{os.sep}specs{os.sep}" not in path and not path.endswith(f"{os.sep}specs"):
+        return True
+    if line.startswith("**Covers**") or in_covers:
+        return True
+    return False
+
+
+def check_skill_ref(root: str, f: Findings) -> None:
+    """D9: every skills/<name>/<file> literal must exist.
+
+    Scans commands/*.md, skills/**/*.md, agents/*.md, AGENTS.md, and spec
+    **Covers** lines (W1-60). A `<!-- drift-ok: skill-ref -->` on the line
+    or the line next to it waives one historical mention.
+    """
+    for path in _skill_ref_files(root):
+        text = read_text(path)
         if text is None:
             continue
         src_lines = text.splitlines()
         seen: dict[str, int] = {}
+        in_covers = False
         for ln, line in enumerate(src_lines, 1):
+            if line.startswith("## Covers"):
+                in_covers = True
+                continue
+            if in_covers and line.startswith("## "):
+                in_covers = False
+            if not _line_in_skill_ref_scope(path, line, in_covers):
+                continue
             for m in SKILL_PATH_RE.finditer(line):
                 skill_name, filename = m.group(1), m.group(2)
                 rel_path = f"skills/{skill_name}/{filename}"
@@ -549,12 +606,51 @@ def check_skill_ref(root: str, f: Findings) -> None:
         for rel_path, ln in sorted(seen.items()):
             if not os.path.isfile(os.path.join(root, rel_path)):
                 f.add(
-                    cmd_path,
+                    path,
                     "skill-ref",
                     f"references {rel_path} which does not exist",
                     line=ln,
                     src_lines=src_lines,
                 )
+
+
+_SKILL_NAME_RE = re.compile(r"^name:\s*[\"']?([A-Za-z0-9_-]+)")
+
+
+def check_skill_name(root: str, f: Findings) -> None:
+    """skill-name: SKILL.md frontmatter name equals the parent directory."""
+    skills = os.path.join(root, "skills")
+    if not os.path.isdir(skills):
+        return
+    for dirpath, _dirs, filenames in os.walk(skills):
+        if f"{os.sep}fixtures{os.sep}" in dirpath + os.sep:
+            continue
+        if "SKILL.md" not in filenames:
+            continue
+        path = os.path.join(dirpath, "SKILL.md")
+        text = read_text(path)
+        if text is None:
+            continue
+        lines = text.splitlines()
+        if not lines or lines[0].strip() != "---":
+            continue
+        name = ""
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            m = _SKILL_NAME_RE.match(line)
+            if m:
+                name = m.group(1)
+                break
+        dirname = os.path.basename(dirpath)
+        if name and name != dirname:
+            f.add(
+                path,
+                "skill-name",
+                f"frontmatter name {name!r} does not match directory {dirname!r}",
+                line=1,
+                src_lines=lines,
+            )
 
 
 def check_docs_page_links(root: str, f: Findings) -> None:
@@ -606,6 +702,7 @@ def run_checks(root: str) -> list[dict]:
     check_docs_hub(root, f)
     check_manifest_desc(root, f)
     check_skill_ref(root, f)
+    check_skill_name(root, f)
     check_docs_page_links(root, f)
     return f.items
 

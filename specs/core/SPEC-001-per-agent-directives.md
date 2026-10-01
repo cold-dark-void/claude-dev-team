@@ -113,16 +113,16 @@ None — all ACs confirmed by user. OQ-2 (agent-filtered session scoring) deferr
 
 | Date | Change |
 |------|--------|
-| 2026-03-16 | Initial spec drafted by tech-lead for DIR-001 |
-| 2026-03-16 | Implemented and shipped in v0.15.0 |
-| 2026-03-23 | Reformatted for /reflect-specs compliance: added Category, Created, Covers, Overview, Test, Validation, Version History sections. Consolidated section-based requirements into bulleted MUST format. Status updated from Draft to ACTIVE. |
-| 2026-04-08 | Added `--apply` non-interactive mode MUST to enable automation callers (RETRO-001 / SPEC-012). Fail-fast on conflict preserves existing conflict-detection guarantee. |
-| 2026-06-13 | Cross-referenced the canonical directives-load-then-memory sequence to the managed-inline agent memory protocol (skills/agent-memory/protocol.md) and SPEC-006 Step 2 tiered read (AUDIT-P1-1). |
-| 2026-07-03 | Proposed extension (DRAFT): Directive A/B trial loop — ideation wave 2 |
-| 2026-07-14 | CDV-200: promoted Directive A/B trial loop M1–M8 from DRAFT to shipped MUST; helpers `trial-meta.sh` / `trial-review.sh`; audit `directive-history.jsonl`. |
+
 | 2026-07-22 | CDT-53: session-boot tiered read pointer → `skills/agent-memory/protocol.md` only; `memory-recall` owns cross-agent search Steps 3–5 (not session-start Step 2). |
 | 2026-07-22 | CDT-53 reflect: `/init-team` integration → `/setup team`. Status stays ACTIVE. |
-
+| 2026-07-14 | CDV-200: promoted Directive A/B trial loop M1–M8 from DRAFT to shipped MUST; helpers `trial-meta.sh` / `trial-review.sh`; audit `directive-history.jsonl`. |
+| 2026-07-03 | Proposed extension (DRAFT): Directive A/B trial loop — ideation wave 2 |
+| 2026-06-13 | Cross-referenced the canonical directives-load-then-memory sequence to the managed-inline agent memory protocol (skills/agent-memory/protocol.md) and SPEC-006 Step 2 tiered read (AUDIT-P1-1). |
+| 2026-04-08 | Added `--apply` non-interactive mode MUST to enable automation callers (RETRO-001 / SPEC-012). Fail-fast on conflict preserves existing conflict-detection guarantee. |
+| 2026-03-23 | Reformatted for /reflect-specs compliance: added Category, Created, Covers, Overview, Test, Validation, Version History sections. Consolidated section-based requirements into bulleted MUST format. Status updated from Draft to ACTIVE. |
+| 2026-03-16 | Implemented and shipped in v0.15.0 |
+| 2026-03-16 | Initial spec drafted by tech-lead for DIR-001 |
 ## Cross-references
 
 - SPEC-003: Agent Role System — 7 behavioral agents, directives in memory architecture

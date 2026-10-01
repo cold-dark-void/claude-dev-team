@@ -21,7 +21,7 @@ The `diff-mode` preset fires when the council engine is invoked with `--diff`
 or an explicit `--preset diff-mode`. It configures the engine as a
 code-review pipeline over a staged/modified diff: 5 specialist investigators
 in parallel, `finding[]` output shape, 80-confidence discard filter, and no
-feedback-memory writes (a code bug is not a fabrication — SPEC-013 line 105).
+feedback-memory writes (a code bug is not a fabrication — SPEC-013 § Council tiering).
 
 This preset is the ONLY v1 caller path for `/review-and-commit`. The command
 wrapper at `skills/review-and-commit/SKILL.md` is a thin entry point
@@ -31,7 +31,7 @@ preset selected.
 ## Intake (Phase 0 enrichment)
 
 Before Phase 1 extraction runs, the engine performs a spec-grep enrichment
-step specific to diff-mode (SPEC-013 line 48, SPEC-010 line 31):
+step specific to diff-mode (SPEC-013 § Engine Architecture, SPEC-010 § Code Review (review-and-commit)):
 
 1. Enumerate changed file paths from the staged + modified diff.
 2. For each changed path, grep `specs/**/*.md` for MUST lines whose scope
@@ -77,12 +77,12 @@ Findings are scored on the SPEC-010 confidence rubric (0-100):
 - **95-100** — near certain. Emit as **critical**.
 
 The engine applies `confidence_filter_threshold: 80` at emission: any finding
-below 80 is dropped before Phase 6 writes the report (SPEC-013 line 44,
-SPEC-010 line 23). Below-threshold findings are preserved in the report's
+below 80 is dropped before Phase 6 writes the report (SPEC-013 § Engine Architecture,
+SPEC-010 § Code Review (review-and-commit)). Below-threshold findings are preserved in the report's
 struck-lines audit trail, never silently dropped.
 
 Severity taxonomy is fixed: `critical | warning | nitpick`. Any finding with
-a severity outside this set MUST be struck by the engine (SPEC-013 line 83).
+a severity outside this set MUST be struck by the engine (SPEC-013 § Council tiering).
 
 ## Commit gate
 
@@ -95,15 +95,14 @@ The `/review-and-commit` command enforces a commit gate after the engine returns
   block; the user is prompted whether to proceed.
 
 The gate reads the canonical report or the engine's stdout summary; it does
-not re-parse the finding list. Authoritative gate behavior is SPEC-010 line
-30.
+not re-parse the finding list. Authoritative gate behavior is SPEC-010 § Code Review (review-and-commit).
 
 ## Feedback memory
 
 Disabled for diff-mode. Phase 7 is a no-op under this preset. Rationale: a
 code bug discovered by a specialist is not a claim fabrication; writing it to
 an agent's directives would conflate "caught a bug" with "caught a lie"
-(SPEC-013 line 105, SPEC-010 line 28).
+(SPEC-013 § Council tiering, SPEC-010 § Code Review (review-and-commit)).
 
 ## Cross-references
 

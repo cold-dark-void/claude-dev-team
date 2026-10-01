@@ -6,7 +6,7 @@ description: |
   advocate brief. Instructs the judge to emit either verdict[] or
   finding[] records depending on OUTPUT_SHAPE. Reinforces council-judge
   standing rules: no tool use, inline raw blobs, strike unsupported lines.
-  Enforces SPEC-013 lines 78-86.
+  Enforces SPEC-013 § Council tiering.
 ---
 
 # judge prompt template
@@ -234,18 +234,18 @@ The engine MUST reject the judge's response (exit code 7, SPEC-013 SKILL
 failure modes) if:
 1. Output is not valid single-line JSON matching the branch schema.
 2. The response contains a `tool_use` block — the judge tried to run a
-   tool (SPEC-013 lines 79-80, 86). This is a structural invariant
+   tool (SPEC-013 § Council tiering). This is a structural invariant
    violation.
-3. Any verdict is outside the 5-term taxonomy (SPEC-013 line 82).
-4. Any severity is outside the 3-term taxonomy (SPEC-013 line 83).
-5. Any confidence is outside `[0,100]` (SPEC-013 line 84).
+3. Any verdict is outside the 5-term taxonomy (SPEC-013 § Council tiering).
+4. Any severity is outside the 3-term taxonomy (SPEC-013 § Council tiering).
+5. Any confidence is outside `[0,100]` (SPEC-013 § Council tiering).
 6. Any verdict line has an empty `evidence_blob`, or any finding line has
-   an empty `tool_use_id` (SPEC-013 lines 43, 85).
+   an empty `tool_use_id` (SPEC-013 § Engine Architecture).
 7. Any line's quoted text is not a verbatim substring of a raw_blob in
-   the evidence bundles (SPEC-013 line 85).
+   the evidence bundles (SPEC-013 § Council tiering).
 8. `struck_lines` is missing entirely. It MAY be empty but MUST exist —
-   a missing audit trail is a bug (SPEC-013 line 146, treated as hard AC
+   a missing audit trail is a bug (SPEC-013 § Council tiering, treated as hard AC
    per SKILL).
 
-Enforces SPEC-013 lines 78-86 (Phase 5 judgment, fixed taxonomies, empty
+Enforces SPEC-013 § Council tiering (Phase 5 judgment, fixed taxonomies, empty
 tool allowlist, strike rule, confidence scale).

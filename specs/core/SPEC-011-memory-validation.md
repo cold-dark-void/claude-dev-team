@@ -256,16 +256,16 @@ Cross-references agent memories against the live codebase to detect and resolve 
 
 | Date | Change |
 |------|--------|
-| 2026-07-22 | CDT-46-C3: retarget Covers + in-body surfaces `/validate-memory` → `/memory validate`, `/memory-distill` → `/memory distill`, `/memory-config` → `/memory config` (`commands/memory.md`). Status stays ACTIVE. |
-| 2026-03-23 | Initial spec created from brainstorm session |
-| 2026-03-23 | Resolved all open questions per kickoff review. Added: archive_reason column, validation_log table, schema v3 migration, reviewer=tech-lead, non-blocking user flags, idempotency AC, concurrent run protection. Deferred --scope global. Status → APPROVED. |
-| 2026-03-23 | Added score-0 "clean pass" bucket (sets validated_at) to fix idempotency gap for truly clean memories. Threshold buckets now: 0=pass, 1-39=flag_user, 40-80=reviewer, >80=auto-archive. |
-| 2026-04-21 | Replaced regex-based reference extraction and bash-only scoring with LLM-based claim extraction + two-tier verification. Added claim types (file_reference, symbol_reference, line_content, behavioral, architectural, configuration), verdict taxonomy (VALID, STALE, CONTRADICTED, AMBIGUOUS), per-claim confidence scoring, composite weighted-average scoring. Tier A (bash) handles file/symbol refs with rename detection. Tier B (LLM investigator) handles behavioral/architectural/config/line claims. Prompt templates in skills/validate-memory/SKILL.md. |
-| 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): trimmed the verbatim `PRAGMA busy_timeout=5000` MUST restatement to defer to SPEC-004's write-path contract (SPEC-004 is the single source). No behavioral change. |
-| 2026-07-14 | CDV-195: promote cross-agent memory reconciliation to normative MUSTs. Entry: `/validate-memory --reconcile` (+ `--report-only`). Schema v4 + `reconcile_log` + `reconcile_pair_cap`. Bounded candidates (embed KNN / keyword Jaccard). LLM pair-judge; never auto-archive; deep-audit → `/council` only. Status → ACTIVE. |
 
 ---
 
+| 2026-07-22 | CDT-46-C3: retarget Covers + in-body surfaces `/validate-memory` → `/memory validate`, `/memory-distill` → `/memory distill`, `/memory-config` → `/memory config` (`commands/memory.md`). Status stays ACTIVE. |
+| 2026-07-14 | CDV-195: promote cross-agent memory reconciliation to normative MUSTs. Entry: `/validate-memory --reconcile` (+ `--report-only`). Schema v4 + `reconcile_log` + `reconcile_pair_cap`. Bounded candidates (embed KNN / keyword Jaccard). LLM pair-judge; never auto-archive; deep-audit → `/council` only. Status → ACTIVE. |
+| 2026-06-15 | Editorial de-duplication (AUDIT-P3.5b): trimmed the verbatim `PRAGMA busy_timeout=5000` MUST restatement to defer to SPEC-004's write-path contract (SPEC-004 is the single source). No behavioral change. |
+| 2026-04-21 | Replaced regex-based reference extraction and bash-only scoring with LLM-based claim extraction + two-tier verification. Added claim types (file_reference, symbol_reference, line_content, behavioral, architectural, configuration), verdict taxonomy (VALID, STALE, CONTRADICTED, AMBIGUOUS), per-claim confidence scoring, composite weighted-average scoring. Tier A (bash) handles file/symbol refs with rename detection. Tier B (LLM investigator) handles behavioral/architectural/config/line claims. Prompt templates in skills/validate-memory/SKILL.md. |
+| 2026-03-23 | Initial spec created from brainstorm session |
+| 2026-03-23 | Resolved all open questions per kickoff review. Added: archive_reason column, validation_log table, schema v3 migration, reviewer=tech-lead, non-blocking user flags, idempotency AC, concurrent run protection. Deferred --scope global. Status → APPROVED. |
+| 2026-03-23 | Added score-0 "clean pass" bucket (sets validated_at) to fix idempotency gap for truly clean memories. Threshold buckets now: 0=pass, 1-39=flag_user, 40-80=reviewer, >80=auto-archive. |
 ## Cross-references
 
 - SPEC-004: Memory Storage — validator reads/writes through same storage layer, uses same sqlite3 patterns; v3/v4 migrations extend schema; all reconcile writes follow write-path contract

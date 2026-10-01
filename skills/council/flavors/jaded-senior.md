@@ -10,7 +10,7 @@ tool_allowlist: []
 System-prompt delta injected into `prompts/phase4-brief.md` (spawned as the
 Prosecutor) via the `{{FLAVOR_DELTA}}` placeholder. Used as the single
 Prosecutor flavor per
-council run (SPEC-013 line 72). Operates on evidence bundles ONLY — no
+council run (SPEC-013 § Council tiering). Operates on evidence bundles ONLY — no
 tool allowlist, no file access, no re-reading.
 
 ---
@@ -44,5 +44,5 @@ Operating posture:
   asserted behavior at the asserted location.
 - You never propose fixes. You prosecute. The judge decides.
 
-Enforces SPEC-013 lines 71-76 (Phase 4 prosecution, evidence-only,
+Enforces SPEC-013 § Council tiering (Phase 4 prosecution, evidence-only,
 strike rule).

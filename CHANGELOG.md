@@ -6,6 +6,11 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.35
+- **WP 2-03 Spec lint checks format, index, covers, history and citations** — `tools/spec-lint.sh` runs section-scoped `check-format.sh`, matches each spec title and status to `specs/TDD.md`, requires backticked Covers and Test paths to exist, keeps Version History dates in one direction, and rejects a `SPEC-N line N` citation even when the number wraps onto the next line (CDT-273). The `spec-lint` CI job runs that gate plus the traceability report.
+- **Docs drift** — `skill-ref` scans `skills/**/*.md` (not `fixtures/`), `agents/*.md`, `AGENTS.md`, and spec Covers lines. `skill-name` checks that a skill directory matches its frontmatter name. A `#` comment inside a fence does not end a heading. SPEC-010 and SPEC-032 list D1–D10 (CDT-282 partial, W1-60).
+- **Traceability** — `tools/check-traceability.sh` prints uncovered `SPEC-N/T` and `SPEC-N/M` ids and exits 0. SPEC-018 has a Traceability table. SPEC-006, SPEC-007, and SPEC-020 each have a tagged test (CDT-485).
+
 ### v1.18.34
 - **WP 2-02 Lint rules catch count fallbacks, temp paths and empty flags** — skill-lint C8 flags a `grep -c || echo 0` count, a `$$` temp path, a bare `/tmp/` path, a brace in a default, a Stop-here comment with no exit, and destructive git. C9 flags `"$@"` and an unquoted `$ARGUMENTS` in a command fence. `sh` and `shell` fences are linted too. A value flag with no value exits with usage instead of hanging. `poll.sh` uses `mktemp` and runs tests in `EPIC_INTEGRATION_PATH`. `scan.sh` uses a private directory and says when it cuts the target list. Writers publish through `atomic_write`.
 - **Tests** — new `skills/skill-lint/test-command-fences.sh`, `skills/security-scan/test.sh`, trailing-flag suites, and a rename case in `skills/release/test.sh`. Each new check has a planted control that fails on the old text.

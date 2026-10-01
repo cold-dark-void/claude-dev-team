@@ -133,5 +133,5 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 | Date | Change |
 |------|--------|
 | 2026-07-22 | CDT-52 / CDT-46-C6 D4: Status ACTIVE→DEPRECATED (file retained — never delete). Folded protocol home remains authoritative for `/debug ticket` pipeline until v1.1 full merge; entry Surface is `/debug ticket` via SPEC-014; Covers added (fix-ticket stubs + debug ticket entry). |
-| 2026-07-14 | Initial ACTIVE — CDV-197 productize p0-fix-workflow as `/fix-ticket` |
 | 2026-07-22 | CDT-46-C4: entry Surface moves to `/debug ticket` (SPEC-014 host). M1/M3 retargeted; command+skill become Deprecation stubs. Full SPEC-028→SPEC-014 fold deferred to W5. |
+| 2026-07-14 | Initial ACTIVE — CDV-197 productize p0-fix-workflow as `/fix-ticket` |

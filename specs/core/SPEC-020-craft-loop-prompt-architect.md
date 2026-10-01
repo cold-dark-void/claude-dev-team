@@ -132,6 +132,7 @@ at creation; no contradictory requirements).
 - [ ] Both shipped examples pass all 6 quality-checklist items
 - [ ] `commands/craft-loop.md` and `skills/craft-loop/SKILL.md` carry valid YAML
       frontmatter
+- SPEC-020/T1 — list mode excludes journal, findings, and ledger companions, and both doors name themselves `craft-loop`. Verify: bash skills/craft-loop/test-list-exclude.sh
 
 ## Validation
 
@@ -141,6 +142,7 @@ at creation; no contradictory requirements).
 
 | Date | Change |
 |------|--------|
-| 2026-07-03 | Initial version — brainstormed design: architect dialogue + program library + journal convention + refine/list modes; no new runtime (built-in /loop and /goal only) |
+| 2026-10-01 | WP 2-03: SPEC-020/T1 names the list-mode companion exclusion. Verify: `skills/craft-loop/test-list-exclude.sh`. |
 | 2026-07-14 | Implemented via CDV-183: status DRAFT→ACTIVE; `/craft-loop` craft/refine/list shipped. |
 | 2026-07-14 | Dogfood patch: hold/no-write; target+cadence+grain slot; descriptive names; declared side artifacts; goal complete phrasing; list excludes companions; mid-dialogue product Q resume. |
+| 2026-07-03 | Initial version — brainstormed design: architect dialogue + program library + journal convention + refine/list modes; no new runtime (built-in /loop and /goal only) |
