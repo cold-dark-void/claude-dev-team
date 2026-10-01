@@ -21,14 +21,13 @@ Governing spec: `specs/core/SPEC-022-doctor-install-diagnostics.md`.
 skills/doctor/
 ├── SKILL.md      (this file)
 ├── doctor.sh     CLI — flags, check registry, render, --fix
-├── test.sh       bite-tests
-└── fixtures/     synthetic trees (optional; tests mostly build under $TMPDIR)
+└── test.sh       bite-tests (fixtures are built under $TMPDIR)
 ```
 
 ## Interface — doctor.sh
 
 ```
-doctor.sh [--json] [--fix] [--only <check-id|group>] [--gate=<orchestration|team>] [-h|--help]
+doctor.sh [--json] [--fix] [--force] [--only <check-id|group>] [--gate=<orchestration|team>] [-h|--help]
 ```
 
 | Flag | Effect |
@@ -36,6 +35,7 @@ doctor.sh [--json] [--fix] [--only <check-id|group>] [--gate=<orchestration|team
 | (default) | Human table on stdout; read-only |
 | `--json` | Single JSON document on stdout; diagnostics on stderr |
 | `--fix` | Apply allowlisted repairs only (see below) |
+| `--force` | With `--fix`, clear a fresh `distilling_lock` |
 | `--only <id\|group>` | Run a subset of checks |
 | `--gate=<orchestration\|team>` | Gate-mode self-remediation (M6c / CDT-67) |
 
@@ -69,7 +69,7 @@ non-bootstrap — gating is the caller's job.
 {
   "doctor_schema": "1",
   "plugin_version": "<semver>",
-  "resolved_tier": "dev|cache|fallback",
+  "resolved_tier": "dev|cache|marketplace|fallback",
   "gate": "orchestration|team",          // only when --gate set
   "checks": [
     {"id":"…","group":"…","status":"PASS|WARN|FAIL|SKIP","detail":"…",
@@ -111,13 +111,14 @@ non-bootstrap — gating is the caller's job.
 | `plugin.resolve` | plugin |
 | `transcript.mirror_lag` | transcript |
 | `models.map` | config |
+| `handoff.tmp` | handoff |
 
 ## Severity
 
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe (user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL) |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe / managed script that is not executable (hooks run via `bash`; user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL) |
 | **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing |
 | **PASS** | Invariant holds |
 
@@ -125,11 +126,11 @@ Uninitialized memory is **WARN not FAIL** — fix-it is `/setup team`.
 
 ## `--fix` allowlist
 
-Only these repairs (idempotent; announced; TTY confirms; non-TTY applies):
+Only these repairs (idempotent; announced; TTY confirms; non-TTY applies). `--only` limits the repairs to the selected check. `--force` clears a fresh `distilling_lock`.
 
-1. Clear held `distilling_lock` → `''` (mirrors `/memory distill --force`)
-2. Remove **STALE** (per SPEC-016 TTL) `.wt-lock` files — never worktree dirs, never FRESH locks
-3. Sweep `$MROOT/.claude/handoff/cache/*.tmp`
+1. Clear a **stale** `distilling_lock` (`distill-<epoch>-<pid>` older than 1800s, the same literal as `distill-lock.sh`). A fresh lock stays. `--force` clears it anyway. Owning check: `worktree.distill_lock`.
+2. Remove **STALE** (per SPEC-016 TTL) `.wt-lock` files — never worktree dirs, never FRESH locks. Owning check: `worktree.locks`.
+3. Sweep `$MROOT/.claude/handoff/cache/*.tmp`. Owning check: `handoff.tmp` (full run, or `--only handoff.tmp`).
 
 MUST NOT touch `settings.json`, schema, manifests, CHANGELOG, Model map JSON, or create memory/hooks.
 

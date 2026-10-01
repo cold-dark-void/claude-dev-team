@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # doctor.sh — install & config diagnostics (SPEC-022 / CDV-191)
 #
-# Usage: doctor.sh [--json] [--fix] [--only <id|group>] [--gate=<orchestration|team>] [-h|--help]
+# Usage: doctor.sh [--json] [--fix] [--force] [--only <id|group>] [--gate=<orchestration|team>] [-h|--help]
 # Exit: 0 all PASS · 1 ≥1 WARN no FAIL · 2 ≥1 FAIL · 64 usage
 # Under --gate: self-remediating FAILs (exact fixit match) do not contribute to exit 2 (SPEC-022 M6c)
 #
@@ -16,6 +16,7 @@ PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 
 JSON_MODE=0
 FIX_MODE=0
+FIX_FORCE=0
 ONLY_FILTER=""
 GATE=""
 USAGE_ERR=0
@@ -25,10 +26,11 @@ USAGE_ERR=0
 # ---------------------------------------------------------------------------
 usage() {
   cat <<'EOF' >&2
-Usage: doctor.sh [--json] [--fix] [--only <check-id|group>] [--gate=<orchestration|team>] [-h|--help]
+Usage: doctor.sh [--json] [--fix] [--force] [--only <check-id|group>] [--gate=<orchestration|team>] [-h|--help]
 
   --json              Emit single JSON document on stdout (diagnostics on stderr)
-  --fix               Apply allowlisted repairs only (distilling_lock, STALE .wt-lock, handoff *.tmp)
+  --fix               Apply allowlisted repairs only (stale distilling_lock, STALE .wt-lock, handoff *.tmp)
+  --force             With --fix, also clear a fresh distilling_lock
   --only <id|group>   Run a subset of checks
   --gate=<orchestration|team>
                       Gate-mode self-remediation (CDT-67 / M6c): FAILs whose
@@ -44,6 +46,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --json) JSON_MODE=1; shift ;;
     --fix) FIX_MODE=1; shift ;;
+    --force) FIX_FORCE=1; shift ;;
     --only)
       if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
         echo "doctor: --only requires an argument" >&2
@@ -137,7 +140,7 @@ CHECK_HOOK_TEMPLATES="$PLUGIN_ROOT/skills/init-orchestration/check-hook-template
 # ---------------------------------------------------------------------------
 # Result registry
 # ---------------------------------------------------------------------------
-# Parallel arrays (bash 4+)
+# Indexed arrays (bash 3.2+).
 CHECK_IDS=()
 CHECK_GROUPS=()
 CHECK_STATUSES=()
@@ -190,14 +193,26 @@ fixit_matches_gate() {
 # Helpers
 # ---------------------------------------------------------------------------
 json_escape() {
-  # Escape a string for JSON double-quoted value (pure bash).
-  local s=${1-}
+  # Escape a string for a JSON double-quoted value (pure bash).
+  # Every C0 control becomes \n, \r, \t, or \u00XX.
+  local s=${1-} out="" c hex
   s=${s//\\/\\\\}
   s=${s//\"/\\\"}
-  s=${s//$'\n'/\\n}
-  s=${s//$'\r'/\\r}
-  s=${s//$'\t'/\\t}
-  printf '%s' "$s"
+  while [ -n "$s" ]; do
+    c=${s%"${s#?}"}
+    s=${s#?}
+    case "$c" in
+      $'\n') out="${out}\\n" ;;
+      $'\r') out="${out}\\r" ;;
+      $'\t') out="${out}\\t" ;;
+      [[:cntrl:]])
+        hex=$(printf '%02x' "'$c")
+        out="${out}\\u00${hex}"
+        ;;
+      *) out="${out}${c}" ;;
+    esac
+  done
+  printf '%s' "$out"
 }
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
@@ -263,38 +278,6 @@ except Exception:
   printf '%s' "$line"
 }
 
-parse_marketplace_version() {
-  local f="$1"
-  [ -f "$f" ] || { printf ''; return 0; }
-  if have_cmd python3; then
-    python3 -c '
-import json,sys
-try:
-  d=json.load(open(sys.argv[1]))
-  plugs=d.get("plugins") or []
-  if not plugs:
-    print("")
-  else:
-    print(plugs[0].get("version","") or "")
-except Exception:
-  print("__PARSE_ERROR__")
-' "$f" 2>/dev/null || printf '__PARSE_ERROR__'
-    return 0
-  fi
-  if have_cmd jq; then
-    jq -r '.plugins[0].version // empty' "$f" 2>/dev/null || printf '__PARSE_ERROR__'
-    return 0
-  fi
-  local line
-  line=$(grep -E '"version"[[:space:]]*:' "$f" 2>/dev/null | head -1 || true)
-  if [ -z "$line" ]; then printf ''; return 0; fi
-  line=${line#*\"version\"}
-  line=${line#*:}
-  line=${line#*\"}
-  line=${line%%\"*}
-  printf '%s' "$line"
-}
-
 expected_schema_version() {
   local f="$SCHEMA_SQL" line n
   if [ -f "$f" ]; then
@@ -323,6 +306,7 @@ infer_tier() {
   case "$p" in
     "$MROOT"|"$MROOT"/*) printf 'dev' ;;
     */.claude/plugins/cache/*) printf 'cache' ;;
+    */.claude/plugins/marketplaces/*) printf 'marketplace' ;;
     *) printf 'fallback' ;;
   esac
 }
@@ -335,6 +319,7 @@ RESOLVED_TIER=$(infer_tier "$PLUGIN_ROOT")
 case "$PLUGIN_ROOT" in
   "$MROOT"|"$MROOT"/*) RESOLVED_TIER=dev ;;
   */.claude/plugins/cache/*) RESOLVED_TIER=cache ;;
+  */.claude/plugins/marketplaces/*) RESOLVED_TIER=marketplace ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -744,7 +729,7 @@ _probe_ext_load() {
     *.so|*.dylib) base=${base%.*} ;;
   esac
   [ -f "${base}.$(ext_suffix)" ] || [ -f "$base" ] || return 1
-  sqlite3 :memory: ".load $base" "SELECT 1;" >/dev/null 2>&1
+  sqlite3 :memory: ".load \"$base\"" "SELECT 1;" >/dev/null 2>&1
 }
 
 check_memory_ext_vec() {
@@ -826,15 +811,27 @@ except Exception:
   print("")
 ' "$SETTINGS" 2>/dev/null || true)
       fi
-      local found=0 d
+      local found=0 d suffix bare
       for d in $domains; do
-        # domain entry may include :port
         case "$d" in
-          "$host"|"$host":*) found=1; break ;;
-        esac
-        # also match if entry is suffix
-        case "$host" in
-          *"$d"*) found=1; break ;;
+          \*.*)
+            suffix=${d#\*.}
+            suffix=${suffix%%:*}
+            case "$host" in
+              *."$suffix") found=1; break ;;
+            esac
+            ;;
+          *)
+            # Entry may be host or host:port. Compare the entry to this host,
+            # then a label boundary on the entry with its port removed.
+            bare=${d%%:*}
+            case "$d" in
+              "$host"|"$host":*) found=1; break ;;
+            esac
+            case "$host" in
+              *."$bare") found=1; break ;;
+            esac
+            ;;
         esac
       done
       if [ "$found" -eq 0 ]; then
@@ -1025,7 +1022,7 @@ check_hooks_hygiene() {
     nonexec=${nonexec% }
   fi
 
-  # Severity: missing script = FAIL; unanchored/pipe = WARN; nonexec = FAIL (can't run)
+  # Severity: missing script = FAIL; nonexec = WARN (bash runs the script); pipe/unanchored = WARN
   if [ -n "$missing_script" ]; then
     record "hooks.hygiene" "hooks" "FAIL" \
       "hook script(s) missing: $missing_script" \
@@ -1033,7 +1030,8 @@ check_hooks_hygiene() {
     return 0
   fi
   if [ -n "$nonexec" ]; then
-    record "hooks.hygiene" "hooks" "FAIL" \
+    # Hooks run as `bash <script>`, so a missing exec bit is not a hard fail.
+    record "hooks.hygiene" "hooks" "WARN" \
       "hook script(s) not executable: $nonexec" \
       "chmod +x $nonexec (or re-run /setup orchestration)"
     return 0
@@ -1050,7 +1048,7 @@ check_hooks_hygiene() {
       "/setup orchestration (rewrites worktree-unsafe paths)"
     return 0
   fi
-  record "hooks.hygiene" "hooks" "PASS" "hook commands anchored, no pipes, scripts present+exec" ""
+  record "hooks.hygiene" "hooks" "PASS" "hook commands anchored, no pipes, scripts present" ""
 }
 
 check_hooks_templates_dev() {
@@ -1348,7 +1346,7 @@ check_worktree_locks() {
   # Orphan: lock without registered git worktree; worktree dir without lock
   local git_wts=""
   git_wts=$(git -C "$MROOT" worktree list --porcelain 2>/dev/null \
-    | awk '/^worktree /{print $2}' || true)
+    | awk '/^worktree /{sub(/^worktree /,""); print}' || true)
 
   local d lock
   for d in "$base"/*; do
@@ -1356,11 +1354,13 @@ check_worktree_locks() {
     slug=$(basename "$d")
     lock="$d/.wt-lock"
     if [ -f "$lock" ]; then
-      # Is this path a registered git worktree?
+      # Is this path a registered git worktree? Read porcelain line-wise so
+      # a path with a space stays one path.
       local reg=0 wt
-      for wt in $git_wts; do
+      while IFS= read -r wt || [ -n "$wt" ]; do
+        [ -n "$wt" ] || continue
         if [ "$wt" = "$d" ]; then reg=1; break; fi
-      done
+      done <<< "$git_wts"
       if [ "$reg" -eq 0 ]; then
         # Bare fixture dirs are not git worktrees — warn as orphan lock only if
         # the dir looks like a real worktree (.git present) OR we only have lock
@@ -1402,11 +1402,36 @@ check_worktree_distill_lock() {
   holder=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
     "SELECT value FROM config WHERE key='distilling_lock';" 2>/dev/null || true)
   if [ -n "$holder" ]; then
+    local fixit
+    if distill_lock_stale "$holder"; then
+      fixit="/memory distill --force  (or doctor --fix)"
+    else
+      fixit="doctor --fix --force (a fresh lock; doctor --fix leaves it)"
+    fi
     record "worktree.distill_lock" "worktree" "WARN" \
       "distilling_lock held by '$holder'" \
-      "/memory distill --force  (or doctor --fix)"
+      "$fixit"
   else
     record "worktree.distill_lock" "worktree" "PASS" "distilling_lock clear" ""
+  fi
+}
+
+check_handoff_tmp() {
+  local hdir="$MROOT/.claude/handoff/cache" n=0 f
+  if [ ! -d "$hdir" ]; then
+    record "handoff.tmp" "handoff" "PASS" "no handoff cache" ""
+    return 0
+  fi
+  for f in "$hdir"/*.tmp; do
+    [ -f "$f" ] || continue
+    n=$((n + 1))
+  done
+  if [ "$n" -gt 0 ]; then
+    record "handoff.tmp" "handoff" "WARN" \
+      "$n orphaned *.tmp under .claude/handoff/cache/" \
+      "doctor --fix --only handoff.tmp"
+  else
+    record "handoff.tmp" "handoff" "PASS" "no handoff *.tmp" ""
   fi
 }
 
@@ -1661,6 +1686,7 @@ register_check "worktree.locks" "worktree" check_worktree_locks
 register_check "worktree.distill_lock" "worktree" check_worktree_distill_lock
 register_check "transcript.mirror_lag" "transcript" check_transcript_mirror_lag
 register_check "models.map" "config" check_models_map
+register_check "handoff.tmp" "handoff" check_handoff_tmp
 
 # ---------------------------------------------------------------------------
 # --only filter validation
@@ -1685,7 +1711,7 @@ if [ -n "$ONLY_FILTER" ]; then
   done
   if [ "$known" -eq 0 ]; then
     echo "doctor: unknown check id or group: $ONLY_FILTER" >&2
-    echo "Known groups: version memory hooks settings deps worktree plugin transcript config" >&2
+    echo "Known groups: version memory hooks settings deps worktree plugin transcript config handoff" >&2
     echo "Known ids: ${REG_IDS[*]}" >&2
     exit 64
   fi
@@ -1709,22 +1735,48 @@ fix_confirm() {
   return 0
 }
 
+distill_lock_stale() {
+  # Value shape from distill-lock.sh: distill-<epoch>-<pid>. Empty and
+  # non-numeric tokens are not stale. TTL is the same 1800s literal. That
+  # script does not read an env override, so doctor does not either.
+  local value="$1" now epoch ttl=1800
+  now=$(date +%s)
+  case "$value" in
+    distill-[0-9]*)
+      epoch=${value#distill-}
+      epoch=${epoch%%-*}
+      case "$epoch" in
+        ''|*[!0-9]*) return 1 ;;
+      esac
+      [ $((now - epoch)) -gt "$ttl" ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 do_fix() {
-  # 1) clear distilling_lock
-  if have_cmd sqlite3 && [ -f "$MEMDB" ]; then
+  # Each repair runs only when --only selects its check (CDT-407).
+  # 1) clear a stale distilling_lock. A fresh lock stays unless --force.
+  if should_run "worktree.distill_lock" "worktree" \
+     && have_cmd sqlite3 && [ -f "$MEMDB" ]; then
     local holder
     holder=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" \
       "SELECT value FROM config WHERE key='distilling_lock';" 2>/dev/null || true)
     if [ -n "$holder" ]; then
-      if fix_confirm "clear distilling_lock (held by '$holder') → ''"; then
-        sqlite3 -cmd ".timeout 5000" "$MEMDB" \
-          " UPDATE config SET value='' WHERE key='distilling_lock';" 2>/dev/null || true
-        echo "doctor --fix: distilling_lock cleared" >&2
+      if [ "$FIX_FORCE" -eq 1 ] || distill_lock_stale "$holder"; then
+        if fix_confirm "clear distilling_lock (held by '$holder') → ''"; then
+          sqlite3 -cmd ".timeout 5000" "$MEMDB" \
+            " UPDATE config SET value='' WHERE key='distilling_lock';" 2>/dev/null || true
+          echo "doctor --fix: distilling_lock cleared" >&2
+        fi
+      else
+        echo "doctor --fix: distilling_lock is fresh; left in place" >&2
       fi
     fi
   fi
 
   # 2) remove STALE .wt-lock files only
+  if should_run "worktree.locks" "worktree"; then
   local base="$MROOT/.worktrees"
   local ttl="${WT_LOCK_TTL_SECONDS:-21600}"
   [[ "$ttl" =~ ^[0-9]+$ ]] || ttl=21600
@@ -1752,10 +1804,11 @@ do_fix() {
       fi
     done
   fi
+  fi
 
-  # 3) sweep handoff cache *.tmp
+  # 3) sweep handoff cache *.tmp (only on a full run or --only handoff.tmp)
   local hdir="$MROOT/.claude/handoff/cache"
-  if [ -d "$hdir" ]; then
+  if should_run "handoff.tmp" "handoff" && [ -d "$hdir" ]; then
     local f count=0
     for f in "$hdir"/*.tmp; do
       [ -f "$f" ] || continue

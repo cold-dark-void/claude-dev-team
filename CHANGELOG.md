@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.14
+- **WP 4-09 Debug doctor** — full mode commits on its branch and exits, --fix --only stays on one repair, and an allowlist host matches on a label boundary.
+
 ### v1.19.13
 - **WP 4-08 Bug-hunt** — a phase-plan maps to its findings plan, a repeat stem gains a -2 suffix, and evidence strike re-runs the command.
 

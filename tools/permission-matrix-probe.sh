@@ -21,6 +21,12 @@
 # tools/permission-matrix-cc-version so /doctor can WARN on drift.
 set -euo pipefail
 
+RECORD_ONLY=0
+if [ "${1:-}" = "--record-cc-only" ]; then
+  RECORD_ONLY=1
+  shift
+fi
+
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 if [ -n "${1:-}" ]; then
   OUTDIR="$1"
@@ -29,9 +35,10 @@ else
 fi
 MODEL="${MATRIX_MODEL:-haiku}"
 TIMEOUT_S="${MATRIX_TIMEOUT:-180}"
-CC_VERSION_FILE="${MATRIX_CC_VERSION_FILE:-$REPO/tools/permission-matrix-cc-version}"
+CC_VERSION_FILE="${CC_VERSION_FILE:-${MATRIX_CC_VERSION_FILE:-$REPO/tools/permission-matrix-cc-version}}"
 MATRIX_CELLS="${MATRIX_CELLS:-A:bypassPermissions B:acceptEdits C:dontAsk D:auto}"
 SKIP_MCP_DELTA="${MATRIX_SKIP_MCP_DELTA:-0}"
+if [ "$RECORD_ONLY" -eq 0 ]; then
 mkdir -p "$OUTDIR"
 RESULTS="$OUTDIR/results.tsv"
 : > "$RESULTS"
@@ -39,6 +46,7 @@ echo -e "cell\tmode\tflow\tstatus\tprompt_proxy\tdenials\thooks_fired\tnotes" >>
 MCP_DELTA="$OUTDIR/mcp-safety-delta.tsv"
 : > "$MCP_DELTA"
 echo -e "mode\tmcp_linear\tsettings_edit_attempt\tpermission_denials\tproxy\tnotes" >> "$MCP_DELTA"
+fi
 
 log() { printf '[matrix] %s\n' "$*" >&2; }
 
@@ -470,6 +478,17 @@ prog_baseline() {
   echo -e "PROG\tbaseline\tALL\t$([ $ok -eq 1 ] && echo PASS || echo FAIL)\t0\t0\t$(wc -l < .claude/hooks/probe-fires.log 2>/dev/null || echo 0)\tno-claude-api" >> "$RESULTS"
   log "programmatic baseline ok=$ok"
 }
+
+# Test entry: apply the same PASS-cell decision as main, then exit.
+# RESULTS and CC_VERSION_FILE must already be set.
+if [ "$RECORD_ONLY" -eq 1 ]; then
+  if awk -F'\t' '$3 == "ALL" && $4 ~ /^PASS/ { found=1 } END { exit !found }' "${RESULTS:?}"; then
+    record_probed_cc_version
+  else
+    log "no cell PASS — leaving last-probed CC version unchanged"
+  fi
+  exit 0
+fi
 
 # --- main ---
 key_probe

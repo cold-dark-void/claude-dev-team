@@ -15,9 +15,11 @@ SCHEMA_SQL="$PLUGIN_ROOT/skills/memory-store/schema.sql"
 
 PASS=0
 FAIL=0
+SKIPN=0
 
 pass() { PASS=$((PASS + 1)); echo "PASS: $1"; }
 fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
+skip() { SKIPN=$((SKIPN + 1)); echo "SKIP: $1"; }
 
 # ---- Temp project (fake MROOT via git) ------------------------------------
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/doctor-test.XXXXXX")
@@ -33,12 +35,8 @@ doctor() {
 seed_plugin_triplet() {
   local root="${1:-.}"
   mkdir -p "$root/.claude-plugin"
-  # Point doctor at real PLUGIN_ROOT for version — doctor uses SCRIPT_DIR's
-  # PLUGIN_ROOT, not fixture. Version check always hits real plugin. For
-  # drift tests we temporarily patch real files with backup — avoid that.
-  # Instead: version.triplet uses PLUGIN_ROOT (install of doctor.sh) which
-  # is the real worktree — healthy on this branch.
-  :
+  cp "$PLUGIN_ROOT/.claude-plugin/plugin.json" "$root/.claude-plugin/plugin.json"
+  cp "$PLUGIN_ROOT/CHANGELOG.md" "$root/CHANGELOG.md"
 }
 
 make_bare_project() {
@@ -424,14 +422,33 @@ if command -v sqlite3 >/dev/null 2>&1 && [ -f "$HEALTHY/.claude/memory/memory.db
   else
     fail "T7a status=$STATUS"
   fi
-  # --fix non-TTY clears
+  # Non-TTY --fix leaves a fresh lock (W2-38). A stale token is cleared.
+  now=$(date +%s)
+  sqlite3 .claude/memory/memory.db \
+    "UPDATE config SET value='distill-${now}-1' WHERE key='distilling_lock';"
   doctor --fix --only worktree.distill_lock >/dev/null 2>&1 || true
   HOLDER=$(sqlite3 .claude/memory/memory.db "SELECT value FROM config WHERE key='distilling_lock';")
   SETTINGS_HASH2=$(cksum .claude/settings.json | awk '{print $1}')
-  if [ -z "$HOLDER" ] && [ "$SETTINGS_HASH" = "$SETTINGS_HASH2" ]; then
-    pass "T7b --fix clears lock; settings untouched"
+  if [ "$HOLDER" = "distill-${now}-1" ] && [ "$SETTINGS_HASH" = "$SETTINGS_HASH2" ]; then
+    pass "T7b non-TTY --fix leaves a fresh lock; settings untouched"
   else
     fail "T7b holder='$HOLDER' settings_hash $SETTINGS_HASH vs $SETTINGS_HASH2"
+  fi
+  doctor --fix --force --only worktree.distill_lock >/dev/null 2>&1 || true
+  HOLDER=$(sqlite3 .claude/memory/memory.db "SELECT value FROM config WHERE key='distilling_lock';")
+  if [ -z "$HOLDER" ]; then
+    pass "T7b3 --fix --force clears the fresh lock"
+  else
+    fail "T7b3 --force left '$HOLDER'"
+  fi
+  sqlite3 .claude/memory/memory.db \
+    "UPDATE config SET value='distill-1-1' WHERE key='distilling_lock';"
+  doctor --fix --only worktree.distill_lock >/dev/null 2>&1 || true
+  HOLDER=$(sqlite3 .claude/memory/memory.db "SELECT value FROM config WHERE key='distilling_lock';")
+  if [ -z "$HOLDER" ]; then
+    pass "T7b2 --fix clears a stale distilling_lock"
+  else
+    fail "T7b2 stale lock kept '$HOLDER'"
   fi
   # second --fix no-op
   doctor --fix >/dev/null 2>&1 || true
@@ -442,9 +459,9 @@ if command -v sqlite3 >/dev/null 2>&1 && [ -f "$HEALTHY/.claude/memory/memory.db
     fail "T7c holder reappeared '$HOLDER2'"
   fi
 else
-  pass "T7a-c SKIP (no sqlite3)"
-  pass "T7b SKIP"
-  pass "T7c SKIP"
+  skip "T7a-c no sqlite3"
+  skip "T7b no sqlite3"
+  skip "T7c no sqlite3"
 fi
 
 # =============================================================================
@@ -493,7 +510,7 @@ if command -v sqlite3 >/dev/null 2>&1; then
   sqlite3 .claude/memory/memory.db \
     "UPDATE config SET value='${EXP:-3}' WHERE key='schema_version';"
 else
-  pass "T9a SKIP (no sqlite3)"
+  skip "T9a no sqlite3"
 fi
 
 # =============================================================================
@@ -533,7 +550,7 @@ if command -v sqlite3 >/dev/null 2>&1 && [ -f "$HEALTHY/.claude/memory/memory.db
   sqlite3 .claude/memory/memory.db \
     "UPDATE config SET value='fallback' WHERE key='embedding_mode';"
 else
-  pass "T11a SKIP"
+  skip "T11a no sqlite3"
 fi
 
 # =============================================================================
@@ -877,7 +894,7 @@ else
   fail "T18d expected exit 2, got $RC"
 fi
 
-# T18e — nonexec hygiene (composite fix-it) + gate → exit 2
+# T18e — nonexec hygiene is WARN (hooks run via bash). A WARN is not gate-waived.
 NONEXEC="$TMP/t18-nonexec"
 make_bare_project "$NONEXEC"
 write_full_hooks_settings "$NONEXEC/.claude/settings.json"
@@ -885,12 +902,13 @@ chmod -x "$NONEXEC/.claude/hooks/"*.sh
 cd "$NONEXEC" || exit 1
 RC=0
 JSON_NE=$(doctor --json --gate=orchestration --only hooks.hygiene 2>/dev/null) || RC=$?
+STATUS_NE=$(printf '%s' "$JSON_NE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("status") or "")' 2>/dev/null || echo "")
 FIX_NE=$(printf '%s' "$JSON_NE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("fixit") or "")' 2>/dev/null || echo "")
 WAIVED_NE=$(printf '%s' "$JSON_NE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0].get("gate_waived"))' 2>/dev/null || echo "")
-if [ "$RC" -eq 2 ] && echo "$FIX_NE" | grep -q 'chmod' && [ "$WAIVED_NE" = "False" ]; then
-  pass "T18e nonexec composite fix-it + gate → exit 2 not waived"
+if [ "$RC" -eq 1 ] && [ "$STATUS_NE" = "WARN" ] && echo "$FIX_NE" | grep -q 'chmod' && [ "$WAIVED_NE" = "False" ]; then
+  pass "T18e nonexec is WARN exit 1, chmod fix-it, gate does not waive"
 else
-  fail "T18e rc=$RC fix=$FIX_NE waived=$WAIVED_NE out=$JSON_NE"
+  fail "T18e rc=$RC status=$STATUS_NE fix=$FIX_NE waived=$WAIVED_NE out=$JSON_NE"
 fi
 
 # T18f — composite fix-it containing /setup orchestration but not exact → not waived
@@ -1075,13 +1093,13 @@ if printf '%s' "$JSON_NE2" | python3 -c '
 import json,sys,re
 d=json.load(sys.stdin)
 c=d["checks"][0]
-assert c["status"]=="FAIL", c
+assert c["status"]=="WARN", c
 detail=c.get("detail") or ""
 assert "not executable" in detail, detail
 assert "rescue-pointer.sh" in detail, detail
 assert len(re.findall(r"rescue-pointer\.sh", detail)) == 1, detail
 print("ok")
-' 2>/dev/null && [ "$RC" -eq 2 ]; then
+' 2>/dev/null && [ "$RC" -eq 1 ]; then
   pass "T19b multi-event nonexec script listed once (CDT-70)"
 else
   fail "T19b rc=$RC out=$JSON_NE2"
@@ -1170,36 +1188,29 @@ else
   fail "T20c rc=$RC out=$OUT"
 fi
 
-# T20d — probe write-back on successful cell PASS (unit: emulate record path)
+# T20d — the real probe records a PASS cell (not a copied awk gate)
 PROBE="$PLUGIN_ROOT/tools/permission-matrix-probe.sh"
 PROBE_PIN="$TMP/probe-wrote-version"
 printf '%s\n' '0.0.0' > "$PROBE_PIN"
-# Extract + run record_probed_cc_version with mocks via inline RESULTS gate
 RESULTS_TSV="$TMP/probe-results.tsv"
 printf '%s\n' \
   $'cell\tmode\tflow\tstatus\tprompt_proxy\tdenials\thooks_fired\tnotes' \
   $'C\tdontAsk\tALL\tPASS_ZERO_PROMPT\t0\t[]\t1\tok' \
   > "$RESULTS_TSV"
-# Run the same awk gate + write the probe uses
-if awk -F'\t' '$3 == "ALL" && $4 ~ /^PASS/ { found=1 } END { exit !found }' "$RESULTS_TSV"; then
-  raw=$(PATH="$CC_MOCK_BIN:$PATH" claude --version 2>&1 | head -1 || true)
-  installed=$(printf '%s' "$raw" | awk '{print $1}' | tr -d '\r')
-  printf '%s\n' "$installed" > "$PROBE_PIN"
-fi
+RESULTS="$RESULTS_TSV" CC_VERSION_FILE="$PROBE_PIN" PATH="$CC_MOCK_BIN:$PATH" \
+  bash "$PROBE" --record-cc-only
 if [ "$(cat "$PROBE_PIN")" = "9.9.9" ]; then
   pass "T20d probe success path writes last-probed CC version (CDT-59)"
 else
   fail "T20d pin=$(cat "$PROBE_PIN") expected 9.9.9"
 fi
-# Negative: FAIL-only results do not update
 printf '%s\n' '0.0.0' > "$PROBE_PIN"
 printf '%s\n' \
   $'cell\tmode\tflow\tstatus\tprompt_proxy\tdenials\thooks_fired\tnotes' \
   $'C\tdontAsk\tALL\tFAIL\t1\t[]\t0\tnope' \
   > "$RESULTS_TSV"
-if awk -F'\t' '$3 == "ALL" && $4 ~ /^PASS/ { found=1 } END { exit !found }' "$RESULTS_TSV"; then
-  printf '%s\n' 'should-not-write' > "$PROBE_PIN"
-fi
+RESULTS="$RESULTS_TSV" CC_VERSION_FILE="$PROBE_PIN" PATH="$CC_MOCK_BIN:$PATH" \
+  bash "$PROBE" --record-cc-only
 if [ "$(cat "$PROBE_PIN")" = "0.0.0" ]; then
   pass "T20e probe FAIL cells leave last-probed version unchanged (CDT-59)"
 else
@@ -1627,7 +1638,14 @@ t23_doctor() {
     bash "$DOCTOR" "$@"
 }
 
-t23_age() { touch -d '2 minutes ago' "$1"; }
+t23_age() {
+  if touch -d '2 minutes ago' "$1" 2>/dev/null; then
+    return 0
+  fi
+  local stamp
+  stamp=$(date -v-2M '+%Y%m%d%H%M.%S' 2>/dev/null || date -d '2 minutes ago' '+%Y%m%d%H%M.%S')
+  touch -t "$stamp" "$1"
+}
 
 t23_write_mini() {
   local dest="$1"
@@ -2104,7 +2122,7 @@ else
   fail "T24j status=$STATUS rc=$RC out=$OUT"
 fi
 
-# T24e (CDT-229) — effort-only valid file → not SKIP (PASS)
+# T24k (CDT-229) — effort-only valid file → not SKIP (PASS)
 T24_EFF="$TMP/t24-effort-only"
 t24_new "$T24_EFF"
 mkdir -p "$T24_EFF/.claude/dev-team"
@@ -2116,12 +2134,12 @@ OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
 STATUS=$(t24_field "$OUT" status)
 if [ "$STATUS" != "SKIP" ] && [ "$STATUS" = "PASS" ] && [ "$STATUS" != "FAIL" ] \
    && [ "$RC" -eq 0 ]; then
-  pass "T24e effort-only valid file → not SKIP (CDT-229)"
+  pass "T24k effort-only valid file → not SKIP (CDT-229)"
 else
-  fail "T24e status=$STATUS rc=$RC out=$OUT"
+  fail "T24k status=$STATUS rc=$RC out=$OUT"
 fi
 
-# T24f (CDT-229) — bad effort token → WARN rc=1 never FAIL
+# T24l (CDT-229) — bad effort token → WARN rc=1 never FAIL
 T24_EBAD="$TMP/t24-effort-bad"
 t24_new "$T24_EBAD"
 mkdir -p "$T24_EBAD/.claude/dev-team"
@@ -2132,12 +2150,12 @@ RC=0
 OUT=$(t24_doctor --json --only models.map 2>/dev/null) || RC=$?
 STATUS=$(t24_field "$OUT" status)
 if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] && [ "$RC" -eq 1 ]; then
-  pass "T24f bad token → WARN rc=1 never FAIL (CDT-229)"
+  pass "T24l bad token → WARN rc=1 never FAIL (CDT-229)"
 else
-  fail "T24f-effort status=$STATUS rc=$RC out=$OUT"
+  fail "T24l status=$STATUS rc=$RC out=$OUT"
 fi
 
-# T24g (CDT-229) — unknown effort key → WARN
+# T24m (CDT-229) — unknown effort key → WARN
 T24_EUNK="$TMP/t24-effort-unk"
 t24_new "$T24_EUNK"
 mkdir -p "$T24_EUNK/.claude/dev-team"
@@ -2150,12 +2168,12 @@ STATUS=$(t24_field "$OUT" status)
 DETAIL=$(t24_field "$OUT" detail)
 if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] \
    && echo "$DETAIL" | grep -q "unknown effort key"; then
-  pass "T24g unknown effort key → WARN (CDT-229)"
+  pass "T24m unknown effort key → WARN (CDT-229)"
 else
-  fail "T24g-effort status=$STATUS detail=$DETAIL out=$OUT"
+  fail "T24m status=$STATUS detail=$DETAIL out=$OUT"
 fi
 
-# T24h (CDT-229) — qa in effort → M9 WARN
+# T24n (CDT-229) — qa in effort → M9 WARN
 T24_EQA="$TMP/t24-effort-qa"
 t24_new "$T24_EQA"
 mkdir -p "$T24_EQA/.claude/dev-team"
@@ -2168,9 +2186,9 @@ STATUS=$(t24_field "$OUT" status)
 DETAIL=$(t24_field "$OUT" detail)
 if [ "$STATUS" = "WARN" ] && [ "$STATUS" != "FAIL" ] \
    && echo "$DETAIL" | grep -q "adversarial role 'qa'"; then
-  pass "T24h qa in effort → M9 WARN (CDT-229)"
+  pass "T24n qa in effort → M9 WARN (CDT-229)"
 else
-  fail "T24h-effort status=$STATUS detail=$DETAIL out=$OUT"
+  fail "T24n status=$STATUS detail=$DETAIL out=$OUT"
 fi
 
 # =============================================================================
@@ -2281,10 +2299,174 @@ else
 fi
 
 # =============================================================================
+# WP 4-09 — allowlist, --only scope, spaces, marketplace, four checks
+# =============================================================================
+SEED_ROOT="$TMP/wp409-seed"
+seed_plugin_triplet "$SEED_ROOT"
+if [ -f "$SEED_ROOT/.claude-plugin/plugin.json" ] && [ -f "$SEED_ROOT/CHANGELOG.md" ]; then
+  pass "F23 seed_plugin_triplet writes the version pair"
+else
+  fail "F23 seed_plugin_triplet wrote nothing"
+fi
+
+# F14 — a.io does not allow evil-a.io.attacker.net
+F14="$TMP/wp409-f14"
+make_bare_project "$F14"
+mkdir -p "$F14/.claude/memory"
+sqlite3 "$F14/.claude/memory/memory.db" < "$SCHEMA_SQL"
+sqlite3 "$F14/.claude/memory/memory.db" \
+  "UPDATE config SET value='remote' WHERE key='embedding_mode';
+   INSERT OR REPLACE INTO config(key, value) VALUES ('embedding_url', 'https://evil-a.io.attacker.net/v1');"
+cat > "$F14/.claude/settings.json" <<'JSON'
+{"sandbox":{"network":{"allowedDomains":["a.io"]}}}
+JSON
+cd "$F14" || exit 1
+# EMBEDDING_URL in the parent shell overrides the sqlite URL. Unset it.
+# doctor is a shell function, so env(1) cannot see it.
+OUT=$(unset EMBEDDING_URL; doctor --json --only memory.embedding_config 2>/dev/null) || true
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "WARN" ] && printf '%s' "$OUT" | grep -q 'evil-a.io.attacker.net'; then
+  pass "F14 substring host is not allowlisted"
+else
+  fail "F14 status=$STATUS out=$OUT"
+fi
+sqlite3 "$F14/.claude/memory/memory.db" \
+  "INSERT OR REPLACE INTO config(key, value) VALUES ('embedding_url', 'https://nota.io/v1');"
+OUT=$(unset EMBEDDING_URL; doctor --json --only memory.embedding_config 2>/dev/null) || true
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "WARN" ] && printf '%s' "$OUT" | grep -q 'nota.io'; then
+  pass "F14 nota.io is not a label of a.io"
+else
+  fail "F14 nota.io status=$STATUS out=$OUT"
+fi
+sqlite3 "$F14/.claude/memory/memory.db" \
+  "INSERT OR REPLACE INTO config(key, value) VALUES ('embedding_url', 'https://api.a.io/v1');"
+OUT=$(unset EMBEDDING_URL; doctor --json --only memory.embedding_config 2>/dev/null) || true
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "PASS" ] && printf '%s' "$OUT" | grep -q 'api.a.io'; then
+  pass "F14 label-boundary host api.a.io is allowlisted"
+else
+  fail "F14 boundary status=$STATUS out=$OUT"
+fi
+cat > "$F14/.claude/settings.json" <<'JSON'
+{"sandbox":{"network":{"allowedDomains":["a.io:443"]}}}
+JSON
+sqlite3 "$F14/.claude/memory/memory.db" \
+  "INSERT OR REPLACE INTO config(key, value) VALUES ('embedding_url', 'https://a.io/v1');"
+OUT=$(unset EMBEDDING_URL; doctor --json --only memory.embedding_config 2>/dev/null) || true
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "PASS" ]; then
+  pass "F14 allow entry a.io:443 matches host a.io"
+else
+  fail "F14 host:port status=$STATUS out=$OUT"
+fi
+
+# CDT-407 — --fix --only distill leaves a wt-lock and a tmp file
+FIXONLY="$TMP/wp409-fixonly"
+make_bare_project "$FIXONLY"
+mkdir -p "$FIXONLY/.claude/memory" "$FIXONLY/.worktrees" "$FIXONLY/.claude/handoff/cache"
+sqlite3 "$FIXONLY/.claude/memory/memory.db" < "$SCHEMA_SQL"
+now=$(date +%s)
+sqlite3 "$FIXONLY/.claude/memory/memory.db" \
+  "UPDATE config SET value='distill-${now}-9' WHERE key='distilling_lock';"
+printf 'tmp\n' > "$FIXONLY/.claude/handoff/cache/a.tmp"
+git -C "$FIXONLY" -c user.email=doctor-test@example.com -c user.name=doctor-test \
+  commit --allow-empty -m init >/dev/null
+if git -C "$FIXONLY" worktree add "$FIXONLY/.worktrees/spaced name" HEAD >/dev/null 2>&1; then
+  printf '%s\n' "$now" > "$FIXONLY/.worktrees/spaced name/.wt-lock"
+else
+  fail "W2-38 git worktree add of a path with a space failed"
+fi
+cd "$FIXONLY" || exit 1
+doctor --fix --only worktree.distill_lock >/dev/null 2>&1 || true
+if [ -f "$FIXONLY/.worktrees/spaced name/.wt-lock" ] \
+   && [ -f "$FIXONLY/.claude/handoff/cache/a.tmp" ]; then
+  pass "CDT-407 --only distill leaves wt-lock and tmp"
+else
+  fail "CDT-407 --only distill removed another repair"
+fi
+RC=0
+doctor --fix --only handoff.tmp >/dev/null 2>&1 || RC=$?
+if [ "$RC" -ne 64 ] && [ ! -f "$FIXONLY/.claude/handoff/cache/a.tmp" ] \
+   && [ -f "$FIXONLY/.worktrees/spaced name/.wt-lock" ]; then
+  pass "CDT-407 --only handoff.tmp sweeps tmp and leaves the wt-lock"
+else
+  fail "CDT-407 handoff.tmp rc=$RC tmp_left=$( [ -f "$FIXONLY/.claude/handoff/cache/a.tmp" ] && echo yes || echo no )"
+fi
+OUT=$(doctor --json --only worktree.locks 2>/dev/null) || true
+STATUS=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+if [ "$STATUS" = "PASS" ] && ! printf '%s' "$OUT" | grep -q 'lock without git worktree'; then
+  pass "W2-38 worktree path with a space is not an orphan"
+else
+  fail "W2-38 space path status=$STATUS out=$OUT"
+fi
+
+# Marketplace tier: the script path, not the fixture, decides resolved_tier.
+MKT_ROOT="$TMP/mkt-home/.claude/plugins/marketplaces/dev-team"
+mkdir -p "$MKT_ROOT/skills/doctor"
+cp "$DOCTOR" "$MKT_ROOT/skills/doctor/doctor.sh"
+MKT_PROJ="$TMP/mkt-proj"
+make_bare_project "$MKT_PROJ"
+cd "$MKT_PROJ" || exit 1
+OUT=$(bash "$MKT_ROOT/skills/doctor/doctor.sh" --json --only deps.jq 2>/dev/null) || true
+TIER=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resolved_tier",""))' 2>/dev/null || echo ERR)
+if [ "$TIER" = "marketplace" ]; then
+  pass "W2-38 marketplace install path resolves tier marketplace"
+else
+  fail "W2-38 marketplace tier=$TIER out=$OUT"
+fi
+
+# A C0 control in a hook command must survive --json. The sqlite CLI rewrites
+# controls as caret text, so this path uses settings JSON, which python parses.
+BELL="$TMP/wp409-bell"
+make_bare_project "$BELL"
+mkdir -p "$BELL/.claude/hooks"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$BELL/.claude/hooks/bash-compress.sh"
+chmod +x "$BELL/.claude/hooks/bash-compress.sh"
+python3 -c '
+import json, sys
+cmd = "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/bash-compress.sh\" | true \x07"
+doc = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": cmd}]}]}}
+with open(sys.argv[1], "w") as f:
+    json.dump(doc, f)
+' "$BELL/.claude/settings.json"
+cd "$BELL" || exit 1
+OUT=$(doctor --json --only hooks.hygiene 2>/dev/null) || true
+if printf '%s' "$OUT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+detail = d["checks"][0]["detail"]
+assert d["checks"][0]["status"] == "WARN", d["checks"][0]
+assert "\x07" in detail, detail
+print("ok")
+' >/dev/null 2>&1; then
+  pass "W2-38 json_escape keeps a C0 control in the JSON detail"
+else
+  fail "W2-38 json control out=$OUT"
+fi
+
+# Bare consumer fixture: no extensions, no memory.db, not a dev checkout.
+cd "$BELL" || exit 1
+expect_check() {
+  local cid="$1" want="$2" needle="$3" st
+  OUT=$(doctor --json --only "$cid" 2>/dev/null) || true
+  st=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"][0]["status"])' 2>/dev/null || echo ERR)
+  if [ "$st" = "$want" ] && printf '%s' "$OUT" | grep -q "$needle"; then
+    pass "W2-38 $cid is $want"
+  else
+    fail "W2-38 $cid want=$want got=$st out=$OUT"
+  fi
+}
+expect_check memory.ext.vec WARN "not loadable"
+expect_check memory.ext.lembed WARN "not loadable"
+expect_check hooks.templates SKIP "consumer install"
+expect_check settings.agent_teams SKIP "memory not initialized"
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""
-echo "doctor tests: $PASS pass / $FAIL fail"
+echo "doctor tests: $PASS pass / $FAIL fail / $SKIPN skip"
 if [ "$FAIL" -gt 0 ]; then
   exit 1
 fi

@@ -58,5 +58,5 @@ Read `$SKILL` and execute it end-to-end with the user arguments unchanged.
 
 - Protocol body: `skills/debug/SKILL.md`
 - Ticket pipeline assets (internal backend for `/debug ticket`): `skills/fix-ticket/`
-- Specs: `specs/core/SPEC-014-debug-workflow.md`, `SPEC-028-fix-ticket-workflow.md`, `SPEC-029`
+- Specs: `specs/core/SPEC-014-debug-workflow.md`, `specs/core/SPEC-028-fix-ticket-workflow.md`, `specs/core/SPEC-029-debug-reopen-and-surface-gates.md`
 - Docs: `docs/commands/debug.md`

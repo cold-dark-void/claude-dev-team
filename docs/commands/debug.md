@@ -7,7 +7,7 @@ require a failing test before any fix, a holistic callsite scan after it, and a
 self-calibration checklist before any "done" claim. `ticket` mode runs
 premise→implement→adversarial refuters for a **known** bug ticket (never commits
 or calls `/release`). Prefer `/debug ticket` over the legacy `/fix-ticket`
-command (deprecated — removed at v1.0.0).
+command (deprecated — removed at v1.1.0).
 
 ## Usage
 
@@ -26,7 +26,7 @@ Missing ticket-id or premise → usage error, no agent spawn.
 | Form | Mode | Pipeline |
 |------|------|----------|
 | `/debug <description>` | `full` (default) | Complete pipeline: reproduce → root cause → spec alignment → scope decision → failing test → fix → callsite grep → self-calibration → done. |
-| `/debug patch <description>` | `patch` (fast path) | Root cause → failing test → fix → validate. Skips spec alignment, callsite grep, escalation, and refactor handling. Aborts to full mode if the bug needs a refactor or cross-subsystem change. |
+| `/debug patch <description>` | `patch` (fast path) | Root cause → failing test → fix → validate. Skips spec alignment, the full-mode scope triad, callsite grep, and refactor handling. The P.2a escalation gate still runs. Aborts to full mode if the bug needs a refactor or cross-subsystem change. |
 | `/debug arch <description>` | `arch` (design-first) | Reproduce → root cause, then mandatory `/kickoff` handoff. Never writes a test or fix inline — the root cause investigation is the deliverable. |
 | `/debug ticket …` | `ticket` | Premise → implement → N qa refuters → report. Worktree-isolated; no commit/version/release. |
 
@@ -34,7 +34,7 @@ Missing ticket-id or premise → usage error, no agent spawn.
 
 ## Gates
 
-Every mode shares the same non-negotiable gates:
+`full` and `patch` share the root-cause and failing-test gates. `arch` stops at the root cause. `ticket` does not use these gates.
 
 - **Root-cause-before-edit** — no file may be edited, created, or deleted until a written root cause statement appears in the session. The statement must identify (a) what specifically fails, (b) why it fails, and (c) the originating layer — not the symptom layer.
 - **Scope decision (full mode)** — `targeted-patch`, `refactor-first`, or `escalate-to-kickoff` must be stated in writing before any fix code. Applying the same fix in more than one place always triggers the refactor path.
@@ -62,7 +62,7 @@ Scope: targeted-patch
 ```
 /debug patch off-by-one in pagination offset calc
 ```
-Skips spec alignment, escalation, and the callsite scan — runs root cause → failing test → fix → validate only.
+Skips spec alignment, the full-mode scope triad, and the callsite scan. The P.2a escalation gate still runs. The path is root cause → failing test → fix → validate.
 
 **Design-first, hands off to planning:**
 ```
@@ -93,8 +93,15 @@ Self-calibration checklist:
   [✓] Callsite grep completed — all hits addressed or documented
   [✓] Refactor committed separately before fix (✓ n/a — targeted-patch)
   [✓] Manual verification completed (✓ n/a — reproducible)
+  [✓] SPEC-029 theme status emitted; forced redesign honored or user override logged
+  [✓] SPEC-029 surface matrix complete (or n/a — single-surface project)
+  [✓] SPEC-029 concurrent scenario present (or n/a — not a concurrency bug)
 ```
 Only when every item is `✓` does the skill emit a completion summary and suggest `/wrap-ticket <TICKET-ID>`.
+
+## SPEC-029
+
+`full`, `patch`, and `arch` run the theme gate and write the theme log (`specs/core/SPEC-029-debug-reopen-and-surface-gates.md`). `ticket` mode does not. Patch mode still runs the P.2a escalation gate. Arch mode does not share the full-mode fix gates.
 
 ## See Also
 

@@ -1,7 +1,7 @@
 ---
 name: doctor
 description: Diagnose dev-team plugin + project install/config health (PASS/WARN/FAIL table). Read-only by default; --fix for allowlisted repairs only.
-argument-hint: "[--json] [--fix] [--only <id|group>] [--gate=<orchestration|team>]"
+argument-hint: "[--json] [--fix] [--force] [--only <id|group>] [--gate=<orchestration|team>]"
 ---
 
 # /doctor
@@ -24,6 +24,7 @@ FAIL.
 | _(none)_ | Full battery, human table |
 | `--json` | Single JSON document on stdout |
 | `--fix` | Apply allowlisted repairs only (see below) |
+| `--force` | With `--fix`, clear a fresh `distilling_lock` |
 | `--only <id\|group>` | Run a subset of checks (groups include `transcript`, `config`; ids `transcript.mirror_lag`, `models.map`) |
 | `--gate=<orchestration\|team>` | Gate-mode self-remediation (M6c / CDT-67) |
 | `-h` / `--help` | Usage |
@@ -33,9 +34,9 @@ Flags may combine: `/doctor --json --only memory`. Focused transcript lag:
 
 ### `--fix` allowlist
 
-1. Clear held `distilling_lock` (mirrors `/memory distill --force`)
-2. Remove STALE-per-SPEC-016 `.wt-lock` files (not FRESH; not worktree dirs)
-3. Sweep `.claude/handoff/cache/*.tmp`
+1. Clear a stale `distilling_lock` (`distill-<epoch>-<pid>` older than 1800s, the same literal as `distill-lock.sh`). A fresh lock stays unless `--force`. `--only` limits this repair to `worktree.distill_lock`.
+2. Remove STALE-per-SPEC-016 `.wt-lock` files (not FRESH; not worktree dirs). `--only` limits this repair to `worktree.locks`.
+3. Sweep `.claude/handoff/cache/*.tmp`. `--only` limits this repair to `handoff.tmp`.
 
 MUST NOT rewrite the Model map (`models.map` is WARN-never-FAIL; not on this allowlist).
 

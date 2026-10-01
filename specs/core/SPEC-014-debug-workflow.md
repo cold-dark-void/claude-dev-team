@@ -85,6 +85,8 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 ### Fix (all modes)
 
 - MUST implement the fix after the failing test exists
+- MUST commit that fix on the § 2.4a branch (skill § 2.7a) in `full` mode only, before later steps treat it as committed. `ticket` mode MUST NOT commit. `patch` and `arch` do not use § 2.7a
+- MUST finish `full` mode at the bounded exit (skill § 2.10a): open a PR or squash-merge, then release the worktree. `/refactor` § 2.4 leaves this exit to `/debug` when the worktree was caller-supplied
 - MUST keep refactor and fix as separate concerns — if a refactor is required, it is completed and committed before fix code is written
 - MUST use separate PRs for refactor and fix when the work is escalated; otherwise separate ordered commits on the **same branch** — refactor commit before fix commit — for easy bisect/revert, achieved by `/refactor inline` reusing `/debug`'s caller-supplied worktree rather than self-creating a second branch (see SPEC-015 § Worktree Isolation)
 
@@ -143,7 +145,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 - MUST NOT modify any file before the root cause is stated in writing
 - MUST NOT claim done before the self-calibration checklist passes
-- MUST NOT apply the same fix in multiple places — that is always a refactor trigger
+- MUST NOT apply the same fix in multiple places at scope time (§ 2.4) — that is a refactor trigger. A trivial sibling hit after the fix is not a second scope-time refactor
 - MUST NOT skip the failing-test phase for reproducible bugs, even apparently trivial ones
 - MUST NOT back-and-forth on blockers — one specific question or silence
 
@@ -183,7 +185,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 ### T7: `patch` subcommand fast path
 1. Run `/debug patch <description>`
-2. Verify: no spec alignment check, no escalation, no callsite scan — only root cause → failing test → fix → validate
+2. Verify: no spec alignment check, no scope triad, no callsite scan. The P.2a escalation gate still runs. Then root cause → failing test → fix → validate
 
 ### T8: Unknown blocker
 1. Run `/debug` on a bug where a critical runtime value is unknown
@@ -261,6 +263,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 4-09: full mode commits the fix on the § 2.4a branch (§ 2.7a) and ends at a bounded exit (§ 2.10a). `/refactor` § 2.4 still leaves that exit to `/debug` for a caller-supplied worktree. |
 | 2026-08-30 | CDT-230: new § Root-cause agent registers `agents/debugger.md` (opus / effort high) as the agent for the `ticket`-mode premise-investigation phase — previously `ic5`, which was carrying three unrelated job shapes. `full`/`patch`/`arch` root-cause phases have no named-roster Agent spawn (SPEC-037 M16 site 3) and are unaffected by this ticket. `debugger` is read-only and memory-less (SPEC-003 non-behavioral roster agent); host-reject falls back to `ic5`, never `ic4`. `--agent ic4\|ic5` keeps its existing implementer-only meaning and does NOT gain a `debugger` token. Step 5 refuters stay on `qa` — unchanged by this ticket. Added T14 + 3 validation checkboxes. Status stays APPROVED. |
 | 2026-08-02 | CDT-103: § Fix reworded — bounded refactor+fix are now "separate ordered commits on the **same branch** (refactor before fix)", achieved by `/refactor inline` reusing `/debug`'s caller-supplied worktree rather than self-creating a second branch (see SPEC-015 § Worktree Isolation). Restores the git-bisect ordering the prose already claimed. |
 | 2026-08-02 | CDT-101: escalate-to-kickoff (full § 2.4) and `arch` (A.3) paths now run the workstream-split check before emitting the handoff; a confirmed split routes to `/epic` (SPEC-031 § Workstream split, cited not restated). ACs 99/104 + T6/T10 + validation reconciled from `/kickoff`-only to `/kickoff`-or-`/epic`. Added T12/T13. |

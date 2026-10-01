@@ -27,7 +27,8 @@ design-level issue that warrants a `/kickoff` handoff. Entry host:
 - `/debug <description>` — full mode (default): complete pipeline including spec
   alignment check, callsite grep, escalation gate, and self-calibration checklist
 - `/debug patch <description>` — fast path: root cause → failing test → fix →
-  validate; skips spec alignment, callsite grep, escalation, and refactor handling
+  validate; skips spec alignment, the 2.4 scope triad, callsite grep, and refactor handling.
+  The P.2a escalation gate still runs.
 - `/debug arch <description>` — design-first: investigation stops at root cause,
   then mandatory `/kickoff` handoff; never writes a fix or test inline
 - `/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5]
@@ -660,6 +661,14 @@ Output both results to the session.
 
 ---
 
+### 2.7a Commit the fix
+
+Commit the fix on the branch this run resolved at § 2.4a. Do not commit on the session branch. The subject names the bug. This commit is the hash § 2.8 and § 2.10 cite.
+
+`/refactor` § 2.4 does not take a bounded exit when the worktree was caller-supplied. This step is that commit. The exit itself is § 2.10a.
+
+---
+
 ### 2.8 Holistic callsite grep
 
 Search for the same root cause pattern elsewhere in the codebase. Derive 2–3 keywords from the root cause statement in 2.2 — typically the function name, the misused variable, or the misordered call sequence.
@@ -677,7 +686,7 @@ grep -rn "<keyword2>" "$WTROOT" --include="*.<ext>"
 
 > If escalating after a fix was already committed in 2.7, keep WHY INLINE REJECTED to the canonical vocabulary and put the commit hash in the PROPOSED APPROACH field; instruct `/kickoff` to treat the grep results as additional scope, not as the primary unfixed bug.
 
-For each hit under the cap: either address it (if trivial — same root cause, same fix) or document it explicitly with a follow-up note in the session output. Do not silently skip any hit.
+For each hit under the cap: either address it (if trivial — same root cause, same fix) or document it explicitly with a follow-up note in the session output. Do not silently skip any hit. A trivial sibling hit is not a second scope-time refactor. Scope-time duplication still chooses `refactor-first` (§ 2.4).
 
 ---
 
@@ -723,6 +732,18 @@ Then run SPEC-029 §S.6 theme log write-back. Suggest `/handoff` when reopen ≥
 Then suggest:
 
 > Run `/wrap-ticket <TICKET-ID>` after the PR is merged.
+
+---
+
+### 2.10a Bounded exit
+
+Full mode owns the exit that `/refactor` § 2.4 skips for a caller-supplied worktree.
+
+1. When a remote exists, push the § 2.4a branch and open a PR.
+2. Otherwise, squash-merge onto the default branch after review.
+3. Release the worktree with `/worktree release <slug>`.
+
+Do not leave the worktree as the final state of the run.
 
 ---
 
