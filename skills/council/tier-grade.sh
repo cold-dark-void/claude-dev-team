@@ -37,7 +37,11 @@
 # would silently weaken a verification gate. Callers MUST additionally treat any non-zero
 # exit or unparseable stdout as `full`.
 
-set -euo pipefail
+set -eEuo pipefail
+# Dup stdout before any capture so a failure inside $(…) can still print JSON
+# on the original stdout (W3-16). fd 3 is that stdout.
+exec 3>&1
+EMITTED=0
 
 # SPEC-013 grading bands. Every threshold is declared exactly once here and interpolated
 # everywhere else — comparisons, fan-in caps, and grading_reason strings — so a band
@@ -60,6 +64,7 @@ FANIN_PROBED=false
 # command, so it stays usable with an empty PATH.
 fail_closed() {
   trap - ERR
+  EMITTED=1
   # JSON-safe reason with builtins only (must work with empty PATH).
   # Strip \ and " for the printf template; strip all [[:cntrl:]] (CR/LF/TAB/NUL/…)
   # so a numstat/raw path cannot break the emitted object (CDT-128).
@@ -76,14 +81,53 @@ fail_closed() {
   done
   reason="$out"
   printf '{"tier":"full","band":"fail-closed","files":%d,"loc":%d,"added":%d,"deleted":%d,"grading_reason":"fail-closed: %s","critical_signals":[],"fanin_probed":%s}\n' \
-    "$FILES" "$LOC" "$ADDED" "$DELETED" "$reason" "$FANIN_PROBED"
+    "$FILES" "$LOC" "$ADDED" "$DELETED" "$reason" "$FANIN_PROBED" >&3
+  # ERR inside a command substitution runs in that subshell. exit there does
+  # not stop the parent, and the JSON would be captured. Signal the parent.
+  if [ "${BASHPID:-$$}" != "$$" ]; then
+    kill -USR1 "$$" 2>/dev/null || true
+  fi
   exit 0
+}
+
+# Unexpected non-zero exit (set -e inside a function, before ERR is inherited)
+# still owes the caller JSON. Usage stays exit 2 with no JSON.
+on_exit() {
+  local rc=$?
+  trap - EXIT
+  if [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ]; then
+    exit "$rc"
+  fi
+  if [ "${EMITTED:-0}" -eq 1 ]; then
+    exit "$rc"
+  fi
+  fail_closed "grader internal error (exit $rc)"
 }
 
 usage() {
   echo "Usage: tier-grade.sh --numstat <file|-> [--raw <file>]" >&2
   exit 2
 }
+
+trap 'on_exit' EXIT
+trap 'fail_closed "grader internal error at line $LINENO"' ERR
+trap 'trap - EXIT USR1 ERR; exit 0' USR1
+
+# W3-16 fixtures. A failure inside a function or a $(…) must still print JSON.
+if [ "${TIER_GRADE_TEST_FN_FAIL:-}" = 1 ]; then
+  _tg_fn_fail() { false; }
+  _tg_fn_fail
+fi
+if [ "${TIER_GRADE_TEST_SUB_FAIL:-}" = 1 ]; then
+  _tg_sub_fail() { false; }
+  # No `|| true`: that context disables errexit inside the substitution, so
+  # the ERR trap never runs. JSON goes to fd 3; USR1 stops the parent.
+  _tg_sub_out="$(_tg_sub_fail)"
+  if [ -n "${_tg_sub_out}" ]; then
+    printf '%s\n' "$_tg_sub_out"
+  fi
+  exit 0
+fi
 
 # ---- Args (builtins only — must run before the jq check) ---------------------
 NUMSTAT_SRC=""
@@ -97,8 +141,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$NUMSTAT_SRC" ] || usage
-
-trap 'fail_closed "grader internal error at line $LINENO"' ERR
 
 # ---- Dependency check -------------------------------------------------------
 command -v jq >/dev/null 2>&1 || fail_closed "jq not found in PATH"
@@ -269,6 +311,19 @@ post_image_head() {
   fi
 }
 
+# Signal 5 path. Suffix / segment, not a substring of the whole path.
+# FooTest.java and foo_test.go match. latest.go and attest do not.
+is_test_path() {
+  local base="${1##*/}"
+  case "$1" in
+    test/*|tests/*|*/test/*|*/tests/*) return 0 ;;
+  esac
+  case "$base" in
+    *_test.*|*_test|test_*|*Test.*) return 0 ;;
+  esac
+  return 1
+}
+
 # ---- Critical-area signals --------------------------------------------------
 SIG_TSV=""
 add_signal() {  # <num> <name> <file> <why>
@@ -305,7 +360,9 @@ for i in "${!PATHS[@]}"; do
       esac
     fi
     if [ -z "$spec_why" ] && [ "${body%%$'\n'*}" = "---" ]; then
-      if printf '%s\n' "$body" | sed -n '2,/^---[[:space:]]*$/p' | grep -q '^status:'; then
+      # grep -q in a pipefail pipe SIGPIPEs sed and can miss status: (W3-16).
+      fm="$(printf '%s\n' "$body" | sed -n '2,/^---[[:space:]]*$/p')" || fm=""
+      if grep -q '^status:' <<<"$fm"; then
         spec_why="YAML frontmatter carries a status: key"
       fi
     fi
@@ -347,14 +404,13 @@ for i in "${!PATHS[@]}"; do
     add_signal 4 deletion-heavy-executable "$p" "$d deleted lines in an executable (>30)"
   fi
 
-  # Signal 5 — test removal
-  case "$p" in
-    *test*|*_test.*|test_*)
-      if [ $((a - d)) -lt 0 ]; then
-        add_signal 5 test-removal "$p" "net-negative LOC ($a added, $d deleted) in a test-matching path"
-      fi
-      ;;
-  esac
+  # Signal 5 — test removal. Path segment or suffix only.
+  # Unanchored *test* matches latest.go and attest (SC2221) and is not a test.
+  if is_test_path "$p"; then
+    if [ $((a - d)) -lt 0 ]; then
+      add_signal 5 test-removal "$p" "net-negative LOC ($a added, $d deleted) in a test-matching path"
+    fi
+  fi
 done
 
 # ---- Signal 3 — high fan-in (the one costly probe) ---------------------------
@@ -364,17 +420,18 @@ done
 # exceed it and the cap branch cannot fire today — it is kept as the fail-closed guard
 # SPEC-013 mandates for the band retune it anticipates, NOT dead code.
 probe_fanin() {
-  local cap="$1" p base matches rc n m
+  local cap="$1" p matches rc n m
   FANIN_PROBED=true
   if [ "$FILES" -gt "$cap" ]; then
     add_signal 3 high-fan-in '*' "fan-in probe cap exceeded ($FILES > $cap) — fail-closed"
     return 0
   fi
   for p in "${PATHS[@]}"; do
-    base="${p##*/}"
     rc=0
-    matches="$(git grep -l -F -- "$base" 2>/dev/null)" || rc=$?
-    [ "$rc" -le 1 ] || fail_closed "git failure: git grep exited $rc while probing fan-in for $base"
+    # Full relative path, not the basename. "index.js" / "SKILL.md" as a
+    # substring over-fires (W3-16).
+    matches="$(git grep -l -F -- "$p" 2>/dev/null)" || rc=$?
+    [ "$rc" -le 1 ] || fail_closed "git failure: git grep exited $rc while probing fan-in for $p"
     n=0
     while IFS= read -r m; do
       [ -n "$m" ] || continue
@@ -382,7 +439,7 @@ probe_fanin() {
       n=$((n + 1))
     done <<<"$matches"
     if [ "$n" -ge "$FANIN_MIN" ]; then
-      add_signal 3 high-fan-in "$p" "basename '$base' referenced by $n other tracked files (>=$FANIN_MIN)"
+      add_signal 3 high-fan-in "$p" "path '$p' referenced by $n other tracked files (>=$FANIN_MIN)"
     fi
   done
 }

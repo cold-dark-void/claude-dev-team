@@ -1,10 +1,12 @@
 ---
 name: diff-mode
-role: preset
+role: note
 description: |
-  Code-review preset used by /review-and-commit. Emits finding[] output shape with
-  the 5 review-and-commit specialists as investigator flavors. Spec-grep intake
-  enriched into Phase 1. Phase 7 is DEFERRED and does not write lessons.md.
+  Reader note for the diff-mode preset. This file is not a preset and the
+  engine does not load it. Presets are not files: engine.sh resolves
+  diff-mode in its hardcoded case (skills/council/SKILL.md). The fields
+  below mirror that case for readers. test-workflow-static.sh checks the
+  Phase 7 wording. Phase 7 is DEFERRED and does not write lessons.md.
   Code bugs are not fabrications.
 output_shape: finding[]
 flavor_list: [logic, security, compliance, quality, simplification]
@@ -16,6 +18,11 @@ commit_gate_blocks_on: [critical, compliance]
 ---
 
 # Diff-Mode Preset
+
+This file is not a preset. Presets are not files. `engine.sh` resolves
+`diff-mode` in its hardcoded case; that case is authoritative. `loadFlavor`
+does not request this name. `skills/council/test-workflow-static.sh` is the
+live reference that keeps this note.
 
 The `diff-mode` preset fires when the council engine is invoked with `--diff`
 or an explicit `--preset diff-mode`. It configures the engine as a

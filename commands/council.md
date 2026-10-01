@@ -514,6 +514,10 @@ prompt: skills/council/prompts/plan-extractor.md
     {{CLAIM_BUDGET}} ← plan.claim_budget (default 10)
 ```
 
+Pass the plan file bytes as `{{INPUT_TEXT}}` with no prepended header.
+`plan-extractor.md` starts the prompt body with that text, so a locator
+line is a line of the file. A header before the file shifts every line (L-19).
+
 **From-retro / single claim** (`phases.1_claim_extraction.skip == true`) — do
 not spawn an extractor.
 

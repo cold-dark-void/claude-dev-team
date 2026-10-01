@@ -1,4 +1,4 @@
-[//]: # "Variable contract — engine.sh (finalize) substitutes these via {{VAR}} placeholders"
+[//]: # "Variable contract — engine.sh (finalize) substitutes the placeholders below"
 [//]: # "{{TASK_ID}}               — task id, present in frontmatter only when run is task-bound"
 [//]: # "{{SCOPE}}                 — e.g. 'diff', 'diff-staged'"
 [//]: # "{{PRESET}}                — e.g. 'diff-mode'"

@@ -92,6 +92,7 @@ Exit codes: 0 ok | 1 jq required but not found | 2 usage/no-scope | 3 reserved (
             8 M14 per-AC split fails closed (SPEC-033 M14(g)) | m14-ac-split: <cause>
             9 report no-overwrite: every candidate up to -99 is taken
             64 m14-check: argv misuse
+            127 python3 required but not found (not exit 1 — that code is jq)
 USAGE
 }
 
@@ -107,6 +108,14 @@ require_jq() {
   if ! command -v jq >/dev/null 2>&1; then
     echo "engine.sh: jq is required but not found in PATH" >&2
     exit 1
+  fi
+}
+
+# Exit 127, not 1. Exit 1 already means "jq required".
+require_python3() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "engine.sh: python3 is required but not found in PATH" >&2
+    exit 127
   fi
 }
 
@@ -425,16 +434,22 @@ cmd_preflight() {
     task_id="${CLAUDE_TASK_ID:-}"
   fi
 
+  # Scope is validated even when --preset is explicit. An explicit preset
+  # used to skip this case, so `--scope bogus --preset generic` was accepted.
+  case "$scope" in
+    claim|session|diff|plan|from-retro) ;;
+    *)
+      echo "engine.sh: unknown scope: $scope" >&2
+      exit 2
+      ;;
+  esac
+
   # Resolve preset (explicit or inferred from scope)
   if [ -z "$preset" ]; then
     preset_source="inferred"
     case "$scope" in
-      diff)    preset="diff-mode" ;;
-      claim|session|plan|from-retro) preset="generic" ;;
-      *)
-        echo "engine.sh: unknown scope: $scope" >&2
-        exit 2
-        ;;
+      diff) preset="diff-mode" ;;
+      *)    preset="generic" ;;
     esac
   fi
 
@@ -531,7 +546,8 @@ cmd_preflight() {
       local base
       base=$(basename -- "$scope_arg")
       base="${base%.*}"
-      slug=$(printf '%s' "$base" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-\+//;s/-\+$//;s/-\+/-/g')
+      # POSIX BRE. Strip a leading-dash run without a GNU-only plus.
+      slug=$(printf '%s' "$base" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/--*/-/g;s/^-//;s/-$//')
       [ -z "$slug" ] && slug="plan"
       slug="plan-${slug}"
       ;;
@@ -763,6 +779,7 @@ cmd_preflight() {
 # exit_code argv). Do not add a bash `$?` guard after this call.
 repair_json_file() {
   local _file="$1" _mode="$2" _label="$3" _code="$4"
+  require_python3
   python3 - "$_file" "$_mode" "$_label" "$_code" <<'PYREPAIR'
 import json, sys, re
 
@@ -876,6 +893,7 @@ normalize_judge_shape() {
 # semantics beyond branching on output_shape and computing max_confidence.
 cmd_finalize() {
   require_jq
+  require_python3
 
   local plan_file="" evidence_file="" judge_output="" task_id="" report_out=""
   local cross_review_status="" cross_review_rankings="" cross_review_scores=""
@@ -1192,7 +1210,14 @@ if isinstance(flavors, list):
 else:
     flavors_str = str(flavors)
 claim_budget = str(plan.get("claim_budget", 10))
-completion_time = plan.get("completion_time", "N/A")
+# Duration is not measured in this process. Use plan.completion_time when the
+# orchestrator set it. Otherwise the finalize timestamp (created_at) — do not
+# emit the literal N/A while that clock value exists.
+raw_ct = plan.get("completion_time")
+if isinstance(raw_ct, str) and raw_ct.strip():
+    completion_time = raw_ct.strip()
+else:
+    completion_time = created_at
 
 # --- Format extracted claims (WP 1-15 C6: claim id + text; AC H) ---
 claims_resolved = resolve_claims(plan, evidence_raw, judge_items)
@@ -1710,6 +1735,10 @@ fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
 with os.fdopen(fd, 'w') as f:
     f.write(output)
 os.rename(tmp_path, output_path)
+# mkstemp creates the report mode 0600. A normal create is 0644 masked by umask.
+_saved_umask = os.umask(0)
+os.umask(_saved_umask)
+os.chmod(output_path, 0o644 & ~_saved_umask)
 
 # CDT-178: sidecar meta for bash index/stdout (unstruck conf + merged struck)
 if output_shape == "verdict[]":

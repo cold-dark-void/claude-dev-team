@@ -89,6 +89,18 @@ expect "signal 1 (status: frontmatter) -> full" '.tier=="full"
   and (.critical_signals|map(select(.signal==1 and .file=="docs/policy.md"))|length)==1
   and (.critical_signals[0].why|test("status:"))'
 
+# W3-16: sed|grep -q under pipefail must not flake into a false negative.
+i=0
+fm_fail=0
+while [ "$i" -lt 20 ]; do
+  grade "$REPO" sig1-frontmatter.numstat
+  if ! printf '%s' "$OUT" | jq -e '.tier=="full" and (.critical_signals|map(select(.signal==1 and .file=="docs/policy.md"))|length)==1' >/dev/null; then
+    echo "FAIL: frontmatter signal flaked on iter $i: $OUT"; fm_fail=1; fail=1; break
+  fi
+  i=$((i + 1))
+done
+if [ "$fm_fail" -eq 0 ]; then echo "OK: frontmatter signal stable across 20 runs"; fi
+
 # ---- Signal 2 — executable ---------------------------------------------------
 grade "$REPO" sig2-mode.numstat sig2-mode.raw
 expect "signal 2 (raw dst mode 100755) -> full" '.tier=="full"
@@ -191,6 +203,20 @@ expect "signal 4 (content-only executable deletion >30) -> full" '.tier=="full"
 grade "$REPO" sig5-test-removal.numstat
 expect "signal 5 (net-negative test file) -> full" '.tier=="full"
   and (.critical_signals|map(select(.signal==5 and .file=="src/parser_test.go"))|length)==1'
+
+# Suffix / segment only. *test* used to match latest.go and attest.
+printf '1\t20\tlatest.go\n' > "$TMP/sig5-latest.numstat"
+printf '1\t20\tattest\n' > "$TMP/sig5-attest.numstat"
+printf '1\t20\tFooTest.java\n' > "$TMP/sig5-footest.numstat"
+printf '1\t20\tfoo_test.go\n' > "$TMP/sig5-go.numstat"
+OUT="$(cd "$REPO" && bash "$TG" --numstat "$TMP/sig5-latest.numstat" 2>/dev/null)"; RC=$?
+expect "signal 5 latest.go is not a test" '.tier=="light" and (.critical_signals|map(select(.signal==5))|length)==0'
+OUT="$(cd "$REPO" && bash "$TG" --numstat "$TMP/sig5-attest.numstat" 2>/dev/null)"; RC=$?
+expect "signal 5 attest is not a test" '.tier=="light" and (.critical_signals|map(select(.signal==5))|length)==0'
+OUT="$(cd "$REPO" && bash "$TG" --numstat "$TMP/sig5-footest.numstat" 2>/dev/null)"; RC=$?
+expect "signal 5 FooTest.java is a test" '.tier=="full" and (.critical_signals|map(select(.signal==5 and .file=="FooTest.java"))|length)==1'
+OUT="$(cd "$REPO" && bash "$TG" --numstat "$TMP/sig5-go.numstat" 2>/dev/null)"; RC=$?
+expect "signal 5 foo_test.go is a test" '.tier=="full" and (.critical_signals|map(select(.signal==5 and .file=="foo_test.go"))|length)==1'
 
 # ---- Rename post-image resolution --------------------------------------------
 # Rename handling is covered entirely by the real-git-ops section below. Hand-written
@@ -522,6 +548,28 @@ if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e . >/dev/null 2>&1; then
 else
   echo "FAIL: binary-with-NUL grade rc=$RC out=$OUT"; fail=1
 fi
+
+# W3-16: basename substring must not trip fan-in. Full path still does
+# (lib/hub.go above). index.js appears in six files; pkg/index.js does not.
+IX="$TMP/index-fanin"
+mkdir -p "$IX/pkg" "$IX/src"
+git init -q "$IX"
+printf 'export const n = 1\n' > "$IX/pkg/index.js"
+for i in 1 2 3 4 5 6; do printf 'see index.js for the entry\n' > "$IX/src/ref$i.js"; done
+git -C "$IX" add -A >/dev/null
+git -C "$IX" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
+printf '1\t0\tpkg/index.js\n' > "$TMP/index-only.numstat"
+OUT="$(cd "$IX" && bash "$TG" --numstat "$TMP/index-only.numstat" 2>/dev/null)"; RC=$?
+expect_rc0 "index.js basename fan-in"
+expect "index.js basename alone does not trip fan-in" '.tier=="light" and .fanin_probed==true and (.critical_signals|length)==0'
+
+# W3-16: failure inside a function, and inside $(…), still prints JSON and exits 0.
+OUT="$(TIER_GRADE_TEST_FN_FAIL=1 bash "$TG" --numstat "$FIX/clear-low.numstat" 2>/dev/null)"; RC=$?
+expect_rc0 "function failure"
+expect "function failure prints fail-closed JSON" '.tier=="full" and .band=="fail-closed" and (.grading_reason|test("^fail-closed:"))'
+OUT="$(TIER_GRADE_TEST_SUB_FAIL=1 bash "$TG" --numstat "$FIX/clear-low.numstat" 2>/dev/null)"; RC=$?
+expect_rc0 "subshell failure"
+expect "subshell failure prints fail-closed JSON" '.tier=="full" and .band=="fail-closed" and (.grading_reason|test("^fail-closed:")) and (.grading_reason|test("exit 7")|not)'
 
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES PRESENT"; fi
 exit "$fail"

@@ -37,20 +37,32 @@
 #              SKILL-DRIFT[<name>] = SKILL.md documented-table drift.
 # Exit 2  -> structural failure (a covered block or table could not be located).
 #
-# Pure bash + grep/sed/sort/comm. Invoke: bash skills/council/check-template-vars.sh
+# Pure bash + grep/sed/sort/comm + gen-template-vars.sh (the one ## Variables
+# reader). Invoke: bash skills/council/check-template-vars.sh
+#
+# COUNCIL_TEMPLATE_ROOT / COUNCIL_TEMPLATE_COVERED override the tree (tests).
 
 set -u
 
 # --- Resolve repo root robustly (script may be run from repo root by /release) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+GEN="$SCRIPT_DIR/gen-template-vars.sh"
+if [ -n "${COUNCIL_TEMPLATE_ROOT:-}" ]; then
+  ROOT="$COUNCIL_TEMPLATE_ROOT"
+else
+  ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+fi
 
 COUNCIL="$ROOT/commands/council.md"
 SKILL="$ROOT/skills/council/SKILL.md"
 PROMPT_DIR="$ROOT/skills/council/prompts"
 
-COVERED="claim-extractor plan-extractor investigator topic-classifier cross-reviewer phase4-brief judge blind-scribe quorum-analyst tier-triage"
+COVERED="${COUNCIL_TEMPLATE_COVERED:-claim-extractor plan-extractor investigator topic-classifier cross-reviewer phase4-brief judge blind-scribe quorum-analyst tier-triage}"
+# Prompts workflow.js loadPrompt / extractVars actually fills.
+WF_COVERED="claim-extractor plan-extractor investigator cross-reviewer phase4-brief judge"
 DEFERRED=""
+# Same class as gen-template-vars.sh and engine.sh finalize ([A-Z0-9_]+).
+VAR_RE='\{\{[A-Z0-9_]+\}\}'
 
 # Loud, unmissable note ONLY when coverage is partial by design (no-silent-caps).
 if [ -n "$DEFERRED" ]; then
@@ -64,16 +76,9 @@ for f in "$COUNCIL" "$SKILL"; do
   fi
 done
 
-# Extract the {{VARS}} a prompt DECLARES, from its `## Variables` table only.
-# Authoritative rows are table rows of the form: | `{{VAR}}` | ... |
-# Restricting to backtick-wrapped table cells avoids false positives from
-# prose/examples elsewhere in the section.
+# Declared vars come from gen-template-vars.sh (the ## Variables reader).
 prompt_vars() {
-  local file="$1"
-  sed -n '/^## Variables/,/^## /p' "$file" \
-    | grep -E '^\|[[:space:]]*`\{\{[A-Z_]+\}\}`' \
-    | grep -oE '\{\{[A-Z_]+\}\}' \
-    | sort -u
+  bash "$GEN" vars "$1"
 }
 
 # Extract the {{VARS}} commands/council.md SUBSTITUTES for a given prompt.
@@ -96,7 +101,7 @@ council_subs() {
     grab && /^[[:space:]]*```/ { grab=0 }
     grab { print }
   ' "$COUNCIL" \
-    | grep -oE '\{\{[A-Z_]+\}\}' \
+    | grep -oE "$VAR_RE" \
     | sort -u
 }
 
@@ -108,11 +113,66 @@ council_subs() {
 skill_vars() {
   local name="$1"
   grep -E "^\|[[:space:]]*\`${name}\.md\`[[:space:]]*\|" "$SKILL" \
-    | grep -oE '\{\{[A-Z_]+\}\}' \
+    | grep -oE "$VAR_RE" \
+    | sort -u
+}
+
+# Keys workflow.js passes to loadPrompt / the plan-vs-claim extractVars arms.
+workflow_vars() {
+  local name="$1"
+  local wf="$ROOT/skills/council/workflow.js"
+  [ -f "$wf" ] || return 0
+  awk -v name="$name" '
+    function take(line) {
+      if (match(line, /^[[:space:]]*([A-Z][A-Z0-9_]*)[[:space:]]*:/, m)) print "{{" m[1] "}}"
+    }
+    function bump(line) {
+      depth += gsub(/\{/, "{", line)
+      depth -= gsub(/\}/, "}", line)
+      if (depth <= 0) { grab=0; depth=0; cur="" }
+    }
+    BEGIN { grab=0; depth=0; cur=""; arm="" }
+    {
+      if (grab) {
+        if (cur == name) take($0)
+        bump($0)
+        next
+      }
+      if (match($0, /loadPrompt\('"'"'([A-Za-z0-9-]+)'"'"'/, m)) {
+        cur=m[1]; grab=1; depth=0; bump($0); next
+      }
+      if ($0 ~ /extractPromptName === .plan-extractor./) { arm="plan-extractor"; next }
+      if (arm=="plan-extractor" && $0 ~ /\{/) {
+        cur="plan-extractor"; grab=1; depth=0; bump($0); arm="claim-extractor"; next
+      }
+      if (arm=="claim-extractor" && $0 ~ /\{/) {
+        cur="claim-extractor"; grab=1; depth=0; bump($0); arm=""; next
+      }
+    }
+  ' "$wf" | sort -u
+}
+
+# {{VARS}} in a report template.
+template_vars() {
+  grep -oE "$VAR_RE" "$1" | sort -u
+}
+
+# Keys of the finalize subs dict in engine.sh.
+engine_sub_vars() {
+  awk '/^subs = \{/,/^\}/' "$ROOT/skills/council/engine.sh" \
+    | grep -oE "$VAR_RE" \
     | sort -u
 }
 
 status=0
+
+# Keep the worst status. A later drift (1) must not hide an earlier structural miss (2).
+raise_status() {
+  local n="$1"
+  if [ "$n" -gt "$status" ]; then
+    status="$n"
+  fi
+}
 
 # compare_source <name> <label> <declared-set> <source-set>
 #   declared = authoritative prompt-table var set
@@ -129,7 +189,7 @@ compare_source() {
 
   if [ -z "$source" ]; then
     echo "FAIL[$name]: no var set found in $src_desc" >&2
-    status=2
+    raise_status 2
     return
   fi
 
@@ -144,7 +204,7 @@ compare_source() {
     return
   fi
 
-  status=1
+  raise_status 1
   echo "${label}[$name]: $src_desc does not match the prompt's ## Variables table" >&2
   if [ -n "$leak" ]; then
     while IFS= read -r v; do
@@ -166,14 +226,18 @@ for name in $COVERED; do
   pfile="$PROMPT_DIR/$name.md"
   if [ ! -f "$pfile" ]; then
     echo "FAIL[$name]: prompt file not found: $pfile" >&2
-    status=2
+    raise_status 2
     continue
   fi
 
-  declared="$(prompt_vars "$pfile")"
+  if ! declared="$(prompt_vars "$pfile")"; then
+    echo "FAIL[$name]: generator failed for $pfile" >&2
+    raise_status 2
+    continue
+  fi
   if [ -z "$declared" ]; then
     echo "FAIL[$name]: no {{VARS}} found in the prompt's ## Variables table ($pfile)" >&2
-    status=2
+    raise_status 2
     continue
   fi
 
@@ -182,6 +246,62 @@ for name in $COVERED; do
   # (B) documented contract — skills/council/SKILL.md
   compare_source "$name" "SKILL-DRIFT" "$declared" "$(skill_vars "$name")"
 done
+
+# workflow.js variable sets. Required on the real tree; optional in a fixture
+# that does not ship workflow.js (COUNCIL_TEMPLATE_COVERED is set).
+if [ -z "${COUNCIL_TEMPLATE_COVERED:-}" ] || [ -f "$ROOT/skills/council/workflow.js" ]; then
+  if [ ! -f "$ROOT/skills/council/workflow.js" ]; then
+    echo "FAIL: workflow.js not found: $ROOT/skills/council/workflow.js" >&2
+    raise_status 2
+  else
+    for name in $WF_COVERED; do
+      case " $COVERED " in
+        *" $name "*) ;;
+        *) continue ;;
+      esac
+      pfile="$PROMPT_DIR/$name.md"
+      [ -f "$pfile" ] || continue
+      if ! declared="$(prompt_vars "$pfile")"; then
+        raise_status 2
+        continue
+      fi
+      compare_source "$name" "WF-DRIFT" "$declared" "$(workflow_vars "$name")"
+    done
+  fi
+fi
+
+# Report templates: every {{VAR}} must be a key of engine.sh's subs dict.
+if [ -z "${COUNCIL_TEMPLATE_COVERED:-}" ] || [ -d "$ROOT/skills/council/templates" ]; then
+  eng_subs=""
+  if [ -f "$ROOT/skills/council/engine.sh" ]; then
+    eng_subs="$(engine_sub_vars)"
+  fi
+  if [ -z "$eng_subs" ]; then
+    echo "FAIL: engine.sh subs dict not found" >&2
+    raise_status 2
+  else
+    for tmpl in "$ROOT/skills/council/templates"/report-*.md; do
+      [ -f "$tmpl" ] || continue
+      tname="$(basename "$tmpl")"
+      tvars="$(template_vars "$tmpl")"
+      if [ -z "$tvars" ]; then
+        echo "FAIL[$tname]: no {{VARS}} in report template" >&2
+        raise_status 2
+        continue
+      fi
+      leak="$(comm -23 <(printf '%s\n' "$tvars") <(printf '%s\n' "$eng_subs"))"
+      if [ -z "$leak" ]; then
+        echo "OK[$tname/REPORT]: $(printf '%s ' $tvars)"
+      else
+        raise_status 1
+        echo "REPORT-DRIFT[$tname]: template var is not in engine.sh subs" >&2
+        printf '%s\n' "$leak" | while IFS= read -r v; do
+          [ -n "$v" ] && echo "  MISSING  $v : in $tname but NOT in engine.sh subs" >&2
+        done
+      fi
+    done
+  fi
+fi
 
 if [ "$status" -eq 0 ]; then
   echo "PASS: all covered council prompts (${COVERED}) match in council.md AND SKILL.md."

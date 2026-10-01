@@ -19,6 +19,24 @@
 
 set -euo pipefail
 
+# Codex/gemini CLI calls. Default 300s. COUNCIL_EXT_TIMEOUT overrides (tests).
+EXT_REVIEW_TIMEOUT="${COUNCIL_EXT_TIMEOUT:-300}"
+case "$EXT_REVIEW_TIMEOUT" in
+  ''|*[!0-9]*) EXT_REVIEW_TIMEOUT=300 ;;
+esac
+
+# Parameter expansion, not dirname: detect runs with a PATH that contains only jq.
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
+
+# timeout(1) wraps the CLI so a hang becomes emit_error, not a stuck run.
+run_ext() {
+  if ! command -v timeout >/dev/null 2>&1; then
+    echo "external-reviewer: timeout(1) not found" >&2
+    return 127
+  fi
+  timeout "$EXT_REVIEW_TIMEOUT" "$@"
+}
+
 usage() {
   cat >&2 <<'USAGE'
 Usage: external-reviewer.sh <detect|run|normalize> [options]
@@ -137,9 +155,15 @@ normalize_raw() {
     esac
   fi
 
-  # Hash first 64k for stable id; empty file still gets a deterministic id.
-  local hash
-  hash=$(head -c 65536 -- "$raw_file" | sha256sum | awk '{print $1}')
+  # Hash first 64k for a stable id. A missing or failing sha256sum must not
+  # abort the reviewer under set -e (fail-open). Empty file still gets an id.
+  local hash=""
+  if ! hash=$(head -c 65536 -- "$raw_file" | sha256sum 2>/dev/null | awk '{print $1}'); then
+    hash=""
+  fi
+  if [ -z "$hash" ]; then
+    hash="unavailable"
+  fi
   local tool_use_id="external:${tool}:${hash:0:16}"
 
   # Best-effort file:line extraction from common review formats.
@@ -166,7 +190,8 @@ normalize_raw() {
       '
       def severity_of:
         if test("(?i)critical|blocker|must fix|security") then "critical"
-        elif test("(?i)nit|style|typo|minor") then "nitpick"
+        # Word boundaries. "unit" and "init" contain "nit" and must not match.
+        elif test("(?i)\\bnit(?:pick)?\\b|\\bstyle\\b|\\btypo\\b|\\bminor\\b") then "nitpick"
         else "warning" end;
       def category_of:
         if test("(?i)security|auth|pii|injection") then "security"
@@ -178,13 +203,17 @@ normalize_raw() {
         | split("\n")
         | map(select(test("^\\s*([-*•]|\\d+\\.)\\s+|^(CRITICAL|WARNING|NIT|BLOCKER|FINDING)\\b"; "i")))
         | map({
-            file: (capture("(?<f>[A-Za-z0-9_./+-]+\\.[A-Za-z0-9]+):(?<l>[0-9]+)") | .f // "unknown"),
-            line: ((capture("(?<f>[A-Za-z0-9_./+-]+\\.[A-Za-z0-9]+):(?<l>[0-9]+)") | .l // "0") | tonumber),
+            # capture() yields empty on no match, and empty inside an object
+            # constructor drops the whole finding. Default the capture first.
+            file: ((capture("(?<f>[A-Za-z0-9_./+-]+\\.[A-Za-z0-9]+):(?<l>[0-9]+)") // {f:"unknown", l:"0"}) | .f),
+            line: ((capture("(?<f>[A-Za-z0-9_./+-]+\\.[A-Za-z0-9]+):(?<l>[0-9]+)") // {f:"unknown", l:"0"}) | .l | tonumber),
             severity: severity_of,
             category: category_of,
             description: (sub("^\\s*([-*•]|\\d+\\.)\\s+"; "") | sub("^(CRITICAL|WARNING|NIT|BLOCKER|FINDING)[:\\s-]*"; ""; "i")),
             suggestion: "",
-            confidence: 80,
+            # 81, not 80. diff-mode drops confidence below 80. 80 sits on the
+            # cut; 81 keeps the finding instead of tying the filter.
+            confidence: 81,
             tool_use_id: $tool_use_id
           })
         | map(select(.description | length > 0))
@@ -252,15 +281,21 @@ cmd_normalize() {
 # Build a short review prompt from claim + optional artifacts (truncated).
 build_prompt() {
   local claim="$1" artifacts_file="$2" shape="$3"
-  local art=""
+  local art="" flavor=""
   if [ -n "$artifacts_file" ] && [ -f "$artifacts_file" ]; then
     # Cap artifacts so CLI argv/stdin stays bounded.
     art=$(head -c 48000 -- "$artifacts_file" 2>/dev/null || true)
+  fi
+  # Flavor body is part of the CLI prompt. A missing file must not abort.
+  if [ -r "$SCRIPT_DIR/flavors/external.md" ]; then
+    flavor=$(sed -n '/^## Delta body/,$p' "$SCRIPT_DIR/flavors/external.md" 2>/dev/null || true)
   fi
   cat <<PROMPT
 You are an external council investigator (flavor: external). Review the
 subject below with material evidence only — cite file:line when possible.
 Do not propose commits or modify files. Output a concise review.
+
+${flavor:-"(flavor file flavors/external.md not loaded)"}
 
 Output shape target: ${shape}
 - For finding[]: bullet findings with file:line, severity, and description.
@@ -276,32 +311,37 @@ PROMPT
 
 invoke_codex() {
   local prompt="$1" shape="$2" out_file="$3"
-  local cmd_str=""
-  # Diff/finding reviews: prefer dedicated review subcommand over uncommitted tree.
+  local cmd_str="" rc=0 staged=""
+  # Finding reviews see the staged diff only (`git diff --cached`), not
+  # `codex review --uncommitted` (that includes unstaged edits).
   # Claim/verdict: non-interactive exec, read-only sandbox.
   if [ "$shape" = "finding[]" ]; then
-    cmd_str="codex review --uncommitted -"
-    # Prompt on stdin via `-`
-    printf '%s\n' "$prompt" | codex review --uncommitted - >"$out_file" 2>"${out_file}.err"
+    staged=$(git diff --cached 2>/dev/null || true)
+    cmd_str="git diff --cached | codex review -"
+    {
+      printf '%s\n' "$prompt"
+      printf '\nSTAGED DIFF (git diff --cached):\n%s\n' "$staged"
+    } | run_ext codex review - >"$out_file" 2>"${out_file}.err" || rc=$?
   else
     cmd_str="codex exec -s read-only -"
-    printf '%s\n' "$prompt" | codex exec -s read-only - >"$out_file" 2>"${out_file}.err"
+    printf '%s\n' "$prompt" | run_ext codex exec -s read-only - >"$out_file" 2>"${out_file}.err" || rc=$?
   fi
   printf '%s' "$cmd_str"
+  return "$rc"
 }
 
 invoke_gemini() {
   local prompt="$1" shape="$2" out_file="$3"
-  # Gemini CLI surface varies; use prompt positional / stdin when available.
-  # Prefer non-interactive: `gemini -p <prompt>` is the common pattern.
-  local cmd_str="gemini -p <prompt>"
-  if gemini --help 2>&1 | grep -qE -- '-p |--prompt'; then
-    gemini -p "$prompt" >"$out_file" 2>"${out_file}.err"
-  else
-    cmd_str="gemini (stdin)"
-    printf '%s\n' "$prompt" | gemini >"$out_file" 2>"${out_file}.err"
-  fi
+  local rc=0
+  # -s / --sandbox: Gemini CLI sandbox flag (docs: "Command flag: -s or
+  # --sandbox", https://geminicli.com/docs/cli/sandbox.html). Always pass it.
+  # Do not probe `gemini --help` — that call has no timeout and can hang.
+  # shape is accepted for caller symmetry with invoke_codex; gemini has one argv.
+  : "$shape"
+  local cmd_str="gemini -s -p <prompt>"
+  run_ext gemini -s -p "$prompt" >"$out_file" 2>"${out_file}.err" || rc=$?
   printf '%s' "$cmd_str"
+  return "$rc"
 }
 
 emit_skip() {

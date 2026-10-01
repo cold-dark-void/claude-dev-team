@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.18.48
+- **WP 3-03 Council engine sweep** — tier-grade no longer treats latest as a test, an external finding without a line is kept, and a plan locator uses the claim's own line.
+
 ### v1.18.47
 - **WP 3-02 Council paths** — a blind review lists the worktree, tool-less council roles use a scribe, and Phase 7 stays deferred.
 

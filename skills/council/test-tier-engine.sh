@@ -344,16 +344,10 @@ assert_conf "index-writer null null → mfc null" CDT-181-iw-nn max_finding_conf
 )
 ok "index-writer abc → reject" test $? -eq 1
 
-# engine max | floor unit (T2 / AC2) — pure jq, matches engine.sh expressions
-ok "engine jq floor: verdict max 90.7 → 90" \
-  bash -c '[ "$(echo "{\"verdicts\":[{\"confidence\":90.7},{\"confidence\":40}]}" \
-    | jq "[(.verdicts // [])[] | .confidence // 0] | max // 0 | floor")" = "90" ]'
-ok "engine jq floor: finding max 87.5 → 87" \
-  bash -c '[ "$(echo "{\"findings\":[{\"confidence\":87.5}]}" \
-    | jq "[(.findings // [])[] | .confidence // 0] | max // 0 | floor")" = "87" ]'
-ok "engine jq floor: int 100 unchanged" \
-  bash -c '[ "$(echo "{\"verdicts\":[{\"confidence\":100}]}" \
-    | jq "[(.verdicts // [])[] | .confidence // 0] | max // 0 | floor")" = "100" ]'
+# Floor lives in engine.sh finalize (Python floor_conf), not a jq max|floor
+# pipe. The task-bound finalize below asserts 90.7 → index 90. A standalone
+# jq floor of a literal is a tautology: it passes even if the engine stops
+# flooring.
 
 # finalize task-bound with float judge confidence (AC1/AC8)
 printf '%s\n' '{"verdicts":[{"claim_id":"c1","claim":"float conf","verdict":"VERIFIED","confidence":90.7,"evidence_blob":"tools: \"\""}],"struck_lines":[]}' \

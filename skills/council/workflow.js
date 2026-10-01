@@ -103,6 +103,26 @@ export function extractPromptBody(md) {
   return body
 }
 
+/**
+ * Plan-extractor input. Byte-for-byte the plan file.
+ * The rendered prompt starts with this string. Do not prepend a header:
+ * source_locator lines are 1-based indexes into this text (L-19).
+ */
+export function buildPlanExtractorInput(planText) {
+  return String(planText ?? '')
+}
+
+/** 1-based line of the first line that contains `claim`, else 0. */
+export function planClaimLine(inputText, claim) {
+  const needle = String(claim ?? '')
+  if (!needle) return 0
+  const lines = String(inputText ?? '').split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(needle)) return i + 1
+  }
+  return 0
+}
+
 /** Load flavor body (system-prompt delta only). */
 export function loadFlavor(name) {
   const path = join(FLAVORS_DIR, `${name}.md`)
@@ -420,7 +440,7 @@ export async function runCouncil(runtime) {
   // Resolve extract input: plan scope reads file; others use provided text
   let inputText = t.input_text || ''
   if (!inputText && plan.scope === 'plan' && plan.scope_arg && existsSync(plan.scope_arg)) {
-    inputText = readFileSync(plan.scope_arg, 'utf8')
+    inputText = buildPlanExtractorInput(readFileSync(plan.scope_arg, 'utf8'))
   }
   if (!inputText) inputText = plan.scope_arg || t.claim || ''
 
