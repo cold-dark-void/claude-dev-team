@@ -338,12 +338,28 @@ commit on master succeeds — if squash fails, leave Linear at In Progress/In Re
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
-bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || exit 64
+GIT_SAFETY=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/git-safety.sh)
+ASSERT_RC=0
+bash "$EPIC_LIB" assert-release-allowed "<ISSUE-ID>" || ASSERT_RC=$?
+if [ "$ASSERT_RC" -ne 0 ]; then
+  echo "orchestrate: assert-release-allowed failed (rc=$ASSERT_RC); not remapped" >&2
+  exit "$ASSERT_RC"
+fi
 # Tracking close-out on the MROOT store already done (above) — status flips only; do NOT
 # include .claude/backlog* or .claude/plans* in the squash tree.
 # Glossary: feature branch CONTEXT.md commits land with the squash — never
 # strip them; never rely on uncommitted main-checkout CONTEXT.md instead.
 cd <main-repo-path>
+# Baseline must be clean before squash. Do not squash onto the feature branch.
+if ! bash "$GIT_SAFETY" is-clean --tracked-only; then
+  echo "orchestrate: baseline is not clean; refuse squash" >&2
+  exit 1
+fi
+LAND_TARGET=$(git rev-parse --abbrev-ref HEAD)
+if [ "$LAND_TARGET" = "<branch>" ]; then
+  echo "orchestrate: squash must run on the baseline, not <branch>" >&2
+  exit 1
+fi
 SHIP_START=$(git rev-parse HEAD)
 echo "SHIP_START=$SHIP_START"   # record for the ship-history gate below (SPEC-010 H6)
 git merge --squash <branch>
@@ -435,6 +451,10 @@ resource busy`. The branch ref still gets deleted but the
 `[branch "feat/X"]` config stanza orphans:
 
 ```bash template
+# Fresh shell — re-resolve PDH. GIT_SAFETY from the squash fence is not in scope.
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+GIT_SAFETY=$(bash "$PDH/skills/plugin-dir.sh" file skills/lib/git-safety.sh)
 git worktree remove <path-1>      # call 1
 bash "$GIT_SAFETY" safe-delete-branch <branch-1> <base>   # call 2 (separate Bash invocation)
 git worktree prune                # call 3 (reaps leftover admin entries)

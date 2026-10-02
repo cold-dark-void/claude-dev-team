@@ -654,7 +654,7 @@ Use the `Write` tool to create `.claude/hooks/task-completed.sh` with this conte
 # TaskCompleted hook — plugin JSON validation + council quality gate
 # Council gate enforces SPEC-002 + SPEC-013 + SPEC-009 contracts.
 # Stdin is the primary task-id transport per the verified Claude Code contract
-# (see .claude/plans/2026-04-09-taskcompleted-hook-spike.md). CLAUDE_TASK_ID env
+# (SPEC-002 stdin task_id contract; the spike plan is not in target repos). CLAUDE_TASK_ID env
 # var is a fallback for non-native invocations only.
 
 set -uo pipefail  # not -e — we handle errors explicitly per gate case
@@ -2235,6 +2235,7 @@ Updated:
   📄 .claude/hooks/stop-review.sh   — self-review gate (one-shot warning on uncommitted changes)
   📄 .claude/hooks/memory-capture.sh — auto memory (logs Write/Edit to tier-0)
   📄 .claude/hooks/bash-compress.sh — output compression (rewrites noisy test/build commands inline)
+  📄 .claude/hooks/escalation-gate.sh — worktree-isolation gate (PreToolUse; warns, blocks only when armed)
   📄 .claude/hooks/precompact-rescue.sh — PreCompact rescue capture (SPEC-018 M12)
   📄 .claude/hooks/rescue-pointer.sh — PostCompact/SessionStart pointer surfacing (M16)
   📄 .claude/hooks/friction-capture.sh — live friction ledger (SPEC-012 M1; PostToolUseFailure/PermissionDenied/StopFailure)
@@ -2244,8 +2245,7 @@ Updated:
   📄 .claude/memory/claude/memory.md — orchestrator rules seeded [created/updated]
 
 Next steps:
-  1. Customize .claude/hooks/task-completed.sh with project-specific checks
-     (uncomment test runner, JSON validation, spec-change check, or add your own)
+  1. task-completed.sh already checks plugin JSON and the council gate (exit 2 on a gate failure). Add a project check only when you need more than that.
   2. Fill in AGENTS.md placeholders with actual project details
   3. Restart Claude Code for the env var to take effect
 
@@ -2269,7 +2269,7 @@ To use Agent Teams:
 - **Not pure zero-intervention (CDT-68):** settings.json merge, `bash-compress.sh`, and `escalation-gate.sh` require explicit user approval — batch all three in ONE ask up front, escalation-gate.sh's honest-limits framing included; do not strip the self-escalation guards
 - **Force-overwrite disclosure (CDT-51 AC5):** any force change of a managed settings value or hook file MUST print `key` / `old` / `new` / `restore` before the write (`disclose-force-overwrite.sh` or the fallback block). Forced + silent = FAIL
 - **Known-legacy-orphan sweep (CDT-76):** remove only names on the explicit finite list (`bash-compress-wrapper.sh` v1); silent orphan delete forbidden — always bak-force + FORCE-OVERWRITE disclose before rm, or WARN-keep when still referenced
-- The hook script exits 0 by default (pass-through) until customized
+- task-completed.sh exits 2 when plugin JSON is invalid or the council gate fails. It exits 0 on a silent pass (no task id, or no candidate with requires_council). It is not a commented pass-through.
 - Agent Teams require Claude Code restart after `settings.json` changes for the env var to take effect
 - Teammates do not inherit conversation history — AGENTS.md is their primary orientation document
 - Temp paths in any bypass-retry or validation snippet: `"${TMPDIR:-/tmp}/…"` or `mktemp`

@@ -14,10 +14,12 @@
 #
 # ---- Lookup mode ----------------------------------------------------------
 # Resolves the plan via `skills/lib/plan-resolve.sh find <ISSUE-ID>`
-# (Tracking `- ticket_id:` exact/literal match; worktree top-level
-# .claude/plans then $MROOT/.claude/plans, deduped, newest mtime on several
-# matches; a legacy plan with no `ticket_id:` line is not found — SPEC-033
-# D11). No match -> {"found":false}. On a match, reads `- autopilot_on:` /
+# (Tracking `- ticket_id:` exact/literal match). One plan home is the
+# absolute `$MROOT/.claude/plans` write-through (CDT-373). This script globs
+# `"$PLAN_HOME"/*.md` there. plan-resolve also reads a worktree
+# `.claude/plans`. Newest mtime wins when several ticket_id matches exist.
+# A legacy plan with no `ticket_id:` line is not found (SPEC-033 D11).
+# No match -> {"found":false}. On a match, reads `- autopilot_on:` /
 # `- autopilot_bump:` from the SAME plan's `## Tracking` section via
 # `plan-resolve.sh field` (a `- autopilot_on:` line outside `## Tracking`
 # is ignored — plan-resolve.sh only ever reads inside that section).
@@ -125,7 +127,35 @@ fi
 # Lookup mode — resolve via plan-resolve.sh find, then read the SAME plan's
 # `## Tracking` autopilot_on / autopilot_bump via plan-resolve.sh field.
 # =================================================================================
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+PLAN_HOME="$MROOT/.claude/plans"
+# Glob the same absolute root the kickoff and orchestrate writers use.
 PLAN=$(bash "$PLAN_RESOLVE" find "$ISSUE_ID" 2>/dev/null) || PLAN=""
+if [ -z "$PLAN" ] && [ -d "$PLAN_HOME" ]; then
+  for _hit in "$PLAN_HOME"/*.md; do
+    [ -e "$_hit" ] || continue
+    if PR_TICKET_ID="$ISSUE_ID" awk '
+      BEGIN { intrack = 0; found = 0 }
+      /^## Tracking[[:space:]]*$/ { intrack = 1; next }
+      intrack && /^## / { intrack = 0 }
+      intrack {
+        line = $0
+        n = sub(/^- ticket_id:[ \t]*/, "", line)
+        if (n > 0) {
+          sub(/[ \t]+$/, "", line)
+          if (line == ENVIRON["PR_TICKET_ID"]) { found = 1 }
+        }
+      }
+      END { exit (found ? 0 : 1) }
+    ' "$_hit"; then
+      PLAN=$_hit
+      break
+    fi
+  done
+  unset _hit
+fi
 
 if [ -z "$PLAN" ]; then
   echo '{"found":false}'

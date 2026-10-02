@@ -24,6 +24,12 @@ and task graph ready for IC agents to claim.
   **land-no-release** (token spelling only — land target is worktree baseline / origin
   default, not necessarily a branch named `master`). Flag wins over env. See
   `skills/autopilot/parse-flags.sh` + Step 0 "Autopilot detection".
+- `[--tier=<light|standard|full>]` — optional. Recorded as `KICKOFF_TIER`. Kickoff
+  still runs the full planning steps (it does not apply `/orchestrate`'s light
+  short-circuit). Unknown values exit 64.
+- `[--council-tier=<skip|light|full>]` — optional. `light` or `full` sets TaskCreate
+  `requires_council: true`. `skip` or omit sets `requires_council: false`. Unknown
+  values exit 64. Kickoff does not spawn `/council`.
 
 ---
 
@@ -86,9 +92,23 @@ no stint loop, so `ITER` stays `0` for the whole run.
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 AP=$(bash "$PDH/skills/plugin-dir.sh" file skills/autopilot/parse-flags.sh)
-AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>
+AP_JSON=$(bash "$AP" "$@") || { echo "$AP_JSON" >&2; exit 64; }   # 64 = malformed --autopilot=<bump>, unknown --tier, or unknown --council-tier
 AUTOPILOT_ON=$(jq -r .enabled <<<"$AP_JSON")
 AUTOPILOT_BUMP=$(jq -r '.bump // "null"' <<<"$AP_JSON")
+# Honor --tier and --council-tier. parse-flags.sh already exits 64 on an unknown value.
+# wp501-tier-map
+KICKOFF_TIER=$(jq -r '.tier // "null"' <<<"$AP_JSON")
+KICKOFF_COUNCIL_TIER=$(jq -r '.council_tier // "null"' <<<"$AP_JSON")
+case "$KICKOFF_COUNCIL_TIER" in
+  light|full) REQUIRES_COUNCIL=true ;;
+  skip|null) REQUIRES_COUNCIL=false ;;
+  *) echo "kickoff: --council-tier must be skip, light, or full" >&2; exit 64 ;;
+esac
+case "$KICKOFF_TIER" in
+  light|standard|full|null) ;;
+  *) echo "kickoff: --tier must be light, standard, or full" >&2; exit 64 ;;
+esac
+# /wp501-tier-map
 # CDT-223: bind .max_loc from the same parse-flags.sh call (no env, not resume-seeded).
 # Omit records MAX_LOC as the literal string "null".
 MAX_LOC=$(jq -r '.max_loc // "null"' <<<"$AP_JSON")
@@ -205,7 +225,7 @@ Note which specs are relevant — they constrain the design.
 ## Step 1b: Create branch and worktree
 
 A git worktree is an additional working tree linked to the same repository — it lets
-all spec/plan/CONTEXT.md work land on the ticket branch in isolation, never on the
+all spec and CONTEXT.md work land on the ticket branch in isolation, never on the
 invoking session's branch. This step is **mandatory**: without it, standalone
 `/kickoff <TICKET-ID>` commits the spec straight to whatever branch the session is on
 (the master-commit defect CDT-105 closes). Mirrors `/orchestrate` Step 3 exactly.
@@ -236,7 +256,8 @@ USE_SHARED=$(jq -r '.use_shared // false' <<<"$CHILD_WT")
 
 When `USE_SHARED=true`: path is `.worktrees/epic-<EPIC-ID>` / branch
 `feat/epic-<EPIC-ID>` — **no** per-child tree. When false: `feat/<TICKET-ID>` as
-before. Use `$WT_PATH` everywhere downstream that WRITES the spec, plan, or CONTEXT.md.
+before. Use `$WT_PATH` everywhere downstream that WRITES the spec or CONTEXT.md.
+Write the plan only to absolute `$MROOT/.claude/plans`.
 
 - **Exit 0**: proceed — `$WT_PATH` holds the worktree path.
 - **Exit 1** (unexpected error): git/filesystem failure; stderr has details; HALT.
@@ -303,79 +324,22 @@ Named fallback `finder`→`ic5` (CDT-230 / SPEC-003): if spawn fails because the
 
 **Model map:** canonical fence in § Model map. Spawn @pm with that agent's MODEL/EFFORT. Empty stdout → omit that param (MUST NOT pass `""`).
 
-```
-You are @pm. Review ticket <TICKET-ID>:
-
-Output mode: terse
-
-<TICKET TEXT>
-
-Your job:
-1. Confirm or rewrite each acceptance criterion — make them unambiguous and testable
-2. Flag any scope questions that must be resolved before implementation starts
-3. Add any missing ACs that the ticket implies but doesn't state
-4. Prefer project domain-glossary terms (CONTEXT.md) when naming concepts in ACs
-5. Output: revised AC list + list of open questions (if any)
-
-Do NOT start planning implementation. Scope only.
-Return your output as this agent's final message — do NOT SendMessage to the
-orchestrator; there is no addressable parent.
-```
+Send the **PM block** in `skills/orchestrate/steps/spawn-pm-tl-finder.md`.
+Substitute `<TICKET-ID>` for `<ISSUE-ID>` and the ticket text. Do not restate that block.
 
 ### Tech Lead prompt (send now, in parallel):
 
 **Model map:** canonical fence in § Model map. Spawn @tech-lead with that agent's MODEL/EFFORT. Empty stdout → omit that param (MUST NOT pass `""`).
 
-```
-You are @tech-lead. Orient on ticket <TICKET-ID> while @pm reviews scope.
-
-Output mode: terse
-
-Ticket summary: <first 2 sentences of ticket text>
-
-Your job right now (before ACs are confirmed):
-1. Read your cortex.md for architecture context
-2. Identify which files/packages this ticket will likely touch
-3. Identify any existing specs that constrain the design
-4. Note any technical risks or unknowns
-5. List any external API parameters, library/SDK flags, model capabilities, or
-   endpoint behaviors this ticket would ASSUME work — these feed the verification
-   gate before the spec is written. If none, say "no external assumptions".
-
-Do NOT produce a plan yet — wait for confirmed ACs.
-Output: affected files, relevant specs, risks, assumed external behaviors.
-Return your output as this agent's final message — do NOT SendMessage to the
-orchestrator; there is no addressable parent.
-```
+Send the **Tech Lead block** in `skills/orchestrate/steps/spawn-pm-tl-finder.md`.
+Substitute `<TICKET-ID>` for `<ISSUE-ID>`. Do not restate that block.
 
 ### Codebase Explorer prompt (send now, in parallel):
 
 **Model map:** canonical fence in § Model map (`resolve-model.sh` / `resolve-model.sh --effort` finder). Spawn @finder with that agent's MODEL/EFFORT. Empty stdout → omit that param (MUST NOT pass `""`). Host-reject retry-once-omit (`host rejected`). Named fallback `finder`→`ic5` (CDT-230 / SPEC-003): if spawn fails because the host rejects agent type `finder`, retry `@ic5` and re-run the fence resolving `ic5` (never `ic4`).
 
-```
-You are @finder. Deep-dive the codebase to map how
-the area related to ticket <TICKET-ID> currently works.
-
-Output mode: terse
-
-Ticket summary: <first 2 sentences of ticket text>
-Keywords: <extract 3-5 keywords from ticket text>
-
-Goal: map how this area works today — entry points, execution flows,
-conventions, and inbound/outbound dependencies — so the design starts from
-the real code. Trace flows through the files that matter rather than listing
-keyword hits.
-
-Output a structured report:
-- Entry points: <list with file:line>
-- Execution flows: <caller → callee chains>
-- Patterns in use: <conventions, abstractions, data flow>
-- Dependencies (inbound): <what calls into this area>
-- Dependencies (outbound): <what this area calls>
-- Landmines: <anything surprising, fragile, or undocumented>
-Return your output as this agent's final message — do NOT SendMessage to the
-orchestrator; there is no addressable parent.
-```
+Send the **Finder block** in `skills/orchestrate/steps/spawn-pm-tl-finder.md`.
+Substitute `<TICKET-ID>` for `<ISSUE-ID>`. Do not restate that block.
 
 Collect all three outputs before proceeding.
 
@@ -571,6 +535,8 @@ Cross-reference any specs that constrain this one.
 Write the confirmed ACs into a `## Acceptance criteria` section, `###
 <TICKET-ID>` subsection (SPEC-033 M14(g)). Tag an execution-only AC (asserts
 only test/gate/CI running, never diff content) `[process]` (M14(h)).
+Add a two-space `Verify: bash <test file>` continuation to each technical AC that one
+test file proves (SPEC-033 M14(g)).
 ```
 
 Determine the next SPEC number (read from the worktree — same content as master at
@@ -618,6 +584,8 @@ unless they are directly contradicted.
 Write the confirmed ACs into a `## Acceptance criteria` section, `###
 <TICKET-ID>` subsection (SPEC-033 M14(g)). Tag an execution-only AC (asserts
 only test/gate/CI running, never diff content) `[process]` (M14(h)).
+Add a two-space `Verify: bash <test file>` continuation to each technical AC that one
+test file proves (SPEC-033 M14(g)).
 ```
 
 Wait for Tech Lead to write/update the spec. Then commit it **inside the worktree** so
@@ -672,9 +640,11 @@ Spec: <spec file path>
 Affected files (your earlier assessment): <list>
 
 Output:
-1. Step-by-step plan saved to <WT_PATH>/.claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md
-   — <WT_PATH> is the absolute worktree path from Step 1b (same branch as the spec,
-   feat/<TICKET-ID>); write to it as an absolute path, not relative to your cwd
+1. Step-by-step plan saved to the absolute plan home `$MROOT/.claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md`
+   (write-through; not the worktree `.claude/plans`). Follow `skills/orchestrate/steps/plan-contract.md`
+   for Tracking, Copy-extract, ticket_class, and process_acs. Do not copy that contract here.
+   ticket_class tokens (word boundary): auth-secrets, oauth, oidc, jwt, csrf, pii, ssn, apikey, private key, api key.
+   Emit `ticket_class:`. MUST NOT invoke `/council`.
 2. Task graph — which steps are independent (can run in parallel) and which have dependencies
 3. For each step: recommended agent (ic4 for well-defined/extending patterns, ic5 for novel/complex),
    and what interface/contract it exposes that other steps depend on.
@@ -686,25 +656,6 @@ Output:
    - Has unclear replacement strategy (each removed usage needs a different fix)
    ic4 excels at focused, well-scoped tasks. Wide-scope structural work burns excessive
    ic4 context (300+ messages observed). Either assign ic5, or split the task further.
-4. Tracking section on the plan (source + closes) so ship can close trackers with delivery:
-
-## Tracking
-- source: linear | backlog | freeform
-- ticket_id: <TICKET-ID>
-- closes:
-  - backlog/<slug>.md    # when ticket came from backlog, or dual-write
-  - linear:<ID>          # when Linear issue exists
-5. Optional plan-level Copy-extract field (SPEC-003 Role Boundaries — cite that enum; do not invent a second vocabulary). Not a Tracking key. Not per-task. Heading then 0 or 1 token (`COPY-ACCEPTED: divergence-expected` or `EXTRACT-DEFERRED: pre-existing-dup`):
-
-## Copy-extract
-<0 or 1 canonical token>
-
-Omit heading/line = default extract. Both lines, extra suffix, synonym, or Simplest/Rejected prose = unknown = not a waiver. False reason still fails.
-6. Ticket-class (not a Tracking key). Case-insensitive substring match on title|body|ACs|plan against any of: auth, authentication, authorization, oauth, oidc, jwt, session, credential, secret, token, password, api key / api-key / apikey, private key / private-key, pii, ssn, csrf. Match → `ticket_class: auth-secrets`. Else `ticket_class: none`. Unsure → `ticket_class: auth-secrets`. Dual-home with orchestrate `06-design.md`. Emit a plan line:
-
-ticket_class: auth-secrets|none
-
-MUST NOT invoke `/council`. Classifier + `ticket_class:` line only.
 
 No schema changes or new dependencies without calling them out explicitly.
 For each task, list dependencies as `Depends on: <TaskID>, <TaskID>` or `Depends on: none` so kickoff can extract them programmatically.
@@ -746,13 +697,14 @@ TaskCreate:
     Recommended agent: <ic4|ic5|qa>
     Depends on: [Task IDs] or "none"
     Exposes: <interface/contract other tasks need, if any>
+    requires_council: <REQUIRES_COUNCIL>   # true when --council-tier is light or full; false when skip or omit
 ```
 
 After all TaskCreate calls above, follow `skills/orchestrate/task-graph.md`
 Phase 2 to call `task-store.sh create` once per task, and its Status key
 section for every later `task-store.sh update-status` call.
 
-Then update the plan file (in the worktree) to include the task IDs:
+Then update the plan file at absolute `$MROOT/.claude/plans` (not the worktree) to include the task IDs:
 ```bash
 # Re-derive working root + worktree (fresh shell — SPEC-021 C1)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -763,8 +715,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<TICKET-ID>")
-# Append task map to bottom of plan file
-echo "\n## Task Map\n" >> $WT_PATH/.claude/plans/<plan-file>.md
+# Append task map to the absolute plan home (CDT-373 / CDT-381).
+printf '\n## Task Map\n\n' >> "$MROOT/.claude/plans/<plan-file>.md"
 # For each task: "- Task N (id:<ID>): <title> [depends on: ...]"
 ```
 
@@ -819,7 +771,9 @@ Kickoff complete for <TICKET-ID>
 Worktree:   <WT_PATH>
 Branch:     <feat/<TICKET-ID> | feat/epic-<EPIC-ID> when shared>
 Spec:       specs/core/SPEC-NNN-<slug>.md [created|updated]  (on worktree branch)
-Plan:       .claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md  (on worktree branch)
+Plan:       $MROOT/.claude/plans/<YYYY-MM-DD>-<TICKET-ID>-<slug>.md  (write-through)
+Tier:       <KICKOFF_TIER>  (recorded; full planning steps still run)
+Council:    <KICKOFF_COUNCIL_TIER> → requires_council <REQUIRES_COUNCIL>
 Glossary:   <CONTEXT.md path updated | no new terms>
 Tasks:      N created
 
@@ -844,9 +798,10 @@ completion, no early halt), emit `task_complete` (detail =
 `kickoff complete: <TICKET-ID>`) via **Passive notifications → Tier B** (fail-open;
 § below). Do not notify when the run halted earlier under autopilot.
 
-The spec, plan, and CONTEXT.md live on `feat/<TICKET-ID>` and are only visible on
+The spec and CONTEXT.md live on `feat/<TICKET-ID>` and are only visible on
 that branch until it merges (`/spec check` on master won't see them yet) — this is the
-intended visibility-until-merge trade, not a regression.
+intended visibility-until-merge trade, not a regression. The plan is the shared store
+at absolute `$MROOT/.claude/plans` and is not on the ticket branch.
 
 The worktree is left in place as resumable state: `/kickoff` **never** calls
 `worktree-lib.sh release`. Per-ticket trees: lifecycle owned later by

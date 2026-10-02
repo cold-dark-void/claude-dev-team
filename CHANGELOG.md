@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.15
+- **WP 5-01 Kickoff and orchestrate** — kickoff writes the plan only at absolute $MROOT/.claude/plans, a missing git repo halts, and a requires_council task halts before spawn when council is skipped.
+
 ### v1.19.14
 - **WP 4-09 Debug doctor** — full mode commits on its branch and exits, --fix --only stays on one repair, and an allowlist host matches on a label boundary.
 

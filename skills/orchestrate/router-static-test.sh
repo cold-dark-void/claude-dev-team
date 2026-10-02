@@ -660,11 +660,195 @@ if [ -z "$t22_fail" ]; then ok
 else bad "T22 AC I:$t22_fail"; fi
 
 
-# ---- Harness self-check: the suite defines 23 checks (T0-T22). A total
-# below 22 means a check was skipped silently (stale copy of this file, an
+# ---- T23: CDT-416 no-git fallback phrase is gone ----
+if grep -qF 'work in current directory' "$STEPS/cross-cutting.md"; then
+  bad "T23 cross-cutting.md still has the no-git fallback phrase"
+else ok; fi
+
+# ---- T24: one absolute plan home ----
+t24_fail=""
+for f in "$ROOT/skills/kickoff/SKILL.md" "$STEPS/04-kickoff.md" "$STEPS/06-design.md" "$ROOT/skills/autopilot/resume-state.sh"; do
+  if ! grep -qF '$MROOT/.claude/plans' "$f"; then
+    t24_fail="$t24_fail $(basename "$f")"
+  fi
+done
+if [ -z "$t24_fail" ]; then ok
+else bad "T24 plan home missing \$MROOT/.claude/plans:$t24_fail"; fi
+
+# ---- T25: ticket-class word boundary (author is not auth-secrets) ----
+CLASS="$HERE/ticket-class.sh"
+t25_fail=""
+if [ "$(bash "$CLASS" --text author)" != none ]; then
+  t25_fail="$t25_fail author"
+fi
+if [ "$(bash "$CLASS" --text 'The author wrote it')" != none ]; then
+  t25_fail="$t25_fail author-sentence"
+fi
+if [ "$(bash "$CLASS" --text auth)" != auth-secrets ]; then
+  t25_fail="$t25_fail auth-control"
+fi
+if [ -z "$t25_fail" ]; then ok
+else bad "T25 ticket-class:$t25_fail"; fi
+
+# ---- T26: light tier, CI TASK_ID, hazard injection ----
+t26_fail=""
+if grep -qF 'runs council' "$STEPS/09-review.md"; then
+  t26_fail="$t26_fail light-tier still says runs council"
+fi
+if ! grep -qF 'TASK_ID="<ISSUE-ID>-ci-fixer"' "$STEPS/09-review.md"; then
+  t26_fail="$t26_fail CI fence does not set TASK_ID"
+fi
+if ! grep -qF 'skills/orchestrate/steps/ic-hazards.md' "$STEPS/08-execute.md"; then
+  t26_fail="$t26_fail 08 missing hazard checklist"
+fi
+if ! grep -qF 'skills/orchestrate/steps/ic-hazards.md' "$STEPS/09-review.md"; then
+  t26_fail="$t26_fail rework spawn missing hazard checklist"
+fi
+if [ -z "$t26_fail" ]; then ok
+else bad "T26:$t26_fail"; fi
+
+# ---- T27: QA round cap, release state, m14 always ----
+t27_fail=""
+if grep -qF 'Repeat until QA passes' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail uncapped QA loop"
+fi
+if ! grep -qF 'QA round cap is 3' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail missing round cap"
+fi
+if ! grep -qF 'release state' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail missing release state"
+fi
+if ! grep -qF 'not live HEAD' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail missing index-not-HEAD rule"
+fi
+if ! grep -qF 'git checkout <branch-sha> -- .' "$STEPS/10-qa.md" \
+  && ! grep -qF 'git checkout "$BRANCH_SHA" -- .' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail missing checkout -- ."
+fi
+if grep -qF 'git merge-base HEAD <baseline>' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail unquoted baseline redirect"
+fi
+if ! grep -qF 'git merge-base HEAD "<baseline>"' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail missing quoted baseline"
+fi
+if ! grep -qF 'git rev-parse "<branch>"' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail missing quoted branch"
+fi
+if ! grep -qF 'm14-check` always runs' "$STEPS/10-qa.md" \
+  && ! grep -qF 'm14-check always runs' "$STEPS/10-qa.md"; then
+  t27_fail="$t27_fail m14-check not always"
+fi
+if [ -z "$t27_fail" ]; then ok
+else bad "T27:$t27_fail"; fi
+
+# ---- T28: questions autopilot, get_issue, glossary add, step 7 halt prose ----
+t28_fail=""
+if ! grep -qF 'do NOT wait on the user' "$STEPS/05-questions.md"; then
+  t28_fail="$t28_fail 05 missing autopilot branch"
+fi
+if grep -qF 'linear_getIssue' "$STEPS/01-fetch.md"; then
+  t28_fail="$t28_fail stale linear_getIssue"
+fi
+if ! grep -qF 'get_issue' "$STEPS/01-fetch.md"; then
+  t28_fail="$t28_fail 01 missing get_issue"
+fi
+if ! grep -qF 'docs/domain/CONTEXT.md' "$STEPS/03-worktree.md"; then
+  t28_fail="$t28_fail 03 does not handle docs/domain/CONTEXT.md"
+fi
+if ! grep -qF 'halt BC1 before spawn' "$STEPS/07-tasks.md"; then
+  t28_fail="$t28_fail 07 missing pre-spawn halt"
+fi
+if grep -qF 'override is Step 9' "$STEPS/07-tasks.md"; then
+  t28_fail="$t28_fail 07 still defers the conflict to Step 9"
+fi
+if [ -z "$t28_fail" ]; then ok
+else bad "T28:$t28_fail"; fi
+
+# ---- T29: squash exit code, baseline clean, hint.sh via plugin-dir ----
+t29_fail=""
+if grep -n 'assert-release-allowed' "$STEPS/11-ship.md" | grep -q 'exit 64'; then
+  t29_fail="$t29_fail assert failure remapped to exit 64"
+fi
+if ! grep -qF 'is-clean --tracked-only' "$STEPS/11-ship.md"; then
+  t29_fail="$t29_fail squash missing baseline clean check"
+fi
+if grep -qF 'bash "$PDH/skills/retro-gate/hint.sh"' "$STEPS/12-wrap.md"; then
+  t29_fail="$t29_fail 12-wrap bypasses plugin-dir for hint.sh"
+fi
+if ! grep -qF 'file skills/retro-gate/hint.sh' "$STEPS/12-wrap.md"; then
+  t29_fail="$t29_fail 12-wrap does not resolve hint.sh"
+fi
+if grep -qF 'python3 -c' "$STEPS/cross-cutting.md"; then
+  t29_fail="$t29_fail MIN_CONF still uses python3"
+fi
+if ! grep -qF 'min_confidence' "$STEPS/cross-cutting.md"; then
+  t29_fail="$t29_fail MIN_CONF jq path missing"
+fi
+if [ -z "$t29_fail" ]; then ok
+else bad "T29:$t29_fail"; fi
+
+# ---- T30: skip + requires_council halts before spawn ----
+HALT=$(fence_nth "$STEPS/07-tasks.md" "Step 7 halt before spawn" 1) || HALT=""
+t30_fail=""
+if [ -z "$HALT" ]; then
+  t30_fail="could not extract halt fence"
+else
+  run_halt() {
+    local tier=$1 any=$2 script rc
+    script=$(mktemp "${TMPDIR:-/tmp}/orch-halt.XXXXXX")
+    {
+      echo '#!/usr/bin/env bash'
+      printf '%s\n' "$HALT" | sed \
+        -e "s/<COUNCIL_TIER_OVERRIDE>/$tier/" \
+        -e "s/<true|false>/$any/"
+    } > "$script"
+    bash "$script" >/dev/null 2>"$script.err"
+    rc=$?
+    cat "$script.err"
+    rm -f "$script" "$script.err"
+    return "$rc"
+  }
+  err=$(run_halt skip true) && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ] || ! printf '%s\n' "$err" | grep -q 'before spawn'; then
+    t30_fail="$t30_fail skip+true rc=$rc err=$err"
+  fi
+  err=$(run_halt skip false) && rc=0 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    t30_fail="$t30_fail skip+false rc=$rc"
+  fi
+  err=$(run_halt full true) && rc=0 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    t30_fail="$t30_fail full+true rc=$rc"
+  fi
+fi
+if [ -z "$t30_fail" ]; then ok
+else bad "T30:$t30_fail"; fi
+
+# ---- T31: Step 6 spec commit fence and shared contract pointers ----
+t31_fail=""
+if ! grep -qF '### Step 6 spec commit' "$STEPS/06-design.md"; then
+  t31_fail="$t31_fail missing Step 6 spec commit"
+fi
+if ! grep -qF 'skills/orchestrate/steps/plan-contract.md' "$STEPS/06-design.md"; then
+  t31_fail="$t31_fail 06 missing plan contract"
+fi
+if ! grep -qF 'skills/orchestrate/steps/plan-contract.md' "$STEPS/04-kickoff.md"; then
+  t31_fail="$t31_fail 04 missing plan contract"
+fi
+if ! grep -qF 'skills/orchestrate/steps/spawn-pm-tl-finder.md' "$ROOT/skills/kickoff/SKILL.md"; then
+  t31_fail="$t31_fail kickoff missing shared spawn block"
+fi
+if ! grep -qF 'spawn-pm-tl-finder.md' "$STEPS/04-kickoff.md"; then
+  t31_fail="$t31_fail 04 missing shared spawn block"
+fi
+if [ -z "$t31_fail" ]; then ok
+else bad "T31:$t31_fail"; fi
+
+# ---- Harness self-check: the suite defines 32 checks (T0-T31). A total
+# below 32 means a check was skipped silently (stale copy of this file, an
 # early return, or an environment-dependent short-circuit) — turn that into
 # an explicit failure instead of a quietly-smaller PASS count.
-EXPECTED_CHECKS=23
+EXPECTED_CHECKS=32
 RUN_TOTAL=$((PASS + FAIL))
 if [ "$RUN_TOTAL" -ne "$EXPECTED_CHECKS" ]; then
   bad "harness ran $RUN_TOTAL checks, expected $EXPECTED_CHECKS (a check did not run)"

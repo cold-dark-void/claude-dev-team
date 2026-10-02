@@ -2,7 +2,7 @@
 
 ## Step 6: Tech Lead designs approach
 
-When `[ "$ORCH_TIER" = "light" ]`: do not spawn Tech Lead for a second design pass. The scoper-planner already wrote `.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` with Tracking (Step 4). Skip the `@tech-lead — ACs are confirmed` spawn below. Present that plan summary. SPEC-033 `plan-approve` still fires — the Autopilot self-answer block below stays. Then Step 6b, then Step 6c.
+When `[ "$ORCH_TIER" = "light" ]`: do not spawn Tech Lead for a second design pass. The scoper-planner already wrote `$MROOT/.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` with Tracking (Step 4). Skip the `@tech-lead — ACs are confirmed` spawn below. Present that plan summary. SPEC-033 `plan-approve` still fires — the Autopilot self-answer block below stays. Run the Step 6 spec commit fence, then Step 6b, then Step 6c.
 
 Otherwise (omit / `standard` / `full`):
 
@@ -39,57 +39,22 @@ Output mode: terse
 Your earlier assessment: <affected files, specs, risks>
 
 Produce:
-1. Spec (create/update in specs/core/ with MUST/SHOULD/MUST NOT). Write the
-   confirmed ACs into that spec's `## Acceptance criteria` section, in a
-   `### <ISSUE-ID>` subsection (SPEC-033 M14(g)). Tag an execution-only AC
-   (asserts only test/gate/CI running, never diff content) `[process]`
-   (M14(h)); MUST NOT tag an AC that asserts diff content. Add a two-space
-   `Verify: bash <test file>` continuation to each technical AC that one
-   test file proves (SPEC-033 M14(g)).
+1. Spec (create/update in specs/core/ with MUST/SHOULD/MUST NOT). Follow the
+   writer rules in `skills/orchestrate/steps/plan-contract.md`. Write the
+   confirmed ACs into a `## Acceptance criteria` section (SPEC-033 M14(g)),
+   with the `[process]` tag and the two-space
+   `Verify: bash <test file>` continuation. Do not copy that contract here.
 2. Implementation plan with task graph (dependencies, parallelism)
 3. For each task: `Recommended agent: <ic4|ic5|qa|devops|ds>` and why.
    Cite agents/tech-lead.md Task-routing table.
    Escalation heuristic: assign ic5 (not ic4) when a task touches >10 files,
    modifies >15 callsites, or involves wide-scope structural deletion/renaming.
    ic4 excels at focused tasks; wide-scope structural work should go to ic5 or be split further.
-4. Save plan to .claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md
-5. Include a Tracking section on the plan (from Step 1; edit if multi-item):
-
-## Tracking
-- source: linear | backlog | freeform
-- ticket_id: <ISSUE-ID>
-- closes:
-  - backlog/<slug>.md
-  - linear:<ID>
-- autopilot_on: <true|false>
-- autopilot_bump: <patch|minor|major|master|null>
-6. Optional plan-level Copy-extract field (SPEC-003 Role Boundaries — cite that enum; do not invent a second vocabulary). Not a Tracking key. Not per-task. Heading then 0 or 1 token (`COPY-ACCEPTED: divergence-expected` or `EXTRACT-DEFERRED: pre-existing-dup`):
-
-## Copy-extract
-<0 or 1 canonical token>
-
-Omit heading/line = default extract. Both lines, extra suffix, synonym, or Simplest/Rejected prose = unknown = not a waiver. False reason still fails.
-7. Ticket-class (not a Tracking key). Case-insensitive substring match on title|body|ACs|plan against any of: auth, authentication, authorization, oauth, oidc, jwt, session, credential, secret, token, password, api key / api-key / apikey, private key / private-key, pii, ssn, csrf. Match → `ticket_class: auth-secrets`. Else `ticket_class: none`. Unsure → `ticket_class: auth-secrets`. Dual-home with kickoff Step 6. Emit a plan line:
-
-ticket_class: auth-secrets|none
-
-8. Process ACs (not a Tracking key). List the ids tagged `[process]` in item
-   1's AC write, in document order. Emit a plan line (SPEC-033 M14(g)/(h)
-   guard 2 — do not restate the guard):
-
-process_acs: <ids|none>
-
-Many-to-one is allowed (one ticket closes multiple backlog items). Empty closes
-only for freeform. `autopilot_on`/`autopilot_bump` MUST always be written, on
-autopilot and non-autopilot runs alike — substitute the Step-0 resolved
-`AUTOPILOT_ON`/`AUTOPILOT_BUMP` values (recording `autopilot_on: false`
-explicitly on a non-autopilot run is a symmetric "remember it was NOT
-autopilot" record, not just a true-case field). `autopilot_bump` is `null`
-when autopilot is off, or when on in bare/pr-mode; may be `master` (land-no-release
-sentinel, CDT-195) or a release token. pr-vs-merge is always derived from bump
-(null→pr, else→merge — includes `master`) — do NOT record a separate field
-(SPEC-033 M9a / CDT-111-C8 AC1). This is `resume-state.sh`'s Step-0 resume
-detection read surface (CDT-111-C8).
+4. Save the plan to the absolute plan home `$MROOT/.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md`
+   (write-through). Tracking, Copy-extract, ticket_class, and process_acs come from
+   `skills/orchestrate/steps/plan-contract.md`. Classify ticket_class with
+   `skills/orchestrate/ticket-class.sh` (word boundary). Do not substring-match
+   (`author` is not `auth`).
 ```
 
 Present the plan summary to user:
@@ -145,6 +110,26 @@ Otherwise (autopilot off), the user-approval gate below applies unchanged.
 
 Wait for user approval. This is the second escalation gate.
 
+### Step 6 spec commit
+
+This is the Step 6 spec commit that Step 6b couples to. Run it on the light path and on the standard/full path, after the spec exists and before Step 6b. Specs land on the feature branch. The plan stays on `$MROOT/.claude/plans` and is not committed.
+
+```bash
+# Step 6 spec commit — fresh shell (SPEC-021 C1)
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
+WT_PATH=$(bash "$EPIC_LIB" ensure-ticket-worktree "<ISSUE-ID>") || {
+  echo "orchestrate requires a git repository for worktree isolation." >&2
+  exit 1
+}
+git -C "$WT_PATH" add specs/
+git -C "$WT_PATH" diff --cached --quiet && exit 0
+git -C "$WT_PATH" commit -m "spec: <ISSUE-ID> — add/update <feature area> spec"
+```
+
+If `specs/` has no staged change, the fence exits 0 and does not create an empty commit. Step 6b uses the dedicated context message when this fence already committed the spec.
+
 ### Step 6b: Domain glossary write-back on the worktree (conditional)
 
 Mirror `/kickoff` Step 7b. After the plan is approved (or auto-approved), if this
@@ -176,8 +161,9 @@ feature branch carries only specs/code.
 Runs on light and on omit/`standard`/`full`. Independent of `--council-tier=skip`
 (that skip is the Step 9 task-gate only — it MUST NOT short-circuit 6c).
 
-Read `ticket_class:` from the approved plan. If missing, classify now with the
-same token list as item 7 above; unsure → `auth-secrets`.
+Read `ticket_class:` from the approved plan. If missing, classify now with
+`skills/orchestrate/ticket-class.sh` (word boundary; `author` is not auth-secrets).
+If the script cannot run, use `auth-secrets`.
 
 If `ticket_class` is not `auth-secrets`, print one skip line and continue to
 Step 7:

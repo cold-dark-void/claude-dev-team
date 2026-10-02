@@ -2,7 +2,9 @@
 
 ## Step 9: Tech Lead review loop
 
-When `[ "$ORCH_TIER" = "light" ]`: single-pass TL diff review (same Check against / Evaluate as the spawn below). Run the standard resolve fences anyway (`tech-lead` review + IC `<agent>` rework). Max one rework (one REQUEST CHANGES → IC fix → re-review). Then APPROVE or escalate. Do not use the 3-round deadloop as the default. Skip Step 9.5 code-simplify. Council EFFECTIVE: if `COUNCIL_TIER_OVERRIDE` is not the string `"null"`, use that value (`skip|light|full`) — `--tier=light --council-tier=full` runs council; `--tier=light --council-tier=skip` skips. Else (override is `"null"`): no council spawn. After APPROVE: TaskUpdate completed. Skip `task-store.sh update-status` when no task-store file. Defensive CI-watch cleanup still applies if a ci-fixer task exists.
+Start the Step 10b spec alignment at the same time as this first Tech Lead review. Do not wait for QA. Send MISSING or DIFFERS gaps into the same rework round as REQUEST CHANGES (one IC rework spawn covers both). Record the checked SHA. After QA, Step 10b checks only the delta from that SHA, and `m14-check` always runs (`10-qa.md`).
+
+When `[ "$ORCH_TIER" = "light" ]`: single-pass TL diff review (same Check against / Evaluate as the spawn below). Run the standard resolve fences anyway (`tech-lead` review + IC `<agent>` rework). Max one rework (one REQUEST CHANGES → IC fix → re-review). Then APPROVE or escalate. Do not use the 3-round deadloop as the default. Skip Step 9.5 code-simplify. Council EFFECTIVE: a light task MUST NOT set `requires_council` (Step 7), so this pass does not spawn council. `--tier=light` does not run council, including when `--council-tier=full` is also set. `--council-tier=skip` also skips. There is no requires_council task for a light run to gate. After APPROVE: TaskUpdate completed. Skip `task-store.sh update-status` when no task-store file. Defensive CI-watch cleanup still applies if a ci-fixer task exists.
 
 Otherwise (omit / `standard` / `full`):
 
@@ -78,6 +80,10 @@ Other spawn failures MUST NOT be retried as a model or effort fallback.
 @<agent> — Tech Lead requested changes on Task <ID>:
 
 <feedback>
+
+Also fix any Step 10b MISSING or DIFFERS gaps from the parallel spec check. One rework round covers both.
+
+Apply `skills/orchestrate/steps/ic-hazards.md` before you commit (writes inside if, missing final newline, check-then-act races, retry without a deadline).
 
 Address these and mark task completed again when done.
 ```
@@ -273,6 +279,12 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
   SIDECAR_CLI=$(bash "$PDH/skills/plugin-dir.sh" file skills/ci-watch/sidecar.sh)
+  # This fence is a fresh shell. Set the literal the prose documents.
+  TASK_ID="<ISSUE-ID>-ci-fixer"
+  case "$TASK_ID" in
+    *-ci-fixer) ;;
+    *) exit 0 ;;
+  esac
   TICKET=$(echo "$TASK_ID" | sed 's/-ci-fixer$//')
   # Do not mask helper-missing with `|| echo false` — let a missing plugin surface.
   FIXER_ACTIVE=$(bash "$SIDECAR_CLI" get "$TICKET" fixer_active 2>/dev/null)

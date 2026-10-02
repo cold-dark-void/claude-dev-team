@@ -2,6 +2,8 @@
 
 ## Step 8: Execute — spawn agents and monitor
 
+Inject `skills/orchestrate/steps/ic-hazards.md` into every implementation spawn in this step and every rework spawn (Step 9). The checklist is writes inside `if`, a missing final newline, check-then-act races, and a retry without a deadline. Do not spawn if Step 7 halted on `requires_council` plus `--council-tier=skip`.
+
 When `[ "$ORCH_TIER" = "light" ]`: **You still do NOT write code.** Spawn exactly one `@ic4` at low effort for the single task. No DAG ready-set fan-out. No task-store graph. Do not append the `requires_council` council instruction (that task MUST NOT set `requires_council`). Then monitor that one agent. Escalation triggers, CI-watch 8.5, and stint-end still apply. Skip the multi-agent spawn loop and DAG-aware fan-out below.
 
 Before spawning @ic4:
@@ -30,6 +32,8 @@ Spawn @ic4 for the single light-tier task (low effort):
 "<task description>
 
 Output mode: terse
+
+Apply `skills/orchestrate/steps/ic-hazards.md` before you commit (writes inside if, missing final newline, check-then-act races, retry without a deadline).
 
 Work in worktree: <path>
 Spec: <spec path>
@@ -89,6 +93,8 @@ Spawn @<agent> for Task <ID>:
 "<task description>
 
 Output mode: terse
+
+Apply `skills/orchestrate/steps/ic-hazards.md` before you commit (writes inside if, missing final newline, check-then-act races, retry without a deadline).
 
 Work in worktree: <path>
 Spec: <spec path>

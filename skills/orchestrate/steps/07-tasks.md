@@ -2,7 +2,23 @@
 
 ## Step 7: Create task graph
 
-When `[ "$ORCH_TIER" = "light" ]`: skip DAG and task-store. One task. MUST NOT set `requires_council` (council default is skip; override is Step 9). Do not run `dag-lib.sh` / `task-store.sh` / the TaskCreate loop below. Continue to Step 8.
+When `[ "$ORCH_TIER" = "light" ]`: skip DAG and task-store. One task. MUST NOT set `requires_council`. A `--council-tier=skip` conflict is not deferred to Step 9: the halt fence below fires before any Step 8 spawn. Do not run `dag-lib.sh` / `task-store.sh` / the TaskCreate loop below. Continue to Step 8 only when that fence exits 0.
+
+## Step 7 halt before spawn
+
+When `COUNCIL_TIER_OVERRIDE=skip` and any task requires council, halt BC1 here, before TaskCreate and before any Step 8 spawn. Do not spawn agents and then discover the conflict at Step 9.
+
+```bash
+# Halt before Step 8 spawn (rv-w2-33). Substitute the literals.
+COUNCIL_TIER_OVERRIDE="<COUNCIL_TIER_OVERRIDE>"
+REQUIRES_COUNCIL_ANY="<true|false>"
+if [ "$COUNCIL_TIER_OVERRIDE" = "skip" ] && [ "$REQUIRES_COUNCIL_ANY" = "true" ]; then
+  echo "orchestrate: halt BC1 before spawn — requires_council task with --council-tier=skip" >&2
+  exit 1
+fi
+```
+
+**Autopilot:** if `AUTOPILOT_ON`, do not wait. Use the same BC1 `plan-approve` halt as Step 9's skip/requires_council block (`cross-cutting.md` Tier B on halt) and return. Off autopilot: print the conflict and wait. Do not spawn.
 
 Otherwise (omit / `standard` / `full`):
 

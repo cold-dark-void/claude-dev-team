@@ -39,27 +39,14 @@ Your job:
    Add any missing ACs the issue implies but doesn't state. Write the
    confirmed ACs into the ticket's spec (create/update in `specs/core/`), in
    a `## Acceptance criteria` section, `### <ISSUE-ID>` subsection
-   (SPEC-033 M14(g)). Tag an execution-only AC (asserts only test/gate/CI
-   running, never diff content) `[process]` (M14(h)). Add a two-space
-   `Verify: bash <test file>` continuation to each technical AC that one
-   test file proves (SPEC-033 M14(g)). Commit the spec on
+   (SPEC-033 M14(g)). Follow writer rules, Tracking, and `process_acs` in
+   `skills/orchestrate/steps/plan-contract.md` (includes the two-space
+   `Verify: bash <test file>` continuation). Commit the spec on
    the feature branch, in the worktree.
-2. Write a short (~5-line) implementation plan to
-   `.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` with a Tracking section:
-
-## Tracking
-- source: linear | backlog | freeform
-- ticket_id: <ISSUE-ID>
-- closes:
-  - backlog/<slug>.md
-  - linear:<ID>
-- autopilot_on: <true|false>
-- autopilot_bump: <patch|minor|major|master|null>
-
-Also emit `process_acs: <ids|none>` (item 1's `[process]` tags, in document
-order; SPEC-033 M14(g)/(h) guard 2). `autopilot_on`/`autopilot_bump` MUST
-always be written (Step-0
-`AUTOPILOT_ON`/`AUTOPILOT_BUMP`). Empty closes only for freeform.
+2. Write a short (~5-line) implementation plan to the absolute plan home
+   `$MROOT/.claude/plans/<YYYY-MM-DD>-<ISSUE-ID>-<slug>.md` (write-through).
+   Use the Tracking section from `skills/orchestrate/steps/plan-contract.md`.
+   Do not copy that contract here.
 
 Do NOT produce a full task graph. Do NOT spawn further agents.
 Return your output as this agent's final message — do NOT SendMessage to the
@@ -95,23 +82,8 @@ If spawn fails attributed to the `effort` param (invalid/unknown/unsupported eff
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 
-```
-You are @pm. Review issue <ISSUE-ID>:
-
-Output mode: terse
-
-<ISSUE CONTEXT>
-
-Your job:
-1. Confirm or rewrite each acceptance criterion — make them unambiguous and testable
-2. Flag any scope questions that must be resolved before implementation
-3. Add any missing ACs the issue implies but doesn't state
-4. Output: revised AC list + open questions (if any)
-
-Do NOT plan implementation. Scope only.
-Return your output as this agent's final message — do NOT SendMessage to the
-orchestrator; there is no addressable parent.
-```
+Send the **PM block** in `skills/orchestrate/steps/spawn-pm-tl-finder.md`.
+Do not send the Finder block from that file. Do not restate the PM block.
 
 ### Tech Lead agent (spawn now, in parallel):
 
@@ -136,24 +108,8 @@ If spawn fails attributed to the `effort` param (invalid/unknown/unsupported eff
 Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 
-```
-You are @tech-lead. Orient on issue <ISSUE-ID> while @pm reviews scope.
-
-Output mode: terse
-
-Issue summary: <title + first 2 sentences>
-
-Your job:
-1. Read your cortex.md for architecture context
-2. Identify which files/packages this will likely touch
-3. Identify existing specs that constrain the design
-4. Note technical risks or unknowns
-
-Do NOT produce a plan yet — wait for confirmed ACs.
-Output: affected files, relevant specs, risks.
-Return your output as this agent's final message — do NOT SendMessage to the
-orchestrator; there is no addressable parent.
-```
+Send the **Tech Lead block** in `skills/orchestrate/steps/spawn-pm-tl-finder.md`.
+Do not send the Finder block. Do not restate the Tech Lead block.
 
 Collect both outputs.
 

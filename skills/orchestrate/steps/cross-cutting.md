@@ -170,7 +170,7 @@ This applies even if the change seems small. Small deviations compound.
 
 Task metadata writes via `skills/orchestrate/task-store.sh` are **distinct from** the Claude Code TaskList / TaskCreate / TaskUpdate tools. Both tracks must stay in sync: TaskCreate → `task-store.sh create`, each TaskUpdate → `task-store.sh update-status`. If either track fails, the orchestrator MUST surface the failure to the user rather than silently diverging. The task store is the persistent source of truth for the TaskCompleted council gate (SPEC-002); TaskList is the in-session state.
 
-- **No git repo**: warn; skip worktree, work in current directory
+- **No git repo**: HARD ERROR — halt. Print `orchestrate requires a git repository for worktree isolation.` and stop. Do not skip the worktree. Do not continue in the invoking directory.
 - **Linear MCP unavailable**: fall back to prompted context; use plans for tracking instead
 - **Agent fails to start**: retry once, then report to user with error details
 - **Worktree already exists for this issue**: `worktree-lib.sh ensure` reuses it silently (writes a fresh lock). A prompt only appears if another live PID holds the lock — in that case surface the lib's stderr output to the user.
@@ -220,14 +220,8 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 EMIT=$(bash "$PDH/skills/plugin-dir.sh" file skills/metrics/emit-outcome.sh)
-MIN_CONF=$(python3 -c '
-import json,sys
-try:
-  data=json.load(open(sys.argv[1]))
-  print(data.get("council",{}).get("taskgate",{}).get("min_confidence",80))
-except Exception:
-  print(80)
-' "$MROOT/.claude/settings.json" 2>/dev/null || echo 80)
+MIN_CONF=$(jq -r '.council.taskgate.min_confidence // 80' "$MROOT/.claude/settings.json" 2>/dev/null || echo 80)
+case "$MIN_CONF" in ''|*[!0-9]*) MIN_CONF=80 ;; esac
 # council_overturns: index rows for task_id where max_verdict_confidence is null
 # OR < min (OQ2). Missing index / jq / null task_id → null arg.
 COUNCIL_OVERTURNS=null

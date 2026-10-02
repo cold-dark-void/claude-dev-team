@@ -5,7 +5,7 @@
 Resolve **ticket source** and a `closes:` list (persisted on the plan in Step 6).
 Order:
 
-1. **Linear** — if Linear MCP is available (e.g. `linear_getIssue`) and the ID
+1. **Linear** — if Linear MCP is available (e.g. `get_issue`) and the ID
    resolves: extract title, description, ACs, priority, assignee, status, labels.
    Set `source=linear`. Seed `closes:` with `linear:<ISSUE-ID>`.
 2. **Backlog** — else if `.claude/backlog/<ISSUE-ID>.md` exists, or
