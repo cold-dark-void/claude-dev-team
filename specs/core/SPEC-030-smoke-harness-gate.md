@@ -269,7 +269,7 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 - [ ] Initial adoption pass complete: live tree passes clean under the no-arg form
 - [ ] CI workflow runs green on a push to master and on a PR (Actions enabled on origin)
 - [ ] Gate step added to `skills/release/SKILL.md` (Step 4.10) and exercised by one real release
-- [ ] Spec reviewed and promoted DRAFT → ACTIVE
+- [x] Spec reviewed and promoted DRAFT → ACTIVE
 - [ ] `all-tests` job green on the first PR or push that carries it; its QUARANTINED set equals the `tools/test-quarantine.txt` entries (none reported `PASS` + `warn:`)
 - [ ] Step 4.13 present in `skills/release/SKILL.md` and exercised by one real release
 - [ ] `fence-exec` CI job green on the first push or pull request that carries it (R28)

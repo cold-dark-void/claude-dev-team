@@ -1,6 +1,6 @@
 # SPEC-037: Per-agent Model map
 
-**Status**: DRAFT
+**Status**: ACTIVE
 **Category**: core
 **Created**: 2026-08-26
 **Covers**: `skills/model-map/` (`resolve-model.sh`, `write-model.sh`, `test.sh`, `write-model-test.sh`, `effort-test.sh`, `spawn-site-test.sh`, `SKILL.md`), `commands/setup.md` (`/setup models`), `commands/adjust-agent.md` (`--model` / `--model-unset` / `--effort` / `--effort-unset`), `skills/doctor/doctor.sh` (`models.map`), `skills/orchestrate/steps/04-kickoff.md`, `skills/orchestrate/steps/06-design.md`, `skills/orchestrate/steps/08-execute.md`, `skills/orchestrate/steps/09-review.md`, `skills/orchestrate/steps/10-qa.md`, `skills/code-simplify/SKILL.md`, `skills/ci-watch/SKILL.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/debug/SKILL.md`, `skills/fix-ticket/SKILL.md`, `skills/council/SKILL.md`, `commands/council.md`, `skills/bug-hunt/SKILL.md`, `.gitignore`
@@ -19,9 +19,11 @@ local-only writer (`write-model.sh`) backs `/setup models` and
 `/adjust-agent --model` / `--effort`. `/doctor` check `models.map` is
 WARN-never-FAIL. Direct `@agent` overlay is out of scope (Option B).
 
-**The effort half of this spec (M22–M29) is superseded.** The host has no
-Agent `effort` param. See § Host capability findings. The model half is
-unaffected and stays in force.
+**The effort half (M22–M29) is in force (CDT-229).** `resolve-model.sh --effort`
+and `write-model.sh set-effort` are the contract. F1 records a 2026-08-30
+Claude Code Agent-tool gap. That gap does not make the map a no-op, so this
+package does not delete the surface. A deletion would change behavior and
+the catalog bump for WP 5-06 is patch.
 
 ## Host capability findings
 
@@ -297,7 +299,7 @@ amendment, and the surface retirement land as separate tickets.
   subprocess CLI (never `source`). Commands: `list`, `set <agent> <string>`,
   `unset <agent>`. MUST write only `$MROOT/.claude/dev-team/models.local.json`
   (same MROOT as M1). MUST NOT write repo `models.json` or
-  `~/.claude/dev-team/models.json`. `list` MUST print the 8 M8 names with the
+  `~/.claude/dev-team/models.json`. `list` MUST print the 10 M8 names with the
   winning resolved string (MUST call `resolve-model.sh`; MUST NOT reimplement
   merge) or `Tier default` when empty, plus the local path. `list` is
   read-only (MUST NOT mkdir or write). `set` MUST merge
@@ -315,7 +317,7 @@ amendment, and the surface retirement land as separate tickets.
   `agents`. Invalid or unknown agent, or empty / invalid effort token →
   exit 64 + usage; no write. Missing effort key on unset → exit 0.
   `qa` / `council-judge` effort set: write + M9 warn. `list` MUST print the
-  8 M8 names with the winning resolved model (`Tier default` when empty)
+  10 M8 names with the winning resolved model (`Tier default` when empty)
   AND the winning resolved effort (`inherited` when empty), plus the local
   path. `list` MUST call `resolve-model.sh` and
   `resolve-model.sh --effort` (MUST NOT reimplement merge).
@@ -523,7 +525,7 @@ amendment, and the surface retirement land as separate tickets.
 - [ ] `finder` / `debugger` resolve a mapped model and never gain `Write` / `Edit` (M12)
 - [ ] `bash skills/spec-tooling/check-format.sh specs/core/SPEC-037-per-agent-model-map.md` exits 0
 - [ ] `write-model.sh set` writes only local `models.local.json`; repo/global unchanged (M18)
-- [ ] `write-model.sh list` prints 8 M8 names + local path; empty resolve → `Tier default` (M18)
+- [ ] `write-model.sh list` prints 10 M8 names + local path; empty resolve → `Tier default` (M18)
 - [ ] `write-model.sh list` calls `resolve-model.sh` (repo string wins when local omits) (M18)
 - [ ] Unknown agent / empty string / bad argv → exit 64 + usage; extra argv ignored (M18)
 - [ ] Unparseable existing local → set/unset refuse, exit 1, file unchanged (M18)
@@ -564,12 +566,13 @@ amendment, and the surface retirement land as separate tickets.
 - [ ] Spec reviewed against CDT-229 ACs (effort sibling map)
 - [ ] Bite-tests green without a live LLM
 - [ ] `/orchestrate` and remaining named-roster spawn templates call the resolver
-- [ ] Status stays DRAFT (do not silently ACTIVE)
+- [x] Status promoted DRAFT → ACTIVE (WP 5-06, CDT-304). The map and the effort writer are shipped.
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-304, CDT-326): Status DRAFT → ACTIVE. M18 says 10 M8 names, matching `write-model.sh list`. The effort CLI stays. It is not a no-op (`resolve-model.sh --effort`, `effort-write-test.sh`). |
 
 | 2026-09-08 | CDT-243 — M16 site 1 adds Step 2 `@finder` (Codebase Explorer); MUST NOT fence applies only to Step 4b verifier. M17 omit list drops explorer. Status stays DRAFT. |
 | 2026-08-30 | F7, F8 (CDT-230 kickoff Step 4b). F7: omitted `effort:` inherits `settings.json` `effortLevel`, the project-wide depth lever left available under F6. F8: `model:` and `effort:` compose in one frontmatter file — the combination every roster agent ships under Option A. Both verified with the same forwarding-listener method as F1–F6. |

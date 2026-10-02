@@ -77,6 +77,9 @@ Status is governed on TWO orthogonal axes. They MUST NOT be conflated in one val
   (under a `## Spec Index` section). `Status` carries an Axis-A lifecycle word (above).
 - MUST list every governed spec file in the Spec Index; links MUST point to existing files; no
   orphaned spec files (files not in the index); index `Status` MUST match the spec file's `**Status**:`.
+- An ACTIVE spec MUST NOT cite a DRAFT spec as the normative contract for a behavior it
+  requires. Promote the cited spec to ACTIVE first, or record why it stays DRAFT. SPEC-034
+  stays DRAFT until CDT-292 because `skills/bug-hunt/test.sh` T1 requires that status.
 - MUST use a 2-column TDD-index Version-History row: `| Date | Change |`. The 3-column
   `| Date | Change | SPEC-ID |` variant is RETIRED (the spec-ID belongs in the Change text).
 - The canonical TDD.md sections are `## Spec Index` and `## Version History`. There are NO
@@ -371,6 +374,7 @@ verifies that each MUST has a TEST. Phase 3 adds an opt-in MUST→test traceabil
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-304): an ACTIVE spec must not cite a DRAFT spec as its normative contract. SPEC-034 stays DRAFT until CDT-292. |
 | 2026-10-01 | WP 5-05: when no project-language marker is present, Phase 2 may read `*.md` and `*.sh` as product source. The canonical exclude set is unchanged. Category comes from the ID prefix or the `specs/` directory, not from Coverage. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |
 | 2026-07-22 | CDT-46-C3: retarget Covers to `commands/spec.md` (`/spec <sub>`) + consolidated `skills/spec-tooling/` (absorbed generate-specs/generate-tests/reflect-specs); in-body command refs `/check-specs`→`/spec check`, `/create-spec`→`/spec create`, `/find-spec`→`/spec find`, `/list-specs`→`/spec list`, `/update-spec`→`/spec update`, `/generate-specs`→`/spec generate`, `/generate-tests`→`/spec tests`, `/reflect-specs`→`/spec reflect` |

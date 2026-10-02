@@ -1,6 +1,6 @@
 # SPEC-031: Escalation Gate & Universal Worktree Isolation
 
-**Status**: DRAFT
+**Status**: ACTIVE
 **Category**: core
 **Created**: 2026-07-31
 
@@ -572,6 +572,7 @@ indefinitely (origin findings: `skills/refactor/SKILL.md` release-fail-skips-dis
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-304): Status DRAFT → ACTIVE. The gate and worktree rules are shipped. |
 | 2026-09-28 | wp-1-10-gate-hooks (CDT-383, rv-w1-28): /tdd-gate entry gains matcher "Write\|Edit\|MultiEdit" (identity no longer ("", …)); on-install removes old tdd-gate.sh elements first; hook fence is bash template with the shebang first. |
 | 2026-08-02 | CDT-102 council follow-ups. Marker lifecycle changed to **arm-on-escalate, disarm-at-handoff-completion** (arming decoupled from worktree creation and confined to the escalate-and-auto-chain route; bounded runs unarmed/WARN-only; exactly one success-path disarm right after `/kickoff`/`/epic` completes; 8h leak-expiry demoted to an abnormal-termination backstop) — closes the disarm-gap class by removing the scattered-happy-path fan-out. Escalate routes that emit-and-stop (all of `debug`) arm nothing. Added control-plane tamper-surface carve-out ahead of the allowlist (hook script, settings[.local].json, armed-marker dir) closing the armed self-disarm hole (#4/#15); doc `*.md` exemption retained deliberately. Warn-latch session-scoped + symlink-hardened (#3/#5). Sibling ripple pre-scoped: `debug` arm/disarm pure removal, `review-and-commit` §7.4 citation + dead-disarm removal. |
 | 2026-08-02 | CDT-101: authorize debug's escalate/arch split-check placement fix (D1 new-decision pin). Debug now runs the § 2.2a.2 split check before its escalate-to-kickoff (§ 2.4) and arch (A.3) handoffs and routes a confirmed split to `/epic` via § 2.2a.5. Narrow amendment to CDT-102's "all of debug arms nothing": debug arms on exactly one route — the split-confirmed `/epic` auto-chain — disarming at `/epic` completion; the `/kickoff` non-split path stays emit-and-stop/never-arm. Arch `/epic` route: worktree-release is a no-op (no worktree created); arm/disarm still apply. Contract-home text (refactor § 2.2a.2 / § 2.2a.5, arm/disarm blocks) unchanged — cited only. |

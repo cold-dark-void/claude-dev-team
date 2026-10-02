@@ -1,6 +1,6 @@
 # SPEC-012: Session Retrospective
 
-**Status**: APPROVED
+**Status**: ACTIVE
 **Category**: core
 **Created**: 2026-04-07
 
@@ -330,6 +330,7 @@ This record moved out of `skills/transcript-parse/SKILL.md` (WP 4-03). The skill
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-304): Status APPROVED → ACTIVE. Validation checkboxes are not complete. |
 
 ---
 

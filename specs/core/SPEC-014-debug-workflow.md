@@ -1,11 +1,11 @@
 # SPEC-014: Debug Workflow
 
-**Status**: APPROVED
+**Status**: ACTIVE
 **Category**: core
 **Created**: 2026-04-25
-**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule); SPEC-028 (`ticket` mode protocol home — DEPRECATED retained; full MUST fold into 014 deferred to v1.1)
+**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule); SPEC-028 (DEPRECATED, superseded by this spec's `ticket` mode. File retained. Archival is CDT-294.)
 
-**Covers**: `commands/debug.md` (CDT-46-C4), `skills/debug/SKILL.md`, `skills/debug/theme-status.sh` (SPEC-029 gates); `commands/fix-ticket.md` + `skills/fix-ticket/` (Deprecation stubs → `/debug ticket`, CDT-46-C4); `agents/debugger.md` (root-cause / premise investigation agent, CDT-230)
+**Covers**: `commands/debug.md` (CDT-46-C4), `skills/debug/SKILL.md`, `skills/debug/theme-status.sh` (SPEC-029 gates); `skills/fix-ticket/` (ticket-mode backend); `agents/debugger.md` (root-cause / premise investigation agent, CDT-230)
 
 ---
 
@@ -15,7 +15,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 **SPEC-029** adds hard gates that were missing in the first ship: same-theme reopen → forced redesign; multi-UI surface matrix before done; interleaved regression for concurrency bugs; theme log + optional outcomes.
 
-**CDT-46-C4 / CDT-52:** thin host `commands/debug.md` ships; user entry for ticket mode is `/debug ticket` (SPEC-014 host). SPEC-028 remains the protocol home (now DEPRECATED, file retained); full fold of MUSTs into 014 deferred to v1.1 — no full rewrite of the debug skill.
+**CDT-46-C4 / CDT-52:** thin host `commands/debug.md` ships; user entry for ticket mode is `/debug ticket`. The protocol MUSTs live in this spec. SPEC-028 is superseded and is not authoritative.
 
 ---
 
@@ -28,20 +28,25 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
   - `/debug <description>` → mode `full` (default; entire arg string is the description)
   - `/debug patch <description>` → fast path
   - `/debug arch <description>` → design-first
-  - `/debug ticket <ticket-id> "<bug/premise>" [flags…]` → premise→implement→adversarial-refuters (SPEC-028 pipeline)
+  - `/debug ticket <ticket-id> "<bug/premise>" [flags…]` → premise→implement→adversarial-refuters (this spec's ticket mode)
 - MUST parse mode as: if first token is exactly `patch`, `arch`, or `ticket`, that token is the mode and the remainder is mode-specific args; otherwise mode is `full` and the entire argument string is the description
-- MUST load AGENTS.md, relevant specs, recent git log, and existing tests for the affected area before beginning any investigation — all before outputting any root cause analysis (`full`/`patch`/`arch` only; `ticket` follows SPEC-028 phase order)
+- MUST load AGENTS.md, relevant specs, recent git log, and existing tests for the affected area before beginning any investigation — all before outputting any root cause analysis (`full`/`patch`/`arch` only; `ticket` follows this spec's ticket-mode order)
 - MUST read any `.claude/plans/` file for the affected area if one exists
 - MUST proceed without error if AGENTS.md does not exist
 
-### `ticket` mode (CDT-46-C4; protocol home SPEC-028)
+### `ticket` mode (CDT-46-C4; protocol home is this section)
 
 - MUST accept: `/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]`
 - Missing ticket-id or premise MUST produce a usage error and MUST NOT spawn agents
-- MUST execute the SPEC-028 pipeline with full behavioral parity (premise verify → implement in worktree → N qa refuters → report under `.claude/fix-ticket/`)
-- MUST NOT commit, version-bump, or run `/release` (`ticket` mode; caller owns ship)
+- Premise agent is `debugger` (read-only). Named fallback is `ic5`, never `ic4`. The return MUST include `holds` and `evidence`. The prompt MUST require a sibling-occurrence grep. When `holds` is false, write the report with `premise_holds: false` and MUST NOT implement or refute.
+- Implementer edits only under the worktree. MUST NOT edit `plugin.json`, `marketplace.json`, or `CHANGELOG.md`. MUST NOT run `git commit`, `git checkout`, `git reset`, or `git add`. MUST fix every sibling the premise listed. The return MUST include `files_changed`, `diff_summary`, and `changelog_md` (a draft bullet only; do not apply it).
+- Spawn one `qa` refuter per lens (default `correctness`, `completeness`). A refuter MUST NOT use `git checkout`, `git restore`, or `git reset` to clean a bite-test. Default `holds` to false. On an unusable refuter spawn, the orchestrator (never the implementer) self-verifies and the report MUST contain the exact marker `self-verified — refuters unavailable`. Cite `skills/council/SKILL.md` for that marker. Do not invent a second string.
+- Report path is `$MROOT/.claude/fix-ticket/<YYYY-MM-DD>-<ticket-id>.md`, then `-2` through `-99` when the file exists. Frontmatter keys: `ticket`, `worktree`, `premise_holds`, `all_hold`, `verification_mode` (`full` or `self-verified`), `created_at`. `all_hold` is true only when every lens holds and at least one verdict exists. A self-verified report body MUST include `> **self-verified — refuters unavailable**`.
+- Worktree path is `$MROOT/.worktrees/<slug>` via `skills/worktree-lib.sh ensure` unless `--worktree` is set. MUST NOT create a sibling-directory worktree.
+- MUST NOT commit, version-bump, open a PR, or run `/release`. Print next-step hints only.
+- Every spawn prompt MUST include `Output mode: terse`.
 - `full` / `patch` / `arch` gates in this spec and SPEC-029 MUST remain unchanged for non-`ticket` modes
-- `commands/fix-ticket.md` and `skills/fix-ticket/SKILL.md` MUST be one-cycle Deprecation stubs pointing to `/debug ticket` (removed at v1.1). Protocol body MAY live under `skills/debug/` or remain reachable from the debug skill; stub files remain for discovery
+- There is no `commands/fix-ticket.md`. Do not require that file, a docs page for it, or a README listing of `/fix-ticket`. The live entry is `commands/debug.md`. Protocol files under `skills/fix-ticket/` stay reachable from that entry.
 
 ### Root-cause agent (CDT-230)
 
@@ -204,8 +209,8 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 1. Run `/debug ticket` with missing ticket-id or premise
 2. Verify: usage error; no agent spawn
 3. Run `/debug ticket <id> "<premise>"` with a known holding premise (or mock)
-4. Verify: SPEC-028 pipeline phases execute (or skill-delegate reaches the same protocol); no commit/version mutation
-5. Verify: `commands/debug.md` exists and is the user entry; `commands/fix-ticket.md` is a Deprecation stub naming `/debug ticket`
+4. Verify: this spec's ticket-mode phases execute (or the skill delegates to `skills/fix-ticket/`); no commit/version mutation
+5. Verify: `commands/debug.md` exists and is the user entry. There is no host command file for the old name.
 
 ### T12: Escalate-path split routes to `/epic`
 1. Run `/debug` on a bug whose escalate-to-kickoff approach decomposes into 2+
@@ -252,7 +257,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 - [ ] Refactor committed before fix when refactor path chosen
 - [ ] `commands/debug.md` thin host ships; first-token modes include `ticket`
 - [ ] `/debug ticket` missing args → usage, no spawn; no commit/version on green path
-- [ ] `/fix-ticket` command + skill are Deprecation stubs → `/debug ticket`
+- [ ] Ticket mode uses `commands/debug.md` and `skills/fix-ticket/`. There is no separate host command for that old name.
 - [ ] The `ticket`-mode premise spawn names `dev-team:debugger`; `full`/`patch`/`arch` root-cause phases assert no named-roster spawn at all (M16 site 3)
 - [ ] `debugger` is read-only, memory-less, and falls back to `ic5` on host-reject
 - [ ] `--agent ic4|ic5` still selects the implementer only and rejects `debugger`
@@ -263,6 +268,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-301, CDT-304): `ticket` mode protocol lives here. SPEC-028 is not authoritative. Status APPROVED → ACTIVE because Validation is not complete. |
 | 2026-10-01 | WP 4-09: full mode commits the fix on the § 2.4a branch (§ 2.7a) and ends at a bounded exit (§ 2.10a). `/refactor` § 2.4 still leaves that exit to `/debug` for a caller-supplied worktree. |
 | 2026-08-30 | CDT-230: new § Root-cause agent registers `agents/debugger.md` (opus / effort high) as the agent for the `ticket`-mode premise-investigation phase — previously `ic5`, which was carrying three unrelated job shapes. `full`/`patch`/`arch` root-cause phases have no named-roster Agent spawn (SPEC-037 M16 site 3) and are unaffected by this ticket. `debugger` is read-only and memory-less (SPEC-003 non-behavioral roster agent); host-reject falls back to `ic5`, never `ic4`. `--agent ic4\|ic5` keeps its existing implementer-only meaning and does NOT gain a `debugger` token. Step 5 refuters stay on `qa` — unchanged by this ticket. Added T14 + 3 validation checkboxes. Status stays APPROVED. |
 | 2026-08-02 | CDT-103: § Fix reworded — bounded refactor+fix are now "separate ordered commits on the **same branch** (refactor before fix)", achieved by `/refactor inline` reusing `/debug`'s caller-supplied worktree rather than self-creating a second branch (see SPEC-015 § Worktree Isolation). Restores the git-bisect ordering the prose already claimed. |

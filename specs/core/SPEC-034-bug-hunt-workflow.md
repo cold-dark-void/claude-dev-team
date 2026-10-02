@@ -494,6 +494,7 @@ Status remains DRAFT until a later epic promote (not a C2 ship gate).
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-304): Status stays DRAFT. `skills/bug-hunt/test.sh` T1 requires `**Status**: DRAFT`. Promoting it is CDT-292, not this package. |
 | 2026-10-01 | WP 4-08 (CDT-417, CDT-279 E12 E3 F12 F17 F20 F25): stem suffix on collision; phase-plan maps to the sibling findings plan; materialize paths stay under `.claude/bug-hunt/`; handoff rejects `--proceed` and `--severity-floor`; S4e rejects an out-of-range `--start-phase`; S1 lists files with `git -C WTROOT`; report walls match continuous S3/S4; evidence strike re-runs `reproducible_command`. Status stays DRAFT. |
 | 2026-08-07 | CDT-139: additive stage-4 runtime MUSTs M42–M48 (load C3 plan + phaseable filter, severity banding omit-empty renumber, phase-plan + handoff-phase templates, M18 route rule phase_count≥2∧item_count≥2, M9 lock forms `--start-phase`/`start-phase-<n>`, exit metrics, M23 full+zero + emit-only); N12–N13 hard walls; Covers/Overview stage 4 owned by CDT-139; Tests T22–T26 + Validation AC15; Status stays DRAFT |
 | 2026-08-07 | CDT-138: additive stage-3 runtime MUSTs M38–M41 (load json/report, findings plan `-plan.md` path, SPEC-009 programmatic write-back + bidirectional linkage, proceed forms + idempotent re-materialize + zero path); N10–N11 hard walls; Covers/Overview stage 3 owned by CDT-138 (stage 4 still uncovered); Tests T18–T21 + Validation AC14; Status stays DRAFT |

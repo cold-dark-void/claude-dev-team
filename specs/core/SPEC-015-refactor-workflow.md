@@ -1,6 +1,6 @@
 # SPEC-015: Refactor Workflow
 
-**Status**: APPROVED
+**Status**: ACTIVE
 **Category**: core
 **Created**: 2026-04-26
 
@@ -231,6 +231,7 @@ The full gate contract — edit go-ahead, ticket-weight routing, workstream spli
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-304): Status APPROVED → ACTIVE. Validation checkboxes are not complete. |
 | 2026-09-30 | WP 2-01 (`wp-2-01-fence-harness`; CDT-356): § Entry & Mode Selection — Step 1b MUST take a relative affected path as relative to `$WTROOT`, keep `$WTROOT` and paths below it, reject `..`, empty and out-of-tree paths (a sibling that shares the root name prefix included), and never pass an empty pathspec to `git log`. New test T13 (`skills/refactor/test-fences.sh`, run by the SPEC-030 fence-exec harness). |
 | 2026-08-02 | CDT-103: § Worktree Isolation — inline mode MUST accept an optional caller-supplied worktree; when supplied MUST reuse it + its branch (no `ensure`/`$SLUG`) and commit onto that branch, else self-create as before. § Commit discipline EXCEPTION — with a caller-supplied worktree, take NEITHER bounded exit (no PR/squash/release); the caller (`/debug`) owns the exit, giving refactor+fix ordered commits on one branch (see SPEC-014 § Fix). |
 | 2026-07-31 | CDT-98: added Escalation Gate + Worktree Isolation sections (SPEC-031 owns the full contract); retired the current-session-branch commit mandate in favor of PR / squash-merge-after-review exits; closed the self-satisfiable `.claude/plans/` exemption (ticket-id reference required, no timestamp checks); disambiguated the no-user-input MUSTs to approach-decision only; added workstream-split routing to `/epic` and in-session `/kickoff` auto-chain; added T10-T12 and 6 validation rows |

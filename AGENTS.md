@@ -36,7 +36,8 @@ New opt-in flags with unchanged defaults = patch; default-behavior changes or ne
 Enforced on `master`: `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). A new `commands/*.md` on a patch bump MUST NOT commit.
 
 **Ship / land (plugin-wide — not personal memory):**
-- Never FF-merge epic children onto master so the next worktree can fast-forward. Work stays on `feat/<ticket>` or the epic integration branch. Master moves only at epic seal / one `/release` fold.
+- Never FF-merge epic children onto master so the next worktree can fast-forward. Epic-child work stays on `feat/<ticket>` or the epic integration branch. For epic children, master moves only at epic seal / one `/release` fold (SPEC-033).
+- A non-epic `--autopilot=master` is land-no-release (SPEC-033 M2). It squash-lands onto the worktree baseline and does not run `/release`.
 - `--autopilot=patch|minor|major` on `/orchestrate` that **BC5-reroutes to `/epic`** is **seal-intent**. `/epic` MUST persist that bump as `release_bump` (with `--worktree`) and MUST NOT land each child. Token is not unused.
 - A new Surface shipped as a patch tag: fold into the minor, delete the patch tag, retag, force-push. Do not leave the false patch in history. Do not offer TL blockers as a "follow-up patch" when the bump was already wrong.
 - If you FF'd and **did not push**: `git reset --hard origin/master`. Leave commits on feature branches.

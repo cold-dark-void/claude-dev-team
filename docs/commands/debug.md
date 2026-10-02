@@ -1,6 +1,6 @@
 # /debug
 
-Phase-gated bug handler (SPEC-014) plus a ticket pipeline (SPEC-028). Full
+Phase-gated bug handler (SPEC-014), including the ticket pipeline. Full
 investigation → root-cause → fix → verify enforces root-cause-before-edit: no
 file is touched until the root cause is written to the session. Hard gates also
 require a failing test before any fix, a holistic callsite scan after it, and a
@@ -109,4 +109,4 @@ Only when every item is `✓` does the skill emit a completion summary and sugge
 - [`/kickoff`](./kickoff.md) — planning handoff target for `arch` mode and `escalate-to-kickoff` scope
 - [`/wrap-ticket`](./wrap-ticket.md) — close out after the fix PR is merged
 - Legacy `/fix-ticket` command stub deleted at v1.1.0 — use `/debug ticket`
-- Protocol: `skills/debug/SKILL.md`; ticket contract: SPEC-028
+- Protocol: `skills/debug/SKILL.md`; ticket contract: SPEC-014 ticket mode

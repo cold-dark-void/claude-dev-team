@@ -7,7 +7,7 @@
 
 **Covers**: `/debug ticket` entry via `commands/debug.md` + `skills/debug/SKILL.md` (SPEC-014 host); `skills/fix-ticket/` (internal skill-delegate backend; old `/fix-ticket` command removed at v1.1); optional `skills/fix-ticket/workflow.js`
 
-> **Entry Surface (CDT-46-C4 / CDT-52):** user entry is `/debug ticket …` via `commands/debug.md` + `skills/debug/SKILL.md` (SPEC-014 host). `commands/fix-ticket.md` and `skills/fix-ticket/` are one-cycle Deprecation stubs. **This spec is DEPRECATED (file retained)** — protocol MUSTs below remain authoritative for the `/debug ticket` pipeline until v1.1 full merge into SPEC-014.
+> **Entry Surface (CDT-46-C4 / CDT-52):** user entry is `/debug ticket …` via `commands/debug.md` + `skills/debug/SKILL.md`. **This spec is DEPRECATED and superseded by SPEC-014 `ticket` mode.** The MUSTs below are not authoritative. The file is retained. Archival is CDT-294. Do not require `commands/fix-ticket.md`, `docs/commands/fix-ticket.md`, or a README listing of `/fix-ticket`.
 
 ---
 
@@ -32,7 +32,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 
 ### Surface & invocation
 
-- **M1 — Thin entry.** User entry is `/debug ticket` via thin `commands/debug.md` (SPEC-014). Protocol MUST live in a skill reachable from that entry (`skills/debug/` and/or retained fix-ticket protocol files). `commands/fix-ticket.md` MUST be a Deprecation stub naming `/debug ticket` for one cycle (v1.1 removal).
+- **M1 — Thin entry.** User entry is `/debug ticket` via thin `commands/debug.md` (SPEC-014). Protocol MUST live in a skill reachable from that entry (`skills/debug/` and/or retained fix-ticket protocol files). Do not require `commands/fix-ticket.md`. That host file is gone.
 - **M2 — YAML frontmatter.** Live Surfaces MUST declare `name` and `description` in YAML frontmatter for discovery (stubs included).
 - **M3 — Required args.** Invocation is `/debug ticket <ticket-id> "<bug/premise>"` (legacy `/fix-ticket …` equivalent). Missing ticket-id or premise MUST produce a usage error and MUST NOT spawn agents.
 - **M4 — Optional flags.** Skill MUST accept: `--fix "<instructions>"`, `--agent ic4|ic5` (default `ic4`), `--lenses a,b` (default `correctness,completeness`), `--worktree <path>`.
@@ -103,10 +103,10 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 6. **No-checkout string (M18 / AC10):** `rg -n 'git checkout|git restore|NEVER' skills/fix-ticket/prompts/refute.md` matches.
 7. **Worktree path (M5):** without `--worktree`, ensure path is `$MROOT/.worktrees/<slug>`. The slug maps each `.` in the ticket id to `-`.
 8. **No version/commit (M11–M12, M28):** implement prompt contains bans on version files and `git commit`; skill does not call `/release`.
-9. **Thin entry (M1):** user entry is `/debug ticket` via thin `commands/debug.md` (SPEC-014); protocol lives in a skill reachable from that entry; `commands/fix-ticket.md` is a Deprecation stub naming `/debug ticket` (no full phase protocol restated in host or stub).
+9. **Thin entry (historical):** not a requirement. The user entry is `/debug ticket` in `commands/debug.md`. Do not require a separate host command file.
 10. **Args guard (M30):** `rg "typeof args === 'string'" skills/fix-ticket/workflow.js` matches; `node --check skills/fix-ticket/workflow.js` passes.
-11. **skill-lint C1:** `bash skills/skill-lint/check-skill-bash.sh commands/fix-ticket.md skills/fix-ticket/SKILL.md` exits 0.
-12. **Docs index:** README + `docs/README.md` list `/fix-ticket`; `docs/commands/fix-ticket.md` present.
+11. **skill-lint (historical):** not a requirement on a removed host command file. Lint `skills/fix-ticket/SKILL.md` only.
+12. **Docs index (historical):** not a requirement. Do not require a README listing or a docs page for the removed command.
 
 ---
 
@@ -116,7 +116,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 - [ ] AC1–AC10 from CDV-197 plan pass under QA
 - [ ] Manual matrix: premise-fail, full green, refute fail, degraded marker
 - [ ] skill-lint clean on command + skill
-- [ ] docs-drift clean for `/fix-ticket` cmd-index
+- [ ] No docs-drift requirement for a removed host command
 - [ ] No council/engine files modified (CDV-196 boundary)
 - [ ] `/release` minor after QA (caller)
 
@@ -132,6 +132,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-301): superseded by SPEC-014 `ticket` mode. MUSTs here are not authoritative. Stub requirements for `commands/fix-ticket.md` and a README `/fix-ticket` listing are dropped. |
 | 2026-10-01 | Premise spawn is `debugger` (named fallback `ic5`). M11 bans `CHANGELOG.md`, not a README version section. |
 | 2026-07-22 | CDT-52 / CDT-46-C6 D4: Status ACTIVE→DEPRECATED (file retained — never delete). Folded protocol home remains authoritative for `/debug ticket` pipeline until v1.1 full merge; entry Surface is `/debug ticket` via SPEC-014; Covers added (fix-ticket stubs + debug ticket entry). |
 | 2026-07-22 | CDT-46-C4: entry Surface moves to `/debug ticket` (SPEC-014 host). M1/M3 retargeted; command+skill become Deprecation stubs. Full SPEC-028→SPEC-014 fold deferred to W5. |

@@ -114,6 +114,7 @@ Fail-closed **one-commit-per-tag** policy for the ship window. **Single SoT for 
 - **H10 — Linearize preference.** When dirty is detected **before** tag+push, callers SHOULD fold/linearize first (interactive confirm or human-driven), then re-run the checker to green, then tag+push. Post-push dirty piles → H7/H8 halt only (no silent force).
 - **H11 — Tests.** MUST extend `skills/release/test.sh` (or a dedicated `skills/release/test-ship-history.sh` invoked from it) with temp-repo fixtures: clean 1-tag/1-commit → 0; D1 multi-commit under one tag → 1 + `history dirty — rewrite needed`; D2 subject≠CHANGELOG lead → 1; D3 fixup/WIP/double release-shaped → 1; D4 mismatched `--expect-tag` → 1; missing `--since` → 64; train-shaped two tags each with one commit → 0. Never mutate the live repo as the test subject.
 - **H12 — MUST NOT (scope).** Rewrite outside W; mega-squash concurrent tickets into one fold when they have distinct tags; reimplement CDT-189 staged-path allowlist; reimplement CDT-187 orchestrate pre-check; silent force-push under autopilot; claim Done/complete on partial or dirty history; dual-write a second dirty-predicate home outside this subsection.
+- Land-no-release (`--autopilot=master`, SPEC-033 M2) does not create a release tag. H1–H12 apply to a `/release` ship window. An untagged land-no-release commit is not a dirty finding. AGENTS.md scopes "master moves only at seal / `/release`" to epic children.
 
 ### Release step scripts
 

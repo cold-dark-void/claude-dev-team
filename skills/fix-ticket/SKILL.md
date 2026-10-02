@@ -2,7 +2,7 @@
 name: fix-ticket
 description: >
   Internal protocol for /debug ticket — premise→implement→refuters pipeline
-  (SPEC-028). Not a user entry; invoke via /debug ticket.
+  (SPEC-014 ticket mode). Not a user entry; invoke via /debug ticket.
 ---
 
 # fix-ticket (backend for `/debug ticket`)
@@ -13,14 +13,14 @@ description: >
 > body + `prompts/` + `templates/` are permanent (v1.1 contract: protocol-retained
 > backends; host is `skills/debug/SKILL.md` ticket mode).
 
-Protocol for `/debug ticket` (SPEC-028). Orchestrator-driven Task-spawn pipeline:
+Protocol for `/debug ticket` (SPEC-014 ticket mode). Orchestrator-driven Task-spawn pipeline:
 
 **premise verify (debugger) → implement in worktree (ic4/ic5) → N adversarial refuters (qa) → orchestrator review + report**
 
 Markdown Task path is authoritative. `workflow.js` is an optional non-invoked
 reference asset (args-as-JSON-string guard for Workflow authoring conventions).
 
-Governing spec: `specs/core/SPEC-028-fix-ticket-workflow.md`.
+Governing spec: `specs/core/SPEC-014-debug-workflow.md` ticket mode. SPEC-028 is superseded.
 
 ---
 

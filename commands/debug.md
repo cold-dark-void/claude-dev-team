@@ -2,14 +2,14 @@
 name: debug
 description: >
   Phase-gated bug investigation → root-cause → fix → verify (full/patch/arch),
-  or premise→implement→adversarial-refuters ticket pipeline (SPEC-028).
+  or premise→implement→adversarial-refuters ticket pipeline (SPEC-014).
   Usage: /debug [patch|arch|ticket] …
 argument-hint: '[patch|arch|ticket] <args…>'
 ---
 
 # /debug
 
-Thin host over `skills/debug/SKILL.md` (SPEC-014; ticket protocol SPEC-028).
+Thin host over `skills/debug/SKILL.md` (SPEC-014, including ticket mode).
 
 | First token | Mode | Behavior |
 |-------------|------|----------|
@@ -49,7 +49,7 @@ echo "Loaded debug protocol: $SKILL"
 Read `$SKILL` and execute it end-to-end with the user arguments unchanged.
 
 - First-token mode parse, SPEC-014/029 gates (`full`/`patch`/`arch`), and
-  `ticket` → SPEC-028 pipeline live in the skill — do not restate protocol here.
+  `ticket` → SPEC-014 ticket mode lives in the skill — do not restate protocol here.
 - On `ticket` refuter spawn failure, follow CDV-199:
   `skills/council/SKILL.md` § Spawn-failure degradation
   (marker: `self-verified — refuters unavailable`).
@@ -58,5 +58,5 @@ Read `$SKILL` and execute it end-to-end with the user arguments unchanged.
 
 - Protocol body: `skills/debug/SKILL.md`
 - Ticket pipeline assets (internal backend for `/debug ticket`): `skills/fix-ticket/`
-- Specs: `specs/core/SPEC-014-debug-workflow.md`, `specs/core/SPEC-028-fix-ticket-workflow.md`, `specs/core/SPEC-029-debug-reopen-and-surface-gates.md`
+- Specs: `specs/core/SPEC-014-debug-workflow.md` (ticket mode included), `specs/core/SPEC-029-debug-reopen-and-surface-gates.md`. SPEC-028 is superseded.
 - Docs: `docs/commands/debug.md`

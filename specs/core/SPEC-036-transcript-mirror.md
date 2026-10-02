@@ -1,6 +1,6 @@
 # SPEC-036: Transcript Mirror (live compressed session record)
 
-**Status**: DRAFT
+**Status**: ACTIVE
 **Category**: core
 **Created**: 2026-08-25
 
@@ -728,6 +728,7 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | WP 5-06 (CDT-304): Status DRAFT → ACTIVE. The mirror ships. |
 
 **Covers**: `skills/transcript-mirror/SKILL.md`,
 `skills/transcript-mirror/transcript-mirror.sh`,

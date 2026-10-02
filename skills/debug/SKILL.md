@@ -7,7 +7,7 @@ description: |
     self-calibration checklist before any "done" claim.
     Modes: /debug <desc> (full), /debug patch <desc> (fast path),
     /debug arch <desc> (design-first → /kickoff handoff),
-    /debug ticket <id> "<premise>" […] (SPEC-028 fix-ticket pipeline).
+    /debug ticket <id> "<premise>" […] (SPEC-014 ticket mode).
 ---
 
 # Debug
@@ -32,7 +32,7 @@ design-level issue that warrants a `/kickoff` handoff. Entry host:
 - `/debug arch <description>` — design-first: investigation stops at root cause,
   then mandatory `/kickoff` handoff; never writes a fix or test inline
 - `/debug ticket <ticket-id> "<bug/premise>" [--fix "…"] [--agent ic4|ic5]
-  [--lenses a,b] [--worktree <path>]` — SPEC-028 premise→implement→refuters
+  [--lenses a,b] [--worktree <path>]` — SPEC-014 ticket mode: premise→implement→refuters
   pipeline (delegates to `skills/fix-ticket/` protocol body). Never
   commits or version-bumps.
 
@@ -322,7 +322,7 @@ Bug-specific context loaded:
 
 Evidence-backed additions from the May 2026 refine/isolation thrash. Apply in
 **full**, **patch**, and **arch** modes (arch: S.1 + S.6 at minimum; no fix path).
-**Never apply in `ticket` mode** (SPEC-028 has its own phase order).
+**Never apply in `ticket` mode** (SPEC-014 ticket mode has its own phase order).
 
 > **Attribution note:** May thrash may have been gate-skipping *or* wrong
 > `targeted-patch` under SPEC-014 judgment gates. SPEC-029 makes the critical
@@ -889,13 +889,13 @@ If any item is unchecked, continue investigation until it can be populated.
 
 ---
 
-## Step 5: Ticket mode (SPEC-028)
+## Step 5: Ticket mode (SPEC-014)
 
 Premise→implement→adversarial-refuters pipeline for a **known** bug ticket.
-Behavioral home remains `specs/core/SPEC-028-fix-ticket-workflow.md` (full
-fold into SPEC-014 is W5 OOS). This mode **delegates** to
-`skills/fix-ticket/SKILL.md` (+ prompts/templates) — permanent internal
-backend for this skill-delegate path (old `/fix-ticket` command removed at v1.1).
+Behavioral home is `specs/core/SPEC-014-debug-workflow.md` ticket mode.
+SPEC-028 is superseded and is not authoritative. This mode **delegates** to
+`skills/fix-ticket/SKILL.md` (+ prompts/templates) — the internal backend.
+There is no separate host command file.
 
 **Does NOT run:** Steps 0b–0c, SPEC-029 gates, full/patch/arch pipelines,
 theme log, root-cause triad, or self-calibration checklist from this skill.
