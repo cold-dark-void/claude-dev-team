@@ -54,11 +54,11 @@ NEEDS DISCUSSION — fix critical issues first.
 Action Items: 2 BLOCKERs, 0 DESIGN, 1 NITPICK — commit blocked
 ```
 
-**Clean diff — commit proceeds:**
+**Clean diff — ask, then commit:**
 ```
 /review-and-commit
 # ... review output with no critical findings ...
-# Claude commits automatically with a conventional commit message
+# Claude always asks before it commits. It does not commit on its own.
 ```
 
 ## How It Works
@@ -86,9 +86,9 @@ Each agent outputs findings as structured JSON with `file`, `line`, `severity`, 
 **Step 5 — Spec alignment:** Checks `specs/` for specs related to the changed behavior and updates any that are now out of date.
 
 **Step 6 — Commit gate:**
+- **Outside `$MROOT/.worktrees/`** → HALT. Do not create a worktree. Do not commit.
 - **Critical Issues or Compliance Violations** (severity "critical") → commit is blocked; the user is told exactly what must be fixed.
-- **Design Problems / Nitpicks only** → user is asked "Proceed with commit despite findings? (y/n)".
-- **Clean (or user confirmed)** → Claude commits with a conventional commit message explaining why the change was made.
+- **Any other result, including a clean diff** → always ask before a commit. There is no auto-commit.
 
 After every run — even when the commit proceeds — a structured action-items checklist is printed so no finding is lost.
 
@@ -100,5 +100,5 @@ Critical Issues; canonical council report frontmatter
 
 ## See Also
 
-- [/wrap-ticket](wrap-ticket.md) — end-of-ticket checklist that runs review-and-commit as a final gate
-- [/orchestrate](orchestrate.md) — full ticket lifecycle that assigns review-and-commit to a QA agent
+- [/wrap-ticket](wrap-ticket.md) — close-out after merge. It does not run this command.
+- [/orchestrate](orchestrate.md) — full ticket lifecycle. It does not call this command.

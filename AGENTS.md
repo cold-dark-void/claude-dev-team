@@ -57,7 +57,7 @@ single source of truth; read the skill.)
 | `devops` | Sonnet | CI/CD, infrastructure, deployments |
 | `qa` | Sonnet | Testing, validation, release gating |
 | `ds` | Opus | Data analysis, ML, metrics |
-| `finder` | Sonnet | Read-only fan-out investigator (`/council` Phase 2, `/bug-hunt` S1 / S2) |
+| `finder` | Sonnet | Read-only fan-out investigator (`/council` Phase 2, `/bug-hunt` S1 / S2, `/kickoff` Step 2) |
 | `debugger` | Opus | Read-only causal root-cause investigator (`/debug ticket` premise only — `full`/`patch`/`arch` root-cause phases have no named-roster spawn) |
 | `project-init` | Sonnet | One-time memory bootstrap (via `/setup team`) |
 | `distiller` | Haiku | Memory compression specialist (invoked by `/memory distill` only) |

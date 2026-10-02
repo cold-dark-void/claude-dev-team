@@ -56,7 +56,7 @@ Proceed with this scope? Any adjustments?
 1. **Load context** — reads AGENTS.md and agent memory (Tech Lead + PM cortex) before touching the issue.
 2. **Fetch issue** — resolves source in order: Linear MCP → local `.claude/backlog/` slug/title → freeform paste. Seeds plan `closes:` (backlog paths and/or `linear:<ID>`).
 3. **Scope gate** — presents issue summary, source/closes, and complexity assessment; waits for user confirmation (first escalation gate).
-4. **Create worktree** — creates a `feat/<ISSUE-ID>-<slug>` branch and git worktree. All agent work happens inside the worktree.
+4. **Create worktree** — creates a `feat/<ISSUE-ID>` branch and a git worktree. Do all agent work inside that worktree.
 5. **Parallel PM + Tech Lead kickoff** — PM refines and finalizes acceptance criteria; Tech Lead identifies affected files, specs, and risks. Both run simultaneously.
 6. **Open-questions gate** — if PM surfaces ambiguities, they are presented to you before any design work begins.
 7. **Tech Lead designs approach** — produces a spec (in `specs/core/`), an implementation plan (in `.claude/plans/`) including a **Tracking** section (`source` + `closes:`) and `ticket_class: auth-secrets|none`, and a task graph with per-task agent recommendations. Waits for user approval (second escalation gate). After approval, if `ticket_class: auth-secrets`, Step 6c runs `/council --plan` with the security flavor before the task graph — independent of `--council-tier=skip`. Non-match prints one skip line.
@@ -65,8 +65,8 @@ Proceed with this scope? Any adjustments?
 10. **Tech Lead review loop** — every completed IC task gets a Tech Lead review. `REQUEST CHANGES` routes feedback back to the IC. If the same task cycles 3+ times without consensus, you are asked to break the deadlock.
 11. **Code-simplify (optional)** — after all tasks APPROVE, one behavior-preserving polish pass on recently modified files only (`skills/code-simplify`). Skip with `CODE_SIMPLIFY=0` or empty/docs-only diff. Fail-open — never blocks QA.
 12. **QA validation** — after review (and simplify if run), QA runs against the spec and acceptance criteria. Failures route back to the responsible IC for a fix-and-re-review cycle.
-12. **Ship** — presents a diff summary; **tracking close-out** runs from the feature worktree against the shared `$MROOT` backlog store (`skills/backlog/close.sh` for each plan `closes:` backlog item; Linear Done when MCP available) as **local write-through only** — process trackers are **not** staged into the product delivery commit. Then PR/squash options. Suggests `/wrap-ticket` for worktree/learnings.
-13. **Friction check (non-blocking)** — at completion the orchestrator runs the phase-1 retro gate against the just-finished session. If the session accumulated friction signals, it prints a one-line `Consider: /retro <session-id>` hint. Never auto-runs `/retro`, never blocks completion.
+13. **Ship** — presents a diff summary; **tracking close-out** runs from the feature worktree against the shared `$MROOT` backlog store (`skills/backlog/close.sh` for each plan `closes:` backlog item; Linear Done when MCP available) as **local write-through only** — process trackers are **not** staged into the product delivery commit. Then PR/squash options. Suggests `/wrap-ticket` for worktree/learnings.
+14. **Friction check (non-blocking)** — at completion the orchestrator runs the phase-1 retro gate against the just-finished session. If the session accumulated friction signals, it prints a one-line `Consider: /retro <session-id>` hint. Never auto-runs `/retro`, never blocks completion.
 
 ### Escalation triggers
 

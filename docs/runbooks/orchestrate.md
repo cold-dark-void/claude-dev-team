@@ -97,7 +97,7 @@ for images. This ticket adds CSV/JSON/Markdown export of cached descriptions.
 This is the most important gate — you're approving the spec and task breakdown.
 
 ```
-  Worktree created: .worktrees/POC-123-batch-export (branch feat/POC-123-batch-export)
+  Worktree created: .worktrees/POC-123 (branch feat/POC-123)
 
   Spec: specs/core/SPEC-026-batch-export.md [created]
   Plan: .claude/plans/2026-03-07-POC-123-batch-export.md
@@ -170,7 +170,7 @@ QA found 2 spec violations. The orchestrator routed fixes automatically — no i
 ```
   All tasks complete. QA approved. Spec alignment: 8/8 MATCH.
 
-  Branch: feat/POC-123-batch-export
+  Branch: feat/POC-123
   Commits: 5 (spec + 4 implementation)
   Files changed: 8
   Lines: +342 / -0
@@ -216,7 +216,7 @@ PR scope, LOC caps, refactoring rules, and the replan gate: see
 
 Handles: task verification, learnings capture, local plans.md update (write-through only — never staged), source tracker re-close (`close.sh`), deferred backlog adds (Linear preferred SoT + local write-through), worktree removal, Linear checklist. (Ship-time close-out in `/orchestrate` Step 11 should already have closed plan `closes:` against Linear; process trackers under `.claude/` are not part of the product delivery commit.)
 
-For memory hygiene, see [Memory Configuration](../setup.md#memory-configuration-memory-config).
+For memory hygiene, see [Memory Configuration](../setup.md#memory-configuration--memory-config).
 
 ---
 

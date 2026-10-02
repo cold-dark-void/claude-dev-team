@@ -301,9 +301,9 @@ Ask the user before ANY commit, then stop and wait:
 The always-ask discipline is `skills/refactor/SKILL.md` § 2.2a.3's — asked on
 every run with no auto-satisfied branch, no earlier-run/earlier-ticket/upstream
 go-ahead satisfies it, and anything other than an affirmative halts the run
-(SPEC-031 owns these rules per D1 contract-home; not restated here). One
-command-specific note: `/orchestrate` calls `/review-and-commit` directly, and
-its own "may I edit files" grant does not cover this commit.
+(SPEC-031 owns these rules per D1 contract-home; not restated here).
+`/orchestrate` and `/wrap-ticket` do not call this command. An edit grant from
+another workflow does not cover this commit. Always ask here.
 
 - On affirmative and bounded routing → stage exactly the reviewed path list
   from Step 1, then `git commit` with a conventional message explaining *why*

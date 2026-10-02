@@ -1,10 +1,10 @@
 ---
-ticket: {{TICKET}}
-worktree: {{WORKTREE}}
-premise_holds: {{PREMISE_HOLDS}}
-all_hold: {{ALL_HOLD}}
-verification_mode: {{VERIFICATION_MODE}}
-created_at: {{CREATED_AT}}
+ticket: "{{TICKET}}"
+worktree: "{{WORKTREE}}"
+premise_holds: "{{PREMISE_HOLDS}}"
+all_hold: "{{ALL_HOLD}}"
+verification_mode: "{{VERIFICATION_MODE}}"
+created_at: "{{CREATED_AT}}"
 ---
 
 # Fix-ticket report — {{TICKET}}
@@ -39,13 +39,3 @@ created_at: {{CREATED_AT}}
 2. Address any failed lenses, then re-run `/debug ticket` or fix manually
 3. When satisfied: `/review-and-commit` (optional) then commit
 4. Version/release when ready: `/release` (skill does **not** bump versions)
-
----
-
-<!-- Placeholder notes for orchestrator fill-in:
-  {{DEGRADED_BANNER}} — when verification_mode=self-verified, set to:
-    > **self-verified — refuters unavailable**
-    otherwise empty
-  {{IMPL_SECTION}} — skip or "n/a (premise failed)" when premise_holds=false
-  {{VERDICTS_SECTION}} — per-lens holds/issues; empty when premise failed
--->

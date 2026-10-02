@@ -28,12 +28,12 @@ Governing spec: `specs/core/SPEC-028-fix-ticket-workflow.md`.
 
 | Arg / flag | Required | Default | Description |
 |------------|----------|---------|-------------|
-| `<ticket-id>` | Yes | — | Ticket id (e.g. `CDV-42`, `AUDIT-P0.8`) |
+| `<ticket-id>` | Yes | — | Ticket id (e.g. `CDV-42`, `AUDIT-P0.8`). Letters, digits, `.`, `_`, `-` only. The worktree slug maps each `.` to `-`. |
 | `"<bug/premise>"` | Yes | — | Documented bug description |
 | `--fix "<instructions>"` | No | same as premise / empty | Fix instructions for implementer |
 | `--agent ic4\|ic5` | No | `ic4` | Implementer agent |
 | `--lenses a,b` | No | `correctness,completeness` | Comma-separated refute lenses |
-| `--worktree <path>` | No | `worktree-lib.sh ensure <ticket-id>` | Existing worktree path |
+| `--worktree <path>` | No | `worktree-lib.sh ensure <slug>` (each `.` in the ticket id becomes `-`) | Existing worktree path |
 
 Missing ticket-id or premise → usage error, no spawn.
 
@@ -45,7 +45,7 @@ Usage: /debug ticket <ticket-id> "<bug/premise>" [--fix "<instructions>"] [--age
 
 ## Invariants (non-negotiable)
 
-- **No version files** — never edit `.claude-plugin/plugin.json`, `marketplace.json`, or README version/changelog.
+- **No version files** — never edit `.claude-plugin/plugin.json`, `marketplace.json`, or `CHANGELOG.md`.
 - **No commit** — never `git commit` / `git add` / `git checkout` / `git reset` in the pipeline.
 - **No git checkout in refuters** — bite-test restore only via `cp` backup or sed-reverse.
 - **CDV-199 marker** — on unusable refuter spawn, exact string `self-verified — refuters unavailable`; actor is always orchestrator. Protocol home: `skills/council/SKILL.md` § Spawn-failure degradation.
@@ -83,11 +83,17 @@ Parse `$ARGUMENTS` (or equivalent user text):
 Validate:
 
 ```bash
-# After parse into shell vars (orchestrator may hold vars in session; re-check):
-if [ -z "${TICKET:-}" ] || [ -z "${BUG:-}" ]; then
+# Fresh shell (SPEC-021 C1). Fill the quoted placeholders before running.
+TICKET="<TICKET>"
+BUG="<BUG>"
+if [ -z "$TICKET" ] || [ "$TICKET" = "<TICKET>" ] || [ -z "$BUG" ] || [ "$BUG" = "<BUG>" ]; then
   echo "Usage: /debug ticket <ticket-id> \"<bug/premise>\" [--fix \"...\"] [--agent ic4|ic5] [--lenses a,b] [--worktree <path>]" >&2
   exit 64
 fi
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+GUARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/fix-ticket/ticket-guard.sh)
+bash "$GUARD" validate "$TICKET" >/dev/null || exit $?
 AGENT="${AGENT:-ic4}"
 case "$AGENT" in ic4|ic5) ;; *) echo "error: --agent must be ic4 or ic5" >&2; exit 64 ;; esac
 FIX="${FIX:-}"
@@ -101,23 +107,38 @@ with the usage line on missing required fields.
 
 ## Step 2: Ensure worktree
 
+Validate the ticket id before you create a worktree.
+Allow only letters, digits, `.`, `_`, and `-`.
+Reject any other character, including `/`.
+Map each `.` to `-` before `worktree-lib.sh ensure`.
+Example: `AUDIT-P0.8` becomes slug `AUDIT-P0-8`.
+When the user passes `--worktree`, require a directory.
+`git -C "$WORKTREE" rev-parse --is-inside-work-tree` must print `true`.
+Reject a directory that is not a git worktree.
+
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
+# Fresh shell (SPEC-021 C1). Fill TICKET. Set WORKTREE to "" when --worktree is absent.
+TICKET="<TICKET>"
+WORKTREE="<WORKTREE>"
+if [ "$WORKTREE" = "<WORKTREE>" ]; then
+  WORKTREE=""
+fi
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
-# WORKTREE from --worktree if set; else ensure:
-if [ -z "${WORKTREE:-}" ]; then
-  WORKTREE=$(bash "$WT_LIB" ensure "$TICKET") || {
-    echo "error: worktree-lib.sh ensure failed for $TICKET" >&2
+GUARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/fix-ticket/ticket-guard.sh)
+SLUG=$(bash "$GUARD" slug "$TICKET") || exit $?
+if [ -z "$WORKTREE" ]; then
+  WORKTREE=$(bash "$WT_LIB" ensure "$SLUG") || {
+    echo "error: worktree-lib.sh ensure failed for $SLUG (ticket $TICKET)" >&2
     exit 1
   }
+else
+  bash "$GUARD" check-worktree "$WORKTREE" >/dev/null || exit $?
 fi
-# Reject paths outside $MROOT/.worktrees/ when skill-created; if user passed
-# --worktree, require it exists and is a git worktree.
-[ -d "$WORKTREE" ] || { echo "error: worktree not found: $WORKTREE" >&2; exit 1; }
 ```
 
 ---
@@ -261,29 +282,46 @@ Synthesize:
 
 ## Step 7: Write report
 
+Resolve `TICKET` again in this fence. Do not reuse a shell variable from Step 1.
+Choose the report path with `ticket-guard.sh report-path`.
+When today's report already exists, the helper appends `-2`, then `-3`, up to `-99`.
+
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
+# Fresh shell (SPEC-021 C1). Fill the quoted placeholder before running.
+TICKET="<TICKET>"
+# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
+PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+GUARD=$(bash "$PDH/skills/plugin-dir.sh" file skills/fix-ticket/ticket-guard.sh)
+bash "$GUARD" validate "$TICKET" >/dev/null || exit $?
 REPORT_DIR="$MROOT/.claude/fix-ticket"
-mkdir -p "$REPORT_DIR"
+mkdir -p "$REPORT_DIR" || exit 1
 DATE=$(date -u +%Y-%m-%d)
 CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-REPORT="$REPORT_DIR/${DATE}-${TICKET}.md"
+REPORT=$(bash "$GUARD" report-path "$REPORT_DIR" "$DATE" "$TICKET") || exit $?
+printf '%s\n' "$REPORT" || exit 1
 ```
 
-Fill `templates/report.md`:
+Fill `templates/report.md`. Quote every YAML value. The placeholder table is the full set (`check-template-vars.sh`).
 
 | Placeholder | Value |
 |-------------|--------|
 | `{{TICKET}}` | ticket id |
 | `{{WORKTREE}}` | worktree path |
 | `{{PREMISE_HOLDS}}` | true/false |
+| `{{PREMISE_EVIDENCE}}` | premise evidence string |
+| `{{PREMISE_LOCATIONS}}` | current file:line list |
+| `{{PREMISE_SIBLINGS}}` | sibling file:line list |
+| `{{PREMISE_SCOPE}}` | scope notes, or empty |
+| `{{PREMISE_REF}}` | reference file:line, or empty |
 | `{{ALL_HOLD}}` | true/false |
-| `{{VERIFICATION_MODE}}` | full \| self-verified |
-| `{{CREATED_AT}}` | ISO-8601 UTC |
-| `{{DEGRADED_BANNER}}` | `> **self-verified — refuters unavailable**` when degraded; else empty |
-| premise/impl/verdict sections | from phase returns |
+| `{{VERIFICATION_MODE}}` | full or self-verified |
+| `{{CREATED_AT}}` | ISO-8601 UTC (`CREATED` from this fence) |
+| `{{DEGRADED_BANNER}}` | marker line when self-verified; otherwise empty |
+| `{{IMPL_SECTION}}` | impl summary; `n/a (premise failed)` when premise_holds is false |
+| `{{VERDICTS_SECTION}}` | per-lens holds and issues; empty when the premise failed |
 
 Write the filled report with the Write tool (avoid bash heredocs with `!`).
 
@@ -349,7 +387,8 @@ an object. Reference implementation: `skills/fix-ticket/workflow.js`
 
 | Command | Difference |
 |---------|------------|
-| `/debug` | Open-ended investigation; root-cause-before-edit. fix-ticket assumes known premise + fix. |
+| `/debug` full, patch, arch | Open-ended investigation. Root cause before any edit. Not this pipeline. |
+| `/debug ticket` | This pipeline. The premise is known. Then implement and refute. |
 | `/orchestrate` | Full lifecycle + PR; task store. fix-ticket is a single-ticket fix loop, no PR. |
 | `/council` | Pure auditor; no implement. |
 | `/review-and-commit` | Diff review + optional commit. fix-ticket never commits. |

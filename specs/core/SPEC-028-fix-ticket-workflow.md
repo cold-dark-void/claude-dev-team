@@ -13,13 +13,13 @@
 
 ## Overview
 
-The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket`) productizes a battle-tested p0 workflow. Given a ticket id and a bug premise, the orchestrator verifies the premise still holds (read-only ic5), implements the fix in a SPEC-016 worktree (ic4/ic5), spawns N adversarial qa refuters in parallel, and writes a report under `.claude/fix-ticket/`. The caller owns commit and release — the skill never touches the version triplet or runs git commit.
+The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket`) productizes a battle-tested p0 workflow. Given a ticket id and a bug premise, the orchestrator verifies the premise still holds (read-only `debugger`; named fallback `ic5`), implements the fix in a SPEC-016 worktree (ic4/ic5), spawns N adversarial qa refuters in parallel, and writes a report under `.claude/fix-ticket/`. The caller owns commit and release — the skill never touches the version triplet or runs git commit.
 
 **Authoritative path:** markdown Task-spawn protocol (historically `skills/fix-ticket/SKILL.md`; after CDT-46-C4, reachable from `/debug ticket` / `skills/debug/`). Optional `workflow.js` is a non-invoked reference asset (args-as-JSON-string guard for CDV-196 Workflow authoring conventions).
 
 **Boundaries & related specs:**
 - **SPEC-009 (ticket workflow)** — family member; does not absorb orchestrate lifecycle, task store, or PR automation.
-- **SPEC-016 (worktree isolation)** — worktrees via `worktree-lib.sh ensure <ticket-id>` when path not provided.
+- **SPEC-016 (worktree isolation)** — worktrees via `worktree-lib.sh ensure <slug>` when path not provided. The slug maps each `.` in the ticket id to `-` (`AUDIT-P0.8` → `AUDIT-P0-8`).
 - **SPEC-013 (council)** — spawn-failure degradation protocol home is `skills/council/SKILL.md` § Spawn-failure degradation (CDV-199). This spec reuses the exact marker and actor rule; it does not restate a second protocol.
 - **CDV-196** — council Workflow re-platform; out of scope. Share Workflow authoring conventions only (args-string guard).
 - **SPEC-014 `/debug`** — hosts `ticket` mode entry (CDT-46-C4); non-ticket modes remain investigation discipline for open-ended bugs.
@@ -40,7 +40,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 
 ### Phase: Verify-premise
 
-- **M6 — Read-only premise.** Orchestrator MUST spawn one ic5 (or Explore-capable) agent that does not write files.
+- **M6 — Read-only premise.** Orchestrator MUST spawn one read-only `debugger` agent. Named fallback is `ic5`, never `ic4`. An unnamed Explore spawn may omit the model fence.
 - **M7 — Premise schema.** Premise return MUST include at least `holds` (boolean) and `evidence` (string). SHOULD include `current_locations`, `scope_notes`, `sibling_occurrences`, `reference_impl`.
 - **M8 — Sibling grep.** Premise prompt MUST require a sibling-occurrence grep for the same bug pattern.
 - **M9 — Premise-fail hard stop.** When `holds=false`, the skill MUST stop: write a report with `premise_holds: false`, MUST NOT implement or refute, and MUST surface a clear stop message.
@@ -48,7 +48,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 ### Phase: Implement
 
 - **M10 — Worktree-only edits.** Implementer MUST edit only under the target worktree path.
-- **M11 — No version files.** Implementer MUST NOT touch `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, or README version/changelog sections.
+- **M11 — No version files.** Implementer MUST NOT touch `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, or `CHANGELOG.md`.
 - **M12 — No git mutation.** Implementer MUST NOT run `git commit`, `git checkout`, `git reset`, or `git add`. Changes remain uncommitted.
 - **M13 — Sibling completeness.** Implementer MUST fix every sibling occurrence listed by premise.
 - **M14 — Smallest patch.** Implementer MUST make the smallest change that fully fixes the bug — no scope creep, no new features.
@@ -70,7 +70,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 
 ### Report & orchestration
 
-- **M24 — Report path.** Orchestrator MUST write `$MROOT/.claude/fix-ticket/<YYYY-MM-DD>-<ticket-id>.md`.
+- **M24 — Report path.** Orchestrator MUST write `$MROOT/.claude/fix-ticket/<YYYY-MM-DD>-<ticket-id>.md`. When that file already exists, MUST use the same stem with `-2`, then `-3`, through `-99`.
 - **M25 — Report frontmatter.** Report MUST include YAML frontmatter keys: `ticket`, `worktree`, `premise_holds`, `all_hold`, `verification_mode` (`full`|`self-verified`), `created_at` (ISO-8601 UTC).
 - **M26 — all_hold.** `all_hold` is true only when every lens holds and ≥1 verdict exists.
 - **M27 — Degraded banner.** When `verification_mode: self-verified`, report body MUST include banner line: `> **self-verified — refuters unavailable**`
@@ -101,7 +101,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 4. **Refuter holds=false (M19):** at least one lens fails → `all_hold: false`; issues cite file:line.
 5. **Spawn-fail self-verified (M20–M23):** simulate unusable refuter → orchestrator self-verifies; report banner exact `self-verified — refuters unavailable`; `verification_mode: self-verified`.
 6. **No-checkout string (M18 / AC10):** `rg -n 'git checkout|git restore|NEVER' skills/fix-ticket/prompts/refute.md` matches.
-7. **Worktree path (M5):** without `--worktree`, ensure path is `$MROOT/.worktrees/<ticket-id>`.
+7. **Worktree path (M5):** without `--worktree`, ensure path is `$MROOT/.worktrees/<slug>`. The slug maps each `.` in the ticket id to `-`.
 8. **No version/commit (M11–M12, M28):** implement prompt contains bans on version files and `git commit`; skill does not call `/release`.
 9. **Thin entry (M1):** user entry is `/debug ticket` via thin `commands/debug.md` (SPEC-014); protocol lives in a skill reachable from that entry; `commands/fix-ticket.md` is a Deprecation stub naming `/debug ticket` (no full phase protocol restated in host or stub).
 10. **Args guard (M30):** `rg "typeof args === 'string'" skills/fix-ticket/workflow.js` matches; `node --check skills/fix-ticket/workflow.js` passes.
@@ -132,6 +132,7 @@ The premise→implement→adversarial-refuters pipeline (originally `/fix-ticket
 
 | Date | Change |
 |------|--------|
+| 2026-10-01 | Premise spawn is `debugger` (named fallback `ic5`). M11 bans `CHANGELOG.md`, not a README version section. |
 | 2026-07-22 | CDT-52 / CDT-46-C6 D4: Status ACTIVE→DEPRECATED (file retained — never delete). Folded protocol home remains authoritative for `/debug ticket` pipeline until v1.1 full merge; entry Surface is `/debug ticket` via SPEC-014; Covers added (fix-ticket stubs + debug ticket entry). |
 | 2026-07-22 | CDT-46-C4: entry Surface moves to `/debug ticket` (SPEC-014 host). M1/M3 retargeted; command+skill become Deprecation stubs. Full SPEC-028→SPEC-014 fold deferred to W5. |
 | 2026-07-14 | Initial ACTIVE — CDV-197 productize p0-fix-workflow as `/fix-ticket` |

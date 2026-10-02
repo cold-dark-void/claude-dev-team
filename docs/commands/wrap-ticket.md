@@ -72,7 +72,7 @@ To force-close a task: TaskUpdate <task_id> status:completed
 
 4. **Append to project memory** — writes the learnings as a dated section to `.claude/memory/claude/memory.md` (or the SQLite `memories` table if the DB is active). Warns if the memory file exceeds its SPEC-004 line limit (memory: 50 lines).
 
-5. **Auto-distill check** — if `distill_enabled=true` and `distill_mode=auto`, checks whether any agent is over the `distill_threshold` raw-memory count and queues distillation. In `suggest` mode, prints a notice listing agents over threshold. In both cases, suggests running `/memory distill` to compress.
+5. **Auto-distill check** — when `distill_enabled=true`, count raw memories. In `auto` or `suggest` mode, print agents over `distill_threshold`. Tell the user to run `/memory distill`. Do not start distillation.
 
 6. **Update plans index** — finds the ticket's entry in `.claude/plans.md` and updates its status to `[COMPLETED]`. Skips silently if `plans.md` does not exist.
 

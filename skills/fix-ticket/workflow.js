@@ -1,5 +1,12 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { randomBytes } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { refuteEvidence } from './untracked.js'
+
+const DIR = dirname(fileURLToPath(import.meta.url))
+const PROMPT_DIR = join(DIR, 'prompts')
 
 function porcelainOf(wt) {
   try {
@@ -14,11 +21,7 @@ function porcelainOf(wt) {
  * fix-ticket Workflow reference asset (CDV-197 / SPEC-028).
  *
  * NON-INVOKED by the plugin MVP path. Markdown Task protocol in SKILL.md is
- * authoritative. This file ports .claude/p0-fix-workflow.js with:
- *   - args-as-JSON-string guard (Workflow authoring convention for CDV-196)
- *   - worktree-aware prompts
- *   - anti-git-checkout refuter language
- *   - no version/commit hard constraints
+ * authoritative. Prompts are loaded from prompts/*.md (not copied inline).
  *
  * Do not dual-drive: if a future Workflow runtime is wired, keep schemas and
  * phase order aligned with SKILL.md.
@@ -112,98 +115,190 @@ const VERDICT_SCHEMA = {
   required: ['lens', 'holds'],
 }
 
-// Workflow authoring convention: args may arrive as a JSON string.
-// Always guard before property access; fail loud when required fields missing.
-let t = args
-if (typeof args === 'string') {
+const MARKER = 'self-verified — refuters unavailable'
+const IMPL_AGENTS = new Set(['ic4', 'ic5'])
+
+export function normalizeLenses(lenses) {
+  if (lenses == null || lenses === '') return ['correctness', 'completeness']
+  if (typeof lenses === 'string') {
+    const parts = lenses.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+    if (parts.length === 0) return ['correctness', 'completeness']
+    return parts
+  }
+  if (!Array.isArray(lenses) || lenses.some((x) => typeof x !== 'string' || x.length === 0)) {
+    throw new TypeError('lenses must be a comma-separated string or an array of strings')
+  }
+  return lenses.slice()
+}
+
+export function premiseHolds(premise) {
+  if (premise == null || typeof premise !== 'object') return false
+  return premise.holds === true
+}
+
+export function resolveImplAgent(agent) {
+  if (agent == null || agent === '') return { ok: true, agent: 'ic4' }
+  if (typeof agent !== 'string' || !IMPL_AGENTS.has(agent)) {
+    return { ok: false, error: 'agent must be ic4 or ic5', agent }
+  }
+  return { ok: true, agent }
+}
+
+// A null slot is a failed refuter. Do not drop it: all_hold would then pass
+// on a partial fleet, and verification_mode would stay full.
+export function summarizeVerdicts(slots) {
+  const list = Array.isArray(slots) ? slots : []
+  const missing = list.some((v) => v == null || typeof v !== 'object')
+  const verdicts = list.filter((v) => v != null && typeof v === 'object')
+  const allHold =
+    list.length > 0 &&
+    !missing &&
+    verdicts.length === list.length &&
+    verdicts.every((v) => v.holds === true)
+  return {
+    verdicts,
+    all_hold: allHold,
+    verification_mode: missing ? 'self-verified' : 'full',
+  }
+}
+
+export function promptBody(markdown) {
+  const m = String(markdown).match(/```[^\n]*\n([\s\S]*?)\n```/)
+  return m ? m[1] : String(markdown)
+}
+
+export function fillPrompt(template, vars) {
+  const src = vars || {}
+  let text = String(template)
+  const nonce = src.DATA_NONCE == null ? '' : String(src.DATA_NONCE)
+  if (nonce !== '') {
+    text = text.split('{{DATA_NONCE}}').join(nonce)
+  }
+  const begin = nonce === '' ? '' : `<<<BEGIN_${nonce}>>>`
+  const end = nonce === '' ? '' : `<<<END_${nonce}>>>`
+  for (const [key, value] of Object.entries(src)) {
+    if (key === 'DATA_NONCE') continue
+    let repl = value == null ? '' : String(value)
+    if (begin !== '') {
+      repl = repl.split(begin).join('').split(end).join('')
+    }
+    repl = repl.split('{{DATA_NONCE}}').join('')
+    text = text.split(`{{${key}}}`).join(repl)
+  }
+  return text
+}
+
+export function loadPrompt(name, vars, dir = PROMPT_DIR) {
+  const raw = readFileSync(join(dir, `${name}.md`), 'utf8')
+  return fillPrompt(promptBody(raw), vars)
+}
+
+function dataNonce() {
+  return randomBytes(8).toString('hex')
+}
+
+export async function runFixTicket({ args, agent, phase, parallel, promptDir }) {
+  let t = args
+  if (typeof args === 'string') {
+    try {
+      t = JSON.parse(args)
+    } catch {
+      t = {}
+    }
+  }
+  if (!t || typeof t !== 'object' || !t.ticket || !t.worktree) {
+    return {
+      premise_holds: false,
+      error: 'args not interpolated — need ticket + worktree',
+      args_type: typeof args,
+      args_seen: t,
+    }
+  }
+  if (!t.bug) {
+    return {
+      premise_holds: false,
+      error: 'args missing required field: bug',
+      args_type: typeof args,
+    }
+  }
+  const implAgent = resolveImplAgent(t.agent)
+  if (!implAgent.ok) {
+    return { premise_holds: false, error: implAgent.error, agent: t.agent }
+  }
+
+  const WT = t.worktree
+  const TICKET = t.ticket
+  const BUG = t.bug
+  const FIX = t.fix || ''
+  let lenses
   try {
-    t = JSON.parse(args)
+    lenses = normalizeLenses(t.lenses)
   } catch (e) {
-    t = {}
+    return {
+      premise_holds: false,
+      error: e.message,
+      all_hold: false,
+      verification_mode: 'self-verified',
+      marker: MARKER,
+      verdicts: [],
+    }
   }
-}
-if (!t || typeof t !== 'object' || !t.ticket || !t.worktree) {
-  return {
-    premise_holds: false,
-    error: 'args not interpolated — need ticket + worktree',
-    args_type: typeof args,
-    args_seen: t,
-  }
-}
-if (!t.bug) {
-  return {
-    premise_holds: false,
-    error: 'args missing required field: bug',
-    args_type: typeof args,
-  }
-}
 
-const WT = t.worktree
-const TICKET = t.ticket
-const BUG = t.bug
-const FIX = t.fix || ''
+  phase('Verify-premise')
+  const premise = await agent(
+    loadPrompt('premise', { TICKET, WORKTREE: WT, BUG, DATA_NONCE: dataNonce() }, promptDir),
+    {
+      schema: PREMISE_SCHEMA,
+      agentType: 'dev-team:debugger',
+      phase: 'Verify-premise',
+      label: `premise:${TICKET}`,
+    },
+  )
 
-phase('Verify-premise')
-const premise = await agent(
-  `You are verifying whether a documented bug (${TICKET}) STILL EXISTS in the CURRENT code. Do NOT edit anything — read only.\n` +
-    `Output mode: terse.\n` +
-    `Worktree to inspect: ${WT}\n` +
-    `Documented bug: ${BUG}\n\n` +
-    `Read the relevant CURRENT files under ${WT} (line numbers may have moved). Confirm whether the bug is present as described. Report: the CURRENT file:line locations, concise evidence of the wrong behavior, any scope nuance the fixer must know, every SIBLING file carrying the same bug pattern (grep for it), and — if the fix ports an existing correct implementation elsewhere — that reference's file:line.`,
-  {
-    schema: PREMISE_SCHEMA,
-    agentType: 'dev-team:debugger',
-    phase: 'Verify-premise',
-    label: `premise:${TICKET}`,
-  },
-)
+  if (!premiseHolds(premise)) return { premise_holds: false, premise: premise ?? null }
 
-if (!premise.holds) return { premise_holds: false, premise }
+  phase('Implement')
+  const impl = await agent(
+    loadPrompt(
+      'implement',
+      {
+        TICKET,
+        WORKTREE: WT,
+        BUG,
+        FIX,
+        AGENT: implAgent.agent,
+        PREMISE_JSON: JSON.stringify(premise),
+        DATA_NONCE: dataNonce(),
+      },
+      promptDir,
+    ),
+    {
+      schema: IMPL_SCHEMA,
+      agentType: `dev-team:${implAgent.agent}`,
+      phase: 'Implement',
+      label: `impl:${TICKET}`,
+    },
+  )
 
-phase('Implement')
-const implAgent = t.agent || 'ic4'
-const impl = await agent(
-  `You are @${implAgent}. Implement the fix for ${TICKET} in the worktree: ${WT}\n` +
-    `Output mode: terse.\n\n` +
-    `Bug (verified present): ${BUG}\n` +
-    `Current locations: ${JSON.stringify(premise.current_locations || [])}\n` +
-    `Scope notes: ${premise.scope_notes || '(none)'}\n` +
-    `Sibling occurrences to ALSO fix: ${JSON.stringify(premise.sibling_occurrences || [])}\n` +
-    `Reference implementation to port from (if any): ${premise.reference_impl || '(none)'}\n` +
-    `Fix instructions: ${FIX}\n\n` +
-    `HARD CONSTRAINTS:\n` +
-    `- Edit ONLY code/doc files under ${WT}. Do NOT touch .claude-plugin/plugin.json or CHANGELOG.md — the caller does the version bump + changelog.\n` +
-    `- Do NOT run git commit / git checkout / git reset / git add. Leave all changes UNCOMMITTED in the worktree.\n` +
-    `- Author any file or script containing '!' or '<!--' via the Write tool, never an inline bash heredoc/awk (zsh mangles '!').\n` +
-    `- Fix EVERY sibling occurrence listed above (no whack-a-mole).\n` +
-    `- Make the SMALLEST change that fully fixes the bug. This is a patch, not a refactor — no scope creep, no new features.\n\n` +
-    `Then validate: simulate the fixed code/command against a realistic input and confirm it behaves correctly; if you changed a shell script, syntax-check it (bash -n) and exercise it.\n` +
-    `Draft ONE changelog bullet in house style for the CALLER (do not edit CHANGELOG.md): '- **fix: <one-line summary> (${TICKET})** — <2-4 sentences: the bug, the fix, why this scope>.'\n` +
-    `Return files_changed, a concise diff_summary (before/after per change), the changelog bullet, what side-effects you checked, and your validation commands+results.`,
-  {
-    schema: IMPL_SCHEMA,
-    agentType: `dev-team:${implAgent}`,
-    phase: 'Implement',
-    label: `impl:${TICKET}`,
-  },
-)
-
-phase('Adversarial-verify')
-const lenses = t.lenses || ['correctness', 'completeness']
-const verdicts = (
-  await parallel(
+  phase('Adversarial-verify')
+  const slots = await parallel(
     lenses.map((lens) => () =>
       agent(
-        `You are an INDEPENDENT adversarial reviewer. Try hard to REFUTE that the fix for ${TICKET} is correct and complete, through the '${lens}' lens.\n` +
-          `Output mode: terse.\n` +
-          `Worktree: ${WT}. Inspect the uncommitted changes: cd ${WT} && git diff   (also read the surrounding code).\n` +
-          refuteEvidence(porcelainOf(WT)) +
+        loadPrompt(
+          'refute',
+          {
+            TICKET,
+            WORKTREE: WT,
+            BUG,
+            FIX,
+            LENS: lens,
+            PREMISE_EVIDENCE: premise.evidence || '',
+            DATA_NONCE: dataNonce(),
+          },
+          promptDir,
+        ) +
           '\n' +
-          `Original bug: ${BUG}\n` +
-          `Intended fix: ${FIX}\n` +
-          `Premise evidence: ${premise.evidence}\n\n` +
-          `Through the '${lens}' lens, look for: the fix being INCOMPLETE (a sibling site left unfixed), the fix introducing a NEW bug/side-effect, the fix not actually resolving the stated bug, a broken positional/format/column dependency, a contract/spec violation, or a wrong assumption. Read the ACTUAL diff — do not assume. Default to holds=false if you find ANY real problem; holds=true only if you genuinely cannot break it. Cite file:line.\n` +
-          `HARD CONSTRAINTS: Prefer read-only. If bite-testing with mutation: backup (cp) → inject → observe → restore FROM BACKUP (cp) or sed-reverse of the injection only. NEVER run git checkout / git restore / git reset to clean bite-tests — those wipe sibling uncommitted work. After mutation assert clean git status of unrelated paths. Do NOT implement alternative fixes. Do NOT commit.`,
+          refuteEvidence(porcelainOf(WT)),
         {
           schema: VERDICT_SCHEMA,
           agentType: 'dev-team:qa',
@@ -213,17 +308,25 @@ const verdicts = (
       ),
     ),
   )
-).filter(Boolean)
+  const summary = summarizeVerdicts(slots)
+  const degraded = summary.verification_mode === 'self-verified'
+  return {
+    premise_holds: true,
+    premise,
+    impl,
+    verdicts: summary.verdicts,
+    all_hold: summary.all_hold,
+    verification_mode: summary.verification_mode,
+    marker: degraded ? MARKER : '',
+  }
+}
 
-// Spawn-failure: caller/orchestrator self-verifies missing lenses and sets
-// verification_mode=self-verified with marker "self-verified — refuters unavailable".
-// Protocol home: skills/council/SKILL.md § Spawn-failure degradation (CDV-199).
+const hasRuntime =
+  typeof args !== 'undefined' &&
+  typeof agent === 'function' &&
+  typeof phase === 'function' &&
+  typeof parallel === 'function'
 
-return {
-  premise_holds: true,
-  premise,
-  impl,
-  verdicts,
-  all_hold: verdicts.length > 0 && verdicts.every((v) => v.holds),
-  verification_mode: 'full',
+if (hasRuntime) {
+  await runFixTicket({ args, agent, phase, parallel })
 }
