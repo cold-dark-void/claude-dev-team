@@ -15,8 +15,10 @@ if [ -z "$WT" ]; then
   exit 0
 fi
 
-# 1. ci: .github/workflows/ exists AND gh pr checks --help exits 0
-if [ -d "$WT/.github/workflows" ] && gh pr checks --help >/dev/null 2>&1; then
+# 1. ci: workflows exist, gh is authenticated, and gh pr checks is usable
+if [ -d "$WT/.github/workflows" ] \
+  && gh auth status >/dev/null 2>&1 \
+  && gh pr checks --help >/dev/null 2>&1; then
   echo "ci"
   exit 0
 fi

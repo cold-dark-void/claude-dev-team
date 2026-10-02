@@ -355,6 +355,159 @@ else
   echo "  FAIL [static poll_error_wait]: $inc_sites 'inc poll_error_count' sites in poll.sh (want 1, in poll_error_wait)"
   FAIL=$((FAIL + 1))
 fi
+# ---- WP 5-04: poll-error cap, empty debounce, stale fixer, sidecar, detect-mode ----
+echo ""
+echo "WP 5-04: poll_error cap, empty checks, stale fixer"
+
+reset_sidecar 0
+export GH_MOCK_JSON='not-json'
+export GH_MOCK_RC=1
+export GH_MOCK_STATE=OPEN
+cap_last=""
+cap_i=1
+while [ "$cap_i" -le 9 ]; do
+  cap_last=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+  cap_i=$((cap_i + 1))
+done
+cap_tenth=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$cap_last" = "wait" ] && [ "$cap_tenth" = "cap" ]; then
+  echo "  PASS [poll_error cap]: 9 errors wait, 10th emits cap"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [poll_error cap]: 9th='$cap_last' (want wait) 10th='$cap_tenth' (want cap)"
+  FAIL=$((FAIL + 1))
+fi
+
+mkdir -p .github/workflows
+reset_sidecar 0
+export GH_MOCK_JSON='[]'
+export GH_MOCK_RC=0
+e1=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+e2=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+e3=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$e1" = "wait" ] && [ "$e2" = "wait" ] && [ "$e3" = "done" ]; then
+  echo "  PASS [empty debounce]: workflows present, 3rd consecutive [] is done"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [empty debounce]: '$e1' '$e2' '$e3' (want wait wait done)"
+  FAIL=$((FAIL + 1))
+fi
+
+reset_sidecar 0
+export GH_MOCK_JSON='[]'
+bash "$POLL_CLI" "$TICKET" >/dev/null 2>&1
+export GH_MOCK_JSON="$PENDING_JSON"
+export GH_MOCK_RC=8
+mid=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+export GH_MOCK_JSON='[]'
+export GH_MOCK_RC=0
+again=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+again_n=$(bash "$SIDECAR_CLI" get "$TICKET" empty_poll_count 2>/dev/null || echo missing)
+if [ "$mid" = "wait" ] && [ "$again" = "wait" ] && [ "$again_n" = "1" ]; then
+  echo "  PASS [empty reset]: a non-empty poll resets the empty count"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [empty reset]: mid='$mid' again='$again' count='$again_n' (want wait wait 1)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf .github/workflows
+
+reset_sidecar 0
+old_epoch=$(( $(date +%s) - 1801 ))
+bash "$SIDECAR_CLI" set "$TICKET" fixer_active true >/dev/null
+bash "$SIDECAR_CLI" set "$TICKET" fixer_started_at "$old_epoch" >/dev/null
+export GH_MOCK_JSON="$FAIL_JSON"
+export GH_MOCK_RC=1
+stale_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+stale_retry=$(bash "$SIDECAR_CLI" get "$TICKET" retry_count 2>/dev/null || echo missing)
+if [ "$stale_out" = "fail" ] && [ "$stale_retry" = "1" ] \
+   && grep -q 'outcome=fixer_stale' ".claude/ci-watch/${TICKET}.log"; then
+  echo "  PASS [fixer stale]: old fixer_started_at logs fixer_stale, counts a retry, emits fail"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [fixer stale]: out='$stale_out' (want fail) retry='$stale_retry' (want 1)"
+  FAIL=$((FAIL + 1))
+fi
+
+reset_sidecar 0
+bash "$SIDECAR_CLI" set "$TICKET" fixer_active true >/dev/null
+bash "$SIDECAR_CLI" set "$TICKET" fixer_started_at "$(date +%s)" >/dev/null
+fresh_out=$(bash "$POLL_CLI" "$TICKET" 2>/dev/null)
+if [ "$fresh_out" = "wait" ] && ! grep -q 'outcome=fixer_stale' ".claude/ci-watch/${TICKET}.log"; then
+  echo "  PASS [fixer fresh]: a new fixer_started_at still emits wait"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [fixer fresh]: out='$fresh_out' (want wait)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "WP 5-04: sidecar set/delete and detect-mode auth"
+bash "$SIDECAR_CLI" init TSET ci 7 br >/dev/null
+bash "$SIDECAR_CLI" set TSET pr_number 99 >/dev/null
+bash "$SIDECAR_CLI" set TSET fixer_active true >/dev/null
+bash "$SIDECAR_CLI" set --string TSET note true >/dev/null
+pr_type=$(jq -r '.pr_number | type' .claude/ci-watch/TSET.json)
+fx_type=$(jq -r '.fixer_active | type' .claude/ci-watch/TSET.json)
+note_type=$(jq -r '.note | type' .claude/ci-watch/TSET.json)
+if [ "$pr_type" = "string" ] && [ "$fx_type" = "boolean" ] && [ "$note_type" = "string" ]; then
+  echo "  PASS [sidecar set]: digit string stays a string; true stays JSON; --string forces a string"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [sidecar set]: pr=$pr_type (want string) fixer_active=$fx_type (want boolean) note=$note_type (want string)"
+  FAIL=$((FAIL + 1))
+fi
+echo secret > .claude/ci-watch/TSET.last_failure.txt
+echo logline > .claude/ci-watch/TSET.log
+echo held > .claude/ci-watch/.lock
+bash "$SIDECAR_CLI" delete TSET
+del_left=""
+[ -f .claude/ci-watch/TSET.json ] && del_left="${del_left}json "
+[ -f .claude/ci-watch/TSET.last_failure.txt ] && del_left="${del_left}last_failure "
+[ -f .claude/ci-watch/TSET.log ] && del_left="${del_left}log "
+if [ -z "$del_left" ] && [ -f .claude/ci-watch/.lock ]; then
+  echo "  PASS [sidecar delete]: json, log, and last_failure are gone; the shared lock stays"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [sidecar delete]: left='${del_left:-none}' lock=$([ -f .claude/ci-watch/.lock ] && echo yes || echo no)"
+  FAIL=$((FAIL + 1))
+fi
+
+DET_CLI="$SCRIPT_DIR/detect-mode.sh"
+DET_WT="$TMP/det-wt"
+mkdir -p "$DET_WT/.github/workflows" "$DET_WT/py-only"
+printf 'print("x")\n' > "$DET_WT/py-only/setup.py"
+AUTH_BIN="$TMP/auth-bin"
+mkdir -p "$AUTH_BIN"
+cat > "$AUTH_BIN/gh" << 'AUTH'
+#!/bin/sh
+case " $* " in
+  *" auth "*) exit 1 ;;
+  *" checks "*) exit 0 ;;
+esac
+exit 0
+AUTH
+chmod +x "$AUTH_BIN/gh"
+unauth=$(PATH="$AUTH_BIN:$PATH" bash "$DET_CLI" "$DET_WT" | head -1)
+cat > "$AUTH_BIN/gh" << 'AUTH'
+#!/bin/sh
+case " $* " in
+  *" auth "*) exit 0 ;;
+  *" checks "*) exit 0 ;;
+esac
+exit 0
+AUTH
+chmod +x "$AUTH_BIN/gh"
+authed=$(PATH="$AUTH_BIN:$PATH" bash "$DET_CLI" "$DET_WT" | head -1)
+local_mode=$(bash "$DET_CLI" "$DET_WT/py-only" | head -1)
+if [ "$unauth" = "none" ] && [ "$authed" = "ci" ] && [ "$local_mode" = "local-test" ]; then
+  echo "  PASS [detect-mode]: unauthenticated gh is not ci; auth + workflows is ci; setup.py is local-test"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL [detect-mode]: unauth='$unauth' (want none) authed='$authed' (want ci) local='$local_mode' (want local-test)"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "Results: PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

@@ -162,6 +162,45 @@ run_in 0 release-lock
 run_in 0 acquire-lock
 run_in 0 release-lock
 
+# Stale lock (epoch older than the default 1800s TTL) is reclaimed.
+# A fresh lock still blocks a second acquire. A dead pid alone does not.
+LOCKF="$REPO/.claude/release-train/train.lock"
+STALE_EPOCH=$(( $(date +%s) - 2000 ))
+printf '%s %s %s\n' "$STALE_EPOCH" "2000-01-01T00:00:00Z" "999999" > "$LOCKF"
+run_in 0 acquire-lock
+run_in 1 acquire-lock
+run_in 0 release-lock
+
+# read_master_version uses the repo root, not the caller's cwd.
+mkdir -p "$REPO/sub"
+cd "$REPO/sub"
+set +e
+OUT=$(env -u RELEASE_TRAIN_ROOT bash "$LIB" freeze --print-only 2>&1)
+RC=$?
+set -e
+if [ "$RC" -eq 0 ] && echo "$OUT" | grep -q '0.39.0'; then pass
+else fail "read_master_version from sub/ rc=$RC out=$(printf '%s' "$OUT" | head -c 200)"
+fi
+cd "$REPO"
+export RELEASE_TRAIN_ROOT="$REPO"
+
+# blocked entry: requeue returns it to pending; drop lets register succeed.
+run_in 0 set-status feat/b landing
+run_in 1 drop feat/b
+run_in 0 set-status feat/b blocked --paths specs/TDD.md
+run_in 1 register feat/b
+run_in 0 requeue feat/b
+ST=$(RELEASE_TRAIN_ROOT="$REPO" bash "$LIB" list | jq -r '.entries[] | select(.branch=="feat/b") | .status')
+[ "$ST" = "pending" ] && pass || fail "requeue status want pending got $ST"
+FR=$(RELEASE_TRAIN_ROOT="$REPO" bash "$LIB" list | jq -r '.frozen')
+[ "$FR" = "false" ] && pass || fail "requeue should clear frozen, got $FR"
+run_in 1 register feat/b
+run_in 1 requeue feat/b
+run_in 0 set-status feat/b landing
+run_in 0 set-status feat/b blocked
+run_in 0 drop feat/b
+run_in 0 register feat/b --bump patch
+
 # ---- detect-assumed + renumber ----------------------------------------------
 # branch with assumed content
 git -C "$REPO" checkout -q -b feat/c
@@ -205,6 +244,25 @@ fi
 grep -F '| SPEC-001 | Per-Agent Directives | ACTIVE | commands/adjust-agent.md |' "$OUTF" >/dev/null && pass || fail "master row missing"
 rm -f "$OUTF"
 
+# An edited SPEC-ID keeps the branch row and drops the master row.
+EDIT_OURS="$TMPROOT/edit-ours.md"
+EDIT_THEIRS="$TMPROOT/edit-theirs.md"
+printf '%s\n' '# Behavioral Specifications' '' '## Spec Index' '' \
+  '| ID | Title | Status | Coverage |' \
+  '|----|-------|--------|----------|' \
+  '| SPEC-010 | Code Review | INFERRED | skills/release |' > "$EDIT_OURS"
+printf '%s\n' '# Behavioral Specifications' '' '## Spec Index' '' \
+  '| ID | Title | Status | Coverage |' \
+  '|----|-------|--------|----------|' \
+  '| SPEC-010 | Code Review | ACTIVE | skills/release |' > "$EDIT_THEIRS"
+OUTF=$(mktemp "${TMPDIR:-/tmp}/rt-tdd-edit.XXXXXX")
+bash "$LIB" resolve-tdd-index --ours "$EDIT_OURS" --theirs "$EDIT_THEIRS" --out "$OUTF"
+EDIT_N=$(grep -c 'SPEC-010' "$OUTF" || true)
+[ "$EDIT_N" = "1" ] && pass || fail "edit-row SPEC-010 count want 1 got $EDIT_N"
+grep -F '| SPEC-010 | Code Review | ACTIVE | skills/release |' "$OUTF" >/dev/null && pass || fail "branch SPEC-010 row missing"
+if grep -F 'INFERRED' "$OUTF" >/dev/null; then fail "old SPEC-010 row kept"; else pass; fi
+rm -f "$OUTF"
+
 # ---- M5b vh -----------------------------------------------------------------
 OUTF=$(mktemp "${TMPDIR:-/tmp}/rt-vh.XXXXXX")
 bash "$LIB" resolve-vh \
@@ -228,6 +286,18 @@ fi
 # exactly one assigned heading
 [ "$(grep -c '^### v0.41.0' "$OUTF")" = "1" ] && pass || fail "duplicate assigned heading"
 rm -f "$OUTF"
+
+# Only the assigned heading is rewritten. A master heading without v stays.
+NOV_M=$(mktemp "${TMPDIR:-/tmp}/rt-nov-m.XXXXXX")
+NOV_B=$(mktemp "${TMPDIR:-/tmp}/rt-nov-b.XXXXXX")
+NOV_O=$(mktemp "${TMPDIR:-/tmp}/rt-nov-o.XXXXXX")
+printf '%s\n' '# Changelog' '' '### 0.37.0' '- old' > "$NOV_M"
+printf '%s\n' '# Changelog' '' '### v0.40.0' '- feat' > "$NOV_B"
+bash "$LIB" resolve-changelog 0.41.0 --branch-file "$NOV_B" --master-file "$NOV_M" --out "$NOV_O"
+grep -q '^### v0.41.0$' "$NOV_O" && pass || fail "assigned heading missing v prefix"
+grep -q '^### 0.37.0$' "$NOV_O" && pass || fail "master heading ### 0.37.0 was normalized"
+if grep -q '^### v0.37.0$' "$NOV_O"; then fail "master heading gained a v"; else pass; fi
+rm -f "$NOV_M" "$NOV_B" "$NOV_O"
 
 # ---- M5d json ---------------------------------------------------------------
 JDIR="$TMPROOT/json"

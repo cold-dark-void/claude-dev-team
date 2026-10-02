@@ -31,7 +31,7 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 
 - Before scheduling the CI watch loop, /orchestrate MUST detect the project's quality-check
   mode in this priority order:
-  1. `ci` — `.github/workflows/` directory exists **and** `gh pr checks` is available
+  1. `ci` — `.github/workflows/` directory exists, `gh auth status` exits 0, **and** `gh pr checks` is available
   2. `local-test` — a test command is detectable: `package.json` has a `test` script,
      or a `Makefile` has a `test` target, or `pytest.ini` / `setup.py` is present,
      or a `pyproject.toml` declares a pytest config (a `[tool.pytest.ini_options]`
@@ -62,11 +62,11 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 - **`gh pr checks` exit codes are signals, not poll errors.** Documented non-zero exits include `1` (one or more checks failed) and `8` (checks pending). poll.sh MUST capture stdout even when the exit status is non-zero and MUST NOT treat non-zero exit alone as a transient poll error
 - **Parseability gate:** stdout is parseable iff `jq` reports `type == "array"` (including the empty array `[]`). Only a non-array (or unparseable) body may increment `poll_error_count` and log `poll_error` — except when exit status is `8` and the body is not a parseable array: MUST emit `wait` **without** incrementing `poll_error_count` (pending with no usable JSON yet)
 - Classification after a parseable array (order):
-  1. empty array `[]` → treat as no checks configured → green path (`done`)
+  1. empty array `[]` → `done` only when `.github/workflows/` is absent. When that directory exists, count consecutive empty polls in sidecar `empty_poll_count` (a later non-empty poll resets the counter). The first empty poll emits `wait`. The K-th consecutive empty poll emits `done`. K defaults to 3 (`CI_WATCH_EMPTY_POLLS`).
   2. any element with bucket `fail` or `cancel` → fixer logic (below)
   3. every element bucket `pass` or `skipping` → green path (`done`)
   4. otherwise (pending present, no fail/cancel) → `wait` **without** incrementing `poll_error_count`
-- If **all checks resolve green** (every bucket is `pass` or `skipping`, or zero checks): MUST delete the cron job and emit one notification line:
+- If **all checks resolve green** (every bucket is `pass` or `skipping`, or the empty-array rule above says `done`): MUST delete the cron job and emit one notification line:
   `CI watch: <TICKET-ID> green on <branch>. Cron deleted.`
 - If **any check fails** (bucket `fail` or `cancel`): proceed to fixer logic (see below)
 - If PR is merged or closed: MUST delete the cron and exit silently
@@ -80,7 +80,8 @@ metadata lets /orchestrate fan out unblocked tasks in parallel automatically and
 
 ### CI watch loop — fixer logic
 
-- MUST NOT spawn a fixer if one is already running — primary guard is `fixer_active: true` in the sidecar; the cron prompt also creates a `<TICKET>-ci-fixer` task-store entry when spawning so the orchestrator's defensive cleanup can detect stale active fixers
+- MUST NOT spawn a fixer if one is already running — primary guard is `fixer_active: true` in the sidecar together with `fixer_started_at` (epoch seconds, set when the cron sets the guard). A guard whose `fixer_started_at` is missing or older than `CI_WATCH_FIXER_TTL` seconds (default 1800) is stale: the poll logs `fixer_stale`, sets `fixer_active` false, increments `retry_count`, writes a stderr notice, and continues the poll. A fresh guard emits `wait`. The cron prompt also creates a `<TICKET>-ci-fixer` task-store entry when spawning so the orchestrator's defensive cleanup can detect stale active fixers
+- When `poll_error_count` reaches 10, the poll MUST emit `cap` (a permanently broken auth or a removed tree must not poll forever)
 - MUST spawn a `dev-team:ic5` fixer agent with: the failing check names or test output
   (truncated to 4k chars), the worktree path, and the branch name
 - MUST increment the retry counter in the cron metadata after each fixer spawn
@@ -315,8 +316,8 @@ The router loads only the current step file plus `cross-cutting.md`
 - Verify `ci` mode: one failing check → fixer spawned; retry count incremented
 - Verify `ci` mode poll.sh (PATH-mock `gh`, no live network): fail bucket → stdout `fail`;
   fail + `retry_count >= 3` → `cap`; pending-only → `wait` and `poll_error_count` unchanged;
-  non-array stdout → `wait` + `poll_error_count++`; empty array `[]` → `done`; exit `8` with
-  non-array body → `wait` without `poll_error_count++`
+  non-array stdout → `wait` + `poll_error_count++`, and the 10th consecutive error → `cap`; empty array `[]` with no `.github/workflows/` → `done`; empty array with workflows present → `wait` until 3 consecutive empty polls, then `done`; exit `8` with
+  non-array body → `wait` without `poll_error_count++`; `fixer_active=true` with an old or missing `fixer_started_at` → log `fixer_stale`, clear the guard, increment `retry_count`, and do not emit silent `wait`
 - Verify retry cap: after 3 fixer spawns, 4th failure → cron deleted, user notified, no
   fixer spawned
 - Verify fixer guard: second poll while fixer is running → no second fixer spawned
@@ -371,6 +372,7 @@ The router loads only the current step file plus `cross-cutting.md`
 
 ---
 
+| 2026-10-01 | WP 5-04 (CDT-369, CDT-379, CDT-282 T-sidecar, W2-36): `ci` mode also requires `gh auth status`. Empty `[]` is `done` immediately only when `.github/workflows/` is absent; otherwise after 3 consecutive empty polls. `poll_error_count` ≥ 10 emits `cap`. A stale `fixer_active` (missing or old `fixer_started_at`, TTL 1800s) logs `fixer_stale`, clears the guard, and counts a retry. Sidecar `set` keeps digit strings as strings; `delete` removes the log and last-failure file. |
 | 2026-09-28 | WP 1-07 (CDT-312, CDT-406, CDT-354, CDT-278 E7/E8/F27, rv-w1-08, rv-w1-09): one task identity (`<ISSUE-ID>-<taskcreate_id>` key, optional `plan_ordinal` / `taskcreate_id` fields, deps translated in two phases); one Step 7 task-graph protocol in `skills/orchestrate/task-graph.md` with a deterministic DAG file and real halts; dag-lib exit codes 0/1/2/64, pure-jq `check-cycle`, `ready-set --issue`, corrupt-file skip, `blocked-dep` stderr report, `status-of` id rule; 11-ship records `SHIP_START`; step files name the file of each cross-file block. |
 | 2026-08-07 | CDT-167: task-store `update-status` invent policy — no bare false stub when compound `*-<id>.json` exists (single match → update compound; multi → fail closed; zero → bare stub ok). Write-side complement to SPEC-002 shadow-safe TaskCompleted reads. |
 | 2026-07-20 | Harness-aware CronCreate durable: prefer `durable: true`; on deny/unavailable (cmux) fall back to session-only once and notify — do not hard-fail arming |

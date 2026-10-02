@@ -20,6 +20,7 @@ Commands:
   register <branch> [--bump minor|patch] [--assumed <ver>|null]
   list
   drop <branch>
+  requeue <branch>
   freeze [--order b1,b2,…] [--print-only]
   show-plan
   set-status <branch> <pending|landing|landed|blocked>
@@ -125,8 +126,14 @@ EOF
 }
 
 read_master_version() {
-  # from cwd plugin.json
-  local pj=".claude-plugin/plugin.json"
+  # Repo root, not the caller's cwd. A subdirectory has no plugin.json.
+  local root pj
+  if [ -n "${RELEASE_TRAIN_ROOT:-}" ]; then
+    root="$RELEASE_TRAIN_ROOT"
+  else
+    root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  fi
+  pj="$root/.claude-plugin/plugin.json"
   if [ ! -f "$pj" ]; then
     die 1 "missing $pj (need master version for freeze)"
   fi
@@ -205,7 +212,8 @@ cmd_drop() {
   q=$(read_queue)
   status=$(echo "$q" | jq -r --arg b "$branch" '.entries[] | select(.branch==$b) | .status' | head -1)
   [ -n "$status" ] || die 1 "drop: branch not in queue: $branch"
-  [ "$status" = "pending" ] || die 1 "drop: only pending entries may be dropped (status=$status)"
+  [ "$status" = "pending" ] || [ "$status" = "blocked" ] \
+    || die 1 "drop: only pending or blocked entries may be dropped (status=$status)"
   q=$(echo "$q" | jq --arg b "$branch" '
     .entries |= map(select(.branch != $b))
     | .order |= map(select(. != $b))
@@ -213,6 +221,31 @@ cmd_drop() {
   ')
   write_queue "$q"
   printf 'dropped %s\n' "$branch"
+}
+
+# blocked → pending. Clears the freeze so the next freeze recomputes slots.
+cmd_requeue() {
+  local branch="${1:-}"
+  [ -n "$branch" ] || die 64 "requeue: missing <branch>"
+  local q status
+  q=$(read_queue)
+  status=$(echo "$q" | jq -r --arg b "$branch" '.entries[] | select(.branch==$b) | .status' | head -1)
+  [ -n "$status" ] || die 1 "requeue: branch not in queue: $branch"
+  [ "$status" = "blocked" ] || die 1 "requeue: only blocked entries may be requeued (status=$status)"
+  q=$(echo "$q" | jq --arg b "$branch" '
+    .frozen = false
+    | .order = []
+    | .master_version_at_freeze = null
+    | .entries |= map(
+        if .branch == $b then
+          .status = "pending"
+          | .blocked_paths = []
+          | .assigned_version = null
+        else . end
+      )
+  ')
+  write_queue "$q"
+  printf 'requeued %s\n' "$branch"
 }
 
 cmd_freeze() {
@@ -536,13 +569,29 @@ if t is None:
     sys.stderr.write('error: no Spec Index in theirs\n')
     sys.exit(1)
 
-# master rows byte-preserved; append branch-only rows; sort by SPEC-ID
-master_set = set(r.rstrip('\n') for r in o['rows'])
-combined = list(o['rows'])  # preserve master order first
+def spec_id(row):
+    m = re.search(r'SPEC-\d+', row)
+    return m.group(0) if m else row.rstrip('\n')
+
+# One row per SPEC-ID. Identical text keeps the master bytes.
+# A SPEC-ID on both sides with different text keeps the branch row.
+by_id = {}
+order = []
+for r in o['rows']:
+    row = r if r.endswith('\n') else r + '\n'
+    i = spec_id(row)
+    if i not in by_id:
+        order.append(i)
+        by_id[i] = row
 for r in t['rows']:
-    key = r.rstrip('\n')
-    if key not in master_set:
-        combined.append(r if r.endswith('\n') else r + '\n')
+    row = r if r.endswith('\n') else r + '\n'
+    i = spec_id(row)
+    if i not in by_id:
+        order.append(i)
+        by_id[i] = row
+    elif row.rstrip('\n') != by_id[i].rstrip('\n'):
+        by_id[i] = row
+combined = [by_id[i] for i in order]
 combined.sort(key=spec_num)
 
 out_lines = o['prefix'] + combined
@@ -713,7 +762,8 @@ if not body_stripped.endswith('\n\n') and m_secs:
         parts[-1] += '\n'
 
 for v, h, b in m_secs:
-    parts.append(f'### v{v}\n')
+    # Keep the master's heading bytes. Only the assigned heading is rewritten.
+    parts.append(h if h.endswith('\n') else h + '\n')
     bs = b.lstrip('\n')
     if not bs.endswith('\n'):
         bs += '\n'
@@ -853,11 +903,41 @@ cmd_verify_tag() {
 cmd_acquire_lock() {
   queue_paths
   mkdir -p "$RT_DIR"
-  if [ -f "$LOCK" ]; then
-    die 1 "acquire-lock: lock held ($(cat "$LOCK" 2>/dev/null | head -c 80))"
+  # Advisory file lock. acquire-lock exits while the train still holds the
+  # file until release-lock, so a dead pid is not a release. Stale means the
+  # recorded epoch is older than RELEASE_TRAIN_LOCK_TTL seconds (default 1800)
+  # or is not an integer. The create is noclobber, so two acquirers cannot
+  # both win.
+  local ttl="${RELEASE_TRAIN_LOCK_TTL:-1800}"
+  local now iso
+  now=$(date +%s)
+  iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  _lock_create() {
+    (set -o noclobber
+     umask 077
+     printf '%s %s %s\n' "$now" "$iso" "$$" > "$LOCK") 2>/dev/null
+  }
+  if _lock_create; then
+    printf '%s\n' "$LOCK"
+    return 0
   fi
-  (umask 077; printf '%s %s\n' "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK")
-  printf '%s\n' "$LOCK"
+  local held_epoch
+  held_epoch=$(awk 'NR==1 { print $1; exit }' "$LOCK" 2>/dev/null || true)
+  local stale=0
+  if ! [[ "${held_epoch}" =~ ^[0-9]+$ ]]; then
+    stale=1
+  elif [ $((now - held_epoch)) -ge "$ttl" ]; then
+    stale=1
+  fi
+  if [ "$stale" -eq 0 ]; then
+    die 1 "acquire-lock: lock held ($(head -c 80 "$LOCK" 2>/dev/null || true))"
+  fi
+  rm -f "$LOCK"
+  if _lock_create; then
+    printf '%s\n' "$LOCK"
+    return 0
+  fi
+  die 1 "acquire-lock: lock held (lost race after stale reclaim)"
 }
 
 cmd_release_lock() {
@@ -910,6 +990,7 @@ case "$CMD" in
   register)          cmd_register "$@" ;;
   list)              cmd_list "$@" ;;
   drop)              cmd_drop "$@" ;;
+  requeue)           cmd_requeue "$@" ;;
   freeze)            cmd_freeze "$@" ;;
   show-plan)         cmd_show_plan "$@" ;;
   set-status)        cmd_set_status "$@" ;;

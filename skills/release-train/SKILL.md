@@ -16,7 +16,7 @@ and touch the same hot files. **Not a releaser** — all commit/tag/push go
 through `/release <assigned_version>` (SPEC-010). Mechanical state lives in
 `train-lib.sh` (subprocess only; resolve via `plugin-dir.sh` — see fences below).
 
-**Usage**: `/release-train {register,list,drop,start,dry-run,status} …`
+**Usage**: `/release-train {register,list,drop,requeue,start,dry-run,status} …`
 
 Governing spec: `specs/core/SPEC-023-release-train-queue.md`.
 
@@ -26,7 +26,8 @@ Governing spec: `specs/core/SPEC-023-release-train-queue.md`.
 |----------|------------|-------|
 | `register <branch> [--bump minor\|patch] [--assumed V]` | `train-lib.sh register …` | optional `detect-assumed` if `--assumed` omitted |
 | `list` / `status` | `train-lib.sh list` | pretty-print |
-| `drop <branch>` | `train-lib.sh drop` | confirm pending-only |
+| `drop <branch>` | `train-lib.sh drop` | pending or blocked |
+| `requeue <branch>` | `train-lib.sh requeue` | blocked → pending; clears the freeze |
 | `dry-run` | `freeze --print-only` (or `show-plan` if frozen) | print plan; **zero mutation** |
 | `start` | lock → freeze → landing loop | merge-squash, M5, **invoke `/release`**, status |
 
@@ -70,7 +71,10 @@ bash "$TRAIN_LIB" drop feat/bar
 - If `--assumed` omitted, run `detect-assumed <branch>` and re-register or
   `set` via queue edit only through train-lib (register again after drop if needed).
   Prefer passing `--assumed` when known.
-- `drop` only allows `pending` entries.
+- `drop` removes a `pending` or `blocked` entry. `landing` and `landed` stay.
+- `requeue <branch>` moves a `blocked` entry back to `pending`, clears
+  `blocked_paths` and `assigned_version`, and clears the freeze so the next
+  freeze recomputes slots.
 
 Detect assumed version:
 
@@ -316,12 +320,12 @@ On restart / `start` again:
    known clean tip; a restore halt stops the train)
 2. `acquire-lock`
 3. For each `landed` entry: `verify-tag` before skipping
-4. Resume at first entry whose status is not `landed` (typically `pending` or
-   re-attempt after user fixed a `blocked` entry offline — user must
-   re-register/re-freeze as needed; no auto-skip)
+4. Resume at the first entry whose status is not `landed`. A `blocked` entry
+   is resumed with `requeue <branch>` (then freeze again) or removed with
+   `drop <branch>` and registered again. Do not hand-edit `queue.json`.
 
-Status transitions only (M15): `pending→landing`, `landing→landed`,
-`landing→blocked`. No `skipped` in v1.
+Status transitions for `set-status` (M15): `pending→landing`, `landing→landed`,
+`landing→blocked`. `requeue` is the `blocked→pending` path. No `skipped` in v1.
 
 ## MUST NOT (M10 / M11)
 
@@ -337,7 +341,13 @@ Status transitions only (M15): `pending→landing`, `landing→landed`,
 
 `$MROOT/.claude/release-train/queue.json` where MROOT is the shared project root
 from `git rev-parse --git-common-dir` (not worktree-local only). Gitignored.
-Advisory lock: `.claude/release-train/train.lock`.
+Advisory lock: `.claude/release-train/train.lock`. `acquire-lock` creates that
+file with noclobber (epoch, UTC time, pid). A second acquire fails while the
+recorded epoch is newer than `RELEASE_TRAIN_LOCK_TTL` seconds (default 1800).
+An older or unreadable epoch is stale and the next acquire replaces the file.
+A dead pid does not release the lock: the acquire process exits while the
+train still holds the file until `release-lock`. Release the lock on every
+exit path.
 
 ## Tests
 

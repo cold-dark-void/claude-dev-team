@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.18
+- **WP 5-04 Train and ci-watch** — the index keeps one row per spec, a blocked entry can leave the queue, and a stale fixer or an empty check list does not end the watch.
+
 ### v1.19.17
 - **WP 5-03 Epic cleanup** — card text stays within 1000 characters, epic docs list the autopilot flags, and an epic test abort does not leak temp dirs.
 

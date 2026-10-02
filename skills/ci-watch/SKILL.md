@@ -19,7 +19,7 @@ is fine while the orchestrator session stays alive.
 
 | Mode         | Trigger                                                              | Poll mechanism                              |
 |--------------|----------------------------------------------------------------------|---------------------------------------------|
-| `ci`         | `.github/workflows/` + `gh` available                                | `gh pr checks <PR> --json name,state,bucket` |
+| `ci`         | `.github/workflows/` + `gh auth status` + `gh pr checks`             | `gh pr checks <PR> --json name,state,bucket` |
 | `local-test` | `package.json scripts.test` / `Makefile test:` / `go.mod` / `pytest` | `timeout 120 bash -c "<cmd>"` in worktree   |
 | `none`       | Neither                                                              | Watch is **not armed** (skipped silently)   |
 
@@ -49,6 +49,8 @@ See `sidecar.sh` (single source of truth). Fields managed by this skill:
 | `retry_count`      | integer         | cron prompt (inc on `fail`)           |
 | `poll_error_count` | integer         | poll.sh (inc on transient errors)     |
 | `fixer_active`     | boolean         | cron prompt (set true on fail-spawn); fixer agent + wrap-ticket clear |
+| `fixer_started_at` | string (epoch)  | cron prompt, set in the same step as `fixer_active` true |
+| `empty_poll_count` | integer         | poll.sh (consecutive empty `[]` while workflows exist) |
 | `cron_job_id`      | string \| null  | orchestrate sets after CronCreate     |
 
 ## poll.sh interface
@@ -61,7 +63,7 @@ poll.sh <TICKET_ID>
 - **Stdout:** exactly one word from `{done, fail, cap, wait}`.
 - **Side effects:**
   - Atomic sidecar reads via `sidecar.sh`.
-  - On transient poll failure: increments `poll_error_count`; emits `wait`; logs `poll_error`.
+  - On transient poll failure: increments `poll_error_count`; emits `wait` while the count is under 10; emits `cap` when the count reaches 10; logs `poll_error`.
     Transient = non-array (or unparseable) `gh pr checks` stdout that is a real error
     (network/auth/etc.), worktree missing, or detect-mode none. **Not** transient:
     `gh` exit 1 or 8 with a parseable JSON array (`jq type == "array"`, incl. `[]`) —
@@ -69,7 +71,8 @@ poll.sh <TICKET_ID>
     pending-with-no-JSON → `wait` without `poll_error_count++`.
   - On real test/check failure with `retry_count < 3`: writes `<TICKET>.last_failure.txt` (head -c 4096 of captured output); emits `fail`.
   - On `retry_count >= 3` with a real failure: emits `cap` (does **not** rewrite last_failure.txt).
-  - On `fixer_active == true`: emits `wait` immediately (guard — never spawn a second fixer concurrently).
+  - On `fixer_active == true` with `fixer_started_at` inside `CI_WATCH_FIXER_TTL` seconds (default 1800): emits `wait` (guard — never spawn a second fixer concurrently).
+  - On `fixer_active == true` with a missing or older `fixer_started_at`: logs `fixer_stale`, sets `fixer_active` false, increments `retry_count`, writes a stderr notice, and continues the poll.
   - On missing sidecar: emits `wait`.
   - On missing `timeout` and `gtimeout` (mode `local-test`, checked before the worktree check): increments `poll_error_count`; emits `wait`; logs `timeout_missing`; writes a stderr hint naming `timeout` and `gtimeout`.
   - Appends `<ISO-8601> <TICKET> outcome=<word>` to `<TICKET>.log` for every non-silent outcome.
@@ -78,14 +81,19 @@ poll.sh <TICKET_ID>
 
 ```
 sidecar missing         → wait (silent)
-fixer_active=true       → wait (silent)
+fixer_active=true
+  fixer_started_at fresh → wait (silent)
+  missing or older than CI_WATCH_FIXER_TTL → log fixer_stale, clear the flag,
+                         increment retry_count, continue this poll
 mode=ci:
   PR MERGED|CLOSED      → done
   gh stdout not array (jq type == "array" fails):
     rc==8              → wait (no poll_error_count++)
-    else               → wait (poll_error_count++)
+    else               → wait (poll_error_count++); cap when the count reaches 10
   parseable array:
-    total==0           → done
+    total==0, no .github/workflows → done
+    total==0, workflows present    → wait until 3 consecutive empty polls, then done
+                         (CI_WATCH_EMPTY_POLLS; a non-empty poll resets the count)
     any fail|cancel    → fail|cap via handle_failure
     all pass|skipping  → done
     else (pending)     → wait (no poll_error_count++)
@@ -159,9 +167,10 @@ session context. Available tools: Bash, Task, CronDelete.
 
 5. outcome == "fail":
    a. bash <PLUGIN>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active true
-   b. bash <PLUGIN>/skills/ci-watch/sidecar.sh inc <TICKET> retry_count
-   c. FAIL=$(cat <MROOT>/.claude/ci-watch/<TICKET>.last_failure.txt)
-   5a. Before spawning fixer:
+   b. bash <PLUGIN>/skills/ci-watch/sidecar.sh set <TICKET> fixer_started_at "$(date +%s)"
+   c. bash <PLUGIN>/skills/ci-watch/sidecar.sh inc <TICKET> retry_count
+   d. FAIL=$(cat <MROOT>/.claude/ci-watch/<TICKET>.last_failure.txt)
+   e. Before spawning the fixer, create the task-store entry:
        bash <PLUGIN>/skills/orchestrate/task-store.sh create "<TICKET>-ci-fixer" "<TICKET> CI-watch hot-fix attempt <retry_count+1>" false ""
        Note the returned task entry — this tracks the fixer in the task store so the orchestrator
        can detect "a fixer is already running" via task store, and so defensive cleanup fires.
@@ -170,13 +179,13 @@ session context. Available tools: Bash, Task, CronDelete.
    EFFORT=$(bash <PLUGIN>/skills/model-map/resolve-model.sh --effort ic5)
    printf '%s\n' "$EFFORT"
    Surface stderr to the user. Bash stdout = model string; empty → omit model. MUST NOT pass "".
-   Then `resolve-model.sh --effort` ic5. Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
+   Then `resolve-model.sh --effort` ic5. Non-empty EFFORT → pass as the Task `effort` param; empty → omit (MUST NOT pass `""`).
    Host-reject (invalid/unknown/unsupported model): retry once omitting model;
    warn `model-map: host rejected model '<string>' for ic5; retrying with Tier default`.
    Host-reject (invalid/unknown/unsupported effort): retry once omitting effort;
    warn `model-map: host rejected effort '<token>' for ic5; retrying with inherited effort`.
    Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
-   d. Spawn dev-team:ic5 via Task tool with prompt:
+   f. Spawn dev-team:ic5 via the Task tool with prompt:
         "Hot-fix only — do not refactor, do not add tests beyond the
          failing one. Push to existing branch <BRANCH>. Worktree: <WT>.
          Output mode: terse.
@@ -184,7 +193,7 @@ session context. Available tools: Bash, Task, CronDelete.
          <FAIL>
          When done, run:
            bash <PLUGIN>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active false"
-   5c. After fixer completes:
+   g. After the fixer completes:
        bash <PLUGIN>/skills/orchestrate/task-store.sh update-status "<TICKET>-ci-fixer" completed
        bash <PLUGIN>/skills/ci-watch/sidecar.sh set <TICKET> fixer_active false
 ```
@@ -223,7 +232,7 @@ delete <TICKET>`) first.
 ## Out of scope (v1)
 
 - Cycling fixer agent identity (ic5 → tech-lead on 3rd attempt) — see SPEC-017 Open Question 3.
-- Escalation after N consecutive `poll_error` events — for now they accumulate in the counter only.
+- Escalation after the poll-error cap — `poll_error_count` ≥ 10 already emits `cap` and the cron deletes itself.
 - Concurrent multi-PR watch on a single ticket.
 
 ## AC-12 note (CDV-170)

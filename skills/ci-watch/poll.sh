@@ -8,9 +8,9 @@
 #
 #   done  → checks/tests green (or PR merged/closed); cron should self-delete
 #   fail  → real failure; cron prompt should spawn fixer
-#   cap   → retry_count >= 3; cron should self-delete + notify
-#   wait  → nothing actionable this cycle (sidecar missing, fixer running,
-#           checks not yet reported, transient poll error, etc.)
+#   cap   → retry_count >= 3, or poll_error_count >= 10; cron should self-delete + notify
+#   wait  → nothing actionable this cycle (sidecar missing, fresh fixer running,
+#           checks not yet reported, transient poll error under the cap, etc.)
 #
 # Usage: poll.sh <TICKET_ID>
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -69,8 +69,14 @@ emit() {
 # A stderr hint belongs to the caller and prints BEFORE this call.
 poll_error_wait() {
   local w="${1:-poll_error}"
-  bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count >/dev/null 2>&1 || true
+  local n
+  n=$(bash "$SIDECAR_CLI" inc "$TICKET" poll_error_count 2>/dev/null || echo 0)
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
   log_event "$w"
+  # Ten consecutive poll errors is a dead watch (auth, missing tree). Stop it.
+  if [ "$n" -ge 10 ]; then
+    emit "cap"
+  fi
   emit "wait"
 }
 
@@ -79,10 +85,26 @@ if [ ! -f "$SIDECAR" ]; then
   emit "wait"
 fi
 
-# Read fixer guard first — if a fixer is currently running, do nothing.
+# Read fixer guard first — a fresh fixer blocks a second spawn.
+# A missing or expired fixer_started_at is a crashed fixer: clear it, count
+# one retry, log fixer_stale, and continue this poll. Default TTL is 1800s.
+FIXER_TTL="${CI_WATCH_FIXER_TTL:-1800}"
 FIXER_ACTIVE=$(bash "$SIDECAR_CLI" get "$TICKET" fixer_active 2>/dev/null || echo "false")
 if [ "$FIXER_ACTIVE" = "true" ]; then
-  emit "wait"
+  started=$(bash "$SIDECAR_CLI" get "$TICKET" fixer_started_at 2>/dev/null || echo "")
+  now=$(date +%s)
+  fixer_age=""
+  if [[ "$started" =~ ^[0-9]+$ ]]; then
+    fixer_age=$((now - started))
+  fi
+  if [ -z "$fixer_age" ] || [ "$fixer_age" -ge "$FIXER_TTL" ]; then
+    bash "$SIDECAR_CLI" set "$TICKET" fixer_active false >/dev/null 2>&1 || true
+    bash "$SIDECAR_CLI" inc "$TICKET" retry_count >/dev/null 2>&1 || true
+    log_event "fixer_stale"
+    echo "ci-watch: fixer stale for $TICKET; cleared fixer_active and counted a retry" >&2
+  else
+    emit "wait"
+  fi
 fi
 
 MODE=$(bash "$SIDECAR_CLI" get "$TICKET" mode 2>/dev/null || echo "")
@@ -143,10 +165,23 @@ poll_ci() {
   fail_count=$(echo "$result" | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length' 2>/dev/null || echo 0)
   ok_count=$(echo "$result" | jq '[.[] | select(.bucket == "pass" or .bucket == "skipping")] | length' 2>/dev/null || echo 0)
 
-  # No checks configured for this PR → nothing to wait on.
+  # Empty checks. No workflow dir means there is nothing to wait for.
+  # With workflows present, the first empty polls are a push race: wait until
+  # K consecutive empty results (default 3). A later non-empty poll resets.
   if [ "$total" -eq 0 ]; then
-    emit "done"
+    if [ ! -d "$MROOT/.github/workflows" ]; then
+      emit "done"
+    fi
+    local empty_n empty_k
+    empty_k="${CI_WATCH_EMPTY_POLLS:-3}"
+    empty_n=$(bash "$SIDECAR_CLI" inc "$TICKET" empty_poll_count 2>/dev/null || echo 0)
+    case "$empty_n" in ''|*[!0-9]*) empty_n=0 ;; esac
+    if [ "$empty_n" -ge "$empty_k" ]; then
+      emit "done"
+    fi
+    emit "wait"
   fi
+  bash "$SIDECAR_CLI" set "$TICKET" empty_poll_count 0 >/dev/null 2>&1 || true
 
   # Some failed → handle failure (fail/cap).
   if [ "$fail_count" -gt 0 ]; then

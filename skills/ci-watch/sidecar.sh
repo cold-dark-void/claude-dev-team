@@ -15,7 +15,9 @@
 #
 # Schema:
 #   { ticket_id, mode, pr_number, branch, retry_count, poll_error_count,
-#     fixer_active, cron_job_id }
+#     fixer_active, fixer_started_at, empty_poll_count, cron_job_id }
+#   set keeps digit strings as strings. true|false|null stay JSON.
+#   inc owns numeric counters. --string forces a JSON string.
 #
 # Atomic writes use tmp+flock+rename pattern (same as orchestrate/task-store.sh).
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -29,7 +31,7 @@ _SC_HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 usage() {
   echo "Usage:" >&2
   echo "  sidecar.sh init   <TICKET> <mode> <pr_number> <branch>" >&2
-  echo "  sidecar.sh set    <TICKET> <key> <value>" >&2
+  echo "  sidecar.sh set    [--string] <TICKET> <key> <value>" >&2
   echo "  sidecar.sh get    <TICKET> <key>" >&2
   echo "  sidecar.sh inc    <TICKET> <key>" >&2
   echo "  sidecar.sh delete <TICKET>" >&2
@@ -108,6 +110,11 @@ cmd_init() {
 }
 
 cmd_set() {
+  local force_string=0
+  if [ "${1:-}" = "--string" ]; then
+    force_string=1
+    shift
+  fi
   [ $# -eq 3 ] || { echo "error: set requires 3 arguments" >&2; usage; }
   validate_ticket_id "$1"
   local ticket="$1" key="$2" value="$3"
@@ -123,12 +130,18 @@ cmd_set() {
   (
     flock -x 9
 
-    # Type inference: boolean, null → --argjson; integer → --argjson; else --arg (string)
+    # true|false|null stay JSON. Digit strings stay strings (pr_number "42").
+    # --string forces a JSON string, including for true|false|null.
+    # inc owns numeric counters.
     local jq_type
-    case "$value" in
-      true|false|null) jq_type=argjson ;;
-      *) if [[ "$value" =~ ^-?[0-9]+$ ]]; then jq_type=argjson; else jq_type=arg; fi ;;
-    esac
+    if [ "$force_string" -eq 1 ]; then
+      jq_type=arg
+    else
+      case "$value" in
+        true|false|null) jq_type=argjson ;;
+        *) jq_type=arg ;;
+      esac
+    fi
     atomic_write "$dest" jq --"$jq_type" v "$value" --arg k "$key" '.[$k] = $v' "$dest" || exit 1
   ) 9>"$LOCK"
 }
@@ -164,7 +177,7 @@ cmd_inc() {
 
   (
     flock -x 9
-    new_val=$(jq --arg k "$key" '(.[$k] // 0) + 1' "$dest")
+    new_val=$(jq --arg k "$key" '((.[$k] | tonumber?) // 0) + 1' "$dest")
     atomic_write "$dest" jq --argjson v "$new_val" --arg k "$key" '.[$k] = $v' "$dest" || exit 1
     echo "$new_val"
   ) 9>"$LOCK"
@@ -175,9 +188,10 @@ cmd_delete() {
   validate_ticket_id "$1"
   local ticket="$1"
 
-  local dest
-  dest=$(sidecar_file "$ticket")
-  rm -f "$dest"
+  rm -f \
+    "$(sidecar_file "$ticket")" \
+    "$WATCH_DIR/${ticket}.last_failure.txt" \
+    "$WATCH_DIR/${ticket}.log"
 }
 
 cmd_path() {

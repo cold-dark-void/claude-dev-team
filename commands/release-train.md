@@ -5,7 +5,7 @@ description: |
     queue entries, dry-run the frozen plan, or start the landing loop that
     merge-squashes each branch onto master and drives /release with an explicit
     assigned version. Sequencer only — never reimplements /release.
-argument-hint: "register <branch> | list | drop <branch> | start | dry-run | status"
+argument-hint: "register <branch> | list | drop <branch> | requeue <branch> | start | dry-run | status"
 ---
 
 # /release-train
@@ -20,7 +20,8 @@ Thin entrypoint for the release-train skill. Full protocol:
 |------|--------|
 | `register <branch> [--bump minor\|patch] [--assumed V]` | Queue a branch (manual only) |
 | `list` / `status` | Show queue JSON / human summary |
-| `drop <branch>` | Remove a **pending** entry |
+| `drop <branch>` | Remove a **pending** or **blocked** entry |
+| `requeue <branch>` | Move a **blocked** entry back to pending and clear the freeze |
 | `dry-run` | Print order + slot versions; zero mutation |
 | `start` | Freeze (if needed), lock, land each entry via skill loop |
 
@@ -41,8 +42,11 @@ bash "$TRAIN_LIB" register "$BRANCH" --bump "${BUMP:-minor}"
 # list / status
 bash "$TRAIN_LIB" list
 
-# drop
+# drop (pending or blocked)
 bash "$TRAIN_LIB" drop "$BRANCH"
+
+# requeue a blocked entry (blocked → pending, clears the freeze)
+bash "$TRAIN_LIB" requeue "$BRANCH"
 
 # dry-run (no freeze write; no status changes)
 bash "$TRAIN_LIB" freeze --print-only
