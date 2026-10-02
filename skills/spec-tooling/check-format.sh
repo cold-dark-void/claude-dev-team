@@ -12,7 +12,7 @@
 # missing requirement (one per line) to stderr. Diagnostics never go to stdout.
 # Exit codes: 0 = all 9 present, 1 = one or more missing, 64 = usage error.
 #
-# The 9 required elements (SPEC-008 / check-specs Phase-1):
+# The 9 required elements (SPEC-008 / /spec check Phase-1):
 #   1. `# <ID>: <Title>` header        (ID prefix ∈ SPEC|PERF|SAFE|COMPAT|ARCH)
 #   2. `**Status**:` line
 #   3. `**Category**:` line
@@ -52,7 +52,7 @@ grep -Eq '^\*\*Created\*\*:' "$specfile"  || missing+=("**Created**: line")
 grep -Eq '^## Overview[[:space:]]*$' "$specfile" || missing+=("## Overview section")
 
 # 6. MUST section + at least one bullet WITHIN that section.
-#    SPEC-008 / check-specs Phase-1 require "## MUST with bullet points" — NOT that bullets
+#    SPEC-008 / /spec check Phase-1 require "## MUST with bullet points" — NOT that bullets
 #    begin with the word MUST (e.g. SPEC-018 uses '- **M1 — …'). So accept any bullet
 #    (line starting with '- ' or '* '), but scope it between '## MUST' and the next '## '
 #    heading so an empty MUST section can't pass on a later section's bullets.

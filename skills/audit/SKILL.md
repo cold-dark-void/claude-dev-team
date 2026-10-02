@@ -13,7 +13,9 @@ Approve-then-apply is opt-in and gated on mechanical evidence.
 
 Governing spec: `specs/core/SPEC-035-context-audit.md`.
 
-Size gate (dogfood): WARN 30KB (30720 bytes); must-split 40KB (40960 bytes).
+Size gate: WARN above 30KB (30720 bytes). Above 40KB (40960 bytes) is FAIL
+(must-split) unless the skill name is listed in `skills/audit/skill-size-waivers.txt`
+(then WARN until a split lands). Apply does not rewrite `skills/**`.
 This SKILL.md MUST stay under the cap — put mechanics in `*.sh` / `apply.py`.
 
 ## CLI
@@ -31,7 +33,7 @@ bash skills/audit/audit.sh --from-session <id>
 - Bare inventory: zero writes (scratch under `$TMPDIR` only)
 - Apply: `CLAUDE.md` / `AGENTS.md` / `directives.md` only
 - MUST NOT rewrite `skills/**` or `commands/**` (those are PRs)
-- Extra confirm (`--yes` or TTY) before any write under `~/.claude` or `~/.grok`
+- Extra confirm is `--yes` only. There is no TTY prompt. A write under `~/.claude` or `~/.grok` without `--yes` is refused.
 - class `judgment` requires `--judgment`; `plugin-surface` / `handoff` never apply
 - Mechanical evidence: two cited passages + counts + (mtime/tag or spec quote)
 - Dual-host: Claude + Grok walk-up; Grok also `~/.grok/AGENTS.md` + `~/.claude/CLAUDE.md`

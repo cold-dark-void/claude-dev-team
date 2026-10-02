@@ -1,0 +1,12 @@
+# Skill names over 40KB that stay WARN until they are split.
+# One name per line. A name not listed is FAIL (must-split).
+refactor
+council
+epic
+kickoff
+init-orchestration
+bug-hunt
+debug
+spec-tooling
+release
+handoff

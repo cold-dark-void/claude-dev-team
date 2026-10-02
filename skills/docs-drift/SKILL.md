@@ -9,7 +9,7 @@ description: |
     AGENTS.md, and spec Covers lines exists), skill-name (SKILL.md frontmatter
     name equals the directory), docs-page-links (relative *.md hrefs in
     docs/commands/*.md resolve on disk).
-    Wired by /release as Step 4.9 after T3, and also by CI
+    Wired by /release as Step 4.9, and also by CI
     (.github/workflows/smoke.yml, job `docs-drift`) on every push/PR to master —
     same invocation, same exit contract. Run manually via:
     bash skills/docs-drift/check-docs-drift.sh [--root DIR]

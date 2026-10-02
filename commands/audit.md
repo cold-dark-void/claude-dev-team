@@ -4,7 +4,7 @@ description: >
   Context audit of the instruction stack (CLAUDE.md, AGENTS.md, directives)
   plus skill-size WARN. Bare is read-only. Apply is approve-then-apply on
   instruction-stack files only.
-argument-hint: "[apply <id|batch> | --from-session <id>] [--json] [--judgment] [--yes]"
+argument-hint: "[apply <id|batch> --from-json FILE | --from-session <id>] [--json] [--judgment] [--yes]"
 ---
 
 # /audit
@@ -27,7 +27,7 @@ walk-up; Grok also `~/.grok/AGENTS.md` and `~/.claude/CLAUDE.md`).
 | `--json` | JSON document on stdout |
 | `apply <id\|batch> --from-json FILE` | Approve-then-apply; instruction-stack files only |
 | `--judgment` | Allow class=judgment in apply |
-| `--yes` | Extra confirm for writes under `~/.claude` or `~/.grok` |
+| `--yes` | Required confirm before a write under `~/.claude` or `~/.grok`. There is no TTY prompt. |
 | `--from-session <id>` | Locate via `skills/transcript-parse` only, then inventory |
 | `-h` / `--help` | Usage |
 

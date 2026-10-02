@@ -73,7 +73,7 @@ Interactive interview that walks you through:
 2. **Requirements** — MUST behaviors, edge cases
 3. **Category** — core, performance, safety, compatibility, or architecture
 4. **Conflict scan** — checks proposed MUSTs against all existing specs for contradictions
-5. **Write** — generates the spec file in `specs/<category>/SPEC-NNN-<slug>.md`
+5. **Write** — generates the spec file in `specs/<category>/<ID>-<slug>.md`
 6. **Index** — updates `specs/TDD.md`
 
 ### Spec structure
@@ -83,7 +83,7 @@ Every spec follows this format:
 ```markdown
 # SPEC-026: Batch Export Descriptions
 
-**Status**: 🚧 NEW
+**Status**: DRAFT
 **Category**: core
 **Created**: 2026-03-15
 

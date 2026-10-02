@@ -17,7 +17,7 @@ commands (deprecated — removed at v1.0.0).
 /spec update [SPEC-ID]
 /spec generate [<path>]
 /spec tests [SPEC-NNN] [--dry-run]
-/spec reflect
+/spec reflect [--report] [--phase N]
 ```
 
 | Sub | Summary |
@@ -29,7 +29,7 @@ commands (deprecated — removed at v1.0.0).
 | `update` | Modify an existing spec with version history + conflict check |
 | `generate` | Reverse-engineer INFERRED specs from existing code |
 | `tests` | Generate tests from specs — one per MUST requirement |
-| `reflect` | Exhaustive full-system health check (interactive) |
+| `reflect` | Exhaustive full-system health check. `--report` skips Phase 6. `--phase N` runs only that phase. |
 
 Unknown or missing sub prints the table and stops.
 
@@ -47,6 +47,7 @@ Two modes depending on whether a spec ID is supplied.
 | *(none)* | Phase 1 + Phase 2 only — no Phase 3 section |
 | `--tests` | After Phase 2 / validation, append Phase 3 MUST→test coverage matrix (report-only; exit 0 even if MISSING) |
 | `--tests --gate[=N]` | Same as `--tests`, then fail closed if total MISSING > N (default N=0). **Not wired into `/release`** |
+| `--gate` without `--tests` | Hard failure. Print `error: --gate requires --tests` and stop. |
 
 **Phase 1** — format compliance (9-section SPEC-008 skeleton), content quality,
 TDD.md index integrity (orphans, dead links, status drift).

@@ -9,6 +9,9 @@ import sys
 
 STACK_NAMES = frozenset({"CLAUDE.md", "AGENTS.md", "directives.md"})
 APPLYABLE = frozenset({"instruction-stack", "judgment"})
+# Layers the inventory walk emits. A finding whose layer is outside this set
+# is not an instruction-stack target (CDT-389 / E8).
+INVENTORY_LAYERS = frozenset({"user-global", "parent", "project", "directives"})
 
 
 def die(code: int, msg: str) -> None:
@@ -80,13 +83,108 @@ def resolve_path(path: str) -> str:
     return os.path.realpath(os.path.expanduser(path))
 
 
+def enclosing_repo(path: str) -> str | None:
+    """Nearest ancestor that is a git checkout or this plugin. Ancestors
+    outside that root (for example /home/skills/...) are not skills/**."""
+    cur = os.path.dirname(resolve_path(path))
+    while True:
+        git_meta = os.path.join(cur, ".git")
+        # A linked worktree has a .git file, not a .git directory.
+        if os.path.isdir(git_meta) or os.path.isfile(git_meta) or os.path.isfile(
+            os.path.join(cur, ".claude-plugin", "plugin.json")
+        ):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+
+
 def path_gate(path: str) -> str | None:
     norm = resolve_path(path)
-    parts = norm.split(os.sep)
-    if "skills" in parts or "commands" in parts:
-        return "refuses skills/** and commands/** (instruction-stack files only)"
     if os.path.basename(norm) not in STACK_NAMES:
         return "path is not an instruction-stack file (CLAUDE.md, AGENTS.md, directives.md)"
+    root = enclosing_repo(norm)
+    if root is not None:
+        parts = os.path.relpath(norm, root).split(os.sep)
+    else:
+        # No repo root: keep the old segment check so a symlink into skills/**
+        # is still refused.
+        parts = norm.split(os.sep)
+    if "skills" in parts or "commands" in parts:
+        return "refuses skills/** and commands/** (instruction-stack files only)"
+    return None
+
+
+def _resolve_cited(path: str, bases: list[str]) -> str:
+    if os.path.isabs(path):
+        return resolve_path(path)
+    for base in bases:
+        cand = os.path.join(base, path)
+        if os.path.isfile(cand):
+            return resolve_path(cand)
+    return resolve_path(path)
+
+
+def _read_text(path: str) -> str:
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def verify_evidence(finding: dict, bases: list[str]) -> str | None:
+    """Quotes, byte size, and spec quote must match the files (CDT-389)."""
+    fid = str(finding.get("id") or "?")
+    ev = finding.get("evidence")
+    if not isinstance(ev, dict):
+        return f"rejected {fid}: missing mechanical evidence"
+    target = resolve_path(str(finding.get("path") or ""))
+    try:
+        size = os.path.getsize(target)
+    except OSError as exc:
+        return f"rejected {fid}: cannot stat {target}: {exc}"
+    counts = ev.get("counts") if isinstance(ev.get("counts"), dict) else {}
+    if "bytes" in counts:
+        try:
+            claimed = int(counts["bytes"])
+        except (TypeError, ValueError):
+            return f"rejected {fid}: counts.bytes is not an integer"
+        if claimed != size:
+            return (
+                f"rejected {fid}: counts.bytes {claimed} != file size {size}"
+            )
+    passages = ev.get("passages") or []
+    for p in passages:
+        if not isinstance(p, dict):
+            continue
+        quote = str(p.get("quote") or "")
+        cited = _resolve_cited(str(p.get("path") or ""), bases)
+        try:
+            text = _read_text(cited)
+        except OSError as exc:
+            return f"rejected {fid}: cannot read passage {cited}: {exc}"
+        if quote not in text:
+            return f"rejected {fid}: passage quote not in {cited}"
+        if p.get("line") not in (None, ""):
+            try:
+                lineno = int(p["line"])
+            except (TypeError, ValueError):
+                return f"rejected {fid}: passage line is not an integer"
+            lines = text.splitlines()
+            if lineno < 1 or lineno > len(lines) or quote not in lines[lineno - 1]:
+                return f"rejected {fid}: passage quote not on line {lineno} of {cited}"
+    spec = ev.get("spec") if isinstance(ev.get("spec"), dict) else {}
+    squote = str(spec.get("quote") or "").strip()
+    if squote:
+        spath = str(spec.get("path") or "").strip()
+        if not spath:
+            return f"rejected {fid}: spec quote has no spec path"
+        sfile = _resolve_cited(spath, bases)
+        try:
+            stext = _read_text(sfile)
+        except OSError as exc:
+            return f"rejected {fid}: cannot read spec {sfile}: {exc}"
+        if squote not in stext:
+            return f"rejected {fid}: spec quote not in {sfile}"
     return None
 
 
@@ -118,6 +216,16 @@ def validate(finding: dict, *, judgment: bool, yes: bool, home: str) -> str | No
     err = path_gate(path)
     if err:
         return f"rejected {fid}: {err}"
+    layer = str(finding.get("layer") or "")
+    if layer and layer not in INVENTORY_LAYERS:
+        return f"rejected {fid}: layer {layer} is not in the inventory"
+    bases = [os.getcwd()]
+    repo = enclosing_repo(resolve_path(path))
+    if repo:
+        bases.append(repo)
+    err = verify_evidence(finding, bases)
+    if err:
+        return err
     if under_user_config(path, home) and not yes:
         return (
             f"rejected {fid}: extra confirm required for ~/.claude or ~/.grok "
@@ -134,28 +242,59 @@ def validate(finding: dict, *, judgment: bool, yes: bool, home: str) -> str | No
     return None
 
 
-def apply_one(finding: dict, *, dry_run: bool) -> None:
-    path = resolve_path(str(finding["path"]))
-    action = finding["action"]
-    old = action["old"]
-    new = action["new"]
+def plan_batch(findings: list[dict]) -> list[tuple[str, str]]:
+    """Compose every edit for one path in one buffer. No write.
+    A miss dies here, before commit_plans, so no file changes."""
+    order: list[str] = []
+    groups: dict[str, list[dict]] = {}
+    for finding in findings:
+        path = resolve_path(str(finding["path"]))
+        if path not in groups:
+            order.append(path)
+            groups[path] = []
+        groups[path].append(finding)
+    plans: list[tuple[str, str]] = []
+    for path in order:
+        rows = groups[path]
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            die(2, f"rejected {rows[0].get('id')}: cannot read {path}: {exc}")
+        for finding in rows:
+            action = finding["action"]
+            old = action["old"]
+            new = action["new"]
+            n = text.count(old)
+            if n != 1:
+                die(
+                    2,
+                    f"rejected {finding.get('id')}: old text occurs {n} time(s) (want 1)",
+                )
+            text = text.replace(old, new, 1)
+        plans.append((path, text))
+    return plans
+
+
+def commit_plans(plans: list[tuple[str, str]]) -> None:
+    """Write every temp first, then rename. A failure before rename changes nothing."""
+    temps: list[tuple[str, str]] = []
     try:
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
+        for path, new in plans:
+            tmp = path + ".audit-tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(new)
+            temps.append((tmp, path))
+        for tmp, path in temps:
+            os.replace(tmp, path)
     except OSError as exc:
-        die(2, f"rejected {finding.get('id')}: cannot read {path}: {exc}")
-    n = text.count(old)
-    if n != 1:
-        die(2, f"rejected {finding.get('id')}: old text occurs {n} time(s) (want 1)")
-    if dry_run:
-        print(f"audit apply: dry-run {finding.get('id')} {path}")
-        return
-    try:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text.replace(old, new, 1))
-    except OSError as exc:
-        die(2, f"rejected {finding.get('id')}: cannot write {path}: {exc}")
-    print(f"audit apply: wrote {finding.get('id')} {path}")
+        for tmp, _path in temps:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        die(2, f"rejected batch: cannot write: {exc}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -181,8 +320,14 @@ def main(argv: list[str] | None = None) -> int:
         err = validate(row, judgment=args.judgment, yes=args.yes, home=args.home)
         if err:
             die(2, err)
-    for row in picked:
-        apply_one(row, dry_run=args.dry_run)
+    plans = plan_batch(picked)
+    if args.dry_run:
+        for row, (path, _new) in zip(picked, plans):
+            print(f"audit apply: dry-run {row.get('id')} {path}")
+        return 0
+    commit_plans(plans)
+    for row, (path, _new) in zip(picked, plans):
+        print(f"audit apply: wrote {row.get('id')} {path}")
     return 0
 
 

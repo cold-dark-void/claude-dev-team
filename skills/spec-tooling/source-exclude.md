@@ -5,14 +5,11 @@ Single source; included byte-identical into the four alignment consumers via
 <!-- include: skills/spec-tooling/source-exclude.md agent=spec --> markers,
 drift-gated at /release. Cite SPEC-008 (the alignment contract).
 
-Included into (consumers; region count drifts as /spec consolidates):
-- commands/check-specs.md  ×2  (audit Phase-2 grep + validate-mode grep)
-- skills/spec-tooling/SKILL.md ×2 (reflect Phase-1c inventory + Phase-4 alignment grep)
-<!-- drift-ok: skill-ref -->
-- skills/reflect-specs/SKILL.md ×2 (legacy until Task-7 stub; same partial)
-- commands/update-spec.md  ×1  (code-impact grep for ADDED/MODIFIED requirements)
-NOTE: /spec generate (ex-/generate-specs) is NOT a consumer — its GENERATION-scope
-scan is a DISTINCT exclusion (it skips skills/ + commands/); it cites SPEC-008 but
+Included into (consumers):
+- commands/spec.md (check Phase 2, validate, and update code-impact grep)
+- skills/spec-tooling/SKILL.md (reflect Phase 1c inventory + Phase 4 alignment grep)
+NOTE: /spec generate is NOT a consumer — its generation-scope
+scan is a distinct exclusion (it skips skills/ + commands/); it cites SPEC-008 but
 is not this partial.
 
 Editing notes (this block is stripped by sync-includes.py expand() — it drops

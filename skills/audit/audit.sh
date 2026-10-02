@@ -44,7 +44,7 @@ Usage:
                 Locate session via skills/transcript-parse/hosts.py, then inventory
   --json        JSON document on stdout
   --judgment    Allow class=judgment in apply
-  --yes         Extra confirm for writes under ~/.claude or ~/.grok
+  --yes         Required confirm for writes under ~/.claude or ~/.grok (no TTY prompt)
   --dry-run     Validate apply; do not write
   --all         Not supported (exit 64)
 
@@ -310,7 +310,13 @@ for skill_md in "$PLUGIN_ROOT/skills/"*/SKILL.md; do
   abs=$(CDPATH= cd -- "$(dirname -- "$skill_md")" && pwd)/$(basename -- "$skill_md")
   bytes=$(wc -c <"$abs" | tr -d ' ')
   status=ok
-  if [ "$bytes" -gt "$SKILL_WARN_BYTES" ]; then
+  if [ "$bytes" -gt "$SKILL_HARD_BYTES" ]; then
+    if [ -f "$SCRIPT_DIR/skill-size-waivers.txt" ] && grep -qxF "$name" "$SCRIPT_DIR/skill-size-waivers.txt"; then
+      status=WARN
+    else
+      status=FAIL
+    fi
+  elif [ "$bytes" -gt "$SKILL_WARN_BYTES" ]; then
     status=WARN
   fi
   printf '%s\t%s\t%s\t%s\n' "$name" "$abs" "$bytes" "$status" >>"$SKILLS"
@@ -358,13 +364,16 @@ for cols in read_tsv(skills_p):
     name, path, bytes_, status = cols
     n = int(bytes_)
     skills.append({"name": name, "path": path, "bytes": n, "status": status})
-    if status == "WARN":
+    if status in ("WARN", "FAIL"):
+        impact = "SKILL.md exceeds 30KB WARN; split via PR (apply will not rewrite skills/**)"
+        if status == "FAIL":
+            impact = "SKILL.md exceeds 40KB must-split; split via PR (apply will not rewrite skills/**)"
         findings.append({
             "id": "SS-%s" % name,
             "class": "plugin-surface",
             "layer": "plugin",
             "path": path,
-            "impact": "SKILL.md exceeds 30KB WARN; split via PR (apply will not rewrite skills/**)",
+            "impact": impact,
             "action": {"type": "none", "note": "PR only"},
             "confidence": 1.0,
             "evidence": {
@@ -426,7 +435,7 @@ else:
 PY
 
 WARN=0
-if awk -F '\t' '$4=="WARN" { found=1 } END { exit found?0:1 }' "$SKILLS"; then
+if awk -F '\t' '$4=="WARN" || $4=="FAIL" { found=1 } END { exit found?0:1 }' "$SKILLS"; then
   WARN=1
 fi
 

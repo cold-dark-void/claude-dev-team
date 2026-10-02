@@ -110,6 +110,8 @@ git init -q "$PROJ"
 printf '%s\n' '# ok skill' > "$PLUGIN_F/skills/ok/SKILL.md"
 # 31 KiB of 'x' (no python)
 dd if=/dev/zero bs=1024 count=31 2>/dev/null | tr '\0' 'x' > "$PLUGIN_F/skills/fat/SKILL.md"
+mkdir -p "$PLUGIN_F/skills/huge"
+dd if=/dev/zero bs=1024 count=41 2>/dev/null | tr '\0' 'x' > "$PLUGIN_F/skills/huge/SKILL.md"
 
 if [ ! -x "$AUDIT" ] && [ ! -f "$AUDIT" ]; then
   fail "T1 inventory skipped (no audit.sh)"
@@ -158,6 +160,13 @@ else
   else
     fail "T2 skill-size WARN missing (want SS-fat / plugin-surface / WARN)"
   fi
+  if printf '%s' "$OUT" | grep -q 'SS-huge' \
+     && printf '%s' "$OUT" | grep -q 'must-split' \
+     && printf '%s' "$OUT" | grep -q '"status": "FAIL"'; then
+    pass "T2c skill-size FAIL must-split for >40KB SKILL.md"
+  else
+    fail "T2c must-split FAIL missing"
+  fi
   if [ "$RC" -eq 1 ]; then
     pass "T2b inventory exit 1 on skill-size WARN"
   else
@@ -192,8 +201,9 @@ EOF
       )
       ;;
     full)
+      bytes=$(wc -c < "$path" | tr -d ' ')
       ev=$(cat <<EOF
-{"passages":[{"path":"$path","quote":"$old","line":1},{"path":"$SPEC","quote":"Mechanical evidence","line":1}],"counts":{"bytes":20,"lines":1},"mtime":"2026-08-16T00:00:00Z","tag":{"name":"v1.0.0","date":"2026-07-01"},"spec":{"id":"SPEC-035","path":"specs/core/SPEC-035-context-audit.md","quote":"Mechanical evidence"}}
+{"passages":[{"path":"$path","quote":"$old","line":1},{"path":"$SPEC","quote":"Mechanical evidence"}],"counts":{"bytes":$bytes,"lines":1},"mtime":"2026-08-16T00:00:00Z","tag":{"name":"v1.0.0","date":"2026-07-01"},"spec":{"id":"SPEC-035","path":"$SPEC","quote":"Mechanical evidence"}}
 EOF
       )
       ;;
@@ -408,6 +418,113 @@ PY
     pass "T18 apply refuses symlink into skills/** (realpath)"
   else
     fail "T18 symlink rc=$RC out=$OUT"
+  fi
+
+  # ---- T20: fabricated quote, wrong bytes, spec quote, layer, ancestor skills --
+  write_finding "$TMP/f-ok2.json" "IS-FAB" "instruction-stack" "$PROJ/AGENTS.md" "freeze-me" "historical" full
+  jq '.evidence.passages[0].quote = "not-in-the-file"' "$TMP/f-ok2.json" > "$TMP/f-fab.json"
+  RC=0
+  OUT=$(audit apply IS-FAB --from-json "$TMP/f-fab.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'passage quote not in'; then
+    pass "T20 fabricated passage quote rejected"
+  else
+    fail "T20 fabricated quote rc=$RC out=$OUT"
+  fi
+
+  write_finding "$TMP/f-bytes.json" "IS-BYTES" "instruction-stack" "$PROJ/AGENTS.md" "freeze-me" "historical" full
+  jq '.evidence.counts.bytes = 1' "$TMP/f-bytes.json" > "$TMP/f-badbytes.json"
+  RC=0
+  OUT=$(audit apply IS-BYTES --from-json "$TMP/f-badbytes.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'counts.bytes'; then
+    pass "T20b wrong counts.bytes rejected"
+  else
+    fail "T20b bytes rc=$RC out=$OUT"
+  fi
+
+  write_finding "$TMP/f-spec.json" "IS-SPECQ" "instruction-stack" "$PROJ/AGENTS.md" "freeze-me" "historical" full
+  jq '.evidence.spec.quote = "not-a-spec-quote"' "$TMP/f-spec.json" > "$TMP/f-badspeq.json"
+  RC=0
+  OUT=$(audit apply IS-SPECQ --from-json "$TMP/f-badspeq.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'spec quote not in'; then
+    pass "T20c fabricated spec quote rejected"
+  else
+    fail "T20c spec quote rc=$RC out=$OUT"
+  fi
+
+  write_finding "$TMP/f-layer.json" "IS-LAYER" "instruction-stack" "$PROJ/AGENTS.md" "freeze-me" "historical" full
+  jq '.layer = "plugin"' "$TMP/f-layer.json" > "$TMP/f-badlayer.json"
+  RC=0
+  OUT=$(audit apply IS-LAYER --from-json "$TMP/f-badlayer.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'not in the inventory'; then
+    pass "T20d out-of-inventory layer rejected"
+  else
+    fail "T20d layer rc=$RC out=$OUT"
+  fi
+
+  NEST="$TMP/home/skills/nested"
+  mkdir -p "$NEST"
+  printf '%s\n' 'project AGENTS freeze-me' > "$NEST/AGENTS.md"
+  git init -q "$NEST"
+  write_finding "$TMP/f-nest.json" "IS-NEST" "instruction-stack" "$NEST/AGENTS.md" "freeze-me" "kept" full
+  RC=0
+  OUT=$(audit apply IS-NEST --from-json "$TMP/f-nest.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 0 ] && grep -q 'kept' "$NEST/AGENTS.md"; then
+    pass "T20e ancestor directory named skills is not skills/**"
+  else
+    fail "T20e ancestor skills rc=$RC out=$OUT"
+  fi
+
+  printf '%s\n' 'project AGENTS freeze-me' > "$PROJ/AGENTS.md"
+  printf '%s\n' 'second file keep-me' > "$PROJ/CLAUDE.md"
+  write_finding "$TMP/f-a.json" "IS-A" "instruction-stack" "$PROJ/AGENTS.md" "freeze-me" "historical" full
+  write_finding "$TMP/f-b.json" "IS-B" "instruction-stack" "$PROJ/CLAUDE.md" "no-such-old" "x" full
+  jq -s '{findings:.}' "$TMP/f-a.json" "$TMP/f-b.json" > "$TMP/f-batch.json"
+  RC=0
+  OUT=$(audit apply IS-A,IS-B --from-json "$TMP/f-batch.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 2 ] && grep -q 'freeze-me' "$PROJ/AGENTS.md" && grep -q 'keep-me' "$PROJ/CLAUDE.md"; then
+    pass "T20f mid-batch failure writes nothing"
+  else
+    fail "T20f batch rc=$RC out=$OUT agents=$(cat "$PROJ/AGENTS.md")"
+  fi
+
+  printf '%s\n' 'alpha freeze-me beta other-token' > "$PROJ/AGENTS.md"
+  write_finding "$TMP/f-s1.json" "IS-S1" "instruction-stack" "$PROJ/AGENTS.md" "freeze-me" "historical" full
+  write_finding "$TMP/f-s2.json" "IS-S2" "instruction-stack" "$PROJ/AGENTS.md" "other-token" "replaced" full
+  jq -s '{findings:.}' "$TMP/f-s1.json" "$TMP/f-s2.json" > "$TMP/f-same.json"
+  RC=0
+  OUT=$(audit apply IS-S1,IS-S2 --from-json "$TMP/f-same.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 0 ] && grep -q 'historical' "$PROJ/AGENTS.md" && grep -q 'replaced' "$PROJ/AGENTS.md" \
+     && ! grep -q 'freeze-me' "$PROJ/AGENTS.md" && ! grep -q 'other-token' "$PROJ/AGENTS.md"; then
+    pass "T20g two edits on one file both land"
+  else
+    fail "T20g same-file rc=$RC out=$OUT agents=$(cat "$PROJ/AGENTS.md")"
+  fi
+
+  printf '%s\n' 'alpha freeze-me beta other-token' > "$PROJ/AGENTS.md"
+  write_finding "$TMP/f-m1.json" "IS-M1" "instruction-stack" "$PROJ/AGENTS.md" "freeze-me" "historical" full
+  write_finding "$TMP/f-m2.json" "IS-M2" "instruction-stack" "$PROJ/AGENTS.md" "other-token" "replaced" full
+  jq '.action.old = "no-such-old"' "$TMP/f-m2.json" > "$TMP/f-m2b.json"
+  jq -s '{findings:.}' "$TMP/f-m1.json" "$TMP/f-m2b.json" > "$TMP/f-miss.json"
+  RC=0
+  OUT=$(audit apply IS-M1,IS-M2 --from-json "$TMP/f-miss.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 2 ] && grep -q 'freeze-me' "$PROJ/AGENTS.md" && grep -q 'other-token' "$PROJ/AGENTS.md" \
+     && ! grep -q 'historical' "$PROJ/AGENTS.md"; then
+    pass "T20h same-file later miss writes nothing"
+  else
+    fail "T20h same-file miss rc=$RC out=$OUT agents=$(cat "$PROJ/AGENTS.md")"
+  fi
+
+  WT="$TMP/home/skills/wt"
+  mkdir -p "$WT"
+  printf '%s\n' 'gitdir: /nowhere' > "$WT/.git"
+  printf '%s\n' 'project AGENTS freeze-me' > "$WT/AGENTS.md"
+  write_finding "$TMP/f-gitfile.json" "IS-GITFILE" "instruction-stack" "$WT/AGENTS.md" "freeze-me" "kept" full
+  RC=0
+  OUT=$(audit apply IS-GITFILE --from-json "$TMP/f-gitfile.json" --yes 2>&1) || RC=$?
+  if [ "$RC" -eq 0 ] && grep -q 'kept' "$WT/AGENTS.md"; then
+    pass "T20i .git file under a skills directory is a repo root"
+  else
+    fail "T20i gitfile rc=$RC out=$OUT"
   fi
 
   # ---- T19: MROOT from --cwd, not invoker cwd --------------------------------

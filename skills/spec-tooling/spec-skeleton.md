@@ -1,11 +1,9 @@
 <!--
 Canonical spec-file skeleton — the 9 required sections SPEC-008 mandates.
 Single source; included into /spec generate (skills/spec-tooling/SKILL.md) and
-/spec create (commands/create-spec.md) via
+/spec create (commands/spec.md) via
 <!-- include: skills/spec-tooling/spec-skeleton.md agent=spec --> markers,
 drift-gated at /release. Cite SPEC-008 (format contract) + SPEC-004.
-<!-- drift-ok: skill-ref -->
-Legacy skills/generate-specs/SKILL.md also carries the region until Task-7 stub.
 
 Editing notes (this block is stripped by sync-includes.py expand() — it drops
 everything up to and including the first lone `-->` line):
@@ -14,6 +12,10 @@ everything up to and including the first lone `-->` line):
   substitutes `<AGENT>`, never `<STATUS>`, so the token survives expansion byte-identically
   across emitters (drift-checkable). Each emitter's OWN prose (added outside the markers in
   fan-out) tells the LLM to replace `<STATUS>` with INFERRED (/spec generate) or DRAFT (/spec create).
+- `**Category**: <CATEGORY>` keeps the literal `<CATEGORY>` token the same way.
+  Each emitter's prose tells the LLM to replace it with core, perf, safe, compat, or arch
+  from `skills/spec-tooling/category.sh` (ID prefix or the `specs/` directory). Do not write `core`
+  for a PERF, SAFE, COMPAT, or ARCH spec.
 - Do NOT add an `<AGENT>` token here — `agent=spec` is a no-op sentinel.
 - Keep placeholders honest (no TBD/foo — /spec check Content-Quality flags those).
 
@@ -42,7 +44,7 @@ LEAK-SAFE FENCE CONTRACT (P1-1B hazard guard):
 # <PREFIX>-<NNN>: <Title>
 
 **Status**: <STATUS>
-**Category**: core
+**Category**: <CATEGORY>
 **Created**: <YYYY-MM-DD>
 
 ## Overview

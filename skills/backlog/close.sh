@@ -98,6 +98,16 @@ done
 
 [ -n "$QUERY" ] || die 64 "missing <slug-or-title>"$'\n'"$USAGE"
 
+# LF or CR in these values would inject extra lines into the item and the index.
+reject_ctrl() {
+  case "$1" in
+    *$'\n'*|*$'\r'*) die 64 "option value must not contain a newline or CR: $2" ;;
+  esac
+}
+reject_ctrl "$TICKET" --ticket
+reject_ctrl "$SHA" --sha
+reject_ctrl "$NOTE" --note
+
 if [ -z "$STATUS" ]; then
   STATUS="COMPLETED"
 fi

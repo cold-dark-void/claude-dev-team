@@ -44,11 +44,20 @@ hygiene. Skill splits and handoff packet fields are separate workstreams
   refuse paths under `skills/**` or `commands/**`. Path checks MUST use
   `realpath` (not `abspath` alone) so a symlink whose target is under
   `skills/**` or `commands/**`, or whose basename is not an instruction-stack
-  file, is refused. Extra confirm (`--yes` or TTY) is required before any
-  write under `~/.claude` **or** `~/.grok`.
+  file, is refused. A `skills` or `commands` directory outside the enclosing
+  repo (a parent folder named `skills` that is not the plugin tree) MUST NOT
+  refuse an instruction-stack file inside a nested repo. A `.git` file (linked
+  worktree) is a repo root, the same as a `.git` directory. Two findings on
+  one file MUST be applied in one buffer and one rename. A later miss MUST
+  leave every file in the batch unchanged. Extra confirm is
+  `--yes` only. There is no TTY prompt. A write under `~/.claude` **or**
+  `~/.grok` without `--yes` is refused.
 - **M8 — Skill-size gate.** Inventory MUST WARN when a scanned `SKILL.md`
-  exceeds 30KB (30720 bytes) and list top skills by size. `skills/audit/SKILL.md`
-  MUST ship under the 40KB (40960 bytes) must-split cap.
+  exceeds 30KB (30720 bytes). A file over 40KB (40960 bytes) is FAIL
+  (must-split) unless its skill name is listed in
+  `skills/audit/skill-size-waivers.txt`, in which case the status is WARN.
+  Apply MUST NOT rewrite `skills/**`. `skills/audit/SKILL.md` MUST ship under
+  the 40KB cap.
 - **M9 — `--from-session`.** If shipped, `--from-session <id>` MUST call
   `skills/transcript-parse` locate only (`hosts.py`) and MUST NOT add a second
   transcript parse engine. Locate/parse diagnostics MUST go to stderr.

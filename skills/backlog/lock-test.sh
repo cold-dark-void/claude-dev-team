@@ -370,8 +370,8 @@ assert_eq "11c mkdir-EEXIST-then-gone rc" "0" "$rc"
 # stamp there is proof the second (real) mkdir created the dir and wrote a
 # fresh stamp — i.e. the lock genuinely existed and was ours.
 owner=$(awk '{print $3}' "$errfile.stamp" 2>/dev/null)
-if [ -n "$owner" ] && [ "$owner" != "old-owner" ]; then pass "11c mkdir-EEXIST-then-gone: lock existed with a fresh stamp (owner neither old-owner nor empty)"
-else fail "11c mkdir-EEXIST-then-gone: lock existed with a fresh stamp (owner neither old-owner nor empty)" "got='$owner'"; fi
+if printf '%s' "$owner" | grep -Eq '^[0-9]+-[0-9]+$'; then pass "11c mkdir-EEXIST-then-gone: stamp owner matches pid-random"
+else fail "11c mkdir-EEXIST-then-gone: stamp owner matches pid-random" "got='$owner'"; fi
 if [ -d "$lockdir" ]; then fail "11c mkdir-EEXIST-then-gone: lock released on process exit" "still present"
 else pass "11c mkdir-EEXIST-then-gone: lock released on process exit"; fi
 
@@ -460,5 +460,15 @@ if [ "$elapsed" -le 5 ]; then pass "13 stamp-write-failure elapsed <=5s ($elapse
 else fail "13 stamp-write-failure elapsed <=5s" "elapsed=$elapsed"; fi
 if [ -d "$lockdir" ]; then fail "13 stamp-write-failure: no lock dir left" "present"
 else pass "13 stamp-write-failure: no lock dir left"; fi
+# 14. Missing .claude fails fast (does not wait out the lock deadline).
+root="$WORK/no_claude"
+mkdir -p "$root"
+errfile="$WORK/no_claude_err.txt"
+timed_acquire "$root" 30 "$errfile"
+assert_eq "14 missing-.claude rc" "1" "$rc"
+if [ "$elapsed" -le 5 ]; then pass "14 missing-.claude elapsed <=5s ($elapsed)"
+else fail "14 missing-.claude elapsed <=5s" "elapsed=$elapsed"; fi
+assert_match "14 missing-.claude stderr" "$(cat "$errfile" 2>/dev/null)" "cannot create backlog lock:"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

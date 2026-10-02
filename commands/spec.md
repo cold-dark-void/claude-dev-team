@@ -19,11 +19,11 @@ to the routed sub-behavior.
 
 | Sub | Strategy | Source / target |
 |-----|----------|-----------------|
-| `check` | **inline** | transplanted from `commands/check-specs.md` |
-| `create` | **inline** | transplanted from `commands/create-spec.md` |
-| `find` | **inline** | transplanted from `commands/find-spec.md` |
-| `list` | **inline** | transplanted from `commands/list-specs.md` |
-| `update` | **inline** | transplanted from `commands/update-spec.md` |
+| `check` | **inline** | this file, Sub: `check` |
+| `create` | **inline** | this file, Sub: `create` |
+| `find` | **inline** | this file, Sub: `find` |
+| `list` | **inline** | this file, Sub: `list` |
+| `update` | **inline** | this file, Sub: `update` |
 | `generate` | **skill-delegate** | `skills/spec-tooling/SKILL.md` sub=`generate` |
 | `tests` | **skill-delegate** | `skills/spec-tooling/SKILL.md` sub=`tests` |
 | `reflect` | **skill-delegate** | `skills/spec-tooling/SKILL.md` sub=`reflect` |
@@ -36,7 +36,7 @@ to the routed sub-behavior.
 /spec update [SPEC-ID]
 /spec generate [<path>]
 /spec tests [SPEC-NNN] [--dry-run]
-/spec reflect
+/spec reflect [--report] [--phase N]
 ```
 
 Unknown/missing sub → print this table and stop. Do not guess a default sub.
@@ -64,6 +64,7 @@ With `--tests`, also run Phase 3 for that single spec after the validation repor
 | *(none)* | Phase 1 + Phase 2 only; emit no Phase 3 section. |
 | `--tests` | After Phase 2 / validation report, append Phase 3 MUST→test matrix. Report-only: exit 0 even if rows are MISSING. |
 | `--tests --gate[=N]` | Same as `--tests`, then fail closed if total MISSING > N (default N=0). Print `GATE FAIL: Y MISSING exceeds threshold N` and exit non-zero. **Not wired into `/release`** — available for optional preflight only. |
+| `--gate` without `--tests` | Hard failure. Print `error: --gate requires --tests` and stop. Do not run Phase 3. |
 
 Parse flags from the invocation; strip them before treating remaining tokens as a spec ID.
 
@@ -89,6 +90,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 ```
+
+`--gate` without `--tests` is a hard failure. Run
+`bash skills/spec-tooling/check-gate.sh` with the same args. Exit 64 prints
+`error: --gate requires --tests`. Stop. Do not start Phase 3.
 
 ---
 
@@ -138,6 +143,8 @@ Exclude paths:      specs/  .claude/  node_modules/  dist/  build/  target/  ven
 Exclude extensions: *.md  *.txt  *.json  *.yaml  *.yml  *.toml  *.lock  *.sum  *.pb.go  *_gen.*  *_generated.*
 ```
 <!-- /include -->
+
+   When no project-language marker is present (SPEC-008 § Source Exclusions), also search `*.md` and `*.sh`. The exclude set above stays the canonical list. A detected marker keeps `*.md` excluded.
 
    d. Read relevant files with `-C 10` context around keyword matches
 4. For each MUST requirement, classify (the post-hoc alignment verdicts, per SPEC-008 § Code-Alignment Verdicts):
@@ -241,7 +248,7 @@ Frameworkless evidence example: `Test #7 + skills/spec-tooling/check-format.sh` 
   ```
   Exit non-zero. Do **not** invoke this from `/release` or any other command by default — document only; callers opt in explicitly.
 
-##### Tag convention note (generate-tests compatibility)
+##### Tag convention note
 
 P3-M2 is the single normative tag definition (SPEC-008 § Spec-test coverage matrix). `/spec tests` emits matching forms; Phase 3 only *recognizes* them. Revisions are additive-only so previously generated tests stay tagged without edits. Do not maintain a divergent copy of the tag rules here or in the tests sub.
 
@@ -405,7 +412,7 @@ Discovery procedure: SPEC-008 `### Spec Discovery`. Conflict taxonomy: SPEC-008 
      Conflicts with SAFE-001: "MUST encrypt all credentials at rest"
 
    ### WARNINGS (review recommended)
-   - Proposed spec overlaps with AUTH-003 (authentication domain)
+   - Proposed spec overlaps with SPEC-003 (authentication domain)
 
    **Decision:**
    - [R] Revise proposed spec → return to Step 1 interview with revised requirements
@@ -428,6 +435,7 @@ Create the spec file at `specs/<category>/<ID>-<kebab-case-title>.md` with the c
 
 When producing a real spec file:
 - Render the literal `<STATUS>` token as `DRAFT` (new specs start at DRAFT in the lifecycle: INFERRED → DRAFT → ACTIVE → APPROVED → DEPRECATED).
+- Replace `<CATEGORY>` with the token from `skills/spec-tooling/category.sh` (`core`, `perf`, `safe`, `compat`, or `arch`). Pass the destination path (`specs/safety/SAFE-001-name.md`) or the ID. Do not leave the token. Do not write `core` for a PERF, SAFE, COMPAT, or ARCH spec.
 - Fill `<PREFIX>-<NNN>` (e.g. `SPEC-019`), `<Title>`, `<YYYY-MM-DD>` (today's date), and replace each `<…>` placeholder with content from the Step 1 interview.
 - DO NOT copy the `<!-- include: … -->` / `<!-- /include -->` marker lines into the produced spec file — they are build-time directives only (and sit OUTSIDE the fenced template, so a verbatim copy of the ```markdown block already excludes them).
 
@@ -436,7 +444,7 @@ When producing a real spec file:
 # <PREFIX>-<NNN>: <Title>
 
 **Status**: <STATUS>
-**Category**: core
+**Category**: <CATEGORY>
 **Created**: <YYYY-MM-DD>
 
 ## Overview
@@ -513,15 +521,15 @@ Format example:
 ## Search Results for "thumbnail"
 
 ### SPEC-004: Thumbnail Generation
-**Category**: Core | **Status**: ✅
+**Category**: core | **Status**: APPROVED
 > Thumbnails are generated at 128x128 pixels maximum dimension...
 
 ### SPEC-012: Concurrent Thumbnail Loading
-**Category**: Core | **Status**: 🔄 UPDATED
+**Category**: core | **Status**: ACTIVE
 > Worker pool generates thumbnails concurrently...
 
 ### SPEC-013: Viewport-Priority Loading
-**Category**: Core | **Status**: 🔄 UPDATED
+**Category**: core | **Status**: DRAFT
 > Visible thumbnails are prioritized in the loading queue...
 ```
 
@@ -552,7 +560,7 @@ Gather data from two sources (per SPEC-008 `### Spec Discovery`):
 **A. TDD.md index** — read `specs/TDD.md` to extract:
 1. All specs from the `## Spec Index` table (columns: `ID | Title | Status | Coverage`)
 2. Lifecycle Status for each spec
-3. Categories (derived from ID prefix or Coverage column)
+3. Categories (derived from the ID prefix or the directory under `specs/`, not from the Coverage column)
 4. `## Version History` entries
 
 **B. Orphan detection** — enumerate all governed spec files with `Glob $MROOT/specs/**/*.md`
@@ -739,14 +747,14 @@ Add to TDD.md `## Version History` table:
 `skills/spec-tooling/SKILL.md` with **sub=`generate`** and remaining args
 passed through unchanged.
 
-| Invocation | Maps from | Expected behavior |
-|------------|-----------|-------------------|
-| `/spec generate` | `/generate-specs` | Full codebase scan; Tech Lead decides domain grouping; write INFERRED specs under `specs/core/` |
-| `/spec generate <path>` | `/generate-specs <path>` | Limit scan to a package or directory |
+| Invocation | Expected behavior |
+|------------|-------------------|
+| `/spec generate` | Full codebase scan; Tech Lead decides domain grouping; write INFERRED specs under `specs/core/` |
+| `/spec generate <path>` | Limit scan to a package or directory |
 
 Args: optional `<path>` only. No flags in the current surface.
 
-Preserve every MUST from SPEC-008 that generate-specs implements (project-language
+Preserve every MUST from SPEC-008 for this mode (project-language
 markers, source exclusions, INFERRED status, human-review requirement).
 
 ---
@@ -757,13 +765,13 @@ markers, source exclusions, INFERRED status, human-review requirement).
 `skills/spec-tooling/SKILL.md` with **sub=`tests`** and remaining args
 passed through unchanged.
 
-| Invocation | Maps from | Expected behavior |
-|------------|-----------|-------------------|
-| `/spec tests` | `/generate-tests` | Generate tests for all specs |
-| `/spec tests SPEC-NNN` | `/generate-tests SPEC-NNN` | Generate tests for a single spec |
-| `/spec tests --dry-run` | `/generate-tests --dry-run` | Show what would be generated; write nothing |
+| Invocation | Expected behavior |
+|------------|-------------------|
+| `/spec tests` | Generate tests for all specs |
+| `/spec tests SPEC-NNN` | Generate tests for a single spec |
+| `/spec tests --dry-run` | Show what would be generated; write nothing |
 
-Args: optional `SPEC-NNN` and/or `--dry-run`. Flag parity with generate-tests MUST hold.
+Args: optional `SPEC-NNN` and/or `--dry-run`. Flag parity with `/spec tests` MUST hold.
 
 Tag forms emitted MUST remain recognizable by `/spec check --tests` Phase 3 (P3-M2 /
 SPEC-008 § Spec-test coverage matrix). Do not fork the tag convention.
@@ -776,12 +784,14 @@ SPEC-008 § Spec-test coverage matrix). Do not fork the tag convention.
 `skills/spec-tooling/SKILL.md` with **sub=`reflect`** and remaining args
 passed through unchanged.
 
-| Invocation | Maps from | Expected behavior |
-|------------|-----------|-------------------|
-| `/spec reflect` | `/reflect-specs` | Full-system health check: inventory → cross-spec conflicts → skill/command consistency → exhaustive code alignment (ALL specs, not sampled) → coverage gaps → interactive confirmation |
+| Invocation | Expected behavior |
+|------------|-------------------|
+| `/spec reflect` | Full-system health check: inventory → cross-spec conflicts → skill/command consistency → exhaustive code alignment (ALL specs, not sampled) → coverage gaps → interactive confirmation |
+| `/spec reflect --report` | Same phases; skip the Phase 6 interactive loop |
+| `/spec reflect --phase N` | Run only phase N |
 
-Args: none in the current surface (no flags). Phases and interactive pause-for-decision
-behavior MUST be preserved verbatim from reflect-specs.
+Args: optional `--report` and/or `--phase N`. Phases and interactive pause-for-decision
+behavior MUST match `skills/spec-tooling/SKILL.md` reflect mode. `--report` skips Phase 6.
 
 Goes beyond `/spec check` (sampled Phase 2) — exhaustive over every governed spec.
 

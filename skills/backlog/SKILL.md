@@ -158,8 +158,18 @@ and continue with local-only write-through (no `linear_id`). Never block or retr
 
 #### 5. Dual-write local item `.claude/backlog/<slug>.md`
 
-Always write the local item (mandatory write-through), including optional YAML
-frontmatter when a Linear id is known:
+The local read-modify-write takes the shared backlog lock. Run `add.sh` once. Do not Write the item file or the index row yourself, before or after it returns.
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && BACKLOG_ROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || BACKLOG_ROOT=$(pwd)
+bash skills/backlog/add.sh --root "$BACKLOG_ROOT" \
+  --title "<TITLE>" --problem "<PROBLEM>" --goal "<GOAL>" \
+  --linear-id "<LINEAR-ID>"
+```
+
+Omit `--linear-id` when Step 4 did not return an id. `add.sh` writes the item and the one Pending index row under the lock. With `--linear-id` it writes the frontmatter and `linear:<ID>` on that row. Do not write either file again. Pass an existing Linear id the same way: `--linear-id <ID>`. The block below is the shape that call already wrote. It has no Implementation Notes, Affects, Effort, or Notes sections.
 
 ```markdown
 ---
@@ -178,46 +188,21 @@ linear_id: <LINEAR-ID>
 
 <GOAL DESCRIPTION or "TODO: describe the goal">
 
-## Implementation Notes
-
-<optional: hints for how to implement, or leave blank>
-
-## Affects
-
-<optional: file/dir paths this work will touch, or leave blank>
-
-## Effort
-
-<optional: rough size — S / M / L, or leave blank>
-
-## Notes
-
-<NOTES or leave blank>
-
 ---
 
 *Added: <TODAY'S DATE YYYY-MM-DD>*
 ```
 
-Omit the frontmatter block entirely when there is no Linear id (MCP-down path).
-When linking an **existing** Linear issue instead of creating one, still write
-`linear_id: <ID>` the same way.
+When there is no Linear id, that call omits the frontmatter block.
 
 #### 6. Dual-write local index `.claude/backlog.md`
 
-Add a line under `## Pending`:
+`add.sh` already inserted one row under `## Pending`. Do not add a second row. The summary on that row is the title. With `--linear-id`, the row already ends in `linear:<ID>`:
 
 ```markdown
-- [<TITLE>](backlog/<slug>.md) - <one-line summary> [PENDING]
+- [<TITLE>](backlog/<slug>.md) - <TITLE> [PENDING]
+- [<TITLE>](backlog/<slug>.md) - <TITLE> [PENDING] linear:<LINEAR-ID>
 ```
-
-When `linear_id` is known, append it for discoverability:
-
-```markdown
-- [<TITLE>](backlog/<slug>.md) - <one-line summary> [PENDING] linear:<LINEAR-ID>
-```
-
-The one-line summary is the first sentence of the problem description (or the title if no description).
 
 #### 7. Confirm
 

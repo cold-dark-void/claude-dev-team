@@ -188,6 +188,7 @@ exact exclude set; drift here silently redefines "source" and changes audit verd
   not the implementation under test), while real implementation under `skills/*.sh` (and `.go`/`.ts`/etc.
   in any consumer project) stays VISIBLE to code-alignment. Path-excluding those dirs would hide this
   repo's genuine `.sh` logic; for a normal consumer project the dirs do not exist (harmless no-op).
+- When no marker from `### Project-Language Markers` is present, Phase 2 MAY also search `*.md` and `*.sh` as product source. Use this only for a markdown and bash repository, where those files are the implementation. The canonical exclude set in `skills/spec-tooling/source-exclude.md` stays unchanged. A detected marker keeps the extension exclude, including `*.md`.
 - The `/spec generate` GENERATION-scope source scan is a DISTINCT exclusion, NOT this alignment set:
   when reverse-engineering PRODUCT specs it rightly skips the plugin's own tooling dirs (`skills/`,
   `commands/`). It CITES this section to mark the contrast, but legitimately differs and MUST NOT be
@@ -370,7 +371,7 @@ verifies that each MUST has a TEST. Phase 3 adds an opt-in MUST→test traceabil
 
 | Date | Change |
 |------|--------|
-
+| 2026-10-01 | WP 5-05: when no project-language marker is present, Phase 2 may read `*.md` and `*.sh` as product source. The canonical exclude set is unchanged. Category comes from the ID prefix or the `specs/` directory, not from Coverage. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |
 | 2026-07-22 | CDT-46-C3: retarget Covers to `commands/spec.md` (`/spec <sub>`) + consolidated `skills/spec-tooling/` (absorbed generate-specs/generate-tests/reflect-specs); in-body command refs `/check-specs`→`/spec check`, `/create-spec`→`/spec create`, `/find-spec`→`/spec find`, `/list-specs`→`/spec list`, `/update-spec`→`/spec update`, `/generate-specs`→`/spec generate`, `/generate-tests`→`/spec tests`, `/reflect-specs`→`/spec reflect` |
 | 2026-07-14 | CDV-188: promoted Spec-test coverage matrix Phase 3 (P3-M1–P3-M7) from ideation-wave-2 DRAFT — opt-in `--tests`, tag convention, framework + frameworkless mapping, report-only default, optional `--gate` not wired to release. |

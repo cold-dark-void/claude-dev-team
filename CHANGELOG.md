@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.19
+- **WP 5-05 Audit and spec tooling** — apply checks quotes and byte counts, a skill over 40KB must split unless waived, and spec category follows the id prefix.
+
 ### v1.19.18
 - **WP 5-04 Train and ci-watch** — the index keeps one row per spec, a blocked entry can leave the queue, and a stale fixer or an empty check list does not end the watch.
 

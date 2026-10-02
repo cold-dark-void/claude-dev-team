@@ -333,9 +333,18 @@ fi
 # command, and a truncated temp file would get renamed over the index (WP 1-04
 # rework T4-2).
 emit_index() {
-  local _line _slug
+  local _line _slug _read_rc
+  [ -r "$INDEX" ] || return 1
   declare -A _emitted=()
-  while IFS= read -r _line || [ -n "$_line" ]; do
+  while true; do
+    IFS= read -r _line
+    _read_rc=$?
+    if [ "$_read_rc" -gt 1 ]; then
+      return 1
+    fi
+    if [ "$_read_rc" -ne 0 ] && [ -z "$_line" ]; then
+      break
+    fi
     _slug=$(row_slug "$_line")
     if [ -z "$_slug" ]; then
       printf '%s\n' "$_line" || return 1
