@@ -4,11 +4,11 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/embed-one.sh`, `skills/memory-store/embed-common.sh`, `skills/memory-store/test-embed-lembed.sh`, `skills/memory-store/memdb.sh`, `skills/memory-store/vec-cosine.sh`, `skills/memory-store/test-memdb.sh`, `skills/memory-store/migrate.sh`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`, `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
+**Covers**: `skills/memory-store/SKILL.md`, `skills/memory-store/schema.sql`, `skills/memory-store/embed-one.sh`, `skills/memory-store/embed-common.sh`, `skills/memory-store/test-embed-lembed.sh`, `skills/memory-store/memdb.sh`, `skills/memory-store/vec-cosine.sh`, `skills/memory-store/test-memdb.sh`, `skills/memory-store/test-migrate.sh`, `skills/memory-store/test-seed-pack.sh`, `skills/memory-store/migrate.sh`, `skills/memory-store/migrate-md.sh`, `skills/memory-store/migrate-v2.sh`, `skills/memory-store/migrate-v3.sh`, `skills/memory-store/migrate-v4.sh`
 
 ## Overview
 
-The write-path persistence layer for agent memories. Handles dual-mode storage (SQLite preferred, .md fallback), append-only writes with SQL safety, optional embedding generation (lembed local or remote API), schema migrations (v1→v2 tiered distillation), and .md-to-SQLite bulk migration. All writes go through this layer.
+The write-path persistence layer for agent memories. Handles dual-mode storage (SQLite preferred, .md fallback), append-only writes with SQL safety, optional embedding generation (lembed local or remote API), schema migrations through schema v4 (`schema.sql` stores `schema_version` 4; v1→v2 tiered distillation, then v3 and v4), and .md-to-SQLite bulk migration. All writes go through this layer.
 
 ## MUST
 
@@ -92,7 +92,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 - Verify .md→SQLite migration chunks by `##` headers correctly
 - Verify chunk truncation at 8000 chars and skip under 20 chars
 - Verify embedding generation handles both response shapes
-- **Model-name SQL safety (CDT-164):** verify an embedding model name containing a single quote round-trips into `embedding_meta.model` verbatim and does not abort the sqlite batch. Manual verification is acceptable — no `.sh` test harness exists in this repo and none is introduced by CDT-164
+- **Model-name SQL safety (CDT-164):** verify an embedding model name containing a single quote round-trips into `embedding_meta.model` verbatim and does not abort the sqlite batch. Manual verification is acceptable for this quote case. CDT-164 adds no harness. `skills/memory-store/test-migrate.sh` and `skills/memory-store/test-seed-pack.sh` already cover other memory-store checks.
 - **Lembed registration (WP 1-13, CDT-262):** `bash skills/memory-store/test-embed-lembed.sh` runs `embed-one.sh` and `migrate-md.sh` in `lembed` mode against a fixture project and a `sqlite3` shim that refuses an unregistered model name, like the extension. It asserts that the registration comes after the `.load` lines and before every `lembed()` call, that the first argument of every `lembed()` call is `'mini'`, that a failed embed adds one line to `.errors.log` and still exits 0, and that a missing model or extension is logged. The suite downloads no extension and no model; a CI round-trip with a real model is deferred until a CI model download is approved
 - **Migrate driver (CDT-51):** automated tests MUST cover (1) **fresh** install via `schema.sql` → `schema_version=4`; (2) **≥1 real upgrade floor** v3→v4 via `migrate-v4.sh` / `migrate.sh`. Full stepwise v1→v4 is OK because `migrate-v2/v3/v4` + `schema.sql` are in-repo (no git-history archaeology). Version reads MUST be PRAGMA-poison capture-safe (plain SELECT for `schema_version`; never capture an inline `PRAGMA` result row as the version)
 
@@ -117,6 +117,7 @@ The write-path persistence layer for agent memories. Handles dual-mode storage (
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-371 / CDT-391: schema is v4. Test harnesses `test-migrate.sh` and `test-seed-pack.sh` exist. Covers names them. |
 | 2026-10-01 | WP 3-07: v2 rebuild, distillation_log, and the version bump share one `BEGIN IMMEDIATE`. `sqlite_sequence` is preserved. `migrate.sh` backs up with `VACUUM INTO` and fails when the version read fails. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262 `[07 F-1]`): `lembed()` takes a registered model NAME, not a file path. The Embedding MUST "pass file path to GGUF model for lembed (not model name)" was wrong for sqlite-lembed v0.0.1-alpha.8: `lembed('<path>', …)` fails with "Unknown model name … Was it registered with lembed_models?", so no vector was stored or queried in the default local mode. The GGUF is now registered on the same connection, before `lembed()` (`INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('<gguf>')`); `migrate-md.sh` reads the result with `vec_to_json()` (a BLOB, not `json()`) and keeps sqlite3 stderr out of the vector (temp file); `embed-one.sh` and `migrate-md.sh` share `embed-common.sh`. A failed embed is no longer hidden: one line per failure in `<MROOT>/.claude/memory/.errors.log`, counted by `/memory stats` and `/doctor`. The CI round-trip smoke test with a real model is deferred until a CI model download is approved. Status stays ACTIVE. |
 | 2026-08-09 | CDT-190: fixed the same `EMBED_MODEL` SQL-interpolation defect in `migrate-md.sh` that CDT-164 fixed for `embed-one.sh`. After model resolution (outside the per-row loop), apply `:-all-MiniLM-L6-v2` then single-quote-double into `EMBED_MODEL_ESC`; use that form only in the `embedding_meta` INSERT. Provider body still gets the raw name via `jq --arg`. |

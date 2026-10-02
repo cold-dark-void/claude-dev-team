@@ -154,6 +154,59 @@ done < <(awk -F'|' '
   }
 ' "$ROOT/specs/TDD.md")
 
+# --- 4b. specs/OWNERS: one owner per shipped surface ---
+# A tree with no command, agent, or skill surface (the spec-lint fixture)
+# has nothing to own. The product tree has surfaces, so a missing map fails.
+OWN="$ROOT/specs/OWNERS"
+surfaces=$(mktemp "${TMPDIR:-/tmp}/spec-lint-surf.XXXXXX")
+find "$ROOT/commands" "$ROOT/agents" -type f -name '*.md' -print 2>/dev/null > "$surfaces" || true
+find "$ROOT/skills" -mindepth 2 -maxdepth 2 -type f -name 'SKILL.md' -print 2>/dev/null >> "$surfaces" || true
+if [ ! -s "$surfaces" ]; then
+  rm -f "$surfaces"
+else
+  own_err=$(mktemp "${TMPDIR:-/tmp}/spec-lint-own.XXXXXX")
+  if [ ! -f "$OWN" ]; then
+    printf '%s\n' "file missing" > "$own_err"
+  else
+  awk -F'\t' '
+    /^[[:space:]]*#/ || NF == 0 { next }
+    {
+      if (NF != 2) { print "bad-line " NR; next }
+      if (seen[$1]++) print "duplicate " $1
+      if ($2 !~ /^(SPEC-[0-9]+|UNSPECCED)$/) print "bad-owner " $1
+    }
+  ' "$OWN" > "$own_err"
+  while IFS= read -r abs; do
+    rel=${abs#"$ROOT/"}
+    case "$rel" in
+      skills/*/SKILL.md) key=${rel%/SKILL.md} ;;
+      *) key=$rel ;;
+    esac
+    n=$(awk -F'\t' -v k="$key" 'NF==2 && $1==k { c++ } END { print c+0 }' "$OWN")
+    if [ "$n" -eq 0 ]; then
+      printf 'missing %s\n' "$key" >> "$own_err"
+    elif [ "$n" -ne 1 ]; then
+      printf 'duplicate %s\n' "$key" >> "$own_err"
+    fi
+  done < "$surfaces"
+  awk -F'\t' 'NF==2 { print $1 }' "$OWN" | while IFS= read -r key; do
+    case "$key" in
+      commands/*.md) path="$ROOT/$key" ;;
+      agents/*.md) path="$ROOT/$key" ;;
+      skills/*) path="$ROOT/$key/SKILL.md" ;;
+      *) printf 'bad-key %s\n' "$key" >> "$own_err"; continue ;;
+    esac
+    [ -f "$path" ] || printf 'stale %s\n' "$key" >> "$own_err"
+  done
+  fi
+  if [ -s "$own_err" ]; then
+    while IFS= read -r line; do
+      say "specs/OWNERS: [owners] $line"
+    done < "$own_err"
+  fi
+  rm -f "$own_err" "$surfaces"
+fi
+
 # --- 5. citation ban ---
 cite_scan() {
   find "$ROOT/skills" "$ROOT/commands" "$ROOT/agents" "$ROOT/specs" \

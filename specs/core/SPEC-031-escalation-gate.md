@@ -120,8 +120,8 @@ MUST NOT restate it.
 - MUST handle `ensure` exit codes distinctly: `0` = path on stdout, proceed; `1` = surface
   stderr and halt; `2` = user aborted the collision prompt, halt cleanly without error;
   `64` = invalid slug, a caller bug — halt and report.
-- MUST correct the `AGENTS.md` Worktree Protocol section, which documents the
-  SPEC-016-forbidden cwd-relative form, so that no new caller copies it.
+- The `AGENTS.md` Worktree Protocol section already uses the PDH-resolved form.
+  It MUST stay that way. It MUST NOT document `bash skills/worktree-lib.sh` as the caller path.
 
 ### Bounded exit paths
 
@@ -572,6 +572,7 @@ indefinitely (origin findings: `skills/refactor/SKILL.md` release-fail-skips-dis
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-371: the AGENTS.md Worktree Protocol cwd-relative drift is already fixed. Keep the PDH-resolved form. |
 | 2026-10-01 | WP 5-06 (CDT-304): Status DRAFT → ACTIVE. The gate and worktree rules are shipped. |
 | 2026-09-28 | wp-1-10-gate-hooks (CDT-383, rv-w1-28): /tdd-gate entry gains matcher "Write\|Edit\|MultiEdit" (identity no longer ("", …)); on-install removes old tdd-gate.sh elements first; hook fence is bash template with the shebang first. |
 | 2026-08-02 | CDT-102 council follow-ups. Marker lifecycle changed to **arm-on-escalate, disarm-at-handoff-completion** (arming decoupled from worktree creation and confined to the escalate-and-auto-chain route; bounded runs unarmed/WARN-only; exactly one success-path disarm right after `/kickoff`/`/epic` completes; 8h leak-expiry demoted to an abnormal-termination backstop) — closes the disarm-gap class by removing the scattered-happy-path fan-out. Escalate routes that emit-and-stop (all of `debug`) arm nothing. Added control-plane tamper-surface carve-out ahead of the allowlist (hook script, settings[.local].json, armed-marker dir) closing the armed self-disarm hole (#4/#15); doc `*.md` exemption retained deliberately. Warn-latch session-scoped + symlink-hardened (#3/#5). Sibling ripple pre-scoped: `debug` arm/disarm pure removal, `review-and-commit` §7.4 citation + dead-disarm removal. |

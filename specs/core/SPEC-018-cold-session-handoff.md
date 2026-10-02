@@ -1,9 +1,11 @@
 # SPEC-018: Session Handoff (STM Packet)
 
-**Status**: ACTIVE  
-**Category**: core  
-**Created**: 2026-06-04  
+**Status**: ACTIVE
+**Category**: core
+**Created**: 2026-06-04
 **Rework**: 2026-07-23 (CDT-79) — STM packet / compact seed (replaces prior inject-brief M4)
+
+**Covers**: `skills/handoff/SKILL.md`, `commands/handoff.md`, `skills/transcript-parse/` (consumed; owned by SPEC-012)
 
 ---
 
@@ -320,6 +322,7 @@ The numbered Test section above is the acceptance map. This table is the script 
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-391: Covers is a header line. Status has no trailing spaces. |
 | 2026-10-01 | WP 4-06: `--slug` rejects a missing value or a following flag. The parent error file is a `handoff.err.XXXXXX` temp removed on exit. Prepare prefers the co-located transcript-mirror. PreCompact retention keeps the newest numeric sequence. Stale step numbers in handoff prose match a heading in `commands/handoff.md` or they are section names. |
 | 2026-10-01 | WP 4-05: project-dir encoding uses `hosts.py encode-project`. Generic `SESSION_ID` is not a warm pin (`HANDOFF_SESSION_ID` is). A stale `.live-session.json` does not resolve. Cold `plan-fields.py` ignores the bridge host. The git capture recipe uses `git -C "$MROOT"`. |
 | 2026-10-01 | WP 4-04: event text, how_verified, pointer notes, and validated summary prose collapse to one line before render. Git blob fence is longer than any backtick run in the blob. Packet write is temp plus rename. resolve-root refuses MROOT equal to `$HOME/.claude` and maps a submodule common dir up to the super checkout. |

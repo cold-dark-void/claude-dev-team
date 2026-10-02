@@ -5,6 +5,8 @@
 **Created**: 2026-07-03
 **Promoted**: 2026-07-14 (CDV-185)
 
+**Covers**: `skills/metrics/emit-outcome.sh`, `skills/metrics/outcome-rates.sh`, `skills/metrics/test.sh`, `skills/orchestrate/steps/07-tasks.md`, `skills/orchestrate/steps/08-execute.md`.
+
 ---
 
 ## Overview
@@ -17,7 +19,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 
 **Boundaries & related specs:**
 - **SPEC-009 (ticket workflow)** hosts the assignment step and owns the tagging rules (`Recommended agent:` line), the stuck-after-2 escalation rule, the 3+-round deadloop counter, and the Step-9/Step-10 review/QA loops. This spec MUST NOT rewrite any of those loops or rules — it *instruments stint terminals* (reusing Step 9's review-round counter) and adds a read-only advisory immediately before the `Recommended agent:` line is printed.
-- **SPEC-019 (local-agent offload, DEPRECATED)** was the **format exemplar** for this ledger — its `.claude/local-agent/metrics.jsonl` established the JSONL, append-only, `jq`-guarded, `null`-not-`"unknown"` conventions this spec still follows. Local-agent offload was excised at v1.0.0, so its escalation events are no longer a live ledger source; the `local` agent enum value is retained but has no producer. `outcomes.jsonl` carries routing-outcome data only.
+- The ledger conventions are defined here: one JSONL record per line, append-only, `jq`-guarded, `null` not `"unknown"`. SPEC-019 is DEPRECATED and is not a live source. Do not open `.claude/local-agent/metrics.jsonl`. The `local` agent enum value is retained but has no producer. `outcomes.jsonl` carries routing-outcome data only.
 - **SPEC-013 (council)** owns the tribunal pipeline, the `TaskCompleted` quality gate, and the verdict index at `.claude/council/index.json`. Council overturn counts are derived **from the index only**; this spec MUST NOT write to the index, scan report `.md` files, or reimplement any verification pipeline.
 - **SPEC-003 (agent roles)** owns capability boundaries. Those stay **authoritative**: the ledger tunes routing WITHIN them and never proposes a routing that crosses one.
 - **CDV-187 metrics rollup** is display-only over existing sources (user entry: `/status metrics` after CDT-46-C4; former `/metrics` is a Deprecation stub). THIS spec owns write path + schema only — MUST NOT implement dashboards or rollup tables.
@@ -41,7 +43,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 
 ## MUST
 
-- **M1 — Append-only outcome ledger.** One JSONL record per (task, executor) stint terminal path appended to `$MROOT/.claude/metrics/outcomes.jsonl` — `$MROOT`-anchored so all worktrees of a project share one ledger (same anchoring as `task-store` and `memory.db`). Records are never mutated, rewritten, or deleted. Format exemplar: SPEC-019's (DEPRECATED) `.claude/local-agent/metrics.jsonl` conventions — one record per line; emit guarded by `command -v jq`, skipped best-effort when absent; stdout discipline — diagnostics to stderr only.
+- **M1 — Append-only outcome ledger.** One JSONL record per (task, executor) stint terminal path appended to `$MROOT/.claude/metrics/outcomes.jsonl` — `$MROOT`-anchored so all worktrees of a project share one ledger (same anchoring as `task-store` and `memory.db`). Records are never mutated, rewritten, or deleted. One record per line; emit guarded by `command -v jq`, skipped best-effort when absent; stdout discipline — diagnostics to stderr only.
 
 - **M2 — Record schema.** Fixed keys `{ ts, ticket, task_id, agent, task_class, size, outcome, review_cycles, qa_bounces, council_overturns }`:
   - `ts` — epoch seconds
@@ -57,7 +59,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
   - Unknown values are JSON `null`, never the string `"unknown"` (SPEC-019 precedent)
   - An escalation produces TWO records over a task's life: `{agent: <original>, outcome: "escalated"}` at hand-off, then a terminal record for the executor that finishes (`accepted` or further `escalated`)
 
-- **M3 — Task-class prose line.** The Tech Lead records the class at Step 7 as a `Task-class: <enum>` prose line in the TaskCreate description — mirroring the existing `Recommended agent:` and `Machine-check:` lines (SPEC-019 ADR AMB-1 precedent), NOT a `task-store.sh` schema field. Taxonomy is fixed for this version: `impl-extend | impl-novel | refactor | test | docs | infra | discovery`. A missing line ⇒ `task_class: null`; null-class records are still emitted but excluded from advisory aggregation.
+- **M3 — Task-class prose line.** The Tech Lead records the class at Step 7 as a `Task-class: <enum>` prose line in the TaskCreate description — mirroring the existing `Recommended agent:` and `Machine-check:` lines (SPEC-019 ADR AMB-1 precedent), NOT a `task-store.sh` schema field. Taxonomy is fixed for this version: `impl-extend | impl-novel | refactor | test | docs | infra | discovery | measurement`. `measurement` is the class for the SPEC-009 measurement/ML work kind that routes to `ds`. `emit-outcome.sh` already accepts agent `ds` and stores `task_class` as a string (it does not check the enum). Advisory cells are `(agent, task_class)`, so a `ds` stint tagged `measurement` aggregates. `discovery` stays a separate class. A missing line ⇒ `task_class: null`; null-class records are still emitted but excluded from advisory aggregation.
 
 - **M4 — Emission at existing stint terminals only (OQ4).** Ledger writes are instrumented at checkpoints that already exist — no new hook events:
   - **(a) Accepted stint** — after Step-10 has finalized `qa_bounces` for the task (QA PASS, or explicit QA N/A with counter frozen). Step-9 APPROVE alone MUST NOT emit.
@@ -135,8 +137,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 | Date | Change |
 |------|--------|
 
-**Covers**: `skills/metrics/emit-outcome.sh`, `skills/metrics/outcome-rates.sh`, `skills/metrics/test.sh` (or equivalent bite harness), `skills/orchestrate/steps/07-tasks.md` (Step-7 advisory) + `skills/orchestrate/steps/08-execute.md` (stint-end emit; SKILL.md is the CDT-199 router), `specs/TDD.md` (index row) — planned/landing with CDV-185. Standup surface is SHOULD (optional).
-
+| 2026-10-02 | CDT-314 / CDT-371 / CDT-391 / CDT-413: `measurement` is the ds task class. The ledger already accepts agent `ds`. SPEC-019 is not a live file to open. Covers is a header line. CDV-185 has landed. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: verify-keep ACTIVE; metrics emit/outcome-rates + orchestrate advisory present. |
 | 2026-07-22 | CDT-46-C4: display entry for rollup noted as `/status metrics` (former `/metrics` Deprecation stub). Write-path ownership unchanged. |
 | 2026-07-21 | CDT-46-C2: ledger-source list narrowed — `/local-do` + local-agent escalation producers removed (SPEC-019 deprecated + local-agent surfaces excised at v1.0.0). Dropped `commands/local-do.md` from Covers and the local source test; `local` agent enum retained without a producer; SPEC-019 references retagged as historical format-exemplar. M8 advisory scope now ic4 ⇄ ic5 only. Status stays ACTIVE. |
@@ -147,7 +148,7 @@ On top of the ledger sits an **advisory** routing policy: at orchestrate task-as
 - **SPEC-003** — Agent Role System: capability boundaries authoritative; ledger tunes routing within them (M8).
 - **SPEC-009** — Ticket Workflow: hosts Step-7 assignment/tagging, Step-9 review loop, stuck-after-2 and deadloop rules; this spec instruments stint terminals only (M4) and adds the pre-tag advisory (M5).
 - **SPEC-013** — Adversarial Council Tribunal: `.claude/council/index.json` is the read-only source for `council_overturns` (OQ2); index ownership and atomic-write contract stay there.
-- **SPEC-019** — Local-Agent Offload via OpenCode (DEPRECATED): its `.claude/local-agent/metrics.jsonl` was the format exemplar for this ledger. Offload excised at v1.0.0 — no longer a live ledger source; the `local` agent enum value is retained without a producer.
+- **SPEC-019** — Local-Agent Offload via OpenCode (DEPRECATED). It is not a live ledger source. Do not open a local-agent metrics file. The `local` agent enum value is retained without a producer.
 - **SPEC-016** — Worktree Isolation: the ledger is `$MROOT`-anchored and shared across worktrees (M1).
 - **SPEC-002** — Plugin Infrastructure: TaskCompleted gate + `council.taskgate.min_confidence` define the overturn threshold used in OQ2.
 - **CDV-187** — `/metrics` rollup (display-only over `outcomes.jsonl` and other sources).

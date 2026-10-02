@@ -66,13 +66,13 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 - MUST NOT edit, create, or delete any file until the root cause statement exists in the session output
 - MUST trace the full execution path holistically — not stop at the first grep match
 - MUST identify whether the same root cause or pattern exists elsewhere in the codebase
-- MUST state the scope decision explicitly in written output before any fix code is written: targeted patch, refactor-first, or `/update-spec` handoff
+- MUST state the scope decision explicitly in written output before any fix code is written: targeted patch, refactor-first, or `/spec update` handoff
 
 ### Spec Alignment Check (`full` mode only)
 
 - MUST read all specs in `specs/` related to the affected area before concluding root cause analysis
-- MUST classify the deviation as one of: (a) code bug — spec is correct, (b) spec gap — `/update-spec` handoff required, or (c) intentional divergence — document and proceed
-- MUST hand off to `/update-spec` if classification is (b), outputting: the relevant spec file, the specific requirement missing or contradicted, and a proposed addition
+- MUST classify the deviation as one of: (a) code bug — spec is correct, (b) spec gap — `/spec update` handoff required, or (c) intentional divergence — document and proceed
+- MUST hand off to `/spec update` if classification is (b), outputting: the relevant spec file, the specific requirement missing or contradicted, and a proposed addition
 - MUST NOT ask the user to make the spec-vs-bug determination unless classification is genuinely ambiguous after full investigation
 
 ### Scope Decision (`full` and `arch` modes)
@@ -180,7 +180,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 ### T5: Spec alignment check
 1. Run `/debug` on behavior that deviates from an existing spec
 2. Verify: the skill reads the relevant spec and classifies as code-bug, spec-gap, or intentional-divergence
-3. Verify: if spec-gap, output includes the specific requirement missing and a `/update-spec` handoff — does NOT ask the user to decide
+3. Verify: if spec-gap, output includes the specific requirement missing and a `/spec update` handoff — does NOT ask the user to decide
 
 ### T6: Escalation path
 1. Run `/debug` on a bug requiring cross-subsystem refactor
@@ -248,7 +248,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 - [ ] All tests pass before "done" language appears
 - [ ] Same-pattern detection triggers refactor path (not multi-site patch)
 - [ ] Spec alignment check runs in `full` mode, skipped in `patch` mode
-- [ ] Spec-gap classification produces `/update-spec` handoff without asking user
+- [ ] Spec-gap classification produces `/spec update` handoff without asking user
 - [ ] Escalation to `/kickoff` (or `/epic` on a confirmed split) includes structured context (4 required fields)
 - [ ] `arch` subcommand always escalates (`/kickoff`, or `/epic` on a confirmed split), never fixes inline
 - [ ] Escalate-path (full) and arch-mode split checks run before the handoff; confirmed split → `/epic`, non-split → `/kickoff` unchanged
@@ -268,6 +268,7 @@ Defines the `/debug` skill — the bug-handling equivalent of `/brainstorm`. Own
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-371: spec-gap handoff is `/spec update`, not `/update-spec`. Ticket mode still lives here. There is no `commands/fix-ticket.md`. |
 | 2026-10-01 | WP 5-06 (CDT-301, CDT-304): `ticket` mode protocol lives here. SPEC-028 is not authoritative. Status APPROVED → ACTIVE because Validation is not complete. |
 | 2026-10-01 | WP 4-09: full mode commits the fix on the § 2.4a branch (§ 2.7a) and ends at a bounded exit (§ 2.10a). `/refactor` § 2.4 still leaves that exit to `/debug` for a caller-supplied worktree. |
 | 2026-08-30 | CDT-230: new § Root-cause agent registers `agents/debugger.md` (opus / effort high) as the agent for the `ticket`-mode premise-investigation phase — previously `ic5`, which was carrying three unrelated job shapes. `full`/`patch`/`arch` root-cause phases have no named-roster Agent spawn (SPEC-037 M16 site 3) and are unaffected by this ticket. `debugger` is read-only and memory-less (SPEC-003 non-behavioral roster agent); host-reject falls back to `ic5`, never `ic4`. `--agent ic4\|ic5` keeps its existing implementer-only meaning and does NOT gain a `debugger` token. Step 5 refuters stay on `qa` — unchanged by this ticket. Added T14 + 3 validation checkboxes. Status stays APPROVED. |

@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-03-22
 
-**Covers**: `agents/pm.md`, `agents/tech-lead.md`, `agents/ic5.md`, `agents/ic4.md`, `agents/devops.md`, `agents/qa.md`, `agents/ds.md`, `agents/finder.md`, `agents/debugger.md`, `commands/adjust-agent.md`
+**Covers**: `agents/pm.md`, `agents/tech-lead.md`, `agents/ic5.md`, `agents/ic4.md`, `agents/devops.md`, `agents/qa.md`, `agents/ds.md`, `agents/finder.md`, `agents/debugger.md`, `agents/council-judge.md`, `agents/council-scribe.md`, `agents/distiller.md`, `agents/project-init.md`, `commands/adjust-agent.md`
 
 ## Overview
 
@@ -112,7 +112,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 - Verify IC4 Do-NOT: `rg -n 'Invent new patterns or abstractions without Tech Lead approval' agents/ic4.md`
 - Verify Step 8/10 stay silent: `rg -n 'COPY-ACCEPTED|EXTRACT-DEFERRED|Copy-extract' skills/orchestrate/steps/08-execute.md skills/orchestrate/steps/10-qa.md` (expect no matches)
 - Verify MC-4 on the 8 council tribunal templates (each file must contain the line `Output mode: terse`): `rg -n 'Output mode: terse' skills/council/prompts/investigator.md skills/council/prompts/cross-reviewer.md skills/council/prompts/claim-extractor.md skills/council/prompts/plan-extractor.md skills/council/prompts/phase4-brief.md skills/council/prompts/judge.md skills/council/prompts/tier-triage.md skills/council/prompts/topic-classifier.md`
-- Verify no new commands: `git diff --name-only -- commands/` (empty)
+- A change under this spec MUST NOT add a file under `commands/` except edits to `commands/adjust-agent.md`. The roster stays in `agents/`. This is a standing rule, not a ticket diff.
 
 ## Validation
 
@@ -133,6 +133,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-391 / CDT-413: Covers names the full roster, including council-judge, council-scribe, distiller, and project-init. The commands-directory check is a standing rule, not a ticket `git diff`. |
 | 2026-10-01 | BH-C013: MC-4 Test grep covers the 8 council tribunal templates under `skills/council/prompts/`. Status stays ACTIVE. |
 | 2026-10-01 | CDT-380: `council-scribe` joins the non-behavioral roster (opus/high, `tools: ""`, no memory). Count is 6 non-behavioral / 13 files. `finder` is Phase 2 only; Phase 2.5 is `council-scribe`. Status stays ACTIVE. |
 | 2026-09-08 | CDT-245: close IC4 Opus OQ — keep Sonnet (`ic4` stays sonnet/medium). Edge-case reasoning escalates; no frontmatter change. Status stays ACTIVE. |

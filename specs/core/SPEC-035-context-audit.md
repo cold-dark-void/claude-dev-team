@@ -4,6 +4,8 @@
 **Category**: core
 **Created**: 2026-08-16
 
+**Covers**: `commands/audit.md`, `skills/audit/SKILL.md`, `skills/audit/audit.sh`, `skills/audit/apply.py`, `skills/audit/from-session.sh`, `skills/audit/test.sh`, `docs/commands/audit.md`
+
 ## Overview
 
 `/audit` is a user-invocable Surface that inventories the **instruction stack**
@@ -95,11 +97,7 @@ hygiene. Skill splits and handoff packet fields are separate workstreams
 
 | Date | Change |
 |------|--------|
-
-**Covers**: `commands/audit.md`, `skills/audit/SKILL.md`, `skills/audit/audit.sh`,
-`skills/audit/apply.py`, `skills/audit/from-session.sh`, `skills/audit/test.sh`,
-`docs/commands/audit.md`
-
+| 2026-10-02 | CDT-391: Covers is a header line, before Version History. |
 | 2026-08-16 | Initial DRAFT — CDT-200 /audit v1 (CDT-196-C4) |
 | 2026-08-16 | Promoted ACTIVE on v1.8.0 land |
 | 2026-08-16 | CDT-201: M4 `~/.grok` user-global + MROOT from `--cwd`; M7 `realpath` + `--yes` for `~/.grok`; M9 `--json` stdout JSON-only |

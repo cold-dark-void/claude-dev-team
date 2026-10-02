@@ -77,6 +77,7 @@ Status is governed on TWO orthogonal axes. They MUST NOT be conflated in one val
   (under a `## Spec Index` section). `Status` carries an Axis-A lifecycle word (above).
 - MUST list every governed spec file in the Spec Index; links MUST point to existing files; no
   orphaned spec files (files not in the index); index `Status` MUST match the spec file's `**Status**:`.
+- `specs/OWNERS` maps each `commands/*.md` file, each `skills/<name>` directory that has a `SKILL.md`, and each `agents/*.md` file to one owner. The owner is `SPEC-NNN` or `UNSPECCED`. `tools/spec-lint.sh` MUST reject two lines for one path and a scanned surface with no line. A Covers cite is not a second owner.
 - An ACTIVE spec MUST NOT cite a DRAFT spec as the normative contract for a behavior it
   requires. Promote the cited spec to ACTIVE first, or record why it stays DRAFT. SPEC-034
   stays DRAFT until CDT-292 because `skills/bug-hunt/test.sh` T1 requires that status.
@@ -97,6 +98,7 @@ Status is governed on TWO orthogonal axes. They MUST NOT be conflated in one val
 - MUST run code alignment warning for ADDED/MODIFIED requirements (grep source, classify as CODE MATCHES / CODE CONTRADICTS / NO CODE FOUND)
 - MUST add Version History entry on every update — a 2-column `| Date | Change |` row (the
   spec-file and TDD-index Version-History tables are both 2-column; the 3-column variant is retired)
+- Version History rows are newest-first, the same order as `CHANGELOG.md`. The first data row is the latest date. Equal dates keep their existing relative order. Do not rewrite the words of an older row to change order. `tools/spec-lint.sh` accepts either monotonic direction (newest-first or oldest-first). This corpus uses newest-first.
 - MUST preserve entire spec content (only apply requested changes)
 - MUST check for dependencies in other specs when REMOVING requirements
 
@@ -120,7 +122,7 @@ Status is governed on TWO orthogonal axes. They MUST NOT be conflated in one val
 
 ### Spec Listing (`/spec list`)
 - MUST show counts by category and status
-- MUST highlight items needing attention (NEW, FAIL, UNDER REVIEW)
+- MUST highlight items needing attention (`INFERRED`, `DRAFT`, and Axis-B `FAIL` or `UNDER REVIEW`). `NEW` is not a lifecycle status.
 - MUST show recent changes from Version History
 
 ### Spec Generation (`/spec generate`)
@@ -374,6 +376,7 @@ verifies that each MUST has a TEST. Phase 3 adds an opt-in MUST→test traceabil
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-371 / CDT-382 / W2-46: Version History is newest-first (spec-lint still allows either monotonic direction). `/spec list` does not highlight retired `NEW`. `specs/OWNERS` is the single-owner map. |
 | 2026-10-01 | WP 5-06 (CDT-304): an ACTIVE spec must not cite a DRAFT spec as its normative contract. SPEC-034 stays DRAFT until CDT-292. |
 | 2026-10-01 | WP 5-05: when no project-language marker is present, Phase 2 may read `*.md` and `*.sh` as product source. The canonical exclude set is unchanged. Category comes from the ID prefix or the `specs/` directory, not from Coverage. |
 | 2026-07-22 | CDT-52 / CDT-46-C6: human-reviewed promote INFERRED→ACTIVE; evidence: Linear CDT-52 ship comment + /spec check exit-0. |

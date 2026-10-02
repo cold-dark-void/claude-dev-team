@@ -119,7 +119,7 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 
 ### Determinism / environment
 
-- MUST NOT read or write outside the repo tree except via `$TMPDIR`/`mktemp -d`; MUST NOT hardcode `/tmp` (the repo's own `worktree-lib-test.sh` produced 20/32 spurious sandbox FAILs from hardcoded `/tmp` — the harness and its test must be sandbox- and CI-runner-portable)
+- MUST NOT read or write outside the repo tree except via `$TMPDIR`/`mktemp -d`; MUST NOT hardcode `/tmp` (`skills/worktree-lib-test.sh` now uses `mktemp -d "${TMPDIR:-/tmp}/…"`. Do not hard-code a bare `/tmp` path. The harness and its test must be sandbox- and CI-runner-portable)
 - MUST use `bash -n` (not `zsh -n`) for syntax checks so results match the GitHub Actions Ubuntu-bash runner and the existing `/release` gates, even though fences are authored with zsh idioms
 - MUST require no network, no secrets, and no Claude API — the gate is fully offline and deterministic on any bash + python3 host
 
@@ -225,7 +225,7 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 
 ## Out of Scope
 
-- **README command-index presence** (a Surface appearing in the README `## Commands` list) — this is `docs-drift`'s D1 check (SPEC-010, `/release` Step 4.9). Asserting index presence here would false-FAIL internal skills that are intentionally not user-facing and not in the README index. The smoke harness checks that a Surface *loads*, not that it is *documented*.
+- **README command-index presence** (a Surface appearing in the README `## Commands` list) — this is `docs-drift`'s D2 `cmd-index` check (SPEC-010, `/release` Step 4.9). Asserting index presence here would false-FAIL internal skills that are intentionally not user-facing and not in the README index. The smoke harness checks that a Surface *loads*, not that it is *documented*.
 - Fenced-bash defect-class linting (cross-block scope, zsh `!` hazard, unguarded glob, inline-PRAGMA poison) — owned by SPEC-021 `skill-lint` (`/release` Step 4.8). Smoke asserts `bash -n` *parses*; skill-lint asserts the defect classes are absent. Complementary, non-overlapping.  Function scope across fences, `trap ... EXIT` in a fence, a top-level `return` and path literals are per-fence checks of the fence-exec harness (R25), not of skill-lint.
 - Runtime/behavioral verification of what a command *does* (its outputs, side effects, agent orchestration) — the smoke harness is load-only static verification. The fence-exec harness runs only the fences that its manifest lists, against fixtures (R26, R27).
 - Smoke does not *run* test scripts (it only parses them); the all-suites runner does.
@@ -316,6 +316,7 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 | Date | Change |
 |------|--------|
 
+| 2026-10-02 | CDT-371: the README command-index check is docs-drift D2 (`cmd-index`), not D1. `worktree-lib-test.sh` uses `mktemp` under `TMPDIR`. |
 | 2026-10-01 | WP 2-10 (`wp-2-10-retro-scheduled`; CDT-324, CDT-344): the two `commands/retro.md` exclusion rows leave. Step 1b no longer releases the scheduled lock when its fence ends, and later fences call `invoke-scheduled-report.sh`. R30 and ACs J, K, and P record that removal. |
 | 2026-09-30 | WP 2-01 (`wp-2-01-fence-harness`; CDT-272, CDT-356): new section **Fence-exec harness** (R23-R30): `tools/fence-exec/run.sh` with `list`, `check` and `run`; per-fence checks F1 (`bash -n`, adds `AGENTS.md`), F2 (function scope across fences), F3 (`trap ... EXIT` in a fence), F4 (`return` outside a function) and F5 (path literals); a manifest (`tools/fence-exec/manifest.tsv`) of counted, reasoned exclusions and of suite rows that tie fences to the suites that run them; the `fence-exec` CI job and `tools/ci-workflow-test.sh` rule B6. The two "static only" rules and the Out of Scope "runtime verification" line now bind the smoke harness; the fence-exec harness runs a fence only through a manifest suite. First manifest: the four existing fence suites, `skills/retro-gate/test-retro-fences.sh` (`commands/retro.md` Step 1b) and `skills/refactor/test-fences.sh` (CDT-356), plus two exclusions for `commands/retro.md` (F2 x4, F3 x1; backlog `wp-2-10-retro-scheduled`). New `## Acceptance criteria` with `### wp-2-01-fence-harness`. The parser and the scan set come from SPEC-021. |
 | 2026-09-30 | WP 2-02 (`wp-2-02-lint-rules`; CDT-286 `[06 F23]` and `[08 F16]`, rv-w1-14): new R31, `tests/lib/trailing-flag.sh`, the probe that runs every `shift 2` flag as the last argument under a timeout (self-test in `tests/lib/test.sh`). `skills/skill-lint/test-command-fences.sh` is a new fence suite and gets twelve `suite` rows in `tools/fence-exec/manifest.tsv` (R27). SPEC-021 adds C8 and C9. |
@@ -328,7 +329,7 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 ## Cross-references
 
 - SPEC-021 — skill-bash lint gate; the closest precedent (LLM-free subprocess CLI, exit 0/1/64, `/release`-hosted gate, fixtures + bite-test). Reuse its `extract_blocks` fence semantics; complementary check (parse vs defect-class).
-- SPEC-010 — code review & release; `/release` hosts this spec's invocation steps (Step 4.10 smoke, Step 4.13 all-suites). Owns the README command-index (docs-drift D1) — see Out of Scope.
+- SPEC-010 — code review & release; `/release` hosts this spec's invocation steps (Step 4.10 smoke, Step 4.13 all-suites). Owns the README command-index (docs-drift D2 `cmd-index`) — see Out of Scope.
 - SPEC-002 — plugin infrastructure; owns the frontmatter/manifest loading contract and the hook-template drift-gate bite-test precedent.
 - SPEC-003 — agent role system; source of the five agent frontmatter fields and the Tier table (not enforced here).
 - SPEC-013 — council template-var drift gate precedent (gate owned by domain spec, hosted by `/release`).

@@ -1,11 +1,13 @@
 # SPEC-029: Debug Reopen Detector & Multi-Surface Done Gates
 
-**Status**: ACTIVE  
-**Category**: core  
-**Created**: 2026-07-15  
-**Extends**: SPEC-014 (Debug Workflow), SPEC-015 (Refactor Workflow), SPEC-026 (outcomes)  
-**Evidence**: `.claude/plans/2026-07-15-plugin-bug-refactor-performance-eval.md`,  
-`.claude/plans/2026-07-15-may-refine-autopsy.md` (describer May 2026 refine/isolation thrash)
+**Status**: ACTIVE
+**Category**: core
+**Created**: 2026-07-15
+**Extends**: SPEC-014 (Debug Workflow), SPEC-015 (Refactor Workflow), SPEC-026 (outcomes)
+
+**Covers**: `skills/debug/SKILL.md`, `skills/debug/theme-status.sh`, `skills/refactor/SKILL.md`
+
+The originating notes were local plans. They are not package files.
 
 ---
 
@@ -184,20 +186,11 @@ agents actually execute S.1 — nothing hook-enforces it yet.
 
 ---
 
-## Covers
-
-- `skills/debug/SKILL.md` (SPEC-029 section)
-- `skills/debug/theme-status.sh`
-- `skills/refactor/SKILL.md` (theme context note)
-- `.claude/debug/themes/` convention
-- SPEC-014 checklist extension
-
----
-
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-314 / CDT-391: Covers is a header line. Status has no trailing spaces. Originating plans are not package files. |
 | 2026-07-16 | Status DRAFT→ACTIVE after describer dogfood (Grok `/debug` sessions; happy-path + S.1; force/override residual) |
 | 2026-07-15 | Review fixes: Validation section; REOPEN_COUNT = distinct days; human override; C1-safe S.6 placeholders; empty-key fallback; FM coverage table; arch S.6 |
 | 2026-07-15 | DRAFT from plugin eval + May autopsy |

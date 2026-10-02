@@ -26,7 +26,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - MUST compute a composite staleness score (0-100) per memory as weighted average of per-claim verdict points: `CONTRADICTED`=40pts, `STALE`=25pts, `AMBIGUOUS`=10pts, `VALID`=0pts, each weighted by `confidence/100`, then averaged across claims. Scale that 0-40 average to 0-100 (`scaled = raw * 100 / 40`) before the age modifier (0-5pts) and the tier modifier (-5pts for tier-2). One `CONTRADICTED` claim at confidence 90 scores 90 and auto-archives.
 - MUST resolve file paths relative to the project root (`WTROOT`)
 - MUST skip memories with zero extractable checkable claims (not marked as validated)
-- MUST use Opus model for the reviewer agent (judgment-heavy confirmation of medium-confidence entries); claim extraction and investigation subagents may use any available model
+- MUST route the reviewer to the `tech-lead` agent. The model is that agent's frontmatter (SPEC-003 Tier table, SPEC-037 Model map). Do not pin a separate Opus model on the reviewer spawn. Claim extraction and investigation subagents may use any available model.
 - MUST work via sqlite3 CLI for all DB operations (consistent with SPEC-004)
 - MUST follow the SPEC-004 write-path contract on every write operation (incl. `PRAGMA busy_timeout=5000`) — SPEC-004 is the single source
 - MUST SQL-escape all content (single quotes → double single quotes)
@@ -34,7 +34,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 ### Action Thresholds (Multi-Stage Pipeline)
 - MUST mark memories with stale confidence = 0 as clean pass: set `validated_at`, log action `'pass'` (enables idempotency — next run skips these)
 - MUST surface memories with stale confidence 1-39 to the user as a non-blocking flagged list — command does NOT wait for user input; `validated_at` is NOT set on these entries
-- MUST route memories with stale confidence 40-80 to tech-lead agent (Opus, per SPEC-003) for confirmation before acting (score of exactly 80 routes to reviewer, NOT auto-archive)
+- MUST route memories with stale confidence 40-80 to the tech-lead agent (frontmatter model, per SPEC-003) for confirmation before acting (score of exactly 80 routes to reviewer, NOT auto-archive)
 - MUST auto-archive memories with stale confidence >80 (strictly greater than)
 - MUST present each flagged entry with: the memory content, per-claim verdicts with evidence, composite score breakdown, current codebase state for CONTRADICTED/STALE claims, and recommended action (archive / rewrite / keep)
 - MUST accept reviewer agent responses as structured output: `ARCHIVE`, `REWRITE: <new content>`, or `KEEP`
@@ -259,6 +259,7 @@ Cross-references agent memories against the live codebase to detect and resolve 
 
 ---
 
+| 2026-10-02 | W3-42: the reviewer is the tech-lead agent. Its model is the SPEC-003 frontmatter / SPEC-037 map, not a separate Opus pin. |
 | 2026-10-01 | WP 2-05 (CDT-377, CDT-387, CDT-345, `[07 F-25]`): candidate generation is one parameterized pass (`reconcile-pass.py`). Keyword Jaccard uses an inverted index. Embed KNN asks for a larger pre-filter, keeps k=5 cross-agent neighbours, and falls back to keyword when vec0 fails to load or the vector table is empty. Each resolve runs in one transaction, rejects a winner that is the loser or a missing or archived id, and merge deletes the winner vector row. `commands/memory.md` resolves the library through `plugin-dir.sh` and Step 2 uses `LIMIT 100`. |
 | 2026-07-22 | CDT-46-C3: retarget Covers + in-body surfaces `/validate-memory` → `/memory validate`, `/memory-distill` → `/memory distill`, `/memory-config` → `/memory config` (`commands/memory.md`). Status stays ACTIVE. |
 | 2026-07-14 | CDV-195: promote cross-agent memory reconciliation to normative MUSTs. Entry: `/validate-memory --reconcile` (+ `--report-only`). Schema v4 + `reconcile_log` + `reconcile_pair_cap`. Bounded candidates (embed KNN / keyword Jaccard). LLM pair-judge; never auto-archive; deep-audit → `/council` only. Status → ACTIVE. |
@@ -273,5 +274,5 @@ Cross-references agent memories against the live codebase to detect and resolve 
 - SPEC-006: Memory Retrieval — validated_at affects which memories load; archived entries already filtered; reconcile candidate search reuses embed/keyword degradation posture
 - SPEC-007: Memory Distillation — pre-distill integration (codebase validate only); deep mode invokes distiller for rebuilds; tier access control respected; distiller must set `archive_reason='distilled'` when archiving; pre-distill auto-reconcile DEFERRED
 - SPEC-013: Adversarial Council Tribunal — deep-audit hands off with `/council "…"`; reconcile does not reimplement tribunal phases
-- SPEC-003: Agent Role System — validation uses Opus; reviewer is tech-lead agent (Opus); pair-judge uses general-purpose Task subagent
+- SPEC-003: Agent Role System — reviewer is the tech-lead agent (frontmatter model); pair-judge uses general-purpose Task subagent
 - SPEC-009: Ticket Workflow — wrap-ticket could trigger validation check (future integration)

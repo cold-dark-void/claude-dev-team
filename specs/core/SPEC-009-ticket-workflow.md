@@ -558,6 +558,7 @@ only other content is `set -u` and a subprocess entry point that calls
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-371: the TaskCompleted council gate is implemented in SPEC-002. The cross-spec follow-up is closed. |
 | 2026-10-01 | WP 5-06 (CDT-318): memory write-back MUST append (SPEC-004). `INSERT OR REPLACE` is not the write path. |
 
 | 2026-09-28 | WP 1-06 (`wp-1-06-branch-deletion-safety`; CDT-278 `[06 F20]` `[06 F21]` `[06 F22]`, rv-w1-04, rv-p0-03). Wrap-Ticket remote prune MUST (was "fail-open one line; MUST NOT … use `--force`"): fetch each candidate into `refs/remotes/origin/<n>`, judge safety on that ref with `git-safety.sh is-merged`, delete with `--force-with-lease=refs/heads/<n>:<sha>` on the checked SHA (bare `--force` stays forbidden), classify "already gone" only by `remote ref does not exist` / `src refspec … does not match`, and print one `remote prune failed:` line per failure. Learnings come from the ticket worktree (`resolve-worktree.sh`), with a MROOT fallback and warning; fences set `TICKET_ID` literally; learnings text never sits in a double-quoted shell literal. The ACs live in SPEC-016 `### wp-1-06-branch-deletion-safety`. |
@@ -603,7 +604,7 @@ only other content is `set -u` and a subprocess entry point that calls
 - SPEC-004: Memory Storage — wrap-ticket writes learnings through storage layer
 - SPEC-013: Adversarial Council Tribunal — `requires_council: true` task metadata gates TaskCompleted on a council verdict; `--council-tier` / `engine.sh --tier` vocabulary is independent of `/orchestrate --tier`
 - SPEC-033: Autopilot Policy — `/orchestrate --tier` MUST NOT change gate ownership, checklists, or BC halt/escalate; this spec MUST NOT edit SPEC-033
-- SPEC-002: Plugin Infrastructure — owns the TaskCompleted hook script; council gate logic must be implemented in `task-completed.sh` (cross-spec follow-up required)
+- SPEC-002: Plugin Infrastructure — owns the TaskCompleted hook script. The council gate is implemented there. No open cross-spec follow-up.
 - SPEC-028: `/fix-ticket` premise→implement→adversarial-refuters — ticket-workflow family member; does not absorb orchestrate lifecycle, task store, or PR automation
 - SPEC-025: Epic Umbrella Decomposition — M4/M5: Linear preferred when MCP up; mandatory local write-through always; local `<EPIC-ID>-C<n>` IDs remain canonical orchestration keys; MCP-down fail-open with one-line notice. `/backlog reconcile` mirrors that posture; reconcile MUST keep the local write-through index consistent with the item files those epics write
 - SPEC-016: Worktree Isolation — holds the WP 1-06 ACs for wrap-ticket, `prune-remote.sh` and `worktree-lib.sh` (`### wp-1-06-branch-deletion-safety`); owns the wrap-ticket worktree matcher and the `release` branch guard

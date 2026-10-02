@@ -48,7 +48,7 @@ the same command/skill surface. Status remains DRAFT until a later promote.
 
 **Composition (not ownership of composed surfaces):** discover/refute reuse SPEC-013
 council/blind finder patterns; materialize reuses SPEC-009 `/backlog` dual-write; handoff
-**emits** templates that route to `/orchestrate` (SPEC-017) by default or `/epic` (SPEC-025)
+**emits** templates that route to `/orchestrate` (SPEC-009) by default or `/epic` (SPEC-025)
 when M18's multi-wave multi-ticket rule matches (operationalized by M45). Bug-hunt MUST compose
 these surfaces and MUST NOT invent a parallel ticket lifecycle. Stage 4 is **emit-only** — it
 MUST NOT invoke `/orchestrate`, `/epic`, spawn ICs, or edit product code to fix (N12).
@@ -126,7 +126,7 @@ MUST NOT invoke `/orchestrate`, `/epic`, spawn ICs, or edit product code to fix 
 - **M17 — Materialize via SPEC-009.** Backlog materialization MUST reuse SPEC-009 `/backlog`
   dual-write. Bug-hunt MUST NOT invent a second backlog SoT or dual-write path.
 - **M18 — Handoff routing (product lock).** Stage 4 handoff MUST select a route of:
-  - **`/orchestrate` by default** (SPEC-017), or
+  - **`/orchestrate` by default** (SPEC-009), or
   - **`/epic` when** the fix work is a **multi-wave multi-ticket DAG** (SPEC-025).
   Operational rule for the stage-4 runtime is **M45** (`phase_count ≥ 2` ∧ `item_count ≥ 2` →
   `/epic`; else `/orchestrate`). Route is recorded on templates and printed as
@@ -172,7 +172,7 @@ telemetry schema — a user- or gate-visible completion condition):
 | `/council --blind` | One-shot blind investigation / evidence hunt without materialize or fix phases (SPEC-013) |
 | `/backlog` | Create/update backlog items without a hunt pipeline (SPEC-009) |
 | `/epic` | Multi-wave multi-ticket DAG / umbrella decomposition (SPEC-025); also bug-hunt handoff target when M18 epic rule matches |
-| `/orchestrate` | Single-ticket (or non-epic) plan→implement→ship loop (SPEC-017); default bug-hunt handoff target |
+| `/orchestrate` | Single-ticket (or non-epic) plan→implement→ship loop (SPEC-009); default bug-hunt handoff target |
 
 ### Stages 1–2 runtime — discover → refute report (AC stages 1–2 / CDT-136)
 
@@ -494,6 +494,7 @@ Status remains DRAFT until a later epic promote (not a C2 ship gate).
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-371: `/orchestrate` is owned by SPEC-009. SPEC-017 stays the DAG and CI-watch spec. Status stays DRAFT. |
 | 2026-10-01 | WP 5-06 (CDT-304): Status stays DRAFT. `skills/bug-hunt/test.sh` T1 requires `**Status**: DRAFT`. Promoting it is CDT-292, not this package. |
 | 2026-10-01 | WP 4-08 (CDT-417, CDT-279 E12 E3 F12 F17 F20 F25): stem suffix on collision; phase-plan maps to the sibling findings plan; materialize paths stay under `.claude/bug-hunt/`; handoff rejects `--proceed` and `--severity-floor`; S4e rejects an out-of-range `--start-phase`; S1 lists files with `git -C WTROOT`; report walls match continuous S3/S4; evidence strike re-runs `reproducible_command`. Status stays DRAFT. |
 | 2026-08-07 | CDT-139: additive stage-4 runtime MUSTs M42–M48 (load C3 plan + phaseable filter, severity banding omit-empty renumber, phase-plan + handoff-phase templates, M18 route rule phase_count≥2∧item_count≥2, M9 lock forms `--start-phase`/`start-phase-<n>`, exit metrics, M23 full+zero + emit-only); N12–N13 hard walls; Covers/Overview stage 4 owned by CDT-139; Tests T22–T26 + Validation AC15; Status stays DRAFT |

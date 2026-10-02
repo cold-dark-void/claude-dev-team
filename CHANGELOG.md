@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.21
+- **WP 5-07 Spec editorial** — dead spec paths are removed, version history is newest-first, and each shipped surface has one owner.
+
 ### v1.19.20
 - **WP 5-06 Spec contracts** — fold SPEC-028 into SPEC-014 ticket mode, promote the status pass, and keep the effort flag and the land-no-release token.
 

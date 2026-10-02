@@ -4,6 +4,8 @@
 **Category**: core
 **Created**: 2026-08-25
 
+**Covers**: `skills/transcript-mirror/SKILL.md`, `skills/transcript-mirror/transcript-mirror.sh`, `skills/transcript-mirror/hook-shim.sh`, `skills/transcript-mirror/install.sh`, `skills/transcript-mirror/transcript-sync.sh`, `skills/transcript-mirror/transcript-sync.py`, `skills/transcript-mirror/strip_main.py`, `skills/transcript-mirror/compact-transcript.sh`, `skills/transcript-mirror/compact-transcript.py`, `skills/transcript-mirror/test.sh`, `skills/transcript-mirror/transcript-sync-test.sh`, `skills/transcript-mirror/compact-transcript-test.sh`, `skills/transcript-parse/hosts.py`, `skills/transcript-parse/hosts-grok-locate-test.sh`, `commands/compact-transcript.md`, `docs/commands/transcript-mirror.md`, `docs/commands/compact-transcript.md`, `skills/transcript-mirror/summarize-transcript.sh`, `skills/transcript-mirror/summarize-transcript.py`, `skills/transcript-mirror/reapply-overlay.sh`, `skills/transcript-mirror/summarize-transcript-test.sh`
+
 ## Overview
 
 The transcript mirror is a live per-session compressed record of the **meaning
@@ -728,30 +730,8 @@ verbatim. Channel sidecar taxonomy stays `thinking | tool_result | injection`.
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-391: Covers is a header line, not a break inside Version History. |
 | 2026-10-01 | WP 5-06 (CDT-304): Status DRAFT → ACTIVE. The mirror ships. |
-
-**Covers**: `skills/transcript-mirror/SKILL.md`,
-`skills/transcript-mirror/transcript-mirror.sh`,
-`skills/transcript-mirror/hook-shim.sh`,
-`skills/transcript-mirror/install.sh`,
-`skills/transcript-mirror/transcript-sync.sh`,
-`skills/transcript-mirror/transcript-sync.py`,
-`skills/transcript-mirror/strip_main.py`,
-`skills/transcript-mirror/compact-transcript.sh`,
-`skills/transcript-mirror/compact-transcript.py`,
-`skills/transcript-mirror/test.sh`,
-`skills/transcript-mirror/transcript-sync-test.sh`,
-`skills/transcript-mirror/compact-transcript-test.sh`,
-`skills/transcript-parse/hosts.py`,
-`skills/transcript-parse/hosts-grok-locate-test.sh`,
-`commands/compact-transcript.md`,
-`docs/commands/transcript-mirror.md`,
-`docs/commands/compact-transcript.md`,
-`skills/transcript-mirror/summarize-transcript.sh`,
-`skills/transcript-mirror/summarize-transcript.py`,
-`skills/transcript-mirror/reapply-overlay.sh`,
-`skills/transcript-mirror/summarize-transcript-test.sh`
-
 | 2026-10-01 | WP 4-03: `install.sh` opt-in helper; user docs resolve scripts through `plugin-dir.sh`; shim tier `CLAUDE_PLUGIN_ROOT` then cwd then cache; fixture signal ratio 0.50. Patch bump. |
 | 2026-08-26 | CDT-214: M15 Meaning-channel overlay — skill CLI `summarize-transcript.sh --sid` / `--restore` (no `commands/*.md`). `--check --sid` `status=ok` gate. Size-only eligibility >8192 UTF-8 bytes. Overlay = summary + `@verbatim/TNNNNNN.txt`; originals in `<sid>/verbatim/`. Recorder still verbatim. Rebuild stashes `verbatim/` like `agents/` and re-applies via bash `reapply-overlay.sh` (no LLM/Python). Seam `SUMMARIZE_TRANSCRIPT_CMD`. Patch bump. |
 | 2026-08-26 | CDT-215: M1 C7 carve-out — exactly `commands/compact-transcript.md`. M12 consumer carve-out + M14 meaning-tail: `--check --sid` `status=ok` MAY write sibling `<sid>.meaning-tail.md` (≤32768 UTF-8 bytes, trailing turn-blocks, strip title/`^>\s*@`). Fail-closed on miss. Recorder/sync MUST NOT touch `*.meaning-tail.md`. Rebuild MUST NOT eat the sibling. Not Compact seed / STM packet. Not a `/compact` replacement. Minor bump (v1.13.0 at `/release`). |

@@ -5,7 +5,7 @@
 **Created**: 2026-04-28
 
 <!-- drift-ok: skill-ref -->
-**Covers**: `skills/worktree-lib.sh`, `skills/orchestrate/SKILL.md`, `skills/kickoff/SKILL.md` (create-caller, CDT-105), `skills/wrap-ticket/SKILL.md`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2), `commands/worktree.md` (reduced: `release` only, CDT-46-C4), `commands/status.md` (`/status worktree` read-only list, CDT-46-C4), `AGENTS.md`, `.gitignore`. WP 1-06 adds `skills/worktree-lib-test.sh`, `skills/wrap-ticket/resolve-worktree.sh`, `skills/wrap-ticket/wrap-ticket-test.sh`, `docs/commands/worktree.md` and `docs/commands/wrap-ticket.md`. This spec consumes `skills/lib/git-safety.sh` (SPEC-025 M17).
+**Covers**: `skills/worktree-lib.sh`, `skills/orchestrate/SKILL.md`, `skills/kickoff/SKILL.md` (create-caller, CDT-105), `skills/wrap-ticket/SKILL.md`, `commands/worktree.md` (reduced: `release` only, CDT-46-C4), `commands/status.md` (`/status worktree` read-only list, CDT-46-C4), `AGENTS.md`, `.gitignore`. WP 1-06 adds `skills/worktree-lib-test.sh`, `skills/wrap-ticket/resolve-worktree.sh`, `skills/wrap-ticket/wrap-ticket-test.sh`, `docs/commands/worktree.md` and `docs/commands/wrap-ticket.md`. This spec consumes `skills/lib/git-safety.sh` (SPEC-025 M17).
 
 ## Overview
 
@@ -136,7 +136,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
   - The helper MUST NOT match by substring or by `grep -w`. `CDT-1` MUST NOT match `CDT-1-2`.
 - **Legacy path delete (WP 1-06, rv-w1-04).** In Step 6, when the legacy lookup is empty, the fence MUST print a skip message and exit `0` with no `git worktree remove` and no `git branch` call. Else it runs `git worktree remove` with no `--force`, then `git-safety.sh safe-delete-branch feat/<TICKET-ID> <base>` with the base from `git-safety.sh resolve-base`. An unmerged branch MUST be kept, and a message MUST name it. `SKILL.md` MUST NOT run `git branch -D "feat/$TICKET_ID"`.
 - **Step 6 confirmation (WP 1-06, rv-w3-08).** The Step 6 prompt MUST follow the `/worktree` counts and typed-slug rule (§ `/worktree` user command). It MUST NOT state that the branch "has already been merged".
-- **OBSOLETE at v1.0.0 (CDT-46-C2):** `/demo` was removed (`skills/demo/SKILL.md` is now a deprecation stub); this requirement is retained one deprecation cycle as historical record only. ~~`skills/demo/SKILL.md` MUST keep its dedicated `$TMPDIR/demo-project` path and MUST NOT depend on `worktree-lib.sh`. MUST add a 2-3 line inline check at worktree creation: if path exists, prompt user before proceeding~~
+- `/demo` was removed at v1.0.0 (CDT-46-C2). There is no demo worktree MUST.
 - `AGENTS.md` MUST contain a "Worktree Protocol" section that: declares `.worktrees/<slug>` as the canonical path, points to `skills/worktree-lib.sh` and SPEC-016, and states in one sentence that sibling-directory worktrees are forbidden when the lib is in use
 - `AGENTS.md` Worktree Protocol SHOULD mention `/worktree release <slug>` (mutate) and `/status worktree` (read-only list) as the user-facing surfaces
 
@@ -187,7 +187,7 @@ Defines a canonical, collision-safe worktree convention for the plugin. Any skil
 - MUST NOT fall back to `git worktree remove --force` in `release` (WP 1-06)
 - MUST NOT delete `feat/<slug>` in `release` or in the wrap-ticket legacy path unless `git-safety.sh is-merged` holds against the resolved base (WP 1-06)
 - MUST NOT stamp `.wt-lock` on an existing directory that is not a git worktree (`ensure` no-lock path; WP 1-06)
-- MUST NOT run parallel `git worktree` operations — already documented in AGENTS.md; this spec inherits that constraint
+- MUST NOT run parallel `git worktree` operations. This spec is the normative source. AGENTS.md Worktree Protocol states the same sentence and does not define a second protocol.
 
 ## Lock file format
 
@@ -254,7 +254,7 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 - [ ] `orchestrate` Step 3 calls `worktree-lib.sh ensure`
 - [ ] `wrap-ticket` Step 6 calls `worktree-lib.sh release`
 - [ ] `wrap-ticket` ticket-ID greps are anchored
-- [ ] ~~`demo` retains its inline worktree check; does not call `worktree-lib.sh`~~ (OBSOLETE at v1.0.0, CDT-46-C2 — `/demo` removed)
+- [ ] Parallel `git worktree` operations are forbidden by the MUST NOT in this spec (not by a missing AGENTS.md sentence)
 - [ ] `status`/`list`/`register`/`sweep` subcommands exist on the **lib** (CDV-189)
 - [ ] `commands/worktree.md` is reduce-to-release only; listing is `/status worktree` (CDT-46-C4)
 - [ ] Proposed extension 'Worktree lifecycle hooks' remains DRAFT until provider redesign + promotion
@@ -271,6 +271,7 @@ Caller contract (unchanged): exit `1` → surface stderr and halt; exit `2` → 
 | Date | Change |
 |------|--------|
 
+| 2026-10-02 | CDT-314 / CDT-352: drop the expired demo MUST. Parallel `git worktree` operations are forbidden here. AGENTS.md points at this sentence. |
 | 2026-09-28 | WP 1-06 (`wp-1-06-branch-deletion-safety`; CDT-278 `[06 F20]` `[06 F21]` `[06 F22]`, CDT-298 `[10 worktree-lib-misc]`, rv-w1-04, rv-p0-03, rv-w3-08). `release` has no `--force` fallback: a failed `git worktree remove` exits 1 and keeps the directory, branch and config. `release` deletes `feat/<slug>` only through `git-safety.sh safe-delete-branch`; an unmerged branch is kept with a stderr warning and exit 0 (callers unchanged). New `release --preview <slug>` prints base and upstream counts plus the `confirm` rule. `/worktree release` and wrap-ticket Step 6 show the counts and require the typed slug only when the branch is not merged (the pushed state is information only). `ensure` refuses an existing directory that is not a git worktree (no-lock path only). wrap-ticket resolves its worktree through one helper, `skills/wrap-ticket/resolve-worktree.sh`; the legacy path uses an exact match and keeps an unmerged branch. Exit-code table updated. New `## Acceptance criteria` section holds this WP's ACs. |
 | 2026-08-07 | CDT-161: ensure create-path MUST use `git_retry 3 200` for both `worktree add` arms (parity with release mutators); re-probe branch after failed `-b` so sticky `-b` is not used once `feat/<slug>` exists; no new exit-code contract (passthrough `git_retry` rc). |
 | 2026-08-07 | CDT-162: `ensure` STALE reclaim is no longer unconditional. Dirty STALE (release-equivalent porcelain, excl `.wt-lock`) and STALE with a live task (`slug_has_live_task`) MUST refuse reclaim — no lock overwrite, empty stdout, exit `1`. Clean STALE with no live task still overwrites lock and exits 0 with path. FRESH path and no-lock+existing-dir path unchanged. Exit-code table: exit `1` is shared safety/error for release and ensure STALE guards. |

@@ -5,13 +5,13 @@
 **Created**: 2026-03-22
 
 <!-- drift-ok: skill-ref -->
-**Covers**: `commands/setup.md` (single entry `/setup` with subs `project` | `orchestration` | `team` | `models`), `agents/project-init.md` (invoked by `/setup team`), `commands/init-team.md` (Deprecation stub → `/setup team`, CDT-46-C4), `skills/memory-store/download-extensions.sh`, `skills/memory-store/test-setup-team-fences.sh` (fence-exec suite for the `/setup team` fences, WP 1-13), `skills/scaffold-project/SKILL.md` (protocol retained; skill-delegate from `/setup project`, CDT-46-C4), `skills/init-orchestration/SKILL.md` (protocol retained; skill-delegate from `/setup orchestration`, CDT-46-C4; Step 4h known-legacy-orphan sweep + Step 9 summary, CDT-76), `skills/init-orchestration/sweep-legacy-orphans.sh`, `skills/init-orchestration/test-sweep-legacy-orphans.sh`, `skills/demo/SKILL.md` (DEPRECATED stub — demo behavior removed at v1.0.0, CDT-46-C2; historical only), `skills/model-map/write-model.sh` (skill-delegate from `/setup models`, CDT-228)
+**Covers**: `commands/setup.md` (single entry `/setup` with subs `project` | `orchestration` | `team` | `models`), `agents/project-init.md` (invoked by `/setup team`), `skills/memory-store/download-extensions.sh`, `skills/memory-store/test-setup-team-fences.sh` (fence-exec suite for the `/setup team` fences, WP 1-13), `skills/scaffold-project/SKILL.md` (protocol retained; skill-delegate from `/setup project`, CDT-46-C4), `skills/init-orchestration/SKILL.md` (protocol retained; skill-delegate from `/setup orchestration`, CDT-46-C4; Step 4h known-legacy-orphan sweep + Step 9 summary, CDT-76), `skills/init-orchestration/sweep-legacy-orphans.sh`, `skills/init-orchestration/test-sweep-legacy-orphans.sh`, `skills/model-map/write-model.sh` (skill-delegate from `/setup models`, CDT-228)
 
 ## Overview
 
 Everything needed to get the dev-team running in a new or existing project. Includes SQLite DB initialization, extension downloads, project scanning, cortex file generation for all 7 agents, project scaffolding (TDD structure for greenfield), and orchestration setup (sandbox, permissions, hooks for brownfield). All bootstrap operations are idempotent.
 
-**User-facing entry:** `/setup <project|orchestration|team|models>` is the **sole** onboarding dispatcher (`commands/setup.md`). The three onboarding subs remain **behaviorally distinct** protocols (greenfield scaffold vs brownfield orchestration vs team memory bootstrap) under one Surface — not three primary slash commands. `models` is a known non-bootstrap sub (local Model map; SPEC-037). `/init-team` is a deprecation stub only; do not treat it as the primary entry.
+**User-facing entry:** `/setup <project|orchestration|team|models>` is the **sole** onboarding dispatcher (`commands/setup.md`). The three onboarding subs remain **behaviorally distinct** protocols (greenfield scaffold vs brownfield orchestration vs team memory bootstrap) under one Surface — not three primary slash commands. `models` is a known non-bootstrap sub (local Model map; SPEC-037). There is no `/init-team` command. Do not treat that name as an entry.
 
 ## MUST
 
@@ -22,7 +22,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - bare `/setup` or unknown sub MUST print usage and MUST NOT mutate project state; `models` is a known sub
 - MUST keep the three onboarding flows as separate protocols (no merged greenfield/brownfield/team logic) — dispatcher only
 - `/setup models` MUST NOT hard-gate on doctor
-- `commands/init-team.md` MUST be a one-cycle Deprecation stub pointing to `/setup team` (removed at v1.1)
+- There is no `commands/init-team.md`. Do not require that file.
 
 ### Team Initialization (`/setup team`)
 - MUST use `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE` for DB initialization (idempotent)
@@ -61,7 +61,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 ### Project Scaffolding (greenfield)
 - MUST create directory structure: `.claude/plans/`, `.claude/context/`, `.claude/memory/claude/`, `specs/`
 - MUST create `.claude/settings.json` with `defaultMode: "acceptEdits"` and comprehensive Bash allowlist
-- MUST seed TDD.md with 3 example spec entries in the index table marked as EXAMPLE status (to be replaced by real specs)
+- MUST seed TDD.md with 3 example spec entries in the index table marked as DRAFT status (to be replaced by real specs)
 - MUST NOT overwrite existing AGENTS.md or CLAUDE.md without asking user first
 - MUST create .gitkeep files in empty directories
 
@@ -137,15 +137,8 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - The emitted consumer AGENTS.md (both the new-file template and the append-only "Team Coordination section only" block) MUST be marker-free: no `<!-- include: -->` / `<!-- /include -->` directives may appear in any file written into a consumer project. Managed-include markers are a dev-repo-only single-sourcing device and MUST NOT leak into generated consumer files.
 - When a shared rule body is corrected in one document, the maintainer MUST reconcile the other by hand (e.g. the `SendMessage` no-addressable-parent guidance applies to consumer-spawned agents and so MUST appear in the emitted template's Team Coordination section, not only in this repo's AGENTS.md).
 
-### Demo (historical / OBSOLETE — not live bootstrap)
-> **OBSOLETE at v1.0.0 (CDT-46-C2):** the `/demo` skill was removed in the v1.0 surface-cleanup pass (`skills/demo/SKILL.md` is now a deprecation stub). The bullets below are **historical record only** — they do **not** describe live bootstrap behavior and MUST NOT be treated as current product requirements. Live bootstrap is `/setup` only. Replacement workflow: `/setup` + `/kickoff` on a scratch repo, or `/orchestrate` directly.
-
-- ~~MUST verify preflight checks (memory.db or memory.md exists, AGENTS.md exists)~~ (historical)
-- ~~MUST create temporary worktree with throwaway branch (`demo/dev-team-<timestamp>`)~~ (historical)
-- ~~MUST scaffold minimal but realistic Go project with passing tests~~ (historical)
-- ~~MUST pause at each decision gate so user sees the workflow~~ (historical)
-- ~~MUST provide teardown prompt (clean up or keep for exploration)~~ (historical)
-- ~~MUST clean up gracefully via the worktree-teardown discipline in SPEC-016 — `git worktree remove` then `git branch -D` as SEPARATE git calls (never chained `&&`; the WSL2 `.git/config` device-or-resource-busy hazard); prefer `skills/worktree-lib.sh release` where available~~ (historical)
+### Demo (removed)
+`/demo` was removed at v1.0.0 (CDT-46-C2). There is no `skills/demo/SKILL.md`. Live bootstrap is `/setup` only. Do not keep a demo MUST.
 
 ## SHOULD
 
@@ -153,7 +146,6 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - SHOULD ask user which additional domains to allowlist beyond auto-detected ones
 - SHOULD validate settings.json is valid JSON before writing
 - SHOULD implement the known-legacy-orphan sweep (CDT-76) as a subprocess CLI helper under `skills/init-orchestration/` (never sourced), parallel to `normalize-hook-paths.sh` / `disclose-force-overwrite.sh`
-- ~~SHOULD print teaching commentary at key decision gates in demo mode~~ (historical / OBSOLETE — demo removed)
 
 ## Test
 
@@ -162,7 +154,6 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - Verify project-init creates 7 distinct cortex files with role-specific content
 - Verify `/setup project` (scaffold-project) creates directory structure without overwriting existing files
 - Verify `/setup orchestration` merges into existing settings.json without data loss
-- ~~Verify demo creates and cleans up worktree~~ (historical / OBSOLETE — demo removed)
 - Verify the emitted AGENTS.md template (both blocks) contains NO `<!-- include: -->` markers and that its Team Coordination section carries the `SendMessage` no-addressable-parent guidance: `! grep -q '<!-- include:' skills/init-orchestration/SKILL.md` within the two template fences, and the SendMessage peer-to-peer line is present in both
 - Test: known-legacy-orphan present + unreferenced → bak-force + FORCE-OVERWRITE labels + file gone
 - Test: known-legacy-orphan absent → no-op exit
@@ -177,7 +168,6 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 - [ ] Cortex files differ across agents (diff any two)
 - [ ] settings.json is valid JSON after `/setup orchestration` merge
 - [ ] `bash skills/init-orchestration/test-sweep-legacy-orphans.sh` exits 0
-- [ ] ~~Demo worktree removed after teardown~~ (historical / OBSOLETE)
 
 ## Open Questions
 
@@ -223,6 +213,7 @@ Everything needed to get the dev-team running in a new or existing project. Incl
 | Date | Change |
 |------|--------|
 
+| 2026-10-02 | CDT-314 / CDT-342: drop the expired `commands/init-team.md` and `skills/demo/SKILL.md` requirements. Scaffold seeds DRAFT, not EXAMPLE. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-261 `[10 F1]`, rv-p0-09; the lembed half of the package is CDT-262, see SPEC-004): **/setup team finds its scripts.** `commands/setup.md` Steps 2, 2.5, 3 and 4 set `PLUGIN_DIR` to the plugin root, so `schema.sql`, `migrate.sh`, `download-extensions.sh` and `migrate-md.sh` (all under `skills/memory-store/`) were never found and `/setup team` could not enable SQLite memory. Each fence now resolves its script with `plugin-dir.sh dir skills/memory-store/<file>` and skips with a warning when it is absent. Each fence is its own shell, so no variable crosses a fence: Step 5b is one fence (it set `SETTINGS` and `HOSTS_TO_ADD` in one fence and read them in the next, so `echo '{}' > ""` failed), it runs `mkdir -p "$MROOT/.claude"`, and it holds no `lint-ok: C1` waiver. Step 5 runs every time, without the `EXT_GITIGNORE_DONE` flag. Step 7 reads the printed `seed-import:` line. The team approval ask names only the `settings.json` merge, because the team path writes no hook (`bash-compress.sh` belongs to `/setup orchestration`). The `MROOT`-before-`MEMDB` premise of rv-p0-09 was already fixed by WP 1-12 (Steps 2.5 and 4), so nothing changed there. New `### wp-1-13-setup-team-lembed` AC subsection. Status stays ACTIVE. |
 | 2026-08-26 | CDT-228: `/setup models` dispatch (local Model map writer; not doctor-gated). Subs are `project` \| `orchestration` \| `team` \| `models`. Status stays ACTIVE. |
 | 2026-08-08 | CDT-173: present-file SHA-256 re-verification. The unconditional `[skip] already present` short-circuit in `download_and_extract()` / `download_file()` skipped integrity checking entirely, so a tampered or corrupt on-disk `vec0.so` / `lembed0.so` / `.gguf` was `.load`ed forever (partial regression of the CLUSTER-010 fail-closed guarantee). Skip is now conditional on the present file matching its pin; mismatch/unverifiable deletes and re-downloads. Adds a second pinned table for the **extracted member** (`.so`/`.dylib`) alongside the existing tarball pins — a sidecar hash file was rejected as a self-attesting anchor (an attacker who can write the binary can write the sidecar) and because it would break the documented hand-place-the-file recovery path. Member pin also closes a latent defect: the post-extract `find … \| head -1` could `mv` a stray tarball member (LICENSE/README) into place with the tarball hash still matching. No change to SPEC-005's no-block-on-failure guarantee — helpers return non-zero, call sites keep `\|\| true`, top level never `exit 1`. |

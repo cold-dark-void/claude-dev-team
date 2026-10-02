@@ -15,7 +15,7 @@ Persistent behavioral instructions for individual agents — project-specific st
 
 ### Directives File
 - MUST store per-agent directives at `.claude/memory/<agent>/directives.md` where `<agent>` is one of: `pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`
-- MUST NOT load directives for `project-init` or `distiller` agents (internal-only, no user behavioral overrides)
+- MUST NOT load directives for the non-behavioral roster agents in SPEC-003 (project-init, distiller, finder, debugger, council-judge, council-scribe). SPEC-003 is the roster. Do not keep a second list.
 - MUST have zero impact when `directives.md` does not exist — no errors, no warnings, no placeholder output
 - MUST use numbered list format, one directive per line (e.g., `1. Always write specs in Gherkin format`)
 - MUST NOT commit `directives.md` files to git (covered by `.gitignore` patterns under `.claude/memory/`)
@@ -73,7 +73,7 @@ Helpers (subprocess only, never sourced): `skills/retro-gate/trial-meta.sh` (par
 - Verify `/adjust-agent <agent>` read-only mode does not prompt for input
 - Verify `/adjust-agent <agent> <prompt>` detects conflicts and surfaces them
 - Verify holistic rewrite produces no duplicates on repeated invocation
-- Verify `project-init` and `distiller` agents do not load directives
+- Verify the non-behavioral roster agents in SPEC-003 do not load directives (project-init, distiller, finder, debugger, council-judge, council-scribe)
 - **Metadata round-trip (M1):** create a retro-born directive → the `directives.md` line carries the source anchor, trial-start date, and review-after annotation; agent load, dashboard count, and an unrelated `/adjust-agent` holistic rewrite all leave the annotation intact.
 - **Backward compatibility (M2):** run the trial-review step against a pre-existing `directives.md` with no annotations → zero changes, zero warnings, no review proposals.
 - **Default tagging (M3):** a `/retro` NEW team-agent proposal lands with trial metadata populated from its citation anchors; declining the trial at confirm time yields a plain permanent line; a manual `/adjust-agent` directive gets no annotation.
@@ -86,7 +86,7 @@ Helpers (subprocess only, never sourced): `skills/retro-gate/trial-meta.sh` (par
 ## Validation
 
 - [ ] All 7 agent `.md` files contain directives loading block after path resolution
-- [ ] `project-init.md` and `distiller.md` do NOT contain directives loading block
+- [ ] Non-behavioral agent files do NOT contain a directives loading block (SPEC-003)
 - [ ] `/adjust-agent` with no args shows 7-row dashboard
 - [ ] `/adjust-agent pm "use Gherkin"` creates/updates `.claude/memory/pm/directives.md`
 - [ ] Running same adjustment twice produces identical file content (idempotent)
@@ -114,6 +114,7 @@ None — all ACs confirmed by user. OQ-2 (agent-filtered session scoring) deferr
 | Date | Change |
 |------|--------|
 
+| 2026-10-02 | CDT-403: directives do not apply to the non-behavioral roster agents in SPEC-003 (project-init, distiller, finder, debugger, council-judge, council-scribe). No second roster. |
 | 2026-07-22 | CDT-53: session-boot tiered read pointer → `skills/agent-memory/protocol.md` only; `memory-recall` owns cross-agent search Steps 3–5 (not session-start Step 2). |
 | 2026-07-22 | CDT-53 reflect: `/init-team` integration → `/setup team`. Status stays ACTIVE. |
 | 2026-07-14 | CDV-200: promoted Directive A/B trial loop M1–M8 from DRAFT to shipped MUST; helpers `trial-meta.sh` / `trial-review.sh`; audit `directive-history.jsonl`. |

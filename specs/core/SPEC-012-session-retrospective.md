@@ -151,8 +151,7 @@ conflict-detection and holistic-rewrite guarantees.
 Capture friction in real time via harness hook events `PostToolUseFailure`,
 `PermissionDenied`, and `StopFailure`, so phase-1 can use observed failure
 evidence for S2 and still observes permission/stop failures that do not always
-surface as transcript `tool_result.is_error` rows. Banked design context:
-`.claude/backlog/friction-telemetry-hooks.md`.
+surface as transcript `tool_result.is_error` rows. The contract is the MUSTs below. Do not cite an untracked backlog file.
 
 - **M1 — Ledger capture.** A single shared handler `.claude/hooks/friction-capture.sh` MUST handle all three events (`PostToolUseFailure`, `PermissionDenied`, `StopFailure`) and MUST append exactly one NDJSON line per accepted event to `$MROOT/.claude/retro/friction.jsonl` (worktree-aware `$MROOT`, same resolution formula as Phase 4). Schema (exact keys):
   ```json
@@ -330,6 +329,7 @@ This record moved out of `skills/transcript-parse/SKILL.md` (WP 4-03). The skill
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-314: drop the untracked backlog citation for the friction ledger. The MUSTs are the contract. |
 | 2026-10-01 | WP 5-06 (CDT-304): Status APPROVED → ACTIVE. Validation checkboxes are not complete. |
 
 ---

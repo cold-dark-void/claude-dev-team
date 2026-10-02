@@ -86,7 +86,7 @@ Out of Scope.
 
 ## Out of Scope
 
-- Ordered-table monotonicity (Version History date order, line-number-ordered traceability tables) — belongs to SPEC-008's `check-format.sh`, not this linter
+- Ordered-table monotonicity (Version History date order) — `tools/spec-lint.sh` checks that dates are monotonic. SPEC-008 records newest-first for this corpus. `check-format.sh` only checks that the Version History table exists. Not this linter.
 - Linting of standalone `.sh` files (`skills/*.sh`) — real shells with real linters; candidates for shellcheck, not this tool
 - Runtime/behavioral verification of bash blocks — this is static inspection only
 
@@ -96,7 +96,7 @@ Out of Scope.
 - [x] C5 defect fixture: a stanza with one mutated byte (e.g. `sort -V` → bare `sort`) → exit 1 naming `C5` and the first differing column
 - [x] C5 whitespace tolerance: the same canonical stanza indented 2 and 4 spaces (both occur live) → no finding
 - [x] C5 vacuous-gate guard: SPEC-002 absent or its fenced block unparseable → non-zero with a distinct "canonical stanza not resolvable" message, never a silent pass
-- [x] C5 live-tree baseline: no-arg run over the real tree reports zero C5 findings (all 110 emissions across 26 files byte-identical at v1.3.0)
+- [x] C5 live-tree baseline: no-arg run over the real tree reports zero C5 findings. The v1.3.0 count of 110 emissions across 26 files is historical. C5 checks byte-identity, not that count.
 - [x] C5 heading anchor: a SPEC-002 holding decoy fenced bash blocks both before and after the canonical section still resolves the canonical stanza (a "first fenced block in the file" anchor would compare every emission against the decoy and still exit 0 — vacuous, and invisible)
 - [x] C6 fixture `c6-assign-before-use.md`: planted positives (MEMDB from `$MROOT` before MROOT; MEMDB tested before `MEMDB=`; PLUGIN_DIR; a read in an unquoted heredoc body) → exit 1 naming `C6` and the source line; a `# lint-ok: C6` waiver is counted, not printed; negatives (correct order, same-line assign, `export`, `${NAME:=…}`, single quotes, comments, quoted heredoc, a longer name, a block that never assigns the name) → no C6 finding
 - [x] C6 resolver names (WP 2-01): fixture `c6-resolver-names.md` plants a `$PDH` read before its assignment (line 6) and an `$EXT_DIR` read before its assignment (line 15) → exit 1, two `[C6]` lines that name the variable, a waived `$PDH` read at line 23 counted in `--json`; correct order, `export`, `:=`, quotes, comments, a longer name and a block that never assigns the name → no C6 finding. One parser: `fence-state.awk` holds no fence-opener match, `check-skill-bash.sh` holds no `discover()`, and the same grep finds the match in `fence-scan.awk`
@@ -126,7 +126,7 @@ Out of Scope.
 - [x] All bite-tests above pass (each gate class proven to bite, not just run clean)
 - [x] C5 lands green: live tree reports zero C5 findings at wiring time, and the check is proven to bite via the mutated-byte fixture
 - [x] Initial adoption pass complete: live tree scans clean; every waiver reviewed as genuinely safe
-- [ ] Gate step added to `skills/release/SKILL.md` and exercised by one real release
+- [x] Gate step is `/release` Step 4.8 in `skills/release/SKILL.md`. It has shipped. It is not an open wiring task.
 - [x] Spec reviewed and promoted to ACTIVE
 
 ## Acceptance criteria
@@ -161,6 +161,7 @@ Out of Scope.
 | Date | Change |
 |------|--------|
 
+| 2026-10-02 | CDT-371: Version History monotonicity is `tools/spec-lint.sh`, not `check-format.sh`. The 110/26 emission count is historical. Step 4.8 has shipped. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262): AC G of `wp-1-12-fence-state` names the lembed call of the `skills/memory-recall/SKILL.md` Step 4 fence. `lembed()` takes a registered name, so AC G now says the fence registers the model (`INSERT INTO temp.lembed_models …`) and then calls `lembed('mini', …)`. SPEC-004 and SPEC-006 own the rule; no lint check changes. |
 | 2026-09-30 | WP 2-01 (`wp-2-01-fence-harness`; CDT-272): **C6 names** widen to `PDH` and `EXT_DIR` (the live tree holds no hit; fixture `c6-resolver-names.md`). **One fence parser and one scan set:** `fence-scan.awk` (fence opener and closer, bash test, latest heading) replaces the copy inside `fence-state.awk`, and `scan-set.sh` holds the no-argument file list that `check-skill-bash.sh` carried. The fence-exec harness in `tools/fence-exec/` runs on both; SPEC-030 owns it. C7–C9 stay reserved for WP 2-02 and WP 6-03. |
 | 2026-09-30 | WP 1-12 (`wp-1-12-fence-state`; CDT-264, CDT-320, CDT-263, CDT-357, W2-22): added **C6 (assign-before-use)** for `MROOT`, `WTROOT`, `MEMDB` and `PLUGIN_DIR` inside one fence, and **C10 (comment or waiver that changes the command)** — a waiver after a `\` continuation, `\` plus blanks, a comment line inside a continuation, `# lint-ok:` inside an open quote and `#` inside a quoted `sqlite3` SQL string. Both run in the new `fence-state.awk` (bash and awk only, no interpreter); `lint.py` (C1–C5) is unchanged; `check-skill-bash.sh` now runs both engines and merges the report, `--json` and the exit code, and an awk failure exits 1. C10 cannot be waived; real C6 hits are fixed, not waived. Rule IDs: C7 is reserved for WP 6-03 and C8/C9 for WP 2-02. CDT-264 goal text changed: a waiver inside a multi-line SQL string cannot move onto its own line above the command, so the three `commands/memory.md` fences rebuild their variable instead. New `## Acceptance criteria` section with `### wp-1-12-fence-state`. Status stays ACTIVE. |

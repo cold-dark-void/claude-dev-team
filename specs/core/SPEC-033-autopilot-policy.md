@@ -35,10 +35,9 @@ the decision-card audit schema (AC6), the council ship-gate pass (AC7), the LOC
 exclusion plus `--max-loc` override (AC8 / CDT-223), and `/orchestrate` run-budget
 auto-tune (AC9 / M9b / CDT-224).
 
-This ticket (CDT-111-C1) writes **only the contract** — the spec plus its operational copy
-in `skills/autopilot/SKILL.md`. Wiring the workflows to consult it, and building the
-decision-card writer script, happen in later CDT-111 children (C2–C10). No workflow file is
-edited here.
+This spec is the contract. `skills/autopilot/SKILL.md` is the operational copy.
+`/orchestrate`, `/kickoff`, and `/epic` consult it. The "no workflow file edited here"
+sentence was the CDT-111-C1 authoring note. It is not the current tree.
 
 **Contract-home rule (SPEC-002 D1).** This SPEC *defines* the policy; `skills/autopilot/SKILL.md`
 *carries the one operational copy*; `/orchestrate`, `/kickoff`, and `/epic` (when later wired)
@@ -734,18 +733,9 @@ target.
       *whether* the pass runs: M14's "only at `ship-choice`, only on a clean `pr`/`merge`
       answer, exactly once per attempt, exactly two cards" all stand.
 
-    > **Latent-doc correction for the wiring child.** `skills/autopilot/ship-gate-council.md` §3
-    > currently instructs council investigators to pull "the staged diff" themselves. At M14
-    > firing time **nothing is staged**: the `git merge --squash` staging happens *after* the
-    > gate (N3a; `/orchestrate` Step 11). The child that edits that file MUST correct the §3
-    > claim-string wording to the merge-base diff named above. The correction is to the
-    > *locator* wording only — M14(a)'s locators-only rule (no materialized evidence file, no
-    > render-helper script) is unchanged.
-    >
-    > The same §3 also states "Pass **no** `--plan`, **no** `--task-id`, **no other flag**",
-    > which the M14(a) amendment above supersedes: `--council-tier=<tier>` is now the one
-    > permitted flag and (e) requires it. The wiring child MUST correct that sentence in the
-    > same pass, or the procedure will forbid the flag its own contract mandates.
+    > **Landed.** `skills/autopilot/ship-gate-council.md` §3 names the merge-base diff.
+    > It does not tell investigators to pull a staged diff. `--council-tier=<tier>` is
+    > the one permitted flag. Do not treat that wording as open work.
 
   - **(f) Tier-aware BC7 halt (CDT-126).** When the M14 pass produces a BC7 halt (per (b) or
     (d)), the halt card MUST carry the run's `council_tier`, and the halt `rationale` MUST name
@@ -1516,6 +1506,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-371: the "no workflow file edited here" note is historical. `ship-gate-council.md` already names the merge-base diff, not a staged diff. |
 | 2026-10-01 | WP 5-06 (CDT-304, CDT-333): Status DRAFT → ACTIVE. M2 cross-references AGENTS.md: epic children seal through `/release`; non-epic `--autopilot=master` stays land-no-release. |
 | 2026-09-30 | WP 1-09 (`wp-1-09-epic-seal`; CDT-322, rv-w2-34; the rest of the WP is in SPEC-025): **M5 note (h)** — `reroute-epic` at an `/epic` gate cannot hand off to `/epic`: A.5 prints a soft warn and continues when there are more than 8 proposed children and halts otherwise (never a silent proceed), B.3 runs it as `halt` with no nested epic allowed (`--redecompose` is never autopilot-started, note (g)), any other value runs as `halt`; the `/epic` SKILL defines the map itself. **M5 table** — the `/epic` `ship-choice` cell reads "ships only via B.7 seal (M14)", not "never ships". **M11a (a)** — the `release_bump` persist happens at `init`, so a release-bump token over a null durable `release_bump` on resume exits 64 and is never set on the session alone. New `### wp-1-09-epic-seal` AC subsection. Status stays DRAFT. |
 | 2026-09-28 | WP 1-16 (`wp-1-16-m14-finder-recipe`; backlog `m14-finder-evidence-recipe`): **M14 finder evidence recipe.** Premise: the WP 1-05 and WP 1-06 ship gates (`.claude/council/2026-09-28-claim-wp-1-05-m14.md`, `.claude/council/2026-09-28-claim-wp-1-06-m14.md`) halted on BC7 with every Verify at exit 0 and no code gap; the judge struck elided `raw_blob` lines, ACs with no quote of their text, and named literals that no bundle held. **M14(g)** — new "Finder recipe" bullet: an AC quote anchored on the `<path>:<line>` locator (bullet plus continuation lines); the Verify run plus one AC-label filter bundle; one grep per token class, bounded and scoped — one default call against the Verify test file for backtick spans, `Case N` and `AC X` tokens, an explicit locator command for `path:N`, and a scoped multi-token `git grep` fallback (never unscoped) only for a token the default call missed; numbered sub-clauses are grepped too, as advisory evidence. No-elision rule: a `raw_blob` is the complete output of its own `reproducible_command`, with no `...`, `[...]` or `…` line and no text added after the output; the one exception is the Verify-run bundle, whose `raw_blob` is the complete stdout of the wrapped Step 2 call (a bare re-run of `reproducible_command` alone would print the suite's unredirected log instead) — it is exempt from the raw_blob-equals-a-rerun-of-reproducible_command invariant the other recipe bundles hold. The finder takes the tokens from its own quote; the split, the engine and the claim record carry no AC text or tokens (M14(a)). Judge caps: confidence 79 or lower for a missing AC quote, an unmatched named token of class backtick span, `path:N`, `Case N` or `AC X` (matched outside the Step 1 quote bundle) or an elision line (SPEC-013 Phase 5); a numbered sub-clause named in the quote is advisory evidence only and carries no cap. The recipe and the caps can only lower a confidence: they feed nothing new to the mapper **(i)**, add no clear path, and leave **(b)**, **(d)**, the firing rule, the two cards and BC7 reuse unchanged. An engine-side strike was rejected, because it would change how the gate clears (`ship-gate-council.md` §5). **M14(j)** — the recipe fits the 8-call budget; the budget does not change. **M14(k)** — recipe tests; they prove prompt text and wiring, not a live judge score. A claim with no `Verify:` command keeps its render. This WP's own gate runs the old prompt from `master`; the next WP's gate is the first live proof. New `### wp-1-16-m14-finder-recipe` AC subsection. Status stays DRAFT. |

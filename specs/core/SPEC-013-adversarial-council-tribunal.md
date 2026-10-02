@@ -3,7 +3,7 @@
 **Status**: ACTIVE
 **Category**: core
 **Created**: 2026-04-09
-**Covers**: `commands/council.md`, `skills/council/`, `agents/council-judge.md`, `agents/council-scribe.md` (tool-less internal council role, CDT-380), `agents/finder.md` (Phase 2 investigator body, CDT-230), `skills/review-and-commit/SKILL.md` (diff-mode preset consumer), `commands/council --blind.md` (DEPRECATED stub — use `/council --blind`, CDT-46-C3)
+**Covers**: `commands/council.md`, `skills/council/`, `agents/council-judge.md`, `agents/council-scribe.md` (tool-less internal council role, CDT-380), `agents/finder.md` (Phase 2 investigator body, CDT-230), `skills/review-and-commit/SKILL.md` (diff-mode preset consumer). `/council --blind` is a flag of `commands/council.md`. There is no `commands/council --blind.md`.
 
 ---
 
@@ -13,9 +13,9 @@
 
 The council is structured as a court: a **Prosecutor** (jaded senior) demands receipts, **Investigators** (paranoid ICs, blind and read-only) collect evidence with real tool calls, a **Devil's Advocate** (yolo IC) argues the claim is true to prevent prosecutor monoculture, a dynamic **Domain Specialist** is pulled per topic (devops/ds/etc.), and a dedicated `council-judge` agent (with an empty tool allowlist, optionally calibrated by `tech-lead`'s project cortex) serves as **Judge** — forbidden from running tools, issuing verdicts only from collected evidence.
 
-Core architecture is an engine skill (`skills/council/`) with thin command wrappers. `/council` is the generic entry. `/review-and-commit` is refactored to call the same engine with a diff-mode preset, eliminating drift between the two adversarial systems. `/council --blind` absorbs the former `/council --blind` multi-team peer-review engine (N unconstrained + M lens reviewers → semantic clustering → confidence-tiered findings) as a first-class scope path — Tier-1 consensus clusters emit directly as council findings with no recursive `/council` reverse-validation call. Integration updates have been applied to SPEC-002, SPEC-009, SPEC-010, and SPEC-012.
+Core architecture is an engine skill (`skills/council/`) with thin command wrappers. `/council` is the generic entry. `/review-and-commit` is refactored to call the same engine with a diff-mode preset, eliminating drift between the two adversarial systems. `/council --blind` absorbs the former `/blind-review` multi-team peer-review engine (N unconstrained + M lens reviewers → semantic clustering → confidence-tiered findings) as a first-class scope path — Tier-1 consensus clusters emit directly as council findings with no recursive `/council` reverse-validation call. Integration updates have been applied to SPEC-002, SPEC-009, SPEC-010, and SPEC-012.
 
-Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
+The originating brainstorm was a local plan. It is not a package file.
 
 ---
 
@@ -28,7 +28,7 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST support `/council --plan <path>` — audit a plan file for unverified assumptions
 - MUST support `/council --diff` — audit staged diff (equivalent to `/review-and-commit` invocation path)
 - MUST support `/council --from-retro <anchor-id>` — audit a fabrication anchor surfaced by `/retro`
-- MUST support `/council --blind` — multi-team blind peer review over a codebase/path (absorbs former `/council --blind`; see Blind-review path)
+- MUST support `/council --blind` — multi-team blind peer review over a codebase/path (absorbs former `/blind-review`; see Blind-review path)
 - MUST treat scope flags as mutually exclusive: exactly one of `"<claim text>"`, `--session`, `--diff`, `--plan`, `--from-retro`, or `--blind` MUST be supplied
 - MUST refuse to run with no scope argument and no prior context (must fail loudly, not guess)
 - MUST accept optional `/council --workflow` (or `COUNCIL_WORKFLOW=1`) as an execution-path selector orthogonal to tribunal scope flags (`"<claim>"|--session|--diff|--plan|--from-retro`) — does not replace scope exclusivity rules; default remains engine.sh; MUST NOT apply `--workflow` to the `--blind` path (blind uses its own execution path)
@@ -45,7 +45,7 @@ Source brainstorm: `.claude/plans/2026-04-09-brainstorm-council.md`
 - MUST NOT register Prosecutor, Devil's Advocate, or Domain Specialist as persistent team agents (no entries in `agents/`, no cortex, no `init-team` bootstrap). Three agent files are carved out of this prohibition, on **separate and non-interchangeable** grounds:
   - **`council-judge` — structural tool-lessness.** The Judge's authority rests on an empty tool allowlist, and no per-invocation allowlist-override mechanism exists. Only a persistent agent file can enforce `tools: ""` structurally. This exception is about what the agent *cannot* do.
   - **`council-scribe` — tool-less internal roles (CDT-380).** Extractor, classifier, prosecutor, advocate, cross-reviewer, and quorum analyst share one memory-less agent with `tools: ""`. It does not read project memory and it does not write files. This is not a team-agent registration of those roles.
-  - **`finder` — shared generic investigator body.** The Investigator role body is not council-specific: the same read-only fan-out behavior is spawned by `/council` Phase 2 and by `/bug-hunt` S1/S2. Phase 2.5 is `council-scribe`, not `finder`. `finder` is a single shared, memory-less, read-only agent file (SPEC-003 § Role split), not a council role registration. This exception is about *reuse across engines*, and it MUST NOT be read as licence to give the Judge or the scribe tools.
+  - **`finder` — shared generic investigator body.** The Investigator role body is not council-specific: the same read-only fan-out behavior is spawned by `/council` Phase 2 and by `/bug-hunt` S1/S2. Phase 2.5 is `council-scribe`, not `finder`. `/debug ticket` refuters stay `qa` (SPEC-003). `finder` is not that role. `finder` is a single shared, memory-less, read-only agent file (SPEC-003 § Role split), not a council role registration. This exception is about *reuse across engines*, and it MUST NOT be read as licence to give the Judge or the scribe tools.
 - The `finder` carve-out MUST NOT weaken the tribunal invariants that already bind investigators. `finder` MUST stay read-only (`tools: Read, Grep, Glob, Bash, SendMessage` — no `Write`, no `Edit`), MUST stay blind per Phase 2, and MUST NOT gain cortex, memory, `init-team` bootstrap, or a `/adjust-agent` directives surface. Council-specific protocol MUST stay in `skills/council/prompts/`, never in the agent body.
 
 ### Output Shapes
@@ -493,10 +493,10 @@ this skip was previously implementation-only in `engine.sh` preflight and
 
 ### Blind-review path (`--blind`) *(CDT-46-C3)*
 
-Absorbs the former `/council --blind` multi-team peer-review engine into `/council` as a first-class **scope flag** (not an orthogonal path selector like `--workflow`). The blind path is a distinct execution path: it does **not** run tribunal Phases 1–5 (claim extraction → investigation → prosecution → judgment). Clustering + confidence tiering **is** the council verdict for this path.
+Absorbs the former `/blind-review` multi-team peer-review engine into `/council` as a first-class **scope flag** (not an orthogonal path selector like `--workflow`). The blind path is a distinct execution path: it does **not** run tribunal Phases 1–5 (claim extraction → investigation → prosecution → judgment). Clustering + confidence tiering **is** the council verdict for this path.
 
 - MUST implement the `--blind` execution path inside `skills/council/` (engine skill) — MUST NOT maintain a parallel blind-review pipeline outside the council skill after absorption
-- MUST expose `commands/council.md` as the user entry for `/council --blind` (with parity flags); `commands/council --blind.md` remains only as a DEPRECATED one-cycle stub pointing at `/council --blind`
+- MUST expose `commands/council.md` as the user entry for `/council --blind` (with parity flags). There is no separate stub file.
 - MUST spawn **N unconstrained** reviewer agents + **M lens-differentiated** reviewer agents in a **single parallel wave** (never sequential fan-out)
   - N from `--teams` (default 3); team IDs `U1..UN`
   - M from `--lenses` (default `security,contributor,spec`); team IDs `L-<lens>`; available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`
@@ -689,7 +689,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 ### Test 22 — Blind-review scope (`--blind`, CDT-46-C3)
 1. Static: `commands/council.md` documents `--blind` as a scope flag mutually exclusive with `"<claim>"|--session|--diff|--plan|--from-retro`, with parity flags `--teams|--lenses|--target`; no `--no-council` flag appears in council or blind-review surfaces
-2. Static: `commands/council --blind.md` is a DEPRECATED stub pointing at `/council --blind` (listed in Covers)
+2. Static: `commands/council.md` documents `/council --blind`. There is no separate stub file.
 3. Static: SPEC-013 Blind-review path requires Tier-1 clusters emit as findings with **no** recursive `/council` invocation; grep of the `--blind` engine path shows zero self-calls to `/council` or a second tribunal pipeline for reverse validation
 4. Static: combining `--blind` with another scope flag, or supplying `--teams`/`--lenses`/`--target` without `--blind`, fails loudly
 5. Live (optional): `/council --blind --teams 2 --lenses security --target skills/council/` spawns unconstrained + lens reviewers in one wave, produces a tiered report under `.claude/council/`, and does not spawn a nested tribunal run
@@ -739,7 +739,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 - [x] Plan scope (CDV-208): `--plan <path>` preflight path-check exit 2 / live exit 0; `plan-extractor.md` + fixture; Test 20
 - [x] From-retro scope (CDV-212): anchor files at `$MROOT/.claude/retro/anchors/<id>.json`; missing → exit 2; present → Phase 1 skip + `resolved_claim`; exit 3 deferred removed; Test 21
 - [ ] Council tiering (CDT-126): `council_tier ∈ skip|light|full` with `skip` never auto-selected (DRI flag only) and **per-surface** legal vocabularies stated explicitly — `/orchestrate` accepts all three (`skip` short-circuits: no `/council`, no engine run, no report), `/council` and `engine.sh` accept only `light|full` and MUST hard-fail on `skip` rather than coerce it, and the `index.json` row is the one surface carrying all three (a `skip` row written by the short-circuiting caller through the same owning writer, empty `report_path`, null confidences); `light` = exactly 2 distinct-flavor investigators + Phase 5 Judge, Phase 3/Phase 4 skipped; Phase 4 spawn MUST scoped to runs in which Phase 4 runs, Phase 5 brief inputs and Phase 6 report briefs Phase-4-conditional (no synthesized/stubbed briefs), Phase 2.5 bypass targets the next phase that runs; `full` behaviorally unchanged (same phases/flavors/prompts/stdout — *not* byte-identical artifacts: frontmatter + index rows gain the two additive keys on every run, ungraded `full` recording a default `grading_reason`); `verification_mode` still a two-value enum (not folded); bands + 5 structural critical-area signals with the fan-in probe running in both the clear-low (cap 5) and middle (cap 20) bands; grading fails closed to `full` with the failure in `grading_reason`; `council_tier`/`grading_reason` in report frontmatter and `index.json` rows; Workflow path `full`-only via existing fallback seam
-- [ ] Blind-review scope (CDT-46-C3): `/council --blind` as mutually exclusive scope; parity `--teams|--lenses|--target`; N unconstrained + M lens parallel fan-out → semantic clustering → Tier 1/2/3; Tier-1 emit as findings with **no** recursive `/council`; `--no-council` removed; `commands/council --blind.md` DEPRECATED stub in Covers; Test 22
+- [ ] Blind-review scope (CDT-46-C3): `/council --blind` as mutually exclusive scope; parity `--teams|--lenses|--target`; N unconstrained + M lens parallel fan-out → semantic clustering → Tier 1/2/3; Tier-1 emit as findings with **no** recursive `/council`; `--no-council` removed; `/council --blind` is a flag of `commands/council.md` (no stub file); Test 22
 - [ ] Test 1–11 pass against the implementation
 - [x] Proposed extension 'Council-on-Workflow execution path' implemented and promoted (CDV-196; Tests 12–19)
 - [ ] Test 12–19 (Council-on-Workflow) pass against the implementation
@@ -755,6 +755,7 @@ degradation marker — never invent a second string. Distinct from CDV-197
 
 | Date | Change |
 |------|--------|
+| 2026-10-02 | CDT-314 / CDT-423: `/council --blind` is a flag of `commands/council.md`. There is no stub file. `finder` is shared with `/council` Phase 2 and `/bug-hunt` only. `/debug ticket` refuters stay `qa` (SPEC-003). The 2026-08-30 row's `/debug ticket` share is history, not the contract. |
 | 2026-10-01 | CDT-325: Phase 7 feedback memory is DEFERRED. The engine does not run it. `feedback_memory_enabled` is reserved and has no effect until Phase 7 is implemented. CDT-330: generic Phase 2 flavors are `paranoid-ic` and `skeptic-ic` (`jaded-senior` stays prosecutor-only). CDT-380: tool-less council roles spawn `council-scribe`. Status stays ACTIVE. |
 | 2026-10-01 | CDT-317: the task gate is verdict-aware. An index row may include `max_verified_confidence` (max confidence over unstruck `VERIFIED` and `PARTIALLY_VERIFIED` only) and `worst_verdict` (worst unstruck verdict; null for `finding[]`). SPEC-033 M14 ship-gate still refuses `max_verdict_confidence`. |
 | 2026-09-28 | WP 1-16: **Phase 2** — the investigator verify section holds the SPEC-033 M14(g) finder recipe (anchored AC quote, verify run plus AC-label filter bundle, one grep per token class, bounded and scoped) and the no-elision `raw_blob` rule (the verify bundle is exempt from raw_blob-equals-a-rerun-of-reproducible_command, since its raw_blob is the wrapped Step 2 call's complete stdout, not a bare re-run of the claim's verify command); the investigator takes the tokens from its own quote; the claim record, `tool_budget` (8 or 5) and the render of a claim with no `verify` command are unchanged. **Phase 5** — judge caps at 79 or lower for a missing AC quote, an unmatched named token (backtick span, `path:N`, `Case N` or `AC X`; matched outside the Step 1 quote bundle) or an elision line; a numbered sub-clause is advisory only and carries no cap; the WP 1-15 rules and SPEC-033 M14(b) are unchanged. No engine strike. Status stays ACTIVE. |

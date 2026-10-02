@@ -4,6 +4,8 @@
 **Category**: core
 **Created**: 2026-07-03
 
+**Covers**: `/memory export` (`commands/memory.md`), `commands/setup.md` (Step 5.5 import), `agents/project-init.md` (seed awareness), `skills/memory-store/export-seed-pack.sh`, `skills/memory-store/import-seed-pack.sh`, `skills/memory-store/seed-common.sh`, `skills/memory-store/test-seed-pack.sh`, `skills/memory-store/SKILL.md` (M5 host-script note).
+
 ---
 
 ## Overview
@@ -107,8 +109,7 @@ The pack is a **transport format, not a second memory system**. Everything about
 | Date | Change |
 |------|--------|
 
-**Covers**: `/memory export` (`commands/memory.md`), `commands/setup team.md` (Step 5.5 import), `agents/project-init.md` (seed awareness), `skills/memory-store/{export,import}-seed-pack.sh`, `skills/memory-store/seed-common.sh`, `skills/memory-store/test-seed-pack.sh`, `skills/memory-store/SKILL.md` (M5 host-script note), `.claude/memory/seed/` (emitted pack layout: `<agent>.md` + `manifest.json`).
-
+| 2026-10-02 | CDT-314 / CDT-391: import entry is `commands/setup.md`. Covers is a header line. There is no `commands/setup team.md`. |
 | 2026-10-01 | WP 3-08: `--agent` merges one manifest entry and does not delete other agents. Trailer project name is a slug. A body line `---` is escaped. Import stores the sanitized body, enforces the fallback line cap, and dedupes by hash per agent. Status stays ACTIVE. |
 | 2026-08-09 | CDT-194: M8 — empty/missing file-level `content_hash` is a hard reject (no soft-skip). M12 — manifest keys must be byte-exact `<agent>.md` (no newline/TAB); reject control-char keys before the import side-channel so content-hash is never skipped; trailer `agent=` roster policy folded to M8 ref; symlink warnings name symlink not roster. Test 15 + validation bullets. Status stays ACTIVE. |
 | 2026-08-09 | CDT-193: add M13 — trailer `agent=` MUST equal the manifest-file agent (filename stem); mismatch rejects the entry (no rebind to either agent), warning names both ids, fail-open exit 0. Test 14 + validation bullets. Status stays ACTIVE. |

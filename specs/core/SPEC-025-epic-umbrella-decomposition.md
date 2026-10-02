@@ -4,13 +4,15 @@
 **Category**: core
 **Created**: 2026-07-03
 
+**Covers**: `commands/epic.md`, `docs/commands/epic.md`, `skills/epic/SKILL.md`, `skills/epic/epic-lib.sh`, `skills/epic/parse-flags.sh`, `skills/epic/test.sh`, `skills/epic/test-seal-safety.sh`, `skills/lib/git-safety.sh`, `skills/lib/git-safety-test.sh`, `skills/orchestrate/dag-lib.sh`, `skills/standup/SKILL.md`, `skills/wrap-ticket/SKILL.md`.
+
 ---
 
 ## Overview
 
 Umbrella tickets ("build feature X across N surfaces") have no first-class path today: `/kickoff` and `/orchestrate` assume one ticket-sized unit of work, so users decompose epics by hand, lose the cross-ticket dependency picture, and re-derive sequencing every session. `/epic <EPIC-ID> "<epic text>"` closes that gap: PM and Tech Lead jointly decompose the epic into child tickets — each carrying a problem statement, acceptance criteria, size estimate, and recommended agent — and the Tech Lead adds a cross-ticket dependency DAG whose topological levels form execution **waves**. Approved children are persisted per SPEC-009 dual-write rules (Linear preferred when MCP is available; local backlog write-through always; MCP-down fail-open to local only). When Linear is reachable, `/epic` also best-effort creates or links **one Linear Project per epic** (name = epic title), attaches dual-written children to it, and records `linear_project_id` in state — without blocking the local path on project failure (CDT-64 / F10). A durable epic state file under `.claude/epics/` makes multi-day epics resumable and visible to `/standup`.
 
-Execution mode walks the DAG: each ready child (all dependencies completed) is handed off to the existing single-ticket pipeline — `/kickoff` for plan-only, `/orchestrate` for full lifecycle. `/epic` is a **composition layer**: it sequences and hands off; it never re-implements the ticket lifecycle beneath it. The standing lesson from umbrella orchestrations — *PM kickoff is mandatory for every child ticket; skipping PM for "obvious" tickets misses false premises* (session fc046db3; `skills/orchestrate/SKILL.md` "PM kickoff is mandatory for every ticket") — is promoted to a MUST here.
+Execution mode walks the DAG: each ready child (all dependencies completed) is handed off to the existing single-ticket pipeline — `/kickoff` for plan-only, `/orchestrate` for full lifecycle. `/epic` is a **composition layer**: it sequences and hands off; it never re-implements the ticket lifecycle beneath it. The standing lesson from umbrella orchestrations — *PM kickoff is mandatory for every child ticket; skipping PM for "obvious" tickets misses false premises* (session fc046db3; `skills/orchestrate/steps/08-execute.md` "PM kickoff is mandatory for every ticket") — is promoted to a MUST here.
 
 **Context discipline (CDT-127):** Multi-child Mode B MUST NOT grow live context with the full history of every prior child's plan/review/QA/TL. Primary mechanism is **per-child session isolation** (hard context cut between children) with an epic seed built as a **SPEC-018 STM-shaped packet** (mechanical strict subset from `state.json` is the MVP path). A secondary **between-children context guardrail** warns and forces the same boundary when estimated context crosses a threshold. Mid-child spikes, council tiering (CDT-126), concurrent waves, and wall-clock/stint budgets (SPEC-033 OQ2) are out of scope.
 
@@ -289,7 +291,7 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 | L2 | **Linear preferred when MCP up + mandatory local write-through** (CDT-54 / C8) — local IDs `<EPIC-ID>-C<n>` remain canonical orchestration keys; one-line notice on MCP fail (fail-open to local). Supersedes "backlog files alone are SoT". |
 | L3 | **Reuse `dag-lib.sh check-cycle` literally** — no fork. Epic ready-set lives in `epic-lib.sh` (does **not** call task-store-bound `ready-set`). |
 | L4 | **Sequential within wave** — concurrent multi-orchestrate deferred. |
-| L5 | **Confirm each handoff** — print next ready child → user confirms → invoke `/kickoff` or `/orchestrate`. No auto-chain. |
+| L5 | **Confirm each handoff in interactive mode** — print next ready child → user confirms → invoke `/kickoff` or `/orchestrate`. No auto-chain in interactive mode. Autopilot same-run continuation is M7, not this row. |
 | L6 | **PM kickoff mandatory per child** — no skip flag; handoff templates always include PM pass. |
 | L7 | **Execution mode chosen once** at first execute: `kickoff` \| `orchestrate`, stored in `state.json`. |
 | L8 | **`wrap-ticket` write-back is SHOULD, in-scope** — `mark-done` by ticket id / linear_id. |
@@ -329,10 +331,9 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 | Date | Change |
 |------|--------|
 
-**Covers**: `commands/epic.md`, `docs/commands/epic.md`, `skills/epic/SKILL.md`, `skills/epic/epic-lib.sh`, `skills/epic/parse-flags.sh`, `skills/epic/test.sh`, `skills/epic/test-seal-safety.sh`, `skills/lib/git-safety.sh` + `skills/lib/git-safety-test.sh` (M17), `skills/orchestrate/dag-lib.sh` (reused — `check-cycle`), `skills/standup/SKILL.md` (epic rollup, M10), `skills/wrap-ticket/SKILL.md` (child-completion write-back, SHOULD). CDT-127 also touches epic seed CLI under `skills/epic/` (build-seed / validate-seed) and cites SPEC-018 shape without forking handoff internals.
-
 ---
 
+| 2026-10-02 | CDT-371 / CDT-391 / CDT-413: L5 is interactive mode only. Autopilot continuation stays M7. The PM-mandatory lesson is `skills/orchestrate/steps/08-execute.md`. Covers is a header line. |
 | 2026-09-30 | **WP 1-09 (`wp-1-09-epic-seal`; CDT-305, CDT-350, CDT-315, CDT-322, CDT-414, CDT-404, rv-w2-34, rv-w3-37):** M14 item 10 — a release-bump `--autopilot` token over a null `release_bump` exits 64 on resume (seal-intent is never session-only). Item 12 — `EPIC_ALLOW_SEAL_RELEASE=1` counts only while `seal_stage` is non-null. Item 13 — seal resolves the default branch through `resolve-base`, runs the dirty gate on the checkout as it is, and refuses (exit 1) unless HEAD is that branch (it never switches branches); `EPIC_SEAL_RELEASE_HOOK` runs only with `EPIC_TEST_MODE=1`. Item 6 and item 14 — the `--autopilot` docs say seal-intent, not unused or independent. New item 15 (active-parent lookup, scoped `mark-done`, one-jq `waves`, one ready-set rule, Step 0.4 exit codes) and item 16 (`reroute-epic` inside `/epic`). M15 — `sync-apply` pulls status forward only. `ensure-integration-worktree` and `ensure-ticket-worktree` never exit 0 when `worktree-lib` fails. New `### wp-1-09-epic-seal` AC subsection. Status stays ACTIVE. |
 | 2026-09-28 | **WP 1-08 (`wp-1-08-autopilot-state`; rv-w1-58):** M14 illegal combos gain near-miss spellings of `--worktree` / `--release` (`--work*` / `--rel*` that are not the exact flags) → exit 64, zero side effects. Other flag families still pass through (M14 item 6); the parser split is unchanged. |
 | 2026-09-28 | **WP 1-06 (`wp-1-06-branch-deletion-safety`):** M17 item 9 adds `resolve-base`, the one shared base order (origin/HEAD target, `origin/master`, `origin/main`, `master`, `main`), moved from `skills/wrap-ticket/prune-remote.sh`. Item 2 amended: `resolve-base` is the only subcommand that prints on stdout. New consumers: `prune-remote.sh` (`is-merged` on the fetched remote ref), `worktree-lib.sh` `release` (`safe-delete-branch`) and `release --preview` (`is-merged`, `is-pushed`), and the wrap-ticket legacy path (`safe-delete-branch`). ACs in SPEC-016 `### wp-1-06-branch-deletion-safety`. |
@@ -367,7 +368,7 @@ Execution mode walks the DAG: each ready child (all dependencies completed) is h
 - **SPEC-033** — Autopilot policy: A.5/B.3 gates unchanged; M13 boundary is not a new gate enum.
 - **CDT-126** — Council tiering: complementary child-level council cost control; not a substitute for M13.
 - **Backlog item**: `.claude/backlog/epic-umbrella-decomposition.md` — the banked source of this spec.
-- **Standing lesson**: `skills/orchestrate/SKILL.md` "PM kickoff is mandatory for every ticket" — promoted to M8.
+- **Standing lesson**: `skills/orchestrate/steps/08-execute.md` "PM kickoff is mandatory for every ticket" — promoted to M8.
 
 ---
 

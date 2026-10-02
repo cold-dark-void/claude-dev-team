@@ -4,6 +4,8 @@
 **Category**: core
 **Created**: 2026-07-03
 
+**Covers**: `commands/doctor.md`, `skills/doctor/doctor.sh`, `skills/doctor/SKILL.md`, `skills/doctor/test.sh`
+
 ---
 
 ## Overview
@@ -13,7 +15,7 @@ A user-invocable `/doctor` command that diagnoses the install/config health of t
 The command is **read-only by default** — it diagnoses and recommends, it never repairs or bootstraps. An explicit `--fix` mode applies only a narrow allowlist of provably-safe repairs (e.g. clearing a stale `distilling_lock`). Output is dual-mode: a human table, and `--json` with meaningful exit codes so the same battery can gate CI or a future `/release` preflight. The check battery is deterministic bash (no LLM, no network), so results are reproducible. Note: the Claude Code harness ships its own built-in `/doctor` (harness install health); the plugin command is namespaced (`dev-team:doctor`), covers plugin/project health only, and never attempts to shadow or replace the built-in.
 
 **Boundaries & related specs (conflict scan, 2026-07-03):**
-- **SPEC-005 (team bootstrap)** owns all state *creation* via sole entry `/setup`: `/setup team` (DB init, extension downloads, project-init scan, permission sync) and `/setup orchestration` (hooks, sandbox, AGENTS.md emission; protocol body in `skills/init-orchestration`). `/doctor` diagnoses and never bootstraps — when memory/DB/hook state is absent it RECOMMENDS `/setup team` or `/setup orchestration` in its fix-it line and creates nothing itself. (Legacy stubs `/init-team` / `/init-orchestration` redirect until v1.1.)
+- **SPEC-005 (team bootstrap)** owns all state *creation* via sole entry `/setup`: `/setup team` (DB init, extension downloads, project-init scan, permission sync) and `/setup orchestration` (hooks, sandbox, AGENTS.md emission; protocol body in `skills/init-orchestration`). `/doctor` diagnoses and never bootstraps — when memory/DB/hook state is absent it RECOMMENDS `/setup team` or `/setup orchestration` in its fix-it line and creates nothing itself. There is no `/init-team` or `/init-orchestration` command. `/setup` is the entry.
 - **SPEC-002 (plugin infrastructure)** owns the manifest layout, the version-pair rule (`CHANGELOG.md` + `.claude-plugin/plugin.json`; marketplace pins via git refs, not a version field), the settings/sandbox baseline, and the `TaskCompleted` hook contract. `/doctor` verifies conformance *to SPEC-002's rules* — it MUST NOT define its own versioning, settings, or hook policy.
 - **SPEC-004 / SPEC-007 (memory storage & distillation)** own the DB schema, `schema_version`, migrations (`migrate-v2.sh`), and the `config` table including the protected keys `distilling_lock` / `schema_version`. `/doctor` reads (SELECT-only) and never migrates; the single permitted write near this domain is the `--fix` stale-lock clear. A fresh lock stays unless `--force`. The age rule is the `distill-<epoch>-<pid>` shape from `distill-lock.sh` (1800s, the same literal; doctor does not read a private TTL env).
 - **SPEC-016 (worktree isolation)** owns `.worktrees/<slug>` layout, the `.wt-lock` format, and the FRESH/STALE verdict (`WT_LOCK_TTL_SECONDS`, default 21600 s). `/doctor` evaluates lock staleness using SPEC-016's exact rule (reusing `worktree-lib.sh` where it needs an authoritative answer) and MUST NOT invent a second staleness heuristic; worktree removal is always delegated to `worktree-lib.sh release`.
@@ -119,8 +121,7 @@ The command is **read-only by default** — it diagnoses and recommends, it neve
 | Date | Change |
 |------|--------|
 
-**Covers**: `commands/doctor.md`, `skills/doctor/doctor.sh`, `skills/doctor/SKILL.md`, `skills/doctor/test.sh`
-
+| 2026-10-02 | CDT-371 / CDT-391: Covers is a header line. `/init-team` and `/init-orchestration` are not commands. |
 | 2026-10-01 | WP 4-09 (`wp-4-09-debug-doctor`; CDT-407, CDT-279 `[08 F14]` `[08 F23]` `[08 X4]`, rv-w2-38). **M2b** host match is exact, `host:port`, or a DNS label boundary. **M2c″** nonexec is WARN. **M2g** `resolved_tier` includes `marketplace`. **M7** `--fix` clears a stale `distilling_lock` only, unless `--force`; `--only` limits each repair. Test 11 amended. Status stays ACTIVE. |
 | 2026-09-30 | WP 1-13 (`wp-1-13-setup-team-lembed`; CDT-262): **M2j** — `memory.embed_errors` (group `memory`). Counts (with `embed_error_count` from `embed-common.sh`) the `embed` lines of `<MROOT>/.claude/memory/.errors.log` that `embed-one.sh` and `migrate-md.sh` append for every failed embed (SPEC-004); PASS / WARN / SKIP, never FAIL; read-only; prints no log detail. Test 18. Status stays ACTIVE. |
 | 2026-08-26 | CDT-228: **M2i** — `models.map` (group `config`); WARN never FAIL; `--fix` MUST NOT rewrite the map. Test 17. Status stays ACTIVE. |

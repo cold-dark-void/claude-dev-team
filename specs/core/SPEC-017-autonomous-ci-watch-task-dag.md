@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-04-30
 
-**Covers**: `skills/orchestrate/SKILL.md` (router) + `skills/orchestrate/steps/*.md` (CDT-199), `skills/orchestrate/task-graph.md` (WP 1-07), `skills/kickoff/SKILL.md`, `skills/standup/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/orchestrate/task-store.sh`, `skills/orchestrate/dag-lib.sh`, `skills/ci-watch/SKILL.md`, `skills/ci-watch/poll.sh`, `skills/ci-watch/sidecar.sh`, `skills/ci-watch/detect-mode.sh`
+**Covers**: `skills/orchestrate/SKILL.md` (router) + `skills/orchestrate/steps/*.md` (CDT-199), `skills/orchestrate/task-graph.md` (WP 1-07), `skills/kickoff/SKILL.md`, `skills/standup/SKILL.md`, `skills/wrap-ticket/SKILL.md`, `skills/orchestrate/task-store.sh`, `skills/orchestrate/dag-lib.sh`, `skills/ci-watch/SKILL.md`, `skills/ci-watch/poll.sh`, `skills/ci-watch/sidecar.sh`, `skills/ci-watch/detect-mode.sh`, `skills/orchestrate/router-static-test.sh`, `skills/ci-watch/test-poll.sh`, `skills/orchestrate/task-store-test.sh`
 
 ---
 
@@ -372,6 +372,7 @@ The router loads only the current step file plus `cross-cutting.md`
 
 ---
 
+| 2026-10-02 | CDT-391: Covers names `router-static-test.sh`, `test-poll.sh`, and `task-store-test.sh`. |
 | 2026-10-01 | WP 5-04 (CDT-369, CDT-379, CDT-282 T-sidecar, W2-36): `ci` mode also requires `gh auth status`. Empty `[]` is `done` immediately only when `.github/workflows/` is absent; otherwise after 3 consecutive empty polls. `poll_error_count` ≥ 10 emits `cap`. A stale `fixer_active` (missing or old `fixer_started_at`, TTL 1800s) logs `fixer_stale`, clears the guard, and counts a retry. Sidecar `set` keeps digit strings as strings; `delete` removes the log and last-failure file. |
 | 2026-09-28 | WP 1-07 (CDT-312, CDT-406, CDT-354, CDT-278 E7/E8/F27, rv-w1-08, rv-w1-09): one task identity (`<ISSUE-ID>-<taskcreate_id>` key, optional `plan_ordinal` / `taskcreate_id` fields, deps translated in two phases); one Step 7 task-graph protocol in `skills/orchestrate/task-graph.md` with a deterministic DAG file and real halts; dag-lib exit codes 0/1/2/64, pure-jq `check-cycle`, `ready-set --issue`, corrupt-file skip, `blocked-dep` stderr report, `status-of` id rule; 11-ship records `SHIP_START`; step files name the file of each cross-file block. |
 | 2026-08-07 | CDT-167: task-store `update-status` invent policy — no bare false stub when compound `*-<id>.json` exists (single match → update compound; multi → fail closed; zero → bare stub ok). Write-side complement to SPEC-002 shadow-safe TaskCompleted reads. |

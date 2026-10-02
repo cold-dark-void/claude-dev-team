@@ -90,6 +90,8 @@ WT_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/worktree-lib.sh)
 
 Full contract: `specs/core/SPEC-016-worktree-isolation.md`
 
+You MUST NOT run parallel `git worktree` operations. SPEC-016 states that rule.
+
 User-facing management:
 - Release: `/worktree release <slug>` (see `commands/worktree.md`)
 - List/status: `/status worktree` (see `commands/status.md`)
@@ -173,7 +175,7 @@ Agents can receive project-specific standing orders via directives files:
 **File:** `.claude/memory/<agent>/directives.md`
 **Format:** Numbered list, one directive per line
 **Applies to:** 7 behavioral agents (pm, tech-lead, ic5, ic4, devops, qa, ds)
-**Does NOT apply to:** project-init, distiller, council-scribe
+**Does NOT apply to:** the non-behavioral roster agents in SPEC-003 (project-init, distiller, finder, debugger, council-judge, council-scribe)
 
 Directives load BEFORE memory (load order: directives → memory → context).
 They are framed as "standing orders" that the agent must not override — analogous to
