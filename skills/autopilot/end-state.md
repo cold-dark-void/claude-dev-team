@@ -223,9 +223,9 @@ SHIP_START_SHA=<from §3.5> /release <AUTOPILOT_BUMP>
 
 `/release` is the repo's **single ship-of-record** on this path: it folds the squash-staged
 working tree **and** the three version files into **one** `feat|fix: vX.Y.Z — <summary>`
-commit, tags it, and pushes to the origin default branch (`skills/release/SKILL.md` lines
-11–19, Step 5 commit + Step 5.5 ship-history + Step 6 tag/push — the one-commit-per-release
-contract). This procedure adds **no** second commit, tag, or push and does **not** duplicate
+commit, tags it, and pushes to the origin default branch (`skills/release/SKILL.md`
+Step 5 one commit per release, Step 5.5 ship-history, and Step 6 tag and push — the
+one-commit-per-release contract). This procedure adds **no** second commit, tag, or push and does **not** duplicate
 `/release`'s pre-commit gates (Steps 4.5–4.10) or its ship-history gate (Step 5.5 / SPEC-010 H).
 Those gates are `/release`'s own; if any fails, `/release` aborts before claiming success and
 nothing ships as Done (§6), and this sequence runs the §6.5 block on a pre-commit
@@ -392,11 +392,11 @@ reset where the land never created a delivery commit.
 - **Run for `pr`.** `pr` is the PR-stop end state (create PR, stop, no land); this sequence
   fires only on a post-council effective `merge` (§2).
 - **Reuse the interactive `git commit` block.** The Step 11 "If squash merge requested" block
-  is the human path and stays byte-unchanged; autopilot land-no-release lives only here (§4/§5b).
-- **Call `/release` when bump = `master`.** Land-no-release is commit+push only (§5b).
+  is the human path and stays byte-unchanged; autopilot land-no-release lives only here (§4/§5-land-no-release).
+- **Call `/release` when bump = `master`.** Land-no-release is commit+push only (§5-land-no-release).
   **NEVER** `/release master`.
 - **Commit/tag/push itself on the release path.** §5-release stages only; sole ref-mutating
-  step is `/release` (§5a). Land-no-release **does** commit+push by design (asymmetric).
+  step is `/release` (§5-release). Land-no-release **does** commit+push by design (asymmetric).
 - **Define the bump vocabulary or re-check the bump.** `merge` is only reachable when
   `autopilot_bump != null` (the self-answer engine is the sole enforcer; `self-answer.md` §4);
   this sequence carries the bump through and branches on token class — it does not re-derive

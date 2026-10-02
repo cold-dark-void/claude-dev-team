@@ -6,7 +6,8 @@ description: |
     via Linear preferred + local write-through; walk ready children by handing each to
     /kickoff or /orchestrate. Composition layer only — never reimplements the
     ticket lifecycle. Usage: /epic <EPIC-ID> ["text"] | status | complete |
-    block | unblock | sync | --redecompose | [--worktree] [--release <bump>]
+    block | unblock | sync | --redecompose | [--autopilot[=<token>]] |
+    [--no-context-discipline] | [--worktree] [--release <bump>]
 ---
 
 # Epic — Umbrella Decomposition & Sequenced Orchestration
@@ -45,7 +46,7 @@ Writers serialize via exclusive flock on `$MROOT/.claude/epics/.lock`
 | `/epic block <ID> <CHILD> [reason]` | Mark child blocked |
 | `/epic unblock <ID> <CHILD>` | Mark child pending again |
 | `/epic sync <ID> [--dry-run]` | Refresh local `state.json` from Linear (M15) when state may be stale |
-| `/epic … --worktree` | (decompose/execute/resume/`--redecompose` only) Enable epic integration-worktree mode (SPEC-025 M14 / CDT-141). Bare flag only — value forms hard-fail (exit 64). Persists `worktree_enabled=true` on init when set. After init (and on resume when state enabled): ensure **one** integration worktree `epic-<EPIC-ID>` (C2). On resume: omit to honor store; present must match state or exit 64 (C6). Illegal on `status` \| `complete` \| `block` \| `unblock`. |
+| `/epic … --worktree` | (decompose/execute/resume/`--redecompose` only) Enable epic integration-worktree mode (SPEC-025 M14 / CDT-141). Bare flag only — value forms hard-fail (exit 64). Persists `worktree_enabled=true` on init when set. After init (and on resume when state enabled): ensure **one** integration worktree `epic-<EPIC-ID>` (C2). On resume: omit to honor store; present must match state or exit 64 (C6). Illegal on `status` \| `complete` \| `block` \| `unblock` \| `sync`. |
 | `/epic … --release <bump>` | (with `--worktree` only) End-of-epic release bump intent; `<bump>` ∈ {patch,minor,major}. Space form canonical; `--release=<bump>` accepted alias. Alone / bare / `each`\|`end` / without `--worktree` → exit 64, zero side effects. Persists `release_bump` on init. Resume: omit honors store (no silent clear); mismatch → 64 (C6). After last child: Mode B.7 seal once (squash → one `/release <bump>` → `sealed=true`; C5). Without this flag: no epic seal, unless a new decompose carries a release-bump `--autopilot` token, which sets the same intent (Step 0.5). |
 | `/epic … --no-context-discipline` | Debug opt-out of M13 between-child boundary (default **on**) |
 
@@ -107,6 +108,10 @@ Locked contract: SPEC-025 M14 CLI table, semantics, illegal combos, done-when
 1–7, non-public API. Parse **once** at run start, **before** any
 state/Linear/backlog/worktree side effects. Own parser — **not**
 `skills/autopilot/parse-flags.sh`.
+
+Substitute the real `/epic` invocation arguments for every `"$@"` in the fences
+below. The Bash tool leaves `"$@"` empty. Do not run those fences with an empty
+`"$@"`.
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
@@ -313,25 +318,9 @@ Do NOT invent depends_on, estimates, or agent tags — Tech Lead owns those.
 Output mode: terse.
 ```
 
-Before spawning @tech-lead:
-```bash
-# lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
-RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-MODEL=$(bash "$RESOLVE" tech-lead)
-printf '%s\n' "$MODEL"
-EFFORT=$(bash "$RESOLVE" --effort tech-lead)
-printf '%s\n' "$EFFORT"
-```
-Bash stdout = model string; empty → omit model.
-Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent `effort` param; empty → omit (MUST NOT pass `""`).
-Surface resolver stderr to the user. Do not swallow.
-If MODEL is non-empty: pass it as the Agent model param.
-If MODEL is empty: omit model. MUST NOT pass "".
-If spawn fails attributed to the model param (invalid/unknown/unsupported model): retry once with model omitted; warn `model-map: host rejected model '<string>' for tech-lead; retrying with Tier default`.
-If spawn fails attributed to the `effort` param (invalid/unknown/unsupported effort): retry once omitting effort; warn `model-map: host rejected effort '<token>' for tech-lead; retrying with inherited effort`.
-Model host-reject stays independent. Ambiguous failure: do not guess; do not combinatorial-retry both params.
-Other spawn failures MUST NOT be retried as a model or effort fallback.
+Before spawning @tech-lead, use the same resolver as the @pm block above.
+Substitute `tech-lead` for `pm` in both `resolve-model.sh` calls and in both
+host-reject warnings. Do not copy the fence.
 
 **TL prompt template:**
 
@@ -411,15 +400,15 @@ this map. It is the whole map for `/epic` (the engine returns only `proceed`,
 - `halt` → emit `task_blocked` (detail = the one-line message) via **Passive
   notifications → Tier B** (fail-open; § Passive notifications), then print the
   one-line message `scope-confirm halt: <rationale> — card: <card-path>` and
-  **return** with **zero** disk side effects **and zero** Linear project
+  **return** with **zero** disk side effects except the audit card, **and zero** Linear project
   create/link attempts — identical no-side-effect semantics to the human
-  **decline** path below (AC12 / M3).
+  **decline** path below (AC12 / M3), except that the halt writes that card.
 - `reroute-epic` (BC5 complexity overflow) — `/epic` decompose is itself the
   reroute target, so never hand off (a hand-off would re-enter this A.5 gate).
   Count the proposed children (the soft-warn rule of A.1 and the list above):
   **more than 8 children** → print `scope-confirm reroute-epic (soft warn):
   <rationale> — card: <card-path>`, then continue to **A.6**. Otherwise →
-  treat as `halt` (the `halt` branch above, with zero side effects).
+  treat as `halt` (the `halt` branch above).
 - any other value (an engine contract break) → treat as `halt` (fail closed).
 
 Otherwise (autopilot off) the existing human gate applies **unchanged**:
@@ -979,8 +968,8 @@ bash "$EPIC_LIB" seal-ready "$EPIC_ID"
 **When `seal-ready` reports `ready=true`:**
 
 1. **Squash-stage** integration onto the default branch (the local branch behind `origin/HEAD`, else master/main; no commit). Run it from the main checkout with the default branch checked out. Seal never switches branches: it exits 1 when that checkout is dirty, or when HEAD is another branch or detached. Check out the default branch there first:
-   ```bash
-   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -988,16 +977,16 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
 bash "$EPIC_LIB" seal "$EPIC_ID"
-   # stdout: staged=true, handoff="/release <bump>", env.EPIC_ALLOW_SEAL_RELEASE=1
-   ```
+# stdout: staged=true, handoff="/release <bump>", env.EPIC_ALLOW_SEAL_RELEASE=1
+```
 2. **Exactly one** `/release <release_bump>` (bump from durable state — not a
    separate `--bump` flag). `/release` remains the ship-of-record (version
    pair + single fold-commit + tag/push). `assert-release-allowed` honors
    `EPIC_ALLOW_SEAL_RELEASE=1` only while the epic is seal-staged (`seal_stage`
    non-null: after `seal`, before `--complete`/`--abort`); a stray env var
    alone bypasses nothing. Export for the single invocation:
-   ```bash
-   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -1005,13 +994,13 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
 RB=$(bash "$EPIC_LIB" show "$EPIC_ID" | jq -r .release_bump)
-   export EPIC_ALLOW_SEAL_RELEASE=1
-   export EPIC_ID EPIC_RELEASE_END="$EPIC_ID"
-   # Then invoke skills/release/SKILL.md with /release $RB  (once)
-   ```
+export EPIC_ALLOW_SEAL_RELEASE=1
+export EPIC_ID EPIC_RELEASE_END="$EPIC_ID"
+# Then invoke skills/release/SKILL.md with /release $RB  (once)
+```
 3. **On `/release` success** — mark sealed atomically:
-   ```bash
-   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -1019,13 +1008,13 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
 bash "$EPIC_LIB" seal "$EPIC_ID" --complete
-   ```
+```
 4. **On `/release` or squash failure** — leave `sealed=false` (no partial
    tag/push from seal; master not half-shipped). Recover with **bare**
    `seal --abort` first — it resets the seal-owned squash stage (or is a
    no-op when main is already clean) and exits 0:
-   ```bash
-   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -1033,13 +1022,13 @@ PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/pl
 EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
 bash "$EPIC_LIB" seal "$EPIC_ID" --abort
-   ```
+```
    If bare `--abort` **refuses** (exit **1** — main holds edits outside the
    seal-owned stage, for example unstaged version-pair edits a failed
    `/release` Step 3 left behind), run `--abort` with `--force` — stash then reset —
    a named stash holds the edits, nothing is lost:
-   ```bash
-   _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
@@ -1048,7 +1037,7 @@ EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh)
 EPIC_ID="<EPIC-ID>"
 # Post-stage / intentional wipe (stash then reset) — only after bare --abort refused.
 bash "$EPIC_LIB" seal "$EPIC_ID" --abort --force
-   ```
+```
 
 **Invariants:**
 - Seal path runs **once** (`sealed=true` → further `seal` is `already_sealed` no-op).

@@ -31,10 +31,9 @@ expect_rc() {
 
 run_lib() {
   local want="$1"; shift
-  set +e
-  OUT=$(EPIC_ROOT="${EPIC_ROOT:-}" bash "$LIB" "$@" 2>&1)
-  RC=$?
-  set -e
+  # set -e stays in the command-substitution subshell. This shell stays set -u.
+  RC=0
+  OUT=$(set -e; EPIC_ROOT="${EPIC_ROOT:-}" bash "$LIB" "$@" 2>&1) || RC=$?
   if [ "$RC" -eq "$want" ]; then pass
   else fail "exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 400; echo
   fi
@@ -45,17 +44,29 @@ run_lib 64
 echo "$OUT" | grep -q Usage && pass || fail "usage text missing"
 
 # ---- isolated root ----------------------------------------------------------
-TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-test.XXXXXX")
-cleanup() { rm -rf "$TMPROOT"; hermetic_cleanup; }
+# CDT-424: every temp dir is tracked. The EXIT trap removes all of them.
+# errexit is not enabled in this shell.
+TMP_DIRS=()
+keep_tmp() {
+  [ -n "${1:-}" ] || return 0
+  TMP_DIRS+=("$1")
+}
+sweep_tracked() {
+  local d
+  for d in ${TMP_DIRS[@]+"${TMP_DIRS[@]}"}; do
+    rm -rf "$d"
+  done
+}
+cleanup() { sweep_tracked; hermetic_cleanup; }
 trap cleanup EXIT
+TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-test.XXXXXX")
+keep_tmp "$TMPROOT"
 export EPIC_ROOT="$TMPROOT"
 
 run_in() {
   local want="$1"; shift
-  set +e
-  OUT=$(EPIC_ROOT="$TMPROOT" bash "$LIB" "$@" 2>&1)
-  RC=$?
-  set -e
+  RC=0
+  OUT=$(set -e; EPIC_ROOT="$TMPROOT" bash "$LIB" "$@" 2>&1) || RC=$?
   if [ "$RC" -eq "$want" ]; then pass
   else fail "exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
   fi
@@ -241,21 +252,18 @@ printf '%s\n' '[{"task_id":"CDV-30-C1","depends_on":[]},{"task_id":"CDV-30-C2","
 set +e
 OUT=$(EPIC_ROOT="$TMPROOT" bash "$LIB" check-cycle "$CYC" 2>&1)
 RC=$?
-set -e
 [ "$RC" -eq 1 ] && pass || fail "cyclic check-cycle want exit 1 got $RC"
 echo "$OUT" | grep -qi cycle && pass || fail "cycle message missing: $OUT"
 
 set +e
 OUT=$(EPIC_ROOT="$TMPROOT" bash "$LIB" check-cycle "$ACYC" 2>&1)
 RC=$?
-set -e
 [ "$RC" -eq 0 ] && pass || fail "acyclic check-cycle want 0 got $RC out=$OUT"
 
 # also direct dag-lib (AC14 — external reuse)
 set +e
 bash "$DAG" check-cycle "$CYC" >/dev/null 2>&1
 RC=$?
-set -e
 [ "$RC" -eq 1 ] && pass || fail "direct dag-lib cycle want 1 got $RC"
 
 # ---- ID scheme regex --------------------------------------------------------
@@ -672,12 +680,12 @@ echo "$OUT" | jq -e 'keys | sort == ["release_bump","worktree_enabled"]' >/dev/n
 
 # ---- CDT-141-C1: init persists modes when set; default omits keys ----------
 WT_TMP=$(mktemp -d "${TMPDIR:-/tmp}/epic-wt.XXXXXX")
+keep_tmp "$WT_TMP"
 run_wt() {
   local want="$1"; shift
   set +e
   OUT=$(EPIC_ROOT="$WT_TMP" bash "$LIB" "$@" 2>&1)
   RC=$?
-  set -e
   if [ "$RC" -eq "$want" ]; then pass
   else fail "exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 400; echo
   fi
@@ -728,6 +736,7 @@ rm -rf "$WT_TMP"
 # ---- CDT-141-C2: ensure-integration-worktree --------------------------------
 # Isolated git repo so worktree-lib create/reuse is real (slug epic-<ID>).
 C2_TMP=$(mktemp -d "${TMPDIR:-/tmp}/epic-c2.XXXXXX")
+keep_tmp "$C2_TMP"
 c2_cleanup() { rm -rf "$C2_TMP"; }
 # chain with prior cleanup if any — TMPROOT also cleaned by trap; stack handlers
 trap 'rm -rf "$C2_TMP"; cleanup' EXIT
@@ -744,7 +753,6 @@ if [ -n "$C2_TMP" ] && [ -d "$C2_TMP/.git" ]; then
     # worktree-lib resolves MROOT from CWD git; EPIC_ROOT holds state
     OUT=$(cd "$C2_TMP" && EPIC_ROOT="$C2_TMP" bash "$LIB" "$@" 2>&1)
     RC=$?
-    set -e
     if [ "$RC" -eq "$want" ]; then pass
     else fail "c2 exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
     fi
@@ -863,7 +871,6 @@ MOCK
       MOCK_WT_ROOT="$C2_TMP" MOCK_WT_LOG="$C3_LOG" \
       bash "$LIB" "$@" 2>&1)
     RC=$?
-    set -e
     if [ "$RC" -eq "$want" ]; then pass
     else fail "c3 exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
     fi
@@ -960,7 +967,6 @@ MOCK
     EPIC_INTEGRATION_PATH="$ENV_INT" \
     bash "$LIB" ensure-ticket-worktree FREEFORM-1 2>&1)
   RC=$?
-  set -e
   [ "$RC" -eq 0 ] && pass || fail "c3-5 env path rc=$RC"
   [ "$OUT" = "$ENV_INT" ] && pass || fail "c3-5 env path want $ENV_INT got $OUT"
   [ ! -s "$C3_LOG" ] && pass || fail "c3-5 env must not ensure (log=$(cat "$C3_LOG"))"
@@ -986,7 +992,6 @@ MOCK
       MOCK_WT_ROOT="$C2_TMP" MOCK_WT_LOG="$C3_LOG" \
       bash "$LIB" "$@" 2>&1)
     RC=$?
-    set -e
     if [ "$RC" -eq "$want" ]; then pass
     else fail "c6 exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
     fi
@@ -1086,12 +1091,12 @@ fi
 # ---- CDT-141-C4: assert-release-allowed (mid-epic /release + master-merge) --
 {
   C4_TMP=$(mktemp -d "${TMPDIR:-/tmp}/epic-c4.XXXXXX")
+  keep_tmp "$C4_TMP"
   run_c4() {
     local want="$1"; shift
     set +e
     OUT=$(EPIC_ROOT="$C4_TMP" bash "$LIB" "$@" 2>&1)
     RC=$?
-    set -e
     if [ "$RC" -eq "$want" ]; then pass
     else fail "c4 exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
     fi
@@ -1170,7 +1175,6 @@ fi
   OUT=$(EPIC_ROOT="$C4_TMP" EPIC_ALLOW_SEAL_RELEASE=1 \
     bash "$LIB" assert-release-allowed CDV-C4-END 2>&1)
   RC=$?
-  set -e
   [ "$RC" -eq 64 ] && pass || fail "c4-8 env without seal_stage must not bypass (rc=$RC out=$OUT)"
   echo "$OUT" | grep -q 'release=end mode until seal' \
     && pass || fail "c4-8 env-without-stage message (out=$OUT)"
@@ -1182,7 +1186,6 @@ fi
   OUT=$(EPIC_ROOT="$C4_TMP" EPIC_ALLOW_SEAL_RELEASE=1 \
     bash "$LIB" assert-release-allowed CDV-C4-END 2>&1)
   RC=$?
-  set -e
   [ "$RC" -eq 0 ] && pass || fail "c4-8 seal env bypass while staged rc=$RC out=$OUT"
   # seal-staged without env still fails (the stage is not a bypass by itself)
   run_c4 64 assert-release-allowed CDV-C4-END
@@ -1194,7 +1197,6 @@ fi
   OUT=$(EPIC_ROOT="$C4_TMP" EPIC_ALLOW_SEAL_RELEASE=1 \
     bash "$LIB" assert-release-allowed CDV-C4-END 2>&1)
   RC=$?
-  set -e
   [ "$RC" -eq 64 ] && pass || fail "c4-8 env after stage cleared must not bypass (rc=$RC)"
   # without env still fails
   run_c4 64 assert-release-allowed CDV-C4-END
@@ -1224,6 +1226,7 @@ fi
 # ---- CDT-141-C5: seal (squash → one /release <bump> → sealed) ---------------
 {
   C5_TMP=$(mktemp -d "${TMPDIR:-/tmp}/epic-c5.XXXXXX")
+  keep_tmp "$C5_TMP"
   git init -q "$C5_TMP" || { fail "c5 git init"; C5_TMP=""; }
   if [ -n "$C5_TMP" ] && [ -d "$C5_TMP/.git" ]; then
     git -C "$C5_TMP" config user.email "test@example.com"
@@ -1244,7 +1247,6 @@ fi
       set +e
       OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" "$@" 2>&1)
       RC=$?
-      set -e
       if [ "$RC" -eq "$want" ]; then pass
       else fail "c5 exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 600; echo
       fi
@@ -1337,7 +1339,6 @@ fi
     OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_TEST_MODE=1 EPIC_SEAL_RELEASE_HOOK="$FAIL_HOOK" \
       bash "$LIB" seal CDV-C5-END 2>&1)
     RC=$?
-    set -e
     [ "$RC" -eq 1 ] && pass || fail "c5-6 hook fail want rc=1 got $RC out=$OUT"
     echo "$OUT" | grep -qi 'release hook failed\|master restored' \
       && pass || fail "c5-6 fail message (out=$OUT)"
@@ -1359,7 +1360,6 @@ fi
     OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_TEST_MODE=1 EPIC_SEAL_RELEASE_HOOK="$OK_HOOK" \
       bash "$LIB" seal CDV-C5-END 2>&1)
     RC=$?
-    set -e
     [ "$RC" -eq 0 ] && pass || fail "c5-7 seal success rc=$RC out=$OUT"
     echo "$OUT" | jq -e '.sealed==true and .release_bump=="minor" and .release_invoked==true' >/dev/null \
       && pass || fail "c5-7 seal JSON (out=$OUT)"
@@ -1384,7 +1384,6 @@ fi
     OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" EPIC_TEST_MODE=1 EPIC_SEAL_RELEASE_HOOK="$OK_HOOK" \
       bash "$LIB" seal CDV-C5-END 2>&1)
     RC=$?
-    set -e
     [ "$RC" -eq 0 ] && pass || fail "c5-8 second seal rc=$RC"
     echo "$OUT" | jq -e '.already_sealed==true and .sealed==true and .skipped==true' >/dev/null \
       && pass || fail "c5-8 already_sealed JSON (out=$OUT)"
@@ -1463,7 +1462,6 @@ fi
     set +e
     OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort 2>&1)
     RC=$?
-    set -e
     [ "$RC" -eq 1 ] && pass || fail "c5-d1 dirty bare abort rc=$RC out=$OUT"
     echo "$OUT" | grep -q 'dirty' && echo "$OUT" | grep -q 'refuse' \
       && pass || fail "c5-d1 stderr dirty+refuse (out=$OUT)"
@@ -1482,7 +1480,6 @@ fi
     set +e
     OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort --force 2>"$C5_D3_ERR")
     RC=$?
-    set -e
     ERR=$(cat "$C5_D3_ERR"); rm -f "$C5_D3_ERR"
     [ "$RC" -eq 0 ] && pass || fail "c5-d3 abort --force rc=$RC out=$OUT err=$ERR"
     echo "$OUT" | jq -e '(.aborted==true or .reason=="already_sealed")' >/dev/null \
@@ -1506,7 +1503,6 @@ fi
     set +e
     OUT=$(cd "$C5_TMP" && EPIC_ROOT="$C5_TMP" bash "$LIB" seal CDV-C5-HO --abort 2>&1)
     RC=$?
-    set -e
     [ "$RC" -eq 1 ] && pass || fail "c5-d4 already_sealed dirty abort rc=$RC out=$OUT"
     echo "$OUT" | grep -q 'dirty' && echo "$OUT" | grep -q 'refuse' \
       && pass || fail "c5-d4 stderr dirty+refuse (out=$OUT)"
@@ -1631,6 +1627,7 @@ grep -q 'exactly 1 release commit' "$HERE/test.sh" \
 echo ""
 echo "=== M15 sync-apply ==="
 SYNC_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-sync-XXXXXX")
+keep_tmp "$SYNC_ROOT"
 export EPIC_ROOT="$SYNC_ROOT"
 bash "$LIB" init SYNC-E --title "Sync epic" --mode orchestrate >/dev/null
 bash "$LIB" add-child SYNC-E --id SYNC-E-C1 --slug c1 --title "Child one" \
@@ -1734,12 +1731,12 @@ unset EPIC_ROOT
 # ---- CDT-169: EPIC-ID charset (AC2–AC8) ------------------------------------
 {
   CS_TMP=$(mktemp -d "${TMPDIR:-/tmp}/epic-charset.XXXXXX")
+  keep_tmp "$CS_TMP"
   run_cs() {
     local want="$1"; shift
     set +e
     OUT=$(EPIC_ROOT="$CS_TMP" bash "$LIB" "$@" 2>&1)
     RC=$?
-    set -e
     if [ "$RC" -eq "$want" ]; then pass
     else fail "cs exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
     fi
@@ -1803,6 +1800,7 @@ unset EPIC_ROOT
 # ---- CDT-158 / SPEC-025 M16: gap-callout (mid-epic ship warn) ---------------
 {
   GAP_TMP=$(mktemp -d "${TMPDIR:-/tmp}/epic-gap.XXXXXX")
+  keep_tmp "$GAP_TMP"
   GAP_ERR=$(mktemp "${TMPDIR:-/tmp}/epic-gap-err.XXXXXX")
   run_gap() {
     local want="$1"; shift
@@ -1810,7 +1808,6 @@ unset EPIC_ROOT
     OUT=$(EPIC_ROOT="$GAP_TMP" bash "$LIB" "$@" 2>"$GAP_ERR")
     RC=$?
     ERR=$(cat "$GAP_ERR")
-    set -e
     if [ "$RC" -eq "$want" ]; then pass
     else fail "gap exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 400; echo
       echo "  err: $ERR" | head -c 200; echo
@@ -1935,7 +1932,6 @@ unset EPIC_ROOT
   set +e
   C4_OUT=$(EPIC_ROOT="$GAP_TMP" bash "$LIB" assert-release-allowed CDT-GAP-END-C1 2>&1)
   C4_RC=$?
-  set -e
   [ "$C4_RC" -eq 64 ] && pass || fail "g9 C4 rc=$C4_RC want 64"
   echo "$C4_OUT" | grep -q 'epic CDT-GAP-END is in release=end mode until seal (CDT-141)' \
     && pass || fail "g9 C4 message drifted (out=$C4_OUT)"
@@ -1962,6 +1958,7 @@ echo "=== M6 concurrent state RMW (CDT-165) ==="
 # regression: pre-CDT-165 unlocked RMW lost updates under concurrent mutators
 # (last-write-wins drops C2 or C1 status/outcome when set-status ∥ add-child).
 RACE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-race-XXXXXX")
+keep_tmp "$RACE_ROOT"
 export EPIC_ROOT="$RACE_ROOT"
 
 bash "$LIB" init CDV-RACE --title "Race epic" --mode kickoff >/dev/null
@@ -2045,6 +2042,7 @@ G_RET="$(fence_top_level_returns "$SKILL")"
 # wrapper): the fence's `return`-turned-`exit 1` needs to halt at the top
 # level, the same discipline test-end-state-safety.sh uses for AC F.
 G_FIXROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-g2.XXXXXX")
+keep_tmp "$G_FIXROOT"
 mkdir -p "$G_FIXROOT/skills/epic"
 cp "$HERE/../plugin-dir.sh" "$G_FIXROOT/skills/plugin-dir.sh"
 VALIDATE_MARKER="$G_FIXROOT/validate-seed-called"
@@ -2071,7 +2069,6 @@ else
   set +e
   B6_OUT=$(CLAUDE_PLUGIN_ROOT="$G_FIXROOT" bash "$B6_RUNFILE" 2>&1)
   B6_RC=$?
-  set -e
   [ "$B6_RC" -ne 0 ] && pass || fail "B.6 fence exits non-zero on build-seed failure (rc=$B6_RC): $B6_OUT"
   if [ -f "$VALIDATE_MARKER" ]; then
     fail "B.6 fence called validate-seed after build-seed failed"
@@ -2088,10 +2085,10 @@ rm -rf "$G_FIXROOT"
 # "orchestrate" lands as an unexpected trailing positional. Non-bite; kept
 # because the AC text names it verbatim).
 G3_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-g3.XXXXXX")
+keep_tmp "$G3_ROOT"
 set +e
 G3_OUT=$(EPIC_ROOT="$G3_ROOT" bash "$LIB" init X --title --mode orchestrate 2>&1)
 G3_RC=$?
-set -e
 [ "$G3_RC" -eq 64 ] && pass || fail "init X --title --mode orchestrate rc=$G3_RC want 64: $G3_OUT"
 if [ -f "$G3_ROOT/.claude/epics/X/state.json" ]; then
   fail "init X --title --mode orchestrate wrote state.json"
@@ -2106,10 +2103,10 @@ rm -rf "$G3_ROOT"
 # passes the non-empty check, so pre-fix code writes state.json with that
 # title. Fails on pre-fix epic-lib.sh; passes only with the new guard.
 G4_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-g4.XXXXXX")
+keep_tmp "$G4_ROOT"
 set +e
 G4_OUT=$(EPIC_ROOT="$G4_ROOT" bash "$LIB" init X --mode orchestrate --title --worktree-enabled 2>&1)
 G4_RC=$?
-set -e
 [ "$G4_RC" -eq 64 ] && pass || fail "init X --mode orchestrate --title --worktree-enabled rc=$G4_RC want 64: $G4_OUT"
 if [ -f "$G4_ROOT/.claude/epics/X/state.json" ]; then
   fail "init X --mode orchestrate --title --worktree-enabled wrote state.json"
@@ -2121,6 +2118,7 @@ rm -rf "$G4_ROOT"
 # ---- SPEC-025 wp-1-09-epic-seal ----------------------------------------------
 echo "=== WP 1-09 epic seal ==="
 W9_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-w109.XXXXXX")
+keep_tmp "$W9_ROOT"
 W9_SKILL="$HERE/SKILL.md"
 W9_CMD="$HERE/../../commands/epic.md"
 W9_DOCS="$HERE/../../docs/commands/epic.md"
@@ -2131,7 +2129,6 @@ w9() {
   set +e
   OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" bash "$LIB" "$@" 2>&1)
   RC=$?
-  set -e
   if [ "$RC" -eq "$want" ]; then pass
   else fail "w109 exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
   fi
@@ -2242,7 +2239,6 @@ w9wt() {
   set +e
   OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_WT_LIB="$wtlib" bash "$LIB" "$@" 2>&1)
   RC=$?
-  set -e
   if [ "$RC" -eq "$want" ]; then pass
   else fail "w109 wt exit $RC != $want for: $*"; echo "  out: $OUT" | head -c 500; echo
   fi
@@ -2418,7 +2414,6 @@ w9 64 check-cycle
 set +e
 OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_DAG_LIB="$W9_ROOT/no-such-dag-lib.sh" bash "$LIB" check-cycle "$W9_ROOT/no-such-file.json" 2>&1)
 RC=$?
-set -e
 [ "$RC" -eq 1 ] && pass || fail "w109 W3-37 missing dag-lib must exit 1 (rc=$RC out=$OUT)"
 
 # --- T4 / W3-37: SKILL Step 0.4 passes the tool's own exit code through.
@@ -2447,7 +2442,6 @@ else
     set +e
     OUT=$(cd "$W9_ROOT" && CLAUDE_PLUGIN_ROOT="$W9_FIX" STUB_RC="$W9_RC" bash "$W9_F04_RUN" --worktree 2>&1)
     RC=$?
-    set -e
     [ "$RC" -eq "$W9_RC" ] && pass || fail "w109 W3-37 Step 0.4 fence: resolve rc $W9_RC must exit $W9_RC, got $RC ($OUT)"
   done
 fi
@@ -2556,7 +2550,6 @@ w9ap() {
   set +e
   OUT=$(cd "$W9_ROOT" && EPIC_ROOT="$W9_ROOT" EPIC_AUTOPILOT_PARSE_FLAGS="$W9_AP_STUB" bash "$LIB" "$@" 2>&1)
   RC=$?
-  set -e
   if [ "$RC" -eq "$want" ]; then pass
   else fail "w109 TL4 exit $RC != $want for stub=$stub: $*"; echo "  out: $OUT" | head -c 400; echo
   fi
@@ -2580,6 +2573,114 @@ if _w9_no_grammar_copy "$W9_GRAM"; then fail "w109 TL4 negative control: grammar
 if _w9_no_grammar_copy "$LIB"; then pass; else fail "w109 TL4 epic-lib.sh still copies the --autopilot token grammar"; fi
 
 rm -rf "$W9_ROOT"
+
+# ---- CDT-388 / CDT-424 / CDT-281 prose --------------------------------------
+DOCS_EPIC_388="$HERE/../../docs/commands/epic.md"
+CMD_388="$HERE/../../commands/epic.md"
+# argument-hint flags must appear in the docs flags page
+for flag in --worktree --release --autopilot --no-context-discipline --redecompose --dry-run; do
+  if grep -q -- "$flag" "$DOCS_EPIC_388"; then pass
+  else fail "cdt388 docs/commands/epic.md missing $flag"
+  fi
+done
+if grep -q 'Mid-epic forbid (release=end)' "$DOCS_EPIC_388"; then
+  fail "cdt388 docs heading still uses rejected token end"
+else
+  pass "cdt388 docs heading does not say release=end"
+fi
+if grep -q 'each`/`end`' "$DOCS_EPIC_388"; then
+  pass "cdt388 rejected end token still documented as illegal"
+else
+  fail "cdt388 docs dropped the rejected end token"
+fi
+if grep -q -- '--not-a-real-epic-flag' "$DOCS_EPIC_388"; then
+  fail "cdt388 negative: planted flag matched docs"
+else
+  pass "cdt388 negative: planted flag is absent"
+fi
+# descriptions (frontmatter only) name the flags argument-hint already has
+cmd_desc=$(awk '/^description:/{p=1} /^argument-hint:/{exit} /^---$/ && p && NR>1{exit} p{print}' "$CMD_388")
+if printf '%s\n' "$cmd_desc" | grep -q -- '--autopilot' \
+  && printf '%s\n' "$cmd_desc" | grep -q -- '--no-context-discipline'; then
+  pass "cdt388 commands/epic.md description names autopilot and no-context-discipline"
+else
+  fail "cdt388 commands/epic.md description missing a flag"
+fi
+skill_desc=$(awk 'BEGIN{p=0} /^description:/{p=1} p{print} /^---$/ && p && NR>1{exit}' "$SKILL")
+if printf '%s\n' "$skill_desc" | grep -q -- '--autopilot' \
+  && printf '%s\n' "$skill_desc" | grep -q -- '--no-context-discipline'; then
+  pass "cdt388 epic SKILL description names autopilot and no-context-discipline"
+else
+  fail "cdt388 epic SKILL description missing a flag"
+fi
+if grep -F 'unblock` \| `sync`' "$SKILL" >/dev/null; then
+  pass "cdt388 --worktree illegal list includes sync"
+else
+  fail "cdt388 --worktree illegal list omits sync"
+fi
+
+# CDT-281: one resolver block; "$@" fences say to substitute argv; B.7 fences
+# are not indented inside the list.
+n_resolve=$(grep -c 'Bash stdout = model string' "$SKILL" || true)
+if [ "$n_resolve" -eq 1 ]; then
+  pass "cdt281 model resolver prose appears once"
+else
+  fail "cdt281 model resolver prose count=$n_resolve (want 1)"
+fi
+if grep -q 'Substitute the real `/epic` invocation arguments' "$SKILL" \
+  && grep -q '"$@"' "$SKILL"; then
+  pass "cdt281 fences still use \$@ and tell the reader to substitute argv"
+else
+  fail "cdt281 missing argv-substitute note or the \$@ placeholder"
+fi
+if awk '
+  /^### B\.7 / { sect=1 }
+  /^## Mode C / { sect=0 }
+  sect && /^   ```bash$/ { bad=1 }
+  END { exit bad ? 0 : 1 }
+' "$SKILL"; then
+  fail "cdt281 B.7 still has an indented bash fence"
+else
+  pass "cdt281 B.7 bash fences are not list-indented"
+fi
+# negative control: an indented fence must trip the same awk
+PLANT_MD=$(mktemp "${TMPDIR:-/tmp}/cdt281-plant.XXXXXX")
+keep_tmp "$PLANT_MD"
+printf '%s\n' '### B.7 plant' '   ```bash' 'echo hi' '   ```' '## Mode C' >"$PLANT_MD"
+if awk '
+  /^### B\.7 / { sect=1 }
+  /^## Mode C / { sect=0 }
+  sect && /^   ```bash$/ { bad=1 }
+  END { exit bad ? 0 : 1 }
+' "$PLANT_MD"; then
+  pass "cdt281 negative: planted indented B.7 fence is detected"
+else
+  fail "cdt281 negative: planted indented fence was not detected"
+fi
+
+if grep -F -q 'disk side effects except the audit card' "$SKILL" \
+  && grep -F -q 'On **decline**: exit, **zero** disk side effects' "$SKILL"; then
+  pass "cdt424 A.5 halt allows the audit card; human decline stays zero writes"
+else
+  fail "cdt424 A.5 side-effect wording"
+fi
+
+# CDT-424: this shell must not have errexit on, and the sweeper removes a
+# tracked dir that is not TMPROOT.
+case $- in
+  *e*) fail "cdt424 test shell has errexit on" ;;
+  *) pass "cdt424 test shell stayed without errexit" ;;
+esac
+CDT424_PROBE=$(mktemp -d "${TMPDIR:-/tmp}/epic-cdt424.XXXXXX")
+(
+  TMP_DIRS=("$CDT424_PROBE")
+  sweep_tracked
+)
+if [ -d "$CDT424_PROBE" ]; then
+  fail "cdt424 sweep_tracked left $CDT424_PROBE"
+else
+  pass "cdt424 sweep_tracked removes a tracked dir other than TMPROOT"
+fi
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

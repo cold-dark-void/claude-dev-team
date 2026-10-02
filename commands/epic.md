@@ -7,8 +7,8 @@ description: |
     child; Linear optional (Project create/link best-effort — SPEC-025 M12 /
     skill A.6). Multi-child Mode B applies between-child context discipline
     (M13) by default. Usage: /epic <EPIC-ID> ["text"] | status | complete |
-    block | unblock | sync | --redecompose | [--no-context-discipline] |
-    [--worktree] [--release <bump>]
+    block | unblock | sync | --redecompose | [--autopilot[=<token>]] |
+    [--no-context-discipline] | [--worktree] [--release <bump>]
 argument-hint: "<EPIC-ID> [\"text\"] [--worktree] [--release <bump>] [--autopilot[=<token>]] [--no-context-discipline] | status | complete | block | unblock | sync [--dry-run] | --redecompose"
 ---
 

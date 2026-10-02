@@ -38,7 +38,8 @@
 # DELIBERATE INVERSION of metrics/emit-outcome.sh best-effort semantics:
 # this writer HARD-FAILS (exit 64) on EVERY failure mode — malformed args,
 # invalid enum/range, cross-field-invariant violation, control chars in
-# rationale, jq absent, mkdir/write failure. It NEVER exits 0 on failure.
+# rationale or grading_reason, a free-text field over 1000 characters, jq
+# absent, mkdir/write failure. It NEVER exits 0 on failure.
 # The decision-card audit trail must be trustworthy; a silently-dropped card
 # is worse than a loud abort.
 #
@@ -213,6 +214,10 @@ fi
 if [[ "$GRADING_REASON" =~ [[:cntrl:]] ]]; then
   die "grading_reason must not contain newlines or control characters"
 fi
+# 1000 characters, not bytes. Longer free text makes the JSON line a multi-write
+# append. Reject; do not truncate.
+[ "${#RATIONALE}" -le 1000 ] || die "rationale exceeds 1000 characters"
+[ "${#GRADING_REASON}" -le 1000 ] || die "grading_reason exceeds 1000 characters"
 
 # ---- jq guard (HARD FAIL — divergence from emit-outcome.sh) ------------------
 if ! command -v jq >/dev/null 2>&1; then
@@ -313,10 +318,11 @@ if ! mkdir -p "$autopilot_dir" 2>/dev/null; then
   die "cannot create $autopilot_dir"
 fi
 
-# PIPE_BUF: each card is a single compact line well under PIPE_BUF (>=512 on
-# POSIX, 4096 on Linux), so a single O_APPEND write >> is atomic w.r.t.
-# interleaving under concurrent appends — no flock needed at this scale.
-if ! jq -cn \
+# Build the card in one variable, then one printf >> . PIPE_BUF atomicity is a
+# pipe guarantee, not a regular-file O_APPEND guarantee, so this writer does
+# not claim it. rationale and grading_reason are capped so the line stays one
+# write. No flock.
+if ! card_line=$(jq -cn \
   --argjson schema_version 1 \
   --arg ts "$ts" \
   --arg run_id "$RUN_ID" \
@@ -367,9 +373,10 @@ if ! jq -cn \
       signals: $budget_signals
     },
     actor: $actor
-  }' \
-  >> "$card_file" 2>/dev/null
-then
+  }' 2>/dev/null); then
+  die "cannot write decision card to $card_file"
+fi
+if ! printf '%s\n' "$card_line" >> "$card_file"; then
   die "cannot write decision card to $card_file"
 fi
 

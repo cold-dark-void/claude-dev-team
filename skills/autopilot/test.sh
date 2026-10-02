@@ -20,7 +20,7 @@
 #
 # Covers CDT-111-C4 T1 cases (v)-(ad) for parse-flags.sh: flag-only, flag+bump,
 # env-only, flag+env both set (flag wins), illegal bump, empty bump, off,
-# unset, and 5-key JSON shape (CDT-126 adds council_tier; CDT-206 adds tier).
+# unset, and 6-key JSON shape (enabled, bump, source, council_tier, tier, max_loc).
 #
 # Covers CDT-126 T5 cases (an)-(ap) for the council_tier/grading_reason card
 # fields: 15-arg append + frozen key position, argc-14 / bad-enum / invariant-(c)
@@ -116,6 +116,19 @@ expect_rc() {
   if [ "$rc" -eq "$want" ]; then pass "$desc"; else fail "$desc rc=$rc (want $want)"; fi
 }
 
+# expect_rc_err <want> <needle> <desc> <cmd...>
+# stderr must contain needle. A wrong reason with the right rc fails.
+expect_rc_err() {
+  local want=$1 needle=$2 desc=$3; shift 3
+  local rc=0 err
+  err=$("$@" 2>&1 >/dev/null) || rc=$?
+  if [ "$rc" -eq "$want" ] && printf '%s\n' "$err" | grep -qF -- "$needle"; then
+    pass "$desc"
+  else
+    fail "$desc rc=$rc err=$err (want $want and '$needle')"
+  fi
+}
+
 # ---- Temp git repo (fake MROOT via git-common-dir) ---------------------------
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/autopilot-test.XXXXXX")
 cleanup() { rm -rf "$TMP"; }
@@ -186,8 +199,16 @@ reset
 expect_rc 64 "c1 argc=12 (one short) → 64" \
   bash "$APPEND" orchestrate CDT-111 plan-approve proceed auto null 70 null run-1 1 10 orch
 expect_rc 64 "c2 argc=0 → 64" bash "$APPEND"
-expect_rc 64 "c3 argc=14 (one over) → 64" \
+# argc 14 is legal (max_loc). "extra" fails as max_loc, not as argc.
+expect_rc_err 64 "invalid max_loc" "c3 argc=14 max_loc=extra → 64 invalid max_loc" \
   bash "$APPEND" orchestrate CDT-111 plan-approve proceed auto null 70 null run-1 1 10 orch "r" extra
+# negative control: a real argc error must not be reported as invalid max_loc
+c1_err=$(bash "$APPEND" orchestrate CDT-111 plan-approve proceed auto null 70 null run-1 1 10 orch 2>&1 >/dev/null || true)
+if printf '%s\n' "$c1_err" | grep -qF 'invalid max_loc'; then
+  fail "c3 negative: argc=12 stderr must not say invalid max_loc"
+else
+  pass "c3 negative: argc=12 stderr is not invalid max_loc"
+fi
 
 # =============================================================================
 # (d) each of the 5 bad-enum cases → 64 (workflow, gate, decision, decided_by, bump)
@@ -234,6 +255,28 @@ expect_rc 64 "g1 newline in rationale → 64" \
   bash "$APPEND" orchestrate CDT-111 plan-approve proceed auto null 70 null run-1 1 10 orch $'line1\nline2'
 expect_rc 64 "g2 tab in rationale → 64" \
   bash "$APPEND" orchestrate CDT-111 plan-approve proceed auto null 70 null run-1 1 10 orch $'a\tb'
+
+# (g3) CDT-358: rationale / grading_reason over 1000 characters → 64, no card.
+# 1000 characters is still legal (negative control for a too-tight cap).
+reset
+LONG=$(printf '%1001s' x | tr ' ' x)
+OKLONG=$(printf '%1000s' x | tr ' ' x)
+expect_rc_err 64 "exceeds 1000 characters" "g3 rationale over 1000 characters → 64" \
+  bash "$APPEND" orchestrate CDT-111 plan-approve proceed auto null 70 null run-1 1 10 orch "$LONG"
+[ ! -e "$(ledger CDT-111)" ] && pass "g3 oversize rationale writes no card" \
+  || fail "g3 oversize rationale wrote a card"
+RC=$(rc_of bash "$APPEND" orchestrate CDT-111 plan-approve proceed auto null 70 null run-1 1 10 orch "$OKLONG")
+L=$(ledger CDT-111)
+if [ "$RC" -eq 0 ] && jq -e --arg r "$OKLONG" '.rationale == $r' "$L" >/dev/null 2>&1; then
+  pass "g3 rationale of 1000 characters → rc 0"
+else
+  fail "g3 1000-char rationale rc=$RC"
+fi
+reset
+expect_rc_err 64 "exceeds 1000 characters" "g3 grading_reason over 1000 characters → 64" \
+  bash "$APPEND" orchestrate CDT-111 ship-choice pr auto null 90 null run-1 1 10 orch "r" light "$LONG"
+[ ! -e "$(ledger CDT-111)" ] && pass "g3 oversize grading_reason writes no card" \
+  || fail "g3 oversize grading_reason wrote a card"
 
 # =============================================================================
 # (h) env override respected (AUTOPILOT_ITERATION_CAP=5 → budget.iteration_cap==5)
@@ -643,7 +686,8 @@ fi
 #      control-char grading_reason
 # =============================================================================
 reset
-expect_rc 64 "ao1 argc=14 (tier without reason) → 64" \
+# 14th arg is max_loc, not council_tier. "light" is an invalid max_loc.
+expect_rc_err 64 "invalid max_loc" "ao1 argc=14 max_loc=light → 64 invalid max_loc" \
   bash "$APPEND" orchestrate CDT-T ship-choice pr auto patch 90 null run-1 1 10 orch "r" light
 expect_rc 64 "ao2 council_tier='bogus' → 64" \
   bash "$APPEND" orchestrate CDT-T ship-choice pr auto patch 90 null run-1 1 10 orch "r" bogus "why"
@@ -1480,6 +1524,77 @@ expect_rc 64 "cdt223-t2 usage missing path" bash "$LOC_EXCLUDE" is-excluded
 expect_rc 64 "cdt223-t2 usage extra args" bash "$LOC_EXCLUDE" is-excluded foo bar
 expect_rc 64 "cdt223-t2 usage bad command" bash "$LOC_EXCLUDE" exclude foo
 expect_rc 64 "cdt223-t2 usage empty path" bash "$LOC_EXCLUDE" is-excluded ""
+
+# W3-36: filter batches one check-attr --stdin and uses the cwd worktree's attrs.
+# Three non-builtin paths → one check-attr. Three is-excluded calls → three.
+# Negative control: the counter moves, so a batched call that looped would be 3.
+printf '%s\n' 'gen.go linguist-generated=true' 'plain.go linguist-generated=false' > .gitattributes
+REAL_GIT=$(command -v git)
+ATTR_COUNT=$(mktemp "${TMPDIR:-/tmp}/loc-attr-count.XXXXXX")
+: >"$ATTR_COUNT"
+GITWRAP=$(mktemp -d "${TMPDIR:-/tmp}/loc-gitwrap.XXXXXX")
+cat >"$GITWRAP/git" <<WRAP
+#!/bin/sh
+for a in "\$@"; do
+  if [ "\$a" = "check-attr" ]; then
+    printf 'x\n' >>"$ATTR_COUNT"
+    break
+  fi
+done
+exec "$REAL_GIT" "\$@"
+WRAP
+chmod +x "$GITWRAP/git"
+FILTER_OUT=$(PATH="$GITWRAP:$PATH" bash "$LOC_EXCLUDE" filter <<'EOF'
+gen.go
+plain.go
+src/other.go
+EOF
+)
+FILTER_RC=$?
+ATTR_N=$(wc -l < "$ATTR_COUNT" | tr -d ' ')
+if [ "$FILTER_RC" -eq 0 ] && [ "$ATTR_N" -eq 1 ] \
+  && printf '%s\n' "$FILTER_OUT" | grep -qx 'gen.go	0' \
+  && printf '%s\n' "$FILTER_OUT" | grep -qx 'plain.go	1' \
+  && printf '%s\n' "$FILTER_OUT" | grep -qx 'src/other.go	1'; then
+  pass "w3-36 filter: one check-attr for 3 paths; worktree attrs honored"
+else
+  fail "w3-36 filter rc=$FILTER_RC attr_n=$ATTR_N out=$FILTER_OUT"
+fi
+: >"$ATTR_COUNT"
+PATH="$GITWRAP:$PATH" bash "$LOC_EXCLUDE" is-excluded gen.go >/dev/null 2>&1 || true
+PATH="$GITWRAP:$PATH" bash "$LOC_EXCLUDE" is-excluded plain.go >/dev/null 2>&1 || true
+PATH="$GITWRAP:$PATH" bash "$LOC_EXCLUDE" is-excluded src/other.go >/dev/null 2>&1 || true
+EACH_N=$(wc -l < "$ATTR_COUNT" | tr -d ' ')
+if [ "$EACH_N" -eq 3 ]; then
+  pass "w3-36 negative: three is-excluded calls are three check-attr spawns"
+else
+  fail "w3-36 negative: three is-excluded calls counted $EACH_N check-attr (want 3)"
+fi
+rm -rf "$GITWRAP"
+rm -f "$ATTR_COUNT" .gitattributes
+
+# Linked worktree .gitattributes, not the main checkout's.
+git -C "$TMP" config user.email "test@example.com"
+git -C "$TMP" config user.name "Test"
+git -C "$TMP" commit --allow-empty -q -m "init" || fail "w3-36 worktree commit"
+WT_LOC=$(mktemp -d "${TMPDIR:-/tmp}/loc-wt.XXXXXX")
+if git -C "$TMP" worktree add -q "$WT_LOC" HEAD; then
+  printf '%s\n' 'only-wt.go linguist-generated=true' > "$WT_LOC/.gitattributes"
+  mkdir -p "$WT_LOC/nested"
+  WT_RC=0
+  (cd "$WT_LOC/nested" && bash "$LOC_EXCLUDE" is-excluded only-wt.go) >/dev/null 2>&1 || WT_RC=$?
+  MAIN_RC=0
+  (cd "$TMP" && bash "$LOC_EXCLUDE" is-excluded only-wt.go) >/dev/null 2>&1 || MAIN_RC=$?
+  if [ "$WT_RC" -eq 0 ] && [ "$MAIN_RC" -eq 1 ]; then
+    pass "w3-36 worktree .gitattributes honored; main checkout does not see them"
+  else
+    fail "w3-36 worktree rc=$WT_RC main rc=$MAIN_RC (want 0 and 1)"
+  fi
+  git -C "$TMP" worktree remove --force "$WT_LOC" >/dev/null 2>&1 || true
+else
+  fail "w3-36 worktree add failed"
+fi
+rm -rf "$WT_LOC"
 
 # --- CDT-223 T3 card max_loc ---
 # =============================================================================
@@ -2381,6 +2496,79 @@ if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '
   pass "cdt224-t3b unfrozen argc=2 still BC6 25/2700 (M10.6 4500 is separate)"
 else
   fail "cdt224-t3b unfrozen argc=2 rc=$RC out=$OUT (want 25/2700)"
+fi
+
+# =============================================================================
+# CDT-378 stale labels (section cites, not line numbers)
+# =============================================================================
+if sed -n '1,40p' "$SCRIPT_DIR/test.sh" | grep -q '5-key JSON'; then
+  fail "cdt378 header still says 5-key JSON"
+else
+  pass "cdt378 header does not say 5-key JSON"
+fi
+if grep -q 'NON-protected' "$SCEN" || grep -q 'Recommend Tech Lead' "$SCEN" \
+  || grep -q 'all 12 fixtures' "$SCEN"; then
+  fail "cdt378 scenarios still have the impossible F12, a Task 4 note, or a 12-fixture count"
+else
+  pass "cdt378 scenarios: F12 is a baseline land; gaps are closed; count is not 12"
+fi
+if grep -q 'F12 — merge-with-bump' "$SCEN" && grep -q 'end-state.md` §3' "$SCEN"; then
+  pass "cdt378 F12 cites end-state §3"
+else
+  fail "cdt378 F12 missing or does not cite end-state §3"
+fi
+# negative control: a planted impossible phrase must be detected by the same grep
+PLANT=$(mktemp "${TMPDIR:-/tmp}/cdt378-plant.XXXXXX")
+printf '%s\n' 'NON-protected integration branch' >"$PLANT"
+if grep -q 'NON-protected' "$PLANT"; then
+  pass "cdt378 negative: planted NON-protected is detected"
+else
+  fail "cdt378 negative: planted NON-protected was not detected"
+fi
+rm -f "$PLANT"
+if grep -q 'append-card.sh:' "$SHIP_GATE"; then
+  fail "cdt378 ship-gate-council still cites append-card.sh by line"
+else
+  pass "cdt378 ship-gate-council cites append-card.sh by invariant, not line"
+fi
+if grep -q '§5a' "$SCRIPT_DIR/end-state.md" || grep -q '§5b' "$SCRIPT_DIR/end-state.md" \
+  || grep -q 'lines 11' "$SCRIPT_DIR/end-state.md"; then
+  fail "cdt378 end-state still uses §5a/§5b or a line-number cite"
+else
+  pass "cdt378 end-state cites §5-release / §5-land-no-release and Step names"
+fi
+if grep -q 'T4 owns' "$SCRIPT_DIR/self-answer.md" \
+  || grep -q 'in \*\*CDT-111-C2\*\*' "$SCRIPT_DIR/SKILL.md"; then
+  fail "cdt378 future-tense C2/T4 wording still present"
+else
+  pass "cdt378 no T4-owns or CDT-111-C2 ship-as wording"
+fi
+if grep -q 'the writer only rejects' "$SCRIPT_DIR/self-answer.md"; then
+  fail "cdt358 self-answer still says the writer only rejects control chars"
+else
+  pass "cdt358 self-answer does not limit the writer to control chars"
+fi
+if grep -q '1000 characters' "$SCRIPT_DIR/self-answer.md" \
+  && grep -q 'APPEND_RC' "$SCRIPT_DIR/self-answer.md" \
+  && grep -q 'exit "$APPEND_RC"' "$SCRIPT_DIR/self-answer.md"; then
+  pass "cdt358 self-answer caps rationale at 1000 and exits on writer reject"
+else
+  fail "cdt358 self-answer missing the 1000 cap or the writer-status exit"
+fi
+SPEC033="$SCRIPT_DIR/../../specs/core/SPEC-033-autopilot-policy.md"
+if grep -q 'at most 1000 characters' "$SPEC033" \
+  && grep -q 'grading_reason' "$SPEC033" \
+  && grep -A2 '1000-character cap as `rationale`' "$SPEC033" | grep -q 'grading_reason'; then
+  pass "cdt358 SPEC-033 M13 caps rationale and grading_reason at 1000"
+else
+  fail "cdt358 SPEC-033 M13 missing the 1000-character cap"
+fi
+if grep -q 'confirming the FE gap' "$SCEN" \
+  || grep -q 'intentionally-documented \*\*gap\*\*' "$SCEN" \
+  || grep -q 'procedure does not cover' "$SCEN"; then
+  fail "cdt358 scenarios still call FE an uncovered gap"
+else
+  pass "cdt358 scenarios record FE as a closed no-card path"
 fi
 
 # =============================================================================

@@ -486,7 +486,8 @@ target.
     define a second tier vocabulary (N4) — the values are SPEC-013's.
   - `grading_reason` (**CDT-126**) is a one-line record of *why* that tier was selected (band hit,
     triage-call reason, DRI flag, or the fail-closed cause). Same nullability rule as
-    `council_tier`, and the same redaction obligation as `rationale`.
+    `council_tier`, and the same redaction obligation and 1000-character cap as `rationale`.
+    The writer exits 64 when `grading_reason` is longer than 1000 characters.
   - Both CDT-126 fields are **additive and nullable**, so `schema_version` stays `1`: the `type` +
     `schema_version` discriminator envelope is unchanged, readers that pin `schema_version == 1`
     keep parsing, and cards written before this amendment remain valid (absent key ≡ `null`).
@@ -502,9 +503,10 @@ target.
     `decided_by` stays `auto` on self-answer cards. When `max_loc` is non-null, `rationale`
     MUST mention the override. Every gate answer on a run with a non-null parse MUST record
     the parsed value; a run with omit MUST write `max_loc: null` on every card of that run.
-  - `rationale` is a one-line summary and MUST NOT contain secrets, credentials, tokens, keys, or
-    PII. Any evidence quoted from the repo, specs, or memory (e.g. the S2 resolution attempt) MUST
-    be **redacted or summarized**, never copied verbatim into the card.
+  - `rationale` is a one-line summary of at most 1000 characters and MUST NOT contain secrets,
+    credentials, tokens, keys, or PII. Any evidence quoted from the repo, specs, or memory
+    (e.g. the S2 resolution attempt) MUST be **redacted or summarized**, never copied verbatim
+    into the card. The writer exits 64 when `rationale` is longer than 1000 characters.
   - `budget` snapshots the AC3 counters at decision time. The object keeps four numeric
     keys (`iteration`, `iteration_cap`, `wall_clock_s`, `wall_clock_cap_s`). **CDT-224 /
     M9b** adds three nested keys, **additive and nullable**, inside `budget` only:
@@ -997,10 +999,14 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
 
   ```
   loc-exclude.sh is-excluded <path>
+  loc-exclude.sh filter
   ```
 
   Exit `0` = excluded (do not count). Exit `1` = count. Exit `64` = usage. The helper MUST
-  never exit `2` to kill an orchestrate run. Callers apply M15 and then apply M6.4 / M10.1
+  never exit `2` to kill an orchestrate run. `filter` reads one path per line on stdin and
+  prints `<path><TAB>0|1`. Arm 1 for that batch is one
+  `git -C <worktree-root> check-attr --stdin` against the worktree that contains the cwd.
+  Callers apply M15 and then apply M6.4 / M10.1
   bounds to the remaining LOC. BC4 stays **judgment-in-context** (not a budget-check-style
   scripted BC).
 

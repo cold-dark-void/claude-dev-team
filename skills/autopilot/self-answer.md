@@ -84,7 +84,7 @@ S/M/L table or the M9/M10/M13 tables (N4).
 **Kickoff / epic isolation (N13).** `workflow=kickoff` and `workflow=epic` always take
 the argc=2 path below. They MUST NOT call `derive`, MUST NOT mix auto-tune, and MUST
 NOT set `AUTOPILOT_BUDGET_META`. Would-be S/M/L signals, if present, are ignored.
-This engine documents that isolation; T4 owns kickoff/epic `SKILL.md`.
+This engine documents that isolation. The kickoff and epic skills own the caller side.
 
 Helper (one file; never sourced):
 ```
@@ -348,6 +348,12 @@ else
       "<blocking_condition>" "<run_id>" "<iteration>" "$WALL_CLOCK_S" "<actor>" "$RATIONALE" "<max_loc>"
   fi
 fi
+APPEND_RC=$?
+if [ "$APPEND_RC" -ne 0 ]; then
+  # A writer reject (control characters, or rationale / grading_reason over 1000
+  # characters) must not look like a written card.
+  exit "$APPEND_RC"
+fi
 ```
 
 `wall_clock_s` for arg 11 always comes from this fence's own `budget-check.sh` call
@@ -413,14 +419,17 @@ deliberately does **not** reproduce M13's enum members, numeric bounds, or chars
   `blocking_condition`, and `ticket_id` all satisfy the bounds/patterns defined in M13 and
   checked by the writer's guards (cited, not copied); `run_id` and `actor` are non-empty.
   `wall_clock_s` comes straight from `budget-check.sh`.
-- **`rationale`** is a single line with no newlines/control chars, and is
-  **secret-redacted / summarized** — no credentials, tokens, keys, or PII, and any repo /
-  spec / memory evidence (e.g. the S2 resolution attempt) is summarized, never copied
-  verbatim (SPEC-033 M13 / S2). When envelope `max_loc` is non-null, the line **MUST
-  mention the override**. When budget `source` is `auto` or `mixed`, the line **MUST
-  mention `budget_tier`**. When `source` is `env` or `mixed`, the line **MUST mention
-  env**. Semantic secret-scrubbing is the engine's obligation; the writer only rejects
-  control chars.
+- **`rationale`** is a single line of at most 1000 characters, with no newlines or
+  control chars, and is **secret-redacted / summarized** — no credentials, tokens, keys,
+  or PII, and any repo / spec / memory evidence (e.g. the S2 resolution attempt) is
+  summarized, never copied verbatim (SPEC-033 M13 / S2). `grading_reason` has the same
+  1000-character cap. When envelope `max_loc` is non-null, the line **MUST mention the
+  override**. When budget `source` is `auto` or `mixed`, the line **MUST mention
+  `budget_tier`**. When `source` is `env` or `mixed`, the line **MUST mention env**.
+  Semantic secret-scrubbing is the engine's obligation. The writer rejects control
+  characters and exits 64 when `rationale` or `grading_reason` is longer than 1000
+  characters. §3f exits with that status, so an oversize line does not drop the card
+  silently.
 - **`max_loc`** on the card copies the envelope value (null / number `n` / `"unbound"`).
   User provenance of the cap **is** that field — `decided_by` stays `auto`.
 

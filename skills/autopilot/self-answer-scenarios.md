@@ -89,7 +89,7 @@ governing rule; the checklist steps are that same order with the gaps removed.
 - **Card**:
   `append-card.sh orchestrate CDT-200 ship-choice halt auto minor 85 3 ap-<RS> 6 <NOW-RS> orchestrator "<rationale: protected-branch merge is irreversible>"`
 - **Doubles as**: proof that `bump` may be non-null on a *halt* card (writer only requires
-  `gate=ship-choice`, not `decision=merge`) — see § Gaps found item 2.
+  `gate=ship-choice`, not `decision=merge`). The writer allows a non-null bump on a halt.
 
 ### F4 — BC4 LOC/file-size breach → halt (rewritten: counted hand-written file)
 
@@ -497,25 +497,28 @@ the BC walk (`self-answer.md` §3b path 2 → argc=4). Do not restate the tier t
 - **Card**:
   `append-card.sh orchestrate CDT-200 ship-choice pr auto null 90 null ap-<RS> 7 <NOW-RS> orchestrator "<rationale: default reversible PR>"`
 
-### F12 — merge-with-bump variant → merge (clean, non-protected squash)
+### F12 — merge-with-bump variant → merge (clean baseline land)
 
 - **Envelope**: `workflow=orchestrate, gate=ship-choice, iteration=7, RS=NOW-60,
   autopilot_bump=patch`.
-- **Gate signals**: Step-10b = PASS; `qa_bounces=0`; ship-action = **squash-merge of the
-  approved PR into a NON-protected integration branch, no force-push** (so BC3 does **not**
-  fire); within budget; confidence 90.
-- **BC walk** (ship-choice {1,2,3,6,7}): BC1/BC2 clear; **BC3 clears** — the merge target is
-  not protected and there is no force-push, so the destructive class is not met (BC3 is still
-  *evaluated* unconditionally, it simply does not match here); BC6/BC7 clear. No match →
-  default answer. §3e: because `autopilot_bump=patch != null`, the ship-choice default resolves
-  to **`merge`** (explicit ship intent, M2/N3).
+- **Gate signals**: Step-10b = PASS; `qa_bounces=0`; ship-action = **intentional baseline
+  land** under the release token (squash-stage onto the worktree baseline / origin default;
+  **no force-push**). `end-state.md` §3 would clear: the land target equals the origin
+  default. A side integration branch that is not that default is not this fixture — §3
+  halts when the land target differs from the origin default, so that path cannot finish.
+  Within budget; confidence 90.
+- **BC walk** (ship-choice {1,2,3,6,7}): BC1/BC2 clear; **BC3 clears** — the N3a
+  push-target check would clear. BC3 is still *evaluated* unconditionally (not a token
+  exemption). BC6/BC7 clear. No match → default answer. §3e: because
+  `autopilot_bump=patch != null`, the ship-choice default resolves to **`merge`**
+  (explicit ship intent, M2/N3).
 - **Expected**: `decision=merge, blocking_condition=null, confidence=90, bump=patch`.
 - **Writer preconditions exercised**: invariant (a) `bump non-null ⇒ gate=ship-choice` (holds);
-  engine invariant `merge ⇒ bump supplied` (holds — `patch`). Note the second is **engine-only**
-  (see § Gaps found item 2).
+  engine invariant `merge ⇒ bump supplied` (holds — `patch`). `self-answer.md` §4 marks that
+  second rule engine-only (no writer backstop).
 - **Required case**: this is the mandated merge-with-bump variant.
 - **Card**:
-  `append-card.sh orchestrate CDT-200 ship-choice merge auto patch 90 null ap-<RS> 7 <NOW-RS> orchestrator "<rationale: squash-merge to non-protected branch, explicit patch bump>"`
+  `append-card.sh orchestrate CDT-200 ship-choice merge auto patch 90 null ap-<RS> 7 <NOW-RS> orchestrator "<rationale: baseline land, explicit patch bump; N3a clear>"`
 
 ### F13 — clean ship-choice → merge with `autopilot_bump=master` (land-no-release sentinel)
 
@@ -543,7 +546,7 @@ the BC walk (`self-answer.md` §3b path 2 → argc=4). Do not restate the tier t
 
 ---
 
-## Group C — edge fixture the procedure does not cover (documents a gap, not a pass)
+## Group C — closed no-card path (FE is not an uncovered gap)
 
 ### FE — `budget-check.sh` exit 64 (malformed budget call)
 
@@ -551,16 +554,11 @@ the BC walk (`self-answer.md` §3b path 2 → argc=4). Do not restate the tier t
   returns **exit 64** — e.g. a non-numeric `iteration`, an argc error, or `run_start_epoch > now`
   (verified live, § Walkthrough B). On exit 64 the helper writes to **stderr only** and
   computes **no** `wall_clock_s` on stdout (`die()` returns before the check compute block).
-- **Expected per the written procedure**: **UNDEFINED.** `self-answer.md` §3b lists exit 64 as a
-  possible outcome but §3d–§3f never consume it — there is **no** "on exit 64, do X" branch, and
-  §3b instructs the engine to capture `wall_clock_s` "always, regardless of breach", which is not
-  reachable when the helper exits 64 before emitting stdout. With no `wall_clock_s`, `append-card.sh`
-  arg 11 cannot be constructed valid-by-construction, so **no card is built on this path**.
-- **This is a reported gap, not a fixture that passes** — see § Gaps found item 1. It is included
-  deliberately (per the diff-mode council finding, conf 62) to make the blind spot explicit rather
-  than silently working around it. The blast radius is capped because `iteration` /
-  `run_start_epoch` are session-tracked ints (never external input), so exit 64 signals an internal
-  engine bug rather than adversarial input — but the procedure still owes an escalation branch.
+- **Expected per `self-answer.md` §3b**: exit 64 is an unexpected-error escalation, not a gate
+  outcome. There is no `wall_clock_s`, so **no card is written**, and steps (c)–(f) do not run.
+  §3f's fence exits 64 on that path. `iteration` / `run_start_epoch` are session-tracked ints,
+  so this exit signals an internal engine bug. Junk env caps are ordinary input validation and
+  take the same no-card path.
 
 ---
 
@@ -618,7 +616,7 @@ rationale contains `max-loc=`. See Walkthrough C.
 | `3` (1 arg)   | (stderr wrong argc) | 64 | FE |
 
 All within/breach rows emit the 7-key JSON on stdout; all exit-64 rows emit **stderr only, no
-stdout** — confirming the FE gap. (`jq-1.8.1` present.)
+stdout** — confirming the closed FE no-card path. (`jq-1.8.1` present.)
 
 **C. `append-card.sh` accepts every fixture card shape and rejects the two guarded invariants**
 (ran the real writer in a throwaway git repo so the project ledger stayed clean):
@@ -663,37 +661,19 @@ decision.
 
 ## Gaps found
 
-1. **`budget-check.sh` exit-64 path is uncovered by the procedure (council diff-mode finding,
-   conf 62 — CONFIRMED).** `self-answer.md` §3b enumerates exit 64 but no downstream step
-   (§3d–§3f) consumes it, and §3b's "capture `wall_clock_s` always" is unreachable on that path
-   (the helper `die()`s before emitting stdout — verified live, § Walkthrough B). Result: **no
-   decision card is written** if `budget-check.sh` ever exits 64. Fixture **FE** exercises this
-   and documents it as UNDEFINED rather than a pass. Impact is capped (args are session-tracked
-   ints, never external input, so exit 64 = internal engine bug), but the procedure still owes an
-   explicit branch — e.g. "a `budget-check.sh` exit 64 is an internal-engine-bug signal; treat it
-   as an unexpected-error escalation to the blocking-condition handler." **Recommend Tech Lead
-   (Task 4) require this one-line branch before commit.** Severity **P2** (blind spot on an audit
-   path; low probability, but a dropped card is a lost audit trail — the exact failure mode §4/R6
-   exists to prevent).
+These three items were open against an older engine. Each is closed in the current text.
+Cite the section, not a line number.
 
-2. **"`merge` ⇒ bump supplied" is engine-only, not writer-backed (council finding, conf 58 —
-   CONFIRMED).** Live probe: `append-card.sh … ship-choice merge … null …` (bump `null`) exits
-   **0** — the writer has no cross-field guard tying `merge` to a non-null bump; its only
-   invariants are (a) bump⇒ship-choice and (b) bc7⇒conf<80. `self-answer.md` §4 lists
-   "`merge` ⇒ bump supplied" under a section framed as writer-enforced guards, but this one is
-   enforced **solely by the engine**. Not a fixture failure (F12 supplies `patch`, so it's valid
-   either way), but the doc's framing overstates the writer's backstop. **Note for Tech Lead
-   (Task 4):** either move this bullet out of the writer-invariant list or annotate it
-   "engine-only, no writer backstop." Severity **P3** (doc-accuracy; no runtime defect).
+1. **`budget-check.sh` exit 64 — closed.** `self-answer.md` §3b escalates that exit
+   out-of-band: no `wall_clock_s`, no card, steps (c)–(f) do not run. §3f's fence exits 64.
+   Fixture **FE** records that outcome. It is not an undefined pass.
 
-3. **§4 self-contradiction — "do not re-derive the schema" then re-derives it (council finding,
-   conf 75 — NOT scenario-testable; flagged for Task 4).** `self-answer.md:147` says "do not
-   re-derive the schema — cite it via M13" and is immediately followed by a bulleted restatement
-   of the M13 field contract (:149-168), an N4 contract-home concern. This is a static
-   doc-fidelity / N4 issue, not reachable by an input-envelope fixture, so no fixture covers it.
-   **Explicitly handed to Tech Lead's contract-fidelity review (Task 4).** Severity **P2** for
-   contract-home (N4), but it is a documentation edit, not a behavioral defect — the engine's
-   runtime outcomes (all 12 fixtures) are unaffected.
+2. **"`merge` ⇒ bump supplied" is engine-only — closed as documented.** `self-answer.md` §4
+   marks the rule engine-only (no writer backstop). The live probe still exits 0 for
+   `ship-choice merge` with bump `null`. F12 supplies `patch`, so the fixture stays valid.
+
+3. **Schema re-derive — closed.** `self-answer.md` §4 cites M13 and does not restate the
+   field list. The old line cites in this file do not match the engine.
 
 ## QA verdict on the fixtures
 
@@ -705,5 +685,5 @@ reachable** per the written procedure. F6 pins M signals so `iteration=25` stays
 BC6; S/L/env/kickoff/M10.6 variants walk §3b freeze-before-BC. F4 rewritten:
 1400-line file is **hand-written**; generated/lockfile/snap at 1400 is F4-gen (**no**
 BC4). F4-* argc 14 cards keep `decided_by=auto` and mention the override in
-`rationale`. The edge fixture **FE** is an intentionally-documented **gap**, not a
-pass. The fixture set is the acceptance bar for `self-answer.md`.
+`rationale`. The edge fixture **FE** is that closed no-card path, not an uncovered gap.
+The fixture set is the acceptance bar for `self-answer.md`.

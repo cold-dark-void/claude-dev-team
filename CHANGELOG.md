@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.17
+- **WP 5-03 Epic cleanup** — card text stays within 1000 characters, epic docs list the autopilot flags, and an epic test abort does not leak temp dirs.
+
 ### v1.19.16
 - **WP 5-02 Fix ticket** — a dotted ticket id becomes a hyphen slug, a directory that is not a git worktree is rejected, and a missing refuter fails closed.
 

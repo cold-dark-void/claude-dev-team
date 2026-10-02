@@ -25,8 +25,9 @@
 #        AC G). The M14(d) golden (g4) is unchanged.
 #
 # WP 1-16 AC F (SPEC-033 M14(g) finder recipe): g8-g10, a6-a7.
-#   g8 — `append-card.sh` is byte-identical to its WP 1-08 version (`assert_blob_hash`,
-#        shared with g6).
+#   g8 — `append-card.sh` blob pin (`assert_blob_hash`, shared with g6).
+#        Re-pinned at WP 5-03 when rationale and grading_reason gained the
+#        1000-character cap. A later byte change still fails the pin.
 #   g9 — `ship-gate-council.md` §5, extracted by its `## 5.`/`## 6.` markers,
 #        is byte-equal to a committed golden extracted from `38bc739`.
 #   g10 — `skills/council/engine.sh` holds `M14_VERIFY_TOOL_BUDGET=8` and
@@ -627,7 +628,7 @@ else
 fi
 
 # =============================================================================
-# g8 (WP 1-16 AC F) — append-card.sh is byte-identical to its WP 1-08 version (re-pinned at merge).
+# g8 (WP 1-16 AC F) — append-card.sh blob pin. Re-pinned at WP 5-03 for the 1000-character cap.
 # =============================================================================
 assert_blob_hash "$APPEND_CARD_SH" "$APPEND_CARD_BLOB" "g8 append-card.sh"
 # =============================================================================

@@ -366,12 +366,16 @@ Operational helper (subprocess CLI, never sourced): `skills/autopilot/loc-exclud
 
 ```
 loc-exclude.sh is-excluded <path>
+loc-exclude.sh filter
 ```
 
 Exit `0` = excluded (do not count). Exit `1` = count. Exit `64` = usage. MUST NOT exit
-`2`. Missing/malformed `.gitattributes` → arm 1 empty; arms 2+3 still run; MUST NOT halt
-the orchestrate run. Callers apply M15, then apply M6.4 / M10.1 to remaining LOC. BC4
-stays **judgment-in-context**.
+`2`. `filter` reads one repo-relative path per line on stdin and prints
+`<path><TAB>0|1` for each (same codes). Arm 1 is one
+`git -C <worktree-root> check-attr --stdin` for that batch, against the worktree
+that contains the cwd. Missing/malformed `.gitattributes` → arm 1 empty; arms 2+3
+still run; MUST NOT halt the orchestrate run. Callers apply M15, then apply M6.4 /
+M10.1 to remaining LOC. BC4 stays **judgment-in-context**.
 
 **M16 — `--max-loc=<n|unbound>`.** Flag-only per-run override (no env; N9). Parse via
 `parse-flags.sh` (six-key JSON; junk → 64). Consumption: used only when autopilot is
@@ -403,8 +407,8 @@ Mirroring the SPEC-001 M7 invariant for its own NDJSON ledger, this file is **ap
 local-only state**: NOT committed to git (`.claude/autopilot/` is git-ignored) and NEVER stored
 in `memory.db`.
 
-The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* ship as
-`skills/autopilot/append-card.sh` / `skills/autopilot/read-cards.sh` in **CDT-111-C2**):
+The schema is **frozen** here (this SKILL fixes the shape). The writer and reader are
+`skills/autopilot/append-card.sh` and `skills/autopilot/read-cards.sh`:
 
 ```json
 {
@@ -480,9 +484,11 @@ The schema is **frozen** here (this SKILL fixes the shape; the *writer/reader* s
   `rationale` MUST mention the override. Every gate answer on a run with a non-null parse
   MUST record the parsed value; a run with omit MUST write `max_loc: null` on every card
   of that run.
-- `rationale` is a one-line summary and MUST NOT contain secrets, credentials, tokens, keys,
-  or PII. Any evidence quoted from the repo, specs, or memory (e.g. the S2 resolution attempt)
-  MUST be **redacted or summarized**, never copied verbatim into the card.
+- `rationale` is a one-line summary of at most 1000 characters and MUST NOT contain
+  secrets, credentials, tokens, keys, or PII. Any evidence quoted from the repo, specs, or
+  memory (e.g. the S2 resolution attempt) MUST be **redacted or summarized**, never copied
+  verbatim into the card. `grading_reason` has the same 1000-character cap. Longer text is
+  a writer error (exit 64), not a truncated card.
 - `budget` snapshots the run-budget counters at decision time. Four numeric keys stay.
   **CDT-224 / M9b** adds nested additive-nullable `tier` (`S|M|L|null`), `source`
   (`auto|env|default|mixed|null`), and `signals` (`{tasks,projected_loc,waves}|null`).
@@ -529,11 +535,13 @@ Contract notes (writer):
   when `gate=ship-choice` (CDT-126 — deliberately weaker than M13's prose rule, which scopes
   them to the M14 card alone; see `ship-gate-council.md` §6 for why the writer cannot tell
   the two ship-choice cards apart). `rationale` and `grading_reason` reject newlines/control
-  chars (semantic secret-scrubbing remains the caller's obligation, M13).
+  chars, and each field over 1000 characters (semantic secret-scrubbing remains the
+  caller's obligation, M13).
 - Reader-side (CDT-126 / CDT-223 / CDT-224): `read-cards.sh` backfills absent
   `council_tier` / `grading_reason` and absent `max_loc` as explicit `null`s in frozen
   key order (M13 absent ≡ null; `max_loc` immediately after `grading_reason`). It also
   backfills absent nested `budget.tier` / `budget.source` / `budget.signals` as `null`.
   It re-checks the ship-choice invariant, exiting 64 on a ledger that violates it.
-- Path `$MROOT/.claude/autopilot/<ticket_id>.jsonl`; sequential per-ticket-file appends (no
-  flock — a single JSON line is < PIPE_BUF, so concurrent same-file appends stay whole).
+- Path `$MROOT/.claude/autopilot/<ticket_id>.jsonl`. The writer builds one JSON line and
+  appends it with a single `printf`. There is no flock. PIPE_BUF atomicity applies to
+  pipes, not to a regular-file append, so do not cite it as the guarantee here.
