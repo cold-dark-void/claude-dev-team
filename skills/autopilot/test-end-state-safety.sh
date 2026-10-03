@@ -101,7 +101,7 @@ run_block() {
   if command -v timeout >/dev/null 2>&1; then
     run_cmd=(timeout 20 "${run_cmd[@]}")
   fi
-  out=$(cd "$fx" && CLAUDE_PLUGIN_ROOT="$ROOT" "${run_cmd[@]}" 2>&1)
+  out=$(cd "$fx" && CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT" "${run_cmd[@]}" 2>&1)
   rc=$?
   rm -f "$outfile"
   RUN_OUT="$out"

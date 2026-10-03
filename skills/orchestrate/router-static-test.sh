@@ -604,7 +604,7 @@ else
       echo 'echo "RUN_START_EPOCH=$RUN_START_EPOCH"'
     } > "$RUN_SCRIPT"
     T22_BEFORE=$(date +%s)
-    T22_OUT=$(CLAUDE_PLUGIN_ROOT="$T22_FIXROOT" bash "$RUN_SCRIPT" 2>"$T22_TMP/stderr.out")
+    T22_OUT=$(CLAUDE_PLUGIN_ROOT="$T22_FIXROOT" PDH="$T22_FIXROOT" bash "$RUN_SCRIPT" 2>"$T22_TMP/stderr.out")
     T22_RC=$?
     T22_AFTER=$(date +%s)
     T22_STDERR=$(cat "$T22_TMP/stderr.out" 2>/dev/null)

@@ -2445,7 +2445,7 @@ else
   printf '%s\n' "$W9_F04" | sed -e 's|<EPIC-ID>|W9-04|g' >"$W9_F04_RUN"
   for W9_RC in 64 1 2 7; do
     set +e
-    OUT=$(cd "$W9_ROOT" && CLAUDE_PLUGIN_ROOT="$W9_FIX" STUB_RC="$W9_RC" bash "$W9_F04_RUN" --worktree 2>&1)
+    OUT=$(cd "$W9_ROOT" && CLAUDE_PLUGIN_ROOT="$W9_FIX" PDH="$W9_FIX" STUB_RC="$W9_RC" bash "$W9_F04_RUN" --worktree 2>&1)
     RC=$?
     [ "$RC" -eq "$W9_RC" ] && pass || fail "w109 W3-37 Step 0.4 fence: resolve rc $W9_RC must exit $W9_RC, got $RC ($OUT)"
   done

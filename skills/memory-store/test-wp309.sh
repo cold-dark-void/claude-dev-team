@@ -73,12 +73,12 @@ check "empty distilled_from has no SQL error" bash -c '! grep -qiE "parse error|
 STATS=$(fence_nth "$ROOT/skills/memory-store/modes/stats.md" "## Step 3: Gather and display stats" 1)
 STATS_PM=$(subst_args "$STATS" 'stats --agent pm') || STATS_PM=""
 check "stats fence accepts an argument slot" test -n "$STATS_PM"
-run_fence "$STATS_PM" "$WORK/stpm" CLAUDE_PLUGIN_ROOT="$ROOT"
+run_fence "$STATS_PM" "$WORK/stpm" CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT"
 check "stats --agent pm exits 0 (rc=$RUN_RC)" test "$RUN_RC" -eq 0
 check "stats --agent pm shows pm" grep -q 'pm' "$WORK/stpm.out"
 check "stats --agent pm hides ic5" bash -c '! grep -q ic5 "$1"' _ "$WORK/stpm.out"
 STATS_BAD=$(subst_args "$STATS" 'stats --agent nope') || STATS_BAD=""
-run_fence "$STATS_BAD" "$WORK/stbad" CLAUDE_PLUGIN_ROOT="$ROOT"
+run_fence "$STATS_BAD" "$WORK/stbad" CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT"
 check "stats --agent nope exits 64 (rc=$RUN_RC)" test "$RUN_RC" -eq 64
 
 # ---- distill --compress ----
@@ -94,7 +94,7 @@ check "MEMORY_COMPRESS=0 forces COMPRESS off" grep -qx 'COMPRESS=false' "$WORK/c
 REW=$(fence_nth "$ROOT/skills/validate-memory/host-pipeline.md" "### On REWRITE" 1)
 check "rewrite fence calls embed-one.sh" bash -c 'printf "%s\n" "$1" | grep -q "skills/memory-store/embed-one.sh"' _ "$REW"
 sqlite3 "$DB" "UPDATE config SET value='lembed' WHERE key='embedding_mode';"
-run_fence "$REW" "$WORK/rew" CLAUDE_PLUGIN_ROOT="$ROOT" MEM_ID=1 MEM_AGENT=pm SCORE=50 REWRITE_CONTENT='rewritten fact'
+run_fence "$REW" "$WORK/rew" CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT" MEM_ID=1 MEM_AGENT=pm SCORE=50 REWRITE_CONTENT='rewritten fact'
 check "rewrite exits 0 (rc=$RUN_RC)" test "$RUN_RC" -eq 0
 BODY=$(sqlite3 "$DB" "SELECT content FROM memories WHERE id=1;")
 check "rewrite stores the new content" bash -c 'printf "%s" "$1" | grep -q "rewritten fact"' _ "$BODY"
@@ -128,7 +128,7 @@ check "council without --workflow leaves the flag unset" grep -qx 'FLAG=0' "$WOR
 # ---- adjust-agent gitignore keeps the seed pack committable ----
 IGN=$(fence_nth "$ROOT/commands/adjust-agent.md" "### Step 5e: Ensure .gitignore coverage" 1)
 : > "$REPO/.gitignore"
-run_fence "$IGN" "$WORK/ign" CLAUDE_PLUGIN_ROOT="$ROOT"
+run_fence "$IGN" "$WORK/ign" CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT"
 check "gitignore fence exits 0 (rc=$RUN_RC)" test "$RUN_RC" -eq 0
 check "gitignore uses .claude/memory/*" grep -qxF '.claude/memory/*' "$REPO/.gitignore"
 check "gitignore negates the seed directory" grep -qxF '!.claude/memory/seed/' "$REPO/.gitignore"

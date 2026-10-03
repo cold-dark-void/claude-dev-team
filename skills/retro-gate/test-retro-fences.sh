@@ -48,7 +48,7 @@ if [ -n "$FENCE" ]; then pass_line "structural: Step 1b has a bash fence"
 else fail_line "structural: Step 1b has a bash fence (zero extracted)"; fi
 
 # ---- stub plugin root -------------------------------------------------------
-# CLAUDE_PLUGIN_ROOT (plugin-dir.sh tier 0) makes the fence's own PDH stanza
+# CLAUDE_PLUGIN_ROOT (tier 0) + PDH (the WP 7-02 session carry) make the fence
 # resolve to $PLUG. The stub lock script exits with STUB_LOCK_RC on acquire.
 cp "$ROOT/skills/plugin-dir.sh" "$PLUG/skills/plugin-dir.sh"
 chmod +x "$PLUG/skills/plugin-dir.sh"
@@ -73,7 +73,7 @@ run_fence() {
   local prefix="$1"
   shift
   : > "$STUB_LOG"
-  fence_exec "$prefix" "$REPO" "$FENCE" CLAUDE_PLUGIN_ROOT="$PLUG" STUB_LOG="$STUB_LOG" "$@"
+  fence_exec "$prefix" "$REPO" "$FENCE" CLAUDE_PLUGIN_ROOT="$PLUG" PDH="$PLUG" STUB_LOG="$STUB_LOG" "$@"
 }
 
 log_has() { grep -q -- "$1" "$STUB_LOG"; }
@@ -121,12 +121,12 @@ make_stubs
 # "not scheduled" negative controls would fail.
 MUT_FENCE="$(printf '%s\n' "$FENCE" | sed 's/\[ "\$AUTO" = "1" \]/true/')"
 : > "$STUB_LOG"
-fence_exec "$WORK/mut1" "$REPO" "$MUT_FENCE" CLAUDE_PLUGIN_ROOT="$PLUG" STUB_LOG="$STUB_LOG" MODE=all AUTO=0 STUB_LOCK_RC=0
+fence_exec "$WORK/mut1" "$REPO" "$MUT_FENCE" CLAUDE_PLUGIN_ROOT="$PLUG" PDH="$PLUG" STUB_LOG="$STUB_LOG" MODE=all AUTO=0 STUB_LOCK_RC=0
 check "bite: without the AUTO guard an unscheduled run takes the lock" log_has '^lock acquire'
 # Change the held-lock code: a held lock then no longer skips the run.
 MUT_FENCE="$(printf '%s\n' "$FENCE" | sed 's/"\$LOCK_RC" -eq 2/"$LOCK_RC" -eq 9/')"
 : > "$STUB_LOG"
-fence_exec "$WORK/mut2" "$REPO" "$MUT_FENCE" CLAUDE_PLUGIN_ROOT="$PLUG" STUB_LOG="$STUB_LOG" MODE=all AUTO=1 STUB_LOCK_RC=2
+fence_exec "$WORK/mut2" "$REPO" "$MUT_FENCE" CLAUDE_PLUGIN_ROOT="$PLUG" PDH="$PLUG" STUB_LOG="$STUB_LOG" MODE=all AUTO=1 STUB_LOCK_RC=2
 check "bite: with the held-lock branch changed the skip line is gone" bash -c '! grep -q "lock held, skipping" "$1.out"' _ "$WORK/mut2"
 
 echo "---"

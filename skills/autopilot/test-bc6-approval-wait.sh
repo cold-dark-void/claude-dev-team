@@ -99,7 +99,10 @@ run_remint() {
   # $1 = ISSUE-ID literal to substitute for <ISSUE-ID> in the fence body
   local body
   body=$(printf '%s\n' "$REMINT_FENCE" | sed "s#<ISSUE-ID>#$1#g")
-  CLAUDE_PLUGIN_ROOT="$ROOT" bash -c "$body"
+  # PDH="$ROOT" is the WP 7-02 session carry: the re-mint fence takes the root
+  # from env instead of resolving it; the comment below the old stanza contract
+  # no longer applies to PDH (only RS is still resolved by the fence itself).
+  CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT" bash -c "$body"
 }
 
 if [ -n "$REMINT_FENCE" ]; then
@@ -187,7 +190,7 @@ exit 3
 NEG_EOF
   chmod +x "$NEGROOT/skills/plugin-dir.sh"
   NEG_BODY=$(printf '%s\n' "$REMINT_FENCE" | sed "s#<ISSUE-ID>#$TICKET2#g")
-  NEG_OUT=$(CLAUDE_PLUGIN_ROOT="$NEGROOT" bash -c "$NEG_BODY" 2>"$TMP/neg.stderr")
+  NEG_OUT=$(CLAUDE_PLUGIN_ROOT="$NEGROOT" PDH="$NEGROOT" bash -c "$NEG_BODY" 2>"$TMP/neg.stderr")
   NEG_RC=$?
   NEG_STDERR=$(cat "$TMP/neg.stderr" 2>/dev/null)
   rm -rf "$NEGROOT"

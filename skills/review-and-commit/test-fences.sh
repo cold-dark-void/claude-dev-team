@@ -64,7 +64,9 @@ chmod +x "$PLUG/skills/council/engine.sh"
 # run_fence <fence-text> <out-prefix> — run in a fresh bash, cwd = a non-repo dir
 run_fence() {
   : > "$STUB_LOG"
-  fence_exec "$2" "$WORK/cwd" "$1" CLAUDE_PLUGIN_ROOT="$PLUG" STUB_LOG="$STUB_LOG"
+  # PDH="$PLUG" simulates the host's session carry (WP 7-02): carried fences
+  # take the root from env; stanza fences re-resolve and ignore it.
+  fence_exec "$2" "$WORK/cwd" "$1" CLAUDE_PLUGIN_ROOT="$PLUG" PDH="$PLUG" STUB_LOG="$STUB_LOG"
 }
 STUB_LOG="$WORK/stub.log"
 

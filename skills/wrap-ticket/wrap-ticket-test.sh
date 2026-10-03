@@ -165,9 +165,9 @@ run_fence() {
     run_cmd=(timeout 20 "${run_cmd[@]}")
   fi
   if [ -n "$pathprefix" ]; then
-    out=$(cd "$cwd" && CLAUDE_PLUGIN_ROOT="$ROOT" PATH="$pathprefix:$PATH" "${run_cmd[@]}" 2>&1)
+    out=$(cd "$cwd" && CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT" PATH="$pathprefix:$PATH" "${run_cmd[@]}" 2>&1)
   else
-    out=$(cd "$cwd" && CLAUDE_PLUGIN_ROOT="$ROOT" "${run_cmd[@]}" 2>&1)
+    out=$(cd "$cwd" && CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT" "${run_cmd[@]}" 2>&1)
   fi
   rc=$?
   rm -f "$outfile"

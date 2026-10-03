@@ -63,10 +63,12 @@ make_proj() {
 }
 
 # run_fence <fence-text> <prefix> [VAR=value ...] — fresh bash, cwd = $PROJ.
+# PDH="$FAKE" simulates the host's session carry (WP 7-02): carried fences take
+# the root from env; the Step 0 stanza fence re-resolves and ignores it.
 run_fence() {
   local text="$1" prefix="$2"
   shift 2
-  fence_exec "$prefix" "$PROJ" "$text" CLAUDE_PLUGIN_ROOT="$FAKE" STUB_LOG="$STUB_LOG" "$@"
+  fence_exec "$prefix" "$PROJ" "$text" CLAUDE_PLUGIN_ROOT="$FAKE" PDH="$FAKE" STUB_LOG="$STUB_LOG" "$@"
 }
 
 # run_section <heading> <prefix> [VAR=value ...] — every bash fence of the

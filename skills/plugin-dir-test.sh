@@ -1478,7 +1478,7 @@ stanza_variants() { sed 's/^[[:space:]]*//' | sort -u; }
 emitted=$( cd "$REPO_ROOT" && grep -rhF --exclude-dir=fixtures --exclude=plugin-dir-test.sh \
   'PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]' agents commands skills docs AGENTS.md )
 emitted_n=$(printf '%s\n' "$emitted" | awk 'NF { n++ } END { print n + 0 }')
-if [ "$emitted_n" -gt 100 ]; then
+if [ "$emitted_n" -gt 50 ]; then
   PASS=$((PASS + 1)); echo "  ok  WP11 tree: found $emitted_n stanza emissions (predicate is not vacuous)"
 else
   FAIL=$((FAIL + 1)); echo "  FAIL WP11 tree: only $emitted_n stanza emissions found — predicate or scan roots rotted"
@@ -1493,6 +1493,74 @@ assert_eq "WP11 tree: no emission keeps the old cwd branch" \
   "$(printf '%s\n' "$emitted" | grep -cF '{ [ -f skills/plugin-dir.sh ] && pwd; }' || true)" "0"
 assert_eq "WP11 tree control: the old-branch predicate matches the drifted skill-lint fixture" \
   "$(grep -cF '{ [ -f skills/plugin-dir.sh ] && pwd; }' "$REPO_ROOT/skills/skill-lint/fixtures/c5-pdh-drift.md" || true)" "2"
+
+# --- WP 7-02 tree: one stanza per caller file; later fences carry the root -----
+# CDT-288 [R4.1]: the canonical stanza is emitted once per caller file (the
+# first $PDH fence), which also prints the root to stderr; every later fence of
+# the same file assigns PDH="${PDH:-<PDH>}" session state instead of re-emitting
+# the stanza. Managed-include partial files and their region bodies are exempt:
+# a region body must equal its partial byte-for-byte (agent-memory
+# sync-includes), so both keep whatever stanza count the partial itself holds.
+# The classifier below is the same two-pass shape the WP11 block uses: region
+# bounds are collected before stanza lines are classified.
+wp7_partials=$(cd "$REPO_ROOT" && grep -rh '^<!-- include: ' commands skills agents 2>/dev/null \
+  | sed 's/^<!-- include: //; s/ agent=.*//' | sort -u)
+wp7_scan=$(cd "$REPO_ROOT" && find commands skills agents \( -name '*.md' -o -name '*.sh' \) 2>/dev/null \
+  | grep -v '/fixtures/' | grep -v '^skills/plugin-dir-test.sh$' \
+  | grep -v '^skills/skill-lint/test.sh$' | grep -v '^skills/spec-tooling/wp-5-07-editorial-test.sh$' | sort)
+wp7_violations=""
+wp7_carry_no_stanza=""
+wp7_carry_no_echo=""
+for f in $wp7_scan; do
+  case "$(printf '\n%s\n' "$wp7_partials")" in *"
+$f
+"*) continue ;; esac
+  [ -f "$REPO_ROOT/$f" ] || continue
+  awk -v F="$f" '
+    /^<!-- include:/ {open[++n]=NR}
+    /^<!-- \/include/ {close_[n]=NR}
+    { line[NR]=$0 }
+    /PDH=\$\( \{/ { st[++s]=NR }
+    /PDH="\$\{PDH:-<PDH>\}"/ { c=1 }
+    /printf .PDH=%s\\n. "\$PDH" >\&2/ { e=1 }
+    END {
+      if (!c) exit 0
+      anchor=0
+      for (j=1;j<=s;j++) { ins=0
+        for (i=1;i<=n;i++) if (st[j]>open[i] && st[j]<close_[i]) ins=1
+        if (!ins) anchor=1
+      }
+      if (!anchor) print F ": carry without a free stanza anchor"
+      else if (!e) print F ": carry without the stanza fence printing the root"
+    }' "$REPO_ROOT/$f" >> "$TMP/wp7.warn" 2>/dev/null || true
+  awk -v F="$f" '
+    /^<!-- include:/ {open[++n]=NR}
+    /^<!-- \/include/ {close_[n]=NR}
+    { line[NR]=$0 }
+    /PDH=\$\( \{/ { st[++s]=NR }
+    END {
+      cnt=0
+      for (j=1;j<=s;j++) { ins=0
+        for (i=1;i<=n;i++) if (st[j]>open[i] && st[j]<close_[i]) ins=1
+        if (!ins) cnt++
+      }
+      if (cnt>1) print F ":" cnt
+    }' "$REPO_ROOT/$f" >> "$TMP/wp7.multi" 2>/dev/null || true
+done
+[ -f "$TMP/wp7.multi" ] && wp7_multi=$(sort -t: -k2,2rn "$TMP/wp7.multi" | tr '\n' ' ') || wp7_multi=""
+assert_eq "WP7 tree: no caller file emits the stanza in more than one non-region fence" "$wp7_multi" ""
+[ -f "$TMP/wp7.warn" ] && wp7_warn=$(tr '\n' '|' < "$TMP/wp7.warn") || wp7_warn=""
+assert_eq "WP7 tree: every carrying file keeps a free stanza anchor that prints the root" "$wp7_warn" ""
+# Control: the classifier must bite — a file text with a carry and no stanza
+# anchor is flagged, and a plain stanza-only text is not.
+wp7_ctl=$(printf 'PDH="${PDH:-<PDH>}"   # session root\n' | awk -v F="synthetic.md" '
+    /PDH=\$\( \{/ { s++ }
+    /PDH="\$\{PDH:-<PDH>\}"/ { c=1 }
+    END { if (c && !s) print F ": carry without a free stanza anchor"; else print "clean" }')
+assert_eq "WP7 tree control: a carry without a stanza anchor is flagged" "$wp7_ctl" "synthetic.md: carry without a free stanza anchor"
+wp7_ctl2=$(printf 'PDH=$( { x } )\n' | awk '/PDH=\$\( \{/ { s++ } /PDH="\$\{PDH:-<PDH>\}"/ { c=1 } END { if (c && !s) print "flagged"; else print "clean" }')
+assert_eq "WP7 tree control: a stanza-only file stays clean" "$wp7_ctl2" "clean"
+rm -f "$TMP/wp7.multi" "$TMP/wp7.warn"
 
 # --- CDT-233 T7 V1: stale-cache delegation falsification (permanent negative
 # proof). A pre-CDT-166 build (its whole body is the forbidden full-path

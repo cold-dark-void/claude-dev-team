@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.26
+- **WP 7-02 PDH once** — each caller file resolves the plugin root once and carries it across fences, dropping about 180 stanza copies.
+
 ### v1.19.25
 - **WP 7-A Includes and history** — sync-includes rejects escaping paths and unbalanced regions, shared partials replace duplicated spawn text, ticket archaeology leaves the big commands, and the deprecated specs move to specs/archive.
 

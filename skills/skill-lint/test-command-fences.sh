@@ -56,7 +56,7 @@ run_fence() {
   local text="$1" cwd="$2"
   shift 2
   N=$((N + 1))
-  fence_exec "$WORK/f$N" "$cwd" "$text" "$@"
+  fence_exec "$WORK/f$N" "$cwd" "$text" PDH="$ROOT" "$@"
   RC=$RUN_RC
   OUT=$(cat "$WORK/f$N.out")
   ERR=$(cat "$WORK/f$N.err")

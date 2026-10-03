@@ -128,7 +128,7 @@ F_6I=$(fence_nth "$RETRO_MD" '### Step 6i: Scheduled report' 1) || F_6I=""
   && ok "exit fences extract" || bad "exit fences extract"
 
 run_fence() {
-  fence_exec "$1" "$REPO" "$2" CLAUDE_PLUGIN_ROOT="$ROOT" "${@:3}"
+  fence_exec "$1" "$REPO" "$2" CLAUDE_PLUGIN_ROOT="$ROOT" PDH="$ROOT" "${@:3}"
 }
 
 hold_then() { # hold_then <name> <fence> [env...]
