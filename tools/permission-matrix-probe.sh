@@ -18,7 +18,13 @@
 #
 # On a successful matrix run (≥1 cell ALL status PASS_*), writes the installed
 # Claude Code version (first token of `claude --version`) to
-# tools/permission-matrix-cc-version so /doctor can WARN on drift.
+# tools/permission-matrix-cc-version so /doctor can WARN on drift. That file is
+# TRACKED and is REWRITTEN by every successful run; a failing run leaves the
+# previous value in place. A value that lags the installed CC is therefore
+# expected staleness, not corruption: /doctor (matrix.cc_version) WARNs with
+# the exact re-probe command instead of failing. Re-probing on a host without
+# an interactive CC is impossible, so the stale value is kept until the probe
+# genuinely runs. --record-cc-only re-records the version without a matrix.
 set -euo pipefail
 
 RECORD_ONLY=0
@@ -38,11 +44,49 @@ TIMEOUT_S="${MATRIX_TIMEOUT:-180}"
 CC_VERSION_FILE="${CC_VERSION_FILE:-${MATRIX_CC_VERSION_FILE:-$REPO/tools/permission-matrix-cc-version}}"
 MATRIX_CELLS="${MATRIX_CELLS:-A:bypassPermissions B:acceptEdits C:dontAsk D:auto}"
 SKIP_MCP_DELTA="${MATRIX_SKIP_MCP_DELTA:-0}"
+
+die() { printf '[matrix] error: %s\n' "$*" >&2; exit 2; }
+
+# CDT-287: resolve claude once via PATH — the hardcoded /opt/claude-code/bin
+# path is gone. CLAUDE_BIN overrides (tests, non-standard installs).
+CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude 2>/dev/null || true)}"
+
+# Guarded rg (CDT-287): ripgrep when present, grep -a otherwise. Stream/log
+# scans must never abort the run on a missing tool. Same shape for the flags
+# used here (-q -c -m1 -A3); both tools accept pattern after `--`.
+_rg() {
+  if command -v rg >/dev/null 2>&1; then
+    rg "$@"
+  else
+    grep -a "$@"
+  fi
+}
+
+# CDT-284 timeout shim: timeout → gtimeout → portable perl supervisor. The
+# bare `timeout` call is gone (stock macOS has none of the first two).
+# shellcheck source=../skills/lib/portable.sh
+. "$REPO/skills/lib/portable.sh"
+
+# --- preflight (CDT-287): fail fast before any OUTDIR writes -----------------
+preflight() {
+  local missing=""
+  [ -n "$CLAUDE_BIN" ] || missing="${missing} claude"
+  command -v sqlite3 >/dev/null 2>&1 || missing="${missing} sqlite3"
+  command -v python3 >/dev/null 2>&1 || missing="${missing} python3"
+  [ -f "$REPO/skills/worktree-lib.sh" ] || missing="${missing} skills/worktree-lib.sh"
+  case "$TIMEOUT_S" in
+    ''|*[!0-9]*) die "MATRIX_TIMEOUT must be a positive integer, got '$TIMEOUT_S'" ;;
+  esac
+  [ "$TIMEOUT_S" -ge 1 ] || die "MATRIX_TIMEOUT must be >= 1"
+  [ -z "$missing" ] || die "preflight: missing prerequisites:${missing}"
+  command -v rg >/dev/null 2>&1 || log "rg absent — stream scans degrade to grep"
+}
+
 if [ "$RECORD_ONLY" -eq 0 ]; then
 mkdir -p "$OUTDIR"
 RESULTS="$OUTDIR/results.tsv"
 : > "$RESULTS"
-echo -e "cell\tmode\tflow\tstatus\tprompt_proxy\tdenials\thooks_fired\tnotes" >> "$RESULTS"
+echo -e "cell\tmode\tflow\tstatus\tprompt_proxy\tdenials\thooks_stream\tnotes" >> "$RESULTS"
 MCP_DELTA="$OUTDIR/mcp-safety-delta.tsv"
 : > "$MCP_DELTA"
 echo -e "mode\tmcp_linear\tsettings_edit_attempt\tpermission_denials\tproxy\tnotes" >> "$MCP_DELTA"
@@ -50,15 +94,16 @@ fi
 
 log() { printf '[matrix] %s\n' "$*" >&2; }
 
-# Normalize `claude --version` → bare semver token (e.g. 2.1.190)
+# Normalize `claude --version` → bare semver token (e.g. 2.1.190).
+# First token of the first line only (awk, not a head -1 pipe).
 normalize_cc_version() {
-  printf '%s' "${1-}" | awk '{print $1}' | tr -d '\r'
+  printf '%s\n' "${1-}" | awk 'NR==1{print $1}' | tr -d '\r'
 }
 
 # Record last-probed CC version after a successful matrix run (CDT-59).
 record_probed_cc_version() {
   local raw installed
-  raw=$(claude --version 2>&1 | head -1 || true)
+  raw=$("$CLAUDE_BIN" --version 2>&1 || true)
   installed=$(normalize_cc_version "$raw")
   if [ -z "$installed" ]; then
     log "skip recording cc version (unparseable: ${raw:-empty})"
@@ -248,12 +293,16 @@ Steps (run in order):
    sqlite3 .claude/memory/memory.db "INSERT INTO memories(agent,type,content) VALUES ('probe','memory','cdt-51-matrix-write'); SELECT COUNT(*) FROM memories;"
 2. WORKTREE: Using Bash, run:
    bash skills/worktree-lib.sh ensure cdt-51-probe-wt
-   then
+   and capture the exact path that command prints, then run:
    bash skills/worktree-lib.sh release cdt-51-probe-wt
 3. HOOK: Using Bash, run: echo hook-trigger-probe
-4. SPAWN: Spawn ONE Task/Agent subagent (general-purpose) with prompt: "Write a single line to /tmp is not allowed — instead Write file spawn-ok.txt with content SPAWN_OK then exit." Wait for it if possible; if spawn unavailable, Write spawn-ok.txt yourself with content SPAWN_FALLBACK.
-
-When done, print a single line: MATRIX_DONE cell-ok
+4. SPAWN: Spawn ONE Task/Agent subagent (general-purpose) with prompt: "Write file spawn-ok.txt in the current directory with the single line SPAWN_OK, then exit." Wait for it if possible; if spawn is unavailable, Write spawn-ok.txt yourself with the single line SPAWN_FALLBACK.
+5. REPORT: Print one line per step —
+   STEP1_MEM_ROWS=<count>
+   STEP2_WT_ENSURE_PATH=<path printed by ensure, verbatim>
+   STEP2_WT_RELEASE_RC=<exit code of release>
+   STEP4_SPAWN=<SPAWN_OK|SPAWN_FALLBACK|FAILED>
+   then a final line: MATRIX_DONE cell-ok
 PROMPT
 
   log "cell $cell mode=$mode root=$root"
@@ -263,7 +312,7 @@ PROMPT
     # --permission-mode forces session mode; --settings loads sandbox+allow+hooks
     # Do NOT pass --dangerously-skip-permissions — that would invalidate the matrix.
     # --bare would skip hooks; we want hooks.
-    timeout "$TIMEOUT_S" claude -p \
+    portable_with_timeout "$TIMEOUT_S" "$CLAUDE_BIN" -p \
       --permission-mode "$mode" \
       --settings "$root/.claude/settings.json" \
       --output-format stream-json \
@@ -281,20 +330,20 @@ PROMPT
   mem_count=$(sqlite3 "$root/.claude/memory/memory.db" "SELECT COUNT(*) FROM memories WHERE content LIKE '%cdt-51-matrix-write%';" 2>/dev/null || echo 0)
   [ "${mem_count:-0}" -ge 1 ] && mem_ok=1
 
-  # worktree release should leave no registered wt; ensure may leave dir cleaned
-  if ! git -C "$root" worktree list 2>/dev/null | rg -q 'cdt-51-probe-wt'; then
-    # if ensure never ran, also no leftover — check stream for success lines
-    if rg -q 'cdt-51-probe-wt|worktree' "$stream" "$logf" 2>/dev/null; then
-      wt_ok=1
-    fi
-  else
-    wt_ok=0  # leftover = incomplete release
-  fi
-  # better: check stream for ensure path print + release
-  if rg -q 'ensure|worktree' "$stream" 2>/dev/null && ! git -C "$root" worktree list 2>/dev/null | rg -q 'cdt-51-probe-wt'; then
+  # wt_ok (rv-w3-21) = worktree-lib's OWN printed output — the absolute
+  # ".worktrees/cdt-51-probe-wt" path it writes on ensure success — appears
+  # in the tool_result stream, AND no cdt-51-probe-wt registration is left
+  # after release. A mere mention of "worktree"/"ensure" proves nothing (the
+  # prompt itself contains those words), so that check is gone.
+  if _rg -q -- '\.worktrees/cdt-51-probe-wt' "$stream" 2>/dev/null; then
     wt_ok=1
   fi
+  if git -C "$root" worktree list --porcelain 2>/dev/null | _rg -q -- 'cdt-51-probe-wt'; then
+    wt_ok=0  # leftover registration = incomplete release
+  fi
 
+  # hooks column = hook events counted in the stream (--include-hook-events);
+  # the on-disk fire count stays in the notes as hook_fires.
   local fires=0
   if [ -f "$root/.claude/hooks/probe-fires.log" ]; then
     fires=$(wc -l < "$root/.claude/hooks/probe-fires.log" | tr -d ' ')
@@ -305,17 +354,15 @@ PROMPT
     spawn_ok=1
   fi
 
+  # count_stream prints: proxy denials hooks tool_uses note — tab-separated.
   local counts
   counts=$(count_stream "$stream")
   local proxy denials hooks tools note
-  IFS=$'\t' read -r proxy denials hooks tools note <<< "$counts"
-  # count_stream prints: proxy denials hooks tool_uses note — 5 fields
-  # re-parse carefully
-  proxy=$(echo "$counts" | cut -f1)
-  denials=$(echo "$counts" | cut -f2)
-  hooks=$(echo "$counts" | cut -f3)
-  tools=$(echo "$counts" | cut -f4)
-  note=$(echo "$counts" | cut -f5-)
+  proxy=$(printf '%s\n' "$counts" | cut -f1)
+  denials=$(printf '%s\n' "$counts" | cut -f2)
+  hooks=$(printf '%s\n' "$counts" | cut -f3)
+  tools=$(printf '%s\n' "$counts" | cut -f4)
+  note=$(printf '%s\n' "$counts" | cut -f5-)
 
   # Per-flow status
   record_flow() {
@@ -325,17 +372,15 @@ PROMPT
     if [ "$ok" = "1" ] && [ "${proxy:-0}" = "0" ]; then
       status="PASS"
       pcount=0
-    elif [ "$ok" = "1" ] && [ "${proxy:-0}" != "0" ]; then
+    elif [ "$ok" = "1" ]; then
       status="PASS_WITH_PROMPTS"
-    else
-      status="FAIL"
     fi
-    echo -e "${cell}\t${mode}\t${flow}\t${status}\t${pcount}\t${denials}\t${fires}\t${extra}" >> "$RESULTS"
+    echo -e "${cell}\t${mode}\t${flow}\t${status}\t${pcount}\t${denials}\t${hooks}\t${extra}" >> "$RESULTS"
   }
 
   record_flow "memory_sqlite3" "$mem_ok" "rows=$mem_count rc=$rc"
   record_flow "worktree_ensure_release" "$wt_ok" "rc=$rc"
-  record_flow "hook_execution" "$hook_ok" "fires=$fires"
+  record_flow "hook_execution" "$hook_ok" "hook_fires=$fires"
   record_flow "orchestrate_spawn" "$spawn_ok" "tools=$tools note=${note:-}"
 
   # cell summary
@@ -349,30 +394,31 @@ PROMPT
   elif [ "$cell_pass" = "1" ]; then
     cell_status="PASS_WITH_PROMPTS"
   fi
-  echo -e "${cell}\t${mode}\tALL\t${cell_status}\t${proxy}\t${denials}\t${fires}\tmem=$mem_ok wt=$wt_ok hook=$hook_ok spawn=$spawn_ok tools=$tools rc=$rc" >> "$RESULTS"
-  log "cell $cell -> $cell_status proxy=$proxy mem=$mem_ok wt=$wt_ok hook=$hook_ok spawn=$spawn_ok fires=$fires"
+  echo -e "${cell}\t${mode}\tALL\t${cell_status}\t${proxy}\t${denials}\t${hooks}\tmem=$mem_ok wt=$wt_ok hook=$hook_ok hook_fires=$fires spawn=$spawn_ok tools=$tools rc=$rc" >> "$RESULTS"
+  log "cell $cell -> $cell_status proxy=$proxy mem=$mem_ok wt=$wt_ok hook=$hook_ok hook_fires=$fires spawn=$spawn_ok"
 }
 
 # --- key acceptance probe (no API) ---
 key_probe() {
-  local f="$OUTDIR/key-acceptance.txt"
+  local f="$OUTDIR/key-acceptance.txt" k n
   {
-    echo "claude_version: $(claude --version 2>&1 | head -1)"
+    echo "claude_version: $("$CLAUDE_BIN" --version 2>&1 | awk 'NR==1')"
+    echo "claude_binary: $CLAUDE_BIN"
     echo "permission_mode_cli_choices:"
-    claude --help 2>&1 | rg -A3 'permission-mode' || true
+    "$CLAUDE_BIN" --help 2>&1 | _rg -A3 -- 'permission-mode' || true
     echo
     echo "settings_keys_in_binary:"
     for k in bypassPermissions acceptEdits dontAsk auto autoAllowBashIfSandboxed defaultMode sandbox.enabled; do
-      n=$(strings /opt/claude-code/bin/claude 2>/dev/null | rg -c "$k" || true)
+      n=$(strings "$CLAUDE_BIN" 2>/dev/null | _rg -c -- "$k" || true)
       n=${n:-0}
       echo "  $k: $n occurrences"
     done
     echo
     echo "sandbox_autoallow_string:"
-    strings /opt/claude-code/bin/claude 2>/dev/null | rg -m1 'Auto-allowed with sandbox' || true
+    strings "$CLAUDE_BIN" 2>/dev/null | _rg -m1 -- 'Auto-allowed with sandbox' || true
     echo
     echo "auto_mode_cli:"
-    if claude --help 2>&1 | rg -q '"auto"'; then
+    if "$CLAUDE_BIN" --help 2>&1 | _rg -q -- '"auto"'; then
       echo "  auto is a documented --permission-mode choice on this CC"
     else
       echo "  WARNING: auto NOT listed in claude --help (older CC?)"
@@ -421,7 +467,7 @@ PROMPT
     set +e
     (
       cd "$root"
-      timeout "$TIMEOUT_S" claude -p \
+      portable_with_timeout "$TIMEOUT_S" "$CLAUDE_BIN" -p \
         --permission-mode "$mode" \
         --settings "$root/.claude/settings.json" \
         --output-format stream-json \
@@ -433,17 +479,17 @@ PROMPT
 
     local mcp_st settings_st counts proxy denials note
     if [ -f "$root/mcp-ok.txt" ]; then
-      mcp_st=$(head -1 "$root/mcp-ok.txt" | tr -d '\r')
+      mcp_st=$(awk 'NR==1' "$root/mcp-ok.txt" | tr -d '\r')
     else
       mcp_st="MISSING"
     fi
     if [ -f "$root/settings-edit.txt" ]; then
-      settings_st=$(head -1 "$root/settings-edit.txt" | tr -d '\r')
+      settings_st=$(awk 'NR==1' "$root/settings-edit.txt" | tr -d '\r')
     else
       settings_st="MISSING"
     fi
     # Did settings.json actually change?
-    if rg -q 'mcp__test' "$root/.claude/settings.json" 2>/dev/null; then
+    if _rg -q -- 'mcp__test' "$root/.claude/settings.json" 2>/dev/null; then
       settings_st="${settings_st}+FILE_CHANGED"
       echo changed > "$settings_probe"
     fi
@@ -465,23 +511,34 @@ prog_baseline() {
   local root="$OUTDIR/prog-baseline"
   init_scratch "$root" "bypassPermissions"
   cd "$root"
-  local ok=1
+  local ok=1 wt_printed=""
   sqlite3 .claude/memory/memory.db "INSERT INTO memories(agent,type,content) VALUES ('probe','memory','prog-baseline');" \
     || ok=0
-  bash skills/worktree-lib.sh ensure cdt-51-prog 2>"$OUTDIR/prog-wt.log" \
-    || ok=0
+  # The ensure line must print worktree-lib's own ".worktrees/cdt-51-prog"
+  # path (rv-w3-21) — not just exit 0.
+  wt_printed=$(bash skills/worktree-lib.sh ensure cdt-51-prog 2>"$OUTDIR/prog-wt.log") || ok=0
+  case "$wt_printed" in
+    */.worktrees/cdt-51-prog) : ;;
+    *) ok=0 ;;
+  esac
   bash skills/worktree-lib.sh release cdt-51-prog 2>>"$OUTDIR/prog-wt.log" \
     || ok=0
+  if git worktree list --porcelain 2>/dev/null | _rg -q -- 'cdt-51-prog'; then
+    ok=0  # leftover registration = incomplete release
+  fi
   CLAUDE_PROJECT_DIR="$root" bash .claude/hooks/probe-hook.sh < /dev/null \
     || ok=0
   [ -f .claude/hooks/probe-fires.log ] || ok=0
-  echo -e "PROG\tbaseline\tALL\t$([ $ok -eq 1 ] && echo PASS || echo FAIL)\t0\t0\t$(wc -l < .claude/hooks/probe-fires.log 2>/dev/null || echo 0)\tno-claude-api" >> "$RESULTS"
-  log "programmatic baseline ok=$ok"
+  local fire_count
+  fire_count=$(wc -l < .claude/hooks/probe-fires.log 2>/dev/null || echo 0)
+  echo -e "PROG\tbaseline\tALL\t$([ $ok -eq 1 ] && echo PASS || echo FAIL)\t0\t0\t${fire_count:-0}\twt_printed=${wt_printed##*/} no-claude-api hooks_col=fire_log" >> "$RESULTS"
+  log "programmatic baseline ok=$ok wt_printed=$wt_printed"
 }
 
 # Test entry: apply the same PASS-cell decision as main, then exit.
 # RESULTS and CC_VERSION_FILE must already be set.
 if [ "$RECORD_ONLY" -eq 1 ]; then
+  [ -n "$CLAUDE_BIN" ] || die "preflight: claude not found on PATH (resolved via command -v)"
   if awk -F'\t' '$3 == "ALL" && $4 ~ /^PASS/ { found=1 } END { exit !found }' "${RESULTS:?}"; then
     record_probed_cc_version
   else
@@ -491,6 +548,7 @@ if [ "$RECORD_ONLY" -eq 1 ]; then
 fi
 
 # --- main ---
+preflight
 key_probe
 prog_baseline
 

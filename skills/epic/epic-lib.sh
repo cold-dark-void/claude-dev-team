@@ -54,6 +54,7 @@ Commands:
   rollup
   waves <EPIC-ID>
   exists <EPIC-ID>
+  doctor                        tool-prerequisite report (bash/jq/sqlite3/python3/lock)
 EOF
   exit 64
 }
@@ -2118,6 +2119,94 @@ cmd_sync_apply() {
   )
 }
 
+# ---- CDT-287 [05 E10]: tool-prerequisite doctor ------------------------------
+# Prints "id<TAB>status<TAB>detail" rows (data-only stdout, like every other
+# subcommand) plus a summary row; exit 2 when a required prereq is missing,
+# 1 when only optional ones are, 0 clean. Read-only. jq is already a hard
+# requirement (die 1 above), so its row reports for the record only.
+cmd_doctor() {
+  [ $# -eq 0 ] || die 64 "doctor takes no arguments"
+  # Test knob: raise the floor to prove the bash comparison is live.
+  local doc_bash_maj="${EPIC_DOC_BASH_MAJ:-3}" doc_bash_min="${EPIC_DOC_BASH_MIN:-2}"
+  case "$doc_bash_maj" in ''|*[!0-9]*) doc_bash_maj=3 ;; esac
+  case "$doc_bash_min" in ''|*[!0-9]*) doc_bash_min=2 ;; esac
+  local fails=0 warns=0
+  _ep_doc() { # _ep_doc <status> <id> <detail>
+    printf '%s\t%s\t%s\n' "$2" "$1" "$3"
+    case "$1" in
+      FAIL) fails=$((fails + 1)) ;;
+      WARN) warns=$((warns + 1)) ;;
+    esac
+  }
+
+  # bash >= 3.2 (required): skills use indexed arrays and ${var} expansions
+  # only — no declare -A, no mapfile (CDT-271 portability floor).
+  local ver="${BASH_VERSION:-}" maj rest min
+  if [ -z "$ver" ]; then
+    _ep_doc FAIL "bash.version" "BASH_VERSION unset"
+  else
+    maj=${ver%%.*}
+    rest=${ver#*.}
+    min=${rest%%.*}
+    case "$maj" in
+      ''|*[!0-9]*)
+        _ep_doc FAIL "bash.version" "unparseable BASH_VERSION=$ver"
+        ;;
+      *)
+        case "$min" in ''|*[!0-9]*) min=0 ;; esac
+        if [ "$maj" -gt "$doc_bash_maj" ] \
+          || { [ "$maj" -eq "$doc_bash_maj" ] && [ "$min" -ge "$doc_bash_min" ]; }; then
+          _ep_doc PASS "bash.version" "bash $ver >= $doc_bash_maj.$doc_bash_min"
+        else
+          _ep_doc FAIL "bash.version" \
+            "bash $ver < $doc_bash_maj.$doc_bash_min — epic/skills assume bash 3.2+ (no declare -A, no mapfile)"
+        fi
+        ;;
+    esac
+  fi
+
+  # jq (required): every state op runs through it.
+  if command -v jq >/dev/null 2>&1; then
+    _ep_doc PASS "jq" "jq present (required — epic-lib exits 1 without it)"
+  else
+    _ep_doc FAIL "jq" "jq absent — epic-lib cannot run"
+  fi
+
+  # sqlite3 (optional): memory falls back to .md files.
+  if command -v sqlite3 >/dev/null 2>&1; then
+    _ep_doc PASS "sqlite3" "sqlite3 present"
+  else
+    _ep_doc WARN "sqlite3" "sqlite3 absent — memory uses .md fallback"
+  fi
+
+  # python3 (optional): several skills degrade gracefully without it.
+  if command -v python3 >/dev/null 2>&1; then
+    _ep_doc PASS "python3" "python3 present"
+  else
+    _ep_doc WARN "python3" "python3 absent — spec parsing/doctor JSON surfaces degrade"
+  fi
+
+  # lock support (required): flock, or the portable mkdir lock shim.
+  if command -v flock >/dev/null 2>&1; then
+    _ep_doc PASS "lock.support" "flock present"
+  elif [ -f "$HERE/../lib/portable.sh" ]; then
+    _ep_doc PASS "lock.support" \
+      "flock absent; skills/lib/portable.sh mkdir lock covers EPICS_LOCK (CDT-284)"
+  else
+    _ep_doc FAIL "lock.support" \
+      "no flock and skills/lib/portable.sh missing — state RMW cannot lock"
+  fi
+
+  printf 'summary\t%d fail\t%d warn\n' "$fails" "$warns"
+  if [ "$fails" -gt 0 ]; then
+    return 2
+  fi
+  if [ "$warns" -gt 0 ]; then
+    return 1
+  fi
+  return 0
+}
+
 # ---- dispatch ---------------------------------------------------------------
 
 [ $# -lt 1 ] && usage
@@ -2148,6 +2237,7 @@ case "$SUBCMD" in
   rollup)      cmd_rollup "$@" ;;
   waves)       cmd_waves "$@" ;;
   exists)      cmd_exists "$@" ;;
+  doctor)      cmd_doctor "$@" ;;
   -h|--help|help) usage ;;
   *) die 64 "unknown subcommand: $SUBCMD" ;;
 esac

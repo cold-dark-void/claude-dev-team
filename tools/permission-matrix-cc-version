@@ -1,1 +1,8 @@
+# Last CC version probed by tools/permission-matrix-probe.sh (CDT-59). The
+# probe rewrites this tracked file on every successful matrix run; a failing
+# run leaves the previous value in place. 2.1.190 is STALE — the probe last
+# ran on an older CC than the 2.1.236 cited in CHANGELOG v1.18.14, and
+# re-probing needs an interactive CC on the probe host, so the stale value
+# stands until a real probe run. /doctor (matrix.cc_version) WARNs with the
+# exact re-probe command instead of failing.
 2.1.190

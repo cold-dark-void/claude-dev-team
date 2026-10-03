@@ -1227,6 +1227,49 @@ else
   fail "T20f probe missing version write-back"
 fi
 
+# T20g — rv-w3-21 honesty: the WARN names the tracked version-file rewrite and
+# the probe header documents it (stale pin stands until a real probe run).
+if grep -qF 'it rewrites the tracked tools/permission-matrix-cc-version' "$DOCTOR" \
+  && grep -qF 'TRACKED and is REWRITTEN' "$PROBE"; then
+  pass "T20g doctor WARN + probe header document the version-file rewrite (rv-w3-21)"
+else
+  fail "T20g version-file rewrite not documented"
+fi
+
+# T20h — negative control: no bare `timeout`/`claude -p` invocation remains;
+# both claude calls go through "$CLAUDE_BIN" under the timeout shim.
+if [ "$(grep -cF 'portable_with_timeout "$TIMEOUT_S" "$CLAUDE_BIN" -p \' "$PROBE")" -eq 2 ] \
+  && ! grep -qE '^[[:space:]]*timeout[[:space:]]+"\$\{?TIMEOUT_S\}?[[:space:]]+claude' "$PROBE" \
+  && ! grep -qE '^[[:space:]]*claude -p' "$PROBE"; then
+  pass "T20h probe wires claude via CLAUDE_BIN under the timeout shim (negative: bare forms gone)"
+else
+  fail "T20h probe still has bare timeout/claude wiring"
+fi
+
+# T20i — claude resolved via command -v; preflight runs before any writes.
+if grep -qF 'command -v claude 2>/dev/null || true' "$PROBE" \
+  && grep -q '^preflight$' "$PROBE"; then
+  pass "T20i probe resolves claude via command -v; preflight called (CDT-287)"
+else
+  fail "T20i probe missing CLAUDE_BIN resolution or preflight call"
+fi
+
+# T20j — wt_ok asserts the printed .worktrees path in the stream, not a mere
+# mention of worktree/ensure (rv-w3-21: the prompt itself mentions both).
+if grep -qF "_rg -q -- '\.worktrees/cdt-51-probe-wt'" "$PROBE" \
+  && ! grep -qF "rg -q 'cdt-51-probe-wt|worktree'" "$PROBE"; then
+  pass "T20j wt_ok asserts worktree-lib's printed path (mention-check removed)"
+else
+  fail "T20j wt_ok wiring"
+fi
+
+# T20k — hooks column counts stream hook events; the fire log moves to notes.
+if grep -qF '${denials}\t${hooks}\t' "$PROBE" && grep -qF 'hook_fires=$fires' "$PROBE"; then
+  pass "T20k hooks column records the stream count; fires stay in notes"
+else
+  fail "T20k hooks column wiring"
+fi
+
 # =============================================================================
 # T21. hooks.hygiene managed-only (CDT-77 / M2c″)
 # =============================================================================
@@ -2464,6 +2507,103 @@ expect_check memory.ext.vec WARN "not loadable"
 expect_check memory.ext.lembed WARN "not loadable"
 expect_check hooks.templates SKIP "consumer install"
 expect_check settings.agent_teams SKIP "memory not initialized"
+
+# =============================================================================
+# T26. CDT-287 tool prerequisites — deps.bash / deps.flock / deps.rg / deps.timeout
+# =============================================================================
+T26="$TMP/t26-prereqs"
+make_bare_project "$T26"
+cd "$T26" || exit 1
+
+# T26a — all four ids registered; nothing FAILs on a healthy host
+RC=0
+OUT=$(doctor --json --only deps 2>/dev/null) || RC=$?
+if printf '%s' "$OUT" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+ids={c["id"] for c in d["checks"]}
+assert {"deps.bash","deps.flock","deps.rg","deps.timeout"} <= ids, ids
+assert all(c["status"] != "FAIL" for c in d["checks"]), d["checks"]
+print("ok")
+' 2>/dev/null && [ "$RC" -le 1 ]; then
+  pass "T26a prereq ids registered, none FAIL on healthy host (CDT-287)"
+else
+  fail "T26a rc=$RC out=$OUT"
+fi
+
+# T26b — the bash-version comparison is live: raised floor → WARN exit 1
+RC=0
+OUT=$(DOCTOR_MIN_BASH_MAJOR=99 bash "$DOCTOR" --json --only deps.bash 2>/dev/null) || RC=$?
+if printf '%s' "$OUT" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+assert c["id"]=="deps.bash" and c["status"]=="WARN", c
+assert "99.2" in c["detail"], c
+print("ok")
+' 2>/dev/null && [ "$RC" -eq 1 ]; then
+  pass "T26b raised bash floor → WARN exit 1 (comparison live, CDT-287)"
+else
+  fail "T26b rc=$RC out=$OUT"
+fi
+
+# T26c — negative control: an unregistered dep id still exits 64, so T26a's
+# id set comes from real registration, not a grep accident.
+RC=0
+OUT=$(doctor --json --only deps.nope 2>&1) || RC=$?
+if [ "$RC" -eq 64 ]; then
+  pass "T26c unknown dep id → 64 (registration is real)"
+else
+  fail "T26c rc=$RC want 64 out=$OUT"
+fi
+
+# T26d — stripped PATH (flock/rg/timeout/perl absent): portable fallbacks
+# named, rg degrades to WARN, bash/jq stay PASS.
+DOC_STRIP="$TMP/t26-strip"
+mkdir -p "$DOC_STRIP"
+for b in bash sqlite3 python3 jq git awk sed grep head tr cat chmod mkdir ls \
+         date uname dirname basename mktemp find sort cksum cut wc env true; do
+  p=$(command -v "$b" 2>/dev/null || true)
+  if [ -n "$p" ] && [ ! -e "$DOC_STRIP/$b" ]; then
+    ln -s "$p" "$DOC_STRIP/$b" 2>/dev/null || true
+  fi
+done
+RC=0
+OUT=$(PATH="$DOC_STRIP" bash "$DOCTOR" --json --only deps 2>/dev/null) || RC=$?
+if printf '%s' "$OUT" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+s={c["id"]:c["status"] for c in d["checks"]}
+det={c["id"]:c["detail"] for c in d["checks"]}
+assert s["deps.flock"]=="PASS" and "portable.sh mkdir lock" in det["deps.flock"], s
+# perl is stripped too, so no timeout fallback is possible here: honest WARN
+assert s["deps.timeout"]=="WARN" and "perl fallback" in det["deps.timeout"], s
+assert s["deps.rg"]=="WARN", s
+assert s["deps.bash"]=="PASS", s
+print("ok")
+' 2>/dev/null && [ "$RC" -le 1 ]; then
+  pass "T26d stripped tools → flock fallback named, rg+timeout WARN (CDT-287)"
+else
+  fail "T26d rc=$RC out=$OUT"
+fi
+
+# T26e — static: doctor names the CDT-284 fallbacks in both checks.
+if grep -qF 'portable.sh mkdir lock covers lock support' "$DOCTOR" \
+  && grep -qF 'portable_with_timeout perl supervisor' "$DOCTOR"; then
+  pass "T26e static: CDT-284 fallbacks named in doctor"
+else
+  fail "T26e static fallback strings missing"
+fi
+
+# T26f — planted negative control: the same grep pattern detects a planted
+# doctor line (proves the pattern is not vacuously failing).
+T25_PLANT=$(mktemp "${TMPDIR:-/tmp}/doctor-t26-plant.XXXXXX")
+printf '%s\n' 'record "deps.flock" "deps" "PASS" "flock absent — skills/lib/portable.sh mkdir lock covers lock support (CDT-284)"' > "$T25_PLANT"
+if grep -qF 'portable.sh mkdir lock covers lock support' "$T25_PLANT"; then
+  pass "T26f negative: same grep detects a planted doctor line"
+else
+  fail "T26f planted grep did not match"
+fi
+rm -f "$T25_PLANT"
 
 # =============================================================================
 # Summary

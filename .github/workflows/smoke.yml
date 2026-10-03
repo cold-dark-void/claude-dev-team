@@ -131,7 +131,8 @@ jobs:
           fetch-depth: 0  # suites read pinned base commits (git show <sha>:path)
       - run: bash tools/run-all-tests.sh
 
-  # CDT-271 — informational macOS lane (bash 3.2 / BSD). WP 6-B makes it required.
+  # CDT-271 — informational macOS lane (bash 3.2 / BSD). The required flip is
+  # a separate follow-up, blocked on a green macOS lane (WP 6-B EVAPORATED).
   macos:
     runs-on: macos-latest
     continue-on-error: true

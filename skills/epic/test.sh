@@ -2687,6 +2687,70 @@ else
   pass "cdt424 sweep_tracked removes a tracked dir other than TMPROOT"
 fi
 
+# =============================================================================
+# cdt287 — epic-lib doctor (CDT-287 [05 E10] tool prerequisites)
+# =============================================================================
+run_in 0 doctor
+echo "$OUT" | awk -F'\t' '$1=="bash.version" && $2=="PASS"' | grep -q . \
+  && pass || fail "cdt287 doctor bash.version PASS row missing"
+echo "$OUT" | awk -F'\t' '$1=="jq" && $2=="PASS"' | grep -q . \
+  && pass || fail "cdt287 doctor jq PASS row missing"
+echo "$OUT" | awk -F'\t' '$1=="lock.support"' | grep -q . \
+  && pass || fail "cdt287 doctor lock.support row missing"
+echo "$OUT" | grep -q '^summary	' \
+  && pass || fail "cdt287 doctor summary row missing"
+bash "$LIB" 2>&1 | grep -q 'tool-prerequisite report' \
+  && pass || fail "cdt287 usage lists the doctor subcommand"
+
+# Soft deps degrade to WARN under a stripped PATH (jq kept: hard requirement);
+# flock absent but portable.sh present → lock fallback PASS.
+CDT287_STRIP=$(mktemp -d "${TMPDIR:-/tmp}/epic-cdt287-strip.XXXXXX")
+keep_tmp "$CDT287_STRIP"
+for b in bash jq git awk sed dirname cat; do
+  p=$(command -v "$b" 2>/dev/null || true)
+  if [ -n "$p" ] && [ ! -e "$CDT287_STRIP/$b" ]; then
+    ln -s "$p" "$CDT287_STRIP/$b" 2>/dev/null || true
+  fi
+done
+RC=0
+OUT=$(set -e; PATH="$CDT287_STRIP" EPIC_ROOT="$TMPROOT" bash "$LIB" doctor 2>&1) || RC=$?
+if [ "$RC" -eq 1 ] \
+  && echo "$OUT" | awk -F'\t' '$1=="sqlite3" && $2=="WARN"' | grep -q . \
+  && echo "$OUT" | awk -F'\t' '$1=="python3" && $2=="WARN"' | grep -q . \
+  && echo "$OUT" | awk -F'\t' '$1=="lock.support" && $2=="PASS"' | grep -q .; then
+  pass "cdt287 stripped PATH → sqlite3/python3 WARN, lock fallback PASS, exit 1"
+else
+  fail "cdt287 stripped PATH rc=$RC out=$OUT"
+fi
+
+# Negative control A: without the doctor dispatch the subcommand is unknown
+# (exit 64) — every assertion above fails on the old code. The copy keeps the
+# epic/ + lib/ shape so $HERE/../lib/portable.sh still resolves.
+CDT287_D=$(mktemp -d "${TMPDIR:-/tmp}/epic-cdt287-neg.XXXXXX")
+keep_tmp "$CDT287_D"
+mkdir -p "$CDT287_D/epic" "$CDT287_D/lib"
+cp "$HERE/../lib/portable.sh" "$CDT287_D/lib/portable.sh"
+grep -vF 'cmd_doctor "$@" ;;' "$LIB" > "$CDT287_D/epic/epic-lib.sh"
+RC=0
+OUT=$(set -e; EPIC_ROOT="$TMPROOT" bash "$CDT287_D/epic/epic-lib.sh" doctor 2>&1) || RC=$?
+if [ "$RC" -eq 64 ] && echo "$OUT" | grep -q 'unknown subcommand'; then
+  pass "cdt287 negative: doctor dispatch removed → 64 (old-code control)"
+else
+  fail "cdt287 negative A rc=$RC out=$OUT"
+fi
+
+# Negative control B: a raised bash floor trips FAIL + exit 2 (the version
+# comparison is live, not a constant PASS row).
+sed 's/EPIC_DOC_BASH_MAJ:-3/EPIC_DOC_BASH_MAJ:-99/' "$LIB" > "$CDT287_D/epic/epic-lib.sh"
+RC=0
+OUT=$(set -e; EPIC_ROOT="$TMPROOT" bash "$CDT287_D/epic/epic-lib.sh" doctor 2>&1) || RC=$?
+if [ "$RC" -eq 2 ] \
+  && echo "$OUT" | awk -F'\t' '$1=="bash.version" && $2=="FAIL"' | grep -q .; then
+  pass "cdt287 negative: raised bash floor → FAIL exit 2 (comparison live)"
+else
+  fail "cdt287 negative B rc=$RC out=$OUT"
+fi
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

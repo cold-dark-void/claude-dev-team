@@ -387,31 +387,35 @@ conformance_check() {
   # ---- One pass per AC: locate the bundle whose raw_blob's first line is
   # anchored on "<ac_line>: - **<id>.**" (the split's own .line for this
   # ticket, not just any occurrence of the bullet); everything else for
-  # that AC becomes its "other" evidence. --------------------------------
-  local -A quote_text
-  local -A other_blobs
-  local ac ac_line i bac blob first_line
+  # that AC becomes its "other" evidence. Parallel indexed arrays, not
+  # associative arrays — bash 3.2 has no declare -A (CDT-271 macOS lane).
+  # --------------------------------
+  local -a ac_arr quote_arr other_arr
+  ac_arr=() ; quote_arr=() ; other_arr=()
+  local ac ac_line i bac blob first_line qi=0
 
   for ac in $ac_ids; do
+    ac_arr+=("$ac")
+    quote_arr+=("")
+    other_arr+=("")
     ac_line=$(printf '%s' "$split_out" | jq -r --arg id "$ac" '.acs[] | select(.id==$id) | .line')
-    quote_text[$ac]=""
-    other_blobs[$ac]=""
     for i in $(seq 0 $((n - 1))); do
       bac=$(jq -r ".[$i].ac_id" "$bundles")
       [ "$bac" = "$ac" ] || continue
       blob=$(jq -r ".[$i].raw_blob" "$bundles")
-      first_line=$(printf '%s\n' "$blob" | head -n1)
-      if [ -z "${quote_text[$ac]}" ] && printf '%s' "$first_line" | grep -qE "^${ac_line}: - \*\*${ac}\.\*\*"; then
-        quote_text[$ac]="$blob"
+      first_line=$(printf '%s\n' "$blob" | awk 'NR==1')
+      if [ -z "${quote_arr[$qi]}" ] && printf '%s' "$first_line" | grep -qE "^${ac_line}: - \*\*${ac}\.\*\*"; then
+        quote_arr[$qi]="$blob"
       else
-        other_blobs[$ac]="${other_blobs[$ac]}
+        other_arr[$qi]="${other_arr[$qi]}
 $blob"
       fi
     done
-    if [ -z "${quote_text[$ac]}" ]; then
+    if [ -z "${quote_arr[$qi]}" ]; then
       echo "CC-FAIL: AC $ac: no bundle quotes the AC bullet at its source line ($ac_line)"
       rc=1
     fi
+    qi=$((qi + 1))
   done
 
   # ---- Per-AC: the bundle matching its Verify command (from the split,
@@ -462,16 +466,17 @@ $blob"
   # single scan above) has a bundle line, other than the quote itself,
   # that holds it (TL H2/D11: never inside the quote bundle, which
   # trivially holds every token it names). ----------------------------------
-  local tok
+  local tok ti=0
   for ac in $ac_ids; do
-    [ -z "${quote_text[$ac]}" ] && continue
+    [ -z "${quote_arr[$ti]}" ] && { ti=$((ti + 1)); continue; }
     while IFS= read -r tok || [ -n "$tok" ]; do
       [ -z "$tok" ] && continue
-      if ! printf '%s\n' "${other_blobs[$ac]}" | grep -qF -- "$tok"; then
+      if ! printf '%s\n' "${other_arr[$ti]}" | grep -qF -- "$tok"; then
         echo "CC-FAIL: AC $ac: token '$tok' has no bundle line"
         rc=1
       fi
-    done < <(extract_tokens "${quote_text[$ac]}")
+    done < <(extract_tokens "${quote_arr[$ti]}")
+    ti=$((ti + 1))
   done
 
   # ---- Elision: no raw_blob line is exactly ..., [...] or … ---------------

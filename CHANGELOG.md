@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.24
+- **WP 6-B Tool prereqs** — doctor and epic-lib report the real tool floor, and the permission probe asserts the worktree path it printed instead of a mention.
+
 ### v1.19.23
 - **WP 6-A Portability core** — the template shellcheck pass is advisory unless HOOK_TEMPLATE_SHELLCHECK_STRICT is set, so hosts without shellcheck and CI agree on the gate result.
 

@@ -420,6 +420,17 @@ expect_exit 1 "case12 portable still fails a portable suite"
 expect_out "FAIL test.sh" "case12 portable reports the portable failure"
 expect_not_out "hash-test.sh" "case12 portable does not run sha256sum"
 
+# Planted control for the timeout hazard: the same scanner drops a suite whose
+# meaningful line calls timeout (CDT-271 — stock macOS has no timeout(1)).
+R12C=$(new_root)
+ok_suite > "$R12C/test.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'timeout 5 true' 'exit 0' > "$R12C/timeout-test.sh"
+git -C "$R12C" add -A
+run_runner_split --root "$R12C" --portable --list
+expect_exit 0 "case12 --portable --list (timeout)"
+expect_out_line "test.sh" "case12 portable keeps the clean suite (timeout)"
+expect_not_out "timeout-test.sh" "case12 portable drops the timeout suite"
+
 # ---------------------------------------------------------------------------
 echo "---"
 echo "run-all-tests bite-test: $PASS passed, $FAIL failed"
