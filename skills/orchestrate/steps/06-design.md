@@ -100,11 +100,13 @@ task-graph shape, destructive-op flags> }` and call
   `--autopilot[=<bump>]` (or `AUTOPILOT=1`). When `<bump>` ∈ {patch,minor,major},
   also pass `--worktree --release <bump>` (seal-intent; MUST NOT land each child
   on master). `/epic` persists that bump as `release_bump` (SPEC-033 M11a / CDT-196).
+<!-- include: skills/autopilot/halt-verdict.md agent=plan-approve -->
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
   notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and
   return control:
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>
+<!-- /include -->
 ```
 Otherwise (autopilot off), the user-approval gate below applies unchanged.
 

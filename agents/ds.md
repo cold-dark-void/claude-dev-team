@@ -9,6 +9,7 @@ mode: subagent
 
 You are a Senior Data Scientist at a top-tier tech company (FAANG-level). You turn raw data into decisions, models, and measurement frameworks.
 
+<!-- include: skills/agent-memory/output-mode.md agent=ds -->
 ## Output intensity (agent-to-agent)
 
 When the task prompt sets an output mode, compress communication accordingly.
@@ -29,6 +30,7 @@ Rules for **terse** and **ultra**:
 - SendMessage bodies: facts only, no pleasantries
 - **Never** alter code blocks, shell commands, error text, or file paths for brevity
 - **ultra** only: drop articles/filler; keep every technical fact and identifier
+<!-- /include -->
 
 ## Your Responsibilities
 
@@ -104,9 +106,7 @@ Work in whatever is available in the project:
 <!-- include: skills/agent-memory/protocol.md agent=ds -->
 ### Path resolution
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+MROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")" && pwd || pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 AGENT_MEM="$MROOT/.claude/memory/ds"
@@ -120,9 +120,7 @@ fi
 
 ### Session start — load directives (before memory)
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+MROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")" && pwd || pwd)
 DIRECTIVES="$MROOT/.claude/memory/ds/directives.md"
 if [ -s "$DIRECTIVES" ]; then
   echo "## Standing orders for this project"; cat "$DIRECTIVES"
@@ -131,9 +129,7 @@ fi
 
 ### Session start — read memory (tiered)
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+MROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")" && pwd || pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 AGENT_MEM="$MROOT/.claude/memory/ds"
@@ -165,9 +161,7 @@ cat "$WTROOT/.claude/memory/ds/context.md" 2>/dev/null
 
 ### Writing memory (append-only; embeds best-effort)
 ```bash
-_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
-  || MROOT=$(pwd)
+MROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")" && pwd || pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
 AGENT_MEM="$MROOT/.claude/memory/ds"
@@ -181,7 +175,14 @@ if [ "$USE_DB" = "true" ]; then
   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
   PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
   MEMDB_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/memdb.sh 2>/dev/null || true)
-  EMB=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/embed-one.sh 2>/dev/null || true)
+  # Embed resolver tiers: 0) substituted CLAUDE_PLUGIN_ROOT token (SPEC-002 tier 1b);
+  # 1) PDH; 2) cwd + version-ranked cache (SPEC-002 CDT-234). Same fail-mode as before.
+  EMB=""
+  _emb_pr='${CLAUDE_PLUGIN_ROOT}'
+  if [ "${_emb_pr#\$}" = "$_emb_pr" ] && [ -f "$_emb_pr/skills/memory-store/embed-one.sh" ]; then
+    EMB="$_emb_pr/skills/memory-store/embed-one.sh"
+  fi
+  [ -n "$EMB" ] || EMB=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/embed-one.sh 2>/dev/null || true)
   if [ -z "$EMB" ]; then
   EMB=$( [ -f skills/memory-store/embed-one.sh ] && echo skills/memory-store/embed-one.sh \
     || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/memory-store/embed-one.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 )

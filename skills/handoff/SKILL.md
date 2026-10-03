@@ -123,52 +123,6 @@ session length, when the M8 cache holds cumulative events.
 - Cache with `light: true` or empty `events` → treat as no-prior (defense; primary
   light path never writes cache).
 
-### M10c — light warm preset (protocol)
-
-`/handoff --light` / `HANDOFF_LIGHT=1` is a **warm-only cost preset** over the
-shared spine-mine pipeline (prepare → merged miner → assemble). Still mines —
-not freeform live-context; not a dual path when discover fails (M10 / M10b).
-
-| Knob | Light default (only if operator-unset) | Bare warm default |
-|------|----------------------------------------|-------------------|
-| `HANDOFF_MINER_MODEL` | `haiku` | inherit session (omit `model`) |
-| Annotation | **skip** (`SKIP_ANNOTATION=1`) | haiku annotation Task |
-| `HANDOFF_SPINE_TOKENS` | **40000** (optional lower; MUST NOT change bare default) | **120000** |
-| M8 cache write | **none** (no create/overwrite of `cache/<sid>.json`) | write cumulative `events` |
-| Packet filename | `…-<slug>-draft.md` | `…-<slug>.md` |
-| Mode meta | `mode: warm` + `light: true` (header + footer) | `mode: warm` only |
-| Honesty line (exact) | `light preset: reduced-cost mine, no annotation; not AC-16-scored.` | (none / normal warm) |
-| AC-16 human gate | **excluded** | eligible |
-
-**Markers (assemble / finalize `--light`):**
-
-- Packet meta keeps the two-value mode contract: **`mode: warm`** (never a third
-  enum such as `warm-light`).
-- Lightness is sole extra meta: **`light: true`** in header and footer.
-- Honesty footer MUST be exactly:
-  `light preset: reduced-cost mine, no annotation; not AC-16-scored.`
-  MUST NOT say that mining was skipped or invent alternate honesty strings.
-
-**Filename (M11):**
-`<YYYYMMDD-HHmm>-<session-id>-<slug>-draft.md` under target `.claude/handoff/`.
-Collision: `…-draft-N.md` (keep `-draft` as stable token). Light drafts are
-eligible `Supersedes` tips; PreCompact rescues remain excluded.
-
-**Orchestrator contract:**
-
-1. Warm-only — cold uuid + `--light` → usage fail (parse fence).
-2. Preset knobs apply **only when unset** — honor operator env overrides.
-3. Do **not** build `EVENTS_SUMMARY_JSON` or spawn annotation under light.
-4. Finalize with `--light` / `HANDOFF_LIGHT=1` → draft path + skip M8 write/prune.
-5. Session bridge `.live-session.json` MAY still update (M10b).
-6. After write, nudge bare `/handoff` before session end for AC-16 tip + delta chain.
-7. Host-agnostic (Claude + Grok via existing `discover-warm.sh`).
-
-**MUST NOT:** freeform live-context as light packet; write M8 cache from light;
-claim AC-16 credit for light; change bare-warm defaults when `--light` omitted.
-
----
-
 ## Fan-out INVARIANT (do not violate)
 
 > **One merged-miner actor per capture** (SPEC-018 M3b). Detached: this agent IS
@@ -334,6 +288,7 @@ event itself.
 
 ---
 
+<!-- include: skills/handoff/miner-prompt.md agent=spec -->
 ## SECURITY — prompt-injection guard (in EVERY miner + chunk-summarizer prompt)
 
 Paste verbatim into the merged miner and all chunk-summarizer templates.
@@ -404,6 +359,7 @@ Optional wrapper `"summary"` beside `events` (CDT-201). Restate cited events
 only; each sentence MUST contain `{<id>}` using miner raw ids (assemble accepts
 raw or namespaced). Missing summary is OK.
 ```
+<!-- /include -->
 
 ---
 
@@ -811,7 +767,8 @@ prepass.sh finalize --uuid <u> --events <dir|file> \
   `GROK_SESSION_ID`, `GROK_TRANSCRIPT_PATH`, `GROK_SESSIONS_DIR`, `GROK_CWD`.
   The parse fence stays thin (no host branch).
 - **Warm light (M10c):** same warm entry/exit shape; draft filename; no M8 cache;
-  skip annotation; see `### M10c — light warm preset` above.
+  skip annotation; the protocol home is `### M10c — light warm preset (protocol)`
+  in `skills/handoff/LIGHT.md` (light spawns MUST NOT read this file).
 - **Cache (M8 / M8b):** keyed by `(session uuid + leaf_uuid)` under target
   `$MROOT/.claude/handoff/cache/<sid>.json`. Payload MAY include cumulative
   `events` stem map (raw miner ids) for warm delta-mine. Cold cache-check HIT

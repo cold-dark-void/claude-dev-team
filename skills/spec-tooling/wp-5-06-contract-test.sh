@@ -46,8 +46,8 @@ do
   [ "$got" = "$want" ] && pass "index $id $want" || fail "index $id" "got=$got want=$want"
 done
 
-if grep -q 'superseded by SPEC-014' "$ROOT/specs/core/SPEC-028-fix-ticket-workflow.md" \
-   && ! grep -q 'remain authoritative' "$ROOT/specs/core/SPEC-028-fix-ticket-workflow.md" \
+if grep -q 'superseded by SPEC-014' "$ROOT/specs/archive/SPEC-028-fix-ticket-workflow.md" \
+   && ! grep -q 'remain authoritative' "$ROOT/specs/archive/SPEC-028-fix-ticket-workflow.md" \
    && ! grep -q 'deferred to v1.1' "$ROOT/specs/core/SPEC-014-debug-workflow.md" \
    && grep -q 'self-verified — refuters unavailable' "$ROOT/specs/core/SPEC-014-debug-workflow.md"; then
   pass "ticket protocol home is SPEC-014"
@@ -92,7 +92,7 @@ else
   fail "status rule" "SPEC-008 or SPEC-034"
 fi
 
-m1=$(awk '/^\- \*\*M1 /,/^\- \*\*M2 /' "$ROOT/specs/core/SPEC-028-fix-ticket-workflow.md")
+m1=$(awk '/^\- \*\*M1 /,/^\- \*\*M2 /' "$ROOT/specs/archive/SPEC-028-fix-ticket-workflow.md")
 if printf '%s\n' "$m1" | grep -q 'commands/debug.md' \
    && ! printf '%s\n' "$m1" | grep -q 'MUST be a Deprecation stub'; then
   pass "SPEC-028 M1 does not require a deprecation stub"

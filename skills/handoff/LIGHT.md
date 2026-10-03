@@ -125,6 +125,7 @@ claim AC-16 credit for light; change bare-warm defaults when `--light` omitted.
 
 ---
 
+<!-- include: skills/handoff/miner-prompt.md agent=spec -->
 ## SECURITY — prompt-injection guard (in EVERY miner + chunk-summarizer prompt)
 
 Paste verbatim into the merged miner and all chunk-summarizer templates.
@@ -157,11 +158,7 @@ specified below (or the chunk-summary JSON for summarizers).
 
 ## Common miner preamble
 
-Prepended to the merged miner template (include in the spawn). Optional wrapper
-`"summary":"…"` beside `events` (`{"summary":"…","events":[…]}`). Prompt:
-restate cited events only; each sentence MUST contain `{<id>}` using miner raw
-ids (assemble accepts raw or namespaced). Missing summary is OK. `summary` is
-not an event and not a kind.
+Prepended to the merged miner template (include in the spawn):
 
 ```
 INPUTS
@@ -199,6 +196,7 @@ Optional wrapper `"summary"` beside `events` (CDT-201). Restate cited events
 only; each sentence MUST contain `{<id>}` using miner raw ids (assemble accepts
 raw or namespaced). Missing summary is OK.
 ```
+<!-- /include -->
 
 ---
 

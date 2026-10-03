@@ -26,7 +26,7 @@ else
   bad "premise.md does not name debugger"
 fi
 
-spec="$ROOT/specs/core/SPEC-028-fix-ticket-workflow.md"
+spec="$ROOT/specs/archive/SPEC-028-fix-ticket-workflow.md"
 if grep -qF 'read-only ic5' "$spec"; then
   bad "SPEC-028 still says read-only ic5"
 else

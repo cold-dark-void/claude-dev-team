@@ -125,5 +125,58 @@ RC=$?
 [ "$RC" -eq 1 ] && printf '%s\n' "$OUT" | grep -q '\[index\].*SPEC-099' \
   && pass "orphan index row exits 1" || fail "orphan index rc=$RC out=$OUT"
 
+# CDT-294 negative control: an archived spec is NOT linted. A file under
+# specs/archive/ carrying every violation class must produce zero findings —
+# and its TDD.md row must still resolve (the file exists, in the archive).
+seed "$BASE/archived"
+mkdir -p "$BASE/archived/specs/archive"
+cat > "$BASE/archived/specs/archive/SPEC-090-retired.md" << 'EOF'
+# SPEC-090: Wrong Title
+
+**Status**: DRAFT
+**Category**: core
+**Created**: 2026-10-01
+
+**Covers**: `skills/missing-thing/SKILL.md`
+
+## Overview
+
+Bad.
+
+## MUST
+
+- MUST be skipped
+
+## Test
+
+- planted
+
+## Validation
+
+No checkbox here.
+
+## Open Questions
+
+- [ ] checkbox outside Validation
+
+## Version History
+
+| Date | Change |
+|------|--------|
+| 2026-03-01 | newest head |
+| 2026-01-01 | older |
+| 2026-02-01 | breaks order
+EOF
+printf '%s\n' '| SPEC-090 | Wrong Title | DRAFT | x |' >> "$BASE/archived/specs/TDD.md"
+OUT=$(bash "$LINT" --root "$BASE/archived" 2>&1)
+RC=$?
+[ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'spec-lint: clean' \
+  && pass "archived spec file is not linted" || fail "archived rc=$RC out=$OUT"
+if printf '%s\n' "$OUT" | grep -q 'SPEC-090'; then
+  fail "archived spec mentioned in findings"
+else
+  pass "findings never name the archived file"
+fi
+
 echo "spec-lint tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

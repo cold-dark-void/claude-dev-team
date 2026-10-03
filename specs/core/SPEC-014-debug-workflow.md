@@ -3,7 +3,7 @@
 **Status**: ACTIVE
 **Category**: core
 **Created**: 2026-04-25
-**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule); SPEC-028 (DEPRECATED, superseded by this spec's `ticket` mode. File retained. Archival is CDT-294.)
+**See also**: SPEC-029 (reopen detector, multi-surface done gates, concurrent scenario rule); SPEC-028 (DEPRECATED, superseded by this spec's `ticket` mode; archived at `specs/archive/SPEC-028-fix-ticket-workflow.md`.)
 
 **Covers**: `commands/debug.md` (CDT-46-C4), `skills/debug/SKILL.md`, `skills/debug/theme-status.sh` (SPEC-029 gates); `skills/fix-ticket/` (ticket-mode backend); `agents/debugger.md` (root-cause / premise investigation agent, CDT-230)
 

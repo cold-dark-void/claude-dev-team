@@ -30,7 +30,7 @@ tribunal runs, appends a verdict row to `.claude/council/index.json`.
 - `/council --diff` — audit the staged diff at the tier Step 1.5 grades. `/review-and-commit` is this path with `--tier full`, optional SAST and impact pre-steps, and a commit gate. The two commands are not the same. Both render the user-facing review from `skills/council/templates/legacy-review.md`.
 - `/council --plan <path>` — audit a plan file for unverified assumptions (Phase 1 uses `plan-extractor.md`)
 - `/council --from-retro <anchor-id>` — audit a /retro fabrication anchor (reads `$MROOT/.claude/retro/anchors/<id>.json`)
-- `/council --blind` — multi-team blind peer review (absorbs former `/blind-review`; CDT-46-C3)
+- `/council --blind` — multi-team blind peer review
 - `/council --blind --teams N` — N unconstrained reviewers (default: 3)
 - `/council --blind --lenses L1,L2,...` — lens reviewers (default: `security,contributor,spec`)
 - `/council --blind --target <path>` — narrow file scope (default: full project)
@@ -38,7 +38,7 @@ tribunal runs, appends a verdict row to `.claude/council/index.json`.
 - `/council --workflow` — opt-in Workflow execution path (CDV-196); also `COUNCIL_WORKFLOW=1` — **not** applied to `--blind`
 - `/council --why` — print short debug section after summary (flavors, Phase 3 specialist reason, claim budget, preset source)
 - `/council --external` — optional external investigator slot (codex → gemini; first available). Graceful skip if none installed. Forms: `--external`, `--external=codex`, `--external=gemini`
-- `/council --council-tier=<light|full>` — externally-supplied tier override (CDT-126, SPEC-013 § Council tiering). Honored at **any** scope; this command never auto-grades on its own (§ 1.5.1) — this flag passes straight through to `engine.sh preflight --tier`. Callers: the autopilot ship gate (`skills/autopilot/ship-gate-council.md`, M14(e)) and the orchestrated task gate (`skills/orchestrate/SKILL.md`, `requires_council: true` tasks). `skip` is **not** a legal value here — a caller wanting `skip` MUST short-circuit before ever invoking `/council` (SPEC-013 § Council tiering; `engine.sh` independently refuses `--tier skip`) — see Hard fails below.
+- `/council --council-tier=<light|full>` — externally-supplied tier override (SPEC-013 § Council tiering). Honored at **any** scope; this command never auto-grades on its own (§ 1.5.1) — this flag passes straight through to `engine.sh preflight --tier`. Callers: the autopilot ship gate (`skills/autopilot/ship-gate-council.md`, M14(e)) and the orchestrated task gate (`skills/orchestrate/SKILL.md`, `requires_council: true` tasks). `skip` is **not** a legal value here — a caller wanting `skip` MUST short-circuit before ever invoking `/council` (SPEC-013 § Council tiering; `engine.sh` independently refuses `--tier skip`) — see Hard fails below.
 - `/council` — no scope, fails loudly with usage
 
 Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
@@ -47,7 +47,7 @@ Scope flags are mutually exclusive. Exactly one of `"<claim>"`, `--session`,
 supplying any without `--blind` is a hard fail. `--workflow`, `--external`,
 and `--why` are orthogonal to tribunal scopes; `--workflow` MUST NOT apply
 to `--blind`. There is **no** `--no-council` flag (Tier-1 reverse-validation
-self-call removed; CDT-46-C3).
+self-call removed).
 
 Available lenses: `security`, `contributor`, `spec`, `architecture`, `logic`.
 
@@ -75,7 +75,7 @@ From the user invocation, detect scope flags and parity flags:
 | `--teams N` | blind parity only (default 3) |
 | `--lenses L1,L2,...` | blind parity only (default `security,contributor,spec`) |
 | `--target <path>` | blind parity only (default full project) |
-| `--council-tier=<light\|full>` | orthogonal flag, not a scope selector (CDT-126) — captured here as `$COUNCIL_TIER_FLAG` so a malformed value fails at the earliest point, same as the scope/blind checks below; consumed at § 1.5 |
+| `--council-tier=<light\|full>` | orthogonal flag, not a scope selector — captured here as `$COUNCIL_TIER_FLAG` so a malformed value fails at the earliest point, same as the scope/blind checks below; consumed at § 1.5 |
 | `--workflow` | orthogonal, not a scope. Set `_COUNCIL_WORKFLOW_FLAG=1` here. Step 2.5 reads it. `COUNCIL_WORKFLOW=1` is the env equivalent. Do not invent a second workflow switch |
 
 Hard fails (print usage, exit non-zero) — do **not** continue:
@@ -142,7 +142,7 @@ if [ ! -x "$ENGINE_SH" ]; then
 fi
 ```
 
-## Step 1.5: Council tiering (CDT-126)
+## Step 1.5: Council tiering
 
 An externally-supplied `--council-tier=<light|full>` (the DRI override) —
 Step 0.5 already parsed and validated it into `$COUNCIL_TIER_FLAG`,
@@ -195,7 +195,7 @@ command's own `--diff` scope no longer does — § 1.5.1) resolves its own
 diff's `--numstat` / `--raw` text (e.g. `ship-gate-council.md` §3a's
 merge-base range — `$NUMSTAT` / `$RAW` below are the caller's own values,
 not something this command computes), then calls
-`skills/council/tier-grade.sh` (CDT-126 Task 2; located via the same PDH
+`skills/council/tier-grade.sh` (located via the same PDH
 mechanism as `$ENGINE_SH` in Step 1):
 
 ```
@@ -353,7 +353,7 @@ it. The engine does NOT accept the user-facing scope flags (`--session`,
 | `--task-id <id>` | `--task-id <id>` (passthrough) |
 | `--why` | `--why` (passthrough) |
 | `--external` / `--external=codex\|gemini` | `--external` / `--external=<tool>` (passthrough; CDV-207) |
-| `$COUNCIL_TIER_FLAG` set (Step 0.5) | `--tier "$COUNCIL_TIER"` (CDT-126) |
+| `$COUNCIL_TIER_FLAG` set (Step 0.5) | `--tier "$COUNCIL_TIER"` |
 
 The engine validates scope, resolves task-id (via `--task-id` flag →
 `CLAUDE_TASK_ID` env → unbound), resolves preset (`--scope diff` → `diff-mode`,
@@ -372,7 +372,7 @@ this CLI; `engine.sh` synthesizes its own safe default when the flag is
 omitted):
 
 ```bash
-# CDT-126: this fence is a new shell. Read --council-tier from the user's words.
+# This fence is a new shell. Read --council-tier from the user's words.
 # Empty means no flag. Step 2.5 parses the same words again.
 ARGS=$(cat <<'__A__'
 $ARGUMENTS
@@ -448,7 +448,7 @@ Opt-in detection (true iff either condition holds):
 | `--workflow` present | **Yes** if probe ok |
 | `COUNCIL_WORKFLOW=1` | **Yes** if probe ok |
 | opt-in + probe fail | **No** — fallback Task path |
-| opt-in + `council_tier=light` (Step 1.5) | **No** — fallback Task path, own notice (CDT-126) |
+| opt-in + `council_tier=light` (Step 1.5) | **No** — fallback Task path, own notice |
 
 The Workflow execution path is `full`-only (SPEC-013 § Execution-path scope).
 A `light` run takes the **existing** transparent-fallback seam below rather
@@ -489,7 +489,7 @@ if [ "$USE_WORKFLOW" = "1" ]; then
     USE_WORKFLOW=0
   fi
 fi
-# CDT-126: tier-driven fallback. Distinct from the availability notice above —
+# Tier-driven fallback. Distinct from the availability notice above —
 # the Workflow tool is available; only council_tier=light is unsupported there.
 # COUNCIL_TIER was set in this fence from --council-tier.
 if [ "$USE_WORKFLOW" = "1" ] && [ "${COUNCIL_TIER:-full}" = "light" ]; then
@@ -526,7 +526,7 @@ execution). (Skipped when Step 2.5 selected Workflow.)
 **Model map (SPEC-037):** protocol home is `skills/council/SKILL.md` § Model
 map. Wired fences: Phase 2 `finder`, Phase 5 `council-judge`. Same fence
 for later spawns of that agent. Do not paste full PDH at every later spawn
-of the same role. Named fallback `finder`→`ic5` resolves `ic5` (CDT-230).
+of the same role. Named fallback `finder`→`ic5` resolves `ic5`.
 Unnamed / `general-purpose` / Explore: omit the fence. Omit Phase 1
 extractor, Phase 2.5 cross-reviewer, Phase 3 specialist, Phase 4
 prosecutor/advocate, and `--blind` waves (OQ1) — those tool-less roles
@@ -547,7 +547,7 @@ Use the prompt path from `plan.phases.1_claim_extraction.prompt` (session/diff
 
 ```
 description: "Extract claims from session"
-subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
 prompt: skills/council/prompts/claim-extractor.md
   with substitutions:
     {{SCOPE_TYPE}}   ← plan.scope
@@ -561,7 +561,7 @@ prompt: skills/council/prompts/claim-extractor.md
 
 ```
 description: "Extract claims from plan"
-subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
 prompt: skills/council/prompts/plan-extractor.md
   with substitutions:
     {{PLAN_PATH}}    ← plan.scope_arg (path as given to --plan)
@@ -619,7 +619,7 @@ A caller MAY append flavor names to `plan.flavors` after preflight; investigator
 **Optional cache seed (CDV-211):** before spawning investigators, when
 `plan.cache_dir` is set, the orchestrator may pre-seed a read-only cache
 from claim `source_locator`s. Investigators must not mkdir, write, or hash
-that cache (CDT-275). For each unique path-like locator (strip
+that cache. For each unique path-like locator (strip
 `:line` / `:heading-path:line` suffixes when present; skip non-file locators
 like turn ids / `retro:…`):
 
@@ -642,19 +642,21 @@ mkdir -p "$CACHE_DIR/reads"
 Empty/missing seed is fine — correctness unchanged. Do not seed narrative.
 
 Spawn pattern (one Agent per claim per flavor). Same fence for later `finder`
-spawns of this agent. Named fallback `finder`→`ic5` (CDT-230): re-run the `ic5`
+spawns of this agent. Named fallback `finder`→`ic5`: re-run the `ic5`
 fence. Unnamed / `general-purpose` / Explore: omit.
 
 Before spawning @finder:
+<!-- include: skills/model-map/spawn-fence.md agent=finder -->
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-MODEL=$(bash "$RESOLVE" finder)
+MODEL=$(bash "$RESOLVE" "finder")
 printf '%s\n' "$MODEL"
-EFFORT=$(bash "$RESOLVE" --effort finder)
+EFFORT=$(bash "$RESOLVE" --effort "finder")
 printf '%s\n' "$EFFORT"
 ```
+<!-- /include -->
 Bash stdout = model string; empty → omit model.
 Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
@@ -667,7 +669,7 @@ Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ```
 description: "Investigate claim <N> (<flavor>)"
-subagent_type: "dev-team:finder"   # CDT-230 prefer named; fallback ic5 → general-purpose → Explore
+subagent_type: "dev-team:finder"   # prefer named; fallback ic5 → general-purpose → Explore
 prompt: skills/council/prompts/investigator.md
   with substitutions:
     {{CLAIM_TEXT}}     ← claim.claim (verbatim)
@@ -764,7 +766,7 @@ Plan fields: `phases.3_domain_specialist` (`deferred: false`,
 **Skip entirely (no classify, no spawn) when:**
 - `plan.phases.3_domain_specialist.skipped == true` — set by the engine for
   diff-mode / `finding[]` (the flavor investigators already cover specialist
-  axes) and for `council_tier: light` (CDT-126), OR
+  axes) and for `council_tier: light`, OR
 - `plan.output_shape == "finding[]"`
 
 Record runtime reason for `--why`: `skipped (<plan reason>)` — i.e.
@@ -776,7 +778,7 @@ For each claim from Phase 1, spawn a cheap classifier Task (parallel OK):
 
 ```
 description: "Classify claim topic for domain specialist"
-subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
 prompt: skills/council/prompts/topic-classifier.md
   with substitutions:
     {{CLAIM_TEXT}}  ← claim.claim (verbatim)
@@ -901,7 +903,7 @@ labeled with their personal shuffled mapping. Cross-review is tool-less
 
 ```
 description: "Cross-review evidence bundles for claim <claim-id>"
-subagent_type: "dev-team:council-scribe"   # tool-less; MUST NOT run tools (CDT-380)
+subagent_type: "dev-team:council-scribe"   # tool-less; MUST NOT run tools
 prompt: skills/council/prompts/cross-reviewer.md
   with substitutions:
     {{CLAIM_TEXT}}    ← claim.claim (verbatim)
@@ -956,7 +958,7 @@ Run **iff** `plan.phases.4_prosecution_defense.skipped` is absent/false. The
 engine sets `{skipped: true, reason: <why>}` on two independent conditions:
 `finding[]`-shape (diff-mode — specialist findings route straight to the
 Judge; see `skills/review-and-commit/SKILL.md`) and `council_tier: light`
-(CDT-126). When skipped, produce **no** brief — Phase 5 and the report record
+When skipped, produce **no** brief — Phase 5 and the report record
 the absence (below); never write one from the bundles to fill the gap. That
 substitution is reserved for a *spawn failure* in a run where Phase 4 was
 supposed to run.
@@ -966,7 +968,7 @@ Otherwise spawn exactly one Prosecutor and one Devil's Advocate in parallel:
 ```
 Prosecutor:
   description: "Prosecute claims against evidence"
-  subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+  subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
   prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
       {{ROLE}}             ← "Prosecutor"
@@ -983,7 +985,7 @@ Prosecutor:
 
 Devil's Advocate:
   description: "Defend claims with evidence"
-  subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+  subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
   prompt: skills/council/prompts/phase4-brief.md
     with substitutions:
       {{ROLE}}             ← "Devil's Advocate"
@@ -1020,15 +1022,17 @@ its model MUST NOT add tools. Same fence for later `council-judge` spawns
 of this agent.
 
 Before spawning @council-judge:
+<!-- include: skills/model-map/spawn-fence.md agent=council-judge -->
 ```bash
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 RESOLVE=$(bash "$PDH/skills/plugin-dir.sh" file skills/model-map/resolve-model.sh)
-MODEL=$(bash "$RESOLVE" council-judge)
+MODEL=$(bash "$RESOLVE" "council-judge")
 printf '%s\n' "$MODEL"
-EFFORT=$(bash "$RESOLVE" --effort council-judge)
+EFFORT=$(bash "$RESOLVE" --effort "council-judge")
 printf '%s\n' "$EFFORT"
 ```
+<!-- /include -->
 Bash stdout = model string; empty → omit model.
 Then `resolve-model.sh --effort` (same agent). Non-empty EFFORT → pass as Agent/Workflow `effort` param; empty → omit (MUST NOT pass `""`).
 Surface resolver stderr to the user. Do not swallow.
@@ -1221,7 +1225,7 @@ Print the engine's stdout summary verbatim. It will contain:
 Council report: <relative path>
 Scope: <scope>
 Preset: <preset> (<output_shape>)
-council_tier=<tier> (<grading_reason>)   # CDT-126; only when tier != full
+council_tier=<tier> (<grading_reason>)   # only when tier != full
 verification_mode=<full|self-verified>
 <verdict counts or finding counts by severity>
 <struck lines count>
@@ -1234,7 +1238,7 @@ Tokens:                    # only when --tokens-file had usable data (CDV-204)
 When tokens are partial, the header is `Tokens (partial):`. When the harness
 has no token fields, the entire Tokens block is omitted (never invent `0`).
 The `council_tier=` line appears only for a `light` (non-`full`) run, keeping
-`full`'s stdout byte-identical to pre-CDT-126 behavior.
+`full`'s stdout byte-identical to pre-tiering behavior.
 
 ### Diff user-facing review
 
@@ -1276,7 +1280,7 @@ If the engine reported `struck_lines > 0`, print a one-line warning:
 Warning: N verdict lines were struck for missing evidence — see <report path> Audit Trail section.
 ```
 
-## Blind-review path (`--blind`, CDT-46-C3)
+## Blind-review path (`--blind`)
 
 Distinct execution path — **does not** run tribunal Phases 1–5, `engine.sh`
 preflight/finalize, or Workflow. Clustering + confidence tiering **is** the
@@ -1305,7 +1309,7 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 LIST_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/council/blind-file-list.sh)
-# WTROOT file list (CDT-360). MROOT is only the report directory (B6).
+# WTROOT file list. MROOT is only the report directory.
 # Helper exits non-zero on an empty list; do not swallow that.
 if [ -n "$TARGET" ]; then
   FILE_LIST=$(bash "$LIST_SH" "$TARGET") || exit $?
@@ -1356,7 +1360,7 @@ parallel and none sees another's output.
 
 ```
 description: "Blind review unconstrained U<N>"
-subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
 prompt: skills/council/prompts/blind-scribe.md
   with substitutions:
     {{TEAM_ID}}      ← U<N> (U1, U2, …)
@@ -1373,7 +1377,7 @@ prompt: skills/council/prompts/blind-scribe.md
 
 ```
 description: "Blind review lens L-<lens>"
-subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
 prompt: skills/council/prompts/blind-scribe.md
   with substitutions:
     {{TEAM_ID}}      ← L-<lens> (e.g. L-security)
@@ -1401,7 +1405,7 @@ Spawn ONE quorum analyst:
 
 ```
 description: "Blind review quorum analysis"
-subagent_type: "dev-team:council-scribe"   # tool-less; tools: "" (CDT-380)
+subagent_type: "dev-team:council-scribe"   # tool-less; tools: ""
 prompt: skills/council/prompts/quorum-analyst.md
   with substitutions:
     {{ALL_FINDINGS}}         ← namespaced FINDING blocks (=== TEAM <id> === headers)
@@ -1579,7 +1583,7 @@ Tier-1 reverse-validation: none (severed — clusters are findings)
 - Phase 3 (domain specialist, CDV-209): classify claims; pull at most one of
   devops/ds/qa/pm when confidence ≥ 0.75; skip on weak match, in diff-mode,
   and at light tier (`skipped (council_tier: light)`); run before Phase 2.5
-- Phase 7 (feedback memory) is DEFERRED (CDT-325). The engine does not run
+- Phase 7 (feedback memory) is DEFERRED. The engine does not run
   it. `feedback_memory_enabled` is reserved and has no effect until Phase 7
   is implemented. Do not write `lessons.md` from this command.
 - Missing scopes and missing retro anchors MUST fail loudly via engine exit

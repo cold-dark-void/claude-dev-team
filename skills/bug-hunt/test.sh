@@ -110,8 +110,13 @@ else
 fi
 
 # ---- SPEC-034 T1–T16 (static rg / format) -----------------------------------
-# T1 Status DRAFT
-has "$SPEC" '^\*\*Status\*\*: DRAFT$' "T1 Status DRAFT"
+# T1 workflow contract: the spec's Covers names the live surfaces. Deliberately
+# NOT a status assertion — promoting SPEC-034 out of DRAFT must not fail this
+# suite (CDT-292 / [02 E8]: tests decoupled from spec prose).
+has_f "$SPEC" '`commands/bug-hunt.md`' "T1 spec covers live command surface"
+has_f "$SPEC" '`skills/bug-hunt/*`' "T1 spec covers live skill surface"
+if [ -f "$CMD" ] && [ -f "$SKILL" ]; then ok "T1 live command+skill exist"
+else bad "T1 live command+skill missing"; fi
 # T2 Category/Created
 has_f "$SPEC" '**Category**: core' "T2 Category core"
 has_f "$SPEC" '**Created**: 2026-08-06' "T2 Created 2026-08-06"

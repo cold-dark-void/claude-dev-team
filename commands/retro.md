@@ -86,7 +86,7 @@ if [ "$MODE" = "all" ] && [ "$AUTO" = "1" ]; then  # lint-ok: C1
       echo "# retro: scheduled lock acquire failed (rc=$LOCK_RC) — continuing without lock" >&2
     else
       SCHEDULED_LOCK_HELD=1
-      # A later fence is a new shell. It releases only with this token (CDT-324).
+      # A later fence is a new shell. It releases only with this token.
       if [ -n "$TOKEN" ]; then
         mkdir -p "$MROOT/.claude/retro"
         printf '%s\n' "$TOKEN" > "$MROOT/.claude/retro/scheduled.owner"

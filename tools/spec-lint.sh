@@ -33,10 +33,13 @@ allowed() {
 }
 
 # --- 1 and 2 and 3 and 4: each spec file ---
+# specs/archive/ is captured history (like fixtures/): its files keep their
+# Status lines but are not format/index/covers-linted (CDT-294).
 mapfile_specs() {
   find "$ROOT/specs" -type f \( \
     -name 'SPEC-*.md' -o -name 'PERF-*.md' -o -name 'SAFE-*.md' \
-    -o -name 'COMPAT-*.md' -o -name 'ARCH-*.md' \) | LC_ALL=C sort
+    -o -name 'COMPAT-*.md' -o -name 'ARCH-*.md' \) \
+    -not -path "$ROOT/specs/archive/*" | LC_ALL=C sort
 }
 
 index_field() { # index_field <id> <col 3=title 4=status>
@@ -214,7 +217,7 @@ cite_scan() {
 }
 while IFS= read -r f; do
   case "$f" in
-    */fixtures/*|*/CHANGELOG.md) continue ;;
+    */fixtures/*|*/archive/*|*/CHANGELOG.md) continue ;;
   esac
   rel=${f#"$ROOT/"}
   awk -v rel="$rel" '

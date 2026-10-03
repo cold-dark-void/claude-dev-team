@@ -120,11 +120,13 @@ iteration:ITER, run_start_epoch:RUN_START_EPOCH, autopilot_bump:AUTOPILOT_BUMP, 
 cannot self-answer (BC1)> }` and call `skills/autopilot/self-answer.md`'s procedure for
 `{decision, blocking_condition, confidence, rationale}` (exactly one `decided_by:"auto"` card is
 appended; expected `blocking_condition = 1`). Act on `decision`:
+<!-- include: skills/autopilot/halt-verdict.md agent=plan-approve -->
 - `halt` → emit `task_blocked` (detail = the one-line message below) via **Passive
   notifications → Tier B** (fail-open; § in `cross-cutting.md`), then print the one-line message below and
   return control:
 ```
 plan-approve <decision>: <rationale> — card: <card-file-path>
+<!-- /include -->
 ```
 Otherwise (autopilot off), the escalation above applies unchanged.
 
