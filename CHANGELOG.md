@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.22
+- **WP 6-A Portability core** — a portable sha256, lock, and timeout shim replaces flock and GNU-only constructs, and skill-lint now flags bash-4 constructs as C7.
+
 ### v1.19.21
 - **WP 5-07 Spec editorial** — dead spec paths are removed, version history is newest-first, and each shipped surface has one owner.
 

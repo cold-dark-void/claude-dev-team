@@ -202,9 +202,16 @@ poll_ci() {
 
 # ---- local-test mode --------------------------------------------------------
 poll_local_test() {
-  TIMEOUT_BIN=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)
-  if [ -z "$TIMEOUT_BIN" ]; then
-    echo "ci-watch: neither 'timeout' nor 'gtimeout' is on PATH — install coreutils; not running tests" >&2
+  # CDT-284: timeout is absent on stock macOS. portable_with_timeout falls
+  # back to gtimeout, then to a perl supervisor; only when none of the three
+  # exists do we skip (the pre-CDT-284 behavior for a missing timeout).
+  _PW_HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  # shellcheck source=../lib/portable.sh
+  . "$_PW_HERE/../lib/portable.sh"
+  if ! command -v timeout >/dev/null 2>&1 \
+    && ! command -v gtimeout >/dev/null 2>&1 \
+    && ! command -v perl >/dev/null 2>&1; then
+    echo "ci-watch: neither 'timeout', 'gtimeout' nor 'perl' is on PATH — cannot bound local tests; not running tests" >&2
     poll_error_wait "timeout_missing"
   fi
 
@@ -228,7 +235,7 @@ poll_local_test() {
   fi
 
   # test_cmd MUST be a hardcoded literal from detect-mode.sh — never interpolate user data here
-  ( cd "$wt" && "$TIMEOUT_BIN" 120 bash -c "$test_cmd" ) > "$OUT_TMP" 2>&1
+  ( cd "$wt" && portable_with_timeout 120 bash -c "$test_cmd" ) > "$OUT_TMP" 2>&1
   local rc=$?
 
   if [ "$rc" -eq 0 ]; then

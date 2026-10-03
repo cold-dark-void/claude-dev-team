@@ -160,7 +160,25 @@ for name in $HOOKS tdd-gate; do
     FAILED+=("$name (bash -n)")
     continue
   fi
+
+  # CDT-286 [06 E4]: shellcheck --shell=bash over every extracted template.
+  # FAILS OPEN when shellcheck is not installed: one stderr note, no gate
+  # change. When it IS installed, any warning-or-worse finding fails the gate.
+  if command -v shellcheck >/dev/null 2>&1; then
+    if ! shellcheck --shell=bash --severity=warning "$out" > "$WORKDIR/${name}.sc.err" 2>&1; then
+      echo "check-hook-templates: '$name' template fails shellcheck --shell=bash:" >&2
+      sed -n '1,25p' "$WORKDIR/${name}.sc.err" >&2 || true
+      FAILED+=("$name (shellcheck)")
+      continue
+    fi
+  else
+    SHELLCHECK_SKIPPED=1
+  fi
 done
+
+if [ "${SHELLCHECK_SKIPPED:-0}" = "1" ]; then
+  echo "check-hook-templates: note: shellcheck not installed — the template shellcheck pass was skipped (fail-open, CDT-286)" >&2
+fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   echo "check-hook-templates: FAIL — template hygiene issue(s): ${FAILED[*]}" >&2

@@ -12,9 +12,13 @@
 # A non-empty id is accepted for every tier, including skip.
 #
 # Exits 0 on success, non-zero on failure (message on stderr).
-# Atomic tmp+rename, flock-serialized to prevent concurrent races.
+# Atomic tmp+rename, serialized by a portable mkdir lock (CDT-284, no flock).
 
 set -euo pipefail
+
+_IW_HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=../lib/portable.sh
+. "$_IW_HERE/../lib/portable.sh"
 
 # ---- Args -------------------------------------------------------------------
 if [ $# -lt 6 ] || [ $# -gt 8 ]; then
@@ -62,31 +66,33 @@ fi
 
 # ---- Validate confidence args (CDT-181: floor-normalize) --------------------
 # Accept null, or a JSON number (int/float, optional leading -). Floor via jq;
-# require the floored integer in 0..100; write int string back into named var
-# for --argjson. Non-numeric / OOB-after-floor → stderr + exit 1 (no index mutate).
+# require the floored integer in 0..100; print the int string on stdout for
+# the caller's --argjson. Callers assign the result back — bash 3.2 has no
+# namerefs, so `local -n` is gone (CDT-285):
+#   MVC=$(validate_confidence "max_verdict_confidence" "$MVC")
+# Non-numeric / OOB-after-floor → stderr + rc 1 (no index mutate).
 validate_confidence() {
-  local -n _vc_ref="$1"
-  local label="$2"
-  local val="$_vc_ref"
+  local label="$1" val="$2"
   if [ "$val" = "null" ]; then
+    printf 'null\n'
     return 0
   fi
   local floored
   if ! floored=$(jq -n --argjson n "$val" '$n | floor' 2>/dev/null); then
     echo "error: $label must be a JSON number 0-100 or 'null', got: $val" >&2
-    exit 1
+    return 1
   fi
   # floor always yields an integer JSON number; re-check range as bash int
   if ! [[ "$floored" =~ ^-?[0-9]+$ ]] || [ "$floored" -lt 0 ] || [ "$floored" -gt 100 ]; then
     echo "error: $label must be in 0-100 after floor, got: $val (floor=$floored)" >&2
-    exit 1
+    return 1
   fi
-  _vc_ref="$floored"
+  printf '%s\n' "$floored"
 }
-validate_confidence MVC "max_verdict_confidence"
-validate_confidence MFC "max_finding_confidence"
+MVC=$(validate_confidence "max_verdict_confidence" "$MVC")
+MFC=$(validate_confidence "max_finding_confidence" "$MFC")
 if [ "$HAS_MVC_VERIFIED" -eq 1 ]; then
-  validate_confidence MVC_VERIFIED "max_verified_confidence"
+  MVC_VERIFIED=$(validate_confidence "max_verified_confidence" "$MVC_VERIFIED")
 fi
 if [ "$HAS_WORST" -eq 1 ]; then
   case "$WORST_VERDICT" in
@@ -130,9 +136,9 @@ mkdir -p "$COUNCIL_DIR"
 # ---- Timestamp --------------------------------------------------------------
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# ---- Atomic read-modify-write under flock -----------------------------------
+# ---- Atomic read-modify-write under the portable lock (CDT-284) --------------
 (
-  flock -x 9
+  portable_lock_acquire "$LOCK" || exit 1
 
   # Seed with empty object if index doesn't exist yet
   if [ ! -f "$INDEX" ]; then
@@ -157,4 +163,4 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
      "$INDEX" > "$TMP"
 
   mv "$TMP" "$INDEX"
-) 9>"$LOCK"
+)

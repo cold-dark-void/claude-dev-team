@@ -67,11 +67,19 @@ chmod +x "$FAKE_BIN/opencode"
 
 # A clean bindir with the coreutils install.sh needs but NO 'opencode' — used to
 # exercise the absent-opencode path deterministically regardless of the host.
+# shasum is linked too: stock macOS has no sha256sum, so the snapshot sha256()
+# helper must reach its shasum -a 256 fallback inside this constrained PATH
+# (CDT-284 10 F25) — without it every file hashes to 'no-sha' and the snapshot
+# cannot detect mutations.
 CLEAN_BIN="$(mktemp -d "${TMPDIR:-/tmp}/cdt95clean.XXXXXX")"
 temps+=("$CLEAN_BIN")
-for t in bash sh find wc tr grep sed jq basename dirname mkdir rm ln cat cut sort readlink sha256sum mktemp chmod ls seq env; do
+for t in bash sh find wc tr grep sed jq basename dirname mkdir rm ln cat cut sort readlink sha256sum shasum mktemp chmod ls seq env; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$CLEAN_BIN/$t"
 done
+if command -v shasum >/dev/null 2>&1; then
+  [ -e "$CLEAN_BIN/shasum" ] && ok "CLEAN_BIN carries shasum for the sha256 fallback" \
+    || bad "CLEAN_BIN missing shasum (10 F25 fallback would be vacuous on macOS)"
+fi
 
 # ---------------------------------------------------------------------------
 # AC1: --dry-run leaves an existing opencode config tree byte-for-byte unchanged

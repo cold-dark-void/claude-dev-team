@@ -3,7 +3,10 @@
 # Unit-style: temp sessions tree — newest + by-id + missing + GROK_TRANSCRIPT_PATH.
 set -euo pipefail
 
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/../../tests/lib/mtimes.sh"
 PASS=0
 FAIL=0
 
@@ -40,9 +43,9 @@ printf 'new\n' >"$BUCKET/sid-new/chat_history.jsonl"
 printf 'target\n' >"$BUCKET/sid-target/chat_history.jsonl"
 
 # Ensure mtime order: old < target < new
-touch -d "2020-01-01 00:00:00" "$BUCKET/sid-old/chat_history.jsonl"
-touch -d "2021-06-15 12:00:00" "$BUCKET/sid-target/chat_history.jsonl"
-touch -d "2022-12-31 23:59:59" "$BUCKET/sid-new/chat_history.jsonl"
+touch_when "$BUCKET/sid-old/chat_history.jsonl" "2020-01-01 00:00:00"
+touch_when "$BUCKET/sid-target/chat_history.jsonl" "2021-06-15 12:00:00"
+touch_when "$BUCKET/sid-new/chat_history.jsonl" "2022-12-31 23:59:59"
 
 # Different cwd bucket must not win newest
 OTHER_CWD="$WORK/other"
@@ -55,7 +58,7 @@ PY
 )"
 mkdir -p "$SESS/$OTHER_ENC/sid-other"
 printf 'other\n' >"$SESS/$OTHER_ENC/sid-other/chat_history.jsonl"
-touch -d "2030-01-01 00:00:00" "$SESS/$OTHER_ENC/sid-other/chat_history.jsonl"
+touch_when "$SESS/$OTHER_ENC/sid-other/chat_history.jsonl" "2030-01-01 00:00:00"
 
 export PATH="$HERE:$PATH"
 unset GROK_TRANSCRIPT_PATH GROK_SESSIONS_DIR || true
@@ -271,7 +274,7 @@ then pass "AC1 grok_cwd_bucket + newest + marker list"; else bad "AC1 grok_cwd_b
 mkdir -p "$SESS/aaa-cwd-marker/sid-target"
 printf '%s\n' "$CWD" >"$SESS/aaa-cwd-marker/.cwd"
 printf 'urlencode-trap\n' >"$SESS/aaa-cwd-marker/sid-target/chat_history.jsonl"
-touch -d "2035-01-01 00:00:00" "$SESS/aaa-cwd-marker/sid-target/chat_history.jsonl"
+touch_when "$SESS/aaa-cwd-marker/sid-target/chat_history.jsonl" "2035-01-01 00:00:00"
 
 OUT="$("${HOSTS_PY[@]}" locate --host grok --cwd "$CWD" --session-id sid-target --sessions-dir "$SESS")"
 RC=$?

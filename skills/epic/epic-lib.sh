@@ -132,22 +132,25 @@ epic_paths() {
 }
 
 # ---- Concurrency (SPEC-025 M6) ----------------------------------------------
-# EPICS_LOCK serializes all state.json mutators across epics (global flock).
+# EPICS_LOCK serializes all state.json mutators across epics (a portable
+# mkdir lock, CDT-284 — no flock on stock macOS).
 # write_state is an unlocked atomic publish helper (tmp+mv) — callers MUST hold
 # EPICS_LOCK around full RMW so concurrent processes cannot lose fields.
-# Do NOT flock inside write_state (same-process multi-fd self-deadlock risk).
+# Do NOT acquire inside write_state (same-process re-acquire self-deadlock).
 # Readers (read_state / show / ready-set / …) stay unlocked — stale complete
 # JSON is OK (AC5).
 #
-# Mutator critical section pattern (block forever; append-open so flock fd
-# never truncates the lock file):
+# Mutator critical section pattern (acquire blocks by default, like flock):
 #   mkdir -p "$EPICS_DIR"
 #   (
-#     flock -x 9
+#     portable_lock_acquire "$EPICS_LOCK" || exit 1
 #     st=$(cat "$STATE")   # or empty for init
 #     # pure in-memory mutate
 #     write_state "$epic_id" "$st"
-#   ) 9>>"$EPICS_LOCK"
+#   )
+# portable_lock_acquire installs the subshell's release trap; the lock dir
+# $EPICS_DIR/.lock holds a pid+epoch stamp and is reclaimed when the PID is
+# dead or the stamp is older than the stale TTL.
 #
 # Hold lock for state RMW only — never across Linear MCP, worktree-lib, or git.
 
@@ -166,7 +169,7 @@ write_state() {
   # write_state <EPIC-ID> <json-string>
   # Unlocked publish: same-dir tmp + jq validate + stamp + mv (AC4).
   # Callers that RMW MUST wrap read+mutate+write_state under EPICS_LOCK
-  # (see Concurrency block above). No flock here — avoids nested deadlock.
+  # (see Concurrency block above). No acquire here — avoids nested deadlock.
   local id="$1" json="$2"
   epic_paths "$id"
   mkdir -p "$EPICS_DIR" "$EPIC_DIR"
@@ -273,12 +276,12 @@ cmd_init() {
   # Exists-check + first write under EPICS_LOCK (SPEC-025 M6)
   mkdir -p "$EPICS_DIR"
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     if [ -f "$STATE" ]; then
       die 2 "init: state already exists: $STATE"
     fi
     write_state "$epic_id" "$json"
-  ) 9>>"$EPICS_LOCK"
+  )
   printf '%s\n' "$STATE"
 }
 
@@ -349,7 +352,7 @@ cmd_add_child() {
   epic_paths "$epic_id"
   mkdir -p "$EPICS_DIR"
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     st=$(read_state "$epic_id")
     if echo "$st" | jq -e --arg id "$cid" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
       die 2 "add-child: child already exists: $cid"
@@ -357,7 +360,7 @@ cmd_add_child() {
     st=$(echo "$st" | jq --argjson c "$child" '.children += [$c]')
     write_state "$epic_id" "$st"
     echo "$st" | jq -c --arg id "$cid" '.children[] | select(.id==$id)'
-  ) 9>>"$EPICS_LOCK"
+  )
 }
 
 cmd_set_status() {
@@ -413,7 +416,7 @@ cmd_set_status() {
   mkdir -p "$EPICS_DIR"
   local st
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     st=$(read_state "$epic_id")
     if ! echo "$st" | jq -e --arg id "$child_id" '.children[] | select(.id==$id)' >/dev/null 2>&1; then
       die 1 "set-status: child not found: $child_id"
@@ -428,7 +431,7 @@ cmd_set_status() {
     fi
     write_state "$epic_id" "$st"
     echo "$st" | jq -c --arg id "$child_id" '.children[] | select(.id==$id)'
-  ) 9>>"$EPICS_LOCK"
+  )
 }
 
 cmd_set_linear_project() {
@@ -450,7 +453,7 @@ cmd_set_linear_project() {
   mkdir -p "$EPICS_DIR"
   local st
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     st=$(read_state "$epic_id")   # die 1 if epic missing
     case "$raw" in
       ""|null|--clear)
@@ -462,7 +465,7 @@ cmd_set_linear_project() {
     esac
     write_state "$epic_id" "$st"
     echo "$st" | jq -c '{linear_project_id}'
-  ) 9>>"$EPICS_LOCK"
+  )
 }
 
 cmd_set_last_seed() {
@@ -482,7 +485,7 @@ cmd_set_last_seed() {
   mkdir -p "$EPICS_DIR"
   local st
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     st=$(read_state "$epic_id")
     case "$raw" in
       ""|null|--clear)
@@ -494,7 +497,7 @@ cmd_set_last_seed() {
     esac
     write_state "$epic_id" "$st"
     echo "$st" | jq -c '{last_seed_path}'
-  ) 9>>"$EPICS_LOCK"
+  )
 }
 
 cmd_ensure_integration_worktree() {
@@ -556,7 +559,7 @@ cmd_ensure_integration_worktree() {
   epic_paths "$epic_id"
   mkdir -p "$EPICS_DIR"
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     st=$(read_state "$epic_id")
     # Prefer still-valid recorded path under lock (heal race with concurrent ensure)
     existing_path=$(echo "$st" | jq -r '.integration_path // empty')
@@ -570,7 +573,7 @@ cmd_ensure_integration_worktree() {
     write_state "$epic_id" "$st"
     echo "$st" | jq -c --argjson reused "$([ "$reused" = true ] && echo true || echo false)" \
       '{worktree_enabled:true,integration_slug,integration_path,integration_branch,reused:$reused}'
-  ) 9>>"$EPICS_LOCK"
+  )
 }
 
 cmd_resolve_resume_flags() {
@@ -1076,13 +1079,13 @@ _seal_null_stage() {
   epic_paths "$id"
   mkdir -p "$EPICS_DIR"
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     s=$(read_state "$id")
     if [ "$(echo "$s" | jq -r '.seal_stage // "null"')" != "null" ]; then
       s=$(echo "$s" | jq '.seal_stage = null')
       write_state "$id" "$s"
     fi
-  ) 9>>"$EPICS_LOCK"
+  )
 }
 
 # _seal_restore_or_die <main> <sha> <ok-msg> <refused-msg> [<epic-id>]
@@ -1235,7 +1238,7 @@ cmd_seal() {
     epic_paths "$epic_id"
     mkdir -p "$EPICS_DIR"
     (
-      flock -x 9
+      portable_lock_acquire "$EPICS_LOCK" || exit 1
       st=$(read_state "$epic_id")
       _seal_eval_ready "$st"
       if [ -z "$SEAL_RB" ] || [ "$SEAL_RB" = "null" ]; then
@@ -1253,7 +1256,7 @@ cmd_seal() {
       write_state "$epic_id" "$st"
       jq -nc --arg id "$epic_id" --arg rb "$SEAL_RB" \
         '{epic_id:$id, sealed:true, already_sealed:false, release_bump:$rb}'
-    ) 9>>"$EPICS_LOCK"
+    )
     return 0
   fi
 
@@ -1354,7 +1357,7 @@ cmd_seal() {
     && added_paths_json=$(git -C "$main" diff --cached -z --name-only --diff-filter=A "$master_before" \
          | jq -Rs 'split("\u0000") | map(select(length>0))') \
     && (
-      flock -x 9
+      portable_lock_acquire "$EPICS_LOCK" || exit 1
       st=$(read_state "$epic_id")
       st=$(echo "$st" | jq \
         --arg base "$master_before" \
@@ -1362,7 +1365,7 @@ cmd_seal() {
         --argjson added "$added_paths_json" \
         '.seal_stage = {base_sha:$base, staged_tree:$tree, added_paths:$added}')
       write_state "$epic_id" "$st"
-    ) 9>>"$EPICS_LOCK"
+    )
   stage_write_rc=$?
   set -e
   if [ "$stage_write_rc" -ne 0 ]; then
@@ -1408,11 +1411,11 @@ cmd_seal() {
     epic_paths "$epic_id"
     mkdir -p "$EPICS_DIR"
     (
-      flock -x 9
+      portable_lock_acquire "$EPICS_LOCK" || exit 1
       st=$(read_state "$epic_id")
       st=$(echo "$st" | jq '.sealed = true | .seal_stage = null')
       write_state "$epic_id" "$st"
-    ) 9>>"$EPICS_LOCK"
+    )
     local master_after
     master_after=$(git -C "$main" rev-parse HEAD)
     jq -nc \
@@ -1479,7 +1482,7 @@ cmd_mark_done() {
   local epic_id="$_RCW_EPIC_ID" st
   mkdir -p "$EPICS_DIR"
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     epic_paths "$epic_id"
     [ -f "$STATE" ] || exit 0
     if ! jq -e --arg t "$ticket" \
@@ -1492,7 +1495,7 @@ cmd_mark_done() {
     write_state "$epic_id" "$st"
     echo "$st" | jq -c --arg t "$ticket" \
       '.children[] | select(.id==$t or .linear_id==$t)'
-  ) 9>>"$EPICS_LOCK"
+  )
   exit 0
 }
 
@@ -1798,11 +1801,11 @@ cmd_build_seed() {
   # record last_seed_path under EPICS_LOCK (seed file already published outside lock)
   mkdir -p "$EPICS_DIR"
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     st=$(read_state "$epic_id")
     st=$(echo "$st" | jq --arg v "$abs" '.last_seed_path = $v')
     write_state "$epic_id" "$st"
-  ) 9>>"$EPICS_LOCK"
+  )
 
   printf '%s\n' "$abs"
 }
@@ -1914,11 +1917,12 @@ cmd_sync_apply() {
     die 1 "sync-apply: verdicts.children must be a JSON array"
   fi
 
-  # Verdicts parse/validate above stays outside lock; full state RMW under flock
+  # Verdicts parse/validate above stays outside the lock; full state RMW under
+  # it (see Concurrency block above).
   epic_paths "$epic_id"
   mkdir -p "$EPICS_DIR"
   (
-    flock -x 9
+    portable_lock_acquire "$EPICS_LOCK" || exit 1
     # note: plain subshell — no `local` (bash allows local only in functions)
 
     st=$(read_state "$epic_id")
@@ -2111,7 +2115,7 @@ cmd_sync_apply() {
         applied_count:($applied|length),
         conflict_count:($conflicts|length)
       }'
-  ) 9>>"$EPICS_LOCK"
+  )
 }
 
 # ---- dispatch ---------------------------------------------------------------

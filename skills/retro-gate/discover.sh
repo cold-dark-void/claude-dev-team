@@ -57,8 +57,15 @@ _locate_one() {
       find "$HOME/.claude/projects" -name "${_sid}.jsonl" 2>/dev/null | head -1
     fi
   else
-    find "$PROJECT_DIR" -maxdepth 1 -name '*.jsonl' -type f -printf '%T@ %p\n' 2>/dev/null \
-      | sort -nr | head -1 | cut -d" " -f2-
+    # CDT-285: -printf is GNU-only. Stat in whichever flavor this host has;
+    # both print "<epoch> <path>", so the sort/cut below is unchanged.
+    if stat -c '%Y %n' / >/dev/null 2>&1; then
+      find "$PROJECT_DIR" -maxdepth 1 -name '*.jsonl' -type f -exec stat -c '%Y %n' {} + 2>/dev/null \
+        | sort -nr | head -1 | cut -d" " -f2-
+    else
+      find "$PROJECT_DIR" -maxdepth 1 -name '*.jsonl' -type f -exec stat -f '%m %N' {} + 2>/dev/null \
+        | sort -nr | head -1 | cut -d" " -f2-
+    fi
   fi
 }
 

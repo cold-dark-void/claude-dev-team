@@ -3,7 +3,10 @@
 # Run: bash skills/handoff/discover-warm-test.sh
 set -u
 
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$HERE/../../tests/lib/mtimes.sh"
 DISCOVER="$HERE/discover-warm.sh"
 FIXTURE="$HERE/fixtures/grok-chat-mini.jsonl"
 ADAPTER="$HERE/grok-to-claude-jsonl.py"
@@ -35,8 +38,8 @@ NEW="$CLAUDE_PROJECTS_DIR/proj-b/${SID}.jsonl"
 printf '{"type":"user","uuid":"u1"}\n' >"$OLD"
 printf '{"type":"user","uuid":"u2"}\n' >"$NEW"
 # Older mtime on OLD, newer on NEW
-touch -d "2020-01-01 00:00:00" "$OLD" 2>/dev/null \
-  || touch -t 202001010000 "$OLD"
+touch_when "$OLD" "2020-01-01 00:00:00" || true
+
 touch "$NEW"
 
 # ---- T0: script present ----
@@ -260,7 +263,7 @@ G14_OLD_SID="grok-t14-old"
 G14_NEW_SID="grok-t14-new"
 G14_OLD=$(install_grok_session "$G14_OLD_SID" "$G14_CWD")
 G14_NEW=$(install_grok_session "$G14_NEW_SID" "$G14_CWD")
-touch -d "2020-01-01 00:00:00" "$G14_OLD" 2>/dev/null || touch -t 202001010000 "$G14_OLD"
+touch_when "$G14_OLD" "2020-01-01 00:00:00" || true
 touch "$G14_NEW"
 export GROK_CWD="$G14_CWD"
 export HANDOFF_BRIDGE="$WORK/bridge-t14.json"
@@ -425,8 +428,8 @@ touch "$G20_SRC"
 CLAUDE_LIVE_TR="$CLAUDE_PROJECTS_DIR/proj-live/${G20_CLAUDE_SID}.jsonl"
 printf '{"type":"user","uuid":"live-claude-u1","message":{"role":"user","content":"LIVE-CLAUDE-SESSION"}}\n' \
   >"$CLAUDE_LIVE_TR"
-touch -d "2020-01-01 00:00:00" "$CLAUDE_LIVE_TR" 2>/dev/null \
-  || touch -t 202001010000 "$CLAUDE_LIVE_TR"
+touch_when "$CLAUDE_LIVE_TR" "2020-01-01 00:00:00" || true
+
 export CLAUDE_SESSION_ID="$G20_CLAUDE_SID"
 export GROK_CWD="$G20_CWD"
 export CLAUDE_CWD="$G20_CWD"
@@ -565,8 +568,8 @@ touch "$G25_SRC"
 CLAUDE_LIVE_TR="$CLAUDE_PROJECTS_DIR/proj-live/${G25_CLAUDE_SID}.jsonl"
 printf '{"type":"user","uuid":"live-claude-u1","message":{"role":"user","content":"LIVE-CLAUDE-SESSION"}}\n' \
   >"$CLAUDE_LIVE_TR"
-touch -d "2020-01-01 00:00:00" "$CLAUDE_LIVE_TR" 2>/dev/null \
-  || touch -t 202001010000 "$CLAUDE_LIVE_TR"
+touch_when "$CLAUDE_LIVE_TR" "2020-01-01 00:00:00" || true
+
 export CLAUDE_CODE_SESSION_ID="$G25_CLAUDE_SID"
 export GROK_CWD="$G25_CWD"
 export CLAUDE_CWD="$G25_CWD"

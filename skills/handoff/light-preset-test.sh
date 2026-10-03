@@ -6,6 +6,9 @@
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# CDT-284: portable sha256 (sha256sum is absent on stock macOS).
+# shellcheck source=../lib/portable.sh
+. "$HERE/../lib/portable.sh"
 PREPASS="$HERE/prepass.sh"
 FIX="$HERE/fixtures"
 THRASH="$FIX/events-thrash.json"
@@ -128,7 +131,7 @@ if [ "$RC_FULL" -eq 0 ] && [ -f "$AC2_CACHE" ] && [ -f "$WORK/ac2-full.md" ]; th
 else bad "AC2 full finalize rc=$RC_FULL cache=$([ -f "$AC2_CACHE" ] && echo y || echo n) err=$(head -c 200 "$WORK/ac2-full.stderr")"; fi
 
 cp -a -- "$AC2_CACHE" "$WORK/cache-A.json"
-SHA_A=$(sha256sum "$WORK/cache-A.json" | awk '{print $1}')
+SHA_A=$(portable_sha256 "$WORK/cache-A.json")
 
 set +e
 bash "$PREPASS" finalize \
@@ -154,7 +157,7 @@ else bad "AC2 light finalize rc=$RC_LIGHT draft=${AC2_DRAFT:-none} err=$(head -c
 if [ -f "$AC2_CACHE" ]; then ok
 else bad "AC2 cache missing after light (should still be full cache A)"; fi
 
-SHA_B=$(sha256sum "$AC2_CACHE" | awk '{print $1}')
+SHA_B=$(portable_sha256 "$AC2_CACHE")
 if [ "$SHA_A" = "$SHA_B" ] && cmp -s "$WORK/cache-A.json" "$AC2_CACHE"; then ok
 else bad "AC2 cache not byte-identical after light shaA=$SHA_A shaB=$SHA_B"; fi
 

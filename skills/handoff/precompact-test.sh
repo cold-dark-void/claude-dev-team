@@ -9,7 +9,10 @@
 #   T14             — need .claude/settings.json on this machine
 set -u
 
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$HERE/../../tests/lib/mtimes.sh"
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 CAPTURE="$HERE/precompact-capture.sh"
 PREPASS="$HERE/prepass.sh"
@@ -71,7 +74,7 @@ sh "$FRESHNESS" check "$TR" --allow-in-progress >/dev/null 2>&1; RC=$?
 if [ "$RC" -eq 0 ]; then ok; else bad "T4 carve-out: fresh file + flag must exit 0 (got $RC)"; fi
 FUT="$WORK/future-mtime.jsonl"
 printf '{}\n' >"$FUT"
-touch -d '2027-01-01 00:00:00' "$FUT"
+touch_when "$FUT" '2027-01-01 00:00:00'
 sh "$FRESHNESS" check "$FUT" >/dev/null 2>&1; RC=$?
 if [ "$RC" -eq 0 ]; then ok; else bad "future mtime must exit 0, not 9 (got $RC)"; fi
 

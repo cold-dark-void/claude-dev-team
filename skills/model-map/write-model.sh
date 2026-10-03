@@ -150,14 +150,14 @@ cmd_set() {
   val=$(trim "$raw")
   [ -n "$val" ] || usage
   need_jq
-  # Atomic read-validate-modify-write under flock (CDT-231): local_ok_to_write's
+  # Atomic read-validate-modify-write under the portable lock (CDT-231; CDT-284): local_ok_to_write's
   # validation and the merge+atomic_write below must run as one critical
   # section, or two concurrent invocations can race and one clobbers the other.
-  # mkdir here — the lock file lives in this directory, and atomic_write
+  # mkdir here — the lock dir lives in this directory, and atomic_write
   # refuses when the parent directory does not exist yet.
   mkdir -p "$(dirname "$MAP")"
   (
-    flock -x 9
+    portable_lock_acquire "$LOCK" || exit 1
     local_ok_to_write "$MAP" || exit 1
     warn_adversarial "$agent"
     local json
@@ -171,7 +171,7 @@ cmd_set() {
     fi
     ensure_runtime_gitignore
     write_json_file "$MAP" "$json"
-  ) 9>"$LOCK"
+  )
 }
 
 # Delete one agent key from a Model map field (agents or effort).
@@ -180,9 +180,9 @@ unset_field() {
   is_mappable "$agent" || usage
   need_jq
   [ -e "$MAP" ] || exit 0
-  # Atomic read-validate-modify-write under flock (CDT-231) — see cmd_set.
+  # Atomic read-validate-modify-write under the portable lock (CDT-231; CDT-284) — see cmd_set.
   (
-    flock -x 9
+    portable_lock_acquire "$LOCK" || exit 1
     local_ok_to_write "$MAP" || exit 1
     local has json
     has=$(jq -r --arg n "$agent" --arg f "$field" '.[$f] // {} | has($n)' "$MAP" 2>/dev/null) || has="false"
@@ -190,7 +190,7 @@ unset_field() {
     json=$(jq --arg n "$agent" --arg f "$field" 'del(.[$f][$n])' "$MAP")
     ensure_runtime_gitignore
     write_json_file "$MAP" "$json"
-  ) 9>"$LOCK"
+  )
 }
 
 cmd_set_effort() {
@@ -200,10 +200,10 @@ cmd_set_effort() {
   val=$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')
   [ -n "$val" ] && is_effort_token "$val" || usage
   need_jq
-  # Atomic read-validate-modify-write under flock (CDT-231) — see cmd_set.
+  # Atomic read-validate-modify-write under the portable lock (CDT-231; CDT-284) — see cmd_set.
   mkdir -p "$(dirname "$MAP")"
   (
-    flock -x 9
+    portable_lock_acquire "$LOCK" || exit 1
     local_ok_to_write "$MAP" || exit 1
     warn_adversarial "$agent"
     local json
@@ -217,7 +217,7 @@ cmd_set_effort() {
     fi
     ensure_runtime_gitignore
     write_json_file "$MAP" "$json"
-  ) 9>"$LOCK"
+  )
 }
 
 [ -n "${1:-}" ] || usage

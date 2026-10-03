@@ -4,7 +4,13 @@
 # Consume asserts (T1.4/T1.7/T1.8) cover prepass M3f.
 set -u
 
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$HERE/../../tests/lib/mtimes.sh"
+# CDT-284: portable sha256 (sha256sum is absent on stock macOS).
+# shellcheck source=../lib/portable.sh
+. "$HERE/../lib/portable.sh"
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 PREPASS="$HERE/prepass.sh"
 ADAPTER="$HERE/grok-to-claude-jsonl.py"
@@ -19,7 +25,7 @@ bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/mirror-spine-test.XXXXXX")
 REAL_HOME="${HOME}"
 OP_STORE="$REAL_HOME/.claude/transcript"
-BEFORE_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"
+BEFORE_OP="$(find_mtimes "$OP_STORE" | sort || true)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
@@ -45,9 +51,9 @@ mkdir -p "$CWD"
 ENC_CLAUDE=$(python3 "$ROOT/skills/transcript-parse/hosts.py" encode-project --cwd "$CWD")
 ENC_GROK=$(python3 -c 'import os,urllib.parse,sys; print(urllib.parse.quote(os.path.abspath(sys.argv[1]), safe=""))' "$CWD")
 
-age() { touch -d '2 minutes ago' "$1"; }
+age() { touch_ago "$1" 120; }
 
-sha_file() { sha256sum "$1" | awk '{print $1}'; }
+sha_file() { portable_sha256 "$1"; }
 
 last_ident() {
   python3 - "$1" "$ROOT/skills/transcript-mirror" <<'PY'
@@ -499,7 +505,7 @@ if [ -f "$PLAN_E" ]; then
 fi
 
 # MUST NOT write operator ~/.claude/transcript/
-AFTER_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"
+AFTER_OP="$(find_mtimes "$OP_STORE" | sort || true)"
 if [ "$BEFORE_OP" = "$AFTER_OP" ]; then ok
 else bad "wrote operator ~/.claude/transcript/"; fi
 

@@ -284,7 +284,17 @@ add_finding() {
 # snapshot-half compare.
 all_names=()
 all_commits=()
-declare -A current_commit_by_name=()
+# bash 3.2 has no associative arrays (CDT-285): the current commit of a tag is
+# looked up by a linear scan of all_names/all_commits, which already hold the
+# same name→commit pairs the map did.
+_tag_commit() { # _tag_commit <name> → peeled commit, or "" when absent
+  local i=0
+  while [ "$i" -lt "${#all_names[@]}" ]; do
+    [ "${all_names[$i]}" = "$1" ] && { printf '%s' "${all_commits[$i]}"; return 0; }
+    i=$((i + 1))
+  done
+  return 0
+}
 TAG_TABLE=$(cd "$ROOT" && bash "$SHIP_START_SH" --list) || {
   echo "check-ship-history.sh: tag list failed" >&2
   exit 64
@@ -297,7 +307,6 @@ while IFS=$'\t' read -r rname commit; do
   esac
   all_names+=("$name")
   all_commits+=("$commit")
-  current_commit_by_name["$name"]="$commit"
 done <<<"$TAG_TABLE"
 
 # --- enumerate release tags in W ---
@@ -412,8 +421,29 @@ while [ "$i" -lt "$n_tags" ]; do
   i=$((i + 1))
 done
 
-# Count release-shaped subjects per version in W
-declare -A release_subj_count=()
+# Count release-shaped subjects per version in W. bash 3.2 has no associative
+# arrays (CDT-285): version→count is a parallel-array pair with a linear
+# lookup (versions are a handful of x.y.z strings).
+RS_VER_KEYS=()
+RS_VER_COUNTS=()
+_rs_count_bump() { # _rs_count_bump <version>
+  local i=0
+  while [ "$i" -lt "${#RS_VER_KEYS[@]}" ]; do
+    [ "${RS_VER_KEYS[$i]}" = "$1" ] && { RS_VER_COUNTS[$i]=$(( ${RS_VER_COUNTS[$i]} + 1 )); return 0; }
+    i=$((i + 1))
+  done
+  RS_VER_KEYS+=("$1")
+  RS_VER_COUNTS+=(1)
+  return 0
+}
+_rs_count_get() { # _rs_count_get <version> → count, 0 when absent
+  local i=0
+  while [ "$i" -lt "${#RS_VER_KEYS[@]}" ]; do
+    [ "${RS_VER_KEYS[$i]}" = "$1" ] && { printf '%s' "${RS_VER_COUNTS[$i]}"; return 0; }
+    i=$((i + 1))
+  done
+  printf '0'
+}
 
 while IFS= read -r csha; do
   [ -z "$csha" ] && continue
@@ -430,9 +460,8 @@ while IFS= read -r csha; do
         break
       fi
     done
-    prev_count="${release_subj_count[$ver]:-0}"
-    release_subj_count[$ver]=$((prev_count + 1))
-    if [ "$already_tagged" -eq 1 ] && [ "${release_subj_count[$ver]}" -ge 2 ]; then
+    _rs_count_bump "$ver"
+    if [ "$already_tagged" -eq 1 ] && [ "$(_rs_count_get "$ver")" -ge 2 ]; then
       add_finding "D3: second release-shaped subject for v${ver} in W: ${csha:0:7} ${subj}"
     fi
   fi
@@ -512,7 +541,7 @@ fi
 
 # D4 snapshot half (H2): a release tag listed in --tag-snapshot FILE that
 # still exists locally but now peels to a different commit. A deleted tag
-# (absent from current_commit_by_name) is not a finding. Not limited to W:
+# (absent from all_names/_tag_commit) is not a finding. Not limited to W:
 # D4(b) covers any release tag in the snapshot, so a retarget away from W is
 # still caught.
 if [ -n "$TAG_SNAPSHOT" ]; then
@@ -523,7 +552,7 @@ if [ -n "$TAG_SNAPSHOT" ]; then
       *) continue ;;
     esac
     is_release_tag "$sname" || continue
-    cur="${current_commit_by_name[$sname]:-}"
+    cur=$(_tag_commit "$sname")
     [ -z "$cur" ] && continue
     if [ "$cur" != "$scommit" ]; then
       add_finding "D4: $sname retargeted since ship start: ${scommit:0:7} -> ${cur:0:7} (tag snapshot)"

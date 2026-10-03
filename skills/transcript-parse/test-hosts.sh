@@ -4,7 +4,10 @@
 # Run: bash skills/transcript-parse/test-hosts.sh
 set -euo pipefail
 
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/../../tests/lib/mtimes.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$HERE/../../tests/lib/hermetic.sh"
 hermetic_init
@@ -277,7 +280,7 @@ UUID="11111111-1111-4111-8111-111111111111"
 PDIR="$HOME/.claude/projects/-wp402"
 mkdir -p "$PDIR"
 printf '%s\n' "{\"type\":\"user\",\"uuid\":\"$UUID\",\"timestamp\":\"2020-01-01T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}" > "$PDIR/$UUID.jsonl"
-touch -d '2 minutes ago' "$PDIR/$UUID.jsonl"
+touch_ago "$PDIR/$UUID.jsonl" 120
 LOG="$WORK/locate.log"
 : > "$LOG"
 set +e

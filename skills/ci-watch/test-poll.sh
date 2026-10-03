@@ -270,6 +270,48 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ---- AC-E: perl present (no timeout/gtimeout) → with_timeout perl fallback --
+# CDT-284: poll_local_test must RUN the test under the perl supervisor instead
+# of logging timeout_missing. The farm PATH holds no perl, so this adds it.
+reset_sidecar_local
+PERL_BIN=$(command -v perl) || die "perl not found on host (needed for the fallback test)"
+PL_DIR="$TMP/perl-bin"
+mkdir -p "$PL_DIR"
+ln -sf "$PERL_BIN" "$PL_DIR/perl"
+E_PATH3="$E_MOCK_BIN:$PL_DIR:$FARM"
+if PATH="$E_PATH3" command -v timeout >/dev/null 2>&1 || PATH="$E_PATH3" command -v gtimeout >/dev/null 2>&1; then
+  die "perl-fallback PATH unexpectedly resolves timeout/gtimeout"
+fi
+if ! PATH="$E_PATH3" command -v perl >/dev/null 2>&1; then
+  die "perl-fallback PATH does not resolve perl"
+fi
+
+E_OUT3="$TMP/e-out3.txt"
+E_ERR3="$TMP/e-err3.txt"
+"$REAL_TIMEOUT" 30 env PATH="$E_PATH3" "$BASH_BIN" "$POLL_CLI" "$TICKET" >"$E_OUT3" 2>"$E_ERR3"
+e3_rc=$?
+e3_out=$(cat "$E_OUT3")
+
+e3_ok=1
+if [ "$e3_rc" -ne 0 ]; then
+  echo "  FAIL [AC-E perl-fallback]: rc=$e3_rc (want 0)"
+  e3_ok=0
+fi
+if [ "$e3_out" != "wait" ]; then
+  echo "  FAIL [AC-E perl-fallback]: stdout='$e3_out' (want 'wait')"
+  e3_ok=0
+fi
+if grep -q 'outcome=timeout_missing' ".claude/ci-watch/${TICKET}.log" 2>/dev/null; then
+  echo "  FAIL [AC-E perl-fallback]: log has timeout_missing (perl fallback must run the test)"
+  e3_ok=0
+fi
+if [ "$e3_ok" -eq 1 ]; then
+  echo "  PASS [AC-E perl-fallback]: no timeout_missing when only perl is present exit=0"
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+fi
+
 # ---- CDT-282 [09 F23]: private temp files (mktemp), not a name per ticket ----
 # poll.sh wrote ${TMPDIR:-/tmp}/ci-watch-{out,err}-<TICKET>.txt: a fixed name an
 # attacker can plant a symlink on (CWE-377). The mock gh lists TMPDIR while the

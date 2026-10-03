@@ -9,6 +9,9 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
+. "$SCRIPT_DIR/../../tests/lib/mtimes.sh"
 PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 DOCTOR="${DOCTOR:-$SCRIPT_DIR/doctor.sh}"
 SCHEMA_SQL="$PLUGIN_ROOT/skills/memory-store/schema.sql"
@@ -1639,7 +1642,7 @@ t23_doctor() {
 }
 
 t23_age() {
-  if touch -d '2 minutes ago' "$1" 2>/dev/null; then
+  if touch_ago "$1" 120; then
     return 0
   fi
   local stamp

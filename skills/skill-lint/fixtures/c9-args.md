@@ -65,7 +65,7 @@ __A__
 set -f; set -- $ARGS; set +f
 while [ $# -gt 0 ]; do
   case "$1" in
-    --x) XV="$2"; shift 2 ;;
+    --x) [ "$#" -ge 2 ] || exit 1; XV="$2"; shift 2 ;;
     *) shift ;;
   esac
 done

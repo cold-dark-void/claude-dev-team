@@ -156,7 +156,68 @@ else error("top-level not an object or array") end
 #   JSON: a flat object {"<slug>":"<state>",...} OR an array of objects each carrying a
 #         "slug"/"id" and a "state"/"status" key, parsed by jq only (VERDICT_JQ above).
 # Non-terminal states are ignored (they never override local; local may still close them).
-declare -A VERDICT_SLUGS=()
+# bash 3.2 has no associative arrays (CDT-285): each slug map below is a
+# key/value pair of parallel arrays with a linear lookup. Slugs are short
+# backlog ids and the keys are data (never evaled).
+BL_VERDICT_KEYS=(); BL_VERDICT_VALS=()
+BL_SEEN_KEYS=();     BL_SEEN_VALS=()
+BL_ROWTEXT_KEYS=();  BL_ROWTEXT_VALS=()
+BL_DISP_KEYS=();     BL_DISP_VALS=()
+
+_bl_verdict_set() { # mark <slug> terminal
+  local i=0
+  while [ "$i" -lt "${#BL_VERDICT_KEYS[@]}" ]; do
+    [ "${BL_VERDICT_KEYS[$i]}" = "$1" ] && return 0
+    i=$((i + 1))
+  done
+  BL_VERDICT_KEYS+=("$1")
+  BL_VERDICT_VALS+=(1)
+  return 0
+}
+_bl_verdict_has() { # rc 0 iff <slug> has a terminal verdict
+  local i=0
+  while [ "$i" -lt "${#BL_VERDICT_KEYS[@]}" ]; do
+    [ "${BL_VERDICT_KEYS[$i]}" = "$1" ] && return 0
+    i=$((i + 1))
+  done
+  return 1
+}
+_bl_seen_has() { # rc 0 iff <slug> already recorded from the index
+  local i=0
+  while [ "$i" -lt "${#BL_SEEN_KEYS[@]}" ]; do
+    [ "${BL_SEEN_KEYS[$i]}" = "$1" ] && return 0
+    i=$((i + 1))
+  done
+  return 1
+}
+_bl_seen_set() {
+  BL_SEEN_KEYS+=("$1")
+  BL_SEEN_VALS+=(1)
+  return 0
+}
+_bl_rowtext_set() {
+  BL_ROWTEXT_KEYS+=("$1")
+  BL_ROWTEXT_VALS+=("$2")
+  return 0
+}
+_bl_disp_set() { # _bl_disp_set <slug> <pending|completed|missing|invalid>
+  local i=0
+  while [ "$i" -lt "${#BL_DISP_KEYS[@]}" ]; do
+    [ "${BL_DISP_KEYS[$i]}" = "$1" ] && { BL_DISP_VALS[$i]="$2"; return 0; }
+    i=$((i + 1))
+  done
+  BL_DISP_KEYS+=("$1")
+  BL_DISP_VALS+=("$2")
+  return 0
+}
+_bl_disp_get() { # prints the disposition of <slug>, or "" when absent
+  local i=0
+  while [ "$i" -lt "${#BL_DISP_KEYS[@]}" ]; do
+    [ "${BL_DISP_KEYS[$i]}" = "$1" ] && { printf '%s' "${BL_DISP_VALS[$i]}"; return 0; }
+    i=$((i + 1))
+  done
+  return 0
+}
 load_verdicts() {
   [ -n "$VERDICTS_FILE" ] || return 0
   [ -f "$VERDICTS_FILE" ] || die 1 "linear-verdicts file not found: $VERDICTS_FILE"
@@ -172,7 +233,7 @@ load_verdicts() {
       [ -n "$slug" ] || continue
       # Blank state is non-terminal (CDT-267): no effect, never sets VERDICT_SLUGS.
       if [ -n "$state" ] && is_closed_status "$state"; then
-        VERDICT_SLUGS["$slug"]=1
+        _bl_verdict_set "$slug"
       fi
     done <<< "$pairs"
   else
@@ -185,7 +246,7 @@ load_verdicts() {
       case "$slug" in \#*) continue ;; esac
       # Blank state is non-terminal (CDT-267): no effect, never sets VERDICT_SLUGS.
       if [ -n "$state" ] && is_closed_status "$state"; then
-        VERDICT_SLUGS["$slug"]=1
+        _bl_verdict_set "$slug"
       fi
     done < "$VERDICTS_FILE"
   fi
@@ -221,10 +282,8 @@ DROPPED=0
 # row's own disposition is pending/invalid).
 
 # Collect ordered unique slugs + first-seen row text, and count duplicate occurrences.
-declare -A SEEN=()          # slug -> 1 once its first row is recorded
-declare -A ROW_TEXT=()      # slug -> first-seen row text (unused for output; kept for parity/logs)
+# bash 3.2 has no associative arrays (CDT-285): each slug map below is a
 declare -a SLUG_ORDER=()    # slugs in first-seen order
-declare -A DISPOSITION=()   # slug -> pending|completed|missing|invalid
 declare -a INVALID_SLUGS=() # slugs that failed the charset guard
 
 # || [ -n "$line" ]: also classify a final row with no trailing newline (else
@@ -233,46 +292,46 @@ declare -a INVALID_SLUGS=() # slugs that failed the charset guard
 while IFS= read -r line || [ -n "$line" ]; do
   slug=$(row_slug "$line")
   [ -n "$slug" ] || continue
-  if [ -n "${SEEN[$slug]:-}" ]; then
+  if _bl_seen_has "$slug"; then
     ACTIONS+=("collapse duplicate row for '$slug'")
     DROPPED=$((DROPPED + 1))
     continue
   fi
-  SEEN["$slug"]=1
+  _bl_seen_set "$slug"
   SLUG_ORDER+=("$slug")
-  ROW_TEXT["$slug"]="$line"
+  _bl_rowtext_set "$slug" "$line"
 done < "$INDEX"
 
 # Classify each unique slug.
 for slug in ${SLUG_ORDER[@]+"${SLUG_ORDER[@]}"}; do
   if [[ ! "$slug" =~ ^[A-Za-z0-9_-]+$ ]]; then
-    DISPOSITION["$slug"]="invalid"
+    _bl_disp_set "$slug" "invalid"
     INVALID_SLUGS+=("$slug")
     ACTIONS+=("INVALID slug not reconciled (only [A-Za-z0-9_-] allowed): $slug — row kept, no file touched; needs manual triage")
     continue
   fi
   item="$BACKLOG_DIR/${slug}.md"
   if [ ! -f "$item" ]; then
-    DISPOSITION["$slug"]="missing"
+    _bl_disp_set "$slug" "missing"
     ACTIONS+=("remove dead-ref row for '$slug' (no item file)")
     DROPPED=$((DROPPED + 1))
     continue
   fi
   lid=$(item_linear_id "$item")
   lid_suffix="${lid:+ [linear_id: $lid]}"
-  if [ -n "${VERDICT_SLUGS[$slug]:-}" ]; then
-    DISPOSITION["$slug"]="completed"
+  if _bl_verdict_has "$slug"; then
+    _bl_disp_set "$slug" "completed"
     ACTIONS+=("prune '$slug' (Linear verdict: terminal)${lid_suffix}")
     DROPPED=$((DROPPED + 1))
     continue
   fi
   st=$(item_status_value "$item")
   if is_closed_status "$st"; then
-    DISPOSITION["$slug"]="completed"
+    _bl_disp_set "$slug" "completed"
     ACTIONS+=("prune '$slug' (item Status=${st:-COMPLETED})${lid_suffix}")
     DROPPED=$((DROPPED + 1))
   else
-    DISPOSITION["$slug"]="pending"
+    _bl_disp_set "$slug" "pending"
   fi
 done
 
@@ -286,7 +345,7 @@ declare -a ORPHAN_KEEP=()
 for item in "$BACKLOG_DIR"/*.md; do
   [ -f "$item" ] || continue
   oslug=$(basename "$item" .md)
-  [ -n "${SEEN[$oslug]:-}" ] && continue
+  _bl_seen_has "$oslug" && continue
   ost=$(item_status_value "$item")
   if is_closed_status "$ost"; then
     ORPHAN_PRUNE+=("$oslug")
@@ -307,7 +366,7 @@ INDEX_CHANGED=0
 # All prunes (index-driven "completed" slugs + orphan-driven prunes) — these delete the item file.
 declare -a PRUNE_SLUGS=()
 for slug in ${SLUG_ORDER[@]+"${SLUG_ORDER[@]}"}; do
-  [ "${DISPOSITION[$slug]}" = "completed" ] || continue
+  [ "$(_bl_disp_get "$slug")" = "completed" ] || continue
   PRUNE_SLUGS+=("$slug")
 done
 PRUNE_SLUGS+=(${ORPHAN_PRUNE[@]+"${ORPHAN_PRUNE[@]}"})
@@ -333,9 +392,10 @@ fi
 # command, and a truncated temp file would get renamed over the index (WP 1-04
 # rework T4-2).
 emit_index() {
-  local _line _slug _read_rc
+  local _line _slug _read_rc _ek _bl_hit
   [ -r "$INDEX" ] || return 1
-  declare -A _emitted=()
+  # bash 3.2: no associative arrays (CDT-285) — emitted slugs are a plain array.
+  local _emitted_keys=()
   while true; do
     IFS= read -r _line
     _read_rc=$?
@@ -350,11 +410,15 @@ emit_index() {
       printf '%s\n' "$_line" || return 1
       continue
     fi
-    if [ -n "${_emitted[$_slug]:-}" ]; then
+    _bl_hit=0
+    for _ek in ${_emitted_keys[@]+"${_emitted_keys[@]}"}; do
+      [ "$_ek" = "$_slug" ] && { _bl_hit=1; break; }
+    done
+    if [ "$_bl_hit" -eq 1 ]; then
       continue
     fi
-    _emitted["$_slug"]=1
-    case "${DISPOSITION[$_slug]:-}" in
+    _emitted_keys+=("$_slug")
+    case "$(_bl_disp_get "$_slug")" in
       pending|invalid) printf '%s\n' "$_line" || return 1 ;;
       *) ;;
     esac

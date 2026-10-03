@@ -1653,9 +1653,11 @@ specific respects (SPEC-031 § Hook contract — honest limits):
 3. **Coverage is tool-name-scoped.** Only `Write`, `Edit`, and `NotebookEdit` are
    gated. Any future or unlisted write path is ungated until added here.
 4. **Path matching is textual, and normalization is best-effort.** Targets are compared
-   as strings after `realpath -m` normalization. Where `realpath` is unavailable the raw
-   path is used and `..` traversal is not normalized away, so a target such as
-   `$MROOT/.worktrees/../src/a.go` reads as an in-worktree write and is not gated.
+   as strings after `realpath -m` normalization; where `realpath` is unavailable a
+   built-in lexical normalizer (F29, CDT-284) collapses `..`/`.`/duplicate slashes
+   without resolving symlinks, so `$MROOT/.worktrees/../src/a.go` is gated on every
+   platform. A symlink that points outside the worktree is still a blind spot when
+   `realpath` is absent.
 
 **Enforcement levels.** WARN (exit 0, stderr hint) fires whenever the hook is
 installed and a matched write targets a non-allowlisted path outside
@@ -1781,14 +1783,68 @@ case "$TARGET" in
   *) TARGET="${CLAUDE_PROJECT_DIR:-$PWD}/$TARGET" ;;
 esac
 
+# _eg_normpath <path> — lexical normalization (collapse //, drop ., resolve
+# .. within the path; .. above a relative root is kept). No symlink
+# resolution: prefix matching only needs the textual form. Pure bash, no
+# external tools, so it works where realpath is missing (F29 / CDT-284).
+_eg_normpath() {
+  local _p="$1" _abs=0 _segs="" _seg _depth=0 _oldifs
+  case "$_p" in /*) _abs=1 ;; esac
+  _oldifs=$IFS
+  IFS=/
+  set -f
+  set -- $_p
+  case $- in *f*) ;; *) set +f ;; esac
+  IFS=$_oldifs
+  for _seg in "$@"; do
+    case "$_seg" in
+      ''|.) : ;;
+      ..)
+        case "$_segs" in
+          ''|*/..|..)
+            # nothing to pop into, or the tail is a literal ".."
+            if [ "$_abs" -eq 0 ]; then
+              _segs="${_segs:+$_segs/}.."
+              _depth=$((_depth + 1))
+            fi
+            ;;
+          *)
+            case "$_segs" in */*) _segs="${_segs%/*}" ;; *) _segs="" ;; esac
+            _depth=$((_depth - 1))
+            ;;
+        esac
+        ;;
+      *)
+        _segs="${_segs:+$_segs/}$_seg"
+        _depth=$((_depth + 1))
+        ;;
+    esac
+  done
+  if [ "$_abs" -eq 1 ]; then
+    printf '/%s\n' "$_segs"
+  elif [ -n "$_segs" ]; then
+    printf '%s\n' "$_segs"
+  else
+    printf '.\n'
+  fi
+}
+
+# _eg_normalize <path> — realpath -m when available, lexical fallback otherwise.
+# Both fail-soft: the caller keeps the raw path when this prints nothing.
+_eg_normalize() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m -- "$1" 2>/dev/null && return 0
+  fi
+  _eg_normpath "$1"
+}
+
 # Normalize before any prefix match: $MROOT/.worktrees/../src/a.go would
 # otherwise match the .worktrees/ allow pattern and escape the gate. -m works on
 # paths that do not exist yet (Write creates them). Where realpath is absent the
-# raw path is used and `..` traversal stays unnormalized — documented limit.
-if command -v realpath >/dev/null 2>&1; then
-  _eg_n=$(realpath -m -- "$TARGET" 2>/dev/null) && [ -n "$_eg_n" ] && TARGET="$_eg_n"
-  _eg_r=$(realpath -m -- "$MROOT" 2>/dev/null) && [ -n "$_eg_r" ] && MROOT="$_eg_r"
-fi
+# lexical fallback above still collapses `..` traversal (F29); if both fail the
+# raw path is used — fail-open, like every other step in this hook.
+_eg_n=$(_eg_normalize "$TARGET") && [ -n "$_eg_n" ] && TARGET="$_eg_n"
+_eg_r=$(_eg_normalize "$MROOT") && [ -n "$_eg_r" ] && MROOT="$_eg_r"
 
 # Inside the worktree tree — the compliant destination, never gated.
 case "$TARGET" in

@@ -35,9 +35,9 @@
 #   *-<task_id>.json compound match exists (would shadow the council gate).
 #
 # Exits 0 on success, non-zero on failure (message on stderr).
-# Atomic tmp+rename, global flock on .claude/tasks/.lock (simpler than
-# per-task locks; write contention on this store is negligible since each
-# task_id is written at most twice: create then one status update per
+# Atomic tmp+rename, global portable mkdir lock on .claude/tasks/.lock (CDT-284;
+# simpler than per-task locks; write contention on this store is negligible since
+# each task_id is written at most twice: create then one status update per
 # transition).
 
 set -euo pipefail
@@ -158,7 +158,7 @@ cmd_create() {
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   (
-    flock -x 9
+    portable_lock_acquire "$LOCK" || exit 1
 
     if [ -f "$dest" ]; then
       # Upsert: update subject and requires_council, preserve created_at and
@@ -196,7 +196,7 @@ cmd_create() {
         || exit 1
       echo "created: $dest" >&2
     fi
-  ) 9>"$LOCK"
+  )
 }
 
 cmd_update_status() {
@@ -220,7 +220,7 @@ cmd_update_status() {
   local invented=0
 
   (
-    flock -x 9
+    portable_lock_acquire "$LOCK" || exit 1
 
     if [ ! -f "$dest" ]; then
       # CDT-167: shadow-safe invent — prefer unique compound *-<task_id>.json
@@ -262,7 +262,7 @@ cmd_update_status() {
 
     # Print using resolved dest (may be compound path after redirect)
     echo "updated: $dest (status=$new_status)" >&2
-  ) 9>"$LOCK"
+  )
 }
 
 # ---- Dispatch ---------------------------------------------------------------

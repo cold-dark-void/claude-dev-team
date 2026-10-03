@@ -86,9 +86,65 @@ trap 'rm -rf "$WORK"' EXIT
 TOTAL_INCLUDED=0
 TOTAL_EXCLUDED=0
 TOTAL_OMITTED=0
-declare -A AGENT_COUNTS=()
-declare -A FILE_HASHES=()
-declare -A FILE_COUNTS=()
+# bash 3.2 has no associative arrays (CDT-285): the per-agent maps are parallel
+# arrays over SK_KEYS with a linear index lookup. Keys come from the seed
+# allowlist, so the maps hold at most one row per agent.
+SK_KEYS=()
+SK_COUNTS=()    # AGENT_COUNTS: entries included per agent
+SK_HASHES=()    # FILE_HASHES: per-agent pack file sha256
+SK_FCOUNTS=()   # FILE_COUNTS: per-agent pack file entry count
+
+seed_idx() { # seed_idx <agent> → index into SK_KEYS, or -1
+  local i=0
+  while [ "$i" -lt "${#SK_KEYS[@]}" ]; do
+    [ "${SK_KEYS[$i]}" = "$1" ] && { printf '%s' "$i"; return 0; }
+    i=$((i + 1))
+  done
+  printf '%s' -1
+}
+
+seed_agent_count_bump() { # +1 included entry for <agent>
+  local i
+  i=$(seed_idx "$1")
+  if [ "$i" -eq -1 ]; then
+    SK_KEYS+=("$1")
+    SK_COUNTS+=(1)
+    SK_HASHES+=("")
+    SK_FCOUNTS+=("")
+  else
+    SK_COUNTS[$i]=$(( ${SK_COUNTS[$i]} + 1 ))
+  fi
+  return 0
+}
+
+seed_file_put() { # seed_file_put <agent> <hash> <entry-count>
+  local i
+  i=$(seed_idx "$1")
+  if [ "$i" -eq -1 ]; then
+    SK_KEYS+=("$1")
+    SK_COUNTS+=(0)
+    SK_HASHES+=("$2")
+    SK_FCOUNTS+=("$3")
+  else
+    SK_HASHES[$i]="$2"
+    SK_FCOUNTS[$i]="$3"
+  fi
+  return 0
+}
+
+seed_file_count() { # prints FILE_COUNTS[<agent>] or "" when absent
+  local i
+  i=$(seed_idx "$1")
+  [ "$i" -ge 0 ] && printf '%s' "${SK_FCOUNTS[$i]}"
+  return 0
+}
+
+seed_file_hash() { # prints FILE_HASHES[<agent>] or "" when absent
+  local i
+  i=$(seed_idx "$1")
+  [ "$i" -ge 0 ] && printf '%s' "${SK_HASHES[$i]}"
+  return 0
+}
 
 include_entry() {
   local agent="$1" mid="$2" mtype="$3" content="$4" source_tier="$5"
@@ -129,7 +185,7 @@ include_entry() {
   entry_path=$(printf '%s/%s/%04d.entry' "$WORK" "$agent" "$n")
   printf '%s' "$body" > "$entry_path"
   TOTAL_INCLUDED=$((TOTAL_INCLUDED + 1))
-  AGENT_COUNTS[$agent]=$(( ${AGENT_COUNTS[$agent]:-0} + 1 ))
+  seed_agent_count_bump "$agent"
   return 0
 }
 
@@ -226,7 +282,11 @@ mkdir -p "$OUT"
 AGENTS_WITH_FILES=0
 
 for agent in $AGENTS; do
-  mapfile -t entries < <(find "$WORK/$agent" -maxdepth 1 -type f -name '*.entry' 2>/dev/null | sort)
+  # bash 3.2: no mapfile (CDT-285) — read one path per line.
+  entries=()
+  while IFS= read -r _seed_entry; do
+    entries+=("$_seed_entry")
+  done < <(find "$WORK/$agent" -maxdepth 1 -type f -name '*.entry' 2>/dev/null | sort)
   if [ "${#entries[@]}" -eq 0 ]; then
     continue
   fi
@@ -246,8 +306,7 @@ for agent in $AGENTS; do
       fi
     done
   } > "$OUT/$agent.md"
-  FILE_HASHES[$agent]=$(seed_file_sha256 "$OUT/$agent.md")
-  FILE_COUNTS[$agent]=${#entries[@]}
+  seed_file_put "$agent" "$(seed_file_sha256 "$OUT/$agent.md")" "${#entries[@]}"
 done
 
 # Drop one manifest key. Used when --agent has nothing left to write.
@@ -293,8 +352,8 @@ fi
 MANIFEST_JSON=$(
   {
     for agent in $AGENTS; do
-      [ -n "${FILE_COUNTS[$agent]:-}" ] || continue
-      printf '%s\t%s\t%s\n' "$agent" "${FILE_COUNTS[$agent]}" "${FILE_HASHES[$agent]}"
+      [ -n "$(seed_file_count "$agent")" ] || continue
+      printf '%s\t%s\t%s\n' "$agent" "$(seed_file_count "$agent")" "$(seed_file_hash "$agent")"
     done
   } | EXPORT_DATE="$EXPORT_DATE" PROJECT_NAME="$PROJECT_NAME" python3 -c '
 import json, os, sys
@@ -320,7 +379,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "--- dry-run pack preview ---"
   for agent in $AGENTS; do
     [ -f "$OUT/$agent.md" ] || continue
-    echo "would write: .claude/memory/seed/$agent.md (${FILE_COUNTS[$agent]} entries, hash=${FILE_HASHES[$agent]:0:12}…)"
+    echo "would write: .claude/memory/seed/$agent.md ($(seed_file_count "$agent") entries, hash=$(seed_file_hash "$agent" | cut -c1-12)…)"
   done
   echo "would write: .claude/memory/seed/manifest.json"
   echo ""
@@ -333,7 +392,7 @@ mkdir -p "$SEED_DIR"
 # A partial --agent export rewrites only that agent. A full export still
 # removes pack files for agents that produced nothing this run.
 if [ -n "$AGENT_FILTER" ]; then
-  if [ -z "${FILE_COUNTS[$AGENT_FILTER]:-}" ]; then
+  if [ -z "$(seed_file_count "$AGENT_FILTER")" ]; then
     rm -f "$SEED_DIR/$AGENT_FILTER.md"
   fi
 else
@@ -341,7 +400,7 @@ else
     [ -f "$old" ] || continue
     base=$(basename "$old")
     agent="${base%.md}"
-    if [ -z "${FILE_COUNTS[$agent]:-}" ]; then
+    if [ -z "$(seed_file_count "$agent")" ]; then
       rm -f "$old"
     fi
   done
@@ -386,7 +445,7 @@ ensure_seed_gitignore "$MROOT" || true
 echo "Wrote pack to $SEED_DIR"
 for agent in $AGENTS; do
   [ -f "$SEED_DIR/$agent.md" ] || continue
-  echo "  $agent.md  entries=${FILE_COUNTS[$agent]}  content_hash=${FILE_HASHES[$agent]}"
+  echo "  $agent.md  entries=$(seed_file_count "$agent")  content_hash=$(seed_file_hash "$agent")"
 done
 echo "  manifest.json"
 echo ""

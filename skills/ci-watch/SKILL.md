@@ -74,7 +74,7 @@ poll.sh <TICKET_ID>
   - On `fixer_active == true` with `fixer_started_at` inside `CI_WATCH_FIXER_TTL` seconds (default 1800): emits `wait` (guard — never spawn a second fixer concurrently).
   - On `fixer_active == true` with a missing or older `fixer_started_at`: logs `fixer_stale`, sets `fixer_active` false, increments `retry_count`, writes a stderr notice, and continues the poll.
   - On missing sidecar: emits `wait`.
-  - On missing `timeout` and `gtimeout` (mode `local-test`, checked before the worktree check): increments `poll_error_count`; emits `wait`; logs `timeout_missing`; writes a stderr hint naming `timeout` and `gtimeout`.
+  - On missing `timeout`, `gtimeout` and `perl` (mode `local-test`, checked before the worktree check): increments `poll_error_count`; emits `wait`; logs `timeout_missing`; writes a stderr hint naming `timeout`, `gtimeout` and `perl`. Otherwise the test runs under `portable_with_timeout` (CDT-284): `timeout`, then `gtimeout`, then a perl supervisor.
   - Appends `<ISO-8601> <TICKET> outcome=<word>` to `<TICKET>.log` for every non-silent outcome.
 
 ### Decision matrix
@@ -98,7 +98,7 @@ mode=ci:
     all pass|skipping  → done
     else (pending)     → wait (no poll_error_count++)
 mode=local-test:
-  timeout/gtimeout missing → wait (poll_error_count++, log timeout_missing)
+  timeout/gtimeout/perl missing → wait (poll_error_count++, log timeout_missing)
   worktree missing      → wait (poll_error_count++)
   detect-mode = none    → wait (poll_error_count++)
   test rc == 0          → done

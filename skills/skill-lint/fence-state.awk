@@ -68,6 +68,25 @@ BEGIN { fs_shell_aliases = 1 }
 #     NOT waivable: a waiver there would re-hide the defect.
 #     Text inside heredoc bodies is not scanned by C10.
 #
+# C7 bash-4 / GNU-only constructs (CDT-286), in ```bash, ```sh and ```shell
+# fences and — via SH_SCAN (check-skill-bash.sh) — in consumer-shipped .sh
+# files under commands/, skills/ and agents/. Flags: declare -A, mapfile,
+# readarray, local -n / declare -n, ${x,,} and ${x^^}, [-1] subscripts,
+# grep -P, bare `sed -i` (no suffix), `find ... -printf`, `touch -d` and
+# `readlink -f`. Scanned text is the code part of the line: comments,
+# single- and double-quoted text and heredoc bodies are not constructs.
+# Exemptions: the SPEC-002 PDH bootstrap stanza (byte-pinned; its macOS
+# behavior is owned by SPEC-002) and skills/skill-lint/fixtures/** (planted
+# defects; the fixture dir never reaches this engine). sort -V and xargs -r
+# are deliberately not flagged.
+#     Waivable: "# lint-ok: C7" on the line or the line above.
+#
+# C8 (g) `shift N` (N >= 2) at the top level of a fence or .sh file without
+#     an arity guard on the same or the previous line (need_arg, a $# -ge/-lt
+#     test, require_value, or `shift N ||`): a value-flag loop spins forever
+#     when one argument remains (06 F23 / 08 F16). Function bodies are exempt
+#     (a function's `shift 2` bounds its own contract).
+#
 # The scanner tracks quote state across lines within a fence: single quote,
 # double quote, $'...' and $( ... ) nesting (a stack, so "$(a "b")" nests).
 # It does not model backticks, ${...} operators or case-arm parentheses.
@@ -124,6 +143,9 @@ function waived_on(ln, id,    s, rest, m, toks, t, k, cnt) {
 }
 
 function add(ln, id, msg) {
+  # C7_ONLY mode (check-skill-bash.sh, .sh scan): every rule funnels through
+  # add/add_once/add_sub, so one gate turns the engine into a C7-only pass.
+  if (C7_ONLY && id != "C7") return
   nfind++
   fl[nfind] = ln
   fid[nfind] = id
@@ -172,8 +194,14 @@ function trim(s) {
 }
 
 # Callbacks for fence-scan.awk (the shared fence parser).
+# c7_block_first anchors the C8 (g) guard window to the fence that is open —
+# src[] spans the whole file, and a guard in one fence must not excuse a
+# `shift N` in the next one.
 function fence_open(ln, info, is_bash) {
-  if (is_bash) block_start()
+  if (is_bash) {
+    c7_block_first = ln
+    block_start()
+  }
 }
 
 function fence_line(line, ln) {
@@ -207,6 +235,9 @@ function block_start() {
   has_set = 0
   stop_ln = 0
   split("", fnb)
+  # C7 PDH-stanza state resets per fence / per .sh file.
+  c7_in_pdh = 0
+  c7_pdep = 0
 }
 
 # Emit C6 findings for the fence that just closed. Uses are kept in order;
@@ -480,21 +511,77 @@ function stop_unresolved() {
   stop_ln = 0
 }
 
+# C7: one pass over the code part of the line. `masked` blanks comments and
+# quoted text (a quoted python lines[-1] is not a bash subscript); `code`
+# keeps every character for the guard checks. The PDH stanza (SPEC-002,
+# byte-pinned) is skipped whole.
+function c7_scan(line, ln, code, masked, cs,    j, ch, m, prev) {
+  if (c7_in_pdh) {
+    for (j = 1; j <= cs; j++) {
+      if (cx[j] != "C") continue
+      ch = substr(code, j, 1)
+      if (ch == "(") c7_pdep++
+      else if (ch == ")") {
+        c7_pdep--
+        if (c7_pdep <= 0) { c7_in_pdh = 0; break }
+      }
+    }
+    return
+  }
+  if (code ~ /^[[:space:]]*PDH=\$\(/) {
+    # Opener line: enter the stanza, count parens after the opening `$(`.
+    c7_in_pdh = 1
+    c7_pdep = 1
+    for (j = index(code, "$(") + 2; j <= cs; j++) {
+      if (cx[j] != "C") continue
+      ch = substr(code, j, 1)
+      if (ch == "(") c7_pdep++
+      else if (ch == ")") c7_pdep--
+    }
+    return
+  }
+  if (masked ~ /(^|[;&|(])[[:space:]]*declare[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-[A-Za-z]*A([[:space:]]|$)/)
+    add_sub(ln, "C7", "a", "declare -A needs bash 4 (associative arrays) — rewrite with parallel arrays and a linear lookup, or jq/python3 (CDT-285)")
+  if (masked ~ /(^|[;&|(])[[:space:]]*(mapfile|readarray)([[:space:]]|$)/)
+    add_sub(ln, "C7", "b", "mapfile/readarray needs bash 4 — read with `while IFS= read -r x` into an array (CDT-285)")
+  if (masked ~ /(^|[;&|(])[[:space:]]*local[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-[A-Za-z]*n([[:space:]]|$)/ || \
+      masked ~ /(^|[;&|(])[[:space:]]*declare[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-[A-Za-z]*n([[:space:]]|$)/)
+    add_sub(ln, "C7", "c", "local -n / declare -n (namerefs) need bash 4.3 — pass the value in and print the result, or assign at the call site (CDT-285)")
+  if (masked ~ /\$\{[^{}]*(,,|\^\^)/)
+    add_sub(ln, "C7", "d", "${var,,}/${var^^} case-modification needs bash 4 — use tr 'A-Z' 'a-z' (CDT-285)")
+  if (masked ~ /[A-Za-z0-9})][[:space:]]*\[[[:space:]]*-1[[:space:]]*\]/)
+    add_sub(ln, "C7", "e", "a [-1] array subscript needs bash 4.3 — index from ${#arr[@]} - 1 (CDT-285)")
+  if (masked ~ /(^|[;&|(])[[:space:]]*grep[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-[A-Za-z]*P([[:space:]]|$)/)
+    add_sub(ln, "C7", "f", "grep -P (Perl regex) is GNU-only — use grep -E, awk or python3 (CDT-285)")
+  if (masked ~ /(^|[;&|(])[[:space:]]*sed[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-i([[:space:]]|$)/)
+    add_sub(ln, "C7", "g", "bare `sed -i` is GNU-only — BSD sed needs a suffix (`sed -i.bak ... && rm -f file.bak`) (CDT-285)")
+  if (masked ~ /(^|[;&|(])[[:space:]]*find[[:space:]][^|;&]*-printf([[:space:]]|$)/)
+    add_sub(ln, "C7", "h", "`find -printf` is GNU-only — stat the files instead (tests/lib/mtimes.sh find_mtimes) (CDT-285)")
+  if (masked ~ /(^|[;&|(])[[:space:]]*touch[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-d([[:space:]]|$)/)
+    add_sub(ln, "C7", "i", "`touch -d` is GNU-only — touch -t with a computed timestamp (tests/lib/mtimes.sh) (CDT-285)")
+  if (masked ~ /(^|[;&|(])[[:space:]]*readlink[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-[A-Za-z]*f([[:space:]]|$)/)
+    add_sub(ln, "C7", "j", "readlink -f is GNU-only — use `cd -P`/pwd, or guard with a realpath fallback (CDT-285)")
+}
+
 # C8 (a)-(d), (f) and the start of (e): one scan over the code part of a line.
 # cx[] (set in scan_line) says which characters are code (C), double-quoted (D)
 # or single-quoted (S); cmt is the column of a trailing comment, or 0.
-function idiom_scan(line, ln, len,    j, code, cs, masked, ch, off, rest, pos, p, cut, after, seg, kk, s, e, word, pc, rs, rl) {
+function idiom_scan(line, ln, len,    j, code, cs, masked, ch, off, rest, pos, p, cut, after, seg, kk, s, e, word, pc, rs, rl, gk, gln, gtxt, guarded, _g_pos, _g_tok, _g_n, _g_after) {
   for (j = 1; j <= len; j++) if (!(j in cx)) cx[j] = (j > 1) ? cx[j - 1] : "C"
   code = (cmt > 1) ? substr(line, 1, cmt - 1) : ((cmt == 1) ? "" : line)
   cs = length(code)
   if (cmt > 0 && stop_ln == 0 && tolower(substr(line, cmt)) ~ /stop here/ && code !~ /(^|[^A-Za-z0-9_])(exit|return)([^A-Za-z0-9_]|$)/)
     stop_ln = ln
-  if (cs == 0) return
+  if (cs == 0) {
+    c7_scan(line, ln, code, masked, cs)
+    return
+  }
   masked = ""
   for (j = 1; j <= cs; j++) {
     ch = substr(code, j, 1)
     masked = masked ((cx[j] == "C") ? ch : "_")
   }
+  c7_scan(line, ln, code, masked, cs)
   # (a) grep -c / rg -c ... || echo 0
   off = 0
   rest = masked
@@ -558,6 +645,39 @@ function idiom_scan(line, ln, len,    j, code, cs, masked, ch, off, rest, pos, p
   # (f) destructive git
   if (match(masked, /(^|[ \t;&|(])git[ \t]+((-[Cc][ \t]+[^ \t]+|--[A-Za-z-]+(=[^ \t]*)?)[ \t]+)*(branch[ \t]+([^|;&]*[ \t])?-D([ \t]|$)|reset[ \t]+([^|;&]*[ \t])?--hard([ \t]|$)|clean[ \t]+([^|;&]*[ \t])?(-[A-Za-z]*f[A-Za-z]*|--force)([ \t]|$)|push[ \t]+([^|;&]*[ \t])?(--force(-with-lease)?(=[^ \t]*)?|-f|--delete|-d)([ \t]|$))/))
     add_sub(ln, "C8", "f", "destructive git (branch -D, reset --hard, clean -f, push --force or --delete) in a fence — route it through skills/lib/git-safety.sh, or waive it on the line above with # lint-ok: C8 and say why it is safe")
+  # (g) `shift N` with N >= 2 and no arity guard within the same or the eight
+  # previous lines of the same fence, at the top level: a value-flag loop
+  # spins forever when one argument remains (06 F23 / 08 F16). A guard is
+  # need_arg, require_value, a `$#` comparison against 2, a
+  # `[ -z "${2:-}" ]`/`case "${2:-}"` value test, or `shift N ||`. The
+  # window spans a whole case arm (its guard sits at the arm's top, several
+  # lines above the shift) but never crosses a fence boundary. The number
+  # must be >= 2 (`shift 1` cannot hang) and the trailing separator is
+  # allowed (`shift 9;` inside `while …; do shift 9; done`). Function
+  # bodies bind their own contract and are exempt.
+  if (nf == 0 && match(masked, /(^|[^A-Za-z0-9_])[[:space:]]*shift[[:space:]]+[0-9]+/)) {
+    _g_pos = RSTART
+    _g_tok = substr(masked, _g_pos, RLENGTH)
+    match(_g_tok, /[0-9]+/)
+    _g_n = substr(_g_tok, RSTART, RLENGTH) + 0
+    _g_after = substr(masked, _g_pos + RSTART + RLENGTH, 1)
+    if (_g_n >= 2 && (_g_after == "" || index(" \t;&|)", _g_after) > 0)) {
+      guarded = 0
+      if (code ~ /shift[[:space:]]+[0-9]+[[:space:]]*\|\|/) guarded = 1
+      for (gk = 0; gk <= 8 && !guarded; gk++) {
+        gln = ln - gk
+        if (gln < c7_block_first || !((gln) in src)) break
+        gtxt = src[gln]
+        if (gtxt ~ /need_arg/ || gtxt ~ /require_value/) guarded = 1
+        # `$#` only guards when compared against 2 — a `while [ $# -gt 0 ]`
+        # loop head is the hang itself, not an arity guard.
+        if (gtxt ~ /\$#[^|;&]*(-ge|-gt|-lt|-eq|-ne)[[:space:]]*2([^0-9]|$)/) guarded = 1
+        if (gtxt ~ /\[ -z "\$\{2:-\}" \]/ || gtxt ~ /case "\$\{2:-\}"/) guarded = 1
+      }
+      if (!guarded)
+        add_sub(ln, "C8", "g", "`shift N` (N >= 2) without an arity guard hangs on a trailing value-less flag — call need_arg (or [ $# -ge 2 ] || usage) before shifting")
+    }
+  }
 }
 
 # "#" that starts a word inside an open quote. Report a waiver inside any

@@ -11,6 +11,9 @@ set -uo pipefail
 umask 077
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# CDT-284: sha256 without GNU sha256sum (shasum -a 256 on stock macOS).
+# shellcheck source=../lib/portable.sh
+. "$SCRIPT_DIR/../lib/portable.sh"
 ROOT="${TRANSCRIPT_MIRROR_ROOT:-$HOME/.claude/transcript}"
 ERRLOG="$ROOT/.errors.log"
 # Tighten the store root only. A full-tree chmod on every tick walks every
@@ -67,7 +70,7 @@ index_idents() {
 }
 
 sha_file() {
-  [ -f "$1" ] && sha256sum "$1" | awk '{print $1}'
+  [ -f "$1" ] && portable_sha256 "$1"
 }
 
 # Cursor: ident, source, main sha, optional 1-based line number, optional

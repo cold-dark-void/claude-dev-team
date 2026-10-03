@@ -11,6 +11,7 @@
 #   T19 tamper-surface carve-out (CDT-102, C1)
 #   T20 warn-latch session-scoping (CDT-102, B1)
 #   T21 warn-latch symlink hardening (CDT-102, B2)
+#   T22 traversal/relative/realpath-absent normalization (CDT-284 06 F29)
 #   T8/T9 WARN vs BLOCK routing (regression)
 #   T10 NotebookEdit notebook_path handling (regression)
 #   T11 fail-open on hook errors (regression)
@@ -239,6 +240,46 @@ for tgt in "$REPO/.claude/foo.json" "$REPO/specs/SPEC-1-x.md" "$REPO/README.md";
   run_hook "$(payload Write "$tgt" "$SID" main)"
   assert_eq "allowlisted ${tgt##*/} exits 0" "$RC" "0"
 done
+
+# =============================================================================
+echo "== T22 traversal normalization (CDT-284 06 F29) =="
+disarm_all; clear_latches
+# .. traversal through the .worktrees/ component itself must not read as
+# in-worktree: $REPO/.worktrees/../src/a.go normalizes to $REPO/src/a.go.
+run_hook "$(payload Write "$REPO/.worktrees/../src/a.go" "$SID" main)"
+assert_eq "unarmed traversal exits 0 (WARN)" "$RC" "0"
+assert_contains "traversal WARN names the normalized target" "$(cat "$HOOK_ERR")" "$REPO/src/a.go"
+arm foo "$SID"
+run_hook "$(payload Write "$REPO/.worktrees/../src/a.go" "$SID" main)"
+assert_eq "armed traversal exits 2 (BLOCK)" "$RC" "2"
+disarm_all
+# traversal that stays inside the worktree stays allowed
+run_hook "$(payload Write "$REPO/.worktrees/foo/../bar/src/b.go" "$SID" main)"
+assert_eq "traversal staying in worktree exits 0" "$RC" "0"
+# relative target: prefixed with PWD, then normalized
+run_hook "$(payload Write "src/rel.go" "$SID" main)"
+assert_eq "relative out-of-worktree exits 0 (WARN)" "$RC" "0"
+assert_contains "relative WARN names the prefixed target" "$(cat "$HOOK_ERR")" "$REPO/src/rel.go"
+
+# ---- realpath absent: the lexical fallback must still normalize -------------
+EG_SHIM="$BASE/norealpath-bin"
+mkdir -p "$EG_SHIM"
+for _eg_t in cat cksum cut dirname find git head jq mktemp rm sed tr; do
+  _eg_p=$(command -v "$_eg_t" 2>/dev/null) && ln -sf "$_eg_p" "$EG_SHIM/$_eg_t"
+done
+if PATH="$EG_SHIM" command -v realpath >/dev/null 2>&1; then
+  echo "  SKIP realpath-absent case: could not build a PATH without realpath"
+else
+  arm foo "$SID"
+  printf '%s' "$(payload Write "$REPO/.worktrees/../src/a.go" "$SID" main)" \
+    | ( cd "$REPO" && PATH="$EG_SHIM" "$BASH_BIN" "$HOOK" ) 2>"$HOOK_ERR"; RC=$?
+  assert_eq "realpath-absent traversal exits 2 (BLOCK)" "$RC" "2"
+  disarm_all
+  printf '%s' "$(payload Write "$REPO/.worktrees/../src/a.go" "$SID" main)" \
+    | ( cd "$REPO" && PATH="$EG_SHIM" "$BASH_BIN" "$HOOK" ) 2>"$HOOK_ERR"; RC=$?
+  assert_eq "realpath-absent unarmed traversal exits 0 (WARN)" "$RC" "0"
+  assert_contains "realpath-absent WARN names normalized target" "$(cat "$HOOK_ERR")" "$REPO/src/a.go"
+fi
 
 # =============================================================================
 echo ""

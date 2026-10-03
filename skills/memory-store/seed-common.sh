@@ -49,11 +49,21 @@ sys.stdout.write("\n".join(lines) + "\n")
 '
 }
 
+# _seed_load_portable — source skills/lib/portable.sh once (CDT-284 sha256;
+# a copied fixture has no skills/lib next to it, so absence must not abort).
+_seed_load_portable() {
+  if ! declare -F portable_sha256 >/dev/null 2>&1; then
+    # shellcheck source=../lib/portable.sh
+    . "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../lib/portable.sh" 2>/dev/null || true
+  fi
+}
+
 # 12-char sha256 hex of normalized content (caller passes text WITHOUT trailer).
 seed_content_hash() {
+  _seed_load_portable
   local normalized
   normalized=$(seed_normalize_content "${1-}")
-  printf '%s' "$normalized" | sha256sum | awk '{print substr($1,1,12)}'
+  printf '%s' "$normalized" | portable_sha256 | awk '{print substr($1,1,12)}'
 }
 
 seed_trailer() {
@@ -129,8 +139,9 @@ sys.stdout.write("\n".join(lines) + ("\n" if lines else ""))
 
 # Full-file sha256 hex (for manifest content_hash).
 seed_file_sha256() {
+  _seed_load_portable
   local path="$1"
-  sha256sum "$path" | awk '{print $1}'
+  portable_sha256 "$path"
 }
 
 # Sanitize one entry. On success: rewritten text on stdout, rc=0.

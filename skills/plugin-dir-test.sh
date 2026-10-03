@@ -793,7 +793,12 @@ if [ -z "$resolver_hits" ]; then
 else
   resolver_count=$(printf '%s\n' "$resolver_hits" | grep -c .)
 fi
-mapfile -t resolver_lines <<< "$resolver_hits"
+# bash 3.2: no mapfile (CDT-285) — split one path per line (herestring adds
+# the trailing newline, exactly like the mapfile form).
+resolver_lines=()
+while IFS= read -r _resolver_line; do
+  resolver_lines+=("$_resolver_line")
+done <<< "$resolver_hits"
 
 # Full audit chain on stdout: a reader of the output can see that a named
 # exclusion was applied, and which one.

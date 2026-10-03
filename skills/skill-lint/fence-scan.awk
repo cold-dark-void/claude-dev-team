@@ -29,6 +29,9 @@
 #   fs_head / fs_head_ln  text and line number of the latest ATX heading seen
 #                         outside every fence ("" and 0 before the first)
 #   fs_info               info string of the fence that is open now
+#
+# -v SH_SCAN=1 (C7 .sh pass only) treats each whole .sh file as one bash
+# fence; the markdown-fence grammar below is not applied.
 
 function fs_trim(s) {
   gsub(/^[ \t]+|[ \t]+$/, "", s)
@@ -44,6 +47,13 @@ function fs_reset() {
 }
 
 function fs_feed(line, ln,    run, info, rest, tok) {
+  # SH_SCAN (check-skill-bash.sh C7 pass): a .sh file IS the shell code —
+  # treat each file as one bash fence instead of parsing markdown fences.
+  if (SH_SCAN) {
+    if (FNR == 1) fence_open(ln, "sh", 1)
+    fence_line(line, ln)
+    return
+  }
   if (fs_ticks == 0) {
     if (match(line, /^[ \t]*```+/)) {
       run = substr(line, RSTART, RLENGTH)

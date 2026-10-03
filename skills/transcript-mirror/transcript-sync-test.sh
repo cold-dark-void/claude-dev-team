@@ -4,6 +4,12 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
+. "$HERE/../../tests/lib/mtimes.sh"
+# CDT-284: portable sha256 (sha256sum is absent on stock macOS).
+# shellcheck source=../lib/portable.sh
+. "$HERE/../lib/portable.sh"
 ROOT="$(cd "$HERE/../.." && pwd)"
 SYNC="$HERE/transcript-sync.sh"
 PASS=0
@@ -14,7 +20,7 @@ bad()  { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1" >&2; }
 
 REAL_HOME="${HOME}"
 OP_STORE="$REAL_HOME/.claude/transcript"
-BEFORE_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"
+BEFORE_OP="$(find_mtimes "$OP_STORE" | sort || true)"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/tm-sync-test.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
@@ -33,7 +39,7 @@ export GROK_SESSIONS_DIR="$SESS"
 export TMPDIR="$TMP"
 unset CLAUDE_PLUGIN_ROOT || true
 
-age() { touch -d '2 minutes ago' "$1"; }
+age() { touch_ago "$1" 120; }
 
 # Claude-shaped JSONL the recorder will turn into main.md (uuid identities).
 write_mini() {
@@ -234,7 +240,7 @@ else
   bad "M11 dumps vs jq mismatch jq=$(printf '%s' "$JQ_OUT" | od -An -tx1) dumps=$(printf '%s' "$DUMPS_NL" | od -An -tx1)"
 fi
 
-RAW_HASH=$(printf '%s\n' "$UJSON" | sha256sum | awk '{print $1}')
+RAW_HASH=$(printf '%s\n' "$UJSON" | portable_sha256)
 PY_HASH=$(UJSON="$UJSON" SYNC_PY="$HERE/transcript-sync.py" python3 - <<'PY'
 import importlib.util, os
 path = os.environ["SYNC_PY"]
@@ -262,7 +268,7 @@ PY
 }
 check_raw_ident() {
   local name="$1" body="$2" want got
-  want=$(printf '%s\n' "$body" | sha256sum | awk '{print $1}')
+  want=$(printf '%s\n' "$body" | portable_sha256)
   got=$(ident_of "$body")
   case "$got" in
     h:"$want") pass "M11 $name ident is the raw-line hash" ;;
@@ -301,7 +307,7 @@ fi
 SID_CWD="sess-220-cwd"
 mkdir -p "$BUCKET/$SID_CWD"
 write_mini "$BUCKET/$SID_CWD/chat_history.jsonl"
-touch -d '90 seconds ago' "$BUCKET/$SID_CWD/chat_history.jsonl"
+touch_ago "$BUCKET/$SID_CWD/chat_history.jsonl" 90
 cat >"$PROJ/.claude/settings.json" <<'EOF'
 {
   "hooks": {
@@ -355,7 +361,7 @@ fi
 SID_LOCAL="sess-220-local"
 mkdir -p "$BUCKET/$SID_LOCAL"
 write_mini "$BUCKET/$SID_LOCAL/chat_history.jsonl"
-touch -d '70 seconds ago' "$BUCKET/$SID_LOCAL/chat_history.jsonl"
+touch_ago "$BUCKET/$SID_LOCAL/chat_history.jsonl" 70
 rm -f "$PROJ/.claude/settings.json"
 cat >"$PROJ/.claude/settings.local.json" <<'EOF'
 {
@@ -417,8 +423,8 @@ SID_G_NEW="tm-221-g-new"
 mkdir -p "$BUCKET221/$SID_G_OLD" "$BUCKET221/$SID_G_NEW"
 write_mini "$BUCKET221/$SID_G_OLD/chat_history.jsonl"
 write_mini "$BUCKET221/$SID_G_NEW/chat_history.jsonl"
-touch -d '3 minutes ago' "$BUCKET221/$SID_G_OLD/chat_history.jsonl"
-touch -d '2 minutes ago' "$BUCKET221/$SID_G_NEW/chat_history.jsonl"
+touch_ago "$BUCKET221/$SID_G_OLD/chat_history.jsonl" 180
+touch_ago "$BUCKET221/$SID_G_NEW/chat_history.jsonl" 120
 STORE_G2="$WORK/store-ac1-grok"
 mkdir -p "$STORE_G2"
 seed_store "$STORE_G2" "$SID_G_NEW"
@@ -438,8 +444,8 @@ SID_C_OLD="tm-221-c-old"
 SID_C_NEW="tm-221-c-new"
 write_mini "$CLAUDE221/$SID_C_OLD.jsonl"
 write_mini "$CLAUDE221/$SID_C_NEW.jsonl"
-touch -d '3 minutes ago' "$CLAUDE221/$SID_C_OLD.jsonl"
-touch -d '2 minutes ago' "$CLAUDE221/$SID_C_NEW.jsonl"
+touch_ago "$CLAUDE221/$SID_C_OLD.jsonl" 180
+touch_ago "$CLAUDE221/$SID_C_NEW.jsonl" 120
 STORE_C2="$WORK/store-ac1-claude"
 mkdir -p "$STORE_C2"
 seed_store "$STORE_C2" "$SID_C_NEW"
@@ -479,8 +485,8 @@ SID_CHK_B="tm-221-chk-b"
 mkdir -p "$BUCKET221/$SID_CHK_A" "$BUCKET221/$SID_CHK_B"
 write_mini "$BUCKET221/$SID_CHK_A/chat_history.jsonl"
 write_mini "$BUCKET221/$SID_CHK_B/chat_history.jsonl"
-touch -d '3 minutes ago' "$BUCKET221/$SID_CHK_A/chat_history.jsonl"
-touch -d '2 minutes ago' "$BUCKET221/$SID_CHK_B/chat_history.jsonl"
+touch_ago "$BUCKET221/$SID_CHK_A/chat_history.jsonl" 180
+touch_ago "$BUCKET221/$SID_CHK_B/chat_history.jsonl" 120
 STORE_CHK="$WORK/store-chk-all"
 mkdir -p "$STORE_CHK"
 set +e
@@ -779,7 +785,7 @@ fi
 # ---------------------------------------------------------------------------
 # M2 — operator ~/.claude/transcript/ untouched
 # ---------------------------------------------------------------------------
-AFTER_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"
+AFTER_OP="$(find_mtimes "$OP_STORE" | sort || true)"
 if [ "$BEFORE_OP" = "$AFTER_OP" ]; then
   pass "M2 operator ~/.claude/transcript/ untouched"
 else

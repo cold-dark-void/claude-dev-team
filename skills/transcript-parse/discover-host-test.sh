@@ -3,7 +3,10 @@
 # Cases: newest mtime wins; env pin wins; none → exit 1; --env-check skips mtime.
 set -euo pipefail
 
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/../../tests/lib/mtimes.sh"
 DISCOVER="$HERE/discover-host.sh"
 PASS=0
 FAIL=0
@@ -41,10 +44,10 @@ printf 'old\n' >"$GROK_BUCKET/gsid-old/chat_history.jsonl"
 printf 'new\n' >"$GROK_BUCKET/gsid-new/chat_history.jsonl"
 
 # mtime order: claude-old < grok-old < claude-new < grok-new (default newest = grok)
-touch -d "2020-01-01 00:00:00" "$CLAUDE_PDIR/csid-old.jsonl"
-touch -d "2021-01-01 00:00:00" "$GROK_BUCKET/gsid-old/chat_history.jsonl"
-touch -d "2022-01-01 00:00:00" "$CLAUDE_PDIR/csid-new.jsonl"
-touch -d "2023-01-01 00:00:00" "$GROK_BUCKET/gsid-new/chat_history.jsonl"
+touch_when "$CLAUDE_PDIR/csid-old.jsonl" "2020-01-01 00:00:00"
+touch_when "$GROK_BUCKET/gsid-old/chat_history.jsonl" "2021-01-01 00:00:00"
+touch_when "$CLAUDE_PDIR/csid-new.jsonl" "2022-01-01 00:00:00"
+touch_when "$GROK_BUCKET/gsid-new/chat_history.jsonl" "2023-01-01 00:00:00"
 
 export CLAUDE_PROJECTS_DIR="$CLAUDE_ROOT"
 export GROK_SESSIONS_DIR="$GROK_ROOT"
@@ -76,7 +79,7 @@ else
 fi
 
 # ---- T2: claude newer than grok → claude ----
-touch -d "2024-06-01 00:00:00" "$CLAUDE_PDIR/csid-new.jsonl"
+touch_when "$CLAUDE_PDIR/csid-new.jsonl" "2024-06-01 00:00:00"
 set +e
 OUT="$("$DISCOVER" --cwd "$CWD" 2>"$WORK/t2.err")"
 RC=$?
@@ -90,10 +93,10 @@ else
   bad "T2 rc=$RC out=$OUT err=$(cat "$WORK/t2.err")"
 fi
 # restore grok as newest for later cases
-touch -d "2025-01-01 00:00:00" "$GROK_BUCKET/gsid-new/chat_history.jsonl"
+touch_when "$GROK_BUCKET/gsid-new/chat_history.jsonl" "2025-01-01 00:00:00"
 
 # ---- T3: GROK_SESSION_ID pin wins over newer claude ----
-touch -d "2030-01-01 00:00:00" "$CLAUDE_PDIR/csid-new.jsonl"
+touch_when "$CLAUDE_PDIR/csid-new.jsonl" "2030-01-01 00:00:00"
 export GROK_SESSION_ID=gsid-old
 set +e
 OUT="$("$DISCOVER" --cwd "$CWD" 2>"$WORK/t3.err")"
@@ -187,7 +190,7 @@ ONLY="$(cd "$ONLY" && pwd)"
 ONLY_ENC="$(dash_enc "$ONLY")"
 mkdir -p "$CLAUDE_ROOT/$ONLY_ENC"
 printf 'x\n' >"$CLAUDE_ROOT/$ONLY_ENC/only-sid.jsonl"
-touch -d "2022-01-01 00:00:00" "$CLAUDE_ROOT/$ONLY_ENC/only-sid.jsonl"
+touch_when "$CLAUDE_ROOT/$ONLY_ENC/only-sid.jsonl" "2022-01-01 00:00:00"
 set +e
 OUT="$("$DISCOVER" --cwd "$ONLY" 2>"$WORK/t9.err")"
 RC=$?

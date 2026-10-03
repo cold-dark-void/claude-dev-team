@@ -9,6 +9,14 @@
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
+. "$HERE/../../tests/lib/mtimes.sh"
+# CDT-284: portable sha256 (sha256sum is absent on stock macOS).
+# shellcheck source=../lib/portable.sh
+. "$HERE/../lib/portable.sh"
+# sha256sum-shaped line (hash, two spaces, path) without GNU sha256sum.
+sha_line() { printf '%s  %s\n' "$(portable_sha256 "$1")" "$1"; }
 REPO=$(CDPATH= cd -- "$HERE/../.." && pwd)
 cd "$REPO" || exit 1
 
@@ -25,7 +33,7 @@ fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1" >&2; }
 
 OPERATOR_HOME="${CDT_OPERATOR_HOME:-$HOME}"
 OP_STORE="$OPERATOR_HOME/.claude/transcript"
-BEFORE_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"
+BEFORE_OP="$(find_mtimes "$OP_STORE" | sort || true)"
 BEFORE_OP_N=$(printf '%s\n' "$BEFORE_OP" | grep -c . || true)
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/tm-c8-test.XXXXXX")
@@ -75,9 +83,9 @@ chmod +x "$WORK/stub-echo.sh"
 CWD=$(pwd)
 ENC_CLAUDE=${CWD//\//-}
 
-age() { touch -d '2 minutes ago' "$1"; }
+age() { touch_ago "$1" 120; }
 
-sha_file() { sha256sum "$1" | awk '{print $1}'; }
+sha_file() { portable_sha256 "$1"; }
 
 last_ident() {
   jq -r 'select(.uuid | type == "string" and length > 0) | .uuid' "$1" \
@@ -125,7 +133,7 @@ store_fingerprint() {
     find "$d" | LC_ALL=C sort
     printf '===files===\n'
     find "$d" -type f | LC_ALL=C sort | while IFS= read -r f; do
-      sha256sum "$f"
+      sha_line "$f"
     done
   }
 }
@@ -1072,7 +1080,7 @@ fi
 # ---------------------------------------------------------------------------
 # operator store untouched
 # ---------------------------------------------------------------------------
-AFTER_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"
+AFTER_OP="$(find_mtimes "$OP_STORE" | sort || true)"
 AFTER_OP_N=$(printf '%s\n' "$AFTER_OP" | grep -c . || true)
 if [ "$BEFORE_OP" = "$AFTER_OP" ]; then
   pass "T1 operator ~/.claude/transcript/ untouched (n=$BEFORE_OP_N)"

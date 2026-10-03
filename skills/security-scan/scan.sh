@@ -36,7 +36,11 @@ cd "$WTROOT"
 if [ "$#" -gt 0 ]; then
   TARGETS=("$@")
 else
-  mapfile -t TARGETS < <("${BASH:-/bin/bash}" "$CHANGED" -C "$WTROOT" paths)
+  # bash 3.2: no mapfile (CDT-285) — read one path per line.
+  TARGETS=()
+  while IFS= read -r _scan_t; do
+    TARGETS+=("$_scan_t")
+  done < <("${BASH:-/bin/bash}" "$CHANGED" -C "$WTROOT" paths)
   if [ "${#TARGETS[@]}" -eq 0 ] || [ -z "${TARGETS[0]:-}" ]; then
     TARGETS=(".")
   fi

@@ -452,6 +452,49 @@ if [ "$RCG" -ne 0 ]; then pass; else fail "G: broken tdd-gate.md rc=$RCG want no
 check_contains "G: tdd-gate failure names commands/tdd-gate.md" "$WORK/g1.err" "for 'tdd-gate' from commands/tdd-gate.md"
 check_not_contains "G: tdd-gate failure does not blame SKILL.md" "$WORK/g1.err" "for 'tdd-gate' from SKILL.md"
 
+######################################################################
+# CDT-286 [06 E4]: the template shellcheck pass. shellcheck is rare, so
+# the three behaviors are driven through PATH shims: absent -> stderr
+# note + OK; present + findings -> rc 1 naming "<name> (shellcheck)";
+# present + clean -> plain OK. The farm below holds every binary the
+# gate and its python3 extractor need and NO shellcheck.
+######################################################################
+
+GATE="$ROOT/skills/init-orchestration/check-hook-templates.sh"
+GATE_FARM="$WORK/sc-farm"
+path_farm "$GATE_FARM" bash sh python3 sed awk cat mktemp rm chmod dirname basename grep find ls env tr sort head
+[ "$?" -eq 0 ] || fail "sc: path_farm refused a non-shellcheck command"
+
+sc_shim() { # sc_shim <dir> <body>
+  local d=$1
+  mkdir -p "$d"
+  { printf '#!/bin/sh\n'; printf '%b\n' "$2"; } > "$d/shellcheck"
+  chmod +x "$d/shellcheck"
+}
+
+SC_OUT="$WORK/sc.out"
+# H: absent -> OK + note (the farm holds no shellcheck)
+"$BASH_BIN" "$GATE" > "$SC_OUT" 2> "$WORK/h.err"; RCH=$?
+check_rc "H: shellcheck absent rc" "$RCH" "0"
+check_contains "H: fail-open note" "$WORK/h.err" "note: shellcheck not installed"
+check_contains "H: OK contract kept" "$SC_OUT" "templates extractable + bash -n clean"
+
+# I: present, findings -> rc 1, template named
+I_SHIM="$WORK/sc-fail-shim"
+sc_shim "$I_SHIM" 'echo "x.sh:1:1: error: planted finding"; exit 1'
+PATH="$GATE_FARM:$I_SHIM" "$BASH_BIN" "$GATE" > "$WORK/i.out" 2> "$WORK/i.err"; RCI=$?
+check_rc "I: shellcheck findings rc" "$RCI" "1"
+check_contains "I: names the sub-rule" "$WORK/i.err" "(shellcheck)"
+check_contains "I: names the template" "$WORK/i.err" "fails shellcheck --shell=bash"
+
+# J: present, clean -> OK, no note
+J_SHIM="$WORK/sc-pass-shim"
+sc_shim "$J_SHIM" 'exit 0'
+PATH="$GATE_FARM:$J_SHIM" "$BASH_BIN" "$GATE" > "$WORK/j.out" 2> "$WORK/j.err"; RCJ=$?
+check_rc "J: shellcheck clean rc" "$RCJ" "0"
+check_contains "J: OK contract kept" "$WORK/j.out" "templates extractable + bash -n clean"
+check_not_contains "J: no fail-open note when present" "$WORK/j.err" "shellcheck not installed"
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -598,7 +598,7 @@ cc_assert "a quote anchored on the wrong occurrence of a repeated AC id fails" \
 # so the token stays named in the AC's own quote (spec text, untouched)
 # but is absent from every OTHER bundle -- fails, isolated to token
 # coverage. -----------------------------------------------------------------
-sed -i "s/exercises Case 2 of the parser/exercises the parser's second branch/" "$REPO2/skills/fx/test-rx-a.sh"
+sed -i.bak "s/exercises Case 2 of the parser/exercises the parser's second branch/" "$REPO2/skills/fx/test-rx-a.sh" && rm -f "$REPO2/skills/fx/test-rx-a.sh.bak"
 git -C "$REPO2" add -A
 git -C "$REPO2" commit -q -m "remove the Case 2 literal from test-rx-a.sh"
 BUNDLES_FAIL_TOKEN="$HERMETIC_ROOT/bundles-fail-token.json"

@@ -19,7 +19,8 @@
 #   set keeps digit strings as strings. true|false|null stay JSON.
 #   inc owns numeric counters. --string forces a JSON string.
 #
-# Atomic writes use tmp+flock+rename pattern (same as orchestrate/task-store.sh).
+# Atomic writes use tmp+portable-lock+rename pattern (CDT-284; same as
+# orchestrate/task-store.sh).
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
 
 set -euo pipefail
@@ -81,7 +82,7 @@ cmd_init() {
   dest=$(sidecar_file "$ticket")
 
   (
-    flock -x 9
+    portable_lock_acquire "$LOCK" || exit 1
 
     # Re-arm guard: if file exists and cron_job_id is non-null, refuse
     if [ -f "$dest" ]; then
@@ -106,7 +107,7 @@ cmd_init() {
         fixer_active:    false,
         cron_job_id:     null
       }' || exit 1
-  ) 9>"$LOCK"
+  )
 }
 
 cmd_set() {
@@ -128,7 +129,7 @@ cmd_set() {
   fi
 
   (
-    flock -x 9
+    portable_lock_acquire "$LOCK" || exit 1
 
     # true|false|null stay JSON. Digit strings stay strings (pr_number "42").
     # --string forces a JSON string, including for true|false|null.
@@ -143,7 +144,7 @@ cmd_set() {
       esac
     fi
     atomic_write "$dest" jq --"$jq_type" v "$value" --arg k "$key" '.[$k] = $v' "$dest" || exit 1
-  ) 9>"$LOCK"
+  )
 }
 
 cmd_get() {
@@ -176,11 +177,11 @@ cmd_inc() {
   fi
 
   (
-    flock -x 9
+    portable_lock_acquire "$LOCK" || exit 1
     new_val=$(jq --arg k "$key" '((.[$k] | tonumber?) // 0) + 1' "$dest")
     atomic_write "$dest" jq --argjson v "$new_val" --arg k "$key" '.[$k] = $v' "$dest" || exit 1
     echo "$new_val"
-  ) 9>"$LOCK"
+  )
 }
 
 cmd_delete() {

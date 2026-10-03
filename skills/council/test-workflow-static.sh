@@ -2,6 +2,9 @@
 # Static ACs for Council-on-Workflow (CDV-196). No live Workflow host required.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
+. "$ROOT/tests/lib/mtimes.sh"
 cd "$ROOT"
 
 # shellcheck source=../../tests/lib/skip.sh
@@ -295,7 +298,7 @@ _STALE="$_STALE_PARENT/council-cache-stale-wp406"
 _FRESH="$_STALE_PARENT/council-cache-fresh-wp406"
 rm -rf -- "$_STALE" "$_FRESH"
 mkdir -p "$_STALE" "$_FRESH"
-touch -d '2 days ago' "$_STALE"
+touch_ago "$_STALE" 172800
 bash skills/council/engine.sh preflight --scope claim --scope-arg 'prune' >/dev/null
 if [ ! -d "$_STALE" ] && [ -d "$_FRESH" ]; then
   echo "OK: preflight prunes council-cache older than 24h"

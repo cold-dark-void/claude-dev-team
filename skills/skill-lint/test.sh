@@ -483,6 +483,72 @@ else
   expect_no_finding C9
 fi
 
+# ---------------------------------------------------------------------------
+# WP 6-A (wp-6-a-portability-core): C7 bash-4/GNU-only constructs over
+# bash/sh/shell fences AND consumer-shipped .sh, plus C8 (g) `shift N`
+# arity guards. The PDH stanza is byte-pinned and exempt from C7.
+# ---------------------------------------------------------------------------
+
+# T18: C7 — one finding per construct line; the portable forms, quoted text,
+# comments and the look-alike tools (sort -V, xargs -r) stay silent; a waiver
+# on the line above suppresses; ```text is not scanned.
+run_lint 1 "$FIX/c7-constructs.md"
+for L in 2 3 4 5 6 7 8 9 10 11 12 13 14; do expect_at C7 c7-constructs.md "$L"; done
+expect_count C7 13
+T18A=$(mktemp -d)
+printf '```bash\n# lint-ok: C7\ntouch -d "1 hour ago" f\n```\n' > "$T18A/w.md"
+run_lint 0 "$T18A/w.md"
+expect_no_finding C7
+printf '```text\ndeclare -A Z\nreadlink -f x\n```\n' > "$T18A/t.md"
+run_lint 0 "$T18A/t.md"
+expect_no_finding C7
+rm -rf "$T18A"
+
+# T18b: the PDH stanza is exempt — a construct INSIDE the byte-pinned block
+# (here a decoy with the same shape) draws no C7 (C5 still fires on the drift).
+run_lint 1 "$FIX/c7-stanza.md"
+expect_count C7 0
+
+# T19: C8 (g) — `shift N` (N >= 2) flags only without an arity guard in its
+# fence-bounded window: the defect forms (`${2:-}; shift 2` and a one-line
+# `while …; do shift 9; done`), not the `shift 1` / need_arg / require_value /
+# $# -ge 2 / case "${2:-}" / `shift 2 ||` / function-body forms.
+run_lint 1 "$FIX/c8-shift.md"
+expect_at C8 c8-shift.md 2
+expect_at C8 c8-shift.md 35
+expect_count C8 2
+
+# T20: the .sh pass — C7 over commands/, skills/ and agents/*.sh, one file =
+# one fence; skill-lint/fixtures stays excluded; explicit .sh args are scanned.
+T20=$(mktemp -d)
+mkdir -p "$T20/commands" "$T20/skills/deep" "$T20/skills/skill-lint/fixtures" "$T20/agents"
+printf 'x=${a[-1]}\n' > "$T20/skills/deep/planted.sh"
+printf 'mapfile -t R < f\n' > "$T20/commands/c.sh"
+printf 'declare -A H\n' > "$T20/agents/a.sh"
+printf 'touch -d "1 hour ago" f\n' > "$T20/skills/skill-lint/fixtures/excluded.sh"
+run_lint 1 --root "$T20"
+for loc in skills/deep/planted.sh commands/c.sh agents/a.sh; do
+  echo "$OUT" | grep -q "$loc:1: \[C7\]" && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: .sh pass missed $loc"; }
+done
+echo "$OUT" | grep -q "skill-lint/fixtures/excluded.sh" && { FAIL=$((FAIL+1)); echo "FAIL: fixtures .sh scanned"; } || PASS=$((PASS+1))
+run_lint 1 "$T20/skills/deep/planted.sh"
+expect_count C7 1
+# an explicit .md still goes through the fence engines; an explicit .sh with
+# no construct is clean end to end
+printf 'plain sh\n' > "$T20/clean.sh"
+run_lint 0 "$T20/clean.sh"
+expect_no_finding C7
+rm -rf "$T20"
+
+# T21: live tree — zero C7 findings, waived or not.
+if command -v jq >/dev/null 2>&1; then
+  LIVE=$({ bash "$LINT" --json --root "$REPO_ROOT" 2>/dev/null || true; } | jq -r '[.[] | select(.check == "C7")] | map("\(.path):\(.line):\(.check):\(.waived)") | join(" ")' 2>&1)
+  [ -z "$LIVE" ] && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: live tree has C7 findings: $LIVE"; }
+else
+  OUT=$(bash "$LINT" --root "$REPO_ROOT" 2>&1); RC=$?
+  expect_no_finding C7
+fi
+
 echo "---"
 echo "skill-lint tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

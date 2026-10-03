@@ -7,6 +7,11 @@ set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/../../tests/lib/skip.sh"
+# CDT-284: portable sha256 (sha256sum is absent on stock macOS).
+# shellcheck source=../lib/portable.sh
+. "$SCRIPT_DIR/../lib/portable.sh"
+# sha256sum-shaped line (hash, two spaces, path) without GNU sha256sum.
+sha_line() { printf '%s  %s\n' "$(portable_sha256 "$1")" "$1"; }
 require_cmd sqlite3
 PLUGIN_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 EXPORT="$SCRIPT_DIR/export-seed-pack.sh"
@@ -591,8 +596,8 @@ echo "-- M12 (d) symlink at fallback write sink"
 CANARY_DIR="${TMPDIR:-/tmp}/seed-test-m12d-canary.$$"
 mkdir -p "$CANARY_DIR/dir"
 printf '%s\n' "outside lessons content" > "$CANARY_DIR/lessons.md"
-SUM_BEFORE_DIR=$(find "$CANARY_DIR/dir" -type f | sort | xargs -r sha256sum 2>/dev/null)
-SUM_BEFORE_FILE=$(sha256sum "$CANARY_DIR/lessons.md")
+SUM_BEFORE_DIR=$(find "$CANARY_DIR/dir" -type f | sort | while IFS= read -r f; do sha_line "$f"; done)
+SUM_BEFORE_FILE=$(sha_line "$CANARY_DIR/lessons.md")
 
 # (d1) .claude/memory/ic5 itself is a symlink to an outside dir
 FIX=$(mktemp -d "${TMPDIR:-/tmp}/seed-test-m12d1.XXXXXX")
@@ -625,8 +630,8 @@ assert_eq "M12d2 exit 0" "$RC" "0"
 assert_contains "M12d2 symlink warning" "$OUT" "symlink at fallback target"
 rm -rf "$FIX"
 
-SUM_AFTER_DIR=$(find "$CANARY_DIR/dir" -type f | sort | xargs -r sha256sum 2>/dev/null)
-SUM_AFTER_FILE=$(sha256sum "$CANARY_DIR/lessons.md")
+SUM_AFTER_DIR=$(find "$CANARY_DIR/dir" -type f | sort | while IFS= read -r f; do sha_line "$f"; done)
+SUM_AFTER_FILE=$(sha_line "$CANARY_DIR/lessons.md")
 assert_eq "M12d outside dir untouched" "$SUM_AFTER_DIR" "$SUM_BEFORE_DIR"
 assert_eq "M12d outside lessons.md untouched" "$SUM_AFTER_FILE" "$SUM_BEFORE_FILE"
 rm -rf "$CANARY_DIR"

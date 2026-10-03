@@ -120,7 +120,9 @@ HARNESS_PREPASS
 {"mode":"direct","stats":{"since_leaf_applied":false,"est_tokens":15000},"spine":"HARNESS_SPINE_PATH"}
 HARNESS_PLAN
   : >"$PLUG/stub.spine.txt"
-  sed -i "s#HARNESS_SPINE_PATH#$PLUG/stub.spine.txt#" "$PLUG/fixture-plan.json"
+  # CDT-285: bare `sed -i` is GNU-only; write a backup and drop it (portable).
+  sed -i.bak "s#HARNESS_SPINE_PATH#$PLUG/stub.spine.txt#" "$PLUG/fixture-plan.json" \
+    && rm -f "$PLUG/fixture-plan.json.bak"
 
   export HARNESS_WORK="$WORK"
   export CLAUDE_PLUGIN_ROOT="$PLUG"

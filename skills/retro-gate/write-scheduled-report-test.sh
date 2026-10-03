@@ -2,7 +2,10 @@
 # write-scheduled-report-test.sh — unit tests for write-scheduled-report.sh (CDV-190)
 set -u
 
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$HERE/../../tests/lib/mtimes.sh"
 WRITER="$HERE/write-scheduled-report.sh"
 PASS=0
 FAIL=0
@@ -64,10 +67,8 @@ RDIR="$MROOT/.claude/retro"
 for i in $(seq -w 1 13); do
   f="$RDIR/scheduled-2000-01-${i}T000000Z.md"
   echo "old $i" >"$f"
-  # touch with increasing mtime
-  touch -d "2000-01-${i} 00:00:00" "$f" 2>/dev/null \
-    || touch -t "200001${i}0000" "$f" 2>/dev/null \
-    || true
+  # touch with increasing mtime (CDT-285: portable across GNU/BSD)
+  touch_when "$f" "2000-01-${i} 00:00:00" || true
 done
 # Wait a tick so new write is newest
 sleep 1

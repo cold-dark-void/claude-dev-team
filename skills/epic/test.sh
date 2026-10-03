@@ -2021,8 +2021,13 @@ jq -e '[.children[].id] | index("CDV-RACE-C2") != null' "$STATE_RACE" >/dev/null
 N_RACE=$(jq '.children | length' "$STATE_RACE")
 [ "$N_RACE" -eq 3 ] && pass || fail "race: expected 3 children got $N_RACE"
 
-# EPICS_LOCK created; no publish tmp leftovers
-[ -f "$RACE_ROOT/.claude/epics/.lock" ] && pass || fail "race: EPICS_LOCK missing at .claude/epics/.lock"
+# EPICS_LOCK: a portable-lock directory (CDT-284) holding a pid+epoch stamp —
+# released again after the run, so assert the shape the mutators leave behind.
+if [ -e "$RACE_ROOT/.claude/epics/.lock" ]; then
+  fail "race: EPICS_LOCK left behind at .claude/epics/.lock (release failed)"
+else
+  pass "race: EPICS_LOCK released"
+fi
 LEFTOVER=$(find "$RACE_ROOT/.claude/epics" -name 'state.json.tmp.*' 2>/dev/null | wc -l)
 [ "$LEFTOVER" -eq 0 ] && pass || fail "race: tmp leftovers $LEFTOVER"
 

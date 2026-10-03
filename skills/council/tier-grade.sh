@@ -169,7 +169,51 @@ cd "$TOPLEVEL" || fail_closed "git failure: cannot enter work tree $TOPLEVEL"
 # ---- Parse `git diff --raw` -------------------------------------------------
 # --raw is the only input that says whether a row is a rename: its status letter. The
 # post-image path in --raw is always literal, never rename notation.
-declare -A SRCMODE=() DSTMODE=() DSTSHA=() STATUS=()
+# bash 3.2 has no associative arrays (CDT-285): the --raw maps are parallel
+# arrays over RAW_KEYS with a linear index lookup.
+RAW_KEYS=()
+RAW_SRCMODE=()
+RAW_DSTMODE=()
+RAW_DSTSHA=()
+RAW_STATUS=()
+
+_tg_idx() { # _tg_idx <key> → index into RAW_KEYS, or -1
+  local i=0
+  while [ "$i" -lt "${#RAW_KEYS[@]}" ]; do
+    [ "${RAW_KEYS[$i]}" = "$1" ] && { printf '%s' "$i"; return 0; }
+    i=$((i + 1))
+  done
+  printf '%s' -1
+}
+
+_tg_put() { # _tg_put <key> <srcmode> <dstmode> <dstsha> <status>
+  local i
+  i=$(_tg_idx "$1")
+  if [ "$i" -eq -1 ]; then
+    RAW_KEYS+=("$1"); RAW_SRCMODE+=("$2"); RAW_DSTMODE+=("$3"); RAW_DSTSHA+=("$4"); RAW_STATUS+=("$5")
+  else
+    RAW_SRCMODE[$i]="$2"; RAW_DSTMODE[$i]="$3"; RAW_DSTSHA[$i]="$4"; RAW_STATUS[$i]="$5"
+  fi
+  return 0
+}
+
+_tg_get() { # _tg_get <field s|d|h|t> <key> → value, or "" when absent
+  local i
+  i=$(_tg_idx "$2")
+  [ "$i" -ge 0 ] || return 0
+  case "$1" in
+    s) printf '%s' "${RAW_SRCMODE[$i]}" ;;
+    d) printf '%s' "${RAW_DSTMODE[$i]}" ;;
+    h) printf '%s' "${RAW_DSTSHA[$i]}" ;;
+    t) printf '%s' "${RAW_STATUS[$i]}" ;;
+  esac
+  return 0
+}
+
+_tg_has() { # _tg_has <key> → rc 0 iff a --raw row exists for <key>
+  [ "$(_tg_idx "$1")" -ge 0 ]
+}
+
 if [ -n "$RAW" ]; then
   while IFS= read -r line; do
     case "$line" in ':'*) ;; *) continue ;; esac
@@ -177,10 +221,7 @@ if [ -n "$RAW" ]; then
     paths="${line#*$'\t'}"
     post="${paths##*$'\t'}"
     read -r smode dmode _ssha dsha status <<<"${meta#:}"
-    SRCMODE["$post"]="$smode"
-    DSTMODE["$post"]="$dmode"
-    DSTSHA["$post"]="$dsha"
-    STATUS["$post"]="$status"
+    _tg_put "$post" "$smode" "$dmode" "$dsha" "$status"
   done <<<"$RAW"
 fi
 
@@ -232,12 +273,12 @@ resolve_postimage() {
     *) RESOLVED="$np"; return 0 ;;
   esac
   [ -n "$RAW" ] || fail_closed "numstat path needs --raw to tell rename notation from a literal name: $np"
-  if [ -n "${STATUS[$np]+set}" ]; then
-    case "${STATUS[$np]}" in R*|C*) ;; *) literal_ok=1 ;; esac
+  if _tg_has "$np"; then
+    case "$(_tg_get t "$np")" in R*|C*) ;; *) literal_ok=1 ;; esac
   fi
   cp="$(postimage_path "$np")"
-  if [ "$cp" != "$np" ] && [ -n "${STATUS[$cp]+set}" ]; then
-    case "${STATUS[$cp]}" in R*|C*) rename_ok=1 ;; esac
+  if [ "$cp" != "$np" ] && _tg_has "$cp"; then
+    case "$(_tg_get t "$cp")" in R*|C*) rename_ok=1 ;; esac
   fi
   if [ "$literal_ok" -eq 1 ] && [ "$rename_ok" -eq 1 ]; then
     fail_closed "ambiguous numstat path — matches both a literal file and a rename post-image: $np"
@@ -291,7 +332,7 @@ LOC=$((ADDED + DELETED))
 # than sign off on signals computed from the wrong bytes.
 if [ -n "$RAW" ]; then
   for p in "${PATHS[@]}"; do
-    [ -n "${DSTMODE[$p]+set}" ] \
+    _tg_has "$p" \
       || fail_closed "--raw does not describe numstat path: $p"
   done
 fi
@@ -303,7 +344,8 @@ fi
 post_image_head() {
   # Strip NUL before capture — bash command substitution warns on every binary
   # blob that contains \0 (CDT-128). Prefer blob from --raw when present.
-  local p="$1" sha="${DSTSHA[$1]:-}"
+  local p="$1" sha
+  sha=$(_tg_get h "$p")
   if [ -n "$sha" ] && [ -n "${sha//0/}" ]; then
     git cat-file blob "$sha" 2>/dev/null | tr -d '\0' | head -n 100 || true
   elif [ -f "$p" ]; then
@@ -345,9 +387,9 @@ for i in "${!PATHS[@]}"; do
   fi
 
   # Signal 2 — executable (mode half)
-  if [ "${DSTMODE[$p]:-}" = "100755" ]; then
+  if [ "$(_tg_get d "$p")" = "100755" ]; then
     exec_why="git diff --raw dst mode 100755"
-  elif [ "${SRCMODE[$p]:-}" = "100755" ]; then
+  elif [ "$(_tg_get s "$p")" = "100755" ]; then
     exec_why="git diff --raw src mode 100755"
   fi
 
@@ -380,9 +422,9 @@ for i in "${!PATHS[@]}"; do
   if [ -n "$exec_why" ]; then
     case "$exec_why" in
       *'100755'*)
-        _srcm="${SRCMODE[$p]:-}"
-        _dstm="${DSTMODE[$p]:-}"
-        _st="${STATUS[$p]:-}"
+        _srcm=$(_tg_get s "$p")
+        _dstm=$(_tg_get d "$p")
+        _st=$(_tg_get t "$p")
         _floc=$((a + d))
         case "$_st" in
           R*|C*) ;;  # rename/copy of executable stays critical

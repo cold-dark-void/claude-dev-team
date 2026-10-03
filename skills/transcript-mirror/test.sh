@@ -18,6 +18,14 @@
 set -u
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# CDT-285: GNU/BSD-safe mtime helpers (touch -d / find -printf are absent on macOS).
+# shellcheck source=../../tests/lib/mtimes.sh
+. "$HERE/../../tests/lib/mtimes.sh"
+# CDT-284: portable sha256 (sha256sum is absent on stock macOS).
+# shellcheck source=../lib/portable.sh
+. "$HERE/../lib/portable.sh"
+# sha256sum-shaped line (hash, two spaces, path) without GNU sha256sum.
+sha_line() { printf '%s  %s\n' "$(portable_sha256 "$1")" "$1"; }
 REPO=$(cd "$HERE/../.." && pwd)
 source "$REPO/tests/lib/skip.sh"
 REC="$HERE/transcript-mirror.sh"
@@ -35,7 +43,7 @@ count() { grep -c -- "$1" "$2" 2>/dev/null || true; }
 
 REAL_HOME="${HOME}"
 OP_STORE="$REAL_HOME/.claude/transcript"
-BEFORE_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"
+BEFORE_OP="$(find_mtimes "$OP_STORE" | sort || true)"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/tm-test.XXXXXX")
 cleanup() { rm -rf "$WORK"; }
@@ -56,7 +64,7 @@ export CLAUDE_PLUGIN_ROOT="$REPO"
 unset GROK_SESSION_ID || true
 unset CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID CLAUDE_TRANSCRIPT_PATH TRANSCRIPT_PATH || true
 
-age() { touch -d '2 minutes ago' "$1"; }
+age() { touch_ago "$1" 120; }
 
 copy_aged() {
   mkdir -p "$(dirname "$2")"
@@ -84,7 +92,7 @@ pipe_rec_root() {
 
 sid_tree() { find "$1" | LC_ALL=C sort; }
 sid_sha() {
-  find "$1" -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum "$f"; done
+  find "$1" -type f | LC_ALL=C sort | while IFS= read -r f; do sha_line "$f"; done
 }
 
 count_nest_ref() { grep -c -- '^> @agents/worker-1/main.md$' "$1" 2>/dev/null || true; }
@@ -417,11 +425,11 @@ fi
 copy_aged "$FIX/claude-uuid.jsonl" "$WORK/src/idemp.jsonl"
 RC=$(invoke_rec --transcript "$WORK/src/idemp.jsonl" --sid tm-idemp)
 assert_rc0 "$RC" "AC6 first run exit 0"
-SHA1=$(sha256sum "$STORE/tm-idemp/main.md" | awk '{print $1}')
+SHA1=$(portable_sha256 "$STORE/tm-idemp/main.md")
 CUR1=$(cat "$STORE/tm-idemp/cursor")
 RC=$(invoke_rec --transcript "$WORK/src/idemp.jsonl" --sid tm-idemp)
 assert_rc0 "$RC" "AC6 re-run exit 0"
-SHA2=$(sha256sum "$STORE/tm-idemp/main.md" | awk '{print $1}')
+SHA2=$(portable_sha256 "$STORE/tm-idemp/main.md")
 CUR2=$(cat "$STORE/tm-idemp/cursor")
 if [ "$SHA1" = "$SHA2" ]; then
   pass "AC6 re-run byte-identical main.md"
@@ -1217,7 +1225,7 @@ if [ -f "$STORE/tm-reb/agents/worker-1/main.md" ] \
 else
   fail "AC7 pre-rebuild missing nest or nest-ref"
 fi
-NEST_SHA=$(sha256sum "$STORE/tm-reb/agents/worker-1/main.md" | awk '{print $1}')
+NEST_SHA=$(portable_sha256 "$STORE/tm-reb/agents/worker-1/main.md")
 copy_aged "$FIX/parent-with-task.jsonl" "$WORK/src/rebuild-parent-2.jsonl"
 RC=$(invoke_rec --transcript "$WORK/src/rebuild-parent-2.jsonl" --sid tm-reb)
 assert_rc0 "$RC" "AC7 parent rebuild exit 0"
@@ -1227,7 +1235,7 @@ if [ -f "$STORE/tm-reb/agents/worker-1/main.md" ]; then
 else
   fail "AC7 nest wiped by parent rebuild"
 fi
-NEST_SHA2=$(sha256sum "$STORE/tm-reb/agents/worker-1/main.md" 2>/dev/null | awk '{print $1}')
+NEST_SHA2=$(portable_sha256 "$STORE/tm-reb/agents/worker-1/main.md" 2>/dev/null)
 if [ -n "$NEST_SHA" ] && [ "$NEST_SHA" = "$NEST_SHA2" ]; then
   pass "AC7 nest main.md sha256 unchanged across rebuild"
 else
@@ -1630,7 +1638,7 @@ fi
 # ---------------------------------------------------------------------------
 # M2 — operator ~/.claude/transcript/ untouched
 # ---------------------------------------------------------------------------
-AFTER_OP="$(find "$OP_STORE" -printf '%T@ %p\n' 2>/dev/null | sort || true)"
+AFTER_OP="$(find_mtimes "$OP_STORE" | sort || true)"
 if [ "$BEFORE_OP" = "$AFTER_OP" ]; then
   pass "M2 operator ~/.claude/transcript/ untouched"
 else
