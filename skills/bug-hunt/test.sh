@@ -10,6 +10,10 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 CMD="$ROOT/commands/bug-hunt.md"
 SKILL="$ROOT/skills/bug-hunt/SKILL.md"
+# WP 7-03 split: stage bodies live beside the router. Content assertions and
+# fence extractions may land in any markdown file of this skill.
+SKILL_ALL=""
+for _sf in "$ROOT"/skills/bug-hunt/*.md; do SKILL_ALL="$SKILL_ALL $_sf"; done
 SPEC="$ROOT/specs/core/SPEC-034-bug-hunt-workflow.md"
 DOCS="$ROOT/docs/commands/bug-hunt.md"
 GITIGNORE="$ROOT/.gitignore"
@@ -38,9 +42,31 @@ has_f() {
   fi
 }
 
+has_skill() {
+  # has_skill <pattern> <label> — matches in the router or any stage file
+  local pat="$1" label="$2" f
+  for f in $SKILL_ALL; do
+    if grep -qE -- "$pat" "$f" 2>/dev/null; then ok "$label"; return; fi
+  done
+  bad "$label (/$pat/ not in any of:$SKILL_ALL)"
+}
+
+has_f_skill() {
+  # has_f_skill <fixed-string> <label> — matches in the router or any stage file
+  local s="$1" label="$2" f
+  for f in $SKILL_ALL; do
+    if grep -qF -- "$s" "$f" 2>/dev/null; then ok "$label"; return; fi
+  done
+  bad "$label (fixed string missing in all of:$SKILL_ALL)"
+}
+
 # ---- T-pre: surfaces present ------------------------------------------------
 if [ -f "$CMD" ]; then ok "commands/bug-hunt.md exists"; else bad "commands/bug-hunt.md missing"; fi
 if [ -f "$SKILL" ]; then ok "skills/bug-hunt/SKILL.md exists"; else bad "skills/bug-hunt/SKILL.md missing"; fi
+
+# WP 7-03: thin router cap (review B R4.2) — stage bodies live beside the router.
+RL=$(wc -l < "$SKILL" | tr -d ' ')
+if [ "$RL" -le 150 ]; then ok "router is thin ($RL lines, cap 150)"; else bad "router is $RL lines (cap 150)"; fi
 if [ -f "$SPEC" ]; then ok "SPEC-034 exists"; else bad "SPEC-034 missing"; fi
 
 # ---- Frontmatter (YAML name + description) ----------------------------------
@@ -64,28 +90,28 @@ fm_ok() {
 [ -f "$SKILL" ] && fm_ok "$SKILL" "skill"
 
 has "$CMD" '^name:[[:space:]]*bug-hunt' "command name: bug-hunt"
-has "$SKILL" '^name:[[:space:]]*bug-hunt' "skill name: bug-hunt"
+has_skill '^name:[[:space:]]*bug-hunt' "skill name: bug-hunt"
 
 # ---- SKILL stage headers + contracts ----------------------------------------
-has "$SKILL" '## Step S0:' "SKILL Step S0"
-has "$SKILL" '## Step S1:' "SKILL Step S1"
-has "$SKILL" '## Step S2:' "SKILL Step S2"
-has "$SKILL" '## Step REPORT:' "SKILL Step REPORT"
+has_skill '## Step S0:' "SKILL Step S0"
+has_skill '## Step S1:' "SKILL Step S1"
+has_skill '## Step S2:' "SKILL Step S2"
+has_skill '## Step REPORT:' "SKILL Step REPORT"
 
-has_f "$SKILL" 'confirmed_actionable' "SKILL confirmed_actionable"
-has_f "$SKILL" "$MARKER" "SKILL self-verified marker"
+has_f_skill 'confirmed_actionable' "SKILL confirmed_actionable"
+has_f_skill "$MARKER" "SKILL self-verified marker"
 
 # C3 flip: C2 "MUST NOT materialize" → proceed-gated + no stage-4/fix
-has_f "$SKILL" 'MUST NOT materialize without proceed' \
+has_f_skill 'MUST NOT materialize without proceed' \
   "SKILL MUST NOT materialize without proceed (C3)"
-has "$SKILL" 'MUST NOT fix|/orchestrate|/epic|stage-4' \
+has_skill 'MUST NOT fix|/orchestrate|/epic|stage-4' \
   "SKILL MUST NOT fix/stage-4/orchestrate"
 
 # Hard walls + compose cites
-has_f "$SKILL" '.claude/bug-hunt' "SKILL report dir"
-has "$SKILL" 'severity-floor|BH_FLOOR' "SKILL severity-floor"
-has "$SKILL" 'Blind-review|blind path|blind-path' "SKILL discover blind compose"
-has "$SKILL" 'investigator' "SKILL refute investigator compose"
+has_f_skill '.claude/bug-hunt' "SKILL report dir"
+has_skill 'severity-floor|BH_FLOOR' "SKILL severity-floor"
+has_skill 'Blind-review|blind path|blind-path' "SKILL discover blind compose"
+has_skill 'investigator' "SKILL refute investigator compose"
 has_f "$CMD" "$MARKER" "command self-verified marker"
 has "$CMD" 'MUST NOT|no backlog materialize without|Hard walls' "command hard walls"
 has_f "$CMD" 'skills/bug-hunt/SKILL.md' "command points at skill"
@@ -178,40 +204,40 @@ else bad "T16 missing command or skill"; fi
 
 # ---- CDT-138 C3 contracts (T6 / SPEC T17–T21) --------------------------------
 # Plan path -plan.md (AC3 / M39 / OQ1)
-has "$SKILL" '-plan\.md' "C3 skill plan path -plan.md"
-has_f "$SKILL" 'BH_PLAN' "C3 skill BH_PLAN binding"
+has_skill '-plan\.md' "C3 skill plan path -plan.md"
+has_f_skill 'BH_PLAN' "C3 skill BH_PLAN binding"
 has "$CMD" '-plan\.md' "C3 command plan path -plan.md"
 
 # M8 proceed forms (AC4 / OQ2): --proceed flag + typed proceed token
-has_f "$SKILL" '--proceed' "C3 skill --proceed flag"
-has "$SKILL" 'typed `proceed`|typed proceed|token `proceed`' "C3 skill typed proceed token"
+has_f_skill '--proceed' "C3 skill --proceed flag"
+has_skill 'typed `proceed`|typed proceed|token `proceed`' "C3 skill typed proceed token"
 has_f "$CMD" '--proceed' "C3 command --proceed flag"
 has "$CMD" 'typed `proceed`|typed proceed' "C3 command typed proceed"
 
 # Programmatic write-back cite (AC5 / M40) — no dual-write fork
-has_f "$SKILL" 'Programmatic write-back' "C3 skill Programmatic write-back cite"
-has_f "$SKILL" 'skills/backlog/SKILL.md' "C3 skill cites backlog SKILL"
-has_f "$SKILL" 'MUST NOT dual-write fork' "C3 skill no dual-write fork"
+has_f_skill 'Programmatic write-back' "C3 skill Programmatic write-back cite"
+has_f_skill 'skills/backlog/SKILL.md' "C3 skill cites backlog SKILL"
+has_f_skill 'MUST NOT dual-write fork' "C3 skill no dual-write fork"
 
 # M22 phase-done (AC9)
-has_f "$SKILL" 'phase-done: materialize — findings plan + bh-quality backlog (M22)' \
+has_f_skill 'phase-done: materialize — findings plan + bh-quality backlog (M22)' \
   "C3 skill M22 phase-done materialize"
-has_f "$SKILL" 'phase-done: materialize — 0 creates (M22)' \
+has_f_skill 'phase-done: materialize — 0 creates (M22)' \
   "C3 skill M22 zero-create phase-done"
 
 # AC10 zero actionable → 0 creates
-has_f "$SKILL" '0 confirmed-actionable' "C3 skill AC10 0 confirmed-actionable"
-has "$SKILL" '0 creates|zero creates|A==0' "C3 skill AC10 zero creates path"
+has_f_skill '0 confirmed-actionable' "C3 skill AC10 0 confirmed-actionable"
+has_skill '0 creates|zero creates|A==0' "C3 skill AC10 zero creates path"
 
 # S3 step headers present
-has "$SKILL" '## Step S3a:|### Step S3a:|## S3a |S3a LOAD' "C3 skill S3a LOAD"
-has "$SKILL" 'S3c PLAN|S3c ' "C3 skill S3c PLAN"
-has "$SKILL" 'S3d PROCEED|S3d ' "C3 skill S3d PROCEED"
-has "$SKILL" 'S3e MATERIALIZE|S3e ' "C3 skill S3e MATERIALIZE"
-has "$SKILL" 'S3g PHASE-DONE|S3g ' "C3 skill S3g PHASE-DONE"
+has_skill '## Step S3a:|### Step S3a:|## S3a |S3a LOAD' "C3 skill S3a LOAD"
+has_skill 'S3c PLAN|S3c ' "C3 skill S3c PLAN"
+has_skill 'S3d PROCEED|S3d ' "C3 skill S3d PROCEED"
+has_skill 'S3e MATERIALIZE|S3e ' "C3 skill S3e MATERIALIZE"
+has_skill 'S3g PHASE-DONE|S3g ' "C3 skill S3g PHASE-DONE"
 
 # Resume materialize surface
-has "$SKILL" 'materialize <' "C3 skill materialize resume usage"
+has_skill 'materialize <' "C3 skill materialize resume usage"
 has "$CMD" 'materialize <' "C3 command materialize resume usage"
 
 # SPEC M38–M41 (T18–T21)
@@ -226,54 +252,54 @@ has_f "$SPEC" '--proceed' "T21 SPEC --proceed"
 
 # ---- CDT-139 C4 contracts (T6 / SPEC T22–T26) --------------------------------
 # Handoff surface + resume (AC1 / M42)
-has "$SKILL" 'handoff <' "C4 skill handoff resume usage"
+has_skill 'handoff <' "C4 skill handoff resume usage"
 has "$CMD" 'handoff <' "C4 command handoff resume usage"
-has_f "$SKILL" 'BH_HANDOFF_PATH' "C4 skill BH_HANDOFF_PATH binding"
-has_f "$SKILL" 'BH_PHASE_PLAN' "C4 skill BH_PHASE_PLAN binding"
-has "$SKILL" '-phase-plan\.md' "C4 skill phase-plan path"
-has "$SKILL" 'handoff-phase' "C4 skill handoff-phase path"
+has_f_skill 'BH_HANDOFF_PATH' "C4 skill BH_HANDOFF_PATH binding"
+has_f_skill 'BH_PHASE_PLAN' "C4 skill BH_PHASE_PLAN binding"
+has_skill '-phase-plan\.md' "C4 skill phase-plan path"
+has_skill 'handoff-phase' "C4 skill handoff-phase path"
 has "$CMD" 'handoff' "C4 command handoff surface"
 
 # M9 / M46 start-phase forms (AC5 / OQ5): --start-phase flag + typed token
-has_f "$SKILL" '--start-phase' "C4 skill --start-phase flag"
-has "$SKILL" 'start-phase-<n>|typed `start-phase|typed start-phase' \
+has_f_skill '--start-phase' "C4 skill --start-phase flag"
+has_skill 'start-phase-<n>|typed `start-phase|typed start-phase' \
   "C4 skill typed start-phase token"
 has_f "$CMD" '--start-phase' "C4 command --start-phase flag"
 has "$CMD" 'start-phase-<n>|typed `start-phase|typed start-phase' \
   "C4 command typed start-phase"
 
 # M18 / M45 route rule (AC4): /orchestrate default; /epic when phase_count≥2 ∧ item_count≥2
-has_f "$SKILL" 'BH_ROUTE' "C4 skill BH_ROUTE binding"
-has "$SKILL" 'phase_count.*2|/epic|M45' "C4 skill M45 epic rule"
-has "$SKILL" '/orchestrate' "C4 skill /orchestrate route"
-has "$SKILL" '/epic' "C4 skill /epic route"
+has_f_skill 'BH_ROUTE' "C4 skill BH_ROUTE binding"
+has_skill 'phase_count.*2|/epic|M45' "C4 skill M45 epic rule"
+has_skill '/orchestrate' "C4 skill /orchestrate route"
+has_skill '/epic' "C4 skill /epic route"
 has_f "$SPEC" 'M18' "C4 SPEC M18 handoff routing"
 has "$SPEC" 'phase_count' "C4 SPEC phase_count route rule"
 
 # M23 phase-done full + zero (AC7 / M48)
-has_f "$SKILL" 'phase-done: handoff — resume identity + phase templates (M23)' \
+has_f_skill 'phase-done: handoff — resume identity + phase templates (M23)' \
   "C4 skill M23 phase-done handoff"
-has_f "$SKILL" 'phase-done: handoff — 0 phases (M23)' \
+has_f_skill 'phase-done: handoff — 0 phases (M23)' \
   "C4 skill M23 zero-path phase-done"
 
 # MUST NOT invoke orch/epic + emit-only walls (AC9 / N12 / N13)
-has_f "$SKILL" 'MUST NOT invoke engines / fix' \
+has_f_skill 'MUST NOT invoke engines / fix' \
   "C4 skill MUST NOT invoke engines / fix"
-has "$SKILL" 'MUST NOT invoke.*/orchestrate|MUST NOT invoke.*/epic|MUST NOT invoke engines' \
+has_skill 'MUST NOT invoke.*/orchestrate|MUST NOT invoke.*/epic|MUST NOT invoke engines' \
   "C4 skill MUST NOT invoke /orchestrate|/epic"
-has_f "$SKILL" 'emit-only' "C4 skill emit-only"
+has_f_skill 'emit-only' "C4 skill emit-only"
 has "$CMD" 'emit-only|MUST NOT invoke' "C4 command emit-only / MUST NOT invoke"
-has_f "$SKILL" 'MUST NOT re-enter S1–S3 invent during handoff' \
+has_f_skill 'MUST NOT re-enter S1–S3 invent during handoff' \
   "C4 skill N13 no re-S1–S3 invent"
 
 # S4 step headers present
-has "$SKILL" '## Step S4:|S4a LOAD' "C4 skill S4 / S4a LOAD"
-has "$SKILL" 'S4b BAND|S4b ' "C4 skill S4b BAND"
-has "$SKILL" 'S4c ROUTE|S4c ' "C4 skill S4c ROUTE"
-has "$SKILL" 'S4d WRITE|S4d ' "C4 skill S4d WRITE"
-has "$SKILL" 'S4e LOCK|S4e ' "C4 skill S4e LOCK"
-has "$SKILL" 'S4f ARM|S4f ' "C4 skill S4f ARM"
-has "$SKILL" 'S4g PHASE-DONE|S4g ' "C4 skill S4g PHASE-DONE"
+has_skill '## Step S4:|S4a LOAD' "C4 skill S4 / S4a LOAD"
+has_skill 'S4b BAND|S4b ' "C4 skill S4b BAND"
+has_skill 'S4c ROUTE|S4c ' "C4 skill S4c ROUTE"
+has_skill 'S4d WRITE|S4d ' "C4 skill S4d WRITE"
+has_skill 'S4e LOCK|S4e ' "C4 skill S4e LOCK"
+has_skill 'S4f ARM|S4f ' "C4 skill S4f ARM"
+has_skill 'S4g PHASE-DONE|S4g ' "C4 skill S4g PHASE-DONE"
 
 # Template field contracts (M44 / M47)
 TPL_PP="$HERE/templates/phase-plan.md"
@@ -313,12 +339,12 @@ has "$CMD" 'argument-hint:' "C5 command argument-hint"
 
 # AC2 path + severity floor; loud fail invalid (exit 64)
 has_f "$CMD" '--severity-floor' "C5 command --severity-floor"
-has_f "$SKILL" '--severity-floor' "C5 skill --severity-floor"
+has_f_skill '--severity-floor' "C5 skill --severity-floor"
 has "$CMD" 'exit 64|fails loud|loud fail' "C5 command loud-fail language"
-has "$SKILL" 'exit 64' "C5 skill exit 64 on invalid"
-has "$SKILL" 'invalid --severity-floor|want critical\|warning\|nitpick' \
+has_skill 'exit 64' "C5 skill exit 64 on invalid"
+has_skill 'invalid --severity-floor|want critical\|warning\|nitpick' \
   "C5 skill invalid floor message"
-has "$SKILL" 'path does not exist|outside project|unreadable|non-existent' \
+has_skill 'path does not exist|outside project|unreadable|non-existent' \
   "C5 skill path fail language"
 
 # AC3 thin entry drives S0→S4 via skill (C2→C3→C4 sequence)
@@ -327,10 +353,10 @@ has "$CMD" 'S0 parse|S1 discover|S2 refute|S3 plan|S4 phase' \
   "C5 command sequence pointer S0–S4"
 has "$CMD" 'Step 1: Follow the skill|execute it end-to-end' \
   "C5 command Step 1 follow skill"
-has "$SKILL" '## Step S0:|## Step S1:|## Step S2:|## Step REPORT:' \
+has_skill '## Step S0:|## Step S1:|## Step S2:|## Step REPORT:' \
   "C5 skill S0–S2+REPORT steps"
-has "$SKILL" 'S3a LOAD|S3c PLAN|S3e MATERIALIZE' "C5 skill S3 pipeline"
-has "$SKILL" 'S4a LOAD|S4d WRITE|S4g PHASE-DONE' "C5 skill S4 pipeline"
+has_skill 'S3a LOAD|S3c PLAN|S3e MATERIALIZE' "C5 skill S3 pipeline"
+has_skill 'S4a LOAD|S4d WRITE|S4g PHASE-DONE' "C5 skill S4 pipeline"
 
 # AC4 docs page sections
 if [ -f "$DOCS" ]; then ok "C5 docs/commands/bug-hunt.md exists"
@@ -356,11 +382,11 @@ has "$ROOT/docs/README.md" 'bug-hunt' "C5 docs hub links bug-hunt"
 # AC6 smoke: narrow-path invocation shape → plan + ≥0 backlog + phase stubs; no fixes
 has_f "$CMD" 'Narrow-path smoke shape' "C5 command narrow-path smoke note"
 has_f "$DOCS" '/bug-hunt skills/bug-hunt' "C5 docs narrow-path example"
-has "$SKILL" 'BH_PLAN|-plan\.md' "C5 skill plan path product"
-has "$SKILL" 'BH_PHASE_PLAN|phase-plan' "C5 skill phase-plan product"
-has "$SKILL" 'handoff-phase' "C5 skill handoff-phase product"
-has "$SKILL" '0 creates|zero creates|A==0' "C5 skill ≥0 backlog (zero path)"
-has_f "$SKILL" 'MUST NOT invoke engines / fix' "C5 skill no-fix wall"
+has_skill 'BH_PLAN|-plan\.md' "C5 skill plan path product"
+has_skill 'BH_PHASE_PLAN|phase-plan' "C5 skill phase-plan product"
+has_skill 'handoff-phase' "C5 skill handoff-phase product"
+has_skill '0 creates|zero creates|A==0' "C5 skill ≥0 backlog (zero path)"
+has_f_skill 'MUST NOT invoke engines / fix' "C5 skill no-fix wall"
 has "$CMD" 'MUST NOT invoke|/orchestrate|/epic|edit product code' \
   "C5 command no-fix / no-engine wall"
 has "$DOCS" 'no product-code|MUST NOT invoke|/orchestrate' \
@@ -369,12 +395,19 @@ has_f "$DOCS" 'Hard non-products of smoke' "C5 docs smoke non-products header"
 
 # ---- WP 4-08 executable fences (E3 / F11 / F12 / F17 / F20 / F25 / BH-S01) ----
 extract_fence() {
-  awk -v h="$1" '
-    $0 ~ h { seen=1 }
-    seen && !inf && /^```bash[[:space:]]*$/ { inf=1; next }
-    inf && /^```/ { exit }
-    inf { print }
-  ' "$SKILL"
+  # Heading may live in the router or any stage file (WP 7-03 split); the
+  # first file yielding a non-empty fence body wins.
+  local h="$1" f out
+  for f in $SKILL_ALL; do
+    [ -f "$f" ] || continue
+    out=$(awk -v h="$h" '
+      $0 ~ h { seen=1 }
+      seen && !inf && /^```bash[[:space:]]*$/ { inf=1; next }
+      inf && /^```/ { exit }
+      inf { print }
+    ' "$f")
+    if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+  done
 }
 
 run_s0() {
@@ -595,7 +628,7 @@ if printf '%s\n' "$s1_out" | grep -q 'skills/bug-hunt/SKILL.md' \
 else
   bad "F25 file list missing tracked file or included probe"
 fi
-if grep -qF 'git -C "$WTROOT" ls-files' "$SKILL" && ! grep -qF 'git -C "$MROOT" ls-files' "$SKILL"; then
+if grep -qF 'git -C "$WTROOT" ls-files' "$ROOT/skills/bug-hunt/s1-discover.md" && ! grep -qF 'git -C "$MROOT" ls-files' $SKILL_ALL; then
   ok "F25 fence uses WTROOT"
 else
   bad "F25 fence still uses MROOT ls-files"
@@ -662,7 +695,7 @@ trap - EXIT
 # ---- skill-lint (unwaived findings fail) ------------------------------------
 if [ -f "$LINT" ]; then
   set +e
-  LINT_OUT=$(bash "$LINT" "$CMD" "$SKILL" 2>&1)
+  LINT_OUT=$(bash "$LINT" $CMD $SKILL_ALL 2>&1)
   LINT_RC=$?
   set -e
   if [ "$LINT_RC" -eq 0 ]; then

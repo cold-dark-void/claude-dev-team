@@ -1726,6 +1726,13 @@ SPEC033="$ROOT/specs/core/SPEC-033-autopilot-policy.md"
 SCEN="$SCRIPT_DIR/self-answer-scenarios.md"
 KICKOFF_SKILL="$ROOT/skills/kickoff/SKILL.md"
 EPIC_SKILL="$ROOT/skills/epic/SKILL.md"
+# WP 7-04 split: epic Step 0 lives in run-start.md, A.5/B.3 envelopes in mode
+# files — content greps target the concatenated body.
+EPIC_BODY=$(mktemp "${TMPDIR:-/tmp}/ap-epic-body.XXXXXX")
+cat "$ROOT"/skills/epic/SKILL.md "$ROOT"/skills/epic/run-start.md \
+  "$ROOT"/skills/epic/mode-a-decompose.md "$ROOT"/skills/epic/mode-b-execute.md \
+  "$ROOT"/skills/epic/mode-c-status.md "$ROOT"/skills/epic/mode-d-complete.md \
+  "$ROOT"/skills/epic/mode-e-redecompose.md "$ROOT"/skills/epic/mode-f-sync.md > "$EPIC_BODY"
 ORCH_SKILL="$ROOT/skills/orchestrate/SKILL.md"
 SCAFFOLD_SKILL="$ROOT/skills/scaffold-project/SKILL.md"
 : "${LOC_EXCLUDE:=$SCRIPT_DIR/loc-exclude.sh}"
@@ -1837,7 +1844,7 @@ if [ "$RC" -eq 0 ] && echo "$OUT" | jq -e '.max_loc == 4000' >/dev/null 2>&1 \
 else
   fail "cdt223-t7 kickoff unused-docs rc=$RC out=$OUT"
 fi
-for pair in "kickoff:$KICKOFF_SKILL" "epic:$EPIC_SKILL"; do
+for pair in "kickoff:$KICKOFF_SKILL" "epic:$EPIC_BODY"; do
   name="${pair%%:*}"
   skill="${pair#*:}"
   if grep -q 'max_loc:MAX_LOC' "$skill"; then
@@ -2210,12 +2217,12 @@ else
   fail "cdt224-t5 epic argc=2 rc=$RC out=$OUT"
 fi
 
-if grep -q 'N13 isolation' "$EPIC_SKILL" \
-  && grep -F -q 'Mode A envelopes omit `tasks` / `projected_loc` / `waves`' "$EPIC_SKILL" \
-  && grep -q 'engine argc=2' "$EPIC_SKILL" \
-  && grep -q 'child `/orchestrate` freezes independently' "$EPIC_SKILL" \
-  && ! grep -q 'budget-check.sh derive' "$EPIC_SKILL" \
-  && ! grep -q 'AUTOPILOT_BUDGET_META' "$EPIC_SKILL"; then
+if grep -q 'N13 isolation' "$EPIC_BODY" \
+  && grep -F -q 'Mode A envelopes omit `tasks` / `projected_loc` / `waves`' "$EPIC_BODY" \
+  && grep -q 'engine argc=2' "$EPIC_BODY" \
+  && grep -q 'child `/orchestrate` freezes independently' "$EPIC_BODY" \
+  && ! grep -q 'budget-check.sh derive' "$EPIC_BODY" \
+  && ! grep -q 'AUTOPILOT_BUDGET_META' "$EPIC_BODY"; then
   pass "cdt224-t5 epic SKILL N13 Mode A argc=2, no derive/META"
 else
   fail "cdt224-t5 epic SKILL isolation grep miss"
@@ -2569,6 +2576,35 @@ if grep -q 'confirming the FE gap' "$SCEN" \
   fail "cdt358 scenarios still call FE an uncovered gap"
 else
   pass "cdt358 scenarios record FE as a closed no-card path"
+fi
+
+# =============================================================================
+# WP 7-04 (CDT-289 05 E4): one ship pipeline composes the three stage docs
+# =============================================================================
+SHIP_PIPELINE="$SCRIPT_DIR/ship-pipeline.md"
+if [ -f "$SHIP_PIPELINE" ]; then
+  pass "wp704 ship-pipeline.md exists"
+else
+  fail "wp704 ship-pipeline.md missing at $SHIP_PIPELINE"
+fi
+if grep -qF 'skills/autopilot/self-answer.md' "$SHIP_PIPELINE" \
+  && grep -qF 'skills/autopilot/ship-gate-council.md' "$SHIP_PIPELINE" \
+  && grep -qF 'skills/autopilot/end-state.md' "$SHIP_PIPELINE"; then
+  pass "wp704 pipeline cites all three stage docs"
+else
+  fail "wp704 pipeline does not cite self-answer + ship-gate-council + end-state"
+fi
+# Ordered stages: Stage 1 decide precedes Stage 2 audit precedes Stage 3 execute.
+if [ "$(grep -n '^## Stage' "$SHIP_PIPELINE" | head -3 | awk -F: '{print $1}' | tr '\n' ' ' | awk '$1<$2 && $2<$3 {print "ok"}')" = "ok" ]; then
+  pass "wp704 pipeline stages are ordered decide → audit → execute"
+else
+  fail "wp704 pipeline stage headings missing or out of order"
+fi
+if grep -qF 'skills/autopilot/ship-pipeline.md' "$SCRIPT_DIR/SKILL.md" \
+  && grep -qF 'skills/autopilot/ship-pipeline.md' "$ROOT/skills/orchestrate/steps/11-ship.md"; then
+  pass "wp704 autopilot SKILL.md and orchestrate Step 11 enter via the pipeline"
+else
+  fail "wp704 callers do not cite ship-pipeline.md"
 fi
 
 # =============================================================================

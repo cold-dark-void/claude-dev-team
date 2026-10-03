@@ -194,6 +194,8 @@ mkdir -p "$FAKE_PLUGIN/skills/doctor" "$FAKE_PLUGIN/.claude-plugin" \
   "$FAKE_PLUGIN/skills/init-orchestration" "$FAKE_PLUGIN/skills/memory-store" \
   "$FAKE_PLUGIN/skills"
 cp "$DOCTOR" "$FAKE_PLUGIN/skills/doctor/doctor.sh"
+# rv-w3-39: the dispatcher sources its check groups from skills/doctor/checks/.
+cp -R "$SCRIPT_DIR/checks" "$FAKE_PLUGIN/skills/doctor/checks"
 cp "$PLUGIN_ROOT/skills/plugin-dir.sh" "$FAKE_PLUGIN/skills/plugin-dir.sh"
 cp "$PLUGIN_ROOT/skills/worktree-lib.sh" "$FAKE_PLUGIN/skills/worktree-lib.sh" 2>/dev/null || true
 cp "$SCHEMA_SQL" "$FAKE_PLUGIN/skills/memory-store/schema.sql"
@@ -1229,7 +1231,7 @@ fi
 
 # T20g — rv-w3-21 honesty: the WARN names the tracked version-file rewrite and
 # the probe header documents it (stale pin stands until a real probe run).
-if grep -qF 'it rewrites the tracked tools/permission-matrix-cc-version' "$DOCTOR" \
+if grep -rqF 'it rewrites the tracked tools/permission-matrix-cc-version' "$SCRIPT_DIR/checks" \
   && grep -qF 'TRACKED and is REWRITTEN' "$PROBE"; then
   pass "T20g doctor WARN + probe header document the version-file rewrite (rv-w3-21)"
 else
@@ -2320,7 +2322,7 @@ if command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
     fail "T25f rc=$RC out=$OUT"
   fi
   # g: the count comes from embed_error_count (embed-common.sh), not a copy of the awk
-  if ! grep -q '\$2 == "embed"' "$DOCTOR" && grep -q 'embed_error_count' "$DOCTOR"; then
+  if ! grep -rq '\$2 == "embed"' "$SCRIPT_DIR/checks" && grep -rq 'embed_error_count' "$SCRIPT_DIR/checks"; then
     pass "T25g doctor.sh counts through embed_error_count, no inline awk copy"
   else
     fail "T25g doctor.sh holds an inline embed counter or does not call embed_error_count"
@@ -2330,6 +2332,7 @@ if command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   T25_FAKE="$TMP/t25-fakeplugin"
   mkdir -p "$T25_FAKE/skills/doctor"
   cp "$SCRIPT_DIR/doctor.sh" "$T25_FAKE/skills/doctor/doctor.sh"
+  cp -R "$SCRIPT_DIR/checks" "$T25_FAKE/skills/doctor/checks"
   cd "$T25" || exit 1
   printf '%s\n' '2026-01-01T00:00:00Z embed embed-one memory 1: boom' > "$T25/.claude/memory/.errors.log"
   RC=0
@@ -2451,6 +2454,7 @@ fi
 MKT_ROOT="$TMP/mkt-home/.claude/plugins/marketplaces/dev-team"
 mkdir -p "$MKT_ROOT/skills/doctor"
 cp "$DOCTOR" "$MKT_ROOT/skills/doctor/doctor.sh"
+cp -R "$SCRIPT_DIR/checks" "$MKT_ROOT/skills/doctor/checks"
 MKT_PROJ="$TMP/mkt-proj"
 make_bare_project "$MKT_PROJ"
 cd "$MKT_PROJ" || exit 1
@@ -2587,8 +2591,8 @@ else
 fi
 
 # T26e — static: doctor names the CDT-284 fallbacks in both checks.
-if grep -qF 'portable.sh mkdir lock covers lock support' "$DOCTOR" \
-  && grep -qF 'portable_with_timeout perl supervisor' "$DOCTOR"; then
+if grep -rqF 'portable.sh mkdir lock covers lock support' "$SCRIPT_DIR/checks" \
+  && grep -rqF 'portable_with_timeout perl supervisor' "$SCRIPT_DIR/checks"; then
   pass "T26e static: CDT-284 fallbacks named in doctor"
 else
   fail "T26e static fallback strings missing"

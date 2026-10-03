@@ -52,10 +52,21 @@ git init -q "$REPO"
 cd "$REPO" || exit 1
 
 # --external takes an optional value (`--external` alone is valid).
-TF_EXEMPT="--external" probe_case "engine preflight" 7 "$ENGINE" 2 cmd_preflight preflight
-probe_case "engine finalize" 11 "$ENGINE" 2 cmd_finalize finalize
-probe_case "engine resolve-task-id" 1 "$ENGINE" 2 cmd_resolve_task_id resolve-task-id
-probe_case "engine report-path" 1 "$ENGINE" 2 cmd_report_path report-path some-slug
+# rv-w3-39/L-10: engine.sh is a dispatcher — the probe runs against a hermetic
+# combined copy (engine.sh with its source lines replaced by the inlined
+# helper bodies) so the flag scan sees the function bodies AND the dispatch.
+ENGINE_PROBE="$HERMETIC_ROOT/engine-probe.sh"
+# Helper bodies first, then engine.sh (minus its source lines) so the
+# functions are defined before the dispatch case runs.
+cat "$ROOT/skills/council/engine-util.sh" \
+  "$ROOT/skills/council/engine-report-path.sh" \
+  "$ROOT/skills/council/engine-preflight.sh" \
+  "$ROOT/skills/council/engine-finalize.sh" > "$ENGINE_PROBE"
+sed '/^\. "\$SCRIPT_DIR\/engine-/d' "$ENGINE" >> "$ENGINE_PROBE"
+TF_EXEMPT="--external" probe_case "engine preflight" 7 "$ENGINE_PROBE" 2 cmd_preflight preflight
+probe_case "engine finalize" 11 "$ENGINE_PROBE" 2 cmd_finalize finalize
+probe_case "engine resolve-task-id" 1 "$ENGINE_PROBE" 2 cmd_resolve_task_id resolve-task-id
+probe_case "engine report-path" 1 "$ENGINE_PROBE" 2 cmd_report_path report-path some-slug
 probe_case "external-reviewer detect" 1 "$EXTREV" 2 cmd_detect detect
 probe_case "external-reviewer normalize" 4 "$EXTREV" 2 cmd_normalize normalize
 probe_case "external-reviewer run" 5 "$EXTREV" 2 cmd_run run

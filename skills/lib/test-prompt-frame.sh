@@ -95,7 +95,7 @@ else
 fi
 
 if grep -qF '{{DATA_NONCE}}' "$ROOT/commands/council.md" \
-  && grep -qF '{{DATA_NONCE}}' "$ROOT/skills/council/SKILL.md"; then
+  && grep -qF '{{DATA_NONCE}}' "$ROOT/skills/council/schemas.md"; then
   ok "council substitution and the skill table name the nonce"
 else
   bad "DATA_NONCE is missing from council.md or SKILL.md"
@@ -113,7 +113,7 @@ else
   bad "strip dropped the payload: $stripped"
 fi
 
-for f in skills/validate-memory/host-pipeline.md skills/validate-memory/reconcile-host.md skills/fix-ticket/SKILL.md skills/bug-hunt/SKILL.md commands/council.md; do
+for f in skills/validate-memory/host-pipeline.md skills/validate-memory/reconcile-host.md skills/fix-ticket/SKILL.md skills/bug-hunt/s1-discover.md commands/council.md; do
   if grep -qF '{{DATA_NONCE}}' "$ROOT/$f" && grep -qF 'prompt-frame.sh strip' "$ROOT/$f"; then
     ok "spawn site strips then substitutes the nonce: $f"
   else

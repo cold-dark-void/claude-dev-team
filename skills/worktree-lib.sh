@@ -10,6 +10,8 @@
 #   status | list            enumerate $MROOT/.worktrees/* (lock FRESH|STALE|NONE)
 #   register <slug>          stamp .wt-lock only (dir must already exist)
 #   sweep                    propose STALE worktrees with no live task (never delete)
+#   gc --stale               remove STALE .wt-lock files (doctor --fix path; the
+#                            FRESH/STALE TTL lives only here — rv-w3-39)
 #
 # The real holder of a worktree is an LLM agent/conversation, not an OS process
 # with a checkable PID, so the lock is ADVISORY and keyed on AGE: a lock younger
@@ -635,6 +637,31 @@ cmd_sweep() {
   exit 0
 }
 
+cmd_gc() {
+  # Remove STALE .wt-lock files. Staleness is decided by read_lock_state — the
+  # single TTL implementation in this lib (rv-w3-39). Nothing is deleted but
+  # the lock file; the worktree directory and branch are untouched. Stdout
+  # stays empty (diagnostics to stderr), like ensure/register.
+  resolve_mroot
+  local base="$MROOT/.worktrees"
+  [ -d "$base" ] || exit 0
+  local d slug lock removed=0
+  for d in "$base"/*; do
+    [ -d "$d" ] || continue
+    slug=$(basename "$d")
+    lock="$d/.wt-lock"
+    [ -f "$lock" ] || continue
+    read_lock_state "$lock"
+    if [ "$LOCK_STATE" = "STALE" ]; then
+      rm -f "$lock"
+      printf 'gc --stale: removed %s (worktree %s kept)\n' "$lock" "$slug" >&2
+      removed=$((removed + 1))
+    fi
+  done
+  printf 'gc --stale: removed %d stale lock(s)\n' "$removed" >&2
+  exit 0
+}
+
 main() {
   local sub="${1:-}"
   shift || true
@@ -645,8 +672,9 @@ main() {
     list)     cmd_list "$@" ;;
     register) cmd_register "$@" ;;
     sweep)    cmd_sweep "$@" ;;
+    gc)       cmd_gc "$@" ;;
     *)
-      echo "usage: worktree-lib.sh {ensure|release [--preview]|status|list|register|sweep} [slug]" >&2
+      echo "usage: worktree-lib.sh {ensure|release [--preview]|status|list|register|sweep|gc --stale} [slug]" >&2
       exit 64
       ;;
   esac

@@ -133,6 +133,11 @@ See `skills/autopilot/end-state.md` for the dual land end-state sequences (BC3
 deterministic push-target check + squash-stage, then **release** via `/release` **or**
 **land-no-release** without `/release`), gated behind `--autopilot=<token>` (N3/N3a).
 
+One ordered pipeline: `skills/autopilot/ship-pipeline.md` composes the clean
+ship-choice path — Stage 1 decide (`self-answer.md`) → Stage 2 audit
+(`ship-gate-council.md`) → Stage 3 execute (`end-state.md`). Read it instead of
+wiring the three by hand; it cites, it does not fork.
+
 ---
 
 ## The three-gate scheme fits `/orchestrate` only — `/kickoff` & `/epic` per command (SPEC-033 M5)

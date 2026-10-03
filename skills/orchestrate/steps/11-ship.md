@@ -65,7 +65,10 @@ When `RELEASE_END_BLOCKED=true`:
 - Without `--release` on the parent epic (`release_bump` null/absent): assert
   exits 0 — per-child release/merge/land-no-release unchanged.
 
-**Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Build the C3 §2
+**Autopilot:** if `AUTOPILOT_ON` (Step 0), do NOT wait for the user here. Follow the
+one ship pipeline, `skills/autopilot/ship-pipeline.md` — Stage 1 decide
+(`self-answer.md`) → Stage 2 audit (`ship-gate-council.md`) → Stage 3 execute
+(`end-state.md`) — with the stage citations below as the contract homes. Build the C3 §2
 envelope `{ workflow:"orchestrate", ticket_id:<ISSUE-ID>, gate:"ship-choice",
 run_id:RUN_ID, iteration:ITER, run_start_epoch:RUN_START_EPOCH,
 autopilot_bump:AUTOPILOT_BUMP, max_loc:MAX_LOC, <the Step-10b spec-alignment result, QA PASS/FAIL, the

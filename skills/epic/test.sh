@@ -6,6 +6,13 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LIB="$HERE/epic-lib.sh"
 PARSE="$HERE/parse-flags.sh"
 DAG="$HERE/../orchestrate/dag-lib.sh"
+# WP 7-04 split: mode bodies live beside the router. Content greps and section
+# extractions target the concatenated skill body, so a pattern matches in any
+# stage file; router-only checks (frontmatter, existence) keep $SKILL.
+SKILL_BODY=$(mktemp "${TMPDIR:-/tmp}/epic-skill-body.XXXXXX")
+cat "$HERE"/SKILL.md "$HERE"/run-start.md "$HERE"/mode-a-decompose.md \
+  "$HERE"/mode-b-execute.md "$HERE"/mode-c-status.md "$HERE"/mode-d-complete.md \
+  "$HERE"/mode-e-redecompose.md "$HERE"/mode-f-sync.md > "$SKILL_BODY"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$HERE/../../tests/lib/hermetic.sh"
 # shellcheck source=../../tests/lib/fence.sh
@@ -442,81 +449,81 @@ run_in 1 build-seed M13-Z
 # ---- Protocol greps (CDT-127 T6 / SPEC-025 M8,M11,M13) -----------------------
 SKILL="$HERE/SKILL.md"
 CMD="$HERE/../../commands/epic.md"
-[ -f "$SKILL" ] || fail "skills/epic/SKILL.md missing"
+[ -f "$SKILL_BODY" ] || fail "skills/epic/SKILL.md missing"
 
-if [ -f "$SKILL" ]; then
+if [ -f "$SKILL_BODY" ]; then
   # M8: no skip-PM path (mandatory PM; no enablement flag)
-  grep -q 'no skip-PM path' "$SKILL" \
+  grep -q 'no skip-PM path' "$SKILL_BODY" \
     && pass || fail "SKILL missing 'no skip-PM path' (M8)"
-  if grep -nE -- '--skip-pm|SKIP_PM=|skip_pm' "$SKILL" ${CMD:+"$CMD"} 2>/dev/null; then
+  if grep -nE -- '--skip-pm|SKIP_PM=|skip_pm' "$SKILL_BODY" ${CMD:+"$CMD"} 2>/dev/null; then
     fail "skip-PM enablement path still present (M8)"
   else
     pass
   fi
 
   # M13 present + fail-closed halt string
-  grep -q 'M13' "$SKILL" \
+  grep -q 'M13' "$SKILL_BODY" \
     && pass || fail "SKILL missing M13"
-  grep -q 'context-discipline: seed failed' "$SKILL" \
+  grep -q 'context-discipline: seed failed' "$SKILL_BODY" \
     && pass || fail "SKILL missing fail-closed string 'context-discipline: seed failed'"
 
   # Guardrail + measurement + CDT-126 non-goal (M13.5 / AC2 / M13.9)
-  grep -q '400k' "$SKILL" \
+  grep -q '400k' "$SKILL_BODY" \
     && pass || fail "SKILL missing 400k guardrail threshold"
-  grep -qE 'ε[[:space:]]*=[[:space:]]*0\.5' "$SKILL" \
+  grep -qE 'ε[[:space:]]*=[[:space:]]*0\.5' "$SKILL_BODY" \
     && pass || fail "SKILL missing ε = 0.5 measurement target"
-  grep -q 'CDT-126 non-goal' "$SKILL" \
+  grep -q 'CDT-126 non-goal' "$SKILL_BODY" \
     && pass || fail "SKILL missing CDT-126 non-goal note"
 
   # No dual status SoT + M11 still holds under M13
-  grep -q 'no dual status SoT' "$SKILL" \
+  grep -q 'no dual status SoT' "$SKILL_BODY" \
     && pass || fail "SKILL missing no dual status SoT (M13.2a)"
-  grep -q 'M11 under M13' "$SKILL" \
+  grep -q 'M11 under M13' "$SKILL_BODY" \
     && pass || fail "SKILL missing 'M11 under M13' preservation note"
-  grep -q 'What /epic MUST NOT do (M11)' "$SKILL" \
+  grep -q 'What /epic MUST NOT do (M11)' "$SKILL_BODY" \
     && pass || fail "SKILL missing M11 MUST NOT section"
 
   # CDT-141-C1 / M14 protocol presence
-  grep -q 'Step 0.4: Worktree / release flags' "$SKILL" \
+  grep -q 'Step 0.4: Worktree / release flags' "$SKILL_BODY" \
     && pass || fail "SKILL missing Step 0.4 worktree/release flags"
-  grep -q 'skills/epic/parse-flags.sh' "$SKILL" \
+  grep -q 'skills/epic/parse-flags.sh' "$SKILL_BODY" \
     && pass || fail "SKILL missing parse-flags.sh reference"
   # CDT-141-C2: ensure-integration-worktree wire + M11 carve-out
-  grep -q 'ensure-integration-worktree' "$SKILL" \
+  grep -q 'ensure-integration-worktree' "$SKILL_BODY" \
     && pass || fail "SKILL missing ensure-integration-worktree"
-  grep -q 'M11 carve-out' "$SKILL" \
+  grep -q 'M11 carve-out' "$SKILL_BODY" \
     && pass || fail "SKILL missing M11 carve-out for integration WT"
   # A.6 real init fence must wire INIT_EXTRA + ensure after init
-  A6_BLOCK=$(awk '/^### A\.6 Persist/,/^#### Dual-write persistence/' "$SKILL")
+  A6_BLOCK=$(awk '/^### A\.6 Persist/,/^#### Dual-write persistence/' "$SKILL_BODY")
   echo "$A6_BLOCK" | grep -qE 'INIT_EXTRA|--worktree-enabled' \
     && pass || fail "A.6 init fence missing INIT_EXTRA/--worktree-enabled"
   echo "$A6_BLOCK" | grep -q 'ensure-integration-worktree' \
     && pass || fail "A.6 missing ensure-integration-worktree after init"
   # M4.1 link-before-create: inventory parent children; adopt/halt; no blind create
-  grep -q 'M4.1 Link-before-create' "$SKILL" \
+  grep -q 'M4.1 Link-before-create' "$SKILL_BODY" \
     && pass || fail "SKILL missing M4.1 Link-before-create section"
-  grep -q 'parentId' "$SKILL" \
+  grep -q 'parentId' "$SKILL_BODY" \
     && pass || fail "SKILL missing list_issues parentId inventory (M4.1)"
-  grep -q 'refusing duplicate create' "$SKILL" \
+  grep -q 'refusing duplicate create' "$SKILL_BODY" \
     && pass || fail "SKILL missing M4.1 HALT duplicate-create line"
-  grep -q 'Adopted N existing Linear child' "$SKILL" \
+  grep -q 'Adopted N existing Linear child' "$SKILL_BODY" \
     && pass || fail "SKILL missing M4.1 adopt advisory line"
-  grep -q 'MUST NOT force-create under autopilot' "$SKILL" \
+  grep -q 'MUST NOT force-create under autopilot' "$SKILL_BODY" \
     && pass || fail "SKILL missing M4.1 autopilot no force-create"
   # B.1 resume must ensure when state enabled
-  B1_BLOCK=$(awk '/^### B\.1 Rollup/,/^### B\.2 /' "$SKILL")
+  B1_BLOCK=$(awk '/^### B\.1 Rollup/,/^### B\.2 /' "$SKILL_BODY")
   echo "$B1_BLOCK" | grep -q 'ensure-integration-worktree' \
     && pass || fail "B.1 missing ensure-integration-worktree on resume"
   # CDT-141-C6: resolve-resume-flags + conflict policy documented
-  grep -q 'resolve-resume-flags' "$SKILL" \
+  grep -q 'resolve-resume-flags' "$SKILL_BODY" \
     && pass || fail "SKILL missing resolve-resume-flags"
-  grep -q 'Resume flag-vs-state policy' "$SKILL" \
+  grep -q 'Resume flag-vs-state policy' "$SKILL_BODY" \
     && pass || fail "SKILL missing Resume flag-vs-state policy (C6)"
-  grep -q 'Honor store' "$SKILL" \
+  grep -q 'Honor store' "$SKILL_BODY" \
     && pass || fail "SKILL missing Honor store (C6)"
-  grep -q -- '--worktree' "$SKILL" \
+  grep -q -- '--worktree' "$SKILL_BODY" \
     && pass || fail "SKILL Arguments missing --worktree"
-  grep -q -- '--release' "$SKILL" \
+  grep -q -- '--release' "$SKILL_BODY" \
     && pass || fail "SKILL Arguments missing --release"
 fi
 
@@ -526,8 +533,8 @@ SKILL="$HERE/SKILL.md"
 CMD="$HERE/../../commands/epic.md"
 SPEC="$HERE/../../specs/core/SPEC-025-epic-umbrella-decomposition.md"
 DOCS_EPIC="$HERE/../../docs/commands/epic.md"
-B5_BLOCK=$(awk '/^### B\.5 Completion/,/^### B\.6 /' "$SKILL")
-B2_BLOCK=$(awk '/^### B\.2 /, /^### B\.3 /' "$SKILL")
+B5_BLOCK=$(awk '/^### B\.5 Completion/,/^### B\.6 /' "$SKILL_BODY")
+B2_BLOCK=$(awk '/^### B\.2 /, /^### B\.3 /' "$SKILL_BODY")
 M7_BLOCK=$(awk '/^\- \*\*M7 —/,/^\- \*\*M8 —/' "$SPEC")
 
 # (a) B.5 / AUTOPILOT_ON + ready-set + same run + first-shipped-child phrase
@@ -1561,7 +1568,7 @@ else
 fi
 
 # (c7-2) surface docs: both flags + hard-fail on commands, docs, skill
-for f in "$CMD" "$DOCS_EPIC" "$SKILL"; do
+for f in "$CMD" "$DOCS_EPIC" "$SKILL_BODY"; do
   bn=$(basename "$(dirname "$f")")/$(basename "$f")
   [ -f "$f" ] || { fail "c7-2 missing $bn"; continue; }
   grep -q -- '--worktree' "$f" && pass || fail "c7-2 $bn missing --worktree"
@@ -1574,7 +1581,7 @@ done
 # (c7-3) no docs advertise rejected names as public flag table rows
 # Allow prose that rejects them (e.g. "rejected: --bump"); ban table rows
 # that present them as accepted args: | `[--bump]` | etc.
-for f in "$CMD" "$DOCS_EPIC" "$SKILL" "$SPEC"; do
+for f in "$CMD" "$DOCS_EPIC" "$SKILL_BODY" "$SPEC"; do
   [ -f "$f" ] || continue
   bn=$(basename "$f")
   if grep -nE '^\| `\[--bump\]|^\| `\[--land\]|^\| `\[--seal\]|^\| `--bump`|^\| `--land`|^\| `--seal`' \
@@ -1601,10 +1608,10 @@ if [ -f "$DOCS_EPIC" ]; then
 fi
 
 # (c7-5) skill documents M11 carve-out + seal B.7
-if [ -f "$SKILL" ]; then
-  grep -q 'M11 carve-out' "$SKILL" && pass || fail "c7-5 SKILL missing M11 carve-out"
-  grep -q 'B.7 End-of-epic seal\|### B.7' "$SKILL" && pass || fail "c7-5 SKILL missing B.7"
-  grep -q 'ensure-integration-worktree' "$SKILL" && pass || fail "c7-5 SKILL missing ensure"
+if [ -f "$SKILL_BODY" ]; then
+  grep -q 'M11 carve-out' "$SKILL_BODY" && pass || fail "c7-5 SKILL missing M11 carve-out"
+  grep -q 'B.7 End-of-epic seal\|### B.7' "$SKILL_BODY" && pass || fail "c7-5 SKILL missing B.7"
+  grep -q 'ensure-integration-worktree' "$SKILL_BODY" && pass || fail "c7-5 SKILL missing ensure"
 fi
 
 # (c7-6) coverage anchors — named suites for AC mapping (exist as comments/labels)
@@ -1717,10 +1724,10 @@ expect_rc 1 "s7 missing file" bash "$LIB" sync-apply SYNC-E --verdicts /no/such/
 expect_rc 1 "s7 missing epic" env EPIC_ROOT="$SYNC_ROOT" bash "$LIB" sync-apply NOPE --verdicts "$V1"
 
 # (s8) protocol presence
-if [ -f "$SKILL" ]; then
-  grep -q 'Mode F' "$SKILL" && grep -q 'sync-apply' "$SKILL" \
+if [ -f "$SKILL_BODY" ]; then
+  grep -q 'Mode F' "$SKILL_BODY" && grep -q 'sync-apply' "$SKILL_BODY" \
     && pass || fail "s8 SKILL missing Mode F / sync-apply"
-  grep -q '/epic sync' "$SKILL" \
+  grep -q '/epic sync' "$SKILL_BODY" \
     && pass || fail "s8 SKILL missing /epic sync"
 fi
 
@@ -2037,7 +2044,7 @@ unset EPIC_ROOT
 # ---- SPEC-033 wp-1-08-autopilot-state AC G ----------------------------------
 
 # G1: no bash fence in SKILL.md has a top-level `return` line.
-G_RET="$(fence_top_level_returns "$SKILL")"
+G_RET="$(fence_top_level_returns "$SKILL_BODY")"
 [ -z "$G_RET" ] && pass || fail "SKILL.md fence has a top-level return: $G_RET"
 
 # G2: the B.6 build-seed fence, run with a failing build-seed stub (via a
@@ -2062,7 +2069,7 @@ esac
 STUB_EOF
 chmod +x "$G_FIXROOT/skills/epic/epic-lib.sh"
 
-B6_BLOCK="$(fence_nth "$SKILL" "### B.6" 1)"
+B6_BLOCK="$(fence_nth "$SKILL_BODY" "### B.6" 1)"
 if [ -z "$B6_BLOCK" ]; then
   fail "B.6 build-seed fence not found"
 else
@@ -2124,7 +2131,7 @@ rm -rf "$G4_ROOT"
 echo "=== WP 1-09 epic seal ==="
 W9_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/epic-w109.XXXXXX")
 keep_tmp "$W9_ROOT"
-W9_SKILL="$HERE/SKILL.md"
+W9_SKILL="$SKILL_BODY"   # WP 7-04: section bodies live in stage files
 W9_CMD="$HERE/../../commands/epic.md"
 W9_DOCS="$HERE/../../docs/commands/epic.md"
 
@@ -2611,14 +2618,14 @@ if printf '%s\n' "$cmd_desc" | grep -q -- '--autopilot' \
 else
   fail "cdt388 commands/epic.md description missing a flag"
 fi
-skill_desc=$(awk 'BEGIN{p=0} /^description:/{p=1} p{print} /^---$/ && p && NR>1{exit}' "$SKILL")
+skill_desc=$(awk 'BEGIN{p=0} /^description:/{p=1} p{print} /^---$/ && p && NR>1{exit}' "$SKILL_BODY")
 if printf '%s\n' "$skill_desc" | grep -q -- '--autopilot' \
   && printf '%s\n' "$skill_desc" | grep -q -- '--no-context-discipline'; then
   pass "cdt388 epic SKILL description names autopilot and no-context-discipline"
 else
   fail "cdt388 epic SKILL description missing a flag"
 fi
-if grep -F 'unblock` \| `sync`' "$SKILL" >/dev/null; then
+if grep -F 'unblock` \| `sync`' "$SKILL_BODY" >/dev/null; then
   pass "cdt388 --worktree illegal list includes sync"
 else
   fail "cdt388 --worktree illegal list omits sync"
@@ -2626,14 +2633,14 @@ fi
 
 # CDT-281: one resolver block; "$@" fences say to substitute argv; B.7 fences
 # are not indented inside the list.
-n_resolve=$(grep -c 'Bash stdout = model string' "$SKILL" || true)
+n_resolve=$(grep -c 'Bash stdout = model string' "$SKILL_BODY" || true)
 if [ "$n_resolve" -eq 1 ]; then
   pass "cdt281 model resolver prose appears once"
 else
   fail "cdt281 model resolver prose count=$n_resolve (want 1)"
 fi
-if grep -q 'Substitute the real `/epic` invocation arguments' "$SKILL" \
-  && grep -q '"$@"' "$SKILL"; then
+if grep -q 'Substitute the real `/epic` invocation arguments' "$SKILL_BODY" \
+  && grep -q '"$@"' "$SKILL_BODY"; then
   pass "cdt281 fences still use \$@ and tell the reader to substitute argv"
 else
   fail "cdt281 missing argv-substitute note or the \$@ placeholder"
@@ -2643,7 +2650,7 @@ if awk '
   /^## Mode C / { sect=0 }
   sect && /^   ```bash$/ { bad=1 }
   END { exit bad ? 0 : 1 }
-' "$SKILL"; then
+' "$SKILL_BODY"; then
   fail "cdt281 B.7 still has an indented bash fence"
 else
   pass "cdt281 B.7 bash fences are not list-indented"
@@ -2663,8 +2670,8 @@ else
   fail "cdt281 negative: planted indented fence was not detected"
 fi
 
-if grep -F -q 'disk side effects except the audit card' "$SKILL" \
-  && grep -F -q 'On **decline**: exit, **zero** disk side effects' "$SKILL"; then
+if grep -F -q 'disk side effects except the audit card' "$SKILL_BODY" \
+  && grep -F -q 'On **decline**: exit, **zero** disk side effects' "$SKILL_BODY"; then
   pass "cdt424 A.5 halt allows the audit card; human decline stays zero writes"
 else
   fail "cdt424 A.5 side-effect wording"

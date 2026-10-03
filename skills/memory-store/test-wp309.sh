@@ -106,7 +106,7 @@ else
 fi
 
 # ---- /spec check audit is not a spec id ----
-SPEC=$(fence_nth "$ROOT/commands/spec.md" "#### Flags (both modes)" 1)
+SPEC=$(fence_nth "$ROOT/skills/spec-tooling/modes/check.md" "#### Flags (both modes)" 1)
 SPEC_A=$(subst_args "$SPEC" 'check audit') || SPEC_A=""
 fence_exec "$WORK/spa" "$REPO" "$SPEC_A"$'\n''printf "MODE=%s\nSPEC_ID=%s\n" "$MODE" "$SPEC_ID"'
 check "/spec check audit is audit mode" grep -qx 'MODE=audit' "$WORK/spa.out"

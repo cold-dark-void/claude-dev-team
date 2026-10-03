@@ -26,7 +26,7 @@ printf '%s\n' "$skel" | grep -qxF '**Category**: <CATEGORY>' \
   && pass "skeleton keeps the category token" \
   || fail "skeleton token" "missing"
 
-for f in "$HERE/SKILL.md" "$ROOT/commands/spec.md"; do
+for f in "$HERE/modes/generate.md" "$HERE/modes/create.md"; do
   if grep -q 'skills/spec-tooling/category.sh' "$f" \
      && grep -q 'Do not write `core` for a PERF' "$f"; then
     pass "render instruction in $(basename "$f")"

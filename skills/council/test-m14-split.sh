@@ -191,6 +191,12 @@ fi
 CEILING_ENGINE="$HERMETIC_ROOT/engine-ceiling.sh"
 sed 's/^readonly M14_AC_BUDGET=16$/readonly M14_AC_BUDGET=25/' "$ENGINE" > "$CEILING_ENGINE"
 chmod +x "$CEILING_ENGINE"
+# L-10: engine.sh sources its helpers from its own directory — copy them next
+# to the patched copy so the hermetic engine behaves like the installed one.
+for _eh in engine-util.sh engine-report-path.sh engine-preflight.sh engine-finalize.sh; do
+  cp "$ROOT/skills/council/$_eh" "$HERMETIC_ROOT/$_eh"
+done
+unset _eh
 if ! grep -q '^readonly M14_AC_BUDGET=25$' "$CEILING_ENGINE"; then
   fail_msg "8 sed patch did not take (test setup bug)"
 fi

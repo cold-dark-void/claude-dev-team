@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.27
+- **WP 7-C Skill splits** — bug-hunt, epic, council, spec-tooling, and doctor become thin routers over stage files, and the refactor worktree is created only on a bounded route.
+
 ### v1.19.26
 - **WP 7-02 PDH once** — each caller file resolves the plugin root once and carries it across fences, dropping about 180 stanza copies.
 

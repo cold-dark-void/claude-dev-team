@@ -59,6 +59,16 @@ COUNCIL="$ROOT/commands/council.md"
 SKILL="$ROOT/skills/council/SKILL.md"
 PROMPT_DIR="$ROOT/skills/council/prompts"
 
+# WP 7-05 split: the documented-variables table lives in schemas.md; grep the
+# concatenated skill body so the documented contract is found wherever the
+# router or a stage file carries it.
+SKILL_BODY=$(mktemp "${TMPDIR:-/tmp}/council-skill-body.XXXXXX")
+cat "$ROOT"/skills/council/SKILL.md "$ROOT"/skills/council/model-map.md \
+  "$ROOT"/skills/council/invocation-contract.md "$ROOT"/skills/council/phases-0-2.md \
+  "$ROOT"/skills/council/phases-blind.md "$ROOT"/skills/council/phases-4-5.md \
+  "$ROOT"/skills/council/phases-6-7.md "$ROOT"/skills/council/schemas.md \
+  "$ROOT"/skills/council/reference.md > "$SKILL_BODY"
+
 COVERED="${COUNCIL_TEMPLATE_COVERED:-claim-extractor plan-extractor investigator topic-classifier cross-reviewer phase4-brief judge blind-scribe quorum-analyst tier-triage}"
 # Prompts workflow.js loadPrompt / extractVars actually fills.
 WF_COVERED="claim-extractor plan-extractor investigator cross-reviewer phase4-brief judge"
@@ -114,7 +124,7 @@ council_subs() {
 # then pull the {{VARS}} from that single row.
 skill_vars() {
   local name="$1"
-  grep -E "^\|[[:space:]]*\`${name}\.md\`[[:space:]]*\|" "$SKILL" \
+  grep -E "^\|[[:space:]]*\`${name}\.md\`[[:space:]]*\|" "$SKILL_BODY" \
     | grep -oE "$VAR_RE" \
     | sort -u
 }
@@ -159,11 +169,16 @@ template_vars() {
   grep -oE "$VAR_RE" "$1" | sort -u
 }
 
-# Keys of the finalize subs dict in engine.sh.
+# Keys of the finalize subs dict in engine.sh (L-10 split: it lives in
+# engine-finalize.sh now).
 engine_sub_vars() {
-  awk '/^subs = \{/,/^\}/' "$ROOT/skills/council/engine.sh" \
-    | grep -oE "$VAR_RE" \
-    | sort -u
+  local f
+  for f in "$ROOT/skills/council/engine.sh" "$ROOT/skills/council/engine-finalize.sh"; do
+    [ -f "$f" ] || continue
+    awk '/^subs = \{/,/^\}/' "$f" \
+      | grep -oE "$VAR_RE" \
+      | sort -u
+  done | sort -u
 }
 
 status=0

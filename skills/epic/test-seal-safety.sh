@@ -12,7 +12,7 @@ set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 LIB="$ROOT/skills/epic/epic-lib.sh"
-SKILL_MD="$ROOT/skills/epic/SKILL.md"
+SKILL_MD="$ROOT/skills/epic/mode-b-execute.md"   # WP 7-04: B.7 seal text lives in the mode file
 
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$ROOT/tests/lib/hermetic.sh"

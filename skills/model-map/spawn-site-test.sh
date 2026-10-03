@@ -21,12 +21,13 @@ skills/orchestrate/steps/10-qa.md
 skills/code-simplify/SKILL.md
 skills/ci-watch/SKILL.md
 skills/kickoff/SKILL.md
-skills/epic/SKILL.md
+skills/epic/mode-a-decompose.md
 skills/debug/SKILL.md
 skills/fix-ticket/SKILL.md
-skills/council/SKILL.md
+skills/council/model-map.md
 commands/council.md
-skills/bug-hunt/SKILL.md
+skills/bug-hunt/s1-discover.md
+skills/bug-hunt/s2-refute.md
 '
 
 # M16 negatives: must not mention resolve-model.sh (handoff miner stays unwired).

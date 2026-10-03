@@ -265,8 +265,8 @@ if grep -nE 'CDV-207|external investigator' specs/core/SPEC-013-adversarial-coun
 else
   echo "FAIL: SPEC-013 missing external SHOULD"; fail=1
 fi
-if grep -nE 'Phase 3 — Domain Specialist \(DEFERRED' skills/council/SKILL.md >/dev/null \
-  || grep -nE 'deferred \(CDV-209\)' skills/council/SKILL.md >/dev/null; then
+if grep -nE 'Phase 3 — Domain Specialist \(DEFERRED' skills/council/*.md >/dev/null \
+  || grep -nE 'deferred \(CDV-209\)' skills/council/*.md >/dev/null; then
   echo "FAIL: SKILL.md still defers Phase 3"; fail=1
 else
   echo "OK: SKILL.md Phase 3 not deferred"
@@ -766,19 +766,19 @@ else
 fi
 
 # CDT-275 F-18: SKILL.md must not cite a missing command or a stale tier-triage scope.
-if grep -qF 'commands/blind-review.md' skills/council/SKILL.md; then
+if grep -qF 'commands/blind-review.md' skills/council/*.md; then
   echo "FAIL: SKILL.md still cites commands/blind-review.md"; fail=1
 else
   echo "OK: SKILL.md does not cite commands/blind-review.md"
 fi
-if grep -qF 'tier-triage --diff only' skills/council/SKILL.md \
-  || grep -qF -- '--diff` scope only' skills/council/SKILL.md \
-  || grep -qF -- '--diff scope only' skills/council/SKILL.md; then
+if grep -qF 'tier-triage --diff only' skills/council/*.md \
+  || grep -qF -- '--diff` scope only' skills/council/*.md \
+  || grep -qF -- '--diff scope only' skills/council/*.md; then
   echo "FAIL: SKILL.md still says tier-triage is --diff only"; fail=1
 else
   echo "OK: SKILL.md does not limit tier-triage to --diff only"
 fi
-if grep -qF 'under 60 lines' skills/council/SKILL.md; then
+if grep -qF 'under 60 lines' skills/council/*.md; then
   echo "FAIL: SKILL.md still states a 60-line flavor cap"; fail=1
 else
   echo "OK: SKILL.md has no 60-line flavor cap"
