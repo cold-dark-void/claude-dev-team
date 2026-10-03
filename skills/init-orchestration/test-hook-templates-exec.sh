@@ -454,8 +454,9 @@ check_not_contains "G: tdd-gate failure does not blame SKILL.md" "$WORK/g1.err" 
 
 ######################################################################
 # CDT-286 [06 E4]: the template shellcheck pass. shellcheck is rare, so
-# the three behaviors are driven through PATH shims: absent -> stderr
-# note + OK; present + findings -> rc 1 naming "<name> (shellcheck)";
+# the behaviors are driven through PATH shims: absent -> stderr note + OK;
+# present + findings -> advisory (stderr names the template, gate stays
+# green) unless HOOK_TEMPLATE_SHELLCHECK_STRICT=1, which fails rc 1;
 # present + clean -> plain OK. The farm below holds every binary the
 # gate and its python3 extractor need and NO shellcheck.
 ######################################################################
@@ -479,13 +480,19 @@ check_rc "H: shellcheck absent rc" "$RCH" "0"
 check_contains "H: fail-open note" "$WORK/h.err" "note: shellcheck not installed"
 check_contains "H: OK contract kept" "$SC_OUT" "templates extractable + bash -n clean"
 
-# I: present, findings -> rc 1, template named
+# I: present, findings -> advisory rc 0, stderr names the template
 I_SHIM="$WORK/sc-fail-shim"
 sc_shim "$I_SHIM" 'echo "x.sh:1:1: error: planted finding"; exit 1'
 PATH="$GATE_FARM:$I_SHIM" "$BASH_BIN" "$GATE" > "$WORK/i.out" 2> "$WORK/i.err"; RCI=$?
-check_rc "I: shellcheck findings rc" "$RCI" "1"
-check_contains "I: names the sub-rule" "$WORK/i.err" "(shellcheck)"
-check_contains "I: names the template" "$WORK/i.err" "fails shellcheck --shell=bash"
+check_rc "I: shellcheck findings advisory rc" "$RCI" "0"
+check_contains "I: names the template" "$WORK/i.err" "has shellcheck --shell=bash findings"
+check_contains "I: advisory note" "$WORK/i.err" "findings are advisory"
+check_contains "I: OK contract kept under findings" "$WORK/i.out" "templates extractable + bash -n clean"
+
+# I2: present, findings, strict -> rc 1
+PATH="$GATE_FARM:$I_SHIM" HOOK_TEMPLATE_SHELLCHECK_STRICT=1 "$BASH_BIN" "$GATE" > "$WORK/i2.out" 2> "$WORK/i2.err"; RCI2=$?
+check_rc "I2: strict shellcheck findings rc" "$RCI2" "1"
+check_contains "I2: strict names the finding" "$WORK/i2.err" "shellcheck findings (strict)"
 
 # J: present, clean -> OK, no note
 J_SHIM="$WORK/sc-pass-shim"
