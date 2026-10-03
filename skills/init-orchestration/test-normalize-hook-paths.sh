@@ -13,50 +13,8 @@ SKILL="$SCRIPT_DIR/SKILL.md"
 PASS=0
 FAIL=0
 
-assert_eq() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" = "$want" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: got=[$got] want=[$want]"
-  fi
-}
-
-assert_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing [$needle]"
-  fi
-}
-
-assert_not_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: unexpectedly has [$needle]"
-  else
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  fi
-}
-
-assert_rc() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" -eq "$want" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: rc=$got want=$want"
-  fi
-}
-
-assert_file() {
-  local name="$1" path="$2"
-  if [ -f "$path" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing $path"
-  fi
-}
+# shellcheck source=../../tests/lib/assert.sh
+. "$SCRIPT_DIR/../../tests/lib/assert.sh"
 
 echo "=== test-normalize-hook-paths (CDT-69) ==="
 
@@ -164,12 +122,12 @@ assert_contains "settings task-completed anchored" "$GOT" \
   'bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/task-completed.sh"'
 assert_not_contains "no absolute path remains" "$GOT" "$PROJ/.claude/hooks"
 
-# ---------- Idempotent: already anchored → no-op ----------
+# ---------- Idempotent: already anchored → no-op (rv-w2-06: no-op = exit 0) ----------
 echo "-- already anchored no-op"
 OUT=$(bash "$HELPER" --settings "$PROJ/.claude/settings.json" --project-root "$PROJ" 2>&1)
 RC=$?
-assert_rc "anchored no-op rc 1" "$RC" 1
-assert_eq "anchored no-op silent" "$OUT" ""
+assert_rc "anchored no-op rc 0 (fails on old exit-1 code)" "$RC" 0
+assert_contains "anchored no-op stderr note" "$OUT" "no-op"
 
 # ---------- Relative paths also rewritten ----------
 echo "-- relative path rewrite"
@@ -211,10 +169,23 @@ JSON
 
 OUT=$(bash "$HELPER" --settings "$PROJ/.claude/settings.json" --project-root "$PROJ" 2>&1)
 RC=$?
-assert_rc "foreign abs rc 1 (no rewrite)" "$RC" 1
+assert_rc "foreign abs rc 0 no-op (fails on old exit-1 code)" "$RC" 0
+assert_contains "foreign abs no-op stderr note" "$OUT" "no-op"
 GOT=$(python3 -c "import json; d=json.load(open('$PROJ/.claude/settings.json')); print(d['hooks']['Stop'][0]['hooks'][0]['command'])")
 assert_eq "foreign abs unchanged" "$GOT" \
   'bash "/other/place/.claude/hooks/stop-review.sh"'
+
+# ---------- Missing hooks key → no-op, still exit 0 (rv-w2-06) ----------
+echo "-- missing hooks key no-op"
+cat > "$PROJ/.claude/settings.json" <<JSON
+{
+  "other": {}
+}
+JSON
+OUT=$(bash "$HELPER" --settings "$PROJ/.claude/settings.json" --project-root "$PROJ" 2>&1)
+RC=$?
+assert_rc "missing hooks key rc 0 no-op" "$RC" 0
+assert_contains "missing hooks key stderr note" "$OUT" "no-op"
 
 # ---------- Command containing a literal tab is left un-rewritten (AC I) ----------
 echo "-- tab-in-command skip"

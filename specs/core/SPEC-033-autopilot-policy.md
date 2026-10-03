@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-08-04
 
-**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/budget-check.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/self-answer-scenarios.md`, `skills/autopilot/ship-gate-council.md`, `skills/autopilot/ship-gate-verdict.sh` (M14(i), WP 1-14). Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223). N3a clean-tree precondition (WP 1-05): `skills/autopilot/end-state.md` §4 and §6.5, `skills/autopilot/test-end-state-safety.sh`. WP 1-08: `skills/autopilot/resume-state.sh` and `skills/lib/plan-resolve.sh` (M9a plan lookup, ITER restore, approval wait), `skills/autopilot/end-state.md` §3, §3.5 and §5.5 (N3a fetch-first, tag snapshot).
+**Covers**: `skills/autopilot/SKILL.md` (contract home), `skills/autopilot/parse-flags.sh`, `skills/autopilot/loc-exclude.sh`, `skills/autopilot/budget-check.sh`, `skills/autopilot/append-card.sh`, `skills/autopilot/read-cards.sh`, `skills/autopilot/self-answer.md`, `skills/autopilot/fixtures/self-answer-scenarios.json` (05 E5 machine-readable gate fixtures), `skills/autopilot/ship-gate-council.md`, `skills/autopilot/ship-gate-verdict.sh` (M14(i), WP 1-14). Citers: `skills/orchestrate/SKILL.md`, `skills/orchestrate/steps/00-resolve.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/scaffold-project/SKILL.md` (`.gitattributes` seed, CDT-223). N3a clean-tree precondition (WP 1-05): `skills/autopilot/end-state.md` §4 and §6.5, `skills/autopilot/test-end-state-safety.sh`. WP 1-08: `skills/autopilot/resume-state.sh` and `skills/lib/plan-resolve.sh` (M9a plan lookup, ITER restore, approval wait), `skills/autopilot/end-state.md` §3, §3.5 and §5.5 (N3a fetch-first, tag snapshot).
 
 ---
 
@@ -1071,7 +1071,7 @@ BC4 / M10.1 use. It MUST NOT add a ninth blocking condition. It MUST NOT add `--
 
   Any other argc → 64. Self-answer cards keep `decided_by: auto`.
 
-  **Fixtures** (`skills/autopilot/self-answer-scenarios.md`): rewrite **F4** so the 1400-line
+  **Fixtures** (`skills/autopilot/fixtures/self-answer-scenarios.json`): rewrite **F4** so the 1400-line
   file is **hand-written implementation** (generated/lockfile/snap at 1400 MUST NOT halt
   BC4 after M15). Add **F4-gen**, **F4-file**, **F4-n-ok**, **F4-n-file**, **F4-n-tight**,
   **F4-unbound**, **F4-unbound-m10**:
@@ -1461,7 +1461,7 @@ Format and rules: M14(g) and M14(h). Each ticket that ships through M14 has one
   Verify: bash skills/autopilot/test-card-validation.sh
 - **B.** `skills/autopilot/self-answer.md` §3f holds one bash fence that reads the freeze with `read-cards.sh`, calls `budget-check.sh` and calls `append-card.sh`. Run as extracted in a new shell with `AUTOPILOT_BUDGET_META`, `AUTOPILOT_ITERATION_CAP` and `AUTOPILOT_WALLCLOCK_CAP` unset, against a ledger with a plan-approve freeze of 40 / 10800 (tier `L`) and the same `run_id`, the fence appends a ship-choice card with `budget.iteration_cap` 40, `budget.wall_clock_cap_s` 10800 and `budget.tier` `L`. With a different `run_id` and `RESUMING=false` the card does not carry that freeze. With a different `run_id` and `RESUMING=true` it does.
   Verify: bash skills/autopilot/test-card-validation.sh
-- **C.** SPEC-033 Version History has a dated WP 1-08 row. Outside its `## Acceptance criteria` section, SPEC-033 does not contain ``Evaluated at `scope-confirm` and `plan-approve` ``, and neither does `skills/autopilot/SKILL.md`; both files contain ``Evaluated at `scope-confirm` only``. The F4-n-tight scenario in `skills/autopilot/self-answer-scenarios.md` still expects a BC4 halt at `plan-approve`. `skills/autopilot/ship-gate-council.md` §2a gives the fresh halt card the `run_id` `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>`, and §6 requires `actor` `ship-gate-council` on card #2. The §5 text of `ship-gate-council.md` is byte-equal to its text at `38bc739`.
+- **C.** SPEC-033 Version History has a dated WP 1-08 row. Outside its `## Acceptance criteria` section, SPEC-033 does not contain ``Evaluated at `scope-confirm` and `plan-approve` ``, and neither does `skills/autopilot/SKILL.md`; both files contain ``Evaluated at `scope-confirm` only``. The F4-n-tight plan-approve fixture row in `skills/autopilot/fixtures/self-answer-scenarios.json` still expects a BC4 halt at `plan-approve`. `skills/autopilot/ship-gate-council.md` §2a gives the fresh halt card the `run_id` `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>`, and §6 requires `actor` `ship-gate-council` on card #2. The §5 text of `ship-gate-council.md` is byte-equal to its text at `38bc739`.
   Verify: bash skills/autopilot/test-contract-prose.sh
 - **D.** `skills/autopilot/test.sh` exits 0 with no FAIL line when the caller exports `AUTOPILOT_WALLCLOCK_CAP=10800`, `AUTOPILOT_ITERATION_CAP=3`, `AUTOPILOT_BUDGET_META=junk` and `AUTOPILOT=1`.
   Verify: bash skills/autopilot/test-env-hermetic.sh

@@ -23,28 +23,13 @@ PASS=0
 FAIL=0
 die() { echo "FATAL: $*" >&2; exit 1; }
 
-assert_eq() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" = "$want" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: got=[$got] want=[$want]"
-  fi
-}
-assert_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing [$needle]"
-  fi
-}
-
 command -v jq >/dev/null 2>&1 || die "jq required to drive the hook"
 BASH_BIN=$(command -v bash) || die "bash not found"
 
 # ---- Extract the hook template verbatim from SKILL.md -----------------------
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=../../tests/lib/assert.sh
+. "$SCRIPT_DIR/../../tests/lib/assert.sh"
 SKILL="$SCRIPT_DIR/SKILL.md"
 [ -f "$SKILL" ] || die "SKILL.md not found at $SKILL"
 

@@ -14,59 +14,8 @@ ORPHAN_NAME="bash-compress-wrapper.sh"
 PASS=0
 FAIL=0
 
-assert_eq() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" = "$want" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: got=[$got] want=[$want]"
-  fi
-}
-
-assert_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing [$needle]"
-  fi
-}
-
-assert_not_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: unexpectedly has [$needle]"
-  else
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  fi
-}
-
-assert_rc() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" -eq "$want" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: rc=$got want=$want"
-  fi
-}
-
-assert_file() {
-  local name="$1" path="$2"
-  if [ -f "$path" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing $path"
-  fi
-}
-
-assert_not_file() {
-  local name="$1" path="$2"
-  if [ -f "$path" ]; then
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: unexpectedly exists $path"
-  else
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  fi
-}
+# shellcheck source=../../tests/lib/assert.sh
+. "$SCRIPT_DIR/../../tests/lib/assert.sh"
 
 echo "=== test-sweep-legacy-orphans (CDT-76 AC8) ==="
 

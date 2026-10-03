@@ -23,49 +23,11 @@ PASS=0
 FAIL=0
 die() { echo "FATAL: $*" >&2; exit 1; }
 
-assert_eq() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" = "$want" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: got=[$got] want=[$want]"
-  fi
-}
-
-assert_ne() {
-  local name="$1" got="$2" want_not="$3"
-  if [ "$got" != "$want_not" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: got=[$got] want !=[$want_not]"
-  fi
-}
-
 assert_file_absent() {
-  local name="$1" path="$2"
-  if [ ! -f "$path" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: unexpected file $path"
-  fi
+  assert_not_file "$@"
 }
-
 assert_file_present() {
-  local name="$1" path="$2"
-  if [ -f "$path" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing $path"
-  fi
-}
-
-assert_contains() {
-  local name="$1" haystack="$2" needle="$3"
-  if printf '%s' "$haystack" | grep -qF -- "$needle"; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing [$needle] in [$haystack]"
-  fi
+  assert_file "$@"
 }
 
 command -v jq >/dev/null 2>&1 || die "jq required"
@@ -73,6 +35,9 @@ command -v python3 >/dev/null 2>&1 || die "python3 required"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+
+# shellcheck source=../../tests/lib/assert.sh
+. "$ROOT/tests/lib/assert.sh"
 
 # C7 hygiene: shared hermetic-suite helper (SPEC-030 R20) isolates HOME/TMPDIR
 # and git author identity; add git-config isolation on top so fixture repos

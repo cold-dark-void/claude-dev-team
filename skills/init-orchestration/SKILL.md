@@ -195,7 +195,7 @@ if [ -n "$NORMALIZE" ] && [ -f "$NORMALIZE" ] && [ -f "$SETTINGS" ]; then
   bash "$NORMALIZE" --settings "$SETTINGS" --project-root "$MROOT"
   NORM_RC=$?
   set -e
-  # exit 0 → rewrote + disclosed each change; exit 1 → already normalized (no-op)
+  # exit 0 → rewrote + disclosed each change, or no-op (already normalized; stderr note)
   # Helper prints FORCE-OVERWRITE key/old/new/restore per change (via disclose-force-overwrite.sh)
 else
   # Fallback: agent rewrites matching commands and MUST print the same labels per change

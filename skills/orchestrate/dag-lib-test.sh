@@ -25,6 +25,9 @@ FAIL=0
 pass() { PASS=$((PASS + 1)); }
 fail() { FAIL=$((FAIL + 1)); echo "FAIL: $*"; }
 
+# shellcheck source=../../tests/lib/assert.sh
+. "$ROOT/tests/lib/assert.sh"
+
 STDOUT_F="$HERMETIC_ROOT/stdout"
 STDERR_F="$HERMETIC_ROOT/stderr"
 RC=0
@@ -54,36 +57,6 @@ run_dag_stdin() {
   ERR=$(cat "$STDERR_F")
   if [ "$RC" -eq "$want" ]; then pass
   else fail "$desc: rc=$RC want=$want stdout=[$OUT] stderr=[$ERR]"
-  fi
-}
-
-assert_eq() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" = "$want" ]; then pass
-  else fail "$name: got=[$got] want=[$want]"
-  fi
-}
-
-assert_match() {
-  local name="$1" got="$2" pattern="$3"
-  if printf '%s\n' "$got" | grep -qE -- "$pattern"; then pass
-  else fail "$name: [$got] does not match /$pattern/"
-  fi
-}
-
-assert_contains() {
-  local name="$1" haystack="$2" needle="$3"
-  if printf '%s' "$haystack" | grep -qF -- "$needle"; then pass
-  else fail "$name: [$needle] missing in [$haystack]"
-  fi
-}
-
-assert_not_contains() {
-  local name="$1" haystack="$2" needle="$3"
-  if printf '%s' "$haystack" | grep -qF -- "$needle"; then
-    fail "$name: [$needle] unexpectedly present in [$haystack]"
-  else
-    pass
   fi
 }
 

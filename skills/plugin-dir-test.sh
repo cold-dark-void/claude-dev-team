@@ -17,38 +17,8 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 PASS=0
 FAIL=0
 
-assert_eq() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" = "$want" ]; then
-    PASS=$((PASS + 1))
-    echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  FAIL $name: got=[$got] want=[$want]"
-  fi
-}
-
-assert_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    PASS=$((PASS + 1))
-    echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  FAIL $name: missing [$needle] in: [$hay]"
-  fi
-}
-
-assert_rc() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" -eq "$want" ]; then
-    PASS=$((PASS + 1))
-    echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  FAIL $name: rc=$got want=$want"
-  fi
-}
+# shellcheck source=tests/lib/assert.sh
+. "$SCRIPT_DIR/../tests/lib/assert.sh"
 
 # --- pipeline unit (no HOME, no env) ---
 echo "== ver_pick pipeline =="
@@ -1373,7 +1343,9 @@ fi
 # above and requires a DIFFERENT result. A mutant that survives means the
 # matching assertion above does not bite.
 echo "== WP 1-11 stanza mutants (each must change the resolved PDH) =="
-assert_ne() {
+# Mutant-specific assert (deliberately NOT the shared assert_ne: the output
+# names the surviving resolved value so a surviving mutant is diagnosable).
+assert_mutant_ne() {
   local name="$1" got="$2" not_want="$3"
   if [ "$got" != "$not_want" ]; then
     PASS=$((PASS + 1)); echo "  ok  $name (mutant resolved [$got])"
@@ -1386,26 +1358,26 @@ S11_M1="$S11/mutant-pr-dead.sh"
 stanza_subst "$S11_M1" '[ -f "$_pr/skills/plugin-dir.sh" ]' 'false' "$S11_SUB"
 assert_rc "WP11 mutant M1 (_pr branch dead) applied" "$?" 0
 pdh=$( cd "$S11_EMPTY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_M1" )
-assert_ne "WP11 mutant M1: the _pr positive assertion bites" "$pdh" "$S11_ROOT"
+assert_mutant_ne "WP11 mutant M1: the _pr positive assertion bites" "$pdh" "$S11_ROOT"
 # M2: the _pr branch accepts any existing $_pr, even the unsubstituted relative token.
 S11_M2="$S11/mutant-pr-unguarded.sh"
 stanza_subst "$S11_M2" '[ "${_pr#\$}" = "$_pr" ]' 'true'
 assert_rc "WP11 mutant M2 (_pr unsubstituted-token guard removed) applied" "$?" 0
 pdh=$( cd "$S11_LIT" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_MP" bash "$S11_M2" )
-assert_ne "WP11 mutant M2: the literal-named-dir assertion bites" "$pdh" "$S11_MP"
+assert_mutant_ne "WP11 mutant M2: the literal-named-dir assertion bites" "$pdh" "$S11_MP"
 # M3: the cwd branch loses its dev-team name check.
 S11_M3="$S11/mutant-cwd-no-name.sh"
 stanza_subst "$S11_M3" "grep -qF '\"name\": \"dev-team\"' .claude-plugin/plugin.json 2>/dev/null" 'true'
 assert_rc "WP11 mutant M3 (cwd name check removed) applied" "$?" 0
 pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$S11_M3" )
-assert_ne "WP11 mutant M3: the other-plugin control assertion bites" "$pdh" "$S11_CACHE"
+assert_mutant_ne "WP11 mutant M3: the other-plugin control assertion bites" "$pdh" "$S11_CACHE"
 S11_M4="$S11/mutant-cwd-no-pm.sh"
 stanza_subst "$S11_M4" '[ -f agents/pm.md ] && ' ''
 assert_rc "WP11 mutant M4 (cwd agents/pm.md test removed) applied" "$?" 0
 mk_plugin_identity "$S11_DECOY" "dev-team" 0
 rm -f "$S11_DECOY/agents/pm.md"
 pdh=$( cd "$S11_DECOY" && env -u CLAUDE_PLUGIN_ROOT HOME="$S11_HOME_CACHE" bash "$S11_M4" )
-assert_ne "WP11 mutant M4: the no-agents/pm.md control assertion bites" "$pdh" "$S11_CACHE"
+assert_mutant_ne "WP11 mutant M4: the no-agents/pm.md control assertion bites" "$pdh" "$S11_CACHE"
 
 # --- WP 1-11 / CDT-265: hook-runtime bootstraps (same cwd hole, other text) ---
 # The three hook-runtime bootstraps (transcript-mirror/hook-shim.sh, and the

@@ -21,50 +21,8 @@ export GIT_CONFIG_SYSTEM=/dev/null
 export GIT_CONFIG_GLOBAL=/dev/null
 unset SSH_AUTH_SOCK || true
 
-assert_eq() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" = "$want" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: got=[$got] want=[$want]"
-  fi
-}
-
-assert_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing [$needle]"
-  fi
-}
-
-assert_not_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: unexpectedly has [$needle]"
-  else
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  fi
-}
-
-assert_rc() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" -eq "$want" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: rc=$got want=$want"
-  fi
-}
-
-assert_file() {
-  local name="$1" path="$2"
-  if [ -f "$path" ]; then
-    PASS=$((PASS + 1)); echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: missing $path"
-  fi
-}
+# shellcheck source=../../tests/lib/assert.sh
+. "$SCRIPT_DIR/../../tests/lib/assert.sh"
 
 json_get() {
   python3 -c '

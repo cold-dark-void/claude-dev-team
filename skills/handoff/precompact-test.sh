@@ -62,7 +62,7 @@ run_capture() {   # run_capture [trigger] — rc in $?, stderr in $WORK/cap.err
 OUT="$WORK/asm.out"
 if python3 "$ASSEMBLE" assemble-file "$TR" > "$OUT" 2>/dev/null \
    && [ "$(wc -l < "$OUT")" -eq 4 ] && grep -q '"u1"' "$OUT" \
-   && head -c 100000 "$OUT" | grep -qv '"u5"'; then ok; else bad "T1 assemble-file: 4 deduped lines, truncated u5 dropped"; fi
+   && ! head -c 100000 "$OUT" | grep -q '"u5"'; then ok; else bad "T1 assemble-file: 4 deduped lines, truncated u5 dropped"; fi
 if python3 "$ASSEMBLE" assemble-file "$WORK/nope.jsonl" >/dev/null 2>&1; then
   bad "T2 assemble-file missing file must fail"; else ok; fi
 
@@ -88,7 +88,7 @@ if bash "$PREPASS" prepare --uuid "$SID" --transcript "$TR" --allow-in-progress 
    && [ -f "$WORK/p2.json" ] \
    && SP=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("spine",""))' "$WORK/p2.json") \
    && [ -n "$SP" ] && grep -q '\[L1\]' "$SP" \
-   && grep -qv 'FIXTURE_TOOL_PAYLOAD_XYZ' "$SP"; then ok
+   && ! grep -q 'FIXTURE_TOOL_PAYLOAD_XYZ' "$SP"; then ok
 else bad "T6 prepare --transcript --allow-in-progress: spine built, payload stripped"; fi
 
 # ---- T7: carve-out scoped (M14, static) — warm ok; cold + /retro must not ----

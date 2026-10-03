@@ -23,61 +23,8 @@ FAIL=0
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 
-assert_eq() {
-  local name="$1" got="$2" want="$3"
-  if [ "$got" = "$want" ]; then
-    PASS=$((PASS + 1))
-    echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  FAIL $name: got=[$got] want=[$want]"
-  fi
-}
-
-assert_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    PASS=$((PASS + 1))
-    echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  FAIL $name: missing [$needle] in:"
-    printf '%s\n' "$hay" | head -10 | sed 's/^/    /'
-  fi
-}
-
-assert_not_contains() {
-  local name="$1" hay="$2" needle="$3"
-  if printf '%s' "$hay" | grep -qF -- "$needle"; then
-    FAIL=$((FAIL + 1))
-    echo "  FAIL $name: unexpected [$needle]"
-  else
-    PASS=$((PASS + 1))
-    echo "  ok  $name"
-  fi
-}
-
-assert_file() {
-  local name="$1" path="$2"
-  if [ -f "$path" ]; then
-    PASS=$((PASS + 1))
-    echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  FAIL $name: missing file $path"
-  fi
-}
-
-assert_dir() {
-  local name="$1" path="$2"
-  if [ -d "$path" ]; then
-    PASS=$((PASS + 1))
-    echo "  ok  $name"
-  else
-    FAIL=$((FAIL + 1))
-    echo "  FAIL $name: missing dir $path"
-  fi
-}
+# shellcheck source=../tests/lib/assert.sh
+. "$ROOT/tests/lib/assert.sh"
 
 # ---- Isolated fake MROOT ----------------------------------------------------
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/worktree-lib-test.XXXXXX")

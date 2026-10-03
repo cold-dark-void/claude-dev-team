@@ -1723,7 +1723,8 @@ fi
 ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 AP_SKILL="$SCRIPT_DIR/SKILL.md"
 SPEC033="$ROOT/specs/core/SPEC-033-autopilot-policy.md"
-SCEN="$SCRIPT_DIR/self-answer-scenarios.md"
+# 05 E5: machine-readable successor of the retired self-answer-scenarios.md
+SCEN_FIXTURE="$SCRIPT_DIR/fixtures/self-answer-scenarios.json"
 KICKOFF_SKILL="$ROOT/skills/kickoff/SKILL.md"
 EPIC_SKILL="$ROOT/skills/epic/SKILL.md"
 # WP 7-04 split: epic Step 0 lives in run-start.md, A.5/B.3 envelopes in mode
@@ -1814,16 +1815,21 @@ else
   fail "cdt223-t7 F4-unbound-m10 rc=$RC card=$(cat "$L" 2>/dev/null)"
 fi
 
-# Fixtures: F4 is hand-written; F4-gen is lockfile/snap; table matches M16
-if grep -q 'hand-written implementation' "$SCEN" \
-  && grep -q 'package-lock.json' "$SCEN" \
-  && grep -q 'F4-gen' "$SCEN" \
-  && grep -q 'plan-approve BC4 halt; scope-confirm M10.1 reroute' "$SCEN" \
-  && grep -q 'F4-unbound-m10' "$SCEN" \
-  && grep -q 'reroute-epic' "$SCEN"; then
-  pass "cdt223-t7 scenarios F4 rewritten hand-written; F4-gen/F4-n-tight/F4-unbound-m10 present"
+# Fixture rows (05 E5): F4 hand-written argc13; F4-gen excluded approve;
+# F4-n-tight dual gate (BC4 at plan-approve, M10.1 at scope-confirm);
+# F4-unbound-m10 reroute with string max_loc — structural, not prose greps.
+if [ "$(jq -r '[.fixtures[] | select(.id=="F4" and .kind=="card")][0].card[2]' "$SCEN_FIXTURE")" = "plan-approve" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F4" and .kind=="card")][0].expect.bc' "$SCEN_FIXTURE")" = "4" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F4" and .kind=="card")][0].card | length' "$SCEN_FIXTURE")" = "13" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F4-gen")][0].expect.decision' "$SCEN_FIXTURE")" = "approve" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F4-gen")][0].card[13] // "null"' "$SCEN_FIXTURE")" = "null" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F4-n-tight" and .card[2]=="plan-approve")][0].expect.bc' "$SCEN_FIXTURE")" = "4" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F4-n-tight" and .card[2]=="scope-confirm")][0].expect.bc' "$SCEN_FIXTURE")" = "5" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F4-unbound-m10")][0].expect.decision' "$SCEN_FIXTURE")" = "reroute-epic" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F4-unbound-m10")][0].card[13]' "$SCEN_FIXTURE")" = "unbound" ]; then
+  pass "cdt223-t7 fixture rows: F4 argc13 bc4; F4-gen approve; F4-n-tight dual-gate; F4-unbound-m10 reroute bc5 unbound"
 else
-  fail "cdt223-t7 scenarios F4 fixture text missing required M16 signals"
+  fail "cdt223-t7 fixture rows missing expected F4/F4-gen/F4-n-tight/F4-unbound-m10 shapes"
 fi
 
 # Kickoff: --max-loc=bogus → 64 (shared parser, kickoff Step 0)
@@ -2150,7 +2156,6 @@ fi
 : "${ROOT:=$(cd "$SCRIPT_DIR/../.." && pwd)}"
 : "${AP_SKILL:=$SCRIPT_DIR/SKILL.md}"
 : "${SPEC033:=$ROOT/specs/core/SPEC-033-autopilot-policy.md}"
-: "${SCEN:=$SCRIPT_DIR/self-answer-scenarios.md}"
 : "${KICKOFF_SKILL:=$ROOT/skills/kickoff/SKILL.md}"
 : "${EPIC_SKILL:=$ROOT/skills/epic/SKILL.md}"
 ORCH00="$ROOT/skills/orchestrate/steps/00-resolve.md"
@@ -2360,33 +2365,17 @@ else
   fail "cdt224-t5 M13 JSON fence mismatch vs SPEC-033"
 fi
 
-# F6 rewritten pins M: tasks=4, loc in (300,1000], waves=1
-if grep -q 'F6 (rewritten)' "$SCEN" \
-  && grep -F -q '`tasks=4`, `projected_loc=500` ∈ (300,1000], `waves=1`' "$SCEN" \
-  && grep -F -q 'derive M; argc=4 `25 2700`' "$SCEN" \
-  && grep -q 'tasks=4, projected_loc=500, waves=1' "$SCEN" \
-  && grep -q 'F6-kickoff' "$SCEN" \
-  && grep -F -q 'argc=2 (static 25); no derive' "$SCEN"; then
-  pass "cdt224-t5 F6 rewritten pins M tasks=4 loc=500∈(300,1000] waves=1"
+# F6 rewritten pins M: tasks=4, loc in (300,1000], waves=1 — the derive row in
+# the JSON fixture carries those signals (05 E5, structural)
+F6_ROW=$(jq -c '[.fixtures[] | select(.id=="F6" and .kind=="budget" and .mode=="derive")][0]' "$SCEN_FIXTURE")
+if [ "$(jq -r '.args | join(" ")' <<<"$F6_ROW")" = "4 500 1" ] \
+  && [ "$(jq -r '.expect.tier' <<<"$F6_ROW")" = "M" ] \
+  && [ "$(jq -r '.expect.icap' <<<"$F6_ROW")" = "25" ] \
+  && [ "$(jq -r '.expect.wcap' <<<"$F6_ROW")" = "2700" ] \
+  && [ -n "$(jq -r '[.fixtures[] | select(.id=="F6-kickoff" and .kind=="budget")][0].id' "$SCEN_FIXTURE")" ]; then
+  pass "cdt224-t5 F6 derive fixture row pins M tasks=4 loc=500 waves=1 → 25/2700; F6-kickoff argc2 row present"
 else
-  fail "cdt224-t5 F6 rewritten pin / F6-kickoff fixture missing"
-fi
-
-F6_LOC=$(sed -n '/^### F6 /,/^### F7 /{
-  s/.*projected_loc=\([0-9][0-9]*\).*/\1/p
-}' "$SCEN" | head -1)
-F6_TASKS=$(sed -n '/^### F6 /,/^### F7 /{
-  s/.*tasks=\([0-9][0-9]*\).*/\1/p
-}' "$SCEN" | head -1)
-F6_WAVES=$(sed -n '/^### F6 /,/^### F7 /{
-  s/.*waves=\([0-9][0-9]*\).*/\1/p
-}' "$SCEN" | head -1)
-if [ "${F6_TASKS:-}" = "4" ] \
-  && [ -n "${F6_LOC:-}" ] && [ "$F6_LOC" -gt 300 ] && [ "$F6_LOC" -le 1000 ] \
-  && [ "${F6_WAVES:-}" = "1" ]; then
-  pass "cdt224-t5 F6 extracted pins M (tasks=$F6_TASKS loc=$F6_LOC∈(300,1000] waves=$F6_WAVES)"
-else
-  fail "cdt224-t5 F6 extract tasks=$F6_TASKS loc=$F6_LOC waves=$F6_WAVES (want 4 / (300,1000] / 1)"
+  fail "cdt224-t5 F6/F6-kickoff fixture rows wrong (F6_ROW=$F6_ROW)"
 fi
 
 OUT=$(bash "$BUDGET" derive 4 500 1 2>/dev/null); RC=$?
@@ -2422,7 +2411,6 @@ fi
 # (engine lookup by ticket_id + latest plan-approve nested-non-null, not solely
 # envelope run_id). P1#2: unfrozen M10.6 vs 4500; BC6 argc=2 stays 25/2700.
 ENGINE="$SCRIPT_DIR/self-answer.md"
-: "${SCEN:=$SCRIPT_DIR/self-answer-scenarios.md}"
 NOW=$(date +%s)
 
 # Procedure: freeze is latest plan-approve nested-non-null; same ticket AND
@@ -2484,13 +2472,14 @@ else
   fail "cdt224-t3b M10.6 split grep miss"
 fi
 
-# F6-m10.6-scope fixture still unfrozen 4500; BC6 argc=2 25/2700
-if grep -q 'F6-m10.6-scope' "$SCEN" \
-  && grep -F -q 'unfrozen compare is 4500 s' "$SCEN" \
-  && grep -F -q 'M10.6** uses 4500, not the argc=2 2700' "$SCEN"; then
-  pass "cdt224-t3b F6-m10.6-scope unfrozen M10.6 vs 4500 (not 2700)"
+# F6-m10.6-scope fixture row: unfrozen argc2 not breached (the 4500-vs-2700
+# M10.6 compare is engine-side; budget-check sees only the argc=2 25/2700)
+if [ "$(jq -r '[.fixtures[] | select(.id=="F6-m10.6-scope")][0].mode' "$SCEN_FIXTURE")" = "argc2" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F6-m10.6-scope")][0].expect.breached' "$SCEN_FIXTURE")" = "false" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F6-m10.6-scope")][0].expect.wcap' "$SCEN_FIXTURE")" = "2700" ]; then
+  pass "cdt224-t3b F6-m10.6-scope fixture row: unfrozen argc2 25/2700 not breached"
 else
-  fail "cdt224-t3b F6-m10.6-scope wording miss"
+  fail "cdt224-t3b F6-m10.6-scope fixture row wrong"
 fi
 
 # Live: unfrozen BC6 argc=2 still 25/2700 (do not retune pre-freeze BC6)
@@ -2513,16 +2502,18 @@ if sed -n '1,40p' "$SCRIPT_DIR/test.sh" | grep -q '5-key JSON'; then
 else
   pass "cdt378 header does not say 5-key JSON"
 fi
-if grep -q 'NON-protected' "$SCEN" || grep -q 'Recommend Tech Lead' "$SCEN" \
-  || grep -q 'all 12 fixtures' "$SCEN"; then
-  fail "cdt378 scenarios still have the impossible F12, a Task 4 note, or a 12-fixture count"
+if grep -q 'NON-protected' "$SCEN_FIXTURE" || grep -q 'Recommend Tech Lead' "$SCEN_FIXTURE" \
+  || grep -q 'all 12 fixtures' "$SCEN_FIXTURE"; then
+  fail "cdt378 fixture still has the impossible F12, a Task 4 note, or a 12-fixture count"
 else
-  pass "cdt378 scenarios: F12 is a baseline land; gaps are closed; count is not 12"
+  pass "cdt378 fixture: F12 is a baseline land; gaps are closed; count is not 12"
 fi
-if grep -q 'F12 — merge-with-bump' "$SCEN" && grep -q 'end-state.md` §3' "$SCEN"; then
-  pass "cdt378 F12 cites end-state §3"
+if [ "$(jq -r '[.fixtures[] | select(.id=="F12")][0].expect.decision' "$SCEN_FIXTURE")" = "merge" ] \
+  && [ "$(jq -r '[.fixtures[] | select(.id=="F12")][0].card[5]' "$SCEN_FIXTURE")" = "patch" ] \
+  && jq -e '[.fixtures[] | select(.id=="F12")][0].cite | test("end-state.md §3")' "$SCEN_FIXTURE" >/dev/null 2>&1; then
+  pass "cdt378 F12 fixture row: merge with patch bump, cites end-state §3"
 else
-  fail "cdt378 F12 missing or does not cite end-state §3"
+  fail "cdt378 F12 fixture row missing or does not cite end-state §3"
 fi
 # negative control: a planted impossible phrase must be detected by the same grep
 PLANT=$(mktemp "${TMPDIR:-/tmp}/cdt378-plant.XXXXXX")
@@ -2570,12 +2561,17 @@ if grep -q 'at most 1000 characters' "$SPEC033" \
 else
   fail "cdt358 SPEC-033 M13 missing the 1000-character cap"
 fi
-if grep -q 'confirming the FE gap' "$SCEN" \
-  || grep -q 'intentionally-documented \*\*gap\*\*' "$SCEN" \
-  || grep -q 'procedure does not cover' "$SCEN"; then
-  fail "cdt358 scenarios still call FE an uncovered gap"
+if [ "$(jq -r '[.fixtures[] | select(.id=="FE-abc")][0].expect.exit' "$SCEN_FIXTURE")" = "64" ]; then
+  pass "cdt358 fixture records FE (budget-check exit 64) as a closed no-card path"
 else
-  pass "cdt358 scenarios record FE as a closed no-card path"
+  fail "cdt358 FE fixture row missing or wrong"
+fi
+if grep -q 'confirming the FE gap' "$SCEN_FIXTURE" \
+  || grep -q 'intentionally-documented \*\*gap\*\*' "$SCEN_FIXTURE" \
+  || grep -q 'procedure does not cover' "$SCEN_FIXTURE"; then
+  fail "cdt358 fixture still calls FE an uncovered gap"
+else
+  pass "cdt358 fixture records FE as a closed no-card path"
 fi
 
 # =============================================================================
@@ -2605,6 +2601,170 @@ if grep -qF 'skills/autopilot/ship-pipeline.md' "$SCRIPT_DIR/SKILL.md" \
   pass "wp704 autopilot SKILL.md and orchestrate Step 11 enter via the pipeline"
 else
   fail "wp704 callers do not cite ship-pipeline.md"
+fi
+
+# =============================================================================
+# 05 E5 (CDT-293): self-answer gate fixtures — every row runs against the
+# REAL budget-check.sh / append-card.sh (expected decision, BC, exit code).
+# The self-answer-scenarios.md prose is retired; the JSON fixture is the
+# single source. No `timeout` wrapper here on purpose: this suite stays in
+# run-all-tests' bash-3.2 portable lane and both helpers are local
+# subprocesses guarded by the runner's per-suite watchdog (R7).
+# =============================================================================
+SCEN_FIXTURE="$SCRIPT_DIR/fixtures/self-answer-scenarios.json"
+NOW=$(date +%s)
+
+# scen_expand_arg NOW-<n> / NOW+<n> -> epoch; anything else verbatim.
+scen_expand_arg() {
+  case "$1" in
+    NOW-*) echo $(( NOW - ${1#NOW-} )) ;;
+    NOW+*) echo $(( NOW + ${1#NOW+} )) ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# scen_want <row-json> <expect-key> -> expectation or "__unset__" when absent
+scen_want() {
+  jq -r --arg k "$2" '(.expect[$k] // "__unset__")' <<<"$1"
+}
+
+# scen_check <id> <row-json> <label> <jq-path> <actual> — counts one FAIL on mismatch
+SCEN_FAILS=0
+scen_check() {
+  local sid="$1" row="$2" label="$3" path="$4" actual="$5" w
+  w=$(scen_want "$row" "$label")
+  [ "$w" = "__unset__" ] && return 0
+  if [ "$actual" != "$w" ]; then
+    echo "  FAIL scen $sid: $3=[$actual] want=[$w]" >&2
+    SCEN_FAILS=$((SCEN_FAILS + 1))
+  fi
+}
+
+# scen_run <fixture.json> — runs every row; echoes the failure count.
+scen_run() {
+  local file="$1" rows rc out id kind mode ticket cards sig want
+  rows="$TMP/scen-rows.$$"
+  if ! jq -c '.fixtures[]' "$file" > "$rows" 2>/dev/null; then
+    echo 1
+    return
+  fi
+  SCEN_FAILS=0
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    # refresh per row: budget-check compares against ITS OWN clock, so a
+    # section-level NOW drifts by the suite's runtime and tight wall margins
+    # (F6-S-1199: 1199 vs cap 1200) would false-breach
+    NOW=$(date +%s)
+    id=$(jq -r '.id' <<<"$row")
+    kind=$(jq -r '.kind' <<<"$row")
+    ENVARGS=()
+    while IFS= read -r kv; do
+      [ -n "$kv" ] && ENVARGS+=("$kv")
+    done <<<"$(jq -r '(.env // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"$row")"
+    # strip the operator/hermetic env first so only the row's own env applies
+    # (AC D: the suite must pass with AUTOPILOT_* exported by the caller)
+    if [ "$kind" = "budget" ]; then
+      ARGS=()
+      while IFS= read -r a; do
+        [ -n "$a" ] || continue
+        ARGS+=("$(scen_expand_arg "$a")")
+      done <<<"$(jq -r '(.args // [])[]' <<<"$row")"
+      mode=$(jq -r '.mode // ""' <<<"$row")
+      case "$mode" in
+        derive)
+          out=$(env -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP -u AUTOPILOT_BUDGET_META \
+            ${ENVARGS[@]+"${ENVARGS[@]}"} bash "$BUDGET" derive ${ARGS[@]+"${ARGS[@]}"} 2>/dev/null)
+          rc=$?
+          ;;
+        argc2|argc4)
+          out=$(env -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP -u AUTOPILOT_BUDGET_META \
+            ${ENVARGS[@]+"${ENVARGS[@]}"} bash "$BUDGET" ${ARGS[@]+"${ARGS[@]}"} 2>/dev/null)
+          rc=$?
+          ;;
+        *)
+          echo "  FAIL scen $id: bad mode [$mode]" >&2
+          SCEN_FAILS=$((SCEN_FAILS + 1))
+          continue
+          ;;
+      esac
+      scen_check "$id" "$row" "exit" "exit" "$rc"
+      if [ "$(scen_want "$row" stdout_empty)" = "true" ]; then
+        if [ -n "$out" ]; then
+          echo "  FAIL scen $id: expected empty stdout, got [$out]" >&2
+          SCEN_FAILS=$((SCEN_FAILS + 1))
+        fi
+      elif [ "$rc" -eq 0 ] || [ "$rc" -eq 6 ]; then
+        scen_check "$id" "$row" "reason" "reason" "$(jq -r '.reason // ""' <<<"$out" 2>/dev/null)"
+        scen_check "$id" "$row" "breached" "breached" "$(jq -r 'if .breached == null then "null" else (.breached|tostring) end' <<<"$out" 2>/dev/null)"
+        scen_check "$id" "$row" "bc" "blocking_condition" "$(jq -r '.blocking_condition // "null"' <<<"$out" 2>/dev/null)"
+        scen_check "$id" "$row" "tier" "tier" "$(jq -r '.tier // "null"' <<<"$out" 2>/dev/null)"
+        scen_check "$id" "$row" "icap" "iteration_cap" "$(jq -r '.iteration_cap // "null"' <<<"$out" 2>/dev/null)"
+        scen_check "$id" "$row" "wcap" "wall_clock_cap_s" "$(jq -r '.wall_clock_cap_s // "null"' <<<"$out" 2>/dev/null)"
+      fi
+    elif [ "$kind" = "card" ]; then
+      ARGS=()
+      while IFS= read -r a; do
+        [ -n "$a" ] && ARGS+=("$a")
+      done <<<"$(jq -r '(.card // [])[]' <<<"$row")"
+      reset
+      out=$(env -u AUTOPILOT_ITERATION_CAP -u AUTOPILOT_WALLCLOCK_CAP -u AUTOPILOT_BUDGET_META \
+        ${ENVARGS[@]+"${ENVARGS[@]}"} bash "$APPEND" ${ARGS[@]+"${ARGS[@]}"} 2>/dev/null)
+      rc=$?
+      scen_check "$id" "$row" "exit" "exit" "$rc"
+      ticket=$(jq -r '.card[1]' <<<"$row")
+      if [ "$rc" -eq 0 ]; then
+        cards=$(bash "$READ" "$ticket" 2>/dev/null)
+        scen_check "$id" "$row" "decision" "decision" "$(jq -r '.[0].decision // "null"' <<<"$cards" 2>/dev/null)"
+        scen_check "$id" "$row" "bc" "blocking_condition" "$(jq -r '.[0].blocking_condition // "null"' <<<"$cards" 2>/dev/null)"
+        scen_check "$id" "$row" "decided_by" "decided_by" "$(jq -r '.[0].decided_by // "null"' <<<"$cards" 2>/dev/null)"
+        scen_check "$id" "$row" "max_loc" "max_loc" "$(jq -r '.[0].max_loc // "null"' <<<"$cards" 2>/dev/null)"
+        scen_check "$id" "$row" "tier" "budget.tier" "$(jq -r '.[0].budget.tier // "null"' <<<"$cards" 2>/dev/null)"
+        scen_check "$id" "$row" "source" "budget.source" "$(jq -r '.[0].budget.source // "null"' <<<"$cards" 2>/dev/null)"
+        scen_check "$id" "$row" "icap" "budget.iteration_cap" "$(jq -r '.[0].budget.iteration_cap // "null"' <<<"$cards" 2>/dev/null)"
+        scen_check "$id" "$row" "wcap" "budget.wall_clock_cap_s" "$(jq -r '.[0].budget.wall_clock_cap_s // "null"' <<<"$cards" 2>/dev/null)"
+        # jq == compares objects key-order-independently; both sides sorted
+        if jq -e '.expect | has("signals") and .expect.signals != null' <<<"$row" >/dev/null 2>&1; then
+          sig=$(jq -cS '.[0].budget.signals' <<<"$cards" 2>/dev/null)
+          wsig=$(jq -cS '.expect.signals' <<<"$row")
+          if [ "$sig" != "$wsig" ]; then
+            echo "  FAIL scen $id: budget.signals=[$sig] want=[$wsig]" >&2
+            SCEN_FAILS=$((SCEN_FAILS + 1))
+          fi
+        fi
+      fi
+    else
+      echo "  FAIL scen $id: bad kind [$kind]" >&2
+      SCEN_FAILS=$((SCEN_FAILS + 1))
+    fi
+  done < "$rows"
+  rm -f "$rows"
+  echo "$SCEN_FAILS"
+}
+
+SCEN_NROWS=$(jq '.fixtures | length' "$SCEN_FIXTURE" 2>/dev/null)
+if [ -n "$SCEN_NROWS" ] && [ "$SCEN_NROWS" -ge 30 ]; then
+  pass "scen fixture parses with $SCEN_NROWS rows (not a prose file)"
+else
+  fail "scen fixture missing/undersized rows=$SCEN_NROWS"
+fi
+
+reset
+SCEN_FAILS=$(scen_run "$SCEN_FIXTURE")
+if [ "$SCEN_FAILS" = "0" ]; then
+  pass "scen all $SCEN_NROWS fixture rows pass against budget-check/append-card"
+else
+  fail "scen $SCEN_FAILS fixture row(s) failed against budget-check/append-card"
+fi
+
+# scen negative control: one flipped expectation must fail the runner, proving
+# the row assertions bite (not a vacuous loop).
+jq '.fixtures |= map(if (.id == "F6" and .kind == "budget" and .mode == "argc4") then .expect.exit = 0 else . end)' \
+  "$SCEN_FIXTURE" > "$TMP/scen-mut.json" 2>/dev/null
+SCEN_MUT_FAILS=$(scen_run "$TMP/scen-mut.json")
+if [ "$SCEN_MUT_FAILS" -ge 1 ] 2>/dev/null; then
+  pass "scen negative control: flipped F6 exit expectation fails the runner"
+else
+  fail "scen negative control: mutated fixture still passed (runner does not bite)"
 fi
 
 # =============================================================================

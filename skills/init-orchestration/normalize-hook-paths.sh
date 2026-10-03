@@ -17,8 +17,11 @@
 #       [--disclose PATH] [--dry-run]
 #
 # Exit:
-#   0  rewrote one or more commands (disclosed each change), or dry-run would
-#   1  no-op (already normalized / no matching hooks / missing hooks key)
+#   0  rewrote one or more commands (disclosed each change), dry-run would,
+#      or no-op (already normalized / no matching hooks / missing hooks key).
+#      A no-op is success (rv-w2-06): a `set -e` caller must not abort on an
+#      already-normalized settings file; the no-op is marked by one stderr
+#      note instead of a failure code.
 #   2  usage / IO error
 #
 # THIS SCRIPT IS A SUBPROCESS CLI — NEVER SOURCE IT.
@@ -203,17 +206,24 @@ sys.stderr.write(
 PY
 }
 
+# no_op — a no-op is success (rv-w2-06): exit 0 with one stderr note, never a
+# failure code, so a `set -e` caller survives an already-normalized settings.
+no_op() {
+  echo "normalize-hook-paths: no-op — no matching hook commands to rewrite" >&2
+  exit 0
+}
+
 # Plan rewrites (stdout: TSV event\told\tnew); exit 1 from python = none
 PLAN=$(run_py plan) || {
   _py_rc=$?
   if [ "$_py_rc" -eq 1 ]; then
-    exit 1
+    no_op
   fi
   exit 2
 }
 
 if [ -z "$PLAN" ]; then
-  exit 1
+  no_op
 fi
 
 # Disclose each change (AC5). Forced + silent = FAIL.
@@ -241,7 +251,7 @@ EOF
 done <<< "$PLAN"
 
 if [ "$CHANGED" -eq 0 ]; then
-  exit 1
+  no_op
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then

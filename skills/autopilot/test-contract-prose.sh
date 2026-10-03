@@ -12,8 +12,10 @@
 #      contain "Evaluated at `scope-confirm` and `plan-approve`", and
 #      neither does skills/autopilot/SKILL.md; both files contain
 #      "Evaluated at `scope-confirm` only".
-# c3 — The F4-n-tight row in self-answer-scenarios.md still expects a
-#      BC4 halt at plan-approve.
+# c3 — The F4-n-tight plan-approve row in the self-answer gate fixture
+#      (fixtures/self-answer-scenarios.json, successor of the retired
+#      self-answer-scenarios.md prose) still expects a BC4 halt at
+#      plan-approve.
 # c4 — ship-gate-council.md §2a gives the fresh (card #1 unreadable) halt
 #      card the run_id `orchestrate-<ISSUE-ID>-<RUN_START_EPOCH>`.
 # c5 — ship-gate-council.md §6 requires `actor` `ship-gate-council` on
@@ -35,7 +37,7 @@ source "$ROOT/tests/lib/fence.sh"
 SPEC="$ROOT/specs/core/SPEC-033-autopilot-policy.md"
 SKILL="$SCRIPT_DIR/SKILL.md"
 SG="$SCRIPT_DIR/ship-gate-council.md"
-SCEN="$SCRIPT_DIR/self-answer-scenarios.md"
+SCEN="$SCRIPT_DIR/fixtures/self-answer-scenarios.json"
 GOLDEN_S5="$SCRIPT_DIR/fixtures/contract-prose/sgc-s5-38bc739.md"
 
 PASS=0
@@ -75,9 +77,10 @@ extract_wp108_row() {
   grep -F -- 'WP 1-08 (`wp-1-08-autopilot-state`' "$1"
 }
 
-# extract_f4ntight_row <scenarios-file> -- the F4-n-tight table row line.
-extract_f4ntight_row() {
-  grep -F -- '| F4-n-tight |' "$1"
+# f4ntight_row <fixture.json> -- the F4-n-tight plan-approve card row
+# (single consumer; row extraction is jq, not a line grep — 05 E5).
+f4ntight_row() {
+  jq -c '[.fixtures[] | select(.id=="F4-n-tight" and .card[2]=="plan-approve")][0]' "$1" 2>/dev/null
 }
 
 extract_sgc_2a() { md_section "$1" "### 2a. Process-stamp pre-flight"; }
@@ -168,43 +171,46 @@ else
 fi
 
 # =============================================================================
-# c3 -- F4-n-tight row still expects a BC4 halt at plan-approve.
+# c3 -- the F4-n-tight plan-approve fixture row still expects a BC4 halt.
 # =============================================================================
-TIGHT_STR='plan-approve BC4 halt'
-ROW_F4=$(extract_f4ntight_row "$SCEN")
-if [ -z "$ROW_F4" ]; then
-  fail "c3 self-answer-scenarios.md has no F4-n-tight row"
-elif printf '%s\n' "$ROW_F4" | grep -F -q -- "$TIGHT_STR"; then
-  pass "c3 self-answer-scenarios.md F4-n-tight row still expects a BC4 halt at plan-approve"
+TIGHT_DEC="halt"
+TIGHT_BC="4"
+ROW_F4=$(f4ntight_row "$SCEN")
+if [ -z "$ROW_F4" ] || [ "$ROW_F4" = "null" ]; then
+  fail "c3 fixture has no F4-n-tight plan-approve row"
+elif [ "$(jq -r '.expect.decision' <<<"$ROW_F4")" = "$TIGHT_DEC" ] \
+  && [ "$(jq -r '.expect.bc' <<<"$ROW_F4")" = "$TIGHT_BC" ]; then
+  pass "c3 fixture F4-n-tight plan-approve row still expects a BC4 halt"
 else
-  fail "c3 self-answer-scenarios.md F4-n-tight row no longer expects a BC4 halt at plan-approve"
+  fail "c3 fixture F4-n-tight plan-approve row expects decision=$(jq -r '.expect.decision' <<<"$ROW_F4") bc=$(jq -r '.expect.bc' <<<"$ROW_F4") (want halt/4)"
 fi
-remove_line_substr "$SCEN" "$TMP/c3-mut.md" "$TIGHT_STR"
-ROW_F4_MUT=$(extract_f4ntight_row "$TMP/c3-mut.md")
-if printf '%s\n' "$ROW_F4_MUT" | grep -F -q -- "$TIGHT_STR"; then
-  fail "c3-bite mutated F4-n-tight row still had the phrase"
+# c3-bite: flip the row's bc to 5; the row-scoped check must fail.
+jq '(.fixtures[] | select(.id=="F4-n-tight" and .card[2]=="plan-approve") | .expect.bc) = "5"' \
+  "$SCEN" > "$TMP/c3-mut.json" 2>/dev/null
+ROW_F4_MUT=$(f4ntight_row "$TMP/c3-mut.json")
+if [ -n "$ROW_F4_MUT" ] && [ "$ROW_F4_MUT" != "null" ] \
+  && [ "$(jq -r '.expect.decision' <<<"$ROW_F4_MUT")" = "$TIGHT_DEC" ] \
+  && [ "$(jq -r '.expect.bc' <<<"$ROW_F4_MUT")" = "$TIGHT_BC" ]; then
+  fail "c3-bite mutated F4-n-tight row still expects a BC4 halt"
 else
-  pass "c3-bite mutated F4-n-tight row no longer has the phrase -> check would fail"
+  pass "c3-bite mutated F4-n-tight row no longer expects a BC4 halt -> check would fail"
 fi
 
-# c3-bite2: planted negative control -- the phrase moved to an UNRELATED
-# row (F4-gen), while the F4-n-tight row itself loses it. A file-wide
-# `has()` on this fixture would incorrectly PASS (the phrase still exists
-# somewhere in the file); the row-scoped check MUST fail, proving c3
-# actually reads the F4-n-tight row and not just "the phrase is somewhere".
-sed -e "s/| F4-n-tight | \`--max-loc=<n>\` with \`n<2000\`; counted LOC in \`(n, 2000)\` | plan-approve BC4 halt; scope-confirm M10.1 reroute |/| F4-n-tight | \`--max-loc=<n>\` with \`n<2000\`; counted LOC in \`(n, 2000)\` | scope-confirm M10.1 reroute |/" \
-  -e "s/| F4-gen | lockfile\/snap\/linguist-generated file 1400 lines | \*\*no\*\* BC4 |/| F4-gen | lockfile\/snap\/linguist-generated file 1400 lines | **no** BC4; plan-approve BC4 halt |/" \
-  "$SCEN" > "$TMP/c3-moved.md"
-if has "$TMP/c3-moved.md" "$TIGHT_STR"; then
-  :
+# c3-bite2: planted negative control -- the halt/BC4 expectation moved to an
+# UNRELATED row (F4-gen) while the F4-n-tight plan-approve row loses it. A
+# file-wide "some row halts BC4" check would PASS (the expectation still
+# exists somewhere); the row-scoped check MUST fail, proving c3 actually
+# reads the F4-n-tight plan-approve row.
+jq '(.fixtures[] | select(.id=="F4-gen") | .expect) = {"exit":0,"decision":"halt","bc":"4"}
+    | (.fixtures[] | select(.id=="F4-n-tight" and .card[2]=="plan-approve") | .expect) = {"exit":0,"decision":"approve","bc":"null"}' \
+  "$SCEN" > "$TMP/c3-moved.json" 2>/dev/null
+ROW_F4_MOVED=$(f4ntight_row "$TMP/c3-moved.json")
+if [ -n "$ROW_F4_MOVED" ] && [ "$ROW_F4_MOVED" != "null" ] \
+  && [ "$(jq -r '.expect.decision' <<<"$ROW_F4_MOVED")" = "$TIGHT_DEC" ] \
+  && [ "$(jq -r '.expect.bc' <<<"$ROW_F4_MOVED")" = "$TIGHT_BC" ]; then
+  fail "c3-bite2 row-scoped check still matched after the expectation moved off the F4-n-tight row -- c3 is not actually row-scoped"
 else
-  fail "c3-bite2 setup: planted phrase missing from the fixture (F4-gen row) -- test setup broken"
-fi
-ROW_F4_MOVED=$(extract_f4ntight_row "$TMP/c3-moved.md")
-if printf '%s\n' "$ROW_F4_MOVED" | grep -F -q -- "$TIGHT_STR"; then
-  fail "c3-bite2 row-scoped check still matched after the phrase moved off the F4-n-tight row -- c3 is not actually row-scoped"
-else
-  pass "c3-bite2 row-scoped check correctly fails when the phrase is present file-wide but absent from the F4-n-tight row -> proves row scoping"
+  pass "c3-bite2 row-scoped check correctly fails when a BC4 halt exists on another row but not on F4-n-tight -> proves row scoping"
 fi
 
 # =============================================================================

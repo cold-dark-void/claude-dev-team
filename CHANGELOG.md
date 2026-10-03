@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.28
+- **WP 7-D Hook files and test libs** — tests share one assert and mirror-store library, the autopilot fixtures are table-driven, and the hook-path normalizer exits clean on a no-op.
+
 ### v1.19.27
 - **WP 7-C Skill splits** — bug-hunt, epic, council, spec-tooling, and doctor become thin routers over stage files, and the refactor worktree is created only on a bounded route.
 

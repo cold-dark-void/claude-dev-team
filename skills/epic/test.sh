@@ -489,8 +489,8 @@ if [ -f "$SKILL_BODY" ]; then
   grep -q 'skills/epic/parse-flags.sh' "$SKILL_BODY" \
     && pass || fail "SKILL missing parse-flags.sh reference"
   # CDT-141-C2: ensure-integration-worktree wire + M11 carve-out
-  grep -q 'ensure-integration-worktree' "$SKILL_BODY" \
-    && pass || fail "SKILL missing ensure-integration-worktree"
+  # (the unscoped ensure-integration-worktree mention grep is superseded by
+  # the c7-e8 structural fence-cmds-vs-case-list check below)
   grep -q 'M11 carve-out' "$SKILL_BODY" \
     && pass || fail "SKILL missing M11 carve-out for integration WT"
   # A.6 real init fence must wire INIT_EXTRA + ensure after init
@@ -515,8 +515,8 @@ if [ -f "$SKILL_BODY" ]; then
   echo "$B1_BLOCK" | grep -q 'ensure-integration-worktree' \
     && pass || fail "B.1 missing ensure-integration-worktree on resume"
   # CDT-141-C6: resolve-resume-flags + conflict policy documented
-  grep -q 'resolve-resume-flags' "$SKILL_BODY" \
-    && pass || fail "SKILL missing resolve-resume-flags"
+  # (the unscoped resolve-resume-flags mention grep is superseded by the
+  # c7-e8 structural fence-cmds-vs-case-list check below)
   grep -q 'Resume flag-vs-state policy' "$SKILL_BODY" \
     && pass || fail "SKILL missing Resume flag-vs-state policy (C6)"
   grep -q 'Honor store' "$SKILL_BODY" \
@@ -1598,6 +1598,46 @@ for f in "$CMD" "$DOCS_EPIC" "$SKILL_BODY" "$SPEC"; do
     pass
   fi
 done
+
+# (c7-e8) CDT-293 [05 E8]: structural — every epic-lib subcommand invoked in
+# the skill body / commands doc exists in epic-lib.sh's `case "$SUBCMD"`
+# dispatch. Replaces prose-phrase mention greps: a fence naming a subcommand
+# the lib does not implement (F9-style drift) fails here, not at runtime.
+# A token counts as an invoked subcommand only after `"$EPIC_LIB"` (fence
+# call) or inside one backtick span of `epic-lib[.sh] <sub>` (prose cite,
+# bounded path prefix allowed) — bare prose like "epic-lib thin wrapper" or
+# "`epic-lib` only" is not a call. Inline-code shapes with args after the sub
+# (e.g. `epic-lib.sh mark-done "$T"`) are not extracted — the fences carry
+# the callable surface.
+epic_lib_case_subcmds() {
+  awk '/^case "\$SUBCMD" in/ {f=1; next} /^esac/ {f=0} f && /^[[:space:]]+[a-z][a-z-]*\)/ {sub(/\).*/,""); sub(/^[[:space:]]+/,""); print}' "$1" | LC_ALL=C sort -u
+}
+epic_lib_used_subcmds() {
+  grep -hoE '"\$EPIC_LIB"[[:space:]]+[a-z][a-z-]+|`[^`]{0,40}epic-lib(\.sh)?[[:space:]]+[a-z][a-z-]+`' "$@" 2>/dev/null \
+    | sed -E 's/.*[[:space:]]//; s/`$//' | LC_ALL=C sort -u
+}
+IMPL_SUBCMDS=$(epic_lib_case_subcmds "$LIB")
+USED_SUBCMDS=$(epic_lib_used_subcmds "$SKILL_BODY" "$CMD")
+if [ -n "$IMPL_SUBCMDS" ] && [ -n "$USED_SUBCMDS" ]; then
+  E8_DRIFT=$(comm -23 <(printf '%s\n' "$USED_SUBCMDS") <(printf '%s\n' "$IMPL_SUBCMDS"))
+  if [ -z "$E8_DRIFT" ]; then
+    pass
+  else
+    fail "c7-e8 fence cmds not in epic-lib case list: $(printf '%s' "$E8_DRIFT" | tr '\n' ' ')"
+  fi
+else
+  fail "c7-e8 extractor empty (impl=[${IMPL_SUBCMDS:-}] used=[${USED_SUBCMDS:-}])"
+fi
+# c7-e8-bite (negative control): a planted fence invoking a nonexistent
+# subcommand is flagged by the same extractor+diff, proving the check bites.
+printf 'bash "$EPIC_LIB" bogus-sub X\n`epic-lib.sh init` Y\n' > "$TMPROOT/c7-e8-neg.md"
+E8_DRIFT_NEG=$(epic_lib_used_subcmds "$TMPROOT/c7-e8-neg.md" | comm -23 - <(printf '%s\n' "$IMPL_SUBCMDS"))
+rm -f "$TMPROOT/c7-e8-neg.md"
+if [ "$E8_DRIFT_NEG" = "bogus-sub" ]; then
+  pass
+else
+  fail "c7-e8 negative control: planted bogus-sub not flagged (got: ${E8_DRIFT_NEG:-none})"
+fi
 
 # (c7-4) docs/commands documents seal + M11 carve-out
 if [ -f "$DOCS_EPIC" ]; then

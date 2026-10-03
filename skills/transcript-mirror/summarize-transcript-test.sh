@@ -15,6 +15,11 @@ HERE=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # CDT-284: portable sha256 (sha256sum is absent on stock macOS).
 # shellcheck source=../lib/portable.sh
 . "$HERE/../lib/portable.sh"
+# CDT-293 [04 E6]: shared transcript-store helpers (age/sha_file/last_ident/
+# plant_claude_src/write_store/plant_hit) — one copy for this suite and
+# compact-transcript-test.sh; sourced after the env vars it needs exist.
+# shellcheck source=store-lib.sh
+. "$HERE/store-lib.sh"
 # sha256sum-shaped line (hash, two spaces, path) without GNU sha256sum.
 sha_line() { printf '%s  %s\n' "$(portable_sha256 "$1")" "$1"; }
 REPO=$(CDPATH= cd -- "$HERE/../.." && pwd)
@@ -82,44 +87,6 @@ chmod +x "$WORK/stub-echo.sh"
 
 CWD=$(pwd)
 ENC_CLAUDE=${CWD//\//-}
-
-age() { touch_ago "$1" 120; }
-
-sha_file() { portable_sha256 "$1"; }
-
-last_ident() {
-  jq -r 'select(.uuid | type == "string" and length > 0) | .uuid' "$1" \
-    | awk 'NF { x=$0 } END { print x }'
-}
-
-plant_claude_src() {
-  local sid="$1" src="$2"
-  local dest="$CLAUDE_PROJECTS_DIR/$ENC_CLAUDE"
-  mkdir -p "$dest"
-  cp "$src" "$dest/${sid}.jsonl"
-  age "$dest/${sid}.jsonl"
-  printf '%s\n' "$dest/${sid}.jsonl"
-}
-
-write_store() {
-  local sid="$1" main="$2" srcpath="$3"
-  mkdir -p "$STORE/$sid/tool_result" "$STORE/$sid/agents/w" \
-    "$STORE/$sid/thinking" "$STORE/$sid/injection"
-  cp "$main" "$STORE/$sid/main.md"
-  local ident hash
-  ident=$(last_ident "$srcpath")
-  hash=$(sha_file "$STORE/$sid/main.md")
-  printf '%s\t%s\t%s\n' "$ident" "$srcpath" "$hash" >"$STORE/$sid/cursor"
-  printf 'source: %s\nstarted_mirror: 2026-01-01T00:00:00+00:00\n' "$srcpath" >"$STORE/$sid/meta"
-}
-
-plant_hit() {
-  local sid="$1" src="$2" main="$3"
-  local located
-  located=$(plant_claude_src "$sid" "$src")
-  write_store "$sid" "$main" "$located"
-  printf '%s\n' "$located"
-}
 
 check_sid() {
   local sid="$1"
