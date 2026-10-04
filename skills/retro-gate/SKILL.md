@@ -5,6 +5,7 @@ description: |
     that scans a Claude Code session JSONL and decides whether the session
     contained enough friction to warrant a deep retrospective. Used by /retro,
     /kickoff, and /orchestrate to suppress no-op runs on smooth sessions.
+user-invocable: false
 ---
 
 # retro-gate

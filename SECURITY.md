@@ -1,12 +1,10 @@
 # Security Policy
 
 ## Supported Versions
-
 | Version | Supported |
 |---------|-----------|
-| 1.1.x   | Yes       |
-| 1.0.x   | Security fixes only |
-| < 1.0   | No        |
+| 1.20.x | Yes       |
+| < 1.20 | No        |
 
 ## Reporting a Vulnerability
 

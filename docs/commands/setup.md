@@ -6,7 +6,7 @@ plus the local Model map share one Surface — do not merge their protocols.
 | Sub | Maps from | What it does |
 |-----|-----------|--------------|
 | `project` | scaffold-project skill | TDD structure: `AGENTS.md`, `specs/TDD.md`, `.claude/plans/`, settings allowlist |
-| `orchestration` | init-orchestration skill | Agent Teams: sandbox, hooks, `dontAsk`, AGENTS.md team section |
+| `orchestration` | init-orchestration skill | Agent Teams: sandbox, hooks, `auto` posture (Cell D), AGENTS.md team section |
 | `team` | former init-team command | Memory bootstrap: SQLite DB, embedding extensions, project-init scan |
 | `models` | `write-model.sh` | Local Model map list/set/unset/set-effort/unset-effort (not doctor-gated) |
 
@@ -58,7 +58,7 @@ Bootstrap all 7 agents' memory for the current project.
 
 | Flag | Effect |
 |------|--------|
-| `--refresh` | Re-probe / re-seed cortex |
+| `--refresh` | Re-check embedding mode, extensions, and migration; does **not** rescan the project or rewrite cortex |
 | `--migrate-only` | Schema migrate without full project-init scan |
 | `--no-extensions` | Keyword-only search (skip embedding download) |
 
@@ -66,9 +66,10 @@ Full procedure: [Setup → `/setup team`](../setup.md#setup-team--bootstrap-agen
 
 ## Sub: `models`
 
-Local Model map (SPEC-037). Bare `/setup models` lists the 8 mappable agents
-(winning model or `Tier default`, winning effort or `inherited`) plus the
-local path. `set` / `unset` / `set-effort` / `unset-effort` write only
+Local Model map (SPEC-037). Bare `/setup models` lists the 10 mappable agents
+(`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`, `ds`, `council-judge`,
+`finder`, `debugger`) with the winning model or `Tier default`, the winning
+effort or `inherited`, and the local path. `set` / `unset` / `set-effort` / `unset-effort` write only
 `$MROOT/.claude/dev-team/models.local.json`. Not doctor-gated. Sugar:
 `/adjust-agent <agent> --model <string>` / `--model-unset` /
 `--effort <token>` / `--effort-unset`.

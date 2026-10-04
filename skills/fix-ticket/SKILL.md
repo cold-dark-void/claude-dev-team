@@ -3,6 +3,7 @@ name: fix-ticket
 description: >
   Internal protocol for /debug ticket — premise→implement→refuters pipeline
   (SPEC-014 ticket mode). Not a user entry; invoke via /debug ticket.
+user-invocable: false
 ---
 
 # fix-ticket (backend for `/debug ticket`)

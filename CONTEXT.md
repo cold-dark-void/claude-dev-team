@@ -34,7 +34,9 @@ agent output. Do not reintroduce avoided aliases.
 | Verbatim original | Cold copy of a Meaning-channel turn body replaced by an on-demand LLM overlay; file `<sid>/verbatim/<turn-id>.txt`; `@ref` from `main.md`. Not a Channel sidecar. | Channel sidecar, Meaning tail, Compact seed, STM packet |
 | Model map | Layered per-agent agent→model-string mapping plus optional effort token; precedence local > repo > global > tier | model config, model overrides |
 | Tier default | Shipped frontmatter alias (`opus`/`sonnet`/`haiku`) encoding role capability intent; final fallback of the Model map | hardcoded model |
-| inherited effort | Empty `resolve-model.sh --effort` stdout; spawn omits the `effort` param (except light Step 8 `@ic4` omit-path `low`) | default effort, hardcoded effort |
+| Inherited effort | Empty `resolve-model.sh --effort` stdout; spawn omits the `effort` param (except light Step 8 `@ic4` omit-path `low`) | default effort, hardcoded effort |
+| Non-behavioral roster agent | One of the 6 SPEC-003 internal agents (`finder`, `debugger`, `project-init`, `distiller`, `council-judge`, `council-scribe`): no per-agent memory, cortex, or directives surface; invoked by a specific command, never routed to directly | internal agent, helper agent |
+| Blind investigator | Read-only, evidence-only spawned investigator that does not see other investigators' output (SPEC-013); `finder` and `debugger` are the named-roster forms | refuter, skeptic |
 
 ## Decisions
 

@@ -6,6 +6,7 @@ description: |
     the Tier default. Empty effort stdout is inherited effort. Local
     writer is write-model.sh; user Surface is /setup models.
     Agent-internal — not a user slash command.
+user-invocable: false
 ---
 
 # Model map
@@ -121,7 +122,7 @@ not emit this warning.
 Named-roster Agent spawns honor the Model map (SPEC-037 M13 ∪ M16). Each
 site also runs `resolve-model.sh --effort` for the same agent:
 
-- `/orchestrate` steps 4 / 6 / 8 / 9 / 10, plus code-simplify (`ic4`) and
+- `/orchestrate` steps 4 / 6 / 8 / 9 / 10, plus post-approve-polish (`ic4`) and
   ci-watch fixer (`ic5`)
 - `/kickoff` — Step 2 `@pm` / `@tech-lead` / `@finder` (Codebase Explorer),
   Step 3 feed-back `@pm`, Step 5 / 6 `@tech-lead`

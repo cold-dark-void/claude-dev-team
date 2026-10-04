@@ -7,6 +7,7 @@ description: |
   (verdict[] and finding[]), atomic verdict index at .claude/council/index.json,
   feedback-memory learning loop. Judge is a dedicated agent with an empty
   tool allowlist. See specs/core/SPEC-013-adversarial-council-tribunal.md.
+user-invocable: false
 ---
 
 # council — Engine Protocol

@@ -1,11 +1,11 @@
 ---
 name: refactor
 description: |
-    Design-first code restructuring that preserves behavior. Enforces design
-    problem written before any edit, characterization tests when coverage is
-    thin, and zero observable behavior change. Subcommands: /refactor <desc>
-    (default), /refactor inline <desc> (approach pre-decided by /debug
-    scope=refactor-first).
+    Use when code needs restructuring that must not change observable behavior
+    — design-first code restructuring that enforces a design problem written
+    before any edit, characterization tests when coverage is thin, and zero
+    observable behavior change. Subcommands: /refactor <desc> (default),
+    /refactor inline <desc> (approach pre-decided by /debug scope=refactor-first).
 argument-hint: "[inline]"
 ---
 
@@ -314,7 +314,7 @@ Format options as a short numbered list. Do not start work until the user select
 
 ### 2.2a Escalation gate [GATE]
 
-Runs after the approach is settled (2.2) and before the coverage check (2.3). Mandatory on **every** invocation of `/refactor`, in both modes, including runs whose scope is a single line. There is no size threshold below which this gate is skipped, and no flag, mode, or environment variable that bypasses it. This section is the gate's single contract home (SPEC-002 D1; SPEC-015 § Escalation Gate) — `/debug`, `/review-and-commit`, and `/code-simplify` cite it and do not restate it.
+Runs after the approach is settled (2.2) and before the coverage check (2.3). Mandatory on **every** invocation of `/refactor`, in both modes, including runs whose scope is a single line. There is no size threshold below which this gate is skipped, and no flag, mode, or environment variable that bypasses it. This section is the gate's single contract home (SPEC-002 D1; SPEC-015 § Escalation Gate) — `/debug`, `/review-and-commit`, and `/post-approve-polish` cite it and do not restate it.
 
 **The approach decision and the edit go-ahead are two different questions.** 2.2 decides *how* the code should change and keeps its auto-pick behavior — when exactly one approach applies, it is stated, not asked. This gate decides *whether editing may begin at all*, and it is always asked. Auto-picking an approach is never authorization to edit.
 

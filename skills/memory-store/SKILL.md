@@ -5,6 +5,7 @@ description: |
     DB detection, SQL-safe INSERT/UPDATE, optional embedding generation (lembed or
     remote embedding provider), and retry on SQLITE_BUSY. Usage: read this file to
     learn the protocol, then execute the relevant bash blocks.
+user-invocable: false
 ---
 
 # memory-store

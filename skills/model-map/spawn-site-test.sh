@@ -18,7 +18,7 @@ skills/orchestrate/steps/06-design.md
 skills/orchestrate/steps/08-execute.md
 skills/orchestrate/steps/09-review.md
 skills/orchestrate/steps/10-qa.md
-skills/code-simplify/SKILL.md
+skills/post-approve-polish/SKILL.md
 skills/ci-watch/SKILL.md
 skills/kickoff/SKILL.md
 skills/epic/mode-a-decompose.md

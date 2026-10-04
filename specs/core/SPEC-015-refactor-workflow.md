@@ -44,7 +44,7 @@ The full gate contract — edit go-ahead, ticket-weight routing, workstream spli
 
 - MUST execute the Escalation gate as a numbered inline step between the approach decision (2.2) and the coverage check (2.3) in default mode, and immediately after the approach preamble (3.1) in inline mode. MUST NOT carry it as a trailing "Escalation ladder" appendix.
 - MUST obtain an explicit user edit go-ahead before the first file modification, on every run, with no auto-satisfied branch and no size threshold that skips it.
-- MUST carry the operational gate text exactly once, in `skills/refactor/SKILL.md` (contract home, SPEC-002 D1). `/debug`, `/review-and-commit`, and `/code-simplify` MUST cite it and MUST NOT restate it.
+- MUST carry the operational gate text exactly once, in `skills/refactor/SKILL.md` (contract home, SPEC-002 D1). `/debug`, `/review-and-commit`, and `/post-approve-polish` MUST cite it and MUST NOT restate it.
 - In inline mode, MUST skip only the approach re-decision; the edit go-ahead and ticket-weight routing still run in full.
 
 ### Worktree Isolation (all modes)

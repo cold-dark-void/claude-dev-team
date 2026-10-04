@@ -34,7 +34,7 @@ Subs:
                   .claude/plans, settings allowlist). Greenfield / add-TDD.
                   Soft-advises dev-team:doctor (never blocks).
   orchestration   Bootstrap Agent Teams orchestration (sandbox, hooks,
-                  dontAsk, AGENTS.md team section). Brownfield merge.
+                  `auto` (Cell D), AGENTS.md team section). Brownfield merge.
                   Hard-gates on dev-team:doctor (exit ≤1 OK; exit 2 blocks).
                   Flag: --skip-doctor
   team [flags…]   Initialize team memory (SQLite DB, embedding extensions,
@@ -124,7 +124,7 @@ harness built-in /doctor) after scaffold to verify install health.
 
 | Invocation | Maps from | Expected behavior |
 |------------|-----------|-------------------|
-| `/setup orchestration` | init-orchestration skill | Merge sandbox + hooks + `dontAsk` into settings; emit hook scripts; AGENTS.md team section; CLAUDE.md reference; seed orchestrator memory. Safe re-run (merge, not clobber). |
+| `/setup orchestration` | init-orchestration skill | Merge sandbox + hooks + `auto` posture (Cell D) into settings; emit hook scripts; AGENTS.md team section; CLAUDE.md reference; seed orchestrator memory. Safe re-run (merge, not clobber). |
 
 Args: optional `--skip-doctor` (pass through). Doctor hard-gate lives at the
 **start** of `skills/init-orchestration/SKILL.md` (before any mutation). Preserve
@@ -139,7 +139,7 @@ re-run force-changes a managed settings value (especially
 (`skills/init-orchestration/disclose-force-overwrite.sh`). Forced + silent =
 FAIL. See init-orchestration Step 3 brownfield merge.
 
-**Not pure zero-intervention under `dontAsk` (CDT-68):** settings.json merge,
+**Not pure zero-intervention under `auto` (CDT-68):** settings.json merge,
 writing `bash-compress.sh`, and writing `escalation-gate.sh` (SPEC-031's
 blocking `PreToolUse` hook) are self-escalation-guarded and need explicit
 user approval. Agents **MUST** batch all three approvals in **one** up-front
@@ -435,12 +435,12 @@ Collect all hosts that need sandbox network access. Always include `github.com:2
 (for git push over SSH). If `$EMBEDDING_URL` is set, also include the embedding host.
 For each host, check if it's already in the allowlist. If not, add it.
 
-**IMPORTANT — not pure zero-intervention under `dontAsk` (CDT-68):** two layers
+**IMPORTANT — not pure zero-intervention under `auto` (CDT-68):** two layers
 can block settings writes, not just the sandbox:
 
 1. **Sandbox** — `.claude/settings.json` is sandbox-protected. On sandbox deny,
    retry with `dangerouslyDisableSandbox: true` (user approves once per command).
-2. **Permission classifier under `dontAsk`** — writes to `settings.json` (Edit or
+2. **Permission classifier under `auto`** — writes to `settings.json` (Edit or
    jq-via-Bash) are self-escalation-guarded. Generic "approve edits" is often
    rejected; the user must **explicitly** approve the write by name.
 
@@ -448,7 +448,7 @@ can block settings writes, not just the sandbox:
 **once** for the merge, e.g.:
 
 ```
-This bootstrap needs one explicit approval (dontAsk self-escalation guard —
+This bootstrap needs one explicit approval (`auto` self-escalation guard —
 not removable without losing the guard):
   1. Merge into .claude/settings.json (sandbox network allowlist + team permissions)
 Approve it so the rest of /setup can run without mid-run denials?

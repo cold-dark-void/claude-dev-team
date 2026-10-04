@@ -1,6 +1,6 @@
 ---
 name: ci-watch
-description: Autonomous CI/test watcher — cron polls a ticket's PR checks (or local tests) every 7 min, spawns a fixer agent on failure (max 3), self-cleans when green. Prefers durable CronCreate; falls back to session-only when the harness denies durable.
+description: Use when a ticket's PR checks or local tests should be watched without a human polling — autonomous CI/test watcher that cron-polls every 7 min, spawns a fixer agent on failure (max 3), and self-cleans when green. Prefers durable CronCreate; falls back to session-only when the harness denies durable.
 ---
 
 # CI Watch

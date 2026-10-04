@@ -3,6 +3,7 @@ name: standup
 description: >
   Internal protocol for /status standup — agent-team task snapshot (TaskList +
   file-store reconcile). Not a user entry; invoke via /status standup.
+user-invocable: false
 ---
 
 # Standup (backend for `/status standup`)
@@ -53,14 +54,20 @@ Read both views of task state and reconcile them:
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-   while IFS= read -r f; do
-     [ -f "$f" ] || continue
-     jq -r '[.task_id, .status, .subject // ""] | @tsv' "$f"
-   done < <(find "$MROOT/.claude/tasks" -maxdepth 1 -name '*.json' -type f 2>/dev/null)
+   if command -v jq >/dev/null 2>&1; then
+     while IFS= read -r f; do
+       [ -f "$f" ] || continue
+       jq -r '[.task_id, .status, .subject // ""] | @tsv' "$f"
+     done < <(find "$MROOT/.claude/tasks" -maxdepth 1 -name '*.json' -type f 2>/dev/null)
+   else
+     echo "jq not found — install jq (see /doctor deps.jq) for the task table; the TaskList view is still authoritative here."
+   fi
    ```
 
 If a TICKET-ID was provided, filter to tasks whose subject contains that ID.
-If no tasks are found in either view: print `No active tasks found.` and stop.
+If no tasks are found in either view: print
+`No active tasks found. Run /kickoff <TICKET-ID> to create a task graph.`
+and stop (the same single wording as Error Handling).
 
 Group tasks by status:
 - `pending` — not yet claimed
@@ -77,24 +84,35 @@ TaskList row).
 
 ## Step 2: Read agent context files
 
-For each task with status `in_progress`, read the owning agent's context file:
+For each task with status `in_progress`, read the owning agent's context file
+from the **task's** worktree (orchestrate Step 3 creates `.worktrees/<slug>`
+with the ticket id embedded in the slug), falling back to the caller's
+worktree:
 
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-cat $WTROOT/.claude/memory/<owner>/context.md 2>/dev/null
+# Prefer the ticket's worktree over the caller's tree (slug embeds the ticket id).
+TASK_WT=""
+if [ -d "$MROOT/.worktrees" ]; then
+  TASK_WT=$(find "$MROOT/.worktrees" -mindepth 1 -maxdepth 1 -type d \
+    -name "*$(printf '%s' '<TICKET-ID>' | tr '[:upper:]' '[:lower:]')*" 2>/dev/null | head -1)
+fi
+CTX_ROOT="${TASK_WT:-$WTROOT}"
+cat "$CTX_ROOT/.claude/memory/<owner>/context.md" 2>/dev/null
 ```
 
 If no context file exists for an agent, note: `(no context.md — agent hasn't written progress yet)`.
 
-Also check for recent commits by the agent:
-```bash
-git log --oneline --since="2 hours ago" --author="<agent-name>" 2>/dev/null | head -5
-```
+Also check for recent commits touching the ticket:
 
-(Agent name may appear in commit Co-Authored-By lines — grep for it if needed.)
+```bash
+# Commits are authored by the user, not the agent — grep the ticket id
+# (Co-Authored-By trailers carry the agent name if you need attribution).
+git log --oneline --since="2 hours ago" --grep="<TICKET-ID>" 2>/dev/null | head -5
+```
 
 ---
 
@@ -104,7 +122,9 @@ For each `in_progress` task, determine if it looks stale:
 
 **Stale indicators** (any one → flag as STALE):
 - context.md was not updated in the last 30 minutes (check file mtime if possible)
-- No commits from this agent in the last hour
+- No commits touching the ticket in the last hour (`git log --grep "<TICKET-ID>"` —
+  never `--author="<agent-name>"`: the user authors the commits, so an author
+  filter would flag every task STALE)
 - context.md says "blocked" or "waiting" without a corresponding SendMessage to Tech Lead
 - Task has been `in_progress` since before the last completed task finished
 
@@ -113,16 +133,18 @@ Flag stale tasks with `⚠️ STALE` in the output.
 **Probably-completed-but-unmarked detection.** Async-spawned agents
 finish in their own sandbox session, so their `TaskUpdate(completed)`
 never reaches the orchestrator. Their TaskList row stays
-`in_progress` indefinitely while the work is actually done. Flag a
-task as `🟡 LIKELY-DONE` (separate from STALE) when ALL of:
+`in_progress` indefinitely while the work is actually done. The file
+store stays the source of truth (Step 1): a task whose
+`.claude/tasks/<id>.json` says `completed` is reported as Completed —
+never as `🟡 LIKELY-DONE`. Flag `🟡 LIKELY-DONE` (separate from STALE)
+only when ALL of:
 
-- Status is `in_progress` AND
+- Status is `in_progress` in **both** views AND
 - Owner has no live agent process (no recent context.md write, no
-  recent commits) AND
-- The agent's expected output marker exists — either
-  `.claude/tasks/<id>.json` shows `status: completed` in the file
-  store but TaskList disagrees, OR the agent has commits referencing
-  the ticket within the last 2 hours but no activity since.
+  recent ticket commits) AND
+- An expected-output marker exists — the agent has commits
+  referencing the ticket within the last 2 hours but no activity
+  since.
 
 Surface these in a dedicated section — they need an orchestrator
 `TaskUpdate(<id>, completed)` to close the loop and unblock dependent
@@ -163,7 +185,20 @@ STATUS=$(bash "$DAG_LIB" status-of "$dep_id")
 - Show: `WAITING on: <dep_id> (<STATUS>)`
 - If the dep's task file is missing: show `WAITING on: <dep_id> (file missing)`
 
-Use `jq '.depends_on // []'` as the default to ensure backward compatibility with task files that predate the `depends_on` field.
+Use the guarded form when reading `.depends_on` (jq may be absent; `TASK_FILE`
+is `$MROOT/.claude/tasks/<task_id>.json` from the block above):
+
+```bash
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+TASK_FILE="$MROOT/.claude/tasks/<task_id>.json"
+if command -v jq >/dev/null 2>&1; then
+  jq -r '.depends_on // [] | .[]' "$TASK_FILE" 2>/dev/null
+else
+  echo "jq not found — cannot read depends_on for $TASK_FILE"
+fi
+```
 
 ---
 
@@ -219,8 +254,13 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 PDH="${PDH:-<PDH>}"   # session root carried from the stanza fence above — re-run that fence first when not held
-EPIC_LIB="$PDH/skills/epic/epic-lib.sh"
-ROLLUP=$(bash "$EPIC_LIB" rollup)
+ROLLUP=""
+if [ -n "$PDH" ] && [ "$PDH" != "<PDH>" ]; then
+  EPIC_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/epic/epic-lib.sh 2>/dev/null || true)
+  if [ -n "$EPIC_LIB" ] && [ -f "$EPIC_LIB" ]; then
+    ROLLUP=$(bash "$EPIC_LIB" rollup 2>/dev/null || true)
+  fi
+fi
 ```
 
 If `$ROLLUP` is non-empty, print:
@@ -243,7 +283,7 @@ from free-text memory.
 
 After the report, check if any escalation is warranted:
 
-**Auto-escalate to Tech Lead if:**
+**Recommend escalation to Tech Lead when:**
 - Any task is STALE with no recent SendMessage to Tech Lead
 - Two or more tasks are blocked waiting on the same dependency
 - A completed task's output hasn't been consumed by the downstream task after 30+ min
@@ -261,7 +301,7 @@ Do NOT send the message automatically — surface it for the engineer to decide.
 
 ## Error Handling
 
-- **No tasks at all**: `No tasks found. Run /kickoff <TICKET-ID> to create a task graph.`
+- **No tasks at all**: `No active tasks found. Run /kickoff <TICKET-ID> to create a task graph.` (the one wording — matches Step 1)
 - **TaskList unavailable** (orchestration not initialized): `Agent Teams not initialized. Run /setup orchestration first.`
 - **context.md missing for in_progress agent**: note it but don't fail — the agent may not have written it yet
 - **Git log unavailable** (not in a git repo): skip commit staleness check, rely on context.md mtime only

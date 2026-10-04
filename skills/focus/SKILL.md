@@ -5,6 +5,7 @@ description: |
     (2) evidence discipline — no guessing, no narrative root-causes without tool
     confirmation, kill false smoking guns, keep dead-ends. Primary entry: /mode
     focus [on|off|status].
+user-invocable: false
 ---
 
 # Focus (session mode)

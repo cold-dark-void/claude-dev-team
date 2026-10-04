@@ -18,11 +18,12 @@ Thin entrypoint for the release-train skill. Full protocol:
 
 | Args | Action |
 |------|--------|
-| `register <branch> [--bump minor\|patch] [--assumed V]` | Queue a branch (manual only) |
-| `list` / `status` | Show queue JSON / human summary |
+| `register <branch> [--bump minor\|patch] [--assumed V]` | Queue a branch (manual only). Pass `--bump` and `--assumed` explicitly; `detect-assumed` re-derives the assumed version when omitted, and an omitted `--bump` defaults to `minor`. |
+| `list` | Show queue JSON |
+| `status` | Human summary (maps to train-lib `show-plan`; `list` maps to `list`) |
 | `drop <branch>` | Remove a **pending** or **blocked** entry |
 | `requeue <branch>` | Move a **blocked** entry back to pending and clear the freeze |
-| `dry-run` | Print order + slot versions; zero mutation |
+| `dry-run` | Print order + slot versions; no queue, status, or freeze mutation (the idempotent Step 2 `init` may create the queue dir if absent) |
 | `start` | Freeze (if needed), lock, land each entry via skill loop |
 
 ## Routing
@@ -36,11 +37,12 @@ Thin entrypoint for the release-train skill. Full protocol:
 PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
 TRAIN_LIB=$(bash "$PDH/skills/plugin-dir.sh" file skills/release-train/train-lib.sh)
 
-# register
-bash "$TRAIN_LIB" register "$BRANCH" --bump "${BUMP:-minor}"
+# register — pass --bump and --assumed explicitly, e.g.:
+bash "$TRAIN_LIB" register "$BRANCH" --bump "${BUMP:-minor}" --assumed "${ASSUMED:-$(bash "$TRAIN_LIB" detect-assumed "$BRANCH")}"
 
-# list / status
+# list (queue JSON) / status (human summary)
 bash "$TRAIN_LIB" list
+bash "$TRAIN_LIB" show-plan
 
 # drop (pending or blocked)
 bash "$TRAIN_LIB" drop "$BRANCH"

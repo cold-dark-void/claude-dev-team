@@ -91,14 +91,14 @@ First-ticket lifecycle: install → health → plan → execute → review → s
 | Command | When to use |
 |---------|-------------|
 | [`/setup`](docs/commands/setup.md) | Onboard a project — `project` · `orchestration` · `team` · `models` |
-| `/doctor` | Diagnose install/config health (PASS/WARN/FAIL); read-only default, `--fix` allowlist |
+| [`/doctor`](docs/commands/doctor.md) | Diagnose install/config health (PASS/WARN/FAIL); read-only default, `--fix` allowlist |
 | [`/audit`](docs/commands/audit.md) | Instruction-stack inventory + skill-size WARN; approve-then-apply |
 | [`/kickoff`](docs/commands/kickoff.md) | Parallel PM+TL planning → spec → implementation plan → task graph |
 | [`/orchestrate`](docs/commands/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → ship/PR |
 | [`/debug`](docs/commands/debug.md) | Phase-gated bug fix (`patch`/`arch`) or ticket pipeline (`ticket`) |
 | [`/bug-hunt`](docs/commands/bug-hunt.md) | Unknown-defect discovery — discover → refute → plan + proceed-gated materialize → phase handoff emit-only (stages 1–4) |
 | [`/council`](docs/commands/council.md) | Adversarial tribunal — reality-check a claim, session slice, or diff |
-| `/release` | Bump version (CHANGELOG + plugin JSON), commit, tag, push |
+| [`/release`](docs/commands/release.md) | Bump version (CHANGELOG + plugin JSON), commit, tag, push |
 | [`/status`](docs/commands/status.md) | Read-only hub — bare = standup→metrics→worktrees; subs `standup` · `metrics` · `worktree` |
 | [`/memory`](docs/commands/memory.md) | Unified memory — `config` · `distill` · `export` · `search` · `stats` · `validate` |
 | [`/spec`](docs/commands/spec.md) | Unified specs — `check` · `create` · `find` · `list` · `update` · `generate` · `tests` · `reflect` |
@@ -110,21 +110,21 @@ Program / multi-ticket work, session tuning, and quality gates.
 | Command | When to use |
 |---------|-------------|
 | [`/epic`](docs/commands/epic.md) | Decompose an umbrella into sequenced children for `/kickoff` or `/orchestrate` |
-| `/backlog` | Manage backlog items (Linear-first dual-write when MCP is up) |
+| [`/backlog`](docs/commands/backlog.md) | Manage backlog items (Linear-first dual-write when MCP is up) |
 | [`/brainstorm`](docs/commands/brainstorm.md) | Socratic design refinement before planning (`--grill` for one-Q-at-a-time) |
 | [`/craft-loop`](docs/commands/craft-loop.md) | Design reviewed loop programs for the host `/loop`/`/goal` |
-| `/release-train` | Multi-branch release queue — register, freeze, land via `/release` |
+| [`/release-train`](docs/commands/release-train.md) | Multi-branch release queue — register, freeze, land via `/release` |
 | [`/retro`](docs/commands/retro.md) | Scan past sessions for friction; propose directive adjustments ([runbook](docs/runbooks/scheduled-retro.md)) |
 | [`/handoff`](docs/commands/handoff.md) | STM packet / compact seed (State now → Through-line → appendix); cold print core + path, warm file-only |
 | [`/compact-transcript`](docs/commands/compact-transcript.md) | Bounded Meaning tail from Transcript mirror for the operator to @; not a Compact seed |
 | [`/recall`](docs/commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
 | [`/mode`](docs/commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
-| `/adjust-agent` | View/manage per-agent standing directives (`--apply` for non-interactive) |
+| [`/adjust-agent`](docs/commands/adjust-agent.md) | View/manage per-agent standing directives (`--apply` for non-interactive) |
 | [`/worktree`](docs/commands/worktree.md) | Release a plugin worktree (`release <slug>`); list via `/status worktree` |
-| `/ci-watch` | Poll PR checks / local tests and spawn a fixer (armed by `/orchestrate`) |
+| [`/ci-watch`](docs/commands/ci-watch.md) | Poll PR checks / local tests and spawn a fixer (armed by `/orchestrate`) |
 | [`/review-and-commit`](docs/commands/review-and-commit.md) | Multi-specialist review with confidence scoring; blocks commit on criticals |
 | [`/refactor`](docs/commands/refactor.md) | Design-first restructuring with behavior-unchanged verification |
-| `/tdd-gate` | Toggle hook TDD enforcement — blocks Write/Edit without tests (`on`/`off`/`status`) |
+| [`/tdd-gate`](docs/commands/tdd-gate.md) | Toggle hook TDD enforcement — blocks Write/Edit without tests (`on`/`off`/`status`) |
 | [`/wrap-ticket`](docs/commands/wrap-ticket.md) | Close out: verify tasks, capture learnings, re-close tracker, drop worktree |
 
 Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
@@ -136,8 +136,9 @@ Optional host SAST: if `semgrep` (and/or CodeQL with an existing DB) is on PATH,
 Agent protocols (`agent-memory`, `memory-store`, `memory-recall`), council/orchestrate
 engines, gates (`docs-drift`, `skill-lint`, …), and `tools/` helpers are **not**
 user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal agents
-`project-init`, `distiller`, `council-judge`, and `council-scribe` are reached only via `/setup team`,
-`/memory distill`, and `/council`.
+`finder`, `debugger`, `project-init`, `distiller`, `council-judge`, and `council-scribe` are
+reached only via `/council` and `/bug-hunt`, `/debug ticket`, `/setup team`, `/memory distill`,
+and `/council` again for the judge and the scribe.
 
 ### Migration (historical)
 
@@ -150,7 +151,8 @@ user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal 
 | `/init-team` · `/init-orchestration` · `/scaffold-project` | `/setup team` · `/setup orchestration` · `/setup project` |
 | `/focus` · `/blunt` | `/mode focus` · `/mode blunt` |
 | `/metrics` · `/standup` | `/status metrics` · `/status standup` |
-| `fix-ticket` · `blind-review` (deleted stubs) | `/debug ticket` · `/council --blind` |
+| `/fix-ticket` | `/debug ticket` |
+| `/blind-review` | `/council --blind` |
 | `/create-spec` · `/update-spec` · `/find-spec` · `/list-specs` · `/check-specs` · `/generate-specs` · `/generate-tests` · `/reflect-specs` | `/spec <sub>` |
 | `/memory-config` · `/memory-distill` · `/memory-export` · `/memory-search` · `/memory-stats` · `/validate-memory` | `/memory <sub>` |
 | `/incident` · `/demo` · `/local-do` | removed (use `/debug` / `/setup`+`/kickoff` / normal IC flow) |
@@ -242,12 +244,12 @@ without prompting for every tool call:
 
 - **Interactive (`/setup project`)** — `defaultMode: "acceptEdits"` plus a curated Bash
   allowlist (dev tools, agent-bootstrap patterns, read-only utilities, `sqlite3`, `curl`).
-  Destructive commands like `rm` and `wget` still prompt. The canonical list lives in
-  `skills/scaffold-project/SKILL.md` — the single source of truth.
+  `rm` and `wget` are excluded and fall through to the host's default ask. The canonical
+  list lives in `skills/scaffold-project/SKILL.md` — the single source of truth.
 - **Orchestration (`/setup orchestration`)** — grants the **matrix allow set**
   (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) under `auto` with
   sandbox enabled + `autoAllowBashIfSandboxed` (matrix winner Cell D / CDT-75;
-  evidence in `docs/runbooks/permission-posture-matrix.md`). The OS sandbox is
+  evidence in `docs/internal/permission-posture-matrix.md`). The OS sandbox is
   the boundary; `auto` evaluates tools within policy (Linear MCP works without
   static `mcp__*` allow entries).
 
@@ -268,12 +270,19 @@ add the marketplace entry to a settings file you **do** commit:
 ```json
 {
   "extraKnownMarketplaces": {
-    "dev-team": {
+    "cold-dark-void": {
       "source": { "source": "github", "repo": "cold-dark-void/claude-dev-team" }
     }
+  },
+  "enabledPlugins": {
+    "dev-team@cold-dark-void": true
   }
 }
 ```
+
+The key under `extraKnownMarketplaces` is the marketplace name (`name` in
+`.claude-plugin/marketplace.json` — `cold-dark-void`), not the plugin name.
+`enabledPlugins` auto-enables the plugin after the marketplace is known.
 
 ### opencode
 
@@ -306,15 +315,14 @@ the clone's `skills/` directory:
 {
   "skills": {
     "paths": ["~/claude-dev-team/skills"]
-  },
-  "agents": {
-    "paths": ["~/.config/opencode/agents"]
-  },
-  "commands": {
-    "paths": ["~/.config/opencode/commands"]
   }
 }
 ```
+
+Agents and commands need no extra keys: opencode auto-discovers the
+`~/.config/opencode/agents/` and `~/.config/opencode/commands/` directories
+that `install.sh` populates. (`skills.paths` is a real `opencode.json` key;
+`agents.paths` / `commands.paths` are not.)
 
 Note: opencode command names are namespaced as `/dev-team/<command>` (e.g., `/dev-team/handoff` instead of `/handoff`) to avoid conflicts with other plugins and opencode's built-in commands.
 

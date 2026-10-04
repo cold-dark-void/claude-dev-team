@@ -91,7 +91,7 @@ Output:
 ```
   Kickoff complete for ENG-456
 
-  Spec:   specs/core/SPEC-031-realtime-collab.md [created]
+  Spec:   specs/core/SPEC-931-realtime-collab.md [created]
   Plan:   .claude/plans/2026-03-15-ENG-456-realtime-collab.md
 
   Task Graph:

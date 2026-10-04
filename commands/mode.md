@@ -52,11 +52,10 @@ Do not toggle either mode on unknown input.
 
 ### Step 1: Load the skill
 
-Read and follow:
-
-```
-skills/focus/SKILL.md
-```
+Load the `focus` skill (Skill tool, name `focus`) and follow it. On a host
+without the Skill tool, resolve the plugin root via `plugin-dir.sh` (SPEC-002
+"Locating `plugin-dir.sh` itself") and read
+`$PDH/skills/focus/SKILL.md` — never a cwd-relative path.
 
 ### Step 2: Apply argument
 
@@ -85,11 +84,10 @@ unless investigation re-confirms a real defect that needs the formal pipeline.
 
 ### Step 1: Load the skill
 
-Read and follow:
-
-```
-skills/blunt/SKILL.md
-```
+Load the `blunt` skill (Skill tool, name `blunt`) and follow it. On a host
+without the Skill tool, resolve the plugin root via `plugin-dir.sh` (SPEC-002
+"Locating `plugin-dir.sh` itself") and read
+`$PDH/skills/blunt/SKILL.md` — never a cwd-relative path.
 
 ### Step 2: Apply argument
 

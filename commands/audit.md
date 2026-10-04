@@ -52,7 +52,9 @@ fi
 ## Step 2: Invoke (pass-through flags)
 
 ```bash
-PDH="${PDH:-<PDH>}"   # session root carried from the stanza fence above — re-run that fence first when not held
+PDH="${PDH:-<PDH>}"   # session root carried from the Step 1 stanza — re-run that fence first when not held
+# Derive AUDIT_SH from the carried root (blocks run as separate shells; the
+# full PDH stanza itself is resolved once, in Step 1).
 AUDIT_SH=$(bash "$PDH/skills/plugin-dir.sh" file skills/audit/audit.sh)
 # A Bash-tool fence has no positional arguments: read the user's text through a
 # quoted heredoc, then split it with globbing off (skill-lint C9).

@@ -8,6 +8,7 @@ description: |
     ticket lifecycle. Usage: /epic <EPIC-ID> ["text"] | status | complete |
     block | unblock | sync | --redecompose | [--autopilot[=<token>]] |
     [--no-context-discipline] | [--worktree] [--release <bump>]
+user-invocable: false
 ---
 
 # Epic — Umbrella Decomposition & Sequenced Orchestration

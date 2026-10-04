@@ -3,7 +3,7 @@
 
 Exit codes: 0 = no unwaived findings, 1 = unwaived findings, 64 = usage error.
 Finding format: <file>: [<check-id>] <message>
-Check-ids: cmd-index | agent-roster | docs-hub | manifest-desc | skill-ref | skill-name | docs-page-links
+Check-ids: cmd-index | cmd-flags | agent-roster | docs-hub | manifest-desc | skill-ref | skill-name | docs-page-links | md-anchor | spec-example | security-versions
 """
 from __future__ import annotations
 
@@ -134,7 +134,18 @@ def parse_cmd_index(readme: str) -> list[tuple[int, str]]:
     """Return (line, name) for each /name in README ## Commands tables."""
     sec = find_heading_section(readme, "## Commands")
     found: list[tuple[int, str]] = []
+    in_migration = False
     for ln, line in sec:
+        # A `### Migration (historical)` subsection maps deleted stubs to
+        # live hubs — those rows are history, not an invocable index
+        # (W3-01: user-invocable set == README index, historical rows excluded).
+        if re.match(r"^#{1,3}\s+.*migration", line, re.I):
+            in_migration = True
+            continue
+        if re.match(r"^#{1,3}\s+\S", line):
+            in_migration = False
+        if in_migration:
+            continue
         m = CMD_ROW_RE.match(line)
         if m:
             found.append((ln, m.group(1)))
@@ -178,6 +189,38 @@ def list_md_basenames(dirpath: str) -> set[str]:
 
 def skill_exists(root: str, name: str) -> bool:
     return os.path.isfile(os.path.join(root, "skills", name, "SKILL.md"))
+
+
+def skill_is_user_invocable(root: str, name: str) -> bool:
+    """True when skills/<name>/SKILL.md exists and does NOT set
+    `user-invocable: false` (CDT-295 / 10 E5: flagged skills are internal
+    engines behind command doors and are not Surfaces)."""
+    path = os.path.join(root, "skills", name, "SKILL.md")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return False
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if re.match(r"^user-invocable:\s*false\s*$", line.strip()):
+            return False
+    return True
+
+
+def list_surfaces(root: str) -> set[str]:
+    """All user-invocable Surface names: commands/*.md plus unflagged skills."""
+    names = set(list_md_basenames(os.path.join(root, "commands")))
+    skills_dir = os.path.join(root, "skills")
+    if os.path.isdir(skills_dir):
+        for entry in sorted(os.listdir(skills_dir)):
+            if skill_exists(root, entry) and skill_is_user_invocable(root, entry):
+                names.add(entry)
+    return names
 
 
 def waiver_ids_on_line(line: str) -> set[str]:
@@ -256,19 +299,43 @@ def check_cmd_index(root: str, f: Findings) -> None:
                 line=1,
             )
 
-    # (b) every index entry resolves to commands/<name>.md OR skills/<name>/SKILL.md
+    # (b) every index entry resolves to commands/<name>.md OR a user-invocable
+    # skills/<name>/SKILL.md (a `user-invocable: false` skill is an internal
+    # engine — indexing it advertises a non-Surface; CDT-295 [01 F21]/[10 E5])
     for name in sorted(index_names):
         cmd_ok = name in cmd_names
-        skill_ok = skill_exists(root, name)
+        skill_ok = skill_exists(root, name) and skill_is_user_invocable(root, name)
         if not cmd_ok and not skill_ok:
             ln = index_lines.get(name, 1)
+            if skill_exists(root, name):
+                msg = (
+                    f"/{name} in README ## Commands points at skills/{name}/ "
+                    "which sets user-invocable: false — index the command door "
+                    "or drop the row"
+                )
+            else:
+                msg = (
+                    f"/{name} in README ## Commands has no commands/{name}.md "
+                    f"or skills/{name}/SKILL.md"
+                )
             f.add(
                 readme_path,
                 "cmd-index",
-                f"/{name} in README ## Commands has no commands/{name}.md "
-                f"or skills/{name}/SKILL.md",
+                msg,
                 line=ln,
                 src_lines=src,
+            )
+
+    # (c) the user-invocable skill set equals the README index: every
+    # unflagged skill is indexed (CDT-295 Goal)
+    for name in sorted(list_surfaces(root) - cmd_names):
+        if name not in index_names:
+            f.add(
+                os.path.join(root, "skills", name, "SKILL.md"),
+                "cmd-index",
+                f"user-invocable skill skills/{name}/ is not listed in the "
+                "README ## Commands index",
+                line=1,
             )
 
 
@@ -483,6 +550,24 @@ def check_docs_hub(root: str, f: Findings) -> None:
             line=1,
         )
 
+    # (c) every user-invocable Surface (command or unflagged skill) has a
+    # docs/commands/<name>.md page (W3-01: docs-drift fails if a surface
+    # lacks a page)
+    for name in sorted(list_surfaces(root)):
+        page = os.path.join(docs_cmd_dir, f"{name}.md")
+        if not os.path.isfile(page):
+            src = (
+                os.path.join(root, "commands", f"{name}.md")
+                if name in list_md_basenames(os.path.join(root, "commands"))
+                else os.path.join(root, "skills", name, "SKILL.md")
+            )
+            f.add(
+                src,
+                "docs-hub",
+                f"surface {name} has no docs/commands/{name}.md page",
+                line=1,
+            )
+
 
 def check_manifest_desc(root: str, f: Findings) -> None:
     plugin_path = os.path.join(root, ".claude-plugin", "plugin.json")
@@ -695,6 +780,245 @@ def check_docs_page_links(root: str, f: Findings) -> None:
                     )
 
 
+ARG_HINT_RE = re.compile(r"^argument-hint:\s*[\"']?(.*?)[\"']?\s*$")
+FLAG_TOKEN_RE = re.compile(r"--[a-z][a-z0-9-]*")
+
+
+def check_cmd_flags(root: str, f: Findings) -> None:
+    """cmd-flags (W3-01): every --flag in a command's argument-hint appears
+    on its docs/commands/<name>.md page. Skipped when the page is missing
+    (docs-hub owns that finding)."""
+    cmd_dir = os.path.join(root, "commands")
+    docs_cmd_dir = os.path.join(root, "docs", "commands")
+    if not os.path.isdir(cmd_dir):
+        return
+    for name in sorted(list_md_basenames(cmd_dir)):
+        page = os.path.join(docs_cmd_dir, f"{name}.md")
+        if not os.path.isfile(page):
+            continue
+        text = read_text(os.path.join(cmd_dir, f"{name}.md"))
+        if text is None:
+            continue
+        src_lines = text.splitlines()
+        if not src_lines or src_lines[0].strip() != "---":
+            continue
+        hint = ""
+        for line in src_lines[1:]:
+            if line.strip() == "---":
+                break
+            m = ARG_HINT_RE.match(line)
+            if m:
+                hint = m.group(1)
+                break
+        if not hint:
+            continue
+        page_text = read_text(page) or ""
+        page_lines = page_text.splitlines()
+        for token in sorted(set(FLAG_TOKEN_RE.findall(hint))):
+            if re.search(rf"{re.escape(token)}\b", page_text):
+                continue
+            f.add(
+                page,
+                "cmd-flags",
+                f"argument-hint flag {token} of commands/{name}.md is not "
+                "documented on this page",
+                line=1,
+                src_lines=page_lines,
+            )
+
+
+def _docs_scan_files(root: str) -> list[str]:
+    """docs/**.md (recursive) plus the root README.md."""
+    files: list[str] = []
+    docs_dir = os.path.join(root, "docs")
+    if os.path.isdir(docs_dir):
+        for dirpath, _dirs, filenames in os.walk(docs_dir):
+            for name in sorted(filenames):
+                if name.endswith(".md"):
+                    files.append(os.path.join(dirpath, name))
+    readme = os.path.join(root, "README.md")
+    if os.path.isfile(readme):
+        files.append(readme)
+    return files
+
+
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+
+
+def github_slug(heading: str) -> str:
+    """GitHub-style anchor slug: lowercase, drop non-word chars except space
+    and hyphen and underscore, spaces -> hyphens. Backticks are formatting
+    and are stripped first."""
+    text = heading.strip().lower().replace("`", "")
+    kept = [ch for ch in text if ch.isalnum() or ch in " -_"]
+    return "".join(kept).replace(" ", "-")
+
+
+def heading_anchors(target_text: str) -> set[str]:
+    anchors: set[str] = set()
+    seen: dict[str, int] = {}
+    for line in target_text.splitlines():
+        m = HEADING_RE.match(line)
+        if not m:
+            continue
+        heading = re.sub(r"\s+#+\s*$", "", m.group(2))
+        slug = github_slug(heading)
+        if not slug:
+            continue
+        n = seen.get(slug, 0)
+        seen[slug] = n + 1
+        anchors.add(slug if n == 0 else f"{slug}-{n}")
+    return anchors
+
+
+def check_md_anchors(root: str, f: Findings) -> None:
+    """md-anchor (10 E9): every `path.md#anchor` or same-file `#anchor`
+    markdown link under docs/ (and README.md) must resolve to a heading
+    slug in the target file. Relative path-only links in docs/commands are
+    docs-page-links' job; this check adds the anchor half everywhere."""
+    for path in _docs_scan_files(root):
+        text = read_text(path)
+        if text is None:
+            continue
+        src_lines = text.splitlines()
+        base_dir = os.path.dirname(path)
+        seen: set[tuple[str, str]] = set()
+        for ln, line in enumerate(src_lines, 1):
+            for m in MD_LINK_RE.finditer(line):
+                href = m.group(1).strip()
+                if href.startswith(("http://", "https://", "mailto:")):
+                    continue
+                if "#" not in href:
+                    continue
+                target_rel, anchor = href.split("#", 1)
+                if not anchor:
+                    continue  # path-only link: other checks own it
+                if target_rel:
+                    target = os.path.normpath(os.path.join(base_dir, target_rel))
+                else:
+                    target = path
+                if not target.endswith(".md"):
+                    continue
+                key = (rel(root, path), href)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if not os.path.isfile(target):
+                    f.add(
+                        path,
+                        "md-anchor",
+                        f"dead link target: {target_rel}",
+                        line=ln,
+                        src_lines=src_lines,
+                    )
+                    continue
+                target_text = read_text(target)
+                if target_text is None:
+                    continue
+                if anchor not in heading_anchors(target_text):
+                    f.add(
+                        path,
+                        "md-anchor",
+                        f"anchor #{anchor} not found in {rel(root, target)}",
+                        line=ln,
+                        src_lines=src_lines,
+                    )
+
+
+def _existing_spec_numbers(root: str) -> set[int]:
+    numbers: set[int] = set()
+    specs_dir = os.path.join(root, "specs")
+    if not os.path.isdir(specs_dir):
+        return numbers
+    for dirpath, _dirs, filenames in os.walk(specs_dir):
+        for name in filenames:
+            m = re.match(r"SPEC-(\d+)-.*\.md$", name)
+            if m:
+                numbers.add(int(m.group(1)))
+    return numbers
+
+
+def check_spec_examples(root: str, f: Findings) -> None:
+    """spec-example (W3-43): a SPEC-<n> id in docs must exist as
+    specs/**/SPEC-<n>-*.md unless n >= 900 (obviously-fake example range)."""
+    existing = _existing_spec_numbers(root)
+    if not existing and not os.path.isdir(os.path.join(root, "specs")):
+        return
+    for path in _docs_scan_files(root):
+        text = read_text(path)
+        if text is None:
+            continue
+        src_lines = text.splitlines()
+        seen: dict[str, int] = {}
+        for ln, line in enumerate(src_lines, 1):
+            for m in re.finditer(r"\bSPEC-(\d+)\b", line):
+                n = int(m.group(1))
+                if n >= 900 or n in existing:
+                    continue
+                token = f"SPEC-{n}"
+                if token in seen:
+                    continue
+                seen[token] = ln
+                f.add(
+                    path,
+                    "spec-example",
+                    f"{token} has no specs/ file — real ids (< 900) must exist; "
+                    "use a SPEC-9xx id for made-up examples",
+                    line=ln,
+                    src_lines=src_lines,
+                )
+
+
+def check_security_versions(root: str, f: Findings) -> None:
+    """security-versions (CDT-296 / 10 E9 / W3-22): SECURITY.md's
+    supported-versions table must match the generator's output for the
+    current plugin.json version. Skips fixture trees without the generator."""
+    plugin_path = os.path.join(root, ".claude-plugin", "plugin.json")
+    sec_path = os.path.join(root, "SECURITY.md")
+    gen_path = os.path.join(root, "skills", "release", "gen-supported-versions.sh")
+    if not (os.path.isfile(plugin_path) and os.path.isfile(sec_path)
+            and os.path.isfile(gen_path)):
+        return
+    try:
+        version = json.loads(read_text(plugin_path) or "{}").get("version")
+    except json.JSONDecodeError:
+        return
+    if not version:
+        return
+    try:
+        proc = subprocess.run(
+            ["bash", gen_path, str(version)],
+            capture_output=True, text=True, check=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as e:
+        f.add(sec_path, "security-versions",
+              f"gen-supported-versions.sh failed: {e}", line=1)
+        return
+    want = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+
+    src_lines = (read_text(sec_path) or "").splitlines()
+    section: list[str] = []
+    in_sec = False
+    for line in src_lines:
+        if line.strip() == "## Supported Versions":
+            in_sec = True
+            continue
+        if in_sec and re.match(r"^##\s", line):
+            break
+        if in_sec:
+            section.append(line)
+    got = [ln for ln in section if ln.strip()]
+    if got != want:
+        f.add(
+            sec_path,
+            "security-versions",
+            f"supported-versions table does not match generated output for "
+            f"plugin.json {version} — run skills/release/gen-supported-versions.sh --write",
+            line=1,
+            src_lines=src_lines,
+        )
+
+
 def run_checks(root: str) -> list[dict]:
     f = Findings(root)
     check_cmd_index(root, f)
@@ -704,6 +1028,10 @@ def run_checks(root: str) -> list[dict]:
     check_skill_ref(root, f)
     check_skill_name(root, f)
     check_docs_page_links(root, f)
+    check_cmd_flags(root, f)
+    check_md_anchors(root, f)
+    check_spec_examples(root, f)
+    check_security_versions(root, f)
     return f.items
 
 

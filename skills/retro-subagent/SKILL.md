@@ -6,6 +6,7 @@ description: |
     spawns a subagent (via the Task tool) to analyze friction anchors flagged by the
     phase-1 gate. Not user-invoked. Read this file to learn the protocol; the calling
     command pastes the prompt template into a Task call and validates the returned JSON.
+user-invocable: false
 ---
 
 # retro-subagent

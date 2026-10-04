@@ -1,11 +1,12 @@
 ---
 name: review-and-commit
 description: |
-    Brutally honest review of staged/modified files — no sugar-coating. Thin
-    wrapper over the council engine with preset `diff-mode`: 5 specialist
-    investigators (logic, security, compliance, quality, simplification) run
-    in parallel, filtered at confidence 80. Blocks commit on critical or
-    compliance findings. Optional path argument saves the review to a file.
+    Use when about to commit — brutally honest review of staged/modified files,
+    no sugar-coating. Thin wrapper over the council engine with preset
+    `diff-mode`: 5 specialist investigators (logic, security, compliance,
+    quality, simplification) run in parallel, filtered at confidence 80. Blocks
+    commit on critical or compliance findings. Optional path argument saves the
+    review to a file.
 ---
 
 # Review and Commit

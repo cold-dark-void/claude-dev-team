@@ -4,6 +4,7 @@ description: >
   Install & config diagnostics for the dev-team plugin (SPEC-022). Read-only by
   default; --fix applies a narrow allowlist. User-facing entry: /doctor
   (namespaced dev-team:doctor).
+user-invocable: false
 ---
 
 # doctor

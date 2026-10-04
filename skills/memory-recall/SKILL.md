@@ -1,6 +1,7 @@
 ---
 name: memory-recall
 description: Search and retrieve agent memories from SQLite DB with semantic or keyword search
+user-invocable: false
 ---
 
 # memory-recall

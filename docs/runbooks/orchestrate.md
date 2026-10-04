@@ -47,17 +47,16 @@ Typical flow: you interact at gates 1, 3, and 6. Gates 2, 4, and 5 often pass wi
 ## Worked Example: POC-123 — Batch Export Descriptions
 
 **Context**: `project` is a Go desktop app that uses a local Ollama LLM to generate descriptions
-for images. This ticket adds CSV/JSON/Markdown export of cached descriptions.
+for images. This ticket adds CSV/JSON/Markdown export of cached descriptions. The ticket
+text (Batch Export Descriptions — AC1: export all completed analyses; AC2: each entry
+includes file path, model, prompt, description, timestamp; AC3: format + output path
+dialog; AC4: available from the File menu) lives on the POC-123 tracker item —
+`/orchestrate` takes the issue ID and fetches the context itself.
 
 ### Gate 1 — Scope confirmation
 
 ```
-> /orchestrate POC-123 "Batch Export Descriptions. As a user, I want to export all analyzed
-  image descriptions to a file (CSV, JSON, or Markdown).
-  AC1: Export all completed analyses from current folder
-  AC2: Each entry includes: file path, model, prompt, description, timestamp
-  AC3: User chooses format and output path via a dialog
-  AC4: Export is available from the File menu"
+> /orchestrate POC-123
 ```
 
 ```
@@ -99,7 +98,7 @@ This is the most important gate — you're approving the spec and task breakdown
 ```
   Worktree created: .worktrees/POC-123 (branch feat/POC-123)
 
-  Spec: specs/core/SPEC-026-batch-export.md [created]
+  Spec: specs/core/SPEC-926-batch-export.md [created]
   Plan: .claude/plans/2026-03-07-POC-123-batch-export.md
 
   Task graph:
@@ -214,7 +213,7 @@ PR scope, LOC caps, refactoring rules, and the replan gate: see
 /wrap-ticket CDV-42
 ```
 
-Handles: task verification, learnings capture, local plans.md update (write-through only — never staged), source tracker re-close (`close.sh`), deferred backlog adds (Linear preferred SoT + local write-through), worktree removal, Linear checklist. (Ship-time close-out in `/orchestrate` Step 11 should already have closed plan `closes:` against Linear; process trackers under `.claude/` are not part of the product delivery commit.)
+Handles: task verification, learnings capture, local plans.md update (write-through only — never staged), source tracker re-close (`close.sh`), deferred backlog adds (Linear preferred SoT + local write-through), worktree removal, Linear checklist. (Ship-time close-out in `/orchestrate` Step 12 should already have closed plan `closes:` against Linear; process trackers under `.claude/` are not part of the product delivery commit.)
 
 For memory hygiene, see [Memory Configuration](../setup.md#memory-configuration--memory-config).
 

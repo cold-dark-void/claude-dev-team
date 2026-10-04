@@ -13,6 +13,7 @@ description: |
     (.github/workflows/smoke.yml, job `docs-drift`) on every push/PR to master —
     same invocation, same exit contract. Run manually via:
     bash skills/docs-drift/check-docs-drift.sh [--root DIR]
+user-invocable: false
 ---
 
 # docs-drift

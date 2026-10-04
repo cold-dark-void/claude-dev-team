@@ -8,6 +8,7 @@ description: |
     removes a gate; only changes who answers it and records why (append-only
     decision cards). Cited by /orchestrate, /kickoff, /epic; those MUST cite,
     never restate.
+user-invocable: false
 ---
 
 # Autopilot

@@ -19,11 +19,16 @@ Collect: ticket ID, title/description, acceptance criteria, linked designs and d
 ### 1.2 Orient yourself
 
 ```bash
-git checkout main && git pull
+git checkout "$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')" && git pull
 cat .claude/memory/claude/memory.md
 cat .claude/memory/tech-lead/cortex.md   # architecture decisions
 cat .claude/memory/pm/cortex.md          # product context
 ```
+
+> The `cat …/cortex.md` form reads the **.md fallback** files. In SQLite mode
+> (after `/setup team`) agents store memory in `.claude/memory/memory.db`; read
+> it via the agent's memory (`SELECT … FROM memories …`) or run
+> `/memory export` instead of `cat`.
 
 ### 1.3 Check existing specs
 
@@ -125,7 +130,7 @@ When resuming: `cat .claude/memory/ic4/context.md` (etc.) to reload agent contex
 ```
 @qa All ENG-123 implementation done. Run full validation:
 - Execute the acceptance test suite
-- Run go test ./... for regressions
+- Run the project's test suite (e.g. `go test ./...`, `npm test`, `pytest`) for regressions
 - Check each AC against the spec
 - Flag anything that doesn't pass
 ```
@@ -212,7 +217,7 @@ Move Linear ticket to **Done**.
 ### 7.1 Post-merge verification
 
 ```bash
-git checkout main && git pull
+git checkout "$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')" && git pull
 git log --oneline | head -5
 ```
 
@@ -240,7 +245,7 @@ Verify ACs in prod. Check monitoring/dashboards and logs for error spikes.
 
 ## Post-ship: Memory Hygiene
 
-See [memory configuration](../setup.md#memory-configuration-memory-config) for distillation settings.
+See [memory configuration](../setup.md#memory-configuration--memory-config) for distillation settings.
 
 ```bash
 /memory distill --status   # check raw memory count
@@ -263,13 +268,13 @@ Handles: task verification, learnings capture, plans.md update, source tracker r
 
 ```bash
 # 8.1 Clean up worktree
-bash skills/worktree-lib.sh release ENG-123-short-description
+bash "$WT_LIB" release ENG-123-short-description   # WT_LIB resolved via plugin-dir.sh (see AGENTS.md Worktree Protocol)
 
 # 8.2 Spec reflection (periodic — before minor/major bumps)
 /spec reflect
 
 # 8.3 Update project memory
-echo "\n## ENG-123 learnings\n<insight>" >> .claude/memory/claude/memory.md
+printf '%s\n' "## ENG-123 learnings" "<insight>" >> .claude/memory/claude/memory.md
 ```
 
 **8.4 Close out:** Linear ticket → Done/Released, notify stakeholders, update affected docs.

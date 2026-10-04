@@ -3,7 +3,7 @@
 # includes the changed set, and a manual run routes to /refactor.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SKILL="$ROOT/skills/code-simplify/SKILL.md"
+SKILL="$ROOT/skills/post-approve-polish/SKILL.md"
 STEP="$ROOT/skills/orchestrate/steps/09-review.md"
 fail=0
 check() {

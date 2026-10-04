@@ -65,13 +65,15 @@ done
 printf '%s\n' "---" "name: demo" "description: d" "---" > "$MINI/commands/demo.md"
 printf '%s\n' "---" "name: hello" "description: skill" "---" > "$MINI/skills/hello/SKILL.md"
 
-# docs page linked from docs/README
+# docs pages linked from docs/README (hello is unflagged -> needs a page)
 printf '%s\n' "# demo" > "$MINI/docs/commands/demo.md"
+printf '%s\n' "# hello" > "$MINI/docs/commands/hello.md"
 cat > "$MINI/docs/README.md" << 'EOF'
 # docs
 | Command | Docs |
 |---------|------|
 | `/demo` | [demo](commands/demo.md) |
+| `/hello` | [hello](commands/hello.md) |
 EOF
 
 # README with Commands + Agents sections
@@ -156,6 +158,36 @@ restore "$MINI/README.md"
 # skills-backed /hello → no cmd-index finding on clean tree
 run_check 0 --root "$MINI"
 expect_no_finding cmd-index
+
+# (c) a `user-invocable: false` skill indexed in README → finding naming the flag
+backup "$MINI/skills/hello/SKILL.md"
+python3 - <<PY
+from pathlib import Path
+p = Path("$MINI/skills/hello/SKILL.md")
+lines = p.read_text().splitlines(True)
+lines.insert(1, "user-invocable: false\n")
+p.write_text("".join(lines))
+PY
+run_check 1 --root "$MINI"
+expect_finding cmd-index
+echo "$OUT" | grep -q 'user-invocable: false' && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: cmd-index should name the flagged skill"
+}
+restore "$MINI/skills/hello/SKILL.md"
+
+# (c2) an unflagged skill missing from the index → finding
+backup "$MINI/README.md"
+python3 - <<PY
+from pathlib import Path
+p = Path("$MINI/README.md")
+p.write_text("".join(l for l in p.read_text().splitlines(True) if "/hello" not in l))
+PY
+run_check 1 --root "$MINI"
+expect_finding cmd-index
+echo "$OUT" | grep -q "user-invocable skill skills/hello" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: cmd-index should demand the unflagged skill row"
+}
+restore "$MINI/README.md"
 
 # ---------------------------------------------------------------------------
 # T2 agent-roster
@@ -389,16 +421,151 @@ echo "$OUT" | grep -q "zz-nope" && PASS=$((PASS+1)) || {
 }
 restore "$MINI/docs/commands/demo.md"
 
-# (c) fragment stripped — path-only existence (live peer + #anchor)
+# (c) fragment stripped — path-only existence (live peer + #anchor). The path
+# resolves (no docs-page-links finding); the unknown anchor itself is
+# md-anchor's finding (T4f owns that split).
 backup "$MINI/docs/commands/demo.md"
 printf '%s\n' "See also: [peer](./demo-peer.md#section)." >> "$MINI/docs/commands/demo.md"
-run_check 0 --root "$MINI"
+run_check 1 --root "$MINI"
 expect_no_finding docs-page-links
+expect_finding md-anchor
 restore "$MINI/docs/commands/demo.md"
 
 # cleanup peer + hub (leave mini clean for later bites)
 rm -f "$MINI/docs/commands/demo-peer.md"
 cp -a "$DOCS_README_BAK" "$MINI/docs/README.md"
+
+# ---------------------------------------------------------------------------
+# T4d docs-hub (c) — every user-invocable surface has a docs/commands page
+# ---------------------------------------------------------------------------
+# hello is unflagged (user-invocable) in the mini tree → it needs a page.
+# Remove the page (and its hub link) → finding naming the surface.
+DOCS_README_BAK2="$SCRATCH/mini_docs_readme_t4d.bak"
+cp -a "$MINI/docs/README.md" "$DOCS_README_BAK2"
+rm -f "$MINI/docs/commands/hello.md"
+python3 - <<PY
+from pathlib import Path
+p = Path("$MINI/docs/README.md")
+p.write_text("".join(l for l in p.read_text().splitlines(True) if "commands/hello.md" not in l))
+PY
+run_check 1 --root "$MINI"
+expect_finding docs-hub
+echo "$OUT" | grep -q "surface hello has no docs/commands/hello.md" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: docs-hub should demand a page for surface hello"
+}
+# restore page + link → clean
+printf '%s\n' "# hello" > "$MINI/docs/commands/hello.md"
+cp -a "$DOCS_README_BAK2" "$MINI/docs/README.md"
+run_check 0 --root "$MINI"
+expect_no_finding docs-hub
+
+# ---------------------------------------------------------------------------
+# T4e cmd-flags — argument-hint flags must appear on the docs page
+# ---------------------------------------------------------------------------
+backup "$MINI/commands/demo.md"
+python3 - <<PY
+from pathlib import Path
+p = Path("$MINI/commands/demo.md")
+lines = p.read_text().splitlines(True)
+lines.insert(1, 'argument-hint: "[--json] [--verbose]"\n')
+p.write_text("".join(lines))
+p2 = Path("$MINI/docs/commands/demo.md")
+p2.write_text(p2.read_text() + "\nFlags: --json supported.\n")
+PY
+run_check 1 --root "$MINI"
+expect_finding cmd-flags
+echo "$OUT" | grep -q "verbose" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: cmd-flags should name the undocumented flag"
+}
+python3 - <<PY
+from pathlib import Path
+p = Path("$MINI/docs/commands/demo.md")
+p.write_text(p.read_text() + "Also --verbose.\n")
+PY
+run_check 0 --root "$MINI"
+expect_no_finding cmd-flags
+restore "$MINI/commands/demo.md"
+
+# ---------------------------------------------------------------------------
+# T4f md-anchor (10 E9) — anchor links resolve to heading slugs
+# ---------------------------------------------------------------------------
+backup "$MINI/docs/commands/demo.md"
+cat >> "$MINI/docs/commands/demo.md" <<'EOF'
+
+## Real Heading
+
+See [setup](../setup.md#real-heading) — valid same-tree anchor.
+See [setup](../setup.md#no-such-anchor) — broken.
+EOF
+printf '%s\n' "# Setup" "" "## Real Heading" > "$MINI/docs/setup.md"
+run_check 1 --root "$MINI"
+expect_finding md-anchor
+echo "$OUT" | grep -q "no-such-anchor" && ! echo "$OUT" | grep -q "real-heading not found" \
+  && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: md-anchor should flag only the broken anchor"
+}
+cat >> "$MINI/docs/commands/demo.md" <<'EOF'
+
+See [missing](../setup.md) and [ghost](./zz-ghost.md#x).
+EOF
+run_check 1 --root "$MINI"
+echo "$OUT" | grep -q "dead link target: ./zz-ghost.md" && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: md-anchor should flag a missing link target"
+}
+restore "$MINI/docs/commands/demo.md"
+rm -f "$MINI/docs/setup.md"
+
+# ---------------------------------------------------------------------------
+# T4g spec-example (W3-43) — real SPEC ids in docs must exist; 9xx is fake-ok
+# ---------------------------------------------------------------------------
+mkdir -p "$MINI/specs/core"
+printf '%s\n' "# x" > "$MINI/specs/core/SPEC-001-real.md"
+cat >> "$MINI/docs/commands/demo.md" <<'EOF'
+
+Contract: specs/core/SPEC-501-ghost.md. Example: specs/core/SPEC-901-made-up.md.
+EOF
+run_check 1 --root "$MINI"
+expect_finding spec-example
+echo "$OUT" | grep -q "SPEC-501" && ! echo "$OUT" | grep -q "SPEC-901" \
+  && PASS=$((PASS+1)) || {
+  FAIL=$((FAIL+1)); echo "FAIL: spec-example should flag only the real-range ghost"
+}
+rm -rf "$MINI/specs"
+restore "$MINI/docs/commands/demo.md"
+
+# ---------------------------------------------------------------------------
+# T4h security-versions (CDT-296) — table must match the generator
+# ---------------------------------------------------------------------------
+mkdir -p "$MINI/skills/release"
+cp "$REPO_ROOT/skills/release/gen-supported-versions.sh" "$MINI/skills/release/"
+python3 - <<PY
+import json
+json.dump({"name":"t","description":"A test plugin description for docs-drift.","version":"1.2.3"}, open("$MINI/.claude-plugin/plugin.json","w"))
+PY
+cat > "$MINI/SECURITY.md" <<'EOF'
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported |
+|---------|-----------|
+| 1.1.x   | Yes       |
+| < 1.1   | No        |
+
+## Reporting a Vulnerability
+
+Email security@example.com.
+EOF
+run_check 1 --root "$MINI"
+expect_finding security-versions
+(cd "$MINI" && bash skills/release/gen-supported-versions.sh --write)
+run_check 0 --root "$MINI"
+expect_no_finding security-versions
+rm -rf "$MINI/skills/release" "$MINI/SECURITY.md"
+python3 - <<PY
+import json
+json.dump({"name":"t","description":"A test plugin description for docs-drift.","version":"0.0.1"}, open("$MINI/.claude-plugin/plugin.json","w"))
+PY
 
 # ---------------------------------------------------------------------------
 # T5 waiver (D6)

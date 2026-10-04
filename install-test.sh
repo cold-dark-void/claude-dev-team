@@ -190,17 +190,23 @@ grep -q 'keep/me' "$XDG_CONFIG_HOME/opencode/opencode.json" && bad "AC7 --reset 
 grep -q '"other"' "$XDG_CONFIG_HOME/opencode/opencode.json" && ok "AC7 --reset kept unrelated pin" || bad "AC7 --reset dropped unrelated pin"
 
 # AC8: --assign-models apply from stdin writes the chosen tier pins.
+# 10 F7/10 E4: tier groups derive from agents/*.md model: frontmatter — the
+# behavioral 7 have no haiku agent, so there are exactly TWO prompts (Sonnet,
+# Opus) and ic4 must be pinned from the SONNET answer (old code pinned ic4
+# from a hardcoded Haiku prompt).
 H="$(mk_home)"
 export HOME="$H" XDG_CONFIG_HOME="$H/.config"
 mkdir -p "$XDG_CONFIG_HOME/opencode"
 printf '{"provider":{"p":{"models":{"m1":{},"m2":{}}}},"agent":{"custom":{"model":"z/z"}}}\n' > "$XDG_CONFIG_HOME/opencode/opencode.json"
 set +e
-out="$(printf '1\n1\n2\n' | env PATH="$FAKE_BIN:$PATH" DEV_TEAM_ASSIGN_MODELS_STDIN=1 bash "$INSTALL" --assign-models 2>&1)"
+out="$(printf '1\n2\n' | env PATH="$FAKE_BIN:$PATH" DEV_TEAM_ASSIGN_MODELS_STDIN=1 bash "$INSTALL" --assign-models 2>&1)"
 rc=$?
 set -e
 [ "$rc" -eq 0 ] && ok "AC8 assign-models apply exit 0" || bad "AC8 assign-models apply exit ($rc) out=$out"
+echo "$out" | grep -q 'Sonnet (general tasks — ic4' && ok "AC8 sonnet tier derived from frontmatter lists ic4" || bad "AC8 sonnet tier does not list ic4 (hardcoded map?)"
+echo "$out" | grep -q 'Haiku (' && bad "AC8 haiku tier prompted with no haiku behavioral agent" || ok "AC8 no haiku tier prompt (derived, not hardcoded)"
 grep -q '"ic4"' "$XDG_CONFIG_HOME/opencode/opencode.json" && grep -q 'p/m1' "$XDG_CONFIG_HOME/opencode/opencode.json" && ok "AC8 ic4 pinned to first model" || bad "AC8 ic4 pin missing"
-grep -q 'p/m2' "$XDG_CONFIG_HOME/opencode/opencode.json" && ok "AC8 opus tier pinned to second model" || bad "AC8 opus pin missing"
+grep -q '"pm"' "$XDG_CONFIG_HOME/opencode/opencode.json" && grep -q 'p/m2' "$XDG_CONFIG_HOME/opencode/opencode.json" && ok "AC8 pm pinned to second model (opus tier)" || bad "AC8 pm pin missing"
 grep -q '"custom"' "$XDG_CONFIG_HOME/opencode/opencode.json" && ok "AC8 assign kept unrelated pin" || bad "AC8 assign dropped unrelated pin"
 
 # AC9: frontmatter tools:/model: are stripped; a body line that starts with

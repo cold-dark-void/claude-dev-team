@@ -51,7 +51,7 @@ inside `/retro --all --auto` — do not wrap with a separate lock step.
 
 ```
 You are the scheduled retro runner for this project. Self-contained.
-cwd: <MROOT>. Tools: Bash, SlashCommand (or invoke /retro).
+cwd: <MROOT>. Tools: Bash, plus the ability to invoke /retro (slash command or Skill tool — the headless CLI has no SlashCommand tool).
 
 1. Acquire is handled inside /retro --all --auto.
 2. Run: /retro --all --auto
@@ -107,7 +107,7 @@ Notes:
 - **Always write a report** on `--all --auto`, including empty candidate set and
   all-smooth gate exits (schedule observability)
 - **Retention:** newest **12** `scheduled-*.md` kept after each successful write
-- **Concurrent run:** if lock held and age &lt; 2h → print
+- **Concurrent run:** if a lock is held and is younger than 2h → print
   `scheduled retro: lock held, skipping`, exit 0, **no** report
 - **Filter 1:** skip JSONL modified within 60s (`freshness.sh`)
 - **Filter 2:** skip sessions containing

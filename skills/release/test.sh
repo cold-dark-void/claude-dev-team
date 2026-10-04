@@ -563,6 +563,59 @@ else
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# S11 (CDT-296 / 10 E9): gen-supported-versions.sh derives SECURITY.md
+# ---------------------------------------------------------------------------
+GEN="$HERE/gen-supported-versions.sh"
+if [ -f "$GEN" ]; then
+  pass "S11: gen-supported-versions.sh exists"
+  GEN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gen-sec.XXXXXX")
+  trap 'rm -rf "$GEN_TMP"' EXIT
+  printf '%s\n' '{"name":"t","version":"1.19.29"}' > "$GEN_TMP/plugin.json"
+  OUT1=$(bash "$GEN" 1.19.29)
+  echo "$OUT1" | grep -q '| 1.19.x | Yes' && pass "S11: print mode derives current minor" \
+    || fail "S11: print mode output: $OUT1"
+  echo "$OUT1" | grep -q '| < 1.19 | No' && pass "S11: print mode marks older minors unsupported" \
+    || fail "S11: older-minor row missing"
+  # plugin.json-derived (compact JSON) — copy into the plugin-layout path so
+  # the script's SCRIPT_DIR/../.. root resolves to $GEN_TMP
+  mkdir -p "$GEN_TMP/.claude-plugin" "$GEN_TMP/skills/release"
+  printf '%s' '{"name":"t","version":"1.19.29"}' > "$GEN_TMP/.claude-plugin/plugin.json"
+  cp "$GEN" "$GEN_TMP/skills/release/gen.sh"
+  OUT2=$(cd "$GEN_TMP" && bash skills/release/gen.sh)
+  echo "$OUT2" | grep -q '1.19.x' && pass "S11: no-arg mode reads plugin.json" \
+    || fail "S11: no-arg mode output: $OUT2"
+  # --write rewrites only the section
+  cat > "$GEN_TMP/SECURITY.md" <<'EOF'
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported |
+|---------|-----------|
+| 1.1.x   | Yes       |
+| < 1.1   | No        |
+
+## Reporting a Vulnerability
+
+Email security@example.com.
+EOF
+  (cd "$GEN_TMP" && SECURITY_MD="$GEN_TMP/SECURITY.md" bash skills/release/gen.sh 1.19.29 --write)
+  grep -q '| 1.19.x | Yes' "$GEN_TMP/SECURITY.md" && pass "S11: --write rewrites the table" \
+    || fail "S11: --write did not update the table"
+  grep -q 'security@example.com' "$GEN_TMP/SECURITY.md" && pass "S11: --write preserves the rest of the file" \
+    || fail "S11: --write clobbered the reporting section"
+  # a bad argv exits 64
+  if bash "$GEN" not-a-version >/dev/null 2>&1; then
+    fail "S11: non-semver argv should exit 64"
+  else
+    rc=$?
+    [ "$rc" -eq 64 ] && pass "S11: non-semver argv exits 64" || fail "S11: non-semver argv exit $rc"
+  fi
+else
+  fail "S11: gen-supported-versions.sh missing"
+fi
+
 
 # ---------------------------------------------------------------------------
 echo

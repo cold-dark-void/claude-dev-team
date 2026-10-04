@@ -6,6 +6,7 @@ description: |
     MUST requirements (tests), and run full-system health reflection across all
     specs/skills/code (reflect). Also hosts shared partials (spec-skeleton.md,
     source-exclude.md) and check-format.sh used by the broader /spec surface.
+user-invocable: false
 ---
 
 # Spec Tooling

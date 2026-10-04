@@ -21,15 +21,22 @@ when one exists; skills-backed Surfaces without a page still appear here.
 | [Memory](runbooks/memory.md) | Memory tiers, distillation, **prose compress**, domain glossary vs DB |
 | [Manual operation](runbooks/manual.md) | Driving agents by hand without orchestrators |
 | [Scheduled retro](runbooks/scheduled-retro.md) | Opt-in cron for `/retro --all --auto` |
-| [Permission posture matrix](runbooks/permission-posture-matrix.md) | C8 evidence — `dontAsk` ship default (pin Claude Code 2.1.190) |
 | [Transcript mirror](commands/transcript-mirror.md) | Opt-in Stop + SessionEnd recorder; live compressed session record |
+
+**Internal (maintainer) docs** — evidence and dogfood gates, not user workflow:
+
+| Doc | What's in it |
+|-----|--------------|
+| [Permission posture matrix](internal/permission-posture-matrix.md) | C8 evidence — `auto` (Cell D) ship default (pin Claude Code 2.1.190) |
+| [Handoff STM dogfood](internal/handoff-stm-dogfood.md) | AC-16 ship-gate evidence for the `/handoff` STM packet |
 
 **What's new / upgrade path:** [CHANGELOG](../CHANGELOG.md) (newest first) · [Migrate to v1.0.0](runbooks/migrate-to-v1.md) · [Setup → Upgrading](setup.md#upgrading-the-plugin-existing-projects).
 
 ## Command reference
 
 > **opencode**: Commands are namespaced under `/dev-team/` (e.g., `/dev-team/handoff`).
-> Claude Code uses the bare name (e.g., `/handoff`).
+> Skill-only Surfaces are likewise prefixed (`/dev-team:orchestrate`) on hosts that
+> namespace skills; Claude Code uses the bare name (e.g., `/handoff`).
 
 ### Core
 
@@ -38,14 +45,14 @@ First-ticket lifecycle: install → health → plan → execute → review → s
 | Command | Docs | When to use |
 |---------|------|-------------|
 | `/setup` | [setup](commands/setup.md) · [Setup guide](setup.md) | Onboard a project — `project` · `orchestration` · `team` · `models` |
-| `/doctor` | skill | Diagnose install/config health (PASS/WARN/FAIL); read-only default, `--fix` allowlist |
+| `/doctor` | [doctor](commands/doctor.md) | Diagnose install/config health (PASS/WARN/FAIL); read-only default, `--fix` allowlist |
 | `/audit` | [audit](commands/audit.md) | Instruction-stack inventory + skill-size WARN; approve-then-apply |
 | `/kickoff` | [kickoff](commands/kickoff.md) | Parallel PM+TL planning → spec → plan → task graph |
 | `/orchestrate` | [orchestrate](commands/orchestrate.md) · [runbook](runbooks/orchestrate.md) | Full lifecycle: issue → worktree → agents → review → ship/PR |
 | `/debug` | [debug](commands/debug.md) | Phase-gated bug fix (`patch`/`arch`) or ticket pipeline (`ticket`) |
 | `/bug-hunt` | [bug-hunt](commands/bug-hunt.md) | Unknown-defect discovery — discover → refute → plan + proceed-gated materialize → phase handoff emit-only (stages 1–4) |
 | `/council` | [council](commands/council.md) | Adversarial tribunal — reality-check a claim, session slice, or diff |
-| `/release` | skill | Bump version (CHANGELOG + plugin JSON), commit, tag, push |
+| `/release` | [release](commands/release.md) | Bump version (CHANGELOG + plugin JSON), commit, tag, push |
 | `/status` | [status](commands/status.md) | Read-only hub — bare = standup→metrics→worktrees; subs `standup` · `metrics` · `worktree` |
 | `/memory` | [memory](commands/memory.md) · [runbook](runbooks/memory.md) | Unified memory — `config` · `distill` · `export` · `search` · `stats` · `validate` |
 | `/spec` | [spec](commands/spec.md) · [runbook](runbooks/specs.md) | Unified specs — `check` · `create` · `find` · `list` · `update` · `generate` · `tests` · `reflect` |
@@ -57,21 +64,21 @@ Program / multi-ticket work, session tuning, and quality gates.
 | Command | Docs | When to use |
 |---------|------|-------------|
 | `/epic` | [epic](commands/epic.md) | Decompose an umbrella into sequenced children for `/kickoff` or `/orchestrate` |
-| `/backlog` | skill | Manage backlog items (Linear-first dual-write when MCP is up) |
+| `/backlog` | [backlog](commands/backlog.md) | Manage backlog items (Linear-first dual-write when MCP is up) |
 | `/brainstorm` | [brainstorm](commands/brainstorm.md) · [Idea→Plan](runbooks/idea-to-plan.md) | Socratic design refinement (`--grill` one-Q + recommended answers) |
 | `/craft-loop` | [craft-loop](commands/craft-loop.md) | Design reviewed loop programs for the host `/loop`/`/goal` |
-| `/release-train` | skill | Multi-branch release queue — register, freeze, land via `/release` |
+| `/release-train` | [release-train](commands/release-train.md) | Multi-branch release queue — register, freeze, land via `/release` |
 | `/retro` | [retro](commands/retro.md) · [scheduled runbook](runbooks/scheduled-retro.md) | Scan past sessions for friction; propose directive adjustments |
 | `/handoff` | [handoff](commands/handoff.md) | STM packet / compact seed (State now → Through-line → appendix); cold print core + path, warm file-only |
 | `/compact-transcript` | [compact-transcript](commands/compact-transcript.md) | Bounded Meaning tail from Transcript mirror for the operator to @; not a Compact seed |
 | `/recall` | [recall](commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
 | `/mode` | [mode](commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
-| `/adjust-agent` | skill | View/manage per-agent standing directives (`--apply` for non-interactive) |
+| `/adjust-agent` | [adjust-agent](commands/adjust-agent.md) | View/manage per-agent standing directives (`--apply` for non-interactive) |
 | `/worktree` | [worktree](commands/worktree.md) | Release a plugin worktree (`release <slug>`); list via `/status worktree` |
-| `/ci-watch` | skill | Poll PR checks / local tests and spawn a fixer (armed by `/orchestrate`) |
+| `/ci-watch` | [ci-watch](commands/ci-watch.md) | Poll PR checks / local tests and spawn a fixer (armed by `/orchestrate`) |
 | `/review-and-commit` | [review-and-commit](commands/review-and-commit.md) | Multi-specialist review with confidence scoring; blocks commit on criticals |
 | `/refactor` | [refactor](commands/refactor.md) | Design-first restructuring with behavior-unchanged verification |
-| `/tdd-gate` | skill | Toggle hook TDD enforcement — blocks Write/Edit without tests (`on`/`off`/`status`) |
+| `/tdd-gate` | [tdd-gate](commands/tdd-gate.md) | Toggle hook TDD enforcement — blocks Write/Edit without tests (`on`/`off`/`status`) |
 | `/wrap-ticket` | [wrap-ticket](commands/wrap-ticket.md) | Close out: verify tasks, capture learnings, re-close tracker, drop worktree |
 
 ### Internal
@@ -79,8 +86,9 @@ Program / multi-ticket work, session tuning, and quality gates.
 Agent protocols (`agent-memory`, `memory-store`, `memory-recall`), council/orchestrate
 engines, gates (`docs-drift`, `skill-lint`, …), and `tools/` helpers are **not**
 user-invoked Surfaces — they run under Core/Advanced commands or CI. Internal agents
-`project-init`, `distiller`, `council-judge`, and `council-scribe` are reached only via `/setup team`,
-`/memory distill`, and `/council`.
+`finder`, `debugger`, `project-init`, `distiller`, `council-judge`, and `council-scribe` are
+reached only via `/council` and `/bug-hunt`, `/debug ticket`, `/setup team`, `/memory distill`,
+and `/council` again for the judge and the scribe.
 
 ### Migration (historical)
 

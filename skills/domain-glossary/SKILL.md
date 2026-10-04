@@ -4,6 +4,7 @@ description: |
     Living project ubiquitous language (CONTEXT.md). Load before naming work;
     update when terms crystallize during brainstorm/kickoff. Agent-internal —
     not a user slash command.
+user-invocable: false
 ---
 
 # Domain Glossary

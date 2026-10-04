@@ -4,6 +4,7 @@ description: |
     Optional host SAST (Semgrep / CodeQL) feed for security review. Fail-open
     when tools are missing. Agent-internal + review-and-commit / council
     security flavor. Zero required deps.
+user-invocable: false
 ---
 
 # Security Scan

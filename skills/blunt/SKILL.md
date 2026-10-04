@@ -2,9 +2,9 @@
 name: blunt
 description: |
     Session tone backend for /mode blunt: no sugarcoating, verdict-first,
-    confidence must match evidence. Shit is shit; good is good. Primary entry:
-    /mode blunt [on|off|status].
+    confidence must match evidence. Primary entry: /mode blunt [on|off|status].
     Orthogonal to /mode focus and /review-and-commit.
+user-invocable: false
 ---
 
 # Blunt (session tone)

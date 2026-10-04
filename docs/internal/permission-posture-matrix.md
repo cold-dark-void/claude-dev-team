@@ -199,8 +199,8 @@ Least → most privilege (for equal allow+sandbox):
 
 ## Cell D (CDT-75) — `auto`
 
-Probe re-run 2026-07-22T22:27Z (`MATRIX_CELLS="C:dontAsk D:auto"`, OUTDIR
-`/tmp/cdt-75-matrix-20260722T222718Z/`, host CC **2.1.190**, model haiku).
+Probe re-run 2026-07-22T22:27Z (`MATRIX_CELLS="C:dontAsk D:auto"`, per-run `mktemp -d` OUTDIR, host CC
+**2.1.190**, model haiku).
 
 | Field | Value |
 |-------|--------|
@@ -352,9 +352,8 @@ MATRIX_CELLS="C:dontAsk D:auto" bash tools/permission-matrix-probe.sh "${TMPDIR:
 |------|------|
 | `tools/permission-matrix-probe.sh` | Reproducible harness A/B/C/D + MCP delta (committed) |
 | `tools/permission-matrix-cc-version` | Last-probed CC semver (doctor drift SoT) |
-| `docs/runbooks/permission-posture-matrix.md` | This evidence (committed) |
-| `/tmp/cdt-51-matrix-20260722-013805/` | Original A/B/C live scratch (local) |
-| `/tmp/cdt-75-matrix-20260722T222718Z/` | Cell D + MCP delta scratch (local) |
-| `…/results.tsv` | Per-flow PASS rows |
-| `…/mcp-safety-delta.tsv` | dontAsk vs auto MCP + settings self-edit |
-| `…/{A,B,C,D}-stream.jsonl` | stream-json traces |
+| `docs/internal/permission-posture-matrix.md` | This evidence (committed) |
+
+Probe scratch directories are per-run `mktemp -d` working directories, not
+artifacts — rerun `tools/permission-matrix-probe.sh` (paths above) to
+regenerate `results.tsv`, `mcp-safety-delta.tsv`, and `{A,B,C,D}-stream.jsonl`.

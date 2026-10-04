@@ -1,16 +1,15 @@
 ---
 name: bug-hunt
 description: |
-  Unknown-defect discovery pipeline: scoped multi-perspective discover →
-  continuous refute/confirm → user-visible report → findings plan +
-  proceed-gated bh-quality backlog materialize → severity-band phase handoff
-  emit-only (stages 1–4; CDT-138/C3 + CDT-139/C4). Composes SPEC-013 blind +
-  investigator; SPEC-009 programmatic write-back (no dual-write fork).
-  MUST NOT invoke /orchestrate|/epic or fix product code; no re-S1–S2 invent.
-  Entry: /bug-hunt [path] [--severity-floor …] [--proceed]
+  Use when asked to find or audit unknown bugs in a path — unknown-defect
+  discovery pipeline: scoped multi-perspective discover → continuous
+  refute/confirm → user-visible report → findings plan + proceed-gated
+  bh-quality backlog materialize → severity-band phase handoff emit-only
+  (stages 1–4). MUST NOT invoke /orchestrate|/epic or fix product code; no
+  re-S1–S2 invent. Entry: /bug-hunt [path] [--severity-floor …] [--proceed]
        | /bug-hunt materialize <path> [--severity-floor …] [--proceed]
-       | /bug-hunt handoff <plan-path> [--start-phase <n>]
-  Contract: specs/core/SPEC-034-bug-hunt-workflow.md.
+       | /bug-hunt handoff <plan-path> [--start-phase <n]>
+user-invocable: false
 ---
 
 # bug-hunt — Discover → Refute → Materialize → Handoff (stages 1–4)

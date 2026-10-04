@@ -1,10 +1,11 @@
 ---
 name: orchestrate
 description: |
-    Full lifecycle orchestrator — fetches issue context, creates worktree, spawns
-    agents end-to-end, enforces tech-lead review loops, and optionally ships a PR.
-    You stay as observer/navigator; agents do all the work.
-    Usage: /orchestrate CDV-1 or /orchestrate
+    Use when a ticket should run end-to-end without the user driving each
+    phase — full lifecycle orchestrator that fetches issue context, creates a
+    worktree, spawns agents end-to-end, enforces tech-lead review loops, and
+    optionally ships a PR. You stay as observer/navigator; agents do all the
+    work. Usage: /orchestrate CDV-1 or /orchestrate
 ---
 
 # Orchestrate

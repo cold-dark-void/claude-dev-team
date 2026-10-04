@@ -1,10 +1,10 @@
 ---
 name: release
 description: |
-    Bump version across the required pair (CHANGELOG.md, plugin.json), commit,
-    tag, and push. Use when releasing any version of this plugin. Ensures the
-    two version surfaces stay in sync — never skips either. marketplace.json is
-    not versioned (git-ref install channels).
+    Use when releasing any version of this plugin — bump the version across the
+    required pair (CHANGELOG.md, plugin.json), commit, tag, and push. Ensures
+    the two version surfaces stay in sync — never skips either. marketplace.json
+    is not versioned (git-ref install channels).
 ---
 
 # Release
@@ -236,6 +236,23 @@ Update `"version"` field to new version string.
 Install channels pin via `source.ref` (`stable` / `master`). Do **not** reintroduce
 `plugins[].version`. Description sync with `plugin.json` remains a docs-drift concern
 (`manifest-desc`), not a release version step.
+
+### 3d. `SECURITY.md` — regenerate the supported-versions table
+
+The supported-versions table is derived, never hand-written (CDT-296 / 10 E9).
+After Step 3a/3b set the new version, regenerate the section. Resolve the
+generator through the plugin root already held in `$PDH` (Step 0.6 stanza), then
+run it with `--write`:
+
+```
+bash "$PDH/skills/plugin-dir.sh" file skills/release/gen-supported-versions.sh
+bash <printed-path> --write
+```
+
+With no version argument the generator reads the just-bumped `plugin.json`;
+`--write` rewrites only the `## Supported Versions` section. The docs-drift
+`security-versions` check fails the release when the table lags `plugin.json`,
+so this step is not optional.
 
 ## Step 4: Verify the version pair matches
 

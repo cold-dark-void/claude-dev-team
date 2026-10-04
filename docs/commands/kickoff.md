@@ -37,7 +37,7 @@ Kickoff complete for POC-123
 
 Worktree: .worktrees/POC-123
 Branch:   feat/POC-123
-Spec:   specs/core/SPEC-007-csv-export.md [created]
+Spec:   specs/core/SPEC-907-csv-export.md [created]
 Plan:   $MROOT/.claude/plans/2026-03-15-POC-123-csv-export.md
 Glossary: no new terms
 Tasks:  3 created

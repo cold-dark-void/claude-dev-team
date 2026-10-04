@@ -4,6 +4,7 @@ description: >
   Context audit of the instruction stack (CLAUDE.md, AGENTS.md, directives)
   plus skill-size WARN. Bare is read-only. Apply is approve-then-apply on
   instruction-stack files only (SPEC-035).
+user-invocable: false
 ---
 
 # audit

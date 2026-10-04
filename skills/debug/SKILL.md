@@ -8,6 +8,7 @@ description: |
     Modes: /debug <desc> (full), /debug patch <desc> (fast path),
     /debug arch <desc> (design-first → /kickoff handoff),
     /debug ticket <id> "<premise>" […] (SPEC-014 ticket mode).
+user-invocable: false
 ---
 
 # Debug

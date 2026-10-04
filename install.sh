@@ -138,29 +138,39 @@ if [ -f "$config_file" ]; then
     printf '  %s\n' "${available_models[@]}"
     echo ""
 
-    # Ask for 3 model tiers: haiku (fast), sonnet (general), opus (complex)
+    # 10 F7 / 10 E4: derive the tier groups from agents/*.md `model:`
+    # frontmatter — the roster (SPEC-003) is the source of truth, never a
+    # hardcoded agent list. Only tiers that actually hold behavioral agents
+    # get a prompt.
+    model_of() { awk -F': *' 'tolower($1)=="model" {print tolower($2); exit}' "$1" 2>/dev/null; }
+    HAIKU_AGENTS=""; SONNET_AGENTS=""; OPUS_AGENTS=""
+    for a in $PIN_AGENTS; do
+      _m=$(model_of "$SCRIPT_DIR/agents/$a.md")
+      case "$_m" in
+        haiku)  HAIKU_AGENTS="$HAIKU_AGENTS $a" ;;
+        sonnet) SONNET_AGENTS="$SONNET_AGENTS $a" ;;
+        opus)   OPUS_AGENTS="$OPUS_AGENTS $a" ;;
+        *) echo "  ⚠ $a: no recognizable model: tier in agents/$a.md — that agent stays on the session model." ;;
+      esac
+    done
+
+    # Ask for one model per non-empty tier: haiku (fast), sonnet (general), opus (complex)
     echo "Assign model tiers for the agent team:"
     echo "(press Enter at any tier to leave those agents on the session model)"
-    echo ""
-    echo "  Haiku  (fast/simple tasks — ic4, qa):"
-    for i in "${!available_models[@]}"; do
-      echo "    [$((i+1))] ${available_models[$i]}"
-    done
-    read -rp "  Model: " haiku_idx
 
-    echo ""
-    echo "  Sonnet (general tasks — devops, pm):"
-    for i in "${!available_models[@]}"; do
-      echo "    [$((i+1))] ${available_models[$i]}"
-    done
-    read -rp "  Model: " sonnet_idx
-
-    echo ""
-    echo "  Opus   (complex tasks — tech-lead, ic5, ds):"
-    for i in "${!available_models[@]}"; do
-      echo "    [$((i+1))] ${available_models[$i]}"
-    done
-    read -rp "  Model: " opus_idx
+    pick_tier() { # pick_tier <tier-label> <tier-hint> <agents> <idx-var-name>
+      local label="$1" hint="$2" agents="$3" var="$4" i
+      echo ""
+      echo "  $label ($hint —$agents):"
+      for i in "${!available_models[@]}"; do
+        echo "    [$((i+1))] ${available_models[$i]}"
+      done
+      read -rp "  Model: " "$var"
+    }
+    haiku_idx=""; sonnet_idx=""; opus_idx=""
+    [ -n "$HAIKU_AGENTS" ]  && pick_tier "Haiku"  "fast/simple tasks" "$HAIKU_AGENTS"  haiku_idx
+    [ -n "$SONNET_AGENTS" ] && pick_tier "Sonnet" "general tasks"     "$SONNET_AGENTS" sonnet_idx
+    [ -n "$OPUS_AGENTS" ]   && pick_tier "Opus"   "complex tasks"    "$OPUS_AGENTS"   opus_idx
     echo ""
 
     # Build jq filter from tier assignments
@@ -205,17 +215,10 @@ if [ -f "$config_file" ]; then
     warn_bad "$sonnet_idx" "$sonnet_model" "Sonnet"
     warn_bad "$opus_idx" "$opus_model" "Opus"
 
-    # Map: Claude Code model tier → opencode agent name
-    # haiku → ic4, qa (fast/simple)
-    add_tier "ic4" "$haiku_model"
-    add_tier "qa" "$haiku_model"
-    # sonnet → devops, pm (general)
-    add_tier "devops" "$sonnet_model"
-    add_tier "pm" "$sonnet_model"
-    # opus → tech-lead, ic5, ds (complex)
-    add_tier "tech-lead" "$opus_model"
-    add_tier "ic5" "$opus_model"
-    add_tier "ds" "$opus_model"
+    # Map: agents/*.md model tier → opencode agent pin (derived above, 10 F7).
+    for a in $HAIKU_AGENTS;  do add_tier "$a" "$haiku_model";  done
+    for a in $SONNET_AGENTS; do add_tier "$a" "$sonnet_model"; done
+    for a in $OPUS_AGENTS;   do add_tier "$a" "$opus_model";   done
 
     # Replace only the dev-team pins, then apply the tiers just chosen.
     jq_filter="$(pin_delete_filter) | $jq_filter | .agent = (.agent // {})"
@@ -223,17 +226,13 @@ if [ -f "$config_file" ]; then
 
     echo "Added to opencode.json agent section:"
     if [ -n "$haiku_model" ]; then
-      echo "  ic4 → $haiku_model"
-      echo "  qa  → $haiku_model"
+      for a in $HAIKU_AGENTS;  do echo "  $a → $haiku_model";  done
     fi
     if [ -n "$sonnet_model" ]; then
-      echo "  devops → $sonnet_model"
-      echo "  pm     → $sonnet_model"
+      for a in $SONNET_AGENTS; do echo "  $a → $sonnet_model"; done
     fi
     if [ -n "$opus_model" ]; then
-      echo "  tech-lead → $opus_model"
-      echo "  ic5       → $opus_model"
-      echo "  ds        → $opus_model"
+      for a in $OPUS_AGENTS;   do echo "  $a → $opus_model";   done
     fi
     echo ""
   else

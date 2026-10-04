@@ -3,6 +3,7 @@ name: init-orchestration
 description: >
   Internal protocol for /setup orchestration — Agent Teams bootstrap (settings,
   hooks, AGENTS.md seed). Not a user entry; invoke via /setup orchestration.
+user-invocable: false
 ---
 
 # Init Orchestration (backend for `/setup orchestration`)
@@ -473,7 +474,7 @@ Using the `allowedDomains` list from Step 2, write the settings file.
 > **RISK (intentional posture — matrix winner Cell D / CDT-75).** `defaultMode:
 > "auto"` + matrix allow set (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) +
 > sandbox (`enabled` + `autoAllowBashIfSandboxed`) is the shipped orchestration
-> posture (evidence: `docs/runbooks/permission-posture-matrix.md` `## Winner`).
+> posture (evidence: `docs/internal/permission-posture-matrix.md` `## Winner`).
 > `auto` evaluates tools within policy/sandbox — allow-set core tools and
 > (interactively) MCP such as Linear can run without a static `mcp__*` allow
 > entry. It is **not** `bypassPermissions`: sandbox remains the OS boundary for

@@ -68,6 +68,8 @@ important patterns to permanent core knowledge.
 | View distillation config | `/memory config list` |
 | Change distillation settings | `/memory config set <key> <value>` |
 | Clear a stale distillation lock | `/memory distill --force` |
+| Validate stored claims (hygiene) | `/memory validate` |
+| Dump memory before risky operations | `/memory export` |
 
 ---
 
@@ -204,8 +206,12 @@ Clears a lock left by a crashed distillation run.
 
 **Agent loading too much/wrong context:**
 Check what they're loading: `/memory distill --status`. If raw count is high, distill.
-If core memories are outdated, they can't be edited through commands — update the DB directly
-or delete and re-bootstrap with `/setup team`.
+If core memories are outdated, update the DB directly (or via the agent). Never delete
+and re-bootstrap to "fix" stale rows — `/setup team` does not rewrite cortex after first
+init, and deleting `memory.db` destroys all stored memory. If a rebuild is truly
+required: `/memory export` first (keep the dump), then delete and re-run `/setup team`,
+then re-import what you still need. Validate rather than guess with
+`/memory validate`.
 
 **No DB found:**
 Run `/setup team` to create it. Agents work with `.md` fallback but lose semantic search.

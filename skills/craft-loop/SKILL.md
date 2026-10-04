@@ -6,6 +6,7 @@ description: Loop-prompt architect protocol — designs reviewed, file-persisted
   escalation. Consumed by /craft-loop (craft, refine, retire, list modes).
   Ships no runtime. Supports hold/dogfood (no-write) and declared side
   artifacts under .claude/loops/.
+user-invocable: false
 ---
 
 # Craft-Loop Protocol (SPEC-020)

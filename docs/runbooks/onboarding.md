@@ -20,7 +20,24 @@ For detailed command reference, see [Setup Guide](../setup.md).
 
 ---
 
-## Step 1 — Bootstrap agent memory
+## Step 1 — Scaffold the project
+
+```
+/setup project
+```
+
+Writes `AGENTS.md`, `specs/TDD.md`, `.claude/plans/`, and the local settings
+allowlist — the same first step the README Quick Start runs.
+
+## Step 1b — Health check
+
+```
+/doctor
+```
+
+Fix any FAIL rows before bootstrapping memory on top of a broken install.
+
+## Step 2 — Bootstrap agent memory
 
 ```
 /setup team
@@ -32,7 +49,9 @@ What happens:
 - Writes initial memory (cortex) for all 7 agents
 - Creates `.claude/memory/memory.db`
 
-Safe to re-run anytime.
+Safe to re-run — idempotent. It does **not** rescan the project or rewrite
+cortex: project-init only scans on first initialization (`--refresh` re-checks
+extensions, embeddings, and migration only).
 
 **On restricted networks:**
 ```
@@ -51,7 +70,7 @@ You should see all agents with initial memory entries.
 
 ---
 
-## Step 2 — Enable Agent Teams
+## Step 4 — Enable Agent Teams
 
 ```
 /setup orchestration
@@ -67,7 +86,7 @@ Without this step, you can use agents individually (`@pm`, `@tech-lead`) but not
 
 ---
 
-## Step 2b — Domain glossary (optional, zero deps)
+## Step 4b — Domain glossary (optional, zero deps)
 
 Projects may keep a committed **ubiquitous language** file at repo-root `CONTEXT.md`
 (or `docs/domain/CONTEXT.md`). `/setup project` seeds an empty template;
@@ -79,7 +98,7 @@ file is fine until the first real term crystallizes.
 
 ---
 
-## Step 2c — Optional structural map (Graphify companion)
+## Step 4c — Optional structural map (Graphify companion)
 
 If you want a **code knowledge graph** (call/import structure, god-nodes), install
 [Graphify](https://github.com/Graphify-Labs/graphify) separately — not part of
@@ -103,7 +122,7 @@ when monorepos make “who calls what” expensive to rediscover. Optional for
 
 ---
 
-## Step 3 — Establish spec baseline
+## Step 5 — Establish spec baseline
 
 **New project (no existing code):** Skip this step. Create specs as you build features
 using `/spec create` (see [Specs Runbook](specs.md)).
@@ -120,14 +139,14 @@ the review-and-commit steps after it runs.
 
 ---
 
-## Step 4 — Configure memory distillation
+## Step 6 — Configure memory distillation
 
 Optional but recommended. See [Memory Runbook — Configuration](memory.md#configuration)
 for recommended settings and what each option controls.
 
 ---
 
-## Step 5 — Verify everything works
+## Step 7 — Verify everything works
 
 Run a quick smoke test:
 

@@ -23,6 +23,14 @@ Context audit of the **instruction stack** (SPEC-035). Bare `/audit` is
 | `--judgment` | Opt-in: allow class=`judgment` |
 | `--yes` | Required confirm before a write under `~/.claude` or `~/.grok`. There is no TTY prompt. |
 | `--from-session <id>` | Locate via `skills/transcript-parse` only, then inventory |
+| `-h`, `--help` | Usage |
+
+Produce the apply FILE from a machine-readable inventory, review it, then apply:
+
+```bash
+/audit --json > .claude/audit-findings.json
+/audit apply <id|batch> --from-json .claude/audit-findings.json --yes
+```
 
 ## Scope
 

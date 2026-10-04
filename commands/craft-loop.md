@@ -4,6 +4,7 @@ description: Design a reviewed, file-persisted loop program for the built-in
   /loop and /goal commands — guided crafting dialogue, journal-based state,
   refine-from-journal, retire, and library listing. Supports hold/dogfood
   (no-write). Usage /craft-loop [goal text | list [--all] | refine <name> | retire <name>]
+argument-hint: "[<goal text> | list [--all] | refine <name> | retire <name>]"
 ---
 
 # Craft Loop

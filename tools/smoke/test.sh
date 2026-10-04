@@ -67,8 +67,10 @@ expect_out "name" "bad-frontmatter reason names the missing field"
 
 # 1b. bad-yaml: frontmatter does not parse cleanly. The stdlib parser folds the
 # malformed indented line into the prior key, so `description` never appears —
-# the FAIL is a frontmatter defect either way. Assert exit 1 + a frontmatter
-# reason, not the exact wording (see NOTE to team lead re: fixture intent).
+# the fixture's defect is the malformed indented line 3 (unparseable
+# frontmatter), which is a frontmatter defect either way. Assert exit 1 + a
+# frontmatter reason, not the exact wording (the stdlib parser's fold behavior
+# is an implementation detail).
 run_smoke "$FIX/bad-yaml/command.md"
 expect_exit 1 "bad-yaml"
 expect_out "FAIL" "bad-yaml emits FAIL"
@@ -107,8 +109,21 @@ RC=$?
 expect_exit 0 "live no-arg run"
 expect_out "0 failed" "live no-arg summary reports 0 failed"
 expect_not_out "FAIL " "live no-arg run has no FAIL lines"
+# W3-07: the rewritten live tree carries no description warnings either.
+expect_out ", 0 warnings" "live no-arg run has no description warnings"
 # Discovery sanity: the run checks a non-trivial set, none of it fixture material.
 expect_not_out "tools/smoke/fixtures" "live run excludes harness fixtures"
+
+# ---------------------------------------------------------------------------
+# Case 3b (W3-07): description lint on user-invocable skills — WARN lines,
+# warning-only (exit stays 0). A `user-invocable: false` skill never warns.
+# ---------------------------------------------------------------------------
+run_smoke "$FIX/warn-desc/skills/lead/SKILL.md" "$FIX/warn-desc/skills/ids/SKILL.md" "$FIX/warn-desc/skills/flagged/SKILL.md"
+expect_exit 0 "description warnings do not fail the gate"
+expect_out "WARN $FIX/warn-desc/skills/lead/SKILL.md: user-invocable skill description should lead with 'Use when …'" "missing Use-when lead warns"
+expect_out "WARN $FIX/warn-desc/skills/ids/SKILL.md: description carries ticket/spec ids" "spec id in description warns"
+expect_not_out "WARN $FIX/warn-desc/skills/flagged/SKILL.md" "flagged internal skill never warns"
+expect_out "3 checked, 0 failed, 2 warnings" "warn summary counts warnings"
 
 # ---------------------------------------------------------------------------
 # Case 4: `bash template` opt-out is NOT a hole. A broken fence bare -> FAIL;

@@ -50,14 +50,14 @@ treating the remainder as a directives prompt. These flags are not a
 directive conversation and MUST NOT fall through to Step 5.
 
 - If no arguments: go to **Step 3** (Dashboard mode)
+- If agent name only (one word, no prompt): go to **Step 4** (Read-only mode)
+- If agent name + prompt (no `--apply`): go to **Step 5** (Adjustment mode)
+- If agent name + `--apply` + prompt: go to **Step 6** (Non-interactive apply mode)
 - If agent name + `--model-unset`: go to **Step 7** (Model map unset)
 - If agent name + `--model` + string: go to **Step 7** (Model map set)
 - If agent name + `--effort-unset`: go to **Step 7** (effort unset)
 - If agent name + `--effort` + token: go to **Step 7** (effort set)
 - If agent name + both `--model*` and `--effort*` flags: go to **Step 7** (each writes only its field)
-- If agent name only (one word, no prompt): go to **Step 4** (Read-only mode)
-- If agent name + `--apply` + prompt: go to **Step 6** (Non-interactive apply mode)
-- If agent name + prompt (no `--apply`): go to **Step 5** (Adjustment mode)
 
 `council-judge`, `finder` and `debugger` are mappable (Step 7) even though they
 are not in the 7-agent dashboard roster.

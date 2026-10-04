@@ -4,7 +4,7 @@
 
 Start the Step 10b spec alignment at the same time as this first Tech Lead review. Do not wait for QA. Send MISSING or DIFFERS gaps into the same rework round as REQUEST CHANGES (one IC rework spawn covers both). Record the checked SHA. After QA, Step 10b checks only the delta from that SHA, and `m14-check` always runs (`10-qa.md`).
 
-When `[ "$ORCH_TIER" = "light" ]`: single-pass TL diff review (same Check against / Evaluate as the spawn below). Run the standard resolve fences anyway (`tech-lead` review + IC `<agent>` rework). Max one rework (one REQUEST CHANGES → IC fix → re-review). Then APPROVE or escalate. Do not use the 3-round deadloop as the default. Skip Step 9.5 code-simplify. Council EFFECTIVE: a light task MUST NOT set `requires_council` (Step 7), so this pass does not spawn council. `--tier=light` does not run council, including when `--council-tier=full` is also set. `--council-tier=skip` also skips. There is no requires_council task for a light run to gate. After APPROVE: TaskUpdate completed. Skip `task-store.sh update-status` when no task-store file. Defensive CI-watch cleanup still applies if a ci-fixer task exists.
+When `[ "$ORCH_TIER" = "light" ]`: single-pass TL diff review (same Check against / Evaluate as the spawn below). Run the standard resolve fences anyway (`tech-lead` review + IC `<agent>` rework). Max one rework (one REQUEST CHANGES → IC fix → re-review). Then APPROVE or escalate. Do not use the 3-round deadloop as the default. Skip Step 9.5 post-approve-polish. Council EFFECTIVE: a light task MUST NOT set `requires_council` (Step 7), so this pass does not spawn council. `--tier=light` does not run council, including when `--council-tier=full` is also set. `--council-tier=skip` also skips. There is no requires_council task for a light run to gate. After APPROVE: TaskUpdate completed. Skip `task-store.sh update-status` when no task-store file. Defensive CI-watch cleanup still applies if a ci-fixer task exists.
 
 Otherwise (omit / `standard` / `full`):
 
@@ -301,7 +301,7 @@ This guards against a fixer agent that exited without clearing the flag.
 
 After **all** IC tasks have Tech Lead **APPROVE** and **before** Step 10 QA,
 run a single behavior-preserving polish pass. Protocol:
-`skills/code-simplify/SKILL.md` (zero external deps; not a marketplace plugin).
+`skills/post-approve-polish/SKILL.md` (zero external deps; not a marketplace plugin).
 
 **Skip when** any of:
 - `CODE_SIMPLIFY=0` in the environment
@@ -310,7 +310,7 @@ run a single behavior-preserving polish pass. Protocol:
 
 **Otherwise** spawn once using the skill's spawn template (ic4-class agent,
 terse, file list from skill scope discovery, worktree `$WT_PATH`). Follow the
-`skills/code-simplify/SKILL.md` spawn template (T6): resolve `ic4` via
+`skills/post-approve-polish/SKILL.md` spawn template (T6): resolve `ic4` via
 `resolve-model.sh` / `resolve-model.sh --effort` before spawn; same host-reject
 retry-once-omit (model and effort independent) as other sites. Hard rules: no
 behavior/API/schema change; recently modified files
@@ -324,7 +324,7 @@ Code-simplify: <done | skipped | failed-open>
 
 After the simplify agent returns, the Tech Lead reviews the delta
 `git diff "$PRE_SIMPLIFY_SHA"` (the checkpoint from
-`skills/code-simplify/SKILL.md`). That delta review is required. If the
+`skills/post-approve-polish/SKILL.md`). That delta review is required. If the
 simplify agent could not preserve behavior, revert with
 `git reset --hard "$PRE_SIMPLIFY_SHA"` and record `failed-open`. Do **not**
 block QA on simplify failure.

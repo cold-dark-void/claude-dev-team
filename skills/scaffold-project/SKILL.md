@@ -3,6 +3,7 @@ name: scaffold-project
 description: >
   Internal protocol for /setup project — TDD project scaffold (AGENTS.md,
   specs/TDD.md, settings allowlist). Not a user entry; invoke via /setup project.
+user-invocable: false
 ---
 
 # Scaffold Project with TDD Workflow (backend for `/setup project`)
@@ -156,7 +157,7 @@ Create `$PROJ_ROOT/.claude/settings.json` to enable autonomous agent operation (
 
 `defaultMode: "acceptEdits"` auto-approves all Read/Write/Edit operations. The Bash allow list covers common dev tools plus agent bootstrap patterns (variable assignments, compound commands, shell control flow). Customize to add/remove commands for your stack.
 
-> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use: destructive commands like `rm` and `wget` are intentionally excluded — agents will prompt before running those. (Orchestration mode via `/setup orchestration` instead grants the **matrix allow set** — `Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task — under `dontAsk` with sandbox + `autoAllowBashIfSandboxed` — matrix winner Cell C; under `dontAsk`, non-allow tools are **denied** not prompted, so a `Bash(*)`-only list is insufficient. The OS sandbox is the boundary. See `docs/runbooks/permission-posture-matrix.md`.)
+> **Note**: `curl` is allowed (memory-extension downloads and remote-embedding endpoints need it). This is the curated allowlist for interactive/solo use. `rm` and `wget` are intentionally excluded, so they fall through to the host's default ask — but the list is not "safe": it also allows mutating commands (`mv`, `sed -i`-class edits via `sed -n` reads only, `git:*` including push/reset, `python3`/`node` arbitrary code). Treat the allowlist as a throughput default, not a safety boundary. (Orchestration mode via `/setup orchestration` instead grants the **matrix allow set** — `Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task — under `auto` with sandbox + `autoAllowBashIfSandboxed` — shipped winner Cell D. The OS sandbox is the boundary. See `docs/internal/permission-posture-matrix.md`.)
 
 ### Step 3: Create .claude/CLAUDE.md
 
@@ -626,8 +627,13 @@ same marker + actor rule.
 If `$PROJ_ROOT/.gitignore` doesn't exist, create it with:
 
 ```gitignore
-# Claude Code - AI agent working directory (process state — never commit)
-.claude/
+# Claude Code — AI agent process state (never commit as product delivery)
+.claude/*
+.claude/memory/*
+# Committable memory seed pack (SPEC-024) ships with the repo
+!.claude/memory/
+!.claude/memory/seed/
+!.claude/memory/seed/**
 
 # Specs are in ./specs/ (NOT in .claude/), committed normally
 ```

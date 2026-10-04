@@ -12,9 +12,12 @@ parses (plus an opt-in --help/--check where a non-test, non-githook script
 declares it). It is static: bash fences and mutating script bodies are never
 executed.
 
-Exit codes: 0 = all pass, 1 = at least one fail, 64 = usage error.
-Output: one `PASS <path>` / `FAIL <path>: <reason>` line per target, then a
-final `N checked, M failed` summary. python3 stdlib only — no pyyaml, no network.
+Exit codes: 0 = all pass, 1 = at least one fail, 64 = usage error. Warnings
+never change the exit code.
+Output: one `PASS <path>` / `FAIL <path>: <reason>` line per target, then
+`WARN <path>: <reason>` lines for the warning-only skill-description check
+(W3-07), then a final `N checked, M failed, K warnings` summary.
+python3 stdlib only — no pyyaml, no network.
 """
 import argparse
 import json
@@ -188,6 +191,57 @@ def parse_frontmatter(text):
                 break  # column-0, not a sequence item -- ends the block
             mapping[key] = "x" if seq_has_content else ""
     return mapping, None
+
+
+def _frontmatter_raw_lines(text):
+    """Return the raw frontmatter lines (between the --- delimiters), or []."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return lines[1:i]
+    return []
+
+
+def _description_lines(fm_lines):
+    """Extract the description value's lines (block scalar or inline)."""
+    for i, line in enumerate(fm_lines):
+        m = re.match(r"^description:(.*)$", line)
+        if not m:
+            continue
+        rest = m.group(1).strip()
+        if rest in ("|", ">"):
+            body = []
+            for nxt in fm_lines[i + 1:]:
+                if not nxt.strip() or nxt[0] in (" ", "\t"):
+                    body.append(nxt.strip())
+                else:
+                    break
+            return body
+        return [rest.strip("\"'")]
+    return []
+
+
+# W3-07: description lint for user-invocable skills (warning-only; never fails
+# the gate). A skill without `user-invocable: false` is a user-facing Surface,
+# so its description is a routing trigger, not ticket jargon.
+def skill_description_warnings(relpath, text):
+    warnings = []
+    fm = _frontmatter_raw_lines(text)
+    if not fm:
+        return warnings
+    if any(re.match(r"^user-invocable:\s*false\s*$", ln) for ln in fm):
+        return warnings
+    desc = _description_lines(fm)
+    if not desc:
+        return warnings
+    first = desc[0]
+    if not first.startswith("Use when"):
+        warnings.append("user-invocable skill description should lead with 'Use when …'")
+    if re.search(r"\b(?:CDT|SPEC)-\d+", " ".join(desc)):
+        warnings.append("description carries ticket/spec ids — move them into the body")
+    return warnings
 
 
 def bash_n(path=None, source=None, cwd=None):
@@ -408,7 +462,7 @@ def classify(path):
     return "surface"
 
 
-def check_path(path, root, invoke_flags=False):
+def check_path(path, root, invoke_flags=False, warnings_out=None):
     """Dispatch one target to its check set via classify() (SPEC-030
     Discovery classifier) -- not by extension.
 
@@ -418,8 +472,17 @@ def check_path(path, root, invoke_flags=False):
     in -- this applies identically to no-arg-discovered paths and to an
     explicit target list (both come through here). Returns (ok, reason); ok
     is None when the file is unreadable/unsupported.
+
+    `warnings_out`, when given, collects {"path", "reason"} dicts for the
+    warning-only skill-description check (W3-07).
     """
-    kind = classify(os.path.relpath(path, root))
+    rel = os.path.relpath(path, root).replace(os.sep, "/")
+    kind = classify(rel)
+    if warnings_out is not None and kind == "surface" and rel.endswith("/SKILL.md"):
+        text, err = _read_text(path)
+        if text is not None:
+            for reason in skill_description_warnings(rel, text):
+                warnings_out.append({"path": path, "reason": reason})
     if kind == "surface":
         return check_md(path)
     if kind == "agent":
@@ -588,13 +651,15 @@ def main(argv):
         explicit = False
 
     results = []
+    warnings = []
     failed = 0
     checked = 0
     for path in targets:
         if not os.path.isfile(path) or not os.access(path, os.R_OK):
             print(f"warn: skipping unreadable path: {path}", file=sys.stderr)
             continue
-        ok, reason = check_path(path, root, invoke_flags=args.invoke_flags)
+        ok, reason = check_path(path, root, invoke_flags=args.invoke_flags,
+                                warnings_out=warnings)
         if ok is None:
             print(f"warn: skipping unreadable path: {path} ({reason})",
                   file=sys.stderr)
@@ -610,14 +675,17 @@ def main(argv):
         return 64
 
     if args.json:
-        print(json.dumps(results))
+        print(json.dumps({"results": results, "warnings": warnings}))
     else:
         for r in results:
             if r["ok"]:
                 print(f"PASS {r['path']}")
             else:
                 print(f"FAIL {r['path']}: {r['reason']}")
-        print(f"{checked} checked, {failed} failed")
+        for w in warnings:
+            print(f"WARN {w['path']}: {w['reason']}")
+        summary = f"{checked} checked, {failed} failed, {len(warnings)} warnings"
+        print(summary)
 
     return 1 if failed else 0
 

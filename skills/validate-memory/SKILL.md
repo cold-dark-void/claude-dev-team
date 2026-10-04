@@ -6,6 +6,7 @@ description: |
   (claim extractor Step 3, investigator Step 4 Tier B) and the --reconcile
   pair-judge contract (Steps R1–R4). Not user-invoked — consumed by
   skills/validate-memory/host-pipeline.md and reconcile-host.md.
+user-invocable: false
 ---
 
 # validate-memory — Prompt Templates & Contracts

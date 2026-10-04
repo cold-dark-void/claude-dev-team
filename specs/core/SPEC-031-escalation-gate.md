@@ -4,7 +4,7 @@
 **Category**: core
 **Created**: 2026-07-31
 
-**Covers**: `skills/refactor/SKILL.md` (contract home), `skills/debug/SKILL.md`, `skills/review-and-commit/SKILL.md`, `skills/code-simplify/SKILL.md`, `skills/init-orchestration/SKILL.md` (hook template), `skills/init-orchestration/check-hook-templates.sh`, `commands/setup.md`, `AGENTS.md` (Worktree Protocol drift fix), `commands/tdd-gate.md` (PreToolUse entry shape, wp-1-10-gate-hooks)
+**Covers**: `skills/refactor/SKILL.md` (contract home), `skills/debug/SKILL.md`, `skills/review-and-commit/SKILL.md`, `skills/post-approve-polish/SKILL.md`, `skills/init-orchestration/SKILL.md` (hook template), `skills/init-orchestration/check-hook-templates.sh`, `commands/setup.md`, `AGENTS.md` (Worktree Protocol drift fix), `commands/tdd-gate.md` (PreToolUse entry shape, wp-1-10-gate-hooks)
 
 ---
 
@@ -348,7 +348,7 @@ indefinitely (origin findings: `skills/refactor/SKILL.md` release-fail-skips-dis
     review-and-commit still never arms (it reviews an already-existing diff and commits via
     Bash git, which the hook does not gate), so Group A's new completion-gated disarm does
     not attach here.
-  - `skills/code-simplify/SKILL.md` — citation-only fix on its manual invocation path.
+  - `skills/post-approve-polish/SKILL.md` — citation-only fix on its manual invocation path.
 
 ### Sequencing
 

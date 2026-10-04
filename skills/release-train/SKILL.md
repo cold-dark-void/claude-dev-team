@@ -7,6 +7,7 @@ description: |
     conflict classes (TDD index, Version-History, CHANGELOG, version JSON), then
     invoke /release with the explicit assigned version. Abort-safe, dry-run,
     never reimplements /release internals.
+user-invocable: false
 ---
 
 # Release Train

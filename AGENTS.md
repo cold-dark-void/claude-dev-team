@@ -33,7 +33,7 @@ sections to it.
 
 Versioning: semver patch (x.y.Z) for fixes, minor (x.Y.0) for features.
 New opt-in flags with unchanged defaults = patch; default-behavior changes or new command surfaces = minor.
-Enforced on `master`: `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). A new `commands/*.md` on a patch bump MUST NOT commit.
+Enforced on `master` by `githooks/pre-commit` → `skills/release/check-bump-class.sh` (also `/release` Step 4.11 and CI). The hook fires only after a one-time `bash skills/release/install-git-hooks.sh` (or `git config core.hooksPath githooks`) — do that once per clone. A new `commands/*.md` on a patch bump MUST NOT commit.
 
 **Ship / land (plugin-wide — not personal memory):**
 - Never FF-merge epic children onto master so the next worktree can fast-forward. Epic-child work stays on `feat/<ticket>` or the epic integration branch. For epic children, master moves only at epic seal / one `/release` fold (SPEC-033).
@@ -142,7 +142,9 @@ WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 AGENT_CTX="$WTROOT/.claude/memory/<agent-name>"
 ```
 
-**Session start — read memory (tiered):**
+**Session start — read memory (tiered)** (the executable form is
+`skills/agent-memory/protocol.md` § Session start; `memdb.sh load-session`
+binds values and sets the busy timeout):
 ```bash
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
@@ -154,12 +156,21 @@ if [ -f "$MEMDB" ] && command -v sqlite3 &>/dev/null; then
   USE_DB=true
 fi
 if [ "$USE_DB" = "true" ]; then
-  # memdb.sh load-session is the executable form. It returns type and content
-  # for tier 2, tier 1, and every non-archived tier-0 row. Archived rows stay out.
-  sqlite3 "$MEMDB" "SELECT type, content FROM memories
+  # Preferred: memdb.sh load-session (binds values; busy timeout 5000).
+  # Resolve the plugin root with the PDH stanza in SPEC-002 "Locating
+  # plugin-dir.sh itself" (or skills/agent-memory/protocol.md), then:
+  #   bash "$MEMDB_SH" load-session "$MEMDB" "<NAME>"
+  # Fallback when memdb.sh is unavailable:
+  sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT type, content FROM memories
     WHERE agent='<NAME>' AND archived=FALSE
     ORDER BY tier DESC, type, updated_at DESC;"
+else
+  for TYPE in cortex memory lessons; do
+    cat "$MROOT/.claude/memory/<NAME>/$TYPE.md" 2>/dev/null
+  done
 fi
+# Context is always .md (per-worktree)
+cat "$WTROOT/.claude/memory/<NAME>/context.md" 2>/dev/null
 ```
 
 Write back at end of task. Context stays per-worktree.
@@ -244,7 +255,9 @@ Absent file is fine until the first real term crystallizes.
 - `commands/<name>.md` — user-invoked slash commands (single file)
 - `skills/<name>/SKILL.md` — multi-file skills needing supporting assets (scripts, schemas), or agent-internal protocols not directly user-invoked (e.g. `memory-store`, `memory-recall`)
 - Both directories are functionally equivalent to Claude Code's plugin loader — the split is organizational only
-- Plugin JSON files must always be valid JSON (enforced by TaskCompleted hook)
+- Plugin JSON files must always be valid JSON — check before commit
+  (`python3 -m json.tool <file>` or `jq . <file>`); the release skill verifies
+  the pair at `/release` Step 4 and CI runs `install-test.sh`
 - No build step — this is a pure markdown/JSON plugin
 - Agents may invoke `sqlite3` for memory operations (`Bash(sqlite3:*)` is in the curated allowlist `/setup project` emits for interactive use; `/setup team`, via `project-init`, seeds only `Bash(sqlite3:*)` and `Bash(git:*)` when no sandbox is present, and syncs the sandbox network allowlist)
 - Untrusted input never becomes code. Pass paths and JSONL as argv or environment variables. SQL that carries user or LLM text uses `?` via `bash skills/lib/sqlq.sh`. Check `--agent` with the roster regex `^(pm|tech-lead|ic5|ic4|devops|qa|ds)$` (`skills/lib/require-agent.sh`) before it reaches SQL. A numeric config value must be an integer before it is interpolated.

@@ -61,9 +61,10 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
 
-# Backup first
-cp -a "$MROOT/.claude/memory/memory.db" \
-  "$MROOT/.claude/memory/memory.db.bak-$(date +%Y%m%d)"
+# Backup first — sqlite3 .backup takes a consistent online copy
+# (a bare `cp -a` of memory.db can miss -wal/-shm content)
+sqlite3 -cmd ".timeout 5000" "$MROOT/.claude/memory/memory.db" \
+  ".backup '$MROOT/.claude/memory/memory.db.bak-$(date +%Y%m%d)'"
 
 # Resolve plugin root, then chain v2→v3→v4 (content survives; idempotent)
 # Locate the dev-team plugin root (PDH). Optional CLAUDE_PLUGIN_ROOT (force path / FR #48230), else cwd only when it is the dev-team plugin itself (CDT-265), else marketplace clone (slug-free agents/pm.md), else installed cache (rank by /dev-team/<VER>/ segment, not full path; CDT-166). CDT-82: marketplace before same-version cache.
@@ -95,15 +96,16 @@ Alternatively: `/setup team --migrate-only` (runs the same driver, then exits).
    (`dontAsk`); re-run `/setup orchestration` to flip and get Linear MCP working
    without MCP allow-list surgery. Re-runs print key / old / new / restore
    disclosure. Matrix evidence:
-   [permission-posture-matrix](permission-posture-matrix.md).
+   [permission-posture-matrix](../internal/permission-posture-matrix.md).
 
 If only self-remediating hooks FAILs blocked you historically: re-run setup on
 v1.0.1+ (gate-aware). If genuine FAILs remain: fix them or `/setup orchestration
 --skip-doctor`, then `/doctor` again. Non-orchestration projects can skip this step.
 
-**Setup batch approvals (CDT-68):** settings.json merge and writing
-`bash-compress.sh` may require **one** explicit user approval up front (not mid-run
-denials). Do not remove those prompts — they are self-escalation guards; batch them.
+**Setup batch approvals (CDT-68):** three writes need **one** explicit user
+approval up front (not mid-run denials): the `settings.json` merge, the
+`bash-compress.sh` hook, and the `escalation-gate.sh` hook. Do not remove those
+prompts — they are self-escalation guards; batch all three by name.
 
 ---
 

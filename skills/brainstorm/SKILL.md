@@ -1,10 +1,11 @@
 ---
 name: brainstorm
 description: |
-    Socratic design refinement — structured questioning that forces requirement
-    clarification before any planning or implementation. Use before /kickoff for
-    complex features, or standalone for early-stage ideation. Optional --grill
-    for one-question-at-a-time interviews with recommended answers.
+    Use when requirements are vague, contested, or need Socratic pressure
+    before planning — structured questioning that forces requirement
+    clarification before any planning or implementation. Use before /kickoff
+    for complex features, or standalone for early-stage ideation. Optional
+    --grill for one-question-at-a-time interviews with recommended answers.
 ---
 
 # Brainstorm

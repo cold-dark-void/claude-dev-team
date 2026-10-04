@@ -2,7 +2,7 @@
 
 Setup, initialization, and memory configuration for the claude-dev-team plugin.
 
-Primary Surface: **[`/setup`](commands/setup.md)** — `project` · `orchestration` · `team` · `models` (prefer over legacy `/init-team` / skill discovery for scaffold and orchestration).
+Primary Surface: **[`/setup`](commands/setup.md)** — `project` · `orchestration` · `team` · `models` (the `/init-team` command was removed at v1.1; use `/setup`).
 
 ---
 
@@ -59,7 +59,7 @@ above works without them.
 | **[Graphify](https://github.com/Graphify-Labs/graphify)** (`uv tool install graphifyy`) | Architecture onboarding; optional impact path before review | Local tree-sitter knowledge graph (`/graphify .`). Complements semantic agent memory — structure vs episodes. MIT. If `graphify` is on PATH, `/review-and-commit --impact` may shell out for path queries (see below). |
 | **Semgrep** | `/review-and-commit` + council security flavor | Fail-open SAST via `skills/security-scan` |
 | **CodeQL** | Same, only when a DB already exists (`CODEQL_DB_PATH`) | Never auto-creates databases |
-| Anthropic **code-simplifier** marketplace plugin | Optional alternate polish | Orchestrate already has in-plugin Step 9.5 (`skills/code-simplify`) |
+| Anthropic **code-simplifier** marketplace plugin | Optional alternate polish | Orchestrate already has in-plugin Step 9.5 (`skills/post-approve-polish`) |
 
 ---
 
@@ -75,14 +75,17 @@ What it does:
 - Spawns `@project-init` to read `AGENTS.md`, source files, CI config, etc.
 - Downloads sqlite-vec + sqlite-lembed extensions and an embedding model (~29MB) for semantic search
 - Agents store memory in `.claude/memory/memory.db` (SQLite mode) or `.claude/memory/<agent>/` (.md fallback)
-- Migrates existing v1 DBs to v2 schema automatically
+- Applies pending schema migrations (v1 DBs migrate to the current schema — v4) automatically
 - Syncs the sandbox network allowlist in `.claude/settings.json` for Agent Teams (not the Bash permission list)
 
 **Doctor hard-gate:** runs plugin **`dev-team:doctor`** first (not the Claude Code
 harness built-in `/doctor`). Exit ≤1 continues; exit 2 blocks. Override:
 `/setup team --skip-doctor` (prints WARNING, then continues).
 
-Safe to re-run — updates cortex for all agents without losing history.
+Safe to re-run — idempotent, and it does not rewrite cortex: project-init only
+scans on first initialization. `--refresh` re-checks extensions, embeddings, and
+migration; it does **not** rescan the project or rewrite cortex data. To reseed
+cortex from scratch, delete `.claude/memory/memory.db` and re-run `/setup team`.
 
 **Flags:**
 
@@ -102,6 +105,27 @@ If the download fails or `sqlite3` is unavailable, agents fall back to .md files
 
 ---
 
+## `/setup models` — Local Model Map
+
+Read and write the local per-agent model layer (SPEC-037). Bare `/setup models`
+lists the 10 mappable agents (`pm`, `tech-lead`, `ic5`, `ic4`, `devops`, `qa`,
+`ds`, `council-judge`, `finder`, `debugger`) with the winning model or
+`Tier default`, plus the winning effort or `inherited`, and the local path.
+
+```bash
+/setup models                                   # list
+/setup models set ic4 grok-code-fast-1          # write local layer
+/setup models unset ic4
+/setup models set-effort ic4 high
+/setup models unset-effort ic4
+```
+
+Writes only `$MROOT/.claude/dev-team/models.local.json` (never the repo or
+global layers). Not doctor-gated. Sugar: `/adjust-agent <agent> --model …` /
+`--effort …`.
+
+---
+
 ## `/setup orchestration` — Enable Agent Teams
 
 Enables multi-agent coordination. Run once per project after `/setup team`.
@@ -115,7 +139,7 @@ What it does:
 - Merges orchestration posture: `defaultMode: "auto"` + matrix allow set
   (`Bash(*)` + Read/Write/Edit/Glob/Grep/Agent/Task) with sandbox enabled +
   `autoAllowBashIfSandboxed` (matrix winner Cell D / CDT-75 — see
-  [permission-posture-matrix](runbooks/permission-posture-matrix.md)). Distinct from
+  [permission-posture-matrix](internal/permission-posture-matrix.md)). Distinct from
   interactive `/setup project` (`acceptEdits` + curated Bash allowlist).
 - Wires a `TaskCompleted` quality-gate hook
 - Creates/updates `AGENTS.md` with team coordination rules
@@ -127,9 +151,10 @@ What it does:
 self-remediating FAILs whose fix-it is this sub — CDT-67); exit 2 blocks;
 `/setup orchestration --skip-doctor` override with WARNING.
 
-**Not pure zero-intervention (CDT-68):** settings.json merge and writing
-`bash-compress.sh` still need explicit user approval (self-escalation guards).
-The agent should batch both in one ask up front — see
+**Not pure zero-intervention (CDT-68):** three writes need explicit user
+approval (self-escalation guards): the `settings.json` merge, the
+`bash-compress.sh` hook, and the `escalation-gate.sh` hook. The agent batches
+all three in one ask up front — see
 `skills/init-orchestration/SKILL.md` § Permission batching. Do not remove the
 guards to chase zero prompts.
 

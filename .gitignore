@@ -1,4 +1,3 @@
-.worktrees
 .claude/settings.json
 .claude/settings.local.json
 # Process trackers (local write-through only — never upstream product)
@@ -39,11 +38,6 @@
 .claude/dev-team/models.local.json*
 
 # Memory store binaries and database (auto-generated)
-.claude/memory/extensions/
-.claude/memory/models/
-.claude/memory/memory.db
-.claude/memory/memory.db-wal
-.claude/memory/memory.db-shm
 
 # Python bytecode
 __pycache__/

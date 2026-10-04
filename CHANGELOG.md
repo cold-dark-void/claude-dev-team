@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.20.0
+- **WP 8-A Surface docs and settings** — seven docs pages for previously hidden commands, derived SECURITY versions, a renamed post-approve-polish skill, and the corrected scaffold and standup wording. Historical note (WP 8-A [10 hygiene]): the v1.0.0 table rows that read "delete at v1.1" for `/validate-memory`, `skills/validate-memory`, `/init-orchestration`, and `skills/init-orchestration` are superseded — validate-memory was restored (see v1.18.13) and init-orchestration is retained.
+
 ### v1.19.29
 - **WP 8-B Agents and worktree skills** — the worktree lock is invisible to git status, agents hand work back through a managed include, doctor gains observability checks, and craft-loop programs are validated.
 

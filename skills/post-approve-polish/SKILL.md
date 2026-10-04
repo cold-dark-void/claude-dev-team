@@ -1,9 +1,10 @@
 ---
-name: code-simplify
+name: post-approve-polish
 description: |
     Behavior-preserving polish on recently modified code — clarity only, no
     logic or API changes. Used by /orchestrate after Tech Lead approve, before
     QA. Zero external deps (in-plugin; not Anthropic's marketplace plugin).
+user-invocable: false
 ---
 
 # Code Simplify
@@ -94,8 +95,8 @@ combinatorial-retry both params.
 Other spawn failures MUST NOT be retried as a model or effort fallback.
 
 ```
-You are running a behavior-preserving code-simplify pass (dev-team skill
-code-simplify). Output mode: terse.
+You are running a behavior-preserving post-approve-polish pass (dev-team skill
+post-approve-polish). Output mode: terse.
 
 Worktree: <WT_PATH>
 Ticket: <ISSUE-ID>

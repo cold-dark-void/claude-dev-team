@@ -3,7 +3,7 @@
 **Status**: ACTIVE
 **Category**: core
 **Created**: 2026-08-26
-**Covers**: `skills/model-map/` (`resolve-model.sh`, `write-model.sh`, `test.sh`, `write-model-test.sh`, `effort-test.sh`, `spawn-site-test.sh`, `SKILL.md`), `commands/setup.md` (`/setup models`), `commands/adjust-agent.md` (`--model` / `--model-unset` / `--effort` / `--effort-unset`), `skills/doctor/doctor.sh` (`models.map`), `skills/orchestrate/steps/04-kickoff.md`, `skills/orchestrate/steps/06-design.md`, `skills/orchestrate/steps/08-execute.md`, `skills/orchestrate/steps/09-review.md`, `skills/orchestrate/steps/10-qa.md`, `skills/code-simplify/SKILL.md`, `skills/ci-watch/SKILL.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/debug/SKILL.md`, `skills/fix-ticket/SKILL.md`, `skills/council/SKILL.md`, `commands/council.md`, `skills/bug-hunt/SKILL.md`, `.gitignore`
+**Covers**: `skills/model-map/` (`resolve-model.sh`, `write-model.sh`, `test.sh`, `write-model-test.sh`, `effort-test.sh`, `spawn-site-test.sh`, `SKILL.md`), `commands/setup.md` (`/setup models`), `commands/adjust-agent.md` (`--model` / `--model-unset` / `--effort` / `--effort-unset`), `skills/doctor/doctor.sh` (`models.map`), `skills/orchestrate/steps/04-kickoff.md`, `skills/orchestrate/steps/06-design.md`, `skills/orchestrate/steps/08-execute.md`, `skills/orchestrate/steps/09-review.md`, `skills/orchestrate/steps/10-qa.md`, `skills/post-approve-polish/SKILL.md`, `skills/ci-watch/SKILL.md`, `skills/kickoff/SKILL.md`, `skills/epic/SKILL.md`, `skills/debug/SKILL.md`, `skills/fix-ticket/SKILL.md`, `skills/council/SKILL.md`, `commands/council.md`, `skills/bug-hunt/SKILL.md`, `.gitignore`
 
 ## Overview
 
@@ -217,7 +217,7 @@ amendment, and the surface retirement land as separate tickets.
   4. Step 8 light `@ic4`
   5. Step 8 standard `@<agent>` IC
   6. Step 9 `@tech-lead` review and IC rework (light single-pass included)
-  7. Step 9.5 code-simplify (`ic4`) — `skills/code-simplify/SKILL.md` spawn
+  7. Step 9.5 post-approve-polish (`ic4`) — `skills/post-approve-polish/SKILL.md` spawn
      template and the Step 9.5 pointer
   8. Step 10 standard `@qa`
   9. Step 8.5 / ci-watch fixer (`ic5`) — `skills/ci-watch/SKILL.md` cron
