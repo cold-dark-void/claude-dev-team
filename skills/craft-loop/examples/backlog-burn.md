@@ -21,15 +21,23 @@ iteration until no `[PENDING]` items remain. Done = the Pending section of
 2. Read `.claude/backlog.md` and pick the topmost `[PENDING]` item not marked
    blocked in the journal.
 3. Re-verify the item's premise against the current code: read the item's
-   backlog file and the files it names. If the premise no longer holds, mark
-   the item `[EVAPORATED]` in the index with a one-line reason, record the
-   evidence in the journal, and skip to step 7.
+   backlog file and the files it names. If the premise no longer holds, record
+   the file:line evidence in the item file, then close it through the backlog
+   programmatic write-back (skills/backlog/SKILL.md § Programmatic write-back,
+   convention 2 Direct write): `close.sh <slug> --status FIXED/CLOSED` from the
+   dev-team plugin — Linear-first dual-write, index row moved to `## Completed`
+   as `[COMPLETED — …]`. Record "evaporated: <one-line reason>" in this
+   iteration's journal `Did`, and skip to step 7. Never hand-edit the index.
 4. Implement the item within its stated scope, including any tests or checks
    the item calls for. Touch only what this one item requires.
 5. Run the project's checks (test suite if one exists, otherwise the item's
    own acceptance checks) and record the result.
-6. Mark the item `[DONE]` in `.claude/backlog.md` only when its checks pass;
-   commit the change locally with a message naming the item.
+6. Close the item through the same backlog programmatic write-back —
+   `close.sh <slug> --status COMPLETED` — only when its checks pass. The
+   write-back flips the index row to `[COMPLETED]`, moves it to `## Completed`,
+   and dual-writes Linear (SPEC-009); it never stages `.claude/backlog*` as
+   product delivery. Never hand-edit `.claude/backlog.md` and never `git
+   commit` it directly.
 7. Append a journal entry using the schema below. This is always the last step.
 
 # Stop when

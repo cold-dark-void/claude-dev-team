@@ -50,7 +50,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
   investigation. `full` / `patch` / `arch` root-cause phases have no
   named-roster Agent spawn (SPEC-037 M16 site 3) — `debugger` does not apply
   there.
-- `finder` and `debugger` MUST be read-only. Tools MUST be exactly `Read, Grep, Glob, Bash, SendMessage` — no `Write`, no `Edit`.
+- `finder` and `debugger` MUST be read-only. Tools MUST be exactly `Read, Grep, Glob, Bash, SendMessage` — no `Write`, no `Edit`. Recorded decision (rv-w3-18, 2026-10-03): `SendMessage` stays in that list for the rare engine protocol that directs a message to a named, running teammate, but **delivering findings to the spawner is the final-message hand-back** (spawn-return value, per the AGENTS.md coordination rule — spawned sub-agents have no addressable parent), never a `SendMessage` to "the engine"
 - On host-reject of a `finder` or `debugger` spawn, the caller MUST fall back to `ic5` (the pre-CDT-230 agent for all three job shapes), not to `ic4`.
 
 ### Role Boundaries
@@ -133,6 +133,7 @@ Alongside the 7 behavioral agents the plugin ships **non-behavioral roster agent
 
 | Date | Change |
 |------|--------|
+| 2026-10-03 | WP 8-B (rv-w3-18 + CDT-299): recorded the `finder`/`debugger` SendMessage decision (final-message hand-back; SendMessage only for a named running teammate). Behavioral agents gained the managed glossary + hand-back block; behavioral `tools:` order unified; ic5/ic4 commit rule defers to the orchestrator's fold; ic4 merge line dropped; tech-lead alternatives reconciled with the Technical Spec format; council-judge `suggestion` carve-out. |
 | 2026-10-02 | CDT-391 / CDT-413: Covers names the full roster, including council-judge, council-scribe, distiller, and project-init. The commands-directory check is a standing rule, not a ticket `git diff`. |
 | 2026-10-01 | BH-C013: MC-4 Test grep covers the 8 council tribunal templates under `skills/council/prompts/`. Status stays ACTIVE. |
 | 2026-10-01 | CDT-380: `council-scribe` joins the non-behavioral roster (opus/high, `tools: ""`, no memory). Count is 6 non-behavioral / 13 files. `finder` is Phase 2 only; Phase 2.5 is `council-scribe`. Status stays ACTIVE. |

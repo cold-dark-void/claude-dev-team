@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.19.29
+- **WP 8-B Agents and worktree skills** — the worktree lock is invisible to git status, agents hand work back through a managed include, doctor gains observability checks, and craft-loop programs are validated.
+
 ### v1.19.28
 - **WP 7-D Hook files and test libs** — tests share one assert and mirror-store library, the autopilot fixtures are table-driven, and the hook-path normalizer exits clean on a no-op.
 

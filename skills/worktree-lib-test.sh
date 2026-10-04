@@ -71,10 +71,22 @@ assert_contains "status NONE state" "$OUT" "none-slug | feat/none-slug | NONE | 
 assert_not_contains "status no PID field" "$OUT" "PID"
 assert_not_contains "status no session_id" "$OUT" "session"
 
-echo "== T3 list alias =="
+echo "== T3 list alias (age-column masked, CDT-298 de-flake) =="
+# The fresh-slug lock's age column is the only field that can differ between
+# two back-to-back invocations: crossing a 1s boundary flips "0s" -> "1s",
+# which is exactly how the old raw `assert_eq "list == status"` flaked.
+# Sleep past a boundary, prove the raw outputs really do differ, then compare
+# with the volatile age column masked.
+sleep 1
 LIST_OUT=$(run_lib list 2>"$ERR_TMP"); LRC=$?
 assert_eq "list exit 0" "$LRC" "0"
-assert_eq "list == status" "$LIST_OUT" "$OUT"
+if [ "$LIST_OUT" = "$OUT" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL list vs status identical across a 1s boundary — flake regression case not live"
+else
+  PASS=$((PASS + 1)); echo "  ok  list vs status differ across the 1s boundary (flake case is live)"
+fi
+mask_age_col() { printf '%s\n' "$1" | awk -F ' \\| ' '{ OFS=" | "; $4="<age>"; print }'; }
+assert_eq "list == status (age column masked)" "$(mask_age_col "$LIST_OUT")" "$(mask_age_col "$OUT")"
 
 echo "== T4 register ok / missing =="
 mkdir -p .worktrees/reg-slug
@@ -641,11 +653,14 @@ assert_eq "release --preview <slug> <extra> empty stdout" "$BF2OUT" ""
 assert_dir "release --preview <slug> <extra> left the worktree dir" ".worktrees/rel-badflag"
 
 echo "== T26 release: branch-delete retries a transient git failure (review L2) =="
+# origin exists from T21 onward; resolve-base (rv-w3-40) now points the
+# ensure-created fixture branch at origin/master, so sync origin with the
+# local master BEFORE creating the fixture (the -b start point) and AGAIN
+# after the ff-merge (so is-merged sees the branch's commits).
+git push -q origin master || die "push master (sync origin, pre-fixture) failed"
 mk_release_fixture rel-ebusy
 git merge -q --ff-only "feat/rel-ebusy" || die "ff-only merge failed"
-# origin exists from T21 onward; resolve-base now points at origin/master,
-# so keep it in sync with the local ff-merge or is-merged sees a stale base.
-git push -q origin master || die "push master (sync origin) failed"
+git push -q origin master || die "push master (sync origin, post-merge) failed"
 REAL_GIT2=$(command -v git || true)
 if [ -n "$REAL_GIT2" ] && [ -x "$REAL_GIT2" ]; then
   SHIMDIR2=$(mktemp -d "${TMPDIR:-/tmp}/wt-branchD-shim.XXXXXX")
@@ -745,6 +760,110 @@ else
   FAIL=$((FAIL + 1)); echo "  FAIL T23 negative control: bare-row check missed a planted hit"
 fi
 rm -f "$DECOY_H" "$DECOY_ROW"
+
+echo "== T28 invalid slug / missing slug rejected (CDT-298 missing tests) =="
+IS_OUT=$(run_lib ensure 'bad/slug' 2>"$ERR_TMP"); IS_RC=$?
+assert_eq "ensure invalid slug exit 64" "$IS_RC" "64"
+assert_eq "ensure invalid slug empty stdout" "$IS_OUT" ""
+RS_OUT=$(run_lib release 'bad slug' 2>"$ERR_TMP"); RS_RC=$?
+assert_eq "release invalid slug exit 64" "$RS_RC" "64"
+assert_eq "release invalid slug empty stdout" "$RS_OUT" ""
+NE_OUT=$(run_lib ensure 2>"$ERR_TMP"); NE_RC=$?
+assert_eq "ensure missing slug exit 64" "$NE_RC" "64"
+assert_eq "ensure missing slug empty stdout" "$NE_OUT" ""
+
+echo "== T29 ensure FRESH collision with no TTY aborts (CDT-298 missing tests) =="
+mk_release_fixture coll-slug
+printf '%s %s\n' "$NOW" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .worktrees/coll-slug/.wt-lock
+if command -v setsid >/dev/null 2>&1; then
+  # setsid: no controlling terminal -> the /dev/tty probe fails -> exit 2.
+  NTOUT=$(setsid timeout 30 bash "$LIB" ensure coll-slug 2>"$ERR_TMP"); NT_RC=$?
+  assert_eq "no-TTY collision exit 2" "$NT_RC" "2"
+  assert_eq "no-TTY collision empty stdout" "$NTOUT" ""
+  assert_contains "no-TTY collision names the slug" "$(cat "$ERR_TMP" 2>/dev/null)" "Worktree collision: coll-slug"
+  assert_file "no-TTY collision kept the lock" ".worktrees/coll-slug/.wt-lock"
+else
+  echo "  skip T29 (setsid unavailable)"
+fi
+
+echo "== T30 ensure -b starts from the default branch (rv-w3-40) =="
+# Main checkout is deliberately parked on an older commit; the new worktree
+# branch must still start at the resolved base (origin/master), not at the
+# main checkout's HEAD. Sync origin first so the base is the current master
+# and therefore differs from the side-base checkout point.
+git push -q origin master || die "push master (sync origin, T30) failed"
+git checkout -q -b side-base master~1
+SIDE_SHA=$(git rev-parse HEAD)
+BOUT=$(run_lib ensure base-slug 2>"$ERR_TMP"); B_RC=$?
+assert_eq "ensure base-slug exit 0" "$B_RC" "0"
+assert_contains "ensure base-slug path" "$BOUT" "$TMP/.worktrees/base-slug"
+NEW_SHA=$(git rev-parse refs/heads/feat/base-slug 2>/dev/null || echo "missing")
+if [ "$NEW_SHA" = "$SIDE_SHA" ]; then
+  FAIL=$((FAIL + 1)); echo "  FAIL ensure -b branched from the main checkout HEAD ($SIDE_SHA), not the default branch"
+else
+  PASS=$((PASS + 1)); echo "  ok  ensure -b branched from the default branch ($NEW_SHA != side HEAD)"
+fi
+if [ "$NEW_SHA" = "$(git rev-parse master)" ]; then
+  PASS=$((PASS + 1)); echo "  ok  ensure -b start point equals master"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL ensure -b start point $NEW_SHA != master $(git rev-parse master)"
+fi
+git checkout -q master
+
+echo "== T31 git add -A in a worktree does not stage the lock (rv-w3-40) =="
+EOUT=$(run_lib ensure excl-slug 2>"$ERR_TMP"); E_RC=$?
+assert_eq "ensure excl-slug exit 0" "$E_RC" "0"
+printf 'content\n' > .worktrees/excl-slug/stage-me.txt
+git -C .worktrees/excl-slug add -A
+STAGED=$(git -C .worktrees/excl-slug diff --cached --name-only)
+case "$STAGED" in
+  *.wt-lock*)
+    FAIL=$((FAIL + 1)); echo "  FAIL git add -A staged the lock: $STAGED" ;;
+  *)
+    PASS=$((PASS + 1)); echo "  ok  git add -A did not stage the lock" ;;
+esac
+printf '%s' "$STAGED" | grep -qF 'stage-me.txt' \
+  && { PASS=$((PASS + 1)); echo "  ok  negative control: a real file did stage"; } \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL negative control: stage-me.txt missing from the index"; }
+
+echo "== T32 slug_has_live_task uses slug boundaries, not word boundaries (rv-w3-40) =="
+mkdir -p .claude/tasks
+# Real worktree so the dirty check is scoped to it (a plain dir would walk up
+# to the main repo's status). ensure CDT-1 first, then stamp the lock STALE.
+CDOUT=$(run_lib ensure CDT-1 2>"$ERR_TMP"); CD0_RC=$?
+assert_eq "ensure CDT-1 create exit 0" "$CD0_RC" "0"
+printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/CDT-1/.wt-lock
+# Live task for CDT-1-2 only; its text contains "CDT-1" followed by a slug
+# char, which the old `grep -wF CDT-1` wrongly counted as CDT-1's own task.
+cat > .claude/tasks/CDT-1-2.json << 'JSON'
+{"task_id":"CDT-1-2","subject":"child ticket","status":"in_progress","requires_council":false,"depends_on":[],"created_at":"2020-01-01T00:00:00Z","note":"refs CDT-1-2"}
+JSON
+CDOUT=$(run_lib ensure CDT-1 2>"$ERR_TMP"); CD_RC=$?
+assert_eq "ensure CDT-1 reclaims when only CDT-1-2 is live" "$CD_RC" "0"
+assert_eq "ensure CDT-1 stdout path" "$CDOUT" "$TMP/.worktrees/CDT-1"
+# Negative control: a task that genuinely references CDT-2 (quote boundary)
+# must still block the reclaim.
+EOUT=$(run_lib ensure CDT-2 2>"$ERR_TMP"); CD2A_RC=$?
+assert_eq "ensure CDT-2 create exit 0 (control setup)" "$CD2A_RC" "0"
+printf '%s %s\n' "$OLD" "2020-01-01T00:00:00Z" > .worktrees/CDT-2/.wt-lock
+cat > .claude/tasks/CDT-2.json << 'JSON'
+{"task_id":"CDT-2","subject":"own ticket","status":"in_progress","requires_council":false,"depends_on":[],"created_at":"2020-01-01T00:00:00Z"}
+JSON
+CD2OUT=$(run_lib ensure CDT-2 2>"$ERR_TMP"); CD2_RC=$?
+assert_eq "ensure CDT-2 refuses its own live task (control)" "$CD2_RC" "1"
+assert_contains "ensure CDT-2 refusal reason (control)" "$(cat "$ERR_TMP" 2>/dev/null)" "live task"
+
+echo "== T33 git_retry sleep conversion handles ms >= 1000 (rv-w3-40) =="
+# Static: the ms->s conversion must keep the carry (1200ms = 1.200s), and the
+# old form that turned 1200ms into 0.1200s must be gone.
+assert_contains "git_retry divides sleep_ms by 1000" "$LIB_TEXT" 'sleep_ms / 1000'
+assert_not_contains "git_retry no 0.<ms> malformed sleep" "$LIB_TEXT" '0.$(printf '"'"'%03d'"'"' "$sleep_ms")'
+# Planted negative control: the exact banned substring bites a fixture.
+PLANT33='local secs="0.$(printf '"'"'%03d'"'"' "$sleep_ms")"'
+printf '%s' "$PLANT33" | grep -qF '0.$(printf' \
+  && { PASS=$((PASS + 1)); echo "  ok  T33 negative control: banned old sleep form is detectable"; } \
+  || { FAIL=$((FAIL + 1)); echo "  FAIL T33 negative control: banned form not detected"; }
+
 echo
 echo "Results: PASS=$PASS FAIL=$FAIL"
 if [ "$FAIL" -ne 0 ]; then

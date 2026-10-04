@@ -68,6 +68,12 @@ card). The answer is written by the user directly, or by a session relaying the
 user's decision; the next firing treats answered cards as resolved input. Omit
 the `Decisions needed` list when there are none.
 
+Journal hygiene (rv-w3-28): when this journal exceeds 200 lines, the next
+firing starts by compacting it — merge every `## Iteration` entry older than
+the last five into a `## Summary` section at the top (one bullet per entry:
+`Did` + `Next`), preserving all decision cards and their indented `Answer:`
+lines verbatim. Never delete an open decision card.
+
 Frontmatter `status` values: `ready` (default) or `retired` (manual/format only;
 no special runtime path).
 ````

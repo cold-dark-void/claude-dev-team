@@ -19,7 +19,9 @@ guessing.
 /craft-loop <goal text>     # craft a new program (guided dialogue)
 /craft-loop                 # same, prompts for the goal
 /craft-loop list            # program table + open decision counts
+/craft-loop list --all      # include retired programs
 /craft-loop refine <name>   # improve a program from its run journal
+/craft-loop retire <name>   # set status: retired; hidden from list without --all
 ```
 
 **Hold / dogfood:** say *hold*, *dogfood only*, *do not save*, or *no-write*
@@ -49,6 +51,10 @@ to keep the draft in chat without writing `.claude/loops/` (protocol dogfood).
    diagnoses failures (drift, stall, guessing, immortal loop, oversized
    ticks), and proposes before/after edits. Program quality compounds across
    runs.
+5. **Retire.** `/craft-loop retire <name>` flips the program's frontmatter to
+   `status: retired` after you confirm — the supported way to wind a loop
+   down without deleting its journal. Retired programs are hidden from
+   `/craft-loop list` unless you pass `--all`.
 
 ## Files
 
@@ -58,7 +64,10 @@ to keep the draft in chat without writing `.claude/loops/` (protocol dogfood).
 | `.claude/loops/<name>.journal.md` | Written by the running loop; one entry per iteration/event |
 | `.claude/loops/<name>.findings.md` (optional) | Side artifact only if the program declares it |
 
-`list` shows **programs only** — not journals or `*.findings.md` / `*.ledger.md`.
+`list` shows **programs only** — not journals or `*.findings.md` /
+`*.ledger.md` — and hides `status: retired` programs unless `--all` is passed.
+Journals over 200 lines are compacted by the next firing (older entries merge
+into a `## Summary` section; decision cards are never dropped).
 
 ## Guardrails
 

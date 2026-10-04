@@ -215,6 +215,16 @@ run nope
 check "AC12b" 0 "" "unknown agent 'nope'"
 
 # =============================================================================
+# rv-w3-24 — a model string with an embedded newline is rejected (old code
+# printed it, producing multi-line stdout)
+# =============================================================================
+write_map <<'EOF'
+{"version":1,"agents":{"pm":"grok\n-4"}}
+EOF
+run pm
+check "rv-w3-24-newline" 0 "" "contains whitespace or control characters"
+
+# =============================================================================
 # AC13 / M9 — qa emits + adversarial warn
 # =============================================================================
 write_map <<'EOF'

@@ -110,6 +110,14 @@ take_field_value() {
     warn "model-map: agents.${AGENT} is not a non-empty string; using Tier default"
     return 0
   fi
+  # rv-w3-24: a model string carrying whitespace or control characters (e.g. a
+  # hand-edited map with an embedded newline) would print multi-line output.
+  case "$trimmed" in
+    *[[:space:]]*|*[[:cntrl:]]*)
+      warn "model-map: agents.${AGENT} contains whitespace or control characters; using Tier default"
+      return 0
+      ;;
+  esac
   WINNER=$trimmed
 }
 

@@ -2610,6 +2610,127 @@ fi
 rm -f "$T25_PLANT"
 
 # =============================================================================
+# T28. WP 8-B / CDT-300 observability checks (memory.mode, embed round-trip,
+#      transcript budget, lint-waiver trend, test-quarantine size)
+# =============================================================================
+T28="$TMP/t28-observability"
+make_bare_project "$T28"
+cd "$T28" || exit 1
+
+t28_id() { # t28_id <id> -> "status|detail|fixit"
+  OUT=$(bash "$DOCTOR" --json --only "$1" 2>/dev/null) || true
+  printf '%s' "$OUT" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)["checks"][0]
+print(c["status"]+"|"+ (c.get("detail") or "") +"|"+ (c.get("fixit") or ""))
+' 2>/dev/null
+}
+
+t28_st() { printf '%s' "$1" | head -1 | cut -d'|' -f1; }
+t28_de() { printf '%s' "$1" | cut -d'|' -f2; }
+t28_fi() { printf '%s' "$1" | cut -d'|' -f3; }
+
+# T28a — memory.mode: bare project → WARN .md fallback with the /setup team fixit
+T28M=$(t28_id memory.mode)
+if [ "$(t28_st "$T28M")" = "WARN" ] \
+   && printf '%s' "$T28M" | grep -q ".md fallback" \
+   && [ "$(t28_fi "$T28M")" = "/setup team" ]; then
+  pass "T28a memory.mode bare WARN .md fallback + fixit (CDT-300)"
+else
+  fail "T28a memory.mode bare: $T28M"
+fi
+
+# T28b — memory.embed_roundtrip never FAILs and is self-describing
+T28R=$(t28_id memory.embed_roundtrip)
+case "$(t28_st "$T28R")" in
+  PASS|WARN|SKIP)
+    if printf '%s' "$T28R" | grep -q "round-trip"; then
+      pass "T28b memory.embed_roundtrip status=$(t28_st "$T28R") names the round-trip"
+    else
+      fail "T28b memory.embed_roundtrip detail lacks 'round-trip': $T28R"
+    fi ;;
+  *) fail "T28b memory.embed_roundtrip unexpected status: $T28R" ;;
+esac
+# Static: the probe runs on :memory: only — it must never touch $MEMDB.
+OBS_SH="$PLUGIN_ROOT/skills/doctor/checks/observability.sh"
+if grep -q "sqlite3 ':memory:'" "$OBS_SH" \
+   && ! awk '/^check_memory_embed_roundtrip\(\)/,/^}/' "$OBS_SH" | grep -q '"$MEMDB"'; then
+  pass "T28b-static round-trip probes :memory: and never writes \$MEMDB"
+else
+  fail "T28b-static round-trip probe not :memory:-only"
+fi
+
+# T28c — transcript.budget: not opted in → SKIP
+T28T=$(t28_id transcript.budget)
+if [ "$(t28_st "$T28T")" = "SKIP" ] && printf '%s' "$T28T" | grep -q "not opted-in"; then
+  pass "T28c transcript.budget SKIP when not opted in"
+else
+  fail "T28c transcript.budget: $T28T"
+fi
+
+# T28d — lint.waivers: PASS with a null fixit (schema contract) and a count
+T28L=$(t28_id lint.waivers)
+if [ "$(t28_st "$T28L")" = "PASS" ] && [ "$(t28_fi "$T28L")" = "" ] \
+   && printf '%s' "$T28L" | grep -q "skill-lint waivers"; then
+  pass "T28d lint.waivers PASS with count, no fixit on PASS"
+else
+  fail "T28d lint.waivers: $T28L"
+fi
+
+# T28e — --fix --only lint.waivers records the baseline (project has .claude)
+mkdir -p "$T28/.claude"
+bash "$DOCTOR" --fix --only lint.waivers >/dev/null 2>&1 || true
+if [ -f "$T28/.claude/metrics/lint-waiver-baseline.txt" ] \
+   && printf '%s' "$(cat "$T28/.claude/metrics/lint-waiver-baseline.txt")" | grep -qE '^[0-9]+ [0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+  pass "T28e --fix records an N DATE waiver baseline"
+else
+  fail "T28e baseline file missing or malformed: $(cat "$T28/.claude/metrics/lint-waiver-baseline.txt" 2>/dev/null)"
+fi
+# Baseline recorded → trend line appears and stays PASS at the same count.
+T28L2=$(t28_id lint.waivers)
+if [ "$(t28_st "$T28L2")" = "PASS" ] && printf '%s' "$T28L2" | grep -q "baseline"; then
+  pass "T28e2 lint.waivers reports the baseline trend"
+else
+  fail "T28e2 lint.waivers after baseline: $T28L2"
+fi
+# A planted LOWER baseline (waivers "grew") → WARN.
+printf '1 2026-01-01\n' > "$T28/.claude/metrics/lint-waiver-baseline.txt"
+T28L3=$(t28_id lint.waivers)
+if [ "$(t28_st "$T28L3")" = "WARN" ] && printf '%s' "$T28L3" | grep -q "grew"; then
+  pass "T28e3 lint.waivers WARNs when the count grew past the baseline"
+else
+  fail "T28e3 lint.waivers grown-baseline: $T28L3"
+fi
+rm -rf "$T28/.claude/metrics"
+
+# T28f — bare --fix (no .claude) must not create the baseline (T1b contract)
+T28B="$TMP/t28-bare-fix"
+make_bare_project "$T28B"
+cd "$T28B" || exit 1
+bash "$DOCTOR" --fix --only lint.waivers >/dev/null 2>&1 || true
+if [ ! -e "$T28B/.claude" ]; then
+  pass "T28f bare --fix creates no .claude (baseline skipped)"
+else
+  fail "T28f bare --fix created .claude"
+fi
+
+# T28g — test.quarantine PASS on the shipped tree (0 entries)
+T28Q=$(t28_id test.quarantine)
+if [ "$(t28_st "$T28Q")" = "PASS" ] && printf '%s' "$T28Q" | grep -q "0 quarantined"; then
+  pass "T28g test.quarantine PASS 0 on the shipped tree"
+else
+  fail "T28g test.quarantine: $T28Q"
+fi
+# Negative control: the same grep counts planted entries.
+QPLANT=$(mktemp "${TMPDIR:-/tmp}/t28-q.XXXXXX")
+printf '%s\n' '# comment' '' 'skills/a-test.sh env' 'skills/b-test.sh slow' > "$QPLANT"
+QN=$(grep -cE '^[^#[:space:]]' "$QPLANT") || QN=0
+[ "$QN" = "2" ] \
+  && pass "T28g2 negative control: quarantine grep counts 2 planted entries" \
+  || fail "T28g2 quarantine grep counted $QN (want 2)"
+rm -f "$QPLANT"
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

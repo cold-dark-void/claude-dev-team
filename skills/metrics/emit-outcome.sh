@@ -62,6 +62,23 @@ case "$OUTCOME" in
     ;;
 esac
 
+# ---- Validate numeric fields (rv-w3-24) --------------------------------------
+# The three count fields are JSON numbers or literal "null" — never strings or
+# objects. A bad value used to reach --argjson and surface as a misleading
+# "cannot write" message; reject it here with the field named.
+for _pair in "review_cycles:$REVIEW_CYCLES" "qa_bounces:$QA_BOUNCES" "council_overturns:$COUNCIL_OVERTURNS"; do
+  _name=${_pair%%:*}
+  _val=${_pair#*:}
+  if [ "$_val" = "null" ]; then continue; fi
+  case "$_val" in
+    ''|*[!0-9]*)
+      echo "error: emit-outcome.sh <$_name> must be null or a non-negative integer, got '$_val'" >&2
+      echo "$USAGE" >&2
+      exit 64
+      ;;
+  esac
+done
+
 # ---- jq guard (M9: one-line stderr notice, exit 0, no write) ----------------
 if ! command -v jq >/dev/null 2>&1; then
   echo "emit-outcome: jq not found; skipping ledger write" >&2

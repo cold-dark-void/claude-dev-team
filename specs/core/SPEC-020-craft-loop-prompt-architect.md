@@ -28,8 +28,8 @@ at creation; no contradictory requirements).
 ### Command surface
 
 - MUST ship `commands/craft-loop.md` with YAML frontmatter (`name`, `description`),
-  routing three modes: **craft** (default — bare invocation or goal text), **list**, and
-  **refine `<name>`**
+  routing four modes: **craft** (default — bare invocation or goal text), **list**
+  (optional `--all`), **refine `<name>`**, and **retire `<name>`**
 - MUST ship `skills/craft-loop/SKILL.md`, `skills/craft-loop/program-template.md`, and at
   least 2 example programs under `skills/craft-loop/examples/`
 - MUST NOT start a loop itself in any mode — the command's terminal output is the saved
@@ -46,10 +46,14 @@ at creation; no contradictory requirements).
   (short aliases optional)
 - MUST draft from `program-template.md`, seeded from the closest shipped example when one
   fits
+- MUST validate the draft with `skills/craft-loop/check-program.sh` (write the
+  draft to a temp file via `mktemp`) before presenting and fix every reported
+  violation first (rv-w3-28). The unit-grain checklist item stays human
+  judgment and is outside the validator's scope.
 - MUST verify the draft against the quality checklist (below) and present it in chat for
   approval before writing any file
-- On approval, MUST write the program to `.claude/loops/<name>.md` (creating the
-  directory if absent) and print the exact invocation line for the chosen target, e.g.
+- On approval, MUST write the program to `$MROOT/.claude/loops/<name>.md`
+  (the shared main checkout; creating the directory if absent) and print the exact invocation line for the chosen target, e.g.
   `/loop Follow the loop program in .claude/loops/<name>.md exactly — one iteration per firing.`
 - On user **hold / dogfood / do not save / no-write**, MUST NOT write under
   `.claude/loops/`; MAY leave the draft in chat and print a would-be invocation line
@@ -94,6 +98,20 @@ at creation; no contradictory requirements).
   the user directly, or by a session relaying the user's decision); each firing's
   journal-read step MUST treat cards with an indented `Answer:` line as resolved input,
   and cards without one as still open
+- When a journal exceeds 200 lines, the next firing MUST compact it: merge every
+  `## Iteration` entry older than the last five into a `## Summary` section at the
+  top (one bullet per entry: `Did` + `Next`), preserving all decision cards and
+  their indented `Answer:` lines verbatim; an open decision card MUST NOT be
+  deleted (rv-w3-28). `skills/craft-loop/journal-stats.sh` reports size,
+  iterations, and open decisions.
+
+### Retire mode (rv-w3-28)
+
+- `retire <name>` MUST flip the program's frontmatter to `status: retired` only
+  after an explicit user yes; nothing else in the program or journal changes
+- Retiring an already-retired program MUST change nothing and say so
+- `list` MUST hide `status: retired` programs unless `--all` is passed; with
+  `--all`, retired rows appear with their Status column value
 
 ### Refine mode
 
@@ -132,7 +150,12 @@ at creation; no contradictory requirements).
 - [ ] Both shipped examples pass all 6 quality-checklist items
 - [ ] `commands/craft-loop.md` and `skills/craft-loop/SKILL.md` carry valid YAML
       frontmatter
+- [ ] `retire <name>` on an approved program flips `status:` to `retired`; a
+      second retire is a no-op; `list` hides it and `list --all` shows it
+- [ ] A journal over 200 lines is compacted on the next firing with all open
+      decision cards preserved
 - SPEC-020/T1 — list mode excludes journal, findings, and ledger companions, and both doors name themselves `craft-loop`. Verify: bash skills/craft-loop/test-list-exclude.sh
+- SPEC-020/T2 (rv-w3-28) — check-program.sh accepts all shipped examples and rejects a broken fixture; journal-stats.sh reports iterations and open decisions. Verify: bash skills/craft-loop/test.sh
 
 ## Validation
 
@@ -142,6 +165,7 @@ at creation; no contradictory requirements).
 
 | Date | Change |
 |------|--------|
+| 2026-10-03 | WP 8-B (rv-w3-28/rv-w3-29): added `retire` mode + list `--all` hiding, `check-program.sh` mechanical validation in craft mode, 200-line journal compaction rule, `journal-stats.sh`, spec-sync side ledger, library root single-homed on `$MROOT/.claude/loops`; new `target: goal` example; backlog-burn closes items via the backlog programmatic write-back (SPEC-009 dual-write) instead of hand-editing `.claude/backlog.md`. |
 | 2026-10-01 | WP 2-03: SPEC-020/T1 names the list-mode companion exclusion. Verify: `skills/craft-loop/test-list-exclude.sh`. |
 | 2026-07-14 | Implemented via CDV-183: status DRAFT→ACTIVE; `/craft-loop` craft/refine/list shipped. |
 | 2026-07-14 | Dogfood patch: hold/no-write; target+cadence+grain slot; descriptive names; declared side artifacts; goal complete phrasing; list excludes companions; mid-dialogue product Q resume. |

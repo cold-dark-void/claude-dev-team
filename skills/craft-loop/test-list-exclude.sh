@@ -32,7 +32,12 @@ if [ -z "$FENCE" ]; then
 fi
 pass_line "list-mode fence extracted"
 
-LOOPS="$ROOT/.claude/loops"
+# rv-w3-29: the list fence resolves the SHARED main checkout ($MROOT via
+# git-common-dir), not the cwd's worktree — plant there.
+_gc=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$ROOT
+LOOPS="$MROOT/.claude/loops"
 mkdir -p "$LOOPS"
 STEM="zz-spec020-trace"
 rm -f "$LOOPS/$STEM.md" "$LOOPS/$STEM.journal.md" \

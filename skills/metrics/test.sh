@@ -513,6 +513,89 @@ else
 fi
 
 # =============================================================================
+# 18. rv-w3-24 — emit-outcome rejects non-numeric count fields with exit 64
+#     (old code passed them to --argjson and mis-reported "cannot write")
+# =============================================================================
+reset_ledger
+emit "T" "T1" "ic4" "refactor" "M" "accepted" abc 1 0
+RC=$?
+LINES=$(wc -l < "$LEDGER" 2>/dev/null || echo 0)
+if [ "$RC" -eq 64 ] && [ "$LINES" -eq 0 ]; then
+  pass "18a emit non-numeric review_cycles exit 64, ledger untouched"
+else
+  fail "18a emit non-numeric review_cycles rc=$RC lines=$LINES (want 64 / 0)"
+fi
+ERR18=$(emit "T" "T1" "ic4" "refactor" "M" "accepted" abc 1 0 2>&1 >/dev/null || true)
+printf '%s' "$ERR18" | grep -q "review_cycles" \
+  && pass "18b emit names the offending field" \
+  || fail "18b emit names the offending field: $ERR18"
+emit "T" "T1" "ic4" "refactor" "M" "accepted" 1 0 '{"x":1}'
+RC=$?
+if [ "$RC" -eq 64 ]; then
+  pass "18c emit object council_overturns exit 64"
+else
+  fail "18c emit object council_overturns rc=$RC (want 64)"
+fi
+emit "T" "T1" "ic4" "refactor" "M" "accepted" null null null
+RC=$?
+if [ "$RC" -eq 0 ]; then
+  pass "18d emit null counts still accepted"
+else
+  fail "18d emit null counts rc=$RC (want 0)"
+fi
+
+# =============================================================================
+# 19. rv-w3-24 — rollup survives one malformed task file (per-file parse)
+# =============================================================================
+reset_ledger
+rm -rf .claude/tasks
+mkdir -p .claude/tasks
+printf '{"status":"pending"}' > .claude/tasks/a.json
+printf 'not json{' > .claude/tasks/bad.json
+printf '{"status":"blocked"}' > .claude/tasks/c.json
+TJ=$(rollup --json --section worktree | jq -r '.worktree.tasks')
+TP=$(printf '%s' "$TJ" | jq -r '.pending')
+TB=$(printf '%s' "$TJ" | jq -r '.blocked')
+TO=$(printf '%s' "$TJ" | jq -r '.other')
+TN=$(printf '%s' "$TJ" | jq -r '.files_n')
+if [ "$TP" = "1" ] && [ "$TB" = "1" ] && [ "$TO" = "1" ] && [ "$TN" = "3" ]; then
+  pass "19 rollup counts the good files around one malformed file"
+else
+  fail "19 rollup malformed-file tolerance: pending=$TP blocked=$TB other=$TO files_n=$TN (want 1/1/1/3)"
+fi
+
+# =============================================================================
+# 20. rv-w3-24 — rollup keeps outcomes when .agent is a non-string
+# =============================================================================
+reset_ledger
+mkdir -p .claude/metrics
+printf '%s\n' '{"ts":1,"ticket":"A","task_id":"T1","agent":"ic4","task_class":"refactor","size":"M","outcome":"accepted","review_cycles":1,"qa_bounces":0,"council_overturns":0}' >> "$LEDGER"
+printf '%s\n' '{"ts":2,"ticket":null,"task_id":null,"agent":5,"task_class":null,"size":null,"outcome":"rejected","review_cycles":null,"qa_bounces":null,"council_overturns":null}' >> "$LEDGER"
+OJ=$(rollup --json --section outcomes | jq -r '.outcomes')
+ON=$(printf '%s' "$OJ" | jq -r '.n')
+OA_IC4=$(printf '%s' "$OJ" | jq -r '.by_agent.ic4 // 0')
+if [ "$ON" = "2" ] && [ "$OA_IC4" = "1" ]; then
+  pass "20 rollup outcomes survive a non-string agent (n=2, ic4=1)"
+else
+  fail "20 rollup non-string agent: n=$ON by_agent.ic4=$OA_IC4 (want 2 / 1)"
+fi
+
+# =============================================================================
+# 21. rv-w3-24 — outcome-rates pins the number format to the C locale
+# =============================================================================
+RATES_TEXT=$(cat "$RATES")
+if printf '%s' "$RATES_TEXT" | grep -q "LC_ALL=C printf '%.1f'"; then
+  pass "21 outcome-rates formats the mean under LC_ALL=C"
+else
+  fail "21 outcome-rates locale pin missing (LC_ALL=C printf '%.1f')"
+fi
+# Negative control: the banned locale-sensitive form is detectable.
+PLANT21='MEAN_FMT="$(printf '"'"'%.1f'"'"' "$MEAN")"'
+printf '%s' "$PLANT21" | grep -q '^MEAN_FMT="$(printf' \
+  && pass "21n negative control: bare printf '%.1f' form is detectable" \
+  || fail "21n negative control: bare printf form not detected"
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

@@ -198,8 +198,9 @@ if [ "$ADVISORY" != "true" ]; then
   exit 0
 fi
 
-# Format mean to one decimal for the advisory line
-MEAN_FMT="$(printf '%.1f' "$MEAN" 2>/dev/null || echo "$MEAN")"
+# Format mean to one decimal for the advisory line. Locale-pinned (rv-w3-24):
+# a comma-decimal locale made printf '%.1f' reject "0.5" or emit "0,5".
+MEAN_FMT="$(LC_ALL=C printf '%.1f' "$MEAN" 2>/dev/null || echo "$MEAN")"
 
 printf 'Advisory: %s escalated %s/%s %s-class tasks (mean %s TL cycles, %s samples) — consider %s. Static rule keeps %s unless you accept.\n' \
   "$AGENT" "$E" "$N" "$TASK_CLASS" "$MEAN_FMT" "$N" "$ALT_OUT" "$AGENT"

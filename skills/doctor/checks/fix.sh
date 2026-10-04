@@ -84,6 +84,24 @@ do_fix() {
       fi
     fi
   fi
+
+  # 4) record the skill-lint waiver baseline (lint.waivers trend, CDT-300).
+  #    Writes $MROOT/.claude/metrics/lint-waiver-baseline.txt only, and only
+  #    for projects that already use the plugin (a bare .claude-less tree
+  #    must stay untouched by --fix).
+  if should_run "lint.waivers" "lint" && [ -d "$MROOT/.claude" ]; then
+    if fix_confirm "record skill-lint waiver baseline (current count)"; then
+      local wn baseline
+      wn=$(_lint_waiver_count)
+      baseline="$MROOT/.claude/metrics/lint-waiver-baseline.txt"
+      mkdir -p "$MROOT/.claude/metrics" 2>/dev/null || true
+      if printf '%s %s\n' "$wn" "$(date -u +%F)" > "$baseline" 2>/dev/null; then
+        echo "doctor --fix: baseline recorded ($wn waivers, $(date -u +%F))" >&2
+      else
+        echo "doctor --fix: could not write $baseline" >&2
+      fi
+    fi
+  fi
 }
 
 if [ "$FIX_MODE" -eq 1 ]; then

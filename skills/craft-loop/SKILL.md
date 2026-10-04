@@ -1,10 +1,11 @@
 ---
 name: craft-loop
 description: Loop-prompt architect protocol — designs reviewed, file-persisted
-  loop programs for the built-in /loop and /goal commands. Library at
-  .claude/loops/ with a journal convention and decision-card escalation.
-  Consumed by /craft-loop (craft, refine, list modes). Ships no runtime.
-  Supports hold/dogfood (no-write) and declared side artifacts under .claude/loops/.
+  loop programs for the built-in /loop and /goal commands. Library at the
+  project's $MROOT/.claude/loops/ with a journal convention and decision-card
+  escalation. Consumed by /craft-loop (craft, refine, retire, list modes).
+  Ships no runtime. Supports hold/dogfood (no-write) and declared side
+  artifacts under .claude/loops/.
 ---
 
 # Craft-Loop Protocol (SPEC-020)
@@ -28,20 +29,29 @@ the only runtime.
   the user explicitly asks during the dialogue.
 - MUST NOT start a loop or goal in any mode.
 
-**Library layout (per project):**
-- `.claude/loops/<name>.md` — programs (files with program frontmatter + sections)
-- `.claude/loops/<name>.journal.md` — written by the running loop/goal
-- Optional **declared side artifacts** under `.claude/loops/` only (e.g.
+**Library layout (per project, shared across worktrees — rv-w3-29):**
+- `$MROOT/.claude/loops/<name>.md` — programs (files with program frontmatter + sections). `$MROOT` is the shared main checkout (git-common-dir), so every worktree sees the same library; craft and list resolve it identically.
+- `$MROOT/.claude/loops/<name>.journal.md` — written by the running loop/goal
+- Optional **declared side artifacts** under `$MROOT/.claude/loops/` only (e.g.
   `<name>.findings.md`, `<name>.ledger.md`) when the Objective / Every iteration
-  names them — never outside `.claude/loops/`
+  names them — never outside `$MROOT/.claude/loops/`
+
+**Journal hygiene (rv-w3-28):** a journal grows without bound if left alone and
+every firing re-reads the whole file. When `<name>.journal.md` exceeds **200
+lines**, the next firing starts by compacting: merge every `## Iteration`
+entry older than the last five into a `## Summary` section at the top (one
+bullet per entry: `Did` + `Next`), preserving all decision cards and their
+indented `Answer:` lines verbatim. Never delete an open decision card.
+`skills/craft-loop/journal-stats.sh <journal>` reports size, iterations, and
+open decisions.
 
 **Assets (read from this skill's base directory):**
 - `program-template.md` — canonical skeleton; copy its fenced body
 - `examples/backlog-burn.md`, `examples/spec-sync.md` — seed programs
 
 Frontmatter `status` values on programs: `ready` (default) or `retired`.
-`status: retired` is format/manual only in v1 — no special UX path in list or
-refine; show the value as-is when present.
+Retired programs are hidden from `list` unless `--all` is passed; refine and
+journal-stats still work on them (rv-w3-28).
 
 ## Mode: craft
 
@@ -77,7 +87,7 @@ Input: a rough goal (or nothing — then ask for the goal first).
    **Mid-dialogue product/repo questions.** If the user asks something outside
    the open craft slot (e.g. "is there a backlog for X?", Linear status,
    whether `/craft-goal` exists): answer **briefly** with evidence, then
-   **resume the open craft question** — do not restart the six slots or
+   **resume the open craft question** — do not restart the five slots or
    re-scan unless the answer changes scope.
 
 3. **Draft.** Copy the template's fenced body; seed the procedure from
@@ -85,8 +95,14 @@ Input: a rough goal (or nothing — then ask for the goal first).
    `target: goal` programs journal per meaningful event instead of per firing
    (the code path and invocation line for goal MUST be present).
    If the program needs side state (findings ledger, ticket ID list), declare
-   those paths under `.claude/loops/` in Objective / Every iteration.
+   those paths under `$MROOT/.claude/loops/` in Objective / Every iteration.
 4. **Quality checklist — every item must pass before you present:**
+   - **Mechanical validation first (rv-w3-28):** write the draft to a `mktemp`
+     file and run `skills/craft-loop/check-program.sh <file>` on it; fix every
+     reported violation before presenting. The validator owns frontmatter
+     keys/enums, the 6 required headings, the default `# Never` list (or an
+     explicit `- loosened:` record), journal-read-first / append-last, and the
+     `## Iteration` schema.
    1. Cold-start executable: the procedure references no state outside the
       program file, its journal, and **any side artifacts it explicitly
       declares** under `.claude/loops/`
@@ -102,9 +118,10 @@ Input: a rough goal (or nothing — then ask for the goal first).
       metric or machine check for this item)
 5. **Present the full draft in chat** and iterate until the user approves,
    holds, or cancels.
-6. **On full approval (write path):** write `.claude/loops/<name>.md` (create
-   the directory if absent), then print the **exact** invocation line for the
-   chosen target (verbatim — do not paraphrase):
+6. **On full approval (write path):** write `$MROOT/.claude/loops/<name>.md`
+   (resolve `$MROOT` via git-common-dir; create the directory if absent), then
+   print the **exact** invocation line for the chosen target (verbatim — do not
+   paraphrase):
 
 ```
 # target loop:
@@ -148,14 +165,36 @@ Input: a program name.
    of the program (create the section on first refine): what changed and which
    failure it addresses.
 
+## Mode: retire
+
+Input: a program name (rv-w3-28).
+
+1. Read `$MROOT/.claude/loops/<name>.md`. Unknown name → apply the list-mode
+   near-match; if still nothing, stop and say so. Missing file → stop.
+2. If the frontmatter already reads `status: retired`, say so and change
+   nothing.
+3. Ask: `Retire <name>? (y/n)` — retirement writes only on an explicit yes
+   (same approval discipline as the craft write path).
+4. On yes: flip `status: ready` → `status: retired` in the frontmatter (a
+   one-line edit; nothing else in the program or its journal changes). Print:
+   `Retired: $MROOT/.claude/loops/<name>.md (status: retired)`. The running
+   loop's next firing re-reads the file and ends; retire is the supported way
+   to wind a program down without deleting its journal.
+5. When a journal exists, print one stats line from
+   `skills/craft-loop/journal-stats.sh <journal>` so the user sees what is
+   being left behind.
+
 ## Mode: list
 
 1. Enumerate **program** files only (self-contained block; find-based, no globs).
-   Exclude journals and known companion side artifacts:
+   Exclude journals and known companion side artifacts. The library root is the
+   shared main checkout (`$MROOT`), the same one craft writes to (rv-w3-29):
 
 ```bash
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-LOOPS_DIR="$WTROOT/.claude/loops"
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+LOOPS_DIR="$MROOT/.claude/loops"
 if [ -d "$LOOPS_DIR" ]; then
   find "$LOOPS_DIR" -maxdepth 1 -type f -name '*.md' \
     -not -name '*.journal.md' \
@@ -171,9 +210,13 @@ fi
    frontmatter with a `name:` key and a `# Objective` heading. Companions that
    slip through naming must not appear as rows.
 
-2. `NO_LIBRARY` (or zero programs after filter) → say the project has no crafted
+2. **Hide retired programs** (rv-w3-28): unless the caller passed `--all`,
+   drop any remaining program whose frontmatter reads `status: retired`.
+   `--all` lists everything, retired rows included (Status column shows
+   `retired`).
+3. `NO_LIBRARY` (or zero programs after filter) → say the project has no crafted
    loops yet and stop.
-3. Read each listed program and, when present, its journal. Render:
+4. Read each listed program and, when present, its journal. Render:
 
    | Name | Target | Status | Last activity | Open decisions |
 

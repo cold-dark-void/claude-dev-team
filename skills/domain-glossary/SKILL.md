@@ -17,9 +17,10 @@ here — no external dependency.
 
 ## Paths (first hit wins)
 
-Resolve project root:
+Resolve both roots:
 
 ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
@@ -27,10 +28,17 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
 
 | Priority | Path |
 |----------|------|
-| 1 | `$MROOT/CONTEXT.md` |
-| 2 | `$MROOT/docs/domain/CONTEXT.md` |
+| 1 | `$WTROOT/CONTEXT.md` (the checkout the session runs in) |
+| 2 | `$WTROOT/docs/domain/CONTEXT.md` |
+| 3 | `$MROOT/CONTEXT.md` (main checkout fallback) |
+| 4 | `$MROOT/docs/domain/CONTEXT.md` |
 
-If neither exists, the glossary is **absent** (not an error). Do not invent
+When `$WTROOT == $MROOT` (no worktree), rows 1–2 and 3–4 are the same files —
+the order is then irrelevant. Load and write-back resolve the same way, so a
+term committed to a worktree `CONTEXT.md` is what the next session in that
+worktree loads (CDT-374).
+
+If none exists, the glossary is **absent** (not an error). Do not invent
 terms until a user-confirmed decision produces one.
 
 ## File format
@@ -71,16 +79,18 @@ Rules:
 Callers (`/brainstorm`, `/kickoff`, project-init, agents doing design work):
 
 ```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
   || MROOT=$(pwd)
-if [ -f "$MROOT/CONTEXT.md" ]; then
-  cat "$MROOT/CONTEXT.md"
-elif [ -f "$MROOT/docs/domain/CONTEXT.md" ]; then
-  cat "$MROOT/docs/domain/CONTEXT.md"
-else
-  echo "No domain glossary (CONTEXT.md) yet."
-fi
+for _ctx in "$WTROOT/CONTEXT.md" "$WTROOT/docs/domain/CONTEXT.md" \
+            "$MROOT/CONTEXT.md" "$MROOT/docs/domain/CONTEXT.md"; do
+  if [ -f "$_ctx" ]; then
+    cat "$_ctx"
+    break
+  fi
+done
+[ -f "$_ctx" ] || echo "No domain glossary (CONTEXT.md) yet."
 ```
 
 When the file is present:
@@ -101,7 +111,7 @@ After terms crystallize (brainstorm synthesis confirmed, kickoff ACs/design lock
    |-----------|------------|--------|
    | Ticket worktree exists (`$WT_PATH` from kickoff/orchestrate) | `$WT_PATH/CONTEXT.md` (or `docs/domain/` under WT if that layout is already used) | **Required** on `feat/<TICKET-ID>` with the spec/plan — same branch lifecycle (CDT-105: never direct-to-master) |
    | Session already inside a `.worktrees/<slug>` checkout | that tree's `CONTEXT.md` | **Required** on the current feature branch |
-   | Pre-ticket brainstorm only (no worktree yet) | **Do not** leave uncommitted dirt on `$MROOT/CONTEXT.md` — record a `## Domain glossary delta` in the brainstorm plan only; kickoff/orchestrate promote + commit |
+   | Pre-ticket brainstorm only (no worktree yet) | No `CONTEXT.md` write — record a `## Domain glossary delta` in the brainstorm plan only | Not committed here; kickoff/orchestrate promote + commit |
 4. Merge rows into `## Terms` (and optional `## Decisions` lines) at the chosen path
 5. Print which terms were added/updated and where they will ship
 

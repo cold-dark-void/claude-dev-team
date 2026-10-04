@@ -242,12 +242,21 @@ Wait for the user to pick or modify.
 
 ## Step 4: Output
 
-Save the brainstorm results to a file:
+Save the brainstorm results under the **main checkout's** plans root — the
+same `$MROOT/.claude/plans` that `/debug` and `/refactor` read — never a
+worktree-local copy (rv-w3-27):
 
 ```bash
-WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-# Save to .claude/plans/<date>-brainstorm-<slug>.md
+_gc=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && MROOT=$(cd "$(dirname "$_gc")" && pwd) \
+  || MROOT=$(pwd)
+mkdir -p "$MROOT/.claude/plans"
+PLAN="$MROOT/.claude/plans/$(date +%F)-brainstorm-<slug>.md"
+printf '%s\n' "$PLAN"
 ```
+
+`<slug>` is the kebab-case topic. Write the Step 2 synthesis, the Step 3
+chosen option (if any), and the open questions to `$PLAN`.
 
 ### Step 4b: Domain glossary write-back (conditional)
 
@@ -269,7 +278,9 @@ path rule (closes the "dirty CONTEXT on master, clean specs in worktree" footgun
    - **Inside a ticket worktree** (`$WTROOT` contains `/.worktrees/` or
      `$WTROOT != $MROOT`): merge into `$WTROOT/CONTEXT.md` (or existing
      `docs/domain/CONTEXT.md` under that tree). Then **commit on the feature
-     branch**:
+     branch** — ask first (rv-w3-27): `Commit CONTEXT.md to <branch>? (y/n)`.
+     Run the two lines below only on an explicit yes; on a no, leave the
+     merged file uncommitted and say so in the Step 4 printout.
      ```bash
      # Fresh shell — re-resolve (SPEC-021 C1)
      WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -318,7 +329,7 @@ session.
 
 Print:
 ```
-Brainstorm saved to: .claude/plans/<date>-brainstorm-<slug>.md
+Brainstorm saved to: $MROOT/.claude/plans/<date>-brainstorm-<slug>.md
 Mode: <default|grill>
 Domain glossary: <committed $WTROOT/CONTEXT.md | plan delta only (no master dirt) | no new terms>
 Backlog/Linear: <ticket-id + Linear URL | local-only slug | not filed>
@@ -334,7 +345,11 @@ Next steps:
 
 - NEVER propose full solutions during Step 1 / Step 1-grill — questions (and in
   grill mode, recommended *answers to questions*) only until synthesis
-- NEVER skip default rounds when mode is default — even if the user says "just build it"
+- Default mode: Rounds 1-3 always run; Round 4 runs only when the problem is
+  still ambiguous. On an explicit user request to move faster ("just build
+  it", "skip ahead"), compress the remaining rounds into ONE batched message,
+  say what you compressed, and continue — never stall on ceremony the user
+  has explicitly declined (rv-w3-27)
 - Default mode: questions in digestible batches (3-5), not a wall of 15
 - Grill mode: one question at a time; always include Recommended; soft-cap ~15 Qs
 - If the user's answers reveal the problem is simpler than expected, say so

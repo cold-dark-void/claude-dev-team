@@ -2,8 +2,8 @@
 name: craft-loop
 description: Design a reviewed, file-persisted loop program for the built-in
   /loop and /goal commands — guided crafting dialogue, journal-based state,
-  refine-from-journal, and library listing. Supports hold/dogfood (no-write).
-  Usage /craft-loop [goal text | list | refine <name>]
+  refine-from-journal, retire, and library listing. Supports hold/dogfood
+  (no-write). Usage /craft-loop [goal text | list [--all] | refine <name> | retire <name>]
 ---
 
 # Craft Loop
@@ -26,7 +26,9 @@ Governing spec: `specs/core/SPEC-020-craft-loop-prompt-architect.md`.
 /craft-loop <goal text>     # craft a new program (guided dialogue)
 /craft-loop                 # craft mode; you will be asked for the goal
 /craft-loop list            # table of the project's programs + open decisions
+/craft-loop list --all      # include retired programs
 /craft-loop refine <name>   # improve a program from its run journal
+/craft-loop retire <name>   # set status: retired; hidden from list without --all
 ```
 
 **Hold / dogfood:** if during craft you say hold, dogfood only, do not save, or
@@ -37,10 +39,13 @@ no-write, the architect keeps the draft in chat and does **not** write
 
 Interpret the arguments:
 
-1. Exactly `list` (`/craft-loop list`) → **list mode**
-2. Starts with `refine` followed by a name → **refine mode** for that name
+1. Exactly `list` (`/craft-loop list`, optionally with `--all`) → **list mode**
+   (`--all` includes `status: retired` programs)
+2. Starts with `retire` followed by a name → **retire mode** for that name
+   (bare `retire` with no name: ask which program, offering the library list)
+3. Starts with `refine` followed by a name → **refine mode** for that name
    (bare `refine` with no name: ask which program, offering the library list)
-3. Anything else (including empty) → **craft mode**; the arguments are the
+4. Anything else (including empty) → **craft mode**; the arguments are the
    goal, or ask for the goal if empty
 
 Then invoke the `craft-loop` skill (namespaced `dev-team:craft-loop` when the

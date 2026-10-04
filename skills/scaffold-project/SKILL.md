@@ -252,9 +252,11 @@ _Plans older than 2 weeks. See `plans/archive/` for detailed documentation._
 ### Step 5: Create TDD.md
 
 
-Create `$PROJ_ROOT/specs/TDD.md` with starter specifications:
+Create `$PROJ_ROOT/specs/TDD.md` with starter specifications. The outer fence
+below uses four backticks so the inner ``` tree fences stay inside the copied
+template (CDT-297 [10 scaffold-fences]):
 
-```markdown
+````markdown
 # TDD Specifications - <PROJECT NAME>
 
 **Last Updated**: <TODAY'S DATE>
@@ -279,9 +281,9 @@ This file contains living behavioral specifications that define how the applicat
 
 | ID | Title | Status | Coverage |
 |----|-------|--------|----------|
-| SPEC-001 | Application Launch | DRAFT | <key files> |
-| SPEC-002 | Basic Navigation | DRAFT | <key files> |
-| SPEC-003 | Data Persistence | DRAFT | <key files> |
+| SPEC-001 | <First Core Behavior> | DRAFT | <key files> |
+| SPEC-002 | <Second Core Behavior> | DRAFT | <key files> |
+| SPEC-003 | <State That Must Persist> | DRAFT | <key files> |
 
 <!-- Verify status (✅ PASS / ❌ FAIL / ⚠️) is reported by /spec check, not stored here -->
 
@@ -289,67 +291,66 @@ This file contains living behavioral specifications that define how the applicat
 
 ## Core Specifications
 
-### SPEC-001: Application Launch
+### SPEC-001: <First Core Behavior>
 
-**MUST**: Application starts successfully and displays main interface
+**MUST**: The project's primary workflow completes successfully end to end
 
 **Behavior**:
-- Application launches within 5 seconds
-- Main window appears with correct title
-- All UI components render properly
-- No errors or crashes on startup
+- The primary workflow finishes within 5 seconds under normal conditions
+- Its output/artifacts appear with the expected shape and content
+- All steps of the workflow report success or a clear failure
+- No errors or crashes on the happy path
 
 **Test**:
-1. Run application
-2. Verify main window appears
-3. Verify all UI elements visible
-4. Check console for errors
+1. Run the primary workflow
+2. Verify the expected output/artifact appears
+3. Verify every step reports success
+4. Check logs/stderr for errors
 
 **Validation**:
-- [ ] Application starts without errors
-- [ ] Main window displays correctly
-- [ ] All controls are interactive
-- [ ] Startup time < 5 seconds
+- [ ] The workflow completes without errors
+- [ ] Output matches the expected shape
+- [ ] Failure modes surface clearly
+- [ ] Duration < 5 seconds
 
 ---
 
-### SPEC-002: Basic Navigation
+### SPEC-002: <Second Core Behavior>
 
-**MUST**: Users can navigate core application features
+**MUST**: Users can move between the project's core workflows without loss
 
 **Behavior**:
-- Menu/navigation system is accessible
-- All primary views can be reached
-- Navigation is intuitive and responsive
-- State persists across navigation
+- Every core workflow is reachable from a documented entry point
+- Moving between workflows preserves in-progress state
+- Returning to a previous workflow restores its prior state
 
 **Test**:
-1. Navigate to each main section
-2. Verify back/forward navigation works
-3. Verify state is preserved
+1. Exercise each core workflow in sequence
+2. Verify no state is lost between them
+3. Verify returning to a prior workflow restores state
 
 **Validation**:
-- [ ] All main sections accessible
-- [ ] Navigation responds immediately (<100ms)
-- [ ] No broken links/routes
-- [ ] State persists correctly
+- [ ] All core workflows reachable
+- [ ] Transitions respond immediately (<100ms overhead)
+- [ ] No dead ends or orphaned state
+- [ ] State persists across transitions
 
 ---
 
-### SPEC-003: Data Persistence
+### SPEC-003: <State That Must Persist>
 
 **MUST**: Application data persists across sessions
 
 **Behavior**:
 - User settings/data saved automatically
-- Data restored on application restart
+- Data restored on the next session
 - Data stored in appropriate location
 - Corrupted data handled gracefully
 
 **Test**:
 1. Make changes to settings/data
-2. Close application
-3. Restart application
+2. Close the session
+3. Start a new session
 4. Verify changes persisted
 
 **Validation**:
@@ -363,10 +364,10 @@ This file contains living behavioral specifications that define how the applicat
 ## Cross-Cutting Concerns
 
 ### Performance Requirements
-- Application startup: < 5 seconds
-- UI responsiveness: < 100ms for user actions
+- Primary workflow: < 5 seconds
+- Interactive operations: < 100ms overhead
 - Memory usage: Reasonable for application type
-- No memory leaks over extended usage
+- No resource leaks over extended usage
 
 ### Safety & Error Handling
 - No crashes under normal operation
@@ -377,7 +378,6 @@ This file contains living behavioral specifications that define how the applicat
 ### Compatibility
 - Runs on target platform(s)
 - Compatible with specified dependencies
-- Works with different screen sizes/resolutions
 
 ---
 
@@ -406,9 +406,9 @@ This file contains living behavioral specifications that define how the applicat
 
 ### v1.0.0 - <TODAY'S DATE>
 - Initial specification baseline
-- Added SPEC-001: Application Launch
-- Added SPEC-002: Basic Navigation
-- Added SPEC-003: Data Persistence
+- Added SPEC-001: <First Core Behavior>
+- Added SPEC-002: <Second Core Behavior>
+- Added SPEC-003: <State That Must Persist>
 
 ---
 
@@ -454,7 +454,7 @@ specs/
 └── compatibility/
     └── SPEC-030-*.md
 ```
-```
+````
 
 **IMPORTANT**: Replace `<PROJECT NAME>` with actual project name and `<TODAY'S DATE>` with today's date (YYYY-MM-DD format).
 
@@ -486,9 +486,10 @@ If `$PROJ_ROOT/CONTEXT.md` already exists, skip (do not overwrite).
 
 ### Step 6: Create AGENTS.md
 
-Create `$PROJ_ROOT/AGENTS.md` with this template:
+Create `$PROJ_ROOT/AGENTS.md` with this template (four-backtick outer fence —
+same inner-fence rule as Step 5):
 
-```markdown
+````markdown
 # <PROJECT NAME> - Agent Instructions
 
 **Purpose**: Project-specific rules and context that override general Claude Code instructions.
@@ -616,7 +617,7 @@ tools. Report marker (exact): `self-verified — refuters unavailable`.
 **Never ship on implementer self-validation.** Council and `/review-and-commit`
 implement the report path; workflows (incl. future `/debug ticket`) reuse the
 same marker + actor rule.
-```
+````
 
 **IMPORTANT**: Tell user to fill in the placeholder sections with actual project details.
 
@@ -734,7 +735,7 @@ Next steps:
 Co-Authored-By: Claude <model> <noreply@anthropic.com>"
    # Do NOT git add .claude/plans* or .claude/backlog* (local write-through only)
 
-💡 Tip: Read ~/.claude/CLAUDE.md for full workflow documentation
+💡 Tip: AGENTS.md and specs/TDD.md are the two files every session reads first
 💡 The 3 starter specs are examples - customize them for your project!
 ```
 

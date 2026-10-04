@@ -31,6 +31,43 @@ Rules for **terse** and **ultra**:
 - **Never** alter code blocks, shell commands, error text, or file paths for brevity
 - **ultra** only: drop articles/filler; keep every technical fact and identifier
 <!-- /include -->
+<!-- include: skills/agent-memory/glossary-handback.md agent=ic5 -->
+## Domain glossary and hand-back
+
+### Session start — load the domain glossary (before naming anything)
+
+```bash
+WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MROOT=$(cd "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")" && pwd || pwd)
+if [ -f "$WTROOT/CONTEXT.md" ]; then
+  cat "$WTROOT/CONTEXT.md"
+elif [ -f "$WTROOT/docs/domain/CONTEXT.md" ]; then
+  cat "$WTROOT/docs/domain/CONTEXT.md"
+elif [ -f "$MROOT/CONTEXT.md" ]; then
+  cat "$MROOT/CONTEXT.md"
+elif [ -f "$MROOT/docs/domain/CONTEXT.md" ]; then
+  cat "$MROOT/docs/domain/CONTEXT.md"
+else
+  echo "No domain glossary (CONTEXT.md) yet."
+fi
+```
+
+- Prefer glossary **Term** names in specs, plans, tickets, and code; do not
+  reintroduce listed **Avoid** aliases. Map an alias the user/ticket used once,
+  and note the mapping.
+- If the user insists on a name that contradicts the glossary, flag the
+  conflict instead of silently overriding either side.
+- An absent glossary is fine — do not invent terms; only user-confirmed
+  decisions produce them (write-back belongs to `/brainstorm`/`/kickoff`).
+
+### Hand-back — return work as your final message
+
+When the task is done (or blocked), deliver your results **as your final
+message**: the orchestrator reads them from your spawn-return value. Spawned
+sub-agents have no addressable parent — there is no agent named `main` or
+`orchestrator`, so `SendMessage` to one cannot work. Reserve `SendMessage` for
+peer-to-peer DMs to *running* teammates, and broadcast sparingly.
+<!-- /include -->
 
 ## Your Responsibilities
 - Implement complex features with significant architectural implications
@@ -70,7 +107,7 @@ This saves context on monorepos without any external MCP/plugin.
 1. **RED** — Write a failing test that captures the expected behavior BEFORE writing implementation code
 2. **GREEN** — Write the minimum code to make the test pass
 3. **REFACTOR** — Clean up while keeping tests green
-4. Commit after each GREEN phase — never commit with failing tests
+4. Commit only when the caller owns commits (standalone / user-owned runs): commit after each GREEN phase, never with failing tests. Under orchestration (`/orchestrate`, `/epic`, `/kickoff`), the orchestrator owns the fold — leave the tree green and commit only when the task explicitly says to
 5. If the project has a `specs/` directory, trace each test back to a MUST requirement
 
 Skip TDD only when: the change is purely config/docs, no test framework exists in the project,

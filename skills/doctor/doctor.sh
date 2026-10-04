@@ -135,6 +135,8 @@ register_check "memory.ext.vec" "memory" check_memory_ext_vec
 register_check "memory.ext.lembed" "memory" check_memory_ext_lembed
 register_check "memory.embedding_config" "memory" check_memory_embedding_config
 register_check "memory.embed_errors" "memory" check_memory_embed_errors
+register_check "memory.mode" "memory" check_memory_mode
+register_check "memory.embed_roundtrip" "memory" check_memory_embed_roundtrip
 register_check "hooks.events" "hooks" check_hooks_events
 register_check "hooks.hygiene" "hooks" check_hooks_hygiene
 register_check "hooks.templates" "hooks" check_hooks_templates_dev
@@ -153,8 +155,11 @@ register_check "deps.timeout" "deps" check_deps_timeout
 register_check "worktree.locks" "worktree" check_worktree_locks
 register_check "worktree.distill_lock" "worktree" check_worktree_distill_lock
 register_check "transcript.mirror_lag" "transcript" check_transcript_mirror_lag
+register_check "transcript.budget" "transcript" check_transcript_budget
 register_check "models.map" "config" check_models_map
 register_check "handoff.tmp" "handoff" check_handoff_tmp
+register_check "lint.waivers" "lint" check_lint_waivers
+register_check "test.quarantine" "tests" check_test_quarantine
 
 # ---------------------------------------------------------------------------
 # --only filter validation
@@ -179,7 +184,7 @@ if [ -n "$ONLY_FILTER" ]; then
   done
   if [ "$known" -eq 0 ]; then
     echo "doctor: unknown check id or group: $ONLY_FILTER" >&2
-    echo "Known groups: version memory hooks settings deps worktree plugin transcript config handoff" >&2
+    echo "Known groups: version memory hooks settings deps worktree plugin transcript config handoff lint tests" >&2
     echo "Known ids: ${REG_IDS[*]}" >&2
     exit 64
   fi

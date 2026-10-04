@@ -1,6 +1,6 @@
 ---
 name: debugger
-description: "Root-cause investigator. Read-only depth role spawned by /debug ticket for premise investigation (not the /debug full/patch/arch phases). Traces the full execution path and names the originating layer, not the symptom layer. Never writes; the fix is a separate implementer spawn."
+description: "Internal — spawned by /debug ticket (premise investigation) only; never routed directly and never used for the /debug full/patch/arch root-cause phases. Root-cause investigator. Read-only depth role. Traces the full execution path and names the originating layer, not the symptom layer. Never writes; the fix is a separate implementer spawn."
 tools: Read, Grep, Glob, Bash, SendMessage
 model: opus
 effort: high

@@ -73,8 +73,10 @@ git_retry() {
       *"Device or resource busy"*|*"could not write config"*|*"update of config-file failed"*)
         i=$(( i + 1 ))
         [ "$i" -ge "$max" ] && break
-        # Bash sleep takes seconds; convert ms.
-        local secs="0.$(printf '%03d' "$sleep_ms")"
+        # Bash sleep takes seconds; ms → s with the carry preserved
+        # (rv-w3-40: "0.$(printf '%03d' 1200)" used to sleep 0.12s).
+        local secs
+        secs="$(( sleep_ms / 1000 )).$(printf '%03d' $(( sleep_ms % 1000 )))"
         sleep "$secs" 2>/dev/null || sleep 1
         continue
         ;;
@@ -174,7 +176,7 @@ format_age_human_held() {
 
 # slug_has_live_task <slug>
 # True if $MROOT/.claude/tasks/*.json has status pending|in_progress|blocked
-# and references slug via task_id (filename) or word-boundary content match.
+# and references slug via task_id (filename) or slug-boundary content match.
 slug_has_live_task() {
   local slug="$1"
   local tasks_dir="$MROOT/.claude/tasks"
@@ -191,12 +193,40 @@ slug_has_live_task() {
     if [ "$base" = "$slug" ]; then
       return 0
     fi
-    # Anchor like wrap-ticket: word-boundary, avoid WISO-1 matching WISO-10
-    if grep -qwF -- "$slug" "$f" 2>/dev/null; then
+    # Anchor like wrap-ticket: slug boundary, not a word boundary. `grep -w`
+    # treats '-' as a boundary, so "CDT-1" matched inside "CDT-1-2"
+    # (rv-w3-40); a slug char on either side must now defeat the match.
+    # Non-slug dirnames (sweep iterates unvalidated basenames) fall back to
+    # a literal match so they cannot inject ERE metachars.
+    if [[ "$slug" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      if grep -qE "(^|[^A-Za-z0-9_-])${slug}([^A-Za-z0-9_-]|\$)" "$f" 2>/dev/null; then
+        return 0
+      fi
+    elif grep -qF -- "$slug" "$f" 2>/dev/null; then
       return 0
     fi
   done
   return 1
+}
+
+# exclude_lock <wt>
+# Idempotently add `.wt-lock` to the repo's shared $GIT_COMMON_DIR/info/exclude
+# (rv-w3-40): a worktree lock must never be stageable by `git add -A` in a
+# consumer repo that does not gitignore it. The COMMON dir is used, not the
+# worktree's own gitdir — git does not honor
+# .git/worktrees/<n>/info/exclude. Best-effort: any failure is silent.
+exclude_lock() {
+  local wt="$1" common excl
+  [ -e "$wt/.git" ] || return 0
+  common=$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || common=$(git -C "$wt" rev-parse --git-common-dir 2>/dev/null) \
+    || return 0
+  [ -n "$common" ] || return 0
+  mkdir -p "$common/info" 2>/dev/null || return 0
+  excl="$common/info/exclude"
+  touch "$excl" 2>/dev/null || return 0
+  grep -qxF '.wt-lock' "$excl" 2>/dev/null || printf '.wt-lock\n' >> "$excl"
+  return 0
 }
 
 # is_worktree_dirty <wt>
@@ -284,6 +314,7 @@ cmd_ensure() {
 
       # Steal only on explicit "steal"; anything else (empty, abort, garbage) → exit 2
       if [ "$answer" = "steal" ]; then
+        exclude_lock "$wt"
         write_lock_and_exit "$wt" "$lock"
       fi
       exit 2
@@ -305,6 +336,7 @@ cmd_ensure() {
     else
       echo "stale lock (unparseable / legacy format) — reclaiming" >&2
     fi
+    exclude_lock "$wt"
     write_lock_and_exit "$wt" "$lock"
   fi
 
@@ -317,6 +349,7 @@ cmd_ensure() {
       echo "ensure: $wt exists but is not a git worktree" >&2
       exit 1
     fi
+    exclude_lock "$wt"
     write_lock_and_exit "$wt" "$lock"
   fi
 
@@ -324,11 +357,21 @@ cmd_ensure() {
   # Atomic preference: -b when branch absent. Both arms via git_retry 3 200
   # (CDT-161). Re-probe after failed -b so sticky -b is never used once the
   # branch exists (partial add can create the ref then EBUSY on config).
+  # rv-w3-40: a fresh branch starts from the repo's default branch
+  # (resolve-base — the shared SPEC-025 M17 resolver), not from whatever
+  # HEAD the main checkout happens to sit on. No resolvable base → old
+  # HEAD behavior (git's own start-point default).
+  local base=""
+  base=$(bash "$GIT_SAFETY" -C "$MROOT" resolve-base 2>/dev/null) || base=""
   if git -C "$MROOT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1; then
     git_retry 3 200 -C "$MROOT" worktree add "$wt" "$branch"
   else
     local _add_rc=0
-    git_retry 3 200 -C "$MROOT" worktree add -b "$branch" "$wt" || _add_rc=$?
+    if [ -n "$base" ]; then
+      git_retry 3 200 -C "$MROOT" worktree add -b "$branch" "$wt" "$base" || _add_rc=$?
+    else
+      git_retry 3 200 -C "$MROOT" worktree add -b "$branch" "$wt" || _add_rc=$?
+    fi
     if [ "$_add_rc" -ne 0 ]; then
       if git -C "$MROOT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1 \
          && [ ! -e "$wt" ]; then
@@ -339,6 +382,7 @@ cmd_ensure() {
     fi
   fi
 
+  exclude_lock "$wt"
   write_lock_and_exit "$wt" "$lock"
 }
 

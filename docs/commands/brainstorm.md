@@ -68,7 +68,8 @@ OUT: file attachments, comments, version history
 
 ### Default mode (no flag)
 
-Four rounds, 3–5 questions per batch:
+Three rounds always run, 3–5 questions per batch; a fourth (Alternatives)
+runs only when the problem is still ambiguous:
 
 **Round 1 — Core Intent:** What problem is being solved, who has it, what does success look like, and why now?
 
@@ -78,6 +79,11 @@ Four rounds, 3–5 questions per batch:
 
 **Round 4 — Alternatives (if still ambiguous):** Simpler alternatives, MVP, what to cut.
 
+If you explicitly ask to move faster ("just build it"), the remaining rounds
+compress into one batched message and the command says what it compressed —
+rounds are never silently dropped, because skipping produces plans with
+hidden assumptions.
+
 ### Grill mode (`--grill`)
 
 One question at a time with a **recommended answer** each turn. Walks intent → scope → constraints → edges → naming → alternatives. Reads the codebase when a question is answerable without the user. Soft-caps around 15 questions, then offers to synthesize. Confirmed irreversible choices can land under `CONTEXT.md` `## Decisions`.
@@ -86,12 +92,14 @@ After all rounds, the command synthesizes your answers into a structured summary
 
 Only after you confirm does it present 2-3 design options with pros, cons, effort, and risk — each with a clear recommendation and reasoning, not a neutral menu.
 
-The full brainstorm is saved to `.claude/plans/<date>-brainstorm-<slug>.md` for use in `/kickoff`. User-confirmed domain terms are merged into the project **domain glossary** (`CONTEXT.md` preferred, or `docs/domain/CONTEXT.md` if that path already exists) — a committed ubiquitous-language file, not agent memory. See `skills/domain-glossary/SKILL.md`.
+The full brainstorm is saved to the main checkout's `.claude/plans/<date>-brainstorm-<slug>.md` (the same root `/debug` and `/refactor` read) for use in `/kickoff`. User-confirmed domain terms are merged into the project **domain glossary** (`CONTEXT.md` preferred, or `docs/domain/CONTEXT.md` if that path already exists) — a committed ubiquitous-language file, not agent memory. See `skills/domain-glossary/SKILL.md`.
 
 ### Rules
 
 - No solutions are proposed during questioning — questions only until synthesis.
-- All four rounds run even if you say "just build it" — skipping rounds produces plans with hidden assumptions.
+- Rounds 1–3 always run; Round 4 runs only when the problem is still ambiguous.
+  On an explicit "just build it", the remaining rounds compress into one batch
+  and the command says what it compressed — nothing is silently dropped.
 - Questions are batched (3-5 at a time), not dumped all at once.
 - If your answers reveal the problem is simpler than it appeared, the command will say so and suggest a lighter approach.
 - If your answers reveal unexpected complexity, it flags that and suggests phasing the work.

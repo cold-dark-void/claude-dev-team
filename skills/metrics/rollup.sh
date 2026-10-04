@@ -152,7 +152,15 @@ if want_section outcomes; then
             },
             by_agent: (
               $rows
-              | map(select(.agent != null) | .agent)
+              | map(
+                  # rv-w3-24: a non-string .agent used to error the object-key
+                  # build and zero the whole outcomes section; coerce it to the
+                  # "null" bucket like by_task_class does.
+                  if .agent == null then "null"
+                  elif (.agent | type) == "string" then .agent
+                  else "null"
+                  end
+                )
               | group_by(.)
               | map({(.[0]): length})
               | add // {}
@@ -199,23 +207,39 @@ if want_section worktree; then
     TASK_FILES=("$TASK_DIR"/*.json)
     shopt -u nullglob
     if [ "${#TASK_FILES[@]}" -gt 0 ]; then
+      # Per-file parse (rv-w3-24): one malformed task file used to make
+      # `jq -s` error out and zero every count, although the comment above
+      # promises malformed files count as "other". Parse each file on its
+      # own; a file that fails to parse is one "other".
+      T_PENDING=0; T_INPROG=0; T_COMPLETED=0; T_BLOCKED=0; T_OTHER=0; T_FILES=0
+      for _tf in "${TASK_FILES[@]}"; do
+        T_FILES=$((T_FILES + 1))
+        _st=$(jq -rc 'if type == "object" then (.status // "other") else "malformed" end' "$_tf" 2>/dev/null) || _st=""
+        case "$_st" in
+          pending)     T_PENDING=$((T_PENDING + 1)) ;;
+          in_progress) T_INPROG=$((T_INPROG + 1)) ;;
+          completed)   T_COMPLETED=$((T_COMPLETED + 1)) ;;
+          blocked)     T_BLOCKED=$((T_BLOCKED + 1)) ;;
+          *)           T_OTHER=$((T_OTHER + 1)) ;;
+        esac
+      done
       TASKS_JSON="$(
-        jq -s '
-          {
-            pending: (map(select(.status == "pending")) | length),
-            in_progress: (map(select(.status == "in_progress")) | length),
-            completed: (map(select(.status == "completed")) | length),
-            blocked: (map(select(.status == "blocked")) | length),
-            other: (map(select(
-              (.status != "pending")
-              and (.status != "in_progress")
-              and (.status != "completed")
-              and (.status != "blocked")
-            )) | length),
-            files_n: length
-          }
-        ' "${TASK_FILES[@]}" 2>/dev/null
-      )" || TASKS_JSON='{"pending":0,"in_progress":0,"completed":0,"blocked":0,"other":0,"files_n":0}'
+        jq -cn \
+          --argjson p "$T_PENDING" \
+          --argjson i "$T_INPROG" \
+          --argjson c "$T_COMPLETED" \
+          --argjson b "$T_BLOCKED" \
+          --argjson o "$T_OTHER" \
+          --argjson n "$T_FILES" \
+          '{
+            pending: $p,
+            in_progress: $i,
+            completed: $c,
+            blocked: $b,
+            other: $o,
+            files_n: $n
+          }'
+      )"
       if [ -z "$TASKS_JSON" ]; then
         TASKS_JSON='{"pending":0,"in_progress":0,"completed":0,"blocked":0,"other":0,"files_n":0}'
       fi
