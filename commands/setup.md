@@ -3,18 +3,20 @@ name: setup
 description: >
   Onboarding dispatcher — project scaffold (TDD structure), orchestration
   bootstrap (sandbox/hooks/teams), team memory init (SQLite + project-init),
-  or Model map (local per-agent model strings). Usage /setup
-  <project|orchestration|team|models> [flags...]. Bare/unknown prints
-  usage only (no side effects).
-argument-hint: "<project|orchestration|team|models> [flags...]"
+  Model map (local per-agent model strings), Telegram Intercom setup
+  (SPEC-038), or a Slack stub. Usage /setup
+  <project|orchestration|team|models|telegram|slack> [flags...].
+  Bare/unknown prints usage only (no side effects).
+argument-hint: "<project|orchestration|team|models|telegram|slack> [flags...]"
 agent: build
 ---
 
 # /setup — Onboarding Dispatcher
 
-Single entry for project onboarding plus the Model map (SPEC-005). The
-onboarding subs stay **behaviorally distinct** — do not merge their protocols.
-`models` is a known sub and is **not** doctor-gated.
+Single entry for project onboarding plus the Model map (SPEC-005) and the
+Telegram Intercom subs (SPEC-038). The onboarding subs stay **behaviorally
+distinct** — do not merge their protocols. `models`, `telegram` and `slack`
+are known subs and are **not** doctor-gated.
 
 ## Dispatch
 
@@ -27,7 +29,7 @@ Remaining args (including flags) pass through unchanged to the routed sub.
 ### Usage (bare / unknown — prose only, zero side effects)
 
 ```
-Usage: /setup <project|orchestration|team|models> [flags...]
+Usage: /setup <project|orchestration|team|models|telegram|slack> [flags...]
 
 Subs:
   project         Scaffold TDD workflow structure (AGENTS.md, specs/TDD.md,
@@ -45,6 +47,12 @@ Subs:
                   $MROOT/.claude/dev-team/models.local.json only).
                   Not doctor-gated. Bare = list (includes effort);
                   set/unset/set-effort/unset-effort pass through.
+  telegram        Configure the Telegram Intercom (SPEC-038): token file,
+                  pairing, state dirs, harness schedule. Interactive —
+                  delegates to skills/intercom/setup-telegram.sh.
+                  Not doctor-gated.
+  slack           Zero-write stub: prints "Slack ships in v1.1/v2." and
+                  exits 0. Not doctor-gated.
 
 Examples:
   /setup project
@@ -60,6 +68,8 @@ Examples:
   /setup models unset ic4
   /setup models set-effort ic4 high
   /setup models unset-effort ic4
+  /setup telegram
+  /setup slack
 ```
 
 Unknown/missing sub → print this usage and stop. **MUST NOT** mutate project state.
@@ -80,16 +90,21 @@ install has no doctor gate.
 | `orchestration` | **skill-delegate** | `skills/init-orchestration/SKILL.md` (internal backend) |
 | `team` | **inline** | former `commands/init-team.md` body; flags pass through |
 | `models` | **skill-delegate** | `skills/model-map/write-model.sh` via `plugin-dir.sh file` (SPEC-037) |
+| `telegram` | **skill-delegate** | `skills/intercom/setup-telegram.sh` via `plugin-dir.sh file` (SPEC-038) |
+| `slack` | **inline stub** | prints `Slack ships in v1.1/v2.`, exit 0, zero state writes (AC5) |
 
 The three onboarding protocols stay distinct (greenfield scaffold vs brownfield
 orchestration vs team memory bootstrap). Dispatcher only — no semantic merge.
-`models` writes local Model map JSON only (never repo/global).
+`models` writes local Model map JSON only (never repo/global). `telegram` and
+`slack` never write repo state (SPEC-038 AC1/AC5/AC23).
 
 ```
 /setup project
 /setup orchestration
 /setup team [--refresh|--migrate-only|--no-extensions]
 /setup models [set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>]
+/setup telegram
+/setup slack
 ```
 
 ---
@@ -583,3 +598,38 @@ bash "$WRITE_MODEL" "${1:-list}" "${@:2}"
 
 Surface CLI stderr (M9 adversarial warn, unparseable refuse). Do not reimplement
 layer merge — `list` calls `resolve-model.sh`.
+
+---
+
+## Sub: `telegram` — skill-delegate → `skills/intercom/setup-telegram.sh`
+
+Configure the Telegram Intercom (SPEC-038). The script is interactive: it
+prompts for the bot token, validates via `getMe`, pairs the operator chat,
+writes state under the state root (outside the repo; `INTERCOM_STATE_ROOT`
+honored), and prints the harness schedule prompt. Run it in the foreground so
+the token prompt can be answered. The command documents and delegates only —
+**do not** inline any setup behavior here. Not doctor-gated. The script takes
+no flags; extra arguments are not forwarded.
+
+```bash
+PDH="${PDH:-<PDH>}"   # session root carried from the stanza fence above — re-run that fence first when not held
+TG_SETUP=$(bash "$PDH/skills/plugin-dir.sh" file skills/intercom/setup-telegram.sh)
+if [ -z "$TG_SETUP" ] || [ ! -f "$TG_SETUP" ]; then
+  echo "error: skills/intercom/setup-telegram.sh not found in the installed plugin" >&2
+  exit 1
+fi
+bash "$TG_SETUP"
+```
+
+---
+
+## Sub: `slack` — inline zero-write stub (AC5)
+
+Slack is out of scope in phase 1 (SPEC-038). Print the notice and stop. Zero
+state writes: no token file, no config, no spool artifact.
+
+```bash
+# AC5: zero state writes — print the notice and exit 0.
+echo 'Slack ships in v1.1/v2.'
+exit 0
+```

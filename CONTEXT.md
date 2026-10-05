@@ -37,6 +37,10 @@ agent output. Do not reintroduce avoided aliases.
 | Inherited effort | Empty `resolve-model.sh --effort` stdout; spawn omits the `effort` param (except light Step 8 `@ic4` omit-path `low`) | default effort, hardcoded effort |
 | Non-behavioral roster agent | One of the 6 SPEC-003 internal agents (`finder`, `debugger`, `project-init`, `distiller`, `council-judge`, `council-scribe`): no per-agent memory, cortex, or directives surface; invoked by a specific command, never routed to directly | internal agent, helper agent |
 | Blind investigator | Read-only, evidence-only spawned investigator that does not see other investigators' output (SPEC-013); `finder` and `debugger` are the named-roster forms | refuter, skeptic |
+| Intercom | A member's personal bot connector to their agent sessions (bot + spool relay + topics) | telegram connector, bot bridge |
+| Walkie-talkie | Free-form async relay through the intercom's General topic | free chat, catch-all topic |
+| Escalation | No-answer timer pushing a pending session question to the intercom | nudge, reminder |
+| Away mode | Intercom-primary mode toggled by `/away` or `/afk`; main UI still mirrors | afk mode, do-not-disturb |
 
 ## Decisions
 

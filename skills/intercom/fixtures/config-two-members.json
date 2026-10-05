@@ -1,0 +1,1 @@
+{"schema": 1, "transport": "telegram", "members": {"197372681": {"name": "Alexander", "role": "owner"}, "2039944771": {"name": "Second", "role": "member"}}, "default_session": "main", "concise_threshold": 1024, "escalation_timeout_s": 900, "stale_heartbeat_s": 180, "poll_timeout_s": 1}
