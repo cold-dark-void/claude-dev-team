@@ -63,6 +63,15 @@ defects that other work packages own, and the `fence-exec` CI job. It runs on th
 fence parser and scan set (SPEC-021). The two "static only" rules below bind the smoke
 harness; the fence-exec harness runs a fence only through a manifest suite.
 
+**macOS lane and hook-template gate (CDT-502).** The `macos` job (formerly the CDT-271
+informational lane) is required: it runs the portable suite subset with lane-scoped
+quarantine entries, and a macos-scoped entry never de-gates the ubuntu lane. The
+hook-template gate (`skills/init-orchestration/check-hook-templates.sh`) is
+shellcheck-strict when shellcheck is present: findings fail the gate, and a new
+`hook-templates` CI job runs it on every push and pull request so the strict contract is
+exercised on real templates. The gate stays fail-open (one note, exit 0) on hosts without
+shellcheck.
+
 ## MUST
 
 ### CLI contract
@@ -163,9 +172,9 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 
 ### All-suites runner — quarantine
 
-- R11. The quarantine file is `<root>/tools/test-quarantine.txt`; an absent file is an empty quarantine. Blank lines and lines whose first non-blank character is `#` are ignored. Every other line is `<path><whitespace><reason>`, where `<path>` is a repo-relative suite path exactly as R4 discovers it. The runner MUST exit `64` naming the file and line number when a line has no reason, when `<path>` is not a discovered suite (stale or mistyped entry), or when a path is listed twice
-- R12. A quarantined suite MUST still run. A FAIL, TIMEOUT or R9 outcome MUST be reported as `QUARANTINED` and MUST NOT affect the exit code. A PASS MUST be reported as `PASS` plus a stderr `warn:` line that tells the operator to remove the entry. Exit `77` stays SKIP
-- R13. Each entry MUST carry one concrete reason: the failing assertion or the missing dependency, with a `file:line` or tool name. The file MUST list only suites measured red in CI (re-measured, never copied from a seed list). It MUST NOT list a suite that a dedicated `smoke.yml` job runs. WP 1-02 emptied the file (header comments only); a new entry needs a fresh CI measurement. An environment cause MUST use the R18 exit-77 skip, never an entry. The runner MUST NOT edit the file
+- R11. The quarantine file is `<root>/tools/test-quarantine.txt`; an absent file is an empty quarantine. Blank lines and lines whose first non-blank character is `#` are ignored. Every other line is `<path><whitespace><scope><whitespace><reason>`, where `<path>` is a repo-relative suite path exactly as R4 discovers it and `<scope>` is `all` or `macos` (CDT-502). The runner MUST exit `64` naming the file and line number when a line has no scope, when the scope is not `all` or `macos`, when a line has no reason, when `<path>` is not a discovered suite (stale or mistyped entry), or when a path is listed twice
+- R12. A quarantined suite MUST still run. A FAIL, TIMEOUT or R9 outcome MUST be reported as `QUARANTINED` and MUST NOT affect the exit code. A PASS MUST be reported as `PASS` plus a stderr `warn:` line that tells the operator to remove the entry. Exit `77` stays SKIP. An `all`-scoped entry quarantines on every lane; a `macos`-scoped entry quarantines only when the runner was started with `--platform macos` (R32) and is ignored — but still validated — on the default lane, so a macOS-only red entry can never de-gate the ubuntu lane: the ubuntu lane executes every discovered suite unquarantined and fails if any of them is red there
+- R13. Each entry MUST carry one concrete reason: the failing assertion or the missing dependency, with a `file:line` or tool name. A `macos`-scoped entry MUST name the concrete macOS portability cause (for example `bash 3.2 lacks wait -n` or `BSD mktemp rejects a suffix after XXXXXX`); a bare `fails on macOS` is not a reason. The file MUST list only suites measured red in CI (re-measured, never copied from a seed list). It MUST NOT list a suite that a dedicated `smoke.yml` job runs. WP 1-02 emptied the file (header comments only); a new entry needs a fresh CI measurement. An environment cause MUST use the R18 exit-77 skip, never an entry. The runner MUST NOT edit the file
 
 ### All-suites runner — CI and release wiring
 
@@ -175,7 +184,7 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 ### All-suites runner — suite hygiene
 
 - R16. A discovered suite MUST NOT leave tracked or untracked-not-ignored changes in the checkout it runs from. A bite-test that needs a "live tree" MUST inject into a scratch copy of the checkout (for example `skills/docs-drift/test.sh` T6/T7), never into the checkout itself — an interrupted or timed-out run would leave the release tree mutated. A suite MUST NOT write under the real `$MROOT/.claude/` (the main checkout's gitignored state, which R9 cannot see): a suite that exercises an engine that resolves `$MROOT` from `git rev-parse --git-common-dir` MUST run that engine from a `mktemp -d` git repo. A suite MUST NOT leave files in the caller's `TMPDIR` and MUST NOT read or write the real `HOME`; a suite that runs engines which create temp files or read HOME-rooted state MUST call `hermetic_init` (R20) before any other work. The runner does not enforce these rules (R9 compares non-ignored paths only); suite design and review do
-- R17. `tools/run-all-tests-test.sh` MUST prove, on mktemp git trees via `--root`: a new `*-test.sh` is run (tracked and untracked-not-ignored); `test.sh` and `test-*.sh` are run; `fixtures/`, `.worktrees/`, `node_modules/` and non-matching names are not; sorted order; PASS-only → exit 0; FAIL → exit 1; TIMEOUT with a small `RUN_ALL_TESTS_TIMEOUT` → exit 1, fast, no surviving grandchild process; exit 77 → SKIP, exit 0; quarantined FAIL → exit 0; quarantined PASS → `warn:`; each R11 malformed case → exit 64; each R3 usage case → exit 64; an R9 dirtying suite → FAIL. On the live repo it MUST assert that no `tools/test-quarantine.txt` entry is run by a dedicated `smoke.yml` job
+- R17. `tools/run-all-tests-test.sh` MUST prove, on mktemp git trees via `--root`: a new `*-test.sh` is run (tracked and untracked-not-ignored); `test.sh` and `test-*.sh` are run; `fixtures/`, `.worktrees/`, `node_modules/` and non-matching names are not; sorted order; PASS-only → exit 0; FAIL → exit 1; TIMEOUT with a small `RUN_ALL_TESTS_TIMEOUT` → exit 1, fast, no surviving grandchild process; exit 77 → SKIP, exit 0; quarantined FAIL → exit 0; quarantined PASS → `warn:`; each R11 malformed case → exit 64; each R3 usage case → exit 64; an R9 dirtying suite → FAIL. On the live repo it MUST assert that no `tools/test-quarantine.txt` entry is run by a dedicated `smoke.yml` job. For the scope column (CDT-502) it MUST also prove: a `macos`-scoped entry with `--platform macos` reports a red suite `QUARANTINED` (exit 0) and a passing suite `PASS` + `warn:`; the same entry without `--platform macos` does not quarantine — a red suite exits 1 and a passing suite prints no `warn:`; an unknown scope, a missing scope field and a duplicated path each exit 64
 
 ### All-suites runner — skip protocol and hermetic helpers
 
@@ -191,7 +200,14 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 
 ### CI workflow hygiene
 
-- R22. `.github/workflows/smoke.yml` MUST set a top-level `permissions: contents: read`, and no job may widen it. Every job MUST set `timeout-minutes`: `20` for `all-tests`, `10` for each other job. Every `uses:` MUST pin a full 40-hex commit SHA and carry a `# vX.Y.Z` comment that names the exact tag of that SHA (a moving major tag such as `v4` is not a pin). The `all-tests` job MUST check out with `fetch-depth: 0`, because suites read pinned base commits with `git show <sha>:<path>`. `tools/ci-workflow-test.sh` MUST assert these four rules on the live workflow. It MUST also bite: on a mktemp copy with each rule broken in turn, it reports a FAIL. The test asserts the pin **shape** only — a 40-hex SHA plus a matching `# vX.Y.Z` comment — never that the SHA and the tag actually name the same commit; confirming that needs the network, and a hermetic test MUST NOT reach it. Check the tag-to-SHA match at pin time with a read-only `git ls-remote --tags <repo> <tag>`, and record that lookup in the ship notes. MUST NOT add a network call to the test itself
+- R22. `.github/workflows/smoke.yml` MUST set a top-level `permissions: contents: read`, and no job may widen it. Every job MUST set `timeout-minutes`: `20` for `all-tests`, `20` for `macos` (CDT-502: the macOS runner is slower than the 10-minute budget the lane previously fit under `continue-on-error`), and `10` for each other job. Every `uses:` MUST pin a full 40-hex commit SHA and carry a `# vX.Y.Z` comment that names the exact tag of that SHA (a moving major tag such as `v4` is not a pin). The `all-tests` job MUST check out with `fetch-depth: 0`, because suites read pinned base commits with `git show <sha>:<path>`. `tools/ci-workflow-test.sh` MUST assert these four rules on the live workflow. It MUST also bite: on a mktemp copy with each rule broken in turn, it reports a FAIL. The test asserts the pin **shape** only — a 40-hex SHA plus a matching `# vX.Y.Z` comment — never that the SHA and the tag actually name the same commit; confirming that needs the network, and a hermetic test MUST NOT reach it. Check the tag-to-SHA match at pin time with a read-only `git ls-remote --tags <repo> <tag>`, and record that lookup in the ship notes. MUST NOT add a network call to the test itself
+
+### macOS lane and hook-template gate (CDT-502)
+
+- R32. The `smoke.yml` job `macos` MUST be a required gate, not informational: `runs-on: macos-latest`, no `continue-on-error`, `timeout-minutes: 20`, and the step `bash tools/run-all-tests.sh --portable --platform macos`. The job id stays `macos` (branch-protection check name). `--platform` MUST accept `linux` or `macos` and MUST exit `64` on any other value; the default (no flag) behaves as the ubuntu lane. `tools/run-all-tests-test.sh` MUST prove the flag contract hermetically. Making the check required in GitHub branch protection is repo settings, not a committable file: DevOps records the settings change (and any missing-admin-rights blocker) on the ticket. The `--portable` filter still excludes suites that name GNU-only or bash-3.2-incompatible constructs; a suite excluded by the filter is not run on the macOS lane and is NOT a quarantine entry — its cause must be a named construct, and the excluded count is printed as today
+- R33. The hook-template gate `skills/init-orchestration/check-hook-templates.sh` MUST be shellcheck-strict when shellcheck is present: with `shellcheck --shell=bash --severity=warning` on the PATH, any finding on any extracted template MUST fail the gate (exit `1`, naming every offending template on stderr). When shellcheck is absent the gate MUST keep the fail-open contract: one stderr note and exit `0`. The `HOOK_TEMPLATE_SHELLCHECK_STRICT` environment variable MUST be retired (no reader, no documentation); the strict behavior is unconditional. An inline `# shellcheck disable=<code>` in a template body is allowed only with a one-line reason after the code; a bare `disable=<code>` with no reason MUST fail the gate naming the template. Suppression must remain rare: the default is fixing the finding
+- R34. `.github/workflows/smoke.yml` MUST have a `hook-templates` job (`runs-on: ubuntu-latest`, `timeout-minutes: 10`, the pinned `actions/checkout` line of the other jobs) that runs `bash skills/init-orchestration/check-hook-templates.sh`. `tools/ci-workflow-test.sh` MUST assert it (rule B9) and bite: a workflow without the job, and a job that runs another command, each produce B9. `tools/ci-workflow-test.sh` MUST also rewrite rule B8: the macos job MUST be asserted required — `macos-latest`, no `continue-on-error`, `bash tools/run-all-tests.sh --portable --platform macos`, `timeout-minutes: 20` — and the old bites invert (`continue-on-error: true` present, or the `--platform macos` line missing, each produce B8). G2 asserts the macos timeout is `20`. The job runs on ubuntu only: the CI runner's shellcheck is the strict gate's evidence host, and the macOS lane already runs the full all-suites runner
+- R35. CDT-290 closure evidence is gate-level: the fixing change MUST leave zero shellcheck findings on the gated template set (8 `HOOKS` names plus `tdd-gate`, extracted via `check-hook-templates.sh --extract <name>`), so the CDT-290 comment links the fixing commit with the closure `findings fixed, gate strict`. If any finding cannot be fixed inside the fenced template and requires moving a hook body to a file, CDT-290 reopens instead (the SoT move is a SPEC-002 change, out of this fence). The test suite `skills/init-orchestration/test-hook-templates-exec.sh` MUST prove the strict contract: findings fail (rc `1`, stderr names the template) via a planted-finding graft executed against the real shellcheck binary — never only a PATH shim; a host without shellcheck exits `77` per R18 (`require_cmd`), never a silent pass; the absent-shellcheck note path stays; and no case asserts advisory-when-present any more. Suites that invoke the gate (`skills/handoff/precompact-test.sh` T14c, `tools/tdd-gate-test.sh`, `skills/plugin-dir-test.sh`) MUST pass under the strict contract on the ubuntu lane
 
 ### Fence-exec harness
 
@@ -230,7 +246,7 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 - Runtime/behavioral verification of what a command *does* (its outputs, side effects, agent orchestration) — the smoke harness is load-only static verification. The fence-exec harness runs only the fences that its manifest lists, against fixtures (R26, R27).
 - Smoke does not *run* test scripts (it only parses them); the all-suites runner does.
 - `.claude-plugin/*.json` schema validation — docs-drift `manifest-desc` covers the description field; a schema check is a separate item.
-- A macOS CI lane (CDT-271).
+- A macOS CI lane (CDT-271). Superseded: CDT-502 moves the required `macos` lane into R32. What stays out of scope here is macOS-local development ergonomics beyond the CI lane.
 - A runner-level guard for writes to gitignored paths, and runner-level `TMPDIR`/`HOME` isolation. R16 is enforced by suite design and review, not by the runner (backlog).
 
 ## Test
@@ -262,6 +278,10 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 - [ ] `bash tools/fence-exec/run.sh` on this repo exits 0 and prints no `commands/retro.md` exclusion (WP 2-10 removed the two `wp-2-10-retro-scheduled` rows)
 - [ ] `bash skills/refactor/test-fences.sh` and `bash skills/retro-gate/test-retro-fences.sh` exit 0 (R27)
 - [ ] `bash tools/ci-workflow-test.sh` exits 0 (R28, rule B6 and its two bites)
+- [ ] `bash tools/ci-workflow-test.sh` asserts B8 required-lane and B9 hook-templates with their bites (R34); the `macos` job line reads `bash tools/run-all-tests.sh --portable --platform macos` with no `continue-on-error`
+- [ ] `bash tools/run-all-tests-test.sh` covers the R17 scope-column bites: `macos` entry + `--platform macos` quarantines, the same entry on the default lane does not, unknown/missing scope and duplicate path exit 64
+- [ ] With a planted shellcheck finding grafted into a template copy, the gate exits 1 naming the template; with shellcheck removed from PATH the gate exits 0 with the fail-open note; `skills/init-orchestration/test-hook-templates-exec.sh` exits 0 with shellcheck present and 77 without it (R33, R35)
+- [ ] `grep -n 'shellcheck disable=' skills/init-orchestration/SKILL.md commands/tdd-gate.md` — every match carries a one-line reason; the gate fails on a bare disable (R33)
 
 ## Validation
 
@@ -274,6 +294,9 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 - [ ] Step 4.13 present in `skills/release/SKILL.md` and exercised by one real release
 - [ ] `fence-exec` CI job green on the first push or pull request that carries it (R28)
 - [ ] `bash tools/fence-exec/run.sh` exits 0 on the live tree: no unexcluded finding, no `commands/retro.md` exclusion, the manifest suites pass
+- [ ] `hook-templates` CI job green on the first push or pull request that carries it (R34); the ubuntu `all-tests` lane stays green with the strict gate (R35)
+- [ ] `macos` job green on the same CI run with no `continue-on-error` and zero `QUARANTINED` lines beyond the justified `macos`-scoped entries; the ubuntu lane of the same run shows every `macos`-scoped suite PASS (R32, R12)
+- [ ] Branch-protection record on the ticket: `macos` in the required status checks (or the recorded missing-admin-rights blocker) (R32)
 
 ## Acceptance criteria
 
@@ -311,10 +334,41 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 - **P.** [process] The WP 2-01 release notes name CDT-324 (WP 2-10, backlog slug `wp-2-10-retro-scheduled`) as the owner of the two manifest exclusions. WP 2-10 removes those rows in the change that fixes the fences, and its release notes say the rows are gone.
 - **Q.** [process] `bash tools/run-all-tests.sh` exits 0 and every `/release` gate passes.
 
+### CDT-502
+
+Confirmed 2026-10-05 by PM (grounded in the tree) with the Step-5 orchestrator resolutions
+binding. Legend: M = must ship, C = conditional (trigger recorded in M3.2).
+
+- **M1.1.** Zero findings from `shellcheck --shell=bash --severity=warning` (real binary) on the extracted body of every gated template (8 `HOOKS` names plus `tdd-gate`, via `check-hook-templates.sh --extract <name>`). Inline `# shellcheck disable=<code>` allowed only with a one-line reason in the template. Verify: CI ubuntu-latest `hook-templates` run green; grep for bare disables.
+- **M1.2.** Gate contract: shellcheck present → findings fail the gate by default (no env var required); shellcheck absent → unchanged fail-open note, exit 0. `HOOK_TEMPLATE_SHELLCHECK_STRICT` semantics retired (no reader, no docs). No suite still asserts advisory-when-present.
+  Verify: bash skills/init-orchestration/test-hook-templates-exec.sh
+- **M1.3.** Planted-finding test runs against real shellcheck (not the shim): graft a template copy with a planted finding, assert gate rc 1 + stderr names that template. Shellcheck-absent hosts exit 77 (SPEC-030 R18-R19), never a silent pass.
+  Verify: bash skills/init-orchestration/test-hook-templates-exec.sh
+- **M1.4.** [process] Gate executes on real templates in CI under the strict contract and is green post-fix. Verify: green `hook-templates` CI run (+ optional temporary-plant red artifact).
+- **M1.5.** [process] CDT-290 comment links the fixing commit: closure = `findings fixed, gate strict`. If any finding cannot be fixed in-fence and requires moving hook bodies to files, CDT-290 reopens instead. Verify: ticket record.
+- **M2.1.** On macos-latest, `bash tools/run-all-tests.sh --portable`: every suite passes or has a `tools/test-quarantine.txt` entry whose reason names the concrete portability cause (e.g. `bash 3.2 lacks wait -n`), never `fails on macOS`. Environment-caused skips exit 77 and get no entry. Verify: green (or fully-justified) macOS CI run.
+- **M2.2.** Quarantine entries are macOS-cause, ubuntu-passing: any quarantined suite must still be executed on the ubuntu lane.
+  Verify: bash tools/run-all-tests-test.sh
+- **M2.3.** `continue-on-error: true` removed from the `macos` job; job id/name stays `macos`.
+  Verify: bash tools/ci-workflow-test.sh
+- **M2.4.** [process] `macos` added as a required status check for PRs to master (GitHub branch protection — repo settings, not committable). Verify: settings record on the ticket.
+- **M2.5.** [process] CDT-271 reopened (or formally superseded with a link to this ticket); cancel rationale corrected. Verify: ticket record.
+- **M3.1.** [process] One real run on the installed v1.20.0 plugin (installed cache, not repo checkout — PDH tier-3 path must be exercised): one `/orchestrate`, or `/handoff` + `/backlog reconcile`. Record per executed later fence (`PDH="${PDH:-<PDH>}"`): resolved or run-verbatim literal-`<PDH>` failure, plus the carrying mechanism observed. A marketplace clone exists on the host, so tier-3 is forced by temporarily moving `~/.claude/plugins/marketplaces/cold-dark-void` for the duration and restoring it immediately after — the move and restore are recorded. Verify: evidence table in ticket.
+- **M3.2.** [process] Decision recorded from M3.1: all executed later fences resolved → no code change, close the gap citing SPEC-002's documented fail-mode + recovery. Any run-verbatim failure → C3.3 and C3.4 become in-scope. Verify: decision record.
+- **C3.3.** (conditional) Later fences self-resolving: a later fence run in a fresh shell with `PDH` unset resolves the plugin root and succeeds; no literal `<PDH>` reaches a path. The resolver text carries the full SPEC-002 fallback chain (a collapsed `bash skills/plugin-dir.sh` is repo-cwd-only). SPEC-002 § Caller integration + SPEC-021 C1 amended; C5 byte-gate and `docs/adr/SPEC-002-stanza-irreducibility.md` updated for the second canonical text.
+  Verify: bash tools/fence-exec/test-later-fences.sh
+- **C3.4.** (conditional) The fence-exec harness gains a check that executes a later fence with `PDH` unset and fails on literal `<PDH>` or non-zero exit; wired into the `fence-exec` CI job via a manifest `suite` row.
+  Verify: bash tools/fence-exec/test-later-fences.sh
+- **M4.1.** Ubuntu `all-tests` lane stays green; every suite that invokes the gate (`skills/handoff/precompact-test.sh` T14c, `skills/plugin-dir-test.sh`, `tools/tdd-gate-test.sh`, `skills/init-orchestration/test-hook-templates-exec.sh`) updated to the M1.2 contract.
+  Verify: bash tools/run-all-tests.sh
+- **M4.2.** Release rules: `CHANGELOG.md` gains `### vX.Y.Z` and `.claude-plugin/plugin.json` version matches; bump class minor (default gate behavior + spec-contract change, no new Surface).
+  Verify: bash skills/release/test-bump-class.sh
+
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-05 | CDT-502: the `macos` job becomes a required gate (R32: `macos-latest`, no `continue-on-error`, `timeout-minutes: 20`, `--portable --platform macos`; branch-protection flip recorded on the ticket). Quarantine entries gain a scope column (`all` / `macos`, R11-R13, R17 bites): a `macos`-scoped entry quarantines only on the macOS lane, so the ubuntu lane keeps executing every quarantined suite unquarantined. The hook-template gate is shellcheck-strict when shellcheck is present (R33: findings fail, absent → fail-open note; `HOOK_TEMPLATE_SHELLCHECK_STRICT` retired; suppressions need a one-line reason) and a new `hook-templates` CI job runs it (R34, rule B9; B8 rewritten required, old bites inverted). R35 owns the CDT-290 closure evidence and the planted-finding real-shellcheck test. New `### CDT-502` acceptance criteria. CDT-271 is superseded by this ticket; CDT-274's 10-minute job budget is intentionally exceeded for `macos` (sanctioned by CDT-502). |
 
 | 2026-10-02 | CDT-371: the README command-index check is docs-drift D2 (`cmd-index`), not D1. `worktree-lib-test.sh` uses `mktemp` under `TMPDIR`. |
 | 2026-10-01 | WP 2-10 (`wp-2-10-retro-scheduled`; CDT-324, CDT-344): the two `commands/retro.md` exclusion rows leave. Step 1b no longer releases the scheduled lock when its fence ends, and later fences call `invoke-scheduled-report.sh`. R30 and ACs J, K, and P record that removal. |
@@ -334,7 +388,7 @@ harness; the fence-exec harness runs a fence only through a manifest suite.
 - SPEC-003 — agent role system; source of the five agent frontmatter fields and the Tier table (not enforced here).
 - SPEC-013 — council template-var drift gate precedent (gate owned by domain spec, hosted by `/release`).
 - CDT-46 — v1.0 stability-contract epic; this gate is the W0 "deterministic behavioral gate / verified core" criterion. CONTEXT.md defines the Surface and Deprecation-stub glossary terms this spec relies on.
-- CDT-269 — one discovering runner for all suites (this spec's runner sections). CDT-270 / CDT-419 — skip protocol and hermetic suites (R16, R18–R21). CDT-271 / CDT-274 — macOS lane, job permissions/timeouts (out of scope).
+- CDT-269 — one discovering runner for all suites (this spec's runner sections). CDT-270 / CDT-419 — skip protocol and hermetic suites (R16, R18–R21). CDT-271 / CDT-274 — macOS lane and job budgets; CDT-271's informational lane is superseded by CDT-502's required `macos` job (R32), and CDT-274's 10-minute budget is exceeded for `macos` only (R22).
 - SPEC-021 — skill-bash lint gate; the fence-exec harness runs on its fence parser (`fence-scan.awk`) and scan set (`scan-set.sh`), and skill-lint C6 guards `PDH` and `EXT_DIR`. SPEC-021 holds C1-C6 and C8-C10 (C8 idiom hazards and C9 command-fence arguments landed in WP 2-02); C7 stays reserved for WP 6-03.
 - SPEC-015 — refactor workflow; owns the Step 1b path guard that CDT-356 fixed. `skills/refactor/test-fences.sh` is the fence-exec suite for it (R27).
 - CDT-272 — fence-exec harness; CDT-356 — `/refactor` Step 1b path guard. WP 2-01 (`wp-2-01-fence-harness`) ships both. WP 2-10 (CDT-324) removed the `commands/retro.md` exclusions from `tools/fence-exec/manifest.tsv`.
