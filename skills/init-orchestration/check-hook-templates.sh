@@ -170,7 +170,7 @@ for name in $HOOKS tdd-gate; do
   if command -v shellcheck >/dev/null 2>&1; then
     if ! shellcheck --shell=bash --severity=warning "$out" > "$WORKDIR/${name}.sc.err" 2>&1; then
       echo "check-hook-templates: '$name' template has shellcheck --shell=bash findings:" >&2
-      sed -n '1,25p' "$WORKDIR/${name}.sc.err" >&2 || true
+      cat "$WORKDIR/${name}.sc.err" >&2 || true
       SC_WARN="$SC_WARN $name"
     fi
   else

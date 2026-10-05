@@ -13,6 +13,7 @@
 #   B7 — the spec-lint job runs `bash tools/spec-lint.sh` (CDT-273).
 #   B8 — the macos job is informational: macos-latest, continue-on-error,
 #        and `bash tools/run-all-tests.sh --portable` (CDT-271, WP 2-04).
+#   B9 — the hook-templates job runs check-hook-templates.sh (CDT-502).
 #
 # Bash + grep/awk only. Hermetic: no writes outside mktemp.
 set -u
@@ -187,6 +188,19 @@ check_workflow() {
   elif ! printf '%s\n' "$mac_block" | grep -qE 'run:[[:space:]]*bash tools/run-all-tests\.sh --portable[[:space:]]*$'; then
     echo "FAIL: B8: macos job does not run bash tools/run-all-tests.sh --portable"
   fi
+
+  # --- B9: the hook-templates job runs the template gate (CDT-502). ---
+  local ht_block
+  ht_block=$(awk '
+    /^  hook-templates:$/ { on=1; next }
+    on && /^  [A-Za-z0-9_-]+:$/ { exit }
+    on { print }
+  ' "$file")
+  if [ -z "$ht_block" ]; then
+    echo "FAIL: B9: no hook-templates job found"
+  elif ! printf '%s\n' "$ht_block" | grep -qE 'run:[[:space:]]*bash skills/init-orchestration/check-hook-templates\.sh[[:space:]]*$'; then
+    echo "FAIL: B9: hook-templates job does not run bash skills/init-orchestration/check-hook-templates.sh"
+  fi
 }
 
 run_check() { # run_check LABEL FILE — runs check_workflow, counts FAILs.
@@ -209,7 +223,7 @@ LIVE="$REPO_ROOT/.github/workflows/smoke.yml"
 
 # --- Live check: the real workflow must be clean. ---
 if run_check "live" "$LIVE"; then
-  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6/B7/B8 violations"
+  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6/B7/B8/B9 violations"
 else
   echo "FAIL: live smoke.yml has violations (see above)"
 fi
@@ -270,6 +284,12 @@ bite "macos-required" '/continue-on-error: true/d' "B8"
 
 # Run the full suite instead of the portable subset.
 bite "macos-full" 's#bash tools/run-all-tests\.sh --portable#bash tools/run-all-tests.sh#' "B8"
+
+# Drop the hook-templates job (the gate would stop running in CI).
+bite "no-hook-templates" '/^  hook-templates:$/,/^$/d' "B9"
+
+# Point the hook-templates job at another command.
+bite "hook-templates-wrong-command" 's#bash skills/init-orchestration/check-hook-templates\.sh#bash tools/smoke/run.sh#' "B9"
 
 if [ "$FAIL_COUNT" -eq 0 ]; then
   echo "PASS: ci-workflow-test"

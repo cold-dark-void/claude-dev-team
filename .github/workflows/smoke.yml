@@ -140,3 +140,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: bash tools/run-all-tests.sh --portable
+
+  # CDT-502 C2 wave 1 — hook template gate. Advisory by default: findings are
+  # informational unless HOOK_TEMPLATE_SHELLCHECK_STRICT=1.
+  hook-templates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: bash skills/init-orchestration/check-hook-templates.sh
