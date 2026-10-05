@@ -364,6 +364,14 @@ binding. Legend: M = must ship, C = conditional (trigger recorded in M3.2).
 - **M4.2.** Release rules: `CHANGELOG.md` gains `### vX.Y.Z` and `.claude-plugin/plugin.json` version matches; bump class minor (default gate behavior + spec-contract change, no new Surface).
   Verify: bash skills/release/test-bump-class.sh
 
+### CDT-502-C1
+
+Evidence-only dogfood of the parent M3.1/M3.2 (Linear CDT-505): one real `/handoff` + `/backlog reconcile` run on the installed v1.20.0 plugin, from the epic integration tree, with the marketplace clone parked, before any fence edit.
+
+- **A.** [process] Per parent M3.1: an evidence table on CDT-502 with one row per later fence the flow executes — the `/handoff` PDH stanza and its later fences, the `/backlog` SKILL.md stanza and its reconcile fence, plus any further fence the flow reaches. Each row names the file, heading and line; the verbatim outcome (resolved, or the literal `<PDH>` reaching a path in a fresh shell with `PDH` unset); the carrying mechanism observed in the real flow; and, when resolved, the winning tier and the resolved path (the installed v1.20.0 cache is the expected root; any other root is recorded as observed). The table records the parked-marketplace move and restore. Verify: evidence table in ticket CDT-502.
+- **B.** [process] Per parent M3.2: a decision record on CDT-502 with exactly one outcome — every executed later fence resolved on the installed plugin → no code change, citing SPEC-002's documented fail-mode and recovery; any run-verbatim literal-`<PDH>` failure → CDT-502-C5 in scope (parent C3.3/C3.4). The record states the classification of any resolved path that is not the installed tier-3 cache. Verify: decision record in ticket CDT-502.
+- **C.** Zero repo edits: the dogfood lands no commit and changes no tracked file on `feat/epic-CDT-502` — this section is committed by scoping before the run; the evidence table and the decision record are the whole deliverable. A run-verbatim failure routes to CDT-502-C5, never a fix in this child. Verify: clean `git status --porcelain` and no child-run commit on `feat/epic-CDT-502`.
+
 ## Version History
 
 | Date | Change |
