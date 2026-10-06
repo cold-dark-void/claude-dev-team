@@ -255,6 +255,12 @@ bite "no-permissions" '/^permissions:$/,/^$/d' "G1"
 # `0,/re/` first-match address is rejected by BSD sed (CDT-502-C4 AC4).
 bite "no-timeout" '1,/timeout-minutes:/{/timeout-minutes:/d;}' "G2"
 
+# Macos timeout regression 20→10 must FAIL G2 (macos gates at 20 like all-tests).
+# POSIX form: the macos-block range negate-branches non-range lines, matching the
+# all-tests-shallow shape (identical on GNU and BSD sed).
+bite "macos-timeout-10" '/^  macos:$/,/^$/!b
+s/timeout-minutes: 20/timeout-minutes: 10/' "G2"
+
 # Revert one checkout to a moving major tag.
 bite "moving-tag" 's/actions\/checkout@[0-9a-f]{40} # v[0-9.]+/actions\/checkout@v4/' "G3"
 
