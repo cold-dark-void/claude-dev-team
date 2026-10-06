@@ -417,6 +417,35 @@ Child of `### CDT-502` M2.1/M2.2 (Linear CDT-504): make the macOS lane green —
 
 Resolved scope notes: the child's exit bar is a macOS lane red only on documented C4 handoffs (OQ1) — the green-macos M2.1 evidence lands with C4. Perf-budget scaling is in-suite (OQ2): a measured Darwin factor or an environment override, self-contained, with the override unset preserving today's Linux budgets and the negative control kept. Handoffs record on epic ticket CDT-502 (OQ3). If a long-tail failure's root cause sits inside a PDH fence body, the fence is not edited (CDT-502-C5's jurisdiction) — the suite's concrete cause is recorded for C5 instead.
 
+### CDT-502-C4
+
+Child of `### CDT-502` M2.3/M2.4/M2.5/M1.5/M4.1/M4.2 (Linear CDT-506): flip the `macos` job to a required gate — rewrite `tools/ci-workflow-test.sh` B8/G2 to the required contract with inverted bites and portable sed (the file's own macOS red from C3 is fixed here), record the three still-red suites as `macos`-scoped quarantine entries (R11-R13), run the full verification sweep, add `macos` to the master required status checks, and land the CDT-290/CDT-271 ticket records. Linux host: macOS verification is CI-only, via draft-PR runs of `smoke.yml` from `feat/epic-CDT-502`.
+
+- **AC1.** `.github/workflows/smoke.yml` `macos` job per R32: `runs-on: macos-latest`, no `continue-on-error`, `timeout-minutes: 20` (the lane previously carried `10` under the informational contract), the test step `bash tools/run-all-tests.sh --portable --platform macos`; the job id stays `macos` (branch-protection check name). No other job changes.
+  Verify: bash tools/ci-workflow-test.sh; the wave draft-PR run.
+- **AC2.** `tools/ci-workflow-test.sh` rule B8 asserts the required contract (R34) on the live workflow: `macos-latest`, no `continue-on-error` in the job block, and the step running `bash tools/run-all-tests.sh --portable --platform macos`. Each bite — a mktemp-copy edit — produces `FAIL: B8:`: the `macos` job dropped; `continue-on-error: true` present; the step missing `--platform macos` (e.g. `--portable` only) or otherwise wrong; `runs-on` not `macos-latest`. The header rule comment no longer describes the informational contract.
+  Verify: bash tools/ci-workflow-test.sh
+- **AC3.** G2 asserts the `macos` job `timeout-minutes` is `20` (R22/R34: all-tests `20`, macos `20`, every other job `10`) and bites a `macos` block whose timeout is not `20` with `FAIL: G2:`.
+  Verify: bash tools/ci-workflow-test.sh
+- **AC4.** Every sed script in `tools/ci-workflow-test.sh` is POSIX/BSD-portable: the GNU `0,/timeout-minutes:/` first-match address and the second GNU-range sed on the `all-tests:` anchor are rewritten as portable bites that still trigger their rules, and no GNU-only sed construct remains in changed code. The suite passes on the macOS lane — C3's run-37442918229 red #1 is resolved in this child, so `tools/ci-workflow-test.sh` carries no quarantine entry.
+  Verify: bash tools/ci-workflow-test.sh green on ubuntu and on the wave macOS lane.
+- **AC5.** `tools/test-quarantine.txt` gains exactly three `macos`-scoped data entries in the `<path> <scope> <reason>` format (R11-R13), each reason naming the concrete macOS cause per the C3 completion record on linear:CDT-502 (run 37442918229 @ 5283568): `skills/review-and-commit/test-fences.sh` (BSD mktemp rejects a suffix after the X run in fence bodies at SKILL.md:134,196,198 — C5), `skills/memory-recall/test-fences.sh` (the lembed fence emits bash that bash 3.2 cannot parse, s4lembed.sh:178 — C5), and `skills/council/test-tier-grade.sh` (Apple-git fail-closed detection — CDT-510). The header format comment is updated to the scoped 3-field format. No `all`-scoped entries; no entry for a suite this child's rewrite fixes.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC6.** M2.2 live on the wave run: the ubuntu `all-tests` job executes all three macos-scoped suites unquarantined and green; the macOS lane reports exactly those three as `QUARANTINED`, exits `0`, and the `macos` job is green (M2.1: green-or-justified). When C5 lands, the two C5 entries go stale-`warn:` and leave at the epic wrap (R13).
+  Verify: the wave draft-PR run on feat/epic-CDT-502.
+- **AC7.** [process] Full verification sweep (M4.1, M2.1): one wave draft-PR run on `feat/epic-CDT-502` with ubuntu `all-tests`, `hook-templates` (strict), `fence-exec` and `bump-class` green, and the required-shaped `macos` job green with only the three justified `QUARANTINED` lines. Run id and head SHA recorded on linear:CDT-506.
+  Verify: run links on linear:CDT-506.
+- **AC8.** [process] Branch protection (M2.4): via `gh api` (auth `firers-portent36`), `macos` is added to the required status checks for `master`, keeping every existing check; if the token lacks admin rights, the blocker is recorded on linear:CDT-506 and the rest of the child still lands (parent resolution 2).
+  Verify: settings response or blocker record on linear:CDT-506.
+- **AC9.** [process] CDT-290 (M1.5): a comment links the fixing commit — the C2 findings-fixes + strict-flip change already on `feat/epic-CDT-502` — with closure `findings fixed, gate strict`; CDT-290 reopens only if a finding forced moving a hook body to a file.
+  Verify: ticket record.
+- **AC10.** [process] CDT-271 (M2.5): reopened, or formally superseded with a link to `### CDT-502`/this child, with the cancel rationale corrected — the informational-lane decision CDT-271 recorded is reversed by this required flip.
+  Verify: ticket record.
+- **AC11.** [process] Evidence block on the epic ticket CDT-502: the M2.1/M2.3 exit evidence — the wave run link, the three-entry quarantine list with causes, and the branch-protection record (or its blocker).
+  Verify: evidence block on linear:CDT-502.
+
+Resolved scope notes: `tools/ci-workflow-test.sh` red #1 from C3 is fixed in-child (the B8/G2 rewrite owns the sed portability), so only C3 reds 2-4 become entries — the C3 completion record's "reds 1-4" phrasing is loose on this point. The CDT-290/CDT-271 records move from the parent plan's T9 into this child (Linear CDT-506 claims them); the Linear writes stay with the orchestrator — spawned implementers have no ticket write path. M4.2's `### vX.Y.Z`/`plugin.json` pair is minted at epic seal via `/release`; this child's M4.2 evidence is the green `bump-class` job on the wave run. The spec commit rides the wave push — scoping pushes nothing.
+
 ## Version History
 
 | Date | Change |
