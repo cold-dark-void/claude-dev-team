@@ -67,10 +67,14 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-QUERY=$(cat <<'QUERY_EOF'
+# bash 3.2 (macOS /bin/bash) misparses a heredoc inside $() when the body
+# holds an unmatched quote. Capture the quoted heredoc via a function.
+query_text() {
+  cat <<'QUERY_EOF'
 <QUERY>
 QUERY_EOF
-)
+}
+QUERY=$(query_text)
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
 sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
@@ -112,10 +116,14 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 # Same derivation as skills/memory-store/download-extensions.sh (each fence is a new shell).
 EXT_DIR="$MROOT/.claude/memory/extensions"
 MODEL_DIR="$MROOT/.claude/memory/models"
-QUERY=$(cat <<'QUERY_EOF'
+# bash 3.2 (macOS /bin/bash) misparses a heredoc inside $() when the body
+# holds an unmatched quote. Capture the quoted heredoc via a function.
+query_text() {
+  cat <<'QUERY_EOF'
 <QUERY>
 QUERY_EOF
-)
+}
+QUERY=$(query_text)
 EMBED_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
 
 EXT_SUFFIX="so"
