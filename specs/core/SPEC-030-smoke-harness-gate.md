@@ -391,6 +391,32 @@ Child of `### CDT-502` M1.1–M1.4 and M4.1 (Linear CDT-503): fix every hook-tem
 
 Resolved scope notes: shellcheck rc ≥ 2 (usage/parse errors) stays fail-closed — counted as findings; two CI pushes are budgeted inside this child (wave 1: advisory job + B9 + cap lift; wave 2: fixes + flip + suite rewrites).
 
+### CDT-502-C3
+
+Child of `### CDT-502` M2.1/M2.2 (Linear CDT-504): make the macOS lane green — the quarantine scope column and the `--platform` runner flag (R11-R13, R17, R32) plus portable fixes for every suite the macos-latest `--portable` lane fails. The required flip (`continue-on-error` removal, `--platform macos` in the job step, `macos`-scoped quarantine data entries) and the `tools/ci-workflow-test.sh` B8/G2 rewrite stay with CDT-502-C4. This host is Linux: macOS verification is CI-only, via draft-PR runs of `smoke.yml` from `feat/epic-CDT-502`; no new container images.
+
+- **AC1.** `tools/run-all-tests.sh` accepts `--platform <linux|macos>`. Any other value exits `64` before any suite runs; a trailing `--platform` with no value exits `64` and never hangs; with no flag the runner's behavior is byte-identical to the pre-change runner; `--platform linux` behaves identically to no flag; the flag composes with `--portable` and `--list`.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC2.** Quarantine parsing per R11: every non-comment line is three whitespace-separated fields `<path> <scope> <reason>`; blank and `#` lines are ignored; an absent file is an empty quarantine; the whole file validates before any suite runs; the runner exits `64` naming `tools/test-quarantine.txt:<line>` for a missing scope, a scope that is not `all` or `macos`, a missing reason, a path that is not an R4-discovered suite, or a duplicated path. An entry whose path is R4-discovered but excluded by `--portable` validates OK and never applies.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC3.** Lane scoping per R12/M2.2: an `all`-scoped entry quarantines on every lane; a `macos`-scoped entry quarantines only when the runner started with `--platform macos` and is validated-then-ignored on the default lane, so the ubuntu lane structurally executes every discovered suite unquarantined.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC4.** Scope-aware outcome semantics per R12: on a lane where the entry applies, FAIL, TIMEOUT and dirty-tree outcomes report `QUARANTINED`, are counted in the quarantined total, do not affect the exit code, and keep the 20-line output tail; exit `77` reports `SKIP` and is never `QUARANTINED`; a quarantined suite that passes reports `PASS` plus a stderr `warn:` line.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC5.** The R17 bite matrix is proven hermetically on the Linux host via `--root` mktemp trees. The runner and any `tests/lib` additions stay bash-3.2/BSD-portable: no `declare -A`, `declare -n`, `local -n`, `mapfile`, `wait -n` or GNU-only tool in changed code. No dedicated quarantine smoke job is added.
+  Verify: bash tools/run-all-tests-test.sh
+- **AC6.** [process] Every suite the macOS `--portable` lane fails is fixed portably or handed off with a concrete cause. The failing list is re-derived from a macOS CI run on `feat/epic-CDT-502` with the run id and head SHA recorded on the ticket (run 37177179770 is the pre-C2 tree and is scoping evidence only). Concrete causes only: a bare `fails on macOS` is neither a fix nor a handoff. An environment cause exits `77` (R18-R19) and never becomes a handoff or an entry. The expected permanent macOS red on this child's tree is `tools/ci-workflow-test.sh` — C4-owned, concrete cause: its `no-timeout` bite uses the GNU sed `0,/timeout-minutes:/` first-match address, which BSD sed rejects, so the bite no-ops — recorded as the C4 handoff, not fixed here.
+  Verify: ticket record with run id, head SHA and the re-derived list.
+- **AC7.** `skills/handoff/discover-warm.sh:419,423` is rewritten X-run-last (create-then-`mv`, or `mktemp -d` plus a file inside), behavior-preserving: same output-file semantics, same error text, still honoring `TMPDIR` (SPEC-002). The script contains no PDH fence and none is added. The mktemp-suffix cluster suites (`skills/handoff/discover-warm-test.sh` T30-T32, `skills/memory-store/test-embed-lembed.sh`) and the realpath-cluster suites pass on the Linux host and in the macOS CI run.
+  Verify: bash skills/handoff/discover-warm-test.sh
+- **AC8.** [process] No Linux regression: on the child's CI run, the ubuntu `all-tests` job is green — including every suite the C2 gate-contract change touches — and the `hook-templates` job is green, against baseline run 37407710972 @ 2275d1c.
+  Verify: draft-PR run on feat/epic-CDT-502: ubuntu `all-tests` and `hook-templates` green.
+- **AC9.** No assertion is deleted or weakened: path-prefix comparisons normalize both sides through one canonical mechanism before comparing; perf budgets are scaled by a measured factor or an environment override with the Linux default preserved and the negative control kept; release-tree-assuming suites build their inputs hermetically and MUST NOT exit `77` for missing release-tree state; shared helpers are source-only with a proven contract, never hand-copied per suite.
+- **AC10.** [process] Zero quarantine data entries land in C3: `tools/test-quarantine.txt` stays header-comments-only on this child's commits. Every macOS red that is not fixed is recorded as a concrete-cause handoff on the epic ticket CDT-502 — the single evidence venue, which CDT-502-C4's kickoff links. Data entries and the flip are C4's.
+  Verify: non-comment line count of tools/test-quarantine.txt is 0 at the child's head; handoff records on linear:CDT-502.
+
+Resolved scope notes: the child's exit bar is a macOS lane red only on documented C4 handoffs (OQ1) — the green-macos M2.1 evidence lands with C4. Perf-budget scaling is in-suite (OQ2): a measured Darwin factor or an environment override, self-contained, with the override unset preserving today's Linux budgets and the negative control kept. Handoffs record on epic ticket CDT-502 (OQ3). If a long-tail failure's root cause sits inside a PDH fence body, the fence is not edited (CDT-502-C5's jurisdiction) — the suite's concrete cause is recorded for C5 instead.
+
 ## Version History
 
 | Date | Change |
