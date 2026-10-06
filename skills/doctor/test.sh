@@ -2611,7 +2611,7 @@ rm -f "$T25_PLANT"
 
 # =============================================================================
 # T28. WP 8-B / CDT-300 observability checks (memory.mode, embed round-trip,
-#      transcript budget, lint-waiver trend, test-quarantine size)
+#      transcript budget, lint-waiver trend, test-quarantine scoped-entry model)
 # =============================================================================
 T28="$TMP/t28-observability"
 make_bare_project "$T28"
@@ -2714,21 +2714,64 @@ else
   fail "T28f bare --fix created .claude"
 fi
 
-# T28g — test.quarantine PASS on the shipped tree (0 entries)
+# T28g — test.quarantine scoped-entry model (SPEC-030 ### CDT-502-C4): the
+# shipped tree carries 3 macos-scoped entries with reasons → PASS with the
+# scoped detail (all-scoped: 0).
 T28Q=$(t28_id test.quarantine)
-if [ "$(t28_st "$T28Q")" = "PASS" ] && printf '%s' "$T28Q" | grep -q "0 quarantined"; then
-  pass "T28g test.quarantine PASS 0 on the shipped tree"
+if [ "$(t28_st "$T28Q")" = "PASS" ] \
+   && printf '%s' "$T28Q" | grep -q "3 macos-scoped quarantined suites" \
+   && printf '%s' "$T28Q" | grep -q "(all-scoped: 0)"; then
+  pass "T28g test.quarantine PASS scoped model (3 macos entries, all-scoped: 0)"
 else
   fail "T28g test.quarantine: $T28Q"
 fi
-# Negative control: the same grep counts planted entries.
-QPLANT=$(mktemp "${TMPDIR:-/tmp}/t28-q.XXXXXX")
-printf '%s\n' '# comment' '' 'skills/a-test.sh env' 'skills/b-test.sh slow' > "$QPLANT"
-QN=$(grep -cE '^[^#[:space:]]' "$QPLANT") || QN=0
-[ "$QN" = "2" ] \
-  && pass "T28g2 negative control: quarantine grep counts 2 planted entries" \
-  || fail "T28g2 quarantine grep counted $QN (want 2)"
-rm -f "$QPLANT"
+
+# T28g2-g4 — negative bites: plant one offending entry in the real
+# tools/test-quarantine.txt (backup → plant → check → restore); each must WARN
+# naming the planted file line.
+QF="$PLUGIN_ROOT/tools/test-quarantine.txt"
+QBAK=$(mktemp "${TMPDIR:-/tmp}/t28-q.XXXXXX")
+cp "$QF" "$QBAK"
+# T28g2 — planted all-scoped entry → WARN naming the line.
+printf '%s\n' 'skills/z-t28-plant.sh all planted all-scoped entry' >> "$QF"
+QLINE=$(grep -nF 'skills/z-t28-plant.sh' "$QF" | head -1 | cut -d: -f1)
+T28Q2=$(t28_id test.quarantine)
+cp "$QBAK" "$QF"
+if [ "$(t28_st "$T28Q2")" = "WARN" ] \
+   && printf '%s' "$T28Q2" | grep -q "line(s) $QLINE violate"; then
+  pass "T28g2 planted all-scoped entry → WARN naming line $QLINE"
+else
+  fail "T28g2 all-scoped bite: $T28Q2"
+fi
+# T28g3 — planted macos entry without a reason → WARN.
+printf '%s\n' 'skills/z-t28-plant.sh macos' >> "$QF"
+QLINE=$(grep -nF 'skills/z-t28-plant.sh' "$QF" | head -1 | cut -d: -f1)
+T28Q3=$(t28_id test.quarantine)
+cp "$QBAK" "$QF"
+if [ "$(t28_st "$T28Q3")" = "WARN" ] \
+   && printf '%s' "$T28Q3" | grep -q "line(s) $QLINE violate"; then
+  pass "T28g3 planted reason-less entry → WARN naming line $QLINE"
+else
+  fail "T28g3 reason-less bite: $T28Q3"
+fi
+# T28g4 — planted unknown-scope entry → WARN.
+printf '%s\n' 'skills/z-t28-plant.sh lane planted unknown-scope entry' >> "$QF"
+QLINE=$(grep -nF 'skills/z-t28-plant.sh' "$QF" | head -1 | cut -d: -f1)
+T28Q4=$(t28_id test.quarantine)
+cp "$QBAK" "$QF"
+if [ "$(t28_st "$T28Q4")" = "WARN" ] \
+   && printf '%s' "$T28Q4" | grep -q "line(s) $QLINE violate"; then
+  pass "T28g4 planted unknown-scope entry → WARN naming line $QLINE"
+else
+  fail "T28g4 unknown-scope bite: $T28Q4"
+fi
+# Restore guard: the shipped file must be byte-identical after the bites.
+if cmp -s "$QBAK" "$QF"; then
+  pass "T28g5 tools/test-quarantine.txt restored byte-identical"
+else
+  fail "T28g5 tools/test-quarantine.txt not restored after the bites"
+fi
+rm -f "$QBAK"
 
 # =============================================================================
 # Summary
