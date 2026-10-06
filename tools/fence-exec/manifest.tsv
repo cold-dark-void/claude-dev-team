@@ -44,3 +44,4 @@ suite	commands/retro.md	## Step 1: Parse arguments	skills/skill-lint/test-comman
 suite	commands/retro.md	Step 2a	skills/skill-lint/test-command-fences.sh	/retro --all --host grok with no Grok session prints its error (CDT-362)
 suite	skills/debug/SKILL.md	## Step 0c: Load bug-specific context	skills/debug/test-fences.sh	/debug Step 0c: a relative path survives sanitization and an empty path does not call git log
 suite	skills/debug/SKILL.md	### S.1 Theme key + reopen status	skills/debug/test-fences.sh	/debug S.1: theme-status.sh resolves through plugin-dir on a consumer cwd
+suite	skills/backlog/SKILL.md	Subcommand: `reconcile`	tools/fence-exec/test-later-fences.sh	/backlog reconcile: the later fence self-resolves PDH with PDH unset and no literal <PDH> in a path (CDT-502-C5)

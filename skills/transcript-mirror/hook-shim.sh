@@ -26,16 +26,16 @@ elif [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "de
   PDH=$(pwd)  # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza; byte-identity waiver only — does not exempt this site from the CDT-166 version-segment ranking rule)
 else
   _pdh_hit=$(find "${HOME:-}/.claude/plugins/cache" \
-    -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null \
+    \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null \
     | awk -F/ '
         {
           ver = ""
           for (i = 1; i <= NF; i++)
-            if ($i == "dev-team" && i < NF) { ver = $(i + 1); break }
+            if (($i == "dev-team" || $i == "dev-team-edge") && i < NF) { ver = $(i + 1); break }
           if (ver == "") next
           m = ver
           gsub(/-pre\./, "~pre.", m)
-          p = ($0 ~ "/cache/cold-dark-void/dev-team/") ? 1 : 0
+          p = ($0 ~ "/cache/cold-dark-void/dev-team/") ? 2 : (($0 ~ "/cache/cold-dark-void/dev-team-edge/") ? 1 : 0)
           print m "\t" p "\t" $0
         }
       ' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3) || _pdh_hit=""

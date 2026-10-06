@@ -630,14 +630,17 @@ function idiom_scan(line, ln, len,    j, code, cs, masked, ch, off, rest, pos, p
     off = p + 4
     rest = substr(code, off + 1)
   }
-  # (d) a brace inside a ${VAR:-...} default
+  # (d) a brace inside a ${VAR:-...} default. Exemption (CDT-502-C5): a default
+  # that opens with `$( ` holds the `{` inside a command substitution (the
+  # SPEC-021 §C8-sanctioned second-canonical wrapper — a ${VAR:-$( … )} default
+  # whose brace group opens inside the $( … )) — bash-valid, not a literal brace.
   off = 0
   rest = code
   while (match(rest, /\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=+?]([^}${]|\$[^{}])*\{/)) {
     rs = RSTART
     rl = RLENGTH
     p = off + rs
-    if (cx[p] != "S")
+    if (cx[p] != "S" && substr(rest, rs, rl) !~ /^\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=+?]\$\( */)
       add_sub(ln, "C8", "d", "a brace inside a ${VAR:-...} default ends the expansion at the first } — ${X:-{}} is \"{\" plus a stray \"}\"; assign DEF='{}' first and use ${X:-$DEF}")
     off = p + rl - 1
     rest = substr(code, off + 1)

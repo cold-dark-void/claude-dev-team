@@ -269,6 +269,24 @@ expect_no_finding C5
 run_lint 0 "$PARTIAL"
 expect_no_finding C5
 
+# 3b. C8(d) exemption (CDT-502-C5): the wrapper's `{` sits under an open `$( `
+#     in the default, so it opens a brace group, not a literal — no C8(d)
+#     finding; a literal `${X:-{}}` default still bites.
+T8I=$(mktemp -d); mkdir -p "$T8I/commands"
+{ printf '```bash\n%s\n```\n' "$WL"
+  printf '```bash\nX="${Y:-{}}"\n```\n'; } > "$T8I/commands/c8d-exempt.md"
+run_lint 1 "$T8I/commands/c8d-exempt.md"
+[ "$(echo "$OUT" | grep -c '\[C8\]' || true)" = "1" ] && PASS=$((PASS + 1)) || {
+  FAIL=$((FAIL + 1)); echo "FAIL: expected exactly 1 [C8] finding in the c8d-exempt probe:"; echo "$OUT" | grep '\[C8\]'
+}
+echo "$OUT" | grep -q 'c8d-exempt.md:5: \[C8\]' && PASS=$((PASS + 1)) || {
+  FAIL=$((FAIL + 1)); echo "FAIL: literal \${X:-{}} no longer trips C8(d)"; echo "$OUT" | grep '\[C8\]'
+}
+echo "$OUT" | grep -q 'c8d-exempt.md:2: \[C8\]' && {
+  FAIL=$((FAIL + 1)); echo "FAIL: the wrapper shape trips C8(d) — the \$( exemption is missing"; echo "$OUT" | grep '\[C8\]'
+} || PASS=$((PASS + 1))
+rm -rf "$T8I"
+
 # 4. A drifted wrapper copy in a .sh fence still bites (exclusions stay no-ops).
 T8G=$(mktemp -d); mkdir -p "$T8G/skills"
 printf '```bash\n%s\n%s\n```\n' "$C3C8W" "${WL/k2,2n/k2,1n}" > "$T8G/skills/other-later.sh"
