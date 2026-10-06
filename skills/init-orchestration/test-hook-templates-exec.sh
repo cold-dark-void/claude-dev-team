@@ -503,8 +503,8 @@ GRAFT_CLEAN='#!/usr/bin/env bash
 # graft stub template (clean)
 exit 0'
 GRAFT_PLANTED='#!/usr/bin/env bash
-# graft stub template (planted SC2086 at warning severity)
-echo $1'
+# graft stub template (planted SC2034 at warning severity)
+cdt_plant_unused=1'
 GRAFT_BARE='#!/usr/bin/env bash
 # shellcheck disable=SC2086
 echo $1'
@@ -554,12 +554,12 @@ check_rc "K0: real shellcheck clean rc" "$GRAFT_RC" "0"
 check_contains "K0: OK contract kept" "$WORK/k0.out" "templates extractable + bash -n clean"
 check_not_contains "K0: no fail-open note when present" "$WORK/k0.err" "shellcheck not installed"
 
-# K1 (AC3 core): one planted SC2086 finding -> rc 1, stderr names the template
+# K1 (AC3 core): one planted SC2034 finding -> rc 1, stderr names the template
 # and carries the full findings output
 graft_run bash-compress "$GRAFT_PLANTED" "$WORK/k1.out" "$WORK/k1.err"
 check_rc "K1: planted finding rc" "$GRAFT_RC" "1"
 check_contains "K1: names the offending template" "$WORK/k1.err" "bash-compress"
-check_contains "K1: findings output on stderr" "$WORK/k1.err" "SC2086"
+check_contains "K1: findings output on stderr" "$WORK/k1.err" "SC2034"
 
 # K2 (R33 bite): bare disable with no reason -> rc 1 naming the template
 graft_run bash-compress "$GRAFT_BARE" "$WORK/k2.out" "$WORK/k2.err"
@@ -574,8 +574,10 @@ check_contains "K3: OK contract kept" "$WORK/k3.out" "templates extractable + ba
 # --- R: HOOK_TEMPLATE_SHELLCHECK_STRICT is retired (AC2) ----------------------
 # Findings shim = present-shellcheck simulation: if the gate still read the
 # variable, the strict run would differ from the plain run. Both runs must be
-# identical (same rc, same stdout, same stderr). Static bite: no reference to
-# the variable may remain in the gate.
+# identical (same rc, same stdout, same stderr) once per-run temp paths are
+# normalized away. The byte-diff runs diff via the pre-farm PATH — the AC-A
+# farm holds no diff. Static bite: no reference to the variable may remain in
+# the gate.
 SC_FIND_SHIM="$WORK/sc-find-shim"
 sc_shim "$SC_FIND_SHIM" 'echo "x.sh:1:1: error: planted finding"; exit 1'
 
@@ -583,8 +585,12 @@ PATH="$GATE_FARM:$SC_FIND_SHIM" "$BASH_BIN" "$GATE" > "$WORK/r-plain.out" 2> "$W
 PATH="$GATE_FARM:$SC_FIND_SHIM" HOOK_TEMPLATE_SHELLCHECK_STRICT=1 "$BASH_BIN" "$GATE" > "$WORK/r-strict.out" 2> "$WORK/r-strict.err"; RSTRICT=$?
 check_rc "R: findings fail rc (strict contract)" "$RPLAIN" "1"
 check_rc "R: strict env rc identical to plain" "$RSTRICT" "$RPLAIN"
-if diff -q "$WORK/r-plain.out" "$WORK/r-strict.out" >/dev/null 2>&1 \
-  && diff -q "$WORK/r-plain.err" "$WORK/r-strict.err" >/dev/null 2>&1; then
+norm_r() { # norm_r FILE — strip per-run temp paths before the byte-diff
+  sed -e "s|$HERMETIC_ROOT|<hermetic>|g" \
+      -e 's|check-hook-templates\.[A-Za-z0-9]\{6\}|check-hook-templates.<mktemp>|g' "$1"
+}
+if PATH="$GRAFT_PATH" diff -q <(norm_r "$WORK/r-plain.out") <(norm_r "$WORK/r-strict.out") >/dev/null 2>&1 \
+  && PATH="$GRAFT_PATH" diff -q <(norm_r "$WORK/r-plain.err") <(norm_r "$WORK/r-strict.err") >/dev/null 2>&1; then
   pass
 else
   fail "R: HOOK_TEMPLATE_SHELLCHECK_STRICT=1 changed the gate output"
