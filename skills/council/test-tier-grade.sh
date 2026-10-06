@@ -470,7 +470,12 @@ OUT="$(cd "$REPO" && bash "$TG" --numstat "$TMP/does-not-exist" 2>/dev/null)"; R
 expect "fail-closed: unreadable numstat -> full" '.tier=="full" and .band=="fail-closed"
   and (.grading_reason|test("^fail-closed: numstat input not readable"))'
 
-printf 'CORRUPT' > "$BADREPO/.git/index"
+# A 7-byte fake index is read as empty by some git builds, so git grep never
+# fails and the grade proceeds normally. An index that is a DIRECTORY cannot
+# be mapped on any platform, making the mid-probe git grep failure rc 128
+# deterministic (BSD and GNU alike).
+rm -f "$BADREPO/.git/index"
+mkdir "$BADREPO/.git/index"
 OUT="$(cd "$BADREPO" && bash "$TG" --numstat "$FIX/sig3-fanin.numstat" 2>/dev/null)"; RC=$?
 expect_rc0 "fail-closed git grep failure"
 expect "fail-closed: git grep failure mid-probe -> full" '.tier=="full" and .band=="fail-closed"

@@ -751,7 +751,9 @@ fi
 # Bite: inject a 'RECIPE STEP' restatement INSIDE §3b (not merely appended
 # at end of file, which the old whole-file check would have wrongly missed
 # once scoped) and confirm the §3b extract catches it.
-sed '/^### 3b\./a RECIPE STEP 1' "$SG" > "$TMP/a7-sg-mut2.md"
+# Portable insert: GNU sed's one-line `a TEXT` is rejected by BSD sed, so the
+# injection goes through awk instead (first §3b heading only — the file has one).
+awk '{print} /^### 3b\./ && !d { print "RECIPE STEP 1"; d=1 }' "$SG" > "$TMP/a7-sg-mut2.md"
 extract_sgc_3b "$TMP/a7-sg-mut2.md" > "$TMP/a7-mut2-3b.md"
 if has "$TMP/a7-mut2-3b.md" "RECIPE STEP"; then
   pass "a7-bite injected 'RECIPE STEP' restatement inside §3b is detected -> check would fail"

@@ -102,17 +102,43 @@ expect_out "PASS $FIX/clean/engine.sh" "clean engine PASSes"
 expect_out "2 checked, 0 failed" "clean summary is 2 checked 0 failed"
 
 # ---------------------------------------------------------------------------
-# Case 3: live-tree no-arg run from the worktree root -> exit 0.
+# Case 3: no-arg run over a hermetic mktemp git repo -> exit 0. The old live-
+# tree form assumed the checkout is smoke-green on THIS host — macOS bash 3.2
+# fails a fence bash -n that Linux bash 5 accepts — so the inputs are built
+# hermetically instead. The gate still fails (never skips) when discovery or
+# the gate breaks: the summary must count all three target kinds, and a broken
+# script under a fixtures segment must stay excluded from the output.
 # ---------------------------------------------------------------------------
-OUT=$(cd "$REPO_ROOT" && bash "$RUN" 2>&1)
+HERM="$TMP/herm"
+mkdir -p "$HERM/commands" "$HERM/skills/ok-skill" "$HERM/tools/fixtures"
+{
+  printf -- '---\n'
+  printf 'name: herm-command\n'
+  printf 'description: hermetic no-arg discovery fixture\n'
+  printf -- '---\n\n'
+  printf '```bash\necho ok\n```\n'
+} > "$HERM/commands/herm-command.md"
+{
+  printf -- '---\n'
+  printf 'name: ok-skill\n'
+  printf 'description: Use when the hermetic no-arg run needs a clean skill surface.\n'
+  printf -- '---\n'
+} > "$HERM/skills/ok-skill/SKILL.md"
+printf '#!/usr/bin/env bash\nprintf "ok\\n"\n' > "$HERM/tools/herm-helper.sh"
+printf '#!/usr/bin/env bash\nif true\n  echo "unclosed"\n' > "$HERM/tools/fixtures/broken-test.sh"
+git -C "$HERM" init -q
+git -C "$HERM" add -A
+git -C "$HERM" -c user.email=t@t.invalid -c user.name=t commit -qm init
+
+OUT=$(cd "$HERM" && bash "$RUN" 2>&1)
 RC=$?
-expect_exit 0 "live no-arg run"
-expect_out "0 failed" "live no-arg summary reports 0 failed"
-expect_not_out "FAIL " "live no-arg run has no FAIL lines"
-# W3-07: the rewritten live tree carries no description warnings either.
-expect_out ", 0 warnings" "live no-arg run has no description warnings"
-# Discovery sanity: the run checks a non-trivial set, none of it fixture material.
-expect_not_out "tools/smoke/fixtures" "live run excludes harness fixtures"
+expect_exit 0 "hermetic no-arg run"
+expect_out "3 checked, 0 failed" "hermetic no-arg summary reports 3 checked 0 failed"
+expect_not_out "FAIL " "hermetic no-arg run has no FAIL lines"
+# W3-07: the clean skill description carries no description warnings either.
+expect_out ", 0 warnings" "hermetic no-arg run has no description warnings"
+# Discovery sanity: the fixtures segment is excluded even when its script is broken.
+expect_not_out "tools/fixtures" "hermetic run excludes fixtures-segment scripts"
 
 # ---------------------------------------------------------------------------
 # Case 3b (W3-07): description lint on user-invocable skills — WARN lines,
@@ -182,8 +208,8 @@ expect_exit 64 "usage error: all target paths missing"
 # ---------------------------------------------------------------------------
 # Case 6: determinism — two consecutive no-arg runs produce identical output.
 # ---------------------------------------------------------------------------
-(cd "$REPO_ROOT" && bash "$RUN") > "$TMP/run1.txt" 2>/dev/null
-(cd "$REPO_ROOT" && bash "$RUN") > "$TMP/run2.txt" 2>/dev/null
+(cd "$HERM" && bash "$RUN") > "$TMP/run1.txt" 2>/dev/null
+(cd "$HERM" && bash "$RUN") > "$TMP/run2.txt" 2>/dev/null
 if diff -q "$TMP/run1.txt" "$TMP/run2.txt" >/dev/null 2>&1; then
   pass
 else

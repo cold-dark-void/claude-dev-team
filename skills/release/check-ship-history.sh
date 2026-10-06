@@ -346,9 +346,12 @@ prev_for_tag() {
   local this_commit="$1"
   local exclude_args=() desc commit
   while :; do
+    # Guarded expansion: bash 3.2 treats "${arr[@]}" on an empty array as an
+    # unbound variable under set -u, which would kill the describe and make
+    # every tag's prev fall back to $SINCE.
     if ! desc=$(git -C "$ROOT" describe --tags --abbrev=0 \
       --match 'v[0-9]*' --match '[0-9]*' \
-      "${exclude_args[@]}" "${this_commit}^" 2>/dev/null); then
+      ${exclude_args[@]+"${exclude_args[@]}"} "${this_commit}^" 2>/dev/null); then
       printf '%s\n' "$SINCE"
       return
     fi

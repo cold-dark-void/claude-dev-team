@@ -59,9 +59,10 @@ while IFS= read -r spec; do
     say "$rel: [format] $(tr '\n' ' ' < "$fmt_err")"
   fi
   rm -f "$fmt_err"
-  id=$(sed -n 's/^# \(SPEC\|PERF\|SAFE\|COMPAT\|ARCH\)-[0-9][0-9]*:.*/\1/p' "$spec" | head -1)
-  # id line includes the number; the sed above only captured the prefix. Re-read.
-  id=$(sed -n 's/^# \(\(SPEC\|PERF\|SAFE\|COMPAT\|ARCH\)-[0-9][0-9]*\):.*/\1/p' "$spec" | head -1)
+  # H1 id via awk ERE: BSD sed has no \| alternation in a BRE, so the old
+  # \(SPEC\|PERF\|...\) form matched nothing on macOS. One awk covers both the
+  # prefix-only and full-id captures the two seds did.
+  id=$(awk '/^# (SPEC|PERF|SAFE|COMPAT|ARCH)-[0-9][0-9]*:/ { sub(/^# /, ""); sub(/:.*/, ""); print; exit }' "$spec")
   [ -n "$id" ] || { say "$rel: [index] no spec id in the H1"; continue; }
   title=$(sed -n "s/^# $id: //p" "$spec" | head -1)
   status=$(sed -n 's/^\*\*Status\*\*:[[:space:]]*//p' "$spec" | head -1)

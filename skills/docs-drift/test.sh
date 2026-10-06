@@ -623,8 +623,17 @@ restore "$MINI/.claude-plugin/marketplace.json"
 # Live-tree bites run on a scratch copy (SPEC-030 R16).
 # ---------------------------------------------------------------------------
 LIVE=$(mktemp -d)
-(cd "$REPO_ROOT" && git ls-files -z --cached --others --exclude-standard \
-  | tar --null -T - --ignore-failed-read -cf - 2>/dev/null) | (cd "$LIVE" && tar -xf -)
+# Portable copy of the tracked + untracked-non-ignored tree: BSD tar rejects
+# --ignore-failed-read (GNU-only), which left the scratch tree empty on macOS
+# and failed every live-tree bite. NUL-safe while-read keeps the exact
+# ls-files selection (no tracked symlinks in this repo, verified).
+(cd "$REPO_ROOT" && git ls-files -z --cached --others --exclude-standard) | (
+  while IFS= read -r -d '' f; do
+    [ -f "$REPO_ROOT/$f" ] || continue
+    mkdir -p "$LIVE/$(dirname "$f")"
+    cp "$REPO_ROOT/$f" "$LIVE/$f"
+  done
+)
 git -C "$LIVE" init -q && git -C "$LIVE" add -A
 
 LIVE_STATUS_BEFORE=$(cd "$LIVE" && git status --porcelain)

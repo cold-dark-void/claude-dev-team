@@ -16,6 +16,11 @@ HERE=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # CDT-284: portable sha256 (sha256sum is absent on stock macOS).
 # shellcheck source=../lib/portable.sh
 . "$HERE/../lib/portable.sh"
+# path_canon: the tool prints a resolved path whose spelling of $WORK on macOS
+# (/private/var vs /var, TMPDIR trailing slash) differs from the raw mktemp
+# string — canon both sides of every stdout-path compare.
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 # CDT-293 [04 E6]: shared transcript-store helpers (age/sha_file/last_ident/
 # plant_claude_src/write_store/plant_hit) — one copy for this suite and
 # summarize-transcript-test.sh; sourced after the env vars it needs exist.
@@ -186,7 +191,7 @@ fi
 
 NLINES=$(wc -l <"$WORK/ct.out" | tr -d ' ')
 IFS= read -r GOT_PATH <"$WORK/ct.out" || true
-if [ "$NLINES" = "1" ] && [ "$GOT_PATH" = "$TAIL_HIT" ] && [ -f "$TAIL_HIT" ]; then
+if [ "$NLINES" = "1" ] && [ "$(path_canon "$GOT_PATH")" = "$(path_canon "$TAIL_HIT")" ] && [ -f "$TAIL_HIT" ]; then
   pass "C1 stdout absolute tail path"
 else
   fail "C1 stdout want=$TAIL_HIT got=${GOT_PATH:-<empty>} nlines=$NLINES exists=$( [ -f "$TAIL_HIT" ] && echo y || echo n )"
@@ -674,7 +679,7 @@ fi
 
 NLINES_OL=$(wc -l <"$WORK/ct.out" | tr -d ' ')
 IFS= read -r GOT_OL_PATH <"$WORK/ct.out" || true
-if [ "$NLINES_OL" = "1" ] && [ "$GOT_OL_PATH" = "$TAIL_OL" ] && [ -f "$TAIL_OL" ]; then
+if [ "$NLINES_OL" = "1" ] && [ "$(path_canon "$GOT_OL_PATH")" = "$(path_canon "$TAIL_OL")" ] && [ -f "$TAIL_OL" ]; then
   pass "C11 compact stdout absolute tail path"
 else
   fail "C11 compact stdout want=$TAIL_OL got=${GOT_OL_PATH:-<empty>} nlines=$NLINES_OL"

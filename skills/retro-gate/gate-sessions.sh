@@ -43,11 +43,29 @@ while IFS= read -r JSONL; do
         continue
       fi
     else
-      FILE_START=$(date +%s)
-      GATE_OUT=$(bash "$GATE_SH" "$JSONL" 2>/dev/null)
-      FILE_ELAPSED=$(( $(date +%s) - FILE_START ))
-      if [ "$FILE_ELAPSED" -ge 2 ]; then
-        echo "# retro: gate timed out on $(basename "$JSONL" .jsonl) (${FILE_ELAPSED}s >= 2s per-file cap) — skipping" >&2
+      # No timeout(1) (BSD/macOS): enforce the same 2s cap with a background
+      # run plus a 1s poll — a gate that outlives the cap is killed, not
+      # merely reported after the fact.
+      _capout=$(mktemp "${TMPDIR:-/tmp}/retro-gate-cap.XXXXXX")
+      bash "$GATE_SH" "$JSONL" 2>/dev/null >"$_capout" &
+      _cap_pid=$!
+      _cap_t=0
+      while [ "$_cap_t" -lt 2 ] && kill -0 "$_cap_pid" 2>/dev/null; do
+        sleep 1
+        _cap_t=$((_cap_t + 1))
+      done
+      if kill -0 "$_cap_pid" 2>/dev/null; then
+        kill "$_cap_pid" 2>/dev/null
+        wait "$_cap_pid" 2>/dev/null
+        FILE_RC=124
+      else
+        wait "$_cap_pid"
+        FILE_RC=$?
+      fi
+      GATE_OUT=$(cat "$_capout")
+      rm -f "$_capout"
+      if [ "$FILE_RC" -eq 124 ]; then
+        echo "# retro: gate timed out on $(basename "$JSONL" .jsonl) (timeout 2s per-file cap) — skipping" >&2
         continue
       fi
     fi

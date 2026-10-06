@@ -1484,9 +1484,9 @@ wp7_violations=""
 wp7_carry_no_stanza=""
 wp7_carry_no_echo=""
 for f in $wp7_scan; do
-  case "$(printf '\n%s\n' "$wp7_partials")" in *"
-$f
-"*) continue ;; esac
+  # grep -qxFx, not a multi-line case pattern: bash 3.2 cannot parse a case
+  # pattern whose quotes close across the embedded newlines.
+  if printf '%s\n' "$wp7_partials" | grep -qxFx "$f"; then continue; fi
   [ -f "$REPO_ROOT/$f" ] || continue
   awk -v F="$f" '
     /^<!-- include:/ {open[++n]=NR}

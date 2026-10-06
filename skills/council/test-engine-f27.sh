@@ -70,7 +70,7 @@ umask 022
     --evidence-file "$FIX/evidence.json" --judge-output "$FIX/judge.json" \
     --report-out "$TMP/keep.md" >/dev/null
 )
-mode="$(stat -c %a "$TMP/keep.md")"
+mode="$(stat -c %a "$TMP/keep.md" 2>/dev/null || stat -f %Lp "$TMP/keep.md" 2>/dev/null)"
 if [ "$mode" = "644" ]; then
   ok "report mode is 644 under umask 022 (not mkstemp 600)"
 else
