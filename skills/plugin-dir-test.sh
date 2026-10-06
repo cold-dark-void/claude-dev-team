@@ -696,7 +696,7 @@ EXPECTED_RESOLVER_COUNT=12
 # spot. A named exclusion that no longer matches the predicate is a stale
 # exclusion (a hole) and MUST fail the gate.
 NAMED_EXCLUSIONS=(
-  "skills/plugin-dir.sh:327|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:58, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
+  "skills/plugin-dir.sh:354|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:64, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
 )
 
 # Discovery: anchored on the SPEC-002 structural invariant — a slug-free
@@ -715,14 +715,17 @@ NAMED_EXCLUSIONS=(
 # being parsed as an option by grep implementations that reject a leading
 # '-' in PATTERN (same rationale as derive_target below).
 #
-# Exclusions: canonical stanza emissions (`PDH=$( {`), skill-lint fixtures
-# (deliberately drifted copies), this harness's own file (hosts the
-# CDT-53-13 hazard assertion plus this gate), comment/prose lines (a line
-# merely describing the shape — e.g. plugin-dir.sh's own header comment at
-# line 26, "Find fallback: find ... -path '*/dev-team/*/<relpath>'" — is not
-# a resolver), and the NAMED_EXCLUSIONS declared above. specs/ is prose, out
-# of scope. A broad pattern exclusion would risk hiding a future genuine
-# blind spot; naming the one file+line that cannot be extracted does not.
+# Exclusions: canonical stanza emissions — the first-fence shape (`PDH=$( {`)
+# and, since CDT-502-C5, the later-fence wrapper shape (`PDH="${PDH:-$(`:
+# the managed partial skills/lib/pdh-later-fence.sh and every carrier line
+# expanded from it) —, skill-lint fixtures (deliberately drifted copies), this
+# harness's own file (hosts the CDT-53-13 hazard assertion plus this gate),
+# comment/prose lines (a line merely describing the shape — e.g. plugin-dir.sh's
+# own header comment, "Find fallback: find ... -path '*/dev-team/*/<relpath>'"
+# — is not a resolver), and the NAMED_EXCLUSIONS declared above. specs/ is
+# prose, out of scope. A broad pattern exclusion would risk hiding a future
+# genuine blind spot; naming the one file+line that cannot be extracted does
+# not.
 #
 # The stages below are kept SEPARATE (rather than collapsed into one grep
 # pipeline) so the harness can print the full audit chain:
@@ -743,6 +746,14 @@ excl_self=$(printf '%s\n' "$stage_a" | grep -c '^skills/plugin-dir-test\.sh:' ||
 stage_b=$(printf '%s\n' "$stage_a" | grep -v '^skills/plugin-dir-test\.sh:' || true)
 excl_stanza=$(printf '%s\n' "$stage_b" | grep -cF 'PDH=$( {' || true)
 glob_lines=$(printf '%s\n' "$stage_b" | grep -vF 'PDH=$( {' || true)
+
+# Remaining shape exclusion: the later-fence wrapper (CDT-502-C5). The managed
+# partial and every carrier line expanded from it hold the full cascade's
+# -path globs inside `PDH="${PDH:-$( … )}"` — the second canonical text, not a
+# standalone resolver. The shape is disjoint from `PDH=$( {`, so no line is
+# counted twice.
+excl_wrapper=$(printf '%s\n' "$glob_lines" | grep -cF 'PDH="${PDH:-$(' || true)
+glob_lines=$(printf '%s\n' "$glob_lines" | grep -vF 'PDH="${PDH:-$(' || true)
 
 # Remaining shape exclusion: comment/prose lines — a line that merely
 # DESCRIBES the glob (plugin-dir.sh:34 documents the tier-4 fallback) and any
@@ -775,7 +786,7 @@ if [ -n "$glob_lines" ]; then
     fi
   done <<< "$glob_lines"
 fi
-excl_mechanical=$((excl_fixtures + excl_self + excl_stanza + excl_prose))
+excl_mechanical=$((excl_fixtures + excl_self + excl_stanza + excl_wrapper + excl_prose))
 
 # Named exclusions — subtracted LAST, from the resolver set, and reported by
 # path:line with the rationale. A named exclusion that no longer matches the
@@ -815,6 +826,7 @@ done <<< "$resolver_hits"
 echo "  predicate matches (-path '*/dev-team/*' under agents skills commands docs): $predicate_count"
 echo "  - mechanical (shape) exclusions: $excl_mechanical"
 echo "      canonical stanza emissions (line contains 'PDH=\$( {'): $excl_stanza"
+echo "      later-fence wrapper emissions (line contains 'PDH=\"\${PDH:-\$(' — the managed partial + its carriers): $excl_wrapper"
 echo "      harness self (skills/plugin-dir-test.sh): $excl_self"
 echo "      skill-lint fixtures (deliberately drifted copies): $excl_fixtures"
 echo "      comment/prose lines (describe the glob, do not run it): $excl_prose"
@@ -1581,6 +1593,106 @@ assert_eq "WP7 tree control: a carry without a stanza anchor is flagged" "$wp7_c
 wp7_ctl2=$(printf 'PDH=$( { x } )\n' | awk '/PDH=\$\( \{/ { s++ } /PDH="\$\{PDH:-<PDH>\}"/ { c=1 } END { if (c && !s) print "flagged"; else print "clean" }')
 assert_eq "WP7 tree control: a stanza-only file stays clean" "$wp7_ctl2" "clean"
 rm -f "$TMP/wp7.multi" "$TMP/wp7.warn"
+
+# --- CDT-502-C5 tree: every later-fence wrapper emission is the partial ------
+# The managed partial skills/lib/pdh-later-fence.sh is the byte SoT for the
+# second canonical text. After the leading-whitespace strip, sort -u over every
+# wrapper line in the tree must yield EXACTLY ONE variant equal to the
+# partial's own line — the later-fence mirror of the WP 1-11 stanza gate above.
+echo "== CDT-502-C5 tree: later-fence wrapper emissions are one variant =="
+PARTIAL="$REPO_ROOT/skills/lib/pdh-later-fence.sh"
+if [ -f "$PARTIAL" ]; then
+  PASS=$((PASS + 1)); echo "  ok  managed partial exists"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL managed partial missing: $PARTIAL"; _pdt_fail_label "managed partial missing"
+fi
+wrapper_matches=$( cd "$REPO_ROOT" && grep -rnF 'PDH="${PDH:-$(' agents commands skills docs AGENTS.md 2>/dev/null \
+  | grep -v 'skill-lint/fixtures/' | grep -v '^skills/plugin-dir-test.sh:' \
+  | grep -v '^skills/skill-lint/lint.py:' || true )
+# lint.py is excluded above: it QUOTES the wrapper shape in its C5 second-class
+# comment and regex, exactly as this harness quotes the discovery predicate.
+wrapper_n=$(printf '%s\n' "$wrapper_matches" | awk 'NF { n++ } END { print n + 0 }')
+if [ "$wrapper_n" -gt 0 ]; then
+  PASS=$((PASS + 1)); echo "  ok  C5 later class: found $wrapper_n wrapper emission line(s) (predicate is not vacuous)"
+else
+  FAIL=$((FAIL + 1)); echo "  FAIL C5 later class: zero wrapper emissions found — predicate or scan roots rotted"; _pdt_fail_label "C5 later class: zero wrapper emissions found"
+fi
+partial_line=$(grep -m1 '^PDH="' "$PARTIAL" | sed 's/^[[:space:]]*//')
+wrapper_variants=$(printf '%s\n' "$wrapper_matches" | cut -d: -f3- | sed 's/^[[:space:]]*//' | sort -u | awk 'NF')
+assert_eq "C5 later class: all wrapper emissions are one variant, equal to the partial" "$wrapper_variants" "$partial_line"
+
+# --- CDT-508: the edge install channel (dev-team-edge) ------------------------
+# The tier-3 cache arm and the tier-4 find glob hardcoded the dev-team slug; an
+# edge-only install (~/.claude/plugins/cache/cold-dark-void/dev-team-edge/<VER>/)
+# answered `file <rel>` with exit 3. Both channels now rank together: highest
+# <VER> wins across both; equal <VER> prefers dev-team (the CDT-508 lock).
+echo "== CDT-508 edge install channel (dev-team-edge) =="
+rm_under_tmp "$TMP/home"
+EDGE_VER_ROOT="$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/9.9.9"
+mkdir -p "$EDGE_VER_ROOT/skills"
+: > "$EDGE_VER_ROOT/skills/plugin-dir.sh"
+printf 'edge-probe\n' > "$EDGE_VER_ROOT/skills/.pdh-edge-probe"
+
+# 1. plugin-dir.sh CLI: an edge-only layout resolves file + root
+#    (RED pre-CDT-508: exit 3).
+out=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file skills/.pdh-edge-probe )
+assert_rc "CDT-508 edge-only file rc" "$?" 0
+assert_eq "CDT-508 edge-only file path" "$out" "$EDGE_VER_ROOT/skills/.pdh-edge-probe"
+out=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" root )
+assert_rc "CDT-508 edge-only root rc" "$?" 0
+assert_eq "CDT-508 edge-only root" "$out" "$EDGE_VER_ROOT"
+
+# 2. The canonical stanza (first text) resolves the edge-only layout.
+pdh=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STANZA_SH" )
+assert_eq "CDT-508 stanza resolves the edge-only layout" "$pdh" "$EDGE_VER_ROOT"
+
+# 3. The second canonical text (the managed partial) resolves it too — and a
+#    non-empty carried PDH is used unchanged (no existence re-check).
+SECOND_SH="$TMP/second-text.sh"
+{ cat "$PARTIAL"; printf 'printf %%s "$PDH"\n'; } > "$SECOND_SH"
+pdh=$( cd "$FOREIGN" && env -u PDH -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$SECOND_SH" )
+assert_eq "CDT-508 second text resolves the edge-only layout" "$pdh" "$EDGE_VER_ROOT"
+pdh=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT PDH="/pdh-carried-stale" HOME="$TMP/home" bash "$SECOND_SH" )
+assert_eq "CDT-508 second text uses a non-empty carried PDH unchanged" "$pdh" "/pdh-carried-stale"
+
+# 4. Equal-VER lock: dev-team beats dev-team-edge at the same <VER>.
+rm_under_tmp "$TMP/home"
+mkdir -p "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/5.0.0/skills" \
+         "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/5.0.0/skills"
+: > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/5.0.0/skills/plugin-dir.sh"
+: > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/5.0.0/skills/plugin-dir.sh"
+printf 'dt\n' > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/5.0.0/skills/.pdh-edge-probe"
+printf 'edge\n' > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/5.0.0/skills/.pdh-edge-probe"
+out=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file skills/.pdh-edge-probe )
+assert_contains "CDT-508 equal-VER lock prefers dev-team" "$out" "/cache/cold-dark-void/dev-team/5.0.0/"
+pdh=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$STANZA_SH" )
+assert_eq "CDT-508 equal-VER lock: stanza prefers dev-team" "$pdh" "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/5.0.0"
+
+# 5. Highest <VER> across channels (tier 3), and tier 4 falls through to the
+#    edge channel when the winning version dir lacks the file.
+rm_under_tmp "$TMP/home"
+mkdir -p "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/1.0.0/skills" \
+         "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/9.9.9/skills"
+printf 'lo\n' > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/1.0.0/skills/.pdh-edge-probe"
+printf 'hi\n' > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/9.9.9/skills/.pdh-edge-probe"
+out=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file skills/.pdh-edge-probe )
+assert_contains "CDT-508 highest VER across channels (edge 9.9.9 beats dev 1.0.0)" "$out" "/dev-team-edge/9.9.9/"
+rm_under_tmp "$TMP/home"
+mkdir -p "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/9.9.9/skills" \
+         "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/1.0.0/skills"
+: > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/9.9.9/skills/plugin-dir.sh"
+: > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/1.0.0/skills/plugin-dir.sh"
+printf 't4\n' > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team-edge/1.0.0/skills/.pdh-edge-probe"
+out=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file skills/.pdh-edge-probe )
+assert_rc "CDT-508 tier-4 edge fallthrough rc" "$?" 0
+assert_contains "CDT-508 tier-4 falls through to the edge channel" "$out" "/dev-team-edge/1.0.0/"
+
+# 6. Negative control: a dev-team-only layout resolves unchanged.
+rm_under_tmp "$TMP/home"
+mkdir -p "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/2.0.0/skills"
+printf 'dt-only\n' > "$TMP/home/.claude/plugins/cache/cold-dark-void/dev-team/2.0.0/skills/.pdh-edge-probe"
+out=$( cd "$FOREIGN" && env -u CLAUDE_PLUGIN_ROOT HOME="$TMP/home" bash "$LIB" file skills/.pdh-edge-probe )
+assert_contains "CDT-508 negative control: dev-team-only layout unchanged" "$out" "/dev-team/2.0.0/"
 
 # --- CDT-233 T7 V1: stale-cache delegation falsification (permanent negative
 # proof). A pre-CDT-166 build (its whole body is the forbidden full-path

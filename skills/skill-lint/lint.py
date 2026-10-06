@@ -247,9 +247,16 @@ def check_c1_file(_path, blocks, add_abs):
         for name, rel in uses.items():
             if name in defs or name in ENV_ALLOW or name not in all_defs:
                 continue
+            if name == "PDH":
+                # CDT-502-C5: the remedy for a cross-block $PDH is the second
+                # canonical text, not an ad-hoc re-resolution.
+                remedy = ("expand the second canonical text (the managed partial "
+                          f"{PARTIAL_REL}) in this block per SPEC-002 § Caller integration")
+            else:
+                remedy = "re-resolve it in this block"
             add_abs(start + rel, "C1",
                     f"${name} is defined in a different bash block of this file — "
-                    "blocks run as separate shells; re-resolve it in this block")
+                    f"blocks run as separate shells; {remedy}")
 
 
 CHECKS_FILE.append(check_c1_file)
@@ -259,8 +266,15 @@ CHECKS_FILE.append(check_c1_file)
 # The canonical stanza is READ FROM SPEC-002 AT RUNTIME. It is deliberately not
 # duplicated here: a second literal copy is itself the drift class C5 exists to
 # prevent. Resolution failure is never a silent pass — see VACUOUS below.
+#
+# C5 second emission class (CDT-502-C5): the LATER-fence wrapper
+# `PDH="${PDH:-$( … )}"` is gated the same way, against the managed partial
+# skills/lib/pdh-later-fence.sh (SPEC-002 § Caller integration's second
+# canonical text). The two shapes are disjoint: `PDH=$( {` is a first fence,
+# `PDH="${PDH:-$(` a later one.
 
 SPEC002_REL = "specs/core/SPEC-002-plugin-infrastructure.md"
+PARTIAL_REL = "skills/lib/pdh-later-fence.sh"
 # Anchor on the section HEADING, not "first fenced block in the file": SPEC-002
 # holds more than one fenced bash block (the canonical stanza here, plus the
 # inventory re-derivation command further down). Anchoring on the first block
@@ -268,13 +282,21 @@ SPEC002_REL = "specs/core/SPEC-002-plugin-infrastructure.md"
 CANON_HEADING_RE = re.compile(r"^(#{1,6})\s+Locating\s+`?plugin-dir\.sh`?\s+itself\s*$")
 ATX_HEADING_RE = re.compile(r"^(#{1,6})\s")
 PDH_LINE_RE = re.compile(r"^\s*PDH=\$\(")
+# Later-fence wrapper shape (the partial's line) — disjoint from PDH_LINE_RE.
+PDH_LATER_LINE_RE = re.compile(r'^\s*PDH="\$\{PDH:-\$\(')
 # The locator cannot bootstrap itself; the test harness holds a deliberately
 # re-quoted copy for `bash -c`. Both are standalone .sh files (outside the .md
-# scan set), asserted here rather than assumed.
-C5_EXCLUDE_SUFFIXES = ("skills/plugin-dir.sh", "skills/plugin-dir-test.sh")
+# scan set), asserted here rather than assumed. The managed partial HOLDS the
+# second canonical text (comparing it to itself is a no-op), also a .sh.
+C5_EXCLUDE_SUFFIXES = (
+    "skills/plugin-dir.sh",
+    "skills/plugin-dir-test.sh",
+    "skills/lib/pdh-later-fence.sh",
+)
 
 CANON_ROOTS = []  # search roots for SPEC-002, set by main()
 CANON_CACHE = []  # memoized (stanza, error)
+PARTIAL_CACHE = []  # memoized (later-fence wrapper line, error)
 VACUOUS = []  # distinct unresolvable-canonical reasons; forces non-zero exit
 
 
@@ -328,6 +350,34 @@ def canonical_stanza():
     return CANON_CACHE[0]
 
 
+def _extract_partial(roots):
+    """Return (wrapper_line, None) or (None, reason). Never (None, None)."""
+    tried = []
+    for root in roots:
+        path = os.path.join(root, PARTIAL_REL)
+        tried.append(path)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError as e:
+            return None, f"{path} is unreadable: {e}"
+        lines = [ln.lstrip() for ln in text.splitlines()
+                 if PDH_LATER_LINE_RE.match(ln)]
+        if len(lines) != 1:
+            return None, (f"{path} holds {len(lines)} `PDH=\"${{PDH:-$(` lines "
+                          "(expected exactly 1)")
+        return lines[0], None
+    return None, "managed partial not found at any of: " + ", ".join(tried)
+
+
+def canonical_later_fence():
+    if not PARTIAL_CACHE:
+        PARTIAL_CACHE.append(_extract_partial(CANON_ROOTS or [os.getcwd()]))
+    return PARTIAL_CACHE[0]
+
+
 def _first_diff_col(actual, canon):
     for i, (a, b) in enumerate(zip(actual, canon)):
         if a != b:
@@ -335,31 +385,58 @@ def _first_diff_col(actual, canon):
     return min(len(actual), len(canon)) + 1
 
 
-def check_c5_file(path, blocks, add_abs):
-    norm = path.replace(os.sep, "/")
-    if any(norm.endswith(sfx) for sfx in C5_EXCLUDE_SUFFIXES):
-        return
+def _c5_walk(blocks, line_re, canon_fn, vacuity_label, add_abs, message_fn):
+    """Flag fenced lines matching line_re that drift from canon_fn's text.
+
+    A resolution failure is fatal (VACUOUS), never a silent pass: an emission
+    of the class exists but there is nothing to compare it to.
+    """
     for start, block_lines in blocks:
         for i, line in enumerate(block_lines):
-            if not PDH_LINE_RE.match(line):
+            if not line_re.match(line):
                 continue
-            canon, err = canonical_stanza()
+            canon, err = canon_fn()
             if err:
-                # Fail loudly: a PDH stanza exists but nothing to compare it to.
-                if err not in VACUOUS:
-                    VACUOUS.append(err)
+                entry = (vacuity_label, err)
+                if entry not in VACUOUS:
+                    VACUOUS.append(entry)
                 return
             actual = line.lstrip()
             if actual == canon:
                 continue
-            add_abs(start + i, "C5",
-                    "PDH bootstrap stanza is not byte-identical to the SPEC-002 "
-                    f"canonical block (first difference at column {_first_diff_col(actual, canon)}) "
-                    "— copy the stanza verbatim from SPEC-002 "
-                    '"Locating `plugin-dir.sh` itself"')
+            add_abs(start + i, "C5", message_fn(actual, canon))
+
+
+def check_c5_file(path, blocks, add_abs):
+    norm = path.replace(os.sep, "/")
+    if any(norm.endswith(sfx) for sfx in C5_EXCLUDE_SUFFIXES):
+        return
+    _c5_walk(
+        blocks, PDH_LINE_RE, canonical_stanza,
+        "canonical stanza not resolvable", add_abs,
+        lambda actual, canon:
+            "PDH bootstrap stanza is not byte-identical to the SPEC-002 "
+            f"canonical block (first difference at column {_first_diff_col(actual, canon)}) "
+            "— copy the stanza verbatim from SPEC-002 "
+            '"Locating `plugin-dir.sh` itself"')
+
+
+def check_c5_later_file(path, blocks, add_abs):
+    norm = path.replace(os.sep, "/")
+    if any(norm.endswith(sfx) for sfx in C5_EXCLUDE_SUFFIXES):
+        return
+    _c5_walk(
+        blocks, PDH_LATER_LINE_RE, canonical_later_fence,
+        "canonical later-fence text not resolvable", add_abs,
+        lambda actual, canon:
+            "PDH later-fence resolver is not byte-identical to the managed "
+            f"partial {PARTIAL_REL} (first difference at column "
+            f"{_first_diff_col(actual, canon)}) — expand the partial verbatim "
+            "(SPEC-002 § Caller integration, second canonical text)")
 
 
 CHECKS_FILE.append(check_c5_file)
+CHECKS_FILE.append(check_c5_later_file)
 
 
 def lint_file(path):
@@ -462,6 +539,7 @@ def main(argv):
         os.path.abspath(__file__))))
 
     CANON_CACHE.clear()
+    PARTIAL_CACHE.clear()
     VACUOUS.clear()
     # An explicit --root pins the search: a fallback would let a broken test
     # tree silently resolve its canonical from the real checkout.
@@ -500,9 +578,9 @@ def main(argv):
         for f in unwaived:
             print(f"{f['path']}:{f['line']}: [{f['check']}] {f['message']}")
         print(f"{len(findings)} findings, {waived_n} waived")
-    for reason in VACUOUS:
+    for vacuity_label, reason in VACUOUS:
         # Unwaivable by construction: a waiver here would re-hide the vacuity.
-        print(f"error: [C5] canonical stanza not resolvable — {reason}", file=sys.stderr)
+        print(f"error: [C5] {vacuity_label} — {reason}", file=sys.stderr)
     return 1 if (unwaived or VACUOUS) else 0
 
 

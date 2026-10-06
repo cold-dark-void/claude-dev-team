@@ -27,12 +27,16 @@
 #      $MROOT is the dev-team plugin and $MROOT/<relpath> exists.
 #   3. Marketplace clone vs versioned cache (CDT-82):
 #      - marketplace: ~/.claude/plugins/marketplaces/* with skills/plugin-dir.sh + agents/pm.md
-#      - cache: ~/.claude/plugins/cache/$SLUG/dev-team/<VER>/ (highest ver_pick)
+#      - cache: ~/.claude/plugins/cache/$SLUG/{dev-team,dev-team-edge}/<VER>/
+#        (highest segment rank across BOTH channels; equal VER prefers
+#        dev-team — CDT-508)
 #      Pick highest version (pre-release-safe). Same version string: prefer STM
 #      source (marketplace/dev) over legacy cache — never silently soft-continue
 #      on frozen legacy five-extractor when marketplace/dev has --events (AC-2).
-#   4. Find fallback: find … -path '*/dev-team/*/<relpath>' | path_ver_pick
-#      (rank by /dev-team/<VER>/ segment, not full-path ver_pick — CDT-166)
+#   4. Find fallback: find … \( -path '*/dev-team/*/<relpath>' -o -path
+#      '*/dev-team-edge/*/<relpath>' \) | path_ver_pick (rank by the segment
+#      after the /dev-team(-edge)/ channel, not full-path ver_pick — CDT-166,
+#      CDT-508)
 #
 # Stdout discipline (file/dir/root): prints ONLY the resolved absolute path on success.
 # verify: multi-line status on stdout. Diagnostics to stderr. Stdout empty on fail
@@ -53,18 +57,20 @@ ver_pick() {
   sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./'
 }
 
-# Rank full absolute paths by the segment after /dev-team/ (not full-path sort -V).
-# stdin: paths; stdout: single winner (or empty). Equal VER prefers /cache/$SLUG/dev-team/.
+# Rank full absolute paths by the segment after /dev-team/ or /dev-team-edge/
+# (not full-path sort -V). stdin: paths; stdout: single winner (or empty).
+# Equal VER prefers /cache/$SLUG/dev-team/ over the edge channel (CDT-508
+# lock: dev-team 2 > dev-team-edge 1 > other 0).
 path_ver_pick() {
   awk -F/ -v slug="$SLUG" '
     {
       ver = ""
       for (i = 1; i <= NF; i++)
-        if ($i == "dev-team" && i < NF) { ver = $(i + 1); break }
+        if (($i == "dev-team" || $i == "dev-team-edge") && i < NF) { ver = $(i + 1); break }
       if (ver == "") next
       m = ver
       gsub(/-pre\./, "~pre.", m)
-      p = ($0 ~ ("/cache/" slug "/dev-team/")) ? 1 : 0
+      p = ($0 ~ ("/cache/" slug "/dev-team/")) ? 2 : (($0 ~ ("/cache/" slug "/dev-team-edge/")) ? 1 : 0)
       print m "\t" p "\t" $0
     }
   ' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3
@@ -183,20 +189,30 @@ marketplace_roots() {
   done
 }
 
-# cache_team_root
+# cache_team_root — print BOTH install-channel roots (CDT-508), dev-team
+# first (the equal-VER preference), dev-team-edge second. Callers rank
+# candidates across both channels with the segment ranker; never per-channel
+# first-match.
 cache_team_root() {
   printf '%s\n' "$HOME/.claude/plugins/cache/$SLUG/dev-team"
+  printf '%s\n' "$HOME/.claude/plugins/cache/$SLUG/dev-team-edge"
 }
 
-# highest_cache_ver — ver_pick under team_root, or empty
+# highest_cache_ver — highest version across BOTH channels (segment ranker),
+# or empty
 highest_cache_ver() {
-  local team_root
-  team_root=$(cache_team_root)
-  if [ ! -d "$team_root" ]; then
-    printf '\n'
-    return 0
-  fi
-  ls -1 "$team_root" 2>/dev/null | ver_pick || true
+  local team_root cand all=""
+  while IFS= read -r team_root; do
+    [ -d "$team_root" ] || continue
+    while IFS= read -r cand; do
+      [ -n "$cand" ] || continue
+      all="${all:+$all
+}$team_root/$cand"
+    done < <(ls -1 "$team_root" 2>/dev/null)
+  done < <(cache_team_root)
+  local win
+  win=$(printf '%s\n' "$all" | path_ver_pick) || win=""
+  printf '%s\n' "${win##*/}"
 }
 
 # emit_path <path> [tier] [note] — stdout path; optional stderr trace
@@ -253,16 +269,26 @@ resolve() {
     fi
   done < <(marketplace_roots)
 
-  local team_root ver cache_path="" cache_root=""
-  team_root=$(cache_team_root)
+  local team_root cand_dir ver_dirs="" ver_dir_win
+  # Rank version dirs across BOTH channels (CDT-508) with the same segment
+  # ranker tier 4 uses (path_ver_pick): highest <VER>; equal <VER> prefers
+  # dev-team over dev-team-edge. Never per-channel first-match.
+  while IFS= read -r team_root; do
+    [ -d "$team_root" ] || continue
+    while IFS= read -r cand_dir; do
+      [ -n "$cand_dir" ] || continue
+      ver_dirs="${ver_dirs:+$ver_dirs
+}$team_root/$cand_dir"
+    done < <(ls -1 "$team_root" 2>/dev/null)
+  done < <(cache_team_root)
+  ver_dir_win=$(printf '%s\n' "$ver_dirs" | path_ver_pick) || ver_dir_win=""
+  local ver cache_path="" cache_root=""
   ver=""
-  if [ -d "$team_root" ]; then
-    ver=$(ls -1 "$team_root" 2>/dev/null | ver_pick) || ver=""
-  fi
-  if [ -n "$ver" ]; then
-    cache_path="$team_root/$ver/$rel"
+  if [ -n "$ver_dir_win" ]; then
+    ver="${ver_dir_win##*/}"
+    cache_path="$ver_dir_win/$rel"
     if [ -e "$cache_path" ]; then
-      cache_root="$team_root/$ver"
+      cache_root="$ver_dir_win"
     else
       cache_path=""
     fi
@@ -321,10 +347,11 @@ resolve() {
     return 0
   fi
 
-  # Tier 4: find fallback — highest /dev-team/<VER>/ segment (path_ver_pick; CDT-166).
+  # Tier 4: find fallback — both channels, highest /dev-team(-edge)/<VER>/
+  # segment (path_ver_pick; CDT-166, CDT-508).
   local hit=""
   if [ -d "$cache" ]; then
-    hit=$(find "$cache" -path "*/dev-team/*/$rel" 2>/dev/null | path_ver_pick) || hit=""
+    hit=$(find "$cache" \( -path "*/dev-team/*/$rel" -o -path "*/dev-team-edge/*/$rel" \) 2>/dev/null | path_ver_pick) || hit=""
   fi
   if [ -n "$hit" ]; then
     emit_path "$hit" "find"

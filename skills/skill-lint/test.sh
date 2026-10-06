@@ -228,6 +228,71 @@ OUT=$(bash "$LINT" --root "$REPO_ROOT" 2>&1); RC=$?
 expect_no_finding C5
 expect_no_vacuity "live tree cannot resolve the SPEC-002 canonical stanza"
 
+# T8b: C5 second emission class — later-fence wrapper drift (CDT-502-C5). The
+# managed partial skills/lib/pdh-later-fence.sh is the byte SoT; a missing or
+# ambiguous partial is a loud failure, never a silent pass.
+PARTIAL="$REPO_ROOT/skills/lib/pdh-later-fence.sh"
+LATER_VACUITY="canonical later-fence text not resolvable"
+# The wrapper shape trips C8(d)'s ${X:-{}} heuristic as a known false positive
+# (the { opens a brace group inside the $( … ) in the default); the partial's
+# own waiver is C3,C8 and rides the expansion.
+C3C8W='# lint-ok: C3,C8 — the wrapper rides the partial C8(d) false-positive waiver'
+if [ -f "$PARTIAL" ]; then PASS=$((PASS + 1)); else
+  FAIL=$((FAIL + 1)); echo "FAIL: managed partial missing: $PARTIAL"
+fi
+WL=$(grep -m1 '^PDH="' "$PARTIAL" 2>/dev/null)
+if [ -n "$WL" ]; then PASS=$((PASS + 1)); else
+  FAIL=$((FAIL + 1)); echo "FAIL: no column-0 wrapper line in the partial"
+fi
+
+# 1. Drift fixture bites: the pre-CDT-508 tier-3 arm inside the wrapper; the
+#    genuine C3 waiver does not suppress C5; exactly 1 unwaived C5.
+run_lint 1 "$FIX/c5-later-fence-drift.md"
+expect_finding C5 "c5-later-fence-drift.md:11"
+[ "$(echo "$OUT" | grep -c '\[C5\]')" -eq 1 ] && PASS=$((PASS + 1)) || {
+  FAIL=$((FAIL + 1)); echo "FAIL: expected exactly 1 unwaived later-class C5, got:"; echo "$OUT" | grep '\[C5\]'
+}
+echo "$OUT" | grep -q 'first difference at column' && PASS=$((PASS + 1)) || {
+  FAIL=$((FAIL + 1)); echo "FAIL: C5 later-class finding does not name the first differing column"
+}
+
+# 2. Indentation tolerance: the partial's line at 0/2/4-space indent → no C5.
+T8F=$(mktemp -d)
+{ printf '```bash\n%s\n%s\n```\n' "$C3C8W" "$WL"
+  printf '```bash\n  %s\n  %s\n```\n' "$C3C8W" "$WL"
+  printf '```bash\n    %s\n    %s\n```\n' "$C3C8W" "$WL"; } > "$T8F/indent-later.md"
+run_lint 0 "$T8F/indent-later.md"
+expect_no_finding C5
+
+# 3. The partial itself passes (explicit file-list form; engine 1 scans any
+#    handed path, engine 3 runs C7-only over .sh).
+run_lint 0 "$PARTIAL"
+expect_no_finding C5
+
+# 4. A drifted wrapper copy in a .sh fence still bites (exclusions stay no-ops).
+T8G=$(mktemp -d); mkdir -p "$T8G/skills"
+printf '```bash\n%s\n%s\n```\n' "$C3C8W" "${WL/k2,2n/k2,1n}" > "$T8G/skills/other-later.sh"
+run_lint 1 --root "$REPO_ROOT" "$T8G/skills/other-later.sh"
+expect_finding C5 "other-later.sh"
+rm -rf "$T8F" "$T8G"
+
+# 5. Vacuous-gate guard, partial edition: a live wrapper emission with a
+#    missing, empty or ambiguous partial → loud non-zero, three distinct ways.
+for BREAK in missing-partial empty-partial ambiguous-partial; do
+  T8H=$(mktemp -d)
+  mkdir -p "$T8H/commands" "$T8H/skills/lib"
+  printf '```bash\n%s\n%s\n```\n' "$C3C8W" "$WL" > "$T8H/commands/site.md"
+  case "$BREAK" in
+    empty-partial)     printf '# not the resolver\n' > "$T8H/skills/lib/pdh-later-fence.sh" ;;
+    ambiguous-partial) printf '%s\n%s\n' "$WL" "$WL" > "$T8H/skills/lib/pdh-later-fence.sh" ;;
+  esac
+  run_lint 1 --root "$T8H"
+  echo "$OUT" | grep -q "$LATER_VACUITY" && PASS=$((PASS + 1)) || {
+    FAIL=$((FAIL + 1)); echo "FAIL: $BREAK did not report an unresolvable partial"; echo "$OUT" | tail -3
+  }
+  rm -rf "$T8H"
+done
+
 # ---------------------------------------------------------------------------
 # WP 1-12 (wp-1-12-fence-state): C6 assign-before-use and C10 comment/waiver
 # placement. Both rules live in fence-state.awk (bash + awk, no interpreter);
