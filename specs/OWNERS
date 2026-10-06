@@ -9,8 +9,10 @@
 #   skills/orchestrate is SPEC-009 (SPEC-017 cites dag-lib and task-store; SPEC-026 cites steps 07 and 08).
 #   skills/review-and-commit is SPEC-010 (SPEC-013 cites the preset).
 #   skills/wrap-ticket is SPEC-009 (SPEC-016 cites worktree release).
+commands/afk.md	SPEC-038
 commands/adjust-agent.md	SPEC-001
 commands/audit.md	SPEC-035
+commands/away.md	SPEC-038
 commands/bug-hunt.md	SPEC-034
 commands/compact-transcript.md	SPEC-036
 commands/council.md	SPEC-013
@@ -48,6 +50,7 @@ skills/fix-ticket	SPEC-014
 skills/focus	UNSPECCED
 skills/handoff	SPEC-018
 skills/init-orchestration	SPEC-005
+skills/intercom	SPEC-038
 skills/kickoff	SPEC-009
 skills/memory-compress	SPEC-007
 skills/memory-recall	SPEC-006

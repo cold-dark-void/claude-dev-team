@@ -6,6 +6,13 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.0
+- **Telegram Intercom spool protocol (SPEC-038 phase 1)** — each member gets a personal bot connector: sessions ask through the `intercom` CLI, a harness-scheduled `poller.sh` relays per-session spool records to Telegram and back, and the General topic is the walkie-talkie for anything, anytime; bash + jq + curl only, zero new runtimes (AC21), state outside the repo (AC23).
+- **`/away` and `/afk` surfaces** — toggle the Telegram intercom Away mode: the intercom becomes the primary channel immediately and the main UI still mirrors; `/afk` is an alias of `/away` on the same state, `status` shows the mode without changing it.
+- **`/setup telegram` and `/setup slack` subs** — `telegram` delegates to the interactive `setup-telegram.sh` (token file, `getMe` validation, pairing, state dirs, harness schedule prompt); `slack` is a zero-write stub. Neither is doctor-gated.
+- **Doctor intercom check and hermetic suites** — `skills/doctor/checks/intercom.sh` reports intercom health, and `skills/intercom/` gains fixture-driven `test.sh` / `test-poller.sh` suites over a shared `test-lib.sh`, plus a response-shape `probe.sh`.
+- **SPEC-038 and glossary** — the intercom spool protocol spec (spool layout, record and heartbeat formats, escalation, phase-2 daemon contract) with OWNERS entries, and four crystallized glossary terms: Intercom, Walkie-talkie, Escalation, Away mode.
+
 ### v1.20.0
 - **WP 8-A Surface docs and settings** — seven docs pages for previously hidden commands, derived SECURITY versions, a renamed post-approve-polish skill, and the corrected scaffold and standup wording. Historical note (WP 8-A [10 hygiene]): the v1.0.0 table rows that read "delete at v1.1" for `/validate-memory`, `skills/validate-memory`, `/init-orchestration`, and `skills/init-orchestration` are superseded — validate-memory was restored (see v1.18.13) and init-orchestration is retained.
 

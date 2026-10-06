@@ -119,6 +119,8 @@ Program / multi-ticket work, session tuning, and quality gates.
 | [`/compact-transcript`](docs/commands/compact-transcript.md) | Bounded Meaning tail from Transcript mirror for the operator to @; not a Compact seed |
 | [`/recall`](docs/commands/recall.md) | Cross-source search: sessions, memory, specs, plans, git history |
 | [`/mode`](docs/commands/mode.md) | Session modes — `focus` (action+evidence) · `blunt` (tone+confidence); `status` / `off` |
+| [`/away`](docs/commands/away.md) | Toggle the Telegram intercom Away mode — intercom becomes the primary channel immediately; main UI still mirrors. Same state as `/afk` |
+| [`/afk`](docs/commands/afk.md) | Alias of `/away` — toggle the Telegram intercom Away mode; intercom becomes the primary channel immediately; main UI still mirrors. Same state as `/away` |
 | [`/adjust-agent`](docs/commands/adjust-agent.md) | View/manage per-agent standing directives (`--apply` for non-interactive) |
 | [`/worktree`](docs/commands/worktree.md) | Release a plugin worktree (`release <slug>`); list via `/status worktree` |
 | [`/ci-watch`](docs/commands/ci-watch.md) | Poll PR checks / local tests and spawn a fixer (armed by `/orchestrate`) |
