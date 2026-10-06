@@ -383,9 +383,11 @@ fi
 # ---- T17: --from-session --json stdout is a single JSON document ------------
 if [ -f "$AUDIT" ] && [ -f "$FROM_SESS" ]; then
   SESS_ROOT="$TMP/grok-sessions"
+  # Canon exactly like hosts.py urlencode_cwd (abspath kills the // from a
+  # trailing-slash TMPDIR on macOS); encoding the raw string splits the bucket.
   ENC=$(CWD_RAW="$PROJ" python3 - <<'PY'
 import os, urllib.parse
-print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
+print(urllib.parse.quote(os.path.abspath(os.environ["CWD_RAW"]), safe=""), end="")
 PY
 )
   SID="cdt201-json-only"

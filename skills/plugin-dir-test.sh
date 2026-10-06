@@ -576,8 +576,10 @@ assert_rc "WP11 verify: a foreign repo with an --events prepass is not an STM pe
 # Bare sort-then-tail without the tilde map is forbidden (final 1.0.0 loses to
 # retained 1.0.0-pre.N). Allowlist: this file's intentional hazard assertion.
 echo "== tree bare sort -V uniformity =="
-bare_hits=$(
-  python3 - "$REPO_ROOT" <<'PY'
+# bash 3.2 cannot parse a heredoc inside $( ) (AC5): the parser scans the
+# substitution body for the matching ) and the python body derails it. Stage
+# the gate script in $TMP (trap at top removes it) and feed it via stdin.
+cat > "$TMP/bare-sort-gate.py" <<'PY'
 import os, re, sys
 root = sys.argv[1]
 roots = [os.path.join(root, d) for d in ("commands", "skills", "agents")]
@@ -625,7 +627,7 @@ for base in roots:
 if hits:
     print("\n".join(hits))
 PY
-)
+bare_hits=$(python3 - "$REPO_ROOT" <"$TMP/bare-sort-gate.py")
 if [ -z "$bare_hits" ]; then
   PASS=$((PASS + 1))
   echo "  ok  no bare product sort -V | tail sites"

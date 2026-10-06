@@ -7,6 +7,8 @@ set -u
 # shellcheck source=../../tests/lib/mtimes.sh
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$HERE/../../tests/lib/mtimes.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 DISCOVER="$HERE/discover-warm.sh"
 FIXTURE="$HERE/fixtures/grok-chat-mini.jsonl"
 ADAPTER="$HERE/grok-to-claude-jsonl.py"
@@ -19,6 +21,10 @@ ok()  { PASS=$((PASS+1)); }
 bad() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/discover-warm-test.XXXXXX")
+# A symlinked / trailing-slash TMPDIR (macOS) splits fixture buckets from the
+# physical spelling discover-warm.sh live_cwd realpaths before encoding —
+# canon WORK once so every fixture bucket matches the resolver's form.
+WORK=$(path_canon "$WORK")
 trap 'rm -rf "$WORK"; hermetic_cleanup' EXIT
 
 # Isolate env so ambient session vars / live Grok sessions cannot leak.

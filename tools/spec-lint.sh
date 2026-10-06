@@ -81,7 +81,10 @@ while IFS= read -r spec; do
   awk -v root="$ROOT" -v rel="$rel" -v allow="$ALLOW" '
     function okpath(p) {
       # Skip slash-commands, env vars, globs, and placeholders.
-      if (p ~ /^[/$]/ || p ~ /[*<> {}]/) return 1
+      # BSD awk: an unescaped / inside a bracket expression ends the regex
+      # literal ("nonterminated character class") — escape it. GNU awk keeps
+      # the same [\/$] = {slash, dollar} semantics.
+      if (p ~ /^[\/$]/ || p ~ /[*<> {}]/) return 1
       if (p !~ /^(skills|commands|agents|specs|tools|docs|githooks|tests|\.github|\.claude-plugin)\//) return 1
       sub(/[),.;:]+$/, "", p)
       sub(/\/$/, "", p)

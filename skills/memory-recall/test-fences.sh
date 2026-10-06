@@ -46,6 +46,16 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
 pass=0
 fail=0
 
+# Track failing labels so a CI tail window (20 lines) shows every failing
+# check name, not just the last got-dump. Additive only: the checks, their
+# rcs and the counters are unchanged.
+FAILED_LABELS=""
+check() {
+  local label="$1"
+  shift
+  if "$@"; then pass_line "$label"; else fail_line "$label"; FAILED_LABELS="$FAILED_LABELS$label\n"; fi
+}
+
 WORK="$HERMETIC_ROOT/work"
 mkdir -p "$WORK/bin"
 REAL_SQLITE="$(command -v sqlite3)"
@@ -89,8 +99,7 @@ STEP4="$(fence_nth "$SKILL_MD" "## Step 4: Semantic search" 1)"
 STEP5="$(fence_nth "$SKILL_MD" "## Step 5: Fallback" 1)"
 STEP8="$(fence_nth "$SKILL_MD" "## Step 8: Handling" 1)"
 for pair in "Step 3:$STEP3" "Step 4:$STEP4" "Step 5:$STEP5" "Step 8:$STEP8"; do
-  if [ -n "${pair#*:}" ]; then pass_line "structural: ${pair%%:*} has a bash fence"
-  else fail_line "structural: ${pair%%:*} has a bash fence (zero extracted)"; fi
+  check "structural: ${pair%%:*} has a bash fence" [ -n "${pair#*:}" ]
 done
 
 # ---- fixture ----------------------------------------------------------------
@@ -260,4 +269,7 @@ check "Step 8: '100%' does not match '1000 widgets'" out_lacks "1000 widgets" "$
 
 echo "---"
 echo "memory-recall fence tests: $pass passed, $fail failed"
+# A failing run's labels print here so they land inside the runner's 20-line
+# tail window (the inline FAIL lines sit too far above it to be shown).
+if [ "$fail" -ne 0 ]; then printf 'FAILED CHECKS:\n%b' "$FAILED_LABELS"; fi
 [ "$fail" -eq 0 ]

@@ -471,11 +471,13 @@ expect "fail-closed: unreadable numstat -> full" '.tier=="full" and .band=="fail
   and (.grading_reason|test("^fail-closed: numstat input not readable"))'
 
 # A 7-byte fake index is read as empty by some git builds, so git grep never
-# fails and the grade proceeds normally. An index that is a DIRECTORY cannot
-# be mapped on any platform, making the mid-probe git grep failure rc 128
-# deterministic (BSD and GNU alike).
+# fails and the grade proceeds normally. A DIRECTORY index dies on GNU git but
+# is tolerated by Apple git (the macOS lane graded normally instead of failing
+# the probe), so neither is deterministic. A 51-byte file passes every build's
+# size floor and dies on the DIRC signature check — git grep exits 128 on BSD
+# and GNU alike.
 rm -f "$BADREPO/.git/index"
-mkdir "$BADREPO/.git/index"
+printf 'invalid-index-signature-padding-to-forty-bytes!!!!!' > "$BADREPO/.git/index"
 OUT="$(cd "$BADREPO" && bash "$TG" --numstat "$FIX/sig3-fanin.numstat" 2>/dev/null)"; RC=$?
 expect_rc0 "fail-closed git grep failure"
 expect "fail-closed: git grep failure mid-probe -> full" '.tier=="full" and .band=="fail-closed"
