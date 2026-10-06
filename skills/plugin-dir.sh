@@ -95,10 +95,32 @@ resolve_mroot() {
   fi
 }
 
+# rebase_logical PHYS — git prints the physical worktree path (macOS:
+# /private/var for /var); the CDT-237 contract resolves the LOGICAL cwd (the
+# cd+pwd spelling, never pwd -P). When PHYS is the process cwd or an ancestor
+# of it, re-spell the overlapping tail onto the logical form; otherwise PHYS
+# is returned unchanged.
+rebase_logical() {
+  local p="$1" cwd_l cwd_p tail
+  cwd_l=$(pwd)
+  cwd_p=$(pwd -P)
+  case "$cwd_p" in
+    "$p") printf '%s\n' "$cwd_l" ;;
+    "$p"/*)
+      tail=${cwd_p#"$p"}
+      case "$cwd_l" in
+        *"$tail") printf '%s\n' "${cwd_l%"$tail"}" ;;
+        *) printf '%s\n' "$p" ;;
+      esac
+      ;;
+    *) printf '%s\n' "$p" ;;
+  esac
+}
+
 resolve_wtroot() {
   WTROOT=""
   if WTROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
-    :
+    WTROOT=$(rebase_logical "$WTROOT")
   else
     WTROOT=""
   fi

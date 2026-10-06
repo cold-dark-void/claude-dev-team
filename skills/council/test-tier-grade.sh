@@ -461,6 +461,11 @@ grade "$REPO" quoted-path.numstat
 expect "fail-closed: C-quoted path -> full" '.tier=="full" and .band=="fail-closed"
   and (.grading_reason|test("^fail-closed: unsupported C-quoted path"))'
 
+# Structural not-a-repo: a `.git` gitfile pointing at a nonexistent repo makes
+# `git rev-parse --show-toplevel` die with "not a git repository" on BSD and
+# GNU alike, and discovery stops AT the gitfile (it never walks above an
+# existing .git), so the verdict cannot depend on where $TMP happens to live.
+printf 'gitdir: /nonexistent\n' > "$NOTREPO/.git"
 OUT="$(cd "$NOTREPO" && bash "$TG" --numstat "$FIX/clear-low.numstat" 2>/dev/null)"; RC=$?
 expect_rc0 "fail-closed git failure"
 expect "fail-closed: outside a work tree -> full" '.tier=="full" and .band=="fail-closed"
@@ -475,14 +480,14 @@ OUT="$(cd "$REPO" && bash "$TG" --numstat "$TMP/does-not-exist" 2>/dev/null)"; R
 expect "fail-closed: unreadable numstat -> full" '.tier=="full" and .band=="fail-closed"
   and (.grading_reason|test("^fail-closed: numstat input not readable"))'
 
-# A 7-byte fake index is read as empty by some git builds, so git grep never
-# fails and the grade proceeds normally. A DIRECTORY index dies on GNU git but
-# is tolerated by Apple git (the macOS lane graded normally instead of failing
-# the probe), so neither is deterministic. A 51-byte file passes every build's
-# size floor and dies on the DIRC signature check — git grep exits 128 on BSD
-# and GNU alike.
-rm -f "$BADREPO/.git/index"
-printf 'invalid-index-signature-padding-to-forty-bytes!!!!!' > "$BADREPO/.git/index"
+# Apple git tolerated every earlier shape (run 37435310837): a 7-byte fake
+# index reads as empty, and a directory index or the 51-byte garbage file was
+# ignored by git grep, so the probe graded normally. What no build can ignore
+# is an index it cannot OPEN: read_index dies on anything but ENOENT (a
+# missing index is an empty one), so an unreadable index kills `git grep`
+# with exit 128 on BSD and GNU alike — no content to sniff.
+: > "$BADREPO/.git/index"
+chmod 000 "$BADREPO/.git/index"
 OUT="$(cd "$BADREPO" && bash "$TG" --numstat "$FIX/sig3-fanin.numstat" 2>/dev/null)"; RC=$?
 expect_rc0 "fail-closed git grep failure"
 expect "fail-closed: git grep failure mid-probe -> full" '.tier=="full" and .band=="fail-closed"

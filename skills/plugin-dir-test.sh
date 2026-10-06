@@ -91,6 +91,10 @@ assert_eq "dev file path (checkout must pass the dev-team identity check: plugin
 # --- resolve: synthetic cache, NO CLAUDE_PLUGIN_ROOT (sort path alone) ---
 echo "== cache sort path (no CLAUDE_PLUGIN_ROOT) =="
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/pdh-test.XXXXXX")
+# Logical canonical spelling (cd+pwd): a trailing-slash TMPDIR leaves "//" in
+# mktemp output, while the stanza's branch-1 emits `pwd` (logical, collapsed) —
+# fixture path literals must be in that same spelling to compare equal.
+TMP=$(CDPATH= cd -- "$TMP" && pwd)
 if [ -z "${TMP:-}" ] || [ ! -d "$TMP" ]; then
   echo "FATAL: mktemp -d failed — refusing to run (every rm -rf below is anchored on \$TMP)" >&2
   exit 70
@@ -692,7 +696,7 @@ EXPECTED_RESOLVER_COUNT=12
 # spot. A named exclusion that no longer matches the predicate is a stale
 # exclusion (a hole) and MUST fail the gate.
 NAMED_EXCLUSIONS=(
-  "skills/plugin-dir.sh:305|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:58, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
+  "skills/plugin-dir.sh:327|canonical path_ver_pick ranker, not a copy of it: \$cache and \$rel are function-scope locals and path_ver_pick is a shell function at skills/plugin-dir.sh:58, so the line cannot be extracted and executed standalone; its behaviour is gated directly through the plugin-dir.sh CLI tier-4 fixtures above"
 )
 
 # Discovery: anchored on the SPEC-002 structural invariant — a slug-free
@@ -701,7 +705,7 @@ NAMED_EXCLUSIONS=(
 # variable-rooted `find "$cache" -path '*/dev-team/*/...'` never puts the
 # literal cache path on the `find` line, so it was invisible to the old
 # predicate while still being a live CDT-166-defective resolver shape (see
-# skills/plugin-dir.sh:305 for the prevailing variable-rooted idiom in this
+# skills/plugin-dir.sh:327 for the prevailing variable-rooted idiom in this
 # tree). The glob may sit on the `find` line itself (single-line family, the
 # plugin-dir.sh tier-4 idiom, and any other variable-rooted spelling) or on
 # the very next physical line (the multiline hook-runtime family, whose

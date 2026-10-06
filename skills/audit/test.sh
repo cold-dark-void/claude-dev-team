@@ -30,6 +30,9 @@ pass() { PASS=$((PASS + 1)); echo "PASS: $1"; }
 fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; FAILED_LABELS="$FAILED_LABELS$1\n"; }
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/audit-test.XXXXXX")
+# Logical canonical spelling (cd+pwd): a trailing-slash TMPDIR leaves "//" in
+# mktemp output; audit.sh emits cd+pwd spellings, so grep literals must match.
+TMP=$(CDPATH= cd -- "$TMP" && pwd)
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
