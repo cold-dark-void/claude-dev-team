@@ -3,6 +3,4 @@
 # is all (quarantines on every lane) or macos (quarantines only on the
 # --platform macos lane and is validated-then-ignored on the default lane).
 # An environment cause exits 77 (SPEC-030 R18-R19); it never gets an entry.
-skills/review-and-commit/test-fences.sh macos C5 fence body mktemp suffix-after-X (SKILL.md:134,196,198): BSD mktemp creates the literal file then fails File exists; degraded run rc=1 (fixed by CDT-502-C5; entry goes stale then)
-skills/memory-recall/test-fences.sh macos C5 lembed fence body generates bash 3.2 cannot parse (s4lembed.sh:178 unexpected EOF); 8 checks downstream (fixed by CDT-502-C5; entry goes stale then)
 skills/council/test-tier-grade.sh macos CDT-510: tier-grade fail-closed detection not honored on Apple git (3 fixture designs probed); see CDT-510
