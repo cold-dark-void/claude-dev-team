@@ -682,7 +682,7 @@ _emit_task_complete() {
       | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3) || _pdh_hit=""
     if [ -n "$_pdh_hit" ]; then
       # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza; byte-identity exemption only, not a correctness exemption — CDT-166 version-segment ranking still applies)
-      PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
+      PDH=$(CDPATH='' cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
     fi
   fi
   [ -n "$PDH" ] || return 0
@@ -1284,7 +1284,7 @@ else
     | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3) || _pdh_hit=""
   if [ -n "$_pdh_hit" ]; then
     # lint-ok: C5 (hook-runtime bootstrap, not the caller-site stanza; byte-identity exemption only, not a correctness exemption — CDT-166 version-segment ranking still applies)
-    PDH=$(CDPATH= cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
+    PDH=$(CDPATH='' cd -- "$(dirname -- "$_pdh_hit")/.." && pwd) || PDH=""
   fi
 fi
 
