@@ -7,6 +7,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TG="$ROOT/skills/council/tier-grade.sh"
 FIX="$ROOT/skills/council/fixtures/tier-grade"
 fail=0
+# Track failing labels so a CI tail window (20 lines) shows every failing
+# check name, not just the final verdict. Additive only: checks and rcs
+# unchanged.
+FAILED_LABELS=""
+record_fail() { FAILED_LABELS="$FAILED_LABELS$1\n"; }
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/tier-grade-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
@@ -46,12 +51,12 @@ expect() {  # expect <label> <jq-filter>
   if printf '%s' "$OUT" | jq -e "$2" >/dev/null 2>&1; then
     echo "OK: $1"
   else
-    echo "FAIL: $1"; echo "     got: $OUT"; fail=1
+    echo "FAIL: $1"; echo "     got: $OUT"; record_fail "$1"; fail=1
   fi
 }
 
 expect_rc0() {  # every graded run emits JSON and exits 0
-  if [ "$RC" -eq 0 ]; then echo "OK: $1 exit 0"; else echo "FAIL: $1 exit $RC (want 0)"; fail=1; fi
+  if [ "$RC" -eq 0 ]; then echo "OK: $1 exit 0"; else echo "FAIL: $1 exit $RC (want 0)"; record_fail "$1"; fail=1; fi
 }
 
 # ---- Bands -------------------------------------------------------------------
@@ -95,7 +100,7 @@ fm_fail=0
 while [ "$i" -lt 20 ]; do
   grade "$REPO" sig1-frontmatter.numstat
   if ! printf '%s' "$OUT" | jq -e '.tier=="full" and (.critical_signals|map(select(.signal==1 and .file=="docs/policy.md"))|length)==1' >/dev/null; then
-    echo "FAIL: frontmatter signal flaked on iter $i: $OUT"; fm_fail=1; fail=1; break
+    echo "FAIL: frontmatter signal flaked on iter $i: $OUT"; record_fail "frontmatter signal flaked on iter $i: $OUT"; fm_fail=1; fail=1; break
   fi
   i=$((i + 1))
 done
@@ -170,7 +175,7 @@ if grep -q 'fan-in probe cap exceeded' "$TG" \
   && grep -q '^FANIN_CAP_MIDDLE="\$BAND_HIGH_FILES"' "$TG"; then
   echo "OK: fan-in cap branch present, both caps derived from the band constants"
 else
-  echo "FAIL: fan-in cap branch missing or caps not derived from band constants"; fail=1
+  echo "FAIL: fan-in cap branch missing or caps not derived from band constants"; record_fail "fan-in cap branch missing or caps not derived from band constants"; fail=1
 fi
 
 # Every band threshold is declared once and interpolated — no digit written twice.
@@ -183,7 +188,7 @@ if grep -qE '^BAND_LOW_FILES=5[[:space:]]*(#|$)'    "$TG" \
   && ! grep -qE 'REASON=.*(>20|>600|<=5,|<=100,)' "$TG"; then
   echo "OK: band thresholds declared once, interpolated into comparisons and reasons"
 else
-  echo "FAIL: band thresholds hardcoded inline or duplicated in a reason string"; fail=1
+  echo "FAIL: band thresholds hardcoded inline or duplicated in a reason string"; record_fail "band thresholds hardcoded inline or duplicated in a reason string"; fail=1
 fi
 
 # ---- Signal 4 — deletion-heavy executable ------------------------------------
@@ -491,26 +496,26 @@ usage_out="$(cd "$REPO" && bash "$TG" 2>/dev/null)"; usage_rc=$?
 if [ "$usage_rc" -eq 2 ] && [ -z "$usage_out" ]; then
   echo "OK: missing --numstat -> exit 2, no JSON"
 else
-  echo "FAIL: usage rc=$usage_rc out='$usage_out' (want rc=2, empty)"; fail=1
+  echo "FAIL: usage rc=$usage_rc out='$usage_out' (want rc=2, empty)"; record_fail "usage rc=$usage_rc out='$usage_out' (want rc=2, empty)"; fail=1
 fi
 
 usage_out="$(cd "$REPO" && bash "$TG" --numstat "$FIX/clear-low.numstat" --bogus x 2>/dev/null)"; usage_rc=$?
 if [ "$usage_rc" -eq 2 ]; then
   echo "OK: unknown flag -> exit 2"
 else
-  echo "FAIL: unknown flag rc=$usage_rc (want 2)"; fail=1
+  echo "FAIL: unknown flag rc=$usage_rc (want 2)"; record_fail "unknown flag rc=$usage_rc (want 2)"; fail=1
 fi
 
 # `skip` is never auto-selectable (SPEC-013: grading MUST NOT be able to return it).
 if grep -q '"skip"\|=skip' "$TG"; then
-  echo "FAIL: tier-grade.sh can emit skip"; fail=1
+  echo "FAIL: tier-grade.sh can emit skip"; record_fail "tier-grade.sh can emit skip"; fail=1
 else
   echo "OK: skip is not emittable by grading"
 fi
 
 # Fail-closed emitter must not depend on jq.
 if awk '/^fail_closed\(\)/,/^}/' "$TG" | grep -q 'jq'; then
-  echo "FAIL: fail_closed() depends on jq"; fail=1
+  echo "FAIL: fail_closed() depends on jq"; record_fail "fail_closed() depends on jq"; fail=1
 else
   echo "OK: fail_closed() is jq-free"
 fi
@@ -523,7 +528,7 @@ if printf '%s' "$OUT" | jq -e . >/dev/null 2>&1; then
   expect "fail-closed: CR in reason still valid JSON" \
     '.tier=="full" and .band=="fail-closed" and (.grading_reason|test("^fail-closed:"))'
 else
-  echo "FAIL: CR in fail-closed reason broke JSON: $OUT"; fail=1
+  echo "FAIL: CR in fail-closed reason broke JSON: $OUT"; record_fail "CR in fail-closed reason broke JSON: $OUT"; fail=1
 fi
 
 # CDT-128: post_image_head strips NUL so binary blobs do not warn under capture.
@@ -546,14 +551,14 @@ git -C "$BIN" diff --raw HEAD~1 HEAD > "$TMP/nul.raw"
 ERRF="$TMP/nul.err"
 OUT="$(cd "$BIN" && bash "$TG" --numstat "$TMP/nul.numstat" --raw "$TMP/nul.raw" 2>"$ERRF")"; RC=$?
 if grep -q 'warning:.*NUL' "$ERRF" 2>/dev/null || grep -qi 'null byte' "$ERRF" 2>/dev/null; then
-  echo "FAIL: NUL warning on stderr: $(cat "$ERRF")"; fail=1
+  echo "FAIL: NUL warning on stderr: $(cat "$ERRF")"; record_fail "NUL warning on stderr: $(cat "$ERRF")"; fail=1
 else
   echo "OK: binary post-image with NUL emits no bash NUL warning"
 fi
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e . >/dev/null 2>&1; then
   expect "binary-with-NUL still grades (exit 0 JSON)" 'type=="object" and has("tier")'
 else
-  echo "FAIL: binary-with-NUL grade rc=$RC out=$OUT"; fail=1
+  echo "FAIL: binary-with-NUL grade rc=$RC out=$OUT"; record_fail "binary-with-NUL grade rc=$RC out=$OUT"; fail=1
 fi
 
 # W3-16: basename substring must not trip fan-in. Full path still does
@@ -579,4 +584,7 @@ expect_rc0 "subshell failure"
 expect "subshell failure prints fail-closed JSON" '.tier=="full" and .band=="fail-closed" and (.grading_reason|test("^fail-closed:")) and (.grading_reason|test("exit 7")|not)'
 
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES PRESENT"; fi
+# A failing run's labels print here so they land inside the runner's 20-line
+# tail window (the inline FAIL lines sit too far above it to be shown).
+if [ "$fail" -ne 0 ]; then printf 'FAILED CHECKS:\n%b' "$FAILED_LABELS"; fi
 exit "$fail"

@@ -23,8 +23,11 @@ LINT="$ROOT/skills/skill-lint/check-skill-bash.sh"
 
 PASS=0
 FAIL=0
+# Track failing labels so a CI tail window (20 lines) shows every failing
+# check name, not just the counters. Additive only: checks and rcs unchanged.
+FAILED_LABELS=""
 pass() { PASS=$((PASS + 1)); echo "PASS: $1"; }
-fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
+fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; FAILED_LABELS="$FAILED_LABELS$1\n"; }
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/audit-test.XXXXXX")
 cleanup() { rm -rf "$TMP"; }
@@ -600,7 +603,10 @@ fi
 
 echo
 echo "$PASS passed, $FAIL failed"
+# A failing run's labels print here so they land inside the runner's 20-line
+# tail window (the inline FAIL lines sit too far above it to be shown).
 if [ "$FAIL" -gt 0 ]; then
+  printf 'FAILED CHECKS:\n%b' "$FAILED_LABELS"
   exit 1
 fi
 exit 0

@@ -20,6 +20,31 @@ FAIL=0
 # shellcheck source=tests/lib/assert.sh
 . "$SCRIPT_DIR/../tests/lib/assert.sh"
 
+# Track failing labels so a CI tail window (20 lines) shows every failing
+# check name, not just the PASS/FAIL counters. The shared assert helpers are
+# wrapped, not replaced: the original definitions are kept verbatim under
+# _pdt_orig_<fn> and the wrapper only records the label ($1) when FAIL moves.
+# Additive only: assert output, counters and rcs are unchanged.
+FAILED_LABELS=""
+_pdt_fail_label() { FAILED_LABELS="$FAILED_LABELS$1\n"; }
+_pdt_wrap_assert() { # <fn> — copy the original under _pdt_orig_<fn>, then re-define <fn>
+  local fn="$1" def
+  def=$(declare -f "$fn") || return 0
+  [ -n "$def" ] || return 0
+  def=$(printf '%s\n' "$def" | sed "1s/^${fn}[[:space:]]*(/_pdt_orig_${fn}(/")
+  eval "$def"
+  eval "$fn"'() {
+    local _pdt_before=$FAIL
+    "_pdt_orig_'"$fn"'" "$@"
+    if [ "$FAIL" -ne "$_pdt_before" ]; then _pdt_fail_label "$1"; fi
+    return 0
+  }'
+}
+_pdt_wrap_assert assert_eq
+_pdt_wrap_assert assert_rc
+_pdt_wrap_assert assert_contains
+_pdt_wrap_assert assert_ne
+
 # --- pipeline unit (no HOME, no env) ---
 echo "== ver_pick pipeline =="
 got=$(printf '1.0.0-pre.4\n1.0.0\n' | sed 's/-pre\./~pre./' | sort -V | tail -1 | sed 's/~pre\./-pre./')
@@ -103,7 +128,7 @@ mkdir -p "$FOREIGN"
 
 # CDT-232: prove branch 1 (cwd dev checkout) is bypassed, not just assumed.
 if [ -f "$FOREIGN/skills/plugin-dir.sh" ]; then
-  FAIL=$((FAIL + 1)); echo "  FAIL branch-1 not bypassed: dev checkout visible at \$FOREIGN"
+  FAIL=$((FAIL + 1)); echo "  FAIL branch-1 not bypassed: dev checkout visible at \$FOREIGN"; _pdt_fail_label "branch-1 not bypassed"
 else
   PASS=$((PASS + 1)); echo "  ok  branch 1 (cwd dev checkout) is bypassed"
 fi
@@ -128,6 +153,7 @@ assert_contains "cache final-over-pre path has /1.0.0/" "$out" "/1.0.0/"
 if printf '%s' "$out" | grep -qF '1.0.0-pre'; then
   FAIL=$((FAIL + 1))
   echo "  FAIL cache final-over-pre must not pick pre: [$out]"
+  _pdt_fail_label "cache final-over-pre must not pick pre"
 else
   PASS=$((PASS + 1))
   echo "  ok  cache final-over-pre not a pre path"
@@ -197,6 +223,7 @@ assert_contains "stanza picks final PDH" "$pdh" "/1.0.0"
 if printf '%s' "$pdh" | grep -qF '1.0.0-pre'; then
   FAIL=$((FAIL + 1))
   echo "  FAIL stanza must not pick pre: [$pdh]"
+  _pdt_fail_label "stanza must not pick pre"
 else
   PASS=$((PASS + 1))
   echo "  ok  stanza not a pre path"
@@ -250,6 +277,7 @@ assert_contains "CDT-82 path is marketplace" "$out" "/marketplaces/cold-dark-voi
 if printf '%s' "$out" | grep -qF '/cache/'; then
   FAIL=$((FAIL + 1))
   echo "  FAIL CDT-82 must not pick cache: [$out]"
+  _pdt_fail_label "CDT-82 must not pick cache"
 else
   PASS=$((PASS + 1))
   echo "  ok  CDT-82 not a cache path"
@@ -261,6 +289,7 @@ if grep -q -- '--events' "$out" && ! grep -q -- '--sections' "$out"; then
 else
   FAIL=$((FAIL + 1))
   echo "  FAIL CDT-82 content is STM file: $(head -3 "$out" | tr '\n' ' ')"
+  _pdt_fail_label "CDT-82 content is STM file"
 fi
 
 # verify subcommand: marketplace STM → OK
@@ -371,6 +400,7 @@ assert_contains "CDT-166 multi-slug path has /2.0.0/" "$out" "/2.0.0/"
 if printf '%s' "$out" | grep -qF '/0.50.0/'; then
   FAIL=$((FAIL + 1))
   echo "  FAIL CDT-166 multi-slug must not pick lower VER: [$out]"
+  _pdt_fail_label "CDT-166 multi-slug must not pick lower VER"
 else
   PASS=$((PASS + 1))
   echo "  ok  CDT-166 multi-slug not lower VER path"
@@ -395,6 +425,7 @@ assert_contains "CDT-166 multi-path path has /1.0.0/" "$out" "/1.0.0/"
 if printf '%s' "$out" | grep -qF '1.0.0-pre'; then
   FAIL=$((FAIL + 1))
   echo "  FAIL CDT-166 multi-path must not pick pre: [$out]"
+  _pdt_fail_label "CDT-166 multi-path must not pick pre"
 else
   PASS=$((PASS + 1))
   echo "  ok  CDT-166 multi-path not a pre path"
@@ -439,6 +470,7 @@ assert_contains "CDT-166 stanza multi-slug /2.0.0" "$pdh" "/2.0.0"
 if printf '%s' "$pdh" | grep -qF '/0.50.0'; then
   FAIL=$((FAIL + 1))
   echo "  FAIL CDT-166 stanza multi-slug must not pick lower VER: [$pdh]"
+  _pdt_fail_label "CDT-166 stanza multi-slug must not pick lower VER"
 else
   PASS=$((PASS + 1))
   echo "  ok  CDT-166 stanza multi-slug not lower VER"
@@ -457,7 +489,7 @@ assert_eq "empty-PDH stdout empty" "$out" ""
 if [ "$rc" -ne 0 ]; then
   PASS=$((PASS + 1)); echo "  ok  empty-PDH exits non-zero (rc=$rc)"
 else
-  FAIL=$((FAIL + 1)); echo "  FAIL empty-PDH must exit non-zero"
+  FAIL=$((FAIL + 1)); echo "  FAIL empty-PDH must exit non-zero"; _pdt_fail_label "empty-PDH must exit non-zero"
 fi
 
 # --- WP 1-11 / CDT-265: cwd tiers accept only the dev-team plugin itself ----
@@ -634,6 +666,7 @@ if [ -z "$bare_hits" ]; then
 else
   FAIL=$((FAIL + 1))
   echo "  FAIL bare product sort -V | tail (need tilde map):"
+  _pdt_fail_label "bare product sort -V | tail (need tilde map)"
   printf '%s\n' "$bare_hits" | sed 's/^/    /'
 fi
 
@@ -756,6 +789,7 @@ for _ne in "${NAMED_EXCLUSIONS[@]}"; do
   else
     FAIL=$((FAIL + 1))
     echo "  FAIL stale named exclusion: $ne_site no longer matches the discovery predicate"
+    _pdt_fail_label "stale named exclusion: $ne_site"
     echo "       (a named exclusion that stops matching may be hiding a real hole — re-derive or remove it)"
   fi
 done
@@ -789,9 +823,11 @@ echo "  = discovered $resolver_count non-stanza cache-resolver site(s) extracted
 if [ "$resolver_count" -eq 0 ]; then
   FAIL=$((FAIL + 1))
   echo "  FAIL coverage discovery found ZERO resolvers — discovery predicate rotted (vacuity guard)"
+  _pdt_fail_label "coverage discovery found ZERO resolvers (vacuity guard)"
 elif [ "$resolver_count" -ne "$EXPECTED_RESOLVER_COUNT" ]; then
   FAIL=$((FAIL + 1))
   echo "  FAIL coverage count mismatch: found=$resolver_count want=$EXPECTED_RESOLVER_COUNT"
+  _pdt_fail_label "coverage count mismatch: found=$resolver_count want=$EXPECTED_RESOLVER_COUNT"
   echo "  discovered sites:"
   printf '%s\n' "$resolver_hits" | sed 's/^/    /'
 else
@@ -910,6 +946,7 @@ if [ "$resolver_count" -gt 0 ]; then
     if [ "$ext_rc" -ne 0 ] || [ -z "$resolver_text" ]; then
       FAIL=$((FAIL + 1))
       echo "  FAIL extraction failed for $site_label ($family)"
+      _pdt_fail_label "extraction failed for $site_label ($family)"
       continue
     fi
     PASS=$((PASS + 1))
@@ -919,6 +956,7 @@ if [ "$resolver_count" -gt 0 ]; then
     if [ -z "$target" ]; then
       FAIL=$((FAIL + 1))
       echo "  FAIL could not derive <target> for $site_label"
+      _pdt_fail_label "could not derive <target> for $site_label"
       continue
     fi
     target_dir=$(dirname "$target")
@@ -944,7 +982,7 @@ if [ "$resolver_count" -gt 0 ]; then
     if printf '%s' "$RESOLVE_OUT" | grep -qF '/1.0.0/' && ! printf '%s' "$RESOLVE_OUT" | grep -qF '1.0.0-pre'; then
       PASS=$((PASS + 1)); echo "  ok  $site_label (b) final outranks pre"
     else
-      FAIL=$((FAIL + 1)); echo "  FAIL $site_label (b) final must outrank pre: [$RESOLVE_OUT]"
+      FAIL=$((FAIL + 1)); echo "  FAIL $site_label (b) final must outrank pre: [$RESOLVE_OUT]"; _pdt_fail_label "$site_label (b) final must outrank pre"
     fi
 
     # (c) equal <VER> across slugs prefers cold-dark-void (AC1a)
@@ -967,6 +1005,7 @@ if [ "$resolver_count" -gt 0 ]; then
 else
   FAIL=$((FAIL + 1))
   echo "  FAIL per-site behavioural gate skipped — coverage discovery found 0 sites"
+  _pdt_fail_label "per-site behavioural gate skipped (coverage discovery found 0 sites)"
 fi
 
 # --- T5c: permanent negative proof (AC3) ------------------------------------
@@ -988,6 +1027,7 @@ assert_contains "CDT-234 negative proof: tilde-mapped full-path sort -V still pi
 if printf '%s' "$naive" | grep -qF '/10.0.0/'; then
   FAIL=$((FAIL + 1))
   echo "  FAIL negative proof is vacuous — tilde map alone must NOT fix full-path ranking: [$naive]"
+  _pdt_fail_label "negative proof is vacuous (tilde map alone does not fix full-path ranking)"
 else
   PASS=$((PASS + 1))
   echo "  ok  negative proof not vacuous (tilde map alone does not fix full-path ranking)"
@@ -1014,6 +1054,7 @@ done
 if [ -z "$canon_line" ]; then
   FAIL=$((FAIL + 1))
   echo "  FAIL uniformity canonical home not found in discovered set: $CANON_FILE"
+  _pdt_fail_label "uniformity canonical home not found in discovered set: $CANON_FILE"
 else
   canon_text=$(sed -n "${canon_line}p" "$REPO_ROOT/$CANON_FILE" | sed -E 's/^[[:space:]]*//')
   PASS=$((PASS + 1))
@@ -1033,6 +1074,7 @@ else
   if [ "$uniform_checked" -eq 0 ]; then
     FAIL=$((FAIL + 1))
     echo "  FAIL uniformity gate checked ZERO single-line sites"
+    _pdt_fail_label "uniformity gate checked ZERO single-line sites"
   fi
 fi
 
@@ -1352,7 +1394,7 @@ assert_mutant_ne() {
   if [ "$got" != "$not_want" ]; then
     PASS=$((PASS + 1)); echo "  ok  $name (mutant resolved [$got])"
   else
-    FAIL=$((FAIL + 1)); echo "  FAIL $name: mutant survived, still resolved [$got]"
+    FAIL=$((FAIL + 1)); echo "  FAIL $name: mutant survived, still resolved [$got]"; _pdt_fail_label "$name"
   fi
 }
 # M1: the _pr branch can never match (its -f test forced false).
@@ -1455,7 +1497,7 @@ emitted_n=$(printf '%s\n' "$emitted" | awk 'NF { n++ } END { print n + 0 }')
 if [ "$emitted_n" -gt 50 ]; then
   PASS=$((PASS + 1)); echo "  ok  WP11 tree: found $emitted_n stanza emissions (predicate is not vacuous)"
 else
-  FAIL=$((FAIL + 1)); echo "  FAIL WP11 tree: only $emitted_n stanza emissions found — predicate or scan roots rotted"
+  FAIL=$((FAIL + 1)); echo "  FAIL WP11 tree: only $emitted_n stanza emissions found — predicate or scan roots rotted"; _pdt_fail_label "WP11 tree: only $emitted_n stanza emissions found"
 fi
 variants=$(printf '%s\n' "$emitted" | stanza_variants)
 assert_eq "WP11 tree: all emissions are one variant, equal to the SPEC-002 canonical" "$variants" "$canon_line"
@@ -1649,13 +1691,17 @@ if [ "$v2_rc" -eq 0 ] && [ -n "$v2_out" ]; then
 else
   FAIL=$((FAIL + 1))
   echo "  FAIL T7-V2 plugin-dir.sh now rejects unknown flags. SPEC-002 CDT-233 Q1(c) rests on the opposite"
+  _pdt_fail_label "T7-V2 plugin-dir.sh now rejects unknown flags"
   echo "       (an older copy silently accepts a version tag and answers rc 0 with a stale root)."
   echo "       Re-open the versioned-bootstrap-contract question or update the verdict."
 fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"
+# A failing run's labels print here so they land inside the runner's 20-line
+# tail window (the inline FAIL lines sit too far above it to be shown).
 if [ "$FAIL" -ne 0 ]; then
+  printf 'FAILED CHECKS:\n%b' "$FAILED_LABELS"
   exit 1
 fi
 exit 0
