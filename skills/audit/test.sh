@@ -18,6 +18,8 @@ DOCS="$ROOT/docs/commands/audit.md"
 DOCTOR_CMD="$ROOT/commands/doctor.md"
 FMT="$ROOT/skills/spec-tooling/check-format.sh"
 LINT="$ROOT/skills/skill-lint/check-skill-bash.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$ROOT/tests/lib/path.sh"
 
 PASS=0
 FAIL=0
@@ -536,9 +538,21 @@ PY
   OUT=$(
     CDPATH= cd -- "$INV" && bash "$AUDIT" --json --home "$HOME_F" --cwd "$PROJ" --plugin-root "$PLUGIN_F"
   ) || RC=$?
-  if printf '%s' "$OUT" | grep -Fq "$PROJ/.claude/memory/pm/directives.md" \
-     && ! printf '%s' "$OUT" | grep -q 'INVOKER-LEAK-DIRECTIVE' \
-     && ! printf '%s' "$OUT" | grep -Fq "$INV/.claude/memory/pm/directives.md"; then
+  # Both sides canonical: layers[].path is spelled by audit.sh's own cd+pwd,
+  # while $PROJ/$INV carry TMPDIR's trailing-slash `//` (macOS lane).
+  PROJ_DIR=$(path_canon "$PROJ/.claude/memory/pm/directives.md")
+  INV_DIR=$(path_canon "$INV/.claude/memory/pm/directives.md")
+  hit=0; leak=0
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    c=$(path_canon "$p" 2>/dev/null) || continue
+    [ "$c" = "$PROJ_DIR" ] && hit=1
+    [ "$c" = "$INV_DIR" ] && leak=1
+  done <<EOF
+$(printf '%s' "$OUT" | jq -r '.layers[]?.path // empty')
+EOF
+  if [ "$hit" -eq 1 ] && ! printf '%s' "$OUT" | grep -q 'INVOKER-LEAK-DIRECTIVE' \
+     && [ "$leak" -eq 0 ]; then
     pass "T19 MROOT/directives from --cwd, not invoker repo"
   else
     fail "T19 MROOT leak rc=$RC out=$(printf '%s' "$OUT" | head -c 300)"

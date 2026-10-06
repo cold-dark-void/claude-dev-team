@@ -277,6 +277,34 @@ if [ "$RC" -eq 0 ]; then pass; else fail "trailing_flag_scan: $(cat "$TF/out")";
 OUT=$(bash -c '. "'"$TF_LIB"'"; echo "[${TF_N:-unset}${TF_BAD:-unset}]"' 2>&1)
 if [ "$OUT" = "[unsetunset]" ]; then pass; else fail "trailing-flag.sh sourcing side effect: $OUT"; fi
 
+# ---- path_canon: physical form — symlinks resolved, // and trailing / gone
+PATH_LIB="$HERE/path.sh"
+P="$WORK/pathcanon"
+mkdir -p "$P/real-dir/sub"
+: > "$P/real-dir/f.txt"
+ln -s "$P/real-dir" "$P/link-dir"
+ln -s /no-such-cdt502-target "$P/dangling"
+OUT=$(bash -c '
+. "'"$PATH_LIB"'"
+[ "$(path_canon "$1/link-dir/sub")" = "$(path_canon "$1/real-dir/sub")" ] || exit 1
+[ "$(path_canon "$1/link-dir/")" = "$(path_canon "$1/real-dir")" ] || exit 2
+[ "$(path_canon "$1//real-dir///sub")" = "$(path_canon "$1/real-dir/sub")" ] || exit 3
+[ "$(path_canon "$1/real-dir/f.txt")" = "$(path_canon "$1/real-dir")/f.txt" ] || exit 4
+[ "$(path_canon "$1/missing/leaf")" = "$(path_canon "$1")/missing/leaf" ] || exit 5
+[ "$(path_canon /)" = "/" ] || exit 6
+path_canon "" >/dev/null 2>&1 && exit 7
+[ "$(path_canon "$1/dangling")" = "$(path_canon "$1")/dangling" ] || exit 8
+echo side-effect-free
+' _ "$P" 2>&1)
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$OUT" = "side-effect-free" ]; then
+  pass
+else
+  fail "path_canon: rc=$RC out=$OUT"
+fi
+OUT=$(bash -c '. "'"$PATH_LIB"'"; echo "[${p:-unset}${out:-unset}${rest:-unset}]"' 2>&1)
+if [ "$OUT" = "[unsetunsetunset]" ]; then pass; else fail "path.sh sourcing side effect: $OUT"; fi
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

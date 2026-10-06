@@ -40,6 +40,8 @@ COMMON="$ROOT/skills/memory-store/embed-common.sh"
 . "$ROOT/tests/lib/skip.sh"
 # shellcheck source=../../tests/lib/check.sh
 . "$ROOT/tests/lib/check.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$ROOT/tests/lib/path.sh"
 hermetic_init
 require_cmd sqlite3 jq
 
@@ -150,6 +152,7 @@ make_proj() {
 }
 reset_logs() { : > "$SHIM_LOG"; rm -f "$SHIM_LOG.stored"; }
 line_of() { grep -n -F -- "$1" "$SHIM_LOG" | head -1 | cut -d: -f1; } # line_of <text>: first line number or empty
+gguf_raw_arg() { sed -n "s/.*lembed_model_from_file('\(.*\)');.*/\1/p" "$1" | head -1; } # first lembed_model_from_file argument, SQL spelling untouched
 lembed_first_args() { grep -oE "lembed\('[^']*'" "$1" | sort -u; } # one line per distinct first argument of a lembed( call
 errors_lines() { if [ -f "$1/.claude/memory/.errors.log" ]; then grep -c '' "$1/.claude/memory/.errors.log"; else echo 0; fi; }
 run_embed() { # run_embed <proj> <text> — embed-one.sh for memory id 1 under the shim PATH
@@ -162,14 +165,17 @@ model_path() { printf '%s/.claude/memory/models/all-MiniLM-L6-v2.gguf' "$1"; }
 P1="$WORK/p1"
 make_proj "$P1" lembed || { echo "FATAL: fixture"; exit 1; }
 MODEL1="$(model_path "$P1")"
-REG1="INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('$MODEL1');"
 
 reset_logs
 run_embed "$P1" "it's a memory"
 check "embed-one lembed: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
 check "embed-one lembed: the shim saw the call" [ -s "$SHIM_LOG" ]
-check "embed-one lembed: the model is registered with its GGUF path" grep -qxF "$REG1" "$SHIM_LOG"
-REG_LINE="$(line_of "$REG1")"
+# Both sides canonical: the registration spells the path in the live script's
+# own cd+pwd form, which differs from the fixture string on macOS (// from a
+# trailing-slash TMPDIR, /var → /private/var).
+check "embed-one lembed: the model is registered with its GGUF path" \
+  bash -c '[ "$1" = "$2" ]' _ "$(path_canon "$(gguf_raw_arg "$SHIM_LOG" | sed "s/''/'/g")")" "$(path_canon "$MODEL1")"
+REG_LINE="$(grep -n "lembed_model_from_file('" "$SHIM_LOG" | head -1 | cut -d: -f1)"
 CALL_LINE="$(line_of "lembed('mini', ")"
 check "embed-one lembed: lembed() is called with the model name, text SQL-escaped" grep -qF "lembed('mini', 'it''s a memory')" "$SHIM_LOG"
 check "embed-one lembed: the registration comes before the first lembed() call (lines ${REG_LINE:-none} < ${CALL_LINE:-none})" \
@@ -239,11 +245,11 @@ run_migrate() { # run_migrate <proj>
 P6="$WORK/p6"
 make_proj "$P6" lembed || { echo "FATAL: fixture 6"; exit 1; }
 MODEL6="$(model_path "$P6")"
-REG6="INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('$MODEL6');"
 reset_logs
 run_migrate "$P6"
-check "migrate-md lembed: the model is registered with its GGUF path" grep -qxF "$REG6" "$SHIM_LOG"
-M_REG="$(line_of "$REG6")"
+check "migrate-md lembed: the model is registered with its GGUF path" \
+  bash -c '[ "$1" = "$2" ]' _ "$(path_canon "$(gguf_raw_arg "$SHIM_LOG" | sed "s/''/'/g")")" "$(path_canon "$MODEL6")"
+M_REG="$(grep -n "lembed_model_from_file('" "$SHIM_LOG" | head -1 | cut -d: -f1)"
 M_CALL="$(line_of "lembed('mini', ")"
 check "migrate-md lembed: lembed() is called with the model name" grep -qF "lembed('mini', 'first memory text to embed')" "$SHIM_LOG"
 check "migrate-md lembed: the registration comes before the lembed() call (lines ${M_REG:-none} < ${M_CALL:-none})" \
@@ -334,8 +340,14 @@ MODELQ="$(model_path "$PQ")"
 reset_logs
 run_embed "$PQ" "quote path"
 check "embed-one, model path with a single quote: exits 0 (rc=$RUN_RC)" [ "$RUN_RC" -eq 0 ]
+# Canonical path identity on both sides, plus the doubled quote in the raw SQL
+# spelling (the p'q component is the path's only quote, so p''q/ proves the
+# doubling happened at that component).
+GGUF_RAW="$(gguf_raw_arg "$SHIM_LOG")"
+GGUF_UNESC=${GGUF_RAW//"''"/\'}
 check "embed-one, model path with a single quote: the path is registered with the quote doubled" \
-  grep -qxF "INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('${MODELQ//\'/\'\'}');" "$SHIM_LOG"
+  bash -c '[ "$1" = "$2" ] && case "$3" in *"$4"*) exit 0 ;; *) exit 1 ;; esac' \
+  _ "$(path_canon "$GGUF_UNESC")" "$(path_canon "$MODELQ")" "$GGUF_RAW" "p''q/"
 check "embed-one, model path with a single quote: the vector write is accepted and nothing is logged" \
   bash -c 'grep -qx "STORED 1" "$1" && [ ! -e "$2" ]' _ "$SHIM_LOG.stored" "$PQ/.claude/memory/.errors.log"
 

@@ -10,6 +10,8 @@ set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 WRITE="$SCRIPT_DIR/write-model.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$SCRIPT_DIR/../../tests/lib/path.sh"
 
 PASS=0
 FAIL=0
@@ -114,7 +116,10 @@ fi
 run list extra-ignored
 check_rc "list-extra-argv" 0
 LIST=$(got_out)
-if grep -qF "local: $TMP/.claude/dev-team/models.local.json" "$OUTF"; then
+# Both sides canonical: write-model.sh prints the git-resolved MROOT while the
+# fixture string carries TMPDIR's trailing-slash `//` (macOS lane).
+LOCAL_OUT=$(sed -n 's/^local: //p' "$OUTF" | head -1)
+if [ -n "$LOCAL_OUT" ] && [ "$(path_canon "$LOCAL_OUT")" = "$(path_canon "$TMP/.claude/dev-team/models.local.json")" ]; then
   pass "list-local-path"
 else
   fail "list-local-path out='$LIST'"

@@ -9,13 +9,24 @@
 # bash 3.2 portable (macOS lane, CDT-271): no associative arrays, no
 # mapfile, no `wait -n`. Quarantine lookup uses a TSV temp file + awk, not an
 # associative array.
+#
+# CDT-502 (SPEC-030 R11/R12/R32): quarantine lines carry a scope column
+# (<path> <scope: all|macos> <reason>); a macos-scoped entry applies only on
+# the --platform macos lane and is validated-then-ignored on the default lane.
 set -uo pipefail
 
 PROG="tools/run-all-tests.sh"
 
+platform_usage_error() { # platform_usage_error <message> -- R32 wants a
+                         # usage line on stderr with the 64
+  echo "$PROG: $1" >&2
+  echo "Usage: bash tools/run-all-tests.sh [--root DIR] [--list] [--portable] [--platform linux|macos] [-h|--help]" >&2
+  exit 64
+}
+
 usage() {
   cat <<'USAGE'
-Usage: bash tools/run-all-tests.sh [--root DIR] [--list] [--portable] [-h|--help]
+Usage: bash tools/run-all-tests.sh [--root DIR] [--list] [--portable] [--platform linux|macos] [-h|--help]
 
 Discovers every test.sh, test-*.sh and *-test.sh suite under --root (default:
 git rev-parse --show-toplevel of the cwd) via `git ls-files --cached --others
@@ -28,20 +39,25 @@ sorted order, as `bash <repo-relative-path>` with cwd = root.
   --list        Print the discovered suite paths, one per line. Run nothing.
   --portable    Keep only suites whose code is bash 3.2 / BSD-safe (CDT-271).
                 A comment that names a GNU tool does not exclude the suite.
+  --platform P  Lane for quarantine scoping (CDT-502): linux (default) or
+                macos. A macos-scoped quarantine entry quarantines only with
+                --platform macos; on the default lane the entry is validated
+                and ignored.
   -h, --help    Show this help and exit.
 
 Environment:
   RUN_ALL_TESTS_TIMEOUT   Per-suite wall-clock timeout in seconds. MUST be a
                           positive integer. Default: 300.
 
-Quarantine file: tools/test-quarantine.txt (repo-relative to --root). A
+Quarantine file: tools/test-quarantine.txt (repo-relative to --root). Each
+non-comment line is <path> <scope> <reason>, scope all or macos. A
 quarantined suite still runs; a FAIL/TIMEOUT/dirty-tree outcome is reported
 as QUARANTINED and does not affect the exit code. A quarantined suite that
 passes is reported as PASS plus a stderr warn: line (stale entry).
 
 Exit codes: 0 every non-quarantined suite passed; 1 at least one failed or
-timed out; 64 usage error (bad flag, bad --root, bad timeout, malformed
-quarantine file).
+timed out; 64 usage error (bad flag, bad --root, bad --platform, bad
+timeout, malformed quarantine file).
 USAGE
 }
 
@@ -49,6 +65,7 @@ ROOT=""
 ROOT_GIVEN=false
 LIST_ONLY=false
 PORTABLE_ONLY=false
+PLATFORM=""   # lane for quarantine scoping (R32): ""/linux = default, macos
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -76,6 +93,26 @@ while [ $# -gt 0 ]; do
       ;;
     --portable)
       PORTABLE_ONLY=true
+      shift
+      ;;
+    --platform)
+      if [ $# -lt 2 ]; then
+        platform_usage_error "--platform requires an argument (linux or macos)"
+      fi
+      case "$2" in
+        linux|macos) ;;
+        *) platform_usage_error "--platform must be linux or macos, got '$2'" ;;
+      esac
+      PLATFORM="$2"
+      shift 2
+      ;;
+    --platform=*)
+      PVAL="${1#--platform=}"
+      case "$PVAL" in
+        linux|macos) ;;
+        *) platform_usage_error "--platform must be linux or macos, got '$PVAL'" ;;
+      esac
+      PLATFORM="$PVAL"
       shift
       ;;
     *)
@@ -188,34 +225,43 @@ suite_portable() {
   ' "$ROOT/$1"
 }
 
+# --- Quarantine-path reference list (R11) ------------------------------------
+# SUITES_FILE stays the FULL R4 discovery list; the run list (below) may be
+# narrowed by --portable. Quarantine paths validate against the full list, so
+# an entry for a portable-excluded suite is valid data that can never apply
+# (the suite is not run).
+
 discover_suites > "$SUITES_FILE"
 
+RUNLIST="$WORKDIR/runlist.txt"
+
 if [ "$PORTABLE_ONLY" = true ]; then
-  kept="$WORKDIR/portable.txt"
-  : > "$kept"
   skipped=0
   while IFS= read -r suite; do
     [ -n "$suite" ] || continue
     if suite_portable "$suite"; then
-      printf '%s\n' "$suite" >> "$kept"
+      printf '%s\n' "$suite" >> "$RUNLIST"
     else
       skipped=$((skipped + 1))
     fi
   done < "$SUITES_FILE"
-  mv "$kept" "$SUITES_FILE"
   if [ "$skipped" -gt 0 ]; then
     echo "warn: portable: skipped $skipped non-portable suite(s)" >&2
   fi
+else
+  cp "$SUITES_FILE" "$RUNLIST"
 fi
 
 if [ "$LIST_ONLY" = true ]; then
-  cat "$SUITES_FILE"
+  cat "$RUNLIST"
   exit 0
 fi
 
-# --- Quarantine: validate + load (R11) --------------------------------------
+# --- Quarantine: validate + load (R11, CDT-502 scope column) -----------------
 # MUST validate the whole file before running any suite -- 64 is a pre-run
-# failure, never a mid-run one.
+# failure, never a mid-run one. Each non-comment line is
+# <path> <scope> <reason>; scope is all or macos. Paths validate against the
+# FULL discovery list (SUITES_FILE), not the --portable-filtered run list.
 
 QFILE="$ROOT/tools/test-quarantine.txt"
 QSEEN="$WORKDIR/quarantine-seen.txt"
@@ -227,14 +273,26 @@ if [ -f "$QFILE" ]; then
     lineno=$((lineno + 1))
 
     qpath=""
+    qscope=""
     qreason=""
-    read -r qpath qreason <<< "$qline"
+    read -r qpath qscope qreason <<< "$qline"
 
     [ -z "$qpath" ] && continue
     case "$qpath" in
       '#'*) continue ;;
     esac
 
+    if [ -z "$qscope" ]; then
+      echo "$PROG: $QFILE:$lineno: missing scope for $qpath" >&2
+      exit 64
+    fi
+    case "$qscope" in
+      all|macos) ;;
+      *)
+        echo "$PROG: $QFILE:$lineno: scope must be all or macos, got '$qscope'" >&2
+        exit 64
+        ;;
+    esac
     if [ -z "$qreason" ]; then
       echo "$PROG: $QFILE:$lineno: missing reason for $qpath" >&2
       exit 64
@@ -251,7 +309,7 @@ if [ -f "$QFILE" ]; then
     fi
 
     printf '%s\n' "$qpath" >> "$QSEEN"
-    printf '%s\t%s\n' "$qpath" "$qreason" >> "$QTSV"
+    printf '%s\t%s\t%s\n' "$qpath" "$qscope" "$qreason" >> "$QTSV"
   done < "$QFILE"
 fi
 
@@ -322,17 +380,29 @@ while IFS= read -r suite; do
     detail="exit $rc"
   fi
 
-  qreason=$(awk -F'\t' -v p="$suite" '$1==p{print $2; exit}' "$QTSV")
-  if [ -n "$qreason" ]; then
-    case "$status" in
-      SKIP) : ;;
-      PASS)
-        echo "$PROG: warn: $suite is quarantined (tools/test-quarantine.txt) but passed; remove the entry" >&2
-        ;;
-      *)
-        status="QUARANTINED"
+  # R12/CDT-502: an entry applies on this lane iff scope is all, or scope is
+  # macos and the runner was started with --platform macos. A non-applying
+  # (validated) entry is ignored: the suite counts like an unquarantined one.
+  qscope=$(awk -F'\t' -v p="$suite" '$1==p{print $2; exit}' "$QTSV")
+  if [ -n "$qscope" ]; then
+    applies=false
+    case "$qscope" in
+      all) applies=true ;;
+      macos)
+        if [ "$PLATFORM" = "macos" ]; then applies=true; fi
         ;;
     esac
+    if [ "$applies" = true ]; then
+      case "$status" in
+        SKIP) : ;;
+        PASS)
+          echo "$PROG: warn: $suite is quarantined (tools/test-quarantine.txt) but passed; remove the entry" >&2
+          ;;
+        *)
+          status="QUARANTINED"
+          ;;
+      esac
+    fi
   fi
 
   case "$status" in
@@ -354,7 +424,7 @@ while IFS= read -r suite; do
       tail -n 20 "$OUTFILE" | sed 's/^/    | /'
       ;;
   esac
-done < "$SUITES_FILE"
+done < "$RUNLIST"
 
 TOTAL=$((PASS_N + FAIL_N + TIMEOUT_N + QUAR_N + SKIP_N))
 printf '%s suites: %s passed, %s failed, %s timed out, %s quarantined, %s skipped\n' \

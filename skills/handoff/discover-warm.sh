@@ -415,16 +415,30 @@ adapt_grok() {
     echo "error: warm /handoff: cannot resolve cwd for Grok adapter inject" >&2
     return 1
   }
-  # Unique temp paths (avoid fixed-name races / predictable paths).
-  out=$(mktemp "${TMPDIR:-/tmp}/handoff-grok-adapt.XXXXXX.jsonl") || {
+  # Unique temp paths (avoid fixed-name races / predictable paths). BSD mktemp
+  # rejects a suffix after the X-run: create, then rename to the same final
+  # name; the template honors TMPDIR either way.
+  out=$(mktemp "${TMPDIR:-/tmp}/handoff-grok-adapt.XXXXXX") || {
     echo "error: warm /handoff: mktemp failed for adapter output" >&2
     return 1
   }
-  err=$(mktemp "${TMPDIR:-/tmp}/handoff-grok-adapt.XXXXXX.err") || {
+  if ! mv "$out" "$out.jsonl"; then
+    rm -f "$out"
+    echo "error: warm /handoff: mktemp failed for adapter output" >&2
+    return 1
+  fi
+  out="$out.jsonl"
+  err=$(mktemp "${TMPDIR:-/tmp}/handoff-grok-adapt.XXXXXX") || {
     rm -f "$out"
     echo "error: warm /handoff: mktemp failed for adapter stderr" >&2
     return 1
   }
+  if ! mv "$err" "$err.err"; then
+    rm -f "$out" "$err"
+    echo "error: warm /handoff: mktemp failed for adapter stderr" >&2
+    return 1
+  fi
+  err="$err.err"
   if ! python3 "$adapter" --in "$src" --out "$out" --cwd "$cwd" --session-id "$sid" 2>"$err"; then
     echo "error: warm /handoff: Grok→Claude adapt failed for session $sid" >&2
     if [ -s "$err" ]; then

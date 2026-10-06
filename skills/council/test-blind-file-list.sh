@@ -5,11 +5,23 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HELPER="$ROOT/skills/council/blind-file-list.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$ROOT/tests/lib/hermetic.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$ROOT/tests/lib/path.sh"
 hermetic_init
 
 fail=0
 ok() { echo "OK: $*"; }
 bad() { echo "FAIL: $*"; fail=1; }
+
+# Canon-list: canonicalize every path of a helper output block, so needle
+# and list are compared in one form (TMPDIR trailing-slash `//`, /var prefix).
+canon_list() {
+  local p
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    path_canon "$p"
+  done
+}
 
 # Linked worktree: paths must sit under WTROOT, not the main checkout.
 cd "$ROOT"
@@ -71,7 +83,12 @@ printf 'wt\n' >"$WT/wt-only.txt"
 git -C "$WT" add wt-only.txt
 git -C "$WT" commit -q -m wt
 
-wt_list=$(cd "$WT" && bash "$HELPER") || { bad "helper failed in temp worktree"; wt_list=""; }
+# Both sides canonical: the helper prints git-resolved paths; the fixture
+# strings may carry TMPDIR's trailing-slash `//` (macOS lane).
+WT=$(path_canon "$WT")
+MAIN=$(path_canon "$MAIN")
+
+wt_list=$(cd "$WT" && bash "$HELPER" | canon_list) || { bad "helper failed in temp worktree"; wt_list=""; }
 if grep -qxF "$WT/wt-only.txt" <<<"$wt_list"; then
   ok "temp worktree lists wt-only.txt"
 else
@@ -108,7 +125,7 @@ fi
 # Untracked target: git ls-files exits 0 with an empty list. Fall through to find.
 mkdir -p "$WT/loose"
 printf 'z\n' >"$WT/loose/z.txt"
-loose=$(cd "$WT" && bash "$HELPER" loose) || { bad "untracked target failed"; loose=""; }
+loose=$(cd "$WT" && bash "$HELPER" loose | canon_list) || { bad "untracked target failed"; loose=""; }
 if grep -qxF "$WT/loose/z.txt" <<<"$loose"; then
   ok "untracked target fell through to find"
 else
@@ -118,7 +135,7 @@ fi
 # An unescaped regex '.git/' matches 'Xgit/'. Fixed string must keep this path.
 mkdir -p "$WT/loose/fooXgit"
 printf 'g\n' >"$WT/loose/fooXgit/bar.txt"
-loose2=$(cd "$WT" && bash "$HELPER" loose) || loose2=""
+loose2=$(cd "$WT" && bash "$HELPER" loose | canon_list) || loose2=""
 if grep -qF 'fooXgit/bar.txt' <<<"$loose2"; then
   ok "fixed-string .git filter kept fooXgit/bar.txt"
 else

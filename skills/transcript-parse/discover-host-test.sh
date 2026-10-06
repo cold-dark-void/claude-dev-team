@@ -7,6 +7,8 @@ set -euo pipefail
 # shellcheck source=../../tests/lib/mtimes.sh
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/../../tests/lib/mtimes.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 DISCOVER="$HERE/discover-host.sh"
 PASS=0
 FAIL=0
@@ -68,11 +70,15 @@ set +e
 OUT="$("$DISCOVER" --cwd "$CWD" 2>"$WORK/t1.err")"
 RC=$?
 set -e
+# Both sides canonical: the emitted path is spelled by the live script while
+# GROK_BUCKET carries TMPDIR's trailing-slash `//` (macOS lane).
+T1_PATH=${OUT#*path=}
+T1_PATH=${T1_PATH%%$'\t'*}
 if [ "$RC" -eq 0 ] \
   && echo "$OUT" | grep -q 'host=grok' \
   && echo "$OUT" | grep -q 'session_id=gsid-new' \
   && echo "$OUT" | grep -q "source=mtime" \
-  && echo "$OUT" | grep -Fq "path=$GROK_BUCKET/gsid-new/chat_history.jsonl"; then
+  && [ "$(path_canon "$T1_PATH")" = "$(path_canon "$GROK_BUCKET/gsid-new/chat_history.jsonl")" ]; then
   pass "T1 dual-host newest mtime picks grok gsid-new"
 else
   bad "T1 rc=$RC out=$OUT err=$(cat "$WORK/t1.err")"
