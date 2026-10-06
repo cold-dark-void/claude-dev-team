@@ -94,14 +94,25 @@ need "stanza arm 1b is documented" \
   specs/core/SPEC-002-plugin-infrastructure.md \
   "substituted \`\${CLAUDE_PLUGIN_ROOT}\` token"
 # The count is whatever the tree emits today. The spec must quote that count.
-stanza_files=$(grep -RIl --exclude-dir=fixtures 'PDH=$( {' \
-  "$ROOT/commands" "$ROOT/skills" "$ROOT/agents" \
-  | grep -v '/plugin-dir-test.sh$' | grep -v '/skill-lint/test.sh$' \
-  | grep -v '/wp-5-07-editorial-test.sh$' | wc -l | tr -d ' ')
-stanza_hits=$(grep -RIn --exclude-dir=fixtures 'PDH=$( {' \
+# Re-derived at CDT-502-C5-T6 with the plugin-dir harness's comment/prose
+# exclusion (first non-whitespace '#' or '<!--'): the C5 dual-class note in
+# skills/skill-lint/lint.py is prose, not a caller site — counting it gave
+# 88/100 against SPEC-002's measured 87/99. Scope is unchanged (3 roots, skip
+# fixtures/ and the three named harness/decoy files); docs/ and AGENTS.md stay
+# out of the caller inventory (SPEC-002 § Caller integration). Re-derivation:
+#   grep -RIn --exclude-dir=fixtures 'PDH=$( {' commands skills agents \
+#     | grep -v '/plugin-dir-test.sh:' | grep -v '/skill-lint/test.sh:' \
+#     | grep -v '/wp-5-07-editorial-test.sh:' | grep -vcE ':[[:space:]]*(#|<!--)'
+stanza_lines=$(grep -RIn --exclude-dir=fixtures 'PDH=$( {' \
   "$ROOT/commands" "$ROOT/skills" "$ROOT/agents" \
   | grep -v '/plugin-dir-test.sh:' | grep -v '/skill-lint/test.sh:' \
-  | grep -v '/wp-5-07-editorial-test.sh:' | wc -l | tr -d ' ')
+  | grep -v '/wp-5-07-editorial-test.sh:' \
+  | grep -vE ':[[:space:]]*(#|<!--)')
+stanza_files=0; stanza_hits=0
+if [ -n "$stanza_lines" ]; then
+  stanza_files=$(printf '%s\n' "$stanza_lines" | cut -d: -f1 | sort -u | wc -l | tr -d ' ')
+  stanza_hits=$(printf '%s\n' "$stanza_lines" | wc -l | tr -d ' ')
+fi
 need "measured emission count" \
   specs/core/SPEC-002-plugin-infrastructure.md \
   "${stanza_files} caller files, ${stanza_hits} emissions"

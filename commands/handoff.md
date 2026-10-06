@@ -7,7 +7,7 @@ agent: build
 
 # /handoff
 
-Parent stub (M19). One-turn lag. Parent stays session tier. `agent: build` does not detach.
+Parent stub (M19). One-turn lag. Parent stays session tier.
 
 ## Step 1: Parse arguments
 
@@ -197,7 +197,7 @@ esac
 
 ## Step 3: Discover, resolve-root, cache, prepare
 
-Folded into Step 1 (M19.11): discover (warm) → resolve-root → cheap gates (uuid-shape, too-fresh (M9), cache-HIT) → prepare. No spawn.
+Folded into Step 1 (M19.11): discover (warm) → resolve-root → cheap gates → prepare. No spawn.
 
 ## Orchestrator spawn
 
@@ -222,11 +222,11 @@ Final report: cold → State now + Through-line + packet path; warm → path onl
 Last: rm -rf "$WORK_DIR".
 ```
 
-Early exit calls drop_wd. Agent removes WORK_DIR. Cold MISS: relay M7.
+Early exit calls drop_wd. Cold MISS: relay M7.
 
 ## In-session fallback
 
-If `plan.mode=chunked` or the host cannot spawn: do not detach and do not fail the capture. Parent MAY Read `$SKILL` / `$LIGHT_PROFILE`. Run git capture, parallel N chunk-summarizers, one miner Task, annotation Task if bare warm, then finalize.
+If `plan.mode=chunked` or the host cannot spawn: do not detach and do not fail the capture. Parent MAY Read `$SKILL` / `$LIGHT_PROFILE`. Run git capture, parallel N chunk-summarizers, one miner Task, then finalize.
 
 Bare-warm chunk + annotation (skip light/cold/`SKIP_ANNOTATION=1`):
 
