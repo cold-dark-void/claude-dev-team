@@ -568,7 +568,7 @@ else
   bad "CDT-512-C1 AC6 adapter sentinel leaked to:$aleak rc=${W_RC-unset}"
 fi
 
-# ---- AC6/AC7/AC10: thread-mapped delivery, no cross-delivery, typing once ---------
+# ---- AC6/AC7/AC10: thread-mapped delivery, no cross-delivery, no pickup typing ----
 
 fresh_case
 seed_paired "197372681"
@@ -588,10 +588,26 @@ if [ "$P_RC" -eq 0 ] \
 else
   bad "AC6/AC7/AC8 routing: rc=$P_RC a=$(inbox_n sess-a) b=$(inbox_n sess-b) main=$(inbox_n main)"
 fi
-if [ "$(calls_count sendChatAction)" = "4" ]; then
-  ok "AC10 sendChatAction typing sent once per inbound pickup"
+if [ "$(calls_count sendChatAction)" = "0" ]; then
+  ok "AC10 inbound pickup sends no sendChatAction typing"
 else
-  bad "AC10 sendChatAction count: $(calls_count sendChatAction)"
+  bad "AC10 pickup typing: sendChatAction=$(calls_count sendChatAction) want 0"
+fi
+
+# ---- AC10 send path: typing immediately before sendMessage on outbox drain --------
+
+fresh_case
+seed_paired "197372681"
+run_cli "$INTERCOM" send --sid main "composing reply"
+run_poller
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(calls_count sendMessage)" = "1" ] \
+  && [ "$(calls_count sendChatAction)" = "1" ] \
+  && typing_before_each_send \
+  && grep -Fq 'text=composing reply' "$ARGV_LOG"; then
+  ok "AC10 outbox drain sends typing once immediately before sendMessage"
+else
+  bad "AC10 send-path typing: rc=$P_RC action=$(calls_count sendChatAction) sends=$(calls_count sendMessage) err=$P_ERR"
 fi
 
 # ---- AC8: default-session replies return to the general topic ---------------------
@@ -857,7 +873,7 @@ if [ "$P_RC" -eq 0 ] \
   && [ "$(jq -r '.text' "$(inbox_files main)")" = "first inbound" ] \
   && [ "$(jq -r '.thread_id' "$(inbox_files main)")" = "283843" ] \
   && [ "$(offset_val)" = "301" ] \
-  && [ "$(calls_count sendChatAction)" = "1" ]; then
+  && [ "$(calls_count sendChatAction)" = "0" ]; then
   ok "CDT-512-C3 AC3 unmapped thread + empty map relays to default_session"
 else
   bad "CDT-512-C3 AC3 empty map: rc=$P_RC inbox=$(inbox_n main) err=$P_ERR"
@@ -1088,6 +1104,27 @@ if grep -qi 'pipe' "$SETUP_MD" && grep -qi 'Enter' "$SETUP_MD" \
   ok "CDT-512-C4 AC4 commands/setup.md documents the agent pairing wait"
 else
   bad "CDT-512-C4 AC4 commands/setup.md missing agent pairing wait"
+fi
+
+# CDT-512-C5: sendChatAction lives on ir_send_text only; no pickup, no keepalive.
+if awk '
+  /^ir_send_text\(\)/ { in_send = 1 }
+  /^ir_process_update\(\)/ { in_proc = 1 }
+  /^[A-Za-z_][A-Za-z0-9_]*\(\)/ {
+    if ($0 !~ /^ir_send_text\(\)/) in_send = 0
+    if ($0 !~ /^ir_process_update\(\)/) in_proc = 0
+  }
+  /sendChatAction/ {
+    any = 1
+    if (in_proc) proc_hit = 1
+    if (in_send) send_hit = 1
+  }
+  END { exit (any && send_hit && !proc_hit) ? 0 : 1 }
+' "$POLLER" \
+  && ! grep -nE 'sendChatAction' "$POLLER" | grep -qE 'while |sleep '; then
+  ok "CDT-512-C5 sendChatAction is send-path only with no typing-keepalive loop"
+else
+  bad "CDT-512-C5 sendChatAction still on pickup or keepalive-shaped"
 fi
 
 echo

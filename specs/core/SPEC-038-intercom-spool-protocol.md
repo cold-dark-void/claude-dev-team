@@ -139,8 +139,7 @@ write no session-facing stdout.
      slash-prefixed text (commands addressed to other bots, or any other
      `/`-leading message) is session content and relays as a normal message —
      the reserved pair above is the only intercepted command (§ MUST NOT).
-     On pickup send
-     `sendChatAction` `typing` once (AC10). If `was_stale`, also send an
+     Pickup MUST NOT send `sendChatAction` (AC10). If `was_stale`, also send an
      `offline, queued` notice to that topic (AC12). If a pending question for
      that sid is unanswered, mark it answered (move to `answered/`) and set
      the record `kind: "answer"` (AC14).
@@ -399,7 +398,10 @@ to migrate. Graduating poller → daemon changes no interface.
 - MUST `chmod 700` an already-existing `state/` directory.
 - MUST honor `concise_threshold` with the summary + single-file longread rule;
   MUST NOT chunk-split any outbound message (AC9).
-- MUST send `sendChatAction` typing at least once per inbound pickup (AC10).
+- MUST send `sendChatAction` typing once immediately before each outbound
+  `sendMessage` (outbox drain, including records from `intercom send`);
+  MUST NOT send typing on inbound pickup; MUST NOT loop or keep typing
+  alive (AC10, CDT-509).
 - MUST implement escalation as a timestamp sweep, once per pending question
   and cancelled by an answer (AC14).
 - MUST keep away state in `state/away` only, togglable from CLI and phone;
@@ -501,9 +503,13 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   artifact — never two+ text messages, never 4096-char chunk-splitting; at or
   below the threshold it is one `sendMessage` and no file.
   Verify: bash skills/intercom/test.sh
-- **AC10.** Each inbound pickup sends `sendChatAction` `typing` at least once
-  (shim records the call).
-  Verify: bash skills/intercom/test.sh
+- **AC10.** Inbound pickup MUST NOT send `sendChatAction` `typing` (pickup
+  MUST NOT imply a reply is in flight). Each outbound `sendMessage` on the
+  poller send path (outbox drain, including records written by
+  `intercom send`) MUST send `sendChatAction` `typing` once immediately
+  before `sendMessage`. Typing failure MUST NOT skip the send. MUST NOT
+  run a resident typing-keepalive loop (CDT-509).
+  Verify: bash skills/intercom/test.sh ; bash skills/intercom/test-poller.sh
 - **AC11.** An outbound notification for a sid with no prior inbound and no
   topic record lands in an auto-created topic (recorded in `topics.json`) or
   the general topic when topics are unavailable.
@@ -675,8 +681,8 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - **AC3.** An allowlisted member `message` with a numeric
   `message_thread_id` absent from `topics.json` MUST write one inbox
   record on `config.json` `default_session` when `topics.json` is `{}`
-  **or** contains only the `general` key. Offset advances. Typing still
-  fires (AC10). This MUST work on an already-paired Intercom with empty
+  **or** contains only the `general` key. Offset advances. Pickup MUST
+  NOT send typing (AC10). This MUST work on an already-paired Intercom with empty
   `topics.json`. `topics_enabled` is not an inbound routing switch.
   Verify: bash skills/intercom/test.sh
 - **AC4.** When `topics.json` has any key other than `general`, an
@@ -738,6 +744,33 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   new `commands/*.md`. Never print the bot token. Never commit
   `.claude/backlog` or `.claude/epics`.
 
+### CDT-512-C5
+
+- **AC1.** Inbound pickup MUST NOT send `sendChatAction` `typing`. Pickup
+  writes the inbox record and advances offset without implying a reply is
+  in flight.
+  Verify: bash skills/intercom/test.sh
+- **AC2.** Each outbound `sendMessage` via `ir_send_text` (poller outbox
+  drain, including records from `intercom send`) MUST send
+  `sendChatAction` `typing` once immediately before `sendMessage`.
+  Typing failure MUST NOT skip the send. `test-poller.sh` also covers
+  the drain path.
+  Verify: bash skills/intercom/test.sh
+- **AC3.** SPEC-038 AC10 is this contract: no pickup typing; typing on the
+  send path; no resident keepalive.
+  Verify: bash skills/intercom/test.sh
+- **AC4.** Hermetic tests assert no `sendChatAction` on pickup and
+  `sendChatAction` immediately before `sendMessage` on the send path.
+  Verify: bash skills/intercom/test.sh
+- **AC5.** `poller.sh` MUST NOT run a resident typing-keepalive loop
+  (`while`/`sleep` around `sendChatAction`; daemon = CDT-509).
+  Verify: bash skills/intercom/test.sh
+- **AC6.** [process] `bash tools/run-all-tests.sh` exit 0; skill-lint,
+  smoke, docs-drift pass. CDT-512-C1 `watch.sh` ACs pass. CDT-512-C2
+  preamble ACs pass. CDT-512-C3 pairing-seed ACs pass. CDT-512-C4 TTY-less
+  setup ACs pass. Patch bump; no new `commands/*.md`. Never print the bot
+  token. Never commit `.claude/backlog` or `.claude/epics`.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
@@ -748,7 +781,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - [ ] Thread-mapped delivery, no cross-delivery with two sids; General
       routes to the default session and replies return to General (AC6)
 - [ ] Summary + single-file longread above threshold; single message below (AC9)
-- [ ] sendChatAction once per pickup (AC10)
+- [ ] no typing on pickup; typing immediately before sendMessage (AC10)
 - [ ] Topic auto-create on first outbound/escalation (AC11)
 - [ ] Stale heartbeat: queue + offline notice on resume; kill/restart with no
       reprocessed update_id, backlog relayed, dedupe holds (AC12)
@@ -798,6 +831,8 @@ Format and rules: SPEC-033 M14(g) and M14(h).
       with no state beyond the token file (CDT-512-C4 AC2)
 - [ ] Setup never instructs pasting the token into chat (CDT-512-C4 AC3)
 - [ ] `commands/setup.md` documents the agent pairing wait (CDT-512-C4 AC4)
+- [ ] Pickup sends no typing; outbox drain types once immediately before
+      `sendMessage`; no typing-keepalive loop (CDT-512-C5 AC1–AC5)
 
 ## Validation
 
@@ -820,6 +855,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 | 2026-10-07 | CDT-512-C2 — per-dev bot setup: `$USER` member default, BotFather preamble, operator runbook, topics on/off both supported |
 | 2026-10-07 | CDT-512-C3 — pairing seeds General `thread_id`; unmapped empty/only-general map routes to `default_session`; poller ignores bot self-echo and forum service messages; chmod 700 existing `state/` |
 | 2026-10-07 | CDT-512-C4 — TTY-less `/setup telegram`: mode-600 `bot_token` reuse vs replace; pairing long-polls 30s with no Enter wait |
+| 2026-10-07 | CDT-512-C5 — typing is send-path only: no `sendChatAction` on inbound pickup; `ir_send_text` types once immediately before `sendMessage`; no keepalive loop |
 
 ## Cross-references
 

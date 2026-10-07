@@ -233,9 +233,13 @@ ir_resolve_outbound() {
   return 0
 }
 
-# ir_send_text CHAT THREAD TEXT — rc 0 on ok:true.
+# ir_send_text CHAT THREAD TEXT — typing once, then sendMessage. Typing
+# failure does not skip the send (AC10). rc 0 on ok:true.
 ir_send_text() {
   local chat="$1" thread="$2" text="$3" resp
+  local -a typing=(-F "chat_id=$chat" -F "action=typing")
+  [ -n "$thread" ] && typing+=(-F "message_thread_id=$thread")
+  tg_api sendChatAction "${typing[@]}" >/dev/null 2>&1 || warn "sendChatAction failed"
   local -a args=(-F "chat_id=$chat")
   [ -n "$thread" ] && args+=(-F "message_thread_id=$thread")
   args+=(-F "text=$text")
@@ -570,9 +574,7 @@ ir_process_update() {
     warn "could not mark questions answered for $sid; escalation continues"
   fi
 
-  local -a typing=(-F "chat_id=$chat_id" -F "action=typing")
-  [ -n "$thread_id" ] && typing+=(-F "message_thread_id=$thread_id")
-  tg_api sendChatAction "${typing[@]}" >/dev/null 2>&1 || warn "sendChatAction failed for update $uid"
+  # Pickup writes inbox only. Typing is on the send path (AC10), not here.
   [ "$WAS_STALE" -eq 1 ] || { ir_advance_offset "$uid"; return 0; }
   # Resume notice after a stale heartbeat: confirm queuing in the routed
   # topic (AC12). Delivery failure still counts as picked up (the record

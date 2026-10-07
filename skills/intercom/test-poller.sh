@@ -253,11 +253,13 @@ put_outbox "main" "drain me"
 ok_empty_result
 run_poller
 if [ "$P_RC" -eq 0 ] && [ "$(calls_count sendMessage)" = "1" ] \
+  && [ "$(calls_count sendChatAction)" = "1" ] \
+  && typing_before_each_send \
   && grep -Fq 'text=drain me' "$ARGV_LOG" \
   && [ "$(find "$STATE_ROOT/spool/main/outbox" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
-  ok "drain: 2xx send deletes the outbox record (at-least-once)"
+  ok "drain: 2xx send deletes the outbox record (at-least-once); typing immediately before sendMessage"
 else
-  bad "drain 2xx: rc=$P_RC sends=$(calls_count sendMessage)"
+  bad "drain 2xx: rc=$P_RC sends=$(calls_count sendMessage) action=$(calls_count sendChatAction)"
 fi
 
 seed_paired "197372681"

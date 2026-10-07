@@ -205,6 +205,18 @@ run_cli() { # SCRIPT ARG... — sets C_OUT C_ERR C_RC
 
 calls_count() { grep -c "^$1 " "$CALLS_LOG" 2>/dev/null || true; }
 
+# True when every sendMessage in CALLS_LOG is immediately preceded by
+# sendChatAction (CDT-512-C5 / SPEC-038 AC10 send path).
+typing_before_each_send() {
+  awk '
+    $1 == "sendChatAction" { armed = 1; next }
+    $1 == "sendMessage" {
+      if (!armed) { exit 1 }
+      armed = 0
+    }
+  ' "$CALLS_LOG"
+}
+
 inbox_files() { find "$STATE_ROOT/spool/$1/inbox" -name '*.json' 2>/dev/null; }
 inbox_n() { inbox_files "$1" | wc -l | tr -d ' '; }
 seen_n() { wc -l < "$STATE_ROOT/state/seen.tsv" 2>/dev/null | tr -d ' '; }
