@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# test-daemon.sh — hermetic CDT-509 phase-2 daemon/compose suite (SPEC-038).
-# No network and no real container: never docker-pull or docker-run an image.
-# Loop cases drive daemon.sh with INTERCOM_POLLER=mock. Compose/Dockerfile
-# cases are static text. poller.sh and watch.sh stay one-shot (lock-in).
+# test-daemon.sh — hermetic CDT-509 phase-2 daemon/compose suite (SPEC-038)
+# plus CDT-527 start-daemon.sh CLI cases. No network and no real container:
+# never docker-pull or docker-run an image. Loop cases drive daemon.sh with
+# INTERCOM_POLLER=mock. Compose/Dockerfile cases are static text.
+# poller.sh and watch.sh stay one-shot (lock-in). Docker mock lives in
+# test-lib.sh (install_docker_mock); CLI-absent is nodocker_bin PATH.
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -21,6 +23,8 @@ done
 DAEMON="$HERE/daemon.sh"
 POLLER="$HERE/poller.sh"
 WATCH="$HERE/watch.sh"
+START_DAEMON="$HERE/start-daemon.sh"
+SETUP="$HERE/setup-telegram.sh"
 COMPOSE="$HERE/docker-compose.yml"
 DOCKERFILE="$HERE/Dockerfile"
 TEST_TOKEN="123456789:TEST-TOKEN-NOT-REAL"
@@ -47,29 +51,10 @@ fresh_case() {
 }
 
 # Hide host docker without dropping /usr/bin (docker lives next to grep).
-# SHIM_DIR stays first so a refusing docker mock wins command -v.
-nodocker_bin() {
-  local tools="$HERMETIC_ROOT/nodocker-bin" cmd p
-  mkdir -p "$tools"
-  if [ ! -x "$tools/grep" ]; then
-    for cmd in bash jq curl flock grep sed awk cat chmod mkdir date stat \
-      touch wc tr mktemp rm ls head find mv cp basename dirname uname \
-      sleep kill env id ps tail cmp diff file ln git sort uniq cut tee \
-      true false test timeout stty readlink realpath; do
-      p=$(command -v "$cmd" 2>/dev/null) || continue
-      ln -sf "$p" "$tools/$cmd"
-    done
-  fi
-  printf '%s\n' "$tools"
-}
+# SHIM_DIR stays first so install_docker_mock wins command -v. No refuse-all
+# shim: CLI-absent is this PATH; CDT-527 cases call install_docker_mock.
 SAFE_BIN=$(nodocker_bin)
 export PATH="$SHIM_DIR:$SAFE_BIN"
-cat > "$SHIM_DIR/docker" <<'EOF'
-#!/usr/bin/env bash
-echo "docker-mock: refused (hermetic test-daemon.sh never talks to a daemon)" >&2
-exit 64
-EOF
-chmod +x "$SHIM_DIR/docker"
 
 prod_script() { # rc 0 when FILE is a shipped (non-test) skills/intercom *.sh
   case "$(basename "$1")" in
@@ -471,6 +456,113 @@ if [ "$tok_leak" -eq 0 ]; then
 else
   bad "CDT-509 AC1 token leaked in compose/Dockerfile (or files missing)"
 fi
+
+# ---- CDT-527: start-daemon.sh CLI ----------------------------------------------
+
+if [ ! -f "$START_DAEMON" ]; then
+  bad "CDT-527 AC5 start-daemon.sh missing — source guard"
+  bad "CDT-527 AC5 start-daemon.sh missing — INTERCOM_UID=0"
+  bad "CDT-527 AC6 start-daemon.sh missing — held poller.lock rc 75"
+  bad "CDT-527 AC5 start-daemon.sh missing — up argv"
+  bad "CDT-527 AC5 start-daemon.sh missing — token argv/env"
+  bad "CDT-527 AC8 start-daemon.sh missing — cannot prove no probe.sh"
+  bad "CDT-527 AC8 start-daemon.sh missing — cannot prove no docker pull/run"
+else
+  out=$(bash -c '. "'"$START_DAEMON"'"' 2>&1)
+  rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'subprocess CLI'; then
+    ok "CDT-527 AC5 start-daemon.sh refuses to be sourced (rc 1 + message)"
+  else
+    bad "CDT-527 AC5 start-daemon.sh source guard: rc=$rc out=$out"
+  fi
+
+  # INTERCOM_UID=0 → rc 1, no compose up
+  fresh_case
+  seed_paired "197372681"
+  install_docker_mock up-ok
+  out=$(env INTERCOM_UID=0 bash "$START_DAEMON" 2>&1)
+  rc=$?
+  assert_no_compose_up "CDT-527 AC5 start-daemon uid 0"
+  assert_no_docker_pull "CDT-527 AC5 start-daemon uid 0"
+  if [ "$rc" -eq 1 ] && ! printf '%s' "$out" | grep -qF "$SENTINEL" \
+    && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN"; then
+    ok "CDT-527 AC5 start-daemon.sh INTERCOM_UID=0 → rc 1, no up, token-free"
+  else
+    bad "CDT-527 AC5 start-daemon uid 0: rc=$rc out=$out"
+  fi
+
+  # held poller.lock → rc 75, stderr mentions watch.sh, no up
+  fresh_case
+  seed_paired "197372681"
+  seed_token "$SENTINEL"
+  install_docker_mock up-ok
+  mkdir -m 700 -p "$STATE_ROOT/state"
+  exec 8>"$STATE_ROOT/state/poller.lock"
+  if flock -n 8; then
+    out=$(bash "$START_DAEMON" 2>&1)
+    rc=$?
+    assert_no_compose_up "CDT-527 AC6 start-daemon held lock"
+    if [ "$rc" -eq 75 ] && printf '%s' "$out" | grep -q 'watch.sh' \
+      && ! printf '%s' "$out" | grep -qF "$SENTINEL"; then
+      ok "CDT-527 AC6 start-daemon.sh held poller.lock → rc 75, mentions watch.sh"
+    else
+      bad "CDT-527 AC6 start-daemon held lock: rc=$rc out=$out"
+    fi
+    exec 8>&-
+  else
+    bad "CDT-527 AC6 start-daemon held lock: test could not take exclusive lock"
+  fi
+
+  # up-ok argv has -p intercom up -d --build and -f compose path
+  fresh_case
+  seed_paired "197372681"
+  seed_token "$SENTINEL"
+  install_docker_mock up-ok
+  out=$(bash "$START_DAEMON" 2>&1)
+  rc=$?
+  assert_no_docker_pull "CDT-527 AC5 start-daemon up-ok"
+  if [ "$rc" -eq 0 ] && docker_mock_logged_up \
+    && grep -q 'docker-compose.yml' "$DOCKER_MOCK_LOG" \
+    && grep -q -- '-f' "$DOCKER_MOCK_LOG"; then
+    ok "CDT-527 AC5 start-daemon.sh up-ok argv: -p intercom -f compose up -d --build"
+  else
+    bad "CDT-527 AC5 start-daemon up-ok argv: rc=$rc log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}") out=$out"
+  fi
+
+  # token sentinel absent from argv/env log and stdout/stderr
+  leak=""
+  printf '%s' "$out" | grep -qF "$SENTINEL" && leak="$leak stdout/stderr"
+  grep -qF "$SENTINEL" "$DOCKER_MOCK_LOG" 2>/dev/null && leak="$leak argv-log"
+  grep -qF "$SENTINEL" "$DOCKER_MOCK_ENV" 2>/dev/null && leak="$leak env-log"
+  if [ -z "$leak" ] && [ "$rc" -eq 0 ]; then
+    ok "CDT-527 AC5 start-daemon.sh sentinel absent from argv/env log and print"
+  else
+    bad "CDT-527 AC5 start-daemon sentinel leaked to:$leak rc=$rc"
+  fi
+
+  if grep -q 'probe.sh' "$START_DAEMON" || grep -q 'probe.sh' "$SETUP"; then
+    bad "CDT-527 AC8 probe.sh present in start-daemon.sh or setup-telegram.sh"
+  else
+    ok "CDT-527 AC8 start-daemon.sh/setup-telegram.sh do not invoke probe.sh"
+  fi
+
+  if grep -E '(^|[[:space:]])docker[[:space:]]+(pull|run)([[:space:]|&;<>]|$)' "$START_DAEMON" >/dev/null; then
+    bad "CDT-527 AC8 start-daemon.sh calls docker pull or docker run"
+  else
+    ok "CDT-527 AC8 start-daemon.sh never docker pull/run"
+  fi
+fi
+
+# shipped skills/intercom/*.sh never docker pull/run (incl. start-daemon if present)
+pull_527=1
+for f in "$HERE"/*.sh; do
+  prod_script "$f" || continue
+  if grep -E '(^|[[:space:]])docker[[:space:]]+(pull|run)([[:space:]|&;<>]|$)' "$f" >/dev/null; then
+    pull_527=0
+    bad "CDT-527 AC8 $f calls docker pull or docker run"
+  fi
+done
+[ "$pull_527" -eq 1 ] && ok "CDT-527 AC8 shipped skills/intercom/*.sh never docker pull/run"
 
 echo
 echo "Results: $PASS passed, $FAIL failed"

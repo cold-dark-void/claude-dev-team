@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.9
+- **Setup starts Intercom daemon when Docker is available (CDT-527)** — ir_docker_available (CLI + compose v2 + engine). start-daemon.sh compose up with host uid:gid. C1 watch.sh when Docker is missing. TTY-less default Y. No docker pull in hermetic tests.
+
 ### v1.21.8
 - **Intercom phase 2 container daemon (CDT-509)** — compose project intercom, alpine 3.21 pinned by digest, host uid:gid, token :ro. daemon.sh loops one-shot poller.sh. Setup skips watch.sh when the daemon is up. No docker pull in hermetic tests.
 

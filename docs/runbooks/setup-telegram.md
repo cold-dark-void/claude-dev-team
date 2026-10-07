@@ -38,12 +38,20 @@ The script long-polls `getUpdates` for 30s. Do not pipe Enter. The script
 writes state under `~/.claude/telegram-router/` (or `INTERCOM_STATE_ROOT`
 in tests). It never writes inside the repo.
 
-It prints a host-aware block. Two modes:
+Docker is available iff `ir_docker_available`: `command -v docker`,
+`docker compose version`, and `docker info`. These checks inspect only.
+They do not pull. They do not run. They do not print the token.
 
-- Daemon up (fresh heartbeat AND compose project `intercom` running):
-  the script prints daemon mode. Do not arm `watch.sh`.
-- Otherwise: arm `watch.sh`, not `poller.sh`. Use one bash-only cycle
-  every 45 seconds.
+It prints a host-aware block:
+
+- Docker missing: print the C1 `watch.sh` block. Missing Docker is not
+  a setup failure. Arm `watch.sh`, not `poller.sh`, every 45 seconds.
+- Docker available and daemon identity running: print daemon mode. Do
+  not arm `watch.sh`. Heartbeat may be empty or stale.
+- Docker available and daemon identity down: the script asks to start.
+  TTY-less default is Y. Y invokes `skills/intercom/start-daemon.sh`.
+  That Y is the pull approval for the CDT-509 alpine digest pin.
+  Answer `n` to keep the C1 `watch.sh` block. Setup does not start.
 
 Do not print the token.
 
@@ -82,6 +90,8 @@ You can enable Topics later and re-run pairing when you want sid per topic.
 4. Session-or-ticket topics need an open session in phase 1 harness mode.
    The phase-2 daemon relays with zero live sessions. General still
    accepts walkie-talkie traffic.
+5. Already paired: run `/setup telegram --start-daemon` to start the
+   sidecar. The flag is the confirm. There is no Y prompt.
 
 ---
 
@@ -105,8 +115,9 @@ Do not `docker pull` until you approve this candidate. Do not use
 
 ### Pre-deploy gate
 
-`probe.sh` is the operator pre-deploy gate. It must pass every SPEC-038
-§ Verified-vs-assumed behavior before you start the daemon. Suites never
+`probe.sh` is the operator-only pre-deploy gate. It is not a setup gate.
+Setup and `start-daemon.sh` do not invoke it. It must pass every SPEC-038
+§ Verified-vs-assumed behavior before a live operator start. Suites never
 run it.
 
 Stop the daemon first. A second getUpdates consumer returns 409.
@@ -118,19 +129,21 @@ bash <plugin>/skills/intercom/probe.sh
 
 ### First start
 
-From the plugin root, after pairing and after probe passes:
+First start is `/setup telegram`. It is not a manual compose block as
+the only path. Pair, then let setup start the sidecar when Docker is
+available.
 
-```
-export INTERCOM_UID=$(id -u)
-export INTERCOM_GID=$(id -g)
-export INTERCOM_TOKEN_FILE="$HOME/.config/telegram/bot_token"
-export INTERCOM_STATE_DIR="$HOME/.claude/telegram-router"
-export INTERCOM_PLUGIN_ROOT="<plugin-root>"
-docker compose -p intercom -f skills/intercom/docker-compose.yml up -d --build
-```
+When Docker is available and the daemon identity is down, accept the
+start prompt. TTY-less default is Y. Y invokes
+`skills/intercom/start-daemon.sh`. That Y is the pull approval for the
+CDT-509 alpine digest pin. Answer `n` to keep the C1 `watch.sh` block.
 
-Never put the token in env, argv, or compose `environment`. The compose
-file mounts the token file read-only.
+Already paired: `/setup telegram --start-daemon`. The flag is the
+confirm. There is no Y prompt.
+
+`start-daemon.sh` runs `docker compose -p intercom up -d --build` with
+host uid:gid. Never put the token in env, argv, or compose
+`environment`. The compose file mounts the token file read-only.
 
 Re-run `/setup telegram` after the daemon is up. It prints daemon mode
 and does not arm `watch.sh`.

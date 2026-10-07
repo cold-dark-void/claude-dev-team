@@ -39,6 +39,7 @@ Bare or unknown sub prints usage and **stops with zero side effects** — no def
 /setup models set-effort ic4 high
 /setup models unset-effort ic4
 /setup telegram
+/setup telegram --start-daemon
 /setup slack
 ```
 
@@ -82,14 +83,26 @@ effort or `inherited`, and the local path. `set` / `unset` / `set-effort` / `uns
 
 Personal Intercom bot (SPEC-038). Delegates to
 `skills/intercom/setup-telegram.sh`. Not doctor-gated.
+`commands/setup.md` forwards remaining args to that script.
 
 Every developer creates their own bot. Do not reuse a teammate's token.
 Do not suggest a shared bot from memory. Never paste the token into chat.
+Never print the bot token.
 If `~/.config/telegram/bot_token` is mode 600, the script offers reuse.
 Pairing long-polls 30s — do not pipe Enter before the operator DMs the bot.
-When compose project `intercom` is up with a fresh heartbeat, setup prints
-daemon mode and does not arm `watch.sh`. Otherwise it prints the C1
-harness block. Operator steps: [Telegram Intercom setup](../runbooks/setup-telegram.md).
+
+Docker is available iff `ir_docker_available`: docker CLI, compose v2,
+and `docker info` (inspect only). When Docker is available and the daemon
+is down, setup starts it via `start-daemon.sh` (TTY-less default Y).
+When Docker is missing or the operator answers n, setup prints the C1
+`watch.sh` block. Missing Docker is not a setup failure.
+
+When compose project `intercom` identity is running, setup prints daemon
+mode and does not arm `watch.sh`. Heartbeat may be empty.
+
+`/setup telegram --start-daemon` starts the sidecar on an already-paired
+box. The flag is the confirm. Operator steps:
+[Telegram Intercom setup](../runbooks/setup-telegram.md).
 
 ## Sub: `slack`
 

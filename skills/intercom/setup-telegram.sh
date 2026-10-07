@@ -9,13 +9,13 @@
 # getChat topics check -> write config.json / topics.json (seed general when
 # the pairing message carried a thread id) / seen.tsv / state dirs / offset
 # under the state
-# root (INTERCOM_STATE_ROOT honored, AC23) -> print daemon mode when
-# ir_daemon_running (fresh heartbeat AND compose project intercom), else the
-# C1 host-aware arming block (absolute watch.sh, 45s, <= 4 KiB, token-free).
-# Re-run keep-existing also prints the current mode. Missing docker is not a
-# setup failure (fail closed to C1). Re-run with a valid config asks before
-# overwriting. bash/jq/curl only (AC21); token never in argv/logs (AC4):
-# every call goes through the tg_api funnel in common.sh.
+# root (INTERCOM_STATE_ROOT honored, AC23) -> after pairing / keep-existing:
+# docker unavailable → C1 + first failed check (exit 0); identity running →
+# daemon mode (heartbeat optional); else prompt to start-daemon.sh (TTY-less
+# Y). --start-daemon is confirm for a paired box (unknown flags exit 2).
+# Missing docker is not a setup failure (fail closed to C1). Re-run with a
+# valid config asks before overwriting. bash/jq/curl only (AC21); token never
+# in argv/logs (AC4): every call goes through the tg_api funnel in common.sh.
 set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -26,6 +26,21 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   echo "setup-telegram.sh is a subprocess CLI (SPEC-038); source common.sh for the library." >&2
   return 1
 fi
+
+START_DAEMON=0
+for _a in "$@"; do
+  case "$_a" in
+    --start-daemon) START_DAEMON=1 ;;
+    --*)
+      echo "setup-telegram: unknown flag: $_a" >&2
+      exit 2
+      ;;
+    *)
+      echo "setup-telegram: unknown argument: $_a" >&2
+      exit 2
+      ;;
+  esac
+done
 
 die() {
   echo "setup-telegram: $*" >&2
@@ -38,7 +53,7 @@ print_c1_arming() {
   local watch="$SCRIPT_DIR/watch.sh"
   [ -f "$watch" ] || echo "setup-telegram: note: $watch not found" >&2
   echo "--- BEGIN harness schedule prompt (host-aware arming) ---"
-  cat <<EOF
+  cat <<EOF || return 1
 Arm the Intercom host job on watch.sh, not poller.sh. One bash-only cycle per invocation.
 Command (absolute):
   bash $watch
@@ -62,19 +77,88 @@ EOF
 }
 
 print_daemon_mode() {
-  cat <<'EOF'
+  cat <<'EOF' || return 1
 Intercom daemon is running (compose project intercom, service daemon).
 The daemon is the sole getUpdates consumer. Do not arm watch.sh.
 EOF
 }
 
-print_runtime_mode() {
-  if ir_daemon_running; then
-    print_daemon_mode
-  else
-    print_c1_arming
-  fi
+is_paired() {
+  local tokfile="$HOME/.config/telegram/bot_token"
+  local cfg
+  cfg="$(ir_state_root)/config.json"
+  [ -f "$tokfile" ] || return 1
+  [ -f "$cfg" ] || return 1
+  jq -e '.schema == 1 and (.members | type == "object") and (.members | length > 0)' "$cfg" >/dev/null 2>&1
 }
+
+# After pairing / keep-existing: identity+docker gate (not ir_daemon_running).
+after_ready() {
+  local miss ans rc
+  miss=""
+  if ! miss=$(ir_docker_available); then
+    print_c1_arming || exit 1
+    printf '%s\n' "${miss:-unknown}" || exit 1
+    exit 0
+  fi
+  if ir_daemon_identity_running; then
+    print_daemon_mode || exit 1
+    exit 0
+  fi
+  printf 'Start the Intercom daemon? [Y/n] ' >&2
+  ans=""
+  IFS= read -r ans || ans=""
+  ans="${ans#"${ans%%[![:space:]]*}"}"
+  ans="${ans%"${ans##*[![:space:]]}"}"
+  case "$ans" in
+    n|N|no|NO)
+      print_c1_arming || exit 1
+      exit 0
+      ;;
+  esac
+  bash "$SCRIPT_DIR/start-daemon.sh"
+  rc=$?
+  case "$rc" in
+    0)
+      print_daemon_mode || exit 1
+      exit 0
+      ;;
+    75)
+      exit 75
+      ;;
+    *)
+      print_c1_arming || exit 1
+      exit 0
+      ;;
+  esac
+}
+
+if [ "$START_DAEMON" -eq 1 ]; then
+  if ! is_paired; then
+    echo "setup-telegram: --start-daemon requires a paired Intercom (token file and config.json with ≥1 member)" >&2
+    exit 1
+  fi
+  miss=""
+  if ! miss=$(ir_docker_available); then
+    printf '%s\n' "${miss:-unknown}" || exit 1
+    exit 1
+  fi
+  if ir_daemon_identity_running; then
+    print_daemon_mode || exit 1
+    exit 0
+  fi
+  bash "$SCRIPT_DIR/start-daemon.sh"
+  rc=$?
+  case "$rc" in
+    0)
+      print_daemon_mode || exit 1
+      exit 0
+      ;;
+    *)
+      exit "$rc"
+      ;;
+  esac
+fi
 
 # ---- 0. re-run safety (idempotent) --------------------------------------------
 
@@ -89,7 +173,7 @@ if [ -f "$cfg" ] && jq -e '.schema == 1 and (.members | type == "object") and (.
     y|Y|yes|YES) ;;
     *)
       echo "setup-telegram: keeping existing config — nothing changed."
-      print_runtime_mode
+      after_ready
       exit 0
       ;;
   esac
@@ -269,4 +353,4 @@ else
 fi
 echo "State root: $root"
 echo
-print_runtime_mode
+after_ready

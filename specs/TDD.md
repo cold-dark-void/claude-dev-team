@@ -40,13 +40,14 @@
 | SPEC-034 | Bug-Hunt Workflow | DRAFT | `commands/bug-hunt.md`, `skills/bug-hunt/*` (stages 1–2 — CDT-136; stage-3 materialize — CDT-138 M38–M41; stage-4 phased handoff — CDT-139 M42–M48; Status DRAFT) |
 | SPEC-035 | Context Audit Surface (`/audit`) | ACTIVE | `commands/audit.md`, `skills/audit/*`, `docs/commands/audit.md` (CDT-200) |
 | SPEC-036 | Transcript Mirror (live compressed session record) | ACTIVE | `skills/transcript-mirror/*`, `docs/commands/transcript-mirror.md` (CDT-220); M10 all cwd-bucket sessions + M11 doctor lag WARN (CDT-221); M5a urlencode then `.cwd` locate (CDT-218); M4a SubagentStop agent nest (CDT-217); M12 carve-out CDT-216 — `/handoff` MAY read `main.md` via SPEC-018 M3f; CDT-215 M1 C7 + M14 — `/compact-transcript` writes sibling `<sid>.meaning-tail.md`; CDT-214 M15 — `summarize-transcript` overlay + `<sid>/verbatim/` (skill CLI, no new `commands/*.md`) |
-| SPEC-038 | Intercom Spool Protocol | ACTIVE | `skills/intercom/` (SKILL.md, common.sh, intercom.sh, poller.sh, watch.sh, daemon.sh, docker-compose.yml, Dockerfile, setup-telegram.sh, probe.sh, test.sh, test-poller.sh, test-daemon.sh); `commands/away.md`, `commands/afk.md`; `commands/setup.md` (`/setup telegram\|slack`); `skills/doctor/checks/intercom.sh` (`intercom.daemon`); `docs/runbooks/setup-telegram.md` |
+| SPEC-038 | Intercom Spool Protocol | ACTIVE | `skills/intercom/` (SKILL.md, common.sh, intercom.sh, poller.sh, watch.sh, daemon.sh, start-daemon.sh, docker-compose.yml, Dockerfile, setup-telegram.sh, probe.sh, test.sh, test-poller.sh, test-daemon.sh); `commands/away.md`, `commands/afk.md`; `commands/setup.md` (`/setup telegram\|slack`); `skills/doctor/checks/intercom.sh` (`intercom.daemon`); `docs/runbooks/setup-telegram.md` |
 | SPEC-037 | Per-agent Model map | ACTIVE | `skills/model-map/` (`resolve-model.sh`, `write-model.sh`, `test.sh`, `write-model-test.sh`, `effort-test.sh`, `spawn-site-test.sh`, `SKILL.md`); `/setup models` + `/adjust-agent --model` / `--effort` (CDT-228 + CDT-229); `/doctor` `models.map`; `/orchestrate` steps 04/06/08/09/10; `skills/post-approve-polish/SKILL.md`; `skills/ci-watch/SKILL.md`; remaining named-roster surfaces kickoff/epic/debug/fix-ticket/council/bug-hunt (CDT-222 + CDT-226); local/repo/global layers (CDT-227); sibling `effort` map (CDT-229); `.gitignore` `models.local.json` only |
 
 ## Version History
 
 | Date | Change |
 |------|--------|
+| 2026-10-07 | CDT-527: SPEC-038 coverage adds `start-daemon.sh`; `/setup telegram` starts the daemon when Docker is available (`ir_docker_available`). |
 | 2026-10-07 | CDT-509: SPEC-038 coverage adds `daemon.sh`, `docker-compose.yml`, `Dockerfile`, `test-daemon.sh`, doctor `intercom.daemon`, and `docs/runbooks/setup-telegram.md` (phase-2 compose sidecar). |
 | 2026-10-03 | WP 7-A (CDT-294): SPEC-019/027/028 files archived under `specs/archive/` — Status lines kept, spec-lint skips the directory (fixtures-style), TDD rows kept with archive pointers. |
 | 2026-10-02 | WP 5-07 editorial pass: dead references, Covers headers, newest-first history, ownership map, stale sentences. |

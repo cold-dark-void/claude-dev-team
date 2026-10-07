@@ -8,9 +8,11 @@
 # AC7, AC8, AC9, AC10, AC11, AC17 (CLI side), AC20, AC21, AC23, AC25.
 # Poller-cycle ACs (AC12-AC16, AC18, AC19, AC22) live in test-poller.sh.
 # CDT-509 AC3/AC6/AC10/AC12 live here; loop+compose+keepalive static
-# live in test-daemon.sh. State is hermetic: INTERCOM_STATE_ROOT and HOME
-# live under one mktemp root and the repo working tree must stay untouched
-# (AC23). Suites never docker-pull or docker-run a real image.
+# live in test-daemon.sh. CDT-527 ir_docker_available / identity / setup
+# gate / --start-daemon live here (start-daemon.sh CLI in test-daemon.sh).
+# State is hermetic: INTERCOM_STATE_ROOT and HOME live under one mktemp
+# root and the repo working tree must stay untouched (AC23). Suites never
+# docker-pull or docker-run a real image.
 set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -51,6 +53,10 @@ ln -sf "$(command -v dirname)" "$EMPTY_BIN/dirname"
 # shellcheck source=test-lib.sh
 . "$HERE/test-lib.sh"
 hermetic_curl_shim
+# Pairing/keep-existing before CDT-509 must not see a host docker (CDT-527
+# prompts and would invoke start-daemon.sh). SHIM_DIR stays first for curl.
+SAFE_BIN=$(nodocker_bin)
+export PATH="$SHIM_DIR:$SAFE_BIN"
 export TRANSCRIPT_MIRROR_ROOT="$HERMETIC_ROOT/transcript"
 mkdir -m 700 -p "$TRANSCRIPT_MIRROR_ROOT"
 
@@ -1132,67 +1138,7 @@ fi
 # ---- CDT-509: ir_daemon_running + setup daemon-mode vs C1 harness --------------
 # shellcheck source=../../tests/lib/mtimes.sh
 . "$PLUGIN_ROOT/tests/lib/mtimes.sh"
-
-nodocker_bin() {
-  local tools="$HERMETIC_ROOT/nodocker-bin" cmd p
-  mkdir -p "$tools"
-  if [ ! -x "$tools/grep" ]; then
-    for cmd in bash jq curl flock grep sed awk cat chmod mkdir date stat \
-      touch wc tr mktemp rm ls head find mv cp basename dirname uname \
-      sleep kill env id ps tail cmp diff file ln git sort uniq cut tee \
-      true false test timeout stty readlink realpath; do
-      p=$(command -v "$cmd" 2>/dev/null) || continue
-      ln -sf "$p" "$tools/$cmd"
-    done
-  fi
-  printf '%s\n' "$tools"
-}
-SAFE_BIN=$(nodocker_bin)
-export PATH="$SHIM_DIR:$SAFE_BIN"
-
-install_docker_mock() { # running|down — SHIM_DIR/docker only; never a real daemon
-  local mode="$1"
-  export DOCKER_MOCK_MODE_FILE="$HERMETIC_ROOT/docker.mode"
-  export DOCKER_MOCK_LOG="$HERMETIC_ROOT/docker.argv"
-  printf '%s\n' "$mode" > "$DOCKER_MOCK_MODE_FILE"
-  : > "$DOCKER_MOCK_LOG"
-  cat > "$SHIM_DIR/docker" <<'EOF'
-#!/usr/bin/env bash
-{
-  printf 'argv'
-  printf ' %s' "$@"
-  printf '\n'
-} >> "${DOCKER_MOCK_LOG:-/dev/null}"
-for a in "$@"; do
-  case "$a" in
-    pull|run|build|push)
-      echo "docker-mock: refused $a" >&2
-      exit 64
-      ;;
-  esac
-done
-mode=$(cat "${DOCKER_MOCK_MODE_FILE:-/dev/null}" 2>/dev/null || true)
-want=0
-prev=""
-for a in "$@"; do
-  if [ "$prev" = "-p" ] && [ "$a" = "intercom" ]; then want=1; fi
-  if [ "$prev" = "--project-name" ] && [ "$a" = "intercom" ]; then want=1; fi
-  case "$a" in
-    *dev-team.intercom*) want=1 ;;
-  esac
-  prev="$a"
-done
-if [ "$mode" = "running" ] && [ "$want" -eq 1 ]; then
-  printf '%s\n' '{"Service":"daemon","State":"running","Labels":"dev-team.intercom=daemon","Project":"intercom"}'
-  printf '%s\n' "deadbeef"
-  exit 0
-fi
-exit 0
-EOF
-  chmod +x "$SHIM_DIR/docker"
-}
-
-rm_docker_mock() { rm -f "$SHIM_DIR/docker"; }
+# SAFE_BIN PATH is already set (no real docker).
 
 run_ir_daemon() {
   IRD_OUT=$(bash -c '. "'"$COMMON"'"; ir_daemon_running' 2>"$ERRF")
@@ -1200,12 +1146,16 @@ run_ir_daemon() {
   IRD_ERR=$(cat "$ERRF")
 }
 
-assert_no_docker_pull() { # LABEL
-  if [ -s "${DOCKER_MOCK_LOG:-}" ] && grep -Eq ' (pull|run|build) ' "$DOCKER_MOCK_LOG"; then
-    bad "$1 invoked docker pull/run/build: $(tr '\n' ' ' < "$DOCKER_MOCK_LOG")"
-    return 1
-  fi
-  return 0
+run_ir() { # FUNC — source common.sh and call FUNC; sets IR_OUT IR_ERR IR_RC
+  IR_OUT=$(bash -c '. "'"$COMMON"'"; '"$1" 2>"$ERRF")
+  IR_RC=$?
+  IR_ERR=$(cat "$ERRF")
+}
+
+ir_out_has_token() { # TEXT
+  printf '%s' "$1" | grep -qF "$TEST_TOKEN" && return 0
+  printf '%s' "$1" | grep -qF "$SENTINEL" && return 0
+  return 1
 }
 
 assert_daemon_mode() { # LABEL OUT
@@ -1308,14 +1258,20 @@ else
 fi
 assert_no_docker_pull "CDT-509 AC10 setup keep-existing daemon-up"
 
-# Keep-existing + stale heartbeat → C1 harness (fail closed).
+# Keep-existing + stale heartbeat + identity running → daemon-mode
+# (CDT-527 AC3 supersedes CDT-509 AC10 heartbeat conjunct for setup mode).
 fresh_case
 seed_paired "197372681"
 touch_ago "$STATE_ROOT/state/heartbeat" 300
 install_docker_mock running
 out=$(printf 'n\n' | bash "$SETUP" 2>&1)
 rc=$?
-assert_c1_harness "CDT-509 AC10 keep-existing + stale heartbeat: C1 harness with abs watch.sh" "$out" "$rc"
+assert_no_compose_up "CDT-527 AC3 keep-existing + stale heartbeat"
+if [ "$rc" -eq 0 ]; then
+  assert_daemon_mode "CDT-527 AC3 keep-existing + stale heartbeat: daemon-mode, no C1" "$out"
+else
+  bad "CDT-527 AC3 keep-existing stale hb rc=$rc out=$out"
+fi
 
 # Keep-existing + docker missing → C1, not a setup failure.
 fresh_case
@@ -1439,6 +1395,450 @@ if grep -q 'intercom.daemon' "$DOC_IC" \
   ok "CDT-509 T5 doctor intercom.daemon is WARN-never-FAIL inspect-only"
 else
   bad "CDT-509 T5 doctor checks/intercom.sh missing intercom.daemon or pulls"
+fi
+
+# ---- CDT-527: ir_docker_available / identity / setup gate / --start-daemon -----
+# SAFE_BIN PATH is already set (no real docker). Mock modes from test-lib.sh.
+
+# ir_docker_available: CLI-absent → rc 1 stdout `docker CLI`
+fresh_case
+seed_token "$SENTINEL"
+rm_docker_mock
+run_ir ir_docker_available
+assert_no_docker_pull "CDT-527 AC1 ir_docker_available (CLI-absent)"
+if [ "$IR_RC" -eq 1 ] && [ "$IR_OUT" = "docker CLI" ] \
+  && ! ir_out_has_token "$IR_OUT" && ! ir_out_has_token "$IR_ERR"; then
+  ok "CDT-527 AC1 ir_docker_available: CLI-absent → rc 1 stdout docker CLI"
+else
+  bad "CDT-527 AC1 ir_docker_available CLI-absent: rc=$IR_RC out=[$IR_OUT] err=$IR_ERR"
+fi
+
+# no-compose → compose v2; no-engine → engine
+fresh_case
+seed_token "$SENTINEL"
+install_docker_mock no-compose
+run_ir ir_docker_available
+assert_no_docker_pull "CDT-527 AC1 ir_docker_available (no-compose)"
+if [ "$IR_RC" -eq 1 ] && [ "$IR_OUT" = "compose v2" ] \
+  && ! ir_out_has_token "$IR_OUT" && ! ir_out_has_token "$IR_ERR"; then
+  ok "CDT-527 AC1 ir_docker_available: no-compose → rc 1 stdout compose v2"
+else
+  bad "CDT-527 AC1 ir_docker_available no-compose: rc=$IR_RC out=[$IR_OUT] err=$IR_ERR"
+fi
+
+fresh_case
+seed_token "$SENTINEL"
+install_docker_mock no-engine
+run_ir ir_docker_available
+assert_no_docker_pull "CDT-527 AC1 ir_docker_available (no-engine)"
+if [ "$IR_RC" -eq 1 ] && [ "$IR_OUT" = "engine" ] \
+  && ! ir_out_has_token "$IR_OUT" && ! ir_out_has_token "$IR_ERR"; then
+  ok "CDT-527 AC1 ir_docker_available: no-engine → rc 1 stdout engine"
+else
+  bad "CDT-527 AC1 ir_docker_available no-engine: rc=$IR_RC out=[$IR_OUT] err=$IR_ERR"
+fi
+
+# down / running / up-ok → rc 0 empty stdout; no pull/run; no token
+for _mode in down running up-ok; do
+  fresh_case
+  seed_token "$SENTINEL"
+  install_docker_mock "$_mode"
+  run_ir ir_docker_available
+  assert_no_docker_pull "CDT-527 AC1 ir_docker_available ($_mode)"
+  if [ "$IR_RC" -eq 0 ] && [ -z "$IR_OUT" ] \
+    && ! ir_out_has_token "$IR_OUT" && ! ir_out_has_token "$IR_ERR"; then
+    ok "CDT-527 AC1 ir_docker_available: $_mode → rc 0 empty stdout"
+  else
+    bad "CDT-527 AC1 ir_docker_available $_mode: rc=$IR_RC out=[$IR_OUT] err=$IR_ERR"
+  fi
+done
+
+# ir_daemon_identity_running: running rc 0 even with missing/stale heartbeat
+fresh_case
+seed_paired "197372681"
+seed_token "$SENTINEL"
+rm -f "$STATE_ROOT/state/heartbeat"
+install_docker_mock running
+run_ir ir_daemon_identity_running
+assert_no_docker_pull "CDT-527 AC3 ir_daemon_identity_running (missing hb)"
+if [ "$IR_RC" -eq 0 ] && ! ir_out_has_token "$IR_OUT" && ! ir_out_has_token "$IR_ERR"; then
+  ok "CDT-527 AC3 ir_daemon_identity_running: running + missing hb → rc 0"
+else
+  bad "CDT-527 AC3 ir_daemon_identity_running missing hb: rc=$IR_RC out=[$IR_OUT] err=$IR_ERR"
+fi
+
+fresh_case
+seed_paired "197372681"
+seed_token "$SENTINEL"
+touch_ago "$STATE_ROOT/state/heartbeat" 300
+install_docker_mock running
+run_ir ir_daemon_identity_running
+assert_no_docker_pull "CDT-527 AC3 ir_daemon_identity_running (stale hb)"
+if [ "$IR_RC" -eq 0 ]; then
+  ok "CDT-527 AC3 ir_daemon_identity_running: running + stale hb → rc 0"
+else
+  bad "CDT-527 AC3 ir_daemon_identity_running stale hb: rc=$IR_RC err=$IR_ERR"
+fi
+
+fresh_case
+seed_paired "197372681"
+install_docker_mock down
+run_ir ir_daemon_identity_running
+if [ "$IR_RC" -eq 1 ]; then
+  ok "CDT-527 AC3 ir_daemon_identity_running: down → rc 1"
+else
+  bad "CDT-527 AC3 ir_daemon_identity_running down: rc=$IR_RC err=$IR_ERR"
+fi
+
+fresh_case
+seed_paired "197372681"
+rm_docker_mock
+run_ir ir_daemon_identity_running
+if [ "$IR_RC" -eq 1 ]; then
+  ok "CDT-527 AC3 ir_daemon_identity_running: CLI-absent → rc 1"
+else
+  bad "CDT-527 AC3 ir_daemon_identity_running CLI-absent: rc=$IR_RC err=$IR_ERR"
+fi
+
+# ir_daemon_running still rc 1 on stale hb + running (doctor unchanged)
+fresh_case
+seed_paired "197372681"
+touch_ago "$STATE_ROOT/state/heartbeat" 300
+install_docker_mock running
+run_ir_daemon
+if [ "$IRD_RC" -eq 1 ]; then
+  ok "CDT-527 AC3 ir_daemon_running: stale hb + running → rc 1 (doctor unchanged)"
+else
+  bad "CDT-527 AC3 ir_daemon_running stale+running: rc=$IRD_RC err=$IRD_ERR"
+fi
+
+# ir_lock_held: absent / not held → rc 1 (must not create); held → rc 0
+fresh_case
+run_ir ir_lock_held
+if [ "$IR_RC" -eq 1 ] && [ ! -f "$STATE_ROOT/state/poller.lock" ]; then
+  ok "CDT-527 ir_lock_held: absent → rc 1, does not create lock"
+else
+  bad "CDT-527 ir_lock_held absent: rc=$IR_RC lock=$([ -f "$STATE_ROOT/state/poller.lock" ] && echo yes || echo no)"
+fi
+
+fresh_case
+mkdir -m 700 -p "$STATE_ROOT/state"
+: > "$STATE_ROOT/state/poller.lock"
+run_ir ir_lock_held
+if [ "$IR_RC" -eq 1 ]; then
+  ok "CDT-527 ir_lock_held: file present but not held → rc 1"
+else
+  bad "CDT-527 ir_lock_held not-held: rc=$IR_RC err=$IR_ERR"
+fi
+
+fresh_case
+mkdir -m 700 -p "$STATE_ROOT/state"
+exec 8>"$STATE_ROOT/state/poller.lock"
+if flock -n 8; then
+  run_ir ir_lock_held
+  if [ "$IR_RC" -eq 0 ]; then
+    ok "CDT-527 ir_lock_held: exclusive lock held → rc 0"
+  else
+    bad "CDT-527 ir_lock_held held: rc=$IR_RC err=$IR_ERR"
+  fi
+  exec 8>&-
+else
+  bad "CDT-527 ir_lock_held: test could not take exclusive lock"
+fi
+
+# Setup keep-existing (printf 'n\n'): docker unavailable → rc 0, C1, one missing-check line
+fresh_case
+seed_paired "197372681"
+seed_token "$SENTINEL"
+rm_docker_mock
+out=$(printf 'n\n' | bash "$SETUP" 2>&1)
+rc=$?
+assert_c1_harness "CDT-527 AC2 keep-existing CLI-absent: C1 harness rc 0" "$out" "$rc"
+assert_no_compose_up "CDT-527 AC2 keep-existing CLI-absent"
+if printf '%s' "$out" | grep -q 'docker CLI' && ! ir_out_has_token "$out"; then
+  ok "CDT-527 AC2 keep-existing CLI-absent names docker CLI, no token"
+else
+  bad "CDT-527 AC2 keep-existing CLI-absent missing-check: out=$out"
+fi
+
+fresh_case
+seed_paired "197372681"
+seed_token "$SENTINEL"
+install_docker_mock no-compose
+out=$(printf 'n\n' | bash "$SETUP" 2>&1)
+rc=$?
+assert_c1_harness "CDT-527 AC2 keep-existing no-compose: C1 harness rc 0" "$out" "$rc"
+assert_no_docker_pull "CDT-527 AC2 keep-existing no-compose"
+if printf '%s' "$out" | grep -q 'compose v2' && ! ir_out_has_token "$out"; then
+  ok "CDT-527 AC2 keep-existing no-compose names compose v2, no token"
+else
+  bad "CDT-527 AC2 keep-existing no-compose missing-check: out=$out"
+fi
+
+fresh_case
+seed_paired "197372681"
+seed_token "$SENTINEL"
+install_docker_mock no-engine
+out=$(printf 'n\n' | bash "$SETUP" 2>&1)
+rc=$?
+assert_c1_harness "CDT-527 AC2 keep-existing no-engine: C1 harness rc 0" "$out" "$rc"
+if printf '%s' "$out" | grep -q 'engine' && ! ir_out_has_token "$out"; then
+  ok "CDT-527 AC2 keep-existing no-engine names engine, no token"
+else
+  bad "CDT-527 AC2 keep-existing no-engine missing-check: out=$out"
+fi
+
+# running + empty hb → daemon-mode, no C1 (identity, not ir_daemon_running)
+fresh_case
+seed_paired "197372681"
+seed_token "$SENTINEL"
+rm -f "$STATE_ROOT/state/heartbeat"
+install_docker_mock running
+out=$(printf 'n\n' | bash "$SETUP" 2>&1)
+rc=$?
+assert_no_compose_up "CDT-527 AC3 keep-existing running empty-hb"
+assert_no_docker_pull "CDT-527 AC3 keep-existing running empty-hb"
+if [ "$rc" -eq 0 ]; then
+  assert_daemon_mode "CDT-527 AC3 keep-existing running + empty hb: daemon-mode, no C1" "$out"
+else
+  bad "CDT-527 AC3 keep-existing running empty-hb rc=$rc out=$out"
+fi
+
+# up-ok + EOF after keep-existing → start invoked, daemon-mode, no C1
+fresh_case
+seed_paired "197372681"
+seed_token "$SENTINEL"
+install_docker_mock up-ok
+out=$(printf 'n\n' | bash "$SETUP" 2>&1)
+rc=$?
+assert_no_docker_pull "CDT-527 AC4 keep-existing up-ok EOF"
+if [ "$rc" -eq 0 ] && docker_mock_logged_up; then
+  assert_daemon_mode "CDT-527 AC4 keep-existing up-ok + EOF: daemon-mode, compose up -d --build" "$out"
+else
+  bad "CDT-527 AC4 keep-existing up-ok EOF: rc=$rc up=$(docker_mock_logged_up && echo yes || echo no) log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}") out=$out"
+fi
+
+# printf n to start prompt → C1, no up
+fresh_case
+seed_paired "197372681"
+install_docker_mock up-ok
+out=$(printf 'n\nn\n' | bash "$SETUP" 2>&1)
+rc=$?
+assert_c1_harness "CDT-527 AC4 keep-existing n to start prompt: C1, no up" "$out" "$rc"
+assert_no_compose_up "CDT-527 AC4 keep-existing n to start prompt"
+if printf '%s' "$out" | grep -qi 'Start the Intercom daemon'; then
+  ok "CDT-527 AC4 keep-existing n to start prompt: start prompt present"
+else
+  bad "CDT-527 AC4 keep-existing n to start prompt missing prompt: out=$out"
+fi
+
+# INTERCOM_UID=0 + up-ok on keep-existing → C1 rc 0, no up
+fresh_case
+seed_paired "197372681"
+install_docker_mock up-ok
+out=$(printf 'n\n' | env INTERCOM_UID=0 bash "$SETUP" 2>&1)
+rc=$?
+assert_c1_harness "CDT-527 AC4 keep-existing uid 0: C1 rc 0" "$out" "$rc"
+assert_no_compose_up "CDT-527 AC4 keep-existing uid 0"
+if printf '%s' "$out" | grep -qiE 'uid 0|uid0|INTERCOM_UID'; then
+  ok "CDT-527 AC4 keep-existing uid 0: refuse line present"
+else
+  bad "CDT-527 AC4 keep-existing uid 0 missing refuse line: out=$out"
+fi
+
+# up-fail on keep-existing → C1 rc 0, no daemon-mode (must have attempted up)
+fresh_case
+seed_paired "197372681"
+install_docker_mock up-fail
+out=$(printf 'n\n' | bash "$SETUP" 2>&1)
+rc=$?
+assert_c1_harness "CDT-527 AC4 keep-existing up-fail: C1 rc 0" "$out" "$rc"
+if docker_mock_logged_up; then
+  ok "CDT-527 AC4 keep-existing up-fail: compose up attempted"
+else
+  bad "CDT-527 AC4 keep-existing up-fail did not invoke up: log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}")"
+fi
+if printf '%s' "$out" | grep -q 'BEGIN harness schedule prompt' \
+  && ! printf '%s' "$out" | grep -qi 'do not arm watch.sh'; then
+  ok "CDT-527 AC4 keep-existing up-fail: no daemon-mode"
+else
+  bad "CDT-527 AC4 keep-existing up-fail still daemon-mode: out=$out"
+fi
+
+# --start-daemon: unpaired → rc ≠ 0, no up (must not fall into pairing prompt)
+fresh_case
+rm -rf "$HOME/.config"
+install_docker_mock up-ok
+out=$(bash "$SETUP" --start-daemon 2>&1)
+rc=$?
+assert_no_compose_up "CDT-527 AC7 --start-daemon unpaired"
+if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q 'BEGIN harness schedule prompt' \
+  && ! printf '%s' "$out" | grep -qi 'Telegram bot token'; then
+  ok "CDT-527 AC7 --start-daemon unpaired: rc≠0, no up, no C1, no pairing prompt"
+else
+  bad "CDT-527 AC7 --start-daemon unpaired: rc=$rc out=$out"
+fi
+
+# --start-daemon running → daemon-mode rc 0, no up, no keep-existing prompt
+fresh_case
+seed_paired "197372681"
+install_docker_mock running
+out=$(bash "$SETUP" --start-daemon 2>&1)
+rc=$?
+assert_no_compose_up "CDT-527 AC7 --start-daemon running"
+assert_no_docker_pull "CDT-527 AC7 --start-daemon running"
+if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qi 'keeping existing' \
+  && ! printf '%s' "$out" | grep -qi 'Overwrite'; then
+  assert_daemon_mode "CDT-527 AC7 --start-daemon running: daemon-mode rc 0, no keep-existing prompt" "$out"
+else
+  bad "CDT-527 AC7 --start-daemon running: rc=$rc out=$out"
+fi
+
+# --start-daemon up-ok paired → up logged, daemon-mode rc 0
+fresh_case
+seed_paired "197372681"
+install_docker_mock up-ok
+out=$(bash "$SETUP" --start-daemon 2>&1)
+rc=$?
+assert_no_docker_pull "CDT-527 AC7 --start-daemon up-ok"
+if [ "$rc" -eq 0 ] && docker_mock_logged_up; then
+  assert_daemon_mode "CDT-527 AC7 --start-daemon up-ok paired: up logged, daemon-mode rc 0" "$out"
+else
+  bad "CDT-527 AC7 --start-daemon up-ok: rc=$rc up=$(docker_mock_logged_up && echo yes || echo no) log=$(tr '\n' ' ' < "${DOCKER_MOCK_LOG:-/dev/null}") out=$out"
+fi
+
+# --start-daemon INTERCOM_UID=0 → rc ≠ 0, no C1, no up
+fresh_case
+seed_paired "197372681"
+install_docker_mock up-ok
+out=$(env INTERCOM_UID=0 bash "$SETUP" --start-daemon 2>&1)
+rc=$?
+assert_no_compose_up "CDT-527 AC7 --start-daemon uid 0"
+if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q 'BEGIN harness schedule prompt'; then
+  ok "CDT-527 AC7 --start-daemon uid 0: rc≠0, no C1, no up"
+else
+  bad "CDT-527 AC7 --start-daemon uid 0: rc=$rc out=$out"
+fi
+
+# --start-daemon up-fail → rc ≠ 0, no C1
+fresh_case
+seed_paired "197372681"
+install_docker_mock up-fail
+out=$(bash "$SETUP" --start-daemon 2>&1)
+rc=$?
+if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q 'BEGIN harness schedule prompt'; then
+  ok "CDT-527 AC7 --start-daemon up-fail: rc≠0, no C1"
+else
+  bad "CDT-527 AC7 --start-daemon up-fail: rc=$rc out=$out"
+fi
+
+# --start-daemon docker unavailable → rc ≠ 0, no C1
+fresh_case
+seed_paired "197372681"
+rm_docker_mock
+out=$(bash "$SETUP" --start-daemon 2>&1)
+rc=$?
+assert_no_compose_up "CDT-527 AC7 --start-daemon docker unavailable"
+if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q 'BEGIN harness schedule prompt'; then
+  ok "CDT-527 AC7 --start-daemon docker unavailable: rc≠0, no C1"
+else
+  bad "CDT-527 AC7 --start-daemon docker unavailable: rc=$rc out=$out"
+fi
+
+# unknown flag: exit 2 before keep-existing prompt
+fresh_case
+seed_paired "197372681"
+out=$(printf 'n\n' | bash "$SETUP" --no-such-flag 2>&1)
+rc=$?
+assert_no_compose_up "CDT-527 unknown flag"
+if [ "$rc" -eq 2 ] && ! printf '%s' "$out" | grep -qi 'Overwrite'; then
+  ok "CDT-527 unknown flag: exit 2 before keep-existing prompt"
+else
+  bad "CDT-527 unknown flag: rc=$rc out=$out"
+fi
+
+# commands/setup.md forwards --start-daemon (C9 ARGS + shift telegram)
+if grep -q -- '--start-daemon' "$SETUP_MD" \
+  && grep -q 'bash "$TG_SETUP" "$@"' "$SETUP_MD" \
+  && grep -q '__A__' "$SETUP_MD" \
+  && ! grep -q 'takes no flags' "$SETUP_MD"; then
+  ok "CDT-527 AC7 commands/setup.md C9-forwards --start-daemon"
+else
+  bad "CDT-527 AC7 commands/setup.md missing C9 ARGS / --start-daemon / still takes-no-flags"
+fi
+
+# ---- CDT-527 T5 docs (AC9) — SKILL, runbook, docs/commands/setup, TDD ----------
+# commands/setup.md + setup-telegram.sh are T4; AC9 here greps T5-owned docs.
+DOCS_SETUP="$PLUGIN_ROOT/docs/commands/setup.md"
+SKILL_MD="${SKILL_MD:-$HERE/SKILL.md}"
+RB="${RB:-$PLUGIN_ROOT/docs/runbooks/setup-telegram.md}"
+TDD_MD="${TDD_MD:-$PLUGIN_ROOT/specs/TDD.md}"
+
+if grep -q 'ir_docker_available' "$SKILL_MD" \
+  && grep -q 'docker CLI' "$SKILL_MD" \
+  && grep -q 'compose v2' "$SKILL_MD" \
+  && grep -q 'docker info' "$SKILL_MD" \
+  && grep -qi 'inspect' "$SKILL_MD" \
+  && grep -q 'start-daemon.sh' "$SKILL_MD" \
+  && grep -q -- '--start-daemon' "$SKILL_MD" \
+  && grep -qi 'TTY-less' "$SKILL_MD" \
+  && grep -qi 'alpine' "$SKILL_MD" \
+  && grep -qi 'remaining args' "$SKILL_MD" \
+  && grep -q 'commands/setup.md' "$SKILL_MD" \
+  && grep -qi 'watch.sh' "$SKILL_MD" \
+  && grep -qiE 'operator-only|MUST NOT invoke' "$SKILL_MD" \
+  && grep -qi 'probe.sh' "$SKILL_MD" \
+  && grep -qiE 'not a setup gate|MUST NOT invoke it' "$SKILL_MD" \
+  && grep -qiE 'never print|never put the token' "$SKILL_MD" \
+  && ! grep -qF "$TEST_TOKEN" "$SKILL_MD" && ! grep -qF "$SENTINEL" "$SKILL_MD"; then
+  ok "CDT-527 AC9 SKILL.md: ir_docker_available, start-daemon, --start-daemon, TTY-less alpine, remaining args, probe operator-only, no token"
+else
+  bad "CDT-527 AC9 SKILL.md missing docker-available/start-daemon/--start-daemon/TTY-less/remaining-args/probe/token contract"
+fi
+
+if [ -f "$RB" ] \
+  && grep -q 'start-daemon.sh' "$RB" \
+  && grep -q -- '--start-daemon' "$RB" \
+  && grep -qi 'TTY-less' "$RB" \
+  && grep -qi 'alpine' "$RB" \
+  && grep -qi 'watch.sh' "$RB" \
+  && grep -qiE 'answers n|answer `n`|Answer `n`' "$RB" \
+  && grep -Eq 'ir_docker_available|docker CLI|docker info' "$RB" \
+  && grep -q 'probe.sh' "$RB" \
+  && grep -qi 'operator-only' "$RB" \
+  && grep -qi 'setup gate' "$RB" \
+  && grep -qi 'stop the daemon' "$RB" \
+  && grep -q '409' "$RB" \
+  && grep -q "$ALPINE_DIGEST" "$RB" \
+  && grep -qi '/setup telegram' "$RB" \
+  && grep -qi 'not a manual compose' "$RB" \
+  && grep -qiE 'do not print the token|never print' "$RB" \
+  && ! grep -qF "$TEST_TOKEN" "$RB" && ! grep -qF "$SENTINEL" "$RB"; then
+  ok "CDT-527 AC9 runbook: /setup telegram first start, start-daemon, C1 on n, TTY-less alpine, probe operator-only, digest+409, no token"
+else
+  bad "CDT-527 AC9 runbook missing first-start/start-daemon/C1-on-n/TTY-less/probe/digest contract"
+fi
+
+if [ -f "$DOCS_SETUP" ] \
+  && grep -Eq 'ir_docker_available|docker CLI' "$DOCS_SETUP" \
+  && grep -Eq 'compose v2|docker compose version' "$DOCS_SETUP" \
+  && grep -q 'docker info' "$DOCS_SETUP" \
+  && grep -q 'start-daemon.sh' "$DOCS_SETUP" \
+  && grep -q -- '--start-daemon' "$DOCS_SETUP" \
+  && grep -qi 'remaining args' "$DOCS_SETUP" \
+  && grep -qi 'watch.sh' "$DOCS_SETUP" \
+  && grep -qiE 'already-paired|already paired' "$DOCS_SETUP" \
+  && grep -qiE 'never print|never paste' "$DOCS_SETUP" \
+  && ! grep -qF "$TEST_TOKEN" "$DOCS_SETUP" && ! grep -qF "$SENTINEL" "$DOCS_SETUP"; then
+  ok "CDT-527 AC9 docs/commands/setup.md: docker gate, start-daemon, remaining args, --start-daemon, C1, no token"
+else
+  bad "CDT-527 AC9 docs/commands/setup.md missing docker-gate/start-daemon/remaining-args/--start-daemon/token contract"
+fi
+
+if grep -q 'start-daemon.sh' "$TDD_MD"; then
+  ok "CDT-527 AC9 specs/TDD.md coverage names start-daemon.sh"
+else
+  bad "CDT-527 AC9 specs/TDD.md SPEC-038 coverage missing start-daemon.sh"
 fi
 
 echo

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # test-lib.sh — shared hermetic scaffolding for the intercom suites (SPEC-038).
 # Source-only: test.sh, test-poller.sh, and test-daemon.sh source it after
-# tests/lib/hermetic.sh. It owns the no-network curl shim and the
-# state/fixture/spool helpers the suites use. Suite-specific setup (EMPTY_BIN,
-# TRANSCRIPT_MIRROR_ROOT, run_cli_env, ok_empty_result, the fixtures/ dir) and
-# the test bodies stay in the suites. The suites define TEST_TOKEN, fresh_case,
-# and fresh_state before the helpers that reference them are called.
+# tests/lib/hermetic.sh. It owns the no-network curl shim, the docker mock
+# (never a real daemon), and the state/fixture/spool helpers the suites use.
+# Suite-specific setup (EMPTY_BIN, TRANSCRIPT_MIRROR_ROOT, run_cli_env,
+# ok_empty_result, the fixtures/ dir) and the test bodies stay in the suites.
+# The suites define TEST_TOKEN, fresh_case, and fresh_state before the
+# helpers that reference them are called.
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   echo "test-lib.sh is a source-only library, not a suite — source it from skills/intercom/test.sh, test-poller.sh, or test-daemon.sh." >&2
@@ -228,3 +229,234 @@ inbox_files() { find "$STATE_ROOT/spool/$1/inbox" -name '*.json' 2>/dev/null; }
 inbox_n() { inbox_files "$1" | wc -l | tr -d ' '; }
 seen_n() { wc -l < "$STATE_ROOT/state/seen.tsv" 2>/dev/null | tr -d ' '; }
 offset_val() { cat "$STATE_ROOT/state/offset" 2>/dev/null; }
+
+# ---- docker mock (CDT-509 / CDT-527). Never talks to a real daemon. ------------
+# Modes (DOCKER_MOCK_MODE_FILE): no-compose, no-engine, down, running, up-ok,
+# up-fail. CLI-absent = nodocker_bin PATH + rm_docker_mock (no shim).
+# assert_no_docker_pull flags docker verbs `pull`/`run` only — not `--build`
+# on `compose … up -d --build`.
+
+nodocker_bin() {
+  local tools="$HERMETIC_ROOT/nodocker-bin" cmd p
+  mkdir -p "$tools"
+  if [ ! -x "$tools/grep" ]; then
+    for cmd in bash jq curl flock grep sed awk cat chmod mkdir date stat \
+      touch wc tr mktemp rm ls head find mv cp basename dirname uname \
+      sleep kill env id ps tail cmp diff file ln git sort uniq cut tee \
+      true false test timeout stty readlink realpath; do
+      p=$(command -v "$cmd" 2>/dev/null) || continue
+      ln -sf "$p" "$tools/$cmd"
+    done
+  fi
+  printf '%s\n' "$tools"
+}
+
+install_docker_mock() { # no-compose|no-engine|down|running|up-ok|up-fail
+  local mode="$1"
+  case "$mode" in
+    no-compose|no-engine|down|running|up-ok|up-fail) ;;
+    *)
+      echo "install_docker_mock: unknown mode $mode" >&2
+      return 2
+      ;;
+  esac
+  [ -n "${SHIM_DIR:-}" ] || { echo "install_docker_mock: SHIM_DIR unset" >&2; return 2; }
+  [ -n "${HERMETIC_ROOT:-}" ] || { echo "install_docker_mock: HERMETIC_ROOT unset" >&2; return 2; }
+  export DOCKER_MOCK_MODE_FILE="$HERMETIC_ROOT/docker.mode"
+  export DOCKER_MOCK_LOG="$HERMETIC_ROOT/docker.argv"
+  export DOCKER_MOCK_ENV="$HERMETIC_ROOT/docker.env"
+  printf '%s\n' "$mode" > "$DOCKER_MOCK_MODE_FILE"
+  : > "$DOCKER_MOCK_LOG"
+  : > "$DOCKER_MOCK_ENV"
+  cat > "$SHIM_DIR/docker" <<'EOF'
+#!/usr/bin/env bash
+# Hermetic docker: no daemon. Logs argv; compose version / info / ps / up
+# follow DOCKER_MOCK_MODE_FILE. Refuses pull/run verbs. Allows --build.
+{
+  printf 'argv'
+  printf ' %s' "$@"
+  printf '\n'
+} >> "${DOCKER_MOCK_LOG:-/dev/null}"
+{
+  printf 'argv'
+  printf ' %s' "$@"
+  printf '\n'
+  env | grep -E '^(INTERCOM_|TELEGRAM_|BOT_)' || true
+  printf '\n'
+} >> "${DOCKER_MOCK_ENV:-/dev/null}"
+for a in "$@"; do
+  case "$a" in
+    pull|run)
+      echo "docker-mock: refused $a" >&2
+      exit 64
+      ;;
+  esac
+done
+mode=$(cat "${DOCKER_MOCK_MODE_FILE:-/dev/null}" 2>/dev/null || true)
+is_compose=0
+sub=""
+want=0
+skip=0
+prev=""
+cmd=""
+first=1
+for a in "$@"; do
+  if [ "$first" -eq 1 ]; then
+    first=0
+    cmd="$a"
+  fi
+  if [ "$skip" -eq 1 ]; then
+    skip=0
+    case "$prev" in
+      -p|--project-name) [ "$a" = "intercom" ] && want=1 ;;
+      --filter) case "$a" in *dev-team.intercom*) want=1 ;; esac ;;
+    esac
+    prev="$a"
+    continue
+  fi
+  case "$a" in
+    compose)
+      is_compose=1
+      prev="$a"
+      continue
+      ;;
+    -p|--project-name|-f|--file|--format|--filter|--status)
+      skip=1
+      prev="$a"
+      continue
+      ;;
+    --project-name=intercom)
+      want=1
+      prev="$a"
+      continue
+      ;;
+    --filter=*|*dev-team.intercom*)
+      case "$a" in *dev-team.intercom*) want=1 ;; esac
+      prev="$a"
+      continue
+      ;;
+    -*)
+      prev="$a"
+      continue
+      ;;
+    *)
+      if [ "$is_compose" -eq 1 ] && [ -z "$sub" ]; then
+        sub="$a"
+      fi
+      prev="$a"
+      ;;
+  esac
+done
+running_json() {
+  printf '%s\n' '{"Service":"daemon","State":"running","Labels":"dev-team.intercom=daemon","Project":"intercom"}'
+  printf '%s\n' "deadbeef"
+}
+if [ "$is_compose" -eq 1 ]; then
+  case "$sub" in
+    version)
+      if [ "$mode" = "no-compose" ]; then
+        echo "docker: unknown command: compose" >&2
+        exit 1
+      fi
+      echo "Docker Compose version v2.29.0"
+      exit 0
+      ;;
+    ps)
+      if [ "$mode" = "running" ] && [ "$want" -eq 1 ]; then
+        running_json
+      fi
+      exit 0
+      ;;
+    up)
+      case "$mode" in
+        up-ok) exit 0 ;;
+        up-fail)
+          echo "docker-mock: compose up failed" >&2
+          exit 1
+          ;;
+        *)
+          echo "docker-mock: compose up not enabled (mode=$mode)" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    *)
+      if [ "$mode" = "no-compose" ]; then
+        echo "docker: unknown command: compose" >&2
+        exit 1
+      fi
+      exit 0
+      ;;
+  esac
+fi
+if [ "$cmd" = "info" ]; then
+  if [ "$mode" = "no-engine" ]; then
+    echo "Cannot connect to the Docker daemon" >&2
+    exit 1
+  fi
+  echo "Server Version: mock"
+  exit 0
+fi
+if [ "$cmd" = "ps" ]; then
+  if [ "$mode" = "running" ] && [ "$want" -eq 1 ]; then
+    running_json
+  fi
+  exit 0
+fi
+case "$cmd" in
+  build|push)
+    echo "docker-mock: refused $cmd" >&2
+    exit 64
+    ;;
+esac
+exit 0
+EOF
+  chmod +x "$SHIM_DIR/docker"
+}
+
+rm_docker_mock() {
+  rm -f "${SHIM_DIR:-}/docker"
+  [ -n "${DOCKER_MOCK_LOG:-}" ] && : > "$DOCKER_MOCK_LOG"
+  [ -n "${DOCKER_MOCK_ENV:-}" ] && : > "$DOCKER_MOCK_ENV"
+}
+
+assert_no_docker_pull() { # LABEL — fail on docker verb pull/run, not compose --build
+  local log="${DOCKER_MOCK_LOG:-}"
+  [ -n "$log" ] && [ -s "$log" ] || return 0
+  if awk '{ for (i = 1; i <= NF; i++) if ($i == "pull" || $i == "run") found=1 }
+          END { exit found ? 0 : 1 }' "$log"; then
+    bad "$1 invoked docker pull/run: $(tr '\n' ' ' < "$log")"
+    return 1
+  fi
+  return 0
+}
+
+docker_mock_logged_up() { # rc 0 when log has compose -p intercom -f … up -d --build
+  local log="${DOCKER_MOCK_LOG:-}"
+  [ -n "$log" ] && [ -f "$log" ] || return 1
+  grep -q -- '-p intercom' "$log" || return 1
+  awk '
+    {
+      has_up=0; has_d=0; has_build=0; has_f=0
+      for (i = 1; i <= NF; i++) {
+        if ($i == "up") has_up=1
+        if ($i == "-d") has_d=1
+        if ($i == "--build") has_build=1
+        if ($i == "-f" || $i == "--file") has_f=1
+      }
+      if (has_up && has_d && has_build && has_f) found=1
+    }
+    END { exit found ? 0 : 1 }
+  ' "$log"
+}
+
+assert_no_compose_up() { # LABEL
+  local log="${DOCKER_MOCK_LOG:-}"
+  if [ -n "$log" ] && [ -s "$log" ] \
+    && awk '{ for (i = 1; i <= NF; i++) if ($i == "up") found=1 }
+            END { exit found ? 0 : 1 }' "$log"; then
+    bad "$1 compose up logged: $(tr '\n' ' ' < "$log")"
+    return 1
+  fi
+  return 0
+}

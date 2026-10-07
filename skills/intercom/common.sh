@@ -16,6 +16,9 @@
 #   ir_config_field    read config.json (schema 1); never creates it
 #   ir_require_tools   graceful jq/curl absence (AC21)
 #   ir_daemon_running  heartbeat fresh AND compose project intercom up (CDT-509 AC10)
+#   ir_docker_available  CLI + compose v2 + engine (CDT-527 AC1; inspect only)
+#   ir_daemon_identity_running  compose/label only, no heartbeat (CDT-527 AC3)
+#   ir_lock_held       poller.lock exists and flock -n fails (CDT-527 AC6)
 #
 # Exit-code contract for the CLIs: 0 success, 1 operational failure, 2
 # usage/sid failure. Library helpers return nonzero on their own failure.
@@ -331,7 +334,29 @@ ir_config_field() {
   fi
 }
 
-# ---- daemon detect (CDT-509 AC10) --------------------------------------------
+# ---- docker availability (CDT-527 AC1) ---------------------------------------
+
+ir_docker_available() {
+  # rc 0: command -v docker AND `docker compose version` AND `docker info`
+  # (stdout+stderr of those commands discarded). rc 0 stdout is empty.
+  # rc 1: first miss. stdout is exactly one of: "docker CLI" | "compose v2" | "engine".
+  # Inspect only. Never pull, run, or print a token.
+  if ! command -v docker >/dev/null 2>&1; then
+    printf '%s\n' "docker CLI"
+    return 1
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    printf '%s\n' "compose v2"
+    return 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    printf '%s\n' "engine"
+    return 1
+  fi
+  return 0
+}
+
+# ---- daemon detect (CDT-509 AC10 / CDT-527 AC3) ------------------------------
 
 _ir_compose_json_up() {
   # stdin: one JSON value (object or array). rc 0 iff a running daemon identity.
@@ -368,13 +393,26 @@ ir_compose_ps_running() {
   return 1
 }
 
+ir_daemon_identity_running() {
+  # rc 0 iff compose project intercom / service daemon / label
+  # dev-team.intercom=daemon is running. No heartbeat conjunct. Reuse
+  # ir_compose_ps_running. Fail closed: no docker / compose down → rc 1.
+  # Inspect only. Never pull, run, or print a token.
+  local out
+  command -v docker >/dev/null 2>&1 || return 1
+  out=$(docker compose -p intercom ps --format json 2>/dev/null) || out=""
+  ir_compose_ps_running "$out" && return 0
+  out=$(docker ps --filter "label=dev-team.intercom=daemon" --filter "status=running" --format json 2>/dev/null) || out=""
+  ir_compose_ps_running "$out"
+}
+
 ir_daemon_running() {
   # rc 0 iff state/heartbeat mtime age <= stale_heartbeat_s (default 180)
   # AND compose project intercom / service daemon / label
   # dev-team.intercom=daemon is running. Fail closed: missing heartbeat,
   # stale heartbeat, missing docker CLI, or compose down → rc 1. Inspect
   # only (compose ps / docker ps). Never pull, run, or print a token.
-  local root hb stale mtime now age out
+  local root hb stale mtime now age
   root=$(ir_state_root)
   hb="$root/state/heartbeat"
   [ -f "$hb" ] || return 1
@@ -385,11 +423,22 @@ ir_daemon_running() {
   now=$(date +%s)
   age=$((now - mtime))
   [ "$age" -le "$stale" ] || return 1
-  command -v docker >/dev/null 2>&1 || return 1
-  out=$(docker compose -p intercom ps --format json 2>/dev/null) || out=""
-  ir_compose_ps_running "$out" && return 0
-  out=$(docker ps --filter "label=dev-team.intercom=daemon" --filter "status=running" --format json 2>/dev/null) || out=""
-  ir_compose_ps_running "$out"
+  ir_daemon_identity_running
+}
+
+ir_lock_held() {
+  # rc 0 if $root/state/poller.lock exists AND flock -n fails (held).
+  # rc 1 if absent or not held. Read-only open (`exec 9<`); do not create
+  # the lock file (flock FILE would).
+  local root lock rc
+  root=$(ir_state_root)
+  lock="$root/state/poller.lock"
+  [ -f "$lock" ] || return 1
+  exec 9<"$lock" || return 1
+  flock -n 9
+  rc=$?
+  exec 9<&-
+  [ "$rc" -ne 0 ]
 }
 
 # ---- longread -----------------------------------------------------------------

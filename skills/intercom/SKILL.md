@@ -3,9 +3,10 @@ name: intercom
 description: >
   Intercom spool protocol (SPEC-038). The intercom CLI verbs (ask/send/away),
   the per-session spool layout, the record and heartbeat file formats, the
-  tg_api token funnel shared by poller.sh, watch.sh, daemon.sh, and
-  setup-telegram.sh, plus the phase-2 compose sidecar. Agent-internal
-  protocol skill, not a slash Surface. bash + jq + curl only (AC21).
+  tg_api token funnel shared by poller.sh, watch.sh, daemon.sh,
+  start-daemon.sh, and setup-telegram.sh, plus the phase-2 compose sidecar.
+  Agent-internal protocol skill, not a slash Surface. bash + jq + curl
+  only (AC21). Never print the bot token.
 user-invocable: false
 ---
 
@@ -177,14 +178,26 @@ Unique sids are lexicographic. Each `path` is `$IR_STATE/spool/<sid>/inbox`
 in the same order. When both fire, print inbound then failure. Idle paired
 cycles write zero bytes on stdout.
 
-`/setup telegram` prints a host-aware arming block: absolute `watch.sh`,
-45 s cadence, Grok silent watcher, and Claude CronCreate only if empty
-stdout injects zero parent turn. When `ir_daemon_running` (fresh
-`state/heartbeat` AND compose project `intercom` / service `daemon` /
-label `dev-team.intercom=daemon`), it prints daemon mode instead and
-does not arm `watch.sh`. Missing docker, compose down, or a stale
-heartbeat fail closed to the C1 block; missing docker is not a setup
-failure. Re-run keep-existing prints the current mode.
+`/setup telegram` prints a host-aware arming block. Docker is available
+iff `ir_docker_available`: `command -v docker`, `docker compose version`,
+`docker info` (inspect only). The checks never pull, never run, and never
+print the bot token. First miss names `docker CLI`, `compose v2`, or
+`engine`.
+
+- Not available: print the C1 `watch.sh` block plus one token-free line
+  that names the miss. Missing Docker is not a setup failure.
+- Available and identity running (compose project `intercom`, service
+  `daemon`, label `dev-team.intercom=daemon`): print daemon mode. Do not
+  arm `watch.sh`. Heartbeat MAY be empty or stale. Doctor liveness still
+  uses `ir_daemon_running` (fresh heartbeat AND compose).
+- Available and identity down: prompt to start. TTY-less default Y
+  (empty, `Y`/`y`/`yes`, EOF) invokes `start-daemon.sh`. Answer `n`/`N`/`no`
+  keeps C1. TTY-less Y is the pull approval for the CDT-509 alpine digest
+  pin.
+
+`--start-daemon` is for an already-paired box. The flag is the confirm.
+`commands/setup.md` forwards remaining args to `setup-telegram.sh`.
+Never print the bot token. Re-run keep-existing prints the current mode.
 
 ## Phase-2 daemon
 
@@ -206,16 +219,24 @@ The runbook presents the digest, source, default-root vs required
 non-root. Operator approval is required before any `docker pull`.
 Hermetic suites never `docker pull` or `docker run` a real image.
 
+`start-daemon.sh` is a subprocess CLI. Never source it. It starts the
+shipped compose sidecar with the host uid:gid (never uid 0). Token mount
+is `:ro`. Command: `docker compose -p intercom up -d --build`. After `up`
+returns 0, setup prints daemon mode even if the heartbeat is empty.
+
 `probe.sh` is the operator pre-deploy gate. It must pass every SPEC-038
-§ Verified-vs-assumed behavior before you start the daemon. Suites never
-invoke it. Stop the daemon before probe (a second getUpdates consumer
-returns 409). First-time start is in `docs/runbooks/setup-telegram.md`.
+§ Verified-vs-assumed behavior before a live operator start. Suites never
+invoke it. `start-daemon.sh` and `/setup telegram` MUST NOT invoke it.
+Probe is operator-only. It is not a setup gate. Stop the daemon before
+probe (a second getUpdates consumer returns 409). First start is
+`/setup telegram`, not a manual compose block as the only path. Digest
+pin stays here and in `docs/runbooks/setup-telegram.md`.
 
 ## Hermetic testing
 
 Point `INTERCOM_STATE_ROOT` at `mktemp -d` and shim `curl` on `PATH`; the
 suites run with no network. `common.sh` is sourceable; `intercom.sh`,
-`poller.sh`, `watch.sh`, and `daemon.sh` refuse to be sourced. Temp paths
-use `mktemp` or `${TMPDIR:-/tmp}`. Probe the live API only with
-`probe.sh` (operator pre-deploy gate; never inside suites). Suites never
-`docker pull` or `docker run`.
+`poller.sh`, `watch.sh`, `daemon.sh`, and `start-daemon.sh` refuse to be
+sourced. Temp paths use `mktemp` or `${TMPDIR:-/tmp}`. Probe the live API
+only with `probe.sh` (operator-only pre-deploy gate; never a setup gate;
+never inside suites). Suites never `docker pull` or `docker run`.

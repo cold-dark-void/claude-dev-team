@@ -48,11 +48,11 @@ Subs:
                   Not doctor-gated. Bare = list (includes effort);
                   set/unset/set-effort/unset-effort pass through.
   telegram        Configure the Telegram Intercom (SPEC-038): token file,
-                  pairing, state dirs. Prints daemon mode (no watch.sh
-                  arm) when the compose project intercom is up with a
-                  fresh heartbeat; otherwise the C1 harness schedule.
-                  Interactive — delegates to
-                  skills/intercom/setup-telegram.sh. Not doctor-gated.
+                  pairing, state dirs. Starts the daemon when Docker is
+                  available; C1 watch.sh fallback otherwise. Flag:
+                  --start-daemon (already-paired box). Interactive —
+                  delegates to skills/intercom/setup-telegram.sh. Not
+                  doctor-gated.
   slack           Zero-write stub: prints "Slack ships in v1.1/v2." and
                   exits 0. Not doctor-gated.
 
@@ -71,6 +71,7 @@ Examples:
   /setup models set-effort ic4 high
   /setup models unset-effort ic4
   /setup telegram
+  /setup telegram --start-daemon
   /setup slack
 ```
 
@@ -105,7 +106,7 @@ orchestration vs team memory bootstrap). Dispatcher only — no semantic merge.
 /setup orchestration
 /setup team [--refresh|--migrate-only|--no-extensions]
 /setup models [set <agent> <string>|unset <agent>|set-effort <agent> <token>|unset-effort <agent>]
-/setup telegram
+/setup telegram [--start-daemon]
 /setup slack
 ```
 
@@ -610,22 +611,23 @@ prints a BotFather preamble, reuses a mode-600 `bot_token` or prompts for a
 new one, validates via `getMe`, pairs the operator chat with a 30s
 `getUpdates` long-poll (no Enter wait), writes state under the state root
 (outside the repo; `INTERCOM_STATE_ROOT` honored), and prints a token-free
-host-aware block. Two modes:
+host-aware block. After pairing and on keep-existing:
 
-- **Daemon mode** — iff `state/heartbeat` is fresh AND compose project
-  `intercom` / service `daemon` / label `dev-team.intercom=daemon` is
-  running. Replace the harness schedule prompt. Do not arm `watch.sh` as
-  a second getUpdates consumer. The daemon is the sole consumer.
-- **C1 harness** — fail closed (stale heartbeat, compose down, or docker
-  CLI absent): absolute `watch.sh`, 45s cadence; Grok silent watcher plus
-  Claude CronCreate only if empty stdout injects zero parent turn.
-  Missing docker is not a setup failure.
+- **Docker available** — `ir_docker_available` (CLI + compose v2 +
+  `docker info`). Identity running (compose project `intercom`, service
+  `daemon`, label `dev-team.intercom=daemon`) prints daemon mode even if
+  heartbeat is empty. Identity down: prompt to start via
+  `start-daemon.sh` (TTY-less default Y). Do not arm `watch.sh` as a
+  second getUpdates consumer. The daemon is the sole consumer.
+- **C1 harness** — Docker unavailable, or the operator answers `n`:
+  absolute `watch.sh`, 45s cadence; Grok silent watcher plus Claude
+  CronCreate only if empty stdout injects zero parent turn. Missing
+  docker is not a setup failure.
 
-Re-run keep-existing prints the current mode. First-time daemon start is
-in the runbook. Run the command in the foreground so prompts can be
-answered. The command documents and delegates only — **do not** inline
-any setup behavior here. Not doctor-gated. The script takes no flags;
-extra arguments are not forwarded.
+`--start-daemon` is for an already-paired box (flag is the confirm; no Y
+prompt). Remaining args are forwarded. Run the command in the foreground
+so prompts can be answered. The command documents and delegates only —
+**do not** inline any setup behavior here. Not doctor-gated.
 
 Operator runbook: `docs/runbooks/setup-telegram.md`.
 
@@ -652,7 +654,15 @@ if [ -z "$TG_SETUP" ] || [ ! -f "$TG_SETUP" ]; then
   echo "error: skills/intercom/setup-telegram.sh not found in the installed plugin" >&2
   exit 1
 fi
-bash "$TG_SETUP"
+# Bash-tool fence has no positional arguments: read the user's text through a
+# quoted heredoc, then split it with globbing off (skill-lint C9).
+ARGS=$(cat <<'__A__'
+$ARGUMENTS
+__A__
+)
+set -f; set -- $ARGS; set +f
+[ "${1:-}" = "telegram" ] && shift
+bash "$TG_SETUP" "$@"
 ```
 
 ---
