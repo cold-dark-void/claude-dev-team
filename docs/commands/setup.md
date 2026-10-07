@@ -9,6 +9,8 @@ plus the local Model map share one Surface — do not merge their protocols.
 | `orchestration` | init-orchestration skill | Agent Teams: sandbox, hooks, `auto` posture (Cell D), AGENTS.md team section |
 | `team` | former init-team command | Memory bootstrap: SQLite DB, embedding extensions, project-init scan |
 | `models` | `write-model.sh` | Local Model map list/set/unset/set-effort/unset-effort (not doctor-gated) |
+| `telegram` | `setup-telegram.sh` | Personal Intercom bot: token, pairing, Topics on/off |
+| `slack` | inline stub | Prints `Slack ships in v1.1/v2.` and exits 0 |
 
 Prefer this surface. Old slash names (`/init-team`, `/scaffold-project`,
 `/init-orchestration`) were removed at v1.1; scaffold and orchestration
@@ -17,7 +19,7 @@ protocol lives under `skills/` as permanent skill-delegate backends.
 ## Usage
 
 ```
-/setup <project|orchestration|team|models> [flags...]
+/setup <project|orchestration|team|models|telegram|slack> [flags...]
 ```
 
 Bare or unknown sub prints usage and **stops with zero side effects** — no default.
@@ -36,6 +38,8 @@ Bare or unknown sub prints usage and **stops with zero side effects** — no def
 /setup models unset ic4
 /setup models set-effort ic4 high
 /setup models unset-effort ic4
+/setup telegram
+/setup slack
 ```
 
 ## Sub: `project`
@@ -74,7 +78,21 @@ effort or `inherited`, and the local path. `set` / `unset` / `set-effort` / `uns
 `/adjust-agent <agent> --model <string>` / `--model-unset` /
 `--effort <token>` / `--effort-unset`.
 
+## Sub: `telegram`
+
+Personal Intercom bot (SPEC-038). Delegates to
+`skills/intercom/setup-telegram.sh`. Not doctor-gated.
+
+Every developer creates their own bot. Do not reuse a teammate's token.
+Do not suggest a shared bot from memory. Operator steps:
+[Telegram Intercom setup](../runbooks/setup-telegram.md).
+
+## Sub: `slack`
+
+Zero-write stub. Prints `Slack ships in v1.1/v2.` and exits 0.
+
 ## See also
 
 - [Setup & Configuration](../setup.md) — prerequisites, upgrading, memory config
 - [Onboarding runbook](../runbooks/onboarding.md)
+- [Telegram Intercom setup](../runbooks/setup-telegram.md)

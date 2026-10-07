@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.3
+- **Per-dev Telegram Intercom setup + operator runbook (CDT-512-C2)** — `/setup telegram` drops the personal `Alexander` default (`$USER` or required name), prints a BotFather preamble (create your own bot; never share or paste the token), and guides topics-on (sid per topic) vs topics-off (one General window, not a failed setup). `docs/runbooks/setup-telegram.md` plus README/docs-hub links; `commands/setup.md` agent rules forbid suggesting a shared bot from memory. Bot API has no read receipts (platform limit, documented). SPEC-038 ACs for CDT-512-C2.
+
 ### v1.21.2
 - **Bash-only Intercom poller host adapter (CDT-512-C1)** — `skills/intercom/watch.sh` runs one `poller.sh` cycle per invocation with empty stdout on idle; session-facing wake lines only on member inbound or edge-triggered poller failure. `setup-telegram.sh` prints a host-aware arming block (Grok silent watcher + Claude CronCreate only if no parent turn). Idle never injects a main-session LLM turn. SPEC-038 ACs for CDT-512-C1.
 - **Doctor T3c hermetic Intercom isolation** — `skills/doctor/test.sh` exports `INTERCOM_STATE_ROOT` to a temp dir so consecutive `--json` runs stay byte-identical when a live poller ticks heartbeat age.

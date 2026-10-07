@@ -46,8 +46,14 @@ if [ -f "$cfg" ] && jq -e '.schema == 1 and (.members | type == "object") and (.
   esac
 fi
 
-# ---- 1. token: prompt (no echo), 0700 parent, 0600 file ------------------------
+# ---- 1. token: BotFather preamble, then prompt (no echo), 0700/0600 file ------
 
+cat >&2 <<'EOF'
+Create your own Telegram bot with @BotFather. This Intercom bot is yours.
+Do not reuse a teammate's bot or token. Never share the token.
+Never paste the token into chat.
+Write it to ~/.config/telegram/bot_token (mode 600), or paste it at the next prompt (input is hidden).
+EOF
 printf 'Telegram bot token (from @BotFather): ' >&2
 token=""
 IFS= read -rs token || die "cannot read the token from stdin"
@@ -76,15 +82,27 @@ if ! jq -e '.ok == true' <<<"$resp" >/dev/null 2>&1; then
 fi
 bot_username=$(jq -r '.result.username // "UNKNOWN"' <<<"$resp")
 
-# ---- 3. member name ------------------------------------------------------------
+# ---- 3. member name (default $USER; never a personal name) ---------------------
 
-printf 'Member name [Alexander]: ' >&2
+default="${USER:-}"
+if [ -n "$default" ]; then
+  printf 'Member name [%s]: ' "$default" >&2
+else
+  printf 'Member name: ' >&2
+fi
 name=""
 IFS= read -r name || name=""
-[ -n "$name" ] || name="Alexander"
+name="${name#"${name%%[![:space:]]*}"}"
+name="${name%"${name##*[![:space:]]}"}"
+[ -n "$name" ] || name="$default"
+[ -n "$name" ] || die "member name required (set USER or type a name)"
 
 # ---- 4. pairing: one long-poll getUpdates?timeout=30&offset=-1 ------------------
 
+cat >&2 <<'EOF'
+To give each session or ticket its own topic, enable Topics in this private chat (Bot API 9.3+ private bot topics / forum). That is sid per topic.
+Topics off is supported: one General window (walkie-talkie only). getChat.is_forum=false is not an error.
+EOF
 echo "Now send ANY message to @${bot_username} in Telegram (private chat with the bot)." >&2
 printf 'Press Enter once you have sent it: ' >&2
 IFS= read -r _ || true
@@ -152,6 +170,11 @@ watch="$SCRIPT_DIR/watch.sh"
 [ -f "$watch" ] || echo "setup-telegram: note: $watch not found" >&2
 
 echo "Paired: chat $chat_id ($name, owner), initial offset $offset, topics_enabled=$topics_enabled."
+if [ "$topics_enabled" = true ]; then
+  echo "Topics on: each sid uses its own topic. General remains the walkie-talkie."
+else
+  echo "Topics off: one General window (walkie-talkie only). Enable Topics later for sid per topic."
+fi
 echo "State root: $root"
 echo
 echo "--- BEGIN harness schedule prompt (host-aware arming) ---"

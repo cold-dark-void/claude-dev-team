@@ -32,6 +32,7 @@ Use `--dry-run` to preview every change without writing anything (`bash install.
 | **[Documentation hub](docs/README.md)** | Index of every command, runbook, and guide — start here |
 | [Setup & Configuration](docs/setup.md) | Prerequisites, `/setup`, memory config, remote embeddings, troubleshooting |
 | [Onboarding runbook](docs/runbooks/onboarding.md) | "Just cloned the repo" → agents ready to take tickets |
+| [Telegram Intercom setup](docs/runbooks/setup-telegram.md) | Per-dev BotFather bot, pairing, Topics on/off, host poller |
 | [Memory runbook](docs/runbooks/memory.md) | How memory works, distillation, search, hygiene |
 | [Command reference](docs/commands/) | Per-command pages (usage, flags, examples) |
 | [CHANGELOG](CHANGELOG.md) | Release history — **start here to discover new features** |

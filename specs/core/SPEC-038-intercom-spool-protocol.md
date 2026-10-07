@@ -591,6 +591,39 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   (SPEC-021), smoke (SPEC-030), and docs-drift pass; release bump is
   patch (no new `commands/*.md`).
 
+### CDT-512-C2
+
+- **AC1.** `/setup telegram` MUST NOT default Member name to a personal
+  name. Empty input uses `$USER` when set; if `$USER` is empty, the
+  script MUST refuse and write no Intercom state.
+  Verify: bash skills/intercom/test.sh
+- **AC2.** Before the token prompt, stderr MUST print a BotFather
+  preamble: create your own bot; never share the token; never paste the
+  token in chat. The token MUST NOT appear in setup stdout/stderr.
+  Verify: bash skills/intercom/test.sh
+- **AC3.** `commands/setup.md` telegram agent rules: do not suggest a
+  shared bot username from memory; do not default the member name to a
+  person; if a token file exists, ask reuse vs replace (script reuse is
+  CDT-512-C4).
+  Verify: bash skills/intercom/test.sh
+- **AC4.** `docs/runbooks/setup-telegram.md` exists. README points at it
+  with one line. Bot API has no read receipts (platform limit).
+  Verify: bash skills/intercom/test.sh
+- **AC5.** [process] docs-drift and cmd-index stay green (SPEC-010).
+  Verify: bash skills/docs-drift/check-docs-drift.sh
+- **AC6.** Setup guides enabling Topics when the operator wants sid per
+  topic (Bot API 9.3+ private bot topics / forum).
+  Verify: bash skills/intercom/test.sh
+- **AC7.** `getChat.is_forum=false` is not an error. Topics off is a
+  supported single General window (walkie-talkie only).
+  Verify: bash skills/intercom/test.sh
+- **AC8.** The runbook documents both modes: topics on = sid per topic;
+  topics off = one General.
+  Verify: bash skills/intercom/test.sh
+- **AC9.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint,
+  smoke, and docs-drift pass; release bump is patch (no new
+  `commands/*.md`). C1 host adapter (`watch.sh`) MUST NOT regress.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
@@ -629,6 +662,15 @@ Format and rules: SPEC-033 M14(g) and M14(h).
       pass the token (CDT-512-C1 AC6)
 - [ ] No `watch-intercom.sh` in the plugin tree; nothing shipped under
       `~/.grok/long-running-background-tasks/` (CDT-512-C1 AC7)
+- [ ] Member name defaults to `$USER`, never a personal name; empty USER
+      requires a name (CDT-512-C2 AC1)
+- [ ] BotFather preamble before the token prompt; token never printed
+      (CDT-512-C2 AC2)
+- [ ] `commands/setup.md` agent rules: no shared bot from memory (CDT-512-C2 AC3)
+- [ ] Operator runbook + README pointer; no Bot API read receipts
+      (CDT-512-C2 AC4/AC8)
+- [ ] Topics on/off both supported; `is_forum=false` is not an error
+      (CDT-512-C2 AC6/AC7)
 
 ## Validation
 
@@ -648,6 +690,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 | 2026-10-05 | CDT-501 — initial ACTIVE spec: spool protocol, `intercom` CLI, poller cycle, escalation, away, longread, `/setup telegram`/`slack`, doctor check, phase-2 contract |
 | 2026-10-05 | CDT-501 — command-relay clarification (only `/away`/`/afk` are intercepted; other slash text relays) and AC consolidation to the M14 budget: 2+3→2, 6+7+8→6, 12+13→12, 14+15+16→14, 17+18+19+20→17 |
 | 2026-10-07 | CDT-512-C1 — host adapter `watch.sh`: poller stays one-shot; idle injects no parent turn; host-aware arming (Grok silent watcher + Claude CronCreate-if-zero-parent-turn); wake-line grammar; edge-triggered failure wake |
+| 2026-10-07 | CDT-512-C2 — per-dev bot setup: `$USER` member default, BotFather preamble, operator runbook, topics on/off both supported |
 
 ## Cross-references
 

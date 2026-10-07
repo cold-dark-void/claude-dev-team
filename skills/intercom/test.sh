@@ -689,6 +689,107 @@ else
   bad "AC23 repo hygiene: dirty=$([ "$before" = "$after" ] && echo no || echo yes)"
 fi
 
+# ---- CDT-512-C2: per-dev bot setup + operator runbook ----------------------------
+
+fresh_case
+rm -rf "$HOME/.config"
+out=$(printf '\n' | bash "$SETUP" 2>&1)
+rc=$?
+preamble_ok=1
+printf '%s' "$out" | grep -qi 'create your own' || preamble_ok=0
+printf '%s' "$out" | grep -qi 'never share' || preamble_ok=0
+printf '%s' "$out" | grep -qi 'never paste' || preamble_ok=0
+printf '%s' "$out" | grep -q 'BotFather' || preamble_ok=0
+# Preamble must appear even when the token is empty (printed before the prompt).
+if [ "$rc" -eq 1 ] && [ "$preamble_ok" -eq 1 ] && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN"; then
+  ok "CDT-512-C2 AC2 BotFather preamble before token prompt (create own / never share / never paste)"
+else
+  bad "CDT-512-C2 AC2 preamble: rc=$rc preamble_ok=$preamble_ok out=$out"
+fi
+if printf '%s' "$out" | grep -q 'Alexander'; then
+  bad "CDT-512-C2 AC1 empty-token path still mentions Alexander"
+else
+  ok "CDT-512-C2 AC1 empty-token path has no Alexander default"
+fi
+
+fresh_case
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-forum.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "" "" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+cfg="$STATE_ROOT/config.json"
+if [ "$rc" -eq 0 ] && [ "$(jq -r '.members["197372681"].name' "$cfg")" = "testdev" ] \
+  && printf '%s' "$out" | grep -q 'Member name \[testdev\]' \
+  && ! printf '%s' "$out" | grep -q 'Alexander' \
+  && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN"; then
+  ok "CDT-512-C2 AC1 member name defaults to USER, not Alexander"
+else
+  bad "CDT-512-C2 AC1 USER default: rc=$rc name=$(jq -r '.members["197372681"].name' "$cfg" 2>/dev/null) out=$out"
+fi
+
+fresh_case
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "" | env -u USER bash "$SETUP" 2>&1)
+rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qi 'member name required' \
+  && [ -z "$(ls -A "$STATE_ROOT" 2>/dev/null)" ]; then
+  ok "CDT-512-C2 AC1 empty USER and empty name refuses before state"
+else
+  bad "CDT-512-C2 AC1 require name: rc=$rc out=$out state=$(ls -A "$STATE_ROOT" 2>/dev/null)"
+fi
+
+fresh_case
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-plain.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "testdev" "" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+cfg="$STATE_ROOT/config.json"
+if [ "$rc" -eq 0 ] && [ "$(jq -r '.topics_enabled' "$cfg")" = "false" ] \
+  && printf '%s' "$out" | grep -q 'topics_enabled=false' \
+  && ! printf '%s' "$out" | grep -qi 'failed setup' \
+  && printf '%s' "$out" | grep -qi 'General' \
+  && printf '%s' "$out" | grep -qi 'topic'; then
+  ok "CDT-512-C2 AC6/AC7 topics off is a supported General window, not a failed setup"
+else
+  bad "CDT-512-C2 AC6/AC7 topics off: rc=$rc topics=$(jq -r '.topics_enabled' "$cfg" 2>/dev/null) out=$out"
+fi
+
+fresh_case
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-forum.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "testdev" "" | USER=testdev bash "$SETUP" 2>&1)
+if printf '%s' "$out" | grep -qi 'topic' && printf '%s' "$out" | grep -qiE 'sid per topic|session'; then
+  ok "CDT-512-C2 AC6 setup guides enabling topics for sid-per-topic"
+else
+  bad "CDT-512-C2 AC6 topics guide missing: out=$out"
+fi
+
+if grep -qi 'shared bot' "$SETUP_MD" && grep -qi 'memory' "$SETUP_MD" \
+  && grep -qi 'member name' "$SETUP_MD" && grep -qi 'reuse' "$SETUP_MD"; then
+  ok "CDT-512-C2 AC3 commands/setup.md agent rules (no shared bot from memory; reuse vs replace)"
+else
+  bad "CDT-512-C2 AC3 commands/setup.md missing agent rules"
+fi
+
+rb="$PLUGIN_ROOT/docs/runbooks/setup-telegram.md"
+if [ -f "$rb" ] \
+  && grep -qi 'topics on' "$rb" && grep -qi 'sid per topic' "$rb" \
+  && grep -qi 'topics off' "$rb" && grep -qi 'General' "$rb" \
+  && grep -qi 'read receipt' "$rb"; then
+  ok "CDT-512-C2 AC4/AC8 runbook documents both topic modes and no read receipts"
+else
+  bad "CDT-512-C2 AC4/AC8 runbook missing or incomplete ($rb)"
+fi
+
+if grep -q 'docs/runbooks/setup-telegram.md' "$PLUGIN_ROOT/README.md"; then
+  ok "CDT-512-C2 AC4 README one-liner points at the Telegram setup runbook"
+else
+  bad "CDT-512-C2 AC4 README missing setup-telegram.md pointer"
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
