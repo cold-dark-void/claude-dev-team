@@ -7,6 +7,11 @@ CLOSE="$HERE/close.sh"
 TS="$HERE/terminal-status.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$HERE/../../tests/lib/hermetic.sh"
+# path_canon: close.sh resolves --root through git, whose spelling of a
+# trailing-slash TMPDIR / symlinked /var path differs from this suite's raw
+# mktemp strings on macOS — canon both sides of every path compare.
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 hermetic_init
 
 # Git fixtures (AC A) must not inherit the harness's own repo context.
@@ -756,7 +761,7 @@ git -C "$RR_M" worktree add -q -b feat/wt-x "$RR_WT"
 # 11-ship form: compute MROOT with the SPEC-009 formula from inside the worktree
 # (parent of `git rev-parse --git-common-dir`), then pass it explicitly.
 rr_mroot_explicit=$(cd "$RR_WT" && _gc=$(git rev-parse --git-common-dir) && cd "$(dirname "$_gc")" && pwd)
-assert_eq "root resolution: MROOT formula matches M" "$RR_M" "$rr_mroot_explicit"
+assert_eq "root resolution: MROOT formula matches M" "$(path_canon "$RR_M")" "$(path_canon "$rr_mroot_explicit")"
 
 set +e
 out_rr1=$(cd "$RR_WT" && bash "$CLOSE" sort-dropdown --root "$rr_mroot_explicit" --status FIXED/CLOSED --ticket RR-1 2>&1)
@@ -839,7 +844,11 @@ out_lk1=$(BACKLOG_LOCK_WAIT_SECONDS=1 bash "$CLOSE" sort-dropdown --root "$RL" -
 rc_lk1=$?
 set -e
 assert_eq "lock busy: close exit 1" "1" "$rc_lk1"
-if printf '%s\n' "$out_lk1" | grep -qF "$lockdir"; then pass "lock busy: stderr names lock path"
+# The stderr names the lock dir as close.sh resolved it (git/cd form); canon
+# both that path and the fixture spelling before comparing.
+lock_named=$(printf '%s\n' "$out_lk1" | grep -o '[^ ]*backlog\.lock' | head -1)
+if [ -n "$lock_named" ] && [ "$(path_canon "$lock_named")" = "$(path_canon "$lockdir")" ]; then
+  pass "lock busy: stderr names lock path"
 else fail "lock busy: stderr names lock path" "got=$out_lk1"; fi
 assert_eq "lock busy: item unchanged" "$before_item" "$(cat "$RL/.claude/backlog/sort-dropdown.md")"
 assert_eq "lock busy: index unchanged" "$before_index" "$(cat "$RL/.claude/backlog.md")"

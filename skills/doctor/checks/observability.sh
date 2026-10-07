@@ -1,6 +1,6 @@
 # observability.sh — sourced by doctor.sh (WP 8-B / CDT-300); pure definitions,
 # no top-level side effects. CDT-300 R0.3/R0.4/R2.3 + lint-waiver trend +
-# test-quarantine size. The embed-error count is NOT here: memory.embed_errors
+# test-quarantine scoped-entry model (SPEC-030 ### CDT-502-C4). The embed-error count is NOT here: memory.embed_errors
 # (checks/memory.sh) already owns it.
 
 # Effective memory mode (CDT-300: ".md fallback must never be silent again").
@@ -181,23 +181,42 @@ check_lint_waivers() {
   fi
 }
 
-# Test-quarantine size (CDT-300 / R1.1): how many suites are quarantined.
+# Test-quarantine scoped-entry model (SPEC-030 ### CDT-502-C4, R11-R13):
+# entries are `<path> <scope> <reason>`; macos-scoped entries with a reason are
+# sanctioned (they quarantine only the --platform macos lane); all-scoped,
+# reason-less, or unknown-scope entries quarantine every lane and are policed.
 check_test_quarantine() {
   local id="test.quarantine" group="tests"
-  local qf="$PLUGIN_ROOT/tools/test-quarantine.txt" n
+  local qf="$PLUGIN_ROOT/tools/test-quarantine.txt" stats total ok bad
   if [ ! -f "$qf" ]; then
     record "$id" "$group" "SKIP" "no tools/test-quarantine.txt (quarantine mechanism absent)" ""
     return 0
   fi
-  n=$(grep -cE '^[^#[:space:]]' "$qf" 2>/dev/null) || n=0
-  case "$n" in
-    ''|*[!0-9]*) n=0 ;;
-  esac
-  if [ "$n" -eq 0 ]; then
+  # One pass: total = data lines, ok = macos+reason entries, bad = offending NRs.
+  stats=$(awk '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    {
+      total++
+      reason = ""
+      for (i = 3; i <= NF; i++) reason = reason (i > 3 ? " " : "") $i
+      if ($2 == "macos" && reason != "") ok++
+      else bad = bad (bad != "" ? "," : "") NR
+    }
+    END { printf "%d %d %s\n", total + 0, ok + 0, bad }
+  ' "$qf" 2>/dev/null)
+  total=$(printf '%s' "$stats" | cut -d' ' -f1)
+  ok=$(printf '%s' "$stats" | cut -d' ' -f2)
+  bad=$(printf '%s' "$stats" | cut -d' ' -f3)
+  case "$total" in ''|*[!0-9]*) total=0 ;; esac
+  case "$ok" in ''|*[!0-9]*) ok=0 ;; esac
+  if [ -n "$bad" ]; then
+    record "$id" "$group" "WARN" \
+      "tools/test-quarantine.txt line(s) $bad violate the scoped-entry model (all-scoped, reason-less, or unknown scope) — an all-scoped entry quarantines every lane" \
+      "re-scope or repair line(s) $bad in tools/test-quarantine.txt to '<path> macos <reason>' (SPEC-030 R11-R13)"
+  elif [ "$total" -eq 0 ]; then
     record "$id" "$group" "PASS" "0 quarantined suites (tools/test-quarantine.txt)" ""
   else
-    record "$id" "$group" "WARN" \
-      "$n quarantined suites in tools/test-quarantine.txt — quarantine is growing" \
-      "review tools/test-quarantine.txt entries (each needs a reason)"
+    record "$id" "$group" "PASS" \
+      "$total macos-scoped quarantined suites (all-scoped: 0)" ""
   fi
 }

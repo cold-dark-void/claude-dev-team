@@ -67,10 +67,14 @@ _gc=$(git rev-parse --git-common-dir 2>/dev/null) \
   || MROOT=$(pwd)
 WTROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 MEMDB="$MROOT/.claude/memory/memory.db"
-QUERY=$(cat <<'QUERY_EOF'
+# bash 3.2 (macOS /bin/bash) misparses a heredoc inside $() when the body
+# holds an unmatched quote. Capture the quoted heredoc via a function.
+query_text() {
+  cat <<'QUERY_EOF'
 <QUERY>
 QUERY_EOF
-)
+}
+QUERY=$(query_text)
 ESCAPED_QUERY=$(printf '%s' "$QUERY" | sed "s/'/''/g")
 LIKE_QUERY=$(printf '%s' "$ESCAPED_QUERY" | sed 's/[\\%_]/\\&/g')
 sqlite3 -cmd ".timeout 5000" -header -column "$MEMDB" \
@@ -112,10 +116,14 @@ MEMDB="$MROOT/.claude/memory/memory.db"
 # Same derivation as skills/memory-store/download-extensions.sh (each fence is a new shell).
 EXT_DIR="$MROOT/.claude/memory/extensions"
 MODEL_DIR="$MROOT/.claude/memory/models"
-QUERY=$(cat <<'QUERY_EOF'
+# bash 3.2 (macOS /bin/bash) misparses a heredoc inside $() when the body
+# holds an unmatched quote. Capture the quoted heredoc via a function.
+query_text() {
+  cat <<'QUERY_EOF'
 <QUERY>
 QUERY_EOF
-)
+}
+QUERY=$(query_text)
 EMBED_MODE=$(sqlite3 -cmd ".timeout 5000" "$MEMDB" "SELECT value FROM config WHERE key='embedding_mode';")
 
 EXT_SUFFIX="so"
@@ -143,7 +151,7 @@ ext_ok() {
 EMBED_COMMON=""
 if [ "$EMBED_MODE" = "lembed" ]; then
   # lint-ok: C3 — marketplace */ for-loop + -f guarded (SPEC-021 Q2 residual, CDT-82 PDH)
-  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache -path '*/dev-team/*/skills/plugin-dir.sh' 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if($i=="dev-team"&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?1:0; print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
+  PDH=$( { [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/skills/plugin-dir.sh" ] && printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; } || { [ -f skills/plugin-dir.sh ] && [ -f agents/pm.md ] && grep -qF '"name": "dev-team"' .claude-plugin/plugin.json 2>/dev/null && pwd; } || { _pr='${CLAUDE_PLUGIN_ROOT}'; [ "${_pr#\$}" = "$_pr" ] && [ -f "$_pr/skills/plugin-dir.sh" ] && printf '%s\n' "$_pr"; } || { for _mp in "$HOME"/.claude/plugins/marketplaces/*/; do [ -f "${_mp}skills/plugin-dir.sh" ] && [ -f "${_mp}agents/pm.md" ] && printf '%s\n' "${_mp%/}" && break; done; } || find ~/.claude/plugins/cache \( -path '*/dev-team/*/skills/plugin-dir.sh' -o -path '*/dev-team-edge/*/skills/plugin-dir.sh' \) 2>/dev/null | awk -F/ '{ver=""; for(i=1;i<=NF;i++) if(($i=="dev-team"||$i=="dev-team-edge")&&i<NF){ver=$(i+1);break}; if(ver=="") next; m=ver; gsub(/-pre\./,"~pre.",m); p=($0 ~ /\/cache\/cold-dark-void\/dev-team\//)?2:(($0 ~ /\/cache\/cold-dark-void\/dev-team-edge\//)?1:0); print m "\t" p "\t" $0}' | sort -t $'\t' -k1,1V -k2,2n -k3,3 | tail -1 | cut -f3 | xargs -r dirname | xargs -r dirname )
   EMBED_COMMON=$(bash "$PDH/skills/plugin-dir.sh" file skills/memory-store/embed-common.sh 2>/dev/null || true)
   if [ -n "$EMBED_COMMON" ] && [ -f "$EMBED_COMMON" ]; then
     # shellcheck disable=SC1090

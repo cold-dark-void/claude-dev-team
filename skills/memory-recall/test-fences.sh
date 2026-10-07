@@ -46,12 +46,35 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
 pass=0
 fail=0
 
+# Track failing labels so a CI tail window (20 lines) shows every failing
+# check name, not just the last got-dump. Additive only: the checks, their
+# rcs and the counters are unchanged.
+FAILED_LABELS=""
+check() {
+  local label="$1"
+  shift
+  if "$@"; then pass_line "$label"; else fail_line "$label"; FAILED_LABELS="$FAILED_LABELS$label\n"; fi
+}
+
 WORK="$HERMETIC_ROOT/work"
 mkdir -p "$WORK/bin"
 REAL_SQLITE="$(command -v sqlite3)"
 export REAL_SQLITE
 SHIM_LOG="$WORK/shim.log"
 export SHIM_LOG
+
+# The fence resolves MROOT itself (git + cd/pwd); on macOS its spelling of the
+# fixture paths differs from this suite's raw mktemp strings (/private/var vs
+# /var, TMPDIR trailing slash) — extract each path and compare canonically.
+# shellcheck source=../../tests/lib/path.sh
+. "$ROOT/tests/lib/path.sh"
+shim_load_arg() { # quoted argument of the first .load line ending in /<basename>
+  sed -n 's/^\.load "\(.*\)"$/\1/p' "$SHIM_LOG" | grep "/$1\$" | head -1
+}
+reg_model_path() { # model path inside the registration statement's lembed_model_from_file()
+  grep "^INSERT INTO temp\.lembed_models(name, model) SELECT 'mini', lembed_model_from_file(" "$SHIM_LOG" \
+    | head -1 | sed "s/.*lembed_model_from_file('\([^']*\)').*/\1/"
+}
 
 # ---- stubs ------------------------------------------------------------------
 cat > "$WORK/bin/sqlite3" <<'SHIM'
@@ -76,8 +99,7 @@ STEP4="$(fence_nth "$SKILL_MD" "## Step 4: Semantic search" 1)"
 STEP5="$(fence_nth "$SKILL_MD" "## Step 5: Fallback" 1)"
 STEP8="$(fence_nth "$SKILL_MD" "## Step 8: Handling" 1)"
 for pair in "Step 3:$STEP3" "Step 4:$STEP4" "Step 5:$STEP5" "Step 8:$STEP8"; do
-  if [ -n "${pair#*:}" ]; then pass_line "structural: ${pair%%:*} has a bash fence"
-  else fail_line "structural: ${pair%%:*} has a bash fence (zero extracted)"; fi
+  check "structural: ${pair%%:*} has a bash fence" [ -n "${pair#*:}" ]
 done
 
 # ---- fixture ----------------------------------------------------------------
@@ -155,12 +177,14 @@ mkdir -p "$EXT" "$MODELS"
 set_cfg embedding_mode lembed; set_cfg embedding_dimensions 384
 QUERY_TEXT="it's fine" run_fence "$STEP4" "$REPO" "$WORK/s4lembed"
 check "Step 4 lembed: exits 0 (rc=$RUN_RC; err: $(head -c 160 "$WORK/s4lembed.err"))" [ "$RUN_RC" -eq 0 ]
-check "Step 4 lembed: .load vec0 from <MROOT>/.claude/memory/extensions, quoted" grep -qxF ".load \"$EXT/vec0\"" "$SHIM_LOG"
-check "Step 4 lembed: .load lembed0 from <MROOT>/.claude/memory/extensions, quoted" grep -qxF ".load \"$EXT/lembed0\"" "$SHIM_LOG"
-REG_SQL="INSERT INTO temp.lembed_models(name, model) SELECT 'mini', lembed_model_from_file('$MODELS/all-MiniLM-L6-v2.gguf');"
-check "Step 4 lembed: the model is registered (name 'mini') from <MROOT>/.claude/memory/models/all-MiniLM-L6-v2.gguf" grep -qxF "$REG_SQL" "$SHIM_LOG"
+check "Step 4 lembed: .load vec0 from <MROOT>/.claude/memory/extensions, quoted" \
+  [ "$(path_canon "$(shim_load_arg vec0)")" = "$(path_canon "$EXT/vec0")" ]
+check "Step 4 lembed: .load lembed0 from <MROOT>/.claude/memory/extensions, quoted" \
+  [ "$(path_canon "$(shim_load_arg lembed0)")" = "$(path_canon "$EXT/lembed0")" ]
+check "Step 4 lembed: the model is registered (name 'mini') from <MROOT>/.claude/memory/models/all-MiniLM-L6-v2.gguf" \
+  [ "$(path_canon "$(reg_model_path)")" = "$(path_canon "$MODELS/all-MiniLM-L6-v2.gguf")" ]
 check "Step 4 lembed: lembed() gets the registered NAME, with the query SQL-escaped" grep -qF "lembed('mini', 'it''s fine')" "$SHIM_LOG"
-REG_LINE="$(grep -n -F -- "$REG_SQL" "$SHIM_LOG" | head -1 | cut -d: -f1)"
+REG_LINE="$(grep -n "^INSERT INTO temp\.lembed_models(name, model) SELECT 'mini', lembed_model_from_file(" "$SHIM_LOG" | head -1 | cut -d: -f1)"
 USE_LINE="$(grep -n -F -- "lembed('mini', " "$SHIM_LOG" | head -1 | cut -d: -f1)"
 check "Step 4 lembed: the registration comes before the lembed() call, after both .load lines (lines ${REG_LINE:-none} < ${USE_LINE:-none})" \
   bash -c 'l=$(grep -n "^\.load .*lembed0" "$1" | head -1 | cut -d: -f1); [ -n "$l" ] && [ -n "$2" ] && [ -n "$3" ] && [ "$l" -lt "$2" ] && [ "$2" -lt "$3" ]' _ "$SHIM_LOG" "$REG_LINE" "$USE_LINE"
@@ -168,11 +192,11 @@ lembed_first_args() { grep -oE "lembed\('[^']*'" "$SHIM_LOG" | sort -u; } # one 
 check "Step 4 lembed: the first argument of every lembed() call is the model name, never a file path (got: $(lembed_first_args))" \
   [ "$(lembed_first_args)" = "lembed('mini'" ]
 check "Step 4 lembed: no .load of a path with an empty root" bash -c '! grep -qE "^\.load \"?/(vec0|lembed0)" "$1"' _ "$SHIM_LOG"
-check "Step 4 lembed: no sqlite3 error text on stderr" bash -c '! grep -qi "cannot open shared object\|no such module\|parse error" "$1"' _ "$WORK/s4lembed.err"
+check "Step 4 lembed: no sqlite3 error text on stderr" bash -c '! grep -qiE "cannot open shared object|no such module|parse error" "$1"' _ "$WORK/s4lembed.err"
 
 # The registration statement and the model name come from embed-common.sh, resolved
 # through plugin-dir.sh (TL fix: no second hand-typed copy in the fence).
-typed_copy_count() { grep -c "temp\.lembed_models\|lembed('mini'\|SELECT 'mini'" || true; } # stdin: fence text
+typed_copy_count() { grep -cE "temp\.lembed_models|lembed\('mini'|SELECT 'mini'" || true; } # stdin: fence text
 check "Step 4: the fence sources embed-common.sh through plugin-dir.sh" \
   bash -c 'printf "%s\n" "$1" | grep -q "plugin-dir.sh\" file skills/memory-store/embed-common.sh"' _ "$STEP4"
 check "Step 4: the fence uses embed_lembed_register_sql and \$EMBED_LEMBED_NAME" \
@@ -196,7 +220,8 @@ set_cfg embedding_mode remote; set_cfg embedding_dimensions 3
 set_cfg embedding_url "http://127.0.0.1:1/embeddings"; set_cfg embedding_model "stub-model"
 QUERY_TEXT='remote query' run_fence "$STEP4" "$REPO" "$WORK/s4remote"
 check "Step 4 remote: exits 0 (rc=$RUN_RC; err: $(head -c 160 "$WORK/s4remote.err"))" [ "$RUN_RC" -eq 0 ]
-check "Step 4 remote: .load vec0 from <MROOT>/.claude/memory/extensions, quoted" grep -qxF ".load \"$EXT/vec0\"" "$SHIM_LOG"
+check "Step 4 remote: .load vec0 from <MROOT>/.claude/memory/extensions, quoted" \
+  [ "$(path_canon "$(shim_load_arg vec0)")" = "$(path_canon "$EXT/vec0")" ]
 check "Step 4 remote: the vector from the endpoint reaches MATCH" grep -qF "MATCH '[0.25,0.5,0.75]'" "$SHIM_LOG"
 check "Step 4 remote: queries the vec_memories_3 table" grep -qF "FROM vec_memories_3 e" "$SHIM_LOG"
 
@@ -244,4 +269,7 @@ check "Step 8: '100%' does not match '1000 widgets'" out_lacks "1000 widgets" "$
 
 echo "---"
 echo "memory-recall fence tests: $pass passed, $fail failed"
+# A failing run's labels print here so they land inside the runner's 20-line
+# tail window (the inline FAIL lines sit too far above it to be shown).
+if [ "$fail" -ne 0 ]; then printf 'FAILED CHECKS:\n%b' "$FAILED_LABELS"; fi
 [ "$fail" -eq 0 ]

@@ -4,15 +4,18 @@
 # check_workflow FILE prints one "FAIL: <rule>: <detail>" line per violation:
 #   G1 — top-level `permissions: contents: read`, no job-level permissions,
 #        no `write` anywhere in the file.
-#   G2 — every job under `jobs:` sets timeout-minutes (all-tests=20, rest=10).
+#   G2 — every job under `jobs:` sets timeout-minutes (all-tests=20,
+#        macos=20, rest=10).
 #   G3 — every `uses:` line pins a full 40-hex SHA with a `# vX.Y.Z` comment.
 #   B4 — the bump-class job has fetch-depth: 0, uses check-bump-class.sh
 #        with --range, and never --commit HEAD.
 #   B5 — the all-tests job has fetch-depth: 0 (suites read pinned base commits).
 #   B6 — the fence-exec job runs `bash tools/fence-exec/run.sh` (CDT-272).
 #   B7 — the spec-lint job runs `bash tools/spec-lint.sh` (CDT-273).
-#   B8 — the macos job is informational: macos-latest, continue-on-error,
-#        and `bash tools/run-all-tests.sh --portable` (CDT-271, WP 2-04).
+#   B8 — the macos job is a required gate: macos-latest, no
+#        continue-on-error, and `bash tools/run-all-tests.sh --portable
+#        --platform macos` (CDT-502, SPEC-030 R32/R34).
+#   B9 — the hook-templates job runs check-hook-templates.sh (CDT-502).
 #
 # Bash + grep/awk only. Hermetic: no writes outside mktemp.
 set -u
@@ -69,7 +72,7 @@ check_workflow() {
     }
   ' "$file")
 
-  # --- G2: every job has timeout-minutes; all-tests=20, others=10. ---
+  # --- G2: every job has timeout-minutes; all-tests=20, macos=20, others=10. ---
   local i
   for ((i = 0; i < ${#job_ids[@]}; i++)); do
     local id="${job_ids[$i]}"
@@ -93,9 +96,9 @@ check_workflow() {
       echo "FAIL: G2: job '$id' has no timeout-minutes"
       continue
     fi
-    if [ "$id" = "all-tests" ]; then
+    if [ "$id" = "all-tests" ] || [ "$id" = "macos" ]; then
       if [ "$tm" != "20" ]; then
-        echo "FAIL: G2: job 'all-tests' timeout-minutes is $tm, want 20"
+        echo "FAIL: G2: job '$id' timeout-minutes is $tm, want 20"
       fi
     else
       if [ "$tm" != "10" ]; then
@@ -171,7 +174,7 @@ check_workflow() {
     echo "FAIL: B7: spec-lint job does not run bash tools/spec-lint.sh"
   fi
 
-  # --- B8: informational macOS lane (CDT-271). ---
+  # --- B8: required macOS gate (CDT-502, SPEC-030 R32/R34). ---
   local mac_block
   mac_block=$(awk '
     /^  macos:$/ { on=1; next }
@@ -182,10 +185,23 @@ check_workflow() {
     echo "FAIL: B8: no macos job found"
   elif ! printf '%s\n' "$mac_block" | grep -qE 'runs-on:[[:space:]]*macos-latest[[:space:]]*$'; then
     echo "FAIL: B8: macos job does not run on macos-latest"
-  elif ! printf '%s\n' "$mac_block" | grep -qE 'continue-on-error:[[:space:]]*true[[:space:]]*$'; then
-    echo "FAIL: B8: macos job is not continue-on-error"
-  elif ! printf '%s\n' "$mac_block" | grep -qE 'run:[[:space:]]*bash tools/run-all-tests\.sh --portable[[:space:]]*$'; then
-    echo "FAIL: B8: macos job does not run bash tools/run-all-tests.sh --portable"
+  elif printf '%s\n' "$mac_block" | grep -qE '^[[:space:]]*continue-on-error:'; then
+    echo "FAIL: B8: macos job is continue-on-error (required gate per CDT-502)"
+  elif ! printf '%s\n' "$mac_block" | grep -qE 'run:[[:space:]]*bash tools/run-all-tests\.sh --portable --platform macos[[:space:]]*$'; then
+    echo "FAIL: B8: macos job does not run bash tools/run-all-tests.sh --portable --platform macos"
+  fi
+
+  # --- B9: the hook-templates job runs the template gate (CDT-502). ---
+  local ht_block
+  ht_block=$(awk '
+    /^  hook-templates:$/ { on=1; next }
+    on && /^  [A-Za-z0-9_-]+:$/ { exit }
+    on { print }
+  ' "$file")
+  if [ -z "$ht_block" ]; then
+    echo "FAIL: B9: no hook-templates job found"
+  elif ! printf '%s\n' "$ht_block" | grep -qE 'run:[[:space:]]*bash skills/init-orchestration/check-hook-templates\.sh[[:space:]]*$'; then
+    echo "FAIL: B9: hook-templates job does not run bash skills/init-orchestration/check-hook-templates.sh"
   fi
 }
 
@@ -209,7 +225,7 @@ LIVE="$REPO_ROOT/.github/workflows/smoke.yml"
 
 # --- Live check: the real workflow must be clean. ---
 if run_check "live" "$LIVE"; then
-  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6/B7/B8 violations"
+  echo "OK: live smoke.yml has no G1/G2/G3/B4/B5/B6/B7/B8/B9 violations"
 else
   echo "FAIL: live smoke.yml has violations (see above)"
 fi
@@ -235,8 +251,15 @@ bite() { # bite LABEL SED_SCRIPT EXPECT_RULE
 # Drop the top-level permissions block.
 bite "no-permissions" '/^permissions:$/,/^$/d' "G1"
 
-# Drop one timeout-minutes line (the first job's).
-bite "no-timeout" '0,/timeout-minutes:/{/timeout-minutes:/d}' "G2"
+# Drop one timeout-minutes line (the first job's). POSIX `1,/re/` — the GNU
+# `0,/re/` first-match address is rejected by BSD sed (CDT-502-C4 AC4).
+bite "no-timeout" '1,/timeout-minutes:/{/timeout-minutes:/d;}' "G2"
+
+# Macos timeout regression 20→10 must FAIL G2 (macos gates at 20 like all-tests).
+# POSIX form: the macos-block range negate-branches non-range lines, matching the
+# all-tests-shallow shape (identical on GNU and BSD sed).
+bite "macos-timeout-10" '/^  macos:$/,/^$/!b
+s/timeout-minutes: 20/timeout-minutes: 10/' "G2"
 
 # Revert one checkout to a moving major tag.
 bite "moving-tag" 's/actions\/checkout@[0-9a-f]{40} # v[0-9.]+/actions\/checkout@v4/' "G3"
@@ -248,7 +271,10 @@ bite "no-comment" 's/(actions\/checkout@[0-9a-f]{40}) # v[0-9.]+/\1/' "G3"
 bite "commit-head" 's/check-bump-class\.sh --range "\$RANGE"/check-bump-class.sh --commit HEAD/' "B4"
 
 # Drop fetch-depth from the all-tests job (shallow clone breaks pinned-commit reads).
-bite "all-tests-shallow" '/^  all-tests:$/,$ {/fetch-depth:/d}' "B5"
+# POSIX form: a top-level negated `anchor,$!b` keeps pre-anchor fetch-depth
+# lines, identical on GNU and BSD sed (CDT-502-C4 AC4).
+bite "all-tests-shallow" '/^  all-tests:$/,$!b
+/fetch-depth:/d' "B5"
 
 # Drop the fence-exec job (the harness would stop running in CI).
 bite "no-fence-exec" '/^  fence-exec:$/,/^$/d' "B6"
@@ -262,14 +288,24 @@ bite "no-spec-lint" '/^  spec-lint:$/,/^$/d' "B7"
 # Point the spec-lint job at another command.
 bite "spec-lint-wrong-command" 's#bash tools/spec-lint\.sh#bash tools/smoke/run.sh#' "B7"
 
-# Drop the informational macOS job.
+# Drop the macos job.
 bite "no-macos" '/^  macos:$/,/^$/d' "B8"
 
-# Make the macOS job required.
-bite "macos-required" '/continue-on-error: true/d' "B8"
+# Restore the informational skip: continue-on-error present must FAIL B8.
+bite "macos-continue-on-error" 's/^    runs-on: macos-latest$/&\
+    continue-on-error: true/' "B8"
 
-# Run the full suite instead of the portable subset.
+# Point the macOS lane at an ubuntu runner.
+bite "macos-runner" 's/^    runs-on: macos-latest$/    runs-on: ubuntu-latest/' "B8"
+
+# Run the suite without --portable --platform macos.
 bite "macos-full" 's#bash tools/run-all-tests\.sh --portable#bash tools/run-all-tests.sh#' "B8"
+
+# Drop the hook-templates job (the gate would stop running in CI).
+bite "no-hook-templates" '/^  hook-templates:$/,/^$/d' "B9"
+
+# Point the hook-templates job at another command.
+bite "hook-templates-wrong-command" 's#bash skills/init-orchestration/check-hook-templates\.sh#bash tools/smoke/run.sh#' "B9"
 
 if [ "$FAIL_COUNT" -eq 0 ]; then
   echo "PASS: ci-workflow-test"

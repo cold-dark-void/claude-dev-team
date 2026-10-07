@@ -3,6 +3,10 @@
 # wp-1-10-gate-hooks T5 — exec suite for AC A-D. Runs the emitted hook
 # templates (via check-hook-templates.sh --extract) as real subprocesses
 # under a PATH farm that holds no timeout/gtimeout, in hermetic temp repos.
+# CDT-502 (SPEC-030 R33/R35): shellcheck cases graft the copied gate against
+# generated templates under the REAL shellcheck — the farm serves only the
+# absent-shellcheck note path and the retired-variable bite. The suite skips
+# 77 (R18) when shellcheck is absent; the gate there still fails open.
 set -u
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -12,6 +16,12 @@ ROOT=$(cd "$HERE/../.." && pwd)
 . "$ROOT/tests/lib/path-farm.sh"
 
 require_cmd jq sqlite3 python3 git bash sed awk
+# R35: the graft cases run the real binary; a shellcheck-less host is an R18
+# environment skip (77), never a silent pass.
+require_cmd shellcheck
+# Pre-farm PATH: the graft runs must resolve the REAL shellcheck, never a
+# suite-made shim (AC3).
+GRAFT_PATH=$PATH
 
 EXTRACT="$ROOT/skills/init-orchestration/check-hook-templates.sh"
 SCHEMA="$ROOT/skills/memory-store/schema.sql"
@@ -453,15 +463,23 @@ check_contains "G: tdd-gate failure names commands/tdd-gate.md" "$WORK/g1.err" "
 check_not_contains "G: tdd-gate failure does not blame SKILL.md" "$WORK/g1.err" "for 'tdd-gate' from SKILL.md"
 
 ######################################################################
-# CDT-286 [06 E4]: the template shellcheck pass. shellcheck is rare, so
-# the behaviors are driven through PATH shims: absent -> stderr note + OK;
-# present + findings -> advisory (stderr names the template, gate stays
-# green) unless HOOK_TEMPLATE_SHELLCHECK_STRICT=1, which fails rc 1;
-# present + clean -> plain OK. The farm below holds every binary the
-# gate and its python3 extractor need and NO shellcheck.
+# CDT-502 (SPEC-030 R33/R35, AC2/AC3): the template shellcheck pass is
+# strict when shellcheck is present — findings fail rc 1 naming every
+# offending template with the full findings output; a bare
+# `# shellcheck disable=<code>` with no reason fails the same way; a
+# reasoned suppression passes; HOOK_TEMPLATE_SHELLCHECK_STRICT is retired.
+# The graft cases run the COPIED gate against a generated SKILL.md under
+# the pre-farm PATH, so no PATH shim can fake a pass (AC3). Every gated
+# template is present in the graft tree (clean stubs except the special
+# one), so rc 1 is provably caused by the planted condition, never by a
+# missing template. The farm below holds every binary the gate and its
+# python3 extractor need and NO shellcheck; it stays for the absent-note
+# path (H) and the retirement bite (R) only.
 ######################################################################
 
 GATE="$ROOT/skills/init-orchestration/check-hook-templates.sh"
+
+# --- H: absent -> OK + note (the farm holds no shellcheck) --------------------
 GATE_FARM="$WORK/sc-farm"
 path_farm "$GATE_FARM" bash sh python3 sed awk cat mktemp rm chmod dirname basename grep find ls env tr sort head
 [ "$?" -eq 0 ] || fail "sc: path_farm refused a non-shellcheck command"
@@ -474,33 +492,114 @@ sc_shim() { # sc_shim <dir> <body>
 }
 
 SC_OUT="$WORK/sc.out"
-# H: absent -> OK + note (the farm holds no shellcheck)
 "$BASH_BIN" "$GATE" > "$SC_OUT" 2> "$WORK/h.err"; RCH=$?
 check_rc "H: shellcheck absent rc" "$RCH" "0"
 check_contains "H: fail-open note" "$WORK/h.err" "note: shellcheck not installed"
 check_contains "H: OK contract kept" "$SC_OUT" "templates extractable + bash -n clean"
 
-# I: present, findings -> advisory rc 0, stderr names the template
-I_SHIM="$WORK/sc-fail-shim"
-sc_shim "$I_SHIM" 'echo "x.sh:1:1: error: planted finding"; exit 1'
-PATH="$GATE_FARM:$I_SHIM" "$BASH_BIN" "$GATE" > "$WORK/i.out" 2> "$WORK/i.err"; RCI=$?
-check_rc "I: shellcheck findings advisory rc" "$RCI" "0"
-check_contains "I: names the template" "$WORK/i.err" "has shellcheck --shell=bash findings"
-check_contains "I: advisory note" "$WORK/i.err" "findings are advisory"
-check_contains "I: OK contract kept under findings" "$WORK/i.out" "templates extractable + bash -n clean"
+# --- Graft harness: copied gate + generated templates, REAL shellcheck --------
+GRAFT_HOOKS="task-completed stop-review memory-capture bash-compress precompact-rescue rescue-pointer friction-capture escalation-gate"
+GRAFT_CLEAN='#!/usr/bin/env bash
+# graft stub template (clean)
+exit 0'
+GRAFT_PLANTED='#!/usr/bin/env bash
+# graft stub template (planted SC2034 at warning severity)
+cdt_plant_unused=1'
+GRAFT_BARE='#!/usr/bin/env bash
+# shellcheck disable=SC2086
+echo $1'
+GRAFT_REASONED='#!/usr/bin/env bash
+# shellcheck disable=SC2086 # reason: hook arg arrives pre-split as one token
+echo $1'
 
-# I2: present, findings, strict -> rc 1
-PATH="$GATE_FARM:$I_SHIM" HOOK_TEMPLATE_SHELLCHECK_STRICT=1 "$BASH_BIN" "$GATE" > "$WORK/i2.out" 2> "$WORK/i2.err"; RCI2=$?
-check_rc "I2: strict shellcheck findings rc" "$RCI2" "1"
-check_contains "I2: strict names the finding" "$WORK/i2.err" "shellcheck findings (strict)"
+write_graft_skill() { # write_graft_skill FILE SPECIAL_NAME SPECIAL_BODY
+  local file=$1 special=$2 special_body=$3 name body
+  : > "$file"
+  for name in $GRAFT_HOOKS; do
+    body=$GRAFT_CLEAN
+    [ "$name" = "$special" ] && body=$special_body
+    printf 'create `.claude/hooks/%s.sh` with this content:\n\n```bash\n%s\n```\n\n' "$name" "$body" >> "$file"
+  done
+}
 
-# J: present, clean -> OK, no note
-J_SHIM="$WORK/sc-pass-shim"
-sc_shim "$J_SHIM" 'exit 0'
-PATH="$GATE_FARM:$J_SHIM" "$BASH_BIN" "$GATE" > "$WORK/j.out" 2> "$WORK/j.err"; RCJ=$?
-check_rc "J: shellcheck clean rc" "$RCJ" "0"
-check_contains "J: OK contract kept" "$WORK/j.out" "templates extractable + bash -n clean"
-check_not_contains "J: no fail-open note when present" "$WORK/j.err" "shellcheck not installed"
+write_graft_tdd() { # write_graft_tdd FILE
+  printf 'create `.claude/hooks/tdd-gate.sh` with this content:\n\n```bash template\n%s\n```\n' "$GRAFT_CLEAN" > "$1"
+}
+
+graft_run() { # graft_run SPECIAL_NAME SPECIAL_BODY OUT ERR — sets GRAFT_RC
+  local groot="$WORK/graft-tree"
+  rm -rf "$groot"
+  mkdir -p "$groot/skills/init-orchestration" "$groot/commands"
+  cp "$GATE" "$groot/skills/init-orchestration/"
+  write_graft_skill "$groot/skills/init-orchestration/SKILL.md" "$1" "$2"
+  write_graft_tdd "$groot/commands/tdd-gate.md"
+  ( cd "$WORK" && PATH="$GRAFT_PATH" "$BASH_BIN" \
+      "$groot/skills/init-orchestration/check-hook-templates.sh" > "$3" 2> "$4" )
+  GRAFT_RC=$?
+  rm -rf "$groot"
+}
+
+# The graft cases must hit the real binary: the resolved shellcheck may not
+# be a suite-made shim under the hermetic root (AC3: never a PATH-shim pass).
+GRAFT_SC=$(PATH="$GRAFT_PATH" command -v shellcheck 2>/dev/null)
+case "$GRAFT_SC" in
+  "") fail "K: no shellcheck on the graft PATH" ;;
+  "$HERMETIC_ROOT"/*) fail "K: shellcheck resolves under the hermetic farm: $GRAFT_SC" ;;
+  *) pass ;;
+esac
+
+# K0: present + all clean -> OK, no note
+graft_run none "$GRAFT_CLEAN" "$WORK/k0.out" "$WORK/k0.err"
+check_rc "K0: real shellcheck clean rc" "$GRAFT_RC" "0"
+check_contains "K0: OK contract kept" "$WORK/k0.out" "templates extractable + bash -n clean"
+check_not_contains "K0: no fail-open note when present" "$WORK/k0.err" "shellcheck not installed"
+
+# K1 (AC3 core): one planted SC2034 finding -> rc 1, stderr names the template
+# and carries the full findings output
+graft_run bash-compress "$GRAFT_PLANTED" "$WORK/k1.out" "$WORK/k1.err"
+check_rc "K1: planted finding rc" "$GRAFT_RC" "1"
+check_contains "K1: names the offending template" "$WORK/k1.err" "bash-compress"
+check_contains "K1: findings output on stderr" "$WORK/k1.err" "SC2034"
+
+# K2 (R33 bite): bare disable with no reason -> rc 1 naming the template
+graft_run bash-compress "$GRAFT_BARE" "$WORK/k2.out" "$WORK/k2.err"
+check_rc "K2: bare disable rc" "$GRAFT_RC" "1"
+check_contains "K2: names the offending template" "$WORK/k2.err" "bash-compress"
+
+# K3 (R33): reasoned suppression -> no failure
+graft_run bash-compress "$GRAFT_REASONED" "$WORK/k3.out" "$WORK/k3.err"
+check_rc "K3: reasoned disable rc" "$GRAFT_RC" "0"
+check_contains "K3: OK contract kept" "$WORK/k3.out" "templates extractable + bash -n clean"
+
+# --- R: HOOK_TEMPLATE_SHELLCHECK_STRICT is retired (AC2) ----------------------
+# Findings shim = present-shellcheck simulation: if the gate still read the
+# variable, the strict run would differ from the plain run. Both runs must be
+# identical (same rc, same stdout, same stderr) once per-run temp paths are
+# normalized away. The byte-diff runs diff via the pre-farm PATH — the AC-A
+# farm holds no diff. Static bite: no reference to the variable may remain in
+# the gate.
+SC_FIND_SHIM="$WORK/sc-find-shim"
+sc_shim "$SC_FIND_SHIM" 'echo "x.sh:1:1: error: planted finding"; exit 1'
+
+PATH="$GATE_FARM:$SC_FIND_SHIM" "$BASH_BIN" "$GATE" > "$WORK/r-plain.out" 2> "$WORK/r-plain.err"; RPLAIN=$?
+PATH="$GATE_FARM:$SC_FIND_SHIM" HOOK_TEMPLATE_SHELLCHECK_STRICT=1 "$BASH_BIN" "$GATE" > "$WORK/r-strict.out" 2> "$WORK/r-strict.err"; RSTRICT=$?
+check_rc "R: findings fail rc (strict contract)" "$RPLAIN" "1"
+check_rc "R: strict env rc identical to plain" "$RSTRICT" "$RPLAIN"
+norm_r() { # norm_r FILE — strip per-run temp paths before the byte-diff
+  sed -e "s|$HERMETIC_ROOT|<hermetic>|g" \
+      -e 's|check-hook-templates\.[A-Za-z0-9]\{6\}|check-hook-templates.<mktemp>|g' "$1"
+}
+if PATH="$GRAFT_PATH" diff -q <(norm_r "$WORK/r-plain.out") <(norm_r "$WORK/r-strict.out") >/dev/null 2>&1 \
+  && PATH="$GRAFT_PATH" diff -q <(norm_r "$WORK/r-plain.err") <(norm_r "$WORK/r-strict.err") >/dev/null 2>&1; then
+  pass
+else
+  fail "R: HOOK_TEMPLATE_SHELLCHECK_STRICT=1 changed the gate output"
+fi
+if grep -q 'HOOK_TEMPLATE_SHELLCHECK_STRICT' "$GATE"; then
+  fail "R: gate still references retired HOOK_TEMPLATE_SHELLCHECK_STRICT"
+else
+  pass
+fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"

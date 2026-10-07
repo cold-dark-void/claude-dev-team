@@ -3,6 +3,10 @@
 set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 RESUME="$HERE/resume-state.sh"
+# resume-state resolves MROOT through git, whose spelling of mktemp's $TMP on
+# macOS (/private/var vs /var) differs — canon both sides before compare.
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 PASS=0
 FAIL=0
 ok() { PASS=$((PASS + 1)); }
@@ -33,7 +37,7 @@ if git -C "$TMP" worktree add -q -b plan-home "$WT"; then
   OUT=$(cd "$WT" && bash "$RESUME" CDT-PH 2>/dev/null)
   RC=$?
   if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | jq -e \
-    --arg root "$TMP/.claude/plans" \
+    --arg root "$(path_canon "$TMP/.claude/plans")" \
     '.found == true and .autopilot_on == true and .autopilot_bump == "patch" and (.plan | startswith($root))' \
     >/dev/null; then ok
   else bad "resume from worktree did not find MROOT plan rc=$RC out=$OUT"; fi

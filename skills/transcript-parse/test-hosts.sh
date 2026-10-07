@@ -8,6 +8,8 @@ set -euo pipefail
 # shellcheck source=../../tests/lib/mtimes.sh
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/../../tests/lib/mtimes.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$HERE/../../tests/lib/hermetic.sh"
 hermetic_init
@@ -223,7 +225,11 @@ OUT=$(ASSEMBLE_SCAN_LOG="$SCAN" python3 "$HERE/assemble.py" locate "$SIDF" 2>"$W
 LRC=$?
 set -e
 chmod 644 "$PROJ/poison.jsonl" 2>/dev/null || true
-if [ "$LRC" -eq 0 ] && [ "$OUT" = "$PROJ/${SIDF}.jsonl" ] && [ ! -s "$SCAN" ]; then
+# Both sides canonical: locate returns its own (collapsed) spelling while $PROJ
+# carries hermetic HOME's trailing-slash `//` (macOS lane).
+if [ "$LRC" -eq 0 ] \
+   && [ "$(path_canon "$OUT")" = "$(path_canon "$PROJ/${SIDF}.jsonl")" ] \
+   && [ ! -s "$SCAN" ]; then
   pass "direct hit does not scan siblings"
 else
   bad "direct hit rc=$LRC out=$OUT scan=$(cat "$SCAN" 2>/dev/null) err=$(head -c 160 "$WORK/loc.err")"
@@ -335,7 +341,8 @@ path = os.path.join(root, "proj", uid + ".jsonl")
 with open(path, "w", encoding="utf-8") as fh:
     fh.write('{"uuid":"%s","timestamp":"2020-01-01T00:00:00Z"}\n' % uid)
 found = assemble.locate(uid, projects_dir=root)
-assert found == path, found
+# Both sides canonical: locate returns its own spelling of the same file.
+assert os.path.realpath(found) == os.path.realpath(path), found
 # The module global is unchanged by the parameter.
 assert assemble.PROJECTS_DIR != root
 PY

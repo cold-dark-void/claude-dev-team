@@ -9,6 +9,9 @@
 #   - non-empty body
 #   - shebang line
 #   - bash -n parse clean
+#   - shellcheck --shell=bash clean, strict when shellcheck is installed
+#     (SPEC-030 R33): any finding, or a bare `# shellcheck disable=` with no
+#     trailing reason, fails the gate; one fail-open note when absent
 # Covers the 8 HOOKS names plus tdd-gate (wp-1-10-gate-hooks C1).
 #
 # --extract <name>: prints the fenced body verbatim (one trailing newline) to
@@ -103,6 +106,16 @@ do_extract() {
   esac
 }
 
+# sc_fail_add NAME
+#   Records NAME once in SC_FAIL (a template can trip both the bare-disable
+#   rule and the shellcheck run).
+sc_fail_add() {
+  case " $SC_FAIL " in
+    *" $1 "*) ;;
+    *) SC_FAIL="$SC_FAIL $1" ;;
+  esac
+}
+
 if [ "${1:-}" = "--extract" ]; then
   NAME="${2:-}"
   if [ -z "$NAME" ]; then
@@ -122,7 +135,7 @@ if [ "${1:-}" = "--extract" ]; then
 fi
 
 FAILED=()
-SC_WARN=""
+SC_FAIL=""
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-hook-templates.XXXXXX")
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -162,28 +175,50 @@ for name in $HOOKS tdd-gate; do
     continue
   fi
 
-  # CDT-286 [06 E4]: shellcheck --shell=bash over every extracted template.
-  # Advisory by default: hosts without shellcheck (the common dev box) can
-  # never verify a strict gate, so findings print to stderr and the gate
-  # stays green. Set HOOK_TEMPLATE_SHELLCHECK_STRICT=1 to fail instead.
-  # Skipped entirely (one stderr note) when shellcheck is not installed.
+  # SPEC-030 R33/AC2: strict when shellcheck is present. Any finding fails
+  # the gate (full output per offending template, uncapped since CDT-502 T1;
+  # an rc >= 2 from shellcheck itself is fail-closed too). A bare
+  # `# shellcheck disable=` — no trailing reason after the code list — fails
+  # as well (R33, same present-only pass). Without shellcheck the pass is
+  # skipped with one fail-open note (CDT-286).
   if command -v shellcheck >/dev/null 2>&1; then
+    bare=$(printf '%s\n' "$extracted" | awk '
+      {
+        rest = $0
+        if (rest !~ /^[[:space:]]*#[[:space:]]*shellcheck[[:space:]]+disable=/) next
+        sub(/^[[:space:]]*#[[:space:]]*shellcheck[[:space:]]+disable=/, "", rest)
+        while (1) {
+          s = rest
+          sub(/^[[:space:]]+/, "", s)
+          rest = s
+          if (rest ~ /^SC[0-9]+/) { sub(/^SC[0-9]+/, "", rest); continue }
+          if (rest ~ /^all([^[:alnum:]]|$)/) { sub(/^all/, "", rest); continue }
+          if (sub(/^,/, "", rest)) { continue }
+          break
+        }
+        if (rest ~ /^[[:space:]]*$/) print NR
+      }
+    ')
+    if [ -n "$bare" ]; then
+      bare="${bare//$'\n'/ }"
+      echo "check-hook-templates: '$name' template has a bare 'shellcheck disable=' (no trailing reason) at template line(s): $bare (SPEC-030 R33)" >&2
+      sc_fail_add "$name"
+    fi
     if ! shellcheck --shell=bash --severity=warning "$out" > "$WORKDIR/${name}.sc.err" 2>&1; then
       echo "check-hook-templates: '$name' template has shellcheck --shell=bash findings:" >&2
-      sed -n '1,25p' "$WORKDIR/${name}.sc.err" >&2 || true
-      SC_WARN="$SC_WARN $name"
+      cat "$WORKDIR/${name}.sc.err" >&2 || true
+      sc_fail_add "$name"
     fi
   else
     SHELLCHECK_SKIPPED=1
   fi
 done
 
-if [ -n "$SC_WARN" ] && [ "${HOOK_TEMPLATE_SHELLCHECK_STRICT:-0}" = "1" ]; then
-  echo "check-hook-templates: FAIL — shellcheck findings (strict):$SC_WARN" >&2
-  exit 1
-fi
-if [ -n "$SC_WARN" ]; then
-  echo "check-hook-templates: note: shellcheck findings are advisory; set HOOK_TEMPLATE_SHELLCHECK_STRICT=1 to fail the gate" >&2
+if [ -n "$SC_FAIL" ]; then
+  echo "check-hook-templates: FAIL — shellcheck gate (strict, SPEC-030 R33):$SC_FAIL" >&2
+  RC=1
+else
+  RC=0
 fi
 
 if [ "${SHELLCHECK_SKIPPED:-0}" = "1" ]; then
@@ -192,7 +227,10 @@ fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   echo "check-hook-templates: FAIL — template hygiene issue(s): ${FAILED[*]}" >&2
-  exit 1
+  RC=1
+fi
+if [ "$RC" -ne 0 ]; then
+  exit "$RC"
 fi
 
 echo "check-hook-templates: OK — ${HOOKS// /, }, tdd-gate templates extractable + bash -n clean (SoT: skills/init-orchestration/SKILL.md, commands/tdd-gate.md)"

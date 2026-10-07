@@ -92,8 +92,10 @@ check "(b) relative path: git log lists the commit that touched the file" grep -
 check "(b) relative path: git log lists the older commit too" grep -q 'add a' "$WORK/b-rel.out"
 check "(b) relative path: no git fatal" no_fatal "$WORK/b-rel"
 
-# An absolute path inside the tree is kept as well.
-run_fence "$GITLOG_FENCE" "$REPO/src/a.txt" "$WORK/b-abs"
+# An absolute path inside the tree is kept as well. Spelled physically: the
+# fence contains it against WTROOT=$(git rev-parse --show-toplevel), which on
+# macOS resolves /var -> /private/var while the raw mktemp path does not.
+run_fence "$GITLOG_FENCE" "$(cd "$REPO" && pwd -P)/src/a.txt" "$WORK/b-abs"
 check "(b) in-tree absolute path: git log lists the commit" grep -q 'touch a' "$WORK/b-abs.out"
 check "(b) in-tree absolute path: no git fatal" no_fatal "$WORK/b-abs"
 

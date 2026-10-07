@@ -7,6 +7,8 @@ set -euo pipefail
 # shellcheck source=../../tests/lib/mtimes.sh
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/../../tests/lib/mtimes.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 PASS=0
 FAIL=0
 
@@ -19,7 +21,11 @@ else
   pass "python blocks use if/then so a failure prints FAIL"
 fi
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/hosts-grok-locate.XXXXXX")"
+# Canonical base: every fixture path and every hosts.py output (abspath form)
+# derives from WORK, so one canonical spelling makes both sides of every
+# comparison agree (macOS: a trailing-slash TMPDIR spells `//` and /var is a
+# symlink to /private/var).
+WORK="$(path_canon "$(mktemp -d "${TMPDIR:-/tmp}/hosts-grok-locate.XXXXXX")")"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 

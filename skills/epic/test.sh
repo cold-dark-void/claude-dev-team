@@ -15,6 +15,8 @@ cat "$HERE"/SKILL.md "$HERE"/run-start.md "$HERE"/mode-a-decompose.md \
   "$HERE"/mode-e-redecompose.md "$HERE"/mode-f-sync.md > "$SKILL_BODY"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$HERE/../../tests/lib/hermetic.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 # shellcheck source=../../tests/lib/fence.sh
 . "$HERE/../../tests/lib/fence.sh"
 hermetic_init
@@ -788,7 +790,9 @@ if [ -n "$C2_TMP" ] && [ -d "$C2_TMP/.git" ]; then
   ' >/dev/null && pass || fail "c2-2 create JSON (out=$OUT)"
   INT_PATH=$(echo "$OUT" | jq -r .integration_path)
   [ -d "$INT_PATH" ] && pass || fail "c2-2 path missing: $INT_PATH"
-  [ "$INT_PATH" = "$C2_TMP/.worktrees/epic-CDV-C2-ON" ] \
+  # Both sides canonical: TMPDIR with a trailing slash spells C2_TMP with `//`,
+  # while the live script prints the collapsed form (macOS lane).
+  [ "$(path_canon "$INT_PATH")" = "$(path_canon "$C2_TMP/.worktrees/epic-CDV-C2-ON")" ] \
     && pass || fail "c2-2 path want $C2_TMP/.worktrees/epic-CDV-C2-ON got $INT_PATH"
   git -C "$C2_TMP" rev-parse --verify --quiet refs/heads/feat/epic-CDV-C2-ON >/dev/null \
     && pass || fail "c2-2 branch feat/epic-CDV-C2-ON missing"

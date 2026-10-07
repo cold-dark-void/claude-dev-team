@@ -131,12 +131,18 @@ jobs:
           fetch-depth: 0  # suites read pinned base commits (git show <sha>:path)
       - run: bash tools/run-all-tests.sh
 
-  # CDT-271 — informational macOS lane (bash 3.2 / BSD). The required flip is
-  # a separate follow-up, blocked on a green macOS lane (WP 6-B EVAPORATED).
+  # CDT-502 — required macOS gate (SPEC-030 R32); quarantine: tools/test-quarantine.txt
   macos:
     runs-on: macos-latest
-    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: bash tools/run-all-tests.sh --portable --platform macos
+
+  # Shellcheck gate on hook templates (strict-when-present, SPEC-030 R33)
+  hook-templates:
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - run: bash tools/run-all-tests.sh --portable
+      - run: bash skills/init-orchestration/check-hook-templates.sh

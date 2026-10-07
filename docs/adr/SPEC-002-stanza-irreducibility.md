@@ -25,3 +25,29 @@ CDT-233 re-examined the per-site duplication this document already rejects under
 - **Q4 — this section is the anti-re-litigation record itself.** Filed against CDT-232, which rejected the `--self`-mode and shipped-bootstrap-file escapes on circularity — restated verbatim as Q1(a)/(b) above — and CDT-233, which raised and rejected the stanza-version-tag escape (Q1(c)) and re-examined Q2 and Q3. A future ticket proposing a fourth escape from per-site stanza duplication, re-opening `CLAUDE_PLUGIN_ROOT` as a general solution, or arguing the comment/waiver asymmetry is inconsistent, MUST read Q1–Q3 above — and CDT-232 itself for the two mechanisms Q1(a)/(b) restate — before re-deriving the same reasoning. The counts under Q2 and Q3 are dated measurements at `7957ee4`; the mechanisms and the rules they support are not.
 
 **Scope note (2026-10-03, WP 7-02 / CDT-288):** the once-per-file dedup that WP 7-02 shipped is **not** a fourth escape of the kind rejected above. Q1 addresses a *cold-start* caller that must locate the plugin before it can resolve anything, by delegation to a located copy; WP 7-02 keeps the full canonical stanza as each caller file's first `$PDH` fence and removes only *within-invocation* re-emission, the host carrying the already-resolved root as session state (SPEC-002 § Caller integration). No stale copy is ever consulted, no delegation occurs, and the verdicts above stand unchanged.
+
+**Scope note (2026-10-05, CDT-502-C5):** the later-fence managed partial
+(`skills/lib/pdh-later-fence.sh`, SPEC-002 § Caller integration) is likewise not a
+fourth escape. Q1 rejects a *shorter resolver*: delegation to a located copy, a
+shipped bootstrap file that re-poses self-location, or a contract tag an old copy
+silently ignores. The partial is none of these — it is the SAME full cascade,
+byte-identical inside `$( … )`, wrapped in `${PDH:-…}` so a non-empty carried root
+is used unchanged and an empty one re-runs the whole resolution. Nothing is
+delegated, no located copy is consulted, and no stale copy can answer in place of
+the inline text: the wrapper IS the full stanza, so a fence that runs it depends
+on no other copy's correctness. This record was read first, per Q4; the verdicts
+stand unchanged.
+
+**CDT-508 record (2026-10-05, same change):** the C1 dogfood found the tier-3 arm
+unable to resolve the `dev-team-edge` install channel
+(`…/cache/cold-dark-void/dev-team-edge/<VER>/`). The slug `dev-team` was hardcoded
+three times — the `find -path` discovery glob, the awk version-segment test, and
+the equal-VER tie-break regex. All three changed together, backward-compatibly, in
+BOTH canonical texts (the SPEC-002 first-fence stanza and the managed partial) and
+in all four `plugin-dir.sh` sites (`cache_team_root`, the tier-3
+marketplace-vs-cache compare, `path_ver_pick`, the tier-4 glob): discovery matches
+both channels via a grouped `-o` glob, ranking keys on the segment after either
+channel, and the equal-VER lock prefers `dev-team` (p=2) over `dev-team-edge`
+(p=1), anything else 0. An edge-only install now resolves `file <rel>` / `root`
+with exit 0 (previously exit 3); dev-team-only layouts are unchanged (negative
+control).

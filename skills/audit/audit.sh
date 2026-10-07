@@ -154,6 +154,27 @@ CWD_OPT=$(CDPATH= cd -- "$CWD_OPT" && pwd) || {
   echo "audit: cannot cd to --cwd" >&2
   exit 64
 }
+# git prints physical paths (macOS: /private/var for /var); the walk and the
+# JSON carry the logical --cwd spelling (cd+pwd). Keep both spellings so git
+# output can be re-spelled onto the logical form.
+CWD_PHYS=$(CDPATH= cd -- "$CWD_OPT" && pwd -P)
+# logical_of PHYS -> the logical --cwd spelling of a physical path at or above
+# --cwd: cut from CWD_PHYS the tail below PHYS, then cut the same tail from
+# CWD_OPT. No-op when PHYS is not an ancestor of --cwd (external common dir).
+logical_of() {
+  local p="$1" tail
+  case "$CWD_PHYS" in
+    "$p") printf '%s\n' "$CWD_OPT" ;;
+    "$p"/*)
+      tail=${CWD_PHYS#"$p"}
+      case "$CWD_OPT" in
+        *"$tail") printf '%s\n' "${CWD_OPT%"$tail"}" ;;
+        *) printf '%s\n' "$p" ;;
+      esac
+      ;;
+    *) printf '%s\n' "$p" ;;
+  esac
+}
 HOME_OPT=$(CDPATH= cd -- "$HOME_OPT" && pwd) || {
   echo "audit: cannot cd to --home" >&2
   exit 64
@@ -251,9 +272,7 @@ scan_directives "$HOME_OPT" "directives"
 
 PROJECT="$CWD_OPT"
 if PROJECT=$(git -C "$CWD_OPT" rev-parse --show-toplevel 2>/dev/null); then
-  :
-else
-  PROJECT="$CWD_OPT"
+  PROJECT=$(logical_of "$PROJECT")
 fi
 
 MROOT="$PROJECT"
@@ -278,6 +297,7 @@ else
 fi
 if [ -n "$_gc" ]; then
   MROOT=$(CDPATH= cd -- "$(dirname -- "$_gc")" && pwd) || MROOT="$PROJECT"
+  MROOT=$(logical_of "$MROOT")
 fi
 
 dir="$CWD_OPT"

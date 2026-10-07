@@ -18,13 +18,21 @@ DOCS="$ROOT/docs/commands/audit.md"
 DOCTOR_CMD="$ROOT/commands/doctor.md"
 FMT="$ROOT/skills/spec-tooling/check-format.sh"
 LINT="$ROOT/skills/skill-lint/check-skill-bash.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$ROOT/tests/lib/path.sh"
 
 PASS=0
 FAIL=0
+# Track failing labels so a CI tail window (20 lines) shows every failing
+# check name, not just the counters. Additive only: checks and rcs unchanged.
+FAILED_LABELS=""
 pass() { PASS=$((PASS + 1)); echo "PASS: $1"; }
-fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; }
+fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1" >&2; FAILED_LABELS="$FAILED_LABELS$1\n"; }
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/audit-test.XXXXXX")
+# Logical canonical spelling (cd+pwd): a trailing-slash TMPDIR leaves "//" in
+# mktemp output; audit.sh emits cd+pwd spellings, so grep literals must match.
+TMP=$(CDPATH= cd -- "$TMP" && pwd)
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
@@ -381,9 +389,11 @@ fi
 # ---- T17: --from-session --json stdout is a single JSON document ------------
 if [ -f "$AUDIT" ] && [ -f "$FROM_SESS" ]; then
   SESS_ROOT="$TMP/grok-sessions"
+  # Canon exactly like hosts.py urlencode_cwd (abspath kills the // from a
+  # trailing-slash TMPDIR on macOS); encoding the raw string splits the bucket.
   ENC=$(CWD_RAW="$PROJ" python3 - <<'PY'
 import os, urllib.parse
-print(urllib.parse.quote(os.environ["CWD_RAW"], safe=""), end="")
+print(urllib.parse.quote(os.path.abspath(os.environ["CWD_RAW"]), safe=""), end="")
 PY
 )
   SID="cdt201-json-only"
@@ -536,9 +546,21 @@ PY
   OUT=$(
     CDPATH= cd -- "$INV" && bash "$AUDIT" --json --home "$HOME_F" --cwd "$PROJ" --plugin-root "$PLUGIN_F"
   ) || RC=$?
-  if printf '%s' "$OUT" | grep -Fq "$PROJ/.claude/memory/pm/directives.md" \
-     && ! printf '%s' "$OUT" | grep -q 'INVOKER-LEAK-DIRECTIVE' \
-     && ! printf '%s' "$OUT" | grep -Fq "$INV/.claude/memory/pm/directives.md"; then
+  # Both sides canonical: layers[].path is spelled by audit.sh's own cd+pwd,
+  # while $PROJ/$INV carry TMPDIR's trailing-slash `//` (macOS lane).
+  PROJ_DIR=$(path_canon "$PROJ/.claude/memory/pm/directives.md")
+  INV_DIR=$(path_canon "$INV/.claude/memory/pm/directives.md")
+  hit=0; leak=0
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    c=$(path_canon "$p" 2>/dev/null) || continue
+    [ "$c" = "$PROJ_DIR" ] && hit=1
+    [ "$c" = "$INV_DIR" ] && leak=1
+  done <<EOF
+$(printf '%s' "$OUT" | jq -r '.layers[]?.path // empty')
+EOF
+  if [ "$hit" -eq 1 ] && ! printf '%s' "$OUT" | grep -q 'INVOKER-LEAK-DIRECTIVE' \
+     && [ "$leak" -eq 0 ]; then
     pass "T19 MROOT/directives from --cwd, not invoker repo"
   else
     fail "T19 MROOT leak rc=$RC out=$(printf '%s' "$OUT" | head -c 300)"
@@ -584,7 +606,10 @@ fi
 
 echo
 echo "$PASS passed, $FAIL failed"
+# A failing run's labels print here so they land inside the runner's 20-line
+# tail window (the inline FAIL lines sit too far above it to be shown).
 if [ "$FAIL" -gt 0 ]; then
+  printf 'FAILED CHECKS:\n%b' "$FAILED_LABELS"
   exit 1
 fi
 exit 0

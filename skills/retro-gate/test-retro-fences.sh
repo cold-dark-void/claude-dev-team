@@ -38,6 +38,11 @@ REPO="$WORK/repo"
 PLUG="$WORK/plug"
 STUB_LOG="$WORK/stub.log"
 mkdir -p "$REPO" "$PLUG/skills/retro-gate"
+# The fence passes its own MROOT resolution of the fixture repo to the lock
+# stub; on macOS that spelling differs from the raw mktemp string (/private/var
+# vs /var, TMPDIR trailing slash) — the greps accept both resolved forms.
+REPO_LOGICAL=$(cd "$REPO" && pwd)
+REPO_PHYSICAL=$(cd "$REPO" && pwd -P)
 
 # ---- fixture repo (MROOT and WTROOT come from here) -------------------------
 git -C "$REPO" init -q . || { echo "FAIL: git init"; exit 1; }
@@ -76,16 +81,16 @@ run_fence() {
   fence_exec "$prefix" "$REPO" "$FENCE" CLAUDE_PLUGIN_ROOT="$PLUG" PDH="$PLUG" STUB_LOG="$STUB_LOG" "$@"
 }
 
-log_has() { grep -q -- "$1" "$STUB_LOG"; }
-log_lacks() { ! grep -q -- "$1" "$STUB_LOG"; }
-log_count() { grep -c -- "$1" "$STUB_LOG" || true; }
+log_has() { grep -qE -- "$1" "$STUB_LOG"; }
+log_lacks() { ! grep -qE -- "$1" "$STUB_LOG"; }
+log_count() { grep -cE -- "$1" "$STUB_LOG" || true; }
 
 # ---- scheduled, lock free ---------------------------------------------------
 run_fence "$WORK/free" MODE=all AUTO=1 STUB_LOCK_RC=0
 check "scheduled, lock free: the fence exits 0" test "$RUN_RC" -eq 0
-check "scheduled, lock free: acquire is called once with the repo as MROOT" test "$(log_count "^lock acquire $REPO\$")" -eq 1
+check "scheduled, lock free: acquire is called once with the repo as MROOT" test "$(log_count "^lock acquire ($REPO_LOGICAL|$REPO_PHYSICAL)\$")" -eq 1
 check "scheduled, lock free: no report is written by this fence" log_lacks '^writer'
-check "scheduled, lock free: the lock stays held when the Step 1b fence ends" test "$(log_count "^lock release $REPO\$")" -eq 0
+check "scheduled, lock free: the lock stays held when the Step 1b fence ends" test "$(log_count "^lock release ($REPO_LOGICAL|$REPO_PHYSICAL)\$")" -eq 0
 
 # ---- scheduled, lock held (rc 2) --------------------------------------------
 run_fence "$WORK/held" MODE=all AUTO=1 STUB_LOCK_RC=2

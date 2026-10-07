@@ -9,6 +9,8 @@ PREPASS="$HERE/prepass.sh"
 FIX="$HERE/fixtures"
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$HERE/../../tests/lib/hermetic.sh"
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 hermetic_init
 THRASH="$FIX/events-thrash.json"
 GITBLOB="$FIX/git-state.txt"
@@ -99,8 +101,10 @@ RC=$?
 set -e
 MROOT=$(printf '%s\n' "$OUT" | sed -n '2p')
 HDIR=$(printf '%s\n' "$OUT" | sed -n '3p')
-if [ "$RC" -eq 0 ] && [ "$MROOT" = "$TARGET" ] \
-   && [ "$HDIR" = "$TARGET/.claude/handoff" ]; then ok
+# Both sides canonical: git-derived MROOT carries the resolved /private/var
+# prefix while the fixture string spells /var (macOS lane).
+if [ "$RC" -eq 0 ] && [ "$(path_canon "$MROOT")" = "$(path_canon "$TARGET")" ] \
+   && [ "$(path_canon "$HDIR")" = "$(path_canon "$TARGET/.claude/handoff")" ]; then ok
 else bad "T2 worktree MROOT rc=$RC mroot=$MROOT hdir=$HDIR err=$(cat "$WORK/t2.err")"; fi
 
 # ---- T3: non-git project → project-dir/.claude/handoff (non-git rule) ----
@@ -243,7 +247,7 @@ OUT=$(bash "$RESOLVE" --project "$WT" 2>"$WORK/t8.err")
 RC=$?
 set -e
 MROOT=$(printf '%s\n' "$OUT" | sed -n '2p')
-if [ "$RC" -eq 0 ] && [ "$MROOT" = "$TARGET" ]; then ok
+if [ "$RC" -eq 0 ] && [ "$(path_canon "$MROOT")" = "$(path_canon "$TARGET")" ]; then ok
 else bad "T8 project=worktree rc=$RC mroot=$MROOT err=$(cat "$WORK/t8.err")"; fi
 
 # ---- T9: MROOT equal to $HOME/.claude is refused ----
@@ -280,7 +284,7 @@ RC=$?
 set -e
 MROOT=$(printf '%s\n' "$OUT" | sed -n '2p')
 SUPER_ABS=$(cd "$SUPER" && pwd)
-if [ "$RC" -eq 0 ] && [ "$MROOT" = "$SUPER_ABS" ]; then ok
+if [ "$RC" -eq 0 ] && [ "$(path_canon "$MROOT")" = "$(path_canon "$SUPER_ABS")" ]; then ok
 else bad "T10 submodule mroot=$MROOT want=$SUPER_ABS rc=$RC err=$(cat "$WORK/t10.err")"; fi
 
 echo

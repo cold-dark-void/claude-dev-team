@@ -10,6 +10,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # CDT-284: portable sha256 (sha256sum is absent on stock macOS).
 # shellcheck source=../lib/portable.sh
 . "$HERE/../lib/portable.sh"
+# path_canon: --check prints the source path as os.path sees it (// collapsed);
+# the fixture carries mktemp's raw spelling (trailing-slash TMPDIR on macOS) —
+# canon both sides of the source compare.
+# shellcheck source=../../tests/lib/path.sh
+. "$HERE/../../tests/lib/path.sh"
 ROOT="$(cd "$HERE/../.." && pwd)"
 SYNC="$HERE/transcript-sync.sh"
 PASS=0
@@ -613,10 +618,12 @@ set +e
 CHK_L="$(TRANSCRIPT_MIRROR_ROOT="$STORE_L" "$SYNC" --check --cwd "$LONG_CWD" 2>"$WORK/cdt218-chk.err")"
 RC_L=$?
 set -e
-WANT_MISS="sid=$SID_L status=missing source=$SRC_L"
-WANT_OK="sid=$SID_L status=ok source=$SRC_L"
+CHK_L_LINE="$(printf '%s\n' "$CHK_L" | grep "^sid=$SID_L " | head -1)"
+CHK_L_STATUS="${CHK_L_LINE#*status=}"; CHK_L_STATUS="${CHK_L_STATUS%% *}"
+CHK_L_SRC="${CHK_L_LINE##*source=}"
 if [ "$RC_L" -eq 0 ] \
-   && { printf '%s\n' "$CHK_L" | grep -qxF "$WANT_MISS" || printf '%s\n' "$CHK_L" | grep -qxF "$WANT_OK"; } \
+   && { [ "$CHK_L_STATUS" = "missing" ] || [ "$CHK_L_STATUS" = "ok" ]; } \
+   && [ "$(path_canon "$CHK_L_SRC")" = "$(path_canon "$SRC_L")" ] \
    && ! printf '%s\n' "$CHK_L" | grep -q "sid=$SID_DECOY"; then
   pass "M5a AC5 --check long-cwd sid source=.cwd jsonl"
 else

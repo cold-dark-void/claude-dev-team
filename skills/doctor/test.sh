@@ -2611,14 +2611,15 @@ rm -f "$T25_PLANT"
 
 # =============================================================================
 # T28. WP 8-B / CDT-300 observability checks (memory.mode, embed round-trip,
-#      transcript budget, lint-waiver trend, test-quarantine size)
+#      transcript budget, lint-waiver trend, test-quarantine scoped-entry model)
 # =============================================================================
 T28="$TMP/t28-observability"
 make_bare_project "$T28"
 cd "$T28" || exit 1
 
-t28_id() { # t28_id <id> -> "status|detail|fixit"
-  OUT=$(bash "$DOCTOR" --json --only "$1" 2>/dev/null) || true
+t28_id() { # t28_id <id> [doctor-path] -> "status|detail|fixit"
+  local d="${2:-$DOCTOR}"
+  OUT=$(bash "$d" --json --only "$1" 2>/dev/null) || true
   printf '%s' "$OUT" | python3 -c '
 import json,sys
 c=json.load(sys.stdin)["checks"][0]
@@ -2714,21 +2715,85 @@ else
   fail "T28f bare --fix created .claude"
 fi
 
-# T28g — test.quarantine PASS on the shipped tree (0 entries)
+# T28g — test.quarantine scoped-entry model (SPEC-030 ### CDT-502-C4): PASS
+# iff the detail tracks the live entry count. N is derived from the real file
+# with the same awk skip/count rules the check uses, so removing the C5
+# entries at wrap turns the expected detail to N=1 instead of going red.
 T28Q=$(t28_id test.quarantine)
-if [ "$(t28_st "$T28Q")" = "PASS" ] && printf '%s' "$T28Q" | grep -q "0 quarantined"; then
-  pass "T28g test.quarantine PASS 0 on the shipped tree"
+QN=$(awk '
+  /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+  { total++ }
+  END { printf "%d", total + 0 }
+' "$PLUGIN_ROOT/tools/test-quarantine.txt")
+# Model: N macos-scoped quarantined suites (all-scoped: 0) for any N ≥ 0; the
+# zero-entry tree prints the plain 0-quarantined detail instead.
+if [ "$QN" -eq 0 ]; then
+  T28G_SHAPE='^0 quarantined suites \(tools/test-quarantine\.txt\)$'
+else
+  T28G_SHAPE="^${QN} macos-scoped quarantined suites \\(all-scoped: 0\\)$"
+fi
+if [ "$(t28_st "$T28Q")" = "PASS" ] \
+   && printf '%s' "$(t28_de "$T28Q")" | grep -qE "$T28G_SHAPE"; then
+  pass "T28g test.quarantine PASS tracks the live entry count (N=$QN, all-scoped: 0)"
 else
   fail "T28g test.quarantine: $T28Q"
 fi
-# Negative control: the same grep counts planted entries.
-QPLANT=$(mktemp "${TMPDIR:-/tmp}/t28-q.XXXXXX")
-printf '%s\n' '# comment' '' 'skills/a-test.sh env' 'skills/b-test.sh slow' > "$QPLANT"
-QN=$(grep -cE '^[^#[:space:]]' "$QPLANT") || QN=0
-[ "$QN" = "2" ] \
-  && pass "T28g2 negative control: quarantine grep counts 2 planted entries" \
-  || fail "T28g2 quarantine grep counted $QN (want 2)"
-rm -f "$QPLANT"
+
+# T28g2-g4 — negative bites run on a scratch doctor tree (SPEC-030 R16;
+# docs-drift T6/T7 precedent). check_test_quarantine hard-codes
+# $PLUGIN_ROOT/tools/test-quarantine.txt and doctor.sh derives PLUGIN_ROOT
+# from its own grandparent, so the plant goes into a scratch plugin root that
+# carries a copied doctor + checks. The tracked checkout is never written; the
+# scratch lives under $TMP (EXIT-trap cleaned), so no stale QBAK in TMPDIR.
+QROOT="$TMP/t28-qscratch"
+QF="$QROOT/tools/test-quarantine.txt"
+QDOCTOR="$QROOT/skills/doctor/doctor.sh"
+mkdir -p "$QROOT/skills/doctor" "$QROOT/tools"
+cp "$DOCTOR" "$QDOCTOR"
+cp -R "$SCRIPT_DIR/checks" "$QROOT/skills/doctor/checks"
+# Pre-bite snapshot of the tracked file for the T28g5 restore guard.
+QSNAP="$TMP/t28-qreal-snapshot"
+cp "$PLUGIN_ROOT/tools/test-quarantine.txt" "$QSNAP"
+cp "$QSNAP" "$QF"
+# T28g2 — planted all-scoped entry → WARN naming the line.
+printf '%s\n' 'skills/z-t28-plant.sh all planted all-scoped entry' >> "$QF"
+QLINE=$(grep -nF 'skills/z-t28-plant.sh' "$QF" | head -1 | cut -d: -f1)
+T28Q2=$(t28_id test.quarantine "$QDOCTOR")
+if [ "$(t28_st "$T28Q2")" = "WARN" ] \
+   && printf '%s' "$T28Q2" | grep -q "line(s) $QLINE violate"; then
+  pass "T28g2 planted all-scoped entry → WARN naming line $QLINE"
+else
+  fail "T28g2 all-scoped bite: $T28Q2"
+fi
+# T28g3 — planted macos entry without a reason → WARN.
+cp "$QSNAP" "$QF"
+printf '%s\n' 'skills/z-t28-plant.sh macos' >> "$QF"
+QLINE=$(grep -nF 'skills/z-t28-plant.sh' "$QF" | head -1 | cut -d: -f1)
+T28Q3=$(t28_id test.quarantine "$QDOCTOR")
+if [ "$(t28_st "$T28Q3")" = "WARN" ] \
+   && printf '%s' "$T28Q3" | grep -q "line(s) $QLINE violate"; then
+  pass "T28g3 planted reason-less entry → WARN naming line $QLINE"
+else
+  fail "T28g3 reason-less bite: $T28Q3"
+fi
+# T28g4 — planted unknown-scope entry → WARN.
+cp "$QSNAP" "$QF"
+printf '%s\n' 'skills/z-t28-plant.sh lane planted unknown-scope entry' >> "$QF"
+QLINE=$(grep -nF 'skills/z-t28-plant.sh' "$QF" | head -1 | cut -d: -f1)
+T28Q4=$(t28_id test.quarantine "$QDOCTOR")
+if [ "$(t28_st "$T28Q4")" = "WARN" ] \
+   && printf '%s' "$T28Q4" | grep -q "line(s) $QLINE violate"; then
+  pass "T28g4 planted unknown-scope entry → WARN naming line $QLINE"
+else
+  fail "T28g4 unknown-scope bite: $T28Q4"
+fi
+# Restore guard: the tracked file must be byte-identical to its pre-bite
+# snapshot (the bites only ever wrote the scratch copy).
+if cmp -s "$QSNAP" "$PLUGIN_ROOT/tools/test-quarantine.txt"; then
+  pass "T28g5 tools/test-quarantine.txt untouched by the scratch bites"
+else
+  fail "T28g5 tools/test-quarantine.txt differs from the pre-bite snapshot"
+fi
 
 # =============================================================================
 # Summary

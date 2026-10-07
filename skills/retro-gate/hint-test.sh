@@ -20,7 +20,10 @@ env -u GIT_DIR -u GIT_WORK_TREE git -C "$REPO" -c user.email=t@example.com -c us
 
 HOME_DIR="$TMP/home"
 mkdir -p "$HOME_DIR"
-MROOT=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$REPO" rev-parse --show-toplevel)
+# hint.sh encodes its own MROOT = cd "$(dirname _gc)" && pwd (logical, //-
+# collapsed); on macOS git --show-toplevel resolves /var -> /private/var and
+# mktemp keeps the //, so spell the encoded dir the way hint.sh computes it.
+MROOT=$(cd "$REPO" && pwd)
 ENC=$(printf '%s\n' "$MROOT" | sed 's|[^A-Za-z0-9]|-|g')
 PROJ="$HOME_DIR/.claude/projects/$ENC"
 mkdir -p "$PROJ"

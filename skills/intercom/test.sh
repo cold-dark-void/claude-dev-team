@@ -13,6 +13,14 @@ set -u
 
 HERE=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PLUGIN_ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
+
+for _t in jq curl flock; do
+  command -v "$_t" >/dev/null 2>&1 || {
+    echo "SKIP: $_t missing — intercom requires bash/jq/curl/flock (SPEC-038 AC21/AC22)"
+    exit 77
+  }
+done
+
 # shellcheck source=../../tests/lib/hermetic.sh
 . "$PLUGIN_ROOT/tests/lib/hermetic.sh"
 
