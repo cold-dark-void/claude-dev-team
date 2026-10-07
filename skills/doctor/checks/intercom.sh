@@ -131,11 +131,41 @@ check_intercom_heartbeat() {
   age=$((now - mt))
   if [ "$age" -gt "$stale_s" ]; then
     record "$id" "$group" "WARN" \
-      "heartbeat stale — last poller cycle ${age}s ago (threshold ${stale_s}s); harness schedule may be down" \
+      "heartbeat stale — last poller cycle ${age}s ago (threshold ${stale_s}s); daemon or harness may be down" \
       "/setup telegram"
   else
     record "$id" "$group" "PASS" \
       "heartbeat fresh (age ${age}s, threshold ${stale_s}s)" ""
+  fi
+}
+
+check_intercom_daemon() {
+  # Informational: compose project intercom + heartbeat freshness (CDT-509).
+  # WARN-never-FAIL. Docker absent is SKIP, never FAIL. Inspect only.
+  local id="intercom.daemon" group="intercom"
+  local common="$PLUGIN_ROOT/skills/intercom/common.sh"
+  local cfg
+  cfg="$(intercom_state_root)/config.json"
+  if [ ! -f "$cfg" ]; then
+    record "$id" "$group" "SKIP" "config.json absent — intercom not configured" ""
+    return 0
+  fi
+  if [ ! -f "$common" ]; then
+    record "$id" "$group" "SKIP" "skills/intercom/common.sh absent" ""
+    return 0
+  fi
+  if ! have_cmd docker; then
+    record "$id" "$group" "SKIP" \
+      "docker CLI absent — cannot inspect compose project intercom" ""
+    return 0
+  fi
+  if ( . "$common"; ir_daemon_running ); then
+    record "$id" "$group" "PASS" \
+      "compose project intercom / service daemon running; heartbeat fresh" ""
+  else
+    record "$id" "$group" "WARN" \
+      "intercom daemon not running — compose project intercom down or heartbeat stale (daemon or harness)" \
+      "/setup telegram"
   fi
 }
 
@@ -171,3 +201,4 @@ register_check "intercom.config" "intercom" check_intercom_config
 register_check "intercom.offset" "intercom" check_intercom_offset
 register_check "intercom.heartbeat" "intercom" check_intercom_heartbeat
 register_check "intercom.lock" "intercom" check_intercom_lock
+register_check "intercom.daemon" "intercom" check_intercom_daemon

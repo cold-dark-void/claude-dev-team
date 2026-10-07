@@ -87,7 +87,9 @@ Every developer creates their own bot. Do not reuse a teammate's token.
 Do not suggest a shared bot from memory. Never paste the token into chat.
 If `~/.config/telegram/bot_token` is mode 600, the script offers reuse.
 Pairing long-polls 30s — do not pipe Enter before the operator DMs the bot.
-Operator steps: [Telegram Intercom setup](../runbooks/setup-telegram.md).
+When compose project `intercom` is up with a fresh heartbeat, setup prints
+daemon mode and does not arm `watch.sh`. Otherwise it prints the C1
+harness block. Operator steps: [Telegram Intercom setup](../runbooks/setup-telegram.md).
 
 ## Sub: `slack`
 

@@ -9,9 +9,12 @@
 # getChat topics check -> write config.json / topics.json (seed general when
 # the pairing message carried a thread id) / seen.tsv / state dirs / offset
 # under the state
-# root (INTERCOM_STATE_ROOT honored, AC23) -> print the host-aware arming block
-# (absolute watch.sh, 45s, <= 4 KiB, token-free). Re-run with a valid config asks
-# before overwriting. bash/jq/curl only (AC21); token never in argv/logs (AC4):
+# root (INTERCOM_STATE_ROOT honored, AC23) -> print daemon mode when
+# ir_daemon_running (fresh heartbeat AND compose project intercom), else the
+# C1 host-aware arming block (absolute watch.sh, 45s, <= 4 KiB, token-free).
+# Re-run keep-existing also prints the current mode. Missing docker is not a
+# setup failure (fail closed to C1). Re-run with a valid config asks before
+# overwriting. bash/jq/curl only (AC21); token never in argv/logs (AC4):
 # every call goes through the tg_api funnel in common.sh.
 set -u
 
@@ -31,6 +34,48 @@ die() {
 
 ir_require_tools jq curl || exit 1
 
+print_c1_arming() {
+  local watch="$SCRIPT_DIR/watch.sh"
+  [ -f "$watch" ] || echo "setup-telegram: note: $watch not found" >&2
+  echo "--- BEGIN harness schedule prompt (host-aware arming) ---"
+  cat <<EOF
+Arm the Intercom host job on watch.sh, not poller.sh. One bash-only cycle per invocation.
+Command (absolute):
+  bash $watch
+Cadence: every 45 seconds (30–60s allowed).
+
+Grok: silent watcher. Run bash-only watch.sh cycles. Print only per the wake grammar (inbound or edge-triggered poller exit). Empty stdout MUST NOT start a parent turn. Do not use scheduler_create for idle.
+
+Claude: CronCreate only if that job injects zero parent turn when watch.sh stdout is empty (exit 0). Otherwise the same silent-watcher path. CronCreate bash-only no-parent-turn is UNVERIFIED until proven on this host. CronCreate MUST NOT be the sole arming instruction.
+
+Rules:
+- watch.sh always exits 0.
+- Never set INTERCOM_STATE_ROOT. Never read, pass, or print the bot token.
+- One cycle per invocation. Do not loop and do not sleep between cycles.
+- Do not copy poller stderr onto stdout.
+- Do not re-arm. Do not open interactive confirms.
+- Host crontab is forbidden.
+
+Schedule: every 45 seconds, durable: true
+EOF
+  echo "--- END harness schedule prompt ---"
+}
+
+print_daemon_mode() {
+  cat <<'EOF'
+Intercom daemon is running (compose project intercom, service daemon).
+The daemon is the sole getUpdates consumer. Do not arm watch.sh.
+EOF
+}
+
+print_runtime_mode() {
+  if ir_daemon_running; then
+    print_daemon_mode
+  else
+    print_c1_arming
+  fi
+}
+
 # ---- 0. re-run safety (idempotent) --------------------------------------------
 
 root=$(ir_state_root)
@@ -44,6 +89,7 @@ if [ -f "$cfg" ] && jq -e '.schema == 1 and (.members | type == "object") and (.
     y|Y|yes|YES) ;;
     *)
       echo "setup-telegram: keeping existing config — nothing changed."
+      print_runtime_mode
       exit 0
       ;;
   esac
@@ -213,10 +259,7 @@ chmod 600 "$statedir/seen.tsv" || die "cannot chmod 600 $statedir/seen.tsv"
 atomic_write "$statedir/offset" printf '%s\n' "$offset" || die "cannot write $statedir/offset"
 chmod 600 "$statedir/offset" || die "cannot chmod 600 $statedir/offset"
 
-# ---- 7. host-aware arming block (token-free, ≤ 4 KiB) ---------------------------
-
-watch="$SCRIPT_DIR/watch.sh"
-[ -f "$watch" ] || echo "setup-telegram: note: $watch not found" >&2
+# ---- 7. runtime mode (daemon-mode vs C1 watch.sh arming; token-free, ≤ 4 KiB) --
 
 echo "Paired: chat $chat_id ($name, owner), initial offset $offset, topics_enabled=$topics_enabled."
 if [ "$topics_enabled" = true ]; then
@@ -226,25 +269,4 @@ else
 fi
 echo "State root: $root"
 echo
-echo "--- BEGIN harness schedule prompt (host-aware arming) ---"
-cat <<EOF
-Arm the Intercom host job on watch.sh, not poller.sh. One bash-only cycle per invocation.
-Command (absolute):
-  bash $watch
-Cadence: every 45 seconds (30–60s allowed).
-
-Grok: silent watcher. Run bash-only watch.sh cycles. Print only per the wake grammar (inbound or edge-triggered poller exit). Empty stdout MUST NOT start a parent turn. Do not use scheduler_create for idle.
-
-Claude: CronCreate only if that job injects zero parent turn when watch.sh stdout is empty (exit 0). Otherwise the same silent-watcher path. CronCreate bash-only no-parent-turn is UNVERIFIED until proven on this host. CronCreate MUST NOT be the sole arming instruction.
-
-Rules:
-- watch.sh always exits 0.
-- Never set INTERCOM_STATE_ROOT. Never read, pass, or print the bot token.
-- One cycle per invocation. Do not loop and do not sleep between cycles.
-- Do not copy poller stderr onto stdout.
-- Do not re-arm. Do not open interactive confirms.
-- Host crontab is forbidden.
-
-Schedule: every 45 seconds, durable: true
-EOF
-echo "--- END harness schedule prompt ---"
+print_runtime_mode

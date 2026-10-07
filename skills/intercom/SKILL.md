@@ -1,11 +1,11 @@
 ---
 name: intercom
 description: >
-  Intercom spool protocol (SPEC-038 phase 1). The intercom CLI verbs
-  (ask/send/away), the per-session spool layout, the record and heartbeat
-  file formats, and the tg_api token funnel shared by poller.sh,
-  watch.sh, setup-telegram.sh, and the hermetic suites. Agent-internal protocol skill,
-  not a slash Surface. bash + jq + curl only (AC21).
+  Intercom spool protocol (SPEC-038). The intercom CLI verbs (ask/send/away),
+  the per-session spool layout, the record and heartbeat file formats, the
+  tg_api token funnel shared by poller.sh, watch.sh, daemon.sh, and
+  setup-telegram.sh, plus the phase-2 compose sidecar. Agent-internal
+  protocol skill, not a slash Surface. bash + jq + curl only (AC21).
 user-invocable: false
 ---
 
@@ -179,12 +179,43 @@ cycles write zero bytes on stdout.
 
 `/setup telegram` prints a host-aware arming block: absolute `watch.sh`,
 45 s cadence, Grok silent watcher, and Claude CronCreate only if empty
-stdout injects zero parent turn.
+stdout injects zero parent turn. When `ir_daemon_running` (fresh
+`state/heartbeat` AND compose project `intercom` / service `daemon` /
+label `dev-team.intercom=daemon`), it prints daemon mode instead and
+does not arm `watch.sh`. Missing docker, compose down, or a stale
+heartbeat fail closed to the C1 block; missing docker is not a setup
+failure. Re-run keep-existing prints the current mode.
+
+## Phase-2 daemon
+
+`daemon.sh` is the resident getUpdates loop. Compose `command` runs it
+inside the sidecar. Each iteration invokes one-shot `poller.sh`.
+`poller.sh` and `watch.sh` stay one-shot. The host does not gain a
+crontab or a bare-metal poller loop.
+
+Compose identity is locked: compose project `intercom`, service `daemon`,
+label `dev-team.intercom=daemon`. No inbound ports. Runtime `user:` is
+`${INTERCOM_UID}:${INTERCOM_GID}` (host ids; never uid 0) so the
+container can read the mode-600 token. Token mount is `:ro`. State is a
+rw bind of `~/.claude/telegram-router/`.
+
+The image pin lives in `skills/intercom/Dockerfile`: Docker Official
+Image `docker.io/library/alpine` by digest (no `:latest`). Packages:
+`bash jq curl util-linux ca-certificates`. BusyBox `flock` is not used.
+The runbook presents the digest, source, default-root vs required
+non-root. Operator approval is required before any `docker pull`.
+Hermetic suites never `docker pull` or `docker run` a real image.
+
+`probe.sh` is the operator pre-deploy gate. It must pass every SPEC-038
+§ Verified-vs-assumed behavior before you start the daemon. Suites never
+invoke it. Stop the daemon before probe (a second getUpdates consumer
+returns 409). First-time start is in `docs/runbooks/setup-telegram.md`.
 
 ## Hermetic testing
 
 Point `INTERCOM_STATE_ROOT` at `mktemp -d` and shim `curl` on `PATH`; the
 suites run with no network. `common.sh` is sourceable; `intercom.sh`,
-`poller.sh`, and `watch.sh` refuse to be sourced. Temp paths use `mktemp` or
-`${TMPDIR:-/tmp}`. Probe the live API only with `probe.sh` (operator-invoked,
-never inside suites).
+`poller.sh`, `watch.sh`, and `daemon.sh` refuse to be sourced. Temp paths
+use `mktemp` or `${TMPDIR:-/tmp}`. Probe the live API only with
+`probe.sh` (operator pre-deploy gate; never inside suites). Suites never
+`docker pull` or `docker run`.

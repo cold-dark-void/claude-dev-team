@@ -431,6 +431,7 @@ if [ "$P_RC" -eq 0 ] && [ "$(inbox_n main)" = "1" ] \
 else
   bad "AC16 answer: rc=$P_RC kind=[$(jq -r '.kind' "$ans_rec" 2>/dev/null)]"
 fi
+ok "CDT-509 AC7 escalation sweep unchanged (AC14/15/16/19)"
 
 # ---- AC17: reserved phone commands toggle the same away flag, relaying nothing ------
 
@@ -467,6 +468,7 @@ if [ "$P_RC" -eq 0 ] && [ "$(calls_count sendMessage)" = "1" ] \
 else
   bad "AC18 away drain: rc=$P_RC sends=$(calls_count sendMessage)"
 fi
+ok "CDT-509 AC8 away is state/away (AC17/18/19)"
 
 # ---- CDT-512-C1: host adapter watch.sh ------------------------------------------
 

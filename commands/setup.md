@@ -48,9 +48,11 @@ Subs:
                   Not doctor-gated. Bare = list (includes effort);
                   set/unset/set-effort/unset-effort pass through.
   telegram        Configure the Telegram Intercom (SPEC-038): token file,
-                  pairing, state dirs, harness schedule. Interactive —
-                  delegates to skills/intercom/setup-telegram.sh.
-                  Not doctor-gated.
+                  pairing, state dirs. Prints daemon mode (no watch.sh
+                  arm) when the compose project intercom is up with a
+                  fresh heartbeat; otherwise the C1 harness schedule.
+                  Interactive — delegates to
+                  skills/intercom/setup-telegram.sh. Not doctor-gated.
   slack           Zero-write stub: prints "Slack ships in v1.1/v2." and
                   exits 0. Not doctor-gated.
 
@@ -608,12 +610,22 @@ prints a BotFather preamble, reuses a mode-600 `bot_token` or prompts for a
 new one, validates via `getMe`, pairs the operator chat with a 30s
 `getUpdates` long-poll (no Enter wait), writes state under the state root
 (outside the repo; `INTERCOM_STATE_ROOT` honored), and prints a token-free
-host-aware arming block (absolute `watch.sh`, 45s cadence; Grok silent
-watcher plus Claude CronCreate only if empty stdout injects zero parent
-turn). Run it in the foreground so prompts can be answered. The command
-documents and delegates only — **do not** inline any setup behavior here.
-Not doctor-gated. The script takes no flags; extra arguments are not
-forwarded.
+host-aware block. Two modes:
+
+- **Daemon mode** — iff `state/heartbeat` is fresh AND compose project
+  `intercom` / service `daemon` / label `dev-team.intercom=daemon` is
+  running. Replace the harness schedule prompt. Do not arm `watch.sh` as
+  a second getUpdates consumer. The daemon is the sole consumer.
+- **C1 harness** — fail closed (stale heartbeat, compose down, or docker
+  CLI absent): absolute `watch.sh`, 45s cadence; Grok silent watcher plus
+  Claude CronCreate only if empty stdout injects zero parent turn.
+  Missing docker is not a setup failure.
+
+Re-run keep-existing prints the current mode. First-time daemon start is
+in the runbook. Run the command in the foreground so prompts can be
+answered. The command documents and delegates only — **do not** inline
+any setup behavior here. Not doctor-gated. The script takes no flags;
+extra arguments are not forwarded.
 
 Operator runbook: `docs/runbooks/setup-telegram.md`.
 

@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.8
+- **Intercom phase 2 container daemon (CDT-509)** — compose project intercom, alpine 3.21 pinned by digest, host uid:gid, token :ro. daemon.sh loops one-shot poller.sh. Setup skips watch.sh when the daemon is up. No docker pull in hermetic tests.
+
 ### v1.21.7
 - **Grok nest defers M14 to parent walker (CDT-512-C6)** — child /orchestrate on Grok returns needs-parent-M14 instead of BC7. Parent at depth 0 runs council then release. resume-ship y stays only for real council disagree. nest-host.sh. No Telegram y for nest depth.
 

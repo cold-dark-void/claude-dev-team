@@ -113,14 +113,21 @@ non-bootstrap — gating is the caller's job.
 | `transcript.mirror_lag` | transcript |
 | `models.map` | config |
 | `handoff.tmp` | handoff |
+| `intercom.deps` | intercom |
+| `intercom.token` | intercom |
+| `intercom.config` | intercom |
+| `intercom.offset` | intercom |
+| `intercom.heartbeat` | intercom |
+| `intercom.lock` | intercom |
+| `intercom.daemon` | intercom |
 
 ## Severity
 
 | Severity | When |
 |----------|------|
 | **FAIL** | Triplet drift; unparseable plugin/settings JSON; `schema_version` mismatch; wired hook → missing script; missing canonical hook **event** when `settings.hooks` exists |
-| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe / managed script that is not executable (hooks run via `bash`; user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL) |
-| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing |
+| **WARN** | Optional dep absent; uninitialized memory; extension unloadable; embedding config incoherent; embed errors logged in `.claude/memory/.errors.log` (`memory.embed_errors`, CDT-262; never FAIL); un-anchored **managed** hook path / managed pipe / managed script that is not executable (hooks run via `bash`; user-owned hooks silent — CDT-77); stale wt-lock; held distilling_lock; sandbox/`defaultMode` coherence (`bypassPermissions`, `dontAsk`, or `auto` without sandbox); `sandbox.enabled=true` but bwrap runtime init fails (`settings.sandbox_runtime`, CDT-78); Claude Code version drift vs last matrix-probed (`matrix.cc_version`, CDT-59); opted-in cwd transcript `missing`/`lag` (`transcript.mirror_lag`, CDT-221; never FAIL); Model map unparseable / bad value / unknown key / `jq` missing / `qa` or `council-judge` override (`models.map`, CDT-228; never FAIL); intercom daemon down or heartbeat stale (`intercom.daemon` / `intercom.heartbeat`, CDT-509; never FAIL) |
+| **SKIP** | Probe tool for that check absent; dev-only check in consumer; `transcript.mirror_lag` when not opted-in, `python3` absent, or `transcript-sync.sh` missing; `intercom.daemon` when `config.json` or docker CLI is absent |
 | **PASS** | Invariant holds |
 
 Uninitialized memory is **WARN not FAIL** — fix-it is `/setup team`.
@@ -154,7 +161,7 @@ health only and does not shadow the harness command.
 
 ## Related
 
-- SPEC-022, SPEC-002, SPEC-005, SPEC-016, SPEC-036
+- SPEC-022, SPEC-002, SPEC-005, SPEC-016, SPEC-036, SPEC-038
 - `/setup team`, `/setup orchestration`, `/release`, `/memory distill --force`
 - `bash skills/transcript-mirror/transcript-sync.sh` (opted-in `transcript.mirror_lag` fix-it)
 - `/audit` — instruction-stack inventory (not install health)

@@ -1,9 +1,9 @@
-# SPEC-038: Intercom Spool Protocol (Phase 1)
+# SPEC-038: Intercom Spool Protocol
 
 **Status**: ACTIVE
 **Category**: core
 **Created**: 2026-10-05
-**Covers**: `skills/intercom/` (`SKILL.md`, `common.sh`, `intercom.sh`, `poller.sh`, `watch.sh`, `setup-telegram.sh`, `probe.sh`, `test.sh`, `test-poller.sh`), `commands/away.md`, `commands/afk.md`, `commands/setup.md` (`telegram` and `slack` subs), `skills/doctor/checks/intercom.sh`, `README.md`
+**Covers**: `skills/intercom/` (`SKILL.md`, `common.sh`, `intercom.sh`, `poller.sh`, `watch.sh`, `daemon.sh`, `docker-compose.yml`, `Dockerfile`, `setup-telegram.sh`, `probe.sh`, `test.sh`, `test-poller.sh`, `test-daemon.sh`), `commands/away.md`, `commands/afk.md`, `commands/setup.md` (`telegram` and `slack` subs), `skills/doctor/checks/intercom.sh`, `docs/runbooks/setup-telegram.md`, `README.md`
 
 ## Overview
 
@@ -16,10 +16,11 @@ primary. Phase 1 is file-based: per-session spool dirs, a thin `intercom` CLI,
 and a harness-scheduled ephemeral poller. The phase-1 scheduler is harness
 re-invocation (Claude CronCreate or a Grok silent watcher) of the host
 adapter `watch.sh`; `poller.sh` stays one-shot. An idle paired cycle injects
-no parent turn (CDT-512-C1). Zero new runtimes — bash, jq, curl, and flock
-only (CDT-501 AC21, CDT-512-C1 AC1). A containerized daemon replaces the
-poller in a phase-2 ticket; it MUST keep this spool interface
-(§ Phase-2 contract).
+no parent turn (CDT-512-C1). Zero new **host** runtimes — bash, jq, curl, and
+flock only (CDT-501 AC21, CDT-512-C1 AC1). Phase 2 (CDT-509) is a
+containerized daemon that owns `getUpdates` 24/7. It MUST keep this spool
+interface (§ Phase-2 contract). The host stays clean: no new bare-metal
+runtime, no host crontab, no unofficial image pull.
 
 Brainstorm: `.claude/plans/2026-10-03-brainstorm-telegram-intercom.md`
 (box-level plan store). Glossary terms: Intercom, Walkie-talkie, Escalation,
@@ -348,17 +349,83 @@ transport itself is v1.1/v2).
 
 `skills/doctor/checks/intercom.sh` is WARN-never-FAIL (models.map precedent,
 SPEC-037): jq/curl presence, token file mode, config.json parse, offset
-numeric, stale heartbeat age.
+numeric, stale heartbeat age. Stale heartbeat already covers a down
+daemon. Doctor MUST NOT FAIL when docker is absent. Heartbeat WARN copy names daemon-or-harness.
+A daemon-running check (compose project `intercom` + heartbeat freshness)
+is informational PASS/WARN, never FAIL.
 
-## Phase-2 contract (documentation only — no phase-2 planning here)
+## Phase-2 contract (CDT-509 — normative)
 
-The containerized daemon (phase-2 ticket) MUST: own the token and the sole
-`getUpdates` consumer role (honor `state/poller.lock` and `state/offset`);
-read and write the exact spool layout, record formats, and `config.json`
-schema in § State layout; keep the `intercom.sh` verbs working unchanged
-(daemon may take over the poller role behind them); preserve heartbeat,
-escalation, away, topic, and dedupe semantics; and require zero repo changes
-to migrate. Graduating poller → daemon changes no interface.
+The containerized daemon replaces harness-scheduled `getUpdates` for 24/7
+coverage. Zero live sessions MUST still land allowlisted inbound in the
+session spool within one long-poll return (`poll_timeout_s`, default 30).
+
+**Spool interface (load-bearing).** The daemon MUST read and write the exact
+§ State layout, record shapes, pending-question format, `config.json` schema
+1, heartbeat, offset, `seen.tsv`, `state/away`, and `state/poller.lock`.
+`intercom.sh` verbs `ask|send|away` MUST keep working unchanged. Additive
+files and extra JSON keys are allowed. Breaking or renaming those paths is
+not. Schema stays 1. Phase-1 `poller.sh` and `watch.sh` stay one-shot and
+MUST keep passing CDT-501 / CDT-512 when the daemon is absent.
+
+**Token and volumes.** The daemon owns the bot token. It MUST mount
+`~/.config/telegram/bot_token` (mode 600) read-only. It MUST bind-mount
+`~/.claude/telegram-router/` (tests: `INTERCOM_STATE_ROOT`). It MUST NOT copy
+the token into the image, env, argv, logs, or spool. The container MUST NOT
+write the token file.
+
+**Sole consumer.** `poller.sh` remains the only process that takes
+`state/poller.lock` (`flock -n`). The daemon entrypoint MUST NOT hold that
+lock across cycles (a held lock would make the next `poller.sh` exit 75
+forever). A second start (host `watch.sh`/`poller.sh`, a second container,
+or probe while a cycle holds the lock) MUST exit 75 with no state mutation,
+or surface `409` as exit 4 without advancing offset (AC22). `/setup telegram`
+MUST NOT arm `watch.sh` as a second consumer when the daemon is running.
+
+**Loop placement.** The resident loop is `skills/intercom/daemon.sh` (container
+entrypoint / compose `command`). Each iteration invokes `poller.sh` once and
+MUST NOT rewrite the spool cycle. `poller.sh` and `watch.sh` MUST NOT gain a
+`while`/`sleep` loop. Host crontab is still forbidden. Host machine
+safeguard: no new bare-metal runtime. Cycle tools inside the container stay
+bash, jq, curl, and flock (`apk add` `util-linux` on Alpine so `flock` is
+not BusyBox — BusyBox `flock -n` is UNVERIFIED). Fast `poller.sh` exit 0
+(unpaired, transport fail) MUST backoff; a long-poll success may re-invoke
+immediately. Exit 2 terminates the loop. Exit 75/4/other nonzero backoff and
+continue.
+
+**Semantics preserved.** Topic map (`topics.json`) is the session registry.
+Walkie-talkie, fail-closed unmapped, auto-create, Escalation timestamp
+sweep, Away mode, longread, send-path typing (AC10 / CDT-512-C5), allowlist,
+and restart durability (volume state) MUST match phase 1. The daemon MUST
+NOT add a typing-keepalive loop.
+
+**Image and probe.** The shipped compose/Dockerfile MUST pin a Docker
+Official Image by digest (not `:latest`). The runbook MUST present the
+candidate (source, digest, root vs non-root). The operator MUST approve
+before any pull. Hermetic suites MUST NOT `docker pull` or `docker run` a
+real image. `probe.sh` is the operator pre-deploy gate. Stop the daemon
+before probe (a second `getUpdates` consumer 409s).
+
+**Setup.** `/setup telegram` prints daemon mode iff both: (1) `state/heartbeat`
+mtime age ≤ `stale_heartbeat_s` (default 180), and (2) the shipped compose
+project is running (`docker compose -p intercom` or label
+`dev-team.intercom=daemon`). Fail closed: missing docker, compose down, or
+stale heartbeat → the CDT-512-C1 `watch.sh` arming block stays. Daemon mode:
+replace that block; say the daemon is the sole consumer; do not arm
+`watch.sh` for `getUpdates`. Re-run keep-existing also prints the current
+mode. First-time daemon start lives in `docs/runbooks/setup-telegram.md`.
+The block stays token-free and ≤ 4 KiB.
+
+**Compose identity (locked).** Project name `intercom`. Service `daemon`.
+Label `dev-team.intercom=daemon`. Setup and doctor detect that label or
+`docker compose -p intercom`. No inbound published ports. Runtime user is
+not uid 0. Numeric uid MUST be able to read the 0600 token (same host owner).
+
+**Out of scope (CDT-509).** Slack, voice notes, group chats, v1.1 quick
+commands. Open-session parent-turn wake through `watch.sh` stdout while the
+daemon holds the lock (spool is the 24/7 relay; the next session turn reads
+inbox). Host crontab. Unofficial images. Typing keepalive. No new slash
+Surface (`commands/*.md`).
 
 ## MUST
 
@@ -413,13 +480,22 @@ to migrate. Graduating poller → daemon changes no interface.
 - MUST make `/setup slack` a zero-write stub (AC5).
 - MUST pass `bash -n`, skill-lint (SPEC-021), smoke (SPEC-030), and the
   hermetic suites with no network access.
+- MUST (CDT-509) run the 24/7 `getUpdates` loop only in `daemon.sh` inside
+  the container; each iteration MUST invoke `poller.sh` once; MUST NOT hold
+  `state/poller.lock` across cycles; MUST mount the token file read-only and
+  the state dir as a bind mount; MUST keep `poller.sh` / `watch.sh` one-shot;
+  MUST detect a running daemon (heartbeat freshness AND compose) in
+  `/setup telegram` and then not arm a second consumer.
+- MUST (CDT-509) pin a Docker Official Image by digest; MUST require
+  operator approval before pull; MUST run `probe.sh` as the pre-deploy gate.
 - SHOULD keep the temp-path rule (`${TMPDIR:-/tmp}` or `mktemp`) in every
   executable block and script (AGENTS.md).
 
 ## MUST NOT
 
 - MUST NOT run a resident daemon, loop, or host crontab entry in phase 1
-  (harness-scheduled ephemeral cycles only).
+  (harness-scheduled ephemeral cycles only). The CDT-509 daemon is the
+  container exception; the host still MUST NOT run a bare-metal poller loop.
 - MUST NOT use Grok `scheduler_create` for idle Intercom cycles.
 - MUST NOT instruct copying or shipping
   `~/.grok/long-running-background-tasks/watch-intercom.sh`. The plugin
@@ -440,7 +516,13 @@ to migrate. Graduating poller → daemon changes no interface.
 - MUST NOT write the token into any file except `~/.config/telegram/bot_token`.
 - MUST NOT modify Claude Code config, docker stacks, or repo-tracked state at
   runtime.
-- MUST NOT introduce a runtime beyond bash/jq/curl (AC21).
+- MUST NOT introduce a host runtime beyond bash/jq/curl (AC21). The
+  container uses the same four cycle tools. MUST NOT add Python/Node/Go
+  inside the daemon image for this ticket.
+- MUST NOT `docker pull` an unapproved or unpinned image. MUST NOT publish
+  inbound ports. MUST NOT run the daemon as uid 0.
+- MUST NOT break the spool interface (additive compose/daemon assets and
+  extra `config.json` keys only).
 
 ## Alternatives considered
 
@@ -452,12 +534,21 @@ to migrate. Graduating poller → daemon changes no interface.
 - **Telegraph/third-party longreads** — rejected per resolved design: the
   rich artifact is a `sendDocument` upload, no third-party service.
 - **Host crontab** — rejected: host machine safeguard (no bare-metal
-  daemons/cron ownership) and resolved design prefers harness scheduling.
+  daemons/cron ownership). Phase 1 uses harness scheduling. Phase 2 uses
+  the container, not host cron.
 - **Grok `scheduler_create` on idle** — rejected: that path spawned an
   LLM and injected a parent turn every cycle (CDT-512-C1).
 - **Ship `~/.grok/long-running-background-tasks/watch-intercom.sh`** —
   rejected: local workaround (resident loop, hardcoded chat id, inbound
   body dump). Product adapter is `skills/intercom/watch.sh`.
+- **Rewrite `poller.sh` as a resident loop** — rejected: spool cycle stays
+  one-shot; `daemon.sh` loops it (CDT-509).
+- **Inject into an existing docker compose stack** — rejected: AC23; the
+  sidecar is a separate project named `intercom`.
+- **Token via env or compose `environment`** — rejected: AC4; bind-mount
+  the 0600 file read-only.
+- **Custom published image / `:latest`** — rejected: Docker Official Image
+  pinned by digest after operator approval.
 
 ## Acceptance criteria
 
@@ -771,6 +862,95 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   setup ACs pass. Patch bump; no new `commands/*.md`. Never print the bot
   token. Never commit `.claude/backlog` or `.claude/epics`.
 
+### CDT-509
+
+- **AC1.** The daemon owns the bot token: it mounts
+  `~/.config/telegram/bot_token` (mode 600) read-only. A sentinel token is
+  absent from image metadata, container env, argv, logs, spool files, and
+  setup/daemon prompt text. The container cannot write the token file.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC2.** State is the bind-mounted § State layout at
+  `~/.claude/telegram-router/` (`INTERCOM_STATE_ROOT` in tests). A daemon
+  cycle plus `/setup telegram` writes nothing inside the repo, does not
+  edit existing docker stacks or Claude Code config, and installs no new
+  host runtime or crontab.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC3.** Exact spool contract: layout
+  `spool/<sid>/{inbox,outbox,pending,answered}`,
+  `state/{offset,heartbeat,poller.lock,seen.tsv,away}`, schema-1
+  `config.json`, inbox/outbox record shapes (outbox
+  `<epoch_ms>_0_<rand>.json`), pending-question format, and `intercom.sh`
+  verbs `ask|send|away` are unchanged. Additive compose/daemon assets and
+  extra JSON keys only. Schema stays 1. With the daemon absent, CDT-501 and
+  CDT-512 poller/watch ACs still pass.
+  Verify: bash skills/intercom/test.sh
+- **AC4.** Exactly one `getUpdates` consumer per token: each `poller.sh`
+  cycle takes `state/poller.lock` with `flock -n`. Contended lock exits 75
+  with no mutation. A `409` exits 4 without advancing offset. `daemon.sh`
+  MUST NOT hold that lock across cycles. Daemon-up setup MUST NOT arm
+  `watch.sh` as a second consumer (AC10). Do not claim `watch.sh` itself
+  exits 75 — it wraps poller 75 and exits 0 (CDT-512-C1). Do not claim a
+  second daemon process exits 75 — it backoffs and continues (AC5).
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC5.** 24/7 long-poll with zero live sessions: the resident loop is
+  `skills/intercom/daemon.sh` (compose `command`); each iteration invokes
+  `poller.sh` once. `poller.sh` and `watch.sh` stay one-shot. Fast poller
+  exit 0 (wall time under 2s) MUST backoff ≥1s; exit 2 terminates the
+  loop; 75/4/other nonzero backoff and continue. With no session and no
+  `watch.sh` job, an allowlisted inbound lands in `spool/<sid>/inbox/`
+  within one `getUpdates` return (`poll_timeout_s`, default 30). Heartbeat
+  is touched each cycle. Volume state survives restart. No host crontab.
+  No inbound published ports.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC6.** Topic map is the session registry: `topics.json` sid →
+  `thread_id`; General is the walkie-talkie to `default_session`; empty or
+  only-general map routes unmapped threads there; any non-`general` sid
+  keeps unmapped fail-closed (no cross-delivery). First outbound or
+  Escalation auto-creates the session topic. Daemon adds no second map.
+  Verify: bash skills/intercom/test.sh
+- **AC7.** Escalation is the same timestamp sweep, 24/7 with zero
+  sessions: unanswered pending fires once after `escalation_timeout_s`
+  (default 900); Away ON fires immediately once; expiry while down fires
+  on the next cycle; an answer cancels and relays `kind: "answer"`.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC8.** Away mode stays `state/away` only, toggled by `intercom away`
+  and phone `/away`/`/afk` (no inbox relay). Away ON drains outbox every
+  cycle and survives container restart. OFF restores the default timer.
+  Verify: bash skills/intercom/test-poller.sh
+- **AC9.** Typing stays send-path only (CDT-512-C5): no `sendChatAction` on
+  inbound pickup; one `typing` immediately before each outbound
+  `sendMessage`; typing failure MUST NOT skip the send; the daemon MUST
+  NOT run a typing-keepalive loop. Send-path coverage is CDT-512-C5 in
+  `bash skills/intercom/test.sh`.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC10.** `/setup telegram` prints daemon mode iff both: heartbeat mtime
+  age ≤ `stale_heartbeat_s` AND compose identity running (project
+  `intercom`, service `daemon`, label `dev-team.intercom=daemon`). Daemon
+  mode: replace the harness schedule prompt; do not arm `watch.sh` as a
+  `getUpdates` consumer; token-free; ≤ 4 KiB. Fail closed (stale
+  heartbeat, compose down, or docker CLI absent): CDT-512-C1 arming block
+  unchanged; missing docker is not a setup failure. Re-run keep-existing
+  prints the current mode. `commands/setup.md` and
+  `docs/runbooks/setup-telegram.md` document both modes.
+  Verify: bash skills/intercom/test.sh
+- **AC11.** Shipped compose/Dockerfile pins a Docker Official Image by
+  digest (`docker.io/library/<name>@sha256:<hex>`, no `:latest`). Alpine
+  packages: `bash jq curl util-linux ca-certificates` (not BusyBox
+  `flock`). The runbook presents the candidate (source, digest,
+  default-root vs required non-root). Operator approval is required
+  before any pull. Hermetic suites never `docker pull` or `docker run` a
+  real image. Runtime `user:` is a non-zero host uid:gid that can read
+  the 0600 token. `read_only: true` plus `tmpfs` `/tmp`. `cap_drop: [ALL]`.
+  Verify: bash skills/intercom/test-daemon.sh
+- **AC12.** `probe.sh` is the operator pre-deploy gate: it MUST pass every
+  § Verified-vs-assumed behavior before dependent daemon start. Suites
+  never invoke it. The runbook says stop the daemon before probe (409).
+  Verify: bash skills/intercom/test.sh
+- **AC13.** [process] `bash tools/run-all-tests.sh` exits 0; skill-lint
+  (SPEC-021), smoke (SPEC-030), and docs-drift pass. CDT-501 and CDT-512
+  suites still pass. Release bump is patch (no new `commands/*.md`). Never
+  print the bot token. Never commit `.claude/backlog` or `.claude/epics`.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
@@ -833,17 +1013,52 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 - [ ] `commands/setup.md` documents the agent pairing wait (CDT-512-C4 AC4)
 - [ ] Pickup sends no typing; outbox drain types once immediately before
       `sendMessage`; no typing-keepalive loop (CDT-512-C5 AC1–AC5)
+- [ ] Token file mounted read-only; sentinel absent from image/env/argv
+      (CDT-509 AC1)
+- [ ] State bind-mount; repo and host stacks untouched (CDT-509 AC2)
+- [ ] Spool contract byte-stable; additive daemon assets only (CDT-509 AC3)
+- [ ] Sole getUpdates consumer; second start 75 or 409/exit 4 (CDT-509 AC4)
+- [ ] Zero-session inbound lands in spool within one long-poll (CDT-509 AC5)
+- [ ] Topic map / walkie-talkie / fail-closed unmapped (CDT-509 AC6)
+- [ ] Escalation sweep 24/7; away-immediate; answer cancels (CDT-509 AC7)
+- [ ] Away file survives container restart (CDT-509 AC8)
+- [ ] No pickup typing; no keepalive in the daemon (CDT-509 AC9)
+- [ ] Setup daemon-mode iff heartbeat fresh AND compose running (CDT-509 AC10)
+- [ ] `daemon.sh` loops `poller.sh`; does not hold `poller.lock` across cycles (CDT-509 AC4/AC5)
+- [ ] Image digest-pinned; no hermetic pull; non-root (CDT-509 AC11)
+- [ ] probe.sh pre-deploy; suites never call it (CDT-509 AC12)
 
 ## Validation
 
-- [ ] Spec reviewed against CDT-501 ACs 1–25 (PM final, 2026-10-05) and the
-      2026-10-03 brainstorm decision log
+- [ ] Spec reviewed against CDT-501 ACs 1–25 (PM final, 2026-10-05), the
+      2026-10-03 brainstorm decision log, and CDT-509 ACs 1–13 (PM kickoff,
+      2026-10-07)
 - [ ] `probe.sh` passes every § Verified vs assumed behavior before
       dependent code merges
 - [ ] Hermetic suites green with no network; `tools/run-all-tests.sh` exit 0
 - [ ] skill-lint, smoke, docs-drift clean; spec-lint covers findings cleared
       when T2–T8 land the covered paths
-- [ ] Release bump minor (new `/away`, `/afk` surfaces)
+- [ ] Release bump minor (new `/away`, `/afk` surfaces) for CDT-501; CDT-509
+      is patch (no new `commands/*.md`)
+- [ ] Operator approved the pinned digest before any `docker pull` (CDT-509)
+
+## Open questions
+
+- **OQ1 (blocks pull, not code).** Operator must approve one official
+  image before any `docker pull`. TL recommendation (Hub metadata
+  2026-10-07; **not pulled**): `docker.io/library/alpine:3.21` index
+  `sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507`
+  (linux/amd64 `sha256:3c81aa9a3d770b316568f4499e30461a5cd3fbd7180bd89e28e34894c7845832`;
+  Docker Official Image; Hub rebuild 2026-09-18; ~3.6 MB; default USER
+  root — product `user:` is host uid). Alternative:
+  `docker.io/library/debian:bookworm-slim` index
+  `sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587`
+  (linux/amd64 `sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91`;
+  official; glibc; bash in base; ~28 MB; Hub 2026-10-06). PM named
+  alpine 3.22.2 (index `sha256:4b7ce070…`, last_pushed 2025-10-09) —
+  official but a year-old rebuild; do not pin it unless the operator
+  insists. This host already has `alpine:3.20` (zero new pull if the
+  operator refuses 3.21). Unofficial images are not in scope.
 
 ## Version History
 
@@ -856,6 +1071,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 | 2026-10-07 | CDT-512-C3 — pairing seeds General `thread_id`; unmapped empty/only-general map routes to `default_session`; poller ignores bot self-echo and forum service messages; chmod 700 existing `state/` |
 | 2026-10-07 | CDT-512-C4 — TTY-less `/setup telegram`: mode-600 `bot_token` reuse vs replace; pairing long-polls 30s with no Enter wait |
 | 2026-10-07 | CDT-512-C5 — typing is send-path only: no `sendChatAction` on inbound pickup; `ir_send_text` types once immediately before `sendMessage`; no keepalive loop |
+| 2026-10-07 | CDT-509 — phase-2 containerized daemon: `daemon.sh` loops one-shot `poller.sh`; token `:ro` + state bind; flock per cycle not across; setup daemon-mode = heartbeat fresh AND compose `intercom`; digest-pin + approve-before-pull; `probe.sh` pre-deploy; C1 harness remains |
 
 ## Cross-references
 

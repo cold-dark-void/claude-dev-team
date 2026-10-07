@@ -2799,6 +2799,156 @@ else
 fi
 
 # =============================================================================
+# T29. intercom.daemon (SPEC-038 CDT-509) — inspect compose project intercom;
+#      PASS/WARN/SKIP, never FAIL; docker absent is not FAIL; no docker pull
+# =============================================================================
+t29_field() {
+  printf '%s' "$1" | jq -r ".checks[0] | $2" 2>/dev/null || echo ERR
+}
+t29_cfg() {
+  mkdir -p "$INTERCOM_STATE_ROOT/state"
+  printf '%s\n' '{"schema":1,"members":{"1":{"name":"t29"}}}' \
+    >"$INTERCOM_STATE_ROOT/config.json"
+}
+T29_PATH_SAVE=$PATH
+T29_HOME="$TMP/t29-home"
+mkdir -p "$T29_HOME"
+t29_tools="$TMP/t29-bin"
+mkdir -p "$t29_tools"
+for cmd in bash jq curl flock grep sed awk cat chmod mkdir date stat \
+  touch wc tr mktemp rm ls head find mv cp basename dirname uname \
+  sleep kill env id ps tail cmp diff file ln git sort uniq cut tee \
+  true false test timeout python3; do
+  p=$(command -v "$cmd" 2>/dev/null) || continue
+  ln -sf "$p" "$t29_tools/$cmd"
+done
+t29_docker_mock() { # running|down
+  local mode="$1"
+  cat >"$t29_tools/docker" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+  case "\$a" in
+    pull|run|build|push) echo "t29 docker-mock refused \$a" >&2; exit 64 ;;
+  esac
+done
+mode='$mode'
+want=0
+prev=""
+for a in "\$@"; do
+  if [ "\$prev" = "-p" ] && [ "\$a" = "intercom" ]; then want=1; fi
+  case "\$a" in *dev-team.intercom*) want=1 ;; esac
+  prev="\$a"
+done
+if [ "\$mode" = "running" ] && [ "\$want" -eq 1 ]; then
+  printf '%s\\n' '{"Service":"daemon","State":"running","Labels":"dev-team.intercom=daemon","Project":"intercom"}'
+fi
+exit 0
+EOF
+  chmod +x "$t29_tools/docker"
+}
+T29P="$TMP/t29-proj"
+make_bare_project "$T29P"
+seed_plugin_triplet "$T29P"
+cd "$T29P" || exit 1
+
+# T29a — no config, docker hidden → SKIP, never FAIL
+rm -f "$INTERCOM_STATE_ROOT/config.json" "$t29_tools/docker"
+PATH="$t29_tools" HOME="$T29_HOME"
+RC=0
+OUT=$(PATH="$t29_tools" HOME="$T29_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
+  bash "$DOCTOR" --json --only intercom.daemon 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+if [ "$ST" = "SKIP" ] && [ "$ST" != "FAIL" ] && [ "$RC" -eq 0 ]; then
+  pass "T29a no config + docker absent → SKIP never FAIL (CDT-509)"
+else
+  fail "T29a status=$ST rc=$RC out=$OUT"
+fi
+
+# T29b — config + docker CLI absent → SKIP never FAIL
+t29_cfg
+date +%s >"$INTERCOM_STATE_ROOT/state/heartbeat"
+RC=0
+OUT=$(PATH="$t29_tools" HOME="$T29_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
+  bash "$DOCTOR" --json --only intercom.daemon 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "SKIP" ] && [ "$ST" != "FAIL" ] && [ "$RC" -eq 0 ] \
+   && printf '%s' "$DE" | grep -qi 'docker'; then
+  pass "T29b config + docker absent → SKIP naming docker, never FAIL (CDT-509)"
+else
+  fail "T29b status=$ST rc=$RC detail=$DE out=$OUT"
+fi
+
+# T29c — fresh heartbeat + compose project intercom running → PASS
+t29_docker_mock running
+date +%s >"$INTERCOM_STATE_ROOT/state/heartbeat"
+RC=0
+OUT=$(PATH="$t29_tools" HOME="$T29_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
+  bash "$DOCTOR" --json --only intercom.daemon 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "PASS" ] && [ "$RC" -eq 0 ] \
+   && printf '%s' "$DE" | grep -q 'intercom'; then
+  pass "T29c fresh heartbeat + compose intercom up → PASS (CDT-509)"
+else
+  fail "T29c status=$ST rc=$RC detail=$DE out=$OUT"
+fi
+
+# T29d — compose down → WARN never FAIL; names compose project intercom
+t29_docker_mock down
+date +%s >"$INTERCOM_STATE_ROOT/state/heartbeat"
+RC=0
+OUT=$(PATH="$t29_tools" HOME="$T29_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
+  bash "$DOCTOR" --json --only intercom.daemon 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+FX=$(t29_field "$OUT" .fixit)
+if [ "$ST" = "WARN" ] && [ "$ST" != "FAIL" ] && [ "$RC" -eq 1 ] \
+   && printf '%s' "$DE" | grep -q 'intercom' \
+   && [ "$FX" != "ERR" ] && [ -n "$FX" ]; then
+  pass "T29d compose down → WARN never FAIL (CDT-509)"
+else
+  fail "T29d status=$ST rc=$RC detail=$DE fixit=$FX out=$OUT"
+fi
+
+# T29e — stale heartbeat WARN copy names daemon or harness
+touch_ago "$INTERCOM_STATE_ROOT/state/heartbeat" 9999
+RC=0
+OUT=$(PATH="$t29_tools" HOME="$T29_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
+  bash "$DOCTOR" --json --only intercom.heartbeat 2>/dev/null) || RC=$?
+ST=$(t29_field "$OUT" .status)
+DE=$(t29_field "$OUT" .detail)
+if [ "$ST" = "WARN" ] && [ "$ST" != "FAIL" ] \
+   && printf '%s' "$DE" | grep -qi 'daemon or harness'; then
+  pass "T29e stale heartbeat WARN names daemon or harness (CDT-509)"
+else
+  fail "T29e status=$ST detail=$DE out=$OUT"
+fi
+
+# T29f — check source never docker pull/run; --gate=team WARN is rc 1 not 2
+if ! grep -E '(^|[[:space:]])docker[[:space:]]+(pull|run)([[:space:]|&;<>]|$)' \
+     "$SCRIPT_DIR/checks/intercom.sh" >/dev/null; then
+  pass "T29f checks/intercom.sh never docker pull/run (CDT-509 AC11)"
+else
+  fail "T29f checks/intercom.sh calls docker pull or run"
+fi
+t29_docker_mock down
+date +%s >"$INTERCOM_STATE_ROOT/state/heartbeat"
+RC=0
+PATH="$t29_tools" HOME="$T29_HOME" INTERCOM_STATE_ROOT="$INTERCOM_STATE_ROOT" \
+  bash "$DOCTOR" --json --gate=team --only intercom.daemon >/dev/null 2>&1 || RC=$?
+if [ "$RC" -eq 1 ]; then
+  pass "T29f daemon WARN does not block --gate=team (rc=1)"
+else
+  fail "T29f gate rc=$RC (want 1)"
+fi
+
+PATH=$T29_PATH_SAVE
+export PATH
+rm -f "$INTERCOM_STATE_ROOT/config.json" \
+  "$INTERCOM_STATE_ROOT/state/heartbeat"
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

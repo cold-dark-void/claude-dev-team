@@ -15,6 +15,7 @@
 #   ir_outbox_write / ir_pending_write  record builders
 #   ir_config_field    read config.json (schema 1); never creates it
 #   ir_require_tools   graceful jq/curl absence (AC21)
+#   ir_daemon_running  heartbeat fresh AND compose project intercom up (CDT-509 AC10)
 #
 # Exit-code contract for the CLIs: 0 success, 1 operational failure, 2
 # usage/sid failure. Library helpers return nonzero on their own failure.
@@ -328,6 +329,67 @@ ir_config_field() {
   else
     printf '%s\n' "$def"
   fi
+}
+
+# ---- daemon detect (CDT-509 AC10) --------------------------------------------
+
+_ir_compose_json_up() {
+  # stdin: one JSON value (object or array). rc 0 iff a running daemon identity.
+  jq -e '
+    def running: ((.State // "") | ascii_downcase) == "running";
+    def daemon_id:
+      (.Service == "daemon")
+      or ((.Labels // "") | tostring | contains("dev-team.intercom=daemon"));
+    def project:
+      (.Project // "") == "intercom"
+      or ((.Labels // "") | tostring | contains("dev-team.intercom"));
+    if type == "array" then
+      any(.[]?; running and daemon_id and project)
+    elif type == "object" then
+      running and daemon_id and project
+    else
+      false
+    end' >/dev/null 2>&1
+}
+
+ir_compose_ps_running() {
+  # ir_compose_ps_running BLOB — rc 0 when BLOB names a running compose
+  # identity: project intercom, service daemon, label dev-team.intercom=daemon.
+  # One JSON object, a JSON array, or NDJSON mixed with non-JSON lines.
+  local blob="$1" line
+  [ -n "$blob" ] || return 1
+  if printf '%s\n' "$blob" | _ir_compose_json_up; then
+    return 0
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    printf '%s\n' "$line" | _ir_compose_json_up && return 0
+  done < <(printf '%s\n' "$blob")
+  return 1
+}
+
+ir_daemon_running() {
+  # rc 0 iff state/heartbeat mtime age <= stale_heartbeat_s (default 180)
+  # AND compose project intercom / service daemon / label
+  # dev-team.intercom=daemon is running. Fail closed: missing heartbeat,
+  # stale heartbeat, missing docker CLI, or compose down → rc 1. Inspect
+  # only (compose ps / docker ps). Never pull, run, or print a token.
+  local root hb stale mtime now age out
+  root=$(ir_state_root)
+  hb="$root/state/heartbeat"
+  [ -f "$hb" ] || return 1
+  stale=$(ir_config_field stale_heartbeat_s 180)
+  case "$stale" in ''|*[!0-9]*) stale=180 ;; esac
+  mtime=$(stat -c %Y "$hb" 2>/dev/null || stat -f %m "$hb" 2>/dev/null) || return 1
+  case "$mtime" in ''|*[!0-9]*) return 1 ;; esac
+  now=$(date +%s)
+  age=$((now - mtime))
+  [ "$age" -le "$stale" ] || return 1
+  command -v docker >/dev/null 2>&1 || return 1
+  out=$(docker compose -p intercom ps --format json 2>/dev/null) || out=""
+  ir_compose_ps_running "$out" && return 0
+  out=$(docker ps --filter "label=dev-team.intercom=daemon" --filter "status=running" --format json 2>/dev/null) || out=""
+  ir_compose_ps_running "$out"
 }
 
 # ---- longread -----------------------------------------------------------------

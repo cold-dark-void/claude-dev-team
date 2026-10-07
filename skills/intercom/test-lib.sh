@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # test-lib.sh — shared hermetic scaffolding for the intercom suites (SPEC-038).
-# Source-only: test.sh and test-poller.sh source it after tests/lib/hermetic.sh.
-# It owns the no-network curl shim and the state/fixture/spool helpers both
-# suites use. Suite-specific setup (EMPTY_BIN, TRANSCRIPT_MIRROR_ROOT,
-# run_cli_env, ok_empty_result, the fixtures/ dir) and the test bodies stay in
-# the suites. The suites define TEST_TOKEN, fresh_case, and fresh_state before
-# the helpers that reference them are called.
+# Source-only: test.sh, test-poller.sh, and test-daemon.sh source it after
+# tests/lib/hermetic.sh. It owns the no-network curl shim and the
+# state/fixture/spool helpers the suites use. Suite-specific setup (EMPTY_BIN,
+# TRANSCRIPT_MIRROR_ROOT, run_cli_env, ok_empty_result, the fixtures/ dir) and
+# the test bodies stay in the suites. The suites define TEST_TOKEN, fresh_case,
+# and fresh_state before the helpers that reference them are called.
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-  echo "test-lib.sh is a source-only library, not a suite — source it from skills/intercom/test.sh or test-poller.sh." >&2
+  echo "test-lib.sh is a source-only library, not a suite — source it from skills/intercom/test.sh, test-poller.sh, or test-daemon.sh." >&2
   exit 77
 fi
 
@@ -195,6 +195,13 @@ run_watch() { # one host-adapter cycle; sets W_OUT W_ERR W_RC
   W_OUT=$(bash "$WATCH" 2>"$ERRF")
   W_RC=$?
   W_ERR=$(cat "$ERRF")
+}
+
+run_daemon() { # one daemon.sh invocation until it exits; sets D_OUT D_ERR D_RC
+  # Poller override: INTERCOM_POLLER (T2) or PATH. Never call a real container.
+  D_OUT=$(bash "${DAEMON:?}" 2>"$ERRF")
+  D_RC=$?
+  D_ERR=$(cat "$ERRF")
 }
 
 run_cli() { # SCRIPT ARG... — sets C_OUT C_ERR C_RC
