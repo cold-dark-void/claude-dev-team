@@ -715,6 +715,18 @@ else
   bad "CDT-512-C1 adapter sentinel: rc=$W_RC out=[$W_OUT]"
 fi
 
+# CDT-512-C3 AC5: bot-id-only cycle must not wake the adapter
+fresh_case
+seed_paired "197372681"
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp "getUpdates" "$(result_body "$(upd_msg_from 300 197372681 "self echo" 987654321)")"
+run_watch
+if [ "$W_RC" -eq 0 ] && [ -z "$W_OUT" ] && [ "$(inbox_n main)" = "0" ]; then
+  ok "CDT-512-C3 AC5 watch stdout empty when cycle consumed only bot-id updates"
+else
+  bad "CDT-512-C3 AC5 watch bot-id: rc=$W_RC out=[$W_OUT] inbox=$(inbox_n main)"
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -124,6 +124,32 @@ upd_msg() { # ID CHAT TEXT [THREAD] — one Telegram message update
     end'
 }
 
+upd_msg_from() { # ID CHAT TEXT FROM [THREAD] — from.id independent of chat.id
+  jq -n --argjson id "$1" --argjson chat "$2" --arg text "$3" --argjson from "$4" --argjson thread "${5:-0}" '
+    {update_id: $id, message: (
+      {message_id: $id,
+       from: {id: $from, is_bot: ($from != $chat), first_name: "Who"},
+       chat: {id: $chat, type: "private"}, date: 1700000000, text: $text}
+      + (if $thread == 0 then {} else {message_thread_id: $thread} end)
+    )}'
+}
+
+upd_forum_edited() { # ID CHAT FROM THREAD NAME — empty-text forum_topic_edited
+  upd_forum_svc "$1" "$2" "$3" "$4" forum_topic_edited "$5"
+}
+
+upd_forum_svc() { # ID CHAT FROM THREAD KEY [NAME] — empty-text forum service
+  jq -n --argjson id "$1" --argjson chat "$2" --argjson from "$3" --argjson thread "$4" \
+    --arg key "$5" --arg name "${6:-x}" '
+    {update_id: $id, message: (
+      {message_id: $id,
+       from: {id: $from, is_bot: true, first_name: "Bot"},
+       chat: {id: $chat, type: "private"}, date: 1700000000,
+       message_thread_id: $thread}
+      + {($key): {name: $name}}
+    )}'
+}
+
 upd_edited()   { jq -n --argjson id "$1" --argjson chat "$2" '{update_id: $id, edited_message: {message_id: 9, chat: {id: $chat}, edit_date: 1700000000}}'; }
 upd_channel()  { jq -n --argjson id "$1" --argjson chat "$2" '{update_id: $id, channel_post: {message_id: 9, chat: {id: $chat}, text: "posted"}}'; }
 upd_callback() { jq -n --argjson id "$1" '{update_id: $id, callback_query: {id: "cb", from: {id: 1}, data: "x"}}'; }

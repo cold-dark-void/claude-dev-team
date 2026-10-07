@@ -4,8 +4,10 @@
 #
 # Steps: prompt token -> 0600 token file + 0700 parent -> getMe validate
 # (failure: no state beyond the token file) -> one getUpdates?timeout=30&offset=-1
-# pairing call (chat id + initial offset) -> getChat topics check -> write
-# config.json / topics.json / seen.tsv / state dirs / offset under the state
+# pairing call (chat id + optional message_thread_id + initial offset) ->
+# getChat topics check -> write config.json / topics.json (seed general when
+# the pairing message carried a thread id) / seen.tsv / state dirs / offset
+# under the state
 # root (INTERCOM_STATE_ROOT honored, AC23) -> print the host-aware arming block
 # (absolute watch.sh, 45s, <= 4 KiB, token-free). Re-run with a valid config asks
 # before overwriting. bash/jq/curl only (AC21); token never in argv/logs (AC4):
@@ -113,6 +115,10 @@ chat_id=$(jq -r '[.result[] | select(.message.chat.type == "private")][0].messag
 case "$chat_id" in
   ''|*[!0-9]*) die "no private-chat sender captured — send a message to @${bot_username} and re-run (no state beyond the token file)" ;;
 esac
+thread_id=$(jq -r '[.result[] | select(.message.chat.type == "private")][0].message.message_thread_id // empty' <<<"$resp")
+case "$thread_id" in
+  ''|*[!0-9]*) thread_id="" ;;
+esac
 offset=$(jq -r '[.result[] | .update_id] | max + 1' <<<"$resp")
 case "$offset" in
   ''|*[!0-9]*) die "could not derive the initial offset (max update_id + 1)" ;;
@@ -155,8 +161,22 @@ atomic_write "$cfg" jq -n \
    topics_enabled: $topics}' || die "cannot write $cfg"
 chmod 600 "$cfg" || die "cannot chmod 600 $cfg"
 
-atomic_write "$root/topics.json" printf '{}\n' || die "cannot write $root/topics.json"
+if [ -n "$thread_id" ]; then
+  atomic_write "$root/topics.json" jq -n --argjson tid "$thread_id" \
+    '{general: {thread_id: $tid, title: "General"}}' \
+    || die "cannot write $root/topics.json"
+else
+  atomic_write "$root/topics.json" printf '{}\n' || die "cannot write $root/topics.json"
+fi
 chmod 600 "$root/topics.json" || die "cannot chmod 600 $root/topics.json"
+if [ -n "$thread_id" ]; then
+  # Fail-open: pairing already captured the thread. Private Bot API 9.3+
+  # may accept editForumTopic even when getChat.is_forum is false.
+  tg_api editForumTopic --max-time 15 \
+    -d "chat_id=$chat_id" \
+    -d "message_thread_id=$thread_id" \
+    -d "name=General" >/dev/null 2>&1 || true
+fi
 
 : > "$statedir/seen.tsv"
 chmod 600 "$statedir/seen.tsv" || die "cannot chmod 600 $statedir/seen.tsv"

@@ -132,6 +132,17 @@ else
   warn "config default_session is not a usable sid; unroutable traffic is ignored"
 fi
 
+# Bot self-echo uses the member chat id, so the allowlist cannot catch it.
+# One getMe per cycle; miss → empty BOT_ID (do not drop member traffic).
+BOT_ID=""
+if me=$(tg_api getMe --max-time 15) \
+  && jq -e '.ok == true' <<<"$me" >/dev/null 2>&1; then
+  BOT_ID=$(jq -r '.result.id // empty' <<<"$me" 2>/dev/null) || BOT_ID=""
+fi
+case "$BOT_ID" in
+  ''|*[!0-9]*) BOT_ID="" ;;
+esac
+
 # ---- staleness (AC12) + heartbeat touch ----------------------------------------
 
 stale_heartbeat_s=$(ir_config_field stale_heartbeat_s 180)
@@ -383,10 +394,11 @@ ir_seen_prune() {
 
 # ir_route_inbound THREAD_ID — prints the sid; rc 1 when unroutable. A known
 # thread maps via topics.json ("general" → default_session); a plain chat
-# (no thread) is the walkie-talkie → default_session. An unmapped thread id is
-# ignored fail-closed rather than guessed.
+# (no thread) is the walkie-talkie → default_session. An unmapped thread id
+# with an empty map or only the general key also routes to default_session.
+# Fail-closed when any non-general sid exists (AC6 cross-delivery).
 ir_route_inbound() {
-  local tid="$1" sid=""
+  local tid="$1" sid="" n_other=0
   if [ "$DEFAULT_SESSION_OK" -ne 1 ]; then
     warn "default_session unusable; ignoring inbound"
     return 1
@@ -398,10 +410,21 @@ ir_route_inbound() {
         "$TOPICS_FILE" 2>/dev/null | head -n 1) || sid=""
     fi
     if [ -z "$sid" ]; then
-      warn "message in unmapped topic $tid; ignored with zero artifacts"
-      return 1
+      if [ -f "$TOPICS_FILE" ]; then
+        n_other=$(jq '[to_entries[] | select(.key != "general")] | length' \
+          "$TOPICS_FILE" 2>/dev/null) || n_other=0
+      fi
+      case "$n_other" in
+        ''|*[!0-9]*) n_other=0 ;;
+      esac
+      if [ "$n_other" -gt 0 ]; then
+        warn "message in unmapped topic $tid; ignored with zero artifacts"
+        return 1
+      fi
+      sid=$DEFAULT_SESSION
+    else
+      [ "$sid" = "general" ] && sid=$DEFAULT_SESSION
     fi
-    [ "$sid" = "general" ] && sid=$DEFAULT_SESSION
   else
     sid=$DEFAULT_SESSION
   fi
@@ -491,6 +514,20 @@ ir_process_update() {
   case "$thread_id" in ''|*[!0-9]*) thread_id="" ;; esac
   from_id=$(jq -r '.message.from.id // empty' <<<"$u" 2>/dev/null) || from_id=""
   case "$from_id" in ''|*[!0-9]*) from_id="" ;; esac
+
+  # Bot self-echo (same chat as the member) must not answer pending questions.
+  if [ -n "$BOT_ID" ] && [ "$from_id" = "$BOT_ID" ]; then
+    ir_advance_offset "$uid"
+    return 0
+  fi
+  # Empty-text forum service messages (topic rename, etc.).
+  if [ -z "$text" ] \
+    && jq -e '.message | (has("forum_topic_edited") or has("forum_topic_created")
+      or has("forum_topic_closed") or has("forum_topic_reopened"))' \
+      <<<"$u" >/dev/null 2>&1; then
+    ir_advance_offset "$uid"
+    return 0
+  fi
 
   # Reserved phone commands: toggle state/away, confirm in place, relay
   # nothing (AC17). The optional @botname suffix is how Telegram renders

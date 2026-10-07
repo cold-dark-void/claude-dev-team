@@ -79,7 +79,7 @@ You can enable Topics later and re-run pairing when you want sid per topic.
 | Symptom | What you do |
 |---------|-------------|
 | Empty pairing / no private-chat sender | Send a message to the bot, then re-run `/setup telegram`. |
-| Unmapped topic | Topics on: create or map the topic. Topics off: traffic stays in General. |
+| Unmapped topic | Empty map or only General: traffic stays in the Walkie-talkie (`default_session`). Session topics already mapped: an unknown thread is dropped. Topics off is not a failed setup. |
 | 409 conflict | Another poller holds the getUpdates offset. Stop the other job. One host job only. |
 | Agent names a shared bot | Refuse. Create your own bot. Do not use a username from memory. |
 | Token in chat | Revoke the token with BotFather. Create a new bot. Never paste the token again. |

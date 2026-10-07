@@ -224,8 +224,15 @@ ir_spool_dir() {
 
 ir_state_dir() {
   # ir_state_dir — prints <root>/state, creating it 0700 (away, offset, heartbeat...).
+  # mkdir -m 700 -p does not tighten an existing dir; chmod 700 when present.
   local root
   root=$(ir_state_root)
+  if [ -d "$root/state" ]; then
+    if ! chmod 700 "$root/state"; then
+      echo "intercom: cannot chmod 700 $root/state" >&2
+      return 1
+    fi
+  fi
   if ! mkdir -m 700 -p "$root/state"; then
     echo "intercom: cannot create $root/state" >&2
     return 1

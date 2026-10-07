@@ -68,6 +68,8 @@ State is box-level only — never inside the repo (AC23).
 ~/.claude/telegram-router/
   config.json                    schema 1; members allowlist keyed by chat id
   topics.json                    sid -> {thread_id, title}; "general" -> thread_id
+                                 pairing seeds general when message_thread_id present;
+                                 unmapped thread + empty/only-general map → default_session
   state/
     offset                       next getUpdates offset; non-negative integer
     heartbeat                    touched each poller cycle (epoch seconds line)

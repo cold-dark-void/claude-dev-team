@@ -125,8 +125,17 @@ write no session-facing stdout.
    - `/away` or `/afk` text → toggle `state/away`, send a confirmation to
      that chat, relay nothing (AC17 phone side; reserved command, distinct
      from v1.1 quick commands).
-   - otherwise resolve sid: `thread_id` → `topics.json`, else the general
-     topic routes to `default_session`. Write an inbox record. Any other
+   - ignore when `from.id` equals this cycle's `getMe` bot id (self-echo;
+     zero inbox, no pending→answered, no typing; offset still advances).
+   - ignore empty-text (and empty-caption) `forum_topic_edited` /
+     `forum_topic_created` / `forum_topic_closed` / `forum_topic_reopened`
+     service messages the same way.
+   - otherwise resolve sid: `thread_id` → `topics.json`. The general
+     topic routes to `default_session`. An unmapped thread id with an empty
+     map or a map that contains only `general` also routes to
+     `default_session` (walkie-talkie; CDT-512-C3). An unmapped thread id
+     when any non-`general` sid exists is ignored with zero artifacts
+     (AC6 cross-delivery). Write an inbox record. Any other
      slash-prefixed text (commands addressed to other bots, or any other
      `/`-leading message) is session content and relays as a normal message —
      the reserved pair above is the only intercepted command (§ MUST NOT).
@@ -220,12 +229,18 @@ session spool (AC14).
 
 ## Topics
 
-`topics.json` maps sid → `thread_id`. On the first outbound or escalation for
-an unmapped sid, the poller calls `createForumTopic` (title = sid) and records
-it — outbound notifications auto-create the session topic (AC11). The general
-topic is the walkie-talkie: its messages route to `default_session`, and that
-session's replies return to the general topic (AC6). Per-session topics
-prevent cross-delivery (AC6).
+`topics.json` maps sid → `thread_id`. Pairing seeds `general` when the
+pairing message carries `message_thread_id` (CDT-512-C3). On the first
+outbound or escalation for an unmapped sid, the poller calls
+`createForumTopic` (title = sid) and records it — outbound notifications
+auto-create the session topic (AC11). The general topic is the
+walkie-talkie: its messages route to `default_session`, and that session's
+replies return to the general topic (AC6). An inbound `message_thread_id`
+absent from the map still routes to `default_session` when the map is `{}`
+or contains only `general`. Fail-closed unmapped stays when any
+non-`general` sid exists (AC6 cross-delivery). `topics_enabled` is a setup
+mode flag; inbound routing uses the map shape, not that flag. Per-session
+topics prevent cross-delivery (AC6).
 
 ## Longread
 
@@ -293,10 +308,17 @@ degrades to plain-chat General delivery).
 2. Validate via `getMe`. Failure → print the reason, write no state beyond
    the token file.
 3. Pairing: instruct the operator to message the bot, then one
-   `getUpdates?timeout=30&offset=-1` captures the chat id and the initial
-   offset (`max update_id + 1`) — satisfying AC22 startup validation.
-4. Write `config.json` (§ State layout), create the state dirs and empty
-   `topics.json` / `seen.tsv`.
+   `getUpdates?timeout=30&offset=-1` captures the chat id, the pairing
+   message's `message_thread_id` when present, and the initial offset
+   (`max update_id + 1`) — satisfying AC22 startup validation. The pairing
+   update is consumed by that offset; it is not written as an inbox record.
+4. Write `config.json` (§ State layout), create the state dirs, and write
+   `topics.json` / `seen.tsv`. When pairing captured a numeric
+   `message_thread_id`, `topics.json` is
+   `{"general":{"thread_id":<id>,"title":"General"}}` and setup calls
+   `editForumTopic` with name `General` (fail-open if the API rejects).
+   Otherwise `topics.json` is `{}`. `chmod 700` an already-existing
+   `state/` directory (`mkdir -m 700 -p` does not tighten).
 5. Print a token-free host-aware arming block (≤ 4 KiB) that invokes
    `watch.sh` every 30–60 s with the absolute plugin path baked in
    (§ Host adapter). The block MUST include both:
@@ -361,7 +383,14 @@ to migrate. Graduating poller → daemon changes no interface.
 - MUST advance the offset only after an update is processed, and keep the
   `seen.tsv` dedupe window (at-least-once delivery, update_id dedupe, AC12).
 - MUST route by `thread_id` → sid, and general-topic traffic to
-  `default_session` only (AC6).
+  `default_session` only (AC6). An unmapped thread id with an empty map
+  or a map that contains only `general` MUST route to `default_session`.
+  An unmapped thread id MUST stay fail-closed when any non-`general` sid
+  exists.
+- MUST ignore inbound whose `from.id` equals `getMe` bot id, and
+  empty-text forum topic service messages, with zero inbox artifacts and
+  without answering pending questions.
+- MUST `chmod 700` an already-existing `state/` directory.
 - MUST honor `concise_threshold` with the summary + single-file longread rule;
   MUST NOT chunk-split any outbound message (AC9).
 - MUST send `sendChatAction` typing at least once per inbound pickup (AC10).
@@ -624,6 +653,59 @@ Format and rules: SPEC-033 M14(g) and M14(h).
   smoke, and docs-drift pass; release bump is patch (no new
   `commands/*.md`). C1 host adapter (`watch.sh`) MUST NOT regress.
 
+### CDT-512-C3
+
+- **AC1.** When the captured private-chat pairing update has a numeric
+  `message_thread_id`, `/setup telegram` writes `topics.json` as
+  `{"general":{"thread_id":<id>,"title":"General"}}`. When that field is
+  absent, `topics.json` is `{}` and pairing still succeeds. Chat id and
+  initial offset stay as today. The pairing update is not an inbox record.
+  Verify: bash skills/intercom/test.sh
+- **AC2.** When AC1 stored a general `thread_id`, setup calls
+  `editForumTopic` for that chat/thread with name `General` (including
+  `getChat.is_forum=false`). Pairing MUST succeed if the call fails or is
+  skipped. Skip the call when no `thread_id`. The bot token MUST NOT be
+  printed.
+  Verify: bash skills/intercom/test.sh
+- **AC3.** An allowlisted member `message` with a numeric
+  `message_thread_id` absent from `topics.json` MUST write one inbox
+  record on `config.json` `default_session` when `topics.json` is `{}`
+  **or** contains only the `general` key. Offset advances. Typing still
+  fires (AC10). This MUST work on an already-paired Intercom with empty
+  `topics.json`. `topics_enabled` is not an inbound routing switch.
+  Verify: bash skills/intercom/test.sh
+- **AC4.** When `topics.json` has any key other than `general`, an
+  unmapped `message_thread_id` is ignored with zero artifacts (no inbox,
+  no pending→answered, no typing). Offset still advances. AC6
+  cross-delivery with session sids still holds.
+  Verify: bash skills/intercom/test.sh
+- **AC5.** The poller ignores an allowlisted-chat update whose `from_id`
+  equals the bot's `getMe` numeric id. Zero inbox, zero pending→answered,
+  no typing, offset advances. `watch.sh` session-facing stdout is empty
+  for a cycle that consumed only these updates. MUST apply without
+  re-setup.
+  Verify: bash skills/intercom/test.sh
+- **AC6.** A `message` update with empty `text` and empty `caption` that
+  carries `forum_topic_edited` (same for `forum_topic_created` /
+  `forum_topic_closed` / `forum_topic_reopened`) produces zero inbox
+  records and does not move pending→answered. Offset advances. Member
+  non-empty text still relays and still answers pending.
+  Verify: bash skills/intercom/test.sh
+- **AC7.** Setup `chmod 700`s an already-existing `state/` directory.
+  New `state/` stays 700. `mkdir -m 700 -p` alone is not enough.
+  Verify: bash skills/intercom/test.sh
+- **AC8.** `topics_enabled=false` remains a supported single General
+  Walkie-talkie window (CDT-512-C2 AC7). `is_forum=false` is not a failed
+  setup. Inbound with `message_thread_id` in that mode MUST deliver per
+  AC3. C2 BotFather preamble and topics-on/off copy stay intact.
+  Verify: bash skills/intercom/test.sh
+- **AC9.** [process] Hermetic suites cover pairing seed, unmapped relay,
+  bot-id ignore, and `state/` 700. `bash tools/run-all-tests.sh` exit 0;
+  skill-lint, smoke, docs-drift pass. CDT-512-C1 `watch.sh` ACs pass.
+  CDT-512-C2 preamble ACs pass. Patch bump; no new `commands/*.md`.
+  Never print the bot token. Never commit `.claude/backlog` or
+  `.claude/epics`.
+
 ## Test
 
 - [ ] Token file written 0600 with 700 parent; repo stays clean (AC1)
@@ -664,6 +746,13 @@ Format and rules: SPEC-033 M14(g) and M14(h).
       `~/.grok/long-running-background-tasks/` (CDT-512-C1 AC7)
 - [ ] Member name defaults to `$USER`, never a personal name; empty USER
       requires a name (CDT-512-C2 AC1)
+- [ ] Pairing with `message_thread_id` seeds `topics.json` general and
+      calls `editForumTopic`; without it writes `{}` (CDT-512-C3 AC1/AC2)
+- [ ] Unmapped thread + empty or only-general map relays to
+      `default_session`; session-topic map stays fail-closed (CDT-512-C3 AC3/AC4)
+- [ ] Bot `from_id` and empty-text forum service messages create zero
+      inbox and do not answer pending (CDT-512-C3 AC5/AC6)
+- [ ] Existing `state/` dir is chmod 700 (CDT-512-C3 AC7)
 - [ ] BotFather preamble before the token prompt; token never printed
       (CDT-512-C2 AC2)
 - [ ] `commands/setup.md` agent rules: no shared bot from memory (CDT-512-C2 AC3)
@@ -691,6 +780,7 @@ Format and rules: SPEC-033 M14(g) and M14(h).
 | 2026-10-05 | CDT-501 — command-relay clarification (only `/away`/`/afk` are intercepted; other slash text relays) and AC consolidation to the M14 budget: 2+3→2, 6+7+8→6, 12+13→12, 14+15+16→14, 17+18+19+20→17 |
 | 2026-10-07 | CDT-512-C1 — host adapter `watch.sh`: poller stays one-shot; idle injects no parent turn; host-aware arming (Grok silent watcher + Claude CronCreate-if-zero-parent-turn); wake-line grammar; edge-triggered failure wake |
 | 2026-10-07 | CDT-512-C2 — per-dev bot setup: `$USER` member default, BotFather preamble, operator runbook, topics on/off both supported |
+| 2026-10-07 | CDT-512-C3 — pairing seeds General `thread_id`; unmapped empty/only-general map routes to `default_session`; poller ignores bot self-echo and forum service messages; chmod 700 existing `state/` |
 
 ## Cross-references
 

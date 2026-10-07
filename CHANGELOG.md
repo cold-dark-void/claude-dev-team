@@ -6,6 +6,9 @@ Pre-written headings (release-train M5c, orchestrate version-sync tasks) are kep
 via skip-if-present when `/release` is given an explicit version — do not invent a
 second heading for the same version.
 
+### v1.21.4
+- **Seed General on pairing; do not drop first inbound (CDT-512-C3)** — pairing stores `message_thread_id` as `topics.json` `general` and fail-open `editForumTopic` names it General. Unmapped threads relay to `default_session` when the map is empty or only-general; session-topic maps stay fail-closed. Poller ignores bot `getMe.id` and empty-text forum service messages. Existing `state/` is chmod 700. SPEC-038 ACs for CDT-512-C3.
+
 ### v1.21.3
 - **Per-dev Telegram Intercom setup + operator runbook (CDT-512-C2)** — `/setup telegram` drops the personal `Alexander` default (`$USER` or required name), prints a BotFather preamble (create your own bot; never share or paste the token), and guides topics-on (sid per topic) vs topics-off (one General window, not a failed setup). `docs/runbooks/setup-telegram.md` plus README/docs-hub links; `commands/setup.md` agent rules forbid suggesting a shared bot from memory. Bot API has no read receipts (platform limit, documented). SPEC-038 ACs for CDT-512-C2.
 

@@ -390,12 +390,14 @@ out=$(printf '%s\n' "$TEST_TOKEN" "Alexander" "" | bash "$SETUP" 2>&1)
 rc=$?
 cfg="$STATE_ROOT/config.json"
 if [ "$rc" -eq 0 ] && [ -f "$cfg" ] && [ "$(jq -r '.members | length' "$cfg")" -eq 1 ] \
-  && [ -f "$STATE_ROOT/topics.json" ] && [ -f "$STATE_ROOT/state/seen.tsv" ] \
+  && [ -f "$STATE_ROOT/topics.json" ] && [ "$(jq -c '.' "$STATE_ROOT/topics.json")" = "{}" ] \
+  && [ -f "$STATE_ROOT/state/seen.tsv" ] \
   && case "$(offset_val)" in ''|*[!0-9]*) false ;; *) true ;; esac \
+  && [ "$(calls_count editForumTopic)" = "0" ] \
   && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN"; then
-  ok "AC1 pairing completes: one-member config, topics/seen/offset written, harness prompt token-free"
+  ok "AC1 pairing completes: one-member config, empty topics.json, seen/offset written, harness prompt token-free"
 else
-  bad "AC1 pairing completion: rc=$rc out=$out"
+  bad "AC1 pairing completion: rc=$rc topics=$(cat "$STATE_ROOT/topics.json" 2>/dev/null) out=$out"
 fi
 
 arm=$(printf '%s\n' "$out" | awk '/--- BEGIN /,/--- END /')
@@ -788,6 +790,184 @@ if grep -q 'docs/runbooks/setup-telegram.md' "$PLUGIN_ROOT/README.md"; then
   ok "CDT-512-C2 AC4 README one-liner points at the Telegram setup runbook"
 else
   bad "CDT-512-C2 AC4 README missing setup-telegram.md pointer"
+fi
+
+# ---- CDT-512-C3: seed General; unmapped walkie-talkie; ignore bot/service ------
+
+fresh_case
+: > "$CALLS_LOG"
+: > "$ARGV_LOG"
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing-thread.json"
+put_resp_file "getChat" "$FIXTURES/getchat-plain.json"
+put_resp_file "editForumTopic" "$FIXTURES/editforumtopic-ok.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "testdev" "" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+cfg="$STATE_ROOT/config.json"
+if [ "$rc" -eq 0 ] \
+  && [ "$(jq -r '.general.thread_id' "$STATE_ROOT/topics.json")" = "283843" ] \
+  && [ "$(jq -r '.general.title' "$STATE_ROOT/topics.json")" = "General" ] \
+  && [ "$(jq -r '.topics_enabled' "$cfg")" = "false" ] \
+  && [ "$(calls_count editForumTopic)" = "1" ] \
+  && grep -Fq 'name=General' "$ARGV_LOG" \
+  && grep -Fq 'message_thread_id=283843' "$ARGV_LOG" \
+  && [ "$(inbox_n main)" = "0" ] \
+  && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN"; then
+  ok "CDT-512-C3 AC1/AC2 pairing with message_thread_id seeds general and calls editForumTopic"
+else
+  bad "CDT-512-C3 AC1/AC2 seed: rc=$rc topics=$(cat "$STATE_ROOT/topics.json" 2>/dev/null) calls=$(calls_count editForumTopic) out=$out"
+fi
+
+fresh_case
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing-thread.json"
+put_resp_file "getChat" "$FIXTURES/getchat-plain.json"
+put_resp_file "editForumTopic" "$FIXTURES/rejected-400.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "testdev" "" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+if [ "$rc" -eq 0 ] \
+  && [ "$(jq -r '.general.thread_id' "$STATE_ROOT/topics.json")" = "283843" ] \
+  && ! printf '%s' "$out" | grep -qF "$TEST_TOKEN"; then
+  ok "CDT-512-C3 AC2 pairing succeeds when editForumTopic is rejected"
+else
+  bad "CDT-512-C3 AC2 fail-open rename: rc=$rc out=$out"
+fi
+
+fresh_case
+mkdir -m 755 -p "$STATE_ROOT/state"
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_resp_file "getUpdates" "$FIXTURES/getupdates-pairing.json"
+put_resp_file "getChat" "$FIXTURES/getchat-plain.json"
+out=$(printf '%s\n' "$TEST_TOKEN" "testdev" "" | USER=testdev bash "$SETUP" 2>&1)
+rc=$?
+mode=$(stat -c %a "$STATE_ROOT/state" 2>/dev/null || stat -f %Lp "$STATE_ROOT/state" 2>/dev/null)
+if [ "$rc" -eq 0 ] && [ "$mode" = "700" ]; then
+  ok "CDT-512-C3 AC7 existing state/ dir chmod 700"
+else
+  bad "CDT-512-C3 AC7 chmod: rc=$rc mode=$mode"
+fi
+
+fresh_case
+seed_paired "197372681"
+printf '{}\n' > "$STATE_ROOT/topics.json"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "first inbound" 283843)")"
+run_poller
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(inbox_n main)" = "1" ] \
+  && [ "$(jq -r '.text' "$(inbox_files main)")" = "first inbound" ] \
+  && [ "$(jq -r '.thread_id' "$(inbox_files main)")" = "283843" ] \
+  && [ "$(offset_val)" = "301" ] \
+  && [ "$(calls_count sendChatAction)" = "1" ]; then
+  ok "CDT-512-C3 AC3 unmapped thread + empty map relays to default_session"
+else
+  bad "CDT-512-C3 AC3 empty map: rc=$P_RC inbox=$(inbox_n main) err=$P_ERR"
+fi
+
+fresh_case
+seed_paired "197372681"
+# seed_paired already has only general
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "walkie" 283843)")"
+run_poller
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(inbox_n main)" = "1" ] \
+  && [ "$(jq -r '.text' "$(inbox_files main)")" = "walkie" ] \
+  && [ "$(offset_val)" = "301" ]; then
+  ok "CDT-512-C3 AC3 unmapped thread + only-general map relays to default_session"
+else
+  bad "CDT-512-C3 AC3 only-general: rc=$P_RC inbox=$(inbox_n main) err=$P_ERR"
+fi
+
+fresh_case
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/topics.json" '.["sess-a"] = {thread_id: 201, title: "sess-a"}'
+put_pending "main" "q_keep" "still pending" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "stray" 999)")"
+run_poller
+pending_left=$(find "$STATE_ROOT/spool/main/pending" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(inbox_n main)" = "0" ] \
+  && [ "$(inbox_n sess-a)" = "0" ] \
+  && [ "$pending_left" = "1" ] \
+  && [ "$(offset_val)" = "301" ] \
+  && [ "$(calls_count sendChatAction)" = "0" ] \
+  && printf '%s' "$P_ERR" | grep -q "unmapped topic"; then
+  ok "CDT-512-C3 AC4 unmapped + session-topic map stays fail-closed"
+else
+  bad "CDT-512-C3 AC4 fail-closed: rc=$P_RC inbox=$(inbox_n main) pending=$pending_left err=$P_ERR"
+fi
+
+fresh_case
+seed_paired "197372681"
+put_resp_file "getMe" "$FIXTURES/getme-ok.json"
+put_pending "main" "q_bot" "open question" "$(date +%s)"
+put_resp "getUpdates" "$(result_body "$(upd_msg_from 300 197372681 "self echo" 987654321)")"
+run_poller
+pending_left=$(find "$STATE_ROOT/spool/main/pending" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+answered_n=$(find "$STATE_ROOT/spool/main/answered" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(inbox_n main)" = "0" ] \
+  && [ "$pending_left" = "1" ] && [ "$answered_n" = "0" ] \
+  && [ "$(offset_val)" = "301" ] \
+  && [ "$(calls_count sendChatAction)" = "0" ]; then
+  ok "CDT-512-C3 AC5 bot from_id ignored: zero inbox, pending stays"
+else
+  bad "CDT-512-C3 AC5 bot-id: rc=$P_RC inbox=$(inbox_n main) pending=$pending_left answered=$answered_n err=$P_ERR"
+fi
+
+for _svc in forum_topic_edited forum_topic_created forum_topic_closed forum_topic_reopened; do
+  fresh_case
+  seed_paired "197372681"
+  put_pending "main" "q_svc" "open question" "$(date +%s)"
+  put_resp "getUpdates" "$(result_body "$(upd_forum_svc 300 197372681 987654321 100 "$_svc" "General")")"
+  run_poller
+  pending_left=$(find "$STATE_ROOT/spool/main/pending" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$P_RC" -eq 0 ] \
+    && [ "$(inbox_n main)" = "0" ] \
+    && [ "$pending_left" = "1" ] \
+    && [ "$(offset_val)" = "301" ] \
+    && [ "$(calls_count sendChatAction)" = "0" ]; then
+    ok "CDT-512-C3 AC6 empty-text ${_svc} ignored"
+  else
+    bad "CDT-512-C3 AC6 ${_svc}: rc=$P_RC inbox=$(inbox_n main) pending=$pending_left err=$P_ERR"
+  fi
+done
+
+if grep -q 'Walkie-talkie' "$PLUGIN_ROOT/docs/runbooks/setup-telegram.md" \
+  && grep -q 'unknown thread is dropped' "$PLUGIN_ROOT/docs/runbooks/setup-telegram.md"; then
+  ok "CDT-512-C3 AC8 runbook unmapped-topic row matches empty-map relay"
+else
+  bad "CDT-512-C3 AC8 runbook unmapped-topic row missing Walkie-talkie/drop wording"
+fi
+
+fresh_case
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/config.json" '.topics_enabled = false'
+printf '{}\n' > "$STATE_ROOT/topics.json"
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "ac8 walkie" 283843)")"
+run_poller
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(inbox_n main)" = "1" ] \
+  && [ "$(jq -r '.thread_id' "$(inbox_files main)")" = "283843" ] \
+  && [ "$(offset_val)" = "301" ] \
+  && [ "$(jq -r '.topics_enabled' "$STATE_ROOT/config.json")" = "false" ]; then
+  ok "CDT-512-C3 AC8 topics_enabled=false inbound with thread_id delivers per AC3"
+else
+  bad "CDT-512-C3 AC8 delivery: rc=$P_RC inbox=$(inbox_n main) topics=$(jq -r '.topics_enabled' "$STATE_ROOT/config.json" 2>/dev/null) err=$P_ERR"
+fi
+
+fresh_case
+seed_paired "197372681"
+cfg_edit "$STATE_ROOT/config.json" '.topics_enabled = false'
+put_resp "getUpdates" "$(result_body "$(upd_msg 300 197372681 "ac8 only-general" 283843)")"
+run_poller
+if [ "$P_RC" -eq 0 ] \
+  && [ "$(inbox_n main)" = "1" ] \
+  && [ "$(jq -r '.thread_id' "$(inbox_files main)")" = "283843" ] \
+  && [ "$(offset_val)" = "301" ] \
+  && [ "$(jq -r '.topics_enabled' "$STATE_ROOT/config.json")" = "false" ]; then
+  ok "CDT-512-C3 AC8 topics_enabled=false + only-general map delivers per AC3"
+else
+  bad "CDT-512-C3 AC8 only-general: rc=$P_RC inbox=$(inbox_n main) err=$P_ERR"
 fi
 
 echo
